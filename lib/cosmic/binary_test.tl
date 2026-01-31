@@ -62,7 +62,7 @@ test_warnings_without_flag()
 
 local function test_interactive_mode()
   -- -i should enter interactive mode (REPL)
-  local proc = spawn({cosmic, "-i"}, {env = clean_env(), stdin = "print('hello')\ncont\n"})
+  local proc = spawn({cosmic, "-i"}, {env = clean_env(), stdin = "print('hello')\nos.exit(0)\n"})
   local ok, out = proc:read()
   assert(ok, "cosmic -i should succeed")
   assert((out as string):find("Lua 5.4", 1, true), "expected output to contain 'Lua 5.4'")
@@ -72,7 +72,7 @@ test_interactive_mode()
 
 local function test_repl_no_args()
   -- no args should enter REPL
-  local proc = spawn({cosmic}, {env = clean_env(), stdin = "print('repl test')\ncont\n"})
+  local proc = spawn({cosmic}, {env = clean_env(), stdin = "print('repl test')\nos.exit(0)\n"})
   local ok, out = proc:read()
   assert(ok, "cosmic with no args should enter REPL")
   assert((out as string):find("Lua 5.4", 1, true), "expected output to contain 'Lua 5.4'")
