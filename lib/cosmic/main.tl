@@ -206,10 +206,11 @@ local function parse_args(): Opts
   return opts
 end
 
--- Simple REPL using debug.debug
+-- Interactive REPL using cosmopolitan's linenoise-based REPL
 local function run_repl()
   io.write(_VERSION .. "  Copyright (C) 1994-2024 Lua.org, PUC-Rio\n")
-  debug.debug()
+  require("cosmo")
+  require("cosmo.repl").start()
 end
 
 -- Load a script file (.tl or .lua)
