@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- test cosmic --check option
+-- test cosmic --check-types option
 
 local path = require("cosmo.path")
 local spawn = require("cosmic.spawn")
@@ -22,8 +22,8 @@ local y: string = "hello"
 print(x, y)
 ]])
 
-  local ok, out = spawn({cosmic, "--check", input}):read()
-  assert(ok, "cosmic --check should succeed on valid file")
+  local ok, out = spawn({cosmic, "--check-types", input}):read()
+  assert(ok, "cosmic --check-types should succeed on valid file")
 end
 test_check_valid()
 
@@ -33,8 +33,8 @@ local function test_check_type_error()
 local x: number = "not a number"
 ]])
 
-  local ok, out = spawn({cosmic, "--check", input}):read()
-  assert(not ok, "cosmic --check should fail on type error")
+  local ok, out = spawn({cosmic, "--check-types", input}):read()
+  assert(not ok, "cosmic --check-types should fail on type error")
 end
 test_check_type_error()
 
@@ -44,8 +44,8 @@ local function test_check_undefined_variable()
 local x: number = undefined_var
 ]])
 
-  local ok, out = spawn({cosmic, "--check", input}):read()
-  assert(not ok, "cosmic --check should fail on undefined variable")
+  local ok, out = spawn({cosmic, "--check-types", input}):read()
+  assert(not ok, "cosmic --check-types should fail on undefined variable")
 end
 test_check_undefined_variable()
 
@@ -56,15 +56,15 @@ local x: number = 42
 -- x is unused, should generate warning but not fail
 ]])
 
-  local ok, out = spawn({cosmic, "--check", input}):read()
-  assert(ok, "cosmic --check should succeed with only warnings")
+  local ok, out = spawn({cosmic, "--check-types", input}):read()
+  assert(ok, "cosmic --check-types should succeed with only warnings")
 end
 test_check_warnings()
 
 -- Test check on missing file
 local function test_check_missing_file()
-  local ok, out = spawn({cosmic, "--check", "/nonexistent/file.tl"}):read()
-  assert(not ok, "cosmic --check should fail on missing file")
+  local ok, out = spawn({cosmic, "--check-types", "/nonexistent/file.tl"}):read()
+  assert(not ok, "cosmic --check-types should fail on missing file")
 end
 test_check_missing_file()
 
@@ -77,7 +77,7 @@ local result: string = path.join("a", "b")
 print(result)
 ]])
 
-  local ok, out = spawn({cosmic, "--check", input}):read()
+  local ok, out = spawn({cosmic, "--check-types", input}):read()
   assert(ok, "check with cosmic types should succeed")
 end
 test_check_with_cosmic_types()
@@ -91,7 +91,7 @@ local function foo()
 end
 ]])
 
-  local ok, _ = spawn({cosmic, "--check", input}):read()
+  local ok, _ = spawn({cosmic, "--check-types", input}):read()
   assert(not ok, "check should fail in strict mode with unknown variables")
 end
 test_check_strict_mode()
