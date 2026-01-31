@@ -508,6 +508,18 @@ local function main(): integer, string
     end
   end
 
+  -- Show welcome on first invocation (to stderr, only if stderr is a TTY)
+  -- This applies to any code execution path: -l, -e, script, or REPL
+  do
+    local unix = require("cosmo.unix")
+    local welcome = require("cosmic.welcome")
+    local is_stderr_tty = unix.isatty(2)
+    if is_stderr_tty and not os.getenv("COSMIC_NO_WELCOME") and not welcome.was_shown() then
+      io.stderr:write(welcome.generate())
+      welcome.mark_shown()
+    end
+  end
+
   -- Load libraries
   for _, name in ipairs(opts.load) do
     require(name)
