@@ -45,8 +45,8 @@ local record Database
   exec: function(Database, sql: string, func?: function, udata?: any): number
 
   --- Compiles SQL statement into prepared statement for reuse
-  --- Returns Statement object for binding parameters and stepping through results
-  prepare: function(Database, sql: string): Statement
+  --- Returns Statement on success, or (nil, errcode, errmsg) on failure
+  prepare: function(Database, sql: string): Statement | nil, number | nil, string | nil
 
   --- Creates iterator yielding rows as tables with named fields (column_name: value)
   --- Each iteration returns one row as associative table
