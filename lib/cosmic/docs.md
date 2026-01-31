@@ -146,6 +146,7 @@ local record DocsModule
   render_module: function(name: string, doc: ModuleDoc): string
   search: function(query: string): {SearchResult}
   render_search_results: function(results: {SearchResult}, query: string): string
+  show_module_examples: function(module_name: string): DocsResult
 end
 ```
 
@@ -237,6 +238,22 @@ function render_search_results(results: {SearchResult}, query: string): string
 **Returns:**
 
 - string - Formatted output
+
+### show_module_examples
+
+```teal
+function show_module_examples(module_name: string): DocsResult
+```
+
+ Show examples for a specific module.
+
+**Parameters:**
+
+- `module_name` (string) - The module name (e.g., "cosmic.sqlite")
+
+**Returns:**
+
+- DocsResult - Result with examples content
 
 ### run
 
