@@ -1,0 +1,299 @@
+--- Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns.
+--- Wraps lsqlite3 with proper error returns and resource management.
+
+local lsqlite3 = require("cosmo.lsqlite3")
+
+-- Raw lsqlite3 types (0-indexed, requires manual cleanup)
+local record RawStatement
+  bind_values: function(self: RawStatement, ...: any): number
+  step: function(self: RawStatement): number
+  reset: function(self: RawStatement)
+  finalize: function(self: RawStatement): number
+  get_value: function(self: RawStatement, n: number): any
+  columns: function(self: RawStatement): number
+  get_name: function(self: RawStatement, n: number): string
+end
+
+local record RawDatabase
+  close: function(self: RawDatabase): number
+  exec: function(self: RawDatabase, sql: string): number
+  prepare: function(self: RawDatabase, sql: string): RawStatement, number, string
+  last_insert_rowid: function(self: RawDatabase): number
+  changes: function(self: RawDatabase): number
+  errmsg: function(self: RawDatabase): string
+end
+
+local record RawSqlite3
+  OK: number
+  ROW: number
+  DONE: number
+  open: function(filename: string): RawDatabase, number, string
+end
+
+local sqlite3 = lsqlite3 as RawSqlite3
+
+--- Statement handle with automatic cleanup.
+local record Statement
+  bind: function(self: Statement, ...: any): boolean, string
+  rows: function(self: Statement): function(): {string:any}
+  values: function(self: Statement): function(): any...
+  exec: function(self: Statement): boolean, string
+  reset: function(self: Statement)
+  columns: function(self: Statement): number
+  column_name: function(self: Statement, n: number): string
+  close: function(self: Statement)
+end
+
+--- Database handle with automatic cleanup.
+local record Database
+  prepare: function(self: Database, sql: string): Statement, string
+  query: function(self: Database, sql: string, ...: any): function(): {string:any}
+  exec: function(self: Database, sql: string): boolean, string
+  last_insert_rowid: function(self: Database): number
+  changes: function(self: Database): number
+  close: function(self: Database)
+end
+
+local function make_statement(raw_stmt: RawStatement, raw_db: RawDatabase): Statement
+  local stmt: Statement = {}
+  local closed = false
+
+  function stmt:bind(...: any): boolean, string
+    raw_stmt:reset()
+    local args = {...}
+    local rc = raw_stmt:bind_values(table.unpack(args))
+    if rc ~= sqlite3.OK then
+      return false, raw_db:errmsg()
+    end
+    return true
+  end
+
+  function stmt:rows(): function(): {string:any}
+    local col_count = raw_stmt:columns()
+    local col_names: {integer:string}
+    local first_call = true
+
+    return function(): {string:any}
+      local rc = raw_stmt:step()
+      if rc == sqlite3.ROW then
+        -- Get column names on first row (requires step to be called first)
+        if first_call then
+          first_call = false
+          col_names = {}
+          for idx = 0, col_count - 1 do
+            col_names[(idx + 1) as integer] = raw_stmt:get_name(idx)
+          end
+        end
+        local row: {string:any} = {}
+        for idx = 0, col_count - 1 do
+          local name = col_names[(idx + 1) as integer]
+          row[name] = raw_stmt:get_value(idx)
+        end
+        return row
+      end
+      return nil
+    end
+  end
+
+  function stmt:values(): function(): any...
+    local col_count = raw_stmt:columns()
+
+    return function(): any...
+      local rc = raw_stmt:step()
+      if rc == sqlite3.ROW then
+        local vals: {integer:any} = {}
+        for idx = 0, col_count - 1 do
+          vals[(idx + 1) as integer] = raw_stmt:get_value(idx)
+        end
+        return table.unpack(vals)
+      end
+      return nil
+    end
+  end
+
+  function stmt:exec(): boolean, string
+    local rc = raw_stmt:step()
+    if rc ~= sqlite3.DONE and rc ~= sqlite3.ROW then
+      return false, raw_db:errmsg()
+    end
+    return true
+  end
+
+  stmt.reset = function(_: Statement)
+    raw_stmt:reset()
+  end
+
+  stmt.columns = function(_: Statement): number
+    return raw_stmt:columns()
+  end
+
+  stmt.column_name = function(_: Statement, n: number): string
+    return raw_stmt:get_name(n - 1)
+  end
+
+  stmt.close = function(_: Statement)
+    if not closed then
+      closed = true
+      local _ = raw_stmt:finalize()
+    end
+  end
+
+  return setmetatable(stmt, {
+    __close = function(self: Statement) self:close() end
+  }) as Statement
+end
+
+local function make_database(raw_db: RawDatabase): Database
+  local db: Database = {}
+  local closed = false
+
+  function db:prepare(sql: string): Statement, string
+    local raw_stmt, errcode, errmsg = raw_db:prepare(sql)
+    if not raw_stmt then
+      return nil, errmsg or ("error code " .. tostring(errcode))
+    end
+    return make_statement(raw_stmt, raw_db)
+  end
+
+  function db:query(sql: string, ...: any): function(): {string:any}
+    local stmt, err = self:prepare(sql)
+    if not stmt then
+      return function(): {string:any}
+        error("query failed: " .. (err or "unknown error"))
+      end
+    end
+
+    local args = {...}
+    if #args > 0 then
+      local ok, bind_err = stmt:bind(table.unpack(args))
+      if not ok then
+        stmt:close()
+        return function(): {string:any}
+          error("bind failed: " .. (bind_err or "unknown error"))
+        end
+      end
+    end
+
+    local raw_iter = stmt:rows()
+    local done = false
+    return function(): {string:any}
+      if done then
+        return nil
+      end
+      local row = raw_iter()
+      if row == nil then
+        done = true
+        stmt:close()
+        return nil
+      end
+      return row
+    end
+  end
+
+  function db:exec(sql: string): boolean, string
+    local rc = raw_db:exec(sql)
+    if rc ~= sqlite3.OK then
+      return false, raw_db:errmsg()
+    end
+    return true
+  end
+
+  function db:last_insert_rowid(): number
+    return raw_db:last_insert_rowid()
+  end
+
+  function db:changes(): number
+    return raw_db:changes()
+  end
+
+  db.close = function(_: Database)
+    if not closed then
+      closed = true
+      local _ = raw_db:close()
+    end
+  end
+
+  return setmetatable(db, {
+    __close = function(self: Database) self:close() end
+  }) as Database
+end
+
+--- Open or create an SQLite database.
+--- @param filename string Database path (use ":memory:" for in-memory)
+--- @return Database Database handle with __close support
+--- @return string Error message on failure
+local function open(filename: string): Database, string
+  local raw_db, errcode, errmsg = sqlite3.open(filename)
+  if not raw_db then
+    return nil, errmsg or ("error code " .. tostring(errcode))
+  end
+  return make_database(raw_db)
+end
+
+-- Example_open demonstrates opening an in-memory database
+local function Example_open()
+  local sqlite = require("cosmic.sqlite")
+  local db = sqlite.open(":memory:")
+  db:exec("CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT)")
+  db:exec("INSERT INTO kv (k, v) VALUES ('hello', 'world')")
+  for row in db:query("SELECT * FROM kv") do
+    print(row.k, row.v)
+  end
+  db:close()
+  -- Output:
+  -- hello	world
+end
+
+-- Example_prepared demonstrates prepared statements
+local function Example_prepared()
+  local sqlite = require("cosmic.sqlite")
+  local db = sqlite.open(":memory:")
+  db:exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+
+  local stmt = db:prepare("INSERT INTO users (name) VALUES (?)")
+  stmt:bind("Alice")
+  stmt:exec()
+  stmt:reset()
+  stmt:bind("Bob")
+  stmt:exec()
+  stmt:close()
+
+  for row in db:query("SELECT * FROM users ORDER BY id") do
+    print(row.id, row.name)
+  end
+  db:close()
+  -- Output:
+  -- 1	Alice
+  -- 2	Bob
+end
+
+-- Example_query_params demonstrates query with parameters
+local function Example_query_params()
+  local sqlite = require("cosmic.sqlite")
+  local db = sqlite.open(":memory:")
+  db:exec("CREATE TABLE nums (n INTEGER)")
+  for i = 1, 5 do
+    db:exec("INSERT INTO nums (n) VALUES (" .. i .. ")")
+  end
+
+  for row in db:query("SELECT * FROM nums WHERE n > ?", 2) do
+    print(row.n)
+  end
+  db:close()
+  -- Output:
+  -- 3
+  -- 4
+  -- 5
+end
+
+local record sqlite
+  open: function(filename: string): Database, string
+  Database: Database
+  Statement: Statement
+end
+
+local M: sqlite = {
+  open = open,
+}
+
+return M

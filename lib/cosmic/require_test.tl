@@ -39,9 +39,9 @@ end
 test_format_error_suggests_cosmic_prefix()
 
 local function test_format_error_fuzzy_sqlite()
-  -- "sqlite" should fuzzy match to "lsqlite3" (distance 2)
+  -- "sqlite" should match to "cosmic.sqlite" (exact suffix match)
   local err = require_mod.format_error("sqlite")
-  assert(err:match("lsqlite3"), "should suggest lsqlite3 for sqlite via fuzzy match, got: " .. err)
+  assert(err:match("cosmic%.sqlite"), "should suggest cosmic.sqlite for sqlite, got: " .. err)
 end
 test_format_error_fuzzy_sqlite()
 
