@@ -10,11 +10,13 @@ local record DocIndexModule
 end
 
 --- Generate serialized documentation index from source files.
+--- Merges examples from _example.tl files into their corresponding modules.
 --- @param files List of .tl or .d.tl file paths to process
 --- @return Encoded Lua source for the index, or nil on error
 --- @return Error message if generation failed
 local function generate(files: {string}): string, string
   local modules: {string:any} = {}
+  local example_files: {string:any} = {}  -- Store example docs separately
 
   for i = 1, #files do
     local file_path = files[i]
@@ -36,7 +38,30 @@ local function generate(files: {string}): string, string
     local name = file_path:gsub("%.d%.tl$", ""):gsub("%.tl$", "")
     name = name:gsub("^lib/", ""):gsub("^types/", ""):gsub("/", ".")
 
-    modules[name] = module_doc
+    -- Check if this is an _example file
+    if name:match("_example$") then
+      -- Store example docs for later merging
+      local base_name = name:gsub("_example$", "")
+      example_files[base_name] = module_doc
+    else
+      modules[name] = module_doc
+    end
+  end
+
+  -- Merge examples from _example files into corresponding modules
+  for base_name, example_doc in pairs(example_files) do
+    local mod = modules[base_name]
+    if mod then
+      -- Merge examples into the module's examples
+      local mod_table = mod as {string:any}
+      local example_table = example_doc as {string:any}
+      if example_table.examples then
+        mod_table.examples = mod_table.examples or {}
+        for _, ex in ipairs(example_table.examples as {any}) do
+          table.insert(mod_table.examples as {any}, ex)
+        end
+      end
+    end
   end
 
   return cosmo.EncodeLua({ modules = modules })

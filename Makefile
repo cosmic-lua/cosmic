@@ -189,8 +189,8 @@ bootstrap: $(bootstrap_files)
 ## Build cosmic binary
 build: cosmic
 
-# Example testing - run Example_* functions in .tl files (exclude test files)
-all_example_srcs := $(call filter-only,$(foreach m,$(modules),$(filter-out $($(m)_tests),$($(m)_tl))))
+# Example testing - run Example_* functions in _example.tl files
+all_example_srcs := $(call filter-only,$(foreach m,$(modules),$($(m)_examples)))
 all_examples := $(patsubst %.tl,$(o)/%.tl.example.got,$(all_example_srcs))
 
 .PHONY: example
@@ -239,7 +239,9 @@ regen-types: | $(bootstrap_cosmic) $(cosmos_staged)
 	@echo "Type definitions regenerated from upstream cosmopolitan."
 
 # Documentation generation - render .tl files as markdown
-all_docs := $(patsubst %.tl,$(o)/docs/%.md,$(all_example_srcs))
+# Module sources for docs: all _tl files (excludes tests and examples)
+all_module_srcs := $(call filter-only,$(foreach m,$(modules),$($(m)_tl)))
+all_docs := $(patsubst %.tl,$(o)/docs/%.md,$(all_module_srcs))
 
 # Documentation from .d.tl type definition files (cosmo modules)
 dtl_files := $(wildcard lib/types/cosmo/*.d.tl)
@@ -259,7 +261,8 @@ $(o)/docs/cosmo/%.md: lib/types/cosmo/%.d.tl $(cosmic_bin) | $(bootstrap_files)
 	@$(cosmic_bin) lib/cosmic/gendoc.tl $< > $@
 
 # Generate serialized doc index for embedding (uses bootstrap cosmic to avoid circular dep)
-doc_index_srcs := $(all_example_srcs) $(dtl_files)
+# Include both module sources and example files for the index
+doc_index_srcs := $(all_module_srcs) $(all_example_srcs) $(dtl_files)
 doc_index := $(o)/docs/.index.lua
 doc_index_script := lib/cosmic/docindex.tl
 
