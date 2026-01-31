@@ -174,7 +174,7 @@ $(o)/teal-summary.txt: $(all_teals) | $(build_reporter)
 
 $(o)/%.teal.got: $(o)/% $(cosmic_bin) | $(bootstrap_files)
 	@mkdir -p $(@D)
-	-@$(cosmic_bin) --check $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $@
+	-@$(cosmic_bin) --check-types $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $@
 
 .PHONY: clean
 ## Remove all build artifacts
@@ -204,7 +204,7 @@ $(o)/%.tl.example.got: .PLEDGE = stdio rpath wpath cpath proc exec
 $(o)/%.tl.example.got: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwc:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null
 $(o)/%.tl.example.got: %.tl $(cosmic_bin) | $(bootstrap_files)
 	@mkdir -p $(@D)
-	@set +e; $(cosmic_bin) --example $< > $(basename $@).out 2> $(basename $@).err; echo $$? > $@
+	@set +e; $(cosmic_bin) --check-examples $< > $(basename $@).out 2> $(basename $@).err; echo $$? > $@
 
 # Benchmark testing - run Benchmark_* functions in .tl files (exclude test files)
 all_benchmark_srcs := $(call filter-only,$(foreach m,$(modules),$(filter-out $($(m)_tests),$($(m)_tl))))
