@@ -1,0 +1,255 @@
+--- Enhanced require with helpful error messages.
+--- Intercepts module-not-found errors and suggests similar modules.
+
+local original_require = require
+
+--- Cached module mapping, built lazily on first use.
+local module_map: {string:string} = nil
+
+--- Build module mapping from package.preload.
+--- Maps short names to full module names (e.g., "argon2" -> "cosmo.argon2").
+local function build_module_map(): {string:string}
+  if module_map then
+    return module_map
+  end
+
+  module_map = {}
+
+  -- Scan package.preload for cosmo.* and cosmic.* modules
+  for name, _ in pairs(package.preload) do
+    local short = name:match("^cosmo%.(.+)$") or name:match("^cosmic%.(.+)$")
+    if short and not short:match("%.") then
+      -- Only map top-level modules (not submodules like cosmo.foo.bar)
+      if not module_map[short] then
+        module_map[short] = name
+      end
+    end
+  end
+
+  return module_map
+end
+
+--- Check if a module exists without loading it.
+--- @param name string Module name to check
+--- @return boolean True if module can be loaded
+local function module_exists(name: string): boolean
+  if package.preload[name] then
+    return true
+  end
+  -- Check package.path for .lua and .tl files
+  for path_pattern in package.path:gmatch("[^;]+") do
+    local file_path = path_pattern:gsub("%?", (name:gsub("%.", "/")))
+    local f = io.open(file_path, "r")
+    if f then
+      f:close()
+      return true
+    end
+  end
+  return false
+end
+
+--- Compute Levenshtein distance between two strings.
+--- @param a string First string
+--- @param b string Second string
+--- @return integer Edit distance
+local function levenshtein(a: string, b: string): integer
+  if #a == 0 then return #b end
+  if #b == 0 then return #a end
+  if a == b then return 0 end
+
+  -- Create distance matrix
+  local matrix: {{integer}} = {}
+  for i = 0, #a do
+    matrix[i] = {}
+    matrix[i][0] = i
+  end
+  for j = 0, #b do
+    matrix[0][j] = j
+  end
+
+  -- Fill in the rest of the matrix
+  for i = 1, #a do
+    for j = 1, #b do
+      local cost = a:sub(i, i) == b:sub(j, j) and 0 or 1
+      matrix[i][j] = math.min(
+        matrix[i-1][j] + 1,      -- deletion
+        matrix[i][j-1] + 1,      -- insertion
+        matrix[i-1][j-1] + cost  -- substitution
+      )
+    end
+  end
+
+  return matrix[#a][#b]
+end
+
+--- Find similar modules using Levenshtein distance.
+--- @param name string The requested module name
+--- @param max_distance integer Maximum edit distance to consider (default 3)
+--- @return {string} List of similar full module names, sorted by distance
+local function find_similar(name: string, max_distance?: integer): {string}
+  max_distance = max_distance or 3
+  local results: {{string, integer}} = {}  -- {full_name, distance}
+
+  -- Check against all known short module names
+  for short, full in pairs(build_module_map()) do
+    local dist = levenshtein(name:lower(), short:lower())
+    if dist <= max_distance then
+      table.insert(results, {full, dist})
+    end
+  end
+
+  -- Also check full module names in package.preload
+  for full, _ in pairs(package.preload) do
+    if full:match("^cosmo%.") or full:match("^cosmic%.") then
+      local dist = levenshtein(name:lower(), full:lower())
+      if dist <= max_distance then
+        -- Avoid duplicates
+        local dominated = false
+        for _, r in ipairs(results) do
+          if r[1] == full then
+            dominated = true
+            break
+          end
+        end
+        if not dominated then
+          table.insert(results, {full, dist})
+        end
+      end
+    end
+  end
+
+  -- Sort by distance, then alphabetically
+  table.sort(results, function(a: {string, integer}, b: {string, integer}): boolean
+    if a[2] ~= b[2] then
+      return a[2] < b[2]
+    end
+    return a[1] < b[1]
+  end)
+
+  -- Extract just the names
+  local names: {string} = {}
+  for _, r in ipairs(results) do
+    table.insert(names, r[1])
+  end
+
+  return names
+end
+
+--- Format a helpful error message for module not found.
+--- @param name string The requested module name
+--- @return string Enhanced error message with suggestions
+local function format_error(name: string): string
+  local lines: {string} = {}
+  table.insert(lines, "module '" .. name .. "' not found")
+  table.insert(lines, "")
+
+  -- Check for exact short name match first
+  local aliases = build_module_map()
+  local alias = aliases[name]
+  if alias and module_exists(alias) then
+    table.insert(lines, "Did you mean?")
+    table.insert(lines, "  " .. alias)
+    table.insert(lines, "")
+    table.insert(lines, "Try: require(\"" .. alias .. "\")")
+    return table.concat(lines, "\n")
+  end
+
+  -- Check if cosmo.name or cosmic.name exists exactly
+  local cosmo_name = "cosmo." .. name
+  local cosmic_name = "cosmic." .. name
+  if module_exists(cosmo_name) then
+    table.insert(lines, "Did you mean?")
+    table.insert(lines, "  " .. cosmo_name)
+    table.insert(lines, "")
+    table.insert(lines, "Try: require(\"" .. cosmo_name .. "\")")
+    return table.concat(lines, "\n")
+  end
+  if module_exists(cosmic_name) then
+    table.insert(lines, "Did you mean?")
+    table.insert(lines, "  " .. cosmic_name)
+    table.insert(lines, "")
+    table.insert(lines, "Try: require(\"" .. cosmic_name .. "\")")
+    return table.concat(lines, "\n")
+  end
+
+  -- Try fuzzy matching
+  local similar = find_similar(name, 3)
+  if #similar > 0 then
+    table.insert(lines, "Did you mean?")
+    -- Show up to 3 suggestions
+    for i = 1, math.min(3, #similar) do
+      table.insert(lines, "  " .. similar[i])
+    end
+    table.insert(lines, "")
+    table.insert(lines, "Try: require(\"" .. similar[1] .. "\")")
+    return table.concat(lines, "\n")
+  end
+
+  -- No suggestions found
+  table.insert(lines, "Modules use the 'cosmo.*' or 'cosmic.*' namespace.")
+  table.insert(lines, "")
+  table.insert(lines, "Use 'cosmic --docs' to list available modules.")
+
+  return table.concat(lines, "\n")
+end
+
+--- Check if error message indicates module not found.
+--- @param err string Error message
+--- @return boolean True if this is a module-not-found error
+local function is_module_not_found(err: string): boolean
+  return err:match("module '[^']+' not found") ~= nil
+end
+
+--- Extract module name from require error.
+--- @param err string Error message
+--- @return string Module name, or nil if not found
+local function extract_module_name(err: string): string
+  return err:match("module '([^']+)' not found")
+end
+
+--- Enhanced require function that provides helpful suggestions.
+--- @param name string Module name to require
+--- @return any The loaded module
+local function enhanced_require(name: string): any
+  local ok, result = pcall(original_require, name)
+  if ok then
+    return result
+  end
+
+  local err = tostring(result)
+  if is_module_not_found(err) then
+    local requested = extract_module_name(err) or name
+    error(format_error(requested), 2)
+  end
+
+  -- Re-raise original error for non-module-not-found errors
+  error(result, 2)
+end
+
+--- Install enhanced require globally.
+--- Call this early in startup to enable helpful error messages.
+local function install()
+  _G.require = enhanced_require as function(string): any
+end
+
+--- Restore original require.
+--- Useful for testing or disabling enhanced errors.
+local function uninstall()
+  _G.require = original_require
+end
+
+local record RequireModule
+  install: function()
+  uninstall: function()
+  module_exists: function(name: string): boolean
+  format_error: function(name: string): string
+end
+
+local M: RequireModule = {
+  install = install,
+  uninstall = uninstall,
+  module_exists = module_exists,
+  format_error = format_error,
+}
+
+return M

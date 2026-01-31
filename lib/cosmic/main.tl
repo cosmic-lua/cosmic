@@ -4,6 +4,9 @@
 global warn: function(...: any)
 
 require("tl").loader()
+if not os.getenv("COSMIC_NO_REQUIRE_HINTS") then
+  require("cosmic.require").install()
+end
 
 local getopt = require("cosmo.getopt")
 
@@ -342,6 +345,9 @@ local function generate_help(): string
   end
 
   table.insert(lines, "For module documentation, use: cosmic-lua --docs <module>")
+  table.insert(lines, "")
+  table.insert(lines, "Environment variables:")
+  table.insert(lines, "  COSMIC_NO_REQUIRE_HINTS    disable helpful module-not-found suggestions")
 
   return table.concat(lines, "\n")
 end
