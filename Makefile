@@ -277,10 +277,10 @@ doc-publish: $(all_docs) $(docs_publish) | $(bootstrap_cosmic)
 	@test -n "$(SOURCE_SHA)" || { echo "SOURCE_SHA required"; exit 1; }
 	@$(bootstrap_cosmic) -- $(docs_publish) $(SOURCE_SHA) $(o)/docs $(or $(DOCS_BRANCH),docs)
 
-ci_stages := teal test build
+ci_stages := teal test example build
 
 .PHONY: ci
-## Run full CI pipeline (teal, test, build)
+## Run full CI pipeline (teal, test, example, build)
 ci:
 	@rm -f $(o)/failed
 	@$(foreach s,$(ci_stages),\

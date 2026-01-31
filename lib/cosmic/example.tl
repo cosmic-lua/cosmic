@@ -1,6 +1,8 @@
 --- Go-style executable example testing.
 --- Parses Example_* functions from Teal files, runs them, and verifies output.
 
+local tl = require("tl")
+
 --- A parsed example function with its expected output.
 local record Example
   name: string
@@ -197,13 +199,39 @@ local function run_example(example: Example, file_path: string): ExampleResult
   end
 
   -- Build a script that executes the example body
-  -- We need to set up require paths to match the original file's context
-  local dir = file_path:match("(.*/)")
+  -- Compile through Teal first to handle type annotations
+  local teal_source = example.body
+
+  -- Initialize Teal environment and process the source
+  local env = tl.init_env(true) -- lax mode
+  local tl_result, proc_err = tl.process_string(teal_source, true, env, "@" .. example.name)
+
+  if not tl_result then
+    result.error = "process error: " .. (proc_err or "unknown")
+    return result
+  end
+
+  if tl_result.syntax_errors and #tl_result.syntax_errors > 0 then
+    result.error = "syntax error: " .. tl_result.syntax_errors[1].msg
+    return result
+  end
+
+  local lua_code = tl.generate(tl_result.ast, {
+    gen_target = "5.4",
+    gen_compat = "off",
+  } as {string:any})
+
+  if not lua_code then
+    result.error = "compile error: code generation failed"
+    return result
+  end
+
+  -- Prepend tl loader for require statements
   local script = [[
 require("tl").loader()
-]] .. example.body
+]] .. lua_code
 
-  -- Execute using loadstring
+  -- Execute using load
   local chunk, load_err = load(script, example.name)
   if not chunk then
     result.error = "load error: " .. (load_err or "unknown")
