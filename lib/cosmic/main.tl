@@ -556,6 +556,19 @@ local function main(): integer, string
     end
   end
 
+  -- Show welcome on first invocation for non-REPL execution (to stderr)
+  -- REPL mode handles its own welcome (to stdout) in run_repl()
+  local is_non_repl_execution = not opts.interactive and (opts.script or #opts.execute > 0 or #opts.load > 0)
+  if is_non_repl_execution then
+    local unix = require("cosmo.unix")
+    local welcome = require("cosmic.welcome")
+    local is_stderr_tty = unix.isatty(2)
+    if is_stderr_tty and not os.getenv("COSMIC_NO_WELCOME") and not welcome.was_shown() then
+      io.stderr:write(generate_welcome())
+      welcome.mark_shown()
+    end
+  end
+
   -- Load libraries
   for _, name in ipairs(opts.load) do
     require(name)
