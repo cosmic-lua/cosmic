@@ -1,7 +1,8 @@
 modules += cosmic
 cosmic_srcs := $(wildcard lib/cosmic/*.tl)
 cosmic_tests := $(filter %_test.tl,$(cosmic_srcs))
-cosmic_tl := $(filter-out $(cosmic_tests) lib/cosmic/main.tl,$(cosmic_srcs))
+cosmic_examples := $(filter %_example.tl,$(cosmic_srcs))
+cosmic_tl := $(filter-out $(cosmic_tests) $(cosmic_examples) lib/cosmic/main.tl,$(cosmic_srcs))
 cosmic_main := $(o)/lib/cosmic/main.lua
 cosmic_args := lib/cosmic/.args
 cosmic_bin := $(o)/bin/cosmic
