@@ -38,6 +38,7 @@ High-level utilities and tools built on top of cosmo.
 | [json](lib/cosmic/json.md) |  JSON encoding and decoding utilities. |
 | [require](lib/cosmic/require.md) |  Enhanced require with helpful error messages. |
 | [spawn](lib/cosmic/spawn.md) |  Process spawning utilities. |
+| [sqlite](lib/cosmic/sqlite.md) |  Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns. |
 | [teal](lib/cosmic/teal.md) |  Teal compilation and type-checking. |
 | [walk](lib/cosmic/walk.md) |  Directory tree walking utilities. |
 
