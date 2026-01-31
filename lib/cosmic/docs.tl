@@ -349,11 +349,39 @@ local function render_module(name: string, doc: ModuleDoc): string
   return table.concat(lines, "\n")
 end
 
+--- Find a method within a record.
+--- @param rec RecordDoc The record to search
+--- @param method_name string Name of the method to find
+--- @return string Rendered method documentation, or nil if not found
+local function find_method(rec: RecordDoc, method_name: string): string
+  if rec.fields then
+    for _, field in ipairs(rec.fields) do
+      local fname, ftype, fdesc = field[1], field[2], field[3]
+      if fname:lower() == method_name:lower() and ftype:match("^function") then
+        local lines: {string} = {}
+        table.insert(lines, "### " .. rec.name .. "." .. fname)
+        table.insert(lines, "")
+        table.insert(lines, "```teal")
+        table.insert(lines, fname .. ": " .. ftype)
+        table.insert(lines, "```")
+        table.insert(lines, "")
+        if fdesc then
+          table.insert(lines, fdesc)
+          table.insert(lines, "")
+        end
+        return table.concat(lines, "\n")
+      end
+    end
+  end
+  return nil
+end
+
 --- Find a symbol in a module's documentation.
 --- @param doc ModuleDoc Module documentation
 --- @param symbol string Symbol name to find
+--- @param method string Optional method name within a record
 --- @return string Rendered symbol documentation, or nil if not found
-local function find_symbol(doc: ModuleDoc, symbol: string): string
+local function find_symbol(doc: ModuleDoc, symbol: string, method?: string): string
   -- Check functions
   if doc.functions then
     for _, func in ipairs(doc.functions) do
@@ -367,6 +395,10 @@ local function find_symbol(doc: ModuleDoc, symbol: string): string
   if doc.records then
     for _, rec in ipairs(doc.records) do
       if rec.name == symbol or rec.name:lower() == symbol:lower() then
+        -- If method specified, find within the record
+        if method then
+          return find_method(rec, method)
+        end
         return render_record(rec)
       end
     end
@@ -453,6 +485,26 @@ local function search(query: string): {SearchResult}
             description = first_paragraph(rec.description or ""),
             match_score = score,
           })
+        end
+
+        -- Search record methods (fields with function types)
+        if rec.fields then
+          for _, field in ipairs(rec.fields) do
+            local fname, ftype, fdesc = field[1], field[2], field[3]
+            if ftype:match("^function") then
+              if fname:lower():find(query_lower, 1, true) or
+                 (fdesc and fdesc:lower():find(query_lower, 1, true)) then
+                local score = fname:lower() == query_lower and 85 or 35
+                table.insert(results, {
+                  module_name = mod_name,
+                  symbol_name = rec.name .. "." .. fname,
+                  symbol_type = "method",
+                  description = first_paragraph(fdesc or ""),
+                  match_score = score,
+                })
+              end
+            end
+          end
         end
       end
     end
@@ -581,6 +633,34 @@ local function run(query?: string): DocsResult
           output = "error: symbol '" .. symbol .. "' not found in '" .. module_name .. "'\n" ..
                    "Use 'cosmic --docs " .. module_name .. "' to see available symbols.",
         }
+      end
+    end
+
+    -- Try module.Record.method pattern (3+ parts)
+    if #parts >= 3 then
+      local method = parts[#parts]
+      local record_name = parts[#parts - 1]
+      local mod_parts: {string} = {}
+      for i = 1, #parts - 2 do
+        table.insert(mod_parts, parts[i])
+      end
+      local mod_name = table.concat(mod_parts, ".")
+
+      doc = index.modules[mod_name]
+      if doc then
+        local rendered = find_symbol(doc, record_name, method)
+        if rendered then
+          return {
+            ok = true,
+            output = rendered,
+          }
+        else
+          return {
+            ok = false,
+            output = "error: method '" .. method .. "' not found in '" .. mod_name .. "." .. record_name .. "'\n" ..
+                     "Use 'cosmic --docs " .. mod_name .. "." .. record_name .. "' to see available methods.",
+          }
+        end
       end
     end
   end

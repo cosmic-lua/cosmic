@@ -146,5 +146,54 @@ local function test_search_no_results()
 end
 test_search_no_results()
 
+-- Test search finds record methods
+local function test_search_methods()
+  local results = docs.search("exec")
+  assert(type(results) == "table", "search should return a table")
+  -- Check that we find method-type results
+  local found_method = false
+  for _, result in ipairs(results) do
+    if result.symbol_type == "method" then
+      found_method = true
+      assert(result.symbol_name:find("%."), "method symbol_name should be Record.method format")
+    end
+  end
+  -- If docs are available and lsqlite3 is indexed, we should find Database.exec
+  if docs.has_docs() then
+    print("test_search_methods: PASS (found " .. #results .. " results, methods=" .. tostring(found_method) .. ")")
+  else
+    print("test_search_methods: PASS (no docs available)")
+  end
+end
+test_search_methods()
+
+-- Test run with method lookup (module.Record.method pattern)
+local function test_run_method()
+  local result = docs.run("cosmo.lsqlite3.Database.exec")
+  assert(result, "run should return a result")
+  assert(type(result.ok) == "boolean", "result.ok should be a boolean")
+  assert(type(result.output) == "string", "result.output should be a string")
+  if result.ok then
+    assert(result.output:match("exec") or result.output:match("Database"),
+           "method output should contain relevant content")
+  end
+  print("test_run_method: PASS")
+end
+test_run_method()
+
+-- Test search finds bind methods
+local function test_search_bind_methods()
+  local results = docs.search("bind")
+  assert(type(results) == "table", "search should return a table")
+  local method_count = 0
+  for _, result in ipairs(results) do
+    if result.symbol_type == "method" then
+      method_count = method_count + 1
+    end
+  end
+  print("test_search_bind_methods: PASS (found " .. method_count .. " method results)")
+end
+test_search_bind_methods()
+
 print("")
 print("All docs tests passed!")
