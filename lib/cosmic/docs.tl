@@ -571,6 +571,84 @@ local function search(query: string): {SearchResult}
   return results
 end
 
+--- Entry for examples list.
+local record ExampleEntry
+  module_name: string
+  example_name: string
+  description: string
+end
+
+--- List all examples across all modules.
+--- @return {ExampleEntry} List of examples sorted by module then name
+local function list_all_examples(): {ExampleEntry}
+  local index, _ = load_index()
+  if not index then
+    return {}
+  end
+
+  local examples: {ExampleEntry} = {}
+  for mod_name, mod_doc in pairs(index.modules) do
+    if mod_doc.examples then
+      for _, ex in ipairs(mod_doc.examples) do
+        local display_name = ex.name:gsub("^Example_?", "")
+        table.insert(examples, {
+          module_name = mod_name,
+          example_name = display_name,
+          description = first_paragraph(ex.description or ""),
+        })
+      end
+    end
+  end
+
+  table.sort(examples, function(a: ExampleEntry, b: ExampleEntry): boolean
+    if a.module_name ~= b.module_name then
+      return a.module_name < b.module_name
+    end
+    return a.example_name < b.example_name
+  end)
+
+  return examples
+end
+
+--- Render examples list as CLI output.
+--- @param examples {ExampleEntry} List of examples
+--- @return string Formatted output
+local function render_examples_list(examples: {ExampleEntry}): string
+  local lines: {string} = {}
+
+  table.insert(lines, "All examples")
+  table.insert(lines, "")
+
+  if #examples == 0 then
+    table.insert(lines, "No examples found.")
+    return table.concat(lines, "\n")
+  end
+
+  -- Group by module
+  local current_module: string = nil
+  for _, ex in ipairs(examples) do
+    if ex.module_name ~= current_module then
+      current_module = ex.module_name
+      if #lines > 2 then
+        table.insert(lines, "")
+      end
+      local simple_name = current_module:match("([^%.]+)$") or current_module
+      table.insert(lines, simple_name .. ":")
+    end
+    local line = "  " .. ex.example_name
+    if ex.description and ex.description ~= "" then
+      line = line .. " - " .. ex.description
+    end
+    table.insert(lines, line)
+  end
+
+  table.insert(lines, "")
+  table.insert(lines, "Run examples with: cosmic --example <file.tl>")
+  table.insert(lines, "View module docs with: cosmic --docs <module>")
+
+  return table.concat(lines, "\n")
+end
+
 --- Render search results as CLI output.
 --- @param results {SearchResult} List of search results
 --- @param query string The original search query
@@ -701,6 +779,15 @@ local function run(query?: string): DocsResult
     return {
       ok = true,
       output = render_topic_list(topics),
+    }
+  end
+
+  -- Special query: list all examples
+  if query == "examples" then
+    local examples = list_all_examples()
+    return {
+      ok = true,
+      output = render_examples_list(examples),
     }
   end
 

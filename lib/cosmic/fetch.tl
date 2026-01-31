@@ -65,6 +65,28 @@ local function Fetch(url: string, opts?: Opts): Result
   return result
 end
 
+-- Example_get demonstrates a simple HTTP GET request
+local function Example_get()
+  local fetch = require("cosmic.fetch")
+  local result = fetch.Fetch("https://httpbin.org/get")
+  print("status:", result.status)
+  print("ok:", result.ok)
+  -- Output:
+  -- status:	200
+  -- ok:	true
+end
+
+-- Example_get_json demonstrates fetching and parsing JSON
+local function Example_get_json()
+  local fetch = require("cosmic.fetch")
+  local json = require("cosmic.json")
+  local result = fetch.Fetch("https://httpbin.org/json")
+  local data = json.decode(result.body) as {string:{string:string}}
+  print("title:", data.slideshow.title)
+  -- Output:
+  -- title:	Sample Slide Show
+end
+
 local record fetch
   Fetch: function(url: string, opts?: Opts): Result
   Opts: Opts

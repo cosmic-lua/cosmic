@@ -294,7 +294,7 @@ local function generate_help(): string
   table.insert(lines, "  --output <file>             output file for --embed (default: cosmic)")
   table.insert(lines, "  --example <file.tl>         run Example_* functions, check output")
   table.insert(lines, "  --benchmark <file.tl[:pat]> run Benchmark_* functions, report timing")
-  table.insert(lines, "  --docs <query>              show docs; exact match or search")
+  table.insert(lines, "  --docs <query>              show docs; \"examples\" lists all examples")
   table.insert(lines, "  --help                      show this help message")
   table.insert(lines, "")
   table.insert(lines, "Standard lua options:")
