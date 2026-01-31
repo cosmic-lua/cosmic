@@ -16,6 +16,7 @@ Core Cosmopolitan Libc bindings and system interfaces.
 | [maxmind](cosmo/maxmind.md) | Type declarations for the `maxmind` module. |
 | [path](cosmo/path.md) | Type declarations for the `path` module. |
 | [re](cosmo/re.md) | Type declarations for the `re` module. |
+| [repl](cosmo/repl.md) | Type declarations for the `repl` module. |
 | [unix](cosmo/unix.md) | Type declarations for the `unix` module. |
 | [zip](cosmo/zip.md) | Type declarations for the `zip` module. |
 
