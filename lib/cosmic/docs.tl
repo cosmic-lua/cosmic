@@ -3,6 +3,7 @@
 --- Documentation is parsed at build time and embedded as a serialized Lua index.
 
 local cosmo = require("cosmo")
+local fuzzy = require("cosmic.fuzzy")
 
 --- A function parameter.
 local record Param
@@ -569,6 +570,77 @@ local function render_search_results(results: {SearchResult}, query: string): st
   return table.concat(lines, "\n")
 end
 
+--- Find suggestions for a query that didn't match.
+--- Builds candidates from module names, records, and methods.
+--- @param query string The search query that didn't match
+--- @param index DocIndex The documentation index
+--- @return {string} List of suggestions, sorted by similarity
+local function find_suggestions(query: string, index: DocIndex): {string}
+  local candidates: {string} = {}
+  local name_to_full: {string:{string}} = {}  -- simple name -> list of full paths
+
+  local function add_candidate(simple: string, full: string)
+    if not name_to_full[simple] then
+      name_to_full[simple] = {}
+      table.insert(candidates, simple)
+    end
+    table.insert(name_to_full[simple], full)
+  end
+
+  for mod_name, mod_doc in pairs(index.modules) do
+    -- Add module simple name -> full name
+    local simple = mod_name:match("([^%.]+)$") or mod_name
+    add_candidate(simple, mod_name)
+
+    -- Add record names
+    if mod_doc.records then
+      for _, rec in ipairs(mod_doc.records) do
+        local full_name = mod_name .. "." .. rec.name
+        add_candidate(rec.name, full_name)
+
+        -- Add method names from record fields
+        if rec.fields then
+          for _, field in ipairs(rec.fields) do
+            local fname, ftype = field[1], field[2]
+            if ftype:match("^function") then
+              local method_full = mod_name .. "." .. rec.name .. "." .. fname
+              add_candidate(fname, method_full)
+            end
+          end
+        end
+      end
+    end
+
+    -- Add function names
+    if mod_doc.functions then
+      for _, func in ipairs(mod_doc.functions) do
+        local full_name = mod_name .. "." .. func.name
+        add_candidate(func.name, full_name)
+      end
+    end
+  end
+
+  -- Find similar simple names
+  local similar = fuzzy.find_similar(query, candidates, 3)
+
+  -- Map back to full paths
+  local results: {string} = {}
+  local seen: {string:boolean} = {}
+  for _, simple in ipairs(similar) do
+    local fulls = name_to_full[simple]
+    if fulls then
+      for _, full in ipairs(fulls) do
+        if not seen[full] then
+          seen[full] = true
+          table.insert(results, full)
+        end
+      end
+    end
+  end
+
+  return results
+end
+
 --- Main entry point for the docs command.
 --- @param query string Optional query string (module or module.symbol)
 --- @return DocsResult Result with documentation content
@@ -665,7 +737,20 @@ local function run(query?: string): DocsResult
     end
   end
 
-  -- Nothing found
+  -- Nothing found - try to provide suggestions
+  local suggestions = find_suggestions(query, index)
+  if #suggestions > 0 then
+    local lines: {string} = {"error: documentation not found for '" .. query .. "'", ""}
+    table.insert(lines, "Did you mean?")
+    -- Show up to 5 suggestions
+    for i = 1, math.min(5, #suggestions) do
+      table.insert(lines, "  " .. suggestions[i])
+    end
+    table.insert(lines, "")
+    table.insert(lines, "Try: cosmic --docs " .. suggestions[1])
+    return {ok = false, output = table.concat(lines, "\n")}
+  end
+
   return {
     ok = false,
     output = "error: documentation not found for '" .. query .. "'\n" ..

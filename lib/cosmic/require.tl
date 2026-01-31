@@ -2,6 +2,7 @@
 --- Intercepts module-not-found errors and suggests similar modules.
 
 local original_require = require
+local fuzzy = original_require("cosmic.fuzzy")
 
 --- Cached module mapping, built lazily on first use.
 local module_map: {string:string} = nil
@@ -48,40 +49,6 @@ local function module_exists(name: string): boolean
   return false
 end
 
---- Compute Levenshtein distance between two strings.
---- @param a string First string
---- @param b string Second string
---- @return integer Edit distance
-local function levenshtein(a: string, b: string): integer
-  if #a == 0 then return #b end
-  if #b == 0 then return #a end
-  if a == b then return 0 end
-
-  -- Create distance matrix
-  local matrix: {{integer}} = {}
-  for i = 0, #a do
-    matrix[i] = {}
-    matrix[i][0] = i
-  end
-  for j = 0, #b do
-    matrix[0][j] = j
-  end
-
-  -- Fill in the rest of the matrix
-  for i = 1, #a do
-    for j = 1, #b do
-      local cost = a:sub(i, i) == b:sub(j, j) and 0 or 1
-      matrix[i][j] = math.min(
-        matrix[i-1][j] + 1,      -- deletion
-        matrix[i][j-1] + 1,      -- insertion
-        matrix[i-1][j-1] + cost  -- substitution
-      )
-    end
-  end
-
-  return matrix[#a][#b]
-end
-
 --- Find similar modules using Levenshtein distance.
 --- @param name string The requested module name
 --- @param max_distance integer Maximum edit distance to consider (default 3)
@@ -92,7 +59,7 @@ local function find_similar(name: string, max_distance?: integer): {string}
 
   -- Check against all known short module names
   for short, full in pairs(build_module_map()) do
-    local dist = levenshtein(name:lower(), short:lower())
+    local dist = fuzzy.levenshtein(name:lower(), short:lower())
     if dist <= max_distance then
       table.insert(results, {full, dist})
     end
@@ -101,7 +68,7 @@ local function find_similar(name: string, max_distance?: integer): {string}
   -- Also check full module names in package.preload
   for full, _ in pairs(package.preload) do
     if full:match("^cosmo%.") or full:match("^cosmic%.") then
-      local dist = levenshtein(name:lower(), full:lower())
+      local dist = fuzzy.levenshtein(name:lower(), full:lower())
       if dist <= max_distance then
         -- Avoid duplicates
         local dominated = false

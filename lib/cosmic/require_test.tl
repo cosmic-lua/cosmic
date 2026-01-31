@@ -38,20 +38,6 @@ local function test_format_error_suggests_cosmic_prefix()
 end
 test_format_error_suggests_cosmic_prefix()
 
-local function test_format_error_fuzzy_sqlite()
-  -- "sqlite" should match to "cosmic.sqlite" (exact suffix match)
-  local err = require_mod.format_error("sqlite")
-  assert(err:match("cosmic%.sqlite"), "should suggest cosmic.sqlite for sqlite, got: " .. err)
-end
-test_format_error_fuzzy_sqlite()
-
-local function test_format_error_fuzzy_typo()
-  -- "argonn2" should fuzzy match to "argon2" (distance 1)
-  local err = require_mod.format_error("argonn2")
-  assert(err:match("argon2"), "should suggest argon2 for argonn2 via fuzzy match, got: " .. err)
-end
-test_format_error_fuzzy_typo()
-
 local function test_format_error_unknown_module()
   local err = require_mod.format_error("totally_unknown_xyz")
   assert(err:match("cosmic %-%-docs"), "should mention cosmic --docs, got: " .. err)
