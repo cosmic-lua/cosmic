@@ -105,3 +105,78 @@ function collect_all(dir: string, base?: string, files?: {string:FileInfo}): {st
 **Returns:**
 
 - {string:FileInfo} - Map of relative paths to file information
+
+## Examples
+
+### collect
+
+ Example_collect demonstrates collecting files matching a pattern
+
+```teal
+  local walk_m = require("cosmic.walk")
+  local unix_m = require("cosmo.unix")
+  local path_m = require("cosmo.path")
+
+  -- Create temp dir with test files
+  local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp/walk_example"
+  unix_m.makedirs(tmpdir)
+  local f1 = io.open(path_m.join(tmpdir, "a.lua"), "w")
+  if f1 then f1:write("-- a") f1:close() end
+  local f2 = io.open(path_m.join(tmpdir, "b.lua"), "w")
+  if f2 then f2:write("-- b") f2:close() end
+  local f3 = io.open(path_m.join(tmpdir, "c.txt"), "w")
+  if f3 then f3:write("text") f3:close() end
+
+  local files = walk_m.collect(tmpdir, "%.lua$")
+  table.sort(files)
+  print("found", #files, "lua files")
+  for _, file in ipairs(files) do
+    print(path_m.basename(file))
+  end
+
+  unix_m.rmrf(tmpdir)
+```
+
+Output:
+```
+found	2	lua files
+  -- a.lua
+  -- b.lua
+
+```
+
+### walk
+
+ Example_walk demonstrates walking a directory tree with a visitor
+
+```teal
+  local walk_m = require("cosmic.walk")
+  local unix_m = require("cosmo.unix")
+  local path_m = require("cosmo.path")
+
+  -- Create temp dir with test structure
+  local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp/walk_example2"
+  unix_m.makedirs(path_m.join(tmpdir, "sub"))
+  local f1 = io.open(path_m.join(tmpdir, "root.txt"), "w")
+  if f1 then f1:write("root") f1:close() end
+  local f2 = io.open(path_m.join(tmpdir, "sub", "child.txt"), "w")
+  if f2 then f2:write("child") f2:close() end
+
+  local count = 0
+  walk_m.walk(tmpdir, function(_: string, _: string, s: any, _: any): boolean
+    local st = s as Stat
+    if not unix_m.S_ISDIR(st:mode()) then
+      count = count + 1
+    end
+    return true
+  end)
+  print("visited", count, "files")
+
+  unix_m.rmrf(tmpdir)
+```
+
+Output:
+```
+visited	2	files
+
+```

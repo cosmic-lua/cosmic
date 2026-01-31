@@ -123,6 +123,18 @@ local record SearchResult
 end
 ```
 
+### ExampleEntry
+
+ Entry for examples list.
+
+```teal
+local record ExampleEntry
+  module_name: string
+  example_name: string
+  description: string
+end
+```
+
 ### DocsModule
 
 ```teal
