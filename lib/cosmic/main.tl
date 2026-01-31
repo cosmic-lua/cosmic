@@ -31,6 +31,7 @@ local record Opts
   examples: string         -- Module for --examples (nil = not set, "" = list all)
   benchmark: string        -- Input file for --benchmark (run benchmarks)
   docs: string             -- Module/symbol/query for --docs
+  welcome: boolean         -- Show welcome message
   error: string            -- Parse error message
 end
 
@@ -53,6 +54,7 @@ local function parse_args(): Opts
     examples = nil,
     benchmark = nil,
     docs = nil,
+    welcome = false,
     error = nil,
   }
 
@@ -67,6 +69,7 @@ local function parse_args(): Opts
     { "examples", "optional", nil },
     { "benchmark", "required", nil },
     { "docs", "required", nil },
+    { "welcome", "none", nil },
   }
 
   -- Parse shortopts to build set of options that require arguments
@@ -205,6 +208,8 @@ local function parse_args(): Opts
     elseif opt == "docs" then
       opts.docs = optarg
       return opts
+    elseif opt == "welcome" then
+      opts.welcome = true
     end
   end
 
@@ -226,10 +231,45 @@ local function parse_args(): Opts
   return opts
 end
 
+--- Generate welcome message for first-run experience.
+--- @return string The welcome message text
+local function generate_welcome(): string
+  return [[
+Welcome to cosmic-lua!
+
+Quick start:
+  cosmic --docs <query>    search documentation
+  cosmic --help            show all options
+  help()                   search docs from REPL
+
+Run 'cosmic --welcome' to see this again.
+]]
+end
+
 -- Interactive REPL using cosmopolitan's linenoise-based REPL
 local function run_repl()
+  local unix = require("cosmo.unix")
+  local welcome = require("cosmic.welcome")
+
   io.write(_VERSION .. "  Copyright (C) 1994-2024 Lua.org, PUC-Rio\n")
+
+  local is_tty = unix.isatty(0) and unix.isatty(1)
+  local show = is_tty and not os.getenv("COSMIC_NO_WELCOME") and not welcome.was_shown()
+
+  if show then
+    io.write(generate_welcome())
+    welcome.mark_shown()
+  end
+
   require("cosmo")
+
+  -- Inject help() into REPL
+  local docs = require("cosmic.docs")
+  rawset(_G, "help", function(query: string)
+    local result = docs.run(query or "")
+    print(result.output)
+  end)
+
   require("cosmo.repl").start()
 end
 
@@ -313,6 +353,7 @@ local function generate_help(): string
   table.insert(lines, "  --output <file>               output file for --embed (default: cosmic)")
   table.insert(lines, "  --benchmark <file.tl[:pat]>   run Benchmark_* functions, report timing")
   table.insert(lines, "  --docs <query>                show documentation for module or symbol")
+  table.insert(lines, "  --welcome                     show welcome message")
   table.insert(lines, "  --help                        show this help message")
   table.insert(lines, "")
   table.insert(lines, "Standard lua options:")
@@ -366,6 +407,7 @@ local function generate_help(): string
   table.insert(lines, "")
   table.insert(lines, "Environment variables:")
   table.insert(lines, "  COSMIC_NO_REQUIRE_HINTS    disable helpful module-not-found suggestions")
+  table.insert(lines, "  COSMIC_NO_WELCOME          suppress welcome message on first run")
 
   return table.concat(lines, "\n")
 end
@@ -387,6 +429,12 @@ local function main(): integer, string
   -- Handle --help
   if opts.help then
     io.write(generate_help() .. "\n")
+    return 0
+  end
+
+  -- Handle --welcome
+  if opts.welcome then
+    io.write(generate_welcome())
     return 0
   end
 
