@@ -36,6 +36,7 @@ High-level utilities and tools built on top of cosmo.
 | [gendoc](lib/cosmic/gendoc.md) |  |
 | [init](lib/cosmic/init.md) |  Cosmopolitan Lua utilities. |
 | [json](lib/cosmic/json.md) |  JSON encoding and decoding utilities. |
+| [require](lib/cosmic/require.md) |  Enhanced require with helpful error messages. |
 | [spawn](lib/cosmic/spawn.md) |  Process spawning utilities. |
 | [teal](lib/cosmic/teal.md) |  Teal compilation and type-checking. |
 | [walk](lib/cosmic/walk.md) |  Directory tree walking utilities. |
