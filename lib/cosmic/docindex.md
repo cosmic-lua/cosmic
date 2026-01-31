@@ -23,6 +23,7 @@ function generate(files: {string}): string, string
 ```
 
  Generate serialized documentation index from source files.
+ Merges examples from _example.tl files into their corresponding modules.
 
 **Parameters:**
 
