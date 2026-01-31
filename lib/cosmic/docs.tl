@@ -643,7 +643,7 @@ local function render_examples_list(examples: {ExampleEntry}): string
   end
 
   table.insert(lines, "")
-  table.insert(lines, "Run examples with: cosmic --example <file.tl>")
+  table.insert(lines, "Run examples with: cosmic --check-examples <file.tl>")
   table.insert(lines, "View module docs with: cosmic --docs <module>")
 
   return table.concat(lines, "\n")
@@ -752,6 +752,51 @@ local function find_suggestions(query: string, index: DocIndex): {string}
   end
 
   return results
+end
+
+--- Show examples for a specific module.
+--- @param module_name string The module name (e.g., "cosmic.sqlite")
+--- @return DocsResult Result with examples content
+local function show_module_examples(module_name: string): DocsResult
+  local index, err = load_index()
+  if not index then
+    return {
+      ok = false,
+      output = "error: " .. (err or "no documentation embedded"),
+    }
+  end
+
+  local doc = index.modules[module_name]
+  if not doc then
+    -- Try to find suggestions
+    local suggestions = find_suggestions(module_name, index)
+    if #suggestions > 0 then
+      local lines: {string} = {"error: module not found: " .. module_name, ""}
+      table.insert(lines, "Did you mean?")
+      for i = 1, math.min(3, #suggestions) do
+        table.insert(lines, "  " .. suggestions[i])
+      end
+      return {ok = false, output = table.concat(lines, "\n")}
+    end
+    return {
+      ok = false,
+      output = "error: module not found: " .. module_name,
+    }
+  end
+
+  if not doc.examples or #doc.examples == 0 then
+    return {
+      ok = false,
+      output = "No examples for " .. module_name,
+    }
+  end
+
+  local simple_name = module_name:match("([^%.]+)$") or module_name
+  local lines: {string} = {"# " .. simple_name .. " examples", ""}
+  for _, example in ipairs(doc.examples) do
+    table.insert(lines, render_example(example))
+  end
+  return {ok = true, output = table.concat(lines, "\n")}
 end
 
 --- Main entry point for the docs command.
@@ -888,6 +933,7 @@ local record DocsModule
   render_module: function(name: string, doc: ModuleDoc): string
   search: function(query: string): {SearchResult}
   render_search_results: function(results: {SearchResult}, query: string): string
+  show_module_examples: function(module_name: string): DocsResult
 end
 
 local M: DocsModule = {
@@ -898,6 +944,7 @@ local M: DocsModule = {
   render_module = render_module,
   search = search,
   render_search_results = render_search_results,
+  show_module_examples = show_module_examples,
 }
 
 return M

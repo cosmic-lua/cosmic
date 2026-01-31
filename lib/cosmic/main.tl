@@ -24,10 +24,11 @@ local record Opts
   script: string
   script_args: {integer:string}
   compile: string          -- Input file for --compile (outputs to stdout)
-  check: string            -- Input file for --check
+  check_types: string      -- Input file for --check-types
   embed: {string}          -- Files to embed via --embed
   output: string           -- Output file for --embed (defaults to "cosmic")
-  example: string          -- Input file for --example (run examples)
+  check_examples: string   -- Input file for --check-examples (run examples)
+  examples: string         -- Module for --examples (nil = not set, "" = list all)
   benchmark: string        -- Input file for --benchmark (run benchmarks)
   docs: string             -- Module/symbol/query for --docs
   error: string            -- Parse error message
@@ -45,10 +46,11 @@ local function parse_args(): Opts
     script = nil,
     script_args = {},
     compile = nil,
-    check = nil,
+    check_types = nil,
     embed = {},
     output = nil,
-    example = nil,
+    check_examples = nil,
+    examples = nil,
     benchmark = nil,
     docs = nil,
     error = nil,
@@ -58,10 +60,11 @@ local function parse_args(): Opts
   local longopts: {LongOpt} = {
     { "help", "none", "h" },
     { "compile", "required", nil },
-    { "check", "required", nil },  -- Takes first file, remaining files via remaining()
+    { "check-types", "required", nil },
     { "embed", "required", nil },
     { "output", "required", nil },
-    { "example", "required", nil },
+    { "check-examples", "required", nil },
+    { "examples", "optional", nil },
     { "benchmark", "required", nil },
     { "docs", "required", nil },
   }
@@ -141,6 +144,17 @@ local function parse_args(): Opts
     cosmic_args = arg
   end
 
+  -- Check for removed flags before getopt (to avoid prefix matching)
+  for _, a in ipairs(cosmic_args) do
+    if a == "--check" or a:match("^%-%-check=") then
+      opts.error = "cosmic-lua: --check was renamed to --check-types"
+      return opts
+    elseif a == "--example" or a:match("^%-%-example=") then
+      opts.error = "cosmic-lua: --example was renamed to --check-examples"
+      return opts
+    end
+  end
+
   local parser = getopt.new(cosmic_args, shortopts, longopts as {{string, string}})
 
   -- Iterate through all options
@@ -172,15 +186,18 @@ local function parse_args(): Opts
     elseif opt == "compile" then
       opts.compile = optarg
       return opts
-    elseif opt == "check" then
-      opts.check = optarg
+    elseif opt == "check-types" then
+      opts.check_types = optarg
       return opts
     elseif opt == "embed" then
       opts.embed[#opts.embed + 1] = optarg
     elseif opt == "output" then
       opts.output = optarg
-    elseif opt == "example" then
-      opts.example = optarg
+    elseif opt == "check-examples" then
+      opts.check_examples = optarg
+      return opts
+    elseif opt == "examples" then
+      opts.examples = optarg or ""
       return opts
     elseif opt == "benchmark" then
       opts.benchmark = optarg
@@ -288,14 +305,15 @@ local function generate_help(): string
   table.insert(lines, "Usage: cosmic-lua [options] [script [args]]")
   table.insert(lines, "")
   table.insert(lines, "Cosmic options:")
-  table.insert(lines, "  --compile <file.tl>         compile Teal file to Lua, lax mode (stdout)")
-  table.insert(lines, "  --check <file.tl>           type-check a Teal file, strict mode")
-  table.insert(lines, "  --embed <file>              embed file(s) into cosmic (use multiple times)")
-  table.insert(lines, "  --output <file>             output file for --embed (default: cosmic)")
-  table.insert(lines, "  --example <file.tl>         run Example_* functions, check output")
-  table.insert(lines, "  --benchmark <file.tl[:pat]> run Benchmark_* functions, report timing")
-  table.insert(lines, "  --docs <query>              show docs; \"examples\" lists all examples")
-  table.insert(lines, "  --help                      show this help message")
+  table.insert(lines, "  --compile <file.tl>           compile Teal file to Lua, lax mode (stdout)")
+  table.insert(lines, "  --check-types <file.tl>       type-check a Teal file, strict mode")
+  table.insert(lines, "  --check-examples <file.tl>    run Example_* functions, check output")
+  table.insert(lines, "  --examples [module]           browse examples (list all, or show module)")
+  table.insert(lines, "  --embed <file>                embed file(s) into cosmic (use multiple times)")
+  table.insert(lines, "  --output <file>               output file for --embed (default: cosmic)")
+  table.insert(lines, "  --benchmark <file.tl[:pat]>   run Benchmark_* functions, report timing")
+  table.insert(lines, "  --docs <query>                show documentation for module or symbol")
+  table.insert(lines, "  --help                        show this help message")
   table.insert(lines, "")
   table.insert(lines, "Standard lua options:")
   table.insert(lines, "  -e <stat>                   execute string 'stat'")
@@ -385,10 +403,10 @@ local function main(): integer, string
     end
   end
 
-  -- Handle --check
-  if opts.check then
+  -- Handle --check-types
+  if opts.check_types then
     local teal = require("cosmic.teal")
-    local result = teal.check(opts.check)
+    local result = teal.check(opts.check_types)
 
     if #result.warnings > 0 then
       io.stderr:write(teal.format_issues(result.warnings) .. "\n")
@@ -413,12 +431,42 @@ local function main(): integer, string
     return result.ok and 0 or 1
   end
 
-  -- Handle --example
-  if opts.example then
+  -- Handle --check-examples
+  if opts.check_examples then
     local example = require("cosmic.example")
-    local result = example.run(opts.example)
-    io.write(example.format_results(opts.example, result) .. "\n")
+    local result = example.run(opts.check_examples)
+    io.write(example.format_results(opts.check_examples, result) .. "\n")
     return result.exit_code
+  end
+
+  -- Handle --examples (browse, read-only)
+  if opts.examples ~= nil then
+    local docs = require("cosmic.docs")
+    local module_name = opts.examples
+
+    -- For optional args with space-separated value, getopt doesn't consume it
+    -- Check if there's a positional arg that should be the module name
+    if module_name == "" then
+      for i = 1, #arg do
+        if arg[i] == "--examples" then
+          -- Next arg (if exists and not an option) is the module name
+          if i < #arg and not arg[i+1]:match("^%-") then
+            module_name = arg[i+1]
+          end
+          break
+        end
+      end
+    end
+
+    if module_name == "" then
+      local result = docs.run("examples")
+      io.write(result.output .. "\n")
+      return result.ok and 0 or 1
+    else
+      local result = docs.show_module_examples(module_name)
+      io.write(result.output .. "\n")
+      return result.ok and 0 or 1
+    end
   end
 
   -- Handle --benchmark
