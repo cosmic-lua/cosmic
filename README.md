@@ -42,6 +42,7 @@ High-level utilities and tools built on top of cosmo.
 | [sqlite](lib/cosmic/sqlite.md) |  Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns. |
 | [teal](lib/cosmic/teal.md) |  Teal compilation and type-checking. |
 | [walk](lib/cosmic/walk.md) |  Directory tree walking utilities. |
+| [welcome](lib/cosmic/welcome.md) |  |
 
 ---
 
