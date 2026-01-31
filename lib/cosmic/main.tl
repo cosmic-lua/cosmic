@@ -27,6 +27,7 @@ local record Opts
   example: string          -- Input file for --example (run examples)
   benchmark: string        -- Input file for --benchmark (run benchmarks)
   docs: string             -- Module/symbol/query for --docs
+  repl: boolean            -- Start interactive REPL
   error: string            -- Parse error message
 end
 
@@ -48,6 +49,7 @@ local function parse_args(): Opts
     example = nil,
     benchmark = nil,
     docs = nil,
+    repl = false,
     error = nil,
   }
 
@@ -61,6 +63,7 @@ local function parse_args(): Opts
     { "example", "required", nil },
     { "benchmark", "required", nil },
     { "docs", "required", nil },
+    { "repl", "none", nil },
   }
 
   -- Parse shortopts to build set of options that require arguments
@@ -185,6 +188,9 @@ local function parse_args(): Opts
     elseif opt == "docs" then
       opts.docs = optarg
       return opts
+    elseif opt == "repl" then
+      opts.repl = true
+      return opts
     end
   end
 
@@ -291,6 +297,7 @@ local function generate_help(): string
   table.insert(lines, "  --example <file.tl>         run Example_* functions, check output")
   table.insert(lines, "  --benchmark <file.tl[:pat]> run Benchmark_* functions, report timing")
   table.insert(lines, "  --docs <query>              show docs; exact match or search")
+  table.insert(lines, "  --repl                      start interactive REPL")
   table.insert(lines, "  --help                      show this help message")
   table.insert(lines, "")
   table.insert(lines, "Standard lua options:")
@@ -443,6 +450,13 @@ local function main(): integer, string
       io.stderr:write(result.output .. "\n")
       return 1
     end
+  end
+
+  -- Handle --repl
+  if opts.repl then
+    local repl = require("cosmic.repl")
+    repl.run()
+    return 0
   end
 
   -- Handle -W warnings: convert warnings to errors
