@@ -377,6 +377,30 @@ local function find_method(rec: RecordDoc, method_name: string): string
   return nil
 end
 
+--- Find examples that match a function name.
+--- Looks for Example_<name> patterns in the examples list.
+--- @param examples {ExampleDoc} List of examples to search
+--- @param func_name string Function name to match
+--- @return {ExampleDoc} Matching examples
+local function find_matching_examples(examples: {ExampleDoc}, func_name: string): {ExampleDoc}
+  local matches: {ExampleDoc} = {}
+  if not examples then return matches end
+
+  local func_lower = func_name:lower()
+  for _, example in ipairs(examples) do
+    -- Extract the base name from Example_foo or Example_foo_bar
+    local example_base = example.name:gsub("^Example_?", "")
+    local base_lower = example_base:lower()
+
+    -- Match if example starts with the function name
+    -- Example_open matches "open", Example_open_memory matches "open"
+    if base_lower == func_lower or base_lower:match("^" .. func_lower .. "_") then
+      table.insert(matches, example)
+    end
+  end
+  return matches
+end
+
 --- Find a symbol in a module's documentation.
 --- @param doc ModuleDoc Module documentation
 --- @param symbol string Symbol name to find
@@ -387,7 +411,18 @@ local function find_symbol(doc: ModuleDoc, symbol: string, method?: string): str
   if doc.functions then
     for _, func in ipairs(doc.functions) do
       if func.name == symbol or func.name:lower() == symbol:lower() then
-        return render_function(func)
+        local output = render_function(func)
+
+        -- Find and append matching examples
+        local matching_examples = find_matching_examples(doc.examples, func.name)
+        if #matching_examples > 0 then
+          output = output .. "**Examples:**\n\n"
+          for _, example in ipairs(matching_examples) do
+            output = output .. render_example(example)
+          end
+        end
+
+        return output
       end
     end
   end
