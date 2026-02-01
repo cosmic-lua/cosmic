@@ -118,6 +118,32 @@ local record SearchResult
   symbol_type: string
   description: string
   match_score: integer
+  --  Calculate match score for a search result.
+  --  Scoring tiers (highest to lowest):
+  match: 100 (module), 95 (function/record), 90 (method)
+  --  Calculate match score for a search result.
+  --  Scoring tiers (highest to lowest):
+  --    1. Exact name match: 100 (module), 95 (function/record), 90 (method)
+  match: 80 (module), 75 (function/record), 70 (method)
+  --  Calculate match score for a search result.
+  --  Scoring tiers (highest to lowest):
+  --    1. Exact name match: 100 (module), 95 (function/record), 90 (method)
+  --    2. Partial name match: 80 (module), 75 (function/record), 70 (method)
+  query: +15 bonus for symbols
+  --  Calculate match score for a search result.
+  --  Scoring tiers (highest to lowest):
+  --    1. Exact name match: 100 (module), 95 (function/record), 90 (method)
+  --    2. Partial name match: 80 (module), 75 (function/record), 70 (method)
+  --    3. Module path contains query: +15 bonus for symbols
+  only: 30 (module), 25 (function/record), 20 (method/example)
+  name_lower: string,
+  desc: string,
+  query_lower: string,
+  base_exact: integer,
+  base_partial: integer,
+  base_desc: integer
+  name_lower: find(query_lower, 1, true) then
+  desc: lower():find(query_lower, 1, true) then
   --  Search documentation for a query string.
   query: string): {SearchResult}
 end
