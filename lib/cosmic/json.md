@@ -9,8 +9,8 @@
 
 ```teal
 local record JsonModule
-  decode: function(str: string): any
-  encode: function(value: any): string
+  decode: function(str: string): any, string
+  encode: function(value: any): string, string
 end
 ```
 
@@ -19,7 +19,7 @@ end
 ### decode
 
 ```teal
-function decode(str: string): any
+function decode(str: string): any, string
 ```
 
  Decode a JSON string into a Lua value.
@@ -32,11 +32,12 @@ function decode(str: string): any
 **Returns:**
 
 - any - The decoded Lua value (table, string, number, boolean, or nil)
+- string? - Error message if decoding failed
 
 ### encode
 
 ```teal
-function encode(value: any): string
+function encode(value: any): string, string
 ```
 
  Encode a Lua value as a JSON string.
@@ -49,3 +50,4 @@ function encode(value: any): string
 **Returns:**
 
 - string - The JSON string representation
+- string? - Error message if encoding failed
