@@ -14,9 +14,9 @@ local record CodecModule
   encode_lua: function(value: any, opts?: {string:any}): string
   decode_lua: function(code: string): any, string
   encode_base64: function(data: string): string
-  decode_base64: function(str: string): string
+  decode_base64: function(str: string): string, string
   encode_base32: function(data: string): string
-  decode_base32: function(str: string): string
+  decode_base32: function(str: string): string, string
   encode_latin1: function(str: string): string, string
   decode_latin1: function(data: string): string
 end
@@ -116,7 +116,7 @@ function encode_base64(data: string): string
 ### decode_base64
 
 ```teal
-function decode_base64(str: string): string
+function decode_base64(str: string): string, string
 ```
 
  Decode a base64 string to binary data.
@@ -128,7 +128,8 @@ function decode_base64(str: string): string
 
 **Returns:**
 
-- string - The decoded binary data
+- string - The decoded binary data, or nil on error
+- string? - Error message if decoding failed
 
 ### encode_base32
 
@@ -137,7 +138,7 @@ function encode_base32(data: string): string
 ```
 
  Encode binary data as base32.
- Uses z-base-32 encoding (lowercase alphabet).
+ Uses lowercase base32 alphabet (0-9a-v excluding i, l, o, u).
 
 **Parameters:**
 
@@ -150,11 +151,11 @@ function encode_base32(data: string): string
 ### decode_base32
 
 ```teal
-function decode_base32(str: string): string
+function decode_base32(str: string): string, string
 ```
 
  Decode a base32 string to binary data.
- Accepts z-base-32 encoding.
+ Uses lowercase base32 alphabet (0-9a-v excluding i, l, o, u).
 
 **Parameters:**
 
@@ -162,7 +163,8 @@ function decode_base32(str: string): string
 
 **Returns:**
 
-- string - The decoded binary data
+- string - The decoded binary data, or nil on error
+- string? - Error message if decoding failed
 
 ### encode_latin1
 
