@@ -5,6 +5,18 @@
 
 ## Types
 
+### Errno
+
+```teal
+local record Errno
+  errno: function(self: Errno): number
+  winerr: function(self: Errno): number
+  name: function(self: Errno): string
+  call: function(self: Errno): string
+  doc: function(self: Errno): string
+end
+```
+
 ### UserModule
 
 ```teal
@@ -14,13 +26,13 @@ local record UserModule
   geteuid: function(): number
   getegid: function(): number
   getlogin: function(): string
-  setuid: function(uid: number): boolean
-  setgid: function(gid: number): boolean
-  setfsuid: function(uid: number): boolean
-  setresuid: function(real: number, effective: number, saved: number): boolean
-  setresgid: function(real: number, effective: number, saved: number): boolean
+  setuid: function(uid: number): boolean, string
+  setgid: function(gid: number): boolean, string
+  setfsuid: function(uid: number): boolean, string
+  setresuid: function(real: number, effective: number, saved: number): boolean, string
+  setresgid: function(real: number, effective: number, saved: number): boolean, string
   umask: function(newmask: number): number
-  chroot: function(path: string): boolean
+  chroot: function(path: string): boolean, string
 end
 ```
 
@@ -95,7 +107,7 @@ function getlogin(): string
 ### setuid
 
 ```teal
-function setuid(uid: number): boolean
+function setuid(uid: number): boolean, string
 ```
 
  Set the user ID of the calling process.
@@ -107,12 +119,13 @@ function setuid(uid: number): boolean
 
 **Returns:**
 
-- boolean - True on success, nil on failure
+- boolean - True on success
+- string? - Error message on failure
 
 ### setgid
 
 ```teal
-function setgid(gid: number): boolean
+function setgid(gid: number): boolean, string
 ```
 
  Set the group ID of the calling process.
@@ -124,12 +137,13 @@ function setgid(gid: number): boolean
 
 **Returns:**
 
-- boolean - True on success, nil on failure
+- boolean - True on success
+- string? - Error message on failure
 
 ### setfsuid
 
 ```teal
-function setfsuid(uid: number): boolean
+function setfsuid(uid: number): boolean, string
 ```
 
  Set the filesystem user ID.
@@ -140,12 +154,13 @@ function setfsuid(uid: number): boolean
 
 **Returns:**
 
-- boolean - True on success, nil on failure
+- boolean - True on success
+- string? - Error message on failure
 
 ### setresuid
 
 ```teal
-function setresuid(real: number, effective: number, saved: number): boolean
+function setresuid(real: number, effective: number, saved: number): boolean, string
 ```
 
  Set real, effective, and saved user IDs.
@@ -159,12 +174,13 @@ function setresuid(real: number, effective: number, saved: number): boolean
 
 **Returns:**
 
-- boolean - True on success, nil on failure
+- boolean - True on success
+- string? - Error message on failure
 
 ### setresgid
 
 ```teal
-function setresgid(real: number, effective: number, saved: number): boolean
+function setresgid(real: number, effective: number, saved: number): boolean, string
 ```
 
  Set real, effective, and saved group IDs.
@@ -178,7 +194,8 @@ function setresgid(real: number, effective: number, saved: number): boolean
 
 **Returns:**
 
-- boolean - True on success, nil on failure
+- boolean - True on success
+- string? - Error message on failure
 
 ### umask
 
@@ -201,7 +218,7 @@ function umask(newmask: number): number
 ### chroot
 
 ```teal
-function chroot(path: string): boolean
+function chroot(path: string): boolean, string
 ```
 
  Change the root directory.
@@ -214,4 +231,5 @@ function chroot(path: string): boolean
 
 **Returns:**
 
-- boolean - True on success, nil on failure
+- boolean - True on success
+- string? - Error message on failure

@@ -5,12 +5,24 @@
 
 ## Types
 
+### Errno
+
+```teal
+local record Errno
+  errno: function(self: Errno): number
+  winerr: function(self: Errno): number
+  name: function(self: Errno): string
+  call: function(self: Errno): string
+  doc: function(self: Errno): string
+end
+```
+
 ### SandboxModule
 
 ```teal
 local record SandboxModule
-  pledge: function(promises?: string, execpromises?: string, mode?: number): boolean
-  unveil: function(path: string, permissions: string): boolean
+  pledge: function(promises?: string, execpromises?: string, mode?: number): boolean, string
+  unveil: function(path: string, permissions: string): boolean, string
 end
 ```
 
@@ -19,7 +31,7 @@ end
 ### pledge
 
 ```teal
-function pledge(promises?: string, execpromises?: string, mode?: number): boolean
+function pledge(promises?: string, execpromises?: string, mode?: number): boolean, string
 ```
 
  Restricts system calls available to the process.
@@ -47,11 +59,12 @@ function pledge(promises?: string, execpromises?: string, mode?: number): boolea
 **Returns:**
 
 - boolean - True on success
+- string? - Error message on failure
 
 ### unveil
 
 ```teal
-function unveil(path: string, permissions: string): boolean
+function unveil(path: string, permissions: string): boolean, string
 ```
 
  Restricts filesystem visibility to specified paths.
@@ -72,3 +85,4 @@ function unveil(path: string, permissions: string): boolean
 **Returns:**
 
 - boolean - True on success
+- string? - Error message on failure
