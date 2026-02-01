@@ -27,6 +27,7 @@ High-level utilities and tools built on top of cosmo.
 | Module | Description |
 |--------|-------------|
 | [benchmark](lib/cosmic/benchmark.md) |  Go-style benchmark testing. |
+| [child](lib/cosmic/child.md) |  Child process management. |
 | [codec](lib/cosmic/codec.md) |  Encoding and decoding utilities for various formats. |
 | [doc](lib/cosmic/doc.md) |  Extract documentation from Teal files and render as markdown. |
 | [docindex](lib/cosmic/docindex.md) |  Generate a serialized documentation index from source files. |
@@ -43,9 +44,9 @@ High-level utilities and tools built on top of cosmo.
 | [json](lib/cosmic/json.md) |  JSON encoding and decoding utilities. |
 | [net](lib/cosmic/net.md) |  Networking and socket utilities. |
 | [path](lib/cosmic/path.md) |  Path manipulation utilities. |
+| [proc](lib/cosmic/proc.md) |  Current process management. |
 | [require](lib/cosmic/require.md) |  Enhanced require with helpful error messages. |
 | [signal](lib/cosmic/signal.md) |  Signal handling utilities. |
-| [spawn](lib/cosmic/spawn.md) |  Process spawning utilities. |
 | [sqlite](lib/cosmic/sqlite.md) |  Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns. |
 | [teal](lib/cosmic/teal.md) |  Teal compilation and type-checking. |
 | [time](lib/cosmic/time.md) |  Time and clock utilities. |
