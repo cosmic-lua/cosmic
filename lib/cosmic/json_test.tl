@@ -56,3 +56,33 @@ local function test_roundtrip()
   assert(nested.flag == original.nested.flag, "nested flag mismatch")
 end
 test_roundtrip()
+
+local function test_decode_invalid_json()
+  local result, err = json.decode("{invalid json}")
+  assert(result == nil, "expected nil for invalid json")
+  assert(err ~= nil, "expected error message")
+  assert(type(err) == "string", "error should be a string")
+end
+test_decode_invalid_json()
+
+local function test_decode_truncated_json()
+  local result, err = json.decode('{"key":')
+  assert(result == nil, "expected nil for truncated json")
+  assert(err ~= nil, "expected error message for truncated json")
+end
+test_decode_truncated_json()
+
+local function test_decode_empty_string()
+  local result, err = json.decode("")
+  assert(result == nil, "expected nil for empty string")
+  assert(err ~= nil, "expected error message for empty string")
+end
+test_decode_empty_string()
+
+local function test_encode_invalid_value()
+  local result, err = json.encode(function() end)
+  assert(result == nil, "expected nil for function")
+  assert(err ~= nil, "expected error message for function")
+  assert(type(err) == "string", "error should be a string")
+end
+test_encode_invalid_value()
