@@ -1,5 +1,5 @@
---- URL encoding, decoding, and query string parsing utilities.
---- Wraps cosmo.EscapeParam for encoding and cosmo.ParseParams for query string parsing.
+--- URL encoding, decoding, parsing, and escaping utilities.
+--- Provides functions for URL query encoding, parsing, and component escaping.
 local cosmo = require("cosmo")
 
 --- Encode a string for use in URL query parameters.
@@ -62,6 +62,14 @@ local record UrlModule
   parse: function(query: string): {string:string}
   parse_url: function(url: string): Url
   parse_host: function(hostport: string): string, integer
+  escape_host: function(str: string): string
+  escape_path: function(str: string): string
+  escape_segment: function(str: string): string
+  escape_fragment: function(str: string): string
+  escape_literal: function(str: string): string
+  escape_user: function(str: string): string
+  escape_pass: function(str: string): string
+  escape_ip: function(str: string): string
 end
 
 --- Parse a URL into its components.
@@ -129,12 +137,78 @@ local function parse_host(hostport: string): string, integer
   return hostport, nil
 end
 
+--- Escape a hostname for use in a URL.
+--- @param str string The hostname to escape
+--- @return string The escaped hostname
+local function escape_host(str: string): string
+  return cosmo.EscapeHost(str)
+end
+
+--- Escape a URL path.
+--- Escapes characters that are not allowed in URL paths, preserving slashes.
+--- @param str string The path to escape
+--- @return string The escaped path
+local function escape_path(str: string): string
+  return cosmo.EscapePath(str)
+end
+
+--- Escape a single URL path segment.
+--- More aggressive than escape_path() - also escapes forward slashes.
+--- @param str string The path segment to escape
+--- @return string The escaped segment
+local function escape_segment(str: string): string
+  return cosmo.EscapeSegment(str)
+end
+
+--- Escape a URL fragment.
+--- @param str string The fragment to escape
+--- @return string The escaped fragment
+local function escape_fragment(str: string): string
+  return cosmo.EscapeFragment(str)
+end
+
+--- Escape a string for literal URL matching.
+--- @param str string The string to escape
+--- @return string The escaped string
+local function escape_literal(str: string): string
+  return cosmo.EscapeLiteral(str)
+end
+
+--- Escape a username for use in a URL.
+--- @param str string The username to escape
+--- @return string The escaped username
+local function escape_user(str: string): string
+  return cosmo.EscapeUser(str)
+end
+
+--- Escape a password for use in a URL.
+--- @param str string The password to escape
+--- @return string The escaped password
+local function escape_pass(str: string): string
+  return cosmo.EscapePass(str)
+end
+
+--- Escape an IP address for use in a URL.
+--- @param str string The IP address to escape
+--- @return string The escaped IP address
+local function escape_ip(str: string): string
+  return cosmo.EscapeIp(str)
+end
+
 local M: UrlModule = {
   encode = encode,
   decode = decode,
   parse = parse,
   parse_url = parse_url,
   parse_host = parse_host,
+  escape_host = escape_host,
+  escape_path = escape_path,
+  escape_segment = escape_segment,
+  escape_fragment = escape_fragment,
+  escape_literal = escape_literal,
+  escape_user = escape_user,
+  escape_pass = escape_pass,
+  escape_ip = escape_ip,
 }
 
 return M
