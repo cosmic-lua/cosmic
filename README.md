@@ -52,6 +52,7 @@ High-level utilities and tools built on top of cosmo.
 | [shm](lib/cosmic/shm.md) |  Shared memory for inter-process communication. |
 | [signal](lib/cosmic/signal.md) |  Signal handling utilities. |
 | [sqlite](lib/cosmic/sqlite.md) |  Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns. |
+| [sys](lib/cosmic/sys.md) |  System information utilities. |
 | [teal](lib/cosmic/teal.md) |  Teal compilation and type-checking. |
 | [time](lib/cosmic/time.md) |  Time and clock utilities. |
 | [tty](lib/cosmic/tty.md) |  Terminal (TTY) utilities. |
