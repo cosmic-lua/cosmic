@@ -1,7 +1,7 @@
 # url
 
- URL encoding, decoding, and query string parsing utilities.
- Wraps cosmo.EscapeParam for encoding and cosmo.ParseParams for query string parsing.
+ URL encoding, decoding, parsing, and escaping utilities.
+ Provides functions for URL query encoding, parsing, and component escaping.
 
 ## Types
 
@@ -32,6 +32,14 @@ local record UrlModule
   parse: function(query: string): {string:string}
   parse_url: function(url: string): Url
   parse_host: function(hostport: string): string, integer
+  escape_host: function(str: string): string
+  escape_path: function(str: string): string
+  escape_segment: function(str: string): string
+  escape_fragment: function(str: string): string
+  escape_literal: function(str: string): string
+  escape_user: function(str: string): string
+  escape_pass: function(str: string): string
+  escape_ip: function(str: string): string
 end
 ```
 
@@ -121,3 +129,133 @@ function parse_host(hostport: string): string, integer
 
 - string - The host
 - integer? - The port, or nil if not specified
+
+### escape_host
+
+```teal
+function escape_host(str: string): string
+```
+
+ Escape a hostname for use in a URL.
+
+**Parameters:**
+
+- `str` (string) - The hostname to escape
+
+**Returns:**
+
+- string - The escaped hostname
+
+### escape_path
+
+```teal
+function escape_path(str: string): string
+```
+
+ Escape a URL path.
+ Escapes characters that are not allowed in URL paths, preserving slashes.
+
+**Parameters:**
+
+- `str` (string) - The path to escape
+
+**Returns:**
+
+- string - The escaped path
+
+### escape_segment
+
+```teal
+function escape_segment(str: string): string
+```
+
+ Escape a single URL path segment.
+ More aggressive than escape_path() - also escapes forward slashes.
+
+**Parameters:**
+
+- `str` (string) - The path segment to escape
+
+**Returns:**
+
+- string - The escaped segment
+
+### escape_fragment
+
+```teal
+function escape_fragment(str: string): string
+```
+
+ Escape a URL fragment.
+
+**Parameters:**
+
+- `str` (string) - The fragment to escape
+
+**Returns:**
+
+- string - The escaped fragment
+
+### escape_literal
+
+```teal
+function escape_literal(str: string): string
+```
+
+ Escape a string for literal URL matching.
+
+**Parameters:**
+
+- `str` (string) - The string to escape
+
+**Returns:**
+
+- string - The escaped string
+
+### escape_user
+
+```teal
+function escape_user(str: string): string
+```
+
+ Escape a username for use in a URL.
+
+**Parameters:**
+
+- `str` (string) - The username to escape
+
+**Returns:**
+
+- string - The escaped username
+
+### escape_pass
+
+```teal
+function escape_pass(str: string): string
+```
+
+ Escape a password for use in a URL.
+
+**Parameters:**
+
+- `str` (string) - The password to escape
+
+**Returns:**
+
+- string - The escaped password
+
+### escape_ip
+
+```teal
+function escape_ip(str: string): string
+```
+
+ Escape an IP address for use in a URL.
+
+**Parameters:**
+
+- `str` (string) - The IP address to escape
+
+**Returns:**
+
+- string - The escaped IP address

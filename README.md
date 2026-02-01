@@ -34,7 +34,6 @@ High-level utilities and tools built on top of cosmo.
 | [docs](lib/cosmic/docs.md) |  Access embedded documentation from the cosmic binary. |
 | [embed](lib/cosmic/embed.md) |  Embed files into cosmic executable. |
 | [env](lib/cosmic/env.md) |  Environment variable utilities. |
-| [escape](lib/cosmic/escape.md) |  HTML and URL component escaping utilities. |
 | [example](lib/cosmic/example.md) |  Go-style executable example testing. |
 | [fetch](lib/cosmic/fetch.md) |  Structured HTTP fetch with optional retry. |
 | [fs](lib/cosmic/fs.md) |  Filesystem operations. |
@@ -42,6 +41,7 @@ High-level utilities and tools built on top of cosmo.
 | [gendoc](lib/cosmic/gendoc.md) |  |
 | [getopt](lib/cosmic/getopt.md) |  Command-line option parsing utilities. |
 | [hash](lib/cosmic/hash.md) |  Hash utilities. |
+| [html](lib/cosmic/html.md) |  HTML utilities. |
 | [init](lib/cosmic/init.md) |  Cosmopolitan Lua utilities. |
 | [io](lib/cosmic/io.md) |  File descriptor I/O operations. |
 | [json](lib/cosmic/json.md) |  JSON encoding and decoding utilities. |
@@ -59,7 +59,7 @@ High-level utilities and tools built on top of cosmo.
 | [teal](lib/cosmic/teal.md) |  Teal compilation and type-checking. |
 | [time](lib/cosmic/time.md) |  Time and clock utilities. |
 | [tty](lib/cosmic/tty.md) |  Terminal (TTY) utilities. |
-| [url](lib/cosmic/url.md) |  URL encoding, decoding, and query string parsing utilities. |
+| [url](lib/cosmic/url.md) |  URL encoding, decoding, parsing, and escaping utilities. |
 | [user](lib/cosmic/user.md) |  User and group identity operations. |
 | [uuid](lib/cosmic/uuid.md) |  UUID generation utilities. |
 | [walk](lib/cosmic/walk.md) |  Directory tree walking utilities. |
