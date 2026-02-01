@@ -31,6 +31,7 @@ High-level utilities and tools built on top of cosmo.
 | [docindex](lib/cosmic/docindex.md) |  Generate a serialized documentation index from source files. |
 | [docs](lib/cosmic/docs.md) |  Access embedded documentation from the cosmic binary. |
 | [embed](lib/cosmic/embed.md) |  Embed files into cosmic executable. |
+| [env](lib/cosmic/env.md) |  Environment variable utilities. |
 | [example](lib/cosmic/example.md) |  Go-style executable example testing. |
 | [fetch](lib/cosmic/fetch.md) |  Structured HTTP fetch with optional retry. |
 | [fs](lib/cosmic/fs.md) |  Filesystem operations. |
