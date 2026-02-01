@@ -33,6 +33,7 @@ local record Regex
 end
 
 local record re
+  -- Error codes
   NOMATCH: number
   BADPAT: number
   ECOLLATE: number
@@ -41,6 +42,16 @@ local record re
   ESUBREG: number
   EBRACK: number
   EPAREN: number
+
+  -- Compile flags
+  BASIC: number    -- Use basic (obsolete) regex syntax instead of extended
+  ICASE: number    -- Case-insensitive matching
+  NEWLINE: number  -- Treat newline as special (affects ^ and $)
+  NOSUB: number    -- Report only success/failure, not match position
+
+  -- Search flags
+  NOTBOL: number   -- First character is not at beginning of line
+  NOTEOL: number   -- Last character is not at end of line
 
   --- Searches for regular expression match in text.
   --- This is a shorthand notation roughly equivalent to:
@@ -65,7 +76,8 @@ local record re
   --- If regex is an untrusted user value, then `unix.setrlimit` should be
   --- used to impose cpu and memory quotas for security.
   --- This uses POSIX extended syntax by default.
-  compile: function(regex: string, flags?: number): Regex
+  --- Returns nil and an Errno on failure.
+  compile: function(regex: string, flags?: number): Regex, Errno
 end
 
 return re
