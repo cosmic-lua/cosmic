@@ -1,6 +1,7 @@
 --- Time and clock utilities.
 --- Wraps cosmo.unix time functions for timestamps, sleeping, and time breakdown.
 local unix = require("cosmo.unix")
+local cosmo = require("cosmo")
 
 --- DateTime represents a broken-down timestamp.
 --- Returned by gmtime() and localtime().
@@ -118,6 +119,21 @@ local function localtime(unixts: number): DateTime
   }
 end
 
+--- Format a UNIX timestamp as an HTTP date string (RFC 7231).
+--- @param timestamp number UNIX timestamp (seconds since epoch)
+--- @return string HTTP date string (e.g., "Sun, 01 Feb 2026 12:00:00 GMT")
+local function format_http(timestamp: number): string
+  return cosmo.FormatHttpDateTime(timestamp)
+end
+
+--- Parse an HTTP date string (RFC 7231) into a UNIX timestamp.
+--- Returns 0 for invalid input.
+--- @param str string HTTP date string
+--- @return number UNIX timestamp, or 0 if parsing failed
+local function parse_http(str: string): number
+  return cosmo.ParseHttpDateTime(str)
+end
+
 local record TimeModule
   -- Clock constants
   CLOCK_REALTIME: number
@@ -137,6 +153,8 @@ local record TimeModule
   sleep_ms: function(ms: number): number, number
   gmtime: function(unixts: number): DateTime
   localtime: function(unixts: number): DateTime
+  format_http: function(timestamp: number): string
+  parse_http: function(str: string): number
 end
 
 local M: TimeModule = {
@@ -158,6 +176,8 @@ local M: TimeModule = {
   sleep_ms = sleep_ms,
   gmtime = gmtime,
   localtime = localtime,
+  format_http = format_http,
+  parse_http = parse_http,
 }
 
 return M

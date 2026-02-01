@@ -21,6 +21,10 @@ local record cosmo
   EscapeParam: function(str: string): string
   ParseParams: function(query: string): {{string, string}}
 
+  -- http datetime
+  FormatHttpDateTime: function(timestamp: number): string
+  ParseHttpDateTime: function(str: string): number
+
   -- system info
   GetHostOs: function(): string
   GetHostIsa: function(): string
