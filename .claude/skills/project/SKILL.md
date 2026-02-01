@@ -78,8 +78,11 @@ Work through these steps in order, stopping when you find actionable work:
 
 2. **Start work (if In Progress has capacity)**
    - If In Progress < 1, pull top item from "next"
-   - Move issue to "In Progress" and begin work
    - Skip blocked issues (check for `blocked` label)
+   - **Before starting any implementation:**
+     1. Re-check the board state to confirm the issue is still available (someone else may have picked it up)
+     2. Move the issue to "In Progress" and verify the move succeeded
+     3. Only then begin implementation work
 
 3. **Refill next (if next has capacity)**
    - If next < 3, promote top item from "Todo"
@@ -181,9 +184,12 @@ gh api graphql -f query='...' | jq '
 When working on a task:
 1. Run `/project` to check board state
 2. Follow "Work the board" steps in order
-3. When starting work, move issue to "In Progress"
-4. Open PR when ready, move to "ready"
-5. After merge, move to "Done"
+3. **Before writing any code**: move issue to "In Progress" and verify the move
+4. Only after confirming the issue is in "In Progress", begin implementation
+5. Open PR when ready, move to "ready"
+6. After merge, move to "Done"
+
+**Important**: Always re-check the board before claiming an issue. Someone else may have moved it since you last checked.
 
 When reviewing the board:
 1. Check capacity in each column
