@@ -68,6 +68,11 @@ end
 
 local INDEX_PATH = "/zip/.docs/index.lua"
 
+-- Map low-level cosmo modules to their high-level cosmic equivalents
+local COSMIC_EQUIVALENTS: {string: string} = {
+  ["cosmo.lsqlite3"] = "cosmic.sqlite",
+}
+
 -- Cached index
 local cached_index: DocIndex = nil
 
@@ -317,6 +322,13 @@ local function render_module(name: string, doc: ModuleDoc): string
 
   if doc.module_doc then
     table.insert(lines, doc.module_doc)
+    table.insert(lines, "")
+  end
+
+  -- Show tip if this cosmo module has a cosmic equivalent
+  local equivalent = COSMIC_EQUIVALENTS[name]
+  if equivalent then
+    table.insert(lines, "**Tip:** For a high-level API, see `" .. equivalent .. "`.")
     table.insert(lines, "")
   end
 

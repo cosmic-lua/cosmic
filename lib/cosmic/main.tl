@@ -400,6 +400,8 @@ local function generate_help(): string
         end
 
         table.insert(lines, "")
+        table.insert(lines, "  Tip: Use cosmic.* for high-level APIs. Use cosmo.* for low-level bindings.")
+        table.insert(lines, "")
       end
     end
   end
