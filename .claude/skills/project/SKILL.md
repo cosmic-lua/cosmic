@@ -19,9 +19,9 @@ Pull-based workflow from the GitHub project board.
 
 | Column | Limit | Description |
 |--------|-------|-------------|
-| next | 3 | Prioritized, ready to start |
-| In Progress | 1 | Active work |
-| ready | 2 | Ready for review |
+| next | 5 | Prioritized, ready to start |
+| In Progress | 3 | Active work |
+| ready | 3 | Ready for review |
 
 ## Workflow
 
@@ -78,7 +78,7 @@ Work through these steps in order, stopping when you find actionable work:
    - **Do not** approve or merge PRs - only humans do this
 
 2. **Start work (if In Progress has capacity)**
-   - If In Progress < 1, pull top item from "next"
+   - If In Progress < 3, pull top item from "next"
    - Skip blocked issues (check for `blocked` label)
    - **Before starting any implementation:**
      1. Re-check the board state to confirm the issue is still available (someone else may have picked it up)
@@ -86,7 +86,7 @@ Work through these steps in order, stopping when you find actionable work:
      3. Only then begin implementation work
 
 3. **Refill next (if next has capacity)**
-   - If next < 3, promote top item from "Todo"
+   - If next < 5, promote top item from "Todo"
    - Items should be prioritized in Todo before promotion
 
 4. **Refine next items**
