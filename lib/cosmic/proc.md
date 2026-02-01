@@ -69,6 +69,12 @@ local record ProcModule
   execvpe: function(prog: string, argv: {string}, envp?: {string}): nil, Errno
   fexecve: function(fd: number, argv: {string}, envp?: {string}): nil, Errno
   getrusage: function(who?: number): Rusage
+  getrlimit: function(resource: number): number, number
+  setrlimit: function(resource: number, soft: number, hard?: number): boolean, string
+  nice: function(inc: number): number
+  getpriority: function(which: number, who: number): number
+  setpriority: function(which: number, who: number, prio: number): boolean, string
+  sched_yield: function()
   is_main: function(): boolean
   RUSAGE_SELF: number
   RUSAGE_CHILDREN: number
@@ -86,6 +92,15 @@ local record ProcModule
   SIGUSR2: number
   SIGPIPE: number
   SIGALRM: number
+  RLIMIT_AS: number
+  RLIMIT_CPU: number
+  RLIMIT_FSIZE: number
+  RLIMIT_NOFILE: number
+  RLIMIT_NPROC: number
+  RLIMIT_RSS: number
+  PRIO_PROCESS: number
+  PRIO_PGRP: number
+  PRIO_USER: number
 end
 ```
 
@@ -400,6 +415,108 @@ function getrusage(who?: number): Rusage
 **Returns:**
 
 - Rusage - Resource usage statistics
+
+### getrlimit
+
+```teal
+function getrlimit(resource: number): number, number
+```
+
+ Gets resource limits for the current process.
+ Returns the soft and hard limits for the specified resource.
+
+**Parameters:**
+
+- `resource` (number) - The RLIMIT_* constant identifying the resource
+
+**Returns:**
+
+- number - Soft limit (can be exceeded, may generate signal)
+- number - Hard limit (cannot be exceeded by unprivileged processes)
+
+### setrlimit
+
+```teal
+function setrlimit(resource: number, soft: number, hard?: number): boolean, string
+```
+
+ Sets resource limits for the current process.
+ The soft limit can be raised up to the hard limit.
+ Only privileged processes can raise the hard limit.
+
+**Parameters:**
+
+- `resource` (number) - The RLIMIT_* constant identifying the resource
+- `soft` (number) - New soft limit
+- `hard` (number?) - New hard limit (defaults to soft if not provided)
+
+**Returns:**
+
+- boolean - True on success
+- string? - Error message on failure
+
+### nice
+
+```teal
+function nice(inc: number): number
+```
+
+ Adjusts the nice value (scheduling priority) of the calling process.
+ The nice value ranges from -20 (highest priority) to 19 (lowest priority).
+ Only privileged processes can lower the nice value (increase priority).
+
+**Parameters:**
+
+- `inc` (number) - Value to add to current nice value
+
+**Returns:**
+
+- number - The new nice value
+
+### getpriority
+
+```teal
+function getpriority(which: number, who: number): number
+```
+
+ Gets the scheduling priority of a process, process group, or user.
+
+**Parameters:**
+
+- `which` (number) - What `who` refers to: PRIO_PROCESS, PRIO_PGRP, or PRIO_USER
+- `who` (number) - The id to query (0 = calling process/group/user)
+
+**Returns:**
+
+- number - The priority value (nice value), ranging from -20 to 19
+
+### setpriority
+
+```teal
+function setpriority(which: number, who: number, prio: number): boolean, string
+```
+
+ Sets the scheduling priority of a process, process group, or user.
+
+**Parameters:**
+
+- `which` (number) - What `who` refers to: PRIO_PROCESS, PRIO_PGRP, or PRIO_USER
+- `who` (number) - The id to modify (0 = calling process/group/user)
+- `prio` (number) - New priority value (-20 to 19, lower = higher priority)
+
+**Returns:**
+
+- boolean - True on success
+- string? - Error message on failure
+
+### sched_yield
+
+```teal
+function sched_yield()
+```
+
+ Relinquishes the CPU, allowing other processes to run.
+ Causes the calling thread to yield its scheduled time quantum.
 
 ### is_main
 
