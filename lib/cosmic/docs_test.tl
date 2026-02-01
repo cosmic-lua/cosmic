@@ -181,6 +181,20 @@ local function test_run_method()
 end
 test_run_method()
 
+-- Test cosmo module shows tip about cosmic equivalent
+local function test_cosmic_equivalent_tip()
+  local result = docs.run("cosmo.lsqlite3")
+  assert(result, "run should return a result")
+  if result.ok then
+    assert(result.output:find("cosmic.sqlite", 1, true),
+           "cosmo.lsqlite3 docs should mention cosmic.sqlite equivalent")
+    assert(result.output:find("Tip:", 1, true),
+           "cosmo.lsqlite3 docs should show tip")
+  end
+  print("test_cosmic_equivalent_tip: PASS")
+end
+test_cosmic_equivalent_tip()
+
 -- Test search finds bind methods
 local function test_search_bind_methods()
   local results = docs.search("bind")
