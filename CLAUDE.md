@@ -30,7 +30,7 @@ make staged    # Fetch and extract dependencies
 make cosmic    # Build the cosmic binary
 make check     # Run Teal type checking
 make test      # Run all tests
-make test ONLY=spawn  # Run tests matching "spawn"
+make test only=spawn  # Run tests matching "spawn"
 make example   # Run all examples
 make benchmark # Run all benchmarks
 make ci        # Full CI pipeline
