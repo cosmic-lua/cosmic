@@ -60,6 +60,7 @@ High-level utilities and tools built on top of cosmo.
 | [tty](lib/cosmic/tty.md) |  Terminal (TTY) utilities. |
 | [url](lib/cosmic/url.md) |  URL encoding, decoding, and query string parsing utilities. |
 | [user](lib/cosmic/user.md) |  User and group identity operations. |
+| [uuid](lib/cosmic/uuid.md) |  UUID generation utilities. |
 | [walk](lib/cosmic/walk.md) |  Directory tree walking utilities. |
 | [welcome](lib/cosmic/welcome.md) |  |
 | [zip](lib/cosmic/zip.md) |  ZIP archive reading and writing utilities. |
