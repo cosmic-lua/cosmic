@@ -38,6 +38,7 @@ High-level utilities and tools built on top of cosmo.
 | [init](lib/cosmic/init.md) |  Cosmopolitan Lua utilities. |
 | [io](lib/cosmic/io.md) |  File descriptor I/O operations. |
 | [json](lib/cosmic/json.md) |  JSON encoding and decoding utilities. |
+| [net](lib/cosmic/net.md) |  Networking and socket utilities. |
 | [path](lib/cosmic/path.md) |  Path manipulation utilities. |
 | [require](lib/cosmic/require.md) |  Enhanced require with helpful error messages. |
 | [spawn](lib/cosmic/spawn.md) |  Process spawning utilities. |
