@@ -18,7 +18,7 @@ end
 test_require_cosmic()
 
 local function test_require_cosmic_spawn()
-  local spawn_mod = require("cosmic.spawn")
+  local spawn_mod = require("cosmic.child")
   assert(spawn_mod ~= nil, "spawn_mod should not be nil")
   assert(spawn_mod.spawn ~= nil, "spawn_mod.spawn should not be nil")
 end

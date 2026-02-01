@@ -13,7 +13,7 @@ test_module_exists_preloaded()
 
 local function test_module_exists_cosmic()
   -- cosmic modules are in package.path
-  assert(require_mod.module_exists("cosmic.spawn"), "cosmic.spawn should exist")
+  assert(require_mod.module_exists("cosmic.child"), "cosmic.child should exist")
   assert(require_mod.module_exists("cosmic.walk"), "cosmic.walk should exist")
   assert(require_mod.module_exists("cosmic.fetch"), "cosmic.fetch should exist")
 end
@@ -33,8 +33,8 @@ end
 test_format_error_suggests_cosmo_prefix()
 
 local function test_format_error_suggests_cosmic_prefix()
-  local err = require_mod.format_error("spawn")
-  assert(err:match("cosmic%.spawn"), "should suggest cosmic.spawn, got: " .. err)
+  local err = require_mod.format_error("child")
+  assert(err:match("cosmic%.child"), "should suggest cosmic.child, got: " .. err)
 end
 test_format_error_suggests_cosmic_prefix()
 
@@ -61,8 +61,8 @@ local function test_require_valid_module_works()
   local unix = require("cosmo.unix")
   assert(unix ~= nil, "require('cosmo.unix') should work")
 
-  local spawn = require("cosmic.spawn")
-  assert(spawn ~= nil, "require('cosmic.spawn') should work")
+  local spawn = require("cosmic.child")
+  assert(spawn ~= nil, "require('cosmic.child') should work")
 end
 test_require_valid_module_works()
 

@@ -2,7 +2,7 @@
 -- test cosmic.benchmark module
 
 local path = require("cosmo.path")
-local spawn = require("cosmic.spawn")
+local spawn = require("cosmic.child")
 local cosmo = require("cosmo")
 local benchmark = require("cosmic.benchmark")
 
@@ -89,7 +89,7 @@ local function Benchmark_cmd()
   local x = 1 + 1
 end
 ]])
-  local ok, out = spawn({cosmic, "--benchmark", input}):read()
+  local ok, out = spawn.spawn({cosmic, "--benchmark", input}):read()
   assert(ok, "cosmic --benchmark should succeed")
   assert((out as string):find("Benchmark_cmd"), "output should contain benchmark name")
   assert((out as string):find("ns/op") or (out as string):find("µs/op") or (out as string):find("ms/op"), "output should show timing")
@@ -101,7 +101,7 @@ local function test_cosmic_benchmark_skip()
   local input = write_temp("cmd_bench_skip.tl", [[
 local x = 1
 ]])
-  local h = spawn({cosmic, "--benchmark", input})
+  local h = spawn.spawn({cosmic, "--benchmark", input})
   h.stdin:close()
   local out = h.stdout:read()
   local code = h:wait()
@@ -202,7 +202,7 @@ local function Benchmark_beta()
   local y = 2
 end
 ]])
-  local ok, out = spawn({cosmic, "--benchmark", input .. ":alpha"}):read()
+  local ok, out = spawn.spawn({cosmic, "--benchmark", input .. ":alpha"}):read()
   assert(ok, "cosmic --benchmark with filter should succeed")
   assert((out as string):find("Benchmark_alpha"), "output should contain matching benchmark")
   assert(not (out as string):find("Benchmark_beta"), "output should not contain non-matching benchmark")

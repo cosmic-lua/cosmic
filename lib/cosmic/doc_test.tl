@@ -2,7 +2,7 @@
 -- test cosmic.doc module
 
 local path = require("cosmo.path")
-local spawn = require("cosmic.spawn")
+local spawn = require("cosmic.child")
 local cosmo = require("cosmo")
 local doc = require("cosmic.doc")
 
@@ -215,13 +215,13 @@ local function test_embed_has_type_descriptions()
 end
 test_embed_has_type_descriptions()
 
-local function test_spawn_has_type_descriptions()
-  local ok, md = doc.render_file("lib/cosmic/spawn.tl")
-  assert(ok, "should read spawn.tl")
-  -- SpawnHandle should have a description
-  assert(md:find("### SpawnHandle\n\n[^#]"), "SpawnHandle should have description")
+local function test_child_has_type_descriptions()
+  local ok, md = doc.render_file("lib/cosmic/child.tl")
+  assert(ok, "should read child.tl")
+  -- Handle should have a description
+  assert(md:find("### Handle\n\n[^#]"), "Handle should have description")
 end
-test_spawn_has_type_descriptions()
+test_child_has_type_descriptions()
 
 local function test_fetch_has_module_description()
   local ok, md = doc.render_file("lib/cosmic/fetch.tl")
