@@ -2,6 +2,15 @@
 --- Wraps cosmo.unix for file and directory operations: stat, mkdir, chmod, symlink, etc.
 local unix = require("cosmo.unix")
 
+-- Raw Dir type from cosmo.unix
+local record RawDir
+  read: function(self: RawDir): string
+  close: function(self: RawDir)
+  fd: function(self: RawDir): number
+  rewind: function(self: RawDir)
+  tell: function(self: RawDir): number
+end
+
 --- File or directory metadata.
 --- Use is_dir(), is_file(), etc. to check file type.
 local record Stat
@@ -28,6 +37,7 @@ local record Stat
 end
 
 --- Handle for reading directory entries.
+--- Supports automatic cleanup with `<close>` attribute.
 local record Dir
   --- Reads next directory entry. Returns nil when done.
   read: function(self: Dir): string
@@ -39,6 +49,48 @@ local record Dir
   rewind: function(self: Dir)
   --- Returns current position in directory stream.
   tell: function(self: Dir): number
+  --- Returns true if directory handle is closed.
+  closed: function(self: Dir): boolean
+end
+
+-- Wrap a raw cosmo Dir with __close support
+local function make_dir(raw: RawDir): Dir
+  local is_closed = false
+
+  local dir: Dir = {
+    read = function(_self: Dir): string
+      if is_closed then return nil end
+      return raw:read()
+    end,
+    close = function(_self: Dir)
+      if not is_closed then
+        raw:close()
+        is_closed = true
+      end
+    end,
+    fd = function(_self: Dir): number
+      if is_closed then return -1 end
+      return raw:fd()
+    end,
+    rewind = function(_self: Dir)
+      if not is_closed then raw:rewind() end
+    end,
+    tell = function(_self: Dir): number
+      if is_closed then return -1 end
+      return raw:tell()
+    end,
+    closed = function(_self: Dir): boolean
+      return is_closed
+    end,
+  }
+
+  local mt: metatable<Dir> = {
+    __close = function(self: Dir)
+      self:close()
+    end
+  }
+
+  return setmetatable(dir, mt)
 end
 
 -- Stat operations
@@ -190,27 +242,29 @@ end
 
 --- Open a directory for reading.
 --- Call dir:read() to iterate entries, dir:close() when done.
+--- Supports automatic cleanup with `<close>` attribute.
 --- @param path string Path to the directory
 --- @return Dir Directory handle, or nil on error
 --- @return string Error message if failed
 local function opendir(path: string): Dir, string
-  local dir = unix.opendir(path) as Dir
-  if not dir then
+  local raw = unix.opendir(path) as RawDir
+  if not raw then
     return nil, "opendir failed: " .. path
   end
-  return dir
+  return make_dir(raw)
 end
 
 --- Open a directory from a file descriptor.
+--- Supports automatic cleanup with `<close>` attribute.
 --- @param fd number File descriptor for an open directory
 --- @return Dir Directory handle, or nil on error
 --- @return string Error message if failed
 local function fdopendir(fd: number): Dir, string
-  local _, dir = unix.fdopendir(fd)
-  if not dir then
+  local _, raw = unix.fdopendir(fd)
+  if not raw then
     return nil, "fdopendir failed"
   end
-  return dir as Dir
+  return make_dir(raw as RawDir)
 end
 
 -- File operations
