@@ -8,11 +8,13 @@
 ### Socket
 
  Socket handle for network I/O.
+ Supports Lua 5.4's to-be-closed via __close metamethod.
 
 ```teal
 local record Socket
   fd: number
   close: function(self: Socket): boolean
+  closed: function(self: Socket): boolean
   shutdown: function(self: Socket, how?: number): boolean, string
   send: function(self: Socket, data: string, flags?: number): number, string
   sendto: function(self: Socket, data: string, ip: number, port: number, flags?: number): number, string
@@ -226,10 +228,23 @@ function sock:close(): boolean
 ```
 
  Close the socket.
+ Idempotent: safe to call multiple times.
 
 **Returns:**
 
 - boolean - True on success
+
+### sock:closed
+
+```teal
+function sock:closed(): boolean
+```
+
+ Check if the socket is closed.
+
+**Returns:**
+
+- boolean - True if closed
 
 ### sock:shutdown
 
