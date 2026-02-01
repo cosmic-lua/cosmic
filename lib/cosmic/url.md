@@ -5,13 +5,33 @@
 
 ## Types
 
+### Url
+
+ Parsed URL components.
+
+```teal
+local record Url
+  scheme: string
+  user: string
+  pass: string
+  host: string
+  port: integer
+  path: string
+  query: string
+  fragment: string
+end
+```
+
 ### UrlModule
 
 ```teal
 local record UrlModule
+  Url: Url
   encode: function(str: string): string
   decode: function(str: string): string, string
   parse: function(query: string): {string:string}
+  parse_url: function(url: string): Url
+  parse_host: function(hostport: string): string, integer
 end
 ```
 
@@ -68,3 +88,36 @@ function parse(query: string): {string:string}
 **Returns:**
 
 - {string:string} - Table of key-value pairs
+
+### parse_url
+
+```teal
+function parse_url(url: string): Url
+```
+
+ Parse a URL into its components.
+
+**Parameters:**
+
+- `url` (string) - The URL to parse
+
+**Returns:**
+
+- Url - The parsed URL components
+
+### parse_host
+
+```teal
+function parse_host(hostport: string): string, integer
+```
+
+ Parse a host:port string into its components.
+
+**Parameters:**
+
+- `hostport` (string) - The host:port string (e.g., "example.com:8080")
+
+**Returns:**
+
+- string - The host
+- integer? - The port, or nil if not specified
