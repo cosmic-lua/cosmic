@@ -76,8 +76,8 @@ local function test_sigaction_ignore()
   local old_handler, old_flags, old_mask = signal.sigaction(signal.SIGUSR1, signal.SIG_IGN)
 
   -- Raise SIGUSR1 - should not terminate since it's ignored
-  local ret = signal.raise(signal.SIGUSR1)
-  assert(ret == 0, "raise should return 0")
+  local ok, err = signal.raise(signal.SIGUSR1)
+  assert(ok, "raise should succeed: " .. (err or ""))
 
   -- Restore old handler
   signal.sigaction(signal.SIGUSR1, old_handler, old_flags, old_mask)
