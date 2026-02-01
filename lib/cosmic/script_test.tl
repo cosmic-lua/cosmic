@@ -2,7 +2,7 @@
 -- test cosmic script execution with .tl and .lua files
 
 local path = require("cosmo.path")
-local spawn = require("cosmic.spawn")
+local spawn = require("cosmic.child")
 local cosmo = require("cosmo")
 
 local unix = require("cosmo.unix")

@@ -2,7 +2,7 @@
 local cosmo = require("cosmo")
 local unix = require("cosmo.unix")
 local path = require("cosmo.path")
-local spawn = require("cosmic.spawn")
+local spawn = require("cosmic.child")
 
 local record DirHandle
   read: function(DirHandle): string

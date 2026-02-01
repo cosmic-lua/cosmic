@@ -1,6 +1,6 @@
 #!/usr/bin/env cosmic
 
-local spawn = require("cosmic.spawn")
+local spawn = require("cosmic.child")
 local path = require("cosmo.path")
 
 global TEST_DIR: string

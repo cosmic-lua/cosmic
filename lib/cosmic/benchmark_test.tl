@@ -2,7 +2,7 @@
 -- test cosmic.benchmark module
 
 local path = require("cosmo.path")
-local spawn = require("cosmic.spawn")
+local spawn = require("cosmic.child")
 local cosmo = require("cosmo")
 local benchmark = require("cosmic.benchmark")
 

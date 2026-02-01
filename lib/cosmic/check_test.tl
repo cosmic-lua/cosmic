@@ -2,7 +2,7 @@
 -- test cosmic --check-types option
 
 local path = require("cosmo.path")
-local spawn = require("cosmic.spawn")
+local spawn = require("cosmic.child")
 local cosmo = require("cosmo")
 
 local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")

@@ -3,7 +3,7 @@
 
 local path = require("cosmo.path")
 local unix = require("cosmo.unix")
-local spawn = require("cosmic.spawn")
+local spawn = require("cosmic.child")
 local cosmo = require("cosmo")
 local zip = require("cosmo.zip")
 
