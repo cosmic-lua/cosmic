@@ -13,8 +13,8 @@ local record cosmo
 
   -- encoding
   EncodeHex: function(data: string): string
-  EncodeJson: function(value: any): string
-  DecodeJson: function(json: string): any
+  EncodeJson: function(value: any): string, string
+  DecodeJson: function(json: string): any, string
   EncodeLua: function(value: any, opts?: {string:any}): string
 
   -- system info
