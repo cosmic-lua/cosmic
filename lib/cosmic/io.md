@@ -2,19 +2,9 @@
 
  File descriptor I/O operations.
  Wraps low-level file descriptor operations from cosmo.unix.
+ Supports Lua 5.4's to-be-closed via __close metamethod on Handle and Pipe.
 
 ## Types
-
-### PipeResult
-
- Result from a pipe operation.
-
-```teal
-local record PipeResult
-  reader: number
-  writer: number
-end
-```
 
 ### UnixIO
 
@@ -29,7 +19,7 @@ local record UnixIO
   ftruncate: function(fd: number, length?: number): boolean, any
   dup: function(oldfd: number, newfd?: number, flags?: number, lowest?: number): number, any
   pipe: function(flags?: number): number, number | any
-  fcntl: function(fd: number, cmd: number, ...: any): any
+  fcntl: function(fd: number, cmd: number, arg?: number): number, any
   sync: function()
   fsync: function(fd: number): boolean, any
   fdatasync: function(fd: number): boolean, any
@@ -48,17 +38,54 @@ local record UnixIO
   SEEK_SET: number
   SEEK_CUR: number
   SEEK_END: number
+  F_DUPFD: number
   F_GETFD: number
   F_SETFD: number
   F_GETFL: number
   F_SETFL: number
   F_SETLK: number
   F_SETLKW: number
+  F_GETLK: number
   F_RDLCK: number
   F_WRLCK: number
   F_UNLCK: number
   FD_CLOEXEC: number
   AT_FDCWD: number
+end
+```
+
+### Handle
+
+ File handle for I/O operations.
+ Supports Lua 5.4's to-be-closed via __close metamethod.
+
+```teal
+local record Handle
+  close: function(self: Handle): boolean
+  closed: function(self: Handle): boolean
+  fd: function(self: Handle): number
+  read: function(self: Handle, size?: number, offset?: number): string, string
+  write: function(self: Handle, data: string, offset?: number): number, string
+  seek: function(self: Handle, offset: number, whence?: number): number, string
+  truncate: function(self: Handle, length?: number): boolean, string
+  sync: function(self: Handle): boolean, string
+  datasync: function(self: Handle): boolean, string
+  dup: function(self: Handle, newfd?: number, flags?: number, lowest?: number): Handle, string
+  fcntl: function(self: Handle, cmd: number, arg?: number): number, string
+end
+```
+
+### Pipe
+
+ Pipe for inter-process communication.
+ Supports Lua 5.4's to-be-closed via __close metamethod.
+
+```teal
+local record Pipe
+  reader: Handle
+  writer: Handle
+  close: function(self: Pipe): boolean
+  closed: function(self: Pipe): boolean
 end
 ```
 
@@ -68,19 +95,10 @@ end
 local record IoModule
   slurp: function(path: string): string, string
   barf: function(path: string, data: string, mode?: number): boolean, string
-  open: function(path: string, flags: number, mode?: number, dirfd?: number): number, string
-  close: function(fd: number): boolean, string
-  read: function(fd: number, size?: number, offset?: number): string, string
-  write: function(fd: number, data: string, offset?: number): number, string
-  lseek: function(fd: number, offset: number, whence?: number): number, string
+  open: function(path: string, flags: number, mode?: number, dirfd?: number): Handle, string
+  pipe: function(flags?: number): Pipe, string
   truncate: function(path: string, length?: number): boolean, string
-  ftruncate: function(fd: number, length?: number): boolean, string
-  dup: function(oldfd: number, newfd?: number, flags?: number, lowest?: number): number, string
-  pipe: function(flags?: number): PipeResult, string
-  fcntl: function(fd: number, cmd: number, ...: any): any
   sync: function()
-  fsync: function(fd: number): boolean, string
-  fdatasync: function(fd: number): boolean, string
   O_RDONLY: number
   O_WRONLY: number
   O_RDWR: number
@@ -96,12 +114,14 @@ local record IoModule
   SEEK_SET: number
   SEEK_CUR: number
   SEEK_END: number
+  F_DUPFD: number
   F_GETFD: number
   F_SETFD: number
   F_GETFL: number
   F_SETFL: number
   F_SETLK: number
   F_SETLKW: number
+  F_GETLK: number
   F_RDLCK: number
   F_WRLCK: number
   F_UNLCK: number
@@ -115,97 +135,19 @@ end
 ### open
 
 ```teal
-function open(path: string, flags: number, mode?: number, dirfd?: number): number, string
+function open(path: string, flags: number, mode?: number, dirfd?: number): Handle, string
 ```
 
- Opens a file and returns a file descriptor.
+ Open a file. flags: O_RDONLY, O_WRONLY, O_RDWR, combined with O_CREAT, O_TRUNC, etc.
+ If dirfd is provided, path is relative to that directory (openat behavior).
 
-**Parameters:**
-
-- `path` (string) - The path to the file
-- `flags` (number) - Bitwise OR of O_* flags (e.g., O_RDONLY, O_WRONLY | O_CREAT)
-- `mode` (number) - Optional file mode for creation (e.g., 0644)
-- `dirfd` (number) - Optional directory file descriptor for relative paths
-
-**Returns:**
-
-- number - File descriptor on success
-- string - Error message on failure
-
-### close
+### pipe
 
 ```teal
-function close(fd: number): boolean, string
+function pipe(flags?: number): Pipe, string
 ```
 
- Closes a file descriptor.
-
-**Parameters:**
-
-- `fd` (number) - The file descriptor to close
-
-**Returns:**
-
-- boolean - True on success
-- string - Error message on failure
-
-### read
-
-```teal
-function read(fd: number, size?: number, offset?: number): string, string
-```
-
- Reads from a file descriptor.
- Returns empty string on end of file.
-
-**Parameters:**
-
-- `fd` (number) - The file descriptor to read from
-- `size` (number) - Optional maximum bytes to read (default: BUFSIZ)
-- `offset` (number) - Optional offset for pread behavior
-
-**Returns:**
-
-- string - Data read on success
-- string - Error message on failure
-
-### write
-
-```teal
-function write(fd: number, data: string, offset?: number): number, string
-```
-
- Writes to a file descriptor.
-
-**Parameters:**
-
-- `fd` (number) - The file descriptor to write to
-- `data` (string) - The data to write
-- `offset` (number) - Optional offset for pwrite behavior
-
-**Returns:**
-
-- number - Number of bytes written on success
-- string - Error message on failure
-
-### lseek
-
-```teal
-function lseek(fd: number, offset: number, whence?: number): number, string
-```
-
- Seeks to a position in a file.
-
-**Parameters:**
-
-- `fd` (number) - The file descriptor
-- `offset` (number) - The offset to seek to
-- `whence` (number) - Optional seek mode: SEEK_SET (default), SEEK_CUR, or SEEK_END
-
-**Returns:**
-
-- number - New position from start of file
-- string - Error message on failure
+ Create a pipe. flags: O_CLOEXEC, O_NONBLOCK.
 
 ### truncate
 
@@ -213,90 +155,7 @@ function lseek(fd: number, offset: number, whence?: number): number, string
 function truncate(path: string, length?: number): boolean, string
 ```
 
- Truncates a file to a specified length.
-
-**Parameters:**
-
-- `path` (string) - The path to the file
-- `length` (number) - Optional new length (default: 0)
-
-**Returns:**
-
-- boolean - True on success
-- string - Error message on failure
-
-### ftruncate
-
-```teal
-function ftruncate(fd: number, length?: number): boolean, string
-```
-
- Truncates an open file to a specified length.
-
-**Parameters:**
-
-- `fd` (number) - The file descriptor
-- `length` (number) - Optional new length (default: 0)
-
-**Returns:**
-
-- boolean - True on success
-- string - Error message on failure
-
-### dup
-
-```teal
-function dup(oldfd: number, newfd?: number, flags?: number, lowest?: number): number, string
-```
-
- Duplicates a file descriptor.
-
-**Parameters:**
-
-- `oldfd` (number) - The file descriptor to duplicate
-- `newfd` (number) - Optional specific fd number to use
-- `flags` (number) - Optional flags (e.g., O_CLOEXEC)
-- `lowest` (number) - Optional lowest acceptable fd number
-
-**Returns:**
-
-- number - New file descriptor on success
-- string - Error message on failure
-
-### pipe
-
-```teal
-function pipe(flags?: number): PipeResult, string
-```
-
- Creates a pipe for inter-process communication.
-
-**Parameters:**
-
-- `flags` (number) - Optional flags (O_CLOEXEC, O_NONBLOCK, O_DIRECT)
-
-**Returns:**
-
-- PipeResult - Table with reader and writer file descriptors
-- string - Error message on failure
-
-### fcntl
-
-```teal
-function fcntl(fd: number, cmd: number, ...: any): any
-```
-
- Performs file control operations.
-
-**Parameters:**
-
-- `fd` (number) - The file descriptor
-- `cmd` (number) - The command (F_GETFD, F_SETFD, F_GETFL, F_SETFL, etc.)
-- `...` (any) - Command-specific arguments
-
-**Returns:**
-
-- any - Command-specific return value
+ Truncate a file by path.
 
 ### sync
 
@@ -304,41 +163,7 @@ function fcntl(fd: number, cmd: number, ...: any): any
 function sync()
 ```
 
- Flushes all file system buffers to disk.
-
-### fsync
-
-```teal
-function fsync(fd: number): boolean, string
-```
-
- Flushes file data and metadata to disk.
-
-**Parameters:**
-
-- `fd` (number) - The file descriptor
-
-**Returns:**
-
-- boolean - True on success
-- string - Error message on failure
-
-### fdatasync
-
-```teal
-function fdatasync(fd: number): boolean, string
-```
-
- Flushes file data to disk (but not necessarily metadata).
-
-**Parameters:**
-
-- `fd` (number) - The file descriptor
-
-**Returns:**
-
-- boolean - True on success
-- string - Error message on failure
+ Flush all file system buffers to disk.
 
 ### slurp
 
@@ -346,16 +171,7 @@ function fdatasync(fd: number): boolean, string
 function slurp(path: string): string, string
 ```
 
- Reads entire file contents.
-
-**Parameters:**
-
-- `path` (string) - The path to the file
-
-**Returns:**
-
-- string - File contents on success
-- string - Error message on failure (nil contents)
+ Read entire file contents.
 
 ### barf
 
@@ -363,15 +179,108 @@ function slurp(path: string): string, string
 function barf(path: string, data: string, mode?: number): boolean, string
 ```
 
- Writes data to a file, creating or overwriting it.
+ Write data to file, creating or overwriting it.
 
-**Parameters:**
+### handle:close
 
-- `path` (string) - The path to the file
-- `data` (string) - The data to write
-- `mode` (number) - Optional file mode (e.g., 0644)
+```teal
+function handle:close(): boolean
+```
 
-**Returns:**
+ Close the handle. Idempotent.
 
-- boolean - True on success
-- string - Error message on failure
+### handle:closed
+
+```teal
+function handle:closed(): boolean
+```
+
+ Returns true if closed.
+
+### handle:fd
+
+```teal
+function handle:fd(): number
+```
+
+ Returns the underlying file descriptor, or -1 if closed.
+
+### handle:read
+
+```teal
+function handle:read(size?: number, offset?: number): string, string
+```
+
+ Read up to size bytes. Returns empty string on EOF.
+ If offset is provided, reads at that position (pread behavior).
+
+### handle:write
+
+```teal
+function handle:write(data: string, offset?: number): number, string
+```
+
+ Write data. Returns number of bytes written.
+ If offset is provided, writes at that position (pwrite behavior).
+
+### handle:seek
+
+```teal
+function handle:seek(offset: number, whence?: number): number, string
+```
+
+ Seek to position. whence: SEEK_SET (default), SEEK_CUR, SEEK_END.
+
+### handle:truncate
+
+```teal
+function handle:truncate(length?: number): boolean, string
+```
+
+ Truncate to length (default 0).
+
+### handle:sync
+
+```teal
+function handle:sync(): boolean, string
+```
+
+ Flush data and metadata to disk.
+
+### handle:datasync
+
+```teal
+function handle:datasync(): boolean, string
+```
+
+ Flush data to disk (but not necessarily metadata).
+
+### handle:dup
+
+```teal
+function handle:dup(newfd?: number, flags?: number, lowest?: number): Handle, string
+```
+
+ Duplicate the handle.
+ If newfd is provided, duplicates to that specific fd (dup2 behavior).
+ flags can include O_CLOEXEC. lowest specifies minimum acceptable fd.
+
+### handle:fcntl
+
+```teal
+function handle:fcntl(cmd: number, arg?: number): number, string
+```
+
+ File control operations. cmd: F_GETFD, F_SETFD, F_GETFL, F_SETFL, F_SETLK, etc.
+
+### p:close
+
+```teal
+function p:close(): boolean
+```
+
+### p:closed
+
+```teal
+function p:closed(): boolean
+```
