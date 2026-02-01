@@ -252,6 +252,7 @@ local function run_repl()
   local welcome = require("cosmic.welcome")
 
   io.write(_VERSION .. "  Copyright (C) 1994-2024 Lua.org, PUC-Rio\n")
+  io.write("Type help() for interactive help, or run with --docs / --examples\n")
 
   local is_tty = unix.isatty(0) and unix.isatty(1)
   local show = is_tty and not os.getenv("COSMIC_NO_WELCOME") and not welcome.was_shown()
