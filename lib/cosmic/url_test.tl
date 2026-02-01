@@ -250,3 +250,115 @@ local function test_parse_host_empty()
   assert(port == nil, "expected nil port for empty string")
 end
 test_parse_host_empty()
+
+-- escape_host tests
+
+local function test_escape_host_basic()
+  local result = url.escape_host("example.com")
+  assert(result == "example.com", "expected 'example.com', got '" .. result .. "'")
+end
+test_escape_host_basic()
+
+local function test_escape_host_with_subdomain()
+  local result = url.escape_host("api.example.com")
+  assert(result == "api.example.com", "expected 'api.example.com', got '" .. result .. "'")
+end
+test_escape_host_with_subdomain()
+
+-- escape_path tests
+
+local function test_escape_path_basic()
+  local result = url.escape_path("/api/users")
+  assert(result == "/api/users", "expected '/api/users', got '" .. result .. "'")
+end
+test_escape_path_basic()
+
+local function test_escape_path_with_spaces()
+  local result = url.escape_path("/my files/doc")
+  assert(result:match("%%20") or result:match("%+"), "expected space to be encoded")
+end
+test_escape_path_with_spaces()
+
+local function test_escape_path_preserves_slashes()
+  local result = url.escape_path("/a/b/c")
+  assert(result == "/a/b/c", "expected slashes to be preserved, got '" .. result .. "'")
+end
+test_escape_path_preserves_slashes()
+
+-- escape_segment tests
+
+local function test_escape_segment_escapes_slash()
+  local result = url.escape_segment("foo/bar")
+  assert(result:match("%%2F") or result:match("%%2f"), "expected / to be encoded, got '" .. result .. "'")
+end
+test_escape_segment_escapes_slash()
+
+local function test_escape_segment_basic()
+  local result = url.escape_segment("users")
+  assert(result == "users", "expected 'users', got '" .. result .. "'")
+end
+test_escape_segment_basic()
+
+-- escape_fragment tests
+
+local function test_escape_fragment_basic()
+  local result = url.escape_fragment("section-1")
+  assert(result == "section-1", "expected 'section-1', got '" .. result .. "'")
+end
+test_escape_fragment_basic()
+
+local function test_escape_fragment_with_spaces()
+  local result = url.escape_fragment("section 1")
+  assert(result:match("%%20") or result:match("%+"), "expected space to be encoded")
+end
+test_escape_fragment_with_spaces()
+
+-- escape_literal tests
+
+local function test_escape_literal_basic()
+  local result = url.escape_literal("test")
+  assert(result == "test", "expected 'test', got '" .. result .. "'")
+end
+test_escape_literal_basic()
+
+-- escape_user tests
+
+local function test_escape_user_basic()
+  local result = url.escape_user("username")
+  assert(result == "username", "expected 'username', got '" .. result .. "'")
+end
+test_escape_user_basic()
+
+local function test_escape_user_with_special_chars()
+  local result = url.escape_user("user@domain")
+  assert(result:match("%%40") or result:match("%%2540"), "expected @ to be encoded")
+end
+test_escape_user_with_special_chars()
+
+-- escape_pass tests
+
+local function test_escape_pass_basic()
+  local result = url.escape_pass("secret123")
+  assert(result == "secret123", "expected 'secret123', got '" .. result .. "'")
+end
+test_escape_pass_basic()
+
+local function test_escape_pass_with_special_chars()
+  local result = url.escape_pass("p@ss:word")
+  assert(result:match("%%"), "expected special chars to be encoded")
+end
+test_escape_pass_with_special_chars()
+
+-- escape_ip tests
+
+local function test_escape_ip_ipv4()
+  local result = url.escape_ip("192.168.1.1")
+  assert(result == "192.168.1.1", "expected '192.168.1.1', got '" .. result .. "'")
+end
+test_escape_ip_ipv4()
+
+local function test_escape_ip_ipv6()
+  local result = url.escape_ip("::1")
+  assert(result:match("::1") or result:match("%%3A"), "expected ipv6 to be handled, got '" .. result .. "'")
+end
+test_escape_ip_ipv6()
