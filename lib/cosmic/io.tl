@@ -1,32 +1,22 @@
 --- File descriptor I/O operations.
 --- Wraps low-level file descriptor operations from cosmo.unix.
+--- Supports Lua 5.4's to-be-closed via __close metamethod on Handle and Pipe.
 local cosmo = require("cosmo")
 
---- Result from a pipe operation.
-local record PipeResult
-  reader: number
-  writer: number
-end
-
--- Internal record with proper error return signatures for cosmo.unix functions
--- The actual cosmo.unix returns Errno objects on failure, but the .d.tl types
--- don't reflect this. We cast to our own type with correct signatures.
 local record UnixIO
-  open: function(path: string, flags: number, mode?: number, dirfd?: number): number, any
+  open: function(path: string, flags: number, mode?: number): number, any
   close: function(fd: number): boolean, any
-  read: function(fd: number, bufsiz?: number, offset?: number): string, any
-  write: function(fd: number, data: string, offset?: number): number, any
+  read: function(fd: number, bufsiz?: number): string, any
+  write: function(fd: number, data: string): number, any
   lseek: function(fd: number, offset: number, whence?: number): number, any
   truncate: function(path: string, length?: number): boolean, any
   ftruncate: function(fd: number, length?: number): boolean, any
-  dup: function(oldfd: number, newfd?: number, flags?: number, lowest?: number): number, any
+  dup: function(oldfd: number): number, any
   pipe: function(flags?: number): number, number | any
-  fcntl: function(fd: number, cmd: number, ...: any): any
+  fcntl: function(fd: number, cmd: number, arg?: number): number, any
   sync: function()
   fsync: function(fd: number): boolean, any
-  fdatasync: function(fd: number): boolean, any
 
-  -- Constants
   O_RDONLY: number
   O_WRONLY: number
   O_RDWR: number
@@ -36,102 +26,200 @@ local record UnixIO
   O_EXCL: number
   O_CLOEXEC: number
   O_NONBLOCK: number
-  O_DIRECT: number
-  O_DIRECTORY: number
-  O_NOFOLLOW: number
   SEEK_SET: number
   SEEK_CUR: number
   SEEK_END: number
+  F_DUPFD: number
   F_GETFD: number
   F_SETFD: number
   F_GETFL: number
   F_SETFL: number
   F_SETLK: number
   F_SETLKW: number
-  F_RDLCK: number
-  F_WRLCK: number
-  F_UNLCK: number
+  F_GETLK: number
   FD_CLOEXEC: number
-  AT_FDCWD: number
 end
 
 local unix = require("cosmo.unix") as UnixIO
 
---- Opens a file and returns a file descriptor.
---- @param path string The path to the file
---- @param flags number Bitwise OR of O_* flags (e.g., O_RDONLY, O_WRONLY | O_CREAT)
---- @param mode number Optional file mode for creation (e.g., 0644)
---- @param dirfd number Optional directory file descriptor for relative paths
---- @return number File descriptor on success
---- @return string Error message on failure
-local function open(path: string, flags: number, mode?: number, dirfd?: number): number, string
-  local fd, err = unix.open(path, flags, mode, dirfd)
+--- File handle for I/O operations.
+--- Supports Lua 5.4's to-be-closed via __close metamethod.
+local record Handle
+  close: function(self: Handle): boolean
+  closed: function(self: Handle): boolean
+  fd: function(self: Handle): number
+  read: function(self: Handle, size?: number): string, string
+  write: function(self: Handle, data: string): number, string
+  seek: function(self: Handle, offset: number, whence?: number): number, string
+  truncate: function(self: Handle, length?: number): boolean, string
+  sync: function(self: Handle): boolean, string
+  dup: function(self: Handle): Handle, string
+  fcntl: function(self: Handle, cmd: number, arg?: number): number, string
+end
+
+local make_handle: function(fd: number): Handle
+
+make_handle = function(fd: number): Handle
+  local handle_fd: number = fd
+  local handle: Handle = {}
+
+  --- Close the handle. Idempotent.
+  function handle:close(): boolean
+    if handle_fd then
+      unix.close(handle_fd)
+      handle_fd = nil
+    end
+    return true
+  end
+
+  --- Returns true if closed.
+  function handle:closed(): boolean
+    return handle_fd == nil
+  end
+
+  --- Returns the underlying file descriptor, or -1 if closed.
+  function handle:fd(): number
+    return handle_fd or -1
+  end
+
+  --- Read up to size bytes. Returns empty string on EOF.
+  function handle:read(size?: number): string, string
+    if not handle_fd then
+      return nil, "handle closed"
+    end
+    local data, err = unix.read(handle_fd, size)
+    if data == nil and err then
+      return nil, tostring(err)
+    end
+    return data or ""
+  end
+
+  --- Write data. Returns number of bytes written.
+  function handle:write(data: string): number, string
+    if not handle_fd then
+      return nil, "handle closed"
+    end
+    local n, err = unix.write(handle_fd, data)
+    if not n then
+      return nil, tostring(err)
+    end
+    return n
+  end
+
+  --- Seek to position. whence: SEEK_SET (default), SEEK_CUR, SEEK_END.
+  function handle:seek(offset: number, whence?: number): number, string
+    if not handle_fd then
+      return nil, "handle closed"
+    end
+    local pos, err = unix.lseek(handle_fd, offset, whence)
+    if not pos then
+      return nil, tostring(err)
+    end
+    return pos
+  end
+
+  --- Truncate to length (default 0).
+  function handle:truncate(length?: number): boolean, string
+    if not handle_fd then
+      return false, "handle closed"
+    end
+    local ok, err = unix.ftruncate(handle_fd, length)
+    if not ok then
+      return false, tostring(err)
+    end
+    return true
+  end
+
+  --- Flush to disk.
+  function handle:sync(): boolean, string
+    if not handle_fd then
+      return false, "handle closed"
+    end
+    local ok, err = unix.fsync(handle_fd)
+    if not ok then
+      return false, tostring(err)
+    end
+    return true
+  end
+
+  --- Duplicate the handle.
+  function handle:dup(): Handle, string
+    if not handle_fd then
+      return nil, "handle closed"
+    end
+    local newfd, err = unix.dup(handle_fd)
+    if not newfd then
+      return nil, tostring(err)
+    end
+    return make_handle(newfd)
+  end
+
+  --- File control operations. cmd: F_GETFD, F_SETFD, F_GETFL, F_SETFL, F_SETLK, etc.
+  function handle:fcntl(cmd: number, arg?: number): number, string
+    if not handle_fd then
+      return nil, "handle closed"
+    end
+    local result, err = unix.fcntl(handle_fd, cmd, arg)
+    if result == nil then
+      return nil, tostring(err)
+    end
+    return result as number
+  end
+
+  return setmetatable(handle, {
+    __close = function(self: Handle) self:close() end
+  }) as Handle
+end
+
+--- Pipe for inter-process communication.
+--- Supports Lua 5.4's to-be-closed via __close metamethod.
+local record Pipe
+  reader: Handle
+  writer: Handle
+  close: function(self: Pipe): boolean
+  closed: function(self: Pipe): boolean
+end
+
+local function make_pipe(reader: Handle, writer: Handle): Pipe
+  local p: Pipe = {
+    reader = reader,
+    writer = writer,
+  }
+
+  function p:close(): boolean
+    self.reader:close()
+    self.writer:close()
+    return true
+  end
+
+  function p:closed(): boolean
+    return self.reader:closed() and self.writer:closed()
+  end
+
+  return setmetatable(p, {
+    __close = function(self: Pipe) self:close() end
+  }) as Pipe
+end
+
+--- Open a file. flags: O_RDONLY, O_WRONLY, O_RDWR, combined with O_CREAT, O_TRUNC, etc.
+local function open(path: string, flags: number, mode?: number): Handle, string
+  local fd, err = unix.open(path, flags, mode)
   if not fd then
     return nil, tostring(err)
   end
-  return fd
+  return make_handle(fd)
 end
 
---- Closes a file descriptor.
---- @param fd number The file descriptor to close
---- @return boolean True on success
---- @return string Error message on failure
-local function close(fd: number): boolean, string
-  local ok, err = unix.close(fd)
-  if not ok then
-    return false, tostring(err)
+--- Create a pipe. flags: O_CLOEXEC, O_NONBLOCK.
+local function pipe(flags?: number): Pipe, string
+  local reader_fd, writer_fd = unix.pipe(flags)
+  if not reader_fd then
+    return nil, tostring(writer_fd)
   end
-  return true
+  return make_pipe(make_handle(reader_fd), make_handle(writer_fd as number))
 end
 
---- Reads from a file descriptor.
---- Returns empty string on end of file.
---- @param fd number The file descriptor to read from
---- @param size number Optional maximum bytes to read (default: BUFSIZ)
---- @param offset number Optional offset for pread behavior
---- @return string Data read on success
---- @return string Error message on failure
-local function read(fd: number, size?: number, offset?: number): string, string
-  local data, err = unix.read(fd, size, offset)
-  if data == nil and err then
-    return nil, tostring(err)
-  end
-  return data or ""
-end
-
---- Writes to a file descriptor.
---- @param fd number The file descriptor to write to
---- @param data string The data to write
---- @param offset number Optional offset for pwrite behavior
---- @return number Number of bytes written on success
---- @return string Error message on failure
-local function write(fd: number, data: string, offset?: number): number, string
-  local n, err = unix.write(fd, data, offset)
-  if not n then
-    return nil, tostring(err)
-  end
-  return n
-end
-
---- Seeks to a position in a file.
---- @param fd number The file descriptor
---- @param offset number The offset to seek to
---- @param whence number Optional seek mode: SEEK_SET (default), SEEK_CUR, or SEEK_END
---- @return number New position from start of file
---- @return string Error message on failure
-local function lseek(fd: number, offset: number, whence?: number): number, string
-  local pos, err = unix.lseek(fd, offset, whence)
-  if not pos then
-    return nil, tostring(err)
-  end
-  return pos
-end
-
---- Truncates a file to a specified length.
---- @param path string The path to the file
---- @param length number Optional new length (default: 0)
---- @return boolean True on success
---- @return string Error message on failure
+--- Truncate a file by path.
 local function truncate(path: string, length?: number): boolean, string
   local ok, err = unix.truncate(path, length)
   if not ok then
@@ -140,88 +228,12 @@ local function truncate(path: string, length?: number): boolean, string
   return true
 end
 
---- Truncates an open file to a specified length.
---- @param fd number The file descriptor
---- @param length number Optional new length (default: 0)
---- @return boolean True on success
---- @return string Error message on failure
-local function ftruncate(fd: number, length?: number): boolean, string
-  local ok, err = unix.ftruncate(fd, length)
-  if not ok then
-    return false, tostring(err)
-  end
-  return true
-end
-
---- Duplicates a file descriptor.
---- @param oldfd number The file descriptor to duplicate
---- @param newfd number Optional specific fd number to use
---- @param flags number Optional flags (e.g., O_CLOEXEC)
---- @param lowest number Optional lowest acceptable fd number
---- @return number New file descriptor on success
---- @return string Error message on failure
-local function dup(oldfd: number, newfd?: number, flags?: number, lowest?: number): number, string
-  local fd, err = unix.dup(oldfd, newfd, flags, lowest)
-  if not fd then
-    return nil, tostring(err)
-  end
-  return fd
-end
-
---- Creates a pipe for inter-process communication.
---- @param flags number Optional flags (O_CLOEXEC, O_NONBLOCK, O_DIRECT)
---- @return PipeResult Table with reader and writer file descriptors
---- @return string Error message on failure
-local function pipe(flags?: number): PipeResult, string
-  local reader, writer = unix.pipe(flags)
-  if not reader then
-    return nil, tostring(writer)
-  end
-  return { reader = reader, writer = writer as number }
-end
-
---- Performs file control operations.
---- @param fd number The file descriptor
---- @param cmd number The command (F_GETFD, F_SETFD, F_GETFL, F_SETFL, etc.)
---- @param ... any Command-specific arguments
---- @return any Command-specific return value
-local function fcntl(fd: number, cmd: number, ...: any): any
-  return unix.fcntl(fd, cmd, ...)
-end
-
---- Flushes all file system buffers to disk.
+--- Flush all file system buffers to disk.
 local function sync()
   unix.sync()
 end
 
---- Flushes file data and metadata to disk.
---- @param fd number The file descriptor
---- @return boolean True on success
---- @return string Error message on failure
-local function fsync(fd: number): boolean, string
-  local ok, err = unix.fsync(fd)
-  if not ok then
-    return false, tostring(err)
-  end
-  return true
-end
-
---- Flushes file data to disk (but not necessarily metadata).
---- @param fd number The file descriptor
---- @return boolean True on success
---- @return string Error message on failure
-local function fdatasync(fd: number): boolean, string
-  local ok, err = unix.fdatasync(fd)
-  if not ok then
-    return false, tostring(err)
-  end
-  return true
-end
-
---- Reads entire file contents.
---- @param path string The path to the file
---- @return string File contents on success
---- @return string Error message on failure (nil contents)
+--- Read entire file contents.
 local function slurp(path: string): string, string
   local data = cosmo.Slurp(path)
   if not data then
@@ -230,12 +242,7 @@ local function slurp(path: string): string, string
   return data
 end
 
---- Writes data to a file, creating or overwriting it.
---- @param path string The path to the file
---- @param data string The data to write
---- @param mode number Optional file mode (e.g., 0644)
---- @return boolean True on success
---- @return string Error message on failure
+--- Write data to file, creating or overwriting it.
 local function barf(path: string, data: string, mode?: number): boolean, string
   local ok = cosmo.Barf(path, data, mode)
   if not ok then
@@ -245,34 +252,13 @@ local function barf(path: string, data: string, mode?: number): boolean, string
 end
 
 local record IoModule
-  -- High-level file operations
   slurp: function(path: string): string, string
   barf: function(path: string, data: string, mode?: number): boolean, string
-
-  -- Core operations
-  open: function(path: string, flags: number, mode?: number, dirfd?: number): number, string
-  close: function(fd: number): boolean, string
-  read: function(fd: number, size?: number, offset?: number): string, string
-  write: function(fd: number, data: string, offset?: number): number, string
-
-  -- Positioning
-  lseek: function(fd: number, offset: number, whence?: number): number, string
+  open: function(path: string, flags: number, mode?: number): Handle, string
+  pipe: function(flags?: number): Pipe, string
   truncate: function(path: string, length?: number): boolean, string
-  ftruncate: function(fd: number, length?: number): boolean, string
-
-  -- Duplication
-  dup: function(oldfd: number, newfd?: number, flags?: number, lowest?: number): number, string
-  pipe: function(flags?: number): PipeResult, string
-
-  -- Control
-  fcntl: function(fd: number, cmd: number, ...: any): any
-
-  -- Sync
   sync: function()
-  fsync: function(fd: number): boolean, string
-  fdatasync: function(fd: number): boolean, string
 
-  -- Open flags
   O_RDONLY: number
   O_WRONLY: number
   O_RDWR: number
@@ -282,60 +268,30 @@ local record IoModule
   O_EXCL: number
   O_CLOEXEC: number
   O_NONBLOCK: number
-  O_DIRECT: number
-  O_DIRECTORY: number
-  O_NOFOLLOW: number
 
-  -- Seek positions
   SEEK_SET: number
   SEEK_CUR: number
   SEEK_END: number
 
-  -- fcntl commands
+  F_DUPFD: number
   F_GETFD: number
   F_SETFD: number
   F_GETFL: number
   F_SETFL: number
   F_SETLK: number
   F_SETLKW: number
-  F_RDLCK: number
-  F_WRLCK: number
-  F_UNLCK: number
+  F_GETLK: number
   FD_CLOEXEC: number
-
-  -- Special directory fd
-  AT_FDCWD: number
 end
 
 local M: IoModule = {
-  -- High-level file operations
   slurp = slurp,
   barf = barf,
-
-  -- Core operations
   open = open,
-  close = close,
-  read = read,
-  write = write,
-
-  -- Positioning
-  lseek = lseek,
-  truncate = truncate,
-  ftruncate = ftruncate,
-
-  -- Duplication
-  dup = dup,
   pipe = pipe,
-
-  -- Control
-  fcntl = fcntl,
-
-  -- Sync
+  truncate = truncate,
   sync = sync,
-  fsync = fsync,
-  fdatasync = fdatasync,
 
-  -- Open flags
   O_RDONLY = unix.O_RDONLY,
   O_WRONLY = unix.O_WRONLY,
   O_RDWR = unix.O_RDWR,
@@ -345,29 +301,20 @@ local M: IoModule = {
   O_EXCL = unix.O_EXCL,
   O_CLOEXEC = unix.O_CLOEXEC,
   O_NONBLOCK = unix.O_NONBLOCK,
-  O_DIRECT = unix.O_DIRECT,
-  O_DIRECTORY = unix.O_DIRECTORY,
-  O_NOFOLLOW = unix.O_NOFOLLOW,
 
-  -- Seek positions
   SEEK_SET = unix.SEEK_SET,
   SEEK_CUR = unix.SEEK_CUR,
   SEEK_END = unix.SEEK_END,
 
-  -- fcntl commands
+  F_DUPFD = unix.F_DUPFD,
   F_GETFD = unix.F_GETFD,
   F_SETFD = unix.F_SETFD,
   F_GETFL = unix.F_GETFL,
   F_SETFL = unix.F_SETFL,
   F_SETLK = unix.F_SETLK,
   F_SETLKW = unix.F_SETLKW,
-  F_RDLCK = unix.F_RDLCK,
-  F_WRLCK = unix.F_WRLCK,
-  F_UNLCK = unix.F_UNLCK,
+  F_GETLK = unix.F_GETLK,
   FD_CLOEXEC = unix.FD_CLOEXEC,
-
-  -- Special directory fd
-  AT_FDCWD = unix.AT_FDCWD,
 }
 
 return M
