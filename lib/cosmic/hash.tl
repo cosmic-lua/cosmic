@@ -1,12 +1,13 @@
---- Cryptographic utilities.
---- Wraps cosmo.Sha256, cosmo.GetRandomBytes, and cosmo.argon2 for common crypto operations.
+--- Hash utilities.
+--- Wraps cosmo.Sha256 and cosmo.argon2 for digest and password hashing.
 ---
 --- Example usage:
----   local crypto = require("cosmic.crypto")
----   local hash = crypto.sha256_hex("hello")
----   local random = crypto.random_bytes(32)
----   local encoded = crypto.password_hash("password123")
----   local valid = crypto.password_verify(encoded, "password123")
+---   local hash = require("cosmic.hash")
+---   local digest = hash.sha256_hex("hello")
+---   local encoded = hash.password("password123")
+---   local valid = hash.verify_password(encoded, "password123")
+---
+--- For random bytes, use cosmo.GetRandomBytes(n) directly.
 local cosmo = require("cosmo")
 local argon2 = require("cosmo.argon2")
 
@@ -48,20 +49,13 @@ local function sha256_hex(data: string): string
   return cosmo.EncodeHex(cosmo.Sha256(data)):lower()
 end
 
---- Generate cryptographically secure random bytes.
---- @param n number The number of random bytes to generate
---- @return string Random bytes
-local function random_bytes(n: number): string
-  return cosmo.GetRandomBytes(n)
-end
-
 --- Hash a password using Argon2.
 --- Returns an encoded string suitable for storage.
---- @param password string The password to hash
+--- @param pwd string The password to hash
 --- @param options HashOptions? Optional configuration for the hash
 --- @return string? The encoded hash string, or nil on error
 --- @return string? Error message if hashing failed
-local function password_hash(password: string, options?: HashOptions): string, string
+local function password(pwd: string, options?: HashOptions): string, string
   -- Generate a random salt (16 bytes is recommended)
   local salt = cosmo.GetRandomBytes(16)
 
@@ -82,7 +76,7 @@ local function password_hash(password: string, options?: HashOptions): string, s
     end
   end
 
-  local encoded, err = argon2.hash_encoded(password, salt, config) as (string, any)
+  local encoded, err = argon2.hash_encoded(pwd, salt, config) as (string, any)
   if not encoded then
     return nil, tostring(err or "failed to hash password")
   end
@@ -90,30 +84,28 @@ local function password_hash(password: string, options?: HashOptions): string, s
 end
 
 --- Verify a password against an Argon2 encoded hash.
---- @param encoded string The encoded hash string (from password_hash)
---- @param password string The password to verify
+--- @param encoded string The encoded hash string (from password)
+--- @param pwd string The password to verify
 --- @return boolean True if the password matches
-local function password_verify(encoded: string, password: string): boolean
-  local ok = argon2.verify(encoded, password)
+local function verify_password(encoded: string, pwd: string): boolean
+  local ok = argon2.verify(encoded, pwd)
   return ok == true
 end
 
-local record CryptoModule
+local record HashModule
   type HashOptions = HashOptions
 
   sha256: function(data: string): string
   sha256_hex: function(data: string): string
-  random_bytes: function(n: number): string
-  password_hash: function(password: string, options?: HashOptions): string, string
-  password_verify: function(encoded: string, password: string): boolean
+  password: function(pwd: string, options?: HashOptions): string, string
+  verify_password: function(encoded: string, pwd: string): boolean
 end
 
-local M: CryptoModule = {
+local M: HashModule = {
   sha256 = sha256,
   sha256_hex = sha256_hex,
-  random_bytes = random_bytes,
-  password_hash = password_hash,
-  password_verify = password_verify,
+  password = password,
+  verify_password = verify_password,
 }
 
 return M
