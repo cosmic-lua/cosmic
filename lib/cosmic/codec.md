@@ -13,6 +13,12 @@ local record CodecModule
   decode_hex: function(hex: string): string, string
   encode_lua: function(value: any, opts?: {string:any}): string
   decode_lua: function(code: string): any, string
+  encode_base64: function(data: string): string
+  decode_base64: function(str: string): string
+  encode_base32: function(data: string): string
+  decode_base32: function(str: string): string
+  encode_latin1: function(str: string): string, string
+  decode_latin1: function(data: string): string
 end
 ```
 
@@ -89,3 +95,105 @@ function decode_lua(code: string): any, string
 
 - any - The decoded Lua value, or nil on error
 - string? - Error message if decoding failed
+
+### encode_base64
+
+```teal
+function encode_base64(data: string): string
+```
+
+ Encode binary data as base64.
+ Uses standard base64 encoding (RFC 4648).
+
+**Parameters:**
+
+- `data` (string) - The binary data to encode
+
+**Returns:**
+
+- string - The base64 encoded string
+
+### decode_base64
+
+```teal
+function decode_base64(str: string): string
+```
+
+ Decode a base64 string to binary data.
+ Accepts standard base64 encoding with or without padding.
+
+**Parameters:**
+
+- `str` (string) - The base64 string to decode
+
+**Returns:**
+
+- string - The decoded binary data
+
+### encode_base32
+
+```teal
+function encode_base32(data: string): string
+```
+
+ Encode binary data as base32.
+ Uses z-base-32 encoding (lowercase alphabet).
+
+**Parameters:**
+
+- `data` (string) - The binary data to encode
+
+**Returns:**
+
+- string - The base32 encoded string
+
+### decode_base32
+
+```teal
+function decode_base32(str: string): string
+```
+
+ Decode a base32 string to binary data.
+ Accepts z-base-32 encoding.
+
+**Parameters:**
+
+- `str` (string) - The base32 string to decode
+
+**Returns:**
+
+- string - The decoded binary data
+
+### encode_latin1
+
+```teal
+function encode_latin1(str: string): string, string
+```
+
+ Encode a UTF-8 string as Latin-1 (ISO-8859-1).
+ Characters outside the Latin-1 range will cause an error.
+
+**Parameters:**
+
+- `str` (string) - The UTF-8 string to encode
+
+**Returns:**
+
+- string - The Latin-1 encoded bytes, or nil on error
+- string? - Error message if encoding failed
+
+### decode_latin1
+
+```teal
+function decode_latin1(data: string): string
+```
+
+ Decode Latin-1 (ISO-8859-1) bytes to a UTF-8 string.
+
+**Parameters:**
+
+- `data` (string) - The Latin-1 bytes to decode
+
+**Returns:**
+
+- string - The UTF-8 string
