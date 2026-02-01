@@ -1,6 +1,36 @@
 -- type declarations for cosmo.argon2
 
+local record Variant
+  -- Opaque variant type (userdata)
+end
+
+local record Variants
+  argon2_id: Variant
+  argon2_i: Variant
+  argon2_d: Variant
+end
+
+local record Config
+  --- Memory cost in kibibytes (default: 4096)
+  m_cost: number
+  --- Time cost / iterations (default: 3)
+  t_cost: number
+  --- Parallelism factor (default: 1)
+  parallelism: number
+  --- Output hash length in bytes (default: 32)
+  hash_len: number
+  --- Variant type (default: argon2_id)
+  variant: Variant
+end
+
 local record argon2
+  type Variant = Variant
+  type Variants = Variants
+  type Config = Config
+
+  --- Argon2 algorithm variants
+  variants: Variants
+
   --- Hashes password.
   --- This is consistent with the README of the reference implementation:
   --- >: assert(argon2.hash_encoded("password", "somesalt", {
