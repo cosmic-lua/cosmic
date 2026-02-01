@@ -415,3 +415,129 @@ local function test_is_type_functions()
   teardown(test_dir)
 end
 test_is_type_functions()
+
+-- Dir __close tests
+
+local function test_dir_has_close_metamethod()
+  local test_dir = setup()
+
+  local dir = fs.opendir(test_dir)
+  assert(dir, "opendir should succeed")
+
+  -- Verify __close metamethod exists
+  local mt = getmetatable(dir)
+  assert(mt, "dir should have a metatable")
+  assert(mt.__close, "dir metatable should have __close")
+
+  -- Call __close directly to verify it works
+  mt.__close(dir)
+  assert(dir:closed(), "dir should be closed after __close")
+
+  teardown(test_dir)
+end
+test_dir_has_close_metamethod()
+
+local function test_dir_closed_method()
+  local test_dir = setup()
+
+  local dir = fs.opendir(test_dir)
+  assert(dir, "opendir should succeed")
+
+  assert(not dir:closed(), "dir should not be closed initially")
+  dir:close()
+  assert(dir:closed(), "dir should be closed after close()")
+
+  teardown(test_dir)
+end
+test_dir_closed_method()
+
+local function test_dir_close_idempotent()
+  local test_dir = setup()
+
+  local dir = fs.opendir(test_dir)
+  assert(dir, "opendir should succeed")
+
+  dir:close()
+  assert(dir:closed(), "dir should be closed")
+
+  -- Should not error when closing again
+  dir:close()
+  dir:close()
+  assert(dir:closed(), "dir should still be closed")
+
+  teardown(test_dir)
+end
+test_dir_close_idempotent()
+
+local function test_dir_methods_after_close()
+  local test_dir = setup()
+  touch(path.join(test_dir, "file.txt"))
+
+  local dir = fs.opendir(test_dir)
+  assert(dir, "opendir should succeed")
+  dir:close()
+
+  -- read() returns nil when closed
+  local entry = dir:read()
+  assert(entry == nil, "read should return nil after close")
+
+  -- fd() returns -1 when closed
+  local fd = dir:fd()
+  assert(fd == -1, "fd should return -1 after close")
+
+  -- tell() returns -1 when closed
+  local pos = dir:tell()
+  assert(pos == -1, "tell should return -1 after close")
+
+  -- rewind() should be a no-op when closed (no error)
+  dir:rewind()
+
+  teardown(test_dir)
+end
+test_dir_methods_after_close()
+
+local function test_dir_rewind_and_tell()
+  local test_dir = setup()
+  touch(path.join(test_dir, "file1.txt"))
+  touch(path.join(test_dir, "file2.txt"))
+
+  local dir = fs.opendir(test_dir)
+  assert(dir, "opendir should succeed")
+
+  -- Read some entries
+  local count = 0
+  while dir:read() do
+    count = count + 1
+  end
+  assert(count >= 2, "should read at least 2 entries")
+
+  -- Tell should return a position
+  local pos_end = dir:tell()
+  assert(pos_end >= 0, "tell should return valid position")
+
+  -- Rewind and count again
+  dir:rewind()
+  local count2 = 0
+  while dir:read() do
+    count2 = count2 + 1
+  end
+  assert(count2 == count, "should read same number of entries after rewind")
+
+  dir:close()
+  teardown(test_dir)
+end
+test_dir_rewind_and_tell()
+
+local function test_dir_fd()
+  local test_dir = setup()
+
+  local dir = fs.opendir(test_dir)
+  assert(dir, "opendir should succeed")
+
+  local fd = dir:fd()
+  assert(fd >= 0, "fd should be a valid file descriptor")
+
+  dir:close()
+  teardown(test_dir)
+end
+test_dir_fd()
