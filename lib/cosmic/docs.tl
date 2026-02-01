@@ -462,6 +462,42 @@ local record SearchResult
   match_score: integer
 end
 
+--- Calculate match score for a search result.
+--- Scoring tiers (highest to lowest):
+---   1. Exact name match: 100 (module), 95 (function/record), 90 (method)
+---   2. Partial name match: 80 (module), 75 (function/record), 70 (method)
+---   3. Module path contains query: +15 bonus for symbols
+---   4. Description match only: 30 (module), 25 (function/record), 20 (method/example)
+--- @param name_lower string Lowercase name to match
+--- @param desc string Description text (may be nil)
+--- @param query_lower string Lowercase query
+--- @param base_exact integer Score for exact name match
+--- @param base_partial integer Score for partial name match
+--- @param base_desc integer Score for description-only match
+--- @return integer Score, or 0 if no match
+local function calc_score(
+    name_lower: string,
+    desc: string,
+    query_lower: string,
+    base_exact: integer,
+    base_partial: integer,
+    base_desc: integer
+): integer
+  -- Check for name match first (higher priority)
+  if name_lower == query_lower then
+    return base_exact
+  elseif name_lower:find(query_lower, 1, true) then
+    return base_partial
+  end
+
+  -- Fall back to description match (lower priority)
+  if desc and desc:lower():find(query_lower, 1, true) then
+    return base_desc
+  end
+
+  return 0
+end
+
 --- Search documentation for a query string.
 --- @param query string The search query
 --- @return {SearchResult} List of search results, sorted by relevance
@@ -477,26 +513,33 @@ local function search(query: string): {SearchResult}
   -- Search through all modules
   for mod_name, mod_doc in pairs(index.modules) do
     local simple_name = mod_name:match("([^%.]+)$") or mod_name
+    local simple_lower = simple_name:lower()
+
+    -- Check if module path contains query (for boosting child symbols)
+    local module_contains_query = mod_name:lower():find(query_lower, 1, true) ~= nil
+    local module_boost = module_contains_query and 15 or 0
 
     -- Check module name and description
-    if simple_name:lower():find(query_lower, 1, true) or
-       (mod_doc.module_doc and mod_doc.module_doc:lower():find(query_lower, 1, true)) then
-      local score = simple_name:lower() == query_lower and 100 or 50
+    local mod_score = calc_score(simple_lower, mod_doc.module_doc, query_lower, 100, 80, 30)
+    if mod_score > 0 then
       table.insert(results, {
         module_name = mod_name,
         symbol_name = nil,
         symbol_type = "module",
         description = first_paragraph(mod_doc.module_doc),
-        match_score = score,
+        match_score = mod_score,
       })
     end
 
     -- Search functions
     if mod_doc.functions then
       for _, func in ipairs(mod_doc.functions) do
-        if func.name:lower():find(query_lower, 1, true) or
-           (func.description and func.description:lower():find(query_lower, 1, true)) then
-          local score = func.name:lower() == query_lower and 90 or 40
+        local score = calc_score(func.name:lower(), func.description, query_lower, 95, 75, 25)
+        if score > 0 then
+          -- Add module boost for description-only matches
+          if score <= 25 and module_boost > 0 then
+            score = score + module_boost
+          end
           table.insert(results, {
             module_name = mod_name,
             symbol_name = func.name,
@@ -511,9 +554,11 @@ local function search(query: string): {SearchResult}
     -- Search records
     if mod_doc.records then
       for _, rec in ipairs(mod_doc.records) do
-        if rec.name:lower():find(query_lower, 1, true) or
-           (rec.description and rec.description:lower():find(query_lower, 1, true)) then
-          local score = rec.name:lower() == query_lower and 90 or 40
+        local score = calc_score(rec.name:lower(), rec.description, query_lower, 95, 75, 25)
+        if score > 0 then
+          if score <= 25 and module_boost > 0 then
+            score = score + module_boost
+          end
           table.insert(results, {
             module_name = mod_name,
             symbol_name = rec.name,
@@ -528,15 +573,17 @@ local function search(query: string): {SearchResult}
           for _, field in ipairs(rec.fields) do
             local fname, ftype, fdesc = field[1], field[2], field[3]
             if ftype:match("^function") then
-              if fname:lower():find(query_lower, 1, true) or
-                 (fdesc and fdesc:lower():find(query_lower, 1, true)) then
-                local score = fname:lower() == query_lower and 85 or 35
+              local method_score = calc_score(fname:lower(), fdesc, query_lower, 90, 70, 20)
+              if method_score > 0 then
+                if method_score <= 20 and module_boost > 0 then
+                  method_score = method_score + module_boost
+                end
                 table.insert(results, {
                   module_name = mod_name,
                   symbol_name = rec.name .. "." .. fname,
                   symbol_type = "method",
                   description = first_paragraph(fdesc or ""),
-                  match_score = score,
+                  match_score = method_score,
                 })
               end
             end
@@ -549,23 +596,29 @@ local function search(query: string): {SearchResult}
     if mod_doc.examples then
       for _, example in ipairs(mod_doc.examples) do
         local example_name = example.name:gsub("^Example_?", "")
-        if example_name:lower():find(query_lower, 1, true) or
-           (example.description and example.description:lower():find(query_lower, 1, true)) then
+        local score = calc_score(example_name:lower(), example.description, query_lower, 85, 65, 20)
+        if score > 0 then
+          if score <= 20 and module_boost > 0 then
+            score = score + module_boost
+          end
           table.insert(results, {
             module_name = mod_name,
             symbol_name = example_name,
             symbol_type = "example",
             description = first_paragraph(example.description or ""),
-            match_score = 30,
+            match_score = score,
           })
         end
       end
     end
   end
 
-  -- Sort by match score (highest first)
+  -- Sort by match score (highest first), then by module name for stability
   table.sort(results, function(a: SearchResult, b: SearchResult): boolean
-    return a.match_score > b.match_score
+    if a.match_score ~= b.match_score then
+      return a.match_score > b.match_score
+    end
+    return a.module_name < b.module_name
   end)
 
   return results
