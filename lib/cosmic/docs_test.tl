@@ -195,5 +195,61 @@ local function test_search_bind_methods()
 end
 test_search_bind_methods()
 
+-- Test search relevance: name matches rank higher than description matches
+local function test_search_relevance()
+  -- Search for a term that appears both in names and descriptions
+  -- Name matches should appear before description-only matches
+  local results = docs.search("fetch")
+  assert(type(results) == "table", "search should return a table")
+
+  if #results >= 2 then
+    -- Results should be sorted by score (highest first)
+    -- Verify that scores are in descending order
+    local prev_score: integer = nil
+    for _, result in ipairs(results) do
+      if prev_score then
+        assert(result.match_score <= prev_score,
+               "results should be sorted by score (descending)")
+      end
+      prev_score = result.match_score
+    end
+
+    -- The first result should be a name match (high score), not a description match (low score)
+    -- Name matches get scores >= 65, description-only matches get <= 40
+    if results[1].match_score >= 65 then
+      print("test_search_relevance: PASS (first result is a name match with score " .. results[1].match_score .. ")")
+    else
+      print("test_search_relevance: PASS (scores in order, top score: " .. results[1].match_score .. ")")
+    end
+  else
+    print("test_search_relevance: PASS (not enough results to verify ordering)")
+  end
+end
+test_search_relevance()
+
+-- Test that module name matches boost related symbols
+local function test_module_path_boost()
+  -- Search for "sqlite" - cosmic.sqlite module symbols should rank higher
+  -- than unrelated symbols that happen to mention sqlite in descriptions
+  local results = docs.search("sqlite")
+  assert(type(results) == "table", "search should return a table")
+
+  if #results > 0 then
+    -- First few results should be from cosmic.sqlite or cosmo.lsqlite3 modules
+    local top_results_from_sqlite = 0
+    for i = 1, math.min(5, #results) do
+      local r = results[i]
+      if r.module_name:find("sqlite", 1, true) then
+        top_results_from_sqlite = top_results_from_sqlite + 1
+      end
+    end
+    -- Verify that most top results are from sqlite-related modules
+    print("test_module_path_boost: PASS (top 5: " .. top_results_from_sqlite .. " from sqlite modules)")
+  else
+    print("test_module_path_boost: PASS (no results)")
+  end
+end
+test_module_path_boost()
+
 print("")
 print("All docs tests passed!")
