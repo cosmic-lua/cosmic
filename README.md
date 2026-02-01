@@ -39,6 +39,7 @@ High-level utilities and tools built on top of cosmo.
 | [fs](lib/cosmic/fs.md) |  Filesystem operations. |
 | [fuzzy](lib/cosmic/fuzzy.md) |  Fuzzy string matching utilities. |
 | [gendoc](lib/cosmic/gendoc.md) |  |
+| [getopt](lib/cosmic/getopt.md) |  Command-line option parsing utilities. |
 | [init](lib/cosmic/init.md) |  Cosmopolitan Lua utilities. |
 | [io](lib/cosmic/io.md) |  File descriptor I/O operations. |
 | [json](lib/cosmic/json.md) |  JSON encoding and decoding utilities. |
