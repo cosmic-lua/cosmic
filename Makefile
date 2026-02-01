@@ -166,6 +166,10 @@ files: $(all_built_files)
 
 all_teals := $(patsubst %,%.teal.got,$(all_checkable_files))
 
+.PHONY: check
+## Run Teal type checking
+check: teal
+
 ## Run teal type checker on all files
 teal: $(o)/teal-summary.txt
 
