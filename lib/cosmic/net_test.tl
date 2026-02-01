@@ -270,4 +270,104 @@ local function test_constants_exist()
 end
 test_constants_exist()
 
+local function test_socket_closed_method()
+  local sock, err = net.socket()
+  assert(sock ~= nil, "socket creation failed: " .. tostring(err))
+
+  -- Socket should not be closed initially
+  assert(sock:closed() == false, "expected socket to not be closed initially")
+
+  -- Close the socket
+  sock:close()
+
+  -- Socket should be closed now
+  assert(sock:closed() == true, "expected socket to be closed after close()")
+
+  -- Closing again should be idempotent
+  local ok = sock:close()
+  assert(ok == true, "expected close() to be idempotent")
+  assert(sock:closed() == true, "expected socket to remain closed")
+end
+test_socket_closed_method()
+
+local function test_socket_has_close_metamethod()
+  -- Verify socket has __close metamethod for Lua 5.4 to-be-closed support
+  local sock, err = net.socket()
+  assert(sock ~= nil, "socket creation failed: " .. tostring(err))
+
+  -- Get the metatable and verify __close exists
+  local mt = getmetatable(sock)
+  assert(mt ~= nil, "expected socket to have a metatable")
+  assert(mt.__close ~= nil, "expected socket metatable to have __close")
+  assert(type(mt.__close) == "function", "expected __close to be a function")
+
+  -- Test that __close calls close()
+  assert(sock:closed() == false, "expected socket to not be closed")
+  mt.__close(sock)
+  assert(sock:closed() == true, "expected socket to be closed after __close")
+
+  -- __close should be idempotent (via close())
+  mt.__close(sock)
+  assert(sock:closed() == true, "expected socket to remain closed")
+end
+test_socket_has_close_metamethod()
+
+local function test_socketpair_has_close_metamethod()
+  -- Verify socketpair sockets also have __close
+  local sock1, sock2, err = net.socketpair()
+  assert(sock1 ~= nil and sock2 ~= nil, "socketpair failed: " .. tostring(err))
+
+  local mt1 = getmetatable(sock1)
+  local mt2 = getmetatable(sock2)
+  assert(mt1 ~= nil and mt1.__close ~= nil, "expected sock1 to have __close")
+  assert(mt2 ~= nil and mt2.__close ~= nil, "expected sock2 to have __close")
+
+  sock1:close()
+  sock2:close()
+end
+test_socketpair_has_close_metamethod()
+
+local function test_accept_socket_has_close_metamethod()
+  -- Create server socket
+  local server, err = net.socket()
+  assert(server ~= nil, "server socket creation failed: " .. tostring(err))
+
+  local ok, setopt_err = server:setsockopt(net.SOL_SOCKET, net.SO_REUSEADDR, true)
+  assert(ok, "setsockopt failed: " .. tostring(setopt_err))
+
+  ok, err = server:bind(0, 0)
+  assert(ok, "bind failed: " .. tostring(err))
+
+  local _, server_port = server:getsockname()
+  ok, err = server:listen()
+  assert(ok, "listen failed: " .. tostring(err))
+
+  -- Fork to create a client
+  local pid = unix.fork()
+  if pid == 0 then
+    local client = net.socket()
+    if not client then os.exit(1) end
+    local connect_ok = client:connect(0x7f000001, server_port)
+    if not connect_ok then os.exit(2) end
+    client:send("test")
+    client:close()
+    os.exit(0)
+  end
+
+  -- Accept and verify __close exists on accepted socket
+  local client, _, _, accept_err = server:accept()
+  assert(client ~= nil, "accept failed: " .. tostring(accept_err))
+
+  local mt = getmetatable(client)
+  assert(mt ~= nil and mt.__close ~= nil, "expected accepted socket to have __close")
+
+  local data = client:recv()
+  assert(data == "test", "expected 'test', got '" .. tostring(data) .. "'")
+
+  client:close()
+  server:close()
+  unix.wait(pid)
+end
+test_accept_socket_has_close_metamethod()
+
 print("All net tests passed")
