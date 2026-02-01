@@ -44,6 +44,7 @@ High-level utilities and tools built on top of cosmo.
 | [html](lib/cosmic/html.md) |  HTML utilities. |
 | [init](lib/cosmic/init.md) |  Cosmopolitan Lua utilities. |
 | [io](lib/cosmic/io.md) |  File descriptor I/O operations. |
+| [ip](lib/cosmic/ip.md) |  IP address parsing, formatting, and classification utilities. |
 | [json](lib/cosmic/json.md) |  JSON encoding and decoding utilities. |
 | [net](lib/cosmic/net.md) |  Networking and socket utilities. |
 | [path](lib/cosmic/path.md) |  Path manipulation utilities. |
