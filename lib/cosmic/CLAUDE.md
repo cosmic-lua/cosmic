@@ -170,6 +170,51 @@ Use `---` comments with `@param` and `@return` tags:
 local function decode(str: string): any, string
 ```
 
+### Infallible Functions
+
+Some functions cannot fail by design and return only a value (no error):
+
+```teal
+--- Good: Encoding always succeeds, no error needed
+local function encode_hex(data: string): string
+  return cosmo.EncodeHex(data)
+end
+
+--- Good: Compression always succeeds
+local function compress(data: string): string
+  return cosmo.Compress(data)
+end
+```
+
+Infallible functions include:
+- **Encoding**: `encode_hex`, `encode_base64`, `encode_base32`, `encode_lua` (input is always valid bytes)
+- **Compression**: `compress`, `deflate` (any byte sequence can be compressed)
+- **Escaping**: `escape_*` functions (always produce valid output)
+
+### Lenient Parsing Functions
+
+Some parsing functions are intentionally permissive, accepting malformed input
+rather than returning errors:
+
+```teal
+--- Lenient: Returns parsed URL, treating unrecognized input as path
+local function parse_url(url: string): Url
+  -- "not a url" -> {path = "not a url"}
+  -- Valid design choice for user input handling
+end
+
+--- Lenient: Decodes what it can, ignores invalid characters
+local function decode_base64(str: string): string
+  -- May produce garbage on invalid input
+  -- Use with trusted input or validate externally
+end
+```
+
+When wrapping lenient functions, document the behavior clearly:
+- Note that invalid input may produce garbage rather than errors
+- Recommend external validation for untrusted input
+- Consider adding a validating alternative (e.g., `try_decode_base64`)
+
 ## Summary
 
 | Situation | Pattern |
@@ -179,5 +224,7 @@ local function decode(str: string): any, string
 | Complex results | Result record with `ok: boolean` and `error: string` |
 | Resource creation | `Handle, string` with `__close` metamethod |
 | Iteration | Return iterator from successful prepare; errors at prepare time |
+| Infallible operations | Just `value` (no error return needed) |
+| Lenient parsing | Just `value` (document garbage-in/garbage-out behavior) |
 
 Consistency within a module matters more than which specific pattern you choose. Pick one and use it throughout.
