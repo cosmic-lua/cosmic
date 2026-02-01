@@ -13,6 +13,7 @@ Pull-based workflow from the GitHub project board.
 1. **Work backwards**: Start from "ready" and work back to "next"
 2. **Respect WIP limits**: Don't start new work if columns are at capacity
 3. **Pull, don't push**: Only move items when there's capacity downstream
+4. **Never approve or merge PRs**: Claude must never run `gh pr review --approve` or `gh pr merge`. Only humans approve and merge.
 
 ## Column limits
 
@@ -71,10 +72,10 @@ gh api graphql -f query='
 
 Work through these steps in order, stopping when you find actionable work:
 
-1. **Review and merge (ready column)**
-   - Check for PRs that can be reviewed or merged
-   - Clears capacity for In Progress items to advance
+1. **Check ready column**
+   - Note PRs awaiting human review
    - Use `gh pr list` to see what's ready
+   - **Do not** approve or merge PRs - only humans do this
 
 2. **Start work (if In Progress has capacity)**
    - If In Progress < 1, pull top item from "next"
@@ -193,6 +194,6 @@ When working on a task:
 
 When reviewing the board:
 1. Check capacity in each column
-2. Review and merge items in "ready"
+2. Note items in "ready" awaiting human review (do not approve or merge)
 3. Refill columns that have capacity
 4. Refine and prioritize upcoming work
