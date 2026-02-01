@@ -10,7 +10,7 @@ local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 -- High-level spawn tests --
 
 local function test_simple_command()
-  local handle = child({lua_bin, "-e", "print('hello')"})
+  local handle = child.spawn({lua_bin, "-e", "print('hello')"})
   assert(handle ~= nil, "handle should not be nil")
   local ok, out = handle:read()
   assert(ok, "command should succeed")
@@ -19,19 +19,19 @@ end
 test_simple_command()
 
 local function test_command_not_found()
-  local handle, err = child({"nonexistent_command_12345"})
+  local handle, err = child.spawn({"nonexistent_command_12345"})
   assert(handle == nil, "handle should be nil for nonexistent command")
   assert(err:find("command not found", 1, true), "expected 'command not found' in error: " .. tostring(err))
 end
 test_command_not_found()
 
 local function test_wait_returns_exit_code()
-  local handle = child({lua_bin, "-e", "os.exit(0)"})
+  local handle = child.spawn({lua_bin, "-e", "os.exit(0)"})
   assert(handle ~= nil, "handle should not be nil")
   local exit_code = handle:wait()
   assert(exit_code == 0, "expected exit code 0, got " .. tostring(exit_code))
 
-  handle = child({lua_bin, "-e", "os.exit(1)"})
+  handle = child.spawn({lua_bin, "-e", "os.exit(1)"})
   assert(handle ~= nil, "handle should not be nil")
   exit_code = handle:wait()
   assert(exit_code == 1, "expected exit code 1, got " .. tostring(exit_code))
@@ -39,7 +39,7 @@ end
 test_wait_returns_exit_code()
 
 local function test_stdin_string()
-  local handle = child({lua_bin, "-e", "io.write(io.read('*a'))"}, {stdin = "hello from stdin"})
+  local handle = child.spawn({lua_bin, "-e", "io.write(io.read('*a'))"}, {stdin = "hello from stdin"})
   assert(handle ~= nil, "handle should not be nil")
   local ok, out = handle:read()
   assert(ok, "command should succeed")
@@ -48,7 +48,7 @@ end
 test_stdin_string()
 
 local function test_read_captures_output()
-  local handle = child({lua_bin, "-e", [[io.write("line1\nline2\n")]]})
+  local handle = child.spawn({lua_bin, "-e", [[io.write("line1\nline2\n")]]})
   assert(handle ~= nil, "handle should not be nil")
   local ok, out = handle:read()
   assert(ok, "command should succeed")
@@ -57,7 +57,7 @@ end
 test_read_captures_output()
 
 local function test_cwd_option()
-  local handle = child({"pwd"}, {cwd = TEST_TMPDIR})
+  local handle = child.spawn({"pwd"}, {cwd = TEST_TMPDIR})
   assert(handle ~= nil, "handle should not be nil")
   local ok, out, exit_code = handle:read()
   assert(ok, "command should succeed, exit code: " .. tostring(exit_code) .. ", output: '" .. tostring(out) .. "'")

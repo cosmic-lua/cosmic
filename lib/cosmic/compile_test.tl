@@ -21,7 +21,7 @@ local x: number = 42
 print(x)
 ]])
 
-  local ok, out = spawn({cosmic, "--compile", input}):read()
+  local ok, out = spawn.spawn({cosmic, "--compile", input}):read()
   assert(ok, "cosmic --compile should succeed")
   assert(not (out as string):find(": number"), "output should not contain type annotations")
   assert((out as string):find("local x = 42"), "output should contain compiled Lua")
@@ -34,7 +34,7 @@ local function test_compile_syntax_error()
 if if if
 ]])
 
-  local ok, out = spawn({cosmic, "--compile", input}):read()
+  local ok, out = spawn.spawn({cosmic, "--compile", input}):read()
   assert(not ok, "cosmic --compile should fail on syntax error")
 end
 test_compile_syntax_error()
@@ -45,7 +45,7 @@ local function test_compile_type_error()
 local x: number = "wrong type"
 ]])
 
-  local ok, out = spawn({cosmic, "--compile", input}):read()
+  local ok, out = spawn.spawn({cosmic, "--compile", input}):read()
   assert(not ok, "cosmic --compile should fail on type error")
 end
 test_compile_type_error()
@@ -62,7 +62,7 @@ local p: Point = { x = 10, y = 20 }
 print(p.x, p.y)
 ]])
 
-  local ok, out = spawn({cosmic, "--compile", input}):read()
+  local ok, out = spawn.spawn({cosmic, "--compile", input}):read()
   assert(ok, "cosmic --compile should succeed with records")
   assert((out as string):find("local p = {"), "should compile record to table")
 end
@@ -77,7 +77,7 @@ end
 print(identity(42))
 ]])
 
-  local ok, out = spawn({cosmic, "--compile", input}):read()
+  local ok, out = spawn.spawn({cosmic, "--compile", input}):read()
   assert(ok, "cosmic --compile should succeed with generics")
   assert((out as string):find("local function identity%(x%)"), "generics should be erased")
 end
@@ -85,7 +85,7 @@ test_compile_generics()
 
 -- Test missing input file
 local function test_compile_missing_file()
-  local ok, out = spawn({cosmic, "--compile", "/nonexistent/file.tl"}):read()
+  local ok, out = spawn.spawn({cosmic, "--compile", "/nonexistent/file.tl"}):read()
   assert(not ok, "cosmic --compile should fail on missing file")
 end
 test_compile_missing_file()
@@ -100,12 +100,12 @@ print("result=" .. add(2, 3))
 ]])
   local output = path.join(tmpdir, "runnable.lua")
 
-  local ok, lua_code = spawn({cosmic, "--compile", input}):read()
+  local ok, lua_code = spawn.spawn({cosmic, "--compile", input}):read()
   assert(ok, "compilation should succeed")
 
   cosmo.Barf(output, lua_code as string)
 
-  local run_ok, run_out = spawn({cosmic, output}):read()
+  local run_ok, run_out = spawn.spawn({cosmic, output}):read()
   assert(run_ok, "compiled output should run")
   assert((run_out as string):find("result=5"), "compiled code should produce correct output")
 end
@@ -119,7 +119,7 @@ local data: string = cosmo.Slurp("/dev/null") or ""
 print("read " .. #data .. " bytes")
 ]])
 
-  local ok, out = spawn({cosmic, "--compile", input}):read()
+  local ok, out = spawn.spawn({cosmic, "--compile", input}):read()
   assert(ok, "compile with cosmic types should succeed")
 end
 test_compile_with_cosmic_types()
@@ -131,7 +131,7 @@ local x: number = 42
 print(x)
 ]])
 
-  local ok, out = spawn({cosmic, "--compile", input}):read()
+  local ok, out = spawn.spawn({cosmic, "--compile", input}):read()
   assert(ok, "cosmic --compile should succeed")
   assert((out as string):sub(1, 21) == "#!/usr/bin/env cosmic", "shebang should be preserved at start of output")
   assert((out as string):find("\nlocal x = 42"), "compiled Lua should follow shebang")
@@ -144,7 +144,7 @@ local function test_compile_no_shebang()
 print(x)
 ]])
 
-  local ok, out = spawn({cosmic, "--compile", input}):read()
+  local ok, out = spawn.spawn({cosmic, "--compile", input}):read()
   assert(ok, "cosmic --compile should succeed")
   assert((out as string):sub(1, 2) ~= "#!", "output should not have shebang if source didn't")
   assert((out as string):find("local x = 42"), "output should contain compiled Lua")
@@ -159,7 +159,7 @@ local function foo()
 end
 ]])
 
-  local ok, out = spawn({cosmic, "--compile", input}):read()
+  local ok, out = spawn.spawn({cosmic, "--compile", input}):read()
   assert(ok, "compile should succeed in lax mode with unknown variables")
   assert((out as string):find("unknown_global_var"), "output should contain the unknown variable")
 end

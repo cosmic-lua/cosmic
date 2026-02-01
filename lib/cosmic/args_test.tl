@@ -20,7 +20,7 @@ for i, v in ipairs(args) do
 end
 ]])
 
-  local ok, out = spawn({cosmic, script, "foo", "bar", "baz"}):read()
+  local ok, out = spawn.spawn({cosmic, script, "foo", "bar", "baz"}):read()
   assert(ok, "cosmic should succeed")
   assert((out as string):find("varargs_count=3"), "should have 3 varargs")
   assert((out as string):find("vararg%[1%]=foo"), "vararg[1] should be foo")
@@ -40,7 +40,7 @@ for i = 1, #arg do
 end
 ]])
 
-  local ok, out = spawn({cosmic, script, "alpha", "beta"}):read()
+  local ok, out = spawn.spawn({cosmic, script, "alpha", "beta"}):read()
   assert(ok, "cosmic should succeed")
   assert((out as string):find("arg_count=2"), "should have 2 args")
   assert((out as string):find("arg%[0%]=" .. script:gsub("[%-%.]", "%%%1")), "arg[0] should be script path")
@@ -62,7 +62,7 @@ for i = 1, #arg do
 end
 ]])
 
-  local ok, out = spawn({cosmic, script, "x", "y", "z"}):read()
+  local ok, out = spawn.spawn({cosmic, script, "x", "y", "z"}):read()
   assert(ok, "cosmic should succeed")
   assert((out as string):find("varargs_count=3"), "varargs should have 3 elements")
   assert((out as string):find("arg_count=3"), "arg should have 3 elements")
@@ -89,7 +89,7 @@ end
 os.exit(main(...))
 ]])
 
-  local ok, out = spawn({cosmic, script, "one", "two"}):read()
+  local ok, out = spawn.spawn({cosmic, script, "one", "two"}):read()
   assert(ok, "cosmic should succeed")
   assert((out as string):find("main_varargs_count=2"), "main should receive 2 varargs")
   assert((out as string):find("main_arg%[1%]=one"), "main_arg[1] should be one")
@@ -111,12 +111,12 @@ os.exit(main(...))
 ]])
 
   -- Test with argument
-  local ok, out = spawn({cosmic, script, "custom"}):read()
+  local ok, out = spawn.spawn({cosmic, script, "custom"}):read()
   assert(ok, "cosmic should succeed")
   assert((out as string):find("param=custom"), "param should be custom")
 
   -- Test with no argument (should use default)
-  ok, out = spawn({cosmic, script}):read()
+  ok, out = spawn.spawn({cosmic, script}):read()
   assert(ok, "cosmic should succeed")
   assert((out as string):find("param=default"), "param should be default")
 end
@@ -132,7 +132,7 @@ print("arg_count=" .. #arg)
 print("arg[0]=" .. tostring(arg[0]))
 ]])
 
-  local ok, out = spawn({cosmic, script}):read()
+  local ok, out = spawn.spawn({cosmic, script}):read()
   assert(ok, "cosmic should succeed")
   assert((out as string):find("varargs_count=0"), "varargs should be empty")
   assert((out as string):find("arg_count=0"), "arg should be empty")
@@ -150,7 +150,7 @@ for i, v in ipairs(args) do
 end
 ]])
 
-  local ok, out = spawn({cosmic, script, "hello world", "foo bar"}):read()
+  local ok, out = spawn.spawn({cosmic, script, "hello world", "foo bar"}):read()
   assert(ok, "cosmic should succeed")
   assert((out as string):find("arg%[1%]=hello world"), "should preserve spaces in arg[1]")
   assert((out as string):find("arg%[2%]=foo bar"), "should preserve spaces in arg[2]")
@@ -167,7 +167,7 @@ for i, v in ipairs(args) do
 end
 ]])
 
-  local ok, out = spawn({cosmic, script, "--", "--flag", "-x", "value=123"}):read()
+  local ok, out = spawn.spawn({cosmic, script, "--", "--flag", "-x", "value=123"}):read()
   assert(ok, "cosmic should succeed")
   assert((out as string):find("arg%[1%]=%-%-flag"), "should handle --flag")
   assert((out as string):find("arg%[2%]=%-x"), "should handle -x")
@@ -193,7 +193,7 @@ if cosmo.is_main() then
 end
 ]])
 
-  local ok, out = spawn({cosmic, script, "test1", "test2"}):read()
+  local ok, out = spawn.spawn({cosmic, script, "test1", "test2"}):read()
   assert(ok, "cosmic should succeed")
   assert((out as string):find("main_called=true"), "main should be called")
   assert((out as string):find("args_count=2"), "main should receive 2 args")
@@ -211,7 +211,7 @@ for i, v in ipairs(args) do
 end
 ]])
 
-  local ok, out = spawn({cosmic, script, "--version"}):read()
+  local ok, out = spawn.spawn({cosmic, script, "--version"}):read()
   assert(ok, "cosmic should succeed")
   assert((out as string):find("args_count=1"), "should have 1 arg")
   assert((out as string):find("arg%[1%]=%-%-version"), "arg[1] should be --version")
@@ -229,7 +229,7 @@ for i, v in ipairs(args) do
 end
 ]])
 
-  local ok, out = spawn({cosmic, script, "--help"}):read()
+  local ok, out = spawn.spawn({cosmic, script, "--help"}):read()
   assert(ok, "cosmic should succeed")
   assert((out as string):find("args_count=1"), "should have 1 arg")
   assert((out as string):find("arg%[1%]=%-%-help"), "arg[1] should be --help")
@@ -247,7 +247,7 @@ for i, v in ipairs(args) do
 end
 ]])
 
-  local ok, out = spawn({cosmic, script, "-v"}):read()
+  local ok, out = spawn.spawn({cosmic, script, "-v"}):read()
   assert(ok, "cosmic should succeed")
   assert((out as string):find("args_count=1"), "should have 1 arg")
   assert((out as string):find("arg%[1%]=%-v"), "arg[1] should be -v")
@@ -266,7 +266,7 @@ end
 ]])
 
   -- cosmic -e before script, then script gets --version
-  local ok, out = spawn({cosmic, "-e", "print('cosmic executed')", script, "--version", "arg2"}):read()
+  local ok, out = spawn.spawn({cosmic, "-e", "print('cosmic executed')", script, "--version", "arg2"}):read()
   assert(ok, "cosmic should succeed")
   assert((out as string):find("cosmic executed"), "cosmic -e should execute")
   assert((out as string):find("args_count=2"), "script should have 2 args")
@@ -286,7 +286,7 @@ for i, v in ipairs(args) do
 end
 ]])
 
-  local ok, out = spawn({cosmic, script, "--version", "--help", "-v", "-i", "--unknown"}):read()
+  local ok, out = spawn.spawn({cosmic, script, "--version", "--help", "-v", "-i", "--unknown"}):read()
   assert(ok, "cosmic should succeed")
   assert((out as string):find("args_count=5"), "should have 5 args")
   assert((out as string):find("arg%[1%]=%-%-version"), "arg[1] should be --version")
@@ -308,7 +308,7 @@ for i, v in ipairs(args) do
 end
 ]])
 
-  local ok, out = spawn({cosmic, script, "--", "arg1", "arg2"}):read()
+  local ok, out = spawn.spawn({cosmic, script, "--", "arg1", "arg2"}):read()
   assert(ok, "cosmic should succeed")
   assert((out as string):find("args_count=2"), "should have 2 args")
   assert((out as string):find("arg%[1%]=arg1"), "arg[1] should be arg1")
@@ -332,7 +332,7 @@ end
 print("No --version flag found")
 ]])
 
-  local ok, out = spawn({cosmic, script, "--version"}):read()
+  local ok, out = spawn.spawn({cosmic, script, "--version"}):read()
   assert(ok, "cosmic should succeed")
   assert((out as string):find("NVIM v0%.12%.0%-dev"), "script should handle --version")
   assert(not (out as string):find("No %-%-version flag found"), "should not print fallback message")

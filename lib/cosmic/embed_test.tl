@@ -32,7 +32,7 @@ local function test_embed_single_file()
   local input = write_temp("hello.txt", "hello world")
   local output = path.join(tmpdir, "cosmic-single")
 
-  local ok, out = spawn({cosmic, "--embed", input, "--output", output}):read()
+  local ok, out = spawn.spawn({cosmic, "--embed", input, "--output", output}):read()
   assert(ok, "cosmic --embed should succeed: " .. (out or ""))
 
   -- Verify output exists and is executable
@@ -70,7 +70,7 @@ local function test_embed_multiple_files()
   local file2 = write_temp("multi/two.txt", "content two")
   local output = path.join(tmpdir, "cosmic-multi")
 
-  local ok, out = spawn({cosmic, "--embed", file1, "--embed", file2, "--output", output}):read()
+  local ok, out = spawn.spawn({cosmic, "--embed", file1, "--embed", file2, "--output", output}):read()
   assert(ok, "cosmic --embed with multiple files should succeed: " .. (out or ""))
 
   local data = cosmo.Slurp(output)
@@ -95,7 +95,7 @@ local function test_embed_custom_output()
   local output = path.join(tmpdir, "subdir/myapp")
   unix.makedirs(path.dirname(output))
 
-  local ok, out = spawn({cosmic, "--embed", input, "--output", output}):read()
+  local ok, out = spawn.spawn({cosmic, "--embed", input, "--output", output}):read()
   assert(ok, "cosmic --embed with custom output path should succeed: " .. (out or ""))
 
   local stat = unix.stat(output)
@@ -106,7 +106,7 @@ test_embed_custom_output()
 -- Test error on missing input file
 local function test_embed_missing_file()
   local output = path.join(tmpdir, "cosmic-missing")
-  local ok, _out = spawn({cosmic, "--embed", "/nonexistent/file.txt", "--output", output}):read()
+  local ok, _out = spawn.spawn({cosmic, "--embed", "/nonexistent/file.txt", "--output", output}):read()
   assert(not ok, "cosmic --embed should fail on missing file")
 end
 test_embed_missing_file()
@@ -116,7 +116,7 @@ local function test_embed_lua_file()
   local modfile = write_temp("mymod.lua", [[return { value = 42 }]])
   local output = path.join(tmpdir, "cosmic-lua")
 
-  local ok, out = spawn({cosmic, "--embed", modfile, "--output", output}):read()
+  local ok, out = spawn.spawn({cosmic, "--embed", modfile, "--output", output}):read()
   assert(ok, "embed should succeed: " .. (out or ""))
 
   -- Verify the lua file is in the zip with correct content
@@ -138,7 +138,7 @@ local function test_embed_binary_file()
   local input = write_temp("binary.bin", binary)
   local output = path.join(tmpdir, "cosmic-binary")
 
-  local ok, out = spawn({cosmic, "--embed", input, "--output", output}):read()
+  local ok, out = spawn.spawn({cosmic, "--embed", input, "--output", output}):read()
   assert(ok, "embed binary should succeed: " .. (out or ""))
 
   local data = cosmo.Slurp(output)

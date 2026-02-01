@@ -154,7 +154,7 @@ local function make_readme(docs_dir: string): string
 end
 
 local function run(argv: {string}): boolean, string
-  local h, err = spawn(argv)
+  local h, err = spawn.spawn(argv)
   if not h then
     return nil, err
   end
@@ -185,7 +185,7 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
   if not ok then return nil, err end
 
   -- fetch and checkout docs branch, or create orphan
-  local fetch_h = spawn({"git", "fetch", "origin", branch})
+  local fetch_h = spawn.spawn({"git", "fetch", "origin", branch})
   local fetch_ok = fetch_h and fetch_h:wait() == 0
 
   if fetch_ok then
@@ -198,7 +198,7 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
   end
 
   -- remove old content (ignore errors for empty repos)
-  spawn({"git", "rm", "-rf", "."}):wait()
+  spawn.spawn({"git", "rm", "-rf", "."}):wait()
 
   -- clear working directory
   local dir = unix.opendir(".") as DirHandle
@@ -226,7 +226,7 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
   if not ok then return nil, err end
 
   -- check if there are changes
-  local diff_h = spawn({"git", "diff", "--staged", "--quiet"})
+  local diff_h = spawn.spawn({"git", "diff", "--staged", "--quiet"})
   if diff_h and diff_h:wait() == 0 then
     io.stderr:write("no documentation changes detected\n")
     return true

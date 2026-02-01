@@ -338,7 +338,6 @@ end
 local record ChildModule
   -- High-level spawn API
   spawn: function(argv: {string}, opts?: Opts): Handle, string
-  metamethod __call: function(self: ChildModule, argv: {string}, opts?: Opts): Handle, string
 
   -- Low-level primitives
   fork: function(): number
@@ -397,11 +396,5 @@ local M: ChildModule = {
   SIGSTOP = unix.SIGSTOP,
   SIGCONT = unix.SIGCONT,
 }
-
-setmetatable(M, {
-  __call = function(_: ChildModule, argv: {string}, opts?: Opts): Handle, string
-    return spawn(argv, opts)
-  end,
-})
 
 return M

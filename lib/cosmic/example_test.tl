@@ -129,7 +129,7 @@ local function Example_cmd()
   -- works
 end
 ]])
-  local ok, out = spawn({cosmic, "--check-examples", input}):read()
+  local ok, out = spawn.spawn({cosmic, "--check-examples", input}):read()
   assert(ok, "cosmic --check-examples should succeed")
   assert((out as string):find("PASS"), "output should show PASS")
 end
@@ -144,7 +144,7 @@ local function Example_cmd()
   -- expected
 end
 ]])
-  local ok, out = spawn({cosmic, "--check-examples", input}):read()
+  local ok, out = spawn.spawn({cosmic, "--check-examples", input}):read()
   assert(not ok, "cosmic --check-examples should fail")
   assert((out as string):find("FAIL"), "output should show FAIL")
 end
@@ -155,7 +155,7 @@ local function test_cosmic_example_skip()
   local input = write_temp("cmd_skip.tl", [[
 local x = 1
 ]])
-  local h = spawn({cosmic, "--check-examples", input})
+  local h = spawn.spawn({cosmic, "--check-examples", input})
   h.stdin:close()
   local out = h.stdout:read()
   local code = h:wait()
