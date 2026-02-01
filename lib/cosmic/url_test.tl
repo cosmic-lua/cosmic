@@ -110,3 +110,47 @@ local function test_decode_uppercase_hex()
   assert(result == "/:", "expected '/:' for uppercase hex, got '" .. result .. "'")
 end
 test_decode_uppercase_hex()
+
+-- parse tests
+
+local function test_parse_basic()
+  local result = url.parse("key=value")
+  assert(result.key == "value", "expected 'value', got '" .. tostring(result.key) .. "'")
+end
+test_parse_basic()
+
+local function test_parse_multiple_params()
+  local result = url.parse("a=1&b=2&c=3")
+  assert(result.a == "1", "expected '1' for a")
+  assert(result.b == "2", "expected '2' for b")
+  assert(result.c == "3", "expected '3' for c")
+end
+test_parse_multiple_params()
+
+local function test_parse_encoded_values()
+  local result = url.parse("name=hello%20world")
+  assert(result.name == "hello world", "expected 'hello world', got '" .. tostring(result.name) .. "'")
+end
+test_parse_encoded_values()
+
+local function test_parse_empty_string()
+  local result = url.parse("")
+  local count = 0
+  for _ in pairs(result) do
+    count = count + 1
+  end
+  assert(count == 0, "expected empty table for empty string")
+end
+test_parse_empty_string()
+
+local function test_parse_empty_value()
+  local result = url.parse("key=")
+  assert(result.key == "", "expected empty string for 'key='")
+end
+test_parse_empty_value()
+
+local function test_parse_plus_as_space()
+  local result = url.parse("msg=hello+world")
+  assert(result.msg == "hello world", "expected 'hello world', got '" .. tostring(result.msg) .. "'")
+end
+test_parse_plus_as_space()

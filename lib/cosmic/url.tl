@@ -1,5 +1,5 @@
---- URL encoding and decoding utilities.
---- Wraps cosmo.EscapeParam for encoding; manual decode for percent-encoded strings.
+--- URL encoding, decoding, and query string parsing utilities.
+--- Wraps cosmo.EscapeParam for encoding and cosmo.ParseParams for query string parsing.
 local cosmo = require("cosmo")
 
 --- Encode a string for use in URL query parameters.
@@ -29,14 +29,29 @@ local function decode(str: string): string, string
   return result, nil
 end
 
+--- Parse a query string into key-value pairs.
+--- Handles URL-encoded keys and values.
+--- @param query string The query string (without leading ?)
+--- @return {string:string} Table of key-value pairs
+local function parse(query: string): {string:string}
+  local pairs_list = cosmo.ParseParams(query) as {{string, string}}
+  local result: {string:string} = {}
+  for _, pair in ipairs(pairs_list) do
+    result[pair[1]] = pair[2]
+  end
+  return result
+end
+
 local record UrlModule
   encode: function(str: string): string
   decode: function(str: string): string, string
+  parse: function(query: string): {string:string}
 end
 
 local M: UrlModule = {
   encode = encode,
   decode = decode,
+  parse = parse,
 }
 
 return M
