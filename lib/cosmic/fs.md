@@ -17,6 +17,38 @@ local record RawDir
 end
 ```
 
+### Statfs
+
+ Filesystem statistics.
+ Returned by statfs() and fstatfs().
+
+```teal
+local record Statfs
+  --  Returns filesystem type identifier.
+  type: function(self: Statfs): number
+  --  Returns optimal transfer block size.
+  bsize: function(self: Statfs): number
+  --  Returns total data blocks in filesystem.
+  blocks: function(self: Statfs): number
+  --  Returns free blocks in filesystem.
+  bfree: function(self: Statfs): number
+  --  Returns free blocks available to unprivileged user.
+  bavail: function(self: Statfs): number
+  --  Returns total file nodes in filesystem.
+  files: function(self: Statfs): number
+  --  Returns free file nodes in filesystem.
+  ffree: function(self: Statfs): number
+  --  Returns filesystem ID as two numbers.
+  fsid: function(self: Statfs): number, number
+  --  Returns maximum length of filenames.
+  namelen: function(self: Statfs): number
+  --  Returns fragment size.
+  frsize: function(self: Statfs): number
+  --  Returns mount flags.
+  flags: function(self: Statfs): number
+end
+```
+
 ### Stat
 
  File or directory metadata.
@@ -44,6 +76,10 @@ local record Stat
   blocks: function(self: Stat): number
   --  Returns number of hard links.
   nlink: function(self: Stat): number
+  --  Returns device ID containing the file.
+  dev: function(self: Stat): number
+  --  Returns device ID for special files (0 or -1 for non-devices).
+  rdev: function(self: Stat): number
 end
 ```
 
@@ -106,6 +142,10 @@ local record FsModule
   mkdtemp: function(template: string): string, string
   mkstemp: function(template: string): number, string
   tmpfd: function(): number, string
+  statfs: function(path: string): Statfs, string
+  fstatfs: function(fd: number): Statfs, string
+  major: function(dev: number): number
+  minor: function(dev: number): number
   F_OK: number
   R_OK: number
   W_OK: number
@@ -656,6 +696,74 @@ function tmpfd(): number, string
 
 - number - File descriptor, or nil on error
 - string - Error message if failed
+
+### statfs
+
+```teal
+function statfs(path: string): Statfs, string
+```
+
+ Get filesystem statistics for a path.
+
+**Parameters:**
+
+- `path` (string) - Path to any file on the filesystem
+
+**Returns:**
+
+- Statfs - Filesystem statistics, or nil on error
+- string - Error message if failed
+
+### fstatfs
+
+```teal
+function fstatfs(fd: number): Statfs, string
+```
+
+ Get filesystem statistics from a file descriptor.
+
+**Parameters:**
+
+- `fd` (number) - File descriptor
+
+**Returns:**
+
+- Statfs - Filesystem statistics, or nil on error
+- string - Error message if failed
+
+### major
+
+```teal
+function major(dev: number): number
+```
+
+ Extract major device number from a device ID.
+ Use with stat():dev() or stat():rdev() to identify device types.
+
+**Parameters:**
+
+- `dev` (number) - Device ID from stat
+
+**Returns:**
+
+- number - Major device number
+
+### minor
+
+```teal
+function minor(dev: number): number
+```
+
+ Extract minor device number from a device ID.
+ Use with stat():dev() or stat():rdev() to identify specific devices.
+
+**Parameters:**
+
+- `dev` (number) - Device ID from stat
+
+**Returns:**
+
+- number - Minor device number
 
 ## Examples
 

@@ -31,6 +31,19 @@ local record Socket
 end
 ```
 
+### Interface
+
+ Network interface information.
+
+```teal
+local record Interface
+  --  Interface name (e.g., "eth0", "lo").
+  name: string
+  --  IPv4 address as a number.
+  ip: number
+end
+```
+
 ### NetModule
 
 ```teal
@@ -41,6 +54,7 @@ local record NetModule
   gethostname: function(): string, string
   parseip: function(str: string): number, string
   formatip: function(ip: number): string
+  interfaces: function(): {Interface}, string
   AF_INET: number
   AF_UNIX: number
   AF_UNSPEC: number
@@ -220,6 +234,19 @@ function formatip(ip: number): string
 **Returns:**
 
 - string - IP address in dotted notation
+
+### interfaces
+
+```teal
+function interfaces(): {Interface}, string
+```
+
+ List network interfaces and their IPv4 addresses.
+
+**Returns:**
+
+- {Interface} - List of interfaces
+- string - Error message on failure
 
 ### sock:close
 

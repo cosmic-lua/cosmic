@@ -309,6 +309,37 @@ local record Stat
 end
 ```
 
+### Statfs
+
+ Filesystem statistics returned by statfs() and fstatfs().
+
+```teal
+local record Statfs
+  --  Returns filesystem type identifier.
+  type: function(self: Statfs): number
+  --  Returns optimal transfer block size.
+  bsize: function(self: Statfs): number
+  --  Returns total data blocks in filesystem.
+  blocks: function(self: Statfs): number
+  --  Returns free blocks in filesystem.
+  bfree: function(self: Statfs): number
+  --  Returns free blocks available to unprivileged user.
+  bavail: function(self: Statfs): number
+  --  Returns total file nodes in filesystem.
+  files: function(self: Statfs): number
+  --  Returns free file nodes in filesystem.
+  ffree: function(self: Statfs): number
+  --  Returns filesystem ID as two numbers.
+  fsid: function(self: Statfs): number, number
+  --  Returns maximum length of filenames.
+  namelen: function(self: Statfs): number
+  --  Returns fragment size.
+  frsize: function(self: Statfs): number
+  --  Returns mount flags.
+  flags: function(self: Statfs): number
+end
+```
+
 ### Sigset
 
 ```teal
@@ -3891,6 +3922,74 @@ function fstat(fd: number): Stat
 **Returns:**
 
 - Stat
+
+### statfs
+
+```teal
+function statfs(path: string): Statfs
+```
+
+ Gets filesystem statistics for a path.
+ Returns information about the filesystem containing the specified file.
+
+**Parameters:**
+
+- `path` (string)
+
+**Returns:**
+
+- Statfs
+
+### fstatfs
+
+```teal
+function fstatfs(fd: number): Statfs
+```
+
+ Gets filesystem statistics from a file descriptor.
+ Returns information about the filesystem containing the open file.
+
+**Parameters:**
+
+- `fd` (number)
+
+**Returns:**
+
+- Statfs
+
+### major
+
+```teal
+function major(dev: number): number
+```
+
+ Extracts major device number from a device ID.
+ Use with stat():dev() or stat():rdev() to identify device types.
+
+**Parameters:**
+
+- `dev` (number)
+
+**Returns:**
+
+- number
+
+### minor
+
+```teal
+function minor(dev: number): number
+```
+
+ Extracts minor device number from a device ID.
+ Use with stat():dev() or stat():rdev() to identify specific devices.
+
+**Parameters:**
+
+- `dev` (number)
+
+**Returns:**
+
+- number
 
 ### opendir
 
