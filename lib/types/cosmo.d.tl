@@ -17,6 +17,10 @@ local record cosmo
   DecodeJson: function(json: string): any, string
   EncodeLua: function(value: any, opts?: {string:any}): string
 
+  -- url encoding
+  EscapeParam: function(str: string): string
+  ParseParams: function(query: string): {string:string}
+
   -- system info
   GetHostOs: function(): string
   GetHostIsa: function(): string

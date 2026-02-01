@@ -44,9 +44,9 @@ end
 --- @return {string} List of default include directory paths
 local function get_default_include_dirs(): {string}
   return {
+    "lib/types",             -- Local cosmic types (development, takes precedence)
     "/zip/.lua/types",       -- Bundled cosmic types (in binary)
     "/zip/.lua/teal-types",  -- Bundled third-party types (in binary)
-    "lib/types",             -- Local cosmic types (development)
   }
 end
 
