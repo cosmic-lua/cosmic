@@ -62,6 +62,8 @@ local record TimeModule
   sleep_ms: function(ms: number): number, number
   gmtime: function(unixts: number): DateTime
   localtime: function(unixts: number): DateTime
+  format_http: function(timestamp: number): string
+  parse_http: function(str: string): number
 end
 ```
 
@@ -180,3 +182,36 @@ function localtime(unixts: number): DateTime
 **Returns:**
 
 - DateTime - Broken-down time in local timezone
+
+### format_http
+
+```teal
+function format_http(timestamp: number): string
+```
+
+ Format a UNIX timestamp as an HTTP date string (RFC 7231).
+
+**Parameters:**
+
+- `timestamp` (number) - UNIX timestamp (seconds since epoch)
+
+**Returns:**
+
+- string - HTTP date string (e.g., "Sun, 01 Feb 2026 12:00:00 GMT")
+
+### parse_http
+
+```teal
+function parse_http(str: string): number
+```
+
+ Parse an HTTP date string (RFC 7231) into a UNIX timestamp.
+ Returns 0 for invalid input.
+
+**Parameters:**
+
+- `str` (string) - HTTP date string
+
+**Returns:**
+
+- number - UNIX timestamp, or 0 if parsing failed
