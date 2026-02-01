@@ -1,6 +1,5 @@
 --- File descriptor I/O operations.
 --- Wraps low-level file descriptor operations from cosmo.unix.
-local raw_unix = require("cosmo.unix")
 local cosmo = require("cosmo")
 
 --- Result from a pipe operation.
@@ -56,7 +55,7 @@ local record UnixIO
   AT_FDCWD: number
 end
 
-local unix = raw_unix as UnixIO
+local unix = require("cosmo.unix") as UnixIO
 
 --- Opens a file and returns a file descriptor.
 --- @param path string The path to the file
