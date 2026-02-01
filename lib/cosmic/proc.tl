@@ -207,6 +207,88 @@ local function getrusage(who?: number): Rusage
   return unix.getrusage(who) as Rusage
 end
 
+-- Resource Limits --
+
+--- Gets resource limits for the current process.
+--- Returns the soft and hard limits for the specified resource.
+--- @param resource number The RLIMIT_* constant identifying the resource
+--- @return number Soft limit (can be exceeded, may generate signal)
+--- @return number Hard limit (cannot be exceeded by unprivileged processes)
+local function getrlimit(resource: number): number, number
+  return unix.getrlimit(resource)
+end
+
+--- Sets resource limits for the current process.
+--- The soft limit can be raised up to the hard limit.
+--- Only privileged processes can raise the hard limit.
+--- @param resource number The RLIMIT_* constant identifying the resource
+--- @param soft number New soft limit
+--- @param hard number? New hard limit (defaults to soft if not provided)
+--- @return boolean True on success
+--- @return string? Error message on failure
+local function setrlimit(resource: number, soft: number, hard?: number): boolean, string
+  local ok, err = unix.setrlimit(resource, soft, hard) as (boolean, any)
+  if not ok then
+    if err then
+      local errno = err as Errno
+      if errno.doc then
+        return false, errno:doc()
+      end
+      return false, tostring(err)
+    end
+    return false, "setrlimit failed"
+  end
+  return true
+end
+
+-- Process Priority --
+
+--- Adjusts the nice value (scheduling priority) of the calling process.
+--- The nice value ranges from -20 (highest priority) to 19 (lowest priority).
+--- Only privileged processes can lower the nice value (increase priority).
+--- @param inc number Value to add to current nice value
+--- @return number The new nice value
+local function nice(inc: number): number
+  return unix.nice(inc)
+end
+
+--- Gets the scheduling priority of a process, process group, or user.
+--- @param which number What `who` refers to: PRIO_PROCESS, PRIO_PGRP, or PRIO_USER
+--- @param who number The id to query (0 = calling process/group/user)
+--- @return number The priority value (nice value), ranging from -20 to 19
+local function getpriority(which: number, who: number): number
+  return unix.getpriority(which, who)
+end
+
+--- Sets the scheduling priority of a process, process group, or user.
+--- @param which number What `who` refers to: PRIO_PROCESS, PRIO_PGRP, or PRIO_USER
+--- @param who number The id to modify (0 = calling process/group/user)
+--- @param prio number New priority value (-20 to 19, lower = higher priority)
+--- @return boolean True on success
+--- @return string? Error message on failure
+local function setpriority(which: number, who: number, prio: number): boolean, string
+  local ok, err = unix.setpriority(which, who, prio) as (boolean, any)
+  if not ok then
+    if err then
+      local errno = err as Errno
+      if errno.doc then
+        return false, errno:doc()
+      end
+      return false, tostring(err)
+    end
+    return false, "setpriority failed"
+  end
+  return true
+end
+
+-- Scheduling --
+
+--- Relinquishes the CPU, allowing other processes to run.
+--- Causes the calling thread to yield its scheduled time quantum.
+local function sched_yield()
+  unix.sched_yield()
+end
+
 -- Script Detection --
 
 --- Returns true if current script is being run as the main program.
@@ -249,6 +331,18 @@ local record ProcModule
   -- Resource usage
   getrusage: function(who?: number): Rusage
 
+  -- Resource limits
+  getrlimit: function(resource: number): number, number
+  setrlimit: function(resource: number, soft: number, hard?: number): boolean, string
+
+  -- Priority
+  nice: function(inc: number): number
+  getpriority: function(which: number, who: number): number
+  setpriority: function(which: number, who: number, prio: number): boolean, string
+
+  -- Scheduling
+  sched_yield: function()
+
   -- Script detection
   is_main: function(): boolean
 
@@ -271,6 +365,19 @@ local record ProcModule
   SIGUSR2: number
   SIGPIPE: number
   SIGALRM: number
+
+  -- Resource limit constants
+  RLIMIT_AS: number
+  RLIMIT_CPU: number
+  RLIMIT_FSIZE: number
+  RLIMIT_NOFILE: number
+  RLIMIT_NPROC: number
+  RLIMIT_RSS: number
+
+  -- Priority scope constants
+  PRIO_PROCESS: number
+  PRIO_PGRP: number
+  PRIO_USER: number
 end
 
 local M: ProcModule = {
@@ -305,6 +412,18 @@ local M: ProcModule = {
   -- Resource usage
   getrusage = getrusage,
 
+  -- Resource limits
+  getrlimit = getrlimit,
+  setrlimit = setrlimit,
+
+  -- Priority
+  nice = nice,
+  getpriority = getpriority,
+  setpriority = setpriority,
+
+  -- Scheduling
+  sched_yield = sched_yield,
+
   -- Script detection
   is_main = is_main,
 
@@ -327,6 +446,19 @@ local M: ProcModule = {
   SIGUSR2 = unix.SIGUSR2,
   SIGPIPE = unix.SIGPIPE,
   SIGALRM = unix.SIGALRM,
+
+  -- Resource limit constants
+  RLIMIT_AS = unix.RLIMIT_AS,
+  RLIMIT_CPU = unix.RLIMIT_CPU,
+  RLIMIT_FSIZE = unix.RLIMIT_FSIZE,
+  RLIMIT_NOFILE = unix.RLIMIT_NOFILE,
+  RLIMIT_NPROC = unix.RLIMIT_NPROC,
+  RLIMIT_RSS = unix.RLIMIT_RSS,
+
+  -- Priority scope constants
+  PRIO_PROCESS = unix.PRIO_PROCESS,
+  PRIO_PGRP = unix.PRIO_PGRP,
+  PRIO_USER = unix.PRIO_USER,
 }
 
 return M
