@@ -189,6 +189,16 @@ bootstrap: $(bootstrap_files)
 ## Build cosmic binary
 build: cosmic
 
+.PHONY: stage1
+## CI stage 1: build cosmic and refresh bootstrap with updated bundled types
+stage1: $(cosmic_bin)
+	@cp $(cosmic_bin) $(bootstrap_cosmic)
+	@echo "Bootstrap refreshed from $(cosmic_bin)"
+
+.PHONY: stage2
+## CI stage 2: type check and test with refreshed bootstrap (alias for ci)
+stage2: ci
+
 # Example testing - run Example_* functions in _example.tl files
 all_example_srcs := $(call filter-only,$(foreach m,$(modules),$($(m)_examples)))
 all_examples := $(patsubst %.tl,$(o)/%.tl.example.got,$(all_example_srcs))
@@ -280,10 +290,11 @@ doc-publish: $(all_docs) $(docs_publish) | $(bootstrap_cosmic)
 	@test -n "$(SOURCE_SHA)" || { echo "SOURCE_SHA required"; exit 1; }
 	@$(bootstrap_cosmic) -- $(docs_publish) $(SOURCE_SHA) $(o)/docs $(or $(DOCS_BRANCH),docs)
 
-ci_stages := teal test example build
+# CI stages: iterate with --keep-going to report all failures
+ci_stages := teal test example
 
 .PHONY: ci
-## Run full CI pipeline (teal, test, example, build)
+## Run CI checks (teal, test, example) - run stage1 first to refresh bootstrap
 ci:
 	@rm -f $(o)/failed
 	@$(foreach s,$(ci_stages),\
