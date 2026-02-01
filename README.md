@@ -50,6 +50,7 @@ High-level utilities and tools built on top of cosmo.
 | [teal](lib/cosmic/teal.md) |  Teal compilation and type-checking. |
 | [time](lib/cosmic/time.md) |  Time and clock utilities. |
 | [url](lib/cosmic/url.md) |  URL encoding, decoding, and query string parsing utilities. |
+| [user](lib/cosmic/user.md) |  User and group identity operations. |
 | [walk](lib/cosmic/walk.md) |  Directory tree walking utilities. |
 | [welcome](lib/cosmic/welcome.md) |  |
 
