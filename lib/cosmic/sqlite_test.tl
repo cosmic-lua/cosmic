@@ -71,6 +71,50 @@ local function test_changes()
 end
 test_changes()
 
+local function test_exec_with_params()
+  local db = sqlite.open(":memory:")
+  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+
+  local ok, err = db:exec("INSERT INTO t (name) VALUES (?)", "Alice")
+  assert(ok, "exec with param should succeed: " .. tostring(err))
+  assert(db:last_insert_rowid() == 1, "should have inserted row")
+
+  ok, err = db:exec("UPDATE t SET name = ? WHERE id = ?", "Bob", 1)
+  assert(ok, "exec update should succeed: " .. tostring(err))
+
+  ok, err = db:exec("DELETE FROM t WHERE name = ?", "Bob")
+  assert(ok, "exec delete should succeed: " .. tostring(err))
+  assert(db:changes() == 1, "should have deleted 1 row")
+  db:close()
+end
+test_exec_with_params()
+
+local function test_exec_multiple_params()
+  local db = sqlite.open(":memory:")
+  db:exec("CREATE TABLE t (a TEXT, b INTEGER, c REAL)")
+
+  local ok, err = db:exec("INSERT INTO t (a, b, c) VALUES (?, ?, ?)", "hello", 42, 3.14)
+  assert(ok, "exec with multiple params should succeed: " .. tostring(err))
+
+  for row in db:query("SELECT * FROM t") do
+    assert(row.a == "hello", "a should be 'hello'")
+    assert(row.b == 42, "b should be 42")
+    assert(math.abs((row.c as number) - 3.14) < 0.001, "c should be ~3.14")
+  end
+  db:close()
+end
+test_exec_multiple_params()
+
+local function test_exec_no_params()
+  local db = sqlite.open(":memory:")
+  local ok, err = db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+  assert(ok, "exec without params should succeed: " .. tostring(err))
+  ok, err = db:exec("INSERT INTO t DEFAULT VALUES")
+  assert(ok, "exec without params should succeed: " .. tostring(err))
+  db:close()
+end
+test_exec_no_params()
+
 -- Prepared statements
 
 local function test_prepare_bind_exec()

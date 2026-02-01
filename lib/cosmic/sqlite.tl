@@ -48,7 +48,7 @@ end
 local record Database
   prepare: function(self: Database, sql: string): Statement, string
   query: function(self: Database, sql: string, ...: any): function(): {string:any}
-  exec: function(self: Database, sql: string): boolean, string
+  exec: function(self: Database, sql: string, ...: any): boolean, string
   last_insert_rowid: function(self: Database): number
   changes: function(self: Database): number
   close: function(self: Database)
@@ -190,12 +190,32 @@ local function make_database(raw_db: RawDatabase): Database
     end
   end
 
-  function db:exec(sql: string): boolean, string
-    local rc = raw_db:exec(sql)
-    if rc ~= sqlite3.OK then
-      return false, raw_db:errmsg()
+  function db:exec(sql: string, ...: any): boolean, string
+    local args = {...}
+    if #args == 0 then
+      -- no params: use raw exec (faster for DDL)
+      local rc = raw_db:exec(sql)
+      if rc ~= sqlite3.OK then
+        return false, raw_db:errmsg()
+      end
+      return true
     end
-    return true
+
+    -- has params: prepare/bind/exec
+    local stmt, err = self:prepare(sql)
+    if not stmt then
+      return false, err or "prepare failed"
+    end
+
+    local ok, bind_err = stmt:bind(table.unpack(args))
+    if not ok then
+      stmt:close()
+      return false, bind_err or "bind failed"
+    end
+
+    local exec_ok, exec_err = stmt:exec()
+    stmt:close()
+    return exec_ok, exec_err
   end
 
   function db:last_insert_rowid(): number

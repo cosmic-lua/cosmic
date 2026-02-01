@@ -57,4 +57,24 @@ local function Example_query_params()
   -- 5
 end
 
+-- Example_exec_params demonstrates exec with parameter binding
+local function Example_exec_params()
+  local sqlite = require("cosmic.sqlite")
+  local db = sqlite.open(":memory:")
+  db:exec("CREATE TABLE cities (id INTEGER PRIMARY KEY, name TEXT, pop INTEGER)")
+
+  db:exec("INSERT INTO cities (name, pop) VALUES (?, ?)", "Tokyo", 13960000)
+  db:exec("INSERT INTO cities (name, pop) VALUES (?, ?)", "Delhi", 16787941)
+  db:exec("INSERT INTO cities (name, pop) VALUES (?, ?)", "Shanghai", 24870895)
+
+  for row in db:query("SELECT * FROM cities ORDER BY pop DESC") do
+    print(row.name, row.pop)
+  end
+  db:close()
+  -- Output:
+  -- Shanghai	24870895
+  -- Delhi	16787941
+  -- Tokyo	13960000
+end
+
 return {}
