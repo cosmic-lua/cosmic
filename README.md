@@ -46,10 +46,13 @@ High-level utilities and tools built on top of cosmo.
 | [path](lib/cosmic/path.md) |  Path manipulation utilities. |
 | [proc](lib/cosmic/proc.md) |  Current process management. |
 | [require](lib/cosmic/require.md) |  Enhanced require with helpful error messages. |
+| [sandbox](lib/cosmic/sandbox.md) |  Security sandboxing utilities. |
+| [shm](lib/cosmic/shm.md) |  Shared memory for inter-process communication. |
 | [signal](lib/cosmic/signal.md) |  Signal handling utilities. |
 | [sqlite](lib/cosmic/sqlite.md) |  Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns. |
 | [teal](lib/cosmic/teal.md) |  Teal compilation and type-checking. |
 | [time](lib/cosmic/time.md) |  Time and clock utilities. |
+| [tty](lib/cosmic/tty.md) |  Terminal (TTY) utilities. |
 | [url](lib/cosmic/url.md) |  URL encoding, decoding, and query string parsing utilities. |
 | [user](lib/cosmic/user.md) |  User and group identity operations. |
 | [walk](lib/cosmic/walk.md) |  Directory tree walking utilities. |
