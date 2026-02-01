@@ -184,27 +184,54 @@ end
 test_encode_base64_binary()
 
 local function test_decode_base64_basic()
-  local result = codec.decode_base64("aGVsbG8=")
-  assert(result == "hello", "expected 'hello', got '" .. result .. "'")
+  local result, err = codec.decode_base64("aGVsbG8=")
+  assert(err == nil, "unexpected error: " .. (err or ""))
+  assert(result == "hello", "expected 'hello', got '" .. (result or "nil") .. "'")
 end
 test_decode_base64_basic()
 
 local function test_decode_base64_no_padding()
-  local result = codec.decode_base64("aGVsbG8")
-  assert(result == "hello", "expected 'hello', got '" .. result .. "'")
+  local result, err = codec.decode_base64("aGVsbG8")
+  assert(err == nil, "unexpected error: " .. (err or ""))
+  assert(result == "hello", "expected 'hello', got '" .. (result or "nil") .. "'")
 end
 test_decode_base64_no_padding()
 
 local function test_decode_base64_empty()
-  local result = codec.decode_base64("")
+  local result, err = codec.decode_base64("")
+  assert(err == nil, "unexpected error: " .. (err or ""))
   assert(result == "", "expected empty string")
 end
 test_decode_base64_empty()
 
+local function test_decode_base64_invalid_char()
+  local result, err = codec.decode_base64("invalid!base64")
+  assert(result == nil, "expected nil for invalid base64")
+  assert(err ~= nil, "expected error message")
+  assert(err:match("invalid"), "error should mention invalid")
+end
+test_decode_base64_invalid_char()
+
+local function test_decode_base64_invalid_padding()
+  local result, err = codec.decode_base64("abc===")
+  assert(result == nil, "expected nil for invalid padding")
+  assert(err ~= nil, "expected error message")
+  assert(err:match("padding"), "error should mention padding")
+end
+test_decode_base64_invalid_padding()
+
+local function test_decode_base64_padding_in_middle()
+  local result, err = codec.decode_base64("ab=cd")
+  assert(result == nil, "expected nil for padding in middle")
+  assert(err ~= nil, "expected error message")
+end
+test_decode_base64_padding_in_middle()
+
 local function test_base64_roundtrip()
   local original = "Hello, World! \x00\xff\x10"
   local encoded = codec.encode_base64(original)
-  local decoded = codec.decode_base64(encoded)
+  local decoded, err = codec.decode_base64(encoded)
+  assert(err == nil, "roundtrip decode failed: " .. (err or ""))
   assert(decoded == original, "roundtrip mismatch")
 end
 test_base64_roundtrip()
@@ -224,21 +251,41 @@ end
 test_encode_base32_empty()
 
 local function test_decode_base32_basic()
-  local result = codec.decode_base32("d1jprv3f")
-  assert(result == "hello", "expected 'hello', got '" .. result .. "'")
+  local result, err = codec.decode_base32("d1jprv3f")
+  assert(err == nil, "unexpected error: " .. (err or ""))
+  assert(result == "hello", "expected 'hello', got '" .. (result or "nil") .. "'")
 end
 test_decode_base32_basic()
 
 local function test_decode_base32_empty()
-  local result = codec.decode_base32("")
+  local result, err = codec.decode_base32("")
+  assert(err == nil, "unexpected error: " .. (err or ""))
   assert(result == "", "expected empty string")
 end
 test_decode_base32_empty()
 
+local function test_decode_base32_invalid_char()
+  -- base32 alphabet excludes i, l, o, u
+  local result, err = codec.decode_base32("hello")  -- 'l' and 'o' are invalid
+  assert(result == nil, "expected nil for invalid base32")
+  assert(err ~= nil, "expected error message")
+  assert(err:match("invalid"), "error should mention invalid")
+end
+test_decode_base32_invalid_char()
+
+local function test_decode_base32_uppercase_invalid()
+  -- base32 is lowercase only
+  local result, err = codec.decode_base32("ABCDEFGH")
+  assert(result == nil, "expected nil for uppercase (base32 is lowercase)")
+  assert(err ~= nil, "expected error message")
+end
+test_decode_base32_uppercase_invalid()
+
 local function test_base32_roundtrip()
   local original = "Hello, World!"
   local encoded = codec.encode_base32(original)
-  local decoded = codec.decode_base32(encoded)
+  local decoded, err = codec.decode_base32(encoded)
+  assert(err == nil, "roundtrip decode failed: " .. (err or ""))
   assert(decoded == original, "roundtrip mismatch")
 end
 test_base32_roundtrip()

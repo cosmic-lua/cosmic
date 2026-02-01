@@ -69,13 +69,26 @@ end
 --- Decode a base64 string to binary data.
 --- Accepts standard base64 encoding with or without padding.
 --- @param str string The base64 string to decode
---- @return string The decoded binary data
-local function decode_base64(str: string): string
+--- @return string The decoded binary data, or nil on error
+--- @return string? Error message if decoding failed
+local function decode_base64(str: string): string, string
+  -- Validate: base64 uses A-Z, a-z, 0-9, +, /, and = for padding
+  if str:match("[^A-Za-z0-9+/=]") then
+    return nil, "invalid base64 character"
+  end
+  -- Validate: = can only appear at the end, max 2
+  local content, padding = str:match("^([A-Za-z0-9+/]*)(%=*)$")
+  if not content then
+    return nil, "invalid base64: padding in middle"
+  end
+  if #padding > 2 then
+    return nil, "invalid base64 padding"
+  end
   return cosmo.DecodeBase64(str)
 end
 
 --- Encode binary data as base32.
---- Uses z-base-32 encoding (lowercase alphabet).
+--- Uses lowercase base32 alphabet (0-9a-v excluding i, l, o, u).
 --- @param data string The binary data to encode
 --- @return string The base32 encoded string
 local function encode_base32(data: string): string
@@ -83,10 +96,15 @@ local function encode_base32(data: string): string
 end
 
 --- Decode a base32 string to binary data.
---- Accepts z-base-32 encoding.
+--- Uses lowercase base32 alphabet (0-9a-v excluding i, l, o, u).
 --- @param str string The base32 string to decode
---- @return string The decoded binary data
-local function decode_base32(str: string): string
+--- @return string The decoded binary data, or nil on error
+--- @return string? Error message if decoding failed
+local function decode_base32(str: string): string, string
+  -- cosmo base32 alphabet: 0123456789abcdefghjkmnpqrstvwxyz (32 chars, no i,l,o,u)
+  if str:match("[^0-9a-hj-km-np-tv-z]") then
+    return nil, "invalid base32 character"
+  end
   return cosmo.DecodeBase32(str)
 end
 
@@ -116,9 +134,9 @@ local record CodecModule
   encode_lua: function(value: any, opts?: {string:any}): string
   decode_lua: function(code: string): any, string
   encode_base64: function(data: string): string
-  decode_base64: function(str: string): string
+  decode_base64: function(str: string): string, string
   encode_base32: function(data: string): string
-  decode_base32: function(str: string): string
+  decode_base32: function(str: string): string, string
   encode_latin1: function(str: string): string, string
   decode_latin1: function(data: string): string
 end
