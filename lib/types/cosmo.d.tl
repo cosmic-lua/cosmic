@@ -19,7 +19,7 @@ local record cosmo
 
   -- url encoding
   EscapeParam: function(str: string): string
-  ParseParams: function(query: string): {string:string}
+  ParseParams: function(query: string): {{string, string}}
 
   -- system info
   GetHostOs: function(): string
