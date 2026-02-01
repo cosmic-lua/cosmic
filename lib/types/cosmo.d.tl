@@ -16,6 +16,12 @@ local record cosmo
   EncodeJson: function(value: any): string, string
   DecodeJson: function(json: string): any, string
   EncodeLua: function(value: any, opts?: {string:any}): string
+  EncodeBase64: function(data: string): string
+  DecodeBase64: function(str: string): string
+  EncodeBase32: function(data: string): string
+  DecodeBase32: function(str: string): string
+  EncodeLatin1: function(str: string): string
+  DecodeLatin1: function(data: string): string
 
   -- url encoding
   EscapeParam: function(str: string): string

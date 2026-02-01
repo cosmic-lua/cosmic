@@ -162,3 +162,121 @@ local function test_lua_roundtrip()
   assert(nested.y == original.nested.y, "nested.y mismatch")
 end
 test_lua_roundtrip()
+
+-- Base64 encoding tests
+
+local function test_encode_base64_basic()
+  local result = codec.encode_base64("hello")
+  assert(result == "aGVsbG8=", "expected 'aGVsbG8=', got '" .. result .. "'")
+end
+test_encode_base64_basic()
+
+local function test_encode_base64_empty()
+  local result = codec.encode_base64("")
+  assert(result == "", "expected empty string")
+end
+test_encode_base64_empty()
+
+local function test_encode_base64_binary()
+  local result = codec.encode_base64("\x00\xff")
+  assert(result == "AP8=", "expected 'AP8=', got '" .. result .. "'")
+end
+test_encode_base64_binary()
+
+local function test_decode_base64_basic()
+  local result = codec.decode_base64("aGVsbG8=")
+  assert(result == "hello", "expected 'hello', got '" .. result .. "'")
+end
+test_decode_base64_basic()
+
+local function test_decode_base64_no_padding()
+  local result = codec.decode_base64("aGVsbG8")
+  assert(result == "hello", "expected 'hello', got '" .. result .. "'")
+end
+test_decode_base64_no_padding()
+
+local function test_decode_base64_empty()
+  local result = codec.decode_base64("")
+  assert(result == "", "expected empty string")
+end
+test_decode_base64_empty()
+
+local function test_base64_roundtrip()
+  local original = "Hello, World! \x00\xff\x10"
+  local encoded = codec.encode_base64(original)
+  local decoded = codec.decode_base64(encoded)
+  assert(decoded == original, "roundtrip mismatch")
+end
+test_base64_roundtrip()
+
+-- Base32 encoding tests (z-base-32)
+
+local function test_encode_base32_basic()
+  local result = codec.encode_base32("hello")
+  assert(result == "d1jprv3f", "expected 'd1jprv3f', got '" .. result .. "'")
+end
+test_encode_base32_basic()
+
+local function test_encode_base32_empty()
+  local result = codec.encode_base32("")
+  assert(result == "", "expected empty string")
+end
+test_encode_base32_empty()
+
+local function test_decode_base32_basic()
+  local result = codec.decode_base32("d1jprv3f")
+  assert(result == "hello", "expected 'hello', got '" .. result .. "'")
+end
+test_decode_base32_basic()
+
+local function test_decode_base32_empty()
+  local result = codec.decode_base32("")
+  assert(result == "", "expected empty string")
+end
+test_decode_base32_empty()
+
+local function test_base32_roundtrip()
+  local original = "Hello, World!"
+  local encoded = codec.encode_base32(original)
+  local decoded = codec.decode_base32(encoded)
+  assert(decoded == original, "roundtrip mismatch")
+end
+test_base32_roundtrip()
+
+-- Latin-1 encoding tests
+
+local function test_encode_latin1_ascii()
+  local result, err = codec.encode_latin1("hello")
+  assert(err == nil, "unexpected error: " .. (err or ""))
+  assert(result == "hello", "expected 'hello', got '" .. (result or "nil") .. "'")
+end
+test_encode_latin1_ascii()
+
+local function test_encode_latin1_accented()
+  local result, err = codec.encode_latin1("café")
+  assert(err == nil, "unexpected error: " .. (err or ""))
+  assert(#result == 4, "expected 4 bytes, got " .. #result)
+end
+test_encode_latin1_accented()
+
+local function test_encode_latin1_out_of_range()
+  local result, err = codec.encode_latin1("日本語")
+  assert(result == nil, "expected nil for out-of-range characters")
+  assert(err ~= nil, "expected error message")
+end
+test_encode_latin1_out_of_range()
+
+local function test_decode_latin1_basic()
+  local result = codec.decode_latin1("hello")
+  assert(result == "hello", "expected 'hello', got '" .. result .. "'")
+end
+test_decode_latin1_basic()
+
+local function test_latin1_roundtrip()
+  local original = "café résumé naïve"
+  local encoded, err = codec.encode_latin1(original)
+  assert(err == nil, "encode failed: " .. (err or ""))
+  local decoded = codec.decode_latin1(encoded)
+  assert(decoded == original, "roundtrip mismatch: got '" .. decoded .. "'")
+end
+test_latin1_roundtrip()
