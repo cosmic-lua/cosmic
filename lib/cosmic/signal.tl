@@ -2,28 +2,65 @@
 --- Wraps cosmo.unix signal functions for process signaling, handlers, and timers.
 local unix = require("cosmo.unix")
 
+local record Errno
+  errno: function(self: Errno): number
+  winerr: function(self: Errno): number
+  name: function(self: Errno): string
+  call: function(self: Errno): string
+  doc: function(self: Errno): string
+end
+
 --- Send a signal to a process.
 --- @param pid number The process ID (>0 for specific process, 0 for process group, -1 for all)
 --- @param sig number The signal to send
 --- @return boolean True on success
-local function kill(pid: number, sig: number): boolean
-  return unix.kill(pid, sig)
+--- @return string? Error message on failure
+local function kill(pid: number, sig: number): boolean, string
+  local ok, err = unix.kill(pid, sig) as (boolean, any)
+  if not ok then
+    if err then
+      local errno = err as Errno
+      if errno.doc then
+        return false, errno:doc()
+      end
+      return false, tostring(err)
+    end
+    return false, "kill failed"
+  end
+  return true
 end
 
 --- Send a signal to a process group.
 --- @param pgrp number The process group ID
 --- @param sig number The signal to send
 --- @return boolean True on success
-local function killpg(pgrp: number, sig: number): boolean
-  return unix.killpg(pgrp, sig)
+--- @return string? Error message on failure
+local function killpg(pgrp: number, sig: number): boolean, string
+  local ok, err = unix.killpg(pgrp, sig) as (boolean, any)
+  if not ok then
+    if err then
+      local errno = err as Errno
+      if errno.doc then
+        return false, errno:doc()
+      end
+      return false, tostring(err)
+    end
+    return false, "killpg failed"
+  end
+  return true
 end
 
 --- Send a signal to the current process.
 --- Equivalent to kill(getpid(), sig).
 --- @param sig number The signal to send
---- @return number 0 on success
-local function raise(sig: number): number
-  return unix.raise(sig)
+--- @return boolean True on success
+--- @return string? Error message on failure
+local function raise(sig: number): boolean, string
+  local result = unix.raise(sig) as number
+  if result ~= 0 then
+    return false, "raise failed"
+  end
+  return true
 end
 
 --- Get the name of a signal.

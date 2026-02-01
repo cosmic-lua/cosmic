@@ -2,6 +2,14 @@
 --- Wraps cosmo.unix for pledge and unveil operations to restrict system calls and filesystem access.
 local unix = require("cosmo.unix")
 
+local record Errno
+  errno: function(self: Errno): number
+  winerr: function(self: Errno): number
+  name: function(self: Errno): string
+  call: function(self: Errno): string
+  doc: function(self: Errno): string
+end
+
 --- Restricts system calls available to the process.
 --- Pledging causes most system calls to become unavailable. Using pledge is irreversible.
 --- On Linux disabled calls return EPERM; OpenBSD kills the process.
@@ -23,8 +31,20 @@ local unix = require("cosmo.unix")
 --- @param execpromises string|nil Promises for child processes after exec (nil = unrestricted)
 --- @param mode number|nil Optional mode flags
 --- @return boolean True on success
-local function pledge(promises?: string, execpromises?: string, mode?: number): boolean
-  return unix.pledge(promises, execpromises, mode)
+--- @return string? Error message on failure
+local function pledge(promises?: string, execpromises?: string, mode?: number): boolean, string
+  local ok, err = unix.pledge(promises, execpromises, mode) as (boolean, any)
+  if not ok then
+    if err then
+      local errno = err as Errno
+      if errno.doc then
+        return false, errno:doc()
+      end
+      return false, tostring(err)
+    end
+    return false, "pledge failed"
+  end
+  return true
 end
 
 --- Restricts filesystem visibility to specified paths.
@@ -41,13 +61,25 @@ end
 --- @param path string|nil Path to unveil (nil to commit policy)
 --- @param permissions string|nil Permission string like "r", "rw", "rwxc" (nil to commit)
 --- @return boolean True on success
-local function unveil(path: string, permissions: string): boolean
-  return unix.unveil(path, permissions)
+--- @return string? Error message on failure
+local function unveil(path: string, permissions: string): boolean, string
+  local ok, err = unix.unveil(path, permissions) as (boolean, any)
+  if not ok then
+    if err then
+      local errno = err as Errno
+      if errno.doc then
+        return false, errno:doc()
+      end
+      return false, tostring(err)
+    end
+    return false, "unveil failed"
+  end
+  return true
 end
 
 local record SandboxModule
-  pledge: function(promises?: string, execpromises?: string, mode?: number): boolean
-  unveil: function(path: string, permissions: string): boolean
+  pledge: function(promises?: string, execpromises?: string, mode?: number): boolean, string
+  unveil: function(path: string, permissions: string): boolean, string
 end
 
 local M: SandboxModule = {
