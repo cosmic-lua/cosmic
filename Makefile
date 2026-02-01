@@ -42,7 +42,7 @@ include 3p/teal-types/cook.mk
 help: $(build_files) | $(bootstrap_cosmic)
 	@$(bootstrap_cosmic) $(build_help) $(MAKEFILE_LIST)
 
-## Filter targets by pattern (make test only='teal')
+## Filter targets by pattern (make test only=teal)
 filter-only = $(if $(only),$(foreach f,$1,$(if $(findstring $(only),$(f)),$(f))),$1)
 
 cp := cp -p
