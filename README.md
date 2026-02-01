@@ -58,6 +58,7 @@ High-level utilities and tools built on top of cosmo.
 | [user](lib/cosmic/user.md) |  User and group identity operations. |
 | [walk](lib/cosmic/walk.md) |  Directory tree walking utilities. |
 | [welcome](lib/cosmic/welcome.md) |  |
+| [zip](lib/cosmic/zip.md) |  ZIP archive reading and writing utilities. |
 
 ---
 
