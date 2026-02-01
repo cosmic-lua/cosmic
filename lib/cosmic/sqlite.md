@@ -68,7 +68,7 @@ end
 local record Database
   prepare: function(self: Database, sql: string): Statement, string
   query: function(self: Database, sql: string, ...: any): function(): {string:any}
-  exec: function(self: Database, sql: string): boolean, string
+  exec: function(self: Database, sql: string, ...: any): boolean, string
   last_insert_rowid: function(self: Database): number
   changes: function(self: Database): number
   close: function(self: Database)
@@ -126,7 +126,7 @@ function db:query(sql: string, ...: any): function(): {string:any}
 ### db:exec
 
 ```teal
-function db:exec(sql: string): boolean, string
+function db:exec(sql: string, ...: any): boolean, string
 ```
 
 ### db:last_insert_rowid
