@@ -313,6 +313,25 @@ local function formatip(ip: number): string
     ip & 0xff)
 end
 
+--- Network interface information.
+local record Interface
+  --- Interface name (e.g., "eth0", "lo").
+  name: string
+  --- IPv4 address as a number.
+  ip: number
+end
+
+--- List network interfaces and their IPv4 addresses.
+--- @return {Interface} List of interfaces
+--- @return string Error message on failure
+local function interfaces(): {Interface}, string
+  local raw = unix.siocgifconf()
+  if not raw then
+    return nil, "siocgifconf failed"
+  end
+  return raw as {Interface}
+end
+
 local record NetModule
   -- Socket creation
   socket: function(family?: number, socktype?: number, protocol?: number): Socket, string
@@ -325,6 +344,7 @@ local record NetModule
   gethostname: function(): string, string
   parseip: function(str: string): number, string
   formatip: function(ip: number): string
+  interfaces: function(): {Interface}, string
 
   -- Address families
   AF_INET: number
@@ -427,6 +447,7 @@ local M: NetModule = {
   gethostname = gethostname,
   parseip = parseip,
   formatip = formatip,
+  interfaces = interfaces,
 
   -- Address families
   AF_INET = unix.AF_INET,
