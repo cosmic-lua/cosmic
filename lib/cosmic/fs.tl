@@ -11,6 +11,33 @@ local record RawDir
   tell: function(self: RawDir): number
 end
 
+--- Filesystem statistics.
+--- Returned by statfs() and fstatfs().
+local record Statfs
+  --- Returns filesystem type identifier.
+  type: function(self: Statfs): number
+  --- Returns optimal transfer block size.
+  bsize: function(self: Statfs): number
+  --- Returns total data blocks in filesystem.
+  blocks: function(self: Statfs): number
+  --- Returns free blocks in filesystem.
+  bfree: function(self: Statfs): number
+  --- Returns free blocks available to unprivileged user.
+  bavail: function(self: Statfs): number
+  --- Returns total file nodes in filesystem.
+  files: function(self: Statfs): number
+  --- Returns free file nodes in filesystem.
+  ffree: function(self: Statfs): number
+  --- Returns filesystem ID as two numbers.
+  fsid: function(self: Statfs): number, number
+  --- Returns maximum length of filenames.
+  namelen: function(self: Statfs): number
+  --- Returns fragment size.
+  frsize: function(self: Statfs): number
+  --- Returns mount flags.
+  flags: function(self: Statfs): number
+end
+
 --- File or directory metadata.
 --- Use is_dir(), is_file(), etc. to check file type.
 local record Stat
@@ -34,6 +61,10 @@ local record Stat
   blocks: function(self: Stat): number
   --- Returns number of hard links.
   nlink: function(self: Stat): number
+  --- Returns device ID containing the file.
+  dev: function(self: Stat): number
+  --- Returns device ID for special files (0 or -1 for non-devices).
+  rdev: function(self: Stat): number
 end
 
 --- Handle for reading directory entries.
@@ -472,6 +503,50 @@ local function tmpfd(): number, string
   return fd
 end
 
+-- Filesystem statistics
+
+--- Get filesystem statistics for a path.
+--- @param path string Path to any file on the filesystem
+--- @return Statfs Filesystem statistics, or nil on error
+--- @return string Error message if failed
+local function statfs(path: string): Statfs, string
+  local info = unix.statfs(path) as Statfs
+  if not info then
+    return nil, "statfs failed: " .. path
+  end
+  return info
+end
+
+--- Get filesystem statistics from a file descriptor.
+--- @param fd number File descriptor
+--- @return Statfs Filesystem statistics, or nil on error
+--- @return string Error message if failed
+local function fstatfs(fd: number): Statfs, string
+  local info = unix.fstatfs(fd) as Statfs
+  if not info then
+    return nil, "fstatfs failed"
+  end
+  return info
+end
+
+-- Device number utilities
+
+--- Extract major device number from a device ID.
+--- Use with stat():dev() or stat():rdev() to identify device types.
+--- @param dev number Device ID from stat
+--- @return number Major device number
+local function major(dev: number): number
+  return unix.major(dev)
+end
+
+--- Extract minor device number from a device ID.
+--- Use with stat():dev() or stat():rdev() to identify specific devices.
+--- @param dev number Device ID from stat
+--- @return number Minor device number
+local function minor(dev: number): number
+  return unix.minor(dev)
+end
+
 -- Access mode constants
 local F_OK <const> = unix.F_OK
 local R_OK <const> = unix.R_OK
@@ -570,6 +645,14 @@ local record FsModule
   mkstemp: function(template: string): number, string
   tmpfd: function(): number, string
 
+  -- Filesystem statistics
+  statfs: function(path: string): Statfs, string
+  fstatfs: function(fd: number): Statfs, string
+
+  -- Device number utilities
+  major: function(dev: number): number
+  minor: function(dev: number): number
+
   -- Access mode constants
   F_OK: number
   R_OK: number
@@ -620,6 +703,14 @@ local M: FsModule = {
   mkdtemp = mkdtemp,
   mkstemp = mkstemp,
   tmpfd = tmpfd,
+
+  -- Filesystem statistics
+  statfs = statfs,
+  fstatfs = fstatfs,
+
+  -- Device number utilities
+  major = major,
+  minor = minor,
 
   -- Access mode constants
   F_OK = F_OK,

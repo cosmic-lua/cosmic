@@ -541,3 +541,84 @@ local function test_dir_fd()
   teardown(test_dir)
 end
 test_dir_fd()
+
+-- Filesystem statistics tests
+
+local function test_statfs()
+  local info, err = fs.statfs("/")
+  assert(info, "statfs should succeed: " .. (err or ""))
+
+  -- Check that we can call all the methods
+  assert(info:type() ~= nil, "type() should return a value")
+  assert(info:bsize() > 0, "bsize() should be positive")
+  assert(info:blocks() > 0, "blocks() should be positive")
+  assert(info:bfree() >= 0, "bfree() should be non-negative")
+  assert(info:bavail() >= 0, "bavail() should be non-negative")
+  assert(info:files() >= 0, "files() should be non-negative")
+  assert(info:ffree() >= 0, "ffree() should be non-negative")
+  local fsid1, fsid2 = info:fsid()
+  assert(fsid1 ~= nil, "fsid() should return first value")
+  assert(fsid2 ~= nil, "fsid() should return second value")
+  assert(info:namelen() > 0, "namelen() should be positive")
+  assert(info:frsize() > 0, "frsize() should be positive")
+  assert(info:flags() ~= nil, "flags() should return a value")
+end
+test_statfs()
+
+local function test_statfs_nonexistent()
+  local info, err = fs.statfs("/nonexistent/path/that/does/not/exist")
+  assert(info == nil, "statfs should fail for nonexistent path")
+  assert(err, "should return error message")
+end
+test_statfs_nonexistent()
+
+local function test_fstatfs()
+  local fd = unix.open("/", unix.O_RDONLY | unix.O_DIRECTORY)
+  assert(fd, "open should succeed")
+
+  local info, err = fs.fstatfs(fd)
+  assert(info, "fstatfs should succeed: " .. (err or ""))
+
+  assert(info:bsize() > 0, "bsize() should be positive")
+  assert(info:blocks() > 0, "blocks() should be positive")
+
+  unix.close(fd)
+end
+test_fstatfs()
+
+-- Device number utilities tests
+
+local function test_major_minor()
+  -- Test with /dev/null which should have rdev set
+  local st = fs.stat("/dev/null")
+  if st then
+    local rdev = st:rdev()
+    local maj = fs.major(rdev)
+    local min = fs.minor(rdev)
+    -- /dev/null is typically major 1, minor 3
+    assert(maj ~= nil, "major() should return a value")
+    assert(min ~= nil, "minor() should return a value")
+    assert(maj >= 0, "major should be non-negative")
+    assert(min >= 0, "minor should be non-negative")
+  end
+end
+test_major_minor()
+
+local function test_major_minor_regular_file()
+  local test_dir = setup()
+  local filepath = path.join(test_dir, "file.txt")
+  touch(filepath)
+
+  local st = fs.stat(filepath)
+  assert(st, "stat should succeed")
+
+  -- Regular files have a dev (the filesystem device)
+  local dev = st:dev()
+  local maj = fs.major(dev)
+  local min = fs.minor(dev)
+  assert(maj ~= nil, "major() should return a value for dev")
+  assert(min ~= nil, "minor() should return a value for dev")
+
+  teardown(test_dir)
+end
+test_major_minor_regular_file()

@@ -370,4 +370,36 @@ local function test_accept_socket_has_close_metamethod()
 end
 test_accept_socket_has_close_metamethod()
 
+local function test_interfaces()
+  local ifaces, err = net.interfaces()
+  assert(ifaces ~= nil, "interfaces() failed: " .. tostring(err))
+  assert(type(ifaces) == "table", "expected table, got " .. type(ifaces))
+
+  -- Should have at least the loopback interface
+  local has_loopback = false
+  for _, iface in ipairs(ifaces) do
+    assert(iface.name ~= nil, "interface should have name")
+    assert(iface.ip ~= nil, "interface should have ip")
+    if iface.name == "lo" then
+      has_loopback = true
+      -- Loopback should be 127.0.0.1 (0x7f000001)
+      assert(iface.ip == 0x7f000001, "loopback should have 127.0.0.1, got " .. net.formatip(iface.ip))
+    end
+  end
+  assert(has_loopback, "should have loopback interface")
+end
+test_interfaces()
+
+local function test_interfaces_formatip()
+  -- Test that we can format interface IPs
+  local ifaces = net.interfaces()
+  if ifaces then
+    for _, iface in ipairs(ifaces) do
+      local ip_str = net.formatip(iface.ip)
+      assert(ip_str:match("^%d+%.%d+%.%d+%.%d+$"), "expected dotted IP format, got " .. ip_str)
+    end
+  end
+end
+test_interfaces_formatip()
+
 print("All net tests passed")

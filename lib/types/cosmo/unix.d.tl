@@ -286,6 +286,32 @@ local record Stat
   flags: function(self: Stat): any
 end
 
+--- Filesystem statistics returned by statfs() and fstatfs().
+local record Statfs
+  --- Returns filesystem type identifier.
+  type: function(self: Statfs): number
+  --- Returns optimal transfer block size.
+  bsize: function(self: Statfs): number
+  --- Returns total data blocks in filesystem.
+  blocks: function(self: Statfs): number
+  --- Returns free blocks in filesystem.
+  bfree: function(self: Statfs): number
+  --- Returns free blocks available to unprivileged user.
+  bavail: function(self: Statfs): number
+  --- Returns total file nodes in filesystem.
+  files: function(self: Statfs): number
+  --- Returns free file nodes in filesystem.
+  ffree: function(self: Statfs): number
+  --- Returns filesystem ID as two numbers.
+  fsid: function(self: Statfs): number, number
+  --- Returns maximum length of filenames.
+  namelen: function(self: Statfs): number
+  --- Returns fragment size.
+  frsize: function(self: Statfs): number
+  --- Returns mount flags.
+  flags: function(self: Statfs): number
+end
+
 local record Sigset
   --- Adds signal to bitset.
   add: function(self: Sigset, sig: number)
@@ -2113,6 +2139,18 @@ local record unix
   --- Log(kLogInfo, 'hello.txt is %d bytes in size' % {st:size()})
   --- unix.close(fd)
   fstat: function(fd: number): Stat
+  --- Gets filesystem statistics for a path.
+  --- Returns information about the filesystem containing the specified file.
+  statfs: function(path: string): Statfs
+  --- Gets filesystem statistics from a file descriptor.
+  --- Returns information about the filesystem containing the open file.
+  fstatfs: function(fd: number): Statfs
+  --- Extracts major device number from a device ID.
+  --- Use with stat():dev() or stat():rdev() to identify device types.
+  major: function(dev: number): number
+  --- Extracts minor device number from a device ID.
+  --- Use with stat():dev() or stat():rdev() to identify specific devices.
+  minor: function(dev: number): number
   --- Opens directory for listing its contents.
   --- For example, to print a simple directory listing:
   --- Write('<ul>\r\n')
