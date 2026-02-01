@@ -45,6 +45,7 @@ High-level utilities and tools built on top of cosmo.
 | [net](lib/cosmic/net.md) |  Networking and socket utilities. |
 | [path](lib/cosmic/path.md) |  Path manipulation utilities. |
 | [proc](lib/cosmic/proc.md) |  Current process management. |
+| [re](lib/cosmic/re.md) |  Regular expression matching using POSIX extended regex syntax. |
 | [require](lib/cosmic/require.md) |  Enhanced require with helpful error messages. |
 | [sandbox](lib/cosmic/sandbox.md) |  Security sandboxing utilities. |
 | [shm](lib/cosmic/shm.md) |  Shared memory for inter-process communication. |

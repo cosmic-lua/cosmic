@@ -58,6 +58,12 @@ local record re Constants
   ESUBREG: number
   EBRACK: number
   EPAREN: number
+  BASIC: number    -- Use basic (obsolete) regex syntax instead of extended
+  ICASE: number    -- Case-insensitive matching
+  NEWLINE: number  -- Treat newline as special (affects ^ and $)
+  NOSUB: number    -- Report only success/failure, not match position
+  NOTBOL: number   -- First character is not at beginning of line
+  NOTEOL: number   -- Last character is not at end of line
 end
 ```
 
@@ -95,7 +101,7 @@ function search(regex: string, text: string, flags?: number): string
 ### compile
 
 ```teal
-function compile(regex: string, flags?: number): Regex
+function compile(regex: string, flags?: number): Regex, Errno
 ```
 
  Compiles regular expression.
@@ -108,6 +114,7 @@ function compile(regex: string, flags?: number): Regex
  If regex is an untrusted user value, then `unix.setrlimit` should be
  used to impose cpu and memory quotas for security.
  This uses POSIX extended syntax by default.
+ Returns nil and an Errno on failure.
 
 **Parameters:**
 
@@ -117,3 +124,4 @@ function compile(regex: string, flags?: number): Regex
 **Returns:**
 
 - Regex
+- Errno
