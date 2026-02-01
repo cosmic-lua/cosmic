@@ -164,3 +164,55 @@ local function test_clock_realtime_is_zero()
   assert(time.CLOCK_REALTIME == 0, "CLOCK_REALTIME should be 0, got " .. tostring(time.CLOCK_REALTIME))
 end
 test_clock_realtime_is_zero()
+
+-- format_http tests
+
+local function test_format_http_epoch()
+  local http_date = time.format_http(0)
+  assert(http_date == "Thu, 01 Jan 1970 00:00:00 GMT", "expected epoch format, got " .. http_date)
+end
+test_format_http_epoch()
+
+local function test_format_http_known_date()
+  -- 2000-01-01 00:00:00 UTC = 946684800
+  local http_date = time.format_http(946684800)
+  assert(http_date == "Sat, 01 Jan 2000 00:00:00 GMT", "expected Y2K format, got " .. http_date)
+end
+test_format_http_known_date()
+
+local function test_format_http_format()
+  local secs, _ = time.now()
+  local http_date = time.format_http(secs)
+  -- Should match RFC 7231 format: "Day, DD Mon YYYY HH:MM:SS GMT"
+  assert(http_date:match("^%a%a%a, %d%d %a%a%a %d%d%d%d %d%d:%d%d:%d%d GMT$"),
+    "expected RFC 7231 format, got " .. http_date)
+end
+test_format_http_format()
+
+-- parse_http tests
+
+local function test_parse_http_epoch()
+  local ts = time.parse_http("Thu, 01 Jan 1970 00:00:00 GMT")
+  assert(ts == 0, "expected 0, got " .. tostring(ts))
+end
+test_parse_http_epoch()
+
+local function test_parse_http_known_date()
+  local ts = time.parse_http("Sat, 01 Jan 2000 00:00:00 GMT")
+  assert(ts == 946684800, "expected 946684800, got " .. tostring(ts))
+end
+test_parse_http_known_date()
+
+local function test_parse_http_invalid()
+  local ts = time.parse_http("invalid")
+  assert(ts == 0, "expected 0 for invalid input, got " .. tostring(ts))
+end
+test_parse_http_invalid()
+
+local function test_format_parse_roundtrip()
+  local original = 1705322245
+  local formatted = time.format_http(original)
+  local parsed = time.parse_http(formatted)
+  assert(parsed == original, "roundtrip failed: " .. tostring(original) .. " -> " .. formatted .. " -> " .. tostring(parsed))
+end
+test_format_parse_roundtrip()
