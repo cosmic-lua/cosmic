@@ -56,6 +56,15 @@ local record cosmo
   FormatHttpDateTime: function(timestamp: number): string
   ParseHttpDateTime: function(str: string): number
 
+  -- ip address utilities
+  ParseIp: function(str: string): integer
+  FormatIp: function(ip: integer): string
+  CategorizeIp: function(ip: integer): string
+  IsLoopbackIp: function(ip: integer): boolean
+  IsPrivateIp: function(ip: integer): boolean
+  IsPublicIp: function(ip: integer): boolean
+  ResolveIp: function(hostname: string): integer
+
   -- system info
   GetHostOs: function(): string
   GetHostIsa: function(): string
