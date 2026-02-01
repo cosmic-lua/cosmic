@@ -42,16 +42,99 @@ local function parse(query: string): {string:string}
   return result
 end
 
+--- Parsed URL components.
+local record Url
+  scheme: string
+  user: string
+  pass: string
+  host: string
+  port: integer
+  path: string
+  query: string
+  fragment: string
+end
+
 local record UrlModule
+  Url: Url
+
   encode: function(str: string): string
   decode: function(str: string): string, string
   parse: function(query: string): {string:string}
+  parse_url: function(url: string): Url
+  parse_host: function(hostport: string): string, integer
+end
+
+--- Parse a URL into its components.
+--- @param url string The URL to parse
+--- @return Url The parsed URL components
+local function parse_url(url: string): Url
+  local parsed = cosmo.ParseUrl(url)
+
+  -- Convert port from string to integer if present
+  local port: integer = nil
+  if parsed.port and parsed.port ~= "" then
+    port = tonumber(parsed.port) as integer
+  end
+
+  -- Reconstruct query string from params
+  local query: string = nil
+  if parsed.params and #parsed.params > 0 then
+    local parts: {string} = {}
+    for _, pair in ipairs(parsed.params) do
+      table.insert(parts, pair[1] .. "=" .. pair[2])
+    end
+    query = table.concat(parts, "&")
+  end
+
+  return {
+    scheme = parsed.scheme,
+    user = parsed.user,
+    pass = parsed.pass,
+    host = parsed.host,
+    port = port,
+    path = parsed.path,
+    query = query,
+    fragment = parsed.fragment,
+  }
+end
+
+--- Parse a host:port string into its components.
+--- @param hostport string The host:port string (e.g., "example.com:8080")
+--- @return string The host
+--- @return integer? The port, or nil if not specified
+local function parse_host(hostport: string): string, integer
+  if not hostport or hostport == "" then
+    return nil, nil
+  end
+
+  -- Handle IPv6 addresses in brackets: [::1]:8080
+  local ipv6_host, ipv6_port = hostport:match("^%[([^%]]+)%]:(%d+)$")
+  if ipv6_host then
+    return ipv6_host, tonumber(ipv6_port) as integer
+  end
+
+  -- Handle IPv6 without port: [::1]
+  local ipv6_only = hostport:match("^%[([^%]]+)%]$")
+  if ipv6_only then
+    return ipv6_only, nil
+  end
+
+  -- Handle regular host:port
+  local host, port_str = hostport:match("^(.+):(%d+)$")
+  if host and port_str then
+    return host, tonumber(port_str) as integer
+  end
+
+  -- No port specified
+  return hostport, nil
 end
 
 local M: UrlModule = {
   encode = encode,
   decode = decode,
   parse = parse,
+  parse_url = parse_url,
+  parse_host = parse_host,
 }
 
 return M

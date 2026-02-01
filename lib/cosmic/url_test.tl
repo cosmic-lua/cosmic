@@ -154,3 +154,99 @@ local function test_parse_plus_as_space()
   assert(result.msg == "hello world", "expected 'hello world', got '" .. tostring(result.msg) .. "'")
 end
 test_parse_plus_as_space()
+
+-- parse_url tests
+
+local function test_parse_url_full()
+  local result = url.parse_url("https://user:pass@example.com:8080/path?foo=1&bar=2#frag")
+  assert(result.scheme == "https", "expected 'https', got '" .. tostring(result.scheme) .. "'")
+  assert(result.user == "user", "expected 'user', got '" .. tostring(result.user) .. "'")
+  assert(result.pass == "pass", "expected 'pass', got '" .. tostring(result.pass) .. "'")
+  assert(result.host == "example.com", "expected 'example.com', got '" .. tostring(result.host) .. "'")
+  assert(result.port == 8080, "expected 8080, got " .. tostring(result.port))
+  assert(result.path == "/path", "expected '/path', got '" .. tostring(result.path) .. "'")
+  assert(result.query == "foo=1&bar=2", "expected 'foo=1&bar=2', got '" .. tostring(result.query) .. "'")
+  assert(result.fragment == "frag", "expected 'frag', got '" .. tostring(result.fragment) .. "'")
+end
+test_parse_url_full()
+
+local function test_parse_url_minimal()
+  local result = url.parse_url("http://example.com")
+  assert(result.scheme == "http", "expected 'http', got '" .. tostring(result.scheme) .. "'")
+  assert(result.host == "example.com", "expected 'example.com', got '" .. tostring(result.host) .. "'")
+  assert(result.port == nil, "expected nil port, got " .. tostring(result.port))
+  assert(result.path == "" or result.path == nil, "expected empty path, got '" .. tostring(result.path) .. "'")
+  assert(result.query == nil, "expected nil query, got '" .. tostring(result.query) .. "'")
+end
+test_parse_url_minimal()
+
+local function test_parse_url_with_path_only()
+  local result = url.parse_url("http://example.com/api/v1/users")
+  assert(result.scheme == "http", "expected 'http'")
+  assert(result.host == "example.com", "expected 'example.com'")
+  assert(result.path == "/api/v1/users", "expected '/api/v1/users', got '" .. tostring(result.path) .. "'")
+end
+test_parse_url_with_path_only()
+
+local function test_parse_url_with_query_only()
+  local result = url.parse_url("http://example.com?search=test")
+  assert(result.query == "search=test", "expected 'search=test', got '" .. tostring(result.query) .. "'")
+end
+test_parse_url_with_query_only()
+
+local function test_parse_url_with_fragment_only()
+  local result = url.parse_url("http://example.com#section")
+  assert(result.fragment == "section", "expected 'section', got '" .. tostring(result.fragment) .. "'")
+end
+test_parse_url_with_fragment_only()
+
+-- parse_host tests
+
+local function test_parse_host_with_port()
+  local host, port = url.parse_host("example.com:8080")
+  assert(host == "example.com", "expected 'example.com', got '" .. tostring(host) .. "'")
+  assert(port == 8080, "expected 8080, got " .. tostring(port))
+end
+test_parse_host_with_port()
+
+local function test_parse_host_without_port()
+  local host, port = url.parse_host("example.com")
+  assert(host == "example.com", "expected 'example.com', got '" .. tostring(host) .. "'")
+  assert(port == nil, "expected nil port, got " .. tostring(port))
+end
+test_parse_host_without_port()
+
+local function test_parse_host_localhost()
+  local host, port = url.parse_host("localhost:3000")
+  assert(host == "localhost", "expected 'localhost', got '" .. tostring(host) .. "'")
+  assert(port == 3000, "expected 3000, got " .. tostring(port))
+end
+test_parse_host_localhost()
+
+local function test_parse_host_ipv4()
+  local host, port = url.parse_host("192.168.1.1:80")
+  assert(host == "192.168.1.1", "expected '192.168.1.1', got '" .. tostring(host) .. "'")
+  assert(port == 80, "expected 80, got " .. tostring(port))
+end
+test_parse_host_ipv4()
+
+local function test_parse_host_ipv6_with_port()
+  local host, port = url.parse_host("[::1]:8080")
+  assert(host == "::1", "expected '::1', got '" .. tostring(host) .. "'")
+  assert(port == 8080, "expected 8080, got " .. tostring(port))
+end
+test_parse_host_ipv6_with_port()
+
+local function test_parse_host_ipv6_without_port()
+  local host, port = url.parse_host("[::1]")
+  assert(host == "::1", "expected '::1', got '" .. tostring(host) .. "'")
+  assert(port == nil, "expected nil port, got " .. tostring(port))
+end
+test_parse_host_ipv6_without_port()
+
+local function test_parse_host_empty()
+  local host, port = url.parse_host("")
+  assert(host == nil, "expected nil host for empty string")
+  assert(port == nil, "expected nil port for empty string")
+end
+test_parse_host_empty()
