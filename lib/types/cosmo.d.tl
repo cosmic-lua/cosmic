@@ -26,6 +26,10 @@ local record cosmo
   GetHostIsa: function(): string
   GetRandomBytes: function(count: number): string
 
+  -- uuid
+  UuidV4: function(): string
+  UuidV7: function(): string
+
   -- script detection
   is_main: function(): boolean
 
