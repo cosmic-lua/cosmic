@@ -188,3 +188,89 @@ local function test_rusage_constants_defined()
   assert(type(proc.RUSAGE_BOTH) == "number", "RUSAGE_BOTH should be a number")
 end
 test_rusage_constants_defined()
+
+-- Resource limit tests --
+
+local function test_rlimit_constants_defined()
+  assert(type(proc.RLIMIT_AS) == "number", "RLIMIT_AS should be a number")
+  assert(type(proc.RLIMIT_CPU) == "number", "RLIMIT_CPU should be a number")
+  assert(type(proc.RLIMIT_FSIZE) == "number", "RLIMIT_FSIZE should be a number")
+  assert(type(proc.RLIMIT_NOFILE) == "number", "RLIMIT_NOFILE should be a number")
+  assert(type(proc.RLIMIT_NPROC) == "number", "RLIMIT_NPROC should be a number")
+  assert(type(proc.RLIMIT_RSS) == "number", "RLIMIT_RSS should be a number")
+end
+test_rlimit_constants_defined()
+
+local function test_getrlimit_returns_numbers()
+  local soft, hard = proc.getrlimit(proc.RLIMIT_NOFILE)
+  assert(type(soft) == "number", "getrlimit soft should return number, got " .. type(soft))
+  assert(type(hard) == "number", "getrlimit hard should return number, got " .. type(hard))
+end
+test_getrlimit_returns_numbers()
+
+local function test_getrlimit_soft_le_hard()
+  local soft, hard = proc.getrlimit(proc.RLIMIT_NOFILE)
+  assert(soft > 0, "soft limit should be positive")
+  assert(hard > 0, "hard limit should be positive")
+  assert(soft <= hard, "soft limit should not exceed hard limit")
+end
+test_getrlimit_soft_le_hard()
+
+local function test_setrlimit()
+  local soft, hard = proc.getrlimit(proc.RLIMIT_NOFILE)
+  if soft > 64 then
+    local ok, err = proc.setrlimit(proc.RLIMIT_NOFILE, 64, hard)
+    assert(ok == true, "setrlimit should succeed when lowering soft limit: " .. tostring(err))
+    local new_soft, new_hard = proc.getrlimit(proc.RLIMIT_NOFILE)
+    assert(new_soft == 64, "soft limit should be updated to 64")
+    assert(new_hard == hard, "hard limit should remain unchanged")
+    proc.setrlimit(proc.RLIMIT_NOFILE, soft, hard)
+  end
+end
+test_setrlimit()
+
+-- Priority tests --
+
+local function test_priority_constants_defined()
+  assert(type(proc.PRIO_PROCESS) == "number", "PRIO_PROCESS should be a number")
+  assert(type(proc.PRIO_PGRP) == "number", "PRIO_PGRP should be a number")
+  assert(type(proc.PRIO_USER) == "number", "PRIO_USER should be a number")
+end
+test_priority_constants_defined()
+
+local function test_getpriority_returns_number()
+  local prio = proc.getpriority(proc.PRIO_PROCESS, 0)
+  assert(type(prio) == "number", "getpriority should return number, got " .. type(prio))
+end
+test_getpriority_returns_number()
+
+local function test_getpriority_range()
+  local prio = proc.getpriority(proc.PRIO_PROCESS, 0)
+  assert(prio >= -20, "priority should be >= -20, got " .. tostring(prio))
+  assert(prio <= 19, "priority should be <= 19, got " .. tostring(prio))
+end
+test_getpriority_range()
+
+local function test_nice()
+  local before = proc.getpriority(proc.PRIO_PROCESS, 0)
+  local after = proc.nice(0)
+  assert(type(after) == "number", "nice should return number")
+  assert(after == before, "nice(0) should not change priority")
+end
+test_nice()
+
+local function test_setpriority()
+  local current = proc.getpriority(proc.PRIO_PROCESS, 0)
+  local ok, err = proc.setpriority(proc.PRIO_PROCESS, 0, current)
+  assert(type(ok) == "boolean", "setpriority should return boolean")
+  assert(ok == true, "setpriority to current value should succeed: " .. tostring(err))
+end
+test_setpriority()
+
+-- Scheduling tests --
+
+local function test_sched_yield()
+  proc.sched_yield()
+  assert(true, "sched_yield should not throw")
+end
+test_sched_yield()
