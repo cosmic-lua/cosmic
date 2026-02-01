@@ -44,6 +44,7 @@ High-level utilities and tools built on top of cosmo.
 | [net](lib/cosmic/net.md) |  Networking and socket utilities. |
 | [path](lib/cosmic/path.md) |  Path manipulation utilities. |
 | [require](lib/cosmic/require.md) |  Enhanced require with helpful error messages. |
+| [signal](lib/cosmic/signal.md) |  Signal handling utilities. |
 | [spawn](lib/cosmic/spawn.md) |  Process spawning utilities. |
 | [sqlite](lib/cosmic/sqlite.md) |  Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns. |
 | [teal](lib/cosmic/teal.md) |  Teal compilation and type-checking. |
