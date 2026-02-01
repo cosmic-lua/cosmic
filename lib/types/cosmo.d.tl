@@ -21,6 +21,17 @@ local record cosmo
   EscapeParam: function(str: string): string
   ParseParams: function(query: string): {{string, string}}
 
+  -- html/url escaping
+  EscapeHtml: function(str: string): string
+  EscapeHost: function(str: string): string
+  EscapePath: function(str: string): string
+  EscapeSegment: function(str: string): string
+  EscapeFragment: function(str: string): string
+  EscapeLiteral: function(str: string): string
+  EscapeUser: function(str: string): string
+  EscapePass: function(str: string): string
+  EscapeIp: function(str: string): string
+
   -- url parsing
   record ParsedUrl
     scheme: string
