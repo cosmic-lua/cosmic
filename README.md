@@ -33,6 +33,7 @@ High-level utilities and tools built on top of cosmo.
 | [embed](lib/cosmic/embed.md) |  Embed files into cosmic executable. |
 | [example](lib/cosmic/example.md) |  Go-style executable example testing. |
 | [fetch](lib/cosmic/fetch.md) |  Structured HTTP fetch with optional retry. |
+| [fs](lib/cosmic/fs.md) |  Filesystem operations. |
 | [fuzzy](lib/cosmic/fuzzy.md) |  Fuzzy string matching utilities. |
 | [gendoc](lib/cosmic/gendoc.md) |  |
 | [init](lib/cosmic/init.md) |  Cosmopolitan Lua utilities. |
