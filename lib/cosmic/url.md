@@ -1,7 +1,7 @@
 # url
 
- URL encoding and decoding utilities.
- Wraps cosmo.EscapeParam for encoding; manual decode for percent-encoded strings.
+ URL encoding, decoding, and query string parsing utilities.
+ Wraps cosmo.EscapeParam for encoding and cosmo.ParseParams for query string parsing.
 
 ## Types
 
@@ -11,6 +11,7 @@
 local record UrlModule
   encode: function(str: string): string
   decode: function(str: string): string, string
+  parse: function(query: string): {string:string}
 end
 ```
 
@@ -50,3 +51,20 @@ function decode(str: string): string, string
 
 - string - The decoded string, or nil on error
 - string? - Error message if decoding failed
+
+### parse
+
+```teal
+function parse(query: string): {string:string}
+```
+
+ Parse a query string into key-value pairs.
+ Handles URL-encoded keys and values.
+
+**Parameters:**
+
+- `query` (string) - The query string (without leading ?)
+
+**Returns:**
+
+- {string:string} - Table of key-value pairs
