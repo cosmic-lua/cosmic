@@ -23,6 +23,12 @@ local record cosmo
   EncodeLatin1: function(str: string): string
   DecodeLatin1: function(data: string): string
 
+  -- compression
+  Compress: function(data: string): string
+  Uncompress: function(data: string): string
+  Deflate: function(data: string): string
+  Inflate: function(data: string, max_size: integer): string
+
   -- url encoding
   EscapeParam: function(str: string): string
   ParseParams: function(query: string): {{string, string}}
