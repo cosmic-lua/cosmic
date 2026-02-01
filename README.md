@@ -40,12 +40,14 @@ High-level utilities and tools built on top of cosmo.
 | [fuzzy](lib/cosmic/fuzzy.md) |  Fuzzy string matching utilities. |
 | [gendoc](lib/cosmic/gendoc.md) |  |
 | [getopt](lib/cosmic/getopt.md) |  Command-line option parsing utilities. |
+| [hash](lib/cosmic/hash.md) |  Hash utilities. |
 | [init](lib/cosmic/init.md) |  Cosmopolitan Lua utilities. |
 | [io](lib/cosmic/io.md) |  File descriptor I/O operations. |
 | [json](lib/cosmic/json.md) |  JSON encoding and decoding utilities. |
 | [net](lib/cosmic/net.md) |  Networking and socket utilities. |
 | [path](lib/cosmic/path.md) |  Path manipulation utilities. |
 | [proc](lib/cosmic/proc.md) |  Current process management. |
+| [rand](lib/cosmic/rand.md) |  Random number generation. |
 | [re](lib/cosmic/re.md) |  Regular expression matching using POSIX extended regex syntax. |
 | [require](lib/cosmic/require.md) |  Enhanced require with helpful error messages. |
 | [sandbox](lib/cosmic/sandbox.md) |  Security sandboxing utilities. |

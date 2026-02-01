@@ -2,6 +2,48 @@
 
 Type declarations for the `argon2` module.
 
+## Types
+
+### Variant
+
+### Variants
+
+```teal
+local record Variants
+  argon2_id: Variant
+  argon2_i: Variant
+  argon2_d: Variant
+end
+```
+
+### Config
+
+```teal
+local record Config
+  --  Memory cost in kibibytes (default: 4096)
+  m_cost: number
+  --  Time cost / iterations (default: 3)
+  t_cost: number
+  --  Parallelism factor (default: 1)
+  parallelism: number
+  --  Output hash length in bytes (default: 32)
+  hash_len: number
+  --  Variant type (default: argon2_id)
+  variant: Variant
+end
+```
+
+### argon2 Constants
+
+Constants defined in the argon2 module.
+
+```teal
+local record argon2 Constants
+  --  Argon2 algorithm variants
+  variants: Variants
+end
+```
+
 ## Functions
 
 ### hash_encoded
