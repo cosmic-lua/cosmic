@@ -47,7 +47,8 @@ local function test_combined_short_options()
 end
 test_combined_short_options()
 
-local function test_long_options()
+local function test_long_options_with_short_alias()
+  -- When long options have short aliases, cosmo.getopt returns the short form
   local parser = getopt.new({"--help", "--verbose"}, "hv", {
     {name = "help", has_arg = "none", short = "h"},
     {name = "verbose", has_arg = "none", short = "v"},
@@ -59,27 +60,29 @@ local function test_long_options()
     table.insert(opts, opt)
   end
   assert(#opts == 2, "expected 2 long options")
-  assert(opts[1] == "help", "expected 'help', got '" .. opts[1] .. "'")
-  assert(opts[2] == "verbose", "expected 'verbose', got '" .. opts[2] .. "'")
+  assert(opts[1] == "h", "expected 'h', got '" .. opts[1] .. "'")
+  assert(opts[2] == "v", "expected 'v', got '" .. opts[2] .. "'")
 end
-test_long_options()
+test_long_options_with_short_alias()
 
 local function test_long_option_with_equals_arg()
+  -- Returns short alias 'o' since one is defined
   local parser = getopt.new({"--output=file.txt"}, "o:", {
     {name = "output", has_arg = "required", short = "o"},
   })
   local opt, optarg = parser:next()
-  assert(opt == "output", "expected 'output', got '" .. tostring(opt) .. "'")
+  assert(opt == "o", "expected 'o', got '" .. tostring(opt) .. "'")
   assert(optarg == "file.txt", "expected 'file.txt', got '" .. tostring(optarg) .. "'")
 end
 test_long_option_with_equals_arg()
 
 local function test_long_option_with_separate_arg()
+  -- Returns short alias 'o' since one is defined
   local parser = getopt.new({"--output", "file.txt"}, "o:", {
     {name = "output", has_arg = "required", short = "o"},
   })
   local opt, optarg = parser:next()
-  assert(opt == "output", "expected 'output'")
+  assert(opt == "o", "expected 'o'")
   assert(optarg == "file.txt", "expected 'file.txt', got '" .. tostring(optarg) .. "'")
 end
 test_long_option_with_separate_arg()
@@ -143,6 +146,7 @@ end
 test_repeated_options()
 
 local function test_mixed_short_and_long()
+  -- All options return short form since short aliases are defined
   local parser = getopt.new({"-v", "--output", "out.txt", "-h"}, "vho:", {
     {name = "verbose", has_arg = "none", short = "v"},
     {name = "output", has_arg = "required", short = "o"},
@@ -156,7 +160,7 @@ local function test_mixed_short_and_long()
   end
   assert(#results == 3, "expected 3 options")
   assert(results[1][1] == "v", "expected 'v' first")
-  assert(results[2][1] == "output", "expected 'output' second")
+  assert(results[2][1] == "o", "expected 'o' second")
   assert(results[2][2] == "out.txt", "expected 'out.txt' as output arg")
   assert(results[3][1] == "h", "expected 'h' third")
 end

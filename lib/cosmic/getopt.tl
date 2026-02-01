@@ -19,8 +19,9 @@ end
 --- after parsing is complete.
 local record Parser
   --- Get the next option from the parser.
-  --- Returns the option character (for short options) or long option name,
-  --- along with its argument if the option takes one.
+  --- Returns the short option character when a short alias is defined,
+  --- or the long option name when no short alias exists.
+  --- This means both `-h` and `--help` return `"h"` if `short = "h"` is set.
   --- Returns nil when no more options remain.
   --- If the option is unknown, returns "?" as the option name and the
   --- unknown option string as the argument.
@@ -61,12 +62,13 @@ end
 ---     while true do
 ---       local opt, optarg = parser:next()
 ---       if not opt then break end
----       if opt == "h" or opt == "help" then
+---       -- Both -h and --help return "h" since short alias is defined
+---       if opt == "h" then
 ---         print("Usage: ...")
 ---         os.exit(0)
----       elseif opt == "v" or opt == "verbose" then
+---       elseif opt == "v" then
 ---         verbose = true
----       elseif opt == "o" or opt == "output" then
+---       elseif opt == "o" then
 ---         output = optarg
 ---       end
 ---     end
