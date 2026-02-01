@@ -100,7 +100,7 @@ local function encode_latin1(str: string): string, string
   if not ok then
     return nil, "cannot encode to Latin-1: character out of range"
   end
-  return result
+  return result, nil
 end
 
 --- Decode Latin-1 (ISO-8859-1) bytes to a UTF-8 string.
