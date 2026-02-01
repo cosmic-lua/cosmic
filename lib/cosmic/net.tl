@@ -3,9 +3,11 @@
 local unix = require("cosmo.unix")
 
 --- Socket handle for network I/O.
+--- Supports Lua 5.4's to-be-closed via __close metamethod.
 local record Socket
   fd: number
   close: function(self: Socket): boolean
+  closed: function(self: Socket): boolean
   shutdown: function(self: Socket, how?: number): boolean, string
   send: function(self: Socket, data: string, flags?: number): number, string
   sendto: function(self: Socket, data: string, ip: number, port: number, flags?: number): number, string
@@ -29,6 +31,7 @@ local function make_socket(fd: number): Socket
   local sock: Socket = {fd = fd}
 
   --- Close the socket.
+  --- Idempotent: safe to call multiple times.
   --- @return boolean True on success
   function sock:close(): boolean
     if self.fd then
@@ -37,6 +40,12 @@ local function make_socket(fd: number): Socket
       return ok
     end
     return true
+  end
+
+  --- Check if the socket is closed.
+  --- @return boolean True if closed
+  function sock:closed(): boolean
+    return self.fd == nil
   end
 
   --- Partially close the socket.
@@ -211,7 +220,9 @@ local function make_socket(fd: number): Socket
     return true
   end
 
-  return sock
+  return setmetatable(sock, {
+    __close = function(self: Socket) self:close() end
+  }) as Socket
 end
 
 --- Create a new socket.
