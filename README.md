@@ -29,6 +29,7 @@ High-level utilities and tools built on top of cosmo.
 | [benchmark](lib/cosmic/benchmark.md) |  Go-style benchmark testing. |
 | [child](lib/cosmic/child.md) |  Child process management. |
 | [codec](lib/cosmic/codec.md) |  Encoding and decoding utilities for various formats. |
+| [compress](lib/cosmic/compress.md) |  Compression and decompression utilities. |
 | [doc](lib/cosmic/doc.md) |  Extract documentation from Teal files and render as markdown. |
 | [docindex](lib/cosmic/docindex.md) |  Generate a serialized documentation index from source files. |
 | [docs](lib/cosmic/docs.md) |  Access embedded documentation from the cosmic binary. |

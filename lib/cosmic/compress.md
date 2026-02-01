@@ -1,0 +1,90 @@
+# compress
+
+ Compression and decompression utilities.
+ Provides zlib and raw deflate compression with consistent error handling.
+
+## Types
+
+### CompressModule
+
+```teal
+local record CompressModule
+  compress: function(data: string): string
+  uncompress: function(data: string): string, string
+  deflate: function(data: string): string
+  inflate: function(data: string): string, string
+end
+```
+
+## Functions
+
+### compress
+
+```teal
+function compress(data: string): string
+```
+
+ Compress data using zlib (with header).
+ The compressed output includes size information and can be decompressed
+ without knowing the original size.
+
+**Parameters:**
+
+- `data` (string) - The data to compress
+
+**Returns:**
+
+- string - The compressed data
+
+### uncompress
+
+```teal
+function uncompress(data: string): string, string
+```
+
+ Decompress zlib-compressed data.
+
+**Parameters:**
+
+- `data` (string) - The compressed data (from compress())
+
+**Returns:**
+
+- string - The decompressed data, or nil on error
+- string? - Error message if decompression failed
+
+### deflate
+
+```teal
+function deflate(data: string): string
+```
+
+ Compress data using raw deflate (no header).
+ The output is prefixed with a 4-byte little-endian size to enable
+ decompression without knowing the original size.
+
+**Parameters:**
+
+- `data` (string) - The data to compress
+
+**Returns:**
+
+- string - The compressed data with size prefix
+
+### inflate
+
+```teal
+function inflate(data: string): string, string
+```
+
+ Decompress raw deflate data.
+ Expects data from deflate() with the 4-byte size prefix.
+
+**Parameters:**
+
+- `data` (string) - The compressed data with size prefix
+
+**Returns:**
+
+- string - The decompressed data, or nil on error
+- string? - Error message if decompression failed
