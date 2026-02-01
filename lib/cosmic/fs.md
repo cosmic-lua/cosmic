@@ -5,6 +5,18 @@
 
 ## Types
 
+### RawDir
+
+```teal
+local record RawDir
+  read: function(self: RawDir): string
+  close: function(self: RawDir)
+  fd: function(self: RawDir): number
+  rewind: function(self: RawDir)
+  tell: function(self: RawDir): number
+end
+```
+
 ### Stat
 
  File or directory metadata.
@@ -38,6 +50,7 @@ end
 ### Dir
 
  Handle for reading directory entries.
+ Supports automatic cleanup with `<close>` attribute.
 
 ```teal
 local record Dir
@@ -51,6 +64,8 @@ local record Dir
   rewind: function(self: Dir)
   --  Returns current position in directory stream.
   tell: function(self: Dir): number
+  --  Returns true if directory handle is closed.
+  closed: function(self: Dir): boolean
 end
 ```
 
@@ -340,6 +355,7 @@ function opendir(path: string): Dir, string
 
  Open a directory for reading.
  Call dir:read() to iterate entries, dir:close() when done.
+ Supports automatic cleanup with `<close>` attribute.
 
 **Parameters:**
 
@@ -357,6 +373,7 @@ function fdopendir(fd: number): Dir, string
 ```
 
  Open a directory from a file descriptor.
+ Supports automatic cleanup with `<close>` attribute.
 
 **Parameters:**
 
