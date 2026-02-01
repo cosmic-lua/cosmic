@@ -4,18 +4,19 @@
 local cosmo = require("cosmo")
 
 local record UnixIO
-  open: function(path: string, flags: number, mode?: number): number, any
+  open: function(path: string, flags: number, mode?: number, dirfd?: number): number, any
   close: function(fd: number): boolean, any
-  read: function(fd: number, bufsiz?: number): string, any
-  write: function(fd: number, data: string): number, any
+  read: function(fd: number, bufsiz?: number, offset?: number): string, any
+  write: function(fd: number, data: string, offset?: number): number, any
   lseek: function(fd: number, offset: number, whence?: number): number, any
   truncate: function(path: string, length?: number): boolean, any
   ftruncate: function(fd: number, length?: number): boolean, any
-  dup: function(oldfd: number): number, any
+  dup: function(oldfd: number, newfd?: number, flags?: number, lowest?: number): number, any
   pipe: function(flags?: number): number, number | any
   fcntl: function(fd: number, cmd: number, arg?: number): number, any
   sync: function()
   fsync: function(fd: number): boolean, any
+  fdatasync: function(fd: number): boolean, any
 
   O_RDONLY: number
   O_WRONLY: number
@@ -26,6 +27,9 @@ local record UnixIO
   O_EXCL: number
   O_CLOEXEC: number
   O_NONBLOCK: number
+  O_DIRECT: number
+  O_DIRECTORY: number
+  O_NOFOLLOW: number
   SEEK_SET: number
   SEEK_CUR: number
   SEEK_END: number
@@ -37,7 +41,11 @@ local record UnixIO
   F_SETLK: number
   F_SETLKW: number
   F_GETLK: number
+  F_RDLCK: number
+  F_WRLCK: number
+  F_UNLCK: number
   FD_CLOEXEC: number
+  AT_FDCWD: number
 end
 
 local unix = require("cosmo.unix") as UnixIO
@@ -48,12 +56,13 @@ local record Handle
   close: function(self: Handle): boolean
   closed: function(self: Handle): boolean
   fd: function(self: Handle): number
-  read: function(self: Handle, size?: number): string, string
-  write: function(self: Handle, data: string): number, string
+  read: function(self: Handle, size?: number, offset?: number): string, string
+  write: function(self: Handle, data: string, offset?: number): number, string
   seek: function(self: Handle, offset: number, whence?: number): number, string
   truncate: function(self: Handle, length?: number): boolean, string
   sync: function(self: Handle): boolean, string
-  dup: function(self: Handle): Handle, string
+  datasync: function(self: Handle): boolean, string
+  dup: function(self: Handle, newfd?: number, flags?: number, lowest?: number): Handle, string
   fcntl: function(self: Handle, cmd: number, arg?: number): number, string
 end
 
@@ -83,11 +92,12 @@ make_handle = function(fd: number): Handle
   end
 
   --- Read up to size bytes. Returns empty string on EOF.
-  function handle:read(size?: number): string, string
+  --- If offset is provided, reads at that position (pread behavior).
+  function handle:read(size?: number, offset?: number): string, string
     if not handle_fd then
       return nil, "handle closed"
     end
-    local data, err = unix.read(handle_fd, size)
+    local data, err = unix.read(handle_fd, size, offset)
     if data == nil and err then
       return nil, tostring(err)
     end
@@ -95,11 +105,12 @@ make_handle = function(fd: number): Handle
   end
 
   --- Write data. Returns number of bytes written.
-  function handle:write(data: string): number, string
+  --- If offset is provided, writes at that position (pwrite behavior).
+  function handle:write(data: string, offset?: number): number, string
     if not handle_fd then
       return nil, "handle closed"
     end
-    local n, err = unix.write(handle_fd, data)
+    local n, err = unix.write(handle_fd, data, offset)
     if not n then
       return nil, tostring(err)
     end
@@ -130,7 +141,7 @@ make_handle = function(fd: number): Handle
     return true
   end
 
-  --- Flush to disk.
+  --- Flush data and metadata to disk.
   function handle:sync(): boolean, string
     if not handle_fd then
       return false, "handle closed"
@@ -142,16 +153,30 @@ make_handle = function(fd: number): Handle
     return true
   end
 
+  --- Flush data to disk (but not necessarily metadata).
+  function handle:datasync(): boolean, string
+    if not handle_fd then
+      return false, "handle closed"
+    end
+    local ok, err = unix.fdatasync(handle_fd)
+    if not ok then
+      return false, tostring(err)
+    end
+    return true
+  end
+
   --- Duplicate the handle.
-  function handle:dup(): Handle, string
+  --- If newfd is provided, duplicates to that specific fd (dup2 behavior).
+  --- flags can include O_CLOEXEC. lowest specifies minimum acceptable fd.
+  function handle:dup(newfd?: number, flags?: number, lowest?: number): Handle, string
     if not handle_fd then
       return nil, "handle closed"
     end
-    local newfd, err = unix.dup(handle_fd)
-    if not newfd then
+    local dupfd, err = unix.dup(handle_fd, newfd, flags, lowest)
+    if not dupfd then
       return nil, tostring(err)
     end
-    return make_handle(newfd)
+    return make_handle(dupfd)
   end
 
   --- File control operations. cmd: F_GETFD, F_SETFD, F_GETFL, F_SETFL, F_SETLK, etc.
@@ -202,8 +227,9 @@ local function make_pipe(reader: Handle, writer: Handle): Pipe
 end
 
 --- Open a file. flags: O_RDONLY, O_WRONLY, O_RDWR, combined with O_CREAT, O_TRUNC, etc.
-local function open(path: string, flags: number, mode?: number): Handle, string
-  local fd, err = unix.open(path, flags, mode)
+--- If dirfd is provided, path is relative to that directory (openat behavior).
+local function open(path: string, flags: number, mode?: number, dirfd?: number): Handle, string
+  local fd, err = unix.open(path, flags, mode, dirfd)
   if not fd then
     return nil, tostring(err)
   end
@@ -254,7 +280,7 @@ end
 local record IoModule
   slurp: function(path: string): string, string
   barf: function(path: string, data: string, mode?: number): boolean, string
-  open: function(path: string, flags: number, mode?: number): Handle, string
+  open: function(path: string, flags: number, mode?: number, dirfd?: number): Handle, string
   pipe: function(flags?: number): Pipe, string
   truncate: function(path: string, length?: number): boolean, string
   sync: function()
@@ -268,6 +294,9 @@ local record IoModule
   O_EXCL: number
   O_CLOEXEC: number
   O_NONBLOCK: number
+  O_DIRECT: number
+  O_DIRECTORY: number
+  O_NOFOLLOW: number
 
   SEEK_SET: number
   SEEK_CUR: number
@@ -281,7 +310,12 @@ local record IoModule
   F_SETLK: number
   F_SETLKW: number
   F_GETLK: number
+  F_RDLCK: number
+  F_WRLCK: number
+  F_UNLCK: number
   FD_CLOEXEC: number
+
+  AT_FDCWD: number
 end
 
 local M: IoModule = {
@@ -301,6 +335,9 @@ local M: IoModule = {
   O_EXCL = unix.O_EXCL,
   O_CLOEXEC = unix.O_CLOEXEC,
   O_NONBLOCK = unix.O_NONBLOCK,
+  O_DIRECT = unix.O_DIRECT,
+  O_DIRECTORY = unix.O_DIRECTORY,
+  O_NOFOLLOW = unix.O_NOFOLLOW,
 
   SEEK_SET = unix.SEEK_SET,
   SEEK_CUR = unix.SEEK_CUR,
@@ -314,7 +351,12 @@ local M: IoModule = {
   F_SETLK = unix.F_SETLK,
   F_SETLKW = unix.F_SETLKW,
   F_GETLK = unix.F_GETLK,
+  F_RDLCK = unix.F_RDLCK,
+  F_WRLCK = unix.F_WRLCK,
+  F_UNLCK = unix.F_UNLCK,
   FD_CLOEXEC = unix.FD_CLOEXEC,
+
+  AT_FDCWD = unix.AT_FDCWD,
 }
 
 return M

@@ -155,6 +155,9 @@ local function test_constants()
   assert(io_m.O_APPEND ~= nil, "O_APPEND not exported")
   assert(io_m.O_EXCL ~= nil, "O_EXCL not exported")
   assert(io_m.O_CLOEXEC ~= nil, "O_CLOEXEC not exported")
+  assert(io_m.O_DIRECT ~= nil, "O_DIRECT not exported")
+  assert(io_m.O_DIRECTORY ~= nil, "O_DIRECTORY not exported")
+  assert(io_m.O_NOFOLLOW ~= nil, "O_NOFOLLOW not exported")
 
   assert(io_m.SEEK_SET ~= nil, "SEEK_SET not exported")
   assert(io_m.SEEK_CUR ~= nil, "SEEK_CUR not exported")
@@ -164,7 +167,12 @@ local function test_constants()
   assert(io_m.F_SETFD ~= nil, "F_SETFD not exported")
   assert(io_m.F_GETFL ~= nil, "F_GETFL not exported")
   assert(io_m.F_SETFL ~= nil, "F_SETFL not exported")
+  assert(io_m.F_RDLCK ~= nil, "F_RDLCK not exported")
+  assert(io_m.F_WRLCK ~= nil, "F_WRLCK not exported")
+  assert(io_m.F_UNLCK ~= nil, "F_UNLCK not exported")
   assert(io_m.FD_CLOEXEC ~= nil, "FD_CLOEXEC not exported")
+
+  assert(io_m.AT_FDCWD ~= nil, "AT_FDCWD not exported")
 end
 test_constants()
 
@@ -296,3 +304,56 @@ local function test_pipe_close_metamethod_exists()
   assert(p:closed(), "pipe should be closed after __close")
 end
 test_pipe_close_metamethod_exists()
+
+local function test_read_write_with_offset()
+  local filepath = path.join(TEST_TMPDIR, "io_test_pread.txt")
+
+  local f = assert(io_m.open(filepath, io_m.O_RDWR | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
+  assert(f:write("0123456789"))
+
+  -- Read at offset (pread behavior)
+  local data, err = f:read(3, 5)
+  assert(data == "567", "read with offset failed: " .. (err or "") .. " got '" .. tostring(data) .. "'")
+
+  -- Write at offset (pwrite behavior)
+  local n: number
+  n, err = f:write("ABC", 2)
+  assert(n == 3, "write with offset failed: " .. (err or ""))
+
+  -- Verify
+  assert(f:seek(0, io_m.SEEK_SET))
+  data = assert(f:read(100))
+  assert(data == "01ABC56789", "write with offset result: got '" .. data .. "'")
+
+  assert(f:close())
+  os.remove(filepath)
+end
+test_read_write_with_offset()
+
+local function test_barf_with_mode()
+  local filepath = path.join(TEST_TMPDIR, "io_test_barf_mode.txt")
+  local content = "file with specific mode"
+
+  local ok, err = io_m.barf(filepath, content, tonumber("600", 8))
+  assert(ok, "barf with mode failed: " .. (err or ""))
+
+  local data = assert(io_m.slurp(filepath))
+  assert(data == content, "content mismatch after barf with mode")
+
+  os.remove(filepath)
+end
+test_barf_with_mode()
+
+local function test_datasync()
+  local filepath = path.join(TEST_TMPDIR, "io_test_datasync.txt")
+
+  local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
+  assert(f:write("datasync test"))
+
+  local ok, err = f:datasync()
+  assert(ok, "datasync failed: " .. (err or ""))
+
+  assert(f:close())
+  os.remove(filepath)
+end
+test_datasync()
