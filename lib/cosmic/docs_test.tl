@@ -265,5 +265,86 @@ local function test_module_path_boost()
 end
 test_module_path_boost()
 
+-- Test that list_topics excludes cosmo.* modules by default
+local function test_list_topics_excludes_cosmo()
+  local topics = docs.list_topics()
+  local found_cosmo = false
+  for _, topic in ipairs(topics) do
+    if topic[1]:match("^cosmo%.") then
+      found_cosmo = true
+      break
+    end
+  end
+  assert(not found_cosmo, "list_topics should exclude cosmo.* modules by default")
+  print("test_list_topics_excludes_cosmo: PASS")
+end
+test_list_topics_excludes_cosmo()
+
+-- Test that list_topics(true) includes cosmo.* modules
+local function test_list_topics_includes_cosmo_when_requested()
+  local topics = docs.list_topics(true)
+  local found_cosmo = false
+  local found_cosmic = false
+  for _, topic in ipairs(topics) do
+    if topic[1]:match("^cosmo%.") then
+      found_cosmo = true
+    end
+    if topic[1]:match("^cosmic%.") then
+      found_cosmic = true
+    end
+  end
+  if docs.has_docs() then
+    assert(found_cosmo, "list_topics(true) should include cosmo.* modules")
+    assert(found_cosmic, "list_topics(true) should include cosmic.* modules")
+  end
+  print("test_list_topics_includes_cosmo_when_requested: PASS")
+end
+test_list_topics_includes_cosmo_when_requested()
+
+-- Test that search excludes cosmo.* results by default
+local function test_search_excludes_cosmo()
+  -- Search for something that exists in cosmo modules (like "unix")
+  local results = docs.search("unix")
+  local found_cosmo = false
+  for _, result in ipairs(results) do
+    if result.module_name:match("^cosmo%.") then
+      found_cosmo = true
+      break
+    end
+  end
+  assert(not found_cosmo, "search should exclude cosmo.* modules by default")
+  print("test_search_excludes_cosmo: PASS")
+end
+test_search_excludes_cosmo()
+
+-- Test that search(query, true) includes cosmo.* results
+local function test_search_includes_cosmo_when_requested()
+  local results = docs.search("unix", true)
+  local found_cosmo = false
+  for _, result in ipairs(results) do
+    if result.module_name:match("^cosmo%.") then
+      found_cosmo = true
+      break
+    end
+  end
+  if docs.has_docs() then
+    assert(found_cosmo, "search(query, true) should include cosmo.* modules")
+  end
+  print("test_search_includes_cosmo_when_requested: PASS")
+end
+test_search_includes_cosmo_when_requested()
+
+-- Test that explicit cosmo module lookup still works
+local function test_explicit_cosmo_access()
+  local result = docs.run("cosmo.unix")
+  assert(result, "run should return a result")
+  if docs.has_docs() then
+    assert(result.ok, "explicit cosmo.unix lookup should succeed")
+    assert(result.output:match("unix"), "output should contain unix content")
+  end
+  print("test_explicit_cosmo_access: PASS")
+end
+test_explicit_cosmo_access()
+
 print("")
 print("All docs tests passed!")

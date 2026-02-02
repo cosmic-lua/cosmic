@@ -129,9 +129,17 @@ local function first_paragraph(text: string): string
   return para
 end
 
+--- Check if a module name is a low-level cosmo module.
+--- @param name string Module name to check
+--- @return boolean True if this is a cosmo.* module
+local function is_cosmo_module(name: string): boolean
+  return name:match("^cosmo%.") ~= nil
+end
+
 --- List all available documentation topics.
+--- @param include_cosmo boolean Include low-level cosmo.* modules (default: false)
 --- @return {{string, string}} List of {name, description} pairs, sorted by name
-local function list_topics(): {{string, string}}
+local function list_topics(include_cosmo?: boolean): {{string, string}}
   local index, err = load_index()
   if not index then
     return {}
@@ -139,8 +147,11 @@ local function list_topics(): {{string, string}}
 
   local topics: {{string, string}} = {}
   for name, doc in pairs(index.modules) do
-    local desc = first_paragraph(doc.module_doc)
-    table.insert(topics, {name, desc})
+    -- Skip cosmo.* modules unless explicitly requested
+    if include_cosmo or not is_cosmo_module(name) then
+      local desc = first_paragraph(doc.module_doc)
+      table.insert(topics, {name, desc})
+    end
   end
 
   table.sort(topics, function(a: {string, string}, b: {string, string}): boolean
@@ -511,9 +522,11 @@ local function calc_score(
 end
 
 --- Search documentation for a query string.
+--- By default, excludes low-level cosmo.* modules from results.
 --- @param query string The search query
+--- @param include_cosmo boolean Include low-level cosmo.* modules (default: false)
 --- @return {SearchResult} List of search results, sorted by relevance
-local function search(query: string): {SearchResult}
+local function search(query: string, include_cosmo?: boolean): {SearchResult}
   local index, _ = load_index()
   if not index then
     return {}
@@ -524,6 +537,10 @@ local function search(query: string): {SearchResult}
 
   -- Search through all modules
   for mod_name, mod_doc in pairs(index.modules) do
+    -- Skip cosmo.* modules unless explicitly requested
+    if not include_cosmo and is_cosmo_module(mod_name) then
+      goto continue
+    end
     local simple_name = mod_name:match("([^%.]+)$") or mod_name
     local simple_lower = simple_name:lower()
 
@@ -623,6 +640,7 @@ local function search(query: string): {SearchResult}
         end
       end
     end
+    ::continue::
   end
 
   -- Sort by match score (highest first), then by module name for stability
@@ -644,8 +662,10 @@ local record ExampleEntry
 end
 
 --- List all examples across all modules.
+--- By default, excludes low-level cosmo.* modules.
+--- @param include_cosmo boolean Include low-level cosmo.* modules (default: false)
 --- @return {ExampleEntry} List of examples sorted by module then name
-local function list_all_examples(): {ExampleEntry}
+local function list_all_examples(include_cosmo?: boolean): {ExampleEntry}
   local index, _ = load_index()
   if not index then
     return {}
@@ -653,6 +673,10 @@ local function list_all_examples(): {ExampleEntry}
 
   local examples: {ExampleEntry} = {}
   for mod_name, mod_doc in pairs(index.modules) do
+    -- Skip cosmo.* modules unless explicitly requested
+    if not include_cosmo and is_cosmo_module(mod_name) then
+      goto continue
+    end
     if mod_doc.examples then
       for _, ex in ipairs(mod_doc.examples) do
         local display_name = ex.name:gsub("^Example_?", "")
@@ -663,6 +687,7 @@ local function list_all_examples(): {ExampleEntry}
         })
       end
     end
+    ::continue::
   end
 
   table.sort(examples, function(a: ExampleEntry, b: ExampleEntry): boolean
@@ -993,10 +1018,10 @@ end
 local record DocsModule
   run: function(query?: string): DocsResult
   has_docs: function(): boolean
-  list_topics: function(): {{string, string}}
+  list_topics: function(include_cosmo?: boolean): {{string, string}}
   load_index: function(): DocIndex, string
   render_module: function(name: string, doc: ModuleDoc): string
-  search: function(query: string): {SearchResult}
+  search: function(query: string, include_cosmo?: boolean): {SearchResult}
   render_search_results: function(results: {SearchResult}, query: string): string
   show_module_examples: function(module_name: string): DocsResult
 end
