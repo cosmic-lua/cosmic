@@ -151,6 +151,11 @@ local record FsModule
   isfile: function(path: string): boolean
   isdir: function(path: string): boolean
   islink: function(path: string): boolean
+  normalize: function(p: string): string
+  abspath: function(p: string): string
+  relpath: function(p: string, base?: string): string
+  splitext: function(p: string): string, string
+  ext: function(p: string): string
   stat: function(path: string, follow_symlinks?: boolean): Stat, string
   fstat: function(fd: number): Stat, string
   is_dir: function(mode: number): boolean
@@ -318,6 +323,96 @@ function islink(p: string): boolean
 **Returns:**
 
 - boolean - True if the path is a symbolic link
+
+### normalize
+
+```teal
+function normalize(p: string): string
+```
+
+ Normalize path by removing `.` and `..` components without filesystem access.
+ Also removes redundant slashes. Pure string manipulation.
+ Examples: "/usr/./lib" -> "/usr/lib", "/usr/lib/../bin" -> "/usr/bin"
+
+**Parameters:**
+
+- `p` (string) - The path to normalize
+
+**Returns:**
+
+- string - The normalized path
+
+### abspath
+
+```teal
+function abspath(p: string): string
+```
+
+ Convert relative path to absolute by prepending cwd.
+ Does NOT resolve symlinks or access filesystem (except to get cwd).
+
+**Parameters:**
+
+- `p` (string) - The path to make absolute
+
+**Returns:**
+
+- string - The absolute path
+
+### relpath
+
+```teal
+function relpath(p: string, base: string): string
+```
+
+ Make path relative to another path (defaults to cwd).
+ Pure string manipulation - does not access the filesystem.
+
+**Parameters:**
+
+- `p` (string) - The path to make relative
+- `base` (string) - The base path (defaults to cwd)
+
+**Returns:**
+
+- string - The relative path
+
+### splitext
+
+```teal
+function splitext(p: string): string, string
+```
+
+ Split path into root and extension.
+ Extension includes the dot. Handles multiple extensions by splitting at
+ the last dot in the basename. Hidden files (starting with .) have no extension.
+ Examples: "foo.txt" -> "foo", ".txt"; ".bashrc" -> ".bashrc", ""
+
+**Parameters:**
+
+- `p` (string) - The path to split
+
+**Returns:**
+
+- string - The root portion (path without extension)
+- string - The extension (including dot, or empty string)
+
+### ext
+
+```teal
+function ext(p: string): string
+```
+
+ Return the extension of a path.
+ Extension includes the dot. Convenience wrapper around splitext.
+
+**Parameters:**
+
+- `p` (string) - The path to get extension from
+
+**Returns:**
+
+- string - The extension (including dot, or empty string)
 
 ### stat
 
@@ -1052,5 +1147,69 @@ created temp dir:	/tmp/fs_example_XXXXXX (with random suffix)
   -- subdir is a directory
   -- symlink points to:	/tmp/fs_example_XXXXXX/subdir
   -- cleaned up
+
+```
+
+### normalize
+
+ Example_normalize demonstrates path normalization
+
+```teal
+  local fs = require("cosmic.fs")
+  print(fs.normalize("/usr/./lib"))
+  print(fs.normalize("/usr/lib/../bin"))
+  print(fs.normalize("a/b/../c"))
+  print(fs.normalize("//usr///lib//"))
+```
+
+Output:
+```
+/usr/lib
+  -- /usr/bin
+  -- a/c
+  -- /usr/lib
+
+```
+
+### splitext
+
+ Example_splitext demonstrates extension splitting
+
+```teal
+  local fs = require("cosmic.fs")
+  local root: string
+  local extension: string
+  root, extension = fs.splitext("archive.tar.gz")
+  print(root, extension)
+  root, extension = fs.splitext(".bashrc")
+  print(root, extension)
+  root, extension = fs.splitext("/path/to/file.txt")
+  print(root, extension)
+```
+
+Output:
+```
+archive.tar	.gz
+  -- .bashrc
+  -- /path/to/file	.txt
+
+```
+
+### relpath
+
+ Example_relpath demonstrates computing relative paths
+
+```teal
+  local fs = require("cosmic.fs")
+  print(fs.relpath("/usr/lib", "/usr"))
+  print(fs.relpath("/usr/lib", "/usr/bin"))
+  print(fs.relpath("/foo", "/bar"))
+```
+
+Output:
+```
+lib
+  -- ../lib
+  -- ../foo
 
 ```
