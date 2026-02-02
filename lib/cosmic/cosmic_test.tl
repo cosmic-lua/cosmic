@@ -24,14 +24,20 @@ local function test_require_cosmic_spawn()
 end
 test_require_cosmic_spawn()
 
-local function test_require_cosmic_walk()
-  local walk = require("cosmic.walk")
-  assert(walk ~= nil, "walk should not be nil")
-  assert(walk.walk ~= nil, "walk.walk should not be nil")
-  assert(walk.collect ~= nil, "walk.collect should not be nil")
-  assert(walk.collect_all ~= nil, "walk.collect_all should not be nil")
+local function test_require_cosmic_fs()
+  local fs = require("cosmic.fs")
+  assert(fs ~= nil, "fs should not be nil")
+  -- Path functions
+  assert(fs.dirname ~= nil, "fs.dirname should not be nil")
+  assert(fs.basename ~= nil, "fs.basename should not be nil")
+  assert(fs.join ~= nil, "fs.join should not be nil")
+  -- Walk functions
+  assert(fs.walk ~= nil, "fs.walk should not be nil")
+  assert(fs.collect ~= nil, "fs.collect should not be nil")
+  assert(fs.collect_all ~= nil, "fs.collect_all should not be nil")
+  assert(fs.files ~= nil, "fs.files should not be nil")
 end
-test_require_cosmic_walk()
+test_require_cosmic_fs()
 
 local function test_cosmic_main_exists()
   local cosmic = require("cosmic")
