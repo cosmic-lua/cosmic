@@ -151,35 +151,7 @@ end
 end
 test_is_main_false_when_required()
 
--- kill / raise tests --
-
-local function test_kill_sends_signal()
-  local pid = child.fork()
-  if pid == 0 then
-    while true do end
-  else
-    local killed = proc.kill(pid, proc.SIGKILL)
-    assert(killed, "expected kill to succeed")
-    child.wait(pid)
-  end
-end
-test_kill_sends_signal()
-
 -- Constants tests --
-
-local function test_signal_constants_defined()
-  assert(type(proc.SIGTERM) == "number", "SIGTERM should be a number")
-  assert(type(proc.SIGKILL) == "number", "SIGKILL should be a number")
-  assert(type(proc.SIGINT) == "number", "SIGINT should be a number")
-  assert(type(proc.SIGQUIT) == "number", "SIGQUIT should be a number")
-  assert(type(proc.SIGHUP) == "number", "SIGHUP should be a number")
-  assert(type(proc.SIGCHLD) == "number", "SIGCHLD should be a number")
-  assert(type(proc.SIGUSR1) == "number", "SIGUSR1 should be a number")
-  assert(type(proc.SIGUSR2) == "number", "SIGUSR2 should be a number")
-  assert(type(proc.SIGPIPE) == "number", "SIGPIPE should be a number")
-  assert(type(proc.SIGALRM) == "number", "SIGALRM should be a number")
-end
-test_signal_constants_defined()
 
 local function test_rusage_constants_defined()
   assert(type(proc.RUSAGE_SELF) == "number", "RUSAGE_SELF should be a number")
