@@ -1,6 +1,264 @@
---- Filesystem operations.
---- Wraps cosmo.unix for file and directory operations: stat, mkdir, chmod, symlink, etc.
+--- Unified filesystem module.
+--- Combines path manipulation, filesystem operations, and directory walking.
 local unix = require("cosmo.unix")
+local cosmo_path = require("cosmo.path")
+
+-- Path manipulation functions
+
+--- Strip final component from path.
+--- Examples: "/usr/lib" -> "/usr", "usr" -> ".", "/" -> "/"
+--- @param str string The path to get the directory from
+--- @return string The directory portion of the path
+local function dirname(str: string): string
+  return cosmo_path.dirname(str)
+end
+
+--- Return final component of path.
+--- Examples: "/usr/lib" -> "lib", "/" -> "/", "." -> "."
+--- @param str string The path to get the basename from
+--- @return string The final component of the path
+local function basename(str: string): string
+  return cosmo_path.basename(str)
+end
+
+--- Concatenate path components.
+--- Absolute paths in later arguments reset the result.
+--- Nil arguments are skipped; exclusively nil returns nil.
+--- @param ... string Path components to join
+--- @return string The joined path
+local function join(...: string): string
+  return cosmo_path.join(...)
+end
+
+--- Check if path exists (regular file, directory, or special file).
+--- Symbolic links are followed. Returns false on error.
+--- @param p string The path to check
+--- @return boolean True if the path exists
+local function exists(p: string): boolean
+  return cosmo_path.exists(p)
+end
+
+--- Check if path is a regular file.
+--- Symbolic links are not followed. Returns false on error.
+--- @param p string The path to check
+--- @return boolean True if the path is a regular file
+local function isfile(p: string): boolean
+  return cosmo_path.isfile(p)
+end
+
+--- Check if path is a directory.
+--- Symbolic links are not followed. Returns false on error.
+--- @param p string The path to check
+--- @return boolean True if the path is a directory
+local function isdir(p: string): boolean
+  return cosmo_path.isdir(p)
+end
+
+--- Check if path is a symbolic link.
+--- Returns false on error.
+--- @param p string The path to check
+--- @return boolean True if the path is a symbolic link
+local function islink(p: string): boolean
+  return cosmo_path.islink(p)
+end
+
+--- Normalize path by removing `.` and `..` components without filesystem access.
+--- Also removes redundant slashes. Pure string manipulation.
+--- Examples: "/usr/./lib" -> "/usr/lib", "/usr/lib/../bin" -> "/usr/bin"
+--- @param p string The path to normalize
+--- @return string The normalized path
+local function normalize(p: string): string
+  if p == "" then
+    return "."
+  end
+
+  local is_absolute = p:sub(1, 1) == "/"
+
+  -- Split into components, filtering empty strings (from // or trailing /)
+  local parts: {string} = {}
+  for part in p:gmatch("[^/]+") do
+    if part == "." then
+      -- skip current dir
+    elseif part == ".." then
+      if #parts > 0 and parts[#parts] ~= ".." then
+        -- pop last component if it's not also a ..
+        if is_absolute or parts[#parts] ~= ".." then
+          table.remove(parts)
+        else
+          table.insert(parts, "..")
+        end
+      elseif not is_absolute then
+        -- for relative paths, preserve leading ..
+        table.insert(parts, "..")
+      end
+      -- for absolute paths starting with /.., just ignore the ..
+    else
+      table.insert(parts, part)
+    end
+  end
+
+  if is_absolute then
+    if #parts == 0 then
+      return "/"
+    else
+      return "/" .. table.concat(parts, "/")
+    end
+  else
+    if #parts == 0 then
+      return "."
+    else
+      return table.concat(parts, "/")
+    end
+  end
+end
+
+--- Convert relative path to absolute by prepending cwd.
+--- Does NOT resolve symlinks or access filesystem (except to get cwd).
+--- @param p string The path to make absolute
+--- @return string The absolute path
+local function abspath(p: string): string
+  if p == "" then
+    return unix.getcwd() or "."
+  end
+  if p:sub(1, 1) == "/" then
+    return normalize(p)
+  end
+  local cwd = unix.getcwd()
+  if not cwd then
+    return normalize(p)
+  end
+  return normalize(cwd .. "/" .. p)
+end
+
+--- Make path relative to another path (defaults to cwd).
+--- Pure string manipulation - does not access the filesystem.
+--- @param p string The path to make relative
+--- @param base string The base path (defaults to cwd)
+--- @return string The relative path
+local function relpath(p: string, base: string): string
+  -- Get absolute versions of both paths
+  local abs_p = abspath(p)
+  local abs_base: string
+  if base then
+    abs_base = abspath(base)
+  else
+    abs_base = unix.getcwd() or "."
+  end
+
+  -- Split into components
+  local function split_path(s: string): {string}
+    local path_parts: {string} = {}
+    for part in s:gmatch("[^/]+") do
+      table.insert(path_parts, part)
+    end
+    return path_parts
+  end
+
+  local p_parts = split_path(abs_p)
+  local base_parts = split_path(abs_base)
+
+  -- Find common prefix length
+  local common_len = 0
+  local max_common = math.min(#p_parts, #base_parts)
+  for i = 1, max_common do
+    if p_parts[i] == base_parts[i] then
+      common_len = i
+    else
+      break
+    end
+  end
+
+  -- Build relative path: go up from base, then down to target
+  local rel_parts: {string} = {}
+
+  -- Add ".." for each remaining component in base
+  for _ = common_len + 1, #base_parts do
+    table.insert(rel_parts, "..")
+  end
+
+  -- Add remaining components from target
+  for i = common_len + 1, #p_parts do
+    table.insert(rel_parts, p_parts[i])
+  end
+
+  if #rel_parts == 0 then
+    return "."
+  end
+
+  return table.concat(rel_parts, "/")
+end
+
+--- Split path into root and extension.
+--- Extension includes the dot. Handles multiple extensions by splitting at
+--- the last dot in the basename. Hidden files (starting with .) have no extension.
+--- Examples: "foo.txt" -> "foo", ".txt"; ".bashrc" -> ".bashrc", ""
+--- @param p string The path to split
+--- @return string The root portion (path without extension)
+--- @return string The extension (including dot, or empty string)
+local function splitext(p: string): string, string
+  local base = cosmo_path.basename(p)
+  local dir = cosmo_path.dirname(p)
+
+  -- Handle hidden files: if basename starts with . and has no other dot, no extension
+  if base:sub(1, 1) == "." then
+    local rest = base:sub(2)
+    local dot_pos = rest:find("%.")
+    if not dot_pos then
+      -- Hidden file with no extension
+      return p, ""
+    end
+    -- Hidden file with extension: find last dot in the non-hidden part
+    local last_dot: integer = 0
+    for i = #base, 2, -1 do
+      if base:sub(i, i) == "." then
+        last_dot = i
+        break
+      end
+    end
+    if last_dot > 0 then
+      local extension = base:sub(last_dot)
+      local root_base = base:sub(1, last_dot - 1)
+      if dir == "." then
+        return root_base, extension
+      else
+        return dir .. "/" .. root_base, extension
+      end
+    end
+    return p, ""
+  end
+
+  -- Find last dot in basename
+  local last_dot: integer = 0
+  for i = #base, 1, -1 do
+    if base:sub(i, i) == "." then
+      last_dot = i
+      break
+    end
+  end
+
+  if last_dot == 0 or last_dot == 1 then
+    -- No dot, or dot at start (shouldn't happen since we handled hidden files)
+    return p, ""
+  end
+
+  local extension = base:sub(last_dot)
+  local root_base = base:sub(1, last_dot - 1)
+
+  if dir == "." then
+    return root_base, extension
+  else
+    return dir .. "/" .. root_base, extension
+  end
+end
+
+--- Return the extension of a path.
+--- Extension includes the dot. Convenience wrapper around splitext.
+--- @param p string The path to get extension from
+--- @return string The extension (including dot, or empty string)
+local function ext(p: string): string
+  local _, extension = splitext(p)
+  return extension
+end
 
 -- Raw Dir type from cosmo.unix
 local record RawDir
@@ -553,10 +811,195 @@ local R_OK <const> = unix.R_OK
 local W_OK <const> = unix.W_OK
 local X_OK <const> = unix.X_OK
 
+-- Directory walking
+
+--- File or directory metadata for walk visitor.
+local record WalkStat
+  mode: function(self): number
+  size: function(self): number
+  mtim: function(self): number
+end
+
+--- Handle for reading directory entries (internal).
+local record WalkDirHandle
+  read: function(self): string
+  close: function(self)
+end
+
+--- File information with Unix permissions.
+local record FileInfo
+  mode: number
+end
+
+--- Visitor function type for directory traversal.
+--- Return false to skip recursion into subdirectories.
+--- @param full_path string The complete path to the file or directory
+--- @param entry string The basename of the file or directory
+--- @param stat WalkStat File metadata
+--- @param ctx any User-provided context passed through the walk
+--- @return boolean Return false to skip recursing into this directory
+local type Visitor = function(full_path: string, entry: string, stat: WalkStat, ctx: any): boolean
+
+--- Walk a directory tree, calling visitor for each entry.
+--- Recursively traverses subdirectories unless visitor returns false.
+--- @param dir string The directory to walk
+--- @param visitor Visitor Function called for each file and directory
+--- @param ctx T Optional context passed to visitor function
+--- @return T The context object, potentially modified by visitor
+local function walk<T>(dir: string, visitor: Visitor, ctx?: T): T
+  ctx = ctx or {} as T
+  local handle = unix.opendir(dir) as WalkDirHandle
+  if not handle then return ctx end
+
+  while true do
+    local entry = handle:read()
+    if not entry then break end
+    if entry ~= "." and entry ~= ".." then
+      local full_path = join(dir, entry)
+      local st = unix.stat(full_path) as WalkStat
+      if st then
+        local continue = visitor(full_path, entry, st, ctx)
+        if continue ~= false and unix.S_ISDIR(st:mode()) then
+          walk(full_path, visitor, ctx)
+        end
+      end
+    end
+  end
+  handle:close()
+  return ctx
+end
+
+--- Convert a glob pattern to a Lua pattern.
+--- Supports * (any chars), ? (single char), and character classes [abc].
+--- @param glob string The glob pattern
+--- @return string The equivalent Lua pattern
+local function glob_to_pattern(glob: string): string
+  local pattern = glob
+    :gsub("([%.%^%$%(%)%%])", "%%%1")  -- escape special chars (except * ? [ ])
+    :gsub("%*", ".*")                   -- * -> .*
+    :gsub("%?", ".")                    -- ? -> .
+  return "^" .. pattern .. "$"
+end
+
+--- Collect file paths matching a pattern.
+--- Recursively walks directory tree and returns matching file paths.
+--- @param dir string The directory to search
+--- @param pattern string Glob pattern (*.lua) or Lua pattern (%.lua$)
+--- @return {string} List of full paths to matching files
+local function collect(dir: string, pattern: string): {string}
+  -- Detect if it's a glob or Lua pattern
+  -- Globs use * and ?, Lua patterns use % for escaping
+  local is_glob = pattern:find("*", 1, true) or pattern:find("?", 1, true)
+  local lua_pattern: string
+  if is_glob then
+    lua_pattern = glob_to_pattern(pattern)
+  else
+    lua_pattern = pattern
+  end
+
+  local results: {string} = {}
+  walk(dir, function(full_path: string, entry: string, st: WalkStat, ctx: {string}): boolean
+    if not unix.S_ISDIR(st:mode()) and entry:match(lua_pattern) then
+      table.insert(ctx, full_path)
+    end
+    return true
+  end, results)
+  return results
+end
+
+--- Recursively collect all files with their Unix permissions.
+--- Returns a map of relative paths to file information.
+--- @param dir string The directory to walk
+--- @return {string:FileInfo} Map of relative paths to file information
+local function collect_all(dir: string): {string:FileInfo}
+  local files: {string:FileInfo} = {}
+
+  local function do_walk(base_dir: string, rel_base: string)
+    local handle = unix.opendir(base_dir) as WalkDirHandle
+    if not handle then return end
+
+    while true do
+      local entry = handle:read()
+      if not entry then break end
+      if entry ~= "." and entry ~= ".." then
+        local full_path = join(base_dir, entry)
+        local rel_path = rel_base == "" and entry or join(rel_base, entry)
+        local st = unix.stat(full_path) as WalkStat
+
+        if st then
+          if unix.S_ISDIR(st:mode()) then
+            do_walk(full_path, rel_path)
+          elseif unix.S_ISREG(st:mode()) or unix.S_ISLNK(st:mode()) then
+            local mode = st:mode() & 0x1ff
+            files[rel_path] = { mode = mode }
+          end
+        end
+      end
+    end
+    handle:close()
+  end
+
+  do_walk(dir, "")
+  return files
+end
+
+--- Iterate over files matching a pattern.
+--- Returns an iterator that yields file paths.
+--- @param dir string The directory to search
+--- @param pattern string Glob pattern (*.lua) - defaults to all files (*)
+--- @return function Iterator yielding file paths
+local function files(dir: string, pattern?: string): function(): string
+  pattern = pattern or "*"
+
+  -- Detect if it's a glob or Lua pattern
+  local is_glob = pattern:find("*", 1, true) or pattern:find("?", 1, true)
+  local lua_pattern: string
+  if is_glob then
+    lua_pattern = glob_to_pattern(pattern)
+  else
+    lua_pattern = pattern
+  end
+
+  -- Stack of (dir, handle) for depth-first traversal
+  local stack: {{string, WalkDirHandle}} = {}
+  local handle = unix.opendir(dir) as WalkDirHandle
+  if handle then
+    table.insert(stack, {dir, handle})
+  end
+
+  return function(): string
+    while #stack > 0 do
+      local current = stack[#stack]
+      local current_dir = current[1]
+      local current_handle = current[2]
+
+      local entry = current_handle:read()
+      if not entry then
+        current_handle:close()
+        table.remove(stack)
+      elseif entry ~= "." and entry ~= ".." then
+        local full_path = join(current_dir, entry)
+        local st = unix.stat(full_path) as WalkStat
+        if st then
+          if unix.S_ISDIR(st:mode()) then
+            -- Push subdirectory onto stack
+            local subhandle = unix.opendir(full_path) as WalkDirHandle
+            if subhandle then
+              table.insert(stack, {full_path, subhandle})
+            end
+          elseif entry:match(lua_pattern) then
+            return full_path
+          end
+        end
+      end
+    end
+    return nil
+  end
+end
+
 -- Example demonstrating basic fs operations
 local function Example_basic()
   local fs = require("cosmic.fs")
-  local path = require("cosmo.path")
 
   -- Create a temp directory
   local tmpdir = fs.mkdtemp("/tmp/fs_example_XXXXXX")
@@ -567,7 +1010,7 @@ local function Example_basic()
   print("created temp dir:", tmpdir)
 
   -- Create a subdirectory
-  local subdir = path.join(tmpdir, "subdir")
+  local subdir = fs.join(tmpdir, "subdir")
   local ok, err = fs.mkdir(subdir)
   if not ok then
     print("mkdir failed:", err)
@@ -582,7 +1025,7 @@ local function Example_basic()
   end
 
   -- Create a symlink
-  local linkpath = path.join(tmpdir, "link")
+  local linkpath = fs.join(tmpdir, "link")
   ok, err = fs.symlink(subdir, linkpath)
   if ok then
     local target = fs.readlink(linkpath)
@@ -600,8 +1043,68 @@ local function Example_basic()
   -- cleaned up
 end
 
+--- Example_normalize demonstrates path normalization
+local function Example_normalize()
+  local fs = require("cosmic.fs")
+  print(fs.normalize("/usr/./lib"))
+  print(fs.normalize("/usr/lib/../bin"))
+  print(fs.normalize("a/b/../c"))
+  print(fs.normalize("//usr///lib//"))
+  -- Output:
+  -- /usr/lib
+  -- /usr/bin
+  -- a/c
+  -- /usr/lib
+end
+
+--- Example_splitext demonstrates extension splitting
+local function Example_splitext()
+  local fs = require("cosmic.fs")
+  local root: string
+  local extension: string
+  root, extension = fs.splitext("archive.tar.gz")
+  print(root, extension)
+  root, extension = fs.splitext(".bashrc")
+  print(root, extension)
+  root, extension = fs.splitext("/path/to/file.txt")
+  print(root, extension)
+  -- Output:
+  -- archive.tar	.gz
+  -- .bashrc
+  -- /path/to/file	.txt
+end
+
+--- Example_relpath demonstrates computing relative paths
+local function Example_relpath()
+  local fs = require("cosmic.fs")
+  print(fs.relpath("/usr/lib", "/usr"))
+  print(fs.relpath("/usr/lib", "/usr/bin"))
+  print(fs.relpath("/foo", "/bar"))
+  -- Output:
+  -- lib
+  -- ../lib
+  -- ../foo
+end
+
+-- Suppress unused warnings for examples
+local _ = {Example_basic, Example_normalize, Example_splitext, Example_relpath}
+
 --- Module interface
 local record FsModule
+  -- Path manipulation
+  dirname: function(str: string): string
+  basename: function(str: string): string
+  join: function(...: string): string
+  exists: function(path: string): boolean
+  isfile: function(path: string): boolean
+  isdir: function(path: string): boolean
+  islink: function(path: string): boolean
+  normalize: function(p: string): string
+  abspath: function(p: string): string
+  relpath: function(p: string, base?: string): string
+  splitext: function(p: string): string, string
+  ext: function(p: string): string
+
   -- Stat operations
   stat: function(path: string, follow_symlinks?: boolean): Stat, string
   fstat: function(fd: number): Stat, string
@@ -653,6 +1156,12 @@ local record FsModule
   major: function(dev: number): number
   minor: function(dev: number): number
 
+  -- Directory walking
+  walk: function<T>(dir: string, visitor: Visitor, ctx?: T): T
+  collect: function(dir: string, pattern: string): {string}
+  collect_all: function(dir: string): {string:FileInfo}
+  files: function(dir: string, pattern?: string): function(): string
+
   -- Access mode constants
   F_OK: number
   R_OK: number
@@ -661,6 +1170,20 @@ local record FsModule
 end
 
 local M: FsModule = {
+  -- Path manipulation
+  dirname = dirname,
+  basename = basename,
+  join = join,
+  exists = exists,
+  isfile = isfile,
+  isdir = isdir,
+  islink = islink,
+  normalize = normalize,
+  abspath = abspath,
+  relpath = relpath,
+  splitext = splitext,
+  ext = ext,
+
   -- Stat operations
   stat = stat,
   fstat = fstat,
@@ -711,6 +1234,12 @@ local M: FsModule = {
   -- Device number utilities
   major = major,
   minor = minor,
+
+  -- Directory walking
+  walk = walk,
+  collect = collect,
+  collect_all = collect_all,
+  files = files,
 
   -- Access mode constants
   F_OK = F_OK,

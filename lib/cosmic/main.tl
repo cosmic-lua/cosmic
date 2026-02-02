@@ -355,41 +355,28 @@ local function generate_help(): string
   table.insert(lines, "  -W                          turn warnings into errors")
   table.insert(lines, "")
 
-  -- Try to show module table
+  -- Try to show module table (only cosmic.* modules, not cosmo.* bindings)
   local docs = require("cosmic.docs")
   if docs.has_docs() then
-    local topics = docs.list_topics()
+    local topics = docs.list_topics()  -- excludes cosmo.* by default
     if #topics > 0 then
-      -- Separate cosmic and cosmo modules
       local cosmic_modules: {string} = {}
-      local cosmo_modules: {string} = {}
 
       for _, topic in ipairs(topics) do
         local name: string = topic[1] as string
         if name:match("^cosmic%.") then
           local short_name = name:gsub("^cosmic%.", "")
           table.insert(cosmic_modules, short_name)
-        elseif name:match("^cosmo%.") then
-          local short_name = name:gsub("^cosmo%.", "")
-          table.insert(cosmo_modules, short_name)
         end
       end
 
-      if #cosmic_modules > 0 or #cosmo_modules > 0 then
+      if #cosmic_modules > 0 then
         table.insert(lines, "Available modules:")
-
-        if #cosmic_modules > 0 then
-          table.sort(cosmic_modules)
-          table.insert(lines, "  cosmic:  " .. table.concat(cosmic_modules, ", "))
-        end
-
-        if #cosmo_modules > 0 then
-          table.sort(cosmo_modules)
-          table.insert(lines, "  cosmo:   " .. table.concat(cosmo_modules, ", "))
-        end
-
+        table.sort(cosmic_modules)
+        table.insert(lines, "  cosmic:  " .. table.concat(cosmic_modules, ", "))
         table.insert(lines, "")
-        table.insert(lines, "  Tip: Use cosmic.* for high-level APIs. Use cosmo.* for low-level bindings.")
+        table.insert(lines, "  Low-level cosmo.* bindings are available but hidden by default.")
+        table.insert(lines, "  Use --docs cosmo.<module> to access them directly.")
         table.insert(lines, "")
       end
     end

@@ -28,7 +28,7 @@ end
 test_cosmic_child()
 
 local function test_cosmic_walk()
-  local ok, out = spawn.spawn({cosmic, "-e", "local w = require('cosmic.walk'); print(w and 'ok' or 'fail')"}, {env = clean_env()}):read()
+  local ok, out = spawn.spawn({cosmic, "-e", "local fs = require('cosmic.fs'); print(fs.walk and 'ok' or 'fail')"}, {env = clean_env()}):read()
   assert(ok, "cosmic exited with error")
   assert((out as string):find("ok", 1, true), "expected output to contain 'ok'")
 end
@@ -39,7 +39,7 @@ local function test_cosmic_help()
   assert(ok, "cosmic --help exited with error")
   assert((out as string):find("cosmic", 1, true), "expected output to contain 'cosmic'")
   assert((out as string):find("%-%-help", 1, false), "expected output to contain '--help'")
-  assert((out as string):find("Tip: Use cosmic", 1, true), "expected output to contain cosmic vs cosmo tip")
+  assert((out as string):find("Low%-level cosmo", 1, false), "expected output to contain note about cosmo bindings")
 end
 test_cosmic_help()
 
