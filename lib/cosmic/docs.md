@@ -145,7 +145,11 @@ local record SearchResult
   name_lower: find(query_lower, 1, true) then
   desc: lower():find(query_lower, 1, true) then
   --  Search documentation for a query string.
-  query: string): {SearchResult}
+  --  By default, excludes low-level cosmo.* modules from results.
+  default: false)
+  --  Search documentation for a query string.
+  --  By default, excludes low-level cosmo.* modules from results.
+  query: string, include_cosmo?: boolean): {SearchResult}
 end
 ```
 
@@ -167,10 +171,10 @@ end
 local record DocsModule
   run: function(query?: string): DocsResult
   has_docs: function(): boolean
-  list_topics: function(): {{string, string}}
+  list_topics: function(include_cosmo?: boolean): {{string, string}}
   load_index: function(): DocIndex, string
   render_module: function(name: string, doc: ModuleDoc): string
-  search: function(query: string): {SearchResult}
+  search: function(query: string, include_cosmo?: boolean): {SearchResult}
   render_search_results: function(results: {SearchResult}, query: string): string
   show_module_examples: function(module_name: string): DocsResult
 end
@@ -206,10 +210,14 @@ function has_docs(): boolean
 ### list_topics
 
 ```teal
-function list_topics(): {{string, string}}
+function list_topics(include_cosmo?: boolean): {{string, string}}
 ```
 
  List all available documentation topics.
+
+**Parameters:**
+
+- `include_cosmo` (boolean) - Include low-level cosmo.* modules (default: false)
 
 **Returns:**
 
@@ -235,14 +243,16 @@ function render_module(name: string, doc: ModuleDoc): string
 ### search
 
 ```teal
-function search(query: string): {SearchResult}
+function search(query: string, include_cosmo?: boolean): {SearchResult}
 ```
 
  Search documentation for a query string.
+ By default, excludes low-level cosmo.* modules from results.
 
 **Parameters:**
 
 - `query` (string) - The search query
+- `include_cosmo` (boolean) - Include low-level cosmo.* modules (default: false)
 
 **Returns:**
 
