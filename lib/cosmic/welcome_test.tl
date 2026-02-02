@@ -4,6 +4,7 @@
 local path = require("cosmo.path")
 local spawn = require("cosmic.child")
 local cosmo = require("cosmo")
+local sys = require("cosmic.sys")
 
 local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
@@ -53,6 +54,12 @@ end
   print("test_no_welcome_env: PASS")
 end
 test_no_welcome_env()
+
+-- PTY-based tests require Linux's script command (different syntax on macOS)
+if sys.host_os() ~= "linux" then
+  print("Skipping PTY-based tests on " .. sys.host_os())
+  return
+end
 
 -- Helper to run cosmic in a PTY (using script command) to trigger TTY-based welcome
 local function run_with_pty(args: {string}): boolean, string

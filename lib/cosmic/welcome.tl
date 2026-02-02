@@ -22,6 +22,7 @@ local function mark_shown()
   if exe then
     local appender = zip.open(exe, "a") as Appender
     if appender then
+      -- Ignore result; showing welcome again on failure is acceptable
       appender:add(MARKER, "")
       appender:close()
     end
