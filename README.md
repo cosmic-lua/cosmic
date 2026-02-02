@@ -37,7 +37,7 @@ High-level utilities and tools built on top of cosmo.
 | [env](lib/cosmic/env.md) |  Environment variable utilities. |
 | [example](lib/cosmic/example.md) |  Go-style executable example testing. |
 | [fetch](lib/cosmic/fetch.md) |  Structured HTTP fetch with optional retry. |
-| [fs](lib/cosmic/fs.md) |  Filesystem operations. |
+| [fs](lib/cosmic/fs.md) |  Unified filesystem module. |
 | [fuzzy](lib/cosmic/fuzzy.md) |  Fuzzy string matching utilities. |
 | [gendoc](lib/cosmic/gendoc.md) |  |
 | [getopt](lib/cosmic/getopt.md) |  Command-line option parsing utilities. |
@@ -48,7 +48,6 @@ High-level utilities and tools built on top of cosmo.
 | [ip](lib/cosmic/ip.md) |  IP address parsing, formatting, and classification utilities. |
 | [json](lib/cosmic/json.md) |  JSON encoding and decoding utilities. |
 | [net](lib/cosmic/net.md) |  Networking and socket utilities. |
-| [path](lib/cosmic/path.md) |  Path manipulation utilities. |
 | [proc](lib/cosmic/proc.md) |  Current process management. |
 | [rand](lib/cosmic/rand.md) |  Random number generation. |
 | [re](lib/cosmic/re.md) |  Regular expression matching using POSIX extended regex syntax. |
@@ -65,7 +64,6 @@ High-level utilities and tools built on top of cosmo.
 | [url](lib/cosmic/url.md) |  URL encoding, decoding, parsing, and escaping utilities. |
 | [user](lib/cosmic/user.md) |  User and group identity operations. |
 | [uuid](lib/cosmic/uuid.md) |  UUID generation utilities. |
-| [walk](lib/cosmic/walk.md) |  Directory tree walking utilities. |
 | [welcome](lib/cosmic/welcome.md) |  |
 | [zip](lib/cosmic/zip.md) |  ZIP archive reading and writing utilities. |
 

@@ -1,7 +1,7 @@
 # fs
 
- Filesystem operations.
- Wraps cosmo.unix for file and directory operations: stat, mkdir, chmod, symlink, etc.
+ Unified filesystem module.
+ Combines path manipulation, filesystem operations, and directory walking.
 
 ## Types
 
@@ -105,12 +105,52 @@ local record Dir
 end
 ```
 
+### WalkStat
+
+ File or directory metadata for walk visitor.
+
+```teal
+local record WalkStat
+  mode: function(self): number
+  size: function(self): number
+  mtim: function(self): number
+end
+```
+
+### WalkDirHandle
+
+ Handle for reading directory entries (internal).
+
+```teal
+local record WalkDirHandle
+  read: function(self): string
+  close: function(self)
+end
+```
+
+### FileInfo
+
+ File information with Unix permissions.
+
+```teal
+local record FileInfo
+  mode: number
+end
+```
+
 ### FsModule
 
  Module interface
 
 ```teal
 local record FsModule
+  dirname: function(str: string): string
+  basename: function(str: string): string
+  join: function(...: string): string
+  exists: function(path: string): boolean
+  isfile: function(path: string): boolean
+  isdir: function(path: string): boolean
+  islink: function(path: string): boolean
   stat: function(path: string, follow_symlinks?: boolean): Stat, string
   fstat: function(fd: number): Stat, string
   is_dir: function(mode: number): boolean
@@ -146,6 +186,10 @@ local record FsModule
   fstatfs: function(fd: number): Statfs, string
   major: function(dev: number): number
   minor: function(dev: number): number
+  walk: function<T>(dir: string, visitor: Visitor, ctx?: T): T
+  collect: function(dir: string, pattern: string): {string}
+  collect_all: function(dir: string): {string:FileInfo}
+  files: function(dir: string, pattern?: string): function(): string
   F_OK: number
   R_OK: number
   W_OK: number
@@ -154,6 +198,126 @@ end
 ```
 
 ## Functions
+
+### dirname
+
+```teal
+function dirname(str: string): string
+```
+
+ Strip final component from path.
+ Examples: "/usr/lib" -> "/usr", "usr" -> ".", "/" -> "/"
+
+**Parameters:**
+
+- `str` (string) - The path to get the directory from
+
+**Returns:**
+
+- string - The directory portion of the path
+
+### basename
+
+```teal
+function basename(str: string): string
+```
+
+ Return final component of path.
+ Examples: "/usr/lib" -> "lib", "/" -> "/", "." -> "."
+
+**Parameters:**
+
+- `str` (string) - The path to get the basename from
+
+**Returns:**
+
+- string - The final component of the path
+
+### join
+
+```teal
+function join(...: string): string
+```
+
+ Concatenate path components.
+ Absolute paths in later arguments reset the result.
+ Nil arguments are skipped; exclusively nil returns nil.
+
+**Parameters:**
+
+- `...` (string) - Path components to join
+
+**Returns:**
+
+- string - The joined path
+
+### exists
+
+```teal
+function exists(p: string): boolean
+```
+
+ Check if path exists (regular file, directory, or special file).
+ Symbolic links are followed. Returns false on error.
+
+**Parameters:**
+
+- `p` (string) - The path to check
+
+**Returns:**
+
+- boolean - True if the path exists
+
+### isfile
+
+```teal
+function isfile(p: string): boolean
+```
+
+ Check if path is a regular file.
+ Symbolic links are not followed. Returns false on error.
+
+**Parameters:**
+
+- `p` (string) - The path to check
+
+**Returns:**
+
+- boolean - True if the path is a regular file
+
+### isdir
+
+```teal
+function isdir(p: string): boolean
+```
+
+ Check if path is a directory.
+ Symbolic links are not followed. Returns false on error.
+
+**Parameters:**
+
+- `p` (string) - The path to check
+
+**Returns:**
+
+- boolean - True if the path is a directory
+
+### islink
+
+```teal
+function islink(p: string): boolean
+```
+
+ Check if path is a symbolic link.
+ Returns false on error.
+
+**Parameters:**
+
+- `p` (string) - The path to check
+
+**Returns:**
+
+- boolean - True if the path is a symbolic link
 
 ### stat
 
@@ -765,6 +929,78 @@ function minor(dev: number): number
 
 - number - Minor device number
 
+### walk
+
+```teal
+function walk(dir: string, visitor: Visitor, ctx?: T): T
+```
+
+ Walk a directory tree, calling visitor for each entry.
+ Recursively traverses subdirectories unless visitor returns false.
+
+**Parameters:**
+
+- `dir` (string) - The directory to walk
+- `visitor` (Visitor) - Function called for each file and directory
+- `ctx` (T) - Optional context passed to visitor function
+
+**Returns:**
+
+- T - The context object, potentially modified by visitor
+
+### collect
+
+```teal
+function collect(dir: string, pattern: string): {string}
+```
+
+ Collect file paths matching a pattern.
+ Recursively walks directory tree and returns matching file paths.
+
+**Parameters:**
+
+- `dir` (string) - The directory to search
+- `pattern` (string) - Glob pattern (*.lua) or Lua pattern (%.lua$)
+
+**Returns:**
+
+- {string} - List of full paths to matching files
+
+### collect_all
+
+```teal
+function collect_all(dir: string): {string:FileInfo}
+```
+
+ Recursively collect all files with their Unix permissions.
+ Returns a map of relative paths to file information.
+
+**Parameters:**
+
+- `dir` (string) - The directory to walk
+
+**Returns:**
+
+- {string:FileInfo} - Map of relative paths to file information
+
+### files
+
+```teal
+function files(dir: string, pattern?: string): function(): string
+```
+
+ Iterate over files matching a pattern.
+ Returns an iterator that yields file paths.
+
+**Parameters:**
+
+- `dir` (string) - The directory to search
+- `pattern` (string) - Glob pattern (*.lua) - defaults to all files (*)
+
+**Returns:**
+
+- function - Iterator yielding file paths
+
 ## Examples
 
 ### basic
@@ -773,7 +1009,6 @@ function minor(dev: number): number
 
 ```teal
   local fs = require("cosmic.fs")
-  local path = require("cosmo.path")
 
   -- Create a temp directory
   local tmpdir = fs.mkdtemp("/tmp/fs_example_XXXXXX")
@@ -784,7 +1019,7 @@ function minor(dev: number): number
   print("created temp dir:", tmpdir)
 
   -- Create a subdirectory
-  local subdir = path.join(tmpdir, "subdir")
+  local subdir = fs.join(tmpdir, "subdir")
   local ok, err = fs.mkdir(subdir)
   if not ok then
     print("mkdir failed:", err)
@@ -799,7 +1034,7 @@ function minor(dev: number): number
   end
 
   -- Create a symlink
-  local linkpath = path.join(tmpdir, "link")
+  local linkpath = fs.join(tmpdir, "link")
   ok, err = fs.symlink(subdir, linkpath)
   if ok then
     local target = fs.readlink(linkpath)
