@@ -1,6 +1,67 @@
---- Filesystem operations.
---- Wraps cosmo.unix for file and directory operations: stat, mkdir, chmod, symlink, etc.
+--- Unified filesystem module.
+--- Combines path manipulation, filesystem operations, and directory walking.
+--- Re-exports functions from cosmic.path and cosmic.walk for convenience.
 local unix = require("cosmo.unix")
+local cosmo_path = require("cosmo.path")
+
+-- Path manipulation functions (from cosmic.path)
+
+--- Strip final component from path.
+--- Examples: "/usr/lib" -> "/usr", "usr" -> ".", "/" -> "/"
+--- @param str string The path to get the directory from
+--- @return string The directory portion of the path
+local function dirname(str: string): string
+  return cosmo_path.dirname(str)
+end
+
+--- Return final component of path.
+--- Examples: "/usr/lib" -> "lib", "/" -> "/", "." -> "."
+--- @param str string The path to get the basename from
+--- @return string The final component of the path
+local function basename(str: string): string
+  return cosmo_path.basename(str)
+end
+
+--- Concatenate path components.
+--- Absolute paths in later arguments reset the result.
+--- Nil arguments are skipped; exclusively nil returns nil.
+--- @param ... string Path components to join
+--- @return string The joined path
+local function join(...: string): string
+  return cosmo_path.join(...)
+end
+
+--- Check if path exists (regular file, directory, or special file).
+--- Symbolic links are followed. Returns false on error.
+--- @param p string The path to check
+--- @return boolean True if the path exists
+local function exists(p: string): boolean
+  return cosmo_path.exists(p)
+end
+
+--- Check if path is a regular file.
+--- Symbolic links are not followed. Returns false on error.
+--- @param p string The path to check
+--- @return boolean True if the path is a regular file
+local function isfile(p: string): boolean
+  return cosmo_path.isfile(p)
+end
+
+--- Check if path is a directory.
+--- Symbolic links are not followed. Returns false on error.
+--- @param p string The path to check
+--- @return boolean True if the path is a directory
+local function isdir(p: string): boolean
+  return cosmo_path.isdir(p)
+end
+
+--- Check if path is a symbolic link.
+--- Returns false on error.
+--- @param p string The path to check
+--- @return boolean True if the path is a symbolic link
+local function islink(p: string): boolean
+  return cosmo_path.islink(p)
+end
 
 -- Raw Dir type from cosmo.unix
 local record RawDir
@@ -547,6 +608,109 @@ local function minor(dev: number): number
   return unix.minor(dev)
 end
 
+-- Directory walking functions (from cosmic.walk)
+
+--- Visitor function type for directory traversal.
+--- Return false to skip recursion into subdirectories.
+--- @param full_path string The complete path to the file or directory
+--- @param entry string The basename of the file or directory
+--- @param stat Stat File metadata
+--- @param ctx any User-provided context passed through the walk
+--- @return boolean Return false to skip recursing into this directory
+local type Visitor = function(full_path: string, entry: string, stat: Stat, ctx: any): boolean
+
+--- File information with Unix permissions.
+--- Returned by collect_all() to map relative paths to file metadata.
+local record FileInfo
+  mode: number
+end
+
+-- Raw Dir handle for walking (internal use)
+local record WalkDirHandle
+  read: function(self): string
+  close: function(self)
+end
+
+--- Walk a directory tree, calling visitor for each entry.
+--- Recursively traverses subdirectories unless visitor returns false.
+--- @param dir string The directory to walk
+--- @param visitor Visitor Function called for each file and directory
+--- @param ctx T Optional context passed to visitor function
+--- @return T The context object, potentially modified by visitor
+local function walk<T>(dir: string, visitor: Visitor, ctx?: T): T
+  ctx = ctx or {} as T
+  local handle = unix.opendir(dir) as WalkDirHandle
+  if not handle then return ctx end
+
+  while true do
+    local entry = handle:read()
+    if not entry then break end
+    if entry ~= "." and entry ~= ".." then
+      local full_path = cosmo_path.join(dir, entry)
+      local st = unix.stat(full_path) as Stat
+      if st then
+        local continue = visitor(full_path, entry, st, ctx)
+        if continue ~= false and unix.S_ISDIR(st:mode()) then
+          walk(full_path, visitor, ctx)
+        end
+      end
+    end
+  end
+  handle:close()
+  return ctx
+end
+
+--- Collect file paths matching a Lua pattern.
+--- Recursively walks directory tree and returns matching file paths.
+--- @param dir string The directory to search
+--- @param pattern string Lua pattern to match against file basenames
+--- @return {string} List of full paths to matching files
+local function collect(dir: string, pattern: string): {string}
+  local results: {string} = {}
+  walk(dir, function(full_path: string, entry: string, st: Stat, ctx: {string}): boolean
+    if not unix.S_ISDIR(st:mode()) and entry:match(pattern) then
+      table.insert(ctx, full_path)
+    end
+    return true
+  end, results)
+  return results
+end
+
+--- Recursively collect all files with their Unix permissions.
+--- Returns a map of relative paths to file information.
+--- @param dir string The directory to walk
+--- @param base string Internal: relative path prefix (used during recursion)
+--- @param files {string:FileInfo} Internal: accumulator map (used during recursion)
+--- @return {string:FileInfo} Map of relative paths to file information
+local function collect_all(dir: string, base?: string, files?: {string:FileInfo}): {string:FileInfo}
+  files = files or {}
+  base = base or ""
+
+  local handle = unix.opendir(dir) as WalkDirHandle
+  if not handle then return files end
+
+  while true do
+    local entry = handle:read()
+    if not entry then break end
+    if entry ~= "." and entry ~= ".." then
+      local full_path = cosmo_path.join(dir, entry)
+      local rel_path = base == "" and entry or cosmo_path.join(base, entry)
+      local st = unix.stat(full_path) as Stat
+
+      if st then
+        if unix.S_ISDIR(st:mode()) then
+          collect_all(full_path, rel_path, files)
+        elseif unix.S_ISREG(st:mode()) or unix.S_ISLNK(st:mode()) then
+          local mode = st:mode() & 0x1ff
+          files[rel_path] = { mode = mode }
+        end
+      end
+    end
+  end
+  handle:close()
+  return files
+end
+
 -- Access mode constants
 local F_OK <const> = unix.F_OK
 local R_OK <const> = unix.R_OK
@@ -556,7 +720,6 @@ local X_OK <const> = unix.X_OK
 -- Example demonstrating basic fs operations
 local function Example_basic()
   local fs = require("cosmic.fs")
-  local path = require("cosmo.path")
 
   -- Create a temp directory
   local tmpdir = fs.mkdtemp("/tmp/fs_example_XXXXXX")
@@ -567,7 +730,7 @@ local function Example_basic()
   print("created temp dir:", tmpdir)
 
   -- Create a subdirectory
-  local subdir = path.join(tmpdir, "subdir")
+  local subdir = fs.join(tmpdir, "subdir")
   local ok, err = fs.mkdir(subdir)
   if not ok then
     print("mkdir failed:", err)
@@ -582,7 +745,7 @@ local function Example_basic()
   end
 
   -- Create a symlink
-  local linkpath = path.join(tmpdir, "link")
+  local linkpath = fs.join(tmpdir, "link")
   ok, err = fs.symlink(subdir, linkpath)
   if ok then
     local target = fs.readlink(linkpath)
@@ -602,6 +765,15 @@ end
 
 --- Module interface
 local record FsModule
+  -- Path manipulation (from cosmic.path)
+  dirname: function(str: string): string
+  basename: function(str: string): string
+  join: function(...: string): string
+  exists: function(path: string): boolean
+  isfile: function(path: string): boolean
+  isdir: function(path: string): boolean
+  islink: function(path: string): boolean
+
   -- Stat operations
   stat: function(path: string, follow_symlinks?: boolean): Stat, string
   fstat: function(fd: number): Stat, string
@@ -653,6 +825,11 @@ local record FsModule
   major: function(dev: number): number
   minor: function(dev: number): number
 
+  -- Directory walking (from cosmic.walk)
+  walk: function<T>(dir: string, visitor: Visitor, ctx?: T): T
+  collect: function(dir: string, pattern: string): {string}
+  collect_all: function(dir: string, base?: string, files?: {string:FileInfo}): {string:FileInfo}
+
   -- Access mode constants
   F_OK: number
   R_OK: number
@@ -661,6 +838,15 @@ local record FsModule
 end
 
 local M: FsModule = {
+  -- Path manipulation (from cosmic.path)
+  dirname = dirname,
+  basename = basename,
+  join = join,
+  exists = exists,
+  isfile = isfile,
+  isdir = isdir,
+  islink = islink,
+
   -- Stat operations
   stat = stat,
   fstat = fstat,
@@ -711,6 +897,11 @@ local M: FsModule = {
   -- Device number utilities
   major = major,
   minor = minor,
+
+  -- Directory walking (from cosmic.walk)
+  walk = walk,
+  collect = collect,
+  collect_all = collect_all,
 
   -- Access mode constants
   F_OK = F_OK,

@@ -27,12 +27,12 @@ local function test_cosmic_child()
 end
 test_cosmic_child()
 
-local function test_cosmic_walk()
-  local ok, out = spawn.spawn({cosmic, "-e", "local w = require('cosmic.walk'); print(w and 'ok' or 'fail')"}, {env = clean_env()}):read()
+local function test_cosmic_fs()
+  local ok, out = spawn.spawn({cosmic, "-e", "local fs = require('cosmic.fs'); print(fs.walk and 'ok' or 'fail')"}, {env = clean_env()}):read()
   assert(ok, "cosmic exited with error")
   assert((out as string):find("ok", 1, true), "expected output to contain 'ok'")
 end
-test_cosmic_walk()
+test_cosmic_fs()
 
 local function test_cosmic_help()
   local ok, out = spawn.spawn({cosmic, "--help"}, {env = clean_env()}):read()

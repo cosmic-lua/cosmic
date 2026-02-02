@@ -54,7 +54,7 @@ The cosmic library provides utilities for common tasks:
 local cosmic = require("cosmic")
 local spawn = require("cosmic.spawn")
 local fetch = require("cosmic.fetch")
-local walk = require("cosmic.walk")
+local fs = require("cosmic.fs")
 
 -- Spawn a process
 local result = spawn.run({"ls", "-la"})
@@ -63,7 +63,7 @@ local result = spawn.run({"ls", "-la"})
 local response = fetch.get("https://example.com")
 
 -- Walk a directory
-for path in walk.files(".") do
+for _, path in ipairs(fs.collect(".", "%.lua$")) do
   print(path)
 end
 ```

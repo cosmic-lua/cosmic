@@ -622,3 +622,195 @@ local function test_major_minor_regular_file()
   teardown(test_dir)
 end
 test_major_minor_regular_file()
+
+-- Path manipulation tests (consolidated from cosmic.path)
+
+local function test_dirname_with_file()
+  local result = fs.dirname("/usr/lib")
+  assert(result == "/usr", "expected '/usr', got '" .. result .. "'")
+end
+test_dirname_with_file()
+
+local function test_dirname_trailing_slash()
+  local result = fs.dirname("/usr/lib/")
+  assert(result == "/usr", "expected '/usr', got '" .. result .. "'")
+end
+test_dirname_trailing_slash()
+
+local function test_dirname_root()
+  local result = fs.dirname("/")
+  assert(result == "/", "expected '/', got '" .. result .. "'")
+end
+test_dirname_root()
+
+local function test_dirname_single_component()
+  local result = fs.dirname("usr")
+  assert(result == ".", "expected '.', got '" .. result .. "'")
+end
+test_dirname_single_component()
+
+local function test_basename_with_file()
+  local result = fs.basename("/usr/lib")
+  assert(result == "lib", "expected 'lib', got '" .. result .. "'")
+end
+test_basename_with_file()
+
+local function test_basename_trailing_slash()
+  local result = fs.basename("/usr/lib/")
+  assert(result == "lib", "expected 'lib', got '" .. result .. "'")
+end
+test_basename_trailing_slash()
+
+local function test_basename_root()
+  local result = fs.basename("/")
+  assert(result == "/", "expected '/', got '" .. result .. "'")
+end
+test_basename_root()
+
+local function test_join_basic()
+  local result = fs.join("/usr", "lib")
+  assert(result == "/usr/lib", "expected '/usr/lib', got '" .. result .. "'")
+end
+test_join_basic()
+
+local function test_join_trailing_slash()
+  local result = fs.join("/usr/", "lib")
+  assert(result == "/usr/lib", "expected '/usr/lib', got '" .. result .. "'")
+end
+test_join_trailing_slash()
+
+local function test_join_absolute_resets()
+  local result = fs.join("/usr/lib", "/lib")
+  assert(result == "/lib", "expected '/lib', got '" .. result .. "'")
+end
+test_join_absolute_resets()
+
+local function test_join_multiple()
+  local result = fs.join("/usr", "local", "bin")
+  assert(result == "/usr/local/bin", "expected '/usr/local/bin', got '" .. result .. "'")
+end
+test_join_multiple()
+
+local function test_exists_current_dir()
+  local result = fs.exists(".")
+  assert(result == true, "expected current directory to exist")
+end
+test_exists_current_dir()
+
+local function test_exists_nonexistent()
+  local result = fs.exists("/nonexistent/path/that/does/not/exist")
+  assert(result == false, "expected false for nonexistent path")
+end
+test_exists_nonexistent()
+
+local function test_isfile_directory()
+  local result = fs.isfile(".")
+  assert(result == false, "expected false for directory")
+end
+test_isfile_directory()
+
+local function test_isdir_current()
+  local result = fs.isdir(".")
+  assert(result == true, "expected true for current directory")
+end
+test_isdir_current()
+
+local function test_islink_regular_dir()
+  local result = fs.islink(".")
+  assert(result == false, "expected false for regular directory")
+end
+test_islink_regular_dir()
+
+-- Directory walking tests (consolidated from cosmic.walk)
+
+local record WalkContext
+  count: number
+  dirs: number
+end
+
+local function setup_walk(): string
+  local test_dir = path.join(TEST_TMPDIR, "walk_test")
+  unix.makedirs(path.join(test_dir, "subdir"))
+  unix.makedirs(path.join(test_dir, "subdir/nested"))
+
+  touch(path.join(test_dir, "file1.lua"))
+  touch(path.join(test_dir, "file2.txt"))
+  touch(path.join(test_dir, "subdir/file3.lua"))
+  touch(path.join(test_dir, "subdir/nested/file4.lua"))
+
+  return test_dir
+end
+
+local function test_collect_finds_lua_files()
+  local test_dir = setup_walk()
+  local files = fs.collect(test_dir, "%.lua$")
+
+  assert(#files == 3, "expected 3 lua files, got " .. #files)
+
+  local found: {string:boolean} = {}
+  for _, f in ipairs(files) do
+    local name = path.basename(f)
+    found[name] = true
+  end
+
+  assert(found["file1.lua"], "expected file1.lua to be found")
+  assert(found["file3.lua"], "expected file3.lua to be found")
+  assert(found["file4.lua"], "expected file4.lua to be found")
+  assert(found["file2.txt"] == nil, "expected file2.txt not to be found")
+  teardown(test_dir)
+end
+test_collect_finds_lua_files()
+
+local function test_collect_finds_nested_files()
+  local test_dir = setup_walk()
+  local files = fs.collect(test_dir, "%.txt$")
+  assert(#files == 1, "expected 1 txt file, got " .. #files)
+  assert(path.basename(files[1]) == "file2.txt", "expected file2.txt, got " .. path.basename(files[1]))
+  teardown(test_dir)
+end
+test_collect_finds_nested_files()
+
+local function test_walk_with_visitor()
+  local test_dir = setup_walk()
+  local ctx: WalkContext = { count = 0, dirs = 0 }
+
+  fs.walk(test_dir, function(_full_path: string, _entry: string, stat: any, c: any): boolean
+    local wctx = c as WalkContext
+    wctx.count = wctx.count + 1
+    local stat_tbl = stat as {string:function(any):number}
+    local mode = stat_tbl.mode(stat)
+    if unix.S_ISDIR(mode) then
+      wctx.dirs = wctx.dirs + 1
+    end
+    return true
+  end, ctx)
+
+  assert(ctx.count > 0, "expected count > 0")
+  assert(ctx.dirs == 2, "expected 2 dirs, got " .. ctx.dirs)
+  teardown(test_dir)
+end
+test_walk_with_visitor()
+
+local function test_collect_all()
+  local test_dir = setup_walk()
+  local files = fs.collect_all(test_dir)
+
+  assert(files["file1.lua"] ~= nil, "expected file1.lua in results")
+  assert(files["file2.txt"] ~= nil, "expected file2.txt in results")
+  assert(files["subdir/file3.lua"] ~= nil, "expected subdir/file3.lua in results")
+  assert(files["subdir/nested/file4.lua"] ~= nil, "expected subdir/nested/file4.lua in results")
+
+  assert(files["file1.lua"].mode ~= nil, "expected mode property on file1.lua")
+  assert(files["subdir"] == nil, "expected subdir not to be in results")
+  teardown(test_dir)
+end
+test_collect_all()
+
+local function test_walk_empty_directory()
+  local empty_dir = path.join(TEST_TMPDIR, "walk_empty")
+  unix.makedirs(empty_dir)
+  local files = fs.collect(empty_dir, "%.lua$")
+  assert(#files == 0, "expected 0 files, got " .. #files)
+  unix.rmrf(empty_dir)
+end
+test_walk_empty_directory()
