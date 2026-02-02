@@ -14,7 +14,7 @@ test_module_exists_preloaded()
 local function test_module_exists_cosmic()
   -- cosmic modules are in package.path
   assert(require_mod.module_exists("cosmic.child"), "cosmic.child should exist")
-  assert(require_mod.module_exists("cosmic.walk"), "cosmic.walk should exist")
+  assert(require_mod.module_exists("cosmic.fs"), "cosmic.fs should exist")
   assert(require_mod.module_exists("cosmic.fetch"), "cosmic.fetch should exist")
 end
 test_module_exists_cosmic()

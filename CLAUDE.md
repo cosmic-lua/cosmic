@@ -84,8 +84,8 @@ local result = spawn.run({"ls", "-la"})
 print(result.stdout)
 
 -- Walk files matching pattern
-local walk = require("cosmic.walk")
-for path in walk.files(".", "*.tl") do
+local fs = require("cosmic.fs")
+for path in fs.files(".", "*.tl") do
   print(path)
 end
 
