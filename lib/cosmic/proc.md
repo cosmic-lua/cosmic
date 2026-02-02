@@ -1,7 +1,7 @@
 # proc
 
  Current process management.
- Identity, session/group control, exec, signals, and resource usage.
+ Identity, session/group control, exec, and resource usage.
 
 ## Types
 
@@ -59,9 +59,6 @@ local record ProcModule
   setpgid: function(pid: number, pgid: number): boolean
   setsid: function(): number
   daemon: function(nochdir?: boolean, noclose?: boolean): boolean
-  kill: function(pid: number, sig: number): boolean
-  killpg: function(pgrp: number, sig: number): boolean
-  raise: function(sig: number): number
   exit: function(exitcode?: number)
   commandv: function(prog: string): string
   execve: function(prog: string, args: {string}, env: {string}): nil, Errno
@@ -80,18 +77,6 @@ local record ProcModule
   RUSAGE_CHILDREN: number
   RUSAGE_THREAD: number
   RUSAGE_BOTH: number
-  SIGTERM: number
-  SIGKILL: number
-  SIGINT: number
-  SIGQUIT: number
-  SIGHUP: number
-  SIGCHLD: number
-  SIGSTOP: number
-  SIGCONT: number
-  SIGUSR1: number
-  SIGUSR2: number
-  SIGPIPE: number
-  SIGALRM: number
   RLIMIT_AS: number
   RLIMIT_CPU: number
   RLIMIT_FSIZE: number
@@ -237,57 +222,6 @@ function daemon(nochdir?: boolean, noclose?: boolean): boolean
 **Returns:**
 
 - boolean - True on success
-
-### kill
-
-```teal
-function kill(pid: number, sig: number): boolean
-```
-
- Sends signal to process(es).
-
-**Parameters:**
-
-- `pid` (number) - Process id to signal. Negative values target process groups
-- `sig` (number) - Signal number (e.g., SIGTERM, SIGKILL)
-
-**Returns:**
-
-- boolean - True on success
-
-### killpg
-
-```teal
-function killpg(pgrp: number, sig: number): boolean
-```
-
- Sends signal to process group.
-
-**Parameters:**
-
-- `pgrp` (number) - Process group id. If 0, sends to calling process's group
-- `sig` (number) - Signal number
-
-**Returns:**
-
-- boolean - True on success
-
-### raise
-
-```teal
-function raise(sig: number): number
-```
-
- Sends signal to current process.
- Equivalent to kill(getpid(), sig).
-
-**Parameters:**
-
-- `sig` (number) - Signal number to raise
-
-**Returns:**
-
-- number - 0 on success
 
 ### exit
 
