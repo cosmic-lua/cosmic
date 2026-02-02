@@ -248,19 +248,8 @@ end
 
 -- Interactive REPL using cosmopolitan's linenoise-based REPL
 local function run_repl()
-  local unix = require("cosmo.unix")
-  local welcome = require("cosmic.welcome")
-
   io.write(_VERSION .. "  Copyright (C) 1994-2024 Lua.org, PUC-Rio\n")
   io.write("Type help() for interactive help, or run with --docs / --examples\n")
-
-  local is_tty = unix.isatty(0) and unix.isatty(1)
-  local show = is_tty and not os.getenv("COSMIC_NO_WELCOME") and not welcome.was_shown()
-
-  if show then
-    io.write(generate_welcome())
-    welcome.mark_shown()
-  end
 
   require("cosmo")
 
@@ -423,6 +412,19 @@ local function main(): integer, string
     return 1, opts.error
   end
 
+  -- Show welcome on first invocation (to stderr, if TTY)
+  -- Check early so it runs for -v, --help, -e, scripts, etc.
+  if not os.getenv("COSMIC_NO_WELCOME") then
+    local welcome = require("cosmic.welcome")
+    if not welcome.was_shown() then
+      local unix = require("cosmo.unix")
+      if unix.isatty(2) then
+        io.stderr:write(generate_welcome())
+        welcome.mark_shown()
+      end
+    end
+  end
+
   -- Handle -v
   if opts.version then
     io.write(_VERSION .. "\n")
@@ -556,19 +558,6 @@ local function main(): integer, string
     warn = function(...: string)
       local msg = table.concat({...}, " ")
       error("warning: " .. msg, 2)
-    end
-  end
-
-  -- Show welcome on first invocation for non-REPL execution (to stderr)
-  -- REPL mode handles its own welcome (to stdout) in run_repl()
-  local is_non_repl_execution = not opts.interactive and (opts.script or #opts.execute > 0 or #opts.load > 0)
-  if is_non_repl_execution then
-    local unix = require("cosmo.unix")
-    local welcome = require("cosmic.welcome")
-    local is_stderr_tty = unix.isatty(2)
-    if is_stderr_tty and not os.getenv("COSMIC_NO_WELCOME") and not welcome.was_shown() then
-      io.stderr:write(generate_welcome())
-      welcome.mark_shown()
     end
   end
 
