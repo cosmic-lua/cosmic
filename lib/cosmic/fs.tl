@@ -62,6 +62,204 @@ local function islink(p: string): boolean
   return cosmo_path.islink(p)
 end
 
+--- Normalize path by removing `.` and `..` components without filesystem access.
+--- Also removes redundant slashes. Pure string manipulation.
+--- Examples: "/usr/./lib" -> "/usr/lib", "/usr/lib/../bin" -> "/usr/bin"
+--- @param p string The path to normalize
+--- @return string The normalized path
+local function normalize(p: string): string
+  if p == "" then
+    return "."
+  end
+
+  local is_absolute = p:sub(1, 1) == "/"
+
+  -- Split into components, filtering empty strings (from // or trailing /)
+  local parts: {string} = {}
+  for part in p:gmatch("[^/]+") do
+    if part == "." then
+      -- skip current dir
+    elseif part == ".." then
+      if #parts > 0 and parts[#parts] ~= ".." then
+        -- pop last component if it's not also a ..
+        if is_absolute or parts[#parts] ~= ".." then
+          table.remove(parts)
+        else
+          table.insert(parts, "..")
+        end
+      elseif not is_absolute then
+        -- for relative paths, preserve leading ..
+        table.insert(parts, "..")
+      end
+      -- for absolute paths starting with /.., just ignore the ..
+    else
+      table.insert(parts, part)
+    end
+  end
+
+  if is_absolute then
+    if #parts == 0 then
+      return "/"
+    else
+      return "/" .. table.concat(parts, "/")
+    end
+  else
+    if #parts == 0 then
+      return "."
+    else
+      return table.concat(parts, "/")
+    end
+  end
+end
+
+--- Convert relative path to absolute by prepending cwd.
+--- Does NOT resolve symlinks or access filesystem (except to get cwd).
+--- @param p string The path to make absolute
+--- @return string The absolute path
+local function abspath(p: string): string
+  if p == "" then
+    return unix.getcwd() or "."
+  end
+  if p:sub(1, 1) == "/" then
+    return normalize(p)
+  end
+  local cwd = unix.getcwd()
+  if not cwd then
+    return normalize(p)
+  end
+  return normalize(cwd .. "/" .. p)
+end
+
+--- Make path relative to another path (defaults to cwd).
+--- Pure string manipulation - does not access the filesystem.
+--- @param p string The path to make relative
+--- @param base string The base path (defaults to cwd)
+--- @return string The relative path
+local function relpath(p: string, base: string): string
+  -- Get absolute versions of both paths
+  local abs_p = abspath(p)
+  local abs_base: string
+  if base then
+    abs_base = abspath(base)
+  else
+    abs_base = unix.getcwd() or "."
+  end
+
+  -- Split into components
+  local function split_path(s: string): {string}
+    local path_parts: {string} = {}
+    for part in s:gmatch("[^/]+") do
+      table.insert(path_parts, part)
+    end
+    return path_parts
+  end
+
+  local p_parts = split_path(abs_p)
+  local base_parts = split_path(abs_base)
+
+  -- Find common prefix length
+  local common_len = 0
+  local max_common = math.min(#p_parts, #base_parts)
+  for i = 1, max_common do
+    if p_parts[i] == base_parts[i] then
+      common_len = i
+    else
+      break
+    end
+  end
+
+  -- Build relative path: go up from base, then down to target
+  local rel_parts: {string} = {}
+
+  -- Add ".." for each remaining component in base
+  for _ = common_len + 1, #base_parts do
+    table.insert(rel_parts, "..")
+  end
+
+  -- Add remaining components from target
+  for i = common_len + 1, #p_parts do
+    table.insert(rel_parts, p_parts[i])
+  end
+
+  if #rel_parts == 0 then
+    return "."
+  end
+
+  return table.concat(rel_parts, "/")
+end
+
+--- Split path into root and extension.
+--- Extension includes the dot. Handles multiple extensions by splitting at
+--- the last dot in the basename. Hidden files (starting with .) have no extension.
+--- Examples: "foo.txt" -> "foo", ".txt"; ".bashrc" -> ".bashrc", ""
+--- @param p string The path to split
+--- @return string The root portion (path without extension)
+--- @return string The extension (including dot, or empty string)
+local function splitext(p: string): string, string
+  local base = cosmo_path.basename(p)
+  local dir = cosmo_path.dirname(p)
+
+  -- Handle hidden files: if basename starts with . and has no other dot, no extension
+  if base:sub(1, 1) == "." then
+    local rest = base:sub(2)
+    local dot_pos = rest:find("%.")
+    if not dot_pos then
+      -- Hidden file with no extension
+      return p, ""
+    end
+    -- Hidden file with extension: find last dot in the non-hidden part
+    local last_dot: integer = 0
+    for i = #base, 2, -1 do
+      if base:sub(i, i) == "." then
+        last_dot = i
+        break
+      end
+    end
+    if last_dot > 0 then
+      local extension = base:sub(last_dot)
+      local root_base = base:sub(1, last_dot - 1)
+      if dir == "." then
+        return root_base, extension
+      else
+        return dir .. "/" .. root_base, extension
+      end
+    end
+    return p, ""
+  end
+
+  -- Find last dot in basename
+  local last_dot: integer = 0
+  for i = #base, 1, -1 do
+    if base:sub(i, i) == "." then
+      last_dot = i
+      break
+    end
+  end
+
+  if last_dot == 0 or last_dot == 1 then
+    -- No dot, or dot at start (shouldn't happen since we handled hidden files)
+    return p, ""
+  end
+
+  local extension = base:sub(last_dot)
+  local root_base = base:sub(1, last_dot - 1)
+
+  if dir == "." then
+    return root_base, extension
+  else
+    return dir .. "/" .. root_base, extension
+  end
+end
+
+--- Return the extension of a path.
+--- Extension includes the dot. Convenience wrapper around splitext.
+--- @param p string The path to get extension from
+--- @return string The extension (including dot, or empty string)
+local function ext(p: string): string
+  local _, extension = splitext(p)
+  return extension
+end
+
 -- Raw Dir type from cosmo.unix
 local record RawDir
   read: function(self: RawDir): string
@@ -845,6 +1043,52 @@ local function Example_basic()
   -- cleaned up
 end
 
+--- Example_normalize demonstrates path normalization
+local function Example_normalize()
+  local fs = require("cosmic.fs")
+  print(fs.normalize("/usr/./lib"))
+  print(fs.normalize("/usr/lib/../bin"))
+  print(fs.normalize("a/b/../c"))
+  print(fs.normalize("//usr///lib//"))
+  -- Output:
+  -- /usr/lib
+  -- /usr/bin
+  -- a/c
+  -- /usr/lib
+end
+
+--- Example_splitext demonstrates extension splitting
+local function Example_splitext()
+  local fs = require("cosmic.fs")
+  local root: string
+  local extension: string
+  root, extension = fs.splitext("archive.tar.gz")
+  print(root, extension)
+  root, extension = fs.splitext(".bashrc")
+  print(root, extension)
+  root, extension = fs.splitext("/path/to/file.txt")
+  print(root, extension)
+  -- Output:
+  -- archive.tar	.gz
+  -- .bashrc
+  -- /path/to/file	.txt
+end
+
+--- Example_relpath demonstrates computing relative paths
+local function Example_relpath()
+  local fs = require("cosmic.fs")
+  print(fs.relpath("/usr/lib", "/usr"))
+  print(fs.relpath("/usr/lib", "/usr/bin"))
+  print(fs.relpath("/foo", "/bar"))
+  -- Output:
+  -- lib
+  -- ../lib
+  -- ../foo
+end
+
+-- Suppress unused warnings for examples
+local _ = {Example_basic, Example_normalize, Example_splitext, Example_relpath}
+
 --- Module interface
 local record FsModule
   -- Path manipulation
@@ -855,6 +1099,11 @@ local record FsModule
   isfile: function(path: string): boolean
   isdir: function(path: string): boolean
   islink: function(path: string): boolean
+  normalize: function(p: string): string
+  abspath: function(p: string): string
+  relpath: function(p: string, base?: string): string
+  splitext: function(p: string): string, string
+  ext: function(p: string): string
 
   -- Stat operations
   stat: function(path: string, follow_symlinks?: boolean): Stat, string
@@ -929,6 +1178,11 @@ local M: FsModule = {
   isfile = isfile,
   isdir = isdir,
   islink = islink,
+  normalize = normalize,
+  abspath = abspath,
+  relpath = relpath,
+  splitext = splitext,
+  ext = ext,
 
   -- Stat operations
   stat = stat,

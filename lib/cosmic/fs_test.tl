@@ -807,3 +807,220 @@ local function test_walk_empty_directory()
   unix.rmrf(empty_dir)
 end
 test_walk_empty_directory()
+
+-- normalize tests
+
+local function test_normalize_dot_component()
+  local result = fs.normalize("/usr/./lib")
+  assert(result == "/usr/lib", "expected '/usr/lib', got '" .. result .. "'")
+end
+test_normalize_dot_component()
+
+local function test_normalize_dotdot_component()
+  local result = fs.normalize("/usr/lib/../bin")
+  assert(result == "/usr/bin", "expected '/usr/bin', got '" .. result .. "'")
+end
+test_normalize_dotdot_component()
+
+local function test_normalize_relative_dotdot()
+  local result = fs.normalize("a/b/../c")
+  assert(result == "a/c", "expected 'a/c', got '" .. result .. "'")
+end
+test_normalize_relative_dotdot()
+
+local function test_normalize_leading_dotdot()
+  local result = fs.normalize("../foo")
+  assert(result == "../foo", "expected '../foo', got '" .. result .. "'")
+end
+test_normalize_leading_dotdot()
+
+local function test_normalize_redundant_slashes()
+  local result = fs.normalize("//usr///lib//")
+  assert(result == "/usr/lib", "expected '/usr/lib', got '" .. result .. "'")
+end
+test_normalize_redundant_slashes()
+
+local function test_normalize_empty()
+  local result = fs.normalize("")
+  assert(result == ".", "expected '.', got '" .. result .. "'")
+end
+test_normalize_empty()
+
+local function test_normalize_multiple_dotdot()
+  local result = fs.normalize("a/b/c/../../d")
+  assert(result == "a/d", "expected 'a/d', got '" .. result .. "'")
+end
+test_normalize_multiple_dotdot()
+
+local function test_normalize_absolute_dotdot_at_root()
+  local result = fs.normalize("/../foo")
+  assert(result == "/foo", "expected '/foo', got '" .. result .. "'")
+end
+test_normalize_absolute_dotdot_at_root()
+
+local function test_normalize_just_slashes()
+  local result = fs.normalize("///")
+  assert(result == "/", "expected '/', got '" .. result .. "'")
+end
+test_normalize_just_slashes()
+
+local function test_normalize_just_dot()
+  local result = fs.normalize(".")
+  assert(result == ".", "expected '.', got '" .. result .. "'")
+end
+test_normalize_just_dot()
+
+local function test_normalize_relative_multiple_leading_dotdot()
+  local result = fs.normalize("../../foo/bar")
+  assert(result == "../../foo/bar", "expected '../../foo/bar', got '" .. result .. "'")
+end
+test_normalize_relative_multiple_leading_dotdot()
+
+-- abspath tests
+
+local cwd = unix.getcwd()
+
+local function test_abspath_relative()
+  local result = fs.abspath("foo")
+  assert(result == cwd .. "/foo", "expected '" .. cwd .. "/foo', got '" .. result .. "'")
+end
+test_abspath_relative()
+
+local function test_abspath_dot_relative()
+  local result = fs.abspath("./foo")
+  assert(result == cwd .. "/foo", "expected '" .. cwd .. "/foo', got '" .. result .. "'")
+end
+test_abspath_dot_relative()
+
+local function test_abspath_already_absolute()
+  local result = fs.abspath("/usr/lib")
+  assert(result == "/usr/lib", "expected '/usr/lib', got '" .. result .. "'")
+end
+test_abspath_already_absolute()
+
+local function test_abspath_empty()
+  local result = fs.abspath("")
+  assert(result == cwd, "expected '" .. cwd .. "', got '" .. result .. "'")
+end
+test_abspath_empty()
+
+local function test_abspath_normalizes()
+  local result = fs.abspath("/usr/../lib")
+  assert(result == "/lib", "expected '/lib', got '" .. result .. "'")
+end
+test_abspath_normalizes()
+
+-- relpath tests
+
+local function test_relpath_child()
+  local result = fs.relpath("/usr/lib", "/usr")
+  assert(result == "lib", "expected 'lib', got '" .. result .. "'")
+end
+test_relpath_child()
+
+local function test_relpath_sibling()
+  local result = fs.relpath("/usr/lib", "/usr/bin")
+  assert(result == "../lib", "expected '../lib', got '" .. result .. "'")
+end
+test_relpath_sibling()
+
+local function test_relpath_different_tree()
+  local result = fs.relpath("/foo", "/bar")
+  assert(result == "../foo", "expected '../foo', got '" .. result .. "'")
+end
+test_relpath_different_tree()
+
+local function test_relpath_same_path()
+  local result = fs.relpath("/usr/lib", "/usr/lib")
+  assert(result == ".", "expected '.', got '" .. result .. "'")
+end
+test_relpath_same_path()
+
+local function test_relpath_deeper()
+  local result = fs.relpath("/a/b/c/d", "/a/b")
+  assert(result == "c/d", "expected 'c/d', got '" .. result .. "'")
+end
+test_relpath_deeper()
+
+local function test_relpath_go_up_more()
+  local result = fs.relpath("/a", "/a/b/c")
+  assert(result == "../..", "expected '../..', got '" .. result .. "'")
+end
+test_relpath_go_up_more()
+
+-- splitext tests
+
+local function test_splitext_simple()
+  local root, ext = fs.splitext("foo.txt")
+  assert(root == "foo", "expected root 'foo', got '" .. root .. "'")
+  assert(ext == ".txt", "expected ext '.txt', got '" .. ext .. "'")
+end
+test_splitext_simple()
+
+local function test_splitext_double_extension()
+  local root, ext = fs.splitext("foo.tar.gz")
+  assert(root == "foo.tar", "expected root 'foo.tar', got '" .. root .. "'")
+  assert(ext == ".gz", "expected ext '.gz', got '" .. ext .. "'")
+end
+test_splitext_double_extension()
+
+local function test_splitext_no_extension()
+  local root, ext = fs.splitext("foo")
+  assert(root == "foo", "expected root 'foo', got '" .. root .. "'")
+  assert(ext == "", "expected ext '', got '" .. ext .. "'")
+end
+test_splitext_no_extension()
+
+local function test_splitext_hidden_file()
+  local root, ext = fs.splitext(".bashrc")
+  assert(root == ".bashrc", "expected root '.bashrc', got '" .. root .. "'")
+  assert(ext == "", "expected ext '', got '" .. ext .. "'")
+end
+test_splitext_hidden_file()
+
+local function test_splitext_with_path()
+  local root, ext = fs.splitext("/path/to/f.txt")
+  assert(root == "/path/to/f", "expected root '/path/to/f', got '" .. root .. "'")
+  assert(ext == ".txt", "expected ext '.txt', got '" .. ext .. "'")
+end
+test_splitext_with_path()
+
+local function test_splitext_trailing_dot()
+  local root, ext = fs.splitext("foo.")
+  assert(root == "foo", "expected root 'foo', got '" .. root .. "'")
+  assert(ext == ".", "expected ext '.', got '" .. ext .. "'")
+end
+test_splitext_trailing_dot()
+
+local function test_splitext_hidden_with_ext()
+  local root, ext = fs.splitext(".bashrc.bak")
+  assert(root == ".bashrc", "expected root '.bashrc', got '" .. root .. "'")
+  assert(ext == ".bak", "expected ext '.bak', got '" .. ext .. "'")
+end
+test_splitext_hidden_with_ext()
+
+-- ext tests
+
+local function test_ext_simple()
+  local result = fs.ext("foo.txt")
+  assert(result == ".txt", "expected '.txt', got '" .. result .. "'")
+end
+test_ext_simple()
+
+local function test_ext_double()
+  local result = fs.ext("foo.tar.gz")
+  assert(result == ".gz", "expected '.gz', got '" .. result .. "'")
+end
+test_ext_double()
+
+local function test_ext_none()
+  local result = fs.ext("foo")
+  assert(result == "", "expected '', got '" .. result .. "'")
+end
+test_ext_none()
+
+local function test_ext_hidden()
+  local result = fs.ext(".bashrc")
+  assert(result == "", "expected '', got '" .. result .. "'")
+end
+test_ext_hidden()
