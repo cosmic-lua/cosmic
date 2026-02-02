@@ -774,12 +774,10 @@ local function test_walk_with_visitor()
   local test_dir = setup_walk()
   local ctx: WalkContext = { count = 0, dirs = 0 }
 
-  fs.walk(test_dir, function(_full_path: string, _entry: string, stat: any, c: any): boolean
+  fs.walk(test_dir, function(_full_path: string, _entry: string, isdir: boolean, c: any): boolean
     local wctx = c as WalkContext
     wctx.count = wctx.count + 1
-    local stat_tbl = stat as {string:function(any):number}
-    local mode = stat_tbl.mode(stat)
-    if unix.S_ISDIR(mode) then
+    if isdir then
       wctx.dirs = wctx.dirs + 1
     end
     return true

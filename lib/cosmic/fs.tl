@@ -608,106 +608,106 @@ local function minor(dev: number): number
   return unix.minor(dev)
 end
 
--- Directory walking functions (from cosmic.walk)
+-- Directory walking via cosmic.tree interface
 
---- Visitor function type for directory traversal.
---- Return false to skip recursion into subdirectories.
---- @param full_path string The complete path to the file or directory
---- @param entry string The basename of the file or directory
---- @param stat Stat File metadata
---- @param ctx any User-provided context passed through the walk
---- @return boolean Return false to skip recursing into this directory
-local type Visitor = function(full_path: string, entry: string, stat: Stat, ctx: any): boolean
+--- Walker interface (compatible with cosmic.tree.Walker).
+local record Walker
+  readdir: function(path: string): function(): string
+  isdir: function(path: string): boolean
+  join: function(...: string): string
+end
 
---- File information with Unix permissions.
---- Returned by collect_all() to map relative paths to file metadata.
+--- Visitor function for walk.
+local type Visitor = function(path: string, name: string, isdir: boolean, ctx: any): boolean
+
+--- File info from collect_all.
 local record FileInfo
   mode: number
 end
 
--- Raw Dir handle for walking (internal use)
-local record WalkDirHandle
+local record TreeModule
+  walk: function<T>(root: string, w: Walker, visitor: Visitor, ctx?: T): T
+  collect: function(root: string, w: Walker, pattern: string): {string}
+  collect_all: function(root: string, w: Walker): {string:FileInfo}
+end
+
+local tree: TreeModule = require("cosmic.tree") as TreeModule
+
+-- Raw Dir handle for readdir (internal use)
+local record RawDirHandle
   read: function(self): string
   close: function(self)
 end
 
---- Walk a directory tree, calling visitor for each entry.
---- Recursively traverses subdirectories unless visitor returns false.
---- @param dir string The directory to walk
---- @param visitor Visitor Function called for each file and directory
---- @param ctx T Optional context passed to visitor function
---- @return T The context object, potentially modified by visitor
-local function walk<T>(dir: string, visitor: Visitor, ctx?: T): T
-  ctx = ctx or {} as T
-  local handle = unix.opendir(dir) as WalkDirHandle
-  if not handle then return ctx end
-
-  while true do
-    local entry = handle:read()
-    if not entry then break end
-    if entry ~= "." and entry ~= ".." then
-      local full_path = cosmo_path.join(dir, entry)
-      local st = unix.stat(full_path) as Stat
-      if st then
-        local continue = visitor(full_path, entry, st, ctx)
-        if continue ~= false and unix.S_ISDIR(st:mode()) then
-          walk(full_path, visitor, ctx)
-        end
-      end
-    end
+--- Create an iterator over directory entries.
+--- @param path string Directory to list
+--- @return function Iterator yielding entry names
+local function listdir(path: string): function(): string
+  local handle = unix.opendir(path) as RawDirHandle
+  if not handle then
+    return function(): string return nil end
   end
-  handle:close()
-  return ctx
+  return function(): string
+    local entry = handle:read()
+    if not entry then
+      handle:close()
+      return nil
+    end
+    return entry
+  end
+end
+
+--- Walker implementation for real filesystem.
+--- Implements the cosmic.tree.Walker interface.
+local walker: Walker = {
+  readdir = listdir,
+  isdir = isdir,
+  join = join,
+}
+
+--- Walk a directory tree, calling visitor for each entry.
+--- @param dir string The directory to walk
+--- @param visitor Visitor Function called for each entry
+--- @param ctx T Optional context passed to visitor
+--- @return T The context object
+local function walk<T>(dir: string, visitor: Visitor, ctx?: T): T
+  return tree.walk(dir, walker, visitor, ctx)
 end
 
 --- Collect file paths matching a Lua pattern.
---- Recursively walks directory tree and returns matching file paths.
 --- @param dir string The directory to search
---- @param pattern string Lua pattern to match against file basenames
---- @return {string} List of full paths to matching files
+--- @param pattern string Lua pattern to match against basenames
+--- @return {string} List of matching paths
 local function collect(dir: string, pattern: string): {string}
-  local results: {string} = {}
-  walk(dir, function(full_path: string, entry: string, st: Stat, ctx: {string}): boolean
-    if not unix.S_ISDIR(st:mode()) and entry:match(pattern) then
-      table.insert(ctx, full_path)
-    end
-    return true
-  end, results)
-  return results
+  return tree.collect(dir, walker, pattern)
 end
 
---- Recursively collect all files with their Unix permissions.
---- Returns a map of relative paths to file information.
+--- Collect all files with metadata.
+--- Returns a map of relative paths to file info including Unix permissions.
 --- @param dir string The directory to walk
---- @param base string Internal: relative path prefix (used during recursion)
---- @param files {string:FileInfo} Internal: accumulator map (used during recursion)
---- @return {string:FileInfo} Map of relative paths to file information
-local function collect_all(dir: string, base?: string, files?: {string:FileInfo}): {string:FileInfo}
-  files = files or {}
-  base = base or ""
+--- @return {string:FileInfo} Map of relative paths to info
+local function collect_all(dir: string): {string:FileInfo}
+  local files: {string:FileInfo} = {}
 
-  local handle = unix.opendir(dir) as WalkDirHandle
-  if not handle then return files end
+  local function do_walk(base_dir: string, rel_base: string)
+    for name in listdir(base_dir) do
+      if name ~= "." and name ~= ".." then
+        local full_path = join(base_dir, name)
+        local rel_path = rel_base == "" and name or join(rel_base, name)
+        local st = unix.stat(full_path) as Stat
 
-  while true do
-    local entry = handle:read()
-    if not entry then break end
-    if entry ~= "." and entry ~= ".." then
-      local full_path = cosmo_path.join(dir, entry)
-      local rel_path = base == "" and entry or cosmo_path.join(base, entry)
-      local st = unix.stat(full_path) as Stat
-
-      if st then
-        if unix.S_ISDIR(st:mode()) then
-          collect_all(full_path, rel_path, files)
-        elseif unix.S_ISREG(st:mode()) or unix.S_ISLNK(st:mode()) then
-          local mode = st:mode() & 0x1ff
-          files[rel_path] = { mode = mode }
+        if st then
+          if unix.S_ISDIR(st:mode()) then
+            do_walk(full_path, rel_path)
+          elseif unix.S_ISREG(st:mode()) or unix.S_ISLNK(st:mode()) then
+            files[rel_path] = { mode = st:mode() & 0x1ff }
+          end
         end
       end
     end
   end
-  handle:close()
+
+  do_walk(dir, "")
   return files
 end
 
@@ -779,10 +779,12 @@ local record FsModule
   major: function(dev: number): number
   minor: function(dev: number): number
 
-  -- Directory walking (from cosmic.walk)
+  -- Directory listing and walking
+  listdir: function(path: string): function(): string
+  walker: Walker
   walk: function<T>(dir: string, visitor: Visitor, ctx?: T): T
   collect: function(dir: string, pattern: string): {string}
-  collect_all: function(dir: string, base?: string, files?: {string:FileInfo}): {string:FileInfo}
+  collect_all: function(dir: string): {string:FileInfo}
 
   -- Access mode constants
   F_OK: number
@@ -852,7 +854,9 @@ local M: FsModule = {
   major = major,
   minor = minor,
 
-  -- Directory walking (from cosmic.walk)
+  -- Directory listing and walking
+  listdir = listdir,
+  walker = walker,
   walk = walk,
   collect = collect,
   collect_all = collect_all,
