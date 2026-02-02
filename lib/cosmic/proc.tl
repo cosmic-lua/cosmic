@@ -1,5 +1,5 @@
 --- Current process management.
---- Identity, session/group control, exec, signals, and resource usage.
+--- Identity, session/group control, exec, and resource usage.
 local unix = require("cosmo.unix")
 local cosmo = require("cosmo")
 
@@ -102,32 +102,6 @@ end
 --- @return boolean True on success
 local function daemon(nochdir?: boolean, noclose?: boolean): boolean
   return unix.daemon(nochdir, noclose)
-end
-
--- Signals --
-
---- Sends signal to process(es).
---- @param pid number Process id to signal. Negative values target process groups
---- @param sig number Signal number (e.g., SIGTERM, SIGKILL)
---- @return boolean True on success
-local function kill(pid: number, sig: number): boolean
-  return unix.kill(pid, sig)
-end
-
---- Sends signal to process group.
---- @param pgrp number Process group id. If 0, sends to calling process's group
---- @param sig number Signal number
---- @return boolean True on success
-local function killpg(pgrp: number, sig: number): boolean
-  return unix.killpg(pgrp, sig)
-end
-
---- Sends signal to current process.
---- Equivalent to kill(getpid(), sig).
---- @param sig number Signal number to raise
---- @return number 0 on success
-local function raise(sig: number): number
-  return unix.raise(sig)
 end
 
 -- Termination --
@@ -313,11 +287,6 @@ local record ProcModule
   setsid: function(): number
   daemon: function(nochdir?: boolean, noclose?: boolean): boolean
 
-  -- Signals
-  kill: function(pid: number, sig: number): boolean
-  killpg: function(pgrp: number, sig: number): boolean
-  raise: function(sig: number): number
-
   -- Termination
   exit: function(exitcode?: number)
 
@@ -352,20 +321,6 @@ local record ProcModule
   RUSAGE_THREAD: number
   RUSAGE_BOTH: number
 
-  -- Signal constants
-  SIGTERM: number
-  SIGKILL: number
-  SIGINT: number
-  SIGQUIT: number
-  SIGHUP: number
-  SIGCHLD: number
-  SIGSTOP: number
-  SIGCONT: number
-  SIGUSR1: number
-  SIGUSR2: number
-  SIGPIPE: number
-  SIGALRM: number
-
   -- Resource limit constants
   RLIMIT_AS: number
   RLIMIT_CPU: number
@@ -393,11 +348,6 @@ local M: ProcModule = {
   setpgid = setpgid,
   setsid = setsid,
   daemon = daemon,
-
-  -- Signals
-  kill = kill,
-  killpg = killpg,
-  raise = raise,
 
   -- Termination
   exit = exit,
@@ -432,20 +382,6 @@ local M: ProcModule = {
   RUSAGE_CHILDREN = unix.RUSAGE_CHILDREN,
   RUSAGE_THREAD = unix.RUSAGE_THREAD,
   RUSAGE_BOTH = unix.RUSAGE_BOTH,
-
-  -- Signal constants
-  SIGTERM = unix.SIGTERM,
-  SIGKILL = unix.SIGKILL,
-  SIGINT = unix.SIGINT,
-  SIGQUIT = unix.SIGQUIT,
-  SIGHUP = unix.SIGHUP,
-  SIGCHLD = unix.SIGCHLD,
-  SIGSTOP = unix.SIGSTOP,
-  SIGCONT = unix.SIGCONT,
-  SIGUSR1 = unix.SIGUSR1,
-  SIGUSR2 = unix.SIGUSR2,
-  SIGPIPE = unix.SIGPIPE,
-  SIGALRM = unix.SIGALRM,
 
   -- Resource limit constants
   RLIMIT_AS = unix.RLIMIT_AS,
