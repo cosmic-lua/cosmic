@@ -1,161 +1,195 @@
 # cosmic-lua
 
-A cosmopolitan Lua distribution with Teal support and bundled libraries.
+A portable Lua distribution with static typing, batteries included.
 
 ## Overview
 
-`cosmic-lua` is a single-file, self-contained Lua interpreter built on [Cosmopolitan Libc](https://github.com/jart/cosmopolitan) that runs on Linux, macOS, Windows, FreeBSD, OpenBSD, and NetBSD without requiring installation or dependencies.
+cosmic-lua is a single-file Lua interpreter built on [Cosmopolitan Libc](https://github.com/jart/cosmopolitan) that runs on Linux, macOS, Windows, FreeBSD, OpenBSD, and NetBSD—no installation required.
 
-It includes:
-- **Lua 5.4**: Full Lua interpreter
-- **Teal**: A typed dialect of Lua that compiles to Lua
-- **cosmic library**: Core utilities for file operations, process spawning, HTTP fetching, and directory walking
-- **Type definitions**: Complete type declarations for the Cosmopolitan Lua API
+**Key highlights:**
 
-## Features
-
-- **Actually Portable Executable**: Single binary runs on multiple platforms
-- **No Installation Required**: Download and run
-- **Teal Support**: Full integration with the Teal type checker and compiler
-- **Self-Contained**: All dependencies bundled in the executable
+- **Portable**: One ~15MB executable runs on six operating systems
+- **Type-safe**: Full [Teal](https://github.com/teal-language/tl) integration with static type checking
+- **Batteries included**: 40+ modules for HTTP, SQLite, crypto, processes, networking, and more
+- **Self-documenting**: Query embedded API docs with `--docs`
 
 ## Installation
-
-Download the latest release:
 
 ```bash
 curl -L -o cosmic-lua https://github.com/whilp/cosmic/releases/latest/download/cosmic-lua
 chmod +x cosmic-lua
 ```
 
-## Usage
-
-### Running Lua Scripts
+## Quick Start
 
 ```bash
-./cosmic-lua script.lua
-./cosmic-lua -e 'print("Hello, World!")'
+# Run scripts
+./cosmic-lua script.lua           # Lua script
+./cosmic-lua script.tl            # Teal script (compiled on-the-fly)
+./cosmic-lua -e 'print("hi")'     # Inline code
+
+# Teal type checking
+./cosmic-lua --check file.tl      # Type-check without running
+./cosmic-lua --compile file.tl    # Compile to Lua (stdout)
+
+# Documentation
+./cosmic-lua --docs fetch         # Search embedded docs
+./cosmic-lua --help               # Show all modules
 ```
 
-### Using Teal
+## Example Code
 
-The Teal compiler is bundled and available via `tl.lua`:
-
-```bash
-./cosmic-lua /zip/tl.lua check myfile.tl
-./cosmic-lua /zip/tl.lua run myfile.tl
-```
-
-### Cosmic Library
-
-The cosmic library provides utilities for common tasks:
+### HTTP + JSON
 
 ```lua
-local cosmic = require("cosmic")
-local spawn = require("cosmic.spawn")
 local fetch = require("cosmic.fetch")
-local fs = require("cosmic.fs")
+local json = require("cosmic.json")
 
--- Spawn a process
-local result = spawn.run({"ls", "-la"})
-
--- Fetch a URL
-local response = fetch.get("https://example.com")
-
--- Walk a directory
-for path in fs.files(".") do
-  print(path)
+local resp = fetch.get("https://api.example.com/data")
+if resp.ok then
+    local data = json.decode(resp.body)
+    print(data.name)
 end
 ```
 
+### Process Spawning
+
+```lua
+local child = require("cosmic.child")
+
+local h = child.spawn({"ls", "-la"})
+local status, stdout = h:read()
+print(stdout)
+```
+
+### SQLite Database
+
+```lua
+local sqlite = require("cosmic.sqlite")
+
+local db <close> = sqlite.open("app.db")
+db:exec("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)")
+db:exec("INSERT INTO kv VALUES (?, ?)", "key", "value")
+
+for row in db:query("SELECT * FROM kv") do
+    print(row.k, row.v)
+end
+```
+
+### File Operations
+
+```lua
+local fs = require("cosmic.fs")
+
+-- Walk directory with glob pattern
+for path in fs.walk(".", "*.tl") do
+    print(path)
+end
+
+-- Path manipulation
+local p = fs.join("/home", "user", "file.txt")
+print(fs.basename(p))  -- file.txt
+print(fs.dirname(p))   -- /home/user
+```
+
+### Command-line Arguments
+
+```lua
+local getopt = require("cosmic.getopt")
+
+local opts, args = getopt.parse(arg, "hv", {"help", "verbose"})
+if opts.help then
+    print("Usage: script [options] <args>")
+end
+```
+
+## Module Overview
+
+### Core
+
+| Module | Description |
+|--------|-------------|
+| `cosmic.fetch` | HTTP client with retry, redirects, timeouts |
+| `cosmic.json` | JSON encode/decode |
+| `cosmic.sqlite` | SQLite database with prepared statements |
+| `cosmic.child` | Process spawning with I/O capture |
+| `cosmic.fs` | Filesystem: paths, walking, file operations |
+| `cosmic.getopt` | Command-line argument parsing |
+
+### Networking
+
+| Module | Description |
+|--------|-------------|
+| `cosmic.net` | TCP/UDP sockets, Unix domain sockets |
+| `cosmic.url` | URL parsing and encoding |
+| `cosmic.ip` | IP address parsing and formatting |
+
+### Security
+
+| Module | Description |
+|--------|-------------|
+| `cosmic.hash` | SHA-256, Argon2 password hashing |
+| `cosmic.rand` | Cryptographically secure random bytes |
+| `cosmic.sandbox` | Process sandboxing with pledge/unveil |
+
+### Data Processing
+
+| Module | Description |
+|--------|-------------|
+| `cosmic.codec` | Base64, hex encoding |
+| `cosmic.compress` | zlib compression/decompression |
+| `cosmic.zip` | ZIP archive read/write |
+| `cosmic.html` | HTML escaping |
+| `cosmic.re` | POSIX regular expressions |
+
+### System
+
+| Module | Description |
+|--------|-------------|
+| `cosmic.proc` | Process info, signals, daemonization |
+| `cosmic.env` | Environment variables |
+| `cosmic.time` | Timestamps, sleep, time formatting |
+| `cosmic.signal` | Signal handling |
+| `cosmic.sys` | System info (hostname, uname) |
+| `cosmic.user` | User/group information |
+| `cosmic.uuid` | UUID v4 (random) and v7 (time-ordered) |
+| `cosmic.shm` | Shared memory and IPC |
+| `cosmic.tty` | Terminal operations |
+| `cosmic.syslog` | System logging |
+| `cosmic.io` | File I/O operations |
+
+Use `./cosmic-lua --docs <module>` to explore any module's API.
+
 ## Building from Source
 
-Prerequisites:
-- GNU Make
-- Git
-- Internet connection (to download dependencies)
-
-Build the cosmic binary:
-
 ```bash
-make cosmic
+make staged    # Fetch dependencies
+make cosmic    # Build the binary
+make check     # Teal type checking
+make test      # Run tests
+make ci        # Full CI pipeline
 ```
 
-Run tests:
-
-```bash
-make test
-```
-
-Run type checking:
-
-```bash
-make check
-```
-
-Full CI pipeline:
-
-```bash
-make ci
-```
-
-## Development
-
-The repository uses a module-based build system with:
-- `lib/cosmic/`: Core cosmic library
-- `lib/build/`: Build scripts for fetching and staging dependencies
-- `3p/cosmos/`: Cosmopolitan Lua binary
-- `3p/tl/`: Teal compiler
-- `3p/teal-types/`: Teal type definitions
-
-### Directory Structure
+## Project Structure
 
 ```
 cosmic/
-├── 3p/              # Third-party dependencies
-├── lib/             # Library modules
+├── 3p/              # Third-party: cosmos binary, teal compiler
+├── lib/
+│   ├── cosmic/      # Library modules (40+)
+│   ├── types/       # Teal type definitions
 │   ├── build/       # Build infrastructure
-│   ├── checker/     # Type checking utilities
-│   ├── cosmic/      # Core cosmic library
-│   └── types/       # Type declarations
-├── bin/             # Build scripts
-├── Makefile         # Main build file
-└── o/               # Build output directory (created during build)
+│   └── docs/        # Documentation generation
+├── Makefile         # Build orchestration
+└── GOALS.md         # Project goals and roadmap
 ```
 
-## Documentation
+## Design Principles
 
-### cosmo Package
-
-Core Cosmopolitan Libc bindings and system interfaces.
-
-| Module | Description |
-|--------|-------------|
-| [argon2](https://github.com/whilp/cosmic/blob/docs/cosmo/argon2.md) | Password hashing using the Argon2 algorithm. |
-| [finger](https://github.com/whilp/cosmic/blob/docs/cosmo/finger.md) | TCP SYN packet fingerprinting. |
-| [getopt](https://github.com/whilp/cosmic/blob/docs/cosmo/getopt.md) | Command-line option parsing. |
-| [goodsocket](https://github.com/whilp/cosmic/blob/docs/cosmo/goodsocket.md) | Low-level socket programming with network constants. |
-| [lsqlite3](https://github.com/whilp/cosmic/blob/docs/cosmo/lsqlite3.md) | SQLite3 database bindings. |
-| [maxmind](https://github.com/whilp/cosmic/blob/docs/cosmo/maxmind.md) | MaxMind GeoIP database lookups. |
-| [path](https://github.com/whilp/cosmic/blob/docs/cosmo/path.md) | File path manipulation utilities. |
-| [re](https://github.com/whilp/cosmic/blob/docs/cosmo/re.md) | POSIX regular expression matching. |
-| [unix](https://github.com/whilp/cosmic/blob/docs/cosmo/unix.md) | POSIX system interfaces and shared memory. |
-| [zip](https://github.com/whilp/cosmic/blob/docs/cosmo/zip.md) | ZIP archive reading and writing. |
-
-### cosmic Package
-
-High-level utilities and tools built on top of cosmo.
-
-| Module | Description |
-|--------|-------------|
-| [doc](https://github.com/whilp/cosmic/blob/docs/lib/cosmic/doc.md) | Extract documentation from Teal files and render as markdown. |
-| [embed](https://github.com/whilp/cosmic/blob/docs/lib/cosmic/embed.md) | Embed files into cosmic executable. |
-| [example](https://github.com/whilp/cosmic/blob/docs/lib/cosmic/example.md) | Go-style executable example testing. |
-| [fetch](https://github.com/whilp/cosmic/blob/docs/lib/cosmic/fetch.md) | Structured HTTP fetch with optional retry. |
-| [init](https://github.com/whilp/cosmic/blob/docs/lib/cosmic/init.md) | Cosmopolitan Lua utilities. |
-| [spawn](https://github.com/whilp/cosmic/blob/docs/lib/cosmic/spawn.md) | Process spawning utilities. |
-| [teal](https://github.com/whilp/cosmic/blob/docs/lib/cosmic/teal.md) | Teal compilation and type-checking. |
-| [walk](https://github.com/whilp/cosmic/blob/docs/lib/cosmic/walk.md) | Directory tree walking utilities. |
+- **Type safety**: All APIs have complete Teal type definitions
+- **Explicit errors**: Functions return `(value, error)` instead of throwing
+- **Resource cleanup**: File handles use `__close` for automatic cleanup
+- **No silent failures**: Clear error messages at API boundaries
 
 ## License
 
