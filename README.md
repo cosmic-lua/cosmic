@@ -48,6 +48,7 @@ High-level utilities and tools built on top of cosmo.
 | [ip](lib/cosmic/ip.md) |  IP address parsing, formatting, and classification utilities. |
 | [json](lib/cosmic/json.md) |  JSON encoding and decoding utilities. |
 | [net](lib/cosmic/net.md) |  Networking and socket utilities. |
+| [poll](lib/cosmic/poll.md) |  Typed interface for polling file descriptors. |
 | [proc](lib/cosmic/proc.md) |  Current process management. |
 | [rand](lib/cosmic/rand.md) |  Random number generation. |
 | [re](lib/cosmic/re.md) |  Regular expression matching using POSIX extended regex syntax. |

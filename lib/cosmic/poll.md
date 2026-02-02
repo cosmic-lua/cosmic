@@ -1,0 +1,104 @@
+# poll
+
+ Typed interface for polling file descriptors.
+ Provides an ergonomic wrapper around unix.poll().
+
+## Types
+
+### Events
+
+ Resolved events from a poll operation.
+
+```teal
+local record Events
+  --  True if readable data is available.
+  readable: boolean
+  --  True if writing is possible.
+  writable: boolean
+  --  True if an error occurred.
+  error: boolean
+  --  True if the peer closed the connection.
+  hangup: boolean
+  --  True if the fd is invalid.
+  invalid: boolean
+  --  Raw revents bitmask from poll.
+  revents: number
+end
+```
+
+### Poller
+
+ Poll set for monitoring multiple file descriptors.
+
+```teal
+local record Poller
+  --  Add a file descriptor or handle to the set.
+  or: fd() method.
+  --  Add a file descriptor or handle to the set.
+  --  Accepts raw fd numbers, or objects with .fd field or :fd() method.
+  add: function(Poller, any, number)
+  --  Remove a file descriptor or handle from the set.
+  remove: function(Poller, any)
+  --  Clear all file descriptors from the set.
+  clear: function(Poller)
+  --  Poll for events with optional timeout.
+  --  Returns an iterator over (fd, events) pairs for ready descriptors.
+  fd: number, events: Events)
+  --  Poll for events with optional timeout.
+  --  Returns an iterator over (fd, events) pairs for ready descriptors.
+  wait: function(Poller, number): function(): number, Events
+  --  Poll and return count of ready descriptors.
+  poll: function(Poller, number): number, string
+  --  Get events for a specific fd after poll().
+  events: function(Poller, number): Events
+  --  Returns true if the poller has no registered fds.
+  empty: function(Poller): boolean
+  --  Returns the number of registered fds.
+  count: function(Poller): number
+end
+```
+
+### PollModule
+
+```teal
+local record PollModule
+  new: function(): Poller
+  --  Event mask for readable data.
+  POLLIN: number
+  --  Event mask for writable.
+  POLLOUT: number
+  --  Event mask for priority data (e.g., OOB on TCP).
+  POLLPRI: number
+  --  Event mask for error condition.
+  POLLERR: number
+  --  Event mask for hangup.
+  POLLHUP: number
+  --  Event mask for invalid fd.
+  POLLNVAL: number
+  --  Event mask for peer closed connection.
+  POLLRDHUP: number
+end
+```
+
+## Functions
+
+### new
+
+```teal
+function new(): Poller
+```
+
+ Create a new poll set.
+ Example:
+   local p = poll.new()
+   p:add(handle.stdout, poll.POLLIN)
+   p:add(handle.stderr, poll.POLLIN)
+   for fd, events in p:wait(30000) do
+     if events.readable then
+       -- read from fd
+     end
+   end
+
+**Returns:**
+
+- Poller - A new poll set
