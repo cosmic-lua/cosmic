@@ -451,17 +451,3 @@ function sched_yield()
 
  Relinquishes the CPU, allowing other processes to run.
  Causes the calling thread to yield its scheduled time quantum.
-
-### is_main
-
-```teal
-function is_main(): boolean
-```
-
- Returns true if current script is being run as the main program.
- Returns false if the script is being loaded as a module via require().
- Use this to guard code that should only run when executed directly.
-
-**Returns:**
-
-- boolean - True if running as main script
