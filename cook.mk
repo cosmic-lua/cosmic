@@ -9,7 +9,7 @@ type_gen_outputs := $(patsubst %,lib/types/cosmo/%.d.tl,$(type_modules))
 modules += bootstrap
 bootstrap_cosmic := $(o)/bootstrap/cosmic
 bootstrap_files := $(bootstrap_cosmic)
-bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-01-25-5b9f6cc/cosmic-lua
+bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-02-07-a051c1d/cosmic-lua
 
 export PATH := $(o)/bootstrap:$(PATH)
 
