@@ -683,33 +683,7 @@ local record unix
   W_OK: number
   X_OK: number
 
-  -- tcsetattr() action constants
-  TCSANOW: number
-  TCSADRAIN: number
-  TCSAFLUSH: number
-
-  -- termios c_iflag constants
   BRKINT: number
-  ICRNL: number
-  IGNBRK: number
-  IGNCR: number
-  IGNPAR: number
-  INLCR: number
-  INPCK: number
-  ISTRIP: number
-  IXANY: number
-  IXOFF: number
-  IXON: number
-  PARMRK: number
-
-  -- termios c_oflag constants
-  OPOST: number
-  ONLCR: number
-  OCRNL: number
-  ONOCR: number
-  ONLRET: number
-
-  -- termios c_cflag constants
   CLOCAL: number
   CREAD: number
   CS5: number
@@ -718,22 +692,38 @@ local record unix
   CS8: number
   CSIZE: number
   CSTOPB: number
-  HUPCL: number
-  PARENB: number
-  PARODD: number
-
-  -- termios c_lflag constants
   ECHO: number
   ECHOE: number
   ECHOK: number
   ECHONL: number
+  HUPCL: number
   ICANON: number
+  ICRNL: number
   IEXTEN: number
+  IGNBRK: number
+  IGNCR: number
+  IGNPAR: number
+  INLCR: number
+  INPCK: number
   ISIG: number
+  ISTRIP: number
+  IXANY: number
+  IXOFF: number
+  IXON: number
+  NCCS: number
   NOFLSH: number
+  OCRNL: number
+  ONLCR: number
+  ONLRET: number
+  ONOCR: number
+  OPOST: number
+  PARENB: number
+  PARMRK: number
+  PARODD: number
+  TCSADRAIN: number
+  TCSAFLUSH: number
+  TCSANOW: number
   TOSTOP: number
-
-  -- termios c_cc indices
   VEOF: number
   VEOL: number
   VERASE: number
@@ -744,7 +734,6 @@ local record unix
   VSTART: number
   VSTOP: number
   VTIME: number
-  NCCS: number
 
   --- Opens file.
   --- Returns a file descriptor integer that needs to be closed, e.g.
