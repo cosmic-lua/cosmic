@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- test cosmic --embed option
+-- test cosmic --embed and --extract options
 
 local path = require("cosmo.path")
 local unix = require("cosmo.unix")
@@ -151,5 +151,216 @@ local function test_embed_binary_file()
   reader:close()
 end
 test_embed_binary_file()
+
+-- Test embedding a directory
+local function test_embed_directory()
+  -- Create a directory structure
+  local appdir = path.join(tmpdir, "testapp")
+  unix.makedirs(path.join(appdir, "lib"))
+  cosmo.Barf(path.join(appdir, "main.lua"), 'print("hello")\n')
+  cosmo.Barf(path.join(appdir, "lib/util.lua"), 'return {x=1}\n')
+  cosmo.Barf(path.join(appdir, "data.txt"), "some data")
+
+  local output = path.join(tmpdir, "cosmic-dir")
+  local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--output", output}):read()
+  assert(ok, "embed directory should succeed: " .. (out or ""))
+
+  -- Verify files are stored relative to directory root
+  local data = cosmo.Slurp(output)
+  local reader_maybe = zip.from(data)
+  assert(reader_maybe, "failed to open zip from data")
+  local reader = reader_maybe as Reader
+
+  local c1 = reader:read("main.lua")
+  assert(c1 == 'print("hello")\n', "main.lua should be at zip root: " .. tostring(c1))
+
+  local c2 = reader:read("lib/util.lua")
+  assert(c2 == 'return {x=1}\n', "lib/util.lua should be relative")
+
+  local c3 = reader:read("data.txt")
+  assert(c3 == "some data", "data.txt should be at zip root")
+
+  reader:close()
+end
+test_embed_directory()
+
+-- Test embedding a directory with nested subdirectories
+local function test_embed_nested_directory()
+  local appdir = path.join(tmpdir, "nested")
+  unix.makedirs(path.join(appdir, "a/b/c"))
+  cosmo.Barf(path.join(appdir, "top.txt"), "top")
+  cosmo.Barf(path.join(appdir, "a/mid.txt"), "mid")
+  cosmo.Barf(path.join(appdir, "a/b/c/deep.txt"), "deep")
+
+  local output = path.join(tmpdir, "cosmic-nested")
+  local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--output", output}):read()
+  assert(ok, "embed nested directory should succeed: " .. (out or ""))
+
+  local data = cosmo.Slurp(output)
+  local reader_maybe = zip.from(data)
+  assert(reader_maybe, "failed to open zip from data")
+  local reader = reader_maybe as Reader
+
+  assert(reader:read("top.txt") == "top", "top-level file")
+  assert(reader:read("a/mid.txt") == "mid", "mid-level file")
+  assert(reader:read("a/b/c/deep.txt") == "deep", "deeply nested file")
+  reader:close()
+end
+test_embed_nested_directory()
+
+-- Test mixing directory and file embedding
+local function test_embed_mixed()
+  local appdir = path.join(tmpdir, "mixapp")
+  unix.makedirs(appdir)
+  cosmo.Barf(path.join(appdir, "main.lua"), 'print("mixed")\n')
+
+  local extra = write_temp("extra.txt", "extra content")
+  local output = path.join(tmpdir, "cosmic-mixed")
+
+  local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--embed", extra, "--output", output}):read()
+  assert(ok, "embed mixed should succeed: " .. (out or ""))
+
+  local data = cosmo.Slurp(output)
+  local reader_maybe = zip.from(data)
+  assert(reader_maybe, "failed to open zip from data")
+  local reader = reader_maybe as Reader
+
+  local c1 = reader:read("main.lua")
+  assert(c1 == 'print("mixed")\n', "directory file should be present")
+
+  local extra_name = extra:gsub("^/+", "")
+  local c2 = reader:read(extra_name)
+  assert(c2 == "extra content", "individual file should be present")
+  reader:close()
+end
+test_embed_mixed()
+
+-- Test that embedded directory produces a working executable
+local function test_embed_directory_executable()
+  local appdir = path.join(tmpdir, "runapp")
+  unix.makedirs(appdir)
+  cosmo.Barf(path.join(appdir, "main.lua"), 'io.write("it works\\n")\n')
+
+  local output = path.join(tmpdir, "cosmic-runapp")
+  local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--output", output}):read()
+  assert(ok, "embed should succeed: " .. (out or ""))
+
+  -- Run the custom executable
+  ok, out = spawn.spawn({output}):read()
+  assert(ok, "custom executable should run: " .. (out or ""))
+  assert(out:match("it works"), "should print expected output, got: " .. (out or ""))
+end
+test_embed_directory_executable()
+
+-- Test --extract extracts zip contents
+local function test_extract()
+  local extractdir = path.join(tmpdir, "extracted")
+
+  local ok, out = spawn.spawn({cosmic, "--extract", extractdir}):read()
+  assert(ok, "extract should succeed: " .. (out or ""))
+
+  -- main.lua should be extracted
+  assert(path.isfile(path.join(extractdir, "main.lua")), "main.lua should be extracted")
+
+  -- .args should be extracted
+  assert(path.isfile(path.join(extractdir, ".args")), ".args should be extracted")
+
+  -- bundled libraries should be extracted
+  assert(path.isdir(path.join(extractdir, ".lua")), ".lua directory should be extracted")
+end
+test_extract()
+
+-- Test extract-then-embed roundtrip preserves file contents
+local function test_extract_embed_roundtrip()
+  -- Extract the cosmic binary
+  local extractdir = path.join(tmpdir, "roundtrip-extract")
+  local ok, out = spawn.spawn({cosmic, "--extract", extractdir}):read()
+  assert(ok, "extract should succeed: " .. (out or ""))
+
+  -- Read original main.lua from the zip
+  local orig_data = cosmo.Slurp(cosmic)
+  local orig_reader = zip.from(orig_data) as Reader
+  local orig_main = orig_reader:read("main.lua")
+  assert(orig_main, "original should have main.lua")
+  orig_reader:close()
+
+  -- Read extracted main.lua from disk
+  local extracted_main = cosmo.Slurp(path.join(extractdir, "main.lua"))
+  assert(extracted_main == orig_main, "extracted main.lua should match original")
+
+  -- Re-embed the extracted directory
+  local output = path.join(tmpdir, "roundtrip-output")
+  ok, out = spawn.spawn({cosmic, "--embed", extractdir, "--output", output}):read()
+  assert(ok, "re-embed should succeed: " .. (out or ""))
+
+  -- Read main.lua from the re-embedded binary
+  local new_data = cosmo.Slurp(output)
+  local new_reader = zip.from(new_data) as Reader
+  local new_main = new_reader:read("main.lua")
+  assert(new_main == orig_main, "roundtripped main.lua should match original")
+  new_reader:close()
+end
+test_extract_embed_roundtrip()
+
+-- Test extract-modify-embed workflow
+local function test_extract_modify_embed()
+  -- Extract
+  local extractdir = path.join(tmpdir, "modify-extract")
+  local ok, out = spawn.spawn({cosmic, "--extract", extractdir}):read()
+  assert(ok, "extract should succeed: " .. (out or ""))
+
+  -- Modify main.lua
+  cosmo.Barf(path.join(extractdir, "main.lua"), 'io.write("modified\\n")\n')
+
+  -- Re-embed
+  local output = path.join(tmpdir, "modified-cosmic")
+  ok, out = spawn.spawn({cosmic, "--embed", extractdir, "--output", output}):read()
+  assert(ok, "embed modified should succeed: " .. (out or ""))
+
+  -- Run the modified executable
+  ok, out = spawn.spawn({output}):read()
+  assert(ok, "modified executable should run: " .. (out or ""))
+  assert(out:match("modified"), "should print modified output, got: " .. (out or ""))
+end
+test_extract_modify_embed()
+
+-- Test that embed overwrites existing zip entries cleanly
+local function test_embed_overwrites_cleanly()
+  -- Read original zip file list
+  local orig_data = cosmo.Slurp(cosmic)
+  local orig_reader = zip.from(orig_data) as Reader
+  local orig_files: {string:boolean} = {}
+  for _, name in ipairs(orig_reader:list()) do
+    -- Skip directory entries
+    if name:sub(-1) ~= "/" then
+      orig_files[name] = true
+    end
+  end
+  orig_reader:close()
+
+  -- Embed a directory that overrides main.lua
+  local appdir = path.join(tmpdir, "overwrite-app")
+  unix.makedirs(appdir)
+  cosmo.Barf(path.join(appdir, "main.lua"), 'print("new")\n')
+
+  local output = path.join(tmpdir, "cosmic-overwrite")
+  local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--output", output}):read()
+  assert(ok, "embed should succeed: " .. (out or ""))
+
+  -- The new zip should have main.lua with the new content
+  local new_data = cosmo.Slurp(output)
+  local new_reader = zip.from(new_data) as Reader
+  local new_main = new_reader:read("main.lua")
+  assert(new_main == 'print("new")\n', "main.lua should have new content: " .. tostring(new_main))
+
+  -- All original files should still be present
+  for name in pairs(orig_files) do
+    local content = new_reader:read(name)
+    assert(content, "original file should still be accessible: " .. name)
+  end
+
+  new_reader:close()
+end
+test_embed_overwrites_cleanly()
 
 print("All embed tests passed!")
