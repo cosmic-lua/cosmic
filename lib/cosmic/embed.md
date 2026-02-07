@@ -42,15 +42,35 @@ local record EmbedResult
 end
 ```
 
+### AddOptions
+
+ Options for adding files to a ZIP archive.
+
+```teal
+local record AddOptions
+  mode: number
+end
+```
+
 ### ZipAppender
 
  Appender interface for modifying a ZIP archive in-place.
 
 ```teal
 local record ZipAppender
-  add: function(self: ZipAppender, name: string, content: string): boolean, string
+  add: function(self: ZipAppender, name: string, content: string, options?: AddOptions): boolean, string
   remove: function(self: ZipAppender, name: string): boolean, string
   close: function(self: ZipAppender)
+end
+```
+
+### ZipStat
+
+ Stat record for zip file metadata.
+
+```teal
+local record ZipStat
+  mode: number
 end
 ```
 
@@ -62,6 +82,7 @@ end
 local record ZipReader
   list: function(self: ZipReader): {string}
   read: function(self: ZipReader, name: string): string | nil, string | nil
+  stat: function(self: ZipReader, name: string): ZipStat | nil
   close: function(self: ZipReader)
 end
 ```
@@ -73,6 +94,7 @@ local record FileToEmbed
   path: string
   content: string
   stored_name: string
+  mode: number
 end
 ```
 
