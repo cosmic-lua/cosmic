@@ -81,6 +81,12 @@ local record Appender
   --- @return string? Error message if adding failed
   add: function(self: Appender, name: string, content: string, options?: AddOptions): boolean, string
 
+  --- Removes a file from the ZIP archive by name.
+  --- @param name string The file path within the archive to remove
+  --- @return boolean? true on success, nil on failure
+  --- @return string? Error message if removal failed
+  remove: function(self: Appender, name: string): boolean, string
+
   --- Closes the ZIP archive and writes the updated central directory.
   close: function(self: Appender)
 end

@@ -1,30 +1,140 @@
---- Embed files into cosmic executable.
---- Creates a copy of the cosmic executable with files appended as a zip archive.
+--- Embed files and directories into a cosmic executable.
+---
+--- cosmic is an executable zip — a native binary with a zip archive appended.
+--- Files in the archive are accessible at /zip/ paths from Lua code. The
+--- entry point is /zip/main.lua, configured by /zip/.args.
+---
+--- Create a custom executable:
+---
+---   mkdir myapp
+---   echo 'print("hello world")' > myapp/main.lua
+---   cosmic --embed myapp/ --output hello
+---   ./hello
+---
+--- Directory contents are stored relative to the directory root, so
+--- myapp/main.lua becomes /zip/main.lua in the resulting executable.
+--- Embedding a main.lua overrides the default entry point.
+---
+--- The resulting executable keeps cosmic's bundled libraries, so embedded
+--- code can require("cosmic.fetch"), require("lsqlite3"), etc.
+---
+--- Extract an executable's zip contents for inspection or modification:
+---
+---   cosmic --extract myapp/
+---   # edit myapp/main.lua
+---   cosmic --embed myapp/ --output myapp
+---
+--- This roundtrips: extract produces exactly the files that embed consumes.
 
 local cosmo = require("cosmo")
 local zip = require("cosmo.zip")
+local pathlib = require("cosmo.path")
+local unix = require("cosmo.unix")
 
---- Result returned from embed operation.
+--- Result returned from embed and extract operations.
 local record EmbedResult
   ok: boolean
   message: string
   file_count: integer
 end
 
---- Appender interface for adding files to a ZIP archive.
+--- Appender interface for modifying a ZIP archive in-place.
 local record ZipAppender
   add: function(self: ZipAppender, name: string, content: string): boolean, string
+  remove: function(self: ZipAppender, name: string): boolean, string
   close: function(self: ZipAppender)
 end
 
---- Embed files into a copy of the cosmic executable.
---- Creates a new executable with files appended as a zip archive.
---- The original executable is copied and files are added to the end as a zip.
---- @param files {string} List of file paths to embed
+--- Reader interface for reading files from a ZIP archive.
+local record ZipReader
+  list: function(self: ZipReader): {string}
+  read: function(self: ZipReader, name: string): string | nil, string | nil
+  close: function(self: ZipReader)
+end
+
+-- Internal record for files staged for embedding.
+local record FileToEmbed
+  path: string
+  content: string
+  stored_name: string
+end
+
+-- Unix interfaces used for directory walking.
+local record WalkStat
+  mode: function(self: WalkStat): integer
+end
+local record WalkDirHandle
+  read: function(self: WalkDirHandle): string
+  close: function(self: WalkDirHandle)
+end
+
+--- Recursively collect all files from a directory.
+--- Files are stored with paths relative to the directory root.
+--- @param dir string The directory to collect from
+--- @return {FileToEmbed} Collected files, or nil on error
+--- @return string Error message, or nil on success
+local function collect_dir(dir: string): {FileToEmbed}, string
+  local collected: {FileToEmbed} = {}
+
+  local function do_walk(base_dir: string, rel_prefix: string): string
+    local handle = unix.opendir(base_dir) as WalkDirHandle
+    if not handle then
+      return "cannot open directory '" .. base_dir .. "'"
+    end
+
+    local entries: {string} = {}
+    while true do
+      local entry = handle:read()
+      if not entry then break end
+      if entry ~= "." and entry ~= ".." then
+        entries[#entries + 1] = entry
+      end
+    end
+    handle:close()
+    table.sort(entries)
+
+    for _, entry in ipairs(entries) do
+      local full_path = pathlib.join(base_dir, entry)
+      local st = unix.stat(full_path) as WalkStat
+      if st then
+        if unix.S_ISDIR(st:mode()) then
+          local rel = rel_prefix == "" and entry or (rel_prefix .. "/" .. entry)
+          local walk_err = do_walk(full_path, rel)
+          if walk_err then return walk_err end
+        else
+          local stored_name = rel_prefix == "" and entry or (rel_prefix .. "/" .. entry)
+          local f, open_err = io.open(full_path, "rb")
+          if not f then
+            return "cannot open file '" .. full_path .. "': " .. (open_err or "unknown error")
+          end
+          local content = f:read("*a")
+          f:close()
+          collected[#collected + 1] = {
+            path = full_path,
+            content = content,
+            stored_name = stored_name,
+          }
+        end
+      end
+    end
+    return nil
+  end
+
+  local err = do_walk(dir, "")
+  if err then return nil, err end
+  return collected, nil
+end
+
+--- Embed files and directories into a copy of the cosmic executable.
+--- Creates a new executable with the given paths appended to the zip archive.
+--- Paths can be files or directories. Directories are walked recursively and
+--- their contents are stored relative to the directory root. Files are stored
+--- with their given path (leading / stripped).
+--- @param paths {string} List of file or directory paths to embed
 --- @param output string Output path for the new executable (defaults to "cosmic")
---- @param exe_path string Path to the executable to copy (defaults to arg[-1])
+--- @param exe_path string Path to the source executable (defaults to arg[-1])
 --- @return EmbedResult Result with ok status, message, and file count
-local function run(files: {string}, output?: string, exe_path?: string): EmbedResult
+local function run(paths: {string}, output?: string, exe_path?: string): EmbedResult
   output = output or "cosmic"
   exe_path = exe_path or arg[-1]
 
@@ -32,63 +142,72 @@ local function run(files: {string}, output?: string, exe_path?: string): EmbedRe
     return {ok = false, message = "error: could not determine executable path", file_count = 0}
   end
 
-  if #files == 0 then
+  if #paths == 0 then
     return {ok = false, message = "error: no files specified", file_count = 0}
   end
 
-  -- Read all input files first to fail fast on errors
-  local record FileToEmbed
-    path: string
-    content: string
-    stored_name: string
-  end
+  -- Collect all files to embed, resolving directories recursively
   local files_to_embed: {FileToEmbed} = {}
 
-  for _, file in ipairs(files) do
-    local f, open_err = io.open(file, "rb")
-    if not f then
-      return {ok = false, message = "error: cannot open file '" .. file .. "': " .. (open_err or "unknown error"), file_count = 0}
+  for _, p in ipairs(paths) do
+    if pathlib.isdir(p) then
+      local dir_files, err = collect_dir(p)
+      if not dir_files then
+        return {ok = false, message = "error: " .. (err or "unknown error"), file_count = 0}
+      end
+      for _, f in ipairs(dir_files) do
+        files_to_embed[#files_to_embed + 1] = f
+      end
+    else
+      local f, open_err = io.open(p, "rb")
+      if not f then
+        return {ok = false, message = "error: cannot open file '" .. p .. "': " .. (open_err or "unknown error"), file_count = 0}
+      end
+      local content = f:read("*a")
+      f:close()
+
+      local stored_name = p:gsub("^/+", "")
+
+      files_to_embed[#files_to_embed + 1] = {
+        path = p,
+        content = content,
+        stored_name = stored_name,
+      }
     end
-    local content = f:read("*a")
-    f:close()
-
-    -- Strip leading / for absolute paths to make them relative in zip
-    local stored_name = file:gsub("^/+", "")
-
-    files_to_embed[#files_to_embed + 1] = {
-      path = file,
-      content = content,
-      stored_name = stored_name,
-    }
   end
 
-  -- Copy the executable to output
+  if #files_to_embed == 0 then
+    return {ok = false, message = "error: no files found to embed", file_count = 0}
+  end
+
+  -- Copy source executable to output path
   local exe_data = cosmo.Slurp(exe_path)
   if not exe_data then
     return {ok = false, message = "error: cannot read executable '" .. exe_path .. "'", file_count = 0}
   end
+
   if not cosmo.Barf(output, exe_data, tonumber("755", 8)) then
     return {ok = false, message = "error: cannot write to '" .. output .. "'", file_count = 0}
   end
 
-  -- Open output as zip for appending
-  -- Note: Using temporary variable to work around Teal's union type handling
-  local zip_result: any
-  local zip_err: any
-  zip_result, zip_err = zip.open(output, "a")
-  if not zip_result then
-    return {ok = false, message = "error: failed to open zip for appending: " .. tostring(zip_err or "unknown error"), file_count = 0}
+  -- Open the copy as an appender to modify its zip in-place
+  local appender_result: any
+  local appender_err: any
+  appender_result, appender_err = zip.open(output, "a")
+  if not appender_result then
+    os.remove(output)
+    return {ok = false, message = "error: failed to open zip for appending: " .. tostring(appender_err or "unknown error"), file_count = 0}
   end
+  local appender = appender_result as ZipAppender
 
-  -- Cast to ZipAppender since we know mode "a" returns an Appender
-  local appender = zip_result as ZipAppender
-
-  -- Add each file to the zip
+  -- Remove existing entries that conflict, then add new ones
   for _, file_info in ipairs(files_to_embed) do
+    appender:remove(file_info.stored_name)
     local add_ok, add_err = appender:add(file_info.stored_name, file_info.content)
     if not add_ok then
       appender:close()
-      return {ok = false, message = "error: failed to add '" .. file_info.path .. "' to zip: " .. tostring(add_err or "unknown error"), file_count = 0}
+      os.remove(output)
+      return {ok = false, message = "error: failed to add '" .. file_info.stored_name .. "' to zip: " .. tostring(add_err or "unknown error"), file_count = 0}
     end
   end
 
@@ -96,17 +215,77 @@ local function run(files: {string}, output?: string, exe_path?: string): EmbedRe
 
   return {
     ok = true,
-    message = "Successfully embedded " .. #files .. " file(s) into " .. output,
-    file_count = #files,
+    message = "embedded " .. #files_to_embed .. " file(s) into " .. output,
+    file_count = #files_to_embed,
+  }
+end
+
+--- Extract the zip contents of a cosmic executable to a directory.
+--- Creates the output directory if needed. Existing files are overwritten.
+--- @param output_dir string Directory to extract into
+--- @param exe_path string Path to the executable to extract (defaults to arg[-1])
+--- @return EmbedResult Result with ok status, message, and file count
+local function extract(output_dir: string, exe_path?: string): EmbedResult
+  exe_path = exe_path or arg[-1]
+
+  if not exe_path then
+    return {ok = false, message = "error: could not determine executable path", file_count = 0}
+  end
+
+  local exe_data = cosmo.Slurp(exe_path)
+  if not exe_data then
+    return {ok = false, message = "error: cannot read executable '" .. exe_path .. "'", file_count = 0}
+  end
+
+  local reader_maybe = zip.from(exe_data)
+  if not reader_maybe then
+    return {ok = false, message = "error: no zip archive found in '" .. exe_path .. "'", file_count = 0}
+  end
+  local reader = reader_maybe as ZipReader
+
+  local entries = reader:list()
+  local count = 0
+
+  for _, name in ipairs(entries) do
+    -- Skip directory entries (trailing /)
+    if name:sub(-1) == "/" then
+      unix.makedirs(pathlib.join(output_dir, name))
+    else
+      local content, read_err = reader:read(name)
+      if not content then
+        reader:close()
+        return {ok = false, message = "error: cannot read '" .. name .. "' from archive: " .. (read_err or "unknown error"), file_count = count}
+      end
+
+      local filepath = pathlib.join(output_dir, name)
+      local dir = pathlib.dirname(filepath)
+      unix.makedirs(dir)
+
+      if not cosmo.Barf(filepath, content) then
+        reader:close()
+        return {ok = false, message = "error: cannot write '" .. filepath .. "'", file_count = count}
+      end
+      count = count + 1
+    end
+  end
+
+  reader:close()
+
+  return {
+    ok = true,
+    message = "extracted " .. count .. " file(s) to " .. output_dir,
+    file_count = count,
   }
 end
 
 local record EmbedModule
-  run: function(files: {string}, output?: string, exe_path?: string): EmbedResult
+  run: function(paths: {string}, output?: string, exe_path?: string): EmbedResult
+  extract: function(output_dir: string, exe_path?: string): EmbedResult
 end
 
 local M: EmbedModule = {
   run = run,
+  extract = extract,
 }
 
 return M

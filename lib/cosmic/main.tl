@@ -27,6 +27,7 @@ local record Opts
   check_types: string      -- Input file for --check-types
   embed: {string}          -- Files to embed via --embed
   output: string           -- Output file for --embed (defaults to "cosmic")
+  extract: string          -- Output dir for --extract
   check_examples: string   -- Input file for --check-examples (run examples)
   examples: string         -- Module for --examples (nil = not set, "" = list all)
   benchmark: string        -- Input file for --benchmark (run benchmarks)
@@ -50,6 +51,7 @@ local function parse_args(): Opts
     check_types = nil,
     embed = {},
     output = nil,
+    extract = nil,
     check_examples = nil,
     examples = nil,
     benchmark = nil,
@@ -65,6 +67,7 @@ local function parse_args(): Opts
     { "check-types", "required", nil },
     { "embed", "required", nil },
     { "output", "required", nil },
+    { "extract", "required", nil },
     { "check-examples", "required", nil },
     { "examples", "optional", nil },
     { "benchmark", "required", nil },
@@ -196,6 +199,9 @@ local function parse_args(): Opts
       opts.embed[#opts.embed + 1] = optarg
     elseif opt == "output" then
       opts.output = optarg
+    elseif opt == "extract" then
+      opts.extract = optarg
+      return opts
     elseif opt == "check-examples" then
       opts.check_examples = optarg
       return opts
@@ -339,8 +345,9 @@ local function generate_help(): string
   table.insert(lines, "  --check-types <file.tl>       type-check a Teal file, strict mode")
   table.insert(lines, "  --check-examples <file.tl>    run Example_* functions, check output")
   table.insert(lines, "  --examples [module]           browse examples (list all, or show module)")
-  table.insert(lines, "  --embed <file>                embed file(s) into cosmic (use multiple times)")
+  table.insert(lines, "  --embed <path>                embed file or directory into executable")
   table.insert(lines, "  --output <file>               output file for --embed (default: cosmic)")
+  table.insert(lines, "  --extract <dir>               extract zip contents to directory")
   table.insert(lines, "  --benchmark <file.tl[:pat]>   run Benchmark_* functions, report timing")
   table.insert(lines, "  --docs <query>                show documentation for module or symbol")
   table.insert(lines, "  --welcome                     show welcome message")
@@ -483,6 +490,14 @@ local function main(): integer, string
   if #opts.embed > 0 then
     local embed = require("cosmic.embed")
     local result = embed.run(opts.embed, opts.output)
+    io.write(result.message .. "\n")
+    return result.ok and 0 or 1
+  end
+
+  -- Handle --extract
+  if opts.extract then
+    local embed = require("cosmic.embed")
+    local result = embed.extract(opts.extract)
     io.write(result.message .. "\n")
     return result.ok and 0 or 1
   end
