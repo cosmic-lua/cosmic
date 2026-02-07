@@ -1,9 +1,51 @@
 # tty
 
  Terminal (TTY) utilities.
- Wraps cosmo.unix for terminal detection and window size queries.
+ Wraps cosmo.unix for terminal detection, window size, and terminal modes.
 
 ## Types
+
+### Termios
+
+ Terminal I/O settings.
+
+```teal
+local record Termios
+  iflag: number
+  oflag: number
+  cflag: number
+  lflag: number
+  cc: {number}
+  ispeed: number
+  ospeed: number
+end
+```
+
+### Errno
+
+```teal
+local record Errno
+  doc: function(self: Errno): string
+end
+```
+
+### UnixTty
+
+```teal
+local record UnixTty
+  isatty: function(fd: number): boolean
+  tiocgwinsz: function(fd: number): number, number
+  tcgetattr: function(fd: number): Termios, Errno
+  tcsetattr: function(fd: number, action: number, termios: Termios): boolean, Errno
+  TCSANOW: number
+  TCSADRAIN: number
+  TCSAFLUSH: number
+  ECHO: number
+  ICANON: number
+  ISIG: number
+  IEXTEN: number
+end
+```
 
 ### TtyModule
 
@@ -13,11 +55,27 @@
 local record TtyModule
   rows: number
   cols: number
+  --  Terminal I/O settings.
+  Termios: Termios
+  --  tcsetattr actions.
+  NOW: number
+  DRAIN: number
+  FLUSH: number
+  --  Common lflag constants.
+  ECHO: number
+  ICANON: number
+  ISIG: number
+  IEXTEN: number
   isatty: function(fd: number): boolean
   winsize: function(fd: number): WinSize, string
   stdin_isatty: function(): boolean
   stdout_isatty: function(): boolean
   stderr_isatty: function(): boolean
+  getattr: function(fd: number): Termios, string
+  setattr: function(fd: number, action: number, termios: Termios): boolean, string
+  raw: function(fd: number): Termios, string
+  noecho: function(fd: number): Termios, string
+  restore: function(fd: number, termios: Termios): boolean, string
 end
 ```
 
@@ -91,3 +149,93 @@ function stderr_isatty(): boolean
 **Returns:**
 
 - boolean - True if stderr is a terminal
+
+### getattr
+
+```teal
+function getattr(fd: number): Termios, string
+```
+
+ Gets terminal attributes for a file descriptor.
+
+**Parameters:**
+
+- `fd` (number) - File descriptor (typically 0 for stdin)
+
+**Returns:**
+
+- Termios - Terminal attributes
+- string? - Error message if not a terminal
+
+### setattr
+
+```teal
+function setattr(fd: number, action: number, termios: Termios): boolean, string
+```
+
+ Sets terminal attributes for a file descriptor.
+
+**Parameters:**
+
+- `fd` (number) - File descriptor
+- `action` (number) - When to apply changes (NOW, DRAIN, or FLUSH)
+- `termios` (Termios) - Terminal attributes to set
+
+**Returns:**
+
+- boolean - True on success
+- string? - Error message on failure
+
+### raw
+
+```teal
+function raw(fd: number): Termios, string
+```
+
+ Puts terminal into raw mode (no echo, no line buffering, no signals).
+ Returns the original termios for later restoration.
+
+**Parameters:**
+
+- `fd` (number) - File descriptor (typically 0 for stdin)
+
+**Returns:**
+
+- Termios - Original terminal attributes for restore()
+- string? - Error message if not a terminal
+
+### noecho
+
+```teal
+function noecho(fd: number): Termios, string
+```
+
+ Disables echo on terminal (for password input).
+ Returns the original termios for later restoration.
+
+**Parameters:**
+
+- `fd` (number) - File descriptor (typically 0 for stdin)
+
+**Returns:**
+
+- Termios - Original terminal attributes for restore()
+- string? - Error message if not a terminal
+
+### restore
+
+```teal
+function restore(fd: number, termios: Termios): boolean, string
+```
+
+ Restores terminal attributes.
+
+**Parameters:**
+
+- `fd` (number) - File descriptor
+- `termios` (Termios) - Terminal attributes from raw() or noecho()
+
+**Returns:**
+
+- boolean - True on success
+- string? - Error message on failure
