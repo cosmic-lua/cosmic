@@ -1,7 +1,8 @@
 #!/usr/bin/env lua
 
-local cosmo = require("cosmo")
-local getopt = require("cosmo.getopt")
+local cio = require("cosmic.io")
+local getopt = require("cosmic.getopt")
+local proc = require("cosmic.proc")
 
 local record CheckResult
   status: string
@@ -73,8 +74,8 @@ local function format_failures(results: {CheckResult}): string
       end
       if result.file then
         local base = result.file:gsub("%.got$", "")
-        local out = cosmo.Slurp(base .. ".out") or ""
-        local err = cosmo.Slurp(base .. ".err") or ""
+        local out = cio.slurp(base .. ".out") or ""
+        local err = cio.slurp(base .. ".err") or ""
         if out ~= "" then
           table.insert(lines, "")
           table.insert(lines, "stdout:")
@@ -96,7 +97,7 @@ local function main(...: string): integer, string
   local args = {...}
   local dir: string = nil
 
-  local longopts = {{"dir", "required"}}
+  local longopts: {getopt.LongOpt} = {{name = "dir", has_arg = "required"}}
   local parser = getopt.new(args, "", longopts)
 
   while true do
@@ -153,7 +154,7 @@ local function main(...: string): integer, string
     table.sort(result_files)
 
     for _, file in ipairs(result_files) do
-      local content = cosmo.Slurp(file)
+      local content = cio.slurp(file)
       if content then
         local exit_code = tonumber(content:match("^(%d+)"))
         local status_str: string
@@ -165,8 +166,8 @@ local function main(...: string): integer, string
           status_str = "fail"
         end
         local base = string.gsub(file, "%.got$", "")
-        local out_content = cosmo.Slurp(base .. ".out") or ""
-        local err_content = cosmo.Slurp(base .. ".err") or ""
+        local out_content = cio.slurp(base .. ".out") or ""
+        local err_content = cio.slurp(base .. ".err") or ""
 
         local message = ""
         if exit_code ~= 0 and err_content ~= "" then
@@ -242,7 +243,7 @@ local function main(...: string): integer, string
   return total_failed == 0 and 0 or 1, nil
 end
 
-if cosmo.is_main() then
+if proc.is_main() then
   local code, err = main(...)
   if err then
     io.stderr:write(err .. "\n")

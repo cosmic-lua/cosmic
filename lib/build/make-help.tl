@@ -1,7 +1,8 @@
 #!/usr/bin/env cosmic
 -- Parse Makefile targets and extract documentation comments
 
-local cosmo = require("cosmo")
+local cio = require("cosmic.io")
+local proc = require("cosmic.proc")
 
 local record Item
   type: string
@@ -117,9 +118,9 @@ end
 local function main(args: {string}): number, string
   local makefile = args[1] or "Makefile"
 
-  local content = cosmo.Slurp(makefile)
+  local content, read_err = cio.slurp(makefile)
   if not content then
-    return 1, "Failed to read " .. makefile
+    return 1, "Failed to read " .. makefile .. ": " .. (read_err or "unknown error")
   end
 
   local targets = parse_makefile(content)
@@ -127,7 +128,7 @@ local function main(args: {string}): number, string
   return 0
 end
 
-if cosmo.is_main() then
+if proc.is_main() then
   local exit_code, err = main(arg)
   if err then
     io.stderr:write(err .. "\n")

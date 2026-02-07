@@ -2,19 +2,10 @@
 -- ast-grep ignore: builds relative symlink paths
 -- stage.lua: extract fetched archives based on version.lua format
 
-local cosmo = require("cosmo")
-local path = require("cosmo.path")
-local unix = require("cosmo.unix")
+local cio = require("cosmic.io")
+local fs = require("cosmic.fs")
+local proc = require("cosmic.proc")
 local spawn = require("cosmic.child")
-
-local record Stat
-  mode: function(Stat): number
-end
-
-local record DirHandle
-  read: function(DirHandle): string
-  close: function(DirHandle)
-end
 
 local record PlatformSpec
   sha: string
@@ -33,18 +24,19 @@ local record VersionSpec
 end
 
 local function move_contents(source_dir: string, dest_dir: string): boolean, string
-  local dir = unix.opendir(source_dir) as DirHandle
+  local dir, dir_err = fs.opendir(source_dir)
   if not dir then
-    return nil, "failed to open directory " .. source_dir
+    return nil, "failed to open directory " .. source_dir .. ": " .. (dir_err or "unknown error")
   end
   while true do
     local name = dir:read()
     if not name then break end
     if name ~= "." and name ~= ".." then
-      local src = path.join(source_dir, name)
-      local dst = path.join(dest_dir, name)
-      if not unix.rename(src, dst) then
-        return nil, "failed to move " .. src .. " to " .. dst
+      local src = fs.join(source_dir, name)
+      local dst = fs.join(dest_dir, name)
+      local ok, err = fs.rename(src, dst)
+      if not ok then
+        return nil, "failed to move " .. src .. " to " .. dst .. ": " .. (err or "unknown error")
       end
     end
   end
@@ -58,9 +50,9 @@ local function strip_components(source_dir: string, dest_dir: string, strip: num
 
   local current = source_dir
   for _ = 1, strip do
-    local dir = unix.opendir(current) as DirHandle
+    local dir, dir_err = fs.opendir(current)
     if not dir then
-      return nil, "failed to open directory " .. current
+      return nil, "failed to open directory " .. current .. ": " .. (dir_err or "unknown error")
     end
     local entries: {string} = {}
     while true do
@@ -73,85 +65,79 @@ local function strip_components(source_dir: string, dest_dir: string, strip: num
     if #entries ~= 1 then
       return nil, string.format("strip %d: expected 1 entry at level, found %d", strip as integer, #entries)
     end
-    current = path.join(current, entries[1])
+    current = fs.join(current, entries[1])
   end
 
-  local stat = unix.stat(current) as Stat
-  if stat and unix.S_ISDIR(stat:mode()) then
+  local st = fs.stat(current)
+  if st and fs.is_dir(st:mode()) then
     return move_contents(current, dest_dir)
   else
-    local dst = path.join(dest_dir, path.basename(current))
-    return unix.rename(current, dst)
+    local dst = fs.join(dest_dir, fs.basename(current))
+    return fs.rename(current, dst)
   end
 end
 
 local function extract_zip(archive: string, dest_dir: string, strip: number): boolean, string
-  local temp_dir = unix.mkdtemp(path.join(path.dirname(dest_dir), ".stage_XXXXXX"))
+  local temp_dir = fs.mkdtemp(fs.join(fs.dirname(dest_dir), ".stage_XXXXXX"))
   local handle = spawn.spawn({"/usr/bin/unzip", "-o", "-q", "-d", temp_dir, archive})
   local exit_code = handle:wait()
   if exit_code ~= 0 then
-    unix.rmrf(temp_dir)
+    fs.rmrf(temp_dir)
     return nil, "unzip failed with exit code " .. exit_code
   end
   local ok, err = strip_components(temp_dir, dest_dir, strip)
-  unix.rmrf(temp_dir)
+  fs.rmrf(temp_dir)
   return ok, err
 end
 
 local function extract_targz(archive: string, dest_dir: string, strip: number): boolean, string
-  local temp_dir = unix.mkdtemp(path.join(path.dirname(dest_dir), ".stage_XXXXXX"))
+  local temp_dir = fs.mkdtemp(fs.join(fs.dirname(dest_dir), ".stage_XXXXXX"))
   local handle = spawn.spawn({"tar", "-xzf", archive, "-C", temp_dir})
   local exit_code = handle:wait()
   if exit_code ~= 0 then
-    unix.rmrf(temp_dir)
+    fs.rmrf(temp_dir)
     return nil, "tar failed with exit code " .. exit_code
   end
   local ok, err = strip_components(temp_dir, dest_dir, strip)
-  unix.rmrf(temp_dir)
+  fs.rmrf(temp_dir)
   return ok, err
 end
 
 local function copy_binary(archive: string, dest_dir: string, module_name: string): boolean, string
-  local bin_dir = path.join(dest_dir, "bin")
-  unix.makedirs(bin_dir)
-  local dest = path.join(bin_dir, module_name)
-  local f = io.open(archive, "rb")
-  if not f then
-    return nil, "failed to open " .. archive
+  local bin_dir = fs.join(dest_dir, "bin")
+  fs.makedirs(bin_dir)
+  local dest = fs.join(bin_dir, module_name)
+  local content, read_err = cio.slurp(archive)
+  if not content then
+    return nil, "failed to open " .. archive .. ": " .. (read_err or "unknown error")
   end
-  local content = f:read("*a")
-  f:close()
-  local fd = unix.open(dest, unix.O_WRONLY | unix.O_CREAT | unix.O_TRUNC, tonumber("755", 8))
-  if not fd then
-    return nil, "failed to create " .. dest
+  local ok, write_err = cio.barf(dest, content, tonumber("755", 8))
+  if not ok then
+    return nil, "failed to create " .. dest .. ": " .. (write_err or "unknown error")
   end
-  unix.write(fd, content)
-  unix.close(fd)
   return true
 end
 
 local function extract_gz(archive: string, dest_dir: string, module_name: string): boolean, string
-  local bin_dir = path.join(dest_dir, "bin")
-  unix.makedirs(bin_dir)
-  local dest = path.join(bin_dir, module_name)
+  local bin_dir = fs.join(dest_dir, "bin")
+  fs.makedirs(bin_dir)
+  local dest = fs.join(bin_dir, module_name)
   local handle = spawn.spawn({"gunzip", "-c", archive})
   local exit_code, content = handle:read()
   if not exit_code then
     return nil, "gunzip failed: " .. tostring(content)
   end
-  local fd = unix.open(dest, unix.O_WRONLY | unix.O_CREAT | unix.O_TRUNC, tonumber("755", 8))
-  if not fd then
-    return nil, "failed to create " .. dest
+  local ok, write_err = cio.barf(dest, content, tonumber("755", 8))
+  if not ok then
+    return nil, "failed to create " .. dest .. ": " .. (write_err or "unknown error")
   end
-  unix.write(fd, content)
-  unix.close(fd)
   return true
 end
 
 local function install_files(source_dir: string, dest_dir: string, strip_prefix: string): boolean, string
   local src = source_dir
   if strip_prefix then
-    src = path.join(source_dir, strip_prefix)
+    src = fs.join(source_dir, strip_prefix)
   end
   return move_contents(src, dest_dir)
 end
@@ -165,22 +151,23 @@ local function extract_and_install(
   strip: number,
   strip_prefix: string
 ): boolean, string
-  local temp_dir = unix.mkdtemp(path.join(path.dirname(stage_dir), ".stage_XXXXXX"))
+  local temp_dir = fs.mkdtemp(fs.join(fs.dirname(stage_dir), ".stage_XXXXXX"))
   local ok, err = extract_fn(archive, temp_dir, strip)
   if ok then
     ok, err = install_files(temp_dir, stage_dir, strip_prefix)
   end
-  unix.rmrf(temp_dir)
+  fs.rmrf(temp_dir)
   return ok, err
 end
 
 local function apply_install(stage_dir: string, install: {string:string}): boolean, string
   for src, dst in pairs(install) do
-    local src_path = path.join(stage_dir, src)
-    local dst_path = path.join(stage_dir, dst)
-    unix.makedirs(path.dirname(dst_path))
-    if not unix.rename(src_path, dst_path) then
-      return nil, string.format("install %s -> %s failed", src, dst)
+    local src_path = fs.join(stage_dir, src)
+    local dst_path = fs.join(stage_dir, dst)
+    fs.makedirs(fs.dirname(dst_path))
+    local ok, err = fs.rename(src_path, dst_path)
+    if not ok then
+      return nil, string.format("install %s -> %s failed: %s", src, dst, err or "unknown error")
     end
   end
   return true
@@ -188,19 +175,20 @@ end
 
 local function apply_remove(stage_dir: string, remove: {string}): boolean, string
   for _, file in ipairs(remove) do
-    local file_path = path.join(stage_dir, file)
-    unix.rmrf(file_path)
+    local file_path = fs.join(stage_dir, file)
+    fs.rmrf(file_path)
   end
   return true
 end
 
 local function apply_links(stage_dir: string, links: {string:string}): boolean, string
   for link, target in pairs(links) do
-    local link_path = path.join(stage_dir, link)
-    unix.makedirs(path.dirname(link_path))
-    unix.rmrf(link_path)
-    if not unix.symlink(target, link_path) then
-      return nil, string.format("link %s -> %s failed", link, target)
+    local link_path = fs.join(stage_dir, link)
+    fs.makedirs(fs.dirname(link_path))
+    fs.rmrf(link_path)
+    local ok, err = fs.symlink(target, link_path)
+    if not ok then
+      return nil, string.format("link %s -> %s failed: %s", link, target, err or "unknown error")
     end
   end
   return true
@@ -208,24 +196,24 @@ end
 
 local function find_archive(fetch_dir: string, format: string): string, string
   if format == "binary" or format == "gz" then
-    return path.join(fetch_dir, "binary")
+    return fs.join(fetch_dir, "binary")
   end
-  local ext: string = nil
+  local extension: string = nil
   if format == "zip" then
-    ext = ".zip"
+    extension = ".zip"
   elseif format == "tar.gz" then
-    ext = ".tar.gz"
+    extension = ".tar.gz"
   end
-  local dir = unix.opendir(fetch_dir) as DirHandle
+  local dir, dir_err = fs.opendir(fetch_dir)
   if not dir then
-    return nil, "failed to open " .. fetch_dir
+    return nil, "failed to open " .. fetch_dir .. ": " .. (dir_err or "unknown error")
   end
   while true do
     local name = dir:read()
     if not name then break end
     if name ~= "." and name ~= ".." then
-      if not ext or name:sub(-#ext) == ext then
-        return path.join(fetch_dir, name)
+      if not extension or name:sub(-#extension) == extension then
+        return fs.join(fetch_dir, name)
       end
     end
   end
@@ -256,8 +244,8 @@ local function main(version_file: string, platform: string, input: string, outpu
   local strip = spec.strip_components or 1
 
   -- derive module name from output path: o/<module>/.staged
-  local output_dir = path.dirname(output)
-  local module_name = path.basename(output_dir)
+  local output_dir = fs.dirname(output)
+  local module_name = fs.basename(output_dir)
 
   -- input is now a directory; find the archive inside
   local archive, err = find_archive(input, format)
@@ -267,8 +255,8 @@ local function main(version_file: string, platform: string, input: string, outpu
 
   local version_sha = spec.version .. "-" .. plat.sha
 
-  local stage_dir = path.join(stage_o, module_name, version_sha)
-  local ok_mk, err_mk = unix.makedirs(stage_dir)
+  local stage_dir = fs.join(stage_o, module_name, version_sha)
+  local ok_mk, err_mk = fs.makedirs(stage_dir)
   if not ok_mk then
     return nil, "makedirs failed for " .. stage_dir .. ": " .. tostring(err_mk)
   end
@@ -310,18 +298,19 @@ local function main(version_file: string, platform: string, input: string, outpu
 
   -- create symlink: output -> staged/<module>/<version-sha>
   -- output is o/<module>/.staged, staged is o/staged/<module>/<ver>-<sha>
-  unix.rmrf(output)
-  unix.makedirs(output_dir)
-  local stage_o_basename = path.basename(stage_o)
+  fs.rmrf(output)
+  fs.makedirs(output_dir)
+  local stage_o_basename = fs.basename(stage_o)
   local rel_path = "../" .. stage_o_basename .. "/" .. module_name .. "/" .. version_sha
-  if not unix.symlink(rel_path, output) then
-    return nil, "failed to symlink: " .. rel_path .. " -> " .. output
+  local ok_symlink, symlink_err = fs.symlink(rel_path, output)
+  if not ok_symlink then
+    return nil, "failed to symlink: " .. rel_path .. " -> " .. output .. ": " .. (symlink_err or "unknown error")
   end
 
   return true
 end
 
-if cosmo.is_main() then
+if proc.is_main() then
   local ok, err = main(arg[1], arg[2], arg[3], arg[4])
   if not ok then
     io.stderr:write("error: " .. tostring(err) .. "\n")
