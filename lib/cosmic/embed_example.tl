@@ -1,12 +1,12 @@
 --- Examples for the cosmic.embed module.
 --- Demonstrates creating custom executables and extracting zip contents.
 ---
---- NOTE: embedded code must be plain Lua (.lua files). The zip runtime does
---- not compile Teal, so .tl files must be compiled first with --compile.
---- See Example_embed_from_teal below for the compile-then-embed workflow.
+--- Any file can be embedded, but the entry point must be a main.lua file
+--- (plain Lua). Teal files are not compiled at runtime — compile them to
+--- .lua first with --compile. See Example_embed_from_teal for that workflow.
 
 -- Example_embed_directory demonstrates embedding a directory into a new executable.
--- The entry point must be main.lua (plain Lua, not Teal).
+-- The directory must contain a main.lua entry point.
 local function Example_embed_directory()
   local cosmo = require("cosmo")
   local unix = require("cosmo.unix")
@@ -16,8 +16,7 @@ local function Example_embed_directory()
 
   local tmpdir = unix.mkdtemp("/tmp/embed_example_XXXXXX")
 
-  -- Create a simple app directory with a main.lua entry point.
-  -- This must be a .lua file — .tl files are not compiled at runtime.
+  -- Create a simple app directory with a main.lua entry point
   local appdir = path.join(tmpdir, "myapp")
   unix.makedirs(appdir)
   cosmo.Barf(path.join(appdir, "main.lua"), 'print("hello from myapp")\n')
@@ -93,9 +92,9 @@ io.write(out)
   -- it works
 end
 
--- Example_embed_from_teal demonstrates compiling Teal to Lua before embedding.
--- You cannot embed .tl files directly — the zip runtime only executes Lua.
--- Use cosmic --compile to produce .lua output, then embed that.
+-- Example_embed_from_teal demonstrates the Teal workflow: compile .tl to .lua,
+-- then embed. The entry point must be main.lua since Teal is not compiled at
+-- runtime.
 local function Example_embed_from_teal()
   local cosmo = require("cosmo")
   local unix = require("cosmo.unix")
