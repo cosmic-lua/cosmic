@@ -14,7 +14,13 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 local record Reader
   list: function(self: Reader): {string}
   read: function(self: Reader, name: string): string | nil, string | nil
+  stat: function(self: Reader, name: string): Stat | nil
   close: function(self: Reader)
+end
+
+-- Stat record for file metadata
+local record Stat
+  mode: number
 end
 
 local function write_temp(name: string, content: string): string
@@ -362,5 +368,99 @@ local function test_embed_overwrites_cleanly()
   new_reader:close()
 end
 test_embed_overwrites_cleanly()
+
+-- Test that file modes are preserved in the zip archive
+local function test_embed_preserves_file_modes()
+  local appdir = path.join(tmpdir, "modeapp")
+  unix.makedirs(appdir)
+
+  -- Create files with different modes
+  local script = path.join(appdir, "run.sh")
+  local config = path.join(appdir, "config.txt")
+  local secret = path.join(appdir, "secret.key")
+
+  cosmo.Barf(script, "#!/bin/sh\necho hello\n")
+  cosmo.Barf(config, "setting=value\n")
+  cosmo.Barf(secret, "private-key-data\n")
+
+  -- Set specific modes
+  unix.chmod(script, tonumber("755", 8))
+  unix.chmod(config, tonumber("644", 8))
+  unix.chmod(secret, tonumber("600", 8))
+
+  local output = path.join(tmpdir, "cosmic-modes")
+  local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--output", output}):read()
+  assert(ok, "embed should succeed: " .. (out or ""))
+
+  -- Check modes in the zip archive
+  local data = cosmo.Slurp(output)
+  local reader_maybe = zip.from(data)
+  assert(reader_maybe, "failed to open zip from data")
+  local reader = reader_maybe as Reader
+
+  local script_stat = reader:stat("run.sh")
+  local config_stat = reader:stat("config.txt")
+  local secret_stat = reader:stat("secret.key")
+
+  assert(script_stat, "run.sh should exist in zip")
+  assert(config_stat, "config.txt should exist in zip")
+  assert(secret_stat, "secret.key should exist in zip")
+
+  -- Check permission bits (mask with 0777 to get just permission bits)
+  local script_mode = (script_stat as Stat).mode & tonumber("777", 8)
+  local config_mode = (config_stat as Stat).mode & tonumber("777", 8)
+  local secret_mode = (secret_stat as Stat).mode & tonumber("777", 8)
+
+  assert(script_mode == tonumber("755", 8),
+    "run.sh should have mode 755, got " .. string.format("%o", script_mode))
+  assert(config_mode == tonumber("644", 8),
+    "config.txt should have mode 644, got " .. string.format("%o", config_mode))
+  assert(secret_mode == tonumber("600", 8),
+    "secret.key should have mode 600, got " .. string.format("%o", secret_mode))
+
+  reader:close()
+end
+test_embed_preserves_file_modes()
+
+-- Test that file modes are restored on extract
+local function test_extract_preserves_file_modes()
+  -- First embed files with specific modes
+  local appdir = path.join(tmpdir, "extract-modeapp")
+  unix.makedirs(appdir)
+
+  local script = path.join(appdir, "run.sh")
+  local secret = path.join(appdir, "secret.key")
+
+  cosmo.Barf(script, "#!/bin/sh\necho hello\n")
+  cosmo.Barf(secret, "private-key-data\n")
+
+  unix.chmod(script, tonumber("755", 8))
+  unix.chmod(secret, tonumber("600", 8))
+
+  local embedded = path.join(tmpdir, "cosmic-extract-modes")
+  local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--output", embedded}):read()
+  assert(ok, "embed should succeed: " .. (out or ""))
+
+  -- Extract to a new directory
+  local extractdir = path.join(tmpdir, "extracted-modes")
+  ok, out = spawn.spawn({embedded, "--extract", extractdir}):read()
+  assert(ok, "extract should succeed: " .. (out or ""))
+
+  -- Check modes of extracted files
+  local script_stat = unix.stat(path.join(extractdir, "run.sh"))
+  local secret_stat = unix.stat(path.join(extractdir, "secret.key"))
+
+  assert(script_stat, "run.sh should exist after extract")
+  assert(secret_stat, "secret.key should exist after extract")
+
+  local script_mode = script_stat:mode() & tonumber("777", 8)
+  local secret_mode = secret_stat:mode() & tonumber("777", 8)
+
+  assert(script_mode == tonumber("755", 8),
+    "run.sh should have mode 755 after extract, got " .. string.format("%o", script_mode))
+  assert(secret_mode == tonumber("600", 8),
+    "secret.key should have mode 600 after extract, got " .. string.format("%o", secret_mode))
+end
+test_extract_preserves_file_modes()
 
 print("All embed tests passed!")
