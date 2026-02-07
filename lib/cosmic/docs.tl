@@ -2,7 +2,7 @@
 --- Provides a CLI interface similar to Go's `go doc` command.
 --- Documentation is parsed at build time and embedded as a serialized Lua index.
 
-local cosmo = require("cosmo")
+local cio = require("cosmic.io")
 local fuzzy = require("cosmic.fuzzy")
 
 --- A function parameter.
@@ -84,7 +84,7 @@ local function load_index(): DocIndex, string
     return cached_index, nil
   end
 
-  local source = cosmo.Slurp(INDEX_PATH)
+  local source = cio.slurp(INDEX_PATH)
   if not source then
     return nil, "no documentation index embedded"
   end

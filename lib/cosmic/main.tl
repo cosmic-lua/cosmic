@@ -8,10 +8,7 @@ if not os.getenv("COSMIC_NO_REQUIRE_HINTS") then
   require("cosmic.require").install()
 end
 
-local getopt = require("cosmo.getopt")
-
--- Long option definition: {name, arg_requirement, short_alias}
-local type LongOpt = {string, string, string}
+local getopt = require("cosmic.getopt")
 
 -- Parsed options record
 local record Opts
@@ -61,18 +58,18 @@ local function parse_args(): Opts
   }
 
   local shortopts = "e:l:ivEWh"
-  local longopts: {LongOpt} = {
-    { "help", "none", "h" },
-    { "compile", "required", nil },
-    { "check-types", "required", nil },
-    { "embed", "required", nil },
-    { "output", "required", nil },
-    { "extract", "required", nil },
-    { "check-examples", "required", nil },
-    { "examples", "optional", nil },
-    { "benchmark", "required", nil },
-    { "docs", "required", nil },
-    { "welcome", "none", nil },
+  local longopts: {getopt.LongOpt} = {
+    { name = "help", has_arg = "none", short = "h" },
+    { name = "compile", has_arg = "required" },
+    { name = "check-types", has_arg = "required" },
+    { name = "embed", has_arg = "required" },
+    { name = "output", has_arg = "required" },
+    { name = "extract", has_arg = "required" },
+    { name = "check-examples", has_arg = "required" },
+    { name = "examples", has_arg = "optional" },
+    { name = "benchmark", has_arg = "required" },
+    { name = "docs", has_arg = "required" },
+    { name = "welcome", has_arg = "none" },
   }
 
   -- Parse shortopts to build set of options that require arguments
@@ -93,8 +90,8 @@ local function parse_args(): Opts
   -- Parse longopts to build set of options that require arguments
   local long_needs_arg: {string:boolean} = {}
   for _, opt in ipairs(longopts) do
-    if opt[2] == "required" then
-      long_needs_arg[opt[1]] = true
+    if opt.has_arg == "required" then
+      long_needs_arg[opt.name] = true
     end
   end
 
@@ -161,7 +158,7 @@ local function parse_args(): Opts
     end
   end
 
-  local parser = getopt.new(cosmic_args, shortopts, longopts as {{string, string}})
+  local parser = getopt.new(cosmic_args, shortopts, longopts)
 
   -- Iterate through all options
   while true do
@@ -427,8 +424,8 @@ local function main(): integer, string
   if not os.getenv("COSMIC_NO_WELCOME") then
     local welcome = require("cosmic.welcome")
     if not welcome.was_shown() then
-      local unix = require("cosmo.unix")
-      if unix.isatty(2) then
+      local tty = require("cosmic.tty")
+      if tty.stderr_isatty() then
         io.stderr:write(generate_welcome())
         welcome.mark_shown()
       end

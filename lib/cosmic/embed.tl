@@ -26,10 +26,9 @@
 ---
 --- This roundtrips: extract produces exactly the files that embed consumes.
 
-local cosmo = require("cosmo")
-local zip = require("cosmo.zip")
-local pathlib = require("cosmo.path")
-local unix = require("cosmo.unix")
+local cio = require("cosmic.io")
+local czip = require("cosmic.zip")
+local fs = require("cosmic.fs")
 
 --- Result returned from embed and extract operations.
 local record EmbedResult
@@ -71,15 +70,6 @@ local record FileToEmbed
   mode: number
 end
 
--- Unix interfaces used for directory walking.
-local record WalkStat
-  mode: function(self: WalkStat): integer
-end
-local record WalkDirHandle
-  read: function(self: WalkDirHandle): string
-  close: function(self: WalkDirHandle)
-end
-
 --- Recursively collect all files from a directory.
 --- Files are stored with paths relative to the directory root.
 --- @param dir string The directory to collect from
@@ -89,9 +79,9 @@ local function collect_dir(dir: string): {FileToEmbed}, string
   local collected: {FileToEmbed} = {}
 
   local function do_walk(base_dir: string, rel_prefix: string): string
-    local handle = unix.opendir(base_dir) as WalkDirHandle
+    local handle, dir_err = fs.opendir(base_dir)
     if not handle then
-      return "cannot open directory '" .. base_dir .. "'"
+      return "cannot open directory '" .. base_dir .. "': " .. (dir_err or "unknown error")
     end
 
     local entries: {string} = {}
@@ -106,21 +96,19 @@ local function collect_dir(dir: string): {FileToEmbed}, string
     table.sort(entries)
 
     for _, entry in ipairs(entries) do
-      local full_path = pathlib.join(base_dir, entry)
-      local st = unix.stat(full_path) as WalkStat
+      local full_path = fs.join(base_dir, entry)
+      local st = fs.stat(full_path)
       if st then
-        if unix.S_ISDIR(st:mode()) then
+        if fs.is_dir(st:mode()) then
           local rel = rel_prefix == "" and entry or (rel_prefix .. "/" .. entry)
           local walk_err = do_walk(full_path, rel)
           if walk_err then return walk_err end
         else
           local stored_name = rel_prefix == "" and entry or (rel_prefix .. "/" .. entry)
-          local f, open_err = io.open(full_path, "rb")
-          if not f then
-            return "cannot open file '" .. full_path .. "': " .. (open_err or "unknown error")
+          local content, read_err = cio.slurp(full_path)
+          if not content then
+            return "cannot open file '" .. full_path .. "': " .. (read_err or "unknown error")
           end
-          local content = f:read("*a")
-          f:close()
           -- Extract permission bits (lower 9 bits)
           local file_mode = st:mode() & tonumber("777", 8)
           collected[#collected + 1] = {
@@ -165,7 +153,7 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
   local files_to_embed: {FileToEmbed} = {}
 
   for _, p in ipairs(paths) do
-    if pathlib.isdir(p) then
+    if fs.isdir(p) then
       local dir_files, err = collect_dir(p)
       if not dir_files then
         return {ok = false, message = "error: " .. (err or "unknown error"), file_count = 0}
@@ -174,17 +162,15 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
         files_to_embed[#files_to_embed + 1] = f
       end
     else
-      local f, open_err = io.open(p, "rb")
-      if not f then
+      local content, open_err = cio.slurp(p)
+      if not content then
         return {ok = false, message = "error: cannot open file '" .. p .. "': " .. (open_err or "unknown error"), file_count = 0}
       end
-      local content = f:read("*a")
-      f:close()
 
       local stored_name = p:gsub("^/+", "")
 
       -- Get file mode
-      local st = unix.stat(p)
+      local st = fs.stat(p)
       local file_mode = tonumber("644", 8) -- default
       if st then
         file_mode = st:mode() & tonumber("777", 8)
@@ -204,19 +190,20 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
   end
 
   -- Copy source executable to output path
-  local exe_data = cosmo.Slurp(exe_path)
+  local exe_data = cio.slurp(exe_path)
   if not exe_data then
     return {ok = false, message = "error: cannot read executable '" .. exe_path .. "'", file_count = 0}
   end
 
-  if not cosmo.Barf(output, exe_data, tonumber("755", 8)) then
+  local barf_ok = cio.barf(output, exe_data, tonumber("755", 8))
+  if not barf_ok then
     return {ok = false, message = "error: cannot write to '" .. output .. "'", file_count = 0}
   end
 
   -- Open the copy as an appender to modify its zip in-place
   local appender_result: any
   local appender_err: any
-  appender_result, appender_err = zip.open(output, "a")
+  appender_result, appender_err = czip.open(output, "a")
   if not appender_result then
     os.remove(output)
     return {ok = false, message = "error: failed to open zip for appending: " .. tostring(appender_err or "unknown error"), file_count = 0}
@@ -255,12 +242,12 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
     return {ok = false, message = "error: could not determine executable path", file_count = 0}
   end
 
-  local exe_data = cosmo.Slurp(exe_path)
+  local exe_data = cio.slurp(exe_path)
   if not exe_data then
     return {ok = false, message = "error: cannot read executable '" .. exe_path .. "'", file_count = 0}
   end
 
-  local reader_maybe = zip.from(exe_data)
+  local reader_maybe = czip.from(exe_data)
   if not reader_maybe then
     return {ok = false, message = "error: no zip archive found in '" .. exe_path .. "'", file_count = 0}
   end
@@ -272,7 +259,7 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
   for _, name in ipairs(entries) do
     -- Skip directory entries (trailing /)
     if name:sub(-1) == "/" then
-      unix.makedirs(pathlib.join(output_dir, name))
+      fs.makedirs(fs.join(output_dir, name))
     else
       local content, read_err = reader:read(name)
       if not content then
@@ -280,21 +267,22 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
         return {ok = false, message = "error: cannot read '" .. name .. "' from archive: " .. (read_err or "unknown error"), file_count = count}
       end
 
-      local filepath = pathlib.join(output_dir, name)
-      local dir = pathlib.dirname(filepath)
-      unix.makedirs(dir)
+      local filepath = fs.join(output_dir, name)
+      local dir = fs.dirname(filepath)
+      fs.makedirs(dir)
 
       -- Get file mode from zip, default to 644
       local file_mode = tonumber("644", 8)
-      local st = reader:stat(name)
-      if st then
-        local mode = (st as ZipStat).mode & tonumber("777", 8)
+      local zst = reader:stat(name)
+      if zst then
+        local mode = (zst as ZipStat).mode & tonumber("777", 8)
         if mode > 0 then
           file_mode = mode
         end
       end
 
-      if not cosmo.Barf(filepath, content, file_mode) then
+      local write_ok = cio.barf(filepath, content, file_mode)
+      if not write_ok then
         reader:close()
         return {ok = false, message = "error: cannot write '" .. filepath .. "'", file_count = count}
       end

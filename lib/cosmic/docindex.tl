@@ -2,7 +2,8 @@
 --- Run directly as a script with source files as arguments.
 
 local doc = require("cosmic.doc")
-local cosmo = require("cosmo")
+local cio = require("cosmic.io")
+local codec = require("cosmic.codec")
 
 local record DocIndexModule
   generate: function(files: {string}): string, string
@@ -21,17 +22,17 @@ local function generate(files: {string}): string, string
   for i = 1, #files do
     local file_path = files[i]
 
-    local ok, source = pcall(cosmo.Slurp, file_path)
-    if not ok then
-      return nil, file_path .. ": " .. (source as string or "cannot read")
+    local source, slurp_err = cio.slurp(file_path)
+    if not source then
+      return nil, file_path .. ": " .. (slurp_err or "cannot read")
     end
 
     -- Parse based on file type
     local module_doc: any
     if file_path:match("%.d%.tl$") then
-      module_doc = doc.parse_dtl(source as string, file_path)
+      module_doc = doc.parse_dtl(source, file_path)
     else
-      module_doc = doc.parse(source as string, file_path)
+      module_doc = doc.parse(source, file_path)
     end
 
     -- Derive module name from file path
@@ -64,7 +65,7 @@ local function generate(files: {string}): string, string
     end
   end
 
-  return cosmo.EncodeLua({ modules = modules })
+  return codec.encode_lua({ modules = modules })
 end
 
 local function main(args: {string}): integer

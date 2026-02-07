@@ -7,9 +7,11 @@
 ---   local encoded = hash.password("password123")
 ---   local valid = hash.verify_password(encoded, "password123")
 ---
---- For random bytes, use cosmo.GetRandomBytes(n) directly.
+--- For random bytes, use cosmic.rand.bytes(n).
 local cosmo = require("cosmo")
 local argon2 = require("cosmo.argon2")
+local codec = require("cosmic.codec")
+local rand = require("cosmic.rand")
 
 --- Options for password hashing with Argon2.
 --- All fields are optional and have sensible defaults.
@@ -46,7 +48,7 @@ end
 --- @param data string The data to hash
 --- @return string The SHA-256 hash as a hex string
 local function sha256_hex(data: string): string
-  return cosmo.EncodeHex(cosmo.Sha256(data)):lower()
+  return codec.encode_hex(cosmo.Sha256(data)):lower()
 end
 
 --- Hash a password using Argon2.
@@ -57,7 +59,7 @@ end
 --- @return string? Error message if hashing failed
 local function password(pwd: string, options?: HashOptions): string, string
   -- Generate a random salt (16 bytes is recommended)
-  local salt = cosmo.GetRandomBytes(16)
+  local salt = rand.bytes(16)
 
   -- Build config from options
   local config: argon2.Config = {}

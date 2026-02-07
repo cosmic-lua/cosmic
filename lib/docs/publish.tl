@@ -1,13 +1,8 @@
 -- docs-publish: publish generated docs to a git branch
-local cosmo = require("cosmo")
-local unix = require("cosmo.unix")
-local path = require("cosmo.path")
+local cio = require("cosmic.io")
+local fs = require("cosmic.fs")
+local proc = require("cosmic.proc")
 local spawn = require("cosmic.child")
-
-local record DirHandle
-  read: function(DirHandle): string
-  close: function(DirHandle)
-end
 
 local record DocInfo
   path: string
@@ -20,21 +15,21 @@ local function scan_docs(docs_dir: string): {DocInfo}
   local docs: {DocInfo} = {}
 
   local function scan(dir: string)
-    local handle = unix.opendir(dir) as DirHandle
+    local handle = fs.opendir(dir)
     if not handle then return end
 
     while true do
       local name = handle:read()
       if not name then break end
       if name ~= "." and name ~= ".." then
-        local full_path = path.join(dir, name)
-        local stat = unix.stat(full_path)
-        if stat then
-          if unix.S_ISDIR(stat:mode()) then
+        local full_path = fs.join(dir, name)
+        local st = fs.stat(full_path)
+        if st then
+          if fs.is_dir(st:mode()) then
             scan(full_path)
           elseif name:match("%.md$") and name ~= "README.md" then
             -- Read first paragraph after the header for description
-            local content = cosmo.Slurp(full_path)
+            local content = cio.slurp(full_path)
             local description = ""
             if content then
               -- Extract description: skip header line, take next non-empty paragraph
@@ -171,10 +166,10 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
   end
 
   -- copy docs to temp before switching branches (checkout will clear working dir)
-  local temp_dir = unix.mkdtemp("/tmp/docs-publish-XXXXXX")
+  local temp_dir = fs.mkdtemp("/tmp/docs-publish-XXXXXX")
   local ok, err = run({"cp", "-r", docs_dir .. "/.", temp_dir})
   if not ok then
-    unix.rmrf(temp_dir)
+    fs.rmrf(temp_dir)
     return nil, err
   end
 
@@ -201,25 +196,25 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
   spawn.spawn({"git", "rm", "-rf", "."}):wait()
 
   -- clear working directory
-  local dir = unix.opendir(".") as DirHandle
+  local dir = fs.opendir(".")
   if dir then
     while true do
       local name = dir:read()
       if not name then break end
       if name ~= "." and name ~= ".." and name ~= ".git" then
-        unix.rmrf(name)
+        fs.rmrf(name)
       end
     end
   end
 
   -- copy docs from temp
   ok, err = run({"cp", "-r", temp_dir .. "/.", "."})
-  unix.rmrf(temp_dir)
+  fs.rmrf(temp_dir)
   if not ok then return nil, err end
 
   -- write readme with doc table
   local readme_content = make_readme(".")
-  cosmo.Barf("README.md", readme_content)
+  cio.barf("README.md", readme_content)
 
   -- stage all changes
   ok, err = run({"git", "add", "-A"})
@@ -251,7 +246,7 @@ local M: PublishModule = {
   make_readme = make_readme,
 }
 
-if cosmo.is_main() then
+if proc.is_main() then
   local ok, err = main(arg[1], arg[2], arg[3])
   if not ok then
     io.stderr:write("error: " .. tostring(err) .. "\n")

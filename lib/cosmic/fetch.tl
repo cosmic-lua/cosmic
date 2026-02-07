@@ -2,7 +2,7 @@
 --- Wraps cosmo.Fetch with structured results to prevent accidentally discarding errors.
 
 local cosmo = require("cosmo")
-local unix = require("cosmo.unix")
+local time = require("cosmic.time")
 
 --- Result from a fetch operation.
 local record Result
@@ -58,7 +58,7 @@ local function Fetch(url: string, opts?: Opts): Result
     end
 
     if attempt < max_attempts then
-      unix.nanosleep(math.min(max_delay, 2 ^ attempt), 0)
+      time.sleep(math.min(max_delay, 2 ^ attempt))
     end
   end
 

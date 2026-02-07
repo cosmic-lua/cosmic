@@ -1,7 +1,7 @@
 -- Welcome message state tracking for first-run experience
 
-local cosmo = require("cosmo")
-local zip = require("cosmo.zip")
+local cio = require("cosmic.io")
+local czip = require("cosmic.zip")
 
 local record Appender
   add: function(self: Appender, name: string, content: string): boolean | nil, string | nil
@@ -13,14 +13,14 @@ local MARKER <const> = ".cosmic/welcome-shown"
 --- Check if welcome has been shown.
 --- @return boolean True if welcome was already shown (marker embedded in binary)
 local function was_shown(): boolean
-  return cosmo.Slurp("/zip/" .. MARKER) ~= nil
+  return cio.slurp("/zip/" .. MARKER) ~= nil
 end
 
 --- Mark welcome as shown by embedding marker in binary.
 local function mark_shown()
   local exe = arg[-1]
   if exe then
-    local appender = zip.open(exe, "a") as Appender
+    local appender = czip.open(exe, "a") as Appender
     if appender then
       -- Ignore result; showing welcome again on failure is acceptable
       appender:add(MARKER, "")

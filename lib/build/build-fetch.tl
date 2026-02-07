@@ -1,8 +1,9 @@
 #!/usr/bin/env lua
 -- ast-grep ignore: builds relative symlink paths
-local cosmo = require("cosmo")
-local path = require("cosmo.path")
-local unix = require("cosmo.unix")
+local cio = require("cosmic.io")
+local fs = require("cosmic.fs")
+local hash = require("cosmic.hash")
+local proc = require("cosmic.proc")
 local fetch = require("cosmic.fetch")
 
 local record PlatformSpec
@@ -55,7 +56,7 @@ local function download(url: string): string, string
 end
 
 local function verify_sha256(content: string, expected: string): boolean, string
-  local actual = cosmo.EncodeHex(cosmo.Sha256(content)):lower()
+  local actual = hash.sha256_hex(content)
   if actual == expected:lower() then return true end
   return nil, string.format("sha256 mismatch: expected %s, got %s", expected, actual)
 end
@@ -65,7 +66,7 @@ local function main(version_file: string, platform: string, output: string): boo
     return nil, "usage: fetch.lua <version_file> <platform> <output>"
   end
 
-  local output_dir = path.dirname(output)
+  local output_dir = fs.dirname(output)
   local fetch_o = os.getenv("FETCH_O")
   if not fetch_o then
     return nil, "FETCH_O env var required"
@@ -98,7 +99,7 @@ local function main(version_file: string, platform: string, output: string): boo
   end
 
   -- derive module name from output path: o/<module>/.fetched
-  local module_name = path.basename(output_dir)
+  local module_name = fs.basename(output_dir)
 
   -- build archive path: $FETCH_O/<module>/<version>-<sha>/<archive>
   -- for binary/gz format, use fixed name "binary" so staging knows what to look for
@@ -110,30 +111,32 @@ local function main(version_file: string, platform: string, output: string): boo
     archive_name = url:match("([^/]+)$")
   end
   local version_sha = spec.version .. "-" .. plat.sha
-  local archive_dir = path.join(fetch_o, module_name, version_sha)
-  local archive_path = path.join(archive_dir, archive_name)
+  local archive_dir = fs.join(fetch_o, module_name, version_sha)
+  local archive_path = fs.join(archive_dir, archive_name)
 
   io.stderr:write(string.format("↓ FETCH  %s\n", url))
 
-  unix.makedirs(archive_dir)
+  fs.makedirs(archive_dir)
 
-  if not cosmo.Barf(archive_path, body, tonumber("644", 8)) then
-    return nil, "failed to write " .. archive_path
+  local barf_ok, barf_err = cio.barf(archive_path, body, tonumber("644", 8))
+  if not barf_ok then
+    return nil, "failed to write " .. archive_path .. ": " .. (barf_err or "unknown error")
   end
 
   -- remove old symlink/file if exists, create relative symlink
   -- output is o/<module>/.fetched -> o/fetched/<module>/<ver>-<sha>/
-  unix.unlink(output)
-  local fetch_o_basename = path.basename(fetch_o)
+  fs.unlink(output)
+  local fetch_o_basename = fs.basename(fetch_o)
   local rel_path = "../" .. fetch_o_basename .. "/" .. module_name .. "/" .. version_sha
-  if not unix.symlink(rel_path, output) then
-    return nil, "failed to symlink: " .. rel_path .. " -> " .. output
+  local symlink_ok, symlink_err = fs.symlink(rel_path, output)
+  if not symlink_ok then
+    return nil, "failed to symlink: " .. rel_path .. " -> " .. output .. ": " .. (symlink_err or "unknown error")
   end
 
   return true
 end
 
-if cosmo.is_main() then
+if proc.is_main() then
   local result, err = main(arg[1], arg[2], arg[3])
   if not result then
     io.stderr:write("error: " .. err .. "\n")
