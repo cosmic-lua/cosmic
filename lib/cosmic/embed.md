@@ -98,23 +98,6 @@ local record FileToEmbed
 end
 ```
 
-### WalkStat
-
-```teal
-local record WalkStat
-  mode: function(self: WalkStat): integer
-end
-```
-
-### WalkDirHandle
-
-```teal
-local record WalkDirHandle
-  read: function(self: WalkDirHandle): string
-  close: function(self: WalkDirHandle)
-end
-```
-
 ### EmbedModule
 
 ```teal

@@ -9,7 +9,7 @@
    local encoded = hash.password("password123")
    local valid = hash.verify_password(encoded, "password123")
 
- For random bytes, use cosmo.GetRandomBytes(n) directly.
+ For random bytes, use cosmic.rand.bytes(n).
 
 ## Types
 
