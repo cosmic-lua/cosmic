@@ -2,8 +2,16 @@
 --- Provides functions for URL query encoding, parsing, and component escaping.
 local cosmo = require("cosmo")
 
---- Encode a string for use in URL query parameters.
---- Spaces become %20, special characters become %XX.
+--- Percent-encode a string for use as a URL query parameter value.
+--- Use this when building query strings manually: `"q=" .. url.encode(search_term)`.
+--- Spaces become %20, special characters become %XX hex sequences.
+---
+--- For other URL components, use the specific escape functions:
+--- - `escape_path()`: encode a URL path (preserves slashes)
+--- - `escape_segment()`: encode a single path segment (escapes slashes)
+--- - `escape_host()`: encode a hostname
+--- - `escape_fragment()`: encode a URL fragment
+---
 --- @param str string The string to encode
 --- @return string The percent-encoded string
 local function encode(str: string): string
@@ -138,29 +146,32 @@ local function parse_host(hostport: string): string, integer
 end
 
 --- Escape a hostname for use in a URL.
+--- Handles internationalized domain names and special characters.
 --- @param str string The hostname to escape
 --- @return string The escaped hostname
 local function escape_host(str: string): string
   return cosmo.EscapeHost(str)
 end
 
---- Escape a URL path.
---- Escapes characters that are not allowed in URL paths, preserving slashes.
+--- Escape a URL path, preserving forward slashes.
+--- Use for paths like `/users/john doe` -> `/users/john%20doe`.
+--- To escape a single segment (including slashes), use `escape_segment()`.
 --- @param str string The path to escape
 --- @return string The escaped path
 local function escape_path(str: string): string
   return cosmo.EscapePath(str)
 end
 
---- Escape a single URL path segment.
---- More aggressive than escape_path() - also escapes forward slashes.
+--- Escape a single URL path segment, including forward slashes.
+--- Use when the segment itself may contain slashes: `file/name.txt` -> `file%2Fname.txt`.
+--- For full paths where slashes should be preserved, use `escape_path()`.
 --- @param str string The path segment to escape
 --- @return string The escaped segment
 local function escape_segment(str: string): string
   return cosmo.EscapeSegment(str)
 end
 
---- Escape a URL fragment.
+--- Escape a URL fragment (the part after #).
 --- @param str string The fragment to escape
 --- @return string The escaped fragment
 local function escape_fragment(str: string): string
