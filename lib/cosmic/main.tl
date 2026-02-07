@@ -358,6 +358,11 @@ local function generate_help(): string
   table.insert(lines, "Environment variables:")
   table.insert(lines, "  COSMIC_NO_REQUIRE_HINTS    disable helpful module-not-found suggestions")
   table.insert(lines, "  COSMIC_NO_WELCOME          suppress welcome message on first run")
+  table.insert(lines, "")
+  table.insert(lines, "Low-level cosmo.* bindings are available but hidden by default.")
+  table.insert(lines, "Use --docs cosmo.<module> to access them directly.")
+  table.insert(lines, "")
+  table.insert(lines, "For module documentation, use: cosmic-lua --docs <module>")
 
   -- Show module list with descriptions (only cosmic.* modules, not cosmo.* bindings)
   local docs = require("cosmic.docs")
@@ -395,16 +400,9 @@ local function generate_help(): string
           local line = "  " .. t[1] .. padding .. t[2]
           table.insert(lines, line)
         end
-
-        table.insert(lines, "")
-        table.insert(lines, "  Low-level cosmo.* bindings are available but hidden by default.")
-        table.insert(lines, "  Use --docs cosmo.<module> to access them directly.")
       end
     end
   end
-
-  table.insert(lines, "")
-  table.insert(lines, "For module documentation, use: cosmic-lua --docs <module>")
 
   return table.concat(lines, "\n")
 end
