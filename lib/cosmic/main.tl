@@ -355,38 +355,54 @@ local function generate_help(): string
   table.insert(lines, "  -W                          turn warnings into errors")
   table.insert(lines, "")
 
-  -- Try to show module table (only cosmic.* modules, not cosmo.* bindings)
+  table.insert(lines, "Environment variables:")
+  table.insert(lines, "  COSMIC_NO_REQUIRE_HINTS    disable helpful module-not-found suggestions")
+  table.insert(lines, "  COSMIC_NO_WELCOME          suppress welcome message on first run")
+  table.insert(lines, "")
+  table.insert(lines, "Low-level cosmo.* bindings are available but hidden by default.")
+  table.insert(lines, "Use --docs cosmo.<module> to access them directly.")
+  table.insert(lines, "")
+  table.insert(lines, "For module documentation, use: cosmic-lua --docs <module>")
+
+  -- Show module list with descriptions (only cosmic.* modules, not cosmo.* bindings)
   local docs = require("cosmic.docs")
   if docs.has_docs() then
     local topics = docs.list_topics()  -- excludes cosmo.* by default
     if #topics > 0 then
-      local cosmic_modules: {string} = {}
+      local cosmic_topics: {{string, string}} = {}
 
       for _, topic in ipairs(topics) do
         local name: string = topic[1] as string
         if name:match("^cosmic%.") then
           local short_name = name:gsub("^cosmic%.", "")
-          table.insert(cosmic_modules, short_name)
+          local desc: string = topic[2] as string
+          table.insert(cosmic_topics, {short_name, desc})
         end
       end
 
-      if #cosmic_modules > 0 then
+      if #cosmic_topics > 0 then
+        table.sort(cosmic_topics, function(a: {string}, b: {string}): boolean
+          return a[1] < b[1]
+        end)
+
+        -- Find max name length for alignment
+        local max_len = 0
+        for _, t in ipairs(cosmic_topics) do
+          if #t[1] > max_len then
+            max_len = #t[1]
+          end
+        end
+
+        table.insert(lines, "")
         table.insert(lines, "Available modules:")
-        table.sort(cosmic_modules)
-        table.insert(lines, "  cosmic:  " .. table.concat(cosmic_modules, ", "))
-        table.insert(lines, "")
-        table.insert(lines, "  Low-level cosmo.* bindings are available but hidden by default.")
-        table.insert(lines, "  Use --docs cosmo.<module> to access them directly.")
-        table.insert(lines, "")
+        for _, t in ipairs(cosmic_topics) do
+          local padding = string.rep(" ", max_len - #t[1] + 2)
+          local line = "  " .. t[1] .. padding .. t[2]
+          table.insert(lines, line)
+        end
       end
     end
   end
-
-  table.insert(lines, "For module documentation, use: cosmic-lua --docs <module>")
-  table.insert(lines, "")
-  table.insert(lines, "Environment variables:")
-  table.insert(lines, "  COSMIC_NO_REQUIRE_HINTS    disable helpful module-not-found suggestions")
-  table.insert(lines, "  COSMIC_NO_WELCOME          suppress welcome message on first run")
 
   return table.concat(lines, "\n")
 end
