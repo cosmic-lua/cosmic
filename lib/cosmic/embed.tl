@@ -4,6 +4,12 @@
 --- Files in the archive are accessible at /zip/ paths from Lua code. The
 --- entry point is /zip/main.lua, configured by /zip/.args.
 ---
+--- IMPORTANT: embedded code must be plain Lua (.lua), not Teal (.tl). The
+--- zip runtime executes Lua directly and does not compile Teal. If you write
+--- your application in Teal, compile it first:
+---
+---   cosmic --compile myapp.tl > myapp/main.lua
+---
 --- Create a custom executable:
 ---
 ---   mkdir myapp

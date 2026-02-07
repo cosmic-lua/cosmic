@@ -1,7 +1,12 @@
 --- Examples for the cosmic.embed module.
 --- Demonstrates creating custom executables and extracting zip contents.
+---
+--- NOTE: embedded code must be plain Lua (.lua files). The zip runtime does
+--- not compile Teal, so .tl files must be compiled first with --compile.
+--- See Example_embed_from_teal below for the compile-then-embed workflow.
 
--- Example_embed_directory demonstrates embedding a directory into a new executable
+-- Example_embed_directory demonstrates embedding a directory into a new executable.
+-- The entry point must be main.lua (plain Lua, not Teal).
 local function Example_embed_directory()
   local cosmo = require("cosmo")
   local unix = require("cosmo.unix")
@@ -11,7 +16,8 @@ local function Example_embed_directory()
 
   local tmpdir = unix.mkdtemp("/tmp/embed_example_XXXXXX")
 
-  -- Create a simple app directory
+  -- Create a simple app directory with a main.lua entry point.
+  -- This must be a .lua file — .tl files are not compiled at runtime.
   local appdir = path.join(tmpdir, "myapp")
   unix.makedirs(appdir)
   cosmo.Barf(path.join(appdir, "main.lua"), 'print("hello from myapp")\n')
@@ -85,6 +91,46 @@ io.write(out)
   print(out)
   -- Output:
   -- it works
+end
+
+-- Example_embed_from_teal demonstrates compiling Teal to Lua before embedding.
+-- You cannot embed .tl files directly — the zip runtime only executes Lua.
+-- Use cosmic --compile to produce .lua output, then embed that.
+local function Example_embed_from_teal()
+  local cosmo = require("cosmo")
+  local unix = require("cosmo.unix")
+  local path = require("cosmo.path")
+  local spawn = require("cosmic.child")
+  local cosmic = arg[-1]
+
+  local tmpdir = unix.mkdtemp("/tmp/embed_example_XXXXXX")
+  local appdir = path.join(tmpdir, "myapp")
+  unix.makedirs(appdir)
+
+  -- Write a Teal source file
+  local tl_file = path.join(tmpdir, "main.tl")
+  cosmo.Barf(tl_file, 'local msg: string = "hello from teal"\nprint(msg)\n')
+
+  -- Compile .tl to .lua using cosmic --compile
+  local h = spawn.spawn({cosmic, "--compile", tl_file})
+  local ok, lua_source = h:read()
+  assert(ok, lua_source)
+
+  -- Write the compiled Lua as the entry point
+  cosmo.Barf(path.join(appdir, "main.lua"), lua_source)
+
+  -- Embed and run
+  local output = path.join(tmpdir, "from_teal")
+  h = spawn.spawn({cosmic, "--embed", appdir, "--output", output})
+  ok, lua_source = h:read()
+  assert(ok, lua_source)
+
+  h = spawn.spawn({output})
+  ok, lua_source = h:read()
+  unix.rmrf(tmpdir)
+  print(lua_source)
+  -- Output:
+  -- hello from teal
 end
 
 return {}

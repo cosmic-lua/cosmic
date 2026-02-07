@@ -345,7 +345,7 @@ local function generate_help(): string
   table.insert(lines, "  --check-types <file.tl>       type-check a Teal file, strict mode")
   table.insert(lines, "  --check-examples <file.tl>    run Example_* functions, check output")
   table.insert(lines, "  --examples [module]           browse examples (list all, or show module)")
-  table.insert(lines, "  --embed <path>                embed file or directory into executable")
+  table.insert(lines, "  --embed <path>                embed file or directory into executable (.lua only)")
   table.insert(lines, "  --output <file>               output file for --embed (default: cosmic)")
   table.insert(lines, "  --extract <dir>               extract zip contents to directory")
   table.insert(lines, "  --benchmark <file.tl[:pat]>   run Benchmark_* functions, report timing")
