@@ -326,6 +326,26 @@ local record Sigset
   __tostring: function(self: Sigset): string
 end
 
+--- Terminal I/O settings.
+--- Contains terminal mode flags and control characters.
+--- `unix.Termios` tables are returned by `tcgetattr()` and passed to `tcsetattr()`.
+local record Termios
+  --- Input mode flags (e.g., BRKINT, ICRNL, IGNBRK).
+  iflag: number
+  --- Output mode flags (e.g., OPOST, ONLCR).
+  oflag: number
+  --- Control mode flags (e.g., CS8, CREAD, CLOCAL).
+  cflag: number
+  --- Local mode flags (e.g., ECHO, ICANON, ISIG).
+  lflag: number
+  --- Control characters array (indexed 1..NCCS).
+  cc: {number}
+  --- Input baud rate.
+  ispeed: number
+  --- Output baud rate.
+  ospeed: number
+end
+
 --- Error information from system calls.
 --- Provides detailed error codes and human-readable descriptions.
 --- This object is returned by system calls that fail. We prefer returning
@@ -662,6 +682,58 @@ local record unix
   WCONTINUED: number
   W_OK: number
   X_OK: number
+
+  BRKINT: number
+  CLOCAL: number
+  CREAD: number
+  CS5: number
+  CS6: number
+  CS7: number
+  CS8: number
+  CSIZE: number
+  CSTOPB: number
+  ECHO: number
+  ECHOE: number
+  ECHOK: number
+  ECHONL: number
+  HUPCL: number
+  ICANON: number
+  ICRNL: number
+  IEXTEN: number
+  IGNBRK: number
+  IGNCR: number
+  IGNPAR: number
+  INLCR: number
+  INPCK: number
+  ISIG: number
+  ISTRIP: number
+  IXANY: number
+  IXOFF: number
+  IXON: number
+  NCCS: number
+  NOFLSH: number
+  OCRNL: number
+  ONLCR: number
+  ONLRET: number
+  ONOCR: number
+  OPOST: number
+  PARENB: number
+  PARMRK: number
+  PARODD: number
+  TCSADRAIN: number
+  TCSAFLUSH: number
+  TCSANOW: number
+  TOSTOP: number
+  VEOF: number
+  VEOL: number
+  VERASE: number
+  VINTR: number
+  VKILL: number
+  VMIN: number
+  VQUIT: number
+  VSTART: number
+  VSTOP: number
+  VTIME: number
 
   --- Opens file.
   --- Returns a file descriptor integer that needs to be closed, e.g.
@@ -2174,6 +2246,33 @@ local record unix
   --- No other error numbers are possible.
   isatty: function(fd: number): boolean
   tiocgwinsz: function(fd: number): number, number
+  --- Gets the parameters associated with the terminal.
+  --- Returns a Termios table containing terminal attributes on success.
+  --- The returned table contains:
+  --- - `iflag`: input mode flags (BRKINT, ICRNL, etc.)
+  --- - `oflag`: output mode flags (OPOST, ONLCR, etc.)
+  --- - `cflag`: control mode flags (CS8, CREAD, etc.)
+  --- - `lflag`: local mode flags (ECHO, ICANON, ISIG, etc.)
+  --- - `cc`: array of control characters (indexed 1..NCCS)
+  --- - `ispeed`: input baud rate
+  --- - `ospeed`: output baud rate
+  --- Common use: disable echo for password input.
+  ---     local tio = unix.tcgetattr(0)
+  ---     local old_lflag = tio.lflag
+  ---     tio.lflag = tio.lflag & ~unix.ECHO
+  ---     unix.tcsetattr(0, unix.TCSANOW, tio)
+  ---     local password = io.read()
+  ---     tio.lflag = old_lflag
+  ---     unix.tcsetattr(0, unix.TCSANOW, tio)
+  tcgetattr: function(fd: number): Termios, Errno
+  --- Sets the parameters associated with the terminal.
+  --- `action` specifies when the changes take effect:
+  --- - `TCSANOW`: changes occur immediately
+  --- - `TCSADRAIN`: changes occur after all output is transmitted
+  --- - `TCSAFLUSH`: changes occur after all output is transmitted,
+  ---   and all input that has been received but not read is discarded
+  --- `termios` is a table with the same fields as returned by tcgetattr().
+  tcsetattr: function(fd: number, action: number, termios: Termios): boolean, Errno
   --- Returns file descriptor of open anonymous file.
   --- This creates a secure temporary file inside `$TMPDIR`. If it isn't
   --- defined, then `/tmp` is used on UNIX and GetTempPath() is used on
