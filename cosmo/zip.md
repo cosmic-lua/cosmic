@@ -87,6 +87,8 @@ end
 local record Appender
   --  Adds a file to the ZIP archive.
   add: function(self: Appender, name: string, content: string, options?: AddOptions): boolean | nil, string | nil
+  --  Removes a file from the ZIP archive by name.
+  remove: function(self: Appender, name: string): boolean | nil, string | nil
   --  Closes the ZIP archive and writes the updated central directory.
   close: function(self: Appender)
 end
