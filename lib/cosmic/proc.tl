@@ -269,9 +269,9 @@ end
 --- Returns false if the script is being loaded as a module via require().
 --- Use this to guard code that should only run when executed directly.
 --- @return boolean True if running as main script
-local function is_main(): boolean
-  return cosmo.is_main()
-end
+-- Assigned directly to avoid adding a stack frame, since cosmo.is_main()
+-- inspects the call stack to determine if the caller is the main script.
+local is_main: function(): boolean = cosmo.is_main
 
 local record ProcModule
   -- Identity

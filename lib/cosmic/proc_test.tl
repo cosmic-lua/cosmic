@@ -125,6 +125,25 @@ end
 end
 test_is_main_true_when_run_directly()
 
+local function test_proc_is_main_true_when_run_directly()
+  local script_path = path.join(TEST_TMPDIR, "proc_is_main_direct.lua")
+  cosmo.Barf(script_path, [[
+local proc = require("cosmic.proc")
+if proc.is_main() then
+  os.exit(0)
+else
+  os.exit(1)
+end
+]])
+
+  local pid = child.posix_spawnp(lua_bin, {lua_bin, script_path})
+  local _, status = child.wait(pid)
+  assert(child.WIFEXITED(status), "expected normal exit")
+  local exit_code = child.WEXITSTATUS(status)
+  assert(exit_code == 0, "expected proc.is_main to return true when script is run directly, got exit code " .. tostring(exit_code))
+end
+test_proc_is_main_true_when_run_directly()
+
 local function test_is_main_false_when_required()
   local mod_path = path.join(TEST_TMPDIR, "is_main_module.lua")
   cosmo.Barf(mod_path, [[
