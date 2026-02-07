@@ -38,17 +38,28 @@ local record EmbedResult
   file_count: integer
 end
 
+--- Options for adding files to a ZIP archive.
+local record AddOptions
+  mode: number
+end
+
 --- Appender interface for modifying a ZIP archive in-place.
 local record ZipAppender
-  add: function(self: ZipAppender, name: string, content: string): boolean, string
+  add: function(self: ZipAppender, name: string, content: string, options?: AddOptions): boolean, string
   remove: function(self: ZipAppender, name: string): boolean, string
   close: function(self: ZipAppender)
+end
+
+--- Stat record for zip file metadata.
+local record ZipStat
+  mode: number
 end
 
 --- Reader interface for reading files from a ZIP archive.
 local record ZipReader
   list: function(self: ZipReader): {string}
   read: function(self: ZipReader, name: string): string | nil, string | nil
+  stat: function(self: ZipReader, name: string): ZipStat | nil
   close: function(self: ZipReader)
 end
 
@@ -57,6 +68,7 @@ local record FileToEmbed
   path: string
   content: string
   stored_name: string
+  mode: number
 end
 
 -- Unix interfaces used for directory walking.
@@ -109,10 +121,13 @@ local function collect_dir(dir: string): {FileToEmbed}, string
           end
           local content = f:read("*a")
           f:close()
+          -- Extract permission bits (lower 9 bits)
+          local file_mode = st:mode() & tonumber("777", 8)
           collected[#collected + 1] = {
             path = full_path,
             content = content,
             stored_name = stored_name,
+            mode = file_mode,
           }
         end
       end
@@ -168,10 +183,18 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
 
       local stored_name = p:gsub("^/+", "")
 
+      -- Get file mode
+      local st = unix.stat(p)
+      local file_mode = tonumber("644", 8) -- default
+      if st then
+        file_mode = st:mode() & tonumber("777", 8)
+      end
+
       files_to_embed[#files_to_embed + 1] = {
         path = p,
         content = content,
         stored_name = stored_name,
+        mode = file_mode,
       }
     end
   end
@@ -203,7 +226,7 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
   -- Remove existing entries that conflict, then add new ones
   for _, file_info in ipairs(files_to_embed) do
     appender:remove(file_info.stored_name)
-    local add_ok, add_err = appender:add(file_info.stored_name, file_info.content)
+    local add_ok, add_err = appender:add(file_info.stored_name, file_info.content, {mode = file_info.mode})
     if not add_ok then
       appender:close()
       os.remove(output)
@@ -261,7 +284,17 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
       local dir = pathlib.dirname(filepath)
       unix.makedirs(dir)
 
-      if not cosmo.Barf(filepath, content) then
+      -- Get file mode from zip, default to 644
+      local file_mode = tonumber("644", 8)
+      local st = reader:stat(name)
+      if st then
+        local mode = (st as ZipStat).mode & tonumber("777", 8)
+        if mode > 0 then
+          file_mode = mode
+        end
+      end
+
+      if not cosmo.Barf(filepath, content, file_mode) then
         reader:close()
         return {ok = false, message = "error: cannot write '" .. filepath .. "'", file_count = count}
       end
