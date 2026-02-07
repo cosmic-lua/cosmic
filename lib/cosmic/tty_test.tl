@@ -97,3 +97,72 @@ local function test_winsize_structure()
   end
 end
 test_winsize_structure()
+
+-- Test termios function exports
+
+local function test_termios_exports()
+  assert(tty.getattr ~= nil, "getattr function should be exported")
+  assert(tty.setattr ~= nil, "setattr function should be exported")
+  assert(tty.raw ~= nil, "raw function should be exported")
+  assert(tty.noecho ~= nil, "noecho function should be exported")
+  assert(tty.restore ~= nil, "restore function should be exported")
+end
+test_termios_exports()
+
+local function test_termios_constants()
+  assert(tty.NOW ~= nil, "NOW constant should be exported")
+  assert(tty.DRAIN ~= nil, "DRAIN constant should be exported")
+  assert(tty.FLUSH ~= nil, "FLUSH constant should be exported")
+  assert(tty.ECHO ~= nil, "ECHO constant should be exported")
+  assert(tty.ICANON ~= nil, "ICANON constant should be exported")
+  assert(tty.ISIG ~= nil, "ISIG constant should be exported")
+  assert(tty.IEXTEN ~= nil, "IEXTEN constant should be exported")
+end
+test_termios_constants()
+
+local function test_getattr_non_tty()
+  -- When not a tty, getattr should fail with error
+  if not tty.isatty(0) then
+    local termios, err = tty.getattr(0)
+    assert(termios == nil, "getattr should return nil for non-tty")
+    assert(err ~= nil, "getattr should return error message for non-tty")
+  end
+end
+test_getattr_non_tty()
+
+local function test_getattr_structure()
+  -- If stdin is a tty, verify getattr returns proper structure
+  if tty.isatty(0) then
+    local termios, err = tty.getattr(0)
+    if termios then
+      assert(termios.iflag ~= nil, "termios should have iflag")
+      assert(termios.oflag ~= nil, "termios should have oflag")
+      assert(termios.cflag ~= nil, "termios should have cflag")
+      assert(termios.lflag ~= nil, "termios should have lflag")
+      assert(termios.cc ~= nil, "termios should have cc array")
+      assert(type(termios.iflag) == "number", "iflag should be number")
+      assert(type(termios.lflag) == "number", "lflag should be number")
+    end
+  end
+end
+test_getattr_structure()
+
+local function test_raw_non_tty()
+  -- When not a tty, raw should fail with error
+  if not tty.isatty(0) then
+    local original, err = tty.raw(0)
+    assert(original == nil, "raw should return nil for non-tty")
+    assert(err ~= nil, "raw should return error message for non-tty")
+  end
+end
+test_raw_non_tty()
+
+local function test_noecho_non_tty()
+  -- When not a tty, noecho should fail with error
+  if not tty.isatty(0) then
+    local original, err = tty.noecho(0)
+    assert(original == nil, "noecho should return nil for non-tty")
+    assert(err ~= nil, "noecho should return error message for non-tty")
+  end
+end
+test_noecho_non_tty()
