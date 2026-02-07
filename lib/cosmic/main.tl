@@ -427,8 +427,8 @@ local function main(): integer, string
   if not os.getenv("COSMIC_NO_WELCOME") then
     local welcome = require("cosmic.welcome")
     if not welcome.was_shown() then
-      local unix = require("cosmo.unix")
-      if unix.isatty(2) then
+      local tty = require("cosmic.tty")
+      if tty.stderr_isatty() then
         io.stderr:write(generate_welcome())
         welcome.mark_shown()
       end
