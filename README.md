@@ -62,6 +62,7 @@ High-level utilities and tools built on top of cosmo.
 | [sys](lib/cosmic/sys.md) |  System information utilities. |
 | [syslog](lib/cosmic/syslog.md) |  System logging. |
 | [teal](lib/cosmic/teal.md) |  Teal compilation and type-checking. |
+| [testrun](lib/cosmic/testrun.md) |  Test runner for cosmic executables. |
 | [time](lib/cosmic/time.md) |  Time and clock utilities. |
 | [tty](lib/cosmic/tty.md) |  Terminal (TTY) utilities. |
 | [url](lib/cosmic/url.md) |  URL encoding, decoding, parsing, and escaping utilities. |
