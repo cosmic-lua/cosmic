@@ -37,6 +37,7 @@ High-level utilities and tools built on top of cosmo.
 | [env](lib/cosmic/env.md) |  Environment variable utilities. |
 | [example](lib/cosmic/example.md) |  Go-style executable example testing. |
 | [fetch](lib/cosmic/fetch.md) |  Structured HTTP fetch with optional retry. |
+| [format](lib/cosmic/format.md) |  Code formatter for Teal and Lua files. |
 | [fs](lib/cosmic/fs.md) |  Unified filesystem module. |
 | [fuzzy](lib/cosmic/fuzzy.md) |  Fuzzy string matching utilities. |
 | [gendoc](lib/cosmic/gendoc.md) |  |
