@@ -300,8 +300,14 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
     if self.stdout then self.stdout:close() end
     if self.stderr then self.stderr:close() end
     local _, status = unix.wait(self.pid)
+    if type(status) ~= "number" then
+      return nil, "wait failed: " .. tostring(status)
+    end
     if unix.WIFEXITED(status) then
       return unix.WEXITSTATUS(status)
+    end
+    if unix.WIFSIGNALED(status) then
+      return nil, "killed by signal " .. tostring(unix.WTERMSIG(status))
     end
     return nil, "process terminated abnormally"
   end
