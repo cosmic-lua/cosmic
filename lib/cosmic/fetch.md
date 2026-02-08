@@ -31,15 +31,85 @@ local record Opts
 end
 ```
 
+### Reader
+
+ Streaming reader for incremental body access.
+ Supports Lua 5.4's to-be-closed via __close metamethod.
+
+```teal
+local record Reader
+  read: function(self: Reader): string, string
+  close: function(self: Reader): boolean
+  closed: function(self: Reader): boolean
+  lines: function(self: Reader): function(): string
+end
+```
+
+### StreamResult
+
+ Result from a streaming fetch operation.
+
+```teal
+local record StreamResult
+  ok: boolean
+  status: number
+  headers: {string:string}
+  reader: Reader
+  error: string
+end
+```
+
 ### fetch
 
 ```teal
 local record fetch
   Fetch: function(url: string, opts?: Opts): Result
+  stream: function(url: string, opts?: Opts): StreamResult
   Opts: Opts
   Result: Result
+  Reader: Reader
+  StreamResult: StreamResult
 end
 ```
+
+## Functions
+
+### reader:read
+
+```teal
+function reader:read(): string, string
+```
+
+ Read the next chunk from the stream.
+
+**Returns:**
+
+- string - chunk or nil on EOF
+- string - error message on failure
+
+### reader:close
+
+```teal
+function reader:close(): boolean
+```
+
+ Close the reader. Idempotent.
+
+**Returns:**
+
+- boolean - always true
+
+### reader:closed
+
+```teal
+function reader:closed(): boolean
+```
+
+ Returns true if the reader has been closed.
+
+**Returns:**
+
+- boolean - closed state
 
 ## Examples
 
