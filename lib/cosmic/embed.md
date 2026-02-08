@@ -6,6 +6,12 @@
  Files in the archive are accessible at /zip/ paths from Lua code. The
  entry point is /zip/main.lua, configured by /zip/.args.
 
+ Any file can be embedded (Lua source, data files, binaries, etc.), but
+ the entry point must be a plain Lua file named main.lua. Teal files are
+ not compiled at runtime, so compile them first:
+
+   cosmic --compile myapp.tl > myapp/main.lua
+
  Create a custom executable:
 
    mkdir myapp
