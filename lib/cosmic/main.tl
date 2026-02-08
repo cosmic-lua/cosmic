@@ -21,6 +21,7 @@ local record Opts
   script: string
   script_args: {integer:string}
   compile: string          -- Input file for --compile (outputs to stdout)
+  format: string           -- Input file for --format (outputs to stdout)
   check_types: string      -- Input file for --check-types
   embed: {string}          -- Files to embed via --embed
   output: string           -- Output file for --embed (defaults to "cosmic")
@@ -48,6 +49,7 @@ local function parse_args(): Opts
     script = nil,
     script_args = {},
     compile = nil,
+    format = nil,
     check_types = nil,
     embed = {},
     output = nil,
@@ -67,6 +69,7 @@ local function parse_args(): Opts
   local longopts: {getopt.LongOpt} = {
     { name = "help", has_arg = "none", short = "h" },
     { name = "compile", has_arg = "required" },
+    { name = "format", has_arg = "required" },
     { name = "check-types", has_arg = "required" },
     { name = "embed", has_arg = "required" },
     { name = "output", has_arg = "required" },
@@ -205,6 +208,9 @@ local function parse_args(): Opts
       return opts
     elseif opt == "compile" then
       opts.compile = optarg
+      return opts
+    elseif opt == "format" then
+      opts.format = optarg
       return opts
     elseif opt == "check-types" then
       opts.check_types = optarg
@@ -363,6 +369,7 @@ local function generate_help(): string
   table.insert(lines, "")
   table.insert(lines, "Cosmic options:")
   table.insert(lines, "  --compile <file.tl>           compile Teal file to Lua, lax mode (stdout)")
+  table.insert(lines, "  --format <file>               format Teal or Lua file (stdout)")
   table.insert(lines, "  --check-types <file.tl>       type-check a Teal file, strict mode")
   table.insert(lines, "  --check-examples <file.tl>    run Example_* functions, check output")
   table.insert(lines, "  --examples [module]           browse examples (list all, or show module)")
@@ -485,6 +492,19 @@ local function main(): integer, string
       return 0
     else
       io.stderr:write(teal.format_issues(result.errors) .. "\n")
+      return 1
+    end
+  end
+
+  -- Handle --format
+  if opts.format then
+    local fmt = require("cosmic.format")
+    local result = fmt.format_file(opts.format)
+    if result.ok then
+      io.write(result.code)
+      return 0
+    else
+      io.stderr:write(fmt.format_issues(result.errors) .. "\n")
       return 1
     end
   end

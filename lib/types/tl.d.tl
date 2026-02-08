@@ -13,8 +13,18 @@ local record tl
     warnings: {Error}
   end
 
+  record Token
+    x: integer
+    y: integer
+    tk: string
+    kind: string
+    comments: {any}
+  end
+
   loader: function()
   init_env: function(boolean): any
+  lex: function(string, string): {Token}, {Error}
+  parse_program: function({Token}, {Error}, string, string): any, {string}
   process_string: function(string, boolean, any, string): Result, string
   generate: function(any, {string:any}): string
 end
