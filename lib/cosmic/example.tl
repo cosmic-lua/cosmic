@@ -145,7 +145,7 @@ local function parse_examples(source: string): {Example}
         output_pos = line_end + 1
         -- Collect subsequent comment lines
         while true do
-          local line_start, _, prefix, content = body:find("^(%s*%-%-%s?)([^\n]*)", output_pos)
+          local line_start, _, prefix, content = body:find("^([ \t]*%-%-[ \t]?)([^\n]*)", output_pos)
           if line_start == output_pos and prefix then
             table.insert(lines, content)
             output_pos = output_pos + #prefix + #content

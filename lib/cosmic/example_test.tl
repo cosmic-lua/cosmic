@@ -181,6 +181,26 @@ end
 end
 test_multiline_output()
 
+-- Test blank lines in output
+local function test_blank_line_in_output()
+  local input = write_temp("blank.tl", [[
+local function Example_blank()
+  print("before")
+  print("")
+  print("after")
+  -- Output:
+  -- before
+  --
+  -- after
+end
+]])
+  local result = example.run(input)
+  assert(result.exit_code == 0, "should pass with blank line: " .. (result.results[1].error or ""))
+  assert(result.results[1].passed, "blank line example should pass")
+  assert(result.results[1].expected:find("\n\n"), "expected should contain blank line")
+end
+test_blank_line_in_output()
+
 -- Test trailing newline normalization
 local function test_trailing_newline()
   local input = write_temp("newline.tl", [[
