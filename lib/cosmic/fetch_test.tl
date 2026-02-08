@@ -76,3 +76,130 @@ local function test_http_error_status()
   assert(result.error == nil, "error should be nil on HTTP success")
 end
 test_http_error_status()
+
+-- Streaming API tests
+
+local function test_stream_module_exports()
+  assert(fetch.stream ~= nil, "fetch.stream should not be nil")
+  assert(type(fetch.stream) == "function", "fetch.stream should be a function")
+end
+test_stream_module_exports()
+
+-- Check if FetchStream primitive is available (PR #88)
+local cosmo = require("cosmo")
+local has_fetch_stream = cosmo.FetchStream ~= nil
+if not has_fetch_stream then
+  io.stderr:write("SKIP: streaming tests (FetchStream primitive not available)\n")
+end
+
+local function test_stream_invalid_url_returns_error()
+  if not has_fetch_stream then return end
+  local result = fetch.stream("invalid://this-will-definitely-fail")
+
+  assert(result ~= nil, "result should not be nil")
+  assert(result.ok == false, "result.ok should be false for failed fetch")
+  assert(result.error ~= nil, "result.error should not be nil on failure")
+  assert(result.reader == nil, "result.reader should be nil on error")
+end
+test_stream_invalid_url_returns_error()
+
+local function test_stream_successful_returns_reader()
+  if not has_fetch_stream then return end
+  local result = fetch.stream("https://httpbin.org/stream/3")
+
+  if not result.ok then
+    io.stderr:write("SKIP: test_stream_successful_returns_reader (network unavailable)\n")
+    return
+  end
+
+  assert(result.status == 200, "status should be 200, got: " .. tostring(result.status))
+  assert(result.reader ~= nil, "reader should not be nil")
+  assert(result.headers ~= nil, "headers should be present")
+  result.reader:close()
+end
+test_stream_successful_returns_reader()
+
+local function test_stream_reader_read_returns_chunks()
+  if not has_fetch_stream then return end
+  local result = fetch.stream("https://httpbin.org/stream/3")
+
+  if not result.ok then
+    io.stderr:write("SKIP: test_stream_reader_read_returns_chunks (network unavailable)\n")
+    return
+  end
+
+  local chunks: {string} = {}
+  while true do
+    local chunk = result.reader:read()
+    if not chunk then break end
+    table.insert(chunks, chunk)
+  end
+
+  assert(#chunks > 0, "should have read at least one chunk")
+  result.reader:close()
+end
+test_stream_reader_read_returns_chunks()
+
+local function test_stream_reader_lines_yields_complete_lines()
+  if not has_fetch_stream then return end
+  local result = fetch.stream("https://httpbin.org/stream/3")
+
+  if not result.ok then
+    io.stderr:write("SKIP: test_stream_reader_lines_yields_complete_lines (network unavailable)\n")
+    return
+  end
+
+  local lines: {string} = {}
+  for line in result.reader:lines() do
+    table.insert(lines, line)
+  end
+
+  assert(#lines == 3, "httpbin/stream/3 should return 3 lines, got: " .. tostring(#lines))
+end
+test_stream_reader_lines_yields_complete_lines()
+
+local function test_stream_reader_closed_reflects_state()
+  if not has_fetch_stream then return end
+  local result = fetch.stream("https://httpbin.org/get")
+
+  if not result.ok then
+    io.stderr:write("SKIP: test_stream_reader_closed_reflects_state (network unavailable)\n")
+    return
+  end
+
+  assert(not result.reader:closed(), "reader should not be closed initially")
+  result.reader:close()
+  assert(result.reader:closed(), "reader should be closed after close()")
+end
+test_stream_reader_closed_reflects_state()
+
+local function test_stream_reader_close_idempotent()
+  if not has_fetch_stream then return end
+  local result = fetch.stream("https://httpbin.org/get")
+
+  if not result.ok then
+    io.stderr:write("SKIP: test_stream_reader_close_idempotent (network unavailable)\n")
+    return
+  end
+
+  assert(result.reader:close() == true, "first close should return true")
+  assert(result.reader:close() == true, "second close should also return true")
+  assert(result.reader:closed(), "reader should be closed")
+end
+test_stream_reader_close_idempotent()
+
+local function test_stream_http_error_status_returns_reader()
+  if not has_fetch_stream then return end
+  local result = fetch.stream("https://httpbin.org/status/404")
+
+  if not result.ok then
+    io.stderr:write("SKIP: test_stream_http_error_status_returns_reader (network unavailable)\n")
+    return
+  end
+
+  assert(result.ok == true, "ok should be true for HTTP error status")
+  assert(result.status == 404, "status should be 404, got: " .. tostring(result.status))
+  assert(result.reader ~= nil, "reader should be present even for 4xx status")
+  result.reader:close()
+end
+test_stream_http_error_status_returns_reader()

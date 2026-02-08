@@ -4,6 +4,15 @@ local record cosmo
   -- http
   Fetch: function(url: string, opts?: {string:any}): number, {string:string}, string
 
+  -- streaming http reader
+  record StreamReader
+    read: function(self: StreamReader): string, string
+    close: function(self: StreamReader): boolean
+  end
+
+  -- streaming http
+  FetchStream: function(url: string, opts?: {string:any}): number, {string:string}, StreamReader
+
   -- file i/o
   Barf: function(path: string, data: string, mode?: number): boolean
   Slurp: function(path: string): string
