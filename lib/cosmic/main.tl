@@ -30,6 +30,9 @@ local record Opts
   benchmark: string        -- Input file for --benchmark (run benchmarks)
   docs: string             -- Module/symbol/query for --docs
   welcome: boolean         -- Show welcome message
+  test_argv: {string}      -- Command for --test
+  test_output: string      -- Output base for --test
+  report_paths: {string}   -- Paths for --report
   error: string            -- Parse error message
 end
 
@@ -54,6 +57,9 @@ local function parse_args(): Opts
     benchmark = nil,
     docs = nil,
     welcome = false,
+    test_argv = nil,
+    test_output = nil,
+    report_paths = nil,
     error = nil,
   }
 
@@ -70,6 +76,8 @@ local function parse_args(): Opts
     { name = "benchmark", has_arg = "required" },
     { name = "docs", has_arg = "required" },
     { name = "welcome", has_arg = "none" },
+    { name = "test", has_arg = "required" },
+    { name = "report", has_arg = "none" },
   }
 
   -- Parse shortopts to build set of options that require arguments
@@ -96,7 +104,13 @@ local function parse_args(): Opts
   end
 
   -- Options that consume all remaining arguments (no script after them)
-  local long_greedy: {string:boolean} = {}
+  local long_greedy: {string:boolean} = {
+    ["report"] = true,
+    ["test"] = true,
+  }
+
+  -- Options that take required arg + one additional positional arg
+  local long_extra_arg: {string:boolean} = {}
 
   -- Find first non-option argument (script name) to know where to stop parsing
   local script_idx: integer = nil
@@ -114,6 +128,9 @@ local function parse_args(): Opts
         -- Greedy option: consumes all remaining args, no script
         script_idx = nil
         break
+      elseif long_extra_arg[opt_name] then
+        -- Takes required arg + one extra positional arg
+        i = i + 3
       elseif not opt_name:find("=") and long_needs_arg[opt_name] then
         -- Takes next arg
         i = i + 2
@@ -213,6 +230,13 @@ local function parse_args(): Opts
       return opts
     elseif opt == "welcome" then
       opts.welcome = true
+    elseif opt == "test" then
+      opts.test_output = optarg
+      opts.test_argv = parser:remaining()
+      return opts
+    elseif opt == "report" then
+      opts.report_paths = parser:remaining()
+      return opts
     end
   end
 
@@ -347,6 +371,8 @@ local function generate_help(): string
   table.insert(lines, "  --extract <dir>               extract zip contents to directory")
   table.insert(lines, "  --benchmark <file.tl[:pat]>   run Benchmark_* functions, report timing")
   table.insert(lines, "  --docs <query>                show documentation for module or symbol")
+  table.insert(lines, "  --test <output> <cmd>...      run command, write .got/.out/.err")
+  table.insert(lines, "  --report <paths>...           report on test results")
   table.insert(lines, "  --welcome                     show welcome message")
   table.insert(lines, "  --help                        show this help message")
   table.insert(lines, "")
@@ -566,6 +592,18 @@ local function main(): integer, string
       io.stderr:write(result.output .. "\n")
       return 1
     end
+  end
+
+  -- Handle --test
+  if opts.test_argv then
+    local testrun = require("cosmic.testrun")
+    return testrun.run(opts.test_argv, opts.test_output)
+  end
+
+  -- Handle --report
+  if opts.report_paths then
+    local testrun = require("cosmic.testrun")
+    return testrun.report(opts.report_paths)
   end
 
   -- Handle -W warnings: convert warnings to errors
