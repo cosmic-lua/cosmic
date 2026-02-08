@@ -1,0 +1,255 @@
+#!/usr/bin/env cosmic
+-- test cosmic.format module
+
+local fmt = require("cosmic.format")
+
+local function assert_format(input: string, expected: string, msg: string, filename?: string)
+  filename = filename or "test.lua"
+  local result = fmt.format(input, filename)
+  assert(result.ok, msg .. ": format failed: " .. (result.errors and #result.errors > 0
+    and result.errors[1].message or "unknown error"))
+  if result.code ~= expected then
+    error(msg .. ":\n  expected:\n" .. expected .. "\n  got:\n" .. result.code)
+  end
+end
+
+local function assert_format_fails(input: string, msg: string, filename?: string)
+  filename = filename or "test.lua"
+  local result = fmt.format(input, filename)
+  assert(not result.ok, msg .. ": expected format to fail but it succeeded")
+  assert(result.errors and #result.errors > 0, msg .. ": expected errors")
+end
+
+local function assert_idempotent(input: string, msg: string, filename?: string)
+  filename = filename or "test.lua"
+  local r1 = fmt.format(input, filename)
+  assert(r1.ok, msg .. ": first format failed")
+  local r2 = fmt.format(r1.code, filename)
+  assert(r2.ok, msg .. ": second format failed")
+  if r1.code ~= r2.code then
+    error(msg .. ": not idempotent:\n  first:\n" .. r1.code .. "\n  second:\n" .. r2.code)
+  end
+end
+
+-- Test basic Lua formatting
+assert_format(
+  "local function hello(  x,y  )\nreturn x +   y\nend\n",
+  "local function hello(x, y)\n  return x + y\nend\n",
+  "basic lua formatting"
+)
+
+-- Test syntax error rejection
+assert_format_fails("if if if\n", "should reject syntax errors")
+
+-- Test empty input
+assert_format("", "", "empty input")
+
+-- Test idempotence on already-formatted code
+assert_idempotent(
+  "local function foo(x, y)\n  if x then\n    return y\n  else\n    return x\n  end\nend\n",
+  "idempotent on clean input"
+)
+
+-- Test if/elseif/else/end indentation
+assert_format(
+  "if x > 0 then\nprint(\"positive\")\nelseif x < 0 then\nprint(\"negative\")\nelse\nprint(\"zero\")\nend\n",
+  "if x > 0 then\n  print(\"positive\")\nelseif x < 0 then\n  print(\"negative\")\nelse\n  print(\"zero\")\nend\n",
+  "if/elseif/else indentation"
+)
+
+-- Test nested indentation
+assert_format(
+  "local function foo()\nif true then\nif false then\nreturn 1\nend\nend\nend\n",
+  "local function foo()\n  if true then\n    if false then\n      return 1\n    end\n  end\nend\n",
+  "nested indentation"
+)
+
+-- Test no space before ( in function calls
+assert_format(
+  "print  (\"hello\")\nfoo  ()\nmath.sqrt  (4)\n",
+  "print(\"hello\")\nfoo()\nmath.sqrt(4)\n",
+  "no space before ( in function calls"
+)
+
+-- Test same-line {} doesn't cause indent drift
+assert_format(
+  "local t = {a = 1, b = 2}\nlocal x = 42\n",
+  "local t = {a = 1, b = 2}\nlocal x = 42\n",
+  "inline table no indent drift"
+)
+
+-- Test multi-line table indentation
+assert_format(
+  "local t = {\na = 1,\nb = 2,\n}\nlocal after = true\n",
+  "local t = {\n  a = 1,\n  b = 2,\n}\nlocal after = true\n",
+  "multi-line table indentation"
+)
+
+-- Test repeat/until
+assert_format(
+  "repeat\nx = x + 1\nuntil x > 10\n",
+  "repeat\n  x = x + 1\nuntil x > 10\n",
+  "repeat/until indentation"
+)
+
+-- Test comment preservation
+assert_format(
+  "-- header comment\nlocal x = 1 -- inline\n",
+  "-- header comment\nlocal x = 1 -- inline\n",
+  "comment preservation"
+)
+
+-- Test blank line collapsing (at most 1 blank line)
+assert_format(
+  "local x = 1\n\n\n\nlocal y = 2\n",
+  "local x = 1\n\nlocal y = 2\n",
+  "blank line collapsing"
+)
+
+-- Test shebang preservation
+assert_format(
+  "#!/usr/bin/env cosmic\nlocal x = 42\n",
+  "#!/usr/bin/env cosmic\nlocal x = 42\n",
+  "shebang preservation"
+)
+
+-- Bug 1: function type annotations in records should NOT cause indent
+assert_format(
+  "local record R\n  a: function(x: number): string\n  b: function(y: string): number\n  c: number\nend\n",
+  "local record R\n  a: function(x: number): string\n  b: function(y: string): number\n  c: number\nend\n",
+  "function type in record no indent",
+  "test.tl"
+)
+
+-- Bug 1 variant: function VALUE (not type) should still indent
+assert_format(
+  "local f = function(x)\nreturn x\nend\n",
+  "local f = function(x)\n  return x\nend\n",
+  "function value does indent"
+)
+
+-- Bug 1 variant: function definition should still indent
+assert_format(
+  "local function foo(x)\nreturn x\nend\n",
+  "local function foo(x)\n  return x\nend\n",
+  "function definition does indent"
+)
+
+-- Bug 2: method call colon should NOT get space
+assert_format(
+  "obj:method()\nself.x:find(\"a\")\nt[1]:close()\n",
+  "obj:method()\nself.x:find(\"a\")\nt[1]:close()\n",
+  "method call colon no space"
+)
+
+-- Bug 2 variant: type annotation colon SHOULD get space
+assert_format(
+  "local x:number = 1\n",
+  "local x: number = 1\n",
+  "type annotation colon gets space",
+  "test.tl"
+)
+
+-- Bug 3: optional parameter ? should not get space before it
+assert_format(
+  "local function foo(x?: number)\nreturn x\nend\n",
+  "local function foo(x?: number)\n  return x\nend\n",
+  "optional param no space before ?",
+  "test.tl"
+)
+
+-- Bug 5: unary minus should not get space
+assert_format(
+  "local x = -1\nlocal y = {-2, -3}\nfor i = 10, 1, -1 do\nend\n",
+  "local x = -1\nlocal y = {-2, -3}\nfor i = 10, 1, -1 do\nend\n",
+  "unary minus no space"
+)
+
+-- Bug 5: binary minus SHOULD still get space
+assert_format(
+  "local x = 10-5\n",
+  "local x = 10 - 5\n",
+  "binary minus gets space"
+)
+
+-- Test Teal record indentation
+assert_format(
+  "local record Point\nx: number\ny: number\nend\n",
+  "local record Point\n  x: number\n  y: number\nend\n",
+  "teal record indentation",
+  "test.tl"
+)
+
+-- Test Teal enum
+assert_format(
+  "local enum Color\n\"red\"\n\"green\"\n\"blue\"\nend\n",
+  "local enum Color\n  \"red\"\n  \"green\"\n  \"blue\"\nend\n",
+  "teal enum indentation",
+  "test.tl"
+)
+
+-- Test determinism (same input always same output)
+do
+  local input = "local function   messy(a,b  ,c)\nlocal   x=a+b\nreturn  x\nend\n"
+  local r1 = fmt.format(input, "test.lua")
+  local r2 = fmt.format(input, "test.lua")
+  assert(r1.ok and r2.ok, "determinism: both should succeed")
+  assert(r1.code == r2.code, "determinism: outputs should match")
+end
+
+-- Test format_file with missing file
+do
+  local result = fmt.format_file("/nonexistent/file.lua")
+  assert(not result.ok, "format_file should fail on missing file")
+  assert(result.errors[1].message:find("cannot open"), "should report file open error")
+end
+
+-- Test format_issues
+do
+  local issues = {{
+    file = "test.lua",
+    line = 1,
+    column = 5,
+    message = "syntax error",
+    severity = "error",
+  }}
+  local s = fmt.format_issues(issues)
+  assert(s == "test.lua:1:5: error: syntax error", "format_issues: " .. s)
+end
+
+-- Test idempotence on messy input
+assert_idempotent(
+  "local function   messy(a,b  ,c)\nif a>0  then\nlocal   x=a+b\nreturn  x\nelse\nreturn -1\nend\nend\n",
+  "idempotent on messy input"
+)
+
+-- Test for/in loop
+assert_format(
+  "for k, v in pairs(t) do\nprint(k, v)\nend\n",
+  "for k, v in pairs(t) do\n  print(k, v)\nend\n",
+  "for/in loop indentation"
+)
+
+-- Test while loop
+assert_format(
+  "while x > 0 do\nx = x - 1\nend\n",
+  "while x > 0 do\n  x = x - 1\nend\n",
+  "while loop indentation"
+)
+
+-- Test method call chain
+assert_format(
+  "spawn.spawn({cmd}):read()\n",
+  "spawn.spawn({cmd}):read()\n",
+  "method call chain"
+)
+
+-- Complex record with function types AND function definitions
+assert_format(
+  "local record M\n  run: function(string): boolean\nend\nlocal function foo()\nreturn true\nend\n",
+  "local record M\n  run: function(string): boolean\nend\nlocal function foo()\n  return true\nend\n",
+  "record with func type then func def",
+  "test.tl"
+)
+
+print("All format tests passed!")
