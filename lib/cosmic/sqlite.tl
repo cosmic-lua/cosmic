@@ -7,6 +7,8 @@ local lsqlite3 = require("cosmo.lsqlite3")
 local record RawStatement
   bind_values: function(self: RawStatement, ...: any): number
   bind: function(self: RawStatement, n: number, value?: any): number
+  bind_names: function(self: RawStatement, params: {string:any}): number
+  bind_parameter_count: function(self: RawStatement): number
   step: function(self: RawStatement): number
   reset: function(self: RawStatement)
   finalize: function(self: RawStatement): number
@@ -36,7 +38,8 @@ local sqlite3 = lsqlite3 as RawSqlite3
 --- Statement handle with automatic cleanup.
 local record Statement
   bind: function(self: Statement, ...: any): boolean, string
-  bind_list: function(self: Statement, values: {any}, count: integer): boolean, string
+  bind_list: function(self: Statement, values: {any}): boolean, string
+  bind_named: function(self: Statement, params: {string:any}): boolean, string
   rows: function(self: Statement): function(): {string:any}
   values: function(self: Statement): function(): any...
   exec: function(self: Statement): boolean, string
@@ -50,10 +53,12 @@ end
 local record Database
   prepare: function(self: Database, sql: string): Statement, string
   query: function(self: Database, sql: string, ...: any): function(): {string:any}
-  query_list: function(self: Database, sql: string, values: {any}, count: integer): function(): {string:any}
+  query_list: function(self: Database, sql: string, values: {any}): function(): {string:any}
+  query_named: function(self: Database, sql: string, params: {string:any}): function(): {string:any}
   query_one: function(self: Database, sql: string, ...: any): {string:any}
   exec: function(self: Database, sql: string, ...: any): boolean, string
-  exec_list: function(self: Database, sql: string, values: {any}, count: integer): boolean, string
+  exec_list: function(self: Database, sql: string, values: {any}): boolean, string
+  exec_named: function(self: Database, sql: string, params: {string:any}): boolean, string
   transaction: function(self: Database, fn: function(Database)): boolean, string
   last_insert_rowid: function(self: Database): number
   changes: function(self: Database): number
@@ -79,16 +84,29 @@ local function make_statement(raw_stmt: RawStatement, raw_db: RawDatabase): Stat
     return true
   end
 
-  --- Bind parameters from a table with explicit count.
-  --- Use this when building parameter lists programmatically where
-  --- the table may contain nil values (since # is unreliable with nils).
-  function stmt:bind_list(values: {any}, count: integer): boolean, string
+  --- Bind parameters from a list (table).
+  --- The parameter count is derived from the SQL statement itself, so
+  --- nil values in the table are handled correctly without an explicit count.
+  function stmt:bind_list(values: {any}): boolean, string
     raw_stmt:reset()
+    local count = raw_stmt:bind_parameter_count() as integer
     for i = 1, count do
-      local rc = raw_stmt:bind(i, values[i])
+      local rc = raw_stmt:bind(i, values[i as integer])
       if rc ~= sqlite3.OK then
         return false, raw_db:errmsg()
       end
+    end
+    return true
+  end
+
+  --- Bind named parameters from a key/value table.
+  --- SQL should use :name placeholders (e.g. ":foo", ":bar").
+  --- Table keys are names without the colon prefix.
+  function stmt:bind_named(params: {string:any}): boolean, string
+    raw_stmt:reset()
+    local rc = raw_stmt:bind_names(params)
+    if rc ~= sqlite3.OK then
+      return false, raw_db:errmsg()
     end
     return true
   end
@@ -243,16 +261,16 @@ local function make_database(raw_db: RawDatabase): Database
     return exec_ok, exec_err
   end
 
-  --- Execute SQL with parameters from a table with explicit count.
-  --- Use when building parameter lists programmatically where the table
-  --- may contain nil values (since the # operator is unreliable with nils).
-  function db:exec_list(sql: string, values: {any}, count: integer): boolean, string
+  --- Execute SQL with parameters from a list (table).
+  --- The parameter count is derived from the SQL itself, so nil values
+  --- in the table are handled correctly.
+  function db:exec_list(sql: string, values: {any}): boolean, string
     local stmt, err = self:prepare(sql)
     if not stmt then
       return false, err or "prepare failed"
     end
 
-    local ok, bind_err = stmt:bind_list(values, count)
+    local ok, bind_err = stmt:bind_list(values)
     if not ok then
       stmt:close()
       return false, bind_err or "bind failed"
@@ -263,10 +281,29 @@ local function make_database(raw_db: RawDatabase): Database
     return exec_ok, exec_err
   end
 
-  --- Query with parameters from a table with explicit count.
-  --- Use when building parameter lists programmatically where the table
-  --- may contain nil values (since the # operator is unreliable with nils).
-  function db:query_list(sql: string, values: {any}, count: integer): function(): {string:any}
+  --- Execute SQL with named parameters.
+  --- SQL should use :name placeholders. Table keys are names without the colon.
+  function db:exec_named(sql: string, params: {string:any}): boolean, string
+    local stmt, err = self:prepare(sql)
+    if not stmt then
+      return false, err or "prepare failed"
+    end
+
+    local ok, bind_err = stmt:bind_named(params)
+    if not ok then
+      stmt:close()
+      return false, bind_err or "bind failed"
+    end
+
+    local exec_ok, exec_err = stmt:exec()
+    stmt:close()
+    return exec_ok, exec_err
+  end
+
+  --- Query with parameters from a list (table).
+  --- The parameter count is derived from the SQL itself, so nil values
+  --- in the table are handled correctly.
+  function db:query_list(sql: string, values: {any}): function(): {string:any}
     local stmt, err = self:prepare(sql)
     if not stmt then
       return function(): {string:any}
@@ -274,13 +311,45 @@ local function make_database(raw_db: RawDatabase): Database
       end
     end
 
-    if count > 0 then
-      local ok, bind_err = stmt:bind_list(values, count)
-      if not ok then
+    local ok, bind_err = stmt:bind_list(values)
+    if not ok then
+      stmt:close()
+      return function(): {string:any}
+        error("bind failed: " .. (bind_err or "unknown error"))
+      end
+    end
+
+    local raw_iter = stmt:rows()
+    local done = false
+    return function(): {string:any}
+      if done then
+        return nil
+      end
+      local row = raw_iter()
+      if row == nil then
+        done = true
         stmt:close()
-        return function(): {string:any}
-          error("bind failed: " .. (bind_err or "unknown error"))
-        end
+        return nil
+      end
+      return row
+    end
+  end
+
+  --- Query with named parameters.
+  --- SQL should use :name placeholders. Table keys are names without the colon.
+  function db:query_named(sql: string, params: {string:any}): function(): {string:any}
+    local stmt, err = self:prepare(sql)
+    if not stmt then
+      return function(): {string:any}
+        error("query failed: " .. (err or "unknown error"))
+      end
+    end
+
+    local ok, bind_err = stmt:bind_named(params)
+    if not ok then
+      stmt:close()
+      return function(): {string:any}
+        error("bind failed: " .. (bind_err or "unknown error"))
       end
     end
 

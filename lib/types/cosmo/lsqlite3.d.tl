@@ -31,6 +31,17 @@ local record Statement
 
   --- Returns column name for column n (0-indexed)
   get_name: function(Statement, n: number): string
+
+  --- Returns the number of SQL parameters in the prepared statement
+  bind_parameter_count: function(Statement): number
+
+  --- Returns the name of the n-th parameter (1-indexed), or nil for positional (?) params
+  bind_parameter_name: function(Statement, n: number): string
+
+  --- Binds named parameters from a key/value table.
+  --- Keys are parameter names without the prefix (e.g. "foo" for ":foo").
+  --- Returns sqlite3.OK on success or error code on failure.
+  bind_names: function(Statement, params: {string:any}): number
 end
 
 --- Database handle returned by lsqlite3.open() and lsqlite3.open_memory()

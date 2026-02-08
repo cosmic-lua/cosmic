@@ -434,7 +434,7 @@ local function test_bind_list()
 
   local stmt = db:prepare("INSERT INTO t (a, b, c) VALUES (?, ?, ?)")
   local values = {"hello", nil, "world"}
-  local ok, err = stmt:bind_list(values, 3)
+  local ok, err = stmt:bind_list(values)
   assert(ok, "bind_list should succeed: " .. tostring(err))
   stmt:exec()
   stmt:close()
@@ -457,7 +457,7 @@ local function test_exec_list()
   local values = {"one", nil, nil, 42}
   local ok, err = db:exec_list(
     "INSERT INTO t (a, b, c, d) VALUES (?, ?, ?, ?)",
-    values, 4)
+    values)
   assert(ok, "exec_list should succeed: " .. tostring(err))
 
   for row in db:query("SELECT * FROM t") do
@@ -477,7 +477,7 @@ local function test_exec_list_all_nils()
   local values = {nil, nil}
   local ok, err = db:exec_list(
     "INSERT INTO t (a, b) VALUES (?, ?)",
-    values, 2)
+    values)
   assert(ok, "exec_list with all nils should succeed: " .. tostring(err))
 
   for row in db:query("SELECT * FROM t") do
@@ -497,7 +497,7 @@ local function test_query_list()
 
   local values = {"x"}
   local rows = {}
-  for row in db:query_list("SELECT * FROM t WHERE a = ?", values, 1) do
+  for row in db:query_list("SELECT * FROM t WHERE a = ?", values) do
     table.insert(rows, row)
   end
   assert(#rows == 1, "should get 1 row")
@@ -601,5 +601,78 @@ local function test_transaction_multiple_ops()
   db:close()
 end
 test_transaction_multiple_ops()
+
+-- Named parameters
+
+local function test_bind_named()
+  local db = sqlite.open(":memory:")
+  db:exec("CREATE TABLE t (a TEXT, b INTEGER, c TEXT)")
+
+  local stmt = db:prepare("INSERT INTO t (a, b, c) VALUES (:a, :b, :c)")
+  local ok, err = stmt:bind_named({a = "hello", c = "world"})
+  assert(ok, "bind_named should succeed: " .. tostring(err))
+  stmt:exec()
+  stmt:close()
+
+  for row in db:query("SELECT * FROM t") do
+    assert(row.a == "hello", "a should be 'hello'")
+    assert(row.b == nil, "b should be nil (unbound)")
+    assert(row.c == "world", "c should be 'world'")
+  end
+  db:close()
+end
+test_bind_named()
+
+local function test_exec_named()
+  local db = sqlite.open(":memory:")
+  db:exec("CREATE TABLE t (a TEXT, b INTEGER, c TEXT)")
+
+  local ok, err = db:exec_named(
+    "INSERT INTO t (a, b, c) VALUES (:a, :b, :c)",
+    {a = "one", b = 42})
+  assert(ok, "exec_named should succeed: " .. tostring(err))
+
+  for row in db:query("SELECT * FROM t") do
+    assert(row.a == "one", "a should be 'one'")
+    assert(row.b == 42, "b should be 42")
+    assert(row.c == nil, "c should be nil")
+  end
+  db:close()
+end
+test_exec_named()
+
+local function test_exec_named_all_nil()
+  local db = sqlite.open(":memory:")
+  db:exec("CREATE TABLE t (a TEXT, b TEXT)")
+
+  local ok, err = db:exec_named(
+    "INSERT INTO t (a, b) VALUES (:a, :b)", {})
+  assert(ok, "exec_named with empty params should succeed: " .. tostring(err))
+
+  for row in db:query("SELECT * FROM t") do
+    assert(row.a == nil, "a should be nil")
+    assert(row.b == nil, "b should be nil")
+  end
+  db:close()
+end
+test_exec_named_all_nil()
+
+local function test_query_named()
+  local db = sqlite.open(":memory:")
+  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT, city TEXT)")
+  db:exec("INSERT INTO t (name, city) VALUES ('Alice', 'NYC'), ('Bob', 'LA'), ('Carol', 'NYC')")
+
+  local names: {string} = {}
+  for row in db:query_named(
+    "SELECT * FROM t WHERE city = :city ORDER BY id",
+    {city = "NYC"}) do
+    table.insert(names, row.name as string)
+  end
+  assert(#names == 2, "should get 2 rows")
+  assert(names[1] == "Alice", "first should be Alice")
+  assert(names[2] == "Carol", "second should be Carol")
+  db:close()
+end
+test_query_named()
 
 print("All sqlite tests passed")
