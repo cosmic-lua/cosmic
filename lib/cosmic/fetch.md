@@ -24,6 +24,7 @@ end
 ```teal
 local record Opts
   headers: {string:string}
+  proxy: string
   maxresponse: number
   max_attempts: number
   max_delay: number
@@ -65,6 +66,7 @@ end
 local record fetch
   Fetch: function(url: string, opts?: Opts): Result
   stream: function(url: string, opts?: Opts): StreamResult
+  unix_proxy: function(path: string): string, string
   Opts: Opts
   Result: Result
   Reader: Reader
