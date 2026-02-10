@@ -159,16 +159,77 @@ test_resolve_localhost()
 -- lookup tests
 
 local function test_lookup_localhost()
-  local result, err = ip.lookup("localhost")
-  assert(result == 2130706433, "expected 127.0.0.1 for localhost, got " .. tostring(result))
+  local a, err = ip.lookup("localhost")
+  assert(a, "expected Addr for localhost, got nil: " .. tostring(err))
   assert(err == nil, "expected nil error, got " .. tostring(err))
+  assert(a:int() == 2130706433, "expected 127.0.0.1, got " .. tostring(a:int()))
 end
 test_lookup_localhost()
 
 local function test_lookup_invalid_returns_nil()
-  local result, err = ip.lookup("this.host.does.not.exist.invalid")
-  assert(result == nil, "expected nil for invalid hostname, got " .. tostring(result))
+  local a, err = ip.lookup("this.host.does.not.exist.invalid")
+  assert(a == nil, "expected nil for invalid hostname")
   assert(err ~= nil, "expected error message for invalid hostname")
   assert(err:find("lookup failed"), "expected 'lookup failed' in error: " .. tostring(err))
 end
 test_lookup_invalid_returns_nil()
+
+-- addr tests
+
+local function test_addr_int()
+  local a = ip.addr(2130706433)
+  assert(a:int() == 2130706433, "expected 2130706433, got " .. tostring(a:int()))
+end
+test_addr_int()
+
+local function test_addr_format()
+  local a = ip.addr(ip.parse("192.168.1.1"))
+  assert(a:format() == "192.168.1.1", "expected '192.168.1.1', got '" .. a:format() .. "'")
+end
+test_addr_format()
+
+local function test_addr_tostring()
+  local a = ip.addr(ip.parse("10.0.0.1"))
+  assert(tostring(a) == "10.0.0.1", "expected '10.0.0.1', got '" .. tostring(a) .. "'")
+end
+test_addr_tostring()
+
+local function test_addr_categorize()
+  local a = ip.addr(ip.parse("127.0.0.1"))
+  assert(a:categorize() == "LOOPBACK", "expected 'LOOPBACK', got '" .. a:categorize() .. "'")
+end
+test_addr_categorize()
+
+local function test_addr_is_loopback()
+  local a = ip.addr(ip.parse("127.0.0.1"))
+  assert(a:is_loopback() == true, "expected true for loopback")
+  local b = ip.addr(ip.parse("8.8.8.8"))
+  assert(b:is_loopback() == false, "expected false for non-loopback")
+end
+test_addr_is_loopback()
+
+local function test_addr_is_private()
+  local a = ip.addr(ip.parse("192.168.1.1"))
+  assert(a:is_private() == true, "expected true for private")
+  local b = ip.addr(ip.parse("8.8.8.8"))
+  assert(b:is_private() == false, "expected false for public")
+end
+test_addr_is_private()
+
+local function test_addr_is_public()
+  local a = ip.addr(ip.parse("8.8.8.8"))
+  assert(a:is_public() == true, "expected true for public")
+  local b = ip.addr(ip.parse("10.0.0.1"))
+  assert(b:is_public() == false, "expected false for private")
+end
+test_addr_is_public()
+
+local function test_lookup_returns_addr_with_methods()
+  local a, err = ip.lookup("localhost")
+  assert(a, "lookup failed: " .. tostring(err))
+  assert(a:format() == "127.0.0.1", "expected '127.0.0.1', got '" .. a:format() .. "'")
+  assert(a:is_loopback() == true, "expected loopback")
+  assert(a:is_public() == false, "expected not public")
+  assert(tostring(a) == "127.0.0.1", "expected tostring '127.0.0.1'")
+end
+test_lookup_returns_addr_with_methods()
