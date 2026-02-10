@@ -9,11 +9,8 @@ Core Cosmopolitan Libc bindings and system interfaces.
 | Module | Description |
 |--------|-------------|
 | [argon2](cosmo/argon2.md) | Type declarations for the `argon2` module. |
-| [finger](cosmo/finger.md) | Type declarations for the `finger` module. |
 | [getopt](cosmo/getopt.md) | Type declarations for the `getopt` module. |
-| [goodsocket](cosmo/goodsocket.md) | Type declarations for the `goodsocket` module. |
 | [lsqlite3](cosmo/lsqlite3.md) | Type declarations for the `lsqlite3` module. |
-| [maxmind](cosmo/maxmind.md) | Type declarations for the `maxmind` module. |
 | [path](cosmo/path.md) | Type declarations for the `path` module. |
 | [re](cosmo/re.md) | Type declarations for the `re` module. |
 | [repl](cosmo/repl.md) | Type declarations for the `repl` module. |
