@@ -155,3 +155,20 @@ local function test_resolve_localhost()
   assert(result == 2130706433, "expected 127.0.0.1 for localhost, got " .. tostring(result))
 end
 test_resolve_localhost()
+
+-- lookup tests
+
+local function test_lookup_localhost()
+  local result, err = ip.lookup("localhost")
+  assert(result == 2130706433, "expected 127.0.0.1 for localhost, got " .. tostring(result))
+  assert(err == nil, "expected nil error, got " .. tostring(err))
+end
+test_lookup_localhost()
+
+local function test_lookup_invalid_returns_nil()
+  local result, err = ip.lookup("this.host.does.not.exist.invalid")
+  assert(result == nil, "expected nil for invalid hostname, got " .. tostring(result))
+  assert(err ~= nil, "expected error message for invalid hostname")
+  assert(err:find("lookup failed"), "expected 'lookup failed' in error: " .. tostring(err))
+end
+test_lookup_invalid_returns_nil()

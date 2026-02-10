@@ -53,6 +53,19 @@ local function resolve(hostname: string): integer
   return cosmo.ResolveIp(hostname)
 end
 
+--- Look up a hostname and return its IP address.
+--- Returns nil and an error message on failure.
+--- @param hostname string The hostname to look up
+--- @return integer? The IP address as an integer, or nil on error
+--- @return string? Error message on failure
+local function lookup(hostname: string): integer, string
+  local ip = cosmo.ResolveIp(hostname)
+  if not ip or ip == -1 then
+    return nil, "dns: lookup failed for " .. hostname
+  end
+  return ip
+end
+
 local record IpModule
   parse: function(str: string): integer
   format: function(ip: integer): string
@@ -61,6 +74,7 @@ local record IpModule
   is_private: function(ip: integer): boolean
   is_public: function(ip: integer): boolean
   resolve: function(hostname: string): integer
+  lookup: function(hostname: string): integer, string
 end
 
 local M: IpModule = {
@@ -71,6 +85,7 @@ local M: IpModule = {
   is_private = is_private,
   is_public = is_public,
   resolve = resolve,
+  lookup = lookup,
 }
 
 return M
