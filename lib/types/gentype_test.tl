@@ -31,7 +31,7 @@ local function test_convert_type()
 
   -- Module-prefixed types
   assert(gentype.convert_type("lsqlite3.Database") == "Database", "lsqlite3.Database -> Database")
-  assert(gentype.convert_type("maxmind.Result") == "Result", "maxmind.Result -> Result")
+  assert(gentype.convert_type("unix.Errno") == "Errno", "unix.Errno -> Errno")
 
   print("test_convert_type: PASS")
 end
@@ -189,22 +189,34 @@ local function test_module_list_completeness()
   end
   table.sort(hardcoded_sorted)
 
-  -- Check for missing modules
+  -- Modules in definitions.lua that we intentionally skip generating types for
+  -- because no code in the codebase uses them
+  local skip_modules: {string:boolean} = {
+    ["finger"] = true,
+    ["goodsocket"] = true,
+    ["maxmind"] = true,
+  }
+
+  -- Check for missing modules (in definitions.lua but not in MODULES and not skipped)
   local missing: {string} = {}
   for _, m in ipairs(found_modules) do
-    local found = false
-    for _, h in ipairs(hardcoded_sorted) do
-      if m == h then
-        found = true
-        break
+    if skip_modules[m] then
+      -- intentionally skipped
+    else
+      local found = false
+      for _, h in ipairs(hardcoded_sorted) do
+        if m == h then
+          found = true
+          break
+        end
       end
-    end
-    if not found then
-      table.insert(missing, m)
+      if not found then
+        table.insert(missing, m)
+      end
     end
   end
 
-  -- Check for extra modules
+  -- Check for extra modules (in MODULES but not in definitions.lua)
   local extra: {string} = {}
   for _, h in ipairs(hardcoded_sorted) do
     local found = false

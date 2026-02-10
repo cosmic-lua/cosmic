@@ -84,16 +84,18 @@ test_winsize_non_tty()
 
 local function test_winsize_structure()
   -- If stdout is a tty, verify winsize returns proper structure
-  if tty.isatty(1) then
-    local ws, err = tty.winsize(1)
-    if ws then
-      assert(ws.rows ~= nil, "winsize should have rows field")
-      assert(ws.cols ~= nil, "winsize should have cols field")
-      assert(type(ws.rows) == "number", "rows should be a number")
-      assert(type(ws.cols) == "number", "cols should be a number")
-      assert(ws.rows > 0, "rows should be positive")
-      assert(ws.cols > 0, "cols should be positive")
-    end
+  if not tty.isatty(1) then
+    io.stderr:write("SKIP: test_winsize_structure (stdout is not a tty)\n")
+    return
+  end
+  local ws, err = tty.winsize(1)
+  if ws then
+    assert(ws.rows ~= nil, "winsize should have rows field")
+    assert(ws.cols ~= nil, "winsize should have cols field")
+    assert(type(ws.rows) == "number", "rows should be a number")
+    assert(type(ws.cols) == "number", "cols should be a number")
+    assert(ws.rows > 0, "rows should be positive")
+    assert(ws.cols > 0, "cols should be positive")
   end
 end
 test_winsize_structure()
@@ -132,17 +134,19 @@ test_getattr_non_tty()
 
 local function test_getattr_structure()
   -- If stdin is a tty, verify getattr returns proper structure
-  if tty.isatty(0) then
-    local termios, err = tty.getattr(0)
-    if termios then
-      assert(termios.iflag ~= nil, "termios should have iflag")
-      assert(termios.oflag ~= nil, "termios should have oflag")
-      assert(termios.cflag ~= nil, "termios should have cflag")
-      assert(termios.lflag ~= nil, "termios should have lflag")
-      assert(termios.cc ~= nil, "termios should have cc array")
-      assert(type(termios.iflag) == "number", "iflag should be number")
-      assert(type(termios.lflag) == "number", "lflag should be number")
-    end
+  if not tty.isatty(0) then
+    io.stderr:write("SKIP: test_getattr_structure (stdin is not a tty)\n")
+    return
+  end
+  local termios, err = tty.getattr(0)
+  if termios then
+    assert(termios.iflag ~= nil, "termios should have iflag")
+    assert(termios.oflag ~= nil, "termios should have oflag")
+    assert(termios.cflag ~= nil, "termios should have cflag")
+    assert(termios.lflag ~= nil, "termios should have lflag")
+    assert(termios.cc ~= nil, "termios should have cc array")
+    assert(type(termios.iflag) == "number", "iflag should be number")
+    assert(type(termios.lflag) == "number", "lflag should be number")
   end
 end
 test_getattr_structure()

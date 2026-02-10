@@ -6,7 +6,7 @@ local cosmo = require("cosmo")
 local cosmic = require("cosmic")
 
 -- Modules to generate (in order)
-local MODULES = {"unix", "path", "getopt", "lsqlite3", "re", "maxmind", "finger", "argon2", "goodsocket", "zip"}
+local MODULES = {"unix", "path", "getopt", "lsqlite3", "re", "argon2", "zip"}
 
 -- Type conversion from LuaLS to Teal
 -- integer -> number for Teal compatibility (Teal infers numeric literals as number)
