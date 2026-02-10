@@ -203,3 +203,82 @@ local function test_stream_http_error_status_returns_reader()
   result.reader:close()
 end
 test_stream_http_error_status_returns_reader()
+
+-- unix_proxy helper tests
+
+local function test_unix_proxy_valid_path()
+  local url, err = fetch.unix_proxy("/tmp/proxy.sock")
+  assert(url == "unix:///tmp/proxy.sock", "expected unix:///tmp/proxy.sock, got: " .. tostring(url))
+  assert(err == nil, "expected no error, got: " .. tostring(err))
+end
+test_unix_proxy_valid_path()
+
+local function test_unix_proxy_empty_path()
+  local url, err = fetch.unix_proxy("")
+  assert(url == nil, "expected nil for empty path")
+  assert(err == "empty socket path", "expected 'empty socket path', got: " .. tostring(err))
+end
+test_unix_proxy_empty_path()
+
+local function test_unix_proxy_relative_path()
+  local url, err = fetch.unix_proxy("relative/path.sock")
+  assert(url == nil, "expected nil for relative path")
+  assert(err == "socket path must be absolute", "expected absolute path error, got: " .. tostring(err))
+end
+test_unix_proxy_relative_path()
+
+local function test_unix_proxy_dotdot_segment()
+  local url, err = fetch.unix_proxy("/tmp/../etc/proxy.sock")
+  assert(url == nil, "expected nil for path with .. segment")
+  assert(err == "socket path must not contain . or .. segments", "expected segment error, got: " .. tostring(err))
+end
+test_unix_proxy_dotdot_segment()
+
+local function test_unix_proxy_dot_segment()
+  local url, err = fetch.unix_proxy("/tmp/./proxy.sock")
+  assert(url == nil, "expected nil for path with . segment")
+  assert(err == "socket path must not contain . or .. segments", "expected segment error, got: " .. tostring(err))
+end
+test_unix_proxy_dot_segment()
+
+local function test_unix_proxy_too_long_path()
+  local long_path = "/" .. string.rep("a", 108)
+  local url, err = fetch.unix_proxy(long_path)
+  assert(url == nil, "expected nil for too-long path")
+  assert(err == "socket path too long", "expected too-long error, got: " .. tostring(err))
+end
+test_unix_proxy_too_long_path()
+
+local function test_unix_proxy_trailing_dotdot()
+  local url, err = fetch.unix_proxy("/tmp/..")
+  assert(url == nil, "expected nil for path ending with ..")
+  assert(err == "socket path must not contain . or .. segments", "expected segment error, got: " .. tostring(err))
+end
+test_unix_proxy_trailing_dotdot()
+
+local function test_unix_proxy_trailing_dot()
+  local url, err = fetch.unix_proxy("/tmp/.")
+  assert(url == nil, "expected nil for path ending with .")
+  assert(err == "socket path must not contain . or .. segments", "expected segment error, got: " .. tostring(err))
+end
+test_unix_proxy_trailing_dot()
+
+-- proxy option passthrough test
+local function test_fetch_with_proxy_nonexistent_socket()
+  -- Verify that the proxy option is passed through to cosmo.Fetch
+  -- by using a socket path that doesn't exist (should produce a connection error)
+  local result = fetch.Fetch("http://example.com", {proxy = "unix:///tmp/nonexistent-cosmic-test.sock"})
+  assert(result ~= nil, "result should not be nil")
+  assert(result.ok == false, "result.ok should be false for nonexistent socket")
+  assert(result.error ~= nil, "result.error should describe the failure")
+end
+test_fetch_with_proxy_nonexistent_socket()
+
+local function test_stream_with_proxy_nonexistent_socket()
+  if not has_fetch_stream then return end
+  local result = fetch.stream("http://example.com", {proxy = "unix:///tmp/nonexistent-cosmic-test.sock"})
+  assert(result ~= nil, "result should not be nil")
+  assert(result.ok == false, "result.ok should be false for nonexistent socket")
+  assert(result.error ~= nil, "result.error should describe the failure")
+end
+test_stream_with_proxy_nonexistent_socket()
