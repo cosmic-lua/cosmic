@@ -261,7 +261,7 @@ test_setpriority()
 -- Scheduling tests --
 
 local function test_sched_yield()
+  -- sched_yield should complete without error; if it throws, the test fails
   proc.sched_yield()
-  assert(true, "sched_yield should not throw")
 end
 test_sched_yield()

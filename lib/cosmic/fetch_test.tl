@@ -29,8 +29,9 @@ local function test_success_structure()
   -- Use a data URL which should always work
   local result = fetch.Fetch("data:text/plain,Hello%20World")
 
-  -- Note: cosmo.Fetch may or may not support data URLs
-  -- If it does, verify success structure
+  -- Verify the result has consistent structure regardless of outcome
+  assert(result ~= nil, "result should not be nil")
+  assert(type(result.ok) == "boolean", "result.ok should be a boolean")
   if result.ok then
     assert(result.status ~= nil, "result.status should be set on success")
     assert(result.headers ~= nil, "result.headers should be set on success")
@@ -38,8 +39,10 @@ local function test_success_structure()
     assert(result.body ~= nil, "result.body should be set on success")
     assert(result.error == nil, "result.error should be nil on success")
   else
-    -- If data URLs aren't supported, at least verify error structure
+    -- data URLs not supported — verify error structure and report skip
     assert(result.error ~= nil, "result.error should be set on failure")
+    assert(type(result.error) == "string", "result.error should be a string")
+    io.stderr:write("SKIP: test_success_structure success-path assertions (data URLs not supported)\n")
   end
 end
 test_success_structure()

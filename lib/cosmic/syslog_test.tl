@@ -35,13 +35,37 @@ local function test_write_functions_exist()
 end
 test_write_functions_exist()
 
--- Test calling the functions (they may print errors if syslog unavailable)
+-- Test calling every priority-level convenience function completes without error
 local function test_write_calls()
-  -- These may fail silently if syslog is unavailable, but should not throw
   syslog.write(syslog.LOG_INFO, "cosmic.syslog test: write()")
+  syslog.emerg("cosmic.syslog test: emerg()")
+  syslog.alert("cosmic.syslog test: alert()")
+  syslog.crit("cosmic.syslog test: crit()")
+  syslog.err("cosmic.syslog test: err()")
+  syslog.warning("cosmic.syslog test: warning()")
+  syslog.notice("cosmic.syslog test: notice()")
   syslog.info("cosmic.syslog test: info()")
   syslog.debug("cosmic.syslog test: debug()")
 end
 test_write_calls()
+
+-- Test that write dispatches to each priority constant without error
+local function test_write_all_priorities()
+  local priorities = {
+    syslog.LOG_EMERG,
+    syslog.LOG_ALERT,
+    syslog.LOG_CRIT,
+    syslog.LOG_ERR,
+    syslog.LOG_WARNING,
+    syslog.LOG_NOTICE,
+    syslog.LOG_INFO,
+    syslog.LOG_DEBUG,
+  }
+  for _, prio in ipairs(priorities) do
+    assert(type(prio) == "number", "priority should be a number")
+    syslog.write(prio, "test priority " .. tostring(prio))
+  end
+end
+test_write_all_priorities()
 
 print("All syslog tests passed")

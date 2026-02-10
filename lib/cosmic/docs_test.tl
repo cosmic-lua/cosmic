@@ -162,7 +162,7 @@ local function test_search_methods()
   if docs.has_docs() then
     print("test_search_methods: PASS (found " .. #results .. " results, methods=" .. tostring(found_method) .. ")")
   else
-    print("test_search_methods: PASS (no docs available)")
+    io.stderr:write("SKIP: test_search_methods content assertions (no docs available)\n")
   end
 end
 test_search_methods()
@@ -296,6 +296,8 @@ local function test_list_topics_includes_cosmo_when_requested()
   if docs.has_docs() then
     assert(found_cosmo, "list_topics(true) should include cosmo.* modules")
     assert(found_cosmic, "list_topics(true) should include cosmic.* modules")
+  else
+    io.stderr:write("SKIP: test_list_topics_includes_cosmo_when_requested content assertions (no docs available)\n")
   end
   print("test_list_topics_includes_cosmo_when_requested: PASS")
 end
@@ -329,6 +331,8 @@ local function test_search_includes_cosmo_when_requested()
   end
   if docs.has_docs() then
     assert(found_cosmo, "search(query, true) should include cosmo.* modules")
+  else
+    io.stderr:write("SKIP: test_search_includes_cosmo_when_requested content assertions (no docs available)\n")
   end
   print("test_search_includes_cosmo_when_requested: PASS")
 end
@@ -341,6 +345,8 @@ local function test_explicit_cosmo_access()
   if docs.has_docs() then
     assert(result.ok, "explicit cosmo.unix lookup should succeed")
     assert(result.output:match("unix"), "output should contain unix content")
+  else
+    io.stderr:write("SKIP: test_explicit_cosmo_access content assertions (no docs available)\n")
   end
   print("test_explicit_cosmo_access: PASS")
 end
