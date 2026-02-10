@@ -15,6 +15,7 @@ end
 
 local record Opts
   headers: {string:string}
+  proxy: string
   maxresponse: number
   max_attempts: number
   max_delay: number
@@ -181,6 +182,27 @@ local function stream(url: string, opts?: Opts): StreamResult
   }
 end
 
+--- Build a unix domain socket proxy URL from a socket path.
+--- @param path string Absolute path to the unix domain socket
+--- @return string proxy URL in unix:// format
+--- @return string? Error message if path is invalid
+local function unix_proxy(path: string): string, string
+  if not path or path == "" then
+    return nil, "empty socket path"
+  end
+  if path:sub(1, 1) ~= "/" then
+    return nil, "socket path must be absolute"
+  end
+  if path:match("/%.%./") or path:match("/%.%.$") or path:match("/%./") or path:match("/%.$") then
+    return nil, "socket path must not contain . or .. segments"
+  end
+  -- unix(7) sockaddr_un sun_path is typically 108 bytes
+  if #path >= 108 then
+    return nil, "socket path too long"
+  end
+  return "unix://" .. path
+end
+
 -- Example_get demonstrates a simple HTTP GET request
 local function Example_get()
   local fetch = require("cosmic.fetch")
@@ -206,6 +228,7 @@ end
 local record fetch
   Fetch: function(url: string, opts?: Opts): Result
   stream: function(url: string, opts?: Opts): StreamResult
+  unix_proxy: function(path: string): string, string
   Opts: Opts
   Result: Result
   Reader: Reader
@@ -215,6 +238,7 @@ end
 local M: fetch = {
   Fetch = Fetch,
   stream = stream,
+  unix_proxy = unix_proxy,
 }
 
 return M
