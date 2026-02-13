@@ -149,6 +149,57 @@ local function test_makedirs()
 end
 test_makedirs()
 
+local function test_mkdir_error_message()
+  local test_dir = setup()
+
+  -- mkdir with missing parent should fail with descriptive error
+  local missing_parent = path.join(test_dir, "no", "such", "parent")
+  local ok, err = fs.mkdir(missing_parent)
+  assert(not ok, "mkdir should fail when parent doesn't exist")
+  assert(err, "should return error message")
+  assert(err:find(missing_parent, 1, true), "error should contain path, got: " .. err)
+  -- Error should contain errno details, not just a generic message
+  assert(not err:match("^mkdir: " .. missing_parent:gsub("[%-]", "%%-") .. "$"),
+    "error should include errno details, got: " .. err)
+end
+test_mkdir_error_message()
+
+local function test_mkdir_eexist_error()
+  local test_dir = setup()
+
+  -- mkdir on existing directory should fail with descriptive error
+  local ok, err = fs.mkdir(test_dir)
+  assert(not ok, "mkdir should fail when directory already exists")
+  assert(err, "should return error message")
+  assert(err:find(test_dir, 1, true), "error should contain path, got: " .. err)
+  assert(not err:match("^mkdir: " .. test_dir:gsub("[%-]", "%%-") .. "$"),
+    "error should include errno details, got: " .. err)
+
+  teardown(test_dir)
+end
+test_mkdir_eexist_error()
+
+local function test_makedirs_error_message()
+  local test_dir = setup()
+
+  -- Create a regular file, then try to makedirs through it
+  local blocker = path.join(test_dir, "blocker")
+  local f = io.open(blocker, "w")
+  if f then f:close() end
+
+  local through_file = path.join(blocker, "subdir")
+  local ok, err = fs.makedirs(through_file)
+  assert(not ok, "makedirs should fail when path component is a file")
+  assert(err, "should return error message")
+  assert(err:find(through_file, 1, true), "error should contain path, got: " .. err)
+  -- Error should contain errno details, not just a generic message
+  assert(not err:match("^makedirs: " .. through_file:gsub("[%-]", "%%-") .. "$"),
+    "error should include errno details, got: " .. err)
+
+  teardown(test_dir)
+end
+test_makedirs_error_message()
+
 local function test_rmdir()
   local test_dir = setup()
   local newdir = path.join(test_dir, "newdir")

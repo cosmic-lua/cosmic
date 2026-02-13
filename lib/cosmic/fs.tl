@@ -3,6 +3,14 @@
 local unix = require("cosmo.unix")
 local cosmo_path = require("cosmo.path")
 
+local record Errno
+  errno: function(self: Errno): number
+  winerr: function(self: Errno): number
+  name: function(self: Errno): string
+  call: function(self: Errno): string
+  doc: function(self: Errno): string
+end
+
 -- Path manipulation functions
 
 --- Strip final component from path.
@@ -473,9 +481,16 @@ end
 --- @return string Error message if failed
 local function mkdir(path: string, mode?: number): boolean, string
   mode = mode or tonumber("755", 8)
-  local ok = unix.mkdir(path, mode)
+  local ok, err = unix.mkdir(path, mode) as (boolean, any)
   if not ok then
-    return false, "mkdir failed: " .. path
+    if err then
+      local errno = err as Errno
+      if errno.doc then
+        return false, "mkdir: " .. path .. ": " .. errno:doc()
+      end
+      return false, "mkdir: " .. path .. ": " .. tostring(err)
+    end
+    return false, "mkdir: " .. path
   end
   return true
 end
@@ -487,9 +502,16 @@ end
 --- @return string Error message if failed
 local function makedirs(path: string, mode?: number): boolean, string
   mode = mode or tonumber("755", 8)
-  local ok = unix.makedirs(path, mode)
+  local ok, err = unix.makedirs(path, mode) as (boolean, any)
   if not ok then
-    return false, "makedirs failed: " .. path
+    if err then
+      local errno = err as Errno
+      if errno.doc then
+        return false, "makedirs: " .. path .. ": " .. errno:doc()
+      end
+      return false, "makedirs: " .. path .. ": " .. tostring(err)
+    end
+    return false, "makedirs: " .. path
   end
   return true
 end
