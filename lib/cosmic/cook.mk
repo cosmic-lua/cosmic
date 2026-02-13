@@ -6,7 +6,8 @@ cosmic_tl := $(filter-out $(cosmic_tests) $(cosmic_examples) lib/cosmic/main.tl,
 cosmic_main := $(o)/lib/cosmic/main.lua
 cosmic_args := lib/cosmic/.args
 cosmic_bin := $(o)/bin/cosmic
-cosmic_files := $(cosmic_bin) $(cosmic_lua)
+cosmic_debug_bin := $(o)/bin/cosmic-debug
+cosmic_files := $(cosmic_bin) $(cosmic_debug_bin) $(cosmic_lua)
 cosmic_deps := cosmos tl teal-types
 
 cosmic_built := $(o)/cosmic/.built
@@ -26,6 +27,14 @@ $(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(tea
 	@cd $(cosmic_built) && $(CURDIR)/$(cosmos_zip_bin) -qr $(CURDIR)/$@ .lua .docs
 	@$(cosmos_zip_bin) -qj $@ $(cosmic_main) $(cosmic_args)
 
+$(cosmic_debug_bin): $(cosmic_bin)
+	@$(cp) $(cosmos_lua_debug_bin) $@
+	@chmod +x $@
+	@cd $(cosmic_built) && $(CURDIR)/$(cosmos_zip_bin) -qr $(CURDIR)/$@ .lua .docs
+	@$(cosmos_zip_bin) -qj $@ $(cosmic_main) $(cosmic_args)
+
 cosmic: $(cosmic_bin)
 
-.PHONY: cosmic
+cosmic-debug: $(cosmic_debug_bin)
+
+.PHONY: cosmic cosmic-debug
