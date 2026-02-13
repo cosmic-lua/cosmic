@@ -27,7 +27,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: cosmic-lua
-          path: o/bin/cosmic
+          path: |
+            o/bin/cosmic
+            o/bin/cosmic-debug
 
   release:
     runs-on: ubuntu-latest
@@ -49,10 +51,11 @@ jobs:
         run: |
           mkdir -p release
           cp artifacts/cosmic-lua/cosmic release/cosmic-lua
-          chmod +x release/cosmic-lua
+          cp artifacts/cosmic-lua/cosmic-debug release/cosmic-lua-debug
+          chmod +x release/cosmic-lua release/cosmic-lua-debug
           tag="$(date -u +%Y-%m-%d)-${GITHUB_SHA::7}"
-          (cd release && sha256sum cosmic-lua > SHA256SUMS && cat SHA256SUMS)
+          (cd release && sha256sum cosmic-lua cosmic-lua-debug > SHA256SUMS && cat SHA256SUMS)
           gh release create "$tag" \
             ${PRERELEASE_FLAG} \
             --title "$tag" \
-            release/cosmic-lua release/SHA256SUMS
+            release/cosmic-lua release/cosmic-lua-debug release/SHA256SUMS
