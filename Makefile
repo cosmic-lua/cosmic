@@ -28,6 +28,7 @@ include lib/cook.mk
 include 3p/cosmos/cook.mk
 include 3p/tl/cook.mk
 include 3p/teal-types/cook.mk
+include 3p/ah/cook.mk
 
 # landlock-make sandbox constraints (only effective when using landlock-make)
 # global defaults: read-only access, no network, basic stdio
@@ -308,6 +309,11 @@ ci:
 		$(MAKE) --keep-going $(s) || echo $(s) >> $(o)/failed; \
 		echo "::endgroup::";)
 	@if [ -f $(o)/failed ]; then echo "failed:"; cat $(o)/failed; exit 1; fi
+
+.PHONY: work
+## Run ah work (fetch issues, plan, execute, check)
+work: $$(ah_staged)
+	$(ah_bin) work --repo $(or $(REPO),$(shell gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null))
 
 debug-modules:
 	@echo $(modules)
