@@ -16,9 +16,11 @@ local record Socket
   getsockname: function(self: Socket): number, number, string
   getpeername: function(self: Socket): number, number, string
   bind: function(self: Socket, ip?: number, port?: number): boolean, string
+  bind_unix: function(self: Socket, path: string): boolean, string
   listen: function(self: Socket, backlog?: number): boolean, string
   accept: function(self: Socket, flags?: number): Socket, number, number, string
   connect: function(self: Socket, ip: number, port: number): boolean, string
+  connect_unix: function(self: Socket, path: string): boolean, string
   getsockopt: function(self: Socket, level: number, optname: number): number | boolean, string
   setsockopt: function(self: Socket, level: number, optname: number, value: number | boolean): boolean, string
 end
@@ -154,6 +156,18 @@ local function make_socket(fd: number): Socket
     return true
   end
 
+  --- Bind the socket to a Unix domain socket path.
+  --- @param path string Filesystem path for the socket
+  --- @return boolean True on success
+  --- @return string Error message on failure
+  function sock:bind_unix(path: string): boolean, string
+    local ok = (unix.bind as function(number, string): boolean)(self.fd, path)
+    if not ok then
+      return false, "bind_unix failed"
+    end
+    return true
+  end
+
   --- Start listening for incoming connections.
   --- @param backlog number Maximum pending connections (default 128)
   --- @return boolean True on success
@@ -189,6 +203,18 @@ local function make_socket(fd: number): Socket
     local ok = unix.connect(self.fd, ip, port)
     if not ok then
       return false, "connect failed"
+    end
+    return true
+  end
+
+  --- Connect to a Unix domain socket path.
+  --- @param path string Filesystem path of the socket to connect to
+  --- @return boolean True on success
+  --- @return string Error message on failure
+  function sock:connect_unix(path: string): boolean, string
+    local ok = (unix.connect as function(number, string): boolean)(self.fd, path)
+    if not ok then
+      return false, "connect_unix failed"
     end
     return true
   end
@@ -258,6 +284,46 @@ local function socketpair(family?: number, socktype?: number, protocol?: number)
     return nil, nil, "socketpair creation failed"
   end
   return make_socket(fd1), make_socket(fd2)
+end
+
+--- Create a Unix domain socket, bind it to a path, and start listening.
+--- @param path string Filesystem path for the socket
+--- @param backlog number Maximum pending connections (default 128)
+--- @return Socket Listening socket
+--- @return string Error message on failure
+local function listen_unix(path: string, backlog?: number): Socket, string
+  local sock, err = socket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+  if not sock then
+    return nil, err
+  end
+  local ok, bind_err = sock:bind_unix(path)
+  if not ok then
+    sock:close()
+    return nil, bind_err
+  end
+  local lok, listen_err = sock:listen(backlog)
+  if not lok then
+    sock:close()
+    return nil, listen_err
+  end
+  return sock
+end
+
+--- Create a Unix domain socket and connect to a path.
+--- @param path string Filesystem path of the socket to connect to
+--- @return Socket Connected socket
+--- @return string Error message on failure
+local function connect_unix(path: string): Socket, string
+  local sock, err = socket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+  if not sock then
+    return nil, err
+  end
+  local ok, conn_err = sock:connect_unix(path)
+  if not ok then
+    sock:close()
+    return nil, conn_err
+  end
+  return sock
 end
 
 --- Poll file descriptors for events.
@@ -336,6 +402,10 @@ local record NetModule
   -- Socket creation
   socket: function(family?: number, socktype?: number, protocol?: number): Socket, string
   socketpair: function(family?: number, socktype?: number, protocol?: number): Socket, Socket, string
+
+  -- Unix domain socket helpers
+  listen_unix: function(path: string, backlog?: number): Socket, string
+  connect_unix: function(path: string): Socket, string
 
   -- Polling
   poll: function(fds: {number:number}, timeoutms?: number): {number:number}, string
@@ -439,6 +509,10 @@ local M: NetModule = {
   -- Socket creation
   socket = socket,
   socketpair = socketpair,
+
+  -- Unix domain socket helpers
+  listen_unix = listen_unix,
+  connect_unix = connect_unix,
 
   -- Polling
   poll = poll,

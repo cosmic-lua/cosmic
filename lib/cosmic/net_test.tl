@@ -402,4 +402,87 @@ local function test_interfaces_formatip()
 end
 test_interfaces_formatip()
 
+local function test_unix_domain_socket_bind_connect()
+  local path = "/tmp/cosmic_net_test_" .. tostring(os.time()) .. ".sock"
+
+  -- Create server socket
+  local server, err = net.socket(net.AF_UNIX, net.SOCK_STREAM, 0)
+  assert(server ~= nil, "unix server socket creation failed: " .. tostring(err))
+
+  -- Bind to path
+  local ok, bind_err = server:bind_unix(path)
+  assert(ok, "bind_unix failed: " .. tostring(bind_err))
+
+  -- Listen
+  ok, err = server:listen()
+  assert(ok, "listen failed: " .. tostring(err))
+
+  -- Fork to create a client
+  local pid = unix.fork()
+  if pid == 0 then
+    local client = net.socket(net.AF_UNIX, net.SOCK_STREAM, 0)
+    if not client then os.exit(1) end
+    local connect_ok = client:connect_unix(path)
+    if not connect_ok then os.exit(2) end
+    local sent = client:send("hello from unix client")
+    if not sent then os.exit(3) end
+    client:close()
+    os.exit(0)
+  end
+
+  -- Parent: accept connection
+  local client, _, _, accept_err = server:accept()
+  assert(client ~= nil, "accept failed: " .. tostring(accept_err))
+
+  -- Read data from client
+  local data, recv_err = client:recv()
+  assert(data == "hello from unix client", "expected 'hello from unix client', got '" .. tostring(data) .. "': " .. tostring(recv_err))
+
+  client:close()
+  server:close()
+  unix.wait(pid)
+  os.remove(path)
+end
+test_unix_domain_socket_bind_connect()
+
+local function test_listen_unix_connect_unix()
+  local path = "/tmp/cosmic_net_test_lu_" .. tostring(os.time()) .. ".sock"
+
+  -- Use module-level listen_unix helper
+  local server, err = net.listen_unix(path)
+  assert(server ~= nil, "listen_unix failed: " .. tostring(err))
+
+  -- Fork to create a client using module-level connect_unix helper
+  local pid = unix.fork()
+  if pid == 0 then
+    local client, cerr = net.connect_unix(path)
+    if not client then
+      io.stderr:write("connect_unix failed: " .. tostring(cerr) .. "\n")
+      os.exit(1)
+    end
+    local sent = client:send("hello from connect_unix")
+    if not sent then os.exit(2) end
+    client:close()
+    os.exit(0)
+  end
+
+  -- Parent: accept connection
+  local client, _, _, accept_err = server:accept()
+  assert(client ~= nil, "accept failed: " .. tostring(accept_err))
+
+  -- Read data from client
+  local data, recv_err = client:recv()
+  assert(data == "hello from connect_unix", "expected 'hello from connect_unix', got '" .. tostring(data) .. "': " .. tostring(recv_err))
+
+  -- Verify accepted socket has __close
+  local mt = getmetatable(client)
+  assert(mt ~= nil and mt.__close ~= nil, "expected accepted unix socket to have __close")
+
+  client:close()
+  server:close()
+  unix.wait(pid)
+  os.remove(path)
+end
+test_listen_unix_connect_unix()
+
 print("All net tests passed")
