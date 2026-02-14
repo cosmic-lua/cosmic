@@ -463,4 +463,50 @@ local function test_extract_preserves_file_modes()
 end
 test_extract_preserves_file_modes()
 
+-- Test that embed does not corrupt a running process.
+-- The APE loader mmaps code pages from the executable via MAP_PRIVATE.
+-- If embed wrote directly to the output path, the running process would
+-- get corrupted pages and crash (SIGSEGV). Atomic rename via mkstemp
+-- ensures the old inode stays valid for the running process.
+local function test_embed_does_not_corrupt_running_process()
+  -- Create a program that sleeps, then exercises code pages
+  local appdir = path.join(tmpdir, "running-app")
+  unix.makedirs(appdir)
+  cosmo.Barf(path.join(appdir, "main.lua"), [[
+local unix = require("cosmo.unix")
+-- Sleep to give the test time to overwrite the binary
+unix.nanosleep(1)
+-- Exercise code paths that touch mmapped pages (string ops, table ops, format)
+local t = {}
+for i = 1, 100 do t[i] = string.format("item_%04d", i) end
+local result = table.concat(t, ",")
+-- Signal success
+io.write("OK:" .. #result)
+]])
+
+  local binary = path.join(tmpdir, "cosmic-running")
+  local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--output", binary}):read()
+  assert(ok, "initial embed should succeed: " .. (out or ""))
+
+  -- Start the binary as a subprocess
+  local ape = path.join(os.getenv("TEST_BIN"), "..", "..", ".ape-1.10")
+  local handle = spawn.spawn({ape, binary})
+
+  -- Wait briefly for the process to start and mmap its pages
+  unix.nanosleep(0, 100000000) -- 100ms
+
+  -- Re-embed over the same path while the process is running.
+  -- Without atomic write, this would corrupt the running process.
+  local ok2, out2 = spawn.spawn({cosmic, "--embed", appdir, "--output", binary}):read()
+  assert(ok2, "re-embed should succeed: " .. (out2 or ""))
+
+  -- Wait for the original process to finish
+  local read_ok, stdout = handle:read()
+
+  -- The process should have exited cleanly, not crashed with SIGSEGV
+  assert(read_ok, "running process should not crash after re-embed, got: " .. tostring(stdout))
+  assert(stdout and (stdout as string):match("^OK:"), "process should print OK, got: " .. tostring(stdout))
+end
+test_embed_does_not_corrupt_running_process()
+
 print("All embed tests passed!")
