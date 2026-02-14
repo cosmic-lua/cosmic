@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 local net = require("cosmic.net")
-local unix = require("cosmo.unix")
+local fs = require("cosmic.fs")
+local child = require("cosmic.child")
 
 local function test_socket_creation()
   -- Test TCP socket creation
@@ -71,7 +72,7 @@ local function test_listen_accept_connect()
   assert(ok, "listen failed: " .. tostring(err))
 
   -- Fork to create a client
-  local pid = unix.fork()
+  local pid = child.fork()
   if pid == 0 then
     -- Child: connect to server
     local client = net.socket()
@@ -110,7 +111,7 @@ local function test_listen_accept_connect()
   server:close()
 
   -- Wait for child
-  unix.wait(pid)
+  child.wait(pid)
 end
 test_listen_accept_connect()
 
@@ -343,7 +344,7 @@ local function test_accept_socket_has_close_metamethod()
   assert(ok, "listen failed: " .. tostring(err))
 
   -- Fork to create a client
-  local pid = unix.fork()
+  local pid = child.fork()
   if pid == 0 then
     local client = net.socket()
     if not client then os.exit(1) end
@@ -366,7 +367,7 @@ local function test_accept_socket_has_close_metamethod()
 
   client:close()
   server:close()
-  unix.wait(pid)
+  child.wait(pid)
 end
 test_accept_socket_has_close_metamethod()
 
@@ -403,7 +404,8 @@ end
 test_interfaces_formatip()
 
 local function test_unix_domain_socket_bind_connect()
-  local path = "/tmp/cosmic_net_test_" .. tostring(os.time()) .. ".sock"
+  local tmpdir = assert(fs.mkdtemp("/tmp/cosmic_net_test_XXXXXX"))
+  local path = tmpdir .. "/test.sock"
 
   -- Create server socket
   local server, err = net.socket(net.AF_UNIX, net.SOCK_STREAM, 0)
@@ -418,7 +420,7 @@ local function test_unix_domain_socket_bind_connect()
   assert(ok, "listen failed: " .. tostring(err))
 
   -- Fork to create a client
-  local pid = unix.fork()
+  local pid = child.fork()
   if pid == 0 then
     local client = net.socket(net.AF_UNIX, net.SOCK_STREAM, 0)
     if not client then os.exit(1) end
@@ -440,20 +442,22 @@ local function test_unix_domain_socket_bind_connect()
 
   client:close()
   server:close()
-  unix.wait(pid)
+  child.wait(pid)
   os.remove(path)
+  os.remove(tmpdir)
 end
 test_unix_domain_socket_bind_connect()
 
 local function test_listen_unix_connect_unix()
-  local path = "/tmp/cosmic_net_test_lu_" .. tostring(os.time()) .. ".sock"
+  local tmpdir = assert(fs.mkdtemp("/tmp/cosmic_net_test_XXXXXX"))
+  local path = tmpdir .. "/test.sock"
 
   -- Use module-level listen_unix helper
   local server, err = net.listen_unix(path)
   assert(server ~= nil, "listen_unix failed: " .. tostring(err))
 
   -- Fork to create a client using module-level connect_unix helper
-  local pid = unix.fork()
+  local pid = child.fork()
   if pid == 0 then
     local client, cerr = net.connect_unix(path)
     if not client then
@@ -480,8 +484,9 @@ local function test_listen_unix_connect_unix()
 
   client:close()
   server:close()
-  unix.wait(pid)
+  child.wait(pid)
   os.remove(path)
+  os.remove(tmpdir)
 end
 test_listen_unix_connect_unix()
 
