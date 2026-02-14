@@ -10,6 +10,119 @@ local record Errno
   doc: function(self: Errno): string
 end
 
+--- Signal set for blocking, unblocking, and waiting on signals.
+--- Wraps unix.Sigset for use with sigprocmask, sigaction, and sigsuspend.
+local record Sigset
+  --- Adds signal to bitset.
+  add: function(self: Sigset, sig: number)
+  --- Removes signal from bitset.
+  remove: function(self: Sigset, sig: number)
+  --- Sets all bits in signal bitset to true.
+  fill: function(self: Sigset)
+  --- Sets all bits in signal bitset to false.
+  clear: function(self: Sigset)
+  --- Returns true if signal is in the bitset.
+  contains: function(self: Sigset, sig: number): boolean
+end
+
+--- Signal handling module.
+--- Provides signal constants, sigaction, sigprocmask, sigsuspend, and delivery functions.
+local record SignalModule
+
+  -- Signal constants
+  SIGABRT: number
+  SIGALRM: number
+  SIGBUS: number
+  SIGCHLD: number
+  SIGCONT: number
+  SIGEMT: number
+  SIGFPE: number
+  SIGHUP: number
+  SIGILL: number
+  SIGINFO: number
+  SIGINT: number
+  SIGIO: number
+  SIGKILL: number
+  SIGPIPE: number
+  SIGPROF: number
+  SIGPWR: number
+  SIGQUIT: number
+  SIGRTMAX: number
+  SIGRTMIN: number
+  SIGSEGV: number
+  SIGSTKFLT: number
+  SIGSTOP: number
+  SIGSYS: number
+  SIGTERM: number
+  SIGTRAP: number
+  SIGTSTP: number
+  SIGTTIN: number
+  SIGTTOU: number
+  SIGURG: number
+  SIGUSR1: number
+  SIGUSR2: number
+  SIGVTALRM: number
+  SIGWINCH: number
+  SIGXCPU: number
+  SIGXFSZ: number
+
+  -- Signal mask operations
+  SIG_BLOCK: number
+  SIG_UNBLOCK: number
+  SIG_SETMASK: number
+
+  -- Default/ignore handlers
+  SIG_DFL: number
+  SIG_IGN: number
+
+  -- sigaction flags
+  SA_NOCLDSTOP: number
+  SA_NOCLDWAIT: number
+  SA_NODEFER: number
+  SA_RESETHAND: number
+  SA_RESTART: number
+
+  -- Timer types
+  ITIMER_REAL: number
+  ITIMER_VIRTUAL: number
+  ITIMER_PROF: number
+
+  --- Create a new signal set containing the specified signals.
+  --- The returned Sigset has methods: add(sig), remove(sig), fill(), clear(), contains(sig).
+  Sigset: function(...: number): Sigset
+
+  --- Register a signal handler for the specified signal.
+  --- The handler can be a Lua function, SIG_IGN, or SIG_DFL.
+  --- Returns the previous handler, flags, and mask.
+  sigaction: function(sig: number, handler?: function | number, flags?: number, mask?: Sigset): function | number, number, Sigset
+
+  --- Modify the process signal mask.
+  --- how: SIG_BLOCK, SIG_UNBLOCK, or SIG_SETMASK
+  --- Returns the previous signal mask.
+  sigprocmask: function(how: number, set: Sigset): Sigset
+
+  --- Suspend the process until a signal is delivered.
+  --- Temporarily replaces the signal mask with the provided mask.
+  sigsuspend: function(mask: Sigset): boolean, Errno
+
+  --- Schedule SIGALRM signals at intervals.
+  --- which: ITIMER_REAL, ITIMER_VIRTUAL, or ITIMER_PROF
+  setitimer: function(which: number, intervalsec: number, intervalns: number, valuesec: number, valuens: number): number, number, number, number
+
+  --- Send a signal to a process.
+  --- pid > 0 signals one process by id; 0 signals current group; -1 signals all.
+  kill: function(pid: number, sig: number): boolean, string
+
+  --- Send a signal to a process group.
+  killpg: function(pgrp: number, sig: number): boolean, string
+
+  --- Send a signal to the current process.
+  raise: function(sig: number): boolean, string
+
+  --- Get the name of a signal.
+  strsignal: function(sig: number): string
+end
+
 --- Send a signal to a process.
 --- @param pid number The process ID (>0 for specific process, 0 for process group, -1 for all)
 --- @param sig number The signal to send
@@ -70,96 +183,79 @@ local function strsignal(sig: number): string
   return unix.strsignal(sig)
 end
 
--- Re-export functions that use Sigset directly from unix to preserve type compatibility
-local M = {
-  --- Create a new signal set containing the specified signals.
-  --- The returned Sigset has methods: add(sig), remove(sig), fill(), clear(), contains(sig).
-  Sigset = unix.Sigset,
+local M = {} as SignalModule
 
-  --- Register a signal handler for the specified signal.
-  --- The handler can be a Lua function, SIG_IGN, or SIG_DFL.
-  --- Returns the previous handler, flags, and mask.
-  sigaction = unix.sigaction,
+-- Re-export functions that use Sigset directly from unix
+M.Sigset = unix.Sigset as function(...: number): Sigset
+M.sigaction = unix.sigaction as function(sig: number, handler?: function | number, flags?: number, mask?: Sigset): (function | number, number, Sigset)
+M.sigprocmask = unix.sigprocmask as function(how: number, set: Sigset): Sigset
+M.sigsuspend = unix.sigsuspend as function(mask: Sigset): (boolean, Errno)
+M.setitimer = unix.setitimer as function(which: number, intervalsec: number, intervalns: number, valuesec: number, valuens: number): (number, number, number, number)
 
-  --- Modify the process signal mask.
-  --- how: SIG_BLOCK, SIG_UNBLOCK, or SIG_SETMASK
-  --- mask: A Sigset object
-  --- Returns the previous signal mask.
-  sigprocmask = unix.sigprocmask,
+-- Delivery functions
+M.kill = kill
+M.killpg = killpg
+M.raise = raise
 
-  --- Suspend the process until a signal is delivered.
-  --- Temporarily replaces the signal mask with the provided mask.
-  sigsuspend = unix.sigsuspend,
+-- Utilities
+M.strsignal = strsignal
 
-  --- Schedule SIGALRM signals at intervals.
-  --- which: ITIMER_REAL, ITIMER_VIRTUAL, or ITIMER_PROF
-  setitimer = unix.setitimer,
+-- Signal constants
+M.SIGABRT = unix.SIGABRT as number
+M.SIGALRM = unix.SIGALRM as number
+M.SIGBUS = unix.SIGBUS as number
+M.SIGCHLD = unix.SIGCHLD as number
+M.SIGCONT = unix.SIGCONT as number
+M.SIGEMT = unix.SIGEMT as number
+M.SIGFPE = unix.SIGFPE as number
+M.SIGHUP = unix.SIGHUP as number
+M.SIGILL = unix.SIGILL as number
+M.SIGINFO = unix.SIGINFO as number
+M.SIGINT = unix.SIGINT as number
+M.SIGIO = unix.SIGIO as number
+M.SIGKILL = unix.SIGKILL as number
+M.SIGPIPE = unix.SIGPIPE as number
+M.SIGPROF = unix.SIGPROF as number
+M.SIGPWR = unix.SIGPWR as number
+M.SIGQUIT = unix.SIGQUIT as number
+M.SIGRTMAX = unix.SIGRTMAX as number
+M.SIGRTMIN = unix.SIGRTMIN as number
+M.SIGSEGV = unix.SIGSEGV as number
+M.SIGSTKFLT = unix.SIGSTKFLT as number
+M.SIGSTOP = unix.SIGSTOP as number
+M.SIGSYS = unix.SIGSYS as number
+M.SIGTERM = unix.SIGTERM as number
+M.SIGTRAP = unix.SIGTRAP as number
+M.SIGTSTP = unix.SIGTSTP as number
+M.SIGTTIN = unix.SIGTTIN as number
+M.SIGTTOU = unix.SIGTTOU as number
+M.SIGURG = unix.SIGURG as number
+M.SIGUSR1 = unix.SIGUSR1 as number
+M.SIGUSR2 = unix.SIGUSR2 as number
+M.SIGVTALRM = unix.SIGVTALRM as number
+M.SIGWINCH = unix.SIGWINCH as number
+M.SIGXCPU = unix.SIGXCPU as number
+M.SIGXFSZ = unix.SIGXFSZ as number
 
-  -- Delivery functions
-  kill = kill,
-  killpg = killpg,
-  raise = raise,
+-- Signal mask operations
+M.SIG_BLOCK = unix.SIG_BLOCK as number
+M.SIG_UNBLOCK = unix.SIG_UNBLOCK as number
+M.SIG_SETMASK = unix.SIG_SETMASK as number
 
-  -- Utilities
-  strsignal = strsignal,
+-- Default/ignore handlers
+M.SIG_DFL = unix.SIG_DFL as number
+M.SIG_IGN = unix.SIG_IGN as number
 
-  -- Signal constants
-  SIGABRT = unix.SIGABRT,
-  SIGALRM = unix.SIGALRM,
-  SIGBUS = unix.SIGBUS,
-  SIGCHLD = unix.SIGCHLD,
-  SIGCONT = unix.SIGCONT,
-  SIGEMT = unix.SIGEMT,
-  SIGFPE = unix.SIGFPE,
-  SIGHUP = unix.SIGHUP,
-  SIGILL = unix.SIGILL,
-  SIGINFO = unix.SIGINFO,
-  SIGINT = unix.SIGINT,
-  SIGIO = unix.SIGIO,
-  SIGKILL = unix.SIGKILL,
-  SIGPIPE = unix.SIGPIPE,
-  SIGPROF = unix.SIGPROF,
-  SIGPWR = unix.SIGPWR,
-  SIGQUIT = unix.SIGQUIT,
-  SIGRTMAX = unix.SIGRTMAX,
-  SIGRTMIN = unix.SIGRTMIN,
-  SIGSEGV = unix.SIGSEGV,
-  SIGSTKFLT = unix.SIGSTKFLT,
-  SIGSTOP = unix.SIGSTOP,
-  SIGSYS = unix.SIGSYS,
-  SIGTERM = unix.SIGTERM,
-  SIGTRAP = unix.SIGTRAP,
-  SIGTSTP = unix.SIGTSTP,
-  SIGTTIN = unix.SIGTTIN,
-  SIGTTOU = unix.SIGTTOU,
-  SIGURG = unix.SIGURG,
-  SIGUSR1 = unix.SIGUSR1,
-  SIGUSR2 = unix.SIGUSR2,
-  SIGVTALRM = unix.SIGVTALRM,
-  SIGWINCH = unix.SIGWINCH,
-  SIGXCPU = unix.SIGXCPU,
-  SIGXFSZ = unix.SIGXFSZ,
+-- sigaction flags
+M.SA_NOCLDSTOP = unix.SA_NOCLDSTOP as number
+M.SA_NOCLDWAIT = unix.SA_NOCLDWAIT as number
+M.SA_NODEFER = unix.SA_NODEFER as number
+M.SA_RESETHAND = unix.SA_RESETHAND as number
+M.SA_RESTART = unix.SA_RESTART as number
 
-  -- Signal mask operations
-  SIG_BLOCK = unix.SIG_BLOCK,
-  SIG_UNBLOCK = unix.SIG_UNBLOCK,
-  SIG_SETMASK = unix.SIG_SETMASK,
-
-  -- Default/ignore handlers
-  SIG_DFL = unix.SIG_DFL,
-  SIG_IGN = unix.SIG_IGN,
-
-  -- sigaction flags
-  SA_NOCLDSTOP = unix.SA_NOCLDSTOP,
-  SA_NOCLDWAIT = unix.SA_NOCLDWAIT,
-  SA_NODEFER = unix.SA_NODEFER,
-  SA_RESETHAND = unix.SA_RESETHAND,
-  SA_RESTART = unix.SA_RESTART,
-
-  -- Timer types
-  ITIMER_REAL = unix.ITIMER_REAL,
-  ITIMER_VIRTUAL = unix.ITIMER_VIRTUAL,
-  ITIMER_PROF = unix.ITIMER_PROF,
-}
+-- Timer types
+M.ITIMER_REAL = unix.ITIMER_REAL as number
+M.ITIMER_VIRTUAL = unix.ITIMER_VIRTUAL as number
+M.ITIMER_PROF = unix.ITIMER_PROF as number
 
 return M
