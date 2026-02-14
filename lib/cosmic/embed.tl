@@ -35,6 +35,7 @@
 local cio = require("cosmic.io")
 local czip = require("cosmic.zip")
 local fs = require("cosmic.fs")
+local unix = require("cosmo.unix")
 
 --- Result returned from embed and extract operations.
 local record EmbedResult
@@ -195,23 +196,35 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
     return {ok = false, message = "error: no files found to embed", file_count = 0}
   end
 
-  -- Copy source executable to output path
+  -- Build in a temp file, then atomically rename into place.
+  -- Writing directly to the output path would corrupt any running process
+  -- that has the file mmapped (the APE loader uses MAP_PRIVATE file-backed
+  -- mappings for code pages; overwriting the file invalidates those pages).
+  local tmp_fd, tmp_path = unix.mkstemp(output .. ".XXXXXX")
+  if not tmp_fd then
+    return {ok = false, message = "error: cannot create temp file near '" .. output .. "'", file_count = 0}
+  end
+  unix.close(tmp_fd)
+
   local exe_data = cio.slurp(exe_path)
   if not exe_data then
+    os.remove(tmp_path)
     return {ok = false, message = "error: cannot read executable '" .. exe_path .. "'", file_count = 0}
   end
 
-  local barf_ok = cio.barf(output, exe_data, tonumber("755", 8))
+  local barf_ok = cio.barf(tmp_path, exe_data)
   if not barf_ok then
-    return {ok = false, message = "error: cannot write to '" .. output .. "'", file_count = 0}
+    os.remove(tmp_path)
+    return {ok = false, message = "error: cannot write to '" .. tmp_path .. "'", file_count = 0}
   end
+  unix.chmod(tmp_path, tonumber("755", 8))
 
   -- Open the copy as an appender to modify its zip in-place
   local appender_result: any
   local appender_err: any
-  appender_result, appender_err = czip.open(output, "a")
+  appender_result, appender_err = czip.open(tmp_path, "a")
   if not appender_result then
-    os.remove(output)
+    os.remove(tmp_path)
     return {ok = false, message = "error: failed to open zip for appending: " .. tostring(appender_err or "unknown error"), file_count = 0}
   end
   local appender = appender_result as ZipAppender
@@ -222,12 +235,20 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
     local add_ok, add_err = appender:add(file_info.stored_name, file_info.content, {mode = file_info.mode})
     if not add_ok then
       appender:close()
-      os.remove(output)
+      os.remove(tmp_path)
       return {ok = false, message = "error: failed to add '" .. file_info.stored_name .. "' to zip: " .. tostring(add_err or "unknown error"), file_count = 0}
     end
   end
 
   appender:close()
+
+  -- Atomically replace the output file. rename() on the same filesystem is
+  -- atomic — any running process with the old inode mmapped keeps its pages.
+  local rename_ok, rename_err = os.rename(tmp_path, output)
+  if not rename_ok then
+    os.remove(tmp_path)
+    return {ok = false, message = "error: cannot rename temp file to '" .. output .. "': " .. tostring(rename_err or "unknown"), file_count = 0}
+  end
 
   return {
     ok = true,
