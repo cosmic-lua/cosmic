@@ -23,9 +23,11 @@ local record Socket
   getsockname: function(self: Socket): number, number, string
   getpeername: function(self: Socket): number, number, string
   bind: function(self: Socket, ip?: number, port?: number): boolean, string
+  bind_unix: function(self: Socket, path: string): boolean, string
   listen: function(self: Socket, backlog?: number): boolean, string
   accept: function(self: Socket, flags?: number): Socket, number, number, string
   connect: function(self: Socket, ip: number, port: number): boolean, string
+  connect_unix: function(self: Socket, path: string): boolean, string
   getsockopt: function(self: Socket, level: number, optname: number): number | boolean, string
   setsockopt: function(self: Socket, level: number, optname: number, value: number | boolean): boolean, string
 end
@@ -50,6 +52,8 @@ end
 local record NetModule
   socket: function(family?: number, socktype?: number, protocol?: number): Socket, string
   socketpair: function(family?: number, socktype?: number, protocol?: number): Socket, Socket, string
+  listen_unix: function(path: string, backlog?: number): Socket, string
+  connect_unix: function(path: string): Socket, string
   poll: function(fds: {number:number}, timeoutms?: number): {number:number}, string
   gethostname: function(): string, string
   parseip: function(str: string): number, string
@@ -167,6 +171,41 @@ function socketpair(family?: number, socktype?: number, protocol?: number): Sock
 
 - Socket - First socket of the pair
 - Socket - Second socket of the pair
+- string - Error message on failure
+
+### listen_unix
+
+```teal
+function listen_unix(path: string, backlog?: number): Socket, string
+```
+
+ Create a Unix domain socket, bind it to a path, and start listening.
+
+**Parameters:**
+
+- `path` (string) - Filesystem path for the socket
+- `backlog` (number) - Maximum pending connections (default 128)
+
+**Returns:**
+
+- Socket - Listening socket
+- string - Error message on failure
+
+### connect_unix
+
+```teal
+function connect_unix(path: string): Socket, string
+```
+
+ Create a Unix domain socket and connect to a path.
+
+**Parameters:**
+
+- `path` (string) - Filesystem path of the socket to connect to
+
+**Returns:**
+
+- Socket - Connected socket
 - string - Error message on failure
 
 ### poll
@@ -412,6 +451,23 @@ function sock:bind(ip?: number, port?: number): boolean, string
 - boolean - True on success
 - string - Error message on failure
 
+### sock:bind_unix
+
+```teal
+function sock:bind_unix(path: string): boolean, string
+```
+
+ Bind the socket to a Unix domain socket path.
+
+**Parameters:**
+
+- `path` (string) - Filesystem path for the socket
+
+**Returns:**
+
+- boolean - True on success
+- string - Error message on failure
+
 ### sock:listen
 
 ```teal
@@ -460,6 +516,23 @@ function sock:connect(ip: number, port: number): boolean, string
 
 - `ip` (number) - Remote IP address
 - `port` (number) - Remote port
+
+**Returns:**
+
+- boolean - True on success
+- string - Error message on failure
+
+### sock:connect_unix
+
+```teal
+function sock:connect_unix(path: string): boolean, string
+```
+
+ Connect to a Unix domain socket path.
+
+**Parameters:**
+
+- `path` (string) - Filesystem path of the socket to connect to
 
 **Returns:**
 
