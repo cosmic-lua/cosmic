@@ -526,13 +526,12 @@ local function main(): integer, string
     end
 
     -- Read original file content
-    local f, open_err = io.open(opts.check_format, "r")
-    if not f then
-      io.stderr:write(opts.check_format .. ": cannot open: " .. (open_err or "unknown error") .. "\n")
+    local cio = require("cosmic.io")
+    local original, read_err = cio.slurp(opts.check_format)
+    if not original then
+      io.stderr:write(opts.check_format .. ": " .. (read_err or "unknown error") .. "\n")
       return 1
     end
-    local original = f:read("*a")
-    f:close()
 
     if original == result.code then
       io.write("Format check passed\n")
