@@ -280,4 +280,73 @@ assert_format(
   "nested multi-line calls"
 )
 
+-- Bug 7: long string closing ]] followed by ) should stay on same line
+assert_format(
+  "local x = foo([[\nhello\n]])\n",
+  "local x = foo([[\nhello\n]])\n",
+  "long string close ]] with ) stays on same line"
+)
+
+-- Bug 7 variant: multiline long string with additional args before it
+assert_format(
+  "local x = bar(\"a\", [[\nhello\nworld\n]])\n",
+  "local x = bar(\"a\", [[\nhello\nworld\n]])\n",
+  "long string close ]] with ) after other args"
+)
+
+-- Bug 7 variant: long string followed by ) and , in nested call
+assert_format(
+  "local x = baz(qux([[\ninner\n]], \"after\"))\n",
+  "local x = baz(qux([[\ninner\n]], \"after\"))\n",
+  "long string close ]] with args after in nested call"
+)
+
+-- Bug 7 variant: long string followed by , in table
+assert_format(
+  "local t = {\n  key = [[\nvalue\n]],\n}\n",
+  "local t = {\n  key = [[\nvalue\n]],\n}\n",
+  "long string close ]] with comma in table"
+)
+
+-- Bug 7 variant: idempotent after formatting long string close
+assert_idempotent(
+  "local x = foo([[\nhello\n]])\n",
+  "idempotent long string close"
+)
+
+-- Bug 7 variant: two consecutive long string args
+assert_format(
+  "local x = two([[\nfirst\n]], [[\nsecond\n]])\n",
+  "local x = two([[\nfirst\n]], [[\nsecond\n]])\n",
+  "two long string args stay on same line"
+)
+
+-- Bug 7 variant: already-split ]]\n) should be rejoined
+assert_format(
+  "local x = foo([[\nhello\n]]\n)\n",
+  "local x = foo([[\nhello\n]])\n",
+  "already-split long string close gets rejoined"
+)
+
+-- Bug 7 variant: already-split ]]\n) with indent should be rejoined
+assert_format(
+  "local function test()\n  local x = foo([[\nhello\n]]\n  )\nend\n",
+  "local function test()\n  local x = foo([[\nhello\n]])\nend\n",
+  "already-split long string close inside function gets rejoined"
+)
+
+-- Bug 7 variant: already-split ]]\n, should be rejoined
+assert_format(
+  "local x = bar([[\nhello\n]]\n, \"after\")\n",
+  "local x = bar([[\nhello\n]], \"after\")\n",
+  "already-split long string comma gets rejoined"
+)
+
+-- Bug 7 variant: long string not at end of line should NOT merge next line
+assert_format(
+  "local x = [[\nhello\n]]\nlocal y = 1\n",
+  "local x = [[\nhello\n]]\nlocal y = 1\n",
+  "long string assignment followed by new statement stays separate"
+)
+
 print("All format tests passed!")
