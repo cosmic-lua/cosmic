@@ -317,7 +317,7 @@ local function compute_indent_change(line_items: {Item}): integer, integer
     if is_block_closer(first_code) or is_half_closer(first_code) then
       pre_change = pre_change - 1
     end
-    if first_code.tk == "}" then
+    if first_code.tk == "}" or first_code.tk == ")" then
       pre_change = pre_change - 1
     end
   end
@@ -330,7 +330,7 @@ local function compute_indent_change(line_items: {Item}): integer, integer
     else
       if is_block_opener(item) then
         post_change = post_change + 1
-      elseif item.tk == "{" then
+      elseif item.tk == "{" or item.tk == "(" then
         post_change = post_change + 1
       elseif item.kind == "keyword" and item.tk == "function" then
         -- Only count as block opener if it's a function definition, not a type
@@ -344,7 +344,7 @@ local function compute_indent_change(line_items: {Item}): integer, integer
         if is_block_closer(item) or is_half_closer(item) then
           post_change = post_change - 1
         end
-        if item.tk == "}" then
+        if item.tk == "}" or item.tk == ")" then
           post_change = post_change - 1
         end
       end
