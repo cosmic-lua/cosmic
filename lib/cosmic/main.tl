@@ -479,7 +479,12 @@ local function main(): integer, string
     local mod = "cosmic.version"
     local ok, ver = pcall(require, mod)
     if ok then
-      io.write("cosmic-lua " .. ver.cosmic .. " (cosmos " .. ver.cosmos .. ", " .. _VERSION .. ")\n")
+      local record VersionInfo
+        cosmic: string
+        cosmos: string
+      end
+      local v = ver as VersionInfo
+      io.write("cosmic-lua " .. v.cosmic .. " (cosmos " .. v.cosmos .. ", " .. _VERSION .. ")\n")
     else
       io.write(_VERSION .. "\n")
     end
