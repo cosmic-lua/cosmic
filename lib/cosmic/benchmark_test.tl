@@ -54,8 +54,7 @@ local function test_run_benchmark()
 local function Benchmark_add()
   local x = 1 + 1
 end
-]]
-  )
+]])
   local result = benchmark.run(input)
   assert(result.exit_code == 0, "should pass")
   assert(#result.results == 1, "should have one result")
@@ -70,8 +69,7 @@ local function test_run_no_benchmarks()
 local function regular_function()
   return 42
 end
-]]
-  )
+]])
   local result = benchmark.run(input)
   assert(result.exit_code == 2, "should return skip code")
   assert(#result.results == 0, "should have no results")
@@ -92,8 +90,7 @@ local function test_cosmic_benchmark()
 local function Benchmark_cmd()
   local x = 1 + 1
 end
-]]
-  )
+]])
   local ok, out = spawn.spawn({cosmic, "--benchmark", input}):read()
   assert(ok, "cosmic --benchmark should succeed")
   assert((out as string):find("Benchmark_cmd"), "output should contain benchmark name")
@@ -105,8 +102,7 @@ test_cosmic_benchmark()
 local function test_cosmic_benchmark_skip()
   local input = write_temp("cmd_bench_skip.tl", [[
 local x = 1
-]]
-  )
+]])
   local h = spawn.spawn({cosmic, "--benchmark", input})
   h.stdin:close()
   local out = h.stdout:read()
@@ -126,8 +122,7 @@ local function Benchmark_nested()
     end
   end
 end
-]]
-  )
+]])
   local result = benchmark.run(input)
   assert(result.exit_code == 0, "should handle nested blocks")
   assert(result.results[1].iterations > 0, "should run iterations")
@@ -140,8 +135,7 @@ local function test_format_results()
 local function Benchmark_fmt()
   local x = 1
 end
-]]
-  )
+]])
   local result = benchmark.run(input)
   local formatted = benchmark.format_results(input, result)
   assert(formatted:find("Benchmark_fmt"), "should contain benchmark name")
@@ -155,8 +149,7 @@ local function test_runtime_error()
 local function Benchmark_error()
   error("intentional error")
 end
-]]
-  )
+]])
   local result = benchmark.run(input)
   assert(result.exit_code == 1, "should fail on runtime error")
   assert(result.results[1].error:find("runtime error"), "should capture error")
@@ -178,8 +171,7 @@ end
 local function Benchmark_math_add()
   local x = 1 + 2
 end
-]]
-  )
+]])
   -- Filter to only run "string" benchmarks
   local result = benchmark.run(input, "string")
   assert(result.exit_code == 0, "should pass")
@@ -194,8 +186,7 @@ local function test_filter_no_match()
 local function Benchmark_foo()
   local x = 1
 end
-]]
-  )
+]])
   local result = benchmark.run(input, "nonexistent")
   assert(result.exit_code == 2, "should return skip code")
   assert(result.error:find("no benchmarks matching"), "should show filter error")
@@ -212,8 +203,7 @@ end
 local function Benchmark_beta()
   local y = 2
 end
-]]
-  )
+]])
   local ok, out = spawn.spawn({cosmic, "--benchmark", input .. ":alpha"}):read()
   assert(ok, "cosmic --benchmark with filter should succeed")
   assert((out as string):find("Benchmark_alpha"), "output should contain matching benchmark")

@@ -44,8 +44,7 @@ if no_welcome then
 else
   print("COSMIC_NO_WELCOME is not set")
 end
-]]
-  )
+]])
 
   local env = {"COSMIC_NO_WELCOME=1"}
   local ok, out = spawn.spawn({cosmic, test_script}, {env = env}):read()

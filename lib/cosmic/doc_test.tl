@@ -139,8 +139,7 @@ local function test_render_file()
 local function helper()
   return 1
 end
-]]
-  )
+]])
   local ok, md = doc.render_file(input)
   assert(ok, "render_file should succeed")
   assert(md:find("# doc_test"), "should have filename as header")

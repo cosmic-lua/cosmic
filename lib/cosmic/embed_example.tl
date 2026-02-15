@@ -77,8 +77,7 @@ local child = require("cosmic.child")
 local h = child.spawn({"echo", "it works"})
 local ok, out = h:read()
 io.write(out)
-]]
-  )
+]])
 
   local output = path.join(tmpdir, "myapp")
   local h = spawn.spawn({cosmic, "--embed", appdir, "--output", output})

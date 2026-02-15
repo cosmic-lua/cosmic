@@ -115,8 +115,7 @@ if cosmo.is_main() then
 else
   os.exit(1)
 end
-]]
-  )
+]])
 
   local pid = child.posix_spawnp(lua_bin, {lua_bin, script_path})
   local _, status = child.wait(pid)
@@ -135,8 +134,7 @@ if proc.is_main() then
 else
   os.exit(1)
 end
-]]
-  )
+]])
 
   local pid = child.posix_spawnp(lua_bin, {lua_bin, script_path})
   local _, status = child.wait(pid)
@@ -151,8 +149,7 @@ local function test_is_main_false_when_required()
   cosmo.Barf(mod_path, [[
 local cosmo = require("cosmo")
 return cosmo.is_main()
-]]
-  )
+]])
 
   local script_path = path.join(TEST_TMPDIR, "is_main_requirer.lua")
   cosmo.Barf(script_path, string.format([[
@@ -163,9 +160,7 @@ if result == false then
 else
   os.exit(1)
 end
-]]
-
-      , TEST_TMPDIR))
+]], TEST_TMPDIR))
 
   local pid = child.posix_spawnp(lua_bin, {lua_bin, script_path})
   local _, status = child.wait(pid)

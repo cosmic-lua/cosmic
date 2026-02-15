@@ -29,8 +29,7 @@ if not ok then
   os.exit(1)
 end
 io.write("pledged\n")
-]]
-  )
+]])
   local ok, out = spawn.spawn({cosmic, script}):read()
   assert(ok, "pledge stdio should allow io.write: " .. tostring(out))
   assert((out as string):find("pledged"), "should print after pledge: " .. tostring(out))
@@ -55,8 +54,7 @@ if f then
   os.exit(1)
 end
 io.write("restricted\n")
-]]
-  )
+]])
   local handle = spawn.spawn({cosmic, script})
   handle.stdin:close()
   local out = handle.stdout:read()
@@ -100,9 +98,7 @@ if f then
 else
   io.write("read:failed\n")
 end
-]]
-
-      , tmpdir, allowed_file))
+]], tmpdir, allowed_file))
 
   local ok, out = spawn.spawn({cosmic, script}):read()
   -- unveil may not be supported on all platforms; accept success or platform error

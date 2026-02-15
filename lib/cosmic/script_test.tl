@@ -29,8 +29,7 @@ local function test_execute_teal_file()
   local script = write_temp("hello.tl", [[
 local x: number = 42
 print("answer=" .. x)
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script}):read()
   assert(ok, "cosmic should execute .tl file")
@@ -43,8 +42,7 @@ local function test_execute_lua_file()
   local script = write_temp("hello.lua", [[
 local x = 99
 print("value=" .. x)
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script}):read()
   assert(ok, "cosmic should execute .lua file")
@@ -57,8 +55,7 @@ local function test_teal_type_error()
   local script = write_temp("type_error.tl", [[
 local x: number = "wrong type"
 print(x)
-]]
-  )
+]])
 
   -- stderr = 1 merges stderr into stdout so we can capture the error message
   local ok, out = spawn.spawn({cosmic, script}, {stderr = 1}):read()
@@ -71,8 +68,7 @@ test_teal_type_error()
 local function test_teal_syntax_error()
   local script = write_temp("syntax_error.tl", [[
 if if if
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script}):read()
   assert(not ok, "cosmic should fail on .tl file with syntax error")
@@ -89,8 +85,7 @@ end
 
 local p: Point = { x = 10, y = 20 }
 print("point=" .. p.x .. "," .. p.y)
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script}):read()
   assert(ok, "cosmic should execute .tl file with records")
@@ -105,8 +100,7 @@ local function identity<T>(x: T): T
   return x
 end
 print("result=" .. identity(123))
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script}):read()
   assert(ok, "cosmic should execute .tl file with generics")
@@ -120,8 +114,7 @@ local function test_teal_require_cosmic()
 local cosmo = require("cosmo")
 local data: string = cosmo.Slurp("/dev/null") or ""
 print("bytes=" .. #data)
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script}):read()
   assert(ok, "cosmic should execute .tl file with cosmic module requires")
@@ -135,8 +128,7 @@ local function test_teal_script_args()
 print("arg0=" .. arg[0])
 print("arg1=" .. (arg[1] or "nil"))
 print("arg2=" .. (arg[2] or "nil"))
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script, "first", "second"}):read()
   assert(ok, "cosmic should execute .tl file with args")
@@ -151,8 +143,7 @@ local function test_lua_script_args()
   local script = write_temp("args.lua", [[
 print("arg0=" .. arg[0])
 print("arg1=" .. (arg[1] or "nil"))
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script, "test"}):read()
   assert(ok, "cosmic should execute .lua file with args")
@@ -166,8 +157,7 @@ local function test_teal_with_shebang()
   local script = write_temp("shebang.tl", [[#!/usr/bin/env cosmic
 local x: number = 777
 print("shebang=" .. x)
-]]
-  )
+]])
 
   -- Verify the file exists and has correct content
   local verify = cosmo.Slurp(script)

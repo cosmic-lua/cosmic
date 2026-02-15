@@ -204,9 +204,7 @@ local function test_spawn_inherits_env()
   unix.setenv("COSMIC_TEST_SENTINEL", sentinel)
   local handle = child.spawn({lua_bin, "-e", [[
     io.write(os.getenv("COSMIC_TEST_SENTINEL") or "")
-  ]]
-
-    })
+  ]]})
   assert(handle ~= nil, "handle should not be nil")
   local ok, out, code = handle:read()
   assert(ok, "child should exit 0, got code " .. tostring(code))

@@ -229,9 +229,7 @@ local function run_example(example: Example, file_path: string): ExampleResult
   -- Prepend tl loader for require statements
   local script = [[
 require("tl").loader()
-]]
-
-  .. lua_code
+]] .. lua_code
 
   -- Execute using load
   local chunk, load_err = load(script, example.name)

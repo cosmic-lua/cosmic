@@ -24,15 +24,13 @@ local function test_readme_has_doc_table()
 Embed files into cosmic executable.
 
 ## Types
-]]
-  )
+]])
   cio.barf(fs.join(docs_dir, "lib/cosmic/spawn.md"), [[# spawn
 
 Process spawning utilities.
 
 ## Types
-]]
-  )
+]])
 
   local readme = publish.make_readme(docs_dir)
 

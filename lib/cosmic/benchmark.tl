@@ -165,9 +165,7 @@ local function run_benchmark(benchmark: Benchmark, _file_path: string): Benchmar
   local script = [[
 require("tl").loader()
 return function()
-]]
-
-  .. benchmark.body .. [[
+]] .. benchmark.body .. [[
 end
 ]]
 

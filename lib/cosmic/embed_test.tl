@@ -482,8 +482,7 @@ for i = 1, 100 do t[i] = string.format("item_%04d", i) end
 local result = table.concat(t, ",")
 -- Signal success
 io.write("OK:" .. #result)
-]]
-  )
+]])
 
   local binary = path.join(tmpdir, "cosmic-running")
   local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--output", binary}):read()

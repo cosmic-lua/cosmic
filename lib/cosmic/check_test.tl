@@ -20,8 +20,7 @@ local function test_check_valid()
 local x: number = 42
 local y: string = "hello"
 print(x, y)
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, "--check-types", input}):read()
   assert(ok, "cosmic --check-types should succeed on valid file")
@@ -32,8 +31,7 @@ test_check_valid()
 local function test_check_type_error()
   local input = write_temp("type_error.tl", [[
 local x: number = "not a number"
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, "--check-types", input}):read()
   assert(not ok, "cosmic --check-types should fail on type error")
@@ -44,8 +42,7 @@ test_check_type_error()
 local function test_check_undefined_variable()
   local input = write_temp("undefined.tl", [[
 local x: number = undefined_var
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, "--check-types", input}):read()
   assert(not ok, "cosmic --check-types should fail on undefined variable")
@@ -57,8 +54,7 @@ local function test_check_warnings()
   local input = write_temp("warnings.tl", [[
 local x: number = 42
 -- x is unused, should generate warning but not fail
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, "--check-types", input}):read()
   assert(ok, "cosmic --check-types should succeed with only warnings")
@@ -79,8 +75,7 @@ local cosmo = require("cosmo")
 local path = require("cosmo.path")
 local result: string = path.join("a", "b")
 print(result)
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, "--check-types", input}):read()
   assert(ok, "check with cosmic types should succeed")
@@ -94,8 +89,7 @@ local function test_check_strict_mode()
 local function foo()
   return unknown_global_var
 end
-]]
-  )
+]])
 
   local ok, _ = spawn.spawn({cosmic, "--check-types", input}):read()
   assert(not ok, "check should fail in strict mode with unknown variables")

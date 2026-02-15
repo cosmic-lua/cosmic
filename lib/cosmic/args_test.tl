@@ -18,8 +18,7 @@ print("varargs_count=" .. #args)
 for i, v in ipairs(args) do
   print("vararg[" .. i .. "]=" .. tostring(v))
 end
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script, "foo", "bar", "baz"}):read()
   assert(ok, "cosmic should succeed")
@@ -39,8 +38,7 @@ print("arg[0]=" .. tostring(arg[0]))
 for i = 1, #arg do
   print("arg[" .. i .. "]=" .. tostring(arg[i]))
 end
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script, "alpha", "beta"}):read()
   assert(ok, "cosmic should succeed")
@@ -62,8 +60,7 @@ print("match=" .. tostring(#varargs == #arg))
 for i = 1, #arg do
   print("match[" .. i .. "]=" .. tostring(arg[i] == varargs[i]))
 end
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script, "x", "y", "z"}):read()
   assert(ok, "cosmic should succeed")
@@ -90,8 +87,7 @@ local function main(...)
 end
 
 os.exit(main(...))
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script, "one", "two"}):read()
   assert(ok, "cosmic should succeed")
@@ -112,8 +108,7 @@ local function main(dir)
 end
 
 os.exit(main(...))
-]]
-  )
+]])
 
   -- Test with argument
   local ok, out = spawn.spawn({cosmic, script, "custom"}):read()
@@ -135,8 +130,7 @@ local args = {...}
 print("varargs_count=" .. #args)
 print("arg_count=" .. #arg)
 print("arg[0]=" .. tostring(arg[0]))
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script}):read()
   assert(ok, "cosmic should succeed")
@@ -154,8 +148,7 @@ local args = {...}
 for i, v in ipairs(args) do
   print("arg[" .. i .. "]=" .. v)
 end
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script, "hello world", "foo bar"}):read()
   assert(ok, "cosmic should succeed")
@@ -172,8 +165,7 @@ local args = {...}
 for i, v in ipairs(args) do
   print("arg[" .. i .. "]=" .. v)
 end
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script, "--", "--flag", "-x", "value=123"}):read()
   assert(ok, "cosmic should succeed")
@@ -199,8 +191,7 @@ end
 if cosmo.is_main() then
   os.exit(main(...))
 end
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script, "test1", "test2"}):read()
   assert(ok, "cosmic should succeed")
@@ -218,8 +209,7 @@ print("args_count=" .. #arg)
 for i, v in ipairs(args) do
   print("arg[" .. i .. "]=" .. v)
 end
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script, "--version"}):read()
   assert(ok, "cosmic should succeed")
@@ -237,8 +227,7 @@ print("args_count=" .. #arg)
 for i, v in ipairs(args) do
   print("arg[" .. i .. "]=" .. v)
 end
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script, "--help"}):read()
   assert(ok, "cosmic should succeed")
@@ -256,8 +245,7 @@ print("args_count=" .. #arg)
 for i, v in ipairs(args) do
   print("arg[" .. i .. "]=" .. v)
 end
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script, "-v"}):read()
   assert(ok, "cosmic should succeed")
@@ -275,8 +263,7 @@ print("args_count=" .. #arg)
 for i, v in ipairs(args) do
   print("arg[" .. i .. "]=" .. v)
 end
-]]
-  )
+]])
 
   -- cosmic -e before script, then script gets --version
   local ok, out = spawn.spawn({cosmic, "-e", "print('cosmic executed')", script, "--version", "arg2"}):read()
@@ -297,8 +284,7 @@ print("args_count=" .. #arg)
 for i, v in ipairs(args) do
   print("arg[" .. i .. "]=" .. v)
 end
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script, "--version", "--help", "-v", "-i", "--unknown"}):read()
   assert(ok, "cosmic should succeed")
@@ -320,8 +306,7 @@ print("args_count=" .. #arg)
 for i, v in ipairs(args) do
   print("arg[" .. i .. "]=" .. v)
 end
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script, "--", "arg1", "arg2"}):read()
   assert(ok, "cosmic should succeed")
@@ -345,8 +330,7 @@ for i = 1, #arg do
   end
 end
 print("No --version flag found")
-]]
-  )
+]])
 
   local ok, out = spawn.spawn({cosmic, script, "--version"}):read()
   assert(ok, "cosmic should succeed")
