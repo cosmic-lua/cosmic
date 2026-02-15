@@ -489,8 +489,7 @@ io.write("OK:" .. #result)
   assert(ok, "initial embed should succeed: " .. (out or ""))
 
   -- Start the binary as a subprocess
-  local ape = path.join(os.getenv("TEST_BIN"), "..", "..", ".ape-1.10")
-  local handle = spawn.spawn({ape, binary})
+  local handle = spawn.spawn({binary})
 
   -- Wait briefly for the process to start and mmap its pages
   unix.nanosleep(0, 100000000) -- 100ms
