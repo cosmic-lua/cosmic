@@ -110,7 +110,7 @@ all_tested := $(patsubst %,$(o)/%.test.got,$(all_tests))
 ## Run all tests (incremental)
 test: $(o)/test-summary.txt
 
-# TODO: use `cosmic --report $^` after next release
+# TODO(#241): use `cosmic --report $^` after next release
 $(o)/test-summary.txt: $(all_tested) | $(build_reporter)
 	@$(reporter) --dir $(o) $^ | tee $@
 
@@ -125,7 +125,7 @@ export LUA_PATH := $(subst $(space),;,$(foreach d,$(lua_path_dirs),$(CURDIR)/$(d
 export NO_COLOR := 1
 
 # Test rule: execute test directly via shebang, capture exit code, stdout, stderr
-# TODO: use `cosmic --test $(basename $@) $<` after next release
+# TODO(#241): use `cosmic --test $(basename $@) $<` after next release
 $(o)/%.tl.test.got: .PLEDGE = stdio rpath wpath cpath proc exec
 $(o)/%.tl.test.got: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwc:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null
 $(o)/%.tl.test.got: $(o)/%.lua $(test_files) $(o)/bin/cosmic | $(bootstrap_files)
