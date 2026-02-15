@@ -501,10 +501,10 @@ io.write("OK:" .. #result)
   assert(ok2, "re-embed should succeed: " .. (out2 or ""))
 
   -- Wait for the original process to finish
-  local read_ok, stdout = handle:read()
+  local read_ok, stdout, exit_code = handle:read()
 
   -- The process should have exited cleanly, not crashed with SIGSEGV
-  assert(read_ok, "running process should not crash after re-embed, got: " .. tostring(stdout))
+  assert(read_ok, "running process should not crash after re-embed, got: " .. tostring(stdout) .. " exit_code: " .. tostring(exit_code))
   assert(stdout and (stdout as string):match("^OK:"), "process should print OK, got: " .. tostring(stdout))
 end
 test_embed_does_not_corrupt_running_process()

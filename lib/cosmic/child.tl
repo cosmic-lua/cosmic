@@ -255,10 +255,8 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
     if opts.env then
       env = opts.env
     else
-      env = {}
-      for key, val in pairs(unix.environ() as {string:string}) do
-        table.insert(env, key .. "=" .. val)
-      end
+      -- environ() returns {string} with "KEY=VALUE" entries; pass directly
+      env = unix.environ() as {string}
     end
     if (argv[1] as string):find("/") then
       unix.execve(argv[1], argv, env)

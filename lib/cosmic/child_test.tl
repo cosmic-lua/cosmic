@@ -194,6 +194,24 @@ local function test_posix_spawnp_with_path_search()
 end
 test_posix_spawnp_with_path_search()
 
+-- Environment inheritance test --
+
+local function test_spawn_inherits_env()
+  -- child.spawn should pass the parent's environment to the child unchanged.
+  -- regression: environ() returns {string} ("KEY=VALUE" entries) but spawn()
+  -- iterated it as {string:string} producing "1=KEY=VALUE" garbage.
+  local sentinel = "cosmic_test_inherit_" .. tostring(unix.getpid())
+  unix.setenv("COSMIC_TEST_SENTINEL", sentinel)
+  local handle = child.spawn({lua_bin, "-e", [[
+    io.write(os.getenv("COSMIC_TEST_SENTINEL") or "")
+  ]]})
+  assert(handle ~= nil, "handle should not be nil")
+  local ok, out, code = handle:read()
+  assert(ok, "child should exit 0, got code " .. tostring(code))
+  assert(out == sentinel, "expected '" .. sentinel .. "', got '" .. tostring(out) .. "'")
+end
+test_spawn_inherits_env()
+
 -- Constants tests --
 
 local function test_signal_constants_defined()
