@@ -310,10 +310,15 @@ ci:
 		echo "::endgroup::";)
 	@if [ -f $(o)/failed ]; then echo "failed:"; cat $(o)/failed; exit 1; fi
 
-.PHONY: work
-## Run ah work (fetch issues, plan, execute, check)
-work: $$(ah_staged)
-	$(ah_bin) work --repo $(or $(REPO),$(shell gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null))
+# work.mk configuration: set variables before include
+cosmic := $(bootstrap_cosmic)
+
+# work.mk expects ah at o/bin/ah; symlink from staged binary
+$(o)/bin/ah: $$(ah_staged)
+	@mkdir -p $(@D)
+	@ln -sf $(CURDIR)/$(ah_bin) $@
+
+include work.mk
 
 debug-modules:
 	@echo $(modules)
