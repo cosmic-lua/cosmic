@@ -4,7 +4,7 @@
 local record Statement
   --- Binds a sequence of values to sequential parameters (1, 2, 3, ...)
   --- Returns sqlite3.OK on success or error code on failure
-  bind_values: function(Statement, any...): number
+  bind_values: function(Statement, any ...): number
 
   --- Binds value to parameter n (1-indexed)
   --- String/number become text/double; nil clears binding
@@ -41,7 +41,7 @@ local record Statement
   --- Binds named parameters from a key/value table.
   --- Keys are parameter names without the prefix (e.g. "foo" for ":foo").
   --- Returns sqlite3.OK on success or error code on failure.
-  bind_names: function(Statement, params: {string:any}): number
+  bind_names: function(Statement, params: {string: any}): number
 end
 
 --- Database handle returned by lsqlite3.open() and lsqlite3.open_memory()
@@ -61,7 +61,7 @@ local record Database
 
   --- Creates iterator yielding rows as tables with named fields (column_name: value)
   --- Each iteration returns one row as associative table
-  nrows: function(Database, sql: string): function(): {string:any}
+  nrows: function(Database, sql: string): function(): {string: any}
 
   --- Creates iterator yielding rows as indexed tables (1: value1, 2: value2, ...)
   --- Each iteration returns one row as array with numeric indices
@@ -69,7 +69,7 @@ local record Database
 
   --- Creates iterator yielding column values directly (value1, value2, ...)
   --- Each iteration returns unpacked values for one row
-  urows: function(Database, sql: string): function(): any...
+  urows: function(Database, sql: string): function(): any ...
 
   --- Returns rowid of most recent INSERT operation
   --- Returns 0 if no inserts have occurred
@@ -186,4 +186,3 @@ local record lsqlite3
 end
 
 return lsqlite3
-

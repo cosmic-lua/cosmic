@@ -26,7 +26,7 @@ local record tl
   lex: function(string, string): {Token}, {Error}
   parse_program: function({Token}, {Error}, string, string): any, {string}
   process_string: function(string, boolean, any, string): Result, string
-  generate: function(any, {string:any}): string
+  generate: function(any, {string: any}): string
 end
 
 return tl

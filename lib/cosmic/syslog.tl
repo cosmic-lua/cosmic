@@ -5,21 +5,21 @@ local unix = require("cosmo.unix")
 -- Priority levels
 
 --- Emergency: system is unusable.
-local LOG_EMERG <const> = unix.LOG_EMERG
+local LOG_EMERG < const > = unix.LOG_EMERG
 --- Alert: action must be taken immediately.
-local LOG_ALERT <const> = unix.LOG_ALERT
+local LOG_ALERT < const > = unix.LOG_ALERT
 --- Critical: critical conditions.
-local LOG_CRIT <const> = unix.LOG_CRIT
+local LOG_CRIT < const > = unix.LOG_CRIT
 --- Error: error conditions.
-local LOG_ERR <const> = unix.LOG_ERR
+local LOG_ERR < const > = unix.LOG_ERR
 --- Warning: warning conditions.
-local LOG_WARNING <const> = unix.LOG_WARNING
+local LOG_WARNING < const > = unix.LOG_WARNING
 --- Notice: normal but significant condition.
-local LOG_NOTICE <const> = unix.LOG_NOTICE
+local LOG_NOTICE < const > = unix.LOG_NOTICE
 --- Informational: informational messages.
-local LOG_INFO <const> = unix.LOG_INFO
+local LOG_INFO < const > = unix.LOG_INFO
 --- Debug: debug-level messages.
-local LOG_DEBUG <const> = unix.LOG_DEBUG
+local LOG_DEBUG < const > = unix.LOG_DEBUG
 
 --- Write a message to the system log.
 --- @param priority number Log priority (LOG_EMERG through LOG_DEBUG)

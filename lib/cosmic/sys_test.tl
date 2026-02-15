@@ -19,7 +19,7 @@ test_host_os_is_lowercase()
 local function test_host_os_is_known_value()
   local os_name = sys.host_os()
   local is_known = os_name == "linux" or os_name == "macos" or os_name == "windows"
-    or os_name == "freebsd" or os_name == "openbsd" or os_name == "netbsd"
+  or os_name == "freebsd" or os_name == "openbsd" or os_name == "netbsd"
   assert(is_known, "host_os should return a known OS, got " .. os_name)
 end
 test_host_os_is_known_value()

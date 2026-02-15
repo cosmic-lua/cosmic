@@ -129,7 +129,7 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function kill(pid: number, sig: number): boolean, string
-  local ok, err = unix.kill(pid, sig) as (boolean, any)
+  local ok, err = unix.kill(pid, sig) as(boolean, any)
   if not ok then
     if err then
       local errno = err as Errno
@@ -149,7 +149,7 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function killpg(pgrp: number, sig: number): boolean, string
-  local ok, err = unix.killpg(pgrp, sig) as (boolean, any)
+  local ok, err = unix.killpg(pgrp, sig) as(boolean, any)
   if not ok then
     if err then
       local errno = err as Errno
@@ -187,75 +187,75 @@ local M = {} as SignalModule
 
 -- Re-export functions that use Sigset directly from unix
 M.Sigset = unix.Sigset as function(...: number): Sigset
-M.sigaction = unix.sigaction as function(sig: number, handler?: function | number, flags?: number, mask?: Sigset): (function | number, number, Sigset)
-M.sigprocmask = unix.sigprocmask as function(how: number, set: Sigset): Sigset
-M.sigsuspend = unix.sigsuspend as function(mask: Sigset): (boolean, Errno)
-M.setitimer = unix.setitimer as function(which: number, intervalsec: number, intervalns: number, valuesec: number, valuens: number): (number, number, number, number)
+  M.sigaction = unix.sigaction as function(sig: number, handler?: function | number, flags?: number, mask?: Sigset): (function | number, number, Sigset)
+      M.sigprocmask = unix.sigprocmask as function(how: number, set: Sigset): Sigset
+        M.sigsuspend = unix.sigsuspend as function(mask: Sigset): (boolean, Errno)
+          M.setitimer = unix.setitimer as function(which: number, intervalsec: number, intervalns: number, valuesec: number, valuens: number): (number, number, number, number)
 
--- Delivery functions
-M.kill = kill
-M.killpg = killpg
-M.raise = raise
+            -- Delivery functions
+            M.kill = kill
+            M.killpg = killpg
+            M.raise = raise
 
--- Utilities
-M.strsignal = strsignal
+            -- Utilities
+            M.strsignal = strsignal
 
--- Signal constants
-M.SIGABRT = unix.SIGABRT as number
-M.SIGALRM = unix.SIGALRM as number
-M.SIGBUS = unix.SIGBUS as number
-M.SIGCHLD = unix.SIGCHLD as number
-M.SIGCONT = unix.SIGCONT as number
-M.SIGEMT = unix.SIGEMT as number
-M.SIGFPE = unix.SIGFPE as number
-M.SIGHUP = unix.SIGHUP as number
-M.SIGILL = unix.SIGILL as number
-M.SIGINFO = unix.SIGINFO as number
-M.SIGINT = unix.SIGINT as number
-M.SIGIO = unix.SIGIO as number
-M.SIGKILL = unix.SIGKILL as number
-M.SIGPIPE = unix.SIGPIPE as number
-M.SIGPROF = unix.SIGPROF as number
-M.SIGPWR = unix.SIGPWR as number
-M.SIGQUIT = unix.SIGQUIT as number
-M.SIGRTMAX = unix.SIGRTMAX as number
-M.SIGRTMIN = unix.SIGRTMIN as number
-M.SIGSEGV = unix.SIGSEGV as number
-M.SIGSTKFLT = unix.SIGSTKFLT as number
-M.SIGSTOP = unix.SIGSTOP as number
-M.SIGSYS = unix.SIGSYS as number
-M.SIGTERM = unix.SIGTERM as number
-M.SIGTRAP = unix.SIGTRAP as number
-M.SIGTSTP = unix.SIGTSTP as number
-M.SIGTTIN = unix.SIGTTIN as number
-M.SIGTTOU = unix.SIGTTOU as number
-M.SIGURG = unix.SIGURG as number
-M.SIGUSR1 = unix.SIGUSR1 as number
-M.SIGUSR2 = unix.SIGUSR2 as number
-M.SIGVTALRM = unix.SIGVTALRM as number
-M.SIGWINCH = unix.SIGWINCH as number
-M.SIGXCPU = unix.SIGXCPU as number
-M.SIGXFSZ = unix.SIGXFSZ as number
+            -- Signal constants
+            M.SIGABRT = unix.SIGABRT as number
+            M.SIGALRM = unix.SIGALRM as number
+            M.SIGBUS = unix.SIGBUS as number
+            M.SIGCHLD = unix.SIGCHLD as number
+            M.SIGCONT = unix.SIGCONT as number
+            M.SIGEMT = unix.SIGEMT as number
+            M.SIGFPE = unix.SIGFPE as number
+            M.SIGHUP = unix.SIGHUP as number
+            M.SIGILL = unix.SIGILL as number
+            M.SIGINFO = unix.SIGINFO as number
+            M.SIGINT = unix.SIGINT as number
+            M.SIGIO = unix.SIGIO as number
+            M.SIGKILL = unix.SIGKILL as number
+            M.SIGPIPE = unix.SIGPIPE as number
+            M.SIGPROF = unix.SIGPROF as number
+            M.SIGPWR = unix.SIGPWR as number
+            M.SIGQUIT = unix.SIGQUIT as number
+            M.SIGRTMAX = unix.SIGRTMAX as number
+            M.SIGRTMIN = unix.SIGRTMIN as number
+            M.SIGSEGV = unix.SIGSEGV as number
+            M.SIGSTKFLT = unix.SIGSTKFLT as number
+            M.SIGSTOP = unix.SIGSTOP as number
+            M.SIGSYS = unix.SIGSYS as number
+            M.SIGTERM = unix.SIGTERM as number
+            M.SIGTRAP = unix.SIGTRAP as number
+            M.SIGTSTP = unix.SIGTSTP as number
+            M.SIGTTIN = unix.SIGTTIN as number
+            M.SIGTTOU = unix.SIGTTOU as number
+            M.SIGURG = unix.SIGURG as number
+            M.SIGUSR1 = unix.SIGUSR1 as number
+            M.SIGUSR2 = unix.SIGUSR2 as number
+            M.SIGVTALRM = unix.SIGVTALRM as number
+            M.SIGWINCH = unix.SIGWINCH as number
+            M.SIGXCPU = unix.SIGXCPU as number
+            M.SIGXFSZ = unix.SIGXFSZ as number
 
--- Signal mask operations
-M.SIG_BLOCK = unix.SIG_BLOCK as number
-M.SIG_UNBLOCK = unix.SIG_UNBLOCK as number
-M.SIG_SETMASK = unix.SIG_SETMASK as number
+            -- Signal mask operations
+            M.SIG_BLOCK = unix.SIG_BLOCK as number
+            M.SIG_UNBLOCK = unix.SIG_UNBLOCK as number
+            M.SIG_SETMASK = unix.SIG_SETMASK as number
 
--- Default/ignore handlers
-M.SIG_DFL = unix.SIG_DFL as number
-M.SIG_IGN = unix.SIG_IGN as number
+            -- Default/ignore handlers
+            M.SIG_DFL = unix.SIG_DFL as number
+            M.SIG_IGN = unix.SIG_IGN as number
 
--- sigaction flags
-M.SA_NOCLDSTOP = unix.SA_NOCLDSTOP as number
-M.SA_NOCLDWAIT = unix.SA_NOCLDWAIT as number
-M.SA_NODEFER = unix.SA_NODEFER as number
-M.SA_RESETHAND = unix.SA_RESETHAND as number
-M.SA_RESTART = unix.SA_RESTART as number
+            -- sigaction flags
+            M.SA_NOCLDSTOP = unix.SA_NOCLDSTOP as number
+            M.SA_NOCLDWAIT = unix.SA_NOCLDWAIT as number
+            M.SA_NODEFER = unix.SA_NODEFER as number
+            M.SA_RESETHAND = unix.SA_RESETHAND as number
+            M.SA_RESTART = unix.SA_RESTART as number
 
--- Timer types
-M.ITIMER_REAL = unix.ITIMER_REAL as number
-M.ITIMER_VIRTUAL = unix.ITIMER_VIRTUAL as number
-M.ITIMER_PROF = unix.ITIMER_PROF as number
+            -- Timer types
+            M.ITIMER_REAL = unix.ITIMER_REAL as number
+            M.ITIMER_VIRTUAL = unix.ITIMER_VIRTUAL as number
+            M.ITIMER_PROF = unix.ITIMER_PROF as number
 
-return M
+            return M

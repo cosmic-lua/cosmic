@@ -58,4 +58,3 @@ local record argon2
 end
 
 return argon2
-

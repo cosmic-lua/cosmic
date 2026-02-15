@@ -33,7 +33,7 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function pledge(promises?: string, execpromises?: string, mode?: number): boolean, string
-  local ok, err = unix.pledge(promises, execpromises, mode) as (boolean, any)
+  local ok, err = unix.pledge(promises, execpromises, mode) as(boolean, any)
   if not ok then
     if err then
       local errno = err as Errno
@@ -63,7 +63,7 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function unveil(path: string, permissions: string): boolean, string
-  local ok, err = unix.unveil(path, permissions) as (boolean, any)
+  local ok, err = unix.unveil(path, permissions) as(boolean, any)
   if not ok then
     if err then
       local errno = err as Errno

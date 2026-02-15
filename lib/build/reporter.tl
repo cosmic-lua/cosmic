@@ -19,7 +19,7 @@ local record CategorizedResults
   ignore: {CheckResult}
 end
 
-local status_icons: {string:string} = {
+local status_icons: {string: string} = {
   pass = "✓",
   fail = "✗",
   skip = "→",
@@ -126,7 +126,7 @@ local function main(...: string): integer, string
   end
 
   -- group files by checker type
-  local checker_files: {string:{string}} = {}
+  local checker_files: {string: {string}} = {}
   for _, file in ipairs(files) do
     local checker = extract_checker(file)
     if checker then
@@ -143,7 +143,7 @@ local function main(...: string): integer, string
   table.sort(checkers)
 
   -- collect results for each checker
-  local checker_results: {string:CategorizedResults} = {}
+  local checker_results: {string: CategorizedResults} = {}
   local all_results: {CheckResult} = {}
 
   for _, checker in ipairs(checkers) do
@@ -187,7 +187,7 @@ local function main(...: string): integer, string
           checker = checker,
         }
 
-        local status_list = (results as {string:{CheckResult}})[result.status]
+        local status_list = (results as {string: {CheckResult}})[result.status]
         if status_list then
           table.insert(status_list, result)
         end
@@ -200,9 +200,9 @@ local function main(...: string): integer, string
 
   -- sort all results by name, then checker
   table.sort(all_results, function(a: CheckResult, b: CheckResult): boolean
-    if a.name ~= b.name then return a.name < b.name end
-    return (a.checker or "") < (b.checker or "")
-  end)
+      if a.name ~= b.name then return a.name < b.name end
+      return (a.checker or "") < (b.checker or "")
+    end)
 
   -- build output
   local parts: {string} = {}
@@ -228,9 +228,9 @@ local function main(...: string): integer, string
     local total = total_passed + total_failed + total_skipped + total_ignored
     table.insert(parts, "")
     table.insert(parts, string.format(
-      "total: %d checks: %d passed, %d failed, %d skipped, %d ignored",
-      total, total_passed, total_failed, total_skipped, total_ignored
-    ))
+        "total: %d checks: %d passed, %d failed, %d skipped, %d ignored",
+        total, total_passed, total_failed, total_skipped, total_ignored
+      ))
   end
 
   -- failures

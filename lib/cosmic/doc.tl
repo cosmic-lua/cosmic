@@ -29,7 +29,7 @@ end
 local record RecordDoc
   name: string
   description: string
-  fields: {{string, string, string}}  -- name, type, description
+  fields: {{string, string, string}} -- name, type, description
   line: integer
 end
 
@@ -66,7 +66,7 @@ local function extract_doc_comment(source: string, pos: integer, allow_regular_c
 
   -- Collect doc comment lines going backwards
   local doc_lines: {string} = {}
-  local check_pos = line_start - 1  -- Start before current line
+  local check_pos = line_start - 1 -- Start before current line
 
   while check_pos > 0 do
     -- Find start of previous line
@@ -169,17 +169,17 @@ local function parse_annotations(doc: string): {Param}, {Return}, string
     local param_name, param_type, param_desc = line:match("^%s*@param%s+(%S+)%s+(%S+)%s*(.*)")
     if param_name then
       table.insert(params, {
-        name = param_name,
-        param_type = param_type,
-        description = param_desc ~= "" and param_desc or nil,
-      })
+          name = param_name,
+          param_type = param_type,
+          description = param_desc ~= "" and param_desc or nil,
+        })
     else
       local ret_type, ret_desc = line:match("^%s*@return%s+(%S+)%s*(.*)")
       if ret_type then
         table.insert(returns, {
-          return_type = ret_type,
-          description = ret_desc ~= "" and ret_desc or nil,
-        })
+            return_type = ret_type,
+            description = ret_desc ~= "" and ret_desc or nil,
+          })
       else
         -- Regular description line
         table.insert(desc_lines, line)
@@ -262,14 +262,14 @@ local function parse(source: string, file_path: string): ModuleDoc
       local params, returns, description = parse_annotations(func_doc)
 
       table.insert(doc.functions, {
-        name = func_name as string,
-        description = description,
-        params = params,
-        returns = returns,
-        signature = signature,
-        line = line_num,
-        is_local = is_local ~= nil,
-      })
+          name = func_name as string,
+          description = description,
+          params = params,
+          returns = returns,
+          signature = signature,
+          line = line_num,
+          is_local = is_local ~= nil,
+        })
     end
     ::continue_local_comment::
   end
@@ -299,14 +299,14 @@ local function parse(source: string, file_path: string): ModuleDoc
         local params, returns, description = parse_annotations(func_doc)
 
         table.insert(doc.functions, {
-          name = func_name as string,
-          description = description,
-          params = params,
-          returns = returns,
-          signature = signature,
-          line = line_num,
-          is_local = false,
-        })
+            name = func_name as string,
+            description = description,
+            params = params,
+            returns = returns,
+            signature = signature,
+            line = line_num,
+            is_local = false,
+          })
       end
     end
     ::continue_nonlocal_comment::
@@ -375,11 +375,11 @@ local function parse(source: string, file_path: string): ModuleDoc
     end
 
     table.insert(doc.records, {
-      name = rec_name as string,
-      description = description,
-      fields = fields,
-      line = line_num,
-    })
+        name = rec_name as string,
+        description = description,
+        fields = fields,
+        line = line_num,
+      })
   end
 
   -- Find Example_* functions
@@ -412,7 +412,7 @@ local function parse(source: string, file_path: string): ModuleDoc
             i = i + 1
           end
         end
-      elseif source:sub(i, i+1) == "--" then
+      elseif source:sub(i, i + 1) == "--" then
         local newline = source:find("\n", i)
         i = newline and newline + 1 or #source + 1
       else
@@ -461,12 +461,12 @@ local function parse(source: string, file_path: string): ModuleDoc
     end
 
     table.insert(doc.examples, {
-      name = func_name as string,
-      description = example_description,
-      body = body,
-      expected_output = expected,
-      line = line_num,
-    })
+        name = func_name as string,
+        description = example_description,
+        body = body,
+        expected_output = expected,
+        line = line_num,
+      })
   end
 
   return doc
@@ -527,7 +527,7 @@ local function render(doc: ModuleDoc): string
 
   -- Functions
   -- Identify exported functions by checking the module record
-  local exported_names: {string:boolean} = {}
+  local exported_names: {string: boolean} = {}
 
   -- Find the module record (typically ends with "Module")
   for _, rec in ipairs(doc.records) do
@@ -700,8 +700,8 @@ local function parse_dtl(source: string, file_path: string): ModuleDoc
             i = i + 1
           end
         end
-      -- Skip comments
-      elseif source:sub(i, i+1) == "--" then
+        -- Skip comments
+      elseif source:sub(i, i + 1) == "--" then
         local newline = source:find("\n", i)
         i = newline and newline + 1 or #source + 1
       else
@@ -719,7 +719,7 @@ local function parse_dtl(source: string, file_path: string): ModuleDoc
       end
     end
 
-    local record_body_end = i - 4  -- before "end"
+    local record_body_end = i - 4 -- before "end"
     local record_body = source:sub(record_body_start, record_body_end)
 
     -- Extract doc comment before the record
@@ -762,10 +762,10 @@ local function parse_dtl(source: string, file_path: string): ModuleDoc
                       pname = "..."
                     end
                     table.insert(params, {
-                      name = pname,
-                      param_type = ptype,
-                      description = nil,
-                    })
+                        name = pname,
+                        param_type = ptype,
+                        description = nil,
+                      })
                   end
                 end
               end
@@ -781,23 +781,23 @@ local function parse_dtl(source: string, file_path: string): ModuleDoc
                 ret_part = ret_part:match("^%s*(.-)%s*$")
                 if ret_part ~= "" then
                   table.insert(returns, {
-                    return_type = ret_part,
-                    description = nil,
-                  })
+                      return_type = ret_part,
+                      description = nil,
+                    })
                 end
               end
             end
           end
 
           table.insert(methods, {
-            name = field_name,
-            description = description,
-            params = params,
-            returns = returns,
-            signature = field_type:match("^function(.+)$") or "()",
-            line = 0,
-            is_local = false,
-          })
+              name = field_name,
+              description = description,
+              params = params,
+              returns = returns,
+              signature = field_type:match("^function(.+)$") or "()",
+              line = 0,
+              is_local = false,
+            })
         else
           -- Regular field
           local _, _, field_description = parse_annotations(field_doc)
@@ -817,11 +817,11 @@ local function parse_dtl(source: string, file_path: string): ModuleDoc
       -- Add non-function fields as a record
       if #fields > 0 then
         table.insert(doc.records, {
-          name = rec_name .. " Constants",
-          description = "Constants defined in the " .. rec_name .. " module.",
-          fields = fields,
-          line = 0,
-        })
+            name = rec_name .. " Constants",
+            description = "Constants defined in the " .. rec_name .. " module.",
+            fields = fields,
+            line = 0,
+          })
       end
     else
       -- Sub-record (class type)
@@ -836,11 +836,11 @@ local function parse_dtl(source: string, file_path: string): ModuleDoc
       end
 
       table.insert(doc.records, {
-        name = rec_name,
-        description = rec_description,
-        fields = all_fields,
-        line = 0,
-      })
+          name = rec_name,
+          description = rec_description,
+          fields = all_fields,
+          line = 0,
+        })
     end
 
     pos = i + 1
@@ -911,7 +911,7 @@ end
 
 --- A documentation index containing all modules.
 local record DocIndex
-  modules: {string:ModuleDoc}  -- module name -> doc
+  modules: {string: ModuleDoc} -- module name -> doc
 end
 
 --- Serialize a DocIndex to Lua source code.

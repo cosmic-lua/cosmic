@@ -39,10 +39,10 @@ local function parse_makefile(content: string): {Item}
     if target_match then
       if pending_comment then
         table.insert(items, {
-          type = "target",
-          name = target_match,
-          description = pending_comment,
-        })
+            type = "target",
+            name = target_match,
+            description = pending_comment,
+          })
       end
       pending_comment = nil
       goto continue
@@ -53,10 +53,10 @@ local function parse_makefile(content: string): {Item}
     if var_match then
       if pending_comment then
         table.insert(items, {
-          type = "option",
-          name = var_match,
-          description = pending_comment,
-        })
+            type = "option",
+            name = var_match,
+            description = pending_comment,
+          })
       end
       pending_comment = nil
       goto continue
@@ -137,8 +137,8 @@ if proc.is_main() then
 end
 
 -- Extract all .PHONY targets from makefile content
-local function parse_phony_targets(content: string): {string:boolean}
-  local targets: {string:boolean} = {}
+local function parse_phony_targets(content: string): {string: boolean}
+  local targets: {string: boolean} = {}
   for line in content:gmatch("[^\r\n]+") do
     local phony = line:match("^%.PHONY:%s*(.+)$")
     if phony then
@@ -153,7 +153,7 @@ end
 local record MakeHelp
   parse_makefile: function(content: string): {Item}
   format_help: function(items: {Item}, options?: FormatOptions): string
-  parse_phony_targets: function(content: string): {string:boolean}
+  parse_phony_targets: function(content: string): {string: boolean}
 end
 
 local M: MakeHelp = {

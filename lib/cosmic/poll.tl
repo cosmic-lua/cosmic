@@ -66,148 +66,148 @@ local function get_fd(p: any): number
   if type(p) == "number" then
     return p as number
   elseif type(p) == "table" then
-    local t = p as {any:any}
+    local t = p as {any: any}
     local fd_val = t.fd
     if type(fd_val) == "number" then
       return fd_val as number
     elseif type(fd_val) == "function" then
       return (fd_val as function(any): number)(p)
-    end
-  end
-  return nil
-end
-
---- Make Events from raw revents bitmask.
-local function make_events(revents: number): Events
-  return {
-    readable = (revents & POLLIN) ~= 0,
-    writable = (revents & POLLOUT) ~= 0,
-    error = (revents & POLLERR) ~= 0,
-    hangup = (revents & POLLHUP) ~= 0,
-    invalid = (revents & POLLNVAL) ~= 0,
-    revents = revents,
-  }
-end
-
---- Create a new poll set.
---- @return Poller A new poll set
---- Example:
----   local p = poll.new()
----   p:add(handle.stdout, poll.POLLIN)
----   p:add(handle.stderr, poll.POLLIN)
----   for fd, events in p:wait(30000) do
----     if events.readable then
----       -- read from fd
----     end
----   end
-local function new(): Poller
-  local fds: {number:number} = {}
-  local results: {number:number} = {}
-
-  local poller: Poller = {}
-
-  poller.add = function(self: Poller, p: any, events: number)
-    local fd = get_fd(p)
-    if fd then
-      fds[fd] = events
-    end
-  end
-
-  poller.remove = function(self: Poller, p: any)
-    local fd = get_fd(p)
-    if fd then
-      fds[fd] = nil
-      results[fd] = nil
-    end
-  end
-
-  poller.clear = function(self: Poller)
-    fds = {}
-    results = {}
-  end
-
-  poller.empty = function(self: Poller): boolean
-    return next(fds) == nil
-  end
-
-  poller.count = function(self: Poller): number
-    local n = 0
-    for _ in pairs(fds) do
-      n = n + 1
-    end
-    return n
-  end
-
-  poller.poll = function(self: Poller, timeoutms: number): number, string
-    results = unix.poll(fds, timeoutms or -1)
-    if not results then
-      return nil, "poll failed"
-    end
-    local ready = 0
-    for _ in pairs(results) do
-      ready = ready + 1
-    end
-    return ready
-  end
-
-  poller.events = function(self: Poller, fd: number): Events
-    local revents = results[fd]
-    if revents then
-      return make_events(revents)
+      end
     end
     return nil
   end
 
-  poller.wait = function(self: Poller, timeoutms: number): function(): number, Events
-    local _, err = self:poll(timeoutms)
-    if err then
+  --- Make Events from raw revents bitmask.
+  local function make_events(revents: number): Events
+    return {
+      readable = (revents & POLLIN) ~= 0,
+      writable = (revents & POLLOUT) ~= 0,
+      error = (revents & POLLERR) ~= 0,
+      hangup = (revents & POLLHUP) ~= 0,
+      invalid = (revents & POLLNVAL) ~= 0,
+      revents = revents,
+    }
+  end
+
+  --- Create a new poll set.
+  --- @return Poller A new poll set
+  --- Example:
+  ---   local p = poll.new()
+  ---   p:add(handle.stdout, poll.POLLIN)
+  ---   p:add(handle.stderr, poll.POLLIN)
+  ---   for fd, events in p:wait(30000) do
+  ---     if events.readable then
+  ---       -- read from fd
+  ---     end
+  ---   end
+  local function new(): Poller
+    local fds: {number: number} = {}
+    local results: {number: number} = {}
+
+    local poller: Poller = {}
+
+    poller.add = function(self: Poller, p: any, events: number)
+      local fd = get_fd(p)
+      if fd then
+        fds[fd] = events
+      end
+    end
+
+    poller.remove = function(self: Poller, p: any)
+      local fd = get_fd(p)
+      if fd then
+        fds[fd] = nil
+        results[fd] = nil
+      end
+    end
+
+    poller.clear = function(self: Poller)
+      fds = {}
+      results = {}
+    end
+
+    poller.empty = function(self: Poller): boolean
+      return next(fds) == nil
+    end
+
+    poller.count = function(self: Poller): number
+      local n = 0
+      for _ in pairs(fds) do
+        n = n + 1
+      end
+      return n
+    end
+
+    poller.poll = function(self: Poller, timeoutms: number): number, string
+      results = unix.poll(fds, timeoutms or -1)
+      if not results then
+        return nil, "poll failed"
+      end
+      local ready = 0
+      for _ in pairs(results) do
+        ready = ready + 1
+      end
+      return ready
+    end
+
+    poller.events = function(self: Poller, fd: number): Events
+      local revents = results[fd]
+      if revents then
+        return make_events(revents)
+      end
+      return nil
+    end
+
+    poller.wait = function(self: Poller, timeoutms: number): function(): number, Events
+      local _, err = self:poll(timeoutms)
+      if err then
+        return function(): number, Events
+          return nil, nil
+        end
+      end
+      local iter_results = results
+      local k: number = nil
       return function(): number, Events
+        local v: number
+        k, v = next(iter_results, k)
+        if k then
+          return k, make_events(v)
+        end
         return nil, nil
       end
     end
-    local iter_results = results
-    local k: number = nil
-    return function(): number, Events
-      local v: number
-      k, v = next(iter_results, k)
-      if k then
-        return k, make_events(v)
-      end
-      return nil, nil
-    end
+
+    return poller
   end
 
-  return poller
-end
+  local record PollModule
+    new: function(): Poller
 
-local record PollModule
-  new: function(): Poller
+    --- Event mask for readable data.
+    POLLIN: number
+    --- Event mask for writable.
+    POLLOUT: number
+    --- Event mask for priority data (e.g., OOB on TCP).
+    POLLPRI: number
+    --- Event mask for error condition.
+    POLLERR: number
+    --- Event mask for hangup.
+    POLLHUP: number
+    --- Event mask for invalid fd.
+    POLLNVAL: number
+    --- Event mask for peer closed connection.
+    POLLRDHUP: number
+  end
 
-  --- Event mask for readable data.
-  POLLIN: number
-  --- Event mask for writable.
-  POLLOUT: number
-  --- Event mask for priority data (e.g., OOB on TCP).
-  POLLPRI: number
-  --- Event mask for error condition.
-  POLLERR: number
-  --- Event mask for hangup.
-  POLLHUP: number
-  --- Event mask for invalid fd.
-  POLLNVAL: number
-  --- Event mask for peer closed connection.
-  POLLRDHUP: number
-end
+  local M: PollModule = {
+    new = new,
+    POLLIN = POLLIN,
+    POLLOUT = POLLOUT,
+    POLLPRI = POLLPRI,
+    POLLERR = POLLERR,
+    POLLHUP = POLLHUP,
+    POLLNVAL = POLLNVAL,
+    POLLRDHUP = POLLRDHUP,
+  }
 
-local M: PollModule = {
-  new = new,
-  POLLIN = POLLIN,
-  POLLOUT = POLLOUT,
-  POLLPRI = POLLPRI,
-  POLLERR = POLLERR,
-  POLLHUP = POLLHUP,
-  POLLNVAL = POLLNVAL,
-  POLLRDHUP = POLLRDHUP,
-}
-
-return M
+  return M

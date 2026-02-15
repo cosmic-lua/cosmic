@@ -246,7 +246,7 @@ local function test_opendir()
   local dir, err = fs.opendir(test_dir)
   assert(dir, "opendir should succeed: " .. (err or ""))
 
-  local entries: {string:boolean} = {}
+  local entries: {string: boolean} = {}
   while true do
     local entry = dir:read()
     if not entry then break end
@@ -766,7 +766,7 @@ local function test_collect_with_glob()
 
   assert(#found == 3, "expected 3 lua files, got " .. #found)
 
-  local names: {string:boolean} = {}
+  local names: {string: boolean} = {}
   for _, f in ipairs(found) do
     names[fs.basename(f)] = true
   end
@@ -790,17 +790,17 @@ test_collect_with_lua_pattern()
 
 local function test_walk_with_visitor()
   local walk_dir = setup_walk()
-  local ctx: WalkContext = { count = 0, dirs = 0 }
+  local ctx: WalkContext = {count = 0, dirs = 0}
 
   fs.walk(walk_dir, function(_full_path: string, _entry: string, st: any, c: any): boolean
-    local wctx = c as WalkContext
-    wctx.count = wctx.count + 1
-    local stat_obj = st as WalkStat
-    if unix.S_ISDIR(stat_obj:mode()) then
-      wctx.dirs = wctx.dirs + 1
-    end
-    return true
-  end, ctx)
+      local wctx = c as WalkContext
+      wctx.count = wctx.count + 1
+      local stat_obj = st as WalkStat
+      if unix.S_ISDIR(stat_obj:mode()) then
+        wctx.dirs = wctx.dirs + 1
+      end
+      return true
+    end, ctx)
 
   assert(ctx.count > 0, "expected count > 0")
   assert(ctx.dirs == 2, "expected 2 dirs, got " .. ctx.dirs)
@@ -823,7 +823,7 @@ test_collect_all()
 
 local function test_files_iterator()
   local walk_dir = setup_walk()
-  local found: {string:boolean} = {}
+  local found: {string: boolean} = {}
 
   for filepath in fs.files(walk_dir, "*.lua") do
     found[fs.basename(filepath)] = true

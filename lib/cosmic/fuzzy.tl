@@ -24,9 +24,9 @@ local function levenshtein(a: string, b: string): integer
     for j = 1, #b do
       local cost = a:sub(i, i) == b:sub(j, j) and 0 or 1
       matrix[i][j] = math.min(
-        matrix[i-1][j] + 1,      -- deletion
-        matrix[i][j-1] + 1,      -- insertion
-        matrix[i-1][j-1] + cost  -- substitution
+        matrix[i - 1][j] + 1, -- deletion
+        matrix[i][j - 1] + 1, -- insertion
+        matrix[i - 1][j - 1] + cost -- substitution
       )
     end
   end
@@ -41,8 +41,8 @@ end
 --- @return {string} List of similar values, sorted by distance then alphabetically
 local function find_similar(query: string, candidates: {string}, max_distance?: integer): {string}
   max_distance = max_distance or 3
-  local results: {{string, integer}} = {}  -- {value, distance}
-  local seen: {string:boolean} = {}
+  local results: {{string, integer}} = {} -- {value, distance}
+  local seen: {string: boolean} = {}
 
   local query_lower = query:lower()
   for _, candidate in ipairs(candidates) do
@@ -57,11 +57,11 @@ local function find_similar(query: string, candidates: {string}, max_distance?: 
 
   -- Sort by distance, then alphabetically
   table.sort(results, function(a: {string, integer}, b: {string, integer}): boolean
-    if a[2] ~= b[2] then
-      return a[2] < b[2]
-    end
-    return a[1] < b[1]
-  end)
+      if a[2] ~= b[2] then
+        return a[2] < b[2]
+      end
+      return a[1] < b[1]
+    end)
 
   -- Extract just the names
   local names: {string} = {}

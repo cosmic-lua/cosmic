@@ -85,9 +85,9 @@ test_parse_variables()
 
 local function test_format_help()
   local items: {help.Item} = {
-    { type = "target", name = "test", description = "Run all tests" },
-    { type = "target", name = "clean", description = "Remove build artifacts" },
-    { type = "option", name = "only", description = "Filter by pattern" },
+    {type = "target", name = "test", description = "Run all tests"},
+    {type = "target", name = "clean", description = "Remove build artifacts"},
+    {type = "option", name = "only", description = "Filter by pattern"},
   }
 
   local output = help.format_help(items)
@@ -125,7 +125,7 @@ local function test_all_phony_targets_documented()
 
   local phony = help.parse_phony_targets(content)
   local items = help.parse_makefile(content)
-  local documented: {string:boolean} = {}
+  local documented: {string: boolean} = {}
   for _, item in ipairs(items) do
     if item.type == "target" then
       documented[item.name] = true

@@ -30,11 +30,11 @@ test_poller_new()
 local function test_poller_add_remove_raw_fd()
   local p = poll.new()
   -- Add a raw fd number
-  p:add(1, poll.POLLOUT)  -- stdout
+  p:add(1, poll.POLLOUT) -- stdout
   assert(not p:empty(), "poller should not be empty after add")
   assert(p:count() == 1, "count should be 1")
 
-  p:add(2, poll.POLLOUT)  -- stderr
+  p:add(2, poll.POLLOUT) -- stderr
   assert(p:count() == 2, "count should be 2")
 
   p:remove(1)
@@ -108,7 +108,7 @@ local function test_poll_multiple_fds()
   p:add(pipe2.reader, poll.POLLIN)
   assert(p:count() == 2, "count should be 2")
 
-  local ready_fds: {number:boolean} = {}
+  local ready_fds: {number: boolean} = {}
   for fd, events in p:wait(100) do
     assert(events.readable, "expected readable")
     ready_fds[fd] = true
@@ -131,7 +131,7 @@ local function test_poll_timeout()
   p:add(pipe.reader, poll.POLLIN)
 
   local count = 0
-  for _, _ in p:wait(10) do  -- 10ms timeout
+  for _, _ in p:wait(10) do -- 10ms timeout
     count = count + 1
   end
   assert(count == 0, "expected no ready fds on timeout")

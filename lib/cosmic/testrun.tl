@@ -108,7 +108,7 @@ local record TestResult
   exit_code: integer
   stdout: string
   stderr: string
-  status: string  -- "pass", "fail", "skip"
+  status: string -- "pass", "fail", "skip"
 end
 
 --- Normalize a path to a .got file base path.
@@ -116,7 +116,7 @@ end
 --- @return string The base path (without .got extension)
 local function normalize_path(path: string): string
   if path:match("%.got$") then
-    return path:sub(1, -5)  -- Remove .got
+    return path:sub(1, -5) -- Remove .got
   end
   return path
 end
@@ -140,12 +140,12 @@ local function report(paths: {string}): integer
       io.stderr:write("testrun: cannot read " .. base .. ".got: " .. (err or "unknown error") .. "\n")
       failed = failed + 1
       table.insert(results, {
-        name = name,
-        exit_code = -1 as integer,
-        stdout = "",
-        stderr = "cannot read .got file",
-        status = "fail",
-      } as TestResult)
+          name = name,
+          exit_code = -1 as integer,
+          stdout = "",
+          stderr = "cannot read .got file",
+          status = "fail",
+        } as TestResult)
     else
       local exit_code = (tonumber(got_content:match("^(%d+)")) or -1) as integer
 
@@ -166,12 +166,12 @@ local function report(paths: {string}): integer
       end
 
       table.insert(results, {
-        name = name,
-        exit_code = exit_code,
-        stdout = stdout_content,
-        stderr = stderr_content,
-        status = status,
-      } as TestResult)
+          name = name,
+          exit_code = exit_code,
+          stdout = stdout_content,
+          stderr = stderr_content,
+          status = status,
+        } as TestResult)
     end
   end
 

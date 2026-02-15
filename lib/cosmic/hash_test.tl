@@ -86,11 +86,11 @@ test_verify_password_wrong()
 
 local function test_password_with_options()
   local encoded, err = hash.password("password", {
-    m_cost = 2048,
-    t_cost = 2,
-    parallelism = 1,
-    hash_len = 24,
-  })
+      m_cost = 2048,
+      t_cost = 2,
+      parallelism = 1,
+      hash_len = 24,
+    })
   assert(encoded, "password with options should succeed: " .. tostring(err))
   local valid = hash.verify_password(encoded, "password")
   assert(valid == true, "verify_password should work with custom options hash")
@@ -115,7 +115,7 @@ end
 test_password_unicode()
 
 local function test_password_invalid_variant()
-  local encoded, err = hash.password("password", { variant = "invalid" })
+  local encoded, err = hash.password("password", {variant = "invalid"})
   assert(encoded == nil, "password should fail with invalid variant")
   assert(err and err:match("invalid variant"), "error should mention invalid variant")
 end

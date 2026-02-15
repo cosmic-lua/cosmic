@@ -26,8 +26,8 @@ local function decode_hex(hex: string): string, string
   end
   -- Decode pairs of hex digits
   local result = hex:gsub("(%x%x)", function(pair: string): string
-    return string.char(tonumber(pair, 16) as integer)
-  end)
+      return string.char(tonumber(pair, 16) as integer)
+    end)
   return result, nil
 end
 
@@ -36,7 +36,7 @@ end
 --- @param value any The Lua value to encode (table, string, number, boolean, or nil)
 --- @param opts {string:any}? Optional encoding options
 --- @return string The Lua source code representation
-local function encode_lua(value: any, opts?: {string:any}): string
+local function encode_lua(value: any, opts?: {string: any}): string
   return cosmo.EncodeLua(value, opts)
 end
 
@@ -131,7 +131,7 @@ end
 local record CodecModule
   encode_hex: function(data: string): string
   decode_hex: function(hex: string): string, string
-  encode_lua: function(value: any, opts?: {string:any}): string
+  encode_lua: function(value: any, opts?: {string: any}): string
   decode_lua: function(code: string): any, string
   encode_base64: function(data: string): string
   decode_base64: function(str: string): string, string

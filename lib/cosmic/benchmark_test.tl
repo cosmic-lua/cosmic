@@ -22,6 +22,7 @@ local function Benchmark_basic()
   local x = 1 + 1
 end
 ]]
+
   local benchmarks = benchmark.parse_benchmarks(source)
   assert(#benchmarks == 1, "should find one benchmark")
   assert(benchmarks[1].name == "Benchmark_basic", "name should match")
@@ -39,6 +40,7 @@ local function Benchmark_second()
   local y = 2
 end
 ]]
+
   local benchmarks = benchmark.parse_benchmarks(source)
   assert(#benchmarks == 2, "should find two benchmarks")
   assert(benchmarks[1].name == "Benchmark_first", "first benchmark name")

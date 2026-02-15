@@ -191,7 +191,7 @@ local function test_module_list_completeness()
 
   -- Modules in definitions.lua that we intentionally skip generating types for
   -- because no code in the codebase uses them
-  local skip_modules: {string:boolean} = {
+  local skip_modules: {string: boolean} = {
     ["finger"] = true,
     ["goodsocket"] = true,
     ["maxmind"] = true,

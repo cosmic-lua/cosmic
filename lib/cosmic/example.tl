@@ -66,7 +66,7 @@ local function parse_examples(source: string): {Example}
     local i = body_start
 
     -- Keywords that increase depth
-    local block_starts: {string:boolean} = {
+    local block_starts: {string: boolean} = {
       ["function"] = true,
       ["if"] = true,
       ["for"] = true,
@@ -89,13 +89,13 @@ local function parse_examples(source: string): {Example}
             i = i + 1
           end
         end
-      -- Skip long strings
-      elseif source:sub(i, i+1) == "[[" then
+        -- Skip long strings
+      elseif source:sub(i, i + 1) == "[[" then
         local close = source:find("]]", i + 2, true)
         i = close and close + 2 or #source + 1
-      -- Skip comments
-      elseif source:sub(i, i+1) == "--" then
-        if source:sub(i+2, i+3) == "[[" then
+        -- Skip comments
+      elseif source:sub(i, i + 1) == "--" then
+        if source:sub(i + 2, i + 3) == "[[" then
           local close = source:find("]]", i + 4, true)
           i = close and close + 2 or #source + 1
         else
@@ -111,7 +111,7 @@ local function parse_examples(source: string): {Example}
             -- and that "function" is not just a type annotation
             if word == "function" then
               -- Check if this is an anonymous function or function type
-              local before = source:sub(math.max(1, i-1), i-1)
+              local before = source:sub(math.max(1, i - 1), i - 1)
               if before ~= ":" and before ~= ">" then
                 depth = depth + 1
               end
@@ -130,7 +130,7 @@ local function parse_examples(source: string): {Example}
       end
     end
 
-    local body_end = i - 4  -- Before "end"
+    local body_end = i - 4 -- Before "end"
     local body = source:sub(body_start, body_end)
 
     -- Extract expected output from -- Output: comment block
@@ -166,11 +166,11 @@ local function parse_examples(source: string): {Example}
     end
 
     table.insert(examples, {
-      name = func_name,
-      body = body,
-      expected_output = expected,
-      line = example_line,
-    })
+        name = func_name,
+        body = body,
+        expected_output = expected,
+        line = example_line,
+      })
 
     pos = i
   end
@@ -217,9 +217,9 @@ local function run_example(example: Example, file_path: string): ExampleResult
   end
 
   local lua_code = tl.generate(tl_result.ast, {
-    gen_target = "5.4",
-    gen_compat = "off",
-  } as {string:any})
+      gen_target = "5.4",
+      gen_compat = "off",
+    } as {string: any})
 
   if not lua_code then
     result.error = "compile error: code generation failed"

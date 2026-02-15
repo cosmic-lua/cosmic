@@ -16,8 +16,8 @@ end
 --- @return Encoded Lua source for the index, or nil on error
 --- @return Error message if generation failed
 local function generate(files: {string}): string, string
-  local modules: {string:any} = {}
-  local example_files: {string:any} = {}  -- Store example docs separately
+  local modules: {string: any} = {}
+  local example_files: {string: any} = {} -- Store example docs separately
 
   for i = 1, #files do
     local file_path = files[i]
@@ -54,8 +54,8 @@ local function generate(files: {string}): string, string
     local mod = modules[base_name]
     if mod then
       -- Merge examples into the module's examples
-      local mod_table = mod as {string:any}
-      local example_table = example_doc as {string:any}
+      local mod_table = mod as {string: any}
+      local example_table = example_doc as {string: any}
       if example_table.examples then
         mod_table.examples = mod_table.examples or {}
         for _, ex in ipairs(example_table.examples as {any}) do
@@ -65,7 +65,7 @@ local function generate(files: {string}): string, string
     end
   end
 
-  return codec.encode_lua({ modules = modules })
+  return codec.encode_lua({modules = modules})
 end
 
 local function main(args: {string}): integer

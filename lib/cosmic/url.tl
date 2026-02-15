@@ -28,8 +28,8 @@ local function decode(str: string): string, string
   local s = str:gsub("+", " ")
   -- Decode valid %XX sequences
   local result = s:gsub("%%(%x%x)", function(hex: string): string
-    return string.char(tonumber(hex, 16) as integer)
-  end)
+      return string.char(tonumber(hex, 16) as integer)
+    end)
   -- Check for remaining % characters (invalid sequences that weren't decoded)
   if result:match("%%") then
     return nil, "invalid percent-encoding"
@@ -41,9 +41,9 @@ end
 --- Handles URL-encoded keys and values.
 --- @param query string The query string (without leading ?)
 --- @return {string:string} Table of key-value pairs
-local function parse(query: string): {string:string}
+local function parse(query: string): {string: string}
   local pairs_list = cosmo.ParseParams(query) as {{string, string}}
-  local result: {string:string} = {}
+  local result: {string: string} = {}
   for _, pair in ipairs(pairs_list) do
     result[pair[1]] = pair[2]
   end
@@ -67,7 +67,7 @@ local record UrlModule
 
   encode: function(str: string): string
   decode: function(str: string): string, string
-  parse: function(query: string): {string:string}
+  parse: function(query: string): {string: string}
   parse_url: function(url: string): Url
   parse_host: function(hostport: string): string, integer
   escape_host: function(str: string): string

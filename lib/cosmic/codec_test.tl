@@ -128,7 +128,7 @@ test_decode_lua_boolean()
 local function test_decode_lua_table()
   local result, err = codec.decode_lua('{a = 1, b = "hello"}')
   assert(err == nil, "unexpected error: " .. (err or ""))
-  local t = result as {string:any}
+  local t = result as {string: any}
   assert(t.a == 1, "expected a=1")
   assert(t.b == "hello", "expected b='hello'")
 end
@@ -153,11 +153,11 @@ local function test_lua_roundtrip()
   local encoded = codec.encode_lua(original)
   local decoded, err = codec.decode_lua(encoded)
   assert(err == nil, "roundtrip decode failed: " .. (err or ""))
-  local t = decoded as {string:any}
+  local t = decoded as {string: any}
   assert(t.name == original.name, "name mismatch")
   assert(t.count == original.count, "count mismatch")
   assert(t.flag == original.flag, "flag mismatch")
-  local nested = t.nested as {string:number}
+  local nested = t.nested as {string: number}
   assert(nested.x == original.nested.x, "nested.x mismatch")
   assert(nested.y == original.nested.y, "nested.y mismatch")
 end
@@ -266,7 +266,7 @@ test_decode_base32_empty()
 
 local function test_decode_base32_invalid_char()
   -- base32 alphabet excludes i, l, o, u
-  local result, err = codec.decode_base32("hello")  -- 'l' and 'o' are invalid
+  local result, err = codec.decode_base32("hello") -- 'l' and 'o' are invalid
   assert(result == nil, "expected nil for invalid base32")
   assert(err ~= nil, "expected error message")
   assert(err:match("invalid"), "error should mention invalid")

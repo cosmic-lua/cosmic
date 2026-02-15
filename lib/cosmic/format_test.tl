@@ -7,7 +7,7 @@ local function assert_format(input: string, expected: string, msg: string, filen
   filename = filename or "test.lua"
   local result = fmt.format(input, filename)
   assert(result.ok, msg .. ": format failed: " .. (result.errors and #result.errors > 0
-    and result.errors[1].message or "unknown error"))
+      and result.errors[1].message or "unknown error"))
   if result.code ~= expected then
     error(msg .. ":\n  expected:\n" .. expected .. "\n  got:\n" .. result.code)
   end
@@ -207,12 +207,12 @@ end
 -- Test format_issues
 do
   local issues = {{
-    file = "test.lua",
-    line = 1,
-    column = 5,
-    message = "syntax error",
-    severity = "error",
-  }}
+      file = "test.lua",
+      line = 1,
+      column = 5,
+      message = "syntax error",
+      severity = "error",
+    }}
   local s = fmt.format_issues(issues)
   assert(s == "test.lua:1:5: error: syntax error", "format_issues: " .. s)
 end
@@ -278,6 +278,96 @@ assert_format(
   "foo(\n  bar(\n    x\n  )\n)\n",
   "foo(\n  bar(\n    x\n  )\n)\n",
   "nested multi-line calls"
+)
+
+-- Bug 7: long string closing ]] followed by ) should stay on same line
+assert_format(
+  "local x = foo([[\nhello\n]])\n",
+  "local x = foo([[\nhello\n]])\n",
+  "long string close ]] with ) stays on same line"
+)
+
+-- Bug 7 variant: multiline long string with additional args before it
+assert_format(
+  "local x = bar(\"a\", [[\nhello\nworld\n]])\n",
+  "local x = bar(\"a\", [[\nhello\nworld\n]])\n",
+  "long string close ]] with ) after other args"
+)
+
+-- Bug 7 variant: long string followed by ) and , in nested call
+assert_format(
+  "local x = baz(qux([[\ninner\n]], \"after\"))\n",
+  "local x = baz(qux([[\ninner\n]], \"after\"))\n",
+  "long string close ]] with args after in nested call"
+)
+
+-- Bug 7 variant: long string followed by , in table
+assert_format(
+  "local t = {\n  key = [[\nvalue\n]],\n}\n",
+  "local t = {\n  key = [[\nvalue\n]],\n}\n",
+  "long string close ]] with comma in table"
+)
+
+-- Bug 7 variant: idempotent after formatting long string close
+assert_idempotent(
+  "local x = foo([[\nhello\n]])\n",
+  "idempotent long string close"
+)
+
+-- Bug 7 variant: two consecutive long string args
+assert_format(
+  "local x = two([[\nfirst\n]], [[\nsecond\n]])\n",
+  "local x = two([[\nfirst\n]], [[\nsecond\n]])\n",
+  "two long string args stay on same line"
+)
+
+-- Bug 7 variant: already-split ]]\n) should be rejoined
+assert_format(
+  "local x = foo([[\nhello\n]]\n)\n",
+  "local x = foo([[\nhello\n]])\n",
+  "already-split long string close gets rejoined"
+)
+
+-- Bug 7 variant: already-split ]]\n) with indent should be rejoined
+assert_format(
+  "local function test()\n  local x = foo([[\nhello\n]]\n  )\nend\n",
+  "local function test()\n  local x = foo([[\nhello\n]])\nend\n",
+  "already-split long string close inside function gets rejoined"
+)
+
+-- Bug 7 variant: already-split ]]\n, should be rejoined
+assert_format(
+  "local x = bar([[\nhello\n]]\n, \"after\")\n",
+  "local x = bar([[\nhello\n]], \"after\")\n",
+  "already-split long string comma gets rejoined"
+)
+
+-- Bug 7 variant: long string not at end of line should NOT merge next line
+assert_format(
+  "local x = [[\nhello\n]]\nlocal y = 1\n",
+  "local x = [[\nhello\n]]\nlocal y = 1\n",
+  "long string assignment followed by new statement stays separate"
+)
+
+-- Bug 7 variant: long string followed by .. concatenation stays on same line
+assert_format(
+  "local s = [[\nhello\n]] .. body .. [[\nworld\n]]\n",
+  "local s = [[\nhello\n]] .. body .. [[\nworld\n]]\n",
+  "long string concat stays on same line"
+)
+
+-- Bug 7 variant: already-split long string .. concat gets rejoined
+assert_format(
+  "local s = [[\nhello\n]]\n\n  .. body .. [[\nworld\n]]\n",
+  "local s = [[\nhello\n]] .. body .. [[\nworld\n]]\n",
+  "already-split long string concat gets rejoined"
+)
+
+-- Bug 7 variant: long string concat inside function
+assert_format(
+  "local function run()\n  local s = [[\nfirst\n]] .. body .. [[\nsecond\n]]\n  return s\nend\n",
+  "local function run()\n  local s = [[\nfirst\n]] .. body .. [[\nsecond\n]]\n  return s\nend\n",
+  "long string concat inside function"
 )
 
 print("All format tests passed!")

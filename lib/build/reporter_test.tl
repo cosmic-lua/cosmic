@@ -136,4 +136,3 @@ local function test_message_from_stderr()
   assert(stdout:match("first line error"), "expected first line of stderr as message")
 end
 test_message_from_stderr()
-

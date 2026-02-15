@@ -12,6 +12,9 @@ bin/
 !bin/cosmic
 !bin/make
 
+# ah agent harness
+.ah/
+
 # Editor and IDE
 .vscode/
 .idea/

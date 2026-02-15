@@ -23,14 +23,14 @@ end
 
 -- An item in the output stream: either a token or a comment.
 local record Item
-  y: integer       -- source line
-  x: integer       -- source column
-  tk: string       -- text
-  kind: string     -- token kind (or "comment" for comments)
+  y: integer -- source line
+  x: integer -- source column
+  tk: string -- text
+  kind: string -- token kind (or "comment" for comments)
 end
 
 -- Block-opening keywords: indent after these.
-local block_openers: {string:boolean} = {
+local block_openers: {string: boolean} = {
   ["do"] = true,
   ["then"] = true,
   ["repeat"] = true,
@@ -38,19 +38,19 @@ local block_openers: {string:boolean} = {
 }
 
 -- Block-closing keywords: dedent before these.
-local block_closers: {string:boolean} = {
+local block_closers: {string: boolean} = {
   ["end"] = true,
   ["until"] = true,
 }
 
 -- Keywords that dedent then indent (same level as opening keyword).
-local block_half_closers: {string:boolean} = {
+local block_half_closers: {string: boolean} = {
   ["else"] = true,
   ["elseif"] = true,
 }
 
 -- Tokens that should NOT have a space before them.
-local no_space_before: {string:boolean} = {
+local no_space_before: {string: boolean} = {
   [")"] = true,
   ["]"] = true,
   ["}"] = true,
@@ -60,7 +60,7 @@ local no_space_before: {string:boolean} = {
 }
 
 -- Tokens that should NOT have a space after them.
-local no_space_after: {string:boolean} = {
+local no_space_after: {string: boolean} = {
   ["("] = true,
   ["["] = true,
   ["{"] = true,
@@ -68,7 +68,7 @@ local no_space_after: {string:boolean} = {
 }
 
 -- Tokens after which `-` is unary (not binary subtraction).
-local unary_minus_after: {string:boolean} = {
+local unary_minus_after: {string: boolean} = {
   ["("] = true,
   ["["] = true,
   ["{"] = true,
@@ -97,7 +97,7 @@ local unary_minus_after: {string:boolean} = {
 }
 
 -- Keywords after which `-` is unary.
-local unary_minus_after_kw: {string:boolean} = {
+local unary_minus_after_kw: {string: boolean} = {
   ["return"] = true,
   ["and"] = true,
   ["or"] = true,
@@ -125,7 +125,7 @@ local function build_items(tokens: {tl.Token}): {Item}
     -- Emit attached comments before the token
     if token.comments then
       for _, raw_c in ipairs(token.comments) do
-        local c = raw_c as {string:any}
+        local c = raw_c as {string: any}
         items[#items + 1] = {
           y = c["y"] as integer,
           x = c["x"] as integer,
@@ -174,7 +174,7 @@ end
 --- Check if a comment is a long comment.
 local function is_long_comment(tk: string): boolean
   return tk:sub(1, 4) == "--[["
-      or (tk:sub(1, 3) == "--[" and tk:sub(4, 4) == "=")
+  or (tk:sub(1, 3) == "--[" and tk:sub(4, 4) == "=")
 end
 
 --- Check if a colon is in method-call position (vs type annotation).
@@ -213,7 +213,7 @@ local function needs_space(prev_prev: Item, prev: Item, cur: Item, next_item: It
   -- No space before ( in function calls: identifier( or )( or ]( or function(
   if cur.tk == "(" then
     if prev.kind == "identifier" or prev.tk == ")" or prev.tk == "]"
-        or prev.kind == "string" or (prev.kind == "keyword" and prev.tk == "function") then
+    or prev.kind == "string" or (prev.kind == "keyword" and prev.tk == "function") then
       return false
     end
   end
@@ -237,14 +237,14 @@ local function needs_space(prev_prev: Item, prev: Item, cur: Item, next_item: It
   end
   -- Colon handling: depends on whether it's a method call or type annotation
   if cur.tk == ":" then
-    return false  -- never space before colon
+    return false -- never space before colon
   end
   if prev.tk == ":" then
     -- Method call (obj:method): no space after colon
     -- Type annotation (x: Type): space after colon
     -- Distinguish by checking if what follows is identifier + "("
     if cur.kind == "identifier" and next_item and next_item.tk == "(" then
-      return false  -- method call: obj:method(
+      return false -- method call: obj:method(
     end
     -- Default: space after colon (type annotation)
     return true
@@ -436,15 +436,57 @@ local function format(input: string, filename: string): FormatResult
 
   local lines: {Line} = {}
   local cur_line: Line = nil
+  local cur_line_end_y: integer = 0 -- effective end line (accounts for multiline strings)
 
   for i = start_idx, #items do
     local item = items[i]
-    if cur_line == nil or item.y ~= cur_line.y then
+    if cur_line == nil or (item.y ~= cur_line.y and item.y ~= cur_line_end_y) then
       cur_line = {items = {}, y = item.y}
+      cur_line_end_y = item.y
       lines[#lines + 1] = cur_line
     end
     cur_line.items[#cur_line.items + 1] = item
+
+    -- If this item is a multiline long string, extend the effective end line
+    -- so that tokens on the closing ]] line stay grouped with this line
+    if item.kind == "string" and item.tk:sub(1, 1) == "[" and item.tk:sub(-1) == "]" then
+      local newline_count = 0
+      for _ in item.tk:gmatch("\n") do
+        newline_count = newline_count + 1
+      end
+      if newline_count > 0 then
+        cur_line_end_y = item.y + newline_count
+      end
+    end
   end
+
+  -- Merge pass: absorb lines that start with closing punctuation or
+  -- continuation operators after a long string back into the previous line.
+  -- This handles ]]) on one source line, already-split ]] / ) across lines,
+  -- and ]] .. concat continuations.
+  local merged: {Line} = {}
+  for _, line in ipairs(lines) do
+    local prev = merged[#merged]
+    if prev then
+      local last_prev = prev.items[#prev.items]
+      local first_cur = line.items[1]
+      if last_prev and first_cur
+      and last_prev.kind == "string"
+      and last_prev.tk:sub(1, 1) == "[" and last_prev.tk:sub(-1) == "]"
+      and (first_cur.tk == ")" or first_cur.tk == "]" or first_cur.tk == "}"
+        or first_cur.tk == "," or first_cur.tk == "..") then
+        -- Merge all items from this line into the previous line
+        for _, item in ipairs(line.items) do
+          prev.items[#prev.items + 1] = item
+        end
+      else
+        merged[#merged + 1] = line
+      end
+    else
+      merged[#merged + 1] = line
+    end
+  end
+  lines = merged
 
   -- Emit each line with proper indentation
   local prev_y = 0
@@ -452,26 +494,11 @@ local function format(input: string, filename: string): FormatResult
     prev_y = items[1].y
   end
 
-  -- Track whether previous line ended with a long string (for Bug 4: ]]) splitting)
-  local prev_line_ends_with_long_string = false
-
   for _, line in ipairs(lines) do
     -- Preserve blank lines (at most 1 blank line between code)
-    -- But suppress blank line insertion when prev line ended with ]] and
-    -- this line is just ) -- they belong together (e.g. func("arg", [[...]])  )
     local gap = line.y - prev_y
     if prev_y > 0 and gap > 1 then
-      -- Check if this is a ]])  continuation (closing paren after long string)
-      local suppress_blank = false
-      if prev_line_ends_with_long_string then
-        local first = line.items[1]
-        if first and first.tk == ")" then
-          suppress_blank = true
-        end
-      end
-      if not suppress_blank then
-        out[#out + 1] = "\n"
-      end
+      out[#out + 1] = "\n"
     end
 
     -- Compute indent changes
@@ -534,26 +561,28 @@ local function format(input: string, filename: string): FormatResult
     -- Apply post-change (indent for openers, dedent for non-leading closers)
     indent = math.max(0, indent + post_change)
 
-    -- Track whether this line ends with a long string (for ]] ) handling)
-    local last_item = line.items[#line.items]
-    prev_line_ends_with_long_string = false
-    if last_item and last_item.kind == "string" then
-      local tk = last_item.tk
-      if tk:sub(1, 1) == "[" and tk:sub(-1) == "]" then
-        prev_line_ends_with_long_string = true
+    -- Track the last source line we emitted (accounting for multiline tokens)
+    local effective_end_y = line.y
+    for _, item in ipairs(line.items) do
+      local end_y = item.y
+      if item.kind == "comment" and is_long_comment(item.tk) then
+        local newline_count = 0
+        for _ in item.tk:gmatch("\n") do
+          newline_count = newline_count + 1
+        end
+        end_y = item.y + newline_count
+      elseif item.kind == "string" and item.tk:sub(1, 1) == "[" and item.tk:sub(-1) == "]" then
+        local newline_count = 0
+        for _ in item.tk:gmatch("\n") do
+          newline_count = newline_count + 1
+        end
+        end_y = item.y + newline_count
+      end
+      if end_y > effective_end_y then
+        effective_end_y = end_y
       end
     end
-
-    -- Track the last source line we emitted
-    if last_item and last_item.kind == "comment" and is_long_comment(last_item.tk) then
-      local newline_count = 0
-      for _ in last_item.tk:gmatch("\n") do
-        newline_count = newline_count + 1
-      end
-      prev_y = line.y + newline_count
-    else
-      prev_y = line.y
-    end
+    prev_y = effective_end_y
   end
 
   return {ok = true, code = table.concat(out), errors = {}}
@@ -570,12 +599,12 @@ local function format_file(input_path: string): FormatResult
       ok = false,
       code = nil,
       errors = {{
-        file = input_path,
-        line = 0,
-        column = 0,
-        message = "cannot open file: " .. (open_err or "unknown error"),
-        severity = "error",
-      }},
+          file = input_path,
+          line = 0,
+          column = 0,
+          message = "cannot open file: " .. (open_err or "unknown error"),
+          severity = "error",
+        }},
     }
   end
   local content = f:read("*a")

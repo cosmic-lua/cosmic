@@ -8,7 +8,7 @@ local record Appender
   close: function(self: Appender)
 end
 
-local MARKER <const> = ".cosmic/welcome-shown"
+local MARKER < const > = ".cosmic/welcome-shown"
 
 --- Check if welcome has been shown.
 --- @return boolean True if welcome was already shown (marker embedded in binary)
@@ -29,4 +29,4 @@ local function mark_shown()
   end
 end
 
-return { was_shown = was_shown, mark_shown = mark_shown }
+return {was_shown = was_shown, mark_shown = mark_shown}

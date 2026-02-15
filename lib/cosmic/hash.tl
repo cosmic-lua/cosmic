@@ -29,7 +29,7 @@ local record HashOptions
 end
 
 -- Map variant string names to argon2 variant constants
-local variant_map: {string:argon2.Variant} = {
+local variant_map: {string: argon2.Variant} = {
   argon2id = argon2.variants.argon2_id,
   argon2i = argon2.variants.argon2_i,
   argon2d = argon2.variants.argon2_d,
@@ -78,7 +78,7 @@ local function password(pwd: string, options?: HashOptions): string, string
     end
   end
 
-  local encoded, err = argon2.hash_encoded(pwd, salt, config) as (string, any)
+  local encoded, err = argon2.hash_encoded(pwd, salt, config) as(string, any)
   if not encoded then
     return nil, tostring(err or "failed to hash password")
   end

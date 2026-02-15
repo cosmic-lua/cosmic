@@ -44,14 +44,14 @@ local record re
   EPAREN: number
 
   -- Compile flags
-  BASIC: number    -- Use basic (obsolete) regex syntax instead of extended
-  ICASE: number    -- Case-insensitive matching
-  NEWLINE: number  -- Treat newline as special (affects ^ and $)
-  NOSUB: number    -- Report only success/failure, not match position
+  BASIC: number -- Use basic (obsolete) regex syntax instead of extended
+  ICASE: number -- Case-insensitive matching
+  NEWLINE: number -- Treat newline as special (affects ^ and $)
+  NOSUB: number -- Report only success/failure, not match position
 
   -- Search flags
-  NOTBOL: number   -- First character is not at beginning of line
-  NOTEOL: number   -- Last character is not at end of line
+  NOTBOL: number -- First character is not at beginning of line
+  NOTEOL: number -- Last character is not at end of line
 
   --- Searches for regular expression match in text.
   --- This is a shorthand notation roughly equivalent to:
@@ -81,4 +81,3 @@ local record re
 end
 
 return re
-

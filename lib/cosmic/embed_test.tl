@@ -335,7 +335,7 @@ local function test_embed_overwrites_cleanly()
   -- Read original zip file list
   local orig_data = cosmo.Slurp(cosmic)
   local orig_reader = zip.from(orig_data) as Reader
-  local orig_files: {string:boolean} = {}
+  local orig_files: {string: boolean} = {}
   for _, name in ipairs(orig_reader:list()) do
     -- Skip directory entries
     if name:sub(-1) ~= "/" then

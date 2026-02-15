@@ -45,10 +45,10 @@ local function scan_docs(docs_dir: string): {DocInfo}
             local mod_name = name:gsub("%.md$", "")
 
             table.insert(docs, {
-              path = rel_path,
-              name = mod_name,
-              description = description,
-            })
+                path = rel_path,
+                name = mod_name,
+                description = description,
+              })
           end
         end
       end
@@ -60,8 +60,8 @@ local function scan_docs(docs_dir: string): {DocInfo}
 
   -- Sort by path for consistent output
   table.sort(docs, function(a: DocInfo, b: DocInfo): boolean
-    return a.path < b.path
-  end)
+      return a.path < b.path
+    end)
 
   return docs
 end

@@ -10,7 +10,7 @@ local record Issue
   line: integer
   column: integer
   message: string
-  severity: string  -- "error" or "warning"
+  severity: string -- "error" or "warning"
 end
 
 --- Options for compiling Teal to Lua.
@@ -44,9 +44,9 @@ end
 --- @return {string} List of default include directory paths
 local function get_default_include_dirs(): {string}
   return {
-    "lib/types",             -- Local cosmic types (development, takes precedence)
-    "/zip/.lua/types",       -- Bundled cosmic types (in binary)
-    "/zip/.lua/teal-types",  -- Bundled third-party types (in binary)
+    "lib/types", -- Local cosmic types (development, takes precedence)
+    "/zip/.lua/types", -- Bundled cosmic types (in binary)
+    "/zip/.lua/teal-types", -- Bundled third-party types (in binary)
   }
 end
 
@@ -145,12 +145,12 @@ local function collect_errors(result: TlResult, input_path: string): {Issue}
     for _, e in ipairs(result.syntax_errors) do
       if e.msg then
         table.insert(errors, {
-          file = e.filename or input_path,
-          line = e.y or 0,
-          column = e.x or 0,
-          message = e.msg,
-          severity = "error",
-        })
+            file = e.filename or input_path,
+            line = e.y or 0,
+            column = e.x or 0,
+            message = e.msg,
+            severity = "error",
+          })
       end
     end
   end
@@ -159,12 +159,12 @@ local function collect_errors(result: TlResult, input_path: string): {Issue}
     for _, e in ipairs(result.type_errors) do
       if e.msg then
         table.insert(errors, {
-          file = e.filename or input_path,
-          line = e.y or 0,
-          column = e.x or 0,
-          message = e.msg,
-          severity = "error",
-        })
+            file = e.filename or input_path,
+            line = e.y or 0,
+            column = e.x or 0,
+            message = e.msg,
+            severity = "error",
+          })
       end
     end
   end
@@ -190,7 +190,7 @@ local function compile(input_path: string, opts: CompileOpts): CompileResult
     return {ok = false, code = nil, errors = errors}
   end
 
-  local gen_opts: {string:any} = {
+  local gen_opts: {string: any} = {
     gen_target = opts.gen_target or "5.4",
     gen_compat = opts.gen_compat or "off",
   }
@@ -223,12 +223,12 @@ local function check(input_path: string, opts: CheckOpts): CheckResult
     for _, w in ipairs(proc.tl_result.warnings) do
       if w.msg then
         table.insert(warnings, {
-          file = w.filename or input_path,
-          line = w.y or 0,
-          column = w.x or 0,
-          message = w.msg,
-          severity = "warning",
-        })
+            file = w.filename or input_path,
+            line = w.y or 0,
+            column = w.x or 0,
+            message = w.msg,
+            severity = "warning",
+          })
       end
     end
   end
@@ -244,11 +244,11 @@ local function format_issues(issues: {Issue}): string
   local lines: {string} = {}
   for _, issue in ipairs(issues) do
     table.insert(lines, string.format("%s:%d:%d: %s: %s",
-      issue.file,
-      issue.line,
-      issue.column,
-      issue.severity,
-      issue.message))
+        issue.file,
+        issue.line,
+        issue.column,
+        issue.severity,
+        issue.message))
   end
   return table.concat(lines, "\n")
 end

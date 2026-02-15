@@ -24,6 +24,7 @@ local function Example_basic()
   -- hello
 end
 ]]
+
   local examples = example.parse_examples(source)
   assert(#examples == 1, "should find one example")
   assert(examples[1].name == "Example_basic", "name should match")
@@ -47,6 +48,7 @@ local function Example_second()
   -- two
 end
 ]]
+
   local examples = example.parse_examples(source)
   assert(#examples == 2, "should find two examples")
   assert(examples[1].name == "Example_first", "first example name")
@@ -61,6 +63,7 @@ local function Example_no_check()
   print("anything")
 end
 ]]
+
   local examples = example.parse_examples(source)
   assert(#examples == 1, "should find example")
   assert(examples[1].expected_output == nil, "should have no expected output")

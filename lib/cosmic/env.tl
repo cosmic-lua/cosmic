@@ -17,7 +17,7 @@ end
 --- @return boolean True on success
 --- @return string? Error message if setting failed
 local function set(name: string, value: string, overwrite?: boolean): boolean, string
-  local ok, err = unix.setenv(name, value, overwrite) as (boolean, any)
+  local ok, err = unix.setenv(name, value, overwrite) as(boolean, any)
   if not ok then
     return false, tostring(err)
   end
@@ -29,7 +29,7 @@ end
 --- @return boolean True on success
 --- @return string? Error message if unsetting failed
 local function unset(name: string): boolean, string
-  local ok, err = unix.unsetenv(name) as (boolean, any)
+  local ok, err = unix.unsetenv(name) as(boolean, any)
   if not ok then
     return false, tostring(err)
   end
@@ -41,7 +41,7 @@ end
 --- @return boolean True on success
 --- @return string? Error message if clearing failed
 local function clear(): boolean, string
-  local ok, err = unix.clearenv() as (boolean, any)
+  local ok, err = unix.clearenv() as(boolean, any)
   if not ok then
     return false, tostring(err)
   end
@@ -51,8 +51,8 @@ end
 --- Get all environment variables.
 --- Returns a table mapping variable names to their values.
 --- @return {string:string} A table of all environment variables
-local function all(): {string:string}
-  return unix.environ() as {string:string}
+local function all(): {string: string}
+  return unix.environ() as {string: string}
 end
 
 local record EnvModule
@@ -60,7 +60,7 @@ local record EnvModule
   set: function(name: string, value: string, overwrite?: boolean): boolean, string
   unset: function(name: string): boolean, string
   clear: function(): boolean, string
-  all: function(): {string:string}
+  all: function(): {string: string}
 end
 
 local M: EnvModule = {
