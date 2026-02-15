@@ -310,8 +310,7 @@ doc-publish: $(all_docs) $(docs_publish) | $(bootstrap_cosmic)
 	@$(bootstrap_cosmic) -- $(docs_publish) $(SOURCE_SHA) $(o)/docs $(or $(DOCS_BRANCH),docs)
 
 # CI stages: iterate with --keep-going to report all failures
-# TODO: add format to ci_stages after formatting all source files
-ci_stages := teal test example
+ci_stages := format teal test example
 
 .PHONY: ci
 ## Run CI checks (teal, test, example) - run stage1 first to refresh bootstrap
