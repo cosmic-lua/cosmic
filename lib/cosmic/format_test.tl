@@ -252,4 +252,32 @@ assert_format(
   "test.tl"
 )
 
+-- Bug 6: multi-line function call args should get continuation indent
+assert_format(
+  "local function foo()\n  assert(result == 0,\n    \"message\" ..\n    \"more\")\nend\n",
+  "local function foo()\n  assert(result == 0,\n    \"message\" ..\n    \"more\")\nend\n",
+  "multi-line call continuation indent"
+)
+
+-- Bug 6 variant: closing paren on own line dedents
+assert_format(
+  "foo(\n  x,\n  y\n)\n",
+  "foo(\n  x,\n  y\n)\n",
+  "multi-line call close paren dedents"
+)
+
+-- Bug 6 variant: single-line call unchanged
+assert_format(
+  "foo(x, y)\n",
+  "foo(x, y)\n",
+  "single-line call no indent change"
+)
+
+-- Bug 6 variant: nested multi-line calls
+assert_format(
+  "foo(\n  bar(\n    x\n  )\n)\n",
+  "foo(\n  bar(\n    x\n  )\n)\n",
+  "nested multi-line calls"
+)
+
 print("All format tests passed!")
