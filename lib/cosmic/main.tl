@@ -69,6 +69,7 @@ local function parse_args(): Opts
 
   local shortopts = "e:l:ivEWh"
   local longopts: {getopt.LongOpt} = {
+    {name = "version", has_arg = "none", short = "v"},
     {name = "help", has_arg = "none", short = "h"},
     {name = "compile", has_arg = "required"},
     {name = "format", has_arg = "required"},
@@ -395,7 +396,7 @@ local function generate_help(): string
   table.insert(lines, "  -e <stat>                   execute string 'stat'")
   table.insert(lines, "  -l <name>                   require library 'name'")
   table.insert(lines, "  -i                          enter interactive mode")
-  table.insert(lines, "  -v                          show version information")
+  table.insert(lines, "  -v, --version               show version information")
   table.insert(lines, "  -E                          ignore environment variables")
   table.insert(lines, "  -W                          turn warnings into errors")
   table.insert(lines, "")
@@ -473,9 +474,15 @@ local function main(): integer, string
     end
   end
 
-  -- Handle -v
+  -- Handle -v / --version
   if opts.version then
-    io.write(_VERSION .. "\n")
+    local mod = "cosmic.version"
+    local ok, ver = pcall(require, mod)
+    if ok then
+      io.write("cosmic-lua " .. ver.cosmic .. " (cosmos " .. ver.cosmos .. ", " .. _VERSION .. ")\n")
+    else
+      io.write(_VERSION .. "\n")
+    end
     return 0
   end
 

@@ -12,11 +12,20 @@ cosmic_deps := cosmos tl teal-types
 
 cosmic_built := $(o)/cosmic/.built
 
-$(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(teal-types_staged) $$(doc_index)
+cosmic_version_lua := $(o)/cosmic/version.lua
+
+$(cosmic_version_lua): .FORCE
+	@mkdir -p $(@D)
+	@echo "return { cosmic = \"$$(git describe --tags --always --dirty 2>/dev/null || echo unknown)\", cosmos = \"$$($(cosmos_lua_bin) -e "print(dofile('3p/cosmos/version.lua').version)")\" }" > $@
+
+.PHONY: .FORCE
+
+$(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(teal-types_staged) $$(doc_index) $(cosmic_version_lua)
 	@rm -rf $(cosmic_built)
 	@mkdir -p $(cosmic_built)/.lua/cosmic $(@D)
 	@$(cp) $(cosmic_lua) $(cosmic_built)/.lua/cosmic/
 	@$(cp) $(cosmic_tl) $(cosmic_built)/.lua/cosmic/
+	@$(cp) $(cosmic_version_lua) $(cosmic_built)/.lua/cosmic/version.lua
 	@$(cp) $(tl_dir)/tl.lua $(cosmic_built)/.lua/
 	@cp -r $(teal-types_dir)/types $(cosmic_built)/.lua/teal-types
 	@cp -r lib/types $(cosmic_built)/.lua/types
