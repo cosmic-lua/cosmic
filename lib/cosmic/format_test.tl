@@ -349,4 +349,25 @@ assert_format(
   "long string assignment followed by new statement stays separate"
 )
 
+-- Bug 7 variant: long string followed by .. concatenation stays on same line
+assert_format(
+  "local s = [[\nhello\n]] .. body .. [[\nworld\n]]\n",
+  "local s = [[\nhello\n]] .. body .. [[\nworld\n]]\n",
+  "long string concat stays on same line"
+)
+
+-- Bug 7 variant: already-split long string .. concat gets rejoined
+assert_format(
+  "local s = [[\nhello\n]]\n\n  .. body .. [[\nworld\n]]\n",
+  "local s = [[\nhello\n]] .. body .. [[\nworld\n]]\n",
+  "already-split long string concat gets rejoined"
+)
+
+-- Bug 7 variant: long string concat inside function
+assert_format(
+  "local function run()\n  local s = [[\nfirst\n]] .. body .. [[\nsecond\n]]\n  return s\nend\n",
+  "local function run()\n  local s = [[\nfirst\n]] .. body .. [[\nsecond\n]]\n  return s\nend\n",
+  "long string concat inside function"
+)
+
 print("All format tests passed!")

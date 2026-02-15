@@ -460,9 +460,10 @@ local function format(input: string, filename: string): FormatResult
     end
   end
 
-  -- Merge pass: absorb lines that start with closing punctuation after a long
-  -- string back into the previous line. This handles both ]]) on one source
-  -- line and the already-split case where ]] and ) are on separate lines.
+  -- Merge pass: absorb lines that start with closing punctuation or
+  -- continuation operators after a long string back into the previous line.
+  -- This handles ]]) on one source line, already-split ]] / ) across lines,
+  -- and ]] .. concat continuations.
   local merged: {Line} = {}
   for _, line in ipairs(lines) do
     local prev = merged[#merged]
@@ -473,7 +474,7 @@ local function format(input: string, filename: string): FormatResult
       and last_prev.kind == "string"
       and last_prev.tk:sub(1, 1) == "[" and last_prev.tk:sub(-1) == "]"
       and (first_cur.tk == ")" or first_cur.tk == "]" or first_cur.tk == "}"
-        or first_cur.tk == ",") then
+        or first_cur.tk == "," or first_cur.tk == "..") then
         -- Merge all items from this line into the previous line
         for _, item in ipairs(line.items) do
           prev.items[#prev.items + 1] = item
