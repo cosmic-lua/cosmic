@@ -11,28 +11,22 @@
 --
 -- env vars: WORK_REPO, WORK_MAX_PRS, WORK_INPUT, WORK_ISSUE, WORK_ACTIONS
 
+local child = require("cosmic.child")
+local env = require("cosmic.env")
+local cio = require("cosmic.io")
 local json = require("cosmic.json")
 
 -- --- helpers ---
 
-local function read_file(path: string): string
-   local f = io.open(path, "r")
-   if not f then return nil end
-   local content = f:read("*a")
-   f:close()
-   return content
-end
-
-local function run(cmd: string): boolean, string
-   local p = io.popen(cmd .. " 2>&1")
-   if not p then return false, "popen failed" end
-   local out = p:read("*a")
-   local ok = p:close() as boolean
-   return ok, out
+local function run(argv: {string}): boolean, string
+   local h, err = child.spawn(argv)
+   if not h then return false, err end
+   local ok, out = h:read()
+   return ok as boolean, out
 end
 
 local function require_env(name: string): string
-   local v = os.getenv(name)
+   local v = env.get(name)
    if not v or v == "" then
       io.stderr:write("error: " .. name .. " not set\n")
       os.exit(1)
@@ -53,23 +47,20 @@ commands = {
       local repo = require_env("WORK_REPO")
       local labels = {"todo", "doing", "done", "failed", "friction"}
       for _, label in ipairs(labels) do
-         os.execute("gh label create " .. label .. " --repo " .. repo .. " --force 2>/dev/null")
+         run({"gh", "label", "create", label, "--repo", repo, "--force"})
       end
       emit_ok()
    end,
 
    ["pr-limit"] = function()
       local repo = require_env("WORK_REPO")
-      local max_prs = tonumber(os.getenv("WORK_MAX_PRS")) or 4
+      local max_prs = tonumber(env.get("WORK_MAX_PRS")) or 4
 
-      local p = io.popen("gh pr list --repo " .. repo .. " --state open --json number 2>&1")
-      if not p then
+      local ok, out = run({"gh", "pr", "list", "--repo", repo, "--state", "open", "--json", "number"})
+      if not ok then
          io.stderr:write("failed to run gh pr list\n")
          os.exit(1)
       end
-
-      local out = p:read("*a")
-      p:close()
 
       local prs = json.decode(out) as {any}
       if not prs then
@@ -88,21 +79,18 @@ commands = {
    issues = function()
       local repo = require_env("WORK_REPO")
 
-      local p = io.popen(table.concat({
+      local ok, out = run({
          "gh", "issue", "list",
          "--repo", repo,
          "--label", "todo",
          "--state", "open",
          "--json", "number,title,body,url,labels,createdAt",
          "--limit", "100",
-      }, " "))
-      if not p then
+      })
+      if not ok then
          io.stderr:write("failed to run gh issue list\n")
          os.exit(1)
       end
-
-      local out = p:read("*a")
-      p:close()
 
       local issues = json.decode(out)
       if not issues then
@@ -137,7 +125,7 @@ commands = {
       end
 
       local input_file = require_env("WORK_INPUT")
-      local input = read_file(input_file)
+      local input = cio.slurp(input_file)
       if not input or input == "" then
          io.stderr:write("no input\n")
          os.exit(1)
@@ -179,7 +167,7 @@ commands = {
 
    doing = function()
       local issue_file = require_env("WORK_ISSUE")
-      local issue_raw = read_file(issue_file)
+      local issue_raw = cio.slurp(issue_file)
       if not issue_raw then
          io.stderr:write("could not read " .. issue_file .. "\n")
          os.exit(1)
@@ -194,7 +182,7 @@ commands = {
       end
 
       io.stderr:write("transitioning issue to doing: " .. url .. "\n")
-      os.execute("gh issue edit '" .. url .. "' --remove-label todo --add-label doing")
+      run({"gh", "issue", "edit", url, "--remove-label", "todo", "--add-label", "doing"})
       emit_ok()
    end,
 
@@ -207,7 +195,7 @@ commands = {
       local issue_file = require_env("WORK_ISSUE")
       local actions_file = require_env("WORK_ACTIONS")
 
-      local issue_raw = read_file(issue_file)
+      local issue_raw = cio.slurp(issue_file)
       if not issue_raw then
          io.stderr:write("could not read " .. issue_file .. "\n")
          os.exit(1)
@@ -215,17 +203,17 @@ commands = {
       local issue = json.decode(issue_raw) as {string:any}
       local issue_url = (issue.url or "") as string
 
-      local actions_raw = read_file(actions_file)
+      local actions_raw = cio.slurp(actions_file)
       if not actions_raw then
          io.stderr:write("no actions.json found, updating labels as failed\n")
-         run("gh issue edit '" .. issue_url .. "' --remove-label doing --add-label failed")
+         run({"gh", "issue", "edit", issue_url, "--remove-label", "doing", "--add-label", "failed"})
          os.exit(0)
       end
 
       local data = json.decode(actions_raw) as {string:any}
       if not data then
          io.stderr:write("could not parse " .. actions_file .. "\n")
-         run("gh issue edit '" .. issue_url .. "' --remove-label doing --add-label failed")
+         run({"gh", "issue", "edit", issue_url, "--remove-label", "doing", "--add-label", "failed"})
          os.exit(1)
       end
 
@@ -241,7 +229,7 @@ commands = {
 
          if action_type == "comment_issue" then
             local body = (act.body or "") as string
-            local ok, out = run("gh issue comment '" .. issue_url .. "' --body '" .. body:gsub("'", "'\\''") .. "'")
+            local ok, out = run({"gh", "issue", "comment", issue_url, "--body", body})
             if not ok then
                io.stderr:write("  failed: " .. (out or "") .. "\n")
                all_ok = false
@@ -260,7 +248,7 @@ commands = {
                end
             end
 
-            local ok, out = run("gh pr create --head '" .. branch .. "' --title '" .. title:gsub("'", "'\\''") .. "' --body '" .. body:gsub("'", "'\\''") .. "'")
+            local ok, out = run({"gh", "pr", "create", "--head", branch, "--title", title, "--body", body})
             if not ok then
                io.stderr:write("  failed: " .. (out or "") .. "\n")
                all_ok = false
@@ -271,11 +259,11 @@ commands = {
       end
 
       local success = verdict == "pass" and all_ok
-      run("gh issue edit '" .. issue_url .. "' --remove-label doing")
+      run({"gh", "issue", "edit", issue_url, "--remove-label", "doing"})
       if success then
-         run("gh issue edit '" .. issue_url .. "' --add-label done")
+         run({"gh", "issue", "edit", issue_url, "--add-label", "done"})
       else
-         run("gh issue edit '" .. issue_url .. "' --add-label failed")
+         run({"gh", "issue", "edit", issue_url, "--add-label", "failed"})
       end
       emit_ok()
    end,
