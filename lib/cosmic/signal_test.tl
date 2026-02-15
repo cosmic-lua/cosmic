@@ -94,8 +94,8 @@ local function test_sigaction_handler()
 
   -- Install handler
   local old_handler = signal.sigaction(signal.SIGUSR1, function(sig: number)
-    received_signal = sig
-  end)
+      received_signal = sig
+    end)
 
   -- Raise the signal (it will be pending since blocked)
   signal.raise(signal.SIGUSR1)
@@ -126,8 +126,8 @@ local function test_raise()
   -- Set up handler for SIGUSR2
   local received = false
   local old_handler = signal.sigaction(signal.SIGUSR2, function(_: number)
-    received = true
-  end)
+      received = true
+    end)
 
   signal.raise(signal.SIGUSR2)
 

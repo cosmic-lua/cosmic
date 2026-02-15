@@ -2,7 +2,7 @@
 local json = require("cosmic.json")
 
 local function test_decode_object()
-  local result = json.decode('{"a":1,"b":"hello"}') as {string:any}
+  local result = json.decode('{"a":1,"b":"hello"}') as {string: any}
   assert(type(result) == "table", "expected table")
   assert(result.a == 1, "expected a=1")
   assert(result.b == "hello", "expected b='hello'")
@@ -50,9 +50,9 @@ test_encode_primitives()
 local function test_roundtrip()
   local original = {name = "test", values = {1, 2, 3}, nested = {flag = true}}
   local encoded = json.encode(original)
-  local decoded = json.decode(encoded) as {string:any}
+  local decoded = json.decode(encoded) as {string: any}
   assert(decoded.name == original.name, "name mismatch")
-  local nested = decoded.nested as {string:boolean}
+  local nested = decoded.nested as {string: boolean}
   assert(nested.flag == original.nested.flag, "nested flag mismatch")
 end
 test_roundtrip()

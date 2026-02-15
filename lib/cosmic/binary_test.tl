@@ -11,7 +11,7 @@ local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")
 -- this ensures we test the bundled libraries, not the repo
 local function clean_env(): {string}
   local env: {string} = {}
-  for key, val in pairs(unix.environ() as {string:string}) do
+  for key, val in pairs(unix.environ() as {string: string}) do
     local line = key .. "=" .. val
     if not line:match("^LUA_PATH=") and not line:match("^LUA_CPATH=") then
       env[#env + 1] = line

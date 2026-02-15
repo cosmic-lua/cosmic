@@ -335,7 +335,7 @@ local function test_embed_overwrites_cleanly()
   -- Read original zip file list
   local orig_data = cosmo.Slurp(cosmic)
   local orig_reader = zip.from(orig_data) as Reader
-  local orig_files: {string:boolean} = {}
+  local orig_files: {string: boolean} = {}
   for _, name in ipairs(orig_reader:list()) do
     -- Skip directory entries
     if name:sub(-1) ~= "/" then
@@ -482,7 +482,8 @@ for i = 1, 100 do t[i] = string.format("item_%04d", i) end
 local result = table.concat(t, ",")
 -- Signal success
 io.write("OK:" .. #result)
-]])
+]]
+  )
 
   local binary = path.join(tmpdir, "cosmic-running")
   local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--output", binary}):read()

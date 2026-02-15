@@ -105,7 +105,7 @@ test_read_content()
 local function test_read_stat()
   local p = zip_path("stat_test.zip")
   local w = zip.open(p, "w") as zip.Writer
-  w:add("data.bin", "0123456789")  -- 10 bytes
+  w:add("data.bin", "0123456789") -- 10 bytes
   w:close()
 
   local r = zip.open(p, "r") as zip.Reader
@@ -207,7 +207,7 @@ local function test_add_with_options()
   local p = zip_path("options_test.zip")
   local w = zip.open(p, "w") as zip.Writer
   -- Use larger content that will definitely compress
-  local large_content = string.rep("Hello World! ", 100)  -- 1300 bytes of repeated data
+  local large_content = string.rep("Hello World! ", 100) -- 1300 bytes of repeated data
   local ok, err = w:add("stored.txt", large_content, {method = "store"})
   assert(ok, "should add with store method: " .. tostring(err))
   ok, err = w:add("deflated.txt", large_content, {method = "deflate"})
@@ -236,7 +236,7 @@ local function test_open_with_compression_level()
   assert(w, "should open with compression level: " .. tostring(err))
   local writer = w as zip.Writer
   -- Add a file that benefits from compression
-  local content = string.rep("AAAA", 1000)  -- 4000 bytes of repeated data
+  local content = string.rep("AAAA", 1000) -- 4000 bytes of repeated data
   writer:add("compressible.txt", content)
   writer:close()
 

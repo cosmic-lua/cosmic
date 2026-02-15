@@ -48,7 +48,7 @@ local function test_run_list()
   assert(type(result.output) == "string", "result.output should be a string")
   if result.ok then
     assert(result.output:match("cosmic documentation") or result.output:match("Modules"),
-           "list output should mention documentation or modules")
+      "list output should mention documentation or modules")
   end
   print("test_run_list: PASS")
 end
@@ -63,7 +63,7 @@ local function test_run_module()
   -- If docs are available, this should work; otherwise it returns an error
   if result.ok then
     assert(result.output:match("doc") or result.output:match("documentation"),
-           "module output should contain relevant content")
+      "module output should contain relevant content")
   end
   print("test_run_module: PASS")
 end
@@ -77,7 +77,7 @@ local function test_run_symbol()
   assert(type(result.output) == "string", "result.output should be a string")
   if result.ok then
     assert(result.output:match("parse") or result.output:match("function"),
-           "symbol output should contain relevant content")
+      "symbol output should contain relevant content")
   end
   print("test_run_symbol: PASS")
 end
@@ -91,7 +91,7 @@ local function test_run_invalid()
   -- Should return an error for nonexistent module
   if not result.ok then
     assert(result.output:match("not found") or result.output:match("error"),
-           "error output should mention not found or error")
+      "error output should mention not found or error")
   end
   print("test_run_invalid: PASS")
 end
@@ -132,7 +132,7 @@ local function test_render_search_results()
   local output = docs.render_search_results(results, "doc")
   assert(type(output) == "string", "render_search_results should return a string")
   assert(output:match("Search results") or output:match("No results"),
-         "search results output should contain relevant content")
+    "search results output should contain relevant content")
   print("test_render_search_results: PASS")
 end
 test_render_search_results()
@@ -175,7 +175,7 @@ local function test_run_method()
   assert(type(result.output) == "string", "result.output should be a string")
   if result.ok then
     assert(result.output:match("exec") or result.output:match("Database"),
-           "method output should contain relevant content")
+      "method output should contain relevant content")
   end
   print("test_run_method: PASS")
 end
@@ -187,9 +187,9 @@ local function test_cosmic_equivalent_tip()
   assert(result, "run should return a result")
   if result.ok then
     assert(result.output:find("cosmic.sqlite", 1, true),
-           "cosmo.lsqlite3 docs should mention cosmic.sqlite equivalent")
+      "cosmo.lsqlite3 docs should mention cosmic.sqlite equivalent")
     assert(result.output:find("Tip:", 1, true),
-           "cosmo.lsqlite3 docs should show tip")
+      "cosmo.lsqlite3 docs should show tip")
   end
   print("test_cosmic_equivalent_tip: PASS")
 end
@@ -223,7 +223,7 @@ local function test_search_relevance()
     for _, result in ipairs(results) do
       if prev_score then
         assert(result.match_score <= prev_score,
-               "results should be sorted by score (descending)")
+          "results should be sorted by score (descending)")
       end
       prev_score = result.match_score
     end

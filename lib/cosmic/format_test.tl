@@ -7,7 +7,7 @@ local function assert_format(input: string, expected: string, msg: string, filen
   filename = filename or "test.lua"
   local result = fmt.format(input, filename)
   assert(result.ok, msg .. ": format failed: " .. (result.errors and #result.errors > 0
-    and result.errors[1].message or "unknown error"))
+      and result.errors[1].message or "unknown error"))
   if result.code ~= expected then
     error(msg .. ":\n  expected:\n" .. expected .. "\n  got:\n" .. result.code)
   end
@@ -207,12 +207,12 @@ end
 -- Test format_issues
 do
   local issues = {{
-    file = "test.lua",
-    line = 1,
-    column = 5,
-    message = "syntax error",
-    severity = "error",
-  }}
+      file = "test.lua",
+      line = 1,
+      column = 5,
+      message = "syntax error",
+      severity = "error",
+    }}
   local s = fmt.format_issues(issues)
   assert(s == "test.lua:1:5: error: syntax error", "format_issues: " .. s)
 end

@@ -201,7 +201,7 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function setrlimit(resource: number, soft: number, hard?: number): boolean, string
-  local ok, err = unix.setrlimit(resource, soft, hard) as (boolean, any)
+  local ok, err = unix.setrlimit(resource, soft, hard) as(boolean, any)
   if not ok then
     if err then
       local errno = err as Errno
@@ -241,7 +241,7 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function setpriority(which: number, who: number, prio: number): boolean, string
-  local ok, err = unix.setpriority(which, who, prio) as (boolean, any)
+  local ok, err = unix.setpriority(which, who, prio) as(boolean, any)
   if not ok then
     if err then
       local errno = err as Errno

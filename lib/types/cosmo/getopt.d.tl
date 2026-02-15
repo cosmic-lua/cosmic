@@ -57,4 +57,3 @@ local record getopt
 end
 
 return getopt
-

@@ -2,7 +2,7 @@
 
 local record cosmo
   -- http
-  Fetch: function(url: string, opts?: {string:any}): number, {string:string}, string
+  Fetch: function(url: string, opts?: {string: any}): number, {string: string}, string
 
   -- streaming http reader
   record StreamReader
@@ -11,7 +11,7 @@ local record cosmo
   end
 
   -- streaming http
-  FetchStream: function(url: string, opts?: {string:any}): number, {string:string}, StreamReader
+  FetchStream: function(url: string, opts?: {string: any}): number, {string: string}, StreamReader
 
   -- file i/o
   Barf: function(path: string, data: string, mode?: number): boolean
@@ -24,7 +24,7 @@ local record cosmo
   EncodeHex: function(data: string): string
   EncodeJson: function(value: any): string, string
   DecodeJson: function(json: string): any, string
-  EncodeLua: function(value: any, opts?: {string:any}): string
+  EncodeLua: function(value: any, opts?: {string: any}): string
   EncodeBase64: function(data: string): string
   DecodeBase64: function(str: string): string
   EncodeBase32: function(data: string): string

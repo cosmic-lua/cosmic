@@ -80,7 +80,7 @@ local function test_listen_accept_connect()
       os.exit(1)
     end
     -- Connect to localhost
-    local connect_ok = client:connect(0x7f000001, server_port)  -- 127.0.0.1
+    local connect_ok = client:connect(0x7f000001, server_port) -- 127.0.0.1
     if not connect_ok then
       os.exit(2)
     end
@@ -175,7 +175,7 @@ local function test_poll()
   sock1:send("hello")
 
   -- Poll sock2 for readable data using net.poll
-  local fds: {number:number} = {[sock2.fd] = net.POLLIN}
+  local fds: {number: number} = {[sock2.fd] = net.POLLIN}
   local result, poll_err = net.poll(fds, 1000)
   assert(result ~= nil, "poll failed: " .. tostring(poll_err))
   assert(result[sock2.fd] ~= nil, "expected socket to be ready")
@@ -195,7 +195,7 @@ local function test_udp_sendto_recvfrom()
   assert(receiver ~= nil, "receiver socket creation failed: " .. tostring(rerr))
 
   -- Bind receiver to ephemeral port
-  local ok, bind_err = receiver:bind(0x7f000001, 0)  -- 127.0.0.1
+  local ok, bind_err = receiver:bind(0x7f000001, 0) -- 127.0.0.1
   assert(ok, "bind failed: " .. tostring(bind_err))
 
   local _, recv_port = receiver:getsockname()

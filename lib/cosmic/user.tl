@@ -52,7 +52,7 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function setuid(uid: number): boolean, string
-  local ok, err = unix.setuid(uid) as (boolean, any)
+  local ok, err = unix.setuid(uid) as(boolean, any)
   if not ok then
     if err then
       local errno = err as Errno
@@ -72,7 +72,7 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function setgid(gid: number): boolean, string
-  local ok, err = unix.setgid(gid) as (boolean, any)
+  local ok, err = unix.setgid(gid) as(boolean, any)
   if not ok then
     if err then
       local errno = err as Errno
@@ -91,7 +91,7 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function setfsuid(uid: number): boolean, string
-  local ok, err = unix.setfsuid(uid) as (boolean, any)
+  local ok, err = unix.setfsuid(uid) as(boolean, any)
   if not ok then
     if err then
       local errno = err as Errno
@@ -113,7 +113,7 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function setresuid(real: number, effective: number, saved: number): boolean, string
-  local ok, err = unix.setresuid(real, effective, saved) as (boolean, any)
+  local ok, err = unix.setresuid(real, effective, saved) as(boolean, any)
   if not ok then
     if err then
       local errno = err as Errno
@@ -135,7 +135,7 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function setresgid(real: number, effective: number, saved: number): boolean, string
-  local ok, err = unix.setresgid(real, effective, saved) as (boolean, any)
+  local ok, err = unix.setresgid(real, effective, saved) as(boolean, any)
   if not ok then
     if err then
       local errno = err as Errno
@@ -165,7 +165,7 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function chroot(path: string): boolean, string
-  local ok, err = unix.chroot(path) as (boolean, any)
+  local ok, err = unix.chroot(path) as(boolean, any)
   if not ok then
     if err then
       local errno = err as Errno

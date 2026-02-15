@@ -818,7 +818,7 @@ local record unix
   --- there's some irregular uses of environment variables such as how the
   --- command prompt inserts multiple environment variables with empty
   --- string as keys, for its internal bookkeeping.
-  environ: function(): {string:string | nil}
+  environ: function(): {string: string | nil}
   --- Sets environment variable.
   --- This wraps the C `setenv()` function to allow Lua scripts to set
   --- environment variables.
@@ -1785,7 +1785,7 @@ local record unix
   --- - `POLLNVAL` (revents): Invalid request.
   --- If this is set to -1 then that means block as long as it takes until there's an
   --- event or an interrupt. If the timeout expires, an empty table is returned.
-  poll: function(fds: {number:number}, timeoutms?: number): {number:number}
+  poll: function(fds: {number: number}, timeoutms?: number): {number: number}
   --- Returns hostname of system.
   gethostname: function(): string
   --- Begins listening for incoming connections on a socket.
@@ -2349,4 +2349,3 @@ local record unix
 end
 
 return unix
-

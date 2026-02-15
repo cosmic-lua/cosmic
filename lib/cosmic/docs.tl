@@ -33,7 +33,7 @@ end
 local record RecordDoc
   name: string
   description: string
-  fields: {{string, string, string}}  -- name, type, description
+  fields: {{string, string, string}} -- name, type, description
   line: integer
 end
 
@@ -57,7 +57,7 @@ end
 
 --- A documentation index containing all modules.
 local record DocIndex
-  modules: {string:ModuleDoc}
+  modules: {string: ModuleDoc}
 end
 
 --- Result from a docs operation.
@@ -155,8 +155,8 @@ local function list_topics(include_cosmo?: boolean): {{string, string}}
   end
 
   table.sort(topics, function(a: {string, string}, b: {string, string}): boolean
-    return a[1] < b[1]
-  end)
+      return a[1] < b[1]
+    end)
 
   return topics
 end
@@ -480,7 +480,7 @@ end
 local record SearchResult
   module_name: string
   symbol_name: string
-  symbol_type: string  -- "function", "record", "example", "module"
+  symbol_type: string -- "function", "record", "example", "module"
   description: string
   match_score: integer
 end
@@ -505,7 +505,7 @@ local function calc_score(
     base_exact: integer,
     base_partial: integer,
     base_desc: integer
-): integer
+  ): integer
   -- Check for name match first (higher priority)
   if name_lower == query_lower then
     return base_exact
@@ -552,12 +552,12 @@ local function search(query: string, include_cosmo?: boolean): {SearchResult}
     local mod_score = calc_score(simple_lower, mod_doc.module_doc, query_lower, 100, 80, 30)
     if mod_score > 0 then
       table.insert(results, {
-        module_name = mod_name,
-        symbol_name = nil,
-        symbol_type = "module",
-        description = first_paragraph(mod_doc.module_doc),
-        match_score = mod_score,
-      })
+          module_name = mod_name,
+          symbol_name = nil,
+          symbol_type = "module",
+          description = first_paragraph(mod_doc.module_doc),
+          match_score = mod_score,
+        })
     end
 
     -- Search functions
@@ -570,12 +570,12 @@ local function search(query: string, include_cosmo?: boolean): {SearchResult}
             score = score + module_boost
           end
           table.insert(results, {
-            module_name = mod_name,
-            symbol_name = func.name,
-            symbol_type = "function",
-            description = first_paragraph(func.description or ""),
-            match_score = score,
-          })
+              module_name = mod_name,
+              symbol_name = func.name,
+              symbol_type = "function",
+              description = first_paragraph(func.description or ""),
+              match_score = score,
+            })
         end
       end
     end
@@ -589,12 +589,12 @@ local function search(query: string, include_cosmo?: boolean): {SearchResult}
             score = score + module_boost
           end
           table.insert(results, {
-            module_name = mod_name,
-            symbol_name = rec.name,
-            symbol_type = "record",
-            description = first_paragraph(rec.description or ""),
-            match_score = score,
-          })
+              module_name = mod_name,
+              symbol_name = rec.name,
+              symbol_type = "record",
+              description = first_paragraph(rec.description or ""),
+              match_score = score,
+            })
         end
 
         -- Search record methods (fields with function types)
@@ -608,12 +608,12 @@ local function search(query: string, include_cosmo?: boolean): {SearchResult}
                   method_score = method_score + module_boost
                 end
                 table.insert(results, {
-                  module_name = mod_name,
-                  symbol_name = rec.name .. "." .. fname,
-                  symbol_type = "method",
-                  description = first_paragraph(fdesc or ""),
-                  match_score = method_score,
-                })
+                    module_name = mod_name,
+                    symbol_name = rec.name .. "." .. fname,
+                    symbol_type = "method",
+                    description = first_paragraph(fdesc or ""),
+                    match_score = method_score,
+                  })
               end
             end
           end
@@ -631,12 +631,12 @@ local function search(query: string, include_cosmo?: boolean): {SearchResult}
             score = score + module_boost
           end
           table.insert(results, {
-            module_name = mod_name,
-            symbol_name = example_name,
-            symbol_type = "example",
-            description = first_paragraph(example.description or ""),
-            match_score = score,
-          })
+              module_name = mod_name,
+              symbol_name = example_name,
+              symbol_type = "example",
+              description = first_paragraph(example.description or ""),
+              match_score = score,
+            })
         end
       end
     end
@@ -645,11 +645,11 @@ local function search(query: string, include_cosmo?: boolean): {SearchResult}
 
   -- Sort by match score (highest first), then by module name for stability
   table.sort(results, function(a: SearchResult, b: SearchResult): boolean
-    if a.match_score ~= b.match_score then
-      return a.match_score > b.match_score
-    end
-    return a.module_name < b.module_name
-  end)
+      if a.match_score ~= b.match_score then
+        return a.match_score > b.match_score
+      end
+      return a.module_name < b.module_name
+    end)
 
   return results
 end
@@ -681,21 +681,21 @@ local function list_all_examples(include_cosmo?: boolean): {ExampleEntry}
       for _, ex in ipairs(mod_doc.examples) do
         local display_name = ex.name:gsub("^Example_?", "")
         table.insert(examples, {
-          module_name = mod_name,
-          example_name = display_name,
-          description = first_paragraph(ex.description or ""),
-        })
+            module_name = mod_name,
+            example_name = display_name,
+            description = first_paragraph(ex.description or ""),
+          })
       end
     end
     ::continue::
   end
 
   table.sort(examples, function(a: ExampleEntry, b: ExampleEntry): boolean
-    if a.module_name ~= b.module_name then
-      return a.module_name < b.module_name
-    end
-    return a.example_name < b.example_name
-  end)
+      if a.module_name ~= b.module_name then
+        return a.module_name < b.module_name
+      end
+      return a.example_name < b.example_name
+    end)
 
   return examples
 end
@@ -780,7 +780,7 @@ end
 --- @return {string} List of suggestions, sorted by similarity
 local function find_suggestions(query: string, index: DocIndex): {string}
   local candidates: {string} = {}
-  local name_to_full: {string:{string}} = {}  -- simple name -> list of full paths
+  local name_to_full: {string: {string}} = {} -- simple name -> list of full paths
 
   local function add_candidate(simple: string, full: string)
     if not name_to_full[simple] then
@@ -828,7 +828,7 @@ local function find_suggestions(query: string, index: DocIndex): {string}
 
   -- Map back to full paths
   local results: {string} = {}
-  local seen: {string:boolean} = {}
+  local seen: {string: boolean} = {}
   for _, simple in ipairs(similar) do
     local fulls = name_to_full[simple]
     if fulls then
@@ -898,7 +898,7 @@ local function run(query?: string): DocsResult
     return {
       ok = false,
       output = "error: " .. (err or "no documentation embedded") .. "\n" ..
-               "Build with 'make cosmic' to include documentation.",
+      "Build with 'make cosmic' to include documentation.",
     }
   end
 
@@ -960,7 +960,7 @@ local function run(query?: string): DocsResult
         return {
           ok = false,
           output = "error: symbol '" .. symbol .. "' not found in '" .. module_name .. "'\n" ..
-                   "Use 'cosmic --docs " .. module_name .. "' to see available symbols.",
+          "Use 'cosmic --docs " .. module_name .. "' to see available symbols.",
         }
       end
     end
@@ -987,7 +987,7 @@ local function run(query?: string): DocsResult
           return {
             ok = false,
             output = "error: method '" .. method .. "' not found in '" .. mod_name .. "." .. record_name .. "'\n" ..
-                     "Use 'cosmic --docs " .. mod_name .. "." .. record_name .. "' to see available methods.",
+            "Use 'cosmic --docs " .. mod_name .. "." .. record_name .. "' to see available methods.",
           }
         end
       end
@@ -1011,7 +1011,7 @@ local function run(query?: string): DocsResult
   return {
     ok = false,
     output = "error: documentation not found for '" .. query .. "'\n" ..
-             "Use 'cosmic --docs' to see available modules.",
+    "Use 'cosmic --docs' to see available modules.",
   }
 end
 

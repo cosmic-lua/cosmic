@@ -54,10 +54,10 @@ local function make_addr(n: integer): Addr
   end
 
   return setmetatable(a, {
-    __tostring = function(self: Addr): string
-      return cosmo.FormatIp(self._n)
-    end,
-  }) as Addr
+      __tostring = function(self: Addr): string
+        return cosmo.FormatIp(self._n)
+      end,
+    }) as Addr
 end
 
 --- Wrap a raw integer as a typed Addr.

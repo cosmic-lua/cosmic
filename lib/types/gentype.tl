@@ -275,7 +275,7 @@ local function parse_annotations(lines: {string}): {string}, {Param}, {Return}, 
     -- But NOT for descriptions containing commas
     local full_return = line:match("^%-%-%-@return%s+(.+)$")
     if full_return then
-      full_return = full_return:match("^%s*(.-)%s*$")  -- trim
+      full_return = full_return:match("^%s*(.-)%s*$") -- trim
       local rtype: string = nil
       local rdesc: string = nil
 
@@ -319,9 +319,9 @@ local function parse_annotations(lines: {string}): {string}, {Param}, {Return}, 
           local is_function_call = rest_after_comma:match("^%s*" .. (next_word or "") .. "%s*%(")
 
           if next_word and not lua_keywords[next_word] and not is_function_call and (
-            next_word:match("^[%l_]") or  -- Starts with lowercase or underscore (like integer, nil, string)
-            next_word:match("^[%u]")      -- Starts with uppercase (like Memory, Errno)
-            or next_word:match("%.")      -- Contains dot (like unix.Errno)
+            next_word:match("^[%l_]") or -- Starts with lowercase or underscore (like integer, nil, string)
+            next_word:match("^[%u]") -- Starts with uppercase (like Memory, Errno)
+            or next_word:match("%.") -- Contains dot (like unix.Errno)
           ) then
             -- This looks like another typed return value, split here
             table.insert(parts, current)
@@ -338,7 +338,7 @@ local function parse_annotations(lines: {string}): {string}, {Param}, {Return}, 
 
       -- Process each part
       for _, return_part in ipairs(parts) do
-        return_part = return_part:match("^%s*(.-)%s*$")  -- trim
+        return_part = return_part:match("^%s*(.-)%s*$") -- trim
         local part_type: string = nil
         local part_desc: string = nil
 
@@ -349,7 +349,7 @@ local function parse_annotations(lines: {string}): {string}, {Param}, {Return}, 
           if not part_type then
             part_type = return_part:match("^({.-%}%[?%]?)%s*$")
           end
-        -- Check if it contains angle brackets (generic type like table<K, V>)
+          -- Check if it contains angle brackets (generic type like table<K, V>)
         elseif return_part:match("<.->") then
           -- Match generic type, everything after closing > is description
           part_type, part_desc = return_part:match("^([^%s]+<.->)%s+(.*)$")
@@ -495,7 +495,6 @@ local function parse_module(source: string, module_name: string): ModuleDecl
     return nil
   end
 
-
   local module: ModuleDecl = {
     name = module_name,
     description = {},
@@ -544,12 +543,12 @@ local function parse_module(source: string, module_name: string): ModuleDecl
           end
           if not found then
             table.insert(module.classes, {
-              name = class_name,
-              module = module_name,
-              fields = fields,
-              methods = {},
-              description = filtered_desc,
-            })
+                name = class_name,
+                module = module_name,
+                fields = fields,
+                methods = {},
+                description = filtered_desc,
+              })
           end
         end
         -- Clear anno_lines and start collecting the new class
@@ -563,7 +562,7 @@ local function parse_module(source: string, module_name: string): ModuleDecl
         in_class_block = true
       end
       i = i + 1
-    -- Parse constant: NAME = value, or NAME = nil,
+      -- Parse constant: NAME = value, or NAME = nil,
     elseif line:match("^%s*([A-Z][A-Z0-9_]*)%s*=%s*") then
       local name = line:match("^%s*([A-Z][A-Z0-9_]*)%s*=")
       if name then
@@ -582,15 +581,15 @@ local function parse_module(source: string, module_name: string): ModuleDecl
             const_type = returns[1].return_type
           end
           table.insert(module.constants, {
-            name = name,
-            const_type = const_type,
-            description = desc,
-          })
+              name = name,
+              const_type = const_type,
+              description = desc,
+            })
         end
       end
       anno_lines = {}
       i = i + 1
-    -- Parse function: function module.name(params) end
+      -- Parse function: function module.name(params) end
     elseif line:match("^function%s+" .. module_name .. "%.([%w_]+)%s*%(") then
       local fname = line:match("^function%s+" .. module_name .. "%.([%w_]+)%s*%(")
       local params_str = line:match("%((.-)%)")
@@ -663,12 +662,12 @@ local function parse_module(source: string, module_name: string): ModuleDecl
             end
             if not found then
               table.insert(module.classes, {
-                name = class_name,
-                module = module_name,
-                fields = class_fields,
-                methods = {},
-                description = {},
-              })
+                  name = class_name,
+                  module = module_name,
+                  fields = class_fields,
+                  methods = {},
+                  description = {},
+                })
             end
           end
         end
@@ -699,7 +698,7 @@ local function parse_module(source: string, module_name: string): ModuleDecl
       table.insert(module.functions, func)
       anno_lines = {}
       i = i + 1
-    -- Parse method: function Class:method(params) end (class may include module prefix like unix.Memory)
+      -- Parse method: function Class:method(params) end (class may include module prefix like unix.Memory)
     elseif line:match("^function%s+([%w_%.]+):([%w_]+)%s*%(") then
       local full_class_name, method_name = line:match("^function%s+([%w_%.]+):([%w_]+)%s*%(")
       -- Extract just the class name without module prefix
@@ -737,12 +736,12 @@ local function parse_module(source: string, module_name: string): ModuleDecl
       end
       if not found then
         table.insert(module.classes, {
-          name = class_name,
-          module = module_name,
-          fields = {},
-          methods = {method},
-          description = {},
-        })
+            name = class_name,
+            module = module_name,
+            fields = {},
+            methods = {method},
+            description = {},
+          })
       end
       anno_lines = {}
       i = i + 1
@@ -776,12 +775,12 @@ local function parse_module(source: string, module_name: string): ModuleDecl
           end
           if not found then
             table.insert(module.classes, {
-              name = class_name,
-              module = module_name,
-              fields = fields,
-              methods = {},
-              description = filtered_desc,
-            })
+                name = class_name,
+                module = module_name,
+                fields = fields,
+                methods = {},
+                description = filtered_desc,
+              })
           else
             -- Add fields to existing class
             if existing_class then
@@ -826,12 +825,12 @@ local function parse_module(source: string, module_name: string): ModuleDecl
         end
         if not found then
           table.insert(module.classes, {
-            name = class_name,
-            module = module_name,
-            fields = fields,
-            methods = {},
-            description = filtered_desc,
-          })
+              name = class_name,
+              module = module_name,
+              fields = fields,
+              methods = {},
+              description = filtered_desc,
+            })
         end
         break
       end
@@ -1069,14 +1068,14 @@ local M: GenTypeModule = {
 
 -- Main entry point when run as script
 cosmic.main(function(args: {string}): number, string
-  local module_name = args[1]
-  local result = run(module_name)
-  if result.success then
-    print(result.output)
-    return 0
-  else
-    return 1, result.error
-  end
-end)
+    local module_name = args[1]
+    local result = run(module_name)
+    if result.success then
+      print(result.output)
+      return 0
+    else
+      return 1, result.error
+    end
+  end)
 
 return M

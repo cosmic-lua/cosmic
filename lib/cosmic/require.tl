@@ -5,11 +5,11 @@ local original_require = require
 local fuzzy = original_require("cosmic.fuzzy")
 
 --- Cached module mapping, built lazily on first use.
-local module_map: {string:string} = nil
+local module_map: {string: string} = nil
 
 --- Build module mapping from package.preload.
 --- Maps short names to full module names (e.g., "argon2" -> "cosmo.argon2").
-local function build_module_map(): {string:string}
+local function build_module_map(): {string: string}
   if module_map then
     return module_map
   end
@@ -55,7 +55,7 @@ end
 --- @return {string} List of similar full module names, sorted by distance
 local function find_similar(name: string, max_distance?: integer): {string}
   max_distance = max_distance or 3
-  local results: {{string, integer}} = {}  -- {full_name, distance}
+  local results: {{string, integer}} = {} -- {full_name, distance}
 
   -- Check against all known short module names
   for short, full in pairs(build_module_map()) do
@@ -87,11 +87,11 @@ local function find_similar(name: string, max_distance?: integer): {string}
 
   -- Sort by distance, then alphabetically
   table.sort(results, function(a: {string, integer}, b: {string, integer}): boolean
-    if a[2] ~= b[2] then
-      return a[2] < b[2]
-    end
-    return a[1] < b[1]
-  end)
+      if a[2] ~= b[2] then
+        return a[2] < b[2]
+      end
+      return a[1] < b[1]
+    end)
 
   -- Extract just the names
   local names: {string} = {}
@@ -197,26 +197,26 @@ end
 --- Call this early in startup to enable helpful error messages.
 local function install()
   _G.require = enhanced_require as function(string): any
-end
+  end
 
---- Restore original require.
---- Useful for testing or disabling enhanced errors.
-local function uninstall()
-  _G.require = original_require
-end
+  --- Restore original require.
+  --- Useful for testing or disabling enhanced errors.
+  local function uninstall()
+    _G.require = original_require
+  end
 
-local record RequireModule
-  install: function()
-  uninstall: function()
-  module_exists: function(name: string): boolean
-  format_error: function(name: string): string
-end
+  local record RequireModule
+    install: function()
+    uninstall: function()
+    module_exists: function(name: string): boolean
+    format_error: function(name: string): string
+  end
 
-local M: RequireModule = {
-  install = install,
-  uninstall = uninstall,
-  module_exists = module_exists,
-  format_error = format_error,
-}
+  local M: RequireModule = {
+    install = install,
+    uninstall = uninstall,
+    module_exists = module_exists,
+    format_error = format_error,
+  }
 
-return M
+  return M

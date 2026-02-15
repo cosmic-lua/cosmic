@@ -381,7 +381,7 @@ local function make_dir(raw: RawDir): Dir
     end,
   }
 
-  local mt: metatable<Dir> = {
+  local mt: metatable < Dir > = {
     __close = function(self: Dir)
       self:close()
     end
@@ -481,7 +481,7 @@ end
 --- @return string Error message if failed
 local function mkdir(path: string, mode?: number): boolean, string
   mode = mode or tonumber("755", 8)
-  local ok, err = unix.mkdir(path, mode) as (boolean, any)
+  local ok, err = unix.mkdir(path, mode) as(boolean, any)
   if not ok then
     if err then
       local errno = err as Errno
@@ -502,7 +502,7 @@ end
 --- @return string Error message if failed
 local function makedirs(path: string, mode?: number): boolean, string
   mode = mode or tonumber("755", 8)
-  local ok, err = unix.makedirs(path, mode) as (boolean, any)
+  local ok, err = unix.makedirs(path, mode) as(boolean, any)
   if not ok then
     if err then
       local errno = err as Errno
@@ -828,10 +828,10 @@ local function minor(dev: number): number
 end
 
 -- Access mode constants
-local F_OK <const> = unix.F_OK
-local R_OK <const> = unix.R_OK
-local W_OK <const> = unix.W_OK
-local X_OK <const> = unix.X_OK
+local F_OK < const > = unix.F_OK
+local R_OK < const > = unix.R_OK
+local W_OK < const > = unix.W_OK
+local X_OK < const > = unix.X_OK
 
 -- Directory walking
 
@@ -862,412 +862,412 @@ end
 --- @return boolean Return false to skip recursing into this directory
 local type Visitor = function(full_path: string, entry: string, stat: WalkStat, ctx: any): boolean
 
---- Walk a directory tree, calling visitor for each entry.
---- Recursively traverses subdirectories unless visitor returns false.
---- @param dir string The directory to walk
---- @param visitor Visitor Function called for each file and directory
---- @param ctx T Optional context passed to visitor function
---- @return T The context object, potentially modified by visitor
-local function walk<T>(dir: string, visitor: Visitor, ctx?: T): T
-  ctx = ctx or {} as T
-  local handle = unix.opendir(dir) as WalkDirHandle
-  if not handle then return ctx end
-
-  while true do
-    local entry = handle:read()
-    if not entry then break end
-    if entry ~= "." and entry ~= ".." then
-      local full_path = join(dir, entry)
-      local st = unix.stat(full_path) as WalkStat
-      if st then
-        local continue = visitor(full_path, entry, st, ctx)
-        if continue ~= false and unix.S_ISDIR(st:mode()) then
-          walk(full_path, visitor, ctx)
-        end
-      end
-    end
-  end
-  handle:close()
-  return ctx
-end
-
---- Convert a glob pattern to a Lua pattern.
---- Supports * (any chars), ? (single char), and character classes [abc].
---- @param glob string The glob pattern
---- @return string The equivalent Lua pattern
-local function glob_to_pattern(glob: string): string
-  local pattern = glob
-    :gsub("([%.%^%$%(%)%%])", "%%%1")  -- escape special chars (except * ? [ ])
-    :gsub("%*", ".*")                   -- * -> .*
-    :gsub("%?", ".")                    -- ? -> .
-  return "^" .. pattern .. "$"
-end
-
---- Collect file paths matching a pattern.
---- Recursively walks directory tree and returns matching file paths.
---- @param dir string The directory to search
---- @param pattern string Glob pattern (*.lua) or Lua pattern (%.lua$)
---- @return {string} List of full paths to matching files
-local function collect(dir: string, pattern: string): {string}
-  -- Detect if it's a glob or Lua pattern
-  -- Globs use * and ?, Lua patterns use % for escaping
-  local is_glob = pattern:find("*", 1, true) or pattern:find("?", 1, true)
-  local lua_pattern: string
-  if is_glob then
-    lua_pattern = glob_to_pattern(pattern)
-  else
-    lua_pattern = pattern
-  end
-
-  local results: {string} = {}
-  walk(dir, function(full_path: string, entry: string, st: WalkStat, ctx: {string}): boolean
-    if not unix.S_ISDIR(st:mode()) and entry:match(lua_pattern) then
-      table.insert(ctx, full_path)
-    end
-    return true
-  end, results)
-  return results
-end
-
---- Recursively collect all files with their Unix permissions.
---- Returns a map of relative paths to file information.
---- @param dir string The directory to walk
---- @return {string:FileInfo} Map of relative paths to file information
-local function collect_all(dir: string): {string:FileInfo}
-  local files: {string:FileInfo} = {}
-
-  local function do_walk(base_dir: string, rel_base: string)
-    local handle = unix.opendir(base_dir) as WalkDirHandle
-    if not handle then return end
+  --- Walk a directory tree, calling visitor for each entry.
+  --- Recursively traverses subdirectories unless visitor returns false.
+  --- @param dir string The directory to walk
+  --- @param visitor Visitor Function called for each file and directory
+  --- @param ctx T Optional context passed to visitor function
+  --- @return T The context object, potentially modified by visitor
+  local function walk < T > (dir: string, visitor: Visitor, ctx?: T): T
+    ctx = ctx or {} as T
+    local handle = unix.opendir(dir) as WalkDirHandle
+    if not handle then return ctx end
 
     while true do
       local entry = handle:read()
       if not entry then break end
       if entry ~= "." and entry ~= ".." then
-        local full_path = join(base_dir, entry)
-        local rel_path = rel_base == "" and entry or join(rel_base, entry)
+        local full_path = join(dir, entry)
         local st = unix.stat(full_path) as WalkStat
-
         if st then
-          if unix.S_ISDIR(st:mode()) then
-            do_walk(full_path, rel_path)
-          elseif unix.S_ISREG(st:mode()) or unix.S_ISLNK(st:mode()) then
-            local mode = st:mode() & 0x1ff
-            files[rel_path] = { mode = mode }
+          local continue = visitor(full_path, entry, st, ctx)
+          if continue ~= false and unix.S_ISDIR(st:mode()) then
+            walk(full_path, visitor, ctx)
           end
         end
       end
     end
     handle:close()
+    return ctx
   end
 
-  do_walk(dir, "")
-  return files
-end
-
---- Iterate over files matching a pattern.
---- Returns an iterator that yields file paths.
---- @param dir string The directory to search
---- @param pattern string Glob pattern (*.lua) - defaults to all files (*)
---- @return function Iterator yielding file paths
-local function files(dir: string, pattern?: string): function(): string
-  pattern = pattern or "*"
-
-  -- Detect if it's a glob or Lua pattern
-  local is_glob = pattern:find("*", 1, true) or pattern:find("?", 1, true)
-  local lua_pattern: string
-  if is_glob then
-    lua_pattern = glob_to_pattern(pattern)
-  else
-    lua_pattern = pattern
+  --- Convert a glob pattern to a Lua pattern.
+  --- Supports * (any chars), ? (single char), and character classes [abc].
+  --- @param glob string The glob pattern
+  --- @return string The equivalent Lua pattern
+  local function glob_to_pattern(glob: string): string
+    local pattern = glob
+    :gsub("([%.%^%$%(%)%%])", "%%%1") -- escape special chars (except * ? [ ])
+    :gsub("%*", ".*") -- * -> .*
+    :gsub("%?", ".") -- ? -> .
+    return "^" .. pattern .. "$"
   end
 
-  -- Stack of (dir, handle) for depth-first traversal
-  local stack: {{string, WalkDirHandle}} = {}
-  local handle = unix.opendir(dir) as WalkDirHandle
-  if handle then
-    table.insert(stack, {dir, handle})
+  --- Collect file paths matching a pattern.
+  --- Recursively walks directory tree and returns matching file paths.
+  --- @param dir string The directory to search
+  --- @param pattern string Glob pattern (*.lua) or Lua pattern (%.lua$)
+  --- @return {string} List of full paths to matching files
+  local function collect(dir: string, pattern: string): {string}
+    -- Detect if it's a glob or Lua pattern
+    -- Globs use * and ?, Lua patterns use % for escaping
+    local is_glob = pattern:find("*", 1, true) or pattern:find("?", 1, true)
+    local lua_pattern: string
+    if is_glob then
+      lua_pattern = glob_to_pattern(pattern)
+    else
+      lua_pattern = pattern
+    end
+
+    local results: {string} = {}
+    walk(dir, function(full_path: string, entry: string, st: WalkStat, ctx: {string}): boolean
+        if not unix.S_ISDIR(st:mode()) and entry:match(lua_pattern) then
+          table.insert(ctx, full_path)
+        end
+        return true
+      end, results)
+    return results
   end
 
-  return function(): string
-    while #stack > 0 do
-      local current = stack[#stack]
-      local current_dir = current[1]
-      local current_handle = current[2]
+  --- Recursively collect all files with their Unix permissions.
+  --- Returns a map of relative paths to file information.
+  --- @param dir string The directory to walk
+  --- @return {string:FileInfo} Map of relative paths to file information
+  local function collect_all(dir: string): {string: FileInfo}
+    local files: {string: FileInfo} = {}
 
-      local entry = current_handle:read()
-      if not entry then
-        current_handle:close()
-        table.remove(stack)
-      elseif entry ~= "." and entry ~= ".." then
-        local full_path = join(current_dir, entry)
-        local st = unix.stat(full_path) as WalkStat
-        if st then
-          if unix.S_ISDIR(st:mode()) then
-            -- Push subdirectory onto stack
-            local subhandle = unix.opendir(full_path) as WalkDirHandle
-            if subhandle then
-              table.insert(stack, {full_path, subhandle})
+    local function do_walk(base_dir: string, rel_base: string)
+      local handle = unix.opendir(base_dir) as WalkDirHandle
+      if not handle then return end
+
+      while true do
+        local entry = handle:read()
+        if not entry then break end
+        if entry ~= "." and entry ~= ".." then
+          local full_path = join(base_dir, entry)
+          local rel_path = rel_base == "" and entry or join(rel_base, entry)
+          local st = unix.stat(full_path) as WalkStat
+
+          if st then
+            if unix.S_ISDIR(st:mode()) then
+              do_walk(full_path, rel_path)
+            elseif unix.S_ISREG(st:mode()) or unix.S_ISLNK(st:mode()) then
+              local mode = st:mode() & 0x1ff
+              files[rel_path] = {mode = mode}
             end
-          elseif entry:match(lua_pattern) then
-            return full_path
           end
         end
       end
+      handle:close()
     end
-    return nil
+
+    do_walk(dir, "")
+    return files
   end
-end
 
--- Example demonstrating basic fs operations
-local function Example_basic()
-  local fs = require("cosmic.fs")
+  --- Iterate over files matching a pattern.
+  --- Returns an iterator that yields file paths.
+  --- @param dir string The directory to search
+  --- @param pattern string Glob pattern (*.lua) - defaults to all files (*)
+  --- @return function Iterator yielding file paths
+  local function files(dir: string, pattern?: string): function(): string
+    pattern = pattern or "*"
 
-  -- Create a temp directory
-  local tmpdir = fs.mkdtemp("/tmp/fs_example_XXXXXX")
-  if not tmpdir then
-    print("failed to create temp dir")
-    return
+    -- Detect if it's a glob or Lua pattern
+    local is_glob = pattern:find("*", 1, true) or pattern:find("?", 1, true)
+    local lua_pattern: string
+    if is_glob then
+      lua_pattern = glob_to_pattern(pattern)
+    else
+      lua_pattern = pattern
+    end
+
+    -- Stack of (dir, handle) for depth-first traversal
+    local stack: {{string, WalkDirHandle}} = {}
+    local handle = unix.opendir(dir) as WalkDirHandle
+    if handle then
+      table.insert(stack, {dir, handle})
+    end
+
+    return function(): string
+      while #stack > 0 do
+        local current = stack[#stack]
+        local current_dir = current[1]
+        local current_handle = current[2]
+
+        local entry = current_handle:read()
+        if not entry then
+          current_handle:close()
+          table.remove(stack)
+        elseif entry ~= "." and entry ~= ".." then
+          local full_path = join(current_dir, entry)
+          local st = unix.stat(full_path) as WalkStat
+          if st then
+            if unix.S_ISDIR(st:mode()) then
+              -- Push subdirectory onto stack
+              local subhandle = unix.opendir(full_path) as WalkDirHandle
+              if subhandle then
+                table.insert(stack, {full_path, subhandle})
+              end
+            elseif entry:match(lua_pattern) then
+              return full_path
+            end
+          end
+        end
+      end
+      return nil
+    end
   end
-  print("created temp dir:", tmpdir)
 
-  -- Create a subdirectory
-  local subdir = fs.join(tmpdir, "subdir")
-  local ok, err = fs.mkdir(subdir)
-  if not ok then
-    print("mkdir failed:", err)
+  -- Example demonstrating basic fs operations
+  local function Example_basic()
+    local fs = require("cosmic.fs")
+
+    -- Create a temp directory
+    local tmpdir = fs.mkdtemp("/tmp/fs_example_XXXXXX")
+    if not tmpdir then
+      print("failed to create temp dir")
+      return
+    end
+    print("created temp dir:", tmpdir)
+
+    -- Create a subdirectory
+    local subdir = fs.join(tmpdir, "subdir")
+    local ok, err = fs.mkdir(subdir)
+    if not ok then
+      print("mkdir failed:", err)
+      fs.rmrf(tmpdir)
+      return
+    end
+
+    -- Check if it exists
+    local st = fs.stat(subdir)
+    if st and fs.is_dir(st:mode()) then
+      print("subdir is a directory")
+    end
+
+    -- Create a symlink
+    local linkpath = fs.join(tmpdir, "link")
+    ok, err = fs.symlink(subdir, linkpath)
+    if ok then
+      local target = fs.readlink(linkpath)
+      print("symlink points to:", target)
+    end
+
+    -- Clean up
     fs.rmrf(tmpdir)
-    return
+    print("cleaned up")
+
+    -- Output:
+    -- created temp dir:	/tmp/fs_example_XXXXXX (with random suffix)
+    -- subdir is a directory
+    -- symlink points to:	/tmp/fs_example_XXXXXX/subdir
+    -- cleaned up
   end
 
-  -- Check if it exists
-  local st = fs.stat(subdir)
-  if st and fs.is_dir(st:mode()) then
-    print("subdir is a directory")
+  --- Example_normalize demonstrates path normalization
+  local function Example_normalize()
+    local fs = require("cosmic.fs")
+    print(fs.normalize("/usr/./lib"))
+    print(fs.normalize("/usr/lib/../bin"))
+    print(fs.normalize("a/b/../c"))
+    print(fs.normalize("//usr///lib//"))
+    -- Output:
+    -- /usr/lib
+    -- /usr/bin
+    -- a/c
+    -- /usr/lib
   end
 
-  -- Create a symlink
-  local linkpath = fs.join(tmpdir, "link")
-  ok, err = fs.symlink(subdir, linkpath)
-  if ok then
-    local target = fs.readlink(linkpath)
-    print("symlink points to:", target)
+  --- Example_splitext demonstrates extension splitting
+  local function Example_splitext()
+    local fs = require("cosmic.fs")
+    local root: string
+    local extension: string
+    root, extension = fs.splitext("archive.tar.gz")
+    print(root, extension)
+    root, extension = fs.splitext(".bashrc")
+    print(root, extension)
+    root, extension = fs.splitext("/path/to/file.txt")
+    print(root, extension)
+    -- Output:
+    -- archive.tar	.gz
+    -- .bashrc
+    -- /path/to/file	.txt
   end
 
-  -- Clean up
-  fs.rmrf(tmpdir)
-  print("cleaned up")
+  --- Example_relpath demonstrates computing relative paths
+  local function Example_relpath()
+    local fs = require("cosmic.fs")
+    print(fs.relpath("/usr/lib", "/usr"))
+    print(fs.relpath("/usr/lib", "/usr/bin"))
+    print(fs.relpath("/foo", "/bar"))
+    -- Output:
+    -- lib
+    -- ../lib
+    -- ../foo
+  end
 
-  -- Output:
-  -- created temp dir:	/tmp/fs_example_XXXXXX (with random suffix)
-  -- subdir is a directory
-  -- symlink points to:	/tmp/fs_example_XXXXXX/subdir
-  -- cleaned up
-end
+  -- Suppress unused warnings for examples
+  local _ = {Example_basic, Example_normalize, Example_splitext, Example_relpath}
 
---- Example_normalize demonstrates path normalization
-local function Example_normalize()
-  local fs = require("cosmic.fs")
-  print(fs.normalize("/usr/./lib"))
-  print(fs.normalize("/usr/lib/../bin"))
-  print(fs.normalize("a/b/../c"))
-  print(fs.normalize("//usr///lib//"))
-  -- Output:
-  -- /usr/lib
-  -- /usr/bin
-  -- a/c
-  -- /usr/lib
-end
+  --- Module interface
+  local record FsModule
+    -- Path manipulation
+    dirname: function(str: string): string
+    basename: function(str: string): string
+    join: function(...: string): string
+    exists: function(path: string): boolean
+    isfile: function(path: string): boolean
+    isdir: function(path: string): boolean
+    islink: function(path: string): boolean
+    normalize: function(p: string): string
+    abspath: function(p: string): string
+    relpath: function(p: string, base?: string): string
+    splitext: function(p: string): string, string
+    ext: function(p: string): string
 
---- Example_splitext demonstrates extension splitting
-local function Example_splitext()
-  local fs = require("cosmic.fs")
-  local root: string
-  local extension: string
-  root, extension = fs.splitext("archive.tar.gz")
-  print(root, extension)
-  root, extension = fs.splitext(".bashrc")
-  print(root, extension)
-  root, extension = fs.splitext("/path/to/file.txt")
-  print(root, extension)
-  -- Output:
-  -- archive.tar	.gz
-  -- .bashrc
-  -- /path/to/file	.txt
-end
+    -- Stat operations
+    stat: function(path: string, follow_symlinks?: boolean): Stat, string
+    fstat: function(fd: number): Stat, string
+    is_dir: function(mode: number): boolean
+    is_file: function(mode: number): boolean
+    is_link: function(mode: number): boolean
+    is_block_device: function(mode: number): boolean
+    is_char_device: function(mode: number): boolean
+    is_fifo: function(mode: number): boolean
+    is_socket: function(mode: number): boolean
 
---- Example_relpath demonstrates computing relative paths
-local function Example_relpath()
-  local fs = require("cosmic.fs")
-  print(fs.relpath("/usr/lib", "/usr"))
-  print(fs.relpath("/usr/lib", "/usr/bin"))
-  print(fs.relpath("/foo", "/bar"))
-  -- Output:
-  -- lib
-  -- ../lib
-  -- ../foo
-end
+    -- Directory operations
+    mkdir: function(path: string, mode?: number): boolean, string
+    makedirs: function(path: string, mode?: number): boolean, string
+    rmdir: function(path: string): boolean, string
+    chdir: function(path: string): boolean, string
+    getcwd: function(): string, string
+    opendir: function(path: string): Dir, string
+    fdopendir: function(fd: number): Dir, string
 
--- Suppress unused warnings for examples
-local _ = {Example_basic, Example_normalize, Example_splitext, Example_relpath}
+    -- File operations
+    unlink: function(path: string): boolean, string
+    rename: function(oldpath: string, newpath: string): boolean, string
+    link: function(existingpath: string, newpath: string): boolean, string
+    symlink: function(target: string, linkpath: string): boolean, string
+    readlink: function(path: string): string, string
+    realpath: function(path: string): string, string
+    rmrf: function(path: string): boolean, string
 
---- Module interface
-local record FsModule
-  -- Path manipulation
-  dirname: function(str: string): string
-  basename: function(str: string): string
-  join: function(...: string): string
-  exists: function(path: string): boolean
-  isfile: function(path: string): boolean
-  isdir: function(path: string): boolean
-  islink: function(path: string): boolean
-  normalize: function(p: string): string
-  abspath: function(p: string): string
-  relpath: function(p: string, base?: string): string
-  splitext: function(p: string): string, string
-  ext: function(p: string): string
+    -- Permission operations
+    access: function(path: string, mode: number): boolean
+    chmod: function(path: string, mode: number): boolean, string
+    chown: function(path: string, uid: number, gid: number): boolean, string
 
-  -- Stat operations
-  stat: function(path: string, follow_symlinks?: boolean): Stat, string
-  fstat: function(fd: number): Stat, string
-  is_dir: function(mode: number): boolean
-  is_file: function(mode: number): boolean
-  is_link: function(mode: number): boolean
-  is_block_device: function(mode: number): boolean
-  is_char_device: function(mode: number): boolean
-  is_fifo: function(mode: number): boolean
-  is_socket: function(mode: number): boolean
+    -- Timestamp operations
+    utimensat: function(path: string, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
+    futimens: function(fd: number, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
 
-  -- Directory operations
-  mkdir: function(path: string, mode?: number): boolean, string
-  makedirs: function(path: string, mode?: number): boolean, string
-  rmdir: function(path: string): boolean, string
-  chdir: function(path: string): boolean, string
-  getcwd: function(): string, string
-  opendir: function(path: string): Dir, string
-  fdopendir: function(fd: number): Dir, string
+    -- Temporary file operations
+    mkdtemp: function(template: string): string, string
+    mkstemp: function(template: string): number, string
+    tmpfd: function(): number, string
 
-  -- File operations
-  unlink: function(path: string): boolean, string
-  rename: function(oldpath: string, newpath: string): boolean, string
-  link: function(existingpath: string, newpath: string): boolean, string
-  symlink: function(target: string, linkpath: string): boolean, string
-  readlink: function(path: string): string, string
-  realpath: function(path: string): string, string
-  rmrf: function(path: string): boolean, string
+    -- Filesystem statistics
+    statfs: function(path: string): Statfs, string
+    fstatfs: function(fd: number): Statfs, string
 
-  -- Permission operations
-  access: function(path: string, mode: number): boolean
-  chmod: function(path: string, mode: number): boolean, string
-  chown: function(path: string, uid: number, gid: number): boolean, string
+    -- Device number utilities
+    major: function(dev: number): number
+    minor: function(dev: number): number
 
-  -- Timestamp operations
-  utimensat: function(path: string, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
-  futimens: function(fd: number, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
+    -- Directory walking
+    walk: function < T > (dir: string, visitor: Visitor, ctx?: T): T
+    collect: function(dir: string, pattern: string): {string}
+    collect_all: function(dir: string): {string: FileInfo}
+    files: function(dir: string, pattern?: string): function(): string
 
-  -- Temporary file operations
-  mkdtemp: function(template: string): string, string
-  mkstemp: function(template: string): number, string
-  tmpfd: function(): number, string
+    -- Access mode constants
+    F_OK: number
+    R_OK: number
+    W_OK: number
+    X_OK: number
+  end
 
-  -- Filesystem statistics
-  statfs: function(path: string): Statfs, string
-  fstatfs: function(fd: number): Statfs, string
+  local M: FsModule = {
+    -- Path manipulation
+    dirname = dirname,
+    basename = basename,
+    join = join,
+    exists = exists,
+    isfile = isfile,
+    isdir = isdir,
+    islink = islink,
+    normalize = normalize,
+    abspath = abspath,
+    relpath = relpath,
+    splitext = splitext,
+    ext = ext,
 
-  -- Device number utilities
-  major: function(dev: number): number
-  minor: function(dev: number): number
+    -- Stat operations
+    stat = stat,
+    fstat = fstat,
+    is_dir = is_dir,
+    is_file = is_file,
+    is_link = is_link,
+    is_block_device = is_block_device,
+    is_char_device = is_char_device,
+    is_fifo = is_fifo,
+    is_socket = is_socket,
 
-  -- Directory walking
-  walk: function<T>(dir: string, visitor: Visitor, ctx?: T): T
-  collect: function(dir: string, pattern: string): {string}
-  collect_all: function(dir: string): {string:FileInfo}
-  files: function(dir: string, pattern?: string): function(): string
+    -- Directory operations
+    mkdir = mkdir,
+    makedirs = makedirs,
+    rmdir = rmdir,
+    chdir = chdir,
+    getcwd = getcwd,
+    opendir = opendir,
+    fdopendir = fdopendir,
 
-  -- Access mode constants
-  F_OK: number
-  R_OK: number
-  W_OK: number
-  X_OK: number
-end
+    -- File operations
+    unlink = unlink,
+    rename = rename,
+    link = link,
+    symlink = symlink,
+    readlink = readlink,
+    realpath = realpath,
+    rmrf = rmrf,
 
-local M: FsModule = {
-  -- Path manipulation
-  dirname = dirname,
-  basename = basename,
-  join = join,
-  exists = exists,
-  isfile = isfile,
-  isdir = isdir,
-  islink = islink,
-  normalize = normalize,
-  abspath = abspath,
-  relpath = relpath,
-  splitext = splitext,
-  ext = ext,
+    -- Permission operations
+    access = access,
+    chmod = chmod,
+    chown = chown,
 
-  -- Stat operations
-  stat = stat,
-  fstat = fstat,
-  is_dir = is_dir,
-  is_file = is_file,
-  is_link = is_link,
-  is_block_device = is_block_device,
-  is_char_device = is_char_device,
-  is_fifo = is_fifo,
-  is_socket = is_socket,
+    -- Timestamp operations
+    utimensat = utimensat,
+    futimens = futimens,
 
-  -- Directory operations
-  mkdir = mkdir,
-  makedirs = makedirs,
-  rmdir = rmdir,
-  chdir = chdir,
-  getcwd = getcwd,
-  opendir = opendir,
-  fdopendir = fdopendir,
+    -- Temporary file operations
+    mkdtemp = mkdtemp,
+    mkstemp = mkstemp,
+    tmpfd = tmpfd,
 
-  -- File operations
-  unlink = unlink,
-  rename = rename,
-  link = link,
-  symlink = symlink,
-  readlink = readlink,
-  realpath = realpath,
-  rmrf = rmrf,
+    -- Filesystem statistics
+    statfs = statfs,
+    fstatfs = fstatfs,
 
-  -- Permission operations
-  access = access,
-  chmod = chmod,
-  chown = chown,
+    -- Device number utilities
+    major = major,
+    minor = minor,
 
-  -- Timestamp operations
-  utimensat = utimensat,
-  futimens = futimens,
+    -- Directory walking
+    walk = walk,
+    collect = collect,
+    collect_all = collect_all,
+    files = files,
 
-  -- Temporary file operations
-  mkdtemp = mkdtemp,
-  mkstemp = mkstemp,
-  tmpfd = tmpfd,
+    -- Access mode constants
+    F_OK = F_OK,
+    R_OK = R_OK,
+    W_OK = W_OK,
+    X_OK = X_OK,
+  }
 
-  -- Filesystem statistics
-  statfs = statfs,
-  fstatfs = fstatfs,
-
-  -- Device number utilities
-  major = major,
-  minor = minor,
-
-  -- Directory walking
-  walk = walk,
-  collect = collect,
-  collect_all = collect_all,
-  files = files,
-
-  -- Access mode constants
-  F_OK = F_OK,
-  R_OK = R_OK,
-  W_OK = W_OK,
-  X_OK = X_OK,
-}
-
-return M
+  return M

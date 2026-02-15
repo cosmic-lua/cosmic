@@ -22,16 +22,16 @@ test_mapshared_creates_memory()
 
 local function test_memory_write_read()
   local mem = shm.mapshared(4096)
-  mem:write("hello")  -- writes "hello\0"
-  local data = mem:read()  -- reads until null terminator
+  mem:write("hello") -- writes "hello\0"
+  local data = mem:read() -- reads until null terminator
   assert(data == "hello", "expected 'hello', got '" .. tostring(data) .. "'")
 end
 test_memory_write_read()
 
 local function test_memory_write_read_with_offset()
   local mem = shm.mapshared(4096)
-  mem:write("hello")  -- writes at offset 0
-  mem:write("world")  -- overwrites
+  mem:write("hello") -- writes at offset 0
+  mem:write("world") -- overwrites
   local data = mem:read()
   assert(data == "world", "expected 'world', got '" .. tostring(data) .. "'")
 end

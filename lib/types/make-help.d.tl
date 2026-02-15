@@ -7,7 +7,7 @@ local record make_help
 
   parse_makefile: function(content: string): {Item}
   format_help: function(items: {Item}): string
-  parse_phony_targets: function(content: string): {string:boolean}
+  parse_phony_targets: function(content: string): {string: boolean}
 end
 
 return make_help

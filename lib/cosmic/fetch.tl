@@ -8,13 +8,13 @@ local time = require("cosmic.time")
 local record Result
   ok: boolean
   status: number
-  headers: {string:string}
+  headers: {string: string}
   body: string
   error: string
 end
 
 local record Opts
-  headers: {string:string}
+  headers: {string: string}
   proxy: string
   maxresponse: number
   max_attempts: number
@@ -35,17 +35,17 @@ end
 local record StreamResult
   ok: boolean
   status: number
-  headers: {string:string}
+  headers: {string: string}
   reader: Reader
   error: string
 end
 
 local function do_fetch(url: string, opts?: Opts): Result
   local status: number
-  local headers_or_err: {string:string} | string
+  local headers_or_err: {string: string} | string
   local body: string
 
-  status, headers_or_err, body = cosmo.Fetch(url, opts as {string:any})
+  status, headers_or_err, body = cosmo.Fetch(url, opts as {string: any})
 
   if not status then
     return {ok = false, error = tostring(headers_or_err or "unknown error")}
@@ -54,7 +54,7 @@ local function do_fetch(url: string, opts?: Opts): Result
   return {
     ok = true,
     status = status,
-    headers = headers_or_err as {string:string},
+    headers = headers_or_err as {string: string},
     body = body,
   }
 end
@@ -154,8 +154,8 @@ local function make_reader(raw_reader: cosmo.StreamReader): Reader
   end
 
   return setmetatable(reader, {
-    __close = function(self: Reader) self:close() end
-  }) as Reader
+      __close = function(self: Reader) self:close() end
+    }) as Reader
 end
 
 --- Open a streaming HTTP request.
@@ -165,10 +165,10 @@ end
 --- @return StreamResult with reader for incremental body access
 local function stream(url: string, opts?: Opts): StreamResult
   local status: number
-  local headers_or_err: {string:string} | string
+  local headers_or_err: {string: string} | string
   local raw_reader: cosmo.StreamReader
 
-  status, headers_or_err, raw_reader = cosmo.FetchStream(url, opts as {string:any})
+  status, headers_or_err, raw_reader = cosmo.FetchStream(url, opts as {string: any})
 
   if not status then
     return {ok = false, error = tostring(headers_or_err or "unknown error")}
@@ -177,7 +177,7 @@ local function stream(url: string, opts?: Opts): StreamResult
   return {
     ok = true,
     status = status,
-    headers = headers_or_err as {string:string},
+    headers = headers_or_err as {string: string},
     reader = make_reader(raw_reader),
   }
 end
@@ -219,7 +219,7 @@ local function Example_get_json()
   local fetch = require("cosmic.fetch")
   local json = require("cosmic.json")
   local result = fetch.Fetch("https://httpbin.org/json")
-  local data = json.decode(result.body) as {string:{string:string}}
+  local data = json.decode(result.body) as {string: {string: string}}
   print("title:", data.slideshow.title)
   -- Output:
   -- title:	Sample Slide Show

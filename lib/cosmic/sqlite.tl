@@ -7,7 +7,7 @@ local lsqlite3 = require("cosmo.lsqlite3")
 local record RawStatement
   bind_values: function(self: RawStatement, ...: any): number
   bind: function(self: RawStatement, n: number, value?: any): number
-  bind_names: function(self: RawStatement, params: {string:any}): number
+  bind_names: function(self: RawStatement, params: {string: any}): number
   bind_parameter_count: function(self: RawStatement): number
   step: function(self: RawStatement): number
   reset: function(self: RawStatement)
@@ -39,9 +39,9 @@ local sqlite3 = lsqlite3 as RawSqlite3
 local record Statement
   bind: function(self: Statement, ...: any): boolean, string
   bind_list: function(self: Statement, values: {any}): boolean, string
-  bind_named: function(self: Statement, params: {string:any}): boolean, string
-  rows: function(self: Statement): function(): {string:any}
-  values: function(self: Statement): function(): any...
+  bind_named: function(self: Statement, params: {string: any}): boolean, string
+  rows: function(self: Statement): function(): {string: any}
+  values: function(self: Statement): function(): any ...
   exec: function(self: Statement): boolean, string
   reset: function(self: Statement)
   columns: function(self: Statement): number
@@ -52,13 +52,13 @@ end
 --- Database handle with automatic cleanup.
 local record Database
   prepare: function(self: Database, sql: string): Statement, string
-  query: function(self: Database, sql: string, ...: any): function(): {string:any}
-  query_list: function(self: Database, sql: string, values: {any}): function(): {string:any}
-  query_named: function(self: Database, sql: string, params: {string:any}): function(): {string:any}
-  query_one: function(self: Database, sql: string, ...: any): {string:any}
+  query: function(self: Database, sql: string, ...: any): function(): {string: any}
+  query_list: function(self: Database, sql: string, values: {any}): function(): {string: any}
+  query_named: function(self: Database, sql: string, params: {string: any}): function(): {string: any}
+  query_one: function(self: Database, sql: string, ...: any): {string: any}
   exec: function(self: Database, sql: string, ...: any): boolean, string
   exec_list: function(self: Database, sql: string, values: {any}): boolean, string
-  exec_named: function(self: Database, sql: string, params: {string:any}): boolean, string
+  exec_named: function(self: Database, sql: string, params: {string: any}): boolean, string
   transaction: function(self: Database, fn: function(Database)): boolean, string
   last_insert_rowid: function(self: Database): number
   changes: function(self: Database): number
@@ -102,7 +102,7 @@ local function make_statement(raw_stmt: RawStatement, raw_db: RawDatabase): Stat
   --- Bind named parameters from a key/value table.
   --- SQL should use :name placeholders (e.g. ":foo", ":bar").
   --- Table keys are names without the colon prefix.
-  function stmt:bind_named(params: {string:any}): boolean, string
+  function stmt:bind_named(params: {string: any}): boolean, string
     raw_stmt:reset()
     local rc = raw_stmt:bind_names(params)
     if rc ~= sqlite3.OK then
@@ -111,12 +111,12 @@ local function make_statement(raw_stmt: RawStatement, raw_db: RawDatabase): Stat
     return true
   end
 
-  function stmt:rows(): function(): {string:any}
+  function stmt:rows(): function(): {string: any}
     local col_count = raw_stmt:columns()
-    local col_names: {integer:string}
+    local col_names: {integer: string}
     local first_call = true
 
-    return function(): {string:any}
+    return function(): {string: any}
       local rc = raw_stmt:step()
       if rc == sqlite3.ROW then
         -- Get column names on first row (requires step to be called first)
@@ -127,7 +127,7 @@ local function make_statement(raw_stmt: RawStatement, raw_db: RawDatabase): Stat
             col_names[(idx + 1) as integer] = raw_stmt:get_name(idx)
           end
         end
-        local row: {string:any} = {}
+        local row: {string: any} = {}
         for idx = 0, col_count - 1 do
           local name = col_names[(idx + 1) as integer]
           row[name] = raw_stmt:get_value(idx)
@@ -138,13 +138,13 @@ local function make_statement(raw_stmt: RawStatement, raw_db: RawDatabase): Stat
     end
   end
 
-  function stmt:values(): function(): any...
+  function stmt:values(): function(): any ...
     local col_count = raw_stmt:columns()
 
-    return function(): any...
+    return function(): any ...
       local rc = raw_stmt:step()
       if rc == sqlite3.ROW then
-        local vals: {integer:any} = {}
+        local vals: {integer: any} = {}
         for idx = 0, col_count - 1 do
           vals[(idx + 1) as integer] = raw_stmt:get_value(idx)
         end
@@ -182,8 +182,8 @@ local function make_statement(raw_stmt: RawStatement, raw_db: RawDatabase): Stat
   end
 
   return setmetatable(stmt, {
-    __close = function(self: Statement) self:close() end
-  }) as Statement
+      __close = function(self: Statement) self:close() end
+    }) as Statement
 end
 
 local function make_database(raw_db: RawDatabase): Database
@@ -198,10 +198,10 @@ local function make_database(raw_db: RawDatabase): Database
     return make_statement(raw_stmt, raw_db)
   end
 
-  function db:query(sql: string, ...: any): function(): {string:any}
+  function db:query(sql: string, ...: any): function(): {string: any}
     local stmt, err = self:prepare(sql)
     if not stmt then
-      return function(): {string:any}
+      return function(): {string: any}
         error("query failed: " .. (err or "unknown error"))
       end
     end
@@ -211,7 +211,7 @@ local function make_database(raw_db: RawDatabase): Database
       local ok, bind_err = stmt:bind(...)
       if not ok then
         stmt:close()
-        return function(): {string:any}
+        return function(): {string: any}
           error("bind failed: " .. (bind_err or "unknown error"))
         end
       end
@@ -219,7 +219,7 @@ local function make_database(raw_db: RawDatabase): Database
 
     local raw_iter = stmt:rows()
     local done = false
-    return function(): {string:any}
+    return function(): {string: any}
       if done then
         return nil
       end
@@ -283,7 +283,7 @@ local function make_database(raw_db: RawDatabase): Database
 
   --- Execute SQL with named parameters.
   --- SQL should use :name placeholders. Table keys are names without the colon.
-  function db:exec_named(sql: string, params: {string:any}): boolean, string
+  function db:exec_named(sql: string, params: {string: any}): boolean, string
     local stmt, err = self:prepare(sql)
     if not stmt then
       return false, err or "prepare failed"
@@ -303,10 +303,10 @@ local function make_database(raw_db: RawDatabase): Database
   --- Query with parameters from a list (table).
   --- The parameter count is derived from the SQL itself, so nil values
   --- in the table are handled correctly.
-  function db:query_list(sql: string, values: {any}): function(): {string:any}
+  function db:query_list(sql: string, values: {any}): function(): {string: any}
     local stmt, err = self:prepare(sql)
     if not stmt then
-      return function(): {string:any}
+      return function(): {string: any}
         error("query failed: " .. (err or "unknown error"))
       end
     end
@@ -314,14 +314,14 @@ local function make_database(raw_db: RawDatabase): Database
     local ok, bind_err = stmt:bind_list(values)
     if not ok then
       stmt:close()
-      return function(): {string:any}
+      return function(): {string: any}
         error("bind failed: " .. (bind_err or "unknown error"))
       end
     end
 
     local raw_iter = stmt:rows()
     local done = false
-    return function(): {string:any}
+    return function(): {string: any}
       if done then
         return nil
       end
@@ -337,10 +337,10 @@ local function make_database(raw_db: RawDatabase): Database
 
   --- Query with named parameters.
   --- SQL should use :name placeholders. Table keys are names without the colon.
-  function db:query_named(sql: string, params: {string:any}): function(): {string:any}
+  function db:query_named(sql: string, params: {string: any}): function(): {string: any}
     local stmt, err = self:prepare(sql)
     if not stmt then
-      return function(): {string:any}
+      return function(): {string: any}
         error("query failed: " .. (err or "unknown error"))
       end
     end
@@ -348,14 +348,14 @@ local function make_database(raw_db: RawDatabase): Database
     local ok, bind_err = stmt:bind_named(params)
     if not ok then
       stmt:close()
-      return function(): {string:any}
+      return function(): {string: any}
         error("bind failed: " .. (bind_err or "unknown error"))
       end
     end
 
     local raw_iter = stmt:rows()
     local done = false
-    return function(): {string:any}
+    return function(): {string: any}
       if done then
         return nil
       end
@@ -371,7 +371,7 @@ local function make_database(raw_db: RawDatabase): Database
 
   --- Return the first row matching a query, or nil if no rows match.
   --- Convenience method for single-row lookups.
-  function db:query_one(sql: string, ...: any): {string:any}
+  function db:query_one(sql: string, ...: any): {string: any}
     for row in self:query(sql, ...) do
       return row
     end
@@ -386,7 +386,7 @@ local function make_database(raw_db: RawDatabase): Database
     if not ok then
       return false, err or "begin failed"
     end
-    local success, call_err = pcall(fn, self) as (boolean, string)
+    local success, call_err = pcall(fn, self) as(boolean, string)
     if not success then
       self:exec("ROLLBACK")
       return false, call_err or "transaction failed"
@@ -410,8 +410,8 @@ local function make_database(raw_db: RawDatabase): Database
   end
 
   return setmetatable(db, {
-    __close = function(self: Database) self:close() end
-  }) as Database
+      __close = function(self: Database) self:close() end
+    }) as Database
 end
 
 --- Open or create an SQLite database.

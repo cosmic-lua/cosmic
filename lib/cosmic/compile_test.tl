@@ -19,7 +19,8 @@ local function test_compile_basic()
   local input = write_temp("basic.tl", [[
 local x: number = 42
 print(x)
-]])
+]]
+  )
 
   local ok, out = spawn.spawn({cosmic, "--compile", input}):read()
   assert(ok, "cosmic --compile should succeed")
@@ -32,7 +33,8 @@ test_compile_basic()
 local function test_compile_syntax_error()
   local input = write_temp("syntax_error.tl", [[
 if if if
-]])
+]]
+  )
 
   local ok, out = spawn.spawn({cosmic, "--compile", input}):read()
   assert(not ok, "cosmic --compile should fail on syntax error")
@@ -43,7 +45,8 @@ test_compile_syntax_error()
 local function test_compile_type_error()
   local input = write_temp("compile_type_error.tl", [[
 local x: number = "wrong type"
-]])
+]]
+  )
 
   local ok, out = spawn.spawn({cosmic, "--compile", input}):read()
   assert(not ok, "cosmic --compile should fail on type error")
@@ -60,7 +63,8 @@ end
 
 local p: Point = { x = 10, y = 20 }
 print(p.x, p.y)
-]])
+]]
+  )
 
   local ok, out = spawn.spawn({cosmic, "--compile", input}):read()
   assert(ok, "cosmic --compile should succeed with records")
@@ -75,7 +79,8 @@ local function identity<T>(x: T): T
   return x
 end
 print(identity(42))
-]])
+]]
+  )
 
   local ok, out = spawn.spawn({cosmic, "--compile", input}):read()
   assert(ok, "cosmic --compile should succeed with generics")
@@ -97,7 +102,8 @@ local function add(a: number, b: number): number
   return a + b
 end
 print("result=" .. add(2, 3))
-]])
+]]
+  )
   local output = path.join(tmpdir, "runnable.lua")
 
   local ok, lua_code = spawn.spawn({cosmic, "--compile", input}):read()
@@ -117,7 +123,8 @@ local function test_compile_with_cosmic_types()
 local cosmo = require("cosmo")
 local data: string = cosmo.Slurp("/dev/null") or ""
 print("read " .. #data .. " bytes")
-]])
+]]
+  )
 
   local ok, out = spawn.spawn({cosmic, "--compile", input}):read()
   assert(ok, "compile with cosmic types should succeed")
@@ -129,7 +136,8 @@ local function test_compile_preserves_shebang()
   local input = write_temp("shebang.tl", [[#!/usr/bin/env cosmic
 local x: number = 42
 print(x)
-]])
+]]
+  )
 
   local ok, out = spawn.spawn({cosmic, "--compile", input}):read()
   assert(ok, "cosmic --compile should succeed")
@@ -142,7 +150,8 @@ test_compile_preserves_shebang()
 local function test_compile_no_shebang()
   local input = write_temp("no_shebang.tl", [[local x: number = 42
 print(x)
-]])
+]]
+  )
 
   local ok, out = spawn.spawn({cosmic, "--compile", input}):read()
   assert(ok, "cosmic --compile should succeed")
@@ -157,7 +166,8 @@ local function test_compile_lax_mode()
 local function foo()
   return unknown_global_var
 end
-]])
+]]
+  )
 
   local ok, out = spawn.spawn({cosmic, "--compile", input}):read()
   assert(ok, "compile should succeed in lax mode with unknown variables")

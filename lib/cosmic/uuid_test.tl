@@ -66,7 +66,7 @@ local function test_v7_time_ordered()
     table.insert(ids, uuid.v7())
   end
   for i = 2, #ids do
-    assert(ids[i-1] < ids[i], "v7 UUIDs should be time-ordered, but " .. ids[i-1] .. " >= " .. ids[i])
+    assert(ids[i - 1] < ids[i], "v7 UUIDs should be time-ordered, but " .. ids[i - 1] .. " >= " .. ids[i])
   end
 end
 test_v7_time_ordered()

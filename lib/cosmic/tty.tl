@@ -155,7 +155,7 @@ local function raw(fd: number): Termios, string
     ospeed = termios.ospeed,
   }
   -- Disable echo, canonical mode, signals, and extended input processing
-  termios.lflag = termios.lflag & ~(unix.ECHO | unix.ICANON | unix.ISIG | unix.IEXTEN)
+  termios.lflag = termios.lflag & ~ (unix.ECHO | unix.ICANON | unix.ISIG | unix.IEXTEN)
   local ok, set_err = setattr(fd, unix.TCSANOW, termios)
   if not ok then
     return nil, set_err
@@ -182,7 +182,7 @@ local function noecho(fd: number): Termios, string
     ispeed = termios.ispeed,
     ospeed = termios.ospeed,
   }
-  termios.lflag = termios.lflag & ~unix.ECHO
+  termios.lflag = termios.lflag & ~ unix.ECHO
   local ok, set_err = setattr(fd, unix.TCSANOW, termios)
   if not ok then
     return nil, set_err

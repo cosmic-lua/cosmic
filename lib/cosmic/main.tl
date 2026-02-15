@@ -19,23 +19,23 @@ local record Opts
   warnings: boolean
   help: boolean
   script: string
-  script_args: {integer:string}
-  compile: string          -- Input file for --compile (outputs to stdout)
-  format: string           -- Input file for --format (outputs to stdout)
-  check_format: string     -- Input file for --check-format (exits 0 if formatted)
-  check_types: string      -- Input file for --check-types
-  embed: {string}          -- Files to embed via --embed
-  output: string           -- Output file for --embed (defaults to "cosmic")
-  extract: string          -- Output dir for --extract
-  check_examples: string   -- Input file for --check-examples (run examples)
-  examples: string         -- Module for --examples (nil = not set, "" = list all)
-  benchmark: string        -- Input file for --benchmark (run benchmarks)
-  docs: string             -- Module/symbol/query for --docs
-  welcome: boolean         -- Show welcome message
-  test_argv: {string}      -- Command for --test
-  test_output: string      -- Output base for --test
-  report_paths: {string}   -- Paths for --report
-  error: string            -- Parse error message
+  script_args: {integer: string}
+  compile: string -- Input file for --compile (outputs to stdout)
+  format: string -- Input file for --format (outputs to stdout)
+  check_format: string -- Input file for --check-format (exits 0 if formatted)
+  check_types: string -- Input file for --check-types
+  embed: {string} -- Files to embed via --embed
+  output: string -- Output file for --embed (defaults to "cosmic")
+  extract: string -- Output dir for --extract
+  check_examples: string -- Input file for --check-examples (run examples)
+  examples: string -- Module for --examples (nil = not set, "" = list all)
+  benchmark: string -- Input file for --benchmark (run benchmarks)
+  docs: string -- Module/symbol/query for --docs
+  welcome: boolean -- Show welcome message
+  test_argv: {string} -- Command for --test
+  test_output: string -- Output base for --test
+  report_paths: {string} -- Paths for --report
+  error: string -- Parse error message
 end
 
 -- Parse arguments using cosmo.getopt iterator API
@@ -69,32 +69,32 @@ local function parse_args(): Opts
 
   local shortopts = "e:l:ivEWh"
   local longopts: {getopt.LongOpt} = {
-    { name = "help", has_arg = "none", short = "h" },
-    { name = "compile", has_arg = "required" },
-    { name = "format", has_arg = "required" },
-    { name = "check-format", has_arg = "required" },
-    { name = "check-types", has_arg = "required" },
-    { name = "embed", has_arg = "required" },
-    { name = "output", has_arg = "required" },
-    { name = "extract", has_arg = "required" },
-    { name = "check-examples", has_arg = "required" },
-    { name = "examples", has_arg = "optional" },
-    { name = "benchmark", has_arg = "required" },
-    { name = "docs", has_arg = "required" },
-    { name = "welcome", has_arg = "none" },
-    { name = "test", has_arg = "required" },
-    { name = "report", has_arg = "none" },
+    {name = "help", has_arg = "none", short = "h"},
+    {name = "compile", has_arg = "required"},
+    {name = "format", has_arg = "required"},
+    {name = "check-format", has_arg = "required"},
+    {name = "check-types", has_arg = "required"},
+    {name = "embed", has_arg = "required"},
+    {name = "output", has_arg = "required"},
+    {name = "extract", has_arg = "required"},
+    {name = "check-examples", has_arg = "required"},
+    {name = "examples", has_arg = "optional"},
+    {name = "benchmark", has_arg = "required"},
+    {name = "docs", has_arg = "required"},
+    {name = "welcome", has_arg = "none"},
+    {name = "test", has_arg = "required"},
+    {name = "report", has_arg = "none"},
   }
 
   -- Parse shortopts to build set of options that require arguments
-  local short_needs_arg: {string:boolean} = {}
+  local short_needs_arg: {string: boolean} = {}
   local j = 1
   while j <= #shortopts do
     local c = shortopts:sub(j, j)
     if c ~= ":" then
       -- Check if followed by : (required arg) but not :: (optional arg)
-      if j < #shortopts and shortopts:sub(j+1, j+1) == ":" and
-         (j+1 >= #shortopts or shortopts:sub(j+2, j+2) ~= ":") then
+      if j < #shortopts and shortopts:sub(j + 1, j + 1) == ":" and
+      (j + 1 >= #shortopts or shortopts:sub(j + 2, j + 2) ~= ":") then
         short_needs_arg[c] = true
       end
     end
@@ -102,7 +102,7 @@ local function parse_args(): Opts
   end
 
   -- Parse longopts to build set of options that require arguments
-  local long_needs_arg: {string:boolean} = {}
+  local long_needs_arg: {string: boolean} = {}
   for _, opt in ipairs(longopts) do
     if opt.has_arg == "required" then
       long_needs_arg[opt.name] = true
@@ -110,13 +110,13 @@ local function parse_args(): Opts
   end
 
   -- Options that consume all remaining arguments (no script after them)
-  local long_greedy: {string:boolean} = {
+  local long_greedy: {string: boolean} = {
     ["report"] = true,
     ["test"] = true,
   }
 
   -- Options that take required arg + one additional positional arg
-  local long_extra_arg: {string:boolean} = {}
+  local long_extra_arg: {string: boolean} = {}
 
   -- Find first non-option argument (script name) to know where to stop parsing
   local script_idx: integer = nil
@@ -162,7 +162,7 @@ local function parse_args(): Opts
   local cosmic_args: {string} = {}
   if script_idx then
     for k = 1, script_idx - 1 do
-      if arg[k] ~= "--" then  -- Exclude -- separator
+      if arg[k] ~= "--" then -- Exclude -- separator
         cosmic_args[#cosmic_args + 1] = arg[k]
       end
     end
@@ -283,6 +283,7 @@ Quick start:
 
 Run 'cosmic --welcome' to see this again.
 ]]
+
 end
 
 -- Interactive REPL using cosmopolitan's linenoise-based REPL
@@ -295,16 +296,16 @@ local function run_repl()
   -- Inject help() into REPL
   local docs = require("cosmic.docs")
   rawset(_G, "help", function(query: string)
-    local result = docs.run(query or "")
-    print(result.output)
-  end)
+      local result = docs.run(query or "")
+      print(result.output)
+    end)
 
   require("cosmo.repl").start()
 end
 
 -- Load a script file (.tl or .lua)
 -- Compiles .tl files through Teal, loads .lua files directly
-local function load_script_file(script_path: string): function(...: any): any..., string
+local function load_script_file(script_path: string): function(...: any): any ..., string
   -- Compile .tl files through Teal, load .lua files directly
   if script_path:match("%.tl$") then
     local teal = require("cosmic.teal")
@@ -411,7 +412,7 @@ local function generate_help(): string
   -- Show module list with descriptions (only cosmic.* modules, not cosmo.* bindings)
   local docs = require("cosmic.docs")
   if docs.has_docs() then
-    local topics = docs.list_topics()  -- excludes cosmo.* by default
+    local topics = docs.list_topics() -- excludes cosmo.* by default
     if #topics > 0 then
       local cosmic_topics: {{string, string}} = {}
 
@@ -426,8 +427,8 @@ local function generate_help(): string
 
       if #cosmic_topics > 0 then
         table.sort(cosmic_topics, function(a: {string}, b: {string}): boolean
-          return a[1] < b[1]
-        end)
+            return a[1] < b[1]
+          end)
 
         -- Find max name length for alignment
         local max_len = 0
@@ -614,8 +615,8 @@ local function main(): integer, string
       for i = 1, #arg do
         if arg[i] == "--examples" then
           -- Next arg (if exists and not an option) is the module name
-          if i < #arg and not arg[i+1]:match("^%-") then
-            module_name = arg[i+1]
+          if i < #arg and not arg[i + 1]:match("^%-") then
+            module_name = arg[i + 1]
           end
           break
         end

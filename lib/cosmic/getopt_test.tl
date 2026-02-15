@@ -50,9 +50,9 @@ test_combined_short_options()
 local function test_long_options_with_short_alias()
   -- When long options have short aliases, cosmo.getopt returns the short form
   local parser = getopt.new({"--help", "--verbose"}, "hv", {
-    {name = "help", has_arg = "none", short = "h"},
-    {name = "verbose", has_arg = "none", short = "v"},
-  })
+      {name = "help", has_arg = "none", short = "h"},
+      {name = "verbose", has_arg = "none", short = "v"},
+    })
   local opts: {string} = {}
   while true do
     local opt = parser:next()
@@ -68,8 +68,8 @@ test_long_options_with_short_alias()
 local function test_long_option_with_equals_arg()
   -- Returns short alias 'o' since one is defined
   local parser = getopt.new({"--output=file.txt"}, "o:", {
-    {name = "output", has_arg = "required", short = "o"},
-  })
+      {name = "output", has_arg = "required", short = "o"},
+    })
   local opt, optarg = parser:next()
   assert(opt == "o", "expected 'o', got '" .. tostring(opt) .. "'")
   assert(optarg == "file.txt", "expected 'file.txt', got '" .. tostring(optarg) .. "'")
@@ -79,8 +79,8 @@ test_long_option_with_equals_arg()
 local function test_long_option_with_separate_arg()
   -- Returns short alias 'o' since one is defined
   local parser = getopt.new({"--output", "file.txt"}, "o:", {
-    {name = "output", has_arg = "required", short = "o"},
-  })
+      {name = "output", has_arg = "required", short = "o"},
+    })
   local opt, optarg = parser:next()
   assert(opt == "o", "expected 'o'")
   assert(optarg == "file.txt", "expected 'file.txt', got '" .. tostring(optarg) .. "'")
@@ -148,10 +148,10 @@ test_repeated_options()
 local function test_mixed_short_and_long()
   -- All options return short form since short aliases are defined
   local parser = getopt.new({"-v", "--output", "out.txt", "-h"}, "vho:", {
-    {name = "verbose", has_arg = "none", short = "v"},
-    {name = "output", has_arg = "required", short = "o"},
-    {name = "help", has_arg = "none", short = "h"},
-  })
+      {name = "verbose", has_arg = "none", short = "v"},
+      {name = "output", has_arg = "required", short = "o"},
+      {name = "help", has_arg = "none", short = "h"},
+    })
   local results: {{string, string}} = {}
   while true do
     local opt, optarg = parser:next()
@@ -190,8 +190,8 @@ test_only_positional_args()
 
 local function test_long_option_without_short()
   local parser = getopt.new({"--config", "app.json"}, "", {
-    {name = "config", has_arg = "required"},
-  })
+      {name = "config", has_arg = "required"},
+    })
   local opt, optarg = parser:next()
   assert(opt == "config", "expected 'config', got '" .. tostring(opt) .. "'")
   assert(optarg == "app.json", "expected 'app.json'")

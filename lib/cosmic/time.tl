@@ -6,28 +6,28 @@ local cosmo = require("cosmo")
 --- DateTime represents a broken-down timestamp.
 --- Returned by gmtime() and localtime().
 local record DateTime
-  year: number        -- Full year (e.g., 2024)
-  month: number       -- Month (1-12)
-  day: number         -- Day of month (1-31)
-  hour: number        -- Hour (0-23)
-  min: number         -- Minute (0-59)
-  sec: number         -- Second (0-59)
-  gmtoff: number      -- Offset from UTC in seconds
-  wday: number        -- Day of week (1=Sunday, 7=Saturday)
-  yday: number        -- Day of year (1-366)
-  isdst: number       -- Daylight saving time flag (1=DST, 0=standard)
-  zone: string        -- Timezone name (e.g., "UTC", "PDT")
+  year: number -- Full year (e.g., 2024)
+  month: number -- Month (1-12)
+  day: number -- Day of month (1-31)
+  hour: number -- Hour (0-23)
+  min: number -- Minute (0-59)
+  sec: number -- Second (0-59)
+  gmtoff: number -- Offset from UTC in seconds
+  wday: number -- Day of week (1=Sunday, 7=Saturday)
+  yday: number -- Day of year (1-366)
+  isdst: number -- Daylight saving time flag (1=DST, 0=standard)
+  zone: string -- Timezone name (e.g., "UTC", "PDT")
 end
 
 --- Clock identifiers for clock_gettime().
 local record Clock
-  REALTIME: number           -- Wall clock, subject to NTP adjustments
-  MONOTONIC: number          -- Monotonic clock, not affected by system time changes
-  BOOTTIME: number           -- Monotonic clock including suspend time
-  MONOTONIC_RAW: number      -- Raw monotonic clock, not adjusted for NTP
-  REALTIME_COARSE: number    -- Faster but less precise real time clock
-  MONOTONIC_COARSE: number   -- Faster but less precise monotonic clock
-  THREAD_CPUTIME_ID: number  -- CPU time for current thread
+  REALTIME: number -- Wall clock, subject to NTP adjustments
+  MONOTONIC: number -- Monotonic clock, not affected by system time changes
+  BOOTTIME: number -- Monotonic clock including suspend time
+  MONOTONIC_RAW: number -- Raw monotonic clock, not adjusted for NTP
+  REALTIME_COARSE: number -- Faster but less precise real time clock
+  MONOTONIC_COARSE: number -- Faster but less precise monotonic clock
+  THREAD_CPUTIME_ID: number -- CPU time for current thread
   PROCESS_CPUTIME_ID: number -- CPU time for current process
 end
 
@@ -81,7 +81,7 @@ end
 --- @return DateTime Broken-down time in UTC
 local function gmtime(unixts: number): DateTime
   local year, mon, mday, hour, min, sec, gmtoff, wday, yday, isdst, zone =
-    unix.gmtime(unixts)
+  unix.gmtime(unixts)
   return {
     year = year,
     month = mon,
@@ -103,7 +103,7 @@ end
 --- @return DateTime Broken-down time in local timezone
 local function localtime(unixts: number): DateTime
   local year, mon, mday, hour, min, sec, gmtoff, wday, yday, isdst, zone =
-    unix.localtime(unixts)
+  unix.localtime(unixts)
   return {
     year = year,
     month = mon,

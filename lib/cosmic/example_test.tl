@@ -24,6 +24,7 @@ local function Example_basic()
   -- hello
 end
 ]]
+
   local examples = example.parse_examples(source)
   assert(#examples == 1, "should find one example")
   assert(examples[1].name == "Example_basic", "name should match")
@@ -47,6 +48,7 @@ local function Example_second()
   -- two
 end
 ]]
+
   local examples = example.parse_examples(source)
   assert(#examples == 2, "should find two examples")
   assert(examples[1].name == "Example_first", "first example name")
@@ -61,6 +63,7 @@ local function Example_no_check()
   print("anything")
 end
 ]]
+
   local examples = example.parse_examples(source)
   assert(#examples == 1, "should find example")
   assert(examples[1].expected_output == nil, "should have no expected output")
@@ -75,7 +78,8 @@ local function Example_pass()
   -- Output:
   -- hello
 end
-]])
+]]
+  )
   local result = example.run(input)
   assert(result.exit_code == 0, "should pass")
   assert(#result.results == 1, "should have one result")
@@ -91,7 +95,8 @@ local function Example_fail()
   -- Output:
   -- expected
 end
-]])
+]]
+  )
   local result = example.run(input)
   assert(result.exit_code == 1, "should fail")
   assert(#result.results == 1, "should have one result")
@@ -105,7 +110,8 @@ local function test_run_no_examples()
 local function regular_function()
   return 42
 end
-]])
+]]
+  )
   local result = example.run(input)
   assert(result.exit_code == 2, "should return skip code")
   assert(#result.results == 0, "should have no results")
@@ -128,7 +134,8 @@ local function Example_cmd()
   -- Output:
   -- works
 end
-]])
+]]
+  )
   local ok, out = spawn.spawn({cosmic, "--check-examples", input}):read()
   assert(ok, "cosmic --check-examples should succeed")
   assert((out as string):find("PASS"), "output should show PASS")
@@ -143,7 +150,8 @@ local function Example_cmd()
   -- Output:
   -- expected
 end
-]])
+]]
+  )
   local ok, out = spawn.spawn({cosmic, "--check-examples", input}):read()
   assert(not ok, "cosmic --check-examples should fail")
   assert((out as string):find("FAIL"), "output should show FAIL")
@@ -154,7 +162,8 @@ test_cosmic_example_fail()
 local function test_cosmic_example_skip()
   local input = write_temp("cmd_skip.tl", [[
 local x = 1
-]])
+]]
+  )
   local h = spawn.spawn({cosmic, "--check-examples", input})
   h.stdin:close()
   local out = h.stdout:read()
@@ -174,7 +183,8 @@ local function Example_multi()
   -- line1
   -- line2
 end
-]])
+]]
+  )
   local result = example.run(input)
   assert(result.exit_code == 0, "should pass")
   assert(result.results[1].passed, "multiline example should pass")
@@ -193,7 +203,8 @@ local function Example_blank()
   --
   -- after
 end
-]])
+]]
+  )
   local result = example.run(input)
   assert(result.exit_code == 0, "should pass with blank line: " .. (result.results[1].error or ""))
   assert(result.results[1].passed, "blank line example should pass")
@@ -209,7 +220,8 @@ local function Example_newline()
   -- Output:
   -- no newline
 end
-]])
+]]
+  )
   local result = example.run(input)
   assert(result.exit_code == 0, "should pass with normalized newlines")
 end
@@ -227,7 +239,8 @@ local function Example_nested()
   -- Output:
   -- first
 end
-]])
+]]
+  )
   local result = example.run(input)
   assert(result.exit_code == 0, "should handle nested blocks")
 end
@@ -241,7 +254,8 @@ local function Example_fmt()
   -- Output:
   -- test
 end
-]])
+]]
+  )
   local result = example.run(input)
   local formatted = example.format_results(input, result)
   assert(formatted:find("Example_fmt"), "should contain example name")
@@ -257,7 +271,8 @@ local function Example_error()
   -- Output:
   -- never reached
 end
-]])
+]]
+  )
   local result = example.run(input)
   assert(result.exit_code == 1, "should fail on runtime error")
   assert(result.results[1].error:find("runtime error"), "should capture error")

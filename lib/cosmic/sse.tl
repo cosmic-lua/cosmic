@@ -5,10 +5,10 @@ local fetch = require("cosmic.fetch")
 
 --- A parsed SSE event.
 local record Event
-  data: string    -- concatenated data: lines (required)
-  event: string   -- event type, defaults to "message"
-  id: string      -- last event ID
-  retry: number   -- reconnection time in milliseconds
+  data: string -- concatenated data: lines (required)
+  event: string -- event type, defaults to "message"
+  id: string -- last event ID
+  retry: number -- reconnection time in milliseconds
 end
 
 --- Parse a single field line into name and value.
@@ -18,7 +18,7 @@ end
 --- @return string field value
 local function parse_field(line: string): string, string
   if line:sub(1, 1) == ":" then
-    return nil, nil  -- comment line
+    return nil, nil -- comment line
   end
 
   local colon = line:find(":")

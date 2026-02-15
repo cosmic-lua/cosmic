@@ -238,12 +238,12 @@ test_statement_values()
 local function test_column_name_1indexed()
   local db = sqlite.open(":memory:")
   db:exec("CREATE TABLE t (first_col TEXT, second_col INTEGER, third_col REAL)")
-  db:exec("INSERT INTO t VALUES ('a', 1, 1.0)")  -- Need a row to step to
+  db:exec("INSERT INTO t VALUES ('a', 1, 1.0)") -- Need a row to step to
 
   local stmt = db:prepare("SELECT * FROM t")
   assert(stmt:columns() == 3, "should have 3 columns")
   -- column_name requires step() to be called first (lsqlite3 limitation)
-  stmt:exec()  -- Step to first row
+  stmt:exec() -- Step to first row
   assert(stmt:column_name(1) == "first_col", "column 1 should be 'first_col'")
   assert(stmt:column_name(2) == "second_col", "column 2 should be 'second_col'")
   assert(stmt:column_name(3) == "third_col", "column 3 should be 'third_col'")
@@ -501,7 +501,7 @@ local function test_query_list()
     table.insert(rows, row)
   end
   assert(#rows == 1, "should get 1 row")
-  assert((rows[1] as {string:any}).a == "x", "a should be 'x'")
+  assert((rows[1] as {string: any}).a == "x", "a should be 'x'")
   db:close()
 end
 test_query_list()
@@ -549,8 +549,8 @@ local function test_transaction_commit()
   db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
 
   local ok, err = db:transaction(function(d: sqlite.Database)
-    d:exec("INSERT INTO t (name) VALUES (?)", "inside tx")
-  end)
+      d:exec("INSERT INTO t (name) VALUES (?)", "inside tx")
+    end)
   assert(ok, "transaction should succeed: " .. tostring(err))
 
   local count = 0
@@ -567,9 +567,9 @@ local function test_transaction_rollback_on_error()
   db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
 
   local ok, err = db:transaction(function(d: sqlite.Database)
-    d:exec("INSERT INTO t (name) VALUES (?)", "will be rolled back")
-    error("something went wrong")
-  end)
+      d:exec("INSERT INTO t (name) VALUES (?)", "will be rolled back")
+      error("something went wrong")
+    end)
   assert(not ok, "transaction should fail")
   assert(err and err:match("something went wrong"), "should include error message")
 
@@ -587,10 +587,10 @@ local function test_transaction_multiple_ops()
   db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
 
   local ok, _ = db:transaction(function(d: sqlite.Database)
-    d:exec("INSERT INTO t (name) VALUES (?)", "Alice")
-    d:exec("INSERT INTO t (name) VALUES (?)", "Bob")
-    d:exec("INSERT INTO t (name) VALUES (?)", "Carol")
-  end)
+      d:exec("INSERT INTO t (name) VALUES (?)", "Alice")
+      d:exec("INSERT INTO t (name) VALUES (?)", "Bob")
+      d:exec("INSERT INTO t (name) VALUES (?)", "Carol")
+    end)
   assert(ok, "transaction should succeed")
 
   local count = 0

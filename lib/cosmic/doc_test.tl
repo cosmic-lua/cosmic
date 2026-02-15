@@ -21,6 +21,7 @@ local function test_parse_module_doc()
 --- It spans multiple lines
 local x = 1
 ]]
+
   local result = doc.parse(source, "test.tl")
   assert(result.module_doc, "should extract module doc")
   assert(result.module_doc:find("module description"), "should contain description")
@@ -39,6 +40,7 @@ local function add(a: number, b: number): number
   return a + b
 end
 ]]
+
   local result = doc.parse(source, "test.tl")
   assert(#result.functions == 1, "should find one function")
   local fn = result.functions[1]
@@ -61,6 +63,7 @@ local record Point
   y: number
 end
 ]]
+
   local result = doc.parse(source, "test.tl")
   assert(#result.records == 1, "should find one record")
   assert(result.records[1].name == "Point", "record name should be 'Point'")
@@ -77,6 +80,7 @@ local function Example_basic()
   -- hello
 end
 ]]
+
   local result = doc.parse(source, "test.tl")
   assert(#result.examples == 1, "should find one example")
   assert(result.examples[1].name == "Example_basic", "example name should match")
@@ -96,6 +100,7 @@ local function real_function()
   return 42
 end
 ]]
+
   local result = doc.parse(source, "test.tl")
   assert(#result.functions == 1, "should only find one regular function")
   assert(result.functions[1].name == "real_function", "should be the non-example function")
@@ -116,6 +121,7 @@ local function Example_usage()
   -- hello
 end
 ]]
+
   local result = doc.parse(source, "mymodule.tl")
   local md = doc.render(result)
   assert(md:find("# mymodule"), "should have module header")
@@ -133,7 +139,8 @@ local function test_render_file()
 local function helper()
   return 1
 end
-]])
+]]
+  )
   local ok, md = doc.render_file(input)
   assert(ok, "render_file should succeed")
   assert(md:find("# doc_test"), "should have filename as header")
@@ -159,6 +166,7 @@ local function undocumented()
   return 42
 end
 ]]
+
   local result = doc.parse(source, "test.tl")
   assert(#result.functions == 1, "should find function")
   assert(result.functions[1].description == nil, "should have no description")
@@ -177,6 +185,7 @@ end
 local function second()
 end
 ]]
+
   local result = doc.parse(source, "test.tl")
   assert(#result.functions == 2, "should find two functions")
   assert(result.functions[1].name == "first", "first function")
@@ -191,6 +200,7 @@ local function Example_foo_bar_baz()
   print("test")
 end
 ]]
+
   local result = doc.parse(source, "test.tl")
   local md = doc.render(result)
   assert(md:find("### foo bar baz"), "should convert underscores to spaces in title")

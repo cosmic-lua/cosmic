@@ -15,13 +15,13 @@ local record VersionSpec
   version: string
   url: string
   format: string
-  platforms: {string:PlatformSpec}
+  platforms: {string: PlatformSpec}
 end
 
-local function interpolate(template: string, vars: {string:string}): string
+local function interpolate(template: string, vars: {string: string}): string
   return (template:gsub("{([%w_]+)}", function(key: string): string
-    return vars[key] or ""
-  end))
+        return vars[key] or ""
+      end))
 end
 
 local function build_url(spec: VersionSpec, platform: string): string, string
@@ -30,13 +30,13 @@ local function build_url(spec: VersionSpec, platform: string): string, string
     return nil, "unknown platform: " .. platform
   end
 
-  local vars: {string:string} = {platform = platform}
-  for k, v in pairs(spec as {string:any}) do
+  local vars: {string: string} = {platform = platform}
+  for k, v in pairs(spec as {string: any}) do
     if type(v) ~= "table" then
       vars[k] = tostring(v)
     end
   end
-  for k, v in pairs(plat as {string:any}) do
+  for k, v in pairs(plat as {string: any}) do
     vars[k] = tostring(v)
   end
 
@@ -45,10 +45,10 @@ end
 
 local function download(url: string): string, string
   local result = fetch.Fetch(url, {
-    headers = {["User-Agent"] = "curl/8.0"},
-    maxresponse = 100 * 1024 * 1024,
-    max_attempts = 8,
-  })
+      headers = {["User-Agent"] = "curl/8.0"},
+      maxresponse = 100 * 1024 * 1024,
+      max_attempts = 8,
+    })
 
   if not result.ok then return nil, "fetch failed: " .. result.error end
   if result.status ~= 200 then return nil, "fetch status " .. tostring(result.status) end
@@ -72,7 +72,7 @@ local function main(version_file: string, platform: string, output: string): boo
     return nil, "FETCH_O env var required"
   end
 
-  local ok, spec = pcall(dofile, version_file) as (boolean, VersionSpec)
+  local ok, spec = pcall(dofile, version_file) as(boolean, VersionSpec)
   if not ok then
     return nil, "failed to load " .. version_file .. ": " .. tostring(spec)
   end
