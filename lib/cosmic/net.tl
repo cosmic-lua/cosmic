@@ -398,6 +398,10 @@ local function make_socket(fd: number): Socket
     end
 
     local record NetModule
+      -- Types
+      Socket: Socket
+      Interface: Interface
+
       -- Socket creation
       socket: function(family?: number, socktype?: number, protocol?: number): Socket, string
       socketpair: function(family?: number, socktype?: number, protocol?: number): Socket, Socket, string
