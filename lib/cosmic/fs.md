@@ -203,9 +203,9 @@ local record FsModule
   fstatfs: function(fd: number): Statfs, string
   major: function(dev: number): number
   minor: function(dev: number): number
-  walk: function<T>(dir: string, visitor: Visitor, ctx?: T): T
+  walk: function < T > (dir: string, visitor: Visitor, ctx?: T): T
   collect: function(dir: string, pattern: string): {string}
-  collect_all: function(dir: string): {string:FileInfo}
+  collect_all: function(dir: string): {string: FileInfo}
   files: function(dir: string, pattern?: string): function(): string
   F_OK: number
   R_OK: number
@@ -1076,7 +1076,7 @@ function collect(dir: string, pattern: string): {string}
 ### collect_all
 
 ```teal
-function collect_all(dir: string): {string:FileInfo}
+function collect_all(dir: string): {string: FileInfo}
 ```
 
  Recursively collect all files with their Unix permissions.
@@ -1115,51 +1115,51 @@ function files(dir: string, pattern?: string): function(): string
  Example demonstrating basic fs operations
 
 ```teal
-  local fs = require("cosmic.fs")
+    local fs = require("cosmic.fs")
 
-  -- Create a temp directory
-  local tmpdir = fs.mkdtemp("/tmp/fs_example_XXXXXX")
-  if not tmpdir then
-    print("failed to create temp dir")
-    return
-  end
-  print("created temp dir:", tmpdir)
+    -- Create a temp directory
+    local tmpdir = fs.mkdtemp("/tmp/fs_example_XXXXXX")
+    if not tmpdir then
+      print("failed to create temp dir")
+      return
+    end
+    print("created temp dir:", tmpdir)
 
-  -- Create a subdirectory
-  local subdir = fs.join(tmpdir, "subdir")
-  local ok, err = fs.mkdir(subdir)
-  if not ok then
-    print("mkdir failed:", err)
+    -- Create a subdirectory
+    local subdir = fs.join(tmpdir, "subdir")
+    local ok, err = fs.mkdir(subdir)
+    if not ok then
+      print("mkdir failed:", err)
+      fs.rmrf(tmpdir)
+      return
+    end
+
+    -- Check if it exists
+    local st = fs.stat(subdir)
+    if st and fs.is_dir(st:mode()) then
+      print("subdir is a directory")
+    end
+
+    -- Create a symlink
+    local linkpath = fs.join(tmpdir, "link")
+    ok, err = fs.symlink(subdir, linkpath)
+    if ok then
+      local target = fs.readlink(linkpath)
+      print("symlink points to:", target)
+    end
+
+    -- Clean up
     fs.rmrf(tmpdir)
-    return
-  end
-
-  -- Check if it exists
-  local st = fs.stat(subdir)
-  if st and fs.is_dir(st:mode()) then
-    print("subdir is a directory")
-  end
-
-  -- Create a symlink
-  local linkpath = fs.join(tmpdir, "link")
-  ok, err = fs.symlink(subdir, linkpath)
-  if ok then
-    local target = fs.readlink(linkpath)
-    print("symlink points to:", target)
-  end
-
-  -- Clean up
-  fs.rmrf(tmpdir)
-  print("cleaned up")
+    print("cleaned up")
 ```
 
 Output:
 ```
 created temp dir:	/tmp/fs_example_XXXXXX (with random suffix)
-  -- subdir is a directory
-  -- symlink points to:	/tmp/fs_example_XXXXXX/subdir
-  -- cleaned up
-
+    -- subdir is a directory
+    -- symlink points to:	/tmp/fs_example_XXXXXX/subdir
+    -- cleaned up
+  
 ```
 
 ### normalize
@@ -1167,20 +1167,20 @@ created temp dir:	/tmp/fs_example_XXXXXX (with random suffix)
  Example_normalize demonstrates path normalization
 
 ```teal
-  local fs = require("cosmic.fs")
-  print(fs.normalize("/usr/./lib"))
-  print(fs.normalize("/usr/lib/../bin"))
-  print(fs.normalize("a/b/../c"))
-  print(fs.normalize("//usr///lib//"))
+    local fs = require("cosmic.fs")
+    print(fs.normalize("/usr/./lib"))
+    print(fs.normalize("/usr/lib/../bin"))
+    print(fs.normalize("a/b/../c"))
+    print(fs.normalize("//usr///lib//"))
 ```
 
 Output:
 ```
 /usr/lib
-  -- /usr/bin
-  -- a/c
-  -- /usr/lib
-
+    -- /usr/bin
+    -- a/c
+    -- /usr/lib
+  
 ```
 
 ### splitext
@@ -1188,23 +1188,23 @@ Output:
  Example_splitext demonstrates extension splitting
 
 ```teal
-  local fs = require("cosmic.fs")
-  local root: string
-  local extension: string
-  root, extension = fs.splitext("archive.tar.gz")
-  print(root, extension)
-  root, extension = fs.splitext(".bashrc")
-  print(root, extension)
-  root, extension = fs.splitext("/path/to/file.txt")
-  print(root, extension)
+    local fs = require("cosmic.fs")
+    local root: string
+    local extension: string
+    root, extension = fs.splitext("archive.tar.gz")
+    print(root, extension)
+    root, extension = fs.splitext(".bashrc")
+    print(root, extension)
+    root, extension = fs.splitext("/path/to/file.txt")
+    print(root, extension)
 ```
 
 Output:
 ```
 archive.tar	.gz
-  -- .bashrc
-  -- /path/to/file	.txt
-
+    -- .bashrc
+    -- /path/to/file	.txt
+  
 ```
 
 ### relpath
@@ -1212,16 +1212,16 @@ archive.tar	.gz
  Example_relpath demonstrates computing relative paths
 
 ```teal
-  local fs = require("cosmic.fs")
-  print(fs.relpath("/usr/lib", "/usr"))
-  print(fs.relpath("/usr/lib", "/usr/bin"))
-  print(fs.relpath("/foo", "/bar"))
+    local fs = require("cosmic.fs")
+    print(fs.relpath("/usr/lib", "/usr"))
+    print(fs.relpath("/usr/lib", "/usr/bin"))
+    print(fs.relpath("/foo", "/bar"))
 ```
 
 Output:
 ```
 lib
-  -- ../lib
-  -- ../foo
-
+    -- ../lib
+    -- ../foo
+  
 ```

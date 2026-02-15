@@ -93,7 +93,7 @@ end
 
 ```teal
 local record DocIndex
-  modules: {string:ModuleDoc}
+  modules: {string: ModuleDoc}
 end
 ```
 

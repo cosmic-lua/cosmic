@@ -58,12 +58,12 @@ local record re Constants
   ESUBREG: number
   EBRACK: number
   EPAREN: number
-  BASIC: number    -- Use basic (obsolete) regex syntax instead of extended
-  ICASE: number    -- Case-insensitive matching
-  NEWLINE: number  -- Treat newline as special (affects ^ and $)
-  NOSUB: number    -- Report only success/failure, not match position
-  NOTBOL: number   -- First character is not at beginning of line
-  NOTEOL: number   -- Last character is not at end of line
+  BASIC: number -- Use basic (obsolete) regex syntax instead of extended
+  ICASE: number -- Case-insensitive matching
+  NEWLINE: number -- Treat newline as special (affects ^ and $)
+  NOSUB: number -- Report only success/failure, not match position
+  NOTBOL: number -- First character is not at beginning of line
+  NOTEOL: number -- Last character is not at end of line
 end
 ```
 

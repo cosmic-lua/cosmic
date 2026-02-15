@@ -54,7 +54,7 @@ local record NetModule
   socketpair: function(family?: number, socktype?: number, protocol?: number): Socket, Socket, string
   listen_unix: function(path: string, backlog?: number): Socket, string
   connect_unix: function(path: string): Socket, string
-  poll: function(fds: {number:number}, timeoutms?: number): {number:number}, string
+  poll: function(fds: {number: number}, timeoutms?: number): {number: number}, string
   gethostname: function(): string, string
   parseip: function(str: string): number, string
   formatip: function(ip: number): string
@@ -211,7 +211,7 @@ function connect_unix(path: string): Socket, string
 ### poll
 
 ```teal
-function poll(fds: {number:number}, timeoutms?: number): {number:number}, string
+function poll(fds: {number: number}, timeoutms?: number): {number: number}, string
 ```
 
  Poll file descriptors for events.

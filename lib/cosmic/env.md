@@ -13,7 +13,7 @@ local record EnvModule
   set: function(name: string, value: string, overwrite?: boolean): boolean, string
   unset: function(name: string): boolean, string
   clear: function(): boolean, string
-  all: function(): {string:string}
+  all: function(): {string: string}
 end
 ```
 
@@ -89,7 +89,7 @@ function clear(): boolean, string
 ### all
 
 ```teal
-function all(): {string:string}
+function all(): {string: string}
 ```
 
  Get all environment variables.

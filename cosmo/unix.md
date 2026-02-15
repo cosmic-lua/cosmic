@@ -931,7 +931,7 @@ function exit(exitcode?: number)
 ### environ
 
 ```teal
-function environ(): {string:string | nil}
+function environ(): {string: string | nil}
 ```
 
  Returns raw environment variables.
@@ -950,7 +950,7 @@ function environ(): {string:string | nil}
 
 **Returns:**
 
-- {string:string | nil}
+- {string: string | nil}
 
 ### setenv
 
@@ -2988,7 +2988,7 @@ function setsockopt(fd: number, level: number, optname: number, value: boolean |
 ### poll
 
 ```teal
-function poll(fds: {number:number}, timeoutms?: number): {number:number}
+function poll(fds: {number: number}, timeoutms?: number): {number: number}
 ```
 
  Checks for events on a set of file descriptors.
@@ -3015,12 +3015,12 @@ function poll(fds: {number:number}, timeoutms?: number): {number:number}
 
 **Parameters:**
 
-- `fds` ({number:number})
+- `fds` ({number: number})
 - `timeoutms` (number)
 
 **Returns:**
 
-- {number:number}
+- {number: number}
 
 ### gethostname
 

@@ -29,7 +29,7 @@ local record UrlModule
   Url: Url
   encode: function(str: string): string
   decode: function(str: string): string, string
-  parse: function(query: string): {string:string}
+  parse: function(query: string): {string: string}
   parse_url: function(url: string): Url
   parse_host: function(hostport: string): string, integer
   escape_host: function(str: string): string
@@ -89,7 +89,7 @@ function decode(str: string): string, string
 ### parse
 
 ```teal
-function parse(query: string): {string:string}
+function parse(query: string): {string: string}
 ```
 
  Parse a query string into key-value pairs.

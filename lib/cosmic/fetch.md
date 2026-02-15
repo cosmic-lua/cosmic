@@ -13,7 +13,7 @@
 local record Result
   ok: boolean
   status: number
-  headers: {string:string}
+  headers: {string: string}
   body: string
   error: string
 end
@@ -23,7 +23,7 @@ end
 
 ```teal
 local record Opts
-  headers: {string:string}
+  headers: {string: string}
   proxy: string
   maxresponse: number
   max_attempts: number
@@ -54,7 +54,7 @@ end
 local record StreamResult
   ok: boolean
   status: number
-  headers: {string:string}
+  headers: {string: string}
   reader: Reader
   error: string
 end
@@ -141,7 +141,7 @@ status:	200
   local fetch = require("cosmic.fetch")
   local json = require("cosmic.json")
   local result = fetch.Fetch("https://httpbin.org/json")
-  local data = json.decode(result.body) as {string:{string:string}}
+  local data = json.decode(result.body) as {string: {string: string}}
   print("title:", data.slideshow.title)
 ```
 
