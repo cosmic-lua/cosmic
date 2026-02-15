@@ -22,6 +22,7 @@ local record Opts
   script_args: {integer:string}
   compile: string          -- Input file for --compile (outputs to stdout)
   format: string           -- Input file for --format (outputs to stdout)
+  check_format: string     -- Input file for --check-format (exits 0 if formatted)
   check_types: string      -- Input file for --check-types
   embed: {string}          -- Files to embed via --embed
   output: string           -- Output file for --embed (defaults to "cosmic")
@@ -50,6 +51,7 @@ local function parse_args(): Opts
     script_args = {},
     compile = nil,
     format = nil,
+    check_format = nil,
     check_types = nil,
     embed = {},
     output = nil,
@@ -70,6 +72,7 @@ local function parse_args(): Opts
     { name = "help", has_arg = "none", short = "h" },
     { name = "compile", has_arg = "required" },
     { name = "format", has_arg = "required" },
+    { name = "check-format", has_arg = "required" },
     { name = "check-types", has_arg = "required" },
     { name = "embed", has_arg = "required" },
     { name = "output", has_arg = "required" },
@@ -211,6 +214,9 @@ local function parse_args(): Opts
       return opts
     elseif opt == "format" then
       opts.format = optarg
+      return opts
+    elseif opt == "check-format" then
+      opts.check_format = optarg
       return opts
     elseif opt == "check-types" then
       opts.check_types = optarg
@@ -370,6 +376,7 @@ local function generate_help(): string
   table.insert(lines, "Cosmic options:")
   table.insert(lines, "  --compile <file.tl>           compile Teal file to Lua, lax mode (stdout)")
   table.insert(lines, "  --format <file>               format Teal or Lua file (stdout)")
+  table.insert(lines, "  --check-format <file>         check file formatting (diff on stderr)")
   table.insert(lines, "  --check-types <file.tl>       type-check a Teal file, strict mode")
   table.insert(lines, "  --check-examples <file.tl>    run Example_* functions, check output")
   table.insert(lines, "  --examples [module]           browse examples (list all, or show module)")
@@ -505,6 +512,50 @@ local function main(): integer, string
       return 0
     else
       io.stderr:write(fmt.format_issues(result.errors) .. "\n")
+      return 1
+    end
+  end
+
+  -- Handle --check-format
+  if opts.check_format then
+    local fmt = require("cosmic.format")
+    local result = fmt.format_file(opts.check_format)
+    if not result.ok then
+      io.stderr:write(fmt.format_issues(result.errors) .. "\n")
+      return 1
+    end
+
+    -- Read original file content
+    local f, open_err = io.open(opts.check_format, "r")
+    if not f then
+      io.stderr:write(opts.check_format .. ": cannot open: " .. (open_err or "unknown error") .. "\n")
+      return 1
+    end
+    local original = f:read("*a")
+    f:close()
+
+    if original == result.code then
+      io.write("Format check passed\n")
+      return 0
+    else
+      -- Report first differing line on stderr
+      local orig_lines: {string} = {}
+      for line in (original .. "\n"):gmatch("([^\n]*)\n") do
+        orig_lines[#orig_lines + 1] = line
+      end
+      local fmt_lines: {string} = {}
+      for line in (result.code .. "\n"):gmatch("([^\n]*)\n") do
+        fmt_lines[#fmt_lines + 1] = line
+      end
+      local max = math.max(#orig_lines, #fmt_lines)
+      for i = 1, max do
+        if orig_lines[i] ~= fmt_lines[i] then
+          io.stderr:write(string.format("%s:%d: format mismatch\n", opts.check_format, i))
+          io.stderr:write(string.format("  have: %s\n", orig_lines[i] or "<eof>"))
+          io.stderr:write(string.format("  want: %s\n", fmt_lines[i] or "<eof>"))
+          break
+        end
+      end
       return 1
     end
   end

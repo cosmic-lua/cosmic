@@ -183,6 +183,18 @@ $(o)/%.teal.got: $(o)/% $(cosmic_bin) | $(bootstrap_files)
 	@mkdir -p $(@D)
 	-@$(cosmic_bin) --check-types $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $@
 
+all_formats := $(patsubst %,%.format.got,$(all_checkable_files))
+
+## Check formatting on all files
+format: $(o)/format-summary.txt
+
+$(o)/format-summary.txt: $(all_formats) | $(build_reporter)
+	@$(reporter) --dir $(o) $^ | tee $@
+
+$(o)/%.format.got: $(o)/% $(cosmic_bin) | $(bootstrap_files)
+	@mkdir -p $(@D)
+	-@$(cosmic_bin) --check-format $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $@
+
 .PHONY: clean
 ## Remove all build artifacts
 clean:
@@ -298,6 +310,7 @@ doc-publish: $(all_docs) $(docs_publish) | $(bootstrap_cosmic)
 	@$(bootstrap_cosmic) -- $(docs_publish) $(SOURCE_SHA) $(o)/docs $(or $(DOCS_BRANCH),docs)
 
 # CI stages: iterate with --keep-going to report all failures
+# TODO: add format to ci_stages after formatting all source files
 ci_stages := teal test example
 
 .PHONY: ci
