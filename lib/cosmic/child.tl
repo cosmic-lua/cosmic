@@ -251,17 +251,24 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
       end
     end
 
-    local env: {string}
     if opts.env then
-      env = opts.env
+      if (argv[1] as string):find("/") then
+        unix.execve(argv[1], argv, opts.env)
+      else
+        unix.execvpe(argv[1], argv, opts.env)
+      end
     else
-      -- environ() returns {string} with "KEY=VALUE" entries; pass directly
-      env = unix.environ() as {string}
-    end
-    if (argv[1] as string):find("/") then
-      unix.execve(argv[1], argv, env)
-    else
-      unix.execvpe(argv[1], argv, env)
+      -- no explicit env: inherit the parent's environment.
+      -- environ() returns {string} ("KEY=VALUE" entries); copy to a
+      -- plain table to avoid any issues with the original's identity.
+      local src = unix.environ() as {string}
+      local env: {string} = {}
+      for i = 1, #src do env[i] = src[i] end
+      if (argv[1] as string):find("/") then
+        unix.execve(argv[1], argv, env)
+      else
+        unix.execvpe(argv[1], argv, env)
+      end
     end
     os.exit(127)
   end

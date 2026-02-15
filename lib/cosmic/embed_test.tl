@@ -489,8 +489,7 @@ io.write("OK:" .. #result)
   assert(ok, "initial embed should succeed: " .. (out or ""))
 
   -- Start the binary as a subprocess
-  local ape = path.join(os.getenv("TEST_BIN"), "..", "..", ".ape-1.10")
-  local handle = spawn.spawn({ape, binary})
+  local handle = spawn.spawn({binary})
 
   -- Wait briefly for the process to start and mmap its pages
   unix.nanosleep(0, 100000000) -- 100ms
@@ -501,10 +500,10 @@ io.write("OK:" .. #result)
   assert(ok2, "re-embed should succeed: " .. (out2 or ""))
 
   -- Wait for the original process to finish
-  local read_ok, stdout, exit_code = handle:read()
+  local read_ok, stdout = handle:read()
 
   -- The process should have exited cleanly, not crashed with SIGSEGV
-  assert(read_ok, "running process should not crash after re-embed, got: " .. tostring(stdout) .. " exit_code: " .. tostring(exit_code))
+  assert(read_ok, "running process should not crash after re-embed, got: " .. tostring(stdout))
   assert(stdout and (stdout as string):match("^OK:"), "process should print OK, got: " .. tostring(stdout))
 end
 test_embed_does_not_corrupt_running_process()
