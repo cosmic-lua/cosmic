@@ -311,7 +311,6 @@ ci:
 	@if [ -f $(o)/failed ]; then echo "failed:"; cat $(o)/failed; exit 1; fi
 
 # work.mk configuration: set variables before include
-REPO ?= whilp/cosmic
 cosmic := $(bootstrap_cosmic)
 
 # work.mk expects ah at o/bin/ah; symlink from staged binary

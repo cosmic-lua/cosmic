@@ -11,7 +11,7 @@
 # since do depends on feedback.md, the next make run re-executes do -> push -> check.
 # the caller runs `make work` which loops until convergence or a retry limit.
 
-REPO ?= whilp/ah
+REPO ?= whilp/cosmic
 MAX_PRS ?= 4
 AH := $(o)/bin/ah
 work_tl := lib/work/work.tl
