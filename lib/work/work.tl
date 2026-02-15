@@ -18,11 +18,12 @@ local json = require("cosmic.json")
 
 -- --- helpers ---
 
-local function run(argv: {string}): boolean, string
+local function run(argv: {string}): boolean, string, string
   local h, err = child.spawn(argv)
-  if not h then return false, err end
+  if not h then return false, err, "" end
+  local stderr_out = h.stderr:read()
   local ok, out = h:read()
-  return ok as boolean, out
+  return ok as boolean, out, stderr_out
 end
 
 local function require_env(name: string): string
@@ -192,6 +193,7 @@ commands = {
       return url:match("/issues/(%d+)")
     end
 
+    local repo = require_env("WORK_REPO")
     local issue_file = require_env("WORK_ISSUE")
     local actions_file = require_env("WORK_ACTIONS")
 
@@ -229,9 +231,9 @@ commands = {
 
       if action_type == "comment_issue" then
         local body = (act.body or "") as string
-        local ok, out = run({"gh", "issue", "comment", issue_url, "--body", body})
+        local ok, out, errmsg = run({"gh", "issue", "comment", issue_url, "--body", body})
         if not ok then
-          io.stderr:write("  failed: " .. (out or "") .. "\n")
+          io.stderr:write("  failed: " .. (errmsg or out or "") .. "\n")
           all_ok = false
         end
 
@@ -248,9 +250,9 @@ commands = {
           end
         end
 
-        local ok, out = run({"gh", "pr", "create", "--head", branch, "--title", title, "--body", body})
+        local ok, out, errmsg = run({"gh", "pr", "create", "--repo", repo, "--head", branch, "--title", title, "--body", body})
         if not ok then
-          io.stderr:write("  failed: " .. (out or "") .. "\n")
+          io.stderr:write("  failed: " .. (errmsg or out or "") .. "\n")
           all_ok = false
         end
       else
