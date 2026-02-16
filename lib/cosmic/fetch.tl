@@ -13,12 +13,22 @@ local record Result
   error: string
 end
 
+--- Options for fetch requests.
 local record Opts
+  --- HTTP headers to send with the request.
   headers: {string: string}
+  --- HTTP proxy URL.
   proxy: string
+  --- Maximum response body size in bytes.
   maxresponse: number
+  --- Total number of attempts (1 = no retry, default 1).
+  --- Retries only occur when result.ok is true and should_retry returns true.
   max_attempts: number
+  --- Maximum backoff delay in seconds (default 30).
+  --- Backoff is exponential: 2^attempt seconds, capped at this value.
   max_delay: number
+  --- Predicate called after each successful HTTP response to decide retry.
+  --- Return true to retry (e.g. on status 429 or 503). If nil, no retries.
   should_retry: function(Result): boolean
 end
 
@@ -201,28 +211,6 @@ local function unix_proxy(path: string): string, string
     return nil, "socket path too long"
   end
   return "unix://" .. path
-end
-
--- Example_get demonstrates a simple HTTP GET request
-local function Example_get()
-  local fetch = require("cosmic.fetch")
-  local result = fetch.Fetch("https://httpbin.org/get")
-  print("status:", result.status)
-  print("ok:", result.ok)
-  -- Output:
-  -- status:	200
-  -- ok:	true
-end
-
--- Example_get_json demonstrates fetching and parsing JSON
-local function Example_get_json()
-  local fetch = require("cosmic.fetch")
-  local json = require("cosmic.json")
-  local result = fetch.Fetch("https://httpbin.org/json")
-  local data = json.decode(result.body) as {string: {string: string}}
-  print("title:", data.slideshow.title)
-  -- Output:
-  -- title:	Sample Slide Show
 end
 
 local record fetch
