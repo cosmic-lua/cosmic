@@ -1,6 +1,30 @@
 --- Examples for the cosmic.sqlite module.
 --- Demonstrates database operations, prepared statements, and queries.
 
+-- Example_open_file demonstrates database file path resolution
+local function Example_open_file()
+  local sqlite = require("cosmic.sqlite")
+  local fs = require("cosmic.fs")
+
+  -- Relative paths resolve against cwd
+  local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
+  local dbpath = fs.join(tmpdir, "example.db")
+  local db = sqlite.open(dbpath)
+  db:exec("CREATE TABLE t (x TEXT)")
+  db:exec("INSERT INTO t (x) VALUES ('hello')")
+  local row = db:query_one("SELECT x FROM t")
+  print(row.x)
+  db:close()
+  os.remove(dbpath)
+
+  -- Absolute paths work as expected:
+  --   local db = sqlite.open("/var/data/app.db")
+  -- In-memory databases are not written to disk:
+  --   local db = sqlite.open(":memory:")
+  -- Output:
+  -- hello
+end
+
 -- Example_open demonstrates opening an in-memory database
 local function Example_open()
   local sqlite = require("cosmic.sqlite")
