@@ -370,4 +370,32 @@ assert_format(
   "long string concat inside function"
 )
 
+-- Bug: `as function(...)` type cast should not open a function block
+assert_format(
+  "local f = print as function(string)\nf(\"hello\")\n",
+  "local f = print as function(string)\nf(\"hello\")\n",
+  "as function cast no indent"
+)
+
+-- Bug variant: as function cast inside a function body
+assert_format(
+  "local function foo()\n  local f = print as function(string)\n  f(\"hello\")\nend\n\nfoo()\n",
+  "local function foo()\n  local f = print as function(string)\n  f(\"hello\")\nend\n\nfoo()\n",
+  "as function cast inside function body"
+)
+
+-- Bug variant: as function cast with multi-return type
+assert_format(
+  "local a = 1\nlocal b = 2\nlocal f = print as function(string): boolean, string\nlocal c = a + b\nprint(c)\n",
+  "local a = 1\nlocal b = 2\nlocal f = print as function(string): boolean, string\nlocal c = a + b\nprint(c)\n",
+  "as function cast with multi-return type"
+)
+
+-- Bug variant: as function cast with nested function types in signature
+assert_format(
+  "M.sa = unix.sa as function(number, function | number): (function | number, number)\nM.sp = unix.sp as function(number): number\nM.x = 1\n",
+  "M.sa = unix.sa as function(number, function | number): (function | number, number)\nM.sp = unix.sp as function(number): number\nM.x = 1\n",
+  "as function cast with nested function types"
+)
+
 print("All format tests passed!")
