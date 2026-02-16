@@ -34,12 +34,12 @@ local function Example_retry()
   -- Retry up to 3 times on 5xx server errors.
   -- Attempt 1: immediate. Attempt 2: after 4s. Attempt 3: after 8s.
   local result = fetch.Fetch("https://httpbin.org/get", {
-    max_attempts = 3,
-    max_delay = 10,
-    should_retry = function(r: fetch.Result): boolean
-      return r.status >= 500
-    end,
-  })
+      max_attempts = 3,
+      max_delay = 10,
+      should_retry = function(r: fetch.Result): boolean
+        return r.status >= 500
+      end,
+    })
   print("ok:", result.ok)
   -- Output:
   -- ok:	true
@@ -51,18 +51,18 @@ local function Example_retry_on_status()
   local fetch = require("cosmic.fetch")
 
   local retryable: {number: boolean} = {
-    [429] = true,  -- Too Many Requests
-    [503] = true,  -- Service Unavailable
-    [502] = true,  -- Bad Gateway
+    [429] = true, -- Too Many Requests
+    [503] = true, -- Service Unavailable
+    [502] = true, -- Bad Gateway
   }
 
   local result = fetch.Fetch("https://httpbin.org/get", {
-    max_attempts = 5,
-    max_delay = 30,
-    should_retry = function(r: fetch.Result): boolean
-      return retryable[r.status] or false
-    end,
-  })
+      max_attempts = 5,
+      max_delay = 30,
+      should_retry = function(r: fetch.Result): boolean
+        return retryable[r.status] or false
+      end,
+    })
   print("ok:", result.ok)
   -- Output:
   -- ok:	true
