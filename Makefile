@@ -28,7 +28,7 @@ include lib/cook.mk
 include 3p/cosmos/cook.mk
 include 3p/tl/cook.mk
 include 3p/teal-types/cook.mk
-include 3p/ah/cook.mk
+
 
 # landlock-make sandbox constraints (only effective when using landlock-make)
 # global defaults: read-only access, no network, basic stdio
@@ -321,16 +321,6 @@ ci:
 		$(MAKE) --keep-going $(s) || echo $(s) >> $(o)/failed; \
 		echo "::endgroup::";)
 	@if [ -f $(o)/failed ]; then echo "failed:"; cat $(o)/failed; exit 1; fi
-
-# work.mk configuration: set variables before include
-cosmic := $(bootstrap_cosmic)
-
-# work.mk expects ah at o/bin/ah; symlink from staged binary
-$(o)/bin/ah: $$(ah_staged)
-	@mkdir -p $(@D)
-	@ln -sf $(CURDIR)/$(ah_bin) $@
-
-include work.mk
 
 debug-modules:
 	@echo $(modules)

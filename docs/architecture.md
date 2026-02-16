@@ -131,28 +131,3 @@ examples (`*_example.tl`) contain `Example_*` functions with expected output in 
 
 benchmarks use `Benchmark_*` functions with iteration-based timing.
 
-## Work Loop Architecture
-
-the autonomous work loop (`work.mk` + `lib/work/work.tl`) integrates with GitHub:
-
-```
-labels.json → pr-limit.json → issues.json → issue.json → doing.json
-                                                ↓
-                                        plan (ah agent)
-                                                ↓
-                                        do (ah agent, on branch)
-                                                ↓
-                                        push (git push)
-                                                ↓
-                                        check (ah agent)
-                                                ↓
-                                        act (open PR / comment)
-```
-
-each agent step runs in `ah` (agent harness) with:
-- sandbox restrictions (pledge/unveil)
-- a specific skill (plan, do, check)
-- token budget limits
-- session database for observability
-
-the loop converges by retrying up to 3 times when `check` finds issues.
