@@ -140,3 +140,45 @@ local function test_raise()
   signal.sigaction(signal.SIGUSR2, old_handler)
 end
 test_raise()
+
+local function test_setitimer()
+  -- Test that setitimer with opts record fires SIGALRM
+  local received = false
+
+  -- Block SIGALRM so we control delivery
+  local blockmask = signal.Sigset(signal.SIGALRM)
+  local oldmask = signal.sigprocmask(signal.SIG_BLOCK, blockmask)
+
+  -- Install handler
+  local old_handler = signal.sigaction(signal.SIGALRM, function(_: number)
+      received = true
+    end)
+
+  -- Set single-shot timer: fire in 100ms, no repeat
+  signal.setitimer({
+    which = signal.ITIMER_REAL,
+    valuesec = 0,
+    valuens = 100000000,
+    intervalsec = 0,
+    intervalns = 0,
+  })
+
+  -- Unblock SIGALRM to allow delivery
+  signal.sigprocmask(signal.SIG_SETMASK, oldmask)
+
+  -- Wait 200ms for signal delivery
+  unix.nanosleep(0, 200000000)
+
+  assert(received, "SIGALRM handler should have been called")
+
+  -- Disarm timer and restore old handler
+  signal.setitimer({
+    which = signal.ITIMER_REAL,
+    valuesec = 0,
+    valuens = 0,
+    intervalsec = 0,
+    intervalns = 0,
+  })
+  signal.sigaction(signal.SIGALRM, old_handler)
+end
+test_setitimer()
