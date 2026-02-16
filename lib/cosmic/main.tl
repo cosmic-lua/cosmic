@@ -9,6 +9,7 @@ if not os.getenv("COSMIC_NO_REQUIRE_HINTS") then
 end
 
 local getopt = require("cosmic.getopt")
+local cli_args = require("cosmic.args")
 
 -- Parsed options record
 local record Opts
@@ -67,25 +68,8 @@ local function parse_args(): Opts
     error = nil,
   }
 
-  local shortopts = "e:l:ivEWh"
-  local longopts: {getopt.LongOpt} = {
-    {name = "version", has_arg = "none", short = "v"},
-    {name = "help", has_arg = "none", short = "h"},
-    {name = "compile", has_arg = "required"},
-    {name = "format", has_arg = "required"},
-    {name = "check-format", has_arg = "required"},
-    {name = "check-types", has_arg = "required"},
-    {name = "embed", has_arg = "required"},
-    {name = "output", has_arg = "required"},
-    {name = "extract", has_arg = "required"},
-    {name = "check-examples", has_arg = "required"},
-    {name = "examples", has_arg = "optional"},
-    {name = "benchmark", has_arg = "required"},
-    {name = "docs", has_arg = "required"},
-    {name = "welcome", has_arg = "none"},
-    {name = "test", has_arg = "required"},
-    {name = "report", has_arg = "none"},
-  }
+  local shortopts = cli_args.shortopts
+  local longopts: {getopt.LongOpt} = cli_args.longopts
 
   -- Parse shortopts to build set of options that require arguments
   local short_needs_arg: {string: boolean} = {}
