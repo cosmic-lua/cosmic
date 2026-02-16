@@ -1,5 +1,8 @@
 --- Environment variable utilities.
---- Wraps cosmo.unix environment functions: get, set, unset, clear, all.
+--- Provides get, set, unset, clear, and all functions for environment variables.
+--- For the common case of reading a single variable, use env.get() — it wraps
+--- os.getenv() internally and is the simplest approach. Use env.all() to get
+--- all variables as a plain {string:string} table (unlike raw unix.environ()).
 local unix = require("cosmo.unix")
 
 --- Get the value of an environment variable.
