@@ -21,7 +21,6 @@ lib/
   cook.mk              aggregates lib/* modules
   cosmic/              standard library modules (*.tl)
     cook.mk            builds the cosmic binary
-    CLAUDE.md          coding conventions for cosmic modules
     init.tl            entry point: cosmic.main()
     main.tl            CLI dispatcher (--compile, --docs, --test, etc.)
     *.tl               library modules
@@ -29,7 +28,7 @@ lib/
     *_example.tl       runnable examples
   build/               build infrastructure (fetch, stage, reporter)
   docs/                doc publishing
-  types/               .d.tl type definitions for cosmo.* bindings
+  types/               .d.tl type definitions for cosmo.* C bindings
   work/                work pipeline script (labels, issue pick, act)
 3p/
   cosmos/              Cosmopolitan Lua binary + zip tool
@@ -50,12 +49,77 @@ bin/
 ## Language and Conventions
 
 - **source language**: Teal (`.tl` files) — typed Lua that compiles to Lua 5.4
-- **error handling**: return `value, string` (nil + error message on failure). never throw from library code. see `lib/cosmic/CLAUDE.md` for the full pattern guide.
+- **error handling**: return `value, string` (nil + error message on failure). never throw from library code.
 - **doc comments**: `---` prefix with `@param` and `@return` tags
 - **naming**: `snake_case` for functions and variables. `PascalCase` for record types.
 - **formatting**: 2-space indent, LF line endings, enforced by `cosmic --check-format`
+- **imports**: prefer `cosmic.*` modules over raw `cosmo.*` C bindings. `cosmo.*` is only for library internals implementing wrappers.
 - **tests**: `*_test.tl` files alongside source, run via `make test`
 - **examples**: `*_example.tl` files with `Example_*` functions, run via `make example`
+
+### cosmo vs cosmic
+
+`cosmo` and `cosmo.*` (e.g. `cosmo.unix`, `cosmo.path`) are low-level C bindings from Cosmopolitan Libc. `cosmic.*` modules are the typed Teal wrappers with error handling and docs.
+
+- **library internals** (`lib/cosmic/*.tl`): use `cosmo.*` to implement wrappers. this is the one place `require("cosmo")` is expected.
+- **examples, tests, scripts** (`*_example.tl`, `*_test.tl`, user scripts): always use `cosmic.*`. never call `cosmo.*` directly.
+
+common mappings:
+
+| cosmo | cosmic |
+|-------|--------|
+| `cosmo.Barf(path, data)` | `require("cosmic.io").barf(path, data)` |
+| `cosmo.Slurp(path)` | `require("cosmic.io").slurp(path)` |
+| `cosmo.path.join(...)` | `require("cosmic.fs").join(...)` |
+| `cosmo.path.isfile(p)` | `require("cosmic.fs").isfile(p)` |
+| `cosmo.unix.mkdtemp(t)` | `require("cosmic.fs").mkdtemp(t)` |
+| `cosmo.unix.rmrf(p)` | `require("cosmic.fs").rmrf(p)` |
+| `cosmo.unix.makedirs(p)` | `require("cosmic.fs").makedirs(p)` |
+| `cosmo.unix.chmod(p, m)` | `require("cosmic.fs").chmod(p, m)` |
+| `cosmo.DecodeJson(s)` | `require("cosmic.json").decode(s)` |
+| `cosmo.EncodeJson(v)` | `require("cosmic.json").encode(v)` |
+| `cosmo.Fetch(url, opts)` | `require("cosmic.fetch").fetch(url, opts)` |
+
+### Error Handling Patterns
+
+most functions return `value, string` — nil + error message on failure:
+
+```teal
+local function decode(str: string): any, string
+  local result, err = cosmo.DecodeJson(str)
+  return result, err as string
+end
+```
+
+boolean success/fail:
+
+```teal
+function db:exec(sql: string): boolean, string
+  local rc = raw_db:exec(sql)
+  if rc ~= sqlite3.OK then
+    return false, raw_db:errmsg()
+  end
+  return true
+end
+```
+
+use Result records for complex operations with multiple error states:
+
+```teal
+local record Result
+  ok: boolean
+  status: number
+  headers: {string:string}
+  body: string
+  error: string
+end
+```
+
+rules:
+- never throw from library code
+- never silently discard errors
+- be consistent within a module — pick one pattern and use it throughout
+- infallible functions (encoding, compression, escaping) return just a value
 
 ## Build System
 

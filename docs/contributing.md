@@ -94,7 +94,7 @@ functions named `Example_*` are discovered and run by `cosmic --check-examples`.
 
 ## Error Handling Rules
 
-see `lib/cosmic/CLAUDE.md` for the complete guide. key rules:
+see `AGENTS.md` for the complete guide. key rules:
 
 - return `value, string` for fallible operations
 - never throw exceptions from library code
