@@ -806,8 +806,9 @@ local record unix
   --- function never returns.
   exit: function(exitcode?: number)
   --- Returns raw environment variables.
-  --- This allocates and constructs the C/C++ `environ` variable as a Lua
-  --- table consisting of string keys and string values.
+  --- Returns an integer-indexed array of "KEY=VALUE" strings, one per
+  --- environment variable.  The result can be passed directly to
+  --- execve(), execvpe(), spawn(), or child.spawn()'s env option.
   --- This data structure preserves casing. On Windows NT, by convention,
   --- environment variable keys are treated in a case-insensitive way. It
   --- is the responsibility of the caller to consider this.
@@ -818,7 +819,7 @@ local record unix
   --- there's some irregular uses of environment variables such as how the
   --- command prompt inserts multiple environment variables with empty
   --- string as keys, for its internal bookkeeping.
-  environ: function(): {string: string | nil}
+  environ: function(): {string}
   --- Sets environment variable.
   --- This wraps the C `setenv()` function to allow Lua scripts to set
   --- environment variables.
