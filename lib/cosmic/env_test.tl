@@ -75,10 +75,11 @@ test_all()
 
 local function test_all_includes_set_variable()
   env.set("COSMIC_TEST_ALL_CHECK", "check_value")
-  -- Note: unix.environ() may not reflect recent setenv changes
-  -- This tests that all() returns a valid table structure
   local vars = env.all()
   assert(type(vars) == "table", "all() should return a table")
+  -- all() should parse KEY=VALUE entries into a proper map
+  assert(vars["COSMIC_TEST_ALL_CHECK"] == "check_value",
+    "expected 'check_value', got '" .. tostring(vars["COSMIC_TEST_ALL_CHECK"]) .. "'")
   env.unset("COSMIC_TEST_ALL_CHECK")
 end
 test_all_includes_set_variable()

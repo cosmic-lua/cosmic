@@ -2,7 +2,7 @@
 --- Provides get, set, unset, clear, and all functions for environment variables.
 --- For the common case of reading a single variable, use env.get() — it wraps
 --- os.getenv() internally and is the simplest approach. Use env.all() to get
---- all variables as a plain {string:string} table (unlike raw unix.environ()).
+--- all variables as a {string:string} map parsed from unix.environ().
 local unix = require("cosmo.unix")
 
 --- Get the value of an environment variable.
@@ -55,7 +55,15 @@ end
 --- Returns a table mapping variable names to their values.
 --- @return {string:string} A table of all environment variables
 local function all(): {string: string}
-  return unix.environ() as {string: string}
+  local entries = unix.environ()
+  local result: {string: string} = {}
+  for _, entry in ipairs(entries) do
+    local eq = entry:find("=", 1, true)
+    if eq then
+      result[entry:sub(1, eq - 1)] = entry:sub(eq + 1)
+    end
+  end
+  return result
 end
 
 local record EnvModule
