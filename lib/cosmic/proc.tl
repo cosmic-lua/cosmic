@@ -268,6 +268,16 @@ end
 --- Returns true if current script is being run as the main program.
 --- Returns false if the script is being loaded as a module via require().
 --- Use this to guard code that should only run when executed directly.
+---
+--- Example:
+---   local proc = require("cosmic.proc")
+---   local function greet(name: string): string
+---     return "hello, " .. name
+---   end
+---   if proc.is_main() then
+---     print(greet(arg[1] or "world"))
+---   end
+---   return { greet = greet }
 --- @return boolean True if running as main script
 -- Assigned directly to avoid adding a stack frame, since cosmo.is_main()
 -- inspects the call stack to determine if the caller is the main script.

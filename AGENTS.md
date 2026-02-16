@@ -80,6 +80,21 @@ common mappings:
 | `cosmo.EncodeJson(v)` | `require("cosmic.json").encode(v)` |
 | `cosmo.Fetch(url, opts)` | `require("cosmic.fetch").fetch(url, opts)` |
 
+### Common Patterns
+
+**dual-use modules with `is_main()`**: use `require("cosmic.proc").is_main()` to write files that work both as standalone scripts and as importable modules. prefer `cosmic.proc.is_main()` over the low-level `cosmo.is_main()`.
+
+```teal
+local proc = require("cosmic.proc")
+local function greet(name: string): string
+  return "hello, " .. name
+end
+if proc.is_main() then
+  print(greet(arg[1] or "world"))
+end
+return { greet = greet }
+```
+
 ### Error Handling Patterns
 
 most functions return `value, string` — nil + error message on failure:
