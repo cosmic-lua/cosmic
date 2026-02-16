@@ -1948,7 +1948,7 @@ local record unix
   --- limits the process, with respect to the activities of the user id
   --- as a whole.
   --- - `RLIMIT_NOFILE` limits the number of open file descriptors and it
-  --- should work on all platforms except Windows (TODO(#242)).
+  --- should work on all platforms except Windows.
   --- If a limit isn't supported by the host platform, it'll be set to
   --- 127. On most platforms these limits are enforced by the kernel and
   --- as such are inherited by subprocesses.
