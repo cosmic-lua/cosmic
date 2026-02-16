@@ -106,7 +106,7 @@ the fetch/stage pipeline handles downloading, verifying, and extracting.
 
 ## Error Handling
 
-see `lib/cosmic/CLAUDE.md` for the complete guide. summary:
+see `AGENTS.md` for the complete guide. summary:
 
 | pattern | when to use |
 |---------|-------------|

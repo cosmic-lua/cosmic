@@ -8,21 +8,20 @@
 -- Example_embed_directory demonstrates embedding a directory into a new executable.
 -- The directory must contain a main.lua entry point.
 local function Example_embed_directory()
-  local cosmo = require("cosmo")
-  local unix = require("cosmo.unix")
-  local path = require("cosmo.path")
+  local fs = require("cosmic.fs")
+  local cio = require("cosmic.io")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = unix.mkdtemp("/tmp/embed_example_XXXXXX")
+  local tmpdir = fs.mkdtemp("/tmp/embed_example_XXXXXX")
 
   -- Create a simple app directory with a main.lua entry point
-  local appdir = path.join(tmpdir, "myapp")
-  unix.makedirs(appdir)
-  cosmo.Barf(path.join(appdir, "main.lua"), 'print("hello from myapp")\n')
+  local appdir = fs.join(tmpdir, "myapp")
+  fs.makedirs(appdir)
+  cio.barf(fs.join(appdir, "main.lua"), 'print("hello from myapp")\n')
 
   -- Build it
-  local output = path.join(tmpdir, "hello")
+  local output = fs.join(tmpdir, "hello")
   local h = spawn.spawn({cosmic, "--embed", appdir, "--output", output})
   local ok, out = h:read()
   assert(ok, out)
@@ -30,7 +29,7 @@ local function Example_embed_directory()
   -- Run it
   h = spawn.spawn({output})
   ok, out = h:read()
-  unix.rmrf(tmpdir)
+  fs.rmrf(tmpdir)
   print(out)
   -- Output:
   -- hello from myapp
@@ -38,22 +37,21 @@ end
 
 -- Example_extract_roundtrip demonstrates extracting and re-embedding
 local function Example_extract_roundtrip()
-  local unix = require("cosmo.unix")
-  local path = require("cosmo.path")
+  local fs = require("cosmic.fs")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = unix.mkdtemp("/tmp/embed_example_XXXXXX")
+  local tmpdir = fs.mkdtemp("/tmp/embed_example_XXXXXX")
 
   -- Extract the running executable's zip contents
-  local extractdir = path.join(tmpdir, "extracted")
+  local extractdir = fs.join(tmpdir, "extracted")
   local h = spawn.spawn({cosmic, "--extract", extractdir})
   local ok, out = h:read()
   assert(ok, out)
 
   -- The extracted directory contains main.lua and all bundled files
-  local main_exists = path.isfile(path.join(extractdir, "main.lua"))
-  unix.rmrf(tmpdir)
+  local main_exists = fs.isfile(fs.join(extractdir, "main.lua"))
+  fs.rmrf(tmpdir)
   print("main.lua extracted:", main_exists)
   -- Output:
   -- main.lua extracted:	true
@@ -61,32 +59,31 @@ end
 
 -- Example_embed_with_libraries demonstrates using cosmic libraries in embedded code
 local function Example_embed_with_libraries()
-  local cosmo = require("cosmo")
-  local unix = require("cosmo.unix")
-  local path = require("cosmo.path")
+  local fs = require("cosmic.fs")
+  local cio = require("cosmic.io")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = unix.mkdtemp("/tmp/embed_example_XXXXXX")
+  local tmpdir = fs.mkdtemp("/tmp/embed_example_XXXXXX")
 
   -- Create an app that uses cosmic.child (a bundled library)
-  local appdir = path.join(tmpdir, "app")
-  unix.makedirs(appdir)
-  cosmo.Barf(path.join(appdir, "main.lua"), [[
+  local appdir = fs.join(tmpdir, "app")
+  fs.makedirs(appdir)
+  cio.barf(fs.join(appdir, "main.lua"), [[
 local child = require("cosmic.child")
 local h = child.spawn({"echo", "it works"})
 local ok, out = h:read()
 io.write(out)
 ]])
 
-  local output = path.join(tmpdir, "myapp")
+  local output = fs.join(tmpdir, "myapp")
   local h = spawn.spawn({cosmic, "--embed", appdir, "--output", output})
   local ok, out = h:read()
   assert(ok, out)
 
   h = spawn.spawn({output})
   ok, out = h:read()
-  unix.rmrf(tmpdir)
+  fs.rmrf(tmpdir)
   print(out)
   -- Output:
   -- it works
@@ -96,19 +93,18 @@ end
 -- then embed. The entry point must be main.lua since Teal is not compiled at
 -- runtime.
 local function Example_embed_from_teal()
-  local cosmo = require("cosmo")
-  local unix = require("cosmo.unix")
-  local path = require("cosmo.path")
+  local fs = require("cosmic.fs")
+  local cio = require("cosmic.io")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = unix.mkdtemp("/tmp/embed_example_XXXXXX")
-  local appdir = path.join(tmpdir, "myapp")
-  unix.makedirs(appdir)
+  local tmpdir = fs.mkdtemp("/tmp/embed_example_XXXXXX")
+  local appdir = fs.join(tmpdir, "myapp")
+  fs.makedirs(appdir)
 
   -- Write a Teal source file
-  local tl_file = path.join(tmpdir, "main.tl")
-  cosmo.Barf(tl_file, 'local msg: string = "hello from teal"\nprint(msg)\n')
+  local tl_file = fs.join(tmpdir, "main.tl")
+  cio.barf(tl_file, 'local msg: string = "hello from teal"\nprint(msg)\n')
 
   -- Compile .tl to .lua using cosmic --compile
   local h = spawn.spawn({cosmic, "--compile", tl_file})
@@ -116,17 +112,17 @@ local function Example_embed_from_teal()
   assert(ok, lua_source)
 
   -- Write the compiled Lua as the entry point
-  cosmo.Barf(path.join(appdir, "main.lua"), lua_source)
+  cio.barf(fs.join(appdir, "main.lua"), lua_source)
 
   -- Embed and run
-  local output = path.join(tmpdir, "from_teal")
+  local output = fs.join(tmpdir, "from_teal")
   h = spawn.spawn({cosmic, "--embed", appdir, "--output", output})
   ok, lua_source = h:read()
   assert(ok, lua_source)
 
   h = spawn.spawn({output})
   ok, lua_source = h:read()
-  unix.rmrf(tmpdir)
+  fs.rmrf(tmpdir)
   print(lua_source)
   -- Output:
   -- hello from teal

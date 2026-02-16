@@ -13,22 +13,21 @@
 -- with a shebang line. The shebang is stripped during compilation so it
 -- does not interfere with the Lua parser.
 local function Example_shebang()
-  local cosmo = require("cosmo")
-  local unix = require("cosmo.unix")
-  local path = require("cosmo.path")
+  local fs = require("cosmic.fs")
+  local cio = require("cosmic.io")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = unix.mkdtemp("/tmp/deploy_example_XXXXXX")
-  local script = path.join(tmpdir, "greet.tl")
+  local tmpdir = fs.mkdtemp("/tmp/deploy_example_XXXXXX")
+  local script = fs.join(tmpdir, "greet.tl")
 
   -- Write a script with a shebang line
-  cosmo.Barf(script, '#!/usr/bin/env cosmic\nlocal name: string = "world"\nprint("hello " .. name)\n')
+  cio.barf(script, '#!/usr/bin/env cosmic\nlocal name: string = "world"\nprint("hello " .. name)\n')
 
   -- Run it via cosmic (portable across all platforms)
   local h = spawn.spawn({cosmic, script})
   local ok, out = h:read()
-  unix.rmrf(tmpdir)
+  fs.rmrf(tmpdir)
   assert(ok, out)
   print(out)
   -- Output:
@@ -39,17 +38,16 @@ end
 -- command-line arguments. Arguments passed after the script name are
 -- available in the global `arg` table, just like standard Lua.
 local function Example_script_args()
-  local cosmo = require("cosmo")
-  local unix = require("cosmo.unix")
-  local path = require("cosmo.path")
+  local fs = require("cosmic.fs")
+  local cio = require("cosmic.io")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = unix.mkdtemp("/tmp/deploy_example_XXXXXX")
-  local script = path.join(tmpdir, "greet.tl")
+  local tmpdir = fs.mkdtemp("/tmp/deploy_example_XXXXXX")
+  local script = fs.join(tmpdir, "greet.tl")
 
   -- A script that reads arguments from the arg table
-  cosmo.Barf(script, [[#!/usr/bin/env cosmic
+  cio.barf(script, [[#!/usr/bin/env cosmic
 local name: string = arg[1] or "world"
 print("hello " .. name)
 ]])
@@ -63,7 +61,7 @@ print("hello " .. name)
   -- Run without arguments to use the default
   h = spawn.spawn({cosmic, script})
   ok, out = h:read()
-  unix.rmrf(tmpdir)
+  fs.rmrf(tmpdir)
   assert(ok, out)
   io.write(out)
   -- Output:
@@ -75,27 +73,26 @@ end
 -- so it can be invoked by name. On Unix, mark it executable with chmod.
 -- Users add their bin directory to PATH if it is not already there.
 local function Example_install_to_path()
-  local cosmo = require("cosmo")
-  local unix = require("cosmo.unix")
-  local path = require("cosmo.path")
+  local fs = require("cosmic.fs")
+  local cio = require("cosmic.io")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = unix.mkdtemp("/tmp/deploy_example_XXXXXX")
+  local tmpdir = fs.mkdtemp("/tmp/deploy_example_XXXXXX")
 
   -- Create a local bin directory (simulating ~/bin or ~/.local/bin)
-  local bindir = path.join(tmpdir, "bin")
-  unix.makedirs(bindir)
+  local bindir = fs.join(tmpdir, "bin")
+  fs.makedirs(bindir)
 
   -- Write a script
-  local script = path.join(bindir, "mytool")
-  cosmo.Barf(script, '#!/usr/bin/env cosmic\nprint("mytool v1.0")\n')
-  unix.chmod(script, 0x1ED) -- 0755
+  local script = fs.join(bindir, "mytool")
+  cio.barf(script, '#!/usr/bin/env cosmic\nprint("mytool v1.0")\n')
+  fs.chmod(script, 0x1ED) -- 0755
 
   -- Run it via cosmic (simulating PATH lookup)
   local h = spawn.spawn({cosmic, script})
   local ok, out = h:read()
-  unix.rmrf(tmpdir)
+  fs.rmrf(tmpdir)
   assert(ok, out)
   print(out)
   -- Output:
@@ -106,17 +103,16 @@ end
 -- standalone binary from a Teal script. The result is a single file
 -- that runs on any platform without needing cosmic installed.
 local function Example_portable_executable()
-  local cosmo = require("cosmo")
-  local unix = require("cosmo.unix")
-  local path = require("cosmo.path")
+  local fs = require("cosmic.fs")
+  local cio = require("cosmic.io")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
 
-  local tmpdir = unix.mkdtemp("/tmp/deploy_example_XXXXXX")
+  local tmpdir = fs.mkdtemp("/tmp/deploy_example_XXXXXX")
 
   -- Write a Teal source file
-  local tl_file = path.join(tmpdir, "app.tl")
-  cosmo.Barf(tl_file, 'local msg: string = "portable app"\nprint(msg)\n')
+  local tl_file = fs.join(tmpdir, "app.tl")
+  cio.barf(tl_file, 'local msg: string = "portable app"\nprint(msg)\n')
 
   -- Compile .tl to .lua (--embed requires plain Lua)
   local h = spawn.spawn({cosmic, "--compile", tl_file})
@@ -124,12 +120,12 @@ local function Example_portable_executable()
   assert(ok, lua_source)
 
   -- Create app directory with compiled entry point
-  local appdir = path.join(tmpdir, "pkg")
-  unix.makedirs(appdir)
-  cosmo.Barf(path.join(appdir, "main.lua"), lua_source)
+  local appdir = fs.join(tmpdir, "pkg")
+  fs.makedirs(appdir)
+  cio.barf(fs.join(appdir, "main.lua"), lua_source)
 
   -- Build a standalone executable
-  local output = path.join(tmpdir, "myapp")
+  local output = fs.join(tmpdir, "myapp")
   h = spawn.spawn({cosmic, "--embed", appdir, "--output", output})
   ok, lua_source = h:read()
   assert(ok, lua_source)
@@ -137,7 +133,7 @@ local function Example_portable_executable()
   -- Run the standalone binary — no cosmic needed on the target machine
   h = spawn.spawn({output})
   ok, lua_source = h:read()
-  unix.rmrf(tmpdir)
+  fs.rmrf(tmpdir)
   assert(ok, lua_source)
   print(lua_source)
   -- Output:
