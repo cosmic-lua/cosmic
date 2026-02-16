@@ -16,7 +16,6 @@ the primary artifact is `cosmic-lua` — a single executable containing:
 ```
 Makefile              top-level build orchestration
 cook.mk               module definitions (bootstrap, type gen)
-work.mk                autonomous agent work loop (PDCA cycle)
 lib/
   cook.mk              aggregates lib/* modules
   cosmic/              standard library modules (*.tl)
@@ -29,18 +28,15 @@ lib/
   build/               build infrastructure (fetch, stage, reporter)
   docs/                doc publishing
   types/               .d.tl type definitions for cosmo.* C bindings
-  work/                work pipeline script (labels, issue pick, act)
 3p/
   cosmos/              Cosmopolitan Lua binary + zip tool
   tl/                  Teal compiler
   teal-types/          community type definitions
-  ah/                  agent harness binary
 bin/
   make                 bootstrap script that downloads landlock-make
   cosmo-make           landlock-make binary (gitignored, downloaded)
 .github/workflows/
   pr.yml               CI on push/PR (make ci)
-  work.yml             autonomous work loop (every 3h or manual)
   docs.yml             publish docs on push to main
   release.yml          daily release build
 .claude/skills/        agent skills (project board, friction logs)
@@ -230,20 +226,6 @@ all modules are under `lib/cosmic/` and imported as `cosmic.*`:
 | uuid | UUIDv4 and UUIDv7 generation |
 | zip | ZIP archive reading and writing |
 
-## Work Loop
-
-the autonomous work loop (`work.mk`) implements a PDCA cycle:
-
-1. **preflight**: ensure labels, check PR limits, fetch issues
-2. **pick**: select highest-priority issue
-3. **plan**: agent writes `plan.md` from issue context
-4. **do**: agent implements changes on a branch
-5. **push**: push branch with `--force-with-lease`
-6. **check**: agent reviews diff, writes verdict + actions
-7. **act**: execute actions (open PR, post comment, etc.)
-
-convergence: if check returns "needs-fixes", the loop retries up to 3 times. the agent harness (`ah`) provides sandboxed execution with skills for plan/do/check.
-
 ## Testing
 
 ```bash
@@ -267,6 +249,5 @@ each test gets its own temp directory via `TEST_TMPDIR`.
 ## CI
 
 - **pr.yml**: runs `make ci` (format + teal + test + example) on push/PR to main
-- **work.yml**: runs autonomous work loop every 3 hours
 - **docs.yml**: publishes generated docs to `docs` branch on push to main
 - **release.yml**: daily release build producing `cosmic-lua` and `cosmic-lua-debug`
