@@ -278,9 +278,9 @@ local function generate_welcome(): string
 Welcome to cosmic-lua!
 
 Quick start:
-  cosmic --docs <query>    search documentation
+  cosmic --docs <query>    search documentation (non-interactive)
   cosmic --help            show all options
-  help()                   search docs from REPL
+  cosmic -i                start REPL (help() available interactively)
 
 Run 'cosmic --welcome' to see this again.
 ]]
@@ -290,7 +290,7 @@ end
 -- Interactive REPL using cosmopolitan's linenoise-based REPL
 local function run_repl()
   io.write(_VERSION .. "  Copyright (C) 1994-2024 Lua.org, PUC-Rio\n")
-  io.write("Type help() for interactive help, or run with --docs / --examples\n")
+  io.write("Type help() for docs, or use --docs <query> outside the REPL\n")
 
   require("cosmo")
 
@@ -404,6 +404,10 @@ local function generate_help(): string
   table.insert(lines, "Environment variables:")
   table.insert(lines, "  COSMIC_NO_REQUIRE_HINTS    disable helpful module-not-found suggestions")
   table.insert(lines, "  COSMIC_NO_WELCOME          suppress welcome message on first run")
+  table.insert(lines, "")
+  table.insert(lines, "Documentation:")
+  table.insert(lines, "  cosmic --docs <query>      look up docs from the command line")
+  table.insert(lines, "  help(<query>)              look up docs in the REPL (interactive only)")
   table.insert(lines, "")
   table.insert(lines, "Low-level cosmo.* bindings are available but hidden by default.")
   table.insert(lines, "Use --docs cosmo.<module> to access them directly.")

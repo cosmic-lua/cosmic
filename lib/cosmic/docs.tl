@@ -1,6 +1,10 @@
 --- Access embedded documentation from the cosmic binary.
 --- Provides a CLI interface similar to Go's `go doc` command.
 --- Documentation is parsed at build time and embedded as a serialized Lua index.
+---
+--- Two access paths:
+---   - Non-interactive: `cosmic --docs <query>` from the command line
+---   - Interactive: `help(<query>)` in the REPL (`cosmic -i`)
 
 local cio = require("cosmic.io")
 local fuzzy = require("cosmic.fuzzy")
