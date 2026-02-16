@@ -14,7 +14,7 @@ cosmic_built := $(o)/cosmic/.built
 
 cosmic_version_lua := $(o)/cosmic/version.lua
 
-$(cosmic_version_lua): .FORCE
+$(cosmic_version_lua): .FORCE | $$(cosmos_staged)
 	@mkdir -p $(@D)
 	@echo "return { cosmic = \"$$(git describe --tags --always --dirty 2>/dev/null || echo unknown)\", cosmos = \"$$($(cosmos_lua_bin) -e "print(dofile('3p/cosmos/version.lua').version)")\" }" > $@
 
