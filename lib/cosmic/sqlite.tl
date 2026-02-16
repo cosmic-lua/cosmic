@@ -415,6 +415,10 @@ local function make_database(raw_db: RawDatabase): Database
 end
 
 --- Open or create an SQLite database.
+--- Relative paths are resolved against the current working directory.
+--- Absolute paths (e.g. "/var/data/app.db") work as expected.
+--- Use ":memory:" for an in-memory database that is not written to disk.
+--- The file is created if it does not already exist.
 --- @param filename string Database path (use ":memory:" for in-memory)
 --- @return Database Database handle with __close support
 --- @return string Error message on failure
