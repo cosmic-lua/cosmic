@@ -252,8 +252,13 @@ commands = {
 
         local ok, out, errmsg = run({"gh", "pr", "create", "--repo", repo, "--head", branch, "--title", title, "--body", body})
         if not ok then
-          io.stderr:write("  failed: " .. (errmsg or out or "") .. "\n")
-          all_ok = false
+          local combined = (out or "") .. (errmsg or "")
+          if combined:find("already exists") then
+            io.stderr:write("  pr already exists, treating as success\n")
+          else
+            io.stderr:write("  failed: " .. (errmsg or out or "") .. "\n")
+            all_ok = false
+          end
         end
       else
         io.stderr:write("  skipped unknown action: " .. action_type .. "\n")
