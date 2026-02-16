@@ -338,3 +338,48 @@ print("No --version flag found")
   assert(not (out as string):find("No %-%-version flag found"), "should not print fallback message")
 end
 test_nvim_version_pattern()
+
+-- Test that all CLI options appear in help text
+local function test_help_includes_all_options()
+  -- Run cosmic --help and capture output
+  local ok, out = spawn.spawn({cosmic, "--help"}):read()
+  assert(ok, "cosmic --help should succeed")
+  local help_text = out as string
+
+  -- All short options from shortopts = "e:l:ivEWh"
+  local short_options = {"-e", "-l", "-i", "-v", "-E", "-W", "-h"}
+  
+  -- All long options from longopts table
+  local long_options = {
+    "--version",
+    "--help",
+    "--compile",
+    "--format",
+    "--check-format",
+    "--check-types",
+    "--embed",
+    "--output",
+    "--extract",
+    "--check-examples",
+    "--examples",
+    "--benchmark",
+    "--docs",
+    "--welcome",
+    "--test",
+    "--report",
+  }
+
+  -- Check that every short option appears in help text
+  for _, opt in ipairs(short_options) do
+    -- Use escaped pattern for special chars like -
+    local pattern = opt:gsub("%-", "%%-")
+    assert(help_text:find(pattern), "help text missing short option: " .. opt)
+  end
+
+  -- Check that every long option appears in help text
+  for _, opt in ipairs(long_options) do
+    local pattern = opt:gsub("%-", "%%-")
+    assert(help_text:find(pattern), "help text missing long option: " .. opt)
+  end
+end
+test_help_includes_all_options()

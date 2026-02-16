@@ -390,7 +390,7 @@ local function generate_help(): string
   table.insert(lines, "  --test <output> <cmd>...      run command, write .got/.out/.err")
   table.insert(lines, "  --report <paths>...           report on test results")
   table.insert(lines, "  --welcome                     show welcome message")
-  table.insert(lines, "  --help                        show this help message")
+  table.insert(lines, "  -h, --help                    show this help message")
   table.insert(lines, "")
   table.insert(lines, "Standard lua options:")
   table.insert(lines, "  -e <stat>                   execute string 'stat'")
