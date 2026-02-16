@@ -412,6 +412,9 @@ local function generate_help(): string
   table.insert(lines, "Low-level cosmo.* bindings are available but hidden by default.")
   table.insert(lines, "Use --docs cosmo.<module> to access them directly.")
   table.insert(lines, "")
+  table.insert(lines, "Common patterns:")
+  table.insert(lines, "  proc.is_main()              guard code that runs only as a script (not when required)")
+  table.insert(lines, "")
   table.insert(lines, "For module documentation, use: cosmic-lua --docs <module>")
 
   -- Show module list with descriptions (only cosmic.* modules, not cosmo.* bindings)
