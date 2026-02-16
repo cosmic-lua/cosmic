@@ -375,7 +375,7 @@ local function test_access()
   assert(fs.access(filepath, fs.F_OK), "file should exist")
   assert(fs.access(filepath, fs.R_OK), "file should be readable")
   assert(fs.access(filepath, fs.W_OK), "file should be writable")
-  assert(not fs.access("/nonexistent", fs.F_OK), "nonexistent file should not exist")
+  assert(not fs.access(path.join(test_dir, "does_not_exist"), fs.F_OK), "nonexistent file should not exist")
 
   teardown(test_dir)
 end
