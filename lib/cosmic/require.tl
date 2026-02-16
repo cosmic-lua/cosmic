@@ -197,26 +197,26 @@ end
 --- Call this early in startup to enable helpful error messages.
 local function install()
   _G.require = enhanced_require as function(string): any
-  end
+end
 
-  --- Restore original require.
-  --- Useful for testing or disabling enhanced errors.
-  local function uninstall()
-    _G.require = original_require
-  end
+--- Restore original require.
+--- Useful for testing or disabling enhanced errors.
+local function uninstall()
+  _G.require = original_require
+end
 
-  local record RequireModule
-    install: function()
-    uninstall: function()
-    module_exists: function(name: string): boolean
-    format_error: function(name: string): string
-  end
+local record RequireModule
+  install: function()
+  uninstall: function()
+  module_exists: function(name: string): boolean
+  format_error: function(name: string): string
+end
 
-  local M: RequireModule = {
-    install = install,
-    uninstall = uninstall,
-    module_exists = module_exists,
-    format_error = format_error,
-  }
+local M: RequireModule = {
+  install = install,
+  uninstall = uninstall,
+  module_exists = module_exists,
+  format_error = format_error,
+}
 
-  return M
+return M

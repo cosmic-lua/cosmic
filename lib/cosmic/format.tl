@@ -270,20 +270,36 @@ end
 --- Determine if a `function` keyword on a line is a block-opening function
 --- definition (which needs indentation for its body) vs a function TYPE
 --- annotation (which does NOT open a block).
---- A function keyword is a type annotation when it appears after `:` in a
---- record field or parameter type position. We detect this by checking if
---- any prior token on the same line is `:` with no intervening block structure.
+--- A function keyword is a type annotation when it appears after `:` or `as`
+--- in a type position, or when it is nested inside parentheses that are part
+--- of a type annotation (e.g., return types like `(function | number)`).
 local function is_function_block_opener(line_items: {Item}, func_idx: integer): boolean
-  -- Scan backwards from func_idx to find context
+  -- Scan backwards from func_idx to find context.
+  -- Track paren depth so that `(` inside a balanced group (like a return type
+  -- annotation) is not mistaken for an expression-level opening paren.
+  local paren_depth = 0
   for i = func_idx - 1, 1, -1 do
     local item = line_items[i]
     if item.kind == "comment" then
       -- skip
-    elseif item.tk == ":" then
-      -- function appears after colon: it's a type annotation
+    elseif item.tk == ")" then
+      paren_depth = paren_depth + 1
+    elseif item.tk == "(" then
+      if paren_depth > 0 then
+        paren_depth = paren_depth - 1
+        -- Still inside a balanced group, keep scanning
+      else
+        -- function after ( at depth 0 is a value/expression, it's a block opener
+        return true
+      end
+    elseif paren_depth > 0 then
+      -- Inside balanced parens (type annotation); skip everything
+    elseif item.tk == ":" or item.tk == "as" then
+      -- function appears after colon (type annotation) or after "as" (type cast):
+      -- it's a type, not a block opener
       return false
-    elseif item.tk == "=" or item.tk == "(" or item.tk == "," then
-      -- function after = or ( or , is a value/expression, it's a block opener
+    elseif item.tk == "=" or item.tk == "," then
+      -- function after = or , is a value/expression, it's a block opener
       return true
     elseif item.kind == "keyword" and (item.tk == "local" or item.tk == "return") then
       return true
@@ -302,6 +318,67 @@ end
 local function compute_indent_change(line_items: {Item}): integer, integer
   local pre_change = 0
   local post_change = 0
+
+  -- Build a set of item indices that are inside a function-type annotation.
+  -- When `function` is determined to be a type (not a block opener), the
+  -- balanced `(...)` parameter list that follows it (and any return-type
+  -- `(...)` group) are purely type syntax — their parens and inner `function`
+  -- keywords must not affect indentation.
+  local type_ctx: {integer: boolean} = {}
+  for idx, item in ipairs(line_items) do
+    if item.kind == "keyword" and item.tk == "function" and not type_ctx[idx] then
+      if not is_function_block_opener(line_items, idx) then
+        -- Mark everything from here through the balanced param list and
+        -- optional return-type group as type context.
+        type_ctx[idx] = true
+        local depth = 0
+        local j = idx + 1
+        -- Skip the parameter list (...)
+        while j <= #line_items do
+          type_ctx[j] = true
+          if line_items[j].tk == "(" then
+            depth = depth + 1
+          elseif line_items[j].tk == ")" then
+            depth = depth - 1
+            if depth == 0 then
+              j = j + 1
+              break
+            end
+          end
+          j = j + 1
+        end
+        -- If followed by ":" there may be a return type; skip it too
+        if j <= #line_items and line_items[j].tk == ":" then
+          type_ctx[j] = true
+          j = j + 1
+          -- If the return type is wrapped in (...), skip that group
+          if j <= #line_items and line_items[j].tk == "(" then
+            depth = 0
+            while j <= #line_items do
+              type_ctx[j] = true
+              if line_items[j].tk == "(" then
+                depth = depth + 1
+              elseif line_items[j].tk == ")" then
+                depth = depth - 1
+                if depth == 0 then
+                  break
+                end
+              end
+              j = j + 1
+            end
+          else
+            -- Bare return types: skip comma-separated type tokens until we hit
+            -- something that can't be part of a type (newline boundary or a
+            -- keyword/identifier that starts a new statement).
+            -- In practice, on a single line the remaining tokens are just type
+            -- names, commas, and punctuation until end-of-line, but we don't
+            -- need to mark those — they contain no ( ) { } or block keywords
+            -- so they won't affect indent counts anyway.
+          end
+        end
+      end
+    end
+  end
 
   -- Find first non-comment item
   local first_code: Item = nil
@@ -327,6 +404,10 @@ local function compute_indent_change(line_items: {Item}): integer, integer
   for idx, item in ipairs(line_items) do
     if item.kind == "comment" then
       -- skip comments
+    elseif type_ctx[idx] then
+      -- Inside a function-type annotation; do not count for indentation.
+      -- Still track is_first_code so leading-closer logic works.
+      is_first_code = false
     else
       if is_block_opener(item) then
         post_change = post_change + 1

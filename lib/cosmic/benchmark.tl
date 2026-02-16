@@ -209,181 +209,181 @@ end
     local start = os_clock()
     for _ = 1, n do
       local run_ok, run_err: boolean, any = pcall(bench_fn as function())
-        if not run_ok then
-          -- Restore stdout/stderr before returning
-          if devnull then
-            io.stdout = old_stdout
-            io.stderr = old_stderr
-            io.output(old_stdout)
-            _G.print = old_print
-            devnull:close()
-          end
-          result.error = "runtime error: " .. tostring(run_err)
-          return result
+      if not run_ok then
+        -- Restore stdout/stderr before returning
+        if devnull then
+          io.stdout = old_stdout
+          io.stderr = old_stderr
+          io.output(old_stdout)
+          _G.print = old_print
+          devnull:close()
         end
-      end
-      elapsed = os_clock() - start
-
-      if elapsed < MIN_DURATION then
-        -- Estimate iterations needed to reach MIN_DURATION
-        if elapsed > 0 then
-          local estimate = math.ceil(n * MIN_DURATION / elapsed)
-          -- Don't grow too fast - cap at 10x
-          n = math.min(estimate, n * 10)
-        else
-          n = n * 10
-        end
+        result.error = "runtime error: " .. tostring(run_err)
+        return result
       end
     end
+    elapsed = os_clock() - start
 
-    -- Restore stdout/stderr
-    if devnull then
-      io.stdout = old_stdout
-      io.stderr = old_stderr
-      io.output(old_stdout)
-      _G.print = old_print
-      devnull:close()
+    if elapsed < MIN_DURATION then
+      -- Estimate iterations needed to reach MIN_DURATION
+      if elapsed > 0 then
+        local estimate = math.ceil(n * MIN_DURATION / elapsed)
+        -- Don't grow too fast - cap at 10x
+        n = math.min(estimate, n * 10)
+      else
+        n = n * 10
+      end
     end
-
-    -- Calculate results
-    result.iterations = n
-    result.total_ns = elapsed * 1e9
-    result.ns_per_op = result.total_ns / n
-
-    return result
   end
 
-  --- Run all benchmarks in a file, optionally filtered by pattern.
-  --- Parses and executes Benchmark_* functions, returning aggregated results.
-  --- @param file_path string Path to the Teal file containing benchmarks
-  --- @param filter string Optional Lua pattern to filter benchmark names (e.g., "concat" matches Benchmark_string_concat)
-  --- @return RunResult Result with exit code (0=pass, 1=fail, 2=skip), results, and errors
-  local function run(file_path: string, filter?: string): RunResult
-    local f, err = io.open(file_path, "r")
-    if not f then
-      return {
-        exit_code = 1,
-        results = {},
-        error = "cannot open file: " .. (err or "unknown"),
-      }
-    end
+  -- Restore stdout/stderr
+  if devnull then
+    io.stdout = old_stdout
+    io.stderr = old_stderr
+    io.output(old_stdout)
+    _G.print = old_print
+    devnull:close()
+  end
 
-    local source = f:read("*a")
-    f:close()
+  -- Calculate results
+  result.iterations = n
+  result.total_ns = elapsed * 1e9
+  result.ns_per_op = result.total_ns / n
 
-    local all_benchmarks = parse_benchmarks(source)
+  return result
+end
 
-    -- Filter benchmarks by pattern if provided
-    local benchmarks: {Benchmark} = {}
-    if filter then
-      for _, benchmark in ipairs(all_benchmarks) do
-        if benchmark.name:find(filter) then
-          table.insert(benchmarks, benchmark)
-        end
+--- Run all benchmarks in a file, optionally filtered by pattern.
+--- Parses and executes Benchmark_* functions, returning aggregated results.
+--- @param file_path string Path to the Teal file containing benchmarks
+--- @param filter string Optional Lua pattern to filter benchmark names (e.g., "concat" matches Benchmark_string_concat)
+--- @return RunResult Result with exit code (0=pass, 1=fail, 2=skip), results, and errors
+local function run(file_path: string, filter?: string): RunResult
+  local f, err = io.open(file_path, "r")
+  if not f then
+    return {
+      exit_code = 1,
+      results = {},
+      error = "cannot open file: " .. (err or "unknown"),
+    }
+  end
+
+  local source = f:read("*a")
+  f:close()
+
+  local all_benchmarks = parse_benchmarks(source)
+
+  -- Filter benchmarks by pattern if provided
+  local benchmarks: {Benchmark} = {}
+  if filter then
+    for _, benchmark in ipairs(all_benchmarks) do
+      if benchmark.name:find(filter) then
+        table.insert(benchmarks, benchmark)
       end
-    else
-      benchmarks = all_benchmarks
     end
+  else
+    benchmarks = all_benchmarks
+  end
 
-    if #benchmarks == 0 then
-      -- No benchmarks found (or none matched filter) - this is a skip (exit code 2)
-      if filter and #all_benchmarks > 0 then
-        return {
-          exit_code = 2,
-          results = {},
-          error = "no benchmarks matching '" .. filter .. "' (found " .. #all_benchmarks .. " total)",
-        }
-      end
+  if #benchmarks == 0 then
+    -- No benchmarks found (or none matched filter) - this is a skip (exit code 2)
+    if filter and #all_benchmarks > 0 then
       return {
         exit_code = 2,
         results = {},
-        error = nil,
+        error = "no benchmarks matching '" .. filter .. "' (found " .. #all_benchmarks .. " total)",
       }
     end
-
-    local results: {BenchmarkResult} = {}
-    local has_error = false
-
-    for _, benchmark in ipairs(benchmarks) do
-      local result = run_benchmark(benchmark, file_path)
-      table.insert(results, result)
-      if result.error then
-        has_error = true
-      end
-    end
-
     return {
-      exit_code = has_error and 1 or 0,
-      results = results,
+      exit_code = 2,
+      results = {},
       error = nil,
     }
   end
 
-  --- Format a number with appropriate units for readability.
-  --- @param ns number Nanoseconds
-  --- @return string Formatted time string
-  local function format_time(ns: number): string
-    if ns < 1000 then
-      return string.format("%.2f ns/op", ns)
-    elseif ns < 1000000 then
-      return string.format("%.2f µs/op", ns / 1000)
-    elseif ns < 1000000000 then
-      return string.format("%.2f ms/op", ns / 1000000)
-    else
-      return string.format("%.2f s/op", ns / 1000000000)
+  local results: {BenchmarkResult} = {}
+  local has_error = false
+
+  for _, benchmark in ipairs(benchmarks) do
+    local result = run_benchmark(benchmark, file_path)
+    table.insert(results, result)
+    if result.error then
+      has_error = true
     end
   end
 
-  --- Format results for human-readable output (Go-style).
-  --- Creates formatted benchmark output showing iterations and ns/op.
-  --- @param file_path string Path to the file that was benchmarked
-  --- @param run_result RunResult Results from running benchmarks
-  --- @return string Formatted output for display
-  local function format_results(file_path: string, run_result: RunResult): string
-    local lines: {string} = {}
+  return {
+    exit_code = has_error and 1 or 0,
+    results = results,
+    error = nil,
+  }
+end
 
-    if run_result.error then
-      table.insert(lines, file_path .. ": ERROR: " .. run_result.error)
-      return table.concat(lines, "\n")
-    end
+--- Format a number with appropriate units for readability.
+--- @param ns number Nanoseconds
+--- @return string Formatted time string
+local function format_time(ns: number): string
+  if ns < 1000 then
+    return string.format("%.2f ns/op", ns)
+  elseif ns < 1000000 then
+    return string.format("%.2f µs/op", ns / 1000)
+  elseif ns < 1000000000 then
+    return string.format("%.2f ms/op", ns / 1000000)
+  else
+    return string.format("%.2f s/op", ns / 1000000000)
+  end
+end
 
-    if run_result.exit_code == 2 then
-      table.insert(lines, file_path .. ": SKIP (no benchmarks)")
-      return table.concat(lines, "\n")
-    end
+--- Format results for human-readable output (Go-style).
+--- Creates formatted benchmark output showing iterations and ns/op.
+--- @param file_path string Path to the file that was benchmarked
+--- @param run_result RunResult Results from running benchmarks
+--- @return string Formatted output for display
+local function format_results(file_path: string, run_result: RunResult): string
+  local lines: {string} = {}
 
-    -- Header (Go-style)
-    table.insert(lines, "pkg: " .. file_path)
-
-    for _, result in ipairs(run_result.results) do
-      if result.error then
-        table.insert(lines, result.name .. ": FAIL")
-        table.insert(lines, "  error: " .. result.error)
-      else
-        -- Go-style output: BenchmarkName    N    ns/op
-        local iter_str = tostring(result.iterations)
-        local time_str = format_time(result.ns_per_op)
-        -- Right-align iterations to ~10 chars for readability
-        local padding = string.rep(" ", math.max(1, 10 - #iter_str))
-        table.insert(lines, result.name .. padding .. iter_str .. "    " .. time_str)
-      end
-    end
-
-    table.insert(lines, "PASS")
-
+  if run_result.error then
+    table.insert(lines, file_path .. ": ERROR: " .. run_result.error)
     return table.concat(lines, "\n")
   end
 
-  local record BenchmarkModule
-    run: function(file_path: string, filter?: string): RunResult
-    parse_benchmarks: function(source: string): {Benchmark}
-    format_results: function(file_path: string, run_result: RunResult): string
+  if run_result.exit_code == 2 then
+    table.insert(lines, file_path .. ": SKIP (no benchmarks)")
+    return table.concat(lines, "\n")
   end
 
-  local M: BenchmarkModule = {
-    run = run,
-    parse_benchmarks = parse_benchmarks,
-    format_results = format_results,
-  }
+  -- Header (Go-style)
+  table.insert(lines, "pkg: " .. file_path)
 
-  return M
+  for _, result in ipairs(run_result.results) do
+    if result.error then
+      table.insert(lines, result.name .. ": FAIL")
+      table.insert(lines, "  error: " .. result.error)
+    else
+      -- Go-style output: BenchmarkName    N    ns/op
+      local iter_str = tostring(result.iterations)
+      local time_str = format_time(result.ns_per_op)
+      -- Right-align iterations to ~10 chars for readability
+      local padding = string.rep(" ", math.max(1, 10 - #iter_str))
+      table.insert(lines, result.name .. padding .. iter_str .. "    " .. time_str)
+    end
+  end
+
+  table.insert(lines, "PASS")
+
+  return table.concat(lines, "\n")
+end
+
+local record BenchmarkModule
+  run: function(file_path: string, filter?: string): RunResult
+  parse_benchmarks: function(source: string): {Benchmark}
+  format_results: function(file_path: string, run_result: RunResult): string
+end
+
+local M: BenchmarkModule = {
+  run = run,
+  parse_benchmarks = parse_benchmarks,
+  format_results = format_results,
+}
+
+return M
