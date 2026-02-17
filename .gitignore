@@ -25,7 +25,7 @@ bin/
 
 # Embedded env vars (may contain secrets)
 env.d/*
-!env.d/.README
+!env.d/README
 
 # OS files
 .DS_Store

@@ -15,10 +15,8 @@ end
 
 local function test_basic_load()
   local dir = make_envd("basic")
-  cio.barf(fs.join(dir, "COSMIC_ENVD_TEST_A"), "value_a")
-  cio.barf(fs.join(dir, "COSMIC_ENVD_TEST_B"), "value_b")
+  cio.barf(fs.join(dir, "00-base"), "COSMIC_ENVD_TEST_A=value_a\nCOSMIC_ENVD_TEST_B=value_b\n")
 
-  -- ensure not already set
   env.unset("COSMIC_ENVD_TEST_A")
   env.unset("COSMIC_ENVD_TEST_B")
 
@@ -29,7 +27,6 @@ local function test_basic_load()
   assert(env.get("COSMIC_ENVD_TEST_B") == "value_b",
     "expected 'value_b', got '" .. tostring(env.get("COSMIC_ENVD_TEST_B")) .. "'")
 
-  -- cleanup
   env.unset("COSMIC_ENVD_TEST_A")
   env.unset("COSMIC_ENVD_TEST_B")
 end
@@ -37,9 +34,8 @@ test_basic_load()
 
 local function test_no_overwrite()
   local dir = make_envd("nooverwrite")
-  cio.barf(fs.join(dir, "COSMIC_ENVD_TEST_EXISTING"), "new_value")
+  cio.barf(fs.join(dir, "vars"), "COSMIC_ENVD_TEST_EXISTING=new_value\n")
 
-  -- set existing value first
   env.set("COSMIC_ENVD_TEST_EXISTING", "original_value")
 
   local result = envd.load_dir(dir)
@@ -51,55 +47,97 @@ local function test_no_overwrite()
 end
 test_no_overwrite()
 
-local function test_dotfiles_skipped()
-  local dir = make_envd("dotfiles")
-  cio.barf(fs.join(dir, ".hidden"), "should_skip")
-  cio.barf(fs.join(dir, "COSMIC_ENVD_TEST_VISIBLE"), "visible")
+local function test_comments_skipped()
+  local dir = make_envd("comments")
+  cio.barf(fs.join(dir, "vars"), "# this is a comment\nCOSMIC_ENVD_TEST_C=works\n# another comment\n")
 
-  env.unset("COSMIC_ENVD_TEST_VISIBLE")
+  env.unset("COSMIC_ENVD_TEST_C")
   local result = envd.load_dir(dir)
   assert(result.count == 1, "expected 1, got " .. tostring(result.count))
-  assert(env.get(".hidden") == nil, "dotfile should not be set")
-  assert(env.get("COSMIC_ENVD_TEST_VISIBLE") == "visible")
+  assert(env.get("COSMIC_ENVD_TEST_C") == "works")
 
-  env.unset("COSMIC_ENVD_TEST_VISIBLE")
+  env.unset("COSMIC_ENVD_TEST_C")
 end
-test_dotfiles_skipped()
+test_comments_skipped()
 
-local function test_invalid_names_skipped()
-  local dir = make_envd("invalid")
-  cio.barf(fs.join(dir, "123BAD"), "skip")
-  cio.barf(fs.join(dir, "has-dash"), "skip")
-  cio.barf(fs.join(dir, "has space"), "skip")
-  cio.barf(fs.join(dir, "COSMIC_ENVD_TEST_GOOD"), "good")
+local function test_comment_only_file_sets_nothing()
+  local dir = make_envd("commentonly")
+  cio.barf(fs.join(dir, "README"), "# this file is documentation\n# no vars here\n")
 
-  env.unset("COSMIC_ENVD_TEST_GOOD")
+  local result = envd.load_dir(dir)
+  assert(result.count == 0, "comment-only file should set nothing, got " .. tostring(result.count))
+end
+test_comment_only_file_sets_nothing()
+
+local function test_blank_lines_skipped()
+  local dir = make_envd("blanks")
+  cio.barf(fs.join(dir, "vars"), "\n\nCOSMIC_ENVD_TEST_D=val\n\n")
+
+  env.unset("COSMIC_ENVD_TEST_D")
   local result = envd.load_dir(dir)
   assert(result.count == 1, "expected 1, got " .. tostring(result.count))
-  assert(env.get("COSMIC_ENVD_TEST_GOOD") == "good")
+  assert(env.get("COSMIC_ENVD_TEST_D") == "val")
 
-  env.unset("COSMIC_ENVD_TEST_GOOD")
+  env.unset("COSMIC_ENVD_TEST_D")
 end
-test_invalid_names_skipped()
+test_blank_lines_skipped()
 
-local function test_empty_files_skipped()
-  local dir = make_envd("empty")
-  cio.barf(fs.join(dir, "COSMIC_ENVD_TEST_EMPTY1"), "")
-  cio.barf(fs.join(dir, "COSMIC_ENVD_TEST_EMPTY2"), "   \n\t  ")
-  cio.barf(fs.join(dir, "COSMIC_ENVD_TEST_NOTEMPTY"), "value")
+local function test_lexical_order_concat()
+  local dir = make_envd("order")
+  -- 01-first sets a key, 02-second overrides it
+  cio.barf(fs.join(dir, "01-first"), "COSMIC_ENVD_TEST_ORDER=first\n")
+  cio.barf(fs.join(dir, "02-second"), "COSMIC_ENVD_TEST_ORDER=second\n")
 
-  env.unset("COSMIC_ENVD_TEST_EMPTY1")
-  env.unset("COSMIC_ENVD_TEST_EMPTY2")
-  env.unset("COSMIC_ENVD_TEST_NOTEMPTY")
+  env.unset("COSMIC_ENVD_TEST_ORDER")
   local result = envd.load_dir(dir)
   assert(result.count == 1, "expected 1, got " .. tostring(result.count))
-  assert(env.get("COSMIC_ENVD_TEST_EMPTY1") == nil, "empty file should not set var")
-  assert(env.get("COSMIC_ENVD_TEST_EMPTY2") == nil, "whitespace-only file should not set var")
-  assert(env.get("COSMIC_ENVD_TEST_NOTEMPTY") == "value")
+  assert(env.get("COSMIC_ENVD_TEST_ORDER") == "second",
+    "later file should win, got '" .. tostring(env.get("COSMIC_ENVD_TEST_ORDER")) .. "'")
 
-  env.unset("COSMIC_ENVD_TEST_NOTEMPTY")
+  env.unset("COSMIC_ENVD_TEST_ORDER")
 end
-test_empty_files_skipped()
+test_lexical_order_concat()
+
+local function test_value_with_equals()
+  local dir = make_envd("equals")
+  cio.barf(fs.join(dir, "vars"), "COSMIC_ENVD_TEST_EQ=foo=bar=baz\n")
+
+  env.unset("COSMIC_ENVD_TEST_EQ")
+  local result = envd.load_dir(dir)
+  assert(result.count == 1, "expected 1, got " .. tostring(result.count))
+  assert(env.get("COSMIC_ENVD_TEST_EQ") == "foo=bar=baz",
+    "value after first = should be preserved, got '" .. tostring(env.get("COSMIC_ENVD_TEST_EQ")) .. "'")
+
+  env.unset("COSMIC_ENVD_TEST_EQ")
+end
+test_value_with_equals()
+
+local function test_empty_value()
+  local dir = make_envd("emptyval")
+  cio.barf(fs.join(dir, "vars"), "COSMIC_ENVD_TEST_EMPTY=\n")
+
+  env.unset("COSMIC_ENVD_TEST_EMPTY")
+  local result = envd.load_dir(dir)
+  assert(result.count == 1, "expected 1, got " .. tostring(result.count))
+  assert(env.get("COSMIC_ENVD_TEST_EMPTY") == "",
+    "empty value should be set as empty string, got '" .. tostring(env.get("COSMIC_ENVD_TEST_EMPTY")) .. "'")
+
+  env.unset("COSMIC_ENVD_TEST_EMPTY")
+end
+test_empty_value()
+
+local function test_invalid_key_lines_skipped()
+  local dir = make_envd("invalidkey")
+  cio.barf(fs.join(dir, "vars"), "123BAD=skip\nhas-dash=skip\nCOSMIC_ENVD_TEST_OK=good\n")
+
+  env.unset("COSMIC_ENVD_TEST_OK")
+  local result = envd.load_dir(dir)
+  assert(result.count == 1, "expected 1, got " .. tostring(result.count))
+  assert(env.get("COSMIC_ENVD_TEST_OK") == "good")
+
+  env.unset("COSMIC_ENVD_TEST_OK")
+end
+test_invalid_key_lines_skipped()
 
 local function test_missing_dir()
   local result = envd.load_dir(fs.join(tmpdir, "nonexistent_dir_xyz"))
@@ -107,37 +145,54 @@ local function test_missing_dir()
 end
 test_missing_dir()
 
-local function test_multiline_content()
-  local dir = make_envd("multiline")
-  cio.barf(fs.join(dir, "COSMIC_ENVD_TEST_MULTI"), "line1\nline2\nline3")
-
-  env.unset("COSMIC_ENVD_TEST_MULTI")
+local function test_load_result_source()
+  local dir = make_envd("source")
   local result = envd.load_dir(dir)
-  assert(result.count == 1, "expected 1, got " .. tostring(result.count))
-  assert(env.get("COSMIC_ENVD_TEST_MULTI") == "line1\nline2\nline3",
-    "multiline content should be preserved")
-
-  env.unset("COSMIC_ENVD_TEST_MULTI")
+  assert(result.source == dir, "source should be the dir path")
 end
-test_multiline_content()
+test_load_result_source()
 
-local function test_trailing_newline_trimmed()
-  local dir = make_envd("trailing")
-  cio.barf(fs.join(dir, "COSMIC_ENVD_TEST_TRIM"), "myvalue\n")
+local function test_parse_basic()
+  local vars = envd.parse("FOO=bar\nBAZ=qux\n")
+  assert(vars["FOO"] == "bar", "expected 'bar', got '" .. tostring(vars["FOO"]) .. "'")
+  assert(vars["BAZ"] == "qux", "expected 'qux', got '" .. tostring(vars["BAZ"]) .. "'")
+end
+test_parse_basic()
 
-  env.unset("COSMIC_ENVD_TEST_TRIM")
+local function test_parse_comments_and_blanks()
+  local vars = envd.parse("# comment\n\nKEY=val\n  # indented comment\n")
+  local count = 0
+  for _ in pairs(vars) do count = count + 1 end
+  assert(count == 1, "expected 1 key, got " .. tostring(count))
+  assert(vars["KEY"] == "val")
+end
+test_parse_comments_and_blanks()
+
+local function test_multiple_files_merge()
+  local dir = make_envd("merge")
+  cio.barf(fs.join(dir, "01-a"), "COSMIC_ENVD_TEST_X=from_a\nCOSMIC_ENVD_TEST_Y=from_a\n")
+  cio.barf(fs.join(dir, "02-b"), "COSMIC_ENVD_TEST_Y=from_b\nCOSMIC_ENVD_TEST_Z=from_b\n")
+
+  env.unset("COSMIC_ENVD_TEST_X")
+  env.unset("COSMIC_ENVD_TEST_Y")
+  env.unset("COSMIC_ENVD_TEST_Z")
+
   local result = envd.load_dir(dir)
-  assert(result.count == 1, "expected 1, got " .. tostring(result.count))
-  assert(env.get("COSMIC_ENVD_TEST_TRIM") == "myvalue",
-    "trailing newline should be trimmed, got '" .. tostring(env.get("COSMIC_ENVD_TEST_TRIM")) .. "'")
+  assert(result.count == 3, "expected 3, got " .. tostring(result.count))
+  assert(env.get("COSMIC_ENVD_TEST_X") == "from_a")
+  assert(env.get("COSMIC_ENVD_TEST_Y") == "from_b",
+    "later file should win for Y, got '" .. tostring(env.get("COSMIC_ENVD_TEST_Y")) .. "'")
+  assert(env.get("COSMIC_ENVD_TEST_Z") == "from_b")
 
-  env.unset("COSMIC_ENVD_TEST_TRIM")
+  env.unset("COSMIC_ENVD_TEST_X")
+  env.unset("COSMIC_ENVD_TEST_Y")
+  env.unset("COSMIC_ENVD_TEST_Z")
 end
-test_trailing_newline_trimmed()
+test_multiple_files_merge()
 
-local function test_underscore_prefix()
+local function test_underscore_prefix_key()
   local dir = make_envd("underscore")
-  cio.barf(fs.join(dir, "_COSMIC_ENVD_TEST_UNDER"), "val")
+  cio.barf(fs.join(dir, "vars"), "_COSMIC_ENVD_TEST_UNDER=val\n")
 
   env.unset("_COSMIC_ENVD_TEST_UNDER")
   local result = envd.load_dir(dir)
@@ -146,11 +201,4 @@ local function test_underscore_prefix()
 
   env.unset("_COSMIC_ENVD_TEST_UNDER")
 end
-test_underscore_prefix()
-
-local function test_load_result_source()
-  local dir = make_envd("source")
-  local result = envd.load_dir(dir)
-  assert(result.source == dir, "source should be the dir path")
-end
-test_load_result_source()
+test_underscore_prefix_key()

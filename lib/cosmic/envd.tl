@@ -1,25 +1,26 @@
 --- Load environment variables from an embedded env.d directory.
 ---
---- Each file in the env.d directory sets an environment variable.
---- The filename is the variable name; the file content (trimmed) is the value.
---- Existing environment variables are NOT overwritten — the real environment
---- always takes precedence.
+--- Files in the env.d directory use dotenv format: each line is either
+--- a KEY=VALUE assignment or a comment (lines starting with #). Files
+--- are read in lexical (sorted) order and concatenated — later assignments
+--- to the same key within env.d win. Existing environment variables are
+--- NOT overwritten; the real environment always takes precedence.
 ---
---- This follows the systemd/container convention where a directory of
---- single-value files represents environment variables. It's useful for
---- embedding credentials (API keys, tokens) into a cosmic executable:
+--- This follows the dotenv convention for embedding credentials (API keys,
+--- tokens) into a cosmic executable:
 ---
 ---   mkdir env.d
----   echo -n 'sk-ant-...' > env.d/ANTHROPIC_API_KEY
+---   echo 'ANTHROPIC_API_KEY=sk-ant-...' > env.d/api
 ---   cosmic --embed env.d
 ---
 --- At startup, call envd.load() to read /zip/embed/env.d/ and set any
 --- variables not already present in the environment.
 ---
---- Filenames must match [A-Za-z_][A-Za-z0-9_]* (standard env var names).
---- Dotfiles, invalid names, and empty/whitespace-only files are skipped.
---- Lines starting with # in the file content are NOT treated as comments —
---- the entire content (trimmed) is the value.
+--- Key names must match [A-Za-z_][A-Za-z0-9_]*. Blank lines and lines
+--- starting with # are ignored. Values are taken as-is after the first =
+--- (no trimming, no quote stripping).
+---
+--- Set COSMIC_DEBUG=1 to see which vars are loaded and which are skipped.
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local env = require("cosmic.env")
@@ -32,14 +33,33 @@ local record LoadResult
   source: string
 end
 
---- Load env vars from a directory. Each file's name is the var name,
---- content (trimmed) is the value. Skips dotfiles and names that aren't
---- valid env var names. Does not overwrite existing env vars.
+--- Parse a single dotenv-format string. Returns a map of KEY=VALUE pairs.
+--- Lines starting with # are comments. Blank lines are skipped.
+--- Keys must match [A-Za-z_][A-Za-z0-9_]*.
+--- @param content string The dotenv content to parse
+--- @return {string: string} Parsed key-value pairs
+local function parse(content: string): {string: string}
+  local vars: {string: string} = {}
+  for line in content:gmatch("[^\n]+") do
+    -- skip comments and blank lines
+    if not line:match("^%s*#") and not line:match("^%s*$") then
+      local key, value = line:match("^([A-Za-z_][A-Za-z0-9_]*)=(.*)")
+      if key then
+        vars[key] = value
+      end
+    end
+  end
+  return vars
+end
+
+--- Load env vars from a directory of dotenv files. Files are read in
+--- lexical order and concatenated — later files can override keys from
+--- earlier files. Existing env vars are never overwritten.
 ---
---- When COSMIC_DEBUG is set, prints the name (not value) and source path
---- of each variable set to stderr.
+--- When COSMIC_DEBUG is set, prints the name (not value) of each variable
+--- set or skipped to stderr, along with the source file.
 ---
---- @param dir string The directory to read env files from
+--- @param dir string The directory to read dotenv files from
 --- @return LoadResult Result with count of variables set and source path
 local function load_dir(dir: string): LoadResult
   local result: LoadResult = {count = 0, source = dir}
@@ -64,33 +84,41 @@ local function load_dir(dir: string): LoadResult
   dh:close()
   table.sort(names)
 
+  -- concatenate all files in lexical order, track which file each key came from
+  local merged: {string: string} = {}
+  local sources: {string: string} = {}
   for _, name in ipairs(names) do
-    -- skip dotfiles and names that aren't valid env var names
-    if not name:match("^[A-Za-z_][A-Za-z0-9_]*$") then
-      if debug then
-        io.stderr:write("[envd] skip invalid name: " .. name .. "\n")
+    local path = fs.join(dir, name)
+    local content = cio.slurp(path)
+    if content then
+      local vars = parse(content)
+      for key, value in pairs(vars) do
+        merged[key] = value
+        sources[key] = name
       end
-    elseif env.get(name) then
+    elseif debug then
+      io.stderr:write("[envd] skip " .. name .. ": unreadable\n")
+    end
+  end
+
+  -- apply in sorted key order for deterministic behavior
+  local keys: {string} = {}
+  for key in pairs(merged) do
+    keys[#keys + 1] = key
+  end
+  table.sort(keys)
+
+  for _, key in ipairs(keys) do
+    local existing = env.get(key)
+    if existing then
       if debug then
-        io.stderr:write("[envd] skip " .. name .. ": already set in environment\n")
+        io.stderr:write("[envd] skip " .. key .. " from " .. sources[key] .. ": overridden by environment\n")
       end
     else
-      local path = fs.join(dir, name)
-      local content = cio.slurp(path)
-      if content then
-        -- trim leading/trailing whitespace (trailing newlines are common)
-        local value = content:match("^%s*(.-)%s*$") or ""
-        if value ~= "" then
-          env.set(name, value)
-          result.count = result.count + 1
-          if debug then
-            io.stderr:write("[envd] set " .. name .. " (source: " .. path .. ")\n")
-          end
-        elseif debug then
-          io.stderr:write("[envd] skip " .. name .. ": empty value\n")
-        end
-      elseif debug then
-        io.stderr:write("[envd] skip " .. name .. ": unreadable\n")
+      env.set(key, merged[key])
+      result.count = result.count + 1
+      if debug then
+        io.stderr:write("[envd] set " .. key .. " from " .. sources[key] .. "\n")
       end
     end
   end
@@ -112,11 +140,13 @@ end
 local record EnvdModule
   load: function(): LoadResult
   load_dir: function(dir: string): LoadResult
+  parse: function(content: string): {string: string}
 end
 
 local M: EnvdModule = {
   load = load,
   load_dir = load_dir,
+  parse = parse,
 }
 
 return M
