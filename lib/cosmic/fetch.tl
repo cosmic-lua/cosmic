@@ -15,6 +15,10 @@ end
 
 --- Options for fetch requests.
 local record Opts
+  --- HTTP method (default "GET").
+  method: string
+  --- Request body to send (for POST, PUT, PATCH).
+  body: string
   --- HTTP headers to send with the request.
   headers: {string: string}
   --- HTTP proxy URL.
