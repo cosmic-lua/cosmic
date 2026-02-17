@@ -1,0 +1,25 @@
+# env.d — embedded environment variables
+#
+# Each file in this directory sets an environment variable when embedded
+# into a cosmic executable. The filename is the variable name; the file
+# content (trimmed) is the value.
+#
+# Existing environment variables are never overwritten — the real
+# environment always takes precedence.
+#
+# Usage:
+#   echo -n 'sk-ant-...' > env.d/ANTHROPIC_API_KEY
+#   cosmic --embed env.d
+#
+# At runtime, call require("cosmic.envd").load() early in startup.
+# Variables are read from /zip/embed/env.d/ inside the executable.
+#
+# Rules:
+#   - filenames must match [A-Za-z_][A-Za-z0-9_]* (like valid env var names)
+#   - dotfiles (like this file) and invalid names are skipped
+#   - empty and whitespace-only files are skipped
+#   - trailing whitespace/newlines are trimmed
+#   - multiline content is preserved (only leading/trailing whitespace trimmed)
+#   - set COSMIC_DEBUG=1 to see which vars are loaded at startup
+#
+# This file is a dotfile, so it is ignored by the envd loader.

@@ -23,6 +23,10 @@ bin/
 *~
 .*.swp
 
+# Embedded env vars (may contain secrets)
+env.d/*
+!env.d/.README
+
 # OS files
 .DS_Store
 Thumbs.db

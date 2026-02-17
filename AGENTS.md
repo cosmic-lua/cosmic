@@ -192,6 +192,7 @@ all modules are under `lib/cosmic/` and imported as `cosmic.*`:
 | docs | query embedded documentation index |
 | embed | create custom executables with embedded files |
 | env | environment variable get/set/unset |
+| envd | load environment variables from embedded env.d directory |
 | example | example runner with `Example_*` functions |
 | fetch | HTTP client with retry support |
 | format | Teal/Lua code formatter |
