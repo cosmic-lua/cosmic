@@ -156,12 +156,12 @@ local function test_setitimer()
 
   -- Set single-shot timer: fire in 100ms, no repeat
   signal.setitimer({
-    which = signal.ITIMER_REAL,
-    valuesec = 0,
-    valuens = 100000000,
-    intervalsec = 0,
-    intervalns = 0,
-  })
+      which = signal.ITIMER_REAL,
+      valuesec = 0,
+      valuens = 100000000,
+      intervalsec = 0,
+      intervalns = 0,
+    })
 
   -- Unblock SIGALRM to allow delivery
   signal.sigprocmask(signal.SIG_SETMASK, oldmask)
@@ -173,12 +173,12 @@ local function test_setitimer()
 
   -- Disarm timer and restore old handler
   signal.setitimer({
-    which = signal.ITIMER_REAL,
-    valuesec = 0,
-    valuens = 0,
-    intervalsec = 0,
-    intervalns = 0,
-  })
+      which = signal.ITIMER_REAL,
+      valuesec = 0,
+      valuens = 0,
+      intervalsec = 0,
+      intervalns = 0,
+    })
   signal.sigaction(signal.SIGALRM, old_handler)
 end
 test_setitimer()
