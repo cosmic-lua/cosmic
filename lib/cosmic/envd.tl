@@ -20,6 +20,14 @@
 --- starting with # are ignored. Values are taken as-is after the first =
 --- (no trimming, no quote stripping).
 ---
+--- Variable expansion is supported in values using ${VAR} syntax:
+---   ${VAR}            expands to the value of VAR
+---   ${VAR:-default}   expands to default if VAR is unset or empty
+---   ${VAR-default}    expands to default if VAR is unset
+--- Variables defined earlier in the same file or in earlier files (lexical
+--- order) are available for expansion, as are existing environment variables.
+--- Undefined variables with no default expand to empty string.
+---
 --- Set COSMIC_DEBUG=1 to see which vars are loaded and which are skipped.
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
@@ -33,19 +41,66 @@ local record LoadResult
   source: string
 end
 
+--- Expand ${VAR}, ${VAR:-default}, and ${VAR-default} references in a
+--- string. Looks up variables in ctx first, then falls back to the
+--- process environment. Undefined variables with no default expand to
+--- empty string.
+--- @param value string The string to expand
+--- @param ctx {string: string} Context of previously defined variables
+--- @return string The expanded string
+local function expand(value: string, ctx: {string: string}): string
+  return (value:gsub("%${([^}]+)}", function(expr: string): string
+        -- ${VAR:-default} — use default if unset or empty
+        local name, default = expr:match("^([A-Za-z_][A-Za-z0-9_]*):%-(.*)")
+        if name then
+          local v = ctx[name] or env.get(name)
+          if v and v ~= "" then
+            return v
+          end
+          return default
+        end
+        -- ${VAR-default} — use default if unset (empty is ok)
+        name, default = expr:match("^([A-Za-z_][A-Za-z0-9_]*)%-(.*)")
+        if name then
+          local v = ctx[name] or env.get(name)
+          if v ~= nil then
+            return v
+          end
+          return default
+        end
+        -- ${VAR} — plain expansion
+        name = expr:match("^([A-Za-z_][A-Za-z0-9_]*)$")
+        if name then
+          return ctx[name] or env.get(name) or ""
+        end
+        -- malformed expression — leave as-is
+        return "${" .. expr .. "}"
+      end))
+end
+
 --- Parse a single dotenv-format string. Returns a map of KEY=VALUE pairs.
 --- Lines starting with # are comments. Blank lines are skipped.
 --- Keys must match [A-Za-z_][A-Za-z0-9_]*.
+--- Values undergo ${VAR} expansion using ctx as the lookup context.
 --- @param content string The dotenv content to parse
+--- @param ctx? {string: string} Context for variable expansion (default: {})
 --- @return {string: string} Parsed key-value pairs
-local function parse(content: string): {string: string}
+local function parse(content: string, ctx: {string: string}): {string: string}
   local vars: {string: string} = {}
+  local lookup: {string: string} = {}
+  if ctx then
+    for k, v in pairs(ctx) do
+      lookup[k] = v
+    end
+  end
   for line in content:gmatch("[^\n]+") do
     -- skip comments and blank lines
     if not line:match("^%s*#") and not line:match("^%s*$") then
       local key, value = line:match("^([A-Za-z_][A-Za-z0-9_]*)=(.*)")
       if key then
-        vars[key] = value
+        local expanded = expand(value, lookup)
+        vars[key] = expanded
+        lookup[key] = expanded
       end
     end
   end
@@ -91,7 +146,7 @@ local function load_dir(dir: string): LoadResult
     local path = fs.join(dir, name)
     local content = cio.slurp(path)
     if content then
-      local vars = parse(content)
+      local vars = parse(content, merged)
       for key, value in pairs(vars) do
         merged[key] = value
         sources[key] = name
@@ -140,13 +195,15 @@ end
 local record EnvdModule
   load: function(): LoadResult
   load_dir: function(dir: string): LoadResult
-  parse: function(content: string): {string: string}
+  parse: function(content: string, ctx?: {string: string}): {string: string}
+  expand: function(value: string, ctx: {string: string}): string
 end
 
 local M: EnvdModule = {
   load = load,
   load_dir = load_dir,
   parse = parse,
+  expand = expand,
 }
 
 return M
