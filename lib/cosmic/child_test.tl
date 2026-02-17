@@ -212,6 +212,38 @@ local function test_spawn_inherits_env()
 end
 test_spawn_inherits_env()
 
+local function test_spawn_with_env_map()
+  -- child.spawn should accept {string:string} map from env.all()
+  local env = require("cosmic.env")
+  local sentinel = "cosmic_test_map_" .. tostring(unix.getpid())
+  unix.setenv("COSMIC_TEST_MAP", sentinel)
+  local vars = env.all()
+  local handle = child.spawn({lua_bin, "-e", [[
+    io.write(os.getenv("COSMIC_TEST_MAP") or "")
+  ]]}, {env = vars as {string}})
+  assert(handle ~= nil, "handle should not be nil")
+  local ok, out, code = handle:read()
+  assert(ok, "child should exit 0, got code " .. tostring(code))
+  assert(out == sentinel, "expected '" .. sentinel .. "', got '" .. tostring(out) .. "'")
+end
+test_spawn_with_env_map()
+
+local function test_spawn_with_env_list()
+  -- child.spawn should still accept {string} list format
+  local env_mod = require("cosmic.env")
+  local sentinel = "cosmic_test_list_" .. tostring(unix.getpid())
+  unix.setenv("COSMIC_TEST_LIST", sentinel)
+  local vars = env_mod.list()
+  local handle = child.spawn({lua_bin, "-e", [[
+    io.write(os.getenv("COSMIC_TEST_LIST") or "")
+  ]]}, {env = vars})
+  assert(handle ~= nil, "handle should not be nil")
+  local ok, out, code = handle:read()
+  assert(ok, "child should exit 0, got code " .. tostring(code))
+  assert(out == sentinel, "expected '" .. sentinel .. "', got '" .. tostring(out) .. "'")
+end
+test_spawn_with_env_list()
+
 -- Constants tests --
 
 local function test_signal_constants_defined()

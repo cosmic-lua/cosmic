@@ -84,6 +84,33 @@ local function test_all_includes_set_variable()
 end
 test_all_includes_set_variable()
 
+local function test_list()
+  local entries = env.list()
+  assert(type(entries) == "table", "list() should return a table")
+  assert(#entries > 0, "list() should return non-empty list")
+  -- verify entries are "KEY=VALUE" strings
+  for _, entry in ipairs(entries) do
+    assert(type(entry) == "string", "list entry should be a string")
+    assert(entry:find("=", 1, true), "list entry should contain '=': " .. entry)
+  end
+end
+test_list()
+
+local function test_list_includes_set_variable()
+  env.set("COSMIC_TEST_LIST_CHECK", "list_value")
+  local entries = env.list()
+  local found = false
+  for _, entry in ipairs(entries) do
+    if entry == "COSMIC_TEST_LIST_CHECK=list_value" then
+      found = true
+      break
+    end
+  end
+  assert(found, "list() should include COSMIC_TEST_LIST_CHECK=list_value")
+  env.unset("COSMIC_TEST_LIST_CHECK")
+end
+test_list_includes_set_variable()
+
 local function test_set_empty_value()
   local ok = env.set("COSMIC_TEST_EMPTY", "")
   assert(ok, "set with empty value should succeed")

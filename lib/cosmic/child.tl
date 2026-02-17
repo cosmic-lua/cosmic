@@ -42,6 +42,9 @@ local record Handle
 end
 
 --- Options for spawning a process.
+--- env accepts either a list of "KEY=VALUE" strings ({string}) or a map
+--- of name-to-value pairs ({string:string}). Maps are converted to list
+--- format before passing to execve.
 local record Opts
   stdin: string | number
   stdout: number
@@ -165,6 +168,23 @@ local function WTERMSIG(wstatus: number): number
   return unix.WTERMSIG(wstatus)
 end
 
+--- Normalize an env table to a list of "KEY=VALUE" strings.
+--- Accepts either {string} (already a list) or {string:string} (map).
+--- @param env {string} The environment table (list or map)
+--- @return {string} A list of "KEY=VALUE" strings
+local function normalize_env(env: {string}): {string}
+  -- if the first element is a string, assume it's already a list
+  if env[1] ~= nil then
+    return env
+  end
+  -- otherwise, treat as a map and convert to list
+  local list: {string} = {}
+  for k, v in pairs(env as {string: string}) do
+    table.insert(list, k .. "=" .. v)
+  end
+  return list
+end
+
 -- High-level spawn API --
 
 --- Spawns a child process with I/O control.
@@ -251,7 +271,7 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
       end
     end
 
-    local env = opts.env or unix.environ()
+    local env = opts.env and normalize_env(opts.env) or unix.environ()
     if (argv[1] as string):find("/") then
       unix.execve(argv[1], argv, env)
     else
