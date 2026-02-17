@@ -39,7 +39,6 @@ bin/
   pr.yml               CI on push/PR (make ci)
   docs.yml             publish docs on push to main
   release.yml          daily release build
-.claude/skills/        agent skills (project board, friction logs)
 ```
 
 ## Language and Conventions
