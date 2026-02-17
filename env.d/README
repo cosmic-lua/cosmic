@@ -1,0 +1,19 @@
+# env.d — embedded environment variables
+#
+# Files in this directory use dotenv format. Each non-comment, non-blank
+# line should be KEY=VALUE. Lines starting with # are comments.
+#
+# Files are read in lexical order and concatenated — later files can
+# override keys from earlier files. Existing environment variables are
+# never overwritten; the real environment always takes precedence.
+#
+# Usage:
+#   echo 'ANTHROPIC_API_KEY=sk-ant-...' > env.d/credentials
+#   cosmic --embed env.d
+#
+# At runtime, call require("cosmic.envd").load() early in startup.
+# Variables are read from /zip/embed/env.d/ inside the executable.
+#
+# Set COSMIC_DEBUG=1 to see which vars are loaded and which are skipped.
+#
+# This file contains only comments, so no variables are set from it.
