@@ -195,6 +195,18 @@ $(o)/%.format.got: $(o)/% $(cosmic_bin) | $(bootstrap_files)
 	@mkdir -p $(@D)
 	-@$(cosmic_bin) --check-format $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $@
 
+all_linted := $(patsubst %,%.lint.got,$(all_checkable_files))
+
+## Check file length limits on all files
+lint: $(o)/lint-summary.txt
+
+$(o)/lint-summary.txt: $(all_linted) | $(build_reporter)
+	@$(reporter) --dir $(o) $^ | tee $@
+
+$(o)/%.lint.got: $(o)/% lib/build/lint.tl | $(bootstrap_cosmic)
+	@mkdir -p $(@D)
+	-@$(linter) $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $@
+
 .PHONY: clean
 ## Remove all build artifacts
 clean:
@@ -310,7 +322,7 @@ doc-publish: $(all_docs) $(docs_publish) | $(bootstrap_cosmic)
 	@$(bootstrap_cosmic) -- $(docs_publish) $(SOURCE_SHA) $(o)/docs $(or $(DOCS_BRANCH),docs)
 
 # CI stages: iterate with --keep-going to report all failures
-ci_stages := format teal test example
+ci_stages := format teal test example lint
 
 .PHONY: ci
 ## Run CI checks (teal, test, example) - run stage1 first to refresh bootstrap
