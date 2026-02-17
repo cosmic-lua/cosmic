@@ -266,6 +266,60 @@ local function test_unix_proxy_trailing_dot()
 end
 test_unix_proxy_trailing_dot()
 
+-- method and body option tests
+
+local function test_fetch_post_method()
+  -- Use httpbin's POST endpoint to verify POST works
+  local result = fetch.Fetch("https://httpbin.org/post", {method = "POST", body = "hello=world"})
+
+  if not result.ok then
+    io.stderr:write("SKIP: test_fetch_post_method (network unavailable)\n")
+    return
+  end
+
+  assert(result.ok == true, "ok should be true")
+  assert(result.status == 200, "status should be 200, got: " .. tostring(result.status))
+  assert(result.body ~= nil, "body should not be nil")
+  assert(result.body:find("hello=world") ~= nil, "body should echo posted data")
+end
+test_fetch_post_method()
+
+local function test_fetch_method_passthrough()
+  -- Verify that method option doesn't cause type errors
+  -- Use an invalid URL so this test doesn't require network
+  local result = fetch.Fetch("invalid://test", {method = "POST", body = "test"})
+  assert(result ~= nil, "result should not be nil")
+  assert(result.ok == false, "result.ok should be false for invalid URL")
+  assert(result.error ~= nil, "result.error should be set")
+end
+test_fetch_method_passthrough()
+
+local function test_stream_post_method()
+  if not has_fetch_stream then return end
+  local result = fetch.stream("https://httpbin.org/post", {method = "POST", body = "stream=test"})
+
+  if not result.ok then
+    io.stderr:write("SKIP: test_stream_post_method (network unavailable)\n")
+    return
+  end
+
+  assert(result.ok == true, "ok should be true")
+  assert(result.status == 200, "status should be 200, got: " .. tostring(result.status))
+  assert(result.reader ~= nil, "reader should not be nil")
+
+  local chunks: {string} = {}
+  while true do
+    local chunk = result.reader:read()
+    if not chunk then break end
+    table.insert(chunks, chunk)
+  end
+
+  local body = table.concat(chunks)
+  assert(body:find("stream=test") ~= nil, "streamed body should echo posted data")
+  result.reader:close()
+end
+test_stream_post_method()
+
 -- proxy option passthrough test
 local function test_fetch_with_proxy_nonexistent_socket()
   -- Verify that the proxy option is passed through to cosmo.Fetch
