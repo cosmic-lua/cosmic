@@ -10,6 +10,23 @@ local record Errno
   doc: function(self: Errno): string
 end
 
+--- Options for setitimer: specifies which timer, initial fire time, and repeat interval.
+local record SetitimerOpts
+  which: number
+  valuesec: number
+  valuens: number
+  intervalsec: number
+  intervalns: number
+end
+
+--- Result from setitimer: previous timer values.
+local record SetitimerResult
+  valuesec: number
+  valuens: number
+  intervalsec: number
+  intervalns: number
+end
+
 --- Signal set for blocking, unblocking, and waiting on signals.
 --- Wraps unix.Sigset for use with sigprocmask, sigaction, and sigsuspend.
 local record Sigset
@@ -106,8 +123,9 @@ local record SignalModule
   sigsuspend: function(mask: Sigset): boolean, Errno
 
   --- Schedule SIGALRM signals at intervals.
-  --- which: ITIMER_REAL, ITIMER_VIRTUAL, or ITIMER_PROF
-  setitimer: function(which: number, intervalsec: number, intervalns: number, valuesec: number, valuens: number): number, number, number, number
+  --- Accepts a SetitimerOpts record with named fields for clarity.
+  --- Returns a SetitimerResult with the previous timer values.
+  setitimer: function(opts: SetitimerOpts): SetitimerResult
 
   --- Send a signal to a process.
   --- pid > 0 signals one process by id; 0 signals current group; -1 signals all.
@@ -183,6 +201,25 @@ local function strsignal(sig: number): string
   return unix.strsignal(sig)
 end
 
+--- Set an interval timer with opts record for clarity.
+--- Calls raw unix.setitimer which expects C-order (interval first, value second).
+--- Returns a SetitimerResult with previous timer values.
+local function setitimer(opts: SetitimerOpts): SetitimerResult
+  local old_isec, old_ins, old_vsec, old_vns = unix.setitimer(
+    opts.which,
+    opts.intervalsec or 0,
+    opts.intervalns or 0,
+    opts.valuesec or 0,
+    opts.valuens or 0
+  )
+  return {
+    valuesec = old_vsec,
+    valuens = old_vns,
+    intervalsec = old_isec,
+    intervalns = old_ins,
+  } as SetitimerResult
+end
+
 local M = {} as SignalModule
 
 -- Re-export functions that use Sigset directly from unix
@@ -190,7 +227,7 @@ M.Sigset = unix.Sigset as function(...: number): Sigset
 M.sigaction = unix.sigaction as function(sig: number, handler?: function | number, flags?: number, mask?: Sigset): (function | number, number, Sigset)
 M.sigprocmask = unix.sigprocmask as function(how: number, set: Sigset): Sigset
 M.sigsuspend = unix.sigsuspend as function(mask: Sigset): (boolean, Errno)
-M.setitimer = unix.setitimer as function(which: number, intervalsec: number, intervalns: number, valuesec: number, valuens: number): (number, number, number, number)
+M.setitimer = setitimer
 
 -- Delivery functions
 M.kill = kill
