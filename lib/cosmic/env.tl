@@ -66,12 +66,26 @@ local function all(): {string: string}
   return result
 end
 
+--- Get all environment variables as a list.
+--- Returns a list of "KEY=VALUE" strings suitable for passing to
+--- child.spawn or execve.
+--- @return {string} A list of "KEY=VALUE" strings
+local function list(): {string}
+  local entries = unix.environ()
+  local result: {string} = {}
+  for _, entry in ipairs(entries) do
+    table.insert(result, entry)
+  end
+  return result
+end
+
 local record EnvModule
   get: function(name: string): string
   set: function(name: string, value: string, overwrite?: boolean): boolean, string
   unset: function(name: string): boolean, string
   clear: function(): boolean, string
   all: function(): {string: string}
+  list: function(): {string}
 end
 
 local M: EnvModule = {
@@ -80,6 +94,7 @@ local M: EnvModule = {
   unset = unset,
   clear = clear,
   all = all,
+  list = list,
 }
 
 return M
