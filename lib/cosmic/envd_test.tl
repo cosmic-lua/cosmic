@@ -202,3 +202,120 @@ local function test_underscore_prefix_key()
   env.unset("_COSMIC_ENVD_TEST_UNDER")
 end
 test_underscore_prefix_key()
+
+-- variable expansion tests
+
+local function test_expand_plain_var()
+  local vars = envd.parse("BASE=/opt\nPATH_VAR=${BASE}/bin\n")
+  assert(vars["BASE"] == "/opt", "expected '/opt', got '" .. tostring(vars["BASE"]) .. "'")
+  assert(vars["PATH_VAR"] == "/opt/bin", "expected '/opt/bin', got '" .. tostring(vars["PATH_VAR"]) .. "'")
+end
+test_expand_plain_var()
+
+local function test_expand_undefined_var()
+  env.unset("COSMIC_ENVD_TEST_UNDEF")
+  local vars = envd.parse("VAL=${COSMIC_ENVD_TEST_UNDEF}rest\n")
+  assert(vars["VAL"] == "rest", "undefined should expand to empty, got '" .. tostring(vars["VAL"]) .. "'")
+end
+test_expand_undefined_var()
+
+local function test_expand_from_env()
+  env.set("COSMIC_ENVD_TEST_FROMENV", "envval")
+  local vars = envd.parse("VAL=${COSMIC_ENVD_TEST_FROMENV}\n")
+  assert(vars["VAL"] == "envval", "expected 'envval', got '" .. tostring(vars["VAL"]) .. "'")
+  env.unset("COSMIC_ENVD_TEST_FROMENV")
+end
+test_expand_from_env()
+
+local function test_expand_default_unset()
+  env.unset("COSMIC_ENVD_TEST_NOSUCH")
+  local vars = envd.parse("VAL=${COSMIC_ENVD_TEST_NOSUCH:-fallback}\n")
+  assert(vars["VAL"] == "fallback", "expected 'fallback', got '" .. tostring(vars["VAL"]) .. "'")
+end
+test_expand_default_unset()
+
+local function test_expand_default_empty()
+  local vars = envd.parse("EMPTY=\nVAL=${EMPTY:-fallback}\n")
+  assert(vars["VAL"] == "fallback", ":-default should trigger on empty, got '" .. tostring(vars["VAL"]) .. "'")
+end
+test_expand_default_empty()
+
+local function test_expand_default_set()
+  local vars = envd.parse("BASE=real\nVAL=${BASE:-fallback}\n")
+  assert(vars["VAL"] == "real", ":-default should not trigger when set, got '" .. tostring(vars["VAL"]) .. "'")
+end
+test_expand_default_set()
+
+local function test_expand_dash_default_unset()
+  env.unset("COSMIC_ENVD_TEST_NOSUCH2")
+  local vars = envd.parse("VAL=${COSMIC_ENVD_TEST_NOSUCH2-fallback}\n")
+  assert(vars["VAL"] == "fallback", "expected 'fallback', got '" .. tostring(vars["VAL"]) .. "'")
+end
+test_expand_dash_default_unset()
+
+local function test_expand_dash_default_empty()
+  local vars = envd.parse("EMPTY=\nVAL=${EMPTY-fallback}\n")
+  assert(vars["VAL"] == "", "-default should NOT trigger on empty, got '" .. tostring(vars["VAL"]) .. "'")
+end
+test_expand_dash_default_empty()
+
+local function test_expand_multiple_refs()
+  local vars = envd.parse("HOST=localhost\nPORT=8080\nURL=http://${HOST}:${PORT}/api\n")
+  assert(vars["URL"] == "http://localhost:8080/api",
+    "expected 'http://localhost:8080/api', got '" .. tostring(vars["URL"]) .. "'")
+end
+test_expand_multiple_refs()
+
+local function test_expand_with_ctx()
+  local ctx: {string: string} = {PRIOR = "fromctx"}
+  local vars = envd.parse("VAL=${PRIOR}/more\n", ctx)
+  assert(vars["VAL"] == "fromctx/more", "expected 'fromctx/more', got '" .. tostring(vars["VAL"]) .. "'")
+end
+test_expand_with_ctx()
+
+local function test_expand_across_files()
+  local dir = make_envd("expand_across")
+  cio.barf(fs.join(dir, "01-base"), "COSMIC_ENVD_TEST_BASE=/opt\n")
+  cio.barf(fs.join(dir, "02-derived"), "COSMIC_ENVD_TEST_DERIVED=${COSMIC_ENVD_TEST_BASE}/bin\n")
+
+  env.unset("COSMIC_ENVD_TEST_BASE")
+  env.unset("COSMIC_ENVD_TEST_DERIVED")
+
+  local result = envd.load_dir(dir)
+  assert(result.count == 2, "expected 2, got " .. tostring(result.count))
+  assert(env.get("COSMIC_ENVD_TEST_BASE") == "/opt")
+  assert(env.get("COSMIC_ENVD_TEST_DERIVED") == "/opt/bin",
+    "expected '/opt/bin', got '" .. tostring(env.get("COSMIC_ENVD_TEST_DERIVED")) .. "'")
+
+  env.unset("COSMIC_ENVD_TEST_BASE")
+  env.unset("COSMIC_ENVD_TEST_DERIVED")
+end
+test_expand_across_files()
+
+local function test_expand_no_expansion_without_braces()
+  local vars = envd.parse("BASE=val\nVAL=$BASE/rest\n")
+  assert(vars["VAL"] == "$BASE/rest",
+    "$VAR without braces should not expand, got '" .. tostring(vars["VAL"]) .. "'")
+end
+test_expand_no_expansion_without_braces()
+
+local function test_expand_malformed_expr()
+  local vars = envd.parse("VAL=${123BAD}\n")
+  assert(vars["VAL"] == "${123BAD}",
+    "malformed should be left as-is, got '" .. tostring(vars["VAL"]) .. "'")
+end
+test_expand_malformed_expr()
+
+local function test_expand_nested_default()
+  local vars = envd.parse("VAL=${NOSUCH:-a=b}\n")
+  assert(vars["VAL"] == "a=b",
+    "default can contain =, got '" .. tostring(vars["VAL"]) .. "'")
+end
+test_expand_nested_default()
+
+local function test_expand_function_directly()
+  local ctx: {string: string} = {FOO = "bar"}
+  local result = envd.expand("hello ${FOO} world", ctx)
+  assert(result == "hello bar world", "expected 'hello bar world', got '" .. result .. "'")
+end
+test_expand_function_directly()

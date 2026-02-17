@@ -80,4 +80,27 @@ print("MY_SECRET_TOKEN is " .. (env.get("MY_SECRET_TOKEN") and "set" or "unset")
   -- MY_SECRET_TOKEN is set
 end
 
+-- Example_variable_expansion shows ${VAR} expansion in dotenv values.
+-- Variables defined earlier in the same file or from an external context
+-- are available for expansion. Supports ${VAR:-default} and ${VAR-default}.
+local function Example_variable_expansion()
+  local envd = require("cosmic.envd")
+
+  -- basic expansion: later values can reference earlier ones
+  local vars = envd.parse("HOST=localhost\nPORT=8080\nURL=http://${HOST}:${PORT}\n")
+  print("URL=" .. vars["URL"])
+
+  -- ${VAR:-default} uses fallback when unset or empty
+  vars = envd.parse("TIMEOUT=${MISSING:-30}\n")
+  print("TIMEOUT=" .. vars["TIMEOUT"])
+
+  -- ${VAR-default} uses fallback only when unset (empty is kept)
+  vars = envd.parse("EMPTY=\nKEEP=${EMPTY-fallback}\n")
+  print("KEEP=" .. vars["KEEP"])
+  -- Output:
+  -- URL=http://localhost:8080
+  -- TIMEOUT=30
+  -- KEEP=
+end
+
 return {}
