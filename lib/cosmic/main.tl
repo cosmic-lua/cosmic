@@ -223,7 +223,7 @@ local function parse_args(): Opts
       opts.benchmark = optarg
       return opts
     elseif opt == "docs" then
-      opts.docs = optarg
+      opts.docs = optarg or ""
       return opts
     elseif opt == "welcome" then
       opts.welcome = true
@@ -262,7 +262,7 @@ local function generate_welcome(): string
 Welcome to cosmic-lua!
 
 Quick start:
-  cosmic --docs <query>    search documentation (non-interactive)
+  cosmic --docs [query]    search documentation (non-interactive)
   cosmic --help            show all options
   cosmic -i                start REPL (help() available interactively)
 
@@ -370,7 +370,7 @@ local function generate_help(): string
   table.insert(lines, "  --output <file>               output file for --embed (default: cosmic)")
   table.insert(lines, "  --extract <dir>               extract zip contents to directory")
   table.insert(lines, "  --benchmark <file.tl[:pat]>   run Benchmark_* functions, report timing")
-  table.insert(lines, "  --docs <query>                show documentation for module or symbol")
+  table.insert(lines, "  --docs [query]                show documentation for module or symbol")
   table.insert(lines, "  --test <output> <cmd>...      run command, write .got/.out/.err")
   table.insert(lines, "  --report <paths>...           report on test results")
   table.insert(lines, "  --welcome                     show welcome message")
@@ -390,7 +390,7 @@ local function generate_help(): string
   table.insert(lines, "  COSMIC_NO_WELCOME          suppress welcome message on first run")
   table.insert(lines, "")
   table.insert(lines, "Documentation:")
-  table.insert(lines, "  cosmic --docs <query>      look up docs from the command line")
+  table.insert(lines, "  cosmic --docs [query]      look up docs from the command line")
   table.insert(lines, "  help(<query>)              look up docs in the REPL (interactive only)")
   table.insert(lines, "")
   table.insert(lines, "Low-level cosmo.* bindings are available but hidden by default.")
@@ -399,7 +399,7 @@ local function generate_help(): string
   table.insert(lines, "Common patterns:")
   table.insert(lines, "  proc.is_main()              guard code that runs only as a script (not when required)")
   table.insert(lines, "")
-  table.insert(lines, "For module documentation, use: cosmic-lua --docs <module>")
+  table.insert(lines, "For module documentation, use: cosmic-lua --docs [module]")
 
   -- Show module list with descriptions (only cosmic.* modules, not cosmo.* bindings)
   local docs = require("cosmic.docs")
@@ -657,14 +657,37 @@ local function main(): integer, string
   end
 
   -- Handle --docs
-  if opts.docs then
-    local result = run_docs(opts.docs)
-    if result.ok then
+  if opts.docs ~= nil then
+    local query = opts.docs
+
+    -- For optional args with space-separated value, getopt doesn't consume it
+    -- Check if there's a positional arg that should be the query
+    if query == "" then
+      for i = 1, #arg do
+        if arg[i] == "--docs" then
+          -- Next arg (if exists and not an option) is the query
+          if i < #arg and not arg[i + 1]:match("^%-") then
+            query = arg[i + 1]
+          end
+          break
+        end
+      end
+    end
+
+    if query == "" then
+      local docs = require("cosmic.docs")
+      local result = docs.run("")
       io.write(result.output .. "\n")
-      return 0
+      return result.ok and 0 or 1
     else
-      io.stderr:write(result.output .. "\n")
-      return 1
+      local result = run_docs(query)
+      if result.ok then
+        io.write(result.output .. "\n")
+        return 0
+      else
+        io.stderr:write(result.output .. "\n")
+        return 1
+      end
     end
   end
 
