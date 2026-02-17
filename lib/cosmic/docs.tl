@@ -848,10 +848,12 @@ local function find_suggestions(query: string, index: DocIndex): {string}
   return results
 end
 
---- Show examples for a specific module.
---- @param module_name string The module name (e.g., "cosmic.sqlite")
+--- Show examples for a specific module, optionally filtered by function name.
+--- Supports queries like "cosmic.fetch" (all examples) or "cosmic.fetch.get"
+--- (only examples matching the "get" function).
+--- @param query string The query (e.g., "cosmic.sqlite" or "cosmic.fetch.get")
 --- @return DocsResult Result with examples content
-local function show_module_examples(module_name: string): DocsResult
+local function show_module_examples(query: string): DocsResult
   local index, err = load_index()
   if not index then
     return {
@@ -860,37 +862,81 @@ local function show_module_examples(module_name: string): DocsResult
     }
   end
 
-  local doc = index.modules[module_name]
-  if not doc then
-    -- Try to find suggestions
-    local suggestions = find_suggestions(module_name, index)
-    if #suggestions > 0 then
-      local lines: {string} = {"error: module not found: " .. module_name, ""}
-      table.insert(lines, "Did you mean?")
-      for i = 1, math.min(3, #suggestions) do
-        table.insert(lines, "  " .. suggestions[i])
-      end
-      return {ok = false, output = table.concat(lines, "\n")}
+  -- Try exact module match first
+  local doc = index.modules[query]
+  if doc then
+    if not doc.examples or #doc.examples == 0 then
+      return {
+        ok = false,
+        output = "No examples for " .. query,
+      }
     end
-    return {
-      ok = false,
-      output = "error: module not found: " .. module_name,
-    }
+    local simple_name = query:match("([^%.]+)$") or query
+    local lines: {string} = {"# " .. simple_name .. " examples", ""}
+    for _, example in ipairs(doc.examples) do
+      table.insert(lines, render_example(example))
+    end
+    return {ok = true, output = table.concat(lines, "\n")}
   end
 
-  if not doc.examples or #doc.examples == 0 then
-    return {
-      ok = false,
-      output = "No examples for " .. module_name,
-    }
+  -- Try splitting into module + function filter
+  -- For "cosmic.fetch.get", try module="cosmic.fetch", func="get"
+  -- Walk backwards through dots to find a valid module name
+  local parts: {string} = {}
+  for part in query:gmatch("[^%.]+") do
+    table.insert(parts, part)
   end
 
-  local simple_name = module_name:match("([^%.]+)$") or module_name
-  local lines: {string} = {"# " .. simple_name .. " examples", ""}
-  for _, example in ipairs(doc.examples) do
-    table.insert(lines, render_example(example))
+  local mod_name: string = nil
+  local func_filter: string = nil
+  for i = #parts - 1, 1, -1 do
+    local candidate = table.concat(parts, ".", 1, i)
+    if index.modules[candidate] then
+      mod_name = candidate
+      func_filter = table.concat(parts, ".", i + 1, #parts)
+      break
+    end
   end
-  return {ok = true, output = table.concat(lines, "\n")}
+
+  if mod_name and func_filter then
+    doc = index.modules[mod_name]
+    if not doc.examples or #doc.examples == 0 then
+      return {
+        ok = false,
+        output = "No examples for " .. query,
+      }
+    end
+
+    local matching = find_matching_examples(doc.examples, func_filter)
+    if #matching == 0 then
+      return {
+        ok = false,
+        output = "No examples for " .. query,
+      }
+    end
+
+    local simple_mod = mod_name:match("([^%.]+)$") or mod_name
+    local lines: {string} = {"# " .. simple_mod .. "." .. func_filter .. " examples", ""}
+    for _, example in ipairs(matching) do
+      table.insert(lines, render_example(example))
+    end
+    return {ok = true, output = table.concat(lines, "\n")}
+  end
+
+  -- Nothing found — try suggestions
+  local suggestions = find_suggestions(query, index)
+  if #suggestions > 0 then
+    local lines: {string} = {"error: module not found: " .. query, ""}
+    table.insert(lines, "Did you mean?")
+    for i = 1, math.min(3, #suggestions) do
+      table.insert(lines, "  " .. suggestions[i])
+    end
+    return {ok = false, output = table.concat(lines, "\n")}
+  end
+  return {
+    ok = false,
+    output = "error: module not found: " .. query,
+  }
 end
 
 --- Main entry point for the docs command.
@@ -1027,7 +1073,7 @@ local record DocsModule
   render_module: function(name: string, doc: ModuleDoc): string
   search: function(query: string, include_cosmo?: boolean): {SearchResult}
   render_search_results: function(results: {SearchResult}, query: string): string
-  show_module_examples: function(module_name: string): DocsResult
+  show_module_examples: function(query: string): DocsResult
 end
 
 local M: DocsModule = {
