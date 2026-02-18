@@ -2,6 +2,15 @@
 --- Wraps cosmo.unix socket functions for TCP/UDP and Unix domain sockets.
 local unix = require("cosmo.unix")
 
+--- Errno record for extracting error information from C bindings.
+local record Errno
+  errno: function(self: Errno): number
+  winerr: function(self: Errno): number
+  name: function(self: Errno): string
+  call: function(self: Errno): string
+  doc: function(self: Errno): string
+end
+
 --- Socket handle for network I/O.
 --- Supports Lua 5.4's to-be-closed via __close metamethod.
 local record Socket
@@ -199,8 +208,15 @@ local function make_socket(fd: number): Socket
   --- @return boolean True on success
   --- @return string Error message on failure
   function sock:connect(ip: number, port: number): boolean, string
-    local ok = unix.connect(self.fd, ip, port)
+    local ok, err = unix.connect(self.fd, ip, port) as (boolean, any)
     if not ok then
+      if err then
+        local errno = err as Errno
+        if errno.doc then
+          return false, "connect: " .. errno:doc()
+        end
+        return false, "connect: " .. tostring(err)
+      end
       return false, "connect failed"
     end
     return true
@@ -211,8 +227,15 @@ local function make_socket(fd: number): Socket
   --- @return boolean True on success
   --- @return string Error message on failure
   function sock:connect_unix(path: string): boolean, string
-    local ok = (unix.connect as function(number, string): boolean)(self.fd, path)
+    local ok, err = (unix.connect as function(number, string): (boolean, any))(self.fd, path)
     if not ok then
+      if err then
+        local errno = err as Errno
+        if errno.doc then
+          return false, "connect_unix: " .. errno:doc()
+        end
+        return false, "connect_unix: " .. tostring(err)
+      end
       return false, "connect_unix failed"
     end
     return true
@@ -325,6 +348,60 @@ local function connect_unix(path: string): Socket, string
   return sock
 end
 
+--- Create a TCP socket and connect to an IP address and port.
+--- Convenience function that mirrors connect_unix().
+--- @param ip number Remote IP address
+--- @param port number Remote port
+--- @return Socket Connected socket
+--- @return string Error message on failure
+local function connect_tcp(ip: number, port: number): Socket, string
+  local sock, err = socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+  if not sock then
+    return nil, err
+  end
+  local ok, conn_err = sock:connect(ip, port)
+  if not ok then
+    sock:close()
+    return nil, conn_err
+  end
+  return sock
+end
+
+--- Perform a non-blocking connect on a socket.
+--- Handles EINPROGRESS by polling for POLLOUT, then checks SO_ERROR.
+--- The socket must already be created with SOCK_NONBLOCK.
+--- @param s Socket The non-blocking socket to connect
+--- @param ip number Remote IP address
+--- @param port number Remote port
+--- @param timeoutms number Timeout in milliseconds (default 10000)
+--- @return boolean True on success
+--- @return string Error message on failure
+local function nb_connect(s: Socket, ip: number, port: number, timeoutms?: number): boolean, string
+  timeoutms = timeoutms or 10000
+  local ok, conn_err = s:connect(ip, port)
+  if ok then return true end
+  -- Non-blocking socket returns EINPROGRESS; poll for writability
+  local fds: {number: number} = { [s.fd] = unix.POLLOUT }
+  local revents, poll_err = unix.poll(fds, timeoutms)
+  if not revents then
+    return false, "nb_connect: poll failed: " .. tostring(poll_err)
+  end
+  local ev = revents[s.fd] or 0
+  if ev == 0 then return false, "nb_connect: connect timed out" end
+  if ev & unix.POLLERR ~= 0 then
+    local so_err = s:getsockopt(unix.SOL_SOCKET, unix.SO_ERROR)
+    return false, "nb_connect: connect error: " .. tostring(so_err or conn_err)
+  end
+  if ev & unix.POLLOUT ~= 0 then
+    local so_err = s:getsockopt(unix.SOL_SOCKET, unix.SO_ERROR)
+    if so_err and so_err ~= 0 then
+      return false, "nb_connect: connect failed: SO_ERROR=" .. tostring(so_err)
+    end
+    return true
+  end
+  return false, "nb_connect: unexpected poll events=" .. tostring(ev)
+end
+
 --- Poll file descriptors for events.
 --- The fds table maps file descriptor numbers to event masks (POLLIN, POLLOUT, etc.).
 --- Returns a table with the same keys but containing revents for each fd.
@@ -409,6 +486,10 @@ local record NetModule
   -- Unix domain socket helpers
   listen_unix: function(path: string, backlog?: number): Socket, string
   connect_unix: function(path: string): Socket, string
+
+  -- TCP helpers
+  connect_tcp: function(ip: number, port: number): Socket, string
+  nb_connect: function(s: Socket, ip: number, port: number, timeoutms?: number): boolean, string
 
   -- Polling
   poll: function(fds: {number: number}, timeoutms?: number): {number: number}, string
@@ -516,6 +597,10 @@ local M: NetModule = {
   -- Unix domain socket helpers
   listen_unix = listen_unix,
   connect_unix = connect_unix,
+
+  -- TCP helpers
+  connect_tcp = connect_tcp,
+  nb_connect = nb_connect,
 
   -- Polling
   poll = poll,
