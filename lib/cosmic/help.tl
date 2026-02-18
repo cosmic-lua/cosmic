@@ -96,4 +96,4 @@ local function generate(): string
   return table.concat(lines, "\n")
 end
 
-return { generate = generate }
+return {generate = generate}
