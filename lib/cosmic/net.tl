@@ -208,7 +208,7 @@ local function make_socket(fd: number): Socket
   --- @return boolean True on success
   --- @return string Error message on failure
   function sock:connect(ip: number, port: number): boolean, string
-    local ok, err = unix.connect(self.fd, ip, port) as (boolean, any)
+    local ok, err = unix.connect(self.fd, ip, port) as(boolean, any)
     if not ok then
       if err then
         local errno = err as Errno
@@ -381,10 +381,10 @@ local function nb_connect(s: Socket, ip: number, port: number, timeoutms?: numbe
   local ok, conn_err = s:connect(ip, port)
   if ok then return true end
   -- Non-blocking socket returns EINPROGRESS; poll for writability
-  local fds: {number: number} = { [s.fd] = unix.POLLOUT }
-  local revents, poll_err = unix.poll(fds, timeoutms)
+  local fds: {number: number} = {[s.fd] = unix.POLLOUT}
+  local revents = unix.poll(fds, timeoutms)
   if not revents then
-    return false, "nb_connect: poll failed: " .. tostring(poll_err)
+    return false, "nb_connect: poll failed"
   end
   local ev = revents[s.fd] or 0
   if ev == 0 then return false, "nb_connect: connect timed out" end
