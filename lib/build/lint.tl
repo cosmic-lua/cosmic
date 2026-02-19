@@ -21,8 +21,9 @@ local FILE_LINES: {string: integer} = {
   ["lib/cosmic/doc.tl"] = 962,
   ["lib/cosmic/main.tl"] = 765,
   ["lib/cosmic/format.tl"] = 723,
+  ["lib/cosmic/net.tl"] = 703,
   ["lib/cosmic/sqlite_test.tl"] = 678,
-  ["lib/cosmic/net.tl"] = 618,
+  ["lib/cosmic/net_test.tl"] = 609,
   ["lib/cosmic/embed_test.tl"] = 511,
 }
 
