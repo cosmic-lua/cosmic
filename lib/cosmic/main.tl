@@ -37,6 +37,7 @@ local record Opts
   test_argv: {string} -- Command for --test
   test_output: string -- Output base for --test
   report_paths: {string} -- Paths for --report
+  make: string -- Directory for --make (nil = not set, "" = current dir)
   error: string -- Parse error message
 end
 
@@ -66,6 +67,7 @@ local function parse_args(): Opts
     test_argv = nil,
     test_output = nil,
     report_paths = nil,
+    make = nil,
     error = nil,
   }
 
@@ -235,6 +237,9 @@ local function parse_args(): Opts
     elseif opt == "report" then
       opts.report_paths = parser:remaining()
       return opts
+    elseif opt == "make" then
+      opts.make = optarg or ""
+      return opts
     end
   end
 
@@ -350,6 +355,7 @@ local function run_docs(query: string): DocsRunResult
     output = result.output,
   }
 end
+
 
 local function main(): integer, string
   local opts = parse_args()
@@ -608,6 +614,34 @@ local function main(): integer, string
   if opts.report_paths then
     local testrun = require("cosmic.testrun")
     return testrun.report(opts.report_paths)
+  end
+
+  -- Handle --make
+  if opts.make ~= nil then
+    local make_dir = opts.make
+
+    -- For optional args with space-separated value, getopt doesn't consume it
+    -- Check if there's a positional arg that should be the directory
+    if make_dir == "" then
+      for i = 1, #arg do
+        if arg[i] == "--make" then
+          -- Next arg (if exists and not an option) is the directory
+          if i < #arg and not arg[i + 1]:match("^%-") then
+            make_dir = arg[i + 1]
+          end
+          break
+        end
+      end
+    end
+
+    local mk = require("cosmic.make")
+    local ok, result = mk.run(make_dir ~= "" and make_dir or nil)
+    if ok then
+      return 0
+    else
+      io.stderr:write((result or "make generation failed") .. "\n")
+      return 1
+    end
   end
 
   -- Handle -W warnings: convert warnings to errors
