@@ -171,10 +171,10 @@ local function test_generate_custom_config()
   }
 
   local output = make.generate(project, {
-    source_dir = "src",
-    build_dir = "out",
-    cosmic_bin = "/usr/local/bin/cosmic",
-  })
+      source_dir = "src",
+      build_dir = "out",
+      cosmic_bin = "/usr/local/bin/cosmic",
+    })
 
   assert(output:match("COSMIC %?= /usr/local/bin/cosmic"), "expected custom COSMIC")
   assert(output:match("SRC_DIR %?= src"), "expected custom SRC_DIR")
