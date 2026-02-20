@@ -1,6 +1,7 @@
 --- Help text generation for cosmic CLI.
 --- Produces the complete --help output including static option descriptions
 --- and dynamic module list from embedded docs.
+
 --- Generate help text for cosmic CLI.
 --- @return string The complete help text
 local function generate(): string
