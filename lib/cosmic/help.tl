@@ -10,7 +10,7 @@ local function generate(): string
   local lines: {string} = {}
 
   -- Load static help text from embedded file
-  local static_help, err = cio.slurp("/zip/embed/sys/help.md")
+  local static_help, err = cio.slurp("/zip/sys/help.md")
   assert(static_help, "failed to load embedded help: " .. (err or "unknown error"))
   table.insert(lines, static_help)
 
