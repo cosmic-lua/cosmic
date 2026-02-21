@@ -24,17 +24,16 @@ end
 --- @return string The decoded string, or nil on error
 --- @return string? Error message if decoding failed
 local function decode(str: string): string, string
-  -- Replace + with space first
-  local s = str:gsub("+", " ")
-  -- Decode valid %XX sequences
-  local result = s:gsub("%%(%x%x)", function(hex: string): string
-      return string.char(tonumber(hex, 16) as integer)
-    end)
-  -- Check for remaining % characters (invalid sequences that weren't decoded)
-  if result:match("%%") then
+  -- Check for invalid percent-encoding sequences before decoding
+  -- Valid sequences are %XX where X is a hex digit
+  local check = str:gsub("%%(%x%x)", "") -- Remove valid sequences
+  if check:match("%%") then
+    -- Found a % that wasn't followed by two hex digits
     return nil, "invalid percent-encoding"
   end
-  return result, nil
+
+  -- Use native C implementation for the actual decoding
+  return cosmo.UnescapeParam(str)
 end
 
 --- Parse a query string into key-value pairs.
