@@ -40,6 +40,7 @@ local record cosmo
 
   -- url encoding
   EscapeParam: function(str: string): string
+  UnescapeParam: function(str: string): string, string
   ParseParams: function(query: string): {{string, string}}
 
   -- html/url escaping
