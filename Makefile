@@ -128,7 +128,7 @@ $(o)/%.tl.test.got: .PLEDGE = stdio rpath wpath cpath proc exec
 $(o)/%.tl.test.got: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwc:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null
 $(o)/%.tl.test.got: $(o)/%.lua $(test_files) $(o)/bin/cosmic | $(cosmic_bin)
 	@mkdir -p $(@D)
-	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
+	@TEST_DIR=$(TEST_DIR) PATH=$(CURDIR)/$(o)/bin:$$PATH $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
 # expand test deps: M's tests depend on own _files/_tl plus deps' _dir/_files/_lua
 # derive compiled .lua from _tl (first pass: compute all _lua)
