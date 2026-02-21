@@ -19,40 +19,63 @@ test_generate_contains_usage()
 local function test_generate_contains_cosmic_options()
   local result = help.generate()
   assert(result:find("Cosmic options:"), "help text should contain 'Cosmic options:'")
-  assert(result:find("%-%-help"), "help text should contain '--help'")
-  assert(result:find("%-%-compile"), "help text should contain '--compile'")
-  assert(result:find("%-%-docs"), "help text should contain '--docs'")
-  assert(result:find("%-%-format"), "help text should contain '--format'")
-  assert(result:find("%-%-check%-format"), "help text should contain '--check-format'")
-  assert(result:find("%-%-check%-types"), "help text should contain '--check-types'")
-  assert(result:find("%-%-embed"), "help text should contain '--embed'")
-  assert(result:find("%-%-extract"), "help text should contain '--extract'")
-  assert(result:find("%-%-benchmark"), "help text should contain '--benchmark'")
-  assert(result:find("%-%-test"), "help text should contain '--test'")
-  assert(result:find("%-%-report"), "help text should contain '--report'")
-  assert(result:find("%-%-welcome"), "help text should contain '--welcome'")
-  assert(result:find("%-%-examples"), "help text should contain '--examples'")
-  assert(result:find("%-%-check%-examples"), "help text should contain '--check-examples'")
+  
+  local longopts: {string} = {
+    "--help",
+    "--compile",
+    "--docs",
+    "--format",
+    "--check-format",
+    "--check-types",
+    "--embed",
+    "--extract",
+    "--benchmark",
+    "--test",
+    "--report",
+    "--welcome",
+    "--examples",
+    "--check-examples",
+  }
+  
+  for _, opt in ipairs(longopts) do
+    local pattern = opt:gsub("%-", "%%-")
+    assert(result:find(pattern), "help text missing long option: " .. opt)
+  end
 end
 test_generate_contains_cosmic_options()
 
 local function test_generate_contains_standard_lua_options()
   local result = help.generate()
   assert(result:find("Standard lua options:"), "help text should contain 'Standard lua options:'")
-  assert(result:find("%-e"), "help text should contain '-e'")
-  assert(result:find("%-l"), "help text should contain '-l'")
-  assert(result:find("%-i"), "help text should contain '-i'")
-  assert(result:find("%-v"), "help text should contain '-v'")
-  assert(result:find("%-E"), "help text should contain '-E'")
-  assert(result:find("%-W"), "help text should contain '-W'")
+  
+  local shortopts: {string} = {
+    "-e",
+    "-l",
+    "-i",
+    "-v",
+    "-E",
+    "-W",
+  }
+  
+  for _, opt in ipairs(shortopts) do
+    local pattern = opt:gsub("%-", "%%-")
+    assert(result:find(pattern), "help text missing short option: " .. opt)
+  end
 end
 test_generate_contains_standard_lua_options()
 
 local function test_generate_contains_env_vars()
   local result = help.generate()
   assert(result:find("Environment variables:"), "help text should contain 'Environment variables:'")
-  assert(result:find("COSMIC_NO_REQUIRE_HINTS"), "help text should mention COSMIC_NO_REQUIRE_HINTS")
-  assert(result:find("COSMIC_NO_WELCOME"), "help text should mention COSMIC_NO_WELCOME")
+  
+  local env_vars: {string} = {
+    "COSMIC_NO_REQUIRE_HINTS",
+    "COSMIC_NO_WELCOME",
+  }
+  
+  for _, var in ipairs(env_vars) do
+    assert(result:find(var), "help text missing environment variable: " .. var)
+  end
 end
 test_generate_contains_env_vars()
 
