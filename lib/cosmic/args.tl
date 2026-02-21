@@ -25,6 +25,7 @@ local longopts: {getopt.LongOpt} = {
   {name = "welcome", has_arg = "none"},
   {name = "test", has_arg = "required"},
   {name = "report", has_arg = "none"},
+  {name = "make", has_arg = "optional"},
 }
 
 return {
