@@ -26,6 +26,7 @@ local record Opts
   format: string -- Input file for --format (outputs to stdout)
   check_format: string -- Input file for --check-format (exits 0 if formatted)
   check_types: string -- Input file for --check-types
+  check_style: string -- Input file for --check-style
   embed: {string} -- Files to embed via --embed
   output: string -- Output file for --embed (defaults to "cosmic")
   extract: string -- Output dir for --extract
@@ -56,6 +57,7 @@ local function parse_args(): Opts
     format = nil,
     check_format = nil,
     check_types = nil,
+    check_style = nil,
     embed = {},
     output = nil,
     extract = nil,
@@ -208,6 +210,9 @@ local function parse_args(): Opts
       return opts
     elseif opt == "check-types" then
       opts.check_types = optarg
+      return opts
+    elseif opt == "check-style" then
+      opts.check_style = optarg
       return opts
     elseif opt == "embed" then
       opts.embed[#opts.embed + 1] = optarg
@@ -489,6 +494,21 @@ local function main(): integer, string
 
     if result.ok then
       io.write("Type check passed\n")
+      return 0
+    else
+      return 1
+    end
+  end
+
+  -- Handle --check-style
+  if opts.check_style then
+    local style = require("cosmic.style")
+    local result = style.check_file(opts.check_style)
+    if #result.diagnostics > 0 then
+      io.stderr:write(style.format_issues(result.diagnostics) .. "\n")
+    end
+    if result.ok then
+      io.write("Style check passed\n")
       return 0
     else
       return 1
