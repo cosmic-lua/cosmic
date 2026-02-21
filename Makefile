@@ -110,32 +110,25 @@ all_tested := $(patsubst %,$(o)/%.test.got,$(all_tests))
 ## Run all tests (incremental)
 test: $(o)/test-summary.txt
 
-# TODO(#241): use `cosmic --report $^` after next release
-$(o)/test-summary.txt: $(all_tested) | $(build_reporter)
-	@$(reporter) --dir $(o) $^ | tee $@
+$(o)/test-summary.txt: $(all_tested) | $(cosmic_bin)
+	@$(cosmic_bin) --report $^ | tee $@
 
 export TEST_O := $(o)
 export TEST_PLATFORM := $(platform)
 export TEST_BIN := $(o)/bin
-# TEST_TMPDIR is set per-test in the test rule below using mktemp
+# TEST_TMPDIR is set per-test by cosmic --test command
 # LUA_PATH: aggregate _lua_dirs from modules
 space := $(subst ,, )
 lua_path_dirs := $(foreach m,$(modules),$($(m)_lua_dirs))
 export LUA_PATH := $(subst $(space),;,$(foreach d,$(lua_path_dirs),$(CURDIR)/$(d)/?.lua $(CURDIR)/$(d)/?/init.lua));;
 export NO_COLOR := 1
 
-# Test rule: execute test directly via shebang, capture exit code, stdout, stderr
-# TODO(#241): use `cosmic --test $(basename $@) $<` after next release
+# Test rule: execute test via cosmic --test command
 $(o)/%.tl.test.got: .PLEDGE = stdio rpath wpath cpath proc exec
 $(o)/%.tl.test.got: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwc:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null
-$(o)/%.tl.test.got: $(o)/%.lua $(test_files) $(o)/bin/cosmic | $(bootstrap_files)
+$(o)/%.tl.test.got: $(o)/%.lua $(test_files) $(o)/bin/cosmic | $(cosmic_bin)
 	@mkdir -p $(@D)
-	@chmod +x $<
-	-@TEST_TMPDIR=$$(mktemp -d $(TMP)/cosmic_test_XXXXXX); \
-	  PATH=$(CURDIR)/$(o)/bin:$$PATH TEST_DIR=$(TEST_DIR) TEST_TMPDIR=$$TEST_TMPDIR $< > $(basename $@).out 2> $(basename $@).err; \
-	  STATUS=$$?; \
-	  rm -rf $$TEST_TMPDIR; \
-	  echo $$STATUS > $@
+	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
 # expand test deps: M's tests depend on own _files/_tl plus deps' _dir/_files/_lua
 # derive compiled .lua from _tl (first pass: compute all _lua)
