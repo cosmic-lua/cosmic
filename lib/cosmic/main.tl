@@ -356,7 +356,6 @@ local function run_docs(query: string): DocsRunResult
   }
 end
 
-
 local function main(): integer, string
   local opts = parse_args()
 
@@ -619,6 +618,7 @@ local function main(): integer, string
   -- Handle --make
   if opts.make ~= nil then
     local make_dir = opts.make
+    local make_target: string = nil
 
     -- For optional args with space-separated value, getopt doesn't consume it
     -- Check if there's a positional arg that should be the directory
@@ -628,6 +628,10 @@ local function main(): integer, string
           -- Next arg (if exists and not an option) is the directory
           if i < #arg and not arg[i + 1]:match("^%-") then
             make_dir = arg[i + 1]
+            -- Check for a second positional arg (target)
+            if i + 1 < #arg and not arg[i + 2]:match("^%-") then
+              make_target = arg[i + 2]
+            end
           end
           break
         end
@@ -635,11 +639,11 @@ local function main(): integer, string
     end
 
     local mk = require("cosmic.make")
-    local ok, result = mk.run(make_dir ~= "" and make_dir or nil)
+    local ok, result = mk.run(make_dir ~= "" and make_dir or nil, make_target)
     if ok then
       return 0
     else
-      io.stderr:write((result or "make generation failed") .. "\n")
+      io.stderr:write((result or "make execution failed") .. "\n")
       return 1
     end
   end
