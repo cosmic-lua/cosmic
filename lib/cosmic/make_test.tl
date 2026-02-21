@@ -3,27 +3,25 @@
 
 local make = require("cosmic.make")
 local fs = require("cosmic.fs")
-local unix = require("cosmo.unix")
-local path = require("cosmo.path")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
 local function setup(): string
-  local test_dir = path.join(TEST_TMPDIR, "make_test")
-  unix.makedirs(test_dir)
+  local test_dir = fs.join(TEST_TMPDIR, "make_test")
+  fs.makedirs(test_dir)
   return test_dir
 end
 
 local function teardown(test_dir: string)
   if test_dir then
-    unix.rmrf(test_dir)
+    fs.rmrf(test_dir)
   end
 end
 
 local function touch(filepath: string, content?: string)
-  local dir = path.dirname(filepath)
+  local dir = fs.dirname(filepath)
   if dir ~= "." then
-    unix.makedirs(dir)
+    fs.makedirs(dir)
   end
   local f = io.open(filepath, "w")
   if f then
@@ -35,10 +33,10 @@ end
 -- Test scan classifies files correctly
 local function test_scan_classification()
   local test_dir = setup()
-  touch(path.join(test_dir, "foo.tl"), "-- source")
-  touch(path.join(test_dir, "bar.tl"), "-- source")
-  touch(path.join(test_dir, "foo_test.tl"), "-- test")
-  touch(path.join(test_dir, "bar_example.tl"), "-- example")
+  touch(fs.join(test_dir, "foo.tl"), "-- source")
+  touch(fs.join(test_dir, "bar.tl"), "-- source")
+  touch(fs.join(test_dir, "foo_test.tl"), "-- test")
+  touch(fs.join(test_dir, "bar_example.tl"), "-- example")
 
   local project = make.scan(test_dir)
 
@@ -89,10 +87,10 @@ test_scan_empty()
 -- Test scan with subdirectories
 local function test_scan_subdirs()
   local test_dir = setup()
-  unix.makedirs(path.join(test_dir, "sub"))
-  touch(path.join(test_dir, "top.tl"), "-- top")
-  touch(path.join(test_dir, "sub", "deep.tl"), "-- deep")
-  touch(path.join(test_dir, "sub", "deep_test.tl"), "-- deep test")
+  fs.makedirs(fs.join(test_dir, "sub"))
+  touch(fs.join(test_dir, "top.tl"), "-- top")
+  touch(fs.join(test_dir, "sub", "deep.tl"), "-- deep")
+  touch(fs.join(test_dir, "sub", "deep_test.tl"), "-- deep test")
 
   local project = make.scan(test_dir)
 
