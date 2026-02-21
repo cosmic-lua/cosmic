@@ -113,6 +113,12 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
     package.path = package.path .. ";" .. dir .. "/?/init.d.tl"
   end
 
+  -- Prepend TL_PATH env var so callers don't need to pass include_dirs manually
+  local tl_path = os.getenv("TL_PATH")
+  if tl_path then
+    package.path = tl_path .. ";" .. package.path
+  end
+
   local env = tl.init_env(lax)
   local result, proc_err = tl.process_string(input, false, env, input_path)
 
