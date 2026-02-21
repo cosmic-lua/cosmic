@@ -339,3 +339,25 @@ local function test_stream_with_proxy_nonexistent_socket()
   assert(result.error ~= nil, "result.error should describe the failure")
 end
 test_stream_with_proxy_nonexistent_socket()
+
+-- timeout option tests
+
+local function test_timeout_option_accepted()
+  -- Verify that passing timeout does not cause a type error or crash
+  -- Use an invalid URL so this test doesn't require network
+  local result = fetch.Fetch("invalid://this-will-fail", {timeout = 30})
+  assert(result ~= nil, "result should not be nil")
+  assert(result.ok == false, "result.ok should be false for invalid URL")
+  assert(result.error ~= nil, "result.error should be set")
+end
+test_timeout_option_accepted()
+
+local function test_timeout_option_passthrough_stream()
+  if not has_fetch_stream then return end
+  -- Verify that passing timeout to stream does not cause a type error or crash
+  local result = fetch.stream("invalid://this-will-fail", {timeout = 5})
+  assert(result ~= nil, "result should not be nil")
+  assert(result.ok == false, "result.ok should be false for invalid URL")
+  assert(result.error ~= nil, "result.error should be set")
+end
+test_timeout_option_passthrough_stream()

@@ -34,6 +34,8 @@ local record Opts
   --- Predicate called after each successful HTTP response to decide retry.
   --- Return true to retry (e.g. on status 429 or 503). If nil, no retries.
   should_retry: function(Result): boolean
+  --- Request timeout in seconds. If nil, no timeout is applied.
+  timeout: number
 end
 
 --- Streaming reader for incremental body access.
