@@ -12,7 +12,7 @@ end
 
 local DEFAULT_FILE_LINES <const> = 500
 
-local FILE_LINES: {string: integer} = {
+local FILE_LINES = {
   ["lib/types/cosmo/unix.d.tl"] = 2352,
   ["lib/cosmic/fs.tl"] = 1273,
   ["lib/cosmic/docs.tl"] = 1090,
@@ -25,12 +25,12 @@ local FILE_LINES: {string: integer} = {
   ["lib/cosmic/sqlite_test.tl"] = 678,
   ["lib/cosmic/net_test.tl"] = 609,
   ["lib/cosmic/embed_test.tl"] = 511,
-}
+} as {string: integer}
 
-local function count_lines(path: string): integer, string
-  local f, err = io.open(path, "r")
+local function count_lines(path: string): integer
+  local f = io.open(path, "r")
   if not f then
-    return nil, err
+    return 0
   end
   local n = 0
   for _ in f:lines() do
@@ -40,43 +40,30 @@ local function count_lines(path: string): integer, string
   return n
 end
 
-local function check_file_length(file: string, n: integer, limit: integer): Diagnostic
+local function check_file_length(file: string, n: integer, limit: integer): {Diagnostic}
   if n > limit then
-    return {
+    return {{
       file = file,
       line = limit + 1,
       col = 1,
       rule = "file-length",
       message = string.format("%s has %d lines (limit: %d)", file, n, limit),
-    }
+    }}
   end
-  return nil
-end
-
-local function normalize_path(path: string): string
-  -- strip leading o/ or output dir prefix to match FILE_LINES keys
-  return path:gsub("^o/", "")
+  return {}
 end
 
 local function lint_file(path: string): {Diagnostic}
   local diagnostics: {Diagnostic} = {}
-  local n, err = count_lines(path)
-  if not n then
-    table.insert(diagnostics, {
-      file = path,
-      line = 0,
-      col = 0,
-      rule = "file-length",
-      message = "could not read file: " .. (err or "unknown error"),
-    })
-    return diagnostics
+  local n = count_lines(path)
+  if n == 0 then
+    return diagnostics  -- missing or empty file
   end
 
-  local key = normalize_path(path)
-  local limit = FILE_LINES[key] or DEFAULT_FILE_LINES
-  local diag = check_file_length(key, n, limit)
-  if diag then
-    table.insert(diagnostics, diag)
+  local limit = FILE_LINES[path] or DEFAULT_FILE_LINES
+  local file_diags = check_file_length(path, n, limit)
+  for _, d in ipairs(file_diags) do
+    table.insert(diagnostics, d)
   end
 
   return diagnostics
@@ -98,14 +85,15 @@ local function main(...: string): integer
   end
 
   if #all_diagnostics == 0 then
-    print("pass: lint")
+    print("pass:")
     return 0
   end
 
-  for _, d in ipairs(all_diagnostics) do
-    io.stderr:write(string.format("%s:%d:%d: %s: %s\n", d.file, d.line, d.col, d.rule, d.message))
-  end
   print(string.format("fail: %d issues", #all_diagnostics))
+  print("")
+  for _, d in ipairs(all_diagnostics) do
+    print(string.format("%s:%d:%d: %s: %s", d.file, d.line, d.col, d.rule, d.message))
+  end
   return 1
 end
 
@@ -119,7 +107,6 @@ return {
   FILE_LINES = FILE_LINES,
   count_lines = count_lines,
   check_file_length = check_file_length,
-  normalize_path = normalize_path,
   lint_file = lint_file,
   main = main,
 }

@@ -195,17 +195,17 @@ $(o)/%.format.got: $(o)/% $(cosmic_bin) | $(bootstrap_files)
 	@mkdir -p $(@D)
 	-@$(cosmic_bin) --check-format $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $@
 
-all_linted := $(patsubst %,%.lint.got,$(all_checkable_files))
+all_linted := $(patsubst %,$(o)/%.lint.ok,$(shell git ls-files 2>/dev/null))
 
 ## Check file length limits on all files
 lint: $(o)/lint-summary.txt
 
 $(o)/lint-summary.txt: $(all_linted) | $(build_reporter)
-	@$(reporter) --dir $(o) $^ | tee $@
+	@$(reporter) --dir $(o) $(patsubst %,%.got,$(basename $(all_linted))) | tee $@
 
-$(o)/%.lint.got: $(o)/% lib/build/lint.tl | $(bootstrap_cosmic)
+$(o)/%.lint.ok: % lib/build/lint.tl | $(bootstrap_cosmic)
 	@mkdir -p $(@D)
-	-@$(linter) $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $@
+	-@$(linter) $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $(basename $@).got; cp $(basename $@).got $@
 
 .PHONY: clean
 ## Remove all build artifacts
