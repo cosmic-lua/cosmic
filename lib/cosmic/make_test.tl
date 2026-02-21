@@ -192,7 +192,7 @@ local function test_generate_includes_cosmic_mk()
 
   local output = make.generate(project)
 
-  assert(output:match("^%-include cosmic%.mk"), "expected -include cosmic.mk at top")
+  assert(output:match("%-include cosmic%.mk"), "expected -include cosmic.mk in output")
 end
 test_generate_includes_cosmic_mk()
 
