@@ -8,7 +8,6 @@ local Dir = types.Dir
 local Statfs = types.Statfs
 local WalkStat = types.WalkStat
 local FileInfo = types.FileInfo
-local type Visitor = function(string, string, WalkStat, any): boolean
 
 -- Re-export path functions from fs_path submodule
 local fs_path = require("cosmic.fs_path")
@@ -324,7 +323,7 @@ local record FsModule
   minor: function(dev: number): number
 
   -- Directory walking
-  walk: function < T > (dir: string, visitor: Visitor, ctx?: T): T
+  walk: function < T > (dir: string, visitor: function(string, string, WalkStat, any): boolean, ctx?: T): T
   collect: function(dir: string, pattern: string): {string}
   collect_all: function(dir: string): {string: FileInfo}
   files: function(dir: string, pattern?: string): function(): string
