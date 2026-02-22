@@ -6,7 +6,7 @@ local cosmo_path = require("cosmo.path")
 local types = require("cosmic.fs_types")
 local WalkStat = types.WalkStat
 local FileInfo = types.FileInfo
-local Visitor = types.Visitor
+local type Visitor = types.Visitor
 
 --- Handle for reading directory entries (internal).
 local record WalkDirHandle

@@ -6,7 +6,7 @@ local Errno = types.Errno
 local Stat = types.Stat
 local Dir = types.Dir
 local Statfs = types.Statfs
-local Visitor = types.Visitor
+local type Visitor = types.Visitor
 local FileInfo = types.FileInfo
 
 -- Re-export path functions from fs_path submodule

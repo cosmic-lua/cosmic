@@ -10,7 +10,7 @@ local function Example_basic()
     print("failed to create temp dir")
     return
   end
-  print("created temp dir:", tmpdir)
+  print("created temp dir")
 
   -- Create a subdirectory
   local subdir = fs.join(tmpdir, "subdir")
@@ -32,7 +32,9 @@ local function Example_basic()
   ok, err = fs.symlink(subdir, linkpath)
   if ok then
     local target = fs.readlink(linkpath)
-    print("symlink points to:", target)
+    if target == subdir then
+      print("symlink points to subdir")
+    end
   end
 
   -- Clean up
@@ -40,9 +42,9 @@ local function Example_basic()
   print("cleaned up")
 
   -- Output:
-  -- created temp dir:	/tmp/fs_example_XXXXXX (with random suffix)
+  -- created temp dir
   -- subdir is a directory
-  -- symlink points to:	/tmp/fs_example_XXXXXX/subdir
+  -- symlink points to subdir
   -- cleaned up
 end
 
@@ -68,7 +70,11 @@ local function Example_splitext()
   root, extension = fs.splitext("archive.tar.gz")
   print(root, extension)
   root, extension = fs.splitext(".bashrc")
-  print(root, extension)
+  if extension == "" then
+    print(root)
+  else
+    print(root, extension)
+  end
   root, extension = fs.splitext("/path/to/file.txt")
   print(root, extension)
   -- Output:
