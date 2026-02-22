@@ -4,9 +4,17 @@
 
 local cosmo = require("cosmo")
 local cosmic = require("cosmic")
+local gt = require("types.gentype_types")
+local Param = gt.Param
+local Return = gt.Return
+local FuncDecl = gt.FuncDecl
+local Constant = gt.Constant
+local Field = gt.Field
+local ClassDecl = gt.ClassDecl
+local ModuleDecl = gt.ModuleDecl
 
 local record GentypeRender
-  generate_dtl: function(module: any): string
+  generate_dtl: function(module: ModuleDecl): string
   convert_type: function(t: string): string
   extract_module_content: function(source: string, module_name: string): string
 end
@@ -14,59 +22,6 @@ local render = require("types.gentype_render") as GentypeRender
 
 -- Modules to generate (in order)
 local MODULES = {"unix", "path", "getopt", "lsqlite3", "re", "argon2", "zip"}
-
--- Records for parsed data
-local record Param
-  name: string
-  param_type: string
-  description: string
-  optional: boolean
-end
-
-local record Return
-  return_type: string
-  description: string
-end
-
-local record FuncDecl
-  name: string
-  module: string
-  description: {string}
-  params: {Param}
-  returns: {Return}
-  is_method: boolean
-  class_name: string
-  nodiscard: boolean
-end
-
-local record Constant
-  name: string
-  const_type: string
-  description: {string}
-end
-
-local record Field
-  name: string
-  field_type: string
-  description: {string}
-end
-
-local record ClassDecl
-  name: string
-  module: string
-  parent: string
-  fields: {Field}
-  methods: {FuncDecl}
-  description: {string}
-end
-
-local record ModuleDecl
-  name: string
-  description: {string}
-  functions: {FuncDecl}
-  classes: {ClassDecl}
-  constants: {Constant}
-end
 
 --- Parse annotations from a block of text before a declaration.
 local function parse_annotations(lines: {string}): {string}, {Param}, {Return}, boolean, string, {Field}
@@ -445,7 +400,7 @@ end
 local record GenTypeModule
   run: function(module_name?: string): Result
   parse_module: function(source: string, module_name: string): ModuleDecl
-  generate_dtl: function(module: any): string
+  generate_dtl: function(module: ModuleDecl): string
   convert_type: function(t: string): string
   get_modules: function(): {string}
   MODULES: {string}

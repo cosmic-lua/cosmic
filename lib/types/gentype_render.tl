@@ -1,57 +1,11 @@
 --- Rendering functions for gentype.
 --- Generates Teal .d.tl content from parsed module declarations.
-
-local record Param
-  name: string
-  param_type: string
-  description: string
-  optional: boolean
-end
-
-local record Return
-  return_type: string
-  description: string
-end
-
-local record FuncDecl
-  name: string
-  module: string
-  description: {string}
-  params: {Param}
-  returns: {Return}
-  is_method: boolean
-  class_name: string
-  nodiscard: boolean
-end
-
-local record Constant
-  name: string
-  const_type: string
-  description: {string}
-end
-
-local record Field
-  name: string
-  field_type: string
-  description: {string}
-end
-
-local record ClassDecl
-  name: string
-  module: string
-  parent: string
-  fields: {Field}
-  methods: {FuncDecl}
-  description: {string}
-end
-
-local record ModuleDecl
-  name: string
-  description: {string}
-  functions: {FuncDecl}
-  classes: {ClassDecl}
-  constants: {Constant}
-end
+local gt = require("types.gentype_types")
+local Param = gt.Param
+local FuncDecl = gt.FuncDecl
+local Constant = gt.Constant
+local ClassDecl = gt.ClassDecl
+local ModuleDecl = gt.ModuleDecl
 
 -- Type conversion from LuaLS to Teal
 local TYPE_ALIASES = {
@@ -340,13 +294,13 @@ local function extract_module_content(source: string, module_name: string): stri
 end
 
 local record GentypeRenderModule
-  generate_dtl: function(module: any): string
+  generate_dtl: function(module: ModuleDecl): string
   convert_type: function(t: string): string
   extract_module_content: function(source: string, module_name: string): string
 end
 
 local M: GentypeRenderModule = {
-  generate_dtl = generate_dtl as function(any): string,
+  generate_dtl = generate_dtl,
   convert_type = convert_type,
   extract_module_content = extract_module_content,
 }

@@ -3,33 +3,16 @@
 --- and file iteration.
 local unix = require("cosmo.unix")
 local cosmo_path = require("cosmo.path")
-
---- File or directory metadata for walk visitor.
-local record WalkStat
-  mode: function(self): number
-  size: function(self): number
-  mtim: function(self): number
-end
+local types = require("cosmic.fs_types")
+local WalkStat = types.WalkStat
+local FileInfo = types.FileInfo
+local Visitor = types.Visitor
 
 --- Handle for reading directory entries (internal).
 local record WalkDirHandle
   read: function(self): string
   close: function(self)
 end
-
---- File information with Unix permissions.
-local record FileInfo
-  mode: number
-end
-
---- Visitor function type for directory traversal.
---- Return false to skip recursion into subdirectories.
---- @param full_path string The complete path to the file or directory
---- @param entry string The basename of the file or directory
---- @param stat WalkStat File metadata
---- @param ctx any User-provided context passed through the walk
---- @return boolean Return false to skip recursing into this directory
-local type Visitor = function(full_path: string, entry: string, stat: WalkStat, ctx: any): boolean
 
 --- Walk a directory tree, calling visitor for each entry.
 --- Recursively traverses subdirectories unless visitor returns false.

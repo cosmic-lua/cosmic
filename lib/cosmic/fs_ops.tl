@@ -1,41 +1,9 @@
 --- Filesystem file operations, permissions, timestamps, and temp files.
 --- Internal submodule used by cosmic.fs.
 local unix = require("cosmo.unix")
-
-local record Errno
-  errno: function(self: Errno): number
-  winerr: function(self: Errno): number
-  name: function(self: Errno): string
-  call: function(self: Errno): string
-  doc: function(self: Errno): string
-end
-
---- Filesystem statistics.
---- Returned by statfs() and fstatfs().
-local record Statfs
-  --- Returns filesystem type identifier.
-  type: function(self: Statfs): number
-  --- Returns optimal transfer block size.
-  bsize: function(self: Statfs): number
-  --- Returns total data blocks in filesystem.
-  blocks: function(self: Statfs): number
-  --- Returns free blocks in filesystem.
-  bfree: function(self: Statfs): number
-  --- Returns free blocks available to unprivileged user.
-  bavail: function(self: Statfs): number
-  --- Returns total file nodes in filesystem.
-  files: function(self: Statfs): number
-  --- Returns free file nodes in filesystem.
-  ffree: function(self: Statfs): number
-  --- Returns filesystem ID as two numbers.
-  fsid: function(self: Statfs): number, number
-  --- Returns maximum length of filenames.
-  namelen: function(self: Statfs): number
-  --- Returns fragment size.
-  frsize: function(self: Statfs): number
-  --- Returns mount flags.
-  flags: function(self: Statfs): number
-end
+local types = require("cosmic.fs_types")
+local Errno = types.Errno
+local Statfs = types.Statfs
 
 -- File operations
 

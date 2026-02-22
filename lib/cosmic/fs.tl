@@ -1,14 +1,13 @@
 --- Unified filesystem module.
 --- Combines path manipulation, filesystem operations, and directory walking.
 local unix = require("cosmo.unix")
-
-local record Errno
-  errno: function(self: Errno): number
-  winerr: function(self: Errno): number
-  name: function(self: Errno): string
-  call: function(self: Errno): string
-  doc: function(self: Errno): string
-end
+local types = require("cosmic.fs_types")
+local Errno = types.Errno
+local Stat = types.Stat
+local Dir = types.Dir
+local Statfs = types.Statfs
+local Visitor = types.Visitor
+local FileInfo = types.FileInfo
 
 -- Re-export path functions from fs_path submodule
 local fs_path = require("cosmic.fs_path")
@@ -23,52 +22,6 @@ local record RawDir
   fd: function(self: RawDir): number
   rewind: function(self: RawDir)
   tell: function(self: RawDir): number
-end
-
---- File or directory metadata.
---- Use is_dir(), is_file(), etc. to check file type.
-local record Stat
-  --- Returns file size in bytes.
-  size: function(self: Stat): number
-  --- Returns file mode (permissions and type bits).
-  mode: function(self: Stat): number
-  --- Returns owner user ID.
-  uid: function(self: Stat): number
-  --- Returns owner group ID.
-  gid: function(self: Stat): number
-  --- Returns birth time as seconds, nanoseconds.
-  birthtim: function(self: Stat): number, number
-  --- Returns modification time as seconds, nanoseconds.
-  mtim: function(self: Stat): number, number
-  --- Returns access time as seconds, nanoseconds.
-  atim: function(self: Stat): number, number
-  --- Returns status change time as seconds, nanoseconds.
-  ctim: function(self: Stat): number, number
-  --- Returns number of 512-byte blocks allocated.
-  blocks: function(self: Stat): number
-  --- Returns number of hard links.
-  nlink: function(self: Stat): number
-  --- Returns device ID containing the file.
-  dev: function(self: Stat): number
-  --- Returns device ID for special files (0 or -1 for non-devices).
-  rdev: function(self: Stat): number
-end
-
---- Handle for reading directory entries.
---- Supports automatic cleanup with `<close>` attribute.
-local record Dir
-  --- Reads next directory entry. Returns nil when done.
-  read: function(self: Dir): string
-  --- Closes directory handle.
-  close: function(self: Dir)
-  --- Returns file descriptor for this directory.
-  fd: function(self: Dir): number
-  --- Rewinds to beginning of directory.
-  rewind: function(self: Dir)
-  --- Returns current position in directory stream.
-  tell: function(self: Dir): number
-  --- Returns true if directory handle is closed.
-  closed: function(self: Dir): boolean
 end
 
 -- Wrap a raw cosmo Dir with __close support
@@ -362,17 +315,17 @@ local fs_walk = require("cosmic.fs_walk")
     tmpfd: function(): number, string
 
     -- Filesystem statistics
-    statfs: function(path: string): any, string
-    fstatfs: function(fd: number): any, string
+    statfs: function(path: string): Statfs, string
+    fstatfs: function(fd: number): Statfs, string
 
     -- Device number utilities
     major: function(dev: number): number
     minor: function(dev: number): number
 
     -- Directory walking
-    walk: function<T>(dir: string, visitor: any, ctx?: T): T
+    walk: function<T>(dir: string, visitor: Visitor, ctx?: T): T
     collect: function(dir: string, pattern: string): {string}
-    collect_all: function(dir: string): {string: {string: number}}
+    collect_all: function(dir: string): {string: FileInfo}
     files: function(dir: string, pattern?: string): function(): string
 
     -- Access mode constants
