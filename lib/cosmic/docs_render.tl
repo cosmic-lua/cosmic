@@ -1,76 +1,16 @@
 --- Rendering functions for the docs module.
 --- Formats documentation records into human-readable CLI output.
 
---- A function parameter.
-local record Param
-  name: string
-  param_type: string
-  description: string
-end
-
---- A function return value.
-local record Return
-  return_type: string
-  description: string
-end
-
---- Documentation for a function.
-local record FunctionDoc
-  name: string
-  description: string
-  params: {Param}
-  returns: {Return}
-  signature: string
-  line: integer
-  is_local: boolean
-end
-
---- Documentation for a record type.
-local record RecordDoc
-  name: string
-  description: string
-  fields: {{string, string, string}}
-  line: integer
-end
-
---- Documentation for an example function.
-local record ExampleDoc
-  name: string
-  description: string
-  body: string
-  expected_output: string
-  line: integer
-end
-
---- Complete documentation for a module.
-local record ModuleDoc
-  file: string
-  module_doc: string
-  functions: {FunctionDoc}
-  records: {RecordDoc}
-  examples: {ExampleDoc}
-end
-
---- Search result entry.
-local record SearchResult
-  module_name: string
-  symbol_name: string
-  symbol_type: string
-  description: string
-  match_score: integer
-end
-
---- Entry for examples list.
-local record ExampleEntry
-  module_name: string
-  example_name: string
-  description: string
-end
-
---- A documentation index containing all modules.
-local record DocIndex
-  modules: {string: ModuleDoc}
-end
+local types = require("cosmic.doc_types")
+local Param = types.Param
+local Return = types.Return
+local FunctionDoc = types.FunctionDoc
+local RecordDoc = types.RecordDoc
+local ExampleDoc = types.ExampleDoc
+local ModuleDoc = types.ModuleDoc
+local SearchResult = types.SearchResult
+local ExampleEntry = types.ExampleEntry
+local DocIndex = types.DocIndex
 
 -- Map low-level cosmo modules to their high-level cosmic equivalents
 local COSMIC_EQUIVALENTS: {string: string} = {

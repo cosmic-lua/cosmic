@@ -3,6 +3,20 @@ local fs = require("cosmic.fs")
 local unix = require("cosmo.unix")
 local path = require("cosmo.path")
 
+local record Statfs
+  type: function(self: Statfs): number
+  bsize: function(self: Statfs): number
+  blocks: function(self: Statfs): number
+  bfree: function(self: Statfs): number
+  bavail: function(self: Statfs): number
+  files: function(self: Statfs): number
+  ffree: function(self: Statfs): number
+  fsid: function(self: Statfs): number, number
+  namelen: function(self: Statfs): number
+  frsize: function(self: Statfs): number
+  flags: function(self: Statfs): number
+end
+
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
 local function setup(): string
@@ -156,8 +170,9 @@ test_dir_fd()
 -- Filesystem statistics tests
 
 local function test_statfs()
-  local info, err = fs.statfs("/")
-  assert(info, "statfs should succeed: " .. (err or ""))
+  local raw_info, err = fs.statfs("/")
+  assert(raw_info, "statfs should succeed: " .. (err or ""))
+  local info = raw_info as Statfs
 
   -- Check that we can call all the methods
   assert(info:type() ~= nil, "type() should return a value")
@@ -187,8 +202,9 @@ local function test_fstatfs()
   local fd = unix.open("/", unix.O_RDONLY | unix.O_DIRECTORY)
   assert(fd, "open should succeed")
 
-  local info, err = fs.fstatfs(fd)
-  assert(info, "fstatfs should succeed: " .. (err or ""))
+  local raw_info, err = fs.fstatfs(fd)
+  assert(raw_info, "fstatfs should succeed: " .. (err or ""))
+  local info = raw_info as Statfs
 
   assert(info:bsize() > 0, "bsize() should be positive")
   assert(info:blocks() > 0, "blocks() should be positive")
