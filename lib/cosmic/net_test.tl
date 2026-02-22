@@ -370,4 +370,3 @@ local function test_accept_socket_has_close_metamethod()
   child.wait(pid)
 end
 test_accept_socket_has_close_metamethod()
-

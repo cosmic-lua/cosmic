@@ -96,10 +96,6 @@ local record fs_types
     mode: number
   end
 
-  --- Visitor function type for directory traversal.
-  --- Return false to skip recursion into subdirectories.
-  type Visitor = function(full_path: string, entry: string, stat: WalkStat, ctx: any): boolean
-
 end
 
 return fs_types

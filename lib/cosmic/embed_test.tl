@@ -257,4 +257,3 @@ local function test_embed_directory_executable()
   assert(out:match("it works"), "should print expected output, got: " .. (out or ""))
 end
 test_embed_directory_executable()
-

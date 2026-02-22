@@ -6,7 +6,7 @@ local cosmo_path = require("cosmo.path")
 local types = require("cosmic.fs_types")
 local WalkStat = types.WalkStat
 local FileInfo = types.FileInfo
-local type Visitor = types.Visitor
+local type Visitor = function(string, string, WalkStat, any): boolean
 
 --- Handle for reading directory entries (internal).
 local record WalkDirHandle
@@ -20,7 +20,7 @@ end
 --- @param visitor Visitor Function called for each file and directory
 --- @param ctx T Optional context passed to visitor function
 --- @return T The context object, potentially modified by visitor
-local function walk<T>(dir: string, visitor: Visitor, ctx?: T): T
+local function walk < T > (dir: string, visitor: Visitor, ctx?: T): T
   ctx = ctx or {} as T
   local handle = unix.opendir(dir) as WalkDirHandle
   if not handle then return ctx end
@@ -172,7 +172,7 @@ local function files(dir: string, pattern?: string): function(): string
 end
 
 local record FsWalkModule
-  walk: function<T>(dir: string, visitor: Visitor, ctx?: T): T
+  walk: function < T > (dir: string, visitor: Visitor, ctx?: T): T
   collect: function(dir: string, pattern: string): {string}
   collect_all: function(dir: string): {string: FileInfo}
   files: function(dir: string, pattern?: string): function(): string

@@ -371,4 +371,3 @@ local function test_nested_queries()
   db:close()
 end
 test_nested_queries()
-

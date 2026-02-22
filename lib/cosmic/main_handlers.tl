@@ -70,15 +70,15 @@ local function run_docs(query: string): DocsRunResult
 
   local result = docs.run(query)
   if result.ok then
-    return { ok = true, output = result.output }
+    return {ok = true, output = result.output}
   end
 
   local results = docs.search(query)
   if #results > 0 then
-    return { ok = true, output = docs.render_search_results(results, query) }
+    return {ok = true, output = docs.render_search_results(results, query)}
   end
 
-  return { ok = false, output = result.output }
+  return {ok = false, output = result.output}
 end
 
 --- Handle --version flag.

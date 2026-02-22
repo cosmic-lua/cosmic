@@ -6,8 +6,9 @@ local Errno = types.Errno
 local Stat = types.Stat
 local Dir = types.Dir
 local Statfs = types.Statfs
-local type Visitor = types.Visitor
+local WalkStat = types.WalkStat
 local FileInfo = types.FileInfo
+local type Visitor = function(string, string, WalkStat, any): boolean
 
 -- Re-export path functions from fs_path submodule
 local fs_path = require("cosmic.fs_path")
@@ -256,162 +257,162 @@ end
 local fs_walk = require("cosmic.fs_walk")
 
 --- Module interface
-  local record FsModule
-    -- Path manipulation
-    dirname: function(str: string): string
-    basename: function(str: string): string
-    join: function(...: string): string
-    exists: function(path: string): boolean
-    isfile: function(path: string): boolean
-    isdir: function(path: string): boolean
-    islink: function(path: string): boolean
-    normalize: function(p: string): string
-    abspath: function(p: string): string
-    relpath: function(p: string, base?: string): string
-    splitext: function(p: string): string, string
-    ext: function(p: string): string
+local record FsModule
+  -- Path manipulation
+  dirname: function(str: string): string
+  basename: function(str: string): string
+  join: function(...: string): string
+  exists: function(path: string): boolean
+  isfile: function(path: string): boolean
+  isdir: function(path: string): boolean
+  islink: function(path: string): boolean
+  normalize: function(p: string): string
+  abspath: function(p: string): string
+  relpath: function(p: string, base?: string): string
+  splitext: function(p: string): string, string
+  ext: function(p: string): string
 
-    -- Stat operations
-    stat: function(path: string, follow_symlinks?: boolean): Stat, string
-    fstat: function(fd: number): Stat, string
-    is_dir: function(mode: number): boolean
-    is_file: function(mode: number): boolean
-    is_link: function(mode: number): boolean
-    is_block_device: function(mode: number): boolean
-    is_char_device: function(mode: number): boolean
-    is_fifo: function(mode: number): boolean
-    is_socket: function(mode: number): boolean
+  -- Stat operations
+  stat: function(path: string, follow_symlinks?: boolean): Stat, string
+  fstat: function(fd: number): Stat, string
+  is_dir: function(mode: number): boolean
+  is_file: function(mode: number): boolean
+  is_link: function(mode: number): boolean
+  is_block_device: function(mode: number): boolean
+  is_char_device: function(mode: number): boolean
+  is_fifo: function(mode: number): boolean
+  is_socket: function(mode: number): boolean
 
-    -- Directory operations
-    mkdir: function(path: string, mode?: number): boolean, string
-    makedirs: function(path: string, mode?: number): boolean, string
-    rmdir: function(path: string): boolean, string
-    chdir: function(path: string): boolean, string
-    getcwd: function(): string, string
-    opendir: function(path: string): Dir, string
-    fdopendir: function(fd: number): Dir, string
+  -- Directory operations
+  mkdir: function(path: string, mode?: number): boolean, string
+  makedirs: function(path: string, mode?: number): boolean, string
+  rmdir: function(path: string): boolean, string
+  chdir: function(path: string): boolean, string
+  getcwd: function(): string, string
+  opendir: function(path: string): Dir, string
+  fdopendir: function(fd: number): Dir, string
 
-    -- File operations
-    unlink: function(path: string): boolean, string
-    rename: function(oldpath: string, newpath: string): boolean, string
-    link: function(existingpath: string, newpath: string): boolean, string
-    symlink: function(target: string, linkpath: string): boolean, string
-    readlink: function(path: string): string, string
-    realpath: function(path: string): string, string
-    rmrf: function(path: string): boolean, string
+  -- File operations
+  unlink: function(path: string): boolean, string
+  rename: function(oldpath: string, newpath: string): boolean, string
+  link: function(existingpath: string, newpath: string): boolean, string
+  symlink: function(target: string, linkpath: string): boolean, string
+  readlink: function(path: string): string, string
+  realpath: function(path: string): string, string
+  rmrf: function(path: string): boolean, string
 
-    -- Permission operations
-    access: function(path: string, mode: number): boolean
-    chmod: function(path: string, mode: number): boolean, string
-    chown: function(path: string, uid: number, gid: number): boolean, string
+  -- Permission operations
+  access: function(path: string, mode: number): boolean
+  chmod: function(path: string, mode: number): boolean, string
+  chown: function(path: string, uid: number, gid: number): boolean, string
 
-    -- Timestamp operations
-    utimensat: function(path: string, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
-    futimens: function(fd: number, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
+  -- Timestamp operations
+  utimensat: function(path: string, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
+  futimens: function(fd: number, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
 
-    -- Temporary file operations
-    mkdtemp: function(template: string): string, string
-    mkstemp: function(template: string): number, string
-    tmpfd: function(): number, string
+  -- Temporary file operations
+  mkdtemp: function(template: string): string, string
+  mkstemp: function(template: string): number, string
+  tmpfd: function(): number, string
 
-    -- Filesystem statistics
-    statfs: function(path: string): Statfs, string
-    fstatfs: function(fd: number): Statfs, string
+  -- Filesystem statistics
+  statfs: function(path: string): Statfs, string
+  fstatfs: function(fd: number): Statfs, string
 
-    -- Device number utilities
-    major: function(dev: number): number
-    minor: function(dev: number): number
+  -- Device number utilities
+  major: function(dev: number): number
+  minor: function(dev: number): number
 
-    -- Directory walking
-    walk: function<T>(dir: string, visitor: Visitor, ctx?: T): T
-    collect: function(dir: string, pattern: string): {string}
-    collect_all: function(dir: string): {string: FileInfo}
-    files: function(dir: string, pattern?: string): function(): string
+  -- Directory walking
+  walk: function < T > (dir: string, visitor: Visitor, ctx?: T): T
+  collect: function(dir: string, pattern: string): {string}
+  collect_all: function(dir: string): {string: FileInfo}
+  files: function(dir: string, pattern?: string): function(): string
 
-    -- Access mode constants
-    F_OK: number
-    R_OK: number
-    W_OK: number
-    X_OK: number
-  end
+  -- Access mode constants
+  F_OK: number
+  R_OK: number
+  W_OK: number
+  X_OK: number
+end
 
-  local M: FsModule = {
-    -- Path manipulation (re-exported from fs_path)
-    dirname = fs_path.dirname,
-    basename = fs_path.basename,
-    join = fs_path.join,
-    exists = fs_path.exists,
-    isfile = fs_path.isfile,
-    isdir = fs_path.isdir,
-    islink = fs_path.islink,
-    normalize = fs_path.normalize,
-    abspath = fs_path.abspath,
-    relpath = fs_path.relpath,
-    splitext = fs_path.splitext,
-    ext = fs_path.ext,
+local M: FsModule = {
+  -- Path manipulation (re-exported from fs_path)
+  dirname = fs_path.dirname,
+  basename = fs_path.basename,
+  join = fs_path.join,
+  exists = fs_path.exists,
+  isfile = fs_path.isfile,
+  isdir = fs_path.isdir,
+  islink = fs_path.islink,
+  normalize = fs_path.normalize,
+  abspath = fs_path.abspath,
+  relpath = fs_path.relpath,
+  splitext = fs_path.splitext,
+  ext = fs_path.ext,
 
-    -- Stat operations
-    stat = stat,
-    fstat = fstat,
-    is_dir = is_dir,
-    is_file = is_file,
-    is_link = is_link,
-    is_block_device = is_block_device,
-    is_char_device = is_char_device,
-    is_fifo = is_fifo,
-    is_socket = is_socket,
+  -- Stat operations
+  stat = stat,
+  fstat = fstat,
+  is_dir = is_dir,
+  is_file = is_file,
+  is_link = is_link,
+  is_block_device = is_block_device,
+  is_char_device = is_char_device,
+  is_fifo = is_fifo,
+  is_socket = is_socket,
 
-    -- Directory operations
-    mkdir = mkdir,
-    makedirs = makedirs,
-    rmdir = rmdir,
-    chdir = chdir,
-    getcwd = getcwd,
-    opendir = opendir,
-    fdopendir = fdopendir,
+  -- Directory operations
+  mkdir = mkdir,
+  makedirs = makedirs,
+  rmdir = rmdir,
+  chdir = chdir,
+  getcwd = getcwd,
+  opendir = opendir,
+  fdopendir = fdopendir,
 
-    -- File operations (re-exported from fs_ops)
-    unlink = fs_ops.unlink,
-    rename = fs_ops.rename,
-    link = fs_ops.link,
-    symlink = fs_ops.symlink,
-    readlink = fs_ops.readlink,
-    realpath = fs_ops.realpath,
-    rmrf = fs_ops.rmrf,
+  -- File operations (re-exported from fs_ops)
+  unlink = fs_ops.unlink,
+  rename = fs_ops.rename,
+  link = fs_ops.link,
+  symlink = fs_ops.symlink,
+  readlink = fs_ops.readlink,
+  realpath = fs_ops.realpath,
+  rmrf = fs_ops.rmrf,
 
-    -- Permission operations (re-exported from fs_ops)
-    access = fs_ops.access,
-    chmod = fs_ops.chmod,
-    chown = fs_ops.chown,
+  -- Permission operations (re-exported from fs_ops)
+  access = fs_ops.access,
+  chmod = fs_ops.chmod,
+  chown = fs_ops.chown,
 
-    -- Timestamp operations (re-exported from fs_ops)
-    utimensat = fs_ops.utimensat,
-    futimens = fs_ops.futimens,
+  -- Timestamp operations (re-exported from fs_ops)
+  utimensat = fs_ops.utimensat,
+  futimens = fs_ops.futimens,
 
-    -- Temporary file operations (re-exported from fs_ops)
-    mkdtemp = fs_ops.mkdtemp,
-    mkstemp = fs_ops.mkstemp,
-    tmpfd = fs_ops.tmpfd,
+  -- Temporary file operations (re-exported from fs_ops)
+  mkdtemp = fs_ops.mkdtemp,
+  mkstemp = fs_ops.mkstemp,
+  tmpfd = fs_ops.tmpfd,
 
-    -- Filesystem statistics (re-exported from fs_ops)
-    statfs = fs_ops.statfs,
-    fstatfs = fs_ops.fstatfs,
+  -- Filesystem statistics (re-exported from fs_ops)
+  statfs = fs_ops.statfs,
+  fstatfs = fs_ops.fstatfs,
 
-    -- Device number utilities (re-exported from fs_ops)
-    major = fs_ops.major,
-    minor = fs_ops.minor,
+  -- Device number utilities (re-exported from fs_ops)
+  major = fs_ops.major,
+  minor = fs_ops.minor,
 
-    -- Directory walking
-    walk = fs_walk.walk,
-    collect = fs_walk.collect,
-    collect_all = fs_walk.collect_all,
-    files = fs_walk.files,
+  -- Directory walking
+  walk = fs_walk.walk,
+  collect = fs_walk.collect,
+  collect_all = fs_walk.collect_all,
+  files = fs_walk.files,
 
-    -- Access mode constants (re-exported from fs_ops)
-    F_OK = fs_ops.F_OK,
-    R_OK = fs_ops.R_OK,
-    W_OK = fs_ops.W_OK,
-    X_OK = fs_ops.X_OK,
-  }
+  -- Access mode constants (re-exported from fs_ops)
+  F_OK = fs_ops.F_OK,
+  R_OK = fs_ops.R_OK,
+  W_OK = fs_ops.W_OK,
+  X_OK = fs_ops.X_OK,
+}
 
-  return M
+return M
