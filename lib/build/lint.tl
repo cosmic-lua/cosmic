@@ -12,21 +12,6 @@ end
 
 local DEFAULT_FILE_LINES <const> = 500
 
-local FILE_LINES = {
-  ["lib/types/cosmo/unix.d.tl"] = 2352,
-  ["lib/cosmic/fs.tl"] = 1273,
-  ["lib/cosmic/docs.tl"] = 1090,
-  ["lib/types/gentype.tl"] = 1081,
-  ["lib/cosmic/fs_test.tl"] = 1077,
-  ["lib/cosmic/doc.tl"] = 962,
-  ["lib/cosmic/main.tl"] = 765,
-  ["lib/cosmic/format.tl"] = 723,
-  ["lib/cosmic/net.tl"] = 703,
-  ["lib/cosmic/sqlite_test.tl"] = 678,
-  ["lib/cosmic/net_test.tl"] = 609,
-  ["lib/cosmic/embed_test.tl"] = 511,
-} as {string: integer}
-
 local function count_lines(path: string): integer
   local f = io.open(path, "r")
   if not f then
@@ -54,14 +39,19 @@ local function check_file_length(file: string, n: integer, limit: integer): {Dia
 end
 
 local function lint_file(path: string): {Diagnostic}
+  -- Skip .d.tl type declaration files — they describe C binding interfaces
+  -- and cannot be split due to Teal's record system.
+  if path:match("%.d%.tl$") then
+    return {}
+  end
+
   local diagnostics: {Diagnostic} = {}
   local n = count_lines(path)
   if n == 0 then
     return diagnostics  -- missing or empty file
   end
 
-  local limit = FILE_LINES[path] or DEFAULT_FILE_LINES
-  local file_diags = check_file_length(path, n, limit)
+  local file_diags = check_file_length(path, n, DEFAULT_FILE_LINES)
   for _, d in ipairs(file_diags) do
     table.insert(diagnostics, d)
   end
@@ -104,7 +94,6 @@ end
 return {
   Diagnostic = Diagnostic,
   DEFAULT_FILE_LINES = DEFAULT_FILE_LINES,
-  FILE_LINES = FILE_LINES,
   count_lines = count_lines,
   check_file_length = check_file_length,
   lint_file = lint_file,

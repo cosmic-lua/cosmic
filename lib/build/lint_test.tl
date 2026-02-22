@@ -77,34 +77,21 @@ local function test_lint_file_over_default()
 end
 test_lint_file_over_default()
 
-local function test_lint_file_with_ratchet()
-  -- test check_file_length directly with ratchet keys
-  local key = "lib/cosmic/fs.tl"
-  local limit = lint.FILE_LINES[key]
-  assert(limit, "expected ratchet entry for " .. key)
+local function test_lint_file_skips_dtl()
+  -- .d.tl files are type declarations for C bindings and are exempt from length checks
+  local path = fs.join(tmpdir, "types.d.tl")
+  local lines: {string} = {}
+  for i = 1, 600 do
+    table.insert(lines, "-- line " .. tostring(i))
+  end
+  cio.barf(path, table.concat(lines, "\n") .. "\n")
 
-  -- at ratchet limit should pass
-  local diags = lint.check_file_length(key, limit, limit)
-  assert(#diags == 0, "expected no diagnostic at ratchet limit")
-
-  -- over ratchet limit should fail
-  local diags_over = lint.check_file_length(key, limit + 1, limit)
-  assert(#diags_over == 1, "expected diagnostic over ratchet limit")
+  local diagnostics = lint.lint_file(path)
+  assert(#diagnostics == 0, "expected no diagnostics for .d.tl file, got: " .. tostring(#diagnostics))
 end
-test_lint_file_with_ratchet()
+test_lint_file_skips_dtl()
 
 local function test_default_file_lines()
   assert(lint.DEFAULT_FILE_LINES == 500, "expected default to be 500")
 end
 test_default_file_lines()
-
-local function test_file_lines_table()
-  -- verify all ratchet entries exist and are above the default
-  for path, limit in pairs(lint.FILE_LINES) do
-    assert(type(path) == "string", "expected string key")
-    assert(type(limit) == "number", "expected number value")
-    assert(limit > lint.DEFAULT_FILE_LINES,
-      path .. " ratchet limit " .. tostring(limit) .. " should be above default " .. tostring(lint.DEFAULT_FILE_LINES))
-  end
-end
-test_file_lines_table()

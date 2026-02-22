@@ -48,6 +48,7 @@ bin/
 - **doc comments**: `---` prefix with `@param` and `@return` tags
 - **naming**: `snake_case` for functions and variables. `PascalCase` for record types.
 - **formatting**: 2-space indent, LF line endings, enforced by `cosmic --check-format`
+- **file length**: all `.tl` files must be ≤500 lines. no exceptions. enforced by `bin/make lint`. `.d.tl` type declaration files are exempt (they describe C binding interfaces and cannot be split due to Teal's record system).
 - **imports**: prefer `cosmic.*` modules over raw `cosmo.*` C bindings. `cosmo.*` is only for library internals implementing wrappers.
 - **tests**: `*_test.tl` files alongside source, run via `make test`
 - **examples**: `*_example.tl` files with `Example_*` functions, run via `make example`
