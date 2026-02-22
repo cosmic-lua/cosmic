@@ -2,14 +2,10 @@
 --- Wraps cosmo.unix socket functions for TCP/UDP and Unix domain sockets.
 local unix = require("cosmo.unix")
 
---- Errno record for extracting error information from C bindings.
-local record Errno
-  errno: function(self: Errno): number
-  winerr: function(self: Errno): number
-  name: function(self: Errno): string
-  call: function(self: Errno): string
-  doc: function(self: Errno): string
+local record NetSocket
+  make_socket: function(fd: number): Socket
 end
+local net_socket = require("cosmic.net_socket") as NetSocket
 
 --- Socket handle for network I/O.
 --- Supports Lua 5.4's to-be-closed via __close metamethod.
@@ -34,243 +30,8 @@ local record Socket
   setsockopt: function(self: Socket, level: number, optname: number, value: number | boolean): boolean, string
 end
 
---- Create a socket handle from a file descriptor.
---- @param fd number The file descriptor
---- @return Socket The socket handle
 local function make_socket(fd: number): Socket
-  local sock: Socket = {fd = fd}
-
-  --- Close the socket.
-  --- Idempotent: safe to call multiple times.
-  --- @return boolean True on success
-  function sock:close(): boolean
-    if self.fd then
-      local ok = unix.close(self.fd)
-      self.fd = nil
-      return ok
-    end
-    return true
-  end
-
-  --- Check if the socket is closed.
-  --- @return boolean True if closed
-  function sock:closed(): boolean
-    return self.fd == nil
-  end
-
-  --- Partially close the socket.
-  --- @param how number SHUT_RD (0), SHUT_WR (1), or SHUT_RDWR (2). Defaults to SHUT_RDWR.
-  --- @return boolean True on success
-  --- @return string Error message on failure
-  function sock:shutdown(how?: number): boolean, string
-    how = how or unix.SHUT_RDWR
-    local ok = unix.shutdown(self.fd, how)
-    if not ok then
-      return false, "shutdown failed"
-    end
-    return true
-  end
-
-  --- Send data on a connected socket.
-  --- @param data string The data to send
-  --- @param flags number Optional send flags (MSG_*)
-  --- @return number Number of bytes sent
-  --- @return string Error message on failure
-  function sock:send(data: string, flags?: number): number, string
-    local n = unix.send(self.fd, data, flags or 0)
-    if not n then
-      return nil, "send failed"
-    end
-    return n
-  end
-
-  --- Send data to a specific address (for UDP).
-  --- @param data string The data to send
-  --- @param ip number The destination IP address
-  --- @param port number The destination port
-  --- @param flags number Optional send flags (MSG_*)
-  --- @return number Number of bytes sent
-  --- @return string Error message on failure
-  function sock:sendto(data: string, ip: number, port: number, flags?: number): number, string
-    local n = unix.sendto(self.fd, data, ip, port, flags or 0)
-    if not n then
-      return nil, "sendto failed"
-    end
-    return n
-  end
-
-  --- Receive data from a connected socket.
-  --- @param bufsiz number Maximum bytes to receive (default 65536)
-  --- @param flags number Optional receive flags (MSG_*)
-  --- @return string The received data
-  --- @return string Error message on failure
-  function sock:recv(bufsiz?: number, flags?: number): string, string
-    local data = unix.recv(self.fd, bufsiz or 65536, flags or 0)
-    if not data then
-      return nil, "recv failed"
-    end
-    return data
-  end
-
-  --- Receive data with sender address (for UDP).
-  --- @param bufsiz number Maximum bytes to receive (default 65536)
-  --- @param flags number Optional receive flags (MSG_*)
-  --- @return string The received data
-  --- @return number Sender IP address
-  --- @return number Sender port
-  --- @return string Error message on failure
-  function sock:recvfrom(bufsiz?: number, flags?: number): string, number, number, string
-    local data, ip, port = unix.recvfrom(self.fd, bufsiz or 65536, flags or 0)
-    if not data then
-      return nil, nil, nil, "recvfrom failed"
-    end
-    return data, ip, port
-  end
-
-  --- Get the local address of the socket.
-  --- @return number Local IP address
-  --- @return number Local port
-  --- @return string Error message on failure
-  function sock:getsockname(): number, number, string
-    local ip, port = unix.getsockname(self.fd)
-    if not ip then
-      return nil, nil, "getsockname failed"
-    end
-    return ip, port
-  end
-
-  --- Get the remote address of a connected socket.
-  --- @return number Remote IP address
-  --- @return number Remote port
-  --- @return string Error message on failure
-  function sock:getpeername(): number, number, string
-    local ip, port = unix.getpeername(self.fd)
-    if not ip then
-      return nil, nil, "getpeername failed"
-    end
-    return ip, port
-  end
-
-  --- Bind the socket to a local address.
-  --- @param ip number Local IP address (default 0 = all interfaces)
-  --- @param port number Local port (default 0 = ephemeral port)
-  --- @return boolean True on success
-  --- @return string Error message on failure
-  function sock:bind(ip?: number, port?: number): boolean, string
-    local ok = unix.bind(self.fd, ip or 0, port or 0)
-    if not ok then
-      return false, "bind failed"
-    end
-    return true
-  end
-
-  --- Bind the socket to a Unix domain socket path.
-  --- @param path string Filesystem path for the socket
-  --- @return boolean True on success
-  --- @return string Error message on failure
-  function sock:bind_unix(path: string): boolean, string
-    local ok = (unix.bind as function(number, string): boolean)(self.fd, path)
-    if not ok then
-      return false, "bind_unix failed"
-    end
-    return true
-  end
-
-  --- Start listening for incoming connections.
-  --- @param backlog number Maximum pending connections (default 128)
-  --- @return boolean True on success
-  --- @return string Error message on failure
-  function sock:listen(backlog?: number): boolean, string
-    local ok = unix.listen(self.fd, backlog or 128)
-    if not ok then
-      return false, "listen failed"
-    end
-    return true
-  end
-
-  --- Accept an incoming connection.
-  --- @param flags number Optional flags (SOCK_CLOEXEC, SOCK_NONBLOCK)
-  --- @return Socket New client socket
-  --- @return number Client IP address
-  --- @return number Client port
-  --- @return string Error message on failure
-  function sock:accept(flags?: number): Socket, number, number, string
-    local clientfd, ip, port = unix.accept(self.fd, flags or 0)
-    if not clientfd then
-      return nil, nil, nil, "accept failed"
-    end
-    return make_socket(clientfd), ip, port
-  end
-
-  --- Connect to a remote address.
-  --- @param ip number Remote IP address
-  --- @param port number Remote port
-  --- @return boolean True on success
-  --- @return string Error message on failure
-  function sock:connect(ip: number, port: number): boolean, string
-    local ok, err = unix.connect(self.fd, ip, port) as(boolean, any)
-    if not ok then
-      if err then
-        local errno = err as Errno
-        if errno.doc then
-          return false, "connect: " .. errno:doc()
-        end
-        return false, "connect: " .. tostring(err)
-      end
-      return false, "connect failed"
-    end
-    return true
-  end
-
-  --- Connect to a Unix domain socket path.
-  --- @param path string Filesystem path of the socket to connect to
-  --- @return boolean True on success
-  --- @return string Error message on failure
-  function sock:connect_unix(path: string): boolean, string
-    local ok, err = (unix.connect as function(number, string): (boolean, any))(self.fd, path)
-    if not ok then
-      if err then
-        local errno = err as Errno
-        if errno.doc then
-          return false, "connect_unix: " .. errno:doc()
-        end
-        return false, "connect_unix: " .. tostring(err)
-      end
-      return false, "connect_unix failed"
-    end
-    return true
-  end
-
-  --- Get a socket option value.
-  --- @param level number Option level (SOL_SOCKET, SOL_TCP, etc.)
-  --- @param optname number Option name (SO_REUSEADDR, TCP_NODELAY, etc.)
-  --- @return number|boolean Option value
-  --- @return string Error message on failure
-  function sock:getsockopt(level: number, optname: number): number | boolean, string
-    local val = unix.getsockopt(self.fd, level, optname)
-    if val == nil then
-      return nil, "getsockopt failed"
-    end
-    return val
-  end
-
-  --- Set a socket option value.
-  --- @param level number Option level (SOL_SOCKET, SOL_TCP, etc.)
-  --- @param optname number Option name (SO_REUSEADDR, TCP_NODELAY, etc.)
-  --- @param value number|boolean Option value
-  --- @return boolean True on success
-  --- @return string Error message on failure
-  function sock:setsockopt(level: number, optname: number, value: number | boolean): boolean, string
-    local ok = unix.setsockopt(self.fd, level, optname, value)
-    if not ok then
-      return false, "setsockopt failed"
-    end
-    return true
-  end
-
-  return setmetatable(sock, {
-      __close = function(self: Socket) self:close() end
-    }) as Socket
+  return net_socket.make_socket(fd) as Socket
 end
 
 --- Create a new socket.
@@ -349,7 +110,6 @@ local function connect_unix(path: string): Socket, string
 end
 
 --- Create a TCP socket and connect to an IP address and port.
---- Convenience function that mirrors connect_unix().
 --- @param ip number Remote IP address
 --- @param port number Remote port
 --- @return Socket Connected socket
@@ -368,8 +128,6 @@ local function connect_tcp(ip: number, port: number): Socket, string
 end
 
 --- Perform a non-blocking connect on a socket.
---- Handles EINPROGRESS by polling for POLLOUT, then checks SO_ERROR.
---- The socket must already be created with SOCK_NONBLOCK.
 --- @param s Socket The non-blocking socket to connect
 --- @param ip number Remote IP address
 --- @param port number Remote port
@@ -380,7 +138,6 @@ local function nb_connect(s: Socket, ip: number, port: number, timeoutms?: numbe
   timeoutms = timeoutms or 10000
   local ok, conn_err = s:connect(ip, port)
   if ok then return true end
-  -- Non-blocking socket returns EINPROGRESS; poll for writability
   local fds: {number: number} = {[s.fd] = unix.POLLOUT}
   local revents = unix.poll(fds, timeoutms)
   if not revents then
@@ -403,8 +160,6 @@ local function nb_connect(s: Socket, ip: number, port: number, timeoutms?: numbe
 end
 
 --- Poll file descriptors for events.
---- The fds table maps file descriptor numbers to event masks (POLLIN, POLLOUT, etc.).
---- Returns a table with the same keys but containing revents for each fd.
 --- @param fds {number:number} Map of fd to events to poll for
 --- @param timeoutms number Timeout in milliseconds (-1 for infinite, 0 for non-blocking)
 --- @return {number:number} Map of fd to revents
@@ -457,9 +212,7 @@ end
 
 --- Network interface information.
 local record Interface
-  --- Interface name (e.g., "eth0", "lo").
   name: string
-  --- IPv4 address as a number.
   ip: number
 end
 
@@ -475,37 +228,22 @@ local function interfaces(): {Interface}, string
 end
 
 local record NetModule
-  -- Types
   Socket: Socket
   Interface: Interface
-
-  -- Socket creation
   socket: function(family?: number, socktype?: number, protocol?: number): Socket, string
   socketpair: function(family?: number, socktype?: number, protocol?: number): Socket, Socket, string
-
-  -- Unix domain socket helpers
   listen_unix: function(path: string, backlog?: number): Socket, string
   connect_unix: function(path: string): Socket, string
-
-  -- TCP helpers
   connect_tcp: function(ip: number, port: number): Socket, string
   nb_connect: function(s: Socket, ip: number, port: number, timeoutms?: number): boolean, string
-
-  -- Polling
   poll: function(fds: {number: number}, timeoutms?: number): {number: number}, string
-
-  -- Utility
   gethostname: function(): string, string
   parseip: function(str: string): number, string
   formatip: function(ip: number): string
   interfaces: function(): {Interface}, string
-
-  -- Address families
   AF_INET: number
   AF_UNIX: number
   AF_UNSPEC: number
-
-  -- Socket types
   SOCK_STREAM: number
   SOCK_DGRAM: number
   SOCK_RAW: number
@@ -513,21 +251,15 @@ local record NetModule
   SOCK_SEQPACKET: number
   SOCK_CLOEXEC: number
   SOCK_NONBLOCK: number
-
-  -- Protocols
   IPPROTO_TCP: number
   IPPROTO_UDP: number
   IPPROTO_IP: number
   IPPROTO_ICMP: number
   IPPROTO_RAW: number
-
-  -- Socket levels
   SOL_SOCKET: number
   SOL_TCP: number
   SOL_UDP: number
   SOL_IP: number
-
-  -- Socket options
   SO_REUSEADDR: number
   SO_REUSEPORT: number
   SO_KEEPALIVE: number
@@ -544,8 +276,6 @@ local record NetModule
   SO_DONTROUTE: number
   SO_RCVLOWAT: number
   SO_SNDLOWAT: number
-
-  -- TCP options
   TCP_NODELAY: number
   TCP_CORK: number
   TCP_KEEPIDLE: number
@@ -561,13 +291,9 @@ local record NetModule
   TCP_WINDOW_CLAMP: number
   TCP_SAVE_SYN: number
   TCP_SAVED_SYN: number
-
-  -- Shutdown modes
   SHUT_RD: number
   SHUT_WR: number
   SHUT_RDWR: number
-
-  -- Poll events
   POLLIN: number
   POLLOUT: number
   POLLERR: number
@@ -579,8 +305,6 @@ local record NetModule
   POLLRDNORM: number
   POLLWRBAND: number
   POLLWRNORM: number
-
-  -- Message flags
   MSG_PEEK: number
   MSG_WAITALL: number
   MSG_OOB: number
@@ -590,33 +314,20 @@ local record NetModule
 end
 
 local M: NetModule = {
-  -- Socket creation
   socket = socket,
   socketpair = socketpair,
-
-  -- Unix domain socket helpers
   listen_unix = listen_unix,
   connect_unix = connect_unix,
-
-  -- TCP helpers
   connect_tcp = connect_tcp,
   nb_connect = nb_connect,
-
-  -- Polling
   poll = poll,
-
-  -- Utility
   gethostname = gethostname,
   parseip = parseip,
   formatip = formatip,
   interfaces = interfaces,
-
-  -- Address families
   AF_INET = unix.AF_INET,
   AF_UNIX = unix.AF_UNIX,
   AF_UNSPEC = unix.AF_UNSPEC,
-
-  -- Socket types
   SOCK_STREAM = unix.SOCK_STREAM,
   SOCK_DGRAM = unix.SOCK_DGRAM,
   SOCK_RAW = unix.SOCK_RAW,
@@ -624,21 +335,15 @@ local M: NetModule = {
   SOCK_SEQPACKET = unix.SOCK_SEQPACKET,
   SOCK_CLOEXEC = unix.SOCK_CLOEXEC,
   SOCK_NONBLOCK = unix.SOCK_NONBLOCK,
-
-  -- Protocols
   IPPROTO_TCP = unix.IPPROTO_TCP,
   IPPROTO_UDP = unix.IPPROTO_UDP,
   IPPROTO_IP = unix.IPPROTO_IP,
   IPPROTO_ICMP = unix.IPPROTO_ICMP,
   IPPROTO_RAW = unix.IPPROTO_RAW,
-
-  -- Socket levels
   SOL_SOCKET = unix.SOL_SOCKET,
   SOL_TCP = unix.SOL_TCP,
   SOL_UDP = unix.SOL_UDP,
   SOL_IP = unix.SOL_IP,
-
-  -- Socket options
   SO_REUSEADDR = unix.SO_REUSEADDR,
   SO_REUSEPORT = unix.SO_REUSEPORT,
   SO_KEEPALIVE = unix.SO_KEEPALIVE,
@@ -655,8 +360,6 @@ local M: NetModule = {
   SO_DONTROUTE = unix.SO_DONTROUTE,
   SO_RCVLOWAT = unix.SO_RCVLOWAT,
   SO_SNDLOWAT = unix.SO_SNDLOWAT,
-
-  -- TCP options
   TCP_NODELAY = unix.TCP_NODELAY,
   TCP_CORK = unix.TCP_CORK,
   TCP_KEEPIDLE = unix.TCP_KEEPIDLE,
@@ -672,13 +375,9 @@ local M: NetModule = {
   TCP_WINDOW_CLAMP = unix.TCP_WINDOW_CLAMP,
   TCP_SAVE_SYN = unix.TCP_SAVE_SYN,
   TCP_SAVED_SYN = unix.TCP_SAVED_SYN,
-
-  -- Shutdown modes
   SHUT_RD = unix.SHUT_RD,
   SHUT_WR = unix.SHUT_WR,
   SHUT_RDWR = unix.SHUT_RDWR,
-
-  -- Poll events
   POLLIN = unix.POLLIN,
   POLLOUT = unix.POLLOUT,
   POLLERR = unix.POLLERR,
@@ -690,8 +389,6 @@ local M: NetModule = {
   POLLRDNORM = unix.POLLRDNORM,
   POLLWRBAND = unix.POLLWRBAND,
   POLLWRNORM = unix.POLLWRNORM,
-
-  -- Message flags
   MSG_PEEK = unix.MSG_PEEK,
   MSG_WAITALL = unix.MSG_WAITALL,
   MSG_OOB = unix.MSG_OOB,
