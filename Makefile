@@ -55,7 +55,8 @@ $(o)/%: %
 # compile .tl files to .lua (extension changes)
 $(o)/%.lua: %.tl $(types_files) $(tl_files) $(bootstrap_files)
 	@mkdir -p $(@D)
-	@$(bootstrap_cosmic) --compile $< > $@
+	@$(bootstrap_cosmic) --compile $< > $@.tmp
+	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 
 # tl files: modules declare _tl, derive compiled .lua outputs
 all_tl := $(call filter-only,$(foreach x,$(modules),$($(x)_tl)))
@@ -302,7 +303,8 @@ doc_index_script := lib/cosmic/docindex.tl
 
 $(doc_index): $(doc_index_srcs) $(doc_index_script) | $(bootstrap_cosmic)
 	@mkdir -p $(@D)
-	@$(bootstrap_cosmic) $(doc_index_script) $(doc_index_srcs) > $@
+	@$(bootstrap_cosmic) $(doc_index_script) $(doc_index_srcs) > $@.tmp
+	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 
 .PHONY: doc-index
 ## Generate serialized documentation index
