@@ -14,7 +14,7 @@ local record WalkDirHandle
 end
 
 --- Walk a directory tree, calling visitor for each entry.
---- Recursively traverses subdirectories unless visitor returns false.
+--- Recursively traverses all subdirectories.
 --- @param dir string The directory to walk
 --- @param visitor function Visitor callback Function called for each file and directory
 --- @param ctx T Optional context passed to visitor function
@@ -31,8 +31,8 @@ local function walk < T > (dir: string, visitor: function(string, string, WalkSt
       local full_path = cosmo_path.join(dir, entry)
       local st = unix.stat(full_path) as WalkStat
       if st then
-        local continue = visitor(full_path, entry, st, ctx)
-        if continue ~= false and unix.S_ISDIR(st:mode()) then
+        visitor(full_path, entry, st, ctx)
+        if unix.S_ISDIR(st:mode()) then
           walk(full_path, visitor, ctx)
         end
       end
@@ -71,11 +71,10 @@ local function collect(dir: string, pattern: string): {string}
   end
 
   local results: {string} = {}
-  walk(dir, function(full_path: string, entry: string, st: WalkStat, ctx: {string}): boolean
+  walk(dir, function(full_path: string, entry: string, st: WalkStat, ctx: {string})
       if not unix.S_ISDIR(st:mode()) and entry:match(lua_pattern) then
         table.insert(ctx, full_path)
       end
-      return true
     end, results)
   return results
 end
