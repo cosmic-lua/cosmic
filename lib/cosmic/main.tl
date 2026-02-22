@@ -364,6 +364,22 @@ local function main(): integer, string
     return 1, opts.error
   end
 
+  -- Apply env var fallbacks (CLI args take priority)
+  local embed_env = os.getenv("COSMIC_EMBED")
+  if embed_env and #opts.embed == 0 then
+    for p in embed_env:gmatch("[^:]+") do
+      opts.embed[#opts.embed + 1] = p
+    end
+  end
+  local output_env = os.getenv("COSMIC_OUTPUT")
+  if output_env and not opts.output then
+    opts.output = output_env
+  end
+  local extract_env = os.getenv("COSMIC_EXTRACT")
+  if extract_env and not opts.extract then
+    opts.extract = extract_env
+  end
+
   -- Show welcome on first invocation (to stderr, if TTY)
   -- Check early so it runs for -v, --help, -e, scripts, etc.
   if not os.getenv("COSMIC_NO_WELCOME") then
