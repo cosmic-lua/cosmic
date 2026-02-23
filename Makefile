@@ -329,7 +329,7 @@ ci:
 		echo "::group::$$s"; \
 		if [ -f $(o)/$$s-summary.txt ]; then \
 			cat $(o)/$$s-summary.txt; \
-			if grep -q "failed" $(o)/$$s-summary.txt; then \
+			if grep -qE "[1-9][0-9]* failed" $(o)/$$s-summary.txt; then \
 				echo $$s >> $(o)/failed; \
 			fi; \
 		else \
