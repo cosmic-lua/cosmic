@@ -7,6 +7,7 @@ Cosmic options:
   --format <file>               format Teal or Lua file (stdout)
   --check-format <file>         check file formatting (diff on stderr)
   --check-types <file.tl>       type-check a Teal file, strict mode
+  --check-style <file>          check style (line/col limits, test ordering)
   --check-examples <file.tl>    run Example_* functions, check output
   --examples [module]           browse examples (list all, or show module)
   --embed <path>                embed file or directory into executable
