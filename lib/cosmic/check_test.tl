@@ -135,4 +135,54 @@ print(s)
 end
 test_check_with_tl_path()
 
+-- Test that ;; in TL_PATH expands to the default path (like LUA_PATH ;; semantics)
+local function test_check_with_tl_path_double_semicolon()
+  -- Write a custom type definition directory
+  local typedir = path.join(tmpdir, "dstypes")
+  local fs = require("cosmic.fs")
+  fs.makedirs(typedir)
+  local deffile = path.join(typedir, "dsmod.d.tl")
+  local io_mod = require("cosmic.io")
+  io_mod.barf(deffile, [[
+local record dsmod
+  value: function(): number
+end
+return dsmod
+]])
+
+  -- Write a file that uses both the custom type and a default cosmic module type
+  local input = write_temp("ds_check.tl", [[
+local dsmod = require("dsmod")
+local n: number = dsmod.value()
+local cosmo_check = require("cosmo")
+print(n)
+]])
+
+  -- With TL_PATH=<custom>;;, the ;; expands to default paths, so both custom and default types resolve
+  local base_env = unix.environ()
+  local env_ds: {string} = {}
+  for _, entry in ipairs(base_env) do
+    if not entry:match("^TL_PATH=") then
+      env_ds[#env_ds + 1] = entry
+    end
+  end
+  -- Append ;; to include both the custom dir and the default path
+  env_ds[#env_ds + 1] = "TL_PATH=" .. typedir .. "/?.d.tl;" .. typedir .. "/?/init.d.tl;;"
+  local ok_ds, _ = spawn.spawn({cosmic, "--check-types", input}, {env = env_ds}):read()
+  assert(ok_ds, "check should succeed with TL_PATH containing ;; expansion")
+
+  -- Verify that without the ;; (custom only, no default), the cosmic module also resolves
+  -- because TL_PATH without ;; is prepended to the default, so it still works
+  local env_no_ds: {string} = {}
+  for _, entry in ipairs(base_env) do
+    if not entry:match("^TL_PATH=") then
+      env_no_ds[#env_no_ds + 1] = entry
+    end
+  end
+  env_no_ds[#env_no_ds + 1] = "TL_PATH=" .. typedir .. "/?.d.tl;" .. typedir .. "/?/init.d.tl"
+  local ok_no_ds, _ = spawn.spawn({cosmic, "--check-types", input}, {env = env_no_ds}):read()
+  assert(ok_no_ds, "check should also succeed with TL_PATH prepended (no ;; needed for default types)")
+end
+test_check_with_tl_path_double_semicolon()
+
 print("All check tests passed!")
