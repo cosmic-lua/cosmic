@@ -316,17 +316,28 @@ doc-publish: $(all_docs) $(docs_publish) | $(bootstrap_cosmic)
 	@test -n "$(SOURCE_SHA)" || { echo "SOURCE_SHA required"; exit 1; }
 	@$(bootstrap_cosmic) -- $(docs_publish) $(SOURCE_SHA) $(o)/docs $(or $(DOCS_BRANCH),docs)
 
-# CI stages: iterate with --keep-going to report all failures
+# CI stages
 ci_stages := format teal test example lint
+ci_summaries := $(foreach s,$(ci_stages),$(o)/$(s)-summary.txt)
 
 .PHONY: ci
-## Run CI checks (teal, test, example) - run stage1 first to refresh bootstrap
+## Run CI checks (format, teal, test, example, lint) in parallel
 ci:
 	@rm -f $(o)/failed
-	@$(foreach s,$(ci_stages),\
-		echo "::group::$(s)"; \
-		$(MAKE) --keep-going $(s) || echo $(s) >> $(o)/failed; \
-		echo "::endgroup::";)
+	@$(MAKE) --keep-going $(ci_stages) || true
+	@for s in $(ci_stages); do \
+		echo "::group::$$s"; \
+		if [ -f $(o)/$$s-summary.txt ]; then \
+			cat $(o)/$$s-summary.txt; \
+			if grep -q "failed" $(o)/$$s-summary.txt; then \
+				echo $$s >> $(o)/failed; \
+			fi; \
+		else \
+			echo "$$s: no summary produced"; \
+			echo $$s >> $(o)/failed; \
+		fi; \
+		echo "::endgroup::"; \
+	done
 	@if [ -f $(o)/failed ]; then echo "failed:"; cat $(o)/failed; exit 1; fi
 
 debug-modules:
