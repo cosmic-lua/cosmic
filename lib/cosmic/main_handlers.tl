@@ -98,12 +98,47 @@ local function handle_version(): integer
   return 0
 end
 
+--- Write data to output file only if content differs from existing file.
+--- Writes to a .tmp file first, then renames atomically.
+--- @param output string The target file path
+--- @param data string The content to write
+--- @return boolean, string ok and error message on failure
+local function write_if_changed(output: string, data: string): boolean, string
+  if not output then
+    return false, "--write-if-changed requires -o <file>"
+  end
+  local cio = require("cosmic.io")
+  local existing, _ = cio.slurp(output)
+  if existing == data then
+    return true
+  end
+  local tmp = output .. ".tmp"
+  local ok, err = cio.barf(tmp, data)
+  if not ok then
+    return false, "write failed: " .. (err or "unknown error")
+  end
+  local fs = require("cosmic.fs_ops")
+  local ok2, err2 = fs.rename(tmp, output)
+  if not ok2 then
+    return false, "rename failed: " .. (err2 or "unknown error")
+  end
+  return true
+end
+
 --- Handle --compile flag.
-local function handle_compile(file: string): integer
+local function handle_compile(file: string, wic?: boolean, output?: string): integer
   local teal = require("cosmic.teal")
   local result = teal.compile(file)
   if result.ok then
-    io.write(result.code)
+    if wic and output then
+      local ok, err = write_if_changed(output, result.code)
+      if not ok then
+        io.stderr:write((err or "write-if-changed failed") .. "\n")
+        return 1
+      end
+    else
+      io.write(result.code)
+    end
     return 0
   else
     io.stderr:write(teal.format_issues(result.errors) .. "\n")
@@ -112,11 +147,19 @@ local function handle_compile(file: string): integer
 end
 
 --- Handle --format flag.
-local function handle_format(file: string): integer
+local function handle_format(file: string, wic?: boolean, output?: string): integer
   local fmt = require("cosmic.format")
   local result = fmt.format_file(file)
   if result.ok then
-    io.write(result.code)
+    if wic and output then
+      local ok, err = write_if_changed(output, result.code)
+      if not ok then
+        io.stderr:write((err or "write-if-changed failed") .. "\n")
+        return 1
+      end
+    else
+      io.write(result.code)
+    end
     return 0
   else
     io.stderr:write(fmt.format_issues(result.errors) .. "\n")
@@ -125,7 +168,7 @@ local function handle_format(file: string): integer
 end
 
 --- Handle --check-format flag.
-local function handle_check_format(file: string): integer
+local function handle_check_format(file: string, wic?: boolean, output?: string): integer
   local fmt = require("cosmic.format")
   local result = fmt.format_file(file)
   if not result.ok then
@@ -141,7 +184,15 @@ local function handle_check_format(file: string): integer
   end
 
   if original == result.code then
-    io.write("Format check passed\n")
+    if wic and output then
+      local ok, err = write_if_changed(output, "Format check passed\n")
+      if not ok then
+        io.stderr:write((err or "write-if-changed failed") .. "\n")
+        return 1
+      end
+    else
+      io.write("Format check passed\n")
+    end
     return 0
   end
 
@@ -166,7 +217,7 @@ local function handle_check_format(file: string): integer
 end
 
 --- Handle --check-types flag.
-local function handle_check_types(file: string): integer
+local function handle_check_types(file: string, wic?: boolean, output?: string): integer
   local teal = require("cosmic.teal")
   local result = teal.check(file)
 
@@ -178,7 +229,15 @@ local function handle_check_types(file: string): integer
   end
 
   if result.ok then
-    io.write("Type check passed\n")
+    if wic and output then
+      local ok, err = write_if_changed(output, "Type check passed\n")
+      if not ok then
+        io.stderr:write((err or "write-if-changed failed") .. "\n")
+        return 1
+      end
+    else
+      io.write("Type check passed\n")
+    end
     return 0
   else
     return 1
@@ -278,10 +337,10 @@ local record HandlersModule
   load_script_file: function(script_path: string): function(...: any): any ..., string
   run_docs: function(query: string): DocsRunResult
   handle_version: function(): integer
-  handle_compile: function(file: string): integer
-  handle_format: function(file: string): integer
-  handle_check_format: function(file: string): integer
-  handle_check_types: function(file: string): integer
+  handle_compile: function(file: string, wic?: boolean, output?: string): integer
+  handle_format: function(file: string, wic?: boolean, output?: string): integer
+  handle_check_format: function(file: string, wic?: boolean, output?: string): integer
+  handle_check_types: function(file: string, wic?: boolean, output?: string): integer
   handle_embed: function(paths: {string}, output: string): integer
   handle_extract: function(dir: string): integer
   handle_check_examples: function(file: string): integer

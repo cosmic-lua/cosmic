@@ -135,4 +135,48 @@ print(s)
 end
 test_check_with_tl_path()
 
+-- Test --write-if-changed with --check-types (new output file)
+local function test_check_write_if_changed_new_file()
+  local input = write_temp("wic_check_new.tl", [[
+local x: number = 42
+print(x)
+]])
+  local output = path.join(tmpdir, "wic_check_new.out")
+
+  local ok, _ = spawn.spawn({cosmic, "--check-types", "--write-if-changed", input, "-o", output}):read()
+  assert(ok, "cosmic --check-types --write-if-changed should succeed on valid file")
+
+  local content = cosmo.Slurp(output)
+  assert(content and content:find("Type check passed"), "output file should contain check result")
+end
+test_check_write_if_changed_new_file()
+
+-- Test --write-if-changed with --check-types (unchanged output keeps mtime)
+local function test_check_write_if_changed_no_change()
+  local input = write_temp("wic_check_same.tl", [[
+local x: number = 99
+print(x)
+]])
+  local output = path.join(tmpdir, "wic_check_same.out")
+
+  -- First call: write file
+  local ok1, _ = spawn.spawn({cosmic, "--check-types", "--write-if-changed", input, "-o", output}):read()
+  assert(ok1, "first check should succeed")
+
+  local st1 = unix.stat(output)
+  assert(st1, "output file should exist after first call")
+  local mtime1_sec, mtime1_nsec = st1:mtim()
+
+  -- Second call: same result, mtime should not change
+  local ok2, _ = spawn.spawn({cosmic, "--check-types", "--write-if-changed", input, "-o", output}):read()
+  assert(ok2, "second check should succeed")
+
+  local st2 = unix.stat(output)
+  assert(st2, "output file should exist after second call")
+  local mtime2_sec, mtime2_nsec = st2:mtim()
+  assert(mtime1_sec == mtime2_sec and mtime1_nsec == mtime2_nsec,
+    "mtime should be unchanged when content is identical")
+end
+test_check_write_if_changed_no_change()
+
 print("All check tests passed!")
