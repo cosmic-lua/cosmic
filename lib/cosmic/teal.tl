@@ -113,10 +113,17 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
     package.path = package.path .. ";" .. dir .. "/?/init.d.tl"
   end
 
-  -- Prepend TL_PATH env var so callers don't need to pass include_dirs manually
+  -- Prepend TL_PATH env var so callers don't need to pass include_dirs manually.
+  -- ;; in TL_PATH expands to the current package.path (Lua LUA_PATH convention).
   local tl_path = os.getenv("TL_PATH")
   if tl_path then
-    package.path = tl_path .. ";" .. package.path
+    if tl_path:find(";;", 1, true) then
+      package.path = (tl_path:gsub(";;", function(): string
+            return ";" .. package.path .. ";"
+          end, 1))
+    else
+      package.path = tl_path .. ";" .. package.path
+    end
   end
 
   local env = tl.init_env(lax)
