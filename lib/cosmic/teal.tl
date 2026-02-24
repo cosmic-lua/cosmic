@@ -3,6 +3,7 @@
 --- --check uses strict mode for thorough type checking.
 
 local tl = require("tl")
+local unix = require("cosmo.unix")
 
 --- A compiler or type checker issue.
 local record Issue
@@ -106,23 +107,41 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
 
   include_dirs = include_dirs or get_default_include_dirs()
 
-  -- Add include dirs to package.path for teal's module resolution
-  local saved_path = package.path
+  -- Build default path from include_dirs
+  local default_parts: {string} = {}
   for _, dir in ipairs(include_dirs) do
-    package.path = package.path .. ";" .. dir .. "/?.d.tl"
-    package.path = package.path .. ";" .. dir .. "/?/init.d.tl"
+    table.insert(default_parts, dir .. "/?.d.tl")
+    table.insert(default_parts, dir .. "/?/init.d.tl")
+  end
+  local default_path = table.concat(default_parts, ";")
+
+  -- Build effective TL_PATH: expand ;; to insert default paths, then set env.
+  -- tl.search_module reads TL_PATH env directly, so we must set it before calling tl.process_string.
+  local orig_tl_path = os.getenv("TL_PATH")
+  local effective_path: string
+  if orig_tl_path then
+    if orig_tl_path:find(";;", 1, true) then
+      -- Replace ;; with the default paths (surrounded by ; separators), then trim edge semicolons
+      local expanded = orig_tl_path:gsub(";;", ";" .. default_path .. ";")
+      expanded = expanded:gsub("^;+", ""):gsub(";+$", "")
+      effective_path = expanded
+    else
+      effective_path = orig_tl_path .. ";" .. default_path
+    end
+  else
+    effective_path = default_path
   end
 
-  -- Prepend TL_PATH env var so callers don't need to pass include_dirs manually
-  local tl_path = os.getenv("TL_PATH")
-  if tl_path then
-    package.path = tl_path .. ";" .. package.path
-  end
-
+  unix.setenv("TL_PATH", effective_path, true)
   local env = tl.init_env(lax)
   local result, proc_err = tl.process_string(input, false, env, input_path)
 
-  package.path = saved_path
+  -- Restore original TL_PATH
+  if orig_tl_path then
+    unix.setenv("TL_PATH", orig_tl_path, true)
+  else
+    unix.unsetenv("TL_PATH")
+  end
 
   if not result then
     return {

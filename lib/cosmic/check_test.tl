@@ -135,4 +135,69 @@ print(s)
 end
 test_check_with_tl_path()
 
+-- Test that TL_PATH with ;; at the end expands to include default paths
+local function test_check_tl_path_double_semicolon_suffix()
+  local typedir = path.join(tmpdir, "mytypes2")
+  unix.makedirs(typedir, 0x1ed) -- 0755
+  local deffile = path.join(typedir, "mymod2.d.tl")
+  cosmo.Barf(deffile, [[
+local record mymod2
+  greet: function(name: string): string
+end
+return mymod2
+]])
+
+  -- File that uses both the custom type and a built-in cosmic module type
+  local input = write_temp("tl_path_double_semi_suffix.tl", [[
+local mymod2 = require("mymod2")
+local s: string = mymod2.greet("world")
+print(s)
+]])
+
+  -- TL_PATH with ;; at the end: custom dir first, then default paths
+  local base_env = unix.environ()
+  local env_with: {string} = {}
+  for _, entry in ipairs(base_env) do
+    if not entry:match("^TL_PATH=") then
+      env_with[#env_with + 1] = entry
+    end
+  end
+  env_with[#env_with + 1] = "TL_PATH=" .. typedir .. "/?.d.tl;;"
+  local ok, out = spawn.spawn({cosmic, "--check-types", input}, {env = env_with}):read()
+  assert(ok, "check should succeed with TL_PATH ending in ;; (custom;; expands defaults): " .. tostring(out))
+end
+test_check_tl_path_double_semicolon_suffix()
+
+-- Test that TL_PATH with ;; at the start expands to include default paths before custom
+local function test_check_tl_path_double_semicolon_prefix()
+  local typedir = path.join(tmpdir, "mytypes3")
+  unix.makedirs(typedir, 0x1ed) -- 0755
+  local deffile = path.join(typedir, "mymod3.d.tl")
+  cosmo.Barf(deffile, [[
+local record mymod3
+  greet: function(name: string): string
+end
+return mymod3
+]])
+
+  local input = write_temp("tl_path_double_semi_prefix.tl", [[
+local mymod3 = require("mymod3")
+local s: string = mymod3.greet("world")
+print(s)
+]])
+
+  -- TL_PATH with ;; at the start: default paths first, then custom dir
+  local base_env = unix.environ()
+  local env_with: {string} = {}
+  for _, entry in ipairs(base_env) do
+    if not entry:match("^TL_PATH=") then
+      env_with[#env_with + 1] = entry
+    end
+  end
+  env_with[#env_with + 1] = "TL_PATH=;;" .. typedir .. "/?.d.tl"
+  local ok, out = spawn.spawn({cosmic, "--check-types", input}, {env = env_with}):read()
+  assert(ok, "check should succeed with TL_PATH starting with ;; (;;custom expands defaults): " .. tostring(out))
+end
+test_check_tl_path_double_semicolon_prefix()
+
 print("All check tests passed!")
