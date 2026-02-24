@@ -312,6 +312,8 @@ doc-index: $(doc_index)
 
 .PHONY: doc-publish
 ## Publish docs to git branch (SOURCE_SHA required, uses $(o)/docs)
+doc-publish: .PLEDGE = stdio rpath wpath cpath proc exec inet dns
+doc-publish: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwc:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null rwc:.git rwc:.
 doc-publish: $(all_docs) $(docs_publish) | $(bootstrap_cosmic)
 	@test -n "$(SOURCE_SHA)" || { echo "SOURCE_SHA required"; exit 1; }
 	@$(bootstrap_cosmic) -- $(docs_publish) $(SOURCE_SHA) $(o)/docs $(or $(DOCS_BRANCH),docs)
