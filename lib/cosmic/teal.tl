@@ -114,9 +114,15 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
   end
 
   -- Prepend TL_PATH env var so callers don't need to pass include_dirs manually
+  -- If TL_PATH contains ;;, expand it to the current package.path (like LUA_PATH convention)
   local tl_path = os.getenv("TL_PATH")
   if tl_path then
-    package.path = tl_path .. ";" .. package.path
+    local pos = tl_path:find(";;", 1, true)
+    if pos then
+      package.path = tl_path:sub(1, pos - 1) .. package.path .. tl_path:sub(pos + 2)
+    else
+      package.path = tl_path .. ";" .. package.path
+    end
   end
 
   local env = tl.init_env(lax)

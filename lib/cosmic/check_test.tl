@@ -135,4 +135,56 @@ print(s)
 end
 test_check_with_tl_path()
 
+-- Test that ;; in TL_PATH expands to the current package.path
+local function test_check_with_tl_path_double_semicolon()
+  -- Write a type definition file in a custom directory
+  local typedir = path.join(tmpdir, "mytypes_ds")
+  unix.makedirs(typedir, 0x1ed) -- 0755
+  local deffile = path.join(typedir, "mymod2.d.tl")
+  cosmo.Barf(deffile, [[
+local record mymod2
+  greet: function(name: string): string
+end
+return mymod2
+]])
+
+  -- Write a file that uses the custom type
+  local input = write_temp("tl_path_ds_check.tl", [[
+local mymod2 = require("mymod2")
+local s: string = mymod2.greet("world")
+print(s)
+]])
+
+  local base_env = unix.environ()
+  local function make_env(tl_path: string): {string}
+    local e: {string} = {}
+    for _, entry in ipairs(base_env) do
+      if not entry:match("^TL_PATH=") then
+        e[#e + 1] = entry
+      end
+    end
+    e[#e + 1] = "TL_PATH=" .. tl_path
+    return e
+  end
+
+  local typepat = typedir .. "/?.d.tl;" .. typedir .. "/?/init.d.tl"
+  local nonexistent = "/nonexistent/path/?.d.tl"
+
+  -- ;; in middle: custom types before ;;, nonexistent after -- should succeed
+  local env_mid = make_env(typepat .. ";;" .. nonexistent)
+  local ok_mid, _ = spawn.spawn({cosmic, "--check-types", input}, {env = env_mid}):read()
+  assert(ok_mid, "check should succeed with ;; in middle of TL_PATH")
+
+  -- ;; as prefix: custom types after ;; -- should succeed
+  local env_pre = make_env(";;" .. typepat)
+  local ok_pre, _ = spawn.spawn({cosmic, "--check-types", input}, {env = env_pre}):read()
+  assert(ok_pre, "check should succeed with ;; at start of TL_PATH")
+
+  -- ;; as suffix: custom types before ;; -- should succeed
+  local env_suf = make_env(typepat .. ";;")
+  local ok_suf, _ = spawn.spawn({cosmic, "--check-types", input}, {env = env_suf}):read()
+  assert(ok_suf, "check should succeed with ;; at end of TL_PATH")
+end
+test_check_with_tl_path_double_semicolon()
+
 print("All check tests passed!")
