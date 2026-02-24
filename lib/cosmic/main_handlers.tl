@@ -165,6 +165,20 @@ local function handle_check_format(file: string): integer
   return 1
 end
 
+--- Handle --check-style flag.
+local function handle_check_style(file: string): integer
+  local lint = require("build.lint")
+  local diags = lint.check_style(file)
+  if #diags == 0 then
+    io.write("Style check passed\n")
+    return 0
+  end
+  for _, d in ipairs(diags) do
+    io.stderr:write(string.format("%s:%d:%d: %s: %s\n", d.file, d.line, d.col, d.rule, d.message))
+  end
+  return 1
+end
+
 --- Handle --check-types flag.
 local function handle_check_types(file: string): integer
   local teal = require("cosmic.teal")
@@ -281,6 +295,7 @@ local record HandlersModule
   handle_compile: function(file: string): integer
   handle_format: function(file: string): integer
   handle_check_format: function(file: string): integer
+  handle_check_style: function(file: string): integer
   handle_check_types: function(file: string): integer
   handle_embed: function(paths: {string}, output: string): integer
   handle_extract: function(dir: string): integer
@@ -300,6 +315,7 @@ local M: HandlersModule = {
   handle_compile = handle_compile,
   handle_format = handle_format,
   handle_check_format = handle_check_format,
+  handle_check_style = handle_check_style,
   handle_check_types = handle_check_types,
   handle_embed = handle_embed,
   handle_extract = handle_extract,

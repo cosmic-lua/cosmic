@@ -6,6 +6,7 @@ Cosmic options:
   --compile <file.tl>           compile Teal file to Lua, lax mode (stdout)
   --format <file>               format Teal or Lua file (stdout)
   --check-format <file>         check file formatting (diff on stderr)
+  --check-style <file>          check style: line length, columns, assert ordering
   --check-types <file.tl>       type-check a Teal file, strict mode
   --check-examples <file.tl>    run Example_* functions, check output
   --examples [module]           browse examples (list all, or show module)

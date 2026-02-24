@@ -95,3 +95,90 @@ local function test_default_file_lines()
   assert(lint.DEFAULT_FILE_LINES == 500, "expected default to be 500")
 end
 test_default_file_lines()
+
+local function test_check_line_columns_pass()
+  local lines = {"local x = 1"}
+  local diags = lint.check_line_columns("test.tl", lines, 90)
+  assert(#diags == 0, "expected no diagnostics for short line, got: " .. tostring(#diags))
+end
+test_check_line_columns_pass()
+
+local function test_check_line_columns_fail()
+  local long_line = string.rep("x", 91)
+  local diags = lint.check_line_columns("test.tl", {long_line}, 90)
+  assert(#diags == 1, "expected 1 diagnostic for long line, got: " .. tostring(#diags))
+  assert(diags[1].rule == "line-columns", "expected line-columns rule")
+  assert(diags[1].col == 91, "expected col 91, got: " .. tostring(diags[1].col))
+  assert(diags[1].line == 1, "expected line 1, got: " .. tostring(diags[1].line))
+end
+test_check_line_columns_fail()
+
+local function test_check_line_columns_at_limit()
+  local line_at_limit = string.rep("x", 90)
+  local diags = lint.check_line_columns("test.tl", {line_at_limit}, 90)
+  assert(#diags == 0, "expected no diagnostics for line at limit, got: " .. tostring(#diags))
+end
+test_check_line_columns_at_limit()
+
+local function test_check_assert_ordering_pass()
+  local lines = {
+    "local function test_foo()",
+    "  assert(true)",
+    "end",
+    "test_foo()",
+  }
+  local diags = lint.check_assert_ordering("test.tl", lines)
+  assert(#diags == 0, "expected no diagnostics for ordered assert, got: " .. tostring(#diags))
+end
+test_check_assert_ordering_pass()
+
+local function test_check_assert_ordering_fail()
+  local lines = {
+    "local function test_foo()",
+    "  assert(true)",
+    "end",
+    "",
+    "local x = 1",
+    "test_foo()",
+  }
+  local diags = lint.check_assert_ordering("test.tl", lines)
+  assert(#diags == 1, "expected 1 diagnostic for unordered assert, got: " .. tostring(#diags))
+  assert(diags[1].rule == "assert-ordering", "expected assert-ordering rule")
+end
+test_check_assert_ordering_fail()
+
+local function test_check_assert_ordering_blank_lines_between()
+  -- blank lines between end and call are skipped — still valid
+  local lines = {
+    "local function test_bar()",
+    "  assert(true)",
+    "end",
+    "",
+    "test_bar()",
+  }
+  local diags = lint.check_assert_ordering("test.tl", lines)
+  assert(#diags == 0, "expected no diagnostics when blank line between end and call, got: " .. tostring(#diags))
+end
+test_check_assert_ordering_blank_lines_between()
+
+local function test_check_style_pass()
+  local path = fs.join(tmpdir, "style_pass.tl")
+  cio.barf(path, "local x = 1\n")
+  local diags = lint.check_style(path)
+  assert(#diags == 0, "expected no diagnostics for clean file, got: " .. tostring(#diags))
+end
+test_check_style_pass()
+
+local function test_check_style_column_fail()
+  local path = fs.join(tmpdir, "style_col.tl")
+  cio.barf(path, string.rep("x", 91) .. "\n")
+  local diags = lint.check_style(path)
+  assert(#diags == 1, "expected 1 diagnostic for long column, got: " .. tostring(#diags))
+  assert(diags[1].rule == "line-columns", "expected line-columns rule")
+end
+test_check_style_column_fail()
+
+local function test_default_col_limit()
+  assert(lint.DEFAULT_COL_LIMIT == 90, "expected DEFAULT_COL_LIMIT to be 90")
+end
+test_default_col_limit()
