@@ -135,4 +135,49 @@ print(s)
 end
 test_check_with_tl_path()
 
+-- Test --check-types --output writes file
+local function test_check_types_output_flag()
+  local input = write_temp("check_output.tl", [[
+local x: number = 42
+print(x)
+]])
+  local output = path.join(tmpdir, "check_output.got")
+
+  local ok, _ = spawn.spawn({cosmic, "--check-types", "--output", output, input}):read()
+  assert(ok, "check-types with --output should succeed")
+  local content = cosmo.Slurp(output)
+  assert(content and content:find("Type check passed"), "output file should contain type check result")
+end
+test_check_types_output_flag()
+
+-- Test --check-types --write-if-changed --output skips write when content unchanged
+local function test_check_types_write_if_changed()
+  local input = write_temp("check_wic.tl", [[
+local y: string = "hello"
+print(y)
+]])
+  local output = path.join(tmpdir, "check_wic.got")
+
+  -- first run: file does not exist, must be written
+  local ok1, _ = spawn.spawn({cosmic, "--check-types", "--write-if-changed", "--output", output, input}):read()
+  assert(ok1, "first check-types --write-if-changed should succeed")
+  local content1 = cosmo.Slurp(output)
+  assert(content1 and content1:find("Type check passed"), "output file should contain result after first run")
+
+  -- overwrite output with different content, then re-run
+  cosmo.Barf(output, "-- sentinel\n")
+  local ok2, _ = spawn.spawn({cosmic, "--check-types", "--write-if-changed", "--output", output, input}):read()
+  assert(ok2, "second check-types --write-if-changed should succeed")
+  local content2 = cosmo.Slurp(output)
+  assert(content2 and content2:find("Type check passed"), "output file should be updated when content differs")
+
+  -- run again with identical content: output should not change
+  local content_before = cosmo.Slurp(output)
+  local ok3, _ = spawn.spawn({cosmic, "--check-types", "--write-if-changed", "--output", output, input}):read()
+  assert(ok3, "third check-types --write-if-changed should succeed")
+  local content_after = cosmo.Slurp(output)
+  assert(content_before == content_after, "output file should be unchanged when content identical")
+end
+test_check_types_write_if_changed()
+
 print("All check tests passed!")

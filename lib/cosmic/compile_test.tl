@@ -165,4 +165,49 @@ end
 end
 test_compile_lax_mode()
 
+-- Test --compile --output writes file
+local function test_compile_output_flag()
+  local input = write_temp("output_flag.tl", [[
+local x: number = 1
+print(x)
+]])
+  local output = path.join(tmpdir, "output_flag.lua")
+
+  local ok, _ = spawn.spawn({cosmic, "--compile", "--output", output, input}):read()
+  assert(ok, "compile with --output should succeed")
+  local content = cosmo.Slurp(output)
+  assert(content and content:find("local x = 1"), "output file should contain compiled Lua")
+end
+test_compile_output_flag()
+
+-- Test --compile --write-if-changed --output skips write when content unchanged
+local function test_compile_write_if_changed()
+  local input = write_temp("wic.tl", [[
+local x: number = 99
+print(x)
+]])
+  local output = path.join(tmpdir, "wic.lua")
+
+  -- first run: file does not exist, must be written
+  local ok1, _ = spawn.spawn({cosmic, "--compile", "--write-if-changed", "--output", output, input}):read()
+  assert(ok1, "first compile --write-if-changed should succeed")
+  local content1 = cosmo.Slurp(output)
+  assert(content1 and content1:find("local x = 99"), "output file should contain compiled Lua after first run")
+
+  -- overwrite output with different content, then re-run
+  cosmo.Barf(output, "-- sentinel\n")
+  local ok2, _ = spawn.spawn({cosmic, "--compile", "--write-if-changed", "--output", output, input}):read()
+  assert(ok2, "second compile --write-if-changed should succeed")
+  local content2 = cosmo.Slurp(output)
+  assert(content2 and content2:find("local x = 99"), "output file should be updated when content differs")
+
+  -- run again with identical content: output should not change
+  local content_before = cosmo.Slurp(output)
+  local ok3, _ = spawn.spawn({cosmic, "--compile", "--write-if-changed", "--output", output, input}):read()
+  assert(ok3, "third compile --write-if-changed should succeed")
+  local content_after = cosmo.Slurp(output)
+  assert(content_before == content_after, "output file should be unchanged when content identical")
+end
+test_compile_write_if_changed()
+
 print("All compile tests passed!")

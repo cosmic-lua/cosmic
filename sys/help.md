@@ -10,7 +10,8 @@ Cosmic options:
   --check-examples <file.tl>    run Example_* functions, check output
   --examples [module]           browse examples (list all, or show module)
   --embed <path>                embed file or directory into executable
-  --output <file>               output file for --embed (default: cosmic)
+  --output <file>               output file for --compile/--check-format/--check-types/--embed
+  --write-if-changed            only write --output file if content differs
   --extract <dir>               extract zip contents to directory
   --benchmark <file.tl[:pat]>   run Benchmark_* functions, report timing
   --docs [query]                show documentation for module or symbol
