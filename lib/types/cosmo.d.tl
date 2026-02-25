@@ -19,6 +19,7 @@ local record cosmo
 
   -- hashing
   Sha256: function(data: string): string
+  GetCryptoHash: function(algo: string, data: string, key?: string): string
 
   -- encoding
   EncodeHex: function(data: string): string
