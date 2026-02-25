@@ -3,14 +3,15 @@ cosmic-lua: cosmopolitan lua with bundled libraries
 Usage: cosmic-lua [options] [script [args]]
 
 Cosmic options:
-  --compile <file.tl>           compile Teal file to Lua, lax mode (stdout)
+  --compile <file.tl>           compile Teal file to Lua, lax mode (stdout or --output)
   --format <file>               format Teal or Lua file (stdout)
   --check-format <file>         check file formatting (diff on stderr)
   --check-types <file.tl>       type-check a Teal file, strict mode
   --check-examples <file.tl>    run Example_* functions, check output
   --examples [module]           browse examples (list all, or show module)
   --embed <path>                embed file or directory into executable
-  --output <file>               output file for --embed (default: cosmic)
+  --output <file>               output file for --embed, --compile, --check-format, --check-types
+  --write-if-changed            with --output, skip write if content is unchanged (make-friendly)
   --extract <dir>               extract zip contents to directory
   --benchmark <file.tl[:pat]>   run Benchmark_* functions, report timing
   --docs [query]                show documentation for module or symbol

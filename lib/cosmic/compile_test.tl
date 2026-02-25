@@ -165,4 +165,33 @@ end
 end
 test_compile_lax_mode()
 
+-- Test --write-if-changed with --output: file created on first run, mtime unchanged on second run
+local function test_compile_write_if_changed()
+  local input = write_temp("wic_input.tl", [[
+local x: number = 42
+print(x)
+]])
+  local output = path.join(tmpdir, "wic_output.lua")
+  local fs = require("cosmic.fs")
+
+  -- First run: file should be created
+  local ok1, _ = spawn.spawn({cosmic, "--write-if-changed", "--output", output, "--compile", input}):read()
+  assert(ok1, "first --write-if-changed compile should succeed")
+
+  local st1, err1 = fs.stat(output)
+  assert(st1, "output file should exist after first run: " .. (err1 or ""))
+  local mtime1, _ = st1:mtim()
+
+  -- Second run: same input, mtime should not change
+  local ok2, _ = spawn.spawn({cosmic, "--write-if-changed", "--output", output, "--compile", input}):read()
+  assert(ok2, "second --write-if-changed compile should succeed")
+
+  local st2, err2 = fs.stat(output)
+  assert(st2, "output file should still exist after second run: " .. (err2 or ""))
+  local mtime2, _ = st2:mtim()
+
+  assert(mtime1 == mtime2, "mtime should be unchanged when content is identical: " .. tostring(mtime1) .. " vs " .. tostring(mtime2))
+end
+test_compile_write_if_changed()
+
 print("All compile tests passed!")
