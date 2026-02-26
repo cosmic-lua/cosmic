@@ -272,6 +272,26 @@ local function handle_make(dir: string, target: string): integer
   end
 end
 
+--- Handle --check-style flag.
+--- Runs lint checks (file length, column width, assert ordering) on FILE.
+--- Prints "Style check passed" on success, diagnostic list on failure.
+local function handle_check_style(file: string): integer
+  local lint = require("build.lint")
+  local diagnostics = lint.style_file(file)
+  if #diagnostics == 0 then
+    io.write("Style check passed\n")
+    return 0
+  end
+  io.stderr:write(string.format("fail: %d issues\n\n", #diagnostics))
+  for _, d in ipairs(diagnostics) do
+    io.stderr:write(string.format(
+      "%s:%d:%d: %s: %s\n",
+      d.file, d.line, d.col, d.rule, d.message
+    ))
+  end
+  return 1
+end
+
 local record HandlersModule
   generate_welcome: function(): string
   run_repl: function()
@@ -289,6 +309,7 @@ local record HandlersModule
   handle_benchmark: function(spec: string): integer
   handle_docs: function(query: string): integer
   handle_make: function(dir: string, target: string): integer
+  handle_check_style: function(file: string): integer
 end
 
 local M: HandlersModule = {
@@ -308,6 +329,7 @@ local M: HandlersModule = {
   handle_benchmark = handle_benchmark,
   handle_docs = handle_docs,
   handle_make = handle_make,
+  handle_check_style = handle_check_style,
 }
 
 return M

@@ -40,6 +40,7 @@ local record Opts
   report_paths: {string}
   make: string
   error: string
+  check_style: string
 end
 
 -- Parse arguments using cosmo.getopt iterator API
@@ -70,6 +71,7 @@ local function parse_args(): Opts
     report_paths = nil,
     make = nil,
     error = nil,
+    check_style = nil,
   }
 
   local shortopts = cli_args.shortopts
@@ -228,6 +230,9 @@ local function parse_args(): Opts
     elseif opt == "make" then
       opts.make = optarg or ""
       return opts
+    elseif opt == "check-style" then
+      opts.check_style = optarg
+      return opts
     end
   end
 
@@ -309,6 +314,7 @@ local function main(): integer, string
   if #opts.embed > 0 then return handlers.handle_embed(opts.embed, opts.output) end
   if opts.extract then return handlers.handle_extract(opts.extract) end
   if opts.check_examples then return handlers.handle_check_examples(opts.check_examples) end
+  if opts.check_style then return handlers.handle_check_style(opts.check_style) end
 
   if opts.examples ~= nil then
     local module_name = resolve_optional_arg("--examples", opts.examples)
