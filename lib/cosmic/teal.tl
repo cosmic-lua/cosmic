@@ -113,10 +113,18 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
     package.path = package.path .. ";" .. dir .. "/?/init.d.tl"
   end
 
-  -- Prepend TL_PATH env var so callers don't need to pass include_dirs manually
+  -- Prepend TL_PATH env var so callers don't need to pass include_dirs manually.
+  -- If TL_PATH contains ;;, replace the first occurrence with the current
+  -- package.path (after include_dirs have been applied), matching Lua's
+  -- LUA_PATH double-semicolon convention.
   local tl_path = os.getenv("TL_PATH")
   if tl_path then
-    package.path = tl_path .. ";" .. package.path
+    if tl_path:find(";;", 1, true) then
+      local expanded = tl_path:gsub(";;", ";" .. package.path .. ";", 1)
+      package.path = expanded:match("^;*(.-);*$")
+    else
+      package.path = tl_path .. ";" .. package.path
+    end
   end
 
   local env = tl.init_env(lax)

@@ -135,4 +135,39 @@ print(s)
 end
 test_check_with_tl_path()
 
+-- Test that TL_PATH with ;; expands to current package.path (Lua convention)
+local function test_check_with_tl_path_double_semicolon()
+  -- Write a type definition file in a custom directory
+  local typedir = path.join(tmpdir, "mytypes2")
+  unix.makedirs(typedir, 0x1ed) -- 0755
+  local deffile = path.join(typedir, "mymod2.d.tl")
+  cosmo.Barf(deffile, [[
+local record mymod2
+  greet: function(name: string): string
+end
+return mymod2
+]])
+
+  -- Write a file that uses the custom type
+  local input = write_temp("tl_path_double_semi_check.tl", [[
+local mymod2 = require("mymod2")
+local s: string = mymod2.greet("world")
+print(s)
+]])
+
+  -- Use ;; in TL_PATH so the default package.path is inserted at ;;
+  -- The custom typedir comes before ;; so it should resolve mymod2
+  local base_env = unix.environ()
+  local env_with: {string} = {}
+  for _, entry in ipairs(base_env) do
+    if not entry:match("^TL_PATH=") then
+      env_with[#env_with + 1] = entry
+    end
+  end
+  env_with[#env_with + 1] = "TL_PATH=" .. typedir .. "/?.d.tl;" .. typedir .. "/?/init.d.tl;;"
+  local ok_with, _ = spawn.spawn({cosmic, "--check-types", input}, {env = env_with}):read()
+  assert(ok_with, "check should succeed when TL_PATH uses ;; to include default paths")
+end
+test_check_with_tl_path_double_semicolon()
+
 print("All check tests passed!")
