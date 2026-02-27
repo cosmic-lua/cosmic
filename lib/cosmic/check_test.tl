@@ -135,4 +135,49 @@ print(s)
 end
 test_check_with_tl_path()
 
+-- Test --check-types --write-if-changed --output: writes status file when target doesn't exist
+local function test_check_write_if_changed_creates_file()
+  local input = write_temp("wic_valid.tl", [[
+local x: number = 42
+print(x)
+]])
+  local output = path.join(tmpdir, "wic_valid.got")
+
+  local ok, _ = spawn.spawn({cosmic, "--check-types", "--write-if-changed", "--output", output, input}):read()
+  assert(ok, "check-types --write-if-changed should succeed on valid file")
+
+  local data = cosmo.Slurp(output)
+  assert(data, "output file should exist after write-if-changed")
+  assert((data as string):find("Type check passed"), "output file should contain check result")
+end
+test_check_write_if_changed_creates_file()
+
+-- Test --check-types --write-if-changed skips write when content is identical
+local function test_check_write_if_changed_skips_identical()
+  local input = write_temp("wic_stable.tl", [[
+local x: number = 42
+print(x)
+]])
+  local output = path.join(tmpdir, "wic_stable.got")
+
+  -- First run: create the file
+  local ok1, _ = spawn.spawn({cosmic, "--check-types", "--write-if-changed", "--output", output, input}):read()
+  assert(ok1, "first check-types --write-if-changed should succeed")
+
+  local stat1 = unix.stat(output)
+  assert(stat1, "output file should exist")
+  local mtime1 = (stat1 as any).mtim.tv_sec as number
+
+  unix.nanosleep(0, 500000000) -- 0.5 seconds
+
+  -- Second run: identical output, should not rewrite
+  local ok2, _ = spawn.spawn({cosmic, "--check-types", "--write-if-changed", "--output", output, input}):read()
+  assert(ok2, "second check-types --write-if-changed should succeed")
+
+  local stat2 = unix.stat(output)
+  local mtime2 = (stat2 as any).mtim.tv_sec as number
+  assert(mtime1 == mtime2, "mtime should not change when content is identical (got " .. mtime1 .. " vs " .. mtime2 .. ")")
+end
+test_check_write_if_changed_skips_identical()
+
 print("All check tests passed!")

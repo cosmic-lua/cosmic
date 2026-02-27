@@ -98,13 +98,45 @@ local function handle_version(): integer
   return 0
 end
 
+--- Write content to stdout or a file, using write-if-changed semantics if requested.
+--- When output is nil, writes to stdout. When write_if_changed is true and output
+--- is specified, skips the write if the file already contains identical content.
+local function write_output(content: string, output: string, write_if_changed: boolean): integer, string
+  if not output then
+    io.write(content)
+    return 0
+  end
+  if write_if_changed then
+    local cio = require("cosmic.io")
+    local existing, _ = cio.slurp(output)
+    if existing == content then
+      return 0
+    end
+    local tmp = output .. ".tmp"
+    local ok, err = cio.barf(tmp, content)
+    if not ok then return 1, err end
+    local fs = require("cosmic.fs")
+    local ok2, err2 = fs.rename(tmp, output)
+    if not ok2 then return 1, err2 end
+    return 0
+  else
+    local cio = require("cosmic.io")
+    local ok, err = cio.barf(output, content)
+    if not ok then return 1, err end
+    return 0
+  end
+end
+
 --- Handle --compile flag.
-local function handle_compile(file: string): integer
+local function handle_compile(file: string, output: string, write_if_changed: boolean): integer
   local teal = require("cosmic.teal")
   local result = teal.compile(file)
   if result.ok then
-    io.write(result.code)
-    return 0
+    local code, err = write_output(result.code, output, write_if_changed)
+    if code ~= 0 then
+      io.stderr:write((err or "write failed") .. "\n")
+    end
+    return code
   else
     io.stderr:write(teal.format_issues(result.errors) .. "\n")
     return 1
@@ -125,7 +157,7 @@ local function handle_format(file: string): integer
 end
 
 --- Handle --check-format flag.
-local function handle_check_format(file: string): integer
+local function handle_check_format(file: string, output: string, write_if_changed: boolean): integer
   local fmt = require("cosmic.format")
   local result = fmt.format_file(file)
   if not result.ok then
@@ -141,8 +173,11 @@ local function handle_check_format(file: string): integer
   end
 
   if original == result.code then
-    io.write("Format check passed\n")
-    return 0
+    local code, err = write_output("Format check passed\n", output, write_if_changed)
+    if code ~= 0 then
+      io.stderr:write((err or "write failed") .. "\n")
+    end
+    return code
   end
 
   local orig_lines: {string} = {}
@@ -166,7 +201,7 @@ local function handle_check_format(file: string): integer
 end
 
 --- Handle --check-types flag.
-local function handle_check_types(file: string): integer
+local function handle_check_types(file: string, output: string, write_if_changed: boolean): integer
   local teal = require("cosmic.teal")
   local result = teal.check(file)
 
@@ -178,8 +213,11 @@ local function handle_check_types(file: string): integer
   end
 
   if result.ok then
-    io.write("Type check passed\n")
-    return 0
+    local code, err = write_output("Type check passed\n", output, write_if_changed)
+    if code ~= 0 then
+      io.stderr:write((err or "write failed") .. "\n")
+    end
+    return code
   else
     return 1
   end
@@ -278,10 +316,10 @@ local record HandlersModule
   load_script_file: function(script_path: string): function(...: any): any ..., string
   run_docs: function(query: string): DocsRunResult
   handle_version: function(): integer
-  handle_compile: function(file: string): integer
+  handle_compile: function(file: string, output: string, write_if_changed: boolean): integer
   handle_format: function(file: string): integer
-  handle_check_format: function(file: string): integer
-  handle_check_types: function(file: string): integer
+  handle_check_format: function(file: string, output: string, write_if_changed: boolean): integer
+  handle_check_types: function(file: string, output: string, write_if_changed: boolean): integer
   handle_embed: function(paths: {string}, output: string): integer
   handle_extract: function(dir: string): integer
   handle_check_examples: function(file: string): integer
