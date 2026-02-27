@@ -39,6 +39,7 @@ local record Opts
   test_output: string
   report_paths: {string}
   make: string
+  check_style: string
   error: string
 end
 
@@ -69,6 +70,7 @@ local function parse_args(): Opts
     test_output = nil,
     report_paths = nil,
     make = nil,
+    check_style = nil,
     error = nil,
   }
 
@@ -228,6 +230,9 @@ local function parse_args(): Opts
     elseif opt == "make" then
       opts.make = optarg or ""
       return opts
+    elseif opt == "check-style" then
+      opts.check_style = optarg
+      return opts
     end
   end
 
@@ -306,6 +311,7 @@ local function main(): integer, string
   if opts.format then return handlers.handle_format(opts.format) end
   if opts.check_format then return handlers.handle_check_format(opts.check_format) end
   if opts.check_types then return handlers.handle_check_types(opts.check_types) end
+  if opts.check_style then return handlers.handle_check_style(opts.check_style) end
   if #opts.embed > 0 then return handlers.handle_embed(opts.embed, opts.output) end
   if opts.extract then return handlers.handle_extract(opts.extract) end
   if opts.check_examples then return handlers.handle_check_examples(opts.check_examples) end
