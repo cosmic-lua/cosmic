@@ -135,4 +135,39 @@ print(s)
 end
 test_check_with_tl_path()
 
+-- Test --check-types with --write-if-changed: creates output file, then skips rewrite on second run
+local function test_check_write_if_changed()
+  local input = write_temp("wic_check.tl", [[
+local x: number = 42
+print(x)
+]])
+  local output = path.join(tmpdir, "wic_check.txt")
+
+  -- First run: file does not exist, should be created
+  local ok1, _ = spawn.spawn({cosmic, "--check-types", "--write-if-changed", "--output", output, input}):read()
+  assert(ok1, "first --write-if-changed check-types run should succeed")
+
+  local cio = require("cosmic.io")
+  local content1, err1 = cio.slurp(output)
+  assert(content1, "output file should exist after first run: " .. (err1 or ""))
+  assert(content1:find("Type check passed"), "output should contain type check result")
+
+  -- Second run: content is identical, file should not be rewritten (mtime unchanged)
+  local stat1 = unix.stat(output)
+  assert(stat1, "stat should succeed")
+  local sec1, nsec1 = stat1:mtim()
+
+  unix.nanosleep(0, 100000000) -- 100ms
+
+  local ok2, _ = spawn.spawn({cosmic, "--check-types", "--write-if-changed", "--output", output, input}):read()
+  assert(ok2, "second --write-if-changed check-types run should succeed")
+
+  local stat2 = unix.stat(output)
+  assert(stat2, "stat should succeed on second run")
+  local sec2, nsec2 = stat2:mtim()
+  assert(sec2 == sec1 and nsec2 == nsec1,
+    "mtime should be unchanged when content is identical")
+end
+test_check_write_if_changed()
+
 print("All check tests passed!")

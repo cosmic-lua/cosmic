@@ -5,7 +5,7 @@ local getopt = require("cosmic.getopt")
 
 --- Short options string for getopt (e.g. "e:l:ivEWh").
 --- Options followed by ':' require an argument.
-local shortopts = "e:l:ivEWh"
+local shortopts = "e:l:ivEWCh"
 
 --- Long options table for getopt.
 local longopts: {getopt.LongOpt} = {
@@ -26,6 +26,7 @@ local longopts: {getopt.LongOpt} = {
   {name = "test", has_arg = "required"},
   {name = "report", has_arg = "none"},
   {name = "make", has_arg = "optional"},
+  {name = "write-if-changed", has_arg = "none", short = "C"},
 }
 
 return {
