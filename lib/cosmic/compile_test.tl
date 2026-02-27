@@ -165,4 +165,77 @@ end
 end
 test_compile_lax_mode()
 
+-- Test --write-if-changed: creates new file when it doesn't exist
+local function test_compile_write_if_changed_new_file()
+  local input = write_temp("wic_new.tl", [[
+local x: number = 1
+print(x)
+]])
+  local output = path.join(tmpdir, "wic_new.lua")
+
+  local ok, out = spawn.spawn({cosmic, "--compile", "--write-if-changed", "--output", output, input}):read()
+  assert(ok, "compile --write-if-changed should succeed: " .. tostring(out))
+  local data = cosmo.Slurp(output)
+  assert(data and data ~= "", "output file should be created")
+  assert(data:find("local x = 1"), "output should contain compiled Lua")
+end
+test_compile_write_if_changed_new_file()
+
+-- Test --write-if-changed: preserves timestamp when content is unchanged
+local function test_compile_write_if_changed_same_content()
+  local input = write_temp("wic_same.tl", [[
+local x: number = 2
+print(x)
+]])
+  local output = path.join(tmpdir, "wic_same.lua")
+
+  local ok1, out1 = spawn.spawn({cosmic, "--compile", "--write-if-changed", "--output", output, input}):read()
+  assert(ok1, "first compile should succeed: " .. tostring(out1))
+
+  local fs = require("cosmic.fs")
+  local stat1, err1 = fs.stat(output)
+  assert(stat1, "output file should exist after first compile: " .. tostring(err1))
+  local mtime1 = stat1:mtim()
+
+  -- Wait a tick to allow time to advance
+  require("cosmic.time").sleep(0.01)
+
+  local ok2, out2 = spawn.spawn({cosmic, "--compile", "--write-if-changed", "--output", output, input}):read()
+  assert(ok2, "second compile should succeed: " .. tostring(out2))
+
+  local stat2, err2 = fs.stat(output)
+  assert(stat2, "output file should still exist after second compile: " .. tostring(err2))
+  local mtime2 = stat2:mtim()
+
+  assert(mtime1 == mtime2, "mtime should not change when content is identical: " .. tostring(mtime1) .. " vs " .. tostring(mtime2))
+end
+test_compile_write_if_changed_same_content()
+
+-- Test --write-if-changed: updates file when content changes
+local function test_compile_write_if_changed_changed_content()
+  local input = write_temp("wic_changed.tl", [[
+local x: number = 3
+print(x)
+]])
+  local output = path.join(tmpdir, "wic_changed.lua")
+
+  local ok1, out1 = spawn.spawn({cosmic, "--compile", "--write-if-changed", "--output", output, input}):read()
+  assert(ok1, "first compile should succeed: " .. tostring(out1))
+  local data1 = cosmo.Slurp(output)
+
+  -- Update the source file
+  cosmo.Barf(input, [[
+local y: number = 99
+print(y)
+]])
+
+  local ok2, out2 = spawn.spawn({cosmic, "--compile", "--write-if-changed", "--output", output, input}):read()
+  assert(ok2, "second compile should succeed: " .. tostring(out2))
+  local data2 = cosmo.Slurp(output)
+
+  assert(data1 ~= data2, "output file should be updated when source changes")
+  assert(data2:find("local y = 99"), "output should contain updated Lua")
+end
+test_compile_write_if_changed_changed_content()
+
 print("All compile tests passed!")

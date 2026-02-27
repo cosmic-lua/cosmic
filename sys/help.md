@@ -11,6 +11,7 @@ Cosmic options:
   --examples [module]           browse examples (list all, or show module)
   --embed <path>                embed file or directory into executable
   --output <file>               output file for --embed (default: cosmic)
+  --write-if-changed            with --output: skip write if content unchanged
   --extract <dir>               extract zip contents to directory
   --benchmark <file.tl[:pat]>   run Benchmark_* functions, report timing
   --docs [query]                show documentation for module or symbol
