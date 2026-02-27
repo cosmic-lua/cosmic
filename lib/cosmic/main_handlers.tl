@@ -98,12 +98,51 @@ local function handle_version(): integer
   return 0
 end
 
+--- Write content to output path with optional write-if-changed semantics.
+--- If output is nil/empty, writes to stdout.
+--- If write_if_changed is true and output exists with identical content, skips write.
+--- Otherwise writes to output.tmp then renames to output (atomic).
+--- Returns true on success, false and error string on failure.
+local function write_output(content: string, output?: string, write_if_changed?: boolean): boolean, string
+  if not output or output == "" then
+    io.write(content)
+    return true
+  end
+
+  if write_if_changed then
+    local cio = require("cosmic.io")
+    local existing, _ = cio.slurp(output)
+    if existing and existing == content then
+      return true
+    end
+  end
+
+  local tmp = output .. ".tmp"
+  local cio = require("cosmic.io")
+  local ok, err = cio.barf(tmp, content)
+  if not ok then
+    return false, err or ("failed to write " .. tmp)
+  end
+
+  local cfs = require("cosmic.fs")
+  local rok, rerr = cfs.rename(tmp, output)
+  if not rok then
+    return false, rerr or ("failed to rename " .. tmp .. " to " .. output)
+  end
+
+  return true
+end
+
 --- Handle --compile flag.
-local function handle_compile(file: string): integer
+local function handle_compile(file: string, output?: string, write_if_changed?: boolean): integer
   local teal = require("cosmic.teal")
   local result = teal.compile(file)
   if result.ok then
-    io.write(result.code)
+    local ok, err = write_output(result.code, output, write_if_changed)
+    if not ok then
+      io.stderr:write((err or "write failed") .. "\n")
+      return 1
+    end
     return 0
   else
     io.stderr:write(teal.format_issues(result.errors) .. "\n")
@@ -125,7 +164,7 @@ local function handle_format(file: string): integer
 end
 
 --- Handle --check-format flag.
-local function handle_check_format(file: string): integer
+local function handle_check_format(file: string, output?: string, write_if_changed?: boolean): integer
   local fmt = require("cosmic.format")
   local result = fmt.format_file(file)
   if not result.ok then
@@ -141,7 +180,11 @@ local function handle_check_format(file: string): integer
   end
 
   if original == result.code then
-    io.write("Format check passed\n")
+    local ok, err = write_output("Format check passed\n", output, write_if_changed)
+    if not ok then
+      io.stderr:write((err or "write failed") .. "\n")
+      return 1
+    end
     return 0
   end
 
@@ -166,7 +209,7 @@ local function handle_check_format(file: string): integer
 end
 
 --- Handle --check-types flag.
-local function handle_check_types(file: string): integer
+local function handle_check_types(file: string, output?: string, write_if_changed?: boolean): integer
   local teal = require("cosmic.teal")
   local result = teal.check(file)
 
@@ -178,7 +221,11 @@ local function handle_check_types(file: string): integer
   end
 
   if result.ok then
-    io.write("Type check passed\n")
+    local ok, err = write_output("Type check passed\n", output, write_if_changed)
+    if not ok then
+      io.stderr:write((err or "write failed") .. "\n")
+      return 1
+    end
     return 0
   else
     return 1
@@ -278,10 +325,10 @@ local record HandlersModule
   load_script_file: function(script_path: string): function(...: any): any ..., string
   run_docs: function(query: string): DocsRunResult
   handle_version: function(): integer
-  handle_compile: function(file: string): integer
+  handle_compile: function(file: string, output?: string, write_if_changed?: boolean): integer
   handle_format: function(file: string): integer
-  handle_check_format: function(file: string): integer
-  handle_check_types: function(file: string): integer
+  handle_check_format: function(file: string, output?: string, write_if_changed?: boolean): integer
+  handle_check_types: function(file: string, output?: string, write_if_changed?: boolean): integer
   handle_embed: function(paths: {string}, output: string): integer
   handle_extract: function(dir: string): integer
   handle_check_examples: function(file: string): integer
