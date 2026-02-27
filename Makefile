@@ -197,7 +197,7 @@ lint: $(o)/lint-summary.txt
 $(o)/lint-summary.txt: $(all_linted) | $(build_reporter)
 	@$(reporter) --dir $(o) $(patsubst %,%.got,$(basename $(all_linted))) | tee $@
 
-$(o)/%.lint.ok: % lib/build/lint.tl | $(bootstrap_cosmic)
+$(o)/%.lint.ok: % $(build_lint) | $(bootstrap_cosmic)
 	@mkdir -p $(@D)
 	-@$(linter) $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $(basename $@).got; cp $(basename $@).got $@
 
