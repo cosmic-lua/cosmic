@@ -170,3 +170,28 @@ local function test_noecho_non_tty()
   end
 end
 test_noecho_non_tty()
+
+-- Test getpass function
+
+local function test_getpass_exported()
+  assert(tty.getpass ~= nil, "getpass function should be exported")
+  assert(type(tty.getpass) == "function", "getpass should be a function")
+end
+test_getpass_exported()
+
+local function test_getpass_non_tty()
+  -- When stdin is not a tty, getpass reads from stdin directly.
+  -- In test environment stdin is typically piped (not a tty) and at EOF.
+  if tty.isatty(0) then
+    io.stderr:write("SKIP: test_getpass_non_tty (stdin is a tty)\n")
+    return
+  end
+  -- stdin is not a tty and at EOF, so getpass should return nil + "EOF on stdin"
+  local password, err = tty.getpass("Password: ")
+  if password == nil then
+    assert(err ~= nil, "getpass should return error message on EOF")
+  else
+    assert(type(password) == "string", "getpass should return string or nil")
+  end
+end
+test_getpass_non_tty()

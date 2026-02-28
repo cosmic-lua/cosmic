@@ -64,6 +64,7 @@ local record TtyModule
   raw: function(fd: number): Termios, string
   noecho: function(fd: number): Termios, string
   restore: function(fd: number, termios: Termios): boolean, string
+  getpass: function(prompt: string): string, string
 end
 
 --- Checks if a file descriptor refers to a terminal.
@@ -199,6 +200,53 @@ local function restore(fd: number, termios: Termios): boolean, string
   return setattr(fd, unix.TCSANOW, termios)
 end
 
+--- Reads a password from the terminal without echoing.
+--- Disables echo, reads a line, restores terminal state.
+--- Safe to use: restores terminal even if an error occurs.
+--- When stdin is not a terminal, reads from stdin directly.
+---
+--- Example:
+---   local password, err = tty.getpass("Master password: ")
+---   if not password then
+---     print("Input cancelled: " .. (err or "unknown"))
+---   end
+---
+--- @param prompt string Text to display before reading
+--- @return string|nil The password (without trailing newline), or nil on error
+--- @return string? Error message on failure
+local function getpass(prompt: string): string, string
+  if not unix.isatty(0) then
+    local line = io.read("l") as string
+    if line == nil then
+      return nil, "EOF on stdin"
+    end
+    return line
+  end
+
+  io.stderr:write(prompt)
+  io.stderr:flush()
+
+  local original, err = noecho(0)
+  if not original then
+    return nil, err
+  end
+
+  local ok, result = pcall(io.read, "l")
+
+  restore(0, original)
+  io.stderr:write("\n")
+
+  if not ok then
+    return nil, result as string
+  end
+
+  local password = result as string
+  if password == nil then
+    return nil, "EOF on stdin"
+  end
+  return password
+end
+
 local M: TtyModule = {
   isatty = isatty,
   winsize = winsize,
@@ -210,6 +258,7 @@ local M: TtyModule = {
   raw = raw,
   noecho = noecho,
   restore = restore,
+  getpass = getpass,
 
   -- Constants
   NOW = unix.TCSANOW,
