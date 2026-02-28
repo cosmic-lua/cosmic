@@ -3,4 +3,3 @@ modules += docs
 docs_publish := $(o)/lib/docs/publish.lua
 docs_files := $(docs_publish)
 docs_tests := lib/docs/publish_test.tl
-docs_deps := cosmic
