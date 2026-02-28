@@ -42,8 +42,12 @@ end
 
 --- Load a script file (.tl or .lua).
 --- Compiles .tl files through Teal, loads .lua files directly.
+--- Installs tl.loader() for .tl scripts so require() resolves .tl modules.
 local function load_script_file(script_path: string): function(...: any): any ..., string
   if script_path:match("%.tl$") then
+    -- add bundled .tl source path so tl.loader() can find cosmic modules
+    package.path = package.path .. ";/zip/.tl/?.tl"
+    require("tl").loader()
     local teal = require("cosmic.teal")
     local result = teal.compile(script_path)
     if not result.ok then

@@ -47,6 +47,7 @@ local function get_default_include_dirs(): {string}
     "lib/types", -- Local cosmic types (development, takes precedence)
     "/zip/.lua/types", -- Bundled cosmic types (in binary)
     "/zip/.lua/teal-types", -- Bundled third-party types (in binary)
+    "/zip/.tl", -- Bundled cosmic .tl source (for type checking)
   }
 end
 
@@ -111,6 +112,8 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
   for _, dir in ipairs(include_dirs) do
     package.path = package.path .. ";" .. dir .. "/?.d.tl"
     package.path = package.path .. ";" .. dir .. "/?/init.d.tl"
+    package.path = package.path .. ";" .. dir .. "/?.tl"
+    package.path = package.path .. ";" .. dir .. "/?/init.tl"
   end
 
   -- Prepend TL_PATH env var so callers don't need to pass include_dirs manually
