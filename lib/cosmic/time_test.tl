@@ -256,6 +256,77 @@ local function test_timegm_leap_year()
 end
 test_timegm_leap_year()
 
+-- format_date tests
+
+local function test_format_date_epoch()
+  local s = time.format_date(0)
+  assert(s == "1970-01-01", "expected 1970-01-01, got " .. s)
+end
+test_format_date_epoch()
+
+local function test_format_date_y2k()
+  local s = time.format_date(946684800)
+  assert(s == "2000-01-01", "expected 2000-01-01, got " .. s)
+end
+test_format_date_y2k()
+
+local function test_format_date_known()
+  -- 2025-01-02T10:00:00Z = 1735812000 -> date should be 2025-01-02
+  local s = time.format_date(1735812000)
+  assert(s == "2025-01-02", "expected 2025-01-02, got " .. s)
+end
+test_format_date_known()
+
+local function test_format_date_format()
+  local secs, _ = time.now()
+  local s = time.format_date(secs)
+  assert(s:match("^%d%d%d%d%-%d%d%-%d%d$"),
+    "expected YYYY-MM-DD format, got " .. s)
+end
+test_format_date_format()
+
+-- parse_date tests
+
+local function test_parse_date_basic()
+  local ts = time.parse_date("2025-01-01")
+  assert(ts == 1735689600, "expected 1735689600, got " .. tostring(ts))
+end
+test_parse_date_basic()
+
+local function test_parse_date_epoch()
+  local ts = time.parse_date("1970-01-01")
+  assert(ts == 0, "expected 0, got " .. tostring(ts))
+end
+test_parse_date_epoch()
+
+local function test_parse_date_y2k()
+  local ts = time.parse_date("2000-01-01")
+  assert(ts == 946684800, "expected 946684800, got " .. tostring(ts))
+end
+test_parse_date_y2k()
+
+local function test_parse_date_invalid()
+  local ts = time.parse_date("not-a-date")
+  assert(ts == 0, "expected 0 for invalid input, got " .. tostring(ts))
+end
+test_parse_date_invalid()
+
+local function test_parse_date_rejects_datetime()
+  -- parse_date should reject full ISO 8601 timestamps
+  local ts = time.parse_date("2025-01-01T00:00:00Z")
+  assert(ts == 0, "expected 0 for datetime input, got " .. tostring(ts))
+end
+test_parse_date_rejects_datetime()
+
+local function test_date_roundtrip()
+  local original = 1735689600 -- 2025-01-01 midnight UTC
+  local formatted = time.format_date(original)
+  local parsed = time.parse_date(formatted)
+  assert(parsed == original,
+    "roundtrip failed: " .. tostring(original) .. " -> " .. formatted .. " -> " .. tostring(parsed))
+end
+test_date_roundtrip()
+
 -- format_iso8601 tests
 
 local function test_format_iso8601_epoch()
@@ -312,6 +383,12 @@ local function test_parse_iso8601_negative_offset()
   assert(ts == 1735689600, "expected 1735689600, got " .. tostring(ts))
 end
 test_parse_iso8601_negative_offset()
+
+local function test_parse_iso8601_date_only()
+  local ts = time.parse_iso8601("2025-01-01")
+  assert(ts == 1735689600, "expected 1735689600, got " .. tostring(ts))
+end
+test_parse_iso8601_date_only()
 
 local function test_parse_iso8601_invalid()
   local ts = time.parse_iso8601("not-a-date")

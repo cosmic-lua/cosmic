@@ -168,6 +168,27 @@ local function timegm(year: number, month: number, day: number,
   return days * 86400 + hour * 3600 + min * 60 + sec
 end
 
+--- Format a UNIX timestamp as a date string in UTC.
+--- @param timestamp number UNIX timestamp (seconds since epoch)
+--- @return string Date string (e.g., "2025-01-01")
+local function format_date(timestamp: number): string
+  local dt = gmtime(timestamp)
+  return string.format("%.4d-%.2d-%.2d",
+    dt.year as integer, dt.month as integer, dt.day as integer)
+end
+
+--- Parse a YYYY-MM-DD date string into a UNIX timestamp (midnight UTC).
+--- Returns 0 for invalid input.
+--- @param str string Date string (e.g., "2025-01-01")
+--- @return number UNIX timestamp, or 0 if parsing failed
+local function parse_date(str: string): number
+  local y, mo, d = str:match("^(%d%d%d%d)-(%d%d)-(%d%d)$")
+  if not y then return 0 end
+  return timegm(
+    tonumber(y) as number, tonumber(mo) as number, tonumber(d) as number,
+    0, 0, 0)
+end
+
 --- Format a UNIX timestamp as an ISO 8601 string in UTC.
 --- @param timestamp number UNIX timestamp (seconds since epoch)
 --- @return string ISO 8601 string (e.g., "2025-01-01T00:00:00Z")
@@ -179,11 +200,19 @@ local function format_iso8601(timestamp: number): string
 end
 
 --- Parse an ISO 8601 timestamp string into a UNIX epoch seconds value.
---- Accepts "Z" suffix, "+HH:MM"/"-HH:MM" offsets, or no suffix (treated as UTC).
+--- Accepts full timestamps with "Z" suffix, "+HH:MM"/"-HH:MM" offsets, or no
+--- suffix (treated as UTC). Also accepts date-only "YYYY-MM-DD" (midnight UTC).
 --- Returns 0 for invalid input.
---- @param str string ISO 8601 string (e.g., "2025-01-01T00:00:00Z")
+--- @param str string ISO 8601 string (e.g., "2025-01-01T00:00:00Z" or "2025-01-01")
 --- @return number UNIX timestamp, or 0 if parsing failed
 local function parse_iso8601(str: string): number
+  -- try date-only format first
+  local dy, dmo, dd = str:match("^(%d%d%d%d)-(%d%d)-(%d%d)$")
+  if dy then
+    return timegm(
+      tonumber(dy) as number, tonumber(dmo) as number, tonumber(dd) as number,
+      0, 0, 0)
+  end
   local y, mo, d, h, mi, s, tz = str:match(
     "^(%d%d%d%d)-(%d%d)-(%d%d)T(%d%d):(%d%d):(%d%d)(.*)")
   if not y then return 0 end
@@ -226,6 +255,8 @@ local record TimeModule
   localtime: function(unixts: number): DateTime
   format_http: function(timestamp: number): string
   parse_http: function(str: string): number
+  format_date: function(timestamp: number): string
+  parse_date: function(str: string): number
   format_iso8601: function(timestamp: number): string
   parse_iso8601: function(str: string): number
   timegm: function(year: number, month: number, day: number, hour: number, min: number, sec: number): number
@@ -252,6 +283,8 @@ local M: TimeModule = {
   localtime = localtime,
   format_http = format_http,
   parse_http = parse_http,
+  format_date = format_date,
+  parse_date = parse_date,
   format_iso8601 = format_iso8601,
   parse_iso8601 = parse_iso8601,
   timegm = timegm,
