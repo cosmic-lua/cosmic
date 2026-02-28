@@ -3,6 +3,7 @@
 --- --check uses strict mode for thorough type checking.
 
 local tl = require("tl")
+local unix = require("cosmo.unix")
 
 --- A compiler or type checker issue.
 local record Issue
@@ -107,25 +108,39 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
 
   include_dirs = include_dirs or get_default_include_dirs()
 
-  -- Add include dirs to package.path for teal's module resolution
-  local saved_path = package.path
+  -- Build search paths from include dirs
+  local extra_paths: {string} = {}
   for _, dir in ipairs(include_dirs) do
-    package.path = package.path .. ";" .. dir .. "/?.d.tl"
-    package.path = package.path .. ";" .. dir .. "/?/init.d.tl"
-    package.path = package.path .. ";" .. dir .. "/?.tl"
-    package.path = package.path .. ";" .. dir .. "/?/init.tl"
+    extra_paths[#extra_paths + 1] = dir .. "/?.d.tl"
+    extra_paths[#extra_paths + 1] = dir .. "/?/init.d.tl"
+    extra_paths[#extra_paths + 1] = dir .. "/?.tl"
+    extra_paths[#extra_paths + 1] = dir .. "/?/init.tl"
   end
+  local extra = table.concat(extra_paths, ";")
 
-  -- Prepend TL_PATH env var so callers don't need to pass include_dirs manually
-  local tl_path = os.getenv("TL_PATH")
-  if tl_path then
-    package.path = tl_path .. ";" .. package.path
+  -- tl.search_module checks os.getenv("TL_PATH") first, then tl.path,
+  -- then package.path. when callers set TL_PATH (e.g. for local project
+  -- types), our include dirs must be merged into it or they're invisible.
+  -- temporarily set TL_PATH to include_dirs + caller TL_PATH + package.path.
+  local saved_tl_path = os.getenv("TL_PATH")
+  local saved_path = package.path
+  local full_path: string
+  if saved_tl_path then
+    full_path = extra .. ";" .. saved_tl_path .. ";" .. package.path
+  else
+    full_path = extra .. ";" .. package.path
   end
+  unix.setenv("TL_PATH", full_path, true)
 
   local env = tl.init_env(lax)
   local result, proc_err = tl.process_string(input, false, env, input_path)
 
   package.path = saved_path
+  if saved_tl_path then
+    unix.setenv("TL_PATH", saved_tl_path, true)
+  else
+    unix.unsetenv("TL_PATH")
+  end
 
   if not result then
     return {
