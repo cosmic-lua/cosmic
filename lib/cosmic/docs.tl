@@ -327,55 +327,48 @@ local function run(query?: string): DocsResult
     return {ok = true, output = docs_render.render_module(query, index.modules[query])}
   end
 
-  -- Try module.symbol pattern
+  -- Try finding module by iterating splits from longest to shortest.
+  -- This generalizes beyond X.Y and X.Y.Z to support arbitrarily deep paths.
+  -- Note: find_symbol handles at most 2 remainder parts (symbol + method);
+  -- if remainder has 3+ parts, only the first two are used.
   local parts: {string} = {}
   for part in query:gmatch("[^%.]+") do
     table.insert(parts, part)
   end
 
-  if #parts >= 2 then
-    local symbol = parts[#parts]
-    local module_parts: {string} = {}
-    for i = 1, #parts - 1 do
-      table.insert(module_parts, parts[i])
+  local matched_mod: string = nil
+  local remainder: {string} = {}
+  for i = #parts - 1, 1, -1 do
+    local candidate = table.concat(parts, ".", 1, i)
+    if index.modules[candidate] then
+      matched_mod = candidate
+      for j = i + 1, #parts do
+        table.insert(remainder, parts[j])
+      end
+      break
     end
-    local module_name = table.concat(module_parts, ".")
+  end
 
-    local doc = index.modules[module_name]
-    if doc then
-      local rendered = docs_render.find_symbol(doc, symbol)
-      if rendered then
-        return {ok = true, output = rendered}
+  if matched_mod and #remainder > 0 then
+    local doc = index.modules[matched_mod]
+    local symbol = remainder[1]
+    local method = remainder[2]
+    local rendered = docs_render.find_symbol(doc, symbol, method)
+    if rendered then
+      return {ok = true, output = rendered}
+    else
+      if method then
+        return {
+          ok = false,
+          output = "error: method '" .. method .. "' not found in '" .. matched_mod .. "." .. symbol .. "'\n" ..
+          "Use 'cosmic --docs " .. matched_mod .. "." .. symbol .. "' to see available methods.",
+        }
       else
         return {
           ok = false,
-          output = "error: symbol '" .. symbol .. "' not found in '" .. module_name .. "'\n" ..
-          "Use 'cosmic --docs " .. module_name .. "' to see available symbols.",
+          output = "error: symbol '" .. symbol .. "' not found in '" .. matched_mod .. "'\n" ..
+          "Use 'cosmic --docs " .. matched_mod .. "' to see available symbols.",
         }
-      end
-    end
-
-    if #parts >= 3 then
-      local method = parts[#parts]
-      local record_name = parts[#parts - 1]
-      local mod_parts: {string} = {}
-      for i = 1, #parts - 2 do
-        table.insert(mod_parts, parts[i])
-      end
-      local mod_name = table.concat(mod_parts, ".")
-
-      doc = index.modules[mod_name]
-      if doc then
-        local rendered = docs_render.find_symbol(doc, record_name, method)
-        if rendered then
-          return {ok = true, output = rendered}
-        else
-          return {
-            ok = false,
-            output = "error: method '" .. method .. "' not found in '" .. mod_name .. "." .. record_name .. "'\n" ..
-            "Use 'cosmic --docs " .. mod_name .. "." .. record_name .. "' to see available methods.",
-          }
-        end
       end
     end
   end
