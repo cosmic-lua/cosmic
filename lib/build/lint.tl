@@ -18,10 +18,15 @@ local function count_lines(path: string): integer
     return 0
   end
   local n = 0
-  for _ in f:lines() do
-    n = n + 1
-  end
+  local ok = pcall(function()
+    for _ in f:lines() do
+      n = n + 1
+    end
+  end)
   f:close()
+  if not ok then
+    return 0
+  end
   return n
 end
 
