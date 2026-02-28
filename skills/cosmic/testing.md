@@ -81,11 +81,27 @@ test_write_file()
 ## Running Tests
 
 ```bash
-bin/make test                 # run all tests (incremental)
-bin/make test only=json       # filter by pattern
+cosmic --make . test          # generate Makefile and run tests
+make test                     # if you have a saved Makefile
 ```
 
-under the hood, the Makefile compiles each `_test.tl` to `.lua` and runs it with `cosmic --test`, which captures stdout/stderr/exit-code to `.out`/`.err`/`.got` files. results are aggregated by the reporter.
+### Makefile Rules for Testing
+
+`cosmic --make` generates these test rules (see `cosmic --skill make` for the full Makefile):
+
+```makefile
+test_results := $(patsubst %.tl,$(BUILD_DIR)/%.tl.test.got,$(tests))
+
+## Run tests and report results
+test: $(test_results)
+	$(COSMIC) --report $(test_results)
+
+$(BUILD_DIR)/%.tl.test.got: %.tl
+	@mkdir -p $(@D)
+	$(COSMIC) --test $(BUILD_DIR)/$<.test $(COSMIC) $<
+```
+
+each test file is run with `cosmic --test`, which captures stdout/stderr/exit-code to `.out`/`.err`/`.got` files. `cosmic --report` aggregates results and reports pass/fail.
 
 ## Writing Examples
 

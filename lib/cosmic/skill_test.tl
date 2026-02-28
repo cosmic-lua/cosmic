@@ -78,6 +78,15 @@ local function test_skill_docs()
 end
 test_skill_docs()
 
+local function test_skill_make()
+  local ok, out = spawn.spawn({cosmic, "--skill", "make"}, {env = clean_env()}):read()
+  assert(ok, "cosmic --skill make should succeed")
+  local s = out as string
+  assert(s:find("Makefile", 1, true), "make skill should contain Makefile header")
+  assert(s:find("cosmic %-%-make", 1, false), "make skill should mention cosmic --make")
+end
+test_skill_make()
+
 local function test_skill_unknown()
   local ok, _, code = spawn.spawn({cosmic, "--skill", "nonexistent"}, {env = clean_env(), stderr = 1}):read()
   assert(not ok, "cosmic --skill nonexistent should fail")

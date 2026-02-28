@@ -6,11 +6,24 @@ cosmic uses Teal's strict mode for type checking. all type errors must be resolv
 
 ```bash
 cosmic --check-types file.tl    # check a single file
-bin/make teal                   # check all files
-bin/make teal only=json         # filter by pattern
+cosmic --make . check           # generate Makefile and type-check all files
+make check                      # if you have a saved Makefile
 ```
 
 `--check-types` runs Teal in strict mode. it reports errors and warnings on stderr. exit code 0 means the file passes.
+
+### Makefile Rules for Type Checking
+
+`cosmic --make` generates this check rule (see `cosmic --skill make` for the full Makefile):
+
+```makefile
+## Type-check all source and test files
+check: $(sources) $(tests) $(examples)
+	@for f in $^; do \
+	  echo "check $$f"; \
+	  $(COSMIC) --check-types $$f || exit 1; \
+	done
+```
 
 ## Type Annotations
 

@@ -1,5 +1,7 @@
 # Makefile Patterns
 
+this guide documents the cosmic repository's internal build system. for generating Makefiles in your own projects, see `cosmic --skill make`.
+
 cosmic uses GNU Make with a module system defined in `cook.mk` files. the build driver is `bin/make` (a shell script that downloads landlock-make on first run). all build artifacts go to `o/`.
 
 ## Common Targets

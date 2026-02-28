@@ -82,6 +82,7 @@ run `cosmic --skill <topic>` or see the files below for deeper coverage:
 - [testing](testing.md) — writing and running tests (`cosmic --test`, assert patterns)
 - [checking](checking.md) — type checking with `cosmic --check-types`
 - [formatting](formatting.md) — code formatting with `cosmic --format` / `--check-format`
-- [makefile](makefile.md) — Makefile patterns and build targets
+- [make](make.md) — generating Makefiles with `cosmic --make`
+- [makefile](makefile.md) — Makefile patterns and build targets (cosmic repo internals)
 - [modules](modules.md) — the standard library (`cosmic.*` modules)
 - [docs](docs.md) — accessing documentation and getting help

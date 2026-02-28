@@ -39,11 +39,22 @@ file.tl:42: format mismatch
 ## Build Integration
 
 ```bash
-bin/make format                   # check formatting on all files
-bin/make format only=json         # filter by pattern
+cosmic --make . format            # generate Makefile and check formatting
+make format                       # if you have a saved Makefile
 ```
 
-the Makefile runs `cosmic --check-format` on every `.tl` source file and aggregates results into `o/format-summary.txt`.
+### Makefile Rules for Format Checking
+
+`cosmic --make` generates this format rule (see `cosmic --skill make` for the full Makefile):
+
+```makefile
+## Check formatting on all files
+format: $(sources) $(tests) $(examples)
+	@for f in $^; do \
+	  echo "format $$f"; \
+	  $(COSMIC) --check-format $$f || exit 1; \
+	done
+```
 
 ## Style Conventions
 
