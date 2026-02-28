@@ -61,15 +61,27 @@ if sys.host_os() ~= "linux" then
   return
 end
 
--- Check if PTY creation is available (may be blocked in sandboxed environments)
+-- Check if PTY creation is available AND cosmic can detect the TTY inside it
 local function pty_available(): boolean
-  local ok, out = spawn.spawn({"script", "-qc", "true", "/dev/null"}):read()
-  -- script prints "failed to create pseudo-terminal" when PTY is unavailable
+  -- Write a tiny probe script that prints tty detection result to stderr
+  local probe = path.join(tmpdir, "pty_probe.lua")
+  local io_mod = require("cosmic.io")
+  local write_ok, _ = io_mod.barf(probe, "local tty = require('cosmic.tty'); io.stderr:write(tostring(tty.stderr_isatty()))\n")
+  if not write_ok then
+    return false
+  end
+  -- Run cosmic through script to simulate a PTY (suppress welcome to avoid mutating binary)
+  local cmd = "COSMIC_NO_WELCOME=1 " .. cosmic .. " " .. probe
+  local ok, out = spawn.spawn({"script", "-qc", cmd, "/dev/null"}):read()
   local s = out as string
   if not (ok as boolean) then
     return false
   end
   if s:find("failed to create pseudo%-terminal") or s:find("Permission denied") then
+    return false
+  end
+  -- PTY is only usable if cosmic actually detects a TTY inside it
+  if not s:find("true") then
     return false
   end
   return true
