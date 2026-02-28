@@ -3,6 +3,7 @@
 
 global warn: function(...: any)
 
+require("tl").loader()
 if not os.getenv("COSMIC_NO_REQUIRE_HINTS") then
   require("cosmic.require").install()
 end
