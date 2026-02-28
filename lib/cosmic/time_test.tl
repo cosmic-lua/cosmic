@@ -216,3 +216,127 @@ local function test_format_parse_roundtrip()
   assert(parsed == original, "roundtrip failed: " .. tostring(original) .. " -> " .. formatted .. " -> " .. tostring(parsed))
 end
 test_format_parse_roundtrip()
+
+-- timegm tests
+
+local function test_timegm_epoch()
+  local ts = time.timegm(1970, 1, 1, 0, 0, 0)
+  assert(ts == 0, "expected 0, got " .. tostring(ts))
+end
+test_timegm_epoch()
+
+local function test_timegm_y2k()
+  -- 2000-01-01 00:00:00 UTC = 946684800
+  local ts = time.timegm(2000, 1, 1, 0, 0, 0)
+  assert(ts == 946684800, "expected 946684800, got " .. tostring(ts))
+end
+test_timegm_y2k()
+
+local function test_timegm_known_timestamp()
+  -- 2025-01-01 00:00:00 UTC = 1735689600
+  local ts = time.timegm(2025, 1, 1, 0, 0, 0)
+  assert(ts == 1735689600, "expected 1735689600, got " .. tostring(ts))
+end
+test_timegm_known_timestamp()
+
+local function test_timegm_roundtrip()
+  local original = 1705322245
+  local dt = time.gmtime(original)
+  local back = time.timegm(dt.year, dt.month, dt.day, dt.hour, dt.min, dt.sec)
+  assert(back == original, "roundtrip failed: " .. tostring(original) .. " -> " .. tostring(back))
+end
+test_timegm_roundtrip()
+
+local function test_timegm_leap_year()
+  -- 2024-03-01 00:00:00 UTC (2024 is a leap year)
+  -- 2024-02-29 00:00:00 UTC should be valid
+  local feb29 = time.timegm(2024, 2, 29, 0, 0, 0)
+  local mar01 = time.timegm(2024, 3, 1, 0, 0, 0)
+  assert(mar01 - feb29 == 86400, "expected 1 day between Feb 29 and Mar 1 in leap year")
+end
+test_timegm_leap_year()
+
+-- format_iso8601 tests
+
+local function test_format_iso8601_epoch()
+  local s = time.format_iso8601(0)
+  assert(s == "1970-01-01T00:00:00Z", "expected epoch, got " .. s)
+end
+test_format_iso8601_epoch()
+
+local function test_format_iso8601_y2k()
+  local s = time.format_iso8601(946684800)
+  assert(s == "2000-01-01T00:00:00Z", "expected Y2K, got " .. s)
+end
+test_format_iso8601_y2k()
+
+local function test_format_iso8601_known()
+  -- 2025-01-02T10:00:00Z (same timestamp used in working PR tests)
+  local s = time.format_iso8601(1735812000)
+  assert(s == "2025-01-02T10:00:00Z", "expected 2025-01-02T10:00:00Z, got " .. s)
+end
+test_format_iso8601_known()
+
+local function test_format_iso8601_format()
+  local secs, _ = time.now()
+  local s = time.format_iso8601(secs)
+  assert(s:match("^%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%dZ$"),
+    "expected ISO 8601 format, got " .. s)
+end
+test_format_iso8601_format()
+
+-- parse_iso8601 tests
+
+local function test_parse_iso8601_z_suffix()
+  local ts = time.parse_iso8601("2025-01-01T00:00:00Z")
+  assert(ts == 1735689600, "expected 1735689600, got " .. tostring(ts))
+end
+test_parse_iso8601_z_suffix()
+
+local function test_parse_iso8601_no_suffix()
+  local ts = time.parse_iso8601("2025-01-01T00:00:00")
+  assert(ts == 1735689600, "expected 1735689600 (treat as UTC), got " .. tostring(ts))
+end
+test_parse_iso8601_no_suffix()
+
+local function test_parse_iso8601_positive_offset()
+  -- 2025-01-01T05:30:00+05:30 = 2025-01-01T00:00:00Z
+  local ts = time.parse_iso8601("2025-01-01T05:30:00+05:30")
+  assert(ts == 1735689600, "expected 1735689600, got " .. tostring(ts))
+end
+test_parse_iso8601_positive_offset()
+
+local function test_parse_iso8601_negative_offset()
+  -- 2024-12-31T19:00:00-05:00 = 2025-01-01T00:00:00Z
+  local ts = time.parse_iso8601("2024-12-31T19:00:00-05:00")
+  assert(ts == 1735689600, "expected 1735689600, got " .. tostring(ts))
+end
+test_parse_iso8601_negative_offset()
+
+local function test_parse_iso8601_invalid()
+  local ts = time.parse_iso8601("not-a-date")
+  assert(ts == 0, "expected 0 for invalid input, got " .. tostring(ts))
+end
+test_parse_iso8601_invalid()
+
+local function test_parse_iso8601_invalid_offset()
+  local ts = time.parse_iso8601("2025-01-01T00:00:00+garbage")
+  assert(ts == 0, "expected 0 for invalid offset, got " .. tostring(ts))
+end
+test_parse_iso8601_invalid_offset()
+
+local function test_iso8601_roundtrip()
+  local original = 1705322245
+  local formatted = time.format_iso8601(original)
+  local parsed = time.parse_iso8601(formatted)
+  assert(parsed == original,
+    "roundtrip failed: " .. tostring(original) .. " -> " .. formatted .. " -> " .. tostring(parsed))
+end
+test_iso8601_roundtrip()
+
+local function test_iso8601_epoch_roundtrip()
+  local formatted = time.format_iso8601(0)
+  local parsed = time.parse_iso8601(formatted)
+  assert(parsed == 0, "epoch roundtrip failed: " .. formatted .. " -> " .. tostring(parsed))
+end
+test_iso8601_epoch_roundtrip()
