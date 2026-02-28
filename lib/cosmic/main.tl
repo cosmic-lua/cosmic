@@ -39,6 +39,7 @@ local record Opts
   test_output: string
   report_paths: {string}
   make: string
+  write_if_changed: boolean
   error: string
 end
 
@@ -69,6 +70,7 @@ local function parse_args(): Opts
     test_output = nil,
     report_paths = nil,
     make = nil,
+    write_if_changed = false,
     error = nil,
   }
 
@@ -228,6 +230,8 @@ local function parse_args(): Opts
     elseif opt == "make" then
       opts.make = optarg or ""
       return opts
+    elseif opt == "write-if-changed" then
+      opts.write_if_changed = true
     end
   end
 
@@ -302,8 +306,8 @@ local function main(): integer, string
   if opts.version then return handlers.handle_version() end
   if opts.help then io.write(help.generate() .. "\n"); return 0 end
   if opts.welcome then io.write(handlers.generate_welcome()); return 0 end
-  if opts.compile then return handlers.handle_compile(opts.compile) end
-  if opts.format then return handlers.handle_format(opts.format) end
+  if opts.compile then return handlers.handle_compile(opts.compile, opts.output, opts.write_if_changed) end
+  if opts.format then return handlers.handle_format(opts.format, opts.output, opts.write_if_changed) end
   if opts.check_format then return handlers.handle_check_format(opts.check_format) end
   if opts.check_types then return handlers.handle_check_types(opts.check_types) end
   if #opts.embed > 0 then return handlers.handle_embed(opts.embed, opts.output) end

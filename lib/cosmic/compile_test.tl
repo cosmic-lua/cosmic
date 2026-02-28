@@ -165,4 +165,71 @@ end
 end
 test_compile_lax_mode()
 
+-- Test write-if-changed: creates file on first run, skips write on second run
+local function test_compile_write_if_changed()
+  local input = write_temp("wic.tl", [[
+local x: number = 42
+print(x)
+]])
+  local output = path.join(tmpdir, "wic.lua")
+
+  -- First run: file does not exist, should be created
+  local ok1, _ = spawn.spawn({cosmic, "--write-if-changed", "--output", output, "--compile", input}):read()
+  assert(ok1, "first compile --write-if-changed should succeed")
+
+  local f1 = io.open(output, "r")
+  assert(f1, "output file should exist after first run")
+  local content1 = f1:read("*a")
+  f1:close()
+  assert(content1:find("local x = 42"), "output should contain compiled Lua")
+
+  -- Record modification time
+  local mtime1_ok, mtime1 = spawn.spawn({"stat", "-c", "%Y", output}):read()
+  assert(mtime1_ok, "stat should succeed")
+
+  -- Small delay to ensure mtime would differ if file were rewritten
+  os.execute("sleep 1")
+
+  -- Second run: identical content, file should NOT be rewritten
+  local ok2, _ = spawn.spawn({cosmic, "--write-if-changed", "--output", output, "--compile", input}):read()
+  assert(ok2, "second compile --write-if-changed should succeed")
+
+  local mtime2_ok, mtime2 = spawn.spawn({"stat", "-c", "%Y", output}):read()
+  assert(mtime2_ok, "stat should succeed after second run")
+  assert(mtime1 == mtime2, "file mtime should be unchanged when content identical: " .. tostring(mtime1) .. " vs " .. tostring(mtime2))
+end
+test_compile_write_if_changed()
+
+-- Test write-if-changed with --format: skips write when formatted output is identical
+local function test_format_write_if_changed()
+  local input = write_temp("wic_fmt.lua", "local x = 42\n")
+  local output = path.join(tmpdir, "wic_fmt_out.lua")
+
+  -- First run: output file does not exist, should be created
+  local ok1, _ = spawn.spawn({cosmic, "--write-if-changed", "--output", output, "--format", input}):read()
+  assert(ok1, "first format --write-if-changed should succeed")
+
+  local f1 = io.open(output, "r")
+  assert(f1, "output file should exist after first format run")
+  local content1 = f1:read("*a")
+  f1:close()
+  assert(content1:find("local x = 42"), "output should contain formatted Lua")
+
+  -- Record modification time
+  local mtime1_ok, mtime1 = spawn.spawn({"stat", "-c", "%Y", output}):read()
+  assert(mtime1_ok, "stat should succeed")
+
+  -- Small delay to ensure mtime would differ if file were rewritten
+  os.execute("sleep 1")
+
+  -- Second run: identical content, file should NOT be rewritten
+  local ok2, _ = spawn.spawn({cosmic, "--write-if-changed", "--output", output, "--format", input}):read()
+  assert(ok2, "second format --write-if-changed should succeed")
+
+  local mtime2_ok, mtime2 = spawn.spawn({"stat", "-c", "%Y", output}):read()
+  assert(mtime2_ok, "stat should succeed after second format run")
+  assert(mtime1 == mtime2, "file mtime should be unchanged when format output identical: " .. tostring(mtime1) .. " vs " .. tostring(mtime2))
+end
+test_format_write_if_changed()
+
 print("All compile tests passed!")
