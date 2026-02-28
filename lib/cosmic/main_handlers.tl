@@ -302,6 +302,45 @@ local function handle_make(dir: string, target: string): integer
   end
 end
 
+--- Available skill topics.
+local skill_topics: {string: string} = {
+  testing = "testing",
+  checking = "checking",
+  formatting = "formatting",
+  makefile = "makefile",
+  modules = "modules",
+  docs = "docs",
+}
+
+--- Handle --skill flag.
+--- Prints embedded skill guide files verbatim.
+local function handle_skill(topic: string): integer
+  local cio = require("cosmic.io")
+  if topic == "" then
+    local content, err = cio.slurp("/zip/skills/cosmic/SKILL.md")
+    if not content then
+      io.stderr:write("skill: " .. (err or "failed to load SKILL.md") .. "\n")
+      return 1
+    end
+    io.write(content)
+    return 0
+  end
+  local filename = skill_topics[topic]
+  if not filename then
+    io.stderr:write("skill: unknown topic '" .. topic .. "'\n")
+    io.stderr:write("available topics: testing, checking, formatting, makefile, modules, docs\n")
+    return 1
+  end
+  local path = "/zip/skills/cosmic/" .. filename .. ".md"
+  local content, err = cio.slurp(path)
+  if not content then
+    io.stderr:write("skill: " .. (err or "failed to load " .. path) .. "\n")
+    return 1
+  end
+  io.write(content)
+  return 0
+end
+
 local record HandlersModule
   generate_welcome: function(): string
   run_repl: function()
@@ -319,6 +358,7 @@ local record HandlersModule
   handle_benchmark: function(spec: string): integer
   handle_docs: function(query: string): integer
   handle_make: function(dir: string, target: string): integer
+  handle_skill: function(topic: string): integer
 end
 
 local M: HandlersModule = {
@@ -338,6 +378,7 @@ local M: HandlersModule = {
   handle_benchmark = handle_benchmark,
   handle_docs = handle_docs,
   handle_make = handle_make,
+  handle_skill = handle_skill,
 }
 
 return M
