@@ -95,3 +95,10 @@ local function test_default_file_lines()
   assert(lint.DEFAULT_FILE_LINES == 500, "expected default to be 500")
 end
 test_default_file_lines()
+
+local function test_count_lines_directory()
+  -- count_lines should return 0 for a directory (or symlink to directory) without crashing
+  local n = lint.count_lines(tmpdir)
+  assert(n == 0, "expected 0 for directory path, got: " .. tostring(n))
+end
+test_count_lines_directory()
