@@ -61,6 +61,25 @@ if sys.host_os() ~= "linux" then
   return
 end
 
+-- Check if PTY creation is available (may be blocked in sandboxed environments)
+local function pty_available(): boolean
+  local ok, out = spawn.spawn({"script", "-qc", "true", "/dev/null"}):read()
+  -- script prints "failed to create pseudo-terminal" when PTY is unavailable
+  local s = out as string
+  if not (ok as boolean) then
+    return false
+  end
+  if s:find("failed to create pseudo%-terminal") or s:find("Permission denied") then
+    return false
+  end
+  return true
+end
+
+if not pty_available() then
+  print("Skipping PTY-based tests: pseudo-terminal creation not available")
+  return
+end
+
 -- Helper to run cosmic in a PTY (using script command) to trigger TTY-based welcome
 local function run_with_pty(args: {string}): boolean, string
   -- Copy binary to temp location so it's fresh (no embedded marker)
