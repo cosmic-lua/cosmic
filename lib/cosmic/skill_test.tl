@@ -93,3 +93,42 @@ local function test_skill_unknown()
   assert(code == 1, "expected exit code 1, got " .. tostring(code))
 end
 test_skill_unknown()
+
+local handlers = require("cosmic.main_handlers")
+
+local function test_strip_frontmatter_with_frontmatter()
+  local input = "---\nname: test\ndescription: A test\n---\n\n# Hello\n"
+  local result = handlers.strip_frontmatter(input)
+  assert(result == "\n# Hello\n", "should strip frontmatter, got: " .. result)
+end
+test_strip_frontmatter_with_frontmatter()
+
+local function test_strip_frontmatter_without_frontmatter()
+  local input = "# Hello\n\nNo frontmatter here.\n"
+  local result = handlers.strip_frontmatter(input)
+  assert(result == input, "should return content unchanged")
+end
+test_strip_frontmatter_without_frontmatter()
+
+local function test_parse_frontmatter_description()
+  local input = "---\nname: testing\ndescription: Writing and running tests\n---\n\n# Testing\n"
+  local desc = handlers.parse_frontmatter_description(input)
+  assert(desc == "Writing and running tests", "should parse description, got: " .. tostring(desc))
+end
+test_parse_frontmatter_description()
+
+local function test_parse_frontmatter_description_missing()
+  local input = "# No frontmatter\n"
+  local desc = handlers.parse_frontmatter_description(input)
+  assert(desc == nil, "should return nil for missing frontmatter")
+end
+test_parse_frontmatter_description_missing()
+
+local function test_skill_output_no_frontmatter()
+  local ok, out = spawn.spawn({cosmic, "--skill", "testing"}, {env = clean_env()}):read()
+  assert(ok, "cosmic --skill testing should succeed")
+  local s = out as string
+  assert(not s:match("^---"), "skill output should not start with frontmatter delimiter")
+  assert(s:sub(1, 1) == "\n" or s:sub(1, 1) == "#", "skill output should start with content, got: " .. s:sub(1, 20))
+end
+test_skill_output_no_frontmatter()

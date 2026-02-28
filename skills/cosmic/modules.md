@@ -1,3 +1,8 @@
+---
+name: modules
+description: Standard library modules — importing cosmic.* packages and error handling patterns
+---
+
 # Modules
 
 use `cosmic --docs` to browse the full list of available modules and their APIs.

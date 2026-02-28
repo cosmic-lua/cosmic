@@ -1,3 +1,8 @@
+---
+name: make
+description: Generating Makefiles with cosmic --make — targets, customization, and build workflow
+---
+
 # Makefile Generation
 
 `cosmic --make` scans a directory for `.tl` files and generates a self-contained Makefile with targets for compiling, type-checking, format-checking, testing, and reporting.

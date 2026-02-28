@@ -1,3 +1,8 @@
+---
+name: formatting
+description: Code formatting rules and commands — cosmic --format, --check-format, and style conventions
+---
+
 # Formatting
 
 cosmic enforces consistent code formatting via `cosmic --format` and `cosmic --check-format`.
