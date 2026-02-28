@@ -57,7 +57,7 @@ local function test_skill_makefile()
   assert(ok, "cosmic --skill makefile should succeed")
   local s = out as string
   assert(s:find("Makefile", 1, true), "makefile skill should contain Makefile header")
-  assert(s:find("bin/make", 1, true), "makefile skill should mention bin/make")
+  assert(s:find("cosmic %-%-make", 1, false), "makefile skill should mention cosmic --make")
 end
 test_skill_makefile()
 

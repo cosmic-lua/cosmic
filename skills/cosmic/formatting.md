@@ -7,7 +7,7 @@ cosmic enforces consistent code formatting via `cosmic --format` and `cosmic --c
 - 2-space indent (tabs are not used)
 - LF line endings (no CRLF)
 - consistent spacing around operators and keywords
-- all `.tl` files must be <=500 lines (enforced by `bin/make lint`)
+- all `.tl` files must be <=500 lines
 
 ## Commands
 

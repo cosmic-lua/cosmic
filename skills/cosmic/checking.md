@@ -86,10 +86,7 @@ local record JsonModule
   encode: function(value: any): string, string
 end
 
-local M: JsonModule = {
-  decode = decode,
-  encode = encode,
-}
+local M: JsonModule = { decode = decode, encode = encode }
 return M
 ```
 
@@ -144,19 +141,6 @@ print(#data)
 
 **"unknown variable"**: all variables must be declared with `local` or `global`.
 
-**type mismatch on `cosmo.*` return values**: use `as` to cast raw C binding returns:
-
-```teal
-local result, err = cosmo.DecodeJson(str)
-return result, err as string
-```
-
 ## Include Directories
 
-the type checker searches these directories for type definitions:
-
-- `lib/types` — local cosmic types (highest precedence)
-- `/zip/.lua/types` — bundled cosmic types (in binary)
-- `/zip/.lua/teal-types` — community type definitions (in binary)
-
-type definitions for C bindings live in `lib/types/cosmo/*.d.tl`.
+`cosmic --check-types` searches for type definitions in the binary's bundled paths. if your project has its own `.d.tl` type definitions, place them in a `types/` directory and they will be found automatically.

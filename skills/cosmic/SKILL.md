@@ -21,7 +21,7 @@ naming: `snake_case` for functions/variables, `PascalCase` for record types. doc
 
 error handling: return `value, string` (nil + error message on failure). never throw from library code.
 
-imports: use `cosmic.*` modules (not raw `cosmo.*` C bindings).
+imports: use `cosmic.*` modules.
 
 ```teal
 local json = require("cosmic.json")
@@ -30,34 +30,6 @@ if not data then
   io.stderr:write("error: " .. err .. "\n")
   os.exit(1)
 end
-```
-
-## Module Pattern
-
-```teal
---- Brief module description.
-local cosmo = require("cosmo")
-
---- A record type.
-local record Widget
-  name: string
-  size: number
-end
-
---- Create a widget.
---- @param name string The widget name
---- @param size number The widget size
---- @return Widget
-local function new(name: string, size: number): Widget
-  return { name = name, size = size }
-end
-
-local record MyModule
-  new: function(name: string, size: number): Widget
-end
-
-local M: MyModule = { new = new }
-return M
 ```
 
 ## Dual-Use Modules
@@ -83,6 +55,6 @@ run `cosmic --skill <topic>` or see the files below for deeper coverage:
 - [checking](checking.md) — type checking with `cosmic --check-types`
 - [formatting](formatting.md) — code formatting with `cosmic --format` / `--check-format`
 - [make](make.md) — generating Makefiles with `cosmic --make`
-- [makefile](makefile.md) — Makefile patterns and build targets (cosmic repo internals)
+- [makefile](makefile.md) — Makefile patterns and build customization
 - [modules](modules.md) — the standard library (`cosmic.*` modules)
 - [docs](docs.md) — accessing documentation and getting help
