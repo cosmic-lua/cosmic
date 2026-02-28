@@ -12,7 +12,7 @@ cosmic_deps := cosmos tl teal-types
 
 cosmic_built := $(o)/cosmic/.built
 cosmic_sys := sys/help.md
-cosmic_skills := $(wildcard .agents/skills/cosmic/*.md)
+cosmic_skills := $(wildcard skills/cosmic/*.md)
 
 cosmic_version_lua := $(o)/cosmic/version.lua
 
