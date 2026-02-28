@@ -1,8 +1,3 @@
----
-name: testing
-description: Writing and running tests with cosmic --test, assert patterns, TEST_TMPDIR, examples, and benchmarks
----
-
 # Testing
 
 cosmic runs tests with `cosmic --test`, which executes a test file and captures stdout, stderr, and exit code. test files are `*_test.tl` scripts that define and immediately call test functions.

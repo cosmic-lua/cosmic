@@ -1,8 +1,3 @@
----
-name: checking
-description: Type checking with Teal strict mode — annotations, common errors, and cosmic --check-types
----
-
 # Type Checking
 
 cosmic uses Teal's strict mode for type checking. all type errors must be resolved before code is merged.

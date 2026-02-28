@@ -1,8 +1,3 @@
----
-name: docs
-description: Accessing embedded documentation and help — cosmic --docs, REPL help(), and symbol search
----
-
 # Documentation and Help
 
 cosmic has embedded documentation searchable from the command line and the REPL.

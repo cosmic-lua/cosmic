@@ -315,63 +315,31 @@ local function strip_frontmatter(content: string): string
   return content
 end
 
---- Parse the description field from YAML frontmatter.
---- Returns the description string, or nil if not found.
-local function parse_frontmatter_description(content: string): string
-  if content:sub(1, 4) ~= "---\n" then
-    return nil
-  end
-  local close = content:find("\n---\n", 5, true)
-  if not close then
-    return nil
-  end
-  local front = content:sub(5, close - 1)
-  local desc = front:match("description:%s*(.-)%s*\n")
-  if not desc then
-    desc = front:match("description:%s*(.-)%s*$")
-  end
-  return desc
-end
-
---- Skill topic entry with name and description.
-local record SkillTopic
-  name: string
-  description: string
-end
-
 --- List available skill topics by reading the embedded skills directory.
---- Returns a sorted list of topic entries with names and descriptions.
-local function list_skill_topics(): {SkillTopic}
+--- Returns a sorted list of topic names (filenames without .md, excluding SKILL.md).
+local function list_skill_topics(): {string}
   local fs = require("cosmic.fs")
-  local cio = require("cosmic.io")
   local dir, err = fs.opendir("/zip/skills/cosmic")
   if not dir then
     io.stderr:write("skill: " .. (err or "cannot list skills") .. "\n")
     return {}
   end
-  local topics: {SkillTopic} = {}
+  local topics: {string} = {}
   while true do
     local name = dir:read()
     if not name then break end
     if name ~= "SKILL.md" and name:match("%.md$") then
-      local topic_name = name:sub(1, #name - 3)
-      local desc: string = nil
-      local content = cio.slurp("/zip/skills/cosmic/" .. name)
-      if content then
-        desc = parse_frontmatter_description(content)
-      end
-      topics[#topics + 1] = {name = topic_name, description = desc}
+      topics[#topics + 1] = name:sub(1, #name - 3)
     end
   end
   dir:close()
-  table.sort(topics, function(a: SkillTopic, b: SkillTopic): boolean
-    return a.name < b.name
-  end)
+  table.sort(topics)
   return topics
 end
 
 --- Handle --skill flag.
---- Prints embedded skill guide files. YAML frontmatter is stripped from output.
+--- Prints embedded skill guide files. YAML frontmatter is stripped from
+--- SKILL.md output.
 local function handle_skill(topic: string): integer
   local cio = require("cosmic.io")
   if topic == "" then
@@ -387,18 +355,14 @@ local function handle_skill(topic: string): integer
   local topics = list_skill_topics()
   local valid = false
   for _, t in ipairs(topics) do
-    if t.name == topic then
+    if t == topic then
       valid = true
       break
     end
   end
   if not valid then
-    local names: {string} = {}
-    for _, t in ipairs(topics) do
-      names[#names + 1] = t.name
-    end
     io.stderr:write("skill: unknown topic '" .. topic .. "'\n")
-    io.stderr:write("available topics: " .. table.concat(names, ", ") .. "\n")
+    io.stderr:write("available topics: " .. table.concat(topics, ", ") .. "\n")
     return 1
   end
   local path = "/zip/skills/cosmic/" .. topic .. ".md"
@@ -407,7 +371,7 @@ local function handle_skill(topic: string): integer
     io.stderr:write("skill: " .. (err or "failed to load " .. path) .. "\n")
     return 1
   end
-  io.write(strip_frontmatter(content))
+  io.write(content)
   return 0
 end
 
@@ -430,9 +394,6 @@ local record HandlersModule
   handle_make: function(dir: string, target: string): integer
   handle_skill: function(topic: string): integer
   strip_frontmatter: function(content: string): string
-  parse_frontmatter_description: function(content: string): string
-  SkillTopic: type
-  list_skill_topics: function(): {SkillTopic}
 end
 
 local M: HandlersModule = {
@@ -454,8 +415,6 @@ local M: HandlersModule = {
   handle_make = handle_make,
   handle_skill = handle_skill,
   strip_frontmatter = strip_frontmatter,
-  parse_frontmatter_description = parse_frontmatter_description,
-  list_skill_topics = list_skill_topics,
 }
 
 return M
