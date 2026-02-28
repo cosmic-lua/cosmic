@@ -170,3 +170,35 @@ local function test_noecho_non_tty()
   end
 end
 test_noecho_non_tty()
+
+-- Test getpass function
+
+local function test_getpass_exported()
+  assert(tty.getpass ~= nil, "getpass function should be exported")
+  assert(type(tty.getpass) == "function", "getpass should be a function")
+end
+test_getpass_exported()
+
+local function test_getpass_non_tty_eof()
+  -- When stdin is not a tty and is at EOF, getpass should return nil, "EOF"
+  if not tty.isatty(0) then
+    -- stdin in test env is closed/at EOF or piped with no data
+    -- We can't easily test the EOF path without modifying stdin,
+    -- but we can verify the function is callable without panicking.
+    -- The non-tty path reads from stdin; if stdin has data it returns a line.
+    -- Skip actual invocation since it would consume stdin unexpectedly.
+    io.stderr:write("SKIP: test_getpass_non_tty_eof (cannot safely consume stdin in test)\n")
+  end
+end
+test_getpass_non_tty_eof()
+
+local function test_getpass_tty_only()
+  -- When stdin is a tty, getpass would prompt interactively — skip in test env.
+  if tty.isatty(0) then
+    io.stderr:write("SKIP: test_getpass_tty_only (stdin is a tty, interactive test not supported)\n")
+  else
+    -- Non-tty: function exists and has correct signature, already tested above.
+    assert(tty.getpass ~= nil, "getpass exported")
+  end
+end
+test_getpass_tty_only()
