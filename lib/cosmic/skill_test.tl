@@ -93,3 +93,27 @@ local function test_skill_unknown()
   assert(code == 1, "expected exit code 1, got " .. tostring(code))
 end
 test_skill_unknown()
+
+local handlers = require("cosmic.main_handlers")
+
+local function test_strip_frontmatter_with_frontmatter()
+  local input = "---\nname: test\ndescription: A test\n---\n\n# Hello\n"
+  local result = handlers.strip_frontmatter(input)
+  assert(result == "\n# Hello\n", "should strip frontmatter, got: " .. result)
+end
+test_strip_frontmatter_with_frontmatter()
+
+local function test_strip_frontmatter_without_frontmatter()
+  local input = "# Hello\n\nNo frontmatter here.\n"
+  local result = handlers.strip_frontmatter(input)
+  assert(result == input, "should return content unchanged")
+end
+test_strip_frontmatter_without_frontmatter()
+
+local function test_default_skill_no_frontmatter()
+  local ok, out = spawn.spawn({cosmic, "--skill"}, {env = clean_env()}):read()
+  assert(ok, "cosmic --skill should succeed")
+  local s = out as string
+  assert(not s:match("^---"), "default skill output should not start with frontmatter delimiter")
+end
+test_default_skill_no_frontmatter()

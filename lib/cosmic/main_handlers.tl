@@ -302,6 +302,19 @@ local function handle_make(dir: string, target: string): integer
   end
 end
 
+--- Strip YAML frontmatter from markdown content.
+--- Returns the content after the closing "---" delimiter, or the original
+--- content if no frontmatter is found.
+local function strip_frontmatter(content: string): string
+  if content:sub(1, 4) == "---\n" then
+    local close = content:find("\n---\n", 5, true)
+    if close then
+      return content:sub(close + 5)
+    end
+  end
+  return content
+end
+
 --- List available skill topics by reading the embedded skills directory.
 --- Returns a sorted list of topic names (filenames without .md, excluding SKILL.md).
 local function list_skill_topics(): {string}
@@ -325,7 +338,8 @@ local function list_skill_topics(): {string}
 end
 
 --- Handle --skill flag.
---- Prints embedded skill guide files verbatim.
+--- Prints embedded skill guide files. YAML frontmatter is stripped from
+--- SKILL.md output.
 local function handle_skill(topic: string): integer
   local cio = require("cosmic.io")
   if topic == "" then
@@ -334,7 +348,7 @@ local function handle_skill(topic: string): integer
       io.stderr:write("skill: " .. (err or "failed to load SKILL.md") .. "\n")
       return 1
     end
-    io.write(content)
+    io.write(strip_frontmatter(content))
     return 0
   end
   -- Validate topic against actual directory listing (no path traversal)
@@ -379,6 +393,7 @@ local record HandlersModule
   handle_docs: function(query: string): integer
   handle_make: function(dir: string, target: string): integer
   handle_skill: function(topic: string): integer
+  strip_frontmatter: function(content: string): string
 end
 
 local M: HandlersModule = {
@@ -399,6 +414,7 @@ local M: HandlersModule = {
   handle_docs = handle_docs,
   handle_make = handle_make,
   handle_skill = handle_skill,
+  strip_frontmatter = strip_frontmatter,
 }
 
 return M
