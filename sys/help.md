@@ -18,6 +18,7 @@ Cosmic options:
   --test <output> <cmd>...      run command, write .got/.out/.err
   --report <paths>...           report on test results
   --make [dir] [target]         generate Makefile, pipe to make -f -
+  --skill [topic]               show skill guide (testing, checking, formatting, make, makefile, modules, docs)
   --welcome                     show welcome message
   -h, --help                    show this help message
 

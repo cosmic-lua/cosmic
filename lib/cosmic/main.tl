@@ -39,6 +39,7 @@ local record Opts
   test_output: string
   report_paths: {string}
   make: string
+  skill: string
   write_if_changed: boolean
   error: string
 end
@@ -70,6 +71,7 @@ local function parse_args(): Opts
     test_output = nil,
     report_paths = nil,
     make = nil,
+    skill = nil,
     write_if_changed = false,
     error = nil,
   }
@@ -230,6 +232,9 @@ local function parse_args(): Opts
     elseif opt == "make" then
       opts.make = optarg or ""
       return opts
+    elseif opt == "skill" then
+      opts.skill = optarg or ""
+      return opts
     elseif opt == "write-if-changed" then
       opts.write_if_changed = true
     end
@@ -351,6 +356,11 @@ local function main(): integer, string
       end
     end
     return handlers.handle_make(make_dir, make_target)
+  end
+
+  if opts.skill ~= nil then
+    local topic = resolve_optional_arg("--skill", opts.skill)
+    return handlers.handle_skill(topic)
   end
 
   -- Handle -W warnings
