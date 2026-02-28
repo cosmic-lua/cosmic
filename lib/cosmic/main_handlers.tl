@@ -110,14 +110,21 @@ local function write_output(content: string, output: string, write_if_changed: b
   if existing == content then
     return 0
   end
-  local tmp = output .. ".tmp"
-  local ok, err = cio.barf(tmp, content)
+  local unix = require("cosmo.unix")
+  local tmp_fd, tmp_path = unix.mkstemp(output .. ".XXXXXX")
+  if not tmp_fd then
+    return 1, "write-if-changed: mkstemp failed for: " .. output
+  end
+  unix.close(tmp_fd)
+  local ok, err = cio.barf(tmp_path, content)
   if not ok then
+    os.remove(tmp_path)
     return 1, "write-if-changed: failed to write tmp: " .. (err or "")
   end
   local fs = require("cosmic.fs")
-  local rok, rerr = fs.rename(tmp, output)
+  local rok, rerr = fs.rename(tmp_path, output)
   if not rok then
+    os.remove(tmp_path)
     return 1, "write-if-changed: rename failed: " .. (rerr or "")
   end
   return 0
