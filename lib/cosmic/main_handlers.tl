@@ -302,15 +302,27 @@ local function handle_make(dir: string, target: string): integer
   end
 end
 
---- Available skill topics.
-local skill_topics: {string: string} = {
-  testing = "testing",
-  checking = "checking",
-  formatting = "formatting",
-  makefile = "makefile",
-  modules = "modules",
-  docs = "docs",
-}
+--- List available skill topics by reading the embedded skills directory.
+--- Returns a sorted list of topic names (filenames without .md, excluding SKILL.md).
+local function list_skill_topics(): {string}
+  local fs = require("cosmic.fs")
+  local dir, err = fs.opendir("/zip/skills/cosmic")
+  if not dir then
+    io.stderr:write("skill: " .. (err or "cannot list skills") .. "\n")
+    return {}
+  end
+  local topics: {string} = {}
+  while true do
+    local name = dir:read()
+    if not name then break end
+    if name ~= "SKILL.md" and name:match("%.md$") then
+      topics[#topics + 1] = name:sub(1, #name - 3)
+    end
+  end
+  dir:close()
+  table.sort(topics)
+  return topics
+end
 
 --- Handle --skill flag.
 --- Prints embedded skill guide files verbatim.
@@ -325,13 +337,21 @@ local function handle_skill(topic: string): integer
     io.write(content)
     return 0
   end
-  local filename = skill_topics[topic]
-  if not filename then
+  -- Validate topic against actual directory listing (no path traversal)
+  local topics = list_skill_topics()
+  local valid = false
+  for _, t in ipairs(topics) do
+    if t == topic then
+      valid = true
+      break
+    end
+  end
+  if not valid then
     io.stderr:write("skill: unknown topic '" .. topic .. "'\n")
-    io.stderr:write("available topics: testing, checking, formatting, makefile, modules, docs\n")
+    io.stderr:write("available topics: " .. table.concat(topics, ", ") .. "\n")
     return 1
   end
-  local path = "/zip/skills/cosmic/" .. filename .. ".md"
+  local path = "/zip/skills/cosmic/" .. topic .. ".md"
   local content, err = cio.slurp(path)
   if not content then
     io.stderr:write("skill: " .. (err or "failed to load " .. path) .. "\n")
