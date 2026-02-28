@@ -134,6 +134,77 @@ local function parse_http(str: string): number
   return cosmo.ParseHttpDateTime(str)
 end
 
+--- Return true if year is a leap year.
+local function is_leap_year(year: number): boolean
+  return year % 4 == 0 and (year % 100 ~= 0 or year % 400 == 0)
+end
+
+--- Days in each month for a non-leap year.
+local MONTH_DAYS: {integer} = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}
+
+--- Convert UTC broken-down time to UNIX epoch seconds.
+--- @param year number Full year (e.g., 2025)
+--- @param month number Month (1-12)
+--- @param day number Day of month (1-31)
+--- @param hour number Hour (0-23)
+--- @param min number Minute (0-59)
+--- @param sec number Second (0-59)
+--- @return number UNIX epoch seconds
+local function timegm(year: number, month: number, day: number,
+    hour: number, min: number, sec: number): number
+  local days: number = 0
+  -- count days for complete years since 1970
+  for y = 1970, year - 1 do
+    days = days + (is_leap_year(y) and 366 or 365)
+  end
+  -- count days for complete months in the target year
+  for m = 1, month - 1 do
+    days = days + MONTH_DAYS[m as integer]
+    if m == 2 and is_leap_year(year) then
+      days = days + 1
+    end
+  end
+  days = days + day - 1
+  return days * 86400 + hour * 3600 + min * 60 + sec
+end
+
+--- Format a UNIX timestamp as an ISO 8601 string in UTC.
+--- @param timestamp number UNIX timestamp (seconds since epoch)
+--- @return string ISO 8601 string (e.g., "2025-01-01T00:00:00Z")
+local function format_iso8601(timestamp: number): string
+  local dt = gmtime(timestamp)
+  return string.format("%.4d-%.2d-%.2dT%.2d:%.2d:%.2dZ",
+    dt.year as integer, dt.month as integer, dt.day as integer,
+    dt.hour as integer, dt.min as integer, dt.sec as integer)
+end
+
+--- Parse an ISO 8601 timestamp string into a UNIX epoch seconds value.
+--- Accepts "Z" suffix, "+HH:MM"/"-HH:MM" offsets, or no suffix (treated as UTC).
+--- Returns 0 for invalid input.
+--- @param str string ISO 8601 string (e.g., "2025-01-01T00:00:00Z")
+--- @return number UNIX timestamp, or 0 if parsing failed
+local function parse_iso8601(str: string): number
+  local y, mo, d, h, mi, s, tz = str:match(
+    "^(%d%d%d%d)-(%d%d)-(%d%d)T(%d%d):(%d%d):(%d%d)(.*)")
+  if not y then return 0 end
+  local epoch = timegm(
+    tonumber(y) as number, tonumber(mo) as number, tonumber(d) as number,
+    tonumber(h) as number, tonumber(mi) as number, tonumber(s) as number)
+  -- parse timezone offset
+  if tz == "Z" or tz == "z" or tz == "" then
+    return epoch
+  end
+  local sign, oh, om = tz:match("^([%+%-])(%d%d):(%d%d)$")
+  if not sign then return 0 end
+  local offset = (tonumber(oh) as number) * 3600 + (tonumber(om) as number) * 60
+  if sign == "+" then
+    epoch = epoch - offset
+  else
+    epoch = epoch + offset
+  end
+  return epoch
+end
+
 local record TimeModule
   -- Clock constants
   CLOCK_REALTIME: number
@@ -155,6 +226,9 @@ local record TimeModule
   localtime: function(unixts: number): DateTime
   format_http: function(timestamp: number): string
   parse_http: function(str: string): number
+  format_iso8601: function(timestamp: number): string
+  parse_iso8601: function(str: string): number
+  timegm: function(year: number, month: number, day: number, hour: number, min: number, sec: number): number
 end
 
 local M: TimeModule = {
@@ -178,6 +252,9 @@ local M: TimeModule = {
   localtime = localtime,
   format_http = format_http,
   parse_http = parse_http,
+  format_iso8601 = format_iso8601,
+  parse_iso8601 = parse_iso8601,
+  timegm = timegm,
 }
 
 return M
