@@ -181,6 +181,20 @@ local function test_run_method()
 end
 test_run_method()
 
+-- Test run with deep 4-part path (module.Record.method pattern for 2-part module name)
+local function test_run_deep_query()
+  local result = docs.run("cosmo.lsqlite3.Database.exec")
+  assert(result, "run should return a result")
+  assert(type(result.ok) == "boolean", "result.ok should be a boolean")
+  assert(type(result.output) == "string", "result.output should be a string")
+  if result.ok then
+    assert(result.output:match("exec") or result.output:match("Database"),
+      "deep query output should contain relevant content")
+  end
+  print("test_run_deep_query: PASS")
+end
+test_run_deep_query()
+
 -- Test cosmo module shows tip about cosmic equivalent
 local function test_cosmic_equivalent_tip()
   local result = docs.run("cosmo.lsqlite3")
