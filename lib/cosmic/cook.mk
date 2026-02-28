@@ -25,9 +25,9 @@ $(cosmic_version_lua): .FORCE | $$(cosmos_staged)
 
 $(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(teal-types_staged) $$(doc_index) $(cosmic_version_lua) $(cosmic_sys) $(cosmic_skills)
 	@rm -rf $(cosmic_built)
-	@mkdir -p $(cosmic_built)/.lua/cosmic $(@D)
+	@mkdir -p $(cosmic_built)/.lua/cosmic $(cosmic_built)/.tl/cosmic $(@D)
 	@$(cp) $(cosmic_lua) $(cosmic_built)/.lua/cosmic/
-	@$(cp) $(cosmic_tl) $(cosmic_built)/.lua/cosmic/
+	@$(cp) $(cosmic_tl) $(cosmic_built)/.tl/cosmic/
 	@$(cp) $(cosmic_version_lua) $(cosmic_built)/.lua/cosmic/version.lua
 	@$(cp) $(tl_dir)/tl.lua $(cosmic_built)/.lua/
 	@cp -r $(teal-types_dir)/types $(cosmic_built)/.lua/teal-types
@@ -40,13 +40,13 @@ $(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(tea
 	@$(cp) $(cosmic_skills) $(cosmic_built)/skills/cosmic/
 	@$(cp) $(cosmos_lua_bin) $@
 	@chmod +x $@
-	@cd $(cosmic_built) && $(CURDIR)/$(cosmos_zip_bin) -qr $(CURDIR)/$@ .lua .docs sys skills
+	@cd $(cosmic_built) && $(CURDIR)/$(cosmos_zip_bin) -qr $(CURDIR)/$@ .lua .tl .docs sys skills
 	@$(cosmos_zip_bin) -qj $@ $(cosmic_main) $(cosmic_args)
 
 $(cosmic_debug_bin): $(cosmic_bin)
 	@$(cp) $(cosmos_lua_debug_bin) $@
 	@chmod +x $@
-	@cd $(cosmic_built) && $(CURDIR)/$(cosmos_zip_bin) -qr $(CURDIR)/$@ .lua .docs sys skills
+	@cd $(cosmic_built) && $(CURDIR)/$(cosmos_zip_bin) -qr $(CURDIR)/$@ .lua .tl .docs sys skills
 	@$(cosmos_zip_bin) -qj $@ $(cosmic_main) $(cosmic_args)
 
 cosmic: $(cosmic_bin)
