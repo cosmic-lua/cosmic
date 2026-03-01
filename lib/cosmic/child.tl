@@ -201,6 +201,7 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
     if not cmd then
       return nil, "command not found: " .. argv[1]
     end
+    argv[1] = cmd
   end
 
   local stdin_r: number
@@ -273,11 +274,7 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
     end
 
     local env = opts.env and normalize_env(opts.env) or unix.environ()
-    if (argv[1] as string):find("/") then
-      unix.execve(argv[1], argv, env)
-    else
-      unix.execvpe(argv[1], argv, env)
-    end
+    unix.execve(argv[1], argv, env)
     os.exit(127)
   end
 
