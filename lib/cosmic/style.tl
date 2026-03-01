@@ -1,6 +1,6 @@
-#!/usr/bin/env lua
-
-local proc = require("cosmic.proc")
+--- Style-check module for cosmic --check-style.
+--- Mirrors the relevant parts of lib/build/lint.tl but is embedded in the
+--- cosmic binary under the cosmic.* namespace so require("cosmic.style") works.
 
 local record Diagnostic
   file: string
@@ -12,24 +12,6 @@ end
 
 local DEFAULT_FILE_LINES < const > = 500
 local DEFAULT_COLUMN_WIDTH < const > = 90
-
-local function count_lines(path: string): integer
-  local f = io.open(path, "r")
-  if not f then
-    return 0
-  end
-  local n = 0
-  local ok = pcall(function()
-      for _ in f:lines() do
-        n = n + 1
-      end
-    end)
-  f:close()
-  if not ok then
-    return 0
-  end
-  return n
-end
 
 local function check_file_length(file: string, n: integer, limit: integer): {Diagnostic}
   if n > limit then
@@ -165,51 +147,12 @@ local function lint_file(path: string): {Diagnostic}
   return diagnostics
 end
 
-local function main(...: string): integer
-  local files: {string} = {...}
-  if #files == 0 then
-    io.stderr:write("usage: lint.lua FILE...\n")
-    return 1
-  end
-
-  local all_diagnostics: {Diagnostic} = {}
-  for _, file in ipairs(files) do
-    -- The standalone lint binary only enforces file-length (run on all tracked files).
-    -- Column-length and assert-order are enforced via --check-style on .tl files.
-    if not file:match("%.d%.tl$") then
-      local n = count_lines(file)
-      local diags = check_file_length(file, n, DEFAULT_FILE_LINES)
-      for _, d in ipairs(diags) do
-        table.insert(all_diagnostics, d)
-      end
-    end
-  end
-
-  if #all_diagnostics == 0 then
-    print("pass:")
-    return 0
-  end
-
-  print(string.format("fail: %d issues", #all_diagnostics))
-  print("")
-  for _, d in ipairs(all_diagnostics) do
-    print(string.format("%s:%d:%d: %s: %s", d.file, d.line, d.col, d.rule, d.message))
-  end
-  return 1
-end
-
-if proc.is_main() then
-  os.exit(main(...))
-end
-
 return {
   Diagnostic = Diagnostic,
   DEFAULT_FILE_LINES = DEFAULT_FILE_LINES,
   DEFAULT_COLUMN_WIDTH = DEFAULT_COLUMN_WIDTH,
-  count_lines = count_lines,
   check_file_length = check_file_length,
   check_column_length = check_column_length,
   check_assert_order = check_assert_order,
   lint_file = lint_file,
-  main = main,
 }

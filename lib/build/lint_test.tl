@@ -96,6 +96,68 @@ local function test_default_file_lines()
 end
 test_default_file_lines()
 
+local function test_default_column_width()
+  assert(lint.DEFAULT_COLUMN_WIDTH == 90, "expected default column width to be 90")
+end
+test_default_column_width()
+
+local function test_check_column_length_under()
+  local lines = {"short line"}
+  local diags = lint.check_column_length("test.tl", lines, 90)
+  assert(#diags == 0, "expected no diagnostic for line under limit")
+end
+test_check_column_length_under()
+
+local function test_check_column_length_at_limit()
+  local line = string.rep("x", 90)
+  local diags = lint.check_column_length("test.tl", {line}, 90)
+  assert(#diags == 0, "expected no diagnostic for line at limit")
+end
+test_check_column_length_at_limit()
+
+local function test_check_column_length_over()
+  local line = string.rep("x", 91)
+  local diags = lint.check_column_length("test.tl", {line}, 90)
+  assert(#diags == 1, "expected diagnostic for line over limit")
+  assert(diags[1].rule == "column-length", "expected column-length rule")
+  assert(diags[1].col == 91, "expected col to be limit+1")
+  assert(diags[1].line == 1, "expected line number 1")
+end
+test_check_column_length_over()
+
+local function test_check_assert_order_ok()
+  local lines = {
+    "local function foo()",
+    "  return 1",
+    "end",
+    "foo()",
+  }
+  local diags = lint.check_assert_order("test.tl", lines)
+  assert(#diags == 0, "expected no diagnostic when assert called right after definition")
+end
+test_check_assert_order_ok()
+
+local function test_check_assert_order_missing_call()
+  -- foo() is followed by bar definition (not foo call): diagnostic for foo
+  -- bar() is followed by foo() call (not bar call): diagnostic for bar
+  -- both functions have out-of-order asserts
+  local lines = {
+    "local function foo()",
+    "  return 1",
+    "end",
+    "local function bar()",
+    "  return 2",
+    "end",
+    "foo()",
+    "bar()",
+  }
+  local diags = lint.check_assert_order("test.tl", lines)
+  assert(#diags == 2, "expected 2 diagnostics when asserts not called right after definition, got: " .. tostring(#diags))
+  assert(diags[1].rule == "assert-order", "expected assert-order rule")
+  assert(diags[2].rule == "assert-order", "expected assert-order rule")
+end
+test_check_assert_order_missing_call()
+
 local function test_count_lines_directory()
   -- count_lines should return 0 for a directory (or symlink to directory) without crashing
   local n = lint.count_lines(tmpdir)

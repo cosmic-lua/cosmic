@@ -27,6 +27,7 @@ local record Opts
   format: string
   check_format: string
   check_types: string
+  check_style: string
   embed: {string}
   output: string
   extract: string
@@ -59,6 +60,7 @@ local function parse_args(): Opts
     format = nil,
     check_format = nil,
     check_types = nil,
+    check_style = nil,
     embed = {},
     output = nil,
     extract = nil,
@@ -201,6 +203,9 @@ local function parse_args(): Opts
     elseif opt == "check-types" then
       opts.check_types = optarg
       return opts
+    elseif opt == "check-style" then
+      opts.check_style = optarg
+      return opts
     elseif opt == "embed" then
       opts.embed[#opts.embed + 1] = optarg
     elseif opt == "output" then
@@ -315,6 +320,7 @@ local function main(): integer, string
   if opts.format then return handlers.handle_format(opts.format, opts.output, opts.write_if_changed) end
   if opts.check_format then return handlers.handle_check_format(opts.check_format) end
   if opts.check_types then return handlers.handle_check_types(opts.check_types) end
+  if opts.check_style then return handlers.handle_check_style(opts.check_style) end
   if #opts.embed > 0 then return handlers.handle_embed(opts.embed, opts.output) end
   if opts.extract then return handlers.handle_extract(opts.extract) end
   if opts.check_examples then return handlers.handle_check_examples(opts.check_examples) end
