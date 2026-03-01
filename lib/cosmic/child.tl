@@ -1,6 +1,7 @@
 --- Child process management.
 --- Spawn and manage child processes with I/O control.
 local unix = require("cosmo.unix")
+local poll = require("cosmic.poll")
 
 --- Process resource usage statistics.
 --- Contains CPU time, memory usage, I/O, and context switch counters.
@@ -306,6 +307,42 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
     unix.close(stderr_w)
   end
 
+  -- Drain stdout and stderr concurrently using poll to avoid deadlock
+  -- when the child writes enough to fill a pipe buffer while the parent
+  -- is blocked reading the other pipe.
+  local function drain_pipes(out_pipe: Pipe, err_pipe: Pipe): string, string
+    local out_chunks: {string} = {}
+    local err_chunks: {string} = {}
+    if not out_pipe and not err_pipe then
+      return "", ""
+    end
+    local poller = poll.new()
+    if out_pipe then poller:add(out_pipe, poll.POLLIN) end
+    if err_pipe then poller:add(err_pipe, poll.POLLIN) end
+    while not poller:empty() do
+      for fd, events in poller:wait(-1) do
+        if events.readable then
+          local chunk = unix.read(fd, 65536)
+          if not chunk or chunk == "" then
+            poller:remove(fd)
+          else
+            if out_pipe and fd == out_pipe.fd then
+              table.insert(out_chunks, chunk)
+            elseif err_pipe and fd == err_pipe.fd then
+              table.insert(err_chunks, chunk)
+            end
+          end
+        end
+        if events.hangup or events.error then
+          poller:remove(fd)
+        end
+      end
+    end
+    if out_pipe then out_pipe:close() end
+    if err_pipe then err_pipe:close() end
+    return table.concat(out_chunks), table.concat(err_chunks)
+  end
+
   local handle: Handle = {
     pid = pid,
     stdin = make_pipe(stdin_w),
@@ -314,15 +351,14 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
   }
 
   --- Wait for the process to exit and return its exit code.
-  --- Closes stdin and reads/closes stdout and stderr before waiting.
+  --- Closes stdin and drains stdout and stderr concurrently before waiting.
   --- @return number The exit code if the process exited normally
   --- @return string Error message if the process terminated abnormally
   function handle:wait(): number, string
     if self.stdin then self.stdin:close() end
-    if self.stdout then self.stdout:read() end
-    if self.stderr then self.stderr:read() end
-    if self.stdout then self.stdout:close() end
-    if self.stderr then self.stderr:close() end
+    drain_pipes(self.stdout, self.stderr)
+    self.stdout = nil
+    self.stderr = nil
     local _, status = unix.wait(self.pid)
     if type(status) ~= "number" then
       return nil, "wait failed: " .. tostring(status)
@@ -338,8 +374,8 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
 
   --- Read output from the process.
   --- If size is specified, reads that many bytes and returns the data as a string.
-  --- If size is not specified, reads all output, waits for process to exit, and returns
-  --- success status, output, and exit code.
+  --- If size is not specified, drains stdout and stderr concurrently, waits for
+  --- process to exit, and returns success status, stdout output, and exit code.
   --- @param size number Optional number of bytes to read
   --- @return boolean|string Success status (true if exit code is 0) or output string if size specified
   --- @return string The stdout output from the process
@@ -349,11 +385,17 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
       return nil, "stdout not captured"
     end
     if self.stdin then self.stdin:close() end
-    local out = self.stdout:read(size)
     if size then
-      return out
+      return self.stdout:read(size)
     end
-    local exit_code = self:wait()
+    local out, _ = drain_pipes(self.stdout, self.stderr)
+    self.stdout = nil
+    self.stderr = nil
+    local _, status = unix.wait(self.pid)
+    if type(status) ~= "number" then
+      return false, out, -1
+    end
+    local exit_code = unix.WIFEXITED(status) and unix.WEXITSTATUS(status) or -1
     return exit_code == 0, out, exit_code
   end
 

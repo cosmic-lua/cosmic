@@ -280,3 +280,40 @@ local function test_spawn_fork_failure()
   assert(err:find("fork", 1, true), "expected 'fork' in error message: " .. tostring(err))
 end
 test_spawn_fork_failure()
+
+-- deadlock regression: large stderr output --
+
+local function test_wait_no_deadlock_large_stderr()
+  -- Write 128KB to stderr and a small amount to stdout.
+  -- Before the fix, wait() would block reading stdout while the child
+  -- blocked writing stderr (pipe buffer full) -- deadlock.
+  local handle = child.spawn({lua_bin, "-e", [[
+    io.write("stdout ok\n")
+    io.flush()
+    local big = string.rep("x", 131072)
+    io.stderr:write(big)
+    io.stderr:flush()
+    os.exit(0)
+  ]]})
+  assert(handle ~= nil, "handle should not be nil")
+  local exit_code = handle:wait()
+  assert(exit_code == 0, "expected exit code 0, got " .. tostring(exit_code))
+end
+test_wait_no_deadlock_large_stderr()
+
+local function test_read_no_deadlock_large_stderr()
+  -- Same scenario but using handle:read() instead of handle:wait().
+  local handle = child.spawn({lua_bin, "-e", [[
+    io.write("stdout ok\n")
+    io.flush()
+    local big = string.rep("y", 131072)
+    io.stderr:write(big)
+    io.stderr:flush()
+    os.exit(0)
+  ]]})
+  assert(handle ~= nil, "handle should not be nil")
+  local ok, out, code = handle:read()
+  assert(ok, "expected success, got code " .. tostring(code))
+  assert(out == "stdout ok\n", "expected 'stdout ok\\n', got '" .. tostring(out) .. "'")
+end
+test_read_no_deadlock_large_stderr()
