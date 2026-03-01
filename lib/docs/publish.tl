@@ -184,11 +184,11 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
   local fetch_ok = fetch_h and fetch_h:wait() == 0
 
   if fetch_ok then
-    ok, err = run({"git", "checkout", branch})
+    ok, err = run({"git", "switch", branch})
     if not ok then return nil, err end
   else
     io.stderr:write("creating new orphan " .. branch .. " branch\n")
-    ok, err = run({"git", "checkout", "--orphan", branch})
+    ok, err = run({"git", "switch", "--orphan", branch})
     if not ok then return nil, err end
   end
 
