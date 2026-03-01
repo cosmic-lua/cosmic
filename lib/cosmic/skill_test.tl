@@ -40,12 +40,18 @@ local function test_skill_content()
   local ok, _ = spawn.spawn({cosmic, "--skill", dir}, {env = clean_env()}):read()
   assert(ok, "cosmic --skill should succeed")
   local content = assert(cio.slurp(fs.join(dir, "SKILL.md")))
-  assert(content:find("gh release download", 1, true),
-    "should contain download instructions")
-  assert(content:find("cosmic%-lua %-%-help", 1, false),
+  assert(content:find("curl", 1, true),
+    "should contain curl download command")
+  assert(content:find("releases/latest/download/cosmic%-lua"),
+    "should contain releases URL")
+  assert(content:find("%-%-welcome"),
+    "should mention --welcome")
+  assert(content:find("%-%-help"),
     "should mention --help")
-  assert(content:find("cosmic%-lua %-%-docs", 1, false),
+  assert(content:find("%-%-docs"),
     "should mention --docs")
+  assert(content:find("script%.tl"),
+    "should show how to run a script")
 end
 test_skill_content()
 

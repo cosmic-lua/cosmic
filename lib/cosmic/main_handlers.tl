@@ -308,43 +308,40 @@ end
 local function skill_content(): string
   return [=[---
 name: cosmic
-description: How to download cosmic-lua and explore its documentation
+description: Write programs with cosmic-lua — download, run, and explore the standard library
 ---
 
 # cosmic
 
-cosmic-lua is a batteries-included Lua distribution. it ships as a single
-fat binary that runs on Linux, macOS, Windows, FreeBSD, OpenBSD, and NetBSD.
+cosmic-lua is a batteries-included Lua distribution for writing programs.
+source files are written in Teal (typed Lua) and run from a single fat
+binary on Linux, macOS, Windows, FreeBSD, OpenBSD, and NetBSD.
 
 ## Download
 
-download the latest release from GitHub:
+```bash
+curl -fLo cosmic-lua \
+  https://github.com/whilp/cosmic/releases/latest/download/cosmic-lua
+chmod +x cosmic-lua
+```
+
+## Run
 
 ```bash
-# latest prerelease (daily build)
-gh release download --repo whilp/cosmic --pattern 'cosmic-lua' --dir .
-chmod +x cosmic-lua
-
-# latest stable release
-gh release download --repo whilp/cosmic --pattern 'cosmic-lua' --dir . \
-  --exclude-pre-releases
-
-# or download directly
-curl -fLo cosmic-lua \
-  "$(gh release view --repo whilp/cosmic --json assets -q \
-    '.assets[] | select(.name=="cosmic-lua") | .url')"
-chmod +x cosmic-lua
+./cosmic-lua script.tl           # run a Teal script
+./cosmic-lua -e 'print("hi")'   # run inline code
+./cosmic-lua -i                  # start the REPL
 ```
 
 ## Getting Help
 
 ```bash
-cosmic-lua --help                  # show all CLI options and modules
-cosmic-lua --docs                  # browse the full documentation index
-cosmic-lua --docs <query>          # look up a module, function, or guide
-cosmic-lua --docs guide            # list available guides
-cosmic-lua --docs guide.testing    # show a specific guide
-cosmic-lua -i                      # start the REPL (help() available)
+./cosmic-lua --welcome                # quick-start orientation
+./cosmic-lua --help                   # show all CLI options and modules
+./cosmic-lua --docs                   # browse the full documentation index
+./cosmic-lua --docs <query>           # look up a module, function, or guide
+./cosmic-lua --docs guide             # list available guides
+./cosmic-lua --docs guide.testing     # show a specific guide
 ```
 ]=]
 end
