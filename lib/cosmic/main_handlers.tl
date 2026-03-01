@@ -294,7 +294,13 @@ end
 
 --- Handle --check-style flag.
 local function handle_check_style(file: string): integer
-  local lint = require("build.lint")
+  local f = io.open(file, "r")
+  if not f then
+    io.stderr:write(file .. ": no such file\n")
+    return 1
+  end
+  f:close()
+  local lint = require("cosmic.style")
   local diagnostics = lint.lint_file(file)
   if #diagnostics == 0 then
     io.write("Style check passed\n")
