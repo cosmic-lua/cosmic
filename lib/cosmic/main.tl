@@ -296,7 +296,11 @@ local function main(): integer, string
     opts.extract = extract_env
   end
 
-  -- Show welcome on first invocation
+  if opts.version then return handlers.handle_version() end
+  if opts.help then io.write(help.generate() .. "\n"); return 0 end
+  if opts.welcome then io.write(handlers.generate_welcome()); return 0 end
+
+  -- Show welcome on first invocation (skip when --help/--version/--welcome handled above)
   if not os.getenv("COSMIC_NO_WELCOME") then
     local welcome = require("cosmic.welcome")
     if not welcome.was_shown() then
@@ -307,10 +311,6 @@ local function main(): integer, string
       end
     end
   end
-
-  if opts.version then return handlers.handle_version() end
-  if opts.help then io.write(help.generate() .. "\n"); return 0 end
-  if opts.welcome then io.write(handlers.generate_welcome()); return 0 end
   if opts.compile then return handlers.handle_compile(opts.compile, opts.output, opts.write_if_changed) end
   if opts.format then return handlers.handle_format(opts.format, opts.output, opts.write_if_changed) end
   if opts.check_format then return handlers.handle_check_format(opts.check_format) end

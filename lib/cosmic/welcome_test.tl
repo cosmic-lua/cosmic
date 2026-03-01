@@ -121,17 +121,15 @@ local function test_welcome_with_e_flag()
 end
 test_welcome_with_e_flag()
 
--- Test welcome appears on first run with -v flag
-local function test_welcome_with_v_flag()
+-- Test welcome does NOT appear with -v flag (early-return skips welcome)
+local function test_welcome_skipped_with_v_flag()
   local ok, out = run_with_pty({"-v"})
   assert(ok, "cosmic -v should succeed: " .. out)
-  assert(out:find("Welcome to cosmic%-lua!"), "welcome should appear with -v: " .. out)
-  -- Version output goes to stdout; PTY may not capture it before exit.
-  -- Accept either the full version line or just the welcome banner.
-  assert(out:find("Lua 5%.4") or out:find("cosmic%-lua"), "should show version or cosmic-lua: " .. out)
-  print("test_welcome_with_v_flag: PASS")
+  assert(not out:find("Welcome to cosmic%-lua!"), "welcome should NOT appear with -v: " .. out)
+  assert(out:find("Lua 5%.4") or out:find("cosmic%-lua"), "should show version: " .. out)
+  print("test_welcome_skipped_with_v_flag: PASS")
 end
-test_welcome_with_v_flag()
+test_welcome_skipped_with_v_flag()
 
 -- Test welcome does NOT appear on second run (marker embedded)
 local function test_welcome_not_shown_twice()
@@ -140,8 +138,8 @@ local function test_welcome_not_shown_twice()
   local copy_ok = spawn.spawn({"cp", cosmic, fresh_cosmic}):wait()
   assert(copy_ok, "failed to copy cosmic binary")
 
-  -- First run - should show welcome
-  local cmd1 = fresh_cosmic .. " -v"
+  -- First run - should show welcome (use -e to avoid early-return)
+  local cmd1 = fresh_cosmic .. " -e 'print(1)'"
   local ok1, out1 = spawn.spawn({"script", "-qc", cmd1, "/dev/null"}):read()
   local s1 = out1 as string
   assert(ok1, "first run should succeed: " .. s1)
@@ -152,7 +150,6 @@ local function test_welcome_not_shown_twice()
   local s2 = out2 as string
   assert(ok2, "second run should succeed: " .. s2)
   assert(not s2:find("Welcome to cosmic%-lua!"), "second run should NOT show welcome: " .. s2)
-  assert(s2:find("Lua 5.4"), "second run should still show version: " .. s2)
 
   print("test_welcome_not_shown_twice: PASS")
 end
@@ -165,13 +162,12 @@ local function test_no_welcome_env_suppresses()
   local copy_ok = spawn.spawn({"cp", cosmic, fresh_cosmic}):wait()
   assert(copy_ok, "failed to copy cosmic binary")
 
-  -- Run with COSMIC_NO_WELCOME set
-  local cmd = "COSMIC_NO_WELCOME=1 " .. fresh_cosmic .. " -v"
+  -- Run with COSMIC_NO_WELCOME set (use -e to avoid early-return)
+  local cmd = "COSMIC_NO_WELCOME=1 " .. fresh_cosmic .. " -e 'print(1)'"
   local ok, out = spawn.spawn({"script", "-qc", cmd, "/dev/null"}):read()
   local s = out as string
   assert(ok, "should succeed: " .. s)
   assert(not s:find("Welcome to cosmic%-lua!"), "welcome should be suppressed: " .. s)
-  assert(s:find("Lua 5.4"), "should still show version: " .. s)
 
   print("test_no_welcome_env_suppresses: PASS")
 end
