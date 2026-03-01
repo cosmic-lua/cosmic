@@ -309,14 +309,14 @@ local function skill_content(): string
   return [=[---
 name: cosmic
 description: >
-  Write portable scripts and tools with cosmic-lua — HTTP requests, JSON
+  Write portable scripts and tools with cosmic — HTTP requests, JSON
   parsing, SQLite databases, filesystem operations, child processes, crypto,
   compression, and more in a single zero-dependency binary
 ---
 
 # cosmic
 
-cosmic-lua is a batteries-included Lua distribution for writing portable
+cosmic is a batteries-included Lua distribution for writing portable
 scripts and tools. it ships as a single binary with built-in support for
 HTTP fetching, JSON, SQLite, filesystem operations, child processes,
 cryptographic hashing, compression, regex, sockets, and more — no external
@@ -325,29 +325,31 @@ on Linux, macOS, Windows, FreeBSD, OpenBSD, and NetBSD.
 
 ## Download
 
+the binary is named `cosmic` after download. rename it if you prefer.
+
 ```bash
-curl -fLo cosmic-lua \
+curl -fLo cosmic \
   https://github.com/whilp/cosmic/releases/latest/download/cosmic-lua
-chmod +x cosmic-lua
+chmod +x cosmic
 ```
 
 ## Run
 
 ```bash
-./cosmic-lua script.tl           # run a Teal script
-./cosmic-lua -e 'print("hi")'   # run inline code
-./cosmic-lua -i                  # start the REPL
+./cosmic script.tl           # run a Teal script
+./cosmic -e 'print("hi")'   # run inline code
+./cosmic -i                  # start the REPL
 ```
 
 ## Getting Help
 
 ```bash
-./cosmic-lua --welcome                # quick-start orientation
-./cosmic-lua --help                   # show all CLI options and modules
-./cosmic-lua --docs                   # browse the full documentation index
-./cosmic-lua --docs <query>           # look up a module, function, or guide
-./cosmic-lua --docs guide             # list available guides
-./cosmic-lua --docs guide.testing     # show a specific guide
+./cosmic --welcome                # quick-start orientation
+./cosmic --help                   # show all CLI options and modules
+./cosmic --docs                   # browse the full documentation index
+./cosmic --docs <query>           # look up a module, function, or guide
+./cosmic --docs guide             # list available guides
+./cosmic --docs guide.testing     # show a specific guide
 ```
 ]=]
 end

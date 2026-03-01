@@ -58,6 +58,11 @@ local function test_skill_content()
   assert(content:find("SQLite"), "description should mention SQLite")
   assert(content:find("filesystem"), "description should mention filesystem")
   assert(content:find("child process"), "description should mention child processes")
+  -- commands should use ./cosmic, not ./cosmic-lua
+  assert(content:find("./cosmic --", 1, true),
+    "commands should use ./cosmic")
+  assert(not content:find("./cosmic-lua", 1, true),
+    "commands should not use ./cosmic-lua")
 end
 test_skill_content()
 
