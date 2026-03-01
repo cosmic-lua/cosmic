@@ -2,168 +2,8 @@
 
  Access embedded documentation from the cosmic binary.
  Provides a CLI interface similar to Go's `go doc` command.
- Documentation is parsed at build time and embedded as a serialized Lua index.
 
 ## Types
-
-### Param
-
- A function parameter.
-
-```teal
-local record Param
-  name: string
-  param_type: string
-  description: string
-end
-```
-
-### Return
-
- A function return value.
-
-```teal
-local record Return
-  return_type: string
-  description: string
-end
-```
-
-### FunctionDoc
-
- Documentation for a function.
-
-```teal
-local record FunctionDoc
-  name: string
-  description: string
-  params: {Param}
-  returns: {Return}
-  signature: string
-  line: integer
-  is_local: boolean
-end
-```
-
-### RecordDoc
-
- Documentation for a record type.
-
-```teal
-local record RecordDoc
-  name: string
-  description: string
-  fields: {{string, string, string}}
-  line: integer
-end
-```
-
-### ExampleDoc
-
- Documentation for an example function.
-
-```teal
-local record ExampleDoc
-  name: string
-  description: string
-  body: string
-  expected_output: string
-  line: integer
-end
-```
-
-### ModuleDoc
-
- Complete documentation for a module.
-
-```teal
-local record ModuleDoc
-  file: string
-  module_doc: string
-  functions: {FunctionDoc}
-  records: {RecordDoc}
-  examples: {ExampleDoc}
-end
-```
-
-### DocIndex
-
- A documentation index containing all modules.
-
-```teal
-local record DocIndex
-  modules: {string: ModuleDoc}
-end
-```
-
-### DocsResult
-
- Result from a docs operation.
-
-```teal
-local record DocsResult
-  ok: boolean
-  output: string
-end
-```
-
-### SearchResult
-
- Search result entry.
-
-```teal
-local record SearchResult
-  module_name: string
-  symbol_name: string
-  symbol_type: string
-  description: string
-  match_score: integer
-  --  Calculate match score for a search result.
-  --  Scoring tiers (highest to lowest):
-  match: 100 (module), 95 (function/record), 90 (method)
-  --  Calculate match score for a search result.
-  --  Scoring tiers (highest to lowest):
-  --    1. Exact name match: 100 (module), 95 (function/record), 90 (method)
-  match: 80 (module), 75 (function/record), 70 (method)
-  --  Calculate match score for a search result.
-  --  Scoring tiers (highest to lowest):
-  --    1. Exact name match: 100 (module), 95 (function/record), 90 (method)
-  --    2. Partial name match: 80 (module), 75 (function/record), 70 (method)
-  query: +15 bonus for symbols
-  --  Calculate match score for a search result.
-  --  Scoring tiers (highest to lowest):
-  --    1. Exact name match: 100 (module), 95 (function/record), 90 (method)
-  --    2. Partial name match: 80 (module), 75 (function/record), 70 (method)
-  --    3. Module path contains query: +15 bonus for symbols
-  only: 30 (module), 25 (function/record), 20 (method/example)
-  name_lower: string,
-  desc: string,
-  query_lower: string,
-  base_exact: integer,
-  base_partial: integer,
-  base_desc: integer
-  name_lower: find(query_lower, 1, true) then
-  desc: lower():find(query_lower, 1, true) then
-  --  Search documentation for a query string.
-  --  By default, excludes low-level cosmo.* modules from results.
-  default: false)
-  --  Search documentation for a query string.
-  --  By default, excludes low-level cosmo.* modules from results.
-  query: string, include_cosmo?: boolean): {SearchResult}
-end
-```
-
-### ExampleEntry
-
- Entry for examples list.
-
-```teal
-local record ExampleEntry
-  module_name: string
-  example_name: string
-  description: string
-end
-```
 
 ### DocsModule
 
@@ -176,7 +16,11 @@ local record DocsModule
   render_module: function(name: string, doc: ModuleDoc): string
   search: function(query: string, include_cosmo?: boolean): {SearchResult}
   render_search_results: function(results: {SearchResult}, query: string): string
-  show_module_examples: function(module_name: string): DocsResult
+  show_module_examples: function(query: string): DocsResult
+  show_guide: function(topic: string): DocsResult
+  list_guide_topics: function(): {string}
+  list_guides: function(): {{string, string}}
+  strip_frontmatter: function(content: string): string
 end
 ```
 
@@ -207,6 +51,38 @@ function has_docs(): boolean
 
 - boolean - True if docs are embedded
 
+### strip_frontmatter
+
+```teal
+function strip_frontmatter(content: string): string
+```
+
+ Strip YAML frontmatter from markdown content.
+
+### list_guide_topics
+
+```teal
+function list_guide_topics(): {string}
+```
+
+ List available guide topics from the embedded skills directory.
+
+### list_guides
+
+```teal
+function list_guides(): {{string, string}}
+```
+
+ List guides with descriptions from each file's heading.
+
+### show_guide
+
+```teal
+function show_guide(topic: string): DocsResult
+```
+
+ Show a guide topic or list all guides.
+
 ### list_topics
 
 ```teal
@@ -223,23 +99,6 @@ function list_topics(include_cosmo?: boolean): {{string, string}}
 
 - {{string, - string}} List of {name, description} pairs, sorted by name
 
-### render_module
-
-```teal
-function render_module(name: string, doc: ModuleDoc): string
-```
-
- Render a full module as CLI output.
-
-**Parameters:**
-
-- `name` (string) - Module name
-- `doc` (ModuleDoc) - Module documentation
-
-**Returns:**
-
-- string - Formatted output
-
 ### search
 
 ```teal
@@ -247,7 +106,6 @@ function search(query: string, include_cosmo?: boolean): {SearchResult}
 ```
 
  Search documentation for a query string.
- By default, excludes low-level cosmo.* modules from results.
 
 **Parameters:**
 
@@ -258,34 +116,17 @@ function search(query: string, include_cosmo?: boolean): {SearchResult}
 
 - {SearchResult} - List of search results, sorted by relevance
 
-### render_search_results
-
-```teal
-function render_search_results(results: {SearchResult}, query: string): string
-```
-
- Render search results as CLI output.
-
-**Parameters:**
-
-- `results` ({SearchResult}) - List of search results
-- `query` (string) - The original search query
-
-**Returns:**
-
-- string - Formatted output
-
 ### show_module_examples
 
 ```teal
-function show_module_examples(module_name: string): DocsResult
+function show_module_examples(query: string): DocsResult
 ```
 
- Show examples for a specific module.
+ Show examples for a specific module, optionally filtered by function name.
 
 **Parameters:**
 
-- `module_name` (string) - The module name (e.g., "cosmic.sqlite")
+- `query` (string) - The query (e.g., "cosmic.sqlite" or "cosmic.fetch.get")
 
 **Returns:**
 

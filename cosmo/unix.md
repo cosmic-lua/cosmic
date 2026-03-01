@@ -931,12 +931,13 @@ function exit(exitcode?: number)
 ### environ
 
 ```teal
-function environ(): {string: string | nil}
+function environ(): {string}
 ```
 
  Returns raw environment variables.
- This allocates and constructs the C/C++ `environ` variable as a Lua
- table consisting of string keys and string values.
+ Returns an integer-indexed array of "KEY=VALUE" strings, one per
+ environment variable.  The result can be passed directly to
+ execve(), execvpe(), spawn(), or child.spawn()'s env option.
  This data structure preserves casing. On Windows NT, by convention,
  environment variable keys are treated in a case-insensitive way. It
  is the responsibility of the caller to consider this.
@@ -950,7 +951,7 @@ function environ(): {string: string | nil}
 
 **Returns:**
 
-- {string: string | nil}
+- {string}
 
 ### setenv
 
@@ -3445,7 +3446,7 @@ function setrlimit(resource: number, soft: number, hard?: number): boolean
  limits the process, with respect to the activities of the user id
  as a whole.
  - `RLIMIT_NOFILE` limits the number of open file descriptors and it
- should work on all platforms except Windows (TODO(#242)).
+ should work on all platforms except Windows.
  If a limit isn't supported by the host platform, it'll be set to
  127. On most platforms these limits are enforced by the kernel and
  as such are inherited by subprocesses.

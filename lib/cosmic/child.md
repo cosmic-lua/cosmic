@@ -62,6 +62,9 @@ end
 ### Opts
 
  Options for spawning a process.
+ env accepts either a list of "KEY=VALUE" strings ({string}) or a map
+ of name-to-value pairs ({string:string}). Maps are converted to list
+ format before passing to execve.
 
 ```teal
 local record Opts
@@ -291,7 +294,7 @@ function handle:wait(): number, string
 ```
 
  Wait for the process to exit and return its exit code.
- Closes stdin and reads/closes stdout and stderr before waiting.
+ Closes stdin and drains stdout and stderr concurrently before waiting.
 
 **Returns:**
 
@@ -306,8 +309,8 @@ function handle:read(size?: number): boolean | string, string, number
 
  Read output from the process.
  If size is specified, reads that many bytes and returns the data as a string.
- If size is not specified, reads all output, waits for process to exit, and returns
- success status, output, and exit code.
+ If size is not specified, drains stdout and stderr concurrently, waits for
+ process to exit, and returns success status, stdout output, and exit code.
 
 **Parameters:**
 

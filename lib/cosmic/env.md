@@ -1,7 +1,10 @@
 # env
 
  Environment variable utilities.
- Wraps cosmo.unix environment functions: get, set, unset, clear, all.
+ Provides get, set, unset, clear, and all functions for environment variables.
+ For the common case of reading a single variable, use env.get() — it wraps
+ os.getenv() internally and is the simplest approach. Use env.all() to get
+ all variables as a {string:string} map parsed from unix.environ().
 
 ## Types
 
@@ -14,6 +17,7 @@ local record EnvModule
   unset: function(name: string): boolean, string
   clear: function(): boolean, string
   all: function(): {string: string}
+  list: function(): {string}
 end
 ```
 
@@ -98,3 +102,17 @@ function all(): {string: string}
 **Returns:**
 
 - {string:string} - A table of all environment variables
+
+### list
+
+```teal
+function list(): {string}
+```
+
+ Get all environment variables as a list.
+ Returns a list of "KEY=VALUE" strings suitable for passing to
+ child.spawn or execve.
+
+**Returns:**
+
+- {string} - A list of "KEY=VALUE" strings

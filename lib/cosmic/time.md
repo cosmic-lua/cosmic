@@ -64,6 +64,11 @@ local record TimeModule
   localtime: function(unixts: number): DateTime
   format_http: function(timestamp: number): string
   parse_http: function(str: string): number
+  format_date: function(timestamp: number): string
+  parse_date: function(str: string): number
+  format_iso8601: function(timestamp: number): string
+  parse_iso8601: function(str: string): number
+  timegm: function(year: number, month: number, day: number, hour: number, min: number, sec: number): number
 end
 ```
 
@@ -211,6 +216,96 @@ function parse_http(str: string): number
 **Parameters:**
 
 - `str` (string) - HTTP date string
+
+**Returns:**
+
+- number - UNIX timestamp, or 0 if parsing failed
+
+### timegm
+
+```teal
+function timegm(year: number, month: number, day: number,
+    hour: number, min: number, sec: number): number
+```
+
+ Convert UTC broken-down time to UNIX epoch seconds.
+
+**Parameters:**
+
+- `year` (number) - Full year (e.g., 2025)
+- `month` (number) - Month (1-12)
+- `day` (number) - Day of month (1-31)
+- `hour` (number) - Hour (0-23)
+- `min` (number) - Minute (0-59)
+- `sec` (number) - Second (0-59)
+
+**Returns:**
+
+- number - UNIX epoch seconds
+
+### format_date
+
+```teal
+function format_date(timestamp: number): string
+```
+
+ Format a UNIX timestamp as a date string in UTC.
+
+**Parameters:**
+
+- `timestamp` (number) - UNIX timestamp (seconds since epoch)
+
+**Returns:**
+
+- string - Date string (e.g., "2025-01-01")
+
+### parse_date
+
+```teal
+function parse_date(str: string): number
+```
+
+ Parse a YYYY-MM-DD date string into a UNIX timestamp (midnight UTC).
+ Returns 0 for invalid input.
+
+**Parameters:**
+
+- `str` (string) - Date string (e.g., "2025-01-01")
+
+**Returns:**
+
+- number - UNIX timestamp, or 0 if parsing failed
+
+### format_iso8601
+
+```teal
+function format_iso8601(timestamp: number): string
+```
+
+ Format a UNIX timestamp as an ISO 8601 string in UTC.
+
+**Parameters:**
+
+- `timestamp` (number) - UNIX timestamp (seconds since epoch)
+
+**Returns:**
+
+- string - ISO 8601 string (e.g., "2025-01-01T00:00:00Z")
+
+### parse_iso8601
+
+```teal
+function parse_iso8601(str: string): number
+```
+
+ Parse an ISO 8601 timestamp string into a UNIX epoch seconds value.
+ Accepts full timestamps with "Z" suffix, "+HH:MM"/"-HH:MM" offsets, or no
+ suffix (treated as UTC). Also accepts date-only "YYYY-MM-DD" (midnight UTC).
+ Returns 0 for invalid input.
+
+**Parameters:**
+
+- `str` (string) - ISO 8601 string (e.g., "2025-01-01T00:00:00Z" or "2025-01-01")
 
 **Returns:**
 

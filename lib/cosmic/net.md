@@ -5,6 +5,14 @@
 
 ## Types
 
+### NetSocket
+
+```teal
+local record NetSocket
+  make_socket: function(fd: number): Socket
+end
+```
+
 ### Socket
 
  Socket handle for network I/O.
@@ -39,9 +47,7 @@ end
 
 ```teal
 local record Interface
-  --  Interface name (e.g., "eth0", "lo").
   name: string
-  --  IPv4 address as a number.
   ip: number
 end
 ```
@@ -50,10 +56,14 @@ end
 
 ```teal
 local record NetModule
+  Socket: Socket
+  Interface: Interface
   socket: function(family?: number, socktype?: number, protocol?: number): Socket, string
   socketpair: function(family?: number, socktype?: number, protocol?: number): Socket, Socket, string
   listen_unix: function(path: string, backlog?: number): Socket, string
   connect_unix: function(path: string): Socket, string
+  connect_tcp: function(ip: number, port: number): Socket, string
+  nb_connect: function(s: Socket, ip: number, port: number, timeoutms?: number): boolean, string
   poll: function(fds: {number: number}, timeoutms?: number): {number: number}, string
   gethostname: function(): string, string
   parseip: function(str: string): number, string
@@ -208,6 +218,44 @@ function connect_unix(path: string): Socket, string
 - Socket - Connected socket
 - string - Error message on failure
 
+### connect_tcp
+
+```teal
+function connect_tcp(ip: number, port: number): Socket, string
+```
+
+ Create a TCP socket and connect to an IP address and port.
+
+**Parameters:**
+
+- `ip` (number) - Remote IP address
+- `port` (number) - Remote port
+
+**Returns:**
+
+- Socket - Connected socket
+- string - Error message on failure
+
+### nb_connect
+
+```teal
+function nb_connect(s: Socket, ip: number, port: number, timeoutms?: number): boolean, string
+```
+
+ Perform a non-blocking connect on a socket.
+
+**Parameters:**
+
+- `s` (Socket) - The non-blocking socket to connect
+- `ip` (number) - Remote IP address
+- `port` (number) - Remote port
+- `timeoutms` (number) - Timeout in milliseconds (default 10000)
+
+**Returns:**
+
+- boolean - True on success
+- string - Error message on failure
+
 ### poll
 
 ```teal
@@ -215,8 +263,6 @@ function poll(fds: {number: number}, timeoutms?: number): {number: number}, stri
 ```
 
  Poll file descriptors for events.
- The fds table maps file descriptor numbers to event masks (POLLIN, POLLOUT, etc.).
- Returns a table with the same keys but containing revents for each fd.
 
 **Parameters:**
 
@@ -285,293 +331,4 @@ function interfaces(): {Interface}, string
 **Returns:**
 
 - {Interface} - List of interfaces
-- string - Error message on failure
-
-### sock:close
-
-```teal
-function sock:close(): boolean
-```
-
- Close the socket.
- Idempotent: safe to call multiple times.
-
-**Returns:**
-
-- boolean - True on success
-
-### sock:closed
-
-```teal
-function sock:closed(): boolean
-```
-
- Check if the socket is closed.
-
-**Returns:**
-
-- boolean - True if closed
-
-### sock:shutdown
-
-```teal
-function sock:shutdown(how?: number): boolean, string
-```
-
- Partially close the socket.
-
-**Parameters:**
-
-- `how` (number) - SHUT_RD (0), SHUT_WR (1), or SHUT_RDWR (2). Defaults to SHUT_RDWR.
-
-**Returns:**
-
-- boolean - True on success
-- string - Error message on failure
-
-### sock:send
-
-```teal
-function sock:send(data: string, flags?: number): number, string
-```
-
- Send data on a connected socket.
-
-**Parameters:**
-
-- `data` (string) - The data to send
-- `flags` (number) - Optional send flags (MSG_*)
-
-**Returns:**
-
-- number - Number of bytes sent
-- string - Error message on failure
-
-### sock:sendto
-
-```teal
-function sock:sendto(data: string, ip: number, port: number, flags?: number): number, string
-```
-
- Send data to a specific address (for UDP).
-
-**Parameters:**
-
-- `data` (string) - The data to send
-- `ip` (number) - The destination IP address
-- `port` (number) - The destination port
-- `flags` (number) - Optional send flags (MSG_*)
-
-**Returns:**
-
-- number - Number of bytes sent
-- string - Error message on failure
-
-### sock:recv
-
-```teal
-function sock:recv(bufsiz?: number, flags?: number): string, string
-```
-
- Receive data from a connected socket.
-
-**Parameters:**
-
-- `bufsiz` (number) - Maximum bytes to receive (default 65536)
-- `flags` (number) - Optional receive flags (MSG_*)
-
-**Returns:**
-
-- string - The received data
-- string - Error message on failure
-
-### sock:recvfrom
-
-```teal
-function sock:recvfrom(bufsiz?: number, flags?: number): string, number, number, string
-```
-
- Receive data with sender address (for UDP).
-
-**Parameters:**
-
-- `bufsiz` (number) - Maximum bytes to receive (default 65536)
-- `flags` (number) - Optional receive flags (MSG_*)
-
-**Returns:**
-
-- string - The received data
-- number - Sender IP address
-- number - Sender port
-- string - Error message on failure
-
-### sock:getsockname
-
-```teal
-function sock:getsockname(): number, number, string
-```
-
- Get the local address of the socket.
-
-**Returns:**
-
-- number - Local IP address
-- number - Local port
-- string - Error message on failure
-
-### sock:getpeername
-
-```teal
-function sock:getpeername(): number, number, string
-```
-
- Get the remote address of a connected socket.
-
-**Returns:**
-
-- number - Remote IP address
-- number - Remote port
-- string - Error message on failure
-
-### sock:bind
-
-```teal
-function sock:bind(ip?: number, port?: number): boolean, string
-```
-
- Bind the socket to a local address.
-
-**Parameters:**
-
-- `ip` (number) - Local IP address (default 0 = all interfaces)
-- `port` (number) - Local port (default 0 = ephemeral port)
-
-**Returns:**
-
-- boolean - True on success
-- string - Error message on failure
-
-### sock:bind_unix
-
-```teal
-function sock:bind_unix(path: string): boolean, string
-```
-
- Bind the socket to a Unix domain socket path.
-
-**Parameters:**
-
-- `path` (string) - Filesystem path for the socket
-
-**Returns:**
-
-- boolean - True on success
-- string - Error message on failure
-
-### sock:listen
-
-```teal
-function sock:listen(backlog?: number): boolean, string
-```
-
- Start listening for incoming connections.
-
-**Parameters:**
-
-- `backlog` (number) - Maximum pending connections (default 128)
-
-**Returns:**
-
-- boolean - True on success
-- string - Error message on failure
-
-### sock:accept
-
-```teal
-function sock:accept(flags?: number): Socket, number, number, string
-```
-
- Accept an incoming connection.
-
-**Parameters:**
-
-- `flags` (number) - Optional flags (SOCK_CLOEXEC, SOCK_NONBLOCK)
-
-**Returns:**
-
-- Socket - New client socket
-- number - Client IP address
-- number - Client port
-- string - Error message on failure
-
-### sock:connect
-
-```teal
-function sock:connect(ip: number, port: number): boolean, string
-```
-
- Connect to a remote address.
-
-**Parameters:**
-
-- `ip` (number) - Remote IP address
-- `port` (number) - Remote port
-
-**Returns:**
-
-- boolean - True on success
-- string - Error message on failure
-
-### sock:connect_unix
-
-```teal
-function sock:connect_unix(path: string): boolean, string
-```
-
- Connect to a Unix domain socket path.
-
-**Parameters:**
-
-- `path` (string) - Filesystem path of the socket to connect to
-
-**Returns:**
-
-- boolean - True on success
-- string - Error message on failure
-
-### sock:getsockopt
-
-```teal
-function sock:getsockopt(level: number, optname: number): number | boolean, string
-```
-
- Get a socket option value.
-
-**Parameters:**
-
-- `level` (number) - Option level (SOL_SOCKET, SOL_TCP, etc.)
-- `optname` (number) - Option name (SO_REUSEADDR, TCP_NODELAY, etc.)
-
-**Returns:**
-
-- number|boolean - Option value
-- string - Error message on failure
-
-### sock:setsockopt
-
-```teal
-function sock:setsockopt(level: number, optname: number, value: number | boolean): boolean, string
-```
-
- Set a socket option value.
-
-**Parameters:**
-
-- `level` (number) - Option level (SOL_SOCKET, SOL_TCP, etc.)
-- `optname` (number) - Option name (SO_REUSEADDR, TCP_NODELAY, etc.)
-- `value` (number|boolean) - Option value
-
-**Returns:**
-
-- boolean - True on success
 - string - Error message on failure

@@ -3,6 +3,21 @@
  Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns.
  Wraps lsqlite3 with proper error returns and resource management.
 
+ This module provides a high-level API over lsqlite3. Prefer
+ `db:exec()`, `db:query()`, `db:query_one()`, and `db:transaction()`
+ over manual statement preparation, binding, and stepping.
+ The underlying lsqlite3 bindings are used internally; prefer the
+ high-level API shown below.
+
+     local sqlite = require("cosmic.sqlite")
+     local db = sqlite.open(":memory:")
+     db:exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+     db:exec("INSERT INTO users (name) VALUES (?)", "alice")
+     for row in db:query("SELECT * FROM users WHERE name = ?", "alice") do
+       print(row.id, row.name)
+     end
+     db:close()
+
 ## Types
 
 ### RawStatement

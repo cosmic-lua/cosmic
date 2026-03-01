@@ -76,6 +76,7 @@ local record TtyModule
   raw: function(fd: number): Termios, string
   noecho: function(fd: number): Termios, string
   restore: function(fd: number, termios: Termios): boolean, string
+  getpass: function(prompt: string): string, string
 end
 ```
 
@@ -238,4 +239,24 @@ function restore(fd: number, termios: Termios): boolean, string
 **Returns:**
 
 - boolean - True on success
+- string? - Error message on failure
+
+### getpass
+
+```teal
+function getpass(prompt: string): string, string
+```
+
+ Reads a password from the terminal without echoing.
+ Writes the prompt to stderr, disables echo, reads a line from stdin,
+ then restores the terminal state before returning.
+ If stdin is not a terminal, reads normally without echo manipulation.
+
+**Parameters:**
+
+- `prompt` (string) - Text to display before reading
+
+**Returns:**
+
+- string|nil - The password (without trailing newline), or nil on error
 - string? - Error message on failure

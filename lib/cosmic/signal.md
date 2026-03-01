@@ -17,6 +17,33 @@ local record Errno
 end
 ```
 
+### SetitimerOpts
+
+ Options for setitimer: specifies which timer, initial fire time, and repeat interval.
+
+```teal
+local record SetitimerOpts
+  which: number
+  valuesec: number
+  valuens: number
+  intervalsec: number
+  intervalns: number
+end
+```
+
+### SetitimerResult
+
+ Result from setitimer: previous timer values.
+
+```teal
+local record SetitimerResult
+  valuesec: number
+  valuens: number
+  intervalsec: number
+  intervalns: number
+end
+```
+
 ### Sigset
 
  Signal set for blocking, unblocking, and waiting on signals.
@@ -111,10 +138,9 @@ local record SignalModule
   --  Temporarily replaces the signal mask with the provided mask.
   sigsuspend: function(mask: Sigset): boolean, Errno
   --  Schedule SIGALRM signals at intervals.
-  which: ITIMER_REAL, ITIMER_VIRTUAL, or ITIMER_PROF
-  --  Schedule SIGALRM signals at intervals.
-  --  which: ITIMER_REAL, ITIMER_VIRTUAL, or ITIMER_PROF
-  setitimer: function(which: number, intervalsec: number, intervalns: number, valuesec: number, valuens: number): number, number, number, number
+  --  Accepts a SetitimerOpts record with named fields for clarity.
+  --  Returns a SetitimerResult with the previous timer values.
+  setitimer: function(opts: SetitimerOpts): SetitimerResult
   --  Send a signal to a process.
   --  pid > 0 signals one process by id; 0 signals current group; -1 signals all.
   kill: function(pid: number, sig: number): boolean, string
@@ -124,6 +150,9 @@ local record SignalModule
   raise: function(sig: number): boolean, string
   --  Get the name of a signal.
   strsignal: function(sig: number): string
+  --  Send a signal to a process.
+  pid: number, sig: number): boolean, string
+  errno: doc()
 end
 ```
 
@@ -198,3 +227,13 @@ function strsignal(sig: number): string
 **Returns:**
 
 - string - The signal name (e.g., "SIGKILL")
+
+### setitimer
+
+```teal
+function setitimer(opts: SetitimerOpts): SetitimerResult
+```
+
+ Set an interval timer with opts record for clarity.
+ Calls raw unix.setitimer which expects C-order (interval first, value second).
+ Returns a SetitimerResult with previous timer values.

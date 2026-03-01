@@ -21,14 +21,33 @@ end
 
 ### Opts
 
+ Options for fetch requests.
+
 ```teal
 local record Opts
+  --  HTTP method (default "GET").
+  method: string
+  --  Request body to send (for POST, PUT, PATCH).
+  body: string
+  --  HTTP headers to send with the request.
   headers: {string: string}
+  --  HTTP proxy URL.
   proxy: string
+  --  Maximum response body size in bytes.
   maxresponse: number
+  --  Total number of attempts (1 = no retry, default 1).
+  --  Retries only occur when result.ok is true and should_retry returns true.
   max_attempts: number
+  --  Maximum backoff delay in seconds (default 30).
+  exponential: 2^attempt seconds, capped at this value.
+  --  Maximum backoff delay in seconds (default 30).
+  --  Backoff is exponential: 2^attempt seconds, capped at this value.
   max_delay: number
+  --  Predicate called after each successful HTTP response to decide retry.
+  --  Return true to retry (e.g. on status 429 or 503). If nil, no retries.
   should_retry: function(Result): boolean
+  --  Request timeout in seconds. If nil, no timeout is applied.
+  timeout: number
 end
 ```
 
@@ -112,41 +131,3 @@ function reader:closed(): boolean
 **Returns:**
 
 - boolean - closed state
-
-## Examples
-
-### get
-
- Example_get demonstrates a simple HTTP GET request
-
-```teal
-  local fetch = require("cosmic.fetch")
-  local result = fetch.Fetch("https://httpbin.org/get")
-  print("status:", result.status)
-  print("ok:", result.ok)
-```
-
-Output:
-```
-status:	200
-  -- ok:	true
-
-```
-
-### get json
-
- Example_get_json demonstrates fetching and parsing JSON
-
-```teal
-  local fetch = require("cosmic.fetch")
-  local json = require("cosmic.json")
-  local result = fetch.Fetch("https://httpbin.org/json")
-  local data = json.decode(result.body) as {string: {string: string}}
-  print("title:", data.slideshow.title)
-```
-
-Output:
-```
-title:	Sample Slide Show
-
-```

@@ -23,29 +23,43 @@ High-level utilities and tools built on top of cosmo.
 
 | Module | Description |
 |--------|-------------|
+| [args](lib/cosmic/args.md) |  CLI option definitions for cosmic. |
 | [benchmark](lib/cosmic/benchmark.md) |  Go-style benchmark testing. |
 | [child](lib/cosmic/child.md) |  Child process management. |
 | [codec](lib/cosmic/codec.md) |  Encoding and decoding utilities for various formats. |
 | [compress](lib/cosmic/compress.md) |  Compression and decompression utilities. |
 | [doc](lib/cosmic/doc.md) |  Extract documentation from Teal files and render as markdown. |
+| [doc_render](lib/cosmic/doc_render.md) |  Rendering and .d.tl parsing for the doc module. |
+| [doc_types](lib/cosmic/doc_types.md) |  Shared type definitions for the doc and docs modules. |
 | [docindex](lib/cosmic/docindex.md) |  Generate a serialized documentation index from source files. |
 | [docs](lib/cosmic/docs.md) |  Access embedded documentation from the cosmic binary. |
+| [docs_render](lib/cosmic/docs_render.md) |  Rendering functions for the docs module. |
 | [embed](lib/cosmic/embed.md) |  Embed files and directories into a cosmic executable. |
 | [env](lib/cosmic/env.md) |  Environment variable utilities. |
+| [envd](lib/cosmic/envd.md) |  Load environment variables from an embedded env.d directory. |
 | [example](lib/cosmic/example.md) |  Go-style executable example testing. |
 | [fetch](lib/cosmic/fetch.md) |  Structured HTTP fetch with optional retry. |
 | [format](lib/cosmic/format.md) |  Code formatter for Teal and Lua files. |
+| [format_rules](lib/cosmic/format_rules.md) |  Formatting rules and classification functions for the code formatter. |
 | [fs](lib/cosmic/fs.md) |  Unified filesystem module. |
+| [fs_ops](lib/cosmic/fs_ops.md) |  Filesystem file operations, permissions, timestamps, and temp files. |
+| [fs_path](lib/cosmic/fs_path.md) |  Path manipulation functions for the filesystem module. |
+| [fs_types](lib/cosmic/fs_types.md) |  Shared type definitions for the fs module family. |
+| [fs_walk](lib/cosmic/fs_walk.md) |  Directory walking and file collection utilities. |
 | [fuzzy](lib/cosmic/fuzzy.md) |  Fuzzy string matching utilities. |
 | [gendoc](lib/cosmic/gendoc.md) |  |
 | [getopt](lib/cosmic/getopt.md) |  Command-line option parsing utilities. |
 | [hash](lib/cosmic/hash.md) |  Hash utilities. |
+| [help](lib/cosmic/help.md) |  Help text generation for cosmic CLI. |
 | [html](lib/cosmic/html.md) |  HTML utilities. |
 | [init](lib/cosmic/init.md) |  Cosmopolitan Lua utilities. |
 | [io](lib/cosmic/io.md) |  File descriptor I/O operations. |
 | [ip](lib/cosmic/ip.md) |  IP address parsing, formatting, and classification utilities. |
 | [json](lib/cosmic/json.md) |  JSON encoding and decoding utilities. |
+| [main_handlers](lib/cosmic/main_handlers.md) |  Command handler functions for the cosmic CLI. |
+| [make](lib/cosmic/make.md) |  Generate Makefiles for Teal projects. |
 | [net](lib/cosmic/net.md) |  Networking and socket utilities. |
+| [net_socket](lib/cosmic/net_socket.md) |  Socket implementation for the networking module. |
 | [poll](lib/cosmic/poll.md) |  Typed interface for polling file descriptors. |
 | [proc](lib/cosmic/proc.md) |  Current process management. |
 | [rand](lib/cosmic/rand.md) |  Random number generation. |
@@ -57,6 +71,7 @@ High-level utilities and tools built on top of cosmo.
 | [sqlite](lib/cosmic/sqlite.md) |  Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns. |
 | [sse](lib/cosmic/sse.md) |  Server-Sent Events parser for streaming HTTP responses. |
 | [string](lib/cosmic/string.md) |  String utilities. |
+| [style](lib/cosmic/style.md) |  Style-check module for cosmic --check-style. |
 | [sys](lib/cosmic/sys.md) |  System information utilities. |
 | [syslog](lib/cosmic/syslog.md) |  System logging. |
 | [teal](lib/cosmic/teal.md) |  Teal compilation and type-checking. |

@@ -7,6 +7,16 @@
 
 ## Types
 
+### FormatRules
+
+```teal
+local record FormatRules
+  is_long_comment: function(tk: string): boolean
+  needs_space: function(prev_prev: any, prev: any, cur: any, next_item: any): boolean
+  compute_indent_change: function(line_items: {any}): integer, integer
+end
+```
+
 ### Issue
 
  A formatting issue (syntax error preventing formatting).
@@ -72,13 +82,11 @@ function format(input: string, filename: string): FormatResult
 ```
 
  Format source code.
- Lexes and parses the input to validate it, then re-emits with
- deterministic formatting.
 
 **Parameters:**
 
 - `input` (string) - The source code to format
-- `filename` (string) - The filename (used for error messages and language detection)
+- `filename` (string) - The filename (for error messages and language detection)
 
 **Returns:**
 
@@ -91,7 +99,6 @@ function format_file(input_path: string): FormatResult
 ```
 
  Format a file from disk.
- Reads the file, formats it, and returns the result.
 
 **Parameters:**
 
