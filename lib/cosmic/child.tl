@@ -281,6 +281,18 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
   end
 
   if pid == nil then
+    if not stdin_is_fd then
+      unix.close(stdin_r)
+      unix.close(stdin_w)
+    end
+    if not stdout_is_fd then
+      unix.close(stdout_r)
+      unix.close(stdout_w)
+    end
+    if not stderr_is_fd then
+      unix.close(stderr_r)
+      unix.close(stderr_w)
+    end
     return nil, "fork failed"
   end
 

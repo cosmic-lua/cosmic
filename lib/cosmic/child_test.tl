@@ -263,3 +263,20 @@ local function test_wait_option_constants_defined()
     "WCONTINUED should be a number or nil")
 end
 test_wait_option_constants_defined()
+
+-- fork-failure fd-cleanup test --
+
+local function test_spawn_fork_failure()
+  -- Monkey-patch unix.fork to simulate a fork failure.
+  -- child.tl requires "cosmo.unix" and calls unix.fork() via the shared
+  -- module table, so replacing it here affects child.spawn() as well.
+  -- Use rawget/rawset to bypass Teal's type checker.
+  local real_fork = rawget(unix, "fork")
+  rawset(unix, "fork", function(): number return nil end)
+  local handle, err = child.spawn({lua_bin, "-e", "print('x')"})
+  rawset(unix, "fork", real_fork)
+  assert(handle == nil, "expected nil handle on fork failure, got: " .. tostring(handle))
+  assert(type(err) == "string", "expected error string on fork failure, got: " .. type(err))
+  assert(err:find("fork", 1, true), "expected 'fork' in error message: " .. tostring(err))
+end
+test_spawn_fork_failure()
