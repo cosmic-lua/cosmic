@@ -8,6 +8,7 @@ Cosmic options:
   --write-if-changed            with --compile/--format and --output: skip write if unchanged
   --check-format <file>         check file formatting (diff on stderr)
   --check-types <file.tl>       type-check a Teal file, strict mode
+  --check-style <file.tl>       check style: line length, column width, assert order
   --check-examples <file.tl>    run Example_* functions, check output
   --examples [module]           browse examples (list all, or show module)
   --embed <path>                embed file or directory into executable
