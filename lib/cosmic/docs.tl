@@ -1,10 +1,5 @@
 --- Access embedded documentation from the cosmic binary.
 --- Provides a CLI interface similar to Go's `go doc` command.
---- Documentation is parsed at build time and embedded as a serialized Lua index.
----
---- Two access paths:
----   - Non-interactive: `cosmic --docs <query>` from the command line
----   - Interactive: `help(<query>)` in the REPL (`cosmic -i`)
 
 local cio = require("cosmic.io")
 local docs_render = require("cosmic.docs_render")
@@ -16,8 +11,8 @@ local SearchResult = types.SearchResult
 local ExampleEntry = types.ExampleEntry
 
 local INDEX_PATH = "/zip/.docs/index.lua"
+local GUIDES_DIR = "/zip/skills/cosmic"
 
--- Cached index
 local cached_index: DocIndex = nil
 
 --- Load the embedded documentation index.
@@ -54,9 +49,84 @@ local function has_docs(): boolean
   return index ~= nil
 end
 
+--- Strip YAML frontmatter from markdown content.
+local function strip_frontmatter(content: string): string
+  if content:sub(1, 4) == "---\n" then
+    local close = content:find("\n---\n", 5, true)
+    if close then
+      return content:sub(close + 5)
+    end
+  end
+  return content
+end
+
+--- List available guide topics from the embedded skills directory.
+local function list_guide_topics(): {string}
+  local fs = require("cosmic.fs")
+  local dir = fs.opendir(GUIDES_DIR)
+  if not dir then
+    return {}
+  end
+  local topics: {string} = {}
+  while true do
+    local name = dir:read()
+    if not name then break end
+    if name ~= "SKILL.md" and name:match("%.md$") then
+      topics[#topics + 1] = name:sub(1, #name - 3)
+    end
+  end
+  dir:close()
+  table.sort(topics)
+  return topics
+end
+
+--- List guides with descriptions from each file's heading.
+local function list_guides(): {{string, string}}
+  local topics = list_guide_topics()
+  local guides: {{string, string}} = {}
+  for _, name in ipairs(topics) do
+    local content = cio.slurp(GUIDES_DIR .. "/" .. name .. ".md")
+    local desc = name
+    if content then
+      local heading = content:match("^#%s+(.-)%s*\n")
+      if heading then desc = heading end
+    end
+    table.insert(guides, {name, desc})
+  end
+  return guides
+end
+
+--- Show a guide topic or list all guides.
+local function show_guide(topic: string): DocsResult
+  if topic == "" then
+    local content, err = cio.slurp(GUIDES_DIR .. "/SKILL.md")
+    if not content then
+      return {ok = false, output = "error: " .. (err or "no guides available")}
+    end
+    return {ok = true, output = strip_frontmatter(content)}
+  end
+  local topics = list_guide_topics()
+  local valid = false
+  for _, t in ipairs(topics) do
+    if t == topic then valid = true; break end
+  end
+  if not valid then
+    local lines: {string} = {"error: unknown guide '" .. topic .. "'", ""}
+    table.insert(lines, "Available guides:")
+    for _, t in ipairs(topics) do
+      table.insert(lines, "  " .. t)
+    end
+    return {ok = false, output = table.concat(lines, "\n")}
+  end
+  local path = GUIDES_DIR .. "/" .. topic .. ".md"
+  local content, err = cio.slurp(path)
+  if not content then
+    return {ok = false, output = "error: " .. (err or "failed to load " .. path)}
+  end
+  return {ok = true, output = content}
+end
+
 --- Check if a module name is a low-level cosmo module.
---- @param name string Module name to check
---- @return boolean True if this is a cosmo.* module
 local function is_cosmo_module(name: string): boolean
   return name:match("^cosmo%.") ~= nil
 end
@@ -323,6 +393,13 @@ local function run(query?: string): DocsResult
     return {ok = true, output = docs_render.render_examples_list(examples)}
   end
 
+  if query == "guide" then
+    return show_guide("")
+  end
+  if query:sub(1, 6) == "guide." then
+    return show_guide(query:sub(7))
+  end
+
   if index.modules[query] then
     return {ok = true, output = docs_render.render_module(query, index.modules[query])}
   end
@@ -398,6 +475,10 @@ local record DocsModule
   search: function(query: string, include_cosmo?: boolean): {SearchResult}
   render_search_results: function(results: {SearchResult}, query: string): string
   show_module_examples: function(query: string): DocsResult
+  show_guide: function(topic: string): DocsResult
+  list_guide_topics: function(): {string}
+  list_guides: function(): {{string, string}}
+  strip_frontmatter: function(content: string): string
 end
 
 local M: DocsModule = {
@@ -409,6 +490,10 @@ local M: DocsModule = {
   search = search,
   render_search_results = docs_render.render_search_results,
   show_module_examples = show_module_examples,
+  show_guide = show_guide,
+  list_guide_topics = list_guide_topics,
+  list_guides = list_guides,
+  strip_frontmatter = strip_frontmatter,
 }
 
 return M

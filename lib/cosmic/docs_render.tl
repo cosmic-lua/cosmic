@@ -54,6 +54,7 @@ local function render_topic_list(topics: {{string, string}}): string
   table.insert(lines, "")
   table.insert(lines, "Use 'cosmic --docs <module>' for more information.")
   table.insert(lines, "Use 'cosmic --docs <module>.<symbol>' for a specific symbol.")
+  table.insert(lines, "Use 'cosmic --docs guide' for guides on testing, formatting, etc.")
   return table.concat(lines, "\n")
 end
 

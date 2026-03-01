@@ -61,3 +61,12 @@ local function test_generate_contains_documentation_section()
   assert(result:find("Documentation:"), "help text should contain 'Documentation:'")
 end
 test_generate_contains_documentation_section()
+
+local function test_generate_contains_guides_section()
+  local result = help.generate()
+  assert(result:find("Guides"), "help text should contain 'Guides'")
+  assert(result:find("testing"), "help text should list testing guide")
+  assert(result:find("formatting"), "help text should list formatting guide")
+  assert(result:find("checking"), "help text should list checking guide")
+end
+test_generate_contains_guides_section()

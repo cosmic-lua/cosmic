@@ -14,7 +14,7 @@ make check                      # if you have a saved Makefile
 
 ### Makefile Rules for Type Checking
 
-`cosmic --make` generates this check rule (see `cosmic --skill make` for the full Makefile):
+`cosmic --make` generates this check rule (see `cosmic --docs guide.make` for the full Makefile):
 
 ```makefile
 ## Type-check all source and test files
