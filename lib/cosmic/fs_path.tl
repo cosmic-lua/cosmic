@@ -79,12 +79,7 @@ local function normalize(p: string): string
       -- skip current dir
     elseif part == ".." then
       if #parts > 0 and parts[#parts] ~= ".." then
-        -- pop last component if it's not also a ..
-        if is_absolute or parts[#parts] ~= ".." then
-          table.remove(parts)
-        else
-          table.insert(parts, "..")
-        end
+        table.remove(parts)
       elseif not is_absolute then
         -- for relative paths, preserve leading ..
         table.insert(parts, "..")
