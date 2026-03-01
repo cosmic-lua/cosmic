@@ -189,6 +189,7 @@ all modules are under `lib/cosmic/` and imported as `cosmic.*`:
 | child | child process spawning with I/O control |
 | codec | hex encoding/decoding, Lua serialization |
 | compress | zlib compression/decompression |
+| crypto | symmetric encryption: encrypt, decrypt, password-based variants |
 | doc | extract docs from Teal source files |
 | docs | query embedded documentation index |
 | embed | create custom executables with embedded files |

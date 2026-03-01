@@ -19,6 +19,8 @@ local record cosmo
 
   -- hashing
   Sha256: function(data: string): string
+  GetCryptoHash: function(algo: string, data: string): string
+  Curve25519: function(privkey: string, pubkey: string): string
 
   -- encoding
   EncodeHex: function(data: string): string
