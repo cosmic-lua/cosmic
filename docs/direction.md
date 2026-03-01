@@ -1,4 +1,4 @@
-# Vision
+# Direction
 
 ## North Star
 
@@ -40,30 +40,30 @@ this is harness engineering: make the right thing the default thing. the stdlib 
 
 ## Coverage Targets
 
-### Currently Wrapped
+### Binding Surface
 
-filesystem, networking (TCP/UDP/Unix), HTTP client, JSON, SQLite, compression, hashing (SHA-256, Argon2), regex, signals, child processes, shared memory, polling, terminal I/O, syslog, environment, sandbox (pledge/unveil), IP addresses, URLs, UUIDs, SSE, ZIP archives.
+cosmopolitan exposes ~48 top-level `cosmo.*` functions, ~133 `cosmo.unix.*` functions, and ~73 record methods across `unix.Stat`, `unix.Dir`, `unix.Memory`, `unix.Rusage`, etc. additionally there are dedicated modules: `cosmo.path` (8 functions), `cosmo.re` (6), `cosmo.zip` (11), `cosmo.lsqlite3` (28), `cosmo.getopt` (4), `cosmo.argon2` (2).
+
+current `cosmic.*` modules wrap the most-used subset. the gap is tracked below.
 
 ### Gaps to Fill
 
-these are capabilities cosmopolitan exposes that cosmic should wrap:
+each row has a status: **—** (not started), **partial**, or **done**.
 
-| area | cosmopolitan | cosmic module |
-|------|-------------|---------------|
-| TLS/SSL | built-in mbedtls | `cosmic.tls` |
-| HTTP server | redbean heritage | `cosmic.http` |
-| DNS | `ResolveDns`, `GetAddrInfo` | `cosmic.dns` |
-| mmap | `unix.mmap` | `cosmic.mmap` |
-| file locking | `unix.flock`, `fcntl` | `cosmic.fs` (extend) |
-| inotify/kqueue | file watching | `cosmic.watch` |
-| pty | pseudo-terminals | `cosmic.pty` |
-| base64/base32 | `EncodeBase64`, `DecodeBase64` | `cosmic.codec` (extend) |
-| datetimes | `FormatHttpDateTime`, parsing | `cosmic.time` (extend) |
-| UNIX domain sockets | `unix.socket` AF_UNIX | `cosmic.net` (extend) |
-| `posix_spawn` | `unix.posix_spawn` | `cosmic.child` (extend) |
-| resource limits | `setrlimit`, `getrlimit` | `cosmic.proc` (extend) |
-| semaphores | futex-based | `cosmic.sync` |
-| pipes | `unix.pipe` | `cosmic.io` (extend) |
+| area | cosmopolitan | cosmic module | status |
+|------|-------------|---------------|--------|
+| TLS/SSL | built-in mbedtls | `cosmic.tls` | — |
+| HTTP server | redbean heritage | `cosmic.http` | — |
+| DNS | `ResolveIp` | `cosmic.dns` | — |
+| mmap | `unix.mmap` | `cosmic.mmap` | — |
+| file locking | `unix.flock`, `fcntl` | `cosmic.fs` (extend) | — |
+| file watching | inotify/kqueue | `cosmic.watch` | — |
+| pty | pseudo-terminals | `cosmic.pty` | — |
+| base64/base32 | `EncodeBase64`, `DecodeBase64` | `cosmic.codec` (extend) | — |
+| HTTP datetimes | `FormatHttpDateTime`, `ParseHttpDateTime` | `cosmic.time` (extend) | — |
+| `posix_spawn` | `unix.posix_spawn` | `cosmic.child` (extend) | — |
+| resource limits | `setrlimit`, `getrlimit` | `cosmic.proc` (extend) | — |
+| semaphores | futex-based | `cosmic.sync` | — |
 
 ### Aspirational
 
@@ -79,10 +79,30 @@ these require upstream cosmopolitan work or significant new code:
 - `cosmic.tar` — tar archives
 - `cosmic.test` — richer assertion library
 
+## Scoreboard
+
+these metrics are checkable against the repo. update them as work lands.
+
+| metric | current | target | how to check |
+|--------|---------|--------|-------------|
+| `cosmic.*` library modules | 34 | — | `ls lib/cosmic/*.tl \| grep -v _test \| grep -v _example \| grep -v _types \| wc -l` (minus internal modules) |
+| modules with tests | 49/60 | 60/60 | `for f in lib/cosmic/*.tl; do test -f "${f%.tl}_test.tl" && echo y; done \| wc -l` |
+| modules with examples | 9/60 | 34/60 | `ls lib/cosmic/*_example.tl \| wc -l` |
+| `cosmo.*` functions wrapped | ~30/48 | 48/48 | audit `cosmo.d.tl` functions against `cosmic.*` exports |
+| `cosmo.unix.*` functions wrapped | ~40/133 | 133/133 | audit `unix.d.tl` functions against `cosmic.*` exports |
+| gaps-to-fill rows at "done" | 0/12 | 12/12 | count status column above |
+| CI passes on all platforms | linux+macos | 6 OS | check CI matrix in `pr.yml` |
+| doc coverage | all modules | all functions | `cosmic --docs` returns results for every exported function |
+| type check clean | yes | yes | `bin/make teal` exits 0 with no warnings |
+| format clean | yes | yes | `bin/make format` exits 0 |
+
 ## Success Criteria
 
-1. **coverage**: every `cosmo.*` binding has a typed `cosmic.*` wrapper with docs, tests, and examples.
-2. **portability**: every module works on all six supported operating systems.
-3. **discoverability**: `cosmic --docs` can answer "how do I do X?" for any common systems programming task.
-4. **single-binary delivery**: any cosmic program can be packaged as one file via `cosmic --embed`.
-5. **zero-install adoption**: download → run → ship. nothing else required.
+the project is done when:
+
+1. **full binding coverage**: every function in `cosmo.d.tl` and `cosmo/unix.d.tl` has a typed `cosmic.*` wrapper. measured by the scoreboard above reaching 48/48 and 133/133.
+2. **every module has tests and examples**: scoreboard rows for tests and examples both reach their targets.
+3. **all gaps filled**: every row in the gaps-to-fill table reaches "done" status.
+4. **six-OS CI**: CI runs tests on Linux, macOS, Windows, FreeBSD, OpenBSD, and NetBSD. currently linux and macos.
+5. **doc coverage**: `cosmic --docs <function>` returns documentation for every exported function in every module. no gaps.
+6. **zero-install adoption**: a user can `curl` the binary and immediately write, type-check, test, and ship a program. no other tool required. validated by a single-command smoke test in CI.
