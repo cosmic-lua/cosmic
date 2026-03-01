@@ -54,7 +54,7 @@ return { greet = greet }
 
 ## Detailed Guides
 
-run `cosmic --skill <topic>` or see the files below for deeper coverage:
+run `cosmic --docs guide.<topic>` or see the files below for deeper coverage:
 
 - [testing](testing.md) — writing and running tests (`cosmic --test`, assert patterns)
 - [checking](checking.md) — type checking with `cosmic --check-types`

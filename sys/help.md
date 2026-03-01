@@ -14,11 +14,10 @@ Cosmic options:
   --output <file>               output file for --embed (default: cosmic)
   --extract <dir>               extract zip contents to directory
   --benchmark <file.tl[:pat]>   run Benchmark_* functions, report timing
-  --docs [query]                show documentation for module or symbol
+  --docs [query]                show documentation for module, symbol, or guide
   --test <output> <cmd>...      run command, write .got/.out/.err
   --report <paths>...           report on test results
   --make [dir] [target]         generate Makefile, pipe to make -f -
-  --skill [topic]               show skill guide (testing, checking, formatting, make, makefile, modules, docs)
   --welcome                     show welcome message
   -h, --help                    show this help message
 
@@ -36,6 +35,8 @@ Environment variables:
 
 Documentation:
   cosmic --docs [query]      look up docs from the command line
+  cosmic --docs guide        list available guides
+  cosmic --docs guide.testing  show a specific guide
   help(<query>)              look up docs in the REPL (interactive only)
 
 Low-level cosmo.* bindings are available but hidden by default.

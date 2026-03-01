@@ -45,7 +45,7 @@ make format                       # if you have a saved Makefile
 
 ### Makefile Rules for Format Checking
 
-`cosmic --make` generates this format rule (see `cosmic --skill make` for the full Makefile):
+`cosmic --make` generates this format rule (see `cosmic --docs guide.make` for the full Makefile):
 
 ```makefile
 ## Check formatting on all files
