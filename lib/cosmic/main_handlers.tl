@@ -304,6 +304,74 @@ local function handle_make(dir: string, target: string): integer
   end
 end
 
+--- Generate the SKILL.md content for --skill.
+local function skill_content(): string
+  return [=[---
+name: cosmic
+description: How to download cosmic-lua and explore its documentation
+---
+
+# cosmic
+
+cosmic-lua is a batteries-included Lua distribution. it ships as a single
+fat binary that runs on Linux, macOS, Windows, FreeBSD, OpenBSD, and NetBSD.
+
+## Download
+
+download the latest release from GitHub:
+
+```bash
+# latest prerelease (daily build)
+gh release download --repo whilp/cosmic --pattern 'cosmic-lua' --dir .
+chmod +x cosmic-lua
+
+# latest stable release
+gh release download --repo whilp/cosmic --pattern 'cosmic-lua' --dir . \
+  --exclude-pre-releases
+
+# or download directly
+curl -fLo cosmic-lua \
+  "$(gh release view --repo whilp/cosmic --json assets -q \
+    '.assets[] | select(.name=="cosmic-lua") | .url')"
+chmod +x cosmic-lua
+```
+
+## Getting Help
+
+```bash
+cosmic-lua --help                  # show all CLI options and modules
+cosmic-lua --docs                  # browse the full documentation index
+cosmic-lua --docs <query>          # look up a module, function, or guide
+cosmic-lua --docs guide            # list available guides
+cosmic-lua --docs guide.testing    # show a specific guide
+cosmic-lua -i                      # start the REPL (help() available)
+```
+]=]
+end
+
+--- Handle --skill flag.
+--- Creates the output directory and writes SKILL.md there.
+local function handle_skill(dir: string): integer
+  local fs = require("cosmic.fs")
+  local cio = require("cosmic.io")
+
+  local ok, err = fs.makedirs(dir)
+  if not ok then
+    io.stderr:write("--skill: " .. (err or "failed to create directory") .. "\n")
+    return 1
+  end
+
+  local path = fs.join(dir, "SKILL.md")
+  local wok, werr = cio.barf(path, skill_content())
+  if not wok then
+    io.stderr:write("--skill: " .. (werr or "failed to write SKILL.md") .. "\n")
+    return 1
+  end
+
+  io.write(path .. "\n")
+  return 0
+end
+
 local record HandlersModule
   generate_welcome: function(): string
   run_repl: function()
@@ -321,6 +389,7 @@ local record HandlersModule
   handle_benchmark: function(spec: string): integer
   handle_docs: function(query: string): integer
   handle_make: function(dir: string, target: string): integer
+  handle_skill: function(dir: string): integer
 end
 
 local M: HandlersModule = {
@@ -340,6 +409,7 @@ local M: HandlersModule = {
   handle_benchmark = handle_benchmark,
   handle_docs = handle_docs,
   handle_make = handle_make,
+  handle_skill = handle_skill,
 }
 
 return M
