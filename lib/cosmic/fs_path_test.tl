@@ -274,6 +274,30 @@ local function test_normalize_relative_multiple_leading_dotdot()
 end
 test_normalize_relative_multiple_leading_dotdot()
 
+local function test_normalize_simple_dotdot()
+  local result = fs.normalize("a/../b")
+  assert(result == "b", "expected 'b', got '" .. result .. "'")
+end
+test_normalize_simple_dotdot()
+
+local function test_normalize_relative_leading_double_dotdot()
+  local result = fs.normalize("../../a")
+  assert(result == "../../a", "expected '../../a', got '" .. result .. "'")
+end
+test_normalize_relative_leading_double_dotdot()
+
+local function test_normalize_absolute_double_dotdot()
+  local result = fs.normalize("/../../a")
+  assert(result == "/a", "expected '/a', got '" .. result .. "'")
+end
+test_normalize_absolute_double_dotdot()
+
+local function test_normalize_multiple_up_and_down()
+  local result = fs.normalize("a/b/../../c")
+  assert(result == "c", "expected 'c', got '" .. result .. "'")
+end
+test_normalize_multiple_up_and_down()
+
 -- abspath tests
 
 local cwd = unix.getcwd()
