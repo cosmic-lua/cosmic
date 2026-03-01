@@ -52,6 +52,12 @@ local function test_skill_content()
     "should mention --docs")
   assert(content:find("script%.tl"),
     "should show how to run a script")
+  -- description should mention key capabilities for agent discovery
+  assert(content:find("HTTP"), "description should mention HTTP")
+  assert(content:find("JSON"), "description should mention JSON")
+  assert(content:find("SQLite"), "description should mention SQLite")
+  assert(content:find("filesystem"), "description should mention filesystem")
+  assert(content:find("child process"), "description should mention child processes")
 end
 test_skill_content()
 

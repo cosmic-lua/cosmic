@@ -308,14 +308,20 @@ end
 local function skill_content(): string
   return [=[---
 name: cosmic
-description: Write programs with cosmic-lua — download, run, and explore the standard library
+description: >
+  Write portable scripts and tools with cosmic-lua — HTTP requests, JSON
+  parsing, SQLite databases, filesystem operations, child processes, crypto,
+  compression, and more in a single zero-dependency binary
 ---
 
 # cosmic
 
-cosmic-lua is a batteries-included Lua distribution for writing programs.
-source files are written in Teal (typed Lua) and run from a single fat
-binary on Linux, macOS, Windows, FreeBSD, OpenBSD, and NetBSD.
+cosmic-lua is a batteries-included Lua distribution for writing portable
+scripts and tools. it ships as a single binary with built-in support for
+HTTP fetching, JSON, SQLite, filesystem operations, child processes,
+cryptographic hashing, compression, regex, sockets, and more — no external
+dependencies needed. source files are written in Teal (typed Lua) and run
+on Linux, macOS, Windows, FreeBSD, OpenBSD, and NetBSD.
 
 ## Download
 
