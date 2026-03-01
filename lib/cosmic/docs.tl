@@ -1,10 +1,5 @@
 --- Access embedded documentation from the cosmic binary.
 --- Provides a CLI interface similar to Go's `go doc` command.
---- Documentation is parsed at build time and embedded as a serialized Lua index.
----
---- Two access paths:
----   - Non-interactive: `cosmic --docs <query>` from the command line
----   - Interactive: `help(<query>)` in the REPL (`cosmic -i`)
 
 local cio = require("cosmic.io")
 local docs_render = require("cosmic.docs_render")
@@ -18,7 +13,6 @@ local ExampleEntry = types.ExampleEntry
 local INDEX_PATH = "/zip/.docs/index.lua"
 local GUIDES_DIR = "/zip/skills/cosmic"
 
--- Cached index
 local cached_index: DocIndex = nil
 
 --- Load the embedded documentation index.
@@ -67,7 +61,6 @@ local function strip_frontmatter(content: string): string
 end
 
 --- List available guide topics from the embedded skills directory.
---- @return {string} Sorted list of guide topic names
 local function list_guide_topics(): {string}
   local fs = require("cosmic.fs")
   local dir = fs.opendir(GUIDES_DIR)
@@ -87,9 +80,23 @@ local function list_guide_topics(): {string}
   return topics
 end
 
+--- List guides with descriptions from each file's heading.
+local function list_guides(): {{string, string}}
+  local topics = list_guide_topics()
+  local guides: {{string, string}} = {}
+  for _, name in ipairs(topics) do
+    local content = cio.slurp(GUIDES_DIR .. "/" .. name .. ".md")
+    local desc = name
+    if content then
+      local heading = content:match("^#%s+(.-)%s*\n")
+      if heading then desc = heading end
+    end
+    table.insert(guides, {name, desc})
+  end
+  return guides
+end
+
 --- Show a guide topic or list all guides.
---- @param topic string Guide topic name (empty string lists all)
---- @return DocsResult Result with guide content
 local function show_guide(topic: string): DocsResult
   if topic == "" then
     local content, err = cio.slurp(GUIDES_DIR .. "/SKILL.md")
@@ -120,8 +127,6 @@ local function show_guide(topic: string): DocsResult
 end
 
 --- Check if a module name is a low-level cosmo module.
---- @param name string Module name to check
---- @return boolean True if this is a cosmo.* module
 local function is_cosmo_module(name: string): boolean
   return name:match("^cosmo%.") ~= nil
 end
@@ -472,6 +477,7 @@ local record DocsModule
   show_module_examples: function(query: string): DocsResult
   show_guide: function(topic: string): DocsResult
   list_guide_topics: function(): {string}
+  list_guides: function(): {{string, string}}
   strip_frontmatter: function(content: string): string
 end
 
@@ -486,6 +492,7 @@ local M: DocsModule = {
   show_module_examples = show_module_examples,
   show_guide = show_guide,
   list_guide_topics = list_guide_topics,
+  list_guides = list_guides,
   strip_frontmatter = strip_frontmatter,
 }
 

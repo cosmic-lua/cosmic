@@ -54,6 +54,23 @@ local function generate(): string
     end
   end
 
+  -- Show guides list
+  local guides = docs.list_guides()
+  if #guides > 0 then
+    local max_len = 0
+    for _, g in ipairs(guides) do
+      if #g[1] > max_len then
+        max_len = #g[1]
+      end
+    end
+    table.insert(lines, "")
+    table.insert(lines, "Guides (cosmic --docs guide.<name>):")
+    for _, g in ipairs(guides) do
+      local padding = string.rep(" ", max_len - #g[1] + 2)
+      table.insert(lines, "  " .. g[1] .. padding .. g[2])
+    end
+  end
+
   return table.concat(lines, "\n")
 end
 
