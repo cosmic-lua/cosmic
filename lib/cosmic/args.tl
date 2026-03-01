@@ -15,6 +15,7 @@ local longopts: {getopt.LongOpt} = {
   {name = "format", has_arg = "required"},
   {name = "check-format", has_arg = "required"},
   {name = "check-types", has_arg = "required"},
+  {name = "check-style", has_arg = "required"},
   {name = "embed", has_arg = "required"},
   {name = "output", has_arg = "required"},
   {name = "extract", has_arg = "required"},
