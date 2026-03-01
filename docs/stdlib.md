@@ -48,6 +48,7 @@ local sqlite = require("cosmic.sqlite")
 
 | module | description |
 |--------|-------------|
+| `cosmic.crypto` | symmetric encryption and authenticated decryption |
 | `cosmic.hash` | SHA-256 and Argon2 password hashing |
 | `cosmic.rand` | cryptographic random bytes |
 | `cosmic.sandbox` | pledge/unveil security restrictions |
