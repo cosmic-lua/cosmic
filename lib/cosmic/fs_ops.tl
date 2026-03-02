@@ -2,7 +2,7 @@
 --- Internal submodule used by cosmic.fs.
 local unix = require("cosmo.unix")
 local types = require("cosmic.fs_types")
-local Errno = types.Errno
+local Errno = require("cosmic.errno").Errno
 local Statfs = types.Statfs
 
 -- File operations

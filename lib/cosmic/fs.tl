@@ -2,7 +2,7 @@
 --- Combines path manipulation, filesystem operations, and directory walking.
 local unix = require("cosmo.unix")
 local types = require("cosmic.fs_types")
-local Errno = types.Errno
+local Errno = require("cosmic.errno").Errno
 local Stat = types.Stat
 local Dir = types.Dir
 local Statfs = types.Statfs
