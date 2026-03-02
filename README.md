@@ -37,6 +37,7 @@ High-level utilities and tools built on top of cosmo.
 | [embed](lib/cosmic/embed.md) |  Embed files and directories into a cosmic executable. |
 | [env](lib/cosmic/env.md) |  Environment variable utilities. |
 | [envd](lib/cosmic/envd.md) |  Load environment variables from an embedded env.d directory. |
+| [errno](lib/cosmic/errno.md) |  Error information from system calls. |
 | [example](lib/cosmic/example.md) |  Go-style executable example testing. |
 | [fetch](lib/cosmic/fetch.md) |  Structured HTTP fetch with optional retry. |
 | [format](lib/cosmic/format.md) |  Code formatter for Teal and Lua files. |

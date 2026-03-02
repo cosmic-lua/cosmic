@@ -21,14 +21,6 @@ local record Termios
 end
 ```
 
-### Errno
-
-```teal
-local record Errno
-  doc: function(self: Errno): string
-end
-```
-
 ### UnixTty
 
 ```teal

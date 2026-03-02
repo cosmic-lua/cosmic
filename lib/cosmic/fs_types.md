@@ -8,11 +8,6 @@
 
 ```teal
 local record fs_types
-  errno: function(self: Errno): number
-  winerr: function(self: Errno): number
-  name: function(self: Errno): string
-  call: function(self: Errno): string
-  doc: function(self: Errno): string
   --  Returns filesystem type identifier.
   type: function(self: Statfs): number
   --  Returns optimal transfer block size.
