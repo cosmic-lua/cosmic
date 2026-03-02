@@ -116,10 +116,17 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
     package.path = package.path .. ";" .. dir .. "/?/init.tl"
   end
 
-  -- Prepend TL_PATH env var so callers don't need to pass include_dirs manually
+  -- Prepend TL_PATH env var so callers don't need to pass include_dirs manually.
+  -- If TL_PATH contains ;;, replace it with current package.path (Lua semantics:
+  -- ;; in package.path expands to the default/existing path).
   local tl_path = os.getenv("TL_PATH")
   if tl_path then
-    package.path = tl_path .. ";" .. package.path
+    local before, after = tl_path:match("^(.-);;(.*)$")
+    if before and after then
+      package.path = before .. ";" .. package.path .. ";" .. after
+    else
+      package.path = tl_path .. ";" .. package.path
+    end
   end
 
   local env = tl.init_env(lax)

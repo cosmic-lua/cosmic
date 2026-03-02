@@ -135,4 +135,39 @@ print(s)
 end
 test_check_with_tl_path()
 
+-- Test that ;; in TL_PATH is treated as a placeholder for existing package.path
+local function test_check_with_tl_path_double_semicolon()
+  -- Write a type definition file in a custom directory
+  local typedir = path.join(tmpdir, "mytypes2")
+  unix.makedirs(typedir, 0x1ed) -- 0755
+  local deffile = path.join(typedir, "mymod2.d.tl")
+  cosmo.Barf(deffile, [[
+local record mymod2
+  hello: function(): string
+end
+return mymod2
+]])
+
+  -- Write a file that uses both the custom module and a built-in module
+  local input = write_temp("tl_path_double_semicolon.tl", [[
+local mymod2 = require("mymod2")
+local s: string = mymod2.hello()
+print(s)
+]])
+
+  -- Set TL_PATH with ;; before paths: custom_dir;;<existing paths would go here>
+  local base_env = unix.environ()
+  local env_with: {string} = {}
+  for _, entry in ipairs(base_env) do
+    if not entry:match("^TL_PATH=") then
+      env_with[#env_with + 1] = entry
+    end
+  end
+  -- ;; expands to existing package.path, so both custom module and built-ins resolve
+  env_with[#env_with + 1] = "TL_PATH=" .. typedir .. "/?.d.tl;;" .. typedir .. "/?/init.d.tl"
+  local ok_with, _ = spawn.spawn({cosmic, "--check-types", input}, {env = env_with}):read()
+  assert(ok_with, "check should succeed with ;; in TL_PATH")
+end
+test_check_with_tl_path_double_semicolon()
+
 print("All check tests passed!")
