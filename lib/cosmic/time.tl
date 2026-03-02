@@ -154,8 +154,14 @@ local function timegm(year: number, month: number, day: number,
     hour: number, min: number, sec: number): number
   local days: number = 0
   -- count days for complete years since 1970
-  for y = 1970, year - 1 do
-    days = days + (is_leap_year(y) and 366 or 365)
+  if year >= 1970 then
+    for y = 1970, year - 1 do
+      days = days + (is_leap_year(y) and 366 or 365)
+    end
+  else
+    for y = year, 1969 do
+      days = days - (is_leap_year(y) and 366 or 365)
+    end
   end
   -- count days for complete months in the target year
   for m = 1, month - 1 do
