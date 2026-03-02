@@ -104,29 +104,29 @@ test_encode_lua_nil()
 -- Lua decoding tests
 
 local function test_decode_lua_string()
-  local result, err = codec.decode_lua('"hello"')
+  local result, err = codec.decode_lua_unsafe('"hello"')
   assert(err == nil, "unexpected error: " .. (err or ""))
   assert(result == "hello", "expected 'hello'")
 end
 test_decode_lua_string()
 
 local function test_decode_lua_number()
-  local result, err = codec.decode_lua("42")
+  local result, err = codec.decode_lua_unsafe("42")
   assert(err == nil, "unexpected error: " .. (err or ""))
   assert(result == 42, "expected 42")
 end
 test_decode_lua_number()
 
 local function test_decode_lua_boolean()
-  local t, err1 = codec.decode_lua("true")
+  local t, err1 = codec.decode_lua_unsafe("true")
   assert(err1 == nil and t == true, "expected true")
-  local f, err2 = codec.decode_lua("false")
+  local f, err2 = codec.decode_lua_unsafe("false")
   assert(err2 == nil and f == false, "expected false")
 end
 test_decode_lua_boolean()
 
 local function test_decode_lua_table()
-  local result, err = codec.decode_lua('{a = 1, b = "hello"}')
+  local result, err = codec.decode_lua_unsafe('{a = 1, b = "hello"}')
   assert(err == nil, "unexpected error: " .. (err or ""))
   local t = result as {string: any}
   assert(t.a == 1, "expected a=1")
@@ -135,23 +135,31 @@ end
 test_decode_lua_table()
 
 local function test_decode_lua_nil()
-  local result, err = codec.decode_lua("nil")
+  local result, err = codec.decode_lua_unsafe("nil")
   assert(err == nil, "unexpected error: " .. (err or ""))
   assert(result == nil, "expected nil")
 end
 test_decode_lua_nil()
 
 local function test_decode_lua_invalid()
-  local result, err = codec.decode_lua("invalid syntax {{{{")
+  local result, err = codec.decode_lua_unsafe("invalid syntax {{{{")
   assert(result == nil, "expected nil for invalid syntax")
   assert(err ~= nil, "expected error message")
 end
 test_decode_lua_invalid()
 
+local function test_decode_lua_unsafe_no_globals()
+  -- global access should fail because load() uses empty env {}
+  local result, err = codec.decode_lua_unsafe("os.execute('true')")
+  assert(result == nil, "expected nil when accessing global os")
+  assert(err ~= nil, "expected error message when accessing global os")
+end
+test_decode_lua_unsafe_no_globals()
+
 local function test_lua_roundtrip()
   local original = {name = "test", count = 42, flag = true, nested = {x = 1, y = 2}}
   local encoded = codec.encode_lua(original)
-  local decoded, err = codec.decode_lua(encoded)
+  local decoded, err = codec.decode_lua_unsafe(encoded)
   assert(err == nil, "roundtrip decode failed: " .. (err or ""))
   local t = decoded as {string: any}
   assert(t.name == original.name, "name mismatch")
