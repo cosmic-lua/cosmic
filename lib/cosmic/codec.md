@@ -12,7 +12,7 @@ local record CodecModule
   encode_hex: function(data: string): string
   decode_hex: function(hex: string): string, string
   encode_lua: function(value: any, opts?: {string: any}): string
-  decode_lua: function(code: string): any, string
+  decode_lua_unsafe: function(code: string): any, string
   encode_base64: function(data: string): string
   decode_base64: function(str: string): string, string
   encode_base32: function(data: string): string
@@ -77,15 +77,17 @@ function encode_lua(value: any, opts?: {string: any}): string
 
 - string - The Lua source code representation
 
-### decode_lua
+### decode_lua_unsafe
 
 ```teal
-function decode_lua(code: string): any, string
+function decode_lua_unsafe(code: string): any, string
 ```
 
- Decode Lua source code to a value.
- Only loads the code, does not execute arbitrary functions.
- WARNING: This executes Lua code. Only use with trusted input.
+ Decode Lua source code to a value with a restricted environment.
+ Only loads the code in text mode with an empty environment table,
+ preventing access to globals like os, io, and require.
+ Table constructors and literal values still work.
+ WARNING: This still executes Lua code. Only use with trusted input.
 
 **Parameters:**
 
