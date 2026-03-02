@@ -146,6 +146,41 @@ local function test_split_special_chars()
 end
 test_split_special_chars()
 
+local function test_split_trailing_separator()
+  local parts = str.split("a,b,", ",")
+  assert(#parts == 3, "expected 3 parts, got " .. #parts)
+  assert(parts[1] == "a", "expected 'a'")
+  assert(parts[2] == "b", "expected 'b'")
+  assert(parts[3] == "", "expected empty string for trailing field")
+end
+test_split_trailing_separator()
+
+local function test_split_only_separator()
+  local parts = str.split(",", ",")
+  assert(#parts == 2, "expected 2 parts, got " .. #parts)
+  assert(parts[1] == "", "expected empty string before separator")
+  assert(parts[2] == "", "expected empty string after separator")
+end
+test_split_only_separator()
+
+local function test_split_multichar_separator()
+  local parts = str.split("a::b::c", "::")
+  assert(#parts == 3, "expected 3 parts, got " .. #parts)
+  assert(parts[1] == "a", "expected 'a'")
+  assert(parts[2] == "b", "expected 'b'")
+  assert(parts[3] == "c", "expected 'c'")
+end
+test_split_multichar_separator()
+
+local function test_split_multichar_trailing()
+  local parts = str.split("a::b::", "::")
+  assert(#parts == 3, "expected 3 parts, got " .. #parts)
+  assert(parts[1] == "a", "expected 'a'")
+  assert(parts[2] == "b", "expected 'b'")
+  assert(parts[3] == "", "expected empty string for trailing field")
+end
+test_split_multichar_trailing()
+
 -- starts_with tests
 
 local function test_starts_with_true()
