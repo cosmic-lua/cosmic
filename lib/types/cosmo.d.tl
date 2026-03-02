@@ -86,6 +86,12 @@ local record cosmo
   GetHostIsa: function(): string
   GetRandomBytes: function(count: number): string
 
+  -- fast pseudo-random number generators (non-cryptographic)
+  Rand64: function(): integer
+  Lemur64: function(): integer
+  Rdrand: function(): integer, string
+  Rdseed: function(): integer, string
+
   -- uuid
   UuidV4: function(): string
   UuidV7: function(): string
