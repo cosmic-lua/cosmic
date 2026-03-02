@@ -135,6 +135,7 @@ function split(s: string, sep: string): {string}
 
  Split a string by a separator.
  If separator is empty string, splits into individual characters.
+ Trailing empty fields (from a trailing separator) are preserved.
 
 **Parameters:**
 
