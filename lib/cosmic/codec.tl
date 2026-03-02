@@ -40,14 +40,16 @@ local function encode_lua(value: any, opts?: {string: any}): string
   return cosmo.EncodeLua(value, opts)
 end
 
---- Decode Lua source code to a value.
---- Only loads the code, does not execute arbitrary functions.
---- WARNING: This executes Lua code. Only use with trusted input.
+--- Decode Lua source code to a value with a restricted environment.
+--- Only loads the code in text mode with an empty environment table,
+--- preventing access to globals like os, io, and require.
+--- Table constructors and literal values still work.
+--- WARNING: This still executes Lua code. Only use with trusted input.
 --- @param code string The Lua source code to decode
 --- @return any The decoded Lua value, or nil on error
 --- @return string? Error message if decoding failed
-local function decode_lua(code: string): any, string
-  local chunk, err = load("return " .. code)
+local function decode_lua_unsafe(code: string): any, string
+  local chunk, err = load("return " .. code, "=(decode_lua_unsafe)", "t", {})
   if not chunk then
     return nil, err as string
   end
@@ -132,7 +134,7 @@ local record CodecModule
   encode_hex: function(data: string): string
   decode_hex: function(hex: string): string, string
   encode_lua: function(value: any, opts?: {string: any}): string
-  decode_lua: function(code: string): any, string
+  decode_lua_unsafe: function(code: string): any, string
   encode_base64: function(data: string): string
   decode_base64: function(str: string): string, string
   encode_base32: function(data: string): string
@@ -145,7 +147,7 @@ local M: CodecModule = {
   encode_hex = encode_hex,
   decode_hex = decode_hex,
   encode_lua = encode_lua,
-  decode_lua = decode_lua,
+  decode_lua_unsafe = decode_lua_unsafe,
   encode_base64 = encode_base64,
   decode_base64 = decode_base64,
   encode_base32 = encode_base32,
