@@ -371,3 +371,41 @@ local function test_nested_queries()
   db:close()
 end
 test_nested_queries()
+
+-- Error return paths (no-throw on invalid SQL)
+
+local function test_query_invalid_sql()
+  local db = sqlite.open(":memory:")
+  local iter, err = db:query("INVALID SQL SYNTAX")
+  assert(iter == nil, "query should return nil on invalid SQL")
+  assert(type(err) == "string", "should return error string")
+  db:close()
+end
+test_query_invalid_sql()
+
+local function test_query_list_invalid_sql()
+  local db = sqlite.open(":memory:")
+  local iter, err = db:query_list("INVALID SQL SYNTAX", {})
+  assert(iter == nil, "query_list should return nil on invalid SQL")
+  assert(type(err) == "string", "should return error string")
+  db:close()
+end
+test_query_list_invalid_sql()
+
+local function test_query_named_invalid_sql()
+  local db = sqlite.open(":memory:")
+  local iter, err = db:query_named("INVALID SQL SYNTAX", {})
+  assert(iter == nil, "query_named should return nil on invalid SQL")
+  assert(type(err) == "string", "should return error string")
+  db:close()
+end
+test_query_named_invalid_sql()
+
+local function test_query_one_invalid_sql()
+  local db = sqlite.open(":memory:")
+  local row, err = db:query_one("INVALID SQL SYNTAX")
+  assert(row == nil, "query_one should return nil on invalid SQL")
+  assert(type(err) == "string", "should return error string")
+  db:close()
+end
+test_query_one_invalid_sql()
