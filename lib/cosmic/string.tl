@@ -56,6 +56,7 @@ end
 
 --- Split a string by a separator.
 --- If separator is empty string, splits into individual characters.
+--- Trailing empty fields (from a trailing separator) are preserved.
 --- @param s string The string to split
 --- @param sep string The separator to split on
 --- @return {string} Array of substrings
@@ -67,13 +68,19 @@ local function split(s: string, sep: string): {string}
     end
     return result
   end
-  local pattern = "([^" .. sep:gsub("[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%1") .. "]*)"
-  for part in s:gmatch(pattern) do
-    table.insert(result, part)
+  if s == "" then
+    return result
   end
-  -- gmatch produces an extra empty string at the end for trailing separators
-  if #result > 0 and result[#result] == "" then
-    table.remove(result)
+  local pos = 1
+  local sep_len = #sep
+  while true do
+    local found = s:find(sep, pos, true)
+    if not found then
+      table.insert(result, s:sub(pos))
+      break
+    end
+    table.insert(result, s:sub(pos, found - 1))
+    pos = found + sep_len
   end
   return result
 end
