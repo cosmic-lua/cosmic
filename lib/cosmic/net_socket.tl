@@ -1,15 +1,7 @@
 --- Socket implementation for the networking module.
 --- Contains the Socket constructor and all Socket method implementations.
 local unix = require("cosmo.unix")
-
---- Errno record for extracting error information from C bindings.
-local record Errno
-  errno: function(self: Errno): number
-  winerr: function(self: Errno): number
-  name: function(self: Errno): string
-  call: function(self: Errno): string
-  doc: function(self: Errno): string
-end
+local Errno = require("cosmic.errno").Errno
 
 --- Socket handle for network I/O.
 --- Supports Lua 5.4's to-be-closed via __close metamethod.

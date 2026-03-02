@@ -12,9 +12,7 @@ local record Termios
   ospeed: number
 end
 
-local record Errno
-  doc: function(self: Errno): string
-end
+local Errno = require("cosmic.errno").Errno
 
 local record UnixTty
   isatty: function(fd: number): boolean

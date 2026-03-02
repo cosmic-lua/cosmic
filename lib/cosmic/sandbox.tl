@@ -1,14 +1,7 @@
 --- Security sandboxing utilities.
 --- Wraps cosmo.unix for pledge and unveil operations to restrict system calls and filesystem access.
 local unix = require("cosmo.unix")
-
-local record Errno
-  errno: function(self: Errno): number
-  winerr: function(self: Errno): number
-  name: function(self: Errno): string
-  call: function(self: Errno): string
-  doc: function(self: Errno): string
-end
+local Errno = require("cosmic.errno").Errno
 
 --- Restricts system calls available to the process.
 --- Pledging causes most system calls to become unavailable. Using pledge is irreversible.
