@@ -256,6 +256,27 @@ local function test_timegm_leap_year()
 end
 test_timegm_leap_year()
 
+local function test_timegm_epoch_is_zero()
+  -- unix epoch must be exactly 0
+  local ts = time.timegm(1970, 1, 1, 0, 0, 0)
+  assert(ts == 0, "expected 0, got " .. tostring(ts))
+end
+test_timegm_epoch_is_zero()
+
+local function test_timegm_one_second_before_epoch()
+  -- 1969-12-31 23:59:59 UTC = -1
+  local ts = time.timegm(1969, 12, 31, 23, 59, 59)
+  assert(ts == -1, "expected -1, got " .. tostring(ts))
+end
+test_timegm_one_second_before_epoch()
+
+local function test_timegm_pre_epoch_1960()
+  -- 1960-01-01 00:00:00 UTC = -315619200
+  local ts = time.timegm(1960, 1, 1, 0, 0, 0)
+  assert(ts == -315619200, "expected -315619200, got " .. tostring(ts))
+end
+test_timegm_pre_epoch_1960()
+
 -- format_date tests
 
 local function test_format_date_epoch()
