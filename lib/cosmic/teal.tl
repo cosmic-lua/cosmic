@@ -123,9 +123,22 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
   end
 
   local env = tl.init_env(lax)
-  local result, proc_err = tl.process_string(input, false, env, input_path)
+  local ok, result_or_err, proc_err = pcall(tl.process_string, input, false, env, input_path)
 
   package.path = saved_path
+
+  if not ok then
+    return {
+      error = {
+        file = input_path,
+        line = 0,
+        column = 0,
+        message = tostring(result_or_err),
+        severity = "error",
+      },
+    }
+  end
+  local result = result_or_err as TlResult
 
   if not result then
     return {
@@ -139,7 +152,7 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
     }
   end
 
-  return {tl_result = result as TlResult, shebang = shebang}
+  return {tl_result = result, shebang = shebang}
 end
 
 --- Collect errors from tl result (syntax_errors and type_errors).
