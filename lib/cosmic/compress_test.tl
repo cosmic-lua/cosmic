@@ -157,8 +157,6 @@ local function test_deflate_roundtrip()
 end
 test_deflate_roundtrip()
 
--- Size prefix encoding test
-
 local function test_deflate_size_prefix()
   -- Test with various sizes to verify little-endian encoding
   local sizes = {0, 1, 255, 256, 65535, 65536, 100000}
@@ -176,3 +174,12 @@ local function test_deflate_size_prefix()
   end
 end
 test_deflate_size_prefix()
+
+-- Size limit check test
+
+local function test_deflate_size_check_normal()
+  -- Verify that normal-sized input does not trigger the size limit error
+  local ok, err = pcall(compress.deflate, string.rep("x", 1000))
+  assert(ok, "expected success for 1000-byte input: " .. tostring(err))
+end
+test_deflate_size_check_normal()
