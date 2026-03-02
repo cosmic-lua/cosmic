@@ -70,7 +70,7 @@ local record Statement
   bind: function(self: Statement, ...: any): boolean, string
   bind_list: function(self: Statement, values: {any}): boolean, string
   bind_named: function(self: Statement, params: {string: any}): boolean, string
-  rows: function(self: Statement): function(): {string: any}
+  rows: function(self: Statement): RowIter
   values: function(self: Statement): function(): any ...
   exec: function(self: Statement): boolean, string
   reset: function(self: Statement)
@@ -87,10 +87,10 @@ end
 ```teal
 local record Database
   prepare: function(self: Database, sql: string): Statement, string
-  query: function(self: Database, sql: string, ...: any): function(): {string: any}
-  query_list: function(self: Database, sql: string, values: {any}): function(): {string: any}
-  query_named: function(self: Database, sql: string, params: {string: any}): function(): {string: any}
-  query_one: function(self: Database, sql: string, ...: any): {string: any}
+  query: function(self: Database, sql: string, ...: any): RowIter, string
+  query_list: function(self: Database, sql: string, values: {any}): RowIter, string
+  query_named: function(self: Database, sql: string, params: {string: any}): RowIter, string
+  query_one: function(self: Database, sql: string, ...: any): {string: any}, string
   exec: function(self: Database, sql: string, ...: any): boolean, string
   exec_list: function(self: Database, sql: string, values: {any}): boolean, string
   exec_named: function(self: Database, sql: string, params: {string: any}): boolean, string
@@ -145,7 +145,7 @@ function stmt:bind_named(params: {string: any}): boolean, string
 ### stmt:rows
 
 ```teal
-function stmt:rows(): function(): {string: any}
+function stmt:rows(): RowIter
 ```
 
 ### stmt:values
@@ -169,7 +169,7 @@ function db:prepare(sql: string): Statement, string
 ### db:query
 
 ```teal
-function db:query(sql: string, ...: any): function(): {string: any}
+function db:query(sql: string, ...: any): RowIter, string
 ```
 
 ### db:exec
@@ -200,7 +200,7 @@ function db:exec_named(sql: string, params: {string: any}): boolean, string
 ### db:query_list
 
 ```teal
-function db:query_list(sql: string, values: {any}): function(): {string: any}
+function db:query_list(sql: string, values: {any}): RowIter, string
 ```
 
  Query with parameters from a list (table).
@@ -210,7 +210,7 @@ function db:query_list(sql: string, values: {any}): function(): {string: any}
 ### db:query_named
 
 ```teal
-function db:query_named(sql: string, params: {string: any}): function(): {string: any}
+function db:query_named(sql: string, params: {string: any}): RowIter, string
 ```
 
  Query with named parameters.
@@ -219,7 +219,7 @@ function db:query_named(sql: string, params: {string: any}): function(): {string
 ### db:query_one
 
 ```teal
-function db:query_one(sql: string, ...: any): {string: any}
+function db:query_one(sql: string, ...: any): {string: any}, string
 ```
 
  Return the first row matching a query, or nil if no rows match.
