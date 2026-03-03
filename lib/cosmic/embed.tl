@@ -208,13 +208,13 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
 
   local exe_data = cio.slurp(exe_path)
   if not exe_data then
-    os.remove(tmp_path)
+    fs.unlink(tmp_path)
     return {ok = false, message = "error: cannot read executable '" .. exe_path .. "'", file_count = 0}
   end
 
   local barf_ok = cio.barf(tmp_path, exe_data)
   if not barf_ok then
-    os.remove(tmp_path)
+    fs.unlink(tmp_path)
     return {ok = false, message = "error: cannot write to '" .. tmp_path .. "'", file_count = 0}
   end
   unix.chmod(tmp_path, tonumber("755", 8))
@@ -224,7 +224,7 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
   local appender_err: any
   appender_result, appender_err = czip.open(tmp_path, "a")
   if not appender_result then
-    os.remove(tmp_path)
+    fs.unlink(tmp_path)
     return {ok = false, message = "error: failed to open zip for appending: " .. tostring(appender_err or "unknown error"), file_count = 0}
   end
   local appender = appender_result as ZipAppender
@@ -235,7 +235,7 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
     local add_ok, add_err = appender:add(file_info.stored_name, file_info.content, {mode = file_info.mode})
     if not add_ok then
       appender:close()
-      os.remove(tmp_path)
+      fs.unlink(tmp_path)
       return {ok = false, message = "error: failed to add '" .. file_info.stored_name .. "' to zip: " .. tostring(add_err or "unknown error"), file_count = 0}
     end
   end
@@ -244,9 +244,9 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
 
   -- Atomically replace the output file. rename() on the same filesystem is
   -- atomic — any running process with the old inode mmapped keeps its pages.
-  local rename_ok, rename_err = os.rename(tmp_path, output)
+  local rename_ok, rename_err = fs.rename(tmp_path, output)
   if not rename_ok then
-    os.remove(tmp_path)
+    fs.unlink(tmp_path)
     return {ok = false, message = "error: cannot rename temp file to '" .. output .. "': " .. tostring(rename_err or "unknown"), file_count = 0}
   end
 
