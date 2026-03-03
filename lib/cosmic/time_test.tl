@@ -277,6 +277,21 @@ local function test_timegm_pre_epoch_1960()
 end
 test_timegm_pre_epoch_1960()
 
+local function test_timegm_midnight_dec_31_1969()
+  -- 1969-12-31 00:00:00 UTC = -86400
+  local ts = time.timegm(1969, 12, 31, 0, 0, 0)
+  assert(ts == -86400, "expected -86400, got " .. tostring(ts))
+end
+test_timegm_midnight_dec_31_1969()
+
+local function test_timegm_pre_epoch_roundtrip()
+  -- gmtime(-86400) -> timegm should return -86400
+  local dt = time.gmtime(-86400)
+  local rt = time.timegm(dt.year, dt.month, dt.day, dt.hour, dt.min, dt.sec)
+  assert(rt == -86400, "roundtrip failed: got " .. tostring(rt))
+end
+test_timegm_pre_epoch_roundtrip()
+
 -- format_date tests
 
 local function test_format_date_epoch()
