@@ -314,8 +314,8 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
       return "", ""
     end
     local poller = poll.new()
-    if out_pipe then poller:add(out_pipe, poll.POLLIN) end
-    if err_pipe then poller:add(err_pipe, poll.POLLIN) end
+    if out_pipe then poller:add(out_pipe.fd, poll.POLLIN) end
+    if err_pipe then poller:add(err_pipe.fd, poll.POLLIN) end
     while not poller:empty() do
       for fd, events in poller:wait(-1) do
         if events.readable then

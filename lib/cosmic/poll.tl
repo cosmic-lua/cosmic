@@ -30,14 +30,13 @@ end
 
 --- Poll set for monitoring multiple file descriptors.
 local record Poller
-  --- Add a file descriptor or handle to the set.
-  --- Accepts raw fd numbers, or objects with .fd field or :fd() method.
-  --- @param p any File descriptor number, io.Handle, child.Pipe, or net.Socket
+  --- Add a file descriptor to the set.
+  --- @param fd number File descriptor number
   --- @param events number Event mask (POLLIN, POLLOUT, etc.)
-  add: function(Poller, any, number)
-  --- Remove a file descriptor or handle from the set.
-  --- @param p any The fd or handle to remove
-  remove: function(Poller, any)
+  add: function(Poller, number, number)
+  --- Remove a file descriptor from the set.
+  --- @param fd number The file descriptor to remove
+  remove: function(Poller, number)
   --- Clear all file descriptors from the set.
   clear: function(Poller)
   --- Poll for events with optional timeout.
@@ -60,23 +59,6 @@ local record Poller
   count: function(Poller): number
 end
 
---- Extract a file descriptor number from a pollable object.
---- Supports: raw fd numbers, objects with .fd field, objects with :fd() method.
-local function get_fd(p: any): number
-  if type(p) == "number" then
-    return p as number
-  elseif type(p) == "table" then
-    local t = p as {any: any}
-    local fd_val = t.fd
-    if type(fd_val) == "number" then
-      return fd_val as number
-    elseif type(fd_val) == "function" then
-      return (fd_val as function(any): number)(p)
-    end
-  end
-  return nil
-end
-
 --- Make Events from raw revents bitmask.
 local function make_events(revents: number): Events
   return {
@@ -93,8 +75,9 @@ end
 --- @return Poller A new poll set
 --- Example:
 ---   local p = poll.new()
----   p:add(handle.stdout, poll.POLLIN)
----   p:add(handle.stderr, poll.POLLIN)
+---   p:add(handle.stdout.fd, poll.POLLIN)  -- child.Pipe: use .fd field
+---   p:add(reader:fd(), poll.POLLIN)       -- io.Handle: call :fd() method
+---   p:add(sock.fd, poll.POLLIN)           -- net.Socket: use .fd field
 ---   for fd, events in p:wait(30000) do
 ---     if events.readable then
 ---       -- read from fd
@@ -106,15 +89,13 @@ local function new(): Poller
 
   local poller: Poller = {}
 
-  poller.add = function(self: Poller, p: any, events: number)
-    local fd = get_fd(p)
+  poller.add = function(self: Poller, fd: number, events: number)
     if fd then
       fds[fd] = events
     end
   end
 
-  poller.remove = function(self: Poller, p: any)
-    local fd = get_fd(p)
+  poller.remove = function(self: Poller, fd: number)
     if fd then
       fds[fd] = nil
       results[fd] = nil
