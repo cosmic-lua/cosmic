@@ -29,7 +29,8 @@ local function join(...: string): string
 end
 
 --- Check if path exists (regular file, directory, or special file).
---- Symbolic links are followed. Returns false on error.
+--- Symbolic links are followed (uses stat): a symlink resolves to its target,
+--- and returns true if the target exists. Returns false on error.
 --- @param p string The path to check
 --- @return boolean True if the path exists
 local function exists(p: string): boolean
@@ -37,7 +38,9 @@ local function exists(p: string): boolean
 end
 
 --- Check if path is a regular file.
---- Symbolic links are not followed. Returns false on error.
+--- Symbolic links are not followed (uses lstat): a symlink is never considered
+--- a regular file, even if it points to one. Use islink() to detect symlinks,
+--- or stat() to inspect the symlink target. Returns false on error.
 --- @param p string The path to check
 --- @return boolean True if the path is a regular file
 local function isfile(p: string): boolean
@@ -45,7 +48,9 @@ local function isfile(p: string): boolean
 end
 
 --- Check if path is a directory.
---- Symbolic links are not followed. Returns false on error.
+--- Symbolic links are not followed (uses lstat): a symlink is never considered
+--- a directory, even if it points to one. Use islink() to detect symlinks,
+--- or stat() to inspect the symlink target. Returns false on error.
 --- @param p string The path to check
 --- @return boolean True if the path is a directory
 local function isdir(p: string): boolean
