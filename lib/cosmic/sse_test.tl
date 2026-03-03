@@ -301,6 +301,45 @@ local function test_complete_event_with_all_fields()
 end
 test_complete_event_with_all_fields()
 
+local function test_comments_only()
+  local reader = mock_reader(": comment1\n: comment2\n\n")
+  local events_list: {sse.Event} = {}
+
+  for event in sse.events(reader) do
+    table.insert(events_list, event)
+  end
+
+  assert(#events_list == 0, "comments-only stream should yield no events, got: " .. #events_list)
+end
+test_comments_only()
+
+local function test_binary_input()
+  -- Binary bytes in data field: parser should not crash
+  local reader = mock_reader("data: \x00\x01\x02\xff\xfe\n\n")
+  local events_list: {sse.Event} = {}
+
+  for event in sse.events(reader) do
+    table.insert(events_list, event)
+  end
+
+  -- Just verify it does not error and yields one event
+  assert(#events_list == 1, "binary input should yield one event, got: " .. #events_list)
+end
+test_binary_input()
+
+local function test_utf8_data()
+  local reader = mock_reader("data: héllo wörld\n\n")
+  local events_list: {sse.Event} = {}
+
+  for event in sse.events(reader) do
+    table.insert(events_list, event)
+  end
+
+  assert(#events_list == 1, "should have 1 event")
+  assert(events_list[1].data == "héllo wörld", "UTF-8 data should pass through unchanged, got: " .. events_list[1].data)
+end
+test_utf8_data()
+
 -- Network test with real SSE endpoint (skip if unavailable)
 local function test_real_sse_endpoint()
   local cosmo = require("cosmo")
