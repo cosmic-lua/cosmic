@@ -55,7 +55,7 @@ local function test_poll_pipe_readable()
 
   local p = poll.new()
   -- Add the reader using its fd() method
-  p:add(pipe.reader, poll.POLLIN)
+  p:add(pipe.reader:fd(), poll.POLLIN)
   assert(p:count() == 1, "count should be 1")
 
   -- Poll with short timeout - should return immediately since data is available
@@ -78,7 +78,7 @@ local function test_poll_pipe_writable()
 
   local p = poll.new()
   -- Check if writer is writable (should be, since buffer is empty)
-  p:add(pipe.writer, poll.POLLOUT)
+  p:add(pipe.writer:fd(), poll.POLLOUT)
 
   local count = 0
   for fd, events in p:wait(100) do
@@ -104,8 +104,8 @@ local function test_poll_multiple_fds()
   pipe2.writer:write("world")
 
   local p = poll.new()
-  p:add(pipe1.reader, poll.POLLIN)
-  p:add(pipe2.reader, poll.POLLIN)
+  p:add(pipe1.reader:fd(), poll.POLLIN)
+  p:add(pipe2.reader:fd(), poll.POLLIN)
   assert(p:count() == 2, "count should be 2")
 
   local ready_fds: {number: boolean} = {}
@@ -128,7 +128,7 @@ local function test_poll_timeout()
 
   local p = poll.new()
   -- Poll for read on empty pipe - should timeout
-  p:add(pipe.reader, poll.POLLIN)
+  p:add(pipe.reader:fd(), poll.POLLIN)
 
   local count = 0
   for _, _ in p:wait(10) do -- 10ms timeout
@@ -149,7 +149,7 @@ local function test_poll_with_socket()
 
   local p = poll.new()
   -- Socket has fd field directly
-  p:add(sock2, poll.POLLIN)
+  p:add(sock2.fd, poll.POLLIN)
 
   local count = 0
   for fd, events in p:wait(100) do
@@ -170,7 +170,7 @@ local function test_poll_with_child_pipes()
 
   local p = poll.new()
   -- child.Pipe has .fd field
-  p:add(handle.stdout, poll.POLLIN)
+  p:add(handle.stdout.fd, poll.POLLIN)
 
   local count = 0
   for fd, events in p:wait(1000) do
@@ -191,7 +191,7 @@ local function test_poll_events_method()
   pipe.writer:write("test")
 
   local p = poll.new()
-  p:add(pipe.reader, poll.POLLIN)
+  p:add(pipe.reader:fd(), poll.POLLIN)
 
   local ready, poll_err = p:poll(100)
   assert(ready ~= nil, "poll failed: " .. tostring(poll_err))
@@ -214,7 +214,7 @@ local function test_poll_nonblocking()
   assert(pipe ~= nil, "pipe creation failed: " .. tostring(err))
 
   local p = poll.new()
-  p:add(pipe.reader, poll.POLLIN)
+  p:add(pipe.reader:fd(), poll.POLLIN)
 
   -- Non-blocking poll (timeout = 0)
   local ready, _ = p:poll(0)
@@ -232,7 +232,7 @@ local function test_poll_hangup()
   pipe.writer:close()
 
   local p = poll.new()
-  p:add(pipe.reader, poll.POLLIN)
+  p:add(pipe.reader:fd(), poll.POLLIN)
 
   for fd, events in p:wait(100) do
     assert(fd == pipe.reader:fd(), "expected reader fd")
