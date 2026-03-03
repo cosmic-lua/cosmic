@@ -207,6 +207,85 @@ local function test_stream_http_error_status_returns_reader()
 end
 test_stream_http_error_status_returns_reader()
 
+-- scheme validation tests
+
+local function test_fetch_empty_url_rejected()
+  local result = fetch.Fetch("")
+  assert(result ~= nil, "result should not be nil")
+  assert(result.ok == false, "result.ok should be false for empty URL")
+  assert(result.error == "empty URL", "expected 'empty URL', got: " .. tostring(result.error))
+end
+test_fetch_empty_url_rejected()
+
+local function test_fetch_unsupported_scheme_rejected()
+  local result = fetch.Fetch("ftp://example.com/file.txt")
+  assert(result ~= nil, "result should not be nil")
+  assert(result.ok == false, "result.ok should be false for ftp scheme")
+  assert(result.error ~= nil, "result.error should be set")
+  assert(result.error:find("unsupported URL scheme") ~= nil, "error should mention unsupported scheme, got: " .. tostring(result.error))
+end
+test_fetch_unsupported_scheme_rejected()
+
+local function test_fetch_file_scheme_rejected()
+  local result = fetch.Fetch("file:///etc/passwd")
+  assert(result ~= nil, "result should not be nil")
+  assert(result.ok == false, "result.ok should be false for file scheme")
+  assert(result.error ~= nil, "result.error should be set")
+  assert(result.error:find("unsupported URL scheme") ~= nil, "error should mention unsupported scheme, got: " .. tostring(result.error))
+end
+test_fetch_file_scheme_rejected()
+
+local function test_fetch_no_scheme_rejected()
+  local result = fetch.Fetch("example.com/path")
+  assert(result ~= nil, "result should not be nil")
+  assert(result.ok == false, "result.ok should be false for no-scheme URL")
+  assert(result.error ~= nil, "result.error should be set")
+  assert(result.error:find("unsupported URL scheme") ~= nil, "error should mention unsupported scheme, got: " .. tostring(result.error))
+end
+test_fetch_no_scheme_rejected()
+
+local function test_fetch_http_passes_validation()
+  -- http:// should pass validation; connection failure is expected (no network)
+  local result = fetch.Fetch("http://127.0.0.1:1")
+  assert(result ~= nil, "result should not be nil")
+  -- The error (if any) should not be a scheme error
+  if not result.ok then
+    assert(result.error ~= "unsupported URL scheme: http", "http scheme should pass validation")
+    assert(result.error ~= "empty URL", "http URL should not be empty")
+  end
+end
+test_fetch_http_passes_validation()
+
+local function test_fetch_https_passes_validation()
+  -- https:// should pass validation; connection failure is expected (no network)
+  local result = fetch.Fetch("https://127.0.0.1:1")
+  assert(result ~= nil, "result should not be nil")
+  if not result.ok then
+    assert(result.error ~= "unsupported URL scheme: https", "https scheme should pass validation")
+    assert(result.error ~= "empty URL", "https URL should not be empty")
+  end
+end
+test_fetch_https_passes_validation()
+
+local function test_stream_empty_url_rejected()
+  if not has_fetch_stream then return end
+  local result = fetch.stream("")
+  assert(result ~= nil, "result should not be nil")
+  assert(result.ok == false, "result.ok should be false for empty URL")
+  assert(result.error == "empty URL", "expected 'empty URL', got: " .. tostring(result.error))
+end
+test_stream_empty_url_rejected()
+
+local function test_stream_unsupported_scheme_rejected()
+  if not has_fetch_stream then return end
+  local result = fetch.stream("ftp://example.com/file.txt")
+  assert(result ~= nil, "result should not be nil")
+  assert(result.ok == false, "result.ok should be false for ftp scheme")
+  assert(result.error ~= nil, "result.error should be set")
+  assert(result.error:find("unsupported URL scheme") ~= nil, "error should mention unsupported scheme, got: " .. tostring(result.error))
+end
+test_stream_unsupported_scheme_rejected()
+
 -- unix_proxy helper tests
 
 local function test_unix_proxy_valid_path()

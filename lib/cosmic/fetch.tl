@@ -56,7 +56,27 @@ local record StreamResult
   error: string
 end
 
+local function validate_url(url: string): string
+  if url == "" then
+    return "empty URL"
+  end
+  local scheme = url:match("^([a-zA-Z][a-zA-Z0-9+%-.]*)://")
+  if not scheme then
+    return "unsupported URL scheme: (none)"
+  end
+  scheme = scheme:lower()
+  if scheme ~= "http" and scheme ~= "https" then
+    return "unsupported URL scheme: " .. scheme
+  end
+  return nil
+end
+
 local function do_fetch(url: string, opts?: Opts): Result
+  local verr = validate_url(url)
+  if verr then
+    return {ok = false, error = verr}
+  end
+
   local status: number
   local headers_or_err: {string: string} | string
   local body: string
@@ -180,6 +200,11 @@ end
 --- @param opts Opts optional fetch options
 --- @return StreamResult with reader for incremental body access
 local function stream(url: string, opts?: Opts): StreamResult
+  local verr = validate_url(url)
+  if verr then
+    return {ok = false, error = verr}
+  end
+
   local status: number
   local headers_or_err: {string: string} | string
   local raw_reader: cosmo.StreamReader
