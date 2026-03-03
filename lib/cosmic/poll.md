@@ -32,13 +32,10 @@ end
 
 ```teal
 local record Poller
-  --  Add a file descriptor or handle to the set.
-  or: fd() method.
-  --  Add a file descriptor or handle to the set.
-  --  Accepts raw fd numbers, or objects with .fd field or :fd() method.
-  add: function(Poller, any, number)
-  --  Remove a file descriptor or handle from the set.
-  remove: function(Poller, any)
+  --  Add a file descriptor to the set.
+  add: function(Poller, number, number)
+  --  Remove a file descriptor from the set.
+  remove: function(Poller, number)
   --  Clear all file descriptors from the set.
   clear: function(Poller)
   --  Poll for events with optional timeout.
@@ -91,8 +88,9 @@ function new(): Poller
  Create a new poll set.
  Example:
    local p = poll.new()
-   p:add(handle.stdout, poll.POLLIN)
-   p:add(handle.stderr, poll.POLLIN)
+   p:add(handle.stdout.fd, poll.POLLIN)  -- child.Pipe: use .fd field
+   p:add(reader:fd(), poll.POLLIN)       -- io.Handle: call :fd() method
+   p:add(sock.fd, poll.POLLIN)           -- net.Socket: use .fd field
    for fd, events in p:wait(30000) do
      if events.readable then
        -- read from fd
