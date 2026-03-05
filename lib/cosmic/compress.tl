@@ -31,10 +31,11 @@ end
 --- with standard raw deflate streams. Use compress/uncompress for
 --- interoperable zlib format.
 --- @param data string The data to compress
---- @return string The compressed data with size prefix
-local function deflate(data: string): string
+--- @return string The compressed data with size prefix, or nil on error
+--- @return string? Error message if input exceeds size limit
+local function deflate(data: string): string, string
   if #data > 0xFFFFFFFF then
-    error("deflate: input too large (max 4GB)")
+    return nil, "deflate: input too large (max 4GB)"
   end
   local size = #data
   -- Store size as 4-byte little-endian prefix
@@ -75,7 +76,7 @@ end
 local record CompressModule
   compress: function(data: string): string
   uncompress: function(data: string): string, string
-  deflate: function(data: string): string
+  deflate: function(data: string): string, string
   inflate: function(data: string): string, string
 end
 
