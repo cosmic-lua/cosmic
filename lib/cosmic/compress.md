@@ -11,7 +11,7 @@
 local record CompressModule
   compress: function(data: string): string
   uncompress: function(data: string): string, string
-  deflate: function(data: string): string
+  deflate: function(data: string): string, string
   inflate: function(data: string): string, string
 end
 ```
@@ -56,12 +56,16 @@ function uncompress(data: string): string, string
 ### deflate
 
 ```teal
-function deflate(data: string): string
+function deflate(data: string): string, string
 ```
 
  Compress data using raw deflate (no header).
  The output is prefixed with a 4-byte little-endian size to enable
  decompression without knowing the original size.
+ Maximum input size: ~4GB (limited by 32-bit size prefix).
+ Note: The output format is specific to this module and is not compatible
+ with standard raw deflate streams. Use compress/uncompress for
+ interoperable zlib format.
 
 **Parameters:**
 
@@ -69,7 +73,8 @@ function deflate(data: string): string
 
 **Returns:**
 
-- string - The compressed data with size prefix
+- string - The compressed data with size prefix, or nil on error
+- string? - Error message if input exceeds size limit
 
 ### inflate
 
@@ -79,6 +84,8 @@ function inflate(data: string): string, string
 
  Decompress raw deflate data.
  Expects data from deflate() with the 4-byte size prefix.
+ Maximum decompressed size: ~4GB (limited by 32-bit size prefix).
+ Note: Only compatible with data produced by deflate() in this module.
 
 **Parameters:**
 
