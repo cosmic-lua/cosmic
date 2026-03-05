@@ -176,3 +176,13 @@ local function test_deflate_size_prefix()
   end
 end
 test_deflate_size_prefix()
+
+-- Size limit check test
+
+local function test_deflate_size_check_normal()
+  -- Verify that normal-sized input returns result, not error
+  local result, err = compress.deflate(string.rep("x", 1000))
+  assert(result ~= nil, "expected success for 1000-byte input: " .. tostring(err))
+  assert(err == nil, "expected no error for 1000-byte input")
+end
+test_deflate_size_check_normal()

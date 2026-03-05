@@ -26,9 +26,17 @@ end
 --- Compress data using raw deflate (no header).
 --- The output is prefixed with a 4-byte little-endian size to enable
 --- decompression without knowing the original size.
+--- Maximum input size: ~4GB (limited by 32-bit size prefix).
+--- Note: The output format is specific to this module and is not compatible
+--- with standard raw deflate streams. Use compress/uncompress for
+--- interoperable zlib format.
 --- @param data string The data to compress
---- @return string The compressed data with size prefix
-local function deflate(data: string): string
+--- @return string The compressed data with size prefix, or nil on error
+--- @return string? Error message if input exceeds size limit
+local function deflate(data: string): string, string
+  if #data > 0xFFFFFFFF then
+    return nil, "deflate: input too large (max 4GB)"
+  end
   local size = #data
   -- Store size as 4-byte little-endian prefix
   local prefix = string.char(
@@ -42,6 +50,8 @@ end
 
 --- Decompress raw deflate data.
 --- Expects data from deflate() with the 4-byte size prefix.
+--- Maximum decompressed size: ~4GB (limited by 32-bit size prefix).
+--- Note: Only compatible with data produced by deflate() in this module.
 --- @param data string The compressed data with size prefix
 --- @return string The decompressed data, or nil on error
 --- @return string? Error message if decompression failed
@@ -66,7 +76,7 @@ end
 local record CompressModule
   compress: function(data: string): string
   uncompress: function(data: string): string, string
-  deflate: function(data: string): string
+  deflate: function(data: string): string, string
   inflate: function(data: string): string, string
 end
 
