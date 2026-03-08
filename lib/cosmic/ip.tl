@@ -26,38 +26,46 @@ local record Addr
   is_public: function(Addr): boolean
 end
 
-local function make_addr(n: integer): Addr
-  local a: Addr = {_n = n}
+local function addr_int(self: Addr): integer
+  return self._n
+end
 
-  function a:int(): integer
-    return self._n
-  end
+local function addr_format(self: Addr): string
+  return cosmo.FormatIp(self._n)
+end
 
-  function a:format(): string
+local function addr_categorize(self: Addr): string
+  return cosmo.CategorizeIp(self._n)
+end
+
+local function addr_is_loopback(self: Addr): boolean
+  return cosmo.IsLoopbackIp(self._n)
+end
+
+local function addr_is_private(self: Addr): boolean
+  return cosmo.IsPrivateIp(self._n)
+end
+
+local function addr_is_public(self: Addr): boolean
+  return cosmo.IsPublicIp(self._n)
+end
+
+local Addr_mt: metatable < Addr > = {
+  __index = {
+    int = addr_int,
+    format = addr_format,
+    categorize = addr_categorize,
+    is_loopback = addr_is_loopback,
+    is_private = addr_is_private,
+    is_public = addr_is_public,
+  } as Addr,
+  __tostring = function(self: Addr): string
     return cosmo.FormatIp(self._n)
-  end
+  end,
+}
 
-  function a:categorize(): string
-    return cosmo.CategorizeIp(self._n)
-  end
-
-  function a:is_loopback(): boolean
-    return cosmo.IsLoopbackIp(self._n)
-  end
-
-  function a:is_private(): boolean
-    return cosmo.IsPrivateIp(self._n)
-  end
-
-  function a:is_public(): boolean
-    return cosmo.IsPublicIp(self._n)
-  end
-
-  return setmetatable(a, {
-      __tostring = function(self: Addr): string
-        return cosmo.FormatIp(self._n)
-      end,
-    }) as Addr
+local function make_addr(n: integer): Addr
+  return setmetatable({_n = n} as Addr, Addr_mt)
 end
 
 --- Wrap a raw integer as a typed Addr.
