@@ -34,6 +34,25 @@ local record Item
   x: integer -- source column
   tk: string -- text
   kind: string -- token kind (or "comment" for comments)
+  _newlines: integer -- cached newline count for multiline tokens
+end
+
+--- Count newlines in a string using plain find (faster than gmatch for counting).
+local function count_newlines(s: string): integer
+  local count = 0
+  local pos = 1
+  while true do
+    local found, _ = s:find("\n", pos, true)
+    if not found then break end
+    count = count + 1
+    pos = found + 1
+  end
+  return count
+end
+
+--- Return true if item is a long bracket string (e.g. [[...]] or [=[...]=]).
+local function is_long_string(item: Item): boolean
+  return item.kind == "string" and item.tk:sub(1, 1) == "[" and item.tk:sub(-1) == "]"
 end
 
 --- Determine the language mode from a filename.
@@ -160,13 +179,10 @@ local function format(input: string, filename: string): FormatResult
     end
     cur_line.items[#cur_line.items + 1] = item
 
-    if item.kind == "string" and item.tk:sub(1, 1) == "[" and item.tk:sub(-1) == "]" then
-      local newline_count = 0
-      for _ in item.tk:gmatch("\n") do
-        newline_count = newline_count + 1
-      end
-      if newline_count > 0 then
-        cur_line_end_y = item.y + newline_count
+    if is_long_string(item) then
+      item._newlines = count_newlines(item.tk)
+      if item._newlines > 0 then
+        cur_line_end_y = item.y + item._newlines
       end
     end
   end
@@ -180,8 +196,7 @@ local function format(input: string, filename: string): FormatResult
       local last_prev = prev.items[#prev.items]
       local first_cur = line.items[1]
       if last_prev and first_cur
-      and last_prev.kind == "string"
-      and last_prev.tk:sub(1, 1) == "[" and last_prev.tk:sub(-1) == "]"
+      and is_long_string(last_prev)
       and (first_cur.tk == ")" or first_cur.tk == "]" or first_cur.tk == "}"
         or first_cur.tk == "," or first_cur.tk == "..") then
         for _, item in ipairs(line.items) do
@@ -265,17 +280,12 @@ local function format(input: string, filename: string): FormatResult
     for _, item in ipairs(line.items) do
       local end_y = item.y
       if item.kind == "comment" and rules.is_long_comment(item.tk) then
-        local newline_count = 0
-        for _ in item.tk:gmatch("\n") do
-          newline_count = newline_count + 1
+        if not item._newlines then
+          item._newlines = count_newlines(item.tk)
         end
-        end_y = item.y + newline_count
-      elseif item.kind == "string" and item.tk:sub(1, 1) == "[" and item.tk:sub(-1) == "]" then
-        local newline_count = 0
-        for _ in item.tk:gmatch("\n") do
-          newline_count = newline_count + 1
-        end
-        end_y = item.y + newline_count
+        end_y = item.y + item._newlines
+      elseif is_long_string(item) then
+        end_y = item.y + (item._newlines or 0)
       end
       if end_y > effective_end_y then
         effective_end_y = end_y
