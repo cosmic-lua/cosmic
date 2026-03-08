@@ -34,10 +34,10 @@ local record HandlersModule
   load_script_file: function(script_path: string): function(...: any): any ..., string
   run_docs: function(query: string): DocsRunResult
   handle_version: function(): integer
-  handle_compile: function(file: string, output?: string, write_if_changed?: boolean): integer, string
+  handle_compile: function(file: string, output?: string, write_if_changed?: boolean, include_dirs?: {string}): integer, string
   handle_format: function(file: string, output?: string, write_if_changed?: boolean): integer, string
   handle_check_format: function(file: string): integer
-  handle_check_types: function(file: string): integer
+  handle_check_types: function(file: string, include_dirs?: {string}): integer
   handle_check_style: function(file: string): integer
   handle_embed: function(paths: {string}, output: string): integer
   handle_extract: function(dir: string): integer
@@ -108,7 +108,7 @@ function handle_version(): integer
 ### handle_compile
 
 ```teal
-function handle_compile(file: string, output?: string, write_if_changed?: boolean): integer, string
+function handle_compile(file: string, output?: string, write_if_changed?: boolean, include_dirs?: {string}): integer, string
 ```
 
  Handle --compile flag.
@@ -132,7 +132,7 @@ function handle_check_format(file: string): integer
 ### handle_check_types
 
 ```teal
-function handle_check_types(file: string): integer
+function handle_check_types(file: string, include_dirs?: {string}): integer
 ```
 
  Handle --check-types flag.
