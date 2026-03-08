@@ -201,6 +201,25 @@ local function collect_errors(result: TlResult, input_path: string): {Issue}
   return errors
 end
 
+--- Merge caller-provided include directories with defaults.
+--- Caller dirs come first (higher priority), followed by default dirs.
+--- @param extra {string} Additional include directories from caller
+--- @return {string} Merged list of include directories
+local function merge_include_dirs(extra: {string}): {string}
+  local defaults = get_default_include_dirs()
+  if not extra or #extra == 0 then
+    return defaults
+  end
+  local merged: {string} = {}
+  for _, d in ipairs(extra) do
+    merged[#merged + 1] = d
+  end
+  for _, d in ipairs(defaults) do
+    merged[#merged + 1] = d
+  end
+  return merged
+end
+
 --- Compile a Teal file to Lua code.
 --- Uses lax mode for permissive compilation. Preserves shebang if present.
 --- @param input_path string Path to the Teal file to compile
@@ -209,7 +228,8 @@ end
 local function compile(input_path: string, opts: CompileOpts): CompileResult
   opts = opts or {} as CompileOpts
 
-  local proc = process_file(input_path, opts.include_dirs, true)
+  local dirs = merge_include_dirs(opts.include_dirs)
+  local proc = process_file(input_path, dirs, true)
   if proc.error then
     return {ok = false, code = nil, errors = {proc.error}}
   end
@@ -240,7 +260,8 @@ end
 local function check(input_path: string, opts: CheckOpts): CheckResult
   opts = opts or {} as CheckOpts
 
-  local proc = process_file(input_path, opts.include_dirs, false)
+  local dirs = merge_include_dirs(opts.include_dirs)
+  local proc = process_file(input_path, dirs, false)
   if proc.error then
     return {ok = false, warnings = {}, errors = {proc.error}}
   end

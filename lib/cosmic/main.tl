@@ -53,6 +53,7 @@ local record Opts
   make: string
   skill: string
   write_if_changed: boolean
+  include_dirs: {string}
   error: string
 end
 
@@ -86,6 +87,7 @@ local function parse_args(): Opts
     make = nil,
     skill = nil,
     write_if_changed = false,
+    include_dirs = {},
     error = nil,
   }
 
@@ -253,6 +255,8 @@ local function parse_args(): Opts
       return opts
     elseif opt == "write-if-changed" then
       opts.write_if_changed = true
+    elseif opt == "include-dir" then
+      opts.include_dirs[#opts.include_dirs + 1] = optarg
     end
   end
 
@@ -327,10 +331,10 @@ local function main(): integer, string
       end
     end
   end
-  if opts.compile then return handlers.handle_compile(opts.compile, opts.output, opts.write_if_changed) end
+  if opts.compile then return handlers.handle_compile(opts.compile, opts.output, opts.write_if_changed, opts.include_dirs) end
   if opts.format then return handlers.handle_format(opts.format, opts.output, opts.write_if_changed) end
   if opts.check_format then return handlers.handle_check_format(opts.check_format) end
-  if opts.check_types then return handlers.handle_check_types(opts.check_types) end
+  if opts.check_types then return handlers.handle_check_types(opts.check_types, opts.include_dirs) end
   if opts.check_style then return handlers.handle_check_style(opts.check_style) end
   if #opts.embed > 0 then return handlers.handle_embed(opts.embed, opts.output) end
   if opts.extract then return handlers.handle_extract(opts.extract) end

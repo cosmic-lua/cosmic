@@ -29,6 +29,7 @@ local longopts: {getopt.LongOpt} = {
   {name = "make", has_arg = "optional"},
   {name = "skill", has_arg = "required"},
   {name = "write-if-changed", has_arg = "none"},
+  {name = "include-dir", has_arg = "required"},
 }
 
 return {
