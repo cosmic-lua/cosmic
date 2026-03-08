@@ -51,6 +51,7 @@ local record Item
   x: integer
   tk: string
   kind: string
+  _newlines: integer
 end
 ```
 
