@@ -41,6 +41,49 @@ local function test_levenshtein_case_sensitive()
 end
 test_levenshtein_case_sensitive()
 
+local function test_levenshtein_symmetry()
+  -- distance(a,b) must equal distance(b,a) for all pairs
+  local pairs: {{string, string}} = {
+    {"kitten", "sitting"},
+    {"a", "abcdef"},
+    {"short", "a much longer string"},
+    {"xyz", ""},
+  }
+  for _, p in ipairs(pairs) do
+    local d1 = fuzzy.levenshtein(p[1], p[2])
+    local d2 = fuzzy.levenshtein(p[2], p[1])
+    assert(d1 == d2, "levenshtein should be symmetric: '" .. p[1] .. "' <-> '" .. p[2] .. "': " .. tostring(d1) .. " vs " .. tostring(d2))
+  end
+end
+test_levenshtein_symmetry()
+
+local function test_levenshtein_single_char()
+  assert(fuzzy.levenshtein("a", "b") == 1, "single char substitution")
+  assert(fuzzy.levenshtein("a", "a") == 0, "single char identical")
+  assert(fuzzy.levenshtein("a", "") == 1, "single char to empty")
+  assert(fuzzy.levenshtein("", "z") == 1, "empty to single char")
+end
+test_levenshtein_single_char()
+
+local function test_levenshtein_asymmetric_lengths()
+  -- when #a >> #b, the two-row optimization should swap to use less memory
+  assert(fuzzy.levenshtein("ab", "abcdefghij") == 8, "short vs long")
+  assert(fuzzy.levenshtein("abcdefghij", "ab") == 8, "long vs short")
+  assert(fuzzy.levenshtein("kitten", "sitting") == 3, "classic example")
+  assert(fuzzy.levenshtein("saturday", "sunday") == 3, "classic example 2")
+end
+test_levenshtein_asymmetric_lengths()
+
+local function test_levenshtein_longer_strings()
+  local a = string.rep("abc", 20) -- 60 chars
+  local b = string.rep("abc", 20) -- identical
+  assert(fuzzy.levenshtein(a, b) == 0, "long identical strings")
+  -- change one char in the middle
+  local c = a:sub(1, 30) .. "X" .. a:sub(32)
+  assert(fuzzy.levenshtein(a, c) == 1, "long strings with one substitution")
+end
+test_levenshtein_longer_strings()
+
 -- find_similar tests
 
 local function test_find_similar_exact_match()
