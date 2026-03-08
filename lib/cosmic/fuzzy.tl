@@ -1,37 +1,50 @@
 --- Fuzzy string matching utilities.
 
 --- Compute Levenshtein distance between two strings.
+--- Uses a two-row algorithm with O(min(n,m)) memory and string.byte
+--- for fast character comparison.
 --- @param a string First string
 --- @param b string Second string
 --- @return integer Edit distance
 local function levenshtein(a: string, b: string): integer
-  if #a == 0 then return #b end
-  if #b == 0 then return #a end
+  local la = #a
+  local lb = #b
+  if la == 0 then return lb end
+  if lb == 0 then return la end
   if a == b then return 0 end
 
-  -- Create distance matrix
-  local matrix: {{integer}} = {}
-  for i = 0, #a do
-    matrix[i] = {}
-    matrix[i][0] = i
-  end
-  for j = 0, #b do
-    matrix[0][j] = j
+  -- swap so that b is always the shorter string (fewer columns)
+  if la < lb then
+    a, b = b, a
+    la, lb = lb, la
   end
 
-  -- Fill in the rest of the matrix
-  for i = 1, #a do
-    for j = 1, #b do
-      local cost = a:sub(i, i) == b:sub(j, j) and 0 or 1
-      matrix[i][j] = math.min(
-        matrix[i - 1][j] + 1, -- deletion
-        matrix[i][j - 1] + 1, -- insertion
-        matrix[i - 1][j - 1] + cost -- substitution
-      )
+  -- two-row algorithm: prev and curr, each of length lb+1
+  local prev: {integer} = {}
+  local curr: {integer} = {}
+  for j = 0, lb do
+    prev[j] = j
+  end
+
+  for i = 1, la do
+    curr[0] = i
+    local ai = a:byte(i)
+    for j = 1, lb do
+      local cost = ai == b:byte(j) and 0 or 1
+      local del = prev[j] + 1
+      local ins = curr[j - 1] + 1
+      local sub = prev[j - 1] + cost
+      -- inline min of three values
+      if del < ins then
+        curr[j] = del < sub and del or sub
+      else
+        curr[j] = ins < sub and ins or sub
+      end
     end
+    prev, curr = curr, prev
   end
 
-  return matrix[#a][#b]
+  return prev[lb]
 end
 
 --- Find similar strings from a list using Levenshtein distance.
