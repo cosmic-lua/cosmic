@@ -21,6 +21,7 @@ local record tl
     comments: {any}
   end
 
+  path: string
   loader: function()
   init_env: function(boolean): any
   lex: function(string, string): {Token}, {Error}

@@ -107,32 +107,31 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
 
   include_dirs = include_dirs or get_default_include_dirs()
 
-  -- Add include dirs to package.path for teal's module resolution
-  local saved_path = package.path
-  for _, dir in ipairs(include_dirs) do
-    package.path = package.path .. ";" .. dir .. "/?.d.tl"
-    package.path = package.path .. ";" .. dir .. "/?/init.d.tl"
-    package.path = package.path .. ";" .. dir .. "/?.tl"
-    package.path = package.path .. ";" .. dir .. "/?/init.tl"
-  end
-
-  -- Prepend TL_PATH env var so callers don't need to pass include_dirs manually.
-  -- If TL_PATH contains ;;, replace it with current package.path (Lua semantics:
-  -- ;; in package.path expands to the default/existing path).
+  -- Assemble tl.path from TL_PATH env var + include_dirs + package.path so
+  -- tl.search_module finds all required modules regardless of whether TL_PATH
+  -- is set. tl.search_module priority: TL_PATH env > tl.path > package.path.
+  -- By setting tl.path (which takes precedence over package.path), we ensure
+  -- include_dirs are always consulted — even when TL_PATH is set.
+  -- Appending package.path preserves CWD-relative and system search patterns.
+  local saved_tl_path = tl.path
+  local path_parts: {string} = {}
   local tl_path = os.getenv("TL_PATH")
   if tl_path then
-    local before, after = tl_path:match("^(.-);;(.*)$")
-    if before and after then
-      package.path = before .. ";" .. package.path .. ";" .. after
-    else
-      package.path = tl_path .. ";" .. package.path
-    end
+    path_parts[#path_parts + 1] = tl_path
   end
+  for _, dir in ipairs(include_dirs) do
+    path_parts[#path_parts + 1] = dir .. "/?.d.tl"
+    path_parts[#path_parts + 1] = dir .. "/?/init.d.tl"
+    path_parts[#path_parts + 1] = dir .. "/?.tl"
+    path_parts[#path_parts + 1] = dir .. "/?/init.tl"
+  end
+  path_parts[#path_parts + 1] = package.path
+  tl.path = table.concat(path_parts, ";")
 
   local env = tl.init_env(lax)
   local ok, result_or_err, proc_err = pcall(tl.process_string, input, false, env, input_path)
 
-  package.path = saved_path
+  tl.path = saved_tl_path
 
   if not ok then
     return {
