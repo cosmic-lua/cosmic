@@ -1,5 +1,6 @@
 --- Command handler functions for the cosmic CLI.
 --- Each handler implements one CLI command flag.
+local instrument = require("cosmic.instrument")
 
 --- Result from running docs command.
 local record DocsRunResult
@@ -134,34 +135,46 @@ end
 
 --- Handle --compile flag.
 local function handle_compile(file: string, output?: string, write_if_changed?: boolean): integer, string
+  local span = instrument.begin("compile", file)
   local teal = require("cosmic.teal")
   local result = teal.compile(file)
+  local exit_code: integer
+  local err_msg: string
   if result.ok then
-    return write_output(result.code, output, write_if_changed)
+    exit_code, err_msg = write_output(result.code, output, write_if_changed)
   else
     io.stderr:write(teal.format_issues(result.errors) .. "\n")
-    return 1
+    exit_code = 1
   end
+  instrument.finish(span, exit_code)
+  return exit_code, err_msg
 end
 
 --- Handle --format flag.
 local function handle_format(file: string, output?: string, write_if_changed?: boolean): integer, string
+  local span = instrument.begin("format", file)
   local fmt = require("cosmic.format")
   local result = fmt.format_file(file)
+  local exit_code: integer
+  local err_msg: string
   if result.ok then
-    return write_output(result.code, output, write_if_changed)
+    exit_code, err_msg = write_output(result.code, output, write_if_changed)
   else
     io.stderr:write(fmt.format_issues(result.errors) .. "\n")
-    return 1
+    exit_code = 1
   end
+  instrument.finish(span, exit_code)
+  return exit_code, err_msg
 end
 
 --- Handle --check-format flag.
 local function handle_check_format(file: string): integer
+  local span = instrument.begin("check-format", file)
   local fmt = require("cosmic.format")
   local result = fmt.format_file(file)
   if not result.ok then
     io.stderr:write(fmt.format_issues(result.errors) .. "\n")
+    instrument.finish(span, 1)
     return 1
   end
 
@@ -169,11 +182,13 @@ local function handle_check_format(file: string): integer
   local original, read_err = cio.slurp(file)
   if not original then
     io.stderr:write(file .. ": " .. (read_err or "unknown error") .. "\n")
+    instrument.finish(span, 1)
     return 1
   end
 
   if original == result.code then
     io.write("Format check passed\n")
+    instrument.finish(span, 0)
     return 0
   end
 
@@ -194,11 +209,13 @@ local function handle_check_format(file: string): integer
       break
     end
   end
+  instrument.finish(span, 1)
   return 1
 end
 
 --- Handle --check-types flag.
 local function handle_check_types(file: string): integer
+  local span = instrument.begin("check-types", file)
   local teal = require("cosmic.teal")
   local result = teal.check(file)
 
@@ -211,8 +228,10 @@ local function handle_check_types(file: string): integer
 
   if result.ok then
     io.write("Type check passed\n")
+    instrument.finish(span, 0)
     return 0
   else
+    instrument.finish(span, 1)
     return 1
   end
 end
@@ -235,9 +254,11 @@ end
 
 --- Handle --check-examples flag.
 local function handle_check_examples(file: string): integer
+  local span = instrument.begin("check-examples", file)
   local example = require("cosmic.example")
   local result = example.run(file)
   io.write(example.format_results(file, result) .. "\n")
+  instrument.finish(span, result.exit_code)
   return result.exit_code
 end
 
@@ -268,8 +289,10 @@ local function handle_benchmark(spec: string): integer
     filter = spec:sub(colon_pos + 1)
   end
 
+  local span = instrument.begin("benchmark", file_path)
   local result = benchmark.run(file_path, filter)
   io.write(benchmark.format_results(file_path, result) .. "\n")
+  instrument.finish(span, result.exit_code)
   return result.exit_code
 end
 
@@ -294,9 +317,11 @@ end
 
 --- Handle --check-style flag.
 local function handle_check_style(file: string): integer
+  local span = instrument.begin("check-style", file)
   local f = io.open(file, "r")
   if not f then
     io.stderr:write(file .. ": no such file\n")
+    instrument.finish(span, 1)
     return 1
   end
   f:close()
@@ -304,11 +329,13 @@ local function handle_check_style(file: string): integer
   local diagnostics = lint.lint_file(file)
   if #diagnostics == 0 then
     io.write("Style check passed\n")
+    instrument.finish(span, 0)
     return 0
   end
   for _, d in ipairs(diagnostics) do
     io.stderr:write(string.format("%s:%d:%d: %s: %s\n", d.file, d.line, d.col, d.rule, d.message))
   end
+  instrument.finish(span, 1)
   return 1
 end
 

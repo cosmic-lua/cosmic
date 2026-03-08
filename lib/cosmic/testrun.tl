@@ -4,6 +4,7 @@ local child = require("cosmic.child")
 local cio = require("cosmic.io")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
+local instrument = require("cosmic.instrument")
 
 --- Run a test executable and capture output.
 --- Creates a temporary directory (TEST_TMPDIR) for the test and cleans up after.
@@ -11,8 +12,13 @@ local fs = require("cosmic.fs")
 --- @param output_base string Base path for output files
 --- @return integer Exit code (for CLI return)
 local function run(argv: {string}, output_base: string): integer
+  -- determine file for instrumentation from argv
+  local inst_file = argv[#argv] or output_base
+  local span = instrument.begin("test", inst_file)
+
   if not output_base then
     io.stderr:write("testrun: missing output path\n")
+    instrument.finish(span, 1)
     return 1
   end
 
@@ -22,6 +28,7 @@ local function run(argv: {string}, output_base: string): integer
     local ok, err = fs.makedirs(dir)
     if not ok then
       io.stderr:write("testrun: " .. err .. "\n")
+      instrument.finish(span, 1)
       return 1
     end
   end
@@ -31,6 +38,7 @@ local function run(argv: {string}, output_base: string): integer
   local tmpdir, tmpdir_err = fs.mkdtemp(fs.join(tmpbase, "testrun_XXXXXX"))
   if not tmpdir then
     io.stderr:write("testrun: " .. (tmpdir_err or "failed to create temp dir") .. "\n")
+    instrument.finish(span, 1)
     return 1
   end
 
@@ -46,6 +54,7 @@ local function run(argv: {string}, output_base: string): integer
   if not handle then
     fs.rmrf(tmpdir)
     io.stderr:write("testrun: " .. (err or "spawn failed") .. "\n")
+    instrument.finish(span, 1)
     return 1
   end
 
@@ -84,21 +93,25 @@ local function run(argv: {string}, output_base: string): integer
   ok, err = cio.barf(output_base .. ".got", tostring(exit_code) .. "\n")
   if not ok then
     io.stderr:write("testrun: " .. (err or "failed to write .got") .. "\n")
+    instrument.finish(span, 1)
     return 1
   end
 
   ok, err = cio.barf(output_base .. ".out", stdout_content)
   if not ok then
     io.stderr:write("testrun: " .. (err or "failed to write .out") .. "\n")
+    instrument.finish(span, 1)
     return 1
   end
 
   ok, err = cio.barf(output_base .. ".err", stderr_content)
   if not ok then
     io.stderr:write("testrun: " .. (err or "failed to write .err") .. "\n")
+    instrument.finish(span, 1)
     return 1
   end
 
+  instrument.finish(span, exit_code)
   return exit_code
 end
 
@@ -176,6 +189,10 @@ local function report(paths: {string}): integer
   end
 
   -- Print results
+  local total_wall_ms = 0
+  local slowest_name = ""
+  local slowest_ms = 0
+
   for _, result in ipairs(results) do
     local icon: string
     if result.status == "pass" then
@@ -185,7 +202,21 @@ local function report(paths: {string}): integer
     else
       icon = "✗"
     end
-    io.write(icon .. " " .. result.name .. "\n")
+    -- extract timing from stderr instrumentation lines
+    local timing = ""
+    if result.stderr ~= "" then
+      local data = instrument.parse_lines(result.stderr)
+      if #data > 0 then
+        local d = data[#data]
+        timing = string.format("  %dms", d.wall_ms)
+        total_wall_ms = total_wall_ms + d.wall_ms
+        if d.wall_ms > slowest_ms then
+          slowest_ms = d.wall_ms
+          slowest_name = result.name
+        end
+      end
+    end
+    io.write(icon .. " " .. result.name .. timing .. "\n")
   end
 
   -- Print summary
@@ -196,6 +227,11 @@ local function report(paths: {string}): integer
   end
   if skipped > 0 then
     io.write(", " .. skipped .. " skipped")
+  end
+  if total_wall_ms > 0 then
+    io.write(string.format(
+        "\nwall: %dms  slowest: %s (%dms)",
+        total_wall_ms, slowest_name, slowest_ms))
   end
   io.write("\n")
 
