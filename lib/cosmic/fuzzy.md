@@ -22,6 +22,8 @@ function levenshtein(a: string, b: string): integer
 ```
 
  Compute Levenshtein distance between two strings.
+ Uses a two-row algorithm with O(min(n,m)) memory and string.byte
+ for fast character comparison.
 
 **Parameters:**
 
