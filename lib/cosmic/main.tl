@@ -4,6 +4,17 @@
 global warn: function(...: any)
 
 require("tl").loader()
+
+-- Move tl_package_loader from position 2 (where tl.loader() inserts it)
+-- to the end of package.searchers. This ensures the default Lua file
+-- searcher runs first, so pre-compiled .lua modules are found before
+-- tl_package_loader tries to compile .tl source. Without this, setting
+-- TL_PATH causes ~330ms startup overhead from recompiling cosmic modules.
+-- See: https://github.com/whilp/cosmic/issues/377
+if package.searchers then
+  local tl_loader = table.remove(package.searchers, 2)
+  table.insert(package.searchers, tl_loader)
+end
 if not os.getenv("COSMIC_NO_REQUIRE_HINTS") then
   require("cosmic.require").install()
 end
