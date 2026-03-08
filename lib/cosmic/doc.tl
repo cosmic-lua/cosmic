@@ -9,6 +9,13 @@ local ModuleDoc = types.ModuleDoc
 
 local doc_render = require("cosmic.doc_render")
 
+local BYTE_NEWLINE = string.byte("\n")
+local BYTE_LPAREN = string.byte("(")
+local BYTE_RPAREN = string.byte(")")
+local BYTE_DQUOTE = string.byte('"')
+local BYTE_SQUOTE = string.byte("'")
+local BYTE_BACKSLASH = string.byte("\\")
+
 --- Extract leading doc comment (--- or -- style) before a position.
 --- @param source string The source code to search
 --- @param pos integer The position to search backwards from
@@ -16,14 +23,14 @@ local doc_render = require("cosmic.doc_render")
 --- @return string The extracted doc comment, or nil if none found
 local function extract_doc_comment(source: string, pos: integer, allow_regular_comments?: boolean): string
   local line_start = pos
-  while line_start > 1 and source:sub(line_start - 1, line_start - 1) ~= "\n" do
+  while line_start > 1 and source:byte(line_start - 1) ~= BYTE_NEWLINE do
     line_start = line_start - 1
   end
   local doc_lines: {string} = {}
   local check_pos = line_start - 1
   while check_pos > 0 do
     local prev_line_start = check_pos
-    while prev_line_start > 1 and source:sub(prev_line_start - 1, prev_line_start - 1) ~= "\n" do
+    while prev_line_start > 1 and source:byte(prev_line_start - 1) ~= BYTE_NEWLINE do
       prev_line_start = prev_line_start - 1
     end
     local line = source:sub(prev_line_start, check_pos - 1)
@@ -55,16 +62,15 @@ local function extract_signature(source: string, start_pos: integer): string
   local sig_end = sig_start
   local depth = 0
   for i = sig_start, #source do
-    local char = source:sub(i, i)
-    if char == "(" then depth = depth + 1
-    elseif char == ")" then
+    local b = source:byte(i)
+    if b == BYTE_LPAREN then depth = depth + 1
+    elseif b == BYTE_RPAREN then
       depth = depth - 1
       if depth == 0 then
         sig_end = i
         local j = i + 1
         while j <= #source do
-          local c = source:sub(j, j)
-          if c == "\n" then break end
+          if source:byte(j) == BYTE_NEWLINE then break end
           sig_end = j
           j = j + 1
         end
@@ -139,7 +145,7 @@ local function parse(source: string, file_path: string): ModuleDoc
   local last_pos = 1
   local function update_line_num(new_pos: integer)
     for i = last_pos, new_pos - 1 do
-      if source:sub(i, i) == "\n" then line_num = line_num + 1 end
+      if source:byte(i) == BYTE_NEWLINE then line_num = line_num + 1 end
     end
     last_pos = new_pos
   end
@@ -147,7 +153,7 @@ local function parse(source: string, file_path: string): ModuleDoc
   for func_start, is_local, func_name in source:gmatch("()(local%s+)function%s+([%w_:]+)<?[^>%(]*>?%s*%(") do
     update_line_num(func_start as integer)
     local line_start = func_start as integer
-    while line_start > 1 and source:sub(line_start - 1, line_start - 1) ~= "\n" do
+    while line_start > 1 and source:byte(line_start - 1) ~= BYTE_NEWLINE do
       line_start = line_start - 1
     end
     local line_prefix = source:sub(line_start, (func_start as integer) - 1)
@@ -169,7 +175,7 @@ local function parse(source: string, file_path: string): ModuleDoc
   last_pos = 1
   for func_start, func_name in source:gmatch("()function%s+([%w_:]+)<?[^>%(]*>?%s*%(") do
     local line_start = func_start as integer
-    while line_start > 1 and source:sub(line_start - 1, line_start - 1) ~= "\n" do
+    while line_start > 1 and source:byte(line_start - 1) ~= BYTE_NEWLINE do
       line_start = line_start - 1
     end
     local line_prefix = source:sub(line_start, (func_start as integer) - 1)
@@ -246,12 +252,13 @@ local function parse(source: string, file_path: string): ModuleDoc
     local depth = 1
     local i = body_start
     while i <= #source and depth > 0 do
-      if source:sub(i, i) == '"' or source:sub(i, i) == "'" then
-        local quote = source:sub(i, i)
+      local b = source:byte(i)
+      if b == BYTE_DQUOTE or b == BYTE_SQUOTE then
+        local quote = b
         i = i + 1
         while i <= #source do
-          if source:sub(i, i) == "\\" then i = i + 2
-          elseif source:sub(i, i) == quote then i = i + 1; break
+          if source:byte(i) == BYTE_BACKSLASH then i = i + 2
+          elseif source:byte(i) == quote then i = i + 1; break
           else i = i + 1 end
         end
       elseif source:sub(i, i + 1) == "--" then
