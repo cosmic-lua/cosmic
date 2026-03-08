@@ -54,6 +54,7 @@ High-level utilities and tools built on top of cosmo.
 | [help](lib/cosmic/help.md) |  Help text generation for cosmic CLI. |
 | [html](lib/cosmic/html.md) |  HTML utilities. |
 | [init](lib/cosmic/init.md) |  Cosmopolitan Lua utilities. |
+| [instrument](lib/cosmic/instrument.md) |  CLI instrumentation for timing and resource usage. |
 | [io](lib/cosmic/io.md) |  File descriptor I/O operations. |
 | [ip](lib/cosmic/ip.md) |  IP address parsing, formatting, and classification utilities. |
 | [json](lib/cosmic/json.md) |  JSON encoding and decoding utilities. |
