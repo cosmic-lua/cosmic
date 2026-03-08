@@ -61,7 +61,7 @@ $(o)/%: %
 # compile .tl files to .lua (extension changes)
 $(o)/%.lua: %.tl $(types_files) $(tl_files) $(bootstrap_files)
 	@mkdir -p $(@D)
-	@$(bootstrap_cosmic) --compile $< > $@.tmp
+	@$(bootstrap_cosmic) $(include_dir_flags) --compile $< > $@.tmp
 	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 
 # tl files: modules declare _tl, derive compiled .lua outputs
