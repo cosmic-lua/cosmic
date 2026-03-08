@@ -1,0 +1,150 @@
+#!/usr/bin/env cosmic
+-- test --include-dir flag for --compile and --check-types
+
+local path = require("cosmo.path")
+local unix = require("cosmo.unix")
+local spawn = require("cosmic.child")
+local cosmo = require("cosmo")
+
+local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")
+local tmpdir = os.getenv("TEST_TMPDIR")
+
+local function write_temp(name: string, content: string): string
+  local filepath = path.join(tmpdir, name)
+  cosmo.Barf(filepath, content)
+  return filepath
+end
+
+-- Setup: create a custom type definition directory with a module
+local function setup_custom_types(): string, string
+  local typedir = path.join(tmpdir, "customtypes")
+  unix.makedirs(typedir, 0x1ed) -- 0755
+  local deffile = path.join(typedir, "custommod.d.tl")
+  cosmo.Barf(deffile, [[
+local record custommod
+  greet: function(name: string): string
+end
+return custommod
+]])
+  return typedir, deffile
+end
+
+-- Test --include-dir with --compile
+local function test_compile_include_dir()
+  local typedir, _ = setup_custom_types()
+
+  local input = write_temp("include_dir_compile.tl", [[
+local custommod = require("custommod")
+local s: string = custommod.greet("world")
+print(s)
+]])
+
+  -- Without --include-dir, compilation should still succeed (lax mode)
+  -- but with it, types are resolved properly
+  local ok, out = spawn.spawn({cosmic, "--include-dir", typedir, "--compile", input}):read()
+  assert(ok, "compile with --include-dir should succeed: " .. tostring(out))
+  assert((out as string):find("local custommod"), "output should contain compiled Lua")
+end
+test_compile_include_dir()
+
+-- Test --include-dir with --check-types
+local function test_check_types_include_dir()
+  local typedir, _ = setup_custom_types()
+
+  local input = write_temp("include_dir_check.tl", [[
+local custommod = require("custommod")
+local s: string = custommod.greet("world")
+print(s)
+]])
+
+  -- Without --include-dir, check should fail (strict mode, module not found)
+  local ok_without, _ = spawn.spawn({cosmic, "--check-types", input}):read()
+  assert(not ok_without, "check should fail without --include-dir for custom module")
+
+  -- With --include-dir, check should succeed
+  local ok_with, out = spawn.spawn({cosmic, "--include-dir", typedir, "--check-types", input}):read()
+  assert(ok_with, "check with --include-dir should succeed: " .. tostring(out))
+end
+test_check_types_include_dir()
+
+-- Test multiple --include-dir flags
+local function test_multiple_include_dirs()
+  local typedir1 = path.join(tmpdir, "types1")
+  unix.makedirs(typedir1, 0x1ed)
+  cosmo.Barf(path.join(typedir1, "mod_a.d.tl"), [[
+local record mod_a
+  hello: function(): string
+end
+return mod_a
+]])
+
+  local typedir2 = path.join(tmpdir, "types2")
+  unix.makedirs(typedir2, 0x1ed)
+  cosmo.Barf(path.join(typedir2, "mod_b.d.tl"), [[
+local record mod_b
+  world: function(): string
+end
+return mod_b
+]])
+
+  local input = write_temp("multi_include.tl", [[
+local mod_a = require("mod_a")
+local mod_b = require("mod_b")
+print(mod_a.hello() .. mod_b.world())
+]])
+
+  local ok, out = spawn.spawn({
+      cosmic,
+      "--include-dir", typedir1,
+      "--include-dir", typedir2,
+      "--check-types", input,
+    }):read()
+  assert(ok, "check with multiple --include-dir should succeed: " .. tostring(out))
+end
+test_multiple_include_dirs()
+
+-- Test --include-dir combined with --write-if-changed and --output
+local function test_compile_include_dir_with_output()
+  local typedir, _ = setup_custom_types()
+  local input = write_temp("include_dir_output.tl", [[
+local custommod = require("custommod")
+print(custommod.greet("test"))
+]])
+  local output = path.join(tmpdir, "include_dir_output.lua")
+
+  local ok, _ = spawn.spawn({
+      cosmic, "--write-if-changed",
+      "--output", output,
+      "--include-dir", typedir,
+      "--compile", input,
+    }):read()
+  assert(ok, "compile with --include-dir and --output should succeed")
+
+  local f = io.open(output, "r")
+  assert(f, "output file should exist")
+  local content = f:read("*a")
+  f:close()
+  assert(content:find("local custommod"), "output should contain compiled Lua")
+end
+test_compile_include_dir_with_output()
+
+-- Test that --include-dir merges with default include dirs
+local function test_include_dir_merges_with_defaults()
+  local typedir, _ = setup_custom_types()
+
+  -- This file uses both a custom module and a built-in cosmo type
+  local input = write_temp("merge_defaults.tl", [[
+local custommod = require("custommod")
+local cosmo = require("cosmo")
+local path = require("cosmo.path")
+local s: string = custommod.greet("world")
+local p: string = path.join("a", "b")
+print(s, p)
+]])
+
+  local ok, out = spawn.spawn({cosmic, "--include-dir", typedir, "--check-types", input}):read()
+  assert(ok, "check with --include-dir should still find built-in types: " .. tostring(out))
+end
+test_include_dir_merges_with_defaults()
+
+print("All include-dir tests passed!")

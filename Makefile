@@ -24,6 +24,11 @@ export TMPDIR := $(TMP)
 # Platform for build scripts (all deps use wildcard "*" platform)
 platform := linux-x86_64
 
+## INCLUDE_DIRS: directories to search for type definitions (repeatable)
+INCLUDE_DIRS ?= lib
+
+include_dir_flags := $(foreach d,$(INCLUDE_DIRS),--include-dir $(d))
+
 include cook.mk
 include lib/cook.mk
 include 3p/cosmos/cook.mk
@@ -176,7 +181,7 @@ $(o)/teal-summary.txt: $(all_teals) | $(build_reporter)
 
 $(o)/%.teal.got: $(o)/% $(cosmic_bin) | $(bootstrap_files)
 	@mkdir -p $(@D)
-	-@$(cosmic_bin) --check-types $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $@
+	-@$(cosmic_bin) $(include_dir_flags) --check-types $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $@
 
 all_formats := $(patsubst %,%.format.got,$(all_checkable_files))
 

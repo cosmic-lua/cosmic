@@ -4,6 +4,7 @@ Usage: cosmic-lua [options] [script [args]]
 
 Cosmic options:
   --compile <file.tl>           compile Teal file to Lua, lax mode (stdout)
+  --include-dir <dir>           add search path for --compile/--check-types (repeatable)
   --format <file>               format Teal or Lua file (stdout)
   --write-if-changed            with --compile/--format and --output: skip write if unchanged
   --check-format <file>         check file formatting (diff on stderr)
