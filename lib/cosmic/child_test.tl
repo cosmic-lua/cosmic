@@ -317,3 +317,81 @@ local function test_read_no_deadlock_large_stderr()
   assert(out == "stdout ok\n", "expected 'stdout ok\\n', got '" .. tostring(out) .. "'")
 end
 test_read_no_deadlock_large_stderr()
+
+-- /zip/ binary execution via fexecve --
+
+local function test_prepare_zip_exec()
+  local prepare_zip_exec = child.prepare_zip_exec
+  assert(prepare_zip_exec, "prepare_zip_exec should be exported")
+
+  -- open a known /zip/ path (main.lua exists in every cosmic binary)
+  local fd, err = prepare_zip_exec("/zip/main.lua")
+  assert(fd, "should open zip fd: " .. tostring(err))
+  assert(fd > 0, "fd should be positive: " .. tostring(fd))
+  unix.close(fd)
+end
+test_prepare_zip_exec()
+
+local function test_prepare_zip_exec_nonexistent()
+  local fd, err = child.prepare_zip_exec("/zip/nonexistent_12345")
+  assert(fd == nil, "should fail for nonexistent zip path")
+  assert(err, "should have error message")
+  assert(err:find("zip", 1, true), "expected zip-related error: " .. err)
+end
+test_prepare_zip_exec_nonexistent()
+
+local function test_spawn_zip_nonexistent_path()
+  local handle, err = child.spawn({"/zip/nonexistent_binary_12345"})
+  assert(handle == nil, "handle should be nil for nonexistent /zip/ path")
+  assert(err, "should have error message")
+  assert(err:find("zip", 1, true) or err:find("not found", 1, true),
+    "expected zip-related error, got: " .. tostring(err))
+end
+test_spawn_zip_nonexistent_path()
+
+local function test_spawn_zip_non_executable()
+  -- /zip/main.lua exists but is not an ELF binary, so fexecve fails
+  local handle, err = child.spawn({"/zip/main.lua"})
+  assert(handle ~= nil, "spawn should succeed (fork works): " .. tostring(err))
+  local exit_code = handle:wait()
+  assert(exit_code == 127,
+    "expected exit 127 for non-executable, got " .. tostring(exit_code))
+end
+test_spawn_zip_non_executable()
+
+local function test_spawn_zip_embedded_binary()
+  -- embed /bin/echo into a copy of cosmic, then spawn it from /zip/
+  local fs = require("cosmic.fs")
+  local io_mod = require("cosmic.io")
+  local tmpdir = os.getenv("TEST_TMPDIR") as string
+
+  -- set up embed directory with .bin/echo
+  local bin_dir = fs.join(tmpdir, "embed", ".bin")
+  fs.makedirs(bin_dir)
+  local echo_data = io_mod.slurp("/bin/echo")
+  assert(echo_data, "should read /bin/echo")
+  io_mod.barf(fs.join(bin_dir, "echo"), echo_data)
+  fs.chmod(fs.join(bin_dir, "echo"), 493) -- 0755
+
+  -- create embedded cosmic binary
+  local out_bin = fs.join(tmpdir, "cosmic-with-echo")
+  local build = child.spawn(
+    {lua_bin, "--embed", fs.join(tmpdir, "embed"), "--output", out_bin})
+  assert(build, "embed spawn should succeed")
+  assert(build:wait() == 0, "embed should exit 0")
+
+  -- run the embedded binary: spawn /zip/.bin/echo via fexecve
+  local handle = child.spawn({out_bin, "-e", [[
+    local child = require("cosmic.child")
+    local h = child.spawn({"/zip/.bin/echo", "hello-from-zip"})
+    assert(h, "spawn /zip/.bin/echo failed")
+    local ok, out = h:read()
+    io.write(out)
+  ]]})
+  assert(handle, "should spawn embedded binary")
+  local ok, out = handle:read()
+  assert(ok, "embedded binary should succeed")
+  assert(out == "hello-from-zip\n",
+    "expected 'hello-from-zip\\n', got '" .. tostring(out) .. "'")
+end
+test_spawn_zip_embedded_binary()
