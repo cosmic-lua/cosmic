@@ -4,7 +4,6 @@ local unix = require("cosmo.unix")
 local poll = require("cosmic.poll")
 
 --- Process resource usage statistics.
---- Contains CPU time, memory usage, I/O, and context switch counters.
 local record Rusage
   utime: function(self: Rusage): number, number
   stime: function(self: Rusage): number, number
@@ -43,9 +42,6 @@ local record Handle
 end
 
 --- Options for spawning a process.
---- env accepts either a list of "KEY=VALUE" strings ({string}) or a map
---- of name-to-value pairs ({string:string}). Maps are converted to list
---- format before passing to execve.
 local record Opts
   stdin: string | number
   stdout: number
@@ -92,37 +88,34 @@ end
 -- Low-level primitives --
 
 --- Creates a new process (fork).
---- Returns twice: parent gets child's pid (> 0), child gets 0.
 --- @return number The child process id in parent, 0 in child
 local function fork(): number
   return unix.fork()
 end
 
 --- Spawns a new process using posix_spawn (low-level).
---- More efficient than fork() + execve() on some systems.
 --- @param prog string Absolute path to the executable
 --- @param argv {string} Argument vector passed to the program
---- @param envp {string}? Environment variables (KEY=value format). Inherits if not specified
+--- @param envp {string}? Environment variables (KEY=value format)
 --- @return number The child process id on success
 local function posix_spawn(prog: string, argv: {string}, envp?: {string}): number
   return unix.spawn(prog, argv, envp)
 end
 
 --- Spawns a new process with PATH search (low-level).
---- Like posix_spawn() but searches for prog in $PATH directories.
 --- @param prog string The program name to execute
 --- @param argv {string} Argument vector passed to the program
---- @param envp {string}? Environment variables. Inherits if not specified
+--- @param envp {string}? Environment variables
 --- @return number The child process id on success
 local function posix_spawnp(prog: string, argv: {string}, envp?: {string}): number
   return unix.spawnp(prog, argv, envp)
 end
 
 --- Waits for child process to terminate.
---- @param pid number? Process id to wait for. -1 waits for any child (default)
---- @param options number? Wait options (e.g., WNOHANG for non-blocking)
+--- @param pid number? Process id to wait for (-1 for any child)
+--- @param options number? Wait options (e.g., WNOHANG)
 --- @return number The child process id that terminated
---- @return number Status code (use WIFEXITED, WEXITSTATUS, etc. to interpret)
+--- @return number Status code (use WIFEXITED, WEXITSTATUS to interpret)
 --- @return Rusage Resource usage statistics
 local function wait(pid?: number, options?: number): number, number, Rusage
   local wpid, status, rusage = unix.wait(pid, options)
@@ -139,46 +132,31 @@ end
 
 -- Status helpers --
 
---- Returns true if process exited normally (via exit() or return from main).
---- @param wstatus number Status code from wait()
---- @return boolean True if process exited cleanly
+--- Returns true if process exited normally.
 local function WIFEXITED(wstatus: number): boolean
   return unix.WIFEXITED(wstatus)
 end
 
---- Returns the exit code passed to exit().
---- Only valid if WIFEXITED(wstatus) is true.
---- @param wstatus number Status code from wait()
---- @return number The exit code
+--- Returns the exit code (valid if WIFEXITED is true).
 local function WEXITSTATUS(wstatus: number): number
   return unix.WEXITSTATUS(wstatus)
 end
 
 --- Returns true if process was terminated by a signal.
---- @param wstatus number Status code from wait()
---- @return boolean True if terminated by signal
 local function WIFSIGNALED(wstatus: number): boolean
   return unix.WIFSIGNALED(wstatus)
 end
 
---- Returns the signal number that terminated the process.
---- Only valid if WIFSIGNALED(wstatus) is true.
---- @param wstatus number Status code from wait()
---- @return number The signal number
+--- Returns the terminating signal number (valid if WIFSIGNALED is true).
 local function WTERMSIG(wstatus: number): number
   return unix.WTERMSIG(wstatus)
 end
 
 --- Normalize an env table to a list of "KEY=VALUE" strings.
---- Accepts either {string} (already a list) or {string:string} (map).
---- @param env {string} The environment table (list or map)
---- @return {string} A list of "KEY=VALUE" strings
 local function normalize_env(env: {string}): {string}
-  -- if the first element is a string, assume it's already a list
   if env[1] ~= nil then
     return env
   end
-  -- otherwise, treat as a map and convert to list
   local list: {string} = {}
   for k, v in pairs(env as {string: string}) do
     table.insert(list, k .. "=" .. v)
@@ -186,17 +164,43 @@ local function normalize_env(env: {string}): {string}
   return list
 end
 
+--- Checks if a path refers to a /zip/ virtual filesystem entry.
+local function is_zip_path(p: string): boolean
+  return p:sub(1, 5) == "/zip/"
+end
+
+--- Prepares an executable fd from a /zip/ path.
+--- Opens the path to get a zip fd suitable for fexecve.
+--- @param zip_path string Path starting with /zip/
+--- @return number The file descriptor ready for fexecve
+--- @return string Error message on failure
+local function prepare_zip_exec(zip_path: string): number, string
+  local fd = unix.open(zip_path, unix.O_RDONLY)
+  if not fd then
+    return nil, "failed to open zip path: " .. zip_path
+  end
+  return fd
+end
+
 -- High-level spawn API --
 
 --- Spawns a child process with I/O control.
+--- When argv[1] starts with /zip/, uses fexecve.
 --- @param argv {string} Command and arguments
---- @param opts Opts? Spawn options (stdin, stdout, stderr, env, cwd)
---- @return Handle Process handle with stdin, stdout, stderr pipes
---- @return string? Error message if spawn failed
+--- @param opts Opts? Spawn options
+--- @return Handle, string? Process handle or nil + error
 local function spawn(argv: {string}, opts?: Opts): Handle, string
   opts = opts or {}
 
-  if not (argv[1] as string):find("/") then
+  -- Handle /zip/ paths: open zip fd for fexecve
+  local exec_fd: number
+  if is_zip_path(argv[1]) then
+    local fd, err = prepare_zip_exec(argv[1])
+    if not fd then
+      return nil, err
+    end
+    exec_fd = fd
+  elseif not (argv[1] as string):find("/") then
     local cmd = unix.commandv(argv[1])
     if not cmd then
       return nil, "command not found: " .. argv[1]
@@ -274,8 +278,16 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
     end
 
     local env = opts.env and normalize_env(opts.env) or unix.environ()
-    unix.execve(argv[1], argv, env)
+    if exec_fd then
+      unix.fexecve(exec_fd, argv, env)
+    else
+      unix.execve(argv[1], argv, env)
+    end
     os.exit(127)
+  end
+
+  if exec_fd then
+    unix.close(exec_fd)
   end
 
   if pid == nil then
@@ -304,9 +316,7 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
     unix.close(stderr_w)
   end
 
-  -- Drain stdout and stderr concurrently using poll to avoid deadlock
-  -- when the child writes enough to fill a pipe buffer while the parent
-  -- is blocked reading the other pipe.
+  -- Drain stdout and stderr concurrently using poll to avoid deadlock.
   local function drain_pipes(out_pipe: Pipe, err_pipe: Pipe): string, string
     local out_chunks: {string} = {}
     local err_chunks: {string} = {}
@@ -408,6 +418,9 @@ local record ChildModule
   -- High-level spawn API
   spawn: function(argv: {string}, opts?: Opts): Handle, string
 
+  -- Zip binary helpers
+  prepare_zip_exec: function(zip_path: string): number, string
+
   -- Low-level primitives
   fork: function(): number
   posix_spawn: function(prog: string, argv: {string}, envp?: {string}): number
@@ -438,6 +451,9 @@ end
 local M: ChildModule = {
   -- High-level spawn API
   spawn = spawn,
+
+  -- Zip binary helpers
+  prepare_zip_exec = prepare_zip_exec,
 
   -- Low-level primitives
   fork = fork,
