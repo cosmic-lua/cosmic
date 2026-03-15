@@ -55,6 +55,7 @@ end
 ```teal
 local record AddOptions
   mode: number
+  method: string
 end
 ```
 
@@ -77,6 +78,7 @@ end
 ```teal
 local record ZipStat
   mode: number
+  method: number
 end
 ```
 
