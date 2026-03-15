@@ -8,7 +8,6 @@
 ### Rusage
 
  Process resource usage statistics.
- Contains CPU time, memory usage, I/O, and context switch counters.
 
 ```teal
 local record Rusage
@@ -62,9 +61,6 @@ end
 ### Opts
 
  Options for spawning a process.
- env accepts either a list of "KEY=VALUE" strings ({string}) or a map
- of name-to-value pairs ({string:string}). Maps are converted to list
- format before passing to execve.
 
 ```teal
 local record Opts
@@ -81,6 +77,7 @@ end
 ```teal
 local record ChildModule
   spawn: function(argv: {string}, opts?: Opts): Handle, string
+  prepare_zip_exec: function(zip_path: string): number, string
   fork: function(): number
   posix_spawn: function(prog: string, argv: {string}, envp?: {string}): number
   posix_spawnp: function(prog: string, argv: {string}, envp?: {string}): number
@@ -111,7 +108,6 @@ function fork(): number
 ```
 
  Creates a new process (fork).
- Returns twice: parent gets child's pid (> 0), child gets 0.
 
 **Returns:**
 
@@ -124,13 +120,12 @@ function posix_spawn(prog: string, argv: {string}, envp?: {string}): number
 ```
 
  Spawns a new process using posix_spawn (low-level).
- More efficient than fork() + execve() on some systems.
 
 **Parameters:**
 
 - `prog` (string) - Absolute path to the executable
 - `argv` ({string}) - Argument vector passed to the program
-- `envp` ({string}?) - Environment variables (KEY=value format). Inherits if not specified
+- `envp` ({string}?) - Environment variables (KEY=value format)
 
 **Returns:**
 
@@ -143,13 +138,12 @@ function posix_spawnp(prog: string, argv: {string}, envp?: {string}): number
 ```
 
  Spawns a new process with PATH search (low-level).
- Like posix_spawn() but searches for prog in $PATH directories.
 
 **Parameters:**
 
 - `prog` (string) - The program name to execute
 - `argv` ({string}) - Argument vector passed to the program
-- `envp` ({string}?) - Environment variables. Inherits if not specified
+- `envp` ({string}?) - Environment variables
 
 **Returns:**
 
@@ -165,13 +159,13 @@ function wait(pid?: number, options?: number): number, number, Rusage
 
 **Parameters:**
 
-- `pid` (number?) - Process id to wait for. -1 waits for any child (default)
-- `options` (number?) - Wait options (e.g., WNOHANG for non-blocking)
+- `pid` (number?) - Process id to wait for (-1 for any child)
+- `options` (number?) - Wait options (e.g., WNOHANG)
 
 **Returns:**
 
 - number - The child process id that terminated
-- number - Status code (use WIFEXITED, WEXITSTATUS, etc. to interpret)
+- number - Status code (use WIFEXITED, WEXITSTATUS to interpret)
 - Rusage - Resource usage statistics
 
 ### kill
@@ -197,15 +191,7 @@ function kill(pid: number, sig: number): boolean
 function WIFEXITED(wstatus: number): boolean
 ```
 
- Returns true if process exited normally (via exit() or return from main).
-
-**Parameters:**
-
-- `wstatus` (number) - Status code from wait()
-
-**Returns:**
-
-- boolean - True if process exited cleanly
+ Returns true if process exited normally.
 
 ### WEXITSTATUS
 
@@ -213,16 +199,7 @@ function WIFEXITED(wstatus: number): boolean
 function WEXITSTATUS(wstatus: number): number
 ```
 
- Returns the exit code passed to exit().
- Only valid if WIFEXITED(wstatus) is true.
-
-**Parameters:**
-
-- `wstatus` (number) - Status code from wait()
-
-**Returns:**
-
-- number - The exit code
+ Returns the exit code (valid if WIFEXITED is true).
 
 ### WIFSIGNALED
 
@@ -232,30 +209,31 @@ function WIFSIGNALED(wstatus: number): boolean
 
  Returns true if process was terminated by a signal.
 
-**Parameters:**
-
-- `wstatus` (number) - Status code from wait()
-
-**Returns:**
-
-- boolean - True if terminated by signal
-
 ### WTERMSIG
 
 ```teal
 function WTERMSIG(wstatus: number): number
 ```
 
- Returns the signal number that terminated the process.
- Only valid if WIFSIGNALED(wstatus) is true.
+ Returns the terminating signal number (valid if WIFSIGNALED is true).
+
+### prepare_zip_exec
+
+```teal
+function prepare_zip_exec(zip_path: string): number, string
+```
+
+ Prepares an executable fd from a /zip/ path.
+ Opens the path to get a zip fd suitable for fexecve.
 
 **Parameters:**
 
-- `wstatus` (number) - Status code from wait()
+- `zip_path` (string) - Path starting with /zip/
 
 **Returns:**
 
-- number - The signal number
+- number - The file descriptor ready for fexecve
+- string - Error message on failure
 
 ### spawn
 
@@ -264,16 +242,16 @@ function spawn(argv: {string}, opts?: Opts): Handle, string
 ```
 
  Spawns a child process with I/O control.
+ When argv[1] starts with /zip/, uses fexecve.
 
 **Parameters:**
 
 - `argv` ({string}) - Command and arguments
-- `opts` (Opts?) - Spawn options (stdin, stdout, stderr, env, cwd)
+- `opts` (Opts?) - Spawn options
 
 **Returns:**
 
-- Handle - Process handle with stdin, stdout, stderr pipes
-- string? - Error message if spawn failed
+- Handle, - string? Process handle or nil + error
 
 ### pipe:write
 
