@@ -22,6 +22,8 @@ end
 local record Stat
   mode: number
   method: number
+  size: number
+  compressed_size: number
 end
 
 local function write_temp(name: string, content: string): string
@@ -278,8 +280,10 @@ local function test_embed_uses_deflate()
   local st = reader:stat(name)
   assert(st ~= nil, "stat should return metadata for embedded file")
   local stat = st as Stat
-  -- method 8 = deflate
-  assert(stat.method == 8, "embedded file should use deflate (method=8), got: " .. tostring(stat.method))
+  assert(stat.method == 8,
+    "embedded file should use deflate (method=8), got: " .. tostring(stat.method))
+  assert(stat.compressed_size < stat.size,
+    "deflate should reduce size: " .. tostring(stat.compressed_size) .. " >= " .. tostring(stat.size))
   reader:close()
 end
 test_embed_uses_deflate()
