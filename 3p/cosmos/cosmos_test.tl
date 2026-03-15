@@ -1,13 +1,15 @@
 #!/usr/bin/env cosmic
 
 local spawn = require("cosmic.child")
-local path = require("cosmo.path")
+local fs = require("cosmic.fs")
 
 global TEST_DIR: string
 
 local function test_lua()
-  local bin = path.join(TEST_DIR, "lua")
-  local ok, got = spawn.spawn({bin, "-v"}):read()
+  local bin = fs.join(TEST_DIR, "lua")
+  local handle, err = spawn.spawn({bin, "-v"})
+  assert(handle, "lua spawn failed: " .. tostring(err))
+  local ok, got = handle:read()
   assert(ok, "lua -v failed")
   local want = "Lua"
   assert((got as string):find(want, 1, true), "expected '" .. want .. "' in output, got: " .. (got as string))
@@ -15,8 +17,10 @@ end
 test_lua()
 
 local function test_zip()
-  local bin = path.join(TEST_DIR, "zip")
-  local ok, got = spawn.spawn({bin, "--version"}):read()
+  local bin = fs.join(TEST_DIR, "zip")
+  local handle, err = spawn.spawn({bin, "--version"})
+  assert(handle, "zip spawn failed: " .. tostring(err))
+  local ok, got = handle:read()
   assert(ok, "zip --version failed")
   local want = "Zip"
   assert((got as string):find(want, 1, true), "expected '" .. want .. "' in output, got: " .. (got as string))
