@@ -21,6 +21,7 @@ end
 -- Stat record for file metadata
 local record Stat
   mode: number
+  method: number
 end
 
 local function write_temp(name: string, content: string): string
@@ -257,3 +258,28 @@ local function test_embed_directory_executable()
   assert(out:match("it works"), "should print expected output, got: " .. (out or ""))
 end
 test_embed_directory_executable()
+
+-- Test that embedded files use deflate compression (method=8)
+local function test_embed_uses_deflate()
+  -- Use compressible content (repeated pattern) to ensure deflate is applied
+  local compressible = string.rep("abcdefghij", 100)
+  local input = write_temp("deflate_test.txt", compressible)
+  local output = path.join(tmpdir, "cosmic-deflate")
+
+  local ok, out = spawn.spawn({cosmic, "--embed", input, "--output", output}):read()
+  assert(ok, "embed should succeed: " .. (out or ""))
+
+  local data = cosmo.Slurp(output)
+  local reader_maybe = zip.from(data)
+  assert(reader_maybe, "failed to open zip from data")
+  local reader = reader_maybe as Reader
+
+  local name = input:gsub("^/+", "")
+  local st = reader:stat(name)
+  assert(st ~= nil, "stat should return metadata for embedded file")
+  local stat = st as Stat
+  -- method 8 = deflate
+  assert(stat.method == 8, "embedded file should use deflate (method=8), got: " .. tostring(stat.method))
+  reader:close()
+end
+test_embed_uses_deflate()
