@@ -47,6 +47,7 @@ end
 --- Options for adding files to a ZIP archive.
 local record AddOptions
   mode: number
+  method: string
 end
 
 --- Appender interface for modifying a ZIP archive in-place.
@@ -59,6 +60,7 @@ end
 --- Stat record for zip file metadata.
 local record ZipStat
   mode: number
+  method: number
 end
 
 --- Reader interface for reading files from a ZIP archive.
@@ -232,7 +234,8 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
   -- Remove existing entries that conflict, then add new ones
   for _, file_info in ipairs(files_to_embed) do
     appender:remove(file_info.stored_name)
-    local add_ok, add_err = appender:add(file_info.stored_name, file_info.content, {mode = file_info.mode})
+    local opts: AddOptions = {mode = file_info.mode, method = "deflate"}
+    local add_ok, add_err = appender:add(file_info.stored_name, file_info.content, opts)
     if not add_ok then
       appender:close()
       fs.unlink(tmp_path)
