@@ -14,8 +14,6 @@
 --- Linux-only at runtime. Non-Linux hosts see `capabilities().linux ==
 --- false` and all submodule calls return ENOSYS-shaped errors.
 local sandbox = require("cosmo.sandbox")
-local unix = require("cosmo.unix")
-local Errno = require("cosmic.errno").Errno
 
 --- Fine-grained feature availability on the current host.
 --- Every field is a boolean. Higher-level helpers use these to fail
@@ -31,32 +29,13 @@ local record Capabilities
   pivot_root: boolean -- unix.pivot_root exported
   cap_net_admin: boolean -- holds CAP_NET_ADMIN (e.g. effective uid 0)
   landlock: boolean -- kernel advertises landlock ABI >= 1
-  pledge: boolean -- unix.pledge available (Linux + OpenBSD)
-  unveil: boolean -- unix.unveil non-ENOSYS (OpenBSD-only)
+  pledge: boolean -- unix.pledge non-ENOSYS (Linux via seccomp + OpenBSD)
+  unveil: boolean -- unix.unveil non-ENOSYS (OpenBSD, or Linux+Landlock)
 end
 
 local record QuicksandModule
   capabilities: function(): Capabilities
   is_supported: function(): boolean
-end
-
--- Probe whether unix.pledge / unix.unveil return ENOSYS on this host.
--- Calling them with nil,nil is a no-op on OpenBSD and returns ENOSYS
--- elsewhere, which is what we want for a capability probe.
-local function pledge_available(): boolean
-  if not unix.pledge then return false end
-  local ok, err = unix.pledge(nil, nil) as(boolean, any)
-  if ok then return true end
-  if not err then return false end
-  return (err as Errno):name() ~= "ENOSYS"
-end
-
-local function unveil_available(): boolean
-  if not unix.unveil then return false end
-  local ok, err = unix.unveil(nil, nil) as(boolean, any)
-  if ok then return true end
-  if not err then return false end
-  return (err as Errno):name() ~= "ENOSYS"
 end
 
 local cached: Capabilities = nil
@@ -79,8 +58,8 @@ local function capabilities(): Capabilities
     pivot_root = raw.pivot_root or false,
     cap_net_admin = raw.cap_net_admin or false,
     landlock = raw.landlock or false,
-    pledge = pledge_available(),
-    unveil = unveil_available(),
+    pledge = raw.pledge or false,
+    unveil = raw.unveil or false,
   }
   return cached
 end
