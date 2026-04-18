@@ -16,13 +16,13 @@ local function test_start_stop_lifecycle()
   if not c.linux then return end
 
   local handle, err = proxy.start({
-    bind_ip = 0x7f000001, -- 127.0.0.1
-    bind_port = 0,        -- ephemeral
-    allowed_hosts = {
-      ["api.example.com:443"] = {},
-    },
-    log_level = "quiet",
-  })
+      bind_ip = 0x7f000001, -- 127.0.0.1
+      bind_port = 0, -- ephemeral
+      allowed_hosts = {
+        ["api.example.com:443"] = {},
+      },
+      log_level = "quiet",
+    })
   assert(handle, "proxy.start failed: " .. tostring(err))
   assert(type(handle.pid) == "number" and handle.pid > 0, "pid should be positive")
   assert(type(handle.port) == "number" and handle.port > 0, "port should be positive")
@@ -48,13 +48,13 @@ local function test_deny_unknown_host()
   if not c.linux then return end
 
   local handle = assert(proxy.start({
-    bind_ip = 0x7f000001,
-    bind_port = 0,
-    allowed_hosts = {
-      ["allowed.example.com:80"] = {},
-    },
-    log_level = "quiet",
-  }))
+        bind_ip = 0x7f000001,
+        bind_port = 0,
+        allowed_hosts = {
+          ["allowed.example.com:80"] = {},
+        },
+        log_level = "quiet",
+      }))
 
   local sock = assert(net.connect_tcp(0x7f000001, handle.port))
   sock:send("GET http://denied.example.com/ HTTP/1.1\r\nHost: denied.example.com\r\n\r\n")

@@ -43,23 +43,23 @@ end
 --- no header injection). Fields not relevant to the chosen type are
 --- ignored. Unknown `type` values behave as pass-through.
 local record ProxyRule
-  type: string          -- "bearer" | "basic" | "header" | nil
-  token: string         -- bearer
-  username: string      -- basic
-  password: string      -- basic
-  header_name: string   -- header
-  header_value: string  -- header
+  type: string -- "bearer" | "basic" | "header" | nil
+  token: string -- bearer
+  username: string -- basic
+  password: string -- basic
+  header_name: string -- header
+  header_value: string -- header
 end
 
 --- Options for start() / new().
 local record ProxyOptions
-  bind_ip: integer        -- default cosmo.ParseIp("127.0.0.1")
-  bind_port: integer      -- default 3128; 0 = ephemeral
+  bind_ip: integer -- default cosmo.ParseIp("127.0.0.1")
+  bind_port: integer -- default 3128; 0 = ephemeral
   allowed_hosts: {string: ProxyRule}
   upstream_ns_fd: integer -- netns fd to dial in; nil = current ns
-  log_level: string       -- "quiet" | "info" | "debug" (default "info")
-  log_format: string      -- "text" | "json"            (default "text")
-  log_file: string        -- path; default stderr
+  log_level: string -- "quiet" | "info" | "debug" (default "info")
+  log_format: string -- "text" | "json"            (default "text")
+  log_file: string -- path; default stderr
   accept_backlog: integer -- default 32
   on_log: function({string: any})
 end
@@ -80,7 +80,7 @@ end
 --- @return ProxyHandle? handle with pid, port, stop()
 --- @return string? error message on failure
 local function start(opts: ProxyOptions): ProxyHandle, string
-  local h, err = cproxy.start(opts as any) as (ProxyHandle, any)
+  local h, err = cproxy.start(opts as any) as(ProxyHandle, any)
   if not h then return nil, wrap_err(err, "proxy.start failed") end
   -- The underlying handle:stop() already does SIGTERM + waitpid.
   -- Wrap it anyway so callers can rely on it being idempotent: after

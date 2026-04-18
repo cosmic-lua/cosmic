@@ -29,7 +29,7 @@ local Errno = require("cosmic.errno").Errno
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function apply(path: string, permissions: string): boolean, string
-  local ok, err = unix.unveil(path, permissions) as (boolean, any)
+  local ok, err = unix.unveil(path, permissions) as(boolean, any)
   if not ok then
     if err then
       local errno = err as Errno

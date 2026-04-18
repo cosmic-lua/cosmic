@@ -36,7 +36,7 @@ end
 --- @return integer? fd on success
 --- @return string? error message on failure
 local function open(pid: integer): integer, string
-  local fd, err = cnetns.open(pid) as (integer, any)
+  local fd, err = cnetns.open(pid) as(integer, any)
   if not fd then return nil, wrap_err(err, "netns.open failed") end
   return fd
 end
@@ -76,7 +76,7 @@ end
 --- @return boolean true on success
 --- @return string? error message on failure
 local function bring_up(name: string): boolean, string
-  local ok, err = cnetns.bring_up(name) as (boolean, any)
+  local ok, err = cnetns.bring_up(name) as(boolean, any)
   if not ok then return false, wrap_err(err, "bring_up " .. name .. " failed") end
   return true
 end
@@ -87,7 +87,7 @@ end
 --- @return boolean true on success
 --- @return string? error message on failure
 local function bring_down(name: string): boolean, string
-  local ok, err = cnetns.bring_down(name) as (boolean, any)
+  local ok, err = cnetns.bring_down(name) as(boolean, any)
   if not ok then return false, wrap_err(err, "bring_down " .. name .. " failed") end
   return true
 end
@@ -98,18 +98,18 @@ end
 --- @return boolean true on success
 --- @return string? error message on failure
 local function close(fd: integer): boolean, string
-  local ok, err = unix.close(fd) as (boolean, any)
+  local ok, err = unix.close(fd) as(boolean, any)
   if not ok then return false, wrap_err(err, "close failed") end
   return true
 end
 
 local record NetnsModule
-  open:       function(pid: integer): integer, string
-  enter:      function(fd: integer): boolean, string
-  unshare:    function(): boolean, string
-  bring_up:   function(name: string): boolean, string
+  open: function(pid: integer): integer, string
+  enter: function(fd: integer): boolean, string
+  unshare: function(): boolean, string
+  bring_up: function(name: string): boolean, string
   bring_down: function(name: string): boolean, string
-  close:      function(fd: integer): boolean, string
+  close: function(fd: integer): boolean, string
 end
 
 local M: NetnsModule = {

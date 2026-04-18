@@ -22,16 +22,16 @@ end
 --- One-shot pipe-backed barrier for cross-process fork+unshare
 --- synchronization.
 local record Barrier
-  signal:     function(self: Barrier)
-  wait:       function(self: Barrier)
-  drop_read:  function(self: Barrier)
+  signal: function(self: Barrier)
+  wait: function(self: Barrier)
+  drop_read: function(self: Barrier)
   drop_write: function(self: Barrier)
 end
 
 --- Options for become_init().
 local record InitOpts
   sidecars: {integer}
-  signals:  {string}
+  signals: {string}
   on_sidecar_exit: function(pid: integer, ws: integer)
 end
 
@@ -43,7 +43,7 @@ end
 --- @return boolean true on success
 --- @return string? error message on failure
 local function no_new_privs(): boolean, string
-  local ok, err = cproc.no_new_privs() as (boolean, any)
+  local ok, err = cproc.no_new_privs() as(boolean, any)
   if not ok then return false, wrap_err(err, "no_new_privs failed") end
   return true
 end
@@ -61,7 +61,7 @@ end
 --- @return boolean true on success
 --- @return string? error message on failure
 local function drop_privs(uid: integer, gid: integer): boolean, string
-  local ok, err = cproc.drop_privs(uid, gid) as (boolean, any)
+  local ok, err = cproc.drop_privs(uid, gid) as(boolean, any)
   if not ok then return false, wrap_err(err, "drop_privs failed") end
   return true
 end
@@ -82,7 +82,7 @@ end
 --- @return Barrier? barrier object on success
 --- @return string? error message on failure
 local function barrier(): Barrier, string
-  local b, err = cproc.barrier() as (Barrier, any)
+  local b, err = cproc.barrier() as(Barrier, any)
   if not b then return nil, wrap_err(err, "barrier failed") end
   return b
 end
@@ -108,9 +108,9 @@ end
 
 local record ProcModule
   no_new_privs: function(): boolean, string
-  drop_privs:   function(uid: integer, gid: integer): boolean, string
-  barrier:      function(): Barrier, string
-  become_init:  function(main_pid: integer, opts: InitOpts): integer
+  drop_privs: function(uid: integer, gid: integer): boolean, string
+  barrier: function(): Barrier, string
+  become_init: function(main_pid: integer, opts: InitOpts): integer
   DEFAULT_SIGNALS: {string}
 end
 

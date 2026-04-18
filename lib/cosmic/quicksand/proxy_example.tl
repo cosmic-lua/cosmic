@@ -11,17 +11,17 @@ local function Example_start_stop()
   end
   local proxy = require("cosmic.quicksand.proxy")
   local handle, err = proxy.start({
-    bind_ip = 0x7f000001,
-    bind_port = 0,
-    allowed_hosts = {
-      ["api.example.com:443"] = {},
-      ["internal.example.com:80"] = {
-        type = "bearer",
-        token = "redacted",
+      bind_ip = 0x7f000001,
+      bind_port = 0,
+      allowed_hosts = {
+        ["api.example.com:443"] = {},
+        ["internal.example.com:80"] = {
+          type = "bearer",
+          token = "redacted",
+        },
       },
-    },
-    log_level = "quiet",
-  })
+      log_level = "quiet",
+    })
   if not handle then
     io.write("proxy start failed: " .. tostring(err) .. "\n")
     return
