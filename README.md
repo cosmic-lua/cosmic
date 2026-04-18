@@ -58,16 +58,21 @@ High-level utilities and tools built on top of cosmo.
 | [io](lib/cosmic/io.md) |  File descriptor I/O operations. |
 | [ip](lib/cosmic/ip.md) |  IP address parsing, formatting, and classification utilities. |
 | [json](lib/cosmic/json.md) |  JSON encoding and decoding utilities. |
+| [landlock](lib/cosmic/landlock.md) |  Linux landlock filesystem sandbox. |
 | [main_handlers](lib/cosmic/main_handlers.md) |  Command handler functions for the cosmic CLI. |
 | [make](lib/cosmic/make.md) |  Generate Makefiles for Teal projects. |
 | [net](lib/cosmic/net.md) |  Networking and socket utilities. |
 | [net_socket](lib/cosmic/net_socket.md) |  Socket implementation for the networking module. |
+| [pledge](lib/cosmic/pledge.md) |  Restrict the system calls available to the current process. |
 | [poll](lib/cosmic/poll.md) |  Typed interface for polling file descriptors. |
 | [proc](lib/cosmic/proc.md) |  Current process management. |
+| [init](lib/cosmic/quicksand/init.md) |  Network + filesystem process isolation primitives. |
+| [netns](lib/cosmic/quicksand/netns.md) |  Linux network-namespace primitives. |
+| [proc](lib/cosmic/quicksand/proc.md) |  Process-setup primitives for jail assembly. |
+| [proxy](lib/cosmic/quicksand/proxy.md) |  Allowlist HTTP CONNECT + plain-HTTP proxy for sandboxed egress. |
 | [rand](lib/cosmic/rand.md) |  Random number generation. |
 | [re](lib/cosmic/re.md) |  Regular expression matching using POSIX extended regex syntax. |
 | [require](lib/cosmic/require.md) |  Enhanced require with helpful error messages. |
-| [sandbox](lib/cosmic/sandbox.md) |  Security sandboxing utilities. |
 | [shm](lib/cosmic/shm.md) |  Shared memory for inter-process communication. |
 | [signal](lib/cosmic/signal.md) |  Signal handling utilities. |
 | [sqlite](lib/cosmic/sqlite.md) |  Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns. |
@@ -80,6 +85,7 @@ High-level utilities and tools built on top of cosmo.
 | [testrun](lib/cosmic/testrun.md) |  Test runner for cosmic executables. |
 | [time](lib/cosmic/time.md) |  Time and clock utilities. |
 | [tty](lib/cosmic/tty.md) |  Terminal (TTY) utilities. |
+| [unveil](lib/cosmic/unveil.md) |  Restrict filesystem visibility to an allowlisted set of paths. |
 | [url](lib/cosmic/url.md) |  URL encoding, decoding, parsing, and escaping utilities. |
 | [user](lib/cosmic/user.md) |  User and group identity operations. |
 | [uuid](lib/cosmic/uuid.md) |  UUID generation utilities. |
