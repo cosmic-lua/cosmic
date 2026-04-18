@@ -8,7 +8,8 @@
 ---
 --- start(opts) forks the listener into a child process and returns a
 --- ProxyHandle with the bound pid and port. handle:stop() sends
---- SIGTERM and reaps the child.
+--- SIGTERM (escalating to SIGKILL after a timeout) and reaps the
+--- child; handle:alive() is a non-blocking liveness check.
 ---
 --- Rule schema (allowed_hosts):
 ---
@@ -30,7 +31,6 @@
 --- Header injection happens on plain HTTP only; CONNECT is opaque.
 local cproxy = require("cosmo.sandbox.proxy")
 local Errno = require("cosmic.errno").Errno
-local unix = require("cosmo.unix")
 
 local function wrap_err(err: any, fallback: string): string
   if not err then return fallback end
@@ -61,15 +61,19 @@ local record ProxyOptions
   log_format: string -- "text" | "json"            (default "text")
   log_file: string -- path; default stderr
   accept_backlog: integer -- default 32
+  resolve_timeout_ms: integer -- per-dial DNS deadline; default 5000
   on_log: function({string: any})
 end
 
---- Returned by start(). `stop()` sends SIGTERM to the listener
---- process and reaps it via waitpid.
+--- Returned by start(). `stop()` sends SIGTERM and reaps the
+--- listener, escalating to SIGKILL after `timeout_ms` (default 5000).
+--- It is idempotent: once the child has been reaped, subsequent calls
+--- are no-ops. `alive()` is a non-blocking liveness check.
 local record ProxyHandle
   pid: integer
   port: integer
-  stop: function(self: ProxyHandle)
+  stop: function(self: ProxyHandle, timeout_ms?: integer)
+  alive: function(self: ProxyHandle): boolean
 end
 
 --- Fork a proxy listener into a child process. The parent blocks
@@ -77,27 +81,11 @@ end
 --- immediately on return.
 ---
 --- @param opts ProxyOptions allowlist + binding + logging config
---- @return ProxyHandle? handle with pid, port, stop()
+--- @return ProxyHandle? handle with pid, port, stop(), alive()
 --- @return string? error message on failure
 local function start(opts: ProxyOptions): ProxyHandle, string
   local h, err = cproxy.start(opts as any) as(ProxyHandle, any)
   if not h then return nil, wrap_err(err, "proxy.start failed") end
-  -- The underlying handle:stop() already does SIGTERM + waitpid.
-  -- Wrap it anyway so callers can rely on it being idempotent: after
-  -- stop, subsequent calls are no-ops.
-  local raw_stop = h.stop
-  h.stop = function(self: ProxyHandle)
-    if self.pid == 0 then return end
-    raw_stop(self)
-    -- Belt-and-suspenders: if the raw stop raced a signal delivery
-    -- and left the child around, force-reap now.
-    local u = unix as {string: any}
-    local ukill = u.kill as function(integer, integer): boolean
-    local uwait = u.wait as function(integer): integer
-    pcall(ukill, self.pid, 9)
-    pcall(uwait, self.pid)
-    self.pid = 0
-  end
   return h
 end
 
