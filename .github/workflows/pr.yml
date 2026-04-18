@@ -16,3 +16,21 @@ jobs:
       - name: make ci
         shell: bash -x {0}
         run: bin/make -j ci
+
+      - name: dump failing test output
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          for got in $(find o -name '*.test.got' 2>/dev/null); do
+            code=$(cat "$got" 2>/dev/null || echo "?")
+            if [ "$code" != "0" ]; then
+              base=${got%.got}
+              echo "===== $got (exit $code) ====="
+              echo "--- stdout ($base.out) ---"
+              cat "$base.out" 2>/dev/null || true
+              echo "--- stderr ($base.err) ---"
+              cat "$base.err" 2>/dev/null || true
+              echo
+            fi
+          done

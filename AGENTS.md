@@ -210,7 +210,10 @@ all modules are under `lib/cosmic/` and imported as `cosmic.*`:
 | proc | current process: pid, exec, resource usage |
 | rand | cryptographic random bytes |
 | re | POSIX extended regular expressions |
-| sandbox | pledge and unveil for security sandboxing |
+| pledge | restrict system calls (OpenBSD, Linux) |
+| unveil | restrict filesystem visibility (OpenBSD) |
+| landlock | Linux >=5.13 self-restricting filesystem sandbox |
+| quicksand | Linux netns + allowlist proxy jail primitives |
 | shm | shared memory with atomic ops and futexes |
 | signal | signal handling, timers, sigsets |
 | sqlite | SQLite with ergonomic query/exec/transaction API |

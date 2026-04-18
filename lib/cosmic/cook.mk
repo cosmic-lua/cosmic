@@ -1,5 +1,5 @@
 modules += cosmic
-cosmic_srcs := $(wildcard lib/cosmic/*.tl)
+cosmic_srcs := $(wildcard lib/cosmic/*.tl) $(wildcard lib/cosmic/quicksand/*.tl)
 cosmic_tests := $(filter %_test.tl,$(cosmic_srcs))
 cosmic_examples := $(filter %_example.tl,$(cosmic_srcs))
 cosmic_tl := $(filter-out $(cosmic_tests) $(cosmic_examples) lib/cosmic/main.tl,$(cosmic_srcs))
@@ -26,8 +26,18 @@ $(cosmic_version_lua): .FORCE | $$(cosmos_staged)
 $(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(teal-types_staged) $$(doc_index) $(cosmic_version_lua) $(cosmic_sys) $(cosmic_skills)
 	@rm -rf $(cosmic_built)
 	@mkdir -p $(cosmic_built)/.lua/cosmic $(cosmic_built)/.tl/cosmic $(@D)
-	@$(cp) $(cosmic_lua) $(cosmic_built)/.lua/cosmic/
-	@$(cp) $(cosmic_tl) $(cosmic_built)/.tl/cosmic/
+	@for f in $(cosmic_lua); do \
+		rel="$${f#$(o)/lib/cosmic/}"; \
+		dst="$(cosmic_built)/.lua/cosmic/$$rel"; \
+		mkdir -p "$$(dirname "$$dst")"; \
+		$(cp) "$$f" "$$dst"; \
+	done
+	@for f in $(cosmic_tl); do \
+		rel="$${f#lib/cosmic/}"; \
+		dst="$(cosmic_built)/.tl/cosmic/$$rel"; \
+		mkdir -p "$$(dirname "$$dst")"; \
+		$(cp) "$$f" "$$dst"; \
+	done
 	@$(cp) $(cosmic_version_lua) $(cosmic_built)/.lua/cosmic/version.lua
 	@$(cp) $(tl_dir)/tl.lua $(cosmic_built)/.lua/
 	@cp -r $(teal-types_dir)/types $(cosmic_built)/.lua/teal-types

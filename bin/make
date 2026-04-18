@@ -6,10 +6,22 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MAKE_BIN="${SCRIPT_DIR}/cosmo-make"
 RELEASE_URL="https://github.com/whilp/cosmopolitan/releases/download/2026.01.04-bc03f9aa8/make"
 
-# Download make if it doesn't exist
+# Download make if it doesn't exist. Retry on transient CDN errors
+# (e.g. 504 Gateway Timeout) that occasionally hit unauthenticated GitHub
+# release downloads.
 if [ ! -f "${MAKE_BIN}" ]; then
     echo "Downloading landlock-make..." >&2
-    curl -fsSL -o "${MAKE_BIN}" "${RELEASE_URL}"
+    attempt=0
+    until curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors \
+        -o "${MAKE_BIN}" "${RELEASE_URL}"; do
+        attempt=$((attempt + 1))
+        if [ "${attempt}" -ge 3 ]; then
+            echo "Failed to download landlock-make after ${attempt} attempts" >&2
+            exit 1
+        fi
+        echo "Retrying landlock-make download (attempt ${attempt})..." >&2
+        sleep $((attempt * 5))
+    done
     chmod +x "${MAKE_BIN}"
 fi
 

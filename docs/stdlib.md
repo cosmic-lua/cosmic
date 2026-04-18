@@ -50,7 +50,10 @@ local sqlite = require("cosmic.sqlite")
 |--------|-------------|
 | `cosmic.hash` | SHA-256 and Argon2 password hashing |
 | `cosmic.rand` | cryptographic random bytes |
-| `cosmic.sandbox` | pledge/unveil security restrictions |
+| `cosmic.pledge` | restrict system calls on OpenBSD and Linux |
+| `cosmic.unveil` | restrict filesystem visibility on OpenBSD |
+| `cosmic.landlock` | Linux >=5.13 self-restricting filesystem sandbox |
+| `cosmic.quicksand` | Linux network-namespace + allowlist proxy jail primitives |
 
 ### Process
 
