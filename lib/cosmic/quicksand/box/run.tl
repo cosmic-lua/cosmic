@@ -9,8 +9,8 @@
 ---      upstream_ns_fd so the proxy can dial out from the outer ns.
 ---   2. parent fork()s the supervisor and wait()s for it.
 ---   3. supervisor unshares USER | NET | NS (+ UTS if hostname), writes
----      uid_map / gid_map, brings up lo, optionally writes
----      /proc/sys/kernel/hostname.
+---      uid_map / gid_map, brings up lo, optionally calls
+---      sethostname(2).
 ---   4. supervisor starts the allowlist proxy sidecar if net.allow is
 ---      set, and prepends HTTP(S)_PROXY into the workload env when
 ---      net.proxy_env is not explicitly false.
@@ -30,7 +30,6 @@ local pledge = require("cosmic.pledge")
 local box_fs = require("cosmic.quicksand.box.fs")
 local box_env = require("cosmic.quicksand.box.env")
 local cenv = require("cosmic.env")
-local cio = require("cosmic.io")
 
 local u = unix as {string: any}
 
@@ -149,10 +148,10 @@ local function supervisor(
   end
 
   if opts and opts.hostname then
-    local ok4, err4 = cio.barf("/proc/sys/kernel/hostname",
+    local ok4, err4 = (u.sethostname as function(string): boolean, any)(
       opts.hostname as string)
     if not ok4 then
-      io.stderr:write("quicksand: hostname: " .. tostring(err4) .. "\n")
+      io.stderr:write("quicksand: sethostname: " .. tostring(err4) .. "\n")
       os.exit(126)
     end
   end
