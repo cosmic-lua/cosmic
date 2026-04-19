@@ -1,0 +1,45 @@
+# run
+
+ Fork / unshare / exec orchestration for cosmic.quicksand.Jail:run.
+
+ Pulled in lazily by jail/init.tl so that hosts using only new() /
+ merge() / close() don't load the entire sandbox plumbing on require.
+
+ Flow:
+   1. parent opens its own netns fd (if a net policy is requested) —
+      the supervisor child inherits it and hands it to the proxy as
+      upstream_ns_fd so the proxy can dial out from the outer ns.
+   2. parent fork()s the supervisor and wait()s for it.
+   3. supervisor unshares USER | NET | NS (+ UTS if hostname), writes
+      uid_map / gid_map, brings up lo, optionally writes
+      /proc/sys/kernel/hostname.
+   4. supervisor starts the allowlist proxy sidecar if net.allow is
+      set, and prepends HTTP(S)_PROXY into the workload env when
+      net.proxy_env is not explicitly false.
+   5. supervisor forks the workload. Workload does chdir, landlock,
+      no_new_privs, drop_privs, pledge, then execvpe(argv, env).
+   6. supervisor runs become_init(workload_pid, {sidecars={proxy_pid}})
+      and os.exit()s with the returned code. parent maps wait status
+      to an exit code and returns it from run().
+
+## Types
+
+### JailRunModule
+
+```teal
+local record JailRunModule
+  run: function(opts: {string: any}, argv: {string}): integer, string
+end
+```
+
+## Functions
+
+### run
+
+```teal
+function run(opts: {string: any}, argv: {string}): integer, string
+```
+
+ Fork+orchestrate a Jail policy around argv. Returns an integer exit
+ code on success, or nil + string when setup itself failed before the
+ fork (e.g. couldn't open the parent netns fd).

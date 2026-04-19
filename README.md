@@ -67,6 +67,11 @@ High-level utilities and tools built on top of cosmo.
 | [poll](lib/cosmic/poll.md) |  Typed interface for polling file descriptors. |
 | [proc](lib/cosmic/proc.md) |  Current process management. |
 | [init](lib/cosmic/quicksand/init.md) |  Network + filesystem process isolation primitives. |
+| [env](lib/cosmic/quicksand/jail/env.md) |  Pure env-policy helpers for cosmic.quicksand.Jail. |
+| [fs](lib/cosmic/quicksand/jail/fs.md) |  Pure translator: Jail `fs` policy → `cosmic.landlock.RestrictOpts`. |
+| [init](lib/cosmic/quicksand/jail/init.md) |  Declarative jail builder. |
+| [merge](lib/cosmic/quicksand/jail/merge.md) |  Pure table-merge helpers for cosmic.quicksand.Jail. |
+| [run](lib/cosmic/quicksand/jail/run.md) |  Fork / unshare / exec orchestration for cosmic.quicksand.Jail:run. |
 | [netns](lib/cosmic/quicksand/netns.md) |  Linux network-namespace primitives. |
 | [proc](lib/cosmic/quicksand/proc.md) |  Process-setup primitives for jail assembly. |
 | [proxy](lib/cosmic/quicksand/proxy.md) |  Allowlist HTTP CONNECT + plain-HTTP proxy for sandboxed egress. |
