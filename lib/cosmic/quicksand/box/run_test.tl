@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
---- Integration test for cosmic.quicksand.Jail:run.
+--- Integration test for cosmic.quicksand.Box:run.
 ---
---- jail:run unshares CLONE_NEWUSER, which is irreversible for the
+--- box:run unshares CLONE_NEWUSER, which is irreversible for the
 --- calling thread — and can be blocked entirely by an outer seccomp /
 --- pledge filter. Run the workload in a fresh cosmic subprocess so
 --- failures don't poison the rest of the test harness, and follow the
@@ -19,10 +19,10 @@ local function test_run_true_in_subprocess()
   local c = quicksand.capabilities()
   if not (c.linux and c.user_ns and c.net_ns) then return end
 
-  local script = path.join(tmpdir, "jail_run_true.lua")
+  local script = path.join(tmpdir, "box_run_true.lua")
   cosmo.Barf(script, [[
 local qs = require("cosmic.quicksand")
-local j, nerr = qs.Jail.new({})
+local j, nerr = qs.Box.new({})
 if not j then io.stderr:write("new: " .. tostring(nerr) .. "\n"); os.exit(1) end
 local code, rerr = j:run({"/bin/true"})
 if code == nil then

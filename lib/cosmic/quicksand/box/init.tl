@@ -1,28 +1,28 @@
---- Declarative jail builder.
+--- Declarative box builder.
 ---
 --- Composes the quicksand primitives (netns, proxy, proc) plus
---- cosmic.landlock / cosmic.pledge into a single `jail:run(argv)` call
+--- cosmic.landlock / cosmic.pledge into a single `box:run(argv)` call
 --- that returns an exit code.
 ---
 --- Usage:
 ---
 ---     local quicksand = require("cosmic.quicksand")
----     local jail = quicksand.Jail.new{
+---     local box = quicksand.Box.new{
 ---       fs = { ro = { "/usr" }, rw = { "/tmp" } },
 ---       net = { allow = { ["api.example.com:443"] = {} } },
 ---       proc = { no_new_privs = true },
 ---       cwd = "/tmp",
 ---     }
----     os.exit(assert(jail:run({ "/usr/bin/bash", "-c", "make test" })))
+---     os.exit(assert(box:run({ "/usr/bin/bash", "-c", "make test" })))
 ---
---- Options are plain tables, composable with `Jail.merge(base, over)`.
---- Full schema in `JailOpts` below.
+--- Options are plain tables, composable with `Box.merge(base, over)`.
+--- Full schema in `BoxOpts` below.
 ---
 --- The capability probe is loaded lazily to avoid a require cycle with
---- cosmic.quicksand (which re-exports Jail from its umbrella). The
---- fork / exec orchestration lives in cosmic.quicksand.jail.run and is
+--- cosmic.quicksand (which re-exports Box from its umbrella). The
+--- fork / exec orchestration lives in cosmic.quicksand.box.run and is
 --- required on demand from `run()` so construction stays cheap.
-local jail_merge = require("cosmic.quicksand.jail.merge")
+local box_merge = require("cosmic.quicksand.box.merge")
 
 local record CapsModule
   capabilities: function(): {string: boolean}
@@ -70,10 +70,10 @@ local record EnvOpts
   set: {string: string}
 end
 
---- Full jail policy. Every field is optional; omitting a section skips
+--- Full box policy. Every field is optional; omitting a section skips
 --- that subsystem. Scalars default to nil (i.e. no policy); list fields
 --- default to empty.
-local record JailOpts
+local record BoxOpts
   hostname: string
   fs: FsOpts
   net: NetOpts
@@ -82,19 +82,19 @@ local record JailOpts
   cwd: string
 end
 
---- Jail instance. `run(argv)` returns an integer exit code on success
+--- Box instance. `run(argv)` returns an integer exit code on success
 --- or nil + error on failure. `close()` releases any parent-held
 --- resources; idempotent and safe to call after `run`.
-local record Jail
-  opts: JailOpts
+local record Box
+  opts: BoxOpts
   _closed: boolean
-  run: function(self: Jail, argv: {string}): integer, string
-  close: function(self: Jail): boolean
+  run: function(self: Box, argv: {string}): integer, string
+  close: function(self: Box): boolean
 end
 
 -- Validate structural shape only — we cannot test syscall-level
 -- feasibility here; that is the job of run()'s capability preflight.
-local function validate(opts: JailOpts): boolean, string
+local function validate(opts: BoxOpts): boolean, string
   if opts == nil then return true end
   if opts.cwd ~= nil and type(opts.cwd) ~= "string" then
     return false, "cwd must be a string"
@@ -133,7 +133,7 @@ end
 -- Check that every enabled feature can be honored by the host. Returns
 -- a specific error naming the first missing capability so callers can
 -- distinguish "not on Linux" from "landlock unavailable" etc.
-local function preflight(opts: JailOpts): boolean, string
+local function preflight(opts: BoxOpts): boolean, string
   local c = caps()
   if not c.linux then
     return false, "quicksand: Linux only"
@@ -164,35 +164,35 @@ local record RunModule
   run: function(opts: {string: any}, argv: {string}): integer, string
 end
 
-local function run(self: Jail, argv: {string}): integer, string
+local function run(self: Box, argv: {string}): integer, string
   if self._closed then
-    return nil, "quicksand: jail already closed"
+    return nil, "quicksand: box already closed"
   end
   if type(argv) ~= "table" or #argv == 0 then
     return nil, "quicksand: run(argv) requires a non-empty argv"
   end
   local ok, err = preflight(self.opts)
   if not ok then return nil, err end
-  local rm = require("cosmic.quicksand.jail.run") as RunModule
+  local rm = require("cosmic.quicksand.box.run") as RunModule
   return rm.run(self.opts as {string: any}, argv)
 end
 
-local function close(self: Jail): boolean
+local function close(self: Box): boolean
   if self._closed then return true end
   self._closed = true
   return true
 end
 
---- Build a Jail from an options table. Validates structural shape; a
+--- Build a Box from an options table. Validates structural shape; a
 --- bad `opts` returns nil + error without touching syscalls.
 ---
---- @param opts JailOpts? policy (all fields optional)
---- @return Jail? jail instance on success
+--- @param opts BoxOpts? policy (all fields optional)
+--- @return Box? box instance on success
 --- @return string? error message on failure
-local function new(opts?: JailOpts): Jail, string
+local function new(opts?: BoxOpts): Box, string
   local ok, err = validate(opts)
   if not ok then return nil, err end
-  local j: Jail = {
+  local j: Box = {
     opts = opts or {},
     _closed = false,
     run = run,
@@ -204,20 +204,20 @@ end
 --- Compose policy tables left-to-right. Scalars: later wins. Lists
 --- (fs.ro, fs.rw, fs.exec, fs.deny, env.keep): concat + dedupe. Maps
 --- (net.allow, env.set): per-key later wins. Returns a fresh table
---- suitable for `Jail.new`.
+--- suitable for `Box.new`.
 ---
---- @param ... JailOpts policy tables; nil entries are skipped
---- @return JailOpts merged policy
-local function merge(...: JailOpts): JailOpts
-  return jail_merge.merge(...) as JailOpts
+--- @param ... BoxOpts policy tables; nil entries are skipped
+--- @return BoxOpts merged policy
+local function merge(...: BoxOpts): BoxOpts
+  return box_merge.merge(...) as BoxOpts
 end
 
-local record JailModule
-  new: function(opts?: JailOpts): Jail, string
-  merge: function(...: JailOpts): JailOpts
+local record BoxModule
+  new: function(opts?: BoxOpts): Box, string
+  merge: function(...: BoxOpts): BoxOpts
 end
 
-local M: JailModule = {
+local M: BoxModule = {
   new = new,
   merge = merge,
 }

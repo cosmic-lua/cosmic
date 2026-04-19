@@ -142,7 +142,7 @@ $(o)/%.tl.test.got: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) 
 quicksand_sandbox_tests := \
   $(o)/lib/cosmic/quicksand/netns_test.tl.test.got \
   $(o)/lib/cosmic/quicksand/proxy_test.tl.test.got \
-  $(o)/lib/cosmic/quicksand/jail/run_test.tl.test.got
+  $(o)/lib/cosmic/quicksand/box/run_test.tl.test.got
 $(quicksand_sandbox_tests): .PLEDGE =
 $(quicksand_sandbox_tests): .UNVEIL =
 

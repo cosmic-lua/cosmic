@@ -1,7 +1,7 @@
---- Pure env-policy helpers for cosmic.quicksand.Jail.
+--- Pure env-policy helpers for cosmic.quicksand.Box.
 ---
 --- Given an env policy (`keep` list, `set` map) and the parent
---- environment, return the env dict the jailed workload should see.
+--- environment, return the env dict the boxed workload should see.
 ---
 --- Semantics:
 ---   keep   list of variable names to inherit from the parent
@@ -51,12 +51,12 @@ local function render(env: {string: string}): {string}
   return out
 end
 
-local record JailEnvModule
+local record BoxEnvModule
   apply: function(opts: EnvOpts, parent: {string: string}): {string: string}
   render: function(env: {string: string}): {string}
 end
 
-local M: JailEnvModule = {
+local M: BoxEnvModule = {
   apply = apply,
   render = render,
 }

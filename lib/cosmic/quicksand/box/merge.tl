@@ -1,4 +1,4 @@
---- Pure table-merge helpers for cosmic.quicksand.Jail.
+--- Pure table-merge helpers for cosmic.quicksand.Box.
 ---
 --- Keeps policy composition as plain data: mixins, overlays, and
 --- per-environment overrides all go through `merge(...)` and yield a
@@ -121,11 +121,11 @@ local function merge(...: {string: any}): {string: any}
   return acc
 end
 
-local record JailMergeModule
+local record BoxMergeModule
   merge: function(...: {string: any}): {string: any}
 end
 
-local M: JailMergeModule = {
+local M: BoxMergeModule = {
   merge = merge,
 }
 

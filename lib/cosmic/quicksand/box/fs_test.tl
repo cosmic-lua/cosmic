@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
-local jfs = require("cosmic.quicksand.jail.fs")
+local jfs = require("cosmic.quicksand.box.fs")
 local landlock = require("cosmic.landlock")
 
 local function find_rule(rules: {any}, path: string): {string: any}

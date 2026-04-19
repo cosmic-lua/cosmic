@@ -1,6 +1,6 @@
 --- Network + filesystem process isolation primitives.
 ---
---- cosmic.quicksand is the umbrella for Linux-specific jail assembly:
+--- cosmic.quicksand is the umbrella for Linux-specific box assembly:
 --- network-namespace setup (cosmic.quicksand.netns), an allowlist
 --- HTTP/CONNECT proxy (cosmic.quicksand.proxy), and after-fork process
 --- primitives (cosmic.quicksand.proc). Pair it with the top-level
@@ -9,14 +9,14 @@
 ---
 --- This module (the umbrella) exposes a capability probe so callers
 --- can fail fast with a specific reason instead of bailing partway
---- through setup on ENOSYS. It also re-exports the declarative Jail
---- builder (cosmic.quicksand.jail) that composes the primitives into a
+--- through setup on ENOSYS. It also re-exports the declarative Box
+--- builder (cosmic.quicksand.box) that composes the primitives into a
 --- single run() call.
 ---
 --- Linux-only at runtime. Non-Linux hosts see `capabilities().linux ==
 --- false` and all submodule calls return ENOSYS-shaped errors.
 local sandbox = require("cosmo.sandbox")
-local jail = require("cosmic.quicksand.jail")
+local box = require("cosmic.quicksand.box")
 
 --- Fine-grained feature availability on the current host.
 --- Every field is a boolean. Higher-level helpers use these to fail
@@ -39,7 +39,7 @@ end
 local record QuicksandModule
   capabilities: function(): Capabilities
   is_supported: function(): boolean
-  Jail: any -- re-export of cosmic.quicksand.jail
+  Box: any -- re-export of cosmic.quicksand.box
 end
 
 local cached: Capabilities = nil
@@ -68,7 +68,7 @@ local function capabilities(): Capabilities
   return cached
 end
 
---- True when the namespace-based jail primitives can do real work
+--- True when the namespace-based box primitives can do real work
 --- (Linux host with net + mount namespaces). Kept for backwards
 --- compatibility with cosmo.sandbox.is_supported(); prefer
 --- capabilities() for fine-grained checks.
@@ -80,7 +80,7 @@ end
 local M: QuicksandModule = {
   capabilities = capabilities,
   is_supported = is_supported,
-  Jail = jail,
+  Box = box,
 }
 
 return M

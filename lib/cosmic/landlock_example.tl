@@ -5,7 +5,7 @@
 --- kernel support that varies by host.
 
 -- Example_available demonstrates the capability probe. Applications
--- should gate jail setup on available() so they degrade cleanly on
+-- should gate box setup on available() so they degrade cleanly on
 -- kernels older than 5.13 and on non-Linux hosts. This example prints
 -- a different line depending on whether landlock is supported, so no
 -- output check is attached.

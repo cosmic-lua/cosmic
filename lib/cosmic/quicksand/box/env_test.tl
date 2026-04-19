@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
-local jenv = require("cosmic.quicksand.jail.env")
+local jenv = require("cosmic.quicksand.box.env")
 
 local function test_keep_filters_parent()
   local parent: {string: string} = {PATH = "/bin", HOME = "/h", SECRET = "s"}
