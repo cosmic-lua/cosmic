@@ -1,6 +1,6 @@
 # merge
 
- Pure table-merge helpers for cosmic.quicksand.Jail.
+ Pure table-merge helpers for cosmic.quicksand.Box.
 
  Keeps policy composition as plain data: mixins, overlays, and
  per-environment overrides all go through `merge(...)` and yield a
@@ -24,7 +24,7 @@
 
 ### Schema
 
- Pure table-merge helpers for cosmic.quicksand.Jail.
+ Pure table-merge helpers for cosmic.quicksand.Box.
  Keeps policy composition as plain data: mixins, overlays, and
  per-environment overrides all go through `merge(...)` and yield a
  new policy table. No syscalls, no side effects.
@@ -47,10 +47,10 @@ local record Schema
 end
 ```
 
-### JailMergeModule
+### BoxMergeModule
 
 ```teal
-local record JailMergeModule
+local record BoxMergeModule
   merge: function(...: {string: any}): {string: any}
 end
 ```

@@ -2,7 +2,7 @@
 
  Network + filesystem process isolation primitives.
 
- cosmic.quicksand is the umbrella for Linux-specific jail assembly:
+ cosmic.quicksand is the umbrella for Linux-specific box assembly:
  network-namespace setup (cosmic.quicksand.netns), an allowlist
  HTTP/CONNECT proxy (cosmic.quicksand.proxy), and after-fork process
  primitives (cosmic.quicksand.proc). Pair it with the top-level
@@ -11,8 +11,8 @@
 
  This module (the umbrella) exposes a capability probe so callers
  can fail fast with a specific reason instead of bailing partway
- through setup on ENOSYS. It also re-exports the declarative Jail
- builder (cosmic.quicksand.jail) that composes the primitives into a
+ through setup on ENOSYS. It also re-exports the declarative Box
+ builder (cosmic.quicksand.box) that composes the primitives into a
  single run() call.
 
  Linux-only at runtime. Non-Linux hosts see `capabilities().linux ==
@@ -49,7 +49,7 @@ end
 local record QuicksandModule
   capabilities: function(): Capabilities
   is_supported: function(): boolean
-  Jail: any
+  Box: any
 end
 ```
 
@@ -72,7 +72,7 @@ function capabilities(): Capabilities
 function is_supported(): boolean
 ```
 
- True when the namespace-based jail primitives can do real work
+ True when the namespace-based box primitives can do real work
  (Linux host with net + mount namespaces). Kept for backwards
  compatibility with cosmo.sandbox.is_supported(); prefer
  capabilities() for fine-grained checks.

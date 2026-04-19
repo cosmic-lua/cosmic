@@ -1,9 +1,9 @@
 # env
 
- Pure env-policy helpers for cosmic.quicksand.Jail.
+ Pure env-policy helpers for cosmic.quicksand.Box.
 
  Given an env policy (`keep` list, `set` map) and the parent
- environment, return the env dict the jailed workload should see.
+ environment, return the env dict the boxed workload should see.
 
  Semantics:
    keep   list of variable names to inherit from the parent
@@ -21,9 +21,9 @@
 
 ### EnvOpts
 
- Pure env-policy helpers for cosmic.quicksand.Jail.
+ Pure env-policy helpers for cosmic.quicksand.Box.
  Given an env policy (`keep` list, `set` map) and the parent
- environment, return the env dict the jailed workload should see.
+ environment, return the env dict the boxed workload should see.
  Semantics:
    keep   list of variable names to inherit from the parent
           environment. Variables not in keep are dropped.
@@ -41,10 +41,10 @@ local record EnvOpts
 end
 ```
 
-### JailEnvModule
+### BoxEnvModule
 
 ```teal
-local record JailEnvModule
+local record BoxEnvModule
   apply: function(opts: EnvOpts, parent: {string: string}): {string: string}
   render: function(env: {string: string}): {string}
 end

@@ -1,28 +1,28 @@
 # init
 
- Declarative jail builder.
+ Declarative box builder.
 
  Composes the quicksand primitives (netns, proxy, proc) plus
- cosmic.landlock / cosmic.pledge into a single `jail:run(argv)` call
+ cosmic.landlock / cosmic.pledge into a single `box:run(argv)` call
  that returns an exit code.
 
  Usage:
 
      local quicksand = require("cosmic.quicksand")
-     local jail = quicksand.Jail.new{
+     local box = quicksand.Box.new{
        fs = { ro = { "/usr" }, rw = { "/tmp" } },
        net = { allow = { ["api.example.com:443"] = {} } },
        proc = { no_new_privs = true },
        cwd = "/tmp",
      }
-     os.exit(assert(jail:run({ "/usr/bin/bash", "-c", "make test" })))
+     os.exit(assert(box:run({ "/usr/bin/bash", "-c", "make test" })))
 
- Options are plain tables, composable with `Jail.merge(base, over)`.
- Full schema in `JailOpts` below.
+ Options are plain tables, composable with `Box.merge(base, over)`.
+ Full schema in `BoxOpts` below.
 
  The capability probe is loaded lazily to avoid a require cycle with
- cosmic.quicksand (which re-exports Jail from its umbrella). The
- fork / exec orchestration lives in cosmic.quicksand.jail.run and is
+ cosmic.quicksand (which re-exports Box from its umbrella). The
+ fork / exec orchestration lives in cosmic.quicksand.box.run and is
  required on demand from `run()` so construction stays cheap.
 
 ## Types
@@ -93,14 +93,14 @@ local record EnvOpts
 end
 ```
 
-### JailOpts
+### BoxOpts
 
- Full jail policy. Every field is optional; omitting a section skips
+ Full box policy. Every field is optional; omitting a section skips
  that subsystem. Scalars default to nil (i.e. no policy); list fields
  default to empty.
 
 ```teal
-local record JailOpts
+local record BoxOpts
   hostname: string
   fs: FsOpts
   net: NetOpts
@@ -110,18 +110,18 @@ local record JailOpts
 end
 ```
 
-### Jail
+### Box
 
- Jail instance. `run(argv)` returns an integer exit code on success
+ Box instance. `run(argv)` returns an integer exit code on success
  or nil + error on failure. `close()` releases any parent-held
  resources; idempotent and safe to call after `run`.
 
 ```teal
-local record Jail
-  opts: JailOpts
+local record Box
+  opts: BoxOpts
   _closed: boolean
-  run: function(self: Jail, argv: {string}): integer, string
-  close: function(self: Jail): boolean
+  run: function(self: Box, argv: {string}): integer, string
+  close: function(self: Box): boolean
 end
 ```
 
@@ -133,12 +133,12 @@ local record RunModule
 end
 ```
 
-### JailModule
+### BoxModule
 
 ```teal
-local record JailModule
-  new: function(opts?: JailOpts): Jail, string
-  merge: function(...: JailOpts): JailOpts
+local record BoxModule
+  new: function(opts?: BoxOpts): Box, string
+  merge: function(...: BoxOpts): BoxOpts
 end
 ```
 
@@ -147,42 +147,42 @@ end
 ### run
 
 ```teal
-function run(self: Jail, argv: {string}): integer, string
+function run(self: Box, argv: {string}): integer, string
 ```
 
 ### new
 
 ```teal
-function new(opts?: JailOpts): Jail, string
+function new(opts?: BoxOpts): Box, string
 ```
 
- Build a Jail from an options table. Validates structural shape; a
+ Build a Box from an options table. Validates structural shape; a
  bad `opts` returns nil + error without touching syscalls.
 
 **Parameters:**
 
-- `opts` (JailOpts?) - policy (all fields optional)
+- `opts` (BoxOpts?) - policy (all fields optional)
 
 **Returns:**
 
-- Jail? - jail instance on success
+- Box? - box instance on success
 - string? - error message on failure
 
 ### merge
 
 ```teal
-function merge(...: JailOpts): JailOpts
+function merge(...: BoxOpts): BoxOpts
 ```
 
  Compose policy tables left-to-right. Scalars: later wins. Lists
  (fs.ro, fs.rw, fs.exec, fs.deny, env.keep): concat + dedupe. Maps
  (net.allow, env.set): per-key later wins. Returns a fresh table
- suitable for `Jail.new`.
+ suitable for `Box.new`.
 
 **Parameters:**
 
-- `...` (JailOpts) - policy tables; nil entries are skipped
+- `...` (BoxOpts) - policy tables; nil entries are skipped
 
 **Returns:**
 
-- JailOpts - merged policy
+- BoxOpts - merged policy

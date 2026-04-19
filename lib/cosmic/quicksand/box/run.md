@@ -1,8 +1,8 @@
 # run
 
- Fork / unshare / exec orchestration for cosmic.quicksand.Jail:run.
+ Fork / unshare / exec orchestration for cosmic.quicksand.Box:run.
 
- Pulled in lazily by jail/init.tl so that hosts using only new() /
+ Pulled in lazily by box/init.tl so that hosts using only new() /
  merge() / close() don't load the entire sandbox plumbing on require.
 
  Flow:
@@ -24,10 +24,10 @@
 
 ## Types
 
-### JailRunModule
+### BoxRunModule
 
 ```teal
-local record JailRunModule
+local record BoxRunModule
   run: function(opts: {string: any}, argv: {string}): integer, string
 end
 ```
@@ -40,6 +40,6 @@ end
 function run(opts: {string: any}, argv: {string}): integer, string
 ```
 
- Fork+orchestrate a Jail policy around argv. Returns an integer exit
+ Fork+orchestrate a Box policy around argv. Returns an integer exit
  code on success, or nil + string when setup itself failed before the
  fork (e.g. couldn't open the parent netns fd).

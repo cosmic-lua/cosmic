@@ -66,14 +66,14 @@ High-level utilities and tools built on top of cosmo.
 | [pledge](lib/cosmic/pledge.md) |  Restrict the system calls available to the current process. |
 | [poll](lib/cosmic/poll.md) |  Typed interface for polling file descriptors. |
 | [proc](lib/cosmic/proc.md) |  Current process management. |
+| [env](lib/cosmic/quicksand/box/env.md) |  Pure env-policy helpers for cosmic.quicksand.Box. |
+| [fs](lib/cosmic/quicksand/box/fs.md) |  Pure translator: Box `fs` policy → `cosmic.landlock.RestrictOpts`. |
+| [init](lib/cosmic/quicksand/box/init.md) |  Declarative box builder. |
+| [merge](lib/cosmic/quicksand/box/merge.md) |  Pure table-merge helpers for cosmic.quicksand.Box. |
+| [run](lib/cosmic/quicksand/box/run.md) |  Fork / unshare / exec orchestration for cosmic.quicksand.Box:run. |
 | [init](lib/cosmic/quicksand/init.md) |  Network + filesystem process isolation primitives. |
-| [env](lib/cosmic/quicksand/jail/env.md) |  Pure env-policy helpers for cosmic.quicksand.Jail. |
-| [fs](lib/cosmic/quicksand/jail/fs.md) |  Pure translator: Jail `fs` policy → `cosmic.landlock.RestrictOpts`. |
-| [init](lib/cosmic/quicksand/jail/init.md) |  Declarative jail builder. |
-| [merge](lib/cosmic/quicksand/jail/merge.md) |  Pure table-merge helpers for cosmic.quicksand.Jail. |
-| [run](lib/cosmic/quicksand/jail/run.md) |  Fork / unshare / exec orchestration for cosmic.quicksand.Jail:run. |
 | [netns](lib/cosmic/quicksand/netns.md) |  Linux network-namespace primitives. |
-| [proc](lib/cosmic/quicksand/proc.md) |  Process-setup primitives for jail assembly. |
+| [proc](lib/cosmic/quicksand/proc.md) |  Process-setup primitives for box assembly. |
 | [proxy](lib/cosmic/quicksand/proxy.md) |  Allowlist HTTP CONNECT + plain-HTTP proxy for sandboxed egress. |
 | [rand](lib/cosmic/rand.md) |  Random number generation. |
 | [re](lib/cosmic/re.md) |  Regular expression matching using POSIX extended regex syntax. |
