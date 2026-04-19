@@ -1,12 +1,12 @@
 -- type declarations for cosmo.sandbox.fs
 --
 -- Raw cosmo.sandbox.fs surface — filesystem primitives for building a
--- mount-based jail root. These wrap Linux mount(2) / pivot_root(2) /
+-- mount-based box root. These wrap Linux mount(2) / pivot_root(2) /
 -- umount2(2) with opinionated defaults. Intended to be called from a
 -- child that has already CLONE_NEWNS'd its mount namespace.
 --
 -- cosmic does not yet ship a public wrapper over these; they surface
--- through cosmic.quicksand.Jail as implementation details.
+-- through cosmic.quicksand.Box as implementation details.
 
 local record fs
   --- Directory mode 0755.

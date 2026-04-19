@@ -53,7 +53,7 @@ local sqlite = require("cosmic.sqlite")
 | `cosmic.pledge` | restrict system calls on OpenBSD and Linux |
 | `cosmic.unveil` | restrict filesystem visibility on OpenBSD |
 | `cosmic.landlock` | Linux >=5.13 self-restricting filesystem sandbox |
-| `cosmic.quicksand` | Linux namespace + allowlist proxy jail primitives and declarative `Jail` builder |
+| `cosmic.quicksand` | Linux namespace + allowlist proxy box primitives and declarative `Box` builder |
 
 ### Process
 
@@ -240,25 +240,25 @@ sock:close()
 
 ### Sandboxing
 
-`cosmic.quicksand.Jail` composes the Linux namespace primitives,
+`cosmic.quicksand.Box` composes the Linux namespace primitives,
 landlock, pledge, and an allowlist HTTP proxy into a single declarative
 policy + `run(argv)` call. Policy is a plain table, composable with
-`Jail.merge(base, over)`:
+`Box.merge(base, over)`:
 
 ```teal
 local quicksand = require("cosmic.quicksand")
 
-local jail = assert(quicksand.Jail.new({
+local box = assert(quicksand.Box.new({
   fs   = { ro = {"/usr", "/etc/ssl/certs"}, rw = {"/tmp"} },
   net  = { allow = { ["api.example.com:443"] = {} } },
   proc = { no_new_privs = true, uid = 1000 },
   env  = { keep = {"PATH", "HOME"}, set = { CI = "1" } },
   cwd  = "/tmp",
 }))
-os.exit(assert(jail:run({ "/usr/bin/bash", "-c", "make test" })))
+os.exit(assert(box:run({ "/usr/bin/bash", "-c", "make test" })))
 ```
 
-`Jail.new` validates shape and runs a capability preflight so
+`Box.new` validates shape and runs a capability preflight so
 misconfiguration surfaces before any syscall. `run` forks a supervisor
 that unshares `USER|NET|NS` (+`UTS` if `hostname` is set), writes
 uid/gid maps, brings up loopback, optionally starts the allowlist
@@ -273,7 +273,7 @@ For finer control the underlying primitives are still available:
 - `cosmic.landlock` / `cosmic.pledge` / `cosmic.unveil` for
   self-restriction in the current process
 - `cosmic.quicksand.netns` / `.proc` / `.proxy` for manually assembling
-  a jail
+  a box
 
 ## Documentation
 

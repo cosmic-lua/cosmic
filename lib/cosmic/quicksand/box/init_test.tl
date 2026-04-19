@@ -1,15 +1,15 @@
 #!/usr/bin/env cosmic
-local Jail = require("cosmic.quicksand.jail")
+local Box = require("cosmic.quicksand.box")
 local quicksand = require("cosmic.quicksand")
 
 local function test_module_exports()
-  assert(type(Jail.new) == "function")
-  assert(type(Jail.merge) == "function")
+  assert(type(Box.new) == "function")
+  assert(type(Box.merge) == "function")
 end
 test_module_exports()
 
 local function test_new_empty()
-  local j, err = Jail.new(nil)
+  local j, err = Box.new(nil)
   assert(j, "new(nil) should succeed: " .. tostring(err))
   assert(type(j.run) == "function")
   assert(type(j.close) == "function")
@@ -17,7 +17,7 @@ end
 test_new_empty()
 
 local function test_new_with_opts()
-  local j = assert(Jail.new({
+  local j = assert(Box.new({
         hostname = "work",
         fs = {ro = {"/usr"}, rw = {"/tmp"}},
         net = {allow = {["api.example.com:443"] = {}}},
@@ -32,7 +32,7 @@ test_new_with_opts()
 
 local function test_new_rejects_bad_types()
   -- Escape to raw tables so we can construct deliberately malformed opts.
-  local new_any = Jail.new as function(any): any, any
+  local new_any = Box.new as function(any): any, any
   local cases: {{string: any}} = {
     {opts = {cwd = 5}, want = "cwd"},
     {opts = {hostname = {}}, want = "hostname"},
@@ -51,7 +51,7 @@ end
 test_new_rejects_bad_types()
 
 local function test_run_requires_argv()
-  local j = assert(Jail.new())
+  local j = assert(Box.new())
   local run_any = j.run as function(any, any): any, any
   local code, err = run_any(j, nil)
   assert(code == nil)
@@ -66,7 +66,7 @@ test_run_requires_argv()
 local function test_run_on_non_linux_returns_specific_error()
   local c = quicksand.capabilities()
   if c.linux then return end
-  local j = assert(Jail.new())
+  local j = assert(Box.new())
   local code, err = j:run({"/bin/true"})
   assert(code == nil, "run should fail on non-linux")
   assert(err and (err as string):find("Linux only", 1, true),
@@ -82,7 +82,7 @@ local function test_run_on_linux_returns_clean_shape()
   -- (integer|nil, string|nil) pair rather than a raised error.
   local c = quicksand.capabilities()
   if not c.linux then return end
-  local j = assert(Jail.new())
+  local j = assert(Box.new())
   local code, err = j:run({"/bin/true"})
   if code == nil then
     assert(type(err) == "string", "nil code must come with string err")
@@ -93,7 +93,7 @@ end
 test_run_on_linux_returns_clean_shape()
 
 local function test_run_after_close_fails()
-  local j = assert(Jail.new())
+  local j = assert(Box.new())
   assert(j:close())
   local code, err = j:run({"/bin/true"})
   assert(code == nil)
@@ -102,7 +102,7 @@ end
 test_run_after_close_fails()
 
 local function test_close_idempotent()
-  local j = assert(Jail.new())
+  local j = assert(Box.new())
   assert(j:close())
   assert(j:close(), "second close should be a no-op")
 end
@@ -111,7 +111,7 @@ test_close_idempotent()
 local function test_merge_reexported()
   local a = {fs = {ro = {"/usr"}}}
   local b = {fs = {ro = {"/etc"}, rw = {"/tmp"}}}
-  local out = Jail.merge(a, b)
+  local out = Box.merge(a, b)
   local fs = (out as {string: any}).fs as {string: any}
   local ro = fs.ro as {string}
   assert(#ro == 2 and ro[1] == "/usr" and ro[2] == "/etc")

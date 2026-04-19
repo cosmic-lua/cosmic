@@ -1,8 +1,8 @@
---- Pure translator: Jail `fs` policy → `cosmic.landlock.RestrictOpts`.
+--- Pure translator: Box `fs` policy → `cosmic.landlock.RestrictOpts`.
 ---
---- Keeps the fs → landlock mapping in one place so the Jail orchestrator
+--- Keeps the fs → landlock mapping in one place so the Box orchestrator
 --- stays clear of access-mask juggling. No syscalls; the result is fed
---- into `landlock.restrict{}` in the jailed child.
+--- into `landlock.restrict{}` in the boxed child.
 ---
 --- Policy shape (input):
 ---   fs = {
@@ -83,11 +83,11 @@ local function plan_landlock(fs: FsOpts): RestrictOpts
   }
 end
 
-local record JailFsModule
+local record BoxFsModule
   plan_landlock: function(fs: FsOpts): RestrictOpts
 end
 
-local M: JailFsModule = {
+local M: BoxFsModule = {
   plan_landlock = plan_landlock,
 }
 

@@ -1,10 +1,10 @@
---- Process-setup primitives for jail assembly.
+--- Process-setup primitives for box assembly.
 ---
 --- Typed wrappers over cosmo.sandbox.proc for the "after fork, before
---- exec" work of a jailed child plus the PID-1 supervisor loop used
+--- exec" work of a boxed child plus the PID-1 supervisor loop used
 --- by netns + proxy sidecar topologies. Linux-only.
 ---
---- no_new_privs, drop_privs: call before execve in the jailed child.
+--- no_new_privs, drop_privs: call before execve in the boxed child.
 --- barrier: synchronize parent/child across unshare + /proc/<pid>/ns/
 ---   observation windows.
 --- become_init: run a PID-1 loop that forwards signals, reaps zombies,

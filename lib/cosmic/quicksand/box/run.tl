@@ -1,6 +1,6 @@
---- Fork / unshare / exec orchestration for cosmic.quicksand.Jail:run.
+--- Fork / unshare / exec orchestration for cosmic.quicksand.Box:run.
 ---
---- Pulled in lazily by jail/init.tl so that hosts using only new() /
+--- Pulled in lazily by box/init.tl so that hosts using only new() /
 --- merge() / close() don't load the entire sandbox plumbing on require.
 ---
 --- Flow:
@@ -27,8 +27,8 @@ local qproc = require("cosmic.quicksand.proc")
 local proxy = require("cosmic.quicksand.proxy")
 local landlock = require("cosmic.landlock")
 local pledge = require("cosmic.pledge")
-local jail_fs = require("cosmic.quicksand.jail.fs")
-local jail_env = require("cosmic.quicksand.jail.env")
+local box_fs = require("cosmic.quicksand.box.fs")
+local box_env = require("cosmic.quicksand.box.env")
 local cenv = require("cosmic.env")
 local cio = require("cosmic.io")
 
@@ -37,8 +37,8 @@ local u = unix as {string: any}
 -- Cast the typed-record helpers to `any`-accepting shapes so we can
 -- thread raw {string: any} opt tables through without duplicating every
 -- record definition here.
-local plan_landlock = jail_fs.plan_landlock as function(any): any
-local env_apply = jail_env.apply as function(any, {string: string}): {string: string}
+local plan_landlock = box_fs.plan_landlock as function(any): any
+local env_apply = box_env.apply as function(any, {string: string}): {string: string}
 local ll_restrict = landlock.restrict as function(any): boolean, string
 local proxy_start = proxy.start as function(any): {string: any}, string
 
@@ -57,7 +57,7 @@ local function compute_env(opts: {string: any}): {string}
   if not env_opts then
     return cenv.list()
   end
-  return jail_env.render(env_apply(env_opts, cenv.all()))
+  return box_env.render(env_apply(env_opts, cenv.all()))
 end
 
 local function inject_proxy_env(env_list: {string}, port: integer): {string}
@@ -210,7 +210,7 @@ local function supervisor(
   os.exit(code)
 end
 
---- Fork+orchestrate a Jail policy around argv. Returns an integer exit
+--- Fork+orchestrate a Box policy around argv. Returns an integer exit
 --- code on success, or nil + string when setup itself failed before the
 --- fork (e.g. couldn't open the parent netns fd).
 local function run(opts: {string: any}, argv: {string}): integer, string
@@ -250,11 +250,11 @@ local function run(opts: {string: any}, argv: {string}): integer, string
   return nil, "quicksand: unexpected wait status " .. tostring(status)
 end
 
-local record JailRunModule
+local record BoxRunModule
   run: function(opts: {string: any}, argv: {string}): integer, string
 end
 
-local M: JailRunModule = {
+local M: BoxRunModule = {
   run = run,
 }
 

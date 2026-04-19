@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
-local m = require("cosmic.quicksand.jail.merge")
+local m = require("cosmic.quicksand.box.merge")
 
 local function test_scalar_later_wins()
   local out = m.merge({hostname = "a", cwd = "/x"}, {hostname = "b"})

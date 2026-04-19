@@ -18,7 +18,7 @@
 ---     }
 ---
 --- Requires Linux >= 5.13. `available()` returns false on older kernels
---- and non-Linux hosts; gate jail setup on it. Pairs naturally with
+--- and non-Linux hosts; gate box setup on it. Pairs naturally with
 --- `cosmic.pledge` on Linux and is complementary to `cosmic.quicksand`
 --- network isolation.
 local clandlock = require("cosmo.sandbox.landlock")
@@ -80,7 +80,7 @@ local function abi(): integer, string
   return v
 end
 
---- True when abi() >= 1. Gate jail setup on this.
+--- True when abi() >= 1. Gate box setup on this.
 local function available(): boolean
   return clandlock.available()
 end
