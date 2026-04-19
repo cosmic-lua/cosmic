@@ -3035,6 +3035,25 @@ function gethostname(): string
 
 - string
 
+### sethostname
+
+```teal
+function sethostname(name: string): boolean, Errno
+```
+
+ Sets hostname of system. Requires `CAP_SYS_ADMIN` in the current
+ UTS namespace; typical callers are sandbox builders that first
+ `unshare(CLONE_NEWUTS)`. Returns `(nil, Errno)` on failure.
+
+**Parameters:**
+
+- `name` (string)
+
+**Returns:**
+
+- boolean
+- Errno
+
 ### listen
 
 ```teal
