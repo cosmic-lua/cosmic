@@ -1789,6 +1789,10 @@ local record unix
   poll: function(fds: {number: number}, timeoutms?: number): {number: number}
   --- Returns hostname of system.
   gethostname: function(): string
+  --- Sets hostname of system. Requires `CAP_SYS_ADMIN` in the current
+  --- UTS namespace; typical callers are sandbox builders that first
+  --- `unshare(CLONE_NEWUTS)`. Returns `(nil, Errno)` on failure.
+  sethostname: function(name: string): boolean, Errno
   --- Begins listening for incoming connections on a socket.
   listen: function(fd: number, backlog?: number): boolean
   --- Accepts new client socket descriptor for a listening tcp socket.
