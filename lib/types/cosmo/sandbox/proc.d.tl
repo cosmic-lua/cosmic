@@ -22,6 +22,13 @@ local record proc
   --- If uid == 0, stay root but still clear caps.
   drop_privs: function(uid: integer, gid: integer): boolean, any
 
+  --- Write the current process's /proc/self/{setgroups,uid_map,gid_map}
+  --- to map the outer (uid, gid) to themselves inside a newly-created
+  --- user namespace. Must be called from the child after unshare(CLONE_NEWUSER)
+  --- and before any operation that requires credentials in the new
+  --- namespace. Passing nil for uid / gid keeps the caller's real id.
+  setup_userns_maps: function(uid?: integer, gid?: integer): boolean, any
+
   --- Pipe-backed one-shot fork-sync barrier.
   barrier: function(): Barrier, any
 

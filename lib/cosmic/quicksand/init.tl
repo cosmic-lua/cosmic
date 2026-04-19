@@ -9,11 +9,14 @@
 ---
 --- This module (the umbrella) exposes a capability probe so callers
 --- can fail fast with a specific reason instead of bailing partway
---- through setup on ENOSYS.
+--- through setup on ENOSYS. It also re-exports the declarative Jail
+--- builder (cosmic.quicksand.jail) that composes the primitives into a
+--- single run() call.
 ---
 --- Linux-only at runtime. Non-Linux hosts see `capabilities().linux ==
 --- false` and all submodule calls return ENOSYS-shaped errors.
 local sandbox = require("cosmo.sandbox")
+local jail = require("cosmic.quicksand.jail")
 
 --- Fine-grained feature availability on the current host.
 --- Every field is a boolean. Higher-level helpers use these to fail
@@ -36,6 +39,7 @@ end
 local record QuicksandModule
   capabilities: function(): Capabilities
   is_supported: function(): boolean
+  Jail: any -- re-export of cosmic.quicksand.jail
 end
 
 local cached: Capabilities = nil
@@ -76,6 +80,7 @@ end
 local M: QuicksandModule = {
   capabilities = capabilities,
   is_supported = is_supported,
+  Jail = jail,
 }
 
 return M

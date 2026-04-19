@@ -133,6 +133,19 @@ export NO_COLOR := 1
 # Test rule: execute test via cosmic --test command
 $(o)/%.tl.test.got: .PLEDGE = stdio rpath wpath cpath proc exec
 $(o)/%.tl.test.got: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null
+
+# Namespace-exercising tests need to call unshare(CLONE_NEWUSER|NEWNET|...)
+# and write /proc/self/{uid,gid}_map. No pledge promise covers unshare,
+# and /proc/self needs write access for the id-map bootstrap, so drop
+# pledge and broaden unveil for these specific tests. Everything else
+# keeps the tight default above.
+quicksand_sandbox_tests := \
+  $(o)/lib/cosmic/quicksand/netns_test.tl.test.got \
+  $(o)/lib/cosmic/quicksand/proxy_test.tl.test.got \
+  $(o)/lib/cosmic/quicksand/jail/run_test.tl.test.got
+$(quicksand_sandbox_tests): .PLEDGE =
+$(quicksand_sandbox_tests): .UNVEIL =
+
 $(o)/%.tl.test.got: $(o)/%.lua $(test_files) $(o)/bin/cosmic | $(cosmic_bin)
 	@mkdir -p $(@D)
 	@TEST_DIR=$(TEST_DIR) PATH=$(CURDIR)/$(o)/bin:$$PATH $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<

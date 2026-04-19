@@ -44,3 +44,11 @@ local function test_is_supported_matches_capabilities()
     "is_supported() must agree with capabilities().linux/net_ns/mount_ns")
 end
 test_is_supported_matches_capabilities()
+
+local function test_jail_reexported()
+  local J = quicksand.Jail as {string: any}
+  assert(J, "Jail should be re-exported from cosmic.quicksand")
+  assert(type(J.new) == "function")
+  assert(type(J.merge) == "function")
+end
+test_jail_reexported()
