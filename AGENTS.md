@@ -213,7 +213,7 @@ all modules are under `lib/cosmic/` and imported as `cosmic.*`:
 | pledge | restrict system calls (OpenBSD, Linux) |
 | unveil | restrict filesystem visibility (OpenBSD) |
 | landlock | Linux >=5.13 self-restricting filesystem sandbox |
-| quicksand | Linux netns + allowlist proxy jail primitives |
+| quicksand | Linux namespace + allowlist proxy jail primitives and declarative `Jail` builder |
 | shm | shared memory with atomic ops and futexes |
 | signal | signal handling, timers, sigsets |
 | sqlite | SQLite with ergonomic query/exec/transaction API |

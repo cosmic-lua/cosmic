@@ -53,7 +53,7 @@ local sqlite = require("cosmic.sqlite")
 | `cosmic.pledge` | restrict system calls on OpenBSD and Linux |
 | `cosmic.unveil` | restrict filesystem visibility on OpenBSD |
 | `cosmic.landlock` | Linux >=5.13 self-restricting filesystem sandbox |
-| `cosmic.quicksand` | Linux network-namespace + allowlist proxy jail primitives |
+| `cosmic.quicksand` | Linux namespace + allowlist proxy jail primitives and declarative `Jail` builder |
 
 ### Process
 
@@ -237,6 +237,43 @@ sock:send("GET / HTTP/1.0\r\n\r\n")
 local response = sock:recv(4096)
 sock:close()
 ```
+
+### Sandboxing
+
+`cosmic.quicksand.Jail` composes the Linux namespace primitives,
+landlock, pledge, and an allowlist HTTP proxy into a single declarative
+policy + `run(argv)` call. Policy is a plain table, composable with
+`Jail.merge(base, over)`:
+
+```teal
+local quicksand = require("cosmic.quicksand")
+
+local jail = assert(quicksand.Jail.new({
+  fs   = { ro = {"/usr", "/etc/ssl/certs"}, rw = {"/tmp"} },
+  net  = { allow = { ["api.example.com:443"] = {} } },
+  proc = { no_new_privs = true, uid = 1000 },
+  env  = { keep = {"PATH", "HOME"}, set = { CI = "1" } },
+  cwd  = "/tmp",
+}))
+os.exit(assert(jail:run({ "/usr/bin/bash", "-c", "make test" })))
+```
+
+`Jail.new` validates shape and runs a capability preflight so
+misconfiguration surfaces before any syscall. `run` forks a supervisor
+that unshares `USER|NET|NS` (+`UTS` if `hostname` is set), writes
+uid/gid maps, brings up loopback, optionally starts the allowlist
+proxy (injecting `HTTP(S)_PROXY` into the workload env unless
+`net.proxy_env == false`), then forks the workload which applies
+landlock, no_new_privs, drop_privs, pledge, chdir and `execvpe(argv,
+env)`. The returned integer is the workload's exit code (or
+`128+signo` on signal).
+
+For finer control the underlying primitives are still available:
+
+- `cosmic.landlock` / `cosmic.pledge` / `cosmic.unveil` for
+  self-restriction in the current process
+- `cosmic.quicksand.netns` / `.proc` / `.proxy` for manually assembling
+  a jail
 
 ## Documentation
 
