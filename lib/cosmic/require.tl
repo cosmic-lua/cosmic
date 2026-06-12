@@ -7,29 +7,6 @@ local fuzzy = original_require("cosmic.fuzzy")
 --- Cached module mapping, built lazily on first use.
 local module_map: {string: string} = nil
 
---- Build module mapping from package.preload.
---- Maps short names to full module names (e.g., "argon2" -> "cosmo.argon2").
-local function build_module_map(): {string: string}
-  if module_map then
-    return module_map
-  end
-
-  module_map = {}
-
-  -- Scan package.preload for cosmo.* and cosmic.* modules
-  for name, _ in pairs(package.preload) do
-    local short = name:match("^cosmo%.(.+)$") or name:match("^cosmic%.(.+)$")
-    if short and not short:match("%.") then
-      -- Only map top-level modules (not submodules like cosmo.foo.bar)
-      if not module_map[short] then
-        module_map[short] = name
-      end
-    end
-  end
-
-  return module_map
-end
-
 --- Check if a module exists without loading it.
 --- @param name string Module name to check
 --- @return boolean True if module can be loaded
@@ -49,6 +26,52 @@ local function module_exists(name: string): boolean
   return false
 end
 
+--- Build module mapping from package.preload and package.path.
+--- Maps short names to full module names (e.g., "argon2" -> "cosmo.argon2",
+--- "json" -> "cosmic.json").
+--- Probes known cosmic.* module names so fuzzy matching covers modules loaded
+--- from disk as well (e.g., "cosmic.jsn" -> "cosmic.json").
+local function build_module_map(): {string: string}
+  if module_map then
+    return module_map
+  end
+
+  module_map = {}
+
+  -- Scan package.preload for cosmo.* and cosmic.* modules
+  for name, _ in pairs(package.preload) do
+    local short = name:match("^cosmo%.(.+)$") or name:match("^cosmic%.(.+)$")
+    if short and not short:match("%.") then
+      -- Only map top-level modules (not submodules like cosmo.foo.bar)
+      if not module_map[short] then
+        module_map[short] = name
+      end
+    end
+  end
+
+  -- Probe known cosmic module short names via package.path to cover modules
+  -- that live on disk rather than in package.preload (e.g., cosmic.json).
+  -- This list mirrors the standard library table in CLAUDE.md.
+  local known_cosmic: {string} = {
+    "args", "benchmark", "child", "codec", "compress", "doc", "docs",
+    "embed", "env", "envd", "example", "fetch", "format", "fs", "fuzzy",
+    "getopt", "hash", "html", "io", "ip", "json", "landlock", "net",
+    "pledge", "poll", "proc", "quicksand", "rand", "re", "require",
+    "shm", "signal", "sqlite", "sse", "string", "sys", "syslog", "teal",
+    "testrun", "time", "tty", "unveil", "url", "user", "uuid", "zip",
+  }
+  for _, short_name in ipairs(known_cosmic) do
+    if not module_map[short_name] then
+      local full = "cosmic." .. short_name
+      if module_exists(full) then
+        module_map[short_name] = full
+      end
+    end
+  end
+
+  return module_map
+end
+
 --- Find similar modules using Levenshtein distance.
 --- @param name string The requested module name
 --- @param max_distance integer Maximum edit distance to consider (default 3)
@@ -57,31 +80,35 @@ local function find_similar(name: string, max_distance?: integer): {string}
   max_distance = max_distance or 3
   local results: {{string, integer}} = {} -- {full_name, distance}
 
-  -- Check against all known short module names
+  -- Collect all known full module names (from module_map values and preload)
+  -- to avoid duplicate work in inner loops.
+  local seen_full: {string: boolean} = {}
+  local candidates: {{string, string}} = {} -- {full_name, short_name_or_full}
+
   for short, full in pairs(build_module_map()) do
-    local dist = fuzzy.levenshtein(name:lower(), short:lower())
-    if dist <= max_distance then
-      table.insert(results, {full, dist})
+    if not seen_full[full] then
+      seen_full[full] = true
+      table.insert(candidates, {full, short})
+    end
+  end
+  for full, _ in pairs(package.preload) do
+    if (full:match("^cosmo%.") or full:match("^cosmic%.")) and not seen_full[full] then
+      seen_full[full] = true
+      table.insert(candidates, {full, full})
     end
   end
 
-  -- Also check full module names in package.preload
-  for full, _ in pairs(package.preload) do
-    if full:match("^cosmo%.") or full:match("^cosmic%.") then
-      local dist = fuzzy.levenshtein(name:lower(), full:lower())
-      if dist <= max_distance then
-        -- Avoid duplicates
-        local dominated = false
-        for _, r in ipairs(results) do
-          if r[1] == full then
-            dominated = true
-            break
-          end
-        end
-        if not dominated then
-          table.insert(results, {full, dist})
-        end
-      end
+  -- Compare against both the short name and the full qualified name.
+  -- This catches typos in either the prefix (e.g. "cosm.json") or the
+  -- suffix (e.g. "cosmic.jsn" -> "cosmic.json", distance 1).
+  for _, pair in ipairs(candidates) do
+    local full = pair[1]
+    local short = pair[2]
+    local dist_short = fuzzy.levenshtein(name:lower(), short:lower())
+    local dist_full = fuzzy.levenshtein(name:lower(), full:lower())
+    local dist = math.min(dist_short, dist_full)
+    if dist <= max_distance then
+      table.insert(results, {full, dist})
     end
   end
 
@@ -161,17 +188,23 @@ local function format_error(name: string): string
 end
 
 --- Check if error message indicates module not found.
+--- Matches both Lua's "module 'x' not found" and Teal loader's
+--- "module not found: 'x'" formats.
 --- @param err string Error message
 --- @return boolean True if this is a module-not-found error
 local function is_module_not_found(err: string): boolean
   return err:match("module '[^']+' not found") ~= nil
+  or err:match("module not found: '[^']+'") ~= nil
 end
 
 --- Extract module name from require error.
+--- Handles both Lua's "module 'x' not found" and Teal loader's
+--- "module not found: 'x'" formats.
 --- @param err string Error message
 --- @return string Module name, or nil if not found
 local function extract_module_name(err: string): string
   return err:match("module '([^']+)' not found")
+  or err:match("module not found: '([^']+)'")
 end
 
 --- Enhanced require function that provides helpful suggestions.
