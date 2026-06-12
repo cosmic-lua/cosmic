@@ -200,3 +200,46 @@ Fixes observed working in the wild (not just in unit tests):
    `child.Pipe.fd` is a field while `io.Handle:fd()` is a method; document
    local `require` resolution in `guide.modules` (it is in `gotchas` but
    one agent looked in `modules`).
+
+---
+
+# Round 3 — backlog fixes
+
+All seven surviving findings were addressed (commit `1f0926c`). Sub-agent
+capacity was unavailable for this round, so changes were implemented and
+verified directly against a rebuilt binary rather than via a fresh
+clean-room run.
+
+1. **Nested record types resolve in `--docs`.**
+   `cosmic --docs cosmic.fs_types.WalkStat` now renders the WalkStat record
+   with its doc comment and methods. Root cause was deeper than lookup: the
+   doc parser flattened nested `record X ... end` blocks into the parent
+   record, so WalkStat never existed in the index and module pages showed
+   one misattributed blob. Nested records are now parsed as their own
+   entries (`doc.tl`), record names participate in cross-module
+   did-you-mean (`cosmic --docs cosmic.fs.WalkStat` → "Did you mean?
+   cosmic --docs cosmic.fs_types.WalkStat"), and symbol-not-found lists the
+   module's available symbols inline instead of telling the agent to go
+   look. Lookup helpers moved to a new `docs_lookup.tl` (500-line cap).
+2. **`arg` layout documented** in `cosmic.proc` docs and `guide.gotchas`
+   entry 7 (`arg[-1]` = interpreter path, `arg[0]` = `/zip/main.lua`,
+   `rawget(arg, -1) as string` for strict mode).
+3. **`--fix <file>` formats in place**; the `--check-format` hint now says
+   `run 'cosmic --fix <file>' to fix in place`. The formatting guide's
+   previous in-place recipe documented a flag order that did not work; it
+   is replaced.
+4. **`--help` points to `guide.gotchas`** in the Documentation section.
+5. **Formatter rules documented in `guide.formatting`** — derived
+   empirically: no spaces inside table braces, call-argument table
+   constructors and anonymous-function bodies indent two levels with the
+   closer one level in.
+6. **`--report` shows per-file test-function counts** — `--test` records
+   `test_*` definitions from the `*_test.tl` source to `<out>.tests`;
+   passing checks render as `✓ foo (14 test functions)`.
+7. **Smaller items:** sqlite `LIKE` example (`%` wildcard noted),
+   `ip.parse("127.0.0.1")` cross-referenced from `net.connect_tcp`/
+   `listen_tcp` docs, `child.Pipe.fd` field-vs-method note.
+
+New backlog candidate observed during this round: `fetch_example.tl`
+examples depend on httpbin.org and fail intermittently in CI; examples
+should avoid third-party services (e.g. spin up a local listener).
