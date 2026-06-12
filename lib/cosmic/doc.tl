@@ -348,7 +348,7 @@ local function serialize_index(index: DocIndex): string
 end
 
 local function load_index(source: string): DocIndex, string
-  local chunk, err = load("return " .. source)
+  local chunk, err = load("return " .. source, "=docindex", "t", {})
   if not chunk then return nil, "failed to parse index: " .. (err or "unknown") end
   local ok, result = pcall(chunk)
   if not ok then return nil, "failed to load index: " .. tostring(result) end
