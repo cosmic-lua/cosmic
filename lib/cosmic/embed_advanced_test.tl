@@ -6,6 +6,7 @@ local unix = require("cosmo.unix")
 local spawn = require("cosmic.child")
 local cosmo = require("cosmo")
 local zip = require("cosmo.zip")
+local embed = require("cosmic.embed")
 
 local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
@@ -21,6 +22,12 @@ end
 -- Stat record for file metadata
 local record Stat
   mode: number
+end
+
+-- Writer interface for crafting test archives
+local record Writer
+  add: function(self: Writer, name: string, content: string): boolean, string
+  close: function(self: Writer)
 end
 
 local function write_temp(name: string, content: string): string
@@ -282,5 +289,34 @@ io.write("OK:" .. #result)
   assert(stdout and (stdout as string):match("^OK:"), "process should print OK, got: " .. tostring(stdout))
 end
 test_embed_does_not_corrupt_running_process()
+
+-- Test --extract rejects archive entries that escape the output directory
+-- (zip-slip). A crafted archive with a "../" entry must not write outside
+-- the target directory.
+local function test_extract_rejects_path_traversal()
+  -- cosmic's own zip writer refuses ".." names, so simulate an archive
+  -- produced by another tool: write a same-length placeholder name and
+  -- byte-patch it to a traversal name (no offsets change, so the zip stays
+  -- valid). "XX/escaped.txt" -> "../escaped.txt".
+  local safe = path.join(tmpdir, "patched.zip")
+  local w = zip.open(safe, "w") as Writer
+  assert(w, "should open zip for writing")
+  w:add("XX/escaped.txt", "pwned")
+  w:close()
+  local raw = cosmo.Slurp(safe)
+  local patched = (raw as string):gsub("XX/escaped%.txt", "../escaped.txt")
+  local malicious = path.join(tmpdir, "malicious.zip")
+  cosmo.Barf(malicious, patched)
+
+  local outdir = path.join(tmpdir, "extract-target")
+  local result = embed.extract(outdir, malicious)
+  assert(not result.ok, "extract should reject path traversal entry")
+  assert(result.message:match("unsafe path"), "expected unsafe path error, got: " .. result.message)
+
+  -- The escaping file must not have been written next to the target dir.
+  local escaped = path.join(tmpdir, "escaped.txt")
+  assert(not path.isfile(escaped), "traversal file should not be written outside target")
+end
+test_extract_rejects_path_traversal()
 
 print("All embed tests passed!")

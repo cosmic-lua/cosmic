@@ -5,6 +5,25 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MAKE_BIN="${SCRIPT_DIR}/cosmo-make"
 RELEASE_URL="https://github.com/whilp/cosmopolitan/releases/download/2026.01.04-bc03f9aa8/make"
+# SHA-256 of the landlock-make binary. This binary is executed with full
+# control over the build, so verify its integrity before running it. Update
+# this when bumping RELEASE_URL.
+MAKE_SHA256="c7c8e7f09a1ed51d875bd6b3b1048e9faeb9d76cb3c7eedf01e153cced4a9373"
+
+verify_sha256() {
+    # Usage: verify_sha256 <file> <expected-hex>. Returns non-zero on mismatch.
+    file="$1"
+    expected="$2"
+    if command -v sha256sum >/dev/null 2>&1; then
+        actual="$(sha256sum "${file}" | cut -d' ' -f1)"
+    elif command -v shasum >/dev/null 2>&1; then
+        actual="$(shasum -a 256 "${file}" | cut -d' ' -f1)"
+    else
+        echo "no sha256 tool available to verify ${file}" >&2
+        return 1
+    fi
+    [ "${actual}" = "${expected}" ]
+}
 
 # Download make if it doesn't exist. Retry on transient CDN errors
 # (e.g. 504 Gateway Timeout) that occasionally hit unauthenticated GitHub
@@ -22,6 +41,11 @@ if [ ! -f "${MAKE_BIN}" ]; then
         echo "Retrying landlock-make download (attempt ${attempt})..." >&2
         sleep $((attempt * 5))
     done
+    if ! verify_sha256 "${MAKE_BIN}" "${MAKE_SHA256}"; then
+        echo "landlock-make checksum verification failed; refusing to run" >&2
+        rm -f "${MAKE_BIN}"
+        exit 1
+    fi
     chmod +x "${MAKE_BIN}"
 fi
 

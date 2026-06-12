@@ -202,9 +202,14 @@ local function run(dir?: string, target?: string): boolean, string
     return true, "stdout"
   end
 
-  -- pipe to make
+  -- pipe to make. The target name is interpolated into a shell command, so
+  -- reject anything that isn't a plain make target to avoid shell injection
+  -- (e.g. a target of `; rm -rf ~` would otherwise run arbitrary commands).
   local cmd = "make -f -"
   if target then
+    if not target:match("^[%w._/-]+$") then
+      return false, "invalid make target: " .. target
+    end
     cmd = cmd .. " " .. target
   end
   local p = io.popen(cmd, "w")

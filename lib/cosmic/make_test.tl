@@ -180,6 +180,18 @@ local function test_generate_custom_config()
 end
 test_generate_custom_config()
 
+-- Test run rejects shell metacharacters in the target name. The target is
+-- interpolated into a shell command, so a value like "; rm -rf ~" must be
+-- refused rather than executed.
+local function test_run_rejects_unsafe_target()
+  local test_dir = setup()
+  local ok, err = make.run(test_dir, "all; touch /tmp/pwned")
+  assert(not ok, "run should reject unsafe target")
+  assert(err:match("invalid make target"), "expected invalid target error, got: " .. tostring(err))
+  teardown(test_dir)
+end
+test_run_rejects_unsafe_target()
+
 -- Test generate includes cosmic.mk
 local function test_generate_includes_cosmic_mk()
   local project = {

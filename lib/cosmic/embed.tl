@@ -287,6 +287,13 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
   local count = 0
 
   for _, name in ipairs(entries) do
+    -- Guard against zip-slip: an archive entry with an absolute path or a
+    -- ".." component could otherwise be written outside output_dir.
+    if name:sub(1, 1) == "/" or name:match("^%.%./") or name:match("/%.%./")
+    or name:match("/%.%.$") or name == ".." then
+      reader:close()
+      return {ok = false, message = "error: unsafe path in archive: " .. name, file_count = count}
+    end
     -- Skip directory entries (trailing /)
     if name:sub(-1) == "/" then
       fs.makedirs(fs.join(output_dir, name))
