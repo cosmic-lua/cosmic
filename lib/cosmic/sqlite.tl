@@ -377,15 +377,26 @@ local type RowIter = function(): {string: any}
 
     --- Return the first row matching a query, or nil if no rows match.
     --- Convenience method for single-row lookups.
+    --- The underlying prepared statement is always finalized before returning,
+    --- even when only the first row is consumed, preventing statement leaks.
     function db:query_one(sql: string, ...: any): {string: any}, string
       local iter, err = self:query(sql, ...)
       if not iter then
         return nil, err
       end
+      -- Capture the first row, then drain the iterator so the statement is
+      -- finalized deterministically (returning early from a for-loop leaves
+      -- the iterator open and the prepared statement unfinalized until GC).
+      local first: {string: any} = nil
       for row in iter do
-        return row
+        first = row
+        break
       end
-      return nil
+      -- Drain remaining rows so the wrapping closure calls stmt:close().
+      if first ~= nil then
+        while iter() ~= nil do end
+      end
+      return first
     end
 
     --- Execute fn within a transaction. Calls BEGIN before fn, COMMIT after

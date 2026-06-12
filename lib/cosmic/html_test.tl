@@ -34,3 +34,13 @@ local function test_escape_empty_string()
   assert(result == "", "expected empty string")
 end
 test_escape_empty_string()
+
+-- FIX 7: single quotes must be escaped (important in HTML attribute contexts).
+local function test_escape_single_quote()
+  local result = html.escape("'")
+  assert(result ~= "'", "single quote must be escaped, got bare '")
+  -- Accept either &#39; or &apos;
+  assert(result == "&#39;" or result == "&apos;",
+    "single quote should become &#39; or &apos;, got: " .. result)
+end
+test_escape_single_quote()

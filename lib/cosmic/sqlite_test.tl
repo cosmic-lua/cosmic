@@ -409,3 +409,25 @@ local function test_query_one_invalid_sql()
   db:close()
 end
 test_query_one_invalid_sql()
+
+-- FIX 3: query_one must finalize the prepared statement so db:close() succeeds
+-- and subsequent queries work (statement leak regression test).
+local function test_query_one_close_after_hit()
+  local db, err = sqlite.open(":memory:")
+  assert(db, "should open db: " .. tostring(err))
+  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+  db:exec("INSERT INTO t (name) VALUES ('alice')")
+
+  -- query_one that returns a row — previously leaked the iterator/statement
+  local row = db:query_one("SELECT * FROM t WHERE name = ?", "alice")
+  assert(row ~= nil, "query_one should return a row")
+  assert(row.name == "alice", "row.name should be 'alice'")
+
+  -- A subsequent query must still work (leaked stmt could lock the table)
+  local row2 = db:query_one("SELECT * FROM t WHERE name = ?", "alice")
+  assert(row2 ~= nil, "second query_one should still work after first")
+
+  -- db:close() must succeed without error (lsqlite3 fails if stmts unfinalized)
+  db:close()
+end
+test_query_one_close_after_hit()

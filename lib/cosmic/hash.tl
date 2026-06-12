@@ -16,7 +16,7 @@ local rand = require("cosmic.rand")
 --- Options for password hashing with Argon2.
 --- All fields are optional and have sensible defaults.
 local record HashOptions
-  --- Memory cost in kibibytes (default: 4096, i.e. 4 MiB)
+  --- Memory cost in kibibytes (default: 19456, i.e. 19 MiB per OWASP minimum)
   m_cost: number
   --- Time cost / iterations (default: 3)
   t_cost: number
@@ -62,7 +62,8 @@ local function password(pwd: string, options?: HashOptions): string, string
   local salt = rand.bytes(16)
 
   -- Build config from options
-  local config: argon2.Config = {}
+  -- Default m_cost to 19456 KiB (19 MiB) per OWASP minimum recommendation.
+  local config: argon2.Config = {m_cost = 19456}
   if options then
     if options.m_cost then config.m_cost = options.m_cost end
     if options.t_cost then config.t_cost = options.t_cost end
@@ -86,12 +87,24 @@ local function password(pwd: string, options?: HashOptions): string, string
 end
 
 --- Verify a password against an Argon2 encoded hash.
+--- Returns true on match, false (no error) on clean mismatch, or
+--- false plus an error string when the hash is malformed or the binding
+--- reports an error (e.g. "Decoding failed").
 --- @param encoded string The encoded hash string (from password)
 --- @param pwd string The password to verify
---- @return boolean True if the password matches
-local function verify_password(encoded: string, pwd: string): boolean
-  local ok = argon2.verify(encoded, pwd)
-  return ok == true
+--- @return boolean True if the password matches, false otherwise
+--- @return string? Error message if the hash is malformed or another error occurred
+local function verify_password(encoded: string, pwd: string): boolean, string
+  local ok, err = (argon2.verify as function(string, string): boolean, any)(encoded, pwd)
+  if ok == true then
+    return true
+  end
+  if ok == false then
+    -- Clean mismatch: wrong password, no error.
+    return false
+  end
+  -- ok is nil: the binding reported an error (e.g. malformed hash).
+  return false, tostring(err or "argon2 verify failed")
 end
 
 local record HashModule
@@ -100,7 +113,7 @@ local record HashModule
   sha256: function(data: string): string
   sha256_hex: function(data: string): string
   password: function(pwd: string, options?: HashOptions): string, string
-  verify_password: function(encoded: string, pwd: string): boolean
+  verify_password: function(encoded: string, pwd: string): boolean, string
 end
 
 local M: HashModule = {
