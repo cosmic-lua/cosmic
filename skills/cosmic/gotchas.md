@@ -1,0 +1,136 @@
+# Teal Gotchas for Newcomers
+
+common errors that trip up agents and developers new to Teal. each entry shows the wrong pattern, the error it produces, and the fix.
+
+## 1. integer vs number
+
+Teal distinguishes `integer` from `number`. string indices (`string.sub`, `string.byte`, `table` lookups) and some C bindings require `integer`. arithmetic and C status returns are `number`.
+
+**wrong:**
+```teal
+local n: number = 5
+local s = ("hello"):sub(n, n)  -- error: got number, expected integer
+```
+
+**right:**
+```teal
+-- option A: annotate the literal as integer
+local n: integer = 5
+local s = ("hello"):sub(n, n)
+
+-- option B: convert at call site
+local n: number = some_computation()
+local s = ("hello"):sub(math.tointeger(n), math.tointeger(n))
+```
+
+`WEXITSTATUS` and similar status-decoding functions return `number`, not `integer`:
+```teal
+local code: number = child.WEXITSTATUS(status)
+```
+
+## 2. traversing `any` from json.decode
+
+`json.decode` returns `any`. you cannot index or iterate `any` directly — you must cast to a concrete type first.
+
+**wrong:**
+```teal
+local data = json.decode(input)
+for _, item in ipairs(data) do  -- error: attempting ipairs on something that's not an array: <any type>
+```
+
+**right:**
+```teal
+local data = json.decode(input) as {any}         -- cast to array
+for _, raw in ipairs(data) do
+  local item = raw as {string: any}              -- cast each element
+  print(item["name"] as string)
+end
+```
+
+for nested maps use chained casts:
+```teal
+local obj = json.decode(input) as {string: any}
+local tags = obj["tags"] as {string}
+```
+
+## 3. `arg` elements are `string | nil`
+
+the global `arg` table has type `{string | nil}`. accessing `arg[1]` without a guard may give you `nil`, which causes a type error when used where a `string` is expected.
+
+**wrong:**
+```teal
+local name = arg[1]:upper()  -- error: cannot index nil
+```
+
+**right:**
+```teal
+local name = (arg[1] or "default"):upper()
+
+-- or with an explicit check:
+if not arg[1] then
+  io.stderr:write("usage: myscript <name>\n")
+  os.exit(1)
+end
+local name = (arg[1] as string):upper()
+```
+
+## 4. multi-return capture — `db:query` and similar
+
+functions that return `(iterator, state, initial)` (like `db:query`) cannot be wrapped inside another expression — the extra returns are discarded.
+
+**wrong:**
+```teal
+for row in db:query("SELECT * FROM t"), nil, nil do  -- syntax error / wrong returns
+```
+
+**right:**
+```teal
+for row in db:query("SELECT * FROM t") do
+  print(row.id)
+end
+```
+
+if you need to capture both the iterator and an error return, assign to locals first:
+```teal
+local rows, err = db:query("SELECT * FROM t")
+if not rows then
+  error("query failed: " .. tostring(err))
+end
+for row in rows do
+  print(row.id)
+end
+```
+
+## 5. local modules — `require` path resolution
+
+`require("mymod")` resolves relative to the script's directory, not the current working directory. you do not need a `./` prefix (both work).
+
+```teal
+-- both are equivalent when mymod.tl is in the same directory:
+local m = require("mymod")
+local m2 = require("./mymod")  -- also works
+```
+
+if your module is in a subdirectory:
+```teal
+local m = require("subdir.mymod")   -- loads subdir/mymod.tl
+```
+
+## 6. naming `cosmic.io` as `io`
+
+`require("cosmic.io")` returns the cosmic.io module. if you bind it to a local named `io` you shadow Lua's built-in `io` library and lose access to `io.stderr`, `io.stdin`, `io.stdout`.
+
+**wrong:**
+```teal
+local io = require("cosmic.io")   -- hides io.stderr!
+io.stderr:write("error\n")        -- runtime error: attempt to index nil
+```
+
+**right:**
+```teal
+local cio = require("cosmic.io")  -- keep built-in io accessible
+cio.barf("out.txt", data)
+io.stderr:write("error: " .. msg .. "\n")  -- standard Lua io still works
+```
+
+cosmic.io has no stderr/stdout/stdin handles — use Lua's `io.stderr` directly for stream output.

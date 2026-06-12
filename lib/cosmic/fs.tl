@@ -322,7 +322,11 @@ local record FsModule
   major: function(dev: number): number
   minor: function(dev: number): number
 
-  -- Directory walking
+  -- Directory walking.
+  -- walk visitor signature: visitor(path, name, st, ctx)
+  --   path = full path to the entry (e.g. "dir/sub/file.txt") — do NOT join with name.
+  --   name = basename of the entry (e.g. "file.txt").
+  --   st   = WalkStat (import: local types = require("cosmic.fs_types"); types.WalkStat).
   walk: function < T > (dir: string, visitor: function(string, string, WalkStat, any), ctx?: T): T
   collect: function(dir: string, pattern: string): {string}
   collect_all: function(dir: string): {string: FileInfo}

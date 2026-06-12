@@ -31,4 +31,45 @@ local function Example_spawn_exit_code()
   -- exit code:	0
 end
 
+-- Example_spawn_pipe demonstrates capturing output through an explicit pipe.
+-- This pattern is needed when you want to interleave reads with the child's
+-- execution rather than waiting for it to finish.
+--
+-- Key steps:
+--   1. Create a pipe with cosmic.io.pipe().
+--   2. Pass the write end fd to spawn via opts.stdout.
+--   3. Close the write end in the parent BEFORE reading — otherwise the
+--      reader will block forever waiting for EOF.
+--   4. Read from the read end until EOF.
+--   5. Wait for the child.
+local function Example_spawn_pipe()
+  local child = require("cosmic.child")
+  local cio = require("cosmic.io")
+
+  -- Create a pipe: p.reader and p.writer are cosmic.io Handles.
+  local p, err = cio.pipe()
+  assert(p, "pipe failed: " .. tostring(err))
+
+  -- Spawn echo, redirecting its stdout into the write end of the pipe.
+  local h, serr = child.spawn({"echo", "from pipe"}, {stdout = p.writer:fd()})
+  assert(h, "spawn failed: " .. tostring(serr))
+
+  -- Close the write end in the parent so the reader sees EOF when the child exits.
+  p.writer:close()
+
+  -- Read all output from the read end.
+  local out = p.reader:read()
+  p.reader:close()
+
+  -- Wait for the child to exit.
+  local code = h:wait()
+
+  -- echo adds a trailing newline; strip it before printing
+  io.write(out)
+  print("exit:", code)
+  -- Output:
+  -- from pipe
+  -- exit:	0
+end
+
 return {}

@@ -42,10 +42,12 @@ local record Handle
 end
 
 --- Options for spawning a process.
+--- stdout/stderr: raw fd dup2'd onto fd 1/2; handle fields nil.
+--- Close write end before reading. See Example_spawn_pipe.
 local record Opts
-  stdin: string | number
-  stdout: number
-  stderr: number
+  stdin: string | number -- string piped to stdin, or raw fd dup2'd onto fd 0
+  stdout: number -- raw fd -> fd 1; handle.stdout becomes nil
+  stderr: number -- raw fd -> fd 2; handle.stderr becomes nil
   env: {string}
   cwd: string
 end
@@ -184,8 +186,9 @@ end
 
 -- High-level spawn API --
 
---- Spawns a child process with I/O control.
---- When argv[1] starts with /zip/, uses fexecve.
+--- Spawns a child process with I/O control. Uses fexecve for /zip/ paths.
+--- When Opts.stdout/stderr are fds they are dup2'd into child (handle fields
+--- nil); MUST close the write end before reading. See Example_spawn_pipe.
 --- @param argv {string} Command and arguments
 --- @param opts Opts? Spawn options
 --- @return Handle, string? Process handle or nil + error

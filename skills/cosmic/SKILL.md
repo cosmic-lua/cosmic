@@ -56,6 +56,7 @@ return { greet = greet }
 
 run `cosmic --docs guide.<topic>` or see the files below for deeper coverage:
 
+- [gotchas](gotchas.md) — Teal gotchas for newcomers (integer vs number, any casts, io shadowing)
 - [testing](testing.md) — writing and running tests (`cosmic --test`, assert patterns)
 - [checking](checking.md) — type checking with `cosmic --check-types`
 - [formatting](formatting.md) — code formatting with `cosmic --format` / `--check-format`
