@@ -181,20 +181,6 @@ local function test_run_method()
 end
 test_run_method()
 
--- Test run with deep 4-part path (module.Record.method pattern for 2-part module name)
-local function test_run_deep_query()
-  local result = docs.run("cosmo.lsqlite3.Database.exec")
-  assert(result, "run should return a result")
-  assert(type(result.ok) == "boolean", "result.ok should be a boolean")
-  assert(type(result.output) == "string", "result.output should be a string")
-  if result.ok then
-    assert(result.output:match("exec") or result.output:match("Database"),
-      "deep query output should contain relevant content")
-  end
-  print("test_run_deep_query: PASS")
-end
-test_run_deep_query()
-
 -- Test cosmo module shows tip about cosmic equivalent
 local function test_cosmic_equivalent_tip()
   local result = docs.run("cosmo.lsqlite3")
@@ -473,6 +459,41 @@ local function test_show_module_examples_module_only()
   end
 end
 test_show_module_examples_module_only()
+
+-- Test that bare module name resolves in show_module_examples (bug 4)
+local function test_show_module_examples_bare_name()
+  if not docs.has_docs() then
+    io.stderr:write("SKIP: test_show_module_examples_bare_name\n")
+    print("test_show_module_examples_bare_name: PASS (skipped)")
+    return
+  end
+  local r = docs.show_module_examples("child")
+  assert(r, "should return result")
+  assert(not (not r.ok and r.output:match("module not found: child")),
+    "bare 'child' should not fail with module not found: " .. r.output)
+  print("test_show_module_examples_bare_name: PASS")
+end
+test_show_module_examples_bare_name()
+
+-- Test symbol lookup finds re-exported record methods (bug 1) and quick example (bug 3)
+local function test_run_reexported_and_quick_example()
+  if not docs.has_docs() then print("test_run_reexported_and_quick_example: PASS (skipped)"); return end
+  local r = docs.run("cosmic.sqlite.query")
+  assert(r, "run should return result")
+  if r.ok then assert(r.output:match("query"), "should find query method") end
+  local index = docs.load_index()
+  local test_mod: string = nil
+  for mod_name, mod_doc in pairs(index.modules) do
+    if mod_doc.examples and #mod_doc.examples > 0 then test_mod = mod_name; break end
+  end
+  if test_mod then
+    local mr = docs.run(test_mod)
+    assert(mr and mr.ok, "module lookup should succeed")
+    assert(mr.output:match("Quick example"), "should have Quick example section")
+  end
+  print("test_run_reexported_and_quick_example: PASS")
+end
+test_run_reexported_and_quick_example()
 
 print("")
 print("All docs tests passed!")

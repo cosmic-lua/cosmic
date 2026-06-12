@@ -225,15 +225,29 @@ local function parse(source: string, file_path: string): ModuleDoc
       while field_pos <= #body do
         local fstart, fend, fname, ftype = body:find("%s*([%w_]+)%s*:%s*([^\n]+)", field_pos)
         if not fstart then break end
-        local field_absolute_pos = body_start + fstart
-        local field_doc = extract_doc_comment(source, field_absolute_pos)
-        local _, _, field_description = parse_annotations(field_doc)
-        local clean_type = ftype:match("^%s*(.-)%s*$")
-        if clean_type:match("%-%-%s*.*$") then
-          clean_type = clean_type:gsub("%s*%-%-.*$", "")
+        -- Find the start of the line where fname begins (skip leading whitespace in fstart)
+        local fname_pos = fstart + body:sub(fstart, fend):find(fname, 1, true) - 1
+        local fname_line_start = fname_pos
+        while fname_line_start > 1 and body:byte(fname_line_start - 1) ~= BYTE_NEWLINE do
+          fname_line_start = fname_line_start - 1
         end
-        table.insert(fields, {fname, clean_type, field_description or ""})
+        local line_text = body:sub(fname_line_start, fname_pos - 1)
+        if line_text:match("^%s*%-%-") then
+          field_pos = fend + 1
+          goto continue_field
+        end
+        do
+          local field_absolute_pos = body_start + fname_pos
+          local field_doc = extract_doc_comment(source, field_absolute_pos)
+          local _, _, field_description = parse_annotations(field_doc)
+          local clean_type = ftype:match("^%s*(.-)%s*$")
+          if clean_type:match("%-%-%s*.*$") then
+            clean_type = clean_type:gsub("%s*%-%-.*$", "")
+          end
+          table.insert(fields, {fname, clean_type, field_description or ""})
+        end
         field_pos = fend + 1
+        ::continue_field::
       end
     end
     table.insert(doc.records, {
