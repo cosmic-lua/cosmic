@@ -220,11 +220,19 @@ local function getpass(prompt: string): string, string
   if not original then
     return nil, err
   end
-  -- Read one line; restore terminal before each return path
-  local line = io.stdin:read("l")
-  -- Write newline to stderr since echo is off
+  -- Read one line inside pcall so we always restore the terminal, even if
+  -- io.stdin:read raises an error (e.g. EINTR or a Lua I/O error).
+  local read_ok, line_or_err = pcall(function(): string
+      return io.stdin:read("l")
+    end)
+  -- Write newline to stderr since echo is off (regardless of outcome)
   io.stderr:write("\n")
   restore(0, original)
+  if not read_ok then
+    -- pcall caught an error: line_or_err is the error message
+    return nil, tostring(line_or_err)
+  end
+  local line = line_or_err as string
   if line == nil then
     return nil, "EOF"
   end

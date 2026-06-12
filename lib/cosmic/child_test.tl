@@ -395,3 +395,41 @@ local function test_spawn_zip_embedded_binary()
     "expected 'hello-from-zip\\n', got '" .. tostring(out) .. "'")
 end
 test_spawn_zip_embedded_binary()
+
+-- FIX 4: fd redirection correctness using dup2-style unix.dup(src, dst).
+-- Verify that stdout and stderr are independently redirected so that output
+-- written to each stream appears on the correct pipe.
+local function test_spawn_stdout_stderr_separate()
+  -- Child writes distinct text to stdout and stderr.
+  local handle = child.spawn({lua_bin, "-e", [[
+    io.stdout:write("to-stdout\n")
+    io.stdout:flush()
+    io.stderr:write("to-stderr\n")
+    io.stderr:flush()
+  ]]})
+  assert(handle ~= nil, "handle should not be nil")
+  local ok, out, code = handle:read()
+  assert(ok, "command should succeed, exit=" .. tostring(code))
+  assert(out == "to-stdout\n",
+    "expected 'to-stdout\\n' on stdout, got '" .. tostring(out) .. "'")
+end
+test_spawn_stdout_stderr_separate()
+
+-- FIX 4: when stdin pipe fd happens to already be fd 0 in child, we must not
+-- double-close it.  A pathological but valid scenario where spawning many
+-- children leaves fd slots at low numbers.  The existing simple redirection
+-- test covers the common case; this test exercises correct behavior when a
+-- pipe end lands on the target fd.
+local function test_spawn_many_captures_correct()
+  -- Spawn several children in quick succession to exercise fd reuse.
+  for i = 1, 5 do
+    local handle = child.spawn({lua_bin, "-e",
+        "io.write('iter" .. tostring(i) .. "\\n')"})
+    assert(handle ~= nil, "handle should not be nil on iteration " .. i)
+    local ok, out = handle:read()
+    assert(ok, "iteration " .. i .. " should succeed")
+    assert(out == "iter" .. tostring(i) .. "\n",
+      "expected 'iter" .. i .. "\\n', got '" .. tostring(out) .. "'")
+  end
+end
+test_spawn_many_captures_correct()

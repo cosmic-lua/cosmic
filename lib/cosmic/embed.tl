@@ -106,13 +106,18 @@ local function collect_dir(dir: string): {FileToEmbed}, string
 
     for _, entry in ipairs(entries) do
       local full_path = fs.join(base_dir, entry)
-      local st = fs.stat(full_path)
+      -- Use lstat (follow_symlinks=false) so symlinked dirs appear as S_ISLNK,
+      -- not S_ISDIR.  This prevents infinite recursion through symlink cycles
+      -- and stops symlinks to paths outside the embed dir from being followed.
+      local st = fs.stat(full_path, false)
       if st then
         if fs.is_dir(st:mode()) then
+          -- Only recurse into real directories, never symlinked ones.
           local rel = rel_prefix == "" and entry or (rel_prefix .. "/" .. entry)
           local walk_err = do_walk(full_path, rel)
           if walk_err then return walk_err end
-        else
+        elseif unix.S_ISREG(st:mode()) then
+          -- Only embed regular files; skip symlinks (S_ISLNK) entirely.
           local stored_name = rel_prefix == "" and entry or (rel_prefix .. "/" .. entry)
           local content, read_err = cio.slurp(full_path)
           if not content then
@@ -127,6 +132,7 @@ local function collect_dir(dir: string): {FileToEmbed}, string
             mode = file_mode,
           }
         end
+        -- S_ISLNK entries are silently skipped (no recurse, no embed)
       end
     end
     return nil

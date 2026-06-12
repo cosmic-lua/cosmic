@@ -319,4 +319,52 @@ local function test_extract_rejects_path_traversal()
 end
 test_extract_rejects_path_traversal()
 
+-- FIX 2: collect_dir must not recurse into symlinked directories.
+-- A symlink loop inside the embed dir must terminate without error.
+local function test_embed_symlink_loop_terminates()
+  local appdir = path.join(tmpdir, "symlinkloop")
+  unix.makedirs(path.join(appdir, "sub"))
+  cosmo.Barf(path.join(appdir, "sub", "real.txt"), "data")
+  -- Create a cycle: sub/loop -> ..  (points back to appdir)
+  unix.symlink("..", path.join(appdir, "sub", "loop"))
+
+  -- embed.collect_dir is called internally; run via the module directly
+  local result = embed.run({appdir}, path.join(tmpdir, "cosmic-symlinkloop"), cosmic)
+  assert(result.ok, "embed of dir with symlink loop should succeed: " .. (result.message or ""))
+  -- Only real.txt should be embedded, not any path through the loop
+  local data = cosmo.Slurp(path.join(tmpdir, "cosmic-symlinkloop"))
+  local reader = zip.from(data) as Reader
+  local files = reader:list()
+  for _, f in ipairs(files) do
+    assert(not f:match("loop"), "embedded zip should not contain loop path: " .. f)
+  end
+  reader:close()
+end
+test_embed_symlink_loop_terminates()
+
+-- FIX 2: a symlink to a file *outside* the embed dir must NOT be embedded.
+local function test_embed_symlink_to_outside_file_skipped()
+  -- Create a file outside the embed dir
+  local outside = path.join(tmpdir, "outside_secret.txt")
+  cosmo.Barf(outside, "secret-content")
+
+  local appdir = path.join(tmpdir, "symlinkoutside")
+  unix.makedirs(appdir)
+  cosmo.Barf(path.join(appdir, "main.lua"), 'print("hi")\n')
+  -- Symlink inside the embed dir pointing outside
+  unix.symlink(outside, path.join(appdir, "leaked.txt"))
+
+  local result = embed.run({appdir}, path.join(tmpdir, "cosmic-symlinkoutside"), cosmic)
+  assert(result.ok, "embed should succeed even with outside symlink: " .. (result.message or ""))
+  -- "leaked.txt" (the symlink) must not appear in the zip
+  local data = cosmo.Slurp(path.join(tmpdir, "cosmic-symlinkoutside"))
+  local reader = zip.from(data) as Reader
+  local files = reader:list()
+  for _, f in ipairs(files) do
+    assert(not f:match("leaked"), "symlink to outside file should not be embedded: " .. f)
+  end
+  reader:close()
+end
+test_embed_symlink_to_outside_file_skipped()
+
 print("All embed tests passed!")

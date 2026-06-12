@@ -234,40 +234,52 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
     -- stdin (fd 0)
     if stdin_is_fd then
       if opts.stdin ~= 0 then
-        unix.close(0)
-        unix.dup(opts.stdin as number)
+        unix.dup(opts.stdin as number, 0)
       end
     else
-      unix.close(0)
-      unix.close(stdin_w)
-      unix.dup(stdin_r)
-      unix.close(stdin_r)
+      -- Close the write end first, then dup2 the read end onto fd 0.
+      -- If stdin_r already IS fd 0, dup2 is a no-op (same fd), so skip
+      -- the close to avoid closing the fd we are about to use.
+      if stdin_r ~= 0 then
+        unix.close(stdin_w)
+        unix.dup(stdin_r, 0)
+        unix.close(stdin_r)
+      else
+        -- stdin_r == 0: dup2(0, 0) is fine, just close the write end
+        unix.close(stdin_w)
+      end
     end
 
     -- stdout (fd 1)
     if stdout_is_fd then
       if opts.stdout ~= 1 then
-        unix.close(1)
-        unix.dup(opts.stdout as number)
+        unix.dup(opts.stdout as number, 1)
       end
     else
-      unix.close(1)
-      unix.close(stdout_r)
-      unix.dup(stdout_w)
-      unix.close(stdout_w)
+      if stdout_w ~= 1 then
+        unix.close(stdout_r)
+        unix.dup(stdout_w, 1)
+        unix.close(stdout_w)
+      else
+        -- stdout_w == 1: dup2(1, 1) is fine, just close the read end
+        unix.close(stdout_r)
+      end
     end
 
     -- stderr (fd 2)
     if stderr_is_fd then
       if opts.stderr ~= 2 then
-        unix.close(2)
-        unix.dup(opts.stderr as number)
+        unix.dup(opts.stderr as number, 2)
       end
     else
-      unix.close(2)
-      unix.close(stderr_r)
-      unix.dup(stderr_w)
-      unix.close(stderr_w)
+      if stderr_w ~= 2 then
+        unix.close(stderr_r)
+        unix.dup(stderr_w, 2)
+        unix.close(stderr_w)
+      else
+        -- stderr_w == 2: dup2(2, 2) is fine, just close the read end
+        unix.close(stderr_r)
+      end
     end
 
     -- change working directory if specified
