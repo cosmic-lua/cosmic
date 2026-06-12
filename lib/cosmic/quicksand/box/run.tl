@@ -41,12 +41,28 @@ local env_apply = box_env.apply as function(any, {string: string}): {string: str
 local ll_restrict = landlock.restrict as function(any): boolean, string
 local proxy_start = proxy.start as function(any): {string: any}, string
 
+local record CapsModule
+  capabilities: function(): {string: boolean}
+end
+
 local function clone_flags(opts: {string: any}): integer
   local flags = (u.CLONE_NEWUSER as integer)
   | (u.CLONE_NEWNET as integer)
   | (u.CLONE_NEWNS as integer)
   if opts and opts.hostname then
     flags = flags | (u.CLONE_NEWUTS as integer)
+  end
+  -- Include CLONE_NEWPID by default for PID namespace isolation, unless
+  -- the caller has opted out with pid_ns = false, or the kernel lacks
+  -- the capability. After unshare(CLONE_NEWPID) the supervisor stays in
+  -- the old PID ns; the first forked child (proxy or workload) becomes
+  -- PID 1 of the new namespace.
+  if opts == nil or opts.pid_ns ~= false then
+    local qs = require("cosmic.quicksand") as CapsModule
+    local c = qs.capabilities()
+    if (c as {string: boolean}).pid_ns then
+      flags = flags | (u.CLONE_NEWPID as integer)
+    end
   end
   return flags
 end
@@ -92,7 +108,7 @@ local function workload_setup(opts: {string: any}): string
     if not ok then return "landlock: " .. tostring(err) end
   end
   local pr = opts and opts.proc as {string: any}
-  if pr and pr.no_new_privs then
+  if pr and (pr.no_new_privs or pr.uid ~= nil) then
     local ok, err = qproc.no_new_privs()
     if not ok then return "no_new_privs: " .. tostring(err) end
   end
@@ -185,7 +201,7 @@ local function supervisor(
   end
 
   local env_list = compute_env(opts)
-  if proxy_port and (net == nil or net.proxy_env ~= false) then
+  if proxy_port and net.proxy_env ~= false then
     env_list = inject_proxy_env(env_list, proxy_port)
   end
 
