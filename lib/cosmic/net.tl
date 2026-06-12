@@ -127,6 +127,51 @@ local function connect_tcp(ip: number, port: number): Socket, string
   return sock
 end
 
+--- Create a TCP socket, bind it to host:port, and start listening.
+--- Passing port 0 lets the OS assign an ephemeral port; the actual port is
+--- returned as the second value so callers never need a separate getsockname
+--- call.
+---
+--- Example — listen on an OS-assigned port:
+---   local net = require("cosmic.net")
+---   local srv, port, err = net.listen_tcp(0x7f000001, 0)
+---   -- port is now the OS-assigned port, e.g. 54321
+---   local client = net.connect_tcp(0x7f000001, port)
+---
+--- @param ip number Local IP address to bind (e.g. 0x7f000001 for 127.0.0.1, 0 for all)
+--- @param port number Local port to bind; use 0 for an OS-assigned ephemeral port
+--- @param backlog number Maximum pending connections (default 128)
+--- @return Socket Listening socket ready to accept
+--- @return number Actual bound port (useful when port 0 was requested)
+--- @return string Error message on failure
+local function listen_tcp(ip: number, port: number, backlog?: number): Socket, number, string
+  local sock, serr = socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+  if not sock then
+    return nil, nil, serr
+  end
+  local ok, setopt_err = sock:setsockopt(unix.SOL_SOCKET, unix.SO_REUSEADDR, true)
+  if not ok then
+    sock:close()
+    return nil, nil, setopt_err
+  end
+  local bok, bind_err = sock:bind(ip, port)
+  if not bok then
+    sock:close()
+    return nil, nil, bind_err
+  end
+  local _, bound_port, name_err = sock:getsockname()
+  if not bound_port then
+    sock:close()
+    return nil, nil, name_err
+  end
+  local lok, listen_err = sock:listen(backlog)
+  if not lok then
+    sock:close()
+    return nil, nil, listen_err
+  end
+  return sock, bound_port
+end
+
 --- Perform a non-blocking connect on a socket.
 --- @param s Socket The non-blocking socket to connect
 --- @param ip number Remote IP address
@@ -233,6 +278,7 @@ local record NetModule
   socket: function(family?: number, socktype?: number, protocol?: number): Socket, string
   socketpair: function(family?: number, socktype?: number, protocol?: number): Socket, Socket, string
   listen_unix: function(path: string, backlog?: number): Socket, string
+  listen_tcp: function(ip: number, port: number, backlog?: number): Socket, number, string
   connect_unix: function(path: string): Socket, string
   connect_tcp: function(ip: number, port: number): Socket, string
   nb_connect: function(s: Socket, ip: number, port: number, timeoutms?: number): boolean, string
@@ -317,6 +363,7 @@ local M: NetModule = {
   socket = socket,
   socketpair = socketpair,
   listen_unix = listen_unix,
+  listen_tcp = listen_tcp,
   connect_unix = connect_unix,
   connect_tcp = connect_tcp,
   nb_connect = nb_connect,
