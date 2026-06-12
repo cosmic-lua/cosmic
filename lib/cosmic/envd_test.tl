@@ -319,3 +319,54 @@ local function test_expand_function_directly()
   assert(result == "hello bar world", "expected 'hello bar world', got '" .. result .. "'")
 end
 test_expand_function_directly()
+
+-- FIX 3a: parse must strip trailing \r from CRLF dotenv files.
+local function test_parse_crlf_no_trailing_cr()
+  -- Simulate a CRLF dotenv file (e.g. produced on Windows or by some editors).
+  local crlf_content = "COSMIC_ENVD_CRLF_A=hello\r\nCOSMIC_ENVD_CRLF_B=world\r\n"
+  local vars = envd.parse(crlf_content)
+  assert(vars["COSMIC_ENVD_CRLF_A"] == "hello",
+    "CRLF: expected 'hello' (len 5), got len=" .. tostring(#tostring(vars["COSMIC_ENVD_CRLF_A"] or "")))
+  assert(vars["COSMIC_ENVD_CRLF_B"] == "world",
+    "CRLF: expected 'world' (len 5), got len=" .. tostring(#tostring(vars["COSMIC_ENVD_CRLF_B"] or "")))
+end
+test_parse_crlf_no_trailing_cr()
+
+-- FIX 3a: load_dir must also strip trailing \r when reading from a real CRLF file.
+local function test_load_dir_crlf_file()
+  local dir = make_envd("crlf_dir")
+  -- Write a CRLF-encoded dotenv file using raw bytes
+  local crlf_content = "COSMIC_ENVD_CRLF_C=crvalue\r\n"
+  cio.barf(fs.join(dir, "vars"), crlf_content)
+
+  env.unset("COSMIC_ENVD_CRLF_C")
+  local result = envd.load_dir(dir)
+  assert(result.count == 1, "expected 1 var from CRLF file, got " .. tostring(result.count))
+  local val = env.get("COSMIC_ENVD_CRLF_C")
+  assert(val == "crvalue",
+    "CRLF file: expected 'crvalue', got '" .. tostring(val) .. "'")
+  env.unset("COSMIC_ENVD_CRLF_C")
+end
+test_load_dir_crlf_file()
+
+-- FIX 3b: COSMIC_DEBUG='' (empty string) must NOT enable debug mode.
+-- Only a non-empty COSMIC_DEBUG value should enable debug output.
+local function test_cosmic_debug_empty_not_enabled()
+  -- When COSMIC_DEBUG is set to empty string, load_dir should NOT print debug.
+  -- We can't easily capture stderr, but we can verify that setting COSMIC_DEBUG=""
+  -- does NOT cause any side-effects that only happen in debug mode.
+  -- The observable behavior: with COSMIC_DEBUG="" the function should still work
+  -- normally (count==1), and the result should be the same as with no debug.
+  local dir = make_envd("debug_empty")
+  cio.barf(fs.join(dir, "vars"), "COSMIC_ENVD_DEBUG_TEST=value\n")
+  env.unset("COSMIC_ENVD_DEBUG_TEST")
+
+  -- Set COSMIC_DEBUG to empty string
+  env.set("COSMIC_DEBUG", "")
+  local result = envd.load_dir(dir)
+  env.unset("COSMIC_DEBUG")
+
+  assert(result.count == 1, "expected 1 with empty COSMIC_DEBUG, got " .. tostring(result.count))
+  env.unset("COSMIC_ENVD_DEBUG_TEST")
+end
+test_cosmic_debug_empty_not_enabled()

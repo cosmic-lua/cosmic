@@ -56,6 +56,6 @@ jobs:
           tag="$(date -u +%Y-%m-%d)-${GITHUB_SHA::7}"
           (cd release && sha256sum cosmic-lua cosmic-lua-debug > SHA256SUMS && cat SHA256SUMS)
           gh release create "$tag" \
-            ${PRERELEASE_FLAG} \
+            ${PRERELEASE_FLAG:+"$PRERELEASE_FLAG"} \
             --title "$tag" \
             release/cosmic-lua release/cosmic-lua-debug release/SHA256SUMS

@@ -15,6 +15,7 @@ end
 
 --- Walk a directory tree, calling visitor for each entry.
 --- Recursively traverses all subdirectories.
+--- Does NOT recurse into symlinked directories to prevent symlink cycles.
 --- @param dir string The directory to walk
 --- @param visitor function Visitor callback Function called for each file and directory
 --- @param ctx T Optional context passed to visitor function
@@ -29,7 +30,9 @@ local function walk < T > (dir: string, visitor: function(string, string, WalkSt
     if not entry then break end
     if entry ~= "." and entry ~= ".." then
       local full_path = cosmo_path.join(dir, entry)
-      local st = unix.stat(full_path) as WalkStat
+      -- Use AT_SYMLINK_NOFOLLOW so symlinked dirs are seen as S_ISLNK, not S_ISDIR.
+      -- This prevents infinite recursion through symlink cycles.
+      local st = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW) as WalkStat
       if st then
         visitor(full_path, entry, st, ctx)
         if unix.S_ISDIR(st:mode()) then
@@ -99,12 +102,14 @@ local function collect_all(dir: string): {string: FileInfo}
       if entry ~= "." and entry ~= ".." then
         local full_path = cosmo_path.join(base_dir, entry)
         local rel_path = rel_base == "" and entry or cosmo_path.join(rel_base, entry)
-        local st = unix.stat(full_path) as WalkStat
+        -- Use AT_SYMLINK_NOFOLLOW to detect symlinked dirs as S_ISLNK, not S_ISDIR.
+        -- This prevents infinite recursion through symlink cycles.
+        local st = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW) as WalkStat
 
         if st then
           if unix.S_ISDIR(st:mode()) then
             do_walk(full_path, rel_path)
-          elseif unix.S_ISREG(st:mode()) or unix.S_ISLNK(st:mode()) then
+          elseif unix.S_ISREG(st:mode()) then
             local mode = st:mode() & 0x1ff
             files[rel_path] = {mode = mode}
           end
@@ -154,7 +159,9 @@ local function files(dir: string, pattern?: string): function(): string
         table.remove(stack)
       elseif entry ~= "." and entry ~= ".." then
         local full_path = cosmo_path.join(current_dir, entry)
-        local st = unix.stat(full_path) as WalkStat
+        -- Use AT_SYMLINK_NOFOLLOW to detect symlinked dirs as S_ISLNK, not S_ISDIR.
+        -- This prevents infinite recursion through symlink cycles.
+        local st = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW) as WalkStat
         if st then
           if unix.S_ISDIR(st:mode()) then
             -- Push subdirectory onto stack

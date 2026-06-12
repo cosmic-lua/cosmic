@@ -151,4 +151,13 @@ local function test_find_similar_default_max_distance()
 end
 test_find_similar_default_max_distance()
 
+-- FIX 5: dedup must be case-insensitive — {"Foo","foo"} should produce 1 result.
+local function test_find_similar_dedup_case_insensitive()
+  local candidates = {"Foo", "foo"}
+  local results = fuzzy.find_similar("foo", candidates, 0)
+  assert(#results == 1,
+    "case-insensitive dedup: expected 1 result for {Foo, foo}, got " .. #results)
+end
+test_find_similar_dedup_case_insensitive()
+
 print("All fuzzy tests passed")

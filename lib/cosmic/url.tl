@@ -38,6 +38,7 @@ end
 
 --- Parse a query string into key-value pairs.
 --- Handles URL-encoded keys and values.
+--- Duplicate keys: last value wins.
 --- @param query string The query string (without leading ?)
 --- @return {string:string} Table of key-value pairs
 local function parse(query: string): {string: string}
@@ -91,12 +92,21 @@ local function parse_url(url: string): Url
     port = tonumber(parsed.port) as integer
   end
 
-  -- Reconstruct query string from params
+  -- Reconstruct query string from params, re-encoding each decoded key and
+  -- value so that characters like & and = inside values are not confused with
+  -- query-string delimiters (e.g. ?a=x%26y must not become a=x&y).
   local query: string = nil
   if parsed.params and #parsed.params > 0 then
     local parts: {string} = {}
     for _, pair in ipairs(parsed.params) do
-      table.insert(parts, pair[1] .. "=" .. pair[2])
+      local k = cosmo.EscapeParam(pair[1])
+      local v = pair[2] as string
+      if v ~= nil then
+        table.insert(parts, k .. "=" .. cosmo.EscapeParam(v))
+      else
+        -- Flag-style param with no value (e.g. ?flag) — emit key only.
+        table.insert(parts, k)
+      end
     end
     query = table.concat(parts, "&")
   end

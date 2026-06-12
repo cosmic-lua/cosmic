@@ -29,24 +29,27 @@ verify_sha256() {
 # (e.g. 504 Gateway Timeout) that occasionally hit unauthenticated GitHub
 # release downloads.
 if [ ! -f "${MAKE_BIN}" ]; then
+    MAKE_BIN_TMP="${MAKE_BIN}.tmp.$$"
     echo "Downloading landlock-make..." >&2
     attempt=0
     until curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors \
-        -o "${MAKE_BIN}" "${RELEASE_URL}"; do
+        -o "${MAKE_BIN_TMP}" "${RELEASE_URL}"; do
         attempt=$((attempt + 1))
         if [ "${attempt}" -ge 3 ]; then
             echo "Failed to download landlock-make after ${attempt} attempts" >&2
+            rm -f "${MAKE_BIN_TMP}"
             exit 1
         fi
         echo "Retrying landlock-make download (attempt ${attempt})..." >&2
         sleep $((attempt * 5))
     done
-    if ! verify_sha256 "${MAKE_BIN}" "${MAKE_SHA256}"; then
+    if ! verify_sha256 "${MAKE_BIN_TMP}" "${MAKE_SHA256}"; then
         echo "landlock-make checksum verification failed; refusing to run" >&2
-        rm -f "${MAKE_BIN}"
+        rm -f "${MAKE_BIN_TMP}"
         exit 1
     fi
-    chmod +x "${MAKE_BIN}"
+    chmod +x "${MAKE_BIN_TMP}"
+    mv -f "${MAKE_BIN_TMP}" "${MAKE_BIN}"
 fi
 
 # Execute make with all arguments

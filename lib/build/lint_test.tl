@@ -164,3 +164,84 @@ local function test_count_lines_directory()
   assert(n == 0, "expected 0 for directory path, got: " .. tostring(n))
 end
 test_count_lines_directory()
+
+local function test_check_assert_order_do_block()
+  -- A function body with a standalone do...end block must not confuse the closer detection.
+  -- Previously, the `end` for the `do` block decremented depth below 1, causing
+  -- the function body to appear to close early.
+  local lines = {
+    "local function foo()",
+    "  do",
+    "    local x = 1",
+    "  end",
+    "  return 2",
+    "end",
+    "foo()",
+  }
+  local diags = lint.check_assert_order("test.tl", lines)
+  assert(#diags == 0, "expected no diagnostic for function with do...end block, got: " .. tostring(#diags))
+end
+test_check_assert_order_do_block()
+
+local function test_check_assert_order_for_loop()
+  -- A function body with a for loop must not confuse the closer detection.
+  local lines = {
+    "local function foo()",
+    "  for i = 1, 10 do",
+    "    local x = i",
+    "  end",
+    "  return 1",
+    "end",
+    "foo()",
+  }
+  local diags = lint.check_assert_order("test.tl", lines)
+  assert(#diags == 0, "expected no diagnostic for function with for loop, got: " .. tostring(#diags))
+end
+test_check_assert_order_for_loop()
+
+local function test_check_assert_order_if_block()
+  -- A function body with an if...end block must not confuse the closer detection.
+  local lines = {
+    "local function foo()",
+    "  if true then",
+    "    return 1",
+    "  end",
+    "  return 2",
+    "end",
+    "foo()",
+  }
+  local diags = lint.check_assert_order("test.tl", lines)
+  assert(#diags == 0, "expected no diagnostic for function with if block, got: " .. tostring(#diags))
+end
+test_check_assert_order_if_block()
+
+local function test_check_assert_order_repeat_until()
+  -- A function body with a repeat...until must not confuse the closer detection.
+  local lines = {
+    "local function foo()",
+    "  local x = 0",
+    "  repeat",
+    "    x = x + 1",
+    "  until x >= 3",
+    "  return x",
+    "end",
+    "foo()",
+  }
+  local diags = lint.check_assert_order("test.tl", lines)
+  assert(#diags == 0, "expected no diagnostic for function with repeat...until, got: " .. tostring(#diags))
+end
+test_check_assert_order_repeat_until()
+
+local function test_check_assert_order_one_line_if()
+  -- One-line if/end must net to zero depth change.
+  local lines = {
+    "local function foo()",
+    "  if true then return 1 end",
+    "  return 2",
+    "end",
+    "foo()",
+  }
+  local diags = lint.check_assert_order("test.tl", lines)
+  assert(#diags == 0, "expected no diagnostic for function with one-line if, got: " .. tostring(#diags))
+end
+test_check_assert_order_one_line_if()

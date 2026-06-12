@@ -362,3 +362,30 @@ local function test_escape_ip_ipv6()
   assert(result:match("::1") or result:match("%%3A"), "expected ipv6 to be handled, got '" .. result .. "'")
 end
 test_escape_ip_ipv6()
+
+-- FIX 4: parse_url must preserve percent-encoding in the query field.
+-- ?a=x%26y has ONE param (key=a, value=x&y); the reconstructed query must
+-- not turn %26 into a literal & (which would look like two params).
+
+local function test_parse_url_query_preserves_encoding()
+  local result = url.parse_url("http://x.com/?a=x%26y")
+  assert(result.query ~= nil, "query should not be nil")
+  -- The query must not be decoded to "a=x&y" (that reads as two params).
+  assert(result.query ~= "a=x&y",
+    "query must not decode %26 to &, got: " .. tostring(result.query))
+  -- Parsing the reconstructed query must yield exactly one param with value "x&y".
+  local params = url.parse(result.query)
+  assert(params.a == "x&y",
+    "parsed param 'a' must equal 'x&y', got: " .. tostring(params.a))
+end
+test_parse_url_query_preserves_encoding()
+
+local function test_parse_url_query_flag_param()
+  -- ?flag has a key with no value; reconstructing must not emit a bare "=".
+  local result = url.parse_url("http://x.com/?flag")
+  assert(result.query ~= nil, "query should not be nil for flag param")
+  -- The query string must contain "flag" and must not end in bare "=".
+  assert(result.query:match("flag"), "query should contain 'flag'")
+  assert(not result.query:match("flag=$"), "query must not end with 'flag='")
+end
+test_parse_url_query_flag_param()

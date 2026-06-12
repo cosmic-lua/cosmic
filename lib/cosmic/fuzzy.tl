@@ -59,10 +59,13 @@ local function find_similar(query: string, candidates: {string}, max_distance?: 
 
   local query_lower = query:lower()
   for _, candidate in ipairs(candidates) do
-    if not seen[candidate] then
-      local dist = levenshtein(query_lower, candidate:lower())
+    -- Key seen on the lowercased form so that "Foo" and "foo" are treated as
+    -- the same candidate (matching is already case-insensitive).
+    local candidate_lower = candidate:lower()
+    if not seen[candidate_lower] then
+      local dist = levenshtein(query_lower, candidate_lower)
       if dist <= max_distance then
-        seen[candidate] = true
+        seen[candidate_lower] = true
         table.insert(results, {candidate, dist})
       end
     end

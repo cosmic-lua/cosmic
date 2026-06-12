@@ -120,3 +120,27 @@ local function test_password_invalid_variant()
   assert(err and err:match("invalid variant"), "error should mention invalid variant")
 end
 test_password_invalid_variant()
+
+-- FIX 1: verify_password should return false+error on malformed hash
+local function test_verify_password_malformed_hash()
+  local ok, err = hash.verify_password("not-a-hash", "password")
+  assert(ok == false, "verify_password should return false for malformed hash, got: " .. tostring(ok))
+  assert(err ~= nil, "verify_password should return error message for malformed hash")
+end
+test_verify_password_malformed_hash()
+
+local function test_verify_password_returns_two_values_on_mismatch()
+  local encoded = hash.password("correct")
+  local ok, err = hash.verify_password(encoded, "wrong")
+  assert(ok == false, "verify_password should return false for wrong password")
+  assert(err == nil, "verify_password should NOT return error for clean mismatch (wrong password)")
+end
+test_verify_password_returns_two_values_on_mismatch()
+
+-- FIX 2: default m_cost should be 19456 (OWASP minimum 19 MiB)
+local function test_password_default_mcost_is_19456()
+  local encoded, err = hash.password("password", {t_cost = 1})
+  assert(encoded, "password with default m_cost should succeed: " .. tostring(err))
+  assert(encoded:match("m=19456"), "default m_cost should be 19456, encoded string: " .. encoded)
+end
+test_password_default_mcost_is_19456()

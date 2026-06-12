@@ -53,7 +53,7 @@ local unix = require("cosmo.unix") as UnixIO
 --- File handle for I/O operations.
 --- Supports Lua 5.4's to-be-closed via __close metamethod.
 local record Handle
-  close: function(self: Handle): boolean
+  close: function(self: Handle): boolean, string
   closed: function(self: Handle): boolean
   fd: function(self: Handle): number
   read: function(self: Handle, size?: number, offset?: number): string, string
@@ -73,10 +73,15 @@ make_handle = function(fd: number): Handle
   local handle: Handle = {}
 
   --- Close the handle. Idempotent.
-  function handle:close(): boolean
+  --- Returns false + error message if unix.close() fails; true on success.
+  --- A second call on an already-closed handle always returns true.
+  function handle:close(): boolean, string
     if handle_fd then
-      unix.close(handle_fd)
+      local ok, err = unix.close(handle_fd)
       handle_fd = nil
+      if not ok then
+        return false, tostring(err)
+      end
     end
     return true
   end

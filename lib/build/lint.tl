@@ -77,9 +77,33 @@ local function check_assert_order(file: string, lines: {string}): {Diagnostic}
       i = i + 1
       while i <= #lines and depth > 0 do
         local l = lines[i]
-        -- Count function keywords that open a new scope
+        -- Count keywords that open a new block scope
         for _ in l:gmatch("%f[%w_]function%f[^%w_]") do
           depth = depth + 1
+        end
+        for _ in l:gmatch("%f[%w_]if%f[^%w_]") do
+          depth = depth + 1
+        end
+        for _ in l:gmatch("%f[%w_]for%f[^%w_]") do
+          depth = depth + 1
+        end
+        for _ in l:gmatch("%f[%w_]while%f[^%w_]") do
+          depth = depth + 1
+        end
+        for _ in l:gmatch("%f[%w_]repeat%f[^%w_]") do
+          depth = depth + 1
+        end
+        -- Count standalone `do` (not the `do` terminating a for/while header,
+        -- which is already counted above via for/while). A `do` is standalone
+        -- when the same line contains no `for` or `while` keyword.
+        if l:match("%f[%w_]do%f[^%w_]") and
+        not l:match("%f[%w_]for%f[^%w_]") and
+        not l:match("%f[%w_]while%f[^%w_]") then
+          depth = depth + 1
+        end
+        -- `until` closes a repeat block without an `end`
+        for _ in l:gmatch("%f[%w_]until%f[^%w_]") do
+          depth = depth - 1
         end
         -- Count end keywords
         for _ in l:gmatch("%f[%w_]end%f[^%w_]") do

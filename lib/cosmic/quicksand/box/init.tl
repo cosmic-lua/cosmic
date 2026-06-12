@@ -80,6 +80,7 @@ local record BoxOpts
   proc: ProcOpts
   env: EnvOpts
   cwd: string
+  pid_ns: boolean -- set false to opt out of CLONE_NEWPID isolation
 end
 
 --- Box instance. `run(argv)` returns an integer exit code on success
@@ -150,6 +151,9 @@ local function preflight(opts: BoxOpts): boolean, string
     end
     local fs = opts.fs
     local has_fs = fs and (fs.ro or fs.rw or fs.exec)
+    if fs and fs.deny and not has_fs then
+      return false, "quicksand: fs.deny requires at least one of fs.ro, fs.rw, or fs.exec (deny is informational; landlock is allowlist-based)"
+    end
     if has_fs and not c.landlock then
       return false, "quicksand: landlock unavailable (fs policy requested)"
     end

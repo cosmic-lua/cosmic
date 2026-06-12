@@ -98,7 +98,7 @@ local function encode_base32(data: string): string
 end
 
 --- Decode a base32 string to binary data.
---- Uses lowercase base32 alphabet (0-9a-v excluding i, l, o, u).
+--- Uses lowercase base32 alphabet (0-9a-z excluding i, l, o, u).
 --- @param str string The base32 string to decode
 --- @return string The decoded binary data, or nil on error
 --- @return string? Error message if decoding failed

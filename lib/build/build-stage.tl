@@ -160,8 +160,50 @@ local type ExtractFn = function(string, string, number): boolean, string
     return ok, err
   end
 
+  --- Validate a relative path component for use within the stage directory.
+  --- Rejects empty paths, absolute paths (leading /), and paths containing
+  --- `..` components. Returns an error string on failure, nil on success.
+  local function validate_stage_path(p: string): string
+    if not p or p == "" then
+      return "path must not be empty"
+    end
+    if p:sub(1, 1) == "/" then
+      return "path must not be absolute: " .. p
+    end
+    for component in (p .. "/"):gmatch("([^/]*)/") do
+      if component == ".." then
+        return "path must not contain '..': " .. p
+      end
+    end
+    return nil
+  end
+
+  --- Validate a symlink target: must be relative and contain no `..` components.
+  local function validate_link_target(target: string): string
+    if not target or target == "" then
+      return "symlink target must not be empty"
+    end
+    if target:sub(1, 1) == "/" then
+      return "symlink target must not be absolute: " .. target
+    end
+    for component in (target .. "/"):gmatch("([^/]*)/") do
+      if component == ".." then
+        return "symlink target must not contain '..': " .. target
+      end
+    end
+    return nil
+  end
+
   local function apply_install(stage_dir: string, install: {string: string}): boolean, string
     for src, dst in pairs(install) do
+      local src_err = validate_stage_path(src)
+      if src_err then
+        return nil, "install src invalid: " .. src_err
+      end
+      local dst_err = validate_stage_path(dst)
+      if dst_err then
+        return nil, "install dst invalid: " .. dst_err
+      end
       local src_path = fs.join(stage_dir, src)
       local dst_path = fs.join(stage_dir, dst)
       fs.makedirs(fs.dirname(dst_path))
@@ -175,6 +217,10 @@ local type ExtractFn = function(string, string, number): boolean, string
 
   local function apply_remove(stage_dir: string, remove: {string}): boolean, string
     for _, file in ipairs(remove) do
+      local file_err = validate_stage_path(file)
+      if file_err then
+        return nil, "remove path invalid: " .. file_err
+      end
       local file_path = fs.join(stage_dir, file)
       fs.rmrf(file_path)
     end
@@ -183,6 +229,14 @@ local type ExtractFn = function(string, string, number): boolean, string
 
   local function apply_links(stage_dir: string, links: {string: string}): boolean, string
     for link, target in pairs(links) do
+      local link_err = validate_stage_path(link)
+      if link_err then
+        return nil, "link path invalid: " .. link_err
+      end
+      local target_err = validate_link_target(target)
+      if target_err then
+        return nil, "link target invalid: " .. target_err
+      end
       local link_path = fs.join(stage_dir, link)
       fs.makedirs(fs.dirname(link_path))
       fs.rmrf(link_path)
@@ -317,3 +371,8 @@ local type ExtractFn = function(string, string, number): boolean, string
       os.exit(1)
     end
   end
+
+  return {
+    validate_stage_path = validate_stage_path,
+    validate_link_target = validate_link_target,
+  }

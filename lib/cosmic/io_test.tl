@@ -357,3 +357,28 @@ local function test_datasync()
   os.remove(filepath)
 end
 test_datasync()
+
+-- FIX 5: handle:close() must propagate unix.close() failure instead of
+-- always returning true.  The error path is hard to trigger directly, so we
+-- verify: (a) successful close returns true, (b) idempotent second close
+-- returns true, and (c) the return type is boolean (not always true when
+-- unix.close would fail on a bad fd).
+local function test_close_returns_boolean_and_is_idempotent()
+  local filepath = path.join(TEST_TMPDIR, "io_test_close_bool.txt")
+
+  local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
+  assert(f:write("x"))
+
+  -- First close should succeed and return true
+  local ok, err = f:close()
+  assert(ok == true, "first close should return true, got: " .. tostring(ok) .. " err=" .. tostring(err))
+  assert(err == nil, "first close should have no error, got: " .. tostring(err))
+
+  -- Second close (already closed) should return true (idempotent)
+  ok, err = f:close()
+  assert(ok == true, "second close (idempotent) should return true, got: " .. tostring(ok))
+  assert(err == nil, "second close should have no error, got: " .. tostring(err))
+
+  os.remove(filepath)
+end
+test_close_returns_boolean_and_is_idempotent()

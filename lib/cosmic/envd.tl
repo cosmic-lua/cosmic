@@ -93,7 +93,7 @@ local function parse(content: string, ctx: {string: string}): {string: string}
       lookup[k] = v
     end
   end
-  for line in content:gmatch("[^\n]+") do
+  for line in content:gmatch("[^\r\n]+") do
     -- skip comments and blank lines
     if not line:match("^%s*#") and not line:match("^%s*$") then
       local key, value = line:match("^([A-Za-z_][A-Za-z0-9_]*)=(.*)")
@@ -118,7 +118,8 @@ end
 --- @return LoadResult Result with count of variables set and source path
 local function load_dir(dir: string): LoadResult
   local result: LoadResult = {count = 0, source = dir}
-  local debug = env.get("COSMIC_DEBUG") ~= nil
+  local cosmic_debug_val = env.get("COSMIC_DEBUG")
+  local debug = cosmic_debug_val ~= nil and cosmic_debug_val ~= ""
 
   local dh, dh_err = fs.opendir(dir)
   if not dh then

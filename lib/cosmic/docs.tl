@@ -28,7 +28,7 @@ local function load_index(): DocIndex, string
     return nil, "no documentation index embedded"
   end
 
-  local chunk, err = load("return " .. source)
+  local chunk, err = load("return " .. source, "=docindex", "t", {})
   if not chunk then
     return nil, "failed to parse index: " .. (err or "unknown")
   end

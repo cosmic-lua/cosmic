@@ -61,6 +61,22 @@ local function verify_sha256(content: string, expected: string): boolean, string
   return nil, string.format("sha256 mismatch: expected %s, got %s", expected, actual)
 end
 
+--- Validate an archive filename extracted from a URL.
+--- Rejects empty names, "." and "..", and names with characters outside
+--- the safe set [A-Za-z0-9._-].
+local function validate_archive_name(name: string): boolean, string
+  if not name or name == "" then
+    return nil, "archive name must not be empty"
+  end
+  if name == "." or name == ".." then
+    return nil, "archive name must not be '.' or '..': " .. name
+  end
+  if not name:match("^[%w._%-]+$") then
+    return nil, "archive name contains unsafe characters: " .. name
+  end
+  return true
+end
+
 local function main(version_file: string, platform: string, output: string): boolean, string
   if not version_file or not platform or not output then
     return nil, "usage: fetch.lua <version_file> <platform> <output>"
@@ -109,6 +125,10 @@ local function main(version_file: string, platform: string, output: string): boo
     archive_name = "binary"
   else
     archive_name = url:match("([^/]+)$")
+    local name_ok, name_err = validate_archive_name(archive_name)
+    if not name_ok then
+      return nil, "unsafe archive name from URL: " .. (name_err or "unknown")
+    end
   end
   local version_sha = spec.version .. "-" .. plat.sha
   local archive_dir = fs.join(fetch_o, module_name, version_sha)
@@ -146,4 +166,5 @@ end
 
 return {
   build_url = build_url,
+  validate_archive_name = validate_archive_name,
 }
