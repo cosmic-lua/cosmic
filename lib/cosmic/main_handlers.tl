@@ -167,6 +167,20 @@ local function handle_format(file: string, output?: string, write_if_changed?: b
   return exit_code, err_msg
 end
 
+--- Render a line visibly by replacing tabs and trailing spaces with markers.
+--- Used when have/want lines look the same but differ only in whitespace.
+--- @param s string The line to render
+--- @return string The line with whitespace made visible
+local function render_whitespace(s: string): string
+  -- Replace tabs with visible marker
+  local result = s:gsub("\t", "->")
+  -- Mark trailing spaces with underscores
+  result = result:gsub("( +)$", function(spaces: string): string
+      return string.rep("_", #spaces)
+    end)
+  return result
+end
+
 --- Handle --check-format flag.
 local function handle_check_format(file: string): integer
   local span = instrument.begin("check-format", file)
@@ -203,12 +217,23 @@ local function handle_check_format(file: string): integer
   local max = math.max(#orig_lines, #fmt_lines)
   for i = 1, max do
     if orig_lines[i] ~= fmt_lines[i] then
+      local have = orig_lines[i] or "<eof>"
+      local want = fmt_lines[i] or "<eof>"
       io.stderr:write(string.format("%s:%d: format mismatch\n", file, i))
-      io.stderr:write(string.format("  have: %s\n", orig_lines[i] or "<eof>"))
-      io.stderr:write(string.format("  want: %s\n", fmt_lines[i] or "<eof>"))
+      -- When lines look identical but differ only in whitespace, render it visibly
+      if have:gsub("%s", "") == want:gsub("%s", "") then
+        io.stderr:write(string.format("  have: %s  (whitespace differs)\n", render_whitespace(have)))
+        io.stderr:write(string.format("  want: %s  (whitespace differs)\n", render_whitespace(want)))
+      else
+        io.stderr:write(string.format("  have: %s\n", have))
+        io.stderr:write(string.format("  want: %s\n", want))
+      end
       break
     end
   end
+  io.stderr:write(string.format(
+      "  hint: run 'cosmic --format %s' to see the formatted version, or\n        'cosmic --format %s --write-if-changed --output %s' to fix in place\n",
+      file, file, file))
   instrument.finish(span, 1)
   return 1
 end
@@ -223,7 +248,7 @@ local function handle_check_types(file: string, include_dirs?: {string}): intege
     io.stderr:write(teal.format_issues(result.warnings) .. "\n")
   end
   if #result.errors > 0 then
-    io.stderr:write(teal.format_issues(result.errors) .. "\n")
+    io.stderr:write(teal.format_issues_with_hints(result.errors) .. "\n")
   end
 
   if result.ok then
