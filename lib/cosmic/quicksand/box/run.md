@@ -24,6 +24,14 @@
 
 ## Types
 
+### CapsModule
+
+```teal
+local record CapsModule
+  capabilities: function(): {string: boolean}
+end
+```
+
 ### BoxRunModule
 
 ```teal

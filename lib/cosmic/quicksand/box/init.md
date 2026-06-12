@@ -107,6 +107,7 @@ local record BoxOpts
   proc: ProcOpts
   env: EnvOpts
   cwd: string
+  pid_ns: boolean
 end
 ```
 

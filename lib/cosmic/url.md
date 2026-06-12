@@ -94,6 +94,7 @@ function parse(query: string): {string: string}
 
  Parse a query string into key-value pairs.
  Handles URL-encoded keys and values.
+ Duplicate keys: last value wins.
 
 **Parameters:**
 

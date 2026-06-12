@@ -38,6 +38,7 @@ function walk(dir: string, visitor: function(string, string, WalkStat, any), ctx
 
  Walk a directory tree, calling visitor for each entry.
  Recursively traverses all subdirectories.
+ Does NOT recurse into symlinked directories to prevent symlink cycles.
 
 **Parameters:**
 

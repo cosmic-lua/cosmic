@@ -157,7 +157,7 @@ function decode_base32(str: string): string, string
 ```
 
  Decode a base32 string to binary data.
- Uses lowercase base32 alphabet (0-9a-v excluding i, l, o, u).
+ Uses lowercase base32 alphabet (0-9a-z excluding i, l, o, u).
 
 **Parameters:**
 

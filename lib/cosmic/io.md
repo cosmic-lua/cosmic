@@ -61,7 +61,7 @@ end
 
 ```teal
 local record Handle
-  close: function(self: Handle): boolean
+  close: function(self: Handle): boolean, string
   closed: function(self: Handle): boolean
   fd: function(self: Handle): number
   read: function(self: Handle, size?: number, offset?: number): string, string
@@ -184,10 +184,12 @@ function barf(path: string, data: string, mode?: number): boolean, string
 ### handle:close
 
 ```teal
-function handle:close(): boolean
+function handle:close(): boolean, string
 ```
 
  Close the handle. Idempotent.
+ Returns false + error message if unix.close() fails; true on success.
+ A second call on an already-closed handle always returns true.
 
 ### handle:closed
 

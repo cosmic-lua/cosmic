@@ -20,8 +20,8 @@
 
 ```teal
 local record HashOptions
-  default: 4096, i.e. 4 MiB)
-  --  Memory cost in kibibytes (default: 4096, i.e. 4 MiB)
+  default: 19456, i.e. 19 MiB per OWASP minimum)
+  --  Memory cost in kibibytes (default: 19456, i.e. 19 MiB per OWASP minimum)
   m_cost: number
   default: 3)
   --  Time cost / iterations (default: 3)
@@ -45,7 +45,7 @@ local record HashModule
   sha256: function(data: string): string
   sha256_hex: function(data: string): string
   password: function(pwd: string, options?: HashOptions): string, string
-  verify_password: function(encoded: string, pwd: string): boolean
+  verify_password: function(encoded: string, pwd: string): boolean, string
 end
 ```
 
@@ -107,10 +107,13 @@ function password(pwd: string, options?: HashOptions): string, string
 ### verify_password
 
 ```teal
-function verify_password(encoded: string, pwd: string): boolean
+function verify_password(encoded: string, pwd: string): boolean, string
 ```
 
  Verify a password against an Argon2 encoded hash.
+ Returns true on match, false (no error) on clean mismatch, or
+ false plus an error string when the hash is malformed or the binding
+ reports an error (e.g. "Decoding failed").
 
 **Parameters:**
 
@@ -119,4 +122,5 @@ function verify_password(encoded: string, pwd: string): boolean
 
 **Returns:**
 
-- boolean - True if the password matches
+- boolean - True if the password matches, false otherwise
+- string? - Error message if the hash is malformed or another error occurred

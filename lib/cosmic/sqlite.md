@@ -224,6 +224,8 @@ function db:query_one(sql: string, ...: any): {string: any}, string
 
  Return the first row matching a query, or nil if no rows match.
  Convenience method for single-row lookups.
+ The underlying prepared statement is always finalized before returning,
+ even when only the first row is consumed, preventing statement leaks.
 
 ### db:transaction
 
