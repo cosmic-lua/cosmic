@@ -47,8 +47,11 @@ end
 --- @param glob string The glob pattern
 --- @return string The equivalent Lua pattern
 local function glob_to_pattern(glob: string): string
+  -- Escape every Lua pattern magic character, including [ ] and + - which are
+  -- meaningful inside Lua character classes. Otherwise a glob like "*[a-z]*"
+  -- would smuggle a Lua character class through and match the wrong files.
   local pattern = glob
-  :gsub("([%.%^%$%(%)%%])", "%%%1") -- escape special chars (except * ? [ ])
+  :gsub("([%.%^%$%(%)%[%]%+%-%%])", "%%%1") -- escape special chars (except * ?)
   :gsub("%*", ".*") -- * -> .*
   :gsub("%?", ".") -- ? -> .
   return "^" .. pattern .. "$"

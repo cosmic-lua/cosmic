@@ -125,6 +125,15 @@ local function test_collect_with_glob()
 end
 test_collect_with_glob()
 
+local function test_collect_glob_escapes_brackets()
+  -- A glob's [ ] must be literal, not a Lua class: "*[1].lua" matches nothing.
+  local walk_dir = setup_walk()
+  local found = fs.collect(walk_dir, "*[1].lua")
+  assert(#found == 0, "expected brackets treated literally, got " .. #found)
+  teardown(walk_dir)
+end
+test_collect_glob_escapes_brackets()
+
 local function test_collect_with_lua_pattern()
   local walk_dir = setup_walk()
   local found = fs.collect(walk_dir, "%.txt$")
