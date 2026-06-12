@@ -3,6 +3,7 @@
 
 local cio = require("cosmic.io")
 local docs_render = require("cosmic.docs_render")
+local docs_lookup = require("cosmic.docs_lookup")
 local types = require("cosmic.doc_types")
 local ModuleDoc = types.ModuleDoc
 local DocIndex = types.DocIndex
@@ -433,16 +434,7 @@ local function run(query?: string): DocsResult
           "Use 'cosmic --docs " .. matched_mod .. "." .. symbol .. "' to see available methods.",
         }
       else
-        local locations = docs_render.find_symbol_locations(symbol, index)
-        local lines: {string} = {"error: symbol '" .. symbol .. "' not found in '" .. matched_mod .. "'"}
-        if #locations > 0 then
-          table.insert(lines, "")
-          table.insert(lines, "Did you mean?")
-          for i = 1, math.min(3, #locations) do table.insert(lines, "  cosmic --docs " .. locations[i]) end
-        else
-          table.insert(lines, "Use 'cosmic --docs " .. matched_mod .. "' to see available symbols.")
-        end
-        return {ok = false, output = table.concat(lines, "\n")}
+        return {ok = false, output = docs_lookup.symbol_not_found(symbol, matched_mod, index)}
       end
     end
   end

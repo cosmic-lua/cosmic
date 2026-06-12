@@ -36,6 +36,7 @@ local record Opts
   script_args: {integer: string}
   compile: string
   format: string
+  fix: string
   check_format: string
   check_types: string
   check_style: string
@@ -70,6 +71,7 @@ local function parse_args(): Opts
     script_args = {},
     compile = nil,
     format = nil,
+    fix = nil,
     check_format = nil,
     check_types = nil,
     check_style = nil,
@@ -223,6 +225,9 @@ local function parse_args(): Opts
     elseif opt == "format" then
       opts.format = optarg
       return opts
+    elseif opt == "fix" then
+      opts.fix = optarg
+      return opts
     elseif opt == "check-format" then
       opts.check_format = optarg
       return opts
@@ -348,6 +353,7 @@ local function main(): integer, string
   end
   if opts.compile then return handlers.handle_compile(opts.compile, opts.output, opts.write_if_changed, opts.include_dirs) end
   if opts.format then return handlers.handle_format(opts.format, opts.output, opts.write_if_changed) end
+  if opts.fix then return handlers.handle_format(opts.fix, opts.fix, true) end
   if opts.check_format then return handlers.handle_check_format(opts.check_format) end
   if opts.check_types then return handlers.handle_check_types(opts.check_types, opts.include_dirs) end
   if opts.check_style then return handlers.handle_check_style(opts.check_style) end

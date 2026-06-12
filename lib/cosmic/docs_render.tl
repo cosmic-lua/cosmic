@@ -307,31 +307,6 @@ local function find_symbol(doc: ModuleDoc, symbol: string, method?: string): str
   return nil
 end
 
---- Find where a symbol lives across all modules (for "did you mean" suggestions).
-local function find_symbol_locations(symbol: string, index: DocIndex): {string}
-  local out: {string} = {}
-  local sym_lower = symbol:lower()
-  for mod_name, mod_doc in pairs(index.modules) do
-    if mod_doc.functions then
-      for _, func in ipairs(mod_doc.functions) do
-        if func.name:lower() == sym_lower then table.insert(out, mod_name .. "." .. func.name) end
-      end
-    end
-    if mod_doc.records then
-      for _, rec in ipairs(mod_doc.records) do
-        if rec.fields then
-          for _, field in ipairs(rec.fields) do
-            if field[1]:lower() == sym_lower and field[2]:match("^function") then
-              table.insert(out, mod_name .. "." .. field[1])
-            end
-          end
-        end
-      end
-    end
-  end
-  return out
-end
-
 --- Render examples list as CLI output.
 local function render_examples_list(examples: {ExampleEntry}): string
   local lines: {string} = {}
@@ -472,7 +447,6 @@ local record DocsRenderModule
   find_method: function(rec: RecordDoc, method_name: string): string
   find_matching_examples: function(examples: {ExampleDoc}, func_name: string): {ExampleDoc}
   find_symbol: function(doc: ModuleDoc, symbol: string, method?: string): string
-  find_symbol_locations: function(symbol: string, index: DocIndex): {string}
   render_examples_list: function(examples: {ExampleEntry}): string
   render_search_results: function(results: {SearchResult}, query: string): string
   find_suggestions: function(query: string, index: DocIndex): {string}
@@ -489,7 +463,6 @@ local M: DocsRenderModule = {
   find_method = find_method,
   find_matching_examples = find_matching_examples,
   find_symbol = find_symbol,
-  find_symbol_locations = find_symbol_locations,
   render_examples_list = render_examples_list,
   render_search_results = render_search_results,
   find_suggestions = find_suggestions,

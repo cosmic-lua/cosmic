@@ -111,6 +111,30 @@ local function run(argv: {string}, output_base: string): integer
     return 1
   end
 
+  -- Best-effort: record the test_* functions defined in the test file so
+  -- report() can show how many a passing file contains (files follow the
+  -- define-then-call-immediately convention enforced by --check-style).
+  local test_names: {string} = {}
+  for _, a in ipairs(argv) do
+    if a:match("_test%.tl$") then
+      local src = cio.slurp(a)
+      if src then
+        for line in src:gmatch("[^\n]+") do
+          local tname = line:match("^local function (test_[%w_]+)")
+          if tname then
+            test_names[#test_names + 1] = tname
+          end
+        end
+      end
+    end
+  end
+  if #test_names > 0 then
+    local tok, terr = cio.barf(output_base .. ".tests", table.concat(test_names, "\n") .. "\n")
+    if not tok then
+      io.stderr:write("testrun: " .. (terr or "failed to write .tests") .. "\n")
+    end
+  end
+
   instrument.finish(span, exit_code)
   return exit_code
 end
@@ -122,6 +146,7 @@ local record TestResult
   stdout: string
   stderr: string
   status: string -- "pass", "fail", "skip"
+  test_count: integer -- test_* functions in the file (0 when unknown)
 end
 
 --- Normalize a path to a .got file base path.
@@ -158,6 +183,7 @@ local function report(paths: {string}): integer
           stdout = "",
           stderr = "cannot read .got file",
           status = "fail",
+          test_count = 0 as integer,
         } as TestResult)
     else
       local exit_code = (tonumber(got_content:match("^(%d+)")) or -1) as integer
@@ -165,6 +191,15 @@ local function report(paths: {string}): integer
       -- Read stdout and stderr
       local stdout_content = cio.slurp(base .. ".out") or ""
       local stderr_content = cio.slurp(base .. ".err") or ""
+
+      -- Read recorded test_* function names, when present
+      local test_count = 0
+      local tests_content = cio.slurp(base .. ".tests")
+      if tests_content then
+        for _ in tests_content:gmatch("[^\n]+") do
+          test_count = test_count + 1
+        end
+      end
 
       local status: string
       if exit_code == 0 then
@@ -184,6 +219,7 @@ local function report(paths: {string}): integer
           stdout = stdout_content,
           stderr = stderr_content,
           status = status,
+          test_count = test_count as integer,
         } as TestResult)
     end
   end
@@ -216,7 +252,11 @@ local function report(paths: {string}): integer
         end
       end
     end
-    io.write(icon .. " " .. result.name .. timing .. "\n")
+    local count_note = ""
+    if result.status == "pass" and result.test_count > 0 then
+      count_note = string.format(" (%d test functions)", result.test_count)
+    end
+    io.write(icon .. " " .. result.name .. count_note .. timing .. "\n")
   end
 
   -- Print summary

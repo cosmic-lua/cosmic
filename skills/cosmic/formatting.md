@@ -8,24 +8,40 @@ cosmic enforces consistent code formatting via `cosmic --format` and `cosmic --c
 - LF line endings (no CRLF)
 - consistent spacing around operators and keywords
 - all `.tl` files must be <=500 lines
+- no spaces inside table braces:
+
+```teal
+local t = { a = 1 }   -- wrong
+local t = {a = 1}     -- right
+```
+
+- a table constructor passed as a function argument indents its contents
+  two levels (4 spaces) past the call, with the closing `})` one level in:
+
+```teal
+local f = go({
+    key = 1,
+  })
+```
+
+- anonymous function bodies in argument lists follow the same shape —
+  body two levels in, `end)` one level in:
+
+```teal
+walk(dir, function(p: string)
+    print(p)
+  end)
+```
+
+when in doubt, write the file and run `cosmic --fix file.tl` — the
+formatter is the source of truth for these rules.
 
 ## Commands
 
 ```bash
 cosmic --format file.tl           # print formatted output to stdout
+cosmic --fix file.tl              # format the file in place
 cosmic --check-format file.tl     # check if file matches formatted output
-```
-
-`--format` writes the formatted file to stdout. to update a file in place, redirect:
-
-```bash
-cosmic --format file.tl > file.tl.tmp && mv file.tl.tmp file.tl
-```
-
-or use `--format` with `--output` and `--write-if-changed` for atomic writes:
-
-```bash
-cosmic --format file.tl --output file.tl --write-if-changed
 ```
 
 `--check-format` compares the original file against the formatted output. if they differ, it reports the first mismatched line on stderr and exits nonzero:

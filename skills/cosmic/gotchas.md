@@ -134,3 +134,24 @@ io.stderr:write("error: " .. msg .. "\n")  -- standard Lua io still works
 ```
 
 cosmic.io has no stderr/stdout/stdin handles — use Lua's `io.stderr` directly for stream output.
+
+## 7. `arg[0]` is not the interpreter — use `arg[-1]` to re-invoke cosmic
+
+when a script needs to spawn the cosmic binary itself (e.g. to run another
+script as a child process), `arg[0]` is the script path as the runtime sees
+it (`/zip/main.lua` for the embedded entry point), not the interpreter.
+the interpreter path lives at `arg[-1]`, and because `arg` is typed
+`{string}`, negative indices need `rawget` in strict mode.
+
+**wrong:**
+```teal
+local child = require("cosmic.child")
+local h = child.spawn({arg[0], "worker.tl"})  -- spawns /zip/main.lua: fails
+```
+
+**right:**
+```teal
+local child = require("cosmic.child")
+local cosmic_bin = rawget(arg, -1) as string  -- e.g. "./cosmic"
+local h = child.spawn({cosmic_bin, "worker.tl"})
+```

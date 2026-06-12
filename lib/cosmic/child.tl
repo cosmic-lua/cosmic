@@ -23,7 +23,7 @@ local record Rusage
   nivcsw: function(self: Rusage): number
 end
 
---- Pipe for reading/writing process I/O.
+--- Pipe for process I/O. fd is a plain field (not a method like io.Handle:fd()).
 local record Pipe
   fd: number
   write: function(self: Pipe, data: string): number

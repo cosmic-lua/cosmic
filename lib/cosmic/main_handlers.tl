@@ -232,8 +232,8 @@ local function handle_check_format(file: string): integer
     end
   end
   io.stderr:write(string.format(
-      "  hint: run 'cosmic --format %s' to see the formatted version, or\n        'cosmic --write-if-changed --output %s --format %s' to fix in place\n",
-      file, file, file))
+      "  hint: run 'cosmic --fix %s' to fix in place, or 'cosmic --format %s' to preview\n",
+      file, file))
   instrument.finish(span, 1)
   return 1
 end

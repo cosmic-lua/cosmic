@@ -110,6 +110,10 @@ local function connect_unix(path: string): Socket, string
 end
 
 --- Create a TCP socket and connect to an IP address and port.
+--- The IP is an integer (e.g. 0x7f000001 for 127.0.0.1). To convert a
+--- dotted-quad string, use cosmic.ip:
+---   local ip = require("cosmic.ip")
+---   local addr = ip.parse("127.0.0.1")  -- 0x7f000001
 --- @param ip number Remote IP address
 --- @param port number Remote port
 --- @return Socket Connected socket
@@ -130,7 +134,8 @@ end
 --- Create a TCP socket, bind it to host:port, and start listening.
 --- Passing port 0 lets the OS assign an ephemeral port; the actual port is
 --- returned as the second value so callers never need a separate getsockname
---- call.
+--- call. The IP is an integer; convert strings with
+--- require("cosmic.ip").parse("127.0.0.1").
 ---
 --- Example — listen on an OS-assigned port:
 ---   local net = require("cosmic.net")
