@@ -143,3 +143,60 @@ every command run, every verbatim error, and their top frictions. Claims
 were then re-verified directly against the binary; a few agent claims were
 dropped as inaccurate (e.g. "`--help` truncates the module list" — it
 doesn't; the agent's own pager did).
+
+---
+
+# Round 2 — after the fixes
+
+All 17 findings were addressed (commits `41f8f36`..`fb1953f`), and the
+experiment was repeated: four fresh Sonnet agents, identical prompts and
+tasks, clean sandboxes containing only the rebuilt binary (`e13e92d`).
+
+## Results
+
+| sandbox | task | round 1 | round 2 |
+|---------|------|---------|---------|
+| A | JSON stats CLI | clean, but burned cycles on `arg`/`any`/style confusion | 1 error total (format mismatch, fixed via the new hint in one step) |
+| B | module + tests | 1 type error; ended up with a file named `slug_test.got.got` | 1 type error — the new fix-hint resolved it in one edit; test workflow correct first time |
+| C | sqlite indexer | ~17 errors incl. a silent path-doubling runtime bug; ~70 tool calls | **type check passed on the first attempt**; 2 errors total; 36 tool calls |
+| D | child + TCP echo | 2 type errors plus a silent server/probe race | 3 small errors, **no silent bugs**; used `net.listen_tcp` and the child+pipe example directly |
+
+Fixes observed working in the wild (not just in unit tests):
+
+- The `--check-format` hint's in-place command was used successfully by
+  three of four agents on their first formatting failure.
+- The `got number, expected integer` fix-hint appeared verbatim in agent
+  B's transcript and was resolved in a single edit (round 1: a full
+  probe-and-experiment cycle).
+- `guide.gotchas` was read by three agents and answered the `any`-casting,
+  `arg`-nil, and io-shadowing questions before they became errors.
+- Every per-symbol docs lookup attempted resolved: `cosmic.net.listen_tcp`,
+  `cosmic.child.{spawn,Opts,Handle,Pipe}`, `cosmic.fs_walk.walk`,
+  `cosmic.sqlite.{open,Database}`.
+- No agent hit the fs.walk path-doubling bug or the io-shadowing trap.
+- `cosmic.assert` was discovered organically via `--docs assert`.
+
+## Remaining backlog (new or surviving findings)
+
+1. `--docs <module>.<TypeName>` still misses nested record *types*
+   (`cosmic.fs_types.WalkStat` → "symbol not found"); round-1 fix covered
+   record methods only.
+2. The `arg` table layout is undocumented: `arg[-1]` is the interpreter
+   path, `arg[0]` is `/zip/main.lua` — agent D needed this to self-spawn
+   and found it only by experiment. Document in `cosmic.proc` docs and
+   `guide.gotchas`.
+3. A `--fix` shorthand for formatting (two independent requests); the
+   working incantation `--write-if-changed --output <f> --format <f>` is
+   verbose and order-sensitive.
+4. Point to `guide.gotchas` from `--help` ("Common pitfalls: cosmic --docs
+   guide.gotchas").
+5. Formatter rules for nested/callback indentation are discoverable only by
+   failing; name the violated rule in the mismatch output or document the
+   rules in `guide.formatting`.
+6. `--report` counts test *files*, not `test_*` functions; per-function
+   reporting would make green runs verifiable.
+7. Smaller: a `LIKE`/`WHERE` example in the sqlite docs; surface
+   `cosmic.ip` string→int conversion from the net docs; note that
+   `child.Pipe.fd` is a field while `io.Handle:fd()` is a method; document
+   local `require` resolution in `guide.modules` (it is in `gotchas` but
+   one agent looked in `modules`).
