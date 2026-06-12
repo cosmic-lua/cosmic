@@ -35,6 +35,7 @@ Standard lua options:
 Environment variables:
   COSMIC_NO_REQUIRE_HINTS    disable helpful module-not-found suggestions
   COSMIC_NO_WELCOME          suppress welcome message on first run
+  COSMIC_FULL_TRACEBACK      show full stack traceback including internal frames
 
 Documentation:
   cosmic --docs [query]      look up docs from the command line

@@ -306,68 +306,7 @@ local function resolve_optional_arg(flag: string, value: string): string
   return ""
 end
 
---- Augment a Teal compile-time error message with require hints.
---- When Teal reports "module not found: 'x'", append the same Did-you-mean
---- suggestions produced by the runtime hint engine so users see them
---- regardless of whether the error is detected at compile or run time.
---- Returns the original message unchanged when hints are disabled or
---- no suggestion is available.
---- @param err string Compile error message (may be multi-line)
---- @return string Possibly augmented error message
-local function augment_module_errors(err: string): string
-  if os.getenv("COSMIC_NO_REQUIRE_HINTS") then
-    return err
-  end
-  -- Teal emits "module not found: '<name>'" in individual issue messages.
-  -- The formatted string includes location prefix, e.g.:
-  --   file.tl:1:8: error: module not found: 'json'
-  local mod_name = err:match("module not found: '([^']+)'")
-  if not mod_name then
-    return err
-  end
-  local req_mod = require("cosmic.require")
-  local hint = req_mod.format_error(mod_name)
-  -- hint starts with "module 'x' not found\n\n..." — append the
-  -- Did-you-mean block (everything after the first two lines).
-  local hint_lines: {string} = {}
-  local line_idx = 0
-  for line in (hint .. "\n"):gmatch("([^\n]*)\n") do
-    line_idx = line_idx + 1
-    if line_idx > 2 then
-      hint_lines[#hint_lines + 1] = line
-    end
-  end
-  if #hint_lines == 0 then
-    return err
-  end
-  -- Drop trailing empty line from hint_lines if present
-  while #hint_lines > 0 and hint_lines[#hint_lines] == "" do
-    hint_lines[#hint_lines] = nil
-  end
-  return err .. "\n" .. table.concat(hint_lines, "\n")
-end
-
---- Build a traceback for user-visible errors, trimming internal frames.
---- Strips frames at and below the cosmic entry point (/zip/main.lua) so users
---- see only their own stack. Set COSMIC_FULL_TRACEBACK=1 to disable trimming.
-local function trim_traceback(err: any): string
-  local tb = debug.traceback(tostring(err), 2)
-  if os.getenv("COSMIC_FULL_TRACEBACK") then
-    return tb
-  end
-  -- Split into lines and drop everything at/below the first /zip/main.lua frame.
-  local lines: {string} = {}
-  local trimmed = false
-  for line in (tb .. "\n"):gmatch("([^\n]*)\n") do
-    if not trimmed and line:match("\t/zip/main%.lua:") then
-      trimmed = true
-    end
-    if not trimmed then
-      lines[#lines + 1] = line
-    end
-  end
-  return table.concat(lines, "\n")
-end
+local run = require("cosmic.run")
 
 local function main(): integer, string
   local opts = parse_args()
@@ -489,7 +428,7 @@ local function main(): integer, string
     local chunk, err = handlers.load_script_file(opts.script)
     if not chunk then
       local msg = err or "error loading script"
-      msg = augment_module_errors(msg)
+      msg = run.augment_module_errors(msg)
       return 1, "cosmic-lua: " .. msg
     end
     local args: {string} = {}
@@ -498,7 +437,7 @@ local function main(): integer, string
     end
     local results: {any} = table.pack(xpcall(function()
           chunk(table.unpack(args))
-        end, trim_traceback))
+        end, run.trim_traceback))
     local ok = results[1] as boolean
     if not ok then
       return 1, results[2] as string
