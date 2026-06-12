@@ -125,19 +125,19 @@ local function test_check_column_length_over()
 end
 test_check_column_length_over()
 
-local function test_check_assert_order_ok()
+local function test_check_call_after_define_ok()
   local lines = {
     "local function foo()",
     "  return 1",
     "end",
     "foo()",
   }
-  local diags = lint.check_assert_order("test.tl", lines)
+  local diags = lint.check_call_after_define("test.tl", lines)
   assert(#diags == 0, "expected no diagnostic when assert called right after definition")
 end
-test_check_assert_order_ok()
+test_check_call_after_define_ok()
 
-local function test_check_assert_order_missing_call()
+local function test_check_call_after_define_missing_call()
   -- foo() is followed by bar definition (not foo call): diagnostic for foo
   -- bar() is followed by foo() call (not bar call): diagnostic for bar
   -- both functions have out-of-order asserts
@@ -151,12 +151,12 @@ local function test_check_assert_order_missing_call()
     "foo()",
     "bar()",
   }
-  local diags = lint.check_assert_order("test.tl", lines)
+  local diags = lint.check_call_after_define("test.tl", lines)
   assert(#diags == 2, "expected 2 diagnostics when asserts not called right after definition, got: " .. tostring(#diags))
-  assert(diags[1].rule == "assert-order", "expected assert-order rule")
-  assert(diags[2].rule == "assert-order", "expected assert-order rule")
+  assert(diags[1].rule == "call-after-define", "expected call-after-define rule")
+  assert(diags[2].rule == "call-after-define", "expected call-after-define rule")
 end
-test_check_assert_order_missing_call()
+test_check_call_after_define_missing_call()
 
 local function test_count_lines_directory()
   -- count_lines should return 0 for a directory (or symlink to directory) without crashing
@@ -165,7 +165,7 @@ local function test_count_lines_directory()
 end
 test_count_lines_directory()
 
-local function test_check_assert_order_do_block()
+local function test_check_call_after_define_do_block()
   -- A function body with a standalone do...end block must not confuse the closer detection.
   -- Previously, the `end` for the `do` block decremented depth below 1, causing
   -- the function body to appear to close early.
@@ -178,12 +178,12 @@ local function test_check_assert_order_do_block()
     "end",
     "foo()",
   }
-  local diags = lint.check_assert_order("test.tl", lines)
+  local diags = lint.check_call_after_define("test.tl", lines)
   assert(#diags == 0, "expected no diagnostic for function with do...end block, got: " .. tostring(#diags))
 end
-test_check_assert_order_do_block()
+test_check_call_after_define_do_block()
 
-local function test_check_assert_order_for_loop()
+local function test_check_call_after_define_for_loop()
   -- A function body with a for loop must not confuse the closer detection.
   local lines = {
     "local function foo()",
@@ -194,12 +194,12 @@ local function test_check_assert_order_for_loop()
     "end",
     "foo()",
   }
-  local diags = lint.check_assert_order("test.tl", lines)
+  local diags = lint.check_call_after_define("test.tl", lines)
   assert(#diags == 0, "expected no diagnostic for function with for loop, got: " .. tostring(#diags))
 end
-test_check_assert_order_for_loop()
+test_check_call_after_define_for_loop()
 
-local function test_check_assert_order_if_block()
+local function test_check_call_after_define_if_block()
   -- A function body with an if...end block must not confuse the closer detection.
   local lines = {
     "local function foo()",
@@ -210,12 +210,12 @@ local function test_check_assert_order_if_block()
     "end",
     "foo()",
   }
-  local diags = lint.check_assert_order("test.tl", lines)
+  local diags = lint.check_call_after_define("test.tl", lines)
   assert(#diags == 0, "expected no diagnostic for function with if block, got: " .. tostring(#diags))
 end
-test_check_assert_order_if_block()
+test_check_call_after_define_if_block()
 
-local function test_check_assert_order_repeat_until()
+local function test_check_call_after_define_repeat_until()
   -- A function body with a repeat...until must not confuse the closer detection.
   local lines = {
     "local function foo()",
@@ -227,12 +227,12 @@ local function test_check_assert_order_repeat_until()
     "end",
     "foo()",
   }
-  local diags = lint.check_assert_order("test.tl", lines)
+  local diags = lint.check_call_after_define("test.tl", lines)
   assert(#diags == 0, "expected no diagnostic for function with repeat...until, got: " .. tostring(#diags))
 end
-test_check_assert_order_repeat_until()
+test_check_call_after_define_repeat_until()
 
-local function test_check_assert_order_one_line_if()
+local function test_check_call_after_define_one_line_if()
   -- One-line if/end must net to zero depth change.
   local lines = {
     "local function foo()",
@@ -241,7 +241,7 @@ local function test_check_assert_order_one_line_if()
     "end",
     "foo()",
   }
-  local diags = lint.check_assert_order("test.tl", lines)
+  local diags = lint.check_call_after_define("test.tl", lines)
   assert(#diags == 0, "expected no diagnostic for function with one-line if, got: " .. tostring(#diags))
 end
-test_check_assert_order_one_line_if()
+test_check_call_after_define_one_line_if()
