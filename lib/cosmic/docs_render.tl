@@ -187,6 +187,14 @@ local function render_module(name: string, doc: ModuleDoc): string
     table.insert(lines, "**Tip:** For a high-level API, see `" .. equivalent .. "`.")
     table.insert(lines, "")
   end
+  -- Hoist quick example near the top, right after the summary
+  if doc.examples and #doc.examples > 0 then
+    table.insert(lines, "Run `cosmic --examples " .. simple_name .. "` for runnable examples.")
+    table.insert(lines, "")
+    table.insert(lines, "## Quick example")
+    table.insert(lines, "")
+    table.insert(lines, render_example(doc.examples[1]))
+  end
   if doc.records and #doc.records > 0 then
     table.insert(lines, "## Types")
     table.insert(lines, "")
@@ -251,6 +259,7 @@ local function find_matching_examples(examples: {ExampleDoc}, func_name: string)
 end
 
 --- Find a symbol in a module's documentation.
+--- Also searches record fields for re-exported function symbols.
 local function find_symbol(doc: ModuleDoc, symbol: string, method?: string): string
   if doc.functions then
     for _, func in ipairs(doc.functions) do
@@ -270,10 +279,20 @@ local function find_symbol(doc: ModuleDoc, symbol: string, method?: string): str
   if doc.records then
     for _, rec in ipairs(doc.records) do
       if rec.name == symbol or rec.name:lower() == symbol:lower() then
-        if method then
-          return find_method(rec, method)
-        end
+        if method then return find_method(rec, method) end
         return render_record(rec)
+      end
+    end
+    -- Also search record fields for re-exported function symbols
+    for _, rec in ipairs(doc.records) do
+      local found = find_method(rec, symbol)
+      if found then
+        local matching_examples = find_matching_examples(doc.examples, symbol)
+        if #matching_examples > 0 then
+          found = found .. "**Examples:**\n\n"
+          for _, example in ipairs(matching_examples) do found = found .. render_example(example) end
+        end
+        return found
       end
     end
   end
@@ -397,6 +416,27 @@ local function find_suggestions(query: string, index: DocIndex): {string}
   return results
 end
 
+--- Find suggestions for examples lookup (only modules with examples).
+local function find_example_suggestions(query: string, index: DocIndex): {string}
+  local candidates: {string} = {}
+  local name_to_full: {string: string} = {}
+  for mod_name, mod_doc in pairs(index.modules) do
+    if mod_doc.examples and #mod_doc.examples > 0 then
+      local simple = mod_name:match("([^%.]+)$") or mod_name
+      if not name_to_full[simple] then
+        table.insert(candidates, simple)
+        name_to_full[simple] = mod_name
+      end
+    end
+  end
+  local similar = fuzzy.find_similar(query, candidates, 3)
+  local results: {string} = {}
+  for _, simple in ipairs(similar) do
+    if name_to_full[simple] then table.insert(results, name_to_full[simple]) end
+  end
+  return results
+end
+
 local record DocsRenderModule
   first_paragraph: function(text: string): string
   render_topic_list: function(topics: {{string, string}}): string
@@ -410,6 +450,7 @@ local record DocsRenderModule
   render_examples_list: function(examples: {ExampleEntry}): string
   render_search_results: function(results: {SearchResult}, query: string): string
   find_suggestions: function(query: string, index: DocIndex): {string}
+  find_example_suggestions: function(query: string, index: DocIndex): {string}
 end
 
 local M: DocsRenderModule = {
@@ -425,6 +466,7 @@ local M: DocsRenderModule = {
   render_examples_list = render_examples_list,
   render_search_results = render_search_results,
   find_suggestions = find_suggestions,
+  find_example_suggestions = find_example_suggestions,
 }
 
 return M

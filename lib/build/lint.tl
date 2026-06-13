@@ -63,7 +63,7 @@ end
 --- Check that top-level `local function NAME(` is immediately called as `NAME()` on
 --- the next non-blank line after its closing `end`. Heuristic: track depth of
 --- `function`/`end` keywords; when depth returns to 0, check the next line.
-local function check_assert_order(file: string, lines: {string}): {Diagnostic}
+local function check_call_after_define(file: string, lines: {string}): {Diagnostic}
   local diagnostics: {Diagnostic} = {}
   local i = 1
   while i <= #lines do
@@ -123,10 +123,11 @@ local function check_assert_order(file: string, lines: {string}): {Diagnostic}
               file = file,
               line = def_line,
               col = 1,
-              rule = "assert-order",
+              rule = "call-after-define",
               message = string.format(
-                "%s:%d: function '%s' not called immediately after definition",
-                file, def_line, fname
+                "function '%s' must be called immediately after its definition "
+                  .. "(test/example files call each test_* function right after defining it)",
+                fname
               ),
             })
         end
@@ -180,7 +181,7 @@ local function lint_file(path: string): {Diagnostic}
       table.insert(diagnostics, d)
     end
 
-    local order_diags = check_assert_order(path, lines)
+    local order_diags = check_call_after_define(path, lines)
     for _, d in ipairs(order_diags) do
       table.insert(diagnostics, d)
     end
@@ -233,7 +234,7 @@ return {
   count_lines = count_lines,
   check_file_length = check_file_length,
   check_column_length = check_column_length,
-  check_assert_order = check_assert_order,
+  check_call_after_define = check_call_after_define,
   lint_file = lint_file,
   main = main,
 }

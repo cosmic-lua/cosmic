@@ -101,4 +101,23 @@ local function Example_exec_params()
   -- Tokyo	13960000
 end
 
+-- Example_query_like demonstrates substring matching with LIKE
+-- (the SQL wildcard is %, not *)
+local function Example_query_like()
+  local sqlite = require("cosmic.sqlite")
+  local db = sqlite.open(":memory:")
+  db:exec("CREATE TABLE files (path TEXT)")
+  db:exec("INSERT INTO files (path) VALUES (?)", "src/main.tl")
+  db:exec("INSERT INTO files (path) VALUES (?)", "src/util.tl")
+  db:exec("INSERT INTO files (path) VALUES (?)", "docs/readme.md")
+
+  for row in db:query("SELECT path FROM files WHERE path LIKE ?", "%src%") do
+    print(row.path)
+  end
+  db:close()
+  -- Output:
+  -- src/main.tl
+  -- src/util.tl
+end
+
 return {}

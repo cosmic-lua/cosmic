@@ -13,6 +13,7 @@ local longopts: {getopt.LongOpt} = {
   {name = "help", has_arg = "none", short = "h"},
   {name = "compile", has_arg = "required"},
   {name = "format", has_arg = "required"},
+  {name = "fix", has_arg = "required"},
   {name = "check-format", has_arg = "required"},
   {name = "check-types", has_arg = "required"},
   {name = "check-style", has_arg = "required"},

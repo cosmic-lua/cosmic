@@ -113,6 +113,67 @@ local function parse_annotations(doc: string): {Param}, {Return}, string
   return params, returns, description
 end
 
+--- Parse `name: type` fields from a record body.
+--- @param source string The full source (for doc-comment lookup)
+--- @param body string The record body text
+--- @param body_start integer Absolute position of body within source
+--- @return {{string, string, string}} List of {name, type, description}
+local function parse_record_fields(source: string, body: string, body_start: integer): {{string, string, string}}
+  local fields: {{string, string, string}} = {}
+  local field_pos = 1
+  while field_pos <= #body do
+    local fstart, fend, fname, ftype = body:find("%s*([%w_]+)%s*:%s*([^\n]+)", field_pos)
+    if not fstart then break end
+    -- Find the start of the line where fname begins (skip leading whitespace in fstart)
+    local fname_pos = fstart + body:sub(fstart, fend):find(fname, 1, true) - 1
+    local fname_line_start = fname_pos
+    while fname_line_start > 1 and body:byte(fname_line_start - 1) ~= BYTE_NEWLINE do
+      fname_line_start = fname_line_start - 1
+    end
+    local line_text = body:sub(fname_line_start, fname_pos - 1)
+    if line_text:match("^%s*%-%-") then
+      field_pos = fend + 1
+      goto continue_field
+    end
+    do
+      local field_absolute_pos = body_start + fname_pos
+      local field_doc = extract_doc_comment(source, field_absolute_pos)
+      local _, _, field_description = parse_annotations(field_doc)
+      local clean_type = ftype:match("^%s*(.-)%s*$")
+      if clean_type:match("%-%-%s*.*$") then
+        clean_type = clean_type:gsub("%s*%-%-.*$", "")
+      end
+      table.insert(fields, {fname, clean_type, field_description or ""})
+    end
+    field_pos = fend + 1
+    ::continue_field::
+  end
+  return fields
+end
+
+--- Find the end of a record block via record/enum vs end depth tracking.
+--- @param text string The text to scan
+--- @param start integer Position just inside the record (after its header line)
+--- @return integer Position of the last body character (before `end`)
+--- @return integer Position just past the closing `end`
+local function find_record_end(text: string, start: integer): integer, integer
+  local depth = 1
+  local i = start
+  local rec_end = i
+  while i <= #text and depth > 0 do
+    local word_start, word_end, word = text:find("(%a+)", i)
+    if word_start == i then
+      if word == "record" or word == "enum" then depth = depth + 1
+      elseif word == "end" then
+        depth = depth - 1
+        if depth == 0 then rec_end = word_start - 1 end
+      end
+      i = word_end + 1
+    else i = i + 1 end
+  end
+  return rec_end, i
+end
+
 --- Parse a .tl file and extract documentation.
 --- @param source string The source code to parse
 --- @param file_path string Path to the file being parsed
@@ -206,35 +267,31 @@ local function parse(source: string, file_path: string): ModuleDoc
     local fields: {{string, string, string}} = {}
     local body_start = source:find("\n", rec_start as integer)
     if body_start then
-      local depth = 1
-      local i = body_start + 1
-      local record_end = i
-      while i <= #source and depth > 0 do
-        local word_start, word_end, word = source:find("(%a+)", i)
-        if word_start == i then
-          if word == "record" or word == "enum" then depth = depth + 1
-          elseif word == "end" then
-            depth = depth - 1
-            if depth == 0 then record_end = word_start - 1 end
-          end
-          i = word_end + 1
-        else i = i + 1 end
-      end
+      local record_end, _ = find_record_end(source, body_start + 1)
       local body = source:sub(body_start, record_end)
-      local field_pos = 1
-      while field_pos <= #body do
-        local fstart, fend, fname, ftype = body:find("%s*([%w_]+)%s*:%s*([^\n]+)", field_pos)
-        if not fstart then break end
-        local field_absolute_pos = body_start + fstart
-        local field_doc = extract_doc_comment(source, field_absolute_pos)
-        local _, _, field_description = parse_annotations(field_doc)
-        local clean_type = ftype:match("^%s*(.-)%s*$")
-        if clean_type:match("%-%-%s*.*$") then
-          clean_type = clean_type:gsub("%s*%-%-.*$", "")
-        end
-        table.insert(fields, {fname, clean_type, field_description or ""})
-        field_pos = fend + 1
+      -- Extract nested `record Name ... end` blocks as their own entries
+      -- (e.g. cosmic.fs_types.WalkStat), then blank them out so their
+      -- fields are not misattributed to the parent record.
+      local search_pos = 1
+      while true do
+        local n_start, n_header_end, n_name = body:find("\n%s*record%s+([%w_]+)", search_pos)
+        if not n_start then break end
+        local n_body_start = body:find("\n", n_header_end + 1)
+        if not n_body_start then break end
+        local n_rec_end, n_past_end = find_record_end(body, n_body_start + 1)
+        local n_body = body:sub(n_body_start, n_rec_end)
+        local n_doc = extract_doc_comment(source, body_start + n_start)
+        local _, _, n_description = parse_annotations(n_doc)
+        table.insert(doc.records, {
+            name = n_name as string, description = n_description,
+            fields = parse_record_fields(source, n_body, body_start + n_body_start - 1),
+            line = line_num,
+          })
+        local blanked = body:sub(n_start, n_past_end - 1):gsub("[^\n]", " ")
+        body = body:sub(1, n_start - 1) .. blanked .. body:sub(n_past_end)
+        search_pos = n_past_end
       end
+      fields = parse_record_fields(source, body, body_start)
     end
     table.insert(doc.records, {
         name = rec_name as string, description = description,

@@ -242,4 +242,30 @@ local function test_fetch_has_module_description()
 end
 test_fetch_has_module_description()
 
+-- Test that record field parser skips comment lines (bug 2 regression test)
+local function test_record_fields_skip_comments()
+  local source = [[
+local record Foo
+  --- Some description.
+  --- @return function Iterator yielding (fd: number, events: Bar)
+  wait: function(Foo, number): function(): number, Bar
+  bar: string
+end
+]]
+  local result = doc.parse(source, "test.tl")
+  assert(#result.records == 1, "should find one record")
+  local rec = result.records[1]
+  -- Should only find 'wait' and 'bar', NOT 'fd' from inside the comment
+  local field_names: {string} = {}
+  for _, f in ipairs(rec.fields) do
+    table.insert(field_names, f[1])
+  end
+  local names_str = table.concat(field_names, ",")
+  assert(not names_str:find("fd"), "should not parse 'fd' from inside comment (got: " .. names_str .. ")")
+  assert(names_str:find("wait"), "should find 'wait' field")
+  assert(names_str:find("bar"), "should find 'bar' field")
+  print("test_record_fields_skip_comments: PASS")
+end
+test_record_fields_skip_comments()
+
 print("All doc tests passed!")

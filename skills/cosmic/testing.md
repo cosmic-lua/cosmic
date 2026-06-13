@@ -34,6 +34,18 @@ key rules:
 
 ## Assert Patterns
 
+the preferred way to write assertions is with `cosmic.assert`, which produces auto-formatted failure messages:
+
+```teal
+local a = require("cosmic.assert")
+
+a.eq(result, "expected", "label")      -- equality with diff on failure
+a.ne(result, nil, "should not be nil")
+a.ok(result > 0, "expected positive")
+```
+
+plain `assert()` also works and is fine for simple checks:
+
 ```teal
 -- value equality
 assert(result == "expected", "got: " .. tostring(result))
@@ -80,21 +92,60 @@ test_write_file()
 
 ## Running Tests
 
+`cosmic --test` runs a test file and captures its output. the command form is:
+
 ```bash
 cosmic --test <output_prefix> <cosmic_binary> <test_file>
 ```
 
-`cosmic --test` captures stdout/stderr/exit-code to `.out`/`.err`/`.got` files. use `cosmic --report` to aggregate results:
+**end-to-end example.** given `foo_test.tl`:
 
 ```bash
-cosmic --report o/*.test.got
+# run the test, capturing output to o/foo.{out,err,got}
+cosmic --test o/foo ./cosmic foo_test.tl
 ```
 
-with `cosmic --make`, test targets are generated automatically:
+this produces three files:
+- `o/foo.out` — the test's stdout
+- `o/foo.err` — the test's stderr
+- `o/foo.got` — the exit code (a single integer, e.g. `0` for pass, `1` for fail)
+
+`--test` propagates the test's exit code, so it is safe in shell `&&`-chains:
 
 ```bash
-cosmic --make . test          # generate Makefile and run tests
-make test                     # if you have a saved Makefile
+cosmic --test o/foo ./cosmic foo_test.tl && echo "passed"
+```
+
+to see a passing summary:
+
+```bash
+cosmic --report o/foo.got
+# foo_test.tl ... ok
+```
+
+when a test fails the `.out` and `.err` files contain the failure output:
+
+```bash
+# after a failing run:
+cat o/foo.out
+# assertion failed: expected 1, got 2
+
+cosmic --report o/foo.got
+# foo_test.tl ... FAIL
+# 1 failed
+```
+
+`--report` accepts multiple `.got` files and aggregates results across a whole test suite:
+
+```bash
+cosmic --report o/*.tl.test.got
+```
+
+with `bin/make`, test targets are generated automatically from `*_test.tl` files:
+
+```bash
+bin/make test              # run all tests
+bin/make test only=sqlite  # filter by pattern
 ```
 
 ## Writing Examples

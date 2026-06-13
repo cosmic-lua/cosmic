@@ -170,4 +170,107 @@ print(s)
 end
 test_check_with_tl_path_double_semicolon()
 
+-- Test that fix-hints appear for common Teal type-check traps.
+-- We redirect stderr to stdout (opts.stderr=1) so the hint output is captured.
+
+-- Hint 1: got number, expected integer
+local function test_check_hint_number_integer()
+  local input = write_temp("hint_num_int.tl", [[
+local s = "hello"
+local n: number = 3.14
+local c = s:sub(n, n)
+print(c)
+]])
+  local ok, out = spawn.spawn({cosmic, "--check-types", input}, {stderr = 1}):read()
+  assert(not ok, "should fail with type error")
+  assert(out:find("hint:"), "should include a hint, got: " .. out)
+  assert(out:find("math%.tointeger"), "hint should mention math.tointeger, got: " .. out)
+end
+test_check_hint_number_integer()
+
+-- Hint 2: ipairs on any type
+local function test_check_hint_ipairs_any()
+  local input = write_temp("hint_ipairs_any.tl", [[
+local function get(): any
+  return {1, 2, 3}
+end
+local arr = get()
+for i, v in ipairs(arr) do
+  print(i, v)
+end
+]])
+  local ok, out = spawn.spawn({cosmic, "--check-types", input}, {stderr = 1}):read()
+  assert(not ok, "should fail with type error")
+  assert(out:find("hint:"), "should include a hint, got: " .. out)
+  assert(out:find("as {any}"), "hint should mention casting to array, got: " .. out)
+end
+test_check_hint_ipairs_any()
+
+-- Hint 3: excess return values
+local function test_check_hint_excess_returns()
+  local input = write_temp("hint_excess_rets.tl", [[
+local function f(): string
+  return "a", "b", "c"
+end
+f()
+]])
+  local ok, out = spawn.spawn({cosmic, "--check-types", input}, {stderr = 1}):read()
+  assert(not ok, "should fail with type error")
+  assert(out:find("hint:"), "should include a hint, got: " .. out)
+  assert(out:find("local v, err"), "hint should mention capturing multiple returns, got: " .. out)
+end
+test_check_hint_excess_returns()
+
+-- Hint 4: cannot use operator '..' for any type
+local function test_check_hint_any_concat()
+  local input = write_temp("hint_any_concat.tl", [[
+local function get(): any
+  return "hello"
+end
+local v = get()
+local s = v .. " world"
+print(s)
+]])
+  local ok, out = spawn.spawn({cosmic, "--check-types", input}, {stderr = 1}):read()
+  assert(not ok, "should fail with type error")
+  assert(out:find("hint:"), "should include a hint, got: " .. out)
+  assert(out:find("cast first"), "hint should suggest casting, got: " .. out)
+end
+test_check_hint_any_concat()
+
+-- Hint 5: cannot index any type
+local function test_check_hint_any_index()
+  local input = write_temp("hint_any_index.tl", [[
+local function get(): any
+  return {name = "world"}
+end
+local obj = get()
+print(obj.name)
+]])
+  local ok, out = spawn.spawn({cosmic, "--check-types", input}, {stderr = 1}):read()
+  assert(not ok, "should fail with type error")
+  assert(out:find("hint:"), "should include a hint, got: " .. out)
+  assert(out:find("cast first"), "hint should suggest casting, got: " .. out)
+end
+test_check_hint_any_index()
+
+-- No duplicate hints per error
+local function test_check_hint_no_duplicates()
+  local input = write_temp("hint_no_dup.tl", [[
+local s = "hello"
+local n: number = 3.14
+local c = s:sub(n, n)
+print(c)
+]])
+  local ok, out = spawn.spawn({cosmic, "--check-types", input}, {stderr = 1}):read()
+  assert(not ok, "should fail with type error")
+  -- Count occurrences of "hint:"
+  local count = 0
+  for _ in out:gmatch("  hint:") do
+    count = count + 1
+  end
+  assert(count == 1, "should have exactly one hint for one error, got " .. count .. " hints")
+end
+test_check_hint_no_duplicates()
+
 print("All check tests passed!")

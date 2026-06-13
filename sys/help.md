@@ -6,6 +6,7 @@ Cosmic options:
   --compile <file.tl>           compile Teal file to Lua, lax mode (stdout)
   --include-dir <dir>           add search path for --compile/--check-types (repeatable)
   --format <file>               format Teal or Lua file (stdout)
+  --fix <file>                  format Teal or Lua file in place
   --write-if-changed            with --compile/--format and --output: skip write if unchanged
   --check-format <file>         check file formatting (diff on stderr)
   --check-types <file.tl>       type-check a Teal file, strict mode
@@ -35,11 +36,13 @@ Standard lua options:
 Environment variables:
   COSMIC_NO_REQUIRE_HINTS    disable helpful module-not-found suggestions
   COSMIC_NO_WELCOME          suppress welcome message on first run
+  COSMIC_FULL_TRACEBACK      show full stack traceback including internal frames
 
 Documentation:
   cosmic --docs [query]      look up docs from the command line
   cosmic --docs guide        list available guides
   cosmic --docs guide.testing  show a specific guide
+  cosmic --docs guide.gotchas  common pitfalls (integer vs number, any casts, arg)
   help(<query>)              look up docs in the REPL (interactive only)
 
 Low-level cosmo.* bindings are available but hidden by default.

@@ -1,5 +1,15 @@
 --- Current process management.
 --- Identity, session/group control, exec, and resource usage.
+---
+--- The global `arg` table layout when running a script:
+---   arg[-1]  — path to the cosmic interpreter binary (use this to re-invoke
+---              cosmic, e.g. to spawn a child running another script)
+---   arg[0]   — script path as the runtime sees it (/zip/main.lua when the
+---              script is dispatched by the embedded entry point — NOT the
+---              interpreter path)
+---   arg[1..] — user arguments
+--- `arg` is typed {string}, so negative indices need
+--- `rawget(arg, -1) as string` to pass the strict type checker.
 local unix = require("cosmo.unix")
 local cosmo = require("cosmo")
 

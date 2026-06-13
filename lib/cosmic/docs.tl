@@ -3,6 +3,7 @@
 
 local cio = require("cosmic.io")
 local docs_render = require("cosmic.docs_render")
+local docs_lookup = require("cosmic.docs_lookup")
 local types = require("cosmic.doc_types")
 local ModuleDoc = types.ModuleDoc
 local DocIndex = types.DocIndex
@@ -300,20 +301,21 @@ local function list_all_examples(include_cosmo?: boolean): {ExampleEntry}
 end
 
 --- Show examples for a specific module, optionally filtered by function name.
---- @param query string The query (e.g., "cosmic.sqlite" or "cosmic.fetch.get")
+--- @param query string Module name (full, bare, or module.function)
 --- @return DocsResult Result with examples content
 local function show_module_examples(query: string): DocsResult
   local index, err = load_index()
   if not index then
     return {ok = false, output = "error: " .. (err or "no documentation embedded")}
   end
-
-  local doc = index.modules[query]
-  if doc then
+  -- Resolve bare name (e.g. "child" -> "cosmic.child")
+  local resolved = index.modules[query] and query or (index.modules["cosmic." .. query] and "cosmic." .. query or nil)
+  if resolved then
+    local doc = index.modules[resolved]
     if not doc.examples or #doc.examples == 0 then
-      return {ok = false, output = "No examples for " .. query}
+      return {ok = false, output = "No examples for " .. resolved}
     end
-    local simple_name = query:match("([^%.]+)$") or query
+    local simple_name = resolved:match("([^%.]+)$") or resolved
     local lines: {string} = {"# " .. simple_name .. " examples", ""}
     for _, example in ipairs(doc.examples) do
       table.insert(lines, docs_render.render_example(example))
@@ -321,11 +323,8 @@ local function show_module_examples(query: string): DocsResult
     return {ok = true, output = table.concat(lines, "\n")}
   end
 
-  -- Try splitting into module + function filter
   local parts: {string} = {}
-  for part in query:gmatch("[^%.]+") do
-    table.insert(parts, part)
-  end
+  for part in query:gmatch("[^%.]+") do table.insert(parts, part) end
 
   local mod_name: string = nil
   local func_filter: string = nil
@@ -339,7 +338,7 @@ local function show_module_examples(query: string): DocsResult
   end
 
   if mod_name and func_filter then
-    doc = index.modules[mod_name]
+    local doc = index.modules[mod_name]
     if not doc.examples or #doc.examples == 0 then
       return {ok = false, output = "No examples for " .. query}
     end
@@ -355,13 +354,10 @@ local function show_module_examples(query: string): DocsResult
     return {ok = true, output = table.concat(lines, "\n")}
   end
 
-  local suggestions = docs_render.find_suggestions(query, index)
+  local suggestions = docs_render.find_example_suggestions(query, index)
   if #suggestions > 0 then
-    local lines: {string} = {"error: module not found: " .. query, ""}
-    table.insert(lines, "Did you mean?")
-    for i = 1, math.min(3, #suggestions) do
-      table.insert(lines, "  " .. suggestions[i])
-    end
+    local lines: {string} = {"error: module not found: " .. query, "", "Did you mean?"}
+    for i = 1, math.min(3, #suggestions) do table.insert(lines, "  " .. suggestions[i]) end
     return {ok = false, output = table.concat(lines, "\n")}
   end
   return {ok = false, output = "error: module not found: " .. query}
@@ -438,11 +434,7 @@ local function run(query?: string): DocsResult
           "Use 'cosmic --docs " .. matched_mod .. "." .. symbol .. "' to see available methods.",
         }
       else
-        return {
-          ok = false,
-          output = "error: symbol '" .. symbol .. "' not found in '" .. matched_mod .. "'\n" ..
-          "Use 'cosmic --docs " .. matched_mod .. "' to see available symbols.",
-        }
+        return {ok = false, output = docs_lookup.symbol_not_found(symbol, matched_mod, index)}
       end
     end
   end

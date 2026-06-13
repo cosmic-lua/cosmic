@@ -36,6 +36,7 @@ local record Opts
   script_args: {integer: string}
   compile: string
   format: string
+  fix: string
   check_format: string
   check_types: string
   check_style: string
@@ -70,6 +71,7 @@ local function parse_args(): Opts
     script_args = {},
     compile = nil,
     format = nil,
+    fix = nil,
     check_format = nil,
     check_types = nil,
     check_style = nil,
@@ -187,7 +189,20 @@ local function parse_args(): Opts
     if not opt then break end
 
     if opt == "?" then
-      opts.error = "cosmic-lua: unknown option '" .. optarg .. "'"
+      -- Distinguish missing-argument errors from truly unknown options.
+      -- getopt returns "?" with the option string when a required argument
+      -- is absent; give a targeted usage hint instead of "unknown option".
+      if optarg == "--test" then
+        opts.error = "cosmic-lua: --test requires: --test <output> <cmd>...\nSee: cosmic-lua --help"
+      elseif optarg == "--report" then
+        opts.error = "cosmic-lua: --report requires: --report <paths>...\nSee: cosmic-lua --help"
+      elseif optarg == "--embed" then
+        opts.error = "cosmic-lua: --embed requires: --embed <path>\nSee: cosmic-lua --help"
+      elseif optarg == "--output" then
+        opts.error = "cosmic-lua: --output requires: --output <file>\nSee: cosmic-lua --help"
+      else
+        opts.error = "cosmic-lua: unknown option '" .. optarg .. "'"
+      end
       return opts
     elseif opt == "e" then
       opts.execute[#opts.execute + 1] = optarg
@@ -209,6 +224,9 @@ local function parse_args(): Opts
       return opts
     elseif opt == "format" then
       opts.format = optarg
+      return opts
+    elseif opt == "fix" then
+      opts.fix = optarg
       return opts
     elseif opt == "check-format" then
       opts.check_format = optarg
@@ -293,6 +311,8 @@ local function resolve_optional_arg(flag: string, value: string): string
   return ""
 end
 
+local run = require("cosmic.run")
+
 local function main(): integer, string
   local opts = parse_args()
 
@@ -333,6 +353,7 @@ local function main(): integer, string
   end
   if opts.compile then return handlers.handle_compile(opts.compile, opts.output, opts.write_if_changed, opts.include_dirs) end
   if opts.format then return handlers.handle_format(opts.format, opts.output, opts.write_if_changed) end
+  if opts.fix then return handlers.handle_format(opts.fix, opts.fix, true) end
   if opts.check_format then return handlers.handle_check_format(opts.check_format) end
   if opts.check_types then return handlers.handle_check_types(opts.check_types, opts.include_dirs) end
   if opts.check_style then return handlers.handle_check_style(opts.check_style) end
@@ -353,6 +374,9 @@ local function main(): integer, string
   end
 
   if opts.test_argv then
+    if #opts.test_argv == 0 then
+      return 1, "cosmic-lua: --test requires: --test <output> <cmd>...\nSee: cosmic-lua --help"
+    end
     local testrun = require("cosmic.testrun")
     return testrun.run(opts.test_argv, opts.test_output)
   end
@@ -409,13 +433,21 @@ local function main(): integer, string
     _G.arg = opts.script_args as {string}
     local chunk, err = handlers.load_script_file(opts.script)
     if not chunk then
-      return 1, "cosmic-lua: " .. (err or "error loading script")
+      local msg = err or "error loading script"
+      msg = run.augment_module_errors(msg)
+      return 1, "cosmic-lua: " .. msg
     end
     local args: {string} = {}
     for i = 1, #opts.script_args do
       args[i] = opts.script_args[i]
     end
-    chunk(table.unpack(args))
+    local results: {any} = table.pack(xpcall(function()
+          chunk(table.unpack(args))
+        end, run.trim_traceback))
+    local ok = results[1] as boolean
+    if not ok then
+      return 1, results[2] as string
+    end
     return 0
   end
 

@@ -38,8 +38,10 @@ local function test_style_long_line()
 end
 test_style_long_line()
 
--- File with out-of-order assert (function not immediately called): should fail
-local function test_style_assert_order()
+-- File with function not called immediately after definition: should fail
+-- The rule is 'call-after-define': each test_* function must be called right
+-- after its definition so failures point to the right function.
+local function test_style_call_after_define()
   local input = write_temp("style_order.tl", [[
 local function foo()
   return 1
@@ -52,9 +54,9 @@ bar()
 ]])
 
   local ok, _ = spawn.spawn({cosmic, "--check-style", input}):read()
-  assert(not ok, "cosmic --check-style should fail on out-of-order assert")
+  assert(not ok, "cosmic --check-style should fail when function not called immediately after definition")
 end
-test_style_assert_order()
+test_style_call_after_define()
 
 -- Missing file: should fail
 local function test_style_missing_file()

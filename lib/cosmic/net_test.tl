@@ -370,3 +370,65 @@ local function test_accept_socket_has_close_metamethod()
   child.wait(pid)
 end
 test_accept_socket_has_close_metamethod()
+
+local function test_listen_tcp_ephemeral_port()
+  -- listen_tcp with port 0 should return a listening socket and a port > 0
+  local srv, port, err = net.listen_tcp(0x7f000001, 0)
+  assert(srv ~= nil, "listen_tcp failed: " .. tostring(err))
+  assert(port ~= nil and port > 0, "expected non-zero port, got " .. tostring(port))
+  srv:close()
+end
+test_listen_tcp_ephemeral_port()
+
+local function test_listen_tcp_connect_to_returned_port()
+  -- bind on 127.0.0.1:0, then connect_tcp to the returned port
+  local srv, port, serr = net.listen_tcp(0x7f000001, 0)
+  assert(srv ~= nil, "listen_tcp failed: " .. tostring(serr))
+  assert(port > 0, "expected non-zero port")
+
+  -- Fork: child connects and sends, parent accepts and reads
+  local pid = child.fork()
+  if pid == 0 then
+    local csock = net.connect_tcp(0x7f000001, port)
+    if not csock then
+      os.exit(1)
+    end
+    csock:send("hi")
+    csock:close()
+    os.exit(0)
+  end
+
+  local conn, _, _, aerr = srv:accept()
+  assert(conn ~= nil, "accept failed: " .. tostring(aerr))
+  local data = conn:recv()
+  assert(data == "hi", "expected 'hi', got '" .. tostring(data) .. "'")
+  conn:close()
+  srv:close()
+  child.wait(pid)
+end
+test_listen_tcp_connect_to_returned_port()
+
+local function test_listen_tcp_double_bind_same_port_fails()
+  -- Bind a specific port, then try to bind the same port again without
+  -- REUSEPORT; the second listen_tcp should fail.
+  local srv, port, serr = net.listen_tcp(0x7f000001, 0)
+  assert(srv ~= nil, "first listen_tcp failed: " .. tostring(serr))
+  assert(port > 0, "expected non-zero port")
+
+  -- Second bind to the same explicit port should fail (SO_REUSEADDR alone
+  -- does not allow two listeners on the same port simultaneously)
+  local srv2, _, serr2 = net.listen_tcp(0x7f000001, port)
+  assert(srv2 == nil, "expected second listen_tcp to fail on same port")
+  assert(serr2 ~= nil, "expected error message from second listen_tcp")
+
+  srv:close()
+end
+test_listen_tcp_double_bind_same_port_fails()
+
+local function test_listen_tcp_invalid_ip_bind_fails()
+  -- Attempt to bind to a non-local IP should fail
+  local srv, _, serr = net.listen_tcp(0x01020304, 0) -- 1.2.3.4 is not local
+  assert(srv == nil, "expected listen_tcp to fail on non-local IP")
+  assert(serr ~= nil, "expected error message")
+end
+test_listen_tcp_invalid_ip_bind_fails()
