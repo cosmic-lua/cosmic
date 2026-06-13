@@ -39,8 +39,6 @@ local record Opts
   --  Retries only occur when result.ok is true and should_retry returns true.
   max_attempts: number
   --  Maximum backoff delay in seconds (default 30).
-  exponential: 2^attempt seconds, capped at this value.
-  --  Maximum backoff delay in seconds (default 30).
   --  Backoff is exponential: 2^attempt seconds, capped at this value.
   max_delay: number
   --  Predicate called after each successful HTTP response to decide retry.

@@ -20,19 +20,14 @@
 
 ```teal
 local record HashOptions
-  default: 19456, i.e. 19 MiB per OWASP minimum)
   --  Memory cost in kibibytes (default: 19456, i.e. 19 MiB per OWASP minimum)
   m_cost: number
-  default: 3)
   --  Time cost / iterations (default: 3)
   t_cost: number
-  default: 1)
   --  Parallelism factor (default: 1)
   parallelism: number
-  default: 32)
   --  Output hash length in bytes (default: 32)
   hash_len: number
-  Variant: "argon2id" (default), "argon2i", or "argon2d"
   --  Variant: "argon2id" (default), "argon2i", or "argon2d"
   variant: string
 end

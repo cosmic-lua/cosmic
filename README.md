@@ -24,6 +24,7 @@ High-level utilities and tools built on top of cosmo.
 | Module | Description |
 |--------|-------------|
 | [args](lib/cosmic/args.md) |  CLI option definitions for cosmic. |
+| [assert](lib/cosmic/assert.md) |  Assertion helpers for tests with auto-formatted failure messages. |
 | [benchmark](lib/cosmic/benchmark.md) |  Go-style benchmark testing. |
 | [child](lib/cosmic/child.md) |  Child process management. |
 | [codec](lib/cosmic/codec.md) |  Encoding and decoding utilities for various formats. |
@@ -33,6 +34,7 @@ High-level utilities and tools built on top of cosmo.
 | [doc_types](lib/cosmic/doc_types.md) |  Shared type definitions for the doc and docs modules. |
 | [docindex](lib/cosmic/docindex.md) |  Generate a serialized documentation index from source files. |
 | [docs](lib/cosmic/docs.md) |  Access embedded documentation from the cosmic binary. |
+| [docs_lookup](lib/cosmic/docs_lookup.md) |  Symbol lookup and suggestion helpers for the docs module. |
 | [docs_render](lib/cosmic/docs_render.md) |  Rendering functions for the docs module. |
 | [embed](lib/cosmic/embed.md) |  Embed files and directories into a cosmic executable. |
 | [env](lib/cosmic/env.md) |  Environment variable utilities. |
@@ -78,6 +80,7 @@ High-level utilities and tools built on top of cosmo.
 | [rand](lib/cosmic/rand.md) |  Random number generation. |
 | [re](lib/cosmic/re.md) |  Regular expression matching using POSIX extended regex syntax. |
 | [require](lib/cosmic/require.md) |  Enhanced require with helpful error messages. |
+| [run](lib/cosmic/run.md) |  Script execution helpers for the cosmic CLI. |
 | [shm](lib/cosmic/shm.md) |  Shared memory for inter-process communication. |
 | [signal](lib/cosmic/signal.md) |  Signal handling utilities. |
 | [sqlite](lib/cosmic/sqlite.md) |  Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns. |

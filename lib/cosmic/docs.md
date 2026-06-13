@@ -126,7 +126,7 @@ function show_module_examples(query: string): DocsResult
 
 **Parameters:**
 
-- `query` (string) - The query (e.g., "cosmic.sqlite" or "cosmic.fetch.get")
+- `query` (string) - Module name (full, bare, or module.function)
 
 **Returns:**
 

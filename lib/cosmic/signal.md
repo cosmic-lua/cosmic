@@ -108,16 +108,12 @@ local record SignalModule
   ITIMER_VIRTUAL: number
   ITIMER_PROF: number
   --  Create a new signal set containing the specified signals.
-  methods: add(sig), remove(sig), fill(), clear(), contains(sig).
-  --  Create a new signal set containing the specified signals.
   --  The returned Sigset has methods: add(sig), remove(sig), fill(), clear(), contains(sig).
   Sigset: function(...: number): Sigset
   --  Register a signal handler for the specified signal.
   --  The handler can be a Lua function, SIG_IGN, or SIG_DFL.
   --  Returns the previous handler, flags, and mask.
   sigaction: function(sig: number, handler?: function | number, flags?: number, mask?: Sigset): function | number, number, Sigset
-  --  Modify the process signal mask.
-  how: SIG_BLOCK, SIG_UNBLOCK, or SIG_SETMASK
   --  Modify the process signal mask.
   --  how: SIG_BLOCK, SIG_UNBLOCK, or SIG_SETMASK
   --  Returns the previous signal mask.

@@ -32,7 +32,7 @@ end
 
 ### Pipe
 
- Pipe for reading/writing process I/O.
+ Pipe for process I/O. fd is a plain field (not a method like io.Handle:fd()).
 
 ```teal
 local record Pipe
@@ -61,6 +61,8 @@ end
 ### Opts
 
  Options for spawning a process.
+ stdout/stderr: raw fd dup2'd onto fd 1/2; handle fields nil.
+ Close write end before reading. See Example_spawn_pipe.
 
 ```teal
 local record Opts
@@ -241,8 +243,9 @@ function prepare_zip_exec(zip_path: string): number, string
 function spawn(argv: {string}, opts?: Opts): Handle, string
 ```
 
- Spawns a child process with I/O control.
- When argv[1] starts with /zip/, uses fexecve.
+ Spawns a child process with I/O control. Uses fexecve for /zip/ paths.
+ When Opts.stdout/stderr are fds they are dup2'd into child (handle fields
+ nil); MUST close the write end before reading. See Example_spawn_pipe.
 
 **Parameters:**
 

@@ -16,6 +16,7 @@ local record TestResult
   stdout: string
   stderr: string
   status: string
+  test_count: integer
 end
 ```
 

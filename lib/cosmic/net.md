@@ -61,6 +61,7 @@ local record NetModule
   socket: function(family?: number, socktype?: number, protocol?: number): Socket, string
   socketpair: function(family?: number, socktype?: number, protocol?: number): Socket, Socket, string
   listen_unix: function(path: string, backlog?: number): Socket, string
+  listen_tcp: function(ip: number, port: number, backlog?: number): Socket, number, string
   connect_unix: function(path: string): Socket, string
   connect_tcp: function(ip: number, port: number): Socket, string
   nb_connect: function(s: Socket, ip: number, port: number, timeoutms?: number): boolean, string
@@ -225,6 +226,10 @@ function connect_tcp(ip: number, port: number): Socket, string
 ```
 
  Create a TCP socket and connect to an IP address and port.
+ The IP is an integer (e.g. 0x7f000001 for 127.0.0.1). To convert a
+ dotted-quad string, use cosmic.ip:
+   local ip = require("cosmic.ip")
+   local addr = ip.parse("127.0.0.1")  -- 0x7f000001
 
 **Parameters:**
 
@@ -234,6 +239,35 @@ function connect_tcp(ip: number, port: number): Socket, string
 **Returns:**
 
 - Socket - Connected socket
+- string - Error message on failure
+
+### listen_tcp
+
+```teal
+function listen_tcp(ip: number, port: number, backlog?: number): Socket, number, string
+```
+
+ Create a TCP socket, bind it to host:port, and start listening.
+ Passing port 0 lets the OS assign an ephemeral port; the actual port is
+ returned as the second value so callers never need a separate getsockname
+ call. The IP is an integer; convert strings with
+ require("cosmic.ip").parse("127.0.0.1").
+ Example — listen on an OS-assigned port:
+   local net = require("cosmic.net")
+   local srv, port, err = net.listen_tcp(0x7f000001, 0)
+   -- port is now the OS-assigned port, e.g. 54321
+   local client = net.connect_tcp(0x7f000001, port)
+
+**Parameters:**
+
+- `ip` (number) - Local IP address to bind (e.g. 0x7f000001 for 127.0.0.1, 0 for all)
+- `port` (number) - Local port to bind; use 0 for an OS-assigned ephemeral port
+- `backlog` (number) - Maximum pending connections (default 128)
+
+**Returns:**
+
+- Socket - Listening socket ready to accept
+- number - Actual bound port (useful when port 0 was requested)
 - string - Error message on failure
 
 ### nb_connect

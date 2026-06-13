@@ -13,8 +13,6 @@
 local record Addr
   _n: integer
   --  Get the raw integer representation.
-  Socket: connect() or other APIs that take integer IPs.
-  --  Get the raw integer representation.
   --  Use this when passing to net.Socket:connect() or other APIs that take integer IPs.
   int: function(Addr): integer
   --  Format as a dotted-quad string (e.g., "192.168.1.1").

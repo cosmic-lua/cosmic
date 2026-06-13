@@ -4,6 +4,20 @@
  Wraps low-level file descriptor operations from cosmo.unix.
  Supports Lua 5.4's to-be-closed via __close metamethod on Handle and Pipe.
 
+ WARNING: naming this module "io" shadows Lua's built-in io library:
+   local io = require("cosmic.io")  -- WRONG: hides io.stderr, io.stdin, etc.
+
+ Use a distinct local name instead:
+   local cio = require("cosmic.io")
+
+ cosmic.io has NO stderr, stdout, or stdin handles. For stream I/O use
+ Lua's standard library directly:
+   io.stderr:write("error: " .. msg .. "\n")
+   io.stdout:write(data)
+
+ cosmic.io provides file-descriptor–level operations (open, read, write,
+ pipe, slurp, barf) for cases where you need explicit fd control.
+
 ## Types
 
 ### UnixIO

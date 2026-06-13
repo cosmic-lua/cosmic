@@ -24,7 +24,6 @@ end
 
 ```teal
 local record AddOptions
-  method: "store" (no compression) or "deflate" (compressed).
   --  Compression method: "store" (no compression) or "deflate" (compressed).
   method: string
   --  Modification time as Unix timestamp.

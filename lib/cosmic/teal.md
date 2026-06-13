@@ -111,6 +111,8 @@ local record TealModule
   compile: function(input_path: string, opts?: CompileOpts): CompileResult
   check: function(input_path: string, opts?: CheckOpts): CheckResult
   format_issues: function(issues: {Issue}): string
+  format_issues_with_hints: function(issues: {Issue}): string
+  hint_for_message: function(msg: string): string
   get_default_include_dirs: function(): {string}
 end
 ```
@@ -182,3 +184,41 @@ function format_issues(issues: {Issue}): string
 **Returns:**
 
 - string - Formatted issues, one per line
+
+### hint_for_message
+
+```teal
+function hint_for_message(msg: string): string
+```
+
+ Return a fix-hint line for a known Teal type-check error pattern, or nil.
+ Matches the three most common traps that cost edit-check cycles:
+   1. got number, expected integer (string index/length requires integer)
+   2. got X | nil, expected X (nil not narrowed before use)
+   3. excess return values (multiple returns captured incorrectly)
+   4. <any type> operations (ipairs, index, concat on any)
+
+**Parameters:**
+
+- `msg` (string) - The error message to match
+
+**Returns:**
+
+- string|nil - A short hint string, or nil if no hint applies
+
+### format_issues_with_hints
+
+```teal
+function format_issues_with_hints(issues: {Issue}): string
+```
+
+ Format issues with optional fix-hints for known Teal type-check traps.
+ Appends one hint line after each matching error. No duplicate hints per error.
+
+**Parameters:**
+
+- `issues` ({Issue}) - List of issues to format
+
+**Returns:**
+
+- string - Formatted issues with hints, one issue (plus optional hint) per pair of lines

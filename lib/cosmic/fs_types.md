@@ -4,10 +4,13 @@
 
 ## Types
 
-### fs_types
+### Statfs
+
+ Filesystem statistics.
+ Returned by statfs() and fstatfs().
 
 ```teal
-local record fs_types
+local record Statfs
   --  Returns filesystem type identifier.
   type: function(self: Statfs): number
   --  Returns optimal transfer block size.
@@ -30,6 +33,16 @@ local record fs_types
   frsize: function(self: Statfs): number
   --  Returns mount flags.
   flags: function(self: Statfs): number
+end
+```
+
+### Stat
+
+ File or directory metadata.
+ Use is_dir(), is_file(), etc. to check file type.
+
+```teal
+local record Stat
   --  Returns file size in bytes.
   size: function(self: Stat): number
   --  Returns file mode (permissions and type bits).
@@ -54,6 +67,16 @@ local record fs_types
   dev: function(self: Stat): number
   --  Returns device ID for special files (0 or -1 for non-devices).
   rdev: function(self: Stat): number
+end
+```
+
+### Dir
+
+ Handle for reading directory entries.
+ Supports automatic cleanup with `<close>` attribute.
+
+```teal
+local record Dir
   --  Reads next directory entry. Returns nil when done.
   read: function(self: Dir): string
   --  Closes directory handle.
@@ -66,9 +89,29 @@ local record fs_types
   tell: function(self: Dir): number
   --  Returns true if directory handle is closed.
   closed: function(self: Dir): boolean
+end
+```
+
+### WalkStat
+
+ File or directory metadata for walk visitor.
+
+```teal
+local record WalkStat
   mode: function(self: WalkStat): number
   size: function(self: WalkStat): number
   mtim: function(self: WalkStat): number
+end
+```
+
+### FileInfo
+
+ File information with Unix permissions.
+
+```teal
+local record FileInfo
   mode: number
 end
 ```
+
+### fs_types

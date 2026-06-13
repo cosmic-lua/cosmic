@@ -39,14 +39,23 @@ local record UnixTty
 end
 ```
 
+### WinSize
+
+ Window size information.
+
+```teal
+local record WinSize
+  rows: number
+  cols: number
+end
+```
+
 ### TtyModule
 
  Module type for TTY operations.
 
 ```teal
 local record TtyModule
-  rows: number
-  cols: number
   --  Terminal I/O settings.
   Termios: Termios
   --  tcsetattr actions.

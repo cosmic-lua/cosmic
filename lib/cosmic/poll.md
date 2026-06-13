@@ -40,9 +40,6 @@ local record Poller
   clear: function(Poller)
   --  Poll for events with optional timeout.
   --  Returns an iterator over (fd, events) pairs for ready descriptors.
-  fd: number, events: Events)
-  --  Poll for events with optional timeout.
-  --  Returns an iterator over (fd, events) pairs for ready descriptors.
   wait: function(Poller, number): function(): number, Events
   --  Poll and return count of ready descriptors.
   poll: function(Poller, number): number, string

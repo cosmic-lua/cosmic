@@ -17,3 +17,11 @@ local record Diagnostic
   message: string
 end
 ```
+
+## Functions
+
+### right
+
+```teal
+function right(path: string): {Diagnostic}
+```

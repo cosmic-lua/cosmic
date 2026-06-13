@@ -17,9 +17,6 @@
 local record Regex
   --  Search for pattern match in text.
   --  Returns the matched substring, or nil if no match.
-  flags: NOTBOL, NOTEOL
-  --  Search for pattern match in text.
-  --  Returns the matched substring, or nil if no match.
   search: function(self: Regex, text: string, flags?: number): string
 end
 ```
