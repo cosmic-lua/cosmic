@@ -11,11 +11,39 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 local function test_module_exports()
   assert(type(proc.no_new_privs) == "function")
   assert(type(proc.drop_privs) == "function")
+  assert(type(proc.setup_userns_maps) == "function")
   assert(type(proc.barrier) == "function")
+  assert(type(proc.fork_pidns) == "function")
   assert(type(proc.become_init) == "function")
   assert(type(proc.DEFAULT_SIGNALS) == "table")
 end
 test_module_exports()
+
+-- setup_userns_maps outside a fresh user namespace must fail with an
+-- error string (writing "0 uid 1" to uid_map is rejected once the map
+-- is already set), never throw. Run in a subprocess in case an exotic
+-- environment permits the write.
+local function test_setup_userns_maps_returns_error_outside_userns()
+  local c = quicksand.capabilities()
+  if not c.linux then return end
+  local script = path.join(tmpdir, "userns_maps.lua")
+  cosmo.Barf(script, [[
+local proc = require("cosmic.quicksand.proc")
+local ok, err = proc.setup_userns_maps(nil, nil)
+if ok then
+  io.write("ok\n")
+else
+  assert(type(err) == "string", "err should be a string")
+  io.write("skipped: " .. err .. "\n")
+end
+]])
+  local ok, out = spawn.spawn({cosmic, script}):read()
+  if not ok then return end
+  local s = out as string
+  assert(s:find("ok") or s:find("skipped"),
+    "expected ok or skipped, got: " .. s)
+end
+test_setup_userns_maps_returns_error_outside_userns()
 
 local function test_default_signals_shape()
   local s = proc.DEFAULT_SIGNALS

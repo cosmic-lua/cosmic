@@ -1,5 +1,5 @@
 modules += cosmic
-cosmic_srcs := $(wildcard lib/cosmic/*.tl) $(wildcard lib/cosmic/quicksand/*.tl) $(wildcard lib/cosmic/quicksand/box/*.tl)
+cosmic_srcs := $(wildcard lib/cosmic/*.tl) $(wildcard lib/cosmic/quicksand/*.tl) $(wildcard lib/cosmic/quicksand/box/*.tl) $(wildcard lib/cosmic/quicksand/proxy/*.tl)
 cosmic_tests := $(filter %_test.tl,$(cosmic_srcs))
 cosmic_examples := $(filter %_example.tl,$(cosmic_srcs))
 cosmic_tl := $(filter-out $(cosmic_tests) $(cosmic_examples) lib/cosmic/main.tl,$(cosmic_srcs))
@@ -23,13 +23,9 @@ $(cosmic_version_lua): .FORCE | $$(cosmos_staged)
 
 .PHONY: .FORCE
 
-$(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(teal-types_staged) $$(doc_index) $(cosmic_version_lua) $(cosmic_sys) $(cosmic_skills) $(cosmos_sandbox_lua)
+$(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(teal-types_staged) $$(doc_index) $(cosmic_version_lua) $(cosmic_sys) $(cosmic_skills)
 	@rm -rf $(cosmic_built)
 	@mkdir -p $(cosmic_built)/.lua/cosmic $(cosmic_built)/.tl/cosmic $(@D)
-	@mkdir -p $(cosmic_built)/.lua/cosmo/sandbox
-	@for f in $(cosmos_sandbox_lua); do \
-		$(cp) "$$f" $(cosmic_built)/.lua/cosmo/sandbox/; \
-	done
 	@for f in $(cosmic_lua); do \
 		rel="$${f#$(o)/lib/cosmic/}"; \
 		dst="$(cosmic_built)/.lua/cosmic/$$rel"; \

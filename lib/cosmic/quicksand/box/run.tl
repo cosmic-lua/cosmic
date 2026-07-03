@@ -21,7 +21,6 @@
 ---      to an exit code and returns it from run().
 local unix = require("cosmo.unix")
 local cosmo = require("cosmo")
-local cproc = require("cosmo.sandbox.proc")
 local netns = require("cosmic.quicksand.netns")
 local qproc = require("cosmic.quicksand.proc")
 local proxy = require("cosmic.quicksand.proxy")
@@ -150,7 +149,7 @@ local function supervisor(
   local pr = opts and opts.proc as {string: any}
   local uid: integer = pr and pr.uid as integer
   local gid: integer = pr and pr.gid as integer
-  local ok2, err2 = cproc.setup_userns_maps(uid, gid)
+  local ok2, err2 = qproc.setup_userns_maps(uid, gid)
   if not ok2 then
     io.stderr:write("quicksand: setup_userns_maps: "
       .. tostring(err2) .. "\n")

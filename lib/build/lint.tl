@@ -140,12 +140,9 @@ local function check_call_after_define(file: string, lines: {string}): {Diagnost
 end
 
 --- Files exempt from lint: .d.tl type declaration files (they describe C
---- binding interfaces and cannot be split due to Teal's record system) and
---- vendored Lua under 3p/ (imported verbatim from upstream projects; kept
---- byte-identical to ease diffing until rewritten in Teal).
+--- binding interfaces and cannot be split due to Teal's record system).
 local function is_exempt(path: string): boolean
   return path:match("%.d%.tl$") ~= nil
-    or path:match("^3p/.*%.lua$") ~= nil
 end
 
 local function lint_file(path: string): {Diagnostic}
