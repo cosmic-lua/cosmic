@@ -7,16 +7,18 @@
 --- `cosmic.landlock`, `cosmic.pledge`, and `cosmic.unveil` modules to
 --- compose a full sandbox.
 ---
---- This module (the umbrella) exposes a capability probe so callers
---- can fail fast with a specific reason instead of bailing partway
---- through setup on ENOSYS. It also re-exports the declarative Box
---- builder (cosmic.quicksand.box) that composes the primitives into a
---- single run() call.
+--- This module (the umbrella) probes the host for fine-grained feature
+--- availability so callers can fail fast with a specific reason instead
+--- of bailing partway through setup on ENOSYS. It also re-exports the
+--- declarative Box builder (cosmic.quicksand.box) that composes the
+--- primitives into a single run() call.
 ---
 --- Linux-only at runtime. Non-Linux hosts see `capabilities().linux ==
 --- false` and all submodule calls return ENOSYS-shaped errors.
-local sandbox = require("cosmo.sandbox")
+local cosmo = require("cosmo")
+local unix = require("cosmo.unix")
 local box = require("cosmic.quicksand.box")
+local Errno = require("cosmic.errno").Errno
 
 --- Fine-grained feature availability on the current host.
 --- Every field is a boolean. Higher-level helpers use these to fail
@@ -42,6 +44,25 @@ local record QuicksandModule
   Box: any -- re-export of cosmic.quicksand.box
 end
 
+--- Probe a pledge/unveil-style binding with a no-op call: available
+--- when the call succeeds, or fails with anything other than ENOSYS
+--- (a policy error still proves the syscall is wired up).
+local function probe_nop(fn: any): boolean
+  if not fn then return false end
+  local call = fn as function(any, any): any, Errno
+  local ok, err = call(nil, nil)
+  if ok then return true end
+  if err and err.errno and err:errno() == unix.ENOSYS then return false end
+  return true
+end
+
+--- Landlock availability: the kernel reports its ABI version from a
+--- flag-less landlock_create_ruleset call; >= 1 means enforceable.
+local function probe_landlock(): boolean
+  local abi = unix.landlock_create_ruleset()
+  return abi ~= nil and abi >= 1
+end
+
 local cached: Capabilities = nil
 
 --- Returns a cached Capabilities record for the current host.
@@ -51,27 +72,26 @@ local cached: Capabilities = nil
 --- Repeated calls return the same table.
 local function capabilities(): Capabilities
   if cached then return cached end
-  local raw = sandbox.capabilities() as {string: boolean}
+  local is_linux = cosmo.GetHostOs() == "LINUX"
   cached = {
-    linux = raw.linux or false,
-    user_ns = raw.user_ns or false,
-    mount_ns = raw.mount_ns or false,
-    net_ns = raw.net_ns or false,
-    uts_ns = raw.uts_ns or false,
-    pid_ns = raw.pid_ns or false,
-    pivot_root = raw.pivot_root or false,
-    cap_net_admin = raw.cap_net_admin or false,
-    landlock = raw.landlock or false,
-    pledge = raw.pledge or false,
-    unveil = raw.unveil or false,
+    linux = is_linux,
+    user_ns = is_linux and unix.CLONE_NEWUSER ~= nil,
+    mount_ns = is_linux and unix.CLONE_NEWNS ~= nil,
+    net_ns = is_linux and unix.CLONE_NEWNET ~= nil,
+    uts_ns = is_linux and unix.CLONE_NEWUTS ~= nil,
+    pid_ns = is_linux and unix.CLONE_NEWPID ~= nil,
+    pivot_root = is_linux and unix.pivot_root ~= nil,
+    cap_net_admin = is_linux and unix.geteuid ~= nil and unix.geteuid() == 0,
+    landlock = is_linux and probe_landlock(),
+    pledge = probe_nop(unix.pledge),
+    unveil = probe_nop(unix.unveil),
   }
   return cached
 end
 
 --- True when the namespace-based box primitives can do real work
---- (Linux host with net + mount namespaces). Kept for backwards
---- compatibility with cosmo.sandbox.is_supported(); prefer
---- capabilities() for fine-grained checks.
+--- (Linux host with net + mount namespaces). Prefer capabilities()
+--- for fine-grained checks.
 local function is_supported(): boolean
   local c = capabilities()
   return c.linux and c.net_ns and c.mount_ns

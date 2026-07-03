@@ -21,7 +21,41 @@
 --- and non-Linux hosts; gate box setup on it. Pairs naturally with
 --- `cosmic.pledge` on Linux and is complementary to `cosmic.quicksand`
 --- network isolation.
-local clandlock = require("cosmo.sandbox.landlock")
+local unix = require("cosmo.unix")
+
+--- Linux O_PATH (0x00200000): open a pure path reference, usable even
+--- for paths the caller cannot read. lunix does not export this
+--- constant yet; landlock is Linux-only so the Linux value is safe to
+--- pin here. (The vendored Lua predecessor read unix.O_PATH, which is
+--- nil — any restrict() call with rules crashed on the bitwise-or.)
+local O_PATH < const > = 0x00200000
+
+local EXECUTE < const > = unix.LANDLOCK_ACCESS_FS_EXECUTE as integer
+local WRITE_FILE < const > = unix.LANDLOCK_ACCESS_FS_WRITE_FILE as integer
+local READ_FILE < const > = unix.LANDLOCK_ACCESS_FS_READ_FILE as integer
+local READ_DIR < const > = unix.LANDLOCK_ACCESS_FS_READ_DIR as integer
+local REMOVE_DIR < const > = unix.LANDLOCK_ACCESS_FS_REMOVE_DIR as integer
+local REMOVE_FILE < const > = unix.LANDLOCK_ACCESS_FS_REMOVE_FILE as integer
+local MAKE_CHAR < const > = unix.LANDLOCK_ACCESS_FS_MAKE_CHAR as integer
+local MAKE_DIR < const > = unix.LANDLOCK_ACCESS_FS_MAKE_DIR as integer
+local MAKE_REG < const > = unix.LANDLOCK_ACCESS_FS_MAKE_REG as integer
+local MAKE_SOCK < const > = unix.LANDLOCK_ACCESS_FS_MAKE_SOCK as integer
+local MAKE_FIFO < const > = unix.LANDLOCK_ACCESS_FS_MAKE_FIFO as integer
+local MAKE_BLOCK < const > = unix.LANDLOCK_ACCESS_FS_MAKE_BLOCK as integer
+local MAKE_SYM < const > = unix.LANDLOCK_ACCESS_FS_MAKE_SYM as integer
+local REFER < const > = unix.LANDLOCK_ACCESS_FS_REFER as integer -- ABI 2+
+local TRUNCATE < const > = unix.LANDLOCK_ACCESS_FS_TRUNCATE as integer -- ABI 3+
+
+--- Convenience masks. `ALL` is the full current set; `RW` covers read
+--- + write (including creating and removing files); `READ` and `EXEC`
+--- are self-explanatory.
+local READ < const > = READ_FILE | READ_DIR
+local EXEC < const > = EXECUTE
+local WRITE < const > = WRITE_FILE | REMOVE_FILE | REMOVE_DIR
+| MAKE_REG | MAKE_DIR | MAKE_SYM
+| MAKE_SOCK | MAKE_FIFO | MAKE_CHAR | MAKE_BLOCK
+local RW < const > = READ | WRITE | EXEC
+local ALL < const > = READ | WRITE | EXEC | REFER | TRUNCATE
 
 --- A single path -> access-mask rule in a restrict() call.
 --- `access` is an OR of cosmic.landlock.* flag constants (READ, EXEC,
@@ -70,19 +104,31 @@ local record LandlockModule
   restrict: function(opts: RestrictOpts): boolean, string
 end
 
+--- Per-ABI "max access" mask. Categories above the kernel's supported
+--- ABI MUST be stripped before create_ruleset or it returns EINVAL.
+local function abi_mask(abi_version: integer): integer
+  local mask = READ | WRITE_FILE | REMOVE_DIR | REMOVE_FILE
+  | MAKE_CHAR | MAKE_DIR | MAKE_REG | MAKE_SOCK
+  | MAKE_FIFO | MAKE_BLOCK | MAKE_SYM | EXECUTE
+  if abi_version >= 2 then mask = mask | REFER end
+  if abi_version >= 3 then mask = mask | TRUNCATE end
+  return mask
+end
+
 --- Returns the kernel's supported landlock ABI version (>= 1 when
 --- landlock is enabled). Returns nil + error on ENOSYS or non-Linux.
 local function abi(): integer, string
-  local v, err = clandlock.abi()
+  local v, err = unix.landlock_create_ruleset()
   if not v then
     return nil, err and tostring(err) or "landlock unavailable"
   end
-  return v
+  return v as integer
 end
 
 --- True when abi() >= 1. Gate box setup on this.
 local function available(): boolean
-  return clandlock.available()
+  local a = abi()
+  return a ~= nil and a >= 1
 end
 
 --- Apply a path allowlist to the current thread and all its future
@@ -91,31 +137,67 @@ end
 --- Access outside the allowlist fails with EACCES after this returns.
 --- Access categories above the running kernel's ABI are stripped from
 --- `handled` automatically, so `cosmic.landlock.ALL` stays portable.
+--- The ruleset fd is always closed before return.
 local function restrict(opts: RestrictOpts): boolean, string
-  return clandlock.restrict(opts as any)
+  opts = opts or {}
+  local abi_version, aerr = abi()
+  if not abi_version then return false, aerr end
+  if abi_version < 1 then return false, "landlock unavailable" end
+  local mask = abi_mask(abi_version)
+  local handled = (opts.handled or ALL) & mask
+  local rs, cerr = unix.landlock_create_ruleset(handled, 0)
+  if not rs then return false, tostring(cerr) end
+  local rsfd = rs as integer
+  local function fail(msg: string): boolean, string
+    unix.close(rsfd)
+    return false, msg
+  end
+  for i, rule in ipairs(opts.rules or {}) do
+    if not rule.path then
+      return fail(string.format("rule[%d] missing path", i))
+    end
+    local access = (rule.access or 0) & mask
+    local pfd, perr = unix.open(rule.path, O_PATH | unix.O_CLOEXEC)
+    if not pfd then
+      return fail(string.format("open(%q): %s", rule.path, tostring(perr)))
+    end
+    local ok, rerr = unix.landlock_add_rule(rsfd, pfd as integer, access, 0)
+    unix.close(pfd)
+    if not ok then
+      return fail(string.format("add_rule(%q): %s", rule.path, tostring(rerr)))
+    end
+  end
+  if opts.no_new_privs ~= false then
+    local ok, err = unix.prctl(unix.PR_SET_NO_NEW_PRIVS, 1)
+    if not ok then return fail("PR_SET_NO_NEW_PRIVS: " .. tostring(err)) end
+  end
+  local ok, rerr = unix.landlock_restrict_self(rsfd, 0)
+  unix.close(rsfd)
+  if not ok then return false, "restrict_self: " .. tostring(rerr) end
+  return true
 end
 
 local M: LandlockModule = {
-  EXECUTE = clandlock.EXECUTE,
-  WRITE_FILE = clandlock.WRITE_FILE,
-  READ_FILE = clandlock.READ_FILE,
-  READ_DIR = clandlock.READ_DIR,
-  REMOVE_DIR = clandlock.REMOVE_DIR,
-  REMOVE_FILE = clandlock.REMOVE_FILE,
-  MAKE_CHAR = clandlock.MAKE_CHAR,
-  MAKE_DIR = clandlock.MAKE_DIR,
-  MAKE_REG = clandlock.MAKE_REG,
-  MAKE_SOCK = clandlock.MAKE_SOCK,
-  MAKE_FIFO = clandlock.MAKE_FIFO,
-  MAKE_BLOCK = clandlock.MAKE_BLOCK,
-  MAKE_SYM = clandlock.MAKE_SYM,
-  REFER = clandlock.REFER,
-  TRUNCATE = clandlock.TRUNCATE,
-  READ = clandlock.READ,
-  EXEC = clandlock.EXEC,
-  WRITE = clandlock.WRITE,
-  RW = clandlock.RW,
-  ALL = clandlock.ALL,
+  EXECUTE = EXECUTE,
+  WRITE_FILE = WRITE_FILE,
+  READ_FILE = READ_FILE,
+  READ_DIR = READ_DIR,
+  REMOVE_DIR = REMOVE_DIR,
+  REMOVE_FILE = REMOVE_FILE,
+  MAKE_CHAR = MAKE_CHAR,
+  MAKE_DIR = MAKE_DIR,
+  MAKE_REG = MAKE_REG,
+  MAKE_SOCK = MAKE_SOCK,
+  MAKE_FIFO = MAKE_FIFO,
+  MAKE_BLOCK = MAKE_BLOCK,
+  MAKE_SYM = MAKE_SYM,
+  REFER = REFER,
+  TRUNCATE = TRUNCATE,
+  READ = READ,
+  EXEC = EXEC,
+  WRITE = WRITE,
+  RW = RW,
+  ALL = ALL,
   abi = abi,
   available = available,
   restrict = restrict,

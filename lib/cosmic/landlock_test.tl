@@ -86,3 +86,19 @@ if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n
   assert(s:find("denied-blocked"), "denied path must be blocked: " .. s)
 end
 test_restrict_denies_outside_allowlist()
+
+-- The rule-loop error path runs before any enforcement, so it is safe
+-- in-process. This exercises the O_PATH open of each rule path (the
+-- vendored Lua predecessor crashed here on a nil unix.O_PATH instead
+-- of returning an error).
+local function test_restrict_bad_rule_path_returns_error()
+  if not landlock.available() then return end
+  local ok, err = landlock.restrict {
+    rules = {{path = path.join(tmpdir, "no-such-dir-xyz"),
+        access = landlock.READ}},
+  }
+  assert(not ok, "restrict with a missing rule path must fail")
+  assert(type(err) == "string" and err:find("open(", 1, true),
+    "error should identify the failing open: " .. tostring(err))
+end
+test_restrict_bad_rule_path_returns_error()
