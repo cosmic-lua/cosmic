@@ -219,7 +219,7 @@ all modules are under `lib/cosmic/` and imported as `cosmic.*`:
 | sqlite | SQLite with ergonomic query/exec/transaction API |
 | sse | Server-Sent Events parser |
 | string | trim, split, capitalize, starts_with, etc. |
-| sys | OS/architecture detection |
+| sys | OS/architecture detection, sysconf (nproc, page size), uname |
 | syslog | system logging |
 | teal | Teal compilation and type checking |
 | testrun | test execution and reporting |

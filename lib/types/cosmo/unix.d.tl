@@ -281,9 +281,12 @@ local record Stat
   --- depending on the operating system. `unix.major()` and `unix.minor()`
   --- may be used to extract the device numbers.
   rdev: function(self: Stat): number
-  nlink: function(self: Stat): any
-  gen: function(self: Stat): any
-  flags: function(self: Stat): any
+  --- Number of hard links to the file.
+  nlink: function(self: Stat): number
+  --- Inode generation number.
+  gen: function(self: Stat): number
+  --- User-defined flags on the file.
+  flags: function(self: Stat): number
 end
 
 --- Filesystem statistics returned by statfs() and fstatfs().
@@ -585,6 +588,13 @@ local record unix
   RUSAGE_CHILDREN: number
   RUSAGE_SELF: number
   RUSAGE_THREAD: number
+  SC_ARG_MAX: number
+  SC_CHILD_MAX: number
+  SC_CLK_TCK: number
+  SC_OPEN_MAX: number
+  SC_PAGESIZE: number
+  SC_NPROCESSORS_CONF: number
+  SC_NPROCESSORS_ONLN: number
   R_OK: number
   SA_NOCLDSTOP: number
   SA_NOCLDWAIT: number
@@ -1797,6 +1807,14 @@ local record unix
   --- UTS namespace; typical callers are sandbox builders that first
   --- `unshare(CLONE_NEWUTS)`. Returns `(nil, Errno)` on failure.
   sethostname: function(name: string): boolean, Errno
+  --- Returns a runtime system configuration value. `name` is one of the
+  --- `unix.SC_*` constants (e.g. `SC_NPROCESSORS_ONLN`, `SC_PAGESIZE`).
+  --- Returns `(nil, Errno)` on failure.
+  sysconf: function(name: number): number
+  --- Returns operating system and hardware identification as a table with
+  --- `sysname`, `nodename`, `release`, `version`, `machine`, and
+  --- `domainname` string fields. Returns `(nil, Errno)` on failure.
+  uname: function(): any
 
   --- Linux isolation primitives (namespaces, landlock, prctl, ioctl).
   --- All return `(nil|false, Errno)` on failure and fail with `ENOSYS`
