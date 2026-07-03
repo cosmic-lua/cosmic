@@ -23,13 +23,6 @@
 --- network isolation.
 local unix = require("cosmo.unix")
 
---- Linux O_PATH (0x00200000): open a pure path reference, usable even
---- for paths the caller cannot read. lunix does not export this
---- constant yet; landlock is Linux-only so the Linux value is safe to
---- pin here. (The vendored Lua predecessor read unix.O_PATH, which is
---- nil — any restrict() call with rules crashed on the bitwise-or.)
-local O_PATH < const > = 0x00200000
-
 local EXECUTE < const > = unix.LANDLOCK_ACCESS_FS_EXECUTE as integer
 local WRITE_FILE < const > = unix.LANDLOCK_ACCESS_FS_WRITE_FILE as integer
 local READ_FILE < const > = unix.LANDLOCK_ACCESS_FS_READ_FILE as integer
@@ -157,7 +150,8 @@ local function restrict(opts: RestrictOpts): boolean, string
       return fail(string.format("rule[%d] missing path", i))
     end
     local access = (rule.access or 0) & mask
-    local pfd, perr = unix.open(rule.path, O_PATH | unix.O_CLOEXEC)
+    local pfd, perr = unix.open(rule.path,
+      (unix.O_PATH as integer) | (unix.O_CLOEXEC as integer))
     if not pfd then
       return fail(string.format("open(%q): %s", rule.path, tostring(perr)))
     end
