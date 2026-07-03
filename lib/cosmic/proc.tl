@@ -37,6 +37,7 @@ end
 --- Error information from system calls.
 --- Provides detailed error codes and human-readable descriptions.
 local Errno = require("cosmic.errno").Errno
+local errstr = require("cosmic.errno").str
 
 -- Identity --
 
@@ -206,16 +207,9 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function setrlimit(resource: number, soft: number, hard?: number): boolean, string
-  local ok, err = unix.setrlimit(resource, soft, hard) as(boolean, any)
+  local ok, err = unix.setrlimit(resource, soft, hard)
   if not ok then
-    if err then
-      local errno = err as Errno
-      if errno.doc then
-        return false, errno:doc()
-      end
-      return false, tostring(err)
-    end
-    return false, "setrlimit failed"
+    return false, errstr(err, "setrlimit")
   end
   return true
 end
@@ -246,16 +240,9 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function setpriority(which: number, who: number, prio: number): boolean, string
-  local ok, err = unix.setpriority(which, who, prio) as(boolean, any)
+  local ok, err = unix.setpriority(which, who, prio)
   if not ok then
-    if err then
-      local errno = err as Errno
-      if errno.doc then
-        return false, errno:doc()
-      end
-      return false, tostring(err)
-    end
-    return false, "setpriority failed"
+    return false, errstr(err, "setpriority")
   end
   return true
 end

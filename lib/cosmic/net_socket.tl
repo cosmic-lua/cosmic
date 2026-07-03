@@ -1,7 +1,7 @@
 --- Socket implementation for the networking module.
 --- Contains the Socket constructor and all Socket method implementations.
 local unix = require("cosmo.unix")
-local Errno = require("cosmic.errno").Errno
+local errstr = require("cosmic.errno").str
 
 --- Socket handle for network I/O.
 --- Sockets are BLOCKING by default: recv and accept wait until data or a
@@ -157,16 +157,9 @@ local function make_socket(fd: number): Socket
   end
 
   function sock:connect(ip: number, port: number): boolean, string
-    local ok, err = unix.connect(self.fd, ip, port) as(boolean, any)
+    local ok, err = unix.connect(self.fd, ip, port)
     if not ok then
-      if err then
-        local errno = err as Errno
-        if errno.doc then
-          return false, "connect: " .. errno:doc()
-        end
-        return false, "connect: " .. tostring(err)
-      end
-      return false, "connect failed"
+      return false, errstr(err, "connect")
     end
     return true
   end
@@ -174,14 +167,7 @@ local function make_socket(fd: number): Socket
   function sock:connect_unix(path: string): boolean, string
     local ok, err = (unix.connect as function(number, string): (boolean, any))(self.fd, path)
     if not ok then
-      if err then
-        local errno = err as Errno
-        if errno.doc then
-          return false, "connect_unix: " .. errno:doc()
-        end
-        return false, "connect_unix: " .. tostring(err)
-      end
-      return false, "connect_unix failed"
+      return false, errstr(err, "connect_unix")
     end
     return true
   end

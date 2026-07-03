@@ -2,7 +2,7 @@
 --- Internal submodule used by cosmic.fs.
 local unix = require("cosmo.unix")
 local types = require("cosmic.fs_types")
-local Errno = require("cosmic.errno").Errno
+local errstr = require("cosmic.errno").str
 local Statfs = types.Statfs
 
 -- File operations
@@ -13,9 +13,9 @@ local Statfs = types.Statfs
 --- @return boolean True on success
 --- @return string Error message if failed
 local function unlink(path: string): boolean, string
-  local ok = unix.unlink(path)
+  local ok, err = unix.unlink(path)
   if not ok then
-    return false, "unlink failed: " .. path
+    return false, errstr(err, "unlink: " .. path)
   end
   return true
 end
@@ -26,9 +26,9 @@ end
 --- @return boolean True on success
 --- @return string Error message if failed
 local function rename(oldpath: string, newpath: string): boolean, string
-  local ok = unix.rename(oldpath, newpath, unix.AT_FDCWD, unix.AT_FDCWD)
+  local ok, err = unix.rename(oldpath, newpath, unix.AT_FDCWD, unix.AT_FDCWD)
   if not ok then
-    return false, "rename failed: " .. oldpath .. " -> " .. newpath
+    return false, errstr(err, "rename: " .. oldpath .. " -> " .. newpath)
   end
   return true
 end
@@ -39,9 +39,9 @@ end
 --- @return boolean True on success
 --- @return string Error message if failed
 local function link(existingpath: string, newpath: string): boolean, string
-  local ok = unix.link(existingpath, newpath, 0, unix.AT_FDCWD, unix.AT_FDCWD)
+  local ok, err = unix.link(existingpath, newpath, 0, unix.AT_FDCWD, unix.AT_FDCWD)
   if not ok then
-    return false, "link failed: " .. existingpath .. " -> " .. newpath
+    return false, errstr(err, "link: " .. existingpath .. " -> " .. newpath)
   end
   return true
 end
@@ -52,9 +52,9 @@ end
 --- @return boolean True on success
 --- @return string Error message if failed
 local function symlink(target: string, linkpath: string): boolean, string
-  local ok = unix.symlink(target, linkpath)
+  local ok, err = unix.symlink(target, linkpath)
   if not ok then
-    return false, "symlink failed: " .. linkpath .. " -> " .. target
+    return false, errstr(err, "symlink: " .. linkpath .. " -> " .. target)
   end
   return true
 end
@@ -64,9 +64,9 @@ end
 --- @return string The symlink target, or nil on error
 --- @return string Error message if failed
 local function readlink(path: string): string, string
-  local target = unix.readlink(path)
+  local target, err = unix.readlink(path)
   if not target then
-    return nil, "readlink failed: " .. path
+    return nil, errstr(err, "readlink: " .. path)
   end
   return target
 end
@@ -77,9 +77,9 @@ end
 --- @return string Canonical path, or nil on error
 --- @return string Error message if failed
 local function realpath(path: string): string, string
-  local resolved = unix.realpath(path)
+  local resolved, err = unix.realpath(path)
   if not resolved then
-    return nil, "realpath failed: " .. path
+    return nil, errstr(err, "realpath: " .. path)
   end
   return resolved
 end
@@ -90,9 +90,9 @@ end
 --- @return boolean True on success
 --- @return string Error message if failed
 local function rmrf(path: string): boolean, string
-  local ok = unix.rmrf(path)
+  local ok, err = unix.rmrf(path)
   if not ok then
-    return false, "rmrf failed: " .. path
+    return false, errstr(err, "rmrf: " .. path)
   end
   return true
 end
@@ -113,9 +113,9 @@ end
 --- @return boolean True on success
 --- @return string Error message if failed
 local function chmod(path: string, mode: number): boolean, string
-  local ok = unix.chmod(path, mode)
+  local ok, err = unix.chmod(path, mode)
   if not ok then
-    return false, "chmod failed: " .. path
+    return false, errstr(err, "chmod: " .. path)
   end
   return true
 end
@@ -127,9 +127,9 @@ end
 --- @return boolean True on success
 --- @return string Error message if failed
 local function chown(path: string, uid: number, gid: number): boolean, string
-  local ok = unix.chown(path, uid, gid)
+  local ok, err = unix.chown(path, uid, gid)
   if not ok then
-    return false, "chown failed: " .. path
+    return false, errstr(err, "chown: " .. path)
   end
   return true
 end
@@ -145,9 +145,9 @@ end
 --- @return boolean True on success
 --- @return string Error message if failed
 local function utimensat(path: string, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
-  local rc = unix.utimensat(path, atime_secs or 0, atime_nsecs or unix.UTIME_OMIT, mtime_secs or 0, mtime_nsecs or unix.UTIME_OMIT)
+  local rc, err = unix.utimensat(path, atime_secs or 0, atime_nsecs or unix.UTIME_OMIT, mtime_secs or 0, mtime_nsecs or unix.UTIME_OMIT)
   if rc ~= 0 then
-    return false, "utimensat failed: " .. path
+    return false, errstr(err, "utimensat: " .. path)
   end
   return true
 end
@@ -161,9 +161,9 @@ end
 --- @return boolean True on success
 --- @return string Error message if failed
 local function futimens(fd: number, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
-  local rc = unix.futimens(fd, atime_secs or 0, atime_nsecs or unix.UTIME_OMIT, mtime_secs or 0, mtime_nsecs or unix.UTIME_OMIT)
+  local rc, err = unix.futimens(fd, atime_secs or 0, atime_nsecs or unix.UTIME_OMIT, mtime_secs or 0, mtime_nsecs or unix.UTIME_OMIT)
   if rc ~= 0 then
-    return false, "futimens failed"
+    return false, errstr(err, "futimens")
   end
   return true
 end
@@ -175,9 +175,9 @@ end
 --- @return string Path to the created directory, or nil on error
 --- @return string Error message if failed
 local function mkdtemp(template: string): string, string
-  local path = unix.mkdtemp(template)
+  local path, err = unix.mkdtemp(template)
   if not path then
-    return nil, "mkdtemp failed: " .. template
+    return nil, errstr(err, "mkdtemp: " .. template)
   end
   return path
 end
@@ -187,9 +187,11 @@ end
 --- @return number File descriptor, or nil on error
 --- @return string Path to the created file, or error message
 local function mkstemp(template: string): number, string
+  -- On success mkstemp returns (fd, path); on failure (nil, Errno), so the
+  -- second slot is the error, not a path.
   local fd, path = unix.mkstemp(template)
   if not fd then
-    return nil, "mkstemp failed: " .. template
+    return nil, errstr(path as any, "mkstemp: " .. template)
   end
   return fd, path
 end
@@ -198,9 +200,9 @@ end
 --- @return number File descriptor, or nil on error
 --- @return string Error message if failed
 local function tmpfd(): number, string
-  local fd = unix.tmpfd()
+  local fd, err = unix.tmpfd()
   if not fd then
-    return nil, "tmpfd failed"
+    return nil, errstr(err, "tmpfd")
   end
   return fd
 end
@@ -212,11 +214,11 @@ end
 --- @return Statfs Filesystem statistics, or nil on error
 --- @return string Error message if failed
 local function statfs(path: string): Statfs, string
-  local info = unix.statfs(path) as Statfs
+  local info, err = unix.statfs(path)
   if not info then
-    return nil, "statfs failed: " .. path
+    return nil, errstr(err, "statfs: " .. path)
   end
-  return info
+  return info as Statfs
 end
 
 --- Get filesystem statistics from a file descriptor.
@@ -224,11 +226,11 @@ end
 --- @return Statfs Filesystem statistics, or nil on error
 --- @return string Error message if failed
 local function fstatfs(fd: number): Statfs, string
-  local info = unix.fstatfs(fd) as Statfs
+  local info, err = unix.fstatfs(fd)
   if not info then
-    return nil, "fstatfs failed"
+    return nil, errstr(err, "fstatfs")
   end
-  return info
+  return info as Statfs
 end
 
 -- Device number utilities
