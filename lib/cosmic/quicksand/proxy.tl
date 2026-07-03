@@ -1,15 +1,20 @@
 --- Allowlist HTTP CONNECT + plain-HTTP proxy for sandboxed egress.
 ---
---- Typed wrapper over cosmo.sandbox.proxy. The proxy binds inside a
---- child's network namespace (the only thing the sandboxed workload
---- can reach) and dials upstream in a different namespace, so a
---- netns-isolated child can reach a narrow set of approved hosts and
---- nothing else.
+--- The proxy binds inside a child's network namespace (the only thing
+--- the sandboxed workload can reach) and dials upstream in a
+--- different namespace, so a netns-isolated child can reach a narrow
+--- set of approved hosts and nothing else. Non-public upstream IPs
+--- are refused after DNS resolution (SSRF protection), and per-dial
+--- resolution is deadline-bounded so a tarpitting resolver can't
+--- wedge a worker.
 ---
---- start(opts) forks the listener into a child process and returns a
---- ProxyHandle with the bound pid and port. handle:stop() sends
---- SIGTERM (escalating to SIGKILL after a timeout) and reaps the
---- child; handle:alive() is a non-blocking liveness check.
+--- start(opts) validates the allowlist, forks the listener into a
+--- child process, and returns a ProxyHandle with the bound pid and
+--- port. handle:stop() sends SIGTERM (escalating to SIGKILL after a
+--- timeout) and reaps the child; handle:alive() is a non-blocking
+--- liveness check. Implementation lives in cosmic.quicksand.proxy.*
+--- (rules, http, dial, serve); advanced callers needing a non-forking
+--- server can use cosmic.quicksand.proxy.serve directly.
 ---
 --- Rule schema (allowed_hosts):
 ---
@@ -26,43 +31,24 @@
 ---                                     header_value = "..." },
 ---   }
 ---
---- Host specs: `host`, `host:port`, `host:*`, `*.suffix`, `*.suffix:port`.
---- An empty rule table is pass-through (allow, no header injection).
---- Header injection happens on plain HTTP only; CONNECT is opaque.
-local cproxy = require("cosmo.sandbox.proxy")
+--- Host specs: `host`, `host:port`, `host:*`, `*.suffix`,
+--- `*.suffix:port`. An empty rule table is pass-through (allow, no
+--- header injection). Header injection happens on plain HTTP only;
+--- CONNECT is opaque. Malformed rules (unknown `type`, missing
+--- fields) make start() fail loudly instead of degrading to
+--- pass-through.
+local unix = require("cosmo.unix")
+local rules = require("cosmic.quicksand.proxy.rules")
+local serve = require("cosmic.quicksand.proxy.serve")
 local Errno = require("cosmic.errno").Errno
+
+local type ProxyOptions = serve.ProxyOptions
 
 local function wrap_err(err: any, fallback: string): string
   if not err then return fallback end
   local e = err as Errno
   if e.doc then return e:doc() end
   return tostring(err)
-end
-
---- A single allowlist rule. `type` nil means pass-through (allowed,
---- no header injection). Fields not relevant to the chosen type are
---- ignored. Unknown `type` values behave as pass-through.
-local record ProxyRule
-  type: string -- "bearer" | "basic" | "header" | nil
-  token: string -- bearer
-  username: string -- basic
-  password: string -- basic
-  header_name: string -- header
-  header_value: string -- header
-end
-
---- Options for start() / new().
-local record ProxyOptions
-  bind_ip: integer -- default cosmo.ParseIp("127.0.0.1")
-  bind_port: integer -- default 3128; 0 = ephemeral
-  allowed_hosts: {string: ProxyRule}
-  upstream_ns_fd: integer -- netns fd to dial in; nil = current ns
-  log_level: string -- "quiet" | "info" | "debug" (default "info")
-  log_format: string -- "text" | "json"            (default "text")
-  log_file: string -- path; default stderr
-  accept_backlog: integer -- default 32
-  resolve_timeout_ms: integer -- per-dial DNS deadline; default 5000
-  on_log: function({string: any})
 end
 
 --- Returned by start(). `stop()` sends SIGTERM and reaps the
@@ -72,20 +58,119 @@ end
 local record ProxyHandle
   pid: integer
   port: integer
-  stop: function(self: ProxyHandle, timeout_ms?: integer)
+  stop: function(self: ProxyHandle, timeout_ms?: integer): boolean
   alive: function(self: ProxyHandle): boolean
 end
 
---- Fork a proxy listener into a child process. The parent blocks
---- until the child has bound and listened, so handle.port is valid
---- immediately on return.
+local function now_ms(): integer
+  local s, ns = unix.clock_gettime(unix.CLOCK_MONOTONIC)
+  return (s as integer) * 1000 + (ns as integer) // 1000000
+end
+
+--- Send SIGTERM and reap the proxy child, escalating to SIGKILL when
+--- it hasn't exited within timeout_ms (default 5000) so a hung worker
+--- can't wedge the supervisor. Idempotent: once reaped (pid == 0),
+--- short-circuits without re-signalling — a reused pid must never
+--- receive a stray signal. Always returns true; signal/wait failures
+--- are swallowed since the post-condition (child no longer ours) is
+--- reached regardless.
+local function handle_stop(self: ProxyHandle, timeout_ms?: integer): boolean
+  if self.pid == 0 then return true end
+  timeout_ms = timeout_ms or 5000
+  local pid = self.pid
+  pcall(unix.kill, pid, unix.SIGTERM)
+  local deadline = now_ms() + timeout_ms
+  while true do
+    local gone = unix.wait(pid, unix.WNOHANG)
+    if gone == pid then
+      self.pid = 0
+      return true
+    end
+    if now_ms() >= deadline then break end
+    unix.nanosleep(0, 10 * 1000 * 1000)
+  end
+  pcall(unix.kill, pid, unix.SIGKILL)
+  pcall(unix.wait, pid)
+  self.pid = 0
+  return true
+end
+
+--- Non-blocking health check: true while the proxy child is still
+--- running, false once it has exited. On observing an exit, reaps
+--- the zombie and clears pid to 0 so later calls short-circuit
+--- without racing pid reuse.
+local function handle_alive(self: ProxyHandle): boolean
+  if self.pid == 0 then return false end
+  local gone = unix.wait(self.pid, unix.WNOHANG)
+  if gone == self.pid then
+    self.pid = 0
+    return false
+  end
+  return true
+end
+
+--- Fork a proxy listener into a child process. The allowlist is
+--- validated before forking, so schema errors surface here. The
+--- parent blocks until the child has bound and listened (the bound
+--- port comes back over a pipe), so handle.port is valid immediately
+--- on return.
 ---
 --- @param opts ProxyOptions allowlist + binding + logging config
 --- @return ProxyHandle? handle with pid, port, stop(), alive()
 --- @return string? error message on failure
 local function start(opts: ProxyOptions): ProxyHandle, string
-  local h, err = cproxy.start(opts as any) as(ProxyHandle, any)
-  if not h then return nil, wrap_err(err, "proxy.start failed") end
+  opts = opts or {}
+  local vok, verr = rules.validate((opts.allowed_hosts or {}) as {string: any})
+  if not vok then return nil, verr end
+  local r, w = unix.pipe()
+  if not r then return nil, wrap_err(w, "pipe failed") end
+  local rfd = r as integer
+  local wfd = w as integer
+  local pid, ferr = unix.fork()
+  if not pid then
+    unix.close(rfd)
+    unix.close(wfd)
+    return nil, wrap_err(ferr, "fork failed")
+  end
+  if pid == 0 then
+    -- Child: listen, report the bound port to the parent, then serve.
+    unix.close(rfd)
+    local srv, nerr = serve.new(opts)
+    if not srv then
+      unix.write(wfd, string.pack("<i4", -1))
+      unix.close(wfd)
+      io.stderr:write("proxy.start: " .. tostring(nerr) .. "\n")
+      unix.exit(1)
+    end
+    local fd, lerr = srv.listen()
+    if not fd then
+      unix.write(wfd, string.pack("<i4", -1))
+      unix.close(wfd)
+      io.stderr:write("proxy.start: listen: " .. tostring(lerr) .. "\n")
+      unix.exit(1)
+    end
+    unix.write(wfd, string.pack("<i4", srv.port()))
+    unix.close(wfd)
+    srv.serve_forever()
+    unix.exit(0)
+  end
+  -- Parent: read the bound port, then return the handle.
+  unix.close(wfd)
+  local packed = unix.read(rfd, 4)
+  unix.close(rfd)
+  if not packed or #packed < 4 then
+    pcall(unix.kill, pid, unix.SIGTERM)
+    pcall(unix.wait, pid)
+    return nil, "proxy child failed to report a port"
+  end
+  local port = (string.unpack("<i4", packed)) as integer
+  if port < 0 then
+    pcall(unix.wait, pid)
+    return nil, "proxy child failed to listen"
+  end
+  local h: ProxyHandle = {pid = pid as integer, port = port}
+  h.stop = handle_stop
+  h.alive = handle_alive
   return h
 end
 

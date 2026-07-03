@@ -799,7 +799,7 @@ local record unix
   --- the file descriptor works.
   read: function(fd: number, bufsiz?: number, offset?: number): string
   --- Writes to file descriptor.
-  write: function(fd: number, data: string, offset?: number): number
+  write: function(fd: number, data: string, offset?: number): number, Errno
   --- Invokes `_Exit(exitcode)` on the process. This will immediately
   --- halt the current process. Memory will be freed. File descriptors
   --- will be closed. Any open connections it owns will be reset. This
@@ -903,7 +903,7 @@ local record unix
   --- Hence it should come as no surprise that `fork()` would go slower on
   --- operating systems that have more security features. So depending on
   --- your use case, you can choose the operating system that suits you.
-  fork: function(): number | number
+  fork: function(): number, Errno
   --- Performs `$PATH` lookup of executable.
   --- unix = require 'unix'
   --- prog = assert(unix.commandv('ls'))
@@ -1417,12 +1417,12 @@ local record unix
   --- If any of the above parameters are -1, then it's a no-op.
   --- Returns `ENOSYS` on Windows NT.
   --- Returns `ENOSYS` on Macintosh and NetBSD if `saved` isn't -1.
-  setresuid: function(real: number, effective: number, saved: number): boolean
+  setresuid: function(real: number, effective: number, saved: number): boolean, Errno
   --- Sets real, effective, and saved group ids.
   --- If any of the above parameters are -1, then it's a no-op.
   --- Returns `ENOSYS` on Windows NT.
   --- Returns `ENOSYS` on Macintosh and NetBSD if `saved` isn't -1.
-  setresgid: function(real: number, effective: number, saved: number): boolean
+  setresgid: function(real: number, effective: number, saved: number): boolean, Errno
   --- Sets file permission mask and returns the old one.
   --- This is used to remove bits from the `mode` parameter of functions
   --- like open() and mkdir(). The masks typically used are 027 and 022.
@@ -1586,7 +1586,7 @@ local record unix
   --- end
   --- Further note that calling `unix.bind(sock)` is equivalent to not
   --- calling bind() at all, since the above behavior is the default.
-  bind: function(fd: number, ip?: number, port?: number): boolean
+  bind: function(fd: number, ip?: number, port?: number): boolean, Errno
   --- Returns list of network adapter addresses.
   siocgifconf: function(): any
   --- Tunes networking parameters.
@@ -1810,6 +1810,11 @@ local record unix
   --- Operations on a process, e.g. `prctl(PR_SET_NO_NEW_PRIVS, 1)`.
   prctl: function(option: number, arg2?: number, arg3?: number,
     arg4?: number, arg5?: number): number, Errno
+  --- Sets the calling process's capability sets. `capset(0, 0, 0)`
+  --- clears the effective, permitted, and inheritable sets — the final
+  --- step of a full privilege drop.
+  capset: function(effective: number, permitted: number,
+    inheritable: number): boolean, Errno
   --- Generic device control. When `arg` is a string (e.g. a packed
   --- `struct ifreq`), the kernel-modified buffer is returned as a new
   --- string on success.
@@ -1841,6 +1846,8 @@ local record unix
   CLONE_NEWPID: number
   --- @type integer prctl option: forbid gaining privileges via execve
   PR_SET_NO_NEW_PRIVS: number
+  --- @type integer prctl option: preserve capabilities across setuid
+  PR_SET_KEEPCAPS: number
   --- @type integer maximum interface name length (including NUL)
   IFNAMSIZ: number
   --- @type integer ioctl request: get interface flags
@@ -1881,7 +1888,7 @@ local record unix
   LANDLOCK_ACCESS_FS_TRUNCATE: number
 
   --- Begins listening for incoming connections on a socket.
-  listen: function(fd: number, backlog?: number): boolean
+  listen: function(fd: number, backlog?: number): boolean, Errno
   --- Accepts new client socket descriptor for a listening tcp socket.
   --- `flags` may have any combination (using bitwise OR) of:
   --- - `SOCK_CLOEXEC`
@@ -1891,7 +1898,7 @@ local record unix
   --- With TCP this is a blocking operation. For a UDP socket it simply
   --- remembers the intended address so that `send()` or `write()` may be used
   --- rather than `sendto()`.
-  connect: function(fd: number, ip: number, port: number): boolean
+  connect: function(fd: number, ip: number, port: number): boolean, Errno
   --- Retrieves the local address of a socket.
   getsockname: function(fd: number): number, number
   --- Retrieves the remote address of a socket.
@@ -1902,7 +1909,7 @@ local record unix
   --- - `MSG_DONTROUTE`
   --- - `MSG_PEEK`
   --- - `MSG_OOB`
-  recv: function(fd: number, bufsiz?: number, flags?: number): string
+  recv: function(fd: number, bufsiz?: number, flags?: number): string, Errno
   --- - `MSG_WAITALL`
   --- - `MSG_DONTROUTE`
   --- - `MSG_PEEK`
@@ -1914,7 +1921,9 @@ local record unix
   --- - `MSG_OOB`: Send stream data through out of bound channel
   --- - `MSG_DONTROUTE`: Don't go through gateway (for diagnostics)
   --- - `MSG_MORE`: Manual corking to belay nodelay (0 on non-Linux)
-  send: function(fd: number, data: string, flags?: number): number
+  --- `offset` skips that many leading bytes of `data`, allowing
+  --- short-write resume loops without reallocating tail substrings.
+  send: function(fd: number, data: string, flags?: number, offset?: number): number, Errno
   --- This is useful for sending messages over UDP sockets to specific
   --- addresses.
   --- - `MSG_OOB`

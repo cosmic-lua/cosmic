@@ -59,7 +59,7 @@ local function make_pipe(fd: number): Pipe
   local pipe: Pipe = {fd = fd}
 
   function pipe:write(data: string): number
-    return unix.write(self.fd, data)
+    return (unix.write(self.fd, data))
   end
 
   function pipe:read(size?: number): string
@@ -90,7 +90,7 @@ end
 --- Creates a new process (fork).
 --- @return number The child process id in parent, 0 in child
 local function fork(): number
-  return unix.fork()
+  return (unix.fork())
 end
 
 --- Spawns a new process using posix_spawn (low-level).
