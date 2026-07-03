@@ -246,6 +246,7 @@ function spawn(argv: {string}, opts?: Opts): Handle, string
  Spawns a child process with I/O control. Uses fexecve for /zip/ paths.
  When Opts.stdout/stderr are fds they are dup2'd into child (handle fields
  nil); MUST close the write end before reading. See Example_spawn_pipe.
+ To spawn cosmic itself, use `rawget(arg, -1)` — NOT arg[0] (gotchas #7).
 
 **Parameters:**
 
