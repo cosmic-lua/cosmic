@@ -63,6 +63,8 @@ local record ProcOpts
   uid: integer
   gid: integer
   pledge: string
+  drop_caps: boolean -- drop the entire capability bounding set before exec
+  keep_caps: {string} -- capability names to retain (implies drop_caps)
 end
 
 local record EnvOpts
@@ -114,6 +116,9 @@ local function validate(opts: BoxOpts): boolean, string
     if proc.pledge ~= nil and type(proc.pledge) ~= "string" then
       return false, "proc.pledge must be a string"
     end
+    if proc.keep_caps ~= nil and type(proc.keep_caps) ~= "table" then
+      return false, "proc.keep_caps must be a list of capability names"
+    end
   end
   local net = opts.net
   if net and net.allow ~= nil and type(net.allow) ~= "table" then
@@ -159,6 +164,11 @@ local function preflight(opts: BoxOpts): boolean, string
     end
     if opts.proc and opts.proc.pledge and not c.pledge then
       return false, "quicksand: pledge unavailable"
+    end
+    local pr = opts.proc
+    local wants_caps = pr and (pr.drop_caps or (pr.keep_caps and #pr.keep_caps > 0))
+    if wants_caps and not c.caps then
+      return false, "quicksand: capability bounding-set control unavailable (proc.drop_caps/keep_caps requested)"
     end
   end
   return true

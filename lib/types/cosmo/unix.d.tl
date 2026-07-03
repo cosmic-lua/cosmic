@@ -385,6 +385,7 @@ local record unix
   AF_UNSPEC: number
   ARG_MAX: number
   AT_EACCES: number
+  AT_EACCESS: number
   AT_FDCWD: number
   AT_SYMLINK_NOFOLLOW: number
   BUFSIZ: number
@@ -428,8 +429,10 @@ local record unix
   EEXIST: number
   EFAULT: number
   EFBIG: number
+  EFTYPE: number
   EHOSTDOWN: number
   EHOSTUNREACH: number
+  EHWPOISON: number
   EIDRM: number
   EILSEQ: number
   EINPROGRESS: number
@@ -439,9 +442,11 @@ local record unix
   EISCONN: number
   EISDIR: number
   ELOOP: number
+  EMEDIUMTYPE: number
   EMFILE: number
   EMLINK: number
   EMSGSIZE: number
+  EMULTIHOP: number
   ENAMETOOLONG: number
   ENETDOWN: number
   ENETRESET: number
@@ -453,11 +458,15 @@ local record unix
   ENOENT: number
   ENOEXEC: number
   ENOLCK: number
+  ENOLINK: number
+  ENOMEDIUM: number
   ENOMEM: number
   ENOMSG: number
   ENONET: number
   ENOPROTOOPT: number
   ENOSPC: number
+  ENOSR: number
+  ENOSTR: number
   ENOSYS: number
   ENOTBLK: number
   ENOTCONN: number
@@ -480,6 +489,7 @@ local record unix
   ERANGE: number
   EREMOTE: number
   ERESTART: number
+  ERFKILL: number
   EROFS: number
   ESHUTDOWN: number
   ESOCKTNOSUPPORT: number
@@ -495,6 +505,7 @@ local record unix
   FD_CLOEXEC: number
   F_GETFD: number
   F_GETFL: number
+  F_GETLK: number
   F_OK: number
   F_RDLCK: number
   F_SETFD: number
@@ -508,8 +519,17 @@ local record unix
   IPPROTO_RAW: number
   IPPROTO_TCP: number
   IPPROTO_UDP: number
+  IP_ADD_MEMBERSHIP: number
+  IP_DROP_MEMBERSHIP: number
   IP_HDRINCL: number
   IP_MTU: number
+  IP_MULTICAST_IF: number
+  IP_MULTICAST_LOOP: number
+  IP_MULTICAST_TTL: number
+  IP_OPTIONS: number
+  IP_PKTINFO: number
+  IP_RECVTOS: number
+  IP_RECVTTL: number
   IP_TOS: number
   IP_TTL: number
   ITIMER_PROF: number
@@ -523,11 +543,14 @@ local record unix
   LOG_INFO: number
   LOG_NOTICE: number
   LOG_WARNING: number
+  MSG_CTRUNC: number
   MSG_DONTROUTE: number
+  MSG_DONTWAIT: number
   MSG_MORE: number
   MSG_NOSIGNAL: number
   MSG_OOB: number
   MSG_PEEK: number
+  MSG_TRUNC: number
   MSG_WAITALL: number
   NAME_MAX: number
   NSIG: number
@@ -638,12 +661,44 @@ local record unix
   TCSADRAIN: number
   TCSAFLUSH: number
   IFNAMSIZ: number
+  IFF_ALLMULTI: number
+  IFF_AUTOMEDIA: number
+  IFF_BROADCAST: number
+  IFF_DEBUG: number
+  IFF_DYNAMIC: number
+  IFF_LOOPBACK: number
+  IFF_MASTER: number
+  IFF_MULTICAST: number
+  IFF_NOARP: number
+  IFF_NOTRAILERS: number
+  IFF_POINTOPOINT: number
+  IFF_PORTSEL: number
+  IFF_PROMISC: number
+  IFF_RUNNING: number
+  IFF_SLAVE: number
   IFF_UP: number
+  SIOCGIFADDR: number
+  SIOCGIFBRDADDR: number
+  SIOCGIFDSTADDR: number
   SIOCGIFFLAGS: number
+  SIOCGIFINDEX: number
+  SIOCGIFMETRIC: number
+  SIOCGIFMTU: number
+  SIOCGIFNAME: number
+  SIOCGIFNETMASK: number
+  SIOCSIFADDR: number
+  SIOCSIFBRDADDR: number
+  SIOCSIFDSTADDR: number
   SIOCSIFFLAGS: number
+  SIOCSIFMETRIC: number
+  SIOCSIFMTU: number
+  SIOCSIFNETMASK: number
+  CLONE_NEWCGROUP: number
+  CLONE_NEWIPC: number
   CLONE_NEWNET: number
   CLONE_NEWNS: number
   CLONE_NEWPID: number
+  CLONE_NEWTIME: number
   CLONE_NEWUSER: number
   CLONE_NEWUTS: number
   LANDLOCK_ACCESS_FS_EXECUTE: number
@@ -661,8 +716,102 @@ local record unix
   LANDLOCK_ACCESS_FS_MAKE_SYM: number
   LANDLOCK_ACCESS_FS_REFER: number
   LANDLOCK_ACCESS_FS_TRUNCATE: number
+  LANDLOCK_CREATE_RULESET_VERSION: number
+  LANDLOCK_RULE_PATH_BENEATH: number
+  PR_CAPBSET_DROP: number
+  PR_CAPBSET_READ: number
+  PR_GET_CHILD_SUBREAPER: number
+  PR_GET_DUMPABLE: number
+  PR_GET_KEEPCAPS: number
+  PR_GET_NAME: number
+  PR_GET_NO_NEW_PRIVS: number
+  PR_GET_PDEATHSIG: number
+  PR_SET_CHILD_SUBREAPER: number
+  PR_SET_DUMPABLE: number
   PR_SET_KEEPCAPS: number
+  PR_SET_NAME: number
   PR_SET_NO_NEW_PRIVS: number
+  PR_SET_PDEATHSIG: number
+  CAP_AUDIT_CONTROL: number
+  CAP_AUDIT_READ: number
+  CAP_AUDIT_WRITE: number
+  CAP_BLOCK_SUSPEND: number
+  CAP_BPF: number
+  CAP_CHECKPOINT_RESTORE: number
+  CAP_CHOWN: number
+  CAP_DAC_OVERRIDE: number
+  CAP_DAC_READ_SEARCH: number
+  CAP_FOWNER: number
+  CAP_FSETID: number
+  CAP_IPC_LOCK: number
+  CAP_IPC_OWNER: number
+  CAP_KILL: number
+  CAP_LAST_CAP: number
+  CAP_LEASE: number
+  CAP_LINUX_IMMUTABLE: number
+  CAP_MAC_ADMIN: number
+  CAP_MAC_OVERRIDE: number
+  CAP_MKNOD: number
+  CAP_NET_ADMIN: number
+  CAP_NET_BIND_SERVICE: number
+  CAP_NET_BROADCAST: number
+  CAP_NET_RAW: number
+  CAP_PERFMON: number
+  CAP_SETFCAP: number
+  CAP_SETGID: number
+  CAP_SETPCAP: number
+  CAP_SETUID: number
+  CAP_SYSLOG: number
+  CAP_SYS_ADMIN: number
+  CAP_SYS_BOOT: number
+  CAP_SYS_CHROOT: number
+  CAP_SYS_MODULE: number
+  CAP_SYS_NICE: number
+  CAP_SYS_PACCT: number
+  CAP_SYS_PTRACE: number
+  CAP_SYS_RAWIO: number
+  CAP_SYS_RESOURCE: number
+  CAP_SYS_TIME: number
+  CAP_SYS_TTY_CONFIG: number
+  CAP_WAKE_ALARM: number
+  MS_BIND: number
+  MS_DIRSYNC: number
+  MS_LAZYTIME: number
+  MS_MANDLOCK: number
+  MS_MOVE: number
+  MS_NOATIME: number
+  MS_NODEV: number
+  MS_NODIRATIME: number
+  MS_NOEXEC: number
+  MS_NOSUID: number
+  MS_POSIXACL: number
+  MS_PRIVATE: number
+  MS_RDONLY: number
+  MS_REC: number
+  MS_RELATIME: number
+  MS_REMOUNT: number
+  MS_SHARED: number
+  MS_SILENT: number
+  MS_SLAVE: number
+  MS_STRICTATIME: number
+  MS_SYNCHRONOUS: number
+  MS_UNBINDABLE: number
+  MNT_DETACH: number
+  MNT_EXPIRE: number
+  MNT_FORCE: number
+  UMOUNT_NOFOLLOW: number
+  ST_APPEND: number
+  ST_IMMUTABLE: number
+  ST_MANDLOCK: number
+  ST_NOATIME: number
+  ST_NODEV: number
+  ST_NODIRATIME: number
+  ST_NOEXEC: number
+  ST_NOSUID: number
+  ST_RDONLY: number
+  ST_RELATIME: number
+  ST_SYNCHRONOUS: number
+  ST_WRITE: number
   RUSAGE_BOTH: number
   RUSAGE_CHILDREN: number
   RUSAGE_SELF: number
@@ -737,6 +886,7 @@ local record unix
   SO_ERROR: number
   SO_KEEPALIVE: number
   SO_LINGER: number
+  SO_OOBINLINE: number
   SO_RCVBUF: number
   SO_RCVLOWAT: number
   SO_RCVTIMEO: number
@@ -1435,6 +1585,8 @@ local record unix
   setuid: function(uid: number): boolean, Errno
   --- Sets user id for file system ops.
   setfsuid: function(uid: number): boolean, Errno
+  --- Sets group id for file system ops.
+  setfsgid: function(gid: number): boolean, Errno
   --- Sets group id.
   --- Returns `ENOSYS` on Windows NT if `gid` isn't `getgid()`.
   setgid: function(gid: number): boolean, Errno
@@ -1949,6 +2101,9 @@ local record unix
   --- Waits for signal to be delivered.
   --- The signal mask is temporarily replaced with `mask` during this system call.
   sigsuspend: function(mask?: Sigset): nil, Errno
+  --- Returns the set of signals pending delivery to the calling process
+  --- that are currently blocked.
+  sigpending: function(): Sigset, Errno
   --- Causes `SIGALRM` signals to be generated at some point(s) in the
   --- future. The `which` parameter should be `ITIMER_REAL`.
   --- Here's an example of how to create a 400 ms interval timer:
@@ -2005,6 +2160,10 @@ local record unix
   --- Returns the new nice value on success. Note that -1 is a valid return
   --- value, so errors must be detected by checking the second return value.
   nice: function(inc: number): number, Errno
+  --- Lowers the calling process to the lowest scheduling priority.
+  --- On Linux this additionally requests the idle scheduling policy and a
+  --- best-effort idle i/o priority. This function does not fail.
+  verynice: function()
   --- Gets the scheduling priority of a process, process group, or user.
   --- `which` specifies what `who` refers to:
   --- - `PRIO_PROCESS`: `who` is a process id (0 = calling process)
@@ -2439,3 +2598,4 @@ local record unix
 end
 
 return unix
+
