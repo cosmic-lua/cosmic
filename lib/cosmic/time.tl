@@ -37,7 +37,8 @@ end
 --- @return number Seconds since epoch
 --- @return number Nanoseconds
 local function clock_gettime(clock?: number): number, number
-  return unix.clock_gettime(clock)
+  local secs, nanos = unix.clock_gettime(clock)
+  return secs, nanos
 end
 
 --- Get current wall clock time (real time).
@@ -45,7 +46,8 @@ end
 --- @return number Seconds since epoch
 --- @return number Nanoseconds
 local function now(): number, number
-  return unix.clock_gettime(unix.CLOCK_REALTIME)
+  local secs, nanos = unix.clock_gettime(unix.CLOCK_REALTIME)
+  return secs, nanos
 end
 
 --- Get monotonic time (not affected by system time changes).
@@ -53,7 +55,8 @@ end
 --- @return number Seconds
 --- @return number Nanoseconds
 local function monotonic(): number, number
-  return unix.clock_gettime(unix.CLOCK_MONOTONIC)
+  local secs, nanos = unix.clock_gettime(unix.CLOCK_MONOTONIC)
+  return secs, nanos
 end
 
 --- Sleep for the specified duration.
@@ -62,7 +65,8 @@ end
 --- @return number Remaining seconds if interrupted
 --- @return number Remaining nanoseconds if interrupted
 local function sleep(seconds: number, nanos?: number): number, number
-  return unix.nanosleep(seconds, nanos or 0)
+  local rem_s, rem_ns = unix.nanosleep(seconds, nanos or 0)
+  return rem_s, rem_ns
 end
 
 --- Sleep for the specified number of milliseconds.
@@ -73,7 +77,8 @@ local function sleep_ms(ms: number): number, number
   local seconds = math.floor(ms / 1000)
   local remaining_ms = ms % 1000
   local nanos = remaining_ms * 1000000
-  return unix.nanosleep(seconds, nanos)
+  local rem_s, rem_ns = unix.nanosleep(seconds, nanos)
+  return rem_s, rem_ns
 end
 
 --- Break down a UNIX timestamp into UTC (Zulu) time components.

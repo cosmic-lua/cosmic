@@ -64,7 +64,7 @@ local function make_pipe(fd: number): Pipe
 
   function pipe:read(size?: number): string
     if size then
-      return unix.read(self.fd, size)
+      return (unix.read(self.fd, size))
     end
     local chunks: {string} = {}
     while true do
@@ -99,7 +99,7 @@ end
 --- @param envp {string}? Environment variables (KEY=value format)
 --- @return number The child process id on success
 local function posix_spawn(prog: string, argv: {string}, envp?: {string}): number
-  return unix.spawn(prog, argv, envp)
+  return (unix.spawn(prog, argv, envp))
 end
 
 --- Spawns a new process with PATH search (low-level).
@@ -108,7 +108,7 @@ end
 --- @param envp {string}? Environment variables
 --- @return number The child process id on success
 local function posix_spawnp(prog: string, argv: {string}, envp?: {string}): number
-  return unix.spawnp(prog, argv, envp)
+  return (unix.spawnp(prog, argv, envp))
 end
 
 --- Waits for child process to terminate.
@@ -127,7 +127,7 @@ end
 --- @param sig number Signal number (e.g., SIGTERM, SIGKILL)
 --- @return boolean True on success
 local function kill(pid: number, sig: number): boolean
-  return unix.kill(pid, sig)
+  return (unix.kill(pid, sig))
 end
 
 -- Status helpers --

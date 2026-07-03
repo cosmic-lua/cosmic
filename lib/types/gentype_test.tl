@@ -25,9 +25,13 @@ local function test_convert_type()
   assert(gentype.convert_type("table<string,any>") == "{string:any}", "table<K,V> -> {K:V}")
   assert(gentype.convert_type("table<string, any>") == "{string:any}", "table<K, V> with space")
 
-  -- Nullable types (optional marker stripped)
-  assert(gentype.convert_type("string?") == "string", "string? -> string")
-  assert(gentype.convert_type("integer?") == "number", "integer? -> number")
+  -- Nullable types render as a Teal union with nil.
+  assert(gentype.convert_type("string?") == "string | nil", "string? -> string | nil")
+  assert(gentype.convert_type("integer?") == "number | nil", "integer? -> number | nil")
+
+  -- Parenthesized union types are unwrapped and converted (LuaLS grouping).
+  assert(gentype.convert_type("(true | string)") == "boolean | string", "(true | string) union")
+  assert(gentype.convert_type("(integer | string)?") == "number | string | nil", "optional paren union")
 
   -- Module-prefixed types
   assert(gentype.convert_type("lsqlite3.Database") == "Database", "lsqlite3.Database -> Database")
@@ -163,6 +167,144 @@ local function test_drift_detection_path()
   print("test_drift_detection_path: PASS (basic check)")
 end
 
+-- A fallible unix.* function expresses its failure return upstream as an
+-- `@overload fun(...): nil, <error> unix.Errno`. The generator folds that into
+-- a trailing `, Errno` on the success signature so callers see `value, Errno`.
+local function test_errno_overload_render()
+  local source = [==[
+unix = {}
+
+--- Makes a directory.
+---@param path string
+---@return true
+---@overload fun(path: string): nil, error: unix.Errno
+function unix.mkdir(path) end
+
+--- Gets the current working directory.
+---@return string path
+---@overload fun(): nil, unix.Errno
+function unix.getcwd() end
+
+--- Never fails, so must not gain an Errno return.
+---@return integer pid
+function unix.getpid() end
+
+--- Already declares Errno via @return AND carries a failure overload; the
+--- generator must not append a second Errno.
+---@param fd integer
+---@return integer newfd
+---@return unix.Errno err
+---@overload fun(fd: integer): nil, unix.Errno
+function unix.dup(fd) end
+]==]
+
+  local module = gentype.parse_module(source, "unix")
+  local dtl = gentype.generate_dtl(module)
+
+  assert(dtl:match("mkdir: function%(path: string%): boolean, Errno"),
+    "fallible mkdir should render '..., Errno':\n" .. dtl)
+  assert(dtl:match("getcwd: function%(%): string, Errno"),
+    "fallible getcwd should render '..., Errno':\n" .. dtl)
+  assert(dtl:match("getpid: function%(%): number"),
+    "getpid should still render its number return:\n" .. dtl)
+  assert(not dtl:match("getpid[^\n]*Errno"),
+    "non-fallible getpid must NOT gain an Errno return:\n" .. dtl)
+  assert(dtl:match("dup: function%([^\n]*%): number, Errno"),
+    "dup should render a single trailing Errno:\n" .. dtl)
+  assert(not dtl:match("dup:[^\n]*Errno, Errno"),
+    "dup must not gain a duplicate Errno:\n" .. dtl)
+
+  print("test_errno_overload_render: PASS")
+end
+
+-- Parenthesized union types (LuaLS groups unions this way, e.g. `ioctl`'s
+-- `(integer | string)?` param and `(true | string)` return) must parse into
+-- valid Teal unions instead of truncating the type at the first space.
+local function test_paren_union_types()
+  local source = [==[
+unix = {}
+---@param fd integer
+---@param request integer
+---@param arg (integer | string)?
+---@return (true | string) result
+---@overload fun(fd: integer, request: integer, arg?: integer | string): nil, error: unix.Errno
+function unix.ioctl(fd, request, arg) end
+]==]
+  local dtl = gentype.generate_dtl(gentype.parse_module(source, "unix"))
+  assert(dtl:match("ioctl: function%(fd: number, request: number, arg%?: number | string%): boolean | string, Errno"),
+    "parenthesized union types should render as Teal unions:\n" .. dtl)
+  print("test_paren_union_types: PASS")
+end
+
+-- Drift guard: every unix.* function the generator renders with a trailing
+-- `, Errno` must also declare `, Errno` in the committed unix.d.tl. Fails if a
+-- regen or hand-edit drops the errno failure returns, leaving the checked-in
+-- type definitions out of sync with the upstream @overload annotations.
+local function test_errno_drift_unix()
+  local result = gentype.run("unix")
+  assert(result.success, "run should succeed for unix: " .. (result.error or ""))
+
+  local committed = cosmo.Slurp("lib/types/cosmo/unix.d.tl")
+  if not committed then
+    print("test_errno_drift_unix: SKIP (no committed file)")
+    return
+  end
+
+  -- The committed file hand-wraps long signatures across lines, while the
+  -- generator emits one line per function. Collapse continuation lines (those
+  -- indented four or more spaces) onto the preceding line so a single-line
+  -- regex sees whole signatures in either text.
+  local function collapse(text: string): {string}
+    local out: {string} = {}
+    for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+      if line:match("^    %S") and #out > 0 then
+        out[#out] = out[#out] .. " " .. line:match("^%s*(.-)%s*$")
+      else
+        table.insert(out, line)
+      end
+    end
+    return out
+  end
+
+  local function declared(text: string): {string: boolean}, {string: boolean}
+    local all: {string: boolean} = {}
+    local errno: {string: boolean} = {}
+    for _, line in ipairs(collapse(text)) do
+      local name = line:match("^%s*([%w_]+): function")
+      if name then
+        all[name] = true
+        if line:match(", Errno[ \t]*$") then
+          errno[name] = true
+        end
+      end
+    end
+    return all, errno
+  end
+
+  local committed_all, committed_errno = declared(committed)
+  local _, generated_errno = declared(result.output)
+
+  -- Every function the generator marks fallible AND that the committed file
+  -- also declares must carry the `, Errno` return. (Functions the committed
+  -- file omits entirely are a separate concern and are not flagged here.)
+  local missing: {string} = {}
+  for name in pairs(generated_errno) do
+    if committed_all[name] and not committed_errno[name] then
+      table.insert(missing, name)
+    end
+  end
+
+  if #missing > 0 then
+    table.sort(missing)
+    error("unix.d.tl is out of sync with the generator: these functions declare "
+      .. "no `, Errno` return but the generator (from the upstream @overload "
+      .. "annotations) marks them fallible: " .. table.concat(missing, ", ")
+      .. "\nRe-apply the errno returns (see U1) to sync.")
+  end
+
+  print("test_errno_drift_unix: PASS")
+end
+
 -- Validate that hardcoded module list matches definitions.lua
 local function test_module_list_completeness()
   local source = cosmo.Slurp("/zip/.lua/definitions.lua")
@@ -255,6 +397,9 @@ local function run_tests()
   test_get_modules()
   test_module_list_completeness()
   test_drift_detection_path()
+  test_errno_overload_render()
+  test_paren_union_types()
+  test_errno_drift_unix()
 
   print("\nAll tests passed!")
 end

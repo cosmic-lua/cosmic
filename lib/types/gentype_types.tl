@@ -23,6 +23,12 @@ local record gentype_types
     is_method: boolean
     class_name: string
     nodiscard: boolean
+    -- True when an `@overload fun(...): nil, <error> Errno` failure form is
+    -- present, meaning the call returns `<value>, Errno` at runtime.
+    fallible: boolean
+    -- The LuaLS error type captured from the failure overload (e.g.
+    -- "unix.Errno"), rendered as the trailing return alongside the success value.
+    error_type: string
   end
 
   record Constant

@@ -60,13 +60,13 @@ end
 --- @param pid number The process id to query
 --- @return number The session id
 local function getsid(pid: number): number
-  return unix.getsid(pid)
+  return (unix.getsid(pid))
 end
 
 --- Gets process group id of calling process.
 --- @return number The process group id
 local function getpgrp(): number
-  return unix.getpgrp()
+  return (unix.getpgrp())
 end
 
 --- Gets process group id for a specific process.
@@ -79,7 +79,7 @@ end
 --- Sets process group id (same as setpgid(0, 0)).
 --- @return number The new process group id
 local function setpgrp(): number
-  return unix.setpgrp()
+  return (unix.setpgrp())
 end
 
 --- Sets process group id.
@@ -87,7 +87,7 @@ end
 --- @param pgid number Process group id (0 means use pid as pgid)
 --- @return boolean True on success
 local function setpgid(pid: number, pgid: number): boolean
-  return unix.setpgid(pid, pgid)
+  return (unix.setpgid(pid, pgid))
 end
 
 --- Creates a new session.
@@ -96,7 +96,7 @@ end
 --- Fails with ENOSYS on Windows NT.
 --- @return number The new session id
 local function setsid(): number
-  return unix.setsid()
+  return (unix.setsid())
 end
 
 --- Daemonizes the current process.
@@ -105,7 +105,7 @@ end
 --- @param noclose boolean? If true, don't redirect stdin/stdout/stderr (default: false)
 --- @return boolean True on success
 local function daemon(nochdir?: boolean, noclose?: boolean): boolean
-  return unix.daemon(nochdir, noclose)
+  return (unix.daemon(nochdir, noclose))
 end
 
 -- Termination --
@@ -126,7 +126,7 @@ end
 --- @param prog string The program name to search for
 --- @return string? The absolute path to the executable, or nil if not found
 local function commandv(prog: string): string
-  return unix.commandv(prog)
+  return (unix.commandv(prog))
 end
 
 --- Replaces current process with new program.
@@ -193,7 +193,8 @@ end
 --- @return number Soft limit (can be exceeded, may generate signal)
 --- @return number Hard limit (cannot be exceeded by unprivileged processes)
 local function getrlimit(resource: number): number, number
-  return unix.getrlimit(resource)
+  local soft, hard = unix.getrlimit(resource)
+  return soft, hard
 end
 
 --- Sets resource limits for the current process.
@@ -227,7 +228,7 @@ end
 --- @param inc number Value to add to current nice value
 --- @return number The new nice value
 local function nice(inc: number): number
-  return unix.nice(inc)
+  return (unix.nice(inc))
 end
 
 --- Gets the scheduling priority of a process, process group, or user.
@@ -235,7 +236,7 @@ end
 --- @param who number The id to query (0 = calling process/group/user)
 --- @return number The priority value (nice value), ranging from -20 to 19
 local function getpriority(which: number, who: number): number
-  return unix.getpriority(which, who)
+  return (unix.getpriority(which, who))
 end
 
 --- Sets the scheduling priority of a process, process group, or user.

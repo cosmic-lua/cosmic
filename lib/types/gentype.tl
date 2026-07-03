@@ -23,14 +23,47 @@ local render = require("types.gentype_render") as GentypeRender
 -- Modules to generate (in order)
 local MODULES = {"unix", "path", "getopt", "lsqlite3", "re", "argon2", "zip"}
 
+--- Split the text following an `@param name` (or a `@return` entry) into its
+--- type and trailing description. Handles parenthesized union types such as
+--- `(integer | string)?` whose internal spaces would otherwise truncate the
+--- type at the first whitespace.
+local function split_type_desc(rest: string): string, string
+  if rest:sub(1, 1) == "(" then
+    local depth = 0
+    for k = 1, #rest do
+      local c = rest:sub(k, k)
+      if c == "(" then
+        depth = depth + 1
+      elseif c == ")" then
+        depth = depth - 1
+        if depth == 0 then
+          local after = rest:sub(k + 1)
+          local q = after:match("^%?") and "?" or ""
+          local desc = after:sub(#q + 1):match("^%s*(.-)%s*$")
+          return rest:sub(1, k) .. q, desc
+        end
+      end
+    end
+  end
+  local t, d = rest:match("^([^%s]+)%s*(.-)%s*$")
+  return t or rest, d or ""
+end
+
 --- Parse annotations from a block of text before a declaration.
-local function parse_annotations(lines: {string}): {string}, {Param}, {Return}, boolean, string, {Field}
+local function parse_annotations(lines: {string}): {string}, {Param}, {Return}, boolean, string, {Field}, boolean, string
   local desc: {string} = {}
   local params: {Param} = {}
   local returns: {Return} = {}
   local fields: {Field} = {}
   local nodiscard = false
   local class_annotation: string = nil
+  -- A fallible function's failure return is expressed upstream as an
+  -- `@overload fun(...): nil, <error> unix.Errno`. LuaLS renders that as a
+  -- second signature; the generator instead folds it into a trailing `, Errno`
+  -- return so callers see `value, Errno`. Detect any overload whose return list
+  -- carries an Errno type.
+  local fallible = false
+  local error_type: string = nil
 
   for _, line in ipairs(lines) do
     if not line:match("^%-%-%-@") then
@@ -45,8 +78,9 @@ local function parse_annotations(lines: {string}): {string}, {Param}, {Return}, 
       end
     end
 
-    local pname, ptype, pdesc = line:match("^%-%-%-@param%s+([%w_%.%?]+)%s+([^%s]+)%s*(.*)$")
+    local pname, prest = line:match("^%-%-%-@param%s+([%w_%.%?]+)%s+(.+)$")
     if pname then
+      local ptype, pdesc = split_type_desc(prest)
       local optional = ptype:match("%?$") ~= nil
       if optional then
         ptype = ptype:sub(1, -2)
@@ -79,6 +113,7 @@ local function parse_annotations(lines: {string}): {string}, {Param}, {Return}, 
       local parts = {}
       local in_angle = 0
       local in_brace = 0
+      local in_paren = 0
       local current = ""
       for i = 1, #full_return do
         local c = full_return:sub(i, i)
@@ -86,8 +121,10 @@ local function parse_annotations(lines: {string}): {string}, {Param}, {Return}, 
         elseif c == ">" then in_angle = in_angle - 1
         elseif c == "{" then in_brace = in_brace + 1
         elseif c == "}" then in_brace = in_brace - 1
+        elseif c == "(" then in_paren = in_paren + 1
+        elseif c == ")" then in_paren = in_paren - 1
         end
-        if c == "," and in_angle == 0 and in_brace == 0 then
+        if c == "," and in_angle == 0 and in_brace == 0 and in_paren == 0 then
           local rest_after_comma = full_return:sub(i + 1)
           local next_word = rest_after_comma:match("^%s*([%w_%.]+)")
           local lua_keywords = {
@@ -116,7 +153,9 @@ local function parse_annotations(lines: {string}): {string}, {Param}, {Return}, 
         return_part = return_part:match("^%s*(.-)%s*$")
         local part_type: string = nil
         local part_desc: string = nil
-        if return_part:match("^{") then
+        if return_part:match("^%(") then
+          part_type, part_desc = split_type_desc(return_part)
+        elseif return_part:match("^{") then
           part_type, part_desc = return_part:match("^({.-%}%[?%]?)%s+(.*)$")
           if not part_type then
             part_type = return_part:match("^({.-%}%[?%]?)%s*$")
@@ -150,6 +189,15 @@ local function parse_annotations(lines: {string}): {string}, {Param}, {Return}, 
       nodiscard = true
     end
 
+    local overload_ret = line:match("^%-%-%-@overload%s+fun%b()%s*:%s*(.+)$")
+    if overload_ret then
+      local et = overload_ret:match("([%w_]+%.Errno)") or overload_ret:match("(Errno)")
+      if et then
+        fallible = true
+        error_type = et
+      end
+    end
+
     local cname = line:match("^%-%-%-@class%s+([%w_%.]+)")
     if cname then
       class_annotation = cname
@@ -161,7 +209,7 @@ local function parse_annotations(lines: {string}): {string}, {Param}, {Return}, 
     end
   end
 
-  return desc, params, returns, nodiscard, class_annotation, fields
+  return desc, params, returns, nodiscard, class_annotation, fields, fallible, error_type
 end
 
 --- Helper to process a class annotation block.
@@ -293,7 +341,7 @@ local function parse_module(source: string, module_name: string): ModuleDecl
         anno_lines = func_lines
       end
 
-      local desc, params, returns, nodiscard, _, _ = parse_annotations(anno_lines)
+      local desc, params, returns, nodiscard, _, _, fallible, error_type = parse_annotations(anno_lines)
       if #params == 0 and params_str and params_str ~= "" then
         for pname in params_str:gmatch("([%w_]+)") do
           table.insert(params, {name = pname, param_type = "any", description = "", optional = true})
@@ -302,6 +350,7 @@ local function parse_module(source: string, module_name: string): ModuleDecl
       table.insert(module.functions, {
           name = fname, module = module_name, description = desc,
           params = params, returns = returns, is_method = false, nodiscard = nodiscard,
+          fallible = fallible, error_type = error_type,
         })
       anno_lines = {}
       i = i + 1
@@ -309,7 +358,7 @@ local function parse_module(source: string, module_name: string): ModuleDecl
       local full_class_name, method_name = line:match("^function%s+([%w_%.]+):([%w_]+)%s*%(")
       local class_name = full_class_name:match("%.([%w_]+)$") or full_class_name
       local method_params_str = line:match("%((.-)%)")
-      local desc, params, returns, nodiscard, _, _ = parse_annotations(anno_lines)
+      local desc, params, returns, nodiscard, _, _, fallible, error_type = parse_annotations(anno_lines)
       if #params == 0 and method_params_str and method_params_str ~= "" then
         for pname in method_params_str:gmatch("([%w_]+)") do
           table.insert(params, {name = pname, param_type = "any", description = "", optional = true})
@@ -319,6 +368,7 @@ local function parse_module(source: string, module_name: string): ModuleDecl
         name = method_name, module = module_name, description = desc,
         params = params, returns = returns, is_method = true,
         class_name = class_name, nodiscard = nodiscard,
+        fallible = fallible, error_type = error_type,
       }
       local found = false
       for _, cls in ipairs(module.classes) do
