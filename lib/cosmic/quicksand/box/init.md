@@ -81,6 +81,8 @@ local record ProcOpts
   uid: integer
   gid: integer
   pledge: string
+  drop_caps: boolean
+  keep_caps: {string}
 end
 ```
 

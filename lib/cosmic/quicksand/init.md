@@ -40,6 +40,7 @@ local record Capabilities
   landlock: boolean
   pledge: boolean
   unveil: boolean
+  caps: boolean
 end
 ```
 

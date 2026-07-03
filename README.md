@@ -73,6 +73,7 @@ High-level utilities and tools built on top of cosmo.
 | [init](lib/cosmic/quicksand/box/init.md) |  Declarative box builder. |
 | [merge](lib/cosmic/quicksand/box/merge.md) |  Pure table-merge helpers for cosmic.quicksand.Box. |
 | [run](lib/cosmic/quicksand/box/run.md) |  Fork / unshare / exec orchestration for cosmic.quicksand.Box:run. |
+| [caps](lib/cosmic/quicksand/caps.md) |  Linux capability bounding-set control for box assembly. |
 | [init](lib/cosmic/quicksand/init.md) |  Network + filesystem process isolation primitives. |
 | [netns](lib/cosmic/quicksand/netns.md) |  Linux network-namespace primitives. |
 | [proc](lib/cosmic/quicksand/proc.md) |  Process-setup primitives for box assembly. |
