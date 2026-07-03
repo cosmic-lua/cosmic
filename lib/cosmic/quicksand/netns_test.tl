@@ -70,3 +70,30 @@ io.write("ok\n")
     "expected ok or skipped, got: " .. s)
 end
 test_unshare_subprocess()
+
+-- get_flags/set_flags exercise the ifreq packing + SIOC* ioctls that
+-- bring_up/bring_down are built on. Loopback exists in any namespace,
+-- but an outer sandbox may deny AF_INET sockets — tolerate that.
+local function test_get_flags_loopback()
+  local flags, err = netns.get_flags("lo")
+  if not flags then
+    assert(type(err) == "string", "get_flags must explain its failure")
+    return
+  end
+  assert(math.type(flags) == "integer", "flags should be an integer")
+end
+test_get_flags_loopback()
+
+local function test_get_flags_bad_interface()
+  local flags, err = netns.get_flags("nope0")
+  assert(flags == nil, "nonexistent interface should fail")
+  assert(type(err) == "string", "failure must carry an error string")
+end
+test_get_flags_bad_interface()
+
+local function test_get_flags_name_too_long()
+  local flags, err = netns.get_flags(string.rep("x", 20))
+  assert(flags == nil, "oversized interface name should fail, not throw")
+  assert(err == "interface name too long", "got: " .. tostring(err))
+end
+test_get_flags_name_too_long()

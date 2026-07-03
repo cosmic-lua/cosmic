@@ -776,7 +776,7 @@ local record unix
   --- Returns `ENOTDIR` if `path` contained a directory component that
   --- wasn't a directory
   --- .
-  open: function(path: string, flags: number, mode?: number, dirfd?: number): number
+  open: function(path: string, flags: number, mode?: number, dirfd?: number): number, Errno
   --- Closes file descriptor.
   --- This function should never be called twice for the same file
   --- descriptor, regardless of whether or not an error happened. The file
@@ -792,7 +792,7 @@ local record unix
   --- Returns `EBADF` if `fd` wasn't valid.
   --- Returns `EINTR` possibly maybe.
   --- Returns `EIO` if an i/o error occurred.
-  close: function(fd: number): boolean
+  close: function(fd: number): boolean, Errno
   --- Reads from file descriptor.
   --- This function returns empty string on end of file. The exception is
   --- if `bufsiz` is zero, in which case an empty returned string means
@@ -1556,7 +1556,7 @@ local record unix
   --- - `IPPROTO_RAW`
   --- - `IPPROTO_IP`
   --- - `IPPROTO_ICMP`
-  socket: function(family?: number, type?: number, protocol?: number): number
+  socket: function(family?: number, type?: number, protocol?: number): number, Errno
   --- Creates bidirectional pipe.
   --- - `SOCK_STREAM`
   --- - `SOCK_DGRAM`
@@ -1793,6 +1793,93 @@ local record unix
   --- UTS namespace; typical callers are sandbox builders that first
   --- `unshare(CLONE_NEWUTS)`. Returns `(nil, Errno)` on failure.
   sethostname: function(name: string): boolean, Errno
+
+  --- Linux isolation primitives (namespaces, landlock, prctl, ioctl).
+  --- All return `(nil|false, Errno)` on failure and fail with `ENOSYS`
+  --- on non-Linux hosts.
+
+  --- Disassociates parts of the process execution context. `flags` is
+  --- an OR of `CLONE_NEW*` constants.
+  unshare: function(flags: number): boolean, Errno
+  --- Reassociates the calling thread with the namespace referred to by
+  --- `fd` (e.g. an fd for `/proc/<pid>/ns/net`).
+  setns: function(fd: number, nstype?: number): boolean, Errno
+  --- Moves the root filesystem to `put_old` and makes `new_root` the
+  --- new root. Requires a mount namespace.
+  pivot_root: function(new_root: string, put_old: string): boolean, Errno
+  --- Operations on a process, e.g. `prctl(PR_SET_NO_NEW_PRIVS, 1)`.
+  prctl: function(option: number, arg2?: number, arg3?: number,
+    arg4?: number, arg5?: number): number, Errno
+  --- Generic device control. When `arg` is a string (e.g. a packed
+  --- `struct ifreq`), the kernel-modified buffer is returned as a new
+  --- string on success.
+  ioctl: function(fd: number, request: number, arg?: string | number):
+    any, Errno
+  --- With no arguments, returns the kernel's landlock ABI version
+  --- (>= 1 when landlock is available). With a `handled_access_fs`
+  --- mask, creates a ruleset and returns its file descriptor.
+  landlock_create_ruleset: function(handled_access_fs?: number,
+    flags?: number): number, Errno
+  --- Adds a path-beneath rule to a ruleset. `parent_fd` is an
+  --- `O_PATH` fd for the rule's root path.
+  landlock_add_rule: function(ruleset_fd: number, parent_fd: number,
+    allowed_access: number, flags?: number): boolean, Errno
+  --- Enforces a ruleset on the calling thread. Requires
+  --- `PR_SET_NO_NEW_PRIVS` (or `CAP_SYS_ADMIN`). Irreversible.
+  landlock_restrict_self: function(ruleset_fd: number,
+    flags?: number): boolean, Errno
+
+  --- @type integer Linux clone flag: new user namespace
+  CLONE_NEWUSER: number
+  --- @type integer Linux clone flag: new mount namespace
+  CLONE_NEWNS: number
+  --- @type integer Linux clone flag: new network namespace
+  CLONE_NEWNET: number
+  --- @type integer Linux clone flag: new UTS (hostname) namespace
+  CLONE_NEWUTS: number
+  --- @type integer Linux clone flag: new pid namespace
+  CLONE_NEWPID: number
+  --- @type integer prctl option: forbid gaining privileges via execve
+  PR_SET_NO_NEW_PRIVS: number
+  --- @type integer maximum interface name length (including NUL)
+  IFNAMSIZ: number
+  --- @type integer ioctl request: get interface flags
+  SIOCGIFFLAGS: number
+  --- @type integer ioctl request: set interface flags
+  SIOCSIFFLAGS: number
+  --- @type integer interface flag: interface is up
+  IFF_UP: number
+  --- @type integer landlock access: execute files
+  LANDLOCK_ACCESS_FS_EXECUTE: number
+  --- @type integer landlock access: write to files
+  LANDLOCK_ACCESS_FS_WRITE_FILE: number
+  --- @type integer landlock access: read files
+  LANDLOCK_ACCESS_FS_READ_FILE: number
+  --- @type integer landlock access: list directories
+  LANDLOCK_ACCESS_FS_READ_DIR: number
+  --- @type integer landlock access: remove directories
+  LANDLOCK_ACCESS_FS_REMOVE_DIR: number
+  --- @type integer landlock access: remove files
+  LANDLOCK_ACCESS_FS_REMOVE_FILE: number
+  --- @type integer landlock access: create character devices
+  LANDLOCK_ACCESS_FS_MAKE_CHAR: number
+  --- @type integer landlock access: create directories
+  LANDLOCK_ACCESS_FS_MAKE_DIR: number
+  --- @type integer landlock access: create regular files
+  LANDLOCK_ACCESS_FS_MAKE_REG: number
+  --- @type integer landlock access: create sockets
+  LANDLOCK_ACCESS_FS_MAKE_SOCK: number
+  --- @type integer landlock access: create FIFOs
+  LANDLOCK_ACCESS_FS_MAKE_FIFO: number
+  --- @type integer landlock access: create block devices
+  LANDLOCK_ACCESS_FS_MAKE_BLOCK: number
+  --- @type integer landlock access: create symlinks
+  LANDLOCK_ACCESS_FS_MAKE_SYM: number
+  --- @type integer landlock access: reparent/link across dirs (ABI 2+)
+  LANDLOCK_ACCESS_FS_REFER: number
+  --- @type integer landlock access: truncate files (ABI 3+)
+  LANDLOCK_ACCESS_FS_TRUNCATE: number
+
   --- Begins listening for incoming connections on a socket.
   listen: function(fd: number, backlog?: number): boolean
   --- Accepts new client socket descriptor for a listening tcp socket.
