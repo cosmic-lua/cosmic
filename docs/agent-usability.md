@@ -243,3 +243,62 @@ clean-room run.
 New backlog candidate observed during this round: `fetch_example.tl`
 examples depend on httpbin.org and fail intermittently in CI; examples
 should avoid third-party services (e.g. spin up a local listener).
+
+---
+
+# Round 3 re-test — clean-room verification
+
+After the round-3 fixes merged (#413), the experiment was repeated a third
+time: four fresh Sonnet agents, identical prompts, sandboxes containing
+only the merged binary.
+
+## Results across all three rounds
+
+| task | round 1 | round 2 | round 3 |
+|------|---------|---------|---------|
+| JSON stats CLI | clean, cycle-burning confusion, ~23 calls | 1 format error, 21 calls | **0 checker errors**, 16 calls |
+| module + tests | 1 type error + `.got.got` maze, ~25 calls | 1 type error, 24 calls | **0 errors of any kind**, 22 calls |
+| sqlite indexer | ~17 errors + silent path bug, ~70 calls | 2 errors, 36 calls | 1 warning + 1 format miss, 26 calls |
+| child + TCP | 2 errors + silent race, ~39 calls | 3 errors, 52 calls | 1 type error, 37 calls |
+
+No silent bugs anywhere in round 3. Round-3 fixes observed working
+in the wild:
+
+- `--report` printed `✓ slug_test (14 test functions)` — the per-function
+  count was used to confirm coverage.
+- The sqlite agent's format mismatch was fixed with a single `--fix`
+  invocation, exactly as the new hint instructed.
+- `--docs cosmic.fs_types.WalkStat` resolved; the fs.walk "do not join"
+  warning and the new sqlite `LIKE` example were both consumed directly.
+- The child+TCP agent used `rawget(arg, -1)` from gotchas entry 7 and
+  explicitly noted it would otherwise have burned time on a silently
+  broken `arg[0]` spawn; it also used `listen_tcp` with port 0 and
+  pipe-based readiness.
+- Agents now front-load `guide.gotchas` and `guide.formatting` before
+  writing code — the two zero-error runs both did this.
+- The one type error that occurred (`os.exit` wants `integer | boolean`)
+  carried the number/integer fix-hint and was resolved in one edit.
+
+## Round-4 backlog
+
+1. **`--docs` exact-module-name queries should short-circuit the fuzzy
+   search** (three independent complaints): `--docs io` / `--docs string` /
+   `--docs fs` dump a flat substring grab-bag instead of leading with the
+   module page. Related inconsistency: `--docs child.Handle` 404s while
+   `--docs cosmic.child` and colon-forms work — short-name symbol lookups
+   should resolve or suggest.
+2. **`cosmic.net` has no examples** — the module most central to the TCP
+   task returns "No examples for cosmic.net"; add a minimal echo
+   server/client pair. Also document `Socket:recv`/`send`/`accept` EOF and
+   blocking semantics (what signals "connection closed").
+3. **New gotchas entries:** `print(f(...))` prints every return of a
+   `(value, error)` function (trailing `nil` trap — capture first);
+   `os.exit` requires `integer | boolean`, so a `number`-returning `main`
+   breaks `os.exit(main())`.
+4. **Cross-reference the `arg[-1]` gotcha from `cosmic.child` spawn docs**
+   — that is where agents look first when spawning cosmic-as-child.
+5. **A `guide.recipes` cookbook** for common module compositions
+   (walk+hash+sqlite indexing; a CLI script skeleton: args → slurp →
+   decode → transform → encode → print with error exits).
+6. **`--check-format` could show context lines** around the mismatch;
+   `--help` could carry one-line argument shapes for `--test`/`--report`.
