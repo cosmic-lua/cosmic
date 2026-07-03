@@ -75,3 +75,55 @@ local function test_platform_is_lowercase()
   assert(plat == plat:lower(), "platform should be lowercase, got " .. plat)
 end
 test_platform_is_lowercase()
+
+-- sysconf / nproc / page_size tests
+
+local function test_nproc_positive()
+  local n, err = sys.nproc()
+  assert(n, "nproc should succeed, got error: " .. tostring(err))
+  assert(math.type(n) == "integer" or type(n) == "number",
+    "nproc should return a number, got " .. type(n))
+  assert(n >= 1, "nproc should be at least 1, got " .. tostring(n))
+end
+test_nproc_positive()
+
+local function test_nproc_configured_at_least_online()
+  local online = sys.nproc()
+  local configured = sys.nproc_configured()
+  assert(online and configured, "nproc/nproc_configured should succeed")
+  assert(configured >= online,
+    "configured (" .. tostring(configured) .. ") should be >= online (" .. tostring(online) .. ")")
+end
+test_nproc_configured_at_least_online()
+
+local function test_page_size_positive()
+  local sz, err = sys.page_size()
+  assert(sz, "page_size should succeed, got error: " .. tostring(err))
+  assert(sz > 0, "page_size should be positive, got " .. tostring(sz))
+  -- Page sizes are always a power of two.
+  assert(sz & (sz - 1) == 0, "page_size should be a power of two, got " .. tostring(sz))
+end
+test_page_size_positive()
+
+local function test_sysconf_direct()
+  local sz = sys.sysconf(sys.SC_PAGESIZE)
+  local direct = sys.page_size()
+  assert(sz == direct, "sysconf(SC_PAGESIZE) should match page_size()")
+end
+test_sysconf_direct()
+
+-- uname tests
+
+local function test_uname_fields()
+  local uts, err = sys.uname()
+  assert(uts, "uname should succeed, got error: " .. tostring(err))
+  assert(type(uts.sysname) == "string" and #uts.sysname > 0,
+    "uname.sysname should be a non-empty string")
+  assert(type(uts.nodename) == "string", "uname.nodename should be a string")
+  assert(type(uts.release) == "string" and #uts.release > 0,
+    "uname.release should be a non-empty string")
+  assert(type(uts.version) == "string", "uname.version should be a string")
+  assert(type(uts.machine) == "string" and #uts.machine > 0,
+    "uname.machine should be a non-empty string")
+end
+test_uname_fields()
