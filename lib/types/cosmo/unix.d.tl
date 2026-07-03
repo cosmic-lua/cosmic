@@ -1,5 +1,22 @@
 -- type declarations for cosmo.unix
 
+local record Termios
+  --- Input mode flags (e.g. `unix.BRKINT`, `unix.ICRNL`).
+  iflag: number
+  --- Output mode flags (e.g. `unix.OPOST`, `unix.ONLCR`).
+  oflag: number
+  --- Control mode flags (e.g. `unix.CS8`, `unix.CREAD`).
+  cflag: number
+  --- Local mode flags (e.g. `unix.ECHO`, `unix.ICANON`).
+  lflag: number
+  --- Control characters array (indexed 1 to `unix.NCCS`).
+  cc: {number}
+  --- Input baud rate.
+  ispeed: number
+  --- Output baud rate.
+  ospeed: number
+end
+
 --- Shared memory for inter-process communication.
 --- Provides atomic operations and wait/wake primitives for synchronization.
 --- unix.Memory encapsulates memory that's shared across fork() and
@@ -246,12 +263,12 @@ local record Stat
   --- this is the minimum of atim/mtim/ctim. On Windows NT nanos is only
   --- accurate to hectonanoseconds.
   --- Here's an example of how you might print a file timestamp:
-  --- st = assert(unix.stat('/etc/passwd'))
-  --- unixts, nanos = st:birthtim()
-  --- year,mon,mday,hour,min,sec,gmtoffsec = unix.localtime(unixts)
-  --- Write('%.4d-%.2d-%.2dT%.2d:%.2d:%.2d.%.9d%+.2d%.2d % {
-  --- year, mon, mday, hour, min, sec, nanos,
-  --- gmtoffsec / (60 * 60), math.abs(gmtoffsec) % 60})
+  ---   st = assert(unix.stat('/etc/passwd'))
+  ---   unixts, nanos = st:birthtim()
+  ---   year,mon,mday,hour,min,sec,gmtoffsec = unix.localtime(unixts)
+  ---   Write('%.4d-%.2d-%.2dT%.2d:%.2d:%.2d.%.9d%+.2d%.2d % {
+  ---            year, mon, mday, hour, min, sec, nanos,
+  ---            gmtoffsec / (60 * 60), math.abs(gmtoffsec) % 60})
   birthtim: function(self: Stat): number, number
   mtim: function(self: Stat): number, number
   --- Please note that file systems are sometimes mounted with `noatime`
@@ -281,16 +298,13 @@ local record Stat
   --- depending on the operating system. `unix.major()` and `unix.minor()`
   --- may be used to extract the device numbers.
   rdev: function(self: Stat): number
-  --- Number of hard links to the file.
   nlink: function(self: Stat): number
-  --- Inode generation number.
   gen: function(self: Stat): number
-  --- User-defined flags on the file.
   flags: function(self: Stat): number
 end
 
---- Filesystem statistics returned by statfs() and fstatfs().
 local record Statfs
+  --- Filesystem statistics returned by `statfs()` and `fstatfs()`.
   --- Returns filesystem type identifier.
   type: function(self: Statfs): number
   --- Returns optimal transfer block size.
@@ -313,6 +327,10 @@ local record Statfs
   frsize: function(self: Statfs): number
   --- Returns mount flags.
   flags: function(self: Statfs): number
+  --- Returns the owner of the mount.
+  owner: function(self: Statfs): number
+  --- Returns the filesystem type name, e.g. "ext4".
+  fstypename: function(self: Statfs): string
 end
 
 local record Sigset
@@ -327,26 +345,6 @@ local record Sigset
   contains: function(self: Sigset, sig: number): boolean
   __repr: function(self: Sigset): string
   __tostring: function(self: Sigset): string
-end
-
---- Terminal I/O settings.
---- Contains terminal mode flags and control characters.
---- `unix.Termios` tables are returned by `tcgetattr()` and passed to `tcsetattr()`.
-local record Termios
-  --- Input mode flags (e.g., BRKINT, ICRNL, IGNBRK).
-  iflag: number
-  --- Output mode flags (e.g., OPOST, ONLCR).
-  oflag: number
-  --- Control mode flags (e.g., CS8, CREAD, CLOCAL).
-  cflag: number
-  --- Local mode flags (e.g., ECHO, ICANON, ISIG).
-  lflag: number
-  --- Control characters array (indexed 1..NCCS).
-  cc: {number}
-  --- Input baud rate.
-  ispeed: number
-  --- Output baud rate.
-  ospeed: number
 end
 
 --- Error information from system calls.
@@ -547,14 +545,11 @@ local record unix
   O_TMPFILE: number
   O_NOFOLLOW: number
   O_UNLINK: number
+  O_PATH: number
   O_DSYNC: number
   O_RSYNC: number
   O_SYNC: number
   O_NOATIME: number
-  --- Open a pure path reference: usable for fstat/openat-style
-  --- operations (and landlock rule fds) even when the caller cannot
-  --- read the file. Linux-only; 0 elsewhere.
-  O_PATH: number
   O_ACCMODE: number
   O_EXEC: number
   O_NOCTTY: number
@@ -584,10 +579,6 @@ local record unix
   PRIO_PROCESS: number
   PRIO_PGRP: number
   PRIO_USER: number
-  RUSAGE_BOTH: number
-  RUSAGE_CHILDREN: number
-  RUSAGE_SELF: number
-  RUSAGE_THREAD: number
   SC_ARG_MAX: number
   SC_CHILD_MAX: number
   SC_CLK_TCK: number
@@ -595,6 +586,87 @@ local record unix
   SC_PAGESIZE: number
   SC_NPROCESSORS_CONF: number
   SC_NPROCESSORS_ONLN: number
+  BRKINT: number
+  ICRNL: number
+  IGNBRK: number
+  IGNCR: number
+  IGNPAR: number
+  INLCR: number
+  INPCK: number
+  ISTRIP: number
+  IXANY: number
+  IXOFF: number
+  IXON: number
+  PARMRK: number
+  OPOST: number
+  OCRNL: number
+  ONLCR: number
+  ONLRET: number
+  ONOCR: number
+  CLOCAL: number
+  CREAD: number
+  CS5: number
+  CS6: number
+  CS7: number
+  CS8: number
+  CSIZE: number
+  CSTOPB: number
+  HUPCL: number
+  PARENB: number
+  PARODD: number
+  ECHO: number
+  ECHOE: number
+  ECHOK: number
+  ECHONL: number
+  ICANON: number
+  IEXTEN: number
+  ISIG: number
+  NOFLSH: number
+  TOSTOP: number
+  VEOF: number
+  VEOL: number
+  VERASE: number
+  VINTR: number
+  VKILL: number
+  VMIN: number
+  VQUIT: number
+  VSTART: number
+  VSTOP: number
+  VTIME: number
+  NCCS: number
+  TCSANOW: number
+  TCSADRAIN: number
+  TCSAFLUSH: number
+  IFNAMSIZ: number
+  IFF_UP: number
+  SIOCGIFFLAGS: number
+  SIOCSIFFLAGS: number
+  CLONE_NEWNET: number
+  CLONE_NEWNS: number
+  CLONE_NEWPID: number
+  CLONE_NEWUSER: number
+  CLONE_NEWUTS: number
+  LANDLOCK_ACCESS_FS_EXECUTE: number
+  LANDLOCK_ACCESS_FS_WRITE_FILE: number
+  LANDLOCK_ACCESS_FS_READ_FILE: number
+  LANDLOCK_ACCESS_FS_READ_DIR: number
+  LANDLOCK_ACCESS_FS_REMOVE_DIR: number
+  LANDLOCK_ACCESS_FS_REMOVE_FILE: number
+  LANDLOCK_ACCESS_FS_MAKE_CHAR: number
+  LANDLOCK_ACCESS_FS_MAKE_DIR: number
+  LANDLOCK_ACCESS_FS_MAKE_REG: number
+  LANDLOCK_ACCESS_FS_MAKE_SOCK: number
+  LANDLOCK_ACCESS_FS_MAKE_FIFO: number
+  LANDLOCK_ACCESS_FS_MAKE_BLOCK: number
+  LANDLOCK_ACCESS_FS_MAKE_SYM: number
+  LANDLOCK_ACCESS_FS_REFER: number
+  LANDLOCK_ACCESS_FS_TRUNCATE: number
+  PR_SET_KEEPCAPS: number
+  PR_SET_NO_NEW_PRIVS: number
+  RUSAGE_BOTH: number
+  RUSAGE_CHILDREN: number
+  RUSAGE_SELF: number
+  RUSAGE_THREAD: number
   R_OK: number
   SA_NOCLDSTOP: number
   SA_NOCLDWAIT: number
@@ -697,93 +769,41 @@ local record unix
   W_OK: number
   X_OK: number
 
-  BRKINT: number
-  CLOCAL: number
-  CREAD: number
-  CS5: number
-  CS6: number
-  CS7: number
-  CS8: number
-  CSIZE: number
-  CSTOPB: number
-  ECHO: number
-  ECHOE: number
-  ECHOK: number
-  ECHONL: number
-  HUPCL: number
-  ICANON: number
-  ICRNL: number
-  IEXTEN: number
-  IGNBRK: number
-  IGNCR: number
-  IGNPAR: number
-  INLCR: number
-  INPCK: number
-  ISIG: number
-  ISTRIP: number
-  IXANY: number
-  IXOFF: number
-  IXON: number
-  NCCS: number
-  NOFLSH: number
-  OCRNL: number
-  ONLCR: number
-  ONLRET: number
-  ONOCR: number
-  OPOST: number
-  PARENB: number
-  PARMRK: number
-  PARODD: number
-  TCSADRAIN: number
-  TCSAFLUSH: number
-  TCSANOW: number
-  TOSTOP: number
-  VEOF: number
-  VEOL: number
-  VERASE: number
-  VINTR: number
-  VKILL: number
-  VMIN: number
-  VQUIT: number
-  VSTART: number
-  VSTOP: number
-  VTIME: number
-
   --- Opens file.
   --- Returns a file descriptor integer that needs to be closed, e.g.
-  --- fd = assert(unix.open("/etc/passwd", unix.O_RDONLY))
-  --- print(unix.read(fd))
-  --- unix.close(fd)
+  ---     fd = assert(unix.open("/etc/passwd", unix.O_RDONLY))
+  ---     print(unix.read(fd))
+  ---     unix.close(fd)
   --- `flags` should have one of:
   --- - `O_RDONLY`:     open for reading (default)
   --- - `O_WRONLY`:     open for writing
   --- - `O_RDWR`:       open for reading and writing
   --- The following values may also be OR'd into `flags`:
-  --- - `O_CREAT`      create file if it doesn't exist
-  --- - `O_TRUNC`      automatic ftruncate(fd,0) if exists
-  --- - `O_CLOEXEC`    automatic close() upon execve()
-  --- - `O_EXCL`       exclusive access (see below)
-  --- - `O_APPEND`     open file for append only
-  --- - `O_NONBLOCK`   asks read/write to fail with EAGAIN rather than block
-  --- - `O_DIRECTORY`  useful for stat'ing (hint on UNIX but required on NT)
-  --- - `O_NOFOLLOW`   fail if it's a symlink (zero on Windows)
-  --- - `O_UNLINK`     automatically delete file upon close()
-  --- - `O_SYNC`       makes file operations synchronize appropriately
-  --- - `O_RSYNC`      synchronize read() operations
-  --- - `O_DSYNC`      synchronize write() operations
-  --- - `O_DIRECT`     it's complicated (not supported on Apple and OpenBSD)
-  --- - `O_NOATIME`    don't record access time (zero on non-Linux)
-  --- There are three regular combinations for the above flags:
-  --- - `O_RDONLY`: Opens existing file for reading. If it doesn't exist
-  --- then nil is returned and errno will be `ENOENT` (or in some other
-  --- cases `ENOTDIR`).
-  --- - `O_WRONLY|O_CREAT|O_TRUNC`: Creates file. If it already exists,
-  --- then the existing copy is destroyed and the opened file will
-  --- start off with a length of zero. This is the behavior of the
-  --- traditional creat() system call.
-  --- - `O_WRONLY|O_CREAT|O_EXCL`: Create file only if doesn't exist
-  --- already. If it does exist then `nil` is returned along with
-  --- `errno` set to `EEXIST`.
+  ---  - `O_CREAT`      create file if it doesn't exist
+  ---  - `O_TRUNC`      automatic ftruncate(fd,0) if exists
+  ---  - `O_CLOEXEC`    automatic close() upon execve()
+  ---  - `O_EXCL`       exclusive access (see below)
+  ---  - `O_APPEND`     open file for append only
+  ---  - `O_NONBLOCK`   asks read/write to fail with EAGAIN rather than block
+  ---  - `O_DIRECTORY`  useful for stat'ing (hint on UNIX but required on NT)
+  ---  - `O_NOFOLLOW`   fail if it's a symlink (zero on Windows)
+  ---  - `O_UNLINK`     automatically delete file upon close()
+  ---  - `O_SYNC`       makes file operations synchronize appropriately
+  ---  - `O_RSYNC`      synchronize read() operations
+  ---  - `O_DSYNC`      synchronize write() operations
+  ---  - `O_DIRECT`     it's complicated (not supported on Apple and OpenBSD)
+  ---  - `O_NOATIME`    don't record access time (zero on non-Linux)
+  ---  There are three regular combinations for the above flags:
+  ---  - `O_RDONLY`: Opens existing file for reading. If it doesn't exist
+  ---    then nil is returned and errno will be `ENOENT` (or in some other
+  ---    cases `ENOTDIR`).
+  ---  - `O_WRONLY|O_CREAT|O_TRUNC`: Creates file. If it already exists,
+  ---    then the existing copy is destroyed and the opened file will
+  ---    start off with a length of zero. This is the behavior of the
+  ---    traditional creat() system call.
+  ---  - `O_WRONLY|O_CREAT|O_EXCL`: Create file only if doesn't exist
+  ---    already. If it does exist then `nil` is returned along with
+  ---    `errno` set to `EEXIST`.
   --- `dirfd` defaults to to `unix.AT_FDCWD` and may optionally be set to
   --- a directory file descriptor to which `path` is relative.
   --- Returns `ENOENT` if `path` doesn't exist.
@@ -820,9 +840,8 @@ local record unix
   --- function never returns.
   exit: function(exitcode?: number)
   --- Returns raw environment variables.
-  --- Returns an integer-indexed array of "KEY=VALUE" strings, one per
-  --- environment variable.  The result can be passed directly to
-  --- execve(), execvpe(), spawn(), or child.spawn()'s env option.
+  --- This allocates and constructs the C/C++ `environ` variable as a Lua
+  --- table consisting of string keys and string values.
   --- This data structure preserves casing. On Windows NT, by convention,
   --- environment variable keys are treated in a case-insensitive way. It
   --- is the responsibility of the caller to consider this.
@@ -837,19 +856,11 @@ local record unix
   --- Sets environment variable.
   --- This wraps the C `setenv()` function to allow Lua scripts to set
   --- environment variables.
-  --- @param name string environment variable name
-  --- @param value string value to set
-  --- @param overwrite? boolean if false, won't overwrite existing variables (defaults to true)
-  --- @return true
-  --- @overload fun(name: string, value: string, overwrite?: boolean): nil, error: unix.Errno
-  setenv: function(name?: any, value?: any, overwrite?: any)
+  setenv: function(name: string, value: string, overwrite?: boolean): boolean, Errno
   --- Unsets environment variable.
   --- This wraps the C `unsetenv()` function to allow Lua scripts to remove
   --- environment variables.
-  --- @param name string environment variable name to unset
-  --- @return true
-  --- @overload fun(name: string): nil, error: unix.Errno
-  unsetenv: function(name?: any)
+  unsetenv: function(name: string): boolean, Errno
   --- Clears all environment variables.
   --- This wraps the C `clearenv()` function to allow Lua scripts to remove
   --- all environment variables at once.
@@ -868,16 +879,16 @@ local record unix
   --- Here's a simple usage example of creating subprocesses, where we
   --- fork off a child worker from a main process hook callback to do some
   --- independent chores, such as sending an HTTP request back to redbean.
-  --- -- as soon as server starts, make a fetch to the server
-  --- -- then signal redbean to shutdown when fetch is complete
-  --- local onServerStart = function()
-  --- if assert(unix.fork()) == 0 then
-  --- local ok, headers, body = Fetch('http://127.0.0.1:8080/test')
-  --- unix.kill(unix.getppid(), unix.SIGTERM)
-  --- unix.exit(0)
-  --- end
-  --- end
-  --- OnServerStart = onServerStart
+  ---    -- as soon as server starts, make a fetch to the server
+  ---    -- then signal redbean to shutdown when fetch is complete
+  ---    local onServerStart = function()
+  ---       if assert(unix.fork()) == 0 then
+  ---          local ok, headers, body = Fetch('http://127.0.0.1:8080/test')
+  ---          unix.kill(unix.getppid(), unix.SIGTERM)
+  ---          unix.exit(0)
+  ---       end
+  ---    end
+  ---    OnServerStart = onServerStart
   --- We didn't need to use `wait()` here, because (a) we want redbean to go
   --- back to what it was doing before as the `Fetch()` completes, and (b)
   --- redbean's main process already has a zombie collector. However it's
@@ -902,12 +913,12 @@ local record unix
   --- they're about as lightweight as what heavyweight environments call
   --- greenlets. You can easily have 10,000 Redbean workers on one PC.
   --- Here's some benchmarks for fork() performance across platforms:
-  --- Linux 5.4 fork      l:     97,200𝑐    31,395𝑛𝑠  [metal]
-  --- FreeBSD 12 fork     l:    236,089𝑐    78,841𝑛𝑠  [vmware]
-  --- Darwin 20.6 fork    l:    295,325𝑐    81,738𝑛𝑠  [metal]
-  --- NetBSD 9 fork       l:  5,832,027𝑐 1,947,899𝑛𝑠  [vmware]
-  --- OpenBSD 6.8 fork    l: 13,241,940𝑐 4,422,103𝑛𝑠  [vmware]
-  --- Windows10 fork      l: 18,802,239𝑐 6,360,271𝑛𝑠  [metal]
+  ---    Linux 5.4 fork      l:     97,200𝑐    31,395𝑛𝑠  [metal]
+  ---    FreeBSD 12 fork     l:    236,089𝑐    78,841𝑛𝑠  [vmware]
+  ---    Darwin 20.6 fork    l:    295,325𝑐    81,738𝑛𝑠  [metal]
+  ---    NetBSD 9 fork       l:  5,832,027𝑐 1,947,899𝑛𝑠  [vmware]
+  ---    OpenBSD 6.8 fork    l: 13,241,940𝑐 4,422,103𝑛𝑠  [vmware]
+  ---    Windows10 fork      l: 18,802,239𝑐 6,360,271𝑛𝑠  [metal]
   --- One of the benefits of using `fork()` is it creates an isolation
   --- barrier between the different parts of your app. This can lead to
   --- enhanced reliability and security. For example, redbean uses fork so
@@ -917,12 +928,12 @@ local record unix
   --- Hence it should come as no surprise that `fork()` would go slower on
   --- operating systems that have more security features. So depending on
   --- your use case, you can choose the operating system that suits you.
-  fork: function(): number, Errno
+  fork: function(): number | number, Errno
   --- Performs `$PATH` lookup of executable.
-  --- unix = require 'unix'
-  --- prog = assert(unix.commandv('ls'))
-  --- unix.execve(prog, {prog, '-hal', '.'}, {'PATH=/bin'})
-  --- unix.exit(127)
+  ---     unix = require 'unix'
+  ---     prog = assert(unix.commandv('ls'))
+  ---     unix.execve(prog, {prog, '-hal', '.'}, {'PATH=/bin'})
+  ---     unix.exit(127)
   --- If `prog` is an absolute path, then it's returned as-is. If `prog`
   --- contains slashes then it's not path searched either and will be
   --- returned if it exists. On Windows, it's recommended that you install
@@ -935,8 +946,8 @@ local record unix
   --- specified program. `prog` needs to be an absolute path, see
   --- commandv(). `env` defaults to to the current `environ`. Here's
   --- a basic usage example:
-  --- unix.execve("/bin/ls", {"/bin/ls", "-hal"}, {"PATH=/bin"})
-  --- unix.exit(127)
+  ---     unix.execve("/bin/ls", {"/bin/ls", "-hal"}, {"PATH=/bin"})
+  ---     unix.exit(127)
   --- `prog` needs to be the resolved pathname of your executable. You
   --- can use commandv() to search your `PATH`.
   --- `args` is a string list table. The first element in `args`
@@ -1003,7 +1014,7 @@ local record unix
   --- descriptor that's acceptable to use. If `newfd` is specified then
   --- `lowest` is ignored. For example, if you wanted to duplicate
   --- standard input, then:
-  --- stdin2 = assert(unix.dup(0, nil, unix.O_CLOEXEC, 3))
+  ---     stdin2 = assert(unix.dup(0, nil, unix.O_CLOEXEC, 3))
   --- Will ensure that, in the rare event standard output or standard
   --- error are closed, you won't accidentally duplicate standard input to
   --- those numbers.
@@ -1012,40 +1023,40 @@ local record unix
   --- - `O_CLOEXEC`: Automatically close file descriptor upon execve()
   --- - `O_NONBLOCK`: Request `EAGAIN` be raised rather than blocking
   --- - `O_DIRECT`: Enable packet mode w/ atomic reads and writes, so long
-  --- as they're no larger than `PIPE_BUF` (guaranteed to be 512+ bytes)
-  --- with support limited to Linux, Windows NT, FreeBSD, and NetBSD.
+  ---   as they're no larger than `PIPE_BUF` (guaranteed to be 512+ bytes)
+  ---   with support limited to Linux, Windows NT, FreeBSD, and NetBSD.
   --- Returns two file descriptors: one for reading and one for writing.
   --- Here's an example of how pipe(), fork(), dup(), etc. may be used
   --- to serve an HTTP response containing the output of a subprocess.
-  --- local unix = require "unix"
-  --- ls = assert(unix.commandv("ls"))
-  --- reader, writer = assert(unix.pipe())
-  --- if assert(unix.fork()) == 0 then
-  --- unix.close(1)
-  --- unix.dup(writer)
-  --- unix.close(writer)
-  --- unix.close(reader)
-  --- unix.execve(ls, {ls, "-Shal"})
-  --- unix.exit(127)
-  --- else
-  --- unix.close(writer)
-  --- SetHeader('Content-Type', 'text/plain')
-  --- while true do
-  --- data, err = unix.read(reader)
-  --- if data then
-  --- if data ~= "" then
-  --- Write(data)
-  --- else
-  --- break
-  --- end
-  --- elseif err:errno() ~= EINTR then
-  --- Log(kLogWarn, tostring(err))
-  --- break
-  --- end
-  --- end
-  --- assert(unix.close(reader))
-  --- assert(unix.wait())
-  --- end
+  ---     local unix = require "unix"
+  ---     ls = assert(unix.commandv("ls"))
+  ---     reader, writer = assert(unix.pipe())
+  ---     if assert(unix.fork()) == 0 then
+  ---        unix.close(1)
+  ---        unix.dup(writer)
+  ---        unix.close(writer)
+  ---        unix.close(reader)
+  ---        unix.execve(ls, {ls, "-Shal"})
+  ---        unix.exit(127)
+  ---     else
+  ---        unix.close(writer)
+  ---        SetHeader('Content-Type', 'text/plain')
+  ---        while true do
+  ---           data, err = unix.read(reader)
+  ---           if data then
+  ---              if data ~= "" then
+  ---                 Write(data)
+  ---              else
+  ---                 break
+  ---              end
+  ---           elseif err:errno() ~= EINTR then
+  ---              Log(kLogWarn, tostring(err))
+  ---              break
+  ---           end
+  ---        end
+  ---        assert(unix.close(reader))
+  ---        assert(unix.wait())
+  ---     end
   pipe: function(flags?: number): number, number, Errno
   --- Waits for subprocess to terminate.
   --- `pid` defaults to `-1` which means any child process. Setting
@@ -1060,26 +1071,26 @@ local record unix
   --- The returned `wstatus` contains information about the process
   --- exit status. It's a complicated integer and there's functions
   --- that can help interpret it. For example:
-  --- -- wait for zombies
-  --- -- traditional technique for SIGCHLD handlers
-  --- while true do
-  --- pid, status = unix.wait(-1, unix.WNOHANG)
-  --- if pid then
-  --- if unix.WIFEXITED(status) then
-  --- print('child', pid, 'exited with',
-  --- unix.WEXITSTATUS(status))
-  --- elseif unix.WIFSIGNALED(status) then
-  --- print('child', pid, 'crashed with',
-  --- unix.strsignal(unix.WTERMSIG(status)))
-  --- end
-  --- elseif status:errno() == unix.ECHILD then
-  --- Log(kLogDebug, 'no more zombies')
-  --- break
-  --- else
-  --- Log(kLogWarn, tostring(err))
-  --- break
-  --- end
-  --- end
+  ---     -- wait for zombies
+  ---     -- traditional technique for SIGCHLD handlers
+  ---     while true do
+  ---        pid, status = unix.wait(-1, unix.WNOHANG)
+  ---        if pid then
+  ---           if unix.WIFEXITED(status) then
+  ---              print('child', pid, 'exited with',
+  ---                    unix.WEXITSTATUS(status))
+  ---           elseif unix.WIFSIGNALED(status) then
+  ---              print('child', pid, 'crashed with',
+  ---                    unix.strsignal(unix.WTERMSIG(status)))
+  ---           end
+  ---        elseif status:errno() == unix.ECHILD then
+  ---           Log(kLogDebug, 'no more zombies')
+  ---           break
+  ---        else
+  ---           Log(kLogWarn, tostring(err))
+  ---           break
+  ---        end
+  ---     end
   wait: function(pid?: number, options?: number): number, number, Rusage, Errno
   --- Returns `true` if process exited cleanly.
   WIFEXITED: function(wstatus: number): boolean
@@ -1154,8 +1165,8 @@ local record unix
   --- characters to create a unique directory name.
   --- Returns the path of the created directory.
   --- Example:
-  --- local tmpdir = unix.mkdtemp("/tmp/myapp_XXXXXX")
-  --- -- tmpdir is now something like "/tmp/myapp_a3b2c1"
+  ---     local tmpdir = unix.mkdtemp("/tmp/myapp_XXXXXX")
+  ---     -- tmpdir is now something like "/tmp/myapp_a3b2c1"
   mkdtemp: function(template: string): string, Errno
   --- Creates a temporary file with a unique name.
   --- `template` must end with "XXXXXX" which will be replaced with random
@@ -1163,10 +1174,10 @@ local record unix
   --- Returns both the file descriptor and the path of the created file.
   --- The file is opened for reading and writing.
   --- Example:
-  --- local fd, path = unix.mkstemp("/tmp/myapp_XXXXXX")
-  --- unix.write(fd, "hello")
-  --- unix.close(fd)
-  --- unix.unlink(path)
+  ---     local fd, path = unix.mkstemp("/tmp/myapp_XXXXXX")
+  ---     unix.write(fd, "hello")
+  ---     unix.close(fd)
+  ---     unix.unlink(path)
   mkstemp: function(template: string): number, string, Errno
   --- Changes current directory to `path`.
   chdir: function(path: string): boolean, Errno
@@ -1265,94 +1276,94 @@ local record unix
   --- - `unix.F_SETLKW` Waits for lock on file interval.
   --- - `unix.F_GETLK` Acquires information about lock.
   --- unix.fcntl(fd:int, unix.F_GETFD)
-  --- ├─→ flags:int
-  --- └─→ nil, unix.Errno
-  --- Returns file descriptor flags.
-  --- The returned `flags` may include any of:
-  --- - `unix.FD_CLOEXEC` if `fd` was opened with `unix.O_CLOEXEC`.
-  --- Returns `EBADF` if `fd` isn't open.
+  ---     ├─→ flags:int
+  ---     └─→ nil, unix.Errno
+  ---   Returns file descriptor flags.
+  ---   The returned `flags` may include any of:
+  ---   - `unix.FD_CLOEXEC` if `fd` was opened with `unix.O_CLOEXEC`.
+  ---   Returns `EBADF` if `fd` isn't open.
   --- unix.fcntl(fd:int, unix.F_SETFD, flags:int)
-  --- ├─→ true
-  --- └─→ nil, unix.Errno
-  --- Sets file descriptor flags.
-  --- `flags` may include any of:
-  --- - `unix.FD_CLOEXEC` to re-open `fd` with `unix.O_CLOEXEC`.
-  --- Returns `EBADF` if `fd` isn't open.
+  ---     ├─→ true
+  ---     └─→ nil, unix.Errno
+  ---   Sets file descriptor flags.
+  ---   `flags` may include any of:
+  ---   - `unix.FD_CLOEXEC` to re-open `fd` with `unix.O_CLOEXEC`.
+  ---   Returns `EBADF` if `fd` isn't open.
   --- unix.fcntl(fd:int, unix.F_GETFL)
-  --- ├─→ flags:int
-  --- └─→ nil, unix.Errno
-  --- Returns file descriptor status flags.
-  --- `flags & unix.O_ACCMODE` includes one of:
-  --- - `O_RDONLY`
-  --- - `O_WRONLY`
-  --- - `O_RDWR`
-  --- Examples of values `flags & ~unix.O_ACCMODE` may include:
-  --- - `O_NONBLOCK`
-  --- - `O_APPEND`
-  --- - `O_SYNC`
-  --- - `O_NOATIME` on Linux
-  --- - `O_DIRECT` on Linux/FreeBSD/NetBSD/Windows
-  --- Examples of values `flags & ~unix.O_ACCMODE` won't include:
-  --- - `O_CREAT`
-  --- - `O_TRUNC`
-  --- - `O_EXCL`
-  --- - `O_NOCTTY`
-  --- Returns `EBADF` if `fd` isn't open.
+  ---     ├─→ flags:int
+  ---     └─→ nil, unix.Errno
+  ---   Returns file descriptor status flags.
+  ---   `flags & unix.O_ACCMODE` includes one of:
+  ---   - `O_RDONLY`
+  ---   - `O_WRONLY`
+  ---   - `O_RDWR`
+  ---   Examples of values `flags & ~unix.O_ACCMODE` may include:
+  ---   - `O_NONBLOCK`
+  ---   - `O_APPEND`
+  ---   - `O_SYNC`
+  ---   - `O_NOATIME` on Linux
+  ---   - `O_DIRECT` on Linux/FreeBSD/NetBSD/Windows
+  ---   Examples of values `flags & ~unix.O_ACCMODE` won't include:
+  ---   - `O_CREAT`
+  ---   - `O_TRUNC`
+  ---   - `O_EXCL`
+  ---   - `O_NOCTTY`
+  ---   Returns `EBADF` if `fd` isn't open.
   --- unix.fcntl(fd:int, unix.F_SETFL, flags:int)
-  --- ├─→ true
-  --- └─→ nil, unix.Errno
-  --- Changes file descriptor status flags.
-  --- Examples of values `flags` may include:
-  --- - `O_NONBLOCK`
-  --- - `O_APPEND`
-  --- - `O_SYNC`
-  --- - `O_NOATIME` on Linux
-  --- - `O_DIRECT` on Linux/FreeBSD/NetBSD/Windows
-  --- These values should be ignored:
-  --- - `O_RDONLY`, `O_WRONLY`, `O_RDWR`
-  --- - `O_CREAT`, `O_TRUNC`, `O_EXCL`
-  --- - `O_NOCTTY`
-  --- Returns `EBADF` if `fd` isn't open.
+  ---     ├─→ true
+  ---     └─→ nil, unix.Errno
+  ---   Changes file descriptor status flags.
+  ---   Examples of values `flags` may include:
+  ---   - `O_NONBLOCK`
+  ---   - `O_APPEND`
+  ---   - `O_SYNC`
+  ---   - `O_NOATIME` on Linux
+  ---   - `O_DIRECT` on Linux/FreeBSD/NetBSD/Windows
+  ---   These values should be ignored:
+  ---   - `O_RDONLY`, `O_WRONLY`, `O_RDWR`
+  ---   - `O_CREAT`, `O_TRUNC`, `O_EXCL`
+  ---   - `O_NOCTTY`
+  ---   Returns `EBADF` if `fd` isn't open.
   --- unix.fcntl(fd:int, unix.F_SETLK[, type[, start[, len[, whence]]]])
   --- unix.fcntl(fd:int, unix.F_SETLKW[, type[, start[, len[, whence]]]])
-  --- ├─→ true
-  --- └─→ nil, unix.Errno
-  --- Acquires lock on file interval.
-  --- POSIX Advisory Locks allow multiple processes to leave voluntary
-  --- hints to each other about which portions of a file they're using.
-  --- The command may be:
-  --- - `F_SETLK` to acquire lock if possible
-  --- - `F_SETLKW` to wait for lock if necessary
-  --- `fd` is file descriptor of open() file.
-  --- `type` may be one of:
-  --- - `F_RDLCK` for read lock (default)
-  --- - `F_WRLCK` for read/write lock
-  --- - `F_UNLCK` to unlock
-  --- `start` is 0-indexed byte offset into file. The default is zero.
-  --- `len` is byte length of interval. Zero is the default and it means
-  --- until the end of the file.
-  --- `whence` may be one of:
-  --- - `SEEK_SET` start from beginning (default)
-  --- - `SEEK_CUR` start from current position
-  --- - `SEEK_END` start from end
-  --- Returns `EAGAIN` if lock couldn't be acquired. POSIX says this
-  --- theoretically could also be `EACCES` but we haven't seen this
-  --- behavior on any of our supported platforms.
-  --- Returns `EBADF` if `fd` wasn't open.
+  ---     ├─→ true
+  ---     └─→ nil, unix.Errno
+  ---   Acquires lock on file interval.
+  ---   POSIX Advisory Locks allow multiple processes to leave voluntary
+  ---   hints to each other about which portions of a file they're using.
+  ---   The command may be:
+  ---   - `F_SETLK` to acquire lock if possible
+  ---   - `F_SETLKW` to wait for lock if necessary
+  ---   `fd` is file descriptor of open() file.
+  ---   `type` may be one of:
+  ---   - `F_RDLCK` for read lock (default)
+  ---   - `F_WRLCK` for read/write lock
+  ---   - `F_UNLCK` to unlock
+  ---   `start` is 0-indexed byte offset into file. The default is zero.
+  ---   `len` is byte length of interval. Zero is the default and it means
+  ---   until the end of the file.
+  ---   `whence` may be one of:
+  ---   - `SEEK_SET` start from beginning (default)
+  ---   - `SEEK_CUR` start from current position
+  ---   - `SEEK_END` start from end
+  ---   Returns `EAGAIN` if lock couldn't be acquired. POSIX says this
+  ---   theoretically could also be `EACCES` but we haven't seen this
+  ---   behavior on any of our supported platforms.
+  ---   Returns `EBADF` if `fd` wasn't open.
   --- unix.fcntl(fd:int, unix.F_GETLK[, type[, start[, len[, whence]]]])
-  --- ├─→ unix.F_UNLCK
-  --- ├─→ type, start, len, whence, pid
-  --- └─→ nil, unix.Errno
-  --- Acquires information about POSIX advisory lock on file.
-  --- This function accepts the same parameters as fcntl(F_SETLK) and
-  --- tells you if the lock acquisition would be successful for a given
-  --- range of bytes. If locking would have succeeded, then F_UNLCK is
-  --- returned. If the lock would not have succeeded, then information
-  --- about a conflicting lock is returned.
-  --- Returned `type` may be `F_RDLCK` or `F_WRLCK`.
-  --- Returned `pid` is the process id of the current lock owner.
-  --- This function is currently not supported on Windows.
-  --- Returns `EBADF` if `fd` wasn't open.
+  ---     ├─→ unix.F_UNLCK
+  ---     ├─→ type, start, len, whence, pid
+  ---     └─→ nil, unix.Errno
+  ---   Acquires information about POSIX advisory lock on file.
+  ---   This function accepts the same parameters as fcntl(F_SETLK) and
+  ---   tells you if the lock acquisition would be successful for a given
+  ---   range of bytes. If locking would have succeeded, then F_UNLCK is
+  ---   returned. If the lock would not have succeeded, then information
+  ---   about a conflicting lock is returned.
+  ---   Returned `type` may be `F_RDLCK` or `F_WRLCK`.
+  ---   Returned `pid` is the process id of the current lock owner.
+  ---   This function is currently not supported on Windows.
+  ---   Returns `EBADF` if `fd` wasn't open.
   fcntl: function(fd: number, cmd: number, ...: any): any, Errno
   --- Gets session id.
   getsid: function(pid: number): number, Errno
@@ -1407,16 +1418,16 @@ local record unix
   --- you ever choose to run redbean as root and decide not to use the
   --- `-G` and `-U` flags, you can replicate that behavior in the Lua
   --- processes you spawn as follows:
-  --- ok, err = unix.setgid(1000)  -- check your /etc/groups
-  --- if not ok then Log(kLogFatal, tostring(err)) end
-  --- ok, err = unix.setuid(1000)  -- check your /etc/passwd
-  --- if not ok then Log(kLogFatal, tostring(err)) end
+  ---    ok, err = unix.setgid(1000)  -- check your /etc/groups
+  ---    if not ok then Log(kLogFatal, tostring(err)) end
+  ---    ok, err = unix.setuid(1000)  -- check your /etc/passwd
+  ---    if not ok then Log(kLogFatal, tostring(err)) end
   --- If your goal is to relinquish privileges because redbean is a setuid
   --- binary, then things are more straightforward:
-  --- ok, err = unix.setgid(unix.getgid())
-  --- if not ok then Log(kLogFatal, tostring(err)) end
-  --- ok, err = unix.setuid(unix.getuid())
-  --- if not ok then Log(kLogFatal, tostring(err)) end
+  ---    ok, err = unix.setgid(unix.getgid())
+  ---    if not ok then Log(kLogFatal, tostring(err)) end
+  ---    ok, err = unix.setuid(unix.getuid())
+  ---    if not ok then Log(kLogFatal, tostring(err)) end
   --- See also the setresuid() function and be sure to refer to your local
   --- system manual about the subtleties of changing user id in a way that
   --- isn't restorable.
@@ -1444,11 +1455,23 @@ local record unix
   --- it'll be turned into 0640 or 0644 so that users other than the owner
   --- can't modify it.
   --- To read the mask without changing it, try doing this:
-  --- mask = unix.umask(027)
-  --- unix.umask(mask)
+  ---     mask = unix.umask(027)
+  ---     unix.umask(mask)
   --- On Windows NT this is a no-op and `mask` is returned.
   --- This function does not fail.
   umask: function(newmask: number): number
+  --- Queries a configurable system limit or value.
+  --- `name` selects which value to return, e.g.
+  ---     unix.sysconf(unix.SC_NPROCESSORS_ONLN)  -- online cpu count
+  ---     unix.sysconf(unix.SC_PAGESIZE)          -- mmap() page size
+  ---     unix.sysconf(unix.SC_CLK_TCK)           -- clock ticks per second
+  --- Returns `nil` with an `EINVAL` errno when `name` isn't recognized.
+  sysconf: function(name: number): number, Errno
+  --- Returns identity of the current operating system.
+  --- Example:
+  ---     local u = assert(unix.uname())
+  ---     print(u.sysname, u.release, u.machine)
+  uname: function(): any, Errno
   --- Generates a log message, which will be distributed by syslogd.
   --- `priority` is a bitmask containing the facility value and the level
   --- value. If no facility value is ORed into priority, then the default
@@ -1459,71 +1482,71 @@ local record unix
   --- WIN32 it uses the ReportEvent() facility.
   syslog: function(priority: number, msg: string)
   --- Returns nanosecond precision timestamp from system, e.g.
-  --- >: unix.clock_gettime()
-  --- 1651137352      774458779
-  --- >: Benchmark(unix.clock_gettime)
-  --- 126     393     571     1
+  ---    >: unix.clock_gettime()
+  ---    1651137352      774458779
+  ---    >: Benchmark(unix.clock_gettime)
+  ---    126     393     571     1
   --- `clock` can be any one of of:
   --- - `CLOCK_REALTIME` returns a wall clock timestamp represented in
-  --- nanoseconds since the UNIX epoch (~1970). It'll count time in the
-  --- suspend state. This clock is subject to being smeared by various
-  --- adjustments made by NTP. These timestamps can have unpredictable
-  --- discontinuous jumps when clock_settime() is used. Therefore this
-  --- clock is the default clock for everything, even pthread condition
-  --- variables. Cosmopoiltan guarantees this clock will never raise
-  --- `EINVAL` and also guarantees `CLOCK_REALTIME == 0` will always be
-  --- the case. On Windows this maps to GetSystemTimePreciseAsFileTime().
-  --- On platforms with vDSOs like Linux, Windows, and MacOS ARM64 this
-  --- should take about 20 nanoseconds.
+  ---   nanoseconds since the UNIX epoch (~1970). It'll count time in the
+  ---   suspend state. This clock is subject to being smeared by various
+  ---   adjustments made by NTP. These timestamps can have unpredictable
+  ---   discontinuous jumps when clock_settime() is used. Therefore this
+  ---   clock is the default clock for everything, even pthread condition
+  ---   variables. Cosmopoiltan guarantees this clock will never raise
+  ---   `EINVAL` and also guarantees `CLOCK_REALTIME == 0` will always be
+  ---   the case. On Windows this maps to GetSystemTimePreciseAsFileTime().
+  ---   On platforms with vDSOs like Linux, Windows, and MacOS ARM64 this
+  ---   should take about 20 nanoseconds.
   --- - `CLOCK_MONOTONIC` returns a timestamp with an unspecified epoch,
-  --- that should be when the system was powered on. These timestamps
-  --- shouldn't go backwards. Timestamps shouldn't count time spent in
-  --- the sleep, suspend, and hibernation states. These timestamps won't
-  --- be impacted by clock_settime(). These timestamps may be impacted by
-  --- frequency adjustments made by NTP. Cosmopoiltan guarantees this
-  --- clock will never raise `EINVAL`. MacOS and BSDs use the word
-  --- "uptime" to describe this clock. On Windows this maps to
-  --- QueryUnbiasedInterruptTimePrecise().
+  ---   that should be when the system was powered on. These timestamps
+  ---   shouldn't go backwards. Timestamps shouldn't count time spent in
+  ---   the sleep, suspend, and hibernation states. These timestamps won't
+  ---   be impacted by clock_settime(). These timestamps may be impacted by
+  ---   frequency adjustments made by NTP. Cosmopoiltan guarantees this
+  ---   clock will never raise `EINVAL`. MacOS and BSDs use the word
+  ---   "uptime" to describe this clock. On Windows this maps to
+  ---   QueryUnbiasedInterruptTimePrecise().
   --- - `CLOCK_BOOTTIME` is a monotonic clock returning a timestamp with an
-  --- unspecified epoch, that should be relative to when the host system
-  --- was powered on. These timestamps shouldn't go backwards. Timestamps
-  --- should also include time spent in a sleep, suspend, or hibernation
-  --- state. These timestamps aren't impacted by clock_settime(), but
-  --- they may be impacted by frequency adjustments made by NTP. This
-  --- clock will raise an `EINVAL` error on extremely old Linux distros
-  --- like RHEL5. MacOS and BSDs use the word "monotonic" to describe
-  --- this clock. On Windows this maps to QueryInterruptTimePrecise().
+  ---   unspecified epoch, that should be relative to when the host system
+  ---   was powered on. These timestamps shouldn't go backwards. Timestamps
+  ---   should also include time spent in a sleep, suspend, or hibernation
+  ---   state. These timestamps aren't impacted by clock_settime(), but
+  ---   they may be impacted by frequency adjustments made by NTP. This
+  ---   clock will raise an `EINVAL` error on extremely old Linux distros
+  ---   like RHEL5. MacOS and BSDs use the word "monotonic" to describe
+  ---   this clock. On Windows this maps to QueryInterruptTimePrecise().
   --- - `CLOCK_MONOTONIC_RAW` returns a timestamp from an unspecified
-  --- epoch. These timestamps don't count time spent in the sleep,
-  --- suspend, and hibernation states. Unlike `CLOCK_MONOTONIC` this
-  --- clock is guaranteed to not be impacted by frequency adjustments or
-  --- discontinuous jumps caused by clock_settime(). Providing this level
-  --- of assurances may make this clock slower than the normal monotonic
-  --- clock. Furthermore this clock may cause `EINVAL` to be raised if
-  --- running on a host system that doesn't provide those guarantees,
-  --- e.g. OpenBSD and MacOS on AMD64.
+  ---   epoch. These timestamps don't count time spent in the sleep,
+  ---   suspend, and hibernation states. Unlike `CLOCK_MONOTONIC` this
+  ---   clock is guaranteed to not be impacted by frequency adjustments or
+  ---   discontinuous jumps caused by clock_settime(). Providing this level
+  ---   of assurances may make this clock slower than the normal monotonic
+  ---   clock. Furthermore this clock may cause `EINVAL` to be raised if
+  ---   running on a host system that doesn't provide those guarantees,
+  ---   e.g. OpenBSD and MacOS on AMD64.
   --- - `CLOCK_REALTIME_COARSE` is the same as `CLOCK_REALTIME` except
-  --- it'll go faster if the host OS provides a cheaper way to read the
-  --- wall time. Please be warned that coarse can be really coarse.
-  --- Rather than nano precision, you're looking at `CLK_TCK` precision,
-  --- which can lag as far as 30 milliseconds behind or possibly more.
-  --- Cosmopolitan may fallback to `CLOCK_REALTIME` if a faster less
-  --- accurate clock isn't provided by the system. This clock will raise
-  --- an `EINVAL` error on extremely old Linux distros like RHEL5.
+  ---   it'll go faster if the host OS provides a cheaper way to read the
+  ---   wall time. Please be warned that coarse can be really coarse.
+  ---   Rather than nano precision, you're looking at `CLK_TCK` precision,
+  ---   which can lag as far as 30 milliseconds behind or possibly more.
+  ---   Cosmopolitan may fallback to `CLOCK_REALTIME` if a faster less
+  ---   accurate clock isn't provided by the system. This clock will raise
+  ---   an `EINVAL` error on extremely old Linux distros like RHEL5.
   --- - `CLOCK_MONOTONIC_COARSE` is the same as `CLOCK_MONOTONIC` except
-  --- it'll go faster if the host OS provides a cheaper way to read the
-  --- unbiased time. Please be warned that coarse can be really coarse.
-  --- Rather than nano precision, you're looking at `CLK_TCK` precision,
-  --- which can lag as far as 30 milliseconds behind or possibly more.
-  --- Cosmopolitan may fallback to `CLOCK_REALTIME` if a faster less
-  --- accurate clock isn't provided by the system. This clock will raise
-  --- an `EINVAL` error on extremely old Linux distros like RHEL5.
+  ---   it'll go faster if the host OS provides a cheaper way to read the
+  ---   unbiased time. Please be warned that coarse can be really coarse.
+  ---   Rather than nano precision, you're looking at `CLK_TCK` precision,
+  ---   which can lag as far as 30 milliseconds behind or possibly more.
+  ---   Cosmopolitan may fallback to `CLOCK_REALTIME` if a faster less
+  ---   accurate clock isn't provided by the system. This clock will raise
+  ---   an `EINVAL` error on extremely old Linux distros like RHEL5.
   --- - `CLOCK_PROCESS_CPUTIME_ID` returns the amount of time this process
-  --- was actively scheduled. This is similar to getrusage() and clock().
-  --- Cosmopoiltan guarantees this clock will never raise `EINVAL`.
+  ---   was actively scheduled. This is similar to getrusage() and clock().
+  ---   Cosmopoiltan guarantees this clock will never raise `EINVAL`.
   --- - `CLOCK_THREAD_CPUTIME_ID` returns the amount of time this thread
-  --- was actively scheduled. This is similar to getrusage() and clock().
-  --- Cosmopoiltan guarantees this clock will never raise `EINVAL`.
+  ---   was actively scheduled. This is similar to getrusage() and clock().
+  ---   Cosmopoiltan guarantees this clock will never raise `EINVAL`.
   --- Returns `EINVAL` if clock isn't supported on platform.
   --- This function only fails if `clock` is invalid.
   --- This function goes fastest on Linux and Windows.
@@ -1579,27 +1602,27 @@ local record unix
   --- - `SOCK_CLOEXEC`
   --- - `SOCK_NONBLOCK`
   socketpair: function(family?: number, type?: number, protocol?: number): number, number, Errno
-  --- Binds socket.
-  --- `ip` and `port` are in host endian order. For example, if you
-  --- wanted to listen on `1.2.3.4:31337` you could do any of these
-  --- unix.bind(sock, 0x01020304, 31337)
-  --- unix.bind(sock, ParseIp('1.2.3.4'), 31337)
-  --- unix.bind(sock, 1 << 24 | 0 << 16 | 0 << 8 | 1, 31337)
-  --- `ip` and `port` both default to zero. The meaning of bind(0, 0)
-  --- is to listen on all interfaces with a kernel-assigned ephemeral
-  --- port number, that can be retrieved and used as follows:
-  --- sock = assert(unix.socket())  -- create ipv4 tcp socket
-  --- assert(unix.bind(sock))       -- all interfaces ephemeral port
-  --- ip, port = assert(unix.getsockname(sock))
-  --- print("listening on ip", FormatIp(ip), "port", port)
-  --- assert(unix.listen(sock))
-  --- while true do
-  --- client, clientip, clientport = assert(unix.accept(sock))
-  --- print("got client ip", FormatIp(clientip), "port", clientport)
-  --- unix.close(client)
-  --- end
-  --- Further note that calling `unix.bind(sock)` is equivalent to not
-  --- calling bind() at all, since the above behavior is the default.
+  ---  Binds socket.
+  ---  `ip` and `port` are in host endian order. For example, if you
+  ---  wanted to listen on `1.2.3.4:31337` you could do any of these
+  ---      unix.bind(sock, 0x01020304, 31337)
+  ---      unix.bind(sock, ParseIp('1.2.3.4'), 31337)
+  ---      unix.bind(sock, 1 << 24 | 0 << 16 | 0 << 8 | 1, 31337)
+  ---  `ip` and `port` both default to zero. The meaning of bind(0, 0)
+  ---  is to listen on all interfaces with a kernel-assigned ephemeral
+  ---  port number, that can be retrieved and used as follows:
+  ---      sock = assert(unix.socket())  -- create ipv4 tcp socket
+  ---      assert(unix.bind(sock))       -- all interfaces ephemeral port
+  ---      ip, port = assert(unix.getsockname(sock))
+  ---      print("listening on ip", FormatIp(ip), "port", port)
+  ---      assert(unix.listen(sock))
+  ---      while true do
+  ---         client, clientip, clientport = assert(unix.accept(sock))
+  ---         print("got client ip", FormatIp(clientip), "port", clientport)
+  ---         unix.close(client)
+  ---      end
+  ---  Further note that calling `unix.bind(sock)` is equivalent to not
+  ---  calling bind() at all, since the above behavior is the default.
   bind: function(fd: number, ip?: number, port?: number): boolean, Errno
   --- Returns list of network adapter addresses.
   siocgifconf: function(): any, Errno
@@ -1614,11 +1637,11 @@ local record unix
   --- Raises `ENOTSOCK` if `fd` is valid but isn't a socket.
   --- Raises `EBADF` if `fd` isn't valid.
   --- unix.getsockopt(fd:int, level:int, optname:int)
-  --- ├─→ value:int
-  --- └─→ nil, unix.Errno
+  ---     ├─→ value:int
+  ---     └─→ nil, unix.Errno
   --- unix.setsockopt(fd:int, level:int, optname:int, value:bool)
-  --- ├─→ true
-  --- └─→ nil, unix.Errno
+  ---     ├─→ true
+  ---     └─→ nil, unix.Errno
   --- - `SOL_SOCKET`, `SO_TYPE`
   --- - `SOL_SOCKET`, `SO_DEBUG`
   --- - `SOL_SOCKET`, `SO_ACCEPTCONN`
@@ -1634,11 +1657,11 @@ local record unix
   --- - `SOL_TCP`, `TCP_DEFER_ACCEPT`
   --- - `SOL_IP`, `IP_HDRINCL`
   --- unix.getsockopt(fd:int, level:int, optname:int)
-  --- ├─→ value:int
-  --- └─→ nil, unix.Errno
+  ---     ├─→ value:int
+  ---     └─→ nil, unix.Errno
   --- unix.setsockopt(fd:int, level:int, optname:int, value:int)
-  --- ├─→ true
-  --- └─→ nil, unix.Errno
+  ---     ├─→ true
+  ---     └─→ nil, unix.Errno
   --- - `SOL_SOCKET`, `SO_SNDBUF`
   --- - `SOL_SOCKET`, `SO_RCVBUF`
   --- - `SOL_SOCKET`, `SO_RCVLOWAT`
@@ -1655,35 +1678,35 @@ local record unix
   --- - `SOL_IP`, `IP_MTU`
   --- - `SOL_IP`, `IP_TTL`
   --- unix.getsockopt(fd:int, level:int, optname:int)
-  --- ├─→ secs:int, nsecs:int
-  --- └─→ nil, unix.Errno
+  ---     ├─→ secs:int, nsecs:int
+  ---     └─→ nil, unix.Errno
   --- unix.setsockopt(fd:int, level:int, optname:int, secs:int[, nanos:int])
-  --- ├─→ true
-  --- └─→ nil, unix.Errno
+  ---     ├─→ true
+  ---     └─→ nil, unix.Errno
   --- - `SOL_SOCKET`, `SO_RCVTIMEO`: If this option is specified then
-  --- your stream socket will have a read() / recv() timeout. If the
-  --- specified interval elapses without receiving data, then EAGAIN
-  --- shall be returned by read. If this option is used on listening
-  --- sockets, it'll be inherited by accepted sockets. Your redbean
-  --- already does this for GetClientFd() based on the `-t` flag.
+  ---   your stream socket will have a read() / recv() timeout. If the
+  ---   specified interval elapses without receiving data, then EAGAIN
+  ---   shall be returned by read. If this option is used on listening
+  ---   sockets, it'll be inherited by accepted sockets. Your redbean
+  ---   already does this for GetClientFd() based on the `-t` flag.
   --- - `SOL_SOCKET`, `SO_SNDTIMEO`: This is the same as `SO_RCVTIMEO`
-  --- but it applies to the write() / send() functions.
+  ---   but it applies to the write() / send() functions.
   --- unix.getsockopt(fd:int, unix.SOL_SOCKET, unix.SO_LINGER)
-  --- ├─→ seconds:int, enabled:bool
-  --- └─→ nil, unix.Errno
+  ---     ├─→ seconds:int, enabled:bool
+  ---     └─→ nil, unix.Errno
   --- unix.setsockopt(fd:int, unix.SOL_SOCKET, unix.SO_LINGER, secs:int, enabled:bool)
-  --- ├─→ true
-  --- └─→ nil, unix.Errno
+  ---     ├─→ true
+  ---     └─→ nil, unix.Errno
   --- This `SO_LINGER` parameter can be used to make close() a blocking
   --- call. Normally when the kernel returns immediately when it receives
   --- close(). Sometimes it's desirable to have extra assurance on errors
   --- happened, even if it comes at the cost of performance.
   --- unix.setsockopt(serverfd:int, unix.SOL_TCP, unix.TCP_SAVE_SYN, enabled:int)
-  --- ├─→ true
-  --- └─→ nil, unix.Errno
+  ---     ├─→ true
+  ---     └─→ nil, unix.Errno
   --- unix.getsockopt(clientfd:int, unix.SOL_TCP, unix.TCP_SAVED_SYN)
-  --- ├─→ syn_packet_bytes:str
-  --- └─→ nil, unix.Errno
+  ---     ├─→ syn_packet_bytes:str
+  ---     └─→ nil, unix.Errno
   --- This `TCP_SAVED_SYN` option may be used to retrieve the bytes of the
   --- TCP SYN packet that the client sent when the connection for `fd` was
   --- opened. In order for this to work, `TCP_SAVE_SYN` must have been set
@@ -1702,11 +1725,11 @@ local record unix
   --- Raises `ENOTSOCK` if `fd` is valid but isn't a socket.
   --- Raises `EBADF` if `fd` isn't valid.
   --- unix.getsockopt(fd:int, level:int, optname:int)
-  --- ├─→ value:int
-  --- └─→ nil, unix.Errno
+  ---     ├─→ value:int
+  ---     └─→ nil, unix.Errno
   --- unix.setsockopt(fd:int, level:int, optname:int, value:bool)
-  --- ├─→ true
-  --- └─→ nil, unix.Errno
+  ---     ├─→ true
+  ---     └─→ nil, unix.Errno
   --- - `SOL_SOCKET`, `SO_TYPE`
   --- - `SOL_SOCKET`, `SO_DEBUG`
   --- - `SOL_SOCKET`, `SO_ACCEPTCONN`
@@ -1722,11 +1745,11 @@ local record unix
   --- - `SOL_TCP`, `TCP_DEFER_ACCEPT`
   --- - `SOL_IP`, `IP_HDRINCL`
   --- unix.getsockopt(fd:int, level:int, optname:int)
-  --- ├─→ value:int
-  --- └─→ nil, unix.Errno
+  ---     ├─→ value:int
+  ---     └─→ nil, unix.Errno
   --- unix.setsockopt(fd:int, level:int, optname:int, value:int)
-  --- ├─→ true
-  --- └─→ nil, unix.Errno
+  ---     ├─→ true
+  ---     └─→ nil, unix.Errno
   --- - `SOL_SOCKET`, `SO_SNDBUF`
   --- - `SOL_SOCKET`, `SO_RCVBUF`
   --- - `SOL_SOCKET`, `SO_RCVLOWAT`
@@ -1743,35 +1766,35 @@ local record unix
   --- - `SOL_IP`, `IP_MTU`
   --- - `SOL_IP`, `IP_TTL`
   --- unix.getsockopt(fd:int, level:int, optname:int)
-  --- ├─→ secs:int, nsecs:int
-  --- └─→ nil, unix.Errno
+  ---     ├─→ secs:int, nsecs:int
+  ---     └─→ nil, unix.Errno
   --- unix.setsockopt(fd:int, level:int, optname:int, secs:int[, nanos:int])
-  --- ├─→ true
-  --- └─→ nil, unix.Errno
+  ---     ├─→ true
+  ---     └─→ nil, unix.Errno
   --- - `SOL_SOCKET`, `SO_RCVTIMEO`: If this option is specified then
-  --- your stream socket will have a read() / recv() timeout. If the
-  --- specified interval elapses without receiving data, then EAGAIN
-  --- shall be returned by read. If this option is used on listening
-  --- sockets, it'll be inherited by accepted sockets. Your redbean
-  --- already does this for GetClientFd() based on the `-t` flag.
+  ---   your stream socket will have a read() / recv() timeout. If the
+  ---   specified interval elapses without receiving data, then EAGAIN
+  ---   shall be returned by read. If this option is used on listening
+  ---   sockets, it'll be inherited by accepted sockets. Your redbean
+  ---   already does this for GetClientFd() based on the `-t` flag.
   --- - `SOL_SOCKET`, `SO_SNDTIMEO`: This is the same as `SO_RCVTIMEO`
-  --- but it applies to the write() / send() functions.
+  ---   but it applies to the write() / send() functions.
   --- unix.getsockopt(fd:int, unix.SOL_SOCKET, unix.SO_LINGER)
-  --- ├─→ seconds:int, enabled:bool
-  --- └─→ nil, unix.Errno
+  ---     ├─→ seconds:int, enabled:bool
+  ---     └─→ nil, unix.Errno
   --- unix.setsockopt(fd:int, unix.SOL_SOCKET, unix.SO_LINGER, secs:int, enabled:bool)
-  --- ├─→ true
-  --- └─→ nil, unix.Errno
+  ---     ├─→ true
+  ---     └─→ nil, unix.Errno
   --- This `SO_LINGER` parameter can be used to make close() a blocking
   --- call. Normally when the kernel returns immediately when it receives
   --- close(). Sometimes it's desirable to have extra assurance on errors
   --- happened, even if it comes at the cost of performance.
   --- unix.setsockopt(serverfd:int, unix.SOL_TCP, unix.TCP_SAVE_SYN, enabled:int)
-  --- ├─→ true
-  --- └─→ nil, unix.Errno
+  ---     ├─→ true
+  ---     └─→ nil, unix.Errno
   --- unix.getsockopt(clientfd:int, unix.SOL_TCP, unix.TCP_SAVED_SYN)
-  --- ├─→ syn_packet_bytes:str
-  --- └─→ nil, unix.Errno
+  ---     ├─→ syn_packet_bytes:str
+  ---     └─→ nil, unix.Errno
   --- This `TCP_SAVED_SYN` option may be used to retrieve the bytes of the
   --- TCP SYN packet that the client sent when the connection for `fd` was
   --- opened. In order for this to work, `TCP_SAVE_SYN` must have been set
@@ -1803,112 +1826,10 @@ local record unix
   poll: function(fds: {number: number}, timeoutms?: number): {number: number}, Errno
   --- Returns hostname of system.
   gethostname: function(): string, Errno
-  --- Sets hostname of system. Requires `CAP_SYS_ADMIN` in the current
-  --- UTS namespace; typical callers are sandbox builders that first
-  --- `unshare(CLONE_NEWUTS)`. Returns `(nil, Errno)` on failure.
+  --- Sets hostname of system.
+  --- Requires CAP_SYS_ADMIN on Linux (or root on BSDs); returns `EPERM`
+  --- otherwise. Not supported on Windows, where it returns `ENOSYS`.
   sethostname: function(name: string): boolean, Errno
-  --- Returns a runtime system configuration value. `name` is one of the
-  --- `unix.SC_*` constants (e.g. `SC_NPROCESSORS_ONLN`, `SC_PAGESIZE`).
-  --- Returns `(nil, Errno)` on failure.
-  sysconf: function(name: number): number, Errno
-  --- Returns operating system and hardware identification as a table with
-  --- `sysname`, `nodename`, `release`, `version`, `machine`, and
-  --- `domainname` string fields. Returns `(nil, Errno)` on failure.
-  uname: function(): any, Errno
-
-  --- Linux isolation primitives (namespaces, landlock, prctl, ioctl).
-  --- All return `(nil|false, Errno)` on failure and fail with `ENOSYS`
-  --- on non-Linux hosts.
-
-  --- Disassociates parts of the process execution context. `flags` is
-  --- an OR of `CLONE_NEW*` constants.
-  unshare: function(flags: number): boolean, Errno
-  --- Reassociates the calling thread with the namespace referred to by
-  --- `fd` (e.g. an fd for `/proc/<pid>/ns/net`).
-  setns: function(fd: number, nstype?: number): boolean, Errno
-  --- Moves the root filesystem to `put_old` and makes `new_root` the
-  --- new root. Requires a mount namespace.
-  pivot_root: function(new_root: string, put_old: string): boolean, Errno
-  --- Operations on a process, e.g. `prctl(PR_SET_NO_NEW_PRIVS, 1)`.
-  prctl: function(option: number, arg2?: number, arg3?: number,
-    arg4?: number, arg5?: number): number, Errno
-  --- Sets the calling process's capability sets. `capset(0, 0, 0)`
-  --- clears the effective, permitted, and inheritable sets — the final
-  --- step of a full privilege drop.
-  capset: function(effective: number, permitted: number,
-    inheritable: number): boolean, Errno
-  --- Generic device control. When `arg` is a string (e.g. a packed
-  --- `struct ifreq`), the kernel-modified buffer is returned as a new
-  --- string on success.
-  ioctl: function(fd: number, request: number, arg?: string | number):
-    any, Errno
-  --- With no arguments, returns the kernel's landlock ABI version
-  --- (>= 1 when landlock is available). With a `handled_access_fs`
-  --- mask, creates a ruleset and returns its file descriptor.
-  landlock_create_ruleset: function(handled_access_fs?: number,
-    flags?: number): number, Errno
-  --- Adds a path-beneath rule to a ruleset. `parent_fd` is an
-  --- `O_PATH` fd for the rule's root path.
-  landlock_add_rule: function(ruleset_fd: number, parent_fd: number,
-    allowed_access: number, flags?: number): boolean, Errno
-  --- Enforces a ruleset on the calling thread. Requires
-  --- `PR_SET_NO_NEW_PRIVS` (or `CAP_SYS_ADMIN`). Irreversible.
-  landlock_restrict_self: function(ruleset_fd: number,
-    flags?: number): boolean, Errno
-
-  --- @type integer Linux clone flag: new user namespace
-  CLONE_NEWUSER: number
-  --- @type integer Linux clone flag: new mount namespace
-  CLONE_NEWNS: number
-  --- @type integer Linux clone flag: new network namespace
-  CLONE_NEWNET: number
-  --- @type integer Linux clone flag: new UTS (hostname) namespace
-  CLONE_NEWUTS: number
-  --- @type integer Linux clone flag: new pid namespace
-  CLONE_NEWPID: number
-  --- @type integer prctl option: forbid gaining privileges via execve
-  PR_SET_NO_NEW_PRIVS: number
-  --- @type integer prctl option: preserve capabilities across setuid
-  PR_SET_KEEPCAPS: number
-  --- @type integer maximum interface name length (including NUL)
-  IFNAMSIZ: number
-  --- @type integer ioctl request: get interface flags
-  SIOCGIFFLAGS: number
-  --- @type integer ioctl request: set interface flags
-  SIOCSIFFLAGS: number
-  --- @type integer interface flag: interface is up
-  IFF_UP: number
-  --- @type integer landlock access: execute files
-  LANDLOCK_ACCESS_FS_EXECUTE: number
-  --- @type integer landlock access: write to files
-  LANDLOCK_ACCESS_FS_WRITE_FILE: number
-  --- @type integer landlock access: read files
-  LANDLOCK_ACCESS_FS_READ_FILE: number
-  --- @type integer landlock access: list directories
-  LANDLOCK_ACCESS_FS_READ_DIR: number
-  --- @type integer landlock access: remove directories
-  LANDLOCK_ACCESS_FS_REMOVE_DIR: number
-  --- @type integer landlock access: remove files
-  LANDLOCK_ACCESS_FS_REMOVE_FILE: number
-  --- @type integer landlock access: create character devices
-  LANDLOCK_ACCESS_FS_MAKE_CHAR: number
-  --- @type integer landlock access: create directories
-  LANDLOCK_ACCESS_FS_MAKE_DIR: number
-  --- @type integer landlock access: create regular files
-  LANDLOCK_ACCESS_FS_MAKE_REG: number
-  --- @type integer landlock access: create sockets
-  LANDLOCK_ACCESS_FS_MAKE_SOCK: number
-  --- @type integer landlock access: create FIFOs
-  LANDLOCK_ACCESS_FS_MAKE_FIFO: number
-  --- @type integer landlock access: create block devices
-  LANDLOCK_ACCESS_FS_MAKE_BLOCK: number
-  --- @type integer landlock access: create symlinks
-  LANDLOCK_ACCESS_FS_MAKE_SYM: number
-  --- @type integer landlock access: reparent/link across dirs (ABI 2+)
-  LANDLOCK_ACCESS_FS_REFER: number
-  --- @type integer landlock access: truncate files (ABI 3+)
-  LANDLOCK_ACCESS_FS_TRUNCATE: number
-
   --- Begins listening for incoming connections on a socket.
   listen: function(fd: number, backlog?: number): boolean, Errno
   --- Accepts new client socket descriptor for a listening tcp socket.
@@ -1916,10 +1837,10 @@ local record unix
   --- - `SOCK_CLOEXEC`
   --- - `SOCK_NONBLOCK`
   accept: function(serverfd: number, flags?: number): number, number, number, Errno
-  --- Connects a TCP socket to a remote host.
-  --- With TCP this is a blocking operation. For a UDP socket it simply
-  --- remembers the intended address so that `send()` or `write()` may be used
-  --- rather than `sendto()`.
+  ---  Connects a TCP socket to a remote host.
+  ---  With TCP this is a blocking operation. For a UDP socket it simply
+  ---  remembers the intended address so that `send()` or `write()` may be used
+  ---  rather than `sendto()`.
   connect: function(fd: number, ip: number, port: number): boolean, Errno
   --- Retrieves the local address of a socket.
   getsockname: function(fd: number): number, number, Errno
@@ -1943,8 +1864,6 @@ local record unix
   --- - `MSG_OOB`: Send stream data through out of bound channel
   --- - `MSG_DONTROUTE`: Don't go through gateway (for diagnostics)
   --- - `MSG_MORE`: Manual corking to belay nodelay (0 on non-Linux)
-  --- `offset` skips that many leading bytes of `data`, allowing
-  --- short-write resume loops without reallocating tail substrings.
   send: function(fd: number, data: string, flags?: number, offset?: number): number, Errno
   --- This is useful for sending messages over UDP sockets to specific
   --- addresses.
@@ -1966,10 +1885,10 @@ local record unix
   --- `mask` is a unix.Sigset() object (see section below).
   --- For example, to temporarily block `SIGTERM` and `SIGINT` so critical
   --- work won't be interrupted, sigprocmask() can be used as follows:
-  --- newmask = unix.Sigset(unix.SIGTERM)
-  --- oldmask = assert(unix.sigprocmask(unix.SIG_BLOCK, newmask))
-  --- -- do something...
-  --- assert(unix.sigprocmask(unix.SIG_SETMASK, oldmask))
+  ---   newmask = unix.Sigset(unix.SIGTERM)
+  ---   oldmask = assert(unix.sigprocmask(unix.SIG_BLOCK, newmask))
+  ---   -- do something...
+  ---   assert(unix.sigprocmask(unix.SIG_SETMASK, oldmask))
   sigprocmask: function(how: number, newmask: Sigset): Sigset, Errno
   --- - `unix.SIGINT`
   --- - `unix.SIGQUIT`
@@ -2012,19 +1931,19 @@ local record unix
   --- notified on exit/termination and not notified on `SIGSTOP`,
   --- `SIGTSTP`, `SIGTTIN`, `SIGTTOU`, or `SIGCONT`.
   --- Example:
-  --- function OnSigUsr1(sig)
-  --- gotsigusr1 = true
-  --- end
-  --- gotsigusr1 = false
-  --- oldmask = assert(unix.sigprocmask(unix.SIG_BLOCK, unix.Sigset(unix.SIGUSR1)))
-  --- assert(unix.sigaction(unix.SIGUSR1, OnSigUsr1))
-  --- assert(unix.raise(unix.SIGUSR1))
-  --- assert(not gotsigusr1)
-  --- ok, err = unix.sigsuspend(oldmask)
-  --- assert(not ok)
-  --- assert(err:errno() == unix.EINTR)
-  --- assert(gotsigusr1)
-  --- assert(unix.sigprocmask(unix.SIG_SETMASK, oldmask))
+  ---     function OnSigUsr1(sig)
+  ---         gotsigusr1 = true
+  ---     end
+  ---     gotsigusr1 = false
+  ---     oldmask = assert(unix.sigprocmask(unix.SIG_BLOCK, unix.Sigset(unix.SIGUSR1)))
+  ---     assert(unix.sigaction(unix.SIGUSR1, OnSigUsr1))
+  ---     assert(unix.raise(unix.SIGUSR1))
+  ---     assert(not gotsigusr1)
+  ---     ok, err = unix.sigsuspend(oldmask)
+  ---     assert(not ok)
+  ---     assert(err:errno() == unix.EINTR)
+  ---     assert(gotsigusr1)
+  ---     assert(unix.sigprocmask(unix.SIG_SETMASK, oldmask))
   --- It's a good idea to not do too much work in a signal handler.
   sigaction: function(sig: number, handler?: function | number, flags?: number, mask?: Sigset): function | number, number, Sigset, Errno
   --- Waits for signal to be delivered.
@@ -2033,25 +1952,25 @@ local record unix
   --- Causes `SIGALRM` signals to be generated at some point(s) in the
   --- future. The `which` parameter should be `ITIMER_REAL`.
   --- Here's an example of how to create a 400 ms interval timer:
-  --- ticks = 0
-  --- assert(unix.sigaction(unix.SIGALRM, function(sig)
-  --- print('tick no. %d' % {ticks})
-  --- ticks = ticks + 1
-  --- end))
-  --- assert(unix.setitimer(unix.ITIMER_REAL, 0, 400e6, 0, 400e6))
-  --- while true do
-  --- unix.sigsuspend()
-  --- end
+  ---     ticks = 0
+  ---     assert(unix.sigaction(unix.SIGALRM, function(sig)
+  ---        print('tick no. %d' % {ticks})
+  ---        ticks = ticks + 1
+  ---     end))
+  ---     assert(unix.setitimer(unix.ITIMER_REAL, 0, 400e6, 0, 400e6))
+  ---     while true do
+  ---        unix.sigsuspend()
+  ---     end
   --- Here's how you'd do a single-shot timeout in 1 second:
-  --- unix.sigaction(unix.SIGALRM, MyOnSigAlrm, unix.SA_RESETHAND)
-  --- unix.setitimer(unix.ITIMER_REAL, 0, 0, 1, 0)
+  ---     unix.sigaction(unix.SIGALRM, MyOnSigAlrm, unix.SA_RESETHAND)
+  ---     unix.setitimer(unix.ITIMER_REAL, 0, 0, 1, 0)
   setitimer: function(which: number, intervalsec: number, intervalns: number, valuesec: number, valuens: number): number, number, number, number, Errno
   --- Turns platform-specific `sig` code into its symbolic name.
   --- For example:
-  --- >: unix.strsignal(9)
-  --- "SIGKILL"
-  --- >: unix.strsignal(unix.SIGKILL)
-  --- "SIGKILL"
+  ---     >: unix.strsignal(9)
+  ---     "SIGKILL"
+  ---     >: unix.strsignal(unix.SIGKILL)
+  ---     "SIGKILL"
   --- Please note that signal numbers are normally different across
   --- supported platforms, and the constants should be preferred.
   strsignal: function(sig: number): string
@@ -2071,7 +1990,7 @@ local record unix
   --- limits the process, with respect to the activities of the user id
   --- as a whole.
   --- - `RLIMIT_NOFILE` limits the number of open file descriptors and it
-  --- should work on all platforms except Windows.
+  --- should work on all platforms except Windows (TODO).
   --- If a limit isn't supported by the host platform, it'll be set to
   --- 127. On most platforms these limits are enforced by the kernel and
   --- as such are inherited by subprocesses.
@@ -2105,8 +2024,8 @@ local record unix
   --- can set negative priority values.
   setpriority: function(which: number, who: number, prio: number): boolean, Errno
   --- Returns information about resource usage for current process, e.g.
-  --- >: unix.getrusage()
-  --- {utime={0, 53644000}, maxrss=44896, minflt=545, oublock=24, nvcsw=9}
+  ---     >: unix.getrusage()
+  ---     {utime={0, 53644000}, maxrss=44896, minflt=545, oublock=24, nvcsw=9}
   --- - `RUSAGE_SELF`: current process
   --- - `RUSAGE_THREAD`: current thread
   --- - `RUSAGE_CHILDREN`: not supported on Windows NT
@@ -2209,36 +2128,36 @@ local record unix
   --- Since Linux has to do this before calling `sys_execve()`, the executed
   --- process will be weakened to have execute permissions too.
   --- - `unix.PLEDGE_PENALTY_KILL_THREAD` causes the violating thread to
-  --- be killed. This is the default on Linux. It's effectively the
-  --- same as killing the process, since redbean has no threads. The
-  --- termination signal can't be caught and will be either `SIGSYS`
-  --- or `SIGABRT`. Consider enabling stderr logging below so you'll
-  --- know why your program failed. Otherwise check the system log.
+  ---   be killed. This is the default on Linux. It's effectively the
+  ---   same as killing the process, since redbean has no threads. The
+  ---   termination signal can't be caught and will be either `SIGSYS`
+  ---   or `SIGABRT`. Consider enabling stderr logging below so you'll
+  ---   know why your program failed. Otherwise check the system log.
   --- - `unix.PLEDGE_PENALTY_KILL_PROCESS` causes the process and all
-  --- its threads to be killed. This is always the case on OpenBSD.
+  ---   its threads to be killed. This is always the case on OpenBSD.
   --- - `unix.PLEDGE_PENALTY_RETURN_EPERM` causes system calls to just
-  --- return an `EPERM` error instead of killing. This is a gentler
-  --- solution that allows code to display a friendly warning. Please
-  --- note this may lead to weird behaviors if the software being
-  --- sandboxed is lazy about checking error results.
+  ---   return an `EPERM` error instead of killing. This is a gentler
+  ---   solution that allows code to display a friendly warning. Please
+  ---   note this may lead to weird behaviors if the software being
+  ---   sandboxed is lazy about checking error results.
   --- `mode` may optionally bitwise or the following flags:
   --- - `unix.PLEDGE_STDERR_LOGGING` enables friendly error message
-  --- logging letting you know which promises are needed whenever
-  --- violations occur. Without this, violations will be logged to
-  --- `dmesg` on Linux if the penalty is to kill the process. You
-  --- would then need to manually look up the system call number and
-  --- then cross reference it with the cosmopolitan libc pledge()
-  --- documentation. You can also use `strace -ff` which is easier.
-  --- This is ignored OpenBSD, which already has a good system log.
-  --- Turning on stderr logging (which uses SECCOMP trapping) also
-  --- means that the `unix.WTERMSIG()` on your killed processes will
-  --- always be `unix.SIGABRT` on both Linux and OpenBSD. Otherwise,
-  --- Linux prefers to raise `unix.SIGSYS`.
+  ---   logging letting you know which promises are needed whenever
+  ---   violations occur. Without this, violations will be logged to
+  ---   `dmesg` on Linux if the penalty is to kill the process. You
+  ---   would then need to manually look up the system call number and
+  ---   then cross reference it with the cosmopolitan libc pledge()
+  ---   documentation. You can also use `strace -ff` which is easier.
+  ---   This is ignored OpenBSD, which already has a good system log.
+  ---   Turning on stderr logging (which uses SECCOMP trapping) also
+  ---   means that the `unix.WTERMSIG()` on your killed processes will
+  ---   always be `unix.SIGABRT` on both Linux and OpenBSD. Otherwise,
+  ---   Linux prefers to raise `unix.SIGSYS`.
   pledge: function(promises?: string, execpromises?: string, mode?: number): boolean, Errno
   --- Restricts filesystem operations, e.g.
-  --- unix.unveil(".", "r");     -- current dir + children visible
-  --- unix.unveil("/etc", "r");  -- make /etc readable too
-  --- unix.unveil(nil, nil);     -- commit and lock policy
+  ---    unix.unveil(".", "r");     -- current dir + children visible
+  ---    unix.unveil("/etc", "r");  -- make /etc readable too
+  ---    unix.unveil(nil, nil);     -- commit and lock policy
   --- Unveiling restricts a thread's view of the filesystem to a set of
   --- allowed paths with specific privileges.
   --- Once you start using unveil(), the entire file system is considered
@@ -2248,41 +2167,41 @@ local record unix
   --- the current thread, as well as any threads or processes it spawns.
   --- There are some differences between unveil() on Linux versus OpenBSD.
   --- 1. Build your policy and lock it in one go. On OpenBSD, policies take
-  --- effect immediately and may evolve as you continue to call unveil()
-  --- but only in a more restrictive direction. On Linux, nothing will
-  --- happen until you call `unveil(nil,nil)` which commits and locks.
+  ---  effect immediately and may evolve as you continue to call unveil()
+  ---  but only in a more restrictive direction. On Linux, nothing will
+  ---  happen until you call `unveil(nil,nil)` which commits and locks.
   --- 2. Try not to overlap directory trees. On OpenBSD, if directory trees
-  --- overlap, then the most restrictive policy will be used for a given
-  --- file. On Linux overlapping may result in a less restrictive policy
-  --- and possibly even undefined behavior.
+  ---  overlap, then the most restrictive policy will be used for a given
+  ---  file. On Linux overlapping may result in a less restrictive policy
+  ---  and possibly even undefined behavior.
   --- 3. OpenBSD and Linux disagree on error codes. On OpenBSD, accessing
-  --- paths outside of the allowed set raises ENOENT, and accessing ones
-  --- with incorrect permissions raises EACCES. On Linux, both these
-  --- cases raise EACCES.
+  ---  paths outside of the allowed set raises ENOENT, and accessing ones
+  ---  with incorrect permissions raises EACCES. On Linux, both these
+  ---  cases raise EACCES.
   --- 4. Unlike OpenBSD, Linux does nothing to conceal the existence of
-  --- paths. Even with an unveil() policy in place, it's still possible
-  --- to access the metadata of all files using functions like stat()
-  --- and open(O_PATH), provided you know the path. A sandboxed process
-  --- can always, for example, determine how many bytes of data are in
-  --- /etc/passwd, even if the file isn't readable. But it's still not
-  --- possible to use opendir() and go fishing for paths which weren't
-  --- previously known.
+  ---  paths. Even with an unveil() policy in place, it's still possible
+  ---  to access the metadata of all files using functions like stat()
+  ---  and open(O_PATH), provided you know the path. A sandboxed process
+  ---  can always, for example, determine how many bytes of data are in
+  ---  /etc/passwd, even if the file isn't readable. But it's still not
+  ---  possible to use opendir() and go fishing for paths which weren't
+  ---  previously known.
   --- This system call is supported natively on OpenBSD and polyfilled on
   --- Linux using the Landlock LSM[1].
   --- - `r` makes `path` available for read-only path operations,
-  --- corresponding to the pledge promise "rpath".
+  ---   corresponding to the pledge promise "rpath".
   --- - `w` makes `path` available for write operations, corresponding
-  --- to the pledge promise "wpath".
+  ---   to the pledge promise "wpath".
   --- - `x` makes `path` available for execute operations,
-  --- corresponding to the pledge promises "exec" and "execnative".
+  ---   corresponding to the pledge promises "exec" and "execnative".
   --- - `c` allows `path` to be created and removed, corresponding to
-  --- the pledge promise "cpath".
+  ---   the pledge promise "cpath".
   unveil: function(path: string, permissions: string): boolean, Errno
   --- Breaks down UNIX timestamp into Zulu Time numbers.
   gmtime: function(unixts: number): number, number, number, number, number, number, number, number, number, number, string, Errno
   --- Breaks down UNIX timestamp into local time numbers, e.g.
-  --- >: unix.localtime(unix.clock_gettime())
-  --- 2022    4       28      2       14      22      -25200  4       117     1       "PDT"
+  ---     >: unix.localtime(unix.clock_gettime())
+  ---     2022    4       28      2       14      22      -25200  4       117     1       "PDT"
   --- This follows the same API as `gmtime()` which has further details.
   --- Your redbean ships with a subset of the time zone database.
   --- - `/zip/usr/share/zoneinfo/Honolulu`   Z-10
@@ -2329,38 +2248,25 @@ local record unix
   --- `dirfd` defaults to to `unix.AT_FDCWD` and may optionally be set to
   --- a directory file descriptor to which `path` is relative.
   --- A common use for `fstat()` is getting the size of a file. For example:
-  --- fd = assert(unix.open("hello.txt", unix.O_RDONLY))
-  --- st = assert(unix.fstat(fd))
-  --- Log(kLogInfo, 'hello.txt is %d bytes in size' % {st:size()})
-  --- unix.close(fd)
+  ---     fd = assert(unix.open("hello.txt", unix.O_RDONLY))
+  ---     st = assert(unix.fstat(fd))
+  ---     Log(kLogInfo, 'hello.txt is %d bytes in size' % {st:size()})
+  ---     unix.close(fd)
   fstat: function(fd: number): Stat, Errno
-  --- Gets filesystem statistics for a path.
-  --- Returns information about the filesystem containing the specified file.
-  statfs: function(path: string): Statfs
-  --- Gets filesystem statistics from a file descriptor.
-  --- Returns information about the filesystem containing the open file.
-  fstatfs: function(fd: number): Statfs
-  --- Extracts major device number from a device ID.
-  --- Use with stat():dev() or stat():rdev() to identify device types.
-  major: function(dev: number): number
-  --- Extracts minor device number from a device ID.
-  --- Use with stat():dev() or stat():rdev() to identify specific devices.
-  minor: function(dev: number): number
   --- Opens directory for listing its contents.
   --- For example, to print a simple directory listing:
-  --- Write('<ul>\r\n')
-  --- for name, kind, ino, off in assert(unix.opendir(dir)) do
-  --- if name ~= '.' and name ~= '..' then
-  --- Write('<li>%s\r\n' % {EscapeHtml(name)})
-  --- end
-  --- end
-  --- Write('</ul>\r\n')
+  ---     Write('<ul>\r\n')
+  ---     for name, kind, ino, off in assert(unix.opendir(dir)) do
+  ---         if name ~= '.' and name ~= '..' then
+  ---            Write('<li>%s\r\n' % {EscapeHtml(name)})
+  ---         end
+  ---     end
+  ---     Write('</ul>\r\n')
   opendir: function(path: string): Dir, Errno
   --- Opens directory for listing its contents, via an fd.
-  --- @param fd integer should be created by `open(path, O_RDONLY|O_DIRECTORY)`.
   --- The returned `unix.Dir` takes ownership of the file descriptor
   --- and will close it automatically when garbage collected.
-  fdopendir: function(fd?: any): function, Dir, Errno
+  fdopendir: function(fd: number): function, Dir, Errno
   --- Returns true if file descriptor is a teletypewriter. Otherwise nil
   --- with an Errno object holding one of the following values:
   --- - `ENOTTY` if `fd` is valid but not a teletypewriter
@@ -2369,17 +2275,17 @@ local record unix
   --- No other error numbers are possible.
   isatty: function(fd: number): boolean, Errno
   tiocgwinsz: function(fd: number): number, number, Errno
-  --- Gets the parameters associated with the terminal.
-  --- Returns a Termios table containing terminal attributes on success.
-  --- The returned table contains:
-  --- - `iflag`: input mode flags (BRKINT, ICRNL, etc.)
-  --- - `oflag`: output mode flags (OPOST, ONLCR, etc.)
-  --- - `cflag`: control mode flags (CS8, CREAD, etc.)
-  --- - `lflag`: local mode flags (ECHO, ICANON, ISIG, etc.)
-  --- - `cc`: array of control characters (indexed 1..NCCS)
-  --- - `ispeed`: input baud rate
-  --- - `ospeed`: output baud rate
-  --- Common use: disable echo for password input.
+  --- Gets terminal attributes.
+  --- Returns a termios table containing the terminal I/O settings for the
+  --- specified file descriptor. The table contains these fields:
+  --- - `iflag`: Input mode flags (e.g., `unix.ICRNL`, `unix.IXON`)
+  --- - `oflag`: Output mode flags (e.g., `unix.OPOST`, `unix.ONLCR`)
+  --- - `cflag`: Control mode flags (e.g., `unix.CS8`, `unix.CREAD`)
+  --- - `lflag`: Local mode flags (e.g., `unix.ECHO`, `unix.ICANON`)
+  --- - `cc`: Array of control characters indexed 1 to `unix.NCCS`
+  --- - `ispeed`: Input baud rate
+  --- - `ospeed`: Output baud rate
+  --- Example: reading a password without echoing:
   ---     local tio = unix.tcgetattr(0)
   ---     local old_lflag = tio.lflag
   ---     tio.lflag = tio.lflag & ~unix.ECHO
@@ -2388,13 +2294,16 @@ local record unix
   ---     tio.lflag = old_lflag
   ---     unix.tcsetattr(0, unix.TCSANOW, tio)
   tcgetattr: function(fd: number): Termios, Errno
-  --- Sets the parameters associated with the terminal.
-  --- `action` specifies when the changes take effect:
-  --- - `TCSANOW`: changes occur immediately
-  --- - `TCSADRAIN`: changes occur after all output is transmitted
-  --- - `TCSAFLUSH`: changes occur after all output is transmitted,
-  ---   and all input that has been received but not read is discarded
-  --- `termios` is a table with the same fields as returned by tcgetattr().
+  --- Sets terminal attributes.
+  --- Modifies the terminal I/O settings for the specified file descriptor
+  --- using the provided termios table. The `action` parameter controls when
+  --- the changes take effect:
+  --- - `unix.TCSANOW`: Changes occur immediately
+  --- - `unix.TCSADRAIN`: Changes occur after all output is transmitted
+  --- - `unix.TCSAFLUSH`: Changes occur after output is transmitted and
+  ---   input is discarded
+  --- The termios table should contain the same fields as returned by
+  --- `unix.tcgetattr()`. Missing fields default to zero.
   tcsetattr: function(fd: number, action: number, termios: Termios): boolean, Errno
   --- Returns file descriptor of open anonymous file.
   --- This creates a secure temporary file inside `$TMPDIR`. If it isn't
@@ -2409,6 +2318,56 @@ local record unix
   tmpfd: function(): number, Errno
   --- Relinquishes scheduled quantum.
   sched_yield: function()
+  --- Disassociates parts of the caller's execution context, placing it
+  --- into fresh namespace(s) specified by `flags` (bitwise OR of
+  --- `unix.CLONE_NEW*` constants). Linux-only; returns ENOSYS elsewhere.
+  unshare: function(flags: number): boolean, Errno
+  --- Reassociates the calling thread with the namespace referenced by
+  --- `fd` (typically from `/proc/<pid>/ns/*`). `nstype`, if nonzero,
+  --- must match a `unix.CLONE_NEW*` constant and asserts the kind of
+  --- namespace. Linux-only; returns ENOSYS elsewhere.
+  setns: function(fd: number, nstype?: number): boolean, Errno
+  --- Mounts a filesystem. `flags` is a bitwise OR of `unix.MS_*`
+  --- constants; `data` is a filesystem-specific options string.
+  mount: function(source?: string, target: string, fstype?: string, flags?: number, data?: string): boolean, Errno
+  --- Unmounts a filesystem. On Linux this is the `umount2` syscall.
+  --- `flags` may include `unix.MNT_FORCE`, `unix.MNT_DETACH`,
+  --- `unix.MNT_EXPIRE`, `unix.UMOUNT_NOFOLLOW`.
+  unmount: function(target: string, flags?: number): boolean, Errno
+  --- Moves the root filesystem of the current mount namespace to
+  --- `put_old` and makes `new_root` the new root. Usually paired with
+  --- `chdir("/")` in the child. Requires a private mount namespace.
+  pivot_root: function(new_root: string, put_old: string): boolean, Errno
+  --- Performs an operation on the calling process. `option` is one of
+  --- the `unix.PR_*` constants; remaining arguments are option-specific.
+  --- Returns the integer result (0 for most setters).
+  prctl: function(option: number, arg2?: number, arg3?: number, arg4?: number, arg5?: number): number, Errno
+  --- Returns the calling thread's (or `pid`'s) capability sets as
+  --- 64-bit bitmasks. Each bit position N corresponds to `unix.CAP_*`
+  --- constant N. Linux-only.
+  capget: function(pid?: number): number, number, number, Errno
+  --- Sets the calling thread's (or `pid`'s) capability sets. Each
+  --- argument is a 64-bit bitmask of `1 << unix.CAP_*` bits. Linux-only.
+  capset: function(effective: number, permitted: number, inheritable: number, pid?: number): boolean, Errno
+  --- Generic device control. When `arg` is nil or absent, the ioctl is
+  --- invoked with a null pointer. When `arg` is an integer, it's passed
+  --- by value. When `arg` is a string, a mutable copy of the same size
+  --- is passed to the kernel and the (possibly-modified) buffer of the
+  --- same length is returned.
+  ioctl: function(fd: number, request: number, arg?: number | string): boolean | string, Errno
+  --- Landlock: create ruleset. With no args, returns the kernel's
+  --- supported ABI version. With `handled_access_fs`, creates a new
+  --- ruleset file descriptor that handles the given access categories
+  --- (bitwise OR of `unix.LANDLOCK_ACCESS_FS_*`). Linux 5.13+.
+  landlock_create_ruleset: function(handled_access_fs?: number, flags?: number): number, Errno
+  --- Landlock: add a PATH_BENEATH rule granting `allowed` access to the
+  --- subtree rooted at `parent_fd` (opened with `unix.O_PATH`). `allowed`
+  --- must be a subset of the ruleset's handled set.
+  landlock_add_rule: function(ruleset_fd: number, parent_fd: number, allowed: number, flags?: number): boolean, Errno
+  --- Landlock: apply the ruleset to the current thread (and its future
+  --- children). Caller must set `PR_SET_NO_NEW_PRIVS` first or hold
+  --- `CAP_SYS_ADMIN`. The restriction is irrevocable.
+  landlock_restrict_self: function(ruleset_fd: number, flags?: number): boolean, Errno
   --- Creates interprocess shared memory mapping.
   --- This function allocates special memory that'll be inherited across
   --- fork in a shared way. By default all memory in Redbean is "private"
@@ -2422,29 +2381,29 @@ local record unix
   --- The memory object this function returns may be accessed using its
   --- methods, which support atomics and futexes. It's very low-level.
   --- For example, you can use it to implement scalable mutexes:
-  --- mem = unix.mapshared(8000 * 8)
-  --- LOCK = 0 -- pick an arbitrary word index for lock
-  --- -- From Futexes Are Tricky Version 1.1 § Mutex, Take 3;
-  --- -- Ulrich Drepper, Red Hat Incorporated, June 27, 2004.
-  --- function Lock()
-  --- local ok, old = mem:cmpxchg(LOCK, 0, 1)
-  --- if not ok then
-  --- if old == 1 then
-  --- old = mem:xchg(LOCK, 2)
-  --- end
-  --- while old > 0 do
-  --- mem:wait(LOCK, 2)
-  --- old = mem:xchg(LOCK, 2)
-  --- end
-  --- end
-  --- end
-  --- function Unlock()
-  --- old = mem:add(LOCK, -1)
-  --- if old == 2 then
-  --- mem:store(LOCK, 0)
-  --- mem:wake(LOCK, 1)
-  --- end
-  --- end
+  ---     mem = unix.mapshared(8000 * 8)
+  ---     LOCK = 0 -- pick an arbitrary word index for lock
+  ---     -- From Futexes Are Tricky Version 1.1 § Mutex, Take 3;
+  ---     -- Ulrich Drepper, Red Hat Incorporated, June 27, 2004.
+  ---     function Lock()
+  ---         local ok, old = mem:cmpxchg(LOCK, 0, 1)
+  ---         if not ok then
+  ---             if old == 1 then
+  ---                 old = mem:xchg(LOCK, 2)
+  ---             end
+  ---             while old > 0 do
+  ---                 mem:wait(LOCK, 2)
+  ---                 old = mem:xchg(LOCK, 2)
+  ---             end
+  ---         end
+  ---     end
+  ---     function Unlock()
+  ---         old = mem:add(LOCK, -1)
+  ---         if old == 2 then
+  ---             mem:store(LOCK, 0)
+  ---             mem:wake(LOCK, 1)
+  ---         end
+  ---     end
   --- It's possible to accomplish the same thing as unix.mapshared()
   --- using files and unix.fcntl() advisory locks. However this goes
   --- significantly faster. For example, that's what SQLite does and
@@ -2462,6 +2421,14 @@ local record unix
   --- This system call does not fail. An exception is instead thrown
   --- if sufficient memory isn't available.
   mapshared: function(size: number): Memory
+  --- Extracts the major device number from a device id such as `Stat:rdev()`.
+  major: function(rdev: number): number
+  --- Extracts the minor device number from a device id such as `Stat:rdev()`.
+  minor: function(rdev: number): number
+  --- Gets filesystem statistics for the filesystem that contains `path`.
+  statfs: function(path: string): Statfs, Errno
+  --- Gets filesystem statistics via an open file descriptor.
+  fstatfs: function(fd: number): Statfs, Errno
   --- Signal set for blocking, unblocking, and waiting on signals.
   --- Used with `unix.sigprocmask()`, `unix.sigaction()`, and `unix.sigsuspend()`.
   --- The unix.Sigset class defines a mutable bitset that may currently

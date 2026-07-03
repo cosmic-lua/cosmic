@@ -22,8 +22,8 @@ local function test_convert_type()
   assert(gentype.convert_type("integer[]") == "{number}", "integer[] -> {number}")
 
   -- Table types
-  assert(gentype.convert_type("table<string,any>") == "{string:any}", "table<K,V> -> {K:V}")
-  assert(gentype.convert_type("table<string, any>") == "{string:any}", "table<K, V> with space")
+  assert(gentype.convert_type("table<string,any>") == "{string: any}", "table<K,V> -> {K: V}")
+  assert(gentype.convert_type("table<string, any>") == "{string: any}", "table<K, V> with space")
 
   -- Nullable types render as a Teal union with nil.
   assert(gentype.convert_type("string?") == "string | nil", "string? -> string | nil")

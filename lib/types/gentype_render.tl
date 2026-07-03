@@ -56,7 +56,7 @@ local function convert_type(t: string): string
   base = t:match("^(.+)%[%]$")
   if base then return "{" .. convert_type(base) .. "}" end
   local k, v = t:match("^table<([^,]+),%s*(.+)>$")
-  if k and v then return "{" .. convert_type(k) .. ":" .. convert_type(v) .. "}" end
+  if k and v then return "{" .. convert_type(k) .. ": " .. convert_type(v) .. "}" end
   local fun_match = t:match("^fun%((.*)%)$")
   if fun_match then return "function(" .. fun_match .. ")" end
   fun_match = t:match("^fun%((.*)%):(.+)$")
