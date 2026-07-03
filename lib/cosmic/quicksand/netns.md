@@ -2,9 +2,9 @@
 
  Linux network-namespace primitives.
 
- Thin typed wrappers over cosmo.sandbox.netns plus the pieces of
- cosmo.unix needed to join a netns without pulling in the full
- lunix namespace. All calls are Linux-only and return cosmic's
+ Typed implementation over cosmo.unix: namespace fds, setns/unshare,
+ and SIOC* interface-flag ioctls for bringing loopback up inside a
+ fresh namespace. All calls are Linux-only and return cosmic's
  value,string error shape.
 
  Typical flow in a forked child that wants to live in its own
@@ -31,11 +31,48 @@ local record NetnsModule
   unshare: function(): boolean, string
   bring_up: function(name: string): boolean, string
   bring_down: function(name: string): boolean, string
+  get_flags: function(name: string): integer, string
+  set_flags: function(name: string, flags: integer): boolean, string
   close: function(fd: integer): boolean, string
 end
 ```
 
 ## Functions
+
+### get_flags
+
+```teal
+function get_flags(name: string): integer, string
+```
+
+ Read the current IFF_* flags on `name` in the current net namespace.
+
+**Parameters:**
+
+- `name` (string) - interface name (e.g. "lo")
+
+**Returns:**
+
+- integer? - flags bitmask on success
+- string? - error message on failure
+
+### set_flags
+
+```teal
+function set_flags(name: string, flags: integer): boolean, string
+```
+
+ Set the IFF_* flags on `name` in the current net namespace.
+
+**Parameters:**
+
+- `name` (string) - interface name
+- `flags` (integer) - IFF_* bitmask to write
+
+**Returns:**
+
+- boolean - true on success
+- string? - error message on failure
 
 ### open
 
@@ -46,6 +83,9 @@ function open(pid: integer): integer, string
  Open the network namespace of `pid` as a file descriptor.
  Pass nil (or omit) to open the current process's net namespace.
  Caller owns the fd and must close() it when done.
+ O_CLOEXEC: a namespace fd that leaks across exec into a sandboxed
+ child hands it a setns(2) handle back to the parent namespace — a
+ direct sandbox escape.
 
 **Parameters:**
 
@@ -96,7 +136,8 @@ function unshare(): boolean, string
 function bring_up(name: string): boolean, string
 ```
 
- Bring `name` up in the current net namespace. Idempotent.
+ Bring `name` up in the current net namespace (reads flags, sets
+ IFF_UP, writes them back). Idempotent.
 
 **Parameters:**
 

@@ -9,11 +9,11 @@
  `cosmic.landlock`, `cosmic.pledge`, and `cosmic.unveil` modules to
  compose a full sandbox.
 
- This module (the umbrella) exposes a capability probe so callers
- can fail fast with a specific reason instead of bailing partway
- through setup on ENOSYS. It also re-exports the declarative Box
- builder (cosmic.quicksand.box) that composes the primitives into a
- single run() call.
+ This module (the umbrella) probes the host for fine-grained feature
+ availability so callers can fail fast with a specific reason instead
+ of bailing partway through setup on ENOSYS. It also re-exports the
+ declarative Box builder (cosmic.quicksand.box) that composes the
+ primitives into a single run() call.
 
  Linux-only at runtime. Non-Linux hosts see `capabilities().linux ==
  false` and all submodule calls return ENOSYS-shaped errors.
@@ -73,6 +73,5 @@ function is_supported(): boolean
 ```
 
  True when the namespace-based box primitives can do real work
- (Linux host with net + mount namespaces). Kept for backwards
- compatibility with cosmo.sandbox.is_supported(); prefer
- capabilities() for fine-grained checks.
+ (Linux host with net + mount namespaces). Prefer capabilities()
+ for fine-grained checks.

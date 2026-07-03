@@ -117,3 +117,4 @@ function restrict(opts: RestrictOpts): boolean, string
  Access outside the allowlist fails with EACCES after this returns.
  Access categories above the running kernel's ABI are stripped from
  `handled` automatically, so `cosmic.landlock.ALL` stays portable.
+ The ruleset fd is always closed before return.

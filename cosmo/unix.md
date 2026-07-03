@@ -780,6 +780,57 @@ local record unix Constants
   VSTART: number
   VSTOP: number
   VTIME: number
+  allowed_access: number, flags?: number): boolean, Errno
+  --  @type integer Linux clone flag: new user namespace
+  CLONE_NEWUSER: number
+  --  @type integer Linux clone flag: new mount namespace
+  CLONE_NEWNS: number
+  --  @type integer Linux clone flag: new network namespace
+  CLONE_NEWNET: number
+  --  @type integer Linux clone flag: new UTS (hostname) namespace
+  CLONE_NEWUTS: number
+  --  @type integer Linux clone flag: new pid namespace
+  CLONE_NEWPID: number
+  --  @type integer prctl option: forbid gaining privileges via execve
+  PR_SET_NO_NEW_PRIVS: number
+  --  @type integer maximum interface name length (including NUL)
+  IFNAMSIZ: number
+  --  @type integer ioctl request: get interface flags
+  SIOCGIFFLAGS: number
+  --  @type integer ioctl request: set interface flags
+  SIOCSIFFLAGS: number
+  --  @type integer interface flag: interface is up
+  IFF_UP: number
+  --  @type integer landlock access: execute files
+  LANDLOCK_ACCESS_FS_EXECUTE: number
+  --  @type integer landlock access: write to files
+  LANDLOCK_ACCESS_FS_WRITE_FILE: number
+  --  @type integer landlock access: read files
+  LANDLOCK_ACCESS_FS_READ_FILE: number
+  --  @type integer landlock access: list directories
+  LANDLOCK_ACCESS_FS_READ_DIR: number
+  --  @type integer landlock access: remove directories
+  LANDLOCK_ACCESS_FS_REMOVE_DIR: number
+  --  @type integer landlock access: remove files
+  LANDLOCK_ACCESS_FS_REMOVE_FILE: number
+  --  @type integer landlock access: create character devices
+  LANDLOCK_ACCESS_FS_MAKE_CHAR: number
+  --  @type integer landlock access: create directories
+  LANDLOCK_ACCESS_FS_MAKE_DIR: number
+  --  @type integer landlock access: create regular files
+  LANDLOCK_ACCESS_FS_MAKE_REG: number
+  --  @type integer landlock access: create sockets
+  LANDLOCK_ACCESS_FS_MAKE_SOCK: number
+  --  @type integer landlock access: create FIFOs
+  LANDLOCK_ACCESS_FS_MAKE_FIFO: number
+  --  @type integer landlock access: create block devices
+  LANDLOCK_ACCESS_FS_MAKE_BLOCK: number
+  --  @type integer landlock access: create symlinks
+  LANDLOCK_ACCESS_FS_MAKE_SYM: number
+  --  @type integer landlock access: reparent/link across dirs (ABI 2+)
+  LANDLOCK_ACCESS_FS_REFER: number
+  --  @type integer landlock access: truncate files (ABI 3+)
+  LANDLOCK_ACCESS_FS_TRUNCATE: number
 end
 ```
 
@@ -788,7 +839,7 @@ end
 ### open
 
 ```teal
-function open(path: string, flags: number, mode?: number, dirfd?: number): number
+function open(path: string, flags: number, mode?: number, dirfd?: number): number, Errno
 ```
 
  Opens file.
@@ -843,11 +894,12 @@ function open(path: string, flags: number, mode?: number, dirfd?: number): numbe
 **Returns:**
 
 - number
+- Errno
 
 ### close
 
 ```teal
-function close(fd: number): boolean
+function close(fd: number): boolean, Errno
 ```
 
  Closes file descriptor.
@@ -873,6 +925,7 @@ function close(fd: number): boolean
 **Returns:**
 
 - boolean
+- Errno
 
 ### read
 
@@ -2671,7 +2724,7 @@ function ftruncate(fd: number, length?: number): boolean
 ### socket
 
 ```teal
-function socket(family?: number, type?: number, protocol?: number): number
+function socket(family?: number, type?: number, protocol?: number): number, Errno
 ```
 
  - `AF_INET`: Creates Internet Protocol Version 4 (IPv4) socket.
@@ -2701,6 +2754,7 @@ function socket(family?: number, type?: number, protocol?: number): number
 **Returns:**
 
 - number
+- Errno
 
 ### socketpair
 
@@ -3053,6 +3107,114 @@ function sethostname(name: string): boolean, Errno
 
 - boolean
 - Errno
+
+### unshare
+
+```teal
+function unshare(flags: number): boolean, Errno
+```
+
+ Disassociates parts of the process execution context. `flags` is
+ an OR of `CLONE_NEW*` constants.
+
+**Parameters:**
+
+- `flags` (number)
+
+**Returns:**
+
+- boolean
+- Errno
+
+### setns
+
+```teal
+function setns(fd: number, nstype?: number): boolean, Errno
+```
+
+ Reassociates the calling thread with the namespace referred to by
+ `fd` (e.g. an fd for `/proc/<pid>/ns/net`).
+
+**Parameters:**
+
+- `fd` (number)
+- `nstype` (number)
+
+**Returns:**
+
+- boolean
+- Errno
+
+### pivot_root
+
+```teal
+function pivot_root(new_root: string, put_old: string): boolean, Errno
+```
+
+ Moves the root filesystem to `put_old` and makes `new_root` the
+ new root. Requires a mount namespace.
+
+**Parameters:**
+
+- `new_root` (string)
+- `put_old` (string)
+
+**Returns:**
+
+- boolean
+- Errno
+
+### prctl
+
+```teal
+function prctl(option: number, arg2?: number, arg3?: number,
+```
+
+ Operations on a process, e.g. `prctl(PR_SET_NO_NEW_PRIVS, 1)`.
+
+### ioctl
+
+```teal
+function ioctl(fd: number, request: number, arg?: string | number):
+```
+
+ Generic device control. When `arg` is a string (e.g. a packed
+ `struct ifreq`), the kernel-modified buffer is returned as a new
+ string on success.
+
+**Parameters:**
+
+- `fd` (number)
+- `request` (number)
+- `arg` (string | number)
+
+### landlock_create_ruleset
+
+```teal
+function landlock_create_ruleset(handled_access_fs?: number,
+```
+
+ With no arguments, returns the kernel's landlock ABI version
+ (>= 1 when landlock is available). With a `handled_access_fs`
+ mask, creates a ruleset and returns its file descriptor.
+
+### landlock_add_rule
+
+```teal
+function landlock_add_rule(ruleset_fd: number, parent_fd: number,
+```
+
+ Adds a path-beneath rule to a ruleset. `parent_fd` is an
+ `O_PATH` fd for the rule's root path.
+
+### landlock_restrict_self
+
+```teal
+function landlock_restrict_self(ruleset_fd: number,
+```
+
+ Enforces a ruleset on the calling thread. Requires
+ `PR_SET_NO_NEW_PRIVS` (or `CAP_SYS_ADMIN`). Irreversible.
 
 ### listen
 
