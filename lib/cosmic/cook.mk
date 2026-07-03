@@ -23,9 +23,13 @@ $(cosmic_version_lua): .FORCE | $$(cosmos_staged)
 
 .PHONY: .FORCE
 
-$(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(teal-types_staged) $$(doc_index) $(cosmic_version_lua) $(cosmic_sys) $(cosmic_skills)
+$(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(teal-types_staged) $$(doc_index) $(cosmic_version_lua) $(cosmic_sys) $(cosmic_skills) $(cosmos_sandbox_lua)
 	@rm -rf $(cosmic_built)
 	@mkdir -p $(cosmic_built)/.lua/cosmic $(cosmic_built)/.tl/cosmic $(@D)
+	@mkdir -p $(cosmic_built)/.lua/cosmo/sandbox
+	@for f in $(cosmos_sandbox_lua); do \
+		$(cp) "$$f" $(cosmic_built)/.lua/cosmo/sandbox/; \
+	done
 	@for f in $(cosmic_lua); do \
 		rel="$${f#$(o)/lib/cosmic/}"; \
 		dst="$(cosmic_built)/.lua/cosmic/$$rel"; \

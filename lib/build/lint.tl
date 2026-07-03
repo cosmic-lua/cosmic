@@ -139,10 +139,17 @@ local function check_call_after_define(file: string, lines: {string}): {Diagnost
   return diagnostics
 end
 
+--- Files exempt from lint: .d.tl type declaration files (they describe C
+--- binding interfaces and cannot be split due to Teal's record system) and
+--- vendored Lua under 3p/ (imported verbatim from upstream projects; kept
+--- byte-identical to ease diffing until rewritten in Teal).
+local function is_exempt(path: string): boolean
+  return path:match("%.d%.tl$") ~= nil
+    or path:match("^3p/.*%.lua$") ~= nil
+end
+
 local function lint_file(path: string): {Diagnostic}
-  -- Skip .d.tl type declaration files — they describe C binding interfaces
-  -- and cannot be split due to Teal's record system.
-  if path:match("%.d%.tl$") then
+  if is_exempt(path) then
     return {}
   end
 
@@ -201,7 +208,7 @@ local function main(...: string): integer
   for _, file in ipairs(files) do
     -- The standalone lint binary only enforces file-length (run on all tracked files).
     -- Column-length and assert-order are enforced via --check-style on .tl files.
-    if not file:match("%.d%.tl$") then
+    if not is_exempt(file) then
       local n = count_lines(file)
       local diags = check_file_length(file, n, DEFAULT_FILE_LINES)
       for _, d in ipairs(diags) do
