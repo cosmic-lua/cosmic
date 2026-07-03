@@ -303,9 +303,12 @@ local record Stat
   --  depending on the operating system. `unix.major()` and `unix.minor()`
   --  may be used to extract the device numbers.
   rdev: function(self: Stat): number
-  nlink: function(self: Stat): any
-  gen: function(self: Stat): any
-  flags: function(self: Stat): any
+  --  Number of hard links to the file.
+  nlink: function(self: Stat): number
+  --  Inode generation number.
+  gen: function(self: Stat): number
+  --  User-defined flags on the file.
+  flags: function(self: Stat): number
 end
 ```
 
@@ -632,6 +635,13 @@ local record unix Constants
   RUSAGE_CHILDREN: number
   RUSAGE_SELF: number
   RUSAGE_THREAD: number
+  SC_ARG_MAX: number
+  SC_CHILD_MAX: number
+  SC_CLK_TCK: number
+  SC_OPEN_MAX: number
+  SC_PAGESIZE: number
+  SC_NPROCESSORS_CONF: number
+  SC_NPROCESSORS_ONLN: number
   R_OK: number
   SA_NOCLDSTOP: number
   SA_NOCLDWAIT: number
@@ -3119,6 +3129,38 @@ function sethostname(name: string): boolean, Errno
 
 - boolean
 - Errno
+
+### sysconf
+
+```teal
+function sysconf(name: number): number
+```
+
+ Returns a runtime system configuration value. `name` is one of the
+ `unix.SC_*` constants (e.g. `SC_NPROCESSORS_ONLN`, `SC_PAGESIZE`).
+ Returns `(nil, Errno)` on failure.
+
+**Parameters:**
+
+- `name` (number)
+
+**Returns:**
+
+- number
+
+### uname
+
+```teal
+function uname(): any
+```
+
+ Returns operating system and hardware identification as a table with
+ `sysname`, `nodename`, `release`, `version`, `machine`, and
+ `domainname` string fields. Returns `(nil, Errno)` on failure.
+
+**Returns:**
+
+- any
 
 ### unshare
 
