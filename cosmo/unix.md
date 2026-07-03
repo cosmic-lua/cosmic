@@ -780,6 +780,7 @@ local record unix Constants
   VSTART: number
   VSTOP: number
   VTIME: number
+  inheritable: number): boolean, Errno
   allowed_access: number, flags?: number): boolean, Errno
   --  @type integer Linux clone flag: new user namespace
   CLONE_NEWUSER: number
@@ -793,6 +794,8 @@ local record unix Constants
   CLONE_NEWPID: number
   --  @type integer prctl option: forbid gaining privileges via execve
   PR_SET_NO_NEW_PRIVS: number
+  --  @type integer prctl option: preserve capabilities across setuid
+  PR_SET_KEEPCAPS: number
   --  @type integer maximum interface name length (including NUL)
   IFNAMSIZ: number
   --  @type integer ioctl request: get interface flags
@@ -951,7 +954,7 @@ function read(fd: number, bufsiz?: number, offset?: number): string
 ### write
 
 ```teal
-function write(fd: number, data: string, offset?: number): number
+function write(fd: number, data: string, offset?: number): number, Errno
 ```
 
  Writes to file descriptor.
@@ -965,6 +968,7 @@ function write(fd: number, data: string, offset?: number): number
 **Returns:**
 
 - number
+- Errno
 
 ### exit
 
@@ -1079,7 +1083,7 @@ function getlogin()
 ### fork
 
 ```teal
-function fork(): number | number
+function fork(): number, Errno
 ```
 
  Creates a new process mitosis style.
@@ -1140,7 +1144,8 @@ function fork(): number | number
 
 **Returns:**
 
-- number | number
+- number
+- Errno
 
 ### commandv
 
@@ -2430,7 +2435,7 @@ function setgid(gid: number): boolean
 ### setresuid
 
 ```teal
-function setresuid(real: number, effective: number, saved: number): boolean
+function setresuid(real: number, effective: number, saved: number): boolean, Errno
 ```
 
  Sets real, effective, and saved user ids.
@@ -2447,11 +2452,12 @@ function setresuid(real: number, effective: number, saved: number): boolean
 **Returns:**
 
 - boolean
+- Errno
 
 ### setresgid
 
 ```teal
-function setresgid(real: number, effective: number, saved: number): boolean
+function setresgid(real: number, effective: number, saved: number): boolean, Errno
 ```
 
  Sets real, effective, and saved group ids.
@@ -2468,6 +2474,7 @@ function setresgid(real: number, effective: number, saved: number): boolean
 **Returns:**
 
 - boolean
+- Errno
 
 ### umask
 
@@ -2784,7 +2791,7 @@ function socketpair(family?: number, type?: number, protocol?: number): number, 
 ### bind
 
 ```teal
-function bind(fd: number, ip?: number, port?: number): boolean
+function bind(fd: number, ip?: number, port?: number): boolean, Errno
 ```
 
  Binds socket.
@@ -2818,6 +2825,7 @@ function bind(fd: number, ip?: number, port?: number): boolean
 **Returns:**
 
 - boolean
+- Errno
 
 ### siocgifconf
 
@@ -3172,6 +3180,16 @@ function prctl(option: number, arg2?: number, arg3?: number,
 
  Operations on a process, e.g. `prctl(PR_SET_NO_NEW_PRIVS, 1)`.
 
+### capset
+
+```teal
+function capset(effective: number, permitted: number,
+```
+
+ Sets the calling process's capability sets. `capset(0, 0, 0)`
+ clears the effective, permitted, and inheritable sets — the final
+ step of a full privilege drop.
+
 ### ioctl
 
 ```teal
@@ -3219,7 +3237,7 @@ function landlock_restrict_self(ruleset_fd: number,
 ### listen
 
 ```teal
-function listen(fd: number, backlog?: number): boolean
+function listen(fd: number, backlog?: number): boolean, Errno
 ```
 
  Begins listening for incoming connections on a socket.
@@ -3232,6 +3250,7 @@ function listen(fd: number, backlog?: number): boolean
 **Returns:**
 
 - boolean
+- Errno
 
 ### accept
 
@@ -3258,7 +3277,7 @@ function accept(serverfd: number, flags?: number): number, number, number
 ### connect
 
 ```teal
-function connect(fd: number, ip: number, port: number): boolean
+function connect(fd: number, ip: number, port: number): boolean, Errno
 ```
 
  Connects a TCP socket to a remote host.
@@ -3275,6 +3294,7 @@ function connect(fd: number, ip: number, port: number): boolean
 **Returns:**
 
 - boolean
+- Errno
 
 ### getsockname
 
@@ -3315,7 +3335,7 @@ function getpeername(fd: number): number, number
 ### recv
 
 ```teal
-function recv(fd: number, bufsiz?: number, flags?: number): string
+function recv(fd: number, bufsiz?: number, flags?: number): string, Errno
 ```
 
  - `MSG_WAITALL`
@@ -3332,6 +3352,7 @@ function recv(fd: number, bufsiz?: number, flags?: number): string
 **Returns:**
 
 - string
+- Errno
 
 ### recvfrom
 
@@ -3359,7 +3380,7 @@ function recvfrom(fd: number, bufsiz?: number, flags?: number): string, number, 
 ### send
 
 ```teal
-function send(fd: number, data: string, flags?: number): number
+function send(fd: number, data: string, flags?: number, offset?: number): number, Errno
 ```
 
  This is the same as `write` except it has a `flags` argument
@@ -3368,16 +3389,20 @@ function send(fd: number, data: string, flags?: number): number
  - `MSG_OOB`: Send stream data through out of bound channel
  - `MSG_DONTROUTE`: Don't go through gateway (for diagnostics)
  - `MSG_MORE`: Manual corking to belay nodelay (0 on non-Linux)
+ `offset` skips that many leading bytes of `data`, allowing
+ short-write resume loops without reallocating tail substrings.
 
 **Parameters:**
 
 - `fd` (number)
 - `data` (string)
 - `flags` (number)
+- `offset` (number)
 
 **Returns:**
 
 - number
+- Errno
 
 ### sendto
 

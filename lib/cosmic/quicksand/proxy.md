@@ -2,16 +2,21 @@
 
  Allowlist HTTP CONNECT + plain-HTTP proxy for sandboxed egress.
 
- Typed wrapper over cosmo.sandbox.proxy. The proxy binds inside a
- child's network namespace (the only thing the sandboxed workload
- can reach) and dials upstream in a different namespace, so a
- netns-isolated child can reach a narrow set of approved hosts and
- nothing else.
+ The proxy binds inside a child's network namespace (the only thing
+ the sandboxed workload can reach) and dials upstream in a
+ different namespace, so a netns-isolated child can reach a narrow
+ set of approved hosts and nothing else. Non-public upstream IPs
+ are refused after DNS resolution (SSRF protection), and per-dial
+ resolution is deadline-bounded so a tarpitting resolver can't
+ wedge a worker.
 
- start(opts) forks the listener into a child process and returns a
- ProxyHandle with the bound pid and port. handle:stop() sends
- SIGTERM (escalating to SIGKILL after a timeout) and reaps the
- child; handle:alive() is a non-blocking liveness check.
+ start(opts) validates the allowlist, forks the listener into a
+ child process, and returns a ProxyHandle with the bound pid and
+ port. handle:stop() sends SIGTERM (escalating to SIGKILL after a
+ timeout) and reaps the child; handle:alive() is a non-blocking
+ liveness check. Implementation lives in cosmic.quicksand.proxy.*
+ (rules, http, dial, serve); advanced callers needing a non-forking
+ server can use cosmic.quicksand.proxy.serve directly.
 
  Rule schema (allowed_hosts):
 
@@ -28,47 +33,14 @@
                                      header_value = "..." },
    }
 
- Host specs: `host`, `host:port`, `host:*`, `*.suffix`, `*.suffix:port`.
- An empty rule table is pass-through (allow, no header injection).
- Header injection happens on plain HTTP only; CONNECT is opaque.
+ Host specs: `host`, `host:port`, `host:*`, `*.suffix`,
+ `*.suffix:port`. An empty rule table is pass-through (allow, no
+ header injection). Header injection happens on plain HTTP only;
+ CONNECT is opaque. Malformed rules (unknown `type`, missing
+ fields) make start() fail loudly instead of degrading to
+ pass-through.
 
 ## Types
-
-### ProxyRule
-
- A single allowlist rule. `type` nil means pass-through (allowed,
- no header injection). Fields not relevant to the chosen type are
- ignored. Unknown `type` values behave as pass-through.
-
-```teal
-local record ProxyRule
-  type: string
-  token: string
-  username: string
-  password: string
-  header_name: string
-  header_value: string
-end
-```
-
-### ProxyOptions
-
- Options for start() / new().
-
-```teal
-local record ProxyOptions
-  bind_ip: integer
-  bind_port: integer
-  allowed_hosts: {string: ProxyRule}
-  upstream_ns_fd: integer
-  log_level: string
-  log_format: string
-  log_file: string
-  accept_backlog: integer
-  resolve_timeout_ms: integer
-  on_log: function({string: any})
-end
-```
 
 ### ProxyHandle
 
@@ -81,7 +53,7 @@ end
 local record ProxyHandle
   pid: integer
   port: integer
-  stop: function(self: ProxyHandle, timeout_ms?: integer)
+  stop: function(self: ProxyHandle, timeout_ms?: integer): boolean
   alive: function(self: ProxyHandle): boolean
 end
 ```
@@ -102,9 +74,11 @@ end
 function start(opts: ProxyOptions): ProxyHandle, string
 ```
 
- Fork a proxy listener into a child process. The parent blocks
- until the child has bound and listened, so handle.port is valid
- immediately on return.
+ Fork a proxy listener into a child process. The allowlist is
+ validated before forking, so schema errors surface here. The
+ parent blocks until the child has bound and listened (the bound
+ port comes back over a pipe), so handle.port is valid immediately
+ on return.
 
 **Parameters:**
 
