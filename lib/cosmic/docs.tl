@@ -400,6 +400,12 @@ local function run(query?: string): DocsResult
     return {ok = true, output = docs_render.render_module(query, index.modules[query])}
   end
 
+  -- Bare module names short-circuit to their cosmic.* page, not fuzzy search
+  if index.modules["cosmic." .. query] then
+    local full = "cosmic." .. query
+    return {ok = true, output = docs_render.render_module(full, index.modules[full])}
+  end
+
   -- Try splitting query into module + remainder by iterating splits longest-to-shortest
   local parts: {string} = {}
   for part in query:gmatch("[^%.]+") do
@@ -410,6 +416,9 @@ local function run(query?: string): DocsResult
   local remainder: {string} = {}
   for i = #parts - 1, 1, -1 do
     local candidate = table.concat(parts, ".", 1, i)
+    if not index.modules[candidate] and index.modules["cosmic." .. candidate] then
+      candidate = "cosmic." .. candidate
+    end
     if index.modules[candidate] then
       matched_mod = candidate
       for j = i + 1, #parts do

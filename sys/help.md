@@ -18,8 +18,10 @@ Cosmic options:
   --extract <dir>               extract zip contents to directory
   --benchmark <file.tl[:pat]>   run Benchmark_* functions, report timing
   --docs [query]                show documentation for module, symbol, or guide
-  --test <output> <cmd>...      run command, write .got/.out/.err
-  --report <paths>...           report on test results
+  --test <output> <cmd>...      run test, write <output>.{got,out,err}
+                                e.g. cosmic --test o/foo ./cosmic foo_test.tl
+  --report <paths>...           report on .got files written by --test
+                                e.g. cosmic --report o/foo.got
   --make [dir] [target]         generate Makefile, pipe to make -f -
   --skill <dir>                 write agent skill file (SKILL.md) to directory
   --welcome                     show welcome message

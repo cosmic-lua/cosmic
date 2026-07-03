@@ -87,8 +87,6 @@ local function make_pipe(fd: number): Pipe
   return pipe
 end
 
--- Low-level primitives --
-
 --- Creates a new process (fork).
 --- @return number The child process id in parent, 0 in child
 local function fork(): number
@@ -189,6 +187,7 @@ end
 --- Spawns a child process with I/O control. Uses fexecve for /zip/ paths.
 --- When Opts.stdout/stderr are fds they are dup2'd into child (handle fields
 --- nil); MUST close the write end before reading. See Example_spawn_pipe.
+--- To spawn cosmic itself, use `rawget(arg, -1)` — NOT arg[0] (gotchas #7).
 --- @param argv {string} Command and arguments
 --- @param opts Opts? Spawn options
 --- @return Handle, string? Process handle or nil + error

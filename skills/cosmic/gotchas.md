@@ -155,3 +155,51 @@ local child = require("cosmic.child")
 local cosmic_bin = rawget(arg, -1) as string  -- e.g. "./cosmic"
 local h = child.spawn({cosmic_bin, "worker.tl"})
 ```
+
+## 8. `print(f(...))` prints every return value
+
+most cosmic functions return `(value, error)`. passing such a call directly
+as the last argument to `print` (or any function) passes BOTH returns —
+`print` renders the trailing `nil` as literal text, tab-separated. this
+passes the type checker and only shows up in the output.
+
+**wrong:**
+```teal
+print(json.encode(result))
+-- prints: {"count":6}	nil
+```
+
+**right:**
+```teal
+local encoded, err = json.encode(result)
+if err then
+  io.stderr:write("encode failed: " .. err .. "\n")
+  os.exit(1)
+end
+print(encoded)
+```
+
+(parenthesizing the call — `print((json.encode(result)))` — also truncates
+to one value, but capturing lets you check the error.)
+
+## 9. `os.exit` requires `integer | boolean`, not `number`
+
+a `main` function declared to return `number` breaks `os.exit(main())`
+with `got number, expected integer | boolean`.
+
+**wrong:**
+```teal
+local function main(): number
+  return 0
+end
+os.exit(main())
+```
+
+**right:**
+```teal
+local function main(): integer
+  return 0
+end
+os.exit(main())
+-- or convert at the call site: os.exit(math.tointeger(code) or 1)
+```
