@@ -18,6 +18,7 @@
 local cosmo = require("cosmo")
 local unix = require("cosmo.unix")
 local box = require("cosmic.quicksand.box")
+local caps = require("cosmic.quicksand.caps")
 local Errno = require("cosmic.errno").Errno
 
 --- Fine-grained feature availability on the current host.
@@ -36,6 +37,7 @@ local record Capabilities
   landlock: boolean -- kernel advertises landlock ABI >= 1
   pledge: boolean -- unix.pledge non-ENOSYS (Linux via seccomp + OpenBSD)
   unveil: boolean -- unix.unveil non-ENOSYS (OpenBSD, or Linux+Landlock)
+  caps: boolean -- prctl capability bounding-set API available (PR_CAPBSET_*)
 end
 
 local record QuicksandModule
@@ -85,6 +87,7 @@ local function capabilities(): Capabilities
     landlock = is_linux and probe_landlock(),
     pledge = probe_nop(unix.pledge),
     unveil = probe_nop(unix.unveil),
+    caps = is_linux and caps.supported(),
   }
   return cached
 end

@@ -23,6 +23,7 @@ local unix = require("cosmo.unix")
 local cosmo = require("cosmo")
 local netns = require("cosmic.quicksand.netns")
 local qproc = require("cosmic.quicksand.proc")
+local qcaps = require("cosmic.quicksand.caps")
 local proxy = require("cosmic.quicksand.proxy")
 local landlock = require("cosmic.landlock")
 local pledge = require("cosmic.pledge")
@@ -110,6 +111,12 @@ local function workload_setup(opts: {string: any}): string
   if pr and (pr.no_new_privs or pr.uid ~= nil) then
     local ok, err = qproc.no_new_privs()
     if not ok then return "no_new_privs: " .. tostring(err) end
+  end
+  -- Drop the capability bounding set before drop_privs: that step's
+  -- capset(0,0,0) clears CAP_SETPCAP, which PR_CAPBSET_DROP requires.
+  if pr and (pr.drop_caps or (pr.keep_caps and #(pr.keep_caps as {string}) > 0)) then
+    local ok, err = qcaps.drop_bounding({keep = pr.keep_caps as {string}})
+    if not ok then return "drop_caps: " .. tostring(err) end
   end
   if pr and pr.uid ~= nil then
     local gid = pr.gid

@@ -38,6 +38,7 @@ local function test_new_rejects_bad_types()
     {opts = {hostname = {}}, want = "hostname"},
     {opts = {proc = {uid = "x"}}, want = "proc.uid"},
     {opts = {proc = {pledge = 1}}, want = "proc.pledge"},
+    {opts = {proc = {keep_caps = "x"}}, want = "proc.keep_caps"},
     {opts = {net = {allow = "x"}}, want = "net.allow"},
     {opts = {fs = {ro = "x"}}, want = "fs.ro"},
   }
