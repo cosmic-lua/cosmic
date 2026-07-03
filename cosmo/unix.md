@@ -595,6 +595,10 @@ local record unix Constants
   O_RSYNC: number
   O_SYNC: number
   O_NOATIME: number
+  --  Open a pure path reference: usable for fstat/openat-style
+  --  operations (and landlock rule fds) even when the caller cannot
+  --  read the file. Linux-only; 0 elsewhere.
+  O_PATH: number
   O_ACCMODE: number
   O_EXEC: number
   O_NOCTTY: number
