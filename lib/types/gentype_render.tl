@@ -28,6 +28,11 @@ local TYPE_ALIASES = {
 local function convert_type(t: string): string
   if not t or t == "" then return "any" end
   t = t:match("^%s*(.-)%s*$")
+  -- A type fully wrapped in parentheses (LuaLS groups unions this way, e.g.
+  -- `(true | string)`) is unwrapped and converted on its own. Guard against
+  -- `fun(...)` which also contains parens but never starts with one.
+  local grouped = t:match("^%((.+)%)$")
+  if grouped then return convert_type(grouped) end
   if t:match("^{%s*[%w_]+%s*:%s*") then return "any" end
   if t:match("`") then return "any" end
   if TYPE_ALIASES[t] then return TYPE_ALIASES[t] end
@@ -51,7 +56,7 @@ local function convert_type(t: string): string
   base = t:match("^(.+)%[%]$")
   if base then return "{" .. convert_type(base) .. "}" end
   local k, v = t:match("^table<([^,]+),%s*(.+)>$")
-  if k and v then return "{" .. convert_type(k) .. ":" .. convert_type(v) .. "}" end
+  if k and v then return "{" .. convert_type(k) .. ": " .. convert_type(v) .. "}" end
   local fun_match = t:match("^fun%((.*)%)$")
   if fun_match then return "function(" .. fun_match .. ")" end
   fun_match = t:match("^fun%((.*)%):(.+)$")
@@ -146,11 +151,17 @@ local function generate_dtl(module: ModuleDecl): string
         local params_str = table.concat(params_parts, ", ")
 
         local ret_str = ""
-        if #method.returns > 0 then
+        do
           local ret_types: {string} = {}
           for _, r in ipairs(method.returns) do
             if r.description ~= "type" then
               table.insert(ret_types, convert_type(r.return_type))
+            end
+          end
+          if method.fallible and #ret_types > 0 then
+            local et = convert_type(method.error_type or "unix.Errno")
+            if ret_types[#ret_types] ~= et then
+              table.insert(ret_types, et)
             end
           end
           if #ret_types > 0 then
@@ -200,11 +211,17 @@ local function generate_dtl(module: ModuleDecl): string
     local params_str = table.concat(params_parts, ", ")
 
     local ret_str = ""
-    if #func.returns > 0 then
+    do
       local ret_types: {string} = {}
       for _, r in ipairs(func.returns) do
         if r.description ~= "type" then
           table.insert(ret_types, convert_type(r.return_type))
+        end
+      end
+      if func.fallible and #ret_types > 0 then
+        local et = convert_type(func.error_type or "unix.Errno")
+        if ret_types[#ret_types] ~= et then
+          table.insert(ret_types, et)
         end
       end
       if #ret_types > 0 then

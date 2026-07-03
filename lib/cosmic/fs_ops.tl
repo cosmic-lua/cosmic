@@ -104,7 +104,7 @@ end
 --- @param mode number Access mode: F_OK (exists), R_OK, W_OK, X_OK
 --- @return boolean True if access is allowed
 local function access(path: string, mode: number): boolean
-  return unix.access(path, mode)
+  return (unix.access(path, mode))
 end
 
 --- Change file permissions.
