@@ -220,6 +220,10 @@ local function handle_check_format(file: string): integer
       local have = orig_lines[i] or "<eof>"
       local want = fmt_lines[i] or "<eof>"
       io.stderr:write(string.format("%s:%d: format mismatch\n", file, i))
+      -- Context before the mismatch makes indentation-level errors legible
+      for c = math.max(1, i - 2), i - 1 do
+        io.stderr:write(string.format("        %s\n", orig_lines[c]))
+      end
       -- When lines look identical but differ only in whitespace, render it visibly
       if have:gsub("%s", "") == want:gsub("%s", "") then
         io.stderr:write(string.format("  have: %s  (whitespace differs)\n", render_whitespace(have)))
