@@ -1,12 +1,10 @@
 #!/usr/bin/env cosmic
 local caps = require("cosmic.quicksand.caps")
 local quicksand = require("cosmic.quicksand")
-local io_mod = require("cosmic.io")
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
 
 local test_bin = os.getenv("TEST_BIN")
-local tmpdir = os.getenv("TEST_TMPDIR")
 
 local function test_module_exports()
   assert(type(caps.supported) == "function")
@@ -88,25 +86,22 @@ test_drop_bounding_bad_keep()
 -- cannot strip this test runner's own bounding set. After a successful
 -- PR_CAPBSET_DROP, the capability must read back as absent. Unprivileged
 -- hosts (no CAP_SETPCAP) return a graceful error and the child skips.
+-- Run via `cosmic -e` so the test needs no writable temp file (the outer
+-- build sandbox does not always grant one).
+local CHILD_DROP = table.concat({
+    'local caps = require("cosmic.quicksand.caps")',
+    'if not caps.supported() then io.write("skipped: unsupported\\n") os.exit(0) end',
+    'local ok, err = caps.bounding_drop("CAP_CHOWN")',
+    'if not ok then io.write("skipped: " .. tostring(err) .. "\\n") os.exit(0) end',
+    'local after = caps.bounding_read("CAP_CHOWN")',
+    'if after == false then io.write("dropped\\n") else io.write("bad: after=" .. tostring(after) .. "\\n") end',
+  }, "\n")
+
 local function test_drop_bounding_child()
   local c = quicksand.capabilities()
   if not c.linux or not test_bin then return end
-  local script = fs.join(tmpdir, "caps_drop.lua")
-  local ok_write = io_mod.barf(script, [[
-local caps = require("cosmic.quicksand.caps")
-if not caps.supported() then io.write("skipped: unsupported\n") os.exit(0) end
-local ok, err = caps.bounding_drop("CAP_CHOWN")
-if not ok then io.write("skipped: " .. tostring(err) .. "\n") os.exit(0) end
-local after = caps.bounding_read("CAP_CHOWN")
-if after == false then
-  io.write("dropped\n")
-else
-  io.write("bad: after=" .. tostring(after) .. "\n")
-end
-]])
-  assert(ok_write, "should write child script")
   local cosmic = fs.join(test_bin, "cosmic")
-  local ok, out = spawn.spawn({cosmic, script}):read()
+  local ok, out = spawn.spawn({cosmic, "-e", CHILD_DROP}):read()
   if not ok then return end
   local s = out as string
   assert(s:find("dropped") or s:find("skipped"),
