@@ -50,11 +50,36 @@ end
 local record QuicksandModule
   capabilities: function(): Capabilities
   is_supported: function(): boolean
+  probe: function(fn: any): boolean
   Box: any
 end
 ```
 
 ## Functions
+
+### probe
+
+```teal
+function probe(fn: any): boolean
+```
+
+ Probe a pledge/unveil-style binding with a no-op call: available
+ when the call succeeds, or fails with anything other than ENOSYS
+ (a policy error still proves the syscall is wired up). A nil binding
+ (not exported on this host) reports unavailable.
+ This classification is only correct because a failed `unix.*` call now
+ returns a real `Errno` in its second slot (the Phase 0 annotation fix):
+ before it, the error was swallowed and every probe reported available
+ (fail-open, audit §2.3). Exported so the classifier is unit-testable
+ against synthetic ENOSYS / policy-error / success returns.
+
+**Parameters:**
+
+- `fn` (any) - the binding to probe (e.g. `unix.pledge`), or nil
+
+**Returns:**
+
+- boolean - true when the syscall is wired up on this host
 
 ### capabilities
 
