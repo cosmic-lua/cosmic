@@ -37,3 +37,28 @@ jobs:
               echo
             fi
           done
+
+  # Privileged, unsandboxed lane that actually exercises the sandbox
+  # primitives (audit §5.1). `make ci` runs under landlock-make, where the
+  # sandbox tests skip their enforcement assertions; this lane runs them with
+  # no outer sandbox and COSMIC_ENFORCE=1 so a silent skip becomes a failure,
+  # and a tripwire fails the lane if nothing enforced at all.
+  enforce:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: make enforce
+        shell: bash -x {0}
+        run: bin/make -j enforce
+
+      - name: dump enforcement output
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          for f in $(find o/enforce -name '*.out' -o -name '*.err' 2>/dev/null); do
+            echo "===== $f ====="
+            cat "$f" 2>/dev/null || true
+            echo
+          done

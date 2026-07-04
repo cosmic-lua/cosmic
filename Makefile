@@ -168,6 +168,42 @@ $(foreach m,$(filter-out bootstrap,$(modules)),\
       $(eval $(patsubst %,$(o)/%.test.got,$($(m)_tests)): TEST_DEPS += $($(d)_dir)))\
     $(eval $(patsubst %,$(o)/%.test.got,$($(m)_tests)): $($(d)_files) $($(d)_lua))))
 
+# Privileged enforcement lane (Phase 1 step 8 prerequisite, audit §5.1).
+# The sandbox tests carry "outer sandbox blocked this -> skip" escape hatches,
+# so under CI's own landlock-make sandbox their enforcement assertions silently
+# degrade to no-ops and nothing alarms when everything skips. This lane runs the
+# sandbox-primitive tests with NO outer sandbox (empty .PLEDGE/.UNVEIL, like the
+# quicksand namespace tests) and COSMIC_ENFORCE=1, so a test that cannot exercise
+# real enforcement fails loudly instead of skipping. The tripwire then fails the
+# lane if *nothing* enforced (the "unexpectedly-everything-skipped" alarm), which
+# would mean the lane is not actually unsandboxed and is silently a no-op.
+enforce_srcs := \
+  lib/cosmic/pledge_test.tl \
+  lib/cosmic/landlock_test.tl \
+  lib/cosmic/unveil_test.tl
+enforce_got := $(patsubst %,$(o)/enforce/%.test.got,$(enforce_srcs))
+
+.PHONY: enforce
+## Run sandbox enforcement tests unsandboxed with COSMIC_ENFORCE=1 (privileged lane)
+enforce: $(o)/enforce-summary.txt
+
+# Drop the outer sandbox for these targets so enforcement actually runs.
+$(enforce_got): .PLEDGE =
+$(enforce_got): .UNVEIL =
+
+$(o)/enforce/%.tl.test.got: $(o)/%.lua $(cosmic_bin) | $(cosmic_bin)
+	@mkdir -p $(@D)
+	@TEST_BIN=$(o)/bin COSMIC_ENFORCE=1 PATH=$(CURDIR)/$(o)/bin:$$PATH \
+	  $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
+
+$(o)/enforce-summary.txt: $(enforce_got) | $(cosmic_bin)
+	@$(cosmic_bin) --report $^ | tee $@
+	@if ! grep -rqs "enforce-ran:" $(o)/enforce/; then \
+	  echo "enforce tripwire: no enforcement ran — every sandbox test skipped."; \
+	  echo "  the privileged lane is not exercising enforcement (outer sandbox still active?)."; \
+	  exit 1; \
+	fi
+
 all_built_files := $(call filter-only,$(foreach x,$(modules),$($(x)_files)))
 all_built_files += $(all_lua)
 all_source_files := $(call filter-only,$(foreach x,$(modules),$($(x)_tests)))

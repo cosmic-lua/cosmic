@@ -3,6 +3,7 @@ local landlock = require("cosmic.landlock")
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local spawn = require("cosmic.child")
+local a = require("cosmic.assert")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
@@ -49,14 +50,24 @@ test_available_returns_boolean()
 local function test_restrict_denies_outside_allowlist()
   if not landlock.available() then
     -- Kernel lacks landlock; skip the live enforcement check but assert
-    -- that abi() consistently reports the limitation.
+    -- that abi() consistently reports the limitation. A genuine platform
+    -- gap: soft skip even on the enforce lane (an old kernel can't be
+    -- made to enforce).
     local v, err = landlock.abi()
     assert(v == nil, "abi() should return nil when landlock is unavailable")
     assert(err, "abi() should return an error string when unavailable")
+    a.skip("landlock unavailable (kernel lacks landlock)")
     return
   end
 
-  local allowed = fs.join(tmpdir, "allowed.txt")
+  -- Allowlist a *directory* subtree, not a bare file: ll.READ bundles
+  -- READ_DIR, and landlock returns EINVAL if a directory-only right is
+  -- added on a regular file. So the allowed path is a directory and the
+  -- denied file is a sibling left outside it (both exist, so the denial is
+  -- a real landlock effect rather than a missing path).
+  local allowed_dir = fs.join(tmpdir, "allowed")
+  fs.makedirs(allowed_dir)
+  local allowed = fs.join(allowed_dir, "ok.txt")
   local denied = fs.join(tmpdir, "denied.txt")
   cio.barf(allowed, "allowed-content")
   cio.barf(denied, "denied-content")
@@ -73,24 +84,37 @@ if not ok then
   os.exit(0)
 end
 
--- Reading the allowed path must still work.
+-- Reading a file inside the allowed directory must still work.
 local f = io.open(%q, "r")
 if f then io.write("allowed-ok\n"); f:close() else io.write("allowed-fail\n") end
 
--- Reading the denied path must fail.
+-- Reading the sibling outside the allowed directory must fail.
 local g = io.open(%q, "r")
 if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n") end
-]], allowed, allowed, denied))
+]], allowed_dir, allowed, denied))
 
+  -- landlock probed available here, so any failure to enforce below means
+  -- an outer sandbox is blocking an otherwise-supported mechanism — a
+  -- strict skip that the enforce lane (COSMIC_ENFORCE=1, no outer sandbox)
+  -- turns into a hard failure.
   local ok, out = spawn.spawn({cosmic, script}):read()
   -- Under an outer seccomp/pledge filter the landlock syscall may be
   -- blocked with SIGSYS rather than EPERM, killing the subprocess
-  -- before it can emit "skipped". Accept that too.
-  if not ok then return end
+  -- before it can emit "skipped".
+  if not ok then
+    a.skip("landlock restrict blocked (subprocess died before enforcing)", true)
+    return
+  end
   local s = out as string
-  if s:find("skipped") then return end
-  assert(s:find("allowed-ok"), "allowed path should still read: " .. s)
-  assert(s:find("denied-blocked"), "denied path must be blocked: " .. s)
+  if s:find("skipped") then
+    a.skip("landlock restrict blocked: " .. s, true)
+    return
+  end
+  -- Plain-text find: "-" is a Lua pattern metacharacter, so a pattern
+  -- search for "allowed-ok" would not match the literal marker.
+  assert(s:find("allowed-ok", 1, true), "allowed path should still read: " .. s)
+  assert(s:find("denied-blocked", 1, true), "denied path must be blocked: " .. s)
+  a.enforced("landlock")
 end
 test_restrict_denies_outside_allowlist()
 

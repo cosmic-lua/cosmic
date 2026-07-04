@@ -111,11 +111,50 @@ local function err(value: any, e: string, label?: string)
   end
 end
 
+--- Report whether the enforcement lane is active.
+--- True when COSMIC_ENFORCE=1, which the privileged, unsandboxed CI lane
+--- (`bin/make enforce`) sets. In that mode a sandbox test that cannot
+--- exercise real enforcement must fail loudly rather than skip silently,
+--- since there is no outer sandbox left to blame.
+--- @return boolean True when strict enforcement is required
+local function enforcing(): boolean
+  return os.getenv("COSMIC_ENFORCE") == "1"
+end
+
+--- Record that a sandbox test could not exercise real enforcement.
+--- Writes a machine-readable marker to stderr so the enforce-lane tripwire
+--- can see the skip (a silent `return` is indistinguishable from a pass).
+--- When `strict` is set and enforcement is required (COSMIC_ENFORCE=1) the
+--- skip is escalated to a hard failure — use `strict=true` only where the
+--- mechanism was probed *available* yet the operation was still blocked,
+--- which on the unsandboxed lane can only mean an outer sandbox is present.
+--- Callers still `return` after calling this; it does not exit the process.
+--- @param reason string Why enforcement could not run
+--- @param strict boolean? Escalate to failure under COSMIC_ENFORCE=1
+local function skip(reason: string, strict?: boolean)
+  local tag = strict and "enforce-skip[strict]" or "enforce-skip"
+  io.stderr:write("→ " .. tag .. ": " .. reason .. "\n")
+  if strict and enforcing() then
+    error("enforcement required but skipped: " .. reason, 2)
+  end
+end
+
+--- Record that a sandbox test actually exercised real enforcement.
+--- Writes a marker the enforce-lane tripwire counts to confirm the lane is
+--- not a silent no-op (every test skipping would otherwise look green).
+--- @param label string Short name of the mechanism that enforced
+local function enforced(label: string)
+  io.stderr:write("✓ enforce-ran: " .. label .. "\n")
+end
+
 local record AssertModule
   eq: function(actual: any, expected: any, label?: string)
   ne: function(actual: any, expected: any, label?: string)
   ok: function(value: any, label?: string)
   err: function(value: any, e: string, label?: string)
+  enforcing: function(): boolean
+  skip: function(reason: string, strict?: boolean)
+  enforced: function(label: string)
 end
 
 local M: AssertModule = {
@@ -123,6 +162,9 @@ local M: AssertModule = {
   ne = ne,
   ok = ok,
   err = err,
+  enforcing = enforcing,
+  skip = skip,
+  enforced = enforced,
 }
 
 return M
