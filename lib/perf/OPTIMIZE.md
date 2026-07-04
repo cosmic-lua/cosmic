@@ -144,19 +144,34 @@ code read suggests one.
      an initial run flagged an unrelated `startup_*` scenario that
      didn't reproduce and isn't touched by this change).
 
-2. **sqlite prepared-statement reuse** — open
-   - scenarios: `sqlite_insert_delete_tx` (~680µs for 100 inserts + 1
-     delete ≈ 6.6µs/row), `sqlite_point_query` (~12.7µs)
-   - evidence: `db:exec(sql, ...)` and `db:query(sql, ...)`
-     (lib/cosmic/sqlite.tl) prepare, bind, and finalize a fresh statement
-     on every parameterized call; the insert scenario pays 100
-     prepares per transaction for the same SQL string.
-   - hypothesis: a small per-database cache of prepared statements keyed
-     by SQL text (reset + rebind on hit, finalize on close/eviction)
-     cuts parameterized exec/query by 20-50%.
-   - risk: medium. statement lifetime vs `db:close`, statements held
-     mid-iteration, cache invalidation on schema change (sqlite returns
-     SQLITE_SCHEMA; re-prepare on that error). start with exec-only.
+2. **sqlite prepared-statement reuse** — done (2026-07-04)
+   - scenario: `sqlite_insert_delete_tx`: 679.87µs -> 234.32µs (-65.5%,
+     comfortably beating the 20-50% hypothesis). `sqlite_point_query`
+     also moved 13.34µs -> 11.98µs (-10.2%) though it goes through
+     `db:query`/`db:query_one`, not the cached `db:exec` path — likely
+     machine variance between the two runs rather than an effect of
+     this change, noted rather than claimed.
+   - evidence: `db:exec(sql, ...)` (lib/cosmic/sqlite.tl) prepared,
+     bound, and finalized a fresh statement on every parameterized call;
+     the insert scenario paid 100 prepares per transaction for the same
+     SQL string.
+   - fix: added `lib/cosmic/sqlite_stmt_cache.tl` (a new file, needed to
+     keep sqlite.tl under the 500-line cap), a per-database cache of
+     prepared statements keyed by SQL text used only by `db:exec`
+     (per the "start with exec-only" risk note; `db:query*` still
+     prepare/finalize per call). reset + rebind on a cache hit; on
+     SQLITE_SCHEMA the stale statement is dropped and re-prepared once;
+     all cached statements are finalized in `db:close`.
+   - gotcha hit while implementing: the bootstrap compiler's `--compile`
+     path (used to transpile .tl -> .lua, distinct from `--check-types`)
+     misreports a zero-return-value method defined with colon-method
+     sugar (`function self:m()`) inside a closure as returning 1 value.
+     The existing codebase already works around this for `db.close` /
+     `stmt.close` by assigning a plain function value
+     (`self.m = function(self: T) ... end`) instead of colon sugar for
+     zero-return methods; `close_all` here follows the same idiom.
+   - result: `bin/make perf-compare` from a clean re-baseline: 20
+     scenarios, 0 regression, 2 faster, 18 ok.
 
 3. **startup: Teal loader cost** — open
    - scenarios: `startup_run_teal` (~30ms) vs `startup_run_lua` (~16.5ms)
