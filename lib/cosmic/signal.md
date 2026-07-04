@@ -136,7 +136,6 @@ local record SignalModule
   strsignal: function(sig: number): string
   --  Send a signal to a process.
   pid: number, sig: number): boolean, string
-  errno: doc()
 end
 ```
 

@@ -1,14 +1,24 @@
 # errno
 
  Error information from system calls.
- Provides detailed error codes and human-readable descriptions.
+
+ Provides the `Errno` error type plus a canonical formatter (`str`)
+ and helpers for programmatic errno handling (`is`, `code`). Most
+ `cosmic.*` wrappers surface a failed `unix.*` call's error through
+ `str`, so error messages share one shape across the stdlib:
+
+     local ok, err = unix.mkdir(path, mode)
+     if not ok then return false, errno.str(err, "mkdir: " .. path) end
+     -- -> "mkdir: /x: EACCES: Permission denied"
 
 ## Types
 
 ### Errno
 
- Error information from system calls.
- Provides detailed error codes and human-readable descriptions.
+ A system-call error object, returned in the second slot of a failed
+ `unix.*` call. Structurally matches the generated `unix.Errno`,
+ including its `__tostring` metamethod (which the previous local
+ declaration dropped).
 
 ```teal
 local record Errno
@@ -17,5 +27,6 @@ local record Errno
   name: function(self: Errno): string
   call: function(self: Errno): string
   doc: function(self: Errno): string
+  __tostring: function(self: Errno): string
 end
 ```
