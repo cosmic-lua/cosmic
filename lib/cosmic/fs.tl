@@ -2,7 +2,7 @@
 --- Combines path manipulation, filesystem operations, and directory walking.
 local unix = require("cosmo.unix")
 local types = require("cosmic.fs_types")
-local Errno = require("cosmic.errno").Errno
+local errstr = require("cosmic.errno").str
 local Stat = types.Stat
 local Dir = types.Dir
 local Statfs = types.Statfs
@@ -77,11 +77,11 @@ local function stat(path: string, follow_symlinks?: boolean): Stat, string
   if follow_symlinks == false then
     flags = unix.AT_SYMLINK_NOFOLLOW
   end
-  local st = unix.stat(path, flags) as Stat
+  local st, err = unix.stat(path, flags)
   if not st then
-    return nil, "stat failed: " .. path
+    return nil, errstr(err, "stat: " .. path)
   end
-  return st
+  return st as Stat
 end
 
 --- Get file metadata from file descriptor.
@@ -89,11 +89,11 @@ end
 --- @return Stat File metadata, or nil on error
 --- @return string Error message if failed
 local function fstat(fd: number): Stat, string
-  local st = unix.fstat(fd) as Stat
+  local st, err = unix.fstat(fd)
   if not st then
-    return nil, "fstat failed"
+    return nil, errstr(err, "fstat")
   end
-  return st
+  return st as Stat
 end
 
 --- Check if mode represents a directory.
@@ -155,16 +155,9 @@ end
 --- @return string Error message if failed
 local function mkdir(path: string, mode?: number): boolean, string
   mode = mode or tonumber("755", 8)
-  local ok, err = unix.mkdir(path, mode) as(boolean, any)
+  local ok, err = unix.mkdir(path, mode)
   if not ok then
-    if err then
-      local errno = err as Errno
-      if errno.doc then
-        return false, "mkdir: " .. path .. ": " .. errno:doc()
-      end
-      return false, "mkdir: " .. path .. ": " .. tostring(err)
-    end
-    return false, "mkdir: " .. path
+    return false, errstr(err, "mkdir: " .. path)
   end
   return true
 end
@@ -176,16 +169,9 @@ end
 --- @return string Error message if failed
 local function makedirs(path: string, mode?: number): boolean, string
   mode = mode or tonumber("755", 8)
-  local ok, err = unix.makedirs(path, mode) as(boolean, any)
+  local ok, err = unix.makedirs(path, mode)
   if not ok then
-    if err then
-      local errno = err as Errno
-      if errno.doc then
-        return false, "makedirs: " .. path .. ": " .. errno:doc()
-      end
-      return false, "makedirs: " .. path .. ": " .. tostring(err)
-    end
-    return false, "makedirs: " .. path
+    return false, errstr(err, "makedirs: " .. path)
   end
   return true
 end
@@ -195,9 +181,9 @@ end
 --- @return boolean True on success
 --- @return string Error message if failed
 local function rmdir(path: string): boolean, string
-  local ok = unix.rmdir(path)
+  local ok, err = unix.rmdir(path)
   if not ok then
-    return false, "rmdir failed: " .. path
+    return false, errstr(err, "rmdir: " .. path)
   end
   return true
 end
@@ -207,9 +193,9 @@ end
 --- @return boolean True on success
 --- @return string Error message if failed
 local function chdir(path: string): boolean, string
-  local ok = unix.chdir(path)
+  local ok, err = unix.chdir(path)
   if not ok then
-    return false, "chdir failed: " .. path
+    return false, errstr(err, "chdir: " .. path)
   end
   return true
 end
@@ -218,9 +204,9 @@ end
 --- @return string Current working directory path
 --- @return string Error message if failed
 local function getcwd(): string, string
-  local cwd = unix.getcwd()
+  local cwd, err = unix.getcwd()
   if not cwd then
-    return nil, "getcwd failed"
+    return nil, errstr(err, "getcwd")
   end
   return cwd
 end
@@ -232,11 +218,11 @@ end
 --- @return Dir Directory handle, or nil on error
 --- @return string Error message if failed
 local function opendir(path: string): Dir, string
-  local raw = unix.opendir(path) as RawDir
+  local raw, err = unix.opendir(path)
   if not raw then
-    return nil, "opendir failed: " .. path
+    return nil, errstr(err, "opendir: " .. path)
   end
-  return make_dir(raw)
+  return make_dir(raw as RawDir)
 end
 
 --- Open a directory from a file descriptor.
@@ -245,9 +231,9 @@ end
 --- @return Dir Directory handle, or nil on error
 --- @return string Error message if failed
 local function fdopendir(fd: number): Dir, string
-  local _, raw = unix.fdopendir(fd)
+  local _, raw, err = unix.fdopendir(fd)
   if not raw then
-    return nil, "fdopendir failed"
+    return nil, errstr(err, "fdopendir")
   end
   return make_dir(raw as RawDir)
 end

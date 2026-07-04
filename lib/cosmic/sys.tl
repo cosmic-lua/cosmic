@@ -2,7 +2,7 @@
 --- Wraps cosmo system functions for OS and architecture queries.
 local cosmo = require("cosmo")
 local unix = require("cosmo.unix")
-local Errno = require("cosmic.errno").Errno
+local errstr = require("cosmic.errno").str
 
 --- Operating system and hardware identification returned by `uname`.
 local record Uname
@@ -50,14 +50,7 @@ end
 local function sysconf(name: number): number, string
   local val, err = unix.sysconf(name) as(number, any)
   if not val then
-    if err then
-      local errno = err as Errno
-      if errno.doc then
-        return nil, "sysconf: " .. errno:doc()
-      end
-      return nil, "sysconf: " .. tostring(err)
-    end
-    return nil, "sysconf failed"
+    return nil, errstr(err, "sysconf")
   end
   return val
 end
@@ -92,14 +85,7 @@ end
 local function uname(): Uname, string
   local uts, err = unix.uname() as(Uname, any)
   if not uts then
-    if err then
-      local errno = err as Errno
-      if errno.doc then
-        return nil, "uname: " .. errno:doc()
-      end
-      return nil, "uname: " .. tostring(err)
-    end
-    return nil, "uname failed"
+    return nil, errstr(err, "uname")
   end
   return uts
 end

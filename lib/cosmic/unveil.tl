@@ -17,7 +17,7 @@
 ---   x  execute operations         (matches pledge "exec" / "execnative")
 ---   c  create and remove paths    (matches pledge "cpath")
 local unix = require("cosmo.unix")
-local Errno = require("cosmic.errno").Errno
+local errstr = require("cosmic.errno").str
 
 --- Unveil a path, or commit the policy.
 ---
@@ -29,16 +29,9 @@ local Errno = require("cosmic.errno").Errno
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function apply(path: string, permissions: string): boolean, string
-  local ok, err = unix.unveil(path, permissions) as(boolean, any)
+  local ok, err = unix.unveil(path, permissions)
   if not ok then
-    if err then
-      local errno = err as Errno
-      if errno.doc then
-        return false, errno:doc()
-      end
-      return false, tostring(err)
-    end
-    return false, "unveil failed"
+    return false, errstr(err, "unveil")
   end
   return true
 end

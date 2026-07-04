@@ -4,6 +4,7 @@
 --- os.getenv() internally and is the simplest approach. Use env.all() to get
 --- all variables as a {string:string} map parsed from unix.environ().
 local unix = require("cosmo.unix")
+local errstr = require("cosmic.errno").str
 
 --- Get the value of an environment variable.
 --- Returns nil if the variable is not set.
@@ -20,9 +21,9 @@ end
 --- @return boolean True on success
 --- @return string? Error message if setting failed
 local function set(name: string, value: string, overwrite?: boolean): boolean, string
-  local ok, err = unix.setenv(name, value, overwrite) as(boolean, any)
+  local ok, err = unix.setenv(name, value, overwrite)
   if not ok then
-    return false, tostring(err)
+    return false, errstr(err, "setenv " .. name)
   end
   return true
 end
@@ -32,9 +33,9 @@ end
 --- @return boolean True on success
 --- @return string? Error message if unsetting failed
 local function unset(name: string): boolean, string
-  local ok, err = unix.unsetenv(name) as(boolean, any)
+  local ok, err = unix.unsetenv(name)
   if not ok then
-    return false, tostring(err)
+    return false, errstr(err, "unsetenv " .. name)
   end
   return true
 end
@@ -44,9 +45,11 @@ end
 --- @return boolean True on success
 --- @return string? Error message if clearing failed
 local function clear(): boolean, string
+  -- clearenv is declared `function()` upstream (missing its boolean/Errno
+  -- return), so the cast stays until that annotation is fixed.
   local ok, err = unix.clearenv() as(boolean, any)
   if not ok then
-    return false, tostring(err)
+    return false, errstr(err, "clearenv")
   end
   return true
 end

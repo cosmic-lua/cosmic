@@ -19,7 +19,7 @@
 ---   exec      execve
 ---   unveil    permit subsequent unveil calls
 local unix = require("cosmo.unix")
-local Errno = require("cosmic.errno").Errno
+local errstr = require("cosmic.errno").str
 
 --- Apply a pledge to the current process.
 ---
@@ -32,16 +32,9 @@ local Errno = require("cosmic.errno").Errno
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function apply(promises: string, execpromises: string, mode: number): boolean, string
-  local ok, err = unix.pledge(promises, execpromises, mode) as(boolean, any)
+  local ok, err = unix.pledge(promises, execpromises, mode)
   if not ok then
-    if err then
-      local errno = err as Errno
-      if errno.doc then
-        return false, errno:doc()
-      end
-      return false, tostring(err)
-    end
-    return false, "pledge failed"
+    return false, errstr(err, "pledge")
   end
   return true
 end

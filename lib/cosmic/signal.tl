@@ -2,6 +2,7 @@
 --- Wraps cosmo.unix signal functions for process signaling, handlers, and timers.
 local unix = require("cosmo.unix")
 local Errno = require("cosmic.errno").Errno
+local errstr = require("cosmic.errno").str
 
 --- Options for setitimer: specifies which timer, initial fire time, and repeat interval.
 local record SetitimerOpts
@@ -140,16 +141,9 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function kill(pid: number, sig: number): boolean, string
-  local ok, err = unix.kill(pid, sig) as(boolean, any)
+  local ok, err = unix.kill(pid, sig)
   if not ok then
-    if err then
-      local errno = err as Errno
-      if errno.doc then
-        return false, errno:doc()
-      end
-      return false, tostring(err)
-    end
-    return false, "kill failed"
+    return false, errstr(err, "kill")
   end
   return true
 end
@@ -160,16 +154,9 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function killpg(pgrp: number, sig: number): boolean, string
-  local ok, err = unix.killpg(pgrp, sig) as(boolean, any)
+  local ok, err = unix.killpg(pgrp, sig)
   if not ok then
-    if err then
-      local errno = err as Errno
-      if errno.doc then
-        return false, errno:doc()
-      end
-      return false, tostring(err)
-    end
-    return false, "killpg failed"
+    return false, errstr(err, "killpg")
   end
   return true
 end

@@ -1,7 +1,7 @@
 --- User and group identity operations.
 --- Wraps cosmo.unix for user/group ID queries and modifications.
 local unix = require("cosmo.unix")
-local Errno = require("cosmic.errno").Errno
+local errstr = require("cosmic.errno").str
 
 --- Get the real user ID of the calling process.
 --- @return number The real user ID
@@ -45,16 +45,9 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function setuid(uid: number): boolean, string
-  local ok, err = unix.setuid(uid) as(boolean, any)
+  local ok, err = unix.setuid(uid)
   if not ok then
-    if err then
-      local errno = err as Errno
-      if errno.doc then
-        return false, errno:doc()
-      end
-      return false, tostring(err)
-    end
-    return false, "setuid failed"
+    return false, errstr(err, "setuid")
   end
   return true
 end
@@ -65,16 +58,9 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function setgid(gid: number): boolean, string
-  local ok, err = unix.setgid(gid) as(boolean, any)
+  local ok, err = unix.setgid(gid)
   if not ok then
-    if err then
-      local errno = err as Errno
-      if errno.doc then
-        return false, errno:doc()
-      end
-      return false, tostring(err)
-    end
-    return false, "setgid failed"
+    return false, errstr(err, "setgid")
   end
   return true
 end
@@ -84,16 +70,9 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function setfsuid(uid: number): boolean, string
-  local ok, err = unix.setfsuid(uid) as(boolean, any)
+  local ok, err = unix.setfsuid(uid)
   if not ok then
-    if err then
-      local errno = err as Errno
-      if errno.doc then
-        return false, errno:doc()
-      end
-      return false, tostring(err)
-    end
-    return false, "setfsuid failed"
+    return false, errstr(err, "setfsuid")
   end
   return true
 end
@@ -106,16 +85,9 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function setresuid(real: number, effective: number, saved: number): boolean, string
-  local ok, err = unix.setresuid(real, effective, saved) as(boolean, any)
+  local ok, err = unix.setresuid(real, effective, saved)
   if not ok then
-    if err then
-      local errno = err as Errno
-      if errno.doc then
-        return false, errno:doc()
-      end
-      return false, tostring(err)
-    end
-    return false, "setresuid failed"
+    return false, errstr(err, "setresuid")
   end
   return true
 end
@@ -128,16 +100,9 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function setresgid(real: number, effective: number, saved: number): boolean, string
-  local ok, err = unix.setresgid(real, effective, saved) as(boolean, any)
+  local ok, err = unix.setresgid(real, effective, saved)
   if not ok then
-    if err then
-      local errno = err as Errno
-      if errno.doc then
-        return false, errno:doc()
-      end
-      return false, tostring(err)
-    end
-    return false, "setresgid failed"
+    return false, errstr(err, "setresgid")
   end
   return true
 end
@@ -158,16 +123,9 @@ end
 --- @return boolean True on success
 --- @return string? Error message on failure
 local function chroot(path: string): boolean, string
-  local ok, err = unix.chroot(path) as(boolean, any)
+  local ok, err = unix.chroot(path)
   if not ok then
-    if err then
-      local errno = err as Errno
-      if errno.doc then
-        return false, errno:doc()
-      end
-      return false, tostring(err)
-    end
-    return false, "chroot failed"
+    return false, errstr(err, "chroot")
   end
   return true
 end
