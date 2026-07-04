@@ -43,13 +43,24 @@ end
 local record QuicksandModule
   capabilities: function(): Capabilities
   is_supported: function(): boolean
+  probe: function(fn: any): boolean
   Box: any -- re-export of cosmic.quicksand.box
 end
 
 --- Probe a pledge/unveil-style binding with a no-op call: available
 --- when the call succeeds, or fails with anything other than ENOSYS
---- (a policy error still proves the syscall is wired up).
-local function probe_nop(fn: any): boolean
+--- (a policy error still proves the syscall is wired up). A nil binding
+--- (not exported on this host) reports unavailable.
+---
+--- This classification is only correct because a failed `unix.*` call now
+--- returns a real `Errno` in its second slot (the Phase 0 annotation fix):
+--- before it, the error was swallowed and every probe reported available
+--- (fail-open, audit §2.3). Exported so the classifier is unit-testable
+--- against synthetic ENOSYS / policy-error / success returns.
+---
+--- @param fn any the binding to probe (e.g. `unix.pledge`), or nil
+--- @return boolean true when the syscall is wired up on this host
+local function probe(fn: any): boolean
   if not fn then return false end
   local call = fn as function(any, any): any, Errno
   local ok, err = call(nil, nil)
@@ -85,8 +96,8 @@ local function capabilities(): Capabilities
     pivot_root = is_linux and unix.pivot_root ~= nil,
     cap_net_admin = is_linux and unix.geteuid ~= nil and unix.geteuid() == 0,
     landlock = is_linux and probe_landlock(),
-    pledge = probe_nop(unix.pledge),
-    unveil = probe_nop(unix.unveil),
+    pledge = probe(unix.pledge),
+    unveil = probe(unix.unveil),
     caps = is_linux and caps.supported(),
   }
   return cached
@@ -103,6 +114,7 @@ end
 local M: QuicksandModule = {
   capabilities = capabilities,
   is_supported = is_supported,
+  probe = probe,
   Box = box,
 }
 
