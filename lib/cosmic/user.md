@@ -13,7 +13,7 @@ local record UserModule
   getgid: function(): number
   geteuid: function(): number
   getegid: function(): number
-  getlogin: function(): string
+  getlogin: function(): string, string
   setuid: function(uid: number): boolean, string
   setgid: function(gid: number): boolean, string
   setfsuid: function(uid: number): boolean, string
@@ -82,15 +82,15 @@ function getegid(): number
 ### getlogin
 
 ```teal
-function getlogin(): string
+function getlogin(): string, string
 ```
 
  Get the login name of the user running the process.
- Returns nil if the login name cannot be determined.
 
 **Returns:**
 
 - string - The login name, or nil on failure
+- string? - Error message if the login name cannot be determined
 
 ### setuid
 

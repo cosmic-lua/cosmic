@@ -256,7 +256,7 @@ local record Rusage
   --  This number is a bad thing. It means your redbean was preempted by a
   --  higher priority process after failing to finish its work, within the
   --  allotted time slice.
-  nivcsw: function(self: Rusage)
+  nivcsw: function(self: Rusage): number
 end
 ```
 
@@ -1182,32 +1182,32 @@ function unsetenv(name: string): boolean, Errno
 ### clearenv
 
 ```teal
-function clearenv()
+function clearenv(): boolean, Errno
 ```
 
  Clears all environment variables.
  This wraps the C `clearenv()` function to allow Lua scripts to remove
  all environment variables at once.
- @overload fun(): nil, error: unix.Errno
 
 **Returns:**
 
-- true
+- boolean
+- Errno
 
 ### getlogin
 
 ```teal
-function getlogin()
+function getlogin(): string, Errno
 ```
 
  Gets login name of current user.
  This wraps the C `getlogin()` function to retrieve the login name
  associated with the current session.
- @overload fun(): nil, error: unix.Errno
 
 **Returns:**
 
-- string - login name
+- string
+- Errno
 
 ### fork
 
