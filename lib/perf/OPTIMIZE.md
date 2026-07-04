@@ -84,7 +84,8 @@ work ONE scenario (or one closely related group) at a time.
 
 ## finding opportunities
 
-read `bin/make perf` output and look for:
+check the hypothesis backlog below first — it holds vetted, evidence-backed
+starting points. to find new ones, read `bin/make perf` output and look for:
 
 - **implementation mismatches between siblings.** example found during
   harness bring-up: `codec_hex_roundtrip_64k` ran ~17.6ms while
@@ -111,6 +112,106 @@ read `bin/make perf` output and look for:
 if a workload you want to optimize has no scenario, add one FIRST (in a
 `lib/perf/bench/*_bench.tl` module, with a real `check()`), baseline it,
 then optimize.
+
+## hypothesis backlog
+
+concrete, evidence-backed starting points, ordered by expected
+value-for-effort. numbers are from harness bring-up on the CI container
+(2026-07); re-baseline on your machine before trusting them.
+
+work the backlog like this: pick ONE entry, run the loop above, then
+update the entry in the same commit — `done` (commit hash + before/after
+numbers) or `rejected` (measured numbers + why the hypothesis was wrong).
+rejected entries stay in the file; they save the next agent from
+re-testing a dead end. add new entries as `open` when a report line or
+code read suggests one.
+
+1. **hex decode via the C binding** — open
+   - scenario: `codec_hex_roundtrip_64k` (~17.3ms; base64 does the same
+     64KB in ~2.1ms)
+   - evidence: `codec.decode_hex` (lib/cosmic/codec.tl) is a pure-Lua
+     `gsub("(%x%x)", callback)` — one closure call per byte pair, ~32k
+     for 64KB — plus two full-string validation scans. `cosmo.DecodeHex`
+     exists (lib/types/cosmo.d.tl:130) and is unused.
+   - hypothesis: delegating the hot path to `cosmo.DecodeHex` while
+     keeping the documented `value, string` error returns (even-length
+     and hex-character validation semantics must not change) cuts the
+     roundtrip by ~5-8x.
+   - risk: low. check how the C binding handles odd length, invalid
+     chars, uppercase, and empty string; keep Lua-side validation where
+     the binding's behavior differs.
+
+2. **sqlite prepared-statement reuse** — open
+   - scenarios: `sqlite_insert_delete_tx` (~680µs for 100 inserts + 1
+     delete ≈ 6.6µs/row), `sqlite_point_query` (~12.7µs)
+   - evidence: `db:exec(sql, ...)` and `db:query(sql, ...)`
+     (lib/cosmic/sqlite.tl) prepare, bind, and finalize a fresh statement
+     on every parameterized call; the insert scenario pays 100
+     prepares per transaction for the same SQL string.
+   - hypothesis: a small per-database cache of prepared statements keyed
+     by SQL text (reset + rebind on hit, finalize on close/eviction)
+     cuts parameterized exec/query by 20-50%.
+   - risk: medium. statement lifetime vs `db:close`, statements held
+     mid-iteration, cache invalidation on schema change (sqlite returns
+     SQLITE_SCHEMA; re-prepare on that error). start with exec-only.
+
+3. **startup: Teal loader cost** — open
+   - scenarios: `startup_run_teal` (~30ms) vs `startup_run_lua` (~16.5ms)
+   - evidence: running a one-line `.tl` script costs ~13ms more than the
+     identical `.lua` script, and `startup_compile_teal` (~32ms) shows
+     compile of a tiny module costs about the same as running it — the
+     overhead is dominated by loading the embedded Teal compiler and
+     type environment, not by compiling the script.
+   - hypothesis: (a) lazy-load the compiler strictly on the `.tl` path
+     (verify `.lua` scripts never pay it), and (b) cache compiled output
+     next to the script or under a cache dir keyed by mtime/hash, making
+     repeat runs of unchanged `.tl` scripts cost `.lua` startup.
+   - risk: medium. cache invalidation and write-permission fallbacks;
+     measure step (a) first with `instrument` spans in main.tl.
+
+4. **startup: runtime boot floor (cosmopolitan side)** — open
+   - scenario: `startup_run_lua` (~14.5-16.5ms for `print()`)
+   - evidence: this is the APE loader + zip filesystem + Lua init + the
+     eager `require`s in cosmic's main.lua, measured end to end.
+   - hypothesis: part of the floor is cosmic-side eager module loading in
+     main.tl (imports pulled in before the script path is even known);
+     deferring dispatch-only imports trims 1-3ms. the remainder is
+     cosmos-side (zip central-directory scan, stdlib init) — measure with
+     the pinned raw cosmos `lua` binary as `PERF_BIN` denominator before
+     touching whilp/cosmopolitan.
+   - risk: low for the import-deferral step; cosmopolitan-side work
+     follows the "optimizing the cosmo/cosmopolitan layer" section.
+
+5. **fs.walk per-entry cost** — open (evidence-gathering)
+   - scenario: `fs_walk_tree` (~390µs for 210 entries ≈ 1.9µs/entry,
+     ~200B allocated per entry)
+   - evidence: `fs_walk.tl` calls `unix.stat` on every entry (needed
+     today to detect directories) and allocates a joined path string +
+     stat userdata per entry.
+   - hypothesis: if the dirent from `handle:read()` can expose the entry
+     type (d_type is available on Linux; check the cosmo opendir
+     binding), directory detection skips one stat syscall per
+     non-directory entry — roughly halving syscalls for file-heavy trees.
+   - risk: needs a binding check first; d_type is DT_UNKNOWN on some
+     filesystems, so the stat fallback must remain.
+
+6. **string.split micro-costs** — open, low priority
+   - scenario: `string_split_csv` (~50µs for 256 fields ≈ 190ns/field)
+   - evidence: implementation already uses plain `find`; remaining cost
+     is `table.insert` (a C call resolving `#result` each time) and one
+     `sub` per field.
+   - hypothesis: indexed assignment (`n = n + 1; result[n] = ...`) trims
+     10-20% of this scenario. real user impact is small — do it only as
+     a warm-up exercise for the loop, or skip.
+
+7. **json decode allocation pressure** — rejected for now (2026-07)
+   - scenario: `json_decode_large` (~1.3ms/op, ~375KB allocated per op)
+   - finding: the wrapper (lib/cosmic/json.tl) is a two-line delegation
+     to `cosmo.DecodeJson`; the allocation is the decoded table graph
+     itself (1000 records × maps/arrays), which is the workload's
+     output, not overhead. no cosmic-layer fix exists; a
+     cosmopolitan-side arena would change object lifetimes. revisit only
+     if a scenario shows GC pauses dominating a real workload.
 
 ## optimizing the cosmo/cosmopolitan layer end to end
 
