@@ -2924,7 +2924,7 @@ local record unix
   --- Opens directory for listing its contents, via an fd.
   --- The returned `unix.Dir` takes ownership of the file descriptor
   --- and will close it automatically when garbage collected.
-  fdopendir: function(fd: number): function, Dir, Errno
+  fdopendir: function(fd: number): Dir, Errno
   --- Returns true if file descriptor is a teletypewriter. Otherwise nil
   --- with an Errno object holding one of the following values:
   --- - `ENOTTY` if `fd` is valid but not a teletypewriter

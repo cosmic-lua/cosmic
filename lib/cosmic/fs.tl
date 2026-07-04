@@ -231,18 +231,11 @@ end
 --- @return Dir Directory handle, or nil on error
 --- @return string Error message if failed
 local function fdopendir(fd: number): Dir, string
-  -- The C binding (ReturnDir) yields exactly one value on success — the
-  -- Dir — and (nil, Errno) on failure, identical to opendir. The pinned
-  -- cosmos annotation over-declares a phantom leading iterator function,
-  -- so narrow the call to its real (Dir, Errno) runtime shape; without
-  -- this, `raw` is nil on success and fdopendir wrongly reports an error.
-  -- The upstream annotation fix drops this cast on the next cosmos bump.
-  local open = unix.fdopendir as function(number): (RawDir, unix.Errno)
-  local raw, err = open(fd)
+  local raw, err = unix.fdopendir(fd)
   if not raw then
     return nil, errstr(err, "fdopendir")
   end
-  return make_dir(raw)
+  return make_dir(raw as RawDir)
 end
 
 -- Re-export walk functions from fs_walk submodule
