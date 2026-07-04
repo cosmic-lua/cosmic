@@ -28,6 +28,7 @@
 local record NetnsModule
   open: function(pid: integer): integer, string
   enter: function(fd: integer): boolean, string
+  unshare_user: function(): boolean, string
   unshare: function(): boolean, string
   bring_up: function(name: string): boolean, string
   bring_down: function(name: string): boolean, string
@@ -115,6 +116,23 @@ function enter(fd: integer): boolean, string
 - boolean - true on success
 - string? - error message on failure
 
+### unshare_user
+
+```teal
+function unshare_user(): boolean, string
+```
+
+ Create and enter a new user namespace in the current thread.
+ Equivalent to `unshare(CLONE_NEWUSER)`; grants the thread the
+ capabilities needed to unshare a network namespace unprivileged.
+ unshare is irreversible for the calling thread, so run it in a
+ subprocess when the original namespace must be preserved.
+
+**Returns:**
+
+- boolean - true on success
+- string? - error message on failure
+
 ### unshare
 
 ```teal
@@ -123,7 +141,7 @@ function unshare(): boolean, string
 
  Create and enter a new network namespace in the current thread.
  Equivalent to `unshare(CLONE_NEWNET)`; requires either root or
- CLONE_NEWUSER beforehand.
+ unshare_user() beforehand.
 
 **Returns:**
 

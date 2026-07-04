@@ -83,6 +83,7 @@ end
 local record fetch
   Fetch: function(url: string, opts?: Opts): Result
   stream: function(url: string, opts?: Opts): StreamResult
+  has_stream: function(): boolean
   unix_proxy: function(path: string): string, string
   Opts: Opts
   Result: Result

@@ -21,6 +21,7 @@ local record RandModule
   lemur64: function(): number
   rdrand: function(): number, string
   rdseed: function(): number, string
+  has_hwrng: function(): boolean
 end
 ```
 
@@ -93,3 +94,16 @@ function rdseed(): number, string
 **Returns:**
 
 - integer, - string Random seed integer, or nil and error message if unavailable
+
+### has_hwrng
+
+```teal
+function has_hwrng(): boolean
+```
+
+ Report whether the CPU provides a hardware random number generator.
+ Probes the RDRAND instruction; rdrand/rdseed return nil, err when this is false.
+
+**Returns:**
+
+- boolean - true if hardware randomness (rdrand/rdseed) is usable
