@@ -38,7 +38,7 @@ end
 local function resolve(host: string, timeout_ms: integer,
     resolver: function(string): integer, any): integer, string
   local ip = cosmo.ParseIp(host)
-  if ip and ip ~= -1 then return ip end
+  if ip and ip ~= -1 then return ip as integer end
   if not resolver then
     resolver = cosmo.ResolveIp as function(string): integer, any
   end

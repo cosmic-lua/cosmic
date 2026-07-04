@@ -1,4 +1,6 @@
 -- type declarations for cosmo.re
+-- GENERATED from cosmopolitan's definitions.lua by lib/types/gentype.tl.
+-- Do not edit by hand. Regenerate with: bin/make regen-types
 
 local record Errno
   --- - `unix.NOMATCH` No match
@@ -29,34 +31,73 @@ local record Regex
   --- - `re.NOTBOL`
   --- - `re.NOTEOL`
   --- This has an O(𝑛) cost.
-  search: function(self: Regex, str: string, flags?: number): string
+  search: function(self: Regex, str: string, flags?: number): string, string...
 end
 
 local record re
-  -- Error codes
+  type Errno = Errno
+  type Regex = Regex
+
+  --- No match
   NOMATCH: number
+  --- Invalid regex
   BADPAT: number
+  --- Unknown collating element
   ECOLLATE: number
+  --- Unknown character class name
   ECTYPE: number
+  --- Trailing backslash
   EESCAPE: number
+  --- Invalid back reference
   ESUBREG: number
+  --- Missing ]
   EBRACK: number
+  --- Missing )
   EPAREN: number
-
-  -- Compile flags
-  BASIC: number -- Use basic (obsolete) regex syntax instead of extended
-  ICASE: number -- Case-insensitive matching
-  NEWLINE: number -- Treat newline as special (affects ^ and $)
-  NOSUB: number -- Report only success/failure, not match position
-
-  -- Search flags
-  NOTBOL: number -- First character is not at beginning of line
-  NOTEOL: number -- Last character is not at end of line
+  --- Missing }
+  EBRACE: number
+  --- Invalid contents of {}
+  BADBR: number
+  --- Invalid character range.
+  ERANGE: number
+  --- Out of memory
+  ESPACE: number
+  --- Repetition not preceded by valid expression
+  BADRPT: number
+  --- Use this flag if you prefer the default POSIX regex syntax.
+  --- We use extended regex notation by default. For example, an extended regular
+  --- expression for matching an IP address might look like
+  --- `([0-9]*)\.([0-9]*)\.([0-9]*)\.([0-9]*)` whereas with basic syntax it would
+  --- look like `\([0-9]*\)\.\([0-9]*\)\.\([0-9]*\)\.\([0-9]*\)`.
+  --- This flag may only be used with `re.compile` and `re.search`.
+  BASIC: number
+  --- Use this flag if you prefer the default POSIX regex syntax. We use extended
+  ---  regex notation by default. For example, an extended regular expression for
+  --- matching an IP address might look like `([0-9]*)\.([0-9]*)\.([0-9]*)\.([0-9]*)`
+  --- whereas with basic syntax it would look like `\([0-9]*\)\.\([0-9]*\)\.\([0-9]*\)\.\([0-9]*\)`.
+  --- This flag may only be used with `re.compile` and `re.search`.
+  ICASE: number
+  --- Use this flag to change the handling of NEWLINE (\x0a) characters. When this
+  --- flag is set, (1) a NEWLINE shall not be matched by a "." or any form of a
+  --- non-matching list, (2) a "^" shall match the zero-length string immediately
+  --- after a NEWLINE (regardless of `re.NOTBOL`), and (3) a "$" shall match the
+  --- zero-length string immediately before a NEWLINE (regardless of `re.NOTEOL`).
+  NEWLINE: number
+  --- Causes `re.search` to only report success and failure. This is reported via
+  --- the API by returning empty string for success. This flag may only be used
+  --- ` with `re.compile` and `re.search`.
+  NOSUB: number
+  --- The first character of the string pointed to by string is not the beginning
+  --- of the line. This flag may only be used with `re.search` and `regex_t*:search`.
+  NOTBOL: number
+  --- The last character of the string pointed to by string is not the end of the
+  --- line. This flag may only be used with `re.search` and `regex_t*:search`.
+  NOTEOL: number
 
   --- Searches for regular expression match in text.
   --- This is a shorthand notation roughly equivalent to:
-  --- preg = re.compile(regex)
-  --- patt = preg:search(re, text)
+  ---     preg = re.compile(regex)
+  ---     patt = preg:search(re, text)
   --- - `re.BASIC`
   --- - `re.ICASE`
   --- - `re.NEWLINE`
@@ -65,7 +106,7 @@ local record re
   --- - `re.NOTEOL`
   --- This has exponential complexity. Please use `re.compile()` to compile your regular expressions once from `/.init.lua`. This API exists for convenience. This isn't recommended for prod.
   --- This uses POSIX extended syntax by default.
-  search: function(regex: string, text: string, flags?: number): string
+  search: function(regex: string, text: string, flags?: number): string, string...
   --- Compiles regular expression.
   --- - `re.BASIC`
   --- - `re.ICASE`
@@ -76,7 +117,6 @@ local record re
   --- If regex is an untrusted user value, then `unix.setrlimit` should be
   --- used to impose cpu and memory quotas for security.
   --- This uses POSIX extended syntax by default.
-  --- Returns nil and an Errno on failure.
   compile: function(regex: string, flags?: number): Regex, Errno
 end
 

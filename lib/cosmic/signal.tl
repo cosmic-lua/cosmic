@@ -46,22 +46,15 @@ local record SignalModule
   SIGBUS: number
   SIGCHLD: number
   SIGCONT: number
-  SIGEMT: number
   SIGFPE: number
   SIGHUP: number
   SIGILL: number
-  SIGINFO: number
   SIGINT: number
-  SIGIO: number
   SIGKILL: number
   SIGPIPE: number
   SIGPROF: number
-  SIGPWR: number
   SIGQUIT: number
-  SIGRTMAX: number
-  SIGRTMIN: number
   SIGSEGV: number
-  SIGSTKFLT: number
   SIGSTOP: number
   SIGSYS: number
   SIGTERM: number
@@ -223,22 +216,15 @@ M.SIGALRM = unix.SIGALRM as number
 M.SIGBUS = unix.SIGBUS as number
 M.SIGCHLD = unix.SIGCHLD as number
 M.SIGCONT = unix.SIGCONT as number
-M.SIGEMT = unix.SIGEMT as number
 M.SIGFPE = unix.SIGFPE as number
 M.SIGHUP = unix.SIGHUP as number
 M.SIGILL = unix.SIGILL as number
-M.SIGINFO = unix.SIGINFO as number
 M.SIGINT = unix.SIGINT as number
-M.SIGIO = unix.SIGIO as number
 M.SIGKILL = unix.SIGKILL as number
 M.SIGPIPE = unix.SIGPIPE as number
 M.SIGPROF = unix.SIGPROF as number
-M.SIGPWR = unix.SIGPWR as number
 M.SIGQUIT = unix.SIGQUIT as number
-M.SIGRTMAX = unix.SIGRTMAX as number
-M.SIGRTMIN = unix.SIGRTMIN as number
 M.SIGSEGV = unix.SIGSEGV as number
-M.SIGSTKFLT = unix.SIGSTKFLT as number
 M.SIGSTOP = unix.SIGSTOP as number
 M.SIGSYS = unix.SIGSYS as number
 M.SIGTERM = unix.SIGTERM as number

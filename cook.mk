@@ -1,9 +1,10 @@
 # cosmic repository module definitions
 # This file aggregates all modules for the build system
 
-# Type definition generation (define early so it's available to all modules)
-type_modules := unix path getopt lsqlite3 re argon2 zip
-type_gen_outputs := $(patsubst %,lib/types/cosmo/%.d.tl,$(type_modules))
+# Type definition generation (define early so it's available to all modules).
+# Must match MODULES in lib/types/gentype.tl: "cosmo" renders the top-level
+# cosmo record (lib/types/cosmo.d.tl); the rest render lib/types/cosmo/<m>.d.tl.
+type_modules := cosmo unix path getopt lsqlite3 re argon2 zip repl
 
 # Bootstrap module: setup cosmic-lua for build process
 modules += bootstrap

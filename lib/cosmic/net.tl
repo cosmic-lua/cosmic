@@ -360,7 +360,6 @@ local record NetModule
   MSG_WAITALL: number
   MSG_OOB: number
   MSG_DONTROUTE: number
-  MSG_MORE: number
   MSG_NOSIGNAL: number
 end
 
@@ -445,7 +444,6 @@ local M: NetModule = {
   MSG_WAITALL = unix.MSG_WAITALL,
   MSG_OOB = unix.MSG_OOB,
   MSG_DONTROUTE = unix.MSG_DONTROUTE,
-  MSG_MORE = unix.MSG_MORE,
   MSG_NOSIGNAL = unix.MSG_NOSIGNAL,
 }
 

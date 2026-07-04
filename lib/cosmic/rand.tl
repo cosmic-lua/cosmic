@@ -19,37 +19,37 @@ end
 --- Generate a fast 64-bit pseudo-random integer (non-cryptographic).
 --- Note: result is a signed 64-bit Lua integer; may appear negative if high bit is set.
 --- @return integer Random 64-bit integer
-local function rand64(): integer
+local function rand64(): number
   return cosmo.Rand64()
 end
 
 --- Generate a fast 64-bit pseudo-random integer using Lemire's PRNG (non-cryptographic).
 --- Note: result is a signed 64-bit Lua integer; may appear negative if high bit is set.
 --- @return integer Random 64-bit integer
-local function lemur64(): integer
+local function lemur64(): number
   return cosmo.Lemur64()
 end
 
 --- Generate a hardware random integer using Intel RDRAND instruction.
 --- Returns nil and an error message on CPUs that do not support RDRAND.
 --- @return integer, string Random integer, or nil and error message if unavailable
-local function rdrand(): integer, string
+local function rdrand(): number, string
   return cosmo.Rdrand()
 end
 
 --- Generate a hardware random seed using Intel RDSEED instruction.
 --- Returns nil and an error message on CPUs that do not support RDSEED.
 --- @return integer, string Random seed integer, or nil and error message if unavailable
-local function rdseed(): integer, string
+local function rdseed(): number, string
   return cosmo.Rdseed()
 end
 
 local record RandModule
   bytes: function(n: number): string
-  rand64: function(): integer
-  lemur64: function(): integer
-  rdrand: function(): integer, string
-  rdseed: function(): integer, string
+  rand64: function(): number
+  lemur64: function(): number
+  rdrand: function(): number, string
+  rdseed: function(): number, string
 end
 
 local M: RandModule = {

@@ -27,7 +27,7 @@ lib/
     *_example.tl       runnable examples
   build/               build infrastructure (fetch, stage, reporter)
   docs/                doc publishing
-  types/               .d.tl type definitions for cosmo.* C bindings
+  types/               cosmo.* type declarations (generated) + gentype generator
 3p/
   cosmos/              Cosmopolitan Lua binary + zip tool
   tl/                  Teal compiler
@@ -153,6 +153,35 @@ key concepts:
 - **bootstrap**: a pre-built cosmic binary bootstraps compilation of `.tl` → `.lua`
 - **sandboxing**: landlock-make applies pledge/unveil per-rule for build isolation
 - **output directory**: all build artifacts go to `o/`
+
+## Type Generation
+
+the `cosmo.*` type declarations are GENERATED — never edit them by hand:
+
+- `lib/types/cosmo.d.tl` — the top-level `require("cosmo")` surface
+- `lib/types/cosmo/*.d.tl` — submodules (unix, path, getopt, lsqlite3, re, argon2, zip, repl)
+
+the single source of truth is `tool/net/definitions.lua` in whilp/cosmopolitan,
+embedded in the pinned cosmos release binary at `/zip/.lua/definitions.lua`.
+upstream, per-module annotation-coverage ratchet tests guarantee every C
+binding is annotated; here, `lib/types/gentype.tl` parses those annotations
+into Teal records, and `lib/types/gentype_test.tl` fails if the committed
+files differ byte-for-byte from generator output.
+
+update procedure (after a cosmos bump or generator change):
+
+```bash
+# 1. bump 3p/cosmos/version.lua (url version + sha)
+bin/make regen-types      # regenerate all .d.tl from the new pin
+bin/make test only=gentype
+# 2. fix any lib/cosmic wrappers the new types break; commit everything together
+```
+
+`GENTYPE_DEFS=/path/to/definitions.lua` overrides the definitions source for
+validating against a cosmopolitan checkout before a release is cut.
+
+handcrafted exceptions (not generated, maintained by hand): `lib/types/tl.d.tl`
+(Teal compiler API), `lib/types/make-help.d.tl`.
 
 ## cosmic Binary
 

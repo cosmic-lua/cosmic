@@ -37,7 +37,7 @@ end
 --- @param opts {string:any}? Optional encoding options
 --- @return string The Lua source code representation
 local function encode_lua(value: any, opts?: {string: any}): string
-  return cosmo.EncodeLua(value, opts)
+  return (cosmo.EncodeLua(value, opts))
 end
 
 --- Decode Lua source code to a value with a restricted environment.
