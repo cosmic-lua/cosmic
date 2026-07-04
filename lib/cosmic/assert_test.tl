@@ -1,5 +1,6 @@
 #!/usr/bin/env cosmic
 local a = require("cosmic.assert")
+local env = require("cosmic.env")
 
 -- must_fail wraps a function that is expected to throw and returns
 -- (true, error_message) or (false, "did not throw").
@@ -236,3 +237,54 @@ local function test_eq_error_points_at_caller()
   assert(type(msg) == "string", "expected string error, got: " .. tostring(msg))
 end
 test_eq_error_points_at_caller()
+
+-- enforcing / skip / enforced: enforcement-lane helpers
+
+local function with_enforce(on: boolean, f: function())
+  local prev = env.get("COSMIC_ENFORCE")
+  if on then env.set("COSMIC_ENFORCE", "1", true) else env.unset("COSMIC_ENFORCE") end
+  local ok, e = pcall(f as function(): any)
+  if prev then env.set("COSMIC_ENFORCE", prev, true) else env.unset("COSMIC_ENFORCE") end
+  if not ok then error(e, 0) end
+end
+
+local function test_enforcing_reflects_env()
+  with_enforce(false, function() a.eq(a.enforcing(), false, "unset") end)
+  with_enforce(true, function() a.eq(a.enforcing(), true, "set") end)
+end
+test_enforcing_reflects_env()
+
+local function test_skip_soft_never_throws()
+  -- A non-strict skip is visibility-only: it must never throw, even when
+  -- enforcement is required (genuine platform gaps still skip on the lane).
+  with_enforce(true, function()
+      local threw = must_fail(function(): string a.skip("kernel too old") return "" end)
+      assert(not threw, "soft skip must not throw under enforcement")
+    end)
+end
+test_skip_soft_never_throws()
+
+local function test_skip_strict_throws_only_under_enforce()
+  -- Off the lane, even a strict skip is tolerated (the outer sandbox is
+  -- expected). On the lane it is a hard failure.
+  with_enforce(false, function()
+      local threw = must_fail(function(): string a.skip("blocked", true) return "" end)
+      assert(not threw, "strict skip must not throw off the enforce lane")
+    end)
+  with_enforce(true, function()
+      local threw, msg = must_fail(function(): string a.skip("blocked", true) return "" end)
+      assert(threw, "strict skip must throw under enforcement")
+      assert(msg:match("enforcement required but skipped"),
+        "expected enforcement message, got: " .. msg)
+      assert(msg:match("blocked"), "expected reason in message, got: " .. msg)
+    end)
+end
+test_skip_strict_throws_only_under_enforce()
+
+local function test_enforced_never_throws()
+  with_enforce(true, function()
+      local threw = must_fail(function(): string a.enforced("pledge") return "" end)
+      assert(not threw, "enforced() is a marker and must not throw")
+    end)
+end
+test_enforced_never_throws()

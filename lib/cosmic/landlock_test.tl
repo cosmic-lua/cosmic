@@ -3,6 +3,7 @@ local landlock = require("cosmic.landlock")
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local spawn = require("cosmic.child")
+local a = require("cosmic.assert")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
@@ -49,10 +50,13 @@ test_available_returns_boolean()
 local function test_restrict_denies_outside_allowlist()
   if not landlock.available() then
     -- Kernel lacks landlock; skip the live enforcement check but assert
-    -- that abi() consistently reports the limitation.
+    -- that abi() consistently reports the limitation. A genuine platform
+    -- gap: soft skip even on the enforce lane (an old kernel can't be
+    -- made to enforce).
     local v, err = landlock.abi()
     assert(v == nil, "abi() should return nil when landlock is unavailable")
     assert(err, "abi() should return an error string when unavailable")
+    a.skip("landlock unavailable (kernel lacks landlock)")
     return
   end
 
@@ -82,15 +86,26 @@ local g = io.open(%q, "r")
 if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n") end
 ]], allowed, allowed, denied))
 
+  -- landlock probed available here, so any failure to enforce below means
+  -- an outer sandbox is blocking an otherwise-supported mechanism — a
+  -- strict skip that the enforce lane (COSMIC_ENFORCE=1, no outer sandbox)
+  -- turns into a hard failure.
   local ok, out = spawn.spawn({cosmic, script}):read()
   -- Under an outer seccomp/pledge filter the landlock syscall may be
   -- blocked with SIGSYS rather than EPERM, killing the subprocess
-  -- before it can emit "skipped". Accept that too.
-  if not ok then return end
+  -- before it can emit "skipped".
+  if not ok then
+    a.skip("landlock restrict blocked (subprocess died before enforcing)", true)
+    return
+  end
   local s = out as string
-  if s:find("skipped") then return end
+  if s:find("skipped") then
+    a.skip("landlock restrict blocked: " .. s, true)
+    return
+  end
   assert(s:find("allowed-ok"), "allowed path should still read: " .. s)
   assert(s:find("denied-blocked"), "denied path must be blocked: " .. s)
+  a.enforced("landlock")
 end
 test_restrict_denies_outside_allowlist()
 
