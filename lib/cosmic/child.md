@@ -30,31 +30,21 @@ local record Rusage
 end
 ```
 
-### Pipe
-
- Pipe for process I/O. fd is a plain field (not a method like io.Handle:fd()).
-
-```teal
-local record Pipe
-  fd: number
-  write: function(self: Pipe, data: string): number
-  read: function(self: Pipe, size?: number): string
-  close: function(self: Pipe)
-end
-```
-
 ### Handle
 
  Handle for a spawned process.
+ stdin/stdout/stderr are cosmic.child_io Pipe wrappers (or nil when the
+ corresponding stream was redirected to a raw fd via Opts).
 
 ```teal
 local record Handle
   pid: number
-  stdin: Pipe
-  stdout: Pipe
-  stderr: Pipe
+  stdin: childio.Pipe
+  stdout: childio.Pipe
+  stderr: childio.Pipe
   wait: function(self: Handle): number, string
   read: function(self: Handle, size?: number): boolean | string, string, number
+  communicate: function(self: Handle): string, string, number, string
 end
 ```
 
@@ -257,18 +247,6 @@ function spawn(argv: {string}, opts?: Opts): Handle, string
 
 - Handle, - string? Process handle or nil + error
 
-### pipe:write
-
-```teal
-function pipe:write(data: string): number
-```
-
-### pipe:read
-
-```teal
-function pipe:read(size?: number): string
-```
-
 ### handle:wait
 
 ```teal
@@ -276,7 +254,7 @@ function handle:wait(): number, string
 ```
 
  Wait for the process to exit and return its exit code.
- Closes stdin and drains stdout and stderr concurrently before waiting.
+ Feeds any stdin and drains stdout/stderr first so it cannot deadlock.
 
 **Returns:**
 
@@ -290,16 +268,33 @@ function handle:read(size?: number): boolean | string, string, number
 ```
 
  Read output from the process.
- If size is specified, reads that many bytes and returns the data as a string.
- If size is not specified, drains stdout and stderr concurrently, waits for
- process to exit, and returns success status, stdout output, and exit code.
+ With a size, reads that many bytes from stdout and returns them (or
+ nil, err). Without a size, runs the process to completion (feeding stdin,
+ draining stdout+stderr) and returns success, stdout, and the exit code.
+ To also capture stderr, use communicate().
 
 **Parameters:**
 
-- `size` (number) - Optional number of bytes to read
+- `size` (number) - Optional number of bytes to read from stdout
 
 **Returns:**
 
-- boolean|string - Success status (true if exit code is 0) or output string if size specified
-- string - The stdout output from the process
+- boolean|string - Success (exit code 0) or, with size, the data read
+- string - The stdout output, or the error when size read fails
 - number - The exit code of the process
+
+### handle:communicate
+
+```teal
+function handle:communicate(): string, string, number, string
+```
+
+ Run the process to completion and capture both output streams.
+ Feeds any stdin while draining stdout and stderr concurrently, then reaps.
+
+**Returns:**
+
+- string - The captured stdout
+- string - The captured stderr
+- number - The exit code (-1 if the process did not exit normally)
+- string - An error (signal death, or a pump I/O error), or nil

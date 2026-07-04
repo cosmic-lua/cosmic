@@ -27,6 +27,7 @@ High-level utilities and tools built on top of cosmo.
 | [assert](lib/cosmic/assert.md) |  Assertion helpers for tests with auto-formatted failure messages. |
 | [benchmark](lib/cosmic/benchmark.md) |  Go-style benchmark testing. |
 | [child](lib/cosmic/child.md) |  Child process management. |
+| [child_io](lib/cosmic/child_io.md) |  Low-level child-process I/O primitives. |
 | [codec](lib/cosmic/codec.md) |  Encoding and decoding utilities for various formats. |
 | [compress](lib/cosmic/compress.md) |  Compression and decompression utilities. |
 | [doc](lib/cosmic/doc.md) |  Extract documentation from Teal files and render as markdown. |
