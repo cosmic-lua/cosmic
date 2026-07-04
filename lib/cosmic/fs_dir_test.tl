@@ -1,5 +1,6 @@
 #!/usr/bin/env cosmic
 local fs = require("cosmic.fs")
+local cio = require("cosmic.io")
 local unix = require("cosmo.unix")
 
 local record Statfs
@@ -248,3 +249,40 @@ local function test_major_minor_regular_file()
   teardown(test_dir)
 end
 test_major_minor_regular_file()
+
+local function test_fdopendir()
+  local test_dir = setup()
+  touch(fs.join(test_dir, "file1.txt"))
+  touch(fs.join(test_dir, "file2.txt"))
+
+  -- fdopendir must return a working Dir (not an error) on success; it
+  -- takes ownership of the fd and closes it via dir:close().
+  local h, oerr = cio.open(test_dir, cio.O_RDONLY | cio.O_DIRECTORY)
+  assert(h, "opening directory fd failed: " .. (oerr or ""))
+  local dir, err = fs.fdopendir(h:fd())
+  assert(dir, "fdopendir should succeed: " .. (err or ""))
+
+  local entries: {string: boolean} = {}
+  while true do
+    local entry = dir:read()
+    if not entry then break end
+    if entry ~= "." and entry ~= ".." then
+      entries[entry] = true
+    end
+  end
+  dir:close()
+
+  assert(entries["file1.txt"], "expected file1.txt")
+  assert(entries["file2.txt"], "expected file2.txt")
+
+  teardown(test_dir)
+end
+test_fdopendir()
+
+local function test_fdopendir_bad_fd()
+  -- An invalid fd must return nil + error, never throw from the binding.
+  local dir, err = fs.fdopendir(-1)
+  assert(dir == nil, "fdopendir(-1) should fail, not return a Dir")
+  assert(type(err) == "string", "failure must carry an error string")
+end
+test_fdopendir_bad_fd()
