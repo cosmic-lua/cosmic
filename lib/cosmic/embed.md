@@ -112,6 +112,7 @@ end
 local record EmbedModule
   run: function(paths: {string}, output?: string, exe_path?: string): EmbedResult
   extract: function(output_dir: string, exe_path?: string): EmbedResult
+  unsafe_entry: function(name: string): boolean
 end
 ```
 
@@ -138,6 +139,27 @@ function run(paths: {string}, output?: string, exe_path?: string): EmbedResult
 **Returns:**
 
 - EmbedResult - Result with ok status, message, and file count
+
+### unsafe_entry
+
+```teal
+function unsafe_entry(name: string): boolean
+```
+
+ Report whether a zip entry name would escape the extraction root
+ (zip-slip). Rejects absolute paths — POSIX (`/x`), Windows/UNC
+ (`\x`, `\\server\share`), and drive-letter (`C:\x`, `C:/x`, `C:x`) —
+ and any `..` traversal component. Both `/` and `\` are treated as
+ separators, since cosmic executables also extract on Windows where a
+ `..\evil` entry would otherwise slip past a POSIX-only guard.
+
+**Parameters:**
+
+- `name` (string) - Archive entry name
+
+**Returns:**
+
+- boolean - true if the entry is unsafe to extract
 
 ### extract
 
