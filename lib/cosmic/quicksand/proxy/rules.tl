@@ -35,6 +35,8 @@ end
 
 --- Split a host-spec into ("host", port or nil). A missing port,
 --- ":*", or ":" all mean "any port". Hosts compare case-insensitively.
+--- A malformed port is *not* handled here — callers must validate keys
+--- with validate_key first, or a typo silently widens to "any port".
 local function parse_rule(key: string): string, integer
   local h, p = key:match("^(.-):(.-)$")
   if not h then
@@ -44,6 +46,31 @@ local function parse_rule(key: string): string, integer
     return h:lower(), nil
   end
   return h:lower(), tonumber(p) as integer
+end
+
+--- Validate an allowlist *key* (host-spec). Returns nil on success or a
+--- human-readable error. The port component, when present, must be `*`,
+--- empty, or a decimal integer in 1..65535 — otherwise `tonumber`
+--- returns nil and parse_rule would silently widen the rule to "any
+--- port" (fail-open in a security boundary). A stray extra colon
+--- (`"host:5432:6"`) trips the digit check for the same reason. The
+--- optional `*.` wildcard prefix is stripped before checking.
+local function validate_key(key: string): string
+  local spec = key:match("^%*%.(.+)$") or key
+  local _, p = spec:match("^(.-):(.-)$")
+  if p == nil or p == "" or p == "*" then
+    return nil
+  end
+  if not p:match("^%d+$") then
+    return string.format("allowed_hosts[%q]: invalid port %q "
+      .. "(expected a decimal number, \"*\", or none)", key, p)
+  end
+  local n = tonumber(p)
+  if n < 1 or n > 65535 then
+    return string.format("allowed_hosts[%q]: port %q out of range "
+      .. "(expected 1..65535)", key, p)
+  end
+  return nil
 end
 
 --- Validate a single allowlist rule. Returns nil on success, or a
@@ -96,6 +123,8 @@ end
 --- the first error found.
 local function validate(allowed_hosts: {string: any}): boolean, string
   for key, rule in pairs(allowed_hosts or {}) do
+    local kerr = validate_key(key)
+    if kerr then return false, kerr end
     local verr = validate_rule(key, rule)
     if verr then return false, verr end
   end
@@ -165,6 +194,7 @@ end
 
 local record RulesModule
   parse_rule: function(key: string): string, integer
+  validate_key: function(key: string): string
   validate_rule: function(key: string, rule: any): string
   validate: function(allowed_hosts: {string: any}): boolean, string
   index: function(allowed_hosts: {string: any}): Index
@@ -174,6 +204,7 @@ end
 
 local M: RulesModule = {
   parse_rule = parse_rule,
+  validate_key = validate_key,
   validate_rule = validate_rule,
   validate = validate,
   index = index,

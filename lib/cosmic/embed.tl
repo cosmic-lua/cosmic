@@ -266,6 +266,28 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
   }
 end
 
+--- Report whether a zip entry name would escape the extraction root
+--- (zip-slip). Rejects absolute paths — POSIX (`/x`), Windows/UNC
+--- (`\x`, `\\server\share`), and drive-letter (`C:\x`, `C:/x`, `C:x`) —
+--- and any `..` traversal component. Both `/` and `\` are treated as
+--- separators, since cosmic executables also extract on Windows where a
+--- `..\evil` entry would otherwise slip past a POSIX-only guard.
+--- @param name string Archive entry name
+--- @return boolean true if the entry is unsafe to extract
+local function unsafe_entry(name: string): boolean
+  -- Absolute roots escape output_dir.
+  if name:sub(1, 1) == "/" or name:sub(1, 1) == "\\" then return true end
+  if name:match("^%a:") then return true end
+  -- Normalize backslashes so ".." traversal is caught on either
+  -- separator ("..\evil" like "../evil").
+  local slashed = name:gsub("\\", "/")
+  if slashed == ".." or slashed:match("^%.%./") or slashed:match("/%.%./")
+  or slashed:match("/%.%.$") then
+    return true
+  end
+  return false
+end
+
 --- Extract the zip contents of a cosmic executable to a directory.
 --- Creates the output directory if needed. Existing files are overwritten.
 --- @param output_dir string Directory to extract into
@@ -293,10 +315,9 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
   local count = 0
 
   for _, name in ipairs(entries) do
-    -- Guard against zip-slip: an archive entry with an absolute path or a
-    -- ".." component could otherwise be written outside output_dir.
-    if name:sub(1, 1) == "/" or name:match("^%.%./") or name:match("/%.%./")
-    or name:match("/%.%.$") or name == ".." then
+    -- Guard against zip-slip: an entry with an absolute path or a ".."
+    -- component could otherwise be written outside output_dir.
+    if unsafe_entry(name) then
       reader:close()
       return {ok = false, message = "error: unsafe path in archive: " .. name, file_count = count}
     end
@@ -345,11 +366,13 @@ end
 local record EmbedModule
   run: function(paths: {string}, output?: string, exe_path?: string): EmbedResult
   extract: function(output_dir: string, exe_path?: string): EmbedResult
+  unsafe_entry: function(name: string): boolean
 end
 
 local M: EmbedModule = {
   run = run,
   extract = extract,
+  unsafe_entry = unsafe_entry,
 }
 
 return M
