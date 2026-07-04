@@ -210,7 +210,8 @@ code read suggests one.
      on a second re-measure: 20 scenarios, 0 regression, 1-2 faster
      (`startup_run_lua`), 18-19 ok.
 
-4. **startup: runtime boot floor (cosmopolitan side)** — open, floor moved
+4. **startup: runtime boot floor (cosmopolitan side)** — import-deferral
+     step rejected (2026-07-04); cosmopolitan-side work still open
    - scenario: `startup_run_lua` was ~14.5-19ms for `print()`; after
      entry 3's step (a) fix it measured 5.7-8.4ms across two runs on a
      noisy machine (re-baseline before trusting an absolute number here).
@@ -219,13 +220,30 @@ code read suggests one.
      module loading in main.tl" generally; with it gone, remaining floor
      is the APE loader + zip filesystem + Lua init + cosmic's other
      top-level `require`s (getopt, args, help, main_handlers, etc.).
-   - hypothesis: deferring the remaining dispatch-only imports (e.g.
-     `help`, only used for `--help`) trims a small additional amount; the
-     rest is cosmos-side (zip central-directory scan, stdlib init) —
-     measure with the pinned raw cosmos `lua` binary as `PERF_BIN`
-     denominator before touching whilp/cosmopolitan.
-   - risk: low for any further import-deferral; cosmopolitan-side work
-     follows the "optimizing the cosmo/cosmopolitan layer" section.
+   - attempt: deferred `local help = require("cosmic.help")` in main.tl
+     to inside the `if opts.help then` branch (the only place it's
+     used), matching the exact "e.g. `help`" example this entry named.
+   - finding: `bin/make perf-compare` from a clean re-baseline showed
+     `startup_run_lua` +4.0% — noise (±10.0% bar), not a real
+     regression, but also not a measurable improvement. A quick manual
+     A/B first (alternating `COSMIC_NO_REQUIRE_HINTS=1` runs of a
+     trivial `.lua` script, ~30-50 iterations each way) had already shown
+     the same thing: differences bounced both directions across repeats,
+     never landing consistently on one side. `getopt`/`args`/
+     `main_handlers` can't be deferred the same way (needed on every
+     invocation to parse args and dispatch), so there wasn't a second
+     candidate to combine with `help` for a larger, clearer effect.
+     Reverted the change (`git checkout -- lib/cosmic/main.tl`) since it
+     had no measurable win to justify keeping.
+   - revised hypothesis: this entry's `startup_run_lua` floor (now
+     single-digit ms, cpu/wall ~0.2-0.3 per recent baselines — mostly
+     NOT CPU) is dominated by something below the Lua-require level
+     entirely: the APE loader, zip filesystem init, or Lua runtime boot.
+     Further wins here belong to the "optimizing the cosmo/cosmopolitan
+     layer" section below (measure against the pinned raw cosmos `lua`
+     binary via `PERF_BIN` first), not to more main.tl import shuffling.
+   - risk: n/a for the rejected step; cosmopolitan-side work follows the
+     "optimizing the cosmo/cosmopolitan layer" section.
 
 5. **fs.walk per-entry cost** — done for `files()`/`collect_all()`
      (2026-07-04); `walk()`/`collect()` unchanged (see below)
