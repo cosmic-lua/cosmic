@@ -21,7 +21,6 @@ Quick start:
 
 Run 'cosmic --welcome' to see this again.
 ]]
-
 end
 
 --- Interactive REPL using cosmopolitan's linenoise-based REPL.
@@ -41,18 +40,21 @@ local function run_repl()
   require("cosmo.repl").start()
 end
 
---- Load a script file (.tl or .lua).
---- Compiles .tl files through Teal, loads .lua files directly.
+--- Load a script file (.tl or .lua): .tl through Teal (cached), .lua directly.
 local function load_script_file(script_path: string): function(...: any): any ..., string
   if script_path:match("%.tl$") then
-    -- add bundled .tl source path so teal compiler can find cosmic modules
-    package.path = package.path .. ";/zip/.tl/?.tl"
-    local teal = require("cosmic.teal")
-    local result = teal.compile(script_path)
-    if not result.ok then
-      return nil, teal.format_issues(result.errors)
+    package.path = package.path .. ";/zip/.tl/?.tl" -- so teal can find cosmic modules
+    local script_cache = require("cosmic.script_cache")
+    local code = script_cache.load(script_path)
+    if not code then
+      local teal = require("cosmic.teal")
+      local result = teal.compile(script_path)
+      if not result.ok then
+        return nil, teal.format_issues(result.errors)
+      end
+      code = result.code
+      script_cache.store(script_path, code)
     end
-    local code = result.code
     if code:sub(1, 2) == "#!" then
       local newline_pos = code:find("\n")
       if newline_pos then
