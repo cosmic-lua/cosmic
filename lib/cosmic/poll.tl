@@ -1,6 +1,7 @@
 --- Typed interface for polling file descriptors.
 --- Provides an ergonomic wrapper around unix.poll().
 local unix = require("cosmo.unix")
+local errno = require("cosmic.errno")
 
 --- Poll event flags.
 --- Use these to specify which events to monitor.
@@ -41,6 +42,9 @@ local record Poller
   clear: function(Poller)
   --- Poll for events with optional timeout.
   --- Returns an iterator over (fd, events) pairs for ready descriptors.
+  --- EINTR is retried internally. A hard poll error yields an empty iterator
+  --- (indistinguishable from a timeout); callers that must detect errors
+  --- should use poll() directly, which returns them.
   --- @param timeoutms number Timeout in ms (-1 for infinite, 0 for non-blocking)
   --- @return function Iterator yielding (fd: number, events: Events)
   wait: function(Poller, number): function(): number, Events
@@ -120,9 +124,20 @@ local function new(): Poller
   end
 
   poller.poll = function(self: Poller, timeoutms: number): number, string
-    results = unix.poll(fds, timeoutms or -1)
+    -- Retry when a signal interrupts the wait: an unretried EINTR otherwise
+    -- surfaces as a poll failure, and a caller that loops on it (e.g. a drain
+    -- loop waiting on a child that raised SIGCHLD) spins at 100% CPU.
+    local res: {number: number}
+    local err: unix.Errno
+    while true do
+      res, err = unix.poll(fds, timeoutms or -1)
+      if res ~= nil or not errno.is(err, "EINTR") then
+        break
+      end
+    end
+    results = res
     if not results then
-      return nil, "poll failed"
+      return nil, errno.str(err, "poll")
     end
     local ready = 0
     for _ in pairs(results) do

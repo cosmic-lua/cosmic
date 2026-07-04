@@ -1,7 +1,7 @@
 --- Child process management.
 --- Spawn and manage child processes with I/O control.
 local unix = require("cosmo.unix")
-local poll = require("cosmic.poll")
+local childio = require("cosmic.child_io")
 
 --- Process resource usage statistics.
 local record Rusage
@@ -23,22 +23,17 @@ local record Rusage
   nivcsw: function(self: Rusage): number
 end
 
---- Pipe for process I/O. fd is a plain field (not a method like io.Handle:fd()).
-local record Pipe
-  fd: number
-  write: function(self: Pipe, data: string): number
-  read: function(self: Pipe, size?: number): string
-  close: function(self: Pipe)
-end
-
 --- Handle for a spawned process.
+--- stdin/stdout/stderr are cosmic.child_io Pipe wrappers (or nil when the
+--- corresponding stream was redirected to a raw fd via Opts).
 local record Handle
   pid: number
-  stdin: Pipe
-  stdout: Pipe
-  stderr: Pipe
+  stdin: childio.Pipe
+  stdout: childio.Pipe
+  stderr: childio.Pipe
   wait: function(self: Handle): number, string
   read: function(self: Handle, size?: number): boolean | string, string, number
+  communicate: function(self: Handle): string, string, number, string
 end
 
 --- Options for spawning a process.
@@ -50,41 +45,6 @@ local record Opts
   stderr: number -- raw fd -> fd 2; handle.stderr becomes nil
   env: {string}
   cwd: string
-end
-
-local function make_pipe(fd: number): Pipe
-  if not fd then
-    return nil
-  end
-  local pipe: Pipe = {fd = fd}
-
-  function pipe:write(data: string): number
-    return (unix.write(self.fd, data))
-  end
-
-  function pipe:read(size?: number): string
-    if size then
-      return (unix.read(self.fd, size))
-    end
-    local chunks: {string} = {}
-    while true do
-      local chunk = unix.read(self.fd, 65536)
-      if not chunk or chunk == "" then
-        break
-      end
-      table.insert(chunks, chunk)
-    end
-    return table.concat(chunks)
-  end
-
-  pipe.close = function(self: Pipe)
-    if self.fd then
-      local _ = unix.close(self.fd)
-      self.fd = nil
-    end
-  end
-
-  return pipe
 end
 
 --- Creates a new process (fork).
@@ -210,25 +170,47 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
     argv[1] = cmd
   end
 
+  -- Track every fd we open so a mid-way pipe() failure (fd exhaustion) can be
+  -- unwound cleanly instead of leaking descriptors — including any exec fd,
+  -- which would otherwise leak on this early-return path.
+  local opened: {number} = {}
+  local function fail(msg: string): Handle, string
+    for _, fd in ipairs(opened) do unix.close(fd) end
+    if exec_fd then unix.close(exec_fd) end
+    return nil, msg
+  end
+  local function new_pipe(): number, number
+    local r, w = unix.pipe()
+    if r == nil or w == nil then
+      return nil, nil
+    end
+    table.insert(opened, r)
+    table.insert(opened, w)
+    return r, w
+  end
+
   local stdin_r: number
   local stdin_w: number
   local stdin_is_fd = type(opts.stdin) == "number"
   if not stdin_is_fd then
-    stdin_r, stdin_w = unix.pipe()
+    stdin_r, stdin_w = new_pipe()
+    if not stdin_w then return fail("pipe failed (stdin)") end
   end
 
   local stdout_r: number
   local stdout_w: number
   local stdout_is_fd = type(opts.stdout) == "number"
   if not stdout_is_fd then
-    stdout_r, stdout_w = unix.pipe()
+    stdout_r, stdout_w = new_pipe()
+    if not stdout_w then return fail("pipe failed (stdout)") end
   end
 
   local stderr_r: number
   local stderr_w: number
   local stderr_is_fd = type(opts.stderr) == "number"
   if not stderr_is_fd then
-    stderr_r, stderr_w = unix.pipe()
+    stderr_r, stderr_w = new_pipe()
+    if not stderr_w then return fail("pipe failed (stderr)") end
   end
 
   local pid = unix.fork()
@@ -330,99 +312,91 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
     unix.close(stderr_w)
   end
 
-  -- Drain stdout and stderr concurrently using poll to avoid deadlock.
-  local function drain_pipes(out_pipe: Pipe, err_pipe: Pipe): string, string
-    local out_chunks: {string} = {}
-    local err_chunks: {string} = {}
-    if not out_pipe and not err_pipe then
-      return "", ""
-    end
-    local poller = poll.new()
-    if out_pipe then poller:add(out_pipe.fd, poll.POLLIN) end
-    if err_pipe then poller:add(err_pipe.fd, poll.POLLIN) end
-    while not poller:empty() do
-      for fd, events in poller:wait(-1) do
-        if events.readable then
-          local chunk = unix.read(fd, 65536)
-          if not chunk or chunk == "" then
-            poller:remove(fd)
-          else
-            if out_pipe and fd == out_pipe.fd then
-              table.insert(out_chunks, chunk)
-            elseif err_pipe and fd == err_pipe.fd then
-              table.insert(err_chunks, chunk)
-            end
-          end
-        end
-        if events.hangup or events.error then
-          poller:remove(fd)
-        end
-      end
-    end
-    if out_pipe then out_pipe:close() end
-    if err_pipe then err_pipe:close() end
-    return table.concat(out_chunks), table.concat(err_chunks)
+  -- An opts.stdin string is delivered lazily by wait()/read()/communicate()
+  -- via the pump, NOT written synchronously here: a >pipe-buffer write before
+  -- anyone drains stdout/stderr would deadlock, and a child that exits early
+  -- would SIGPIPE-kill this process. The pump feeds stdin and drains both
+  -- output streams in one poll loop, so neither can happen.
+  local stdin_data: string = nil
+  if type(opts.stdin) == "string" then
+    stdin_data = opts.stdin as string
   end
 
   local handle: Handle = {
     pid = pid,
-    stdin = make_pipe(stdin_w),
-    stdout = make_pipe(stdout_r),
-    stderr = make_pipe(stderr_r),
+    stdin = childio.make_pipe(stdin_w),
+    stdout = childio.make_pipe(stdout_r),
+    stderr = childio.make_pipe(stderr_r),
   }
 
+  -- Run the process to completion: pump stdin in / stdout+stderr out without
+  -- deadlock, then reap. Returns stdout, stderr, exit code (-1 if the process
+  -- did not exit normally), and an error string (signal/abnormal exit, or a
+  -- pump I/O error) that is nil on a clean normal exit.
+  local function finish(): string, string, number, string
+    local sfd = handle.stdin and handle.stdin.fd or nil
+    handle.stdin = nil
+    local out_fd = handle.stdout and handle.stdout.fd or nil
+    local err_fd = handle.stderr and handle.stderr.fd or nil
+    local out, err_out, io_err = childio.pump(out_fd, err_fd, sfd, stdin_data)
+    if handle.stdout then handle.stdout:close(); handle.stdout = nil end
+    if handle.stderr then handle.stderr:close(); handle.stderr = nil end
+    local _, status = unix.wait(handle.pid)
+    local code: number = -1
+    local err: string = nil
+    if type(status) ~= "number" then
+      err = "wait failed: " .. tostring(status)
+    elseif unix.WIFEXITED(status) then
+      code = unix.WEXITSTATUS(status)
+    elseif unix.WIFSIGNALED(status) then
+      err = "killed by signal " .. tostring(unix.WTERMSIG(status))
+    else
+      err = "process terminated abnormally"
+    end
+    return out, err_out, code, err or io_err
+  end
+
   --- Wait for the process to exit and return its exit code.
-  --- Closes stdin and drains stdout and stderr concurrently before waiting.
+  --- Feeds any stdin and drains stdout/stderr first so it cannot deadlock.
   --- @return number The exit code if the process exited normally
   --- @return string Error message if the process terminated abnormally
   function handle:wait(): number, string
-    if self.stdin then self.stdin:close() end
-    drain_pipes(self.stdout, self.stderr)
-    self.stdout = nil
-    self.stderr = nil
-    local _, status = unix.wait(self.pid)
-    if type(status) ~= "number" then
-      return nil, "wait failed: " .. tostring(status)
+    local _, _, code, err = finish()
+    if err then
+      return nil, err
     end
-    if unix.WIFEXITED(status) then
-      return unix.WEXITSTATUS(status)
-    end
-    if unix.WIFSIGNALED(status) then
-      return nil, "killed by signal " .. tostring(unix.WTERMSIG(status))
-    end
-    return nil, "process terminated abnormally"
+    return code
   end
 
   --- Read output from the process.
-  --- If size is specified, reads that many bytes and returns the data as a string.
-  --- If size is not specified, drains stdout and stderr concurrently, waits for
-  --- process to exit, and returns success status, stdout output, and exit code.
-  --- @param size number Optional number of bytes to read
-  --- @return boolean|string Success status (true if exit code is 0) or output string if size specified
-  --- @return string The stdout output from the process
+  --- With a size, reads that many bytes from stdout and returns them (or
+  --- nil, err). Without a size, runs the process to completion (feeding stdin,
+  --- draining stdout+stderr) and returns success, stdout, and the exit code.
+  --- To also capture stderr, use communicate().
+  --- @param size number Optional number of bytes to read from stdout
+  --- @return boolean|string Success (exit code 0) or, with size, the data read
+  --- @return string The stdout output, or the error when size read fails
   --- @return number The exit code of the process
   function handle:read(size?: number): boolean | string, string, number
     if not self.stdout then
       return nil, "stdout not captured"
     end
-    if self.stdin then self.stdin:close() end
     if size then
+      if self.stdin then self.stdin:close(); self.stdin = nil end
       return self.stdout:read(size)
     end
-    local out, _ = drain_pipes(self.stdout, self.stderr)
-    self.stdout = nil
-    self.stderr = nil
-    local _, status = unix.wait(self.pid)
-    if type(status) ~= "number" then
-      return false, out, -1
-    end
-    local exit_code = unix.WIFEXITED(status) and unix.WEXITSTATUS(status) or -1
-    return exit_code == 0, out, exit_code
+    local out, _, code = finish()
+    return code == 0, out, code
   end
 
-  if type(opts.stdin) == "string" then
-    handle.stdin:write(opts.stdin as string)
-    handle.stdin:close()
+  --- Run the process to completion and capture both output streams.
+  --- Feeds any stdin while draining stdout and stderr concurrently, then reaps.
+  --- @return string The captured stdout
+  --- @return string The captured stderr
+  --- @return number The exit code (-1 if the process did not exit normally)
+  --- @return string An error (signal death, or a pump I/O error), or nil
+  function handle:communicate(): string, string, number, string
+    return finish()
   end
 
   return handle
