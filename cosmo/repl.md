@@ -10,6 +10,8 @@ Type declarations for the `repl` module.
 function start()
 ```
 
- Start the interactive REPL.
- Enters a Read-Eval-Print Loop with tab completion, history, and line editing.
- The REPL continues until the user presses Ctrl-D (EOF) or Ctrl-C twice.
+ Starts an interactive read-eval-print-loop (REPL) on standard input
+ and output, with line editing, history, and tab completion. Each
+ input line is evaluated as an expression (printing its results) or
+ as a statement. The loop runs until end of input (Ctrl-D). Takes no
+ arguments and returns nothing.

@@ -138,7 +138,6 @@ local record NetModule
   MSG_WAITALL: number
   MSG_OOB: number
   MSG_DONTROUTE: number
-  MSG_MORE: number
   MSG_NOSIGNAL: number
 end
 ```

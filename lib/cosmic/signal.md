@@ -64,22 +64,15 @@ local record SignalModule
   SIGBUS: number
   SIGCHLD: number
   SIGCONT: number
-  SIGEMT: number
   SIGFPE: number
   SIGHUP: number
   SIGILL: number
-  SIGINFO: number
   SIGINT: number
-  SIGIO: number
   SIGKILL: number
   SIGPIPE: number
   SIGPROF: number
-  SIGPWR: number
   SIGQUIT: number
-  SIGRTMAX: number
-  SIGRTMIN: number
   SIGSEGV: number
-  SIGSTKFLT: number
   SIGSTOP: number
   SIGSYS: number
   SIGTERM: number

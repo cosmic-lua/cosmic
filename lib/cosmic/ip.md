@@ -11,10 +11,10 @@
 
 ```teal
 local record Addr
-  _n: integer
+  _n: number
   --  Get the raw integer representation.
   --  Use this when passing to net.Socket:connect() or other APIs that take integer IPs.
-  int: function(Addr): integer
+  int: function(Addr): number
   --  Format as a dotted-quad string (e.g., "192.168.1.1").
   format: function(Addr): string
   --  Categorize the address (e.g., "LOOPBACK", "PRIVATE", "ARIN").
@@ -33,14 +33,14 @@ end
 ```teal
 local record IpModule
   Addr: Addr
-  addr: function(n: integer): Addr
-  parse: function(str: string): integer
-  format: function(ip: integer): string
-  categorize: function(ip: integer): string
-  is_loopback: function(ip: integer): boolean
-  is_private: function(ip: integer): boolean
-  is_public: function(ip: integer): boolean
-  resolve: function(hostname: string): integer
+  addr: function(n: number): Addr
+  parse: function(str: string): number
+  format: function(ip: number): string
+  categorize: function(ip: number): string
+  is_loopback: function(ip: number): boolean
+  is_private: function(ip: number): boolean
+  is_public: function(ip: number): boolean
+  resolve: function(hostname: string): number
   lookup: function(hostname: string): Addr, string
 end
 ```
@@ -50,7 +50,7 @@ end
 ### addr
 
 ```teal
-function addr(n: integer): Addr
+function addr(n: number): Addr
 ```
 
  Wrap a raw integer as a typed Addr.
@@ -66,7 +66,7 @@ function addr(n: integer): Addr
 ### parse
 
 ```teal
-function parse(str: string): integer
+function parse(str: string): number
 ```
 
  Parse an IP address string to its integer representation.
@@ -83,7 +83,7 @@ function parse(str: string): integer
 ### format
 
 ```teal
-function format(ip: integer): string
+function format(ip: number): string
 ```
 
  Format an integer IP address as a string.
@@ -99,7 +99,7 @@ function format(ip: integer): string
 ### categorize
 
 ```teal
-function categorize(ip: integer): string
+function categorize(ip: number): string
 ```
 
  Categorize an IP address.
@@ -116,7 +116,7 @@ function categorize(ip: integer): string
 ### is_loopback
 
 ```teal
-function is_loopback(ip: integer): boolean
+function is_loopback(ip: number): boolean
 ```
 
  Check if an IP address is a loopback address (127.x.x.x).
@@ -132,7 +132,7 @@ function is_loopback(ip: integer): boolean
 ### is_private
 
 ```teal
-function is_private(ip: integer): boolean
+function is_private(ip: number): boolean
 ```
 
  Check if an IP address is a private address.
@@ -149,7 +149,7 @@ function is_private(ip: integer): boolean
 ### is_public
 
 ```teal
-function is_public(ip: integer): boolean
+function is_public(ip: number): boolean
 ```
 
  Check if an IP address is a public/routable address.
@@ -165,7 +165,7 @@ function is_public(ip: integer): boolean
 ### resolve
 
 ```teal
-function resolve(hostname: string): integer
+function resolve(hostname: string): number
 ```
 
  Resolve a hostname to an IP address.

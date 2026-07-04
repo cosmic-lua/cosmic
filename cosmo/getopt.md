@@ -6,6 +6,9 @@ Type declarations for the `getopt` module.
 
 ### parser
 
+ A parser object returned by `getopt.new` for iterating through
+ command-line options.
+
 ```teal
 local record parser
   --  Get the next option from the parser.

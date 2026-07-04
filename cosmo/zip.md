@@ -87,7 +87,14 @@ end
 local record Appender
   --  Adds a file to the ZIP archive.
   add: function(self: Appender, name: string, content: string, options?: AddOptions): boolean | nil, string | nil
-  --  Removes a file from the ZIP archive by name.
+  --  Removes entries by name from the archive.
+  --  If `name` ends with `/`, all entries whose names start with that
+  --  directory prefix are removed; otherwise the single entry whose name
+  --  matches exactly is removed. Both entries already present in the
+  --  archive and entries added via `add` but not yet flushed are matched.
+  --  The local file data of removed existing entries remains as dead space
+  --  in the archive; only the central directory reference is removed.
+  --  Fails with an error if no entry matched or the appender is closed.
   remove: function(self: Appender, name: string): boolean | nil, string | nil
   --  Closes the ZIP archive and writes the updated central directory.
   close: function(self: Appender)
@@ -132,4 +139,63 @@ function from(data: string, options?: OpenOptions): Reader | nil, string | nil
 **Returns:**
 
 - Reader | nil
+- string | nil
+
+### create
+
+```teal
+function create(path: string | number, options?: OpenOptions): Writer | nil, string | nil
+```
+
+ Creates a new ZIP archive for writing. This is equivalent to
+ `zip.open(path, "w", options)`. Any existing file is truncated.
+
+**Parameters:**
+
+- `path` (string | number)
+- `options` (OpenOptions)
+
+**Returns:**
+
+- Writer | nil
+- string | nil
+
+### append
+
+```teal
+function append(path: string, options?: OpenOptions): Appender | nil, string | nil
+```
+
+ Opens an existing ZIP archive for appending. This is equivalent to
+ `zip.open(path, "a", options)`. Unlike `zip.open` and `zip.create`,
+ a file descriptor is not accepted; the archive must be given as a
+ path.
+
+**Parameters:**
+
+- `path` (string)
+- `options` (OpenOptions)
+
+**Returns:**
+
+- Appender | nil
+- string | nil
+
+### validate_name
+
+```teal
+function validate_name(name: string): boolean | nil, string | nil
+```
+
+ Validates a ZIP entry name without adding it to an archive, applying
+ the same rules that `add` enforces (relative path, no `..` segments,
+ no control characters, etc.).
+
+**Parameters:**
+
+- `name` (string)
+
+**Returns:**
+
+- boolean | nil
 - string | nil

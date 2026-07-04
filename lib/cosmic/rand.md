@@ -17,10 +17,10 @@
 ```teal
 local record RandModule
   bytes: function(n: number): string
-  rand64: function(): integer
-  lemur64: function(): integer
-  rdrand: function(): integer, string
-  rdseed: function(): integer, string
+  rand64: function(): number
+  lemur64: function(): number
+  rdrand: function(): number, string
+  rdseed: function(): number, string
 end
 ```
 
@@ -45,7 +45,7 @@ function bytes(n: number): string
 ### rand64
 
 ```teal
-function rand64(): integer
+function rand64(): number
 ```
 
  Generate a fast 64-bit pseudo-random integer (non-cryptographic).
@@ -58,7 +58,7 @@ function rand64(): integer
 ### lemur64
 
 ```teal
-function lemur64(): integer
+function lemur64(): number
 ```
 
  Generate a fast 64-bit pseudo-random integer using Lemire's PRNG (non-cryptographic).
@@ -71,7 +71,7 @@ function lemur64(): integer
 ### rdrand
 
 ```teal
-function rdrand(): integer, string
+function rdrand(): number, string
 ```
 
  Generate a hardware random integer using Intel RDRAND instruction.
@@ -84,7 +84,7 @@ function rdrand(): integer, string
 ### rdseed
 
 ```teal
-function rdseed(): integer, string
+function rdseed(): number, string
 ```
 
  Generate a hardware random seed using Intel RDSEED instruction.

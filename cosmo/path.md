@@ -11,15 +11,15 @@ function dirname(str: string): string
 ```
 
  Strips final component of path, e.g.
- path      │ dirname
- ───────────────────
- .         │ .
- ..        │ .
- /         │ /
- usr       │ .
- /usr/     │ /
- /usr/lib  │ /usr
- /usr/lib/ │ /usr
+     path      │ dirname
+     ───────────────────
+     .         │ .
+     ..        │ .
+     /         │ /
+     usr       │ .
+     /usr/     │ /
+     /usr/lib  │ /usr
+     /usr/lib/ │ /usr
 
 **Parameters:**
 
@@ -36,15 +36,15 @@ function basename(str: string): string
 ```
 
  Returns final component of path, e.g.
- path      │ basename
- ─────────────────────
- .         │ .
- ..        │ ..
- /         │ /
- usr       │ usr
- /usr/     │ usr
- /usr/lib  │ lib
- /usr/lib/ │ lib
+     path      │ basename
+     ─────────────────────
+     .         │ .
+     ..        │ ..
+     /         │ /
+     usr       │ usr
+     /usr/     │ usr
+     /usr/lib  │ lib
+     /usr/lib/ │ lib
 
 **Parameters:**
 
@@ -57,16 +57,16 @@ function basename(str: string): string
 ### join
 
 ```teal
-function join(str?: string, ...: string): string
+function join(str?: string, ...: string): string | nil
 ```
 
  Concatenates path components, e.g.
- x         │ y        │ joined
- ─────────────────────────────────
- /         │ /        │ /
- /usr      │ lib      │ /usr/lib
- /usr/     │ lib      │ /usr/lib
- /usr/lib  │ /lib     │ /lib
+     x         │ y        │ joined
+     ─────────────────────────────────
+     /         │ /        │ /
+     /usr      │ lib      │ /usr/lib
+     /usr/     │ lib      │ /usr/lib
+     /usr/lib  │ /lib     │ /lib
  You may specify 1+ arguments.
  Specifying no arguments will raise an error. If `nil` arguments are specified,
  then they're skipped over. If exclusively `nil` arguments are passed, then `nil`
@@ -80,7 +80,7 @@ function join(str?: string, ...: string): string
 
 **Returns:**
 
-- string
+- string | nil
 
 ### exists
 
