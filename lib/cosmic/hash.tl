@@ -48,7 +48,9 @@ end
 --- @param data string The data to hash
 --- @return string The SHA-256 hash as a hex string
 local function sha256_hex(data: string): string
-  return codec.encode_hex(cosmo.Sha256(data)):lower()
+  -- cosmo.EncodeHex (which encode_hex delegates to) already emits
+  -- lowercase hex, so :lower() here was a dead full-string scan.
+  return codec.encode_hex(cosmo.Sha256(data))
 end
 
 --- Hash a password using Argon2.
