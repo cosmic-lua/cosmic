@@ -1,11 +1,11 @@
 #!/usr/bin/env cosmic
 local io_m = require("cosmic.io")
-local path = require("cosmo.path")
+local fs = require("cosmic.fs")
 
 global TEST_TMPDIR: string
 
 local function test_open_read_write_close()
-  local filepath = path.join(TEST_TMPDIR, "io_test_basic.txt")
+  local filepath = fs.join(TEST_TMPDIR, "io_test_basic.txt")
   local content = "hello, cosmic.io!"
 
   local f, err = io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8))
@@ -27,7 +27,7 @@ end
 test_open_read_write_close()
 
 local function test_seek()
-  local filepath = path.join(TEST_TMPDIR, "io_test_seek.txt")
+  local filepath = fs.join(TEST_TMPDIR, "io_test_seek.txt")
   local content = "0123456789"
 
   local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
@@ -54,7 +54,7 @@ end
 test_seek()
 
 local function test_handle_truncate()
-  local filepath = path.join(TEST_TMPDIR, "io_test_htrunc.txt")
+  local filepath = fs.join(TEST_TMPDIR, "io_test_htrunc.txt")
   local content = "0123456789"
 
   local f = assert(io_m.open(filepath, io_m.O_RDWR | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
@@ -73,7 +73,7 @@ end
 test_handle_truncate()
 
 local function test_truncate()
-  local filepath = path.join(TEST_TMPDIR, "io_test_trunc.txt")
+  local filepath = fs.join(TEST_TMPDIR, "io_test_trunc.txt")
   local content = "0123456789"
 
   local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
@@ -93,7 +93,7 @@ end
 test_truncate()
 
 local function test_dup()
-  local filepath = path.join(TEST_TMPDIR, "io_test_dup.txt")
+  local filepath = fs.join(TEST_TMPDIR, "io_test_dup.txt")
   local content = "dup test"
 
   local f = assert(io_m.open(filepath, io_m.O_RDWR | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
@@ -133,7 +133,7 @@ end
 test_pipe()
 
 local function test_sync()
-  local filepath = path.join(TEST_TMPDIR, "io_test_sync.txt")
+  local filepath = fs.join(TEST_TMPDIR, "io_test_sync.txt")
 
   local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
   assert(f:write("sync test"))
@@ -177,7 +177,7 @@ end
 test_constants()
 
 local function test_fcntl()
-  local filepath = path.join(TEST_TMPDIR, "io_test_fcntl.txt")
+  local filepath = fs.join(TEST_TMPDIR, "io_test_fcntl.txt")
 
   local f = assert(io_m.open(filepath, io_m.O_RDWR | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
 
@@ -203,7 +203,7 @@ end
 test_open_nonexistent_fails()
 
 local function test_append_mode()
-  local filepath = path.join(TEST_TMPDIR, "io_test_append.txt")
+  local filepath = fs.join(TEST_TMPDIR, "io_test_append.txt")
 
   local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
   assert(f:write("hello"))
@@ -223,7 +223,7 @@ end
 test_append_mode()
 
 local function test_slurp_barf()
-  local filepath = path.join(TEST_TMPDIR, "io_test_slurp.txt")
+  local filepath = fs.join(TEST_TMPDIR, "io_test_slurp.txt")
   local content = "hello from slurp test\nwith multiple lines"
 
   local ok, err = io_m.barf(filepath, content)
@@ -245,7 +245,7 @@ end
 test_slurp_nonexistent()
 
 local function test_closed_handle()
-  local filepath = path.join(TEST_TMPDIR, "io_test_closed.txt")
+  local filepath = fs.join(TEST_TMPDIR, "io_test_closed.txt")
 
   local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
   assert(not f:closed(), "handle should not be closed yet")
@@ -266,7 +266,7 @@ end
 test_closed_handle()
 
 local function test_fd_method()
-  local filepath = path.join(TEST_TMPDIR, "io_test_fd.txt")
+  local filepath = fs.join(TEST_TMPDIR, "io_test_fd.txt")
 
   local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
   local fd = f:fd()
@@ -280,7 +280,7 @@ end
 test_fd_method()
 
 local function test_close_metamethod_exists()
-  local filepath = path.join(TEST_TMPDIR, "io_test_meta.txt")
+  local filepath = fs.join(TEST_TMPDIR, "io_test_meta.txt")
 
   local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
   local mt = getmetatable(f)
@@ -306,7 +306,7 @@ end
 test_pipe_close_metamethod_exists()
 
 local function test_read_write_with_offset()
-  local filepath = path.join(TEST_TMPDIR, "io_test_pread.txt")
+  local filepath = fs.join(TEST_TMPDIR, "io_test_pread.txt")
 
   local f = assert(io_m.open(filepath, io_m.O_RDWR | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
   assert(f:write("0123456789"))
@@ -331,7 +331,7 @@ end
 test_read_write_with_offset()
 
 local function test_barf_with_mode()
-  local filepath = path.join(TEST_TMPDIR, "io_test_barf_mode.txt")
+  local filepath = fs.join(TEST_TMPDIR, "io_test_barf_mode.txt")
   local content = "file with specific mode"
 
   local ok, err = io_m.barf(filepath, content, tonumber("600", 8))
@@ -345,7 +345,7 @@ end
 test_barf_with_mode()
 
 local function test_datasync()
-  local filepath = path.join(TEST_TMPDIR, "io_test_datasync.txt")
+  local filepath = fs.join(TEST_TMPDIR, "io_test_datasync.txt")
 
   local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
   assert(f:write("datasync test"))
@@ -364,7 +364,7 @@ test_datasync()
 -- returns true, and (c) the return type is boolean (not always true when
 -- unix.close would fail on a bad fd).
 local function test_close_returns_boolean_and_is_idempotent()
-  local filepath = path.join(TEST_TMPDIR, "io_test_close_bool.txt")
+  local filepath = fs.join(TEST_TMPDIR, "io_test_close_bool.txt")
 
   local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
   assert(f:write("x"))

@@ -1,10 +1,10 @@
 #!/usr/bin/env cosmic
 local pledge = require("cosmic.pledge")
-local path = require("cosmo.path")
+local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
-local cosmo = require("cosmo")
+local cio = require("cosmic.io")
 
-local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")
+local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 local function test_module_exports()
@@ -13,8 +13,8 @@ end
 test_module_exports()
 
 local function test_stdio_allows_write()
-  local script = path.join(tmpdir, "pledge_stdio.lua")
-  cosmo.Barf(script, [[
+  local script = fs.join(tmpdir, "pledge_stdio.lua")
+  cio.barf(script, [[
 local pledge = require("cosmic.pledge")
 local ok, err = pledge.apply("stdio")
 if not ok then
@@ -30,8 +30,8 @@ end
 test_stdio_allows_write()
 
 local function test_restricts_filesystem()
-  local script = path.join(tmpdir, "pledge_no_fs.lua")
-  cosmo.Barf(script, [[
+  local script = fs.join(tmpdir, "pledge_no_fs.lua")
+  cio.barf(script, [[
 local pledge = require("cosmic.pledge")
 local ok, err = pledge.apply("stdio")
 if not ok then

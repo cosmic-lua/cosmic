@@ -342,9 +342,8 @@ test_utf8_data()
 
 -- Network test with real SSE endpoint (skip if unavailable)
 local function test_real_sse_endpoint()
-  local cosmo = require("cosmo")
-  if not cosmo.FetchStream then
-    io.stderr:write("SKIP: test_real_sse_endpoint (FetchStream not available)\n")
+  if not fetch.has_stream() then
+    io.stderr:write("SKIP: test_real_sse_endpoint (streaming fetch not available)\n")
     return
   end
 

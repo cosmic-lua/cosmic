@@ -1,12 +1,12 @@
 #!/usr/bin/env cosmic
 -- Test first-run welcome experience
 
-local path = require("cosmo.path")
+local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
-local cosmo = require("cosmo")
+local cio = require("cosmic.io")
 local sys = require("cosmic.sys")
 
-local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")
+local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 -- Test --welcome shows message
@@ -35,8 +35,8 @@ test_help_mentions_welcome()
 
 -- Test COSMIC_NO_WELCOME suppresses welcome in scripts
 local function test_no_welcome_env()
-  local test_script = path.join(tmpdir, "no_welcome_test.lua")
-  cosmo.Barf(test_script, [[
+  local test_script = fs.join(tmpdir, "no_welcome_test.lua")
+  cio.barf(test_script, [[
 -- Just check the env var is accessible
 local no_welcome = os.getenv("COSMIC_NO_WELCOME")
 if no_welcome then
@@ -64,7 +64,7 @@ end
 -- Check if PTY creation is available AND cosmic can detect the TTY inside it
 local function pty_available(): boolean
   -- Write a tiny probe script that prints tty detection result to stderr
-  local probe = path.join(tmpdir, "pty_probe.lua")
+  local probe = fs.join(tmpdir, "pty_probe.lua")
   local io_mod = require("cosmic.io")
   local write_ok, _ = io_mod.barf(probe, "local tty = require('cosmic.tty'); io.stderr:write(tostring(tty.stderr_isatty()))\n")
   if not write_ok then
@@ -95,7 +95,7 @@ end
 -- Helper to run cosmic in a PTY (using script command) to trigger TTY-based welcome
 local function run_with_pty(args: {string}): boolean, string
   -- Copy binary to temp location so it's fresh (no embedded marker)
-  local fresh_cosmic = path.join(tmpdir, "cosmic-fresh-" .. tostring(os.time()))
+  local fresh_cosmic = fs.join(tmpdir, "cosmic-fresh-" .. tostring(os.time()))
   local copy_ok = spawn.spawn({"cp", cosmic, fresh_cosmic}):wait()
   assert(copy_ok, "failed to copy cosmic binary")
 
@@ -134,7 +134,7 @@ test_welcome_skipped_with_v_flag()
 -- Test welcome does NOT appear on second run (marker embedded)
 local function test_welcome_not_shown_twice()
   -- Copy binary to temp location
-  local fresh_cosmic = path.join(tmpdir, "cosmic-twice-test")
+  local fresh_cosmic = fs.join(tmpdir, "cosmic-twice-test")
   local copy_ok = spawn.spawn({"cp", cosmic, fresh_cosmic}):wait()
   assert(copy_ok, "failed to copy cosmic binary")
 
@@ -158,7 +158,7 @@ test_welcome_not_shown_twice()
 -- Test COSMIC_NO_WELCOME suppresses welcome even on first run
 local function test_no_welcome_env_suppresses()
   -- Copy binary to temp location
-  local fresh_cosmic = path.join(tmpdir, "cosmic-no-welcome-test")
+  local fresh_cosmic = fs.join(tmpdir, "cosmic-no-welcome-test")
   local copy_ok = spawn.spawn({"cp", cosmic, fresh_cosmic}):wait()
   assert(copy_ok, "failed to copy cosmic binary")
 

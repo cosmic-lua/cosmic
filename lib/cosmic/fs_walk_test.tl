@@ -2,7 +2,6 @@
 --- Tests for fs_walk module (symlink cycle safety)
 local fs_walk = require("cosmic.fs_walk")
 local fs = require("cosmic.fs")
-local unix = require("cosmo.unix")
 
 local tmpdir = os.getenv("TEST_TMPDIR") as string
 
@@ -29,7 +28,7 @@ local function test_walk_symlink_cycle_terminates()
   fs.makedirs(subdir)
   write_file(fs.join(subdir, "real.txt"), "hello")
   -- Create a symlink cycle: sub/loop -> ..  (points back to base)
-  unix.symlink("..", fs.join(subdir, "loop"))
+  fs.symlink("..", fs.join(subdir, "loop"))
 
   local count = 0
   local max_depth_seen = 0
@@ -62,7 +61,7 @@ local function test_collect_all_symlink_cycle_terminates()
   local subdir = fs.join(base, "sub")
   fs.makedirs(subdir)
   write_file(fs.join(subdir, "real.txt"), "data")
-  unix.symlink("..", fs.join(subdir, "loop"))
+  fs.symlink("..", fs.join(subdir, "loop"))
 
   local files = fs_walk.collect_all(base)
   -- Should contain sub/real.txt but NOT any path with loop/ in it
@@ -80,7 +79,7 @@ local function test_files_symlink_cycle_terminates()
   local subdir = fs.join(base, "sub")
   fs.makedirs(subdir)
   write_file(fs.join(subdir, "real.lua"), "-- lua")
-  unix.symlink("..", fs.join(subdir, "loop"))
+  fs.symlink("..", fs.join(subdir, "loop"))
 
   local collected: {string} = {}
   for p in fs_walk.files(base, "*.lua") do
@@ -100,7 +99,7 @@ local function test_walk_symlink_file_visited()
   local base = mksubdir("walk_symlink_file")
   write_file(fs.join(base, "real.txt"), "content")
   -- Symlink to a file in same dir
-  unix.symlink("real.txt", fs.join(base, "alias.txt"))
+  fs.symlink("real.txt", fs.join(base, "alias.txt"))
 
   local found: {string: boolean} = {}
   fs_walk.walk(base, function(full_path: string, entry: string, _st: any, ctx: {string: boolean})

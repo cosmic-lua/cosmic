@@ -1,10 +1,15 @@
 #!/usr/bin/env cosmic
-local cosmo = require("cosmo")
-local path = require("cosmo.path")
 local child = require("cosmic.child")
+local fs = require("cosmic.fs")
+local proc = require("cosmic.proc")
+local env = require("cosmic.env")
+local time = require("cosmic.time")
+-- cosmo.unix is required directly only for raw fd ops (unix.close) and to
+-- monkey-patch unix.fork for fault injection (test_spawn_fork_failure), which
+-- must share the exact module table that child.tl uses.
 local unix = require("cosmo.unix")
 
-local lua_bin = path.join(os.getenv("TEST_BIN"), "cosmic")
+local lua_bin = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
 -- High-level spawn tests --
@@ -71,7 +76,7 @@ test_cwd_option()
 local function test_fork_and_wait()
   local pid = child.fork()
   if pid == 0 then
-    unix.exit(42)
+    proc.exit(42)
   else
     assert(pid > 0, "expected positive child pid in parent, got " .. tostring(pid))
     local waited_pid, status = child.wait(pid)
@@ -84,18 +89,18 @@ end
 test_fork_and_wait()
 
 local function test_fork_child_has_different_pid()
-  local parent_pid = unix.getpid()
-  local marker_file = path.join(TEST_TMPDIR, "fork_test_" .. tostring(parent_pid))
+  local parent_pid = proc.getpid()
+  local marker_file = fs.join(TEST_TMPDIR, "fork_test_" .. tostring(parent_pid))
 
   local pid = child.fork()
   if pid == 0 then
-    local child_pid = unix.getpid()
+    local child_pid = proc.getpid()
     local f = io.open(marker_file, "w")
     if f then
       f:write(tostring(child_pid))
       f:close()
     end
-    unix.exit(0)
+    proc.exit(0)
   else
     child.wait(pid)
     local f = io.open(marker_file, "r")
@@ -115,7 +120,7 @@ test_fork_child_has_different_pid()
 local function test_wifexited_normal_exit()
   local pid = child.fork()
   if pid == 0 then
-    unix.exit(0)
+    proc.exit(0)
   else
     local _, status = child.wait(pid)
     assert(child.WIFEXITED(status), "expected WIFEXITED to be true")
@@ -127,7 +132,7 @@ local function test_wexitstatus_values()
   for _, expected_code in ipairs({0, 1, 42, 127, 255}) do
     local pid = child.fork()
     if pid == 0 then
-      unix.exit(expected_code)
+      proc.exit(expected_code)
     else
       local _, status = child.wait(pid)
       assert(child.WIFEXITED(status), "expected WIFEXITED to be true for code " .. tostring(expected_code))
@@ -160,8 +165,8 @@ test_wifsignaled_on_kill()
 local function test_wnohang_returns_zero_for_running_process()
   local pid = child.fork()
   if pid == 0 then
-    unix.nanosleep(0, 100000000) -- 100ms
-    unix.exit(0)
+    time.sleep(0, 100000000) -- 100ms
+    proc.exit(0)
   else
     local waited_pid = child.wait(pid, child.WNOHANG)
     assert(waited_pid == 0 or waited_pid == pid, "expected 0 or pid, got " .. tostring(waited_pid))
@@ -175,7 +180,7 @@ test_wnohang_returns_zero_for_running_process()
 -- posix_spawn tests --
 
 local function test_posix_spawn_returns_pid()
-  local ls_path = unix.commandv("ls")
+  local ls_path = proc.commandv("ls")
   if ls_path then
     local pid = child.posix_spawn(ls_path, {"ls"})
     assert(pid > 0, "expected positive pid, got " .. tostring(pid))
@@ -200,8 +205,8 @@ local function test_spawn_inherits_env()
   -- child.spawn should pass the parent's environment to the child unchanged.
   -- regression: environ() returns {string} ("KEY=VALUE" entries) but spawn()
   -- iterated it as {string:string} producing "1=KEY=VALUE" garbage.
-  local sentinel = "cosmic_test_inherit_" .. tostring(unix.getpid())
-  unix.setenv("COSMIC_TEST_SENTINEL", sentinel)
+  local sentinel = "cosmic_test_inherit_" .. tostring(proc.getpid())
+  env.set("COSMIC_TEST_SENTINEL", sentinel)
   local handle = child.spawn({lua_bin, "-e", [[
     io.write(os.getenv("COSMIC_TEST_SENTINEL") or "")
   ]]})
@@ -215,8 +220,8 @@ test_spawn_inherits_env()
 local function test_spawn_with_env_map()
   -- child.spawn should accept {string:string} map from env.all()
   local env = require("cosmic.env")
-  local sentinel = "cosmic_test_map_" .. tostring(unix.getpid())
-  unix.setenv("COSMIC_TEST_MAP", sentinel)
+  local sentinel = "cosmic_test_map_" .. tostring(proc.getpid())
+  env.set("COSMIC_TEST_MAP", sentinel)
   local vars = env.all()
   local handle = child.spawn({lua_bin, "-e", [[
     io.write(os.getenv("COSMIC_TEST_MAP") or "")
@@ -231,8 +236,8 @@ test_spawn_with_env_map()
 local function test_spawn_with_env_list()
   -- child.spawn should still accept {string} list format
   local env_mod = require("cosmic.env")
-  local sentinel = "cosmic_test_list_" .. tostring(unix.getpid())
-  unix.setenv("COSMIC_TEST_LIST", sentinel)
+  local sentinel = "cosmic_test_list_" .. tostring(proc.getpid())
+  env.set("COSMIC_TEST_LIST", sentinel)
   local vars = env_mod.list()
   local handle = child.spawn({lua_bin, "-e", [[
     io.write(os.getenv("COSMIC_TEST_LIST") or "")

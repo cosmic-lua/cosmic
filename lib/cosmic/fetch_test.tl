@@ -92,9 +92,8 @@ local function test_stream_module_exports()
 end
 test_stream_module_exports()
 
--- Check if FetchStream primitive is available (PR #88)
-local cosmo = require("cosmo")
-local has_fetch_stream = cosmo.FetchStream ~= nil
+-- Check if the streaming fetch primitive is available in this build.
+local has_fetch_stream = fetch.has_stream()
 if not has_fetch_stream then
   io.stderr:write("SKIP: streaming tests (FetchStream primitive not available)\n")
 end

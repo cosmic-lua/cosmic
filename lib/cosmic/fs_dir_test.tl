@@ -1,7 +1,6 @@
 #!/usr/bin/env cosmic
 local fs = require("cosmic.fs")
 local unix = require("cosmo.unix")
-local path = require("cosmo.path")
 
 local record Statfs
   type: function(self: Statfs): number
@@ -20,14 +19,14 @@ end
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
 local function setup(): string
-  local test_dir = path.join(TEST_TMPDIR, "fs_dir_test")
-  unix.makedirs(test_dir)
+  local test_dir = fs.join(TEST_TMPDIR, "fs_dir_test")
+  fs.makedirs(test_dir)
   return test_dir
 end
 
 local function teardown(test_dir: string)
   if test_dir then
-    unix.rmrf(test_dir)
+    fs.rmrf(test_dir)
   end
 end
 
@@ -96,7 +95,7 @@ test_dir_close_idempotent()
 
 local function test_dir_methods_after_close()
   local test_dir = setup()
-  touch(path.join(test_dir, "file.txt"))
+  touch(fs.join(test_dir, "file.txt"))
 
   local dir = fs.opendir(test_dir)
   assert(dir, "opendir should succeed")
@@ -123,8 +122,8 @@ test_dir_methods_after_close()
 
 local function test_dir_rewind_and_tell()
   local test_dir = setup()
-  touch(path.join(test_dir, "file1.txt"))
-  touch(path.join(test_dir, "file2.txt"))
+  touch(fs.join(test_dir, "file1.txt"))
+  touch(fs.join(test_dir, "file2.txt"))
 
   local dir = fs.opendir(test_dir)
   assert(dir, "opendir should succeed")
@@ -233,7 +232,7 @@ test_major_minor()
 
 local function test_major_minor_regular_file()
   local test_dir = setup()
-  local filepath = path.join(test_dir, "file.txt")
+  local filepath = fs.join(test_dir, "file.txt")
   touch(filepath)
 
   local st = fs.stat(filepath)

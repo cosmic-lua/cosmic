@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
 --- Tests for cosmic.sqlite wrapper module.
 
-local path = require("cosmo.path")
+local fs = require("cosmic.fs")
 local sqlite = require("cosmic.sqlite")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
@@ -16,7 +16,7 @@ end
 test_open_memory()
 
 local function test_open_file()
-  local dbpath = path.join(TEST_TMPDIR, "test.db")
+  local dbpath = fs.join(TEST_TMPDIR, "test.db")
   local db, err = sqlite.open(dbpath)
   assert(db, "should open file db: " .. tostring(err))
   db:close()

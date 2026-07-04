@@ -1,17 +1,17 @@
 #!/usr/bin/env cosmic
 -- test cosmic.doc module
 
-local path = require("cosmo.path")
+local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
-local cosmo = require("cosmo")
+local cio = require("cosmic.io")
 local doc = require("cosmic.doc")
 
-local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")
+local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 local function write_temp(name: string, content: string): string
-  local filepath = path.join(tmpdir, name)
-  cosmo.Barf(filepath, content)
+  local filepath = fs.join(tmpdir, name)
+  cio.barf(filepath, content)
   return filepath
 end
 

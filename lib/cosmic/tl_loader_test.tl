@@ -2,17 +2,16 @@
 -- test that tl_package_loader is not at position 2 in package.searchers
 -- (issue #377: tl_package_loader recompiles .tl sources when TL_PATH is set)
 
-local path = require("cosmo.path")
 local spawn = require("cosmic.child")
-local cosmo = require("cosmo")
+local cio = require("cosmic.io")
 local fs = require("cosmic.fs")
 
-local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")
+local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 local function write_temp(name: string, content: string): string
-  local filepath = path.join(tmpdir, name)
-  cosmo.Barf(filepath, content)
+  local filepath = fs.join(tmpdir, name)
+  cio.barf(filepath, content)
   return filepath
 end
 
@@ -66,9 +65,9 @@ test_tl_loader_not_at_position_2()
 --- so that .tl-only modules can still be loaded.
 local function test_tl_loader_still_available()
   -- Create a .tl-only module (no .lua version)
-  local moddir = path.join(tmpdir, "tlonly")
+  local moddir = fs.join(tmpdir, "tlonly")
   fs.makedirs(moddir)
-  cosmo.Barf(path.join(moddir, "mymod.tl"), [[
+  cio.barf(fs.join(moddir, "mymod.tl"), [[
 return { answer = 42 }
 ]])
 

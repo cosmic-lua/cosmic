@@ -8,19 +8,19 @@
 --- same "ok | skipped | signal death = skip" pattern the raw netns /
 --- proc tests use.
 local quicksand = require("cosmic.quicksand")
-local path = require("cosmo.path")
+local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
-local cosmo = require("cosmo")
+local cio = require("cosmic.io")
 
-local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")
+local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 local function test_run_true_in_subprocess()
   local c = quicksand.capabilities()
   if not (c.linux and c.user_ns and c.net_ns) then return end
 
-  local script = path.join(tmpdir, "box_run_true.lua")
-  cosmo.Barf(script, [[
+  local script = fs.join(tmpdir, "box_run_true.lua")
+  cio.barf(script, [[
 local qs = require("cosmic.quicksand")
 local j, nerr = qs.Box.new({})
 if not j then io.stderr:write("new: " .. tostring(nerr) .. "\n"); os.exit(1) end
@@ -56,8 +56,8 @@ local function test_uid_drop_sets_no_new_privs_subprocess()
   local c = quicksand.capabilities()
   if not (c.linux and c.user_ns and c.net_ns) then return end
 
-  local script = path.join(tmpdir, "box_nnp_uid.lua")
-  cosmo.Barf(script, [[
+  local script = fs.join(tmpdir, "box_nnp_uid.lua")
+  cio.barf(script, [[
 local qs = require("cosmic.quicksand")
 local j, nerr = qs.Box.new({ proc = { uid = 65534 } })
 if not j then io.stderr:write("new: " .. tostring(nerr) .. "\n"); os.exit(1) end
@@ -85,8 +85,8 @@ local function test_pid_namespace_workload_has_low_pid_subprocess()
   local c = quicksand.capabilities()
   if not (c.linux and c.user_ns and c.net_ns and c.pid_ns) then return end
 
-  local script = path.join(tmpdir, "box_pidns.lua")
-  cosmo.Barf(script, [[
+  local script = fs.join(tmpdir, "box_pidns.lua")
+  cio.barf(script, [[
 local qs = require("cosmic.quicksand")
 local j, nerr = qs.Box.new({})
 if not j then io.stderr:write("new: " .. tostring(nerr) .. "\n"); os.exit(1) end
@@ -112,8 +112,8 @@ local function test_pid_namespace_opt_out_subprocess()
   local c = quicksand.capabilities()
   if not (c.linux and c.user_ns and c.net_ns) then return end
 
-  local script = path.join(tmpdir, "box_nopidns.lua")
-  cosmo.Barf(script, [[
+  local script = fs.join(tmpdir, "box_nopidns.lua")
+  cio.barf(script, [[
 local qs = require("cosmic.quicksand")
 local j, nerr = qs.Box.new({ pid_ns = false })
 if not j then io.stderr:write("new: " .. tostring(nerr) .. "\n"); os.exit(1) end

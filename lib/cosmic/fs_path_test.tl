@@ -1,7 +1,5 @@
 #!/usr/bin/env cosmic
 local fs = require("cosmic.fs")
-local unix = require("cosmo.unix")
-local path = require("cosmo.path")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
@@ -17,7 +15,7 @@ end
 
 local function teardown(test_dir: string)
   if test_dir then
-    unix.rmrf(test_dir)
+    fs.rmrf(test_dir)
   end
 end
 
@@ -95,14 +93,14 @@ local record WalkContext
 end
 
 local function setup_walk(): string
-  local walk_dir = path.join(TEST_TMPDIR, "walk_test")
-  unix.makedirs(path.join(walk_dir, "subdir"))
-  unix.makedirs(path.join(walk_dir, "subdir/nested"))
+  local walk_dir = fs.join(TEST_TMPDIR, "walk_test")
+  fs.makedirs(fs.join(walk_dir, "subdir"))
+  fs.makedirs(fs.join(walk_dir, "subdir/nested"))
 
-  touch(path.join(walk_dir, "file1.lua"))
-  touch(path.join(walk_dir, "file2.txt"))
-  touch(path.join(walk_dir, "subdir/file3.lua"))
-  touch(path.join(walk_dir, "subdir/nested/file4.lua"))
+  touch(fs.join(walk_dir, "file1.lua"))
+  touch(fs.join(walk_dir, "file2.txt"))
+  touch(fs.join(walk_dir, "subdir/file3.lua"))
+  touch(fs.join(walk_dir, "subdir/nested/file4.lua"))
 
   return walk_dir
 end
@@ -152,7 +150,7 @@ local function test_walk_with_visitor()
       local wctx = c as WalkContext
       wctx.count = wctx.count + 1
       local stat_obj = st as WalkStat
-      if unix.S_ISDIR(stat_obj:mode()) then
+      if fs.is_dir(stat_obj:mode()) then
         wctx.dirs = wctx.dirs + 1
       end
       return true
@@ -207,11 +205,11 @@ end
 test_files_iterator_all()
 
 local function test_walk_empty_directory()
-  local empty_dir = path.join(TEST_TMPDIR, "walk_empty")
-  unix.makedirs(empty_dir)
+  local empty_dir = fs.join(TEST_TMPDIR, "walk_empty")
+  fs.makedirs(empty_dir)
   local found = fs.collect(empty_dir, "*.lua")
   assert(#found == 0, "expected 0 files, got " .. #found)
-  unix.rmrf(empty_dir)
+  fs.rmrf(empty_dir)
 end
 test_walk_empty_directory()
 
@@ -309,7 +307,7 @@ test_normalize_multiple_up_and_down()
 
 -- abspath tests
 
-local cwd = unix.getcwd()
+local cwd = fs.getcwd()
 
 local function test_abspath_relative()
   local result = fs.abspath("foo")
@@ -459,42 +457,42 @@ test_ext_hidden()
 -- symlink behavior tests: exists follows symlinks (stat), isfile/isdir do not (lstat)
 
 local function test_exists_symlink_to_file()
-  local tmpdir = path.join(TEST_TMPDIR, "symlink_exists_test")
-  unix.makedirs(tmpdir)
-  local target = path.join(tmpdir, "real.txt")
+  local tmpdir = fs.join(TEST_TMPDIR, "symlink_exists_test")
+  fs.makedirs(tmpdir)
+  local target = fs.join(tmpdir, "real.txt")
   touch(target, "hello")
-  local link = path.join(tmpdir, "link.txt")
-  local ok = unix.symlink(target, link)
+  local link = fs.join(tmpdir, "link.txt")
+  local ok = fs.symlink(target, link)
   assert(ok, "symlink creation should succeed")
   assert(fs.exists(link), "exists() should follow symlink and return true")
-  unix.rmrf(tmpdir)
+  fs.rmrf(tmpdir)
 end
 test_exists_symlink_to_file()
 
 local function test_isfile_symlink_to_file()
-  local tmpdir = path.join(TEST_TMPDIR, "symlink_isfile_test")
-  unix.makedirs(tmpdir)
-  local target = path.join(tmpdir, "real.txt")
+  local tmpdir = fs.join(TEST_TMPDIR, "symlink_isfile_test")
+  fs.makedirs(tmpdir)
+  local target = fs.join(tmpdir, "real.txt")
   touch(target, "hello")
-  local link = path.join(tmpdir, "link.txt")
-  local ok = unix.symlink(target, link)
+  local link = fs.join(tmpdir, "link.txt")
+  local ok = fs.symlink(target, link)
   assert(ok, "symlink creation should succeed")
   assert(not fs.isfile(link), "isfile() should return false for a symlink (uses lstat)")
   assert(fs.isfile(target), "isfile() should return true for the target file")
-  unix.rmrf(tmpdir)
+  fs.rmrf(tmpdir)
 end
 test_isfile_symlink_to_file()
 
 local function test_isdir_symlink_to_dir()
-  local tmpdir = path.join(TEST_TMPDIR, "symlink_isdir_test")
-  unix.makedirs(tmpdir)
-  local target = path.join(tmpdir, "realdir")
-  unix.makedirs(target)
-  local link = path.join(tmpdir, "linkdir")
-  local ok = unix.symlink(target, link)
+  local tmpdir = fs.join(TEST_TMPDIR, "symlink_isdir_test")
+  fs.makedirs(tmpdir)
+  local target = fs.join(tmpdir, "realdir")
+  fs.makedirs(target)
+  local link = fs.join(tmpdir, "linkdir")
+  local ok = fs.symlink(target, link)
   assert(ok, "symlink creation should succeed")
   assert(not fs.isdir(link), "isdir() should return false for a symlink (uses lstat)")
   assert(fs.isdir(target), "isdir() should return true for the target dir")
-  unix.rmrf(tmpdir)
+  fs.rmrf(tmpdir)
 end
 test_isdir_symlink_to_dir()

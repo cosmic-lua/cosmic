@@ -1,11 +1,11 @@
 #!/usr/bin/env cosmic
 local proc = require("cosmic.quicksand.proc")
 local quicksand = require("cosmic.quicksand")
-local path = require("cosmo.path")
+local fs = require("cosmic.fs")
+local cio = require("cosmic.io")
 local spawn = require("cosmic.child")
-local cosmo = require("cosmo")
 
-local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")
+local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 local function test_module_exports()
@@ -26,8 +26,8 @@ test_module_exports()
 local function test_setup_userns_maps_returns_error_outside_userns()
   local c = quicksand.capabilities()
   if not c.linux then return end
-  local script = path.join(tmpdir, "userns_maps.lua")
-  cosmo.Barf(script, [[
+  local script = fs.join(tmpdir, "userns_maps.lua")
+  cio.barf(script, [[
 local proc = require("cosmic.quicksand.proc")
 local ok, err = proc.setup_userns_maps(nil, nil)
 if ok then
@@ -65,8 +65,8 @@ test_drop_privs_nil_is_noop()
 local function test_no_new_privs_subprocess()
   local c = quicksand.capabilities()
   if not c.linux then return end
-  local script = path.join(tmpdir, "nnp.lua")
-  cosmo.Barf(script, [[
+  local script = fs.join(tmpdir, "nnp.lua")
+  cio.barf(script, [[
 local proc = require("cosmic.quicksand.proc")
 local ok, err = proc.no_new_privs()
 if not ok then
@@ -89,8 +89,8 @@ test_no_new_privs_subprocess()
 local function test_barrier_signal_wait()
   local c = quicksand.capabilities()
   if not c.linux then return end
-  local script = path.join(tmpdir, "barrier.lua")
-  cosmo.Barf(script, [[
+  local script = fs.join(tmpdir, "barrier.lua")
+  cio.barf(script, [[
 local unix = require("cosmo.unix")
 local proc = require("cosmic.quicksand.proc")
 local b, err = proc.barrier()

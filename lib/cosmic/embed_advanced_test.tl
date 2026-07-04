@@ -1,14 +1,14 @@
 #!/usr/bin/env cosmic
 -- advanced embed tests: extract, roundtrip, overwrite, permissions, corruption
 
-local path = require("cosmo.path")
-local unix = require("cosmo.unix")
+local fs = require("cosmic.fs")
+local cio = require("cosmic.io")
+local time = require("cosmic.time")
 local spawn = require("cosmic.child")
-local cosmo = require("cosmo")
-local zip = require("cosmo.zip")
+local zip = require("cosmic.zip")
 local embed = require("cosmic.embed")
 
-local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")
+local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 -- Local declaration of Reader interface for type casting
@@ -31,58 +31,58 @@ local record Writer
 end
 
 local function write_temp(name: string, content: string): string
-  local filepath = path.join(tmpdir, name)
-  local dir = path.dirname(filepath)
+  local filepath = fs.join(tmpdir, name)
+  local dir = fs.dirname(filepath)
   if dir ~= tmpdir then
-    unix.makedirs(dir)
+    fs.makedirs(dir)
   end
-  cosmo.Barf(filepath, content)
+  cio.barf(filepath, content)
   return filepath
 end
 
 -- Test --extract extracts zip contents
 local function test_extract()
-  local extractdir = path.join(tmpdir, "extracted")
+  local extractdir = fs.join(tmpdir, "extracted")
 
   local ok, out = spawn.spawn({cosmic, "--extract", extractdir}):read()
   assert(ok, "extract should succeed: " .. (out or ""))
 
   -- main.lua should be extracted
-  assert(path.isfile(path.join(extractdir, "main.lua")), "main.lua should be extracted")
+  assert(fs.isfile(fs.join(extractdir, "main.lua")), "main.lua should be extracted")
 
   -- .args should be extracted
-  assert(path.isfile(path.join(extractdir, ".args")), ".args should be extracted")
+  assert(fs.isfile(fs.join(extractdir, ".args")), ".args should be extracted")
 
   -- bundled libraries should be extracted
-  assert(path.isdir(path.join(extractdir, ".lua")), ".lua directory should be extracted")
+  assert(fs.isdir(fs.join(extractdir, ".lua")), ".lua directory should be extracted")
 end
 test_extract()
 
 -- Test extract-then-embed roundtrip preserves file contents
 local function test_extract_embed_roundtrip()
   -- Extract the cosmic binary
-  local extractdir = path.join(tmpdir, "roundtrip-extract")
+  local extractdir = fs.join(tmpdir, "roundtrip-extract")
   local ok, out = spawn.spawn({cosmic, "--extract", extractdir}):read()
   assert(ok, "extract should succeed: " .. (out or ""))
 
   -- Read original main.lua from the zip
-  local orig_data = cosmo.Slurp(cosmic)
+  local orig_data = cio.slurp(cosmic)
   local orig_reader = zip.from(orig_data) as Reader
   local orig_main = orig_reader:read("main.lua")
   assert(orig_main, "original should have main.lua")
   orig_reader:close()
 
   -- Read extracted main.lua from disk
-  local extracted_main = cosmo.Slurp(path.join(extractdir, "main.lua"))
+  local extracted_main = cio.slurp(fs.join(extractdir, "main.lua"))
   assert(extracted_main == orig_main, "extracted main.lua should match original")
 
   -- Re-embed the extracted directory
-  local output = path.join(tmpdir, "roundtrip-output")
+  local output = fs.join(tmpdir, "roundtrip-output")
   ok, out = spawn.spawn({cosmic, "--embed", extractdir, "--output", output}):read()
   assert(ok, "re-embed should succeed: " .. (out or ""))
 
   -- Read main.lua from the re-embedded binary
-  local new_data = cosmo.Slurp(output)
+  local new_data = cio.slurp(output)
   local new_reader = zip.from(new_data) as Reader
   local new_main = new_reader:read("main.lua")
   assert(new_main == orig_main, "roundtripped main.lua should match original")
@@ -93,15 +93,15 @@ test_extract_embed_roundtrip()
 -- Test extract-modify-embed workflow
 local function test_extract_modify_embed()
   -- Extract
-  local extractdir = path.join(tmpdir, "modify-extract")
+  local extractdir = fs.join(tmpdir, "modify-extract")
   local ok, out = spawn.spawn({cosmic, "--extract", extractdir}):read()
   assert(ok, "extract should succeed: " .. (out or ""))
 
   -- Modify main.lua
-  cosmo.Barf(path.join(extractdir, "main.lua"), 'io.write("modified\\n")\n')
+  cio.barf(fs.join(extractdir, "main.lua"), 'io.write("modified\\n")\n')
 
   -- Re-embed
-  local output = path.join(tmpdir, "modified-cosmic")
+  local output = fs.join(tmpdir, "modified-cosmic")
   ok, out = spawn.spawn({cosmic, "--embed", extractdir, "--output", output}):read()
   assert(ok, "embed modified should succeed: " .. (out or ""))
 
@@ -115,7 +115,7 @@ test_extract_modify_embed()
 -- Test that embed overwrites existing zip entries cleanly
 local function test_embed_overwrites_cleanly()
   -- Read original zip file list
-  local orig_data = cosmo.Slurp(cosmic)
+  local orig_data = cio.slurp(cosmic)
   local orig_reader = zip.from(orig_data) as Reader
   local orig_files: {string: boolean} = {}
   for _, name in ipairs(orig_reader:list()) do
@@ -127,16 +127,16 @@ local function test_embed_overwrites_cleanly()
   orig_reader:close()
 
   -- Embed a directory that overrides main.lua
-  local appdir = path.join(tmpdir, "overwrite-app")
-  unix.makedirs(appdir)
-  cosmo.Barf(path.join(appdir, "main.lua"), 'print("new")\n')
+  local appdir = fs.join(tmpdir, "overwrite-app")
+  fs.makedirs(appdir)
+  cio.barf(fs.join(appdir, "main.lua"), 'print("new")\n')
 
-  local output = path.join(tmpdir, "cosmic-overwrite")
+  local output = fs.join(tmpdir, "cosmic-overwrite")
   local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--output", output}):read()
   assert(ok, "embed should succeed: " .. (out or ""))
 
   -- The new zip should have main.lua with the new content
-  local new_data = cosmo.Slurp(output)
+  local new_data = cio.slurp(output)
   local new_reader = zip.from(new_data) as Reader
   local new_main = new_reader:read("main.lua")
   assert(new_main == 'print("new")\n', "main.lua should have new content: " .. tostring(new_main))
@@ -153,29 +153,29 @@ test_embed_overwrites_cleanly()
 
 -- Test that file modes are preserved in the zip archive
 local function test_embed_preserves_file_modes()
-  local appdir = path.join(tmpdir, "modeapp")
-  unix.makedirs(appdir)
+  local appdir = fs.join(tmpdir, "modeapp")
+  fs.makedirs(appdir)
 
   -- Create files with different modes
-  local script = path.join(appdir, "run.sh")
-  local config = path.join(appdir, "config.txt")
-  local secret = path.join(appdir, "secret.key")
+  local script = fs.join(appdir, "run.sh")
+  local config = fs.join(appdir, "config.txt")
+  local secret = fs.join(appdir, "secret.key")
 
-  cosmo.Barf(script, "#!/bin/sh\necho hello\n")
-  cosmo.Barf(config, "setting=value\n")
-  cosmo.Barf(secret, "private-key-data\n")
+  cio.barf(script, "#!/bin/sh\necho hello\n")
+  cio.barf(config, "setting=value\n")
+  cio.barf(secret, "private-key-data\n")
 
   -- Set specific modes
-  unix.chmod(script, tonumber("755", 8))
-  unix.chmod(config, tonumber("644", 8))
-  unix.chmod(secret, tonumber("600", 8))
+  fs.chmod(script, tonumber("755", 8))
+  fs.chmod(config, tonumber("644", 8))
+  fs.chmod(secret, tonumber("600", 8))
 
-  local output = path.join(tmpdir, "cosmic-modes")
+  local output = fs.join(tmpdir, "cosmic-modes")
   local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--output", output}):read()
   assert(ok, "embed should succeed: " .. (out or ""))
 
   -- Check modes in the zip archive
-  local data = cosmo.Slurp(output)
+  local data = cio.slurp(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
   local reader = reader_maybe as Reader
@@ -207,30 +207,30 @@ test_embed_preserves_file_modes()
 -- Test that file modes are restored on extract
 local function test_extract_preserves_file_modes()
   -- First embed files with specific modes
-  local appdir = path.join(tmpdir, "extract-modeapp")
-  unix.makedirs(appdir)
+  local appdir = fs.join(tmpdir, "extract-modeapp")
+  fs.makedirs(appdir)
 
-  local script = path.join(appdir, "run.sh")
-  local secret = path.join(appdir, "secret.key")
+  local script = fs.join(appdir, "run.sh")
+  local secret = fs.join(appdir, "secret.key")
 
-  cosmo.Barf(script, "#!/bin/sh\necho hello\n")
-  cosmo.Barf(secret, "private-key-data\n")
+  cio.barf(script, "#!/bin/sh\necho hello\n")
+  cio.barf(secret, "private-key-data\n")
 
-  unix.chmod(script, tonumber("755", 8))
-  unix.chmod(secret, tonumber("600", 8))
+  fs.chmod(script, tonumber("755", 8))
+  fs.chmod(secret, tonumber("600", 8))
 
-  local embedded = path.join(tmpdir, "cosmic-extract-modes")
+  local embedded = fs.join(tmpdir, "cosmic-extract-modes")
   local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--output", embedded}):read()
   assert(ok, "embed should succeed: " .. (out or ""))
 
   -- Extract to a new directory
-  local extractdir = path.join(tmpdir, "extracted-modes")
+  local extractdir = fs.join(tmpdir, "extracted-modes")
   ok, out = spawn.spawn({embedded, "--extract", extractdir}):read()
   assert(ok, "extract should succeed: " .. (out or ""))
 
   -- Check modes of extracted files
-  local script_stat = unix.stat(path.join(extractdir, "run.sh"))
-  local secret_stat = unix.stat(path.join(extractdir, "secret.key"))
+  local script_stat = fs.stat(fs.join(extractdir, "run.sh"))
+  local secret_stat = fs.stat(fs.join(extractdir, "secret.key"))
 
   assert(script_stat, "run.sh should exist after extract")
   assert(secret_stat, "secret.key should exist after extract")
@@ -252,12 +252,12 @@ test_extract_preserves_file_modes()
 -- ensures the old inode stays valid for the running process.
 local function test_embed_does_not_corrupt_running_process()
   -- Create a program that sleeps, then exercises code pages
-  local appdir = path.join(tmpdir, "running-app")
-  unix.makedirs(appdir)
-  cosmo.Barf(path.join(appdir, "main.lua"), [[
-local unix = require("cosmo.unix")
+  local appdir = fs.join(tmpdir, "running-app")
+  fs.makedirs(appdir)
+  cio.barf(fs.join(appdir, "main.lua"), [[
+local time = require("cosmic.time")
 -- Sleep to give the test time to overwrite the binary
-unix.nanosleep(1)
+time.sleep(1)
 -- Exercise code paths that touch mmapped pages (string ops, table ops, format)
 local t = {}
 for i = 1, 100 do t[i] = string.format("item_%04d", i) end
@@ -266,7 +266,7 @@ local result = table.concat(t, ",")
 io.write("OK:" .. #result)
 ]])
 
-  local binary = path.join(tmpdir, "cosmic-running")
+  local binary = fs.join(tmpdir, "cosmic-running")
   local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--output", binary}):read()
   assert(ok, "initial embed should succeed: " .. (out or ""))
 
@@ -274,7 +274,7 @@ io.write("OK:" .. #result)
   local handle = spawn.spawn({binary})
 
   -- Wait briefly for the process to start and mmap its pages
-  unix.nanosleep(0, 100000000) -- 100ms
+  time.sleep(0, 100000000) -- 100ms
 
   -- Re-embed over the same path while the process is running.
   -- Without atomic write, this would corrupt the running process.
@@ -298,41 +298,41 @@ local function test_extract_rejects_path_traversal()
   -- produced by another tool: write a same-length placeholder name and
   -- byte-patch it to a traversal name (no offsets change, so the zip stays
   -- valid). "XX/escaped.txt" -> "../escaped.txt".
-  local safe = path.join(tmpdir, "patched.zip")
+  local safe = fs.join(tmpdir, "patched.zip")
   local w = zip.open(safe, "w") as Writer
   assert(w, "should open zip for writing")
   w:add("XX/escaped.txt", "pwned")
   w:close()
-  local raw = cosmo.Slurp(safe)
+  local raw = cio.slurp(safe)
   local patched = (raw as string):gsub("XX/escaped%.txt", "../escaped.txt")
-  local malicious = path.join(tmpdir, "malicious.zip")
-  cosmo.Barf(malicious, patched)
+  local malicious = fs.join(tmpdir, "malicious.zip")
+  cio.barf(malicious, patched)
 
-  local outdir = path.join(tmpdir, "extract-target")
+  local outdir = fs.join(tmpdir, "extract-target")
   local result = embed.extract(outdir, malicious)
   assert(not result.ok, "extract should reject path traversal entry")
   assert(result.message:match("unsafe path"), "expected unsafe path error, got: " .. result.message)
 
   -- The escaping file must not have been written next to the target dir.
-  local escaped = path.join(tmpdir, "escaped.txt")
-  assert(not path.isfile(escaped), "traversal file should not be written outside target")
+  local escaped = fs.join(tmpdir, "escaped.txt")
+  assert(not fs.isfile(escaped), "traversal file should not be written outside target")
 end
 test_extract_rejects_path_traversal()
 
 -- FIX 2: collect_dir must not recurse into symlinked directories.
 -- A symlink loop inside the embed dir must terminate without error.
 local function test_embed_symlink_loop_terminates()
-  local appdir = path.join(tmpdir, "symlinkloop")
-  unix.makedirs(path.join(appdir, "sub"))
-  cosmo.Barf(path.join(appdir, "sub", "real.txt"), "data")
+  local appdir = fs.join(tmpdir, "symlinkloop")
+  fs.makedirs(fs.join(appdir, "sub"))
+  cio.barf(fs.join(appdir, "sub", "real.txt"), "data")
   -- Create a cycle: sub/loop -> ..  (points back to appdir)
-  unix.symlink("..", path.join(appdir, "sub", "loop"))
+  fs.symlink("..", fs.join(appdir, "sub", "loop"))
 
   -- embed.collect_dir is called internally; run via the module directly
-  local result = embed.run({appdir}, path.join(tmpdir, "cosmic-symlinkloop"), cosmic)
+  local result = embed.run({appdir}, fs.join(tmpdir, "cosmic-symlinkloop"), cosmic)
   assert(result.ok, "embed of dir with symlink loop should succeed: " .. (result.message or ""))
   -- Only real.txt should be embedded, not any path through the loop
-  local data = cosmo.Slurp(path.join(tmpdir, "cosmic-symlinkloop"))
+  local data = cio.slurp(fs.join(tmpdir, "cosmic-symlinkloop"))
   local reader = zip.from(data) as Reader
   local files = reader:list()
   for _, f in ipairs(files) do
@@ -345,19 +345,19 @@ test_embed_symlink_loop_terminates()
 -- FIX 2: a symlink to a file *outside* the embed dir must NOT be embedded.
 local function test_embed_symlink_to_outside_file_skipped()
   -- Create a file outside the embed dir
-  local outside = path.join(tmpdir, "outside_secret.txt")
-  cosmo.Barf(outside, "secret-content")
+  local outside = fs.join(tmpdir, "outside_secret.txt")
+  cio.barf(outside, "secret-content")
 
-  local appdir = path.join(tmpdir, "symlinkoutside")
-  unix.makedirs(appdir)
-  cosmo.Barf(path.join(appdir, "main.lua"), 'print("hi")\n')
+  local appdir = fs.join(tmpdir, "symlinkoutside")
+  fs.makedirs(appdir)
+  cio.barf(fs.join(appdir, "main.lua"), 'print("hi")\n')
   -- Symlink inside the embed dir pointing outside
-  unix.symlink(outside, path.join(appdir, "leaked.txt"))
+  fs.symlink(outside, fs.join(appdir, "leaked.txt"))
 
-  local result = embed.run({appdir}, path.join(tmpdir, "cosmic-symlinkoutside"), cosmic)
+  local result = embed.run({appdir}, fs.join(tmpdir, "cosmic-symlinkoutside"), cosmic)
   assert(result.ok, "embed should succeed even with outside symlink: " .. (result.message or ""))
   -- "leaked.txt" (the symlink) must not appear in the zip
-  local data = cosmo.Slurp(path.join(tmpdir, "cosmic-symlinkoutside"))
+  local data = cio.slurp(fs.join(tmpdir, "cosmic-symlinkoutside"))
   local reader = zip.from(data) as Reader
   local files = reader:list()
   for _, f in ipairs(files) do

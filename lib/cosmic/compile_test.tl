@@ -1,16 +1,16 @@
 #!/usr/bin/env cosmic
 -- test cosmic --compile option
 
-local path = require("cosmo.path")
+local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
-local cosmo = require("cosmo")
+local cio = require("cosmic.io")
 
-local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")
+local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 local function write_temp(name: string, content: string): string
-  local filepath = path.join(tmpdir, name)
-  cosmo.Barf(filepath, content)
+  local filepath = fs.join(tmpdir, name)
+  cio.barf(filepath, content)
   return filepath
 end
 
@@ -98,12 +98,12 @@ local function add(a: number, b: number): number
 end
 print("result=" .. add(2, 3))
 ]])
-  local output = path.join(tmpdir, "runnable.lua")
+  local output = fs.join(tmpdir, "runnable.lua")
 
   local ok, lua_code = spawn.spawn({cosmic, "--compile", input}):read()
   assert(ok, "compilation should succeed")
 
-  cosmo.Barf(output, lua_code as string)
+  cio.barf(output, lua_code as string)
 
   local run_ok, run_out = spawn.spawn({cosmic, output}):read()
   assert(run_ok, "compiled output should run")
@@ -171,7 +171,7 @@ local function test_compile_write_if_changed()
 local x: number = 42
 print(x)
 ]])
-  local output = path.join(tmpdir, "wic.lua")
+  local output = fs.join(tmpdir, "wic.lua")
 
   -- First run: file does not exist, should be created
   local ok1, _ = spawn.spawn({cosmic, "--write-if-changed", "--output", output, "--compile", input}):read()
@@ -203,7 +203,7 @@ test_compile_write_if_changed()
 -- Test write-if-changed with --format: skips write when formatted output is identical
 local function test_format_write_if_changed()
   local input = write_temp("wic_fmt.lua", "local x = 42\n")
-  local output = path.join(tmpdir, "wic_fmt_out.lua")
+  local output = fs.join(tmpdir, "wic_fmt_out.lua")
 
   -- First run: output file does not exist, should be created
   local ok1, _ = spawn.spawn({cosmic, "--write-if-changed", "--output", output, "--format", input}):read()

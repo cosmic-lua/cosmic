@@ -1,10 +1,10 @@
 #!/usr/bin/env cosmic
 local landlock = require("cosmic.landlock")
-local path = require("cosmo.path")
+local fs = require("cosmic.fs")
+local cio = require("cosmic.io")
 local spawn = require("cosmic.child")
-local cosmo = require("cosmo")
 
-local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")
+local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 local function test_module_exports()
@@ -49,13 +49,13 @@ local function test_restrict_denies_outside_allowlist()
     return
   end
 
-  local allowed = path.join(tmpdir, "allowed.txt")
-  local denied = path.join(tmpdir, "denied.txt")
-  cosmo.Barf(allowed, "allowed-content")
-  cosmo.Barf(denied, "denied-content")
+  local allowed = fs.join(tmpdir, "allowed.txt")
+  local denied = fs.join(tmpdir, "denied.txt")
+  cio.barf(allowed, "allowed-content")
+  cio.barf(denied, "denied-content")
 
-  local script = path.join(tmpdir, "landlock_restrict.lua")
-  cosmo.Barf(script, string.format([[
+  local script = fs.join(tmpdir, "landlock_restrict.lua")
+  cio.barf(script, string.format([[
 local ll = require("cosmic.landlock")
 local ok, err = ll.restrict{ rules = { { path = %q, access = ll.READ } } }
 if not ok then
@@ -94,7 +94,7 @@ test_restrict_denies_outside_allowlist()
 local function test_restrict_bad_rule_path_returns_error()
   if not landlock.available() then return end
   local ok, err = landlock.restrict {
-    rules = {{path = path.join(tmpdir, "no-such-dir-xyz"),
+    rules = {{path = fs.join(tmpdir, "no-such-dir-xyz"),
         access = landlock.READ}},
   }
   assert(not ok, "restrict with a missing rule path must fail")

@@ -1,17 +1,16 @@
 #!/usr/bin/env cosmic
-local path = require("cosmo.path")
 local testrun = require("cosmic.testrun")
 local cio = require("cosmic.io")
 local fs = require("cosmic.fs")
 
 local TEST_BIN = os.getenv("TEST_BIN")
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
-local cosmic_bin = path.join(TEST_BIN, "cosmic")
+local cosmic_bin = fs.join(TEST_BIN, "cosmic")
 
 -- Test running cosmic with a script
 local function test_run_cosmic_script()
-  local script = path.join(TEST_TMPDIR, "test_script.lua")
-  local output_base = path.join(TEST_TMPDIR, "result_script")
+  local script = fs.join(TEST_TMPDIR, "test_script.lua")
+  local output_base = fs.join(TEST_TMPDIR, "result_script")
 
   cio.barf(script, [[print("hello from script")]])
 
@@ -25,7 +24,7 @@ test_run_cosmic_script()
 
 -- Test run with nested output directory
 local function test_run_creates_parent_dirs()
-  local output_base = path.join(TEST_TMPDIR, "nested", "dir", "result")
+  local output_base = fs.join(TEST_TMPDIR, "nested", "dir", "result")
 
   local exit_code = testrun.run({"/bin/true"}, output_base)
   assert(exit_code == 0, "expected exit code 0, got " .. exit_code)
@@ -41,14 +40,14 @@ local function test_run_creates_parent_dirs()
   assert(err ~= nil, "expected .err file to exist")
 
   -- Cleanup
-  fs.rmrf(path.join(TEST_TMPDIR, "nested"))
+  fs.rmrf(fs.join(TEST_TMPDIR, "nested"))
 end
 test_run_creates_parent_dirs()
 
 -- Test run with executable that writes to stdout/stderr
 local function test_run_captures_output()
-  local script = path.join(TEST_TMPDIR, "test_output.sh")
-  local output_base = path.join(TEST_TMPDIR, "result_output")
+  local script = fs.join(TEST_TMPDIR, "test_output.sh")
+  local output_base = fs.join(TEST_TMPDIR, "result_output")
 
   cio.barf(script, [[#!/bin/sh
 echo "stdout line"
@@ -72,8 +71,8 @@ test_run_captures_output()
 
 -- Test that TEST_TMPDIR is set and is a directory
 local function test_run_sets_test_tmpdir()
-  local script = path.join(TEST_TMPDIR, "test_tmpdir.sh")
-  local output_base = path.join(TEST_TMPDIR, "result_tmpdir")
+  local script = fs.join(TEST_TMPDIR, "test_tmpdir.sh")
+  local output_base = fs.join(TEST_TMPDIR, "result_tmpdir")
 
   -- Script checks TEST_TMPDIR exists and is a directory
   cio.barf(script, [[#!/bin/sh
@@ -105,7 +104,7 @@ test_run_sets_test_tmpdir()
 
 -- Test run with nonexistent executable
 local function test_run_nonexistent()
-  local output_base = path.join(TEST_TMPDIR, "result_nonexistent")
+  local output_base = fs.join(TEST_TMPDIR, "result_nonexistent")
 
   local exit_code = testrun.run({"/nonexistent/path/to/exe"}, output_base)
   -- Child process exits 127 when execve fails (command not found)
@@ -119,7 +118,7 @@ test_run_nonexistent()
 
 -- Test report with passing test
 local function test_report_pass()
-  local base = path.join(TEST_TMPDIR, "report_pass")
+  local base = fs.join(TEST_TMPDIR, "report_pass")
 
   cio.barf(base .. ".got", "0\n")
   cio.barf(base .. ".out", "")
@@ -133,7 +132,7 @@ test_report_pass()
 
 -- Test report with failing test
 local function test_report_fail()
-  local base = path.join(TEST_TMPDIR, "report_fail")
+  local base = fs.join(TEST_TMPDIR, "report_fail")
 
   cio.barf(base .. ".got", "1\n")
   cio.barf(base .. ".out", "stdout output\n")
@@ -146,7 +145,7 @@ test_report_fail()
 
 -- Test report with skipped test
 local function test_report_skip()
-  local base = path.join(TEST_TMPDIR, "report_skip")
+  local base = fs.join(TEST_TMPDIR, "report_skip")
 
   cio.barf(base .. ".got", "2\n")
   cio.barf(base .. ".out", "")
@@ -159,9 +158,9 @@ test_report_skip()
 
 -- Test report with multiple tests
 local function test_report_multiple()
-  local base1 = path.join(TEST_TMPDIR, "report_multi_1")
-  local base2 = path.join(TEST_TMPDIR, "report_multi_2")
-  local base3 = path.join(TEST_TMPDIR, "report_multi_3")
+  local base1 = fs.join(TEST_TMPDIR, "report_multi_1")
+  local base2 = fs.join(TEST_TMPDIR, "report_multi_2")
+  local base3 = fs.join(TEST_TMPDIR, "report_multi_3")
 
   cio.barf(base1 .. ".got", "0\n")
   cio.barf(base1 .. ".out", "")
@@ -182,7 +181,7 @@ test_report_multiple()
 
 -- Test report with .got extension
 local function test_report_with_got_extension()
-  local base = path.join(TEST_TMPDIR, "report_ext")
+  local base = fs.join(TEST_TMPDIR, "report_ext")
 
   cio.barf(base .. ".got", "0\n")
   cio.barf(base .. ".out", "")
@@ -196,7 +195,7 @@ test_report_with_got_extension()
 
 -- Test report with missing .got file
 local function test_report_missing_got()
-  local base = path.join(TEST_TMPDIR, "report_missing")
+  local base = fs.join(TEST_TMPDIR, "report_missing")
 
   -- Don't create any files
   local exit_code = testrun.report({base})
