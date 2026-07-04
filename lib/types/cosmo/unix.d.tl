@@ -231,11 +231,10 @@ local record Rusage
   --- quickly enough within a time slice that it was able to give back the
   --- remaining time to the system.
   nvcsw: function(self: Rusage): number
-  --- @return integer count number of non-consensual context switches.
   --- This number is a bad thing. It means your redbean was preempted by a
   --- higher priority process after failing to finish its work, within the
   --- allotted time slice.
-  nivcsw: function(self: Rusage)
+  nivcsw: function(self: Rusage): number
 end
 
 --- File metadata and attributes.
@@ -1014,15 +1013,11 @@ local record unix
   --- Clears all environment variables.
   --- This wraps the C `clearenv()` function to allow Lua scripts to remove
   --- all environment variables at once.
-  --- @return true
-  --- @overload fun(): nil, error: unix.Errno
-  clearenv: function()
+  clearenv: function(): boolean, Errno
   --- Gets login name of current user.
   --- This wraps the C `getlogin()` function to retrieve the login name
   --- associated with the current session.
-  --- @return string login name
-  --- @overload fun(): nil, error: unix.Errno
-  getlogin: function()
+  getlogin: function(): string, Errno
   --- Creates a new process mitosis style.
   --- This system call returns twice. The parent process gets the nonzero
   --- pid. The child gets zero.

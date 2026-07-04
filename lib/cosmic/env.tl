@@ -45,9 +45,7 @@ end
 --- @return boolean True on success
 --- @return string? Error message if clearing failed
 local function clear(): boolean, string
-  -- clearenv is declared `function()` upstream (missing its boolean/Errno
-  -- return), so the cast stays until that annotation is fixed.
-  local ok, err = unix.clearenv() as(boolean, any)
+  local ok, err = unix.clearenv()
   if not ok then
     return false, errstr(err, "clearenv")
   end

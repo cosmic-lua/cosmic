@@ -33,10 +33,14 @@ local function getegid(): number
 end
 
 --- Get the login name of the user running the process.
---- Returns nil if the login name cannot be determined.
 --- @return string The login name, or nil on failure
-local function getlogin(): string
-  return unix.getlogin()
+--- @return string? Error message if the login name cannot be determined
+local function getlogin(): string, string
+  local name, err = unix.getlogin()
+  if not name then
+    return nil, errstr(err, "getlogin")
+  end
+  return name
 end
 
 --- Set the user ID of the calling process.
@@ -135,7 +139,7 @@ local record UserModule
   getgid: function(): number
   geteuid: function(): number
   getegid: function(): number
-  getlogin: function(): string
+  getlogin: function(): string, string
   setuid: function(uid: number): boolean, string
   setgid: function(gid: number): boolean, string
   setfsuid: function(uid: number): boolean, string
