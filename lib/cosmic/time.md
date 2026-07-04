@@ -63,12 +63,12 @@ local record TimeModule
   gmtime: function(unixts: number): DateTime
   localtime: function(unixts: number): DateTime
   format_http: function(timestamp: number): string
-  parse_http: function(str: string): number
+  parse_http: function(str: string): number, string
   format_date: function(timestamp: number): string
-  parse_date: function(str: string): number
+  parse_date: function(str: string): number, string
   format_iso8601: function(timestamp: number): string
-  parse_iso8601: function(str: string): number
-  timegm: function(year: number, month: number, day: number, hour: number, min: number, sec: number): number
+  parse_iso8601: function(str: string): number, string
+  timegm: function(year: number, month: number, day: number, hour: number, min: number, sec: number): number, string
 end
 ```
 
@@ -204,31 +204,16 @@ function format_http(timestamp: number): string
 
 - string - HTTP date string (e.g., "Sun, 01 Feb 2026 12:00:00 GMT")
 
-### parse_http
-
-```teal
-function parse_http(str: string): number
-```
-
- Parse an HTTP date string (RFC 7231) into a UNIX timestamp.
- Returns 0 for invalid input.
-
-**Parameters:**
-
-- `str` (string) - HTTP date string
-
-**Returns:**
-
-- number - UNIX timestamp, or 0 if parsing failed
-
 ### timegm
 
 ```teal
 function timegm(year: number, month: number, day: number,
-    hour: number, min: number, sec: number): number
+    hour: number, min: number, sec: number): number, string
 ```
 
  Convert UTC broken-down time to UNIX epoch seconds.
+ Fields are range-checked; out-of-range values (e.g. month 13, Feb 30)
+ return nil plus an error rather than throwing.
 
 **Parameters:**
 
@@ -237,11 +222,32 @@ function timegm(year: number, month: number, day: number,
 - `day` (number) - Day of month (1-31)
 - `hour` (number) - Hour (0-23)
 - `min` (number) - Minute (0-59)
-- `sec` (number) - Second (0-59)
+- `sec` (number) - Second (0-60)
 
 **Returns:**
 
-- number - UNIX epoch seconds
+- number - UNIX epoch seconds, or nil on invalid input
+- string - Error message when input is out of range
+
+### parse_http
+
+```teal
+function parse_http(str: string): number, string
+```
+
+ Parse an HTTP date string (RFC 7231) into a UNIX timestamp.
+ Accepts the IMF-fixdate format that format_http emits and that RFC 7231
+ requires senders to generate (e.g. "Sun, 06 Nov 1994 08:49:37 GMT").
+ The obsolete RFC 850 and asctime forms are not accepted.
+
+**Parameters:**
+
+- `str` (string) - HTTP date string
+
+**Returns:**
+
+- number - UNIX timestamp, or nil if parsing failed
+- string - Error message on failure
 
 ### format_date
 
@@ -262,11 +268,10 @@ function format_date(timestamp: number): string
 ### parse_date
 
 ```teal
-function parse_date(str: string): number
+function parse_date(str: string): number, string
 ```
 
  Parse a YYYY-MM-DD date string into a UNIX timestamp (midnight UTC).
- Returns 0 for invalid input.
 
 **Parameters:**
 
@@ -274,7 +279,8 @@ function parse_date(str: string): number
 
 **Returns:**
 
-- number - UNIX timestamp, or 0 if parsing failed
+- number - UNIX timestamp, or nil if parsing failed
+- string - Error message on failure
 
 ### format_iso8601
 
@@ -295,18 +301,20 @@ function format_iso8601(timestamp: number): string
 ### parse_iso8601
 
 ```teal
-function parse_iso8601(str: string): number
+function parse_iso8601(str: string): number, string
 ```
 
  Parse an ISO 8601 timestamp string into a UNIX epoch seconds value.
- Accepts full timestamps with "Z" suffix, "+HH:MM"/"-HH:MM" offsets, or no
- suffix (treated as UTC). Also accepts date-only "YYYY-MM-DD" (midnight UTC).
- Returns 0 for invalid input.
+ Accepts full timestamps with a "Z" suffix, "±HH:MM"/"±HHMM"/"±HH" offsets,
+ or no suffix (treated as UTC). Optional fractional seconds are accepted and
+ truncated to whole seconds. Also accepts date-only "YYYY-MM-DD" (midnight
+ UTC).
 
 **Parameters:**
 
-- `str` (string) - ISO 8601 string (e.g., "2025-01-01T00:00:00Z" or "2025-01-01")
+- `str` (string) - ISO 8601 string (e.g., "2025-01-01T00:00:00.5Z")
 
 **Returns:**
 
-- number - UNIX timestamp, or 0 if parsing failed
+- number - UNIX timestamp, or nil if parsing failed
+- string - Error message on failure
