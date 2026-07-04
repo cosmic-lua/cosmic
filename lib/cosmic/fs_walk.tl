@@ -8,8 +8,11 @@ local WalkStat = types.WalkStat
 local FileInfo = types.FileInfo
 
 --- Handle for reading directory entries (internal).
+--- `read`'s second return is the dirent d_type (unix.DT_DIR / DT_REG /
+--- DT_LNK / ... / DT_UNKNOWN) where the filesystem supports it, letting
+--- callers that only need "is this a directory" skip a stat(2) call.
 local record WalkDirHandle
-  read: function(self): string
+  read: function(self): string, number
   close: function(self)
 end
 
@@ -111,21 +114,35 @@ local function collect_all(dir: string): {string: FileInfo}
     if not handle then return end
 
     while true do
-      local entry = handle:read()
+      local entry, kind = handle:read()
       if not entry then break end
       if entry ~= "." and entry ~= ".." then
         local full_path = cosmo_path.join(base_dir, entry)
         local rel_path = rel_base == "" and entry or cosmo_path.join(rel_base, entry)
-        -- Use AT_SYMLINK_NOFOLLOW to detect symlinked dirs as S_ISLNK, not S_ISDIR.
-        -- This prevents infinite recursion through symlink cycles.
-        local st = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW) as WalkStat
 
-        if st then
-          if unix.S_ISDIR(st:mode()) then
-            do_walk(full_path, rel_path)
-          elseif unix.S_ISREG(st:mode()) then
-            local mode = st:mode() & 0x1ff
-            files[rel_path] = {mode = mode}
+        if kind == unix.DT_DIR then
+          -- d_type never follows symlinks, so a real directory (as opposed
+          -- to a symlink to one) is enough to recurse without a stat(2)
+          -- call. This is what prevents infinite recursion through
+          -- symlink cycles below too: a symlinked dir reports DT_LNK.
+          do_walk(full_path, rel_path)
+        elseif kind ~= unix.DT_REG and kind ~= unix.DT_UNKNOWN then
+          -- Definitely neither a directory nor a regular file (symlink,
+          -- fifo, socket, ...): matches neither branch below, so skip
+          -- without paying for a stat(2) call.
+        else
+          -- kind is DT_REG (need the mode bits) or DT_UNKNOWN (filesystem
+          -- doesn't expose d_type; fall back to a real stat). Use
+          -- AT_SYMLINK_NOFOLLOW so a symlinked dir reports S_ISLNK, not
+          -- S_ISDIR, preserving the same cycle prevention as above.
+          local st = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW) as WalkStat
+          if st then
+            if unix.S_ISDIR(st:mode()) then
+              do_walk(full_path, rel_path)
+            elseif unix.S_ISREG(st:mode()) then
+              local mode = st:mode() & 0x1ff
+              files[rel_path] = {mode = mode}
+            end
           end
         end
       end
@@ -167,24 +184,39 @@ local function files(dir: string, pattern?: string): function(): string
       local current_dir = current[1]
       local current_handle = current[2]
 
-      local entry = current_handle:read()
+      local entry, kind = current_handle:read()
       if not entry then
         current_handle:close()
         table.remove(stack)
       elseif entry ~= "." and entry ~= ".." then
         local full_path = cosmo_path.join(current_dir, entry)
-        -- Use AT_SYMLINK_NOFOLLOW to detect symlinked dirs as S_ISLNK, not S_ISDIR.
-        -- This prevents infinite recursion through symlink cycles.
-        local st = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW) as WalkStat
-        if st then
-          if unix.S_ISDIR(st:mode()) then
-            -- Push subdirectory onto stack
-            local subhandle = unix.opendir(full_path) as WalkDirHandle
-            if subhandle then
-              table.insert(stack, {full_path, subhandle})
-            end
-          elseif entry:match(lua_pattern) then
+        if kind == unix.DT_DIR then
+          -- d_type never follows symlinks, so this is a real directory
+          -- (a symlinked dir reports DT_LNK), and skips a stat(2) call.
+          local subhandle = unix.opendir(full_path) as WalkDirHandle
+          if subhandle then
+            table.insert(stack, {full_path, subhandle})
+          end
+        elseif kind ~= unix.DT_UNKNOWN then
+          -- Definitely not a directory: files() never needs stat data,
+          -- only the path, so just check the pattern without stat(2).
+          if entry:match(lua_pattern) then
             return full_path
+          end
+        else
+          -- Filesystem doesn't expose d_type; fall back to a real stat,
+          -- using AT_SYMLINK_NOFOLLOW so a symlinked dir reports
+          -- S_ISLNK, not S_ISDIR, preserving the same cycle prevention.
+          local st = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW) as WalkStat
+          if st then
+            if unix.S_ISDIR(st:mode()) then
+              local subhandle = unix.opendir(full_path) as WalkDirHandle
+              if subhandle then
+                table.insert(stack, {full_path, subhandle})
+              end
+            elseif entry:match(lua_pattern) then
+              return full_path
+            end
           end
         end
       end

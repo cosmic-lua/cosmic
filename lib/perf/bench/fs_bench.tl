@@ -77,6 +77,28 @@ local function scenarios(): {pt.Scenario}, string
       end,
     },
     {
+      -- Iterate matching files without ever needing stat data (fs.files()
+      -- only returns paths), so this is the scenario a d_type fast path
+      -- (skip stat(2) when the dirent already says "not a directory")
+      -- should show up in most clearly.
+      name = "fs_files_tree",
+      fn = function(_: any): any
+        local count = 0
+        for _ in fs.files(tmpdir, "*.txt") do
+          count = count + 1
+        end
+        return count
+      end,
+      check = function(_: any, res: any): boolean, string
+        local count = res as integer
+        if count ~= DIRS * FILES_PER_DIR then
+          return false, string.format("found %s *.txt files, want %d",
+            tostring(count), DIRS * FILES_PER_DIR)
+        end
+        return true
+      end,
+    },
+    {
       name = "fs_barf_slurp_64k",
       fn = function(_: any): any
         local wok, werr = cio.barf(blob_path, BLOB)
