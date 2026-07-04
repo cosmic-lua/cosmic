@@ -4889,7 +4889,7 @@ function opendir(path: string): Dir, Errno
 ### fdopendir
 
 ```teal
-function fdopendir(fd: number): function, Dir, Errno
+function fdopendir(fd: number): Dir, Errno
 ```
 
  Opens directory for listing its contents, via an fd.
@@ -4902,7 +4902,6 @@ function fdopendir(fd: number): function, Dir, Errno
 
 **Returns:**
 
-- function
 - Dir
 - Errno
 
