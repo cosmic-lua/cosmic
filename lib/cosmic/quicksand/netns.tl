@@ -36,14 +36,16 @@ end
 local function build_ifreq(name: string, flags: integer): string
   assert(#name < IFNAMSIZ, "interface name too long")
   local name_field = name .. string.rep("\0", IFNAMSIZ - #name)
-  local flags_field = string.pack("<i2", flags)
+  -- Pack the 16-bit ifr_flags unsigned: IFF_* bits above 0x7fff (the sign
+  -- bit of a signed i2) would overflow "<i2" and raise from string.pack.
+  local flags_field = string.pack("<I2", flags)
   return name_field .. flags_field
   .. string.rep("\0", IFREQ_UNION_SIZE - #flags_field)
 end
 
 --- Parse the 16-bit flags field out of an ifreq returned by ioctl().
 local function parse_ifreq_flags(ifr: string): integer
-  return (string.unpack("<i2", ifr, IFNAMSIZ + 1)) as integer
+  return (string.unpack("<I2", ifr, IFNAMSIZ + 1)) as integer
 end
 
 --- Open an AF_INET dgram socket for the SIOC* interface ioctls.

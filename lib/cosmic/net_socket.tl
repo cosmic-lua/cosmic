@@ -68,6 +68,7 @@ local function make_socket(fd: number): Socket
   end
 
   function sock:shutdown(how?: number): boolean, string
+    if not self.fd then return false, "socket closed" end
     how = how or unix.SHUT_RDWR
     local ok = unix.shutdown(self.fd, how)
     if not ok then
@@ -77,6 +78,7 @@ local function make_socket(fd: number): Socket
   end
 
   function sock:send(data: string, flags?: number): number, string
+    if not self.fd then return nil, "socket closed" end
     local n = unix.send(self.fd, data, flags or 0)
     if not n then
       return nil, "send failed"
@@ -85,6 +87,7 @@ local function make_socket(fd: number): Socket
   end
 
   function sock:sendto(data: string, ip: number, port: number, flags?: number): number, string
+    if not self.fd then return nil, "socket closed" end
     local n = unix.sendto(self.fd, data, ip, port, flags or 0)
     if not n then
       return nil, "sendto failed"
@@ -93,6 +96,7 @@ local function make_socket(fd: number): Socket
   end
 
   function sock:recv(bufsiz?: number, flags?: number): string, string
+    if not self.fd then return nil, "socket closed" end
     local data = unix.recv(self.fd, bufsiz or 65536, flags or 0)
     if not data then
       return nil, "recv failed"
@@ -101,6 +105,7 @@ local function make_socket(fd: number): Socket
   end
 
   function sock:recvfrom(bufsiz?: number, flags?: number): string, number, number, string
+    if not self.fd then return nil, nil, nil, "socket closed" end
     local data, ip, port = unix.recvfrom(self.fd, bufsiz or 65536, flags or 0)
     if not data then
       return nil, nil, nil, "recvfrom failed"
@@ -109,6 +114,7 @@ local function make_socket(fd: number): Socket
   end
 
   function sock:getsockname(): number, number, string
+    if not self.fd then return nil, nil, "socket closed" end
     local ip, port = unix.getsockname(self.fd)
     if not ip then
       return nil, nil, "getsockname failed"
@@ -117,6 +123,7 @@ local function make_socket(fd: number): Socket
   end
 
   function sock:getpeername(): number, number, string
+    if not self.fd then return nil, nil, "socket closed" end
     local ip, port = unix.getpeername(self.fd)
     if not ip then
       return nil, nil, "getpeername failed"
@@ -125,6 +132,7 @@ local function make_socket(fd: number): Socket
   end
 
   function sock:bind(ip?: number, port?: number): boolean, string
+    if not self.fd then return false, "socket closed" end
     local ok = unix.bind(self.fd, ip or 0, port or 0)
     if not ok then
       return false, "bind failed"
@@ -133,6 +141,7 @@ local function make_socket(fd: number): Socket
   end
 
   function sock:bind_unix(path: string): boolean, string
+    if not self.fd then return false, "socket closed" end
     local ok = (unix.bind as function(number, string): boolean)(self.fd, path)
     if not ok then
       return false, "bind_unix failed"
@@ -141,6 +150,7 @@ local function make_socket(fd: number): Socket
   end
 
   function sock:listen(backlog?: number): boolean, string
+    if not self.fd then return false, "socket closed" end
     local ok = unix.listen(self.fd, backlog or 128)
     if not ok then
       return false, "listen failed"
@@ -149,6 +159,7 @@ local function make_socket(fd: number): Socket
   end
 
   function sock:accept(flags?: number): Socket, number, number, string
+    if not self.fd then return nil, nil, nil, "socket closed" end
     local clientfd, ip, port = unix.accept(self.fd, flags or 0)
     if not clientfd then
       return nil, nil, nil, "accept failed"
@@ -157,6 +168,7 @@ local function make_socket(fd: number): Socket
   end
 
   function sock:connect(ip: number, port: number): boolean, string
+    if not self.fd then return false, "socket closed" end
     local ok, err = unix.connect(self.fd, ip, port)
     if not ok then
       return false, errstr(err, "connect")
@@ -165,6 +177,7 @@ local function make_socket(fd: number): Socket
   end
 
   function sock:connect_unix(path: string): boolean, string
+    if not self.fd then return false, "socket closed" end
     local ok, err = (unix.connect as function(number, string): (boolean, any))(self.fd, path)
     if not ok then
       return false, errstr(err, "connect_unix")
@@ -173,6 +186,7 @@ local function make_socket(fd: number): Socket
   end
 
   function sock:getsockopt(level: number, optname: number): number | boolean, string
+    if not self.fd then return nil, "socket closed" end
     local val = unix.getsockopt(self.fd, level, optname)
     if val == nil then
       return nil, "getsockopt failed"
@@ -181,6 +195,7 @@ local function make_socket(fd: number): Socket
   end
 
   function sock:setsockopt(level: number, optname: number, value: number | boolean): boolean, string
+    if not self.fd then return false, "socket closed" end
     local ok = unix.setsockopt(self.fd, level, optname, value)
     if not ok then
       return false, "setsockopt failed"

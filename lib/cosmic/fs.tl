@@ -231,7 +231,7 @@ end
 --- @return Dir Directory handle, or nil on error
 --- @return string Error message if failed
 local function fdopendir(fd: number): Dir, string
-  local _, raw, err = unix.fdopendir(fd)
+  local raw, err = unix.fdopendir(fd)
   if not raw then
     return nil, errstr(err, "fdopendir")
   end
