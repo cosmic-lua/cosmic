@@ -9,10 +9,13 @@
 ### WalkDirHandle
 
  Handle for reading directory entries (internal).
+ `read`'s second return is the dirent d_type (unix.DT_DIR / DT_REG /
+ DT_LNK / ... / DT_UNKNOWN) where the filesystem supports it, letting
+ callers that only need "is this a directory" skip a stat(2) call.
 
 ```teal
 local record WalkDirHandle
-  read: function(self): string
+  read: function(self): string, number
   close: function(self)
 end
 ```
