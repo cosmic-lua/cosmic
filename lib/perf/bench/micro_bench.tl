@@ -7,6 +7,7 @@ local hash = require("cosmic.hash")
 local codec = require("cosmic.codec")
 local compress = require("cosmic.compress")
 local cstr = require("cosmic.string")
+local net = require("cosmic.net")
 local pt = require("perf.perf_types")
 
 -- NIST SHA-256 test vector: one million repetitions of "a".
@@ -125,6 +126,19 @@ local function scenarios(): {pt.Scenario}, string
         end
         if fields[1] ~= "field-1" or fields[CSV_FIELDS] ~= "field-" .. CSV_FIELDS then
           return false, "wrong field content"
+        end
+        return true
+      end,
+    },
+    {
+      name = "net_ip_roundtrip",
+      fn = function(_: any): any
+        local n = net.parseip("192.168.1.1")
+        return net.formatip(n)
+      end,
+      check = function(_: any, res: any): boolean, string
+        if res as string ~= "192.168.1.1" then
+          return false, "ip roundtrip mismatch: " .. tostring(res)
         end
         return true
       end,

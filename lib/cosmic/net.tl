@@ -1,6 +1,7 @@
 --- Networking and socket utilities.
 --- Wraps cosmo.unix socket functions for TCP/UDP and Unix domain sockets.
 local unix = require("cosmo.unix")
+local cosmo = require("cosmo")
 
 local record NetSocket
   make_socket: function(fd: number): Socket
@@ -238,26 +239,18 @@ end
 --- @return number Numeric IP address
 --- @return string Error message on failure
 local function parseip(str: string): number, string
-  local a, b, c, d = str:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
-  if not a then
+  local ip = cosmo.ParseIp(str)
+  if ip == -1 then
     return nil, "invalid IP address format"
   end
-  local na, nb, nc, nd = tonumber(a), tonumber(b), tonumber(c), tonumber(d)
-  if na > 255 or nb > 255 or nc > 255 or nd > 255 then
-    return nil, "IP address octet out of range"
-  end
-  return (na << 24) | (nb << 16) | (nc << 8) | nd
+  return ip
 end
 
 --- Format a numeric IP address to string.
 --- @param ip number Numeric IP address
 --- @return string IP address in dotted notation
 local function formatip(ip: number): string
-  return string.format("%d.%d.%d.%d",
-    (ip >> 24) & 0xff,
-    (ip >> 16) & 0xff,
-    (ip >> 8) & 0xff,
-    ip & 0xff)
+  return cosmo.FormatIp(ip)
 end
 
 --- Network interface information.
