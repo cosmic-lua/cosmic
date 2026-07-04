@@ -291,6 +291,29 @@ local function test_socket_closed_method()
 end
 test_socket_closed_method()
 
+local function test_socket_methods_after_close()
+  local sock, err = net.socket()
+  assert(sock ~= nil, "socket creation failed: " .. tostring(err))
+  sock:close()
+
+  -- Every operation on a closed socket must return its error shape, never
+  -- throw from the C binding (unix.send(nil, ...) etc.).
+  local n, serr = sock:send("x")
+  assert(n == nil and serr == "socket closed", "send: " .. tostring(serr))
+  local d, rerr = sock:recv()
+  assert(d == nil and rerr == "socket closed", "recv: " .. tostring(rerr))
+  local ip, port, gerr = sock:getsockname()
+  assert(ip == nil and port == nil and gerr == "socket closed",
+    "getsockname: " .. tostring(gerr))
+  local bok, berr = sock:bind()
+  assert(bok == false and berr == "socket closed", "bind: " .. tostring(berr))
+  local lok, lerr = sock:listen()
+  assert(lok == false and lerr == "socket closed", "listen: " .. tostring(lerr))
+  local shok, sherr = sock:shutdown()
+  assert(shok == false and sherr == "socket closed", "shutdown: " .. tostring(sherr))
+end
+test_socket_methods_after_close()
+
 local function test_socket_has_close_metamethod()
   -- Verify socket has __close metamethod for Lua 5.4 to-be-closed support
   local sock, err = net.socket()

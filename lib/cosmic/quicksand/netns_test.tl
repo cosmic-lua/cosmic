@@ -91,6 +91,17 @@ local function test_get_flags_bad_interface()
 end
 test_get_flags_bad_interface()
 
+-- A flag with the 0x8000 bit set must not overflow the ifreq packing:
+-- "<i2" (signed) would raise "integer overflow" from string.pack, "<I2"
+-- (unsigned) packs it cleanly. The interface is nonexistent so
+-- SIOCSIFFLAGS can never mutate a real device, regardless of privilege.
+local function test_set_flags_high_bit_no_overflow()
+  local ok, err = netns.set_flags("nope0", 0x8000)
+  assert(ok == false, "set_flags on a nonexistent interface should fail")
+  assert(type(err) == "string", "failure must carry an error string")
+end
+test_set_flags_high_bit_no_overflow()
+
 local function test_get_flags_name_too_long()
   local flags, err = netns.get_flags(string.rep("x", 20))
   assert(flags == nil, "oversized interface name should fail, not throw")
