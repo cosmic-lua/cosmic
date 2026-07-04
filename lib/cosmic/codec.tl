@@ -24,11 +24,8 @@ local function decode_hex(hex: string): string, string
   if hex:match("[^0-9a-fA-F]") then
     return nil, "invalid hex character"
   end
-  -- Decode pairs of hex digits
-  local result = hex:gsub("(%x%x)", function(pair: string): string
-      return string.char(tonumber(pair, 16) as integer)
-    end)
-  return result, nil
+  -- Validation above guarantees cosmo.DecodeHex cannot raise
+  return cosmo.DecodeHex(hex), nil
 end
 
 --- Encode a Lua value as Lua source code.

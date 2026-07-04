@@ -126,20 +126,23 @@ rejected entries stay in the file; they save the next agent from
 re-testing a dead end. add new entries as `open` when a report line or
 code read suggests one.
 
-1. **hex decode via the C binding** — open
-   - scenario: `codec_hex_roundtrip_64k` (~17.3ms; base64 does the same
-     64KB in ~2.1ms)
-   - evidence: `codec.decode_hex` (lib/cosmic/codec.tl) is a pure-Lua
+1. **hex decode via the C binding** — done (2026-07-04)
+   - scenario: `codec_hex_roundtrip_64k`: 17.53ms -> 2.16ms (-87.7%
+     first pass, -88.0% on re-measure)
+   - evidence: `codec.decode_hex` (lib/cosmic/codec.tl) was a pure-Lua
      `gsub("(%x%x)", callback)` — one closure call per byte pair, ~32k
      for 64KB — plus two full-string validation scans. `cosmo.DecodeHex`
-     exists (lib/types/cosmo.d.tl:130) and is unused.
-   - hypothesis: delegating the hot path to `cosmo.DecodeHex` while
-     keeping the documented `value, string` error returns (even-length
-     and hex-character validation semantics must not change) cuts the
-     roundtrip by ~5-8x.
-   - risk: low. check how the C binding handles odd length, invalid
-     chars, uppercase, and empty string; keep Lua-side validation where
-     the binding's behavior differs.
+     exists (lib/types/cosmo.d.tl:130) and was unused.
+   - fix: kept the existing Lua-side even-length and hex-character
+     validation (so the documented `value, string` error returns and
+     messages are unchanged — `cosmo.DecodeHex` raises a Lua error on
+     odd length / non-hex input rather than returning nil+err, so
+     validation must run first), then delegated the actual byte
+     conversion to `cosmo.DecodeHex` instead of the gsub callback.
+   - result: no other scenario regressed (`bin/make perf-compare`: 20
+     scenarios, 0 regression, 1 faster, 19 ok after a clean re-measure;
+     an initial run flagged an unrelated `startup_*` scenario that
+     didn't reproduce and isn't touched by this change).
 
 2. **sqlite prepared-statement reuse** — open
    - scenarios: `sqlite_insert_delete_tx` (~680µs for 100 inserts + 1
