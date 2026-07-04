@@ -61,6 +61,33 @@ local record RawSqlite3
 end
 ```
 
+### Rows
+
+ Callable row iterator with an out-of-band error channel. Use it in a
+ generic `for row in ... do` loop, then call `:err()` afterward to detect
+ a step error (SQLITE_BUSY / CORRUPT / a RETURNING constraint failure)
+ that a for-loop cannot observe inline. `:err()` is nil only when
+ iteration reached SQLITE_DONE cleanly.
+
+```teal
+local record Rows
+  __call: function(self: Rows): {string: any}
+  err: function(self: Rows): string
+end
+```
+
+### Values
+
+ Callable positional-value iterator, the `Statement:values()` counterpart
+ to `Rows`. Same `:err()` contract.
+
+```teal
+local record Values
+  __call: function(self: Values): any ...
+  err: function(self: Values): string
+end
+```
+
 ### Statement
 
  Statement handle with automatic cleanup.
@@ -70,8 +97,8 @@ local record Statement
   bind: function(self: Statement, ...: any): boolean, string
   bind_list: function(self: Statement, values: {any}): boolean, string
   bind_named: function(self: Statement, params: {string: any}): boolean, string
-  rows: function(self: Statement): RowIter
-  values: function(self: Statement): function(): any ...
+  rows: function(self: Statement): Rows
+  values: function(self: Statement): Values
   exec: function(self: Statement): boolean, string
   reset: function(self: Statement)
   columns: function(self: Statement): number
@@ -87,9 +114,9 @@ end
 ```teal
 local record Database
   prepare: function(self: Database, sql: string): Statement, string
-  query: function(self: Database, sql: string, ...: any): RowIter, string
-  query_list: function(self: Database, sql: string, values: {any}): RowIter, string
-  query_named: function(self: Database, sql: string, params: {string: any}): RowIter, string
+  query: function(self: Database, sql: string, ...: any): Rows, string
+  query_list: function(self: Database, sql: string, values: {any}): Rows, string
+  query_named: function(self: Database, sql: string, params: {string: any}): Rows, string
   query_one: function(self: Database, sql: string, ...: any): {string: any}, string
   exec: function(self: Database, sql: string, ...: any): boolean, string
   exec_list: function(self: Database, sql: string, values: {any}): boolean, string
@@ -145,13 +172,13 @@ function stmt:bind_named(params: {string: any}): boolean, string
 ### stmt:rows
 
 ```teal
-function stmt:rows(): RowIter
+function stmt:rows(): Rows
 ```
 
 ### stmt:values
 
 ```teal
-function stmt:values(): function(): any ...
+function stmt:values(): Values
 ```
 
 ### stmt:exec
@@ -169,7 +196,7 @@ function db:prepare(sql: string): Statement, string
 ### db:query
 
 ```teal
-function db:query(sql: string, ...: any): RowIter, string
+function db:query(sql: string, ...: any): Rows, string
 ```
 
 ### db:exec
@@ -200,7 +227,7 @@ function db:exec_named(sql: string, params: {string: any}): boolean, string
 ### db:query_list
 
 ```teal
-function db:query_list(sql: string, values: {any}): RowIter, string
+function db:query_list(sql: string, values: {any}): Rows, string
 ```
 
  Query with parameters from a list (table).
@@ -210,7 +237,7 @@ function db:query_list(sql: string, values: {any}): RowIter, string
 ### db:query_named
 
 ```teal
-function db:query_named(sql: string, params: {string: any}): RowIter, string
+function db:query_named(sql: string, params: {string: any}): Rows, string
 ```
 
  Query with named parameters.
