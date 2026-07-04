@@ -60,7 +60,14 @@ local function test_restrict_denies_outside_allowlist()
     return
   end
 
-  local allowed = fs.join(tmpdir, "allowed.txt")
+  -- Allowlist a *directory* subtree, not a bare file: ll.READ bundles
+  -- READ_DIR, and landlock returns EINVAL if a directory-only right is
+  -- added on a regular file. So the allowed path is a directory and the
+  -- denied file is a sibling left outside it (both exist, so the denial is
+  -- a real landlock effect rather than a missing path).
+  local allowed_dir = fs.join(tmpdir, "allowed")
+  fs.makedirs(allowed_dir)
+  local allowed = fs.join(allowed_dir, "ok.txt")
   local denied = fs.join(tmpdir, "denied.txt")
   cio.barf(allowed, "allowed-content")
   cio.barf(denied, "denied-content")
@@ -77,14 +84,14 @@ if not ok then
   os.exit(0)
 end
 
--- Reading the allowed path must still work.
+-- Reading a file inside the allowed directory must still work.
 local f = io.open(%q, "r")
 if f then io.write("allowed-ok\n"); f:close() else io.write("allowed-fail\n") end
 
--- Reading the denied path must fail.
+-- Reading the sibling outside the allowed directory must fail.
 local g = io.open(%q, "r")
 if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n") end
-]], allowed, allowed, denied))
+]], allowed_dir, allowed, denied))
 
   -- landlock probed available here, so any failure to enforce below means
   -- an outer sandbox is blocking an otherwise-supported mechanism — a
