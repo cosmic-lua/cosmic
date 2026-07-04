@@ -57,6 +57,7 @@ local record RawSqlite3
   OK: number
   ROW: number
   DONE: number
+  SCHEMA: number
   open: function(filename: string): RawDatabase, number, string
 end
 ```
