@@ -71,10 +71,47 @@ local function validate_url(url: string): string
   return nil
 end
 
+-- True when s carries a CR, LF, or NUL. Plain-text search (find's 4th arg)
+-- so the bytes are matched literally, not as pattern metacharacters.
+local function has_forbidden_byte(s: string): boolean
+  return s:find("\r", 1, true) ~= nil
+  or s:find("\n", 1, true) ~= nil
+  or s:find("\0", 1, true) ~= nil
+end
+
+--- Reject header names or values that carry a CR, LF, or NUL. HTTP headers
+--- are CRLF-delimited, so an embedded CR/LF in a name or value smuggles
+--- additional header lines (or a body) past cosmo.Fetch — a request-splitting
+--- / header-injection vector (audit §2.3). The error names the offending
+--- header but never echoes the raw control bytes back.
+--- @param headers {string: string} request headers, or nil
+--- @return string? error message, or nil when every header is safe
+local function validate_headers(headers: {string: string}): string
+  if not headers then
+    return nil
+  end
+  for name, value in pairs(headers) do
+    if name == "" then
+      return "invalid header name: must not be empty"
+    end
+    if has_forbidden_byte(name) then
+      return "invalid header name: must not contain CR, LF, or NUL"
+    end
+    if value ~= nil and has_forbidden_byte(value) then
+      return "invalid value for header '" .. name .. "': must not contain CR, LF, or NUL"
+    end
+  end
+  return nil
+end
+
 local function do_fetch(url: string, opts?: Opts): Result
   local verr = validate_url(url)
   if verr then
     return {ok = false, error = verr}
+  end
+  local herr = opts and validate_headers(opts.headers)
+  if herr then
+    return {ok = false, error = herr}
   end
 
   local status: number
@@ -203,6 +240,10 @@ local function stream(url: string, opts?: Opts): StreamResult
   local verr = validate_url(url)
   if verr then
     return {ok = false, error = verr}
+  end
+  local herr = opts and validate_headers(opts.headers)
+  if herr then
+    return {ok = false, error = herr}
   end
 
   local status: number
