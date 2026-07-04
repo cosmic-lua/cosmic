@@ -27,6 +27,7 @@ lib/
     *_example.tl       runnable examples
   build/               build infrastructure (fetch, stage, reporter)
   docs/                doc publishing
+  perf/                performance benchmark harness (see lib/perf/OPTIMIZE.md)
   types/               cosmo.* type declarations (generated) + gentype generator
 3p/
   cosmos/              Cosmopolitan Lua binary + zip tool
@@ -278,6 +279,23 @@ test_something()
 ```
 
 each test gets its own temp directory via `TEST_TMPDIR`.
+
+## Performance
+
+`lib/perf` holds the benchmark harness: end-to-end scenarios (JSON, SQLite,
+HTTP, fs, crypto/codecs, binary startup) with per-scenario functional
+checks, a JSON results format, and a noise-aware baseline comparison gate.
+
+```bash
+bin/make perf                 # run scenarios, write o/perf/current.json
+bin/make perf-baseline        # snapshot baseline before optimizing
+bin/make perf-compare         # re-run and fail on regression vs baseline
+```
+
+all performance work follows the loop in `lib/perf/OPTIMIZE.md`: baseline →
+hypothesis → change → `bin/make ci` (correctness/style gate) →
+`bin/make perf-compare` (regression gate) → keep or revert. never weaken a
+scenario or its check to make numbers pass; never commit `o/perf/*.json`.
 
 ## CI
 

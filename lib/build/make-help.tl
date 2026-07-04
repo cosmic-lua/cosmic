@@ -116,15 +116,28 @@ end
 
 -- Main execution
 local function main(args: {string}): number, string
-  local makefile = args[1] or "Makefile"
-
-  local content, read_err = cio.slurp(makefile)
-  if not content then
-    return 1, "Failed to read " .. makefile .. ": " .. (read_err or "unknown error")
+  local makefiles: {string} = {}
+  for _, a in ipairs(args) do
+    table.insert(makefiles, a)
+  end
+  if #makefiles == 0 then
+    makefiles = {"Makefile"}
   end
 
-  local targets = parse_makefile(content)
-  print(format_help(targets))
+  -- Aggregate documented targets and options across every makefile given
+  -- (make passes $(MAKEFILE_LIST), so included cook.mk files count too).
+  local items: {Item} = {}
+  for _, makefile in ipairs(makefiles) do
+    local content, read_err = cio.slurp(makefile)
+    if not content then
+      return 1, "Failed to read " .. makefile .. ": " .. (read_err or "unknown error")
+    end
+    for _, item in ipairs(parse_makefile(content)) do
+      table.insert(items, item)
+    end
+  end
+
+  print(format_help(items))
   return 0
 end
 
