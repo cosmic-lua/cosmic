@@ -134,13 +134,21 @@ end
 --- @param base string The base path (defaults to cwd)
 --- @return string The relative path
 local function relpath(p: string, base: string): string
-  -- Get absolute versions of both paths
-  local abs_p = abspath(p)
+  -- Get absolute versions of both paths. When both p and the implicit
+  -- base need cwd (relative p, no explicit base), fetch it once instead
+  -- of once per abspath() call.
+  local abs_p: string
   local abs_base: string
   if base then
+    abs_p = abspath(p)
     abs_base = abspath(base)
-  else
+  elseif p:sub(1, 1) == "/" then
+    abs_p = normalize(p)
     abs_base = unix.getcwd() or "."
+  else
+    local cwd = unix.getcwd() or "."
+    abs_p = normalize(cwd .. "/" .. p)
+    abs_base = cwd
   end
 
   -- Split into components

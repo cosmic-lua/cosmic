@@ -115,6 +115,21 @@ local function scenarios(): {pt.Scenario}, string
       end,
     },
     {
+      -- Relative path, no explicit base: the case where relpath() needs
+      -- cwd for both the target and the implicit base, isolating any
+      -- redundant getcwd(2) call from the pure-string path math.
+      name = "fs_relpath_relative",
+      fn = function(_: any): any
+        return fs.relpath("dir-1/file-1.txt")
+      end,
+      check = function(_: any, res: any): boolean, string
+        if res as string ~= "dir-1/file-1.txt" then
+          return false, "wrong relpath: " .. tostring(res)
+        end
+        return true
+      end,
+    },
+    {
       -- Read-only metadata pass over the seeded tree. Write-churn
       -- scenarios (mkdir+rmrf) drift monotonically on overlay
       -- filesystems, which breaks baseline comparisons, so this
