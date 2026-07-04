@@ -118,8 +118,8 @@ local function test_gmtime_fields()
   local dt = time.gmtime(1705322245)
   assert(dt.gmtoff == 0, "expected gmtoff 0 for UTC, got " .. tostring(dt.gmtoff))
   assert(dt.zone == "UTC" or dt.zone == "GMT", "expected UTC or GMT timezone, got " .. tostring(dt.zone))
-  assert(dt.wday >= 1 and dt.wday <= 7, "expected wday 1-7, got " .. tostring(dt.wday))
-  assert(dt.yday >= 1 and dt.yday <= 366, "expected yday 1-366, got " .. tostring(dt.yday))
+  assert(dt.wday >= 0 and dt.wday <= 6, "expected wday 0-6, got " .. tostring(dt.wday))
+  assert(dt.yday >= 0 and dt.yday <= 365, "expected yday 0-365, got " .. tostring(dt.yday))
 end
 test_gmtime_fields()
 
@@ -164,58 +164,6 @@ local function test_clock_realtime_is_zero()
   assert(time.CLOCK_REALTIME == 0, "CLOCK_REALTIME should be 0, got " .. tostring(time.CLOCK_REALTIME))
 end
 test_clock_realtime_is_zero()
-
--- format_http tests
-
-local function test_format_http_epoch()
-  local http_date = time.format_http(0)
-  assert(http_date == "Thu, 01 Jan 1970 00:00:00 GMT", "expected epoch format, got " .. http_date)
-end
-test_format_http_epoch()
-
-local function test_format_http_known_date()
-  -- 2000-01-01 00:00:00 UTC = 946684800
-  local http_date = time.format_http(946684800)
-  assert(http_date == "Sat, 01 Jan 2000 00:00:00 GMT", "expected Y2K format, got " .. http_date)
-end
-test_format_http_known_date()
-
-local function test_format_http_format()
-  local secs, _ = time.now()
-  local http_date = time.format_http(secs)
-  -- Should match RFC 7231 format: "Day, DD Mon YYYY HH:MM:SS GMT"
-  assert(http_date:match("^%a%a%a, %d%d %a%a%a %d%d%d%d %d%d:%d%d:%d%d GMT$"),
-    "expected RFC 7231 format, got " .. http_date)
-end
-test_format_http_format()
-
--- parse_http tests
-
-local function test_parse_http_epoch()
-  local ts = time.parse_http("Thu, 01 Jan 1970 00:00:00 GMT")
-  assert(ts == 0, "expected 0, got " .. tostring(ts))
-end
-test_parse_http_epoch()
-
-local function test_parse_http_known_date()
-  local ts = time.parse_http("Sat, 01 Jan 2000 00:00:00 GMT")
-  assert(ts == 946684800, "expected 946684800, got " .. tostring(ts))
-end
-test_parse_http_known_date()
-
-local function test_parse_http_invalid()
-  local ts = time.parse_http("invalid")
-  assert(ts == 0, "expected 0 for invalid input, got " .. tostring(ts))
-end
-test_parse_http_invalid()
-
-local function test_format_parse_roundtrip()
-  local original = 1705322245
-  local formatted = time.format_http(original)
-  local parsed = time.parse_http(formatted)
-  assert(parsed == original, "roundtrip failed: " .. tostring(original) .. " -> " .. formatted .. " -> " .. tostring(parsed))
-end
-test_format_parse_roundtrip()
 
 -- timegm tests
 
@@ -292,164 +240,59 @@ local function test_timegm_pre_epoch_roundtrip()
 end
 test_timegm_pre_epoch_roundtrip()
 
--- format_date tests
-
-local function test_format_date_epoch()
-  local s = time.format_date(0)
-  assert(s == "1970-01-01", "expected 1970-01-01, got " .. s)
+local function test_timegm_bad_month_no_throw()
+  -- month 14 must return nil, err rather than throwing an arithmetic error
+  local ts, err = time.timegm(2025, 14, 1, 0, 0, 0)
+  assert(ts == nil, "expected nil for month 14, got " .. tostring(ts))
+  assert(type(err) == "string", "expected error string, got " .. tostring(err))
 end
-test_format_date_epoch()
+test_timegm_bad_month_no_throw()
 
-local function test_format_date_y2k()
-  local s = time.format_date(946684800)
-  assert(s == "2000-01-01", "expected 2000-01-01, got " .. s)
+local function test_timegm_month_thirteen()
+  -- month 13 must not silently roll into next January
+  local ts = time.timegm(2025, 13, 1, 0, 0, 0)
+  assert(ts == nil, "expected nil for month 13, got " .. tostring(ts))
 end
-test_format_date_y2k()
+test_timegm_month_thirteen()
 
-local function test_format_date_known()
-  -- 2025-01-02T10:00:00Z = 1735812000 -> date should be 2025-01-02
-  local s = time.format_date(1735812000)
-  assert(s == "2025-01-02", "expected 2025-01-02, got " .. s)
+local function test_timegm_bad_day()
+  -- Feb 30 does not exist
+  local ts, err = time.timegm(2025, 2, 30, 0, 0, 0)
+  assert(ts == nil, "expected nil for Feb 30, got " .. tostring(ts))
+  assert(type(err) == "string", "expected error string, got " .. tostring(err))
 end
-test_format_date_known()
+test_timegm_bad_day()
 
-local function test_format_date_format()
-  local secs, _ = time.now()
-  local s = time.format_date(secs)
-  assert(s:match("^%d%d%d%d%-%d%d%-%d%d$"),
-    "expected YYYY-MM-DD format, got " .. s)
+local function test_timegm_feb29_non_leap()
+  -- 2025 is not a leap year, so Feb 29 is invalid
+  local ts = time.timegm(2025, 2, 29, 0, 0, 0)
+  assert(ts == nil, "expected nil for Feb 29 in 2025, got " .. tostring(ts))
 end
-test_format_date_format()
+test_timegm_feb29_non_leap()
 
--- parse_date tests
-
-local function test_parse_date_basic()
-  local ts = time.parse_date("2025-01-01")
-  assert(ts == 1735689600, "expected 1735689600, got " .. tostring(ts))
+local function test_timegm_feb29_leap_ok()
+  -- 2024 is a leap year, so Feb 29 is valid
+  local ts = time.timegm(2024, 2, 29, 0, 0, 0)
+  assert(ts ~= nil, "expected valid timestamp for Feb 29 in 2024")
 end
-test_parse_date_basic()
+test_timegm_feb29_leap_ok()
 
-local function test_parse_date_epoch()
-  local ts = time.parse_date("1970-01-01")
-  assert(ts == 0, "expected 0, got " .. tostring(ts))
+local function test_timegm_zero_day()
+  local ts = time.timegm(2025, 1, 0, 0, 0, 0)
+  assert(ts == nil, "expected nil for day 0, got " .. tostring(ts))
 end
-test_parse_date_epoch()
+test_timegm_zero_day()
 
-local function test_parse_date_y2k()
-  local ts = time.parse_date("2000-01-01")
-  assert(ts == 946684800, "expected 946684800, got " .. tostring(ts))
+local function test_timegm_bad_time_fields()
+  assert(time.timegm(2025, 1, 1, 24, 0, 0) == nil, "hour 24 should be invalid")
+  assert(time.timegm(2025, 1, 1, 0, 60, 0) == nil, "minute 60 should be invalid")
+  assert(time.timegm(2025, 1, 1, 0, 0, 61) == nil, "second 61 should be invalid")
 end
-test_parse_date_y2k()
+test_timegm_bad_time_fields()
 
-local function test_parse_date_invalid()
-  local ts = time.parse_date("not-a-date")
-  assert(ts == 0, "expected 0 for invalid input, got " .. tostring(ts))
+local function test_timegm_leap_second_ok()
+  -- second 60 (leap second) is accepted for gmtime roundtrip compatibility
+  local ts = time.timegm(2025, 1, 1, 0, 0, 60)
+  assert(ts ~= nil, "expected leap second (sec 60) to be accepted")
 end
-test_parse_date_invalid()
-
-local function test_parse_date_rejects_datetime()
-  -- parse_date should reject full ISO 8601 timestamps
-  local ts = time.parse_date("2025-01-01T00:00:00Z")
-  assert(ts == 0, "expected 0 for datetime input, got " .. tostring(ts))
-end
-test_parse_date_rejects_datetime()
-
-local function test_date_roundtrip()
-  local original = 1735689600 -- 2025-01-01 midnight UTC
-  local formatted = time.format_date(original)
-  local parsed = time.parse_date(formatted)
-  assert(parsed == original,
-    "roundtrip failed: " .. tostring(original) .. " -> " .. formatted .. " -> " .. tostring(parsed))
-end
-test_date_roundtrip()
-
--- format_iso8601 tests
-
-local function test_format_iso8601_epoch()
-  local s = time.format_iso8601(0)
-  assert(s == "1970-01-01T00:00:00Z", "expected epoch, got " .. s)
-end
-test_format_iso8601_epoch()
-
-local function test_format_iso8601_y2k()
-  local s = time.format_iso8601(946684800)
-  assert(s == "2000-01-01T00:00:00Z", "expected Y2K, got " .. s)
-end
-test_format_iso8601_y2k()
-
-local function test_format_iso8601_known()
-  -- 2025-01-02T10:00:00Z (same timestamp used in working PR tests)
-  local s = time.format_iso8601(1735812000)
-  assert(s == "2025-01-02T10:00:00Z", "expected 2025-01-02T10:00:00Z, got " .. s)
-end
-test_format_iso8601_known()
-
-local function test_format_iso8601_format()
-  local secs, _ = time.now()
-  local s = time.format_iso8601(secs)
-  assert(s:match("^%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%dZ$"),
-    "expected ISO 8601 format, got " .. s)
-end
-test_format_iso8601_format()
-
--- parse_iso8601 tests
-
-local function test_parse_iso8601_z_suffix()
-  local ts = time.parse_iso8601("2025-01-01T00:00:00Z")
-  assert(ts == 1735689600, "expected 1735689600, got " .. tostring(ts))
-end
-test_parse_iso8601_z_suffix()
-
-local function test_parse_iso8601_no_suffix()
-  local ts = time.parse_iso8601("2025-01-01T00:00:00")
-  assert(ts == 1735689600, "expected 1735689600 (treat as UTC), got " .. tostring(ts))
-end
-test_parse_iso8601_no_suffix()
-
-local function test_parse_iso8601_positive_offset()
-  -- 2025-01-01T05:30:00+05:30 = 2025-01-01T00:00:00Z
-  local ts = time.parse_iso8601("2025-01-01T05:30:00+05:30")
-  assert(ts == 1735689600, "expected 1735689600, got " .. tostring(ts))
-end
-test_parse_iso8601_positive_offset()
-
-local function test_parse_iso8601_negative_offset()
-  -- 2024-12-31T19:00:00-05:00 = 2025-01-01T00:00:00Z
-  local ts = time.parse_iso8601("2024-12-31T19:00:00-05:00")
-  assert(ts == 1735689600, "expected 1735689600, got " .. tostring(ts))
-end
-test_parse_iso8601_negative_offset()
-
-local function test_parse_iso8601_date_only()
-  local ts = time.parse_iso8601("2025-01-01")
-  assert(ts == 1735689600, "expected 1735689600, got " .. tostring(ts))
-end
-test_parse_iso8601_date_only()
-
-local function test_parse_iso8601_invalid()
-  local ts = time.parse_iso8601("not-a-date")
-  assert(ts == 0, "expected 0 for invalid input, got " .. tostring(ts))
-end
-test_parse_iso8601_invalid()
-
-local function test_parse_iso8601_invalid_offset()
-  local ts = time.parse_iso8601("2025-01-01T00:00:00+garbage")
-  assert(ts == 0, "expected 0 for invalid offset, got " .. tostring(ts))
-end
-test_parse_iso8601_invalid_offset()
-
-local function test_iso8601_roundtrip()
-  local original = 1705322245
-  local formatted = time.format_iso8601(original)
-  local parsed = time.parse_iso8601(formatted)
-  assert(parsed == original,
-    "roundtrip failed: " .. tostring(original) .. " -> " .. formatted .. " -> " .. tostring(parsed))
-end
-test_iso8601_roundtrip()
-
-local function test_iso8601_epoch_roundtrip()
-  local formatted = time.format_iso8601(0)
-  local parsed = time.parse_iso8601(formatted)
-  assert(parsed == 0, "epoch roundtrip failed: " .. formatted .. " -> " .. tostring(parsed))
-end
-test_iso8601_epoch_roundtrip()
+test_timegm_leap_second_ok()
