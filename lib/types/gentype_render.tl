@@ -33,6 +33,9 @@ local function convert_type(t: string): string
   -- `fun(...)` which also contains parens but never starts with one.
   local grouped = t:match("^%((.+)%)$")
   if grouped then return convert_type(grouped) end
+  -- Variadic type (`string...`): convert the base, keep the ellipsis.
+  local va_base = t:match("^(.+)%.%.%.$")
+  if va_base then return convert_type(va_base) .. "..." end
   if t:match("^{%s*[%w_]+%s*:%s*") then return "any" end
   if t:match("`") then return "any" end
   if TYPE_ALIASES[t] then return TYPE_ALIASES[t] end
@@ -57,28 +60,55 @@ local function convert_type(t: string): string
   if base then return "{" .. convert_type(base) .. "}" end
   local k, v = t:match("^table<([^,]+),%s*(.+)>$")
   if k and v then return "{" .. convert_type(k) .. ": " .. convert_type(v) .. "}" end
-  local fun_match = t:match("^fun%((.*)%)$")
-  if fun_match then return "function(" .. fun_match .. ")" end
-  fun_match = t:match("^fun%((.*)%):(.+)$")
-  if fun_match then
-    local args, ret = t:match("^fun%((.*)%):(.+)$")
-    return "function(" .. (args or "") .. "): " .. convert_type(ret or "")
+  local fun_args, fun_ret = t:match("^fun%((.*)%)%s*:%s*(.+)$")
+  if not fun_args then
+    fun_args = t:match("^fun%((.*)%)$")
   end
-  if t:match("^fun%(") then
-    local inside = t:match("^fun%((.*)%):%s*(.+)$")
-    if inside then
-      local args_part, ret_part = t:match("^fun%((.*)%):%s*(.+)$")
-      return "function(" .. (args_part or "") .. "): " .. convert_type(ret_part or "")
+  if fun_args then
+    -- Convert each `name: type` argument's type (LuaLS `integer` etc. are not
+    -- valid Teal). Split on top-level commas only.
+    local converted: {string} = {}
+    local depth = 0
+    local cur = ""
+    local function flush()
+      local part = cur:match("^%s*(.-)%s*$")
+      if part ~= "" then
+        local aname, atype = part:match("^([%w_%.]+%??)%s*:%s*(.+)$")
+        if aname then
+          table.insert(converted, aname .. ": " .. convert_type(atype))
+        elseif part == "..." then
+          table.insert(converted, "...: any")
+        else
+          table.insert(converted, part)
+        end
+      end
+      cur = ""
     end
-    inside = t:match("^fun%((.*)%)$")
-    if inside then return "function(" .. inside .. ")" end
+    for i = 1, #fun_args do
+      local c = fun_args:sub(i, i)
+      if c == "<" or c == "{" or c == "(" then depth = depth + 1
+      elseif c == ">" or c == "}" or c == ")" then depth = depth - 1
+      end
+      if c == "," and depth == 0 then flush() else cur = cur .. c end
+    end
+    flush()
+    local sig = "function(" .. table.concat(converted, ", ") .. ")"
+    if fun_ret then
+      sig = sig .. ": " .. convert_type(fun_ret)
+    end
+    return sig
   end
   if t:match("|") then
     local parts: {string} = {}
+    local seen: {string: boolean} = {}
     for part in t:gmatch("[^|]+") do
       part = part:match("^%s*(.-)%s*$")
       if part ~= "nil" and part ~= "" then
-        table.insert(parts, convert_type(part))
+        local converted = convert_type(part)
+        if not seen[converted] then
+          seen[converted] = true
+          table.insert(parts, converted)
+        end
       end
     end
     if #parts == 0 then return "any"
@@ -108,11 +138,19 @@ end
 --- Generate Teal .d.tl content for a module.
 local function generate_dtl(module: ModuleDecl): string
   local out: {string} = {}
-  table.insert(out, "-- type declarations for cosmo." .. module.name)
+  if module.name == "cosmo" then
+    table.insert(out, "-- type declarations for cosmo")
+  else
+    table.insert(out, "-- type declarations for cosmo." .. module.name)
+  end
+  table.insert(out, "-- GENERATED from cosmopolitan's definitions.lua by lib/types/gentype.tl.")
+  table.insert(out, "-- Do not edit by hand. Regenerate with: bin/make regen-types")
   table.insert(out, "")
 
+  -- Every class renders, even when empty: an opaque userdata handle (e.g.
+  -- argon2.Variant) is still referenced from signatures.
   for _, cls in ipairs(module.classes) do
-    if #cls.methods > 0 or #cls.fields > 0 then
+    do
       for _, line in ipairs(format_description(cls.description, "")) do
         table.insert(out, line)
       end
@@ -158,7 +196,9 @@ local function generate_dtl(module: ModuleDecl): string
               table.insert(ret_types, convert_type(r.return_type))
             end
           end
-          if method.fallible and #ret_types > 0 then
+          -- Nothing may follow a Teal vararg return, so skip the Errno fold.
+          if method.fallible and #ret_types > 0 and
+            not ret_types[#ret_types]:match("%.%.%.$") then
             local et = convert_type(method.error_type or "unix.Errno")
             if ret_types[#ret_types] ~= et then
               table.insert(ret_types, et)
@@ -177,6 +217,24 @@ local function generate_dtl(module: ModuleDecl): string
   end
 
   table.insert(out, "local record " .. module.name)
+
+  -- Export each class type on the module record so consumers can name it
+  -- (e.g. `local db: lsqlite3.Database`). A class whose name is also a module
+  -- function (e.g. the `unix.Sigset` constructor) or constant keeps the value
+  -- binding; the alias would collide.
+  local taken: {string: boolean} = {}
+  for _, f in ipairs(module.functions) do taken[f.name] = true end
+  for _, c in ipairs(module.constants) do taken[c.name] = true end
+  local aliased = 0
+  for _, cls in ipairs(module.classes) do
+    if not taken[cls.name] then
+      table.insert(out, "  type " .. cls.name .. " = " .. cls.name)
+      aliased = aliased + 1
+    end
+  end
+  if aliased > 0 and (#module.constants > 0 or #module.functions > 0) then
+    table.insert(out, "")
+  end
 
   if #module.constants > 0 then
     for _, c in ipairs(module.constants) do
@@ -218,7 +276,9 @@ local function generate_dtl(module: ModuleDecl): string
           table.insert(ret_types, convert_type(r.return_type))
         end
       end
-      if func.fallible and #ret_types > 0 then
+      -- Nothing may follow a Teal vararg return, so skip the Errno fold.
+      if func.fallible and #ret_types > 0 and
+        not ret_types[#ret_types]:match("%.%.%.$") then
         local et = convert_type(func.error_type or "unix.Errno")
         if ret_types[#ret_types] ~= et then
           table.insert(ret_types, et)
@@ -241,73 +301,80 @@ local function generate_dtl(module: ModuleDecl): string
 end
 
 --- Extract a module's content from definitions.lua.
+--- Selects, line-based: (1) the `<mod> = { ... }` table section, with brace
+--- depth counted only outside comments (a stray `}` in a doc comment must not
+--- terminate the table early); (2) every annotation block followed by a
+--- `function <mod>.<name>(` or `function <mod>.<Class>:<method>(` declaration,
+--- wherever it appears in the file; (3) every standalone `---@class <mod>.*`
+--- data-class block. Blocks belonging to other modules never leak in, so no
+--- boundary heuristics are needed.
 local function extract_module_content(source: string, module_name: string): string
-  local pattern = "\n" .. module_name .. " = {"
-  local start_pos = source:find(pattern, 1, true)
-  if not start_pos then
-    pattern = "^" .. module_name .. " = {"
-    if source:match(pattern) then
-      start_pos = 1
-    else
-      return nil
-    end
+  local lines: {string} = {}
+  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
+    table.insert(lines, line)
   end
 
-  local brace_count = 0
-  local in_module = false
-  local end_pos = start_pos
+  -- 1) module table section
+  local start_idx: integer = nil
+  for idx, line in ipairs(lines) do
+    if line:match("^" .. module_name .. "%s*=%s*{") then
+      start_idx = idx
+      break
+    end
+  end
+  if not start_idx then return nil end
 
-  for i = start_pos, #source do
-    local c = source:sub(i, i)
-    if c == "{" then
-      brace_count = brace_count + 1
-      in_module = true
-    elseif c == "}" then
-      brace_count = brace_count - 1
-      if in_module and brace_count == 0 then
-        end_pos = i
+  local out: {string} = {}
+  local depth = 0
+  local table_end = start_idx
+  for idx = start_idx, #lines do
+    local code = lines[idx]:gsub("%-%-.*$", "")
+    for brace in code:gmatch("[{}]") do
+      depth = depth + (brace == "{" and 1 or -1)
+    end
+    table.insert(out, lines[idx])
+    table_end = idx
+    if depth <= 0 then break end
+  end
+
+  -- 2) + 3) annotation blocks and declarations for this module
+  local fn_pattern = "^function%s+" .. module_name .. "%."
+  local class_pattern = "^%-%-%-@class%s+" .. module_name .. "%."
+  local pending: {string} = {}
+  local function flush_standalone_class()
+    local is_class = false
+    for _, a in ipairs(pending) do
+      if a:match(class_pattern) then
+        is_class = true
         break
       end
     end
+    if is_class then
+      for _, a in ipairs(pending) do table.insert(out, a) end
+      table.insert(out, "")
+    end
+    pending = {}
   end
 
-  local content = source:sub(start_pos, end_pos)
-
-  local search_start = end_pos
-  local first_func = source:find("\nfunction " .. module_name .. "%.", search_start)
-  if first_func then
-    content = content .. source:sub(end_pos, first_func - 1)
-    search_start = first_func
-  end
-
-  while true do
-    local func_start = source:find("\nfunction " .. module_name .. "%.", search_start)
-    if not func_start then break end
-
-    local next_module_start = source:find("\n[%w_]+ = {", func_start + 1)
-    if next_module_start and func_start > next_module_start then
-      break
-    end
-
-    local func_end = source:find("\nfunction ", func_start + 1)
-    local next_module = next_module_start
-
-    if func_end and next_module then
-      func_end = math.min(func_end, next_module)
-    elseif next_module then
-      func_end = next_module
-    end
-
-    if func_end then
-      content = content .. "\n" .. source:sub(func_start, func_end - 1)
-      search_start = func_end
+  for idx = 1, #lines do
+    if idx >= start_idx and idx <= table_end then
+      pending = {}
     else
-      content = content .. "\n" .. source:sub(func_start)
-      break
+      local line = lines[idx]
+      if line:match("^%-%-%-") then
+        table.insert(pending, line)
+      elseif line:match(fn_pattern) then
+        for _, a in ipairs(pending) do table.insert(out, a) end
+        table.insert(out, line)
+        pending = {}
+      else
+        flush_standalone_class()
+      end
     end
   end
+  flush_standalone_class()
 
-  return content
+  return table.concat(out, "\n")
 end
 
 local record GentypeRenderModule

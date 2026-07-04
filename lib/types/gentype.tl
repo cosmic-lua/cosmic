@@ -20,197 +20,24 @@ local record GentypeRender
 end
 local render = require("types.gentype_render") as GentypeRender
 
--- Modules to generate (in order)
-local MODULES = {"unix", "path", "getopt", "lsqlite3", "re", "argon2", "zip"}
+local record GentypeParse
+  parse_annotations: function(raw_lines: {string}): {string}, {Param}, {Return}, boolean, string, {Field}, boolean, string
+end
+local parse = require("types.gentype_parse") as GentypeParse
+local parse_annotations = parse.parse_annotations
 
---- Split the text following an `@param name` (or a `@return` entry) into its
---- type and trailing description. Handles parenthesized union types such as
---- `(integer | string)?` whose internal spaces would otherwise truncate the
---- type at the first whitespace.
-local function split_type_desc(rest: string): string, string
-  if rest:sub(1, 1) == "(" then
-    local depth = 0
-    for k = 1, #rest do
-      local c = rest:sub(k, k)
-      if c == "(" then
-        depth = depth + 1
-      elseif c == ")" then
-        depth = depth - 1
-        if depth == 0 then
-          local after = rest:sub(k + 1)
-          local q = after:match("^%?") and "?" or ""
-          local desc = after:sub(#q + 1):match("^%s*(.-)%s*$")
-          return rest:sub(1, k) .. q, desc
-        end
-      end
-    end
-  end
-  local t, d = rest:match("^([^%s]+)%s*(.-)%s*$")
-  return t or rest, d or ""
+-- Modules to generate (in order). "cosmo" is the top-level cosmo record
+-- (kCosmoFuncs surface); the rest are require("cosmo.<name>") submodules.
+local MODULES = {"cosmo", "unix", "path", "getopt", "lsqlite3", "re", "argon2", "zip", "repl"}
+
+-- Default definitions.lua source: the copy embedded in the running binary,
+-- which is always the one the pinned cosmos release was built with. The
+-- GENTYPE_DEFS env var overrides it for pre-release validation against a
+-- cosmopolitan checkout.
+local function defs_path(): string
+  return os.getenv("GENTYPE_DEFS") or "/zip/.lua/definitions.lua"
 end
 
---- Parse annotations from a block of text before a declaration.
-local function parse_annotations(lines: {string}): {string}, {Param}, {Return}, boolean, string, {Field}, boolean, string
-  local desc: {string} = {}
-  local params: {Param} = {}
-  local returns: {Return} = {}
-  local fields: {Field} = {}
-  local nodiscard = false
-  local class_annotation: string = nil
-  -- A fallible function's failure return is expressed upstream as an
-  -- `@overload fun(...): nil, <error> unix.Errno`. LuaLS renders that as a
-  -- second signature; the generator instead folds it into a trailing `, Errno`
-  -- return so callers see `value, Errno`. Detect any overload whose return list
-  -- carries an Errno type.
-  local fallible = false
-  local error_type: string = nil
-
-  for _, line in ipairs(lines) do
-    if not line:match("^%-%-%-@") then
-      local desc_text = line:match("^%-%-%-(.*)$")
-      if desc_text then
-        if desc_text:sub(1, 1) == " " then
-          desc_text = desc_text:sub(2)
-        end
-        if desc_text ~= "" then
-          table.insert(desc, desc_text)
-        end
-      end
-    end
-
-    local pname, prest = line:match("^%-%-%-@param%s+([%w_%.%?]+)%s+(.+)$")
-    if pname then
-      local ptype, pdesc = split_type_desc(prest)
-      local optional = ptype:match("%?$") ~= nil
-      if optional then
-        ptype = ptype:sub(1, -2)
-      end
-      if pname:match("%?$") then
-        optional = true
-        pname = pname:sub(1, -2)
-      end
-      table.insert(params, {name = pname, param_type = ptype, description = pdesc or "", optional = optional})
-    end
-
-    local fname, ftype, fdesc = line:match("^%-%-%-@field%s+([%w_%.%?]+)%s+([^%s]+)%s*(.*)$")
-    if fname then
-      local optional = false
-      if fname:match("%?$") then
-        optional = true
-        fname = fname:sub(1, -2)
-      end
-      if ftype:match("%?$") then
-        optional = true
-        ftype = ftype:sub(1, -2)
-      end
-      table.insert(fields, {name = fname, field_type = ftype, description = {fdesc or ""}})
-    end
-
-    local full_return = line:match("^%-%-%-@return%s+(.+)$")
-    if full_return then
-      full_return = full_return:match("^%s*(.-)%s*$")
-
-      local parts = {}
-      local in_angle = 0
-      local in_brace = 0
-      local in_paren = 0
-      local current = ""
-      for i = 1, #full_return do
-        local c = full_return:sub(i, i)
-        if c == "<" then in_angle = in_angle + 1
-        elseif c == ">" then in_angle = in_angle - 1
-        elseif c == "{" then in_brace = in_brace + 1
-        elseif c == "}" then in_brace = in_brace - 1
-        elseif c == "(" then in_paren = in_paren + 1
-        elseif c == ")" then in_paren = in_paren - 1
-        end
-        if c == "," and in_angle == 0 and in_brace == 0 and in_paren == 0 then
-          local rest_after_comma = full_return:sub(i + 1)
-          local next_word = rest_after_comma:match("^%s*([%w_%.]+)")
-          local lua_keywords = {
-            ["and"] = true, ["or"] = true, ["not"] = true,
-            ["if"] = true, ["then"] = true, ["else"] = true, ["elseif"] = true,
-            ["end"] = true, ["while"] = true, ["do"] = true, ["for"] = true,
-            ["repeat"] = true, ["until"] = true, ["break"] = true, ["return"] = true,
-            ["local"] = true, ["in"] = true,
-          }
-          local is_function_call = rest_after_comma:match("^%s*" .. (next_word or "") .. "%s*%(")
-          if next_word and not lua_keywords[next_word] and not is_function_call and (
-            next_word:match("^[%l_]") or next_word:match("^[%u]") or next_word:match("%.")
-          ) then
-            table.insert(parts, current)
-            current = ""
-          else
-            current = current .. c
-          end
-        else
-          current = current .. c
-        end
-      end
-      table.insert(parts, current)
-
-      for _, return_part in ipairs(parts) do
-        return_part = return_part:match("^%s*(.-)%s*$")
-        local part_type: string = nil
-        local part_desc: string = nil
-        if return_part:match("^%(") then
-          part_type, part_desc = split_type_desc(return_part)
-        elseif return_part:match("^{") then
-          part_type, part_desc = return_part:match("^({.-%}%[?%]?)%s+(.*)$")
-          if not part_type then
-            part_type = return_part:match("^({.-%}%[?%]?)%s*$")
-          end
-        elseif return_part:match("<.->") then
-          part_type, part_desc = return_part:match("^([^%s]+<.->)%s+(.*)$")
-          if not part_type then
-            part_type = return_part:match("^([^%s]+<.->)%s*$")
-          end
-        end
-        if not part_type then
-          part_type, part_desc = return_part:match("^([^%s]+)%s+(.*)$")
-          if not part_type then
-            part_type = return_part
-          end
-        end
-        if part_type and part_type ~= "" then
-          if part_type == "table" and part_desc then
-            local specific_type = part_desc:match("^([%w_]+)")
-            if specific_type and specific_type:match("^[%l_]") then
-              part_type = specific_type
-              part_desc = part_desc:match("^[%w_]+%s*(.*)") or part_desc
-            end
-          end
-          table.insert(returns, {return_type = part_type, description = part_desc or ""})
-        end
-      end
-    end
-
-    if line:match("^%-%-%-@nodiscard") then
-      nodiscard = true
-    end
-
-    local overload_ret = line:match("^%-%-%-@overload%s+fun%b()%s*:%s*(.+)$")
-    if overload_ret then
-      local et = overload_ret:match("([%w_]+%.Errno)") or overload_ret:match("(Errno)")
-      if et then
-        fallible = true
-        error_type = et
-      end
-    end
-
-    local cname = line:match("^%-%-%-@class%s+([%w_%.]+)")
-    if cname then
-      class_annotation = cname
-    end
-
-    local ttype = line:match("^%-%-%-?%s*@type%s+([%w_]+)")
-    if ttype then
-      table.insert(returns, {return_type = ttype, description = "type"})
-    end
-  end
-
-  return desc, params, returns, nodiscard, class_annotation, fields, fallible, error_type
-end
 
 --- Helper to process a class annotation block.
 local function process_class_block(anno_lines: {string}, module_name: string, classes: {ClassDecl})
@@ -246,6 +73,17 @@ local function process_class_block(anno_lines: {string}, module_name: string, cl
   end
 end
 
+--- True when an annotation block carries a `---@type` tag (used to surface
+--- lowercase module-table fields such as `argon2.variants`).
+local function has_type_annotation(anno_lines: {string}): boolean
+  for _, line in ipairs(anno_lines) do
+    if line:match("^%s*%-%-%-?%s*@type%s") then
+      return true
+    end
+  end
+  return false
+end
+
 --- Parse a module from definitions.lua source.
 local function parse_module(source: string, module_name: string): ModuleDecl
   local content = render.extract_module_content(source, module_name)
@@ -256,8 +94,10 @@ local function parse_module(source: string, module_name: string): ModuleDecl
     functions = {}, classes = {}, constants = {},
   }
 
+  -- Keep empty lines: a blank line terminates an annotation block (e.g. a
+  -- standalone @class block emitted by extract_module_content).
   local lines: {string} = {}
-  for line in content:gmatch("[^\n]+") do
+  for line in (content .. "\n"):gmatch("([^\n]*)\n") do
     table.insert(lines, line)
   end
 
@@ -278,6 +118,21 @@ local function parse_module(source: string, module_name: string): ModuleDecl
       if line:match("^%-%-%-@class%s+") then
         in_class_block = true
       end
+      i = i + 1
+    elseif line:match("^%s*[%l_][%w_]*%s*=%s*") and not line:match("^%s*local%s") and
+      has_type_annotation(anno_lines) then
+      -- A lowercase module-table field annotated with `---@type <T>` (e.g.
+      -- `argon2.variants`) becomes a typed field on the module record.
+      local fname = line:match("^%s*([%l_][%w_]*)%s*=")
+      if fname and fname ~= module_name then
+        local desc, _, returns, _, _, _ = parse_annotations(anno_lines)
+        if #returns > 0 and returns[1].description == "type" then
+          table.insert(module.constants, {
+              name = fname, const_type = returns[1].return_type, description = desc,
+            })
+        end
+      end
+      anno_lines = {}
       i = i + 1
     elseif line:match("^%s*([A-Z][A-Z0-9_]*)%s*=%s*") then
       local name = line:match("^%s*([A-Z][A-Z0-9_]*)%s*=")
@@ -412,9 +267,9 @@ end
 
 --- Run the generator for a specific module or all modules.
 local function run(module_name: string): Result
-  local source = cosmo.Slurp("/zip/.lua/definitions.lua")
+  local source = cosmo.Slurp(defs_path())
   if not source then
-    return {success = false, error = "Failed to read /zip/.lua/definitions.lua"}
+    return {success = false, error = "Failed to read " .. defs_path()}
   end
 
   if module_name then

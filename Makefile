@@ -277,20 +277,27 @@ $(o)/%.tl.benchmark.got: %.tl $(cosmic_bin) | $(bootstrap_files)
 	@mkdir -p $(@D)
 	@set +e; $(cosmic_bin) --benchmark $< > $(basename $@).out 2> $(basename $@).err; echo $$? > $@
 
-# Type definition regeneration (manual maintenance task)
-# .d.tl files are checked into the repo and are the source of truth for docs and types.
-# This target is only needed when cosmopolitan's definitions.lua changes.
-# Variables defined in cook.mk
+# Type definition regeneration.
+# The generated .d.tl files are a pure function of (lib/types/gentype*.tl, the
+# definitions.lua embedded in the pinned cosmos release). This target runs the
+# CURRENT generator from the freshly built cosmic binary against the CURRENT
+# pin, so regen is reproducible: bump 3p/cosmos/version.lua, run
+# `bin/make regen-types`, commit. The gentype drift test fails until you do.
+# Module list ($(type_modules)) defined in cook.mk
 
 .PHONY: regen-types
-## Regenerate .d.tl type definitions from cosmopolitan definitions.lua (manual maintenance)
-regen-types: | $(bootstrap_cosmic) $(cosmos_staged)
-	@echo "Regenerating type definitions using bootstrap cosmic..."
+## Regenerate .d.tl type definitions from the pinned cosmos definitions.lua
+regen-types: $(cosmic_bin)
+	@echo "Regenerating type definitions from the pinned cosmos definitions.lua..."
 	@for mod in $(type_modules); do \
-		echo "  $$mod.d.tl"; \
-		$(bootstrap_cosmic) -e "print(require('types.gentype').run('$$mod').output)" > lib/types/cosmo/$$mod.d.tl; \
+		case $$mod in \
+			cosmo) out=lib/types/cosmo.d.tl ;; \
+			*) out=lib/types/cosmo/$$mod.d.tl ;; \
+		esac; \
+		echo "  $$out"; \
+		$(cosmic_bin) -e "local r = require('types.gentype').run('$$mod'); assert(r.success, r.error); io.write(r.output)" > $$out.tmp && mv $$out.tmp $$out || { rm -f $$out.tmp; exit 1; }; \
 	done
-	@echo "Type definitions regenerated from upstream cosmopolitan."
+	@echo "Type definitions regenerated. Verify with: bin/make test only=gentype"
 
 # Documentation generation - render .tl files as markdown
 # Module sources for docs: all _tl files (excludes tests and examples)

@@ -1,8 +1,30 @@
 #!/usr/bin/env cosmic
 --- Tests for gentype.tl type definition generator.
+---
+--- The drift tests compare generator output byte-for-byte against the
+--- committed .d.tl files, so any change to the generator or to the pinned
+--- cosmos definitions.lua fails here until `bin/make regen-types` is run and
+--- the regenerated files are committed. GENTYPE_DEFS overrides the
+--- definitions.lua source (default: the copy embedded in this binary) for
+--- validating against a cosmopolitan checkout before a release is cut.
 
 local cosmo = require("cosmo")
 local gentype = require("types.gentype")
+
+local function defs_source(): string
+  local path = os.getenv("GENTYPE_DEFS") or "/zip/.lua/definitions.lua"
+  local source = cosmo.Slurp(path)
+  assert(source, "Failed to read definitions.lua from " .. path)
+  return source
+end
+
+--- Committed location for a generated module's type declarations.
+local function committed_path(module_name: string): string
+  if module_name == "cosmo" then
+    return "lib/types/cosmo.d.tl"
+  end
+  return "lib/types/cosmo/" .. module_name .. ".d.tl"
+end
 
 -- Test type conversion from LuaLS to Teal
 local function test_convert_type()
@@ -33,6 +55,16 @@ local function test_convert_type()
   assert(gentype.convert_type("(true | string)") == "boolean | string", "(true | string) union")
   assert(gentype.convert_type("(integer | string)?") == "number | string | nil", "optional paren union")
 
+  -- Variadic types keep the ellipsis with a converted base.
+  assert(gentype.convert_type("string...") == "string...", "string... passthrough")
+  assert(gentype.convert_type("integer...") == "number...", "integer... -> number...")
+
+  -- Function types convert their argument and return types.
+  assert(gentype.convert_type("fun(udata: integer, tries: integer)")
+    == "function(udata: number, tries: number)", "fun arg types convert")
+  assert(gentype.convert_type("fun(x: integer): integer")
+    == "function(x: number): number", "fun return type converts")
+
   -- Module-prefixed types
   assert(gentype.convert_type("lsqlite3.Database") == "Database", "lsqlite3.Database -> Database")
   assert(gentype.convert_type("unix.Errno") == "Errno", "unix.Errno -> Errno")
@@ -40,47 +72,30 @@ local function test_convert_type()
   print("test_convert_type: PASS")
 end
 
--- Test module parsing
+-- Test module parsing against the real definitions.lua
 local function test_parse_path_module()
-  local source = cosmo.Slurp("/zip/.lua/definitions.lua")
-  assert(source, "Failed to read definitions.lua")
-
-  local module = gentype.parse_module(source, "path")
+  local module = gentype.parse_module(defs_source(), "path")
   assert(module, "Failed to parse path module")
   assert(module.name == "path", "module name should be path")
-
-  -- Check that functions were parsed
   assert(#module.functions > 0, "path should have functions")
 
-  -- Look for specific functions
-  local found_dirname = false
-  local found_basename = false
-  local found_join = false
+  local found: {string: boolean} = {}
   for _, f in ipairs(module.functions) do
-    if f.name == "dirname" then found_dirname = true end
-    if f.name == "basename" then found_basename = true end
-    if f.name == "join" then found_join = true end
+    found[f.name] = true
   end
-  assert(found_dirname, "path.dirname should exist")
-  assert(found_basename, "path.basename should exist")
-  assert(found_join, "path.join should exist")
+  assert(found["dirname"], "path.dirname should exist")
+  assert(found["basename"], "path.basename should exist")
+  assert(found["join"], "path.join should exist")
 
   print("test_parse_path_module: PASS")
 end
 
 -- Test unix module parsing (more complex with constants)
 local function test_parse_unix_module()
-  local source = cosmo.Slurp("/zip/.lua/definitions.lua")
-  assert(source, "Failed to read definitions.lua")
-
-  local module = gentype.parse_module(source, "unix")
+  local module = gentype.parse_module(defs_source(), "unix")
   assert(module, "Failed to parse unix module")
-  assert(module.name == "unix", "module name should be unix")
-
-  -- Check that constants were parsed
   assert(#module.constants > 0, "unix should have constants, got " .. #module.constants)
 
-  -- Look for specific constants
   local found_eacces = false
   local found_af_unix = false
   for _, c in ipairs(module.constants) do
@@ -91,80 +106,6 @@ local function test_parse_unix_module()
   assert(found_af_unix, "unix.AF_UNIX should exist")
 
   print("test_parse_unix_module: PASS")
-end
-
--- Test DTL generation
-local function test_generate_dtl()
-  local source = cosmo.Slurp("/zip/.lua/definitions.lua")
-  assert(source, "Failed to read definitions.lua")
-
-  local module = gentype.parse_module(source, "path")
-  assert(module, "Failed to parse path module")
-
-  local dtl = gentype.generate_dtl(module)
-  assert(dtl, "Failed to generate DTL")
-
-  -- Check for expected content
-  assert(dtl:match("local record path"), "DTL should contain 'local record path'")
-  assert(dtl:match("return path"), "DTL should contain 'return path'")
-  assert(dtl:match("dirname: function"), "DTL should contain dirname function")
-
-  print("test_generate_dtl: PASS")
-end
-
--- Test run function
-local function test_run()
-  local result = gentype.run("path")
-  assert(result.success, "run should succeed: " .. (result.error or ""))
-  assert(result.output, "run should produce output")
-  assert(result.output:match("local record path"), "output should contain path record")
-
-  print("test_run: PASS")
-end
-
--- Test getting module list
-local function test_get_modules()
-  local modules = gentype.get_modules()
-  assert(#modules > 0, "should have modules")
-
-  local found_unix = false
-  local found_path = false
-  for _, m in ipairs(modules) do
-    if m == "unix" then found_unix = true end
-    if m == "path" then found_path = true end
-  end
-  assert(found_unix, "modules should include unix")
-  assert(found_path, "modules should include path")
-
-  print("test_get_modules: PASS")
-end
-
--- Normalize whitespace for comparison
-local function normalize(s: string): string
-  -- Remove trailing whitespace from lines
-  s = s:gsub("[ \t]+\n", "\n")
-  -- Normalize multiple newlines
-  s = s:gsub("\n\n+", "\n\n")
-  -- Remove trailing newline
-  s = s:gsub("\n+$", "")
-  return s
-end
-
--- Drift detection test - verify generated matches committed file
-local function test_drift_detection_path()
-  local result = gentype.run("path")
-  assert(result.success, "run should succeed for path")
-
-  local committed = cosmo.Slurp("lib/types/cosmo/path.d.tl")
-  if not committed then
-    print("test_drift_detection_path: SKIP (no committed file)")
-    return
-  end
-
-  -- For now, just check that we can generate something
-  -- Full drift detection would require the generated output to match exactly
-  assert(result.output:match("local record path"), "generated should have path record")
-  print("test_drift_detection_path: PASS (basic check)")
 end
 
 -- A fallible unix.* function expresses its failure return upstream as an
@@ -236,83 +177,166 @@ function unix.ioctl(fd, request, arg) end
   print("test_paren_union_types: PASS")
 end
 
--- Drift guard: every unix.* function the generator renders with a trailing
--- `, Errno` must also declare `, Errno` in the committed unix.d.tl. Fails if a
--- regen or hand-edit drops the errno failure returns, leaving the checked-in
--- type definitions out of sync with the upstream @overload annotations.
-local function test_errno_drift_unix()
-  local result = gentype.run("unix")
-  assert(result.success, "run should succeed for unix: " .. (result.error or ""))
-
-  local committed = cosmo.Slurp("lib/types/cosmo/unix.d.tl")
-  if not committed then
-    print("test_errno_drift_unix: SKIP (no committed file)")
-    return
-  end
-
-  -- The committed file hand-wraps long signatures across lines, while the
-  -- generator emits one line per function. Collapse continuation lines (those
-  -- indented four or more spaces) onto the preceding line so a single-line
-  -- regex sees whole signatures in either text.
-  local function collapse(text: string): {string}
-    local out: {string} = {}
-    for line in (text .. "\n"):gmatch("([^\n]*)\n") do
-      if line:match("^    %S") and #out > 0 then
-        out[#out] = out[#out] .. " " .. line:match("^%s*(.-)%s*$")
-      else
-        table.insert(out, line)
-      end
-    end
-    return out
-  end
-
-  local function declared(text: string): {string: boolean}, {string: boolean}
-    local all: {string: boolean} = {}
-    local errno: {string: boolean} = {}
-    for _, line in ipairs(collapse(text)) do
-      local name = line:match("^%s*([%w_]+): function")
-      if name then
-        all[name] = true
-        if line:match(", Errno[ \t]*$") then
-          errno[name] = true
-        end
-      end
-    end
-    return all, errno
-  end
-
-  local committed_all, committed_errno = declared(committed)
-  local _, generated_errno = declared(result.output)
-
-  -- Every function the generator marks fallible AND that the committed file
-  -- also declares must carry the `, Errno` return. (Functions the committed
-  -- file omits entirely are a separate concern and are not flagged here.)
-  local missing: {string} = {}
-  for name in pairs(generated_errno) do
-    if committed_all[name] and not committed_errno[name] then
-      table.insert(missing, name)
-    end
-  end
-
-  if #missing > 0 then
-    table.sort(missing)
-    error("unix.d.tl is out of sync with the generator: these functions declare "
-      .. "no `, Errno` return but the generator (from the upstream @overload "
-      .. "annotations) marks them fallible: " .. table.concat(missing, ", ")
-      .. "\nRe-apply the errno returns (see U1) to sync.")
-  end
-
-  print("test_errno_drift_unix: PASS")
+-- A variadic return (`@return string match, string ... captures`) renders as
+-- a Teal vararg return type. Nothing can follow a vararg, so the Errno fold
+-- from a failure overload must be skipped.
+local function test_vararg_return()
+  local source = [==[
+re = {}
+--- Searches a string.
+---@param regex string
+---@param text string
+---@return string match, string ... the match, followed by any captured groups
+---@overload fun(regex: string, text: string): nil, re.Errno
+function re.search(regex, text) end
+]==]
+  local dtl = gentype.generate_dtl(gentype.parse_module(source, "re"))
+  assert(dtl:match("search: function%(regex: string, text: string%): string, string%.%.%."),
+    "vararg return should render as `string, string...`:\n" .. dtl)
+  assert(not dtl:match("search[^\n]*followed"),
+    "return description must not leak into the type list:\n" .. dtl)
+  assert(not dtl:match("search[^\n]*%.%.%., Errno"),
+    "no Errno fold after a vararg return:\n" .. dtl)
+  print("test_vararg_return: PASS")
 end
 
--- Validate that hardcoded module list matches definitions.lua
-local function test_module_list_completeness()
-  local source = cosmo.Slurp("/zip/.lua/definitions.lua")
-  assert(source, "Failed to read definitions.lua")
+-- LuaLS generics (`---@generic T`) have no Teal record-field equivalent; each
+-- generic name degrades to `any` wherever it appears.
+local function test_generic_degrades_to_any()
+  local source = [==[
+lsqlite3 = {}
+--- Sets a busy handler.
+---@generic Udata
+---@param func fun(udata: Udata, tries: integer)? handler
+---@param udata? Udata
+function lsqlite3.busy_handler(func, udata) end
+]==]
+  local dtl = gentype.generate_dtl(gentype.parse_module(source, "lsqlite3"))
+  assert(dtl:match("busy_handler: function%(func%?: function%(udata: any, tries: number%), udata%?: any%)"),
+    "generic types should degrade to any:\n" .. dtl)
+  print("test_generic_degrades_to_any: PASS")
+end
 
-  -- Find all modules in definitions.lua by looking for lines like "modulename = {"
-  -- Accept both "module = {" and "module={"
-  -- Pattern must match module names with numbers (e.g., lsqlite3, argon2)
+-- Constants inside the module table are indented, and so are their doc
+-- comments; both must survive into the rendered record. A stray `}` inside a
+-- doc comment must not terminate the module table extraction.
+local function test_constant_docs_and_comment_braces()
+  local source = [==[
+re = {
+    --- Missing }
+    EBRACE = 9,
+    --- Invalid contents of {}
+    BADBR = 10,
+}
+]==]
+  local dtl = gentype.generate_dtl(gentype.parse_module(source, "re"))
+  assert(dtl:match("%-%-%- Missing }\n  EBRACE: number"),
+    "constant doc comments should render above the constant:\n" .. dtl)
+  assert(dtl:match("BADBR: number"),
+    "constants after a stray `}` in a comment must still parse:\n" .. dtl)
+  print("test_constant_docs_and_comment_braces: PASS")
+end
+
+-- A standalone data class (`---@class mod.Name` + `---@field ...`) renders as
+-- a record even when empty (opaque userdata handles), and every class type is
+-- exported on the module record unless a function shares its name.
+local function test_data_class_and_type_export()
+  local source = [==[
+argon2 = {
+    --- Argon2 algorithm variants.
+    ---@type argon2.Variants
+    variants = {},
+}
+
+---@class argon2.Variant: userdata
+--- Opaque variant handle.
+
+---@class argon2.Variants
+---@field argon2_id argon2.Variant blend of the other two methods
+---@field argon2_i argon2.Variant side-channel resistant
+---@field argon2_d argon2.Variant gpu-cracking resistant
+
+--- Hashes a password.
+---@param pass string
+---@param config argon2.Config
+---@class argon2.Config
+---@field m_cost integer? memory cost in kibibytes
+---@field variant argon2.Variant? algorithm variant
+---@return string encoded
+---@overload fun(pass: string, config?: argon2.Config): nil, error: string
+function argon2.hash_encoded(pass, config) end
+]==]
+  local dtl = gentype.generate_dtl(gentype.parse_module(source, "argon2"))
+  assert(dtl:match("local record Variant"), "opaque Variant class should render:\n" .. dtl)
+  assert(dtl:match("local record Variants"), "Variants class should render:\n" .. dtl)
+  assert(dtl:match("argon2_id: Variant"), "@field entries should render:\n" .. dtl)
+  assert(dtl:match("type Variant = Variant"), "class types should be exported:\n" .. dtl)
+  assert(dtl:match("variants: Variants"),
+    "@type-annotated module field should render on the record:\n" .. dtl)
+  assert(dtl:match("m_cost: number"), "Config fields should render:\n" .. dtl)
+  print("test_data_class_and_type_export: PASS")
+end
+
+-- Module-qualified class methods (`function mod.Class:method()`) attach to
+-- their class wherever they appear in the file.
+local function test_qualified_class_methods()
+  local source = [==[
+lsqlite3 = {}
+
+---@class lsqlite3.Database: userdata
+--- A database handle.
+
+---@return integer # rows changed
+---@nodiscard
+function lsqlite3.Database:changes() end
+
+--- Opens a database.
+---@param filename string
+---@return lsqlite3.Database
+function lsqlite3.open(filename) end
+]==]
+  local dtl = gentype.generate_dtl(gentype.parse_module(source, "lsqlite3"))
+  assert(dtl:match("local record Database"), "Database class should render:\n" .. dtl)
+  assert(dtl:match("changes: function%(self: Database%): number"),
+    "qualified class method should attach to its class:\n" .. dtl)
+  assert(dtl:match("open: function%(filename: string%): Database"),
+    "module function should reference the class type:\n" .. dtl)
+  print("test_qualified_class_methods: PASS")
+end
+
+-- Drift: generator output must match the committed .d.tl byte-for-byte for
+-- every module. Fails after a cosmos bump or generator change until
+-- `bin/make regen-types` is run and the result committed.
+local function test_drift_all_modules()
+  for _, m in ipairs(gentype.get_modules()) do
+    local result = gentype.run(m)
+    assert(result.success, "generator failed for " .. m .. ": " .. (result.error or ""))
+    local path = committed_path(m)
+    local committed = cosmo.Slurp(path)
+    assert(committed, "missing committed type file " .. path
+      .. " -- run `bin/make regen-types` and commit the result")
+    if committed ~= result.output then
+      -- Locate the first differing line for a readable failure.
+      local cl: {string} = {}
+      for line in (committed .. "\n"):gmatch("([^\n]*)\n") do table.insert(cl, line) end
+      local gl: {string} = {}
+      for line in (result.output .. "\n"):gmatch("([^\n]*)\n") do table.insert(gl, line) end
+      local at = 1
+      while cl[at] == gl[at] and at <= math.max(#cl, #gl) do at = at + 1 end
+      error(path .. " drifted from generator output at line " .. at
+        .. "\n  committed: " .. tostring(cl[at])
+        .. "\n  generated: " .. tostring(gl[at])
+        .. "\nRun `bin/make regen-types` and commit the result.")
+    end
+  end
+  print("test_drift_all_modules: PASS (" .. #gentype.get_modules() .. " modules)")
+end
+
+-- MODULES must cover definitions.lua: every module section upstream is either
+-- generated or explicitly skipped, and nothing in MODULES is missing upstream.
+local function test_module_list_completeness()
+  local source = defs_source()
+
   local found_modules: {string} = {}
   for line in source:gmatch("[^\n]+") do
     local module_name = line:match("^([a-z0-9_]+)%s*=%s*%{")
@@ -320,68 +344,41 @@ local function test_module_list_completeness()
       table.insert(found_modules, module_name)
     end
   end
-
-  -- Sort both lists for comparison
   table.sort(found_modules)
 
-  local hardcoded = gentype.get_modules()
-  local hardcoded_sorted: {string} = {}
-  for _, m in ipairs(hardcoded) do
-    table.insert(hardcoded_sorted, m)
-  end
-  table.sort(hardcoded_sorted)
-
-  -- Modules in definitions.lua that we intentionally skip generating types for
-  -- because no code in the codebase uses them
+  -- Modules in definitions.lua that we intentionally skip generating types
+  -- for because the cosmos lua binary does not expose them.
   local skip_modules: {string: boolean} = {
     ["finger"] = true,
     ["goodsocket"] = true,
     ["maxmind"] = true,
   }
 
-  -- Check for missing modules (in definitions.lua but not in MODULES and not skipped)
+  local have: {string: boolean} = {}
+  for _, h in ipairs(gentype.get_modules()) do have[h] = true end
+  local found: {string: boolean} = {}
+  for _, m in ipairs(found_modules) do found[m] = true end
+
   local missing: {string} = {}
   for _, m in ipairs(found_modules) do
-    if skip_modules[m] then
-      -- intentionally skipped
-    else
-      local found = false
-      for _, h in ipairs(hardcoded_sorted) do
-        if m == h then
-          found = true
-          break
-        end
-      end
-      if not found then
-        table.insert(missing, m)
-      end
+    if not skip_modules[m] and not have[m] then
+      table.insert(missing, m)
     end
   end
-
-  -- Check for extra modules (in MODULES but not in definitions.lua)
   local extra: {string} = {}
-  for _, h in ipairs(hardcoded_sorted) do
-    local found = false
-    for _, m in ipairs(found_modules) do
-      if h == m then
-        found = true
-        break
-      end
-    end
-    if not found then
+  for _, h in ipairs(gentype.get_modules()) do
+    if not found[h] then
       table.insert(extra, h)
     end
   end
 
   if #missing > 0 then
-    local msg = "Missing modules in gentype.tl MODULES list: " .. table.concat(missing, ", ")
-    msg = msg .. "\nUpdate lib/types/gentype.tl MODULES and cook.mk type_modules"
-    error(msg)
+    error("Missing modules in gentype.tl MODULES list: " .. table.concat(missing, ", ")
+      .. "\nUpdate lib/types/gentype.tl MODULES and cook.mk type_modules")
   end
-
   if #extra > 0 then
-    local msg = "Extra modules in gentype.tl MODULES list (not in definitions.lua): " .. table.concat(extra, ", ")
-    error(msg)
+    error("Extra modules in gentype.tl MODULES list (no section in definitions.lua): "
+      .. table.concat(extra, ", "))
   end
 
   print("test_module_list_completeness: PASS (found: " .. table.concat(found_modules, ", ") .. ")")
@@ -392,14 +389,15 @@ local function run_tests()
   test_convert_type()
   test_parse_path_module()
   test_parse_unix_module()
-  test_generate_dtl()
-  test_run()
-  test_get_modules()
-  test_module_list_completeness()
-  test_drift_detection_path()
   test_errno_overload_render()
   test_paren_union_types()
-  test_errno_drift_unix()
+  test_vararg_return()
+  test_generic_degrades_to_any()
+  test_constant_docs_and_comment_braces()
+  test_data_class_and_type_export()
+  test_qualified_class_methods()
+  test_module_list_completeness()
+  test_drift_all_modules()
 
   print("\nAll tests passed!")
 end

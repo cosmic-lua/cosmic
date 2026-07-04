@@ -13,6 +13,9 @@ cosmic_deps := cosmos tl teal-types
 cosmic_built := $(o)/cosmic/.built
 cosmic_sys := sys/help.md
 cosmic_skills := $(wildcard skills/cosmic/*.md)
+# lib/types is copied wholesale into the binary (.lua/types); without this
+# dependency, editing the type generator or a .d.tl leaves a stale binary.
+cosmic_types := $(wildcard lib/types/*.tl) $(wildcard lib/types/*.d.tl) $(wildcard lib/types/cosmo/*.d.tl)
 
 cosmic_version_lua := $(o)/cosmic/version.lua
 
@@ -23,7 +26,7 @@ $(cosmic_version_lua): .FORCE | $$(cosmos_staged)
 
 .PHONY: .FORCE
 
-$(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(teal-types_staged) $$(doc_index) $(cosmic_version_lua) $(cosmic_sys) $(cosmic_skills)
+$(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(teal-types_staged) $$(doc_index) $(cosmic_version_lua) $(cosmic_sys) $(cosmic_skills) $(cosmic_types)
 	@rm -rf $(cosmic_built)
 	@mkdir -p $(cosmic_built)/.lua/cosmic $(cosmic_built)/.tl/cosmic $(@D)
 	@for f in $(cosmic_lua); do \
