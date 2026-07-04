@@ -3,17 +3,27 @@
 
 global warn: function(...: any)
 
-require("tl").loader()
-
--- Move tl_package_loader from position 2 (where tl.loader() inserts it)
--- to the end of package.searchers. This ensures the default Lua file
--- searcher runs first, so pre-compiled .lua modules are found before
--- tl_package_loader tries to compile .tl source. Without this, setting
--- TL_PATH causes ~330ms startup overhead from recompiling cosmic modules.
--- See: https://github.com/whilp/cosmic/issues/377
+-- Install a lazy searcher at the end of package.searchers instead of
+-- eagerly require("tl")-ing the ~15k-line Teal compiler on every startup,
+-- including runs that never touch a .tl file. It loads the real compiler
+-- and replaces itself on first invocation, i.e. the first require() that
+-- the default Lua searcher can't resolve.
+--
+-- The end position (not position 2, where tl.loader() itself inserts)
+-- ensures the default Lua file searcher runs first, so pre-compiled .lua
+-- modules are found before falling back to compiling .tl source. Without
+-- this, setting TL_PATH causes ~330ms startup overhead from recompiling
+-- cosmic modules. See: https://github.com/whilp/cosmic/issues/377
 if package.searchers then
-  local tl_loader = table.remove(package.searchers, 2)
-  table.insert(package.searchers, tl_loader)
+  local function lazy_tl_searcher(module_name: string): any, any
+    local tl = require("tl")
+    tl.loader()
+    local real = table.remove(package.searchers, 2)
+    package.searchers[#package.searchers] = real
+    local loader_fn, extra = real(module_name)
+    return loader_fn, extra
+  end
+  table.insert(package.searchers, lazy_tl_searcher)
 end
 if not os.getenv("COSMIC_NO_REQUIRE_HINTS") then
   require("cosmic.require").install()

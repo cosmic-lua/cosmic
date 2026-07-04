@@ -173,31 +173,58 @@ code read suggests one.
    - result: `bin/make perf-compare` from a clean re-baseline: 20
      scenarios, 0 regression, 2 faster, 18 ok.
 
-3. **startup: Teal loader cost** — open
-   - scenarios: `startup_run_teal` (~30ms) vs `startup_run_lua` (~16.5ms)
-   - evidence: running a one-line `.tl` script costs ~13ms more than the
-     identical `.lua` script, and `startup_compile_teal` (~32ms) shows
-     compile of a tiny module costs about the same as running it — the
-     overhead is dominated by loading the embedded Teal compiler and
-     type environment, not by compiling the script.
-   - hypothesis: (a) lazy-load the compiler strictly on the `.tl` path
-     (verify `.lua` scripts never pay it), and (b) cache compiled output
-     next to the script or under a cache dir keyed by mtime/hash, making
-     repeat runs of unchanged `.tl` scripts cost `.lua` startup.
-   - risk: medium. cache invalidation and write-permission fallbacks;
-     measure step (a) first with `instrument` spans in main.tl.
+3. **startup: Teal loader cost** — step (a) done (2026-07-04), step (b) open
+   - scenario: `startup_run_lua`: 19.20ms -> 8.40ms..5.72ms across two
+     re-measures (-56% to -70%). the whole `.lua`-vs-`.tl` gap this entry
+     named turned out to be almost entirely step (a), not compilation
+     itself: `startup_run_teal`/`startup_compile_teal` were essentially
+     unchanged (still pay for loading the compiler, which they still need).
+   - evidence: `main.tl` called `require("tl").loader()` unconditionally
+     at the top of EVERY invocation — even `--version`, `-e`, or running a
+     plain `.lua` script — forcing Lua to load and execute the ~15k-line
+     compiled `tl.lua` module every time.
+   - fix (step a): replaced the eager `require("tl").loader()` with a
+     lazy searcher installed directly at the end of `package.searchers`.
+     It only calls `require("tl")` (and installs the real
+     `tl_package_loader`, replacing itself) the first time some
+     `require()` call isn't resolved by an earlier searcher — i.e. the
+     first time a `.tl`-only module is actually needed. Verified against
+     `lib/cosmic/tl_loader_test.tl` (which asserts the searcher is present
+     and not at position 2) and manually: plain `.lua` scripts, `-e`, and
+     requiring a `.tl`-only module (falling back through the lazy
+     searcher) all still work.
+   - step (b) (compiled-output caching keyed by mtime/hash, so repeat runs
+     of an unchanged `.tl` script cost `.lua` startup) is unexplored;
+     `startup_run_teal`/`startup_compile_teal` remain open for it.
+   - risk note for step (a) that mattered in practice: the return type of
+     a `package.searchers` element is itself a function type
+     (`function(string): (function(string?, any?): any, any)`); writing
+     that nested function-return-type inline as an explicit annotation
+     compiles and type-checks fine but trips a bootstrap-compiler
+     formatter bug (mis-indents everything after the declaration). Worked
+     around by declaring the wrapper's return type as plain `any, any`
+     and destructuring the real searcher's result into typed locals
+     before returning them, instead of returning the call expression
+     directly.
+   - result: `bin/make perf-compare` from a clean re-baseline, confirmed
+     on a second re-measure: 20 scenarios, 0 regression, 1-2 faster
+     (`startup_run_lua`), 18-19 ok.
 
-4. **startup: runtime boot floor (cosmopolitan side)** — open
-   - scenario: `startup_run_lua` (~14.5-16.5ms for `print()`)
-   - evidence: this is the APE loader + zip filesystem + Lua init + the
-     eager `require`s in cosmic's main.lua, measured end to end.
-   - hypothesis: part of the floor is cosmic-side eager module loading in
-     main.tl (imports pulled in before the script path is even known);
-     deferring dispatch-only imports trims 1-3ms. the remainder is
-     cosmos-side (zip central-directory scan, stdlib init) — measure with
-     the pinned raw cosmos `lua` binary as `PERF_BIN` denominator before
-     touching whilp/cosmopolitan.
-   - risk: low for the import-deferral step; cosmopolitan-side work
+4. **startup: runtime boot floor (cosmopolitan side)** — open, floor moved
+   - scenario: `startup_run_lua` was ~14.5-19ms for `print()`; after
+     entry 3's step (a) fix it measured 5.7-8.4ms across two runs on a
+     noisy machine (re-baseline before trusting an absolute number here).
+   - evidence: eager `require("tl")` (entry 3) turned out to be the
+     dominant cost this entry originally attributed to "eager cosmic-side
+     module loading in main.tl" generally; with it gone, remaining floor
+     is the APE loader + zip filesystem + Lua init + cosmic's other
+     top-level `require`s (getopt, args, help, main_handlers, etc.).
+   - hypothesis: deferring the remaining dispatch-only imports (e.g.
+     `help`, only used for `--help`) trims a small additional amount; the
+     rest is cosmos-side (zip central-directory scan, stdlib init) —
+     measure with the pinned raw cosmos `lua` binary as `PERF_BIN`
+     denominator before touching whilp/cosmopolitan.
+   - risk: low for any further import-deferral; cosmopolitan-side work
      follows the "optimizing the cosmo/cosmopolitan layer" section.
 
 5. **fs.walk per-entry cost** — open (evidence-gathering)
