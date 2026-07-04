@@ -106,6 +106,22 @@ High-level utilities and tools built on top of cosmo.
 | [welcome](lib/cosmic/welcome.md) |  |
 | [zip](lib/cosmic/zip.md) |  ZIP archive reading and writing utilities. |
 
+## perf Package
+
+| Module | Description |
+|--------|-------------|
+| [fs_bench](lib/perf/bench/fs_bench.md) |  Filesystem scenarios: directory walking, whole-file I/O, tree churn. |
+| [http_bench](lib/perf/bench/http_bench.md) |  HTTP client scenarios against a loopback server. |
+| [json_bench](lib/perf/bench/json_bench.md) |  JSON scenarios: decode/encode of small and large payloads. |
+| [micro_bench](lib/perf/bench/micro_bench.md) |  CPU-bound scenarios: hashing, encoding, compression, string handling. |
+| [sqlite_bench](lib/perf/bench/sqlite_bench.md) |  SQLite scenarios: transactional writes, point queries, aggregate scans. |
+| [startup_bench](lib/perf/bench/startup_bench.md) |  End-to-end binary scenarios: process startup and Teal compilation. |
+| [compare](lib/perf/compare.md) |  Baseline-vs-current comparison gate for perf results. |
+| [harness](lib/perf/harness.md) |  Scenario benchmark harness: wall-clock timing with functional checks. |
+| [perf_types](lib/perf/perf_types.md) |  Shared type definitions for the perf harness (lib/perf). |
+| [run](lib/perf/run.md) |  |
+| [stats](lib/perf/stats.md) |  Basic statistics over benchmark samples. |
+
 ---
 
 Documentation is generated from Teal source files using the `cosmic.doc` module.
