@@ -40,14 +40,15 @@ local REFER < const > = unix.LANDLOCK_ACCESS_FS_REFER as integer -- ABI 2+
 local TRUNCATE < const > = unix.LANDLOCK_ACCESS_FS_TRUNCATE as integer -- ABI 3+
 
 --- Convenience masks. `ALL` is the full current set; `RW` covers read
---- + write (including creating and removing files); `READ` and `EXEC`
---- are self-explanatory.
+--- + write (including creating and removing files) but *not* execute —
+--- OR in `EXEC` explicitly if files under the path must be runnable.
+--- `READ` and `EXEC` are self-explanatory.
 local READ < const > = READ_FILE | READ_DIR
 local EXEC < const > = EXECUTE
 local WRITE < const > = WRITE_FILE | REMOVE_FILE | REMOVE_DIR
 | MAKE_REG | MAKE_DIR | MAKE_SYM
 | MAKE_SOCK | MAKE_FIFO | MAKE_CHAR | MAKE_BLOCK
-local RW < const > = READ | WRITE | EXEC
+local RW < const > = READ | WRITE
 local ALL < const > = READ | WRITE | EXEC | REFER | TRUNCATE
 
 --- A single path -> access-mask rule in a restrict() call.

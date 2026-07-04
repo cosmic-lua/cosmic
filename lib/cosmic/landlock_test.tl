@@ -29,6 +29,13 @@ local function test_access_mask_composition()
     "RW should include READ")
   assert((landlock.ALL & landlock.RW) == landlock.RW,
     "ALL should include RW")
+  -- RW is read + write only: it must NOT silently grant execute, or a
+  -- box's rw path (e.g. /tmp) would become write+exec (a sandbox
+  -- weakening the caller never asked for).
+  assert((landlock.RW & landlock.EXEC) == 0,
+    "RW must not include EXEC")
+  assert((landlock.RW & landlock.WRITE_FILE) == landlock.WRITE_FILE,
+    "RW should include WRITE_FILE")
 end
 test_access_mask_composition()
 

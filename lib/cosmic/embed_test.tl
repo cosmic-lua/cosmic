@@ -286,3 +286,33 @@ local function test_embed_uses_deflate()
   reader:close()
 end
 test_embed_uses_deflate()
+
+-- Zip-slip: extract() must reject any entry that would land outside the
+-- output directory. cosmic executables also extract on Windows, so the
+-- guard treats "\" as a separator and rejects drive-letter roots too.
+local function test_extract_rejects_zip_slip()
+  local embed = require("cosmic.embed")
+  local unsafe = {
+    "/etc/passwd", -- POSIX absolute
+    "../evil", -- POSIX traversal
+    "a/../../evil", -- traversal mid-path
+    "a/..", -- traversal at tail
+    "..", -- bare traversal
+    "\\windows\\system32", -- Windows/UNC absolute
+    "..\\evil", -- Windows traversal
+    "a\\..\\..\\evil", -- Windows traversal mid-path
+    "C:\\evil", -- drive-letter absolute
+    "C:/evil", -- drive-letter, forward slash
+    "c:evil", -- drive-letter, no separator
+  }
+  for _, name in ipairs(unsafe) do
+    assert(embed.unsafe_entry(name), "should reject unsafe entry: " .. name)
+  end
+  local safe = {
+    "main.lua", "sub/dir/file.txt", "a..b/c", "...", "a/b..c/d",
+  }
+  for _, name in ipairs(safe) do
+    assert(not embed.unsafe_entry(name), "should accept safe entry: " .. name)
+  end
+end
+test_extract_rejects_zip_slip()

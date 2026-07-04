@@ -61,6 +61,44 @@ local function test_validate_rejects_malformed_rules()
 end
 test_validate_rejects_malformed_rules()
 
+-- A malformed port in a *key* must fail loudly, never silently widen to
+-- "any port": in an egress allowlist that is fail-open. parse_rule's
+-- tonumber() returns nil for a bad port, which index() treats as ":*".
+local function test_validate_rejects_malformed_port_keys()
+  local bad_keys = {
+    "db.internal:5432x", -- trailing junk
+    "db.internal:0", -- out of range (low)
+    "db.internal:70000", -- out of range (high)
+    "db.internal:5432:6", -- stray extra colon
+    "db.internal: 443", -- embedded space
+    "*.internal:443x", -- wildcard form, bad port
+  }
+  for _, key in ipairs(bad_keys) do
+    local ok, err = rules.validate({[key] = {} as any})
+    assert(not ok, "key should be rejected: " .. key)
+    assert(err:find(key, 1, true),
+      "error should name the offending key " .. key .. ", got: " .. err)
+  end
+  -- The widening it prevents: a rejected key never reaches index().
+  assert(rules.match(rules.index({["db.internal:5432x"] = {}}),
+      "db.internal", 9999) ~= nil,
+    "sanity: an unvalidated bad port DOES widen to any port (why we validate)")
+end
+test_validate_rejects_malformed_port_keys()
+
+-- Well-formed port keys (and the any-port forms) still pass.
+local function test_validate_accepts_valid_port_keys()
+  local good_keys = {
+    "db.internal:5432", "db.internal:1", "db.internal:65535",
+    "db.internal", "db.internal:*", "db.internal:", "*.internal:8443",
+  }
+  for _, key in ipairs(good_keys) do
+    local ok, err = rules.validate({[key] = {} as any})
+    assert(ok, "key should be accepted: " .. key .. ", got: " .. tostring(err))
+  end
+end
+test_validate_accepts_valid_port_keys()
+
 local function test_validate_accepts_pass_through_and_complete_rules()
   assert(rules.validate({}), "empty allowlist")
   assert(rules.validate({["a.example.com"] = {} as any}), "empty rule table")
