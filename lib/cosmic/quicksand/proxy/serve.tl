@@ -156,7 +156,7 @@ local function new(opts: ServeModule.ProxyOptions): Server, string
   local logger, lerr = make_logger(opts)
   if not logger then return nil, lerr end
   local idx = rules.index((opts.allowed_hosts or {}) as {string: any})
-  local bind_ip: integer = opts.bind_ip or cosmo.ParseIp("127.0.0.1")
+  local bind_ip: integer = opts.bind_ip or cosmo.ParseIp("127.0.0.1") as integer
   local bind_port: integer = opts.bind_port or 3128
   local backlog: integer = opts.accept_backlog or 32
   local upstream_ns_fd = opts.upstream_ns_fd

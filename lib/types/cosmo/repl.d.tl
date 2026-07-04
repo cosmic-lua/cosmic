@@ -1,9 +1,13 @@
 -- type declarations for cosmo.repl
+-- GENERATED from cosmopolitan's definitions.lua by lib/types/gentype.tl.
+-- Do not edit by hand. Regenerate with: bin/make regen-types
 
 local record repl
-  --- Start the interactive REPL.
-  --- Enters a Read-Eval-Print Loop with tab completion, history, and line editing.
-  --- The REPL continues until the user presses Ctrl-D (EOF) or Ctrl-C twice.
+  --- Starts an interactive read-eval-print-loop (REPL) on standard input
+  --- and output, with line editing, history, and tab completion. Each
+  --- input line is evaluated as an expression (printing its results) or
+  --- as a statement. The loop runs until end of input (Ctrl-D). Takes no
+  --- arguments and returns nothing.
   start: function()
 end
 

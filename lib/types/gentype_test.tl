@@ -59,11 +59,13 @@ local function test_convert_type()
   assert(gentype.convert_type("string...") == "string...", "string... passthrough")
   assert(gentype.convert_type("integer...") == "number...", "integer... -> number...")
 
-  -- Function types convert their argument and return types.
+  -- Function types convert their argument and return types. A function type
+  -- with a return is parenthesized so a following `, next` in a type list
+  -- cannot parse as another return of the nested function.
   assert(gentype.convert_type("fun(udata: integer, tries: integer)")
     == "function(udata: number, tries: number)", "fun arg types convert")
   assert(gentype.convert_type("fun(x: integer): integer")
-    == "function(x: number): number", "fun return type converts")
+    == "(function(x: number): number)", "fun return type converts, parenthesized")
 
   -- Module-prefixed types
   assert(gentype.convert_type("lsqlite3.Database") == "Database", "lsqlite3.Database -> Database")

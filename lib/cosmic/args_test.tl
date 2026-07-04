@@ -11,7 +11,7 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 
 -- Test script that uses only varargs (...)
 local function test_varargs_only()
-  local script = path.join(tmpdir, "varargs.lua")
+  local script = path.join(tmpdir, "varargs.lua") as string
   cosmo.Barf(script, [[
 local args = {...}
 print("varargs_count=" .. #args)
@@ -31,7 +31,7 @@ test_varargs_only()
 
 -- Test script that uses only global arg table
 local function test_arg_table_only()
-  local script = path.join(tmpdir, "argtable.lua")
+  local script = path.join(tmpdir, "argtable.lua") as string
   cosmo.Barf(script, [[
 print("arg_count=" .. #arg)
 print("arg[0]=" .. tostring(arg[0]))
@@ -51,7 +51,7 @@ test_arg_table_only()
 
 -- Test that both varargs and arg table work together and match
 local function test_varargs_and_arg_table()
-  local script = path.join(tmpdir, "both.lua")
+  local script = path.join(tmpdir, "both.lua") as string
   cosmo.Barf(script, [[
 local varargs = {...}
 print("varargs_count=" .. #varargs)

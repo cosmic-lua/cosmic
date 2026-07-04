@@ -1,4 +1,6 @@
 -- type declarations for cosmo.zip
+-- GENERATED from cosmopolitan's definitions.lua by lib/types/gentype.tl.
+-- Do not edit by hand. Regenerate with: bin/make regen-types
 
 local record OpenOptions
   --- Compression level 0-9 (for "w" and "a" modes)
@@ -56,18 +58,44 @@ end
 local record Appender
   --- Adds a file to the ZIP archive.
   add: function(self: Appender, name: string, content: string, options?: AddOptions): boolean | nil, string | nil
-  --- Removes a file from the ZIP archive by name.
+  --- Removes entries by name from the archive.
+  --- If `name` ends with `/`, all entries whose names start with that
+  --- directory prefix are removed; otherwise the single entry whose name
+  --- matches exactly is removed. Both entries already present in the
+  --- archive and entries added via `add` but not yet flushed are matched.
+  --- The local file data of removed existing entries remains as dead space
+  --- in the archive; only the central directory reference is removed.
+  --- Fails with an error if no entry matched or the appender is closed.
   remove: function(self: Appender, name: string): boolean | nil, string | nil
   --- Closes the ZIP archive and writes the updated central directory.
   close: function(self: Appender)
 end
 
 local record zip
+  type OpenOptions = OpenOptions
+  type Stat = Stat
+  type AddOptions = AddOptions
+  type Reader = Reader
+  type Writer = Writer
+  type Appender = Appender
+
   --- Opens a ZIP archive for reading, writing, or appending.
   --- The first argument can be a file path string or a file descriptor integer.
   open: function(path: string | number, mode?: string, options?: OpenOptions): any, string | nil
   --- Opens a ZIP archive from in-memory data for reading.
   from: function(data: string, options?: OpenOptions): Reader | nil, string | nil
+  --- Creates a new ZIP archive for writing. This is equivalent to
+  --- `zip.open(path, "w", options)`. Any existing file is truncated.
+  create: function(path: string | number, options?: OpenOptions): Writer | nil, string | nil
+  --- Opens an existing ZIP archive for appending. This is equivalent to
+  --- `zip.open(path, "a", options)`. Unlike `zip.open` and `zip.create`,
+  --- a file descriptor is not accepted; the archive must be given as a
+  --- path.
+  append: function(path: string, options?: OpenOptions): Appender | nil, string | nil
+  --- Validates a ZIP entry name without adding it to an archive, applying
+  --- the same rules that `add` enforces (relative path, no `..` segments,
+  --- no control characters, etc.).
+  validate_name: function(name: string): boolean | nil, string | nil
 end
 
 return zip

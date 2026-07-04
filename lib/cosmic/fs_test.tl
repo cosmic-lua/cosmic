@@ -153,7 +153,7 @@ local function test_mkdir_error_message()
   local test_dir = setup()
 
   -- mkdir with missing parent should fail with descriptive error
-  local missing_parent = path.join(test_dir, "no", "such", "parent")
+  local missing_parent = path.join(test_dir, "no", "such", "parent") as string
   local ok, err = fs.mkdir(missing_parent)
   assert(not ok, "mkdir should fail when parent doesn't exist")
   assert(err, "should return error message")
@@ -187,7 +187,7 @@ local function test_makedirs_error_message()
   local f = io.open(blocker, "w")
   if f then f:close() end
 
-  local through_file = path.join(blocker, "subdir")
+  local through_file = path.join(blocker, "subdir") as string
   local ok, err = fs.makedirs(through_file)
   assert(not ok, "makedirs should fail when path component is a file")
   assert(err, "should return error message")

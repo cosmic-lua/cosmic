@@ -1,4 +1,6 @@
 -- type declarations for cosmo.unix
+-- GENERATED from cosmopolitan's definitions.lua by lib/types/gentype.tl.
+-- Do not edit by hand. Regenerate with: bin/make regen-types
 
 local record Termios
   --- Input mode flags (e.g. `unix.BRKINT`, `unix.ICRNL`).
@@ -302,8 +304,8 @@ local record Stat
   flags: function(self: Stat): number
 end
 
+--- Filesystem statistics returned by `statfs()` and `fstatfs()`.
 local record Statfs
-  --- Filesystem statistics returned by `statfs()` and `fstatfs()`.
   --- Returns filesystem type identifier.
   type: function(self: Statfs): number
   --- Returns optimal transfer block size.
@@ -379,235 +381,634 @@ local record Errno
 end
 
 local record unix
+  type Termios = Termios
+  type Memory = Memory
+  type Dir = Dir
+  type Rusage = Rusage
+  type Stat = Stat
+  type Statfs = Statfs
+  type Errno = Errno
+
+  --- @type integer
   AF_INET: number
+  --- @type integer
   AF_UNIX: number
+  --- @type integer
   AF_UNSPEC: number
+  --- @type integer Returns maximum length of arguments for new processes.
+  --- This is the character limit when calling `execve()`. It's the sum of
+  --- the lengths of `argv` and `envp` including any nul terminators and
+  --- pointer arrays. For example to see how much your shell `envp` uses
+  ---     $ echo $(($(env | wc -c) + 1 + ($(env | wc -l) + 1) * 8))
+  ---     758
+  --- POSIX mandates this be 4096 or higher. On Linux this it's 128*1024.
+  --- On Windows NT it's 32767*2 because CreateProcess lpCommandLine and
+  --- environment block are separately constrained to 32,767 characters.
+  --- Most other systems define this limit much higher.
   ARG_MAX: number
-  AT_EACCES: number
+  --- @type integer
   AT_EACCESS: number
+  --- @type integer
   AT_FDCWD: number
+  --- @type integer
   AT_SYMLINK_NOFOLLOW: number
+  --- @type integer Returns default buffer size.
+  --- The UNIX module does not perform any buffering between calls.
+  --- Each time a read or write is performed via the UNIX API your redbean
+  --- will allocate a buffer of this size by default. This current default
+  --- would be 4096 across platforms.
   BUFSIZ: number
+  --- @type integer Returns the scheduler frequency.
+  --- This is granularity at which the kernel does work. For example, the
+  --- Linux kernel normally operates at 100hz so its CLK_TCK will be 100.
+  --- This value is useful for making sense out of unix.Rusage data.
   CLK_TCK: number
+  --- @type integer
   CLOCK_REALTIME: number
+  --- @type integer
   CLOCK_MONOTONIC: number
+  --- @type integer
   CLOCK_BOOTTIME: number
+  --- @type integer
   CLOCK_MONOTONIC_RAW: number
+  --- @type integer
   CLOCK_REALTIME_COARSE: number
+  --- @type integer
   CLOCK_MONOTONIC_COARSE: number
   CLOCK_THREAD_CPUTIME_ID: number
+  --- @type integer
   CLOCK_PROCESS_CPUTIME_ID: number
+  --- @type integer
   DT_BLK: number
+  --- @type integer
   DT_CHR: number
+  --- @type integer
   DT_DIR: number
+  --- @type integer
   DT_FIFO: number
+  --- @type integer
   DT_LNK: number
+  --- @type integer
   DT_REG: number
+  --- @type integer
   DT_SOCK: number
+  --- @type integer
   DT_UNKNOWN: number
+  --- @type integer Argument list too long.
+  --- Raised by `execve`, `sched_setattr`.
   E2BIG: number
+  --- @type integer Permission denied.
+  --- Raised by `access`, `bind`, `chdir`, `chmod`, `chown`, `chroot`,
+  --- `clock_getres`, `connect`, `execve`, `fcntl`, `getpriority`,
+  --- `link`, `mkdir`, `mknod`, `mmap`, `mprotect`, `msgctl`, `open`,
+  --- `prctl`, `ptrace`, `readlink`, `rename`, `rmdir`, `semget`,
+  --- `send`, `setpgid`, `socket`, `stat`, `symlink`, `truncate`,
+  --- `unlink`, `uselib`, `utime`, `utimensat`.
   EACCES: number
+  --- @type integer Address already in use. Raised by `bind`, `connect`, `listen`.
   EADDRINUSE: number
+  --- @type integer Address not available. Raised by `bind`, `connect`.
   EADDRNOTAVAIL: number
+  --- @type integer Address family not supported. Raised by `connect`, `socket`, `socketpair`.
   EAFNOSUPPORT: number
+  --- @type integer
+  --- Resource temporarily unavailable (e.g. SO_RCVTIMEO expired, too many
+  --- processes, too much memory locked, read or write with O_NONBLOCK
+  --- needs polling, etc.).
+  --- Raised by `accept`, `connect`, `fcntl`, `fork`, `getrandom`,
+  --- `mincore`, `mlock`, `mmap`, `mremap`, `poll`, `read`, `select`,
+  --- `send`, `setresuid`, `setreuid`, `setuid`, `sigwaitinfo`,
+  --- `splice`, `tee`, `timer_create`, `timerfd_create`, `tkill`,
+  --- `write`,
   EAGAIN: number
+  --- @type integer Connection already in progress. Raised by `connect`, `send`.
   EALREADY: number
+  --- @type integer Bad file descriptor; cf. EBADFD.
+  --- Raised by `accept`, `access`, `bind`, `chdir`, `chmod`, `chown`,
+  --- `close`, `connect`, `copy_file_range`, `dup`, `fcntl`, `flock`,
+  --- `fsync`, `futimesat`, `opendir`, `getpeername`, `getsockname`,
+  --- `getsockopt`, `ioctl`, `link`, `listen`, `lseek`, `mkdir`,
+  --- `mknod`, `mmap`, `open`, `prctl`, `read`, `readahead`,
+  --- `readlink`, `recv`, `rename`, `select`, `send`, `shutdown`,
+  --- `splice`, `stat`, `symlink`, `sync`, `sync_file_range`,
+  --- `timerfd_create`, `truncate`, `unlink`, `utimensat`, `write`.
   EBADF: number
+  --- @type integer
   EBADFD: number
+  --- @type integer
   EBADMSG: number
+  --- @type integer Device or resource busy.
+  --- Raised by dup, fcntl, msync, prctl, ptrace, rename,
+  --- rmdir.
   EBUSY: number
+  --- @type integer
   ECANCELED: number
+  --- @type integer No child process.
+  --- Raised by `wait`, `waitpid`, `waitid`, `wait3`, `wait4`.
   ECHILD: number
+  --- @type integer Connection reset before accept. Raised by `accept`.
   ECONNABORTED: number
+  --- @type integer System-imposed limit on the number of threads was encountered.
+  --- Raised by connect, listen, recv.
   ECONNREFUSED: number
   ECONNRESET: number
+  --- @type integer Resource deadlock avoided.
+  --- Raised by `fcntl`.
   EDEADLK: number
+  --- @type integer Destination address required. Raised by `send`, `write`.
   EDESTADDRREQ: number
+  --- @type integer
   EDOM: number
+  --- @type integer Disk quota exceeded.
+  --- Raised by link, mkdir, mknod, open, rename, symlink,
+  --- write.
   EDQUOT: number
+  --- @type integer File exists.
+  --- Raised by `link`, `mkdir`, `mknod`, `mmap`, `open`, `rename`,
+  --- `rmdir`, `symlink`.
   EEXIST: number
+  --- @type integer
   EFAULT: number
+  --- @type integer File too large.
+  --- Raised by `copy_file_range`, `open`, `truncate`, `write`.
   EFBIG: number
+  --- @type integer Inappropriate file type or format.
   EFTYPE: number
+  --- @type integer Host is down. Raised by `accept`.
   EHOSTDOWN: number
+  --- @type integer Host is unreachable. Raised by `accept`.
   EHOSTUNREACH: number
+  --- @type integer Memory page has hardware error.
   EHWPOISON: number
+  --- @type integer Identifier removed. Raised by `msgctl`.
   EIDRM: number
+  --- @type integer
   EILSEQ: number
+  --- @type integer
   EINPROGRESS: number
+  --- @type integer The greatest of all errnos; crucial for building real time reliable software.
+  --- Raised by `accept`, `clock_nanosleep`, `close`, `connect`, `dup`, `fcntl`,
+  --- `flock`, `getrandom`, `nanosleep`, `open`, `pause`, `poll`, `ptrace`, `read`, `recv`,
+  --- `select`, `send`, `sigsuspend`, `sigwaitinfo`, `truncate`, `wait`, `write`.
   EINTR: number
+  --- @type integer Invalid argument.
+  --- Raised by [pretty much everything].
   EINVAL: number
+  --- @type integer
+  --- Raised by `access`, `acct`, `chdir`, `chmod`, `chown`, `chroot`, `close`,
+  --- `copy_file_range`, `execve`, `fallocate`, `fsync`, `ioperm`, `link`, `madvise`,
+  --- `mbind`, `pciconfig_read`, `ptrace`, `read`, `readlink`, `sendfile`, `statfs`,
+  --- `symlink`, `sync_file_range`, `truncate`, `unlink`, `write`.
   EIO: number
   EISCONN: number
+  --- @type integer Is a directory.
+  --- Raised by `copy_file_range`, `execve`, `open`, `read`, `rename`, `truncate`,
+  --- `unlink`.
   EISDIR: number
+  --- @type integer Too many levels of symbolic links.
+  --- Raised by access, bind, chdir, chmod, chown, chroot, execve, link,
+  --- mkdir, mknod, open, readlink, rename, rmdir, stat, symlink,
+  --- truncate, unlink, utimensat.
   ELOOP: number
+  --- @type integer Wrong medium type. Raised by `mount`.
   EMEDIUMTYPE: number
+  --- @type integer Too many open files.
+  --- Raised by `accept`, `dup`, `execve`, `fanotify_init`, `fcntl`,
+  --- `open`, `pipe`, `socket`, `socketpair`, `timerfd_create`.
   EMFILE: number
+  --- @type integer Too many links;
+  --- Raised by `link`, `mkdir`, `rename`.
   EMLINK: number
+  --- @type integer Message too long. Raised by `send`.
   EMSGSIZE: number
+  --- @type integer Multihop attempted.
   EMULTIHOP: number
+  --- @type integer Filename too long. Cosmopolitan Libc currently defines `PATH_MAX` as
+  --- 1024 characters. On UNIX that limit should only apply to system call
+  --- wrappers like realpath. On Windows NT it's observed by all system
+  --- calls that accept a pathname.
+  --- Raised by `access`, `bind`, `chdir`, `chmod`, `chown`, `chroot`,
+  --- `execve`, `gethostname`, `link`, `mkdir`, `mknod`, `open`,
+  --- `readlink`, `rename`, `rmdir`, `stat`, `symlink`, `truncate`,
+  --- `unlink`, `utimensat`.
   ENAMETOOLONG: number
+  --- @type integer Network is down. Raised by `accept`.
   ENETDOWN: number
+  --- @type integer Connection reset by network.
   ENETRESET: number
+  --- @type integer Host is unreachable. Raised by `accept`, `connect`.
   ENETUNREACH: number
+  --- @type integer Too many open files in system.
+  --- Raised by `accept`, `execve`, `mmap`, `open`, `pipe`, `socket`,
+  --- `socketpair`, `swapon`, `timerfd_create`, `uselib`,
+  --- `userfaultfd`.
   ENFILE: number
+  --- @type integer No buffer space available;
+  --- Raised by `getpeername`, `getsockname`, `send`.
   ENOBUFS: number
+  --- @type integer No message is available in xsi stream or named pipe is being closed;
+  --- no data available; barely in posix; returned by ioctl; very close in
+  --- spirit to EPIPE?
   ENODATA: number
+  --- @type integer No such device.
+  --- Raised by `arch_prctl`, `mmap`, `open`, `prctl`, `timerfd_create`.
   ENODEV: number
+  --- @type integer No such file or directory.
+  --- Raised by `access`, `bind`, `chdir`, `chmod`, `chown`, `chroot`,
+  --- `clock_getres`, `execve`, `opendir`, `link`, `mkdir`, `mknod`,
+  --- `open`, `readlink`, `rename`, `rmdir`, `stat`, `swapon`,
+  --- `symlink`, `truncate`, `unlink`, `utime`, `utimensat`.
   ENOENT: number
+  --- @type integer Exec format error. Raised by `execve`, `uselib`.
   ENOEXEC: number
+  --- @type integer No locks available. Raised by `fcntl`, `flock`.
   ENOLCK: number
+  --- @type integer Link has been severed.
   ENOLINK: number
+  --- @type integer No medium found. Raised by `mount`.
   ENOMEDIUM: number
+  --- @type integer
   ENOMEM: number
+  --- @type integer Raised by `msgop`.
   ENOMSG: number
+  --- @type integer
   ENONET: number
+  --- @type integer Protocol not available. Raised by `getsockopt`, `accept`.
   ENOPROTOOPT: number
+  --- @type integer No space left on device.
+  --- Raised by `copy_file_range`, `fsync`, `link`, `mkdir`, `mknod`,
+  --- `open`, `rename`, `symlink`, `sync_file_range`, `write`.
   ENOSPC: number
+  --- @type integer Out of streams resources.
   ENOSR: number
+  --- @type integer Device not a stream.
   ENOSTR: number
+  --- @type integer System call not available on this platform. On
+  ---     Windows this is raised by `chroot`, `setuid`, `setgid`,
+  ---     `getsid`, `setsid`, and others we're doing our best to
+  ---     document.
   ENOSYS: number
+  --- @type integer Block device required. Raised by `umount`.
   ENOTBLK: number
+  --- @type integer Socket is not connected.
+  --- Raised by `getpeername`, `recv`, `send`, `shutdown`.
   ENOTCONN: number
+  --- @type integer Not a directory. This means that a directory
+  ---     component in a supplied path *existed* but wasn't a
+  ---     directory. For example, if you try to `open("foo/bar")` and
+  ---     `foo` is a regular file, then `ENOTDIR` will be returned.
+  --- Raised by `open`, `access`, `chdir`, `chroot`, `execve`, `link`,
+  --- `mkdir`, `mknod`, `opendir`, `readlink`, `rename`, `rmdir`,
+  --- `stat`, `symlink`, `truncate`, `unlink`, `utimensat`, `bind`,
+  --- `chmod`, `chown`, `fcntl`, `futimesat`.
   ENOTDIR: number
+  --- @type integer Directory not empty. Raised by `rmdir`.
   ENOTEMPTY: number
+  --- @type integer
   ENOTRECOVERABLE: number
+  --- @type integer Not a socket.
+  --- Raised by `accept`, `bind`, `connect`, `getpeername`,
+  --- `getsockname`, `getsockopt`, `listen`, `recv`, `send`,
+  --- `shutdown`.
   ENOTSOCK: number
+  --- @type integer Operation not supported.
+  --- Raised by `chmod`, `clock_getres`, `clock_nanosleep`,
+  --- `timer_create`.
   ENOTSUP: number
+  --- @type integer Inappropriate i/o control operation. Raised by `ioctl`.
   ENOTTY: number
+  --- @type integer No such device or address. Raised by `lseek`, `open`, `prctl`.
   ENXIO: number
+  --- @type integer Socket operation not supported.
+  --- Raised by accept, listen, mmap, prctl, readv, send,
+  --- socketpair.
   EOPNOTSUPP: number
+  --- @type integer Raised by `copy_file_range`, `fanotify_init`, `lseek`, `mmap`,
+  --- `open`, `stat`, `statfs`
   EOVERFLOW: number
+  --- @type integer
   EOWNERDEAD: number
+  --- @type integer Operation not permitted.
+  --- Raised by `accept`, `chmod`, `chown`, `chroot`,
+  --- `copy_file_range`, `execve`, `fallocate`, `fanotify_init`,
+  --- `fcntl`, `futex`, `get_robust_list`, `getdomainname`,
+  --- `getgroups`, `gethostname`, `getpriority`, `getrlimit`,
+  --- `getsid`, `gettimeofday`, `idle`, `init_module`, `io_submit`,
+  --- `ioctl_console`, `ioctl_ficlonerange`, `ioctl_fideduperange`,
+  --- `ioperm`, `iopl`, `ioprio_set`, `keyctl`, `kill`, `link`,
+  --- `lookup_dcookie`, `madvise`, `mbind`, `membarrier`,
+  --- `migrate_pages`, `mkdir`, `mknod`, `mlock`, `mmap`, `mount`,
+  --- `move_pages`, `msgctl`, `nice`, `open`, `open_by_handle_at`,
+  --- `pciconfig_read`, `perf_event_open`, `pidfd_getfd`,
+  --- `pidfd_send_signal`, `pivot_root`, `prctl`, `process_vm_readv`,
+  --- `ptrace`, `quotactl`, `reboot`, `rename`, `request_key`,
+  --- `rmdir`, `rt_sigqueueinfo`, `sched_setaffinity`,
+  --- `sched_setattr`, `sched_setparam`, `sched_setscheduler`,
+  --- `seteuid`, `setfsgid`, `setfsuid`, `setgid`, `setns`, `setpgid`,
+  --- `setresuid`, `setreuid`, `setsid`, `setuid`, `setup`,
+  --- `setxattr`, `sigaltstack`, `spu_create`, `stime`, `swapon`,
+  --- `symlink`, `syslog`, `truncate`, `unlink`, `utime`, `utimensat`,
+  --- `write`.
   EPERM: number
+  --- @type integer Protocol family not supported.
   EPFNOSUPPORT: number
+  --- @type integer Broken pipe.
+  --- Returned by `write`, `send`. This happens when you try
+  --- to write data to a subprocess via a pipe but the reader end has
+  --- already closed, possibly because the process died. Normally i/o
+  --- routines only return this if `SIGPIPE` doesn't kill the process.
+  --- Unlike default UNIX programs, redbean currently ignores `SIGPIPE` by
+  --- default, so this error code is a distinct possibility when pipes or
+  --- sockets are being used.
   EPIPE: number
+  --- @type integer Raised by `accept`, `connect`, `socket`, `socketpair`.
   EPROTO: number
+  --- @type integer Protocol not supported. Raised by `socket`, `socketpair`.
   EPROTONOSUPPORT: number
+  --- @type integer Protocol wrong type for socket. Raised by `connect`.
   EPROTOTYPE: number
+  --- @type integer Result too large.
+  --- Raised by `prctl`.
   ERANGE: number
+  --- @type integer
   EREMOTE: number
+  --- @type integer
   ERESTART: number
+  --- @type integer Operation not possible due to RF-kill.
   ERFKILL: number
+  --- @type integer Read-only filesystem.
+  --- Raised by access, bind, chmod, chown, link, mkdir, mknod, open,
+  --- rename, rmdir, symlink, truncate, unlink, utime, utimensat.
   EROFS: number
+  --- @type integer Cannot send after transport endpoint shutdown; note that shutdown write is an `EPIPE`.
   ESHUTDOWN: number
+  --- @type integer Socket type not supported.
   ESOCKTNOSUPPORT: number
+  --- @type integer Invalid seek.
+  --- Raised by `lseek`, `splice`, `sync_file_range`.
   ESPIPE: number
+  --- @type integer No such process.
+  --- Raised by `getpriority`, `getrlimit`, `getsid`, `ioprio_set`, `kill`, `setpgid`, `tkill`, `utimensat`.
   ESRCH: number
+  --- @type integer
   ESTALE: number
+  --- @type integer Timer expired. Raised by `connect`.
   ETIME: number
+  --- @type integer Connection timed out. Raised by `connect`.
   ETIMEDOUT: number
+  --- @type integer Too many references: cannot splice. Raised by `sendmsg`.
   ETOOMANYREFS: number
+  --- @type integer Won't open executable that's executing in write mode.
+  --- Raised by access, copy_file_range, execve, mmap, open, truncate.
   ETXTBSY: number
+  --- @type integer
   EUSERS: number
+  --- @type integer Improper link.
+  --- Raised by copy_file_range, link, rename.
   EXDEV: number
+  --- @type integer
   FD_CLOEXEC: number
+  --- @type integer
   F_GETFD: number
+  --- @type integer
   F_GETFL: number
+  --- @type integer
   F_GETLK: number
+  --- @type integer
   F_OK: number
+  --- @type integer
   F_RDLCK: number
+  --- @type integer
   F_SETFD: number
+  --- @type integer
   F_SETFL: number
+  --- @type integer
   F_SETLK: number
+  --- @type integer
   F_SETLKW: number
+  --- @type integer
   F_UNLCK: number
+  --- @type integer
   F_WRLCK: number
+  --- @type integer
   IPPROTO_ICMP: number
+  --- @type integer
   IPPROTO_IP: number
+  --- @type integer
   IPPROTO_RAW: number
+  --- @type integer
   IPPROTO_TCP: number
+  --- @type integer
   IPPROTO_UDP: number
+  --- @type integer
   IP_ADD_MEMBERSHIP: number
+  --- @type integer
   IP_DROP_MEMBERSHIP: number
+  --- @type integer
   IP_HDRINCL: number
+  --- @type integer
   IP_MTU: number
+  --- @type integer
   IP_MULTICAST_IF: number
+  --- @type integer
   IP_MULTICAST_LOOP: number
+  --- @type integer
   IP_MULTICAST_TTL: number
+  --- @type integer
   IP_OPTIONS: number
+  --- @type integer
   IP_PKTINFO: number
+  --- @type integer
   IP_RECVTOS: number
+  --- @type integer
   IP_RECVTTL: number
+  --- @type integer
   IP_TOS: number
+  --- @type integer
   IP_TTL: number
+  --- @type integer
   ITIMER_PROF: number
+  --- @type integer
   ITIMER_REAL: number
+  --- @type integer
   ITIMER_VIRTUAL: number
+  --- @type integer
   LOG_ALERT: number
+  --- @type integer
   LOG_CRIT: number
+  --- @type integer
   LOG_DEBUG: number
+  --- @type integer
   LOG_EMERG: number
+  --- @type integer
   LOG_ERR: number
+  --- @type integer
   LOG_INFO: number
+  --- @type integer
   LOG_NOTICE: number
+  --- @type integer
   LOG_WARNING: number
+  --- @type integer
   MSG_CTRUNC: number
+  --- @type integer
   MSG_DONTROUTE: number
+  --- @type integer
   MSG_DONTWAIT: number
-  MSG_MORE: number
+  --- @type integer
   MSG_NOSIGNAL: number
+  --- @type integer
   MSG_OOB: number
+  --- @type integer
   MSG_PEEK: number
+  --- @type integer
   MSG_TRUNC: number
+  --- @type integer
   MSG_WAITALL: number
+  --- @type integer  Returns maximum length of file path component.
+  --- POSIX requires this be at least 14. Most operating systems define it
+  --- as 255. It's a good idea to not exceed 253 since that's the limit on
+  --- DNS labels.
   NAME_MAX: number
+  --- @type integer Returns maximum number of signals supported by underlying system.
+  --- The limit for unix.Sigset is 128 to support FreeBSD, but most
+  --- operating systems define this much lower, like 32. This constant
+  --- reflects the value chosen by the underlying operating system.
   NSIG: number
+  --- @type integer open for reading (default)
   O_RDONLY: number
+  --- @type integer open for writing
   O_WRONLY: number
+  --- @type integer open for reading and writing
   O_RDWR: number
+  --- @type integer create file if it doesn't exist
   O_CREAT: number
+  --- @type integer automatic `ftruncate(fd, 0)` if exists
   O_TRUNC: number
+  --- @type integer automatic `close()` upon `execve()`
   O_CLOEXEC: number
+  --- @type integer exclusive access (see below)
   O_EXCL: number
+  --- @type integer open file for append only
   O_APPEND: number
+  --- @type integer asks read/write to fail with EAGAIN rather than block
   O_NONBLOCK: number
+  --- @type integer it's complicated (not supported on Apple and OpenBSD)
   O_DIRECT: number
+  --- @type integer useful for stat'ing (hint on UNIX but required on NT)
   O_DIRECTORY: number
-  O_TMPFILE: number
+  --- @type integer fail if it's a symlink (zero on Windows)
   O_NOFOLLOW: number
+  --- @type integer automatically delete file upon close()
   O_UNLINK: number
+  --- @type integer open a path reference only, without read/write access
+  --- (Linux only; fails with EINVAL elsewhere). Usable with landlock
+  --- rule paths and *at() calls even when the path itself is unreadable.
   O_PATH: number
+  --- @type integer it's complicated (zero on non-Linux/Apple)
   O_DSYNC: number
-  O_RSYNC: number
+  --- @type integer synchronize i/o operations appropriately
   O_SYNC: number
+  --- @type integer don't record access time (zero on non-Linux)
   O_NOATIME: number
+  --- @type integer
   O_ACCMODE: number
-  O_EXEC: number
+  --- @type integer
   O_NOCTTY: number
+  --- @type integer Returns maximum length of file path.
+  --- This applies to a complete path being passed to system calls.
+  --- POSIX.1 XSI requires this be at least 1024 so that's what most
+  --- platforms support. On Windows NT, the limit is technically 260
+  --- characters. Your redbean works around that by prefixing `//?/`
+  --- to your paths as needed. On Linux this limit will be 4096, but
+  --- that won't be the case for functions such as realpath that are
+  --- implemented at the C library level; however such functions are
+  --- the exception rather than the norm, and report `enametoolong()`,
+  --- when exceeding the libc limit.
   PATH_MAX: number
+  --- the default on Linux. It's effectively the same as killing the
+  --- process, since redbean has no threads. The termination signal
+  --- can't be caught and will be either `SIGSYS` or `SIGABRT`.
+  --- Consider enabling stderr logging below so you'll know why your
+  --- program failed. Otherwise check the system log.
   PLEDGE_PENALTY_KILL_THREAD: number
+  --- This is always the case on OpenBSD.
   PLEDGE_PENALTY_KILL_PROCESS: number
+  --- instead of killing. This is a gentler solution that allows code to
+  --- display a friendly warning. Please note this may lead to weird
+  --- behaviors if the software being sandboxed is lazy about checking
+  --- error results.
   PLEDGE_PENALTY_RETURN_EPERM: number
+  --- know which promises are needed whenever violations occur. Without
+  --- this, violations will be logged to `dmesg` on Linux if the penalty
+  --- is to kill the process. You would then need to manually look up
+  --- the system call number and then cross reference it with the
+  --- cosmopolitan libc `pledge()` documentation. You can also use
+  --- `strace -ff` which is easier. This is ignored OpenBSD, which
+  --- already has a good system log. Turning on stderr logging (which
+  --- uses SECCOMP trapping) also means that the `unix.WTERMSIG()` on
+  --- your killed processes will always be `unix.SIGABRT` on both Linux
+  --- and OpenBSD. Otherwise, Linux prefers to raise `unix.SIGSYS`.
   PLEDGE_STDERR_LOGGING: number
+  --- @type integer Returns maximum size at which pipe i/o is guaranteed atomic.
+  --- POSIX requires this be at least 512. Linux is more generous and
+  --- allows 4096. On Windows NT this is currently 4096, and it's the
+  --- parameter redbean passes to `CreateNamedPipe()`.
   PIPE_BUF: number
+  --- @type integer
   POLLERR: number
+  --- @type integer
   POLLHUP: number
+  --- @type integer
   POLLIN: number
+  --- @type integer
   POLLNVAL: number
+  --- @type integer
   POLLOUT: number
+  --- @type integer
   POLLPRI: number
+  --- @type integer
   POLLRDBAND: number
+  --- @type integer
   POLLRDHUP: number
+  --- @type integer
   POLLRDNORM: number
+  --- @type integer
   POLLWRBAND: number
+  --- @type integer
   POLLWRNORM: number
+  --- @type integer
   RLIMIT_AS: number
+  --- @type integer
   RLIMIT_CPU: number
+  --- @type integer
   RLIMIT_FSIZE: number
+  --- @type integer
   RLIMIT_NOFILE: number
+  --- @type integer
   RLIMIT_NPROC: number
+  --- @type integer
   RLIMIT_RSS: number
+  --- @type integer getpriority/setpriority: target is a process id
   PRIO_PROCESS: number
+  --- @type integer getpriority/setpriority: target is a process group id
   PRIO_PGRP: number
+  --- @type integer getpriority/setpriority: target is a user id
   PRIO_USER: number
+  --- @type integer sysconf: maximum length of arguments to exec()
   SC_ARG_MAX: number
+  --- @type integer sysconf: maximum simultaneous processes per user id
   SC_CHILD_MAX: number
+  --- @type integer sysconf: clock ticks per second
   SC_CLK_TCK: number
+  --- @type integer sysconf: maximum number of open files per process
   SC_OPEN_MAX: number
+  --- @type integer sysconf: size of a memory page in bytes
   SC_PAGESIZE: number
+  --- @type integer sysconf: number of processors configured
   SC_NPROCESSORS_CONF: number
+  --- @type integer sysconf: number of processors currently online
   SC_NPROCESSORS_ONLN: number
+  --- @type integer termios input mode flags (Termios.iflag)
   BRKINT: number
   ICRNL: number
   IGNBRK: number
@@ -620,11 +1021,13 @@ local record unix
   IXOFF: number
   IXON: number
   PARMRK: number
+  --- @type integer termios output mode flags (Termios.oflag)
   OPOST: number
   OCRNL: number
   ONLCR: number
   ONLRET: number
   ONOCR: number
+  --- @type integer termios control mode flags (Termios.cflag)
   CLOCAL: number
   CREAD: number
   CS5: number
@@ -636,6 +1039,7 @@ local record unix
   HUPCL: number
   PARENB: number
   PARODD: number
+  --- @type integer termios local mode flags (Termios.lflag)
   ECHO: number
   ECHOE: number
   ECHOK: number
@@ -645,6 +1049,7 @@ local record unix
   ISIG: number
   NOFLSH: number
   TOSTOP: number
+  --- @type integer termios control-character indices (Termios.cc)
   VEOF: number
   VEOL: number
   VERASE: number
@@ -656,9 +1061,11 @@ local record unix
   VSTOP: number
   VTIME: number
   NCCS: number
+  --- @type integer tcsetattr() action values
   TCSANOW: number
   TCSADRAIN: number
   TCSAFLUSH: number
+  --- @type integer network interface ioctls (siocgifconf/ifreq)
   IFNAMSIZ: number
   IFF_ALLMULTI: number
   IFF_AUTOMEDIA: number
@@ -692,6 +1099,7 @@ local record unix
   SIOCSIFMETRIC: number
   SIOCSIFMTU: number
   SIOCSIFNETMASK: number
+  --- @type integer unshare()/setns() namespace flags
   CLONE_NEWCGROUP: number
   CLONE_NEWIPC: number
   CLONE_NEWNET: number
@@ -700,6 +1108,7 @@ local record unix
   CLONE_NEWTIME: number
   CLONE_NEWUSER: number
   CLONE_NEWUTS: number
+  --- @type integer landlock access-rights bits (landlock_add_rule)
   LANDLOCK_ACCESS_FS_EXECUTE: number
   LANDLOCK_ACCESS_FS_WRITE_FILE: number
   LANDLOCK_ACCESS_FS_READ_FILE: number
@@ -717,6 +1126,7 @@ local record unix
   LANDLOCK_ACCESS_FS_TRUNCATE: number
   LANDLOCK_CREATE_RULESET_VERSION: number
   LANDLOCK_RULE_PATH_BENEATH: number
+  --- @type integer prctl() options
   PR_CAPBSET_DROP: number
   PR_CAPBSET_READ: number
   PR_GET_CHILD_SUBREAPER: number
@@ -731,6 +1141,7 @@ local record unix
   PR_SET_NAME: number
   PR_SET_NO_NEW_PRIVS: number
   PR_SET_PDEATHSIG: number
+  --- @type integer Linux capability bits (prctl PR_CAPBSET_*, capget/capset).
   CAP_AUDIT_CONTROL: number
   CAP_AUDIT_READ: number
   CAP_AUDIT_WRITE: number
@@ -773,6 +1184,7 @@ local record unix
   CAP_SYS_TIME: number
   CAP_SYS_TTY_CONFIG: number
   CAP_WAKE_ALARM: number
+  --- @type integer mount()/umount2() flags
   MS_BIND: number
   MS_DIRSYNC: number
   MS_LAZYTIME: number
@@ -799,6 +1211,7 @@ local record unix
   MNT_EXPIRE: number
   MNT_FORCE: number
   UMOUNT_NOFOLLOW: number
+  --- @type integer statvfs f_flag bits (unix.Statfs / statvfs)
   ST_APPEND: number
   ST_IMMUTABLE: number
   ST_MANDLOCK: number
@@ -811,111 +1224,202 @@ local record unix
   ST_RELATIME: number
   ST_SYNCHRONOUS: number
   ST_WRITE: number
+  --- @type integer
   RUSAGE_BOTH: number
+  --- @type integer
   RUSAGE_CHILDREN: number
+  --- @type integer
   RUSAGE_SELF: number
+  --- @type integer
   RUSAGE_THREAD: number
+  --- @type integer
   R_OK: number
+  --- @type integer
   SA_NOCLDSTOP: number
+  --- @type integer
   SA_NOCLDWAIT: number
+  --- @type integer
   SA_NODEFER: number
+  --- @type integer
   SA_RESETHAND: number
+  --- @type integer
   SA_RESTART: number
+  --- @type integer
   SEEK_CUR: number
+  --- @type integer
   SEEK_END: number
+  --- @type integer
   SEEK_SET: number
   SHUT_RD: number
   SHUT_WR: number
   SHUT_RDWR: number
+  --- @type integer Process aborted.
   SIGABRT: number
+  --- @type integer Sent by setitimer().
   SIGALRM: number
+  --- @type integer Valid memory access that went beyond underlying end of file.
   SIGBUS: number
+  --- @type integer Child process exited or terminated and is now a zombie (unless this
+  --- is `SIG_IGN` or `SA_NOCLDWAIT`) or child process stopped due to terminal
+  --- i/o or profiling/debugging (unless you used `SA_NOCLDSTOP`)
   SIGCHLD: number
+  --- @type integer Child process resumed from profiling/debugging.
   SIGCONT: number
-  SIGEMT: number
+  --- @type integer Illegal math.
   SIGFPE: number
+  --- @type integer Terminal hangup or daemon reload; auto-broadcasted to process group.
   SIGHUP: number
+  --- @type integer Illegal instruction.
   SIGILL: number
-  SIGINFO: number
+  --- @type integer Terminal CTRL-C keystroke.
   SIGINT: number
-  SIGIO: number
+  --- @type integer Terminate with extreme prejudice.
   SIGKILL: number
+  --- @type integer Write to closed file descriptor.
   SIGPIPE: number
+  --- @type integer Profiling timer expired.
   SIGPROF: number
-  SIGPWR: number
+  --- @type integer Terminal CTRL-\ keystroke.
   SIGQUIT: number
-  SIGRTMAX: number
-  SIGRTMIN: number
+  --- @type integer Invalid memory access.
   SIGSEGV: number
-  SIGSTKFLT: number
+  --- @type integer Child process stopped due to profiling/debugging.
   SIGSTOP: number
+  --- @type integer
   SIGSYS: number
+  --- @type integer Terminate.
   SIGTERM: number
+  --- @type integer INT3 instruction.
   SIGTRAP: number
+  --- @type integer Terminal CTRL-Z keystroke.
   SIGTSTP: number
+  --- @type integer Terminal input for background process.
   SIGTTIN: number
+  --- @type integer Terminal input for background process.
   SIGTTOU: number
+  --- @type integer
   SIGURG: number
+  --- @type integer Do whatever you want.
   SIGUSR1: number
+  --- @type integer Do whatever you want.
   SIGUSR2: number
+  --- @type integer Virtual alarm clock.
   SIGVTALRM: number
+  --- @type integer Terminal resized.
   SIGWINCH: number
+  --- @type integer CPU time limit exceeded.
   SIGXCPU: number
+  --- @type integer File size limit exceeded.
   SIGXFSZ: number
+  --- @type integer
   SIG_BLOCK: number
+  --- @type integer
   SIG_DFL: number
+  --- @type integer
   SIG_IGN: number
+  --- @type integer
   SIG_SETMASK: number
+  --- @type integer
   SIG_UNBLOCK: number
+  --- @type integer
   SOCK_CLOEXEC: number
+  --- @type integer
   SOCK_DGRAM: number
+  --- @type integer
   SOCK_NONBLOCK: number
+  --- @type integer
   SOCK_RAW: number
+  --- @type integer
   SOCK_RDM: number
+  --- @type integer
   SOCK_SEQPACKET: number
+  --- @type integer
   SOCK_STREAM: number
+  --- @type integer
   SOL_IP: number
+  --- @type integer
   SOL_SOCKET: number
+  --- @type integer
   SOL_TCP: number
+  --- @type integer
   SOL_UDP: number
+  --- @type integer
   SO_ACCEPTCONN: number
+  --- @type integer
   SO_BROADCAST: number
+  --- @type integer
   SO_DEBUG: number
+  --- @type integer
   SO_DONTROUTE: number
+  --- @type integer
   SO_ERROR: number
+  --- @type integer
   SO_KEEPALIVE: number
+  --- @type integer
   SO_LINGER: number
+  --- @type integer
   SO_OOBINLINE: number
+  --- @type integer
   SO_RCVBUF: number
+  --- @type integer
   SO_RCVLOWAT: number
+  --- @type integer
   SO_RCVTIMEO: number
+  --- @type integer
   SO_REUSEADDR: number
+  --- @type integer
   SO_REUSEPORT: number
+  --- @type integer
   SO_SNDBUF: number
+  --- @type integer
   SO_SNDLOWAT: number
+  --- @type integer
   SO_SNDTIMEO: number
+  --- @type integer
   SO_TYPE: number
+  --- @type integer
   TCP_CORK: number
+  --- @type integer
   TCP_DEFER_ACCEPT: number
+  --- @type integer
   TCP_FASTOPEN: number
+  --- @type integer
   TCP_FASTOPEN_CONNECT: number
+  --- @type integer
   TCP_KEEPCNT: number
+  --- @type integer
   TCP_KEEPIDLE: number
+  --- @type integer
   TCP_KEEPINTVL: number
+  --- @type integer
   TCP_MAXSEG: number
+  --- @type integer
   TCP_NODELAY: number
+  --- @type integer
   TCP_NOTSENT_LOWAT: number
+  --- @type integer
   TCP_QUICKACK: number
+  --- @type integer
   TCP_SAVED_SYN: number
+  --- @type integer
   TCP_SAVE_SYN: number
+  --- @type integer
   TCP_SYNCNT: number
+  --- @type integer
   TCP_WINDOW_CLAMP: number
+  --- @type integer
   UTIME_NOW: number
+  --- @type integer
   UTIME_OMIT: number
+  --- @type integer
   WNOHANG: number
+  --- @type integer
   WUNTRACED: number
+  --- @type integer Report continued child processes.
   WCONTINUED: number
+  --- @type integer
   W_OK: number
+  --- @type integer
   X_OK: number
 
   --- Opens file.
@@ -1073,7 +1577,7 @@ local record unix
   --- Hence it should come as no surprise that `fork()` would go slower on
   --- operating systems that have more security features. So depending on
   --- your use case, you can choose the operating system that suits you.
-  fork: function(): number | number, Errno
+  fork: function(): number, Errno
   --- Performs `$PATH` lookup of executable.
   ---     unix = require 'unix'
   ---     prog = assert(unix.commandv('ls'))
@@ -1509,7 +2013,7 @@ local record unix
   ---   Returned `pid` is the process id of the current lock owner.
   ---   This function is currently not supported on Windows.
   ---   Returns `EBADF` if `fd` wasn't open.
-  fcntl: function(fd: number, cmd: number, ...: any): any, Errno
+  fcntl: function(fd: number, cmd: number, ...: any): any...
   --- Gets session id.
   getsid: function(pid: number): number, Errno
   --- Gets process group id.
@@ -2483,7 +2987,7 @@ local record unix
   setns: function(fd: number, nstype?: number): boolean, Errno
   --- Mounts a filesystem. `flags` is a bitwise OR of `unix.MS_*`
   --- constants; `data` is a filesystem-specific options string.
-  mount: function(source?: string, target: string, fstype?: string, flags?: number, data?: string): boolean, Errno
+  mount: function(source?: string, target?: string, fstype?: string, flags?: number, data?: string): boolean, Errno
   --- Unmounts a filesystem. On Linux this is the `umount2` syscall.
   --- `flags` may include `unix.MNT_FORCE`, `unix.MNT_DETACH`,
   --- `unix.MNT_EXPIRE`, `unix.UMOUNT_NOFOLLOW`.
@@ -2593,4 +3097,3 @@ local record unix
 end
 
 return unix
-

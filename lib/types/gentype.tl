@@ -84,6 +84,44 @@ local function has_type_annotation(anno_lines: {string}): boolean
   return false
 end
 
+--- Reconcile annotated params with the declaration's parameter list. The
+--- declaration is authoritative for names and order; annotations attach
+--- types. A declared-but-unannotated param becomes `any` (required, unless a
+--- preceding param is optional — Teal forbids required-after-optional).
+local function reconcile_params(params: {Param}, params_str: string): {Param}
+  if not params_str or params_str == "" then return params end
+  local by_name: {string: Param} = {}
+  for _, p in ipairs(params) do by_name[p.name] = p end
+  local result: {Param} = {}
+  local used: {string: boolean} = {}
+  for token in params_str:gmatch("[^,]+") do
+    local pname = token:match("^%s*(.-)%s*$")
+    if pname ~= "" then
+      local p = by_name[pname]
+      if p then
+        table.insert(result, p)
+        used[pname] = true
+      else
+        table.insert(result, {name = pname, param_type = "any", description = "", optional = false})
+      end
+    end
+  end
+  for _, p in ipairs(params) do
+    if not used[p.name] then
+      table.insert(result, p)
+    end
+  end
+  local seen_optional = false
+  for _, p in ipairs(result) do
+    if p.optional then
+      seen_optional = true
+    elseif seen_optional then
+      p.optional = true
+    end
+  end
+  return result
+end
+
 --- Parse a module from definitions.lua source.
 local function parse_module(source: string, module_name: string): ModuleDecl
   local content = render.extract_module_content(source, module_name)
@@ -197,11 +235,7 @@ local function parse_module(source: string, module_name: string): ModuleDecl
       end
 
       local desc, params, returns, nodiscard, _, _, fallible, error_type = parse_annotations(anno_lines)
-      if #params == 0 and params_str and params_str ~= "" then
-        for pname in params_str:gmatch("([%w_]+)") do
-          table.insert(params, {name = pname, param_type = "any", description = "", optional = true})
-        end
-      end
+      params = reconcile_params(params, params_str)
       table.insert(module.functions, {
           name = fname, module = module_name, description = desc,
           params = params, returns = returns, is_method = false, nodiscard = nodiscard,
@@ -214,11 +248,7 @@ local function parse_module(source: string, module_name: string): ModuleDecl
       local class_name = full_class_name:match("%.([%w_]+)$") or full_class_name
       local method_params_str = line:match("%((.-)%)")
       local desc, params, returns, nodiscard, _, _, fallible, error_type = parse_annotations(anno_lines)
-      if #params == 0 and method_params_str and method_params_str ~= "" then
-        for pname in method_params_str:gmatch("([%w_]+)") do
-          table.insert(params, {name = pname, param_type = "any", description = "", optional = true})
-        end
-      end
+      params = reconcile_params(params, method_params_str)
       local method: FuncDecl = {
         name = method_name, module = module_name, description = desc,
         params = params, returns = returns, is_method = true,

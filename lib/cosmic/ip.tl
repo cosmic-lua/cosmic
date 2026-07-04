@@ -4,11 +4,11 @@ local cosmo = require("cosmo")
 --- A typed IP address.
 --- Wraps the raw integer representation with convenience methods.
 local record Addr
-  _n: integer
+  _n: number
   --- Get the raw integer representation.
   --- Use this when passing to net.Socket:connect() or other APIs that take integer IPs.
   --- @return integer The IP address as an integer
-  int: function(Addr): integer
+  int: function(Addr): number
   --- Format as a dotted-quad string (e.g., "192.168.1.1").
   --- @return string The formatted IP address
   format: function(Addr): string
@@ -26,7 +26,7 @@ local record Addr
   is_public: function(Addr): boolean
 end
 
-local function addr_int(self: Addr): integer
+local function addr_int(self: Addr): number
   return self._n
 end
 
@@ -64,14 +64,14 @@ local Addr_mt: metatable < Addr > = {
   end,
 }
 
-local function make_addr(n: integer): Addr
+local function make_addr(n: number): Addr
   return setmetatable({_n = n} as Addr, Addr_mt)
 end
 
 --- Wrap a raw integer as a typed Addr.
 --- @param n integer The IP address as an integer
 --- @return Addr The typed IP address
-local function addr(n: integer): Addr
+local function addr(n: number): Addr
   return make_addr(n)
 end
 
@@ -79,14 +79,14 @@ end
 --- Returns -1 for invalid or unsupported addresses (including IPv6).
 --- @param str string The IP address string (e.g., "192.168.1.1")
 --- @return integer The IP address as an integer, or -1 on error
-local function parse(str: string): integer
+local function parse(str: string): number
   return cosmo.ParseIp(str)
 end
 
 --- Format an integer IP address as a string.
 --- @param ip integer The IP address as an integer
 --- @return string The formatted IP address string
-local function format(ip: integer): string
+local function format(ip: number): string
   return cosmo.FormatIp(ip)
 end
 
@@ -94,14 +94,14 @@ end
 --- Returns categories like "LOOPBACK", "PRIVATE", "ARIN", etc.
 --- @param ip integer The IP address as an integer
 --- @return string The category name
-local function categorize(ip: integer): string
+local function categorize(ip: number): string
   return cosmo.CategorizeIp(ip)
 end
 
 --- Check if an IP address is a loopback address (127.x.x.x).
 --- @param ip integer The IP address as an integer
 --- @return boolean True if the address is a loopback address
-local function is_loopback(ip: integer): boolean
+local function is_loopback(ip: number): boolean
   return cosmo.IsLoopbackIp(ip)
 end
 
@@ -109,22 +109,23 @@ end
 --- Private ranges: 10.x.x.x, 172.16-31.x.x, 192.168.x.x
 --- @param ip integer The IP address as an integer
 --- @return boolean True if the address is private
-local function is_private(ip: integer): boolean
+local function is_private(ip: number): boolean
   return cosmo.IsPrivateIp(ip)
 end
 
 --- Check if an IP address is a public/routable address.
 --- @param ip integer The IP address as an integer
 --- @return boolean True if the address is public
-local function is_public(ip: integer): boolean
+local function is_public(ip: number): boolean
   return cosmo.IsPublicIp(ip)
 end
 
 --- Resolve a hostname to an IP address.
 --- @param hostname string The hostname to resolve
 --- @return integer The IP address as an integer, or -1 on error
-local function resolve(hostname: string): integer
-  return cosmo.ResolveIp(hostname)
+local function resolve(hostname: string): number
+  local ip = cosmo.ResolveIp(hostname)
+  return ip or -1
 end
 
 --- Look up a hostname and return a typed Addr.
@@ -142,14 +143,14 @@ end
 
 local record IpModule
   Addr: Addr
-  addr: function(n: integer): Addr
-  parse: function(str: string): integer
-  format: function(ip: integer): string
-  categorize: function(ip: integer): string
-  is_loopback: function(ip: integer): boolean
-  is_private: function(ip: integer): boolean
-  is_public: function(ip: integer): boolean
-  resolve: function(hostname: string): integer
+  addr: function(n: number): Addr
+  parse: function(str: string): number
+  format: function(ip: number): string
+  categorize: function(ip: number): string
+  is_loopback: function(ip: number): boolean
+  is_private: function(ip: number): boolean
+  is_public: function(ip: number): boolean
+  resolve: function(hostname: string): number
   lookup: function(hostname: string): Addr, string
 end
 

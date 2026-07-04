@@ -392,7 +392,7 @@ local cosmo = require("cosmo")
 
 --- Serialize a ModuleDoc to Lua source code.
 local function serialize(doc: ModuleDoc): string
-  return cosmo.EncodeLua(doc as table)
+  return (cosmo.EncodeLua(doc as table))
 end
 
 --- A documentation index containing all modules.
@@ -401,7 +401,7 @@ local record DocIndex
 end
 
 local function serialize_index(index: DocIndex): string
-  return cosmo.EncodeLua(index as table)
+  return (cosmo.EncodeLua(index as table))
 end
 
 local function load_index(source: string): DocIndex, string

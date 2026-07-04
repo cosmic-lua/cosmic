@@ -1,5 +1,9 @@
 -- type declarations for cosmo.getopt
+-- GENERATED from cosmopolitan's definitions.lua by lib/types/gentype.tl.
+-- Do not edit by hand. Regenerate with: bin/make regen-types
 
+--- A parser object returned by `getopt.new` for iterating through
+--- command-line options.
 local record parser
   --- Get the next option from the parser.
   --- Returns the next option character or long name, along with its argument
@@ -14,6 +18,8 @@ local record parser
 end
 
 local record getopt
+  type parser = parser
+
   --- Create a new getopt parser for iterating through command-line options.
   --- The optstring uses standard getopt format:
   --- - A letter means that option takes no argument

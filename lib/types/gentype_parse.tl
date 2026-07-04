@@ -6,30 +6,35 @@ local Param = gt.Param
 local Return = gt.Return
 local Field = gt.Field
 
---- Split the text following an `@param name` (or a `@return` entry) into its
---- type and trailing description. Handles parenthesized union types such as
---- `(integer | string)?` whose internal spaces would otherwise truncate the
---- type at the first whitespace.
-local function split_type_desc(rest: string): string, string
-  if rest:sub(1, 1) == "(" then
-    local depth = 0
-    for k = 1, #rest do
-      local c = rest:sub(k, k)
-      if c == "(" then
-        depth = depth + 1
-      elseif c == ")" then
-        depth = depth - 1
-        if depth == 0 then
-          local after = rest:sub(k + 1)
-          local q = after:match("^%?") and "?" or ""
-          local desc = after:sub(#q + 1):match("^%s*(.-)%s*$")
-          return rest:sub(1, k) .. q, desc
-        end
-      end
+--- Consume one type token from the head of `s`, treating whitespace inside
+--- balanced (), {}, <> as part of the token (inline table types such as
+--- `{ useoutput: boolean }?` and grouped unions carry internal spaces).
+--- Returns the token and the remaining (trimmed) text.
+local function scan_token(s: string): string, string
+  local depth = 0
+  local stop = 0
+  for k = 1, #s do
+    local c = s:sub(k, k)
+    if c == "(" or c == "{" or c == "<" then
+      depth = depth + 1
+    elseif c == ")" or c == "}" or c == ">" then
+      depth = depth - 1
+    elseif c:match("%s") and depth == 0 then
+      break
     end
+    stop = k
   end
-  -- `fun(...)` types carry internal spaces; scan to the balanced close paren,
-  -- then take an optional `?` and an optional `: <ret>` return annotation.
+  if stop > 0 then
+    return s:sub(1, stop), s:sub(stop + 1):match("^%s*(.-)%s*$")
+  end
+  return s, ""
+end
+
+--- Split the text following an `@param name` (or a `@return` entry) into its
+--- type and trailing description. `fun(...)` types get their optional `?` and
+--- `: <ret>` return annotation folded into the type token; the return itself
+--- may be a braced or grouped type with internal spaces.
+local function split_type_desc(rest: string): string, string
   if rest:match("^fun%(") then
     local depth = 0
     for k = 1, #rest do
@@ -39,23 +44,29 @@ local function split_type_desc(rest: string): string, string
       elseif c == ")" then
         depth = depth - 1
         if depth == 0 then
-          local stop = k
+          local head = rest:sub(1, k)
           local after = rest:sub(k + 1)
           local q = after:match("^%?") and "?" or ""
           after = after:sub(#q + 1)
-          local ret = after:match("^:%s*([^%s]+)")
-          if ret then
-            local ret_at = after:find(ret, 1, true)
-            after = after:sub(ret_at + #ret)
-            return rest:sub(1, stop) .. ": " .. ret .. q, after:match("^%s*(.-)%s*$")
+          local colon = after:match("^:%s*")
+          if colon then
+            after = after:sub(#colon + 1)
+            local ret: string
+            if after:match("^%.%.%.") then
+              -- A typed vararg return (`fun(...): ...: string|nil`).
+              ret = after:match("^(%.%.%.:%s*[^%s]+)") or "..."
+              after = after:sub(#ret + 1)
+            else
+              ret, after = scan_token(after)
+            end
+            return head .. ": " .. ret .. q, after:match("^%s*(.-)%s*$")
           end
-          return rest:sub(1, stop) .. q, after:match("^%s*(.-)%s*$")
+          return head .. q, after:match("^%s*(.-)%s*$")
         end
       end
     end
   end
-  local t, d = rest:match("^([^%s]+)%s*(.-)%s*$")
-  return t or rest, d or ""
+  return scan_token(rest)
 end
 
 --- Parse annotations from a block of text before a declaration.
@@ -141,19 +152,29 @@ local function parse_annotations(raw_lines: {string}): {string}, {Param}, {Retur
         elseif c == ")" then in_paren = in_paren - 1
         end
         if c == "," and in_angle == 0 and in_brace == 0 and in_paren == 0 then
+          -- Split into another return only when the comma is followed by a
+          -- genuine type token: a builtin type name or a module-dotted type
+          -- (`unix.Errno`). Prose in a trailing description ("ARIN, APNIC,
+          -- DOD, etc.") must stay in the description.
           local rest_after_comma = full_return:sub(i + 1)
           local next_word = rest_after_comma:match("^%s*([%w_%.]+)")
-          local lua_keywords = {
-            ["and"] = true, ["or"] = true, ["not"] = true,
-            ["if"] = true, ["then"] = true, ["else"] = true, ["elseif"] = true,
-            ["end"] = true, ["while"] = true, ["do"] = true, ["for"] = true,
-            ["repeat"] = true, ["until"] = true, ["break"] = true, ["return"] = true,
-            ["local"] = true, ["in"] = true,
+          local builtin_types: {string: boolean} = {
+            ["integer"] = true, ["string"] = true, ["number"] = true,
+            ["boolean"] = true, ["any"] = true, ["nil"] = true,
+            ["table"] = true, ["function"] = true, ["userdata"] = true,
+            ["uint32"] = true, ["uint16"] = true, ["int64"] = true,
+            ["true"] = true, ["false"] = true, ["fun"] = true,
           }
-          local is_function_call = rest_after_comma:match("^%s*" .. (next_word or "") .. "%s*%(")
-          if next_word and not lua_keywords[next_word] and not is_function_call and (
-            next_word:match("^[%l_]") or next_word:match("^[%u]") or next_word:match("%.")
-          ) then
+          local is_type_token = false
+          if next_word then
+            local first = next_word:match("^([%w_]+)")
+            if first and builtin_types[first] then
+              is_type_token = true
+            elseif next_word:match("^[%l_][%w_]*%.[%w_]") then
+              is_type_token = true
+            end
+          end
+          if is_type_token then
             table.insert(parts, current)
             current = ""
           else
@@ -177,25 +198,7 @@ local function parse_annotations(raw_lines: {string}): {string}, {Param}, {Retur
           table.insert(returns, {return_type = va_type .. "...", description = ""})
           break
         end
-        if return_part:match("^%(") then
-          part_type, part_desc = split_type_desc(return_part)
-        elseif return_part:match("^{") then
-          part_type, part_desc = return_part:match("^({.-%}%[?%]?)%s+(.*)$")
-          if not part_type then
-            part_type = return_part:match("^({.-%}%[?%]?)%s*$")
-          end
-        elseif return_part:match("<.->") then
-          part_type, part_desc = return_part:match("^([^%s]+<.->)%s+(.*)$")
-          if not part_type then
-            part_type = return_part:match("^([^%s]+<.->)%s*$")
-          end
-        end
-        if not part_type then
-          part_type, part_desc = return_part:match("^([^%s]+)%s+(.*)$")
-          if not part_type then
-            part_type = return_part
-          end
-        end
+        part_type, part_desc = split_type_desc(return_part)
         if part_type and part_type ~= "" then
           if part_type == "table" and part_desc then
             local specific_type = part_desc:match("^([%w_]+)")
@@ -218,12 +221,19 @@ local function parse_annotations(raw_lines: {string}): {string}, {Param}, {Retur
       generics[gname] = true
     end
 
+    -- A failure overload's return list starts with `nil`; the error value
+    -- follows, optionally labeled (`nil, error: string`, `nil, errno:
+    -- integer`, `nil, unix.Errno`). Success-variant overloads (e.g. a
+    -- useoutput=true encoding overload returning `true`) must not trigger.
     local overload_ret = line:match("^%-%-%-@overload%s+fun%b()%s*:%s*(.+)$")
     if overload_ret then
-      local et = overload_ret:match("([%w_]+%.Errno)") or overload_ret:match("(Errno)")
-      if et then
-        fallible = true
-        error_type = et
+      local after_nil = overload_ret:match("^nil%s*,%s*(.+)$")
+      if after_nil then
+        local et = after_nil:match("^[%w_]+:%s*([%w_%.]+)") or after_nil:match("^([%w_%.]+)")
+        if et then
+          fallible = true
+          error_type = et
+        end
       end
     end
 
