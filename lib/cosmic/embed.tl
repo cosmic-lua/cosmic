@@ -346,6 +346,11 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
 
   local entries = reader:list()
   local count = 0
+  -- Archive entries are frequently many files under the same directory
+  -- (e.g. a whole embedded tree); memoize which output directories have
+  -- already been created so each one gets exactly one makedirs(2) walk
+  -- instead of one per file.
+  local made_dirs: {string: boolean} = {}
 
   for _, name in ipairs(entries) do
     -- Guard against zip-slip: an entry with an absolute path or a ".."
@@ -356,7 +361,11 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
     end
     -- Skip directory entries (trailing /)
     if name:sub(-1) == "/" then
-      fs.makedirs(fs.join(output_dir, name))
+      local dir_path = fs.join(output_dir, name)
+      if not made_dirs[dir_path] then
+        fs.makedirs(dir_path)
+        made_dirs[dir_path] = true
+      end
     else
       local content, read_err = reader:read(name)
       if not content then
@@ -366,7 +375,10 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
 
       local filepath = fs.join(output_dir, name)
       local dir = fs.dirname(filepath)
-      fs.makedirs(dir)
+      if not made_dirs[dir] then
+        fs.makedirs(dir)
+        made_dirs[dir] = true
+      end
 
       -- Get file mode from zip, default to 644
       local file_mode = tonumber("644", 8)
