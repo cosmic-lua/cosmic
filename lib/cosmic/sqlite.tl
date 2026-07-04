@@ -17,6 +17,7 @@
 ---     db:close()
 
 local lsqlite3 = require("cosmo.lsqlite3")
+local stmt_cache_mod = require("cosmic.sqlite_stmt_cache")
 
 -- Raw lsqlite3 types (0-indexed, requires manual cleanup)
 local record RawStatement
@@ -45,6 +46,7 @@ local record RawSqlite3
   OK: number
   ROW: number
   DONE: number
+  SCHEMA: number
   open: function(filename: string): RawDatabase, number, string
 end
 
@@ -264,6 +266,9 @@ local function make_database(raw_db: RawDatabase): Database
   local db: Database = {}
   local closed = false
 
+  -- Reuses prepared statements for db:exec (see cosmic.sqlite_stmt_cache).
+  local stmt_cache = stmt_cache_mod.new(raw_db as any, sqlite3.OK, sqlite3.DONE, sqlite3.ROW, sqlite3.SCHEMA)
+
   function db:prepare(sql: string): Statement, string
     if closed then
       return nil, "database is closed"
@@ -307,21 +312,12 @@ local function make_database(raw_db: RawDatabase): Database
       return true
     end
 
-    -- has params: prepare/bind/exec
-    local stmt, err = self:prepare(sql)
-    if not stmt then
-      return false, err or "prepare failed"
+    -- has params: reuse a cached prepared statement (see cosmic.sqlite_stmt_cache)
+    local args: {integer: any} = {}
+    for i = 1, n do
+      args[i] = select(i, ...)
     end
-
-    local ok, bind_err = stmt:bind(...)
-    if not ok then
-      stmt:close()
-      return false, bind_err or "bind failed"
-    end
-
-    local exec_ok, exec_err = stmt:exec()
-    stmt:close()
-    return exec_ok, exec_err
+    return stmt_cache:exec(sql, args, n)
   end
 
   --- Execute SQL with parameters from a list (table).
@@ -460,6 +456,7 @@ local function make_database(raw_db: RawDatabase): Database
   db.close = function(_: Database)
     if not closed then
       closed = true
+      stmt_cache:close_all()
       local _ = raw_db:close()
     end
   end
