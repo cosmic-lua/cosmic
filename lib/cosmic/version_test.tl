@@ -1,10 +1,10 @@
 #!/usr/bin/env cosmic
 -- tests for cosmic --version / -v output
 
-local path = require("cosmo.path")
+local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
 
-local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")
+local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 
 --- cosmic -v should output version info and exit 0
 local function test_v_flag()

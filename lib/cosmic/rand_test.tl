@@ -1,6 +1,5 @@
 #!/usr/bin/env cosmic
 local rand = require("cosmic.rand")
-local cosmo = require("cosmo")
 
 local function test_bytes_returns_requested_length()
   local b = rand.bytes(16)
@@ -23,19 +22,9 @@ local function test_bytes_various_sizes()
 end
 test_bytes_various_sizes()
 
--- Fast pseudo-random tests (non-cryptographic)
--- These skip gracefully if the cosmo bindings are not yet available.
-
-local has_rand64 = cosmo.Rand64 ~= nil
-local has_lemur64 = cosmo.Lemur64 ~= nil
-local has_rdrand = cosmo.Rdrand ~= nil
-local has_rdseed = cosmo.Rdseed ~= nil
+-- Fast pseudo-random tests (non-cryptographic).
 
 local function test_rand64()
-  if not has_rand64 then
-    io.stderr:write("SKIP: rand64 (Rand64 primitive not available)\n")
-    return
-  end
   local n = rand.rand64()
   assert(math.type(n) == "integer", "rand64 should return integer, got " .. type(n))
   -- Two calls should almost certainly differ (false positive rate: 1/2^64)
@@ -45,10 +34,6 @@ end
 test_rand64()
 
 local function test_lemur64()
-  if not has_lemur64 then
-    io.stderr:write("SKIP: lemur64 (Lemur64 primitive not available)\n")
-    return
-  end
   local n = rand.lemur64()
   assert(math.type(n) == "integer", "lemur64 should return integer, got " .. type(n))
   local n2 = rand.lemur64()
@@ -56,32 +41,29 @@ local function test_lemur64()
 end
 test_lemur64()
 
+-- Hardware RNG tests: skip gracefully when the CPU lacks RDRAND/RDSEED.
+
 local function test_rdrand()
-  if not has_rdrand then
-    io.stderr:write("SKIP: rdrand (Rdrand primitive not available)\n")
+  if not rand.has_hwrng() then
+    io.stderr:write("SKIP: rdrand (hardware RNG not available)\n")
     return
   end
   local n, err = rand.rdrand()
-  if n == nil then
-    -- Hardware unavailable on this CPU; error message should be present
-    assert(type(err) == "string" and #err > 0, "rdrand should return error string when unavailable")
-    io.stderr:write("SKIP: rdrand (hardware not available: " .. err .. ")\n")
-    return
-  end
+  assert(n ~= nil, "rdrand should return a value when hardware RNG is available: " .. tostring(err))
   assert(math.type(n) == "integer", "rdrand should return integer, got " .. type(n))
 end
 test_rdrand()
 
 local function test_rdseed()
-  if not has_rdseed then
-    io.stderr:write("SKIP: rdseed (Rdseed primitive not available)\n")
+  if not rand.has_hwrng() then
+    io.stderr:write("SKIP: rdseed (hardware RNG not available)\n")
     return
   end
   local n, err = rand.rdseed()
   if n == nil then
-    -- Hardware unavailable on this CPU; error message should be present
-    assert(type(err) == "string" and #err > 0, "rdseed should return error string when unavailable")
-    io.stderr:write("SKIP: rdseed (hardware not available: " .. err .. ")\n")
+    -- RDSEED can transiently fail even when present; require an error message.
+    assert(type(err) == "string" and #err > 0, "rdseed should return error string on transient failure")
+    io.stderr:write("SKIP: rdseed (transient hardware failure: " .. err .. ")\n")
     return
   end
   assert(math.type(n) == "integer", "rdseed should return integer, got " .. type(n))

@@ -1,15 +1,15 @@
 #!/usr/bin/env cosmic
 --- Tests for cosmic.zip wrapper module.
 
-local cosmo = require("cosmo")
-local path = require("cosmo.path")
+local cio = require("cosmic.io")
+local fs = require("cosmic.fs")
 local zip = require("cosmic.zip")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
 -- Helper to create a zip file path
 local function zip_path(name: string): string
-  return path.join(TEST_TMPDIR, name)
+  return fs.join(TEST_TMPDIR, name)
 end
 
 -- Basic write operations
@@ -24,7 +24,7 @@ local function test_open_write()
   writer:close()
 
   -- Verify the file exists
-  local data = cosmo.Slurp(p)
+  local data = cio.slurp(p)
   assert(data and #data > 0, "zip file should exist and have content")
 end
 test_open_write()
@@ -39,7 +39,7 @@ local function test_open_write_multiple_files()
   writer:add("subdir/file3.txt", "Content 3")
   writer:close()
 
-  local data = cosmo.Slurp(p)
+  local data = cio.slurp(p)
   assert(data and #data > 0, "zip file should exist")
 end
 test_open_write_multiple_files()
@@ -172,7 +172,7 @@ local function test_from_memory()
   w:close()
 
   -- Read the zip data
-  local zip_data = cosmo.Slurp(p)
+  local zip_data = cio.slurp(p)
   assert(zip_data, "should read zip data")
 
   -- Open from memory

@@ -223,6 +223,13 @@ local function stream(url: string, opts?: Opts): StreamResult
   }
 end
 
+--- Report whether the streaming fetch primitive is available in this build.
+--- When false, stream() cannot be used; callers should fall back to Fetch().
+--- @return boolean true if fetch.stream() is supported
+local function has_stream(): boolean
+  return cosmo.FetchStream ~= nil
+end
+
 --- Build a unix domain socket proxy URL from a socket path.
 --- @param path string Absolute path to the unix domain socket
 --- @return string proxy URL in unix:// format
@@ -247,6 +254,7 @@ end
 local record fetch
   Fetch: function(url: string, opts?: Opts): Result
   stream: function(url: string, opts?: Opts): StreamResult
+  has_stream: function(): boolean
   unix_proxy: function(path: string): string, string
   Opts: Opts
   Result: Result
@@ -257,6 +265,7 @@ end
 local M: fetch = {
   Fetch = Fetch,
   stream = stream,
+  has_stream = has_stream,
   unix_proxy = unix_proxy,
 }
 

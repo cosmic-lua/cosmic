@@ -1,17 +1,17 @@
 #!/usr/bin/env cosmic
 -- test cosmic --check-types option
 
-local path = require("cosmo.path")
-local unix = require("cosmo.unix")
+local fs = require("cosmic.fs")
+local env = require("cosmic.env")
+local cio = require("cosmic.io")
 local spawn = require("cosmic.child")
-local cosmo = require("cosmo")
 
-local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")
+local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 local function write_temp(name: string, content: string): string
-  local filepath = path.join(tmpdir, name)
-  cosmo.Barf(filepath, content)
+  local filepath = fs.join(tmpdir, name)
+  cio.barf(filepath, content)
   return filepath
 end
 
@@ -72,9 +72,8 @@ test_check_missing_file()
 -- Test check with cosmic module types
 local function test_check_with_cosmic_types()
   local input = write_temp("cosmic_check.tl", [[
-local cosmo = require("cosmo")
-local path = require("cosmo.path")
-local result: string = path.join("a", "b")
+local fs = require("cosmic.fs")
+local result: string = fs.join("a", "b")
 print(result)
 ]])
 
@@ -100,10 +99,10 @@ test_check_strict_mode()
 -- Test that TL_PATH env var is picked up by --check-types
 local function test_check_with_tl_path()
   -- Write a type definition file in a custom directory
-  local typedir = path.join(tmpdir, "mytypes")
-  unix.makedirs(typedir, 0x1ed) -- 0755
-  local deffile = path.join(typedir, "mymod.d.tl")
-  cosmo.Barf(deffile, [[
+  local typedir = fs.join(tmpdir, "mytypes")
+  fs.makedirs(typedir, 0x1ed) -- 0755
+  local deffile = fs.join(typedir, "mymod.d.tl")
+  cio.barf(deffile, [[
 local record mymod
   greet: function(name: string): string
 end
@@ -122,7 +121,7 @@ print(s)
   assert(not ok_without, "check should fail without TL_PATH set for custom module")
 
   -- With TL_PATH pointing at the custom type dir it should succeed
-  local base_env = unix.environ()
+  local base_env = env.list()
   local env_with: {string} = {}
   for _, entry in ipairs(base_env) do
     if not entry:match("^TL_PATH=") then
@@ -138,10 +137,10 @@ test_check_with_tl_path()
 -- Test that ;; in TL_PATH is treated as a placeholder for existing package.path
 local function test_check_with_tl_path_double_semicolon()
   -- Write a type definition file in a custom directory
-  local typedir = path.join(tmpdir, "mytypes2")
-  unix.makedirs(typedir, 0x1ed) -- 0755
-  local deffile = path.join(typedir, "mymod2.d.tl")
-  cosmo.Barf(deffile, [[
+  local typedir = fs.join(tmpdir, "mytypes2")
+  fs.makedirs(typedir, 0x1ed) -- 0755
+  local deffile = fs.join(typedir, "mymod2.d.tl")
+  cio.barf(deffile, [[
 local record mymod2
   hello: function(): string
 end
@@ -156,7 +155,7 @@ print(s)
 ]])
 
   -- Set TL_PATH with ;; before paths: custom_dir;;<existing paths would go here>
-  local base_env = unix.environ()
+  local base_env = env.list()
   local env_with: {string} = {}
   for _, entry in ipairs(base_env) do
     if not entry:match("^TL_PATH=") then

@@ -44,12 +44,21 @@ local function rdseed(): number, string
   return cosmo.Rdseed()
 end
 
+--- Report whether the CPU provides a hardware random number generator.
+--- Probes the RDRAND instruction; rdrand/rdseed return nil, err when this is false.
+--- @return boolean true if hardware randomness (rdrand/rdseed) is usable
+local function has_hwrng(): boolean
+  local n = cosmo.Rdrand()
+  return n ~= nil
+end
+
 local record RandModule
   bytes: function(n: number): string
   rand64: function(): number
   lemur64: function(): number
   rdrand: function(): number, string
   rdseed: function(): number, string
+  has_hwrng: function(): boolean
 end
 
 local M: RandModule = {
@@ -58,6 +67,7 @@ local M: RandModule = {
   lemur64 = lemur64,
   rdrand = rdrand,
   rdseed = rdseed,
+  has_hwrng = has_hwrng,
 }
 
 return M

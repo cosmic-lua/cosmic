@@ -1,15 +1,15 @@
 #!/usr/bin/env cosmic
 -- test cosmic --docs guide
 
-local path = require("cosmo.path")
+local fs = require("cosmic.fs")
+local cenv = require("cosmic.env")
 local spawn = require("cosmic.child")
-local unix = require("cosmo.unix")
 
-local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")
+local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 
 local function clean_env(): {string}
   local env: {string} = {}
-  for _, entry in ipairs(unix.environ()) do
+  for _, entry in ipairs(cenv.list()) do
     if not entry:match("^LUA_PATH=") and not entry:match("^LUA_CPATH=") then
       env[#env + 1] = entry
     end

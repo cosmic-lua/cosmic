@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 local signal = require("cosmic.signal")
-local unix = require("cosmo.unix")
+local proc = require("cosmic.proc")
+local time = require("cosmic.time")
 
 local function test_strsignal()
   assert(signal.strsignal(signal.SIGKILL) == "SIGKILL", "expected SIGKILL")
@@ -104,7 +105,7 @@ local function test_sigaction_handler()
   signal.sigprocmask(signal.SIG_SETMASK, oldmask)
 
   -- Allow time for signal delivery
-  unix.nanosleep(0, 1000000) -- 1ms
+  time.sleep(0, 1000000) -- 1ms
 
   assert(received_signal == signal.SIGUSR1,
     "handler should have received SIGUSR1, got " .. tostring(received_signal))
@@ -116,7 +117,7 @@ test_sigaction_handler()
 
 local function test_kill()
   -- Test kill by sending signal 0 (which just checks permissions)
-  local pid = unix.getpid()
+  local pid = proc.getpid()
   local ok = signal.kill(pid, 0)
   assert(ok, "kill with signal 0 should succeed for own process")
 end
@@ -132,7 +133,7 @@ local function test_raise()
   signal.raise(signal.SIGUSR2)
 
   -- Small delay to ensure signal is delivered
-  unix.nanosleep(0, 1000000) -- 1ms
+  time.sleep(0, 1000000) -- 1ms
 
   assert(received, "should have received SIGUSR2")
 
@@ -167,7 +168,7 @@ local function test_setitimer()
   signal.sigprocmask(signal.SIG_SETMASK, oldmask)
 
   -- Wait 200ms for signal delivery
-  unix.nanosleep(0, 200000000)
+  time.sleep(0, 200000000)
 
   assert(received, "SIGALRM handler should have been called")
 

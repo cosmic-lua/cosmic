@@ -1,24 +1,22 @@
 #!/usr/bin/env cosmic
 -- test cosmic script execution with .tl and .lua files
 
-local path = require("cosmo.path")
+local fs = require("cosmic.fs")
+local cio = require("cosmic.io")
 local spawn = require("cosmic.child")
-local cosmo = require("cosmo")
 
-local unix = require("cosmo.unix")
-
-local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")
+local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 -- Create a unique subdirectory for this test run to avoid conflicts
-local test_subdir = unix.mkdtemp(path.join(tmpdir, "cosmic_script_test_XXXXXX"))
+local test_subdir = fs.mkdtemp(fs.join(tmpdir, "cosmic_script_test_XXXXXX"))
 
 local function write_temp(name: string, content: string): string
-  local filepath = path.join(test_subdir, name)
-  cosmo.Barf(filepath, content)
+  local filepath = fs.join(test_subdir, name)
+  cio.barf(filepath, content)
 
   -- Verify the file was written correctly
-  local written = cosmo.Slurp(filepath)
+  local written = cio.slurp(filepath)
   assert(written == content, "write_temp: file content mismatch for " .. name)
 
   return filepath
@@ -160,7 +158,7 @@ print("shebang=" .. x)
 ]])
 
   -- Verify the file exists and has correct content
-  local verify = cosmo.Slurp(script)
+  local verify = cio.slurp(script)
   assert(verify:find("shebang="), "script file should contain shebang test code, got: " .. verify:sub(1, 100))
 
   local ok, out = spawn.spawn({cosmic, script}, {stderr = 1}):read()

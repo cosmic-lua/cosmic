@@ -1,6 +1,4 @@
 #!/usr/bin/env cosmic
-local unix = require("cosmo.unix")
-local path = require("cosmo.path")
 
 -- Note: TEST_DEPS tests removed - TEST_DEPS is a Make variable not passed to Lua tests
 

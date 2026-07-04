@@ -1,11 +1,11 @@
 #!/usr/bin/env cosmic
 local netns = require("cosmic.quicksand.netns")
 local quicksand = require("cosmic.quicksand")
-local path = require("cosmo.path")
+local fs = require("cosmic.fs")
+local cio = require("cosmic.io")
 local spawn = require("cosmic.child")
-local cosmo = require("cosmo")
 
-local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")
+local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 local function test_module_exports()
@@ -40,15 +40,15 @@ local function test_unshare_subprocess()
   if not (c.linux and c.net_ns and (c.user_ns or c.cap_net_admin)) then
     return
   end
-  local script = path.join(tmpdir, "unshare.lua")
-  cosmo.Barf(script, [[
-local unix = require("cosmo.unix")
+  local script = fs.join(tmpdir, "unshare.lua")
+  cio.barf(script, [[
 local ns = require("cosmic.quicksand.netns")
 -- Drop into a fresh userns first so unprivileged callers can create a netns.
 -- An outer sandbox (pledge/seccomp) may block unshare entirely; tolerate
--- that by skipping rather than failing.
-local pok, u = pcall(function() return unix.unshare(unix.CLONE_NEWUSER) end)
-if not pok or not u then
+-- that by skipping rather than failing (unshare_user returns nil+err, and a
+-- seccomp SIGSYS kills the subprocess, handled by the parent below).
+local u = ns.unshare_user()
+if not u then
   io.write("skipped\n")
   os.exit(0)
 end

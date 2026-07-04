@@ -1,10 +1,10 @@
 #!/usr/bin/env cosmic
 local unveil = require("cosmic.unveil")
-local path = require("cosmo.path")
+local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
-local cosmo = require("cosmo")
+local cio = require("cosmic.io")
 
-local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")
+local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 local function test_module_exports()
@@ -13,11 +13,11 @@ end
 test_module_exports()
 
 local function test_unveil_restricts_paths()
-  local allowed_file = path.join(tmpdir, "unveiled.txt")
-  cosmo.Barf(allowed_file, "visible")
+  local allowed_file = fs.join(tmpdir, "unveiled.txt")
+  cio.barf(allowed_file, "visible")
 
-  local script = path.join(tmpdir, "unveil_test.lua")
-  cosmo.Barf(script, string.format([[
+  local script = fs.join(tmpdir, "unveil_test.lua")
+  cio.barf(script, string.format([[
 local unveil = require("cosmic.unveil")
 local ok, err = unveil.apply(%q, "r")
 if not ok then

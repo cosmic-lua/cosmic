@@ -1,10 +1,10 @@
 #!/usr/bin/env cosmic
-local cosmo = require("cosmo")
-local path = require("cosmo.path")
+local fs = require("cosmic.fs")
+local cio = require("cosmic.io")
 local proc = require("cosmic.proc")
 local child = require("cosmic.child")
 
-local lua_bin = path.join(os.getenv("TEST_BIN"), "cosmic")
+local lua_bin = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
 -- getpid tests --
@@ -107,10 +107,10 @@ end
 test_is_main_returns_boolean()
 
 local function test_is_main_true_when_run_directly()
-  local script_path = path.join(TEST_TMPDIR, "is_main_direct.lua")
-  cosmo.Barf(script_path, [[
-local cosmo = require("cosmo")
-if cosmo.is_main() then
+  local script_path = fs.join(TEST_TMPDIR, "is_main_direct.lua")
+  cio.barf(script_path, [[
+local proc = require("cosmic.proc")
+if proc.is_main() then
   os.exit(0)
 else
   os.exit(1)
@@ -126,8 +126,8 @@ end
 test_is_main_true_when_run_directly()
 
 local function test_proc_is_main_true_when_run_directly()
-  local script_path = path.join(TEST_TMPDIR, "proc_is_main_direct.lua")
-  cosmo.Barf(script_path, [[
+  local script_path = fs.join(TEST_TMPDIR, "proc_is_main_direct.lua")
+  cio.barf(script_path, [[
 local proc = require("cosmic.proc")
 if proc.is_main() then
   os.exit(0)
@@ -145,14 +145,14 @@ end
 test_proc_is_main_true_when_run_directly()
 
 local function test_is_main_false_when_required()
-  local mod_path = path.join(TEST_TMPDIR, "is_main_module.lua")
-  cosmo.Barf(mod_path, [[
-local cosmo = require("cosmo")
-return cosmo.is_main()
+  local mod_path = fs.join(TEST_TMPDIR, "is_main_module.lua")
+  cio.barf(mod_path, [[
+local proc = require("cosmic.proc")
+return proc.is_main()
 ]])
 
-  local script_path = path.join(TEST_TMPDIR, "is_main_requirer.lua")
-  cosmo.Barf(script_path, string.format([[
+  local script_path = fs.join(TEST_TMPDIR, "is_main_requirer.lua")
+  cio.barf(script_path, string.format([[
 package.path = %q .. "/?.lua;" .. package.path
 local result = require("is_main_module")
 if result == false then

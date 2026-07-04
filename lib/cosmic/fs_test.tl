@@ -1,19 +1,18 @@
 #!/usr/bin/env cosmic
 local fs = require("cosmic.fs")
 local unix = require("cosmo.unix")
-local path = require("cosmo.path")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
 local function setup(): string
-  local test_dir = path.join(TEST_TMPDIR, "fs_test")
-  unix.makedirs(test_dir)
+  local test_dir = fs.join(TEST_TMPDIR, "fs_test")
+  fs.makedirs(test_dir)
   return test_dir
 end
 
 local function teardown(test_dir: string)
   if test_dir then
-    unix.rmrf(test_dir)
+    fs.rmrf(test_dir)
   end
 end
 
@@ -31,7 +30,7 @@ end
 
 local function test_stat_file()
   local test_dir = setup()
-  local filepath = path.join(test_dir, "file.txt")
+  local filepath = fs.join(test_dir, "file.txt")
   touch(filepath, "hello")
 
   local st, err = fs.stat(filepath)
@@ -58,10 +57,10 @@ test_stat_directory()
 
 local function test_stat_symlink()
   local test_dir = setup()
-  local filepath = path.join(test_dir, "file.txt")
-  local linkpath = path.join(test_dir, "link")
+  local filepath = fs.join(test_dir, "file.txt")
+  local linkpath = fs.join(test_dir, "link")
   touch(filepath, "hello")
-  unix.symlink(filepath, linkpath)
+  fs.symlink(filepath, linkpath)
 
   -- Follow symlinks by default
   local st = fs.stat(linkpath)
@@ -86,7 +85,7 @@ test_stat_nonexistent()
 
 local function test_fstat()
   local test_dir = setup()
-  local filepath = path.join(test_dir, "file.txt")
+  local filepath = fs.join(test_dir, "file.txt")
   touch(filepath, "hello world")
 
   local fd = unix.open(filepath, unix.O_RDONLY)
@@ -105,7 +104,7 @@ test_fstat()
 
 local function test_mkdir()
   local test_dir = setup()
-  local newdir = path.join(test_dir, "newdir")
+  local newdir = fs.join(test_dir, "newdir")
 
   local ok, err = fs.mkdir(newdir)
   assert(ok, "mkdir should succeed: " .. (err or ""))
@@ -120,7 +119,7 @@ test_mkdir()
 
 local function test_mkdir_with_mode()
   local test_dir = setup()
-  local newdir = path.join(test_dir, "newdir")
+  local newdir = fs.join(test_dir, "newdir")
 
   local ok, err = fs.mkdir(newdir, tonumber("700", 8))
   assert(ok, "mkdir should succeed: " .. (err or ""))
@@ -136,7 +135,7 @@ test_mkdir_with_mode()
 
 local function test_makedirs()
   local test_dir = setup()
-  local nested = path.join(test_dir, "a", "b", "c")
+  local nested = fs.join(test_dir, "a", "b", "c")
 
   local ok, err = fs.makedirs(nested)
   assert(ok, "makedirs should succeed: " .. (err or ""))
@@ -153,7 +152,7 @@ local function test_mkdir_error_message()
   local test_dir = setup()
 
   -- mkdir with missing parent should fail with descriptive error
-  local missing_parent = path.join(test_dir, "no", "such", "parent") as string
+  local missing_parent = fs.join(test_dir, "no", "such", "parent") as string
   local ok, err = fs.mkdir(missing_parent)
   assert(not ok, "mkdir should fail when parent doesn't exist")
   assert(err, "should return error message")
@@ -183,11 +182,11 @@ local function test_makedirs_error_message()
   local test_dir = setup()
 
   -- Create a regular file, then try to makedirs through it
-  local blocker = path.join(test_dir, "blocker")
+  local blocker = fs.join(test_dir, "blocker")
   local f = io.open(blocker, "w")
   if f then f:close() end
 
-  local through_file = path.join(blocker, "subdir") as string
+  local through_file = fs.join(blocker, "subdir") as string
   local ok, err = fs.makedirs(through_file)
   assert(not ok, "makedirs should fail when path component is a file")
   assert(err, "should return error message")
@@ -202,7 +201,7 @@ test_makedirs_error_message()
 
 local function test_rmdir()
   local test_dir = setup()
-  local newdir = path.join(test_dir, "newdir")
+  local newdir = fs.join(test_dir, "newdir")
   fs.mkdir(newdir)
 
   local ok, err = fs.rmdir(newdir)
@@ -239,9 +238,9 @@ test_getcwd_and_chdir()
 
 local function test_opendir()
   local test_dir = setup()
-  touch(path.join(test_dir, "file1.txt"))
-  touch(path.join(test_dir, "file2.txt"))
-  fs.mkdir(path.join(test_dir, "subdir"))
+  touch(fs.join(test_dir, "file1.txt"))
+  touch(fs.join(test_dir, "file2.txt"))
+  fs.mkdir(fs.join(test_dir, "subdir"))
 
   local dir, err = fs.opendir(test_dir)
   assert(dir, "opendir should succeed: " .. (err or ""))
@@ -268,7 +267,7 @@ test_opendir()
 
 local function test_unlink()
   local test_dir = setup()
-  local filepath = path.join(test_dir, "file.txt")
+  local filepath = fs.join(test_dir, "file.txt")
   touch(filepath)
 
   local ok, err = fs.unlink(filepath)
@@ -283,8 +282,8 @@ test_unlink()
 
 local function test_rename()
   local test_dir = setup()
-  local oldpath = path.join(test_dir, "old.txt")
-  local newpath = path.join(test_dir, "new.txt")
+  local oldpath = fs.join(test_dir, "old.txt")
+  local newpath = fs.join(test_dir, "new.txt")
   touch(oldpath, "content")
 
   local ok, err = fs.rename(oldpath, newpath)
@@ -299,8 +298,8 @@ test_rename()
 
 local function test_link()
   local test_dir = setup()
-  local filepath = path.join(test_dir, "original.txt")
-  local linkpath = path.join(test_dir, "hardlink.txt")
+  local filepath = fs.join(test_dir, "original.txt")
+  local linkpath = fs.join(test_dir, "hardlink.txt")
   touch(filepath, "content")
 
   local ok, err = fs.link(filepath, linkpath)
@@ -317,8 +316,8 @@ test_link()
 
 local function test_symlink_and_readlink()
   local test_dir = setup()
-  local filepath = path.join(test_dir, "target.txt")
-  local linkpath = path.join(test_dir, "symlink")
+  local filepath = fs.join(test_dir, "target.txt")
+  local linkpath = fs.join(test_dir, "symlink")
   touch(filepath, "content")
 
   local ok, err = fs.symlink(filepath, linkpath)
@@ -334,11 +333,11 @@ test_symlink_and_readlink()
 
 local function test_realpath()
   local test_dir = setup()
-  local subdir = path.join(test_dir, "subdir")
+  local subdir = fs.join(test_dir, "subdir")
   fs.mkdir(subdir)
 
   -- Create a path with .. that should be resolved
-  local messy_path = path.join(subdir, "..", "subdir")
+  local messy_path = fs.join(subdir, "..", "subdir")
   local resolved, err = fs.realpath(messy_path)
   assert(resolved, "realpath should succeed: " .. (err or ""))
 
@@ -351,15 +350,15 @@ test_realpath()
 
 local function test_rmrf()
   local test_dir = setup()
-  local nested = path.join(test_dir, "a", "b", "c")
+  local nested = fs.join(test_dir, "a", "b", "c")
   fs.makedirs(nested)
-  touch(path.join(nested, "file.txt"))
-  touch(path.join(test_dir, "a", "file.txt"))
+  touch(fs.join(nested, "file.txt"))
+  touch(fs.join(test_dir, "a", "file.txt"))
 
-  local ok, err = fs.rmrf(path.join(test_dir, "a"))
+  local ok, err = fs.rmrf(fs.join(test_dir, "a"))
   assert(ok, "rmrf should succeed: " .. (err or ""))
 
-  assert(fs.stat(path.join(test_dir, "a")) == nil, "directory tree should not exist")
+  assert(fs.stat(fs.join(test_dir, "a")) == nil, "directory tree should not exist")
 
   teardown(test_dir)
 end
@@ -369,13 +368,13 @@ test_rmrf()
 
 local function test_access()
   local test_dir = setup()
-  local filepath = path.join(test_dir, "file.txt")
+  local filepath = fs.join(test_dir, "file.txt")
   touch(filepath)
 
   assert(fs.access(filepath, fs.F_OK), "file should exist")
   assert(fs.access(filepath, fs.R_OK), "file should be readable")
   assert(fs.access(filepath, fs.W_OK), "file should be writable")
-  assert(not fs.access(path.join(test_dir, "does_not_exist"), fs.F_OK), "nonexistent file should not exist")
+  assert(not fs.access(fs.join(test_dir, "does_not_exist"), fs.F_OK), "nonexistent file should not exist")
 
   teardown(test_dir)
 end
@@ -383,7 +382,7 @@ test_access()
 
 local function test_chmod()
   local test_dir = setup()
-  local filepath = path.join(test_dir, "file.txt")
+  local filepath = fs.join(test_dir, "file.txt")
   touch(filepath)
 
   local ok, err = fs.chmod(filepath, tonumber("600", 8))
@@ -443,10 +442,10 @@ test_tmpfd()
 
 local function test_is_type_functions()
   local test_dir = setup()
-  local filepath = path.join(test_dir, "file.txt")
+  local filepath = fs.join(test_dir, "file.txt")
   touch(filepath)
-  local linkpath = path.join(test_dir, "link")
-  unix.symlink(filepath, linkpath)
+  local linkpath = fs.join(test_dir, "link")
+  fs.symlink(filepath, linkpath)
 
   local file_st = fs.stat(filepath)
   assert(file_st, "stat should succeed")

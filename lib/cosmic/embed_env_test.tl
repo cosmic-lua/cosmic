@@ -1,13 +1,13 @@
 #!/usr/bin/env cosmic
 -- test cosmic env var fallbacks: COSMIC_EMBED, COSMIC_OUTPUT, COSMIC_EXTRACT
 
-local path = require("cosmo.path")
-local unix = require("cosmo.unix")
+local fs = require("cosmic.fs")
+local cio = require("cosmic.io")
+local cenv = require("cosmic.env")
 local spawn = require("cosmic.child")
-local cosmo = require("cosmo")
-local zip = require("cosmo.zip")
+local zip = require("cosmic.zip")
 
-local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")
+local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 -- Local declaration of Reader interface for type casting
@@ -24,23 +24,22 @@ local record Stat
 end
 
 local function write_temp(name: string, content: string): string
-  local filepath = path.join(tmpdir, name)
-  local dir = path.dirname(filepath)
+  local filepath = fs.join(tmpdir, name)
+  local dir = fs.dirname(filepath)
   if dir ~= tmpdir then
-    unix.makedirs(dir)
+    fs.makedirs(dir)
   end
-  cosmo.Barf(filepath, content)
+  cio.barf(filepath, content)
   return filepath
 end
 
 -- Test embed via COSMIC_EMBED and COSMIC_OUTPUT env vars
 local function test_embed_via_env()
   local input = write_temp("env-hello.txt", "env hello world")
-  local output = path.join(tmpdir, "cosmic-env-embed")
+  local output = fs.join(tmpdir, "cosmic-env-embed")
 
   -- Build env: inherit parent + add COSMIC_EMBED, COSMIC_OUTPUT
-  local unix2 = require("cosmo.unix")
-  local parent_env = unix2.environ()
+  local parent_env = cenv.list()
   local env: {string} = {}
   for _, e in ipairs(parent_env) do
     env[#env + 1] = e
@@ -53,10 +52,10 @@ local function test_embed_via_env()
   assert(ok, "cosmic with COSMIC_EMBED env should succeed: " .. (out or ""))
 
   -- Verify output exists and content is embedded
-  local stat = unix.stat(output)
+  local stat = fs.stat(output)
   assert(stat, "output file should exist")
 
-  local data = cosmo.Slurp(output)
+  local data = cio.slurp(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
   local reader = reader_maybe as Reader
@@ -70,11 +69,10 @@ test_embed_via_env()
 
 -- Test extract via COSMIC_EXTRACT env var
 local function test_extract_via_env()
-  local extractdir = path.join(tmpdir, "env-extracted")
+  local extractdir = fs.join(tmpdir, "env-extracted")
 
   -- Build env: inherit parent + add COSMIC_EXTRACT
-  local unix2 = require("cosmo.unix")
-  local parent_env = unix2.environ()
+  local parent_env = cenv.list()
   local env: {string} = {}
   for _, e in ipairs(parent_env) do
     env[#env + 1] = e
@@ -86,7 +84,7 @@ local function test_extract_via_env()
   assert(ok, "cosmic with COSMIC_EXTRACT env should succeed: " .. (out or ""))
 
   -- main.lua should be extracted
-  assert(path.isfile(path.join(extractdir, "main.lua")), "main.lua should be extracted via env var")
+  assert(fs.isfile(fs.join(extractdir, "main.lua")), "main.lua should be extracted via env var")
 end
 test_extract_via_env()
 
@@ -94,11 +92,10 @@ test_extract_via_env()
 local function test_cli_priority_over_env()
   local env_input = write_temp("env-priority.txt", "from env")
   local cli_input = write_temp("cli-priority.txt", "from cli")
-  local output = path.join(tmpdir, "cosmic-priority")
+  local output = fs.join(tmpdir, "cosmic-priority")
 
   -- Build env: inherit parent + COSMIC_EMBED pointing to env_input
-  local unix2 = require("cosmo.unix")
-  local parent_env = unix2.environ()
+  local parent_env = cenv.list()
   local env: {string} = {}
   for _, e in ipairs(parent_env) do
     env[#env + 1] = e
@@ -110,7 +107,7 @@ local function test_cli_priority_over_env()
   local ok, out = spawn.spawn({cosmic, "--embed", cli_input, "--output", output}, {env = env}):read()
   assert(ok, "cosmic --embed with env override should succeed: " .. (out or ""))
 
-  local data = cosmo.Slurp(output)
+  local data = cio.slurp(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
   local reader = reader_maybe as Reader

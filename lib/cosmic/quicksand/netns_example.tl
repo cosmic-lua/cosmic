@@ -24,9 +24,8 @@ local function Example_unshare_in_subprocess()
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
   local script = [[
-local unix = require("cosmo.unix")
 local ns = require("cosmic.quicksand.netns")
-if not unix.unshare(unix.CLONE_NEWUSER) then return end
+if not ns.unshare_user() then return end
 assert(ns.unshare())
 assert(ns.bring_up("lo"))
 ]]

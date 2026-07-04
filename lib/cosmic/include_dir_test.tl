@@ -1,26 +1,25 @@
 #!/usr/bin/env cosmic
 -- test --include-dir flag for --compile and --check-types
 
-local path = require("cosmo.path")
-local unix = require("cosmo.unix")
+local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
-local cosmo = require("cosmo")
+local cio = require("cosmic.io")
 
-local cosmic = path.join(os.getenv("TEST_BIN"), "cosmic")
+local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 local function write_temp(name: string, content: string): string
-  local filepath = path.join(tmpdir, name)
-  cosmo.Barf(filepath, content)
+  local filepath = fs.join(tmpdir, name)
+  cio.barf(filepath, content)
   return filepath
 end
 
 -- Setup: create a custom type definition directory with a module
 local function setup_custom_types(): string, string
-  local typedir = path.join(tmpdir, "customtypes")
-  unix.makedirs(typedir, 0x1ed) -- 0755
-  local deffile = path.join(typedir, "custommod.d.tl")
-  cosmo.Barf(deffile, [[
+  local typedir = fs.join(tmpdir, "customtypes")
+  fs.makedirs(typedir, 0x1ed) -- 0755
+  local deffile = fs.join(typedir, "custommod.d.tl")
+  cio.barf(deffile, [[
 local record custommod
   greet: function(name: string): string
 end
@@ -69,18 +68,18 @@ test_check_types_include_dir()
 
 -- Test multiple --include-dir flags
 local function test_multiple_include_dirs()
-  local typedir1 = path.join(tmpdir, "types1")
-  unix.makedirs(typedir1, 0x1ed)
-  cosmo.Barf(path.join(typedir1, "mod_a.d.tl"), [[
+  local typedir1 = fs.join(tmpdir, "types1")
+  fs.makedirs(typedir1, 0x1ed)
+  cio.barf(fs.join(typedir1, "mod_a.d.tl"), [[
 local record mod_a
   hello: function(): string
 end
 return mod_a
 ]])
 
-  local typedir2 = path.join(tmpdir, "types2")
-  unix.makedirs(typedir2, 0x1ed)
-  cosmo.Barf(path.join(typedir2, "mod_b.d.tl"), [[
+  local typedir2 = fs.join(tmpdir, "types2")
+  fs.makedirs(typedir2, 0x1ed)
+  cio.barf(fs.join(typedir2, "mod_b.d.tl"), [[
 local record mod_b
   world: function(): string
 end
@@ -110,7 +109,7 @@ local function test_compile_include_dir_with_output()
 local custommod = require("custommod")
 print(custommod.greet("test"))
 ]])
-  local output = path.join(tmpdir, "include_dir_output.lua")
+  local output = fs.join(tmpdir, "include_dir_output.lua")
 
   local ok, _ = spawn.spawn({
       cosmic, "--write-if-changed",
@@ -132,13 +131,12 @@ test_compile_include_dir_with_output()
 local function test_include_dir_merges_with_defaults()
   local typedir, _ = setup_custom_types()
 
-  -- This file uses both a custom module and a built-in cosmo type
+  -- This file uses both a custom module and a built-in cosmic type
   local input = write_temp("merge_defaults.tl", [[
 local custommod = require("custommod")
-local cosmo = require("cosmo")
-local path = require("cosmo.path")
+local fs = require("cosmic.fs")
 local s: string = custommod.greet("world")
-local p: string = path.join("a", "b")
+local p: string = fs.join("a", "b")
 print(s, p)
 ]])
 
