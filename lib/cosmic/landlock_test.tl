@@ -110,8 +110,10 @@ if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n
     a.skip("landlock restrict blocked: " .. s, true)
     return
   end
-  assert(s:find("allowed-ok"), "allowed path should still read: " .. s)
-  assert(s:find("denied-blocked"), "denied path must be blocked: " .. s)
+  -- Plain-text find: "-" is a Lua pattern metacharacter, so a pattern
+  -- search for "allowed-ok" would not match the literal marker.
+  assert(s:find("allowed-ok", 1, true), "allowed path should still read: " .. s)
+  assert(s:find("denied-blocked", 1, true), "denied path must be blocked: " .. s)
   a.enforced("landlock")
 end
 test_restrict_denies_outside_allowlist()
