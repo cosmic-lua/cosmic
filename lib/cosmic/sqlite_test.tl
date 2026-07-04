@@ -233,6 +233,73 @@ local function test_statement_values()
 end
 test_statement_values()
 
+-- Iterator error surfacing (step errors must not masquerade as end-of-rows)
+
+-- abs() of the most-negative int64 overflows at step() time (not prepare).
+local OVERFLOW = "SELECT abs(-9223372036854775808) AS x"
+
+local function test_query_err_nil_on_clean_iteration()
+  local db = sqlite.open(":memory:")
+  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+  db:exec("INSERT INTO t (id) VALUES (1), (2)")
+  local iter = db:query("SELECT * FROM t")
+  local count = 0
+  for _ in iter do count = count + 1 end
+  assert(count == 2, "should iterate all rows")
+  assert(iter:err() == nil, "clean iteration should report no error")
+  db:close()
+end
+test_query_err_nil_on_clean_iteration()
+
+local function test_query_step_error_surfaced()
+  local db = sqlite.open(":memory:")
+  local iter = db:query(OVERFLOW)
+  for _ in iter do end
+  local err = iter:err()
+  assert(err ~= nil, "step error must be surfaced, not swallowed as end-of-rows")
+  assert(err:find("overflow"), "error should mention overflow: " .. tostring(err))
+  db:close()
+end
+test_query_step_error_surfaced()
+
+local function test_query_one_step_error()
+  local db = sqlite.open(":memory:")
+  local row, err = db:query_one(OVERFLOW)
+  assert(row == nil, "query_one should return nil on a step error")
+  assert(type(err) == "string", "query_one should surface the step error")
+  db:close()
+end
+test_query_one_step_error()
+
+-- values(): a NULL first column must not truncate the row (bounded unpack)
+local function test_values_null_first_column()
+  local db = sqlite.open(":memory:")
+  db:exec("CREATE TABLE t (a TEXT, b INTEGER, c TEXT)")
+  db:exec("INSERT INTO t VALUES (NULL, 42, 'z')")
+  local stmt = db:prepare("SELECT * FROM t")
+  local a, b, c = stmt:values()()
+  assert(a == nil, "first column should be nil")
+  assert(b == 42, "second column should survive NULL-first-column unpack")
+  assert(c == "z", "third column should survive NULL-first-column unpack")
+  stmt:close()
+  db:close()
+end
+test_values_null_first_column()
+
+-- Use-after-close returns errors instead of throwing/crashing
+local function test_use_after_close()
+  local db = sqlite.open(":memory:")
+  db:exec("CREATE TABLE t (id INTEGER)")
+  db:close()
+  local ok, exec_err = db:exec("INSERT INTO t (id) VALUES (1)")
+  assert(not ok and type(exec_err) == "string", "exec after close should error")
+  local iter, query_err = db:query("SELECT * FROM t")
+  assert(iter == nil and type(query_err) == "string", "query after close should error")
+  assert(db:last_insert_rowid() == 0, "last_insert_rowid after close should not crash")
+  assert(db:changes() == 0, "changes after close should not crash")
+end
+test_use_after_close()
+
 -- Index conversion (1-indexed)
 
 local function test_column_name_1indexed()
