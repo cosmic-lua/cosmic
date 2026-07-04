@@ -306,4 +306,36 @@ local function test_query_named()
 end
 test_query_named()
 
+--- A nested query for the SAME SQL text as a still-open outer query must
+--- not corrupt either cursor: db:query's statement cache (see
+--- cosmic.sqlite_stmt_cache) only hands out its cached slot for a given
+--- SQL text once at a time, giving a nested query for that same text its
+--- own separate statement instead.
+local function test_same_sql_nested_query_reentrant()
+  local db = sqlite.open(":memory:")
+  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+  db:exec("INSERT INTO t (name) VALUES ('a'), ('b'), ('c')")
+
+  local pairs_seen: {string} = {}
+  for outer in db:query("SELECT * FROM t ORDER BY id") do
+    for inner in db:query("SELECT * FROM t ORDER BY id") do
+      table.insert(pairs_seen, (outer.name as string) .. (inner.name as string))
+    end
+  end
+
+  local expected = {"aa", "ab", "ac", "ba", "bb", "bc", "ca", "cb", "cc"}
+  assert(#pairs_seen == 9, "expected 9 pairs, got " .. tostring(#pairs_seen))
+  for i, pair in ipairs(expected) do
+    assert(pairs_seen[i] == pair,
+      "pair " .. i .. ": expected " .. pair .. ", got " .. tostring(pairs_seen[i]))
+  end
+
+  -- Once both iterators are drained, the cached slot for this SQL must be
+  -- available again, not left permanently "checked out".
+  local row, err = db:query_one("SELECT * FROM t WHERE id = 1")
+  assert(row ~= nil, "query after nested reentrant use should still work: " .. tostring(err))
+  db:close()
+end
+test_same_sql_nested_query_reentrant()
+
 print("All sqlite tests passed")
