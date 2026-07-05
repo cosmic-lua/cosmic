@@ -45,8 +45,7 @@ perf-bin: $(cosmic_bin)
 	@mkdir -p $(perf_sandbox)
 	@cp $(COSMO_LUA) $(cosmic_local_bin)
 	@chmod +x $(cosmic_local_bin)
-	@cd $(cosmic_built) && $(CURDIR)/$(cosmos_zip_bin) -qr $(CURDIR)/$(cosmic_local_bin) .lua .tl .docs sys skills
-	@$(cosmos_zip_bin) -qj $(cosmic_local_bin) $(cosmic_main) $(cosmic_args)
+	$(call pack-cosmic,$(cosmic_local_bin))
 	@echo "built $(cosmic_local_bin) from $(COSMO_LUA)"
 	@echo "measure it with: PERF_BIN=$(cosmic_local_bin) bin/make perf-compare"
 
