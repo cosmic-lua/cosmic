@@ -20,11 +20,48 @@ local record Uname
   domainname: string
 end
 
+--- Operating system name as reported by `host_os`.
+--- These are the normalized cosmic names, not the raw cosmopolitan tokens:
+--- macOS reports as "macos" (the C layer returns "XNU"), and bare-metal as
+--- "metal".
+local enum HostOs
+  "linux"
+  "macos"
+  "windows"
+  "freebsd"
+  "openbsd"
+  "netbsd"
+  "metal"
+end
+
+-- Cosmopolitan's GetHostOs() returns tokens that do not all match the names
+-- cosmic documents ("XNU" vs "macos"). Translate in the wrapper so callers
+-- compare against a single, stable vocabulary across the six fat-binary OSes.
+local host_os_names: {string: HostOs} = {
+  linux = "linux",
+  xnu = "macos",
+  windows = "windows",
+  freebsd = "freebsd",
+  openbsd = "openbsd",
+  netbsd = "netbsd",
+  metal = "metal",
+}
+
+--- Normalize a raw cosmopolitan OS token (e.g. "XNU", "Linux") to a HostOs.
+--- Unknown tokens are passed through lowercased.
+--- @param raw string The raw OS token from cosmo.GetHostOs()
+--- @return HostOs The normalized operating system name
+local function normalize_host_os(raw: string): HostOs
+  local lowered = raw:lower()
+  return host_os_names[lowered] or (lowered as HostOs)
+end
+
 --- Get the operating system name.
---- Returns lowercase strings: "linux", "macos", "windows", "freebsd", "openbsd", "netbsd".
---- @return string The operating system name
-local function host_os(): string
-  return cosmo.GetHostOs():lower()
+--- Returns one of: "linux", "macos", "windows", "freebsd", "openbsd",
+--- "netbsd", "metal".
+--- @return HostOs The operating system name
+local function host_os(): HostOs
+  return normalize_host_os(cosmo.GetHostOs())
 end
 
 --- Get the CPU architecture (instruction set architecture).
@@ -100,7 +137,8 @@ local record SysModule
   SC_NPROCESSORS_CONF: number
   SC_NPROCESSORS_ONLN: number
 
-  host_os: function(): string
+  host_os: function(): HostOs
+  normalize_host_os: function(raw: string): HostOs
   host_isa: function(): string
   platform: function(): string
   sysconf: function(name: number): number, string
@@ -120,6 +158,7 @@ local M: SysModule = {
   SC_NPROCESSORS_ONLN = unix.SC_NPROCESSORS_ONLN,
 
   host_os = host_os,
+  normalize_host_os = normalize_host_os,
   host_isa = host_isa,
   platform = platform,
   sysconf = sysconf,
