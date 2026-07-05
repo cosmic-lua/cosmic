@@ -140,6 +140,7 @@ local function check_call_after_define(file: string, lines: {string}): {Diagnost
 end
 
 local COSMO_REQUIRE_ALLOWLIST: {string: boolean} = {
+  ["lib/build/lint_test.tl"] = true,
   ["lib/cosmic/child_io_test.tl"] = true,
   ["lib/cosmic/child_test.tl"] = true,
   ["lib/cosmic/compile_test.tl"] = true,
