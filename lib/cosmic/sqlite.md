@@ -261,9 +261,9 @@ function db:query_one(sql: string, ...: any): {string: any}, string
 function db:transaction(fn: function(Database)): boolean, string
 ```
 
- Execute fn within a transaction. Calls BEGIN before fn, COMMIT after
- fn returns, and ROLLBACK if fn raises an error.
- Returns true on success, or false and an error message on failure.
+ Execute fn within a transaction. BEGIN before fn; COMMIT if fn returns
+ cleanly; ROLLBACK if fn raises OR signals failure the library way -- a
+ returned `false`, or `nil` plus an error (nothing returned still commits).
 
 ### db:last_insert_rowid
 
