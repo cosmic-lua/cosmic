@@ -36,6 +36,7 @@ local cio = require("cosmic.io")
 local czip = require("cosmic.zip")
 local fs = require("cosmic.fs")
 local unix = require("cosmo.unix")
+local errstr = require("cosmic.errno").str
 
 --- Result returned from embed and extract operations.
 local record EmbedResult
@@ -71,6 +72,22 @@ local record ZipReader
   close: function(self: ZipReader)
 end
 
+--- Directory handle whose `read` exposes the dirent d_type (unix.DT_DIR /
+--- DT_REG / DT_LNK / ... / DT_UNKNOWN) where the filesystem supports it,
+--- letting collect_dir skip a stat(2) call for entries d_type already
+--- identifies as neither a directory nor a regular file.
+local record EmbedDirHandle
+  read: function(self): string, number
+  close: function(self)
+end
+
+-- One directory entry plus its d_type, sorted together for deterministic
+-- embed order without needing two parallel arrays.
+local record DirEntry
+  name: string
+  kind: number
+end
+
 -- Internal record for files staged for embedding.
 local record FileToEmbed
   path: string
@@ -88,51 +105,67 @@ local function collect_dir(dir: string): {FileToEmbed}, string
   local collected: {FileToEmbed} = {}
 
   local function do_walk(base_dir: string, rel_prefix: string): string
-    local handle, dir_err = fs.opendir(base_dir)
+    local raw, dir_err = unix.opendir(base_dir)
+    local handle = raw as EmbedDirHandle
     if not handle then
-      return "cannot open directory '" .. base_dir .. "': " .. (dir_err or "unknown error")
+      return "cannot open directory '" .. base_dir .. "': " .. errstr(dir_err, "opendir")
     end
 
-    local entries: {string} = {}
+    local entries: {DirEntry} = {}
     while true do
-      local entry = handle:read()
+      local entry, kind = handle:read()
       if not entry then break end
       if entry ~= "." and entry ~= ".." then
-        entries[#entries + 1] = entry
+        entries[#entries + 1] = {name = entry, kind = kind}
       end
     end
     handle:close()
-    table.sort(entries)
+    table.sort(entries, function(a: DirEntry, b: DirEntry): boolean
+        return a.name < b.name
+      end)
 
-    for _, entry in ipairs(entries) do
+    for _, de in ipairs(entries) do
+      local entry = de.name
+      local kind = de.kind
       local full_path = fs.join(base_dir, entry)
-      -- Use lstat (follow_symlinks=false) so symlinked dirs appear as S_ISLNK,
-      -- not S_ISDIR.  This prevents infinite recursion through symlink cycles
-      -- and stops symlinks to paths outside the embed dir from being followed.
-      local st = fs.stat(full_path, false)
-      if st then
-        if fs.is_dir(st:mode()) then
-          -- Only recurse into real directories, never symlinked ones.
-          local rel = rel_prefix == "" and entry or (rel_prefix .. "/" .. entry)
-          local walk_err = do_walk(full_path, rel)
-          if walk_err then return walk_err end
-        elseif unix.S_ISREG(st:mode()) then
-          -- Only embed regular files; skip symlinks (S_ISLNK) entirely.
-          local stored_name = rel_prefix == "" and entry or (rel_prefix .. "/" .. entry)
-          local content, read_err = cio.slurp(full_path)
-          if not content then
-            return "cannot open file '" .. full_path .. "': " .. (read_err or "unknown error")
+      local rel = rel_prefix == "" and entry or (rel_prefix .. "/" .. entry)
+
+      if kind == unix.DT_DIR then
+        -- d_type never follows symlinks, so this is a real directory (a
+        -- symlinked dir reports DT_LNK), skipping a stat(2) call. This is
+        -- also what prevents infinite recursion through symlink cycles.
+        local walk_err = do_walk(full_path, rel)
+        if walk_err then return walk_err end
+      elseif kind ~= unix.DT_REG and kind ~= unix.DT_UNKNOWN then
+        -- Definitely neither a directory nor a regular file (symlink,
+        -- fifo, socket, ...): skip without paying for a stat(2) call.
+      else
+        -- kind is DT_REG (need the mode bits) or DT_UNKNOWN (filesystem
+        -- doesn't expose d_type; fall back to a real lstat so a symlinked
+        -- dir reports S_ISLNK, not S_ISDIR, preserving the same cycle
+        -- prevention as the d_type == DT_DIR branch above).
+        local st = fs.stat(full_path, false)
+        if st then
+          if fs.is_dir(st:mode()) then
+            local walk_err = do_walk(full_path, rel)
+            if walk_err then return walk_err end
+          elseif unix.S_ISREG(st:mode()) then
+            -- Only embed regular files; skip symlinks (S_ISLNK) entirely.
+            local content, read_err = cio.slurp(full_path)
+            if not content then
+              return "cannot open file '" .. full_path .. "': " .. (read_err or "unknown error")
+            end
+            -- Extract permission bits (lower 9 bits)
+            local file_mode = st:mode() & tonumber("777", 8)
+            collected[#collected + 1] = {
+              path = full_path,
+              content = content,
+              stored_name = rel,
+              mode = file_mode,
+            }
           end
-          -- Extract permission bits (lower 9 bits)
-          local file_mode = st:mode() & tonumber("777", 8)
-          collected[#collected + 1] = {
-            path = full_path,
-            content = content,
-            stored_name = stored_name,
-            mode = file_mode,
-          }
+          -- S_ISLNK entries are silently skipped (no recurse, no embed)
         end
-        -- S_ISLNK entries are silently skipped (no recurse, no embed)
       end
     end
     return nil
