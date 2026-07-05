@@ -109,6 +109,12 @@ local record Memory
   --  get added to the wait list unless it's sure that it needs to wait,
   --  since the kernel can only control the ordering of wait / wake calls
   --  across processes.
+  --  Futex words are 32-bit. Although words are stored as 64-bit integers,
+  --  wait / wake only ever inspect the low 32 bits, so `expect` must fit in
+  --  an int32 and the word you wait on must hold only int32 values. If the
+  --  word at `word_index` has any of its high 32 bits set when you call
+  --  wait, this method raises an error rather than silently comparing a
+  --  truncated value (e.g. a stored 2^32+1 must not masquerade as 1).
   --  The default behavior is to wait until the heat death of the universe
   --  if necessary. You may alternatively specify an absolute deadline. If
   --  it's less than or equal to the value returned by clock_gettime, then
@@ -1394,6 +1400,8 @@ local record unix Constants
   SO_KEEPALIVE: number
   --  @type integer
   SO_LINGER: number
+  --  @type integer
+  SO_NOSIGPIPE: number
   --  @type integer
   SO_OOBINLINE: number
   --  @type integer
@@ -4154,6 +4162,17 @@ function sigaction(sig: number, handler?: function | number, flags?: number, mas
      assert(err:errno() == unix.EINTR)
      assert(gotsigusr1)
      assert(unix.sigprocmask(unix.SIG_SETMASK, oldmask))
+ When `handler` is a Lua function, it is dispatched *deferred* rather than
+ from the raw signal context: the real signal handler only records the
+ signal and the Lua function is then invoked at the next Lua VM instruction
+ boundary, in normal execution context. This is required because the Lua VM
+ is not async-signal-safe -- running Lua from a true signal handler that
+ interrupted the VM mid-allocation or mid-GC can corrupt the heap. A
+ consequence is that a blocking syscall interrupted by the signal still
+ returns `EINTR` immediately (so `sigsuspend`/poll wakeups are preserved),
+ but the Lua handler body runs a moment later once the VM resumes. Integer
+ handlers (e.g. `unix.SIG_IGN`, `unix.SIG_DFL`, or a raw function pointer)
+ are installed directly and are not deferred.
  It's a good idea to not do too much work in a signal handler.
 
 **Parameters:**

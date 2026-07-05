@@ -7,6 +7,15 @@
 
 ## Types
 
+### RawGetopt
+
+```teal
+local record RawGetopt
+  parse: function(args: {string}, optstring: string, longopts: {table}): any, any
+  new: function(args: {string}, optstring: string, longopts: {table}): any
+end
+```
+
 ### LongOpt
 
  Defines a long option with its name, argument behavior, and optional short alias.
@@ -22,27 +31,52 @@ local record LongOpt
 end
 ```
 
+### Option
+
+ A single recognized option and its argument.
+ For a long option that has a short alias, `opt` is that short letter; for a
+ long-only option, `opt` is the long name. `arg` is nil when the option takes
+ no argument.
+ @field opt string The option letter or long name
+ @field arg string|nil The option's argument, if any
+
+```teal
+local record Option
+  opt: string
+  arg: string
+end
+```
+
+### Result
+
+ The outcome of a single `parse` call.
+ @field opts {Option} Recognized options, in the order encountered
+ @field args {string} Non-option (positional) arguments
+ @field unknown {string} Unrecognized options, each including its dashes
+ @field missing {string} Options that required an argument but got none
+
+```teal
+local record Result
+  opts: {Option}
+  args: {string}
+  unknown: {string}
+  missing: {string}
+end
+```
+
 ### Parser
 
- Parser for iterating through command-line options.
- Use next() in a loop to get each option, then remaining() and unknown()
- after parsing is complete.
+ A parser object for iterating through command-line options one at a time.
+ Retained as a thin compatibility shim over `parse`; prefer `parse`.
 
 ```teal
 local record Parser
-  --  Get the next option from the parser.
-  --  Returns the short option character when a short alias is defined,
-  --  or the long option name when no short alias exists.
-  --  This means both `-h` and `--help` return `"h"` if `short = "h"` is set.
-  --  Returns nil when no more options remain.
-  --  If the option is unknown, returns "?" as the option name and the
-  --  unknown option string as the argument.
+  --  Get the next option, or nil when done. Unknown/missing options are
+  --  reported as "?" with the offending option string as the second value.
   next: function(self: Parser): string, string
-  --  Get remaining non-option arguments after all options have been parsed.
-  --  Call this after the next() loop completes to get positional arguments.
+  --  Get remaining non-option arguments.
   remaining: function(self: Parser): {string}
-  --  Get any unknown options that were encountered during parsing.
-  --  Useful for error reporting or warning about unrecognized options.
+  --  Get any unknown options encountered during parsing.
   unknown: function(self: Parser): {string}
 end
 ```
@@ -53,51 +87,52 @@ end
 local record GetoptModule
   --  Type for defining long options
   LongOpt: LongOpt
-  --  Type for the option parser
+  --  Type for a single recognized option
+  Option: Option
+  --  Type for the parse result
+  Result: Result
+  --  Type for the stateful parser
   Parser: Parser
-  --  Create a new option parser
+  --  Parse a command-line argument vector in one shot
+  parse: function(args: {string}, optstring: string, longopts?: {LongOpt}): Result, string
+  --  Create a stateful parser (compatibility shim over parse)
   new: function(args: {string}, optstring: string, longopts?: {LongOpt}): Parser
 end
 ```
 
 ## Functions
 
-### new
+### parse
 
 ```teal
-function new(args: {string}, optstring: string, longopts?: {LongOpt}): Parser
+function parse(args: {string}, optstring: string, longopts?: {LongOpt}): Result, string
 ```
 
- Create a new option parser for command-line arguments.
+ Parse a command-line argument vector in one shot.
  The optstring uses standard getopt format:
  - A letter means that option takes no argument (e.g., "h" for -h)
  - A letter followed by : means it requires an argument (e.g., "o:" for -o file)
  - A letter followed by :: means it takes an optional argument (e.g., "v::" for -v or -vN)
+ The result separates four outcomes: recognized `opts` (each a {opt, arg}
+ record, in order), leftover positional `args`, `unknown` options (always
+ spelled with their dashes, e.g. "-x" or "--nope"), and `missing` options
+ that required an argument but were given none (named without dashes).
  Example - Basic usage:
      local getopt = require("cosmic.getopt")
-     local parser = getopt.new(arg, "hvo:", {
+     local r = getopt.parse(arg, "hvo:", {
        {name = "help",    has_arg = "none",     short = "h"},
        {name = "verbose", has_arg = "none",     short = "v"},
        {name = "output",  has_arg = "required", short = "o"},
      })
-     local verbose = false
-     local output: string
-     while true do
-       local opt, optarg = parser:next()
-       if not opt then break end
-       -- Both -h and --help return "h" since short alias is defined
-       if opt == "h" then
+     for _, o in ipairs(r.opts) do
+       -- Both -h and --help yield "h" since a short alias is defined
+       if o.opt == "h" then
          print("Usage: ...")
-         os.exit(0)
-       elseif opt == "v" then
-         verbose = true
-       elseif opt == "o" then
-         output = optarg
+       elseif o.opt == "v" then
+         print("verbose")
+       elseif o.opt == "o" then
+         print("output = " .. o.arg)
        end
-     end
-     local files = parser:remaining()
-     for _, unknown in ipairs(parser:unknown()) do
-       io.stderr:write("warning: unknown option: " .. unknown .. "\n")
      end
 
 **Parameters:**
@@ -105,6 +140,27 @@ function new(args: {string}, optstring: string, longopts?: {LongOpt}): Parser
 - `args` ({string}) - The argument list to parse (typically the global `arg` table)
 - `optstring` (string) - Short options specification
 - `longopts` ({LongOpt}|nil) - Long options table, each entry is {name, has_arg, short}
+
+**Returns:**
+
+- Result|nil - The parse result, or nil on error
+- string|nil - An error message when parsing failed
+
+### new
+
+```teal
+function new(args: {string}, optstring: string, longopts?: {LongOpt}): Parser
+```
+
+ Create a stateful parser (compatibility shim over `parse`).
+ Prefer `parse`, which returns all results at once. `next` yields each
+ recognized option in turn, then "?" entries for unknown/missing options.
+
+**Parameters:**
+
+- `args` ({string}) - The argument list to parse
+- `optstring` (string) - Short options specification
+- `longopts` ({LongOpt}|nil) - Long option definitions
 
 **Returns:**
 

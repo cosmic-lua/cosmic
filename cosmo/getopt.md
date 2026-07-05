@@ -4,35 +4,45 @@ Type declarations for the `getopt` module.
 
 ## Types
 
-### parser
+### Option
 
- A parser object returned by `getopt.new` for iterating through
- command-line options.
+ A single recognized option and its argument (nil when the option takes
+ none). For a long option that has a short equivalent, `opt` is that short
+ letter; for a long-only option, `opt` is the long name.
 
 ```teal
-local record parser
-  --  Get the next option from the parser.
-  --  Returns the next option character or long name, along with its argument
-  --  if the option takes one. Returns nil when no more options remain.
-  --  If the option is unknown, returns "?" as the option name and the unknown
-  --  option string as the argument.
-  next: function(self: parser): string | nil, string | nil
-  --  Get remaining non-option arguments after all options have been parsed.
-  remaining: function(self: parser): {string}
-  --  Get any unknown options that were encountered during parsing.
-  unknown: function(self: parser): {string}
+local record Option
+  opt: string
+  arg: string
+end
+```
+
+### Result
+
+ The outcome of a single `getopt.parse` call.
+
+```teal
+local record Result
+  --  Recognized options, in the order encountered
+  opts: {Option}
+  --  Non-option (positional) arguments
+  args: {string}
+  --  Unrecognized options, each including its dashes
+  unknown: {string}
+  --  Options that required an argument but got none
+  missing: {string}
 end
 ```
 
 ## Functions
 
-### new
+### parse
 
 ```teal
-function new(args: {string}, optstring: string, longopts?: {table}): parser
+function parse(args: {string}, optstring: string, longopts?: {table}): Result, string
 ```
 
- Create a new getopt parser for iterating through command-line options.
+ Parse a command-line argument vector in one shot.
  The optstring uses standard getopt format:
  - A letter means that option takes no argument
  - A letter followed by : means it requires an argument
@@ -40,34 +50,37 @@ function new(args: {string}, optstring: string, longopts?: {table}): parser
  The longopts table contains entries like {"name", "has_arg", "short"}:
  - name: the long option name (e.g., "help" for --help)
  - has_arg: "none", "required", or "optional"
- - short: the equivalent short option character (e.g., "h")
+ - short: the equivalent short option character (e.g., "h"), or nil
+ The result separates four outcomes. `opts` lists the recognized options in
+ order, each as a {opt, arg} pair. `args` holds the leftover positional
+ arguments. `unknown` holds unrecognized options (always spelled with their
+ dashes, e.g. "-x" or "--nope"). `missing` holds the options that required an
+ argument but were given none (named without dashes, e.g. "o"); this is kept
+ distinct from `unknown` via getopt's leading-`:` protocol.
  Example - Basic usage:
-     local parser = getopt.new(arg, "hvo:", {
+     local r = getopt.parse(arg, "hvo:", {
        {"help",    "none",     "h"},
        {"verbose", "none",     "v"},
        {"output",  "required", "o"},
      })
-     while true do
-       local opt, arg = parser:next()
-       if not opt then break end
-       if opt == "h" or opt == "help" then
+     for _, o in ipairs(r.opts) do
+       if o.opt == "h" then
          print("Usage: ...")
-       elseif opt == "v" or opt == "verbose" then
+       elseif o.opt == "v" then
          verbose = true
-       elseif opt == "o" or opt == "output" then
-         output = arg
+       elseif o.opt == "o" then
+         output = o.arg
        end
      end
-     local remaining = parser:remaining()  -- non-option args
-     local unknown = parser:unknown()      -- unrecognized options
+     -- r.args     -- non-option arguments
+     -- r.unknown  -- unrecognized options, with dashes
+     -- r.missing  -- options missing a required argument
  Example - Handling repeated options:
-     local parser = getopt.new(arg, "e:", {})
+     local r = getopt.parse(arg, "e:")
      local excludes = {}
-     while true do
-       local opt, arg = parser:next()
-       if not opt then break end
-       if opt == "e" then
-         table.insert(excludes, arg)
+     for _, o in ipairs(r.opts) do
+       if o.opt == "e" then
+         table.insert(excludes, o.arg)
        end
      end
      -- Now excludes contains all -e values: {"foo", "bar", "spam"}
@@ -80,4 +93,5 @@ function new(args: {string}, optstring: string, longopts?: {table}): parser
 
 **Returns:**
 
-- parser
+- Result
+- string
