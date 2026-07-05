@@ -438,3 +438,46 @@ local function test_spawn_many_captures_correct()
   end
 end
 test_spawn_many_captures_correct()
+
+-- FIX (#526 item 5): spawn must not mutate the caller's argv, and its pipes
+-- must be CLOEXEC so overlapping children don't inherit each other's ends.
+
+local function test_spawn_does_not_mutate_argv()
+  -- A PATH search wrote the resolved path back into argv[1], corrupting the
+  -- caller's own table. The resolution must go into a local instead.
+  local argv = {"echo", "x"}
+  local handle = child.spawn(argv)
+  assert(handle ~= nil, "spawn should succeed")
+  handle:wait()
+  assert(argv[1] == "echo",
+    "spawn must not mutate caller's argv[1], got '" .. tostring(argv[1]) .. "'")
+end
+test_spawn_does_not_mutate_argv()
+
+local function test_spawn_overlap_no_stdin_leak()
+  -- Non-CLOEXEC pipes let a later child inherit an earlier child's stdin
+  -- write end, so the earlier child never saw EOF until the later one exited
+  -- and communicate() hung on overlap. Spawn A (reads stdin to EOF), then a
+  -- long-lived B; with CLOEXEC pipes A gets EOF immediately once the parent
+  -- closes its write end, so it finishes without waiting on B.
+  local a = child.spawn({lua_bin, "-e", "io.write(io.read('*a') or '')"},
+    {stdin = "hello"})
+  assert(a ~= nil, "spawn A should succeed")
+  local b = child.spawn({lua_bin, "-e", "require('cosmic.time').sleep(10)"})
+  assert(b ~= nil, "spawn B should succeed")
+
+  local s0, n0 = time.monotonic()
+  local out, _, code = a:communicate()
+  local s1, n1 = time.monotonic()
+  local elapsed = (s1 - s0) + (n1 - n0) / 1e9
+
+  assert(code == 0, "A should exit 0, got " .. tostring(code))
+  assert(out == "hello", "A should echo its stdin, got '" .. tostring(out) .. "'")
+  assert(elapsed < 3,
+    "A must finish promptly, not block on B's lifetime (took "
+    .. tostring(elapsed) .. "s)")
+
+  child.kill(b.pid, child.SIGKILL)
+  b:wait()
+end
+test_spawn_overlap_no_stdin_leak()
