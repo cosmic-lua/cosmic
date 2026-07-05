@@ -19,6 +19,18 @@ cosmic_types := $(wildcard lib/types/*.tl) $(wildcard lib/types/*.d.tl) $(wildca
 
 cosmic_version_lua := $(o)/cosmic/version.lua
 
+# Pack the cosmic payload into the binary given as $(1). The boot-critical
+# Lua — .lua/cosmic/* modules, main.lua and .args — is inflate()d on EVERY
+# invocation (29 inflate() calls at boot; see lib/perf/backlog/024), so store
+# it uncompressed to skip the decompress. The rest (tl.lua, the type
+# declarations, docs, .tl source, skills) is either large or lazy-loaded and
+# not on the startup path, so keep it deflated to hold the size cost down.
+define pack-cosmic
+	@cd $(cosmic_built) && $(CURDIR)/$(cosmos_zip_bin) -qr0 $(CURDIR)/$(1) .lua/cosmic
+	@cd $(cosmic_built) && $(CURDIR)/$(cosmos_zip_bin) -qr $(CURDIR)/$(1) .lua .tl .docs sys skills -x '.lua/cosmic/*'
+	@$(cosmos_zip_bin) -qj0 $(1) $(cosmic_main) $(cosmic_args)
+endef
+
 $(cosmic_version_lua): .FORCE | $$(cosmos_staged)
 	@mkdir -p $(@D)
 	@echo "return { cosmic = \"$$(git describe --tags --always --dirty 2>/dev/null || echo unknown)\", cosmos = \"$$($(cosmos_lua_bin) -e "print(dofile('3p/cosmos/version.lua').version)")\" }" > $@.tmp
@@ -53,14 +65,12 @@ $(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(tea
 	@$(cp) $(cosmic_skills) $(cosmic_built)/skills/cosmic/
 	@$(cp) $(cosmos_lua_bin) $@
 	@chmod +x $@
-	@cd $(cosmic_built) && $(CURDIR)/$(cosmos_zip_bin) -qr $(CURDIR)/$@ .lua .tl .docs sys skills
-	@$(cosmos_zip_bin) -qj $@ $(cosmic_main) $(cosmic_args)
+	$(call pack-cosmic,$@)
 
 $(cosmic_debug_bin): $(cosmic_bin)
 	@$(cp) $(cosmos_lua_debug_bin) $@
 	@chmod +x $@
-	@cd $(cosmic_built) && $(CURDIR)/$(cosmos_zip_bin) -qr $(CURDIR)/$@ .lua .tl .docs sys skills
-	@$(cosmos_zip_bin) -qj $@ $(cosmic_main) $(cosmic_args)
+	$(call pack-cosmic,$@)
 
 cosmic: $(cosmic_bin)
 
