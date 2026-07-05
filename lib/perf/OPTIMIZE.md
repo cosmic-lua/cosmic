@@ -28,8 +28,17 @@ FAILS the benchmark.
 bin/make perf                 # run all scenarios, write o/perf/current.json
 bin/make perf-baseline        # snapshot results to o/perf/baseline.json
 bin/make perf-compare         # re-run and fail on regression vs baseline
+bin/make perf-selfcheck       # A/A control: same binary vs itself = noise floor
 bin/make perf PERF_ONLY=json  # filter scenarios by Lua pattern
 ```
+
+`perf-selfcheck` is the fast way out of a false alarm: when `perf-compare`
+flags a scenario your change never touched (a fixed-overhead microbench
+like `hash_sha256_small` or `startup_run_*` swung by frequency scaling,
+a noisy neighbor, or code-layout shift), it measures the same binary
+twice and compares it to itself, so anything it flags is machine noise
+rather than your edit. `lib/perf/optimize/measurement.md` has the full
+playbook.
 
 knobs: `PERF_SAMPLES` (default 5), `PERF_MIN_SECS` (default 0.15),
 `PERF_THRESHOLD` (regression bar in percent, default 10), `PERF_BIN`
@@ -95,8 +104,14 @@ work ONE scenario (or one closely related group) at a time.
 6. **decide.**
    - target scenario improved beyond its noise bar and nothing else
      regressed → keep it.
-   - no measurable improvement, or anything else regressed → `git
+   - no measurable improvement, or a real regression elsewhere → `git
      checkout` the change and record the failed hypothesis.
+   - a scenario your change cannot touch flagged as regressed → this is
+     usually machine noise, not a reason to revert. confirm with
+     `bin/make perf-selfcheck` (A/A control): if the same scenario
+     swings as much comparing the binary to itself, discount it. only a
+     regression that is both *explainable by your diff* and *reproducible
+     under the A/A control* counts. see `optimize/measurement.md`.
 7. **commit**, quoting before/after numbers for the affected scenarios in
    the commit message (copy the `perf-compare` lines), and update the
    backlog entry file in the same commit.

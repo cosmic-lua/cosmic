@@ -290,6 +290,7 @@ checks, a JSON results format, and a noise-aware baseline comparison gate.
 bin/make perf                 # run scenarios, write o/perf/current.json
 bin/make perf-baseline        # snapshot baseline before optimizing
 bin/make perf-compare         # re-run and fail on regression vs baseline
+bin/make perf-selfcheck       # A/A control: same binary vs itself = noise floor
 bin/make perf-bin COSMO_LUA=… # wrap a local cosmopolitan lua for PERF_BIN
 ```
 
