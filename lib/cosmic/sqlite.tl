@@ -424,18 +424,22 @@ local function make_database(raw_db: RawDatabase): Database
     return first
   end
 
-  --- Execute fn within a transaction. Calls BEGIN before fn, COMMIT after
-  --- fn returns, and ROLLBACK if fn raises an error.
-  --- Returns true on success, or false and an error message on failure.
+  --- Execute fn within a transaction. BEGIN before fn; COMMIT if fn returns
+  --- cleanly; ROLLBACK if fn raises OR signals failure the library way -- a
+  --- returned `false`, or `nil` plus an error (nothing returned still commits).
   function db:transaction(fn: function(Database)): boolean, string
     local ok, err = self:exec("BEGIN IMMEDIATE")
     if not ok then
       return false, err or "begin failed"
     end
-    local success, call_err = pcall(fn, self) as(boolean, string)
+    local success, result, result_err = pcall(fn, self) as(boolean, any, any)
     if not success then
       self:exec("ROLLBACK")
-      return false, call_err or "transaction failed"
+      return false, (result as string) or "transaction failed"
+    end
+    if result == false or (result == nil and result_err ~= nil) then
+      self:exec("ROLLBACK")
+      return false, (result_err as string) or "transaction rolled back"
     end
     return self:exec("COMMIT")
   end
