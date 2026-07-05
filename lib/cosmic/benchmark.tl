@@ -2,7 +2,18 @@
 --- Parses Benchmark_* functions from Teal files, runs them, and reports timing.
 --- Similar to Go's testing.B but simplified: functions are called N times automatically.
 
-local os_clock = os.clock
+local time = require("cosmic.time")
+
+--- Read the monotonic wall clock in nanoseconds.
+--- Uses CLOCK_MONOTONIC so IO-bound benchmarks (which block rather than
+--- burn CPU) are measured by elapsed wall time, not CPU time. Measuring
+--- CPU time via os.clock() would leave `elapsed` near zero on such
+--- benchmarks and make the calibration loop grow iterations without bound.
+--- @return number Monotonic time in nanoseconds
+local function monotonic_ns(): number
+  local secs, nanos = time.monotonic()
+  return secs * 1e9 + nanos
+end
 
 --- A parsed benchmark function.
 local record Benchmark
@@ -206,7 +217,7 @@ end
 
   while elapsed < MIN_DURATION do
     -- Warm up / calibrate
-    local start = os_clock()
+    local start = monotonic_ns()
     for _ = 1, n do
       local run_ok, run_err: boolean, any = pcall(bench_fn as function())
       if not run_ok then
@@ -222,7 +233,7 @@ end
         return result
       end
     end
-    elapsed = os_clock() - start
+    elapsed = (monotonic_ns() - start) / 1e9
 
     if elapsed < MIN_DURATION then
       -- Estimate iterations needed to reach MIN_DURATION
