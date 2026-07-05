@@ -18,25 +18,30 @@ chapter of `lib/perf/OPTIMIZE.md` — read that first.
   microbenchmarks (`hash_sha256_small`, `startup_run_*`, `net_ip_*`)
   without touching their code. so the compare bar, derived from
   within-run spread, will flag these as "regressions" on pure noise.
-- **when `perf-compare` flags a scenario your change does not touch,
-  do not spend a round hand-rolling A/B runs — run the built-in A/A
-  control:** `bin/make perf-selfcheck` measures the SAME binary twice
-  and compares it against itself, so anything it flags is this machine's
-  noise floor, not your edit. `PERF_ONLY=<name> bin/make perf-selfcheck`
-  narrows it to just the flagged scenario for a fast answer. if
-  `perf-selfcheck` flags the same scenario at a similar magnitude, the
-  `perf-compare` "regression" there is noise; discount it and judge the
-  change by (a) your TARGET scenario moving well beyond its own noise
-  floor and (b) that movement reproducing every run. this is the entry
-  21 story: `json_decode_*` reproduced at ~-30% on every run while the
-  flagged `hash`/`startup_*` scenarios tripped the bar in an A/A control
-  of an unmodified binary against itself.
-- for a scenario perf-compare flagged, an alternative to `perf-selfcheck`
-  is to re-measure just it in isolation on both builds back to back:
-  `PERF_ONLY=<name> bin/make perf` on binary A, then on binary B. an
-  isolated run also removes the thermal/cache wake left by the 20-odd
-  scenarios that precede it in a full suite, which is itself a source of
-  drift for the cheap scenarios near the end.
+- **`perf-compare` triages this for you — trust its verdict, don't
+  hand-roll A/B runs.** after its re-measure retry, if a regression
+  still stands it runs one more pass of the SAME binary and compares it
+  against itself (an A/A self-check); any flagged scenario that also
+  swings past the bar against itself is reclassified `noise` and does
+  NOT fail the gate. so `perf-compare` exits 0 when every survivor is
+  machine noise and nonzero only on a regression the binary reproduces
+  against itself. read the final report: `regression` = real (a stable
+  scenario that moved), `noise` = discounted (a scenario too variable to
+  judge here). this is the entry 21 story made automatic:
+  `json_decode_*` reproduced at ~-30% while `hash`/`startup_*` tripped
+  the bar only on variance an A/A control also shows.
+- the reclassification is deliberately conservative: it only ever
+  downgrades a `regression`, and only when the current binary cannot
+  reproduce that scenario's timing against itself. a real regression in
+  a stable scenario (json, sqlite, codec) has a quiet A/A and stays
+  `regression` — the gate still catches it.
+- `bin/make perf-selfcheck` runs the same A/A control on demand, for
+  interactive use or to profile the machine's noise floor before you
+  start. `PERF_ONLY=<name> bin/make perf-selfcheck` narrows it to one
+  scenario. for a still-suspect scenario, re-measuring it in isolation
+  on both builds back to back (`PERF_ONLY=<name> bin/make perf` on A,
+  then on B) also removes the thermal/cache wake left by the ~20
+  scenarios that precede it in a full suite.
 - prefer default `PERF_SAMPLES`/`PERF_MIN_SECS` for accept/reject
   decisions; use lower values only for quick scouting.
 - scenarios must be stationary: an op must not get slower the more often
