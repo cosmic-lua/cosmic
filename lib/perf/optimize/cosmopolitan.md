@@ -1,0 +1,144 @@
+# Optimizing the cosmopolitan layer
+
+chapter of `lib/perf/OPTIMIZE.md` — read that first. this file makes
+C-layer optimization as mechanical as the cosmic-layer loop: you edit C
+in a whilp/cosmopolitan checkout, rebuild a `lua` binary locally in
+seconds, wrap it in the cosmic payload with one make target, and judge
+it with the same scenarios and the same `perf-compare` gate. no release,
+no pin bump, no CI round-trip until the change has already proven itself.
+
+## what lives in this layer
+
+- the `cosmo.*` C bindings: `tool/net/*.c` (ljson, lsqlite3, lre,
+  lpath, lfuncs, largon2, lfetch, ...) and `tool/lua/lcosmo.c`
+- the Lua 5.4 interpreter itself: `third_party/lua/`
+- the libc every syscall wrapper goes through: `libc/`
+- the APE loader and zip filesystem that dominate `startup_*`
+  scenarios: `ape/`, `libc/runtime/`, `libc/zipos/`
+
+every cosmic scenario exercises this layer; a scenario whose cosmic
+wrapper is already thin (see `finding.md`, "when the wrapper is already
+thin") is measuring almost nothing else.
+
+## prerequisites
+
+- a checkout of whilp/cosmopolitan (any path; `~/cosmopolitan` in the
+  examples below). Linux + GNU make, x86_64 or aarch64.
+- the first build downloads the cosmocc toolchain into `.cosmocc/`
+  (network needed once); after that everything is hermetic.
+
+## the loop
+
+```bash
+COSMO=~/cosmopolitan   # your checkout
+```
+
+1. **build the UNMODIFIED local binary** (cold: a few minutes; warm
+   after a one-file edit: ~2 seconds):
+
+   ```bash
+   make -C $COSMO -j$(nproc) o//tool/lua/lua
+   ```
+
+2. **wrap it in the cosmic payload and baseline it.** never judge a C
+   change against the pinned release binary — pin vs local differs by
+   toolchain and commit drift. A/B two local builds that differ only by
+   your change:
+
+   ```bash
+   COSMO_LUA=$COSMO/o/tool/lua/lua bin/make perf-bin
+   PERF_BIN=o/perf/cosmic-local bin/make perf-baseline
+   ```
+
+3. **hypothesis, then the smallest C diff that tests it** — one
+   hypothesis per commit, exactly like the cosmic layer. pick from
+   `lib/perf/backlog/` (`layer: cosmopolitan` entries) or find your own
+   (below).
+
+4. **gate 1 — correctness:**
+
+   ```bash
+   make -C $COSMO -j$(nproc) o//tool/lua/test   # upstream binding tests, <1s warm
+   ```
+
+   this also enforces the `definitions.lua` annotation ratchet: every
+   binding must keep its `@param`/`@return` annotations in sync (cosmic
+   generates its Teal types from them — AGENTS.md "Type Generation").
+   scenario `check()`s are the second correctness net: a C change that
+   breaks output fails `perf` itself in step 5. for anything touching a
+   binding's behavior, also smoke the affected cosmic module directly:
+   `o/perf/cosmic-local -e '...'`.
+
+5. **gate 2 — performance:**
+
+   ```bash
+   make -C $COSMO -j$(nproc) o//tool/lua/lua
+   COSMO_LUA=$COSMO/o/tool/lua/lua bin/make perf-bin
+   PERF_BIN=o/perf/cosmic-local bin/make perf-compare
+   ```
+
+6. **decide** with the same rules as the main loop: target scenario
+   improved beyond its noise bar and nothing else regressed → keep;
+   otherwise revert and record the failed hypothesis in the backlog
+   entry.
+
+7. **land it** (see below) and update the backlog entry in the same
+   cosmic-side commit.
+
+## landing a C-layer win
+
+the pinned binary only changes through a release, so shipping is a
+two-repo dance — but only AFTER the local loop already proved the win:
+
+1. PR the C change to whilp/cosmopolitan (its AGENTS.md has the repo's
+   own conventions). quote the local `perf-compare` numbers in the PR.
+2. once merged, the release workflow publishes a new cosmos release
+   tagged `YYYY.MM.DD-<sha>` with a `cosmos.zip` + SHA256SUMS.
+3. in cosmic: bump `3p/cosmos/version.lua` (version + sha256), then
+   `bin/make regen-types`, fix any wrapper breakage, `bin/make ci`, and
+   `bin/make perf-compare` against a baseline taken on the OLD pin —
+   this final compare is the end-to-end confirmation, quoted in the
+   bump commit.
+
+## finding C-layer opportunities
+
+- **work the backlog first**: `grep -l "layer: cosmopolitan"
+  lib/perf/backlog/*.md` and pick an `open` one.
+- **thin-wrapper scenarios with cpu/wall ≈ 1.0** — the time is inside
+  one C call. read that binding's source in `tool/net/`.
+- **`startup_*` scenarios** — nothing in cosmic moves them anymore
+  (backlog entries 3 and 4 took the cosmic-side wins); the remaining
+  floor is APE loader + zipos + Lua boot, all C.
+- **decompose with the raw binary.** `$COSMO/o/tool/lua/lua -e '...'`
+  boots the same runtime without cosmic's ~6MB zip payload; the gap
+  between it and `startup_run_lua` splits payload cost from boot floor.
+- **trace, don't guess.** default-mode cosmopolitan binaries have
+  built-in tracing: `o/perf/cosmic-local --strace script.lua` logs
+  every syscall, `--ftrace` logs every C function call — both are
+  cheap ways to see where a scenario's non-CPU time goes or spot
+  redundant syscalls. for CPU profiles, `$COSMO/o/tool/lua/lua.dbg`
+  is a plain ELF with symbols, so Linux `perf record -g` /
+  `perf report` work on it directly.
+- **allocation-heavy bindings** — a scenario with high `alloc` whose
+  wrapper is thin is allocating inside the binding; look for
+  `lua_newtable` where `lua_createtable(L, narr, nrec)` fits (entry
+  21), per-element string pushes that could batch, etc.
+
+## guardrails specific to this layer
+
+- binding contracts are frozen at the C boundary too: return shapes,
+  error values (`nil, err` vs `-1` vs raised error), and constants are
+  what `definitions.lua` documents and what cosmic's generated types
+  encode. a contract change is a separate, deliberate commit with a
+  cosmic-side type regen — never part of an optimization.
+- keep the fork mergeable: whilp/cosmopolitan tracks upstream
+  jart/cosmopolitan. prefer surgical diffs in the files listed above;
+  don't reformat or restructure around them.
+- measure both binaries in the same tree state. `perf-bin` rebuilds
+  `o/perf/cosmic-local` from the CURRENT cosmic payload — if you edit
+  cosmic-side `.tl` files between baseline and compare, you're no
+  longer measuring your C change alone.
+- default build mode (`MODE=` empty) is what releases ship (-O2 with
+  ftrace hooks and SYSDEBUG, same as the pin), so relative comparisons
+  between two default-mode local builds are representative. don't
+  baseline in one MODE and compare in another.
