@@ -8,6 +8,7 @@ local codec = require("cosmic.codec")
 local compress = require("cosmic.compress")
 local cstr = require("cosmic.string")
 local net = require("cosmic.net")
+local url = require("cosmic.url")
 local pt = require("perf.perf_types")
 
 -- NIST SHA-256 test vector: one million repetitions of "a".
@@ -43,8 +44,22 @@ local function build_csv(): string
   return table.concat(fields, ",")
 end
 
+--- Build a deterministic query-value-like string with a realistic mix of
+--- safe characters and ones url.encode must percent-escape, so decode()
+--- has a real handful of %XX sequences to validate, not zero.
+--- @return string The value
+local function build_query_value(): string
+  local parts: {string} = {}
+  for i = 1, 64 do
+    parts[i] = string.format("field %d: a/b+c=d&e %04d", i, i * 37)
+  end
+  return table.concat(parts, " ")
+end
+
 local BLOB = build_blob()
 local CSV = build_csv()
+local QUERY_VALUE = build_query_value()
+local QUERY_ENCODED = url.encode(QUERY_VALUE)
 
 local function scenarios(): {pt.Scenario}, string
   return {
@@ -155,6 +170,21 @@ local function scenarios(): {pt.Scenario}, string
       check = function(_: any, res: any): boolean, string
         if res as string ~= "192.168.1.1" then
           return false, "ip roundtrip mismatch: " .. tostring(res)
+        end
+        return true
+      end,
+    },
+    {
+      -- A pre-encoded query value with a real handful of %XX sequences,
+      -- so decode()'s percent-encoding validation has actual work to do
+      -- rather than short-circuiting on a string with no '%' at all.
+      name = "url_decode_query_value",
+      fn = function(_: any): any
+        return (url.decode(QUERY_ENCODED))
+      end,
+      check = function(_: any, res: any): boolean, string
+        if res as string ~= QUERY_VALUE then
+          return false, "url decode roundtrip corrupted data"
         end
         return true
       end,
