@@ -122,6 +122,7 @@ High-level utilities and tools built on top of cosmo.
 | [micro_bench](lib/perf/bench/micro_bench.md) |  CPU-bound scenarios: hashing, encoding, compression, string handling. |
 | [sqlite_bench](lib/perf/bench/sqlite_bench.md) |  SQLite scenarios: transactional writes, point queries, aggregate scans. |
 | [startup_bench](lib/perf/bench/startup_bench.md) |  End-to-end binary scenarios: process startup and Teal compilation. |
+| [stream_bench](lib/perf/bench/stream_bench.md) |  Streaming HTTP line-iteration against a loopback server. |
 | [time_bench](lib/perf/bench/time_bench.md) |  Date/time formatting scenarios. |
 | [compare](lib/perf/compare.md) |  Baseline-vs-current comparison gate for perf results. |
 | [harness](lib/perf/harness.md) |  Scenario benchmark harness: wall-clock timing with functional checks. |
