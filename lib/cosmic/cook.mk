@@ -21,7 +21,7 @@ cosmic_version_lua := $(o)/cosmic/version.lua
 
 # Pack the cosmic payload into the binary given as $(1). The boot-critical
 # Lua — .lua/cosmic/* modules, main.lua and .args — is inflate()d on EVERY
-# invocation (29 inflate() calls at boot; see lib/perf/backlog/024), so store
+# invocation (29 inflate() calls at boot; see whilp/cosmic#487, backlog 24), so store
 # it uncompressed to skip the decompress. The rest (tl.lua, the type
 # declarations, docs, .tl source, skills) is either large or lazy-loaded and
 # not on the startup path, so keep it deflated to hold the size cost down.

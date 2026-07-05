@@ -13,8 +13,9 @@ file so no chapter ever fights the repo's 500-line-per-file cap:
 - `lib/perf/optimize/cosmopolitan.md` — how to optimize the C layer
   (whilp/cosmopolitan) with a local build, no release required.
 - `lib/perf/optimize/measurement.md` — measurement discipline and noise.
-- `lib/perf/backlog/` — the hypothesis backlog, one file per entry
-  (see its README.md).
+- the hypothesis backlog — GitHub issues labeled `perf` (whilp/cosmic
+  for cosmic-layer work, whilp/cosmopolitan for the C layer). see
+  "the hypothesis backlog" below.
 
 ## the harness in one minute
 
@@ -76,8 +77,9 @@ an optimization can land in either:
   binary via `bin/make perf-bin` — you do NOT need to cut a release to
   measure a C change. see `optimize/cosmopolitan.md`.
 
-after ~20 rounds the cheap cosmic-layer wins are thinning out; check
-`grep -l "status: open" lib/perf/backlog/*.md` — the open entries lean
+after ~20 rounds the cheap cosmic-layer wins are thinning out; check the
+open `perf`-labeled issues (`gh issue list --label perf --state open`, in
+both whilp/cosmic and whilp/cosmopolitan) — the open ones lean
 increasingly toward the cosmopolitan layer.
 
 ## the optimization loop
@@ -122,7 +124,8 @@ work ONE scenario (or one closely related group) at a time.
      `optimize/measurement.md`.
 7. **commit**, quoting before/after numbers for the affected scenarios in
    the commit message (copy the `perf-compare` lines), and update the
-   backlog entry file in the same commit.
+   backlog issue in the same round — comment the result and close it
+   (completed, or "not planned" for a rejected hypothesis).
 
 ## hard rules (guardrails)
 
@@ -162,19 +165,25 @@ one such pass):
    store-vs-deflate slice in entry 24 got real numbers) — but label
    probe numbers as scouting in the entry; accept/reject decisions
    still require the real harness.
-6. one file per hypothesis in `lib/perf/backlog/`, each with the
+6. one issue per hypothesis (label `perf`, in the repo whose layer it
+   targets — whilp/cosmic or whilp/cosmopolitan), each with the
    evidence, the expected mechanism, the correctness constraints, and
-   a risk note. update related older entries in the same commit
-   (cross-reference rather than duplicate).
+   a risk note. update related older issues in the same pass
+   (cross-reference by #number rather than duplicate).
 
 ## the hypothesis backlog
 
-`lib/perf/backlog/` holds the log — one file per concrete,
-evidence-backed starting point, `open`/`done`/`rejected`. work it like
-this: pick ONE open entry, run the loop above, then update the entry's
-file in the same commit. rejected entries stay forever; they save the
-next agent from re-testing a dead end. `lib/perf/backlog/README.md`
-documents the format.
+GitHub issues labeled `perf` hold the log — one issue per concrete,
+evidence-backed starting point. open = unworked; closed as completed =
+done; closed as "not planned" = a rejected dead end (kept forever, so
+the next agent doesn't re-test it). cosmic-layer hypotheses live in
+whilp/cosmic; cosmopolitan-layer ones in whilp/cosmopolitan. work it
+like this: pick ONE open issue (`gh issue list --label perf --state
+open`), run the loop above, then comment the result and close it in the
+same round. each issue body carries the evidence, expected mechanism,
+correctness constraints, and a risk note (issues migrated from the old
+`lib/perf/backlog/*.md` files keep their "backlog entry N" numbering for
+cross-references).
 
 if a workload you want to optimize has no scenario, add one FIRST (in a
 `lib/perf/bench/*_bench.tl` module, with a real `check()`), baseline it,
