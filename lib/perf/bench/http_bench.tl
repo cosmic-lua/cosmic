@@ -96,6 +96,37 @@ local function scenarios(): {pt.Scenario}, string
       end,
     },
     {
+      -- Same request, but with headers set, so validate_headers/
+      -- has_forbidden_byte actually run (http_fetch_get passes no
+      -- headers, so that scenario never touches this code path at all).
+      name = "http_fetch_get_with_headers",
+      fn = function(_: any): any
+        return fetch.Fetch(url, {
+            proxy = proxy,
+            headers = {
+              ["Accept"] = "application/json",
+              ["X-Test"] = "a moderately realistic header value, not just a few bytes",
+            },
+          })
+      end,
+      check = function(_: any, res: any): boolean, string
+        local r = res as fetch.Result
+        if r == nil then
+          return false, "no result"
+        end
+        if not r.ok then
+          return false, "fetch failed: " .. tostring(r.error)
+        end
+        if r.status ~= 200 then
+          return false, "status " .. tostring(r.status)
+        end
+        if r.body ~= BODY then
+          return false, "wrong body"
+        end
+        return true
+      end,
+    },
+    {
       name = "http_tcp_roundtrip",
       fn = function(_: any): any
         local sock, cerr = net.connect_tcp(LOCALHOST, port)

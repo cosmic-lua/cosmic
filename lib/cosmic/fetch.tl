@@ -71,12 +71,10 @@ local function validate_url(url: string): string
   return nil
 end
 
--- True when s carries a CR, LF, or NUL. Plain-text search (find's 4th arg)
--- so the bytes are matched literally, not as pattern metacharacters.
+-- True when s carries a CR, LF, or NUL. One character-class scan instead
+-- of three separate plain-text searches over the same string.
 local function has_forbidden_byte(s: string): boolean
-  return s:find("\r", 1, true) ~= nil
-  or s:find("\n", 1, true) ~= nil
-  or s:find("\0", 1, true) ~= nil
+  return s:find("[\r\n\0]") ~= nil
 end
 
 --- Reject header names or values that carry a CR, LF, or NUL. HTTP headers

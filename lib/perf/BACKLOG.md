@@ -300,3 +300,81 @@ other meaning.
     - risk: low — same two validation conditions and error messages,
       only their evaluation order changed; no change to what cosmo.DecodeBase64
       is ultimately called with.
+
+19. **url.decode's gsub+match validation replaced with a manual %-scan
+      loop** — rejected (2026-07-04)
+    - scenario: `url_decode_query_value` (new): 45.04µs baseline;
+      manual-loop fix measured +53.2% then +56.1% on re-measure — a
+      confirmed regression, not noise (crossed the ±10% bar both times).
+    - evidence: `decode()` (lib/cosmic/url.tl) validated %XX
+      percent-encoding via `str:gsub("%%(%x%x)", "")` (remove every
+      valid escape) followed by `check:match("%%")` (anything left over
+      is invalid) — two full-string C calls, the first of which builds
+      and discards an entire copy of the string. Looked like the same
+      "redundant full-string scan" shape as entry #18
+      (`codec.decode_base64`).
+    - fix attempted: replaced the gsub+match pair with a manual loop —
+      `str:find("%", pos, true)` to locate each literal `%`, then
+      `str:match("^%x%x", pos + 1)` to check the two bytes after it —
+      so validation only touches `%` occurrences instead of the whole
+      string, with no intermediate copy.
+    - why it was rejected despite being the "obviously less work"
+      approach: unlike base64's grammar, arbitrary percent-encoded text
+      isn't expressible as a single anchored Lua pattern (the escape
+      sequences can appear anywhere, and Lua patterns can't repeat a
+      captured alternation), so the replacement needed a Lua-level loop
+      making one `find` and one `match` call *per* `%` character. Each
+      of those is a separate Lua-to-C round trip with its own call
+      overhead; `QUERY_ENCODED` (the benchmark's realistic value) has
+      enough `%XX` sequences that the sum of many small C calls lost to
+      two single large-string C calls (`gsub`/`match`, each one call
+      doing a tight internal C loop over the whole string). The "avoid
+      building an intermediate string" saving was real but smaller than
+      the added per-occurrence call overhead. Reverted
+      (`git checkout -- lib/cosmic/url.tl`). Kept the new benchmark
+      scenario per the "never remove a scenario" rule.
+    - lesson for future rounds: "fewer bytes touched" doesn't always
+      beat "fewer Lua-to-C calls" — a single C-implemented full-string
+      operation can outperform a Lua-level loop over a subset of the
+      same string once the subset isn't tiny relative to call overhead.
+      Entry #18 won because it was still exactly one full-string C call
+      on the happy path, not more calls of any kind.
+    - risk: n/a, rejected on measurement grounds, not correctness (the
+      manual loop was verified correct against all existing `decode()`
+      tests before being measured and reverted).
+
+20. **fetch.has_forbidden_byte runs three plain-text scans where one
+      character-class scan would do** — done, modest win (2026-07-04)
+    - scenario: `http_fetch_get_with_headers` (new — the existing
+      `http_fetch_get` never passes headers, so `validate_headers`
+      short-circuits on `if not headers then return nil end` and never
+      calls `has_forbidden_byte` at all): 70.56µs baseline; three
+      re-measures came back -2.1%, -1.6%, -3.0% — small but consistently
+      faster, never a regression. `http_fetch_get` itself (no headers)
+      is unaffected, as expected, since it never touches this function.
+    - evidence: `has_forbidden_byte` (lib/cosmic/fetch.tl, called once
+      per header name and once per header value in `validate_headers`,
+      security-critical CRLF-injection guard, audit §2.3) ran three
+      separate `s:find(byte, 1, true)` calls — one each for CR, LF, NUL —
+      each a full scan of the string on the common (no-early-exit)
+      clean-header path.
+    - fix: replaced the three plain-text `find` calls with one
+      character-class pattern scan, `s:find("[\r\n\0]")` — still exactly
+      one `string.find` C call, just checking all three bytes per
+      position instead of one call per byte. Verified in a standalone
+      Lua 5.4 script that embedded NUL bytes inside a Lua pattern
+      character class match correctly (Lua 5.4 removed the old `%z`
+      class; a literal `\0` inside `[...]` works directly since Lua
+      strings carry an explicit length, not a NUL terminator).
+    - why this one worked where entry #19 (`url.decode`) didn't: this
+      fix reduces the call *count* on the happy path (3 C calls -> 1),
+      not just bytes touched by more calls — the exact distinction
+      entry #19's "lesson for future rounds" called out.
+    - correctness: ran the full `fetch_headers_test.tl` suite (CRLF in
+      value, LF-only, CR-only, CRLF in name, NUL in value, empty name,
+      clean headers, plus the `stream()` variants) and `fetch_test.tl` —
+      all pass unchanged, confirming identical accept/reject behavior
+      for every existing case.
+    - risk: low — same three forbidden bytes, same short-circuit
+      semantics (`find` still returns at the first match), only the
+      call shape changed.
