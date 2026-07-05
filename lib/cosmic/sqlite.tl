@@ -18,6 +18,7 @@
 
 local lsqlite3 = require("cosmo.lsqlite3")
 local stmt_cache_mod = require("cosmic.sqlite_stmt_cache")
+local row_iter = require("cosmic.sqlite_row_iter")
 
 -- Raw lsqlite3 types (0-indexed, requires manual cleanup)
 local record RawStatement
@@ -99,8 +100,7 @@ local record Database
   close: function(self: Database)
 end
 
--- on_close, if given, replaces finalize on close (returns a cached statement to its pool).
-local function make_statement(raw_stmt: RawStatement, raw_db: RawDatabase, on_close?: function(RawStatement)): Statement
+local function make_statement(raw_stmt: RawStatement, raw_db: RawDatabase): Statement
   local stmt: Statement = {}
   local closed = false
 
@@ -231,11 +231,7 @@ local function make_statement(raw_stmt: RawStatement, raw_db: RawDatabase, on_cl
   stmt.close = function(_: Statement)
     if closed then return end
     closed = true
-    if on_close then
-      on_close(raw_stmt)
-    else
-      local _ = raw_stmt:finalize()
-    end
+    local _ = raw_stmt:finalize()
   end
 
   return setmetatable(stmt, {
@@ -292,15 +288,15 @@ local function make_database(raw_db: RawDatabase): Database
     if not raw_stmt then
       return nil, "query failed: " .. (err or "unknown error")
     end
-    local stmt = make_statement(raw_stmt as RawStatement, raw_db, on_close as function(RawStatement))
-    -- bind() resets first (even with 0 args), clearing a reused statement.
-    local ok, bind_err = stmt:bind(...)
-    if not ok then
-      stmt:close()
-      return nil, "bind failed: " .. (bind_err or "unknown error")
+    -- Hot path: skip the full Statement object and its per-call closures;
+    -- bind and iterate the raw statement directly (see cosmic.sqlite_row_iter).
+    local iter, bind_err = row_iter.query(
+      raw_stmt as any, raw_db as any, on_close as any,
+      sqlite3.OK, sqlite3.ROW, sqlite3.DONE, ...)
+    if not iter then
+      return nil, bind_err
     end
-
-    return make_query_iter(stmt)
+    return iter as Rows
   end
 
   function db:exec(sql: string, ...: any): boolean, string
