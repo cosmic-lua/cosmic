@@ -119,6 +119,27 @@ two-repo dance — but only AFTER the local loop already proved the win:
   redundant syscalls. for CPU profiles, `$COSMO/o/tool/lua/lua.dbg`
   is a plain ELF with symbols, so Linux `perf record -g` /
   `perf report` work on it directly.
+- **count call shapes from `--strace`.** pipe the trace through
+  `grep -o '[a-z_]*(' | sort | uniq -c | sort -rn` to turn thousands
+  of lines into a histogram; anomalies jump out (29 `inflate()` calls
+  per cosmic boot became entry 24). grepping the trace for a
+  filename or call name then answers "who and why".
+- **compare cosmo's `--strace` with kernel `strace -c`.** they see
+  different worlds: `--strace` logs cosmopolitan's userspace view
+  (including zipos file ops that never hit the kernel), while
+  `strace -c` counts real syscalls. the diff localizes cost — cosmic
+  boot shows 35 zipos openats userspace-side but only ~10 kernel
+  openats (zipos serves from the mapped binary: CPU, not I/O), and
+  kernel-side revealed ~195 rt_sigprocmask calls invisible in the
+  userspace trace (entry 27). when strace can't exec an APE
+  directly, wrap it: `strace -c -f sh -c '<cmd>'` and subtract the
+  shell's own footprint.
+- **look for the fast path that already exists in libc.** before
+  designing a C optimization, search cosmopolitan for one already
+  implemented but unreachable from Lua — the posix_spawn/vfork case
+  (entry 26) was found by reading `libc/proc/` after `child_spawn`'s
+  cpu/wall said "kernel time". the C library's own doc comments
+  often name the exact problem you're measuring.
 - **allocation-heavy bindings** — a scenario with high `alloc` whose
   wrapper is thin is allocating inside the binding; look for
   `lua_newtable` where `lua_createtable(L, narr, nrec)` fits (entry

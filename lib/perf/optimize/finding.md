@@ -38,6 +38,19 @@ vetted, evidence-backed starting points. to find new ones, read
   PERF_ONLY=<name>` is cheap; temporarily splitting a scenario's fn into
   narrower scenarios in a scratch bench file localizes the cost. delete
   scratch scenarios before committing.
+- **alloc-per-op sanity math.** for each scenario ask "what does one op
+  *have* to allocate?" and compare to the `alloc` column — the gap is
+  machinery. a single-row sqlite point query has to allocate roughly
+  one row table, yet measured 2.41KB/op; reading the code found a
+  fresh iterator table, metatable, two closures, and a col_names
+  rebuild per call (entry 23). a relpath on short strings measured
+  2.62KB/op; that was normalize's split-into-parts table (entry 25).
+- **audit hot wrappers for validation scans.** grep `lib/cosmic` for
+  `match("[^`, `gsub(` used only for validation, and pre-checks ahead
+  of a delegated C call — a full-string scan that only exists to pick
+  an error message can usually move to the failure branch (entries 18,
+  22), as long as the happy path stays a single C call (entry 19's
+  counter-lesson).
 
 ## when the wrapper is already thin
 

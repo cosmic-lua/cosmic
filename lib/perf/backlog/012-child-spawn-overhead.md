@@ -25,10 +25,8 @@
   - cosmic layer: `spawn()` always allocates 3 pipes even when a
     caller doesn't need stdin/stderr capture — is a fast path worth
     it?
-  - cosmopolitan layer: where does the non-CPU 86% actually go?
-    cosmopolitan's `fork()` does userspace work beyond the raw
-    syscall (e.g. reconstituting runtime state for portability);
-    whether any of it is avoidable on the Linux hot path is a
-    C-side question — work it with
-    `lib/perf/optimize/cosmopolitan.md`.
+  - cosmopolitan layer: the non-CPU 86% is dominated by fork() of a
+    large process; cosmopolitan's own vfork-backed `posix_spawn()`
+    exists precisely to avoid that and has no Lua binding — this
+    became entry 26, the concrete C-side successor to this entry.
 - risk: unknown until a concrete hypothesis is found.
