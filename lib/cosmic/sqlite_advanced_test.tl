@@ -233,6 +233,71 @@ local function test_transaction_multiple_ops()
 end
 test_transaction_multiple_ops()
 
+local function test_transaction_rollback_on_false()
+  -- A body that returns `false, err` (the library's own failure convention)
+  -- must roll back. Before the fix, transaction() discarded the returned
+  -- error and COMMITted, leaving the row behind.
+  local db = sqlite.open(":memory:")
+  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+
+  local body: function(sqlite.Database): (boolean, string) = function(d: sqlite.Database): (boolean, string)
+    d:exec("INSERT INTO t (name) VALUES (?)", "doomed")
+    return false, "boom"
+  end
+  local ok, err = db:transaction(body)
+  assert(ok == false, "should report failure, got ok=" .. tostring(ok))
+  assert(err == "boom", "should surface the body error, got " .. tostring(err))
+
+  local count = 0
+  for _ in db:query("SELECT * FROM t") do
+    count = count + 1
+  end
+  assert(count == 0, "row must roll back when body returns false, got " .. tostring(count))
+  db:close()
+end
+test_transaction_rollback_on_false()
+
+local function test_transaction_rollback_on_nil_err()
+  -- `nil, err` is the same failure convention and must also roll back.
+  local db = sqlite.open(":memory:")
+  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+
+  local body: function(sqlite.Database): (boolean, string) = function(d: sqlite.Database): (boolean, string)
+    d:exec("INSERT INTO t (name) VALUES (?)", "doomed")
+    return nil, "nope"
+  end
+  local ok, err = db:transaction(body)
+  assert(ok == false, "should report failure, got ok=" .. tostring(ok))
+  assert(err == "nope", "should surface the body error, got " .. tostring(err))
+
+  local count = 0
+  for _ in db:query("SELECT * FROM t") do
+    count = count + 1
+  end
+  assert(count == 0, "row must roll back when body returns nil, err, got " .. tostring(count))
+  db:close()
+end
+test_transaction_rollback_on_nil_err()
+
+local function test_transaction_commits_on_no_return()
+  -- A body that returns nothing (the common case) still commits.
+  local db = sqlite.open(":memory:")
+  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+
+  local ok, err = db:transaction(function(d: sqlite.Database)
+      d:exec("INSERT INTO t (name) VALUES (?)", "kept")
+    end)
+  assert(ok, "should commit when body returns nothing: " .. tostring(err))
+
+  local count = 0
+  for _ in db:query("SELECT * FROM t") do
+    count = count + 1
+  end
+  assert(count == 1, "row must commit when body returns nothing, got " .. tostring(count))
+  db:close()
+end
+test_transaction_commits_on_no_return()
+
 -- Named parameters
 
 local function test_bind_named()
