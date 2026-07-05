@@ -119,6 +119,31 @@ work ONE scenario (or one closely related group) at a time.
 - benchmarks live under `lib/perf/bench/` and use `cosmic.*` modules only
   (never raw `cosmo.*`) — they measure what users experience.
 
+## running a research pass (re-seeding the backlog)
+
+when the open backlog runs thin, spend a session on research instead of
+optimization: gather evidence, write new `open` entries, change no
+product code. the workflow that has worked (entries 22-27 came out of
+one such pass):
+
+1. `bin/make perf` on current main; read every line of the report.
+2. rank suspects by the signal shapes in `optimize/finding.md`
+   (alloc-per-op sanity math, sibling mismatches, cpu/wall surprises).
+3. for each suspect, spend a few minutes reading the wrapper source —
+   most hypotheses die or crystallize within one code read.
+4. for startup/syscall suspects, use the tracing decomposition recipes
+   in `optimize/cosmopolitan.md` (cosmo `--strace` call counting,
+   kernel `strace -c`, raw-vs-wrapped binary timing).
+5. cheap probes are allowed and encouraged — rebuild a variant
+   artifact in a scratch directory and shell-time it (that's how the
+   store-vs-deflate slice in entry 24 got real numbers) — but label
+   probe numbers as scouting in the entry; accept/reject decisions
+   still require the real harness.
+6. one file per hypothesis in `lib/perf/backlog/`, each with the
+   evidence, the expected mechanism, the correctness constraints, and
+   a risk note. update related older entries in the same commit
+   (cross-reference rather than duplicate).
+
 ## the hypothesis backlog
 
 `lib/perf/backlog/` holds the log — one file per concrete,
