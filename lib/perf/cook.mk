@@ -32,7 +32,7 @@ perf_cmd = PERF_BIN=$(PERF_BIN) $(PERF_BIN) -- $(perf_run) \
 perf_sandbox := $(o)/perf
 cosmic_local_bin := $(perf_sandbox)/cosmic-local
 
-.PHONY: perf perf-baseline perf-compare perf-bin
+.PHONY: perf perf-baseline perf-compare perf-bin perf-selfcheck
 
 perf-bin: .PLEDGE = stdio rpath wpath cpath proc exec
 perf-bin: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null $(if $(COSMO_LUA),r:$(COSMO_LUA))
@@ -78,3 +78,25 @@ perf-compare: perf
 		echo "perf-compare: regression flagged; re-measuring once to filter noise"; \
 		$(perf_cmd) --out $(perf_sandbox)/current.json $(perf_bench_mods) \
 			&& $(perf_compare_cmd); }
+
+perf-selfcheck: .PLEDGE = stdio rpath wpath cpath proc exec
+perf-selfcheck: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null
+
+perf_selfcheck_cmd = $(PERF_BIN) -- $(perf_run) --compare \
+	$(perf_sandbox)/selfcheck-a.json $(perf_sandbox)/selfcheck-b.json \
+	--threshold $(PERF_THRESHOLD)
+
+## A/A control: measure this machine's noise floor by comparing the SAME
+## binary against itself. Anything flagged here moves more than the bar on
+## nothing but run-to-run variance, so a like-named "regression" in
+## perf-compare is noise, not your change. Use it when perf-compare flags a
+## scenario unrelated to your edit (see lib/perf/optimize/measurement.md).
+# PERF_ONLY narrows it (e.g. PERF_ONLY=hash bin/make perf-selfcheck) for a
+# fast focused check on just the scenario perf-compare flagged.
+perf-selfcheck: $$(perf_lua) $(cosmic_bin)
+	@mkdir -p $(perf_sandbox)
+	@$(perf_cmd) --out $(perf_sandbox)/selfcheck-a.json $(perf_bench_mods)
+	@$(perf_cmd) --out $(perf_sandbox)/selfcheck-b.json $(perf_bench_mods)
+	@$(perf_selfcheck_cmd) && \
+		echo "perf-selfcheck: nothing exceeded the bar — the machine is quiet at this threshold" || \
+		echo "perf-selfcheck: the scenarios flagged above vary by more than the bar on noise alone; discount same-named perf-compare regressions"

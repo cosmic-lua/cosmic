@@ -80,7 +80,16 @@ COSMO=~/cosmopolitan   # your checkout
 6. **decide** with the same rules as the main loop: target scenario
    improved beyond its noise bar and nothing else regressed → keep;
    otherwise revert and record the failed hypothesis in the backlog
-   entry.
+   entry. NOTE: a C edit relinks the whole binary, so function addresses
+   shift and unrelated fixed-overhead microbenchmarks
+   (`hash_sha256_small`, `startup_run_*`, `net_ip_*`) routinely trip the
+   regression bar on layout noise alone — this is the single most common
+   false alarm at this layer. Do NOT revert a real JSON/sqlite/etc. win
+   over it. Confirm with `PERF_BIN=o/perf/cosmic-local bin/make
+   perf-selfcheck` (A/A control): if the flagged scenario swings as much
+   comparing the modified binary to itself, it is noise, not your change
+   (entry 21 hit exactly this). `optimize/measurement.md` has the
+   playbook.
 
 7. **land it** (see below) and update the backlog entry in the same
    cosmic-side commit.
