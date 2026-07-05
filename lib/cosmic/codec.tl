@@ -16,16 +16,20 @@ end
 --- @return string The decoded binary data, or nil on error
 --- @return string? Error message if decoding failed
 local function decode_hex(hex: string): string, string
-  -- Validate length is even
+  -- Validate length is even (O(1))
   if #hex % 2 ~= 0 then
     return nil, "hex string must have even length"
   end
-  -- Validate characters are valid hex
-  if hex:match("[^0-9a-fA-F]") then
+  -- Happy path is a single C call: with even length guaranteed above,
+  -- cosmo.DecodeHex raises only on an invalid hex character. Wrapping it
+  -- in pcall lets the valid case skip the full character-class scan of
+  -- the whole input; the scan's only remaining job (choosing the error
+  -- message) is unnecessary here since even length is already handled.
+  local ok, result = pcall(cosmo.DecodeHex, hex)
+  if not ok then
     return nil, "invalid hex character"
   end
-  -- Validation above guarantees cosmo.DecodeHex cannot raise
-  return cosmo.DecodeHex(hex), nil
+  return result as string, nil
 end
 
 --- Encode a Lua value as Lua source code.

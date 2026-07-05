@@ -1,6 +1,6 @@
 # 22. codec.decode_hex scans the whole input for validity on every call
 
-- status: open
+- status: done (2026-07-05)
 - layer: cosmic
 - scenario: codec_hex_roundtrip_64k
 
@@ -29,3 +29,16 @@
   entry 1), so no invalid input can slip through the pcall path.
 - risk: low — same accept/reject set, same messages, evaluation order
   changes only on the failure path.
+- result: done. `decode_hex` now keeps the O(1) even-length check and
+  wraps `cosmo.DecodeHex` in `pcall` on the happy path, dropping the
+  128KB negated-character-class `hex:match` scan entirely; the failure
+  branch returns the documented "invalid hex character" message
+  (even length is already guaranteed, so a raise can only mean a
+  non-hex byte). Verified against `tool/net/lfuncs.c:718` `LuaDecodeHex`,
+  which raises via `luaL_argerror` on non-hex/odd input and never
+  returns nil — so the pcall path cannot leak a bad decode.
+  `perf-compare`: `codec_hex_roundtrip_64k` 2.14 ms/op -> 137.38 µs/op
+  (-93.6%), no regressions in the other 31 scenarios. The win landed
+  far above the predicted 10-30% because the full-string scan, not the
+  decode, dominated the workload. `bin/make ci` green (codec_test pins
+  the messages and roundtrip).
