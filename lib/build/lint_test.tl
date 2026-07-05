@@ -245,3 +245,71 @@ local function test_check_call_after_define_one_line_if()
   assert(#diags == 0, "expected no diagnostic for function with one-line if, got: " .. tostring(#diags))
 end
 test_check_call_after_define_one_line_if()
+
+local function test_check_cosmo_require_non_test_ignored()
+  -- Non-test files are not subject to the cosmo-require rule
+  local lines = {'local cosmo = require("cosmo")'}
+  local diags = lint.check_cosmo_require("lib/cosmic/init.tl", lines)
+  assert(#diags == 0, "expected no diagnostic for non-test file")
+end
+test_check_cosmo_require_non_test_ignored()
+
+local function test_check_cosmo_require_in_test_flagged()
+  local lines = {'local cosmo = require("cosmo.unix")'}
+  local diags = lint.check_cosmo_require("lib/cosmic/foo_test.tl", lines)
+  assert(
+    #diags == 1,
+    "expected 1 diagnostic for test file with require(\"cosmo\"), got: " .. tostring(#diags)
+  )
+  assert(diags[1].rule == "cosmo-require", "expected cosmo-require rule, got: " .. tostring(diags[1].rule))
+end
+test_check_cosmo_require_in_test_flagged()
+
+local function test_check_cosmo_require_in_example_flagged()
+  local lines = {'local cosmo = require("cosmo")'}
+  local diags = lint.check_cosmo_require("lib/cosmic/foo_example.tl", lines)
+  assert(#diags == 1, "expected 1 diagnostic for example file with require(\"cosmo\")")
+  assert(diags[1].rule == "cosmo-require", "expected cosmo-require rule")
+end
+test_check_cosmo_require_in_example_flagged()
+
+local function test_check_cosmo_require_allowlisted()
+  local lines = {'local cosmo = require("cosmo.unix")'}
+  local diags = lint.check_cosmo_require("lib/cosmic/fs_test.tl", lines)
+  assert(#diags == 0, "expected no diagnostic for allowlisted file")
+end
+test_check_cosmo_require_allowlisted()
+
+local function test_check_cosmo_require_allowlisted_with_prefix()
+  -- Paths with leading ./ prefix should also match allowlist
+  local lines = {'local cosmo = require("cosmo.unix")'}
+  local diags = lint.check_cosmo_require("./lib/cosmic/child_test.tl", lines)
+  assert(#diags == 0, "expected no diagnostic for allowlisted file with ./ prefix")
+end
+test_check_cosmo_require_allowlisted_with_prefix()
+
+local function test_check_cosmo_require_in_long_string_skipped()
+  -- require("cosmo") inside a [[...]] heredoc must not be flagged
+  local lines = {
+    'local s = [[',
+    '  local cosmo = require("cosmo")',
+    ']]',
+  }
+  local diags = lint.check_cosmo_require("lib/cosmic/foo_test.tl", lines)
+  assert(#diags == 0, "expected no diagnostic for cosmo inside heredoc long string")
+end
+test_check_cosmo_require_in_long_string_skipped()
+
+local function test_check_cosmo_require_plain_test_no_cosmo()
+  -- Test file without any cosmo require should produce no diagnostic
+  local lines = {
+    'local fs = require("cosmic.fs")',
+    'local function test_foo()',
+    '  assert(true)',
+    'end',
+    'test_foo()',
+  }
+  local diags = lint.check_cosmo_require("lib/cosmic/foo_test.tl", lines)
+  assert(#diags == 0, "expected no diagnostic for test file with no cosmo require")
+end
+test_check_cosmo_require_plain_test_no_cosmo()

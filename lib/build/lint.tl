@@ -126,7 +126,7 @@ local function check_call_after_define(file: string, lines: {string}): {Diagnost
               rule = "call-after-define",
               message = string.format(
                 "function '%s' must be called immediately after its definition "
-                  .. "(test/example files call each test_* function right after defining it)",
+                .. "(test/example files call each test_* function right after defining it)",
                 fname
               ),
             })
@@ -134,6 +134,66 @@ local function check_call_after_define(file: string, lines: {string}): {Diagnost
       end
     else
       i = i + 1
+    end
+  end
+  return diagnostics
+end
+
+local COSMO_REQUIRE_ALLOWLIST: {string: boolean} = {
+  ["lib/cosmic/child_io_test.tl"] = true,
+  ["lib/cosmic/child_test.tl"] = true,
+  ["lib/cosmic/compile_test.tl"] = true,
+  ["lib/cosmic/fs_dir_test.tl"] = true,
+  ["lib/cosmic/fs_test.tl"] = true,
+  ["lib/cosmic/require_test.tl"] = true,
+  ["lib/cosmic/script_test.tl"] = true,
+}
+
+local function is_test_or_example(path: string): boolean
+  return path:match("_test%.tl$") ~= nil or path:match("_example%.tl$") ~= nil
+end
+
+local function check_cosmo_require(file: string, lines: {string}): {Diagnostic}
+  if not is_test_or_example(file) then
+    return {}
+  end
+  local norm = file:gsub("^%./", "")
+  for suffix in pairs(COSMO_REQUIRE_ALLOWLIST) do
+    if norm == suffix or norm:sub(-#suffix) == suffix then
+      return {}
+    end
+  end
+  local diagnostics: {Diagnostic} = {}
+  local in_long_string = false
+  for i, line in ipairs(lines) do
+    local opens = 0
+    local closes = 0
+    for _ in line:gmatch("%[%[") do
+      opens = opens + 1
+    end
+    for _ in line:gmatch("%]%]") do
+      closes = closes + 1
+    end
+    if in_long_string then
+      if closes > 0 then
+        in_long_string = false
+      end
+    else
+      if opens > closes then
+        in_long_string = true
+      end
+      if not in_long_string and line:match('require%("cosmo') then
+        table.insert(diagnostics, {
+            file = file,
+            line = i,
+            col = 1,
+            rule = "cosmo-require",
+            message = string.format(
+              '%s:%d: require("cosmo...") forbidden in tests/examples; use cosmic.* wrappers',
+              file, i
+            ),
+          })
+      end
     end
   end
   return diagnostics
@@ -189,6 +249,11 @@ local function lint_file(path: string): {Diagnostic}
     for _, d in ipairs(order_diags) do
       table.insert(diagnostics, d)
     end
+
+    local cosmo_diags = check_cosmo_require(path, lines)
+    for _, d in ipairs(cosmo_diags) do
+      table.insert(diagnostics, d)
+    end
   end
 
   return diagnostics
@@ -205,11 +270,29 @@ local function main(...: string): integer
   for _, file in ipairs(files) do
     -- The standalone lint binary only enforces file-length (run on all tracked files).
     -- Column-length and assert-order are enforced via --check-style on .tl files.
+    -- cosmo-require is enforced here for test/example .tl files.
     if not is_exempt(file) then
       local n = count_lines(file)
       local diags = check_file_length(file, n, DEFAULT_FILE_LINES)
       for _, d in ipairs(diags) do
         table.insert(all_diagnostics, d)
+      end
+      if file:match("%.tl$") and is_test_or_example(file) then
+        local f = io.open(file, "r")
+        if f then
+          local content = f:read("*a")
+          f:close()
+          if content and content ~= "" then
+            local lines: {string} = {}
+            for line in (content .. "\n"):gmatch("([^\n]*)\n") do
+              lines[#lines + 1] = line
+            end
+            local cosmo_diags = check_cosmo_require(file, lines)
+            for _, d in ipairs(cosmo_diags) do
+              table.insert(all_diagnostics, d)
+            end
+          end
+        end
       end
     end
   end
@@ -235,10 +318,12 @@ return {
   Diagnostic = Diagnostic,
   DEFAULT_FILE_LINES = DEFAULT_FILE_LINES,
   DEFAULT_COLUMN_WIDTH = DEFAULT_COLUMN_WIDTH,
+  COSMO_REQUIRE_ALLOWLIST = COSMO_REQUIRE_ALLOWLIST,
   count_lines = count_lines,
   check_file_length = check_file_length,
   check_column_length = check_column_length,
   check_call_after_define = check_call_after_define,
+  check_cosmo_require = check_cosmo_require,
   lint_file = lint_file,
   main = main,
 }

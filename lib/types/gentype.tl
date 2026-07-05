@@ -2,7 +2,7 @@
 --- Generate Teal .d.tl type definitions from cosmo-lua definitions.lua.
 --- Parses LuaLS annotations and produces Teal-compatible type declarations.
 
-local cosmo = require("cosmo")
+local cio = require("cosmic.io")
 local cosmic = require("cosmic")
 local gt = require("types.gentype_types")
 local Param = gt.Param
@@ -37,7 +37,6 @@ local MODULES = {"cosmo", "unix", "path", "getopt", "lsqlite3", "re", "argon2", 
 local function defs_path(): string
   return os.getenv("GENTYPE_DEFS") or "/zip/.lua/definitions.lua"
 end
-
 
 --- Helper to process a class annotation block.
 local function process_class_block(anno_lines: {string}, module_name: string, classes: {ClassDecl})
@@ -158,7 +157,7 @@ local function parse_module(source: string, module_name: string): ModuleDecl
       end
       i = i + 1
     elseif line:match("^%s*[%l_][%w_]*%s*=%s*") and not line:match("^%s*local%s") and
-      has_type_annotation(anno_lines) then
+    has_type_annotation(anno_lines) then
       -- A lowercase module-table field annotated with `---@type <T>` (e.g.
       -- `argon2.variants`) becomes a typed field on the module record.
       local fname = line:match("^%s*([%l_][%w_]*)%s*=")
@@ -297,9 +296,9 @@ end
 
 --- Run the generator for a specific module or all modules.
 local function run(module_name: string): Result
-  local source = cosmo.Slurp(defs_path())
+  local source, read_err = cio.slurp(defs_path())
   if not source then
-    return {success = false, error = "Failed to read " .. defs_path()}
+    return {success = false, error = "Failed to read " .. defs_path() .. ": " .. (read_err or "")}
   end
 
   if module_name then
