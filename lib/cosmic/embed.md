@@ -95,6 +95,29 @@ local record ZipReader
 end
 ```
 
+### EmbedDirHandle
+
+ Directory handle whose `read` exposes the dirent d_type (unix.DT_DIR /
+ DT_REG / DT_LNK / ... / DT_UNKNOWN) where the filesystem supports it,
+ letting collect_dir skip a stat(2) call for entries d_type already
+ identifies as neither a directory nor a regular file.
+
+```teal
+local record EmbedDirHandle
+  read: function(self): string, number
+  close: function(self)
+end
+```
+
+### DirEntry
+
+```teal
+local record DirEntry
+  name: string
+  kind: number
+end
+```
+
 ### FileToEmbed
 
 ```teal
