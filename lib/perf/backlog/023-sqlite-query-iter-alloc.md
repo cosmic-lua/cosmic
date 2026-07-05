@@ -1,6 +1,6 @@
 # 23. sqlite db:query rebuilds iterator machinery on every call
 
-- status: open
+- status: done (2026-07-05)
 - layer: cosmic
 - scenario: sqlite_point_query
 
@@ -34,3 +34,27 @@
 - risk: medium — touches the query hot path and the iterator
   lifecycle; the existing sqlite test suite is thorough
   (sqlite_test, sqlite_advanced_test), which is the main safety net.
+- result: done. The bigger cost than the iterator turned out to be
+  `make_statement` itself: `db:query` built a full Statement object
+  (~10 method closures + metatable) plus `Statement:rows()` plus the
+  `make_query_iter` close-on-drain wrapper — three allocated layers —
+  on every call, just to grab and drain one row. Collapsed all three
+  into a single module-level iterator in a new
+  `lib/cosmic/sqlite_row_iter.tl` (`make`/`query`): it resets, binds,
+  steps the raw cached statement directly, resolves column names once
+  on the first row, and releases the statement (via the cache's
+  on_close, or finalize for a reentrant throwaway) when it drains.
+  `db:query` now bypasses `make_statement` entirely; the public
+  Statement API (`db:prepare`, `query_list`, `query_named`) is
+  untouched, and since `db:query` was the only caller passing
+  `on_close` to `make_statement`, that now-dead parameter was dropped.
+  The `col_names`-per-call cost is paid once per iterator rather than
+  cached across calls — measured alloc made the extra caching machinery
+  unnecessary. sqlite.tl was at 500/500 lines, hence the helper module.
+  Reentrancy (`test_same_sql_nested_query_reentrant`), the `iter:err()`
+  post-drain contract, and close-on-completion all still pass.
+  `perf-compare`:
+    sqlite_point_query    7.44 µs/op ->  5.52 µs/op   -25.8%
+      alloc               2.41 KB/op ->  1.08 KB/op   (-55%)
+    sqlite_scan_aggregate alloc 2.30 KB/op -> 0.97 KB/op (col_names win)
+  no regressions in the other 31 scenarios. `bin/make ci` green.
