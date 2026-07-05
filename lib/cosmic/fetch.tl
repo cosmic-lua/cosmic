@@ -292,6 +292,7 @@ end
 
 local record fetch
   Fetch: function(url: string, opts?: Opts): Result
+  fetch: function(url: string, opts?: Opts): Result
   stream: function(url: string, opts?: Opts): StreamResult
   has_stream: function(): boolean
   unix_proxy: function(path: string): string, string
@@ -303,6 +304,7 @@ end
 
 local M: fetch = {
   Fetch = Fetch,
+  fetch = Fetch,
   stream = stream,
   has_stream = has_stream,
   unix_proxy = unix_proxy,
