@@ -13,6 +13,9 @@ perf_run := $(o)/lib/perf/run.lua
 ## PERF_BIN: cosmic binary to benchmark (default: freshly built o/bin/cosmic).
 ## Point it at another build to measure cosmos/cosmopolitan changes end to end.
 PERF_BIN ?= $(cosmic_bin)
+## COSMO_LUA: locally built cosmopolitan lua binary for perf-bin
+## (e.g. ~/cosmopolitan/o/tool/lua/lua; see lib/perf/optimize/cosmopolitan.md)
+COSMO_LUA ?=
 ## PERF_SAMPLES: timed samples per scenario (default 5)
 PERF_SAMPLES ?= 5
 ## PERF_MIN_SECS: minimum seconds per sample (default 0.15)
@@ -27,8 +30,25 @@ perf_cmd = PERF_BIN=$(PERF_BIN) $(PERF_BIN) -- $(perf_run) \
 	--samples $(PERF_SAMPLES) --min-secs $(PERF_MIN_SECS) $(perf_only_flag)
 
 perf_sandbox := $(o)/perf
+cosmic_local_bin := $(perf_sandbox)/cosmic-local
 
-.PHONY: perf perf-baseline perf-compare
+.PHONY: perf perf-baseline perf-compare perf-bin
+
+perf-bin: .PLEDGE = stdio rpath wpath cpath proc exec
+perf-bin: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null $(if $(COSMO_LUA),r:$(COSMO_LUA))
+
+## Build o/perf/cosmic-local: the cosmic payload on a local cosmopolitan lua (COSMO_LUA=...)
+perf-bin: $(cosmic_bin)
+	@test -n "$(COSMO_LUA)" || { \
+		echo "perf-bin: set COSMO_LUA=/path/to/cosmopolitan/o/tool/lua/lua" >&2; \
+		echo "perf-bin: see lib/perf/optimize/cosmopolitan.md" >&2; exit 1; }
+	@mkdir -p $(perf_sandbox)
+	@cp $(COSMO_LUA) $(cosmic_local_bin)
+	@chmod +x $(cosmic_local_bin)
+	@cd $(cosmic_built) && $(CURDIR)/$(cosmos_zip_bin) -qr $(CURDIR)/$(cosmic_local_bin) .lua .tl .docs sys skills
+	@$(cosmos_zip_bin) -qj $(cosmic_local_bin) $(cosmic_main) $(cosmic_args)
+	@echo "built $(cosmic_local_bin) from $(COSMO_LUA)"
+	@echo "measure it with: PERF_BIN=$(cosmic_local_bin) bin/make perf-compare"
 
 perf perf-baseline: .PLEDGE = stdio rpath wpath cpath proc exec
 perf perf-baseline: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null

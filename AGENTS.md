@@ -290,12 +290,21 @@ checks, a JSON results format, and a noise-aware baseline comparison gate.
 bin/make perf                 # run scenarios, write o/perf/current.json
 bin/make perf-baseline        # snapshot baseline before optimizing
 bin/make perf-compare         # re-run and fail on regression vs baseline
+bin/make perf-bin COSMO_LUA=… # wrap a local cosmopolitan lua for PERF_BIN
 ```
 
 all performance work follows the loop in `lib/perf/OPTIMIZE.md`: baseline →
 hypothesis → change → `bin/make ci` (correctness/style gate) →
 `bin/make perf-compare` (regression gate) → keep or revert. never weaken a
 scenario or its check to make numbers pass; never commit `o/perf/*.json`.
+
+the manual is split so no chapter fights the 500-line cap:
+`lib/perf/optimize/finding.md` (spotting cosmic-layer wins),
+`lib/perf/optimize/cosmopolitan.md` (optimizing the C layer against a
+local whilp/cosmopolitan build — no release needed to measure), and
+`lib/perf/optimize/measurement.md` (noise discipline). the hypothesis
+backlog is one file per entry under `lib/perf/backlog/`; find work with
+`grep -l "status: open" lib/perf/backlog/*.md`.
 
 ## CI
 
