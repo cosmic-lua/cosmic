@@ -117,6 +117,7 @@ High-level utilities and tools built on top of cosmo.
 | [embed_bench](lib/perf/bench/embed_bench.md) |  Embed/extract scenarios: exercises cosmic.embed's directory walk |
 | [embed_startup_bench](lib/perf/bench/embed_startup_bench.md) |  Startup of an embed.run()-produced executable. |
 | [fs_bench](lib/perf/bench/fs_bench.md) |  Filesystem scenarios: directory walking, whole-file I/O, tree churn. |
+| [fuzzy_bench](lib/perf/bench/fuzzy_bench.md) |  Fuzzy-matching scenarios: cosmic.fuzzy.find_similar over a namespace. |
 | [http_bench](lib/perf/bench/http_bench.md) |  HTTP client scenarios against a loopback server. |
 | [json_bench](lib/perf/bench/json_bench.md) |  JSON scenarios: decode/encode of small and large payloads. |
 | [micro_bench](lib/perf/bench/micro_bench.md) |  CPU-bound scenarios: hashing, encoding, compression, string handling. |
