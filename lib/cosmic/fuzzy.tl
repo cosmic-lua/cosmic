@@ -63,10 +63,16 @@ local function find_similar(query: string, candidates: {string}, max_distance?: 
     -- the same candidate (matching is already case-insensitive).
     local candidate_lower = candidate:lower()
     if not seen[candidate_lower] then
-      local dist = levenshtein(query_lower, candidate_lower)
-      if dist <= max_distance then
-        seen[candidate_lower] = true
-        table.insert(results, {candidate, dist})
+      -- Length-difference gate: the edit distance between two strings is at
+      -- least the difference in their lengths, so a candidate whose length
+      -- differs from the query by more than max_distance can never qualify.
+      -- Skipping it avoids the O(n*m) DP with no change to the result set.
+      if math.abs(#query_lower - #candidate_lower) <= max_distance then
+        local dist = levenshtein(query_lower, candidate_lower)
+        if dist <= max_distance then
+          seen[candidate_lower] = true
+          table.insert(results, {candidate, dist})
+        end
       end
     end
   end
