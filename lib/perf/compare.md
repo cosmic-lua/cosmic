@@ -19,6 +19,7 @@ local record compare
   DEFAULT_THRESHOLD_PCT: number
   load_results: function(path: string): pt.Results, string
   diff: function(base: pt.Results, cur: pt.Results, threshold_pct?: number): {pt.Delta}, integer
+  triage: function(base: pt.Results, cur: pt.Results, noise_a: pt.Results, noise_b: pt.Results, threshold_pct?: number): {pt.Delta}, integer
   format_delta: function(d: pt.Delta): string
   format: function(deltas: {pt.Delta}): string
 end

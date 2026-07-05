@@ -12,6 +12,8 @@ local record Args
   only: string
   compare_mode: boolean
   threshold: number
+  selfcheck_a: string
+  selfcheck_b: string
   help: boolean
   positional: {string}
   err: string
