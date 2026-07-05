@@ -115,6 +115,22 @@ local function scenarios(): {pt.Scenario}, string
       end,
     },
     {
+      -- A small input, unlike compress_roundtrip_64k: isolates the
+      -- deflate()/inflate() size-prefix pack/unpack overhead from the
+      -- zlib compute itself, which barely registers on this little data.
+      name = "compress_deflate_roundtrip_small",
+      fn = function(_: any): any
+        local packed = compress.deflate(ABC)
+        return (compress.inflate(packed))
+      end,
+      check = function(_: any, res: any): boolean, string
+        if res as string ~= ABC then
+          return false, "deflate roundtrip corrupted data"
+        end
+        return true
+      end,
+    },
+    {
       name = "string_split_csv",
       fn = function(_: any): any
         return cstr.split(CSV, ",")

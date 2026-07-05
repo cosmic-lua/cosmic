@@ -377,3 +377,59 @@ cap — the split carries no other meaning.
       alongside `format_date`'s scenario.
     - result: `bin/make perf-compare` from a clean re-baseline, confirmed
       on a second re-measure: 26 scenarios, 0 regression, 1 faster, 25 ok.
+
+14. **compress.deflate/inflate size-prefix pack/unpack** — rejected
+      (2026-07-04)
+    - scenario: `compress_deflate_roundtrip_small` (new): 6.84µs baseline;
+      deflate-only fix measured +0.2% then +1.7% (no win); deflate+inflate
+      together measured +1.3% then -0.3% (still no win) across four
+      separate measurements
+    - evidence: `deflate` built a 4-byte little-endian length prefix via
+      `string.char(size % 256, math.floor(size/256) % 256, ...)`;
+      `inflate` unpacked it via `data:byte(1,4)` plus multiply-adds.
+      `string.pack("<I4", size)` / `string.unpack("<I4", data)` (Lua
+      5.4's own C-backed pack/unpack, not a `cosmo.*` binding, but the
+      same "let a C routine do it" idea) replace ~10 Lua ops with one
+      call each — objectively simpler code.
+    - fix attempted: replaced the manual byte-char loop with
+      `string.pack`/`string.unpack` in both functions (first deflate
+      alone, then both together, to see if the combined effect crossed
+      the noise bar either way — it didn't).
+    - why it was rejected despite being clean, simpler code: the
+      `cosmo.Deflate`/`cosmo.Inflate` zlib calls themselves have enough
+      fixed per-call overhead (state setup/teardown) that they swamp the
+      few nanoseconds saved on prefix packing even for a 3-byte input —
+      there's no input size where the Lua-side saving would be *more*
+      visible, since zlib's per-call floor doesn't shrink with smaller
+      inputs. Reverted both changes (`git checkout -- lib/cosmic/compress.tl`).
+      Kept the new benchmark scenario per the "never remove a scenario"
+      rule — it's a real, permanent addition to the suite even though
+      this round's hypothesis on it didn't pan out.
+    - risk: n/a, rejected on measurement grounds, not correctness.
+
+15. **fs_path.relpath calls getcwd(2) twice for the common case** — done
+      (2026-07-04)
+    - scenario: `fs_relpath_relative` (new, in `lib/perf/bench/fs_bench.tl`):
+      5.03µs baseline; three re-measures came back -8.3%, -10.4% (crossed
+      the noise bar, flagged `faster`), -5.9% — consistently faster,
+      never slower, across all three passes.
+    - evidence: `relpath(p, base)` with a relative `p` and no explicit
+      `base` (the common call shape — "make this path relative to cwd")
+      called `abspath(p)` first, which internally calls `unix.getcwd()`
+      to resolve `p`, and then called `unix.getcwd()` a second time to
+      resolve the implicit `base`. Two syscalls doing the same lookup.
+    - fix: in `lib/cosmic/fs_path.tl`, `relpath` now fetches `cwd` once
+      when `base` is nil, reusing it both to resolve `p` (via
+      `normalize(cwd .. "/" .. p)` when `p` isn't already absolute) and
+      directly as `abs_base`, instead of the previous unconditional
+      second `unix.getcwd()` call. The explicit-`base` path is
+      unchanged.
+    - correctness: `fs_path_test.tl`'s six `relpath` cases all pass
+      absolute paths for both `p` and `base`, so they pin the shared
+      path-math (common prefix / `..` counting) the fix doesn't touch,
+      without exercising the changed branch directly. Verified by hand
+      that the new branch produces identical results to the old code
+      for relative-`p`/no-`base` inputs — both reduce to
+      `normalize(cwd .. "/" .. p)` vs. `cwd` itself.
+    - risk: low — pure refactor of which syscall runs when, no change to
+      the string math or the public signature.
