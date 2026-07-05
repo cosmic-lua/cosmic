@@ -260,7 +260,7 @@ local function test_embed_directory_executable()
 end
 test_embed_directory_executable()
 
--- Test that embedded files use deflate compression (method=8)
+-- Test that embedded non-.lua files use deflate compression (method=8)
 local function test_embed_uses_deflate()
   -- Use compressible content (repeated pattern) to ensure deflate is applied
   local compressible = string.rep("abcdefghij", 100)
@@ -286,6 +286,38 @@ local function test_embed_uses_deflate()
   reader:close()
 end
 test_embed_uses_deflate()
+
+-- Test that embedded .lua files are stored uncompressed (method=0): the
+-- produced executable loads them at boot, so storing skips a per-launch
+-- inflate() (see lib/perf/backlog/024).
+local function test_embed_stores_lua()
+  -- Compressible content that deflate WOULD shrink, to prove the store is a
+  -- deliberate .lua policy and not just deflate declining to grow the file.
+  local compressible = "-- " .. string.rep("abcdefghij", 100) .. "\nreturn 1\n"
+  local input = write_temp("store_test.lua", compressible)
+  local output = fs.join(tmpdir, "cosmic-store")
+
+  local ok, out = spawn.spawn({cosmic, "--embed", input, "--output", output}):read()
+  assert(ok, "embed should succeed: " .. (out or ""))
+
+  local data = cio.slurp(output)
+  local reader_maybe = zip.from(data)
+  assert(reader_maybe, "failed to open zip from data")
+  local reader = reader_maybe as Reader
+
+  local name = input:gsub("^/+", "")
+  local st = reader:stat(name)
+  assert(st ~= nil, "stat should return metadata for embedded file")
+  local stat = st as Stat
+  assert(stat.method == 0,
+    "embedded .lua should be stored (method=0), got: " .. tostring(stat.method))
+  assert(stat.compressed_size == stat.size,
+    "stored .lua should not be compressed: " .. tostring(stat.compressed_size) .. " vs " .. tostring(stat.size))
+  -- Content must still round-trip identically.
+  assert(reader:read(name) == compressible, "stored .lua content should match")
+  reader:close()
+end
+test_embed_stores_lua()
 
 -- Zip-slip: extract() must reject any entry that would land outside the
 -- output directory. cosmic executables also extract on Windows, so the

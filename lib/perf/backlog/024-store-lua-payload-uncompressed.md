@@ -72,7 +72,8 @@
   appender walks every central-dir entry's local header, and all
   512 entries remain valid under the multi-pass store/deflate/exclude
   build; welcome_test.tl passes).
-- not pursued this round (left for a follow-up): `embed.run()`-built
-  executables still deflate their embedded payload, and the
-  release-artifact path was not separately re-checked (it builds via
-  the same cosmic_bin recipe, so it inherits the change).
+- follow-up: `embed.run()`-built executables had the same problem
+  (they force-deflated every embedded file, so the produced app
+  inflate()d its own .lua at each launch) — now fixed, see entry 028.
+  The release-artifact path was not separately re-checked (it builds
+  via the same cosmic_bin recipe, so it inherits the change).
