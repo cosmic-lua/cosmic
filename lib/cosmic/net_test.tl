@@ -33,6 +33,28 @@ local function test_socketpair()
 end
 test_socketpair()
 
+local function test_send_to_closed_peer_returns_error()
+  -- Regression: sending to a peer that has closed must return nil, err --
+  -- NOT kill the process with SIGPIPE (which surfaces as exit 141, an
+  -- unambiguous red before send() ORed in MSG_NOSIGNAL).
+  local a, b, err = net.socketpair()
+  assert(a ~= nil and b ~= nil, "socketpair failed: " .. tostring(err))
+  b:close()
+
+  -- Loop so a kernel that accepts the first write into the buffer before
+  -- reporting EPIPE still exercises the error path; without the fix the
+  -- first EPIPE-triggering write signals SIGPIPE and the test never returns.
+  local n, serr: number, string
+  for _ = 1, 1000 do
+    n, serr = a:send("data")
+    if n == nil then break end
+  end
+  assert(n == nil, "send to closed peer should return nil, got " .. tostring(n))
+  assert(serr ~= nil, "send to closed peer should return an error message")
+  a:close()
+end
+test_send_to_closed_peer_returns_error()
+
 local function test_bind_and_getsockname()
   local sock, err = net.socket()
   assert(sock ~= nil, "socket creation failed: " .. tostring(err))
