@@ -115,6 +115,7 @@ High-level utilities and tools built on top of cosmo.
 |--------|-------------|
 | [child_bench](lib/perf/bench/child_bench.md) |  Subprocess execution scenarios: raw fork/exec/wait overhead via |
 | [embed_bench](lib/perf/bench/embed_bench.md) |  Embed/extract scenarios: exercises cosmic.embed's directory walk |
+| [embed_startup_bench](lib/perf/bench/embed_startup_bench.md) |  Startup of an embed.run()-produced executable. |
 | [fs_bench](lib/perf/bench/fs_bench.md) |  Filesystem scenarios: directory walking, whole-file I/O, tree churn. |
 | [http_bench](lib/perf/bench/http_bench.md) |  HTTP client scenarios against a loopback server. |
 | [json_bench](lib/perf/bench/json_bench.md) |  JSON scenarios: decode/encode of small and large payloads. |
