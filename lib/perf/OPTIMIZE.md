@@ -265,14 +265,19 @@ code read suggests one.
      verified against `lib/cosmic/fs_walk_test.tl`'s existing symlink-cycle
      tests for `collect_all()` and `files()`, which pass unchanged.
 
-6. **string.split micro-costs** — open, low priority
-   - scenario: `string_split_csv` (~50µs for 256 fields ≈ 190ns/field)
-   - evidence: implementation already uses plain `find`; remaining cost
-     is `table.insert` (a C call resolving `#result` each time) and one
+6. **string.split micro-costs** — done (2026-07-04)
+   - scenario: `string_split_csv`: 38.82µs -> 32.20µs (-17.0%, matching
+     the 10-20% hypothesis)
+   - evidence: implementation already used plain `find`; remaining cost
+     was `table.insert` (a C call resolving `#result` each time) and one
      `sub` per field.
-   - hypothesis: indexed assignment (`n = n + 1; result[n] = ...`) trims
-     10-20% of this scenario. real user impact is small — do it only as
-     a warm-up exercise for the loop, or skip.
+   - fix: replaced every `table.insert(result, ...)` with an explicit
+     `n = n + 1; result[n] = ...` counter, in both the empty-separator
+     (per-character) and normal-separator branches.
+   - result: `bin/make perf-compare`: 21 scenarios, 0 regression, 1
+     faster, 20 ok. real user impact is small (this was a warm-up-scale
+     item per the original hypothesis), but the win landed exactly where
+     predicted with zero risk.
 
 7. **json decode allocation pressure** — rejected for now (2026-07)
    - scenario: `json_decode_large` (~1.3ms/op, ~375KB allocated per op)

@@ -62,9 +62,11 @@ end
 --- @return {string} Array of substrings
 local function split(s: string, sep: string): {string}
   local result: {string} = {}
+  local n = 0
   if sep == "" then
     for i = 1, #s do
-      table.insert(result, s:sub(i, i))
+      n = n + 1
+      result[n] = s:sub(i, i)
     end
     return result
   end
@@ -76,10 +78,12 @@ local function split(s: string, sep: string): {string}
   while true do
     local found = s:find(sep, pos, true)
     if not found then
-      table.insert(result, s:sub(pos))
+      n = n + 1
+      result[n] = s:sub(pos)
       break
     end
-    table.insert(result, s:sub(pos, found - 1))
+    n = n + 1
+    result[n] = s:sub(pos, found - 1)
     pos = found + sep_len
   end
   return result
