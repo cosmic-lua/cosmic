@@ -71,13 +71,15 @@ end
 --- @return string The decoded binary data, or nil on error
 --- @return string? Error message if decoding failed
 local function decode_base64(str: string): string, string
-  -- Validate: base64 uses A-Z, a-z, 0-9, +, /, and = for padding
-  if str:match("[^A-Za-z0-9+/=]") then
-    return nil, "invalid base64 character"
-  end
-  -- Validate: = can only appear at the end, max 2
+  -- Validate structure (content chars, then = padding, then end) in one
+  -- pass. On the happy path this is the only scan needed; a mismatch
+  -- means either an invalid character anywhere or padding not confined
+  -- to the end, so a second, cheaper scan runs only then to tell which.
   local content, padding = str:match("^([A-Za-z0-9+/]*)(%=*)$")
   if not content then
+    if str:match("[^A-Za-z0-9+/=]") then
+      return nil, "invalid base64 character"
+    end
     return nil, "invalid base64: padding in middle"
   end
   if #padding > 2 then
