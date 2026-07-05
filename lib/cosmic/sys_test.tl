@@ -11,7 +11,7 @@ end
 test_host_os_returns_string()
 
 local function test_host_os_is_lowercase()
-  local os_name = sys.host_os()
+  local os_name = sys.host_os() as string
   assert(os_name == os_name:lower(), "host_os should return lowercase, got " .. os_name)
 end
 test_host_os_is_lowercase()
@@ -20,9 +20,40 @@ local function test_host_os_is_known_value()
   local os_name = sys.host_os()
   local is_known = os_name == "linux" or os_name == "macos" or os_name == "windows"
   or os_name == "freebsd" or os_name == "openbsd" or os_name == "netbsd"
+  or os_name == "metal"
   assert(is_known, "host_os should return a known OS, got " .. os_name)
 end
 test_host_os_is_known_value()
+
+local function test_host_os_never_returns_raw_token()
+  -- The raw cosmopolitan token for macOS is "XNU"; host_os() must never
+  -- leak it (docs promise "macos"). Same for any lowercased raw form.
+  local os_name = sys.host_os() as string
+  assert(os_name ~= "xnu", "host_os must translate XNU to macos, got " .. os_name)
+end
+test_host_os_never_returns_raw_token()
+
+local function test_normalize_host_os_mapping()
+  -- Table-driven: the wrapper translates the raw cosmo.GetHostOs() tokens
+  -- to the documented names. XNU -> macos is the load-bearing case.
+  local cases: {{string, string}} = {
+    {"LINUX", "linux"},
+    {"XNU", "macos"},
+    {"Xnu", "macos"},
+    {"WINDOWS", "windows"},
+    {"FREEBSD", "freebsd"},
+    {"OPENBSD", "openbsd"},
+    {"NETBSD", "netbsd"},
+    {"METAL", "metal"},
+  }
+  for _, case in ipairs(cases) do
+    local raw, want = case[1], case[2]
+    local got = sys.normalize_host_os(raw) as string
+    assert(got == want,
+      "normalize_host_os(" .. raw .. ") should be " .. want .. ", got " .. tostring(got))
+  end
+end
+test_normalize_host_os_mapping()
 
 -- host_isa tests
 
