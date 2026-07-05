@@ -1,8 +1,8 @@
 --- Error information from system calls.
 ---
 --- Provides the `Errno` error type plus a canonical formatter (`str`)
---- and helpers for programmatic errno handling (`is`, `code`). Most
---- `cosmic.*` wrappers surface a failed `unix.*` call's error through
+--- and helpers for programmatic errno handling (`is`, `code`, `constants`).
+--- Most `cosmic.*` wrappers surface a failed `unix.*` call's error through
 --- `str`, so error messages share one shape across the stdlib:
 ---
 ---     local ok, err = unix.mkdir(path, mode)
@@ -81,9 +81,55 @@ local function is(err: any, name: string): boolean
   return e:errno() == want
 end
 
-return {
+--- Canonical errno-name constants table. Keys are errno names (e.g.
+--- `"ENOENT"`, `"EAGAIN"`); values are the host numeric errno codes.
+--- Only names defined on the host platform appear; any that the OS does
+--- not provide are absent rather than nil-valued.
+---
+--- Use this table to avoid reaching into `cosmo.unix` directly:
+---
+---     if err:errno() == errno.constants["ENOENT"] then ... end
+local constants: {string: integer} = {}
+local _errno_names = {
+  "EACCES", "EADDRINUSE", "EADDRNOTAVAIL", "EAFNOSUPPORT", "EAGAIN",
+  "EALREADY", "EBADF", "EBADFD", "EBADMSG", "EBUSY", "ECANCELED",
+  "ECHILD", "ECONNABORTED", "ECONNREFUSED", "ECONNRESET", "EDEADLK",
+  "EDESTADDRREQ", "EDOM", "EDQUOT", "EEXIST", "EFAULT", "EFBIG",
+  "EFTYPE", "EHOSTDOWN", "EHOSTUNREACH", "EHWPOISON", "EIDRM",
+  "EILSEQ", "EINPROGRESS", "EINTR", "EINVAL", "EIO", "EISCONN",
+  "EISDIR", "ELOOP", "EMEDIUMTYPE", "EMFILE", "EMLINK", "EMSGSIZE",
+  "EMULTIHOP", "ENAMETOOLONG", "ENETDOWN", "ENETRESET", "ENETUNREACH",
+  "ENFILE", "ENOBUFS", "ENODATA", "ENODEV", "ENOENT", "ENOEXEC",
+  "ENOLCK", "ENOLINK", "ENOMEDIUM", "ENOMEM", "ENOMSG", "ENONET",
+  "ENOPROTOOPT", "ENOSPC", "ENOSR", "ENOSTR", "ENOSYS", "ENOTBLK",
+  "ENOTCONN", "ENOTDIR", "ENOTEMPTY", "ENOTRECOVERABLE", "ENOTSOCK",
+  "ENOTSUP", "ENOTTY", "ENXIO", "EOPNOTSUPP", "EOVERFLOW", "EOWNERDEAD",
+  "EPERM", "EPFNOSUPPORT", "EPIPE", "EPROTO", "EPROTONOSUPPORT",
+  "EPROTOTYPE", "ERANGE", "EREMOTE", "ERESTART", "ERFKILL", "EROFS",
+  "ESHUTDOWN", "ESOCKTNOSUPPORT", "ESPIPE", "ESRCH", "ESTALE", "ETIME",
+  "ETIMEDOUT", "ETOOMANYREFS", "ETXTBSY", "EUSERS", "EXDEV",
+}
+for _, name in ipairs(_errno_names) do
+  local n = code(name)
+  if n ~= nil then
+    constants[name] = n
+  end
+end
+
+local record ErrnoModule
+  Errno: Errno
+  str: function(err: any, prefix?: string): string
+  code: function(name: string): integer
+  is: function(err: any, name: string): boolean
+  constants: {string: integer}
+end
+
+local M: ErrnoModule = {
   Errno = Errno,
   str = str,
   code = code,
   is = is,
+  constants = constants,
 }
+
+return M

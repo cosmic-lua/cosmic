@@ -54,4 +54,28 @@ local function test_is()
 end
 test_is()
 
+-- constants: table exists and maps known errno names to numbers.
+local function test_constants_type()
+  assert(type(errno.constants) == "table", "constants should be a table")
+end
+test_constants_type()
+
+local function test_constants_values()
+  local v = errno.constants["ENOENT"]
+  assert(type(v) == "number", "ENOENT should be a number, got: " .. tostring(v))
+  assert(v == errno.code("ENOENT"), "constants[ENOENT] should equal code(ENOENT)")
+end
+test_constants_values()
+
+local function test_constants_eagain()
+  local v = errno.constants["EAGAIN"]
+  assert(type(v) == "number", "EAGAIN should be a number, got: " .. tostring(v))
+end
+test_constants_eagain()
+
+local function test_constants_unknown()
+  assert(errno.constants["E_NOT_REAL"] == nil, "unknown key should be nil")
+end
+test_constants_unknown()
+
 print("errno_test: PASS")
