@@ -4,10 +4,10 @@ chapter of `lib/perf/OPTIMIZE.md` — read that first. this file covers
 spotting wins in the Teal wrapper layer (`lib/cosmic/*.tl`); for the C
 layer see `cosmopolitan.md` in this directory.
 
-check the hypothesis backlog first (`lib/perf/backlog/`) — it holds
-vetted, evidence-backed starting points. to find new ones, read
-`bin/make perf` output and look for the shapes below. the backlog's
-`done` entries are worked examples of each.
+check the hypothesis backlog first (GitHub issues labeled `perf` in
+whilp/cosmic) — it holds vetted, evidence-backed starting points. to
+find new ones, read `bin/make perf` output and look for the shapes
+below. the closed-as-completed issues are worked examples of each.
 
 - **implementation mismatches between siblings.** example found during
   harness bring-up: `codec_hex_roundtrip_64k` ran ~17.6ms while
@@ -58,5 +58,6 @@ if you read the wrapper and it's a two-line delegation to a `cosmo.*`
 call (like `json.decode`, entry 7), or it already calls `unix.*`
 directly for every operation (like `child.spawn`, entry 12), there is
 no cosmic-layer fix — the cost is inside the C binding, the Lua
-runtime, or the kernel. record that finding in the backlog entry,
-set `layer: cosmopolitan`, and continue with `cosmopolitan.md`.
+runtime, or the kernel. record that finding on the backlog issue, and
+open (or move it to) a `perf`-labeled issue in whilp/cosmopolitan, then
+continue with `cosmopolitan.md`.

@@ -304,8 +304,9 @@ the manual is split so no chapter fights the 500-line cap:
 `lib/perf/optimize/cosmopolitan.md` (optimizing the C layer against a
 local whilp/cosmopolitan build — no release needed to measure), and
 `lib/perf/optimize/measurement.md` (noise discipline). the hypothesis
-backlog is one file per entry under `lib/perf/backlog/`; find work with
-`grep -l "status: open" lib/perf/backlog/*.md`.
+backlog is GitHub issues labeled `perf` (whilp/cosmic for cosmic-layer
+work, whilp/cosmopolitan for the C layer); find work with
+`gh issue list --label perf --state open`.
 
 ## CI
 
