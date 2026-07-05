@@ -400,6 +400,56 @@ code read suggests one.
    - result: `bin/make perf-compare` from a clean re-baseline, confirmed
      on a second re-measure: 22 scenarios, 0 regression, 1 faster, 21 ok.
 
+10. **net.parseip/formatip pure-Lua reimplementation** — done (2026-07-04)
+    - scenario: `net_ip_roundtrip` (new): 864.0ns -> 115.3ns first pass
+      (-86.3%), 118.5ns on re-measure (-86.7%)
+    - evidence: `net.parseip` (lib/cosmic/net.tl) did a `string.match`
+      4-octet pattern, four `tonumber()` calls, and manual range checks;
+      `net.formatip` did 4 bit-shifts plus `string.format`. Meanwhile
+      `cosmo.ParseIp`/`cosmo.FormatIp` already existed and were already
+      correctly used for the exact same job by the sibling module
+      `lib/cosmic/ip.tl` — the same "unused sibling C binding" shape as
+      the original `codec.decode_hex` fix, just in a different module.
+    - fix: delegated both functions directly. `cosmo.ParseIp` returns
+      `-1` for invalid input (verified at runtime, matching its doc
+      comment) rather than `nil, err`; `net_test.tl`'s
+      `test_parseip_formatip` only asserts `ip == nil` for invalid/
+      out-of-range input (never asserts specific error text), so mapping
+      `-1` to the existing `"invalid IP address format"` message
+      preserves every asserted behavior exactly.
+    - added `net_ip_roundtrip` to `lib/perf/bench/micro_bench.tl` (no
+      scenario existed for `net.*` functions before this).
+    - result: `bin/make perf-compare` from a clean re-baseline, confirmed
+      on a second re-measure: 23 scenarios, 0 regression, 1 faster, 22 ok.
+
+11. **time.format_date builds a full DateTime just to use 3 fields** —
+      done (2026-07-04)
+    - scenario: `time_format_date` (new): 745.9ns -> 263.8ns first pass
+      (-64.6%), 262.2ns on re-measure (-64.8%)
+    - evidence: `format_date` (lib/cosmic/time.tl) called `gmtime()` — a
+      full `unix.gmtime` C call returning 11 fields (year, month, day,
+      hour, min, sec, gmtoff, wday, yday, isdst, zone) plus a Lua table
+      build for all of them — then formatted only 3 of the 11 fields via
+      `string.format("%.4d-%.2d-%.2d", ...)`. `cosmo.Strftime` already
+      existed and was unused for this. Verified `cosmo.Strftime("%Y-%m-%d",
+      ts)` produces byte-identical output to the old code across epoch,
+      Y2K, a modern date, year 1, and year 9999 (confirming `%Y`
+      zero-pads to 4 digits the same way `%.4d` did).
+    - fix: replaced the `gmtime()` + `string.format` with a direct
+      `cosmo.Strftime("%Y-%m-%d", timestamp)` call. `gmtime()`/`localtime()`
+      themselves are untouched — other callers depend on the full
+      `DateTime` record per their documented contract; only the one
+      function that built a full record just to discard 8 of 11 fields
+      changed.
+    - added a new `lib/perf/bench/time_bench.tl` (no scenario existed for
+      any `time.*` function before this).
+    - result: `bin/make perf-compare` flagged `startup_run_lua`/
+      `startup_run_teal` as regressed on the first pass (+11.3%/+10.3%,
+      unrelated to this change); a clean re-run showed both back within
+      noise and confirmed `time_format_date` at -64.8% — 24 scenarios,
+      0 regression, 1 faster, 23 ok. Textbook case for the "re-measure
+      before trusting an inconsistent flag" rule.
+
 ## optimizing the cosmo/cosmopolitan layer end to end
 
 scenarios call `cosmic.*` wrappers, which call the `cosmo.*` C bindings

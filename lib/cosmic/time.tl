@@ -231,9 +231,7 @@ end
 --- @param timestamp number UNIX timestamp (seconds since epoch)
 --- @return string Date string (e.g., "2025-01-01")
 local function format_date(timestamp: number): string
-  local dt = gmtime(timestamp)
-  return string.format("%.4d-%.2d-%.2d",
-    dt.year as integer, dt.month as integer, dt.day as integer)
+  return cosmo.Strftime("%Y-%m-%d", timestamp)
 end
 
 --- Parse a YYYY-MM-DD date string into a UNIX timestamp (midnight UTC).
