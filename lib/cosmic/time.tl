@@ -252,10 +252,7 @@ end
 --- @param timestamp number UNIX timestamp (seconds since epoch)
 --- @return string ISO 8601 string (e.g., "2025-01-01T00:00:00Z")
 local function format_iso8601(timestamp: number): string
-  local dt = gmtime(timestamp)
-  return string.format("%.4d-%.2d-%.2dT%.2d:%.2d:%.2dZ",
-    dt.year as integer, dt.month as integer, dt.day as integer,
-    dt.hour as integer, dt.min as integer, dt.sec as integer)
+  return cosmo.Strftime("%Y-%m-%dT%H:%M:%SZ", timestamp)
 end
 
 --- Resolve an ISO 8601 timezone suffix into a signed offset in seconds.

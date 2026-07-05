@@ -5,7 +5,7 @@
 local time = require("cosmic.time")
 local pt = require("perf.perf_types")
 
--- 2025-01-02 (the time-of-day part is irrelevant to format_date)
+-- 2025-01-02T02:54:05Z
 local TS = 1735786445
 
 local function scenarios(): {pt.Scenario}, string
@@ -18,6 +18,18 @@ local function scenarios(): {pt.Scenario}, string
       check = function(_: any, res: any): boolean, string
         if res as string ~= "2025-01-02" then
           return false, "wrong date: " .. tostring(res)
+        end
+        return true
+      end,
+    },
+    {
+      name = "time_format_iso8601",
+      fn = function(_: any): any
+        return time.format_iso8601(TS)
+      end,
+      check = function(_: any, res: any): boolean, string
+        if res as string ~= "2025-01-02T02:54:05Z" then
+          return false, "wrong iso8601: " .. tostring(res)
         end
         return true
       end,
