@@ -167,4 +167,35 @@ print("shebang=" .. x)
 end
 test_teal_with_shebang()
 
+-- Test that running a .tl script twice reuses cosmic.script_cache's
+-- compiled output (a cache hit), and that changing the script's content
+-- (and so its mtime) invalidates the cache and picks up the new output.
+local function test_script_cache_reuse_and_invalidation()
+  local env = require("cosmic.env")
+  env.set("COSMIC_TL_CACHE_DIR", fs.join(test_subdir, "tl-cache"), true)
+
+  local script = write_temp("cached.tl", [[
+local x: number = 1
+print("value=" .. x)
+]])
+
+  for _ = 1, 2 do
+    local ok, out = spawn.spawn({cosmic, script}):read()
+    assert(ok, "cosmic should execute .tl file: " .. tostring(out))
+    assert((out as string):find("value=1"), "expected value=1, got: " .. tostring(out))
+  end
+
+  -- Overwrite with different content; the mtime change must invalidate
+  -- the cached compiled output from the runs above.
+  cio.barf(script, [[
+local x: number = 2
+print("value=" .. x)
+]])
+  local ok, out = spawn.spawn({cosmic, script}):read()
+  assert(ok, "cosmic should execute changed .tl file: " .. tostring(out))
+  assert((out as string):find("value=2"),
+    "expected value=2 after script change (stale cache?), got: " .. tostring(out))
+end
+test_script_cache_reuse_and_invalidation()
+
 print("All script tests passed!")

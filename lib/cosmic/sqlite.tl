@@ -99,7 +99,8 @@ local record Database
   close: function(self: Database)
 end
 
-local function make_statement(raw_stmt: RawStatement, raw_db: RawDatabase): Statement
+-- on_close, if given, replaces finalize on close (returns a cached statement to its pool).
+local function make_statement(raw_stmt: RawStatement, raw_db: RawDatabase, on_close?: function(RawStatement)): Statement
   local stmt: Statement = {}
   local closed = false
 
@@ -228,8 +229,11 @@ local function make_statement(raw_stmt: RawStatement, raw_db: RawDatabase): Stat
   end
 
   stmt.close = function(_: Statement)
-    if not closed then
-      closed = true
+    if closed then return end
+    closed = true
+    if on_close then
+      on_close(raw_stmt)
+    else
       local _ = raw_stmt:finalize()
     end
   end
@@ -281,18 +285,19 @@ local function make_database(raw_db: RawDatabase): Database
   end
 
   function db:query(sql: string, ...: any): Rows, string
-    local stmt, err = self:prepare(sql)
-    if not stmt then
+    if closed then
+      return nil, "query failed: database is closed"
+    end
+    local raw_stmt, on_close, err = stmt_cache:checkout(sql)
+    if not raw_stmt then
       return nil, "query failed: " .. (err or "unknown error")
     end
-
-    local n = select("#", ...) as integer
-    if n > 0 then
-      local ok, bind_err = stmt:bind(...)
-      if not ok then
-        stmt:close()
-        return nil, "bind failed: " .. (bind_err or "unknown error")
-      end
+    local stmt = make_statement(raw_stmt as RawStatement, raw_db, on_close as function(RawStatement))
+    -- bind() resets first (even with 0 args), clearing a reused statement.
+    local ok, bind_err = stmt:bind(...)
+    if not ok then
+      stmt:close()
+      return nil, "bind failed: " .. (bind_err or "unknown error")
     end
 
     return make_query_iter(stmt)

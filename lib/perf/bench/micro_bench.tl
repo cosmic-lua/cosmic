@@ -13,6 +13,10 @@ local pt = require("perf.perf_types")
 local A_MILLION = string.rep("a", 1000000)
 local SHA_A_MILLION = "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
 
+-- NIST SHA-256 test vector: "abc".
+local ABC = "abc"
+local SHA_ABC = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+
 local CSV_FIELDS = 256
 
 --- Build a deterministic ~64KB blob with enough variety to be a fair
@@ -50,6 +54,21 @@ local function scenarios(): {pt.Scenario}, string
       end,
       check = function(_: any, res: any): boolean, string
         if res as string ~= SHA_A_MILLION then
+          return false, "digest mismatch: " .. tostring(res)
+        end
+        return true
+      end,
+    },
+    {
+      -- A tiny input, unlike hash_sha256_1mb: isolates fixed per-call
+      -- wrapper overhead (encode + any post-processing) from the SHA-256
+      -- compute itself, which is negligible here.
+      name = "hash_sha256_small",
+      fn = function(_: any): any
+        return hash.sha256_hex(ABC)
+      end,
+      check = function(_: any, res: any): boolean, string
+        if res as string ~= SHA_ABC then
           return false, "digest mismatch: " .. tostring(res)
         end
         return true

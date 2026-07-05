@@ -173,7 +173,7 @@ code read suggests one.
    - result: `bin/make perf-compare` from a clean re-baseline: 20
      scenarios, 0 regression, 2 faster, 18 ok.
 
-3. **startup: Teal loader cost** — step (a) done (2026-07-04), step (b) open
+3. **startup: Teal loader cost** — step (a) and step (b) both done (2026-07-04)
    - scenario: `startup_run_lua`: 19.20ms -> 8.40ms..5.72ms across two
      re-measures (-56% to -70%). the whole `.lua`-vs-`.tl` gap this entry
      named turned out to be almost entirely step (a), not compilation
@@ -193,9 +193,6 @@ code read suggests one.
      and not at position 2) and manually: plain `.lua` scripts, `-e`, and
      requiring a `.tl`-only module (falling back through the lazy
      searcher) all still work.
-   - step (b) (compiled-output caching keyed by mtime/hash, so repeat runs
-     of an unchanged `.tl` script cost `.lua` startup) is unexplored;
-     `startup_run_teal`/`startup_compile_teal` remain open for it.
    - risk note for step (a) that mattered in practice: the return type of
      a `package.searchers` element is itself a function type
      (`function(string): (function(string?, any?): any, any)`); writing
@@ -206,11 +203,43 @@ code read suggests one.
      and destructuring the real searcher's result into typed locals
      before returning them, instead of returning the call expression
      directly.
-   - result: `bin/make perf-compare` from a clean re-baseline, confirmed
-     on a second re-measure: 20 scenarios, 0 regression, 1-2 faster
-     (`startup_run_lua`), 18-19 ok.
+   - result (step a): `bin/make perf-compare` from a clean re-baseline,
+     confirmed on a second re-measure: 20 scenarios, 0 regression, 1-2
+     faster (`startup_run_lua`), 18-19 ok.
+   - fix (step b): added `lib/cosmic/script_cache.tl`, a compiled-output
+     cache used only by `load_script_file` (`main_handlers.tl`) — i.e.
+     only `cosmic script.tl`, not `--compile`/`--check-types`/etc., which
+     call `cosmic.teal` directly and are unaffected. Keyed on
+     `script_path .. content .. build_id` (the running cosmic binary's
+     version string, so a different build — possibly a different
+     embedded Teal compiler — never reuses another build's cached
+     output), hashed with `cosmic.hash.sha256_hex`. **Deliberately
+     content-hashed, not mtime-based**: an mtime key (the original
+     hypothesis's wording) risks a false cache hit if a script is
+     rewritten within one filesystem mtime tick (coarse on some
+     filesystems) — reading the small source file to hash it is cheap
+     next to a full Teal compile, so there's no real reason to accept
+     that risk. A failed compile (type or syntax error) is never cached,
+     so error messages always reflect a fresh compile. Best-effort
+     throughout: any cache read/write failure (missing dir, no write
+     permission, a race with another process) is treated as a miss/no-op,
+     never a hard error.
+   - added `test_script_cache_reuse_and_invalidation` to
+     `lib/cosmic/script_test.tl`: runs a `.tl` script twice (same
+     content, expects a cache hit the second time — verified indirectly,
+     since correctness rather than hit/miss is what's asserted), then
+     overwrites it with different content and confirms the new output
+     wins (cache invalidation via content hash, not stale reuse).
+   - result (step b): `startup_run_teal` 27.91ms -> 6.55ms first pass
+     (-76.5%), 7.59ms on re-measure (-72.8%) — now close to
+     `startup_run_lua`'s own floor, as step (b)'s original hypothesis
+     predicted. `startup_compile_teal` unaffected (within noise) both
+     times, as expected since `--compile` bypasses the cache entirely.
+     `bin/make perf-compare` both times: 22 scenarios, 0 regression,
+     1 faster, 21 ok.
 
-4. **startup: runtime boot floor (cosmopolitan side)** — open, floor moved
+4. **startup: runtime boot floor (cosmopolitan side)** — import-deferral
+     step rejected (2026-07-04); cosmopolitan-side work still open
    - scenario: `startup_run_lua` was ~14.5-19ms for `print()`; after
      entry 3's step (a) fix it measured 5.7-8.4ms across two runs on a
      noisy machine (re-baseline before trusting an absolute number here).
@@ -219,13 +248,30 @@ code read suggests one.
      module loading in main.tl" generally; with it gone, remaining floor
      is the APE loader + zip filesystem + Lua init + cosmic's other
      top-level `require`s (getopt, args, help, main_handlers, etc.).
-   - hypothesis: deferring the remaining dispatch-only imports (e.g.
-     `help`, only used for `--help`) trims a small additional amount; the
-     rest is cosmos-side (zip central-directory scan, stdlib init) —
-     measure with the pinned raw cosmos `lua` binary as `PERF_BIN`
-     denominator before touching whilp/cosmopolitan.
-   - risk: low for any further import-deferral; cosmopolitan-side work
-     follows the "optimizing the cosmo/cosmopolitan layer" section.
+   - attempt: deferred `local help = require("cosmic.help")` in main.tl
+     to inside the `if opts.help then` branch (the only place it's
+     used), matching the exact "e.g. `help`" example this entry named.
+   - finding: `bin/make perf-compare` from a clean re-baseline showed
+     `startup_run_lua` +4.0% — noise (±10.0% bar), not a real
+     regression, but also not a measurable improvement. A quick manual
+     A/B first (alternating `COSMIC_NO_REQUIRE_HINTS=1` runs of a
+     trivial `.lua` script, ~30-50 iterations each way) had already shown
+     the same thing: differences bounced both directions across repeats,
+     never landing consistently on one side. `getopt`/`args`/
+     `main_handlers` can't be deferred the same way (needed on every
+     invocation to parse args and dispatch), so there wasn't a second
+     candidate to combine with `help` for a larger, clearer effect.
+     Reverted the change (`git checkout -- lib/cosmic/main.tl`) since it
+     had no measurable win to justify keeping.
+   - revised hypothesis: this entry's `startup_run_lua` floor (now
+     single-digit ms, cpu/wall ~0.2-0.3 per recent baselines — mostly
+     NOT CPU) is dominated by something below the Lua-require level
+     entirely: the APE loader, zip filesystem init, or Lua runtime boot.
+     Further wins here belong to the "optimizing the cosmo/cosmopolitan
+     layer" section below (measure against the pinned raw cosmos `lua`
+     binary via `PERF_BIN` first), not to more main.tl import shuffling.
+   - risk: n/a for the rejected step; cosmopolitan-side work follows the
+     "optimizing the cosmo/cosmopolitan layer" section.
 
 5. **fs.walk per-entry cost** — done for `files()`/`collect_all()`
      (2026-07-04); `walk()`/`collect()` unchanged (see below)
@@ -287,6 +333,72 @@ code read suggests one.
      output, not overhead. no cosmic-layer fix exists; a
      cosmopolitan-side arena would change object lifetimes. revisit only
      if a scenario shows GC pauses dominating a real workload.
+
+8. **sqlite `db:query`/`db:query_one` prepared-statement reuse** — done
+     (2026-07-04); extends entry 2, which scoped the original cache to
+     `db:exec` only
+   - scenario: `sqlite_point_query`: 8.87µs -> 6.32µs (-28.7% first
+     pass, -29.2% on re-measure)
+   - evidence: `db:query(sql, ...)` (lib/cosmic/sqlite.tl) called
+     `self:prepare(sql)` on every call — a fresh prepare/finalize per
+     query even for identical repeated SQL text. `sqlite_point_query`
+     and `sqlite_scan_aggregate` (via `db:query_one`) both hit this.
+   - fix: added `checkout`/an implicit checkin (a returned closure) to
+     `lib/cosmic/sqlite_stmt_cache.tl`, in a *separate* cache/table from
+     `db:exec`'s (so the two call kinds can never contend for the same
+     slot even if the same SQL text were somehow used for both). Unlike
+     `exec`, a query's statement stays alive for its `Rows` iterator's
+     whole lifetime, so a naive single-slot-by-SQL-text cache would
+     corrupt a nested/interleaved query for the *same* SQL text (e.g. a
+     self-join pattern querying the same table twice, one query per
+     loop level). `checkout()` hands out the shared cached statement
+     only when it isn't already checked out; otherwise it prepares a
+     throwaway statement for that call, exactly like the old
+     uncached behavior. `make_statement`'s `close()` takes an optional
+     `on_close` callback (checkin instead of finalize) so `db:query`
+     didn't need its own iterator-wrapping code — `make_query_iter`
+     already calls `stmt:close()` on completion, unchanged.
+   - added `test_same_sql_nested_query_reentrant` to
+     `lib/cosmic/sqlite_advanced_test.tl` (the existing
+     `test_nested_queries` only nests *different* SQL text, which never
+     touches the same cache slot) — queries the same table with the
+     same SQL in a nested loop, then confirms the cache slot still
+     works after both iterators drain.
+   - gotcha hit while implementing: writing a function type as one
+     return value in a multi-return signature — even as a named `local
+     type X = function(...)` alias rather than an inline literal — trips
+     the same bootstrap-compiler formatter bug found in the Teal-loader
+     round (mis-indents every line after the declaration). This turned
+     out to already be baked into the committed `lib/cosmic/init.tl`
+     (its `local type MainFn = function(...)` line has the identical
+     shift), so the fix was to accept the formatter's own output
+     verbatim as the file content, matching that existing precedent,
+     rather than fight it.
+   - result: `bin/make perf-compare` from a clean re-baseline, confirmed
+     on a second re-measure: 21 scenarios, 0 regression, 1-2 faster
+     (`sqlite_point_query`), 19-20 ok.
+
+9. **hash.sha256_hex dead `:lower()` call** — done (2026-07-04)
+   - scenario: `hash_sha256_small` (new scenario): 488.9ns -> 305.1ns
+     first pass (-37.6%), 300.8ns on re-measure (-38.5%)
+   - evidence: `sha256_hex` (lib/cosmic/hash.tl) was
+     `codec.encode_hex(cosmo.Sha256(data)):lower()`. Verified at runtime
+     that `cosmo.EncodeHex` (which `encode_hex` delegates to directly)
+     already emits lowercase hex, so `:lower()` was a dead full-string
+     scan + allocation on every call, on top of the digest — same
+     "wrapper redoes work the C binding already did" shape as the
+     hex-decode fix (entry 1), just smaller.
+   - fix: removed the `:lower()` call; existing tests already assert
+     lowercase output and a known digest value, so this is provably a
+     no-op removal, not a behavior change.
+   - added `hash_sha256_small` to `lib/perf/bench/micro_bench.tl`
+     (hashing `"abc"`, the NIST test vector) alongside the existing
+     `hash_sha256_1mb`: the 1MB scenario's SHA-256 compute swamps a
+     fixed-per-call wrapper cost like this one, so it needed a tiny-input
+     scenario to show up at all — `hash_sha256_1mb` itself was
+     unaffected (within noise), as expected.
+   - result: `bin/make perf-compare` from a clean re-baseline, confirmed
+     on a second re-measure: 22 scenarios, 0 regression, 1 faster, 21 ok.
 
 ## optimizing the cosmo/cosmopolitan layer end to end
 
