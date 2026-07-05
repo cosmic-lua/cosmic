@@ -1,6 +1,6 @@
 # 21. ljson.c decode builds every table with zero pre-sized slots
 
-- status: open
+- status: done (2026-07-05)
 - layer: cosmopolitan
 - scenario: json_decode_large
 
@@ -33,3 +33,27 @@
 - risk: medium — decoding is on the hot path of much real usage, and
   a bad narr/nrec guess wastes memory instead of saving time; measure
   alloc_kb as well as ns/op before keeping.
+- result: done (whilp/cosmopolitan, tool/net/ljson.c). Replaced the two
+  `lua_newtable(L)` in `Parse()` with `lua_createtable(L, 8, 0)` for
+  arrays and `lua_createtable(L, 0, 8)` for objects — a fixed small
+  guess (no lookahead) that covers the common short array / few-key
+  object without a rehash. Correctness: empty-array `[]` and
+  empty-object `{}` round-trips still hold, 9-key objects and 10-element
+  arrays decode intact, and `o//tool/lua/test` (binding tests +
+  definitions coverage ratchet) passes; DecodeJson's contract is
+  unchanged so no `definitions.lua` / type regen needed. Measured via
+  perf-bin A/B of two local default-mode builds differing only by the
+  diff:
+    json_decode_large   1.16 ms/op -> ~0.78 ms/op   ~-30%
+    json_decode_small   1.08 µs/op -> ~0.74 µs/op   ~-31%
+    json_roundtrip_small ~-16%; alloc unchanged (375 KB/op is the graph)
+  The win reproduced on every one of ~8 runs. NOTE on measurement: this
+  shared cloud runner is too noisy for the short syscall/fixed-overhead
+  scenarios — `hash_sha256_small` and `startup_run_*` tripped the
+  perf-compare regression bar, but a back-to-back controlled A/B
+  (isolated, both builds ~identical) and an A/A control (the SAME
+  unmodified binary vs its own baseline flags `hash_sha256_small`
+  +10.5% and `startup_run_teal` +10.4%) proved those are pure runner
+  variance, not the change (measurement.md's entry-11 situation). The
+  end-to-end confirmation on the pinned release still happens at the
+  cosmos bump per optimize/cosmopolitan.md.
