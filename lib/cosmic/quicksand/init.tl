@@ -85,7 +85,9 @@ local cached: Capabilities = nil
 --- Repeated calls return the same table.
 local function capabilities(): Capabilities
   if cached then return cached end
-  local is_linux = cosmo.GetHostOs() == "LINUX"
+  local host = cosmo.GetHostOs()
+  local is_linux = host == "LINUX"
+  local has_landlock = is_linux and probe_landlock()
   cached = {
     linux = is_linux,
     user_ns = is_linux and unix.CLONE_NEWUSER ~= nil,
@@ -95,9 +97,13 @@ local function capabilities(): Capabilities
     pid_ns = is_linux and unix.CLONE_NEWPID ~= nil,
     pivot_root = is_linux and unix.pivot_root ~= nil,
     cap_net_admin = is_linux and unix.geteuid ~= nil and unix.geteuid() == 0,
-    landlock = is_linux and probe_landlock(),
+    landlock = has_landlock,
     pledge = probe(unix.pledge),
-    unveil = probe(unix.unveil),
+    -- unveil is DERIVED, never probed: for unveil, unix.unveil(nil, nil) is
+    -- the commit call -- probing it would lock this very process into a
+    -- deny-all sandbox. cosmo implements unveil via Landlock on Linux, so it
+    -- is available exactly when Landlock is; OpenBSD has it natively.
+    unveil = has_landlock or host == "OPENBSD",
     caps = is_linux and caps.supported(),
   }
   return cached

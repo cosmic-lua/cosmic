@@ -108,6 +108,39 @@ local function test_real_pledge_unveil_probe()
 end
 test_real_pledge_unveil_probe()
 
+local function test_capabilities_does_not_self_brick()
+  -- Regression: capabilities() must never invoke the destructive
+  -- unix.unveil(nil, nil) commit, which locks the calling process into a
+  -- deny-all sandbox. Prove ordinary filesystem IO still works afterward by
+  -- reading back a file written before the probe.
+  local tmp = os.getenv("TEST_TMPDIR") as string
+  local path = tmp .. "/unveil_probe_check"
+  local w = io.open(path, "w")
+  assert(w, "should create probe check file")
+  w:write("ok")
+  w:close()
+
+  quicksand.capabilities()
+
+  local f = io.open(path, "r")
+  assert(f ~= nil, "capabilities() must not sandbox the calling process")
+  if f then f:close() end
+end
+test_capabilities_does_not_self_brick()
+
+local function test_unveil_matches_landlock_on_linux()
+  -- On Linux, cosmo implements unveil via Landlock, so the derived unveil
+  -- capability must equal the landlock one (no independent, destructive probe).
+  local c = quicksand.capabilities()
+  if not c.linux then
+    a.skip("unveil/landlock equivalence: non-Linux host")
+    return
+  end
+  a.eq(c.unveil, c.landlock,
+    "on Linux unveil is derived from landlock and must equal it")
+end
+test_unveil_matches_landlock_on_linux()
+
 local function test_box_reexported()
   local J = quicksand.Box as {string: any}
   assert(J, "Box should be re-exported from cosmic.quicksand")
