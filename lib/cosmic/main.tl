@@ -192,29 +192,42 @@ local function parse_args(): Opts
     end
   end
 
-  local parser = getopt.new(cosmic_args, shortopts, longopts)
+  local r, perr = getopt.parse(cosmic_args, shortopts, longopts)
+  if not r then
+    opts.error = "cosmic-lua: " .. (perr or "failed to parse arguments")
+    return opts
+  end
 
-  while true do
-    local opt, optarg = parser:next()
-    if not opt then break end
+  -- A required argument that's absent lands in `missing` (named without
+  -- dashes). Give a targeted usage hint where we have one, else a generic
+  -- "requires an argument" message.
+  if #r.missing > 0 then
+    local m = r.missing[1]
+    if m == "test" then
+      opts.error = "cosmic-lua: --test requires: --test <output> <cmd>...\nSee: cosmic-lua --help"
+    elseif m == "embed" then
+      opts.error = "cosmic-lua: --embed requires: --embed <path>\nSee: cosmic-lua --help"
+    elseif m == "output" then
+      opts.error = "cosmic-lua: --output requires: --output <file>\nSee: cosmic-lua --help"
+    else
+      local dash = #m == 1 and "-" or "--"
+      opts.error = "cosmic-lua: option '" .. dash .. m ..
+      "' requires an argument\nSee: cosmic-lua --help"
+    end
+    return opts
+  end
 
-    if opt == "?" then
-      -- Distinguish missing-argument errors from truly unknown options.
-      -- getopt returns "?" with the option string when a required argument
-      -- is absent; give a targeted usage hint instead of "unknown option".
-      if optarg == "--test" then
-        opts.error = "cosmic-lua: --test requires: --test <output> <cmd>...\nSee: cosmic-lua --help"
-      elseif optarg == "--report" then
-        opts.error = "cosmic-lua: --report requires: --report <paths>...\nSee: cosmic-lua --help"
-      elseif optarg == "--embed" then
-        opts.error = "cosmic-lua: --embed requires: --embed <path>\nSee: cosmic-lua --help"
-      elseif optarg == "--output" then
-        opts.error = "cosmic-lua: --output requires: --output <file>\nSee: cosmic-lua --help"
-      else
-        opts.error = "cosmic-lua: unknown option '" .. optarg .. "'"
-      end
-      return opts
-    elseif opt == "e" then
+  -- Truly unrecognized options (already spelled with their dashes).
+  if #r.unknown > 0 then
+    opts.error = "cosmic-lua: unknown option '" .. r.unknown[1] .. "'"
+    return opts
+  end
+
+  for _, o in ipairs(r.opts) do
+    local opt = o.opt
+    local optarg = o.arg
+
+    if opt == "e" then
       opts.execute[#opts.execute + 1] = optarg
     elseif opt == "l" then
       opts.load[#opts.load + 1] = optarg
@@ -270,10 +283,10 @@ local function parse_args(): Opts
       opts.welcome = true
     elseif opt == "test" then
       opts.test_output = optarg
-      opts.test_argv = parser:remaining()
+      opts.test_argv = r.args
       return opts
     elseif opt == "report" then
-      opts.report_paths = parser:remaining()
+      opts.report_paths = r.args
       return opts
     elseif opt == "make" then
       opts.make = optarg or ""
