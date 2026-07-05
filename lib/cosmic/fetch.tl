@@ -196,31 +196,49 @@ local function make_reader(raw_reader: cosmo.StreamReader): Reader
   --- Buffers partial lines across chunks until a newline is received.
   --- @return function iterator yielding lines without trailing newline
   function reader:lines(): function(): string
+    -- Scan-position index into buffer: `pos` is the first unread byte.
+    -- Advancing it instead of slicing off each returned line, and dropping
+    -- the consumed prefix only when we must read more, keeps the whole loop
+    -- linear in the byte count. The previous buffer:sub()-per-line and
+    -- buffer..chunk-per-chunk both re-copied the entire buffer, making line
+    -- iteration O(n²) in the body size (audit §7.2 P1).
     local buffer = ""
+    local pos = 1
     local done = false
 
     return function(): string
-      while not done do
-        local newline_pos = buffer:find("\n")
+      while true do
+        local newline_pos = buffer:find("\n", pos, true)
         if newline_pos then
-          local line = buffer:sub(1, newline_pos - 1)
-          buffer = buffer:sub(newline_pos + 1)
+          local line = buffer:sub(pos, newline_pos - 1)
+          pos = newline_pos + 1
           return line
         end
 
-        local chunk = self:read()
-        if not chunk then
-          done = true
-          if #buffer > 0 then
-            local remaining = buffer
-            buffer = ""
+        if done then
+          -- EOF with a final unterminated line still buffered: yield it once.
+          if pos <= #buffer then
+            local remaining = buffer:sub(pos)
+            pos = #buffer + 1
             return remaining
           end
           return nil
         end
-        buffer = buffer .. chunk
+
+        -- No newline in the unread region; we need more data. Compact away
+        -- the already-returned prefix first so the buffer stays bounded and
+        -- the concat below copies only the unread tail, not the whole buffer.
+        if pos > 1 then
+          buffer = buffer:sub(pos)
+          pos = 1
+        end
+        local chunk = self:read()
+        if not chunk then
+          done = true
+        else
+          buffer = buffer .. chunk
+        end
       end
-      return nil
     end
   end
 
