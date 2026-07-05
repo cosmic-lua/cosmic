@@ -87,6 +87,7 @@ High-level utilities and tools built on top of cosmo.
 | [re](lib/cosmic/re.md) |  Regular expression matching using POSIX extended regex syntax. |
 | [require](lib/cosmic/require.md) |  Enhanced require with helpful error messages. |
 | [run](lib/cosmic/run.md) |  Script execution helpers for the cosmic CLI. |
+| [script_cache](lib/cosmic/script_cache.md) |  Caches compiled Lua output for .tl scripts run directly (`cosmic |
 | [shm](lib/cosmic/shm.md) |  Shared memory for inter-process communication. |
 | [signal](lib/cosmic/signal.md) |  Signal handling utilities. |
 | [sqlite](lib/cosmic/sqlite.md) |  Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns. |

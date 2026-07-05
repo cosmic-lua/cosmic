@@ -32,11 +32,28 @@ end
 ```teal
 local record StmtCache
   exec: function(self: StmtCache, sql: string, args: {integer: any}, n: integer): boolean, string
+  checkout: function(self: StmtCache, sql: string): RawStatement, OnClose, string
   close_all: function(self: StmtCache)
 end
 ```
 
 ## Functions
+
+### self:checkout
+
+```teal
+function self:checkout(sql: string): RawStatement, OnClose, string
+```
+
+ Check out a statement for db:query, preparing and caching one if this
+ SQL text hasn't been queried yet. Returns (statement, on_close):
+ on_close is non-nil when the statement is the shared cached one —
+ the caller must call it (instead of finalizing) when its Rows
+ iterator finishes, to return the slot. When the cached slot for
+ this SQL is already checked out by an unfinished query
+ (nested/interleaved queries for the same SQL text), a fresh
+ throwaway statement is prepared instead and on_close is nil — the
+ caller finalizes it itself, same as an uncached prepare.
 
 ### self:exec
 

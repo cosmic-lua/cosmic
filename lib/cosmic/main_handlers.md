@@ -78,8 +78,7 @@ function run_repl()
 function load_script_file(script_path: string): function(...: any): any ..., string
 ```
 
- Load a script file (.tl or .lua).
- Compiles .tl files through Teal, loads .lua files directly.
+ Load a script file (.tl or .lua): .tl through Teal (cached), .lua directly.
 
 ### run_docs
 
