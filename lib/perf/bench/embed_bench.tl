@@ -11,11 +11,13 @@ local pt = require("perf.perf_types")
 
 -- Deliberately dir-heavy: embed.run()'s dominant, roughly-fixed cost is
 -- copying the whole source executable (megabytes) into the output file,
--- which would swamp a d_type-vs-stat(2) difference measured over just a
--- handful of directories. A large DIRS count makes the per-directory
--- syscall savings big enough to show up over that fixed floor.
-local DIRS = 600
-local FILES_PER_DIR = 1
+-- which would swamp small per-entry syscall differences measured over
+-- just a handful of directories. A large DIRS count makes collect_dir's
+-- d_type-vs-stat(2) savings big enough to show over that fixed floor;
+-- FILES_PER_DIR > 1 gives extract() multiple files per directory, so a
+-- memoized makedirs(2) has something to dedupe against.
+local DIRS = 120
+local FILES_PER_DIR = 5
 
 -- Mirrors cosmic.embed's EmbedResult shape (not exported by that module).
 local record EmbedResult
