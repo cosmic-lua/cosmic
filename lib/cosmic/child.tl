@@ -154,8 +154,12 @@ end
 local function spawn(argv: {string}, opts?: Opts): Handle, string
   opts = opts or {}
 
-  -- Handle /zip/ paths: open zip fd for fexecve
+  -- Resolve the executable into a LOCAL, never by mutating the caller's
+  -- argv table: a PATH search wrote the resolved path back into argv[1],
+  -- corrupting the caller's own table. argv is passed to exec unchanged, so
+  -- argv[0] stays the name the caller gave.
   local exec_fd: number
+  local prog = argv[1]
   if is_zip_path(argv[1]) then
     local fd, err = prepare_zip_exec(argv[1])
     if not fd then
@@ -167,7 +171,7 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
     if not cmd then
       return nil, "command not found: " .. argv[1]
     end
-    argv[1] = cmd
+    prog = cmd
   end
 
   -- Track every fd we open so a mid-way pipe() failure (fd exhaustion) can be
@@ -179,8 +183,14 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
     if exec_fd then unix.close(exec_fd) end
     return nil, msg
   end
+  -- Create pipes CLOEXEC so their ends do not leak into an unrelated child
+  -- spawned while this handle is still open: otherwise child B inherits child
+  -- A's pipe ends and A never sees stdin EOF until B exits (communicate()
+  -- hangs on overlap). The child's own dup2 onto 0/1/2 clears CLOEXEC on the
+  -- ends it keeps; the ends that happen to already be fd 0/1/2 are cleared
+  -- explicitly below.
   local function new_pipe(): number, number
-    local r, w = unix.pipe()
+    local r, w = unix.pipe(unix.O_CLOEXEC)
     if r == nil or w == nil then
       return nil, nil
     end
@@ -229,7 +239,9 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
         unix.dup(stdin_r, 0)
         unix.close(stdin_r)
       else
-        -- stdin_r == 0: dup2(0, 0) is fine, just close the write end
+        -- stdin_r == 0: no dup2 to clear CLOEXEC, so clear it directly or
+        -- fd 0 would close on execve; then just close the write end.
+        unix.fcntl(0, unix.F_SETFD, 0)
         unix.close(stdin_w)
       end
     end
@@ -245,7 +257,8 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
         unix.dup(stdout_w, 1)
         unix.close(stdout_w)
       else
-        -- stdout_w == 1: dup2(1, 1) is fine, just close the read end
+        -- stdout_w == 1: no dup2 to clear CLOEXEC, so clear it directly.
+        unix.fcntl(1, unix.F_SETFD, 0)
         unix.close(stdout_r)
       end
     end
@@ -261,7 +274,8 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
         unix.dup(stderr_w, 2)
         unix.close(stderr_w)
       else
-        -- stderr_w == 2: dup2(2, 2) is fine, just close the read end
+        -- stderr_w == 2: no dup2 to clear CLOEXEC, so clear it directly.
+        unix.fcntl(2, unix.F_SETFD, 0)
         unix.close(stderr_r)
       end
     end
@@ -277,7 +291,7 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
     if exec_fd then
       unix.fexecve(exec_fd, argv, env)
     else
-      unix.execve(argv[1], argv, env)
+      unix.execve(prog, argv, env)
     end
     os.exit(127)
   end
