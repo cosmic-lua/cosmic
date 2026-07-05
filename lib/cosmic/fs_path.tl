@@ -75,34 +75,56 @@ local function normalize(p: string): string
     return "."
   end
 
+  -- Fast path: a path that is already normal — no redundant "//" or
+  -- trailing "/", and no "." or ".." components — normalizes to itself,
+  -- so return it without allocating the parts table and result string.
+  -- The predicate is a conservative subset of "output == input" built
+  -- from C-implemented full-string checks (no per-component Lua loop);
+  -- anything it doesn't match falls through to the authoritative loop
+  -- below, which stays the source of truth for correctness. Note a
+  -- component merely containing dots (e.g. "..." or "a.b") is normal and
+  -- correctly passes, since only exact "." / ".." segments are excluded.
+  if p:sub(-1) ~= "/"
+  and not p:find("//", 1, true)
+  and p ~= "." and p:sub(1, 2) ~= "./"
+  and p:sub(-2) ~= "/." and not p:find("/./", 1, true)
+  and p ~= ".." and p:sub(1, 3) ~= "../"
+  and p:sub(-3) ~= "/.." and not p:find("/../", 1, true) then
+    return p
+  end
+
   local is_absolute = p:sub(1, 1) == "/"
 
   -- Split into components, filtering empty strings (from // or trailing /)
   local parts: {string} = {}
+  local n = 0
   for part in p:gmatch("[^/]+") do
     if part == "." then
       -- skip current dir
     elseif part == ".." then
-      if #parts > 0 and parts[#parts] ~= ".." then
-        table.remove(parts)
+      if n > 0 and parts[n] ~= ".." then
+        parts[n] = nil
+        n = n - 1
       elseif not is_absolute then
         -- for relative paths, preserve leading ..
-        table.insert(parts, "..")
+        n = n + 1
+        parts[n] = ".."
       end
       -- for absolute paths starting with /.., just ignore the ..
     else
-      table.insert(parts, part)
+      n = n + 1
+      parts[n] = part
     end
   end
 
   if is_absolute then
-    if #parts == 0 then
+    if n == 0 then
       return "/"
     else
       return "/" .. table.concat(parts, "/")
     end
   else
-    if #parts == 0 then
+    if n == 0 then
       return "."
     else
       return table.concat(parts, "/")
