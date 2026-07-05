@@ -270,10 +270,16 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
   end
   local appender = appender_result as ZipAppender
 
-  -- Remove existing entries that conflict, then add new ones
+  -- Remove existing entries that conflict, then add new ones.
+  -- Store .lua uncompressed; deflate everything else. The produced
+  -- executable loads its embedded Lua at boot, so a deflated .lua costs an
+  -- inflate() on every launch (the per-boot cost backlog 024 removed from
+  -- cosmic's own payload). Bulk assets, which the entry point does not
+  -- necessarily read at startup, stay compressed to hold the size down.
   for _, file_info in ipairs(files_to_embed) do
     appender:remove(file_info.stored_name)
-    local opts: AddOptions = {mode = file_info.mode, method = "deflate"}
+    local is_lua = file_info.stored_name:sub(-4) == ".lua"
+    local opts: AddOptions = {mode = file_info.mode, method = is_lua and "store" or "deflate"}
     local add_ok, add_err = appender:add(file_info.stored_name, file_info.content, opts)
     if not add_ok then
       appender:close()
