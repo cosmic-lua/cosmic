@@ -55,11 +55,11 @@ local sqlite3 = lsqlite3 as RawSqlite3
 
 --- Callable row iterator with an out-of-band error channel. Use it in a
 --- generic `for row in ... do` loop, then call `:err()` afterward to detect
---- a step error (SQLITE_BUSY / CORRUPT / a RETURNING constraint failure)
---- that a for-loop cannot observe inline. `:err()` is nil only when
---- iteration reached SQLITE_DONE cleanly.
+--- a step error. `:err()` is nil on clean DONE. Supports `<close>` to
+--- finalize the statement early when abandoning the iterator.
 local record Rows
   metamethod __call: function(self: Rows): {string: any}
+  metamethod __close: function(self: Rows)
   err: function(self: Rows): string
 end
 
@@ -239,8 +239,8 @@ local function make_statement(raw_stmt: RawStatement, raw_db: RawDatabase): Stat
     }) as Statement
 end
 
--- Wrap a prepared+bound statement's row iterator: finalize the statement
--- when iteration ends and forward the step error through `:err()`.
+-- Wrap a prepared+bound statement's row iterator: finalize when drained or
+-- closed early (__close enables `local rows <close> = db:query_list(...)`).
 local function make_query_iter(stmt: Statement): Rows
   local raw_iter = stmt:rows()
   local done = false
@@ -256,6 +256,12 @@ local function make_query_iter(stmt: Statement): Rows
           return nil
         end
         return row
+      end,
+      __close = function(_: Rows)
+        if not done then
+          done = true
+          stmt:close()
+        end
       end,
     })
   iter.err = function(_: Rows): string return raw_iter:err() end
@@ -379,7 +385,7 @@ local function make_database(raw_db: RawDatabase): Database
   end
 
   --- Query with named parameters.
-  --- SQL should use :name placeholders. Table keys are names without the colon.
+  --- SQL should use :name placeholders; table keys are names without the colon.
   function db:query_named(sql: string, params: {string: any}): Rows, string
     local stmt, err = self:prepare(sql)
     if not stmt then
@@ -396,27 +402,21 @@ local function make_database(raw_db: RawDatabase): Database
   end
 
   --- Return the first row matching a query, or nil if no rows match.
-  --- Convenience method for single-row lookups.
-  --- The underlying prepared statement is always finalized before returning,
-  --- even when only the first row is consumed, preventing statement leaks.
+  --- The statement is always finalized before returning.
   function db:query_one(sql: string, ...: any): {string: any}, string
     local iter, err = self:query(sql, ...)
     if not iter then
       return nil, err
     end
-    -- Capture the first row, then drain the iterator so the statement is
-    -- finalized deterministically (returning early from a for-loop leaves
-    -- the iterator open and the prepared statement unfinalized until GC).
+    -- Capture the first row, then drain so the statement is finalized.
     local first: {string: any} = nil
     for row in iter do
       first = row
       break
     end
-    -- Drain remaining rows so the wrapping closure calls stmt:close().
     if first ~= nil then
       while iter() ~= nil do end
     end
-    -- Surface a step error rather than a partial row that looks clean.
     local step_err = iter:err()
     if step_err then
       return nil, step_err
@@ -424,9 +424,8 @@ local function make_database(raw_db: RawDatabase): Database
     return first
   end
 
-  --- Execute fn within a transaction. BEGIN before fn; COMMIT if fn returns
-  --- cleanly; ROLLBACK if fn raises OR signals failure the library way -- a
-  --- returned `false`, or `nil` plus an error (nothing returned still commits).
+  --- Execute fn within a transaction. Commits on clean return; rolls back
+  --- on exception or when fn returns false/nil+error.
   function db:transaction(fn: function(Database)): boolean, string
     local ok, err = self:exec("BEGIN IMMEDIATE")
     if not ok then

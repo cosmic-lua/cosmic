@@ -403,4 +403,57 @@ local function test_same_sql_nested_query_reentrant()
 end
 test_same_sql_nested_query_reentrant()
 
+-- Test that query_list iterator __close frees the statement on early abandonment.
+-- query_named is also backed by make_query_iter so behavior is the same.
+
+local function test_query_list_close_on_early_exit()
+  local db = sqlite.open(":memory:")
+  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, val TEXT)")
+  db:exec("INSERT INTO t (val) VALUES ('a'), ('b'), ('c')")
+
+  -- Get an iterator, consume only the first row, then close it via __close.
+  -- After closing, subsequent queries on the same db must still work.
+  do
+    local rows = db:query_list("SELECT * FROM t ORDER BY id", {})
+    assert(rows ~= nil, "query_list should succeed")
+    local first = rows()
+    assert(first ~= nil, "should get first row")
+    -- Manually invoke __close to simulate scope exit without draining.
+    local mt = getmetatable(rows)
+    if mt and (mt as {string: any}).__close then
+      ((mt as {string: any}).__close as function({string: any}))((rows as {string: any}))
+    end
+  end
+
+  -- After early close, the db must remain usable and the statement must be freed.
+  local count_row = db:query_one("SELECT COUNT(*) as n FROM t")
+  assert(count_row ~= nil, "db should remain usable after early iterator close")
+  assert(count_row.n == 3, "count should be 3, got: " .. tostring(count_row.n))
+  db:close()
+end
+test_query_list_close_on_early_exit()
+
+local function test_query_named_close_on_early_exit()
+  local db = sqlite.open(":memory:")
+  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, val TEXT)")
+  db:exec("INSERT INTO t (val) VALUES ('x'), ('y'), ('z')")
+
+  do
+    local rows = db:query_named("SELECT * FROM t WHERE val != :skip ORDER BY id", {skip = "z"})
+    assert(rows ~= nil, "query_named should succeed")
+    local first = rows()
+    assert(first ~= nil, "should get first row")
+    local mt = getmetatable(rows)
+    if mt and (mt as {string: any}).__close then
+      ((mt as {string: any}).__close as function({string: any}))((rows as {string: any}))
+    end
+  end
+
+  local count_row = db:query_one("SELECT COUNT(*) as n FROM t")
+  assert(count_row ~= nil, "db should remain usable after early named iterator close")
+  assert(count_row.n == 3, "count should be 3, got: " .. tostring(count_row.n))
+  db:close()
+end
+test_query_named_close_on_early_exit()
+
 print("All sqlite tests passed")

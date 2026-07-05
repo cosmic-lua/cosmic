@@ -152,3 +152,29 @@ local function test_memory_wake_no_waiters()
   assert(woken == 0, "wake with no waiters should return 0, got " .. tostring(woken))
 end
 test_memory_wake_no_waiters()
+
+-- Test mapshared error return path
+
+local function test_mapshared_returns_nil_error_on_bad_size()
+  -- mapshared wraps unix.mapshared with pcall to convert exceptions to error returns.
+  -- Passing size=0 or a negative size should fail cleanly with nil, err.
+  -- Note: the exact behavior depends on the platform mmap(2) implementation.
+  local mem, err = shm.mapshared(0)
+  if mem == nil then
+    -- Error path exercised: verify error is a string.
+    assert(type(err) == "string", "error should be a string, got: " .. type(err))
+    assert(#err > 0, "error should not be empty")
+  else
+    -- Some platforms allow 0-size mappings; that's fine, no error expected.
+    io.stderr:write("SKIP: test_mapshared_returns_nil_error_on_bad_size (size=0 succeeded on this platform)\n")
+  end
+end
+test_mapshared_returns_nil_error_on_bad_size()
+
+local function test_mapshared_success_returns_nil_error()
+  -- A valid mapshared call should return Memory, nil (no error).
+  local mem, err = shm.mapshared(4096)
+  assert(mem ~= nil, "mapshared should succeed for valid size")
+  assert(err == nil, "error should be nil on success, got: " .. tostring(err))
+end
+test_mapshared_success_returns_nil_error()

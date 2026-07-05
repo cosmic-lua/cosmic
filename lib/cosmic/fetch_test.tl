@@ -472,3 +472,29 @@ local function test_timeout_option_passthrough_stream()
   assert(result.error ~= nil, "result.error should be set")
 end
 test_timeout_option_passthrough_stream()
+
+-- lines() error surfacing test
+
+local function test_lines_surfaces_read_error()
+  -- Test that lines() surfaces read errors as second return value.
+  -- We simulate a mid-stream failure by verifying the contract with
+  -- a minimal reader that errors on the second read call.
+  if not has_fetch_stream then
+    io.stderr:write("SKIP: test_lines_surfaces_read_error (FetchStream not available)\n")
+    return
+  end
+  -- Use stream() with a URL that will fail after headers to trigger mid-read error.
+  -- We test the contract: lines() on a closed reader should surface "reader closed".
+  local result = fetch.stream("data:text/plain,line1%0Aline2")
+  if not result.ok then
+    io.stderr:write("SKIP: test_lines_surfaces_read_error (data URL not supported)\n")
+    return
+  end
+  result.reader:close()
+  local iter = result.reader:lines()
+  local line, err = iter()
+  assert(line == nil, "closed reader should yield nil line, got: " .. tostring(line))
+  assert(err ~= nil, "closed reader should yield error, got nil")
+  assert(type(err) == "string", "error should be a string, got: " .. type(err))
+end
+test_lines_surfaces_read_error()

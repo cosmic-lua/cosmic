@@ -44,7 +44,7 @@ local record Reader
   read: function(self: Reader): string, string
   close: function(self: Reader): boolean
   closed: function(self: Reader): boolean
-  lines: function(self: Reader): function(): string
+  lines: function(self: Reader): function(): string, string
 end
 
 --- Result from a streaming fetch operation.
@@ -194,8 +194,9 @@ local function make_reader(raw_reader: cosmo.StreamReader): Reader
 
   --- Return an iterator that yields complete lines.
   --- Buffers partial lines across chunks until a newline is received.
-  --- @return function iterator yielding lines without trailing newline
-  function reader:lines(): function(): string
+  --- Yields line, nil on success; nil, nil on clean EOF; nil, err on read error.
+  --- @return function iterator yielding lines without trailing newline, and optional error
+  function reader:lines(): function(): string, string
     -- Scan-position index into buffer: `pos` is the first unread byte.
     -- Advancing it instead of slicing off each returned line, and dropping
     -- the consumed prefix only when we must read more, keeps the whole loop
@@ -205,8 +206,9 @@ local function make_reader(raw_reader: cosmo.StreamReader): Reader
     local buffer = ""
     local pos = 1
     local done = false
+    local read_err: string = nil
 
-    return function(): string
+    return function(): string, string
       while true do
         local newline_pos = buffer:find("\n", pos, true)
         if newline_pos then
@@ -222,7 +224,8 @@ local function make_reader(raw_reader: cosmo.StreamReader): Reader
             pos = #buffer + 1
             return remaining
           end
-          return nil
+          -- Return nil, err on read error; nil, nil on clean EOF.
+          return nil, read_err
         end
 
         -- No newline in the unread region; we need more data. Compact away
@@ -232,9 +235,10 @@ local function make_reader(raw_reader: cosmo.StreamReader): Reader
           buffer = buffer:sub(pos)
           pos = 1
         end
-        local chunk = self:read()
+        local chunk, err = self:read()
         if not chunk then
           done = true
+          read_err = err
         else
           buffer = buffer .. chunk
         end

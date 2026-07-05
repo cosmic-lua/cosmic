@@ -36,7 +36,7 @@ local record ShmModule
     wait: function(self: Memory, word_index: number, expect: number, abs_deadline?: number, nanos?: number): number
     wake: function(self: Memory, word_index: number, count?: number): number
   end
-  mapshared: function(size: number): Memory
+  mapshared: function(size: number): Memory, string
 end
 
 --- Creates a shared memory region.
@@ -63,8 +63,13 @@ end
 ---
 --- @param size number Size in bytes for the shared memory region
 --- @return Memory Shared memory object with atomic operations
-local function mapshared(size: number): ShmModule.Memory
-  return unix.mapshared(size) as ShmModule.Memory
+--- @return string Error message if allocation failed, nil on success
+local function mapshared(size: number): ShmModule.Memory, string
+  local ok, result = pcall(unix.mapshared, size)
+  if not ok then
+    return nil, result as string
+  end
+  return result as ShmModule.Memory
 end
 
 local M: ShmModule = {

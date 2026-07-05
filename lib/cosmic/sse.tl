@@ -56,9 +56,12 @@ local function events(reader: fetch.Reader): function(): Event, string
     end
 
     while true do
-      local line = lines_iter()
+      local line, line_err = lines_iter()
       if not line then
         done = true
+        if line_err then
+          return nil, line_err
+        end
         -- stream ended: dispatch final event if we have pending data
         if #current_data > 0 then
           local ev: Event = {
