@@ -64,9 +64,11 @@ local record perf_types
   end
 
   --- One row of a baseline-vs-current comparison.
-  --- verdict is one of: "ok", "faster", "regression", "new", "missing",
-  --- "error". noise_pct is the bar a delta must clear to count as real:
-  --- max(threshold, baseline spread, current spread).
+  --- verdict is one of: "ok", "faster", "regression", "noise", "new",
+  --- "missing", "error". "noise" is a regression that an A/A self-check
+  --- reclassified as run-to-run variance (see compare.triage); it does
+  --- not fail the gate. noise_pct is the bar a delta must clear to count
+  --- as real: max(threshold, baseline spread, current spread).
   record Delta
     name: string
     base_ns: number

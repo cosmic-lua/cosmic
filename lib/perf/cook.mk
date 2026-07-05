@@ -70,14 +70,29 @@ perf_compare_cmd = $(PERF_BIN) -- $(perf_run) --compare \
 	$(perf_sandbox)/baseline.json $(perf_sandbox)/current.json \
 	--threshold $(PERF_THRESHOLD)
 
+# Final stage: reclassify any surviving regression the current binary
+# cannot reproduce against itself (selfcheck-b vs the current run) as
+# "noise" rather than a failure — the A/A control, run automatically.
+perf_triage_cmd = $(PERF_BIN) -- $(perf_run) --compare \
+	$(perf_sandbox)/baseline.json $(perf_sandbox)/current.json \
+	--threshold $(PERF_THRESHOLD) \
+	--selfcheck-a $(perf_sandbox)/current.json \
+	--selfcheck-b $(perf_sandbox)/selfcheck-b.json
+
 ## Re-run scenarios and fail on any regression vs the saved baseline
-# A failed comparison retries once with fresh measurements so that
-# machine noise has to strike twice in the same direction to fail.
+# A failed comparison retries once with fresh measurements so machine
+# noise has to strike twice in the same direction. If a regression still
+# stands, one more pass of the same binary drives an automatic A/A
+# triage: scenarios that swing past the bar against themselves are
+# reclassified "noise" and the gate passes iff a real regression remains.
 perf-compare: perf
 	@$(perf_compare_cmd) || { \
 		echo "perf-compare: regression flagged; re-measuring once to filter noise"; \
 		$(perf_cmd) --out $(perf_sandbox)/current.json $(perf_bench_mods) \
-			&& $(perf_compare_cmd); }
+			&& $(perf_compare_cmd); } || { \
+		echo "perf-compare: regression persists; running A/A self-check to separate real regressions from machine noise"; \
+		$(perf_cmd) --out $(perf_sandbox)/selfcheck-b.json $(perf_bench_mods) \
+			&& $(perf_triage_cmd); }
 
 perf-selfcheck: .PLEDGE = stdio rpath wpath cpath proc exec
 perf-selfcheck: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null

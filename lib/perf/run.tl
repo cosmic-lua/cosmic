@@ -30,6 +30,8 @@ local record Args
   only: string
   compare_mode: boolean
   threshold: number
+  selfcheck_a: string
+  selfcheck_b: string
   help: boolean
   positional: {string}
   err: string
@@ -38,6 +40,7 @@ end
 local USAGE = [[
 usage: run.lua [--out FILE] [--samples N] [--min-secs S] [--only PAT] MODULE...
        run.lua --compare BASE.json CUR.json [--threshold PCT]
+         [--selfcheck-a AA.json --selfcheck-b AB.json]
 ]]
 
 --- Parse command-line arguments.
@@ -57,6 +60,8 @@ local function parse_args(argv: {string}): Args
       {name = "only", has_arg = "required"},
       {name = "compare", has_arg = "none"},
       {name = "threshold", has_arg = "required"},
+      {name = "selfcheck-a", has_arg = "required"},
+      {name = "selfcheck-b", has_arg = "required"},
       {name = "help", has_arg = "none", short = "h"},
     })
   while true do
@@ -91,6 +96,10 @@ local function parse_args(argv: {string}): Args
       else
         a.threshold = t
       end
+    elseif opt == "selfcheck-a" then
+      a.selfcheck_a = optarg
+    elseif opt == "selfcheck-b" then
+      a.selfcheck_b = optarg
     elseif opt == "h" then
       a.help = true
     end
@@ -224,7 +233,25 @@ local function run_compare(a: Args): integer
     io.stderr:write(cerr .. "\n")
     return 1
   end
-  local deltas, failures = compare.diff(base, cur, a.threshold)
+  local deltas: {pt.Delta}
+  local failures: integer
+  if a.selfcheck_a and a.selfcheck_b then
+    -- A/A triage: reclassify regressions the current binary can't
+    -- reproduce against itself as "noise" rather than failures.
+    local na, naerr = compare.load_results(a.selfcheck_a)
+    if na == nil then
+      io.stderr:write(naerr .. "\n")
+      return 1
+    end
+    local nb, nberr = compare.load_results(a.selfcheck_b)
+    if nb == nil then
+      io.stderr:write(nberr .. "\n")
+      return 1
+    end
+    deltas, failures = compare.triage(base, cur, na, nb, a.threshold)
+  else
+    deltas, failures = compare.diff(base, cur, a.threshold)
+  end
   print(compare.format(deltas))
   if failures > 0 then
     io.stderr:write("perf: " .. failures .. " scenario(s) regressed, errored, or went missing\n")

@@ -32,13 +32,16 @@ bin/make perf-selfcheck       # A/A control: same binary vs itself = noise floor
 bin/make perf PERF_ONLY=json  # filter scenarios by Lua pattern
 ```
 
-`perf-selfcheck` is the fast way out of a false alarm: when `perf-compare`
-flags a scenario your change never touched (a fixed-overhead microbench
-like `hash_sha256_small` or `startup_run_*` swung by frequency scaling,
-a noisy neighbor, or code-layout shift), it measures the same binary
-twice and compares it to itself, so anything it flags is machine noise
-rather than your edit. `lib/perf/optimize/measurement.md` has the full
-playbook.
+`perf-compare` already handles the false alarm for you: when a
+regression survives its retry, it runs one more pass of the same binary
+and auto-triages against that A/A self-check — a fixed-overhead
+microbench (`hash_sha256_small`, `startup_run_*`, `net_ip_*`) that swung
+on frequency scaling, a noisy neighbor, or code-layout shift is reported
+as `noise` and does not fail the gate, while a regression the binary
+reproduces against itself still fails. `perf-selfcheck` runs that same
+A/A control standalone, for interactive use or to profile the machine's
+noise floor before you start. `lib/perf/optimize/measurement.md` has the
+full playbook.
 
 knobs: `PERF_SAMPLES` (default 5), `PERF_MIN_SECS` (default 0.15),
 `PERF_THRESHOLD` (regression bar in percent, default 10), `PERF_BIN`
@@ -100,18 +103,23 @@ work ONE scenario (or one closely related group) at a time.
    compares against your baseline with a noise-aware bar
    (max of `PERF_THRESHOLD`, baseline spread, current spread), retries
    once on failure to filter machine noise, and exits nonzero if any
-   scenario regressed, errored, or disappeared.
+   scenario regressed, errored, or disappeared. if a regression survives
+   the retry it runs one more pass of the same binary and auto-triages:
+   a scenario that also swings past the bar against itself is reported
+   as `noise` and does not fail the gate, so a green `perf-compare` means
+   "no regression the binary can reproduce against itself." trust the
+   verdict — the manual A/A hunt is now built in.
 6. **decide.**
-   - target scenario improved beyond its noise bar and nothing else
-     regressed → keep it.
-   - no measurable improvement, or a real regression elsewhere → `git
-     checkout` the change and record the failed hypothesis.
-   - a scenario your change cannot touch flagged as regressed → this is
-     usually machine noise, not a reason to revert. confirm with
-     `bin/make perf-selfcheck` (A/A control): if the same scenario
-     swings as much comparing the binary to itself, discount it. only a
-     regression that is both *explainable by your diff* and *reproducible
-     under the A/A control* counts. see `optimize/measurement.md`.
+   - target scenario improved beyond its noise bar and `perf-compare`
+     exited 0 (no real regression; any `noise` rows already discounted)
+     → keep it.
+   - no measurable improvement, or a surviving `regression` row → `git
+     checkout` the change and record the failed hypothesis. a surviving
+     regression already reproduced against the binary itself, so it is
+     real; do not re-litigate it as noise.
+   - want to see the machine's noise floor yourself → `bin/make
+     perf-selfcheck` runs the same A/A control on demand. see
+     `optimize/measurement.md`.
 7. **commit**, quoting before/after numbers for the affected scenarios in
    the commit message (copy the `perf-compare` lines), and update the
    backlog entry file in the same commit.

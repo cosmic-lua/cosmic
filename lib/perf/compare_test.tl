@@ -131,4 +131,50 @@ local function test_load_results_rejects_garbage()
 end
 test_load_results_rejects_garbage()
 
+local function test_triage_keeps_stable_regression()
+  -- The regression reproduces: the A/A self-check is quiet for "a", so
+  -- the regression stands and still fails the gate.
+  local deltas, failures = compare.triage(
+    results({m("a", 1000, 2)}), results({m("a", 1300, 2)}),
+    results({m("a", 1300, 2)}), results({m("a", 1305, 2)}), 10)
+  assert(failures == 1, "stable regression must still fail, got " .. failures)
+  assert(find_delta(deltas, "a").verdict == "regression", "should stay regression")
+end
+test_triage_keeps_stable_regression()
+
+local function test_triage_reclassifies_noisy_regression()
+  -- Same +30% "regression", but the current binary swings ~-31% against
+  -- itself for "a": indistinguishable from noise, so reclassify.
+  local deltas, failures = compare.triage(
+    results({m("a", 1000, 2)}), results({m("a", 1300, 2)}),
+    results({m("a", 1300, 2)}), results({m("a", 900, 2)}), 10)
+  assert(failures == 0, "noisy regression must not fail, got " .. failures)
+  assert(find_delta(deltas, "a").verdict == "noise", "should reclassify to noise")
+end
+test_triage_reclassifies_noisy_regression()
+
+local function test_triage_only_touches_regressions()
+  -- "a" is a noisy regression -> noise; "b" is ok in the main diff even
+  -- though its A/A is unstable -> triage must leave it ok, not invent a
+  -- regression.
+  local deltas, failures = compare.triage(
+    results({m("a", 1000, 2), m("b", 1000, 2)}),
+    results({m("a", 1300, 2), m("b", 1005, 2)}),
+    results({m("a", 1300, 2), m("b", 1000, 2)}),
+    results({m("a", 900, 2), m("b", 1400, 2)}), 10)
+  assert(failures == 0, "a->noise, b ok: no failures, got " .. failures)
+  assert(find_delta(deltas, "a").verdict == "noise", "a -> noise")
+  assert(find_delta(deltas, "b").verdict == "ok", "b stays ok")
+end
+test_triage_only_touches_regressions()
+
+local function test_triage_format_counts_noise()
+  local deltas = compare.triage(
+    results({m("a", 1000, 2)}), results({m("a", 1300, 2)}),
+    results({m("a", 1300, 2)}), results({m("a", 900, 2)}), 10)
+  local text = compare.format(deltas)
+  assert(text:find("1 noise", 1, true), "summary should count noise:\n" .. text)
+end
+test_triage_format_counts_noise()
+
 print("OK compare_test")

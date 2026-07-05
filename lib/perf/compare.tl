@@ -93,6 +93,42 @@ local function diff(base: pt.Results, cur: pt.Results, threshold_pct?: number): 
   return deltas, failures
 end
 
+--- Reclassify baseline-vs-current regressions using an A/A self-check.
+--- A regression whose scenario ALSO moves past its noise bar when the
+--- current binary is compared against itself (two same-binary runs) is
+--- indistinguishable from run-to-run variance, so it is reclassified to
+--- the non-failing verdict "noise". A scenario that stays within the bar
+--- under the self-check keeps its "regression" verdict — so a real
+--- regression in a stable, low-variance scenario (json, sqlite, ...)
+--- still fails the gate. This makes the noise/real call deterministic
+--- instead of a manual judgement (see lib/perf/optimize/measurement.md).
+--- @param base Results Baseline results
+--- @param cur Results Current results
+--- @param noise_a Results First self-check pass (current binary)
+--- @param noise_b Results Second self-check pass (current binary)
+--- @param threshold_pct number? Noise bar in percent (default 10)
+--- @return {Delta} Deltas, with confirmed-noise regressions reclassified
+--- @return integer Number of real failures (regressions + errors + missing)
+local function triage(base: pt.Results, cur: pt.Results, noise_a: pt.Results, noise_b: pt.Results, threshold_pct?: number): {pt.Delta}, integer
+  local deltas, failures = diff(base, cur, threshold_pct)
+  local self_deltas = diff(noise_a, noise_b, threshold_pct)
+  local unstable: {string: boolean} = {}
+  for _, sd in ipairs(self_deltas) do
+    -- The same binary vs itself should read "ok"; a scenario that instead
+    -- clears the bar in either direction is too noisy to judge here.
+    if sd.verdict == "regression" or sd.verdict == "faster" then
+      unstable[sd.name] = true
+    end
+  end
+  for _, d in ipairs(deltas) do
+    if d.verdict == "regression" and unstable[d.name] then
+      d.verdict = "noise"
+      failures = failures - 1
+    end
+  end
+  return deltas, failures
+end
+
 --- Format one delta as a report line.
 --- @param d Delta The delta
 --- @return string A single aligned line
@@ -122,11 +158,12 @@ local function format(deltas: {pt.Delta}): string
     counts[d.verdict] = (counts[d.verdict] or 0) + 1
   end
   table.insert(lines, string.format(
-      "%d scenarios: %d regression, %d faster, %d ok, %d new, %d missing, %d error",
+      "%d scenarios: %d regression, %d faster, %d ok, %d noise, %d new, %d missing, %d error",
       #deltas,
       counts["regression"] or 0,
       counts["faster"] or 0,
       counts["ok"] or 0,
+      counts["noise"] or 0,
       counts["new"] or 0,
       counts["missing"] or 0,
       counts["error"] or 0))
@@ -137,6 +174,7 @@ local record compare
   DEFAULT_THRESHOLD_PCT: number
   load_results: function(path: string): pt.Results, string
   diff: function(base: pt.Results, cur: pt.Results, threshold_pct?: number): {pt.Delta}, integer
+  triage: function(base: pt.Results, cur: pt.Results, noise_a: pt.Results, noise_b: pt.Results, threshold_pct?: number): {pt.Delta}, integer
   format_delta: function(d: pt.Delta): string
   format: function(deltas: {pt.Delta}): string
 end
@@ -145,6 +183,7 @@ local M: compare = {
   DEFAULT_THRESHOLD_PCT = DEFAULT_THRESHOLD_PCT,
   load_results = load_results,
   diff = diff,
+  triage = triage,
   format_delta = format_delta,
   format = format,
 }
