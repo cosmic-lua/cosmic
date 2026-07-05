@@ -77,9 +77,13 @@ local function make_socket(fd: number): Socket
     return true
   end
 
+  -- Always suppress SIGPIPE on writes: a peer that disconnects mid-response
+  -- would otherwise kill the whole process (exit 141) instead of returning an
+  -- EPIPE error the caller can handle. cosmo maps MSG_NOSIGNAL to the native
+  -- per-OS flag, so ORing it in is portable.
   function sock:send(data: string, flags?: number): number, string
     if not self.fd then return nil, "socket closed" end
-    local n = unix.send(self.fd, data, flags or 0)
+    local n = unix.send(self.fd, data, (flags or 0) | unix.MSG_NOSIGNAL)
     if not n then
       return nil, "send failed"
     end
@@ -88,7 +92,7 @@ local function make_socket(fd: number): Socket
 
   function sock:sendto(data: string, ip: number, port: number, flags?: number): number, string
     if not self.fd then return nil, "socket closed" end
-    local n = unix.sendto(self.fd, data, ip, port, flags or 0)
+    local n = unix.sendto(self.fd, data, ip, port, (flags or 0) | unix.MSG_NOSIGNAL)
     if not n then
       return nil, "sendto failed"
     end
