@@ -37,7 +37,8 @@ local record SysModule
   SC_PAGESIZE: number
   SC_NPROCESSORS_CONF: number
   SC_NPROCESSORS_ONLN: number
-  host_os: function(): string
+  host_os: function(): HostOs
+  normalize_host_os: function(raw: string): HostOs
   host_isa: function(): string
   platform: function(): string
   sysconf: function(name: number): number, string
@@ -50,18 +51,36 @@ end
 
 ## Functions
 
-### host_os
+### normalize_host_os
 
 ```teal
-function host_os(): string
+function normalize_host_os(raw: string): HostOs
 ```
 
- Get the operating system name.
- Returns lowercase strings: "linux", "macos", "windows", "freebsd", "openbsd", "netbsd".
+ Normalize a raw cosmopolitan OS token (e.g. "XNU", "Linux") to a HostOs.
+ Unknown tokens are passed through lowercased.
+
+**Parameters:**
+
+- `raw` (string) - The raw OS token from cosmo.GetHostOs()
 
 **Returns:**
 
-- string - The operating system name
+- HostOs - The normalized operating system name
+
+### host_os
+
+```teal
+function host_os(): HostOs
+```
+
+ Get the operating system name.
+ Returns one of: "linux", "macos", "windows", "freebsd", "openbsd",
+ "netbsd", "metal".
+
+**Returns:**
+
+- HostOs - The operating system name
 
 ### host_isa
 
