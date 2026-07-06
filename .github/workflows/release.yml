@@ -50,8 +50,22 @@ jobs:
           PRERELEASE_FLAG: ${{ (github.event.inputs.prerelease == 'true' || (github.event.inputs.prerelease == '' && env.PRERELEASE == 'true')) && '--prerelease' || '' }}
         run: |
           mkdir -p release
-          cp artifacts/cosmic-lua/cosmic release/cosmic-lua
-          cp artifacts/cosmic-lua/cosmic-debug release/cosmic-lua-debug
+          # upload-artifact >= v7 ships the artifact as a zip (archive: true
+          # by default) and download-artifact >= v8 does not extract it, while
+          # older versions delivered the files directly -- the v4 -> v7/v8
+          # bump silently broke every release after 2026-03-24. Handle both
+          # layouts and fail loudly (with a listing) if the binaries are
+          # missing, instead of trusting a hard-coded path.
+          find artifacts -type f -name '*.zip' -execdir unzip -o {} \;
+          cosmic_src=$(find artifacts -type f -name cosmic | head -1)
+          debug_src=$(find artifacts -type f -name cosmic-debug | head -1)
+          if [ -z "$cosmic_src" ] || [ -z "$debug_src" ]; then
+            echo "cosmic binaries not found in downloaded artifacts:" >&2
+            find artifacts >&2
+            exit 1
+          fi
+          cp "$cosmic_src" release/cosmic-lua
+          cp "$debug_src" release/cosmic-lua-debug
           chmod +x release/cosmic-lua release/cosmic-lua-debug
           tag="$(date -u +%Y-%m-%d)-${GITHUB_SHA::7}"
           (cd release && sha256sum cosmic-lua cosmic-lua-debug > SHA256SUMS && cat SHA256SUMS)
