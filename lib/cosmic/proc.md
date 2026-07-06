@@ -60,6 +60,15 @@ local record ProcModule
   execvp: function(prog: string, argv?: {string}): nil, string
   execvpe: function(prog: string, argv: {string}, envp?: {string}): nil, string
   fexecve: function(fd: number, argv: {string}, envp?: {string}): nil, string
+  fork: function(): number
+  posix_spawn: function(prog: string, argv: {string}, envp?: {string}): number
+  posix_spawnp: function(prog: string, argv: {string}, envp?: {string}): number
+  wait: function(pid?: number, options?: number): number, number, Rusage
+  kill: function(pid: number, sig: number): boolean
+  WIFEXITED: function(status: number): boolean
+  WEXITSTATUS: function(status: number): number
+  WIFSIGNALED: function(status: number): boolean
+  WTERMSIG: function(status: number): number
   getrusage: function(who?: number): Rusage
   getrlimit: function(resource: number): number, number
   setrlimit: function(resource: number, soft: number, hard?: number): boolean, string
@@ -81,6 +90,9 @@ local record ProcModule
   PRIO_PROCESS: number
   PRIO_PGRP: number
   PRIO_USER: number
+  WNOHANG: number
+  WUNTRACED: number
+  WCONTINUED: number
 end
 ```
 
@@ -328,6 +340,122 @@ function fexecve(fd: number, argv: {string}, envp?: {string}): nil, string
 **Returns:**
 
 - nil, - string Only returns on error
+
+### fork
+
+```teal
+function fork(): number
+```
+
+ Creates a new process (fork).
+
+**Returns:**
+
+- number - The child pid in the parent, 0 in the child
+
+### posix_spawn
+
+```teal
+function posix_spawn(prog: string, argv: {string}, envp?: {string}): number
+```
+
+ Spawns a program via posix_spawn (no PATH search).
+
+**Parameters:**
+
+- `prog` (string) - Absolute path to the executable
+- `argv` ({string}) - Argument vector passed to the program
+- `envp` ({string}?) - Environment (KEY=value); inherits if omitted
+
+**Returns:**
+
+- number - The child pid on success
+
+### posix_spawnp
+
+```teal
+function posix_spawnp(prog: string, argv: {string}, envp?: {string}): number
+```
+
+ Spawns a program via posix_spawnp (PATH search).
+
+**Parameters:**
+
+- `prog` (string) - Program name to execute
+- `argv` ({string}) - Argument vector passed to the program
+- `envp` ({string}?) - Environment (KEY=value); inherits if omitted
+
+**Returns:**
+
+- number - The child pid on success
+
+### wait
+
+```teal
+function wait(pid?: number, options?: number): number, number, Rusage
+```
+
+ Waits for a child process to change state.
+
+**Parameters:**
+
+- `pid` (number?) - Child pid to wait for (-1 or nil for any child)
+- `options` (number?) - Wait options (e.g. WNOHANG)
+
+**Returns:**
+
+- number - The pid that changed state (0 with WNOHANG if none)
+- number - Status word (interpret with WIFEXITED/WEXITSTATUS/...)
+- Rusage - Resource usage for the reaped child
+
+### kill
+
+```teal
+function kill(pid: number, sig: number): boolean
+```
+
+ Sends a signal to a process.
+
+**Parameters:**
+
+- `pid` (number) - Process id to signal
+- `sig` (number) - Signal number (e.g. SIGTERM, SIGKILL)
+
+**Returns:**
+
+- boolean - True on success
+
+### WIFEXITED
+
+```teal
+function WIFEXITED(status: number): boolean
+```
+
+ True if the child exited normally.
+
+### WEXITSTATUS
+
+```teal
+function WEXITSTATUS(status: number): number
+```
+
+ The exit code (valid when WIFEXITED is true).
+
+### WIFSIGNALED
+
+```teal
+function WIFSIGNALED(status: number): boolean
+```
+
+ True if the child was terminated by a signal.
+
+### WTERMSIG
+
+```teal
+function WTERMSIG(status: number): number
+```
+
+ The terminating signal number (valid when WIFSIGNALED is true).
 
 ### getrusage
 
