@@ -95,8 +95,8 @@ test_format_date_known()
 
 local function test_format_date_format()
   local secs, _ = time.now()
-  local s = time.format_date(secs)
-  assert(s:match("^%d%d%d%d%-%d%d%-%d%d$"),
+  local s = assert(time.format_date(secs))
+  assert(string.match(s, "^%d%d%d%d%-%d%d%-%d%d$"),
     "expected YYYY-MM-DD format, got " .. s)
 end
 test_format_date_format()
@@ -174,8 +174,8 @@ test_format_iso8601_known()
 
 local function test_format_iso8601_format()
   local secs, _ = time.now()
-  local s = time.format_iso8601(secs)
-  assert(s:match("^%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%dZ$"),
+  local s = assert(time.format_iso8601(secs))
+  assert(string.match(s, "^%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%dZ$"),
     "expected ISO 8601 format, got " .. s)
 end
 test_format_iso8601_format()

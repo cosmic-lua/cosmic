@@ -13,7 +13,7 @@ local function scenarios(): {pt.Scenario}, string
     {
       name = "time_format_date",
       fn = function(_: any): any
-        return time.format_date(TS)
+        return (time.format_date(TS))
       end,
       check = function(_: any, res: any): boolean, string
         if res as string ~= "2025-01-02" then
@@ -25,7 +25,7 @@ local function scenarios(): {pt.Scenario}, string
     {
       name = "time_format_iso8601",
       fn = function(_: any): any
-        return time.format_iso8601(TS)
+        return (time.format_iso8601(TS))
       end,
       check = function(_: any, res: any): boolean, string
         if res as string ~= "2025-01-02T02:54:05Z" then

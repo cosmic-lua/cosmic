@@ -309,6 +309,69 @@ function lsqlite3.open(filename) end
   print("test_qualified_class_methods: PASS")
 end
 
+-- A malformed upstream annotation (the real-world `---@return nil,|nil ...`
+-- left by a definitions.lua rewrite) must fail loudly at generation time,
+-- naming the offending declaration and pointing upstream, instead of
+-- rendering invalid Teal that surfaces as baffling downstream type errors.
+local function test_malformed_annotation_fails_loudly()
+  local source = [==[
+unix = {}
+
+--- Replaces current process with program.
+---@param prog string
+---@param args string[]
+---@param env string[]
+---@return nil,|nil string, integer error
+---@return string? error
+---@return integer? errno
+function unix.execve(prog, args, env) end
+]==]
+  local module = gentype.parse_module(source, "unix")
+  local output, err = gentype.render_module(module)
+  assert(not output, "malformed annotation must not render, got:\n" .. tostring(output))
+  assert(err, "expected an error message")
+  assert(err:find("unix.execve", 1, true),
+    "error must name the offending declaration: " .. err)
+  assert(err:find("nil,|nil", 1, true),
+    "error must quote the offending type text: " .. err)
+  assert(err:find("tool/net/definitions.lua", 1, true),
+    "error must point at the upstream fix location: " .. err)
+  print("test_malformed_annotation_fails_loudly: PASS")
+end
+
+-- Valid annotations of every supported grammar shape (unions, optionals,
+-- arrays, fun types, table types, inline maps, grouped unions, literals,
+-- varargs, generic instantiation) must pass validation and render.
+local function test_valid_types_pass_validation()
+  local source = [==[
+unix = {}
+--- Exercises the whole type grammar.
+---@param a string
+---@param b integer|string?
+---@param c fun(x: integer, ...): string?
+---@param d table<string, any>
+---@param e string[][]
+---@param f { [string]: integer }
+---@param g (true | string)
+---@param h "MD5"|'SHA256'
+---@param i unix.Sigset?
+---@return string? value
+---@return string? error
+---@return integer? errno
+function unix.frob(a, b, c, d, e, f, g, h, i) end
+
+--- Variadic return.
+---@param fd integer
+---@return string match, string ... captures
+function unix.grab(fd) end
+]==]
+  local module = gentype.parse_module(source, "unix")
+  local output, err = gentype.render_module(module)
+  assert(output, "valid annotations must render, got error: " .. tostring(err))
+  assert(output:match("frob: function%("), "frob should render:\n" .. output)
+  print("test_valid_types_pass_validation: PASS")
+end
+
 -- Drift: generator output must match the committed .d.tl byte-for-byte for
 -- every module. Fails after a cosmos bump or generator change until
 -- `bin/make regen-types` is run and the result committed.
@@ -417,6 +480,8 @@ local function run_tests()
   test_constant_docs_and_comment_braces()
   test_data_class_and_type_export()
   test_qualified_class_methods()
+  test_malformed_annotation_fails_loudly()
+  test_valid_types_pass_validation()
   test_module_list_completeness()
   test_drift_all_modules()
   test_generated_valid_teal()

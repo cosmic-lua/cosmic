@@ -5,6 +5,7 @@
 local cio = require("cosmic.io")
 local fs = require("cosmic.fs")
 local fs_types = require("cosmic.fs_types")
+local portable = require("build.portable")
 local proc = require("cosmic.proc")
 local spawn = require("cosmic.child")
 
@@ -36,6 +37,10 @@ local function move_contents(source_dir: string, dest_dir: string): boolean, str
     if name ~= "." and name ~= ".." then
       local src = fs.join(source_dir, name)
       local dst = fs.join(dest_dir, name)
+      -- rename() cannot replace a non-empty directory, so a restage over a
+      -- stale destination (e.g. after the build tooling itself changed and
+      -- invalidated .staged) must clear the old entry first.
+      fs.rmrf(dst)
       local ok, err = fs.rename(src, dst)
       if not ok then
         return nil, "failed to move " .. src .. " to " .. dst .. ": " .. (err or "unknown error")
@@ -114,7 +119,7 @@ local function copy_binary(archive: string, dest_dir: string, module_name: strin
   if not content then
     return nil, "failed to open " .. archive .. ": " .. (read_err or "unknown error")
   end
-  local ok, write_err = cio.barf(dest, content, tonumber("755", 8))
+  local ok, write_err = portable.write_file(dest, content, tonumber("755", 8))
   if not ok then
     return nil, "failed to create " .. dest .. ": " .. (write_err or "unknown error")
   end
@@ -130,7 +135,7 @@ local function extract_gz(archive: string, dest_dir: string, module_name: string
   if not exit_code then
     return nil, "gunzip failed: " .. tostring(content)
   end
-  local ok, write_err = cio.barf(dest, content, tonumber("755", 8))
+  local ok, write_err = portable.write_file(dest, content, tonumber("755", 8))
   if not ok then
     return nil, "failed to create " .. dest .. ": " .. (write_err or "unknown error")
   end

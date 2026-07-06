@@ -2,8 +2,6 @@
 -- GENERATED from cosmopolitan's definitions.lua by lib/types/gentype.tl.
 -- Do not edit by hand. Regenerate with: bin/make regen-types
 
-local unix = require("cosmo.unix")
-
 --- represented as the data structure `{{"a", "b"}, {"c"}, ...}`
 local record Url
   --- e.g. `"http"`
@@ -37,6 +35,38 @@ local record EncoderOptions
   maxdepth: number
 end
 
+local record FetchOptions
+  --- request headers to send.
+  headers: {string: string}
+  --- HTTP method, e.g. `"GET"` (default) or `"POST"`.
+  method: string
+  --- request payload.
+  body: string
+  --- maximum number of redirects to follow.
+  maxredirects: number
+  --- whether to follow redirects. Defaults to `true`.
+  followredirect: boolean
+  --- whether to keep the connection alive.
+  keepalive: boolean
+  --- proxy URL to route the request through.
+  proxy: string
+  --- limit on response (or per-read buffer) size.
+  maxresponse: number
+  --- request timeout in seconds. `0` or absent keeps the 60-second default; there is no "infinite" option.
+  timeout: number
+  --- whether to reset TLS session state before the request.
+  resettls: boolean
+end
+
+local record BarfOptions
+  --- file mode for a newly created file, defaults to 0644
+  mode: number
+  --- append to the file instead of truncating it (default false)
+  append: boolean
+  --- 1-indexed byte offset for overwriting a slice of the file; incompatible with `append`
+  offset: number
+end
+
 --- Streaming reader for an HTTP response body, returned by
 --- `cosmo.FetchStream`. The reader owns the underlying connection. It is
 --- closed automatically on garbage collection, but calling `close`
@@ -59,24 +89,20 @@ end
 local record cosmo
   type Url = Url
   type EncoderOptions = EncoderOptions
+  type FetchOptions = FetchOptions
+  type BarfOptions = BarfOptions
   type StreamReader = StreamReader
 
   --- Writes all data to file the easy way.
-  --- This function writes to the local file system.
+  --- This function writes to the local file system. By default it truncates
+  --- (or creates) the file. Pass `append = true` to append instead, or an
+  --- `offset` to overwrite a slice in place. On failure it returns nil plus
+  --- an error string that names the path.
   --- For example:
   ---     assert(Barf('x.txt', 'abc123'))
-  ---     assert(Barf('x.txt', 'XX', 0, 0, 3))
+  ---     assert(Barf('x.txt', 'XX', {offset = 3}))
   ---     assert(assert(Slurp('x.txt', 1, 6)) == 'abXX23')
-  Barf: function(filename: string, data: string, mode?: number, flags?: number, offset?: number): boolean | nil, unix.Errno
-  --- Formats string as binary integer literal string. If the provided value is zero,
-  --- the result will be `"0"`. Otherwise the resulting value will be the
-  --- "0b"-prefixed binary str. The result is currently modulo 2^64. Negative numbers
-  --- are converted to unsigned.
-  bin: function(int: number): string
-  --- Passing `0` will raise an error. Same as the Intel x86 instruction BSF.
-  Bsf: function(x: number): number
-  --- Passing `0` will raise an error. Same as the Intel x86 instruction BSR.
-  Bsr: function(x: number): number
+  Barf: function(filename: string, data: string, options?: BarfOptions): boolean, string | nil, number | nil
   CategorizeIp: function(ip: number): string
   --- Compresses data using zlib DEFLATE with a small framing header.
   --- By default the result starts with a header that stores the
@@ -92,42 +118,23 @@ local record cosmo
   Crc32: function(initial: number, data: string): number
   --- Computes 32-bit Castagnoli Cyclic Redundancy Check.
   Crc32c: function(initial: number, data: string): number
-  --- Computes the Curve25519 elliptic-curve scalar multiplication used
-  --- for Diffie-Hellman key agreement.
-  --- The second argument can be either a public key or a basepoint. Use
-  --- the magic basepoint `"\9"` to derive a public key from a 32-byte
-  --- secret, then multiply your secret against the other party's public
-  --- key to derive a shared key, e.g.
-  ---     >: secret1 = GetRandomBytes(32)
-  ---     >: public1 = Curve25519(secret1, "\9")
-  ---     >: secret2 = GetRandomBytes(32)
-  ---     >: public2 = Curve25519(secret2, "\9")
-  ---     >: Curve25519(secret1, public2) == Curve25519(secret2, public1)
-  ---     true
-  --- Arguments are zero-padded or truncated to 32 bytes.
-  Curve25519: function(secret: string, public_or_basepoint: string): string
-  --- Shrinks byte buffer in half using John Costella's magic kernel. This downscales
-  --- data 2x using an eight-tap convolution, e.g.
-  ---     >: Decimate('\xff\xff\x00\x00\xff\xff\x00\x00\xff\xff\x00\x00')
-  ---     "\xff\x00\xff\x00\xff\x00"
-  --- This is very fast if SSSE3 is available (Intel 2004+ / AMD 2011+).
-  Decimate: function(data: string): string
   --- Turns ASCII into binary using the provided alphabet. The default
   --- decoding uses Crockford's base32 alphabet in a permissive way that
   --- ignores whitespace and dash (`-`) and stops at the first character
   --- outside of the alphabet. Any alphabet that has a power of 2 length
   --- (up to 128) may be supplied, which allows alternative base32
-  --- encodings to be decoded. Raises an error if the alphabet length is
+  --- encodings to be decoded. Returns nil, err if the alphabet length is
   --- not a power of 2 in the range 2..128.
-  DecodeBase32: function(ascii: string, alphabet?: string): string
+  DecodeBase32: function(ascii: string, alphabet?: string): string, string | nil
   --- Decodes binary data encoded as base64.
   --- This turns ASCII into binary, in a permissive way that ignores
   --- characters outside the base64 alphabet, such as whitespace. See
   --- `decodebase64.c`.
   DecodeBase64: function(ascii: string): string
   --- Turns ASCII base-16 hexadecimal byte string into binary string,
-  --- case-insensitively. Non-hex characters may not appear in string.
-  DecodeHex: function(ascii: string): string
+  --- case-insensitively. Returns nil, err if the string has an odd length
+  --- or contains a non-hex character.
+  DecodeHex: function(ascii: string): string, string | nil
   --- Turns JSON string into a Lua data structure.
   --- This is a generally permissive parser, in the sense that like
   --- v8, it permits scalars as top-level values. Therefore we must
@@ -156,7 +163,7 @@ local record cosmo
   --- `EncodeJson()` and may not round-trip with original intent.
   --- This parser has perfect conformance with JSONTestSuite.
   --- This parser validates utf-8 and utf-16.
-  DecodeJson: function(input: string): any | nil, string
+  DecodeJson: function(input: string): any, string | nil
   --- Turns ISO-8859-1 string into UTF-8.
   DecodeLatin1: function(iso_8859_1: string): string
   --- Compresses data.
@@ -169,13 +176,13 @@ local record cosmo
   --- `Crc32()` checksum in addition to the original uncompressed size.
   --- Lower numbers go faster (4 for instance is a sweet spot) and higher numbers go
   --- slower but have better compression.
-  Deflate: function(uncompressed: string, level?: number): string | nil, string
+  Deflate: function(uncompressed: string, level?: number): string, string | nil
   --- Turns binary into ASCII using the provided alphabet (Crockford's
   --- base32 alphabet by default). Any alphabet that has a power of 2
   --- length (up to 128) may be supplied for encoding and decoding, which
-  --- allows alternative base32 encodings to be produced. Raises an error
+  --- allows alternative base32 encodings to be produced. Returns nil, err
   --- if the alphabet length is not a power of 2 in the range 2..128.
-  EncodeBase32: function(binary: string, alphabet?: string): string
+  EncodeBase32: function(binary: string, alphabet?: string): string, string | nil
   --- Turns binary into ASCII. This can be used to create HTML data:
   --- URIs that do things like embed a PNG file in a web page. See
   --- encodebase64.c.
@@ -252,7 +259,7 @@ local record cosmo
   --- encodings in your input strings will be canonicalized rather than validated.
   --- NaNs are serialized as `null` and Infinities are `null` which is consistent
   --- with the v8 behavior.
-  EncodeJson: function(value: any, options?: any): string | nil, string
+  EncodeJson: function(value: any, options?: EncoderOptions): string, string | nil
   --- Turns UTF-8 into ISO-8859-1 string.
   EncodeLatin1: function(utf8: string, flags?: number): string
   --- Turns Lua data structure into Lua code string.
@@ -322,7 +329,7 @@ local record cosmo
   ---     >: -9223372036854775807 - 1
   ---     -9223372036854775807 - 1
   --- The only failure return condition currently implemented is when C runs out of heap memory.
-  EncodeLua: function(value: any, options?: any): string | nil, string
+  EncodeLua: function(value: any, options?: EncoderOptions): string, string | nil
   --- This function is the inverse of ParseUrl. The output will always be correctly
   --- formatted. The exception is if illegal characters are supplied in the scheme
   --- field, since there's no way of escaping those. Opaque parts are escaped as
@@ -423,7 +430,7 @@ local record cosmo
   --- is set to GET and the body is removed before the redirect is followed. Note
   --- that if these (method/body) values are provided as table fields, they will be
   --- modified in place.
-  Fetch: function(url: string, body?: string | any): number | nil, {string: string}, string, string
+  Fetch: function(url: string, body?: string | FetchOptions): number, {string: string}, string, string | nil
   --- Sends an HTTP/HTTPS request and returns a streaming reader for the response body.
   --- Useful for Server-Sent Events (SSE), large downloads, or processing data incrementally.
   --- Accepts the same options table as `Fetch()`, including `timeout`, `maxresponse`,
@@ -431,17 +438,14 @@ local record cosmo
   --- Note: `timeout=0` (or absent) retains the 60-second default; there is no
   --- "infinite" option.  `maxresponse` limits per-read buffer growth; negative
   --- values are rejected.
-  FetchStream: function(url: string, options?: any): number | nil, {string: string}, StreamReader, string
+  FetchStream: function(url: string, options?: FetchOptions): number, {string: string}, StreamReader, string | nil
   --- Converts UNIX timestamp to an RFC1123 string that looks like this:
   --- `Mon, 29 Mar 2021 15:37:13 GMT`. See `formathttpdatetime.c`.
   FormatHttpDateTime: function(seconds: number): string
   --- Turns integer like `0x01020304` into a string like `"1.2.3.4"`. See also
   --- `ParseIp` for the inverse operation.
   FormatIp: function(uint32: number): string
-  GetCpuCore: function(): number
-  GetCpuCount: function(): number
-  GetCpuNode: function(): number
-  GetCryptoHash: function(name: string, payload: string, key?: string): string
+  GetCryptoHash: function(name: string, payload: string, key?: string): string, string | nil
   --- Returns string describing host instruction set architecture.
   --- This can return:
   --- - `"X86_64"` for Intel and AMD systems
@@ -455,8 +459,7 @@ local record cosmo
   --- characters, which are discounted, as well as control codes and ANSI escape
   --- sequences.
   GetMonospaceWidth: function(str: string | number): number
-  GetRandomBytes: function(length?: number): string
-  GetTime: function(): number
+  GetRandomBytes: function(length?: number): string, string | nil
   --- Returns `true` if the string contains forbidden control codes.
   --- `flags` selects which characters are considered forbidden and may be
   --- any combination of:
@@ -470,26 +473,13 @@ local record cosmo
   --- and this function returns `false`. Raises an error if `flags` has
   --- bits outside the values above.
   HasControlCodes: function(str: string, flags?: number): boolean
-  --- Formats string as hexadecimal integer literal string. If the provided value is
-  --- zero, the result will be `"0"`. Otherwise the resulting value will be the
-  --- "0x"-prefixed hex string. The result is currently modulo 2^64. Negative numbers
-  --- are converted to unsigned.
-  hex: function(int: number): string
-  --- Computes 64-bit Google HighwayHash of a string.
-  --- HighwayHash is a fast keyed pseudorandom function. The four optional
-  --- 64-bit key words default to zero. A zero key isn't a secret key;
-  --- pass four random 64-bit integers if keyed hashing is desired.
-  HighwayHash64: function(str: string, k1?: number, k2?: number, k3?: number, k4?: number): number
-  --- Adds spaces to beginnings of multiline string. If the int parameter is not
-  --- supplied then 1 space will be added.
-  IndentLines: function(str: string, int?: number): string
   --- Decompresses data.
   --- This function performs the inverse of Deflate(). It's recommended that you
   --- perform a `Crc32()` check on the output string after this function succeeds.
   --- However, it is permissable (although not advised) to specify some large number
   --- in which case (on success) the byte length of the output string may be less
   --- than `maxoutsize`.
-  Inflate: function(compressed: string, maxoutsize: number): string | nil, string
+  Inflate: function(compressed: string, maxoutsize: number): string, string | nil
   --- Check if the calling script is being run directly (not require'd).
   --- This function provides a Python-like `if __name__ == "__main__"` idiom
   --- for Lua scripts. It returns true when the script is executed directly
@@ -519,45 +509,11 @@ local record cosmo
   --- and numbers greater than 65535 are rejected. See
   --- `isacceptableport.c`.
   IsAcceptablePort: function(str: string): boolean
-  --- Returns `true` if the given HTTP header name is a standard header
-  --- that the RFCs define as storing comma-separated values and may
-  --- therefore appear multiple times in a message, e.g.
-  --- `Accept-Encoding`. Returns `false` for non-repeatable and
-  --- unrecognized headers. See `khttprepeatable.c`.
-  IsHeaderRepeatable: function(name: string): boolean
   IsLoopbackIp: function(uint32: number): boolean
   IsPrivateIp: function(uint32: number): boolean
   --- Note: we intentionally regard TEST-NET IPs as public.
   IsPublicIp: function(uint32: number): boolean
   IsReasonablePath: function(str: string): boolean
-  --- Returns `true` if the string is a valid HTTP token, i.e. a nonempty
-  --- ASCII string without separators or control codes, as defined by
-  --- RFC7230. Tokens are used for things like HTTP methods and header
-  --- names. See `isvalidhttptoken.c`.
-  IsValidHttpToken: function(str: string): boolean
-  --- This linear congruential generator passes practrand and bigcrush.
-  Lemur64: function(): number
-  --- Compresses data using LZ4.
-  --- LZ4 is an extremely fast compression algorithm, trading compression ratio
-  --- for speed. It's particularly well-suited for real-time compression scenarios.
-  --- The compressed output is not compatible with other compression formats (use
-  --- Deflate/Inflate for standard zlib compatibility).
-  --- produce faster compression but with worse compression ratio. Range is 1-65537.
-  Lz4Compress: function(data: string, acceleration?: number): string | nil, string
-  --- Decompresses LZ4-compressed data.
-  --- You must know the maximum size of the decompressed output beforehand.
-  --- This is a limitation of the LZ4 format which doesn't store the original size.
-  Lz4Decompress: function(compressed: string, maxoutsize: number): string | nil, string
-  --- Computes MD5 checksum, returning 16 bytes of binary.
-  Md5: function(str: string): string
-  --- This gives you an idea of the density of information. Cryptographic random
-  --- should be in the ballpark of `7.9` whereas plaintext will be more like `4.5`.
-  MeasureEntropy: function(data: string): number
-  --- Formats string as octal integer literal string. If the provided value is zero,
-  --- the result will be `"0"`. Otherwise the resulting value will be the
-  --- zero-prefixed octal string. The result is currently modulo 2^64. Negative
-  --- numbers are converted to unsigned.
-  oct: function(int: number): string
   --- Parses a `host[:port]` string, e.g. `"example.com:8080"`.
   --- Please note a longstanding quirk inherited from redbean: only the
   --- port component is currently returned. This function yields the port
@@ -566,12 +522,11 @@ local record cosmo
   --- nil-propagating: passing `nil` returns `nil`. Raises an error if the
   --- system runs out of memory.
   ParseHost: function(str: string): string | nil
-  --- Converts RFC1123 string that looks like this: Mon, 29 Mar 2021 15:37:13 GMT to
-  --- a UNIX timestamp. See `parsehttpdatetime.c`.
-  ParseHttpDateTime: function(rfc1123: string): number
-  --- Converts IPv4 address string to integer, e.g. "1.2.3.4" → 0x01020304, or
-  --- returns -1 for invalid inputs. See also `FormatIp` for the inverse operation.
-  ParseIp: function(ip: string): number
+  --- Converts IPv4 address string to integer, e.g. "1.2.3.4" → 0x01020304.
+  --- Returns nil, err for invalid inputs (previously it returned the -1
+  --- sentinel, which `FormatIp` rendered as the broadcast address). See also
+  --- `FormatIp` for the inverse operation.
+  ParseIp: function(ip: string): number, string | nil
   --- Parses `application/x-www-form-urlencoded` key/value parameters,
   --- e.g. `"a=b&c"` becomes `{{"a", "b"}, {"c"}}`. This returns the same
   --- data structure as the `params` field of the `Url` object returned by
@@ -613,17 +568,9 @@ local record cosmo
   --- URIs like data:opaque, better in fact than most things which
   --- claim to be URI parsers.
   ParseUrl: function(url: string, flags?: number): Url
-  --- Returns number of bits set in integer.
-  Popcnt: function(x: number): number
   --- This linear congruential generator passes practrand and bigcrush. This
   --- generator is safe across `fork()`, threads, and signal handlers.
   Rand64: function(): number
-  --- read raw hardware RDRAND; it returns output from the OS CSPRNG (arc4random64), which is
-  --- seeded from hardware entropy but is safer (no RNG fault exposure).
-  Rdrand: function(): number
-  --- read raw hardware RDSEED; it returns output from the OS CSPRNG (arc4random64), which is
-  --- seeded from hardware entropy but is safer (no RNG fault exposure).
-  Rdseed: function(): number
   --- Gets IP address associated with hostname.
   --- This function first checks if hostname is already an IP address, in which case
   --- it returns the result of `ParseIp`. Otherwise, it checks HOSTS.TXT on the local
@@ -637,20 +584,9 @@ local record cosmo
   --- If no IP address could be found, then `nil` is returned alongside a string of
   --- unspecified format describing the error. Calls to this function may be wrapped
   --- in `assert()` if an exception is desired.
-  ResolveIp: function(hostname: string): number | nil, string
-  --- Computes SHA1 checksum, returning 20 bytes of binary.
-  Sha1: function(str: string): string
-  --- Computes SHA224 checksum, returning 28 bytes of binary.
-  Sha224: function(str: string): string
+  ResolveIp: function(hostname: string): number, string | nil
   --- Computes SHA256 checksum, returning 32 bytes of binary.
   Sha256: function(str: string): string
-  --- Computes SHA384 checksum, returning 48 bytes of binary.
-  Sha384: function(str: string): string
-  --- Computes SHA512 checksum, returning 64 bytes of binary.
-  Sha512: function(str: string): string
-  --- Sleeps the specified number of seconds (can be fractional).
-  --- The smallest interval is a microsecond.
-  Sleep: function(seconds: number)
   --- Reads all data from file the easy way.
   --- This function reads file data from local file system. Zip file assets can be
   --- accessed using the `/zip/...` prefix.
@@ -661,7 +597,7 @@ local record cosmo
   --- This function is uninterruptible so `unix.EINTR` errors will be ignored. This
   --- should only be a concern if you've installed signal handlers. Use the UNIX API
   --- if you need to react to it.
-  Slurp: function(filename: string, i?: number, j?: number): string | nil, unix.Errno
+  Slurp: function(filename: string, i?: number, j?: number): string, string | nil, number | nil
   --- Formats a timestamp using strftime(3) format specifiers.
   --- Common format specifiers:
   --- - `%Y` four-digit year
@@ -679,28 +615,15 @@ local record cosmo
   ---     Strftime("%F %T", os.time())            -- "2024-12-29 15:30:00"
   ---     Strftime("%a, %d %b %Y", 0)             -- "Thu, 01 Jan 1970"
   ---     Strftime("%F %T", os.time(), true)      -- local time instead of UTC
-  Strftime: function(format: string, timestamp?: number, localtime?: boolean): string | nil
-  --- Parses a datetime string using strptime(3) format specifiers.
-  --- Returns a table with parsed components and any unparsed remainder.
-  --- Uses the same format specifiers as `Strftime`.
-  --- Example:
-  ---     local t = Strptime("2024-12-29", "%Y-%m-%d")
-  ---     -- t = {year=2024, month=12, day=29, hour=0, min=0, sec=0, ...}
-  ---     local t = Strptime("2024-12-29 15:30", "%Y-%m-%d %H:%M")
-  ---     -- t.rest = "" (nothing unparsed)
-  ---     local t = Strptime("2024-12-29 extra", "%Y-%m-%d")
-  ---     -- t.rest = " extra"
-  Strptime: function(str: string, format: string): table | nil, string | nil
+  Strftime: function(format: string, timestamp?: number, localtime?: boolean): string, string | nil
   --- Decompresses data produced by `Compress`.
   --- If `maxoutsize` is absent, the input is expected to begin with the
   --- header that `Compress` writes by default; the embedded length and
   --- `Crc32` checksum are verified. If `maxoutsize` is given, the input
   --- must be a raw zlib stream that decompresses to exactly `maxoutsize`
   --- bytes.
-  --- This function raises an error if the input is truncated or corrupt.
-  Uncompress: function(compressed: string, maxoutsize?: number): string
-  --- Canonicalizes overlong encodings.
-  Underlong: function(str: string): string
+  --- This function returns nil, err if the input is truncated or corrupt.
+  Uncompress: function(compressed: string, maxoutsize?: number): string, string | nil
   --- Unescapes URL parameter name or value. Decodes `%XX` hex sequences and
   --- converts `+` to space (common in application/x-www-form-urlencoded).
   --- This is the inverse of EscapeParam.
@@ -709,10 +632,6 @@ local record cosmo
   UuidV4: function(): string
   --- Generate a uuid_v7
   UuidV7: function(): string
-  --- Replaces C0 control codes and trojan source characters with descriptive
-  --- UNICODE pictorial representation. This function also canonicalizes overlong
-  --- encodings. C1 control codes are replaced with a JavaScript-like escape sequence.
-  VisualizeControlCodes: function(str: string): string
 end
 
 return cosmo

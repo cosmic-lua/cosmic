@@ -34,9 +34,6 @@ local record Rusage
   nivcsw: function(self: Rusage): number
 end
 
---- Error information from system calls.
---- Provides detailed error codes and human-readable descriptions.
-local Errno = require("cosmic.errno").Errno
 local errstr = require("cosmic.errno").str
 
 -- Identity --
@@ -74,7 +71,7 @@ end
 --- @param pid number The process id to query
 --- @return number The process group id
 local function getpgid(pid: number): number
-  return unix.getpgid(pid)
+  return (unix.getpgid(pid))
 end
 
 --- Sets process group id (same as setpgid(0, 0)).
@@ -136,10 +133,10 @@ end
 --- @param prog string Absolute path to the executable
 --- @param args {string} Argument vector passed to the program
 --- @param env {string} Environment variables (KEY=value format)
---- @return nil, Errno Only returns on error
-local function execve(prog: string, args: {string}, env: {string}): nil, Errno
+--- @return nil, string Only returns on error
+local function execve(prog: string, args: {string}, env: {string}): nil, string
   local _, err = unix.execve(prog, args, env)
-  return nil, err as Errno
+  return nil, err
 end
 
 --- Executes program with PATH search.
@@ -147,10 +144,10 @@ end
 --- This function never returns on success.
 --- @param prog string The program name to execute
 --- @param argv {string}? Argument vector. Defaults to {prog}
---- @return nil, Errno Only returns on error
-local function execvp(prog: string, argv?: {string}): nil, Errno
+--- @return nil, string Only returns on error
+local function execvp(prog: string, argv?: {string}): nil, string
   local _, err = unix.execvp(prog, argv)
-  return nil, err as Errno
+  return nil, err
 end
 
 --- Executes program with PATH search and custom environment.
@@ -159,10 +156,10 @@ end
 --- @param prog string The program name to execute
 --- @param argv {string} Argument vector passed to the program
 --- @param envp {string}? Environment variables. Inherits if not specified
---- @return nil, Errno Only returns on error
-local function execvpe(prog: string, argv: {string}, envp?: {string}): nil, Errno
+--- @return nil, string Only returns on error
+local function execvpe(prog: string, argv: {string}, envp?: {string}): nil, string
   local _, err = unix.execvpe(prog, argv, envp)
-  return nil, err as Errno
+  return nil, err
 end
 
 --- Executes program from file descriptor.
@@ -171,10 +168,10 @@ end
 --- @param fd number Open file descriptor pointing to an executable
 --- @param argv {string} Argument vector passed to the program
 --- @param envp {string}? Environment variables. Inherits if not specified
---- @return nil, Errno Only returns on error
-local function fexecve(fd: number, argv: {string}, envp?: {string}): nil, Errno
+--- @return nil, string Only returns on error
+local function fexecve(fd: number, argv: {string}, envp?: {string}): nil, string
   local _, err = unix.fexecve(fd, argv, envp)
-  return nil, err as Errno
+  return nil, err
 end
 
 -- Resource Usage --
@@ -294,10 +291,10 @@ local record ProcModule
 
   -- Exec
   commandv: function(prog: string): string
-  execve: function(prog: string, args: {string}, env: {string}): nil, Errno
-  execvp: function(prog: string, argv?: {string}): nil, Errno
-  execvpe: function(prog: string, argv: {string}, envp?: {string}): nil, Errno
-  fexecve: function(fd: number, argv: {string}, envp?: {string}): nil, Errno
+  execve: function(prog: string, args: {string}, env: {string}): nil, string
+  execvp: function(prog: string, argv?: {string}): nil, string
+  execvpe: function(prog: string, argv: {string}, envp?: {string}): nil, string
+  fexecve: function(fd: number, argv: {string}, envp?: {string}): nil, string
 
   -- Resource usage
   getrusage: function(who?: number): Rusage

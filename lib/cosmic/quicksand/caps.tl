@@ -19,23 +19,7 @@
 --- constants) the constants are nil; drop_bounding() is then a
 --- successful no-op and supported() returns false.
 local unix = require("cosmo.unix")
-local Errno = require("cosmic.errno").Errno
-
---- Turn a unix.Errno-shaped error into a human string, or `fallback`.
-local function wrap_err(err: any, fallback: string): string
-  if not err then return fallback end
-  local e = err as Errno
-  if e.doc then return e:doc() end
-  return tostring(err)
-end
-
---- Extract the errno number from a unix.Errno-shaped error, or nil.
-local function errno_of(err: any): integer
-  if err == nil then return nil end
-  local e = err as Errno
-  if e.errno == nil then return nil end
-  return e:errno() as integer
-end
+local errno = require("cosmic.errno")
 
 --- The Linux capability names, matching unix.CAP_*. CAP_LAST_CAP is the
 --- highest valid capability *number* (a bound, not a capability) and is
@@ -119,7 +103,7 @@ local function bounding_read(cap: string): boolean | nil, string
   if n == nil then return nil, nerr end
   local r, err = unix.prctl(unix.PR_CAPBSET_READ, n)
   if r == nil then
-    return nil, wrap_err(err, "PR_CAPBSET_READ " .. cap .. " failed")
+    return nil, errno.str(err, "PR_CAPBSET_READ " .. cap)
   end
   return r == 1
 end
@@ -136,7 +120,7 @@ local function bounding_drop(cap: string): boolean, string
   if n == nil then return false, nerr end
   local rc, err = unix.prctl(unix.PR_CAPBSET_DROP, n)
   if rc == nil then
-    return false, wrap_err(err, "PR_CAPBSET_DROP " .. cap .. " failed")
+    return false, errno.str(err, "PR_CAPBSET_DROP " .. cap)
   end
   return true
 end
@@ -173,17 +157,16 @@ local function drop_bounding(opts?: DropOpts): boolean, string
   end
   for c = 0, last do
     if not keep[c] then
-      local rc, err = unix.prctl(unix.PR_CAPBSET_DROP, c)
+      local rc, err, eno = unix.prctl(unix.PR_CAPBSET_DROP, c)
       if rc == nil then
-        local en = errno_of(err)
-        if en == unix.EINVAL then
+        if errno.is(eno, "EINVAL") then
           -- Capability number unknown to this kernel; skip it.
-        elseif en == unix.ENOSYS then
+        elseif errno.is(eno, "ENOSYS") then
           -- Capabilities unsupported on this host; done.
           return true
         else
-          return false, wrap_err(err,
-            "PR_CAPBSET_DROP " .. tostring(c) .. " failed")
+          return false, errno.str(err,
+            "PR_CAPBSET_DROP " .. tostring(c))
         end
       end
     end

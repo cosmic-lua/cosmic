@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
 local errno = require("cosmic.errno")
 
--- str: nil, string, and prefix handling (no Errno object needed).
+-- str: nil and plain strings, with and without prefix.
 local function test_str_fallbacks()
   assert(errno.str(nil) == "unknown error")
   assert(errno.str(nil, "op") == "op: unknown error")
@@ -11,46 +11,52 @@ local function test_str_fallbacks()
 end
 test_str_fallbacks()
 
--- str: an Errno-shaped object renders "NAME: doc", with optional prefix.
-local function test_str_errno()
-  local e: any = {
-    errno = function(_: any): integer return errno.code("ENOENT") end,
-    name = function(_: any): string return "ENOENT" end,
-    doc = function(_: any): string return "No such file or directory" end,
-  }
-  assert(errno.str(e) == "ENOENT: No such file or directory",
-    "got: " .. errno.str(e))
-  assert(errno.str(e, "open: /x") == "open: /x: ENOENT: No such file or directory",
-    "got: " .. errno.str(e, "open: /x"))
+-- str: a prefix replaces a lowercase `call: ` head so the failing
+-- operation is not stated twice.
+local function test_str_prefix_strips_call_head()
+  local got = errno.str("mkdir: EACCES: Permission denied", "mkdir: /x")
+  assert(got == "mkdir: /x: EACCES: Permission denied", "got: " .. got)
 end
-test_str_errno()
+test_str_prefix_strips_call_head()
 
--- str: an Errno with no name() still renders its doc.
-local function test_str_errno_no_name()
-  local e: any = {
-    doc = function(_: any): string return "Permission denied" end,
-  }
-  assert(errno.str(e) == "Permission denied", "got: " .. errno.str(e))
+-- str: without a prefix, the message is passed through untouched.
+local function test_str_no_prefix_keeps_call_head()
+  local got = errno.str("mkdir: EACCES: Permission denied")
+  assert(got == "mkdir: EACCES: Permission denied", "got: " .. got)
 end
-test_str_errno_no_name()
+test_str_no_prefix_keeps_call_head()
+
+-- str: uppercase errno names are never mistaken for a call head.
+local function test_str_prefix_keeps_errno_head()
+  local got = errno.str("ENOENT: No such file or directory", "open: /x")
+  assert(got == "open: /x: ENOENT: No such file or directory", "got: " .. got)
+end
+test_str_prefix_keeps_errno_head()
+
+-- str: non-string values fall back to tostring.
+local function test_str_non_string()
+  assert(errno.str(42) == "42")
+  assert(errno.str(42, "op") == "op: 42")
+end
+test_str_non_string()
 
 -- code: known constants resolve to numbers; unknown ones are nil.
 local function test_code()
-  assert(type(errno.code("ENOENT")) == "number", "ENOENT should resolve")
+  local n = errno.code("ENOENT")
+  assert(type(n) == "number", "ENOENT should resolve to a number")
   assert(errno.code("E_NOT_A_REAL_ERRNO") == nil, "unknown errno is nil")
 end
 test_code()
 
--- is: matches by errno number; false for nil, wrong name, and non-Errno.
+-- is: matches by numeric errno; false for nil, non-numbers, wrong or
+-- unknown names.
 local function test_is()
-  local e: any = {
-    errno = function(_: any): integer return errno.code("ENOENT") end,
-  }
-  assert(errno.is(e, "ENOENT"), "should match ENOENT")
-  assert(not errno.is(e, "EACCES"), "should not match EACCES")
-  assert(not errno.is(nil, "ENOENT"), "nil err is never a match")
-  assert(not errno.is("a string", "ENOENT"), "non-Errno is never a match")
-  assert(not errno.is(e, "E_NOT_A_REAL_ERRNO"), "unknown name is never a match")
+  local enoent = errno.code("ENOENT")
+  assert(errno.is(enoent, "ENOENT"), "should match ENOENT")
+  assert(not errno.is(enoent, "EACCES"), "should not match EACCES")
+  assert(not errno.is(nil, "ENOENT"), "nil is never a match")
+  assert(not errno.is("a string", "ENOENT"), "non-number is never a match")
+  assert(not errno.is(enoent, "E_NOT_A_REAL_ERRNO"), "unknown name is never a match")
 end
 test_is()
 

@@ -16,9 +16,10 @@ end
 --- @return string | nil The decompressed data, or nil on error
 --- @return string? Error message if decompression failed
 local function uncompress(data: string): string | nil, string
-  local ok, result = pcall(cosmo.Uncompress, data)
-  if not ok then
-    return nil, "decompression failed: " .. tostring(result)
+  -- The binding reports truncated or corrupt input as nil, err.
+  local result, err = cosmo.Uncompress(data)
+  if not result then
+    return nil, err as string
   end
   return result
 end
@@ -45,7 +46,11 @@ local function deflate(data: string): string | nil, string
     math.floor(size / 65536) % 256,
     math.floor(size / 16777216) % 256
   )
-  return prefix .. cosmo.Deflate(data)
+  local compressed, err = cosmo.Deflate(data)
+  if not compressed then
+    return nil, err as string
+  end
+  return prefix .. compressed
 end
 
 --- Decompress raw deflate data.
@@ -63,12 +68,10 @@ local function inflate(data: string): string | nil, string
   local b1, b2, b3, b4 = data:byte(1, 4)
   local size = b1 + b2 * 256 + b3 * 65536 + b4 * 16777216
   local compressed = data:sub(5)
-  local ok, result = pcall(cosmo.Inflate, compressed, size)
-  if not ok then
-    return nil, "decompression failed: " .. tostring(result)
-  end
-  if result == nil then
-    return nil, "decompression failed: invalid data"
+  -- The binding reports invalid input as nil, err.
+  local result, err = cosmo.Inflate(compressed, size)
+  if not result then
+    return nil, err as string
   end
   return result
 end

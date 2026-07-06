@@ -102,6 +102,24 @@ local function validate_headers(headers: {string: string}): string
   return nil
 end
 
+--- Project the transport-relevant Opts fields onto a typed cosmo.FetchOptions.
+--- Retry-loop fields (max_attempts, max_delay, should_retry) stay wrapper-side.
+--- @param opts Opts? wrapper options, or nil
+--- @return cosmo.FetchOptions? options for cosmo.Fetch/FetchStream, or nil
+local function to_fetch_options(opts?: Opts): cosmo.FetchOptions
+  if not opts then
+    return nil
+  end
+  return {
+    method = opts.method,
+    body = opts.body,
+    headers = opts.headers,
+    proxy = opts.proxy,
+    maxresponse = opts.maxresponse,
+    timeout = opts.timeout,
+  }
+end
+
 local function do_fetch(url: string, opts?: Opts): Result
   local verr = validate_url(url)
   if verr then
@@ -116,7 +134,7 @@ local function do_fetch(url: string, opts?: Opts): Result
   local headers_or_err: {string: string} | string
   local body: string
 
-  status, headers_or_err, body = cosmo.Fetch(url, opts as {string: any})
+  status, headers_or_err, body = cosmo.Fetch(url, to_fetch_options(opts))
 
   if not status then
     return {ok = false, error = tostring(headers_or_err or "unknown error")}
@@ -266,7 +284,7 @@ local function stream(url: string, opts?: Opts): StreamResult
   local headers_or_err: {string: string} | string
   local raw_reader: cosmo.StreamReader
 
-  status, headers_or_err, raw_reader = cosmo.FetchStream(url, opts as {string: any})
+  status, headers_or_err, raw_reader = cosmo.FetchStream(url, to_fetch_options(opts))
 
   if not status then
     return {ok = false, error = tostring(headers_or_err or "unknown error")}

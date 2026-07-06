@@ -9,11 +9,17 @@ local re = require("cosmo.re")
 --- Use compile() to create, then call :search() for O(n) matching.
 local record Regex
   --- Search for pattern match in text.
-  --- Returns the matched substring, or nil if no match.
+  --- On a match, returns the matched substring plus a table of the
+  --- parenthesized capture groups (an empty table when the pattern has
+  --- no groups, "" for groups that did not participate). A no-match is
+  --- not an error: it returns a single bare nil. A genuine engine
+  --- failure (e.g. out of memory) returns nil, err — the error string
+  --- arrives in the second position, mirroring the cosmo.re binding.
   --- @param text string The text to search
   --- @param flags number? Optional flags: NOTBOL, NOTEOL
-  --- @return string? The matched substring, or nil if no match
-  search: function(self: Regex, text: string, flags?: number): string | nil
+  --- @return string The matched substring, or nil if no match
+  --- @return {string} Capture groups on match (error string on engine failure)
+  search: function(self: Regex, text: string, flags?: number): string, {string}, string | nil
 end
 
 --- Compile a regular expression pattern.
@@ -26,8 +32,7 @@ end
 local function compile(pattern: string, flags?: number): Regex | nil, string
   local result, err = re.compile(pattern, flags)
   if not result then
-    -- err is an Errno userdata with __tostring metamethod
-    return nil, tostring(err)
+    return nil, err as string
   end
   return result as Regex
 end
@@ -35,20 +40,33 @@ end
 --- Search for pattern match in text (convenience function).
 --- Compiles pattern on each call - use compile() for repeated searches.
 --- Uses POSIX extended syntax by default.
+--- On a match, returns the matched substring plus a table of the
+--- parenthesized capture groups (an empty table when the pattern has no
+--- groups, "" for groups that did not participate). A no-match returns
+--- nil with no error; a bad pattern or an engine failure returns
+--- nil, nil, err.
 --- @param pattern string The regex pattern to search for
 --- @param text string The text to search in
 --- @param flags number? Optional compile flags: BASIC, ICASE, NEWLINE, NOSUB
---- @return string? The matched substring, or nil if no match
---- @return string? Error message if pattern compilation failed
-local function search(pattern: string, text: string, flags?: number): string | nil, string
-  local regex, err = compile(pattern, flags)
+--- @return string | nil The matched substring, or nil on no match or error
+--- @return {string} | nil Capture groups on match
+--- @return string | nil Error message if compilation or the engine failed
+local function search(pattern: string, text: string, flags?: number): string | nil, {string} | nil, string | nil
+  local regex, cerr = compile(pattern, flags)
   if not regex then
-    return nil, err
+    return nil, nil, cerr
   end
-  -- Note: regex:search returns nil for no match, not an error condition
   -- Search flags (NOTBOL/NOTEOL) are not passed here; use compile() + :search() for those
-  local result = (regex as Regex):search(text)
-  return result
+  local m, caps = (regex as Regex):search(text)
+  if not m then
+    if caps then
+      -- Engine failure: the binding reports nil, err.
+      return nil, nil, tostring(caps)
+    end
+    -- No match is not an error.
+    return nil
+  end
+  return m, caps
 end
 
 --- Check if pattern matches anywhere in text.
@@ -57,13 +75,13 @@ end
 --- @param text string The text to search in
 --- @param flags number? Optional compile flags: BASIC, ICASE, NEWLINE, NOSUB
 --- @return boolean True if pattern matches, false otherwise
---- @return string? Error message if pattern compilation failed
+--- @return string? Error message if compilation or the engine failed
 local function match(pattern: string, text: string, flags?: number): boolean, string
-  local result, err = search(pattern, text, flags)
+  local m, _, err = search(pattern, text, flags)
   if err then
     return false, err
   end
-  return result ~= nil
+  return m ~= nil
 end
 
 local record ReModule
@@ -72,7 +90,7 @@ local record ReModule
 
   -- Functions
   compile: function(pattern: string, flags?: number): Regex | nil, string
-  search: function(pattern: string, text: string, flags?: number): string | nil, string
+  search: function(pattern: string, text: string, flags?: number): string | nil, {string} | nil, string | nil
   match: function(pattern: string, text: string, flags?: number): boolean, string
 
   -- Compile flags

@@ -13,22 +13,7 @@
 --- become_init: run a PID-1 loop that forwards signals, reaps zombies,
 ---   and coordinates main-process / sidecar lifecycles.
 local unix = require("cosmo.unix")
-local Errno = require("cosmic.errno").Errno
-
-local function wrap_err(err: any, fallback: string): string
-  if not err then return fallback end
-  local e = err as Errno
-  if e.doc then return e:doc() end
-  return tostring(err)
-end
-
---- Extract the errno number from a unix.Errno-shaped error, or nil.
-local function errno_of(err: any): integer
-  if err == nil then return nil end
-  local e = err as Errno
-  if e.errno == nil then return nil end
-  return e:errno() as integer
-end
+local errno = require("cosmic.errno")
 
 --- One-shot pipe-backed barrier for cross-process fork+unshare
 --- synchronization.
@@ -58,7 +43,7 @@ local DEFAULT_SIGNALS: {string} = {"SIGINT", "SIGTERM", "SIGHUP"}
 --- @return string? error message on failure
 local function no_new_privs(): boolean, string
   local ok, err = unix.prctl(unix.PR_SET_NO_NEW_PRIVS, 1)
-  if not ok then return false, wrap_err(err, "no_new_privs failed") end
+  if not ok then return false, errno.str(err, "no_new_privs") end
   return true
 end
 
@@ -82,27 +67,29 @@ local function drop_privs(uid: integer, gid: integer): boolean, string
   if gid == nil then gid = uid end
   if uid ~= 0 then
     local kok, kerr = unix.prctl(unix.PR_SET_KEEPCAPS, 1)
-    if not kok then return false, wrap_err(kerr, "PR_SET_KEEPCAPS failed") end
+    if not kok then return false, errno.str(kerr, "PR_SET_KEEPCAPS") end
     local gok, gerr = unix.setresgid(gid, gid, gid)
-    if not gok then return false, wrap_err(gerr, "setresgid failed") end
+    if not gok then return false, errno.str(gerr, "setresgid") end
     local uok, uerr = unix.setresuid(uid, uid, uid)
-    if not uok then return false, wrap_err(uerr, "setresuid failed") end
+    if not uok then return false, errno.str(uerr, "setresuid") end
   end
-  local cok, cerr = unix.capset(0, 0, 0)
+  local cok, cerr, ceno = unix.capset(0, 0, 0)
   if not cok then
-    if errno_of(cerr) == unix.ENOSYS then return true end
-    return false, wrap_err(cerr, "capset failed")
+    if errno.is(ceno, "ENOSYS") then return true end
+    return false, errno.str(cerr, "capset")
   end
   return true
 end
 
---- Open `path` write-only and write `data` in one shot.
-local function write_file(path: string, data: string): boolean, any
-  local fd, oerr = unix.open(path, unix.O_WRONLY)
-  if not fd then return false, oerr end
-  local n, werr = unix.write(fd, data)
+--- Open `path` write-only and write `data` in one shot. On failure
+--- returns false plus the binding's error string and numeric errno,
+--- so callers can classify the failure (e.g. a benign ENOENT).
+local function write_file(path: string, data: string): boolean, string, integer
+  local fd, oerr, oeno = unix.open(path, unix.O_WRONLY)
+  if not fd then return false, oerr, oeno as integer end
+  local n, werr, weno = unix.write(fd, data)
   unix.close(fd)
-  if not n then return false, werr end
+  if not n then return false, werr, weno as integer end
   return true
 end
 
@@ -130,14 +117,14 @@ local function setup_userns_maps(uid: integer, gid: integer): boolean, string
   if gid == nil then gid = unix.getegid() as integer end
   local ok, err = write_file("/proc/self/uid_map",
     "0 " .. tostring(uid) .. " 1\n")
-  if not ok then return false, wrap_err(err, "uid_map write failed") end
-  local sg, sgerr = write_file("/proc/self/setgroups", "deny")
-  if not sg and errno_of(sgerr) ~= unix.ENOENT then
-    return false, wrap_err(sgerr, "setgroups write failed")
+  if not ok then return false, errno.str(err, "uid_map write") end
+  local sg, sgerr, sgeno = write_file("/proc/self/setgroups", "deny")
+  if not sg and not errno.is(sgeno, "ENOENT") then
+    return false, errno.str(sgerr, "setgroups write")
   end
   local gok, gerr = write_file("/proc/self/gid_map",
     "0 " .. tostring(gid) .. " 1\n")
-  if not gok then return false, wrap_err(gerr, "gid_map write failed") end
+  if not gok then return false, errno.str(gerr, "gid_map write") end
   return true
 end
 
@@ -163,8 +150,10 @@ end
 --- @return Barrier? barrier object on success
 --- @return string? error message on failure
 local function barrier(): Barrier | nil, string
+  -- On failure pipe returns nil, err (string), errno; the error string
+  -- lands in the second slot where the write fd would have been.
   local r, w = unix.pipe()
-  if not r then return nil, wrap_err(w, "pipe failed") end
+  if not r then return nil, errno.str(w, "pipe") end
   local rfd: integer = r as integer
   local wfd: integer = w as integer
   local b: Barrier = {}
@@ -214,10 +203,10 @@ end
 local function fork_pidns(): integer | nil, string
   local ok, uerr = unix.unshare(unix.CLONE_NEWPID)
   if not ok then
-    return nil, wrap_err(uerr, "unshare(CLONE_NEWPID) failed")
+    return nil, errno.str(uerr, "unshare(CLONE_NEWPID)")
   end
   local pid, ferr = unix.fork()
-  if not pid then return nil, wrap_err(ferr, "fork failed") end
+  if not pid then return nil, errno.str(ferr, "fork") end
   return pid as integer
 end
 
@@ -259,11 +248,13 @@ local function become_init(main_pid: integer, opts: InitOpts): integer
   end
 
   while true do
-    local pid, ws = unix.wait()
+    -- On success: pid, wait status, rusage. On failure: nil, err
+    -- (string), errno — so `weno` is the numeric errno exactly when
+    -- pid is nil.
+    local pid, ws, weno = unix.wait()
     if not pid then
-      -- ws holds a unix.Errno on failure. EINTR = a forwarded signal
-      -- arrived mid-wait; loop and reap.
-      if errno_of(ws) ~= unix.EINTR then
+      -- EINTR = a forwarded signal arrived mid-wait; loop and reap.
+      if not errno.is(weno, "EINTR") then
         return 1
       end
     elseif pid == main_pid then

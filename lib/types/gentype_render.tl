@@ -16,7 +16,7 @@ local ModuleDecl = gt.ModuleDecl
 local current_module: string = nil
 
 -- Type conversion from LuaLS to Teal
-local TYPE_ALIASES = {
+local TYPE_ALIASES: {string: string} = {
   ["integer"] = "number",
   ["number"] = "number",
   ["string"] = "string",

@@ -82,28 +82,78 @@ local function test_regex_search_alternation()
 end
 test_regex_search_alternation()
 
+local function test_regex_search_captures()
+  local regex = re.compile("([a-z]+)([0-9]+)")
+  assert(regex, "compile failed")
+  local result, caps = (regex as re.Regex):search("abc123")
+  assert(result == "abc123", "expected 'abc123', got '" .. tostring(result) .. "'")
+  assert(caps ~= nil, "expected captures table on match")
+  assert(#caps == 2, "expected 2 captures, got " .. tostring(#caps))
+  assert(caps[1] == "abc", "expected first capture 'abc', got '" .. tostring(caps[1]) .. "'")
+  assert(caps[2] == "123", "expected second capture '123', got '" .. tostring(caps[2]) .. "'")
+end
+test_regex_search_captures()
+
+local function test_regex_search_no_match_no_error()
+  -- A no-match from a compiled regex is a single bare nil, not an error.
+  local regex = re.compile("cat")
+  assert(regex, "compile failed")
+  local result, caps = (regex as re.Regex):search("dog only")
+  assert(result == nil, "expected nil for no match")
+  assert(caps == nil, "expected no second value for no match")
+end
+test_regex_search_no_match_no_error()
+
 -- search convenience function tests
 
 local function test_search_simple()
-  local result, err = re.search("world", "hello world")
+  local result, caps, err = re.search("world", "hello world")
   assert(err == nil, "expected no error, got: " .. tostring(err))
   assert(result == "world", "expected 'world', got '" .. tostring(result) .. "'")
+  local c = caps as {string}
+  assert(c ~= nil and #c == 0, "expected empty captures table for pattern without groups")
 end
 test_search_simple()
 
 local function test_search_no_match()
-  local result, err = re.search("xyz", "hello world")
-  assert(err == nil, "expected no error")
+  -- No match is not an error: a bare nil, no captures, no error message.
+  local result, caps, err = re.search("xyz", "hello world")
   assert(result == nil, "expected nil for no match")
+  assert(caps == nil, "expected nil captures for no match")
+  assert(err == nil, "expected no error for no match")
 end
 test_search_no_match()
 
 local function test_search_invalid_pattern()
-  local result, err = re.search("[invalid", "hello world")
+  local result, caps, err = re.search("[invalid", "hello world")
   assert(result == nil, "expected nil for invalid pattern")
+  assert(caps == nil, "expected nil captures for invalid pattern")
   assert(err ~= nil, "expected error message")
+  assert(type(err) == "string", "error should be a string")
 end
 test_search_invalid_pattern()
+
+local function test_search_captures()
+  local result, caps, err = re.search("([0-9]+)-([a-z]+)", "id 42-abc!")
+  assert(err == nil, "expected no error, got: " .. tostring(err))
+  assert(result == "42-abc", "expected '42-abc', got '" .. tostring(result) .. "'")
+  local c = caps as {string}
+  assert(c ~= nil, "expected captures table")
+  assert(#c == 2, "expected 2 captures, got " .. tostring(#c))
+  assert(c[1] == "42", "expected first capture '42', got '" .. tostring(c[1]) .. "'")
+  assert(c[2] == "abc", "expected second capture 'abc', got '" .. tostring(c[2]) .. "'")
+end
+test_search_captures()
+
+local function test_search_nonparticipating_group()
+  local result, caps = re.search("(aa)|(bb)", "xxaaxx")
+  assert(result == "aa", "expected 'aa', got '" .. tostring(result) .. "'")
+  local c = caps as {string}
+  assert(#c == 2, "expected 2 capture slots, got " .. tostring(#c))
+  assert(c[1] == "aa", "expected first capture 'aa', got '" .. tostring(c[1]) .. "'")
+  assert(c[2] == "", "non-participating group should be empty string, got '" .. tostring(c[2]) .. "'")
+end
+test_search_nonparticipating_group()
 
 local function test_search_regex_metacharacters()
   local result = re.search("h.llo", "hello")

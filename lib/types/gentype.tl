@@ -4,6 +4,7 @@
 
 local cosmo = require("cosmo")
 local cosmic = require("cosmic")
+local tl = require("tl")
 local gt = require("types.gentype_types")
 local Param = gt.Param
 local Return = gt.Return
@@ -22,6 +23,7 @@ local render = require("types.gentype_render") as GentypeRender
 
 local record GentypeParse
   parse_annotations: function(raw_lines: {string}): {string}, {Param}, {Return}, boolean, string, {Field}, boolean, string
+  valid_type: function(t: string): boolean
 end
 local parse = require("types.gentype_parse") as GentypeParse
 local parse_annotations = parse.parse_annotations
@@ -295,6 +297,99 @@ local record Result
   error: string
 end
 
+local UPSTREAM_HINT = "; fix the annotation upstream in whilp/cosmopolitan"
+  .. " tool/net/definitions.lua (its test_definitions_coverage.lua check 9"
+  .. " validates the same type grammar)"
+
+--- Validate every parsed type expression in a module against the type
+--- grammar, so a malformed upstream annotation fails generation loudly with
+--- a pointer at the offending definitions.lua entry instead of rendering
+--- invalid Teal. Returns an error message, or nil when everything is valid.
+local function validate_module(module: ModuleDecl): string
+  local function bad(decl: string, what: string, text: string): string
+    return "invalid type annotation in definitions.lua module '" .. module.name
+      .. "': " .. decl .. " " .. what .. " has malformed type '"
+      .. tostring(text) .. "'" .. UPSTREAM_HINT
+  end
+  local function check_func(decl: string, f: FuncDecl): string
+    for _, p in ipairs(f.params) do
+      if not parse.valid_type(p.param_type) then
+        return bad(decl, "param '" .. p.name .. "'", p.param_type)
+      end
+    end
+    for idx, r in ipairs(f.returns) do
+      if r.description ~= "type" and not parse.valid_type(r.return_type) then
+        return bad(decl, "return #" .. idx, r.return_type)
+      end
+    end
+    if f.fallible and f.error_type and not parse.valid_type(f.error_type) then
+      return bad(decl, "error type", f.error_type)
+    end
+    return nil
+  end
+  for _, f in ipairs(module.functions) do
+    local err = check_func(module.name .. "." .. f.name, f)
+    if err then return err end
+  end
+  for _, cls in ipairs(module.classes) do
+    for _, field in ipairs(cls.fields) do
+      if not parse.valid_type(field.field_type) then
+        return bad(module.name .. "." .. cls.name .. "." .. field.name,
+          "field", field.field_type)
+      end
+    end
+    for _, m in ipairs(cls.methods) do
+      local err = check_func(module.name .. "." .. cls.name .. ":" .. m.name, m)
+      if err then return err end
+    end
+  end
+  for _, c in ipairs(module.constants) do
+    if not parse.valid_type(c.const_type) then
+      return bad(module.name .. "." .. c.name, "constant", c.const_type)
+    end
+  end
+  return nil
+end
+
+--- Belt and suspenders: the rendered output must at least parse as Teal.
+--- Full cross-module type resolution is not available at generation time,
+--- so only syntax errors are consulted. Returns an error message or nil.
+local function syntax_check(output: string, module_name: string): string
+  local name = "cosmo/" .. module_name .. ".d.tl"
+  local env = tl.init_env(true)
+  local ok, res = pcall(tl.process_string, output, false, env, name)
+  if not ok then
+    return "generated " .. name .. " failed to parse: " .. tostring(res)
+      .. "; this usually means a malformed type annotation in definitions.lua"
+      .. UPSTREAM_HINT
+  end
+  local result = res as tl.Result
+  if result and result.syntax_errors and #result.syntax_errors > 0 then
+    local msgs: {string} = {}
+    for idx, e in ipairs(result.syntax_errors) do
+      if idx > 3 then break end
+      table.insert(msgs, tostring(e.y or 0) .. ":" .. tostring(e.x or 0)
+        .. ": " .. (e.msg or ""))
+    end
+    return "generated " .. name .. " is not valid Teal ("
+      .. table.concat(msgs, "; ")
+      .. "); this usually means a malformed type annotation in definitions.lua"
+      .. UPSTREAM_HINT
+  end
+  return nil
+end
+
+--- Validate a parsed module and render it, syntax-checking the result.
+--- Returns the rendered output, or nil and an error message.
+local function render_module(module: ModuleDecl): string, string
+  local verr = validate_module(module)
+  if verr then return nil, verr end
+  local output = render.generate_dtl(module)
+  local serr = syntax_check(output, module.name)
+  if serr then return nil, serr end
+  return output
+end
+
 --- Run the generator for a specific module or all modules.
 local function run(module_name: string): Result
   local source = cosmo.Slurp(defs_path())
@@ -314,14 +409,22 @@ local function run(module_name: string): Result
     if not module then
       return {success = false, error = "Failed to parse module: " .. module_name}
     end
-    return {success = true, output = render.generate_dtl(module)}
+    local output, err = render_module(module)
+    if not output then
+      return {success = false, error = err}
+    end
+    return {success = true, output = output}
   else
     local outputs: {string} = {}
     for _, m in ipairs(MODULES) do
       local module = parse_module(source, m)
       if module then
+        local output, err = render_module(module)
+        if not output then
+          return {success = false, error = err}
+        end
         table.insert(outputs, "-- === " .. m .. " ===")
-        table.insert(outputs, render.generate_dtl(module))
+        table.insert(outputs, output)
       end
     end
     return {success = true, output = table.concat(outputs, "\n")}
@@ -335,6 +438,7 @@ end
 local record GenTypeModule
   run: function(module_name?: string): Result
   parse_module: function(source: string, module_name: string): ModuleDecl
+  render_module: function(module: ModuleDecl): string, string
   generate_dtl: function(module: ModuleDecl): string
   convert_type: function(t: string): string
   get_modules: function(): {string}
@@ -344,6 +448,7 @@ end
 local M: GenTypeModule = {
   run = run,
   parse_module = parse_module,
+  render_module = render_module,
   generate_dtl = render.generate_dtl,
   convert_type = render.convert_type,
   get_modules = get_modules,

@@ -128,10 +128,11 @@ local function new(): Poller
     -- surfaces as a poll failure, and a caller that loops on it (e.g. a drain
     -- loop waiting on a child that raised SIGCHLD) spins at 100% CPU.
     local res: {number: number}
-    local err: unix.Errno
+    local err: string
+    local eno: number
     while true do
-      res, err = unix.poll(fds, timeoutms or -1)
-      if res ~= nil or not errno.is(err, "EINTR") then
+      res, err, eno = unix.poll(fds, timeoutms or -1)
+      if res ~= nil or not errno.is(eno, "EINTR") then
         break
       end
     end

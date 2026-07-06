@@ -1,8 +1,8 @@
 #!/usr/bin/env lua
 -- ast-grep ignore: builds relative symlink paths
-local cio = require("cosmic.io")
 local fs = require("cosmic.fs")
 local hash = require("cosmic.hash")
+local portable = require("build.portable")
 local proc = require("cosmic.proc")
 local fetch = require("cosmic.fetch")
 
@@ -138,7 +138,7 @@ local function main(version_file: string, platform: string, output: string): boo
 
   fs.makedirs(archive_dir)
 
-  local barf_ok, barf_err = cio.barf(archive_path, body, tonumber("644", 8))
+  local barf_ok, barf_err = portable.write_file(archive_path, body, tonumber("644", 8))
   if not barf_ok then
     return nil, "failed to write " .. archive_path .. ": " .. (barf_err or "unknown error")
   end

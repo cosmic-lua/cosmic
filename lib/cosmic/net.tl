@@ -243,9 +243,9 @@ end
 --- @return number | nil Numeric IP address
 --- @return string Error message on failure
 local function parseip(str: string): number | nil, string
-  local ip = cosmo.ParseIp(str)
-  if ip == -1 then
-    return nil, "invalid IP address format"
+  local ip, err = cosmo.ParseIp(str)
+  if not ip then
+    return nil, err or "invalid IP address format"
   end
   return ip
 end

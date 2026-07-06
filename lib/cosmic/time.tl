@@ -229,9 +229,14 @@ end
 
 --- Format a UNIX timestamp as a date string in UTC.
 --- @param timestamp number UNIX timestamp (seconds since epoch)
---- @return string Date string (e.g., "2025-01-01")
-local function format_date(timestamp: number): string
-  return cosmo.Strftime("%Y-%m-%d", timestamp)
+--- @return string | nil Date string (e.g., "2025-01-01"), or nil on error
+--- @return string Error message if formatting failed
+local function format_date(timestamp: number): string | nil, string
+  local s, err = cosmo.Strftime("%Y-%m-%d", timestamp)
+  if not s then
+    return nil, err as string
+  end
+  return s
 end
 
 --- Parse a YYYY-MM-DD date string into a UNIX timestamp (midnight UTC).
@@ -250,9 +255,14 @@ end
 
 --- Format a UNIX timestamp as an ISO 8601 string in UTC.
 --- @param timestamp number UNIX timestamp (seconds since epoch)
---- @return string ISO 8601 string (e.g., "2025-01-01T00:00:00Z")
-local function format_iso8601(timestamp: number): string
-  return cosmo.Strftime("%Y-%m-%dT%H:%M:%SZ", timestamp)
+--- @return string | nil ISO 8601 string (e.g., "2025-01-01T00:00:00Z"), or nil on error
+--- @return string Error message if formatting failed
+local function format_iso8601(timestamp: number): string | nil, string
+  local s, err = cosmo.Strftime("%Y-%m-%dT%H:%M:%SZ", timestamp)
+  if not s then
+    return nil, err as string
+  end
+  return s
 end
 
 --- Resolve an ISO 8601 timezone suffix into a signed offset in seconds.
@@ -340,9 +350,9 @@ local record TimeModule
   localtime: function(unixts: number): DateTime
   format_http: function(timestamp: number): string
   parse_http: function(str: string): number | nil, string
-  format_date: function(timestamp: number): string
+  format_date: function(timestamp: number): string | nil, string
   parse_date: function(str: string): number | nil, string
-  format_iso8601: function(timestamp: number): string
+  format_iso8601: function(timestamp: number): string | nil, string
   parse_iso8601: function(str: string): number | nil, string
   timegm: function(year: number, month: number, day: number, hour: number, min: number, sec: number): number | nil, string
 end

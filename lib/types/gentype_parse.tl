@@ -69,6 +69,168 @@ local function split_type_desc(rest: string): string, string
   return scan_token(rest)
 end
 
+--- Validate a type expression against the LuaLS type grammar gentype
+--- understands (upstream's test_definitions_coverage.lua check 9 enforces
+--- the same grammar on definitions.lua):
+---   union   := postfix ('|' postfix)*
+---   postfix := atom ('?' | '[]')*
+---   atom    := 'fun' '(' balanced ')' (':' return-list)?
+---            | '{' balanced '}' | '(' union ')'
+---            | quoted string literal | integer literal
+---            | dotted identifier ('<' type-list '>')?
+--- plus the generator-synthesized trailing `...` variadic suffix
+--- (`string...`). A parse that consumes the whole string = valid; anything
+--- else (e.g. the malformed `nil,|nil` that once rendered invalid Teal and
+--- surfaced as baffling downstream type errors) is rejected.
+local function valid_type(t: string): boolean
+  if not t then return false end
+  local src = t:match("^%s*(.-)%s*$")
+  if src == "" then return false end
+  local pos = 1
+  local n = #src
+
+  local function skip_ws()
+    while pos <= n and src:sub(pos, pos):match("%s") do pos = pos + 1 end
+  end
+
+  -- Consume from the opening bracket at `pos` to its balanced close. The
+  -- contents are not deep-validated (inline table and fun-arg types carry
+  -- their own labeled grammar); balance is the invariant that keeps the
+  -- rendered Teal parseable.
+  local function skip_balanced(open: string, close: string): boolean
+    if src:sub(pos, pos) ~= open then return false end
+    local depth = 0
+    while pos <= n do
+      local c = src:sub(pos, pos)
+      if c == open then
+        depth = depth + 1
+      elseif c == close then
+        depth = depth - 1
+        if depth == 0 then
+          pos = pos + 1
+          return true
+        end
+      end
+      pos = pos + 1
+    end
+    return false
+  end
+
+  local parse_union: function(): boolean
+
+  -- Return list after `fun(...):` — one or more comma-separated entries,
+  -- each a union or a typed vararg (`...`, `...: string|nil`) as folded by
+  -- split_type_desc.
+  local function parse_fun_returns(): boolean
+    while true do
+      skip_ws()
+      if src:sub(pos, pos + 2) == "..." then
+        pos = pos + 3
+        skip_ws()
+        if src:sub(pos, pos) == ":" then
+          pos = pos + 1
+          if not parse_union() then return false end
+        end
+      elseif not parse_union() then
+        return false
+      end
+      skip_ws()
+      if src:sub(pos, pos) ~= "," then return true end
+      pos = pos + 1
+    end
+  end
+
+  local function parse_atom(): boolean
+    skip_ws()
+    if pos > n then return false end
+    local c = src:sub(pos, pos)
+    if src:match("^fun%(", pos) then
+      pos = pos + 3
+      if not skip_balanced("(", ")") then return false end
+      local save = pos
+      skip_ws()
+      if src:sub(pos, pos) == ":" then
+        pos = pos + 1
+        return parse_fun_returns()
+      end
+      pos = save
+      return true
+    elseif c == "{" then
+      return skip_balanced("{", "}")
+    elseif c == "(" then
+      pos = pos + 1
+      if not parse_union() then return false end
+      skip_ws()
+      if src:sub(pos, pos) ~= ")" then return false end
+      pos = pos + 1
+      return true
+    elseif c == "\"" or c == "'" then
+      local close = src:find(c, pos + 1, true)
+      if not close then return false end
+      pos = close + 1
+      return true
+    elseif src:match("^%-?%d", pos) then
+      pos = pos + #src:match("^%-?%d+", pos)
+      return true
+    end
+    local ident = src:match("^[%a_][%w_]*", pos)
+    if not ident then return false end
+    pos = pos + #ident
+    while true do
+      local seg = src:match("^%.[%a_][%w_]*", pos)
+      if not seg then break end
+      pos = pos + #seg
+    end
+    if src:sub(pos, pos) == "<" then
+      pos = pos + 1
+      while true do
+        if not parse_union() then return false end
+        skip_ws()
+        if src:sub(pos, pos) ~= "," then break end
+        pos = pos + 1
+      end
+      if src:sub(pos, pos) ~= ">" then return false end
+      pos = pos + 1
+    end
+    return true
+  end
+
+  local function parse_postfix(): boolean
+    if not parse_atom() then return false end
+    while true do
+      if src:sub(pos, pos) == "?" then
+        pos = pos + 1
+      elseif src:sub(pos, pos + 1) == "[]" then
+        pos = pos + 2
+      else
+        break
+      end
+    end
+    return true
+  end
+
+  parse_union = function(): boolean
+    if not parse_postfix() then return false end
+    while true do
+      local save = pos
+      skip_ws()
+      if src:sub(pos, pos) ~= "|" then
+        pos = save
+        return true
+      end
+      pos = pos + 1
+      if not parse_postfix() then return false end
+    end
+  end
+
+  if not parse_union() then return false end
+  if src:sub(pos, pos + 2) == "..." then
+    pos = pos + 3
+  end
+  skip_ws()
+  return pos > n
+end
+
 --- Parse annotations from a block of text before a declaration.
 local function parse_annotations(raw_lines: {string}): {string}, {Param}, {Return}, boolean, string, {Field}, boolean, string
   local desc: {string} = {}
@@ -269,11 +431,13 @@ end
 local record GentypeParseModule
   split_type_desc: function(rest: string): string, string
   parse_annotations: function(raw_lines: {string}): {string}, {Param}, {Return}, boolean, string, {Field}, boolean, string
+  valid_type: function(t: string): boolean
 end
 
 local M: GentypeParseModule = {
   split_type_desc = split_type_desc,
   parse_annotations = parse_annotations,
+  valid_type = valid_type,
 }
 
 return M

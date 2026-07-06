@@ -16,20 +16,13 @@ end
 --- @return string | nil The decoded binary data, or nil on error
 --- @return string? Error message if decoding failed
 local function decode_hex(hex: string): string | nil, string
-  -- Validate length is even (O(1))
-  if #hex % 2 ~= 0 then
-    return nil, "hex string must have even length"
+  -- The binding validates the input (odd length, non-hex characters)
+  -- and reports bad data as nil, err; forward its error verbatim.
+  local result, err = cosmo.DecodeHex(hex)
+  if not result then
+    return nil, err as string
   end
-  -- Happy path is a single C call: with even length guaranteed above,
-  -- cosmo.DecodeHex raises only on an invalid hex character. Wrapping it
-  -- in pcall lets the valid case skip the full character-class scan of
-  -- the whole input; the scan's only remaining job (choosing the error
-  -- message) is unnecessary here since even length is already handled.
-  local ok, result = pcall(cosmo.DecodeHex, hex)
-  if not ok then
-    return nil, "invalid hex character"
-  end
-  return result as string, nil
+  return result
 end
 
 --- Encode a Lua value as Lua source code.
@@ -38,7 +31,7 @@ end
 --- @param opts {string:any}? Optional encoding options
 --- @return string The Lua source code representation
 local function encode_lua(value: any, opts?: {string: any}): string
-  return (cosmo.EncodeLua(value, opts))
+  return (cosmo.EncodeLua(value, opts as cosmo.EncoderOptions))
 end
 
 --- Decode Lua source code to a value with a restricted environment.
@@ -97,7 +90,9 @@ end
 --- @param data string The binary data to encode
 --- @return string The base32 encoded string
 local function encode_base32(data: string): string
-  return cosmo.EncodeBase32(data)
+  -- The binding is fallible only when a custom alphabet of invalid
+  -- length is supplied; with the default alphabet it cannot fail.
+  return (cosmo.EncodeBase32(data))
 end
 
 --- Decode a base32 string to binary data.
@@ -107,10 +102,18 @@ end
 --- @return string? Error message if decoding failed
 local function decode_base32(str: string): string | nil, string
   -- cosmo base32 alphabet: 0123456789abcdefghjkmnpqrstvwxyz (32 chars, no i,l,o,u)
+  -- The binding decodes permissively (it stops at the first character
+  -- outside the alphabet), so this strict validation is load-bearing.
   if str:match("[^0-9a-hj-km-np-tv-z]") then
     return nil, "invalid base32 character"
   end
-  return cosmo.DecodeBase32(str)
+  -- The binding is fallible only for custom alphabets of invalid
+  -- length; forward its error anyway rather than swallowing it.
+  local result, err = cosmo.DecodeBase32(str)
+  if not result then
+    return nil, err as string
+  end
+  return result
 end
 
 --- Encode a UTF-8 string as Latin-1 (ISO-8859-1).
@@ -119,6 +122,8 @@ end
 --- @return string | nil The Latin-1 encoded bytes, or nil on error
 --- @return string? Error message if encoding failed
 local function encode_latin1(str: string): string | nil, string
+  -- cosmo.EncodeLatin1 still raises on input it cannot re-encode
+  -- (its declared signature is a bare string), so the pcall stays.
   local ok, result = pcall(cosmo.EncodeLatin1, str)
   if not ok then
     return nil, "cannot encode to Latin-1: character out of range"
