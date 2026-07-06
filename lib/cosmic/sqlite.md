@@ -3,11 +3,8 @@
  Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns.
  Wraps lsqlite3 with proper error returns and resource management.
 
- This module provides a high-level API over lsqlite3. Prefer
- `db:exec()`, `db:query()`, `db:query_one()`, and `db:transaction()`
- over manual statement preparation, binding, and stepping.
- The underlying lsqlite3 bindings are used internally; prefer the
- high-level API shown below.
+ Prefer `db:exec()`, `db:query()`, `db:query_one()`, and
+ `db:transaction()` over manual preparation, binding, and stepping.
 
      local sqlite = require("cosmic.sqlite")
      local db = sqlite.open(":memory:")
@@ -65,10 +62,9 @@ end
 ### Rows
 
  Callable row iterator with an out-of-band error channel. Use it in a
- generic `for row in ... do` loop, then call `:err()` afterward to detect
- a step error (SQLITE_BUSY / CORRUPT / a RETURNING constraint failure)
- that a for-loop cannot observe inline. `:err()` is nil only when
- iteration reached SQLITE_DONE cleanly.
+ `for row in ... do` loop, then call `:err()` afterward to detect a step
+ error (SQLITE_BUSY / CORRUPT / a RETURNING constraint failure) a for-loop
+ cannot observe inline. `:err()` is nil only on a clean SQLITE_DONE.
 
 ```teal
 local record Rows
@@ -114,11 +110,11 @@ end
 
 ```teal
 local record Database
-  prepare: function(self: Database, sql: string): Statement, string
-  query: function(self: Database, sql: string, ...: any): Rows, string
-  query_list: function(self: Database, sql: string, values: {any}): Rows, string
-  query_named: function(self: Database, sql: string, params: {string: any}): Rows, string
-  query_one: function(self: Database, sql: string, ...: any): {string: any}, string
+  prepare: function(self: Database, sql: string): Statement | nil, string
+  query: function(self: Database, sql: string, ...: any): Rows | nil, string
+  query_list: function(self: Database, sql: string, values: {any}): Rows | nil, string
+  query_named: function(self: Database, sql: string, params: {string: any}): Rows | nil, string
+  query_one: function(self: Database, sql: string, ...: any): {string: any} | nil, string
   exec: function(self: Database, sql: string, ...: any): boolean, string
   exec_list: function(self: Database, sql: string, values: {any}): boolean, string
   exec_named: function(self: Database, sql: string, params: {string: any}): boolean, string
@@ -133,9 +129,10 @@ end
 
 ```teal
 local record sqlite
-  open: function(filename: string): Database, string
+  open: function(filename: string): Database | nil, string
   Database: Database
   Statement: Statement
+  Rows: Rows
 end
 ```
 
@@ -156,9 +153,8 @@ function stmt:bind(...: any): boolean, string
 function stmt:bind_list(values: {any}): boolean, string
 ```
 
- Bind parameters from a list (table).
- The parameter count is derived from the SQL statement itself, so
- nil values in the table are handled correctly without an explicit count.
+ Bind parameters from a list (table). The count is derived from the SQL,
+ so nil values in the table are handled correctly without an explicit count.
 
 ### stmt:bind_named
 
@@ -191,13 +187,13 @@ function stmt:exec(): boolean, string
 ### db:prepare
 
 ```teal
-function db:prepare(sql: string): Statement, string
+function db:prepare(sql: string): Statement | nil, string
 ```
 
 ### db:query
 
 ```teal
-function db:query(sql: string, ...: any): Rows, string
+function db:query(sql: string, ...: any): Rows | nil, string
 ```
 
 ### db:exec
@@ -212,9 +208,8 @@ function db:exec(sql: string, ...: any): boolean, string
 function db:exec_list(sql: string, values: {any}): boolean, string
 ```
 
- Execute SQL with parameters from a list (table).
- The parameter count is derived from the SQL itself, so nil values
- in the table are handled correctly.
+ Execute SQL with parameters from a list (table). The count is derived
+ from the SQL itself, so nil values in the table are handled correctly.
 
 ### db:exec_named
 
@@ -228,7 +223,7 @@ function db:exec_named(sql: string, params: {string: any}): boolean, string
 ### db:query_list
 
 ```teal
-function db:query_list(sql: string, values: {any}): Rows, string
+function db:query_list(sql: string, values: {any}): Rows | nil, string
 ```
 
  Query with parameters from a list (table).
@@ -238,7 +233,7 @@ function db:query_list(sql: string, values: {any}): Rows, string
 ### db:query_named
 
 ```teal
-function db:query_named(sql: string, params: {string: any}): Rows, string
+function db:query_named(sql: string, params: {string: any}): Rows | nil, string
 ```
 
  Query with named parameters.
@@ -247,7 +242,7 @@ function db:query_named(sql: string, params: {string: any}): Rows, string
 ### db:query_one
 
 ```teal
-function db:query_one(sql: string, ...: any): {string: any}, string
+function db:query_one(sql: string, ...: any): {string: any} | nil, string
 ```
 
  Return the first row matching a query, or nil if no rows match.

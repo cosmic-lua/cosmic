@@ -24,19 +24,19 @@ local record Socket
   close: function(self: Socket): boolean
   closed: function(self: Socket): boolean
   shutdown: function(self: Socket, how?: number): boolean, string
-  send: function(self: Socket, data: string, flags?: number): number, string
-  sendto: function(self: Socket, data: string, ip: number, port: number, flags?: number): number, string
-  recv: function(self: Socket, bufsiz?: number, flags?: number): string, string
-  recvfrom: function(self: Socket, bufsiz?: number, flags?: number): string, number, number, string
-  getsockname: function(self: Socket): number, number, string
-  getpeername: function(self: Socket): number, number, string
+  send: function(self: Socket, data: string, flags?: number): number | nil, string
+  sendto: function(self: Socket, data: string, ip: number, port: number, flags?: number): number | nil, string
+  recv: function(self: Socket, bufsiz?: number, flags?: number): string | nil, string
+  recvfrom: function(self: Socket, bufsiz?: number, flags?: number): string | nil, number, number, string
+  getsockname: function(self: Socket): number | nil, number, string
+  getpeername: function(self: Socket): number | nil, number, string
   bind: function(self: Socket, ip?: number, port?: number): boolean, string
   bind_unix: function(self: Socket, path: string): boolean, string
   listen: function(self: Socket, backlog?: number): boolean, string
-  accept: function(self: Socket, flags?: number): Socket, number, number, string
+  accept: function(self: Socket, flags?: number): Socket | nil, number, number, string
   connect: function(self: Socket, ip: number, port: number): boolean, string
   connect_unix: function(self: Socket, path: string): boolean, string
-  getsockopt: function(self: Socket, level: number, optname: number): number | boolean, string
+  getsockopt: function(self: Socket, level: number, optname: number): number | boolean | nil, string
   setsockopt: function(self: Socket, level: number, optname: number, value: number | boolean): boolean, string
 end
 ```
@@ -58,18 +58,18 @@ end
 local record NetModule
   Socket: Socket
   Interface: Interface
-  socket: function(family?: number, socktype?: number, protocol?: number): Socket, string
-  socketpair: function(family?: number, socktype?: number, protocol?: number): Socket, Socket, string
-  listen_unix: function(path: string, backlog?: number): Socket, string
-  listen_tcp: function(ip: number, port: number, backlog?: number): Socket, number, string
-  connect_unix: function(path: string): Socket, string
-  connect_tcp: function(ip: number, port: number): Socket, string
+  socket: function(family?: number, socktype?: number, protocol?: number): Socket | nil, string
+  socketpair: function(family?: number, socktype?: number, protocol?: number): Socket | nil, Socket, string
+  listen_unix: function(path: string, backlog?: number): Socket | nil, string
+  listen_tcp: function(ip: number, port: number, backlog?: number): Socket | nil, number, string
+  connect_unix: function(path: string): Socket | nil, string
+  connect_tcp: function(ip: number, port: number): Socket | nil, string
   nb_connect: function(s: Socket, ip: number, port: number, timeoutms?: number): boolean, string
-  poll: function(fds: {number: number}, timeoutms?: number): {number: number}, string
-  gethostname: function(): string, string
-  parseip: function(str: string): number, string
+  poll: function(fds: {number: number}, timeoutms?: number): {number: number} | nil, string
+  gethostname: function(): string | nil, string
+  parseip: function(str: string): number | nil, string
   formatip: function(ip: number): string
-  interfaces: function(): {Interface}, string
+  interfaces: function(): {Interface} | nil, string
   AF_INET: number
   AF_UNIX: number
   AF_UNSPEC: number
@@ -147,7 +147,7 @@ end
 ### socket
 
 ```teal
-function socket(family?: number, socktype?: number, protocol?: number): Socket, string
+function socket(family?: number, socktype?: number, protocol?: number): Socket | nil, string
 ```
 
  Create a new socket.
@@ -160,13 +160,13 @@ function socket(family?: number, socktype?: number, protocol?: number): Socket, 
 
 **Returns:**
 
-- Socket - Socket handle
+- Socket - | nil Socket handle
 - string - Error message on failure
 
 ### socketpair
 
 ```teal
-function socketpair(family?: number, socktype?: number, protocol?: number): Socket, Socket, string
+function socketpair(family?: number, socktype?: number, protocol?: number): Socket | nil, Socket, string
 ```
 
  Create a pair of connected sockets.
@@ -179,14 +179,14 @@ function socketpair(family?: number, socktype?: number, protocol?: number): Sock
 
 **Returns:**
 
-- Socket - First socket of the pair
+- Socket - | nil First socket of the pair
 - Socket - Second socket of the pair
 - string - Error message on failure
 
 ### listen_unix
 
 ```teal
-function listen_unix(path: string, backlog?: number): Socket, string
+function listen_unix(path: string, backlog?: number): Socket | nil, string
 ```
 
  Create a Unix domain socket, bind it to a path, and start listening.
@@ -198,13 +198,13 @@ function listen_unix(path: string, backlog?: number): Socket, string
 
 **Returns:**
 
-- Socket - Listening socket
+- Socket - | nil Listening socket
 - string - Error message on failure
 
 ### connect_unix
 
 ```teal
-function connect_unix(path: string): Socket, string
+function connect_unix(path: string): Socket | nil, string
 ```
 
  Create a Unix domain socket and connect to a path.
@@ -215,13 +215,13 @@ function connect_unix(path: string): Socket, string
 
 **Returns:**
 
-- Socket - Connected socket
+- Socket - | nil Connected socket
 - string - Error message on failure
 
 ### connect_tcp
 
 ```teal
-function connect_tcp(ip: number, port: number): Socket, string
+function connect_tcp(ip: number, port: number): Socket | nil, string
 ```
 
  Create a TCP socket and connect to an IP address and port.
@@ -237,13 +237,13 @@ function connect_tcp(ip: number, port: number): Socket, string
 
 **Returns:**
 
-- Socket - Connected socket
+- Socket - | nil Connected socket
 - string - Error message on failure
 
 ### listen_tcp
 
 ```teal
-function listen_tcp(ip: number, port: number, backlog?: number): Socket, number, string
+function listen_tcp(ip: number, port: number, backlog?: number): Socket | nil, number, string
 ```
 
  Create a TCP socket, bind it to host:port, and start listening.
@@ -265,7 +265,7 @@ function listen_tcp(ip: number, port: number, backlog?: number): Socket, number,
 
 **Returns:**
 
-- Socket - Listening socket ready to accept
+- Socket - | nil Listening socket ready to accept
 - number - Actual bound port (useful when port 0 was requested)
 - string - Error message on failure
 
@@ -292,7 +292,7 @@ function nb_connect(s: Socket, ip: number, port: number, timeoutms?: number): bo
 ### poll
 
 ```teal
-function poll(fds: {number: number}, timeoutms?: number): {number: number}, string
+function poll(fds: {number: number}, timeoutms?: number): {number: number} | nil, string
 ```
 
  Poll file descriptors for events.
@@ -304,26 +304,26 @@ function poll(fds: {number: number}, timeoutms?: number): {number: number}, stri
 
 **Returns:**
 
-- {number:number} - Map of fd to revents
+- {number:number} - | nil Map of fd to revents
 - string - Error message on failure
 
 ### gethostname
 
 ```teal
-function gethostname(): string, string
+function gethostname(): string | nil, string
 ```
 
  Get the local hostname.
 
 **Returns:**
 
-- string - The hostname
+- string - | nil The hostname
 - string - Error message on failure
 
 ### parseip
 
 ```teal
-function parseip(str: string): number, string
+function parseip(str: string): number | nil, string
 ```
 
  Parse an IP address string to numeric form.
@@ -334,7 +334,7 @@ function parseip(str: string): number, string
 
 **Returns:**
 
-- number - Numeric IP address
+- number - | nil Numeric IP address
 - string - Error message on failure
 
 ### formatip
@@ -356,12 +356,12 @@ function formatip(ip: number): string
 ### interfaces
 
 ```teal
-function interfaces(): {Interface}, string
+function interfaces(): {Interface} | nil, string
 ```
 
  List network interfaces and their IPv4 addresses.
 
 **Returns:**
 
-- {Interface} - List of interfaces
+- {Interface} - | nil List of interfaces
 - string - Error message on failure

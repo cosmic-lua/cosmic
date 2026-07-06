@@ -9,7 +9,7 @@
 
 ```teal
 local record DocIndexModule
-  generate: function(files: {string}): string, string
+  generate: function(files: {string}): string | nil, string
   main: function(args: {string}): integer
 end
 ```
@@ -19,7 +19,7 @@ end
 ### generate
 
 ```teal
-function generate(files: {string}): string, string
+function generate(files: {string}): string | nil, string
 ```
 
  Generate serialized documentation index from source files.

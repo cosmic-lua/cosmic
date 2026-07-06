@@ -10,9 +10,9 @@
 ```teal
 local record CompressModule
   compress: function(data: string): string
-  uncompress: function(data: string): string, string
-  deflate: function(data: string): string, string
-  inflate: function(data: string): string, string
+  uncompress: function(data: string): string | nil, string
+  deflate: function(data: string): string | nil, string
+  inflate: function(data: string): string | nil, string
 end
 ```
 
@@ -39,7 +39,7 @@ function compress(data: string): string
 ### uncompress
 
 ```teal
-function uncompress(data: string): string, string
+function uncompress(data: string): string | nil, string
 ```
 
  Decompress zlib-compressed data.
@@ -50,13 +50,13 @@ function uncompress(data: string): string, string
 
 **Returns:**
 
-- string - The decompressed data, or nil on error
+- string - | nil The decompressed data, or nil on error
 - string? - Error message if decompression failed
 
 ### deflate
 
 ```teal
-function deflate(data: string): string, string
+function deflate(data: string): string | nil, string
 ```
 
  Compress data using raw deflate (no header).
@@ -73,13 +73,13 @@ function deflate(data: string): string, string
 
 **Returns:**
 
-- string - The compressed data with size prefix, or nil on error
+- string - | nil The compressed data with size prefix, or nil on error
 - string? - Error message if input exceeds size limit
 
 ### inflate
 
 ```teal
-function inflate(data: string): string, string
+function inflate(data: string): string | nil, string
 ```
 
  Decompress raw deflate data.
@@ -93,5 +93,5 @@ function inflate(data: string): string, string
 
 **Returns:**
 
-- string - The decompressed data, or nil on error
+- string - | nil The decompressed data, or nil on error
 - string? - Error message if decompression failed

@@ -39,7 +39,7 @@ end
 local record HashModule
   sha256: function(data: string): string
   sha256_hex: function(data: string): string
-  password: function(pwd: string, options?: HashOptions): string, string
+  password: function(pwd: string, options?: HashOptions): string | nil, string
   verify_password: function(encoded: string, pwd: string): boolean, string
 end
 ```
@@ -83,7 +83,7 @@ function sha256_hex(data: string): string
 ### password
 
 ```teal
-function password(pwd: string, options?: HashOptions): string, string
+function password(pwd: string, options?: HashOptions): string | nil, string
 ```
 
  Hash a password using Argon2.

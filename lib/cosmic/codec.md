@@ -10,14 +10,14 @@
 ```teal
 local record CodecModule
   encode_hex: function(data: string): string
-  decode_hex: function(hex: string): string, string
+  decode_hex: function(hex: string): string | nil, string
   encode_lua: function(value: any, opts?: {string: any}): string
-  decode_lua_unsafe: function(code: string): any, string
+  decode_lua_unsafe: function(code: string): any | nil, string
   encode_base64: function(data: string): string
-  decode_base64: function(str: string): string, string
+  decode_base64: function(str: string): string | nil, string
   encode_base32: function(data: string): string
-  decode_base32: function(str: string): string, string
-  encode_latin1: function(str: string): string, string
+  decode_base32: function(str: string): string | nil, string
+  encode_latin1: function(str: string): string | nil, string
   decode_latin1: function(data: string): string
 end
 ```
@@ -44,7 +44,7 @@ function encode_hex(data: string): string
 ### decode_hex
 
 ```teal
-function decode_hex(hex: string): string, string
+function decode_hex(hex: string): string | nil, string
 ```
 
  Decode a hexadecimal string to binary data.
@@ -56,7 +56,7 @@ function decode_hex(hex: string): string, string
 
 **Returns:**
 
-- string - The decoded binary data, or nil on error
+- string - | nil The decoded binary data, or nil on error
 - string? - Error message if decoding failed
 
 ### encode_lua
@@ -80,7 +80,7 @@ function encode_lua(value: any, opts?: {string: any}): string
 ### decode_lua_unsafe
 
 ```teal
-function decode_lua_unsafe(code: string): any, string
+function decode_lua_unsafe(code: string): any | nil, string
 ```
 
  Decode Lua source code to a value with a restricted environment.
@@ -95,7 +95,7 @@ function decode_lua_unsafe(code: string): any, string
 
 **Returns:**
 
-- any - The decoded Lua value, or nil on error
+- any - | nil The decoded Lua value, or nil on error
 - string? - Error message if decoding failed
 
 ### encode_base64
@@ -118,7 +118,7 @@ function encode_base64(data: string): string
 ### decode_base64
 
 ```teal
-function decode_base64(str: string): string, string
+function decode_base64(str: string): string | nil, string
 ```
 
  Decode a base64 string to binary data.
@@ -130,7 +130,7 @@ function decode_base64(str: string): string, string
 
 **Returns:**
 
-- string - The decoded binary data, or nil on error
+- string - | nil The decoded binary data, or nil on error
 - string? - Error message if decoding failed
 
 ### encode_base32
@@ -153,7 +153,7 @@ function encode_base32(data: string): string
 ### decode_base32
 
 ```teal
-function decode_base32(str: string): string, string
+function decode_base32(str: string): string | nil, string
 ```
 
  Decode a base32 string to binary data.
@@ -165,13 +165,13 @@ function decode_base32(str: string): string, string
 
 **Returns:**
 
-- string - The decoded binary data, or nil on error
+- string - | nil The decoded binary data, or nil on error
 - string? - Error message if decoding failed
 
 ### encode_latin1
 
 ```teal
-function encode_latin1(str: string): string, string
+function encode_latin1(str: string): string | nil, string
 ```
 
  Encode a UTF-8 string as Latin-1 (ISO-8859-1).
@@ -183,7 +183,7 @@ function encode_latin1(str: string): string, string
 
 **Returns:**
 
-- string - The Latin-1 encoded bytes, or nil on error
+- string - | nil The Latin-1 encoded bytes, or nil on error
 - string? - Error message if encoding failed
 
 ### decode_latin1

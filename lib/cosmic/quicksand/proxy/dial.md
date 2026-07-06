@@ -17,7 +17,7 @@
 ```teal
 local record DialModule
   resolve: function(string, integer, function(string): (integer, any)):
-  dial: function(string, integer, integer, integer): integer, string
+  dial: function(string, integer, integer, integer): integer | nil, string
 end
 ```
 
@@ -27,7 +27,7 @@ end
 
 ```teal
 function resolve(host: string, timeout_ms: integer,
-    resolver: function(string): integer, any): integer, string
+    resolver: function(string): integer, any): integer | nil, string
 ```
 
  Resolve `host` to an IPv4 integer. Literal IPs parse immediately;
@@ -56,7 +56,7 @@ function resolve(host: string, timeout_ms: integer,
 
 ```teal
 function dial(host: string, port: integer, upstream_ns_fd: integer,
-    resolve_timeout_ms: integer): integer, string
+    resolve_timeout_ms: integer): integer | nil, string
 ```
 
  Open a TCP connection to (host, port) in the namespace identified

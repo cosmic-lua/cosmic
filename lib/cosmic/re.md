@@ -17,7 +17,7 @@
 local record Regex
   --  Search for pattern match in text.
   --  Returns the matched substring, or nil if no match.
-  search: function(self: Regex, text: string, flags?: number): string
+  search: function(self: Regex, text: string, flags?: number): string | nil
 end
 ```
 
@@ -25,8 +25,8 @@ end
 
 ```teal
 local record ReModule
-  compile: function(pattern: string, flags?: number): Regex, string
-  search: function(pattern: string, text: string, flags?: number): string, string
+  compile: function(pattern: string, flags?: number): Regex | nil, string
+  search: function(pattern: string, text: string, flags?: number): string | nil, string
   match: function(pattern: string, text: string, flags?: number): boolean, string
   BASIC: number
   ICASE: number
@@ -42,7 +42,7 @@ end
 ### compile
 
 ```teal
-function compile(pattern: string, flags?: number): Regex, string
+function compile(pattern: string, flags?: number): Regex | nil, string
 ```
 
  Compile a regular expression pattern.
@@ -62,7 +62,7 @@ function compile(pattern: string, flags?: number): Regex, string
 ### search
 
 ```teal
-function search(pattern: string, text: string, flags?: number): string, string
+function search(pattern: string, text: string, flags?: number): string | nil, string
 ```
 
  Search for pattern match in text (convenience function).

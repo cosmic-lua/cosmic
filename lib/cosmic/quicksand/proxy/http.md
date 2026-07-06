@@ -36,14 +36,14 @@ local record HttpModule
   BAD_REQUEST: string
   LENGTH_REQUIRED: string
   UPSTREAM_FAIL: string
-  read_headers: function(fd: integer, max: integer): string, string
+  read_headers: function(fd: integer, max: integer): string | nil, string
   send_all: function(fd: integer, data: string): boolean, string
-  read_body: function(fd: integer, n: integer, prefix: string): string, string
-  parse_request_line: function(line: string): string, string, string
-  parse_connect_target: function(t: string): string, integer
-  parse_absolute_uri: function(t: string): string, string, integer, string
+  read_body: function(fd: integer, n: integer, prefix: string): string | nil, string
+  parse_request_line: function(line: string): string | nil, string, string
+  parse_connect_target: function(t: string): string | nil, integer
+  parse_absolute_uri: function(t: string): string | nil, string, integer, string
   parse_headers: function(block: string): {Header}
-  header_get: function(headers: {Header}, lower_name: string): string
+  header_get: function(headers: {Header}, lower_name: string): string | nil
   content_length: function(headers: {Header}): integer
   rebuild_request: function(spec: ForwardSpec): string
   pump: function(a: integer, b: integer)
@@ -55,7 +55,7 @@ end
 ### read_headers
 
 ```teal
-function read_headers(fd: integer, max: integer): string, string
+function read_headers(fd: integer, max: integer): string | nil, string
 ```
 
  Read from `fd` until "\r\n\r\n" or EOF. Returns (header_block,
@@ -83,7 +83,7 @@ function read_body(fd: integer, n: integer, prefix: string):
 ### parse_request_line
 
 ```teal
-function parse_request_line(line: string): string, string, string
+function parse_request_line(line: string): string | nil, string, string
 ```
 
  Parse an HTTP request line "METHOD TARGET HTTP/x.y\r\n". Returns
@@ -92,7 +92,7 @@ function parse_request_line(line: string): string, string, string
 ### parse_connect_target
 
 ```teal
-function parse_connect_target(t: string): string, integer
+function parse_connect_target(t: string): string | nil, integer
 ```
 
  Parse a CONNECT target "host:port". Returns (host, port) or nil.
@@ -100,7 +100,7 @@ function parse_connect_target(t: string): string, integer
 ### parse_absolute_uri
 
 ```teal
-function parse_absolute_uri(t: string): string, string, integer, string
+function parse_absolute_uri(t: string): string | nil, string, integer, string
 ```
 
  Parse an absolute URI "http://host[:port]/path" (proxies receive
@@ -119,7 +119,7 @@ function parse_headers(block: string): {Header}
 ### header_get
 
 ```teal
-function header_get(headers: {Header}, lower_name: string): string
+function header_get(headers: {Header}, lower_name: string): string | nil
 ```
 
  First header value for `lower_name` (case-insensitive), or nil.

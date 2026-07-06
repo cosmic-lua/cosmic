@@ -45,9 +45,9 @@ local record Poller
   --  should use poll() directly, which returns them.
   wait: function(Poller, number): function(): number, Events
   --  Poll and return count of ready descriptors.
-  poll: function(Poller, number): number, string
+  poll: function(Poller, number): number | nil, string
   --  Get events for a specific fd after poll().
-  events: function(Poller, number): Events
+  events: function(Poller, number): Events | nil
   --  Returns true if the poller has no registered fds.
   empty: function(Poller): boolean
   --  Returns the number of registered fds.

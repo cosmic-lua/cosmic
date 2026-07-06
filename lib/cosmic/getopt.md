@@ -94,7 +94,7 @@ local record GetoptModule
   --  Type for the stateful parser
   Parser: Parser
   --  Parse a command-line argument vector in one shot
-  parse: function(args: {string}, optstring: string, longopts?: {LongOpt}): Result, string
+  parse: function(args: {string}, optstring: string, longopts?: {LongOpt}): Result | nil, string
   --  Create a stateful parser (compatibility shim over parse)
   new: function(args: {string}, optstring: string, longopts?: {LongOpt}): Parser
 end
@@ -105,7 +105,7 @@ end
 ### parse
 
 ```teal
-function parse(args: {string}, optstring: string, longopts?: {LongOpt}): Result, string
+function parse(args: {string}, optstring: string, longopts?: {LongOpt}): Result | nil, string
 ```
 
  Parse a command-line argument vector in one shot.

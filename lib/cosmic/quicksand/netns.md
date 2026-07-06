@@ -26,13 +26,13 @@
 
 ```teal
 local record NetnsModule
-  open: function(pid: integer): integer, string
+  open: function(pid: integer): integer | nil, string
   enter: function(fd: integer): boolean, string
   unshare_user: function(): boolean, string
   unshare: function(): boolean, string
   bring_up: function(name: string): boolean, string
   bring_down: function(name: string): boolean, string
-  get_flags: function(name: string): integer, string
+  get_flags: function(name: string): integer | nil, string
   set_flags: function(name: string, flags: integer): boolean, string
   close: function(fd: integer): boolean, string
 end
@@ -43,7 +43,7 @@ end
 ### get_flags
 
 ```teal
-function get_flags(name: string): integer, string
+function get_flags(name: string): integer | nil, string
 ```
 
  Read the current IFF_* flags on `name` in the current net namespace.
@@ -78,7 +78,7 @@ function set_flags(name: string, flags: integer): boolean, string
 ### open
 
 ```teal
-function open(pid: integer): integer, string
+function open(pid: integer): integer | nil, string
 ```
 
  Open the network namespace of `pid` as a file descriptor.

@@ -34,7 +34,7 @@ High-level utilities and tools built on top of cosmo.
 | [doc_render](lib/cosmic/doc_render.md) |  Rendering and .d.tl parsing for the doc module. |
 | [doc_types](lib/cosmic/doc_types.md) |  Shared type definitions for the doc and docs modules. |
 | [docindex](lib/cosmic/docindex.md) |  Generate a serialized documentation index from source files. |
-| [docs](lib/cosmic/docs.md) |  Access embedded documentation from the cosmic binary. |
+| [docs](lib/cosmic/docs.md) |  Access embedded documentation — a `go doc`-style CLI over the binary. |
 | [docs_lookup](lib/cosmic/docs_lookup.md) |  Symbol lookup and suggestion helpers for the docs module. |
 | [docs_render](lib/cosmic/docs_render.md) |  Rendering functions for the docs module. |
 | [embed](lib/cosmic/embed.md) |  Embed files and directories into a cosmic executable. |

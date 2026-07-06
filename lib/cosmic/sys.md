@@ -41,11 +41,11 @@ local record SysModule
   normalize_host_os: function(raw: string): HostOs
   host_isa: function(): string
   platform: function(): string
-  sysconf: function(name: number): number, string
-  nproc: function(): number, string
-  nproc_configured: function(): number, string
-  page_size: function(): number, string
-  uname: function(): Uname, string
+  sysconf: function(name: number): number | nil, string
+  nproc: function(): number | nil, string
+  nproc_configured: function(): number | nil, string
+  page_size: function(): number | nil, string
+  uname: function(): Uname | nil, string
 end
 ```
 
@@ -111,7 +111,7 @@ function platform(): string
 ### sysconf
 
 ```teal
-function sysconf(name: number): number, string
+function sysconf(name: number): number | nil, string
 ```
 
  Query a runtime system configuration value.
@@ -124,26 +124,26 @@ function sysconf(name: number): number, string
 
 **Returns:**
 
-- number - The configuration value
+- number - | nil The configuration value
 - string? - Error message on failure
 
 ### nproc
 
 ```teal
-function nproc(): number, string
+function nproc(): number | nil, string
 ```
 
  Number of processors currently online (available to run threads).
 
 **Returns:**
 
-- number - The online processor count
+- number - | nil The online processor count
 - string? - Error message on failure
 
 ### nproc_configured
 
 ```teal
-function nproc_configured(): number, string
+function nproc_configured(): number | nil, string
 ```
 
  Number of processors configured in the system.
@@ -151,26 +151,26 @@ function nproc_configured(): number, string
 
 **Returns:**
 
-- number - The configured processor count
+- number - | nil The configured processor count
 - string? - Error message on failure
 
 ### page_size
 
 ```teal
-function page_size(): number, string
+function page_size(): number | nil, string
 ```
 
  Memory page size in bytes.
 
 **Returns:**
 
-- number - The page size in bytes
+- number - | nil The page size in bytes
 - string? - Error message on failure
 
 ### uname
 
 ```teal
-function uname(): Uname, string
+function uname(): Uname | nil, string
 ```
 
  Get operating system and hardware identification.
@@ -179,5 +179,5 @@ function uname(): Uname, string
 
 **Returns:**
 
-- Uname - The system identification record
+- Uname - | nil The system identification record
 - string? - Error message on failure

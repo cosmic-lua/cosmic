@@ -36,7 +36,7 @@ end
 
 ```teal
 local record BoxRunModule
-  run: function(opts: {string: any}, argv: {string}): integer, string
+  run: function(opts: {string: any}, argv: {string}): integer | nil, string
 end
 ```
 
@@ -45,7 +45,7 @@ end
 ### run
 
 ```teal
-function run(opts: {string: any}, argv: {string}): integer, string
+function run(opts: {string: any}, argv: {string}): integer | nil, string
 ```
 
  Fork+orchestrate a Box policy around argv. Returns an integer exit

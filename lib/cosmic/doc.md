@@ -21,12 +21,12 @@ end
 local record DocModule
   parse: function(source: string, file_path: string): ModuleDoc
   parse_dtl: function(source: string, file_path: string): ModuleDoc
-  parse_file: function(file_path: string): ModuleDoc, string
+  parse_file: function(file_path: string): ModuleDoc | nil, string
   render: function(doc: ModuleDoc): string
   render_file: function(file_path: string): boolean, string
   serialize: function(doc: ModuleDoc): string
   serialize_index: function(index: DocIndex): string
-  load_index: function(source: string): DocIndex, string
+  load_index: function(source: string): DocIndex | nil, string
 end
 ```
 
@@ -52,7 +52,7 @@ function parse(source: string, file_path: string): ModuleDoc
 ### parse_file
 
 ```teal
-function parse_file(file_path: string): ModuleDoc, string
+function parse_file(file_path: string): ModuleDoc | nil, string
 ```
 
  Parse a file and return structured documentation.
@@ -82,5 +82,5 @@ function serialize_index(index: DocIndex): string
 ### load_index
 
 ```teal
-function load_index(source: string): DocIndex, string
+function load_index(source: string): DocIndex | nil, string
 ```

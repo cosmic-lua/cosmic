@@ -50,8 +50,8 @@ local record ProcModule
   no_new_privs: function(): boolean, string
   drop_privs: function(uid: integer, gid: integer): boolean, string
   setup_userns_maps: function(uid: integer, gid: integer): boolean, string
-  barrier: function(): Barrier, string
-  fork_pidns: function(): integer, string
+  barrier: function(): Barrier | nil, string
+  fork_pidns: function(): integer | nil, string
   become_init: function(main_pid: integer, opts: InitOpts): integer
   DEFAULT_SIGNALS: {string}
 end
@@ -133,7 +133,7 @@ function setup_userns_maps(uid: integer, gid: integer): boolean, string
 ### barrier
 
 ```teal
-function barrier(): Barrier, string
+function barrier(): Barrier | nil, string
 ```
 
  Allocate a one-shot pipe-backed barrier. After fork, each side
@@ -161,7 +161,7 @@ function barrier(): Barrier, string
 ### fork_pidns
 
 ```teal
-function fork_pidns(): integer, string
+function fork_pidns(): integer | nil, string
 ```
 
  Enter a new PID namespace and fork a child that becomes PID 1

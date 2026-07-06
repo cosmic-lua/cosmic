@@ -33,8 +33,8 @@ end
 ```teal
 local record Server
   port: function(): integer
-  listen: function(): integer, string
-  accept: function(): integer, string
+  listen: function(): integer | nil, string
+  accept: function(): integer | nil, string
   handle: function(client_fd: integer)
   serve_forever: function()
 end
@@ -80,7 +80,7 @@ end
 
 ```teal
 local record ServeModule
-  new: function(opts: ProxyOptions): Server, string
+  new: function(opts: ProxyOptions): Server | nil, string
 end
 ```
 
@@ -89,7 +89,7 @@ end
 ### new
 
 ```teal
-function new(opts: ServeModule.ProxyOptions): Server, string
+function new(opts: ServeModule.ProxyOptions): Server | nil, string
 ```
 
  Build a Server from ProxyOptions. Does not bind; call listen()

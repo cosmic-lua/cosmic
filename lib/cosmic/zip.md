@@ -63,9 +63,9 @@ local record Reader
   --  Lists all files in the ZIP archive.
   list: function(self: Reader): {string}
   --  Gets metadata for a specific file in the archive.
-  stat: function(self: Reader, name: string): Stat
+  stat: function(self: Reader, name: string): Stat | nil
   --  Reads the contents of a file from the archive.
-  read: function(self: Reader, name: string): string, string
+  read: function(self: Reader, name: string): string | nil, string
   --  Closes the ZIP reader and releases resources.
   close: function(self: Reader)
 end
@@ -78,7 +78,7 @@ end
 ```teal
 local record Writer
   --  Adds a file to the ZIP archive.
-  add: function(self: Writer, name: string, content: string, options?: AddOptions): boolean, string
+  add: function(self: Writer, name: string, content: string, options?: AddOptions): boolean | nil, string
   --  Closes the ZIP archive and writes the central directory.
   close: function(self: Writer)
 end
@@ -91,9 +91,9 @@ end
 ```teal
 local record Appender
   --  Adds a file to the ZIP archive.
-  add: function(self: Appender, name: string, content: string, options?: AddOptions): boolean, string
+  add: function(self: Appender, name: string, content: string, options?: AddOptions): boolean | nil, string
   --  Removes a file from the ZIP archive by name.
-  remove: function(self: Appender, name: string): boolean, string
+  remove: function(self: Appender, name: string): boolean | nil, string
   --  Closes the ZIP archive and writes the updated central directory.
   close: function(self: Appender)
 end
@@ -104,7 +104,7 @@ end
 ```teal
 local record ZipModule
   open: function(path: string | number, mode?: string, options?: OpenOptions): any, string
-  from: function(data: string, options?: OpenOptions): Reader, string
+  from: function(data: string, options?: OpenOptions): Reader | nil, string
 end
 ```
 
@@ -136,7 +136,7 @@ function open(path: string | number, mode?: string, options?: OpenOptions): any,
 ### from
 
 ```teal
-function from(data: string, options?: OpenOptions): Reader, string
+function from(data: string, options?: OpenOptions): Reader | nil, string
 ```
 
  Open a ZIP archive from in-memory data for reading.

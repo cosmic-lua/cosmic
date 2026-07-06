@@ -13,19 +13,19 @@ local record FsOpsModule
   rename: function(oldpath: string, newpath: string): boolean, string
   link: function(existingpath: string, newpath: string): boolean, string
   symlink: function(target: string, linkpath: string): boolean, string
-  readlink: function(path: string): string, string
-  realpath: function(path: string): string, string
+  readlink: function(path: string): string | nil, string
+  realpath: function(path: string): string | nil, string
   rmrf: function(path: string): boolean, string
   access: function(path: string, mode: number): boolean
   chmod: function(path: string, mode: number): boolean, string
   chown: function(path: string, uid: number, gid: number): boolean, string
   utimensat: function(path: string, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
   futimens: function(fd: number, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
-  mkdtemp: function(template: string): string, string
-  mkstemp: function(template: string): number, string
-  tmpfd: function(): number, string
-  statfs: function(path: string): Statfs, string
-  fstatfs: function(fd: number): Statfs, string
+  mkdtemp: function(template: string): string | nil, string
+  mkstemp: function(template: string): number | nil, string
+  tmpfd: function(): number | nil, string
+  statfs: function(path: string): Statfs | nil, string
+  fstatfs: function(fd: number): Statfs | nil, string
   major: function(dev: number): number
   minor: function(dev: number): number
   F_OK: number
@@ -112,7 +112,7 @@ function symlink(target: string, linkpath: string): boolean, string
 ### readlink
 
 ```teal
-function readlink(path: string): string, string
+function readlink(path: string): string | nil, string
 ```
 
  Read the target of a symbolic link.
@@ -123,13 +123,13 @@ function readlink(path: string): string, string
 
 **Returns:**
 
-- string - The symlink target, or nil on error
+- string - | nil The symlink target, or nil on error
 - string - Error message if failed
 
 ### realpath
 
 ```teal
-function realpath(path: string): string, string
+function realpath(path: string): string | nil, string
 ```
 
  Get the canonical absolute path.
@@ -141,7 +141,7 @@ function realpath(path: string): string, string
 
 **Returns:**
 
-- string - Canonical path, or nil on error
+- string - | nil Canonical path, or nil on error
 - string - Error message if failed
 
 ### rmrf
@@ -261,7 +261,7 @@ function futimens(fd: number, atime_secs: number, atime_nsecs: number, mtime_sec
 ### mkdtemp
 
 ```teal
-function mkdtemp(template: string): string, string
+function mkdtemp(template: string): string | nil, string
 ```
 
  Create a temporary directory.
@@ -272,13 +272,13 @@ function mkdtemp(template: string): string, string
 
 **Returns:**
 
-- string - Path to the created directory, or nil on error
+- string - | nil Path to the created directory, or nil on error
 - string - Error message if failed
 
 ### mkstemp
 
 ```teal
-function mkstemp(template: string): number, string
+function mkstemp(template: string): number | nil, string
 ```
 
  Create a temporary file.
@@ -289,26 +289,26 @@ function mkstemp(template: string): number, string
 
 **Returns:**
 
-- number - File descriptor, or nil on error
+- number - | nil File descriptor, or nil on error
 - string - Path to the created file, or error message
 
 ### tmpfd
 
 ```teal
-function tmpfd(): number, string
+function tmpfd(): number | nil, string
 ```
 
  Create a temporary file descriptor.
 
 **Returns:**
 
-- number - File descriptor, or nil on error
+- number - | nil File descriptor, or nil on error
 - string - Error message if failed
 
 ### statfs
 
 ```teal
-function statfs(path: string): Statfs, string
+function statfs(path: string): Statfs | nil, string
 ```
 
  Get filesystem statistics for a path.
@@ -319,13 +319,13 @@ function statfs(path: string): Statfs, string
 
 **Returns:**
 
-- Statfs - Filesystem statistics, or nil on error
+- Statfs - | nil Filesystem statistics, or nil on error
 - string - Error message if failed
 
 ### fstatfs
 
 ```teal
-function fstatfs(fd: number): Statfs, string
+function fstatfs(fd: number): Statfs | nil, string
 ```
 
  Get filesystem statistics from a file descriptor.
@@ -336,7 +336,7 @@ function fstatfs(fd: number): Statfs, string
 
 **Returns:**
 
-- Statfs - Filesystem statistics, or nil on error
+- Statfs - | nil Filesystem statistics, or nil on error
 - string - Error message if failed
 
 ### major

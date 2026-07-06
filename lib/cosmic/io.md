@@ -78,14 +78,14 @@ local record Handle
   close: function(self: Handle): boolean, string
   closed: function(self: Handle): boolean
   fd: function(self: Handle): number
-  read: function(self: Handle, size?: number, offset?: number): string, string
-  write: function(self: Handle, data: string, offset?: number): number, string
-  seek: function(self: Handle, offset: number, whence?: number): number, string
+  read: function(self: Handle, size?: number, offset?: number): string | nil, string
+  write: function(self: Handle, data: string, offset?: number): number | nil, string
+  seek: function(self: Handle, offset: number, whence?: number): number | nil, string
   truncate: function(self: Handle, length?: number): boolean, string
   sync: function(self: Handle): boolean, string
   datasync: function(self: Handle): boolean, string
-  dup: function(self: Handle, newfd?: number, flags?: number, lowest?: number): Handle, string
-  fcntl: function(self: Handle, cmd: number, arg?: number): number, string
+  dup: function(self: Handle, newfd?: number, flags?: number, lowest?: number): Handle | nil, string
+  fcntl: function(self: Handle, cmd: number, arg?: number): number | nil, string
 end
 ```
 
@@ -107,10 +107,10 @@ end
 
 ```teal
 local record IoModule
-  slurp: function(path: string): string, string
+  slurp: function(path: string): string | nil, string
   barf: function(path: string, data: string, mode?: number): boolean, string
-  open: function(path: string, flags: number, mode?: number, dirfd?: number): Handle, string
-  pipe: function(flags?: number): Pipe, string
+  open: function(path: string, flags: number, mode?: number, dirfd?: number): Handle | nil, string
+  pipe: function(flags?: number): Pipe | nil, string
   truncate: function(path: string, length?: number): boolean, string
   sync: function()
   O_RDONLY: number
@@ -149,7 +149,7 @@ end
 ### open
 
 ```teal
-function open(path: string, flags: number, mode?: number, dirfd?: number): Handle, string
+function open(path: string, flags: number, mode?: number, dirfd?: number): Handle | nil, string
 ```
 
  Open a file. flags: O_RDONLY, O_WRONLY, O_RDWR, combined with O_CREAT, O_TRUNC, etc.
@@ -158,7 +158,7 @@ function open(path: string, flags: number, mode?: number, dirfd?: number): Handl
 ### pipe
 
 ```teal
-function pipe(flags?: number): Pipe, string
+function pipe(flags?: number): Pipe | nil, string
 ```
 
  Create a pipe. flags: O_CLOEXEC, O_NONBLOCK.
@@ -182,7 +182,7 @@ function sync()
 ### slurp
 
 ```teal
-function slurp(path: string): string, string
+function slurp(path: string): string | nil, string
 ```
 
  Read entire file contents.
@@ -224,7 +224,7 @@ function handle:fd(): number
 ### handle:read
 
 ```teal
-function handle:read(size?: number, offset?: number): string, string
+function handle:read(size?: number, offset?: number): string | nil, string
 ```
 
  Read up to size bytes. Returns empty string on EOF.
@@ -233,7 +233,7 @@ function handle:read(size?: number, offset?: number): string, string
 ### handle:write
 
 ```teal
-function handle:write(data: string, offset?: number): number, string
+function handle:write(data: string, offset?: number): number | nil, string
 ```
 
  Write data. Returns number of bytes written.
@@ -242,7 +242,7 @@ function handle:write(data: string, offset?: number): number, string
 ### handle:seek
 
 ```teal
-function handle:seek(offset: number, whence?: number): number, string
+function handle:seek(offset: number, whence?: number): number | nil, string
 ```
 
  Seek to position. whence: SEEK_SET (default), SEEK_CUR, SEEK_END.
@@ -274,7 +274,7 @@ function handle:datasync(): boolean, string
 ### handle:dup
 
 ```teal
-function handle:dup(newfd?: number, flags?: number, lowest?: number): Handle, string
+function handle:dup(newfd?: number, flags?: number, lowest?: number): Handle | nil, string
 ```
 
  Duplicate the handle.
@@ -284,7 +284,7 @@ function handle:dup(newfd?: number, flags?: number, lowest?: number): Handle, st
 ### handle:fcntl
 
 ```teal
-function handle:fcntl(cmd: number, arg?: number): number, string
+function handle:fcntl(cmd: number, arg?: number): number | nil, string
 ```
 
  File control operations. cmd: F_GETFD, F_SETFD, F_GETFL, F_SETFL, F_SETLK, etc.

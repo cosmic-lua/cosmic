@@ -42,8 +42,8 @@ local record Handle
   stdin: childio.Pipe
   stdout: childio.Pipe
   stderr: childio.Pipe
-  wait: function(self: Handle): number, string
-  read: function(self: Handle, size?: number): boolean | string, string, number
+  wait: function(self: Handle): number | nil, string
+  read: function(self: Handle, size?: number): boolean | string | nil, string, number
   communicate: function(self: Handle): string, string, number, string
 end
 ```
@@ -68,8 +68,8 @@ end
 
 ```teal
 local record ChildModule
-  spawn: function(argv: {string}, opts?: Opts): Handle, string
-  prepare_zip_exec: function(zip_path: string): number, string
+  spawn: function(argv: {string}, opts?: Opts): Handle | nil, string
+  prepare_zip_exec: function(zip_path: string): number | nil, string
   fork: function(): number
   posix_spawn: function(prog: string, argv: {string}, envp?: {string}): number
   posix_spawnp: function(prog: string, argv: {string}, envp?: {string}): number
@@ -212,7 +212,7 @@ function WTERMSIG(wstatus: number): number
 ### prepare_zip_exec
 
 ```teal
-function prepare_zip_exec(zip_path: string): number, string
+function prepare_zip_exec(zip_path: string): number | nil, string
 ```
 
  Prepares an executable fd from a /zip/ path.
@@ -224,13 +224,13 @@ function prepare_zip_exec(zip_path: string): number, string
 
 **Returns:**
 
-- number - The file descriptor ready for fexecve
+- number - | nil The file descriptor ready for fexecve
 - string - Error message on failure
 
 ### spawn
 
 ```teal
-function spawn(argv: {string}, opts?: Opts): Handle, string
+function spawn(argv: {string}, opts?: Opts): Handle | nil, string
 ```
 
  Spawns a child process with I/O control. Uses fexecve for /zip/ paths.
@@ -245,12 +245,12 @@ function spawn(argv: {string}, opts?: Opts): Handle, string
 
 **Returns:**
 
-- Handle, - string? Process handle or nil + error
+- Handle - | nil, string? Process handle or nil + error
 
 ### handle:wait
 
 ```teal
-function handle:wait(): number, string
+function handle:wait(): number | nil, string
 ```
 
  Wait for the process to exit and return its exit code.
@@ -258,13 +258,13 @@ function handle:wait(): number, string
 
 **Returns:**
 
-- number - The exit code if the process exited normally
+- number - | nil The exit code if the process exited normally
 - string - Error message if the process terminated abnormally
 
 ### handle:read
 
 ```teal
-function handle:read(size?: number): boolean | string, string, number
+function handle:read(size?: number): boolean | string | nil, string, number
 ```
 
  Read output from the process.
@@ -279,7 +279,7 @@ function handle:read(size?: number): boolean | string, string, number
 
 **Returns:**
 
-- boolean|string - Success (exit code 0) or, with size, the data read
+- boolean|string|nil - Success (exit code 0) or, with size, the data read
 - string - The stdout output, or the error when size read fails
 - number - The exit code of the process
 

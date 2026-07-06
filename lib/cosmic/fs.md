@@ -35,8 +35,8 @@ local record FsModule
   relpath: function(p: string, base?: string): string
   splitext: function(p: string): string, string
   ext: function(p: string): string
-  stat: function(path: string, follow_symlinks?: boolean): Stat, string
-  fstat: function(fd: number): Stat, string
+  stat: function(path: string, follow_symlinks?: boolean): Stat | nil, string
+  fstat: function(fd: number): Stat | nil, string
   is_dir: function(mode: number): boolean
   is_file: function(mode: number): boolean
   is_link: function(mode: number): boolean
@@ -48,26 +48,26 @@ local record FsModule
   makedirs: function(path: string, mode?: number): boolean, string
   rmdir: function(path: string): boolean, string
   chdir: function(path: string): boolean, string
-  getcwd: function(): string, string
-  opendir: function(path: string): Dir, string
-  fdopendir: function(fd: number): Dir, string
+  getcwd: function(): string | nil, string
+  opendir: function(path: string): Dir | nil, string
+  fdopendir: function(fd: number): Dir | nil, string
   unlink: function(path: string): boolean, string
   rename: function(oldpath: string, newpath: string): boolean, string
   link: function(existingpath: string, newpath: string): boolean, string
   symlink: function(target: string, linkpath: string): boolean, string
-  readlink: function(path: string): string, string
-  realpath: function(path: string): string, string
+  readlink: function(path: string): string | nil, string
+  realpath: function(path: string): string | nil, string
   rmrf: function(path: string): boolean, string
   access: function(path: string, mode: number): boolean
   chmod: function(path: string, mode: number): boolean, string
   chown: function(path: string, uid: number, gid: number): boolean, string
   utimensat: function(path: string, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
   futimens: function(fd: number, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
-  mkdtemp: function(template: string): string, string
-  mkstemp: function(template: string): number, string
-  tmpfd: function(): number, string
-  statfs: function(path: string): Statfs, string
-  fstatfs: function(fd: number): Statfs, string
+  mkdtemp: function(template: string): string | nil, string
+  mkstemp: function(template: string): number | nil, string
+  tmpfd: function(): number | nil, string
+  statfs: function(path: string): Statfs | nil, string
+  fstatfs: function(fd: number): Statfs | nil, string
   major: function(dev: number): number
   minor: function(dev: number): number
   walk: function < T > (dir: string, visitor: function(string, string, WalkStat, any), ctx?: T): T
@@ -86,7 +86,7 @@ end
 ### stat
 
 ```teal
-function stat(path: string, follow_symlinks?: boolean): Stat, string
+function stat(path: string, follow_symlinks?: boolean): Stat | nil, string
 ```
 
  Get file metadata.
@@ -99,13 +99,13 @@ function stat(path: string, follow_symlinks?: boolean): Stat, string
 
 **Returns:**
 
-- Stat - File metadata, or nil on error
+- Stat - | nil File metadata, or nil on error
 - string - Error message if failed
 
 ### fstat
 
 ```teal
-function fstat(fd: number): Stat, string
+function fstat(fd: number): Stat | nil, string
 ```
 
  Get file metadata from file descriptor.
@@ -116,7 +116,7 @@ function fstat(fd: number): Stat, string
 
 **Returns:**
 
-- Stat - File metadata, or nil on error
+- Stat - | nil File metadata, or nil on error
 - string - Error message if failed
 
 ### is_dir
@@ -305,20 +305,20 @@ function chdir(path: string): boolean, string
 ### getcwd
 
 ```teal
-function getcwd(): string, string
+function getcwd(): string | nil, string
 ```
 
  Get current working directory.
 
 **Returns:**
 
-- string - Current working directory path
+- string - | nil Current working directory path
 - string - Error message if failed
 
 ### opendir
 
 ```teal
-function opendir(path: string): Dir, string
+function opendir(path: string): Dir | nil, string
 ```
 
  Open a directory for reading.
@@ -331,13 +331,13 @@ function opendir(path: string): Dir, string
 
 **Returns:**
 
-- Dir - Directory handle, or nil on error
+- Dir - | nil Directory handle, or nil on error
 - string - Error message if failed
 
 ### fdopendir
 
 ```teal
-function fdopendir(fd: number): Dir, string
+function fdopendir(fd: number): Dir | nil, string
 ```
 
  Open a directory from a file descriptor.
@@ -349,5 +349,5 @@ function fdopendir(fd: number): Dir, string
 
 **Returns:**
 
-- Dir - Directory handle, or nil on error
+- Dir - | nil Directory handle, or nil on error
 - string - Error message if failed

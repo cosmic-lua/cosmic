@@ -81,7 +81,7 @@ local record LandlockModule
   WRITE: integer
   RW: integer
   ALL: integer
-  abi: function(): integer, string
+  abi: function(): integer | nil, string
   available: function(): boolean
   restrict: function(opts: RestrictOpts): boolean, string
 end
@@ -92,7 +92,7 @@ end
 ### abi
 
 ```teal
-function abi(): integer, string
+function abi(): integer | nil, string
 ```
 
  Returns the kernel's supported landlock ABI version (>= 1 when

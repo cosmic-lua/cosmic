@@ -63,12 +63,12 @@ local record TimeModule
   gmtime: function(unixts: number): DateTime
   localtime: function(unixts: number): DateTime
   format_http: function(timestamp: number): string
-  parse_http: function(str: string): number, string
+  parse_http: function(str: string): number | nil, string
   format_date: function(timestamp: number): string
-  parse_date: function(str: string): number, string
+  parse_date: function(str: string): number | nil, string
   format_iso8601: function(timestamp: number): string
-  parse_iso8601: function(str: string): number, string
-  timegm: function(year: number, month: number, day: number, hour: number, min: number, sec: number): number, string
+  parse_iso8601: function(str: string): number | nil, string
+  timegm: function(year: number, month: number, day: number, hour: number, min: number, sec: number): number | nil, string
 end
 ```
 
@@ -208,7 +208,7 @@ function format_http(timestamp: number): string
 
 ```teal
 function timegm(year: number, month: number, day: number,
-    hour: number, min: number, sec: number): number, string
+    hour: number, min: number, sec: number): number | nil, string
 ```
 
  Convert UTC broken-down time to UNIX epoch seconds.
@@ -226,13 +226,13 @@ function timegm(year: number, month: number, day: number,
 
 **Returns:**
 
-- number - UNIX epoch seconds, or nil on invalid input
+- number - | nil UNIX epoch seconds, or nil on invalid input
 - string - Error message when input is out of range
 
 ### parse_http
 
 ```teal
-function parse_http(str: string): number, string
+function parse_http(str: string): number | nil, string
 ```
 
  Parse an HTTP date string (RFC 7231) into a UNIX timestamp.
@@ -246,7 +246,7 @@ function parse_http(str: string): number, string
 
 **Returns:**
 
-- number - UNIX timestamp, or nil if parsing failed
+- number - | nil UNIX timestamp, or nil if parsing failed
 - string - Error message on failure
 
 ### format_date
@@ -268,7 +268,7 @@ function format_date(timestamp: number): string
 ### parse_date
 
 ```teal
-function parse_date(str: string): number, string
+function parse_date(str: string): number | nil, string
 ```
 
  Parse a YYYY-MM-DD date string into a UNIX timestamp (midnight UTC).
@@ -279,7 +279,7 @@ function parse_date(str: string): number, string
 
 **Returns:**
 
-- number - UNIX timestamp, or nil if parsing failed
+- number - | nil UNIX timestamp, or nil if parsing failed
 - string - Error message on failure
 
 ### format_iso8601
@@ -301,7 +301,7 @@ function format_iso8601(timestamp: number): string
 ### parse_iso8601
 
 ```teal
-function parse_iso8601(str: string): number, string
+function parse_iso8601(str: string): number | nil, string
 ```
 
  Parse an ISO 8601 timestamp string into a UNIX epoch seconds value.
@@ -316,5 +316,5 @@ function parse_iso8601(str: string): number, string
 
 **Returns:**
 
-- number - UNIX timestamp, or nil if parsing failed
+- number - | nil UNIX timestamp, or nil if parsing failed
 - string - Error message on failure

@@ -41,7 +41,7 @@ local record IpModule
   is_private: function(ip: number): boolean
   is_public: function(ip: number): boolean
   resolve: function(hostname: string): number
-  lookup: function(hostname: string): Addr, string
+  lookup: function(hostname: string): Addr | nil, string
 end
 ```
 
@@ -181,7 +181,7 @@ function resolve(hostname: string): number
 ### lookup
 
 ```teal
-function lookup(hostname: string): Addr, string
+function lookup(hostname: string): Addr | nil, string
 ```
 
  Look up a hostname and return a typed Addr.

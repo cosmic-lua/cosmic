@@ -16,8 +16,8 @@
 ```teal
 local record Pipe
   fd: number
-  write: function(self: Pipe, data: string): number, string
-  read: function(self: Pipe, size?: number): string, string
+  write: function(self: Pipe, data: string): number | nil, string
+  read: function(self: Pipe, size?: number): string | nil, string
   close: function(self: Pipe)
 end
 ```
@@ -81,11 +81,11 @@ function pump(stdout_fd: number, stderr_fd: number, stdin_fd: number, stdin_data
 ### pipe:write
 
 ```teal
-function pipe:write(data: string): number, string
+function pipe:write(data: string): number | nil, string
 ```
 
 ### pipe:read
 
 ```teal
-function pipe:read(size?: number): string, string
+function pipe:read(size?: number): string | nil, string
 ```

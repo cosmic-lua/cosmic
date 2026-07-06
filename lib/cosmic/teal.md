@@ -112,7 +112,7 @@ local record TealModule
   check: function(input_path: string, opts?: CheckOpts): CheckResult
   format_issues: function(issues: {Issue}): string
   format_issues_with_hints: function(issues: {Issue}): string
-  hint_for_message: function(msg: string): string
+  hint_for_message: function(msg: string): string | nil
   get_default_include_dirs: function(): {string}
 end
 ```
@@ -188,7 +188,7 @@ function format_issues(issues: {Issue}): string
 ### hint_for_message
 
 ```teal
-function hint_for_message(msg: string): string
+function hint_for_message(msg: string): string | nil
 ```
 
  Return a fix-hint line for a known Teal type-check error pattern, or nil.

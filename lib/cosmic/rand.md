@@ -19,8 +19,8 @@ local record RandModule
   bytes: function(n: number): string
   rand64: function(): number
   lemur64: function(): number
-  rdrand: function(): number, string
-  rdseed: function(): number, string
+  rdrand: function(): number | nil, string
+  rdseed: function(): number | nil, string
   has_hwrng: function(): boolean
 end
 ```
@@ -72,7 +72,7 @@ function lemur64(): number
 ### rdrand
 
 ```teal
-function rdrand(): number, string
+function rdrand(): number | nil, string
 ```
 
  Generate a hardware random integer using Intel RDRAND instruction.
@@ -80,12 +80,12 @@ function rdrand(): number, string
 
 **Returns:**
 
-- integer, - string Random integer, or nil and error message if unavailable
+- integer - | nil, string Random integer, or nil and error message if unavailable
 
 ### rdseed
 
 ```teal
-function rdseed(): number, string
+function rdseed(): number | nil, string
 ```
 
  Generate a hardware random seed using Intel RDSEED instruction.
@@ -93,7 +93,7 @@ function rdseed(): number, string
 
 **Returns:**
 
-- integer, - string Random seed integer, or nil and error message if unavailable
+- integer - | nil, string Random seed integer, or nil and error message if unavailable
 
 ### has_hwrng
 

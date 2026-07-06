@@ -39,9 +39,9 @@ end
 local record CapsModule
   NAMES: {string}
   supported: function(): boolean
-  number_of: function(name: string): integer, string
-  mask: function(names: {string}): integer, string
-  bounding_read: function(cap: string): boolean, string
+  number_of: function(name: string): integer | nil, string
+  mask: function(names: {string}): integer | nil, string
+  bounding_read: function(cap: string): boolean | nil, string
   bounding_drop: function(cap: string): boolean, string
   drop_bounding: function(opts?: DropOpts): boolean, string
 end
@@ -52,7 +52,7 @@ end
 ### number_of
 
 ```teal
-function number_of(name: string): integer, string
+function number_of(name: string): integer | nil, string
 ```
 
  Resolve a capability name (e.g. "CAP_NET_RAW") to its integer number
@@ -86,7 +86,7 @@ function supported(): boolean
 ### mask
 
 ```teal
-function mask(names: {string}): integer, string
+function mask(names: {string}): integer | nil, string
 ```
 
  Build a capset(2) bitmask from capability names: bit N (1 << number)
@@ -105,7 +105,7 @@ function mask(names: {string}): integer, string
 ### bounding_read
 
 ```teal
-function bounding_read(cap: string): boolean, string
+function bounding_read(cap: string): boolean | nil, string
 ```
 
  Read whether a capability is present in the current bounding set via

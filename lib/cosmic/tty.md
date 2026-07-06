@@ -68,16 +68,16 @@ local record TtyModule
   ISIG: number
   IEXTEN: number
   isatty: function(fd: number): boolean
-  winsize: function(fd: number): WinSize, string
+  winsize: function(fd: number): WinSize | nil, string
   stdin_isatty: function(): boolean
   stdout_isatty: function(): boolean
   stderr_isatty: function(): boolean
-  getattr: function(fd: number): Termios, string
+  getattr: function(fd: number): Termios | nil, string
   setattr: function(fd: number, action: number, termios: Termios): boolean, string
-  raw: function(fd: number): Termios, string
-  noecho: function(fd: number): Termios, string
+  raw: function(fd: number): Termios | nil, string
+  noecho: function(fd: number): Termios | nil, string
   restore: function(fd: number, termios: Termios): boolean, string
-  getpass: function(prompt: string): string, string
+  getpass: function(prompt: string): string | nil, string
 end
 ```
 
@@ -102,7 +102,7 @@ function isatty(fd: number): boolean
 ### winsize
 
 ```teal
-function winsize(fd: number): TtyModule.WinSize, string
+function winsize(fd: number): TtyModule.WinSize | nil, string
 ```
 
  Gets the terminal window size for a file descriptor.
@@ -155,7 +155,7 @@ function stderr_isatty(): boolean
 ### getattr
 
 ```teal
-function getattr(fd: number): Termios, string
+function getattr(fd: number): Termios | nil, string
 ```
 
  Gets terminal attributes for a file descriptor.
@@ -166,7 +166,7 @@ function getattr(fd: number): Termios, string
 
 **Returns:**
 
-- Termios - Terminal attributes
+- Termios - | nil Terminal attributes
 - string? - Error message if not a terminal
 
 ### setattr
@@ -191,7 +191,7 @@ function setattr(fd: number, action: number, termios: Termios): boolean, string
 ### raw
 
 ```teal
-function raw(fd: number): Termios, string
+function raw(fd: number): Termios | nil, string
 ```
 
  Puts terminal into raw mode (no echo, no line buffering, no signals).
@@ -203,13 +203,13 @@ function raw(fd: number): Termios, string
 
 **Returns:**
 
-- Termios - Original terminal attributes for restore()
+- Termios - | nil Original terminal attributes for restore()
 - string? - Error message if not a terminal
 
 ### noecho
 
 ```teal
-function noecho(fd: number): Termios, string
+function noecho(fd: number): Termios | nil, string
 ```
 
  Disables echo on terminal (for password input).
@@ -221,7 +221,7 @@ function noecho(fd: number): Termios, string
 
 **Returns:**
 
-- Termios - Original terminal attributes for restore()
+- Termios - | nil Original terminal attributes for restore()
 - string? - Error message if not a terminal
 
 ### restore
@@ -245,7 +245,7 @@ function restore(fd: number, termios: Termios): boolean, string
 ### getpass
 
 ```teal
-function getpass(prompt: string): string, string
+function getpass(prompt: string): string | nil, string
 ```
 
  Reads a password from the terminal without echoing.

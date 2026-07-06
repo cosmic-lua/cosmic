@@ -32,7 +32,7 @@ end
 ```teal
 local record StmtCache
   exec: function(self: StmtCache, sql: string, args: {integer: any}, n: integer): boolean, string
-  checkout: function(self: StmtCache, sql: string): RawStatement, OnClose, string
+  checkout: function(self: StmtCache, sql: string): RawStatement | nil, OnClose, string
   close_all: function(self: StmtCache)
 end
 ```
@@ -42,7 +42,7 @@ end
 ### self:checkout
 
 ```teal
-function self:checkout(sql: string): RawStatement, OnClose, string
+function self:checkout(sql: string): RawStatement | nil, OnClose, string
 ```
 
  Check out a statement for db:query, preparing and caching one if this

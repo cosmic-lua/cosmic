@@ -23,6 +23,6 @@ end
 ```teal
 local record sse
   Event: Event
-  events: function(reader: fetch.Reader): function(): Event, string
+  events: function(reader: fetch.Reader): function(): Event | nil, string
 end
 ```

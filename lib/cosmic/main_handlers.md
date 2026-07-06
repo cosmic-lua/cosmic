@@ -31,7 +31,7 @@ end
 local record HandlersModule
   generate_welcome: function(): string
   run_repl: function()
-  load_script_file: function(script_path: string): function(...: any): any ..., string
+  load_script_file: function(script_path: string): function(...: any): any ... | nil, string
   run_docs: function(query: string): DocsRunResult
   handle_version: function(): integer
   handle_compile: function(file: string, output?: string, write_if_changed?: boolean, include_dirs?: {string}): integer, string
@@ -75,7 +75,7 @@ function run_repl()
 ### load_script_file
 
 ```teal
-function load_script_file(script_path: string): function(...: any): any ..., string
+function load_script_file(script_path: string): function(...: any): any ... | nil, string
 ```
 
  Load a script file (.tl or .lua): .tl through Teal (cached), .lua directly.

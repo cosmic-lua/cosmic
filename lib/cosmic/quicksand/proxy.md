@@ -62,7 +62,7 @@ end
 
 ```teal
 local record ProxyModule
-  start: function(opts: ProxyOptions): ProxyHandle, string
+  start: function(opts: ProxyOptions): ProxyHandle | nil, string
 end
 ```
 
@@ -71,7 +71,7 @@ end
 ### start
 
 ```teal
-function start(opts: ProxyOptions): ProxyHandle, string
+function start(opts: ProxyOptions): ProxyHandle | nil, string
 ```
 
  Fork a proxy listener into a child process. The allowlist is

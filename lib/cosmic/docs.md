@@ -1,7 +1,6 @@
 # docs
 
- Access embedded documentation from the cosmic binary.
- Provides a CLI interface similar to Go's `go doc` command.
+ Access embedded documentation — a `go doc`-style CLI over the binary.
 
 ## Types
 
@@ -12,7 +11,7 @@ local record DocsModule
   run: function(query?: string): DocsResult
   has_docs: function(): boolean
   list_topics: function(include_cosmo?: boolean): {{string, string}}
-  load_index: function(): DocIndex, string
+  load_index: function(): DocIndex | nil, string
   render_module: function(name: string, doc: ModuleDoc): string
   search: function(query: string, include_cosmo?: boolean): {SearchResult}
   render_search_results: function(results: {SearchResult}, query: string): string
@@ -29,14 +28,14 @@ end
 ### load_index
 
 ```teal
-function load_index(): DocIndex, string
+function load_index(): DocIndex | nil, string
 ```
 
  Load the embedded documentation index.
 
 **Returns:**
 
-- DocIndex - The documentation index, or nil if not available
+- DocIndex - | nil The documentation index, or nil if not available
 - string - Error message if loading failed
 
 ### has_docs

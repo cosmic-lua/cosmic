@@ -28,10 +28,10 @@ end
 local record UrlModule
   Url: Url
   encode: function(str: string): string
-  decode: function(str: string): string, string
+  decode: function(str: string): string | nil, string
   parse: function(query: string): {string: string}
   parse_url: function(url: string): Url
-  parse_host: function(hostport: string): string, integer
+  parse_host: function(hostport: string): string | nil, integer
   escape_host: function(str: string): string
   escape_path: function(str: string): string
   escape_segment: function(str: string): string
@@ -71,7 +71,7 @@ function encode(str: string): string
 ### decode
 
 ```teal
-function decode(str: string): string, string
+function decode(str: string): string | nil, string
 ```
 
  Decode a percent-encoded string.
@@ -83,7 +83,7 @@ function decode(str: string): string, string
 
 **Returns:**
 
-- string - The decoded string, or nil on error
+- string - | nil The decoded string, or nil on error
 - string? - Error message if decoding failed
 
 ### parse
@@ -123,7 +123,7 @@ function parse_url(url: string): Url
 ### parse_host
 
 ```teal
-function parse_host(hostport: string): string, integer
+function parse_host(hostport: string): string | nil, integer
 ```
 
  Parse a host:port string into its components.
@@ -134,7 +134,7 @@ function parse_host(hostport: string): string, integer
 
 **Returns:**
 
-- string - The host
+- string - | nil The host
 - integer? - The port, or nil if not specified
 
 ### escape_host

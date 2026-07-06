@@ -123,7 +123,7 @@ end
 local record Box
   opts: BoxOpts
   _closed: boolean
-  run: function(self: Box, argv: {string}): integer, string
+  run: function(self: Box, argv: {string}): integer | nil, string
   close: function(self: Box): boolean
 end
 ```
@@ -132,7 +132,7 @@ end
 
 ```teal
 local record RunModule
-  run: function(opts: {string: any}, argv: {string}): integer, string
+  run: function(opts: {string: any}, argv: {string}): integer | nil, string
 end
 ```
 
@@ -140,7 +140,7 @@ end
 
 ```teal
 local record BoxModule
-  new: function(opts?: BoxOpts): Box, string
+  new: function(opts?: BoxOpts): Box | nil, string
   merge: function(...: BoxOpts): BoxOpts
 end
 ```
@@ -150,13 +150,13 @@ end
 ### run
 
 ```teal
-function run(self: Box, argv: {string}): integer, string
+function run(self: Box, argv: {string}): integer | nil, string
 ```
 
 ### new
 
 ```teal
-function new(opts?: BoxOpts): Box, string
+function new(opts?: BoxOpts): Box | nil, string
 ```
 
  Build a Box from an options table. Validates structural shape; a

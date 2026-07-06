@@ -56,7 +56,7 @@ local record RulesModule
   validate: function(allowed_hosts: {string: any}): boolean, string
   index: function(allowed_hosts: {string: any}): Index
   match: function(idx: Index, host: string, port: integer): any
-  auth_header: function(rule: any): string, string
+  auth_header: function(rule: any): string | nil, string
 end
 ```
 
@@ -132,7 +132,7 @@ function match(idx: Index, host: string, port: integer): any
 ### auth_header
 
 ```teal
-function auth_header(rule: any): string, string
+function auth_header(rule: any): string | nil, string
 ```
 
  Build the auth header a rule injects on plain-HTTP requests.
