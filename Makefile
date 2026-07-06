@@ -96,8 +96,16 @@ all_versioned := $(call filter-only,$(foreach m,$(modules),$(if $($(m)_version),
 all_fetched := $(patsubst %/.versioned,%/.fetched,$(all_versioned))
 ## Fetch all dependencies only
 fetched: $(all_fetched)
+# Downloads are integrity-checked against the sha256 pinned in each module's
+# version.lua, so TLS here is a transport safeguard, not the trust root. The
+# bootstrap cosmic trusts only its embedded CA set by default (upstream's
+# anti-MITM opt-in), which is too narrow for github.com's cert chain; trust
+# the host's CA store for these fetches so the build works on stock runners
+# and behind TLS-intercepting proxies alike. An operator-supplied
+# SSL_CERT_FILE bundle is unveiled so the sandboxed fetch can read it.
+$(o)/%/.fetched: export SSL_USE_SYSTEM_CERTS = 1
 $(o)/%/.fetched: .PLEDGE = stdio rpath wpath cpath inet dns
-$(o)/%/.fetched: .UNVEIL = rx:$(o)/bootstrap r:3p rwc:$(o) r:/etc/resolv.conf r:/etc/ssl
+$(o)/%/.fetched: .UNVEIL = rx:$(o)/bootstrap r:3p rwc:$(o) r:/etc/resolv.conf r:/etc/ssl $(if $(SSL_CERT_FILE),r:$(SSL_CERT_FILE))
 $(o)/%/.fetched: $(o)/%/.versioned $(build_files) | $(bootstrap_cosmic)
 	@$(bootstrap_cosmic) -- $(build_fetch) $$(readlink $<) $(platform) $@
 
