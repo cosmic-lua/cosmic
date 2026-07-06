@@ -27,8 +27,8 @@ end
 local record UnixTty
   isatty: function(fd: number): boolean
   tiocgwinsz: function(fd: number): number, number
-  tcgetattr: function(fd: number): Termios, Errno
-  tcsetattr: function(fd: number, action: number, termios: Termios): boolean, Errno
+  tcgetattr: function(fd: number): Termios, string
+  tcsetattr: function(fd: number, action: number, termios: Termios): boolean, string
   TCSANOW: number
   TCSADRAIN: number
   TCSAFLUSH: number

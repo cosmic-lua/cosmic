@@ -64,9 +64,9 @@ local record TimeModule
   localtime: function(unixts: number): DateTime
   format_http: function(timestamp: number): string
   parse_http: function(str: string): number | nil, string
-  format_date: function(timestamp: number): string
+  format_date: function(timestamp: number): string | nil, string
   parse_date: function(str: string): number | nil, string
-  format_iso8601: function(timestamp: number): string
+  format_iso8601: function(timestamp: number): string | nil, string
   parse_iso8601: function(str: string): number | nil, string
   timegm: function(year: number, month: number, day: number, hour: number, min: number, sec: number): number | nil, string
 end
@@ -252,7 +252,7 @@ function parse_http(str: string): number | nil, string
 ### format_date
 
 ```teal
-function format_date(timestamp: number): string
+function format_date(timestamp: number): string | nil, string
 ```
 
  Format a UNIX timestamp as a date string in UTC.
@@ -263,7 +263,8 @@ function format_date(timestamp: number): string
 
 **Returns:**
 
-- string - Date string (e.g., "2025-01-01")
+- string - | nil Date string (e.g., "2025-01-01"), or nil on error
+- string - Error message if formatting failed
 
 ### parse_date
 
@@ -285,7 +286,7 @@ function parse_date(str: string): number | nil, string
 ### format_iso8601
 
 ```teal
-function format_iso8601(timestamp: number): string
+function format_iso8601(timestamp: number): string | nil, string
 ```
 
  Format a UNIX timestamp as an ISO 8601 string in UTC.
@@ -296,7 +297,8 @@ function format_iso8601(timestamp: number): string
 
 **Returns:**
 
-- string - ISO 8601 string (e.g., "2025-01-01T00:00:00Z")
+- string - | nil ISO 8601 string (e.g., "2025-01-01T00:00:00Z"), or nil on error
+- string - Error message if formatting failed
 
 ### parse_iso8601
 

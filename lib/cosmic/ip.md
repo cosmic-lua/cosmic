@@ -34,13 +34,13 @@ end
 local record IpModule
   Addr: Addr
   addr: function(n: number): Addr
-  parse: function(str: string): number
+  parse: function(str: string): integer | nil, string
   format: function(ip: number): string
   categorize: function(ip: number): string
   is_loopback: function(ip: number): boolean
   is_private: function(ip: number): boolean
   is_public: function(ip: number): boolean
-  resolve: function(hostname: string): number
+  resolve: function(hostname: string): integer | nil, string
   lookup: function(hostname: string): Addr | nil, string
 end
 ```
@@ -66,11 +66,11 @@ function addr(n: number): Addr
 ### parse
 
 ```teal
-function parse(str: string): number
+function parse(str: string): integer | nil, string
 ```
 
  Parse an IP address string to its integer representation.
- Returns -1 for invalid or unsupported addresses (including IPv6).
+ Invalid or unsupported addresses (including IPv6) are errors.
 
 **Parameters:**
 
@@ -78,7 +78,8 @@ function parse(str: string): number
 
 **Returns:**
 
-- integer - The IP address as an integer, or -1 on error
+- integer - | nil The IP address as an integer, or nil on error
+- string - Error message if parsing failed
 
 ### format
 
@@ -165,7 +166,7 @@ function is_public(ip: number): boolean
 ### resolve
 
 ```teal
-function resolve(hostname: string): number
+function resolve(hostname: string): integer | nil, string
 ```
 
  Resolve a hostname to an IP address.
@@ -176,7 +177,8 @@ function resolve(hostname: string): number
 
 **Returns:**
 
-- integer - The IP address as an integer, or -1 on error
+- integer - | nil The IP address as an integer, or nil on error
+- string - Error message if resolution failed
 
 ### lookup
 

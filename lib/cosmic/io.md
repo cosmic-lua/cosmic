@@ -32,7 +32,7 @@ local record UnixIO
   truncate: function(path: string, length?: number): boolean, any
   ftruncate: function(fd: number, length?: number): boolean, any
   dup: function(oldfd: number, newfd?: number, flags?: number, lowest?: number): number, any
-  pipe: function(flags?: number): number, number | any
+  pipe: function(flags?: number): number, number, any
   fcntl: function(fd: number, cmd: number, arg?: number): number, any
   sync: function()
   fsync: function(fd: number): boolean, any

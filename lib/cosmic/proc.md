@@ -56,10 +56,10 @@ local record ProcModule
   daemon: function(nochdir?: boolean, noclose?: boolean): boolean
   exit: function(exitcode?: number)
   commandv: function(prog: string): string
-  execve: function(prog: string, args: {string}, env: {string}): nil, Errno
-  execvp: function(prog: string, argv?: {string}): nil, Errno
-  execvpe: function(prog: string, argv: {string}, envp?: {string}): nil, Errno
-  fexecve: function(fd: number, argv: {string}, envp?: {string}): nil, Errno
+  execve: function(prog: string, args: {string}, env: {string}): nil, string
+  execvp: function(prog: string, argv?: {string}): nil, string
+  execvpe: function(prog: string, argv: {string}, envp?: {string}): nil, string
+  fexecve: function(fd: number, argv: {string}, envp?: {string}): nil, string
   getrusage: function(who?: number): Rusage
   getrlimit: function(resource: number): number, number
   setrlimit: function(resource: number, soft: number, hard?: number): boolean, string
@@ -253,7 +253,7 @@ function commandv(prog: string): string
 ### execve
 
 ```teal
-function execve(prog: string, args: {string}, env: {string}): nil, Errno
+function execve(prog: string, args: {string}, env: {string}): nil, string
 ```
 
  Replaces current process with new program.
@@ -268,12 +268,12 @@ function execve(prog: string, args: {string}, env: {string}): nil, Errno
 
 **Returns:**
 
-- nil, - Errno Only returns on error
+- nil, - string Only returns on error
 
 ### execvp
 
 ```teal
-function execvp(prog: string, argv?: {string}): nil, Errno
+function execvp(prog: string, argv?: {string}): nil, string
 ```
 
  Executes program with PATH search.
@@ -287,12 +287,12 @@ function execvp(prog: string, argv?: {string}): nil, Errno
 
 **Returns:**
 
-- nil, - Errno Only returns on error
+- nil, - string Only returns on error
 
 ### execvpe
 
 ```teal
-function execvpe(prog: string, argv: {string}, envp?: {string}): nil, Errno
+function execvpe(prog: string, argv: {string}, envp?: {string}): nil, string
 ```
 
  Executes program with PATH search and custom environment.
@@ -307,12 +307,12 @@ function execvpe(prog: string, argv: {string}, envp?: {string}): nil, Errno
 
 **Returns:**
 
-- nil, - Errno Only returns on error
+- nil, - string Only returns on error
 
 ### fexecve
 
 ```teal
-function fexecve(fd: number, argv: {string}, envp?: {string}): nil, Errno
+function fexecve(fd: number, argv: {string}, envp?: {string}): nil, string
 ```
 
  Executes program from file descriptor.
@@ -327,7 +327,7 @@ function fexecve(fd: number, argv: {string}, envp?: {string}): nil, Errno
 
 **Returns:**
 
-- nil, - Errno Only returns on error
+- nil, - string Only returns on error
 
 ### getrusage
 

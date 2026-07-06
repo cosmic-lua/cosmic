@@ -113,7 +113,7 @@ local record SignalModule
   sigprocmask: function(how: number, set: Sigset): Sigset
   --  Suspend the process until a signal is delivered.
   --  Temporarily replaces the signal mask with the provided mask.
-  sigsuspend: function(mask: Sigset): boolean, Errno
+  sigsuspend: function(mask: Sigset): boolean, string
   --  Schedule SIGALRM signals at intervals.
   --  Accepts a SetitimerOpts record with named fields for clarity.
   --  Returns a SetitimerResult with the previous timer values.

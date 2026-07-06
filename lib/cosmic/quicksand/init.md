@@ -67,11 +67,14 @@ function probe(fn: any): boolean
  when the call succeeds, or fails with anything other than ENOSYS
  (a policy error still proves the syscall is wired up). A nil binding
  (not exported on this host) reports unavailable.
- This classification is only correct because a failed `unix.*` call now
- returns a real `Errno` in its second slot (the Phase 0 annotation fix):
- before it, the error was swallowed and every probe reported available
- (fail-open, audit §2.3). Exported so the classifier is unit-testable
- against synthetic ENOSYS / policy-error / success returns.
+ This classification is only correct because a failed `unix.*` call
+ reports its error (the Phase 0 annotation fix gave it an error slot;
+ the binding now returns `nil, err (string), errno (number)`): before
+ that fix the error was swallowed and every probe reported available
+ (fail-open, audit §2.3). The numeric errno in the third return slot
+ is what classifies ENOSYS. Exported so the classifier is
+ unit-testable against synthetic ENOSYS / policy-error / success
+ returns.
 
 **Parameters:**
 

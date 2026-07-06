@@ -16,8 +16,13 @@
 ```teal
 local record Regex
   --  Search for pattern match in text.
-  --  Returns the matched substring, or nil if no match.
-  search: function(self: Regex, text: string, flags?: number): string | nil
+  --  On a match, returns the matched substring plus a table of the
+  --  parenthesized capture groups (an empty table when the pattern has
+  --  no groups, "" for groups that did not participate). A no-match is
+  --  not an error: it returns a single bare nil. A genuine engine
+  --  failure (e.g. out of memory) returns nil, err — the error string
+  --  arrives in the second position, mirroring the cosmo.re binding.
+  search: function(self: Regex, text: string, flags?: number): string, {string}, string | nil
 end
 ```
 
@@ -26,7 +31,7 @@ end
 ```teal
 local record ReModule
   compile: function(pattern: string, flags?: number): Regex | nil, string
-  search: function(pattern: string, text: string, flags?: number): string | nil, string
+  search: function(pattern: string, text: string, flags?: number): string | nil, {string} | nil, string | nil
   match: function(pattern: string, text: string, flags?: number): boolean, string
   BASIC: number
   ICASE: number
@@ -62,12 +67,17 @@ function compile(pattern: string, flags?: number): Regex | nil, string
 ### search
 
 ```teal
-function search(pattern: string, text: string, flags?: number): string | nil, string
+function search(pattern: string, text: string, flags?: number): string | nil, {string} | nil, string | nil
 ```
 
  Search for pattern match in text (convenience function).
  Compiles pattern on each call - use compile() for repeated searches.
  Uses POSIX extended syntax by default.
+ On a match, returns the matched substring plus a table of the
+ parenthesized capture groups (an empty table when the pattern has no
+ groups, "" for groups that did not participate). A no-match returns
+ nil with no error; a bad pattern or an engine failure returns
+ nil, nil, err.
 
 **Parameters:**
 
@@ -77,8 +87,9 @@ function search(pattern: string, text: string, flags?: number): string | nil, st
 
 **Returns:**
 
-- string? - The matched substring, or nil if no match
-- string? - Error message if pattern compilation failed
+- string - | nil The matched substring, or nil on no match or error
+- {string} - | nil Capture groups on match
+- string - | nil Error message if compilation or the engine failed
 
 ### match
 
@@ -98,4 +109,4 @@ function match(pattern: string, text: string, flags?: number): boolean, string
 **Returns:**
 
 - boolean - True if pattern matches, false otherwise
-- string? - Error message if pattern compilation failed
+- string? - Error message if compilation or the engine failed
