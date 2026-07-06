@@ -2,95 +2,152 @@
 --- Integration test for cosmic.quicksand.Box:run.
 ---
 --- box:run unshares CLONE_NEWUSER, which is irreversible for the
---- calling thread — and can be blocked entirely by an outer seccomp /
---- pledge filter. Run the workload in a fresh cosmic subprocess so
---- failures don't poison the rest of the test harness, and follow the
---- same "ok | skipped | signal death = skip" pattern the raw netns /
---- proc tests use.
+--- calling thread, so every workload runs in a fresh cosmic subprocess.
+--- capabilities().user_ns is a real scratch-child unshare probe now, so
+--- when the guard passes, setup is expected to succeed: setup failures
+--- surface as nil + error over Box:run's error pipe and are hard test
+--- failures, not skips. The only tolerated skips are named, specific
+--- conditions (an outer seccomp filter SIGSYS-ing the subprocess, or a
+--- uid_map write that needs privileges this test does not have).
 local quicksand = require("cosmic.quicksand")
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
 local cio = require("cosmic.io")
+local a = require("cosmic.assert")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
+-- Run `script` in a fresh cosmic subprocess. Returns the Result, or nil
+-- after registering a strict skip when the subprocess was killed by a
+-- signal (an outer seccomp filter SIGSYS-ing a namespace syscall).
+local function run_script(name: string, body: string): spawn.Result
+  local script = fs.join(tmpdir, name)
+  cio.barf(script, body)
+  local h = spawn.spawn({cosmic, script})
+  local r = (h as spawn.Handle):wait() as spawn.Result
+  if r.signal ~= nil then
+    a.skip("box subprocess killed by signal " .. tostring(r.signal)
+      .. " (outer sandbox)", true)
+    return nil
+  end
+  return r
+end
+
 local function test_run_true_in_subprocess()
   local c = quicksand.capabilities()
-  if not (c.linux and c.user_ns and c.net_ns) then return end
+  if not (c.linux and c.user_ns and c.net_ns) then
+    a.skip("box namespaces unavailable on this host")
+    return
+  end
 
-  local script = fs.join(tmpdir, "box_run_true.lua")
-  cio.barf(script, [[
+  -- user_ns probed true above, so setup must succeed: a nil + error
+  -- return or a non-zero exit from /bin/true is a real failure.
+  local r = run_script("box_run_true.lua", [[
 local qs = require("cosmic.quicksand")
 local j, nerr = qs.Box.new({})
 if not j then io.stderr:write("new: " .. tostring(nerr) .. "\n"); os.exit(1) end
 local code, rerr = j:run({"/bin/true"})
 if code == nil then
-  -- Setup failed before fork (e.g. netns.open). With an empty policy
-  -- there's no net allowlist so netns.open isn't called; any nil here
-  -- is a genuine infrastructure problem. Surface the error instead of
-  -- masking it as a skip.
   io.stderr:write("run nil: " .. tostring(rerr) .. "\n"); os.exit(1)
 end
-if code == 0 then io.write("ok exit=0\n"); os.exit(0) end
--- Non-zero: the supervisor child exited 126 after unshare / userns
--- setup failed under an outer pledge / seccomp filter. Distinguishing
--- that from a real /bin/true crash here isn't reliable, so treat any
--- non-zero as a skip.
-io.write("skipped: exit=" .. tostring(code) .. "\n"); os.exit(0)
+if code ~= 0 then
+  io.stderr:write("run exit=" .. tostring(code) .. "\n"); os.exit(1)
+end
+io.write("ok exit=0\n")
 ]])
-
-  local h = spawn.spawn({cosmic, script})
-  local __r1 = (h as spawn.Handle):wait() as spawn.Result
-  local ok, out = __r1.ok, __r1.stdout
-  -- An outer seccomp filter may SIGSYS the subprocess outright; that
-  -- still counts as a skip because we never reached enforcement.
-  if not ok then return end
-  local s = out as string
-  assert(s:find("ok exit=0") or s:find("skipped"),
-    "expected ok or skipped, got: " .. s)
+  if not r then return end
+  assert(r.ok, "box run of /bin/true must succeed: "
+    .. tostring(r.stdout) .. tostring(r.stderr))
+  assert((r.stdout as string):find("ok exit=0"),
+    "expected ok, got: " .. tostring(r.stdout))
 end
 test_run_true_in_subprocess()
 
+-- Setup failures must come back on the error channel as nil + message,
+-- not masquerade as a workload exit code (they used to surface as
+-- 126, nil with the reason only on stderr). A bogus pledge promise
+-- fails workload_setup after the fork; run() must return nil and an
+-- error naming the pledge step.
+local function test_setup_failure_returns_error_not_exit_code()
+  local c = quicksand.capabilities()
+  if not (c.linux and c.user_ns and c.net_ns and c.pledge) then
+    a.skip("box namespaces or pledge unavailable on this host")
+    return
+  end
+
+  local r = run_script("box_bogus_pledge.lua", [[
+local qs = require("cosmic.quicksand")
+local j, nerr = qs.Box.new({ proc = { pledge = "bogus_promise" } })
+if not j then io.stderr:write("new: " .. tostring(nerr) .. "\n"); os.exit(1) end
+local code, rerr = j:run({"/bin/true"})
+if code ~= nil then
+  io.stderr:write("expected nil, got exit=" .. tostring(code) .. "\n"); os.exit(1)
+end
+if not (type(rerr) == "string" and rerr:find("pledge")) then
+  io.stderr:write("error should name pledge: " .. tostring(rerr) .. "\n"); os.exit(1)
+end
+io.write("ok nil-error: " .. tostring(rerr) .. "\n")
+]])
+  if not r then return end
+  assert(r.ok, "bogus pledge must return nil + pledge error: "
+    .. tostring(r.stdout) .. tostring(r.stderr))
+  assert((r.stdout as string):find("ok nil%-error"),
+    "expected nil-error report, got: " .. tostring(r.stdout))
+end
+test_setup_failure_returns_error_not_exit_code()
+
 -- FIX 1: proc.uid without no_new_privs must still set NoNewPrivs.
 -- The workload reads /proc/self/status and greps for NoNewPrivs:1.
+-- Mapping host uid 65534 into the userns needs privileges an
+-- unprivileged runner lacks; the error channel now names that exact
+-- failure (uid_map write EPERM), which is the one tolerated skip.
 local function test_uid_drop_sets_no_new_privs_subprocess()
   local c = quicksand.capabilities()
-  if not (c.linux and c.user_ns and c.net_ns) then return end
+  if not (c.linux and c.user_ns and c.net_ns) then
+    a.skip("box namespaces unavailable on this host")
+    return
+  end
 
-  local script = fs.join(tmpdir, "box_nnp_uid.lua")
-  cio.barf(script, [[
+  local r = run_script("box_nnp_uid.lua", [[
 local qs = require("cosmic.quicksand")
 local j, nerr = qs.Box.new({ proc = { uid = 65534 } })
 if not j then io.stderr:write("new: " .. tostring(nerr) .. "\n"); os.exit(1) end
 local code, rerr = j:run({"/bin/sh", "-c",
   "grep 'NoNewPrivs:' /proc/self/status | grep -q 1 && echo ok || echo fail"})
 if code == nil then
-  io.stderr:write("run nil: " .. tostring(rerr) .. "\n"); os.exit(1)
+  local e = tostring(rerr)
+  if e:find("uid_map") or e:find("setup_userns_maps") then
+    io.write("skipped: mapping uid 65534 needs privileges: " .. e .. "\n")
+    os.exit(0)
+  end
+  io.stderr:write("run nil: " .. e .. "\n"); os.exit(1)
 end
 if code ~= 0 then
-  -- unshare failed under outer sandbox; treat as skip
-  io.write("skipped: exit=" .. tostring(code) .. "\n"); os.exit(0)
+  io.stderr:write("run exit=" .. tostring(code) .. "\n"); os.exit(1)
 end
 ]])
-
-  local h = spawn.spawn({cosmic, script})
-  local __r2 = (h as spawn.Handle):wait() as spawn.Result
-  local ok, out = __r2.ok, __r2.stdout
-  if not ok then return end
-  local s = out as string
-  assert(s:find("ok") or s:find("skipped"),
-    "expected ok or skipped (NoNewPrivs should be 1), got: " .. s)
+  if not r then return end
+  assert(r.ok, "uid-drop box must succeed or name the uid_map gap: "
+    .. tostring(r.stdout) .. tostring(r.stderr))
+  local s = r.stdout as string
+  if s:find("skipped") then
+    a.skip("uid_map write needs privileges: " .. s)
+    return
+  end
+  assert(s:find("ok"), "NoNewPrivs should be 1, got: " .. s)
 end
 test_uid_drop_sets_no_new_privs_subprocess()
 
 -- FIX 2: PID namespace isolation — workload should get a low PID (<= 2).
 local function test_pid_namespace_workload_has_low_pid_subprocess()
   local c = quicksand.capabilities()
-  if not (c.linux and c.user_ns and c.net_ns and c.pid_ns) then return end
+  if not (c.linux and c.user_ns and c.net_ns and c.pid_ns) then
+    a.skip("box namespaces unavailable on this host")
+    return
+  end
 
-  local script = fs.join(tmpdir, "box_pidns.lua")
-  cio.barf(script, [[
+  local r = run_script("box_pidns.lua", [[
 local qs = require("cosmic.quicksand")
 local j, nerr = qs.Box.new({})
 if not j then io.stderr:write("new: " .. tostring(nerr) .. "\n"); os.exit(1) end
@@ -99,27 +156,26 @@ if code == nil then
   io.stderr:write("run nil: " .. tostring(rerr) .. "\n"); os.exit(1)
 end
 if code ~= 0 then
-  io.write("skipped: exit=" .. tostring(code) .. "\n"); os.exit(0)
+  io.stderr:write("run exit=" .. tostring(code) .. "\n"); os.exit(1)
 end
 ]])
-
-  local h = spawn.spawn({cosmic, script})
-  local __r3 = (h as spawn.Handle):wait() as spawn.Result
-  local ok, out = __r3.ok, __r3.stdout
-  if not ok then return end
-  local s = out as string
-  assert(s:find("ok") or s:find("skipped"),
-    "expected ok or skipped (PID should be <= 2), got: " .. s)
+  if not r then return end
+  assert(r.ok, "pid-ns box must succeed: "
+    .. tostring(r.stdout) .. tostring(r.stderr))
+  assert((r.stdout as string):find("ok"),
+    "workload PID should be <= 2, got: " .. tostring(r.stdout))
 end
 test_pid_namespace_workload_has_low_pid_subprocess()
 
 -- FIX 2: Opt-out of PID namespace via pid_ns = false still runs.
 local function test_pid_namespace_opt_out_subprocess()
   local c = quicksand.capabilities()
-  if not (c.linux and c.user_ns and c.net_ns) then return end
+  if not (c.linux and c.user_ns and c.net_ns) then
+    a.skip("box namespaces unavailable on this host")
+    return
+  end
 
-  local script = fs.join(tmpdir, "box_nopidns.lua")
-  cio.barf(script, [[
+  local r = run_script("box_nopidns.lua", [[
 local qs = require("cosmic.quicksand")
 local j, nerr = qs.Box.new({ pid_ns = false })
 if not j then io.stderr:write("new: " .. tostring(nerr) .. "\n"); os.exit(1) end
@@ -128,17 +184,14 @@ if code == nil then
   io.stderr:write("run nil: " .. tostring(rerr) .. "\n"); os.exit(1)
 end
 if code ~= 0 then
-  io.write("skipped: exit=" .. tostring(code) .. "\n"); os.exit(0)
+  io.stderr:write("run exit=" .. tostring(code) .. "\n"); os.exit(1)
 end
 io.write("ok\n")
 ]])
-
-  local h = spawn.spawn({cosmic, script})
-  local __r4 = (h as spawn.Handle):wait() as spawn.Result
-  local ok, out = __r4.ok, __r4.stdout
-  if not ok then return end
-  local s = out as string
-  assert(s:find("ok") or s:find("skipped"),
-    "expected ok or skipped, got: " .. s)
+  if not r then return end
+  assert(r.ok, "pid_ns opt-out box must succeed: "
+    .. tostring(r.stdout) .. tostring(r.stderr))
+  assert((r.stdout as string):find("ok"),
+    "expected ok, got: " .. tostring(r.stdout))
 end
 test_pid_namespace_opt_out_subprocess()

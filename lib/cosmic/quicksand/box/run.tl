@@ -19,6 +19,14 @@
 ---   6. supervisor runs become_init(workload_pid, {sidecars={proxy_pid}})
 ---      and os.exit()s with the returned code. parent maps wait status
 ---      to an exit code and returns it from run().
+---
+--- Setup failures are reported over a CLOEXEC error pipe (the same
+--- pattern proxy.start uses for its bound port): the supervisor and the
+--- pre-exec workload write the failing step there before exiting, and a
+--- successful execve closes the workload's end automatically. run()
+--- drains the pipe after wait() — a non-empty pipe always means setup
+--- failed before the workload ran, so run() returns nil + the message
+--- instead of masquerading the failure as a workload exit code.
 local unix = require("cosmo.unix")
 local cosmo = require("cosmo")
 local netns = require("cosmic.quicksand.netns")
@@ -125,32 +133,38 @@ local function workload_setup(opts: {string: any}): string
     if not ok then return "drop_privs: " .. tostring(err) end
   end
   if pr and pr.pledge then
-    local ok, err = pledge.apply(pr.pledge as string, nil, nil)
+    local ok, err = pledge.apply(pr.pledge as string)
     if not ok then return "pledge: " .. tostring(err) end
   end
   return nil
 end
 
-local function exec_workload(argv: {string}, env_list: {string})
+local function exec_workload(err_fd: integer, argv: {string}, env_list: {string})
   local ok, err = (u.execvpe as function(string, {string}, {string}): boolean, any)(
     argv[1], argv, env_list)
   if not ok then
-    io.stderr:write("quicksand: execvpe " .. tostring(argv[1])
-      .. ": " .. tostring(err) .. "\n")
+    unix.write(err_fd, "execvpe " .. tostring(argv[1])
+      .. ": " .. tostring(err))
   end
   os.exit(127)
 end
 
 -- Supervisor child entry point. Never returns: always exits the process.
+-- Setup failures are written to err_fd (run()'s error pipe) so the
+-- parent surfaces them as nil + error instead of an exit code.
 local function supervisor(
     parent_netns_fd: integer,
+    err_fd: integer,
     opts: {string: any},
     argv: {string})
+  local function die(msg: string)
+    unix.write(err_fd, msg)
+    os.exit(126)
+  end
   local flags = clone_flags(opts)
   local ok, err = (u.unshare as function(integer): boolean, any)(flags)
   if not ok then
-    io.stderr:write("quicksand: unshare: " .. tostring(err) .. "\n")
-    os.exit(126)
+    die("unshare: " .. tostring(err))
   end
 
   local pr = opts and opts.proc as {string: any}
@@ -158,23 +172,19 @@ local function supervisor(
   local gid: integer = pr and pr.gid as integer
   local ok2, err2 = qproc.setup_userns_maps(uid, gid)
   if not ok2 then
-    io.stderr:write("quicksand: setup_userns_maps: "
-      .. tostring(err2) .. "\n")
-    os.exit(126)
+    die("setup_userns_maps: " .. tostring(err2))
   end
 
   local ok3, err3 = netns.bring_up("lo")
   if not ok3 then
-    io.stderr:write("quicksand: bring_up lo: " .. tostring(err3) .. "\n")
-    os.exit(126)
+    die("bring_up lo: " .. tostring(err3))
   end
 
   if opts and opts.hostname then
     local ok4, err4 = (u.sethostname as function(string): boolean, any)(
       opts.hostname as string)
     if not ok4 then
-      io.stderr:write("quicksand: sethostname: " .. tostring(err4) .. "\n")
-      os.exit(126)
+      die("sethostname: " .. tostring(err4))
     end
   end
 
@@ -192,9 +202,7 @@ local function supervisor(
     }
     local h, perr = proxy_start(popts)
     if not h then
-      io.stderr:write("quicksand: proxy.start: "
-        .. tostring(perr) .. "\n")
-      os.exit(126)
+      die("proxy.start: " .. tostring(perr))
     end
     table.insert(sidecars, h.pid as integer)
     proxy_port = h.port as integer
@@ -213,17 +221,15 @@ local function supervisor(
 
   local pid, ferr = (u.fork as function(): integer, any)()
   if not pid then
-    io.stderr:write("quicksand: fork workload: "
-      .. tostring(ferr) .. "\n")
-    os.exit(126)
+    die("fork workload: " .. tostring(ferr))
   end
   if pid == 0 then
     local serr = workload_setup(opts)
     if serr then
-      io.stderr:write("quicksand: " .. serr .. "\n")
+      unix.write(err_fd, serr)
       os.exit(126)
     end
-    exec_workload(argv, env_list)
+    exec_workload(err_fd, argv, env_list)
     return -- unreachable
   end
 
@@ -232,8 +238,11 @@ local function supervisor(
 end
 
 --- Fork+orchestrate a Box policy around argv. Returns an integer exit
---- code on success, or nil + string when setup itself failed before the
---- fork (e.g. couldn't open the parent netns fd).
+--- code on success, or nil + string when setup failed — either before
+--- the fork (e.g. couldn't open the parent netns fd) or inside the
+--- supervisor / pre-exec workload (unshare, uid_map, landlock, pledge,
+--- execvpe, ...), which report over the error pipe. An integer return
+--- is therefore always the workload's own exit status.
 local function run(opts: {string: any}, argv: {string}): integer | nil, string
   local parent_fd: integer = nil
   local net = opts and opts.net as {string: any}
@@ -245,23 +254,56 @@ local function run(opts: {string: any}, argv: {string}): integer | nil, string
     parent_fd = fd
   end
 
+  -- CLOEXEC error pipe: a successful execve closes the workload's
+  -- write end automatically, so a non-empty pipe always means setup
+  -- failed before the workload ran.
+  local er, ew = unix.pipe(unix.O_CLOEXEC)
+  if not er then
+    if parent_fd then
+      (u.close as function(integer): boolean)(parent_fd)
+    end
+    return nil, "quicksand: pipe: " .. tostring(ew)
+  end
+  local erfd = er as integer
+  local ewfd = ew as integer
+
   local pid, ferr = (u.fork as function(): integer, any)()
   if not pid then
+    unix.close(erfd)
+    unix.close(ewfd)
     if parent_fd then
       (u.close as function(integer): boolean)(parent_fd)
     end
     return nil, "quicksand: fork: " .. tostring(ferr)
   end
   if pid == 0 then
-    supervisor(parent_fd, opts, argv)
+    unix.close(erfd)
+    supervisor(parent_fd, ewfd, opts, argv)
     os.exit(127) -- unreachable
   end
 
+  unix.close(ewfd)
   if parent_fd then
     (u.close as function(integer): boolean)(parent_fd)
   end
 
   local _, status = (u.wait as function(integer): integer, integer)(pid as integer)
+
+  -- Drain the error pipe. Every write end is closed by now — the
+  -- supervisor exited, and become_init reaped the workload and sidecars
+  -- before that — so this reads to EOF without blocking.
+  local parts: {string} = {}
+  while true do
+    local chunk = unix.read(erfd, 4096)
+    if not chunk or #chunk == 0 then break end
+    table.insert(parts, chunk)
+  end
+  unix.close(erfd)
+  if #parts > 0 then
+    local msg = table.concat(parts):gsub("%s+$", "")
+    return nil, "quicksand: " .. msg
+  end
+
   if (u.WIFEXITED as function(integer): boolean)(status) then
     return (u.WEXITSTATUS as function(integer): integer)(status)
   end

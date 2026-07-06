@@ -33,6 +33,26 @@ local function test_capabilities_cached()
 end
 test_capabilities_cached()
 
+-- capabilities().user_ns is computed by a scratch-child unshare probe
+-- (not the compile-time CLONE_NEWUSER constant, which is defined even on
+-- hosts that forbid unprivileged user namespaces and used to report a
+-- capability that then failed with EPERM mid-setup). Assert the cached
+-- report agrees with a fresh probe, and that the probe is exported and
+-- deterministic.
+local function test_user_ns_agrees_with_scratch_probe()
+  assert(type(quicksand.probe_ns) == "function", "probe_ns should be a function")
+  local fresh = quicksand.probe_ns()
+  assert(type(fresh) == "boolean", "probe_ns() should return a boolean")
+  local c = quicksand.capabilities()
+  if c.linux then
+    a.eq(c.user_ns, fresh,
+      "capabilities().user_ns must agree with a fresh scratch unshare probe")
+  else
+    a.eq(c.user_ns, false, "user_ns must be false off Linux")
+  end
+end
+test_user_ns_agrees_with_scratch_probe()
+
 local function test_is_supported_returns_boolean()
   local v = quicksand.is_supported()
   assert(type(v) == "boolean", "is_supported() should return a boolean, got " .. type(v))
