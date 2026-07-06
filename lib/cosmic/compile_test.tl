@@ -22,7 +22,8 @@ print(x)
 ]])
 
   local h1 = spawn.spawn({cosmic, "--compile", input})
-  local ok, out = (h1 as spawn.Handle):read()
+  local __r1 = (h1 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r1.ok, __r1.stdout
   assert(ok, "cosmic --compile should succeed")
   assert(not (out as string):find(": number"), "output should not contain type annotations")
   assert((out as string):find("local x = 42"), "output should contain compiled Lua")
@@ -36,7 +37,8 @@ if if if
 ]])
 
   local h2 = spawn.spawn({cosmic, "--compile", input})
-  local ok, out = (h2 as spawn.Handle):read()
+  local __r2 = (h2 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r2.ok, __r2.stdout
   assert(not ok, "cosmic --compile should fail on syntax error")
 end
 test_compile_syntax_error()
@@ -48,7 +50,8 @@ local x: number = "wrong type"
 ]])
 
   local h3 = spawn.spawn({cosmic, "--compile", input})
-  local ok, out = (h3 as spawn.Handle):read()
+  local __r3 = (h3 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r3.ok, __r3.stdout
   assert(not ok, "cosmic --compile should fail on type error")
 end
 test_compile_type_error()
@@ -66,7 +69,8 @@ print(p.x, p.y)
 ]])
 
   local h4 = spawn.spawn({cosmic, "--compile", input})
-  local ok, out = (h4 as spawn.Handle):read()
+  local __r4 = (h4 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r4.ok, __r4.stdout
   assert(ok, "cosmic --compile should succeed with records")
   assert((out as string):find("local p = {"), "should compile record to table")
 end
@@ -82,7 +86,8 @@ print(identity(42))
 ]])
 
   local h5 = spawn.spawn({cosmic, "--compile", input})
-  local ok, out = (h5 as spawn.Handle):read()
+  local __r5 = (h5 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r5.ok, __r5.stdout
   assert(ok, "cosmic --compile should succeed with generics")
   assert((out as string):find("local function identity%(x%)"), "generics should be erased")
 end
@@ -91,7 +96,8 @@ test_compile_generics()
 -- Test missing input file
 local function test_compile_missing_file()
   local h6 = spawn.spawn({cosmic, "--compile", "/nonexistent/file.tl"})
-  local ok, out = (h6 as spawn.Handle):read()
+  local __r6 = (h6 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r6.ok, __r6.stdout
   assert(not ok, "cosmic --compile should fail on missing file")
 end
 test_compile_missing_file()
@@ -107,13 +113,15 @@ print("result=" .. add(2, 3))
   local output = fs.join(tmpdir, "runnable.lua")
 
   local h7 = spawn.spawn({cosmic, "--compile", input})
-  local ok, lua_code = (h7 as spawn.Handle):read()
+  local __r7 = (h7 as spawn.Handle):wait() as spawn.Result
+  local ok, lua_code = __r7.ok, __r7.stdout
   assert(ok, "compilation should succeed")
 
   cio.barf(output, lua_code as string)
 
   local h8 = spawn.spawn({cosmic, output})
-  local run_ok, run_out = (h8 as spawn.Handle):read()
+  local __r8 = (h8 as spawn.Handle):wait() as spawn.Result
+  local run_ok, run_out = __r8.ok, __r8.stdout
   assert(run_ok, "compiled output should run")
   assert((run_out as string):find("result=5"), "compiled code should produce correct output")
 end
@@ -128,7 +136,8 @@ print("read " .. #data .. " bytes")
 ]])
 
   local h9 = spawn.spawn({cosmic, "--compile", input})
-  local ok, out = (h9 as spawn.Handle):read()
+  local __r9 = (h9 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r9.ok, __r9.stdout
   assert(ok, "compile with cosmic types should succeed")
 end
 test_compile_with_cosmic_types()
@@ -141,7 +150,8 @@ print(x)
 ]])
 
   local h10 = spawn.spawn({cosmic, "--compile", input})
-  local ok, out = (h10 as spawn.Handle):read()
+  local __r10 = (h10 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r10.ok, __r10.stdout
   assert(ok, "cosmic --compile should succeed")
   assert((out as string):sub(1, 21) == "#!/usr/bin/env cosmic", "shebang should be preserved at start of output")
   assert((out as string):find("\nlocal x = 42"), "compiled Lua should follow shebang")
@@ -155,7 +165,8 @@ print(x)
 ]])
 
   local h11 = spawn.spawn({cosmic, "--compile", input})
-  local ok, out = (h11 as spawn.Handle):read()
+  local __r11 = (h11 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r11.ok, __r11.stdout
   assert(ok, "cosmic --compile should succeed")
   assert((out as string):sub(1, 2) ~= "#!", "output should not have shebang if source didn't")
   assert((out as string):find("local x = 42"), "output should contain compiled Lua")
@@ -171,7 +182,8 @@ end
 ]])
 
   local h12 = spawn.spawn({cosmic, "--compile", input})
-  local ok, out = (h12 as spawn.Handle):read()
+  local __r12 = (h12 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r12.ok, __r12.stdout
   assert(ok, "compile should succeed in lax mode with unknown variables")
   assert((out as string):find("unknown_global_var"), "output should contain the unknown variable")
 end
@@ -187,7 +199,8 @@ print(x)
 
   -- First run: file does not exist, should be created
   local h13 = spawn.spawn({cosmic, "--write-if-changed", "--output", output, "--compile", input})
-  local ok1, _ = (h13 as spawn.Handle):read()
+  local __r13 = (h13 as spawn.Handle):wait() as spawn.Result
+  local ok1, _ = __r13.ok, __r13.stdout
   assert(ok1, "first compile --write-if-changed should succeed")
 
   local f1 = io.open(output, "r")
@@ -198,7 +211,8 @@ print(x)
 
   -- Record modification time
   local h14 = spawn.spawn({"stat", "-c", "%Y", output})
-  local mtime1_ok, mtime1 = (h14 as spawn.Handle):read()
+  local __r14 = (h14 as spawn.Handle):wait() as spawn.Result
+  local mtime1_ok, mtime1 = __r14.ok, __r14.stdout
   assert(mtime1_ok, "stat should succeed")
 
   -- Small delay to ensure mtime would differ if file were rewritten
@@ -206,11 +220,13 @@ print(x)
 
   -- Second run: identical content, file should NOT be rewritten
   local h15 = spawn.spawn({cosmic, "--write-if-changed", "--output", output, "--compile", input})
-  local ok2, _ = (h15 as spawn.Handle):read()
+  local __r15 = (h15 as spawn.Handle):wait() as spawn.Result
+  local ok2, _ = __r15.ok, __r15.stdout
   assert(ok2, "second compile --write-if-changed should succeed")
 
   local h16 = spawn.spawn({"stat", "-c", "%Y", output})
-  local mtime2_ok, mtime2 = (h16 as spawn.Handle):read()
+  local __r16 = (h16 as spawn.Handle):wait() as spawn.Result
+  local mtime2_ok, mtime2 = __r16.ok, __r16.stdout
   assert(mtime2_ok, "stat should succeed after second run")
   assert(mtime1 == mtime2, "file mtime should be unchanged when content identical: " .. tostring(mtime1) .. " vs " .. tostring(mtime2))
 end
@@ -223,7 +239,8 @@ local function test_format_write_if_changed()
 
   -- First run: output file does not exist, should be created
   local h17 = spawn.spawn({cosmic, "--write-if-changed", "--output", output, "--format", input})
-  local ok1, _ = (h17 as spawn.Handle):read()
+  local __r17 = (h17 as spawn.Handle):wait() as spawn.Result
+  local ok1, _ = __r17.ok, __r17.stdout
   assert(ok1, "first format --write-if-changed should succeed")
 
   local f1 = io.open(output, "r")
@@ -234,7 +251,8 @@ local function test_format_write_if_changed()
 
   -- Record modification time
   local h18 = spawn.spawn({"stat", "-c", "%Y", output})
-  local mtime1_ok, mtime1 = (h18 as spawn.Handle):read()
+  local __r18 = (h18 as spawn.Handle):wait() as spawn.Result
+  local mtime1_ok, mtime1 = __r18.ok, __r18.stdout
   assert(mtime1_ok, "stat should succeed")
 
   -- Small delay to ensure mtime would differ if file were rewritten
@@ -242,11 +260,13 @@ local function test_format_write_if_changed()
 
   -- Second run: identical content, file should NOT be rewritten
   local h19 = spawn.spawn({cosmic, "--write-if-changed", "--output", output, "--format", input})
-  local ok2, _ = (h19 as spawn.Handle):read()
+  local __r19 = (h19 as spawn.Handle):wait() as spawn.Result
+  local ok2, _ = __r19.ok, __r19.stdout
   assert(ok2, "second format --write-if-changed should succeed")
 
   local h20 = spawn.spawn({"stat", "-c", "%Y", output})
-  local mtime2_ok, mtime2 = (h20 as spawn.Handle):read()
+  local __r20 = (h20 as spawn.Handle):wait() as spawn.Result
+  local mtime2_ok, mtime2 = __r20.ok, __r20.stdout
   assert(mtime2_ok, "stat should succeed after second format run")
   assert(mtime1 == mtime2, "file mtime should be unchanged when format output identical: " .. tostring(mtime1) .. " vs " .. tostring(mtime2))
 end

@@ -2,7 +2,7 @@
 --- Network connect and interface tests.
 local net = require("cosmic.net")
 local fs = require("cosmic.fs")
-local child = require("cosmic.child")
+local proc = require("cosmic.proc")
 
 local function test_interfaces()
   local ifaces, err = net.interfaces()
@@ -56,7 +56,7 @@ local function test_unix_domain_socket_bind_connect()
   assert(ok, "listen failed: " .. tostring(err))
 
   -- Fork to create a client
-  local pid = child.fork()
+  local pid = proc.fork()
   if pid == 0 then
     local client = net.socket(net.AF_UNIX, net.SOCK_STREAM, 0)
     if not client then os.exit(1) end
@@ -80,7 +80,7 @@ local function test_unix_domain_socket_bind_connect()
 
   client:close()
   server:close()
-  child.wait(pid)
+  proc.wait(pid)
   os.remove(path)
   os.remove(tmpdir)
 end
@@ -96,7 +96,7 @@ local function test_listen_unix_connect_unix()
   local server = server as net.Socket
 
   -- Fork to create a client using module-level connect_unix helper
-  local pid = child.fork()
+  local pid = proc.fork()
   if pid == 0 then
     local client, cerr = net.connect_unix(path)
     if not client then
@@ -125,7 +125,7 @@ local function test_listen_unix_connect_unix()
 
   client:close()
   server:close()
-  child.wait(pid)
+  proc.wait(pid)
   os.remove(path)
   os.remove(tmpdir)
 end
@@ -210,7 +210,7 @@ local function test_connect_tcp()
   assert(ok, "listen failed: " .. tostring(err))
 
   -- Fork to create a client using connect_tcp
-  local pid = child.fork()
+  local pid = proc.fork()
   if pid == 0 then
     local client, cerr = net.connect_tcp(0x7f000001, server_port)
     if not client then
@@ -235,7 +235,7 @@ local function test_connect_tcp()
 
   client:close()
   server:close()
-  child.wait(pid)
+  proc.wait(pid)
 end
 test_connect_tcp()
 

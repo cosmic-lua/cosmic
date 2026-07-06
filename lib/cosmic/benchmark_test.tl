@@ -92,7 +92,8 @@ local function Benchmark_cmd()
 end
 ]])
   local h1 = spawn.spawn({cosmic, "--benchmark", input})
-  local ok, out = (h1 as spawn.Handle):read()
+  local __r1 = (h1 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r1.ok, __r1.stdout
   assert(ok, "cosmic --benchmark should succeed")
   assert((out as string):find("Benchmark_cmd"), "output should contain benchmark name")
   assert((out as string):find("ns/op") or (out as string):find("µs/op") or (out as string):find("ms/op"), "output should show timing")
@@ -104,13 +105,9 @@ local function test_cosmic_benchmark_skip()
   local input = write_temp("cmd_bench_skip.tl", [[
 local x = 1
 ]])
-  local h0 = spawn.spawn({cosmic, "--benchmark", input})
-  local h = h0 as spawn.Handle
-  h.stdin:close()
-  local out = h.stdout:read()
-  local code = h:wait()
-  assert(code == 2, "should return skip code 2")
-  assert((out as string):find("SKIP"), "output should show SKIP")
+  local r = spawn.run({cosmic, "--benchmark", input}) as spawn.Result
+  assert(r.code == 2, "should return skip code 2")
+  assert(r.stdout:find("SKIP"), "output should show SKIP")
 end
 test_cosmic_benchmark_skip()
 
@@ -207,7 +204,8 @@ local function Benchmark_beta()
 end
 ]])
   local h2 = spawn.spawn({cosmic, "--benchmark", input .. ":alpha"})
-  local ok, out = (h2 as spawn.Handle):read()
+  local __r2 = (h2 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r2.ok, __r2.stdout
   assert(ok, "cosmic --benchmark with filter should succeed")
   assert((out as string):find("Benchmark_alpha"), "output should contain matching benchmark")
   assert(not (out as string):find("Benchmark_beta"), "output should not contain non-matching benchmark")

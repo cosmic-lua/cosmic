@@ -102,7 +102,8 @@ local function test_drop_bounding_child()
   if not c.linux or not test_bin then return end
   local cosmic = fs.join(test_bin, "cosmic")
   local h = spawn.spawn({cosmic, "-e", CHILD_DROP})
-  local ok, out = (h as spawn.Handle):read()
+  local __r1 = (h as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r1.ok, __r1.stdout
   if not ok then return end
   local s = out as string
   assert(s:find("dropped") or s:find("skipped"),

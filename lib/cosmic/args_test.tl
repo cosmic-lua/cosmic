@@ -20,7 +20,8 @@ end
 ]])
 
   local h1 = spawn.spawn({cosmic, script, "foo", "bar", "baz"})
-  local ok, out = (h1 as spawn.Handle):read()
+  local __r1 = (h1 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r1.ok, __r1.stdout
   assert(ok, "cosmic should succeed")
   assert((out as string):find("varargs_count=3"), "should have 3 varargs")
   assert((out as string):find("vararg%[1%]=foo"), "vararg[1] should be foo")
@@ -41,7 +42,8 @@ end
 ]])
 
   local h2 = spawn.spawn({cosmic, script, "alpha", "beta"})
-  local ok, out = (h2 as spawn.Handle):read()
+  local __r2 = (h2 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r2.ok, __r2.stdout
   assert(ok, "cosmic should succeed")
   assert((out as string):find("arg_count=2"), "should have 2 args")
   assert((out as string):find("arg%[0%]=" .. script:gsub("[%-%.]", "%%%1")), "arg[0] should be script path")
@@ -64,7 +66,8 @@ end
 ]])
 
   local h3 = spawn.spawn({cosmic, script, "x", "y", "z"})
-  local ok, out = (h3 as spawn.Handle):read()
+  local __r3 = (h3 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r3.ok, __r3.stdout
   assert(ok, "cosmic should succeed")
   assert((out as string):find("varargs_count=3"), "varargs should have 3 elements")
   assert((out as string):find("arg_count=3"), "arg should have 3 elements")
@@ -92,7 +95,8 @@ os.exit(main(...))
 ]])
 
   local h4 = spawn.spawn({cosmic, script, "one", "two"})
-  local ok, out = (h4 as spawn.Handle):read()
+  local __r4 = (h4 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r4.ok, __r4.stdout
   assert(ok, "cosmic should succeed")
   assert((out as string):find("main_varargs_count=2"), "main should receive 2 varargs")
   assert((out as string):find("main_arg%[1%]=one"), "main_arg[1] should be one")
@@ -115,13 +119,15 @@ os.exit(main(...))
 
   -- Test with argument
   local h5 = spawn.spawn({cosmic, script, "custom"})
-  local ok, out = (h5 as spawn.Handle):read()
+  local __r5 = (h5 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r5.ok, __r5.stdout
   assert(ok, "cosmic should succeed")
   assert((out as string):find("param=custom"), "param should be custom")
 
   -- Test with no argument (should use default)
   local h6 = spawn.spawn({cosmic, script})
-  ok, out = (h6 as spawn.Handle):read()
+  local __r6 = (h6 as spawn.Handle):wait() as spawn.Result
+  ok, out = __r6.ok, __r6.stdout
   assert(ok, "cosmic should succeed")
   assert((out as string):find("param=default"), "param should be default")
 end
@@ -138,7 +144,8 @@ print("arg[0]=" .. tostring(arg[0]))
 ]])
 
   local h7 = spawn.spawn({cosmic, script})
-  local ok, out = (h7 as spawn.Handle):read()
+  local __r7 = (h7 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r7.ok, __r7.stdout
   assert(ok, "cosmic should succeed")
   assert((out as string):find("varargs_count=0"), "varargs should be empty")
   assert((out as string):find("arg_count=0"), "arg should be empty")
@@ -157,7 +164,8 @@ end
 ]])
 
   local h8 = spawn.spawn({cosmic, script, "hello world", "foo bar"})
-  local ok, out = (h8 as spawn.Handle):read()
+  local __r8 = (h8 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r8.ok, __r8.stdout
   assert(ok, "cosmic should succeed")
   assert((out as string):find("arg%[1%]=hello world"), "should preserve spaces in arg[1]")
   assert((out as string):find("arg%[2%]=foo bar"), "should preserve spaces in arg[2]")
@@ -175,7 +183,8 @@ end
 ]])
 
   local h9 = spawn.spawn({cosmic, script, "--", "--flag", "-x", "value=123"})
-  local ok, out = (h9 as spawn.Handle):read()
+  local __r9 = (h9 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r9.ok, __r9.stdout
   assert(ok, "cosmic should succeed")
   assert((out as string):find("arg%[1%]=%-%-flag"), "should handle --flag")
   assert((out as string):find("arg%[2%]=%-x"), "should handle -x")
@@ -202,7 +211,8 @@ end
 ]])
 
   local h10 = spawn.spawn({cosmic, script, "test1", "test2"})
-  local ok, out = (h10 as spawn.Handle):read()
+  local __r10 = (h10 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r10.ok, __r10.stdout
   assert(ok, "cosmic should succeed")
   assert((out as string):find("main_called=true"), "main should be called")
   assert((out as string):find("args_count=2"), "main should receive 2 args")
@@ -221,7 +231,8 @@ end
 ]])
 
   local h11 = spawn.spawn({cosmic, script, "--version"})
-  local ok, out = (h11 as spawn.Handle):read()
+  local __r11 = (h11 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r11.ok, __r11.stdout
   assert(ok, "cosmic should succeed")
   assert((out as string):find("args_count=1"), "should have 1 arg")
   assert((out as string):find("arg%[1%]=%-%-version"), "arg[1] should be --version")
@@ -240,7 +251,8 @@ end
 ]])
 
   local h12 = spawn.spawn({cosmic, script, "--help"})
-  local ok, out = (h12 as spawn.Handle):read()
+  local __r12 = (h12 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r12.ok, __r12.stdout
   assert(ok, "cosmic should succeed")
   assert((out as string):find("args_count=1"), "should have 1 arg")
   assert((out as string):find("arg%[1%]=%-%-help"), "arg[1] should be --help")
@@ -259,7 +271,8 @@ end
 ]])
 
   local h13 = spawn.spawn({cosmic, script, "-v"})
-  local ok, out = (h13 as spawn.Handle):read()
+  local __r13 = (h13 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r13.ok, __r13.stdout
   assert(ok, "cosmic should succeed")
   assert((out as string):find("args_count=1"), "should have 1 arg")
   assert((out as string):find("arg%[1%]=%-v"), "arg[1] should be -v")
@@ -279,7 +292,8 @@ end
 
   -- cosmic -e before script, then script gets --version
   local h14 = spawn.spawn({cosmic, "-e", "print('cosmic executed')", script, "--version", "arg2"})
-  local ok, out = (h14 as spawn.Handle):read()
+  local __r14 = (h14 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r14.ok, __r14.stdout
   assert(ok, "cosmic should succeed")
   assert((out as string):find("cosmic executed"), "cosmic -e should execute")
   assert((out as string):find("args_count=2"), "script should have 2 args")
@@ -300,7 +314,8 @@ end
 ]])
 
   local h15 = spawn.spawn({cosmic, script, "--version", "--help", "-v", "-i", "--unknown"})
-  local ok, out = (h15 as spawn.Handle):read()
+  local __r15 = (h15 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r15.ok, __r15.stdout
   assert(ok, "cosmic should succeed")
   assert((out as string):find("args_count=5"), "should have 5 args")
   assert((out as string):find("arg%[1%]=%-%-version"), "arg[1] should be --version")
@@ -323,7 +338,8 @@ end
 ]])
 
   local h16 = spawn.spawn({cosmic, script, "--", "arg1", "arg2"})
-  local ok, out = (h16 as spawn.Handle):read()
+  local __r16 = (h16 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r16.ok, __r16.stdout
   assert(ok, "cosmic should succeed")
   assert((out as string):find("args_count=2"), "should have 2 args")
   assert((out as string):find("arg%[1%]=arg1"), "arg[1] should be arg1")
@@ -348,7 +364,8 @@ print("No --version flag found")
 ]])
 
   local h17 = spawn.spawn({cosmic, script, "--version"})
-  local ok, out = (h17 as spawn.Handle):read()
+  local __r17 = (h17 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r17.ok, __r17.stdout
   assert(ok, "cosmic should succeed")
   assert((out as string):find("NVIM v0%.12%.0%-dev"), "script should handle --version")
   assert(not (out as string):find("No %-%-version flag found"), "should not print fallback message")
@@ -361,7 +378,8 @@ local function test_help_includes_all_options()
 
   -- Run cosmic --help and capture output
   local h18 = spawn.spawn({cosmic, "--help"})
-  local ok, out = (h18 as spawn.Handle):read()
+  local __r18 = (h18 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r18.ok, __r18.stdout
   assert(ok, "cosmic --help should succeed")
   local help_text = out as string
 

@@ -16,16 +16,11 @@ local function write_test_result(base: string, exit_code: integer, stdout: strin
   cio.barf(base .. ".err", stderr or "")
 end
 
-local record SpawnHandle
-  stderr: FILE
-  read: function(self: SpawnHandle): boolean, string, integer
-end
-
 local function run_reporter(...: string): integer, string, string
   local test_bin = os.getenv("TEST_BIN") or ""
   local test_o = os.getenv("TEST_O") or "o"
   local reporter = fs.join(test_o, "lib/build/reporter.lua")
-  local spawn = require("cosmic.child").spawn
+  local child = require("cosmic.child")
   local args: {string} = {fs.join(test_bin, "cosmic"), "--", reporter}
   local varargs: {string} = {...}
   for _, a in ipairs(varargs) do
@@ -36,10 +31,18 @@ local function run_reporter(...: string): integer, string, string
   local new_lua_path = "o/lib/?.lua;o/lib/?/init.lua;;" .. lua_path
   env.set("LUA_PATH", new_lua_path)
 
-  local handle = spawn(args) as SpawnHandle
-  local stderr_content = handle.stderr and handle.stderr:read() or ""
-  local _ok, stdout, exit_code = handle:read()
-  return exit_code, stdout or "", stderr_content
+  local result, serr = child.run(args)
+  if not result then
+    return 1, "", tostring(serr)
+  end
+  local r = result as child.Result
+  local exit_code: integer = 1
+  if r.code ~= nil then
+    exit_code = r.code
+  elseif r.signal ~= nil then
+    exit_code = (128 + r.signal) as integer
+  end
+  return exit_code, r.stdout, r.stderr
 end
 
 -- test single checker mode (test)

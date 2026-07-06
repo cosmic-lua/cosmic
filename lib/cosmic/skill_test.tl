@@ -21,7 +21,8 @@ end
 
 local function test_skill_writes_file()
   local dir = fs.join(tmpdir, "skill-out")
-  local ok, out = (spawn.spawn({cosmic, "--skill", dir}, {env = clean_env()}) as spawn.Handle):read()
+  local __r1 = (spawn.spawn({cosmic, "--skill", dir}, {env = clean_env()}) as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r1.ok, __r1.stdout
   assert(ok, "cosmic --skill should succeed, got: " .. tostring(out))
   local skill_path = fs.join(dir, "SKILL.md")
   assert(fs.isfile(skill_path), "SKILL.md should exist at " .. skill_path)
@@ -37,7 +38,8 @@ test_skill_writes_file()
 
 local function test_skill_content()
   local dir = fs.join(tmpdir, "skill-content")
-  local ok, _ = (spawn.spawn({cosmic, "--skill", dir}, {env = clean_env()}) as spawn.Handle):read()
+  local __r2 = (spawn.spawn({cosmic, "--skill", dir}, {env = clean_env()}) as spawn.Handle):wait() as spawn.Result
+  local ok, _ = __r2.ok, __r2.stdout
   assert(ok, "cosmic --skill should succeed")
   local content = assert(cio.slurp(fs.join(dir, "SKILL.md"))) as string
   assert(content:find("curl", 1, true),
@@ -68,7 +70,8 @@ test_skill_content()
 
 local function test_skill_creates_nested_dir()
   local dir = fs.join(tmpdir, "skill-nested", "a", "b")
-  local ok, _ = (spawn.spawn({cosmic, "--skill", dir}, {env = clean_env()}) as spawn.Handle):read()
+  local __r3 = (spawn.spawn({cosmic, "--skill", dir}, {env = clean_env()}) as spawn.Handle):wait() as spawn.Result
+  local ok, _ = __r3.ok, __r3.stdout
   assert(ok, "cosmic --skill should create nested directories")
   assert(fs.isfile(fs.join(dir, "SKILL.md")), "SKILL.md should exist in nested dir")
 end
@@ -76,7 +79,8 @@ test_skill_creates_nested_dir()
 
 local function test_skill_prints_path()
   local dir = fs.join(tmpdir, "skill-path")
-  local ok, out = (spawn.spawn({cosmic, "--skill", dir}, {env = clean_env()}) as spawn.Handle):read()
+  local __r4 = (spawn.spawn({cosmic, "--skill", dir}, {env = clean_env()}) as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r4.ok, __r4.stdout
   assert(ok, "cosmic --skill should succeed")
   local s = out as string
   local expected = fs.join(dir, "SKILL.md")

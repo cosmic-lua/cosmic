@@ -62,7 +62,8 @@ if not up then io.stderr:write("bring_up: " .. tostring(uerr) .. "\n"); os.exit(
 io.write("ok\n")
 ]])
   local h = spawn.spawn({cosmic, script})
-  local ok, out = (h as spawn.Handle):read()
+  local __r1 = (h as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r1.ok, __r1.stdout
   -- An outer seccomp/pledge filter may SIGSYS the subprocess on unshare.
   -- Accept signal death as a skip.
   if not ok then return end

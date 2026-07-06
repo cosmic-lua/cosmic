@@ -30,7 +30,8 @@ print("answer=" .. x)
 ]])
 
   local h1 = spawn.spawn({cosmic, script})
-  local ok, out = (h1 as spawn.Handle):read()
+  local __r1 = (h1 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r1.ok, __r1.stdout
   assert(ok, "cosmic should execute .tl file")
   assert((out as string):find("answer=42"), "output should contain expected result")
 end
@@ -44,7 +45,8 @@ print("value=" .. x)
 ]])
 
   local h2 = spawn.spawn({cosmic, script})
-  local ok, out = (h2 as spawn.Handle):read()
+  local __r2 = (h2 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r2.ok, __r2.stdout
   assert(ok, "cosmic should execute .lua file")
   assert((out as string):find("value=99"), "output should contain expected result")
 end
@@ -59,7 +61,8 @@ print(x)
 
   -- stderr = 1 merges stderr into stdout so we can capture the error message
   local h3 = spawn.spawn({cosmic, script}, {stderr = 1})
-  local ok, out = (h3 as spawn.Handle):read()
+  local __r3 = (h3 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r3.ok, __r3.stdout
   assert(not ok, "cosmic should fail on .tl file with type error")
   assert((out as string):find("type_error.tl"), "error should reference the file name")
 end
@@ -72,7 +75,8 @@ if if if
 ]])
 
   local h4 = spawn.spawn({cosmic, script})
-  local ok, out = (h4 as spawn.Handle):read()
+  local __r4 = (h4 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r4.ok, __r4.stdout
   assert(not ok, "cosmic should fail on .tl file with syntax error")
 end
 test_teal_syntax_error()
@@ -90,7 +94,8 @@ print("point=" .. p.x .. "," .. p.y)
 ]])
 
   local h5 = spawn.spawn({cosmic, script})
-  local ok, out = (h5 as spawn.Handle):read()
+  local __r5 = (h5 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r5.ok, __r5.stdout
   assert(ok, "cosmic should execute .tl file with records")
   assert((out as string):find("point=10,20"), "output should contain expected result")
 end
@@ -106,7 +111,8 @@ print("result=" .. identity(123))
 ]])
 
   local h6 = spawn.spawn({cosmic, script})
-  local ok, out = (h6 as spawn.Handle):read()
+  local __r6 = (h6 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r6.ok, __r6.stdout
   assert(ok, "cosmic should execute .tl file with generics")
   assert((out as string):find("result=123"), "output should contain expected result")
 end
@@ -121,7 +127,8 @@ print("bytes=" .. #data)
 ]])
 
   local h7 = spawn.spawn({cosmic, script})
-  local ok, out = (h7 as spawn.Handle):read()
+  local __r7 = (h7 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r7.ok, __r7.stdout
   assert(ok, "cosmic should execute .tl file with cosmic module requires")
   assert((out as string):find("bytes=0"), "output should contain expected result")
 end
@@ -136,7 +143,8 @@ print("arg2=" .. (arg[2] or "nil"))
 ]])
 
   local h8 = spawn.spawn({cosmic, script, "first", "second"})
-  local ok, out = (h8 as spawn.Handle):read()
+  local __r8 = (h8 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r8.ok, __r8.stdout
   assert(ok, "cosmic should execute .tl file with args")
   assert((out as string):find("arg0=" .. script), "arg[0] should be script path")
   assert((out as string):find("arg1=first"), "arg[1] should be first argument")
@@ -152,7 +160,8 @@ print("arg1=" .. (arg[1] or "nil"))
 ]])
 
   local h9 = spawn.spawn({cosmic, script, "test"})
-  local ok, out = (h9 as spawn.Handle):read()
+  local __r9 = (h9 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r9.ok, __r9.stdout
   assert(ok, "cosmic should execute .lua file with args")
   assert((out as string):find("arg0=" .. script), "arg[0] should be script path")
   assert((out as string):find("arg1=test"), "arg[1] should be argument")
@@ -171,7 +180,8 @@ print("shebang=" .. x)
   assert(verify:find("shebang="), "script file should contain shebang test code, got: " .. verify:sub(1, 100))
 
   local h10 = spawn.spawn({cosmic, script}, {stderr = 1})
-  local ok, out = (h10 as spawn.Handle):read()
+  local __r10 = (h10 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r10.ok, __r10.stdout
   assert(ok, "cosmic should execute .tl file with shebang, got: " .. tostring(out))
   assert((out as string):find("shebang=777"), "output should contain expected result, got: " .. tostring(out))
 end
@@ -191,7 +201,8 @@ print("value=" .. x)
 
   for _ = 1, 2 do
     local h11 = spawn.spawn({cosmic, script})
-    local ok, out = (h11 as spawn.Handle):read()
+    local __r11 = (h11 as spawn.Handle):wait() as spawn.Result
+    local ok, out = __r11.ok, __r11.stdout
     assert(ok, "cosmic should execute .tl file: " .. tostring(out))
     assert((out as string):find("value=1"), "expected value=1, got: " .. tostring(out))
   end
@@ -203,7 +214,8 @@ local x: number = 2
 print("value=" .. x)
 ]])
   local h12 = spawn.spawn({cosmic, script})
-  local ok, out = (h12 as spawn.Handle):read()
+  local __r12 = (h12 as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r12.ok, __r12.stdout
   assert(ok, "cosmic should execute changed .tl file: " .. tostring(out))
   assert((out as string):find("value=2"),
     "expected value=2 after script change (stale cache?), got: " .. tostring(out))

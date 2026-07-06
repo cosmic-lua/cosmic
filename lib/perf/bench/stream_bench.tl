@@ -8,7 +8,7 @@
 
 local net = require("cosmic.net")
 local fetch = require("cosmic.fetch")
-local child = require("cosmic.child")
+local proc = require("cosmic.proc")
 local signal = require("cosmic.signal")
 local pt = require("perf.perf_types")
 
@@ -101,7 +101,7 @@ local function scenarios(): {pt.Scenario}, string
     return nil, "listen_tcp: " .. tostring(lerr)
   end
   listener = srv
-  local pid = child.fork()
+  local pid = proc.fork()
   if pid == 0 then
     serve_loop(srv)
     os.exit(0)
@@ -155,8 +155,8 @@ end
 
 local function cleanup()
   if server_pid and server_pid > 0 then
-    child.kill(server_pid, signal.SIGKILL)
-    child.wait(server_pid)
+    proc.kill(server_pid, signal.SIGKILL)
+    proc.wait(server_pid)
     server_pid = nil
   end
   if listener then

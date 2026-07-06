@@ -48,7 +48,8 @@ local function test_embed_via_env()
   env[#env + 1] = "COSMIC_OUTPUT=" .. output
 
   -- Invoke without --embed or --output flags
-  local ok, out = (spawn.spawn({cosmic}, {env = env}) as spawn.Handle):read()
+  local __r1 = (spawn.spawn({cosmic}, {env = env}) as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r1.ok, __r1.stdout
   assert(ok, "cosmic with COSMIC_EMBED env should succeed: " .. (out or ""))
 
   -- Verify output exists and content is embedded
@@ -80,7 +81,8 @@ local function test_extract_via_env()
   env[#env + 1] = "COSMIC_EXTRACT=" .. extractdir
 
   -- Invoke without --extract flag
-  local ok, out = (spawn.spawn({cosmic}, {env = env}) as spawn.Handle):read()
+  local __r2 = (spawn.spawn({cosmic}, {env = env}) as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r2.ok, __r2.stdout
   assert(ok, "cosmic with COSMIC_EXTRACT env should succeed: " .. (out or ""))
 
   -- main.lua should be extracted
@@ -104,7 +106,8 @@ local function test_cli_priority_over_env()
   env[#env + 1] = "COSMIC_OUTPUT=" .. output
 
   -- Pass --embed via CLI (should override env)
-  local ok, out = (spawn.spawn({cosmic, "--embed", cli_input, "--output", output}, {env = env}) as spawn.Handle):read()
+  local __r3 = (spawn.spawn({cosmic, "--embed", cli_input, "--output", output}, {env = env}) as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r3.ok, __r3.stdout
   assert(ok, "cosmic --embed with env override should succeed: " .. (out or ""))
 
   local data = cio.slurp(output)

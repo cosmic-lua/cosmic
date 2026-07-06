@@ -49,41 +49,26 @@ local function run(argv: {string}, output_base: string): integer
   end
   child_env[#child_env + 1] = "TEST_TMPDIR=" .. tmpdir
 
-  -- Spawn the process
-  local handle0, err = child.spawn(argv, {env = child_env})
-  if not handle0 then
-    fs.rmrf(tmpdir)
-    io.stderr:write("testrun: " .. (err or "spawn failed") .. "\n")
-    instrument.finish(span, 1)
-    return 1
-  end
-  local handle = handle0 as child.Handle
-
-  -- Close stdin, read stdout and stderr
-  if handle.stdin then
-    handle.stdin:close()
-  end
-
+  -- Run the process to completion, capturing both streams without deadlock.
+  local result, err = child.run(argv, {env = child_env})
   local stdout_content = ""
   local stderr_content = ""
-
-  if handle.stdout then
-    stdout_content = handle.stdout:read() or ""
-    handle.stdout:close()
-  end
-
-  if handle.stderr then
-    stderr_content = handle.stderr:read() or ""
-    handle.stderr:close()
-  end
-
-  -- Wait for exit
-  local _, status = child.wait(handle.pid)
   local exit_code: integer = 1
-  if child.WIFEXITED(status) then
-    exit_code = child.WEXITSTATUS(status) as integer
-  elseif child.WIFSIGNALED(status) then
-    exit_code = (128 + child.WTERMSIG(status)) as integer
+  if not result then
+    -- The executable could not be started (e.g. a missing binary): report the
+    -- conventional 127 "command not found" code and surface the error.
+    exit_code = 127
+    stderr_content = err or "spawn failed"
+  else
+    local r = result as child.Result
+    stdout_content = r.stdout
+    stderr_content = r.stderr
+    -- Signal death is reported as the conventional 128+signal exit code.
+    if r.code ~= nil then
+      exit_code = r.code
+    elseif r.signal ~= nil then
+      exit_code = (128 + r.signal) as integer
+    end
   end
 
   -- Clean up temp directory

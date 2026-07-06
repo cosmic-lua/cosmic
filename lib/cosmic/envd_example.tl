@@ -45,9 +45,8 @@ local function Example_extract_update_embed()
 
   -- 1. extract current executable
   local extractdir = fs.join(tmpdir, "extracted")
-  local h = spawn.spawn({cosmic, "--extract", extractdir}) as spawn.Handle
-  local ok, out = h:read()
-  assert(ok, out)
+  local r = spawn.run({cosmic, "--extract", extractdir}) as spawn.Result
+  assert(r.ok, r.stderr)
 
   -- 2. add env.d with a credential
   local envd_dir = fs.join(extractdir, "embed", "env.d")
@@ -66,15 +65,13 @@ print("MY_SECRET_TOKEN is " .. (env.get("MY_SECRET_TOKEN") and "set" or "unset")
 
   -- 4. build new executable
   local output = fs.join(tmpdir, "myapp")
-  h = spawn.spawn({cosmic, "--embed", extractdir, "--output", output}) as spawn.Handle
-  ok, out = h:read()
-  assert(ok, out)
+  r = spawn.run({cosmic, "--embed", extractdir, "--output", output}) as spawn.Result
+  assert(r.ok, r.stderr)
 
   -- 5. run it
-  h = spawn.spawn({output}) as spawn.Handle
-  ok, out = h:read()
+  r = spawn.run({output}) as spawn.Result
   fs.rmrf(tmpdir)
-  print(out)
+  print(r.stdout)
   -- Output:
   -- envd loaded 1 var(s)
   -- MY_SECRET_TOKEN is set
