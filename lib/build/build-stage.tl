@@ -87,11 +87,11 @@ end
 
 local function extract_zip(archive: string, dest_dir: string, strip: number): boolean, string
   local temp_dir = fs.mkdtemp(fs.join(fs.dirname(dest_dir), ".stage_XXXXXX"))
-  local handle = spawn.spawn({"/usr/bin/unzip", "-o", "-q", "-d", temp_dir, archive})
-  local exit_code = (handle as spawn.Handle):wait()
-  if exit_code ~= 0 then
+  local result = spawn.run({"/usr/bin/unzip", "-o", "-q", "-d", temp_dir, archive})
+  local r = result as spawn.Result
+  if not r or not r.ok then
     fs.rmrf(temp_dir)
-    return nil, "unzip failed with exit code " .. exit_code
+    return nil, "unzip failed with exit code " .. tostring(r and r.code)
   end
   local ok, err = strip_components(temp_dir, dest_dir, strip)
   fs.rmrf(temp_dir)
@@ -100,11 +100,11 @@ end
 
 local function extract_targz(archive: string, dest_dir: string, strip: number): boolean, string
   local temp_dir = fs.mkdtemp(fs.join(fs.dirname(dest_dir), ".stage_XXXXXX"))
-  local handle = spawn.spawn({"tar", "-xzf", archive, "-C", temp_dir})
-  local exit_code = (handle as spawn.Handle):wait()
-  if exit_code ~= 0 then
+  local result = spawn.run({"tar", "-xzf", archive, "-C", temp_dir})
+  local r = result as spawn.Result
+  if not r or not r.ok then
     fs.rmrf(temp_dir)
-    return nil, "tar failed with exit code " .. exit_code
+    return nil, "tar failed with exit code " .. tostring(r and r.code)
   end
   local ok, err = strip_components(temp_dir, dest_dir, strip)
   fs.rmrf(temp_dir)
@@ -130,11 +130,15 @@ local function extract_gz(archive: string, dest_dir: string, module_name: string
   local bin_dir = fs.join(dest_dir, "bin")
   fs.makedirs(bin_dir)
   local dest = fs.join(bin_dir, module_name)
-  local handle = spawn.spawn({"gunzip", "-c", archive})
-  local exit_code, content = (handle as spawn.Handle):read()
-  if not exit_code then
-    return nil, "gunzip failed: " .. tostring(content)
+  local result, serr = spawn.run({"gunzip", "-c", archive})
+  if not result then
+    return nil, "gunzip failed: " .. tostring(serr)
   end
+  local r = result as spawn.Result
+  if not r.ok then
+    return nil, "gunzip failed (exit " .. tostring(r.code) .. "): " .. r.stderr
+  end
+  local content = r.stdout
   local ok, write_err = portable.write_file(dest, content, tonumber("755", 8))
   if not ok then
     return nil, "failed to create " .. dest .. ": " .. (write_err or "unknown error")

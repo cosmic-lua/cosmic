@@ -24,7 +24,8 @@ add(1, 2)
 ]])
 
   local h = spawn.spawn({cosmic, "--check-style", input})
-  local ok, _ = (h as spawn.Handle):read()
+  local __r1 = (h as spawn.Handle):wait() as spawn.Result
+  local ok, _ = __r1.ok, __r1.stdout
   assert(ok, "cosmic --check-style should succeed on valid file")
 end
 test_style_valid()
@@ -35,7 +36,8 @@ local function test_style_long_line()
   local input = write_temp("style_long.tl", long_line .. "\n")
 
   local h = spawn.spawn({cosmic, "--check-style", input})
-  local ok, _ = (h as spawn.Handle):read()
+  local __r2 = (h as spawn.Handle):wait() as spawn.Result
+  local ok, _ = __r2.ok, __r2.stdout
   assert(not ok, "cosmic --check-style should fail on file with long line")
 end
 test_style_long_line()
@@ -56,7 +58,8 @@ bar()
 ]])
 
   local h = spawn.spawn({cosmic, "--check-style", input})
-  local ok, _ = (h as spawn.Handle):read()
+  local __r3 = (h as spawn.Handle):wait() as spawn.Result
+  local ok, _ = __r3.ok, __r3.stdout
   assert(not ok, "cosmic --check-style should fail when function not called immediately after definition")
 end
 test_style_call_after_define()
@@ -64,7 +67,8 @@ test_style_call_after_define()
 -- Missing file: should fail
 local function test_style_missing_file()
   local h = spawn.spawn({cosmic, "--check-style", "/nonexistent/file.tl"})
-  local ok, _ = (h as spawn.Handle):read()
+  local __r4 = (h as spawn.Handle):wait() as spawn.Result
+  local ok, _ = __r4.ok, __r4.stdout
   assert(not ok, "cosmic --check-style should fail on missing file")
 end
 test_style_missing_file()

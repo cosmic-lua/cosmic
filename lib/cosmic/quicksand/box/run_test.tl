@@ -41,7 +41,8 @@ io.write("skipped: exit=" .. tostring(code) .. "\n"); os.exit(0)
 ]])
 
   local h = spawn.spawn({cosmic, script})
-  local ok, out = (h as spawn.Handle):read()
+  local __r1 = (h as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r1.ok, __r1.stdout
   -- An outer seccomp filter may SIGSYS the subprocess outright; that
   -- still counts as a skip because we never reached enforcement.
   if not ok then return end
@@ -74,7 +75,8 @@ end
 ]])
 
   local h = spawn.spawn({cosmic, script})
-  local ok, out = (h as spawn.Handle):read()
+  local __r2 = (h as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r2.ok, __r2.stdout
   if not ok then return end
   local s = out as string
   assert(s:find("ok") or s:find("skipped"),
@@ -102,7 +104,8 @@ end
 ]])
 
   local h = spawn.spawn({cosmic, script})
-  local ok, out = (h as spawn.Handle):read()
+  local __r3 = (h as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r3.ok, __r3.stdout
   if not ok then return end
   local s = out as string
   assert(s:find("ok") or s:find("skipped"),
@@ -131,7 +134,8 @@ io.write("ok\n")
 ]])
 
   local h = spawn.spawn({cosmic, script})
-  local ok, out = (h as spawn.Handle):read()
+  local __r4 = (h as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r4.ok, __r4.stdout
   if not ok then return end
   local s = out as string
   assert(s:find("ok") or s:find("skipped"),

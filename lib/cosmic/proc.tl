@@ -174,6 +174,71 @@ local function fexecve(fd: number, argv: {string}, envp?: {string}): nil, string
   return nil, err
 end
 
+-- Process Control (children) --
+
+--- Creates a new process (fork).
+--- @return number The child pid in the parent, 0 in the child
+local function fork(): number
+  return (unix.fork())
+end
+
+--- Spawns a program via posix_spawn (no PATH search).
+--- @param prog string Absolute path to the executable
+--- @param argv {string} Argument vector passed to the program
+--- @param envp {string}? Environment (KEY=value); inherits if omitted
+--- @return number The child pid on success
+local function posix_spawn(prog: string, argv: {string}, envp?: {string}): number
+  return (unix.spawn(prog, argv, envp))
+end
+
+--- Spawns a program via posix_spawnp (PATH search).
+--- @param prog string Program name to execute
+--- @param argv {string} Argument vector passed to the program
+--- @param envp {string}? Environment (KEY=value); inherits if omitted
+--- @return number The child pid on success
+local function posix_spawnp(prog: string, argv: {string}, envp?: {string}): number
+  return (unix.spawnp(prog, argv, envp))
+end
+
+--- Waits for a child process to change state.
+--- @param pid number? Child pid to wait for (-1 or nil for any child)
+--- @param options number? Wait options (e.g. WNOHANG)
+--- @return number The pid that changed state (0 with WNOHANG if none)
+--- @return number Status word (interpret with WIFEXITED/WEXITSTATUS/...)
+--- @return Rusage Resource usage for the reaped child
+local function wait(pid?: number, options?: number): number, number, Rusage
+  local wpid, status, rusage = unix.wait(pid, options)
+  return wpid, status, rusage as Rusage
+end
+
+--- Sends a signal to a process.
+--- @param pid number Process id to signal
+--- @param sig number Signal number (e.g. SIGTERM, SIGKILL)
+--- @return boolean True on success
+local function kill(pid: number, sig: number): boolean
+  return (unix.kill(pid, sig))
+end
+
+--- True if the child exited normally.
+local function WIFEXITED(status: number): boolean
+  return unix.WIFEXITED(status)
+end
+
+--- The exit code (valid when WIFEXITED is true).
+local function WEXITSTATUS(status: number): number
+  return unix.WEXITSTATUS(status)
+end
+
+--- True if the child was terminated by a signal.
+local function WIFSIGNALED(status: number): boolean
+  return unix.WIFSIGNALED(status)
+end
+
+--- The terminating signal number (valid when WIFSIGNALED is true).
+local function WTERMSIG(status: number): number
+  return unix.WTERMSIG(status)
+end
+
 -- Resource Usage --
 
 --- Gets resource usage statistics.
@@ -257,16 +322,6 @@ end
 --- Returns true if current script is being run as the main program.
 --- Returns false if the script is being loaded as a module via require().
 --- Use this to guard code that should only run when executed directly.
----
---- Example:
----   local proc = require("cosmic.proc")
----   local function greet(name: string): string
----     return "hello, " .. name
----   end
----   if proc.is_main() then
----     print(greet(arg[1] or "world"))
----   end
----   return { greet = greet }
 --- @return boolean True if running as main script
 -- Assigned directly to avoid adding a stack frame, since cosmo.is_main()
 -- inspects the call stack to determine if the caller is the main script.
@@ -295,6 +350,17 @@ local record ProcModule
   execvp: function(prog: string, argv?: {string}): nil, string
   execvpe: function(prog: string, argv: {string}, envp?: {string}): nil, string
   fexecve: function(fd: number, argv: {string}, envp?: {string}): nil, string
+
+  -- Process control (children)
+  fork: function(): number
+  posix_spawn: function(prog: string, argv: {string}, envp?: {string}): number
+  posix_spawnp: function(prog: string, argv: {string}, envp?: {string}): number
+  wait: function(pid?: number, options?: number): number, number, Rusage
+  kill: function(pid: number, sig: number): boolean
+  WIFEXITED: function(status: number): boolean
+  WEXITSTATUS: function(status: number): number
+  WIFSIGNALED: function(status: number): boolean
+  WTERMSIG: function(status: number): number
 
   -- Resource usage
   getrusage: function(who?: number): Rusage
@@ -332,6 +398,11 @@ local record ProcModule
   PRIO_PROCESS: number
   PRIO_PGRP: number
   PRIO_USER: number
+
+  -- Wait options
+  WNOHANG: number
+  WUNTRACED: number
+  WCONTINUED: number
 end
 
 local M: ProcModule = {
@@ -357,6 +428,17 @@ local M: ProcModule = {
   execvp = execvp,
   execvpe = execvpe,
   fexecve = fexecve,
+
+  -- Process control (children)
+  fork = fork,
+  posix_spawn = posix_spawn,
+  posix_spawnp = posix_spawnp,
+  wait = wait,
+  kill = kill,
+  WIFEXITED = WIFEXITED,
+  WEXITSTATUS = WEXITSTATUS,
+  WIFSIGNALED = WIFSIGNALED,
+  WTERMSIG = WTERMSIG,
 
   -- Resource usage
   getrusage = getrusage,
@@ -394,6 +476,11 @@ local M: ProcModule = {
   PRIO_PROCESS = unix.PRIO_PROCESS,
   PRIO_PGRP = unix.PRIO_PGRP,
   PRIO_USER = unix.PRIO_USER,
+
+  -- Wait options
+  WNOHANG = unix.WNOHANG,
+  WUNTRACED = unix.WUNTRACED,
+  WCONTINUED = unix.WCONTINUED,
 }
 
 return M

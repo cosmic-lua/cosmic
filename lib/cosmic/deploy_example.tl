@@ -25,11 +25,10 @@ local function Example_shebang()
   cio.barf(script, '#!/usr/bin/env cosmic\nlocal name: string = "world"\nprint("hello " .. name)\n')
 
   -- Run it via cosmic (portable across all platforms)
-  local h = spawn.spawn({cosmic, script}) as spawn.Handle
-  local ok, out = h:read()
+  local r = spawn.run({cosmic, script}) as spawn.Result
   fs.rmrf(tmpdir)
-  assert(ok, out)
-  print(out)
+  assert(r.ok, r.stderr)
+  print(r.stdout)
   -- Output:
   -- hello world
 end
@@ -53,17 +52,15 @@ print("hello " .. name)
 ]])
 
   -- Run with an argument
-  local h = spawn.spawn({cosmic, script, "alice"}) as spawn.Handle
-  local ok, out = h:read()
-  assert(ok, out)
-  io.write(out)
+  local r = spawn.run({cosmic, script, "alice"}) as spawn.Result
+  assert(r.ok, r.stderr)
+  io.write(r.stdout)
 
   -- Run without arguments to use the default
-  h = spawn.spawn({cosmic, script}) as spawn.Handle
-  ok, out = h:read()
+  r = spawn.run({cosmic, script}) as spawn.Result
   fs.rmrf(tmpdir)
-  assert(ok, out)
-  io.write(out)
+  assert(r.ok, r.stderr)
+  io.write(r.stdout)
   -- Output:
   -- hello alice
   -- hello world
@@ -90,11 +87,10 @@ local function Example_install_to_path()
   fs.chmod(script, 0x1ED) -- 0755
 
   -- Run it via cosmic (simulating PATH lookup)
-  local h = spawn.spawn({cosmic, script}) as spawn.Handle
-  local ok, out = h:read()
+  local r = spawn.run({cosmic, script}) as spawn.Result
   fs.rmrf(tmpdir)
-  assert(ok, out)
-  print(out)
+  assert(r.ok, r.stderr)
+  print(r.stdout)
   -- Output:
   -- mytool v1.0
 end
@@ -115,9 +111,9 @@ local function Example_portable_executable()
   cio.barf(tl_file, 'local msg: string = "portable app"\nprint(msg)\n')
 
   -- Compile .tl to .lua (--embed requires plain Lua)
-  local h = spawn.spawn({cosmic, "--compile", tl_file}) as spawn.Handle
-  local ok, lua_source = h:read()
-  assert(ok, lua_source)
+  local r = spawn.run({cosmic, "--compile", tl_file}) as spawn.Result
+  assert(r.ok, r.stderr)
+  local lua_source = r.stdout
 
   -- Create app directory with compiled entry point
   local appdir = fs.join(tmpdir, "pkg")
@@ -126,16 +122,14 @@ local function Example_portable_executable()
 
   -- Build a standalone executable
   local output = fs.join(tmpdir, "myapp")
-  h = spawn.spawn({cosmic, "--embed", appdir, "--output", output}) as spawn.Handle
-  ok, lua_source = h:read()
-  assert(ok, lua_source)
+  r = spawn.run({cosmic, "--embed", appdir, "--output", output}) as spawn.Result
+  assert(r.ok, r.stderr)
 
   -- Run the standalone binary — no cosmic needed on the target machine
-  h = spawn.spawn({output}) as spawn.Handle
-  ok, lua_source = h:read()
+  r = spawn.run({output}) as spawn.Result
   fs.rmrf(tmpdir)
-  assert(ok, lua_source)
-  print(lua_source)
+  assert(r.ok, r.stderr)
+  print(r.stdout)
   -- Output:
   -- portable app
 end

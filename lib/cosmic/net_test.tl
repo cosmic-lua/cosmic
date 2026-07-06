@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
 local net = require("cosmic.net")
 local fs = require("cosmic.fs")
-local child = require("cosmic.child")
+local proc = require("cosmic.proc")
 
 local function test_socket_creation()
   -- Test TCP socket creation
@@ -95,7 +95,7 @@ local function test_listen_accept_connect()
   assert(ok, "listen failed: " .. tostring(err))
 
   -- Fork to create a client
-  local pid = child.fork()
+  local pid = proc.fork()
   if pid == 0 then
     -- Child: connect to server
     local client = net.socket()
@@ -136,7 +136,7 @@ local function test_listen_accept_connect()
   server:close()
 
   -- Wait for child
-  child.wait(pid)
+  proc.wait(pid)
 end
 test_listen_accept_connect()
 
@@ -403,7 +403,7 @@ local function test_accept_socket_has_close_metamethod()
   assert(ok, "listen failed: " .. tostring(err))
 
   -- Fork to create a client
-  local pid = child.fork()
+  local pid = proc.fork()
   if pid == 0 then
     local client = net.socket()
     if not client then os.exit(1) end
@@ -428,7 +428,7 @@ local function test_accept_socket_has_close_metamethod()
 
   client:close()
   server:close()
-  child.wait(pid)
+  proc.wait(pid)
 end
 test_accept_socket_has_close_metamethod()
 
@@ -450,7 +450,7 @@ local function test_listen_tcp_connect_to_returned_port()
   local srv = srv as net.Socket
 
   -- Fork: child connects and sends, parent accepts and reads
-  local pid = child.fork()
+  local pid = proc.fork()
   if pid == 0 then
     local csock = net.connect_tcp(0x7f000001, port)
     if not csock then
@@ -469,7 +469,7 @@ local function test_listen_tcp_connect_to_returned_port()
   assert(data == "hi", "expected 'hi', got '" .. tostring(data) .. "'")
   conn:close()
   srv:close()
-  child.wait(pid)
+  proc.wait(pid)
 end
 test_listen_tcp_connect_to_returned_port()
 

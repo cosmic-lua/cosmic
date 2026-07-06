@@ -62,12 +62,11 @@ local function spawn_capture(bin: string, argv_tail: {string}): string
   for _, a in ipairs(argv_tail) do
     table.insert(argv, a)
   end
-  local handle, serr = child.spawn(argv)
-  assert(handle, serr)
-  local hh = handle as child.Handle
-  local ok, out, code = hh:read()
-  assert(ok, "exit code " .. tostring(code) .. ": " .. tostring(out))
-  return ((out as string):gsub("%s+$", ""))
+  local result, serr = child.run(argv)
+  assert(result, serr)
+  local r = result as child.Result
+  assert(r.ok, "exit code " .. tostring(r.code) .. ": " .. tostring(r.stdout))
+  return (r.stdout:gsub("%s+$", ""))
 end
 
 local function scenarios(): {pt.Scenario}, string

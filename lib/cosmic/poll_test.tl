@@ -171,23 +171,28 @@ end
 test_poll_with_socket()
 
 local function test_poll_with_child_pipes()
-  local handle, err = child.spawn({"echo", "hello"})
+  -- Redirect the child's stdout into a pipe we own, then poll the read end.
+  local pp0, perr = cio.pipe()
+  assert(pp0 ~= nil, "pipe creation failed: " .. tostring(perr))
+  local pp = pp0 as cio.Pipe
+  local handle, err = child.spawn({"echo", "hello"}, {stdout = pp.writer:fd()})
   assert(handle ~= nil, "spawn failed: " .. tostring(err))
-  local handle = handle as child.Handle
+  local h = handle as child.Handle
+  pp.writer:close()
 
   local p = poll.new()
-  -- child.Pipe has .fd field
-  p:add(handle.stdout.fd, poll.POLLIN)
+  p:add(pp.reader:fd(), poll.POLLIN)
 
   local count = 0
   for fd, events in p:wait(1000) do
-    assert(fd == handle.stdout.fd, "expected stdout fd")
+    assert(fd == pp.reader:fd(), "expected reader fd")
     assert(events.readable or events.hangup, "expected readable or hangup")
     count = count + 1
   end
   assert(count >= 1, "expected at least 1 event from child stdout")
 
-  handle:wait()
+  pp.reader:close()
+  h:wait()
 end
 test_poll_with_child_pipes()
 

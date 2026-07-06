@@ -1,115 +1,68 @@
 --- Child process management.
---- Spawn and manage child processes with I/O control.
+---
+--- The high-level spawn API. `spawn` starts a process and hands back a
+--- `Handle` you can `kill`, `wait` on (with an optional timeout), poll with
+--- `try_wait`, or stream from with `read`. `run` is the one-shot form that
+--- spawns, waits, and returns a structured `Result`. Low-level syscall
+--- passthroughs (fork/wait/kill/posix_spawn, the W* status helpers) live in
+--- `cosmic.proc`; this module builds the ergonomic layer on top.
+---
+--- A Handle owns the child: `wait`/`run` reap it and cache the `Result`, so a
+--- second `wait` returns the same value instead of failing. An abandoned
+--- handle is not leaked — its `__gc`/`__close` metamethods SIGKILL and reap an
+--- un-waited child and close its pipes, so `local h <close> = spawn{...}` (or
+--- simply dropping the handle) never leaves a zombie.
 local unix = require("cosmo.unix")
 local childio = require("cosmic.child_io")
+local errno = require("cosmic.errno")
 
---- Process resource usage statistics.
-local record Rusage
-  utime: function(self: Rusage): number, number
-  stime: function(self: Rusage): number, number
-  maxrss: function(self: Rusage): number
-  idrss: function(self: Rusage): number
-  ixrss: function(self: Rusage): number
-  isrss: function(self: Rusage): number
-  minflt: function(self: Rusage): number
-  majflt: function(self: Rusage): number
-  nswap: function(self: Rusage): number
-  inblock: function(self: Rusage): number
-  oublock: function(self: Rusage): number
-  msgsnd: function(self: Rusage): number
-  msgrcv: function(self: Rusage): number
-  nsignals: function(self: Rusage): number
-  nvcsw: function(self: Rusage): number
-  nivcsw: function(self: Rusage): number
+--- Structured outcome of a finished child.
+--- Exactly one of `code`/`signal` is set: `code` when the child exited,
+--- `signal` when a signal killed it. `ok` is true only on a zero exit.
+local record Result
+  code: integer -- exit status; nil if signaled
+  signal: integer -- terminating signal; nil if exited
+  ok: boolean -- code == 0
+  stdout: string
+  stderr: string
 end
 
 --- Handle for a spawned process.
---- stdin/stdout/stderr are cosmic.child_io Pipe wrappers (or nil when the
---- corresponding stream was redirected to a raw fd via Opts).
+--- Fields prefixed `_` are internal bookkeeping; use the methods.
 local record Handle
-  pid: number
-  stdin: childio.Pipe
-  stdout: childio.Pipe
-  stderr: childio.Pipe
-  wait: function(self: Handle): number | nil, string
-  read: function(self: Handle, size?: number): boolean | string | nil, string, number
-  communicate: function(self: Handle): string, string, number, string
+  pid: integer
+
+  -- internal state (do not touch)
+  _st: childio.PumpState
+  _result: Result
+  _closed: boolean
+
+  --- Sends `sig` (default SIGTERM) to the child. Fails once the child has
+  --- been reaped, since its pid may have been recycled.
+  kill: function(self: Handle, sig?: number): boolean, string
+  --- Non-blocking reap: the cached/final Result if the child has finished,
+  --- `nil, nil` while it is still running, or `nil, err` on a wait error.
+  try_wait: function(self: Handle): Result | nil, string
+  --- Runs the child to completion (feeding stdin, draining stdout+stderr) and
+  --- returns its Result. With `timeout_ms`, returns `nil, "timeout"` if the
+  --- child has not finished in time; the handle stays usable (wait again, or
+  --- kill it). Idempotent: repeat calls return the same cached Result.
+  wait: function(self: Handle, timeout_ms?: integer): Result | nil, string
+  --- Streaming read of up to `size` bytes from the child's stdout. Returns
+  --- "" at end of file. `size` is required; for whole-output capture use
+  --- `wait`/`run`, which also collect stderr and cannot deadlock.
+  read: function(self: Handle, size: integer): string | nil, string
 end
 
 --- Options for spawning a process.
---- stdout/stderr: raw fd dup2'd onto fd 1/2; handle fields nil.
---- Close write end before reading. See Example_spawn_pipe.
+--- stdout/stderr as numbers are raw fds dup2'd onto the child's fd 1/2 (the
+--- corresponding Result field is then ""). See Example_spawn_pipe.
 local record Opts
   stdin: string | number -- string piped to stdin, or raw fd dup2'd onto fd 0
-  stdout: number -- raw fd -> fd 1; handle.stdout becomes nil
-  stderr: number -- raw fd -> fd 2; handle.stderr becomes nil
+  stdout: number -- raw fd -> fd 1
+  stderr: number -- raw fd -> fd 2
   env: {string}
   cwd: string
-end
-
---- Creates a new process (fork).
---- @return number The child process id in parent, 0 in child
-local function fork(): number
-  return (unix.fork())
-end
-
---- Spawns a new process using posix_spawn (low-level).
---- @param prog string Absolute path to the executable
---- @param argv {string} Argument vector passed to the program
---- @param envp {string}? Environment variables (KEY=value format)
---- @return number The child process id on success
-local function posix_spawn(prog: string, argv: {string}, envp?: {string}): number
-  return (unix.spawn(prog, argv, envp))
-end
-
---- Spawns a new process with PATH search (low-level).
---- @param prog string The program name to execute
---- @param argv {string} Argument vector passed to the program
---- @param envp {string}? Environment variables
---- @return number The child process id on success
-local function posix_spawnp(prog: string, argv: {string}, envp?: {string}): number
-  return (unix.spawnp(prog, argv, envp))
-end
-
---- Waits for child process to terminate.
---- @param pid number? Process id to wait for (-1 for any child)
---- @param options number? Wait options (e.g., WNOHANG)
---- @return number The child process id that terminated
---- @return number Status code (use WIFEXITED, WEXITSTATUS to interpret)
---- @return Rusage Resource usage statistics
-local function wait(pid?: number, options?: number): number, number, Rusage
-  local wpid, status, rusage = unix.wait(pid, options)
-  return wpid, status, rusage as Rusage
-end
-
---- Sends signal to child process.
---- @param pid number Process id to signal
---- @param sig number Signal number (e.g., SIGTERM, SIGKILL)
---- @return boolean True on success
-local function kill(pid: number, sig: number): boolean
-  return (unix.kill(pid, sig))
-end
-
--- Status helpers --
-
---- Returns true if process exited normally.
-local function WIFEXITED(wstatus: number): boolean
-  return unix.WIFEXITED(wstatus)
-end
-
---- Returns the exit code (valid if WIFEXITED is true).
-local function WEXITSTATUS(wstatus: number): number
-  return unix.WEXITSTATUS(wstatus)
-end
-
---- Returns true if process was terminated by a signal.
-local function WIFSIGNALED(wstatus: number): boolean
-  return unix.WIFSIGNALED(wstatus)
-end
-
---- Returns the terminating signal number (valid if WIFSIGNALED is true).
-local function WTERMSIG(wstatus: number): number
-  return unix.WTERMSIG(wstatus)
 end
 
 --- Normalize an env table to a list of "KEY=VALUE" strings.
@@ -129,8 +82,7 @@ local function is_zip_path(p: string): boolean
   return p:sub(1, 5) == "/zip/"
 end
 
---- Prepares an executable fd from a /zip/ path.
---- Opens the path to get a zip fd suitable for fexecve.
+--- Prepares an executable fd from a /zip/ path for fexecve.
 --- @param zip_path string Path starting with /zip/
 --- @return number | nil The file descriptor ready for fexecve
 --- @return string Error message on failure
@@ -142,11 +94,121 @@ local function prepare_zip_exec(zip_path: string): number | nil, string
   return fd
 end
 
--- High-level spawn API --
+-- Close the child's stdin/stdout/stderr fds still held in the pump state,
+-- once. Safe to call repeatedly.
+local function close_fds(self: Handle)
+  local st = self._st
+  if st.stdin_fd then unix.close(st.stdin_fd); st.stdin_fd = nil end
+  if st.stdout_fd then unix.close(st.stdout_fd); st.stdout_fd = nil end
+  if st.stderr_fd then unix.close(st.stderr_fd); st.stderr_fd = nil end
+end
+
+-- Build and cache the Result from a reaped status word, then release fds.
+local function finish(self: Handle, status: number): Result
+  local r: Result = {
+    stdout = table.concat(self._st.out),
+    stderr = table.concat(self._st.err_out),
+  }
+  if unix.WIFEXITED(status) then
+    r.code = unix.WEXITSTATUS(status) as integer
+    r.ok = r.code == 0
+  elseif unix.WIFSIGNALED(status) then
+    r.signal = unix.WTERMSIG(status) as integer
+    r.ok = false
+  else
+    r.ok = false
+  end
+  self._result = r
+  close_fds(self)
+  return r
+end
+
+-- Kill (SIGKILL) and reap an un-waited child, then close its fds. Runs from
+-- __gc/__close so an abandoned handle never leaks a zombie or descriptors.
+local function cleanup(self: Handle)
+  if self._closed then return end
+  self._closed = true
+  if not self._result then
+    unix.kill(self.pid, unix.SIGKILL)
+    unix.wait(self.pid)
+  end
+  close_fds(self)
+end
+
+local handle_mt: metatable < Handle > = {
+  __close = function(self: Handle) cleanup(self) end,
+  __gc = function(self: Handle) cleanup(self) end,
+}
+
+-- Attach the Handle methods and finalizers to a freshly forked child.
+local function make_handle(pid: number, st: childio.PumpState): Handle
+  local handle: Handle = {pid = pid as integer, _st = st}
+
+  function handle:kill(sig?: number): boolean, string
+    if self._result then
+      return false, "kill: process already reaped"
+    end
+    local ok, err = unix.kill(self.pid, sig or unix.SIGTERM)
+    if not ok then
+      return false, errno.str(err, "kill")
+    end
+    return true
+  end
+
+  function handle:wait(timeout_ms?: integer): Result | nil, string
+    if self._result then
+      return self._result
+    end
+    local deadline: number = nil
+    if timeout_ms then
+      deadline = childio.now_ms() + timeout_ms
+    end
+    local timed_out = childio.pump(self._st, deadline)
+    if timed_out then
+      return nil, "timeout"
+    end
+    local _, status = unix.wait(self.pid)
+    if type(status) ~= "number" then
+      return nil, "wait failed: " .. tostring(status)
+    end
+    return finish(self, status as number)
+  end
+
+  function handle:try_wait(): Result | nil, string
+    if self._result then
+      return self._result
+    end
+    local wpid, status = unix.wait(self.pid, unix.WNOHANG)
+    if wpid == nil then
+      return nil, "wait failed: " .. tostring(status)
+    end
+    if wpid == 0 then
+      return nil -- still running
+    end
+    -- Reaped: the child is gone, so draining hits EOF promptly.
+    childio.pump(self._st, nil)
+    return finish(self, status as number)
+  end
+
+  function handle:read(size: integer): string | nil, string
+    local fd = self._st.stdout_fd
+    if not fd then
+      return nil, "stdout not captured"
+    end
+    local chunk, err = unix.read(fd, size)
+    if chunk == nil then
+      return nil, errno.str(err, "read")
+    end
+    return chunk
+  end
+
+  return setmetatable(handle, handle_mt)
+end
 
 --- Spawns a child process with I/O control. Uses fexecve for /zip/ paths.
---- When Opts.stdout/stderr are fds they are dup2'd into child (handle fields
---- nil); MUST close the write end before reading. See Example_spawn_pipe.
+--- Returns a Handle on success. If the program cannot be executed, spawn
+--- itself fails with `nil, "exec failed: ENOENT: ..."` — the error surfaces
+--- here, not as a bogus exit code from a later wait().
 --- To spawn cosmic itself, use `rawget(arg, -1)` — NOT arg[0] (gotchas #7).
 --- @param argv {string} Command and arguments
 --- @param opts Opts? Spawn options
@@ -154,10 +216,8 @@ end
 local function spawn(argv: {string}, opts?: Opts): Handle | nil, string
   opts = opts or {}
 
-  -- Resolve the executable into a LOCAL, never by mutating the caller's
-  -- argv table: a PATH search wrote the resolved path back into argv[1],
-  -- corrupting the caller's own table. argv is passed to exec unchanged, so
-  -- argv[0] stays the name the caller gave.
+  -- Resolve the executable into a LOCAL, never by mutating the caller's argv:
+  -- a PATH search that wrote back into argv[1] corrupts the caller's table.
   local exec_fd: number
   local prog = argv[1]
   if is_zip_path(argv[1]) then
@@ -175,20 +235,17 @@ local function spawn(argv: {string}, opts?: Opts): Handle | nil, string
   end
 
   -- Track every fd we open so a mid-way pipe() failure (fd exhaustion) can be
-  -- unwound cleanly instead of leaking descriptors — including any exec fd,
-  -- which would otherwise leak on this early-return path.
+  -- unwound cleanly, including the exec fd on the early-return path.
   local opened: {number} = {}
   local function fail(msg: string): Handle, string
     for _, fd in ipairs(opened) do unix.close(fd) end
     if exec_fd then unix.close(exec_fd) end
     return nil, msg
   end
-  -- Create pipes CLOEXEC so their ends do not leak into an unrelated child
-  -- spawned while this handle is still open: otherwise child B inherits child
-  -- A's pipe ends and A never sees stdin EOF until B exits (communicate()
-  -- hangs on overlap). The child's own dup2 onto 0/1/2 clears CLOEXEC on the
-  -- ends it keeps; the ends that happen to already be fd 0/1/2 are cleared
-  -- explicitly below.
+  -- Pipes are CLOEXEC so their ends do not leak into an unrelated child
+  -- spawned while this handle is still open (which would keep an earlier
+  -- child from seeing stdin EOF). The child's own dup2 onto 0/1/2 clears
+  -- CLOEXEC on the ends it keeps.
   local function new_pipe(): number, number
     local r, w = unix.pipe(unix.O_CLOEXEC)
     if r == nil or w == nil then
@@ -223,24 +280,27 @@ local function spawn(argv: {string}, opts?: Opts): Handle | nil, string
     if not stderr_w then return fail("pipe failed (stderr)") end
   end
 
+  -- Exec-status pipe: CLOEXEC, so a successful execve closes the write end and
+  -- the parent's read EOFs instantly. On exec failure the child writes the
+  -- errno string here before _exit, making the failure visible to the parent.
+  local exec_r, exec_w = new_pipe()
+  if not exec_w then return fail("pipe failed (exec)") end
+
   local pid = unix.fork()
   if pid == 0 then
+    unix.close(exec_r)
+
     -- stdin (fd 0)
     if stdin_is_fd then
       if opts.stdin ~= 0 then
         unix.dup(opts.stdin as number, 0)
       end
     else
-      -- Close the write end first, then dup2 the read end onto fd 0.
-      -- If stdin_r already IS fd 0, dup2 is a no-op (same fd), so skip
-      -- the close to avoid closing the fd we are about to use.
       if stdin_r ~= 0 then
         unix.close(stdin_w)
         unix.dup(stdin_r, 0)
         unix.close(stdin_r)
       else
-        -- stdin_r == 0: no dup2 to clear CLOEXEC, so clear it directly or
-        -- fd 0 would close on execve; then just close the write end.
         unix.fcntl(0, unix.F_SETFD, 0)
         unix.close(stdin_w)
       end
@@ -257,7 +317,6 @@ local function spawn(argv: {string}, opts?: Opts): Handle | nil, string
         unix.dup(stdout_w, 1)
         unix.close(stdout_w)
       else
-        -- stdout_w == 1: no dup2 to clear CLOEXEC, so clear it directly.
         unix.fcntl(1, unix.F_SETFD, 0)
         unix.close(stdout_r)
       end
@@ -274,25 +333,30 @@ local function spawn(argv: {string}, opts?: Opts): Handle | nil, string
         unix.dup(stderr_w, 2)
         unix.close(stderr_w)
       else
-        -- stderr_w == 2: no dup2 to clear CLOEXEC, so clear it directly.
         unix.fcntl(2, unix.F_SETFD, 0)
         unix.close(stderr_r)
       end
     end
 
-    -- change working directory if specified
     if opts.cwd then
       if not unix.chdir(opts.cwd) then
-        os.exit(126)
+        local _ = unix.write(exec_w, "chdir failed: " .. tostring(opts.cwd))
+        os.exit(127)
       end
     end
 
     local env = opts.env and normalize_env(opts.env) or unix.environ()
+    local eerr: string
     if exec_fd then
-      unix.fexecve(exec_fd, argv, env)
+      local _, e = unix.fexecve(exec_fd, argv, env)
+      eerr = e as string
     else
-      unix.execve(prog, argv, env)
+      local _, e = unix.execve(prog, argv, env)
+      eerr = e as string
     end
+    -- Only reached when exec failed. Report the errno through the pipe so the
+    -- parent's spawn() can return it, then exit distinctly.
+    local _ = unix.write(exec_w, tostring(eerr))
     os.exit(127)
   end
 
@@ -301,191 +365,80 @@ local function spawn(argv: {string}, opts?: Opts): Handle | nil, string
   end
 
   if pid == nil then
-    if not stdin_is_fd then
-      unix.close(stdin_r)
-      unix.close(stdin_w)
-    end
-    if not stdout_is_fd then
-      unix.close(stdout_r)
-      unix.close(stdout_w)
-    end
-    if not stderr_is_fd then
-      unix.close(stderr_r)
-      unix.close(stderr_w)
-    end
+    for _, fd in ipairs(opened) do unix.close(fd) end
     return nil, "fork failed"
   end
 
-  if not stdin_is_fd then
-    unix.close(stdin_r)
-  end
-  if not stdout_is_fd then
-    unix.close(stdout_w)
-  end
-  if not stderr_is_fd then
-    unix.close(stderr_w)
+  -- Parent: close the ends the child owns, then wait on the exec handshake.
+  if not stdin_is_fd then unix.close(stdin_r) end
+  if not stdout_is_fd then unix.close(stdout_w) end
+  if not stderr_is_fd then unix.close(stderr_w) end
+  unix.close(exec_w)
+
+  -- A non-empty read means exec failed inside the child: reap it and surface
+  -- the error from spawn itself. EOF (empty read) means exec succeeded.
+  local exec_msg = unix.read(exec_r, 4096)
+  unix.close(exec_r)
+  if exec_msg ~= nil and exec_msg ~= "" then
+    unix.wait(pid)
+    if not stdin_is_fd then unix.close(stdin_w) end
+    if not stdout_is_fd then unix.close(stdout_r) end
+    if not stderr_is_fd then unix.close(stderr_r) end
+    return nil, errno.str(exec_msg, "exec failed")
   end
 
-  -- An opts.stdin string is delivered lazily by wait()/read()/communicate()
-  -- via the pump, NOT written synchronously here: a >pipe-buffer write before
-  -- anyone drains stdout/stderr would deadlock, and a child that exits early
-  -- would SIGPIPE-kill this process. The pump feeds stdin and drains both
-  -- output streams in one poll loop, so neither can happen.
+  -- An opts.stdin string is delivered lazily by the pump (in wait/run), not
+  -- written synchronously here: a >pipe-buffer write before anyone drains
+  -- stdout/stderr would deadlock. The pump feeds stdin and drains both output
+  -- streams in one poll loop, so neither can happen.
   local stdin_data: string = nil
   if type(opts.stdin) == "string" then
     stdin_data = opts.stdin as string
   end
 
-  local handle: Handle = {
-    pid = pid,
-    stdin = childio.make_pipe(stdin_w),
-    stdout = childio.make_pipe(stdout_r),
-    stderr = childio.make_pipe(stderr_r),
+  local st: childio.PumpState = {
+    stdout_fd = stdout_is_fd and nil or stdout_r,
+    stderr_fd = stderr_is_fd and nil or stderr_r,
+    stdin_fd = stdin_is_fd and nil or stdin_w,
+    stdin_data = stdin_data,
+    stdin_off = 0,
+    out = {},
+    err_out = {},
   }
 
-  -- Run the process to completion: pump stdin in / stdout+stderr out without
-  -- deadlock, then reap. Returns stdout, stderr, exit code (-1 if the process
-  -- did not exit normally), and an error string (signal/abnormal exit, or a
-  -- pump I/O error) that is nil on a clean normal exit.
-  local function finish(): string, string, number, string
-    local sfd = handle.stdin and handle.stdin.fd or nil
-    handle.stdin = nil
-    local out_fd = handle.stdout and handle.stdout.fd or nil
-    local err_fd = handle.stderr and handle.stderr.fd or nil
-    local out, err_out, io_err = childio.pump(out_fd, err_fd, sfd, stdin_data)
-    if handle.stdout then handle.stdout:close(); handle.stdout = nil end
-    if handle.stderr then handle.stderr:close(); handle.stderr = nil end
-    local _, status = unix.wait(handle.pid)
-    local code: number = -1
-    local err: string = nil
-    if type(status) ~= "number" then
-      err = "wait failed: " .. tostring(status)
-    elseif unix.WIFEXITED(status) then
-      code = unix.WEXITSTATUS(status)
-    elseif unix.WIFSIGNALED(status) then
-      err = "killed by signal " .. tostring(unix.WTERMSIG(status))
-    else
-      err = "process terminated abnormally"
-    end
-    return out, err_out, code, err or io_err
-  end
+  return make_handle(pid, st)
+end
 
-  --- Wait for the process to exit and return its exit code.
-  --- Feeds any stdin and drains stdout/stderr first so it cannot deadlock.
-  --- @return number | nil The exit code if the process exited normally
-  --- @return string Error message if the process terminated abnormally
-  function handle:wait(): number | nil, string
-    local _, _, code, err = finish()
-    if err then
-      return nil, err
-    end
-    return code
+--- One-shot spawn: run to completion and return the Result.
+--- @param argv {string} Command and arguments
+--- @param opts Opts? Spawn options
+--- @return Result | nil, string? The Result, or nil + error
+local function run(argv: {string}, opts?: Opts): Result | nil, string
+  local h, err = spawn(argv, opts)
+  if not h then
+    return nil, err
   end
-
-  --- Read output from the process.
-  --- With a size, reads that many bytes from stdout and returns them (or
-  --- nil, err). Without a size, runs the process to completion (feeding stdin,
-  --- draining stdout+stderr) and returns success, stdout, and the exit code.
-  --- To also capture stderr, use communicate().
-  --- @param size number Optional number of bytes to read from stdout
-  --- @return boolean|string|nil Success (exit code 0) or, with size, the data read
-  --- @return string The stdout output, or the error when size read fails
-  --- @return number The exit code of the process
-  function handle:read(size?: number): boolean | string | nil, string, number
-    if not self.stdout then
-      return nil, "stdout not captured"
-    end
-    if size then
-      if self.stdin then self.stdin:close(); self.stdin = nil end
-      return self.stdout:read(size)
-    end
-    local out, _, code = finish()
-    return code == 0, out, code
-  end
-
-  --- Run the process to completion and capture both output streams.
-  --- Feeds any stdin while draining stdout and stderr concurrently, then reaps.
-  --- @return string The captured stdout
-  --- @return string The captured stderr
-  --- @return number The exit code (-1 if the process did not exit normally)
-  --- @return string An error (signal death, or a pump I/O error), or nil
-  function handle:communicate(): string, string, number, string
-    return finish()
-  end
-
-  return handle
+  return (h as Handle):wait()
 end
 
 local record ChildModule
-  -- Exported types so callers can name/cast the fallible spawn result.
+  -- Exported types so callers can name/cast the fallible results.
   type Handle = Handle
   type Opts = Opts
+  type Result = Result
 
   -- High-level spawn API
   spawn: function(argv: {string}, opts?: Opts): Handle | nil, string
+  run: function(argv: {string}, opts?: Opts): Result | nil, string
 
-  -- Zip binary helpers
+  -- Zip binary helper
   prepare_zip_exec: function(zip_path: string): number | nil, string
-
-  -- Low-level primitives
-  fork: function(): number
-  posix_spawn: function(prog: string, argv: {string}, envp?: {string}): number
-  posix_spawnp: function(prog: string, argv: {string}, envp?: {string}): number
-  wait: function(pid?: number, options?: number): number, number, Rusage
-  kill: function(pid: number, sig: number): boolean
-
-  -- Status helpers
-  WIFEXITED: function(wstatus: number): boolean
-  WEXITSTATUS: function(wstatus: number): number
-  WIFSIGNALED: function(wstatus: number): boolean
-  WTERMSIG: function(wstatus: number): number
-
-  -- Wait options
-  WNOHANG: number
-  WUNTRACED: number
-  WCONTINUED: number
-
-  -- Common signals for child management
-  SIGTERM: number
-  SIGKILL: number
-  SIGINT: number
-  SIGCHLD: number
-  SIGSTOP: number
-  SIGCONT: number
 end
 
 local M: ChildModule = {
-  -- High-level spawn API
   spawn = spawn,
-
-  -- Zip binary helpers
+  run = run,
   prepare_zip_exec = prepare_zip_exec,
-
-  -- Low-level primitives
-  fork = fork,
-  posix_spawn = posix_spawn,
-  posix_spawnp = posix_spawnp,
-  wait = wait,
-  kill = kill,
-
-  -- Status helpers
-  WIFEXITED = WIFEXITED,
-  WEXITSTATUS = WEXITSTATUS,
-  WIFSIGNALED = WIFSIGNALED,
-  WTERMSIG = WTERMSIG,
-
-  -- Wait options
-  WNOHANG = unix.WNOHANG,
-  WUNTRACED = unix.WUNTRACED,
-  WCONTINUED = unix.WCONTINUED,
-
-  -- Common signals for child management
-  SIGTERM = unix.SIGTERM,
-  SIGKILL = unix.SIGKILL,
-  SIGINT = unix.SIGINT,
-  SIGCHLD = unix.SIGCHLD,
-  SIGSTOP = unix.SIGSTOP,
-  SIGCONT = unix.SIGCONT,
 }
 
 return M

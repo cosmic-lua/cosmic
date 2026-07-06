@@ -98,12 +98,11 @@ end
 --- @param bin string Binary path
 --- @return string Trimmed stdout
 local function spawn_capture(bin: string): string
-  local handle, serr = child.spawn({bin})
-  assert(handle, serr)
-  local hh = handle as child.Handle
-  local ok, out, code = hh:read()
-  assert(ok, "exit code " .. tostring(code) .. ": " .. tostring(out))
-  return ((out as string):gsub("%s+$", ""))
+  local result, serr = child.run({bin})
+  assert(result, serr)
+  local r = result as child.Result
+  assert(r.ok, "exit code " .. tostring(r.code) .. ": " .. tostring(r.stdout))
+  return (r.stdout:gsub("%s+$", ""))
 end
 
 local function scenarios(): {pt.Scenario}, string

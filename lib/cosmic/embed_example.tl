@@ -22,15 +22,13 @@ local function Example_embed_directory()
 
   -- Build it
   local output = fs.join(tmpdir, "hello")
-  local h = spawn.spawn({cosmic, "--embed", appdir, "--output", output}) as spawn.Handle
-  local ok, out = h:read()
-  assert(ok, out)
+  local r = spawn.run({cosmic, "--embed", appdir, "--output", output}) as spawn.Result
+  assert(r.ok, r.stderr)
 
   -- Run it
-  h = spawn.spawn({output}) as spawn.Handle
-  ok, out = h:read()
+  r = spawn.run({output}) as spawn.Result
   fs.rmrf(tmpdir)
-  print(out)
+  print(r.stdout)
   -- Output:
   -- hello from myapp
 end
@@ -45,9 +43,8 @@ local function Example_extract_roundtrip()
 
   -- Extract the running executable's zip contents
   local extractdir = fs.join(tmpdir, "extracted")
-  local h = spawn.spawn({cosmic, "--extract", extractdir}) as spawn.Handle
-  local ok, out = h:read()
-  assert(ok, out)
+  local r = spawn.run({cosmic, "--extract", extractdir}) as spawn.Result
+  assert(r.ok, r.stderr)
 
   -- The extracted directory contains main.lua and all bundled files
   local main_exists = fs.isfile(fs.join(extractdir, "main.lua"))
@@ -71,20 +68,17 @@ local function Example_embed_with_libraries()
   fs.makedirs(appdir)
   cio.barf(fs.join(appdir, "main.lua"), [[
 local child = require("cosmic.child")
-local h = child.spawn({"echo", "it works"})
-local ok, out = h:read()
-io.write(out)
+local r = child.run({"echo", "it works"})
+io.write(r.stdout)
 ]])
 
   local output = fs.join(tmpdir, "myapp")
-  local h = spawn.spawn({cosmic, "--embed", appdir, "--output", output}) as spawn.Handle
-  local ok, out = h:read()
-  assert(ok, out)
+  local r = spawn.run({cosmic, "--embed", appdir, "--output", output}) as spawn.Result
+  assert(r.ok, r.stderr)
 
-  h = spawn.spawn({output}) as spawn.Handle
-  ok, out = h:read()
+  r = spawn.run({output}) as spawn.Result
   fs.rmrf(tmpdir)
-  print(out)
+  print(r.stdout)
   -- Output:
   -- it works
 end
@@ -107,23 +101,21 @@ local function Example_embed_from_teal()
   cio.barf(tl_file, 'local msg: string = "hello from teal"\nprint(msg)\n')
 
   -- Compile .tl to .lua using cosmic --compile
-  local h = spawn.spawn({cosmic, "--compile", tl_file}) as spawn.Handle
-  local ok, lua_source = h:read()
-  assert(ok, lua_source)
+  local r = spawn.run({cosmic, "--compile", tl_file}) as spawn.Result
+  assert(r.ok, r.stderr)
+  local lua_source = r.stdout
 
   -- Write the compiled Lua as the entry point
   cio.barf(fs.join(appdir, "main.lua"), lua_source)
 
   -- Embed and run
   local output = fs.join(tmpdir, "from_teal")
-  h = spawn.spawn({cosmic, "--embed", appdir, "--output", output}) as spawn.Handle
-  ok, lua_source = h:read()
-  assert(ok, lua_source)
+  r = spawn.run({cosmic, "--embed", appdir, "--output", output}) as spawn.Result
+  assert(r.ok, r.stderr)
 
-  h = spawn.spawn({output}) as spawn.Handle
-  ok, lua_source = h:read()
+  r = spawn.run({output}) as spawn.Result
   fs.rmrf(tmpdir)
-  print(lua_source)
+  print(r.stdout)
   -- Output:
   -- hello from teal
 end

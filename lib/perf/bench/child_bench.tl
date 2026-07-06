@@ -12,11 +12,9 @@ local function scenarios(): {pt.Scenario}, string
     {
       name = "child_spawn_true",
       fn = function(_: any): any
-        local handle, err = child.spawn({"/bin/true"})
-        assert(handle, err)
-        local hh = handle as child.Handle
-        local _, _, code = hh:read()
-        return code
+        local result, err = child.run({"/bin/true"})
+        assert(result, err)
+        return (result as child.Result).code
       end,
       check = function(_: any, res: any): boolean, string
         if res as integer ~= 0 then

@@ -8,41 +8,33 @@ local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 
 --- cosmic -v should output version info and exit 0
 local function test_v_flag()
-  local h = spawn.spawn({cosmic, "-v"})
-  local ok, out = (h as spawn.Handle):read()
-  assert(ok, "cosmic -v should succeed")
-  local output = out as string
-  -- should contain at least the Lua version
-  assert(output:find("Lua 5.4"), "should contain Lua version, got: " .. output)
+  local r = spawn.run({cosmic, "-v"}) as spawn.Result
+  assert(r.ok, "cosmic -v should succeed")
+  assert(r.stdout:find("Lua 5.4"), "should contain Lua version, got: " .. r.stdout)
 end
 test_v_flag()
 
 --- cosmic --version should produce the same output as -v
 local function test_version_flag()
-  local h = spawn.spawn({cosmic, "--version"})
-  local ok, out = (h as spawn.Handle):read()
-  assert(ok, "cosmic --version should succeed")
-  local output = out as string
-  assert(output:find("Lua 5.4"), "should contain Lua version, got: " .. output)
+  local r = spawn.run({cosmic, "--version"}) as spawn.Result
+  assert(r.ok, "cosmic --version should succeed")
+  assert(r.stdout:find("Lua 5.4"), "should contain Lua version, got: " .. r.stdout)
 end
 test_version_flag()
 
 --- -v and --version should produce identical output
 local function test_v_and_version_match()
-  local hv = spawn.spawn({cosmic, "-v"})
-  local _, out_v = (hv as spawn.Handle):read()
-  local hver = spawn.spawn({cosmic, "--version"})
-  local _, out_ver = (hver as spawn.Handle):read()
-  assert(out_v == out_ver, "-v and --version should match: " .. (out_v as string) .. " vs " .. (out_ver as string))
+  local rv = spawn.run({cosmic, "-v"}) as spawn.Result
+  local rver = spawn.run({cosmic, "--version"}) as spawn.Result
+  assert(rv.stdout == rver.stdout, "-v and --version should match: " .. rv.stdout .. " vs " .. rver.stdout)
 end
 test_v_and_version_match()
 
 --- when cosmic.version is embedded, output should match the full format
 local function test_full_version_format()
-  local h = spawn.spawn({cosmic, "-v"})
-  local ok, out = (h as spawn.Handle):read()
-  assert(ok, "cosmic -v should succeed")
-  local output = (out as string):gsub("%s+$", "")
+  local r = spawn.run({cosmic, "-v"}) as spawn.Result
+  assert(r.ok, "cosmic -v should succeed")
+  local output = r.stdout:gsub("%s+$", "")
   -- the binary has version.lua embedded, so should show full format:
   -- cosmic-lua <version> (cosmos <version>, Lua 5.4)
   if output:find("^cosmic%-lua ") then
@@ -58,9 +50,8 @@ test_full_version_format()
 
 --- version output should be a single line
 local function test_version_single_line()
-  local h = spawn.spawn({cosmic, "-v"})
-  local _, out = (h as spawn.Handle):read()
-  local output = (out as string):gsub("%s+$", "")
+  local r = spawn.run({cosmic, "-v"}) as spawn.Result
+  local output = r.stdout:gsub("%s+$", "")
   local lines = 0
   for _ in output:gmatch("[^\n]+") do
     lines = lines + 1
@@ -71,12 +62,10 @@ test_version_single_line()
 
 --- cosmic.version module should be requireable
 local function test_require_version_module()
-  local h = spawn.spawn({cosmic, "-e", "local v = require('cosmic.version'); print(v.cosmic); print(v.cosmos)"})
-  local ok, out = (h as spawn.Handle):read()
-  if ok then
-    local output = out as string
+  local r = spawn.run({cosmic, "-e", "local v = require('cosmic.version'); print(v.cosmic); print(v.cosmos)"}) as spawn.Result
+  if r.ok then
     -- both fields should be non-empty strings
-    local cosmic_ver, cosmos_ver = output:match("^(%S+)\n(%S+)")
+    local cosmic_ver, cosmos_ver = r.stdout:match("^(%S+)\n(%S+)")
     assert(cosmic_ver and cosmic_ver ~= "", "cosmic version should be non-empty")
     assert(cosmos_ver and cosmos_ver ~= "", "cosmos version should be non-empty")
   end

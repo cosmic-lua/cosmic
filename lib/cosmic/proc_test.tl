@@ -2,7 +2,6 @@
 local fs = require("cosmic.fs")
 local cio = require("cosmic.io")
 local proc = require("cosmic.proc")
-local child = require("cosmic.child")
 
 local lua_bin = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
@@ -117,10 +116,10 @@ else
 end
 ]])
 
-  local pid = child.posix_spawnp(lua_bin, {lua_bin, script_path})
-  local _, status = child.wait(pid)
-  assert(child.WIFEXITED(status), "expected normal exit")
-  local exit_code = child.WEXITSTATUS(status)
+  local pid = proc.posix_spawnp(lua_bin, {lua_bin, script_path})
+  local _, status = proc.wait(pid)
+  assert(proc.WIFEXITED(status), "expected normal exit")
+  local exit_code = proc.WEXITSTATUS(status)
   assert(exit_code == 0, "expected is_main to return true when script is run directly, got exit code " .. tostring(exit_code))
 end
 test_is_main_true_when_run_directly()
@@ -136,10 +135,10 @@ else
 end
 ]])
 
-  local pid = child.posix_spawnp(lua_bin, {lua_bin, script_path})
-  local _, status = child.wait(pid)
-  assert(child.WIFEXITED(status), "expected normal exit")
-  local exit_code = child.WEXITSTATUS(status)
+  local pid = proc.posix_spawnp(lua_bin, {lua_bin, script_path})
+  local _, status = proc.wait(pid)
+  assert(proc.WIFEXITED(status), "expected normal exit")
+  local exit_code = proc.WEXITSTATUS(status)
   assert(exit_code == 0, "expected proc.is_main to return true when script is run directly, got exit code " .. tostring(exit_code))
 end
 test_proc_is_main_true_when_run_directly()
@@ -162,10 +161,10 @@ else
 end
 ]], TEST_TMPDIR))
 
-  local pid = child.posix_spawnp(lua_bin, {lua_bin, script_path})
-  local _, status = child.wait(pid)
-  assert(child.WIFEXITED(status), "expected normal exit")
-  local exit_code = child.WEXITSTATUS(status)
+  local pid = proc.posix_spawnp(lua_bin, {lua_bin, script_path})
+  local _, status = proc.wait(pid)
+  assert(proc.WIFEXITED(status), "expected normal exit")
+  local exit_code = proc.WEXITSTATUS(status)
   assert(exit_code == 0, "expected is_main to return false when script is required, got exit code " .. tostring(exit_code))
 end
 test_is_main_false_when_required()
@@ -265,3 +264,110 @@ local function test_sched_yield()
   proc.sched_yield()
 end
 test_sched_yield()
+
+-- Process control (children) --
+-- These low-level fork/wait/kill/W* passthroughs moved here from cosmic.child,
+-- which now hosts only the high-level spawn API.
+local time = require("cosmic.time")
+local signal = require("cosmic.signal")
+
+local function test_fork_and_wait()
+  local pid = proc.fork()
+  if pid == 0 then
+    proc.exit(42)
+  else
+    assert(pid > 0, "expected positive child pid in parent, got " .. tostring(pid))
+    local waited_pid, status = proc.wait(pid)
+    assert(waited_pid == pid, "expected to wait for child " .. tostring(pid) .. ", got " .. tostring(waited_pid))
+    assert(proc.WIFEXITED(status), "expected child to exit normally")
+    assert(proc.WEXITSTATUS(status) == 42, "expected exit code 42, got " .. tostring(proc.WEXITSTATUS(status)))
+  end
+end
+test_fork_and_wait()
+
+local function test_fork_child_has_different_pid()
+  local parent_pid = proc.getpid()
+  local marker_file = fs.join(TEST_TMPDIR, "fork_test_" .. tostring(parent_pid))
+  local pid = proc.fork()
+  if pid == 0 then
+    local f = io.open(marker_file, "w")
+    if f then
+      f:write(tostring(proc.getpid()))
+      f:close()
+    end
+    proc.exit(0)
+  else
+    proc.wait(pid)
+    local f = io.open(marker_file, "r")
+    assert(f ~= nil, "expected marker file to exist")
+    local child_pid = tonumber(f:read("*a"))
+    f:close()
+    os.remove(marker_file)
+    assert(child_pid ~= parent_pid, "expected child to have different pid")
+    assert(child_pid == pid, "expected child pid " .. tostring(pid) .. ", got " .. tostring(child_pid))
+  end
+end
+test_fork_child_has_different_pid()
+
+local function test_wexitstatus_values()
+  for _, expected_code in ipairs({0, 1, 42, 127, 255}) do
+    local pid = proc.fork()
+    if pid == 0 then
+      proc.exit(expected_code)
+    else
+      local _, status = proc.wait(pid)
+      assert(proc.WIFEXITED(status), "expected WIFEXITED for code " .. tostring(expected_code))
+      assert(proc.WEXITSTATUS(status) == expected_code,
+        "expected exit code " .. tostring(expected_code) .. ", got " .. tostring(proc.WEXITSTATUS(status)))
+    end
+  end
+end
+test_wexitstatus_values()
+
+local function test_wifsignaled_on_kill()
+  local pid = proc.fork()
+  if pid == 0 then
+    time.sleep(10)
+    proc.exit(0)
+  else
+    assert(proc.kill(pid, signal.SIGKILL), "expected kill to succeed")
+    local _, status = proc.wait(pid)
+    assert(proc.WIFSIGNALED(status), "expected WIFSIGNALED to be true")
+    assert(proc.WTERMSIG(status) == signal.SIGKILL,
+      "expected SIGKILL (" .. tostring(signal.SIGKILL) .. "), got " .. tostring(proc.WTERMSIG(status)))
+  end
+end
+test_wifsignaled_on_kill()
+
+local function test_wnohang_returns_zero_for_running_process()
+  local pid = proc.fork()
+  if pid == 0 then
+    time.sleep(0, 100000000) -- 100ms
+    proc.exit(0)
+  else
+    local waited_pid = proc.wait(pid, proc.WNOHANG)
+    assert(waited_pid == 0 or waited_pid == pid, "expected 0 or pid, got " .. tostring(waited_pid))
+    if waited_pid == 0 then
+      proc.wait(pid)
+    end
+  end
+end
+test_wnohang_returns_zero_for_running_process()
+
+local function test_posix_spawn_returns_pid()
+  local ls_path = proc.commandv("ls")
+  if ls_path then
+    local pid = proc.posix_spawn(ls_path, {"ls"})
+    assert(pid > 0, "expected positive pid, got " .. tostring(pid))
+    proc.wait(pid)
+  end
+end
+test_posix_spawn_returns_pid()
+
+local function test_wait_option_constants_defined()
+  assert(type(proc.WNOHANG) == "number", "WNOHANG should be a number")
+  assert(type(proc.WUNTRACED) == "number", "WUNTRACED should be a number")
+  assert(proc.WCONTINUED == nil or type(proc.WCONTINUED) == "number",
+    "WCONTINUED should be a number or nil")
+end
+test_wait_option_constants_defined()
