@@ -12,13 +12,13 @@ local record Termios
   ospeed: number
 end
 
-local Errno = require("cosmic.errno").Errno
+local errstr = require("cosmic.errno").str
 
 local record UnixTty
   isatty: function(fd: number): boolean
   tiocgwinsz: function(fd: number): number, number
-  tcgetattr: function(fd: number): Termios, Errno
-  tcsetattr: function(fd: number, action: number, termios: Termios): boolean, Errno
+  tcgetattr: function(fd: number): Termios, string
+  tcsetattr: function(fd: number, action: number, termios: Termios): boolean, string
   TCSANOW: number
   TCSADRAIN: number
   TCSAFLUSH: number
@@ -109,10 +109,7 @@ end
 local function getattr(fd: number): Termios | nil, string
   local termios, err = unix.tcgetattr(fd)
   if not termios then
-    if err and err.doc then
-      return nil, err:doc()
-    end
-    return nil, "tcgetattr failed"
+    return nil, errstr(err, "tcgetattr")
   end
   return termios
 end
@@ -126,10 +123,7 @@ end
 local function setattr(fd: number, action: number, termios: Termios): boolean, string
   local ok, err = unix.tcsetattr(fd, action, termios)
   if not ok then
-    if err and err.doc then
-      return false, err:doc()
-    end
-    return false, "tcsetattr failed"
+    return false, errstr(err, "tcsetattr")
   end
   return true
 end

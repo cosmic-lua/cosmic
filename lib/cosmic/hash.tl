@@ -11,7 +11,6 @@
 local cosmo = require("cosmo")
 local argon2 = require("cosmo.argon2")
 local codec = require("cosmic.codec")
-local rand = require("cosmic.rand")
 
 --- Options for password hashing with Argon2.
 --- All fields are optional and have sensible defaults.
@@ -28,11 +27,13 @@ local record HashOptions
   variant: string
 end
 
--- Map variant string names to argon2 variant constants
-local variant_map: {string: argon2.Variant} = {
-  argon2id = argon2.variants.argon2_id,
-  argon2i = argon2.variants.argon2_i,
-  argon2d = argon2.variants.argon2_d,
+-- Variant names accepted by the argon2 binding. An unknown variant
+-- string makes the binding raise (programmer error), so the wrapper
+-- validates here and returns nil, err instead.
+local valid_variants: {string: boolean} = {
+  argon2id = true,
+  argon2i = true,
+  argon2d = true,
 }
 
 --- Compute SHA-256 hash of data.
@@ -60,9 +61,6 @@ end
 --- @return string? The encoded hash string, or nil on error
 --- @return string? Error message if hashing failed
 local function password(pwd: string, options?: HashOptions): string | nil, string
-  -- Generate a random salt (16 bytes is recommended)
-  local salt = rand.bytes(16)
-
   -- Build config from options
   -- Default m_cost to 19456 KiB (19 MiB) per OWASP minimum recommendation.
   local config: argon2.Config = {m_cost = 19456}
@@ -72,18 +70,18 @@ local function password(pwd: string, options?: HashOptions): string | nil, strin
     if options.parallelism then config.parallelism = options.parallelism end
     if options.hash_len then config.hash_len = options.hash_len end
     if options.variant then
-      local v = variant_map[options.variant]
-      if v then
-        config.variant = v
+      if valid_variants[options.variant] then
+        config.variant = options.variant
       else
         return nil, "invalid variant: " .. options.variant .. " (expected argon2id, argon2i, or argon2d)"
       end
     end
   end
 
-  local encoded, err = argon2.hash_encoded(pwd, salt, config) as(string, any)
+  -- salt = nil: the binding generates 16 random bytes with a CSPRNG.
+  local encoded, err = argon2.hash_encoded(pwd, nil, config)
   if not encoded then
-    return nil, tostring(err or "failed to hash password")
+    return nil, err as string
   end
   return encoded
 end
@@ -97,16 +95,12 @@ end
 --- @return boolean True if the password matches, false otherwise
 --- @return string? Error message if the hash is malformed or another error occurred
 local function verify_password(encoded: string, pwd: string): boolean, string
-  local ok, err = (argon2.verify as function(string, string): boolean, any)(encoded, pwd)
-  if ok == true then
-    return true
+  local ok, err = argon2.verify(encoded, pwd)
+  if err then
+    -- Malformed encoded string or another binding error.
+    return false, err
   end
-  if ok == false then
-    -- Clean mismatch: wrong password, no error.
-    return false
-  end
-  -- ok is nil: the binding reported an error (e.g. malformed hash).
-  return false, tostring(err or "argon2 verify failed")
+  return ok
 end
 
 local record HashModule

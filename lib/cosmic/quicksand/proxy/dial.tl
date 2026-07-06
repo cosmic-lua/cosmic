@@ -9,14 +9,7 @@
 --- other connections.
 local unix = require("cosmo.unix")
 local cosmo = require("cosmo")
-local Errno = require("cosmic.errno").Errno
-
-local function wrap_err(err: any, fallback: string): string
-  if not err then return fallback end
-  local e = err as Errno
-  if e.doc then return e:doc() end
-  return tostring(err)
-end
+local errno = require("cosmic.errno")
 
 --- Resolve `host` to an IPv4 integer. Literal IPs parse immediately;
 --- otherwise the lookup goes through `resolver` (default
@@ -44,18 +37,18 @@ local function resolve(host: string, timeout_ms: integer,
   end
   if not timeout_ms then
     local resolved, rerr = resolver(host)
-    if not resolved then return nil, wrap_err(rerr, "resolve failed") end
+    if not resolved then return nil, errno.str(rerr, "resolve") end
     return resolved
   end
   local r, w = unix.pipe()
-  if not r then return nil, wrap_err(w, "pipe failed") end
+  if not r then return nil, errno.str(w, "pipe") end
   local rfd = r as integer
   local wfd = w as integer
   local pid, ferr = unix.fork()
   if not pid then
     unix.close(rfd)
     unix.close(wfd)
-    return nil, wrap_err(ferr, "fork failed")
+    return nil, errno.str(ferr, "fork")
   end
   if pid == 0 then
     unix.close(rfd)
@@ -116,7 +109,7 @@ local function dial(host: string, port: integer, upstream_ns_fd: integer,
     resolve_timeout_ms: integer): integer | nil, string
   if upstream_ns_fd then
     local ok, err = unix.setns(upstream_ns_fd, unix.CLONE_NEWNET)
-    if not ok then return nil, wrap_err(err, "setns failed") end
+    if not ok then return nil, errno.str(err, "setns") end
   end
   local ip, rerr = resolve(host, resolve_timeout_ms, nil)
   if not ip then return nil, rerr end
@@ -125,12 +118,12 @@ local function dial(host: string, port: integer, upstream_ns_fd: integer,
   end
   local sk, serr = unix.socket(unix.AF_INET,
     (unix.SOCK_STREAM as integer) | (unix.SOCK_CLOEXEC as integer), 0)
-  if not sk then return nil, wrap_err(serr, "socket failed") end
+  if not sk then return nil, errno.str(serr, "socket") end
   local skfd = sk as integer
   local ok, cerr = unix.connect(skfd, ip, port)
   if not ok then
     unix.close(skfd)
-    return nil, wrap_err(cerr, "connect failed")
+    return nil, errno.str(cerr, "connect")
   end
   return skfd
 end

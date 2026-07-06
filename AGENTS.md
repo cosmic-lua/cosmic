@@ -132,8 +132,10 @@ end
 - **Fallible effect**: `boolean, string` (returns `false, msg` on failure).
 - **Infallible**: bare value.
 
-Errors are strings from `errno.str`; `unix.Errno` never crosses the cosmic
-boundary. Because Teal (0.24.8) does not flow-narrow record or map unions, a
+Errors are strings: failed `cosmo.unix` calls return `nil, err, errno` (a
+formatted string plus the numeric errno), wrappers add context with
+`errno.str(err, prefix)`, and branch on the numeric errno via
+`errno.is(errno_value, "EINTR")`. Because Teal (0.24.8) does not flow-narrow record or map unions, a
 caller that has ruled out `nil` casts at the use site — `(x as Rec).field`,
 `(x as {K:V})[k]` — mirroring `lib/cosmic/embed.tl`. Scalars (`string | nil`)
 narrow, except method-call syntax: use `string.sub(x, …)` not `x:sub(…)` on a

@@ -2,40 +2,22 @@
 -- GENERATED from cosmopolitan's definitions.lua by lib/types/gentype.tl.
 -- Do not edit by hand. Regenerate with: bin/make regen-types
 
-local record Errno
-  --- - `unix.NOMATCH` No match
-  --- - `unix.BADPAT` Invalid regex
-  --- - `unix.ECOLLATE` Unknown collating element
-  --- - `unix.ECTYPE` Unknown character class name
-  --- - `unix.EESCAPE` Trailing backslash
-  --- - `unix.ESUBREG` Invalid back reference
-  --- - `unix.EBRACK` Missing `]`
-  --- - `unix.EPAREN` Missing `)`
-  --- - `unix.EBRACE` Missing `}`
-  --- - `unix.BADBR` Invalid contents of `{}`
-  --- - `unix.ERANGE` Invalid character range.
-  --- - `unix.ESPACE` Out of memory
-  --- - `unix.BADRPT` Repetition not preceded by valid expression
-  errno: function(self: Errno): number
-  doc: function(self: Errno): string
-  --- Delegates to `re.Errno:doc()`.
-  __tostring: function(self: Errno): string
-end
-
 local record Regex
   --- Executes precompiled regular expression.
-  --- Returns nothing (`nil`) if the pattern doesn't match anything. Otherwise it
-  --- pushes the matched substring and any parenthesis-captured values too. Flags may
-  --- contain `re.NOTBOL` or `re.NOTEOL` to indicate whether or not text should be
-  --- considered at the start and/or end of a line.
+  --- On a match, returns the whole matched substring plus a table of the
+  --- parenthesized capture groups (an empty table when the pattern has no groups).
+  --- A no-match is not an error: it returns a single bare `nil`, so the idiomatic
+  --- `if match then` works. Only a genuine regex engine failure (e.g. running out
+  --- of memory) returns `nil, err`. Flags may contain `re.NOTBOL` or `re.NOTEOL`
+  --- to indicate whether or not text should be considered at the start and/or end
+  --- of a line.
   --- - `re.NOTBOL`
   --- - `re.NOTEOL`
   --- This has an O(𝑛) cost.
-  search: function(self: Regex, str: string, flags?: number): string | nil, string...
+  search: function(self: Regex, str: string, flags?: number): string, {string}, string | nil
 end
 
 local record re
-  type Errno = Errno
   type Regex = Regex
 
   --- No match
@@ -96,8 +78,11 @@ local record re
 
   --- Searches for regular expression match in text.
   --- This is a shorthand notation roughly equivalent to:
-  ---     preg = re.compile(regex)
-  ---     patt = preg:search(re, text)
+  ---     local preg = assert(re.compile(regex))
+  ---     local match, captures = preg:search(text)
+  --- On a match, returns the whole matched substring plus a table of the
+  --- parenthesized capture groups. A no-match returns a bare `nil`. A bad pattern
+  --- (compile failure) or a regex engine failure returns `nil, err`.
   --- - `re.BASIC`
   --- - `re.ICASE`
   --- - `re.NEWLINE`
@@ -106,7 +91,7 @@ local record re
   --- - `re.NOTEOL`
   --- This has exponential complexity. Please use `re.compile()` to compile your regular expressions once from `/.init.lua`. This API exists for convenience. This isn't recommended for prod.
   --- This uses POSIX extended syntax by default.
-  search: function(regex: string, text: string, flags?: number): string | nil, string...
+  search: function(regex: string, text: string, flags?: number): string, {string}, string | nil
   --- Compiles regular expression.
   --- - `re.BASIC`
   --- - `re.ICASE`
@@ -117,7 +102,7 @@ local record re
   --- If regex is an untrusted user value, then `unix.setrlimit` should be
   --- used to impose cpu and memory quotas for security.
   --- This uses POSIX extended syntax by default.
-  compile: function(regex: string, flags?: number): Regex | nil, Errno
+  compile: function(regex: string, flags?: number): Regex, string | nil
 end
 
 return re

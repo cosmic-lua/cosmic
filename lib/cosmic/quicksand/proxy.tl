@@ -40,16 +40,9 @@
 local unix = require("cosmo.unix")
 local rules = require("cosmic.quicksand.proxy.rules")
 local serve = require("cosmic.quicksand.proxy.serve")
-local Errno = require("cosmic.errno").Errno
+local errno = require("cosmic.errno")
 
 local type ProxyOptions = serve.ProxyOptions
-
-local function wrap_err(err: any, fallback: string): string
-  if not err then return fallback end
-  local e = err as Errno
-  if e.doc then return e:doc() end
-  return tostring(err)
-end
 
 --- Returned by start(). `stop()` sends SIGTERM and reaps the
 --- listener, escalating to SIGKILL after `timeout_ms` (default 5000).
@@ -123,14 +116,14 @@ local function start(opts: ProxyOptions): ProxyHandle | nil, string
   local vok, verr = rules.validate((opts.allowed_hosts or {}) as {string: any})
   if not vok then return nil, verr end
   local r, w = unix.pipe()
-  if not r then return nil, wrap_err(w, "pipe failed") end
+  if not r then return nil, errno.str(w, "pipe") end
   local rfd = r as integer
   local wfd = w as integer
   local pid, ferr = unix.fork()
   if not pid then
     unix.close(rfd)
     unix.close(wfd)
-    return nil, wrap_err(ferr, "fork failed")
+    return nil, errno.str(ferr, "fork")
   end
   if pid == 0 then
     -- Child: listen, report the bound port to the parent, then serve.

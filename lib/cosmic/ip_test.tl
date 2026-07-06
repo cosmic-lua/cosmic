@@ -1,6 +1,13 @@
 #!/usr/bin/env cosmic
 local ip = require("cosmic.ip")
 
+--- Parse an address the test knows is valid, asserting success.
+local function p(s: string): integer
+  local n, err = ip.parse(s)
+  assert(n ~= nil, "parse failed for " .. s .. ": " .. tostring(err))
+  return n as integer
+end
+
 -- parse tests
 
 local function test_parse_ipv4_basic()
@@ -15,15 +22,17 @@ local function test_parse_localhost()
 end
 test_parse_localhost()
 
-local function test_parse_invalid_returns_negative()
-  local result = ip.parse("invalid")
-  assert(result == -1, "expected -1 for invalid IP, got " .. tostring(result))
+local function test_parse_invalid_returns_nil()
+  local result, err = ip.parse("invalid")
+  assert(result == nil, "expected nil for invalid IP, got " .. tostring(result))
+  assert(type(err) == "string", "expected error message, got " .. tostring(err))
 end
-test_parse_invalid_returns_negative()
+test_parse_invalid_returns_nil()
 
 local function test_parse_out_of_range()
-  local result = ip.parse("256.1.1.1")
-  assert(result == -1, "expected -1 for out-of-range IP, got " .. tostring(result))
+  local result, err = ip.parse("256.1.1.1")
+  assert(result == nil, "expected nil for out-of-range IP, got " .. tostring(result))
+  assert(type(err) == "string", "expected error message, got " .. tostring(err))
 end
 test_parse_out_of_range()
 
@@ -43,7 +52,7 @@ test_format_localhost()
 
 local function test_format_roundtrip()
   local original = "10.0.0.1"
-  local parsed = ip.parse(original)
+  local parsed = p(original)
   local formatted = ip.format(parsed)
   assert(formatted == original, "expected roundtrip to preserve '" .. original .. "', got '" .. formatted .. "'")
 end
@@ -52,25 +61,25 @@ test_format_roundtrip()
 -- categorize tests
 
 local function test_categorize_loopback()
-  local result = ip.categorize(ip.parse("127.0.0.1"))
+  local result = ip.categorize(p("127.0.0.1"))
   assert(result == "LOOPBACK", "expected 'LOOPBACK', got '" .. result .. "'")
 end
 test_categorize_loopback()
 
 local function test_categorize_private_192()
-  local result = ip.categorize(ip.parse("192.168.1.1"))
+  local result = ip.categorize(p("192.168.1.1"))
   assert(result == "PRIVATE", "expected 'PRIVATE', got '" .. result .. "'")
 end
 test_categorize_private_192()
 
 local function test_categorize_private_10()
-  local result = ip.categorize(ip.parse("10.0.0.1"))
+  local result = ip.categorize(p("10.0.0.1"))
   assert(result == "PRIVATE", "expected 'PRIVATE', got '" .. result .. "'")
 end
 test_categorize_private_10()
 
 local function test_categorize_public()
-  local result = ip.categorize(ip.parse("8.8.8.8"))
+  local result = ip.categorize(p("8.8.8.8"))
   -- Public IPs return RIR name like "ARIN"
   assert(result ~= "LOOPBACK" and result ~= "PRIVATE", "expected public category, got '" .. result .. "'")
 end
@@ -79,19 +88,19 @@ test_categorize_public()
 -- is_loopback tests
 
 local function test_is_loopback_true()
-  local result = ip.is_loopback(ip.parse("127.0.0.1"))
+  local result = ip.is_loopback(p("127.0.0.1"))
   assert(result == true, "expected true for loopback")
 end
 test_is_loopback_true()
 
 local function test_is_loopback_127_255()
-  local result = ip.is_loopback(ip.parse("127.255.255.255"))
+  local result = ip.is_loopback(p("127.255.255.255"))
   assert(result == true, "expected true for 127.255.255.255")
 end
 test_is_loopback_127_255()
 
 local function test_is_loopback_false()
-  local result = ip.is_loopback(ip.parse("192.168.1.1"))
+  local result = ip.is_loopback(p("192.168.1.1"))
   assert(result == false, "expected false for non-loopback")
 end
 test_is_loopback_false()
@@ -99,25 +108,25 @@ test_is_loopback_false()
 -- is_private tests
 
 local function test_is_private_192_168()
-  local result = ip.is_private(ip.parse("192.168.1.1"))
+  local result = ip.is_private(p("192.168.1.1"))
   assert(result == true, "expected true for 192.168.x.x")
 end
 test_is_private_192_168()
 
 local function test_is_private_10()
-  local result = ip.is_private(ip.parse("10.0.0.1"))
+  local result = ip.is_private(p("10.0.0.1"))
   assert(result == true, "expected true for 10.x.x.x")
 end
 test_is_private_10()
 
 local function test_is_private_172_16()
-  local result = ip.is_private(ip.parse("172.16.0.1"))
+  local result = ip.is_private(p("172.16.0.1"))
   assert(result == true, "expected true for 172.16.x.x")
 end
 test_is_private_172_16()
 
 local function test_is_private_false()
-  local result = ip.is_private(ip.parse("8.8.8.8"))
+  local result = ip.is_private(p("8.8.8.8"))
   assert(result == false, "expected false for public IP")
 end
 test_is_private_false()
@@ -125,25 +134,25 @@ test_is_private_false()
 -- is_public tests
 
 local function test_is_public_true()
-  local result = ip.is_public(ip.parse("8.8.8.8"))
+  local result = ip.is_public(p("8.8.8.8"))
   assert(result == true, "expected true for public IP")
 end
 test_is_public_true()
 
 local function test_is_public_cloudflare()
-  local result = ip.is_public(ip.parse("1.1.1.1"))
+  local result = ip.is_public(p("1.1.1.1"))
   assert(result == true, "expected true for Cloudflare DNS")
 end
 test_is_public_cloudflare()
 
 local function test_is_public_false_private()
-  local result = ip.is_public(ip.parse("192.168.1.1"))
+  local result = ip.is_public(p("192.168.1.1"))
   assert(result == false, "expected false for private IP")
 end
 test_is_public_false_private()
 
 local function test_is_public_false_loopback()
-  local result = ip.is_public(ip.parse("127.0.0.1"))
+  local result = ip.is_public(p("127.0.0.1"))
   assert(result == false, "expected false for loopback")
 end
 test_is_public_false_loopback()
@@ -155,6 +164,13 @@ local function test_resolve_localhost()
   assert(result == 2130706433, "expected 127.0.0.1 for localhost, got " .. tostring(result))
 end
 test_resolve_localhost()
+
+local function test_resolve_invalid_returns_nil()
+  local result, err = ip.resolve("this.host.does.not.exist.invalid")
+  assert(result == nil, "expected nil for unresolvable hostname, got " .. tostring(result))
+  assert(type(err) == "string", "expected error message, got " .. tostring(err))
+end
+test_resolve_invalid_returns_nil()
 
 -- lookup tests
 
@@ -184,43 +200,43 @@ end
 test_addr_int()
 
 local function test_addr_format()
-  local a = ip.addr(ip.parse("192.168.1.1"))
+  local a = ip.addr(p("192.168.1.1"))
   assert(a:format() == "192.168.1.1", "expected '192.168.1.1', got '" .. a:format() .. "'")
 end
 test_addr_format()
 
 local function test_addr_tostring()
-  local a = ip.addr(ip.parse("10.0.0.1"))
+  local a = ip.addr(p("10.0.0.1"))
   assert(tostring(a) == "10.0.0.1", "expected '10.0.0.1', got '" .. tostring(a) .. "'")
 end
 test_addr_tostring()
 
 local function test_addr_categorize()
-  local a = ip.addr(ip.parse("127.0.0.1"))
+  local a = ip.addr(p("127.0.0.1"))
   assert(a:categorize() == "LOOPBACK", "expected 'LOOPBACK', got '" .. a:categorize() .. "'")
 end
 test_addr_categorize()
 
 local function test_addr_is_loopback()
-  local a = ip.addr(ip.parse("127.0.0.1"))
+  local a = ip.addr(p("127.0.0.1"))
   assert(a:is_loopback() == true, "expected true for loopback")
-  local b = ip.addr(ip.parse("8.8.8.8"))
+  local b = ip.addr(p("8.8.8.8"))
   assert(b:is_loopback() == false, "expected false for non-loopback")
 end
 test_addr_is_loopback()
 
 local function test_addr_is_private()
-  local a = ip.addr(ip.parse("192.168.1.1"))
+  local a = ip.addr(p("192.168.1.1"))
   assert(a:is_private() == true, "expected true for private")
-  local b = ip.addr(ip.parse("8.8.8.8"))
+  local b = ip.addr(p("8.8.8.8"))
   assert(b:is_private() == false, "expected false for public")
 end
 test_addr_is_private()
 
 local function test_addr_is_public()
-  local a = ip.addr(ip.parse("8.8.8.8"))
+  local a = ip.addr(p("8.8.8.8"))
   assert(a:is_public() == true, "expected true for public")
-  local b = ip.addr(ip.parse("10.0.0.1"))
+  local b = ip.addr(p("10.0.0.1"))
   assert(b:is_public() == false, "expected false for private")
 end
 test_addr_is_public()

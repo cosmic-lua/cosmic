@@ -47,19 +47,23 @@ local function test_is_supported_matches_capabilities()
 end
 test_is_supported_matches_capabilities()
 
--- Build a synthetic Errno-shaped value carrying a fixed errno number, so
--- the probe's ENOSYS classification can be exercised without a host that
+-- Build a synthetic failed binding returning the new failure triple —
+-- `nil, err (string), errno (number)` — with a fixed errno number, so the
+-- probe's ENOSYS classification can be exercised without a host that
 -- actually lacks the syscall.
-local function mk_err(n: integer): any
-  return {errno = function(_: any): integer return n end}
+local function mk_fail(msg: string, n: integer): any
+  return function(): any, string, integer
+    return nil, msg, n
+  end
 end
 
 -- The probe reports a binding available when a no-op call succeeds or
 -- fails with anything other than ENOSYS, and unavailable when the binding
--- is absent (nil) or the call returns ENOSYS. This is the classification
--- that was fail-open before the Phase 0 Errno-return fix (audit §2.3): the
--- error used to be swallowed, so the ENOSYS branch was dead and every
--- probe reported available. These cases fail if that regresses.
+-- is absent (nil) or the call fails with a numeric ENOSYS in its third
+-- return slot. This is the classification that was fail-open before the
+-- Phase 0 errno-return fix (audit §2.3): the error used to be swallowed,
+-- so the ENOSYS branch was dead and every probe reported available. These
+-- cases fail if that regresses.
 local function test_probe_nil_binding_is_unavailable()
   a.eq(quicksand.probe(nil), false, "a nil binding must probe as unavailable")
 end
@@ -74,7 +78,8 @@ test_probe_success_is_available()
 local function test_probe_enosys_is_unavailable()
   local enosys = errno.code("ENOSYS")
   assert(enosys, "ENOSYS must be defined on this host")
-  a.eq(quicksand.probe(function(): any, any return nil, mk_err(enosys) end), false,
+  a.eq(quicksand.probe(
+      mk_fail("prctl: ENOSYS: Function not implemented", enosys)), false,
     "ENOSYS means the syscall is absent -> unavailable (the branch that was dead pre-fix)")
 end
 test_probe_enosys_is_unavailable()
@@ -82,10 +87,22 @@ test_probe_enosys_is_unavailable()
 local function test_probe_policy_error_is_available()
   local eperm = errno.code("EPERM")
   assert(eperm, "EPERM must be defined on this host")
-  a.eq(quicksand.probe(function(): any, any return nil, mk_err(eperm) end), true,
+  a.eq(quicksand.probe(
+      mk_fail("prctl: EPERM: Operation not permitted", eperm)), true,
     "a policy error (EPERM) still proves the syscall is wired up")
 end
 test_probe_policy_error_is_available()
+
+local function test_probe_string_only_failure_is_available()
+  -- A failure that carries no numeric errno (third slot nil) cannot be
+  -- classified as ENOSYS; the error string alone must never match, so
+  -- the probe reports the syscall wired up.
+  a.eq(quicksand.probe(function(): any, string, integer
+        return nil, "prctl: ENOSYS: Function not implemented", nil
+      end), true,
+    "an error string without a numeric errno is never classified as ENOSYS")
+end
+test_probe_string_only_failure_is_available()
 
 -- Re-verify against the real host: on Linux both pledge (seccomp) and,
 -- when the kernel advertises landlock, unveil are genuinely present, so the

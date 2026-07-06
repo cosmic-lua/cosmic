@@ -19,7 +19,7 @@ local cosmo = require("cosmo")
 local unix = require("cosmo.unix")
 local box = require("cosmic.quicksand.box")
 local caps = require("cosmic.quicksand.caps")
-local Errno = require("cosmic.errno").Errno
+local errno = require("cosmic.errno")
 
 --- Fine-grained feature availability on the current host.
 --- Every field is a boolean. Higher-level helpers use these to fail
@@ -52,20 +52,23 @@ end
 --- (a policy error still proves the syscall is wired up). A nil binding
 --- (not exported on this host) reports unavailable.
 ---
---- This classification is only correct because a failed `unix.*` call now
---- returns a real `Errno` in its second slot (the Phase 0 annotation fix):
---- before it, the error was swallowed and every probe reported available
---- (fail-open, audit §2.3). Exported so the classifier is unit-testable
---- against synthetic ENOSYS / policy-error / success returns.
+--- This classification is only correct because a failed `unix.*` call
+--- reports its error (the Phase 0 annotation fix gave it an error slot;
+--- the binding now returns `nil, err (string), errno (number)`): before
+--- that fix the error was swallowed and every probe reported available
+--- (fail-open, audit §2.3). The numeric errno in the third return slot
+--- is what classifies ENOSYS. Exported so the classifier is
+--- unit-testable against synthetic ENOSYS / policy-error / success
+--- returns.
 ---
 --- @param fn any the binding to probe (e.g. `unix.pledge`), or nil
 --- @return boolean true when the syscall is wired up on this host
 local function probe(fn: any): boolean
   if not fn then return false end
-  local call = fn as function(any, any): any, Errno
-  local ok, err = call(nil, nil)
+  local call = fn as function(any, any): any, string, integer
+  local ok, _, eno = call(nil, nil)
   if ok then return true end
-  if err and err.errno and err:errno() == unix.ENOSYS then return false end
+  if errno.is(eno, "ENOSYS") then return false end
   return true
 end
 

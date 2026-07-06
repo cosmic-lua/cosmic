@@ -18,17 +18,10 @@
 ---     assert(ns.enter(fd))
 ---     ns.close(fd)
 local unix = require("cosmo.unix")
-local Errno = require("cosmic.errno").Errno
+local errno = require("cosmic.errno")
 
 local IFREQ_UNION_SIZE < const > = 24
 local IFNAMSIZ < const > = 16 -- mirrors unix.IFNAMSIZ; kernel ABI constant
-
-local function wrap_err(err: any, fallback: string): string
-  if not err then return fallback end
-  local e = err as Errno
-  if e.doc then return e:doc() end
-  return tostring(err)
-end
 
 --- Build a `struct ifreq` for SIOCGIFFLAGS/SIOCSIFFLAGS: char
 --- ifr_name[IFNAMSIZ] at offset 0, int16 ifr_flags at offset IFNAMSIZ,
@@ -54,7 +47,7 @@ end
 local function control_socket(): integer, string
   local sk, err = unix.socket(
     unix.AF_INET, unix.SOCK_DGRAM | unix.SOCK_CLOEXEC, 0)
-  if not sk then return nil, wrap_err(err, "socket failed") end
+  if not sk then return nil, errno.str(err, "socket") end
   return sk as integer
 end
 
@@ -69,7 +62,7 @@ local function get_flags(name: string): integer | nil, string
   if not sk then return nil, err end
   local result, ioerr = unix.ioctl(sk, unix.SIOCGIFFLAGS, build_ifreq(name, 0))
   unix.close(sk)
-  if not result then return nil, wrap_err(ioerr, "SIOCGIFFLAGS failed") end
+  if not result then return nil, errno.str(ioerr, "SIOCGIFFLAGS") end
   return parse_ifreq_flags(result as string)
 end
 
@@ -85,7 +78,7 @@ local function set_flags(name: string, flags: integer): boolean, string
   if not sk then return false, err end
   local ok, ioerr = unix.ioctl(sk, unix.SIOCSIFFLAGS, build_ifreq(name, flags))
   unix.close(sk)
-  if not ok then return false, wrap_err(ioerr, "SIOCSIFFLAGS failed") end
+  if not ok then return false, errno.str(ioerr, "SIOCSIFFLAGS") end
   return true
 end
 
@@ -104,7 +97,7 @@ local function open(pid: integer): integer | nil, string
   local tag = pid and tostring(pid) or "self"
   local fd, err = unix.open("/proc/" .. tag .. "/ns/net",
     unix.O_RDONLY | unix.O_CLOEXEC)
-  if not fd then return nil, wrap_err(err, "netns.open failed") end
+  if not fd then return nil, errno.str(err, "netns.open") end
   return fd as integer
 end
 
@@ -117,7 +110,7 @@ end
 --- @return string? error message on failure
 local function enter(fd: integer): boolean, string
   local ok, err = unix.setns(fd, unix.CLONE_NEWNET)
-  if not ok then return false, wrap_err(err, "setns failed") end
+  if not ok then return false, errno.str(err, "setns") end
   return true
 end
 
@@ -131,7 +124,7 @@ end
 --- @return string? error message on failure
 local function unshare_user(): boolean, string
   local ok, err = unix.unshare(unix.CLONE_NEWUSER)
-  if not ok then return false, wrap_err(err, "unshare_user failed") end
+  if not ok then return false, errno.str(err, "unshare_user") end
   return true
 end
 
@@ -143,7 +136,7 @@ end
 --- @return string? error message on failure
 local function unshare(): boolean, string
   local ok, err = unix.unshare(unix.CLONE_NEWNET)
-  if not ok then return false, wrap_err(err, "unshare failed") end
+  if not ok then return false, errno.str(err, "unshare") end
   return true
 end
 
@@ -156,7 +149,7 @@ end
 local function bring_up(name: string): boolean, string
   local flags, err = get_flags(name)
   if not flags then
-    return false, wrap_err(err, "bring_up " .. name .. " failed")
+    return false, errno.str(err, "bring_up " .. name)
   end
   return set_flags(name, flags | (unix.IFF_UP as integer))
 end
@@ -169,7 +162,7 @@ end
 local function bring_down(name: string): boolean, string
   local flags, err = get_flags(name)
   if not flags then
-    return false, wrap_err(err, "bring_down " .. name .. " failed")
+    return false, errno.str(err, "bring_down " .. name)
   end
   return set_flags(name, flags & ~ (unix.IFF_UP as integer))
 end
@@ -181,7 +174,7 @@ end
 --- @return string? error message on failure
 local function close(fd: integer): boolean, string
   local ok, err = unix.close(fd)
-  if not ok then return false, wrap_err(err, "close failed") end
+  if not ok then return false, errno.str(err, "close") end
   return true
 end
 

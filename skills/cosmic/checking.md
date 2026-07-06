@@ -55,7 +55,6 @@ use `as` to cast between types when you know more than the type checker:
 
 ```teal
 local result = json.decode(input) as {string: any}
-local errno = err as Errno
 local count = value as integer
 ```
 

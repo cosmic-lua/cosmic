@@ -12,22 +12,7 @@ local cosmo = require("cosmo")
 local rules = require("cosmic.quicksand.proxy.rules")
 local http = require("cosmic.quicksand.proxy.http")
 local updial = require("cosmic.quicksand.proxy.dial")
-local Errno = require("cosmic.errno").Errno
-
-local function wrap_err(err: any, fallback: string): string
-  if not err then return fallback end
-  local e = err as Errno
-  if e.doc then return e:doc() end
-  return tostring(err)
-end
-
---- Extract the errno number from a unix.Errno-shaped error, or nil.
-local function errno_of(err: any): integer
-  if err == nil then return nil end
-  local e = err as Errno
-  if e.errno == nil then return nil end
-  return e:errno() as integer
-end
+local errno = require("cosmic.errno")
 
 --- Leveled event logger. Each method takes an event name and a flat
 --- field table.
@@ -323,18 +308,18 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
     -- close it.
     local fd, serr = unix.socket(unix.AF_INET,
       (unix.SOCK_STREAM as integer) | (unix.SOCK_CLOEXEC as integer), 0)
-    if not fd then return nil, wrap_err(serr, "socket failed") end
+    if not fd then return nil, errno.str(serr, "socket") end
     local lfd = fd as integer
     unix.setsockopt(lfd, unix.SOL_SOCKET, unix.SO_REUSEADDR, 1)
     local bok, berr = unix.bind(lfd, bind_ip, bind_port)
     if not bok then
       unix.close(lfd)
-      return nil, wrap_err(berr, "bind failed")
+      return nil, errno.str(berr, "bind")
     end
     local lok, lerr2 = unix.listen(lfd, backlog)
     if not lok then
       unix.close(lfd)
-      return nil, wrap_err(lerr2, "listen failed")
+      return nil, errno.str(lerr2, "listen")
     end
     -- Refresh bind_port if the caller asked for an ephemeral port.
     local _, got_port = unix.getsockname(lfd)
@@ -347,7 +332,7 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
 
   local function accept(): integer | nil, string
     local cli, aerr = unix.accept(listen_fd)
-    if not cli then return nil, wrap_err(aerr, "accept failed") end
+    if not cli then return nil, errno.str(aerr, "accept") end
     return cli as integer
   end
 
@@ -363,12 +348,13 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
       end
     end
     while true do
-      local cli, aerr = unix.accept(listen_fd)
+      -- On failure accept returns nil, err (string), errno; the error
+      -- string and numeric errno land in the ip/port success slots.
+      local cli, aerr, aeno = unix.accept(listen_fd)
       if not cli then
-        local errno = errno_of(aerr)
-        if errno == unix.EINTR then
+        if errno.is(aeno, "EINTR") then
           reap()
-        elseif errno == unix.EBADF or errno == unix.EINVAL then
+        elseif errno.is(aeno, "EBADF") or errno.is(aeno, "EINVAL") then
           logger.warn("accept_fatal", {err = tostring(aerr)})
           return
         else

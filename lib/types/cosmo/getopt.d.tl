@@ -70,7 +70,7 @@ local record getopt
   ---       end
   ---     end
   ---     -- Now excludes contains all -e values: {"foo", "bar", "spam"}
-  parse: function(args: {string}, optstring: string, longopts?: {table}): Result | nil, string
+  parse: function(args: {string}, optstring: string, longopts?: {table}): Result, string | nil
 end
 
 return getopt

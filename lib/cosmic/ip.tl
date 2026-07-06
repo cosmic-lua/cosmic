@@ -76,11 +76,16 @@ local function addr(n: number): Addr
 end
 
 --- Parse an IP address string to its integer representation.
---- Returns -1 for invalid or unsupported addresses (including IPv6).
+--- Invalid or unsupported addresses (including IPv6) are errors.
 --- @param str string The IP address string (e.g., "192.168.1.1")
---- @return integer The IP address as an integer, or -1 on error
-local function parse(str: string): number
-  return cosmo.ParseIp(str)
+--- @return integer | nil The IP address as an integer, or nil on error
+--- @return string Error message if parsing failed
+local function parse(str: string): integer | nil, string
+  local n, err = cosmo.ParseIp(str)
+  if not n then
+    return nil, err as string
+  end
+  return n as integer
 end
 
 --- Format an integer IP address as a string.
@@ -122,10 +127,14 @@ end
 
 --- Resolve a hostname to an IP address.
 --- @param hostname string The hostname to resolve
---- @return integer The IP address as an integer, or -1 on error
-local function resolve(hostname: string): number
-  local ip = cosmo.ResolveIp(hostname)
-  return ip or -1
+--- @return integer | nil The IP address as an integer, or nil on error
+--- @return string Error message if resolution failed
+local function resolve(hostname: string): integer | nil, string
+  local ip, err = cosmo.ResolveIp(hostname)
+  if not ip then
+    return nil, err as string
+  end
+  return ip as integer
 end
 
 --- Look up a hostname and return a typed Addr.
@@ -134,9 +143,9 @@ end
 --- @return Addr? The resolved IP address, or nil on error
 --- @return string? Error message on failure
 local function lookup(hostname: string): Addr | nil, string
-  local ip = cosmo.ResolveIp(hostname)
-  if not ip or ip == -1 then
-    return nil, "dns: lookup failed for " .. hostname
+  local ip, err = cosmo.ResolveIp(hostname)
+  if not ip then
+    return nil, "dns: lookup failed for " .. hostname .. ": " .. tostring(err)
   end
   return make_addr(ip)
 end
@@ -144,13 +153,13 @@ end
 local record IpModule
   Addr: Addr
   addr: function(n: number): Addr
-  parse: function(str: string): number
+  parse: function(str: string): integer | nil, string
   format: function(ip: number): string
   categorize: function(ip: number): string
   is_loopback: function(ip: number): boolean
   is_private: function(ip: number): boolean
   is_public: function(ip: number): boolean
-  resolve: function(hostname: string): number
+  resolve: function(hostname: string): integer | nil, string
   lookup: function(hostname: string): Addr | nil, string
 end
 

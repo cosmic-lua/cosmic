@@ -48,7 +48,7 @@ local function test_decode_hex_odd_length()
   local result, err = codec.decode_hex("abc")
   assert(result == nil, "expected nil for odd length")
   assert(err ~= nil, "expected error message")
-  assert(err:match("even length"), "error should mention even length")
+  assert(err:match("uneven"), "error should mention uneven length, got: " .. err)
 end
 test_decode_hex_odd_length()
 
@@ -56,7 +56,7 @@ local function test_decode_hex_invalid_char()
   local result, err = codec.decode_hex("ghij")
   assert(result == nil, "expected nil for invalid hex")
   assert(err ~= nil, "expected error message")
-  assert(err:match("invalid"), "error should mention invalid")
+  assert(err:match("non%-hex"), "error should mention non-hex character, got: " .. err)
 end
 test_decode_hex_invalid_char()
 

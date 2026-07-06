@@ -153,15 +153,15 @@ local function pump(stdout_fd: number, stderr_fd: number, stdin_fd: number, stdi
     if stdin_fd then
       local ev = p:events(stdin_fd) as {string: boolean}
       if ev and ev.writable then
-        local n, werr = unix.write(stdin_fd, stdin_data:sub(w_off + 1, w_off + CHUNK))
+        local n, werr, weno = unix.write(stdin_fd, stdin_data:sub(w_off + 1, w_off + CHUNK))
         if n ~= nil then
           w_off = w_off + (n as integer)
           if w_off >= #stdin_data then
             p:remove(stdin_fd); unix.close(stdin_fd); stdin_fd = nil
           end
-        elseif errno.is(werr, "EAGAIN") then
+        elseif errno.is(weno, "EAGAIN") then
           -- Not actually writable yet; try again on the next poll.
-        elseif errno.is(werr, "EPIPE") then
+        elseif errno.is(weno, "EPIPE") then
           -- The child stopped reading stdin; stop feeding it (not an error).
           p:remove(stdin_fd); unix.close(stdin_fd); stdin_fd = nil
         else

@@ -26,7 +26,7 @@ local record UnixIO
   truncate: function(path: string, length?: number): boolean, any
   ftruncate: function(fd: number, length?: number): boolean, any
   dup: function(oldfd: number, newfd?: number, flags?: number, lowest?: number): number, any
-  pipe: function(flags?: number): number, number | any
+  pipe: function(flags?: number): number, number, any
   fcntl: function(fd: number, cmd: number, arg?: number): number, any
   sync: function()
   fsync: function(fd: number): boolean, any
@@ -257,11 +257,11 @@ end
 
 --- Create a pipe. flags: O_CLOEXEC, O_NONBLOCK.
 local function pipe(flags?: number): Pipe | nil, string
-  local reader_fd, writer_fd = unix.pipe(flags)
+  local reader_fd, writer_fd, err = unix.pipe(flags)
   if not reader_fd then
-    return nil, tostring(writer_fd)
+    return nil, tostring(err)
   end
-  return make_pipe(make_handle(reader_fd), make_handle(writer_fd as number))
+  return make_pipe(make_handle(reader_fd), make_handle(writer_fd))
 end
 
 --- Truncate a file by path.
@@ -280,18 +280,19 @@ end
 
 --- Read entire file contents.
 local function slurp(path: string): string | nil, string
-  local data = cosmo.Slurp(path)
+  local data, err = cosmo.Slurp(path)
   if not data then
-    return nil, "failed to read file: " .. path
+    -- The binding error already names the path (e.g. "open: /x: ENOENT: ...").
+    return nil, err or ("failed to read file: " .. path)
   end
   return data
 end
 
 --- Write data to file, creating or overwriting it.
 local function barf(path: string, data: string, mode?: number): boolean, string
-  local ok = cosmo.Barf(path, data, mode)
+  local ok, err = cosmo.Barf(path, data, {mode = mode})
   if not ok then
-    return false, "failed to write file: " .. path
+    return false, err or ("failed to write file: " .. path)
   end
   return true
 end

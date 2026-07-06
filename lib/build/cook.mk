@@ -2,10 +2,11 @@ modules += build
 build_lua_dirs := $(o)/lib/build
 build_fetch := $(o)/lib/build/build-fetch.lua
 build_stage := $(o)/lib/build/build-stage.lua
+build_portable := $(o)/lib/build/portable.lua
 build_reporter := $(o)/lib/build/reporter.lua
 build_help := $(o)/lib/build/make-help.lua
 build_lint := $(o)/lib/build/lint.lua
-build_files := $(build_fetch) $(build_stage) $(build_reporter) $(build_help) $(build_lint)
+build_files := $(build_fetch) $(build_stage) $(build_portable) $(build_reporter) $(build_help) $(build_lint)
 build_tests := $(wildcard lib/build/*_test.tl)
 
 reporter := $(bootstrap_cosmic) -- $(build_reporter)

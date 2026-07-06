@@ -1,7 +1,6 @@
 --- Signal handling utilities.
 --- Wraps cosmo.unix signal functions for process signaling, handlers, and timers.
 local unix = require("cosmo.unix")
-local Errno = require("cosmic.errno").Errno
 local errstr = require("cosmic.errno").str
 
 --- Options for setitimer: specifies which timer, initial fire time, and repeat interval.
@@ -107,7 +106,7 @@ local record SignalModule
 
   --- Suspend the process until a signal is delivered.
   --- Temporarily replaces the signal mask with the provided mask.
-  sigsuspend: function(mask: Sigset): boolean, Errno
+  sigsuspend: function(mask: Sigset): boolean, string
 
   --- Schedule SIGALRM signals at intervals.
   --- Accepts a SetitimerOpts record with named fields for clarity.
@@ -199,7 +198,7 @@ local M = {} as SignalModule
 M.Sigset = unix.Sigset as function(...: number): Sigset
 M.sigaction = unix.sigaction as function(sig: number, handler?: function | number, flags?: number, mask?: Sigset): (function | number, number, Sigset)
 M.sigprocmask = unix.sigprocmask as function(how: number, set: Sigset): Sigset
-M.sigsuspend = unix.sigsuspend as function(mask: Sigset): (boolean, Errno)
+M.sigsuspend = unix.sigsuspend as function(mask: Sigset): (boolean, string)
 M.setitimer = setitimer
 
 -- Delivery functions
