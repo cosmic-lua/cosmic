@@ -288,11 +288,28 @@ local function slurp(path: string): string | nil, string
   return data
 end
 
+-- cosmo.Barf's third argument changed from a positional mode integer to an
+-- options table in the 2026.07 error-convention release. The build's pinned
+-- BOOTSTRAP cosmic (an older runtime) executes scripts from this tree with
+-- the freshly compiled lib on package.path -- reaching this module through
+-- the script cache -- so barf must work on both sides of the change until
+-- the bootstrap pin advances past it, at which point this shim can go.
+-- cosmo.Lz4Compress was purged in the same release train, so its absence
+-- marks a runtime with the new Barf signature.
+local barf_takes_options = (cosmo as {string: any}).Lz4Compress == nil
+
 --- Write data to file, creating or overwriting it.
 local function barf(path: string, data: string, mode?: number): boolean, string
-  local ok, err = cosmo.Barf(path, data, {mode = mode})
+  local ok: boolean
+  local err: any
+  if barf_takes_options then
+    ok, err = cosmo.Barf(path, data, {mode = mode})
+  else
+    local old_barf = cosmo.Barf as function(string, string, number): boolean, any
+    ok, err = old_barf(path, data, mode)
+  end
   if not ok then
-    return false, err or ("failed to write file: " .. path)
+    return false, tostring(err or ("failed to write file: " .. path))
   end
   return true
 end
