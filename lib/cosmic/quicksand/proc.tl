@@ -162,7 +162,7 @@ end
 ---
 --- @return Barrier? barrier object on success
 --- @return string? error message on failure
-local function barrier(): Barrier, string
+local function barrier(): Barrier | nil, string
   local r, w = unix.pipe()
   if not r then return nil, wrap_err(w, "pipe failed") end
   local rfd: integer = r as integer
@@ -211,7 +211,7 @@ end
 ---
 --- @return integer? child pid in the parent, 0 in the child
 --- @return string? error message on failure
-local function fork_pidns(): integer, string
+local function fork_pidns(): integer | nil, string
   local ok, uerr = unix.unshare(unix.CLONE_NEWPID)
   if not ok then
     return nil, wrap_err(uerr, "unshare(CLONE_NEWPID) failed")
@@ -294,11 +294,12 @@ local function become_init(main_pid: integer, opts: InitOpts): integer
 end
 
 local record ProcModule
+  type Barrier = Barrier
   no_new_privs: function(): boolean, string
   drop_privs: function(uid: integer, gid: integer): boolean, string
   setup_userns_maps: function(uid: integer, gid: integer): boolean, string
-  barrier: function(): Barrier, string
-  fork_pidns: function(): integer, string
+  barrier: function(): Barrier | nil, string
+  fork_pidns: function(): integer | nil, string
   become_init: function(main_pid: integer, opts: InitOpts): integer
   DEFAULT_SIGNALS: {string}
 end

@@ -156,7 +156,7 @@ local function main(...: string): integer, string
     for _, file in ipairs(result_files) do
       local content = cio.slurp(file)
       if content then
-        local exit_code = tonumber(content:match("^(%d+)"))
+        local exit_code = tonumber(string.match(content, "^(%d+)"))
         local status_str: string
         if exit_code == 0 then
           status_str = "pass"
@@ -166,8 +166,8 @@ local function main(...: string): integer, string
           status_str = "fail"
         end
         local base = string.gsub(file, "%.got$", "")
-        local out_content = cio.slurp(base .. ".out") or ""
-        local err_content = cio.slurp(base .. ".err") or ""
+        local out_content = (cio.slurp(base .. ".out") or "") as string
+        local err_content = (cio.slurp(base .. ".err") or "") as string
 
         local message = ""
         if exit_code ~= 0 and err_content ~= "" then

@@ -13,9 +13,9 @@ end
 
 --- Decompress zlib-compressed data.
 --- @param data string The compressed data (from compress())
---- @return string The decompressed data, or nil on error
+--- @return string | nil The decompressed data, or nil on error
 --- @return string? Error message if decompression failed
-local function uncompress(data: string): string, string
+local function uncompress(data: string): string | nil, string
   local ok, result = pcall(cosmo.Uncompress, data)
   if not ok then
     return nil, "decompression failed: " .. tostring(result)
@@ -31,9 +31,9 @@ end
 --- with standard raw deflate streams. Use compress/uncompress for
 --- interoperable zlib format.
 --- @param data string The data to compress
---- @return string The compressed data with size prefix, or nil on error
+--- @return string | nil The compressed data with size prefix, or nil on error
 --- @return string? Error message if input exceeds size limit
-local function deflate(data: string): string, string
+local function deflate(data: string): string | nil, string
   if #data > 0xFFFFFFFF then
     return nil, "deflate: input too large (max 4GB)"
   end
@@ -53,9 +53,9 @@ end
 --- Maximum decompressed size: ~4GB (limited by 32-bit size prefix).
 --- Note: Only compatible with data produced by deflate() in this module.
 --- @param data string The compressed data with size prefix
---- @return string The decompressed data, or nil on error
+--- @return string | nil The decompressed data, or nil on error
 --- @return string? Error message if decompression failed
-local function inflate(data: string): string, string
+local function inflate(data: string): string | nil, string
   if #data < 4 then
     return nil, "invalid deflate data: too short"
   end
@@ -75,9 +75,9 @@ end
 
 local record CompressModule
   compress: function(data: string): string
-  uncompress: function(data: string): string, string
-  deflate: function(data: string): string, string
-  inflate: function(data: string): string, string
+  uncompress: function(data: string): string | nil, string
+  deflate: function(data: string): string | nil, string
+  inflate: function(data: string): string | nil, string
 end
 
 local M: CompressModule = {

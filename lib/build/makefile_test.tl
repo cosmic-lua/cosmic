@@ -15,11 +15,12 @@ local function read_make_output(filename: string): MakeOutput
   local filepath = fs.join(TEST_DIR, filename)
   local content = cio.slurp(filepath)
   assert(content, "failed to read " .. filepath)
+  local text = content as string
 
-  local exit_code = content:match("exit:(%d+)%s*$")
+  local exit_code = text:match("exit:(%d+)%s*$")
   assert(exit_code, "missing exit code in " .. filepath)
 
-  local output = content:gsub("exit:%d+%s*$", "")
+  local output = text:gsub("exit:%d+%s*$", "")
   return {
     output = output,
     exit_code = tonumber(exit_code),

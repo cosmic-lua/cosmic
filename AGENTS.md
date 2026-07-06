@@ -127,6 +127,18 @@ local record Result
 end
 ```
 
+**honest nil — the type must admit failure:**
+- **Fallible value**: `T | nil, string` — the checker forces callers to narrow.
+- **Fallible effect**: `boolean, string` (returns `false, msg` on failure).
+- **Infallible**: bare value.
+
+Errors are strings from `errno.str`; `unix.Errno` never crosses the cosmic
+boundary. Because Teal (0.24.8) does not flow-narrow record or map unions, a
+caller that has ruled out `nil` casts at the use site — `(x as Rec).field`,
+`(x as {K:V})[k]` — mirroring `lib/cosmic/embed.tl`. Scalars (`string | nil`)
+narrow, except method-call syntax: use `string.sub(x, …)` not `x:sub(…)` on a
+narrowed value.
+
 rules:
 - never throw from library code
 - never silently discard errors

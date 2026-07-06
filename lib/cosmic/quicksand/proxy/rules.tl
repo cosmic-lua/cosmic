@@ -176,7 +176,7 @@ end
 
 --- Build the auth header a rule injects on plain-HTTP requests.
 --- Returns (name, value), or nil for pass-through rules.
-local function auth_header(rule: any): string, string
+local function auth_header(rule: any): string | nil, string
   if not (rule is table) then return nil end
   local r = rule as {string: any}
   local t = r["type"]
@@ -199,7 +199,7 @@ local record RulesModule
   validate: function(allowed_hosts: {string: any}): boolean, string
   index: function(allowed_hosts: {string: any}): Index
   match: function(idx: Index, host: string, port: integer): any
-  auth_header: function(rule: any): string, string
+  auth_header: function(rule: any): string | nil, string
 end
 
 local M: RulesModule = {

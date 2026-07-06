@@ -56,12 +56,12 @@ local record argon2
   --- - `argon2.variants.argon2_id` blend of other two methods [default]
   --- - `argon2.variants.argon2_i` maximize resistance to side-channel attacks
   --- - `argon2.variants.argon2_d` maximize resistance to gpu cracking attacks
-  hash_encoded: function(pass: string, salt: string, config: Config): string, string
+  hash_encoded: function(pass: string, salt: string, config: Config): string | nil, string
   --- Verifies password, e.g.
   ---     >: argon2.verify(
   ---         "p=4$c29tZXNhbHQ$RdescudvJCsgt3ub+b+dWRWJTmaaJObG",
   ---     true
-  verify: function(encoded: string, pass: string): boolean, string
+  verify: function(encoded: string, pass: string): boolean | nil, string
   --- Gets or sets the default memory hardness in kibibytes used by
   --- `argon2.hash_encoded` when its config omits `m_cost`. Called with no
   --- argument (or `nil`), it returns the current default (initially 4096).

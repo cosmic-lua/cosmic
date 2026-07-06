@@ -37,7 +37,7 @@ end
 --- the returned database object should be used for all further method calls in
 --- connection with that database.
 local record Database
-  apply_changeset: function(self: Database, changeset: string, conflict_cb: function, filter_cb: function, udata?: any, rebaser?: Rebaser, flags?: number): boolean, number
+  apply_changeset: function(self: Database, changeset: string, conflict_cb: function, filter_cb: function, udata?: any, rebaser?: Rebaser, flags?: number): boolean | nil, number
   --- Sets or removes a busy handler for a database.
   --- The handler function is called with two parameters: `udata` and the number
   --- of (re-)tries for a pending transaction. It should return `nil`, `false` or
@@ -130,8 +130,8 @@ local record Database
   ---       util.printf('%2i+%2i+%2i=%2i\n',col1,col2,col3,sum)
   ---     end
   create_function: function(self: Database, name: string, nargs: number, func: function(ctx: Context, ...: any), userdata?: any): boolean
-  create_rebaser: function(self: Database): Rebaser, number
-  create_session: function(self: Database, name?: string): Session, number
+  create_rebaser: function(self: Database): Rebaser | nil, number
+  create_session: function(self: Database, name?: string): Session | nil, number
   --- If there is no attached database name on the database connection, then no value is
   --- returned; if database name is a temporary or in-memory database, then an
   --- empty string is returned.
@@ -182,7 +182,7 @@ local record Database
   interrupt: function(self: Database)
   invert_changeset: function(self: Database, changeset: string): string
   isopen: function(self: Database): boolean
-  iterate_changeset: function(self: Database, name: string, flags?: number): Iterator, number
+  iterate_changeset: function(self: Database, name: string, flags?: number): Iterator | nil, number
   --- Each row in an SQLite table has a unique 64-bit signed integer key called
   --- the rowid. This id is always available as an undeclared column named ROWID,
   --- OID, or _ROWID_. If the table has a column of type INTEGER PRIMARY KEY then
@@ -219,7 +219,7 @@ local record Database
   --- Returns `true` if the database `name` of connection `db` is read-only,
   --- `false` if it is read/write. Returns `nil` plus an error message if
   --- `name` is not the name of a database on connection `db`.
-  readonly: function(self: Database, name?: string): boolean, string
+  readonly: function(self: Database, name?: string): boolean | nil, string
   --- This function installs a rollback_hook callback handler.
   --- See: `db:commit_hook` and `db:update_hook`
   rollback_hook: function(self: Database, func: function(udata: any), udata: any)
@@ -276,31 +276,31 @@ local record Database
   ---     2       22
   ---     3       33
   urows: function(self: Database, sql: string): function, VM
-  wal_checkpoint: function(self: Database, mode?: number, name?: string): number, number, number
+  wal_checkpoint: function(self: Database, mode?: number, name?: string): number | nil, number, number
   wal_hook: function(self: Database, func?: (function(udata: any, db: Database, name: string, page_count: number): number), udata?: any)
 end
 
 --- Returned by `db:iterate_changeset`
 local record Iterator
-  conflict: function(self: Iterator): {string | number | boolean}, number
-  fk_conflicts: function(self: Iterator): number, number
-  finalize: function(self: Iterator): boolean, number
-  next: function(self: Iterator): number, number
+  conflict: function(self: Iterator): {string | number | boolean} | nil, number
+  fk_conflicts: function(self: Iterator): number | nil, number
+  finalize: function(self: Iterator): boolean | nil, number
+  next: function(self: Iterator): number | nil, number
   new: function(self: Iterator): {string | number | boolean | nil}, number
   old: function(self: Iterator): {string | number | boolean | nil}, number
-  op: function(self: Iterator): string, number, boolean, number
-  pk: function(self: Iterator): {boolean}, number
+  op: function(self: Iterator): string | nil, number, boolean, number
+  pk: function(self: Iterator): {boolean} | nil, number
 end
 
 --- Returned by `db:create_rebaser`.
 local record Rebaser
   delete: function(self: Rebaser)
-  rebase: function(self: Rebaser, changeset: string): string, number
+  rebase: function(self: Rebaser, changeset: string): string | nil, number
 end
 
 --- Returned by `db:create_session`.
 local record Session
-  attach: function(self: Session, filter_cb?: function(udata: any), udata?: any): boolean, number
+  attach: function(self: Session, filter_cb?: function(udata: any), udata?: any): boolean | nil, number
   changeset: function(self: Session): string
   --- Closes the session. Further method calls on the session will throw errors.
   delete: function(self: Session)
@@ -790,11 +790,11 @@ local record lsqlite3
   --- Since `0.9.4`, there is a second optional `flags` argument to `lsqlite3.open`.
   --- See https://www.sqlite.org/c3ref/open.html for an explanation of these flags and options.
   ---     local db = lsqlite3.open('foo.db', lsqlite3.OPEN_READWRITE + lsqlite3.OPEN_CREATE + lsqlite3.OPEN_SHAREDCACHE)
-  open: function(filename: string, flags?: number): Database, number
+  open: function(filename: string, flags?: number): Database | nil, number
   --- Opens an SQLite database in memory and returns its handle as userdata. In case
   --- of an error, the function returns `nil`, an error code and an error message.
   --- (In-memory databases are volatile as they are never stored on disk.)
-  open_memory: function(): Database, number
+  open_memory: function(): Database | nil, number
   lversion: function(): string
   version: function(): string
   --- Sets global SQLite3 library configuration options.
@@ -808,7 +808,7 @@ local record lsqlite3
   ---   removes the current callback when `func` is `nil`. Returns
   ---   `lsqlite3.OK` followed by the previously installed callback and its
   ---   user data.
-  config: function(option: number, func?: function, udata?: any): number, function | nil, any, number
+  config: function(option: number, func?: function, udata?: any): number | nil, function | nil, any, number
 end
 
 return lsqlite3

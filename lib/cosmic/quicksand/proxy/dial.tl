@@ -36,7 +36,7 @@ end
 --- @return integer? IPv4 address as an integer
 --- @return string? error message on failure
 local function resolve(host: string, timeout_ms: integer,
-    resolver: function(string): integer, any): integer, string
+    resolver: function(string): integer, any): integer | nil, string
   local ip = cosmo.ParseIp(host)
   if ip and ip ~= -1 then return ip as integer end
   if not resolver then
@@ -72,7 +72,7 @@ local function resolve(host: string, timeout_ms: integer,
   local fds: {number: number} = {}
   fds[rfd] = unix.POLLIN
   local ready = unix.poll(fds, timeout_ms)
-  if not ready or not ready[rfd] then
+  if not ready or not (ready as {number: number})[rfd] then
     pcall(unix.kill, pid, unix.SIGKILL)
     pcall(unix.wait, pid)
     unix.close(rfd)
@@ -80,7 +80,7 @@ local function resolve(host: string, timeout_ms: integer,
   end
   -- Drain the pipe. The helper writes at most 9 bytes (1 status byte
   -- + 8-byte packed int) on success, or "E" + a short error string.
-  local data = unix.read(rfd, 4096) or ""
+  local data = (unix.read(rfd, 4096) or "") as string
   unix.close(rfd)
   pcall(unix.wait, pid)
   local tag = data:sub(1, 1)
@@ -113,7 +113,7 @@ end
 --- @return integer? connected socket fd
 --- @return string? error message on failure
 local function dial(host: string, port: integer, upstream_ns_fd: integer,
-    resolve_timeout_ms: integer): integer, string
+    resolve_timeout_ms: integer): integer | nil, string
   if upstream_ns_fd then
     local ok, err = unix.setns(upstream_ns_fd, unix.CLONE_NEWNET)
     if not ok then return nil, wrap_err(err, "setns failed") end
@@ -137,8 +137,8 @@ end
 
 local record DialModule
   resolve: function(string, integer, function(string): (integer, any)):
-  integer, string
-  dial: function(string, integer, integer, integer): integer, string
+  integer | nil, string
+  dial: function(string, integer, integer, integer): integer | nil, string
 end
 
 local M: DialModule = {

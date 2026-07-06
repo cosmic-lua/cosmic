@@ -91,7 +91,7 @@ end
 local record Box
   opts: BoxOpts
   _closed: boolean
-  run: function(self: Box, argv: {string}): integer, string
+  run: function(self: Box, argv: {string}): integer | nil, string
   close: function(self: Box): boolean
 end
 
@@ -175,10 +175,10 @@ local function preflight(opts: BoxOpts): boolean, string
 end
 
 local record RunModule
-  run: function(opts: {string: any}, argv: {string}): integer, string
+  run: function(opts: {string: any}, argv: {string}): integer | nil, string
 end
 
-local function run(self: Box, argv: {string}): integer, string
+local function run(self: Box, argv: {string}): integer | nil, string
   if self._closed then
     return nil, "quicksand: box already closed"
   end
@@ -203,7 +203,7 @@ end
 --- @param opts BoxOpts? policy (all fields optional)
 --- @return Box? box instance on success
 --- @return string? error message on failure
-local function new(opts?: BoxOpts): Box, string
+local function new(opts?: BoxOpts): Box | nil, string
   local ok, err = validate(opts)
   if not ok then return nil, err end
   local j: Box = {
@@ -227,7 +227,8 @@ local function merge(...: BoxOpts): BoxOpts
 end
 
 local record BoxModule
-  new: function(opts?: BoxOpts): Box, string
+  type Box = Box
+  new: function(opts?: BoxOpts): Box | nil, string
   merge: function(...: BoxOpts): BoxOpts
 end
 

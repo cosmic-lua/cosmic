@@ -13,7 +13,7 @@ test_module_exports()
 -- Drive one request through a live proxy and return everything the
 -- server sends back before closing.
 local function roundtrip(port: integer, request: string): string
-  local sock = assert(net.connect_tcp(LOOPBACK, port))
+  local sock = assert(net.connect_tcp(LOOPBACK, port)) as net.Socket
   sock:send(request)
   local resp = ""
   while true do
@@ -58,24 +58,26 @@ local function test_start_stop_lifecycle()
       log_level = "quiet",
     })
   assert(handle, "proxy.start failed: " .. tostring(err))
-  assert(type(handle.pid) == "number" and handle.pid > 0,
+  local h = handle as proxy.ProxyHandle
+  assert(type(h.pid) == "number" and h.pid > 0,
     "pid should be positive")
-  assert(type(handle.port) == "number" and handle.port > 0,
+  assert(type(h.port) == "number" and h.port > 0,
     "port should be positive")
-  assert(handle:alive(), "alive() should be true while running")
+  assert(h:alive(), "alive() should be true while running")
 
   -- Connecting to the proxy and immediately closing should at least
   -- establish a TCP connection — verify by opening a client socket.
-  local sock = net.connect_tcp(LOOPBACK, handle.port)
+  local sock = net.connect_tcp(LOOPBACK, h.port)
   assert(sock, "failed to connect to proxy on port "
-    .. tostring(handle.port))
-  sock:close()
+    .. tostring(h.port))
+  local s = sock as net.Socket
+  s:close()
 
-  handle:stop()
-  assert(handle.pid == 0, "stop() should zero the pid")
+  h:stop()
+  assert(h.pid == 0, "stop() should zero the pid")
   -- Second call must be a no-op.
-  handle:stop()
-  assert(not handle:alive(), "alive() should be false after stop()")
+  h:stop()
+  assert(not h:alive(), "alive() should be false after stop()")
 end
 test_start_stop_lifecycle()
 
@@ -92,7 +94,7 @@ local function test_deny_unknown_host()
           ["allowed.example.com:80"] = {},
         },
         log_level = "quiet",
-      }))
+      })) as proxy.ProxyHandle
 
   local resp = roundtrip(handle.port,
     "GET http://denied.example.com/ HTTP/1.1\r\n"
@@ -122,7 +124,7 @@ local function test_malformed_and_chunked_requests()
           ["allowed.example.com"] = {},
         },
         log_level = "quiet",
-      }))
+      })) as proxy.ProxyHandle
 
   local resp = roundtrip(handle.port, "garbage\r\n\r\n")
   assert(resp:find("400", 1, true),
@@ -159,7 +161,7 @@ local function test_allowed_private_upstream_gets_502()
         },
         log_level = "quiet",
         resolve_timeout_ms = 2000,
-      }))
+      })) as proxy.ProxyHandle
 
   local resp = roundtrip(handle.port,
     "CONNECT 127.0.0.1:80 HTTP/1.1\r\n\r\n")
@@ -182,7 +184,7 @@ local function test_stop_escalates_to_sigkill()
         bind_port = 0,
         allowed_hosts = {},
         log_level = "quiet",
-      }))
+      })) as proxy.ProxyHandle
   assert(signal.kill(handle.pid, signal.SIGSTOP))
   local before = os.time()
   assert(handle:stop(300), "stop() with a hung child should return")

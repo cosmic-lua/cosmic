@@ -41,7 +41,7 @@ end
 --- Streaming reader for incremental body access.
 --- Supports Lua 5.4's to-be-closed via __close metamethod.
 local record Reader
-  read: function(self: Reader): string, string
+  read: function(self: Reader): string | nil, string
   close: function(self: Reader): boolean
   closed: function(self: Reader): boolean
   lines: function(self: Reader): function(): string
@@ -163,9 +163,9 @@ local function make_reader(raw_reader: cosmo.StreamReader): Reader
   local reader: Reader = {}
 
   --- Read the next chunk from the stream.
-  --- @return string chunk or nil on EOF
+  --- @return string | nil chunk or nil on EOF
   --- @return string error message on failure
-  function reader:read(): string, string
+  function reader:read(): string | nil, string
     if is_closed then
       return nil, "reader closed"
     end
@@ -289,9 +289,9 @@ end
 
 --- Build a unix domain socket proxy URL from a socket path.
 --- @param path string Absolute path to the unix domain socket
---- @return string proxy URL in unix:// format
+--- @return string | nil proxy URL in unix:// format
 --- @return string? Error message if path is invalid
-local function unix_proxy(path: string): string, string
+local function unix_proxy(path: string): string | nil, string
   if not path or path == "" then
     return nil, "empty socket path"
   end
@@ -312,7 +312,7 @@ local record fetch
   Fetch: function(url: string, opts?: Opts): Result
   stream: function(url: string, opts?: Opts): StreamResult
   has_stream: function(): boolean
-  unix_proxy: function(path: string): string, string
+  unix_proxy: function(path: string): string | nil, string
   Opts: Opts
   Result: Result
   Reader: Reader

@@ -59,7 +59,7 @@ end
 --- @param options HashOptions? Optional configuration for the hash
 --- @return string? The encoded hash string, or nil on error
 --- @return string? Error message if hashing failed
-local function password(pwd: string, options?: HashOptions): string, string
+local function password(pwd: string, options?: HashOptions): string | nil, string
   -- Generate a random salt (16 bytes is recommended)
   local salt = rand.bytes(16)
 
@@ -114,7 +114,7 @@ local record HashModule
 
   sha256: function(data: string): string
   sha256_hex: function(data: string): string
-  password: function(pwd: string, options?: HashOptions): string, string
+  password: function(pwd: string, options?: HashOptions): string | nil, string
   verify_password: function(encoded: string, pwd: string): boolean, string
 end
 

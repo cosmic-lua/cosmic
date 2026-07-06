@@ -1,11 +1,8 @@
 --- Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns.
 --- Wraps lsqlite3 with proper error returns and resource management.
 ---
---- This module provides a high-level API over lsqlite3. Prefer
---- `db:exec()`, `db:query()`, `db:query_one()`, and `db:transaction()`
---- over manual statement preparation, binding, and stepping.
---- The underlying lsqlite3 bindings are used internally; prefer the
---- high-level API shown below.
+--- Prefer `db:exec()`, `db:query()`, `db:query_one()`, and
+--- `db:transaction()` over manual preparation, binding, and stepping.
 ---
 ---     local sqlite = require("cosmic.sqlite")
 ---     local db = sqlite.open(":memory:")
@@ -54,10 +51,9 @@ end
 local sqlite3 = lsqlite3 as RawSqlite3
 
 --- Callable row iterator with an out-of-band error channel. Use it in a
---- generic `for row in ... do` loop, then call `:err()` afterward to detect
---- a step error (SQLITE_BUSY / CORRUPT / a RETURNING constraint failure)
---- that a for-loop cannot observe inline. `:err()` is nil only when
---- iteration reached SQLITE_DONE cleanly.
+--- `for row in ... do` loop, then call `:err()` afterward to detect a step
+--- error (SQLITE_BUSY / CORRUPT / a RETURNING constraint failure) a for-loop
+--- cannot observe inline. `:err()` is nil only on a clean SQLITE_DONE.
 local record Rows
   metamethod __call: function(self: Rows): {string: any}
   err: function(self: Rows): string
@@ -86,11 +82,11 @@ end
 
 --- Database handle with automatic cleanup.
 local record Database
-  prepare: function(self: Database, sql: string): Statement, string
-  query: function(self: Database, sql: string, ...: any): Rows, string
-  query_list: function(self: Database, sql: string, values: {any}): Rows, string
-  query_named: function(self: Database, sql: string, params: {string: any}): Rows, string
-  query_one: function(self: Database, sql: string, ...: any): {string: any}, string
+  prepare: function(self: Database, sql: string): Statement | nil, string
+  query: function(self: Database, sql: string, ...: any): Rows | nil, string
+  query_list: function(self: Database, sql: string, values: {any}): Rows | nil, string
+  query_named: function(self: Database, sql: string, params: {string: any}): Rows | nil, string
+  query_one: function(self: Database, sql: string, ...: any): {string: any} | nil, string
   exec: function(self: Database, sql: string, ...: any): boolean, string
   exec_list: function(self: Database, sql: string, values: {any}): boolean, string
   exec_named: function(self: Database, sql: string, params: {string: any}): boolean, string
@@ -119,9 +115,8 @@ local function make_statement(raw_stmt: RawStatement, raw_db: RawDatabase): Stat
     return true
   end
 
-  --- Bind parameters from a list (table).
-  --- The parameter count is derived from the SQL statement itself, so
-  --- nil values in the table are handled correctly without an explicit count.
+  --- Bind parameters from a list (table). The count is derived from the SQL,
+  --- so nil values in the table are handled correctly without an explicit count.
   function stmt:bind_list(values: {any}): boolean, string
     raw_stmt:reset()
     local count = raw_stmt:bind_parameter_count() as integer
@@ -269,7 +264,7 @@ local function make_database(raw_db: RawDatabase): Database
   -- Reuses prepared statements for db:exec (see cosmic.sqlite_stmt_cache).
   local stmt_cache = stmt_cache_mod.new(raw_db as any, sqlite3.OK, sqlite3.DONE, sqlite3.ROW, sqlite3.SCHEMA)
 
-  function db:prepare(sql: string): Statement, string
+  function db:prepare(sql: string): Statement | nil, string
     if closed then
       return nil, "database is closed"
     end
@@ -280,7 +275,7 @@ local function make_database(raw_db: RawDatabase): Database
     return make_statement(raw_stmt, raw_db)
   end
 
-  function db:query(sql: string, ...: any): Rows, string
+  function db:query(sql: string, ...: any): Rows | nil, string
     if closed then
       return nil, "query failed: database is closed"
     end
@@ -321,23 +316,23 @@ local function make_database(raw_db: RawDatabase): Database
     return stmt_cache:exec(sql, args, n)
   end
 
-  --- Execute SQL with parameters from a list (table).
-  --- The parameter count is derived from the SQL itself, so nil values
-  --- in the table are handled correctly.
+  --- Execute SQL with parameters from a list (table). The count is derived
+  --- from the SQL itself, so nil values in the table are handled correctly.
   function db:exec_list(sql: string, values: {any}): boolean, string
     local stmt, err = self:prepare(sql)
     if not stmt then
       return false, err or "prepare failed"
     end
+    local st = stmt as Statement
 
-    local ok, bind_err = stmt:bind_list(values)
+    local ok, bind_err = st:bind_list(values)
     if not ok then
-      stmt:close()
+      st:close()
       return false, bind_err or "bind failed"
     end
 
-    local exec_ok, exec_err = stmt:exec()
-    stmt:close()
+    local exec_ok, exec_err = st:exec()
+    st:close()
     return exec_ok, exec_err
   end
 
@@ -348,76 +343,80 @@ local function make_database(raw_db: RawDatabase): Database
     if not stmt then
       return false, err or "prepare failed"
     end
+    local st = stmt as Statement
 
-    local ok, bind_err = stmt:bind_named(params)
+    local ok, bind_err = st:bind_named(params)
     if not ok then
-      stmt:close()
+      st:close()
       return false, bind_err or "bind failed"
     end
 
-    local exec_ok, exec_err = stmt:exec()
-    stmt:close()
+    local exec_ok, exec_err = st:exec()
+    st:close()
     return exec_ok, exec_err
   end
 
   --- Query with parameters from a list (table).
   --- The parameter count is derived from the SQL itself, so nil values
   --- in the table are handled correctly.
-  function db:query_list(sql: string, values: {any}): Rows, string
+  function db:query_list(sql: string, values: {any}): Rows | nil, string
     local stmt, err = self:prepare(sql)
     if not stmt then
       return nil, "query failed: " .. (err or "unknown error")
     end
+    local st = stmt as Statement
 
-    local ok, bind_err = stmt:bind_list(values)
+    local ok, bind_err = st:bind_list(values)
     if not ok then
-      stmt:close()
+      st:close()
       return nil, "bind failed: " .. (bind_err or "unknown error")
     end
 
-    return make_query_iter(stmt)
+    return make_query_iter(st)
   end
 
   --- Query with named parameters.
   --- SQL should use :name placeholders. Table keys are names without the colon.
-  function db:query_named(sql: string, params: {string: any}): Rows, string
+  function db:query_named(sql: string, params: {string: any}): Rows | nil, string
     local stmt, err = self:prepare(sql)
     if not stmt then
       return nil, "query failed: " .. (err or "unknown error")
     end
+    local st = stmt as Statement
 
-    local ok, bind_err = stmt:bind_named(params)
+    local ok, bind_err = st:bind_named(params)
     if not ok then
-      stmt:close()
+      st:close()
       return nil, "bind failed: " .. (bind_err or "unknown error")
     end
 
-    return make_query_iter(stmt)
+    return make_query_iter(st)
   end
 
   --- Return the first row matching a query, or nil if no rows match.
   --- Convenience method for single-row lookups.
   --- The underlying prepared statement is always finalized before returning,
   --- even when only the first row is consumed, preventing statement leaks.
-  function db:query_one(sql: string, ...: any): {string: any}, string
+  function db:query_one(sql: string, ...: any): {string: any} | nil, string
     local iter, err = self:query(sql, ...)
     if not iter then
       return nil, err
     end
+    local it = iter as Rows
     -- Capture the first row, then drain the iterator so the statement is
     -- finalized deterministically (returning early from a for-loop leaves
     -- the iterator open and the prepared statement unfinalized until GC).
     local first: {string: any} = nil
-    for row in iter do
+    for row in it do
       first = row
       break
     end
     -- Drain remaining rows so the wrapping closure calls stmt:close().
     if first ~= nil then
-      while iter() ~= nil do end
+      while it() ~= nil do end
     end
     -- Surface a step error rather than a partial row that looks clean.
-    local step_err = iter:err()
+    local step_err = it:err()
     if step_err then
       return nil, step_err
     end
@@ -477,9 +476,9 @@ end
 --- Use ":memory:" for an in-memory database that is not written to disk.
 --- The file is created if it does not already exist.
 --- @param filename string Database path (use ":memory:" for in-memory)
---- @return Database Database handle with __close support
+--- @return Database | nil Database handle with __close support
 --- @return string Error message on failure
-local function open(filename: string): Database, string
+local function open(filename: string): Database | nil, string
   local raw_db, errcode, errmsg = sqlite3.open(filename)
   if not raw_db then
     return nil, errmsg or ("error code " .. tostring(errcode))
@@ -488,9 +487,10 @@ local function open(filename: string): Database, string
 end
 
 local record sqlite
-  open: function(filename: string): Database, string
+  open: function(filename: string): Database | nil, string
   Database: Database
   Statement: Statement
+  Rows: Rows
 end
 
 local M: sqlite = {

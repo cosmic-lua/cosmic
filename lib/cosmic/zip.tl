@@ -45,13 +45,13 @@ local record Reader
   --- Gets metadata for a specific file in the archive.
   --- @param name string The file path within the archive
   --- @return Stat? File metadata, or nil if file not found
-  stat: function(self: Reader, name: string): Stat
+  stat: function(self: Reader, name: string): Stat | nil
 
   --- Reads the contents of a file from the archive.
   --- @param name string The file path within the archive
   --- @return string? The file contents, or nil on error
   --- @return string? Error message if reading failed
-  read: function(self: Reader, name: string): string, string
+  read: function(self: Reader, name: string): string | nil, string
 
   --- Closes the ZIP reader and releases resources.
   close: function(self: Reader)
@@ -65,7 +65,7 @@ local record Writer
   --- @param options AddOptions? Optional compression and metadata settings
   --- @return boolean? true on success, nil on failure
   --- @return string? Error message if adding failed
-  add: function(self: Writer, name: string, content: string, options?: AddOptions): boolean, string
+  add: function(self: Writer, name: string, content: string, options?: AddOptions): boolean | nil, string
 
   --- Closes the ZIP archive and writes the central directory.
   close: function(self: Writer)
@@ -79,13 +79,13 @@ local record Appender
   --- @param options AddOptions? Optional compression and metadata settings
   --- @return boolean? true on success, nil on failure
   --- @return string? Error message if adding failed
-  add: function(self: Appender, name: string, content: string, options?: AddOptions): boolean, string
+  add: function(self: Appender, name: string, content: string, options?: AddOptions): boolean | nil, string
 
   --- Removes a file from the ZIP archive by name.
   --- @param name string The file path within the archive to remove
   --- @return boolean? true on success, nil on failure
   --- @return string? Error message if removal failed
-  remove: function(self: Appender, name: string): boolean, string
+  remove: function(self: Appender, name: string): boolean | nil, string
 
   --- Closes the ZIP archive and writes the updated central directory.
   close: function(self: Appender)
@@ -125,7 +125,7 @@ end
 --- @param options OpenOptions? Size limits
 --- @return Reader? The archive reader, or nil on error
 --- @return string? Error message if opening failed
-local function from(data: string, options?: OpenOptions): Reader, string
+local function from(data: string, options?: OpenOptions): Reader | nil, string
   local handle: any
   local err: string
   if options then
@@ -159,7 +159,7 @@ local record ZipModule
   type Appender = Appender
 
   open: function(path: string | number, mode?: string, options?: OpenOptions): any, string
-  from: function(data: string, options?: OpenOptions): Reader, string
+  from: function(data: string, options?: OpenOptions): Reader | nil, string
 end
 
 local M: ZipModule = {

@@ -7,16 +7,19 @@ local function Example_echo()
   local srv, port, err = net.listen_tcp(0x7f000001, 0)
   assert(srv, err)
   assert(port > 0)
+  local srv = srv as net.Socket
 
   local client, cerr = net.connect_tcp(0x7f000001, port)
   assert(client, cerr)
+  local client = client as net.Socket
 
   local conn, _, _, aerr = srv:accept()
   assert(conn, aerr)
+  local conn = conn as net.Socket
 
   client:send("hello")
   local msg = conn:recv()
-  conn:send("echo: " .. msg)
+  conn:send("echo: " .. (msg as string))
   print(client:recv())
 
   client:close()
@@ -32,9 +35,10 @@ local function Example_recv_eof()
   local net = require("cosmic.net")
   local srv, port, err = net.listen_tcp(0x7f000001, 0)
   assert(srv, err)
+  local srv = srv as net.Socket
 
-  local client = net.connect_tcp(0x7f000001, port)
-  local conn = srv:accept()
+  local client = net.connect_tcp(0x7f000001, port) as net.Socket
+  local conn = srv:accept() as net.Socket
 
   client:close()
   local data = conn:recv()

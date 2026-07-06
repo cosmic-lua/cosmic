@@ -361,7 +361,7 @@ local function parse(source: string, file_path: string): ModuleDoc
 end
 
 --- Parse a file and return structured documentation.
-local function parse_file(file_path: string): ModuleDoc, string
+local function parse_file(file_path: string): ModuleDoc | nil, string
   local f, err = io.open(file_path, "r")
   if not f then return nil, "cannot open file: " .. (err or "unknown") end
   local source = f:read("*a")
@@ -404,7 +404,7 @@ local function serialize_index(index: DocIndex): string
   return (cosmo.EncodeLua(index as table))
 end
 
-local function load_index(source: string): DocIndex, string
+local function load_index(source: string): DocIndex | nil, string
   local chunk, err = load("return " .. source, "=docindex", "t", {})
   if not chunk then return nil, "failed to parse index: " .. (err or "unknown") end
   local ok, result = pcall(chunk)
@@ -415,12 +415,12 @@ end
 local record DocModule
   parse: function(source: string, file_path: string): ModuleDoc
   parse_dtl: function(source: string, file_path: string): ModuleDoc
-  parse_file: function(file_path: string): ModuleDoc, string
+  parse_file: function(file_path: string): ModuleDoc | nil, string
   render: function(doc: ModuleDoc): string
   render_file: function(file_path: string): boolean, string
   serialize: function(doc: ModuleDoc): string
   serialize_index: function(index: DocIndex): string
-  load_index: function(source: string): DocIndex, string
+  load_index: function(source: string): DocIndex | nil, string
 end
 
 local M: DocModule = {

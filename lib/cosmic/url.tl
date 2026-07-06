@@ -21,9 +21,9 @@ end
 --- Decode a percent-encoded string.
 --- Handles %XX sequences and + as space.
 --- @param str string The percent-encoded string
---- @return string The decoded string, or nil on error
+--- @return string | nil The decoded string, or nil on error
 --- @return string? Error message if decoding failed
-local function decode(str: string): string, string
+local function decode(str: string): string | nil, string
   -- Check for invalid percent-encoding sequences before decoding
   -- Valid sequences are %XX where X is a hex digit
   local check = str:gsub("%%(%x%x)", "") -- Remove valid sequences
@@ -66,10 +66,10 @@ local record UrlModule
   Url: Url
 
   encode: function(str: string): string
-  decode: function(str: string): string, string
+  decode: function(str: string): string | nil, string
   parse: function(query: string): {string: string}
   parse_url: function(url: string): Url
-  parse_host: function(hostport: string): string, integer
+  parse_host: function(hostport: string): string | nil, integer
   escape_host: function(str: string): string
   escape_path: function(str: string): string
   escape_segment: function(str: string): string
@@ -125,9 +125,9 @@ end
 
 --- Parse a host:port string into its components.
 --- @param hostport string The host:port string (e.g., "example.com:8080")
---- @return string The host
+--- @return string | nil The host
 --- @return integer? The port, or nil if not specified
-local function parse_host(hostport: string): string, integer
+local function parse_host(hostport: string): string | nil, integer
   if not hostport or hostport == "" then
     return nil, nil
   end

@@ -17,7 +17,7 @@ local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 local function test_simple_command()
   local handle = child.spawn({lua_bin, "-e", "print('hello')"})
   assert(handle ~= nil, "handle should not be nil")
-  local ok, out = handle:read()
+  local ok, out = (handle as child.Handle):read()
   assert(ok, "command should succeed")
   assert(out == "hello\n", "expected 'hello\\n', got '" .. tostring(out) .. "'")
 end
@@ -33,12 +33,12 @@ test_command_not_found()
 local function test_wait_returns_exit_code()
   local handle = child.spawn({lua_bin, "-e", "os.exit(0)"})
   assert(handle ~= nil, "handle should not be nil")
-  local exit_code = handle:wait()
+  local exit_code = (handle as child.Handle):wait()
   assert(exit_code == 0, "expected exit code 0, got " .. tostring(exit_code))
 
   handle = child.spawn({lua_bin, "-e", "os.exit(1)"})
   assert(handle ~= nil, "handle should not be nil")
-  exit_code = handle:wait()
+  exit_code = (handle as child.Handle):wait()
   assert(exit_code == 1, "expected exit code 1, got " .. tostring(exit_code))
 end
 test_wait_returns_exit_code()
@@ -46,7 +46,7 @@ test_wait_returns_exit_code()
 local function test_stdin_string()
   local handle = child.spawn({lua_bin, "-e", "io.write(io.read('*a'))"}, {stdin = "hello from stdin"})
   assert(handle ~= nil, "handle should not be nil")
-  local ok, out = handle:read()
+  local ok, out = (handle as child.Handle):read()
   assert(ok, "command should succeed")
   assert(out == "hello from stdin", "expected 'hello from stdin', got '" .. tostring(out) .. "'")
 end
@@ -55,7 +55,7 @@ test_stdin_string()
 local function test_read_captures_output()
   local handle = child.spawn({lua_bin, "-e", [[io.write("line1\nline2\n")]]})
   assert(handle ~= nil, "handle should not be nil")
-  local ok, out = handle:read()
+  local ok, out = (handle as child.Handle):read()
   assert(ok, "command should succeed")
   assert(out == "line1\nline2\n", "expected 'line1\\nline2\\n', got '" .. tostring(out) .. "'")
 end
@@ -64,7 +64,7 @@ test_read_captures_output()
 local function test_cwd_option()
   local handle = child.spawn({"pwd"}, {cwd = TEST_TMPDIR})
   assert(handle ~= nil, "handle should not be nil")
-  local ok, out, exit_code = handle:read()
+  local ok, out, exit_code = (handle as child.Handle):read()
   assert(ok, "command should succeed, exit code: " .. tostring(exit_code) .. ", output: '" .. tostring(out) .. "'")
   local pwd_output = out:gsub("\n$", "")
   assert(pwd_output == TEST_TMPDIR, "expected pwd to be '" .. TEST_TMPDIR .. "', got '" .. tostring(pwd_output) .. "'")
@@ -211,7 +211,7 @@ local function test_spawn_inherits_env()
     io.write(os.getenv("COSMIC_TEST_SENTINEL") or "")
   ]]})
   assert(handle ~= nil, "handle should not be nil")
-  local ok, out, code = handle:read()
+  local ok, out, code = (handle as child.Handle):read()
   assert(ok, "child should exit 0, got code " .. tostring(code))
   assert(out == sentinel, "expected '" .. sentinel .. "', got '" .. tostring(out) .. "'")
 end
@@ -227,7 +227,7 @@ local function test_spawn_with_env_map()
     io.write(os.getenv("COSMIC_TEST_MAP") or "")
   ]]}, {env = vars as {string}})
   assert(handle ~= nil, "handle should not be nil")
-  local ok, out, code = handle:read()
+  local ok, out, code = (handle as child.Handle):read()
   assert(ok, "child should exit 0, got code " .. tostring(code))
   assert(out == sentinel, "expected '" .. sentinel .. "', got '" .. tostring(out) .. "'")
 end
@@ -243,7 +243,7 @@ local function test_spawn_with_env_list()
     io.write(os.getenv("COSMIC_TEST_LIST") or "")
   ]]}, {env = vars})
   assert(handle ~= nil, "handle should not be nil")
-  local ok, out, code = handle:read()
+  local ok, out, code = (handle as child.Handle):read()
   assert(ok, "child should exit 0, got code " .. tostring(code))
   assert(out == sentinel, "expected '" .. sentinel .. "', got '" .. tostring(out) .. "'")
 end
@@ -301,13 +301,13 @@ local function test_wait_no_deadlock_large_stderr()
     os.exit(0)
   ]]})
   assert(handle ~= nil, "handle should not be nil")
-  local exit_code = handle:wait()
+  local exit_code = (handle as child.Handle):wait()
   assert(exit_code == 0, "expected exit code 0, got " .. tostring(exit_code))
 end
 test_wait_no_deadlock_large_stderr()
 
 local function test_read_no_deadlock_large_stderr()
-  -- Same scenario but using handle:read() instead of handle:wait().
+  -- Same scenario but using (handle as child.Handle):read() instead of (handle as child.Handle):wait().
   local handle = child.spawn({lua_bin, "-e", [[
     io.write("stdout ok\n")
     io.flush()
@@ -317,7 +317,7 @@ local function test_read_no_deadlock_large_stderr()
     os.exit(0)
   ]]})
   assert(handle ~= nil, "handle should not be nil")
-  local ok, out, code = handle:read()
+  local ok, out, code = (handle as child.Handle):read()
   assert(ok, "expected success, got code " .. tostring(code))
   assert(out == "stdout ok\n", "expected 'stdout ok\\n', got '" .. tostring(out) .. "'")
 end
@@ -358,7 +358,7 @@ local function test_spawn_zip_non_executable()
   -- /zip/main.lua exists but is not an ELF binary, so fexecve fails
   local handle, err = child.spawn({"/zip/main.lua"})
   assert(handle ~= nil, "spawn should succeed (fork works): " .. tostring(err))
-  local exit_code = handle:wait()
+  local exit_code = (handle as child.Handle):wait()
   assert(exit_code == 127,
     "expected exit 127 for non-executable, got " .. tostring(exit_code))
 end
@@ -383,7 +383,7 @@ local function test_spawn_zip_embedded_binary()
   local build = child.spawn(
     {lua_bin, "--embed", fs.join(tmpdir, "embed"), "--output", out_bin})
   assert(build, "embed spawn should succeed")
-  assert(build:wait() == 0, "embed should exit 0")
+  assert((build as child.Handle):wait() == 0, "embed should exit 0")
 
   -- run the embedded binary: spawn /zip/.bin/echo via fexecve
   local handle = child.spawn({out_bin, "-e", [[
@@ -394,7 +394,7 @@ local function test_spawn_zip_embedded_binary()
     io.write(out)
   ]]})
   assert(handle, "should spawn embedded binary")
-  local ok, out = handle:read()
+  local ok, out = (handle as child.Handle):read()
   assert(ok, "embedded binary should succeed")
   assert(out == "hello-from-zip\n",
     "expected 'hello-from-zip\\n', got '" .. tostring(out) .. "'")
@@ -413,7 +413,7 @@ local function test_spawn_stdout_stderr_separate()
     io.stderr:flush()
   ]]})
   assert(handle ~= nil, "handle should not be nil")
-  local ok, out, code = handle:read()
+  local ok, out, code = (handle as child.Handle):read()
   assert(ok, "command should succeed, exit=" .. tostring(code))
   assert(out == "to-stdout\n",
     "expected 'to-stdout\\n' on stdout, got '" .. tostring(out) .. "'")
@@ -431,7 +431,7 @@ local function test_spawn_many_captures_correct()
     local handle = child.spawn({lua_bin, "-e",
         "io.write('iter" .. tostring(i) .. "\\n')"})
     assert(handle ~= nil, "handle should not be nil on iteration " .. i)
-    local ok, out = handle:read()
+    local ok, out = (handle as child.Handle):read()
     assert(ok, "iteration " .. i .. " should succeed")
     assert(out == "iter" .. tostring(i) .. "\n",
       "expected 'iter" .. i .. "\\n', got '" .. tostring(out) .. "'")
@@ -447,8 +447,8 @@ local function test_spawn_does_not_mutate_argv()
   -- caller's own table. The resolution must go into a local instead.
   local argv = {"echo", "x"}
   local handle = child.spawn(argv)
-  assert(handle ~= nil, "spawn should succeed")
-  handle:wait()
+  assert(handle ~= nil, "spawn should succeed");
+  (handle as child.Handle):wait()
   assert(argv[1] == "echo",
     "spawn must not mutate caller's argv[1], got '" .. tostring(argv[1]) .. "'")
 end
@@ -467,7 +467,7 @@ local function test_spawn_overlap_no_stdin_leak()
   assert(b ~= nil, "spawn B should succeed")
 
   local s0, n0 = time.monotonic()
-  local out, _, code = a:communicate()
+  local out, _, code = (a as child.Handle):communicate()
   local s1, n1 = time.monotonic()
   local elapsed = (s1 - s0) + (n1 - n0) / 1e9
 
@@ -477,7 +477,8 @@ local function test_spawn_overlap_no_stdin_leak()
     "A must finish promptly, not block on B's lifetime (took "
     .. tostring(elapsed) .. "s)")
 
-  child.kill(b.pid, child.SIGKILL)
-  b:wait()
+  local bh = b as child.Handle
+  child.kill(bh.pid, child.SIGKILL)
+  bh:wait()
 end
 test_spawn_overlap_no_stdin_leak()

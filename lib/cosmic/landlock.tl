@@ -93,7 +93,7 @@ local record LandlockModule
   WRITE: integer
   RW: integer
   ALL: integer
-  abi: function(): integer, string
+  abi: function(): integer | nil, string
   available: function(): boolean
   restrict: function(opts: RestrictOpts): boolean, string
 end
@@ -111,7 +111,7 @@ end
 
 --- Returns the kernel's supported landlock ABI version (>= 1 when
 --- landlock is enabled). Returns nil + error on ENOSYS or non-Linux.
-local function abi(): integer, string
+local function abi(): integer | nil, string
   local v, err = unix.landlock_create_ruleset()
   if not v then
     return nil, err and tostring(err) or "landlock unavailable"

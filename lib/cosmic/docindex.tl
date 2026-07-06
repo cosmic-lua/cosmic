@@ -6,7 +6,7 @@ local cio = require("cosmic.io")
 local codec = require("cosmic.codec")
 
 local record DocIndexModule
-  generate: function(files: {string}): string, string
+  generate: function(files: {string}): string | nil, string
   main: function(args: {string}): integer
 end
 
@@ -15,7 +15,7 @@ end
 --- @param files List of .tl or .d.tl file paths to process
 --- @return Encoded Lua source for the index, or nil on error
 --- @return Error message if generation failed
-local function generate(files: {string}): string, string
+local function generate(files: {string}): string | nil, string
   local modules: {string: any} = {}
   local example_files: {string: any} = {} -- Store example docs separately
 

@@ -2,6 +2,7 @@
 -- test cosmic --embed and --extract options
 
 local fs = require("cosmic.fs")
+local fs_types = require("cosmic.fs_types")
 local cio = require("cosmic.io")
 local spawn = require("cosmic.child")
 local zip = require("cosmic.zip")
@@ -40,13 +41,13 @@ local function test_embed_single_file()
   local input = write_temp("hello.txt", "hello world")
   local output = fs.join(tmpdir, "cosmic-single")
 
-  local ok, out = spawn.spawn({cosmic, "--embed", input, "--output", output}):read()
+  local ok, out = (spawn.spawn({cosmic, "--embed", input, "--output", output}) as spawn.Handle):read()
   assert(ok, "cosmic --embed should succeed: " .. (out or ""))
 
   -- Verify output exists and is executable
   local stat = fs.stat(output)
   assert(stat, "output file should exist")
-  assert(stat:mode() & 73 ~= 0, "output should be executable")
+  assert((stat as fs_types.Stat):mode() & 73 ~= 0, "output should be executable")
 
   -- Verify file is in the zip
   local data = cio.slurp(output)
@@ -78,7 +79,7 @@ local function test_embed_multiple_files()
   local file2 = write_temp("multi/two.txt", "content two")
   local output = fs.join(tmpdir, "cosmic-multi")
 
-  local ok, out = spawn.spawn({cosmic, "--embed", file1, "--embed", file2, "--output", output}):read()
+  local ok, out = (spawn.spawn({cosmic, "--embed", file1, "--embed", file2, "--output", output}) as spawn.Handle):read()
   assert(ok, "cosmic --embed with multiple files should succeed: " .. (out or ""))
 
   local data = cio.slurp(output)
@@ -103,7 +104,7 @@ local function test_embed_custom_output()
   local output = fs.join(tmpdir, "subdir/myapp")
   fs.makedirs(fs.dirname(output))
 
-  local ok, out = spawn.spawn({cosmic, "--embed", input, "--output", output}):read()
+  local ok, out = (spawn.spawn({cosmic, "--embed", input, "--output", output}) as spawn.Handle):read()
   assert(ok, "cosmic --embed with custom output path should succeed: " .. (out or ""))
 
   local stat = fs.stat(output)
@@ -114,7 +115,7 @@ test_embed_custom_output()
 -- Test error on missing input file
 local function test_embed_missing_file()
   local output = fs.join(tmpdir, "cosmic-missing")
-  local ok, _out = spawn.spawn({cosmic, "--embed", "/nonexistent/file.txt", "--output", output}):read()
+  local ok, _out = (spawn.spawn({cosmic, "--embed", "/nonexistent/file.txt", "--output", output}) as spawn.Handle):read()
   assert(not ok, "cosmic --embed should fail on missing file")
 end
 test_embed_missing_file()
@@ -124,7 +125,7 @@ local function test_embed_lua_file()
   local modfile = write_temp("mymod.lua", [[return { value = 42 }]])
   local output = fs.join(tmpdir, "cosmic-lua")
 
-  local ok, out = spawn.spawn({cosmic, "--embed", modfile, "--output", output}):read()
+  local ok, out = (spawn.spawn({cosmic, "--embed", modfile, "--output", output}) as spawn.Handle):read()
   assert(ok, "embed should succeed: " .. (out or ""))
 
   -- Verify the lua file is in the zip with correct content
@@ -146,7 +147,7 @@ local function test_embed_binary_file()
   local input = write_temp("binary.bin", binary)
   local output = fs.join(tmpdir, "cosmic-binary")
 
-  local ok, out = spawn.spawn({cosmic, "--embed", input, "--output", output}):read()
+  local ok, out = (spawn.spawn({cosmic, "--embed", input, "--output", output}) as spawn.Handle):read()
   assert(ok, "embed binary should succeed: " .. (out or ""))
 
   local data = cio.slurp(output)
@@ -170,7 +171,7 @@ local function test_embed_directory()
   cio.barf(fs.join(appdir, "data.txt"), "some data")
 
   local output = fs.join(tmpdir, "cosmic-dir")
-  local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--output", output}):read()
+  local ok, out = (spawn.spawn({cosmic, "--embed", appdir, "--output", output}) as spawn.Handle):read()
   assert(ok, "embed directory should succeed: " .. (out or ""))
 
   -- Verify files are stored relative to directory root
@@ -201,7 +202,7 @@ local function test_embed_nested_directory()
   cio.barf(fs.join(appdir, "a/b/c/deep.txt"), "deep")
 
   local output = fs.join(tmpdir, "cosmic-nested")
-  local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--output", output}):read()
+  local ok, out = (spawn.spawn({cosmic, "--embed", appdir, "--output", output}) as spawn.Handle):read()
   assert(ok, "embed nested directory should succeed: " .. (out or ""))
 
   local data = cio.slurp(output)
@@ -225,7 +226,7 @@ local function test_embed_mixed()
   local extra = write_temp("extra.txt", "extra content")
   local output = fs.join(tmpdir, "cosmic-mixed")
 
-  local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--embed", extra, "--output", output}):read()
+  local ok, out = (spawn.spawn({cosmic, "--embed", appdir, "--embed", extra, "--output", output}) as spawn.Handle):read()
   assert(ok, "embed mixed should succeed: " .. (out or ""))
 
   local data = cio.slurp(output)
@@ -250,11 +251,11 @@ local function test_embed_directory_executable()
   cio.barf(fs.join(appdir, "main.lua"), 'io.write("it works\\n")\n')
 
   local output = fs.join(tmpdir, "cosmic-runapp")
-  local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--output", output}):read()
+  local ok, out = (spawn.spawn({cosmic, "--embed", appdir, "--output", output}) as spawn.Handle):read()
   assert(ok, "embed should succeed: " .. (out or ""))
 
   -- Run the custom executable
-  ok, out = spawn.spawn({output}):read()
+  ok, out = (spawn.spawn({output}) as spawn.Handle):read()
   assert(ok, "custom executable should run: " .. (out or ""))
   assert(out:match("it works"), "should print expected output, got: " .. (out or ""))
 end
@@ -267,7 +268,7 @@ local function test_embed_uses_deflate()
   local input = write_temp("deflate_test.txt", compressible)
   local output = fs.join(tmpdir, "cosmic-deflate")
 
-  local ok, out = spawn.spawn({cosmic, "--embed", input, "--output", output}):read()
+  local ok, out = (spawn.spawn({cosmic, "--embed", input, "--output", output}) as spawn.Handle):read()
   assert(ok, "embed should succeed: " .. (out or ""))
 
   local data = cio.slurp(output)
@@ -297,7 +298,7 @@ local function test_embed_stores_lua()
   local input = write_temp("store_test.lua", compressible)
   local output = fs.join(tmpdir, "cosmic-store")
 
-  local ok, out = spawn.spawn({cosmic, "--embed", input, "--output", output}):read()
+  local ok, out = (spawn.spawn({cosmic, "--embed", input, "--output", output}) as spawn.Handle):read()
   assert(ok, "embed should succeed: " .. (out or ""))
 
   local data = cio.slurp(output)

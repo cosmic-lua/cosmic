@@ -1,6 +1,13 @@
 --- Examples for the cosmic.sqlite module.
 --- Demonstrates database operations, prepared statements, and queries.
 
+-- The module's Rows iterator record is not exported; mirror its shape here so
+-- the fallible `db:query -> Rows | nil` results can be cast for iteration.
+local record Rows
+  metamethod __call: function(self: Rows): {string: any}
+  err: function(self: Rows): string
+end
+
 -- Example_open_file demonstrates database file path resolution
 local function Example_open_file()
   local sqlite = require("cosmic.sqlite")
@@ -9,10 +16,10 @@ local function Example_open_file()
   -- Relative paths resolve against cwd
   local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
   local dbpath = fs.join(tmpdir, "example.db")
-  local db = sqlite.open(dbpath)
+  local db = sqlite.open(dbpath) as sqlite.Database
   db:exec("CREATE TABLE t (x TEXT)")
   db:exec("INSERT INTO t (x) VALUES ('hello')")
-  local row = db:query_one("SELECT x FROM t")
+  local row = db:query_one("SELECT x FROM t") as {string: any}
   print(row.x)
   db:close()
   os.remove(dbpath)
@@ -28,10 +35,10 @@ end
 -- Example_open demonstrates opening an in-memory database
 local function Example_open()
   local sqlite = require("cosmic.sqlite")
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT)")
   db:exec("INSERT INTO kv (k, v) VALUES ('hello', 'world')")
-  for row in db:query("SELECT * FROM kv") do
+  for row in db:query("SELECT * FROM kv") as Rows do
     print(row.k, row.v)
   end
   db:close()
@@ -42,10 +49,10 @@ end
 -- Example_prepared demonstrates prepared statements
 local function Example_prepared()
   local sqlite = require("cosmic.sqlite")
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
 
-  local stmt = db:prepare("INSERT INTO users (name) VALUES (?)")
+  local stmt = db:prepare("INSERT INTO users (name) VALUES (?)") as sqlite.Statement
   stmt:bind("Alice")
   stmt:exec()
   stmt:reset()
@@ -53,7 +60,7 @@ local function Example_prepared()
   stmt:exec()
   stmt:close()
 
-  for row in db:query("SELECT * FROM users ORDER BY id") do
+  for row in db:query("SELECT * FROM users ORDER BY id") as Rows do
     print(row.id, row.name)
   end
   db:close()
@@ -65,13 +72,13 @@ end
 -- Example_query_params demonstrates query with parameters
 local function Example_query_params()
   local sqlite = require("cosmic.sqlite")
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE nums (n INTEGER)")
   for i = 1, 5 do
     db:exec("INSERT INTO nums (n) VALUES (" .. i .. ")")
   end
 
-  for row in db:query("SELECT * FROM nums WHERE n > ?", 2) do
+  for row in db:query("SELECT * FROM nums WHERE n > ?", 2) as Rows do
     print(row.n)
   end
   db:close()
@@ -84,14 +91,14 @@ end
 -- Example_exec_params demonstrates exec with parameter binding
 local function Example_exec_params()
   local sqlite = require("cosmic.sqlite")
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE cities (id INTEGER PRIMARY KEY, name TEXT, pop INTEGER)")
 
   db:exec("INSERT INTO cities (name, pop) VALUES (?, ?)", "Tokyo", 13960000)
   db:exec("INSERT INTO cities (name, pop) VALUES (?, ?)", "Delhi", 16787941)
   db:exec("INSERT INTO cities (name, pop) VALUES (?, ?)", "Shanghai", 24870895)
 
-  for row in db:query("SELECT * FROM cities ORDER BY pop DESC") do
+  for row in db:query("SELECT * FROM cities ORDER BY pop DESC") as Rows do
     print(row.name, row.pop)
   end
   db:close()
@@ -105,13 +112,13 @@ end
 -- (the SQL wildcard is %, not *)
 local function Example_query_like()
   local sqlite = require("cosmic.sqlite")
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE files (path TEXT)")
   db:exec("INSERT INTO files (path) VALUES (?)", "src/main.tl")
   db:exec("INSERT INTO files (path) VALUES (?)", "src/util.tl")
   db:exec("INSERT INTO files (path) VALUES (?)", "docs/readme.md")
 
-  for row in db:query("SELECT path FROM files WHERE path LIKE ?", "%src%") do
+  for row in db:query("SELECT path FROM files WHERE path LIKE ?", "%src%") as Rows do
     print(row.path)
   end
   db:close()

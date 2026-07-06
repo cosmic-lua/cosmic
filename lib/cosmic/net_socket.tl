@@ -16,19 +16,19 @@ local record Socket
   --- Shut down reading and/or writing (unix.SHUT_RD/WR/RDWR).
   shutdown: function(self: Socket, how?: number): boolean, string
   --- Send data; returns bytes sent, or nil + error.
-  send: function(self: Socket, data: string, flags?: number): number, string
+  send: function(self: Socket, data: string, flags?: number): number | nil, string
   --- Send a datagram to ip:port; returns bytes sent, or nil + error.
-  sendto: function(self: Socket, data: string, ip: number, port: number, flags?: number): number, string
+  sendto: function(self: Socket, data: string, ip: number, port: number, flags?: number): number | nil, string
   --- Receive up to bufsiz bytes (blocks until data arrives).
   --- Returns "" (empty string) with no error when the peer closed the
   --- connection (EOF); returns nil + error message on failure.
-  recv: function(self: Socket, bufsiz?: number, flags?: number): string, string
+  recv: function(self: Socket, bufsiz?: number, flags?: number): string | nil, string
   --- Receive a datagram; returns data, sender ip, sender port.
-  recvfrom: function(self: Socket, bufsiz?: number, flags?: number): string, number, number, string
+  recvfrom: function(self: Socket, bufsiz?: number, flags?: number): string | nil, number, number, string
   --- Local address as (ip, port); use after bind(0) for the real port.
-  getsockname: function(self: Socket): number, number, string
+  getsockname: function(self: Socket): number | nil, number, string
   --- Peer address as (ip, port).
-  getpeername: function(self: Socket): number, number, string
+  getpeername: function(self: Socket): number | nil, number, string
   --- Bind to a local ip:port (integers; port 0 = OS-assigned).
   bind: function(self: Socket, ip?: number, port?: number): boolean, string
   --- Bind to a unix-domain socket path.
@@ -37,13 +37,13 @@ local record Socket
   listen: function(self: Socket, backlog?: number): boolean, string
   --- Accept one connection (blocks until a client connects).
   --- Returns the connection socket, peer ip, peer port.
-  accept: function(self: Socket, flags?: number): Socket, number, number, string
+  accept: function(self: Socket, flags?: number): Socket | nil, number, number, string
   --- Connect to ip:port (integers; see cosmic.ip.parse for strings).
   connect: function(self: Socket, ip: number, port: number): boolean, string
   --- Connect to a unix-domain socket path.
   connect_unix: function(self: Socket, path: string): boolean, string
   --- Read a socket option value.
-  getsockopt: function(self: Socket, level: number, optname: number): number | boolean, string
+  getsockopt: function(self: Socket, level: number, optname: number): number | boolean | nil, string
   --- Set a socket option value.
   setsockopt: function(self: Socket, level: number, optname: number, value: number | boolean): boolean, string
 end
@@ -81,7 +81,7 @@ local function make_socket(fd: number): Socket
   -- would otherwise kill the whole process (exit 141) instead of returning an
   -- EPIPE error the caller can handle. cosmo maps MSG_NOSIGNAL to the native
   -- per-OS flag, so ORing it in is portable.
-  function sock:send(data: string, flags?: number): number, string
+  function sock:send(data: string, flags?: number): number | nil, string
     if not self.fd then return nil, "socket closed" end
     local n = unix.send(self.fd, data, (flags or 0) | unix.MSG_NOSIGNAL)
     if not n then
@@ -90,7 +90,7 @@ local function make_socket(fd: number): Socket
     return n
   end
 
-  function sock:sendto(data: string, ip: number, port: number, flags?: number): number, string
+  function sock:sendto(data: string, ip: number, port: number, flags?: number): number | nil, string
     if not self.fd then return nil, "socket closed" end
     local n = unix.sendto(self.fd, data, ip, port, (flags or 0) | unix.MSG_NOSIGNAL)
     if not n then
@@ -99,7 +99,7 @@ local function make_socket(fd: number): Socket
     return n
   end
 
-  function sock:recv(bufsiz?: number, flags?: number): string, string
+  function sock:recv(bufsiz?: number, flags?: number): string | nil, string
     if not self.fd then return nil, "socket closed" end
     local data = unix.recv(self.fd, bufsiz or 65536, flags or 0)
     if not data then
@@ -108,7 +108,7 @@ local function make_socket(fd: number): Socket
     return data
   end
 
-  function sock:recvfrom(bufsiz?: number, flags?: number): string, number, number, string
+  function sock:recvfrom(bufsiz?: number, flags?: number): string | nil, number, number, string
     if not self.fd then return nil, nil, nil, "socket closed" end
     local data, ip, port = unix.recvfrom(self.fd, bufsiz or 65536, flags or 0)
     if not data then
@@ -117,7 +117,7 @@ local function make_socket(fd: number): Socket
     return data, ip, port
   end
 
-  function sock:getsockname(): number, number, string
+  function sock:getsockname(): number | nil, number, string
     if not self.fd then return nil, nil, "socket closed" end
     local ip, port = unix.getsockname(self.fd)
     if not ip then
@@ -126,7 +126,7 @@ local function make_socket(fd: number): Socket
     return ip, port
   end
 
-  function sock:getpeername(): number, number, string
+  function sock:getpeername(): number | nil, number, string
     if not self.fd then return nil, nil, "socket closed" end
     local ip, port = unix.getpeername(self.fd)
     if not ip then
@@ -162,7 +162,7 @@ local function make_socket(fd: number): Socket
     return true
   end
 
-  function sock:accept(flags?: number): Socket, number, number, string
+  function sock:accept(flags?: number): Socket | nil, number, number, string
     if not self.fd then return nil, nil, nil, "socket closed" end
     local clientfd, ip, port = unix.accept(self.fd, flags or 0)
     if not clientfd then
@@ -189,7 +189,7 @@ local function make_socket(fd: number): Socket
     return true
   end
 
-  function sock:getsockopt(level: number, optname: number): number | boolean, string
+  function sock:getsockopt(level: number, optname: number): number | boolean | nil, string
     if not self.fd then return nil, "socket closed" end
     local val = unix.getsockopt(self.fd, level, optname)
     if val == nil then

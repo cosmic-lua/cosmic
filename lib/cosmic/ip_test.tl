@@ -162,7 +162,8 @@ local function test_lookup_localhost()
   local a, err = ip.lookup("localhost")
   assert(a, "expected Addr for localhost, got nil: " .. tostring(err))
   assert(err == nil, "expected nil error, got " .. tostring(err))
-  assert(a:int() == 2130706433, "expected 127.0.0.1, got " .. tostring(a:int()))
+  local aa = a as ip.Addr
+  assert(aa:int() == 2130706433, "expected 127.0.0.1, got " .. tostring(aa:int()))
 end
 test_lookup_localhost()
 
@@ -227,9 +228,10 @@ test_addr_is_public()
 local function test_lookup_returns_addr_with_methods()
   local a, err = ip.lookup("localhost")
   assert(a, "lookup failed: " .. tostring(err))
-  assert(a:format() == "127.0.0.1", "expected '127.0.0.1', got '" .. a:format() .. "'")
-  assert(a:is_loopback() == true, "expected loopback")
-  assert(a:is_public() == false, "expected not public")
-  assert(tostring(a) == "127.0.0.1", "expected tostring '127.0.0.1'")
+  local aa = a as ip.Addr
+  assert(aa:format() == "127.0.0.1", "expected '127.0.0.1', got '" .. aa:format() .. "'")
+  assert(aa:is_loopback() == true, "expected loopback")
+  assert(aa:is_public() == false, "expected not public")
+  assert(tostring(aa) == "127.0.0.1", "expected tostring '127.0.0.1'")
 end
 test_lookup_returns_addr_with_methods()

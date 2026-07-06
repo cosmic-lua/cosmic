@@ -2,6 +2,7 @@
 --- Tests for the embedded documentation module.
 
 local docs = require("cosmic.docs")
+local doc_types = require("cosmic.doc_types")
 
 -- Test module loads correctly
 local function test_module_loads()
@@ -17,7 +18,6 @@ local function test_module_loads()
 end
 test_module_loads()
 
--- Test has_docs returns a boolean
 local function test_has_docs()
   local result = docs.has_docs()
   assert(type(result) == "boolean", "has_docs should return a boolean")
@@ -25,13 +25,13 @@ local function test_has_docs()
 end
 test_has_docs()
 
--- Test load_index
 local function test_load_index()
   local index, err = docs.load_index()
   -- Either we have docs or we get an error message
   if index then
-    assert(type(index) == "table", "index should be a table")
-    assert(index.modules, "index should have modules")
+    local idx = index as doc_types.DocIndex
+    assert(type(idx) == "table", "index should be a table")
+    assert(idx.modules, "index should have modules")
     print("test_load_index: PASS (docs available)")
   else
     assert(type(err) == "string", "error should be a string")
@@ -40,7 +40,6 @@ local function test_load_index()
 end
 test_load_index()
 
--- Test run with no query (list all)
 local function test_run_list()
   local result = docs.run()
   assert(result, "run should return a result")
@@ -69,7 +68,6 @@ local function test_run_module()
 end
 test_run_module()
 
--- Test run with a symbol query
 local function test_run_symbol()
   local result = docs.run("cosmic.doc.parse")
   assert(result, "run should return a result")
@@ -97,7 +95,6 @@ local function test_run_invalid()
 end
 test_run_invalid()
 
--- Test list_topics
 local function test_list_topics()
   local topics = docs.list_topics()
   assert(type(topics) == "table", "list_topics should return a table")
@@ -363,11 +360,12 @@ local function test_show_module_examples_function_filter()
   -- Find a module that has examples to test with
   local index = docs.load_index()
   assert(index, "index should load")
+  local idx = index as doc_types.DocIndex
 
   -- Find a module with examples and functions
   local test_mod: string = nil
   local test_func: string = nil
-  for mod_name, mod_doc in pairs(index.modules) do
+  for mod_name, mod_doc in pairs(idx.modules) do
     if mod_doc.examples and #mod_doc.examples > 0 and mod_doc.functions and #mod_doc.functions > 0 then
       -- Find a function whose name appears in an example name
       for _, func in ipairs(mod_doc.functions) do
@@ -409,8 +407,9 @@ local function test_show_module_examples_no_match()
   -- Find a module with examples
   local index = docs.load_index()
   assert(index, "index should load")
+  local idx = index as doc_types.DocIndex
   local test_mod: string = nil
-  for mod_name, mod_doc in pairs(index.modules) do
+  for mod_name, mod_doc in pairs(idx.modules) do
     if mod_doc.examples and #mod_doc.examples > 0 then
       test_mod = mod_name
       break
@@ -440,8 +439,9 @@ local function test_show_module_examples_module_only()
   -- Find a module with examples
   local index = docs.load_index()
   assert(index, "index should load")
+  local idx = index as doc_types.DocIndex
   local test_mod: string = nil
-  for mod_name, mod_doc in pairs(index.modules) do
+  for mod_name, mod_doc in pairs(idx.modules) do
     if mod_doc.examples and #mod_doc.examples > 0 then
       test_mod = mod_name
       break
@@ -482,8 +482,9 @@ local function test_run_reexported_and_quick_example()
   assert(r, "run should return result")
   if r.ok then assert(r.output:match("query"), "should find query method") end
   local index = docs.load_index()
+  local idx = index as doc_types.DocIndex
   local test_mod: string = nil
-  for mod_name, mod_doc in pairs(index.modules) do
+  for mod_name, mod_doc in pairs(idx.modules) do
     if mod_doc.examples and #mod_doc.examples > 0 then test_mod = mod_name; break end
   end
   if test_mod then

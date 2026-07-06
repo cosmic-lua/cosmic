@@ -50,13 +50,13 @@ local record Poller
   wait: function(Poller, number): function(): number, Events
   --- Poll and return count of ready descriptors.
   --- @param timeoutms number Timeout in ms (-1 for infinite, 0 for non-blocking)
-  --- @return number Count of ready descriptors
+  --- @return number | nil Count of ready descriptors
   --- @return string Error message on failure
-  poll: function(Poller, number): number, string
+  poll: function(Poller, number): number | nil, string
   --- Get events for a specific fd after poll().
   --- @param fd number The file descriptor
-  --- @return Events The events for this fd, or nil if not ready
-  events: function(Poller, number): Events
+  --- @return Events | nil The events for this fd, or nil if not ready
+  events: function(Poller, number): Events | nil
   --- Returns true if the poller has no registered fds.
   empty: function(Poller): boolean
   --- Returns the number of registered fds.
@@ -123,7 +123,7 @@ local function new(): Poller
     return n
   end
 
-  poller.poll = function(self: Poller, timeoutms: number): number, string
+  poller.poll = function(self: Poller, timeoutms: number): number | nil, string
     -- Retry when a signal interrupts the wait: an unretried EINTR otherwise
     -- surfaces as a poll failure, and a caller that loops on it (e.g. a drain
     -- loop waiting on a child that raised SIGCHLD) spins at 100% CPU.
@@ -146,7 +146,7 @@ local function new(): Poller
     return ready
   end
 
-  poller.events = function(self: Poller, fd: number): Events
+  poller.events = function(self: Poller, fd: number): Events | nil
     local revents = results[fd]
     if revents then
       return make_events(revents)
@@ -177,6 +177,9 @@ local function new(): Poller
 end
 
 local record PollModule
+  type Poller = Poller
+  type Events = Events
+
   new: function(): Poller
 
   --- Event mask for readable data.

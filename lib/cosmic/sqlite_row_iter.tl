@@ -97,9 +97,9 @@ local type OnClose = function(RawStatement)
   --- @param row_code number sqlite3.ROW
   --- @param done_code number sqlite3.DONE
   --- @param ... any Positional bind parameters
-  --- @return Rows The row iterator, or nil on bind failure
+  --- @return Rows | nil The row iterator, or nil on bind failure
   --- @return string Error message when binding failed
-  local function query(raw_stmt_any: any, raw_db_any: any, on_close_any: any, ok_code: number, row_code: number, done_code: number, ...: any): Rows, string
+  local function query(raw_stmt_any: any, raw_db_any: any, on_close_any: any, ok_code: number, row_code: number, done_code: number, ...: any): Rows | nil, string
     local raw_stmt = raw_stmt_any as RawStatement
     local raw_db = raw_db_any as RawDatabase
     local on_close = on_close_any as OnClose

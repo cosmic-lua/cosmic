@@ -13,9 +13,9 @@ end
 --- Decode a hexadecimal string to binary data.
 --- Accepts both uppercase and lowercase hex characters.
 --- @param hex string The hexadecimal string to decode
---- @return string The decoded binary data, or nil on error
+--- @return string | nil The decoded binary data, or nil on error
 --- @return string? Error message if decoding failed
-local function decode_hex(hex: string): string, string
+local function decode_hex(hex: string): string | nil, string
   -- Validate length is even (O(1))
   if #hex % 2 ~= 0 then
     return nil, "hex string must have even length"
@@ -47,9 +47,9 @@ end
 --- Table constructors and literal values still work.
 --- WARNING: This still executes Lua code. Only use with trusted input.
 --- @param code string The Lua source code to decode
---- @return any The decoded Lua value, or nil on error
+--- @return any | nil The decoded Lua value, or nil on error
 --- @return string? Error message if decoding failed
-local function decode_lua_unsafe(code: string): any, string
+local function decode_lua_unsafe(code: string): any | nil, string
   local chunk, err = load("return " .. code, "=(decode_lua_unsafe)", "t", {})
   if not chunk then
     return nil, err as string
@@ -72,9 +72,9 @@ end
 --- Decode a base64 string to binary data.
 --- Accepts standard base64 encoding with or without padding.
 --- @param str string The base64 string to decode
---- @return string The decoded binary data, or nil on error
+--- @return string | nil The decoded binary data, or nil on error
 --- @return string? Error message if decoding failed
-local function decode_base64(str: string): string, string
+local function decode_base64(str: string): string | nil, string
   -- Validate structure (content chars, then = padding, then end) in one
   -- pass. On the happy path this is the only scan needed; a mismatch
   -- means either an invalid character anywhere or padding not confined
@@ -103,9 +103,9 @@ end
 --- Decode a base32 string to binary data.
 --- Uses lowercase base32 alphabet (0-9a-z excluding i, l, o, u).
 --- @param str string The base32 string to decode
---- @return string The decoded binary data, or nil on error
+--- @return string | nil The decoded binary data, or nil on error
 --- @return string? Error message if decoding failed
-local function decode_base32(str: string): string, string
+local function decode_base32(str: string): string | nil, string
   -- cosmo base32 alphabet: 0123456789abcdefghjkmnpqrstvwxyz (32 chars, no i,l,o,u)
   if str:match("[^0-9a-hj-km-np-tv-z]") then
     return nil, "invalid base32 character"
@@ -116,9 +116,9 @@ end
 --- Encode a UTF-8 string as Latin-1 (ISO-8859-1).
 --- Characters outside the Latin-1 range will cause an error.
 --- @param str string The UTF-8 string to encode
---- @return string The Latin-1 encoded bytes, or nil on error
+--- @return string | nil The Latin-1 encoded bytes, or nil on error
 --- @return string? Error message if encoding failed
-local function encode_latin1(str: string): string, string
+local function encode_latin1(str: string): string | nil, string
   local ok, result = pcall(cosmo.EncodeLatin1, str)
   if not ok then
     return nil, "cannot encode to Latin-1: character out of range"
@@ -135,14 +135,14 @@ end
 
 local record CodecModule
   encode_hex: function(data: string): string
-  decode_hex: function(hex: string): string, string
+  decode_hex: function(hex: string): string | nil, string
   encode_lua: function(value: any, opts?: {string: any}): string
-  decode_lua_unsafe: function(code: string): any, string
+  decode_lua_unsafe: function(code: string): any | nil, string
   encode_base64: function(data: string): string
-  decode_base64: function(str: string): string, string
+  decode_base64: function(str: string): string | nil, string
   encode_base32: function(data: string): string
-  decode_base32: function(str: string): string, string
-  encode_latin1: function(str: string): string, string
+  decode_base32: function(str: string): string | nil, string
+  encode_latin1: function(str: string): string | nil, string
   decode_latin1: function(data: string): string
 end
 

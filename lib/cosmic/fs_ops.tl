@@ -61,9 +61,9 @@ end
 
 --- Read the target of a symbolic link.
 --- @param path string Path to the symbolic link
---- @return string The symlink target, or nil on error
+--- @return string | nil The symlink target, or nil on error
 --- @return string Error message if failed
-local function readlink(path: string): string, string
+local function readlink(path: string): string | nil, string
   local target, err = unix.readlink(path)
   if not target then
     return nil, errstr(err, "readlink: " .. path)
@@ -74,9 +74,9 @@ end
 --- Get the canonical absolute path.
 --- Resolves all symbolic links and removes . and .. components.
 --- @param path string Path to resolve
---- @return string Canonical path, or nil on error
+--- @return string | nil Canonical path, or nil on error
 --- @return string Error message if failed
-local function realpath(path: string): string, string
+local function realpath(path: string): string | nil, string
   local resolved, err = unix.realpath(path)
   if not resolved then
     return nil, errstr(err, "realpath: " .. path)
@@ -172,9 +172,9 @@ end
 
 --- Create a temporary directory.
 --- @param template string Path template ending in XXXXXX
---- @return string Path to the created directory, or nil on error
+--- @return string | nil Path to the created directory, or nil on error
 --- @return string Error message if failed
-local function mkdtemp(template: string): string, string
+local function mkdtemp(template: string): string | nil, string
   local path, err = unix.mkdtemp(template)
   if not path then
     return nil, errstr(err, "mkdtemp: " .. template)
@@ -184,9 +184,9 @@ end
 
 --- Create a temporary file.
 --- @param template string Path template ending in XXXXXX
---- @return number File descriptor, or nil on error
+--- @return number | nil File descriptor, or nil on error
 --- @return string Path to the created file, or error message
-local function mkstemp(template: string): number, string
+local function mkstemp(template: string): number | nil, string
   -- On success mkstemp returns (fd, path); on failure (nil, Errno), so the
   -- second slot is the error, not a path.
   local fd, path = unix.mkstemp(template)
@@ -197,9 +197,9 @@ local function mkstemp(template: string): number, string
 end
 
 --- Create a temporary file descriptor.
---- @return number File descriptor, or nil on error
+--- @return number | nil File descriptor, or nil on error
 --- @return string Error message if failed
-local function tmpfd(): number, string
+local function tmpfd(): number | nil, string
   local fd, err = unix.tmpfd()
   if not fd then
     return nil, errstr(err, "tmpfd")
@@ -211,9 +211,9 @@ end
 
 --- Get filesystem statistics for a path.
 --- @param path string Path to any file on the filesystem
---- @return Statfs Filesystem statistics, or nil on error
+--- @return Statfs | nil Filesystem statistics, or nil on error
 --- @return string Error message if failed
-local function statfs(path: string): Statfs, string
+local function statfs(path: string): Statfs | nil, string
   local info, err = unix.statfs(path)
   if not info then
     return nil, errstr(err, "statfs: " .. path)
@@ -223,9 +223,9 @@ end
 
 --- Get filesystem statistics from a file descriptor.
 --- @param fd number File descriptor
---- @return Statfs Filesystem statistics, or nil on error
+--- @return Statfs | nil Filesystem statistics, or nil on error
 --- @return string Error message if failed
-local function fstatfs(fd: number): Statfs, string
+local function fstatfs(fd: number): Statfs | nil, string
   local info, err = unix.fstatfs(fd)
   if not info then
     return nil, errstr(err, "fstatfs")
@@ -254,19 +254,19 @@ local record FsOpsModule
   rename: function(oldpath: string, newpath: string): boolean, string
   link: function(existingpath: string, newpath: string): boolean, string
   symlink: function(target: string, linkpath: string): boolean, string
-  readlink: function(path: string): string, string
-  realpath: function(path: string): string, string
+  readlink: function(path: string): string | nil, string
+  realpath: function(path: string): string | nil, string
   rmrf: function(path: string): boolean, string
   access: function(path: string, mode: number): boolean
   chmod: function(path: string, mode: number): boolean, string
   chown: function(path: string, uid: number, gid: number): boolean, string
   utimensat: function(path: string, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
   futimens: function(fd: number, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
-  mkdtemp: function(template: string): string, string
-  mkstemp: function(template: string): number, string
-  tmpfd: function(): number, string
-  statfs: function(path: string): Statfs, string
-  fstatfs: function(fd: number): Statfs, string
+  mkdtemp: function(template: string): string | nil, string
+  mkstemp: function(template: string): number | nil, string
+  tmpfd: function(): number | nil, string
+  statfs: function(path: string): Statfs | nil, string
+  fstatfs: function(fd: number): Statfs | nil, string
   major: function(dev: number): number
   minor: function(dev: number): number
   F_OK: number

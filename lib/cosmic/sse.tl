@@ -41,7 +41,7 @@ end
 --- Parse SSE events from a streaming reader.
 --- @param reader fetch.Reader the reader to parse events from
 --- @return function iterator yielding Event or nil, error string
-local function events(reader: fetch.Reader): function(): Event, string
+local function events(reader: fetch.Reader): function(): Event | nil, string
   local current_data: {string} = {}
   local current_event: string = nil
   local current_id: string = nil
@@ -50,7 +50,7 @@ local function events(reader: fetch.Reader): function(): Event, string
   local lines_iter = reader:lines()
   local done = false
 
-  return function(): Event, string
+  return function(): Event | nil, string
     if done then
       return nil
     end
@@ -126,7 +126,7 @@ end
 
 local record sse
   Event: Event
-  events: function(reader: fetch.Reader): function(): Event, string
+  events: function(reader: fetch.Reader): function(): Event | nil, string
 end
 
 local M: sse = {

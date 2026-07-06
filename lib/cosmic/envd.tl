@@ -30,6 +30,7 @@
 ---
 --- Set COSMIC_DEBUG=1 to see which vars are loaded and which are skipped.
 local fs = require("cosmic.fs")
+local fs_types = require("cosmic.fs_types")
 local cio = require("cosmic.io")
 local env = require("cosmic.env")
 
@@ -129,15 +130,16 @@ local function load_dir(dir: string): LoadResult
     return result
   end
 
+  local handle = dh as fs_types.Dir
   local names: {string} = {}
   while true do
-    local name = dh:read()
+    local name = handle:read()
     if not name then break end
     if name ~= "." and name ~= ".." then
       names[#names + 1] = name
     end
   end
-  dh:close()
+  handle:close()
   table.sort(names)
 
   -- concatenate all files in lexical order, track which file each key came from

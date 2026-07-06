@@ -63,7 +63,7 @@ end
 --- @param name string interface name (e.g. "lo")
 --- @return integer? flags bitmask on success
 --- @return string? error message on failure
-local function get_flags(name: string): integer, string
+local function get_flags(name: string): integer | nil, string
   if #name >= IFNAMSIZ then return nil, "interface name too long" end
   local sk, err = control_socket()
   if not sk then return nil, err end
@@ -100,7 +100,7 @@ end
 --- @param pid integer? target pid, or nil for self
 --- @return integer? fd on success
 --- @return string? error message on failure
-local function open(pid: integer): integer, string
+local function open(pid: integer): integer | nil, string
   local tag = pid and tostring(pid) or "self"
   local fd, err = unix.open("/proc/" .. tag .. "/ns/net",
     unix.O_RDONLY | unix.O_CLOEXEC)
@@ -186,13 +186,13 @@ local function close(fd: integer): boolean, string
 end
 
 local record NetnsModule
-  open: function(pid: integer): integer, string
+  open: function(pid: integer): integer | nil, string
   enter: function(fd: integer): boolean, string
   unshare_user: function(): boolean, string
   unshare: function(): boolean, string
   bring_up: function(name: string): boolean, string
   bring_down: function(name: string): boolean, string
-  get_flags: function(name: string): integer, string
+  get_flags: function(name: string): integer | nil, string
   set_flags: function(name: string, flags: integer): boolean, string
   close: function(fd: integer): boolean, string
 end

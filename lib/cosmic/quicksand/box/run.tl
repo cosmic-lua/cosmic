@@ -234,7 +234,7 @@ end
 --- Fork+orchestrate a Box policy around argv. Returns an integer exit
 --- code on success, or nil + string when setup itself failed before the
 --- fork (e.g. couldn't open the parent netns fd).
-local function run(opts: {string: any}, argv: {string}): integer, string
+local function run(opts: {string: any}, argv: {string}): integer | nil, string
   local parent_fd: integer = nil
   local net = opts and opts.net as {string: any}
   if net and net.allow then
@@ -272,7 +272,7 @@ local function run(opts: {string: any}, argv: {string}): integer, string
 end
 
 local record BoxRunModule
-  run: function(opts: {string: any}, argv: {string}): integer, string
+  run: function(opts: {string: any}, argv: {string}): integer | nil, string
 end
 
 local M: BoxRunModule = {

@@ -43,8 +43,13 @@ end
 local function begin_span(op: string, file: string): Span
   local wall_s, wall_ns = unix.clock_gettime(unix.CLOCK_MONOTONIC)
   local ru = unix.getrusage(unix.RUSAGE_SELF)
-  local ut_s, ut_ns = ru:utime()
-  local st_s, st_ns = ru:stime()
+  local ut_s, ut_ns = 0.0, 0.0
+  local st_s, st_ns = 0.0, 0.0
+  if ru then
+    local r = ru as unix.Rusage
+    ut_s, ut_ns = r:utime()
+    st_s, st_ns = r:stime()
+  end
   return {
     op = op,
     file = file,
@@ -70,8 +75,15 @@ local function finish_span(span: Span, exit_code: integer): string
 
   local wall_s, wall_ns = unix.clock_gettime(unix.CLOCK_MONOTONIC)
   local ru = unix.getrusage(unix.RUSAGE_SELF)
-  local ut_s, ut_ns = ru:utime()
-  local st_s, st_ns = ru:stime()
+  local ut_s, ut_ns = 0.0, 0.0
+  local st_s, st_ns = 0.0, 0.0
+  local maxrss = 0
+  if ru then
+    local r = ru as unix.Rusage
+    ut_s, ut_ns = r:utime()
+    st_s, st_ns = r:stime()
+    maxrss = math.floor(r:maxrss()) as integer
+  end
 
   -- wall time delta in ms
   local wall_delta = (wall_s - span.start_wall) * 1000
@@ -84,8 +96,6 @@ local function finish_span(span: Span, exit_code: integer): string
   local stime_delta = (st_s - span.start_stime_s) * 1000
   + (st_ns - span.start_stime_ns) / 1000000
   local cpu_ms = math.floor(utime_delta + stime_delta) as integer
-
-  local maxrss = math.floor(ru:maxrss()) as integer
 
   local line = string.format(
     "cosmic: op=%s file=%s exit=%d wall_ms=%d cpu_ms=%d maxrss_kb=%d",

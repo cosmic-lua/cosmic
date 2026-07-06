@@ -82,10 +82,11 @@ local function serve_loop(srv: net.Socket)
   while true do
     local conn = srv:accept()
     if conn then
-      if read_request(conn) then
-        send_all(conn, RESPONSE)
+      local cc = conn as net.Socket
+      if read_request(cc) then
+        send_all(cc, RESPONSE)
       end
-      conn:close()
+      cc:close()
     end
   end
 end

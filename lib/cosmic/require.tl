@@ -202,7 +202,7 @@ end
 --- "module not found: 'x'" formats.
 --- @param err string Error message
 --- @return string Module name, or nil if not found
-local function extract_module_name(err: string): string
+local function extract_module_name(err: string): string | nil
   return err:match("module '([^']+)' not found")
   or err:match("module not found: '([^']+)'")
 end

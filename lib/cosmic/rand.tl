@@ -32,15 +32,15 @@ end
 
 --- Generate a hardware random integer using Intel RDRAND instruction.
 --- Returns nil and an error message on CPUs that do not support RDRAND.
---- @return integer, string Random integer, or nil and error message if unavailable
-local function rdrand(): number, string
+--- @return integer | nil, string Random integer, or nil and error message if unavailable
+local function rdrand(): number | nil, string
   return cosmo.Rdrand()
 end
 
 --- Generate a hardware random seed using Intel RDSEED instruction.
 --- Returns nil and an error message on CPUs that do not support RDSEED.
---- @return integer, string Random seed integer, or nil and error message if unavailable
-local function rdseed(): number, string
+--- @return integer | nil, string Random seed integer, or nil and error message if unavailable
+local function rdseed(): number | nil, string
   return cosmo.Rdseed()
 end
 
@@ -56,8 +56,8 @@ local record RandModule
   bytes: function(n: number): string
   rand64: function(): number
   lemur64: function(): number
-  rdrand: function(): number, string
-  rdseed: function(): number, string
+  rdrand: function(): number | nil, string
+  rdseed: function(): number | nil, string
   has_hwrng: function(): boolean
 end
 

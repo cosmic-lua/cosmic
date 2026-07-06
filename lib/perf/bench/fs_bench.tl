@@ -3,6 +3,7 @@
 --- C bindings, against a real temp directory tree.
 
 local fs = require("cosmic.fs")
+local fs_types = require("cosmic.fs_types")
 local cio = require("cosmic.io")
 local pt = require("perf.perf_types")
 
@@ -141,7 +142,8 @@ local function scenarios(): {pt.Scenario}, string
           for f = 1, FILES_PER_DIR do
             local st, serr = fs.stat(fs.join(tmpdir, "dir-" .. d, "file-" .. f .. ".txt"))
             assert(st, serr)
-            size_total = size_total + st:size()
+            local stt = st as fs_types.Stat
+            size_total = size_total + stt:size()
           end
         end
         return size_total

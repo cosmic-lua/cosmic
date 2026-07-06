@@ -156,10 +156,10 @@ end
 --- @param hour number Hour (0-23)
 --- @param min number Minute (0-59)
 --- @param sec number Second (0-60)
---- @return number UNIX epoch seconds, or nil on invalid input
+--- @return number | nil UNIX epoch seconds, or nil on invalid input
 --- @return string Error message when input is out of range
 local function timegm(year: number, month: number, day: number,
-    hour: number, min: number, sec: number): number, string
+    hour: number, min: number, sec: number): number | nil, string
   if month < 1 or month > 12 then
     return nil, "timegm: month out of range (1-12): " .. tostring(month)
   end
@@ -210,9 +210,9 @@ local MONTH_ABBR: {string: number} = {
 --- requires senders to generate (e.g. "Sun, 06 Nov 1994 08:49:37 GMT").
 --- The obsolete RFC 850 and asctime forms are not accepted.
 --- @param str string HTTP date string
---- @return number UNIX timestamp, or nil if parsing failed
+--- @return number | nil UNIX timestamp, or nil if parsing failed
 --- @return string Error message on failure
-local function parse_http(str: string): number, string
+local function parse_http(str: string): number | nil, string
   local d, mon, y, h, mi, s = str:match(
     "^%a%a%a, (%d%d) (%a%a%a) (%d%d%d%d) (%d%d):(%d%d):(%d%d) GMT$")
   if not d then
@@ -236,9 +236,9 @@ end
 
 --- Parse a YYYY-MM-DD date string into a UNIX timestamp (midnight UTC).
 --- @param str string Date string (e.g., "2025-01-01")
---- @return number UNIX timestamp, or nil if parsing failed
+--- @return number | nil UNIX timestamp, or nil if parsing failed
 --- @return string Error message on failure
-local function parse_date(str: string): number, string
+local function parse_date(str: string): number | nil, string
   local y, mo, d = str:match("^(%d%d%d%d)-(%d%d)-(%d%d)$")
   if not y then
     return nil, "parse_date: not a YYYY-MM-DD date: " .. str
@@ -288,9 +288,9 @@ end
 --- truncated to whole seconds. Also accepts date-only "YYYY-MM-DD" (midnight
 --- UTC).
 --- @param str string ISO 8601 string (e.g., "2025-01-01T00:00:00.5Z")
---- @return number UNIX timestamp, or nil if parsing failed
+--- @return number | nil UNIX timestamp, or nil if parsing failed
 --- @return string Error message on failure
-local function parse_iso8601(str: string): number, string
+local function parse_iso8601(str: string): number | nil, string
   -- try date-only format first
   local dy, dmo, dd = str:match("^(%d%d%d%d)-(%d%d)-(%d%d)$")
   if dy then
@@ -339,12 +339,12 @@ local record TimeModule
   gmtime: function(unixts: number): DateTime
   localtime: function(unixts: number): DateTime
   format_http: function(timestamp: number): string
-  parse_http: function(str: string): number, string
+  parse_http: function(str: string): number | nil, string
   format_date: function(timestamp: number): string
-  parse_date: function(str: string): number, string
+  parse_date: function(str: string): number | nil, string
   format_iso8601: function(timestamp: number): string
-  parse_iso8601: function(str: string): number, string
-  timegm: function(year: number, month: number, day: number, hour: number, min: number, sec: number): number, string
+  parse_iso8601: function(str: string): number | nil, string
+  timegm: function(year: number, month: number, day: number, hour: number, min: number, sec: number): number | nil, string
 end
 
 local M: TimeModule = {

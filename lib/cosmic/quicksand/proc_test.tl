@@ -37,7 +37,8 @@ else
   io.write("skipped: " .. err .. "\n")
 end
 ]])
-  local ok, out = spawn.spawn({cosmic, script}):read()
+  local h = spawn.spawn({cosmic, script})
+  local ok, out = (h as spawn.Handle):read()
   if not ok then return end
   local s = out as string
   assert(s:find("ok") or s:find("skipped"),
@@ -76,7 +77,8 @@ if not ok then
 end
 io.write("ok\n")
 ]])
-  local ok, out = spawn.spawn({cosmic, script}):read()
+  local h = spawn.spawn({cosmic, script})
+  local ok, out = (h as spawn.Handle):read()
   -- An outer seccomp/pledge filter may SIGSYS the subprocess on prctl.
   -- Accept signal death as a skip.
   if not ok then return end
@@ -113,7 +115,8 @@ b:wait()
 unix.wait(pid)
 io.write("done\n")
 ]])
-  local ok, out = spawn.spawn({cosmic, script}):read()
+  local h = spawn.spawn({cosmic, script})
+  local ok, out = (h as spawn.Handle):read()
   -- Signal death under an outer sandbox counts as skip.
   if not ok then return end
   local s = out as string

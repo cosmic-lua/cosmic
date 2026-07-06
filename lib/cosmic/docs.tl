@@ -1,5 +1,4 @@
---- Access embedded documentation from the cosmic binary.
---- Provides a CLI interface similar to Go's `go doc` command.
+--- Access embedded documentation — a `go doc`-style CLI over the binary.
 
 local cio = require("cosmic.io")
 local docs_render = require("cosmic.docs_render")
@@ -17,9 +16,9 @@ local GUIDES_DIR = "/zip/skills/cosmic"
 local cached_index: DocIndex = nil
 
 --- Load the embedded documentation index.
---- @return DocIndex The documentation index, or nil if not available
+--- @return DocIndex | nil The documentation index, or nil if not available
 --- @return string Error message if loading failed
-local function load_index(): DocIndex, string
+local function load_index(): DocIndex | nil, string
   if cached_index then
     return cached_index, nil
   end
@@ -64,19 +63,19 @@ end
 --- List available guide topics from the embedded skills directory.
 local function list_guide_topics(): {string}
   local fs = require("cosmic.fs")
+  local fs_types = require("cosmic.fs_types")
   local dir = fs.opendir(GUIDES_DIR)
-  if not dir then
-    return {}
-  end
+  if not dir then return {} end
+  local d = dir as fs_types.Dir
   local topics: {string} = {}
   while true do
-    local name = dir:read()
+    local name = d:read()
     if not name then break end
     if name ~= "SKILL.md" and name:match("%.md$") then
       topics[#topics + 1] = name:sub(1, #name - 3)
     end
   end
-  dir:close()
+  d:close()
   table.sort(topics)
   return topics
 end
@@ -89,7 +88,7 @@ local function list_guides(): {{string, string}}
     local content = cio.slurp(GUIDES_DIR .. "/" .. name .. ".md")
     local desc = name
     if content then
-      local heading = content:match("^#%s+(.-)%s*\n")
+      local heading = string.match(content, "^#%s+(.-)%s*\n")
       if heading then desc = heading end
     end
     table.insert(guides, {name, desc})
@@ -137,12 +136,11 @@ end
 --- @return {{string, string}} List of {name, description} pairs, sorted by name
 local function list_topics(include_cosmo?: boolean): {{string, string}}
   local index, _ = load_index()
-  if not index then
-    return {}
-  end
+  if not index then return {} end
+  local idx = index as DocIndex
 
   local topics: {{string, string}} = {}
-  for name, doc in pairs(index.modules) do
+  for name, doc in pairs(idx.modules) do
     if include_cosmo or not is_cosmo_module(name) then
       local desc = docs_render.first_paragraph(doc.module_doc)
       table.insert(topics, {name, desc})
@@ -183,10 +181,11 @@ end
 local function search(query: string, include_cosmo?: boolean): {SearchResult}
   local index, _ = load_index()
   if not index then return {} end
+  local idx = index as DocIndex
   local results: {SearchResult} = {}
   local query_lower = query:lower()
 
-  for mod_name, mod_doc in pairs(index.modules) do
+  for mod_name, mod_doc in pairs(idx.modules) do
     if not include_cosmo and is_cosmo_module(mod_name) then goto continue end
     local simple_name = mod_name:match("([^%.]+)$") or mod_name
     local simple_lower = simple_name:lower()
@@ -268,12 +267,11 @@ end
 --- @return {ExampleEntry} List of examples sorted by module then name
 local function list_all_examples(include_cosmo?: boolean): {ExampleEntry}
   local index, _ = load_index()
-  if not index then
-    return {}
-  end
+  if not index then return {} end
+  local idx = index as DocIndex
 
   local examples: {ExampleEntry} = {}
-  for mod_name, mod_doc in pairs(index.modules) do
+  for mod_name, mod_doc in pairs(idx.modules) do
     if not include_cosmo and is_cosmo_module(mod_name) then
       goto continue
     end
@@ -308,10 +306,11 @@ local function show_module_examples(query: string): DocsResult
   if not index then
     return {ok = false, output = "error: " .. (err or "no documentation embedded")}
   end
+  local idx = index as DocIndex
   -- Resolve bare name (e.g. "child" -> "cosmic.child")
-  local resolved = index.modules[query] and query or (index.modules["cosmic." .. query] and "cosmic." .. query or nil)
+  local resolved = idx.modules[query] and query or (idx.modules["cosmic." .. query] and "cosmic." .. query or nil)
   if resolved then
-    local doc = index.modules[resolved]
+    local doc = idx.modules[resolved]
     if not doc.examples or #doc.examples == 0 then
       return {ok = false, output = "No examples for " .. resolved}
     end
@@ -330,7 +329,7 @@ local function show_module_examples(query: string): DocsResult
   local func_filter: string = nil
   for i = #parts - 1, 1, -1 do
     local candidate = table.concat(parts, ".", 1, i)
-    if index.modules[candidate] then
+    if idx.modules[candidate] then
       mod_name = candidate
       func_filter = table.concat(parts, ".", i + 1, #parts)
       break
@@ -338,7 +337,7 @@ local function show_module_examples(query: string): DocsResult
   end
 
   if mod_name and func_filter then
-    local doc = index.modules[mod_name]
+    local doc = idx.modules[mod_name]
     if not doc.examples or #doc.examples == 0 then
       return {ok = false, output = "No examples for " .. query}
     end
@@ -354,7 +353,7 @@ local function show_module_examples(query: string): DocsResult
     return {ok = true, output = table.concat(lines, "\n")}
   end
 
-  local suggestions = docs_render.find_example_suggestions(query, index)
+  local suggestions = docs_render.find_example_suggestions(query, idx)
   if #suggestions > 0 then
     local lines: {string} = {"error: module not found: " .. query, "", "Did you mean?"}
     for i = 1, math.min(3, #suggestions) do table.insert(lines, "  " .. suggestions[i]) end
@@ -375,6 +374,7 @@ local function run(query?: string): DocsResult
       "Build with 'make cosmic' to include documentation.",
     }
   end
+  local idx = index as DocIndex
 
   if not query or query == "" then
     local topics = list_topics()
@@ -396,14 +396,14 @@ local function run(query?: string): DocsResult
     return show_guide(query:sub(7))
   end
 
-  if index.modules[query] then
-    return {ok = true, output = docs_render.render_module(query, index.modules[query])}
+  if idx.modules[query] then
+    return {ok = true, output = docs_render.render_module(query, idx.modules[query])}
   end
 
   -- Bare module names short-circuit to their cosmic.* page, not fuzzy search
-  if index.modules["cosmic." .. query] then
+  if idx.modules["cosmic." .. query] then
     local full = "cosmic." .. query
-    return {ok = true, output = docs_render.render_module(full, index.modules[full])}
+    return {ok = true, output = docs_render.render_module(full, idx.modules[full])}
   end
 
   -- Try splitting query into module + remainder by iterating splits longest-to-shortest
@@ -416,10 +416,10 @@ local function run(query?: string): DocsResult
   local remainder: {string} = {}
   for i = #parts - 1, 1, -1 do
     local candidate = table.concat(parts, ".", 1, i)
-    if not index.modules[candidate] and index.modules["cosmic." .. candidate] then
+    if not idx.modules[candidate] and idx.modules["cosmic." .. candidate] then
       candidate = "cosmic." .. candidate
     end
-    if index.modules[candidate] then
+    if idx.modules[candidate] then
       matched_mod = candidate
       for j = i + 1, #parts do
         table.insert(remainder, parts[j])
@@ -429,7 +429,7 @@ local function run(query?: string): DocsResult
   end
 
   if matched_mod and #remainder > 0 then
-    local doc = index.modules[matched_mod]
+    local doc = idx.modules[matched_mod]
     local symbol = remainder[1]
     local method = remainder[2]
     local rendered = docs_render.find_symbol(doc, symbol, method)
@@ -443,12 +443,12 @@ local function run(query?: string): DocsResult
           "Use 'cosmic --docs " .. matched_mod .. "." .. symbol .. "' to see available methods.",
         }
       else
-        return {ok = false, output = docs_lookup.symbol_not_found(symbol, matched_mod, index)}
+        return {ok = false, output = docs_lookup.symbol_not_found(symbol, matched_mod, idx)}
       end
     end
   end
 
-  local suggestions = docs_render.find_suggestions(query, index)
+  local suggestions = docs_render.find_suggestions(query, idx)
   if #suggestions > 0 then
     local lines: {string} = {"error: documentation not found for '" .. query .. "'", ""}
     table.insert(lines, "Did you mean?")
@@ -471,7 +471,7 @@ local record DocsModule
   run: function(query?: string): DocsResult
   has_docs: function(): boolean
   list_topics: function(include_cosmo?: boolean): {{string, string}}
-  load_index: function(): DocIndex, string
+  load_index: function(): DocIndex | nil, string
   render_module: function(name: string, doc: ModuleDoc): string
   search: function(query: string, include_cosmo?: boolean): {SearchResult}
   render_search_results: function(results: {SearchResult}, query: string): string

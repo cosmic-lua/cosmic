@@ -48,6 +48,7 @@ test_poller_add_remove_raw_fd()
 local function test_poll_pipe_readable()
   local pipe, err = cio.pipe()
   assert(pipe ~= nil, "pipe creation failed: " .. tostring(err))
+  local pipe = pipe as cio.Pipe
 
   -- Write to the pipe so it becomes readable
   local n = pipe.writer:write("hello")
@@ -75,6 +76,7 @@ test_poll_pipe_readable()
 local function test_poll_pipe_writable()
   local pipe, err = cio.pipe()
   assert(pipe ~= nil, "pipe creation failed: " .. tostring(err))
+  local pipe = pipe as cio.Pipe
 
   local p = poll.new()
   -- Check if writer is writable (should be, since buffer is empty)
@@ -95,9 +97,11 @@ test_poll_pipe_writable()
 local function test_poll_multiple_fds()
   local pipe1, err1 = cio.pipe()
   assert(pipe1 ~= nil, "pipe1 creation failed: " .. tostring(err1))
+  local pipe1 = pipe1 as cio.Pipe
 
   local pipe2, err2 = cio.pipe()
   assert(pipe2 ~= nil, "pipe2 creation failed: " .. tostring(err2))
+  local pipe2 = pipe2 as cio.Pipe
 
   -- Write to both pipes
   pipe1.writer:write("hello")
@@ -125,6 +129,7 @@ test_poll_multiple_fds()
 local function test_poll_timeout()
   local pipe, err = cio.pipe()
   assert(pipe ~= nil, "pipe creation failed: " .. tostring(err))
+  local pipe = pipe as cio.Pipe
 
   local p = poll.new()
   -- Poll for read on empty pipe - should timeout
@@ -143,6 +148,7 @@ test_poll_timeout()
 local function test_poll_with_socket()
   local sock1, sock2, err = net.socketpair()
   assert(sock1 ~= nil and sock2 ~= nil, "socketpair failed: " .. tostring(err))
+  local sock1 = sock1 as net.Socket
 
   -- Send data on sock1
   sock1:send("hello")
@@ -167,6 +173,7 @@ test_poll_with_socket()
 local function test_poll_with_child_pipes()
   local handle, err = child.spawn({"echo", "hello"})
   assert(handle ~= nil, "spawn failed: " .. tostring(err))
+  local handle = handle as child.Handle
 
   local p = poll.new()
   -- child.Pipe has .fd field
@@ -187,6 +194,7 @@ test_poll_with_child_pipes()
 local function test_poll_events_method()
   local pipe, err = cio.pipe()
   assert(pipe ~= nil, "pipe creation failed: " .. tostring(err))
+  local pipe = pipe as cio.Pipe
 
   pipe.writer:write("test")
 
@@ -199,6 +207,7 @@ local function test_poll_events_method()
 
   local events = p:events(pipe.reader:fd())
   assert(events ~= nil, "events should not be nil for ready fd")
+  local events = events as poll.Events
   assert(events.readable, "expected readable")
   assert(events.revents ~= nil, "revents should be set")
 
@@ -212,6 +221,7 @@ test_poll_events_method()
 local function test_poll_nonblocking()
   local pipe, err = cio.pipe()
   assert(pipe ~= nil, "pipe creation failed: " .. tostring(err))
+  local pipe = pipe as cio.Pipe
 
   local p = poll.new()
   p:add(pipe.reader:fd(), poll.POLLIN)
@@ -227,6 +237,7 @@ test_poll_nonblocking()
 local function test_poll_hangup()
   local pipe, err = cio.pipe()
   assert(pipe ~= nil, "pipe creation failed: " .. tostring(err))
+  local pipe = pipe as cio.Pipe
 
   -- Close the writer to trigger hangup on reader
   pipe.writer:close()

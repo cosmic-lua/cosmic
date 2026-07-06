@@ -64,7 +64,8 @@ local function spawn_capture(bin: string, argv_tail: {string}): string
   end
   local handle, serr = child.spawn(argv)
   assert(handle, serr)
-  local ok, out, code = handle:read()
+  local hh = handle as child.Handle
+  local ok, out, code = hh:read()
   assert(ok, "exit code " .. tostring(code) .. ": " .. tostring(out))
   return ((out as string):gsub("%s+$", ""))
 end

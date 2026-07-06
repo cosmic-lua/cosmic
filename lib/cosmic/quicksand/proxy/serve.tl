@@ -41,8 +41,8 @@ end
 --- server's internal state.
 local record Server
   port: function(): integer
-  listen: function(): integer, string
-  accept: function(): integer, string
+  listen: function(): integer | nil, string
+  accept: function(): integer | nil, string
   handle: function(client_fd: integer)
   serve_forever: function()
 end
@@ -75,7 +75,7 @@ local record ServeModule
     on_log: function({string: any}) -- overrides the default sink
   end
 
-  new: function(opts: ProxyOptions): Server, string
+  new: function(opts: ProxyOptions): Server | nil, string
 end
 
 local LEVELS: {string: integer} = {quiet = 0, info = 1, debug = 2}
@@ -151,7 +151,7 @@ end
 --- Returns nil + error when the log sink can't be opened. Rule
 --- validation is the caller's job (proxy.start validates before
 --- forking); unvalidated rule tables here behave as pass-through.
-local function new(opts: ServeModule.ProxyOptions): Server, string
+local function new(opts: ServeModule.ProxyOptions): Server | nil, string
   opts = opts or {}
   local logger, lerr = make_logger(opts)
   if not logger then return nil, lerr end
@@ -227,7 +227,7 @@ local function new(opts: ServeModule.ProxyOptions): Server, string
     local parsed = http.parse_headers(hdr)
     -- Reject chunked-encoded request bodies — we don't dechunk.
     local te = http.header_get(parsed, "transfer-encoding")
-    if te and te:lower():find("chunked", 1, true) then
+    if te and string.lower(te):find("chunked", 1, true) then
       logger.warn("chunked_unsupported",
         {method = method, host = host, path = path})
       refuse(client_fd, http.LENGTH_REQUIRED)
@@ -271,7 +271,7 @@ local function new(opts: ServeModule.ProxyOptions): Server, string
         headers = parsed,
         body = body,
         host_hdr = host_hdr,
-        inject_name = injn,
+        inject_name = injn as string,
         inject_value = injv,
       })
     if not http.send_all(up, req) then
@@ -299,7 +299,7 @@ local function new(opts: ServeModule.ProxyOptions): Server, string
       refuse(client_fd, http.BAD_REQUEST)
       return
     end
-    local first = hdr:match("^([^\r\n]+)\r\n")
+    local first = string.match(hdr, "^([^\r\n]+)\r\n")
     if not first then
       refuse(client_fd, http.BAD_REQUEST)
       return
@@ -316,7 +316,7 @@ local function new(opts: ServeModule.ProxyOptions): Server, string
     handle_http(client_fd, method, target, hdr, leftover)
   end
 
-  local function listen(): integer, string
+  local function listen(): integer | nil, string
     -- SOCK_CLOEXEC: the listening socket must not be inherited by any
     -- exec'd child (it would allow rebinding or probing the proxy
     -- from inside the box). Per-connection forks also explicitly
@@ -345,7 +345,7 @@ local function new(opts: ServeModule.ProxyOptions): Server, string
     return lfd
   end
 
-  local function accept(): integer, string
+  local function accept(): integer | nil, string
     local cli, aerr = unix.accept(listen_fd)
     if not cli then return nil, wrap_err(aerr, "accept failed") end
     return cli as integer

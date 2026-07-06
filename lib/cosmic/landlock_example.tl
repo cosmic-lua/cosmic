@@ -48,7 +48,8 @@ assert(ll.restrict{
   },
 })
 ]]
-  spawn.spawn({cosmic, "-e", script}):wait()
+  local h = spawn.spawn({cosmic, "-e", script})
+  local _ = (h as spawn.Handle):wait()
 end
 
 return {}

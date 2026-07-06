@@ -193,6 +193,17 @@ local function render_returns(returns: {Return}, fallible: boolean, error_type: 
       table.insert(ret_types, et)
     end
   end
+  -- Honest fallibility: a fallible function returns nil on failure, so its
+  -- success value must widen to `T | nil` — Teal then forces callers to narrow
+  -- before use. Skip when the first return is already a nil-union (e.g. an
+  -- honestly-annotated `table | nil`) or a vararg (nothing can precede it and a
+  -- `T... | nil` return is not meaningful).
+  if fallible and #ret_types > 0 then
+    local first = ret_types[1]
+    if not first:match("%.%.%.$") and first ~= "nil" and not first:find("| nil", 1, true) then
+      ret_types[1] = first .. " | nil"
+    end
+  end
   for i, rt in ipairs(ret_types) do
     if rt:match("^%(function") then
       if i == #ret_types then

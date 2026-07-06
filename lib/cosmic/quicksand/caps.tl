@@ -67,7 +67,7 @@ end
 --- @param name string capability name
 --- @return integer? capability number
 --- @return string? error message
-local function number_of(name: string): integer, string
+local function number_of(name: string): integer | nil, string
   if type(name) ~= "string" then
     return nil, "capability name must be a string"
   end
@@ -98,7 +98,7 @@ end
 --- @param names {string} capability names
 --- @return integer? bitmask
 --- @return string? error message if a name is unknown
-local function mask(names: {string}): integer, string
+local function mask(names: {string}): integer | nil, string
   local m: integer = 0
   for _, name in ipairs(names) do
     local n, err = number_of(name)
@@ -114,7 +114,7 @@ end
 --- @param cap string capability name
 --- @return boolean? true if in the bounding set, false if not
 --- @return string? error message on failure
-local function bounding_read(cap: string): boolean, string
+local function bounding_read(cap: string): boolean | nil, string
   local n, nerr = number_of(cap)
   if n == nil then return nil, nerr end
   local r, err = unix.prctl(unix.PR_CAPBSET_READ, n)
@@ -194,9 +194,9 @@ end
 local record CapsModule
   NAMES: {string}
   supported: function(): boolean
-  number_of: function(name: string): integer, string
-  mask: function(names: {string}): integer, string
-  bounding_read: function(cap: string): boolean, string
+  number_of: function(name: string): integer | nil, string
+  mask: function(names: {string}): integer | nil, string
+  bounding_read: function(cap: string): boolean | nil, string
   bounding_drop: function(cap: string): boolean, string
   drop_bounding: function(opts?: DropOpts): boolean, string
 end

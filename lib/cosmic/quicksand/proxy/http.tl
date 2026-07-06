@@ -31,7 +31,7 @@ local UPSTREAM_FAIL < const > = "HTTP/1.1 502 Bad Gateway\r\n"
 --- Read from `fd` until "\r\n\r\n" or EOF. Returns (header_block,
 --- leftover_after_block). Bounds the read to `max` bytes (default
 --- 65536) to avoid memory blowups from junk input.
-local function read_headers(fd: integer, max: integer): string, string
+local function read_headers(fd: integer, max: integer): string | nil, string
   max = max or 65536
   local buf = ""
   while #buf < max do
@@ -64,7 +64,7 @@ end
 --- Read exactly `n` bytes from `fd`, given an optional already-
 --- buffered prefix. Returns (body, leftover_beyond_n).
 local function read_body(fd: integer, n: integer, prefix: string):
-  string, string
+  string | nil, string
   local buf = prefix or ""
   while #buf < n do
     local chunk, err = unix.recv(fd, math.min(16384, n - #buf))
@@ -77,13 +77,13 @@ end
 
 --- Parse an HTTP request line "METHOD TARGET HTTP/x.y\r\n". Returns
 --- (method, target, version) or nil.
-local function parse_request_line(line: string): string, string, string
+local function parse_request_line(line: string): string | nil, string, string
   local m, t, v = line:match("^(%u+) (%S+) (HTTP/%d%.%d)\r\n")
   return m, t, v
 end
 
 --- Parse a CONNECT target "host:port". Returns (host, port) or nil.
-local function parse_connect_target(t: string): string, integer
+local function parse_connect_target(t: string): string | nil, integer
   local h, p = t:match("^([^:]+):(%d+)$")
   if not h then return nil end
   return h, tonumber(p) as integer
@@ -92,7 +92,7 @@ end
 --- Parse an absolute URI "http://host[:port]/path" (proxies receive
 --- absolute-form per RFC 7230 5.3.2). Returns (scheme, host, port,
 --- path) with the scheme's default port and "/" filled in, or nil.
-local function parse_absolute_uri(t: string): string, string, integer, string
+local function parse_absolute_uri(t: string): string | nil, string, integer, string
   local s, hp, path = t:match("^(https?)://([^/]+)(/.*)$")
   if not s then
     s, hp = t:match("^(https?)://([^/]+)$")
@@ -128,7 +128,7 @@ local function parse_headers(block: string): {Header}
 end
 
 --- First header value for `lower_name` (case-insensitive), or nil.
-local function header_get(headers: {Header}, lower_name: string): string
+local function header_get(headers: {Header}, lower_name: string): string | nil
   for _, h in ipairs(headers) do
     if h[2] == lower_name then return h[3] end
   end
@@ -226,7 +226,7 @@ local function pump(a: integer, b: integer)
   while open[a] or open[b] do
     local ready = unix.poll(fds)
     if not ready then return end
-    for fd, ev in pairs(ready) do
+    for fd, ev in pairs(ready as {number: number}) do
       local peer = (fd == a) and b or a
       local evi = ev as integer
       local readable = (evi & (unix.POLLIN as integer)) ~= 0
@@ -250,14 +250,14 @@ local record HttpModule
   BAD_REQUEST: string
   LENGTH_REQUIRED: string
   UPSTREAM_FAIL: string
-  read_headers: function(fd: integer, max: integer): string, string
+  read_headers: function(fd: integer, max: integer): string | nil, string
   send_all: function(fd: integer, data: string): boolean, string
-  read_body: function(fd: integer, n: integer, prefix: string): string, string
-  parse_request_line: function(line: string): string, string, string
-  parse_connect_target: function(t: string): string, integer
-  parse_absolute_uri: function(t: string): string, string, integer, string
+  read_body: function(fd: integer, n: integer, prefix: string): string | nil, string
+  parse_request_line: function(line: string): string | nil, string, string
+  parse_connect_target: function(t: string): string | nil, integer
+  parse_absolute_uri: function(t: string): string | nil, string, integer, string
   parse_headers: function(block: string): {Header}
-  header_get: function(headers: {Header}, lower_name: string): string
+  header_get: function(headers: {Header}, lower_name: string): string | nil
   content_length: function(headers: {Header}): integer
   rebuild_request: function(spec: ForwardSpec): string
   pump: function(a: integer, b: integer)

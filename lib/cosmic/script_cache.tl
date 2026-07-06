@@ -33,7 +33,7 @@ end
 
 --- @param script_path string Path to the .tl script
 --- @return string Cache file path, or nil if the script can't be read
-local function cache_file(script_path: string): string
+local function cache_file(script_path: string): string | nil
   local content = cio.slurp(script_path)
   if not content then
     return nil
@@ -44,8 +44,8 @@ end
 
 --- Load cached compiled Lua code for a .tl script, if present and fresh.
 --- @param script_path string Path to the .tl script
---- @return string? Cached Lua code, or nil on any cache miss
-local function load_cached(script_path: string): string
+--- @return string | nil Cached Lua code, or nil on any cache miss
+local function load_cached(script_path: string): string | nil
   local path = cache_file(script_path)
   if not path or not fs.isfile(path) then
     return nil

@@ -106,7 +106,7 @@ end
 ---         print("output = " .. o.arg)
 ---       end
 ---     end
-local function parse(args: {string}, optstring: string, longopts?: {LongOpt}): Result, string
+local function parse(args: {string}, optstring: string, longopts?: {LongOpt}): Result | nil, string
   local raw_longopts = to_raw_longopts(longopts)
 
   if raw.parse then
@@ -153,7 +153,7 @@ local function new(args: {string}, optstring: string, longopts?: {LongOpt}): Par
   end
 
   -- Newer cosmos: replay parse() results through an iterator interface.
-  local r = parse(args, optstring, longopts)
+  local r = parse(args, optstring, longopts) as Result
   local stream: {Option} = {}
   if r then
     for _, o in ipairs(r.opts) do
@@ -197,7 +197,7 @@ local record GetoptModule
   --- Type for the stateful parser
   Parser: Parser
   --- Parse a command-line argument vector in one shot
-  parse: function(args: {string}, optstring: string, longopts?: {LongOpt}): Result, string
+  parse: function(args: {string}, optstring: string, longopts?: {LongOpt}): Result | nil, string
   --- Create a stateful parser (compatibility shim over parse)
   new: function(args: {string}, optstring: string, longopts?: {LongOpt}): Parser
 end

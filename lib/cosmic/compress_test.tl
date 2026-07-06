@@ -85,13 +85,14 @@ end
 test_deflate_basic()
 
 local function test_deflate_empty()
-  local deflated = compress.deflate("")
+  local deflated, derr = compress.deflate("")
+  if not deflated then error(derr) end
   assert(#deflated >= 4, "expected at least size prefix")
   -- First 4 bytes should be 0 (size = 0)
-  assert(deflated:byte(1) == 0, "expected size byte 1 to be 0")
-  assert(deflated:byte(2) == 0, "expected size byte 2 to be 0")
-  assert(deflated:byte(3) == 0, "expected size byte 3 to be 0")
-  assert(deflated:byte(4) == 0, "expected size byte 4 to be 0")
+  assert(string.byte(deflated, 1) == 0, "expected size byte 1 to be 0")
+  assert(string.byte(deflated, 2) == 0, "expected size byte 2 to be 0")
+  assert(string.byte(deflated, 3) == 0, "expected size byte 3 to be 0")
+  assert(string.byte(deflated, 4) == 0, "expected size byte 4 to be 0")
 end
 test_deflate_empty()
 
@@ -164,9 +165,10 @@ local function test_deflate_size_prefix()
   local sizes = {0, 1, 255, 256, 65535, 65536, 100000}
   for _, size in ipairs(sizes) do
     local data = string.rep("x", size)
-    local deflated = compress.deflate(data)
+    local deflated, derr = compress.deflate(data)
+    if not deflated then error(derr) end
     -- Read back the size from prefix
-    local b1, b2, b3, b4 = deflated:byte(1, 4)
+    local b1, b2, b3, b4 = string.byte(deflated, 1, 4)
     local read_size = b1 + b2 * 256 + b3 * 65536 + b4 * 16777216
     assert(read_size == size, "size mismatch for " .. size .. ": got " .. read_size)
     -- Verify roundtrip

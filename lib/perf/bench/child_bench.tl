@@ -14,7 +14,8 @@ local function scenarios(): {pt.Scenario}, string
       fn = function(_: any): any
         local handle, err = child.spawn({"/bin/true"})
         assert(handle, err)
-        local _, _, code = handle:read()
+        local hh = handle as child.Handle
+        local _, _, code = hh:read()
         return code
       end,
       check = function(_: any, res: any): boolean, string

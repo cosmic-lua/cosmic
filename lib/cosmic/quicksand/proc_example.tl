@@ -30,7 +30,9 @@ local function Example_no_new_privs_subprocess()
 local proc = require("cosmic.quicksand.proc")
 assert(proc.no_new_privs())
 ]]
-  spawn.spawn({cosmic, "-e", script}):wait()
+  local h = spawn.spawn({cosmic, "-e", script})
+  local hh = h as spawn.Handle
+  hh:wait()
 end
 
 return {}

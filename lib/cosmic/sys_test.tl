@@ -148,13 +148,14 @@ test_sysconf_direct()
 local function test_uname_fields()
   local uts, err = sys.uname()
   assert(uts, "uname should succeed, got error: " .. tostring(err))
-  assert(type(uts.sysname) == "string" and #uts.sysname > 0,
+  local u = uts as sys.Uname
+  assert(type(u.sysname) == "string" and #u.sysname > 0,
     "uname.sysname should be a non-empty string")
-  assert(type(uts.nodename) == "string", "uname.nodename should be a string")
-  assert(type(uts.release) == "string" and #uts.release > 0,
+  assert(type(u.nodename) == "string", "uname.nodename should be a string")
+  assert(type(u.release) == "string" and #u.release > 0,
     "uname.release should be a non-empty string")
-  assert(type(uts.version) == "string", "uname.version should be a string")
-  assert(type(uts.machine) == "string" and #uts.machine > 0,
+  assert(type(u.version) == "string", "uname.version should be a string")
+  assert(type(u.machine) == "string" and #u.machine > 0,
     "uname.machine should be a non-empty string")
 end
 test_uname_fields()

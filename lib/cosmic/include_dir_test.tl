@@ -40,7 +40,8 @@ print(s)
 
   -- Without --include-dir, compilation should still succeed (lax mode)
   -- but with it, types are resolved properly
-  local ok, out = spawn.spawn({cosmic, "--include-dir", typedir, "--compile", input}):read()
+  local h1 = spawn.spawn({cosmic, "--include-dir", typedir, "--compile", input})
+  local ok, out = (h1 as spawn.Handle):read()
   assert(ok, "compile with --include-dir should succeed: " .. tostring(out))
   assert((out as string):find("local custommod"), "output should contain compiled Lua")
 end
@@ -57,11 +58,13 @@ print(s)
 ]])
 
   -- Without --include-dir, check should fail (strict mode, module not found)
-  local ok_without, _ = spawn.spawn({cosmic, "--check-types", input}):read()
+  local h2 = spawn.spawn({cosmic, "--check-types", input})
+  local ok_without, _ = (h2 as spawn.Handle):read()
   assert(not ok_without, "check should fail without --include-dir for custom module")
 
   -- With --include-dir, check should succeed
-  local ok_with, out = spawn.spawn({cosmic, "--include-dir", typedir, "--check-types", input}):read()
+  local h3 = spawn.spawn({cosmic, "--include-dir", typedir, "--check-types", input})
+  local ok_with, out = (h3 as spawn.Handle):read()
   assert(ok_with, "check with --include-dir should succeed: " .. tostring(out))
 end
 test_check_types_include_dir()
@@ -92,12 +95,13 @@ local mod_b = require("mod_b")
 print(mod_a.hello() .. mod_b.world())
 ]])
 
-  local ok, out = spawn.spawn({
+  local h = spawn.spawn({
       cosmic,
       "--include-dir", typedir1,
       "--include-dir", typedir2,
       "--check-types", input,
-    }):read()
+    })
+  local ok, out = (h as spawn.Handle):read()
   assert(ok, "check with multiple --include-dir should succeed: " .. tostring(out))
 end
 test_multiple_include_dirs()
@@ -111,12 +115,13 @@ print(custommod.greet("test"))
 ]])
   local output = fs.join(tmpdir, "include_dir_output.lua")
 
-  local ok, _ = spawn.spawn({
+  local h = spawn.spawn({
       cosmic, "--write-if-changed",
       "--output", output,
       "--include-dir", typedir,
       "--compile", input,
-    }):read()
+    })
+  local ok, _ = (h as spawn.Handle):read()
   assert(ok, "compile with --include-dir and --output should succeed")
 
   local f = io.open(output, "r")
@@ -140,7 +145,8 @@ local p: string = fs.join("a", "b")
 print(s, p)
 ]])
 
-  local ok, out = spawn.spawn({cosmic, "--include-dir", typedir, "--check-types", input}):read()
+  local h4 = spawn.spawn({cosmic, "--include-dir", typedir, "--check-types", input})
+  local ok, out = (h4 as spawn.Handle):read()
   assert(ok, "check with --include-dir should still find built-in types: " .. tostring(out))
 end
 test_include_dir_merges_with_defaults()
