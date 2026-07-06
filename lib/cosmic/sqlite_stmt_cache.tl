@@ -22,7 +22,7 @@ local type OnClose = function(RawStatement)
 
   local record StmtCache
     exec: function(self: StmtCache, sql: string, args: {integer: any}, n: integer): boolean, string
-    checkout: function(self: StmtCache, sql: string): RawStatement, OnClose, string
+    checkout: function(self: StmtCache, sql: string): RawStatement | nil, OnClose, string
     close_all: function(self: StmtCache)
   end
 
@@ -89,7 +89,7 @@ local type OnClose = function(RawStatement)
     --- (nested/interleaved queries for the same SQL text), a fresh
     --- throwaway statement is prepared instead and on_close is nil — the
     --- caller finalizes it itself, same as an uncached prepare.
-    function self:checkout(sql: string): RawStatement, OnClose, string
+    function self:checkout(sql: string): RawStatement | nil, OnClose, string
       local cached = query_cache[sql]
       if cached and not checked_out[sql] then
         checked_out[sql] = true

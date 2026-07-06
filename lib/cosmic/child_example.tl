@@ -5,7 +5,7 @@
 local function Example_spawn()
   local spawn = require("cosmic.child")
   local h = spawn.spawn({"echo", "hello world"})
-  local ok, out = h:read()
+  local ok, out = (h as spawn.Handle):read()
   print(out)
   -- Output:
   -- hello world
@@ -15,7 +15,7 @@ end
 local function Example_spawn_stdin()
   local spawn = require("cosmic.child")
   local h = spawn.spawn({"cat"}, {stdin = "hello from stdin"})
-  local ok, out = h:read()
+  local ok, out = (h as spawn.Handle):read()
   print(out)
   -- Output:
   -- hello from stdin
@@ -25,7 +25,7 @@ end
 local function Example_spawn_exit_code()
   local spawn = require("cosmic.child")
   local h = spawn.spawn({"sh", "-c", "exit 0"})
-  local code = h:wait()
+  local code = (h as spawn.Handle):wait()
   print("exit code:", code)
   -- Output:
   -- exit code:	0
@@ -49,20 +49,21 @@ local function Example_spawn_pipe()
   -- Create a pipe: p.reader and p.writer are cosmic.io Handles.
   local p, err = cio.pipe()
   assert(p, "pipe failed: " .. tostring(err))
+  local pp = p as cio.Pipe
 
   -- Spawn echo, redirecting its stdout into the write end of the pipe.
-  local h, serr = child.spawn({"echo", "from pipe"}, {stdout = p.writer:fd()})
+  local h, serr = child.spawn({"echo", "from pipe"}, {stdout = pp.writer:fd()})
   assert(h, "spawn failed: " .. tostring(serr))
 
   -- Close the write end in the parent so the reader sees EOF when the child exits.
-  p.writer:close()
+  pp.writer:close()
 
   -- Read all output from the read end.
-  local out = p.reader:read()
-  p.reader:close()
+  local out = pp.reader:read()
+  pp.reader:close()
 
   -- Wait for the child to exit.
-  local code = h:wait()
+  local code = (h as child.Handle):wait()
 
   -- echo adds a trailing newline; strip it before printing
   io.write(out)

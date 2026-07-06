@@ -70,9 +70,9 @@ end
 --- Follows symbolic links by default.
 --- @param path string Path to the file or directory
 --- @param follow_symlinks boolean Whether to follow symlinks (default true)
---- @return Stat File metadata, or nil on error
+--- @return Stat | nil File metadata, or nil on error
 --- @return string Error message if failed
-local function stat(path: string, follow_symlinks?: boolean): Stat, string
+local function stat(path: string, follow_symlinks?: boolean): Stat | nil, string
   local flags: number = nil
   if follow_symlinks == false then
     flags = unix.AT_SYMLINK_NOFOLLOW
@@ -86,9 +86,9 @@ end
 
 --- Get file metadata from file descriptor.
 --- @param fd number File descriptor
---- @return Stat File metadata, or nil on error
+--- @return Stat | nil File metadata, or nil on error
 --- @return string Error message if failed
-local function fstat(fd: number): Stat, string
+local function fstat(fd: number): Stat | nil, string
   local st, err = unix.fstat(fd)
   if not st then
     return nil, errstr(err, "fstat")
@@ -201,9 +201,9 @@ local function chdir(path: string): boolean, string
 end
 
 --- Get current working directory.
---- @return string Current working directory path
+--- @return string | nil Current working directory path
 --- @return string Error message if failed
-local function getcwd(): string, string
+local function getcwd(): string | nil, string
   local cwd, err = unix.getcwd()
   if not cwd then
     return nil, errstr(err, "getcwd")
@@ -215,9 +215,9 @@ end
 --- Call dir:read() to iterate entries, dir:close() when done.
 --- Supports automatic cleanup with `<close>` attribute.
 --- @param path string Path to the directory
---- @return Dir Directory handle, or nil on error
+--- @return Dir | nil Directory handle, or nil on error
 --- @return string Error message if failed
-local function opendir(path: string): Dir, string
+local function opendir(path: string): Dir | nil, string
   local raw, err = unix.opendir(path)
   if not raw then
     return nil, errstr(err, "opendir: " .. path)
@@ -228,9 +228,9 @@ end
 --- Open a directory from a file descriptor.
 --- Supports automatic cleanup with `<close>` attribute.
 --- @param fd number File descriptor for an open directory
---- @return Dir Directory handle, or nil on error
+--- @return Dir | nil Directory handle, or nil on error
 --- @return string Error message if failed
-local function fdopendir(fd: number): Dir, string
+local function fdopendir(fd: number): Dir | nil, string
   local raw, err = unix.fdopendir(fd)
   if not raw then
     return nil, errstr(err, "fdopendir")
@@ -258,8 +258,8 @@ local record FsModule
   ext: function(p: string): string
 
   -- Stat operations
-  stat: function(path: string, follow_symlinks?: boolean): Stat, string
-  fstat: function(fd: number): Stat, string
+  stat: function(path: string, follow_symlinks?: boolean): Stat | nil, string
+  fstat: function(fd: number): Stat | nil, string
   is_dir: function(mode: number): boolean
   is_file: function(mode: number): boolean
   is_link: function(mode: number): boolean
@@ -273,17 +273,17 @@ local record FsModule
   makedirs: function(path: string, mode?: number): boolean, string
   rmdir: function(path: string): boolean, string
   chdir: function(path: string): boolean, string
-  getcwd: function(): string, string
-  opendir: function(path: string): Dir, string
-  fdopendir: function(fd: number): Dir, string
+  getcwd: function(): string | nil, string
+  opendir: function(path: string): Dir | nil, string
+  fdopendir: function(fd: number): Dir | nil, string
 
   -- File operations
   unlink: function(path: string): boolean, string
   rename: function(oldpath: string, newpath: string): boolean, string
   link: function(existingpath: string, newpath: string): boolean, string
   symlink: function(target: string, linkpath: string): boolean, string
-  readlink: function(path: string): string, string
-  realpath: function(path: string): string, string
+  readlink: function(path: string): string | nil, string
+  realpath: function(path: string): string | nil, string
   rmrf: function(path: string): boolean, string
 
   -- Permission operations
@@ -296,13 +296,13 @@ local record FsModule
   futimens: function(fd: number, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
 
   -- Temporary file operations
-  mkdtemp: function(template: string): string, string
-  mkstemp: function(template: string): number, string
-  tmpfd: function(): number, string
+  mkdtemp: function(template: string): string | nil, string
+  mkstemp: function(template: string): number | nil, string
+  tmpfd: function(): number | nil, string
 
   -- Filesystem statistics
-  statfs: function(path: string): Statfs, string
-  fstatfs: function(fd: number): Statfs, string
+  statfs: function(path: string): Statfs | nil, string
+  fstatfs: function(fd: number): Statfs | nil, string
 
   -- Device number utilities
   major: function(dev: number): number

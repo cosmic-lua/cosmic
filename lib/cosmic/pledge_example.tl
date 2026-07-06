@@ -13,7 +13,8 @@ local pledge = require("cosmic.pledge")
 assert(pledge.apply("stdio"))
 io.write("stdio only\n")
 ]]
-  local _, out = spawn.spawn({cosmic, "-e", script}):read()
+  local h = spawn.spawn({cosmic, "-e", script})
+  local _, out = (h as spawn.Handle):read()
   io.write(tostring(out))
   -- Output:
   -- stdio only

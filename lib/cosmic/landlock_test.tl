@@ -97,7 +97,8 @@ if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n
   -- an outer sandbox is blocking an otherwise-supported mechanism — a
   -- strict skip that the enforce lane (COSMIC_ENFORCE=1, no outer sandbox)
   -- turns into a hard failure.
-  local ok, out = spawn.spawn({cosmic, script}):read()
+  local h = spawn.spawn({cosmic, script})
+  local ok, out = (h as spawn.Handle):read()
   -- Under an outer seccomp/pledge filter the landlock syscall may be
   -- blocked with SIGSYS rather than EPERM, killing the subprocess
   -- before it can emit "skipped".

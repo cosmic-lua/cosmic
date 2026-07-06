@@ -140,7 +140,7 @@ test_verify_password_returns_two_values_on_mismatch()
 -- FIX 2: default m_cost should be 19456 (OWASP minimum 19 MiB)
 local function test_password_default_mcost_is_19456()
   local encoded, err = hash.password("password", {t_cost = 1})
-  assert(encoded, "password with default m_cost should succeed: " .. tostring(err))
-  assert(encoded:match("m=19456"), "default m_cost should be 19456, encoded string: " .. encoded)
+  if not encoded then error("password with default m_cost should succeed: " .. tostring(err)) end
+  assert(string.match(encoded, "m=19456"), "default m_cost should be 19456, encoded string: " .. encoded)
 end
 test_password_default_mcost_is_19456()

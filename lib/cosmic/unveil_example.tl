@@ -20,7 +20,8 @@ assert(unveil.apply("/tmp", "r"))
 assert(unveil.apply(nil, nil))
 io.write("committed\n")
 ]]
-  local _, out = spawn.spawn({cosmic, "-e", script}):read()
+  local h = spawn.spawn({cosmic, "-e", script})
+  local _, out = (h as spawn.Handle):read()
   io.write(tostring(out))
   -- Output:
   -- skipped

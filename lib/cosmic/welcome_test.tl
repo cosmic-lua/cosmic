@@ -11,7 +11,8 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 
 -- Test --welcome shows message
 local function test_welcome_flag()
-  local ok, out = spawn.spawn({cosmic, "--welcome"}):read()
+  local h = spawn.spawn({cosmic, "--welcome"})
+  local ok, out = (h as spawn.Handle):read()
   assert(ok, "cosmic --welcome should succeed")
   local s = out as string
   assert(s:find("Welcome to cosmic%-lua!"), "should show welcome message")
@@ -24,7 +25,8 @@ test_welcome_flag()
 
 -- Test --help mentions --welcome and COSMIC_NO_WELCOME
 local function test_help_mentions_welcome()
-  local ok, out = spawn.spawn({cosmic, "--help"}):read()
+  local h = spawn.spawn({cosmic, "--help"})
+  local ok, out = (h as spawn.Handle):read()
   assert(ok, "cosmic --help should succeed")
   local s = out as string
   assert(s:find("%-%-welcome"), "help should mention --welcome flag")
@@ -47,7 +49,8 @@ end
 ]])
 
   local env = {"COSMIC_NO_WELCOME=1"}
-  local ok, out = spawn.spawn({cosmic, test_script}, {env = env}):read()
+  local h = spawn.spawn({cosmic, test_script}, {env = env})
+  local ok, out = (h as spawn.Handle):read()
   local s = out as string
   assert(ok, "script should succeed: " .. s)
   assert(s:find("COSMIC_NO_WELCOME is set"), "env var should be accessible: " .. s)
@@ -72,7 +75,8 @@ local function pty_available(): boolean
   end
   -- Run cosmic through script to simulate a PTY (suppress welcome to avoid mutating binary)
   local cmd = "COSMIC_NO_WELCOME=1 " .. cosmic .. " " .. probe
-  local ok, out = spawn.spawn({"script", "-qc", cmd, "/dev/null"}):read()
+  local h = spawn.spawn({"script", "-qc", cmd, "/dev/null"})
+  local ok, out = (h as spawn.Handle):read()
   local s = out as string
   if not (ok as boolean) then
     return false
@@ -96,7 +100,8 @@ end
 local function run_with_pty(args: {string}): boolean, string
   -- Copy binary to temp location so it's fresh (no embedded marker)
   local fresh_cosmic = fs.join(tmpdir, "cosmic-fresh-" .. tostring(os.time()))
-  local copy_ok = spawn.spawn({"cp", cosmic, fresh_cosmic}):wait()
+  local cp_h = spawn.spawn({"cp", cosmic, fresh_cosmic})
+  local copy_ok = (cp_h as spawn.Handle):wait()
   assert(copy_ok, "failed to copy cosmic binary")
 
   -- Build command string for script
@@ -107,7 +112,8 @@ local function run_with_pty(args: {string}): boolean, string
   end
 
   -- Use script command to provide PTY (merges stdout/stderr)
-  local ok, out = spawn.spawn({"script", "-qc", cmd, "/dev/null"}):read()
+  local h = spawn.spawn({"script", "-qc", cmd, "/dev/null"})
+  local ok, out = (h as spawn.Handle):read()
   return ok as boolean, out as string
 end
 
@@ -135,18 +141,21 @@ test_welcome_skipped_with_v_flag()
 local function test_welcome_not_shown_twice()
   -- Copy binary to temp location
   local fresh_cosmic = fs.join(tmpdir, "cosmic-twice-test")
-  local copy_ok = spawn.spawn({"cp", cosmic, fresh_cosmic}):wait()
+  local cp_h = spawn.spawn({"cp", cosmic, fresh_cosmic})
+  local copy_ok = (cp_h as spawn.Handle):wait()
   assert(copy_ok, "failed to copy cosmic binary")
 
   -- First run - should show welcome (use -e to avoid early-return)
   local cmd1 = fresh_cosmic .. " -e 'print(1)'"
-  local ok1, out1 = spawn.spawn({"script", "-qc", cmd1, "/dev/null"}):read()
+  local h1 = spawn.spawn({"script", "-qc", cmd1, "/dev/null"})
+  local ok1, out1 = (h1 as spawn.Handle):read()
   local s1 = out1 as string
   assert(ok1, "first run should succeed: " .. s1)
   assert(s1:find("Welcome to cosmic%-lua!"), "first run should show welcome: " .. s1)
 
   -- Second run with SAME binary - should NOT show welcome (marker embedded)
-  local ok2, out2 = spawn.spawn({"script", "-qc", cmd1, "/dev/null"}):read()
+  local h2 = spawn.spawn({"script", "-qc", cmd1, "/dev/null"})
+  local ok2, out2 = (h2 as spawn.Handle):read()
   local s2 = out2 as string
   assert(ok2, "second run should succeed: " .. s2)
   assert(not s2:find("Welcome to cosmic%-lua!"), "second run should NOT show welcome: " .. s2)
@@ -159,12 +168,14 @@ test_welcome_not_shown_twice()
 local function test_no_welcome_env_suppresses()
   -- Copy binary to temp location
   local fresh_cosmic = fs.join(tmpdir, "cosmic-no-welcome-test")
-  local copy_ok = spawn.spawn({"cp", cosmic, fresh_cosmic}):wait()
+  local cp_h = spawn.spawn({"cp", cosmic, fresh_cosmic})
+  local copy_ok = (cp_h as spawn.Handle):wait()
   assert(copy_ok, "failed to copy cosmic binary")
 
   -- Run with COSMIC_NO_WELCOME set (use -e to avoid early-return)
   local cmd = "COSMIC_NO_WELCOME=1 " .. fresh_cosmic .. " -e 'print(1)'"
-  local ok, out = spawn.spawn({"script", "-qc", cmd, "/dev/null"}):read()
+  local h = spawn.spawn({"script", "-qc", cmd, "/dev/null"})
+  local ok, out = (h as spawn.Handle):read()
   local s = out as string
   assert(ok, "should succeed: " .. s)
   assert(not s:find("Welcome to cosmic%-lua!"), "welcome should be suppressed: " .. s)

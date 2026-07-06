@@ -14,7 +14,7 @@ local function Example_new_and_close()
         net = {allow = {["api.example.com:443"] = {}}},
         proc = {no_new_privs = true},
         cwd = "/tmp",
-      }))
+      })) as Box.Box
   box:close()
   io.write("ok\n")
   -- Output:
@@ -40,7 +40,7 @@ end
 -- checking whether code is nil.
 local function Example_run_return_shape()
   local Box = require("cosmic.quicksand.box")
-  local j = assert(Box.new())
+  local j = assert(Box.new()) as Box.Box
   local code, err = j:run({"/bin/true"})
   if code == nil then
     io.write("err " .. tostring((err or ""):sub(1, 10)) .. "\n")

@@ -29,7 +29,9 @@ if not ns.unshare_user() then return end
 assert(ns.unshare())
 assert(ns.bring_up("lo"))
 ]]
-  spawn.spawn({cosmic, "-e", script}):wait()
+  local h = spawn.spawn({cosmic, "-e", script})
+  local hh = h as spawn.Handle
+  hh:wait()
 end
 
 return {}

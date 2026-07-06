@@ -4,6 +4,7 @@
 
 local cio = require("cosmic.io")
 local fs = require("cosmic.fs")
+local fs_types = require("cosmic.fs_types")
 local proc = require("cosmic.proc")
 local spawn = require("cosmic.child")
 
@@ -24,10 +25,11 @@ local record VersionSpec
 end
 
 local function move_contents(source_dir: string, dest_dir: string): boolean, string
-  local dir, dir_err = fs.opendir(source_dir)
-  if not dir then
+  local dir0, dir_err = fs.opendir(source_dir)
+  if not dir0 then
     return nil, "failed to open directory " .. source_dir .. ": " .. (dir_err or "unknown error")
   end
+  local dir = dir0 as fs_types.Dir
   while true do
     local name = dir:read()
     if not name then break end
@@ -50,10 +52,11 @@ local function strip_components(source_dir: string, dest_dir: string, strip: num
 
   local current = source_dir
   for _ = 1, strip do
-    local dir, dir_err = fs.opendir(current)
-    if not dir then
+    local dir0, dir_err = fs.opendir(current)
+    if not dir0 then
       return nil, "failed to open directory " .. current .. ": " .. (dir_err or "unknown error")
     end
+    local dir = dir0 as fs_types.Dir
     local entries: {string} = {}
     while true do
       local name = dir:read()
@@ -69,7 +72,7 @@ local function strip_components(source_dir: string, dest_dir: string, strip: num
   end
 
   local st = fs.stat(current)
-  if st and fs.is_dir(st:mode()) then
+  if st and fs.is_dir((st as fs_types.Stat):mode()) then
     return move_contents(current, dest_dir)
   else
     local dst = fs.join(dest_dir, fs.basename(current))
@@ -80,7 +83,7 @@ end
 local function extract_zip(archive: string, dest_dir: string, strip: number): boolean, string
   local temp_dir = fs.mkdtemp(fs.join(fs.dirname(dest_dir), ".stage_XXXXXX"))
   local handle = spawn.spawn({"/usr/bin/unzip", "-o", "-q", "-d", temp_dir, archive})
-  local exit_code = handle:wait()
+  local exit_code = (handle as spawn.Handle):wait()
   if exit_code ~= 0 then
     fs.rmrf(temp_dir)
     return nil, "unzip failed with exit code " .. exit_code
@@ -93,7 +96,7 @@ end
 local function extract_targz(archive: string, dest_dir: string, strip: number): boolean, string
   local temp_dir = fs.mkdtemp(fs.join(fs.dirname(dest_dir), ".stage_XXXXXX"))
   local handle = spawn.spawn({"tar", "-xzf", archive, "-C", temp_dir})
-  local exit_code = handle:wait()
+  local exit_code = (handle as spawn.Handle):wait()
   if exit_code ~= 0 then
     fs.rmrf(temp_dir)
     return nil, "tar failed with exit code " .. exit_code
@@ -123,7 +126,7 @@ local function extract_gz(archive: string, dest_dir: string, module_name: string
   fs.makedirs(bin_dir)
   local dest = fs.join(bin_dir, module_name)
   local handle = spawn.spawn({"gunzip", "-c", archive})
-  local exit_code, content = handle:read()
+  local exit_code, content = (handle as spawn.Handle):read()
   if not exit_code then
     return nil, "gunzip failed: " .. tostring(content)
   end
@@ -258,10 +261,11 @@ local type ExtractFn = function(string, string, number): boolean, string
     elseif format == "tar.gz" then
       extension = ".tar.gz"
     end
-    local dir, dir_err = fs.opendir(fetch_dir)
-    if not dir then
+    local dir0, dir_err = fs.opendir(fetch_dir)
+    if not dir0 then
       return nil, "failed to open " .. fetch_dir .. ": " .. (dir_err or "unknown error")
     end
+    local dir = dir0 as fs_types.Dir
     while true do
       local name = dir:read()
       if not name then break end

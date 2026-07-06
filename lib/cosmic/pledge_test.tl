@@ -24,7 +24,8 @@ if not ok then
 end
 io.write("pledged\n")
 ]])
-  local ok, out = spawn.spawn({cosmic, script}):read()
+  local h = spawn.spawn({cosmic, script})
+  local ok, out = (h as spawn.Handle):read()
   assert(ok, "pledge stdio should allow io.write: " .. tostring(out))
   assert((out as string):find("pledged"), "should print after pledge: " .. tostring(out))
 end
@@ -50,7 +51,8 @@ if f then
 end
 io.write("restricted\n")
 ]])
-  local ok, out = spawn.spawn({cosmic, script}):read()
+  local h = spawn.spawn({cosmic, script})
+  local ok, out = (h as spawn.Handle):read()
   local s = (out or "") as string
   if s:find("skipped") then
     -- pledge is supported on every platform cosmic targets (Linux via

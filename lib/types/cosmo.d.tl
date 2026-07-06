@@ -67,7 +67,7 @@ local record cosmo
   ---     assert(Barf('x.txt', 'abc123'))
   ---     assert(Barf('x.txt', 'XX', 0, 0, 3))
   ---     assert(assert(Slurp('x.txt', 1, 6)) == 'abXX23')
-  Barf: function(filename: string, data: string, mode?: number, flags?: number, offset?: number): boolean, unix.Errno
+  Barf: function(filename: string, data: string, mode?: number, flags?: number, offset?: number): boolean | nil, unix.Errno
   --- Formats string as binary integer literal string. If the provided value is zero,
   --- the result will be `"0"`. Otherwise the resulting value will be the
   --- "0b"-prefixed binary str. The result is currently modulo 2^64. Negative numbers
@@ -156,7 +156,7 @@ local record cosmo
   --- `EncodeJson()` and may not round-trip with original intent.
   --- This parser has perfect conformance with JSONTestSuite.
   --- This parser validates utf-8 and utf-16.
-  DecodeJson: function(input: string): any, string
+  DecodeJson: function(input: string): any | nil, string
   --- Turns ISO-8859-1 string into UTF-8.
   DecodeLatin1: function(iso_8859_1: string): string
   --- Compresses data.
@@ -169,7 +169,7 @@ local record cosmo
   --- `Crc32()` checksum in addition to the original uncompressed size.
   --- Lower numbers go faster (4 for instance is a sweet spot) and higher numbers go
   --- slower but have better compression.
-  Deflate: function(uncompressed: string, level?: number): string, string
+  Deflate: function(uncompressed: string, level?: number): string | nil, string
   --- Turns binary into ASCII using the provided alphabet (Crockford's
   --- base32 alphabet by default). Any alphabet that has a power of 2
   --- length (up to 128) may be supplied for encoding and decoding, which
@@ -252,7 +252,7 @@ local record cosmo
   --- encodings in your input strings will be canonicalized rather than validated.
   --- NaNs are serialized as `null` and Infinities are `null` which is consistent
   --- with the v8 behavior.
-  EncodeJson: function(value: any, options?: any): string, string
+  EncodeJson: function(value: any, options?: any): string | nil, string
   --- Turns UTF-8 into ISO-8859-1 string.
   EncodeLatin1: function(utf8: string, flags?: number): string
   --- Turns Lua data structure into Lua code string.
@@ -322,7 +322,7 @@ local record cosmo
   ---     >: -9223372036854775807 - 1
   ---     -9223372036854775807 - 1
   --- The only failure return condition currently implemented is when C runs out of heap memory.
-  EncodeLua: function(value: any, options?: any): string, string
+  EncodeLua: function(value: any, options?: any): string | nil, string
   --- This function is the inverse of ParseUrl. The output will always be correctly
   --- formatted. The exception is if illegal characters are supplied in the scheme
   --- field, since there's no way of escaping those. Opaque parts are escaped as
@@ -423,7 +423,7 @@ local record cosmo
   --- is set to GET and the body is removed before the redirect is followed. Note
   --- that if these (method/body) values are provided as table fields, they will be
   --- modified in place.
-  Fetch: function(url: string, body?: string | any): number, {string: string}, string, string
+  Fetch: function(url: string, body?: string | any): number | nil, {string: string}, string, string
   --- Sends an HTTP/HTTPS request and returns a streaming reader for the response body.
   --- Useful for Server-Sent Events (SSE), large downloads, or processing data incrementally.
   --- Accepts the same options table as `Fetch()`, including `timeout`, `maxresponse`,
@@ -431,7 +431,7 @@ local record cosmo
   --- Note: `timeout=0` (or absent) retains the 60-second default; there is no
   --- "infinite" option.  `maxresponse` limits per-read buffer growth; negative
   --- values are rejected.
-  FetchStream: function(url: string, options?: any): number, {string: string}, StreamReader, string
+  FetchStream: function(url: string, options?: any): number | nil, {string: string}, StreamReader, string
   --- Converts UNIX timestamp to an RFC1123 string that looks like this:
   --- `Mon, 29 Mar 2021 15:37:13 GMT`. See `formathttpdatetime.c`.
   FormatHttpDateTime: function(seconds: number): string
@@ -489,7 +489,7 @@ local record cosmo
   --- However, it is permissable (although not advised) to specify some large number
   --- in which case (on success) the byte length of the output string may be less
   --- than `maxoutsize`.
-  Inflate: function(compressed: string, maxoutsize: number): string, string
+  Inflate: function(compressed: string, maxoutsize: number): string | nil, string
   --- Check if the calling script is being run directly (not require'd).
   --- This function provides a Python-like `if __name__ == "__main__"` idiom
   --- for Lua scripts. It returns true when the script is executed directly
@@ -543,11 +543,11 @@ local record cosmo
   --- The compressed output is not compatible with other compression formats (use
   --- Deflate/Inflate for standard zlib compatibility).
   --- produce faster compression but with worse compression ratio. Range is 1-65537.
-  Lz4Compress: function(data: string, acceleration?: number): string, string
+  Lz4Compress: function(data: string, acceleration?: number): string | nil, string
   --- Decompresses LZ4-compressed data.
   --- You must know the maximum size of the decompressed output beforehand.
   --- This is a limitation of the LZ4 format which doesn't store the original size.
-  Lz4Decompress: function(compressed: string, maxoutsize: number): string, string
+  Lz4Decompress: function(compressed: string, maxoutsize: number): string | nil, string
   --- Computes MD5 checksum, returning 16 bytes of binary.
   Md5: function(str: string): string
   --- This gives you an idea of the density of information. Cryptographic random
@@ -637,7 +637,7 @@ local record cosmo
   --- If no IP address could be found, then `nil` is returned alongside a string of
   --- unspecified format describing the error. Calls to this function may be wrapped
   --- in `assert()` if an exception is desired.
-  ResolveIp: function(hostname: string): number, string
+  ResolveIp: function(hostname: string): number | nil, string
   --- Computes SHA1 checksum, returning 20 bytes of binary.
   Sha1: function(str: string): string
   --- Computes SHA224 checksum, returning 28 bytes of binary.
@@ -661,7 +661,7 @@ local record cosmo
   --- This function is uninterruptible so `unix.EINTR` errors will be ignored. This
   --- should only be a concern if you've installed signal handlers. Use the UNIX API
   --- if you need to react to it.
-  Slurp: function(filename: string, i?: number, j?: number): string, unix.Errno
+  Slurp: function(filename: string, i?: number, j?: number): string | nil, unix.Errno
   --- Formats a timestamp using strftime(3) format specifiers.
   --- Common format specifiers:
   --- - `%Y` four-digit year

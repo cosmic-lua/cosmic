@@ -13,7 +13,7 @@ local record Regex
   --- @param text string The text to search
   --- @param flags number? Optional flags: NOTBOL, NOTEOL
   --- @return string? The matched substring, or nil if no match
-  search: function(self: Regex, text: string, flags?: number): string
+  search: function(self: Regex, text: string, flags?: number): string | nil
 end
 
 --- Compile a regular expression pattern.
@@ -23,7 +23,7 @@ end
 --- @param flags number? Optional flags: BASIC, ICASE, NEWLINE, NOSUB
 --- @return Regex? The compiled regex, or nil on error
 --- @return string? Error message if compilation failed
-local function compile(pattern: string, flags?: number): Regex, string
+local function compile(pattern: string, flags?: number): Regex | nil, string
   local result, err = re.compile(pattern, flags)
   if not result then
     -- err is an Errno userdata with __tostring metamethod
@@ -40,14 +40,14 @@ end
 --- @param flags number? Optional compile flags: BASIC, ICASE, NEWLINE, NOSUB
 --- @return string? The matched substring, or nil if no match
 --- @return string? Error message if pattern compilation failed
-local function search(pattern: string, text: string, flags?: number): string, string
+local function search(pattern: string, text: string, flags?: number): string | nil, string
   local regex, err = compile(pattern, flags)
   if not regex then
     return nil, err
   end
   -- Note: regex:search returns nil for no match, not an error condition
   -- Search flags (NOTBOL/NOTEOL) are not passed here; use compile() + :search() for those
-  local result = regex:search(text)
+  local result = (regex as Regex):search(text)
   return result
 end
 
@@ -67,9 +67,12 @@ local function match(pattern: string, text: string, flags?: number): boolean, st
 end
 
 local record ReModule
+  -- Exported so callers can name/cast the fallible compile result.
+  type Regex = Regex
+
   -- Functions
-  compile: function(pattern: string, flags?: number): Regex, string
-  search: function(pattern: string, text: string, flags?: number): string, string
+  compile: function(pattern: string, flags?: number): Regex | nil, string
+  search: function(pattern: string, text: string, flags?: number): string | nil, string
   match: function(pattern: string, text: string, flags?: number): boolean, string
 
   -- Compile flags

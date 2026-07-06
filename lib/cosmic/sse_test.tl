@@ -9,7 +9,7 @@ local function mock_reader(content: string): fetch.Reader
 
   local reader: fetch.Reader = {}
 
-  function reader:read(): string, string
+  function reader:read(): string | nil, string
     if is_closed then
       return nil, "reader closed"
     end

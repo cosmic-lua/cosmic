@@ -10,6 +10,7 @@
 
 local cosmo = require("cosmo")
 local gentype = require("types.gentype")
+local teal = require("cosmic.teal")
 
 local function defs_source(): string
   local path = os.getenv("GENTYPE_DEFS") or "/zip/.lua/definitions.lua"
@@ -144,16 +145,18 @@ function unix.dup(fd) end
   local module = gentype.parse_module(source, "unix")
   local dtl = gentype.generate_dtl(module)
 
-  assert(dtl:match("mkdir: function%(path: string%): boolean, Errno"),
-    "fallible mkdir should render '..., Errno':\n" .. dtl)
-  assert(dtl:match("getcwd: function%(%): string, Errno"),
-    "fallible getcwd should render '..., Errno':\n" .. dtl)
+  assert(dtl:match("mkdir: function%(path: string%): boolean | nil, Errno"),
+    "fallible mkdir should render 'T | nil, Errno':\n" .. dtl)
+  assert(dtl:match("getcwd: function%(%): string | nil, Errno"),
+    "fallible getcwd should render 'T | nil, Errno':\n" .. dtl)
   assert(dtl:match("getpid: function%(%): number"),
     "getpid should still render its number return:\n" .. dtl)
   assert(not dtl:match("getpid[^\n]*Errno"),
     "non-fallible getpid must NOT gain an Errno return:\n" .. dtl)
-  assert(dtl:match("dup: function%([^\n]*%): number, Errno"),
-    "dup should render a single trailing Errno:\n" .. dtl)
+  assert(not dtl:match("getpid[^\n]*| nil"),
+    "non-fallible getpid must NOT gain a nil union:\n" .. dtl)
+  assert(dtl:match("dup: function%([^\n]*%): number | nil, Errno"),
+    "dup should render 'number | nil' and a single trailing Errno:\n" .. dtl)
   assert(not dtl:match("dup:[^\n]*Errno, Errno"),
     "dup must not gain a duplicate Errno:\n" .. dtl)
 
@@ -174,8 +177,8 @@ unix = {}
 function unix.ioctl(fd, request, arg) end
 ]==]
   local dtl = gentype.generate_dtl(gentype.parse_module(source, "unix"))
-  assert(dtl:match("ioctl: function%(fd: number, request: number, arg%?: number | string%): boolean | string, Errno"),
-    "parenthesized union types should render as Teal unions:\n" .. dtl)
+  assert(dtl:match("ioctl: function%(fd: number, request: number, arg%?: number | string%): boolean | string | nil, Errno"),
+    "parenthesized union types should render as Teal unions with a nil success:\n" .. dtl)
   print("test_paren_union_types: PASS")
 end
 
@@ -193,8 +196,8 @@ re = {}
 function re.search(regex, text) end
 ]==]
   local dtl = gentype.generate_dtl(gentype.parse_module(source, "re"))
-  assert(dtl:match("search: function%(regex: string, text: string%): string, string%.%.%."),
-    "vararg return should render as `string, string...`:\n" .. dtl)
+  assert(dtl:match("search: function%(regex: string, text: string%): string | nil, string%.%.%."),
+    "vararg return should render as `string | nil, string...`:\n" .. dtl)
   assert(not dtl:match("search[^\n]*followed"),
     "return description must not leak into the type list:\n" .. dtl)
   assert(not dtl:match("search[^\n]*%.%.%., Errno"),
@@ -334,6 +337,22 @@ local function test_drift_all_modules()
   print("test_drift_all_modules: PASS (" .. #gentype.get_modules() .. " modules)")
 end
 
+-- Every committed .d.tl must itself be valid, type-checkable Teal. The drift
+-- test guarantees the committed files equal generator output, so this doubles
+-- as a permanent tripwire: a renderer change that emits malformed Teal (a bad
+-- union, an unbalanced paren, a dangling return) is caught here even after the
+-- broken output is regenerated and committed.
+local function test_generated_valid_teal()
+  for _, m in ipairs(gentype.get_modules()) do
+    local path = committed_path(m)
+    local result = teal.check(path, {include_dirs = {"lib/types"}})
+    assert(result.ok, "generated " .. path .. " is not valid Teal:\n"
+      .. teal.format_issues(result.errors)
+      .. "\nFix the renderer in lib/types/gentype_render.tl.")
+  end
+  print("test_generated_valid_teal: PASS (" .. #gentype.get_modules() .. " modules)")
+end
+
 -- MODULES must cover definitions.lua: every module section upstream is either
 -- generated or explicitly skipped, and nothing in MODULES is missing upstream.
 local function test_module_list_completeness()
@@ -400,6 +419,7 @@ local function run_tests()
   test_qualified_class_methods()
   test_module_list_completeness()
   test_drift_all_modules()
+  test_generated_valid_teal()
 
   print("\nAll tests passed!")
 end

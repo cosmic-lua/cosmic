@@ -118,7 +118,7 @@ end
 --- @param opts ProxyOptions allowlist + binding + logging config
 --- @return ProxyHandle? handle with pid, port, stop(), alive()
 --- @return string? error message on failure
-local function start(opts: ProxyOptions): ProxyHandle, string
+local function start(opts: ProxyOptions): ProxyHandle | nil, string
   opts = opts or {}
   local vok, verr = rules.validate((opts.allowed_hosts or {}) as {string: any})
   if not vok then return nil, verr end
@@ -142,16 +142,24 @@ local function start(opts: ProxyOptions): ProxyHandle, string
       io.stderr:write("proxy.start: " .. tostring(nerr) .. "\n")
       unix.exit(1)
     end
-    local fd, lerr = srv.listen()
+    -- srv is a `Server | nil` record union; tl 0.24.8 does not narrow
+    -- record unions through the nil-check above, so reach the methods
+    -- through a map view (with per-method function casts for the return
+    -- shapes) at the proven non-nil use site.
+    local server = srv as {string: any}
+    local listen_fn = server.listen as function(): (integer | nil, string)
+    local port_fn = server.port as function(): integer
+    local serve_fn = server.serve_forever as function()
+    local fd, lerr = listen_fn()
     if not fd then
       unix.write(wfd, string.pack("<i4", -1))
       unix.close(wfd)
       io.stderr:write("proxy.start: listen: " .. tostring(lerr) .. "\n")
       unix.exit(1)
     end
-    unix.write(wfd, string.pack("<i4", srv.port()))
+    unix.write(wfd, string.pack("<i4", port_fn()))
     unix.close(wfd)
-    srv.serve_forever()
+    serve_fn()
     unix.exit(0)
   end
   -- Parent: read the bound port, then return the handle.
@@ -175,7 +183,8 @@ local function start(opts: ProxyOptions): ProxyHandle, string
 end
 
 local record ProxyModule
-  start: function(opts: ProxyOptions): ProxyHandle, string
+  type ProxyHandle = ProxyHandle
+  start: function(opts: ProxyOptions): ProxyHandle | nil, string
 end
 
 local M: ProxyModule = {

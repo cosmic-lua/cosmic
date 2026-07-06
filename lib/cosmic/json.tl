@@ -15,16 +15,16 @@ end
 --- Encode a Lua value as a JSON string.
 --- Converts Lua tables, strings, numbers, booleans, and nil into JSON format.
 --- @param value any The Lua value to encode
---- @return string The JSON string representation
+--- @return string | nil The JSON string representation
 --- @return string? Error message if encoding failed
-local function encode(value: any): string, string
+local function encode(value: any): string | nil, string
   local result, err = cosmo.EncodeJson(value)
   return result as string, err as string
 end
 
 local record JsonModule
   decode: function(str: string): any, string
-  encode: function(value: any): string, string
+  encode: function(value: any): string | nil, string
 end
 
 local M: JsonModule = {

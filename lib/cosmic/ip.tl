@@ -133,7 +133,7 @@ end
 --- @param hostname string The hostname to look up
 --- @return Addr? The resolved IP address, or nil on error
 --- @return string? Error message on failure
-local function lookup(hostname: string): Addr, string
+local function lookup(hostname: string): Addr | nil, string
   local ip = cosmo.ResolveIp(hostname)
   if not ip or ip == -1 then
     return nil, "dns: lookup failed for " .. hostname
@@ -151,7 +151,7 @@ local record IpModule
   is_private: function(ip: number): boolean
   is_public: function(ip: number): boolean
   resolve: function(hostname: string): number
-  lookup: function(hostname: string): Addr, string
+  lookup: function(hostname: string): Addr | nil, string
 end
 
 local M: IpModule = {

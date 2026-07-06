@@ -1,5 +1,6 @@
 #!/usr/bin/env cosmic
 local fs = require("cosmic.fs")
+local fs_types = require("cosmic.fs_types")
 local unix = require("cosmo.unix")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
@@ -35,9 +36,10 @@ local function test_stat_file()
 
   local st, err = fs.stat(filepath)
   assert(st, "stat should succeed: " .. (err or ""))
-  assert(st:size() == 5, "expected size 5, got " .. st:size())
-  assert(fs.is_file(st:mode()), "expected regular file")
-  assert(not fs.is_dir(st:mode()), "expected not a directory")
+  local s = st as fs_types.Stat
+  assert(s:size() == 5, "expected size 5, got " .. s:size())
+  assert(fs.is_file(s:mode()), "expected regular file")
+  assert(not fs.is_dir(s:mode()), "expected not a directory")
 
   teardown(test_dir)
 end
@@ -48,8 +50,9 @@ local function test_stat_directory()
 
   local st, err = fs.stat(test_dir)
   assert(st, "stat should succeed: " .. (err or ""))
-  assert(fs.is_dir(st:mode()), "expected directory")
-  assert(not fs.is_file(st:mode()), "expected not a file")
+  local s = st as fs_types.Stat
+  assert(fs.is_dir(s:mode()), "expected directory")
+  assert(not fs.is_file(s:mode()), "expected not a file")
 
   teardown(test_dir)
 end
@@ -65,12 +68,14 @@ local function test_stat_symlink()
   -- Follow symlinks by default
   local st = fs.stat(linkpath)
   assert(st, "stat should succeed")
-  assert(fs.is_file(st:mode()), "expected regular file when following symlink")
+  local s = st as fs_types.Stat
+  assert(fs.is_file(s:mode()), "expected regular file when following symlink")
 
   -- Don't follow symlinks
   local st2 = fs.stat(linkpath, false)
   assert(st2, "stat should succeed with follow_symlinks=false")
-  assert(fs.is_link(st2:mode()), "expected symlink")
+  local s2 = st2 as fs_types.Stat
+  assert(fs.is_link(s2:mode()), "expected symlink")
 
   teardown(test_dir)
 end
@@ -93,7 +98,8 @@ local function test_fstat()
 
   local st, err = fs.fstat(fd)
   assert(st, "fstat should succeed: " .. (err or ""))
-  assert(st:size() == 11, "expected size 11, got " .. st:size())
+  local s = st as fs_types.Stat
+  assert(s:size() == 11, "expected size 11, got " .. s:size())
 
   unix.close(fd)
   teardown(test_dir)
@@ -111,7 +117,7 @@ local function test_mkdir()
 
   local st = fs.stat(newdir)
   assert(st, "stat should succeed after mkdir")
-  assert(fs.is_dir(st:mode()), "expected directory")
+  assert(fs.is_dir((st as fs_types.Stat):mode()), "expected directory")
 
   teardown(test_dir)
 end
@@ -126,7 +132,7 @@ local function test_mkdir_with_mode()
 
   local st = fs.stat(newdir)
   assert(st, "stat should succeed")
-  local mode = st:mode() & tonumber("777", 8)
+  local mode = (st as fs_types.Stat):mode() & tonumber("777", 8)
   assert(mode == tonumber("700", 8), "expected mode 700, got " .. string.format("%o", mode))
 
   teardown(test_dir)
@@ -142,7 +148,7 @@ local function test_makedirs()
 
   local st = fs.stat(nested)
   assert(st, "stat should succeed after makedirs")
-  assert(fs.is_dir(st:mode()), "expected directory")
+  assert(fs.is_dir((st as fs_types.Stat):mode()), "expected directory")
 
   teardown(test_dir)
 end
@@ -244,16 +250,17 @@ local function test_opendir()
 
   local dir, err = fs.opendir(test_dir)
   assert(dir, "opendir should succeed: " .. (err or ""))
+  local d = dir as fs_types.Dir
 
   local entries: {string: boolean} = {}
   while true do
-    local entry = dir:read()
+    local entry = d:read()
     if not entry then break end
     if entry ~= "." and entry ~= ".." then
       entries[entry] = true
     end
   end
-  dir:close()
+  d:close()
 
   assert(entries["file1.txt"], "expected file1.txt")
   assert(entries["file2.txt"], "expected file2.txt")
@@ -308,7 +315,8 @@ local function test_link()
   local st1 = fs.stat(filepath)
   local st2 = fs.stat(linkpath)
   assert(st1 and st2, "both files should exist")
-  assert(st1:nlink() == 2, "expected 2 hard links, got " .. st1:nlink())
+  local s1 = st1 as fs_types.Stat
+  assert(s1:nlink() == 2, "expected 2 hard links, got " .. s1:nlink())
 
   teardown(test_dir)
 end
@@ -390,7 +398,7 @@ local function test_chmod()
 
   local st = fs.stat(filepath)
   assert(st, "stat should succeed")
-  local mode = st:mode() & tonumber("777", 8)
+  local mode = (st as fs_types.Stat):mode() & tonumber("777", 8)
   assert(mode == tonumber("600", 8), "expected mode 600, got " .. string.format("%o", mode))
 
   teardown(test_dir)
@@ -402,11 +410,11 @@ test_chmod()
 local function test_mkdtemp()
   local tmpdir, err = fs.mkdtemp("/tmp/fs_test_XXXXXX")
   assert(tmpdir, "mkdtemp should succeed: " .. (err or ""))
-  assert(tmpdir:match("^/tmp/fs_test_"), "expected /tmp/fs_test_ prefix")
+  assert(string.match(tmpdir as string, "^/tmp/fs_test_"), "expected /tmp/fs_test_ prefix")
 
   local st = fs.stat(tmpdir)
   assert(st, "temp dir should exist")
-  assert(fs.is_dir(st:mode()), "expected directory")
+  assert(fs.is_dir((st as fs_types.Stat):mode()), "expected directory")
 
   fs.rmrf(tmpdir)
 end
@@ -449,18 +457,21 @@ local function test_is_type_functions()
 
   local file_st = fs.stat(filepath)
   assert(file_st, "stat should succeed")
-  assert(fs.is_file(file_st:mode()), "expected is_file true for regular file")
-  assert(not fs.is_dir(file_st:mode()), "expected is_dir false for regular file")
-  assert(not fs.is_link(file_st:mode()), "expected is_link false for regular file")
+  local file_s = file_st as fs_types.Stat
+  assert(fs.is_file(file_s:mode()), "expected is_file true for regular file")
+  assert(not fs.is_dir(file_s:mode()), "expected is_dir false for regular file")
+  assert(not fs.is_link(file_s:mode()), "expected is_link false for regular file")
 
   local dir_st = fs.stat(test_dir)
   assert(dir_st, "stat should succeed")
-  assert(fs.is_dir(dir_st:mode()), "expected is_dir true for directory")
-  assert(not fs.is_file(dir_st:mode()), "expected is_file false for directory")
+  local dir_s = dir_st as fs_types.Stat
+  assert(fs.is_dir(dir_s:mode()), "expected is_dir true for directory")
+  assert(not fs.is_file(dir_s:mode()), "expected is_file false for directory")
 
   local link_st = fs.stat(linkpath, false)
   assert(link_st, "stat should succeed")
-  assert(fs.is_link(link_st:mode()), "expected is_link true for symlink")
+  local link_s = link_st as fs_types.Stat
+  assert(fs.is_link(link_s:mode()), "expected is_link true for symlink")
 
   teardown(test_dir)
 end

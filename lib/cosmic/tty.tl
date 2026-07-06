@@ -53,16 +53,16 @@ local record TtyModule
   IEXTEN: number
 
   isatty: function(fd: number): boolean
-  winsize: function(fd: number): WinSize, string
+  winsize: function(fd: number): WinSize | nil, string
   stdin_isatty: function(): boolean
   stdout_isatty: function(): boolean
   stderr_isatty: function(): boolean
-  getattr: function(fd: number): Termios, string
+  getattr: function(fd: number): Termios | nil, string
   setattr: function(fd: number, action: number, termios: Termios): boolean, string
-  raw: function(fd: number): Termios, string
-  noecho: function(fd: number): Termios, string
+  raw: function(fd: number): Termios | nil, string
+  noecho: function(fd: number): Termios | nil, string
   restore: function(fd: number, termios: Termios): boolean, string
-  getpass: function(prompt: string): string, string
+  getpass: function(prompt: string): string | nil, string
 end
 
 --- Checks if a file descriptor refers to a terminal.
@@ -76,7 +76,7 @@ end
 --- @param fd number File descriptor (typically 0, 1, or 2)
 --- @return WinSize|nil Window size record with rows and cols, or nil on error
 --- @return string|nil Error message if not a terminal
-local function winsize(fd: number): TtyModule.WinSize, string
+local function winsize(fd: number): TtyModule.WinSize | nil, string
   local rows, cols = unix.tiocgwinsz(fd)
   if not rows or not cols then
     return nil, "not a terminal"
@@ -104,9 +104,9 @@ end
 
 --- Gets terminal attributes for a file descriptor.
 --- @param fd number File descriptor (typically 0 for stdin)
---- @return Termios Terminal attributes
+--- @return Termios | nil Terminal attributes
 --- @return string? Error message if not a terminal
-local function getattr(fd: number): Termios, string
+local function getattr(fd: number): Termios | nil, string
   local termios, err = unix.tcgetattr(fd)
   if not termios then
     if err and err.doc then
@@ -137,25 +137,26 @@ end
 --- Puts terminal into raw mode (no echo, no line buffering, no signals).
 --- Returns the original termios for later restoration.
 --- @param fd number File descriptor (typically 0 for stdin)
---- @return Termios Original terminal attributes for restore()
+--- @return Termios | nil Original terminal attributes for restore()
 --- @return string? Error message if not a terminal
-local function raw(fd: number): Termios, string
+local function raw(fd: number): Termios | nil, string
   local termios, err = getattr(fd)
   if not termios then
     return nil, err
   end
+  local t = termios as Termios
   local original: Termios = {
-    iflag = termios.iflag,
-    oflag = termios.oflag,
-    cflag = termios.cflag,
-    lflag = termios.lflag,
-    cc = termios.cc,
-    ispeed = termios.ispeed,
-    ospeed = termios.ospeed,
+    iflag = t.iflag,
+    oflag = t.oflag,
+    cflag = t.cflag,
+    lflag = t.lflag,
+    cc = t.cc,
+    ispeed = t.ispeed,
+    ospeed = t.ospeed,
   }
   -- Disable echo, canonical mode, signals, and extended input processing
-  termios.lflag = termios.lflag & ~ (unix.ECHO | unix.ICANON | unix.ISIG | unix.IEXTEN)
-  local ok, set_err = setattr(fd, unix.TCSANOW, termios)
+  t.lflag = t.lflag & ~ (unix.ECHO | unix.ICANON | unix.ISIG | unix.IEXTEN)
+  local ok, set_err = setattr(fd, unix.TCSANOW, t)
   if not ok then
     return nil, set_err
   end
@@ -165,24 +166,25 @@ end
 --- Disables echo on terminal (for password input).
 --- Returns the original termios for later restoration.
 --- @param fd number File descriptor (typically 0 for stdin)
---- @return Termios Original terminal attributes for restore()
+--- @return Termios | nil Original terminal attributes for restore()
 --- @return string? Error message if not a terminal
-local function noecho(fd: number): Termios, string
+local function noecho(fd: number): Termios | nil, string
   local termios, err = getattr(fd)
   if not termios then
     return nil, err
   end
+  local t = termios as Termios
   local original: Termios = {
-    iflag = termios.iflag,
-    oflag = termios.oflag,
-    cflag = termios.cflag,
-    lflag = termios.lflag,
-    cc = termios.cc,
-    ispeed = termios.ispeed,
-    ospeed = termios.ospeed,
+    iflag = t.iflag,
+    oflag = t.oflag,
+    cflag = t.cflag,
+    lflag = t.lflag,
+    cc = t.cc,
+    ispeed = t.ispeed,
+    ospeed = t.ospeed,
   }
-  termios.lflag = termios.lflag & ~ unix.ECHO
-  local ok, set_err = setattr(fd, unix.TCSANOW, termios)
+  t.lflag = t.lflag & ~ unix.ECHO
+  local ok, set_err = setattr(fd, unix.TCSANOW, t)
   if not ok then
     return nil, set_err
   end
@@ -205,7 +207,7 @@ end
 --- @param prompt string Text to display before reading
 --- @return string|nil The password (without trailing newline), or nil on error
 --- @return string? Error message on failure
-local function getpass(prompt: string): string, string
+local function getpass(prompt: string): string | nil, string
   io.stderr:write(prompt)
   -- If stdin is not a tty, read without echo manipulation
   if not unix.isatty(0) then
@@ -227,7 +229,7 @@ local function getpass(prompt: string): string, string
     end)
   -- Write newline to stderr since echo is off (regardless of outcome)
   io.stderr:write("\n")
-  restore(0, original)
+  restore(0, original as Termios)
   if not read_ok then
     -- pcall caught an error: line_or_err is the error message
     return nil, tostring(line_or_err)

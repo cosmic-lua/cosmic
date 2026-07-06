@@ -50,13 +50,14 @@ local function run(argv: {string}, output_base: string): integer
   child_env[#child_env + 1] = "TEST_TMPDIR=" .. tmpdir
 
   -- Spawn the process
-  local handle, err = child.spawn(argv, {env = child_env})
-  if not handle then
+  local handle0, err = child.spawn(argv, {env = child_env})
+  if not handle0 then
     fs.rmrf(tmpdir)
     io.stderr:write("testrun: " .. (err or "spawn failed") .. "\n")
     instrument.finish(span, 1)
     return 1
   end
+  local handle = handle0 as child.Handle
 
   -- Close stdin, read stdout and stderr
   if handle.stdin then
@@ -119,7 +120,7 @@ local function run(argv: {string}, output_base: string): integer
     if a:match("_test%.tl$") then
       local src = cio.slurp(a)
       if src then
-        for line in src:gmatch("[^\n]+") do
+        for line in string.gmatch(src, "[^\n]+") do
           local tname = line:match("^local function (test_[%w_]+)")
           if tname then
             test_names[#test_names + 1] = tname
@@ -186,7 +187,7 @@ local function report(paths: {string}): integer
           test_count = 0 as integer,
         } as TestResult)
     else
-      local exit_code = (tonumber(got_content:match("^(%d+)")) or -1) as integer
+      local exit_code = (tonumber(string.match(got_content, "^(%d+)")) or -1) as integer
 
       -- Read stdout and stderr
       local stdout_content = cio.slurp(base .. ".out") or ""
@@ -196,7 +197,7 @@ local function report(paths: {string}): integer
       local test_count = 0
       local tests_content = cio.slurp(base .. ".tests")
       if tests_content then
-        for _ in tests_content:gmatch("[^\n]+") do
+        for _ in string.gmatch(tests_content, "[^\n]+") do
           test_count = test_count + 1
         end
       end

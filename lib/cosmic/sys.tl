@@ -82,9 +82,9 @@ end
 --- `name` is one of the `unix.SC_*` constants (e.g. `unix.SC_PAGESIZE`,
 --- `unix.SC_NPROCESSORS_ONLN`). Returns nil plus an error message on failure.
 --- @param name number One of the unix.SC_* constants
---- @return number The configuration value
+--- @return number | nil The configuration value
 --- @return string? Error message on failure
-local function sysconf(name: number): number, string
+local function sysconf(name: number): number | nil, string
   local val, err = unix.sysconf(name) as(number, any)
   if not val then
     return nil, errstr(err, "sysconf")
@@ -93,33 +93,33 @@ local function sysconf(name: number): number, string
 end
 
 --- Number of processors currently online (available to run threads).
---- @return number The online processor count
+--- @return number | nil The online processor count
 --- @return string? Error message on failure
-local function nproc(): number, string
+local function nproc(): number | nil, string
   return sysconf(unix.SC_NPROCESSORS_ONLN)
 end
 
 --- Number of processors configured in the system.
 --- May exceed `nproc()` when some processors are offline.
---- @return number The configured processor count
+--- @return number | nil The configured processor count
 --- @return string? Error message on failure
-local function nproc_configured(): number, string
+local function nproc_configured(): number | nil, string
   return sysconf(unix.SC_NPROCESSORS_CONF)
 end
 
 --- Memory page size in bytes.
---- @return number The page size in bytes
+--- @return number | nil The page size in bytes
 --- @return string? Error message on failure
-local function page_size(): number, string
+local function page_size(): number | nil, string
   return sysconf(unix.SC_PAGESIZE)
 end
 
 --- Get operating system and hardware identification.
 --- Returns a `Uname` record with `sysname`, `nodename`, `release`, `version`,
 --- `machine`, and `domainname` fields. Returns nil plus an error message on failure.
---- @return Uname The system identification record
+--- @return Uname | nil The system identification record
 --- @return string? Error message on failure
-local function uname(): Uname, string
+local function uname(): Uname | nil, string
   local uts, err = unix.uname() as(Uname, any)
   if not uts then
     return nil, errstr(err, "uname")
@@ -128,6 +128,9 @@ local function uname(): Uname, string
 end
 
 local record SysModule
+  -- Exported so callers can name/cast the fallible uname result.
+  type Uname = Uname
+
   -- sysconf(3) name constants
   SC_ARG_MAX: number
   SC_CHILD_MAX: number
@@ -141,11 +144,11 @@ local record SysModule
   normalize_host_os: function(raw: string): HostOs
   host_isa: function(): string
   platform: function(): string
-  sysconf: function(name: number): number, string
-  nproc: function(): number, string
-  nproc_configured: function(): number, string
-  page_size: function(): number, string
-  uname: function(): Uname, string
+  sysconf: function(name: number): number | nil, string
+  nproc: function(): number | nil, string
+  nproc_configured: function(): number | nil, string
+  page_size: function(): number | nil, string
+  uname: function(): Uname | nil, string
 end
 
 local M: SysModule = {

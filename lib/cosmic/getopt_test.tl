@@ -11,7 +11,7 @@ local function opt_names(r: getopt.Result): {string}
 end
 
 local function test_short_options_no_args()
-  local r = getopt.parse({"-h", "-v"}, "hv")
+  local r = getopt.parse({"-h", "-v"}, "hv") as getopt.Result
   local opts = opt_names(r)
   assert(#opts == 2, "expected 2 options, got " .. #opts)
   assert(opts[1] == "h", "expected first option 'h', got '" .. opts[1] .. "'")
@@ -20,7 +20,7 @@ end
 test_short_options_no_args()
 
 local function test_short_option_with_required_arg()
-  local r = getopt.parse({"-o", "output.txt"}, "o:")
+  local r = getopt.parse({"-o", "output.txt"}, "o:") as getopt.Result
   assert(#r.opts == 1, "expected 1 option")
   assert(r.opts[1].opt == "o", "expected option 'o', got '" .. tostring(r.opts[1].opt) .. "'")
   assert(r.opts[1].arg == "output.txt", "expected arg 'output.txt', got '" .. tostring(r.opts[1].arg) .. "'")
@@ -28,14 +28,14 @@ end
 test_short_option_with_required_arg()
 
 local function test_short_option_with_attached_arg()
-  local r = getopt.parse({"-ooutput.txt"}, "o:")
+  local r = getopt.parse({"-ooutput.txt"}, "o:") as getopt.Result
   assert(r.opts[1].opt == "o", "expected option 'o'")
   assert(r.opts[1].arg == "output.txt", "expected arg 'output.txt', got '" .. tostring(r.opts[1].arg) .. "'")
 end
 test_short_option_with_attached_arg()
 
 local function test_combined_short_options()
-  local r = getopt.parse({"-hv"}, "hv")
+  local r = getopt.parse({"-hv"}, "hv") as getopt.Result
   local opts = opt_names(r)
   assert(#opts == 2, "expected 2 options from combined -hv")
   assert(opts[1] == "h", "expected 'h' first")
@@ -48,7 +48,7 @@ local function test_long_options_with_short_alias()
   local r = getopt.parse({"--help", "--verbose"}, "hv", {
       {name = "help", has_arg = "none", short = "h"},
       {name = "verbose", has_arg = "none", short = "v"},
-    })
+    }) as getopt.Result
   local opts = opt_names(r)
   assert(#opts == 2, "expected 2 long options")
   assert(opts[1] == "h", "expected 'h', got '" .. opts[1] .. "'")
@@ -60,7 +60,7 @@ local function test_long_option_with_equals_arg()
   -- Returns short alias 'o' since one is defined
   local r = getopt.parse({"--output=file.txt"}, "o:", {
       {name = "output", has_arg = "required", short = "o"},
-    })
+    }) as getopt.Result
   assert(r.opts[1].opt == "o", "expected 'o', got '" .. tostring(r.opts[1].opt) .. "'")
   assert(r.opts[1].arg == "file.txt", "expected 'file.txt', got '" .. tostring(r.opts[1].arg) .. "'")
 end
@@ -70,14 +70,14 @@ local function test_long_option_with_separate_arg()
   -- Returns short alias 'o' since one is defined
   local r = getopt.parse({"--output", "file.txt"}, "o:", {
       {name = "output", has_arg = "required", short = "o"},
-    })
+    }) as getopt.Result
   assert(r.opts[1].opt == "o", "expected 'o'")
   assert(r.opts[1].arg == "file.txt", "expected 'file.txt', got '" .. tostring(r.opts[1].arg) .. "'")
 end
 test_long_option_with_separate_arg()
 
 local function test_remaining_args()
-  local r = getopt.parse({"-v", "file1.txt", "file2.txt"}, "v")
+  local r = getopt.parse({"-v", "file1.txt", "file2.txt"}, "v") as getopt.Result
   assert(#r.args == 2, "expected 2 remaining args, got " .. #r.args)
   assert(r.args[1] == "file1.txt", "expected 'file1.txt'")
   assert(r.args[2] == "file2.txt", "expected 'file2.txt'")
@@ -85,7 +85,7 @@ end
 test_remaining_args()
 
 local function test_double_dash_stops_parsing()
-  local r = getopt.parse({"-v", "--", "-h", "file.txt"}, "vh")
+  local r = getopt.parse({"-v", "--", "-h", "file.txt"}, "vh") as getopt.Result
   assert(#r.opts == 1, "expected 1 option before --, got " .. #r.opts)
   assert(r.opts[1].opt == "v", "expected 'v'")
   assert(#r.args == 2, "expected 2 remaining after --, got " .. #r.args)
@@ -95,7 +95,7 @@ end
 test_double_dash_stops_parsing()
 
 local function test_unknown_options()
-  local r = getopt.parse({"-x", "-y", "-v"}, "v")
+  local r = getopt.parse({"-x", "-y", "-v"}, "v") as getopt.Result
   assert(#r.unknown == 2, "expected 2 unknown options, got " .. #r.unknown)
   -- unknown options are spelled with their dashes
   assert(r.unknown[1] == "-x", "expected '-x', got '" .. r.unknown[1] .. "'")
@@ -108,7 +108,7 @@ test_unknown_options()
 local function test_missing_required_arg()
   -- A required argument that's absent lands in `missing` (not `unknown`),
   -- named without dashes.
-  local r = getopt.parse({"-o"}, "o:")
+  local r = getopt.parse({"-o"}, "o:") as getopt.Result
   assert(#r.missing == 1, "expected 1 missing option, got " .. #r.missing)
   assert(r.missing[1] == "o", "expected missing 'o', got '" .. r.missing[1] .. "'")
   assert(#r.unknown == 0, "a missing argument is not an unknown option")
@@ -117,7 +117,7 @@ end
 test_missing_required_arg()
 
 local function test_repeated_options()
-  local r = getopt.parse({"-e", "foo", "-e", "bar", "-e", "baz"}, "e:")
+  local r = getopt.parse({"-e", "foo", "-e", "bar", "-e", "baz"}, "e:") as getopt.Result
   local excludes: {string} = {}
   for _, o in ipairs(r.opts) do
     if o.opt == "e" then
@@ -137,7 +137,7 @@ local function test_mixed_short_and_long()
       {name = "verbose", has_arg = "none", short = "v"},
       {name = "output", has_arg = "required", short = "o"},
       {name = "help", has_arg = "none", short = "h"},
-    })
+    }) as getopt.Result
   assert(#r.opts == 3, "expected 3 options")
   assert(r.opts[1].opt == "v", "expected 'v' first")
   assert(r.opts[2].opt == "o", "expected 'o' second")
@@ -147,7 +147,7 @@ end
 test_mixed_short_and_long()
 
 local function test_empty_args()
-  local r = getopt.parse({}, "hv")
+  local r = getopt.parse({}, "hv") as getopt.Result
   assert(#r.opts == 0, "expected no options for empty args")
   assert(#r.args == 0, "expected no remaining args")
   assert(#r.unknown == 0, "expected no unknown options")
@@ -156,7 +156,7 @@ end
 test_empty_args()
 
 local function test_only_positional_args()
-  local r = getopt.parse({"file1.txt", "file2.txt"}, "hv")
+  local r = getopt.parse({"file1.txt", "file2.txt"}, "hv") as getopt.Result
   assert(#r.opts == 0, "expected no options when none present")
   assert(#r.args == 2, "expected 2 positional args")
   assert(r.args[1] == "file1.txt", "expected 'file1.txt'")
@@ -167,7 +167,7 @@ test_only_positional_args()
 local function test_long_option_without_short()
   local r = getopt.parse({"--config", "app.json"}, "", {
       {name = "config", has_arg = "required"},
-    })
+    }) as getopt.Result
   assert(r.opts[1].opt == "config", "expected 'config', got '" .. tostring(r.opts[1].opt) .. "'")
   assert(r.opts[1].arg == "app.json", "expected 'app.json'")
 end

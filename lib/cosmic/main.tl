@@ -192,11 +192,12 @@ local function parse_args(): Opts
     end
   end
 
-  local r, perr = getopt.parse(cosmic_args, shortopts, longopts)
-  if not r then
+  local r0, perr = getopt.parse(cosmic_args, shortopts, longopts)
+  if not r0 then
     opts.error = "cosmic-lua: " .. (perr or "failed to parse arguments")
     return opts
   end
+  local r = r0 as getopt.Result
 
   -- A required argument that's absent lands in `missing` (named without
   -- dashes). Give a targeted usage hint where we have one, else a generic
@@ -460,12 +461,13 @@ local function main(): integer, string
       msg = run.augment_module_errors(msg)
       return 1, "cosmic-lua: " .. msg
     end
+    local run_chunk = chunk as function(...: any): any ...
     local args: {string} = {}
     for i = 1, #opts.script_args do
       args[i] = opts.script_args[i]
     end
     local results: {any} = table.pack(xpcall(function()
-          chunk(table.unpack(args))
+          run_chunk(table.unpack(args))
         end, run.trim_traceback))
     local ok = results[1] as boolean
     if not ok then

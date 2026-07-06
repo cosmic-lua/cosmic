@@ -2,6 +2,7 @@
 -- advanced embed tests: extract, roundtrip, overwrite, permissions, corruption
 
 local fs = require("cosmic.fs")
+local fs_types = require("cosmic.fs_types")
 local cio = require("cosmic.io")
 local time = require("cosmic.time")
 local spawn = require("cosmic.child")
@@ -44,7 +45,7 @@ end
 local function test_extract()
   local extractdir = fs.join(tmpdir, "extracted")
 
-  local ok, out = spawn.spawn({cosmic, "--extract", extractdir}):read()
+  local ok, out = (spawn.spawn({cosmic, "--extract", extractdir}) as spawn.Handle):read()
   assert(ok, "extract should succeed: " .. (out or ""))
 
   -- main.lua should be extracted
@@ -62,7 +63,7 @@ test_extract()
 local function test_extract_embed_roundtrip()
   -- Extract the cosmic binary
   local extractdir = fs.join(tmpdir, "roundtrip-extract")
-  local ok, out = spawn.spawn({cosmic, "--extract", extractdir}):read()
+  local ok, out = (spawn.spawn({cosmic, "--extract", extractdir}) as spawn.Handle):read()
   assert(ok, "extract should succeed: " .. (out or ""))
 
   -- Read original main.lua from the zip
@@ -78,7 +79,7 @@ local function test_extract_embed_roundtrip()
 
   -- Re-embed the extracted directory
   local output = fs.join(tmpdir, "roundtrip-output")
-  ok, out = spawn.spawn({cosmic, "--embed", extractdir, "--output", output}):read()
+  ok, out = (spawn.spawn({cosmic, "--embed", extractdir, "--output", output}) as spawn.Handle):read()
   assert(ok, "re-embed should succeed: " .. (out or ""))
 
   -- Read main.lua from the re-embedded binary
@@ -94,7 +95,7 @@ test_extract_embed_roundtrip()
 local function test_extract_modify_embed()
   -- Extract
   local extractdir = fs.join(tmpdir, "modify-extract")
-  local ok, out = spawn.spawn({cosmic, "--extract", extractdir}):read()
+  local ok, out = (spawn.spawn({cosmic, "--extract", extractdir}) as spawn.Handle):read()
   assert(ok, "extract should succeed: " .. (out or ""))
 
   -- Modify main.lua
@@ -102,11 +103,11 @@ local function test_extract_modify_embed()
 
   -- Re-embed
   local output = fs.join(tmpdir, "modified-cosmic")
-  ok, out = spawn.spawn({cosmic, "--embed", extractdir, "--output", output}):read()
+  ok, out = (spawn.spawn({cosmic, "--embed", extractdir, "--output", output}) as spawn.Handle):read()
   assert(ok, "embed modified should succeed: " .. (out or ""))
 
   -- Run the modified executable
-  ok, out = spawn.spawn({output}):read()
+  ok, out = (spawn.spawn({output}) as spawn.Handle):read()
   assert(ok, "modified executable should run: " .. (out or ""))
   assert(out:match("modified"), "should print modified output, got: " .. (out or ""))
 end
@@ -132,7 +133,7 @@ local function test_embed_overwrites_cleanly()
   cio.barf(fs.join(appdir, "main.lua"), 'print("new")\n')
 
   local output = fs.join(tmpdir, "cosmic-overwrite")
-  local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--output", output}):read()
+  local ok, out = (spawn.spawn({cosmic, "--embed", appdir, "--output", output}) as spawn.Handle):read()
   assert(ok, "embed should succeed: " .. (out or ""))
 
   -- The new zip should have main.lua with the new content
@@ -171,7 +172,7 @@ local function test_embed_preserves_file_modes()
   fs.chmod(secret, tonumber("600", 8))
 
   local output = fs.join(tmpdir, "cosmic-modes")
-  local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--output", output}):read()
+  local ok, out = (spawn.spawn({cosmic, "--embed", appdir, "--output", output}) as spawn.Handle):read()
   assert(ok, "embed should succeed: " .. (out or ""))
 
   -- Check modes in the zip archive
@@ -220,12 +221,12 @@ local function test_extract_preserves_file_modes()
   fs.chmod(secret, tonumber("600", 8))
 
   local embedded = fs.join(tmpdir, "cosmic-extract-modes")
-  local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--output", embedded}):read()
+  local ok, out = (spawn.spawn({cosmic, "--embed", appdir, "--output", embedded}) as spawn.Handle):read()
   assert(ok, "embed should succeed: " .. (out or ""))
 
   -- Extract to a new directory
   local extractdir = fs.join(tmpdir, "extracted-modes")
-  ok, out = spawn.spawn({embedded, "--extract", extractdir}):read()
+  ok, out = (spawn.spawn({embedded, "--extract", extractdir}) as spawn.Handle):read()
   assert(ok, "extract should succeed: " .. (out or ""))
 
   -- Check modes of extracted files
@@ -235,8 +236,8 @@ local function test_extract_preserves_file_modes()
   assert(script_stat, "run.sh should exist after extract")
   assert(secret_stat, "secret.key should exist after extract")
 
-  local script_mode = script_stat:mode() & tonumber("777", 8)
-  local secret_mode = secret_stat:mode() & tonumber("777", 8)
+  local script_mode = (script_stat as fs_types.Stat):mode() & tonumber("777", 8)
+  local secret_mode = (secret_stat as fs_types.Stat):mode() & tonumber("777", 8)
 
   assert(script_mode == tonumber("755", 8),
     "run.sh should have mode 755 after extract, got " .. string.format("%o", script_mode))
@@ -267,18 +268,18 @@ io.write("OK:" .. #result)
 ]])
 
   local binary = fs.join(tmpdir, "cosmic-running")
-  local ok, out = spawn.spawn({cosmic, "--embed", appdir, "--output", binary}):read()
+  local ok, out = (spawn.spawn({cosmic, "--embed", appdir, "--output", binary}) as spawn.Handle):read()
   assert(ok, "initial embed should succeed: " .. (out or ""))
 
   -- Start the binary as a subprocess
-  local handle = spawn.spawn({binary})
+  local handle = (spawn.spawn({binary}) as spawn.Handle)
 
   -- Wait briefly for the process to start and mmap its pages
   time.sleep(0, 100000000) -- 100ms
 
   -- Re-embed over the same path while the process is running.
   -- Without atomic write, this would corrupt the running process.
-  local ok2, out2 = spawn.spawn({cosmic, "--embed", appdir, "--output", binary}):read()
+  local ok2, out2 = (spawn.spawn({cosmic, "--embed", appdir, "--output", binary}) as spawn.Handle):read()
   assert(ok2, "re-embed should succeed: " .. (out2 or ""))
 
   -- Wait for the original process to finish

@@ -31,8 +31,8 @@ local record Handle
   stdin: childio.Pipe
   stdout: childio.Pipe
   stderr: childio.Pipe
-  wait: function(self: Handle): number, string
-  read: function(self: Handle, size?: number): boolean | string, string, number
+  wait: function(self: Handle): number | nil, string
+  read: function(self: Handle, size?: number): boolean | string | nil, string, number
   communicate: function(self: Handle): string, string, number, string
 end
 
@@ -132,9 +132,9 @@ end
 --- Prepares an executable fd from a /zip/ path.
 --- Opens the path to get a zip fd suitable for fexecve.
 --- @param zip_path string Path starting with /zip/
---- @return number The file descriptor ready for fexecve
+--- @return number | nil The file descriptor ready for fexecve
 --- @return string Error message on failure
-local function prepare_zip_exec(zip_path: string): number, string
+local function prepare_zip_exec(zip_path: string): number | nil, string
   local fd = unix.open(zip_path, unix.O_RDONLY)
   if not fd then
     return nil, "failed to open zip path: " .. zip_path
@@ -150,8 +150,8 @@ end
 --- To spawn cosmic itself, use `rawget(arg, -1)` — NOT arg[0] (gotchas #7).
 --- @param argv {string} Command and arguments
 --- @param opts Opts? Spawn options
---- @return Handle, string? Process handle or nil + error
-local function spawn(argv: {string}, opts?: Opts): Handle, string
+--- @return Handle | nil, string? Process handle or nil + error
+local function spawn(argv: {string}, opts?: Opts): Handle | nil, string
   opts = opts or {}
 
   -- Resolve the executable into a LOCAL, never by mutating the caller's
@@ -372,9 +372,9 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
 
   --- Wait for the process to exit and return its exit code.
   --- Feeds any stdin and drains stdout/stderr first so it cannot deadlock.
-  --- @return number The exit code if the process exited normally
+  --- @return number | nil The exit code if the process exited normally
   --- @return string Error message if the process terminated abnormally
-  function handle:wait(): number, string
+  function handle:wait(): number | nil, string
     local _, _, code, err = finish()
     if err then
       return nil, err
@@ -388,10 +388,10 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
   --- draining stdout+stderr) and returns success, stdout, and the exit code.
   --- To also capture stderr, use communicate().
   --- @param size number Optional number of bytes to read from stdout
-  --- @return boolean|string Success (exit code 0) or, with size, the data read
+  --- @return boolean|string|nil Success (exit code 0) or, with size, the data read
   --- @return string The stdout output, or the error when size read fails
   --- @return number The exit code of the process
-  function handle:read(size?: number): boolean | string, string, number
+  function handle:read(size?: number): boolean | string | nil, string, number
     if not self.stdout then
       return nil, "stdout not captured"
     end
@@ -417,11 +417,15 @@ local function spawn(argv: {string}, opts?: Opts): Handle, string
 end
 
 local record ChildModule
+  -- Exported types so callers can name/cast the fallible spawn result.
+  type Handle = Handle
+  type Opts = Opts
+
   -- High-level spawn API
-  spawn: function(argv: {string}, opts?: Opts): Handle, string
+  spawn: function(argv: {string}, opts?: Opts): Handle | nil, string
 
   -- Zip binary helpers
-  prepare_zip_exec: function(zip_path: string): number, string
+  prepare_zip_exec: function(zip_path: string): number | nil, string
 
   -- Low-level primitives
   fork: function(): number

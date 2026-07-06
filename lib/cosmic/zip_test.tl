@@ -113,7 +113,8 @@ local function test_read_stat()
   r:close()
 
   assert(stat, "should get stat")
-  assert(stat.size == 10, "size should be 10, got " .. tostring(stat.size))
+  local st = stat as zip.Stat
+  assert(st.size == 10, "size should be 10, got " .. tostring(st.size))
 end
 test_read_stat()
 
@@ -178,8 +179,9 @@ local function test_from_memory()
   -- Open from memory
   local r, err = zip.from(zip_data)
   assert(r, "should open from memory: " .. tostring(err))
-  local content = r:read("mem.txt")
-  r:close()
+  local rr = r as zip.Reader
+  local content = rr:read("mem.txt")
+  rr:close()
 
   assert(content == "In-memory content", "should read correct content from memory")
 end
@@ -221,12 +223,14 @@ local function test_add_with_options()
 
   assert(stored_stat, "should have stored.txt stat")
   assert(deflated_stat, "should have deflated.txt stat")
+  local stored_st = stored_stat as zip.Stat
+  local deflated_st = deflated_stat as zip.Stat
   -- Stored files should have method 0, deflated should have method 8
-  assert(stored_stat.method == 0, "stored method should be 0, got " .. tostring(stored_stat.method))
-  assert(deflated_stat.method == 8, "deflated method should be 8, got " .. tostring(deflated_stat.method))
+  assert(stored_st.method == 0, "stored method should be 0, got " .. tostring(stored_st.method))
+  assert(deflated_st.method == 8, "deflated method should be 8, got " .. tostring(deflated_st.method))
   -- Verify deflated is actually smaller
-  assert(deflated_stat.compressed_size < deflated_stat.size,
-    "deflated should be smaller: " .. tostring(deflated_stat.compressed_size) .. " < " .. tostring(deflated_stat.size))
+  assert(deflated_st.compressed_size < deflated_st.size,
+    "deflated should be smaller: " .. tostring(deflated_st.compressed_size) .. " < " .. tostring(deflated_st.size))
 end
 test_add_with_options()
 
@@ -246,8 +250,9 @@ local function test_open_with_compression_level()
   r:close()
 
   assert(stat, "should have stat")
-  assert(stat.size == 4000, "uncompressed size should be 4000")
-  assert(stat.compressed_size < stat.size, "compressed size should be smaller")
+  local st = stat as zip.Stat
+  assert(st.size == 4000, "uncompressed size should be 4000")
+  assert(st.compressed_size < st.size, "compressed size should be smaller")
 end
 test_open_with_compression_level()
 

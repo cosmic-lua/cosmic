@@ -27,7 +27,8 @@ local function Example_start_stop()
     return
   end
   io.write("listening\n")
-  handle:stop()
+  local h = handle as proxy.ProxyHandle
+  h:stop()
 end
 
 return {}

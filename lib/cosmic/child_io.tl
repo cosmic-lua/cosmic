@@ -19,8 +19,8 @@ local CHUNK = 65536
 --- A pipe endpoint. `fd` is a plain field (not a method like io.Handle:fd()).
 local record Pipe
   fd: number
-  write: function(self: Pipe, data: string): number, string
-  read: function(self: Pipe, size?: number): string, string
+  write: function(self: Pipe, data: string): number | nil, string
+  read: function(self: Pipe, size?: number): string | nil, string
   close: function(self: Pipe)
 end
 
@@ -35,7 +35,7 @@ local function make_pipe(fd: number): Pipe
   end
   local pipe: Pipe = {fd = fd}
 
-  function pipe:write(data: string): number, string
+  function pipe:write(data: string): number | nil, string
     local n, err = unix.write(self.fd, data)
     if n == nil then
       return nil, errno.str(err, "write")
@@ -43,7 +43,7 @@ local function make_pipe(fd: number): Pipe
     return n
   end
 
-  function pipe:read(size?: number): string, string
+  function pipe:read(size?: number): string | nil, string
     if size then
       local chunk, err = unix.read(self.fd, size)
       if chunk == nil then
@@ -126,8 +126,9 @@ local function pump(stdout_fd: number, stderr_fd: number, stdin_fd: number, stdi
   -- read error, or a hangup with no pending data. When both readable and
   -- hangup are set, data still remains, so read rather than drop.
   local function read_ready(fd: number, buf: {string})
-    local ev = p:events(fd)
-    if not ev then return end
+    local ev0 = p:events(fd)
+    if not ev0 then return end
+    local ev = ev0 as {string: boolean}
     if ev.readable then
       local chunk, rerr = unix.read(fd, CHUNK)
       if chunk == nil then
@@ -150,7 +151,7 @@ local function pump(stdout_fd: number, stderr_fd: number, stdin_fd: number, stdi
       break
     end
     if stdin_fd then
-      local ev = p:events(stdin_fd)
+      local ev = p:events(stdin_fd) as {string: boolean}
       if ev and ev.writable then
         local n, werr = unix.write(stdin_fd, stdin_data:sub(w_off + 1, w_off + CHUNK))
         if n ~= nil then

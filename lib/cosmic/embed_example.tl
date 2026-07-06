@@ -22,12 +22,12 @@ local function Example_embed_directory()
 
   -- Build it
   local output = fs.join(tmpdir, "hello")
-  local h = spawn.spawn({cosmic, "--embed", appdir, "--output", output})
+  local h = spawn.spawn({cosmic, "--embed", appdir, "--output", output}) as spawn.Handle
   local ok, out = h:read()
   assert(ok, out)
 
   -- Run it
-  h = spawn.spawn({output})
+  h = spawn.spawn({output}) as spawn.Handle
   ok, out = h:read()
   fs.rmrf(tmpdir)
   print(out)
@@ -45,7 +45,7 @@ local function Example_extract_roundtrip()
 
   -- Extract the running executable's zip contents
   local extractdir = fs.join(tmpdir, "extracted")
-  local h = spawn.spawn({cosmic, "--extract", extractdir})
+  local h = spawn.spawn({cosmic, "--extract", extractdir}) as spawn.Handle
   local ok, out = h:read()
   assert(ok, out)
 
@@ -77,11 +77,11 @@ io.write(out)
 ]])
 
   local output = fs.join(tmpdir, "myapp")
-  local h = spawn.spawn({cosmic, "--embed", appdir, "--output", output})
+  local h = spawn.spawn({cosmic, "--embed", appdir, "--output", output}) as spawn.Handle
   local ok, out = h:read()
   assert(ok, out)
 
-  h = spawn.spawn({output})
+  h = spawn.spawn({output}) as spawn.Handle
   ok, out = h:read()
   fs.rmrf(tmpdir)
   print(out)
@@ -107,7 +107,7 @@ local function Example_embed_from_teal()
   cio.barf(tl_file, 'local msg: string = "hello from teal"\nprint(msg)\n')
 
   -- Compile .tl to .lua using cosmic --compile
-  local h = spawn.spawn({cosmic, "--compile", tl_file})
+  local h = spawn.spawn({cosmic, "--compile", tl_file}) as spawn.Handle
   local ok, lua_source = h:read()
   assert(ok, lua_source)
 
@@ -116,11 +116,11 @@ local function Example_embed_from_teal()
 
   -- Embed and run
   local output = fs.join(tmpdir, "from_teal")
-  h = spawn.spawn({cosmic, "--embed", appdir, "--output", output})
+  h = spawn.spawn({cosmic, "--embed", appdir, "--output", output}) as spawn.Handle
   ok, lua_source = h:read()
   assert(ok, lua_source)
 
-  h = spawn.spawn({output})
+  h = spawn.spawn({output}) as spawn.Handle
   ok, lua_source = h:read()
   fs.rmrf(tmpdir)
   print(lua_source)

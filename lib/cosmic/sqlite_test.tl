@@ -9,16 +9,14 @@ local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 -- Basic operations
 
 local function test_open_memory()
-  local db, err = sqlite.open(":memory:")
-  assert(db, "should open memory db: " .. tostring(err))
+  local db = assert(sqlite.open(":memory:")) as sqlite.Database
   db:close()
 end
 test_open_memory()
 
 local function test_open_file()
   local dbpath = fs.join(TEST_TMPDIR, "test.db")
-  local db, err = sqlite.open(dbpath)
-  assert(db, "should open file db: " .. tostring(err))
+  local db = assert(sqlite.open(dbpath)) as sqlite.Database
   db:close()
 end
 test_open_file()
@@ -33,7 +31,7 @@ test_open_invalid_path()
 -- Execution
 
 local function test_exec_create_table()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   local ok, err = db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
   assert(ok, "exec should succeed: " .. tostring(err))
   db:close()
@@ -41,7 +39,7 @@ end
 test_exec_create_table()
 
 local function test_exec_invalid_sql()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   local ok, err = db:exec("INVALID SQL SYNTAX")
   assert(not ok, "exec should fail on invalid SQL")
   assert(err, "should return error message")
@@ -50,7 +48,7 @@ end
 test_exec_invalid_sql()
 
 local function test_last_insert_rowid()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
   db:exec("INSERT INTO t (name) VALUES ('first')")
   assert(db:last_insert_rowid() == 1, "first insert should have rowid 1")
@@ -61,7 +59,7 @@ end
 test_last_insert_rowid()
 
 local function test_changes()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
   db:exec("INSERT INTO t (name) VALUES ('a'), ('b'), ('c')")
   assert(db:changes() == 3, "should report 3 changes")
@@ -72,7 +70,7 @@ end
 test_changes()
 
 local function test_exec_with_params()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
 
   local ok, err = db:exec("INSERT INTO t (name) VALUES (?)", "Alice")
@@ -90,13 +88,13 @@ end
 test_exec_with_params()
 
 local function test_exec_multiple_params()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE t (a TEXT, b INTEGER, c REAL)")
 
   local ok, err = db:exec("INSERT INTO t (a, b, c) VALUES (?, ?, ?)", "hello", 42, 3.14)
   assert(ok, "exec with multiple params should succeed: " .. tostring(err))
 
-  for row in db:query("SELECT * FROM t") do
+  for row in db:query("SELECT * FROM t") as sqlite.Rows do
     assert(row.a == "hello", "a should be 'hello'")
     assert(row.b == 42, "b should be 42")
     assert(math.abs((row.c as number) - 3.14) < 0.001, "c should be ~3.14")
@@ -106,7 +104,7 @@ end
 test_exec_multiple_params()
 
 local function test_exec_no_params()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   local ok, err = db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY)")
   assert(ok, "exec without params should succeed: " .. tostring(err))
   ok, err = db:exec("INSERT INTO t DEFAULT VALUES")
@@ -118,10 +116,10 @@ test_exec_no_params()
 -- Prepared statements
 
 local function test_prepare_bind_exec()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
 
-  local stmt = db:prepare("INSERT INTO t (name) VALUES (?)")
+  local stmt = db:prepare("INSERT INTO t (name) VALUES (?)") as sqlite.Statement
   assert(stmt, "should prepare statement")
 
   local ok, err = stmt:bind("test")
@@ -137,7 +135,7 @@ end
 test_prepare_bind_exec()
 
 local function test_prepare_invalid_sql()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   local stmt, err = db:prepare("INVALID SQL")
   assert(stmt == nil, "should fail on invalid SQL")
   assert(err, "should return error message")
@@ -146,10 +144,10 @@ end
 test_prepare_invalid_sql()
 
 local function test_statement_reset()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
 
-  local stmt = db:prepare("INSERT INTO t (name) VALUES (?)")
+  local stmt = db:prepare("INSERT INTO t (name) VALUES (?)") as sqlite.Statement
   stmt:bind("first")
   stmt:exec()
   stmt:reset()
@@ -158,7 +156,7 @@ local function test_statement_reset()
   stmt:close()
 
   local count = 0
-  for _ in db:query("SELECT * FROM t") do
+  for _ in db:query("SELECT * FROM t") as sqlite.Rows do
     count = count + 1
   end
   assert(count == 2, "should have 2 rows after reset and reuse")
@@ -169,12 +167,12 @@ test_statement_reset()
 -- Query iteration
 
 local function test_query_rows()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
   db:exec("INSERT INTO t (name) VALUES ('Alice'), ('Bob'), ('Carol')")
 
   local names: {string} = {}
-  for row in db:query("SELECT * FROM t ORDER BY id") do
+  for row in db:query("SELECT * FROM t ORDER BY id") as sqlite.Rows do
     table.insert(names, row.name as string)
   end
 
@@ -187,12 +185,12 @@ end
 test_query_rows()
 
 local function test_query_with_params()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
   db:exec("INSERT INTO t (name) VALUES ('Alice'), ('Bob'), ('Carol')")
 
   local names: {string} = {}
-  for row in db:query("SELECT * FROM t WHERE id > ? ORDER BY id", 1) do
+  for row in db:query("SELECT * FROM t WHERE id > ? ORDER BY id", 1) as sqlite.Rows do
     table.insert(names, row.name as string)
   end
 
@@ -204,11 +202,11 @@ end
 test_query_with_params()
 
 local function test_query_empty_results()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY)")
 
   local count = 0
-  for _ in db:query("SELECT * FROM t") do
+  for _ in db:query("SELECT * FROM t") as sqlite.Rows do
     count = count + 1
   end
   assert(count == 0, "should get 0 rows from empty table")
@@ -217,11 +215,11 @@ end
 test_query_empty_results()
 
 local function test_statement_values()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE t (a TEXT, b INTEGER, c REAL)")
   db:exec("INSERT INTO t VALUES ('hello', 42, 3.14)")
 
-  local stmt = db:prepare("SELECT * FROM t")
+  local stmt = db:prepare("SELECT * FROM t") as sqlite.Statement
   local iter = stmt:values()
   local a, b, c = iter()
 
@@ -239,10 +237,10 @@ test_statement_values()
 local OVERFLOW = "SELECT abs(-9223372036854775808) AS x"
 
 local function test_query_err_nil_on_clean_iteration()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY)")
   db:exec("INSERT INTO t (id) VALUES (1), (2)")
-  local iter = db:query("SELECT * FROM t")
+  local iter = db:query("SELECT * FROM t") as sqlite.Rows
   local count = 0
   for _ in iter do count = count + 1 end
   assert(count == 2, "should iterate all rows")
@@ -252,8 +250,8 @@ end
 test_query_err_nil_on_clean_iteration()
 
 local function test_query_step_error_surfaced()
-  local db = sqlite.open(":memory:")
-  local iter = db:query(OVERFLOW)
+  local db = sqlite.open(":memory:") as sqlite.Database
+  local iter = db:query(OVERFLOW) as sqlite.Rows
   for _ in iter do end
   local err = iter:err()
   assert(err ~= nil, "step error must be surfaced, not swallowed as end-of-rows")
@@ -263,7 +261,7 @@ end
 test_query_step_error_surfaced()
 
 local function test_query_one_step_error()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   local row, err = db:query_one(OVERFLOW)
   assert(row == nil, "query_one should return nil on a step error")
   assert(type(err) == "string", "query_one should surface the step error")
@@ -273,10 +271,10 @@ test_query_one_step_error()
 
 -- values(): a NULL first column must not truncate the row (bounded unpack)
 local function test_values_null_first_column()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE t (a TEXT, b INTEGER, c TEXT)")
   db:exec("INSERT INTO t VALUES (NULL, 42, 'z')")
-  local stmt = db:prepare("SELECT * FROM t")
+  local stmt = db:prepare("SELECT * FROM t") as sqlite.Statement
   local a, b, c = stmt:values()()
   assert(a == nil, "first column should be nil")
   assert(b == 42, "second column should survive NULL-first-column unpack")
@@ -288,7 +286,7 @@ test_values_null_first_column()
 
 -- Use-after-close returns errors instead of throwing/crashing
 local function test_use_after_close()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE t (id INTEGER)")
   db:close()
   local ok, exec_err = db:exec("INSERT INTO t (id) VALUES (1)")
@@ -303,11 +301,11 @@ test_use_after_close()
 -- Index conversion (1-indexed)
 
 local function test_column_name_1indexed()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE t (first_col TEXT, second_col INTEGER, third_col REAL)")
   db:exec("INSERT INTO t VALUES ('a', 1, 1.0)") -- Need a row to step to
 
-  local stmt = db:prepare("SELECT * FROM t")
+  local stmt = db:prepare("SELECT * FROM t") as sqlite.Statement
   assert(stmt:columns() == 3, "should have 3 columns")
   -- column_name requires step() to be called first (lsqlite3 limitation)
   stmt:exec() -- Step to first row
@@ -322,7 +320,7 @@ test_column_name_1indexed()
 -- Resource cleanup
 
 local function test_manual_close()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   assert(db, "should open db")
   db:close()
   -- second close should be safe (no error)
@@ -332,16 +330,16 @@ test_manual_close()
 
 local function test_auto_close()
   -- Test that db can be opened and closed without issue
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE t (id INTEGER)")
   db:close()
 end
 test_auto_close()
 
 local function test_statement_close()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE t (id INTEGER)")
-  local stmt = db:prepare("SELECT * FROM t")
+  local stmt = db:prepare("SELECT * FROM t") as sqlite.Statement
   assert(stmt, "should prepare")
   stmt:close()
   db:close()
@@ -349,8 +347,8 @@ end
 test_statement_close()
 
 local function test_double_close_safe()
-  local db = sqlite.open(":memory:")
-  local stmt, _ = db:prepare("SELECT 1")
+  local db = sqlite.open(":memory:") as sqlite.Database
+  local stmt = db:prepare("SELECT 1") as sqlite.Statement
   stmt:close()
   stmt:close()
   db:close()
@@ -361,7 +359,7 @@ test_double_close_safe()
 -- Integration tests
 
 local function test_transaction()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
 
   db:exec("BEGIN TRANSACTION")
@@ -369,7 +367,7 @@ local function test_transaction()
   db:exec("ROLLBACK")
 
   local count = 0
-  for _ in db:query("SELECT * FROM t") do
+  for _ in db:query("SELECT * FROM t") as sqlite.Rows do
     count = count + 1
   end
   assert(count == 0, "should have 0 rows after rollback")
@@ -379,7 +377,7 @@ local function test_transaction()
   db:exec("COMMIT")
 
   count = 0
-  for _ in db:query("SELECT * FROM t") do
+  for _ in db:query("SELECT * FROM t") as sqlite.Rows do
     count = count + 1
   end
   assert(count == 1, "should have 1 row after commit")
@@ -388,15 +386,15 @@ end
 test_transaction()
 
 local function test_multiple_params()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE t (a TEXT, b INTEGER, c REAL)")
 
-  local stmt = db:prepare("INSERT INTO t (a, b, c) VALUES (?, ?, ?)")
+  local stmt = db:prepare("INSERT INTO t (a, b, c) VALUES (?, ?, ?)") as sqlite.Statement
   stmt:bind("hello", 42, 3.14)
   stmt:exec()
   stmt:close()
 
-  for row in db:query("SELECT * FROM t") do
+  for row in db:query("SELECT * FROM t") as sqlite.Rows do
     assert(row.a == "hello", "a should be 'hello'")
     assert(row.b == 42, "b should be 42")
     assert(math.abs((row.c as number) - 3.14) < 0.001, "c should be ~3.14")
@@ -406,11 +404,11 @@ end
 test_multiple_params()
 
 local function test_null_values()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
   db:exec("INSERT INTO t (name) VALUES (NULL)")
 
-  for row in db:query("SELECT * FROM t") do
+  for row in db:query("SELECT * FROM t") as sqlite.Rows do
     assert(row.name == nil, "name should be nil")
   end
   db:close()
@@ -418,15 +416,15 @@ end
 test_null_values()
 
 local function test_nested_queries()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE parents (id INTEGER PRIMARY KEY, name TEXT)")
   db:exec("CREATE TABLE children (id INTEGER PRIMARY KEY, parent_id INTEGER, name TEXT)")
   db:exec("INSERT INTO parents (name) VALUES ('Alice'), ('Bob')")
   db:exec("INSERT INTO children (parent_id, name) VALUES (1, 'Child1'), (1, 'Child2'), (2, 'Child3')")
 
   local results: {string} = {}
-  for parent in db:query("SELECT * FROM parents ORDER BY id") do
-    for child in db:query("SELECT * FROM children WHERE parent_id = ? ORDER BY id", parent.id) do
+  for parent in db:query("SELECT * FROM parents ORDER BY id") as sqlite.Rows do
+    for child in db:query("SELECT * FROM children WHERE parent_id = ? ORDER BY id", parent.id) as sqlite.Rows do
       table.insert(results, (parent.name as string) .. "->" .. (child.name as string))
     end
   end
@@ -442,7 +440,7 @@ test_nested_queries()
 -- Error return paths (no-throw on invalid SQL)
 
 local function test_query_invalid_sql()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   local iter, err = db:query("INVALID SQL SYNTAX")
   assert(iter == nil, "query should return nil on invalid SQL")
   assert(type(err) == "string", "should return error string")
@@ -451,7 +449,7 @@ end
 test_query_invalid_sql()
 
 local function test_query_list_invalid_sql()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   local iter, err = db:query_list("INVALID SQL SYNTAX", {})
   assert(iter == nil, "query_list should return nil on invalid SQL")
   assert(type(err) == "string", "should return error string")
@@ -460,7 +458,7 @@ end
 test_query_list_invalid_sql()
 
 local function test_query_named_invalid_sql()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   local iter, err = db:query_named("INVALID SQL SYNTAX", {})
   assert(iter == nil, "query_named should return nil on invalid SQL")
   assert(type(err) == "string", "should return error string")
@@ -469,7 +467,7 @@ end
 test_query_named_invalid_sql()
 
 local function test_query_one_invalid_sql()
-  local db = sqlite.open(":memory:")
+  local db = sqlite.open(":memory:") as sqlite.Database
   local row, err = db:query_one("INVALID SQL SYNTAX")
   assert(row == nil, "query_one should return nil on invalid SQL")
   assert(type(err) == "string", "should return error string")
@@ -480,13 +478,14 @@ test_query_one_invalid_sql()
 -- FIX 3: query_one must finalize the prepared statement so db:close() succeeds
 -- and subsequent queries work (statement leak regression test).
 local function test_query_one_close_after_hit()
-  local db, err = sqlite.open(":memory:")
-  assert(db, "should open db: " .. tostring(err))
+  local db_raw, err = sqlite.open(":memory:")
+  assert(db_raw, "should open db: " .. tostring(err))
+  local db = db_raw as sqlite.Database
   db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
   db:exec("INSERT INTO t (name) VALUES ('alice')")
 
   -- query_one that returns a row — previously leaked the iterator/statement
-  local row = db:query_one("SELECT * FROM t WHERE name = ?", "alice")
+  local row = db:query_one("SELECT * FROM t WHERE name = ?", "alice") as {string: any}
   assert(row ~= nil, "query_one should return a row")
   assert(row.name == "alice", "row.name should be 'alice'")
 

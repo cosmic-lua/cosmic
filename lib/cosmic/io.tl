@@ -70,14 +70,14 @@ local record Handle
   close: function(self: Handle): boolean, string
   closed: function(self: Handle): boolean
   fd: function(self: Handle): number
-  read: function(self: Handle, size?: number, offset?: number): string, string
-  write: function(self: Handle, data: string, offset?: number): number, string
-  seek: function(self: Handle, offset: number, whence?: number): number, string
+  read: function(self: Handle, size?: number, offset?: number): string | nil, string
+  write: function(self: Handle, data: string, offset?: number): number | nil, string
+  seek: function(self: Handle, offset: number, whence?: number): number | nil, string
   truncate: function(self: Handle, length?: number): boolean, string
   sync: function(self: Handle): boolean, string
   datasync: function(self: Handle): boolean, string
-  dup: function(self: Handle, newfd?: number, flags?: number, lowest?: number): Handle, string
-  fcntl: function(self: Handle, cmd: number, arg?: number): number, string
+  dup: function(self: Handle, newfd?: number, flags?: number, lowest?: number): Handle | nil, string
+  fcntl: function(self: Handle, cmd: number, arg?: number): number | nil, string
 end
 
 local make_handle: function(fd: number): Handle
@@ -112,7 +112,7 @@ make_handle = function(fd: number): Handle
 
   --- Read up to size bytes. Returns empty string on EOF.
   --- If offset is provided, reads at that position (pread behavior).
-  function handle:read(size?: number, offset?: number): string, string
+  function handle:read(size?: number, offset?: number): string | nil, string
     if not handle_fd then
       return nil, "handle closed"
     end
@@ -125,7 +125,7 @@ make_handle = function(fd: number): Handle
 
   --- Write data. Returns number of bytes written.
   --- If offset is provided, writes at that position (pwrite behavior).
-  function handle:write(data: string, offset?: number): number, string
+  function handle:write(data: string, offset?: number): number | nil, string
     if not handle_fd then
       return nil, "handle closed"
     end
@@ -137,7 +137,7 @@ make_handle = function(fd: number): Handle
   end
 
   --- Seek to position. whence: SEEK_SET (default), SEEK_CUR, SEEK_END.
-  function handle:seek(offset: number, whence?: number): number, string
+  function handle:seek(offset: number, whence?: number): number | nil, string
     if not handle_fd then
       return nil, "handle closed"
     end
@@ -187,7 +187,7 @@ make_handle = function(fd: number): Handle
   --- Duplicate the handle.
   --- If newfd is provided, duplicates to that specific fd (dup2 behavior).
   --- flags can include O_CLOEXEC. lowest specifies minimum acceptable fd.
-  function handle:dup(newfd?: number, flags?: number, lowest?: number): Handle, string
+  function handle:dup(newfd?: number, flags?: number, lowest?: number): Handle | nil, string
     if not handle_fd then
       return nil, "handle closed"
     end
@@ -199,7 +199,7 @@ make_handle = function(fd: number): Handle
   end
 
   --- File control operations. cmd: F_GETFD, F_SETFD, F_GETFL, F_SETFL, F_SETLK, etc.
-  function handle:fcntl(cmd: number, arg?: number): number, string
+  function handle:fcntl(cmd: number, arg?: number): number | nil, string
     if not handle_fd then
       return nil, "handle closed"
     end
@@ -247,7 +247,7 @@ end
 
 --- Open a file. flags: O_RDONLY, O_WRONLY, O_RDWR, combined with O_CREAT, O_TRUNC, etc.
 --- If dirfd is provided, path is relative to that directory (openat behavior).
-local function open(path: string, flags: number, mode?: number, dirfd?: number): Handle, string
+local function open(path: string, flags: number, mode?: number, dirfd?: number): Handle | nil, string
   local fd, err = unix.open(path, flags, mode, dirfd)
   if not fd then
     return nil, tostring(err)
@@ -256,7 +256,7 @@ local function open(path: string, flags: number, mode?: number, dirfd?: number):
 end
 
 --- Create a pipe. flags: O_CLOEXEC, O_NONBLOCK.
-local function pipe(flags?: number): Pipe, string
+local function pipe(flags?: number): Pipe | nil, string
   local reader_fd, writer_fd = unix.pipe(flags)
   if not reader_fd then
     return nil, tostring(writer_fd)
@@ -279,7 +279,7 @@ local function sync()
 end
 
 --- Read entire file contents.
-local function slurp(path: string): string, string
+local function slurp(path: string): string | nil, string
   local data = cosmo.Slurp(path)
   if not data then
     return nil, "failed to read file: " .. path
@@ -297,10 +297,14 @@ local function barf(path: string, data: string, mode?: number): boolean, string
 end
 
 local record IoModule
-  slurp: function(path: string): string, string
+  -- Exported so callers can name/cast the fallible open/pipe results.
+  type Handle = Handle
+  type Pipe = Pipe
+
+  slurp: function(path: string): string | nil, string
   barf: function(path: string, data: string, mode?: number): boolean, string
-  open: function(path: string, flags: number, mode?: number, dirfd?: number): Handle, string
-  pipe: function(flags?: number): Pipe, string
+  open: function(path: string, flags: number, mode?: number, dirfd?: number): Handle | nil, string
+  pipe: function(flags?: number): Pipe | nil, string
   truncate: function(path: string, length?: number): boolean, string
   sync: function()
 

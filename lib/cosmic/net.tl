@@ -15,19 +15,19 @@ local record Socket
   close: function(self: Socket): boolean
   closed: function(self: Socket): boolean
   shutdown: function(self: Socket, how?: number): boolean, string
-  send: function(self: Socket, data: string, flags?: number): number, string
-  sendto: function(self: Socket, data: string, ip: number, port: number, flags?: number): number, string
-  recv: function(self: Socket, bufsiz?: number, flags?: number): string, string
-  recvfrom: function(self: Socket, bufsiz?: number, flags?: number): string, number, number, string
-  getsockname: function(self: Socket): number, number, string
-  getpeername: function(self: Socket): number, number, string
+  send: function(self: Socket, data: string, flags?: number): number | nil, string
+  sendto: function(self: Socket, data: string, ip: number, port: number, flags?: number): number | nil, string
+  recv: function(self: Socket, bufsiz?: number, flags?: number): string | nil, string
+  recvfrom: function(self: Socket, bufsiz?: number, flags?: number): string | nil, number, number, string
+  getsockname: function(self: Socket): number | nil, number, string
+  getpeername: function(self: Socket): number | nil, number, string
   bind: function(self: Socket, ip?: number, port?: number): boolean, string
   bind_unix: function(self: Socket, path: string): boolean, string
   listen: function(self: Socket, backlog?: number): boolean, string
-  accept: function(self: Socket, flags?: number): Socket, number, number, string
+  accept: function(self: Socket, flags?: number): Socket | nil, number, number, string
   connect: function(self: Socket, ip: number, port: number): boolean, string
   connect_unix: function(self: Socket, path: string): boolean, string
-  getsockopt: function(self: Socket, level: number, optname: number): number | boolean, string
+  getsockopt: function(self: Socket, level: number, optname: number): number | boolean | nil, string
   setsockopt: function(self: Socket, level: number, optname: number, value: number | boolean): boolean, string
 end
 
@@ -39,9 +39,9 @@ end
 --- @param family number Address family (AF_INET, AF_UNIX). Default: AF_INET
 --- @param socktype number Socket type (SOCK_STREAM, SOCK_DGRAM). Default: SOCK_STREAM
 --- @param protocol number Protocol (IPPROTO_TCP, IPPROTO_UDP). Default: 0
---- @return Socket Socket handle
+--- @return Socket | nil Socket handle
 --- @return string Error message on failure
-local function socket(family?: number, socktype?: number, protocol?: number): Socket, string
+local function socket(family?: number, socktype?: number, protocol?: number): Socket | nil, string
   family = family or unix.AF_INET
   socktype = socktype or unix.SOCK_STREAM
   protocol = protocol or 0
@@ -56,10 +56,10 @@ end
 --- @param family number Address family (AF_UNIX). Default: AF_UNIX
 --- @param socktype number Socket type (SOCK_STREAM, SOCK_DGRAM). Default: SOCK_STREAM
 --- @param protocol number Protocol. Default: 0
---- @return Socket First socket of the pair
+--- @return Socket | nil First socket of the pair
 --- @return Socket Second socket of the pair
 --- @return string Error message on failure
-local function socketpair(family?: number, socktype?: number, protocol?: number): Socket, Socket, string
+local function socketpair(family?: number, socktype?: number, protocol?: number): Socket | nil, Socket, string
   family = family or unix.AF_UNIX
   socktype = socktype or unix.SOCK_STREAM
   protocol = protocol or 0
@@ -73,41 +73,43 @@ end
 --- Create a Unix domain socket, bind it to a path, and start listening.
 --- @param path string Filesystem path for the socket
 --- @param backlog number Maximum pending connections (default 128)
---- @return Socket Listening socket
+--- @return Socket | nil Listening socket
 --- @return string Error message on failure
-local function listen_unix(path: string, backlog?: number): Socket, string
+local function listen_unix(path: string, backlog?: number): Socket | nil, string
   local sock, err = socket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
   if not sock then
     return nil, err
   end
-  local ok, bind_err = sock:bind_unix(path)
+  local s = sock as Socket
+  local ok, bind_err = s:bind_unix(path)
   if not ok then
-    sock:close()
+    s:close()
     return nil, bind_err
   end
-  local lok, listen_err = sock:listen(backlog)
+  local lok, listen_err = s:listen(backlog)
   if not lok then
-    sock:close()
+    s:close()
     return nil, listen_err
   end
-  return sock
+  return s
 end
 
 --- Create a Unix domain socket and connect to a path.
 --- @param path string Filesystem path of the socket to connect to
---- @return Socket Connected socket
+--- @return Socket | nil Connected socket
 --- @return string Error message on failure
-local function connect_unix(path: string): Socket, string
+local function connect_unix(path: string): Socket | nil, string
   local sock, err = socket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
   if not sock then
     return nil, err
   end
-  local ok, conn_err = sock:connect_unix(path)
+  local s = sock as Socket
+  local ok, conn_err = s:connect_unix(path)
   if not ok then
-    sock:close()
+    s:close()
     return nil, conn_err
   end
-  return sock
+  return s
 end
 
 --- Create a TCP socket and connect to an IP address and port.
@@ -117,19 +119,20 @@ end
 ---   local addr = ip.parse("127.0.0.1")  -- 0x7f000001
 --- @param ip number Remote IP address
 --- @param port number Remote port
---- @return Socket Connected socket
+--- @return Socket | nil Connected socket
 --- @return string Error message on failure
-local function connect_tcp(ip: number, port: number): Socket, string
+local function connect_tcp(ip: number, port: number): Socket | nil, string
   local sock, err = socket(unix.AF_INET, unix.SOCK_STREAM, 0)
   if not sock then
     return nil, err
   end
-  local ok, conn_err = sock:connect(ip, port)
+  local s = sock as Socket
+  local ok, conn_err = s:connect(ip, port)
   if not ok then
-    sock:close()
+    s:close()
     return nil, conn_err
   end
-  return sock
+  return s
 end
 
 --- Create a TCP socket, bind it to host:port, and start listening.
@@ -147,35 +150,36 @@ end
 --- @param ip number Local IP address to bind (e.g. 0x7f000001 for 127.0.0.1, 0 for all)
 --- @param port number Local port to bind; use 0 for an OS-assigned ephemeral port
 --- @param backlog number Maximum pending connections (default 128)
---- @return Socket Listening socket ready to accept
+--- @return Socket | nil Listening socket ready to accept
 --- @return number Actual bound port (useful when port 0 was requested)
 --- @return string Error message on failure
-local function listen_tcp(ip: number, port: number, backlog?: number): Socket, number, string
+local function listen_tcp(ip: number, port: number, backlog?: number): Socket | nil, number, string
   local sock, serr = socket(unix.AF_INET, unix.SOCK_STREAM, 0)
   if not sock then
     return nil, nil, serr
   end
-  local ok, setopt_err = sock:setsockopt(unix.SOL_SOCKET, unix.SO_REUSEADDR, true)
+  local s = sock as Socket
+  local ok, setopt_err = s:setsockopt(unix.SOL_SOCKET, unix.SO_REUSEADDR, true)
   if not ok then
-    sock:close()
+    s:close()
     return nil, nil, setopt_err
   end
-  local bok, bind_err = sock:bind(ip, port)
+  local bok, bind_err = s:bind(ip, port)
   if not bok then
-    sock:close()
+    s:close()
     return nil, nil, bind_err
   end
-  local _, bound_port, name_err = sock:getsockname()
+  local _, bound_port, name_err = s:getsockname()
   if not bound_port then
-    sock:close()
+    s:close()
     return nil, nil, name_err
   end
-  local lok, listen_err = sock:listen(backlog)
+  local lok, listen_err = s:listen(backlog)
   if not lok then
-    sock:close()
+    s:close()
     return nil, nil, listen_err
   end
-  return sock, bound_port
+  return s, bound_port
 end
 
 --- Perform a non-blocking connect on a socket.
@@ -194,7 +198,7 @@ local function nb_connect(s: Socket, ip: number, port: number, timeoutms?: numbe
   if not revents then
     return false, "nb_connect: poll failed"
   end
-  local ev = revents[s.fd] or 0
+  local ev = (revents as {number: number})[s.fd] or 0
   if ev == 0 then return false, "nb_connect: connect timed out" end
   if ev & unix.POLLERR ~= 0 then
     local so_err = s:getsockopt(unix.SOL_SOCKET, unix.SO_ERROR)
@@ -213,9 +217,9 @@ end
 --- Poll file descriptors for events.
 --- @param fds {number:number} Map of fd to events to poll for
 --- @param timeoutms number Timeout in milliseconds (-1 for infinite, 0 for non-blocking)
---- @return {number:number} Map of fd to revents
+--- @return {number:number} | nil Map of fd to revents
 --- @return string Error message on failure
-local function poll(fds: {number: number}, timeoutms?: number): {number: number}, string
+local function poll(fds: {number: number}, timeoutms?: number): {number: number} | nil, string
   local result = unix.poll(fds, timeoutms or -1)
   if not result then
     return nil, "poll failed"
@@ -224,9 +228,9 @@ local function poll(fds: {number: number}, timeoutms?: number): {number: number}
 end
 
 --- Get the local hostname.
---- @return string The hostname
+--- @return string | nil The hostname
 --- @return string Error message on failure
-local function gethostname(): string, string
+local function gethostname(): string | nil, string
   local name = unix.gethostname()
   if not name then
     return nil, "gethostname failed"
@@ -236,9 +240,9 @@ end
 
 --- Parse an IP address string to numeric form.
 --- @param str string IP address in dotted notation (e.g., "127.0.0.1")
---- @return number Numeric IP address
+--- @return number | nil Numeric IP address
 --- @return string Error message on failure
-local function parseip(str: string): number, string
+local function parseip(str: string): number | nil, string
   local ip = cosmo.ParseIp(str)
   if ip == -1 then
     return nil, "invalid IP address format"
@@ -260,9 +264,9 @@ local record Interface
 end
 
 --- List network interfaces and their IPv4 addresses.
---- @return {Interface} List of interfaces
+--- @return {Interface} | nil List of interfaces
 --- @return string Error message on failure
-local function interfaces(): {Interface}, string
+local function interfaces(): {Interface} | nil, string
   local raw = unix.siocgifconf()
   if not raw then
     return nil, "siocgifconf failed"
@@ -273,18 +277,18 @@ end
 local record NetModule
   Socket: Socket
   Interface: Interface
-  socket: function(family?: number, socktype?: number, protocol?: number): Socket, string
-  socketpair: function(family?: number, socktype?: number, protocol?: number): Socket, Socket, string
-  listen_unix: function(path: string, backlog?: number): Socket, string
-  listen_tcp: function(ip: number, port: number, backlog?: number): Socket, number, string
-  connect_unix: function(path: string): Socket, string
-  connect_tcp: function(ip: number, port: number): Socket, string
+  socket: function(family?: number, socktype?: number, protocol?: number): Socket | nil, string
+  socketpair: function(family?: number, socktype?: number, protocol?: number): Socket | nil, Socket, string
+  listen_unix: function(path: string, backlog?: number): Socket | nil, string
+  listen_tcp: function(ip: number, port: number, backlog?: number): Socket | nil, number, string
+  connect_unix: function(path: string): Socket | nil, string
+  connect_tcp: function(ip: number, port: number): Socket | nil, string
   nb_connect: function(s: Socket, ip: number, port: number, timeoutms?: number): boolean, string
-  poll: function(fds: {number: number}, timeoutms?: number): {number: number}, string
-  gethostname: function(): string, string
-  parseip: function(str: string): number, string
+  poll: function(fds: {number: number}, timeoutms?: number): {number: number} | nil, string
+  gethostname: function(): string | nil, string
+  parseip: function(str: string): number | nil, string
   formatip: function(ip: number): string
-  interfaces: function(): {Interface}, string
+  interfaces: function(): {Interface} | nil, string
   AF_INET: number
   AF_UNIX: number
   AF_UNSPEC: number

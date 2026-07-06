@@ -10,17 +10,19 @@ local function test_open_read_write_close()
 
   local f, err = io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8))
   assert(f, "open for write failed: " .. (err or ""))
+  local fh = f as io_m.Handle
 
-  local n, werr = f:write(content)
+  local n, werr = fh:write(content)
   assert(n == #content, "write failed: " .. (werr or "") .. " wrote " .. tostring(n) .. " expected " .. #content)
-  assert(f:close(), "close failed")
+  assert(fh:close(), "close failed")
 
   f, err = io_m.open(filepath, io_m.O_RDONLY)
   assert(f, "open for read failed: " .. (err or ""))
+  fh = f as io_m.Handle
 
-  local data, rerr = f:read(1024)
+  local data, rerr = fh:read(1024)
   assert(data == content, "read failed: " .. (rerr or "") .. " got '" .. tostring(data) .. "'")
-  assert(f:close(), "close failed")
+  assert(fh:close(), "close failed")
 
   os.remove(filepath)
 end
@@ -30,11 +32,11 @@ local function test_seek()
   local filepath = fs.join(TEST_TMPDIR, "io_test_seek.txt")
   local content = "0123456789"
 
-  local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
+  local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8))) as io_m.Handle
   assert(f:write(content))
   assert(f:close())
 
-  f = assert(io_m.open(filepath, io_m.O_RDONLY))
+  f = assert(io_m.open(filepath, io_m.O_RDONLY)) as io_m.Handle
 
   local pos, err = f:seek(5, io_m.SEEK_SET)
   assert(pos == 5, "seek SEEK_SET failed: " .. (err or "") .. " pos=" .. tostring(pos))
@@ -57,7 +59,7 @@ local function test_handle_truncate()
   local filepath = fs.join(TEST_TMPDIR, "io_test_htrunc.txt")
   local content = "0123456789"
 
-  local f = assert(io_m.open(filepath, io_m.O_RDWR | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
+  local f = assert(io_m.open(filepath, io_m.O_RDWR | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8))) as io_m.Handle
   assert(f:write(content))
 
   local ok, err = f:truncate(5)
@@ -76,14 +78,14 @@ local function test_truncate()
   local filepath = fs.join(TEST_TMPDIR, "io_test_trunc.txt")
   local content = "0123456789"
 
-  local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
+  local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8))) as io_m.Handle
   assert(f:write(content))
   assert(f:close())
 
   local ok, err = io_m.truncate(filepath, 3)
   assert(ok, "truncate failed: " .. (err or ""))
 
-  f = assert(io_m.open(filepath, io_m.O_RDONLY))
+  f = assert(io_m.open(filepath, io_m.O_RDONLY)) as io_m.Handle
   local data = assert(f:read(100))
   assert(data == "012", "expected '012' got '" .. data .. "'")
   assert(f:close())
@@ -96,19 +98,20 @@ local function test_dup()
   local filepath = fs.join(TEST_TMPDIR, "io_test_dup.txt")
   local content = "dup test"
 
-  local f = assert(io_m.open(filepath, io_m.O_RDWR | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
+  local f = assert(io_m.open(filepath, io_m.O_RDWR | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8))) as io_m.Handle
   assert(f:write(content))
 
   local f2, err = f:dup()
   assert(f2, "dup failed: " .. (err or ""))
-  assert(f2:fd() ~= f:fd(), "dup should return different fd")
+  local f2h = f2 as io_m.Handle
+  assert(f2h:fd() ~= f:fd(), "dup should return different fd")
 
-  assert(f2:seek(0, io_m.SEEK_SET))
-  local data = assert(f2:read(100))
+  assert(f2h:seek(0, io_m.SEEK_SET))
+  local data = assert(f2h:read(100))
   assert(data == content, "read from dup'd handle failed: got '" .. data .. "'")
 
   assert(f:close())
-  assert(f2:close())
+  assert(f2h:close())
   os.remove(filepath)
 end
 test_dup()
@@ -116,26 +119,27 @@ test_dup()
 local function test_pipe()
   local p, err = io_m.pipe()
   assert(p, "pipe failed: " .. (err or ""))
-  assert(p.reader, "pipe missing reader")
-  assert(p.writer, "pipe missing writer")
-  assert(p.reader:fd() ~= p.writer:fd(), "reader and writer should be different fds")
+  local ph = p as io_m.Pipe
+  assert(ph.reader, "pipe missing reader")
+  assert(ph.writer, "pipe missing writer")
+  assert(ph.reader:fd() ~= ph.writer:fd(), "reader and writer should be different fds")
 
   local msg = "pipe test message"
-  local n = assert(p.writer:write(msg))
+  local n = assert(ph.writer:write(msg))
   assert(n == #msg, "write to pipe failed")
 
-  local data = assert(p.reader:read(#msg))
+  local data = assert(ph.reader:read(#msg))
   assert(data == msg, "read from pipe failed: got '" .. data .. "'")
 
-  assert(p:close())
-  assert(p:closed(), "pipe should be closed")
+  assert(ph:close())
+  assert(ph:closed(), "pipe should be closed")
 end
 test_pipe()
 
 local function test_sync()
   local filepath = fs.join(TEST_TMPDIR, "io_test_sync.txt")
 
-  local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
+  local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8))) as io_m.Handle
   assert(f:write("sync test"))
 
   local ok, err = f:sync()
@@ -179,7 +183,7 @@ test_constants()
 local function test_fcntl()
   local filepath = fs.join(TEST_TMPDIR, "io_test_fcntl.txt")
 
-  local f = assert(io_m.open(filepath, io_m.O_RDWR | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
+  local f = assert(io_m.open(filepath, io_m.O_RDWR | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8))) as io_m.Handle
 
   -- Get file descriptor flags
   local fdflags, err = f:fcntl(io_m.F_GETFD)
@@ -205,15 +209,15 @@ test_open_nonexistent_fails()
 local function test_append_mode()
   local filepath = fs.join(TEST_TMPDIR, "io_test_append.txt")
 
-  local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
+  local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8))) as io_m.Handle
   assert(f:write("hello"))
   assert(f:close())
 
-  f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_APPEND))
+  f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_APPEND)) as io_m.Handle
   assert(f:write(" world"))
   assert(f:close())
 
-  f = assert(io_m.open(filepath, io_m.O_RDONLY))
+  f = assert(io_m.open(filepath, io_m.O_RDONLY)) as io_m.Handle
   local data = assert(f:read(100))
   assert(data == "hello world", "append mode failed: got '" .. data .. "'")
   assert(f:close())
@@ -247,7 +251,7 @@ test_slurp_nonexistent()
 local function test_closed_handle()
   local filepath = fs.join(TEST_TMPDIR, "io_test_closed.txt")
 
-  local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
+  local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8))) as io_m.Handle
   assert(not f:closed(), "handle should not be closed yet")
   assert(f:close())
   assert(f:closed(), "handle should be closed")
@@ -268,7 +272,7 @@ test_closed_handle()
 local function test_fd_method()
   local filepath = fs.join(TEST_TMPDIR, "io_test_fd.txt")
 
-  local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
+  local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8))) as io_m.Handle
   local fd = f:fd()
   assert(fd > 0, "fd should be positive")
 
@@ -282,7 +286,7 @@ test_fd_method()
 local function test_close_metamethod_exists()
   local filepath = fs.join(TEST_TMPDIR, "io_test_meta.txt")
 
-  local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
+  local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8))) as io_m.Handle
   local mt = getmetatable(f)
   assert(mt, "handle should have metatable")
   assert(mt.__close, "handle metatable should have __close")
@@ -295,7 +299,7 @@ end
 test_close_metamethod_exists()
 
 local function test_pipe_close_metamethod_exists()
-  local p = assert(io_m.pipe())
+  local p = assert(io_m.pipe()) as io_m.Pipe
   local mt = getmetatable(p)
   assert(mt, "pipe should have metatable")
   assert(mt.__close, "pipe metatable should have __close")
@@ -308,7 +312,7 @@ test_pipe_close_metamethod_exists()
 local function test_read_write_with_offset()
   local filepath = fs.join(TEST_TMPDIR, "io_test_pread.txt")
 
-  local f = assert(io_m.open(filepath, io_m.O_RDWR | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
+  local f = assert(io_m.open(filepath, io_m.O_RDWR | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8))) as io_m.Handle
   assert(f:write("0123456789"))
 
   -- Read at offset (pread behavior)
@@ -347,7 +351,7 @@ test_barf_with_mode()
 local function test_datasync()
   local filepath = fs.join(TEST_TMPDIR, "io_test_datasync.txt")
 
-  local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
+  local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8))) as io_m.Handle
   assert(f:write("datasync test"))
 
   local ok, err = f:datasync()
@@ -366,7 +370,7 @@ test_datasync()
 local function test_close_returns_boolean_and_is_idempotent()
   local filepath = fs.join(TEST_TMPDIR, "io_test_close_bool.txt")
 
-  local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8)))
+  local f = assert(io_m.open(filepath, io_m.O_WRONLY | io_m.O_CREAT | io_m.O_TRUNC, tonumber("644", 8))) as io_m.Handle
   assert(f:write("x"))
 
   -- First close should succeed and return true

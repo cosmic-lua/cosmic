@@ -89,8 +89,9 @@ local function scenarios(): {pt.Scenario}, string
         if row == nil then
           return false, "count query failed: " .. tostring(qerr)
         end
-        if row.n ~= 0 then
-          return false, "scratch table not empty: " .. tostring(row.n)
+        local r = row as {string: any}
+        if r.n ~= 0 then
+          return false, "scratch table not empty: " .. tostring(r.n)
         end
         return true
       end,

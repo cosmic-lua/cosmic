@@ -41,7 +41,7 @@ local function run_repl()
 end
 
 --- Load a script file (.tl or .lua): .tl through Teal (cached), .lua directly.
-local function load_script_file(script_path: string): function(...: any): any ..., string
+local function load_script_file(script_path: string): function(...: any): any ... | nil, string
   if script_path:match("%.tl$") then
     package.path = package.path .. ";/zip/.tl/?.tl" -- so teal can find cosmic modules
     local script_cache = require("cosmic.script_cache")
@@ -55,13 +55,11 @@ local function load_script_file(script_path: string): function(...: any): any ..
       code = result.code
       script_cache.store(script_path, code)
     end
-    if code:sub(1, 2) == "#!" then
-      local newline_pos = code:find("\n")
-      if newline_pos then
-        code = code:sub(newline_pos + 1)
-      end
+    local src = code as string
+    if src:sub(1, 2) == "#!" then
+      src = src:sub((src:find("\n") or 0) + 1)
     end
-    return load(code, "@" .. script_path)
+    return load(src, "@" .. script_path)
   else
     return loadfile(script_path)
   end
@@ -458,7 +456,7 @@ end
 local record HandlersModule
   generate_welcome: function(): string
   run_repl: function()
-  load_script_file: function(script_path: string): function(...: any): any ..., string
+  load_script_file: function(script_path: string): function(...: any): any ... | nil, string
   run_docs: function(query: string): DocsRunResult
   handle_version: function(): integer
   handle_compile: function(file: string, output?: string, write_if_changed?: boolean, include_dirs?: {string}): integer, string

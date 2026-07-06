@@ -37,6 +37,7 @@ local czip = require("cosmic.zip")
 local fs = require("cosmic.fs")
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").str
+local Stat = require("cosmic.fs_types").Stat
 
 --- Result returned from embed and extract operations.
 local record EmbedResult
@@ -101,7 +102,7 @@ end
 --- @param dir string The directory to collect from
 --- @return {FileToEmbed} Collected files, or nil on error
 --- @return string Error message, or nil on success
-local function collect_dir(dir: string): {FileToEmbed}, string
+local function collect_dir(dir: string): {FileToEmbed} | nil, string
   local collected: {FileToEmbed} = {}
 
   local function do_walk(base_dir: string, rel_prefix: string): string
@@ -146,17 +147,18 @@ local function collect_dir(dir: string): {FileToEmbed}, string
         -- prevention as the d_type == DT_DIR branch above).
         local st = fs.stat(full_path, false)
         if st then
-          if fs.is_dir(st:mode()) then
+          local sst = st as Stat
+          if fs.is_dir(sst:mode()) then
             local walk_err = do_walk(full_path, rel)
             if walk_err then return walk_err end
-          elseif unix.S_ISREG(st:mode()) then
+          elseif unix.S_ISREG(sst:mode()) then
             -- Only embed regular files; skip symlinks (S_ISLNK) entirely.
             local content, read_err = cio.slurp(full_path)
             if not content then
               return "cannot open file '" .. full_path .. "': " .. (read_err or "unknown error")
             end
             -- Extract permission bits (lower 9 bits)
-            local file_mode = st:mode() & tonumber("777", 8)
+            local file_mode = sst:mode() & tonumber("777", 8)
             collected[#collected + 1] = {
               path = full_path,
               content = content,
@@ -206,7 +208,7 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
       if not dir_files then
         return {ok = false, message = "error: " .. (err or "unknown error"), file_count = 0}
       end
-      for _, f in ipairs(dir_files) do
+      for _, f in ipairs(dir_files as {FileToEmbed}) do
         files_to_embed[#files_to_embed + 1] = f
       end
     else
@@ -221,7 +223,7 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
       local st = fs.stat(p)
       local file_mode = tonumber("644", 8) -- default
       if st then
-        file_mode = st:mode() & tonumber("777", 8)
+        file_mode = (st as Stat):mode() & tonumber("777", 8)
       end
 
       files_to_embed[#files_to_embed + 1] = {

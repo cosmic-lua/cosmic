@@ -310,7 +310,7 @@ end
 ---   4. <any type> operations (ipairs, index, concat on any)
 --- @param msg string The error message to match
 --- @return string|nil A short hint string, or nil if no hint applies
-local function hint_for_message(msg: string): string
+local function hint_for_message(msg: string): string | nil
   -- Pattern 1: number/integer mismatch
   if msg:find("got number, expected integer") then
     return "  hint: annotate the variable `: number`, or convert with math.tointeger; integer is required for string indices/lengths"
@@ -364,7 +364,7 @@ local record TealModule
   check: function(input_path: string, opts?: CheckOpts): CheckResult
   format_issues: function(issues: {Issue}): string
   format_issues_with_hints: function(issues: {Issue}): string
-  hint_for_message: function(msg: string): string
+  hint_for_message: function(msg: string): string | nil
   get_default_include_dirs: function(): {string}
 end
 

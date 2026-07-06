@@ -42,10 +42,11 @@ local function serve_loop(srv: net.Socket)
   while true do
     local conn = srv:accept()
     if conn then
-      if read_request(conn) then
-        conn:send(RESPONSE)
+      local cc = conn as net.Socket
+      if read_request(cc) then
+        cc:send(RESPONSE)
       end
-      conn:close()
+      cc:close()
     end
   end
 end
@@ -131,17 +132,18 @@ local function scenarios(): {pt.Scenario}, string
       fn = function(_: any): any
         local sock, cerr = net.connect_tcp(LOCALHOST, port)
         assert(sock, cerr)
-        local sent, serr = sock:send("GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+        local ss = sock as net.Socket
+        local sent, serr = ss:send("GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
         assert(sent, serr)
         local buf = ""
         while true do
-          local data = sock:recv(4096)
+          local data = ss:recv(4096)
           if data == nil or #data == 0 then
             break
           end
           buf = buf .. data
         end
-        sock:close()
+        ss:close()
         return buf
       end,
       check = function(_: any, res: any): boolean, string

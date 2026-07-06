@@ -1,5 +1,6 @@
 #!/usr/bin/env cosmic
 local fs = require("cosmic.fs")
+local fs_types = require("cosmic.fs_types")
 local cio = require("cosmic.io")
 local unix = require("cosmo.unix")
 
@@ -48,6 +49,7 @@ local function test_dir_has_close_metamethod()
 
   local dir = fs.opendir(test_dir)
   assert(dir, "opendir should succeed")
+  local d = dir as fs_types.Dir
 
   -- Verify __close metamethod exists
   local mt = getmetatable(dir)
@@ -56,7 +58,7 @@ local function test_dir_has_close_metamethod()
 
   -- Call __close directly to verify it works
   mt.__close(dir)
-  assert(dir:closed(), "dir should be closed after __close")
+  assert(d:closed(), "dir should be closed after __close")
 
   teardown(test_dir)
 end
@@ -67,10 +69,11 @@ local function test_dir_closed_method()
 
   local dir = fs.opendir(test_dir)
   assert(dir, "opendir should succeed")
+  local d = dir as fs_types.Dir
 
-  assert(not dir:closed(), "dir should not be closed initially")
-  dir:close()
-  assert(dir:closed(), "dir should be closed after close()")
+  assert(not d:closed(), "dir should not be closed initially")
+  d:close()
+  assert(d:closed(), "dir should be closed after close()")
 
   teardown(test_dir)
 end
@@ -81,14 +84,15 @@ local function test_dir_close_idempotent()
 
   local dir = fs.opendir(test_dir)
   assert(dir, "opendir should succeed")
+  local d = dir as fs_types.Dir
 
-  dir:close()
-  assert(dir:closed(), "dir should be closed")
+  d:close()
+  assert(d:closed(), "dir should be closed")
 
   -- Should not error when closing again
-  dir:close()
-  dir:close()
-  assert(dir:closed(), "dir should still be closed")
+  d:close()
+  d:close()
+  assert(d:closed(), "dir should still be closed")
 
   teardown(test_dir)
 end
@@ -100,22 +104,23 @@ local function test_dir_methods_after_close()
 
   local dir = fs.opendir(test_dir)
   assert(dir, "opendir should succeed")
-  dir:close()
+  local d = dir as fs_types.Dir
+  d:close()
 
   -- read() returns nil when closed
-  local entry = dir:read()
+  local entry = d:read()
   assert(entry == nil, "read should return nil after close")
 
   -- fd() returns -1 when closed
-  local fd = dir:fd()
+  local fd = d:fd()
   assert(fd == -1, "fd should return -1 after close")
 
   -- tell() returns -1 when closed
-  local pos = dir:tell()
+  local pos = d:tell()
   assert(pos == -1, "tell should return -1 after close")
 
   -- rewind() should be a no-op when closed (no error)
-  dir:rewind()
+  d:rewind()
 
   teardown(test_dir)
 end
@@ -128,27 +133,28 @@ local function test_dir_rewind_and_tell()
 
   local dir = fs.opendir(test_dir)
   assert(dir, "opendir should succeed")
+  local d = dir as fs_types.Dir
 
   -- Read some entries
   local count = 0
-  while dir:read() do
+  while d:read() do
     count = count + 1
   end
   assert(count >= 2, "should read at least 2 entries")
 
   -- Tell should return a position
-  local pos_end = dir:tell()
+  local pos_end = d:tell()
   assert(pos_end >= 0, "tell should return valid position")
 
   -- Rewind and count again
-  dir:rewind()
+  d:rewind()
   local count2 = 0
-  while dir:read() do
+  while d:read() do
     count2 = count2 + 1
   end
   assert(count2 == count, "should read same number of entries after rewind")
 
-  dir:close()
+  d:close()
   teardown(test_dir)
 end
 test_dir_rewind_and_tell()
@@ -158,11 +164,12 @@ local function test_dir_fd()
 
   local dir = fs.opendir(test_dir)
   assert(dir, "opendir should succeed")
+  local d = dir as fs_types.Dir
 
-  local fd = dir:fd()
+  local fd = d:fd()
   assert(fd >= 0, "fd should be a valid file descriptor")
 
-  dir:close()
+  d:close()
   teardown(test_dir)
 end
 test_dir_fd()
@@ -219,7 +226,7 @@ local function test_major_minor()
   -- Test with /dev/null which should have rdev set
   local st = fs.stat("/dev/null")
   if st then
-    local rdev = st:rdev()
+    local rdev = (st as fs_types.Stat):rdev()
     local maj = fs.major(rdev)
     local min = fs.minor(rdev)
     -- /dev/null is typically major 1, minor 3
@@ -240,7 +247,7 @@ local function test_major_minor_regular_file()
   assert(st, "stat should succeed")
 
   -- Regular files have a dev (the filesystem device)
-  local dev = st:dev()
+  local dev = (st as fs_types.Stat):dev()
   local maj = fs.major(dev)
   local min = fs.minor(dev)
   assert(maj ~= nil, "major() should return a value for dev")
@@ -259,18 +266,19 @@ local function test_fdopendir()
   -- takes ownership of the fd and closes it via dir:close().
   local h, oerr = cio.open(test_dir, cio.O_RDONLY | cio.O_DIRECTORY)
   assert(h, "opening directory fd failed: " .. (oerr or ""))
-  local dir, err = fs.fdopendir(h:fd())
+  local dir, err = fs.fdopendir((h as cio.Handle):fd())
   assert(dir, "fdopendir should succeed: " .. (err or ""))
+  local d = dir as fs_types.Dir
 
   local entries: {string: boolean} = {}
   while true do
-    local entry = dir:read()
+    local entry = d:read()
     if not entry then break end
     if entry ~= "." and entry ~= ".." then
       entries[entry] = true
     end
   end
-  dir:close()
+  d:close()
 
   assert(entries["file1.txt"], "expected file1.txt")
   assert(entries["file2.txt"], "expected file2.txt")

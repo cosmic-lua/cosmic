@@ -220,7 +220,7 @@ local function render_module(name: string, doc: ModuleDoc): string
 end
 
 --- Find a method within a record.
-local function find_method(rec: RecordDoc, method_name: string): string
+local function find_method(rec: RecordDoc, method_name: string): string | nil
   if rec.fields then
     for _, field in ipairs(rec.fields) do
       local fname, ftype, fdesc = field[1], field[2], field[3]
@@ -260,7 +260,7 @@ end
 
 --- Find a symbol in a module's documentation.
 --- Also searches record fields for re-exported function symbols.
-local function find_symbol(doc: ModuleDoc, symbol: string, method?: string): string
+local function find_symbol(doc: ModuleDoc, symbol: string, method?: string): string | nil
   if doc.functions then
     for _, func in ipairs(doc.functions) do
       if func.name == symbol or func.name:lower() == symbol:lower() then
@@ -444,9 +444,9 @@ local record DocsRenderModule
   render_record: function(rec: RecordDoc): string
   render_example: function(example: ExampleDoc): string
   render_module: function(name: string, doc: ModuleDoc): string
-  find_method: function(rec: RecordDoc, method_name: string): string
+  find_method: function(rec: RecordDoc, method_name: string): string | nil
   find_matching_examples: function(examples: {ExampleDoc}, func_name: string): {ExampleDoc}
-  find_symbol: function(doc: ModuleDoc, symbol: string, method?: string): string
+  find_symbol: function(doc: ModuleDoc, symbol: string, method?: string): string | nil
   render_examples_list: function(examples: {ExampleEntry}): string
   render_search_results: function(results: {SearchResult}, query: string): string
   find_suggestions: function(query: string, index: DocIndex): {string}

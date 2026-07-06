@@ -1,6 +1,7 @@
 -- docs-publish: publish generated docs to a git branch
 local cio = require("cosmic.io")
 local fs = require("cosmic.fs")
+local fs_types = require("cosmic.fs_types")
 local proc = require("cosmic.proc")
 local spawn = require("cosmic.child")
 
@@ -15,16 +16,18 @@ local function scan_docs(docs_dir: string): {DocInfo}
   local docs: {DocInfo} = {}
 
   local function scan(dir: string)
-    local handle = fs.opendir(dir)
-    if not handle then return end
+    local handle0 = fs.opendir(dir)
+    if not handle0 then return end
+    local handle = handle0 as fs_types.Dir
 
     while true do
       local name = handle:read()
       if not name then break end
       if name ~= "." and name ~= ".." then
         local full_path = fs.join(dir, name)
-        local st = fs.stat(full_path)
-        if st then
+        local st0 = fs.stat(full_path)
+        if st0 then
+          local st = st0 as fs_types.Stat
           if fs.is_dir(st:mode()) then
             scan(full_path)
           elseif name:match("%.md$") and name ~= "README.md" then
@@ -33,7 +36,7 @@ local function scan_docs(docs_dir: string): {DocInfo}
             local description = ""
             if content then
               -- Extract description: skip header line, take next non-empty paragraph
-              local after_header = content:match("^#[^\n]*\n+(.*)") or ""
+              local after_header = string.match(content, "^#[^\n]*\n+(.*)") or ""
               local first_para = after_header:match("^([^\n]+)")
               if first_para and not first_para:match("^#") then
                 description = first_para
@@ -153,7 +156,7 @@ local function run(argv: {string}): boolean, string
   if not h then
     return nil, err
   end
-  local code = h:wait()
+  local code = (h as spawn.Handle):wait()
   if code ~= 0 then
     return nil, table.concat(argv, " ") .. " failed with exit code " .. code
   end
@@ -181,7 +184,7 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
 
   -- fetch and checkout docs branch, or create orphan
   local fetch_h = spawn.spawn({"git", "fetch", "origin", branch})
-  local fetch_ok = fetch_h and fetch_h:wait() == 0
+  local fetch_ok = fetch_h and (fetch_h as spawn.Handle):wait() == 0
 
   if fetch_ok then
     ok, err = run({"git", "switch", branch})
@@ -193,11 +196,13 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
   end
 
   -- remove old content (ignore errors for empty repos)
-  spawn.spawn({"git", "rm", "-rf", "."}):wait()
+  local rm_h = spawn.spawn({"git", "rm", "-rf", "."})
+  if rm_h then (rm_h as spawn.Handle):wait() end
 
   -- clear working directory
-  local dir = fs.opendir(".")
-  if dir then
+  local dir0 = fs.opendir(".")
+  if dir0 then
+    local dir = dir0 as fs_types.Dir
     while true do
       local name = dir:read()
       if not name then break end
@@ -222,7 +227,7 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
 
   -- check if there are changes
   local diff_h = spawn.spawn({"git", "diff", "--staged", "--quiet"})
-  if diff_h and diff_h:wait() == 0 then
+  if diff_h and (diff_h as spawn.Handle):wait() == 0 then
     io.stderr:write("no documentation changes detected\n")
     return true
   end

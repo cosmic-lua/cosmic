@@ -54,7 +54,8 @@ else
 end
 ]])
 
-  local ok, out = spawn.spawn({cosmic, script}):read()
+  local h1 = spawn.spawn({cosmic, script})
+  local ok, out = (h1 as spawn.Handle):read()
   assert(ok, "script should succeed: " .. tostring(out))
   assert((out as string):find("PASS"),
     "searcher[2] should not be tl_package_loader: " .. tostring(out))
@@ -77,7 +78,8 @@ local mymod = require("mymod")
 print("answer=" .. tostring(mymod.answer))
 ]])
 
-  local ok, out = spawn.spawn({cosmic, "-e", "package.path='" .. moddir .. "/?.tl;' .. package.path", script}):read()
+  local h2 = spawn.spawn({cosmic, "-e", "package.path='" .. moddir .. "/?.tl;' .. package.path", script})
+  local ok, out = (h2 as spawn.Handle):read()
   -- This may not work exactly this way, but the point is tl_package_loader
   -- should still work for .tl-only modules
   -- For now, just verify the tl_package_loader exists in searchers
@@ -95,7 +97,8 @@ else
 end
 ]])
 
-  local ok2, out2 = spawn.spawn({cosmic, check_script}):read()
+  local h3 = spawn.spawn({cosmic, check_script})
+  local ok2, out2 = (h3 as spawn.Handle):read()
   assert(ok2, "check script should succeed: " .. tostring(out2))
   assert((out2 as string):find("PASS"),
     "tl_package_loader should still be present: " .. tostring(out2))

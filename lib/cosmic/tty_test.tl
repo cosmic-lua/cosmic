@@ -90,12 +90,13 @@ local function test_winsize_structure()
   end
   local ws, err = tty.winsize(1)
   if ws then
-    assert(ws.rows ~= nil, "winsize should have rows field")
-    assert(ws.cols ~= nil, "winsize should have cols field")
-    assert(type(ws.rows) == "number", "rows should be a number")
-    assert(type(ws.cols) == "number", "cols should be a number")
-    assert(ws.rows > 0, "rows should be positive")
-    assert(ws.cols > 0, "cols should be positive")
+    local w = ws as tty.WinSize
+    assert(w.rows ~= nil, "winsize should have rows field")
+    assert(w.cols ~= nil, "winsize should have cols field")
+    assert(type(w.rows) == "number", "rows should be a number")
+    assert(type(w.cols) == "number", "cols should be a number")
+    assert(w.rows > 0, "rows should be positive")
+    assert(w.cols > 0, "cols should be positive")
   end
 end
 test_winsize_structure()
@@ -140,13 +141,14 @@ local function test_getattr_structure()
   end
   local termios, err = tty.getattr(0)
   if termios then
-    assert(termios.iflag ~= nil, "termios should have iflag")
-    assert(termios.oflag ~= nil, "termios should have oflag")
-    assert(termios.cflag ~= nil, "termios should have cflag")
-    assert(termios.lflag ~= nil, "termios should have lflag")
-    assert(termios.cc ~= nil, "termios should have cc array")
-    assert(type(termios.iflag) == "number", "iflag should be number")
-    assert(type(termios.lflag) == "number", "lflag should be number")
+    local t = termios as tty.Termios
+    assert(t.iflag ~= nil, "termios should have iflag")
+    assert(t.oflag ~= nil, "termios should have oflag")
+    assert(t.cflag ~= nil, "termios should have cflag")
+    assert(t.lflag ~= nil, "termios should have lflag")
+    assert(t.cc ~= nil, "termios should have cc array")
+    assert(type(t.iflag) == "number", "iflag should be number")
+    assert(type(t.lflag) == "number", "lflag should be number")
   end
 end
 test_getattr_structure()

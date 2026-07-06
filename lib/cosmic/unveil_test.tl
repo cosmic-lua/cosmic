@@ -65,7 +65,8 @@ else
 end
 ]], allowed_dir, allowed_file, hidden_file))
 
-  local ok, out = spawn.spawn({cosmic, script}):read()
+  local h = spawn.spawn({cosmic, script})
+  local ok, out = (h as spawn.Handle):read()
   local s = (out or "") as string
   if s:find("skipped") then
     a.skip("unveil unavailable / not enforcing (OpenBSD-only, or no backing): " .. s)
