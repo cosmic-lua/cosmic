@@ -12,7 +12,7 @@ test_module_exports()
 -- Test basic shared memory creation
 
 local function test_mapshared_creates_memory()
-  local mem = shm.mapshared(4096)
+  local mem = assert(shm.mapshared(4096)) as shm.Memory
   assert(mem ~= nil, "mapshared should return a memory object")
 end
 test_mapshared_creates_memory()
@@ -21,7 +21,7 @@ test_mapshared_creates_memory()
 -- Note: write/read with no arguments uses null-terminated string semantics
 
 local function test_memory_write_read()
-  local mem = shm.mapshared(4096)
+  local mem = assert(shm.mapshared(4096)) as shm.Memory
   mem:write("hello") -- writes "hello\0"
   local data = mem:read() -- reads until null terminator
   assert(data == "hello", "expected 'hello', got '" .. tostring(data) .. "'")
@@ -29,7 +29,7 @@ end
 test_memory_write_read()
 
 local function test_memory_write_read_with_offset()
-  local mem = shm.mapshared(4096)
+  local mem = assert(shm.mapshared(4096)) as shm.Memory
   mem:write("hello") -- writes at offset 0
   mem:write("world") -- overwrites
   local data = mem:read()
@@ -40,7 +40,7 @@ test_memory_write_read_with_offset()
 -- Test atomic word operations
 
 local function test_memory_store_load()
-  local mem = shm.mapshared(4096)
+  local mem = assert(shm.mapshared(4096)) as shm.Memory
   mem:store(0, 42)
   local value = mem:load(0)
   assert(value == 42, "expected 42, got " .. tostring(value))
@@ -48,7 +48,7 @@ end
 test_memory_store_load()
 
 local function test_memory_store_load_different_index()
-  local mem = shm.mapshared(4096)
+  local mem = assert(shm.mapshared(4096)) as shm.Memory
   mem:store(0, 100)
   mem:store(1, 200)
   local v0 = mem:load(0)
@@ -61,7 +61,7 @@ test_memory_store_load_different_index()
 -- Test atomic exchange
 
 local function test_memory_xchg()
-  local mem = shm.mapshared(4096)
+  local mem = assert(shm.mapshared(4096)) as shm.Memory
   mem:store(0, 10)
   local old = mem:xchg(0, 20)
   assert(old == 10, "xchg should return old value 10, got " .. tostring(old))
@@ -73,7 +73,7 @@ test_memory_xchg()
 -- Test compare-and-exchange
 
 local function test_memory_cmpxchg_success()
-  local mem = shm.mapshared(4096)
+  local mem = assert(shm.mapshared(4096)) as shm.Memory
   mem:store(0, 100)
   local ok, actual = mem:cmpxchg(0, 100, 200)
   assert(ok == true, "cmpxchg should succeed when old matches")
@@ -84,7 +84,7 @@ end
 test_memory_cmpxchg_success()
 
 local function test_memory_cmpxchg_failure()
-  local mem = shm.mapshared(4096)
+  local mem = assert(shm.mapshared(4096)) as shm.Memory
   mem:store(0, 100)
   local ok, actual = mem:cmpxchg(0, 50, 200)
   assert(ok == false, "cmpxchg should fail when old doesn't match")
@@ -97,7 +97,7 @@ test_memory_cmpxchg_failure()
 -- Test fetch_add
 
 local function test_memory_fetch_add()
-  local mem = shm.mapshared(4096)
+  local mem = assert(shm.mapshared(4096)) as shm.Memory
   mem:store(0, 10)
   local old = mem:fetch_add(0, 5)
   assert(old == 10, "fetch_add should return old value 10, got " .. tostring(old))
@@ -109,7 +109,7 @@ test_memory_fetch_add()
 -- Test fetch_and
 
 local function test_memory_fetch_and()
-  local mem = shm.mapshared(4096)
+  local mem = assert(shm.mapshared(4096)) as shm.Memory
   mem:store(0, 0xFF)
   local old = mem:fetch_and(0, 0x0F)
   assert(old == 0xFF, "fetch_and should return old value 255, got " .. tostring(old))
@@ -121,7 +121,7 @@ test_memory_fetch_and()
 -- Test fetch_or
 
 local function test_memory_fetch_or()
-  local mem = shm.mapshared(4096)
+  local mem = assert(shm.mapshared(4096)) as shm.Memory
   mem:store(0, 0x0F)
   local old = mem:fetch_or(0, 0xF0)
   assert(old == 0x0F, "fetch_or should return old value 15, got " .. tostring(old))
@@ -133,7 +133,7 @@ test_memory_fetch_or()
 -- Test fetch_xor
 
 local function test_memory_fetch_xor()
-  local mem = shm.mapshared(4096)
+  local mem = assert(shm.mapshared(4096)) as shm.Memory
   mem:store(0, 0xFF)
   local old = mem:fetch_xor(0, 0x0F)
   assert(old == 0xFF, "fetch_xor should return old value 255, got " .. tostring(old))
@@ -145,10 +145,76 @@ test_memory_fetch_xor()
 -- Test wake (basic call, no waiters)
 
 local function test_memory_wake_no_waiters()
-  local mem = shm.mapshared(4096)
+  local mem = assert(shm.mapshared(4096)) as shm.Memory
   mem:store(0, 0)
   local woken = mem:wake(0, 1)
   -- With no waiters, wake should return 0
   assert(woken == 0, "wake with no waiters should return 0, got " .. tostring(woken))
 end
 test_memory_wake_no_waiters()
+
+-- Real wrapper with error slots (issue #529, review item 25): invalid
+-- sizes and out-of-range accesses return nil, err instead of throwing.
+
+local function test_mapshared_size_not_multiple_of_word()
+  local mem, err = shm.mapshared(100)
+  assert(mem == nil, "mapshared(100) should fail (not a multiple of 8)")
+  assert(type(err) == "string" and err:find("multiple"),
+    "error should mention the word-size multiple, got: " .. tostring(err))
+end
+test_mapshared_size_not_multiple_of_word()
+
+local function test_mapshared_rejects_nonpositive_size()
+  local mem, err = shm.mapshared(0)
+  assert(mem == nil and type(err) == "string", "mapshared(0) should fail with an error")
+  local mem2, err2 = shm.mapshared(-8)
+  assert(mem2 == nil and type(err2) == "string", "mapshared(-8) should fail with an error")
+end
+test_mapshared_rejects_nonpositive_size()
+
+local function test_memory_size()
+  local mem = assert(shm.mapshared(4096)) as shm.Memory
+  assert(mem:size() == 4096, "size() should return the mapped size, got " .. tostring(mem:size()))
+end
+test_memory_size()
+
+local function test_memory_read_out_of_range()
+  local mem = assert(shm.mapshared(64)) as shm.Memory
+  local data, err = mem:read(9999, 8)
+  assert(data == nil, "read past the region should fail")
+  assert(type(err) == "string" and err:find("range"),
+    "read error should mention range, got: " .. tostring(err))
+end
+test_memory_read_out_of_range()
+
+local function test_memory_write_out_of_range()
+  local mem = assert(shm.mapshared(8)) as shm.Memory
+  local ok, err = mem:write("far too long for eight bytes", 0)
+  assert(ok == false, "write past the region should fail")
+  assert(type(err) == "string" and err:find("range"),
+    "write error should mention range, got: " .. tostring(err))
+end
+test_memory_write_out_of_range()
+
+local function test_memory_word_index_out_of_range()
+  local mem = assert(shm.mapshared(64)) as shm.Memory
+  local v, err = mem:load(9999)
+  assert(v == nil, "load of out-of-range word should fail")
+  assert(type(err) == "string" and err:find("range"),
+    "load error should mention range, got: " .. tostring(err))
+  local ok, serr = mem:store(-1, 5)
+  assert(ok == false, "store to negative word index should fail")
+  assert(type(serr) == "string" and serr:find("range"),
+    "store error should mention range, got: " .. tostring(serr))
+end
+test_memory_word_index_out_of_range()
+
+local function test_memory_wait_wrong_expect_returns_eagain()
+  local mem = assert(shm.mapshared(64)) as shm.Memory
+  mem:store(0, 5)
+  local rc, err = mem:wait(0, 3)
+  assert(rc == nil, "wait with mismatched expect should fail immediately")
+  assert(type(err) == "string" and err:match("EAGAIN"),
+    "wait error should name EAGAIN, got: " .. tostring(err))
+end
+test_memory_wait_wrong_expect_returns_eagain()
