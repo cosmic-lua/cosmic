@@ -145,14 +145,13 @@ local function test_walk_with_visitor()
   local walk_dir = setup_walk()
   local ctx: WalkContext = {count = 0, dirs = 0}
 
-  fs.walk(walk_dir, function(_full_path: string, _entry: string, st: any, c: any): boolean
+  fs.walk(walk_dir, function(_full_path: string, _entry: string, st: any, c: any)
       local wctx = c as WalkContext
       wctx.count = wctx.count + 1
       local stat_obj = st as WalkStat
       if stat_obj:is_dir() then
         wctx.dirs = wctx.dirs + 1
       end
-      return true
     end, ctx)
 
   assert(ctx.count > 0, "expected count > 0")
@@ -180,7 +179,7 @@ local function test_files_iterator()
   local walk_dir = setup_walk()
   local found: {string: boolean} = {}
 
-  for filepath in fs.files(walk_dir, "*.lua") do
+  for filepath in assert(fs.files(walk_dir, "*.lua")) as fs.FileIter do
     found[fs.basename(filepath)] = true
   end
 
@@ -196,7 +195,7 @@ local function test_files_iterator_all()
   local walk_dir = setup_walk()
   local count = 0
 
-  for _ in fs.files(walk_dir) do
+  for _ in assert(fs.files(walk_dir)) as fs.FileIter do
     count = count + 1
   end
 

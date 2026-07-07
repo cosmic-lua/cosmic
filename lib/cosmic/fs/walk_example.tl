@@ -77,7 +77,10 @@ local function Example_files()
   assert(fs.write(fs.join(tmpdir, "b.txt"), "b\n"))
 
   local names: {string} = {}
-  for p in fs.files(tmpdir, "*.txt") do
+  -- files() returns nil, err if the root cannot be opened; assert passes
+  -- the iterator and its closing guard through on success (the cast only
+  -- narrows the type — it does not drop the extra return values).
+  for p in assert(fs.files(tmpdir, "*.txt")) as fs.FileIter do
     table.insert(names, fs.basename(p))
   end
   table.sort(names)

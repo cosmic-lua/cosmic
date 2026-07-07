@@ -17,20 +17,23 @@ local record WalkDirHandle
   close: function(self)
 end
 
---- Recursive walk helper. Records the first subtree error (opendir or
---- stat failure below the root) in errbox[1] rather than swallowing it.
-local function walk_tree < T > (dir: string,
-    visitor: function(string, string, WalkStat, T), ctx: T,
-    errbox: {string})
-  local handle, oerr = unix.opendir(dir)
-  if not handle then
-    if not errbox[1] then
-      errbox[1] = errstr(oerr, "opendir: " .. dir)
-    end
-    return
-  end
-  local h = handle as WalkDirHandle
+--- Visitor verdict for walk(): returning nothing continues as before,
+--- "skip" does not descend into the entry (dirs only; no-op for files),
+--- "stop" ends the walk immediately.
+local enum WalkAction
+  "skip"
+  "stop"
+end
 
+local walk_tree: function < T > (string,
+function(string, string, WalkStat, T): (WalkAction ...), T, {string}): boolean
+
+--- Shared per-directory loop. Consumes (and closes) an already-open
+--- handle, records the first subtree error in errbox[1], and returns
+--- true when a visitor asked to stop the walk.
+local function walk_entries < T > (dir: string, h: WalkDirHandle,
+    visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx: T,
+    errbox: {string}): boolean
   while true do
     local entry = h:read()
     if not entry then break end
@@ -40,9 +43,16 @@ local function walk_tree < T > (dir: string,
       -- This prevents infinite recursion through symlink cycles.
       local st, serr = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
       if st then
-        visitor(full_path, entry, types.wrap(st), ctx)
-        if unix.S_ISDIR(st:mode()) then
-          walk_tree(full_path, visitor, ctx, errbox)
+        local action = visitor(full_path, entry, types.wrap(st), ctx)
+        if action == "stop" then
+          h:close()
+          return true
+        end
+        if action ~= "skip" and unix.S_ISDIR(st:mode()) then
+          if walk_tree(full_path, visitor, ctx, errbox) then
+            h:close()
+            return true
+          end
         end
       elseif not errbox[1] then
         errbox[1] = errstr(serr, "stat: " .. full_path)
@@ -50,6 +60,22 @@ local function walk_tree < T > (dir: string,
     end
   end
   h:close()
+  return false
+end
+
+--- Recursive walk helper. An opendir failure below the root is recorded
+--- in errbox[1] rather than swallowed or fatal.
+walk_tree = function < T > (dir: string,
+    visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx: T,
+    errbox: {string}): boolean
+  local handle, oerr = unix.opendir(dir)
+  if not handle then
+    if not errbox[1] then
+      errbox[1] = errstr(oerr, "opendir: " .. dir)
+    end
+    return false
+  end
+  return walk_entries(dir, handle as WalkDirHandle, visitor, ctx, errbox)
 end
 
 --- Walk a directory tree, calling visitor for each entry.
@@ -61,6 +87,11 @@ end
 ---   name  (string)  — the basename of the entry (e.g. "file.txt").
 ---   st    (WalkStat) — stat result for the entry.
 ---   ctx   (T)       — the context value passed to walk().
+---
+--- The visitor's return value controls the traversal:
+---   nil    — continue (a visitor that returns nothing keeps today's behavior)
+---   "skip" — do not descend into this entry (dirs only; no-op for files)
+---   "stop" — end the walk now; walk returns ctx plus any first error
 ---
 --- IMPORTANT: do NOT join path and name — path is already the full path.
 --- Joining them produces doubled paths like "dir/sub/file.txt/file.txt".
@@ -74,36 +105,18 @@ end
 --- not stop the walk; the first such error is returned alongside the
 --- context so callers never mistake a partial walk for a complete one.
 --- @param dir string The directory to walk
---- @param visitor function Called for each entry: function(path, name, st, ctx)
+--- @param visitor function Called for each entry: function(path, name, st, ctx): nil|"skip"|"stop"
 --- @param ctx T Optional context passed to every visitor call
 --- @return T | nil The context object, or nil if the root could not be opened
 --- @return string First error encountered, if any
-local function walk < T > (dir: string, visitor: function(string, string, WalkStat, T), ctx?: T): T | nil, string
+local function walk < T > (dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T): T | nil, string
   ctx = ctx or {} as T
   local handle, oerr = unix.opendir(dir)
   if not handle then
     return nil, errstr(oerr, "opendir: " .. dir)
   end
-  local h = handle as WalkDirHandle
   local errbox: {string} = {}
-
-  while true do
-    local entry = h:read()
-    if not entry then break end
-    if entry ~= "." and entry ~= ".." then
-      local full_path = cosmo_path.join(dir, entry)
-      local st, serr = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
-      if st then
-        visitor(full_path, entry, types.wrap(st), ctx)
-        if unix.S_ISDIR(st:mode()) then
-          walk_tree(full_path, visitor, ctx, errbox)
-        end
-      elseif not errbox[1] then
-        errbox[1] = errstr(serr, "stat: " .. full_path)
-      end
-    end
-  end
-  h:close()
+  walk_entries(dir, handle as WalkDirHandle, visitor, ctx, errbox)
   return ctx, errbox[1]
 end
 
@@ -230,15 +243,17 @@ local type FileIter = function(): string
   --- is a to-be-closed guard: a plain `for f in fs.files(dir) do ... end`
   --- loop adopts it as the loop's closing value (Lua 5.4), so directory
   --- handles are closed even when the loop exits early via break/error.
-  --- If the root directory cannot be opened, the iterator yields nothing
-  --- and the error is returned as the second value.
+  --- If the root directory cannot be opened, returns nil plus the error —
+  --- iterate the checked value: `for f in assert(fs.files(dir)) as fs.FileIter do`
+  --- (assert passes all four returns through, keeping the closing guard;
+  --- the cast only narrows the type, it does not drop return values).
   --- @param dir string The directory to search
   --- @param pattern string Glob pattern (*.lua) - defaults to all files (*)
-  --- @return function Iterator yielding file paths
+  --- @return function | nil Iterator yielding file paths, or nil if the root could not be opened
   --- @return string Error if the root directory could not be opened
   --- @return nil Unused (generic-for control slot)
   --- @return any Closing guard that releases open directory handles
-  local function files(dir: string, pattern?: string): FileIter, string, any, any
+  local function files(dir: string, pattern?: string): FileIter | nil, string, any, any
     pattern = pattern or "*"
 
     -- Detect if it's a glob or Lua pattern
@@ -254,8 +269,7 @@ local type FileIter = function(): string
     local stack: {{string, WalkDirHandle}} = {}
     local handle, oerr = unix.opendir(dir)
     if not handle then
-      return function(): string return nil end,
-      errstr(oerr, "opendir: " .. dir), nil, nil
+      return nil, errstr(oerr, "opendir: " .. dir)
     end
     table.insert(stack, {dir, handle as WalkDirHandle})
 
@@ -319,12 +333,16 @@ local type FileIter = function(): string
     --- Iterator over file paths, as returned by files().
     type FileIter = FileIter
 
+    --- Visitor verdict: nil continues, "skip" prunes, "stop" ends the walk.
+    type WalkAction = WalkAction
+
     --- Walk dir tree. visitor(path, name, st, ctx): path is the FULL path; name is the basename.
     --- Do NOT join path and name — path is already complete.
-    walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T), ctx?: T): T | nil, string
+    --- The visitor may return "skip" (don't descend) or "stop" (end the walk).
+    walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T): T | nil, string
     collect: function(dir: string, pattern: string): {string} | nil, string
     collect_all: function(dir: string): {string: FileInfo} | nil, string
-    files: function(dir: string, pattern?: string): FileIter, string, any, any
+    files: function(dir: string, pattern?: string): FileIter | nil, string, any, any
   end
 
   local M: FsWalkModule = {

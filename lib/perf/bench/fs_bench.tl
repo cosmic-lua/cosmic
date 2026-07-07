@@ -84,7 +84,7 @@ local function scenarios(): {pt.Scenario}, string
       name = "fs_files_tree",
       fn = function(_: any): any
         local count = 0
-        for _ in fs.files(tmpdir, "*.txt") do
+        for _ in assert(fs.files(tmpdir, "*.txt")) as fs.FileIter do
           count = count + 1
         end
         return count
