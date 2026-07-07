@@ -324,3 +324,54 @@ local function test_timegm_leap_second_ok()
   assert(ts ~= nil, "expected leap second (sec 60) to be accepted")
 end
 test_timegm_leap_second_ok()
+
+-- millisecond clocks
+
+local function test_now_ms_matches_now()
+  local secs = time.now()
+  local ms = time.now_ms()
+  local diff = ms - secs * 1000
+  assert(diff >= 0 and diff < 2000,
+    "now_ms should agree with now() within 2s, diff " .. tostring(diff))
+  assert(ms == math.floor(ms), "now_ms must return whole milliseconds")
+end
+test_now_ms_matches_now()
+
+local function test_monotonic_ms_advances()
+  local t1 = time.monotonic_ms()
+  time.sleep_ms(15)
+  local t2 = time.monotonic_ms()
+  local delta = t2 - t1
+  assert(delta >= 10, "expected >= 10ms elapsed across sleep_ms(15), got " .. tostring(delta))
+  assert(delta < 60000, "elapsed time should be sane, got " .. tostring(delta))
+  assert(t2 == math.floor(t2), "monotonic_ms must return whole milliseconds")
+end
+test_monotonic_ms_advances()
+
+-- timegm civil-days algorithm: spot checks across eras, leap days, and
+-- century rules (values from Python's calendar.timegm)
+
+local function test_timegm_pre_epoch()
+  assert(time.timegm(1969, 12, 31, 23, 59, 59) == -1, "one second before epoch")
+  assert(time.timegm(1900, 1, 1, 0, 0, 0) == -2208988800, "1900 (not a leap year)")
+  assert(time.timegm(1600, 1, 1, 0, 0, 0) == -11676096000, "1600 (leap century)")
+end
+test_timegm_pre_epoch()
+
+local function test_timegm_leap_rules()
+  assert(time.timegm(2000, 2, 29, 0, 0, 0) == 951782400, "2000-02-29 exists")
+  assert(time.timegm(2100, 3, 1, 0, 0, 0) == 4107542400, "2100 is not a leap year")
+  assert(time.timegm(2400, 2, 29, 12, 30, 45) == 13574608245, "2400-02-29 exists")
+  assert(time.timegm(2100, 2, 29, 0, 0, 0) == nil, "2100-02-29 must be rejected")
+end
+test_timegm_leap_rules()
+
+-- isdst is a boolean
+
+local function test_gmtime_isdst_boolean()
+  local dt = time.gmtime(0)
+  assert(dt.isdst == false, "UTC never observes DST, got " .. tostring(dt.isdst))
+  local lt = time.localtime(0)
+  assert(type(lt.isdst) == "boolean", "localtime isdst must be a boolean")
+end
+test_gmtime_isdst_boolean()

@@ -16,7 +16,7 @@ local record DateTime
   gmtoff: number -- Offset from UTC in seconds
   wday: number -- Day of week (0=Sunday, 6=Saturday)
   yday: number -- Day of year (0-365)
-  isdst: number -- Daylight saving time flag (1=DST, 0=standard)
+  isdst: boolean -- True when daylight saving time is in effect
   zone: string -- Timezone name (e.g., "UTC", "PDT")
 end
 
@@ -58,6 +58,23 @@ end
 local function monotonic(): number, number
   local secs, nanos = unix.clock_gettime(unix.CLOCK_MONOTONIC)
   return secs, nanos
+end
+
+--- Get current wall clock time in whole milliseconds since the epoch.
+--- Exact for timestamps within 2^53 ms (~285,000 years), so no manual
+--- (secs, nanos) arithmetic is needed for timeouts or timestamps.
+--- @return number Milliseconds since epoch
+local function now_ms(): number
+  local secs, nanos = unix.clock_gettime(unix.CLOCK_REALTIME)
+  return secs * 1000 + math.floor(nanos / 1000000)
+end
+
+--- Get monotonic time in whole milliseconds from an unspecified epoch.
+--- Use differences between two calls to measure elapsed time.
+--- @return number Milliseconds
+local function monotonic_ms(): number
+  local secs, nanos = unix.clock_gettime(unix.CLOCK_MONOTONIC)
+  return secs * 1000 + math.floor(nanos / 1000000)
 end
 
 --- Sleep for the specified duration.
@@ -126,7 +143,7 @@ local function gmtime(unixts: number): DateTime
     gmtoff = gmtoff,
     wday = wday,
     yday = yday,
-    isdst = isdst,
+    isdst = isdst > 0,
     zone = zone,
   }
 end
@@ -148,7 +165,7 @@ local function localtime(unixts: number): DateTime
     gmtoff = gmtoff,
     wday = wday,
     yday = yday,
-    isdst = isdst,
+    isdst = isdst > 0,
     zone = zone,
   }
 end
@@ -206,25 +223,18 @@ local function timegm(year: number, month: number, day: number,
   if sec < 0 or sec > 60 then
     return nil, "timegm: second out of range (0-60): " .. tostring(sec)
   end
-  local days: number = 0
-  -- count days for complete years since 1970
-  if year >= 1970 then
-    for y = 1970, year - 1 do
-      days = days + (is_leap_year(y) and 366 or 365)
-    end
-  else
-    for y = year, 1969 do
-      days = days - (is_leap_year(y) and 366 or 365)
-    end
-  end
-  -- count days for complete months in the target year
-  for m = 1, month - 1 do
-    days = days + MONTH_DAYS[m as integer]
-    if m == 2 and is_leap_year(year) then
-      days = days + 1
-    end
-  end
-  days = days + day - 1
+  -- Days since the epoch via the O(1) civil-days algorithm (Howard
+  -- Hinnant's days_from_civil), replacing the O(years) loop: shift the
+  -- year to start in March so leap days fall at the end, then count
+  -- 400-year eras (146097 days each). 719468 is the day number of
+  -- 1970-01-01 in that scheme.
+  local y = month <= 2 and year - 1 or year
+  local era = math.floor(y / 400)
+  local yoe = y - era * 400
+  local mp = (month + 9) % 12
+  local doy = math.floor((153 * mp + 2) / 5) + day - 1
+  local doe = yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy
+  local days = era * 146097 + doe - 719468
   return days * 86400 + hour * 3600 + min * 60 + sec
 end
 
@@ -373,6 +383,8 @@ local record TimeModule
   clock_gettime: function(clock?: number): number, number
   now: function(): number, number
   monotonic: function(): number, number
+  now_ms: function(): number
+  monotonic_ms: function(): number
   sleep: function(seconds: number, nanos?: number): number | nil, number, string
   sleep_ms: function(ms: number): number | nil, number, string
   gmtime: function(unixts: number): DateTime
@@ -401,6 +413,8 @@ local M: TimeModule = {
   clock_gettime = clock_gettime,
   now = now,
   monotonic = monotonic,
+  now_ms = now_ms,
+  monotonic_ms = monotonic_ms,
   sleep = sleep,
   sleep_ms = sleep_ms,
   gmtime = gmtime,
