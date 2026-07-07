@@ -29,9 +29,14 @@ end
 --- The output can be loaded with decode_lua to reconstruct the value.
 --- @param value any The Lua value to encode (table, string, number, boolean, or nil)
 --- @param opts {string:any}? Optional encoding options
---- @return string The Lua source code representation
-local function encode_lua(value: any, opts?: {string: any}): string
-  return (cosmo.EncodeLua(value, opts as cosmo.EncoderOptions))
+--- @return string | nil The Lua source code representation, or nil on error
+--- @return string? Error message if encoding failed
+local function encode_lua(value: any, opts?: {string: any}): string | nil, string
+  local result, err = cosmo.EncodeLua(value, opts as cosmo.EncoderOptions)
+  if result == nil then
+    return nil, err as string
+  end
+  return result
 end
 
 --- Decode Lua source code to a value with a restricted environment.
@@ -141,7 +146,7 @@ end
 local record CodecModule
   encode_hex: function(data: string): string
   decode_hex: function(hex: string): string | nil, string
-  encode_lua: function(value: any, opts?: {string: any}): string
+  encode_lua: function(value: any, opts?: {string: any}): string | nil, string
   decode_lua_unsafe: function(code: string): any | nil, string
   encode_base64: function(data: string): string
   decode_base64: function(str: string): string | nil, string

@@ -64,8 +64,36 @@ local function test_sleep_zero()
   -- sleep(0) should return immediately
   local secs, nanos = time.sleep(0)
   assert(secs ~= nil, "expected seconds to be non-nil")
+  assert(nanos ~= nil, "expected nanos to be non-nil")
 end
 test_sleep_zero()
+
+-- Honest sleep signature (issue #529): 0,0 on an uninterrupted sleep;
+-- nil, nil, err naming EINVAL on invalid input (the error used to
+-- surface as a string in the nanos slot with no declared error return).
+local function test_sleep_success_returns_zero_remainder()
+  local secs, nanos, err = time.sleep(0, 1000)
+  assert(secs == 0, "expected 0 remaining seconds, got " .. tostring(secs))
+  assert(nanos == 0, "expected 0 remaining nanos, got " .. tostring(nanos))
+  assert(err == nil, "expected no error, got " .. tostring(err))
+end
+test_sleep_success_returns_zero_remainder()
+
+local function test_sleep_invalid_names_errno()
+  local secs, nanos, err = time.sleep(-1)
+  assert(secs == nil and nanos == nil, "invalid sleep should return nil remainders")
+  assert(type(err) == "string" and err:match("EINVAL"),
+    "sleep error should name EINVAL, got: " .. tostring(err))
+end
+test_sleep_invalid_names_errno()
+
+local function test_sleep_ms_invalid_names_errno()
+  local secs, nanos, err = time.sleep_ms(-1000)
+  assert(secs == nil and nanos == nil, "invalid sleep_ms should return nil remainders")
+  assert(type(err) == "string" and err:match("EINVAL"),
+    "sleep_ms error should name EINVAL, got: " .. tostring(err))
+end
+test_sleep_ms_invalid_names_errno()
 
 -- sleep_ms tests
 

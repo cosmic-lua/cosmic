@@ -2,6 +2,7 @@
 --- Wraps cosmo.unix time functions for timestamps, sleeping, and time breakdown.
 local unix = require("cosmo.unix")
 local cosmo = require("cosmo")
+local errno = require("cosmic.errno")
 
 --- DateTime represents a broken-down timestamp.
 --- Returned by gmtime() and localtime().
@@ -60,25 +61,53 @@ local function monotonic(): number, number
 end
 
 --- Sleep for the specified duration.
+--- Returns 0, 0 after an uninterrupted sleep. When a signal interrupts
+--- the sleep, returns the remaining seconds and nanoseconds plus an
+--- error string naming EINTR. Invalid input (e.g. a negative duration)
+--- returns nil, nil, and an error naming EINVAL.
 --- @param seconds number Seconds to sleep
 --- @param nanos number? Additional nanoseconds to sleep (default: 0)
---- @return number Remaining seconds if interrupted
---- @return number Remaining nanoseconds if interrupted
-local function sleep(seconds: number, nanos?: number): number, number
-  local rem_s, rem_ns = unix.nanosleep(seconds, nanos or 0)
-  return rem_s, rem_ns
+--- @return number | nil Remaining seconds (0 on success), or nil on invalid input
+--- @return number Remaining nanoseconds (0 on success)
+--- @return string? Error message when interrupted (EINTR) or invalid (EINVAL)
+local function sleep(seconds: number, nanos?: number): number | nil, number, string
+  local ns = nanos or 0
+  local t0s, t0n = unix.clock_gettime(unix.CLOCK_MONOTONIC)
+  -- On failure the binding returns (nil, err, errno): the error string
+  -- arrives in the second slot, the numeric errno in the third.
+  local rem_s, rem_ns, eno = unix.nanosleep(seconds, ns)
+  if rem_s ~= nil then
+    -- The binding's success-path remainder is unreliable (nanosleep only
+    -- fills it on EINTR); an uninterrupted sleep's remainder is zero.
+    return 0, 0
+  end
+  if errno.is(eno, "EINTR") then
+    -- The binding discards the kernel's remainder on the error path;
+    -- recover it from the monotonic clock instead.
+    local t1s, t1n = unix.clock_gettime(unix.CLOCK_MONOTONIC)
+    local elapsed = (t1s - t0s) * 1000000000 + (t1n - t0n)
+    local remaining = seconds * 1000000000 + ns - elapsed
+    if remaining < 0 then
+      remaining = 0
+    end
+    return math.floor(remaining / 1000000000) as number,
+    math.floor(remaining % 1000000000) as number,
+    errno.str(rem_ns, "sleep")
+  end
+  return nil, nil, errno.str(rem_ns, "sleep")
 end
 
 --- Sleep for the specified number of milliseconds.
+--- Same contract as sleep(): 0, 0 on success; remainder plus an EINTR
+--- error when interrupted; nil, nil, err on invalid input.
 --- @param ms number Milliseconds to sleep
---- @return number Remaining seconds if interrupted
---- @return number Remaining nanoseconds if interrupted
-local function sleep_ms(ms: number): number, number
+--- @return number | nil Remaining seconds (0 on success), or nil on invalid input
+--- @return number Remaining nanoseconds (0 on success)
+--- @return string? Error message when interrupted (EINTR) or invalid (EINVAL)
+local function sleep_ms(ms: number): number | nil, number, string
   local seconds = math.floor(ms / 1000)
   local remaining_ms = ms % 1000
-  local nanos = remaining_ms * 1000000
-  local rem_s, rem_ns = unix.nanosleep(seconds, nanos)
-  return rem_s, rem_ns
+  return sleep(seconds, remaining_ms * 1000000)
 end
 
 --- Break down a UNIX timestamp into UTC (Zulu) time components.
@@ -344,8 +373,8 @@ local record TimeModule
   clock_gettime: function(clock?: number): number, number
   now: function(): number, number
   monotonic: function(): number, number
-  sleep: function(seconds: number, nanos?: number): number, number
-  sleep_ms: function(ms: number): number, number
+  sleep: function(seconds: number, nanos?: number): number | nil, number, string
+  sleep_ms: function(ms: number): number | nil, number, string
   gmtime: function(unixts: number): DateTime
   localtime: function(unixts: number): DateTime
   format_http: function(timestamp: number): string

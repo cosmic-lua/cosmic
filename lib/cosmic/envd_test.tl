@@ -370,3 +370,35 @@ local function test_cosmic_debug_empty_not_enabled()
   env.unset("COSMIC_ENVD_DEBUG_TEST")
 end
 test_cosmic_debug_empty_not_enabled()
+
+-- LoadResult.errors (issue #529, review item 39): per-file read failures
+-- are collected instead of being visible only under COSMIC_DEBUG.
+
+local function test_errors_empty_on_clean_load()
+  local dir = make_envd("errclean")
+  cio.barf(fs.join(dir, "vars"), "COSMIC_ENVD_ERR_TEST_A=1\n")
+  env.unset("COSMIC_ENVD_ERR_TEST_A")
+
+  local result = envd.load_dir(dir)
+  assert(result.errors ~= nil, "LoadResult should carry an errors list")
+  assert(#result.errors == 0, "clean load should collect no errors, got: "
+    .. tostring(result.errors[1]))
+  env.unset("COSMIC_ENVD_ERR_TEST_A")
+end
+test_errors_empty_on_clean_load()
+
+local function test_errors_collect_unreadable_entries()
+  local dir = make_envd("errunreadable")
+  cio.barf(fs.join(dir, "00-good"), "COSMIC_ENVD_ERR_TEST_B=1\n")
+  -- A subdirectory inside env.d cannot be slurped (EISDIR): the load
+  -- must still apply the readable files and report the failure.
+  fs.makedirs(fs.join(dir, "10-subdir"))
+  env.unset("COSMIC_ENVD_ERR_TEST_B")
+
+  local result = envd.load_dir(dir)
+  assert(result.count == 1, "readable file should still load, got count " .. tostring(result.count))
+  assert(#result.errors == 1, "expected 1 collected error, got " .. tostring(#result.errors))
+  assert(result.errors[1]:match("10%-subdir"), "error should name the entry, got: " .. result.errors[1])
+  env.unset("COSMIC_ENVD_ERR_TEST_B")
+end
+test_errors_collect_unreadable_entries()

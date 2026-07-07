@@ -54,7 +54,7 @@ local function test_send_to_closed_peer_returns_error()
     if n == nil then break end
   end
   assert(n == nil, "send to closed peer should return nil, got " .. tostring(n))
-  assert(serr ~= nil, "send to closed peer should return an error message")
+  assert(serr and serr:match("EPIPE"), "send error should name EPIPE, got: " .. tostring(serr))
   a:close()
 end
 test_send_to_closed_peer_returns_error()

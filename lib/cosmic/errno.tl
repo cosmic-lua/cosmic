@@ -67,8 +67,27 @@ local function is(eno: any, name: string): boolean
   return eno == want
 end
 
+--- The errno constant name embedded in a canonical error string, or nil
+--- if the message carries none. Enables programmatic checks on errors
+--- whose numeric errno is no longer at hand:
+---
+---     local data, err = cio.slurp(path)
+---     if errno.name_of(err) == "ENOENT" then ... end
+---
+--- Matches the first `ENAME:` token — an uppercase word starting with E
+--- at a word boundary, so uppercase tails of other words (`"FAILED:"`)
+--- are never mistaken for an errno name.
+---
+--- @param msg string the error string
+--- @return string? errno constant name (e.g. "ENOENT"), or nil
+local function name_of(msg: string): string
+  if msg == nil then return nil end
+  return string.match(msg, "%f[%w](E[%u%d]+):")
+end
+
 return {
   str = str,
   code = code,
   is = is,
+  name_of = name_of,
 }

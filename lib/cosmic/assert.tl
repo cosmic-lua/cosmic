@@ -10,7 +10,11 @@ local function render(v: any): string
   if v == nil then
     return "nil"
   end
-  return codec.encode_lua(v)
+  local s, err = codec.encode_lua(v)
+  if s == nil then
+    return "<unrenderable: " .. tostring(err) .. ">"
+  end
+  return s
 end
 
 --- Deep equality check for tables; == for everything else.
@@ -94,7 +98,7 @@ end
 --- Expects value to be nil and err to be a non-nil, non-empty string,
 --- matching the standard cosmic error-return convention.
 --- @param value any The first return value (expected to be nil)
---- @param err string The second return value (expected to be a non-empty string)
+--- @param e string The second return value (expected to be a non-empty string)
 --- @param label string? Optional label prepended to the failure message
 local function err(value: any, e: string, label?: string)
   local msg: string

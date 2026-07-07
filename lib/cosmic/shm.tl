@@ -2,41 +2,215 @@
 --- Provides atomic operations and wait/wake primitives for synchronization.
 --- Memory created with mapshared is shared across fork() and provides
 --- fundamental synchronization primitives including futexes.
+---
+--- This is a real wrapper over unix.mapshared, not a passthrough: sizes
+--- and offsets are validated in Lua (the region size is known at
+--- mapshared time) so failures return nil, err per the stdlib error
+--- convention instead of throwing, and residual binding throws are
+--- pcall-translated.
 local unix = require("cosmo.unix")
+local errstr = require("cosmic.errno").str
+
+local WORD = 8
 
 --- Module type for shared memory operations.
 local record ShmModule
-  --- Memory record type for shared memory operations.
-  --- Memory encapsulates shared memory with atomic operations.
-  ---
-  --- Methods:
-  --- - read(offset?, bytes?): Read bytes from memory region
-  --- - write(data, offset?, bytes?): Write bytes to memory region
-  --- - load(word_index): Atomic load of word
-  --- - store(word_index, value): Atomic store of word
-  --- - xchg(word_index, value): Atomic exchange, returns old value
-  --- - cmpxchg(word_index, old, new): Compare-and-exchange, returns success and actual value
-  --- - fetch_add(word_index, value): Atomic add, returns old value
-  --- - fetch_and(word_index, value): Atomic AND, returns old value
-  --- - fetch_or(word_index, value): Atomic OR, returns old value
-  --- - fetch_xor(word_index, value): Atomic XOR, returns old value
-  --- - wait(word_index, expect, abs_deadline?, nanos?): Wait for word to change
-  --- - wake(word_index, count?): Wake waiting processes
+  --- Shared memory region with atomic word operations and futexes.
+  --- Words are 64-bit; word_index is 0-based. Futex words (wait/wake)
+  --- only inspect the low 32 bits — store only int32 values in words
+  --- you wait on.
   record Memory
-    read: function(self: Memory, offset?: number, bytes?: number): string
-    write: function(self: Memory, data: string, offset?: number, bytes?: number)
-    load: function(self: Memory, word_index: number): number
-    store: function(self: Memory, word_index: number, value: number)
-    xchg: function(self: Memory, word_index: number, value: number): number
-    cmpxchg: function(self: Memory, word_index: number, old: number, new: number): boolean, number
-    fetch_add: function(self: Memory, word_index: number, value: number): number
-    fetch_and: function(self: Memory, word_index: number, value: number): number
-    fetch_or: function(self: Memory, word_index: number, value: number): number
-    fetch_xor: function(self: Memory, word_index: number, value: number): number
-    wait: function(self: Memory, word_index: number, expect: number, abs_deadline?: number, nanos?: number): number
+    --- Read bytes from the region. With no bytes count, reads up to the
+    --- first NUL byte (string semantics).
+    read: function(self: Memory, offset?: number, bytes?: number): string | nil, string
+    --- Write bytes to the region (appends a NUL when no count is given).
+    write: function(self: Memory, data: string, offset?: number, bytes?: number): boolean, string
+    --- Atomic load of a word.
+    load: function(self: Memory, word_index: number): number | nil, string
+    --- Atomic store to a word.
+    store: function(self: Memory, word_index: number, value: number): boolean, string
+    --- Atomic exchange; returns the old value.
+    xchg: function(self: Memory, word_index: number, value: number): number | nil, string
+    --- Compare-and-exchange; returns success plus the actual old value.
+    cmpxchg: function(self: Memory, word_index: number, old: number, new: number): boolean | nil, number, string
+    --- Atomic add; returns the old value.
+    fetch_add: function(self: Memory, word_index: number, value: number): number | nil, string
+    --- Atomic AND; returns the old value.
+    fetch_and: function(self: Memory, word_index: number, value: number): number | nil, string
+    --- Atomic OR; returns the old value.
+    fetch_or: function(self: Memory, word_index: number, value: number): number | nil, string
+    --- Atomic XOR; returns the old value.
+    fetch_xor: function(self: Memory, word_index: number, value: number): number | nil, string
+    --- Wait until the word no longer holds `expect`. Returns 0 when
+    --- woken; nil plus an error naming EAGAIN (value already differed),
+    --- ETIMEDOUT (deadline expired), or EINTR (signal).
+    wait: function(self: Memory, word_index: number, expect: number, abs_deadline?: number, nanos?: number): number | nil, string
+    --- Wake processes waiting on a word; returns how many woke.
     wake: function(self: Memory, word_index: number, count?: number): number
+    --- The mapped region size in bytes.
+    size: function(self: Memory): number
   end
-  mapshared: function(size: number): Memory
+  mapshared: function(size: number): Memory | nil, string
+end
+
+local type Memory = ShmModule.Memory
+
+--- Validate a 0-based word index against the region size.
+local function check_word(word_index: number, size: number, op: string): string
+  if word_index == nil or word_index < 0 or word_index >= size // WORD then
+    return op .. ": word_index out of range (0-" .. tostring(size // WORD - 1)
+    .. "): " .. tostring(word_index)
+  end
+  return nil
+end
+
+--- Translate a pcall failure (a residual binding throw) into the
+--- error-return convention.
+local function thrown(op: string, err: any): string
+  return errstr(err, op)
+end
+
+--- Wrap the raw unix.Memory userdata in a Memory record whose methods
+--- validate bounds in Lua and return nil, err instead of throwing.
+local function wrap(raw: unix.Memory, size: number): Memory
+  local mem: Memory = {}
+
+  function mem:size(): number
+    return size
+  end
+
+  function mem:read(offset?: number, bytes?: number): string | nil, string
+    local off = offset or 0
+    if off < 0 or off > size then
+      return nil, "read: offset out of range (0-" .. tostring(size) .. "): " .. tostring(off)
+    end
+    if bytes ~= nil and (bytes < 0 or off + bytes > size) then
+      return nil, "read: byte range out of range (offset " .. tostring(off)
+      .. " + " .. tostring(bytes) .. " > " .. tostring(size) .. ")"
+    end
+    local ok, res = pcall(raw.read, raw, offset, bytes)
+    if not ok then
+      return nil, thrown("read", res)
+    end
+    return res as string
+  end
+
+  function mem:write(data: string, offset?: number, bytes?: number): boolean, string
+    local off = offset or 0
+    local n = bytes or #data
+    if n > #data then
+      n = #data
+    end
+    if off < 0 or off + n > size then
+      return false, "write: byte range out of range (offset " .. tostring(off)
+      .. " + " .. tostring(n) .. " > " .. tostring(size) .. ")"
+    end
+    local ok, err = pcall(raw.write, raw, data, offset, bytes) as(boolean, any)
+    if not ok then
+      return false, thrown("write", err)
+    end
+    return true
+  end
+
+  function mem:load(word_index: number): number | nil, string
+    local range_err = check_word(word_index, size, "load")
+    if range_err then
+      return nil, range_err
+    end
+    local ok, res = pcall(raw.load, raw, word_index)
+    if not ok then
+      return nil, thrown("load", res)
+    end
+    return res as number
+  end
+
+  function mem:store(word_index: number, value: number): boolean, string
+    local range_err = check_word(word_index, size, "store")
+    if range_err then
+      return false, range_err
+    end
+    local ok, err = pcall(raw.store, raw, word_index, value) as(boolean, any)
+    if not ok then
+      return false, thrown("store", err)
+    end
+    return true
+  end
+
+  -- Shared body for the atomic read-modify-write word operations.
+  local function atomic(op: string, fn: any, word_index: number, value: number): number | nil, string
+    local range_err = check_word(word_index, size, op)
+    if range_err then
+      return nil, range_err
+    end
+    local call = fn as function(unix.Memory, number, number): number
+    local ok, res = pcall(call, raw, word_index, value)
+    if not ok then
+      return nil, thrown(op, res)
+    end
+    return res as number
+  end
+
+  function mem:xchg(word_index: number, value: number): number | nil, string
+    return atomic("xchg", raw.xchg, word_index, value)
+  end
+
+  function mem:fetch_add(word_index: number, value: number): number | nil, string
+    return atomic("fetch_add", raw.fetch_add, word_index, value)
+  end
+
+  function mem:fetch_and(word_index: number, value: number): number | nil, string
+    return atomic("fetch_and", raw.fetch_and, word_index, value)
+  end
+
+  function mem:fetch_or(word_index: number, value: number): number | nil, string
+    return atomic("fetch_or", raw.fetch_or, word_index, value)
+  end
+
+  function mem:fetch_xor(word_index: number, value: number): number | nil, string
+    return atomic("fetch_xor", raw.fetch_xor, word_index, value)
+  end
+
+  function mem:cmpxchg(word_index: number, old: number, new: number): boolean | nil, number, string
+    local range_err = check_word(word_index, size, "cmpxchg")
+    if range_err then
+      return nil, nil, range_err
+    end
+    local ok, success, actual = pcall(raw.cmpxchg, raw, word_index, old, new)
+    if not ok then
+      return nil, nil, thrown("cmpxchg", success)
+    end
+    return success as boolean, actual as number
+  end
+
+  function mem:wait(word_index: number, expect: number, abs_deadline?: number, nanos?: number): number | nil, string
+    local range_err = check_word(word_index, size, "wait")
+    if range_err then
+      return nil, range_err
+    end
+    -- The binding returns (nil, err, errno) for EAGAIN/ETIMEDOUT/EINTR
+    -- and throws for a futex word with nonzero high bits; keep both as
+    -- error returns.
+    local ok, rc, err = pcall(raw.wait, raw, word_index, expect, abs_deadline, nanos)
+    if not ok then
+      return nil, thrown("wait", rc)
+    end
+    if rc == nil then
+      return nil, errstr(err, "wait")
+    end
+    return rc as number
+  end
+
+  function mem:wake(word_index: number, count?: number): number
+    local range_err = check_word(word_index, size, "wake")
+    if range_err then
+      -- wake never fails in the binding; an out-of-range index wakes
+      -- nothing rather than growing an error slot for it.
+      return 0
+    end
+    return raw:wake(word_index, count)
+  end
+
+  return mem
 end
 
 --- Creates a shared memory region.
@@ -46,7 +220,7 @@ end
 --- Example usage for a simple mutex:
 --- ```lua
 --- local shm = require("cosmic.shm")
---- local mem = shm.mapshared(8000 * 8)
+--- local mem = assert(shm.mapshared(8000 * 8))
 --- local LOCK = 0  -- word index for lock
 ---
 --- -- Lock acquisition
@@ -61,10 +235,23 @@ end
 --- mem:wake(LOCK, 1)
 --- ```
 ---
---- @param size number Size in bytes for the shared memory region
---- @return Memory Shared memory object with atomic operations
-local function mapshared(size: number): ShmModule.Memory
-  return unix.mapshared(size) as ShmModule.Memory
+--- @param size number Size in bytes: positive, a multiple of the 8-byte word size
+--- @return Memory | nil Shared memory object, or nil on failure
+--- @return string? Error message on failure
+local function mapshared(size: number): Memory | nil, string
+  if size == nil or size <= 0 then
+    return nil, "mapshared: size must be a positive number of bytes: " .. tostring(size)
+  end
+  if size % WORD ~= 0 then
+    return nil, "mapshared: size must be a multiple of the " .. tostring(WORD)
+    .. "-byte word size: " .. tostring(size)
+  end
+  -- Residual throws (e.g. out of memory, size cap) become nil, err.
+  local ok, raw = pcall(unix.mapshared, size)
+  if not ok then
+    return nil, thrown("mapshared", raw)
+  end
+  return wrap(raw as unix.Memory, size)
 end
 
 local M: ShmModule = {

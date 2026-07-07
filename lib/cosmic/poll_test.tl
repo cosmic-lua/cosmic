@@ -260,4 +260,39 @@ local function test_poll_hangup()
 end
 test_poll_hangup()
 
+-- Error fidelity (issue #529): add(nil) raises instead of silently
+-- doing nothing, and wait() surfaces a hard poll error instead of
+-- returning an indistinguishable empty iterator.
+
+local function test_add_nil_fd_errors()
+  local p = poll.new()
+  local ok = pcall(function()
+      p:add(nil, poll.POLLIN)
+    end)
+  assert(not ok, "add(nil) should raise, not silently no-op")
+end
+test_add_nil_fd_errors()
+
+local function test_wait_surfaces_hard_error()
+  -- Provoke a real poll failure: more fds than RLIMIT_NOFILE is EINVAL.
+  local p = poll.new()
+  for i = 1, 100000 do
+    p:add(i, poll.POLLIN)
+  end
+  local n, perr = p:poll(0)
+  if n ~= nil then
+    io.stderr:write("SKIP: test_wait_surfaces_hard_error (could not provoke poll failure)\n")
+    return
+  end
+  assert(perr:match("E%u+"), "poll error should name the errno, got: " .. perr)
+  local iter, werr = p:wait(0)
+  assert(type(iter) == "function", "wait must still return an iterator on error")
+  for _ in iter do
+    assert(false, "the error iterator must be empty")
+  end
+  assert(type(werr) == "string" and werr:match("E%u+"),
+    "wait should surface the poll error, got: " .. tostring(werr))
+end
+test_wait_surfaces_hard_error()
+
 print("all poll tests passed")
