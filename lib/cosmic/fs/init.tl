@@ -280,6 +280,10 @@ local record FsModule
   statfs: function(path: string): Statfs | nil, string
   fstatfs: function(fd: number): Statfs | nil, string
 
+  -- Flush all filesystem buffers to disk, system-wide (sync(2)).
+  -- Per-file flushing is Handle:sync()/Handle:datasync() in cosmic.fd.
+  sync: function()
+
   -- Device number utilities
   major: function(dev: number): number
   minor: function(dev: number): number
@@ -369,6 +373,7 @@ local M: FsModule = {
   -- Filesystem statistics (re-exported from fs_ops)
   statfs = fs_ops.statfs,
   fstatfs = fs_ops.fstatfs,
+  sync = fs_ops.sync,
 
   -- Device number utilities (re-exported from fs_ops)
   major = fs_ops.major,

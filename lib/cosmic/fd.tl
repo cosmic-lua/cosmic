@@ -9,6 +9,12 @@
 ---
 --- For whole-file path-based operations use cosmic.fs: fs.read(path),
 --- fs.write(path, data), fs.truncate(path).
+---
+--- EINTR posture: Handle read/write/seek do NOT retry automatically. When
+--- a signal interrupts the call, it returns nil plus an EINTR-tagged
+--- error; callers that install signal handlers detect it with
+--- `errno.name_of(err) == "EINTR"` and retry themselves. (Automatic
+--- retry is deferred to the signal-safety wave.)
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").str
 
@@ -58,7 +64,11 @@ make_handle = function(fd: number): Handle
     return handle_fd or -1
   end
 
-  --- Read up to size bytes. Returns empty string on EOF.
+  --- Read up to size bytes. Returns nil with NO error on EOF (Lua
+  --- convention: `while true do local chunk = h:read(n); if not chunk
+  --- then break end ... end`), and nil WITH an error on failure —
+  --- including EAGAIN on a nonblocking fd with no data, and EINTR when
+  --- a signal interrupts the read (see the module header; not retried).
   --- If offset is provided, reads at that position (pread behavior).
   function handle:read(size?: number, offset?: number): string | nil, string
     if not handle_fd then
@@ -68,10 +78,15 @@ make_handle = function(fd: number): Handle
     if data == nil and err then
       return nil, errstr(err, "read")
     end
-    return data or ""
+    if data == nil or data == "" then
+      return nil -- EOF: nil with no error
+    end
+    return data
   end
 
-  --- Write data. Returns number of bytes written.
+  --- Write data. Returns number of bytes written (which may be fewer
+  --- than #data — callers writing everything must loop). On failure
+  --- returns nil plus an error; EINTR is not retried (see module header).
   --- If offset is provided, writes at that position (pwrite behavior).
   function handle:write(data: string, offset?: number): number | nil, string
     if not handle_fd then
@@ -85,6 +100,7 @@ make_handle = function(fd: number): Handle
   end
 
   --- Seek to position. whence: SEEK_SET (default), SEEK_CUR, SEEK_END.
+  --- On failure returns nil plus an error; EINTR is not retried.
   function handle:seek(offset: number, whence?: number): number | nil, string
     if not handle_fd then
       return nil, "handle closed"
@@ -214,11 +230,6 @@ local function pipe(flags?: number): Pipe | nil, string
   return make_pipe(make_handle(reader_fd), make_handle(writer_fd))
 end
 
---- Flush all file system buffers to disk.
-local function sync()
-  unix.sync()
-end
-
 --- Wrap an already-open raw file descriptor in a Handle.
 --- Lets fds from fs.mkstemp()/fs.tmpfd() (or any other source) enter the
 --- Handle world: h:read()/h:write()/h:close(), plus automatic cleanup
@@ -236,7 +247,6 @@ local record FdModule
   open: function(path: string, flags: number, mode?: number, dirfd?: number): Handle | nil, string
   wrap: function(rawfd: number): Handle
   pipe: function(flags?: number): Pipe | nil, string
-  sync: function()
 
   O_RDONLY: number
   O_WRONLY: number
@@ -274,7 +284,6 @@ local M: FdModule = {
   open = open,
   wrap = wrap,
   pipe = pipe,
-  sync = sync,
 
   O_RDONLY = unix.O_RDONLY,
   O_WRONLY = unix.O_WRONLY,

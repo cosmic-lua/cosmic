@@ -338,6 +338,13 @@ local function fstatfs(fd: number): Statfs | nil, string
   return info as Statfs
 end
 
+--- Flush all filesystem buffers to disk, system-wide (sync(2)).
+--- Infallible: the syscall reports nothing. For a single file use
+--- Handle:sync()/Handle:datasync() from cosmic.fd.
+local function sync()
+  unix.sync()
+end
+
 -- Device number utilities
 
 --- Extract major device number from a device ID.
@@ -375,6 +382,7 @@ local record FsOpsModule
   tmpfd: function(): number | nil, string
   statfs: function(path: string): Statfs | nil, string
   fstatfs: function(fd: number): Statfs | nil, string
+  sync: function()
   major: function(dev: number): number
   minor: function(dev: number): number
   F_OK: number
@@ -404,6 +412,7 @@ local M: FsOpsModule = {
   tmpfd = tmpfd,
   statfs = statfs,
   fstatfs = fstatfs,
+  sync = sync,
   major = major,
   minor = minor,
   F_OK = unix.F_OK,
