@@ -140,6 +140,13 @@ end
 -- a specific error naming the first missing capability so callers can
 -- distinguish "not on Linux" from "landlock unavailable" etc.
 local function preflight(opts: BoxOpts): boolean, string
+  -- Policy-shape problems are reported before host-capability gaps:
+  -- they are actionable everywhere and must not be masked by whatever
+  -- capability this particular host happens to lack.
+  if opts and opts.fs and opts.fs.deny
+  and not (opts.fs.ro or opts.fs.rw or opts.fs.exec) then
+    return false, "quicksand: fs.deny requires at least one of fs.ro, fs.rw, or fs.exec (deny is informational; landlock is allowlist-based)"
+  end
   local c = caps()
   if not c.linux then
     return false, "quicksand: Linux only"
@@ -156,9 +163,6 @@ local function preflight(opts: BoxOpts): boolean, string
     end
     local fs = opts.fs
     local has_fs = fs and (fs.ro or fs.rw or fs.exec)
-    if fs and fs.deny and not has_fs then
-      return false, "quicksand: fs.deny requires at least one of fs.ro, fs.rw, or fs.exec (deny is informational; landlock is allowlist-based)"
-    end
     if has_fs and not c.landlock then
       return false, "quicksand: landlock unavailable (fs policy requested)"
     end

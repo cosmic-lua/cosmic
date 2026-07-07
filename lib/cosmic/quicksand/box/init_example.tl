@@ -34,21 +34,27 @@ local function Example_merge()
 end
 
 -- Example_run_return_shape demonstrates that run() always comes back
--- as a clean (integer|nil, string|nil) pair, whether the workload ran
--- to completion or the box could not be assembled on this host. The
--- caller distinguishes "assembly failed" from "process exited" by
--- checking whether code is nil.
+-- as a clean (integer|nil, string|nil) pair with exactly one side set:
+-- an integer exit code when the workload actually ran, or nil plus an
+-- error string when the box could not be assembled on this host (setup
+-- failures are never disguised as workload exit codes). The caller
+-- distinguishes the two by checking whether code is nil.
 local function Example_run_return_shape()
   local Box = require("cosmic.quicksand.box")
   local j = assert(Box.new()) as Box.Box
   local code, err = j:run({"/bin/true"})
-  if code == nil then
-    io.write("err " .. tostring((err or ""):sub(1, 10)) .. "\n")
+  -- Which side is set varies by host capability, so assert the shape
+  -- invariant rather than printing the values: exactly one of
+  -- (code, err) is ever set.
+  assert((code == nil) ~= (err == nil), "run() must set exactly one of code/err")
+  if code ~= nil then
+    assert(type(code) == "number", "exit code must be an integer")
   else
-    io.write("code " .. type(code) .. "\n")
+    assert(type(err) == "string", "assembly failure must carry a message")
   end
+  io.write("exclusive\n")
   -- Output:
-  -- code number
+  -- exclusive
 end
 
 return {}

@@ -45,6 +45,12 @@ local TRUNCATE < const > = unix.LANDLOCK_ACCESS_FS_TRUNCATE as integer -- ABI 3+
 --- `READ` and `EXEC` are self-explanatory.
 local READ < const > = READ_FILE | READ_DIR
 local EXEC < const > = EXECUTE
+--- Access bits that can attach to a non-directory inode. The kernel
+--- rejects a rule carrying directory-only rights (READ_DIR, MAKE_*,
+--- REMOVE_*, REFER) on a regular file with EINVAL, so restrict() masks
+--- file rules down to these — mirroring what the libc unveil path does
+--- after fstat.
+local FILE_BITS < const > = READ_FILE | WRITE_FILE | EXECUTE | TRUNCATE
 local WRITE < const > = WRITE_FILE | REMOVE_FILE | REMOVE_DIR
 | MAKE_REG | MAKE_DIR | MAKE_SYM
 | MAKE_SOCK | MAKE_FIFO | MAKE_CHAR | MAKE_BLOCK
@@ -54,7 +60,9 @@ local ALL < const > = READ | WRITE | EXEC | REFER | TRUNCATE
 --- A single path -> access-mask rule in a restrict() call.
 --- `access` is an OR of cosmic.landlock.* flag constants (READ, EXEC,
 --- WRITE_FILE, MAKE_REG, etc.) and must be a subset of the call's
---- `handled` mask.
+--- `handled` mask. When `path` is not a directory, directory-only
+--- rights are stripped automatically, so `access = READ` works on a
+--- regular file even though READ bundles READ_DIR.
 local record Rule
   path: string
   access: integer
@@ -132,6 +140,12 @@ end
 --- Access categories above the running kernel's ABI are stripped from
 --- `handled` automatically, so `cosmic.landlock.ALL` stays portable.
 --- The ruleset fd is always closed before return.
+---
+--- Known gap: TRUNCATE is only handleable on landlock ABI >= 3, so on
+--- older kernels a restricted process can still truncate(2) files
+--- outside its allowlist. (Cosmopolitan's C unveil path plugs this with
+--- a seccomp filter; this module does not.) Pair with `cosmic.pledge`
+--- — truncate is governed by its "wpath" group — where that matters.
 local function restrict(opts: RestrictOpts): boolean, string
   opts = opts or {}
   local abi_version, aerr = abi()
@@ -156,11 +170,22 @@ local function restrict(opts: RestrictOpts): boolean, string
     if not pfd then
       return fail(string.format("open(%q): %s", rule.path, tostring(perr)))
     end
-    local ok, rerr = unix.landlock_add_rule(rsfd, pfd as integer, access, 0)
-    unix.close(pfd)
-    if not ok then
-      return fail(string.format("add_rule(%q): %s", rule.path, tostring(rerr)))
+    -- Directory-only rights on a non-directory rule are an EINVAL from
+    -- the kernel; strip them so file paths accept the composite masks
+    -- (READ, RW, ...). A rule left with no grantable bits is skipped —
+    -- landlock denies by default, so granting nothing needs no rule.
+    local st = unix.fstat(pfd as integer)
+    if st and not unix.S_ISDIR(st:mode()) then
+      access = access & FILE_BITS
     end
+    if access ~= 0 then
+      local ok, rerr = unix.landlock_add_rule(rsfd, pfd as integer, access, 0)
+      if not ok then
+        unix.close(pfd)
+        return fail(string.format("add_rule(%q): %s", rule.path, tostring(rerr)))
+      end
+    end
+    unix.close(pfd)
   end
   if opts.no_new_privs ~= false then
     local ok, err = unix.prctl(unix.PR_SET_NO_NEW_PRIVS, 1)

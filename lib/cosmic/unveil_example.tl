@@ -1,29 +1,31 @@
 --- Examples for the cosmic.unveil module.
---- Unveil is OpenBSD-only at runtime; on Linux the call returns ENOSYS.
---- Because unveil commits a process-wide policy, each example runs in a
---- subprocess via cosmic.child.
+--- Unveil enforces on OpenBSD natively and on Linux kernels with
+--- Landlock; `available()` reports which. Because a committed policy is
+--- process-wide and irreversible, each example runs in a subprocess via
+--- cosmic.child.
 
--- Example_apply demonstrates unveiling a single directory read-only and
--- committing the policy. After commit, reading the unveiled file works;
--- reading outside the unveiled tree fails on OpenBSD.
-local function Example_apply()
+-- Example_allow demonstrates unveiling a single directory read-only and
+-- committing the policy. The API is fail-closed: on hosts without a
+-- backing sandbox, allow() returns false + "unveil unsupported on this
+-- host" instead of pretending to restrict.
+local function Example_allow()
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
   local script = [[
 local unveil = require("cosmic.unveil")
-local sys = require("cosmic.sys")
-if sys.host_os() ~= "openbsd" then
-  io.write("skipped\n")
-  return
+if unveil.available() then
+  assert(unveil.allow("/tmp", "r"))
+  assert(unveil.commit())
+else
+  local ok, err = unveil.allow("/tmp", "r")
+  assert(not ok and err:find("unsupported"))
 end
-assert(unveil.apply("/tmp", "r"))
-assert(unveil.apply(nil, nil))
-io.write("committed\n")
+io.write("done\n")
 ]]
   local r = spawn.run({cosmic, "-e", script}) as spawn.Result
   io.write(r.stdout)
   -- Output:
-  -- skipped
+  -- done
 end
 
 return {}

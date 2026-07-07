@@ -19,6 +19,7 @@ local cosmo = require("cosmo")
 local unix = require("cosmo.unix")
 local box = require("cosmic.quicksand.box")
 local caps = require("cosmic.quicksand.caps")
+local qproc = require("cosmic.quicksand.proc")
 local errno = require("cosmic.errno")
 
 --- Fine-grained feature availability on the current host.
@@ -27,7 +28,7 @@ local errno = require("cosmic.errno")
 --- partway through a setup sequence.
 local record Capabilities
   linux: boolean -- host is Linux
-  user_ns: boolean -- CLONE_NEWUSER available (unprivileged usernet)
+  user_ns: boolean -- unshare(NEWUSER|NEWNET|NEWNS) + uid_map verified in a scratch child
   mount_ns: boolean -- CLONE_NEWNS available
   net_ns: boolean -- CLONE_NEWNET available
   uts_ns: boolean -- CLONE_NEWUTS available (for hostname isolation)
@@ -44,6 +45,7 @@ local record QuicksandModule
   capabilities: function(): Capabilities
   is_supported: function(): boolean
   probe: function(fn: any): boolean
+  probe_ns: function(): boolean
   Box: any -- re-export of cosmic.quicksand.box
 end
 
@@ -79,6 +81,55 @@ local function probe_landlock(): boolean
   return abi ~= nil and abi >= 1
 end
 
+--- Probe whether the Box namespace trio can actually be entered: a
+--- scratch child attempts unshare(CLONE_NEWUSER | CLONE_NEWNET |
+--- CLONE_NEWNS) followed by the uid_map / gid_map writes — exactly the
+--- setup sequence Box:run's supervisor performs — and reports the
+--- outcome over a pipe. unshare is irreversible for the caller, so the
+--- attempt must never run in this process.
+---
+--- CLONE_NEWUSER exists as a compile-time constant on every Linux
+--- build, but hosts routinely disable unprivileged user namespaces
+--- (sysctls, seccomp, AppArmor), and others allow the unshare while
+--- blocking the /proc/self/*_map writes; testing the constant reported
+--- user_ns = true on such hosts and Box:run then failed partway
+--- through setup with EPERM. Any probe failure (pipe, fork, unshare,
+--- map writes) reports unavailable — fail-closed.
+---
+--- @return boolean true when the Box userns setup sequence works here
+local function probe_ns(): boolean
+  if unix.CLONE_NEWUSER == nil or unix.CLONE_NEWNET == nil
+  or unix.CLONE_NEWNS == nil then
+    return false
+  end
+  local flags = (unix.CLONE_NEWUSER as integer)
+  | (unix.CLONE_NEWNET as integer)
+  | (unix.CLONE_NEWNS as integer)
+  local r, w = unix.pipe(unix.O_CLOEXEC)
+  if not r then return false end
+  local rfd = r as integer
+  local wfd = w as integer
+  local pid = unix.fork()
+  if pid == nil then
+    unix.close(rfd)
+    unix.close(wfd)
+    return false
+  end
+  if pid == 0 then
+    local ok = unix.unshare(flags)
+    if ok then
+      ok = qproc.setup_userns_maps(nil, nil)
+    end
+    unix.write(wfd, ok and "1" or "0")
+    unix.exit(0)
+  end
+  unix.close(wfd)
+  local b = unix.read(rfd, 1)
+  unix.close(rfd)
+  unix.wait(pid as integer)
+  return b == "1"
+end
+
 local cached: Capabilities = nil
 
 --- Returns a cached Capabilities record for the current host.
@@ -93,7 +144,7 @@ local function capabilities(): Capabilities
   local has_landlock = is_linux and probe_landlock()
   cached = {
     linux = is_linux,
-    user_ns = is_linux and unix.CLONE_NEWUSER ~= nil,
+    user_ns = is_linux and probe_ns(),
     mount_ns = is_linux and unix.CLONE_NEWNS ~= nil,
     net_ns = is_linux and unix.CLONE_NEWNET ~= nil,
     uts_ns = is_linux and unix.CLONE_NEWUTS ~= nil,
@@ -124,6 +175,7 @@ local M: QuicksandModule = {
   capabilities = capabilities,
   is_supported = is_supported,
   probe = probe,
+  probe_ns = probe_ns,
   Box = box,
 }
 

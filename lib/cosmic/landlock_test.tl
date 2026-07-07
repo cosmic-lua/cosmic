@@ -120,6 +120,65 @@ if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n
 end
 test_restrict_denies_outside_allowlist()
 
+-- A rule whose path is a regular file must work with the composite
+-- READ mask: READ bundles READ_DIR, and the kernel EINVALs a
+-- directory-only right attached to a non-directory — restrict() must
+-- mask file rules down to the file-applicable bits (as the C unveil
+-- path does) instead of failing opaquely. Enforcement is irreversible,
+-- so the live check runs in a subprocess.
+local function test_restrict_single_file_rule()
+  if not landlock.available() then
+    a.skip("landlock unavailable (kernel lacks landlock)")
+    return
+  end
+
+  local dir = fs.join(tmpdir, "filerule")
+  fs.makedirs(dir)
+  local target = fs.join(dir, "target.txt")
+  local sibling = fs.join(dir, "sibling.txt")
+  cio.barf(target, "target-content")
+  cio.barf(sibling, "sibling-content")
+
+  local script = fs.join(tmpdir, "landlock_filerule.lua")
+  cio.barf(script, string.format([[
+local ll = require("cosmic.landlock")
+local ok, err = ll.restrict{ rules = { { path = %q, access = ll.READ } } }
+if not ok then
+  io.write("restrict-failed: " .. tostring(err) .. "\n")
+  os.exit(0)
+end
+local f = io.open(%q, "r")
+if f then io.write("file-ok\n"); f:close() else io.write("file-fail\n") end
+local g = io.open(%q, "r")
+if g then io.write("sibling-leaked\n"); g:close() else io.write("sibling-blocked\n") end
+]], target, target, sibling))
+
+  local h = spawn.spawn({cosmic, script})
+  local __r2 = (h as spawn.Handle):wait() as spawn.Result
+  local ok, out = __r2.ok, __r2.stdout
+  if not ok then
+    a.skip("landlock restrict blocked (subprocess died before enforcing)", true)
+    return
+  end
+  local s = out as string
+  -- Plain-text find: "-" is a Lua pattern quantifier, so a pattern
+  -- search for "restrict-failed" would never match the literal marker.
+  if s:find("restrict-failed", 1, true) then
+    -- The EINVAL this test pins came from add_rule; that regression is
+    -- a hard failure. Anything else (create_ruleset / restrict_self
+    -- blocked by an outer sandbox) is a strict skip.
+    assert(not s:find("add_rule(", 1, true),
+      "single-file READ rule must not fail in add_rule: " .. s)
+    a.skip("landlock restrict blocked: " .. s, true)
+    return
+  end
+  assert(s:find("file-ok", 1, true), "single-file rule should read: " .. s)
+  assert(s:find("sibling-blocked", 1, true),
+    "sibling outside the rule must be blocked: " .. s)
+  a.enforced("landlock single-file rule")
+end
+test_restrict_single_file_rule()
+
 -- The rule-loop error path runs before any enforcement, so it is safe
 -- in-process. This exercises the O_PATH open of each rule path (the
 -- vendored Lua predecessor crashed here on a nil unix.O_PATH instead
