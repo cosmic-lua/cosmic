@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+local codec = require("cosmic.codec")
 local hash = require("cosmic.hash")
 
 -- SHA-256 tests
@@ -144,3 +145,38 @@ local function test_password_default_mcost_is_19456()
   assert(string.match(encoded, "m=19456"), "default m_cost should be 19456, encoded string: " .. encoded)
 end
 test_password_default_mcost_is_19456()
+
+-- HMAC-SHA256 (issue #531): RFC 4231 test vectors
+
+local function test_hmac_sha256_rfc4231_case1()
+  local key = string.rep("\x0b", 20)
+  local tag = hash.hmac_sha256(key, "Hi There")
+  local hex = codec.encode_hex(tag)
+  assert(hex == "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7",
+    "RFC 4231 case 1 mismatch: " .. hex)
+end
+test_hmac_sha256_rfc4231_case1()
+
+local function test_hmac_sha256_rfc4231_case2()
+  local tag = hash.hmac_sha256("Jefe", "what do ya want for nothing?")
+  local hex = codec.encode_hex(tag)
+  assert(hex == "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
+    "RFC 4231 case 2 mismatch: " .. hex)
+end
+test_hmac_sha256_rfc4231_case2()
+
+-- Constant-time comparison
+
+local function test_constant_time_equal()
+  assert(hash.constant_time_equal("", ""), "empty strings are equal")
+  assert(hash.constant_time_equal("abc", "abc"), "equal strings compare equal")
+  assert(not hash.constant_time_equal("abc", "abd"), "differing last byte")
+  assert(not hash.constant_time_equal("abc", "xbc"), "differing first byte")
+  assert(not hash.constant_time_equal("abc", "abcd"), "different lengths")
+  local d1 = hash.sha256("a")
+  local d2 = hash.sha256("a")
+  local d3 = hash.sha256("b")
+  assert(hash.constant_time_equal(d1, d2), "identical digests compare equal")
+  assert(not hash.constant_time_equal(d1, d3), "different digests compare unequal")
+end
+test_constant_time_equal()

@@ -86,3 +86,66 @@ local function test_encode_invalid_value()
   assert(type(err) == "string", "error should be a string")
 end
 test_encode_invalid_value()
+
+-- Encode options (issue #531: options used to be silently ignored)
+
+local function test_encode_pretty()
+  local result = json.encode({a = 1, b = 2}, {pretty = true})
+  assert(result, "pretty encode should succeed")
+  assert(string.match(result as string, "\n"), "pretty output should contain a newline, got: " .. tostring(result))
+end
+test_encode_pretty()
+
+local function test_encode_pretty_indent()
+  local result = json.encode({a = {b = 1}, c = 2}, {pretty = true, indent = "    "})
+  assert(result, "pretty encode with indent should succeed")
+  assert(string.match(result as string, "\n    "), "output should use the custom indent, got: " .. tostring(result))
+end
+test_encode_pretty_indent()
+
+local function test_encode_default_stays_compact()
+  local result = json.encode({a = 1, b = 2})
+  assert(result == '{"a":1,"b":2}', "default encode should stay compact, got: " .. tostring(result))
+end
+test_encode_default_stays_compact()
+
+local function test_encode_maxdepth()
+  local result, err = json.encode({a = {b = {c = 1}}}, {maxdepth = 2})
+  assert(result == nil, "encode past maxdepth should fail")
+  assert(err ~= nil, "maxdepth failure should carry an error message")
+end
+test_encode_maxdepth()
+
+-- Null policy: these pin the documented (lossy) behavior so a change in the
+-- C encoder/decoder shows up as a test failure, not a silent contract drift.
+
+local function test_null_object_key_dropped()
+  local decoded = json.decode('{"a":null,"b":1}') as {string: any}
+  assert(decoded.a == nil, "null object value should decode to nil")
+  assert(decoded.b == 1, "sibling value should survive")
+  local reencoded = json.encode(decoded)
+  assert(reencoded == '{"b":1}', "null key is documented to vanish on re-encode, got: " .. tostring(reencoded))
+end
+test_null_object_key_dropped()
+
+local function test_null_array_element_truncates()
+  local decoded = json.decode("[1,null,2]") as {any}
+  assert(decoded[1] == 1, "first element should survive")
+  assert(decoded[2] == nil, "null element should decode to nil (hole)")
+  assert(decoded[3] == 2, "element after null should still be reachable")
+  local reencoded = json.encode(decoded)
+  assert(reencoded == "[1]", "array with hole is documented to truncate on re-encode, got: " .. tostring(reencoded))
+end
+test_null_array_element_truncates()
+
+local function test_nan_inf_encoding()
+  local nan_json = json.encode({0 / 0})
+  assert(nan_json == "[null]", "NaN is documented to encode as null, got: " .. tostring(nan_json))
+  -- Inf encodes as an out-of-range literal, not null: it round-trips back
+  -- to Inf here but is not standard JSON for stricter parsers.
+  local inf_json = json.encode({math.huge})
+  assert(inf_json == "[1e5000]", "Inf is documented to encode as 1e5000, got: " .. tostring(inf_json))
+  local ninf_json = json.encode({-math.huge})
+  assert(ninf_json == "[-1e5000]", "-Inf is documented to encode as -1e5000, got: " .. tostring(ninf_json))
+end
+test_nan_inf_encoding()

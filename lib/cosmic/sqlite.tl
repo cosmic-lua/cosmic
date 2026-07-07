@@ -12,15 +12,22 @@
 ---       print(row.id, row.name)
 ---     end
 ---     db:close()
+---
+--- Binary values: wrap with `sqlite.blob(s)` to store with BLOB affinity
+--- (a bare Lua string always binds as TEXT). Opening sets a 5000ms busy
+--- timeout by default; see `OpenOptions`.
 
 local lsqlite3 = require("cosmo.lsqlite3")
 local stmt_cache_mod = require("cosmic.sqlite_stmt_cache")
 local row_iter = require("cosmic.sqlite_row_iter")
+local bind_mod = require("cosmic.sqlite_bind")
+local params_mod = require("cosmic.sqlite_params")
 
 -- Raw lsqlite3 types (0-indexed, requires manual cleanup)
 local record RawStatement
   bind_values: function(self: RawStatement, ...: any): number
   bind: function(self: RawStatement, n: number, value?: any): number
+  bind_blob: function(self: RawStatement, n: number, blob: string): number
   bind_names: function(self: RawStatement, params: {string: any}): number
   bind_parameter_count: function(self: RawStatement): number
   step: function(self: RawStatement): number
@@ -35,6 +42,7 @@ local record RawDatabase
   close: function(self: RawDatabase): number
   exec: function(self: RawDatabase, sql: string): number
   prepare: function(self: RawDatabase, sql: string): RawStatement, number, string
+  busy_timeout: function(self: RawDatabase, milliseconds: number)
   last_insert_rowid: function(self: RawDatabase): number
   changes: function(self: RawDatabase): number
   errmsg: function(self: RawDatabase): string
@@ -45,7 +53,8 @@ local record RawSqlite3
   ROW: number
   DONE: number
   SCHEMA: number
-  open: function(filename: string): RawDatabase, number, string
+  OPEN_READONLY: number
+  open: function(filename: string, flags?: number): RawDatabase, number, string
 end
 
 local sqlite3 = lsqlite3 as RawSqlite3
@@ -102,12 +111,13 @@ local function make_statement(raw_stmt: RawStatement, raw_db: RawDatabase): Stat
 
   --- Bind parameters by position. Handles trailing nil values correctly
   --- (unlike varargs with table.unpack which drops them).
+  --- Values wrapped with `sqlite.blob()` are bound with BLOB affinity.
   function stmt:bind(...: any): boolean, string
     raw_stmt:reset()
     local n = select("#", ...) as integer
     for i = 1, n do
       local val = select(i, ...)
-      local rc = raw_stmt:bind(i, val)
+      local rc = bind_mod.bind_at(raw_stmt, i, val)
       if rc ~= sqlite3.OK then
         return false, raw_db:errmsg()
       end
@@ -117,11 +127,12 @@ local function make_statement(raw_stmt: RawStatement, raw_db: RawDatabase): Stat
 
   --- Bind parameters from a list (table). The count is derived from the SQL,
   --- so nil values in the table are handled correctly without an explicit count.
+  --- Values wrapped with `sqlite.blob()` are bound with BLOB affinity.
   function stmt:bind_list(values: {any}): boolean, string
     raw_stmt:reset()
     local count = raw_stmt:bind_parameter_count() as integer
     for i = 1, count do
-      local rc = raw_stmt:bind(i, values[i as integer])
+      local rc = bind_mod.bind_at(raw_stmt, i, values[i as integer])
       if rc ~= sqlite3.OK then
         return false, raw_db:errmsg()
       end
@@ -132,8 +143,16 @@ local function make_statement(raw_stmt: RawStatement, raw_db: RawDatabase): Stat
   --- Bind named parameters from a key/value table.
   --- SQL should use :name placeholders (e.g. ":foo", ":bar").
   --- Table keys are names without the colon prefix.
+  --- `sqlite.blob()` wrappers are not supported here: the underlying
+  --- bind_names call binds the wrapper table itself, silently losing BLOB
+  --- affinity, so they are rejected — use positional binding for blobs.
   function stmt:bind_named(params: {string: any}): boolean, string
     raw_stmt:reset()
+    for name, v in pairs(params) do
+      if bind_mod.is_blob(v) then
+        return false, "blob value for :" .. name .. " requires positional binding"
+      end
+    end
     local rc = raw_stmt:bind_names(params)
     if rc ~= sqlite3.OK then
       return false, raw_db:errmsg()
@@ -234,29 +253,6 @@ local function make_statement(raw_stmt: RawStatement, raw_db: RawDatabase): Stat
     }) as Statement
 end
 
--- Wrap a prepared+bound statement's row iterator: finalize the statement
--- when iteration ends and forward the step error through `:err()`.
-local function make_query_iter(stmt: Statement): Rows
-  local raw_iter = stmt:rows()
-  local done = false
-  local iter = setmetatable({} as Rows, {
-      __call = function(_: Rows): {string: any}
-        if done then
-          return nil
-        end
-        local row = raw_iter()
-        if row == nil then
-          done = true
-          stmt:close()
-          return nil
-        end
-        return row
-      end,
-    })
-  iter.err = function(_: Rows): string return raw_iter:err() end
-  return iter
-end
-
 local function make_database(raw_db: RawDatabase): Database
   local db: Database = {}
   local closed = false
@@ -316,82 +312,10 @@ local function make_database(raw_db: RawDatabase): Database
     return stmt_cache:exec(sql, args, n)
   end
 
-  --- Execute SQL with parameters from a list (table). The count is derived
-  --- from the SQL itself, so nil values in the table are handled correctly.
-  function db:exec_list(sql: string, values: {any}): boolean, string
-    local stmt, err = self:prepare(sql)
-    if not stmt then
-      return false, err or "prepare failed"
-    end
-    local st = stmt as Statement
-
-    local ok, bind_err = st:bind_list(values)
-    if not ok then
-      st:close()
-      return false, bind_err or "bind failed"
-    end
-
-    local exec_ok, exec_err = st:exec()
-    st:close()
-    return exec_ok, exec_err
-  end
-
-  --- Execute SQL with named parameters.
-  --- SQL should use :name placeholders. Table keys are names without the colon.
-  function db:exec_named(sql: string, params: {string: any}): boolean, string
-    local stmt, err = self:prepare(sql)
-    if not stmt then
-      return false, err or "prepare failed"
-    end
-    local st = stmt as Statement
-
-    local ok, bind_err = st:bind_named(params)
-    if not ok then
-      st:close()
-      return false, bind_err or "bind failed"
-    end
-
-    local exec_ok, exec_err = st:exec()
-    st:close()
-    return exec_ok, exec_err
-  end
-
-  --- Query with parameters from a list (table).
-  --- The parameter count is derived from the SQL itself, so nil values
-  --- in the table are handled correctly.
-  function db:query_list(sql: string, values: {any}): Rows | nil, string
-    local stmt, err = self:prepare(sql)
-    if not stmt then
-      return nil, "query failed: " .. (err or "unknown error")
-    end
-    local st = stmt as Statement
-
-    local ok, bind_err = st:bind_list(values)
-    if not ok then
-      st:close()
-      return nil, "bind failed: " .. (bind_err or "unknown error")
-    end
-
-    return make_query_iter(st)
-  end
-
-  --- Query with named parameters.
-  --- SQL should use :name placeholders. Table keys are names without the colon.
-  function db:query_named(sql: string, params: {string: any}): Rows | nil, string
-    local stmt, err = self:prepare(sql)
-    if not stmt then
-      return nil, "query failed: " .. (err or "unknown error")
-    end
-    local st = stmt as Statement
-
-    local ok, bind_err = st:bind_named(params)
-    if not ok then
-      st:close()
-      return nil, "bind failed: " .. (bind_err or "unknown error")
-    end
-
-    return make_query_iter(st)
-  end
+  -- exec_list, exec_named, query_list, query_named live in
+  -- cosmic.sqlite_params (same prepare/bind/consume shape, split out to
+  -- keep this file under the 500-line cap).
+  params_mod.attach(db)
 
   --- Return the first row matching a query, or nil if no rows match.
   --- Convenience method for single-row lookups.
@@ -470,24 +394,55 @@ local function make_database(raw_db: RawDatabase): Database
     }) as Database
 end
 
+--- Options for opening a database.
+local record OpenOptions
+  --- Busy timeout in milliseconds (default 5000). When another connection
+  --- holds a conflicting lock, statements wait up to this long before
+  --- failing with SQLITE_BUSY. Pass 0 to fail immediately (SQLite's raw
+  --- default).
+  busy_timeout_ms: integer
+  --- Open the database read-only (default false). The file must exist.
+  read_only: boolean
+end
+
 --- Open or create an SQLite database.
 --- Relative paths are resolved against the current working directory.
 --- Absolute paths (e.g. "/var/data/app.db") work as expected.
 --- Use ":memory:" for an in-memory database that is not written to disk.
---- The file is created if it does not already exist.
+--- The file is created if it does not already exist (unless read_only).
+--- A 5000ms busy timeout is set by default so two processes sharing a
+--- file database wait for each other instead of failing instantly with
+--- SQLITE_BUSY; override with opts.busy_timeout_ms.
 --- @param filename string Database path (use ":memory:" for in-memory)
+--- @param opts OpenOptions? busy_timeout_ms and read_only
 --- @return Database | nil Database handle with __close support
 --- @return string Error message on failure
-local function open(filename: string): Database | nil, string
-  local raw_db, errcode, errmsg = sqlite3.open(filename)
+local function open(filename: string, opts?: OpenOptions): Database | nil, string
+  local raw_db: RawDatabase
+  local errcode: number
+  local errmsg: string
+  if opts and opts.read_only then
+    raw_db, errcode, errmsg = sqlite3.open(filename, sqlite3.OPEN_READONLY)
+  else
+    raw_db, errcode, errmsg = sqlite3.open(filename)
+  end
   if not raw_db then
     return nil, errmsg or ("error code " .. tostring(errcode))
   end
+  local timeout_ms = 5000
+  if opts and opts.busy_timeout_ms ~= nil then
+    timeout_ms = opts.busy_timeout_ms
+  end
+  raw_db:busy_timeout(timeout_ms)
   return make_database(raw_db)
 end
 
 local record sqlite
-  open: function(filename: string): Database | nil, string
+  type Blob = bind_mod.Blob
+  type OpenOptions = OpenOptions
+
+  open: function(filename: string, opts?: OpenOptions): Database | nil, string
+  blob: function(data: string): bind_mod.Blob
   Database: Database
   Statement: Statement
   Rows: Rows
@@ -495,6 +450,7 @@ end
 
 local M: sqlite = {
   open = open,
+  blob = bind_mod.blob,
 }
 
 return M

@@ -5,6 +5,8 @@
 --- once on the first row, and releases the statement when iteration drains.
 --- Lives in its own file so cosmic/sqlite.tl stays under the 500-line cap.
 
+local bind_mod = require("cosmic.sqlite_bind")
+
 local record RawStatement
   bind: function(self: RawStatement, n: number, value?: any): number
   step: function(self: RawStatement): number
@@ -106,7 +108,7 @@ local type OnClose = function(RawStatement)
     raw_stmt:reset()
     local n = select("#", ...) as integer
     for i = 1, n do
-      local rc = raw_stmt:bind(i, (select(i, ...)))
+      local rc = bind_mod.bind_at(raw_stmt, i, (select(i, ...)))
       if rc ~= ok_code then
         local bind_err = raw_db:errmsg()
         if on_close then

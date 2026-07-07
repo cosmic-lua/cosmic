@@ -54,6 +54,35 @@ local function sha256_hex(data: string): string
   return codec.encode_hex(cosmo.Sha256(data))
 end
 
+--- Compute HMAC-SHA256 of data with a secret key (RFC 2104).
+--- Returns raw bytes (32 bytes); hex-encode with cosmic.codec.encode_hex
+--- if needed. Compare MACs with constant_time_equal, not ==.
+--- @param key string The secret key
+--- @param data string The message to authenticate
+--- @return string The HMAC-SHA256 tag as raw bytes
+local function hmac_sha256(key: string, data: string): string
+  return (cosmo.GetCryptoHash("SHA256", data, key))
+end
+
+--- Compare two strings in constant time (for digests and MACs).
+--- A plain == comparison exits at the first differing byte, leaking how
+--- much of a secret an attacker has guessed; this XOR-accumulates over
+--- every byte instead. Only the lengths are allowed to short-circuit
+--- (digest/MAC lengths are public).
+--- @param a string First string
+--- @param b string Second string
+--- @return boolean True when a and b are equal
+local function constant_time_equal(a: string, b: string): boolean
+  if #a ~= #b then
+    return false
+  end
+  local acc = 0
+  for i = 1, #a do
+    acc = acc | (string.byte(a, i) ~ string.byte(b, i))
+  end
+  return acc == 0
+end
+
 --- Hash a password using Argon2.
 --- Returns an encoded string suitable for storage.
 --- @param pwd string The password to hash
@@ -108,6 +137,8 @@ local record HashModule
 
   sha256: function(data: string): string
   sha256_hex: function(data: string): string
+  hmac_sha256: function(key: string, data: string): string
+  constant_time_equal: function(a: string, b: string): boolean
   password: function(pwd: string, options?: HashOptions): string | nil, string
   verify_password: function(encoded: string, pwd: string): boolean, string
 end
@@ -115,6 +146,8 @@ end
 local M: HashModule = {
   sha256 = sha256,
   sha256_hex = sha256_hex,
+  hmac_sha256 = hmac_sha256,
+  constant_time_equal = constant_time_equal,
   password = password,
   verify_password = verify_password,
 }

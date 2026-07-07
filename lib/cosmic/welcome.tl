@@ -3,11 +3,6 @@
 local cio = require("cosmic.io")
 local czip = require("cosmic.zip")
 
-local record Appender
-  add: function(self: Appender, name: string, content: string): boolean | nil, string | nil
-  close: function(self: Appender)
-end
-
 local MARKER < const > = ".cosmic/welcome-shown"
 
 --- Check if welcome has been shown.
@@ -20,11 +15,12 @@ end
 local function mark_shown()
   local exe = arg[-1]
   if exe then
-    local appender = czip.open(exe, "a") as Appender
+    local appender = czip.appender(exe)
     if appender then
+      local a = appender as czip.Appender
       -- Ignore result; showing welcome again on failure is acceptable
-      appender:add(MARKER, "")
-      appender:close()
+      a:add(MARKER, "")
+      a:close()
     end
   end
 end
