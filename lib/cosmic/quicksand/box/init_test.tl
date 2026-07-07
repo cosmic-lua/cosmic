@@ -121,29 +121,18 @@ local function test_merge_reexported()
 end
 test_merge_reexported()
 
--- FIX 3: a deny-only fs policy (no ro/rw/exec) must be rejected at
--- preflight so landlock is never silently skipped.
-local function test_deny_only_requires_allowlist()
-  local c = quicksand.capabilities()
-  if not c.linux then return end
-
-  local j = assert(Box.new({fs = {deny = {"/proc"}}})) as Box.Box
-  local code, err = j:run({"/bin/true"})
-  assert(code == nil, "deny-only policy should fail preflight, got code: " .. tostring(code))
+-- The decoy fs.deny knob is gone: the fs policy is an allowlist, so a
+-- deny list never did anything. Passing one must fail loudly at new()
+-- (not be silently ignored) so old policies get a migration message.
+local function test_fs_deny_rejected_at_new()
+  local new_any = Box.new as function(any): any, any
+  local j, err = new_any({fs = {deny = {"/proc"}}})
+  assert(j == nil, "fs.deny must be rejected at new()")
   assert(err and (err as string):find("deny", 1, true),
-    "error should mention 'deny', got: " .. tostring(err))
+    "error should name the removed deny knob: " .. tostring(err))
+  -- ...even next to a valid allowlist.
+  local j2, err2 = new_any({fs = {ro = {"/usr"}, deny = {"/proc"}}})
+  assert(j2 == nil and err2 and (err2 as string):find("deny", 1, true),
+    "deny next to an allowlist is still rejected: " .. tostring(err2))
 end
-test_deny_only_requires_allowlist()
-
--- FIX 3: a policy with both deny and an allowlist should still pass preflight.
-local function test_deny_with_allowlist_passes_preflight()
-  local c = quicksand.capabilities()
-  if not c.linux then return end
-
-  -- new() + run() on a non-linux-capable environment skips gracefully.
-  -- On Linux, preflight should NOT reject a policy that has deny + ro.
-  local j, jerr = Box.new({fs = {ro = {"/usr"}, deny = {"/proc"}}})
-  assert(j, "deny + ro should be accepted: " .. tostring(jerr))
-  -- We don't actually run the box here; structural validity is enough.
-end
-test_deny_with_allowlist_passes_preflight()
+test_fs_deny_rejected_at_new()

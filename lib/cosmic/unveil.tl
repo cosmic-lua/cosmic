@@ -26,6 +26,28 @@ local cosmo = require("cosmo")
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").str
 
+--- The permission strings `allow` accepts: every combination of r/w/x/c
+--- in canonical rwxc order, as a Teal enum so typos ("rc" vs "cr",
+--- "rwd") are caught at compile time. The libc itself accepts any
+--- character order at runtime; untyped Lua callers are unaffected.
+local enum Perm
+  "r"
+  "w"
+  "x"
+  "c"
+  "rw"
+  "rx"
+  "rc"
+  "wx"
+  "wc"
+  "xc"
+  "rwx"
+  "rwc"
+  "rxc"
+  "wxc"
+  "rwxc"
+end
+
 --- Options for `allow` / `commit`. `best_effort` turns an unsupported
 --- host into a successful no-op instead of an error — the explicit
 --- fail-open escape hatch.
@@ -71,7 +93,7 @@ local unsupported < const > = "unveil unsupported on this host"
 --- @param permissions string Permission string like "r", "rw", "rwxc"
 --- @return boolean True on success
 --- @return string? Error message on failure
-local function allow(path: string, permissions: string, opts?: UnveilOpts): boolean, string
+local function allow(path: string, permissions: Perm, opts?: UnveilOpts): boolean, string
   if not available() then
     if opts and opts.best_effort then return true end
     return false, unsupported
@@ -112,12 +134,13 @@ local function apply(path: string, permissions: string): boolean, string
   if path == nil and permissions == nil then
     return commit()
   end
-  return allow(path, permissions)
+  return allow(path, permissions as Perm)
 end
 
 local record UnveilModule
+  type Perm = Perm
   type UnveilOpts = UnveilOpts
-  allow: function(path: string, permissions: string, opts?: UnveilOpts): boolean, string
+  allow: function(path: string, permissions: Perm, opts?: UnveilOpts): boolean, string
   commit: function(opts?: UnveilOpts): boolean, string
   available: function(): boolean
   apply: function(path: string, permissions: string): boolean, string

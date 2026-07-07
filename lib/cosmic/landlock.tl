@@ -81,6 +81,8 @@ local record RestrictOpts
 end
 
 local record LandlockModule
+  type Rule = Rule
+  type RestrictOpts = RestrictOpts
   EXECUTE: integer
   WRITE_FILE: integer
   READ_FILE: integer

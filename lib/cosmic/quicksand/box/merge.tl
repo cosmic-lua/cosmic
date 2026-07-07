@@ -6,7 +6,7 @@
 ---
 --- Field classes:
 ---   scalar   hostname, cwd, uid, gid, pledge, log_level, ...
----   list     fs.ro, fs.rw, fs.exec, fs.deny, env.keep
+---   list     fs.ro, fs.rw, fs.exec, env.keep
 ---   map      net.allow, env.set
 ---
 --- Merge rules:
@@ -27,7 +27,6 @@ local schema: Schema = {
     ["fs.ro"] = true,
     ["fs.rw"] = true,
     ["fs.exec"] = true,
-    ["fs.deny"] = true,
     ["env.keep"] = true,
   },
   maps = {

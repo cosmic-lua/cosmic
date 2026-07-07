@@ -57,8 +57,9 @@ local function build_module_map(): {string: string}
     "embed", "env", "envd", "example", "fetch", "format", "fs", "fuzzy",
     "getopt", "hash", "html", "io", "ip", "json", "landlock", "net",
     "pledge", "poll", "proc", "quicksand", "rand", "re", "require",
-    "shm", "signal", "sqlite", "sse", "string", "sys", "syslog", "teal",
-    "testrun", "time", "tty", "unveil", "url", "user", "uuid", "zip",
+    "sandbox", "shm", "signal", "sqlite", "sse", "string", "sys",
+    "syslog", "teal", "testrun", "time", "tty", "unveil", "url", "user",
+    "uuid", "zip",
   }
   for _, short_name in ipairs(known_cosmic) do
     if not module_map[short_name] then

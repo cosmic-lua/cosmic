@@ -254,8 +254,9 @@ all modules are under `lib/cosmic/` and imported as `cosmic.*`:
 | proc | current process: pid, exec, resource usage |
 | rand | cryptographic random bytes |
 | re | POSIX extended regular expressions |
+| sandbox | one-call fail-closed facade over pledge/unveil/landlock (fs + sys policy) |
 | pledge | restrict system calls (OpenBSD, Linux) |
-| unveil | restrict filesystem visibility (OpenBSD) |
+| unveil | restrict filesystem visibility (OpenBSD, or Linux via landlock) |
 | landlock | Linux >=5.13 self-restricting filesystem sandbox |
 | quicksand | Linux namespace + allowlist proxy box primitives and declarative `Box` builder |
 | shm | shared memory with atomic ops and futexes |

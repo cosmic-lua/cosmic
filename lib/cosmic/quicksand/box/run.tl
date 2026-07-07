@@ -14,8 +14,9 @@
 ---   4. supervisor starts the allowlist proxy sidecar if net.allow is
 ---      set, and prepends HTTP(S)_PROXY into the workload env when
 ---      net.proxy_env is not explicitly false.
----   5. supervisor forks the workload. Workload does chdir, landlock,
----      no_new_privs, drop_privs, pledge, then execvpe(argv, env).
+---   5. supervisor forks the workload. Workload does chdir, the
+---      sandbox fs policy (landlock), no_new_privs, drop_privs,
+---      pledge, then execvpe(argv, env).
 ---   6. supervisor runs become_init(workload_pid, {sidecars={proxy_pid}})
 ---      and os.exit()s with the returned code. parent maps wait status
 ---      to an exit code and returns it from run().
@@ -33,9 +34,8 @@ local netns = require("cosmic.quicksand.netns")
 local qproc = require("cosmic.quicksand.proc")
 local qcaps = require("cosmic.quicksand.caps")
 local proxy = require("cosmic.quicksand.proxy")
-local landlock = require("cosmic.landlock")
+local sandbox = require("cosmic.sandbox")
 local pledge = require("cosmic.pledge")
-local box_fs = require("cosmic.quicksand.box.fs")
 local box_env = require("cosmic.quicksand.box.env")
 local cenv = require("cosmic.env")
 
@@ -44,9 +44,8 @@ local u = unix as {string: any}
 -- Cast the typed-record helpers to `any`-accepting shapes so we can
 -- thread raw {string: any} opt tables through without duplicating every
 -- record definition here.
-local plan_landlock = box_fs.plan_landlock as function(any): any
 local env_apply = box_env.apply as function(any, {string: string}): {string: string}
-local ll_restrict = landlock.restrict as function(any): boolean, string
+local sandbox_apply = sandbox.apply as function(any): boolean, string
 local proxy_start = proxy.start as function(any): {string: any}, string
 
 local record CapsModule
@@ -111,9 +110,11 @@ local function workload_setup(opts: {string: any}): string
   end
   local fs = opts and opts.fs as {string: any}
   if fs and (fs.ro or fs.rw or fs.exec) then
-    local plan = plan_landlock(fs)
-    local ok, err = ll_restrict(plan)
-    if not ok then return "landlock: " .. tostring(err) end
+    -- The fs policy is cosmic.sandbox's Fs schema; the facade picks the
+    -- mechanism (landlock here — Box is Linux-only) and its errors are
+    -- already prefixed "sandbox: fs: ...".
+    local ok, err = sandbox_apply({fs = fs})
+    if not ok then return tostring(err) end
   end
   local pr = opts and opts.proc as {string: any}
   if pr and (pr.no_new_privs or pr.uid ~= nil) then
