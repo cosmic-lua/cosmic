@@ -46,6 +46,8 @@ local record FetchOptions
   maxredirects: number
   --- whether to follow redirects. Defaults to `true`.
   followredirect: boolean
+  --- allow requests to private, loopback, and other non-public network addresses (disables the SSRF guard). Applies to every hop of a redirect chain. Defaults to `false`.
+  allowprivate: boolean
   --- whether to keep the connection alive.
   keepalive: boolean
   --- proxy URL to route the request through.
@@ -54,8 +56,6 @@ local record FetchOptions
   maxresponse: number
   --- request timeout in seconds. `0` or absent keeps the 60-second default; there is no "infinite" option.
   timeout: number
-  --- whether to reset TLS session state before the request.
-  resettls: boolean
 end
 
 local record BarfOptions
@@ -73,12 +73,12 @@ end
 --- promptly is recommended.
 local record StreamReader
   --- Reads the next chunk of the response body.
-  --- Returns a string chunk on success. An empty string may be returned
-  --- for chunked transfer encodings when framing data arrived without any
-  --- payload; callers should skip empty chunks rather than treating them
-  --- as EOF. Returns `nil` when the stream ends. Returns `nil` plus an
-  --- error message string if the reader is closed, the connection failed,
-  --- or the response was truncated.
+  --- Returns a non-empty string chunk on success (chunked transfer framing
+  --- that arrives without payload is consumed internally and never surfaces
+  --- as an empty chunk). Returns `nil` with no error when the stream ends,
+  --- including for bodyless responses such as 204 and 304. Returns `nil`
+  --- plus an error message string if the reader was closed with `close`,
+  --- the connection failed, or the response was truncated.
   read: function(self: StreamReader): string | nil, string | nil
   --- Closes the reader and releases the connection, buffer, and TLS
   --- state. Idempotent: closing an already-closed reader is a no-op.
@@ -401,12 +401,17 @@ local record cosmo
   ---   connection open (unless closed by the server) and reuse for the
   ---   next request to the same host. This option is disabled when SSL
   ---   connection is used.
-  ---   The mapping of hosts and their sockets is stored in a table
-  ---   assigned to the `keepalive` field itself, so it can be passed to
-  ---   the next call.
-  ---   If the table includes the `close` field set to a true value,
-  ---   then the connection is closed after the request is made and the
-  ---   host is removed from the mapping table.
+  ---   When a table is passed, it is used as the socket pool: the mapping
+  ---   of hosts to their sockets is stored in it, so the same table can be
+  ---   passed to the next call. If that table includes the `close` field
+  ---   set to a true value, then the connection is closed after the
+  ---   request is made and the host is removed from the mapping table.
+  ---   When `true` is passed, a process-wide internal pool is used
+  ---   instead; the options table is never modified.
+  --- - `allowprivate` (default: `false`): allow requests to private,
+  ---   loopback, and other non-public network addresses, which are
+  ---   otherwise blocked to prevent SSRF. The opt-out covers every hop of
+  ---   a redirect chain.
   --- - `proxy` (string): HTTP proxy URL, e.g. `"http://proxy:8080"`.
   ---   Supports Basic authentication: `"http://user:pass@proxy:8080"`.
   --- - `maxresponse` (default: `104857600`): maximum response size in bytes.
@@ -416,8 +421,6 @@ local record cosmo
   ---   connect).  A value of `0` or absent keeps the 60-second default.  There
   ---   is no "infinite" option — use a large positive value if needed.  The
   ---   timeout also bounds the TLS handshake.
-  --- - `resettls` (default: `true`): reset TLS state after fork.
-  ---   Ensures child processes get fresh DRBG entropy.
   --- Environment variables:
   --- - `http_proxy` / `HTTP_PROXY`: default proxy URL when `proxy` option
   ---   is not specified. Supports same format as the option.
@@ -427,18 +430,34 @@ local record cosmo
   ---   Only embedded certificates will be used.
   --- When the redirect is being followed, the same method and body values are being
   --- sent in all cases except when 303 status is returned. In that case the method
-  --- is set to GET and the body is removed before the redirect is followed. Note
-  --- that if these (method/body) values are provided as table fields, they will be
-  --- modified in place.
-  Fetch: function(url: string, body?: string | FetchOptions): number, {string: string}, string, string | nil
+  --- is set to GET and the body is removed before the redirect is followed. The
+  --- options table is read-only: it is never modified, even across redirects.
+  --- On success, the fourth return value is the effective URL: the URL of
+  --- the final request after any redirects were followed.
+  --- On failure, returns `nil`, a descriptive error message, and a
+  --- machine-readable failure kind, one of `"dns"` (name resolution
+  --- failed), `"connect"` (connection failed or was reset), `"tls"`
+  --- (handshake or certificate verification failed), `"timeout"`,
+  --- `"proxy"` (proxy configuration or tunnel failure), `"protocol"`
+  --- (malformed request or response), `"too_large"` (response exceeded
+  --- `maxresponse`), or `"blocked"` (refused by SSRF protection or the
+  --- HTTPS-to-HTTP downgrade guard).
+  Fetch: function(url: string, body?: string | FetchOptions): number, {string: string}, string, string, string | nil, string | nil
   --- Sends an HTTP/HTTPS request and returns a streaming reader for the response body.
   --- Useful for Server-Sent Events (SSE), large downloads, or processing data incrementally.
   --- Accepts the same options table as `Fetch()`, including `timeout`, `maxresponse`,
-  --- `headers`, `method`, `body`, `proxy`, `followredirect`, and `maxredirects`.
+  --- `headers`, `method`, `body`, `proxy`, `allowprivate`, `followredirect`,
+  --- and `maxredirects` (`keepalive` is ignored: streaming connections are
+  --- always closed). The options table is read-only: it is never modified,
+  --- even across redirects.
   --- Note: `timeout=0` (or absent) retains the 60-second default; there is no
   --- "infinite" option.  `maxresponse` limits per-read buffer growth; negative
   --- values are rejected.
-  FetchStream: function(url: string, options?: FetchOptions): number, {string: string}, StreamReader, string | nil
+  --- On success, the fourth return value is the effective URL after any
+  --- redirects. On failure, returns `nil`, a descriptive error message,
+  --- and a machine-readable failure kind with the same values as
+  --- `Fetch()`.
+  FetchStream: function(url: string, options?: FetchOptions): number, {string: string}, StreamReader, string, string | nil, string | nil
   --- Converts UNIX timestamp to an RFC1123 string that looks like this:
   --- `Mon, 29 Mar 2021 15:37:13 GMT`. See `formathttpdatetime.c`.
   FormatHttpDateTime: function(seconds: number): string

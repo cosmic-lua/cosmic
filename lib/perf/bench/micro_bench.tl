@@ -7,7 +7,7 @@ local hash = require("cosmic.hash")
 local codec = require("cosmic.codec")
 local compress = require("cosmic.compress")
 local cstr = require("cosmic.string")
-local net = require("cosmic.net")
+local ip = require("cosmic.ip")
 local url = require("cosmic.url")
 local pt = require("perf.perf_types")
 
@@ -164,8 +164,8 @@ local function scenarios(): {pt.Scenario}, string
     {
       name = "net_ip_roundtrip",
       fn = function(_: any): any
-        local n = net.parseip("192.168.1.1")
-        return net.formatip(n)
+        local n = ip.parse("192.168.1.1")
+        return ip.format(n)
       end,
       check = function(_: any, res: any): boolean, string
         if res as string ~= "192.168.1.1" then

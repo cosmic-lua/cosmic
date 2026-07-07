@@ -1,5 +1,9 @@
 --- Server-Sent Events parser for streaming HTTP responses.
---- Parses SSE format from a fetch.Reader and yields complete events.
+--- Parses SSE format from a fetch.Reader and yields complete events,
+--- following the WHATWG event stream processing model: unterminated
+--- events at EOF are discarded, empty-data dispatches reset the event
+--- type buffer, the last event ID updates as soon as an `id:` line is
+--- seen, and `retry:` accepts only ASCII digits.
 
 local fetch = require("cosmic.fetch")
 
@@ -9,6 +13,18 @@ local record Event
   event: string -- event type, defaults to "message"
   id: string -- last event ID
   retry: number -- reconnection time in milliseconds
+end
+
+--- An open SSE event stream.
+local record Stream
+  --- Iterator over parsed events: yields Event values; on a mid-stream
+  --- transport failure yields nil plus the error message once, then
+  --- plain nil — so truncation is distinguishable from a graceful close.
+  next: function(): Event | nil, string
+  --- The last seen event ID (nil until an id: line is seen), for
+  --- reconnecting with a Last-Event-ID request header. Updates as soon
+  --- as an id: line is parsed, even when no event is dispatched.
+  last_event_id: function(): string
 end
 
 --- Parse a single field line into name and value.
@@ -39,66 +55,61 @@ local function parse_field(line: string): string, string
 end
 
 --- Parse SSE events from a streaming reader.
+--- Returns a Stream whose next() yields Event values (iterate with
+--- `for ev in stream.next do`); when the underlying reader fails
+--- mid-body (reset, truncation, TLS error) next() yields nil plus the
+--- error message once, then nil — so a truncated stream is
+--- distinguishable from a graceful close. A partially accumulated event
+--- at end-of-stream is discarded per the SSE spec, not dispatched.
+--- stream.last_event_id() exposes the id for reconnects.
 --- @param reader fetch.Reader the reader to parse events from
---- @return function iterator yielding Event or nil, error string
-local function events(reader: fetch.Reader): function(): Event | nil, string
+--- @return Stream the open event stream
+local function events(reader: fetch.Reader): Stream
   local current_data: {string} = {}
   local current_event: string = nil
-  local current_id: string = nil
   local current_retry: number = nil
   local last_id: string = nil
   local lines_iter = reader:lines()
   local done = false
 
-  return function(): Event | nil, string
+  local function next_event(): Event | nil, string
     if done then
       return nil
     end
 
     while true do
-      local line = lines_iter()
+      local line, read_err = lines_iter()
       if not line then
         done = true
-        -- stream ended: dispatch final event if we have pending data
-        if #current_data > 0 then
-          local ev: Event = {
-            data = table.concat(current_data, "\n"),
-            event = current_event or "message",
-            id = current_id or last_id,
-            retry = current_retry,
-          }
-          current_data = {}
-          return ev
+        -- Stream ended. A pending unterminated event is discarded per
+        -- spec: without its blank line it may be truncated mid-field.
+        if read_err then
+          return nil, read_err
         end
         return nil
       end
 
       -- strip trailing CR if present (handles \r\n line endings)
-      if line:sub(-1) == "\r" then
-        line = line:sub(1, -2)
+      if string.sub(line, -1) == "\r" then
+        line = string.sub(line, 1, -2)
       end
 
       if line == "" then
-        -- blank line: dispatch event if we have data
-        if #current_data > 0 then
+        -- blank line: dispatch the accumulated event
+        local data = table.concat(current_data, "\n")
+        current_data = {}
+        if data == "" then
+          -- empty data buffer: reset the event type too, dispatch nothing
+          current_event = nil
+        else
           local ev: Event = {
-            data = table.concat(current_data, "\n"),
+            data = data,
             event = current_event or "message",
-            id = current_id or last_id,
+            id = last_id,
             retry = current_retry,
           }
-
-          -- update last_id for subsequent events
-          if current_id then
-            last_id = current_id
-          end
-
-          -- reset accumulators for next event
-          current_data = {}
           current_event = nil
-          current_id = nil
           current_retry = nil
-
           return ev
         end
       else
@@ -109,11 +120,15 @@ local function events(reader: fetch.Reader): function(): Event | nil, string
           elseif name == "event" then
             current_event = value
           elseif name == "id" then
-            current_id = value
+            -- takes effect immediately, even if no event is dispatched;
+            -- ids carrying a NUL are ignored per spec
+            if not value:find("\0", 1, true) then
+              last_id = value
+            end
           elseif name == "retry" then
-            local n = tonumber(value)
-            if n then
-              current_retry = n
+            -- digits-only per spec; anything else is ignored
+            if value:match("^%d+$") then
+              current_retry = tonumber(value)
             end
           end
           -- ignore unknown field names per spec
@@ -122,11 +137,21 @@ local function events(reader: fetch.Reader): function(): Event | nil, string
       end
     end
   end
+
+  local function last_event_id(): string
+    return last_id
+  end
+
+  return {
+    next = next_event,
+    last_event_id = last_event_id,
+  }
 end
 
 local record sse
   Event: Event
-  events: function(reader: fetch.Reader): function(): Event | nil, string
+  Stream: Stream
+  events: function(reader: fetch.Reader): Stream
 end
 
 local M: sse = {

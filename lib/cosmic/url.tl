@@ -1,5 +1,4 @@
---- URL encoding, decoding, parsing, and escaping utilities.
---- Provides functions for URL query encoding, parsing, and component escaping.
+--- URL encoding, decoding, parsing, formatting, and escaping utilities.
 local cosmo = require("cosmo")
 
 --- Percent-encode a string for use as a URL query parameter value.
@@ -36,16 +35,22 @@ local function decode(str: string): string | nil, string
   return cosmo.UnescapeParam(str)
 end
 
---- Parse a query string into key-value pairs.
---- Handles URL-encoded keys and values.
---- Duplicate keys: last value wins.
+--- Parse a query string into its key-value pairs, keeping every value.
+--- Keys and values are percent-decoded; a repeated key's values arrive
+--- in order. A flag-style key with no `=` yields one empty-string value.
 --- @param query string The query string (without leading ?)
---- @return {string:string} Table of key-value pairs
-local function parse(query: string): {string: string}
-  local pairs_list = cosmo.ParseParams(query) as {{string, string}}
-  local result: {string: string} = {}
+--- @return {string:{string}} Decoded keys, each with all its values in order
+local function parse_query(query: string): {string: {string}}
+  local pairs_list = cosmo.ParseParams(query) as {{string}}
+  local result: {string: {string}} = {}
   for _, pair in ipairs(pairs_list) do
-    result[pair[1]] = pair[2]
+    local key = pair[1]
+    local list = result[key]
+    if not list then
+      list = {}
+      result[key] = list
+    end
+    table.insert(list, pair[2] or "")
   end
   return result
 end
@@ -62,34 +67,25 @@ local record Url
   fragment: string
 end
 
-local record UrlModule
-  Url: Url
-
-  encode: function(str: string): string
-  decode: function(str: string): string | nil, string
-  parse: function(query: string): {string: string}
-  parse_url: function(url: string): Url
-  parse_host: function(hostport: string): string | nil, integer
-  escape_host: function(str: string): string
-  escape_path: function(str: string): string
-  escape_segment: function(str: string): string
-  escape_fragment: function(str: string): string
-  escape_literal: function(str: string): string
-  escape_user: function(str: string): string
-  escape_pass: function(str: string): string
-  escape_ip: function(str: string): string
-end
-
 --- Parse a URL into its components.
+--- The query field is re-encoded so delimiters inside values survive
+--- (e.g. `?a=x%26y` stays one parameter); decode it with `parse_query`.
 --- @param url string The URL to parse
---- @return Url The parsed URL components
-local function parse_url(url: string): Url
+--- @return Url | nil The parsed URL components, or nil on error
+--- @return string? Error message if parsing failed
+local function parse(url: string): Url | nil, string
+  if not url or url == "" then
+    return nil, "empty URL"
+  end
   local parsed = cosmo.ParseUrl(url)
 
-  -- Convert port from string to integer if present
+  -- Convert port from string to integer if present, validating range
   local port: integer = nil
   if parsed.port and parsed.port ~= "" then
-    port = tonumber(parsed.port) as integer
+    port = math.tointeger(tonumber(parsed.port))
+    if not port or port < 1 or port > 65535 then
+      return nil, "invalid port: " .. parsed.port
+    end
   end
 
   -- Reconstruct query string from params, re-encoding each decoded key and
@@ -123,35 +119,80 @@ local function parse_url(url: string): Url
   }
 end
 
+--- Format a Url back into a string — the inverse of `parse`.
+--- Each component is escaped for its position, so a parse/format round
+--- trip yields an equivalent URL.
+--- @param u Url The URL components to format
+--- @return string The formatted URL
+local function format(u: Url): string
+  local params: {{string}} = nil
+  if u.query then
+    params = cosmo.ParseParams(u.query) as {{string}}
+  end
+  return cosmo.EncodeUrl({
+      scheme = u.scheme,
+      user = u.user,
+      pass = u.pass,
+      host = u.host,
+      port = u.port ~= nil and tostring(u.port) or nil,
+      path = u.path,
+      params = params,
+      fragment = u.fragment,
+    } as cosmo.Url)
+end
+
 --- Parse a host:port string into its components.
+--- IPv6 hosts must be bracketed ("[::1]" or "[::1]:8080"); a port, when
+--- present, must be an integer in 1..65535.
 --- @param hostport string The host:port string (e.g., "example.com:8080")
---- @return string | nil The host
+--- @return string | nil The host, or nil on error
 --- @return integer? The port, or nil if not specified
-local function parse_host(hostport: string): string | nil, integer
+--- @return string? Error message if parsing failed
+local function parse_host(hostport: string): string | nil, integer, string
   if not hostport or hostport == "" then
-    return nil, nil
+    return nil, nil, "empty host"
   end
 
-  -- Handle IPv6 addresses in brackets: [::1]:8080
-  local ipv6_host, ipv6_port = hostport:match("^%[([^%]]+)%]:(%d+)$")
-  if ipv6_host then
-    return ipv6_host, tonumber(ipv6_port) as integer
+  local port_str: string = nil
+  local host: string
+
+  local bracket_host, rest = hostport:match("^%[([^%]]+)%](.*)$")
+  if bracket_host then
+    host = bracket_host as string
+    local r = rest as string
+    if r ~= "" then
+      port_str = r:match("^:(%d+)$")
+      if not port_str then
+        return nil, nil, "invalid host:port: " .. hostport
+      end
+    end
+  else
+    local colon = hostport:find(":", 1, true)
+    if not colon then
+      host = hostport
+    else
+      host = hostport:sub(1, colon - 1)
+      port_str = hostport:sub(colon + 1)
+      if port_str:find(":", 1, true) then
+        return nil, nil, "IPv6 host must be bracketed, e.g. [::1]:8080"
+      end
+      if host == "" then
+        return nil, nil, "empty host in: " .. hostport
+      end
+      if not port_str:match("^%d+$") then
+        return nil, nil, "invalid port: " .. port_str
+      end
+    end
   end
 
-  -- Handle IPv6 without port: [::1]
-  local ipv6_only = hostport:match("^%[([^%]]+)%]$")
-  if ipv6_only then
-    return ipv6_only, nil
+  if port_str then
+    local port = math.tointeger(tonumber(port_str))
+    if not port or port < 1 or port > 65535 then
+      return nil, nil, "invalid port: " .. port_str
+    end
+    return host, port
   end
-
-  -- Handle regular host:port
-  local host, port_str = hostport:match("^(.+):(%d+)$")
-  if host and port_str then
-    return host, tonumber(port_str) as integer
-  end
-
-  -- No port specified
-  return hostport, nil
+  return host, nil
 end
 
 --- Escape a hostname for use in a URL.
@@ -215,11 +256,31 @@ local function escape_ip(str: string): string
   return cosmo.EscapeIp(str)
 end
 
+local record UrlModule
+  Url: Url
+
+  encode: function(str: string): string
+  decode: function(str: string): string | nil, string
+  parse: function(url: string): Url | nil, string
+  format: function(u: Url): string
+  parse_query: function(query: string): {string: {string}}
+  parse_host: function(hostport: string): string | nil, integer, string
+  escape_host: function(str: string): string
+  escape_path: function(str: string): string
+  escape_segment: function(str: string): string
+  escape_fragment: function(str: string): string
+  escape_literal: function(str: string): string
+  escape_user: function(str: string): string
+  escape_pass: function(str: string): string
+  escape_ip: function(str: string): string
+end
+
 local M: UrlModule = {
   encode = encode,
   decode = decode,
   parse = parse,
-  parse_url = parse_url,
+  format = format,
+  parse_query = parse_query,
   parse_host = parse_host,
   escape_host = escape_host,
   escape_path = escape_path,

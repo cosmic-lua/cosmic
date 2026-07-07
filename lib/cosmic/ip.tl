@@ -1,5 +1,31 @@
 --- IP address parsing, formatting, and classification utilities.
+--- IPv4 only: IPv6 addresses are rejected with an explicit error.
 local cosmo = require("cosmo")
+
+--- Category of an IPv4 address, as reported by categorize().
+--- LOOPBACK/PRIVATE/TESTNET/MULTICAST are special-use ranges; the rest
+--- name the registry or organization the block is delegated to.
+local enum Category
+  "MULTICAST"
+  "LOOPBACK"
+  "PRIVATE"
+  "TESTNET"
+  "AFRINIC"
+  "LACNIC"
+  "APNIC"
+  "ARIN"
+  "RIPE"
+  "DOD"
+  "AT&T"
+  "APPLE"
+  "FORD"
+  "COGENT"
+  "PRUDENTIAL"
+  "USPS"
+  "COMCAST"
+  "FUTURE"
+  "ANONYMOUS"
+end
 
 --- A typed IP address.
 --- Wraps the raw integer representation with convenience methods.
@@ -13,8 +39,8 @@ local record Addr
   --- @return string The formatted IP address
   format: function(Addr): string
   --- Categorize the address (e.g., "LOOPBACK", "PRIVATE", "ARIN").
-  --- @return string The category name
-  categorize: function(Addr): string
+  --- @return Category The category name
+  categorize: function(Addr): Category
   --- Check if this is a loopback address (127.x.x.x).
   --- @return boolean True if loopback
   is_loopback: function(Addr): boolean
@@ -34,8 +60,8 @@ local function addr_format(self: Addr): string
   return cosmo.FormatIp(self._n)
 end
 
-local function addr_categorize(self: Addr): string
-  return cosmo.CategorizeIp(self._n)
+local function addr_categorize(self: Addr): Category
+  return cosmo.CategorizeIp(self._n) as Category
 end
 
 local function addr_is_loopback(self: Addr): boolean
@@ -75,17 +101,37 @@ local function addr(n: number): Addr
   return make_addr(n)
 end
 
---- Parse an IP address string to its integer representation.
---- Invalid or unsupported addresses (including IPv6) are errors.
+--- Parse an IPv4 address string to its integer representation.
+--- Strict dotted quad only: exactly four decimal octets 0-255, no
+--- leading zeros ("127.1", "1.2.3.4.5", "01.2.3.4" are all errors).
+--- IPv6 is rejected with an explicit error.
 --- @param str string The IP address string (e.g., "192.168.1.1")
 --- @return integer | nil The IP address as an integer, or nil on error
 --- @return string Error message if parsing failed
 local function parse(str: string): integer | nil, string
-  local n, err = cosmo.ParseIp(str)
-  if not n then
-    return nil, err as string
+  if not str or str == "" then
+    return nil, "empty IP address"
   end
-  return n as integer
+  if str:find(":", 1, true) then
+    return nil, "IPv6 not supported: " .. str
+  end
+  local a, b, c, d = str:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+  if not a then
+    return nil, "invalid IPv4 address (want dotted quad): " .. str
+  end
+  local n: integer = 0
+  for _, octet in ipairs({a, b, c, d}) do
+    -- no leading zeros: "0" is fine, "01" reads as octal in other parsers
+    if #octet > 3 or (#octet > 1 and octet:sub(1, 1) == "0") then
+      return nil, "invalid IPv4 octet '" .. octet .. "' in: " .. str
+    end
+    local v = math.tointeger(tonumber(octet))
+    if v > 255 then
+      return nil, "invalid IPv4 octet '" .. octet .. "' in: " .. str
+    end
+    n = n * 256 + v
+  end
+  return n
 end
 
 --- Format an integer IP address as a string.
@@ -98,9 +144,9 @@ end
 --- Categorize an IP address.
 --- Returns categories like "LOOPBACK", "PRIVATE", "ARIN", etc.
 --- @param ip integer The IP address as an integer
---- @return string The category name
-local function categorize(ip: number): string
-  return cosmo.CategorizeIp(ip)
+--- @return Category The category name
+local function categorize(ip: number): Category
+  return cosmo.CategorizeIp(ip) as Category
 end
 
 --- Check if an IP address is a loopback address (127.x.x.x).
@@ -125,18 +171,6 @@ local function is_public(ip: number): boolean
   return cosmo.IsPublicIp(ip)
 end
 
---- Resolve a hostname to an IP address.
---- @param hostname string The hostname to resolve
---- @return integer | nil The IP address as an integer, or nil on error
---- @return string Error message if resolution failed
-local function resolve(hostname: string): integer | nil, string
-  local ip, err = cosmo.ResolveIp(hostname)
-  if not ip then
-    return nil, err as string
-  end
-  return ip as integer
-end
-
 --- Look up a hostname and return a typed Addr.
 --- Returns nil and an error message on failure.
 --- @param hostname string The hostname to look up
@@ -152,14 +186,14 @@ end
 
 local record IpModule
   Addr: Addr
+  type Category = Category
   addr: function(n: number): Addr
   parse: function(str: string): integer | nil, string
   format: function(ip: number): string
-  categorize: function(ip: number): string
+  categorize: function(ip: number): Category
   is_loopback: function(ip: number): boolean
   is_private: function(ip: number): boolean
   is_public: function(ip: number): boolean
-  resolve: function(hostname: string): integer | nil, string
   lookup: function(hostname: string): Addr | nil, string
 end
 
@@ -171,7 +205,6 @@ local M: IpModule = {
   is_loopback = is_loopback,
   is_private = is_private,
   is_public = is_public,
-  resolve = resolve,
   lookup = lookup,
 }
 

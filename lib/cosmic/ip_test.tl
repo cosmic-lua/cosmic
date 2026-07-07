@@ -36,6 +36,58 @@ local function test_parse_out_of_range()
 end
 test_parse_out_of_range()
 
+local function test_parse_shorthand_rejected()
+  -- inet_aton-style shorthand ("127.1" == 127.0.0.1 in some parsers)
+  -- must be rejected: strict dotted quad only.
+  local result, err = ip.parse("127.1")
+  assert(result == nil, "expected nil for '127.1', got " .. tostring(result))
+  assert(type(err) == "string", "expected error message, got " .. tostring(err))
+end
+test_parse_shorthand_rejected()
+
+local function test_parse_five_octets_rejected()
+  local result, err = ip.parse("1.2.3.4.5")
+  assert(result == nil, "expected nil for '1.2.3.4.5', got " .. tostring(result))
+  assert(type(err) == "string", "expected error message, got " .. tostring(err))
+end
+test_parse_five_octets_rejected()
+
+local function test_parse_leading_zero_rejected()
+  -- "010" reads as octal in other parsers; ambiguity is rejected outright.
+  local result, err = ip.parse("010.2.3.4")
+  assert(result == nil, "expected nil for leading-zero octet, got " .. tostring(result))
+  assert(type(err) == "string", "expected error message, got " .. tostring(err))
+end
+test_parse_leading_zero_rejected()
+
+local function test_parse_zero_octets_ok()
+  local result, err = ip.parse("0.0.0.0")
+  assert(result == 0, "expected 0 for '0.0.0.0': " .. tostring(err))
+end
+test_parse_zero_octets_ok()
+
+local function test_parse_ipv6_rejected_with_clear_error()
+  local result, err = ip.parse("::1")
+  assert(result == nil, "expected nil for IPv6 address")
+  assert(err ~= nil and err:find("IPv6 not supported") ~= nil,
+    "expected 'IPv6 not supported' error, got " .. tostring(err))
+end
+test_parse_ipv6_rejected_with_clear_error()
+
+local function test_parse_empty_rejected()
+  local result, err = ip.parse("")
+  assert(result == nil, "expected nil for empty string")
+  assert(type(err) == "string", "expected error message")
+end
+test_parse_empty_rejected()
+
+local function test_parse_broadcast()
+  -- 255.255.255.255 is a valid dotted quad, not an error sentinel.
+  local result = ip.parse("255.255.255.255")
+  assert(result == 4294967295, "expected 4294967295, got " .. tostring(result))
+end
+test_parse_broadcast()
+
 -- format tests
 
 local function test_format_basic()
@@ -156,21 +208,6 @@ local function test_is_public_false_loopback()
   assert(result == false, "expected false for loopback")
 end
 test_is_public_false_loopback()
-
--- resolve tests
-
-local function test_resolve_localhost()
-  local result = ip.resolve("localhost")
-  assert(result == 2130706433, "expected 127.0.0.1 for localhost, got " .. tostring(result))
-end
-test_resolve_localhost()
-
-local function test_resolve_invalid_returns_nil()
-  local result, err = ip.resolve("this.host.does.not.exist.invalid")
-  assert(result == nil, "expected nil for unresolvable hostname, got " .. tostring(result))
-  assert(type(err) == "string", "expected error message, got " .. tostring(err))
-end
-test_resolve_invalid_returns_nil()
 
 -- lookup tests
 
