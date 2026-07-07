@@ -50,6 +50,11 @@ local record doc_types
     functions: {FunctionDoc}
     records: {RecordDoc}
     examples: {ExampleDoc}
+    --- True for modules outside the cosmic.public manifest's public
+    --- list: implementation shards, CLI internals, repo tooling. They
+    --- are hidden from listings, badged in search, and their doc pages
+    --- carry an internal-module header.
+    internal: boolean
   end
 
   --- A documentation index containing all modules.
@@ -64,6 +69,8 @@ local record doc_types
     symbol_type: string
     description: string
     match_score: integer
+    --- True when the entry comes from an internal (non-API) module.
+    internal: boolean
   end
 
   --- Entry for examples list.

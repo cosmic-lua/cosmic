@@ -5,6 +5,33 @@ local types = require("cosmic.doc_types")
 local ModuleDoc = types.ModuleDoc
 local DocIndex = types.DocIndex
 
+--- Calculate match score for a search result.
+--- @param name_lower string Lowercased candidate name
+--- @param desc string Candidate description (may be nil)
+--- @param query_lower string Lowercased query
+--- @param base_exact integer Score for an exact name match
+--- @param base_partial integer Score for a partial name match
+--- @param base_desc integer Score for a description match
+--- @return integer The match score, 0 for no match
+local function calc_score(
+    name_lower: string,
+    desc: string,
+    query_lower: string,
+    base_exact: integer,
+    base_partial: integer,
+    base_desc: integer
+  ): integer
+  if name_lower == query_lower then
+    return base_exact
+  elseif name_lower:find(query_lower, 1, true) then
+    return base_partial
+  end
+  if desc and desc:lower():find(query_lower, 1, true) then
+    return base_desc
+  end
+  return 0
+end
+
 --- Find where a symbol lives across all modules (for "did you mean" suggestions).
 --- @param symbol string The symbol name to locate
 --- @param index DocIndex The documentation index
@@ -97,12 +124,14 @@ local function symbol_not_found(symbol: string, matched_mod: string, index: DocI
 end
 
 local record DocsLookupModule
+  calc_score: function(name_lower: string, desc: string, query_lower: string, base_exact: integer, base_partial: integer, base_desc: integer): integer
   find_symbol_locations: function(symbol: string, index: DocIndex): {string}
   list_symbols: function(doc: ModuleDoc): {string}
   symbol_not_found: function(symbol: string, matched_mod: string, index: DocIndex): string
 end
 
 local M: DocsLookupModule = {
+  calc_score = calc_score,
   find_symbol_locations = find_symbol_locations,
   list_symbols = list_symbols,
   symbol_not_found = symbol_not_found,

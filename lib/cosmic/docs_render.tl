@@ -178,6 +178,10 @@ local function render_module(name: string, doc: ModuleDoc): string
   local simple_name = name:match("([^%.]+)$") or name
   table.insert(lines, "# " .. simple_name)
   table.insert(lines, "")
+  if doc.internal then
+    table.insert(lines, "**internal module — not API, may change without notice**")
+    table.insert(lines, "")
+  end
   if doc.module_doc then
     table.insert(lines, doc.module_doc)
     table.insert(lines, "")
@@ -353,6 +357,9 @@ local function render_search_results(results: {SearchResult}, query: string): st
     end
     local type_label = result.symbol_type
     local line = "  " .. symbol_ref .. " (" .. type_label .. ")"
+    if result.internal then
+      line = line .. "  (internal)"
+    end
     table.insert(lines, line)
     if result.description and result.description ~= "" then
       table.insert(lines, "    " .. result.description)
