@@ -42,12 +42,12 @@ local record Poller
   clear: function(Poller)
   --- Poll for events with optional timeout.
   --- Returns an iterator over (fd, events) pairs for ready descriptors.
-  --- EINTR is retried internally. A hard poll error yields an empty iterator
-  --- (indistinguishable from a timeout); callers that must detect errors
-  --- should use poll() directly, which returns them.
+  --- EINTR is retried internally. On a hard poll error the iterator is
+  --- empty and the error string is returned as the second value.
   --- @param timeoutms number Timeout in ms (-1 for infinite, 0 for non-blocking)
   --- @return function Iterator yielding (fd: number, events: Events)
-  wait: function(Poller, number): function(): number, Events
+  --- @return string? Error message when the underlying poll failed
+  wait: function(Poller, number): function(): (number, Events), string
   --- Poll and return count of ready descriptors.
   --- @param timeoutms number Timeout in ms (-1 for infinite, 0 for non-blocking)
   --- @return number | nil Count of ready descriptors
@@ -94,9 +94,12 @@ local function new(): Poller
   local poller: Poller = {}
 
   poller.add = function(self: Poller, fd: number, events: number)
-    if fd then
-      fds[fd] = events
+    if fd == nil then
+      -- A nil fd is a caller bug (e.g. an unchecked open); registering
+      -- nothing would silently turn every wait into a timeout.
+      error("poll.add: fd must not be nil", 2)
     end
+    fds[fd] = events
   end
 
   poller.remove = function(self: Poller, fd: number)
@@ -155,16 +158,16 @@ local function new(): Poller
     return nil
   end
 
-  poller.wait = function(self: Poller, timeoutms: number): function(): number, Events
-    local _, err = self:poll(timeoutms)
-    if err then
-      return function(): number, Events
+  poller.wait = function(self: Poller, timeoutms: number): function(): (number, Events), string
+    local n, err = self:poll(timeoutms)
+    if n == nil then
+      return function(): (number, Events)
         return nil, nil
-      end
+      end, err
     end
     local iter_results = results
     local k: number = nil
-    return function(): number, Events
+    return function(): (number, Events)
       local v: number
       k, v = next(iter_results, k)
       if k then
