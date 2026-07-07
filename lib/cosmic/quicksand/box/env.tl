@@ -14,10 +14,9 @@
 ---
 --- Nothing here touches real process env — callers apply the result via
 --- their own setenv loop after fork, before execve.
-local record EnvOpts
-  keep: {string}
-  set: {string: string}
-end
+local types = require("cosmic.quicksand.types")
+
+local type EnvOpts = types.EnvOpts
 
 local function apply(opts: EnvOpts, parent: {string: string}): {string: string}
   local out: {string: string} = {}
