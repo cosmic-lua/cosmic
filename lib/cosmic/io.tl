@@ -16,53 +16,8 @@
 --- cosmic.io provides file-descriptor–level operations (open, read, write,
 --- pipe, slurp, barf) for cases where you need explicit fd control.
 local cosmo = require("cosmo")
-
-local record UnixIO
-  open: function(path: string, flags: number, mode?: number, dirfd?: number): number, any
-  close: function(fd: number): boolean, any
-  read: function(fd: number, bufsiz?: number, offset?: number): string, any
-  write: function(fd: number, data: string, offset?: number): number, any
-  lseek: function(fd: number, offset: number, whence?: number): number, any
-  truncate: function(path: string, length?: number): boolean, any
-  ftruncate: function(fd: number, length?: number): boolean, any
-  dup: function(oldfd: number, newfd?: number, flags?: number, lowest?: number): number, any
-  pipe: function(flags?: number): number, number, any
-  fcntl: function(fd: number, cmd: number, arg?: number): number, any
-  sync: function()
-  fsync: function(fd: number): boolean, any
-  fdatasync: function(fd: number): boolean, any
-
-  O_RDONLY: number
-  O_WRONLY: number
-  O_RDWR: number
-  O_CREAT: number
-  O_TRUNC: number
-  O_APPEND: number
-  O_EXCL: number
-  O_CLOEXEC: number
-  O_NONBLOCK: number
-  O_DIRECT: number
-  O_DIRECTORY: number
-  O_NOFOLLOW: number
-  SEEK_SET: number
-  SEEK_CUR: number
-  SEEK_END: number
-  F_DUPFD: number
-  F_GETFD: number
-  F_SETFD: number
-  F_GETFL: number
-  F_SETFL: number
-  F_SETLK: number
-  F_SETLKW: number
-  F_GETLK: number
-  F_RDLCK: number
-  F_WRLCK: number
-  F_UNLCK: number
-  FD_CLOEXEC: number
-  AT_FDCWD: number
-end
-
-local unix = require("cosmo.unix") as UnixIO
+local unix = require("cosmo.unix")
+local errstr = require("cosmic.errno").str
 
 --- File handle for I/O operations.
 --- Supports Lua 5.4's to-be-closed via __close metamethod.
@@ -94,7 +49,7 @@ make_handle = function(fd: number): Handle
       local ok, err = unix.close(handle_fd)
       handle_fd = nil
       if not ok then
-        return false, tostring(err)
+        return false, errstr(err, "close")
       end
     end
     return true
@@ -118,7 +73,7 @@ make_handle = function(fd: number): Handle
     end
     local data, err = unix.read(handle_fd, size, offset)
     if data == nil and err then
-      return nil, tostring(err)
+      return nil, errstr(err, "read")
     end
     return data or ""
   end
@@ -131,7 +86,7 @@ make_handle = function(fd: number): Handle
     end
     local n, err = unix.write(handle_fd, data, offset)
     if not n then
-      return nil, tostring(err)
+      return nil, errstr(err, "write")
     end
     return n
   end
@@ -143,7 +98,7 @@ make_handle = function(fd: number): Handle
     end
     local pos, err = unix.lseek(handle_fd, offset, whence)
     if not pos then
-      return nil, tostring(err)
+      return nil, errstr(err, "lseek")
     end
     return pos
   end
@@ -155,7 +110,7 @@ make_handle = function(fd: number): Handle
     end
     local ok, err = unix.ftruncate(handle_fd, length)
     if not ok then
-      return false, tostring(err)
+      return false, errstr(err, "ftruncate")
     end
     return true
   end
@@ -167,7 +122,7 @@ make_handle = function(fd: number): Handle
     end
     local ok, err = unix.fsync(handle_fd)
     if not ok then
-      return false, tostring(err)
+      return false, errstr(err, "fsync")
     end
     return true
   end
@@ -179,7 +134,7 @@ make_handle = function(fd: number): Handle
     end
     local ok, err = unix.fdatasync(handle_fd)
     if not ok then
-      return false, tostring(err)
+      return false, errstr(err, "fdatasync")
     end
     return true
   end
@@ -193,7 +148,7 @@ make_handle = function(fd: number): Handle
     end
     local dupfd, err = unix.dup(handle_fd, newfd, flags, lowest)
     if not dupfd then
-      return nil, tostring(err)
+      return nil, errstr(err, "dup")
     end
     return make_handle(dupfd)
   end
@@ -205,7 +160,7 @@ make_handle = function(fd: number): Handle
     end
     local result, err = unix.fcntl(handle_fd, cmd, arg)
     if result == nil then
-      return nil, tostring(err)
+      return nil, errstr(err, "fcntl")
     end
     return result as number
   end
@@ -250,16 +205,18 @@ end
 local function open(path: string, flags: number, mode?: number, dirfd?: number): Handle | nil, string
   local fd, err = unix.open(path, flags, mode, dirfd)
   if not fd then
-    return nil, tostring(err)
+    return nil, errstr(err, "open: " .. path)
   end
   return make_handle(fd)
 end
 
 --- Create a pipe. flags: O_CLOEXEC, O_NONBLOCK.
 local function pipe(flags?: number): Pipe | nil, string
-  local reader_fd, writer_fd, err = unix.pipe(flags)
+  local reader_fd, writer_fd = unix.pipe(flags)
   if not reader_fd then
-    return nil, tostring(err)
+    -- On failure the binding returns (nil, err, errno): the error string
+    -- arrives in the second slot, where the writer fd would have been.
+    return nil, errstr(writer_fd, "pipe")
   end
   return make_pipe(make_handle(reader_fd), make_handle(writer_fd))
 end
@@ -268,7 +225,7 @@ end
 local function truncate(path: string, length?: number): boolean, string
   local ok, err = unix.truncate(path, length)
   if not ok then
-    return false, tostring(err)
+    return false, errstr(err, "truncate: " .. path)
   end
   return true
 end
@@ -326,7 +283,6 @@ local record IoModule
   SEEK_CUR: number
   SEEK_END: number
 
-  F_DUPFD: number
   F_GETFD: number
   F_SETFD: number
   F_GETFL: number
@@ -367,7 +323,6 @@ local M: IoModule = {
   SEEK_CUR = unix.SEEK_CUR,
   SEEK_END = unix.SEEK_END,
 
-  F_DUPFD = unix.F_DUPFD,
   F_GETFD = unix.F_GETFD,
   F_SETFD = unix.F_SETFD,
   F_GETFL = unix.F_GETFL,

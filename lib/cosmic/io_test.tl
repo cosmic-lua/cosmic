@@ -248,6 +248,50 @@ local function test_slurp_nonexistent()
 end
 test_slurp_nonexistent()
 
+-- Errors carry the errno name and enough context to act on (issue #529):
+-- a failed slurp names ENOENT, a failed open names both the path and the
+-- errno, and fd-level failures surface the binding's errno string instead
+-- of a fabricated message.
+local function test_slurp_error_names_errno()
+  local _, err = io_m.slurp("/nonexistent/file/path.txt")
+  assert(err:match("ENOENT"), "slurp error should name ENOENT, got: " .. err)
+  assert(err:match("/nonexistent/file/path%.txt"), "slurp error should name the path, got: " .. err)
+end
+test_slurp_error_names_errno()
+
+local function test_barf_error_names_errno()
+  local _, err = io_m.barf("/nonexistent/dir/file.txt", "data")
+  assert(err:match("ENOENT"), "barf error should name ENOENT, got: " .. err)
+end
+test_barf_error_names_errno()
+
+local function test_open_error_names_path_and_errno()
+  local _, err = io_m.open("/nonexistent/path/to/file.txt", io_m.O_RDONLY)
+  assert(err:match("ENOENT"), "open error should name ENOENT, got: " .. err)
+  assert(err:match("/nonexistent/path/to/file%.txt"), "open error should name the path, got: " .. err)
+end
+test_open_error_names_path_and_errno()
+
+local function test_truncate_error_names_path_and_errno()
+  local ok, err = io_m.truncate("/nonexistent/path/to/file.txt")
+  assert(ok == false, "truncate of nonexistent file should fail")
+  assert(err:match("ENOENT"), "truncate error should name ENOENT, got: " .. err)
+  assert(err:match("/nonexistent/path/to/file%.txt"), "truncate error should name the path, got: " .. err)
+end
+test_truncate_error_names_path_and_errno()
+
+local function test_write_error_names_errno()
+  local filepath = fs.join(TEST_TMPDIR, "io_test_rdonly.txt")
+  assert(io_m.barf(filepath, "content"))
+  local f = assert(io_m.open(filepath, io_m.O_RDONLY)) as io_m.Handle
+  local n, err = f:write("nope")
+  assert(n == nil, "write to O_RDONLY handle should fail")
+  assert(err:match("EBADF"), "write error should name EBADF, got: " .. err)
+  assert(f:close())
+  os.remove(filepath)
+end
+test_write_error_names_errno()
+
 local function test_closed_handle()
   local filepath = fs.join(TEST_TMPDIR, "io_test_closed.txt")
 
