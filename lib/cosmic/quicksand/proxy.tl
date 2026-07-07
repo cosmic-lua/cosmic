@@ -177,6 +177,8 @@ end
 
 local record ProxyModule
   type ProxyHandle = ProxyHandle
+  type ProxyOptions = ProxyOptions
+  type ProxyRule = serve.ProxyRule
   start: function(opts: ProxyOptions): ProxyHandle | nil, string
 end
 

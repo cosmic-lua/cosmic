@@ -23,80 +23,24 @@
 --- fork / exec orchestration lives in cosmic.quicksand.box.run and is
 --- required on demand from `run()` so construction stays cheap.
 local box_merge = require("cosmic.quicksand.box.merge")
-local sandbox = require("cosmic.sandbox")
+local types = require("cosmic.quicksand.types")
+
+--- The policy schema lives in cosmic.quicksand.types (shared with the
+--- fork/exec orchestrator and the umbrella); re-exported below so
+--- callers can keep writing `Box.BoxOpts` etc.
+local type BoxOpts = types.BoxOpts
+local type FsOpts = types.FsOpts
+local type NetRule = types.NetRule
+local type NetRuleType = types.NetRuleType
+local type LogLevel = types.LogLevel
 
 local record CapsModule
-  capabilities: function(): {string: boolean}
+  capabilities: function(): types.Capabilities
 end
 
-local function caps(): {string: boolean}
+local function caps(): types.Capabilities
   local qs = require("cosmic.quicksand") as CapsModule
   return qs.capabilities()
-end
-
---- Authentication schemes a `net.allow` rule can inject.
-local enum NetRuleType
-  "bearer"
-  "basic"
-  "header"
-end
-
---- Proxy log verbosity.
-local enum LogLevel
-  "quiet"
-  "info"
-  "debug"
-end
-
---- A single allowlist rule for `net.allow`. Mirrors
---- cosmic.quicksand.proxy.ProxyRule — empty table = pass-through.
-local record NetRule
-  type: NetRuleType
-  token: string
-  username: string
-  password: string
-  header_name: string
-  header_value: string
-end
-
-local record NetOpts
-  proxy_env: boolean -- set HTTP(S)_PROXY in the child env
-  allow: {string: NetRule}
-  log_level: LogLevel
-  resolve_timeout_ms: integer -- per-dial DNS budget; <=0 opts out
-end
-
---- The filesystem policy is cosmic.sandbox's Fs schema (ro/rw/exec
---- path allowlists) — one vocabulary for boxed and in-process
---- sandboxes. The boxed workload applies it via sandbox.apply after
---- fork, before exec.
-local type FsOpts = sandbox.Fs
-
-local record ProcOpts
-  no_new_privs: boolean
-  uid: integer
-  gid: integer
-  pledge: string
-  drop_caps: boolean -- drop the entire capability bounding set before exec
-  keep_caps: {string} -- capability names to retain (implies drop_caps)
-end
-
-local record EnvOpts
-  keep: {string}
-  set: {string: string}
-end
-
---- Full box policy. Every field is optional; omitting a section skips
---- that subsystem. Scalars default to nil (i.e. no policy); list fields
---- default to empty.
-local record BoxOpts
-  hostname: string
-  fs: FsOpts
-  net: NetOpts
-  proc: ProcOpts
-  env: EnvOpts
-  cwd: string
-  pid_ns: boolean -- set false to opt out of CLONE_NEWPID isolation
 end
 
 --- Box instance. `run(argv)` returns an integer exit code on success
@@ -190,7 +134,7 @@ local function preflight(opts: BoxOpts): boolean, string
 end
 
 local record RunModule
-  run: function(opts: {string: any}, argv: {string}): integer | nil, string
+  run: function(opts: BoxOpts, argv: {string}): integer | nil, string
 end
 
 local function run(self: Box, argv: {string}): integer | nil, string
@@ -203,7 +147,7 @@ local function run(self: Box, argv: {string}): integer | nil, string
   local ok, err = preflight(self.opts)
   if not ok then return nil, err end
   local rm = require("cosmic.quicksand.box.run") as RunModule
-  return rm.run(self.opts as {string: any}, argv)
+  return rm.run(self.opts, argv)
 end
 
 local function close(self: Box): boolean

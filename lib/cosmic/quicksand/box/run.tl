@@ -37,27 +37,27 @@ local proxy = require("cosmic.quicksand.proxy")
 local sandbox = require("cosmic.sandbox")
 local pledge = require("cosmic.pledge")
 local box_env = require("cosmic.quicksand.box.env")
+local types = require("cosmic.quicksand.types")
 local cenv = require("cosmic.env")
 
-local u = unix as {string: any}
+local type BoxOpts = types.BoxOpts
 
--- Cast the typed-record helpers to `any`-accepting shapes so we can
--- thread raw {string: any} opt tables through without duplicating every
--- record definition here.
-local env_apply = box_env.apply as function(any, {string: string}): {string: string}
-local sandbox_apply = sandbox.apply as function(any): boolean, string
-local proxy_start = proxy.start as function(any): {string: any}, string
+-- The CLONE_* constants are declared `number` in the binding types;
+-- bitwise composition needs integers, so convert once here.
+local NEWUSER < const > = unix.CLONE_NEWUSER as integer
+local NEWNET < const > = unix.CLONE_NEWNET as integer
+local NEWNS < const > = unix.CLONE_NEWNS as integer
+local NEWUTS < const > = unix.CLONE_NEWUTS as integer
+local NEWPID < const > = unix.CLONE_NEWPID as integer
 
 local record CapsModule
-  capabilities: function(): {string: boolean}
+  capabilities: function(): types.Capabilities
 end
 
-local function clone_flags(opts: {string: any}): integer
-  local flags = (u.CLONE_NEWUSER as integer)
-  | (u.CLONE_NEWNET as integer)
-  | (u.CLONE_NEWNS as integer)
+local function clone_flags(opts: BoxOpts): integer
+  local flags = NEWUSER | NEWNET | NEWNS
   if opts and opts.hostname then
-    flags = flags | (u.CLONE_NEWUTS as integer)
+    flags = flags | NEWUTS
   end
   -- Include CLONE_NEWPID by default for PID namespace isolation, unless
   -- the caller has opted out with pid_ns = false, or the kernel lacks
@@ -65,21 +65,22 @@ local function clone_flags(opts: {string: any}): integer
   -- the old PID ns; the first forked child (proxy or workload) becomes
   -- PID 1 of the new namespace.
   if opts == nil or opts.pid_ns ~= false then
+    -- Lazy require: the umbrella re-exports Box, so a top-level
+    -- require here would be a cycle.
     local qs = require("cosmic.quicksand") as CapsModule
-    local c = qs.capabilities()
-    if (c as {string: boolean}).pid_ns then
-      flags = flags | (u.CLONE_NEWPID as integer)
+    if qs.capabilities().pid_ns then
+      flags = flags | NEWPID
     end
   end
   return flags
 end
 
-local function compute_env(opts: {string: any}): {string}
+local function compute_env(opts: BoxOpts): {string}
   local env_opts = opts and opts.env
   if not env_opts then
     return cenv.list()
   end
-  return box_env.render(env_apply(env_opts, cenv.all()))
+  return box_env.render(box_env.apply(env_opts, cenv.all()))
 end
 
 local function inject_proxy_env(env_list: {string}, port: integer): {string}
@@ -103,50 +104,48 @@ end
 -- Apply post-fork workload restrictions. Returns nil on success or an
 -- error string so the caller can emit one consistent diagnostic and
 -- exit with a well-known status (126).
-local function workload_setup(opts: {string: any}): string
+local function workload_setup(opts: BoxOpts): string
   if opts and opts.cwd then
-    local ok, err = (u.chdir as function(string): boolean, any)(opts.cwd as string)
+    local ok, err = unix.chdir(opts.cwd)
     if not ok then return "chdir: " .. tostring(err) end
   end
-  local fs = opts and opts.fs as {string: any}
+  local fs = opts and opts.fs
   if fs and (fs.ro or fs.rw or fs.exec) then
     -- The fs policy is cosmic.sandbox's Fs schema; the facade picks the
     -- mechanism (landlock here — Box is Linux-only) and its errors are
     -- already prefixed "sandbox: fs: ...".
-    local ok, err = sandbox_apply({fs = fs})
+    local ok, err = sandbox.apply({fs = fs})
     if not ok then return tostring(err) end
   end
-  local pr = opts and opts.proc as {string: any}
+  local pr = opts and opts.proc
   if pr and (pr.no_new_privs or pr.uid ~= nil) then
     local ok, err = qproc.no_new_privs()
     if not ok then return "no_new_privs: " .. tostring(err) end
   end
   -- Drop the capability bounding set before drop_privs: that step's
   -- capset(0,0,0) clears CAP_SETPCAP, which PR_CAPBSET_DROP requires.
-  if pr and (pr.drop_caps or (pr.keep_caps and #(pr.keep_caps as {string}) > 0)) then
-    local ok, err = qcaps.drop_bounding({keep = pr.keep_caps as {string}})
+  if pr and (pr.drop_caps or (pr.keep_caps and #pr.keep_caps > 0)) then
+    local ok, err = qcaps.drop_bounding({keep = pr.keep_caps})
     if not ok then return "drop_caps: " .. tostring(err) end
   end
   if pr and pr.uid ~= nil then
     local gid = pr.gid
     if gid == nil then gid = pr.uid end
-    local ok, err = qproc.drop_privs(pr.uid as integer, gid as integer)
+    local ok, err = qproc.drop_privs(pr.uid, gid)
     if not ok then return "drop_privs: " .. tostring(err) end
   end
   if pr and pr.pledge then
-    local ok, err = pledge.apply(pr.pledge as string)
+    local ok, err = pledge.apply(pr.pledge)
     if not ok then return "pledge: " .. tostring(err) end
   end
   return nil
 end
 
 local function exec_workload(err_fd: integer, argv: {string}, env_list: {string})
-  local ok, err = (u.execvpe as function(string, {string}, {string}): boolean, any)(
-    argv[1], argv, env_list)
-  if not ok then
-    unix.write(err_fd, "execvpe " .. tostring(argv[1])
-      .. ": " .. tostring(err))
-  end
+  -- execvpe only ever returns on failure (nil + error).
+  local _, err = unix.execvpe(argv[1], argv, env_list)
+  unix.write(err_fd, "execvpe " .. tostring(argv[1])
+    .. ": " .. tostring(err))
   os.exit(127)
 end
 
@@ -156,21 +155,21 @@ end
 local function supervisor(
     parent_netns_fd: integer,
     err_fd: integer,
-    opts: {string: any},
+    opts: BoxOpts,
     argv: {string})
   local function die(msg: string)
     unix.write(err_fd, msg)
     os.exit(126)
   end
   local flags = clone_flags(opts)
-  local ok, err = (u.unshare as function(integer): boolean, any)(flags)
+  local ok, err = unix.unshare(flags)
   if not ok then
     die("unshare: " .. tostring(err))
   end
 
-  local pr = opts and opts.proc as {string: any}
-  local uid: integer = pr and pr.uid as integer
-  local gid: integer = pr and pr.gid as integer
+  local pr = opts and opts.proc
+  local uid: integer = pr and pr.uid
+  local gid: integer = pr and pr.gid
   local ok2, err2 = qproc.setup_userns_maps(uid, gid)
   if not ok2 then
     die("setup_userns_maps: " .. tostring(err2))
@@ -182,8 +181,7 @@ local function supervisor(
   end
 
   if opts and opts.hostname then
-    local ok4, err4 = (u.sethostname as function(string): boolean, any)(
-      opts.hostname as string)
+    local ok4, err4 = unix.sethostname(opts.hostname)
     if not ok4 then
       die("sethostname: " .. tostring(err4))
     end
@@ -191,28 +189,33 @@ local function supervisor(
 
   local sidecars: {integer} = {}
   local proxy_port: integer = nil
-  local net = opts and opts.net as {string: any}
+  local net = opts and opts.net
   if net and net.allow then
-    local popts = {
-      bind_ip = cosmo.ParseIp("127.0.0.1") as integer,
-      bind_port = 0,
-      allowed_hosts = net.allow,
-      upstream_ns_fd = parent_netns_fd,
-      log_level = (net.log_level as string) or "quiet",
-      resolve_timeout_ms = net.resolve_timeout_ms as integer,
-    }
-    local h, perr = proxy_start(popts)
+    local h, perr = proxy.start({
+        bind_ip = cosmo.ParseIp("127.0.0.1") as integer,
+        bind_port = 0,
+        -- Box's typed NetRule and the proxy's runtime-validated
+        -- ProxyRule are distinct records with the same wire shape;
+        -- proxy.start's rules.validate is the checker of record here.
+        allowed_hosts = net.allow as {string: proxy.ProxyRule},
+        upstream_ns_fd = parent_netns_fd,
+        log_level = net.log_level or "quiet",
+        resolve_timeout_ms = net.resolve_timeout_ms,
+      })
     if not h then
       die("proxy.start: " .. tostring(perr))
     end
-    table.insert(sidecars, h.pid as integer)
-    proxy_port = h.port as integer
+    -- tl 0.24.8 does not narrow the ProxyHandle | nil union through
+    -- the die() above; cast at the proven non-nil use site.
+    local handle = h as proxy.ProxyHandle
+    table.insert(sidecars, handle.pid)
+    proxy_port = handle.port
   end
 
   -- Supervisor no longer needs the outer netns fd: the proxy child
   -- forked by proxy.start() inherited its own copy.
   if parent_netns_fd then
-    (u.close as function(integer): boolean)(parent_netns_fd)
+    unix.close(parent_netns_fd)
   end
 
   local env_list = compute_env(opts)
@@ -220,7 +223,7 @@ local function supervisor(
     env_list = inject_proxy_env(env_list, proxy_port)
   end
 
-  local pid, ferr = (u.fork as function(): integer, any)()
+  local pid, ferr = unix.fork()
   if not pid then
     die("fork workload: " .. tostring(ferr))
   end
@@ -244,9 +247,9 @@ end
 --- supervisor / pre-exec workload (unshare, uid_map, landlock, pledge,
 --- execvpe, ...), which report over the error pipe. An integer return
 --- is therefore always the workload's own exit status.
-local function run(opts: {string: any}, argv: {string}): integer | nil, string
+local function run(opts: BoxOpts, argv: {string}): integer | nil, string
   local parent_fd: integer = nil
-  local net = opts and opts.net as {string: any}
+  local net = opts and opts.net
   if net and net.allow then
     local fd, err = netns.open(nil)
     if not fd then
@@ -261,19 +264,19 @@ local function run(opts: {string: any}, argv: {string}): integer | nil, string
   local er, ew = unix.pipe(unix.O_CLOEXEC)
   if not er then
     if parent_fd then
-      (u.close as function(integer): boolean)(parent_fd)
+      unix.close(parent_fd)
     end
     return nil, "quicksand: pipe: " .. tostring(ew)
   end
   local erfd = er as integer
   local ewfd = ew as integer
 
-  local pid, ferr = (u.fork as function(): integer, any)()
+  local pid, ferr = unix.fork()
   if not pid then
     unix.close(erfd)
     unix.close(ewfd)
     if parent_fd then
-      (u.close as function(integer): boolean)(parent_fd)
+      unix.close(parent_fd)
     end
     return nil, "quicksand: fork: " .. tostring(ferr)
   end
@@ -285,10 +288,10 @@ local function run(opts: {string: any}, argv: {string}): integer | nil, string
 
   unix.close(ewfd)
   if parent_fd then
-    (u.close as function(integer): boolean)(parent_fd)
+    unix.close(parent_fd)
   end
 
-  local _, status = (u.wait as function(integer): integer, integer)(pid as integer)
+  local _, status = unix.wait(pid)
 
   -- Drain the error pipe. Every write end is closed by now — the
   -- supervisor exited, and become_init reaped the workload and sidecars
@@ -305,17 +308,17 @@ local function run(opts: {string: any}, argv: {string}): integer | nil, string
     return nil, "quicksand: " .. msg
   end
 
-  if (u.WIFEXITED as function(integer): boolean)(status) then
-    return (u.WEXITSTATUS as function(integer): integer)(status)
+  if unix.WIFEXITED(status) then
+    return unix.WEXITSTATUS(status) as integer
   end
-  if (u.WIFSIGNALED as function(integer): boolean)(status) then
-    return 128 + (u.WTERMSIG as function(integer): integer)(status)
+  if unix.WIFSIGNALED(status) then
+    return 128 + (unix.WTERMSIG(status) as integer)
   end
   return nil, "quicksand: unexpected wait status " .. tostring(status)
 end
 
 local record BoxRunModule
-  run: function(opts: {string: any}, argv: {string}): integer | nil, string
+  run: function(opts: BoxOpts, argv: {string}): integer | nil, string
 end
 
 local M: BoxRunModule = {

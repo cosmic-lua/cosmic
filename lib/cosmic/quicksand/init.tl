@@ -20,26 +20,13 @@ local unix = require("cosmo.unix")
 local box = require("cosmic.quicksand.box")
 local caps = require("cosmic.quicksand.caps")
 local qproc = require("cosmic.quicksand.proc")
+local types = require("cosmic.quicksand.types")
 local errno = require("cosmic.errno")
 
---- Fine-grained feature availability on the current host.
---- Every field is a boolean. Higher-level helpers use these to fail
---- fast with a specific reason instead of bailing out on ENOSYS
---- partway through a setup sequence.
-local record Capabilities
-  linux: boolean -- host is Linux
-  user_ns: boolean -- unshare(NEWUSER|NEWNET|NEWNS) + uid_map verified in a scratch child
-  mount_ns: boolean -- CLONE_NEWNS available
-  net_ns: boolean -- CLONE_NEWNET available
-  uts_ns: boolean -- CLONE_NEWUTS available (for hostname isolation)
-  pid_ns: boolean -- CLONE_NEWPID available
-  pivot_root: boolean -- unix.pivot_root exported
-  cap_net_admin: boolean -- holds CAP_NET_ADMIN (e.g. effective uid 0)
-  landlock: boolean -- kernel advertises landlock ABI >= 1
-  pledge: boolean -- unix.pledge non-ENOSYS (Linux via seccomp + OpenBSD)
-  unveil: boolean -- unix.unveil non-ENOSYS (OpenBSD, or Linux+Landlock)
-  caps: boolean -- prctl capability bounding-set API available (PR_CAPBSET_*)
-end
+--- Fine-grained feature availability on the current host; the record
+--- definition lives in cosmic.quicksand.types so the Box layers name
+--- the same nominal type.
+local type Capabilities = types.Capabilities
 
 --- The typed surface of the re-exported Box builder (the box module's
 --- own record type is not directly nameable from here).
@@ -49,6 +36,7 @@ local record BoxIface
 end
 
 local record QuicksandModule
+  type Capabilities = Capabilities
   capabilities: function(): Capabilities
   is_supported: function(): boolean
   probe: function(fn: any): boolean
