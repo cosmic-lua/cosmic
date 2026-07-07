@@ -88,7 +88,9 @@ function show_guide(topic: string): DocsResult
 function list_topics(include_cosmo?: boolean): {{string, string}}
 ```
 
- List all available documentation topics.
+ List all available documentation topics. Internal modules (per the
+ cosmic.public manifest) are excluded: they are not API. They remain
+ searchable and directly addressable by name.
 
 **Parameters:**
 
@@ -104,7 +106,9 @@ function list_topics(include_cosmo?: boolean): {{string, string}}
 function search(query: string, include_cosmo?: boolean): {SearchResult}
 ```
 
- Search documentation for a query string.
+ Search documentation for a query string. Internal modules are
+ included; their results carry internal = true so the renderer can
+ badge them.
 
 **Parameters:**
 
