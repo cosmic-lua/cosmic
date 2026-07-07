@@ -69,6 +69,7 @@ local record FsModule
   tmpfd: function(): number | nil, string
   statfs: function(path: string): Statfs | nil, string
   fstatfs: function(fd: number): Statfs | nil, string
+  sync: function()
   major: function(dev: number): number
   minor: function(dev: number): number
   walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T): T | nil, string

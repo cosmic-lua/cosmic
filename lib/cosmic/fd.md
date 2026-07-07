@@ -12,6 +12,12 @@
  For whole-file path-based operations use cosmic.fs: fs.read(path),
  fs.write(path, data), fs.truncate(path).
 
+ EINTR posture: Handle read/write/seek do NOT retry automatically. When
+ a signal interrupts the call, it returns nil plus an EINTR-tagged
+ error; callers that install signal handlers detect it with
+ `errno.name_of(err) == "EINTR"` and retry themselves. (Automatic
+ retry is deferred to the signal-safety wave.)
+
 ## Types
 
 ### Handle
@@ -56,7 +62,6 @@ local record FdModule
   open: function(path: string, flags: number, mode?: number, dirfd?: number): Handle | nil, string
   wrap: function(rawfd: number): Handle
   pipe: function(flags?: number): Pipe | nil, string
-  sync: function()
   O_RDONLY: number
   O_WRONLY: number
   O_RDWR: number
@@ -106,14 +111,6 @@ function pipe(flags?: number): Pipe | nil, string
 
  Create a pipe. flags: O_CLOEXEC, O_NONBLOCK.
 
-### sync
-
-```teal
-function sync()
-```
-
- Flush all file system buffers to disk.
-
 ### wrap
 
 ```teal
@@ -158,7 +155,11 @@ function handle:fd(): number
 function handle:read(size?: number, offset?: number): string | nil, string
 ```
 
- Read up to size bytes. Returns empty string on EOF.
+ Read up to size bytes. Returns nil with NO error on EOF (Lua
+ convention: `while true do local chunk = h:read(n); if not chunk
+ then break end ... end`), and nil WITH an error on failure —
+ including EAGAIN on a nonblocking fd with no data, and EINTR when
+ a signal interrupts the read (see the module header; not retried).
  If offset is provided, reads at that position (pread behavior).
 
 ### handle:write
@@ -167,7 +168,9 @@ function handle:read(size?: number, offset?: number): string | nil, string
 function handle:write(data: string, offset?: number): number | nil, string
 ```
 
- Write data. Returns number of bytes written.
+ Write data. Returns number of bytes written (which may be fewer
+ than #data — callers writing everything must loop). On failure
+ returns nil plus an error; EINTR is not retried (see module header).
  If offset is provided, writes at that position (pwrite behavior).
 
 ### handle:seek
@@ -177,6 +180,7 @@ function handle:seek(offset: number, whence?: number): number | nil, string
 ```
 
  Seek to position. whence: SEEK_SET (default), SEEK_CUR, SEEK_END.
+ On failure returns nil plus an error; EINTR is not retried.
 
 ### handle:truncate
 
