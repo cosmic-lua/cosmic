@@ -60,4 +60,24 @@ local function test_is()
 end
 test_is()
 
+-- name_of: extracts the errno name from canonical error strings.
+local function test_name_of()
+  assert(errno.name_of("open: ENOENT: No such file or directory") == "ENOENT")
+  assert(errno.name_of("stat: /no/such: ENOENT: No such file or directory") == "ENOENT")
+  assert(errno.name_of("ENOENT: No such file or directory") == "ENOENT")
+  assert(errno.name_of("exec: E2BIG: Argument list too long") == "E2BIG")
+  assert(errno.name_of("send: EPIPE: Broken pipe") == "EPIPE")
+end
+test_name_of()
+
+-- name_of: nil when no errno name is present; uppercase tails of other
+-- words (e.g. "FAILED:") are never mistaken for an errno name.
+local function test_name_of_no_match()
+  assert(errno.name_of("timeout") == nil)
+  assert(errno.name_of("OPERATION FAILED: try again") == nil)
+  assert(errno.name_of("handle closed") == nil)
+  assert(errno.name_of("") == nil)
+end
+test_name_of_no_match()
+
 print("errno_test: PASS")
