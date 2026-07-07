@@ -54,28 +54,10 @@ local function test_send_to_closed_peer_returns_error()
     if n == nil then break end
   end
   assert(n == nil, "send to closed peer should return nil, got " .. tostring(n))
-  assert(serr ~= nil, "send to closed peer should return an error message")
-  -- The error must carry the errno name so nonblocking code can tell
-  -- EPIPE from EAGAIN (issue #529).
-  assert(serr:match("EPIPE"), "send error should name EPIPE, got: " .. serr)
+  assert(serr and serr:match("EPIPE"), "send error should name EPIPE, got: " .. tostring(serr))
   a:close()
 end
 test_send_to_closed_peer_returns_error()
-
-local function test_bind_error_names_errno()
-  -- Binding a second socket to an in-use address must name EADDRINUSE.
-  local first = assert(net.socket(net.AF_INET, net.SOCK_STREAM)) as net.Socket
-  assert(first:bind(0x7f000001, 0))
-  assert(first:listen())
-  local _, port = first:getsockname()
-  local second = assert(net.socket(net.AF_INET, net.SOCK_STREAM)) as net.Socket
-  local ok, berr = second:bind(0x7f000001, port as number)
-  assert(ok == false, "second bind to same port should fail")
-  assert(berr:match("EADDRINUSE"), "bind error should name EADDRINUSE, got: " .. berr)
-  second:close()
-  first:close()
-end
-test_bind_error_names_errno()
 
 local function test_bind_and_getsockname()
   local sock, err = net.socket()

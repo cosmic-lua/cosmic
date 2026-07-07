@@ -256,3 +256,19 @@ end
 test_connect_error_message()
 
 print("All net tests passed")
+
+-- Error fidelity (issue #529): bind errors carry the errno name.
+local function test_bind_error_names_errno()
+  -- Binding a second socket to an in-use address must name EADDRINUSE.
+  local first = assert(net.socket(net.AF_INET, net.SOCK_STREAM)) as net.Socket
+  assert(first:bind(0x7f000001, 0))
+  assert(first:listen())
+  local _, port = first:getsockname()
+  local second = assert(net.socket(net.AF_INET, net.SOCK_STREAM)) as net.Socket
+  local ok, berr = second:bind(0x7f000001, port as number)
+  assert(ok == false, "second bind to same port should fail")
+  assert(berr:match("EADDRINUSE"), "bind error should name EADDRINUSE, got: " .. berr)
+  second:close()
+  first:close()
+end
+test_bind_error_names_errno()
