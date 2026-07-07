@@ -92,6 +92,8 @@ High-level utilities and tools built on top of cosmo.
 | [shm](lib/cosmic/shm.md) |  Shared memory for inter-process communication. |
 | [signal](lib/cosmic/signal.md) |  Signal handling utilities. |
 | [sqlite](lib/cosmic/sqlite.md) |  Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns. |
+| [sqlite_bind](lib/cosmic/sqlite_bind.md) |  Internal helper for cosmic.sqlite: the BLOB value marker and the shared |
+| [sqlite_params](lib/cosmic/sqlite_params.md) |  Internal helper for cosmic.sqlite: the list/named parameter convenience |
 | [sqlite_row_iter](lib/cosmic/sqlite_row_iter.md) |  Internal helper for cosmic.sqlite: the row iterator for db:query's hot |
 | [sqlite_stmt_cache](lib/cosmic/sqlite_stmt_cache.md) |  Internal helper for cosmic.sqlite: caches prepared statements by SQL |
 | [sse](lib/cosmic/sse.md) |  Server-Sent Events parser for streaming HTTP responses. |

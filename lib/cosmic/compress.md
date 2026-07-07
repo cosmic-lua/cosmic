@@ -12,7 +12,7 @@ local record CompressModule
   compress: function(data: string): string
   uncompress: function(data: string): string | nil, string
   deflate: function(data: string): string | nil, string
-  inflate: function(data: string): string | nil, string
+  inflate: function(data: string, max_output?: number): string | nil, string
 end
 ```
 
@@ -79,17 +79,23 @@ function deflate(data: string): string | nil, string
 ### inflate
 
 ```teal
-function inflate(data: string): string | nil, string
+function inflate(data: string, max_output?: number): string | nil, string
 ```
 
  Decompress raw deflate data.
  Expects data from deflate() with the 4-byte size prefix.
  Maximum decompressed size: ~4GB (limited by 32-bit size prefix).
+ The size prefix is attacker-controlled in untrusted input, so it is
+ validated BEFORE the output buffer is allocated: a declared size larger
+ than max_output (when given), or implausibly large for the compressed
+ payload (beyond DEFLATE's ~1032:1 maximum ratio), is rejected without
+ allocating.
  Note: Only compatible with data produced by deflate() in this module.
 
 **Parameters:**
 
 - `data` (string) - The compressed data with size prefix
+- `max_output` (number?) - Reject a declared size larger than this many bytes
 
 **Returns:**
 

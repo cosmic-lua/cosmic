@@ -15,6 +15,10 @@
      end
      db:close()
 
+ Binary values: wrap with `sqlite.blob(s)` to store with BLOB affinity
+ (a bare Lua string always binds as TEXT). Opening sets a 5000ms busy
+ timeout by default; see `OpenOptions`.
+
 ## Types
 
 ### RawStatement
@@ -23,6 +27,7 @@
 local record RawStatement
   bind_values: function(self: RawStatement, ...: any): number
   bind: function(self: RawStatement, n: number, value?: any): number
+  bind_blob: function(self: RawStatement, n: number, blob: string): number
   bind_names: function(self: RawStatement, params: {string: any}): number
   bind_parameter_count: function(self: RawStatement): number
   step: function(self: RawStatement): number
@@ -41,6 +46,7 @@ local record RawDatabase
   close: function(self: RawDatabase): number
   exec: function(self: RawDatabase, sql: string): number
   prepare: function(self: RawDatabase, sql: string): RawStatement, number, string
+  busy_timeout: function(self: RawDatabase, milliseconds: number)
   last_insert_rowid: function(self: RawDatabase): number
   changes: function(self: RawDatabase): number
   errmsg: function(self: RawDatabase): string
@@ -55,7 +61,8 @@ local record RawSqlite3
   ROW: number
   DONE: number
   SCHEMA: number
-  open: function(filename: string): RawDatabase, number, string
+  OPEN_READONLY: number
+  open: function(filename: string, flags?: number): RawDatabase, number, string
 end
 ```
 
@@ -125,11 +132,28 @@ local record Database
 end
 ```
 
+### OpenOptions
+
+ Options for opening a database.
+
+```teal
+local record OpenOptions
+  --  Busy timeout in milliseconds (default 5000). When another connection
+  --  holds a conflicting lock, statements wait up to this long before
+  --  failing with SQLITE_BUSY. Pass 0 to fail immediately (SQLite's raw
+  --  default).
+  busy_timeout_ms: integer
+  --  Open the database read-only (default false). The file must exist.
+  read_only: boolean
+end
+```
+
 ### sqlite
 
 ```teal
 local record sqlite
-  open: function(filename: string): Database | nil, string
+  open: function(filename: string, opts?: OpenOptions): Database | nil, string
+  blob: function(data: string): bind_mod.Blob
   Database: Database
   Statement: Statement
   Rows: Rows
@@ -146,6 +170,7 @@ function stmt:bind(...: any): boolean, string
 
  Bind parameters by position. Handles trailing nil values correctly
  (unlike varargs with table.unpack which drops them).
+ Values wrapped with `sqlite.blob()` are bound with BLOB affinity.
 
 ### stmt:bind_list
 
@@ -155,6 +180,7 @@ function stmt:bind_list(values: {any}): boolean, string
 
  Bind parameters from a list (table). The count is derived from the SQL,
  so nil values in the table are handled correctly without an explicit count.
+ Values wrapped with `sqlite.blob()` are bound with BLOB affinity.
 
 ### stmt:bind_named
 
@@ -165,6 +191,9 @@ function stmt:bind_named(params: {string: any}): boolean, string
  Bind named parameters from a key/value table.
  SQL should use :name placeholders (e.g. ":foo", ":bar").
  Table keys are names without the colon prefix.
+ `sqlite.blob()` wrappers are not supported here: the underlying
+ bind_names call binds the wrapper table itself, silently losing BLOB
+ affinity, so they are rejected — use positional binding for blobs.
 
 ### stmt:rows
 
@@ -201,43 +230,6 @@ function db:query(sql: string, ...: any): Rows | nil, string
 ```teal
 function db:exec(sql: string, ...: any): boolean, string
 ```
-
-### db:exec_list
-
-```teal
-function db:exec_list(sql: string, values: {any}): boolean, string
-```
-
- Execute SQL with parameters from a list (table). The count is derived
- from the SQL itself, so nil values in the table are handled correctly.
-
-### db:exec_named
-
-```teal
-function db:exec_named(sql: string, params: {string: any}): boolean, string
-```
-
- Execute SQL with named parameters.
- SQL should use :name placeholders. Table keys are names without the colon.
-
-### db:query_list
-
-```teal
-function db:query_list(sql: string, values: {any}): Rows | nil, string
-```
-
- Query with parameters from a list (table).
- The parameter count is derived from the SQL itself, so nil values
- in the table are handled correctly.
-
-### db:query_named
-
-```teal
-function db:query_named(sql: string, params: {string: any}): Rows | nil, string
-```
-
- Query with named parameters.
- SQL should use :name placeholders. Table keys are names without the colon.
 
 ### db:query_one
 

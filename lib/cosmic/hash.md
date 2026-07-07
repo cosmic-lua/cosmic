@@ -39,6 +39,8 @@ end
 local record HashModule
   sha256: function(data: string): string
   sha256_hex: function(data: string): string
+  hmac_sha256: function(key: string, data: string): string
+  constant_time_equal: function(a: string, b: string): boolean
   password: function(pwd: string, options?: HashOptions): string | nil, string
   verify_password: function(encoded: string, pwd: string): boolean, string
 end
@@ -79,6 +81,46 @@ function sha256_hex(data: string): string
 **Returns:**
 
 - string - The SHA-256 hash as a hex string
+
+### hmac_sha256
+
+```teal
+function hmac_sha256(key: string, data: string): string
+```
+
+ Compute HMAC-SHA256 of data with a secret key (RFC 2104).
+ Returns raw bytes (32 bytes); hex-encode with cosmic.codec.encode_hex
+ if needed. Compare MACs with constant_time_equal, not ==.
+
+**Parameters:**
+
+- `key` (string) - The secret key
+- `data` (string) - The message to authenticate
+
+**Returns:**
+
+- string - The HMAC-SHA256 tag as raw bytes
+
+### constant_time_equal
+
+```teal
+function constant_time_equal(a: string, b: string): boolean
+```
+
+ Compare two strings in constant time (for digests and MACs).
+ A plain == comparison exits at the first differing byte, leaking how
+ much of a secret an attacker has guessed; this XOR-accumulates over
+ every byte instead. Only the lengths are allowed to short-circuit
+ (digest/MAC lengths are public).
+
+**Parameters:**
+
+- `a` (string) - First string
+- `b` (string) - Second string
+
+**Returns:**
+
+- boolean - True when a and b are equal
 
 ### password
 
