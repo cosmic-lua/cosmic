@@ -71,6 +71,15 @@ test_hex_roundtrip()
 
 -- Lua encoding tests
 
+-- encode_lua keeps the binding's error channel (issue #529, item 39):
+-- the contract is string | nil, string, and success carries no error.
+local function test_encode_lua_error_channel()
+  local result, err = codec.encode_lua({nested = {1, 2, 3}})
+  assert(type(result) == "string", "encode_lua should succeed on a plain table")
+  assert(err == nil, "no error expected on success, got: " .. tostring(err))
+end
+test_encode_lua_error_channel()
+
 local function test_encode_lua_string()
   local result = codec.encode_lua("hello")
   assert(result == '"hello"', "expected '\"hello\"', got '" .. result .. "'")
@@ -90,8 +99,8 @@ end
 test_encode_lua_boolean()
 
 local function test_encode_lua_table()
-  local result = codec.encode_lua({a = 1})
-  assert(result:match("a") and result:match("1"), "expected table with a=1")
+  local result = codec.encode_lua({a = 1}) as string
+  assert(string.match(result, "a") and string.match(result, "1"), "expected table with a=1")
 end
 test_encode_lua_table()
 

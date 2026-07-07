@@ -10,7 +10,11 @@ local function render(v: any): string
   if v == nil then
     return "nil"
   end
-  return codec.encode_lua(v)
+  local s, err = codec.encode_lua(v)
+  if s == nil then
+    return "<unrenderable: " .. tostring(err) .. ">"
+  end
+  return s
 end
 
 --- Deep equality check for tables; == for everything else.
