@@ -6,7 +6,7 @@ local unveil = require("cosmic.unveil")
 local sys = require("cosmic.sys")
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
-local a = require("cosmic.assert")
+local check = require("cosmic.check")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
@@ -23,11 +23,11 @@ local function test_available_agrees_with_mechanisms()
   local avail = sandbox.available()
   assert(type(avail.fs) == "boolean", "available().fs should be boolean")
   assert(type(avail.sys) == "boolean", "available().sys should be boolean")
-  a.eq(avail.sys, pledge.available(), "sys must mirror pledge.available()")
+  check.eq(avail.sys, pledge.available(), "sys must mirror pledge.available()")
   if sys.host_os() == "linux" then
-    a.eq(avail.fs, landlock.available(), "fs must mirror landlock on Linux")
+    check.eq(avail.fs, landlock.available(), "fs must mirror landlock on Linux")
   else
-    a.eq(avail.fs, unveil.available(), "fs must mirror unveil off Linux")
+    check.eq(avail.fs, unveil.available(), "fs must mirror unveil off Linux")
   end
 end
 test_available_agrees_with_mechanisms()
@@ -93,7 +93,7 @@ local function test_fail_closed_when_unavailable()
   local avail = sandbox.available()
   local apply_any = sandbox.apply as function(any): boolean, string
   if avail.fs and avail.sys then
-    a.skip("sandbox fully available on this host; fail-closed path not exercisable")
+    check.skip("sandbox fully available on this host; fail-closed path not exercisable")
     return
   end
   if not avail.fs then
@@ -132,34 +132,34 @@ local function test_plan_landlock_mapping()
   local opts = plan_any({ro = {"/usr"}})
   local r = find_rule(opts.rules as {any}, "/usr")
   assert(r, "expected /usr rule")
-  a.eq(r.access as integer, landlock.READ | landlock.EXEC, "ro -> READ|EXEC")
+  check.eq(r.access as integer, landlock.READ | landlock.EXEC, "ro -> READ|EXEC")
 
   opts = plan_any({rw = {"/tmp"}})
   r = find_rule(opts.rules as {any}, "/tmp")
   assert(r, "expected /tmp rule")
-  a.eq(r.access as integer, landlock.RW, "rw -> RW (no exec)")
+  check.eq(r.access as integer, landlock.RW, "rw -> RW (no exec)")
   assert((landlock.RW & landlock.EXEC) == 0, "RW must not include EXEC")
 
   -- A path in several groups gets the union of their masks.
   opts = plan_any({ro = {"/shared"}, rw = {"/shared"}})
   r = find_rule(opts.rules as {any}, "/shared")
   assert(r, "expected /shared rule")
-  a.eq(r.access as integer, (landlock.READ | landlock.EXEC) | landlock.RW,
+  check.eq(r.access as integer, (landlock.READ | landlock.EXEC) | landlock.RW,
     "overlapping groups OR their masks")
 
   -- Empty policy plans to zero rules (deny-all when applied), full
   -- handled mask, and no_new_privs so it works unprivileged.
   opts = plan_any(nil)
-  a.eq(#(opts.rules as {any}), 0, "nil fs -> no rules")
-  a.eq(opts.handled as integer, landlock.ALL, "handled is ALL")
-  a.eq(opts.no_new_privs, true, "no_new_privs defaults on")
+  check.eq(#(opts.rules as {any}), 0, "nil fs -> no rules")
+  check.eq(opts.handled as integer, landlock.ALL, "handled is ALL")
+  check.eq(opts.no_new_privs, true, "no_new_privs defaults on")
 
   -- Rule order follows declaration order.
   opts = plan_any({ro = {"/a", "/b", "/c"}})
   local rules = opts.rules as {any}
-  a.eq((rules[1] as {string: any}).path, "/a")
-  a.eq((rules[2] as {string: any}).path, "/b")
-  a.eq((rules[3] as {string: any}).path, "/c")
+  check.eq((rules[1] as {string: any}).path, "/a")
+  check.eq((rules[2] as {string: any}).path, "/b")
+  check.eq((rules[3] as {string: any}).path, "/c")
 end
 test_plan_landlock_mapping()
 
@@ -170,7 +170,7 @@ test_plan_landlock_mapping()
 local function test_apply_enforces_fs_and_sys()
   local avail = sandbox.available()
   if not (avail.fs and avail.sys) then
-    a.skip("sandbox fs+sys unavailable on this host")
+    check.skip("sandbox fs+sys unavailable on this host")
     return
   end
 
@@ -201,7 +201,7 @@ if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n
   local h = spawn.spawn({cosmic, script})
   local r = (h as spawn.Handle):wait() as spawn.Result
   if r.signal ~= nil then
-    a.skip("sandbox subprocess killed by signal " .. tostring(r.signal)
+    check.skip("sandbox subprocess killed by signal " .. tostring(r.signal)
       .. " (outer sandbox)", true)
     return
   end
@@ -209,13 +209,13 @@ if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n
   if s:find("sandbox-blocked:", 1, true) then
     -- available() said yes yet apply failed: an outer sandbox
     -- pre-empted it. Strict: a hard failure on the enforce lane.
-    a.skip("sandbox.apply blocked by an outer sandbox: " .. s, true)
+    check.skip("sandbox.apply blocked by an outer sandbox: " .. s, true)
     return
   end
   assert(s:find("allowed-ok", 1, true), "allowed path should read: " .. s)
   assert(s:find("denied-blocked", 1, true),
     "path outside the allowlist must be blocked: " .. s)
-  a.enforced("sandbox fs+sys")
+  check.enforced("sandbox fs+sys")
 end
 test_apply_enforces_fs_and_sys()
 
@@ -225,7 +225,7 @@ test_apply_enforces_fs_and_sys()
 local function test_invalid_sys_leaves_fs_unapplied()
   local avail = sandbox.available()
   if not avail.fs then
-    a.skip("sandbox fs unavailable on this host")
+    check.skip("sandbox fs unavailable on this host")
     return
   end
 

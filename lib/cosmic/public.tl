@@ -8,9 +8,17 @@
 --- disappear without notice, so user code must not require them.
 
 --- Public, documented, stable modules (see the module table in CLAUDE.md).
+---
+--- Names that shadow a Lua global when bound naturally are avoided:
+--- io became fd (#532), assert became check (#561). Decisions on the
+--- remaining stdlib-colliding names, recorded so this never re-opens:
+--- `string` collides but the entrenched `str` binding convention avoids
+--- the shadow and the module is a strict superset-by-addition — keep;
+--- `require` is already internal; `env`, `time`, and the rest carry no
+--- Lua global collision — keep.
 local public: {string} = {
-  "assert",
   "benchmark",
+  "check",
   "child",
   "codec",
   "compress",

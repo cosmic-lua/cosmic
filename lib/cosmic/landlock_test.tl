@@ -2,7 +2,7 @@
 local landlock = require("cosmic.landlock")
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
-local a = require("cosmic.assert")
+local check = require("cosmic.check")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
@@ -55,7 +55,7 @@ local function test_restrict_denies_outside_allowlist()
     local v, err = landlock.abi()
     assert(v == nil, "abi() should return nil when landlock is unavailable")
     assert(err, "abi() should return an error string when unavailable")
-    a.skip("landlock unavailable (kernel lacks landlock)")
+    check.skip("landlock unavailable (kernel lacks landlock)")
     return
   end
 
@@ -103,19 +103,19 @@ if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n
   -- blocked with SIGSYS rather than EPERM, killing the subprocess
   -- before it can emit "skipped".
   if not ok then
-    a.skip("landlock restrict blocked (subprocess died before enforcing)", true)
+    check.skip("landlock restrict blocked (subprocess died before enforcing)", true)
     return
   end
   local s = out as string
   if s:find("skipped") then
-    a.skip("landlock restrict blocked: " .. s, true)
+    check.skip("landlock restrict blocked: " .. s, true)
     return
   end
   -- Plain-text find: "-" is a Lua pattern metacharacter, so a pattern
   -- search for "allowed-ok" would not match the literal marker.
   assert(s:find("allowed-ok", 1, true), "allowed path should still read: " .. s)
   assert(s:find("denied-blocked", 1, true), "denied path must be blocked: " .. s)
-  a.enforced("landlock")
+  check.enforced("landlock")
 end
 test_restrict_denies_outside_allowlist()
 
@@ -127,7 +127,7 @@ test_restrict_denies_outside_allowlist()
 -- so the live check runs in a subprocess.
 local function test_restrict_single_file_rule()
   if not landlock.available() then
-    a.skip("landlock unavailable (kernel lacks landlock)")
+    check.skip("landlock unavailable (kernel lacks landlock)")
     return
   end
 
@@ -156,7 +156,7 @@ if g then io.write("sibling-leaked\n"); g:close() else io.write("sibling-blocked
   local __r2 = (h as spawn.Handle):wait() as spawn.Result
   local ok, out = __r2.ok, __r2.stdout
   if not ok then
-    a.skip("landlock restrict blocked (subprocess died before enforcing)", true)
+    check.skip("landlock restrict blocked (subprocess died before enforcing)", true)
     return
   end
   local s = out as string
@@ -168,13 +168,13 @@ if g then io.write("sibling-leaked\n"); g:close() else io.write("sibling-blocked
     -- blocked by an outer sandbox) is a strict skip.
     assert(not s:find("add_rule(", 1, true),
       "single-file READ rule must not fail in add_rule: " .. s)
-    a.skip("landlock restrict blocked: " .. s, true)
+    check.skip("landlock restrict blocked: " .. s, true)
     return
   end
   assert(s:find("file-ok", 1, true), "single-file rule should read: " .. s)
   assert(s:find("sibling-blocked", 1, true),
     "sibling outside the rule must be blocked: " .. s)
-  a.enforced("landlock single-file rule")
+  check.enforced("landlock single-file rule")
 end
 test_restrict_single_file_rule()
 
