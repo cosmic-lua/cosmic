@@ -34,14 +34,14 @@ key rules:
 
 ## Assert Patterns
 
-the preferred way to write assertions is with `cosmic.assert`, which produces auto-formatted failure messages:
+the preferred way to write assertions is with `cosmic.check`, which produces auto-formatted failure messages:
 
 ```teal
-local a = require("cosmic.assert")
+local check = require("cosmic.check")
 
-a.eq(result, "expected", "label")      -- equality with diff on failure
-a.ne(result, nil, "should not be nil")
-a.ok(result > 0, "expected positive")
+check.eq(result, "expected", "label")      -- equality with diff on failure
+check.ne(result, nil, "should not be nil")
+check.ok(result > 0, "expected positive")
 ```
 
 plain `assert()` also works and is fine for simple checks:

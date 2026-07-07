@@ -12,7 +12,7 @@
 local quicksand = require("cosmic.quicksand")
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
-local a = require("cosmic.assert")
+local check = require("cosmic.check")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
@@ -26,7 +26,7 @@ local function run_script(name: string, body: string): spawn.Result
   local h = spawn.spawn({cosmic, script})
   local r = (h as spawn.Handle):wait() as spawn.Result
   if r.signal ~= nil then
-    a.skip("box subprocess killed by signal " .. tostring(r.signal)
+    check.skip("box subprocess killed by signal " .. tostring(r.signal)
       .. " (outer sandbox)", true)
     return nil
   end
@@ -36,7 +36,7 @@ end
 local function test_run_true_in_subprocess()
   local c = quicksand.capabilities()
   if not (c.linux and c.user_ns and c.net_ns) then
-    a.skip("box namespaces unavailable on this host")
+    check.skip("box namespaces unavailable on this host")
     return
   end
 
@@ -71,7 +71,7 @@ test_run_true_in_subprocess()
 local function test_setup_failure_returns_error_not_exit_code()
   local c = quicksand.capabilities()
   if not (c.linux and c.user_ns and c.net_ns and c.pledge) then
-    a.skip("box namespaces or pledge unavailable on this host")
+    check.skip("box namespaces or pledge unavailable on this host")
     return
   end
 
@@ -104,7 +104,7 @@ test_setup_failure_returns_error_not_exit_code()
 local function test_uid_drop_sets_no_new_privs_subprocess()
   local c = quicksand.capabilities()
   if not (c.linux and c.user_ns and c.net_ns) then
-    a.skip("box namespaces unavailable on this host")
+    check.skip("box namespaces unavailable on this host")
     return
   end
 
@@ -131,7 +131,7 @@ end
     .. tostring(r.stdout) .. tostring(r.stderr))
   local s = r.stdout as string
   if s:find("skipped") then
-    a.skip("uid_map write needs privileges: " .. s)
+    check.skip("uid_map write needs privileges: " .. s)
     return
   end
   assert(s:find("ok"), "NoNewPrivs should be 1, got: " .. s)
@@ -142,7 +142,7 @@ test_uid_drop_sets_no_new_privs_subprocess()
 local function test_pid_namespace_workload_has_low_pid_subprocess()
   local c = quicksand.capabilities()
   if not (c.linux and c.user_ns and c.net_ns and c.pid_ns) then
-    a.skip("box namespaces unavailable on this host")
+    check.skip("box namespaces unavailable on this host")
     return
   end
 
@@ -170,7 +170,7 @@ test_pid_namespace_workload_has_low_pid_subprocess()
 local function test_pid_namespace_opt_out_subprocess()
   local c = quicksand.capabilities()
   if not (c.linux and c.user_ns and c.net_ns) then
-    a.skip("box namespaces unavailable on this host")
+    check.skip("box namespaces unavailable on this host")
     return
   end
 

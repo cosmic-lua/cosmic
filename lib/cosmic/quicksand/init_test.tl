@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
 local quicksand = require("cosmic.quicksand")
 local errno = require("cosmic.errno")
-local a = require("cosmic.assert")
+local check = require("cosmic.check")
 
 local function test_module_exports()
   assert(type(quicksand.capabilities) == "function", "capabilities should be a function")
@@ -45,10 +45,10 @@ local function test_user_ns_agrees_with_scratch_probe()
   assert(type(fresh) == "boolean", "probe_ns() should return a boolean")
   local c = quicksand.capabilities()
   if c.linux then
-    a.eq(c.user_ns, fresh,
+    check.eq(c.user_ns, fresh,
       "capabilities().user_ns must agree with a fresh scratch unshare probe")
   else
-    a.eq(c.user_ns, false, "user_ns must be false off Linux")
+    check.eq(c.user_ns, false, "user_ns must be false off Linux")
   end
 end
 test_user_ns_agrees_with_scratch_probe()
@@ -85,12 +85,12 @@ end
 -- so the ENOSYS branch was dead and every probe reported available. These
 -- cases fail if that regresses.
 local function test_probe_nil_binding_is_unavailable()
-  a.eq(quicksand.probe(nil), false, "a nil binding must probe as unavailable")
+  check.eq(quicksand.probe(nil), false, "a nil binding must probe as unavailable")
 end
 test_probe_nil_binding_is_unavailable()
 
 local function test_probe_success_is_available()
-  a.eq(quicksand.probe(function(): any return true end), true,
+  check.eq(quicksand.probe(function(): any return true end), true,
     "a successful no-op call means the syscall is wired up")
 end
 test_probe_success_is_available()
@@ -98,7 +98,7 @@ test_probe_success_is_available()
 local function test_probe_enosys_is_unavailable()
   local enosys = errno.code("ENOSYS")
   assert(enosys, "ENOSYS must be defined on this host")
-  a.eq(quicksand.probe(
+  check.eq(quicksand.probe(
       mk_fail("prctl: ENOSYS: Function not implemented", enosys)), false,
     "ENOSYS means the syscall is absent -> unavailable (the branch that was dead pre-fix)")
 end
@@ -107,7 +107,7 @@ test_probe_enosys_is_unavailable()
 local function test_probe_policy_error_is_available()
   local eperm = errno.code("EPERM")
   assert(eperm, "EPERM must be defined on this host")
-  a.eq(quicksand.probe(
+  check.eq(quicksand.probe(
       mk_fail("prctl: EPERM: Operation not permitted", eperm)), true,
     "a policy error (EPERM) still proves the syscall is wired up")
 end
@@ -117,7 +117,7 @@ local function test_probe_string_only_failure_is_available()
   -- A failure that carries no numeric errno (third slot nil) cannot be
   -- classified as ENOSYS; the error string alone must never match, so
   -- the probe reports the syscall wired up.
-  a.eq(quicksand.probe(function(): any, string, integer
+  check.eq(quicksand.probe(function(): any, string, integer
         return nil, "prctl: ENOSYS: Function not implemented", nil
       end), true,
     "an error string without a numeric errno is never classified as ENOSYS")
@@ -132,16 +132,16 @@ test_probe_string_only_failure_is_available()
 local function test_real_pledge_unveil_probe()
   local c = quicksand.capabilities()
   if not c.linux then
-    a.skip("quicksand pledge/unveil probe: non-Linux host")
+    check.skip("quicksand pledge/unveil probe: non-Linux host")
     return
   end
-  a.ok(c.pledge, "capabilities().pledge must be true on Linux (pledge via seccomp)")
+  check.ok(c.pledge, "capabilities().pledge must be true on Linux (pledge via seccomp)")
   if c.landlock then
-    a.ok(c.unveil, "capabilities().unveil must be true on Linux with landlock")
+    check.ok(c.unveil, "capabilities().unveil must be true on Linux with landlock")
   else
-    a.skip("quicksand unveil probe: host kernel lacks landlock")
+    check.skip("quicksand unveil probe: host kernel lacks landlock")
   end
-  a.enforced("quicksand pledge/unveil probe")
+  check.enforced("quicksand pledge/unveil probe")
 end
 test_real_pledge_unveil_probe()
 
@@ -170,10 +170,10 @@ local function test_unveil_matches_landlock_on_linux()
   -- capability must equal the landlock one (no independent, destructive probe).
   local c = quicksand.capabilities()
   if not c.linux then
-    a.skip("unveil/landlock equivalence: non-Linux host")
+    check.skip("unveil/landlock equivalence: non-Linux host")
     return
   end
-  a.eq(c.unveil, c.landlock,
+  check.eq(c.unveil, c.landlock,
     "on Linux unveil is derived from landlock and must equal it")
 end
 test_unveil_matches_landlock_on_linux()

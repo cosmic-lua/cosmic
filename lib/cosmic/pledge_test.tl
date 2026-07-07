@@ -2,7 +2,7 @@
 local pledge = require("cosmic.pledge")
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
-local a = require("cosmic.assert")
+local check = require("cosmic.check")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
@@ -27,7 +27,7 @@ test_available_returns_boolean()
 -- exercised and enforcement is proven by the subprocess tests below.
 local function test_fail_closed_when_unavailable()
   if pledge.available() then
-    a.skip("pledge available on this host; fail-closed path not exercisable")
+    check.skip("pledge available on this host; fail-closed path not exercisable")
     return
   end
   local ok, err = pledge.apply("stdio")
@@ -60,7 +60,7 @@ io.write("pledged\n")
   local ok, out = __r1.ok, __r1.stdout
   local s = (out or "") as string
   if s:find("skipped") then
-    a.skip("pledge unsupported on this host: " .. s)
+    check.skip("pledge unsupported on this host: " .. s)
     return
   end
   assert(ok, "pledge stdio should allow io.write: " .. tostring(out))
@@ -98,14 +98,14 @@ io.write("restricted\n")
   local s = (out or "") as string
   if s:find("unsupported") then
     -- A genuine platform gap reported by the fail-closed probe: soft skip.
-    a.skip("pledge unsupported on this host: " .. s)
+    check.skip("pledge unsupported on this host: " .. s)
     return
   end
   if s:find("skipped") then
     -- available() was true yet apply failed: an outer sandbox pre-empted
     -- an otherwise-supported mechanism. Strict: a hard failure on the
     -- enforce lane.
-    a.skip("pledge apply failed: " .. s, true)
+    check.skip("pledge apply failed: " .. s, true)
     return
   end
   assert(not s:find("leaked"), "pledge must block filesystem open: " .. s)
@@ -116,6 +116,6 @@ io.write("restricted\n")
   -- Otherwise the process was killed (SIGSYS on Linux / kernel on OpenBSD)
   -- attempting the blocked open: enforcement by signal. It did not leak
   -- (asserted above) nor report pledge unavailable, so enforcement held.
-  a.enforced("pledge")
+  check.enforced("pledge")
 end
 test_restricts_filesystem()

@@ -2,7 +2,7 @@
 local unveil = require("cosmic.unveil")
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
-local a = require("cosmic.assert")
+local check = require("cosmic.check")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
@@ -29,7 +29,7 @@ test_available_returns_boolean()
 -- opt-in back to the old fail-open behavior.
 local function test_fail_closed_when_unavailable()
   if unveil.available() then
-    a.skip("unveil available on this host; fail-closed path not exercisable")
+    check.skip("unveil available on this host; fail-closed path not exercisable")
     return
   end
   local dir = fs.join(tmpdir, "fc")
@@ -60,7 +60,7 @@ test_fail_closed_when_unavailable()
 local function test_unveil_restricts_paths()
   if not unveil.available() then
     -- The fail-closed contract for this host is asserted above.
-    a.skip("unveil unavailable on this host (no landlock, not OpenBSD)")
+    check.skip("unveil unavailable on this host (no landlock, not OpenBSD)")
     return
   end
 
@@ -111,7 +111,7 @@ end
     -- available() was true yet the call failed: an outer sandbox
     -- pre-empted an otherwise-supported mechanism. Strict: a hard
     -- failure on the enforce lane.
-    a.skip("unveil blocked by an outer sandbox: " .. s, true)
+    check.skip("unveil blocked by an outer sandbox: " .. s, true)
     return
   end
   assert(ok, "unveil subprocess should exit cleanly: " .. s)
@@ -120,6 +120,6 @@ end
   -- real: a visible sibling is a fail-open bug, never a skip.
   assert(s:find("denied%-blocked"),
     "expected denial of the non-unveiled sibling: " .. s)
-  a.enforced("unveil")
+  check.enforced("unveil")
 end
 test_unveil_restricts_paths()

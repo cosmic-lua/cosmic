@@ -151,7 +151,7 @@ local function enforced(label: string)
   io.stderr:write("✓ enforce-ran: " .. label .. "\n")
 end
 
-local record AssertModule
+local record CheckModule
   eq: function(actual: any, expected: any, label?: string)
   ne: function(actual: any, expected: any, label?: string)
   ok: function(value: any, label?: string)
@@ -161,7 +161,7 @@ local record AssertModule
   enforced: function(label: string)
 end
 
-local M: AssertModule = {
+local M: CheckModule = {
   eq = eq,
   ne = ne,
   ok = ok,
