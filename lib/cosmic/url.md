@@ -1,7 +1,6 @@
 # url
 
- URL encoding, decoding, parsing, and escaping utilities.
- Provides functions for URL query encoding, parsing, and component escaping.
+ URL encoding, decoding, parsing, formatting, and escaping utilities.
 
 ## Types
 
@@ -29,9 +28,10 @@ local record UrlModule
   Url: Url
   encode: function(str: string): string
   decode: function(str: string): string | nil, string
-  parse: function(query: string): {string: string}
-  parse_url: function(url: string): Url
-  parse_host: function(hostport: string): string | nil, integer
+  parse: function(url: string): Url | nil, string
+  format: function(u: Url): string
+  parse_query: function(query: string): {string: {string}}
+  parse_host: function(hostport: string): string | nil, integer, string
   escape_host: function(str: string): string
   escape_path: function(str: string): string
   escape_segment: function(str: string): string
@@ -86,15 +86,15 @@ function decode(str: string): string | nil, string
 - string - | nil The decoded string, or nil on error
 - string? - Error message if decoding failed
 
-### parse
+### parse_query
 
 ```teal
-function parse(query: string): {string: string}
+function parse_query(query: string): {string: {string}}
 ```
 
- Parse a query string into key-value pairs.
- Handles URL-encoded keys and values.
- Duplicate keys: last value wins.
+ Parse a query string into its key-value pairs, keeping every value.
+ Keys and values are percent-decoded; a repeated key's values arrive
+ in order. A flag-style key with no `=` yields one empty-string value.
 
 **Parameters:**
 
@@ -102,15 +102,17 @@ function parse(query: string): {string: string}
 
 **Returns:**
 
-- {string:string} - Table of key-value pairs
+- {string:{string}} - Decoded keys, each with all its values in order
 
-### parse_url
+### parse
 
 ```teal
-function parse_url(url: string): Url
+function parse(url: string): Url | nil, string
 ```
 
  Parse a URL into its components.
+ The query field is re-encoded so delimiters inside values survive
+ (e.g. `?a=x%26y` stays one parameter); decode it with `parse_query`.
 
 **Parameters:**
 
@@ -118,15 +120,36 @@ function parse_url(url: string): Url
 
 **Returns:**
 
-- Url - The parsed URL components
+- Url - | nil The parsed URL components, or nil on error
+- string? - Error message if parsing failed
+
+### format
+
+```teal
+function format(u: Url): string
+```
+
+ Format a Url back into a string — the inverse of `parse`.
+ Each component is escaped for its position, so a parse/format round
+ trip yields an equivalent URL.
+
+**Parameters:**
+
+- `u` (Url) - The URL components to format
+
+**Returns:**
+
+- string - The formatted URL
 
 ### parse_host
 
 ```teal
-function parse_host(hostport: string): string | nil, integer
+function parse_host(hostport: string): string | nil, integer, string
 ```
 
  Parse a host:port string into its components.
+ IPv6 hosts must be bracketed ("[::1]" or "[::1]:8080"); a port, when
+ present, must be an integer in 1..65535.
 
 **Parameters:**
 
@@ -134,8 +157,9 @@ function parse_host(hostport: string): string | nil, integer
 
 **Returns:**
 
-- string - | nil The host
+- string - | nil The host, or nil on error
 - integer? - The port, or nil if not specified
+- string? - Error message if parsing failed
 
 ### escape_host
 

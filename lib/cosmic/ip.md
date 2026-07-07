@@ -1,6 +1,7 @@
 # ip
 
  IP address parsing, formatting, and classification utilities.
+ IPv4 only: IPv6 addresses are rejected with an explicit error.
 
 ## Types
 
@@ -18,7 +19,7 @@ local record Addr
   --  Format as a dotted-quad string (e.g., "192.168.1.1").
   format: function(Addr): string
   --  Categorize the address (e.g., "LOOPBACK", "PRIVATE", "ARIN").
-  categorize: function(Addr): string
+  categorize: function(Addr): Category
   --  Check if this is a loopback address (127.x.x.x).
   is_loopback: function(Addr): boolean
   --  Check if this is a private address (10.x, 172.16-31.x, 192.168.x).
@@ -36,11 +37,10 @@ local record IpModule
   addr: function(n: number): Addr
   parse: function(str: string): integer | nil, string
   format: function(ip: number): string
-  categorize: function(ip: number): string
+  categorize: function(ip: number): Category
   is_loopback: function(ip: number): boolean
   is_private: function(ip: number): boolean
   is_public: function(ip: number): boolean
-  resolve: function(hostname: string): integer | nil, string
   lookup: function(hostname: string): Addr | nil, string
 end
 ```
@@ -69,8 +69,10 @@ function addr(n: number): Addr
 function parse(str: string): integer | nil, string
 ```
 
- Parse an IP address string to its integer representation.
- Invalid or unsupported addresses (including IPv6) are errors.
+ Parse an IPv4 address string to its integer representation.
+ Strict dotted quad only: exactly four decimal octets 0-255, no
+ leading zeros ("127.1", "1.2.3.4.5", "01.2.3.4" are all errors).
+ IPv6 is rejected with an explicit error.
 
 **Parameters:**
 
@@ -100,7 +102,7 @@ function format(ip: number): string
 ### categorize
 
 ```teal
-function categorize(ip: number): string
+function categorize(ip: number): Category
 ```
 
  Categorize an IP address.
@@ -112,7 +114,7 @@ function categorize(ip: number): string
 
 **Returns:**
 
-- string - The category name
+- Category - The category name
 
 ### is_loopback
 
@@ -162,23 +164,6 @@ function is_public(ip: number): boolean
 **Returns:**
 
 - boolean - True if the address is public
-
-### resolve
-
-```teal
-function resolve(hostname: string): integer | nil, string
-```
-
- Resolve a hostname to an IP address.
-
-**Parameters:**
-
-- `hostname` (string) - The hostname to resolve
-
-**Returns:**
-
-- integer - | nil The IP address as an integer, or nil on error
-- string - Error message if resolution failed
 
 ### lookup
 

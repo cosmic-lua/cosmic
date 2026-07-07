@@ -42,7 +42,8 @@ High-level utilities and tools built on top of cosmo.
 | [envd](lib/cosmic/envd.md) |  Load environment variables from an embedded env.d directory. |
 | [errno](lib/cosmic/errno.md) |  Error information from system calls. |
 | [example](lib/cosmic/example.md) |  Go-style executable example testing. |
-| [fetch](lib/cosmic/fetch.md) |  Structured HTTP fetch with optional retry. |
+| [fetch](lib/cosmic/fetch.md) |  Structured HTTP fetch with retry, streaming, and honest error channels. |
+| [fetch_headers](lib/cosmic/fetch_headers.md) |  Response-header normalization for the cosmic.fetch module. |
 | [format](lib/cosmic/format.md) |  Code formatter for Teal and Lua files. |
 | [format_rules](lib/cosmic/format_rules.md) |  Formatting rules and classification functions for the code formatter. |
 | [fs](lib/cosmic/fs.md) |  Unified filesystem module. |
@@ -106,7 +107,7 @@ High-level utilities and tools built on top of cosmo.
 | [time](lib/cosmic/time.md) |  Time and clock utilities. |
 | [tty](lib/cosmic/tty.md) |  Terminal (TTY) utilities. |
 | [unveil](lib/cosmic/unveil.md) |  Restrict filesystem visibility to an allowlisted set of paths. |
-| [url](lib/cosmic/url.md) |  URL encoding, decoding, parsing, and escaping utilities. |
+| [url](lib/cosmic/url.md) |  URL encoding, decoding, parsing, formatting, and escaping utilities. |
 | [user](lib/cosmic/user.md) |  User and group identity operations. |
 | [uuid](lib/cosmic/uuid.md) |  UUID generation utilities. |
 | [welcome](lib/cosmic/welcome.md) |  |

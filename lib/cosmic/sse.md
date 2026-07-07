@@ -1,7 +1,11 @@
 # sse
 
  Server-Sent Events parser for streaming HTTP responses.
- Parses SSE format from a fetch.Reader and yields complete events.
+ Parses SSE format from a fetch.Reader and yields complete events,
+ following the WHATWG event stream processing model: unterminated
+ events at EOF are discarded, empty-data dispatches reset the event
+ type buffer, the last event ID updates as soon as an `id:` line is
+ seen, and `retry:` accepts only ASCII digits.
 
 ## Types
 
@@ -18,11 +22,29 @@ local record Event
 end
 ```
 
+### Stream
+
+ An open SSE event stream.
+
+```teal
+local record Stream
+  --  Iterator over parsed events: yields Event values; on a mid-stream
+  --  transport failure yields nil plus the error message once, then
+  --  plain nil — so truncation is distinguishable from a graceful close.
+  next: function(): Event | nil, string
+  --  The last seen event ID (nil until an id: line is seen), for
+  --  reconnecting with a Last-Event-ID request header. Updates as soon
+  --  as an id: line is parsed, even when no event is dispatched.
+  last_event_id: function(): string
+end
+```
+
 ### sse
 
 ```teal
 local record sse
   Event: Event
-  events: function(reader: fetch.Reader): function(): Event | nil, string
+  Stream: Stream
+  events: function(reader: fetch.Reader): Stream
 end
 ```

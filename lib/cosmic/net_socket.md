@@ -52,6 +52,8 @@ local record Socket
   getsockopt: function(self: Socket, level: number, optname: number): number | boolean | nil, string
   --  Set a socket option value.
   setsockopt: function(self: Socket, level: number, optname: number, value: number | boolean): boolean, string
+  --  Switch O_NONBLOCK on (default) or off for this socket.
+  set_nonblocking: function(self: Socket, enable?: boolean): boolean, string
 end
 ```
 
@@ -175,6 +177,12 @@ function sock:connect_unix(path: string): boolean, string
 
 ```teal
 function sock:getsockopt(level: number, optname: number): number | boolean | nil, string
+```
+
+### sock:set_nonblocking
+
+```teal
+function sock:set_nonblocking(enable?: boolean): boolean, string
 ```
 
 ### sock:setsockopt

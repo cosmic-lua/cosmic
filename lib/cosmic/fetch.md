@@ -1,7 +1,8 @@
 # fetch
 
- Structured HTTP fetch with optional retry.
- Wraps cosmo.Fetch with structured results to prevent accidentally discarding errors.
+ Structured HTTP fetch with retry, streaming, and honest error channels.
+ Wraps cosmo.Fetch/FetchStream with structured results so errors, the
+ effective URL, and the machine-readable failure kind are never discarded.
 
 ## Types
 
@@ -12,10 +13,20 @@
 ```teal
 local record Result
   ok: boolean
-  status: number
+  status: integer
+  --  Response headers: lowercase names; repeated headers joined ", "
+  --  (RFC 9110 §5.3), so every value is a plain string.
   headers: {string: string}
+  --  Response headers with every value: lowercase names, values in
+  --  arrival order. Use for repeatable headers like Set-Cookie.
+  raw_headers: {string: {string}}
   body: string
+  --  Effective URL of the final request, after any redirects.
+  url: string
   error: string
+  error_kind: ErrorKind
+  --  True when ok and status is 2xx.
+  is_success: function(self: Result): boolean
 end
 ```
 
@@ -31,21 +42,34 @@ local record Opts
   body: string
   --  HTTP headers to send with the request.
   headers: {string: string}
+  --  Follow 3xx redirects (default true).
+  follow_redirects: boolean
+  --  Maximum redirect hops when following redirects (default 5).
+  max_redirects: integer
+  --  Allow requests to loopback/private addresses, disabling the SSRF
+  --  guard for every hop of the redirect chain (default false).
+  allow_private: boolean
   --  HTTP proxy URL.
   proxy: string
   --  Maximum response body size in bytes.
-  maxresponse: number
-  --  Total number of attempts (1 = no retry, default 1).
-  --  Retries only occur when result.ok is true and should_retry returns true.
-  max_attempts: number
-  --  Maximum backoff delay in seconds (default 30).
-  --  Backoff is exponential: 2^attempt seconds, capped at this value.
-  max_delay: number
-  --  Predicate called after each successful HTTP response to decide retry.
-  --  Return true to retry (e.g. on status 429 or 503). If nil, no retries.
-  should_retry: function(Result): boolean
-  --  Request timeout in seconds. If nil, no timeout is applied.
+  maxresponse: integer
+  --  Per-socket-operation timeout in seconds (connect, each read/write,
+  --  TLS handshake) — NOT a whole-request deadline. 0 or nil keeps the
+  --  60-second default; there is no "infinite" option.
   timeout: number
+  --  Total number of attempts (1 = no retry, default 1).
+  max_attempts: integer
+  --  Base backoff delay in seconds (default 0.5). Attempt n waits a
+  --  uniformly random ("full jitter") delay in
+  --  [0, min(max_delay, base_delay * 2^(n-1))].
+  base_delay: number
+  --  Backoff delay cap in seconds (default 30).
+  max_delay: number
+  --  Predicate consulted after every attempt (success or failure).
+  --  Return true to retry. When nil, the default policy retries
+  --  transport errors (dns/connect/timeout) and 429/502/503/504
+  --  responses, for idempotent methods only.
+  should_retry: function(Result): boolean
 end
 ```
 
@@ -59,7 +83,7 @@ local record Reader
   read: function(self: Reader): string | nil, string
   close: function(self: Reader): boolean
   closed: function(self: Reader): boolean
-  lines: function(self: Reader): function(): string
+  lines: function(self: Reader): function(): string | nil, string
 end
 ```
 
@@ -70,10 +94,16 @@ end
 ```teal
 local record StreamResult
   ok: boolean
-  status: number
+  status: integer
   headers: {string: string}
+  raw_headers: {string: {string}}
   reader: Reader
+  --  Effective URL of the final request, after any redirects.
+  url: string
   error: string
+  error_kind: ErrorKind
+  --  True when ok and status is 2xx.
+  is_success: function(self: StreamResult): boolean
 end
 ```
 
@@ -83,7 +113,6 @@ end
 local record fetch
   Fetch: function(url: string, opts?: Opts): Result
   stream: function(url: string, opts?: Opts): StreamResult
-  has_stream: function(): boolean
   unix_proxy: function(path: string): string | nil, string
   Opts: Opts
   Result: Result
@@ -104,8 +133,8 @@ function reader:read(): string | nil, string
 
 **Returns:**
 
-- string - | nil chunk or nil on EOF
-- string - error message on failure
+- string - | nil chunk, or nil on EOF or failure
+- string - error message on failure (nil on clean EOF)
 
 ### reader:close
 

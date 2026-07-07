@@ -2,44 +2,10 @@
 
  Networking and socket utilities.
  Wraps cosmo.unix socket functions for TCP/UDP and Unix domain sockets.
+ IPv4 only: string addresses must be strict dotted quads; IPv6 is
+ rejected with an explicit "IPv6 not supported" error.
 
 ## Types
-
-### NetSocket
-
-```teal
-local record NetSocket
-  make_socket: function(fd: number): Socket
-end
-```
-
-### Socket
-
- Socket handle for network I/O.
- Supports Lua 5.4's to-be-closed via __close metamethod.
-
-```teal
-local record Socket
-  fd: number
-  close: function(self: Socket): boolean
-  closed: function(self: Socket): boolean
-  shutdown: function(self: Socket, how?: number): boolean, string
-  send: function(self: Socket, data: string, flags?: number): number | nil, string
-  sendto: function(self: Socket, data: string, ip: number, port: number, flags?: number): number | nil, string
-  recv: function(self: Socket, bufsiz?: number, flags?: number): string | nil, string
-  recvfrom: function(self: Socket, bufsiz?: number, flags?: number): string | nil, number, number, string
-  getsockname: function(self: Socket): number | nil, number, string
-  getpeername: function(self: Socket): number | nil, number, string
-  bind: function(self: Socket, ip?: number, port?: number): boolean, string
-  bind_unix: function(self: Socket, path: string): boolean, string
-  listen: function(self: Socket, backlog?: number): boolean, string
-  accept: function(self: Socket, flags?: number): Socket | nil, number, number, string
-  connect: function(self: Socket, ip: number, port: number): boolean, string
-  connect_unix: function(self: Socket, path: string): boolean, string
-  getsockopt: function(self: Socket, level: number, optname: number): number | boolean | nil, string
-  setsockopt: function(self: Socket, level: number, optname: number, value: number | boolean): boolean, string
-end
-```
 
 ### Interface
 
@@ -56,19 +22,15 @@ end
 
 ```teal
 local record NetModule
-  Socket: Socket
   Interface: Interface
   socket: function(family?: number, socktype?: number, protocol?: number): Socket | nil, string
   socketpair: function(family?: number, socktype?: number, protocol?: number): Socket | nil, Socket, string
   listen_unix: function(path: string, backlog?: number): Socket | nil, string
-  listen_tcp: function(ip: number, port: number, backlog?: number): Socket | nil, number, string
+  listen_tcp: function(addr: Address, port: number, backlog?: number): Socket | nil, number, string
   connect_unix: function(path: string): Socket | nil, string
-  connect_tcp: function(ip: number, port: number): Socket | nil, string
-  nb_connect: function(s: Socket, ip: number, port: number, timeoutms?: number): boolean, string
-  poll: function(fds: {number: number}, timeoutms?: number): {number: number} | nil, string
+  connect_tcp: function(addr: Address, port: number): Socket | nil, string
+  nb_connect: function(s: Socket, addr: Address, port: number, timeoutms?: number): boolean, string
   gethostname: function(): string | nil, string
-  parseip: function(str: string): number | nil, string
-  formatip: function(ip: number): string
   interfaces: function(): {Interface} | nil, string
   AF_INET: number
   AF_UNIX: number
@@ -221,18 +183,16 @@ function connect_unix(path: string): Socket | nil, string
 ### connect_tcp
 
 ```teal
-function connect_tcp(ip: number, port: number): Socket | nil, string
+function connect_tcp(addr: Address, port: number): Socket | nil, string
 ```
 
- Create a TCP socket and connect to an IP address and port.
- The IP is an integer (e.g. 0x7f000001 for 127.0.0.1). To convert a
- dotted-quad string, use cosmic.ip:
-   local ip = require("cosmic.ip")
-   local addr = ip.parse("127.0.0.1")  -- 0x7f000001
+ Create a TCP socket and connect to an address and port.
+ The address may be a dotted-quad string ("127.0.0.1"), a raw integer
+ (0x7f000001), or an ip.Addr. IPv6 is not supported.
 
 **Parameters:**
 
-- `ip` (number) - Remote IP address
+- `addr` (Address) - Remote IPv4 address
 - `port` (number) - Remote port
 
 **Returns:**
@@ -243,23 +203,23 @@ function connect_tcp(ip: number, port: number): Socket | nil, string
 ### listen_tcp
 
 ```teal
-function listen_tcp(ip: number, port: number, backlog?: number): Socket | nil, number, string
+function listen_tcp(addr: Address, port: number, backlog?: number): Socket | nil, number, string
 ```
 
- Create a TCP socket, bind it to host:port, and start listening.
+ Create a TCP socket, bind it to addr:port, and start listening.
  Passing port 0 lets the OS assign an ephemeral port; the actual port is
  returned as the second value so callers never need a separate getsockname
- call. The IP is an integer; convert strings with
- require("cosmic.ip").parse("127.0.0.1").
+ call. The address may be a dotted-quad string, a raw integer, or an
+ ip.Addr (0 binds all interfaces). IPv6 is not supported.
  Example — listen on an OS-assigned port:
    local net = require("cosmic.net")
-   local srv, port, err = net.listen_tcp(0x7f000001, 0)
+   local srv, port, err = net.listen_tcp("127.0.0.1", 0)
    -- port is now the OS-assigned port, e.g. 54321
-   local client = net.connect_tcp(0x7f000001, port)
+   local client = net.connect_tcp("127.0.0.1", port)
 
 **Parameters:**
 
-- `ip` (number) - Local IP address to bind (e.g. 0x7f000001 for 127.0.0.1, 0 for all)
+- `addr` (Address) - Local IPv4 address to bind ("127.0.0.1", 0 for all)
 - `port` (number) - Local port to bind; use 0 for an OS-assigned ephemeral port
 - `backlog` (number) - Maximum pending connections (default 128)
 
@@ -272,39 +232,25 @@ function listen_tcp(ip: number, port: number, backlog?: number): Socket | nil, n
 ### nb_connect
 
 ```teal
-function nb_connect(s: Socket, ip: number, port: number, timeoutms?: number): boolean, string
+function nb_connect(s: Socket, addr: Address, port: number, timeoutms?: number): boolean, string
 ```
 
- Perform a non-blocking connect on a socket.
+ Connect with a bounded wait instead of blocking indefinitely.
+ Switches the socket to non-blocking mode (via Socket:set_nonblocking),
+ starts the connect, and polls for completion up to timeoutms. The
+ socket remains in non-blocking mode afterwards; call
+ s:set_nonblocking(false) to restore blocking I/O.
 
 **Parameters:**
 
-- `s` (Socket) - The non-blocking socket to connect
-- `ip` (number) - Remote IP address
+- `s` (Socket) - The socket to connect
+- `addr` (Address) - Remote IPv4 address
 - `port` (number) - Remote port
 - `timeoutms` (number) - Timeout in milliseconds (default 10000)
 
 **Returns:**
 
 - boolean - True on success
-- string - Error message on failure
-
-### poll
-
-```teal
-function poll(fds: {number: number}, timeoutms?: number): {number: number} | nil, string
-```
-
- Poll file descriptors for events.
-
-**Parameters:**
-
-- `fds` ({number:number}) - Map of fd to events to poll for
-- `timeoutms` (number) - Timeout in milliseconds (-1 for infinite, 0 for non-blocking)
-
-**Returns:**
-
-- {number:number} - | nil Map of fd to revents
 - string - Error message on failure
 
 ### gethostname
@@ -319,39 +265,6 @@ function gethostname(): string | nil, string
 
 - string - | nil The hostname
 - string - Error message on failure
-
-### parseip
-
-```teal
-function parseip(str: string): number | nil, string
-```
-
- Parse an IP address string to numeric form.
-
-**Parameters:**
-
-- `str` (string) - IP address in dotted notation (e.g., "127.0.0.1")
-
-**Returns:**
-
-- number - | nil Numeric IP address
-- string - Error message on failure
-
-### formatip
-
-```teal
-function formatip(ip: number): string
-```
-
- Format a numeric IP address to string.
-
-**Parameters:**
-
-- `ip` (number) - Numeric IP address
-
-**Returns:**
-
-- string - IP address in dotted notation
 
 ### interfaces
 
