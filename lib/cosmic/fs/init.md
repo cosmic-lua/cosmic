@@ -71,10 +71,10 @@ local record FsModule
   fstatfs: function(fd: number): Statfs | nil, string
   major: function(dev: number): number
   minor: function(dev: number): number
-  walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T), ctx?: T): T | nil, string
+  walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T): T | nil, string
   collect: function(dir: string, pattern: string): {string} | nil, string
   collect_all: function(dir: string): {string: FileInfo} | nil, string
-  files: function(dir: string, pattern?: string): FileIter, string, any, any
+  files: function(dir: string, pattern?: string): FileIter | nil, string, any, any
   F_OK: number
   R_OK: number
   W_OK: number
