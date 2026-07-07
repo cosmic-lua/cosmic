@@ -161,7 +161,9 @@ if g then io.write("sibling-leaked\n"); g:close() else io.write("sibling-blocked
     return
   end
   local s = out as string
-  if s:find("restrict-failed") then
+  -- Plain-text find: "-" is a Lua pattern quantifier, so a pattern
+  -- search for "restrict-failed" would never match the literal marker.
+  if s:find("restrict-failed", 1, true) then
     -- The EINVAL this test pins came from add_rule; that regression is
     -- a hard failure. Anything else (create_ruleset / restrict_self
     -- blocked by an outer sandbox) is a strict skip.

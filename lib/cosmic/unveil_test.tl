@@ -77,12 +77,12 @@ local function test_unveil_restricts_paths()
 local unveil = require("cosmic.unveil")
 local ok, err = unveil.allow(%q, "r")
 if not ok then
-  io.write("blocked: unveil allow failed: " .. tostring(err) .. "\n")
+  io.write("unveil-blocked: allow failed: " .. tostring(err) .. "\n")
   os.exit(0)
 end
 ok, err = unveil.commit()
 if not ok then
-  io.write("blocked: unveil commit failed: " .. tostring(err) .. "\n")
+  io.write("unveil-blocked: commit failed: " .. tostring(err) .. "\n")
   os.exit(0)
 end
 local f = io.open(%q, "r")
@@ -106,7 +106,9 @@ end
   local __r1 = (h as spawn.Handle):wait() as spawn.Result
   local ok, out = __r1.ok, __r1.stdout
   local s = (out or "") as string
-  if s:find("blocked") then
+  -- Plain-text find of the distinct setup marker: the success marker
+  -- "denied-blocked" must not match here.
+  if s:find("unveil-blocked:", 1, true) then
     -- available() was true yet the call failed: an outer sandbox
     -- pre-empted an otherwise-supported mechanism. Strict: a hard
     -- failure on the enforce lane.
