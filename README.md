@@ -70,7 +70,6 @@ High-level utilities and tools built on top of cosmo.
 | [poll](lib/cosmic/poll.md) |  Typed interface for polling file descriptors. |
 | [proc](lib/cosmic/proc.md) |  Current process management. |
 | [env](lib/cosmic/quicksand/box/env.md) |  Pure env-policy helpers for cosmic.quicksand.Box. |
-| [fs](lib/cosmic/quicksand/box/fs.md) |  Pure translator: Box `fs` policy → `cosmic.landlock.RestrictOpts`. |
 | [init](lib/cosmic/quicksand/box/init.md) |  Declarative box builder. |
 | [merge](lib/cosmic/quicksand/box/merge.md) |  Pure table-merge helpers for cosmic.quicksand.Box. |
 | [run](lib/cosmic/quicksand/box/run.md) |  Fork / unshare / exec orchestration for cosmic.quicksand.Box:run. |
@@ -87,6 +86,7 @@ High-level utilities and tools built on top of cosmo.
 | [re](lib/cosmic/re.md) |  Regular expression matching using POSIX extended regex syntax. |
 | [require](lib/cosmic/require.md) |  Enhanced require with helpful error messages. |
 | [run](lib/cosmic/run.md) |  Script execution helpers for the cosmic CLI. |
+| [sandbox](lib/cosmic/sandbox.md) |  One-call, fail-closed sandbox facade over unveil, landlock, and |
 | [script_cache](lib/cosmic/script_cache.md) |  Caches compiled Lua output for .tl scripts run directly (`cosmic |
 | [shm](lib/cosmic/shm.md) |  Shared memory for inter-process communication. |
 | [signal](lib/cosmic/signal.md) |  Signal handling utilities. |

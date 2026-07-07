@@ -47,6 +47,7 @@ end
 
 ```teal
 local record PledgeModule
+  PROMISES: {Promise}
   apply: function(promises: string, opts?: ApplyOpts): boolean, string
   available: function(): boolean
 end

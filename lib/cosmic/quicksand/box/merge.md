@@ -8,7 +8,7 @@
 
  Field classes:
    scalar   hostname, cwd, uid, gid, pledge, log_level, ...
-   list     fs.ro, fs.rw, fs.exec, fs.deny, env.keep
+   list     fs.ro, fs.rw, fs.exec, env.keep
    map      net.allow, env.set
 
  Merge rules:
@@ -30,7 +30,7 @@
  new policy table. No syscalls, no side effects.
  Field classes:
    scalar   hostname, cwd, uid, gid, pledge, log_level, ...
-   list     fs.ro, fs.rw, fs.exec, fs.deny, env.keep
+   list     fs.ro, fs.rw, fs.exec, env.keep
    map      net.allow, env.set
  Merge rules:
    scalar  later wins; nil is a no-op.

@@ -5,9 +5,9 @@
  cosmic.quicksand is the umbrella for Linux-specific box assembly:
  network-namespace setup (cosmic.quicksand.netns), an allowlist
  HTTP/CONNECT proxy (cosmic.quicksand.proxy), and after-fork process
- primitives (cosmic.quicksand.proc). Pair it with the top-level
- `cosmic.landlock`, `cosmic.pledge`, and `cosmic.unveil` modules to
- compose a full sandbox.
+ primitives (cosmic.quicksand.proc). The boxed workload applies the
+ `cosmic.sandbox` facade (landlock + pledge) for its fs and syscall
+ policy; use that module directly to sandbox in-process.
 
  This module (the umbrella) probes the host for fine-grained feature
  availability so callers can fail fast with a specific reason instead
@@ -44,6 +44,18 @@ local record Capabilities
 end
 ```
 
+### BoxIface
+
+ The typed surface of the re-exported Box builder (the box module's
+ own record type is not directly nameable from here).
+
+```teal
+local record BoxIface
+  new: function(opts?: box.BoxOpts): box.Box | nil, string
+  merge: function(...: box.BoxOpts): box.BoxOpts
+end
+```
+
 ### QuicksandModule
 
 ```teal
@@ -52,7 +64,7 @@ local record QuicksandModule
   is_supported: function(): boolean
   probe: function(fn: any): boolean
   probe_ns: function(): boolean
-  Box: any
+  Box: BoxIface
 end
 ```
 

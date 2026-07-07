@@ -16,8 +16,9 @@
    4. supervisor starts the allowlist proxy sidecar if net.allow is
       set, and prepends HTTP(S)_PROXY into the workload env when
       net.proxy_env is not explicitly false.
-   5. supervisor forks the workload. Workload does chdir, landlock,
-      no_new_privs, drop_privs, pledge, then execvpe(argv, env).
+   5. supervisor forks the workload. Workload does chdir, the
+      sandbox fs policy (landlock), no_new_privs, drop_privs,
+      pledge, then execvpe(argv, env).
    6. supervisor runs become_init(workload_pid, {sidecars={proxy_pid}})
       and os.exit()s with the returned code. parent maps wait status
       to an exit code and returns it from run().

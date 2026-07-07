@@ -43,7 +43,7 @@ end
 
 ```teal
 local record UnveilModule
-  allow: function(path: string, permissions: string, opts?: UnveilOpts): boolean, string
+  allow: function(path: string, permissions: Perm, opts?: UnveilOpts): boolean, string
   commit: function(opts?: UnveilOpts): boolean, string
   available: function(): boolean
   apply: function(path: string, permissions: string): boolean, string
@@ -73,7 +73,7 @@ function available(): boolean
 ### allow
 
 ```teal
-function allow(path: string, permissions: string, opts?: UnveilOpts): boolean, string
+function allow(path: string, permissions: Perm, opts?: UnveilOpts): boolean, string
 ```
 
  Unveil a path with the given permission set.

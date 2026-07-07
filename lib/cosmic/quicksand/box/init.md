@@ -42,7 +42,7 @@ end
 
 ```teal
 local record NetRule
-  type: string
+  type: NetRuleType
   token: string
   username: string
   password: string
@@ -57,19 +57,8 @@ end
 local record NetOpts
   proxy_env: boolean
   allow: {string: NetRule}
-  log_level: string
+  log_level: LogLevel
   resolve_timeout_ms: integer
-end
-```
-
-### FsOpts
-
-```teal
-local record FsOpts
-  ro: {string}
-  rw: {string}
-  exec: {string}
-  deny: {string}
 end
 ```
 
@@ -178,7 +167,7 @@ function merge(...: BoxOpts): BoxOpts
 ```
 
  Compose policy tables left-to-right. Scalars: later wins. Lists
- (fs.ro, fs.rw, fs.exec, fs.deny, env.keep): concat + dedupe. Maps
+ (fs.ro, fs.rw, fs.exec, env.keep): concat + dedupe. Maps
  (net.allow, env.set): per-key later wins. Returns a fresh table
  suitable for `Box.new`.
 
