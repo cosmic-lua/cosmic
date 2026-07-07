@@ -128,9 +128,9 @@ end
 
 ### Wrapped
 
- Wrapper table: holds the raw stat userdata; a shared metatable
- delegates the accessors and implements the predicates, so wrapping
- costs one small table per stat call.
+ Fallback wrapper table: holds the raw stat userdata; a shared
+ metatable delegates the accessors and implements the predicates, so
+ wrapping costs one small table per stat call.
 
 ```teal
 local record Wrapped
