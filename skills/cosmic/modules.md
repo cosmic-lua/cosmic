@@ -15,7 +15,7 @@ all standard library modules are imported as `cosmic.*`:
 ```teal
 local json = require("cosmic.json")
 local fs = require("cosmic.fs")
-local cio = require("cosmic.io")
+local fs = require("cosmic.fs")
 ```
 
 prefer `cosmic.*` modules over raw `cosmo.*` C bindings. use `cosmo.*` only when no `cosmic.*` alternative exists yet.

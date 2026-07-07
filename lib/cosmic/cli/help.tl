@@ -2,7 +2,7 @@
 --- Produces the complete --help output including static option descriptions
 --- and dynamic module list from embedded docs.
 
-local cio = require("cosmic.io")
+local fs = require("cosmic.fs")
 
 --- Generate help text for cosmic CLI.
 --- @return string The complete help text
@@ -10,7 +10,7 @@ local function generate(): string
   local lines: {string} = {}
 
   -- Load static help text from embedded file
-  local static_help, err = cio.slurp("/zip/sys/help.md")
+  local static_help, err = fs.read("/zip/sys/help.md")
   assert(static_help, "failed to load embedded help: " .. (err or "unknown error"))
   table.insert(lines, static_help)
 

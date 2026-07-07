@@ -1,8 +1,8 @@
 #!/usr/bin/env lua
 
-local cio = require("cosmic.io")
 local getopt = require("cosmic.getopt")
 local proc = require("cosmic.proc")
+local fs = require("cosmic.fs")
 
 local record CheckResult
   status: string
@@ -74,8 +74,8 @@ local function format_failures(results: {CheckResult}): string
       end
       if result.file then
         local base = result.file:gsub("%.got$", "")
-        local out = cio.slurp(base .. ".out") or ""
-        local err = cio.slurp(base .. ".err") or ""
+        local out = fs.read(base .. ".out") or ""
+        local err = fs.read(base .. ".err") or ""
         if out ~= "" then
           table.insert(lines, "")
           table.insert(lines, "stdout:")
@@ -154,7 +154,7 @@ local function main(...: string): integer, string
     table.sort(result_files)
 
     for _, file in ipairs(result_files) do
-      local content = cio.slurp(file)
+      local content = fs.read(file)
       if content then
         local exit_code = tonumber(string.match(content, "^(%d+)"))
         local status_str: string
@@ -166,8 +166,8 @@ local function main(...: string): integer, string
           status_str = "fail"
         end
         local base = string.gsub(file, "%.got$", "")
-        local out_content = (cio.slurp(base .. ".out") or "") as string
-        local err_content = (cio.slurp(base .. ".err") or "") as string
+        local out_content = (fs.read(base .. ".out") or "") as string
+        local err_content = (fs.read(base .. ".err") or "") as string
 
         local message = ""
         if exit_code ~= 0 and err_content ~= "" then

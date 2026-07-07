@@ -14,7 +14,6 @@
 -- does not interfere with the Lua parser.
 local function Example_shebang()
   local fs = require("cosmic.fs")
-  local cio = require("cosmic.io")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
 
@@ -22,7 +21,7 @@ local function Example_shebang()
   local script = fs.join(tmpdir, "greet.tl")
 
   -- Write a script with a shebang line
-  cio.barf(script, '#!/usr/bin/env cosmic\nlocal name: string = "world"\nprint("hello " .. name)\n')
+  fs.write(script, '#!/usr/bin/env cosmic\nlocal name: string = "world"\nprint("hello " .. name)\n')
 
   -- Run it via cosmic (portable across all platforms)
   local r = spawn.run({cosmic, script}) as spawn.Result
@@ -38,7 +37,6 @@ end
 -- available in the global `arg` table, just like standard Lua.
 local function Example_script_args()
   local fs = require("cosmic.fs")
-  local cio = require("cosmic.io")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
 
@@ -46,7 +44,7 @@ local function Example_script_args()
   local script = fs.join(tmpdir, "greet.tl")
 
   -- A script that reads arguments from the arg table
-  cio.barf(script, [[#!/usr/bin/env cosmic
+  fs.write(script, [[#!/usr/bin/env cosmic
 local name: string = arg[1] or "world"
 print("hello " .. name)
 ]])
@@ -71,7 +69,6 @@ end
 -- Users add their bin directory to PATH if it is not already there.
 local function Example_install_to_path()
   local fs = require("cosmic.fs")
-  local cio = require("cosmic.io")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
 
@@ -83,7 +80,7 @@ local function Example_install_to_path()
 
   -- Write a script
   local script = fs.join(bindir, "mytool")
-  cio.barf(script, '#!/usr/bin/env cosmic\nprint("mytool v1.0")\n')
+  fs.write(script, '#!/usr/bin/env cosmic\nprint("mytool v1.0")\n')
   fs.chmod(script, 0x1ED) -- 0755
 
   -- Run it via cosmic (simulating PATH lookup)
@@ -100,7 +97,6 @@ end
 -- that runs on any platform without needing cosmic installed.
 local function Example_portable_executable()
   local fs = require("cosmic.fs")
-  local cio = require("cosmic.io")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
 
@@ -108,7 +104,7 @@ local function Example_portable_executable()
 
   -- Write a Teal source file
   local tl_file = fs.join(tmpdir, "app.tl")
-  cio.barf(tl_file, 'local msg: string = "portable app"\nprint(msg)\n')
+  fs.write(tl_file, 'local msg: string = "portable app"\nprint(msg)\n')
 
   -- Compile .tl to .lua (--embed requires plain Lua)
   local r = spawn.run({cosmic, "--compile", tl_file}) as spawn.Result
@@ -118,7 +114,7 @@ local function Example_portable_executable()
   -- Create app directory with compiled entry point
   local appdir = fs.join(tmpdir, "pkg")
   fs.makedirs(appdir)
-  cio.barf(fs.join(appdir, "main.lua"), lua_source)
+  fs.write(fs.join(appdir, "main.lua"), lua_source)
 
   -- Build a standalone executable
   local output = fs.join(tmpdir, "myapp")

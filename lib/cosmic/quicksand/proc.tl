@@ -25,7 +25,7 @@ local record Barrier
 end
 
 --- Options for become_init().
-local record InitOpts
+local record InitOptions
   sidecars: {integer}
   signals: {string}
   on_sidecar_exit: function(pid: integer, ws: integer)
@@ -225,9 +225,9 @@ end
 --- Not thread-safe: uses process-wide sigaction.
 ---
 --- @param main_pid integer pid of the main user-visible child
---- @param opts InitOpts? sidecar pids, signal set, exit hook
+--- @param opts InitOptions? sidecar pids, signal set, exit hook
 --- @return integer exit code for os.exit()
-local function become_init(main_pid: integer, opts: InitOpts): integer
+local function become_init(main_pid: integer, opts: InitOptions): integer
   opts = opts or {}
   local sidecars: {integer} = opts.sidecars or {}
   local signals: {string} = opts.signals or DEFAULT_SIGNALS
@@ -291,7 +291,7 @@ local record ProcModule
   setup_userns_maps: function(uid: integer, gid: integer): boolean, string
   barrier: function(): Barrier | nil, string
   fork_pidns: function(): integer | nil, string
-  become_init: function(main_pid: integer, opts: InitOpts): integer
+  become_init: function(main_pid: integer, opts: InitOptions): integer
   DEFAULT_SIGNALS: {string}
 end
 

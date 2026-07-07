@@ -15,13 +15,13 @@
 
 local getopt = require("cosmic.getopt")
 local json = require("cosmic.json")
-local cio = require("cosmic.io")
 local csys = require("cosmic.sys")
 local time = require("cosmic.time")
 local proc = require("cosmic.proc")
 local harness = require("perf.harness")
 local compare = require("perf.compare")
 local pt = require("perf.perf_types")
+local fs = require("cosmic.fs")
 
 local record Args
   out: string
@@ -201,7 +201,7 @@ local function run_benches(a: Args): integer
       io.stderr:write("encode results: " .. tostring(eerr) .. "\n")
       return 1
     end
-    local wok, werr = cio.barf(a.out, encoded)
+    local wok, werr = fs.write(a.out, encoded)
     if not wok then
       io.stderr:write("write " .. a.out .. ": " .. tostring(werr) .. "\n")
       return 1

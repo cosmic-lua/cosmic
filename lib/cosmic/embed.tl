@@ -32,12 +32,11 @@
 ---
 --- This roundtrips: extract produces exactly the files that embed consumes.
 
-local cio = require("cosmic.io")
 local czip = require("cosmic.zip")
 local fs = require("cosmic.fs")
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").str
-local Stat = require("cosmic.fs_types").Stat
+local Stat = require("cosmic.fs.types").Stat
 
 --- Result returned from embed and extract operations.
 local record EmbedResult
@@ -145,15 +144,15 @@ local function collect_dir(dir: string): {FileToEmbed} | nil, string
         -- doesn't expose d_type; fall back to a real lstat so a symlinked
         -- dir reports S_ISLNK, not S_ISDIR, preserving the same cycle
         -- prevention as the d_type == DT_DIR branch above).
-        local st = fs.stat(full_path, false)
+        local st = fs.lstat(full_path)
         if st then
           local sst = st as Stat
-          if fs.is_dir(sst:mode()) then
+          if sst:is_dir() then
             local walk_err = do_walk(full_path, rel)
             if walk_err then return walk_err end
           elseif unix.S_ISREG(sst:mode()) then
             -- Only embed regular files; skip symlinks (S_ISLNK) entirely.
-            local content, read_err = cio.slurp(full_path)
+            local content, read_err = fs.read(full_path)
             if not content then
               return "cannot open file '" .. full_path .. "': " .. (read_err or "unknown error")
             end
@@ -212,7 +211,7 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
         files_to_embed[#files_to_embed + 1] = f
       end
     else
-      local content, open_err = cio.slurp(p)
+      local content, open_err = fs.read(p)
       if not content then
         return {ok = false, message = "error: cannot open file '" .. p .. "': " .. (open_err or "unknown error"), file_count = 0}
       end
@@ -249,13 +248,13 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
   end
   unix.close(tmp_fd)
 
-  local exe_data = cio.slurp(exe_path)
+  local exe_data = fs.read(exe_path)
   if not exe_data then
     fs.unlink(tmp_path)
     return {ok = false, message = "error: cannot read executable '" .. exe_path .. "'", file_count = 0}
   end
 
-  local barf_ok = cio.barf(tmp_path, exe_data)
+  local barf_ok = fs.write(tmp_path, exe_data)
   if not barf_ok then
     fs.unlink(tmp_path)
     return {ok = false, message = "error: cannot write to '" .. tmp_path .. "'", file_count = 0}
@@ -341,7 +340,7 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
     return {ok = false, message = "error: could not determine executable path", file_count = 0}
   end
 
-  local exe_data = cio.slurp(exe_path)
+  local exe_data = fs.read(exe_path)
   if not exe_data then
     return {ok = false, message = "error: cannot read executable '" .. exe_path .. "'", file_count = 0}
   end
@@ -398,7 +397,7 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
         end
       end
 
-      local write_ok = cio.barf(filepath, content, file_mode)
+      local write_ok = fs.write(filepath, content, file_mode)
       if not write_ok then
         reader:close()
         return {ok = false, message = "error: cannot write '" .. filepath .. "'", file_count = count}

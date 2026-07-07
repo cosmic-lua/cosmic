@@ -74,7 +74,7 @@ end
 --- `no_new_privs` defaults to true (sets PR_SET_NO_NEW_PRIVS before the
 --- restrict, which the kernel requires unless the caller already set it
 --- or holds CAP_SYS_ADMIN).
-local record RestrictOpts
+local record RestrictOptions
   handled: integer
   rules: {Rule}
   no_new_privs: boolean
@@ -82,7 +82,7 @@ end
 
 local record LandlockModule
   type Rule = Rule
-  type RestrictOpts = RestrictOpts
+  type RestrictOptions = RestrictOptions
   EXECUTE: integer
   WRITE_FILE: integer
   READ_FILE: integer
@@ -105,7 +105,7 @@ local record LandlockModule
   ALL: integer
   abi: function(): integer | nil, string
   available: function(): boolean
-  restrict: function(opts: RestrictOpts): boolean, string
+  restrict: function(opts: RestrictOptions): boolean, string
 end
 
 --- Per-ABI "max access" mask. Categories above the kernel's supported
@@ -148,7 +148,7 @@ end
 --- outside its allowlist. (Cosmopolitan's C unveil path plugs this with
 --- a seccomp filter; this module does not.) Pair with `cosmic.pledge`
 --- — truncate is governed by its "wpath" group — where that matters.
-local function restrict(opts: RestrictOpts): boolean, string
+local function restrict(opts: RestrictOptions): boolean, string
   opts = opts or {}
   local abi_version, aerr = abi()
   if not abi_version then return false, aerr end

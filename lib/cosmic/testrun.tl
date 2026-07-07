@@ -1,10 +1,9 @@
 --- Test runner for cosmic executables.
 --- Provides functions to run test executables and report on results.
 local child = require("cosmic.child")
-local cio = require("cosmic.io")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
-local instrument = require("cosmic.instrument")
+local instrument = require("cosmic.cli.instrument")
 
 --- Run a test executable and capture output.
 --- Creates a temporary directory (TEST_TMPDIR) for the test and cleans up after.
@@ -76,21 +75,21 @@ local function run(argv: {string}, output_base: string): integer
 
   -- Write output files
   local ok: boolean
-  ok, err = cio.barf(output_base .. ".got", tostring(exit_code) .. "\n")
+  ok, err = fs.write(output_base .. ".got", tostring(exit_code) .. "\n")
   if not ok then
     io.stderr:write("testrun: " .. (err or "failed to write .got") .. "\n")
     instrument.finish(span, 1)
     return 1
   end
 
-  ok, err = cio.barf(output_base .. ".out", stdout_content)
+  ok, err = fs.write(output_base .. ".out", stdout_content)
   if not ok then
     io.stderr:write("testrun: " .. (err or "failed to write .out") .. "\n")
     instrument.finish(span, 1)
     return 1
   end
 
-  ok, err = cio.barf(output_base .. ".err", stderr_content)
+  ok, err = fs.write(output_base .. ".err", stderr_content)
   if not ok then
     io.stderr:write("testrun: " .. (err or "failed to write .err") .. "\n")
     instrument.finish(span, 1)
@@ -103,7 +102,7 @@ local function run(argv: {string}, output_base: string): integer
   local test_names: {string} = {}
   for _, a in ipairs(argv) do
     if a:match("_test%.tl$") then
-      local src = cio.slurp(a)
+      local src = fs.read(a)
       if src then
         for line in string.gmatch(src, "[^\n]+") do
           local tname = line:match("^local function (test_[%w_]+)")
@@ -115,7 +114,7 @@ local function run(argv: {string}, output_base: string): integer
     end
   end
   if #test_names > 0 then
-    local tok, terr = cio.barf(output_base .. ".tests", table.concat(test_names, "\n") .. "\n")
+    local tok, terr = fs.write(output_base .. ".tests", table.concat(test_names, "\n") .. "\n")
     if not tok then
       io.stderr:write("testrun: " .. (terr or "failed to write .tests") .. "\n")
     end
@@ -159,7 +158,7 @@ local function report(paths: {string}): integer
     local name = fs.basename(base)
 
     -- Read exit code from .got file
-    local got_content, err = cio.slurp(base .. ".got")
+    local got_content, err = fs.read(base .. ".got")
     if not got_content then
       io.stderr:write("testrun: cannot read " .. base .. ".got: " .. (err or "unknown error") .. "\n")
       failed = failed + 1
@@ -175,12 +174,12 @@ local function report(paths: {string}): integer
       local exit_code = (tonumber(string.match(got_content, "^(%d+)")) or -1) as integer
 
       -- Read stdout and stderr
-      local stdout_content = cio.slurp(base .. ".out") or ""
-      local stderr_content = cio.slurp(base .. ".err") or ""
+      local stdout_content = fs.read(base .. ".out") or ""
+      local stderr_content = fs.read(base .. ".err") or ""
 
       -- Read recorded test_* function names, when present
       local test_count = 0
-      local tests_content = cio.slurp(base .. ".tests")
+      local tests_content = fs.read(base .. ".tests")
       if tests_content then
         for _ in string.gmatch(tests_content, "[^\n]+") do
           test_count = test_count + 1

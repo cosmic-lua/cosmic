@@ -2,7 +2,6 @@
 local unveil = require("cosmic.unveil")
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
-local cio = require("cosmic.io")
 local a = require("cosmic.assert")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -69,11 +68,11 @@ local function test_unveil_restricts_paths()
   fs.makedirs(allowed_dir)
   local allowed_file = fs.join(allowed_dir, "unveiled.txt")
   local hidden_file = fs.join(tmpdir, "secret.txt")
-  cio.barf(allowed_file, "visible")
-  cio.barf(hidden_file, "secret")
+  fs.write(allowed_file, "visible")
+  fs.write(hidden_file, "secret")
 
   local script = fs.join(tmpdir, "unveil_test.lua")
-  cio.barf(script, string.format([[
+  fs.write(script, string.format([[
 local unveil = require("cosmic.unveil")
 local ok, err = unveil.allow(%q, "r")
 if not ok then

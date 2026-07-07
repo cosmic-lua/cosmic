@@ -1,8 +1,9 @@
 --- Filesystem file operations, permissions, timestamps, and temp files.
 --- Internal submodule used by cosmic.fs.
 local unix = require("cosmo.unix")
-local types = require("cosmic.fs_types")
-local errstr = require("cosmic.errno").str
+local types = require("cosmic.fs.types")
+local errno = require("cosmic.errno")
+local errstr = errno.str
 local Statfs = types.Statfs
 
 -- File operations
@@ -29,6 +30,108 @@ local function rename(oldpath: string, newpath: string): boolean, string
   local ok, err = unix.rename(oldpath, newpath, unix.AT_FDCWD, unix.AT_FDCWD)
   if not ok then
     return false, errstr(err, "rename: " .. oldpath .. " -> " .. newpath)
+  end
+  return true
+end
+
+--- Copy a file, preserving its permission bits.
+--- Follows symlinks: copying a symlink copies the target's contents.
+--- The destination is created (or truncated) and receives the source's
+--- mode bits.
+--- @param src string Path to the source file
+--- @param dst string Path to the destination file
+--- @return boolean True on success
+--- @return string Error message if failed
+local function copy(src: string, dst: string): boolean, string
+  local srcfd, oerr = unix.open(src, unix.O_RDONLY)
+  if not srcfd then
+    return false, errstr(oerr, "copy: open: " .. src)
+  end
+  local st, serr = unix.fstat(srcfd)
+  if not st then
+    unix.close(srcfd)
+    return false, errstr(serr, "copy: fstat: " .. src)
+  end
+  local mode = st:mode() & 0x1ff
+  local dstfd, derr = unix.open(dst,
+    unix.O_WRONLY | unix.O_CREAT | unix.O_TRUNC, mode)
+  if not dstfd then
+    unix.close(srcfd)
+    return false, errstr(derr, "copy: open: " .. dst)
+  end
+  while true do
+    local data, rerr = unix.read(srcfd, 65536)
+    if data == nil then
+      unix.close(srcfd)
+      unix.close(dstfd)
+      return false, errstr(rerr, "copy: read: " .. src)
+    end
+    if data == "" then break end
+    local off: integer = 1
+    while off <= #data do
+      local n, werr = unix.write(dstfd, data:sub(off))
+      if not n then
+        unix.close(srcfd)
+        unix.close(dstfd)
+        return false, errstr(werr, "copy: write: " .. dst)
+      end
+      off = off + math.floor(n)
+    end
+  end
+  unix.close(srcfd)
+  unix.close(dstfd)
+  -- open()'s mode is masked by the umask; chmod applies the exact bits.
+  local ok, cerr = unix.chmod(dst, mode)
+  if not ok then
+    return false, errstr(cerr, "copy: chmod: " .. dst)
+  end
+  return true
+end
+
+--- Move (rename) a file, falling back to copy+unlink across filesystems.
+--- A plain rename() fails with EXDEV when oldpath and newpath are on
+--- different filesystems; in that case the file is copied (mode
+--- preserved) and the original unlinked.
+--- @param oldpath string Current path
+--- @param newpath string New path
+--- @return boolean True on success
+--- @return string Error message if failed
+local function move(oldpath: string, newpath: string): boolean, string
+  local ok, err, eno = unix.rename(oldpath, newpath, unix.AT_FDCWD, unix.AT_FDCWD)
+  if ok then
+    return true
+  end
+  if not errno.is(eno, "EXDEV") then
+    return false, errstr(err, "move: " .. oldpath .. " -> " .. newpath)
+  end
+  local copied, cerr = copy(oldpath, newpath)
+  if not copied then
+    return false, cerr
+  end
+  local unlinked, uerr = unix.unlink(oldpath)
+  if not unlinked then
+    return false, errstr(uerr, "move: unlink: " .. oldpath)
+  end
+  return true
+end
+
+--- Update a file's access and modification times to now, creating the
+--- file (mode 0644 by default) if it does not exist.
+--- @param path string Path to the file
+--- @param mode number Permission bits when creating (default 0644)
+--- @return boolean True on success
+--- @return string Error message if failed
+local function touch(path: string, mode?: number): boolean, string
+  local fd, oerr = unix.open(path,
+    unix.O_WRONLY | unix.O_CREAT, mode or tonumber("644", 8))
+  if not fd then
+    return false, errstr(oerr, "touch: " .. path)
+  end
+  unix.close(fd)
+  local rc, terr = unix.utimensat(path,
+    0, unix.UTIME_NOW, 0, unix.UTIME_NOW)
+  if rc ~= 0 then
+    return false, errstr(terr, "touch: " .. path)
   end
   return true
 end
@@ -183,15 +286,17 @@ local function mkdtemp(template: string): string | nil, string
 end
 
 --- Create a temporary file.
+--- The second return is always the path (nil on failure); the error, if
+--- any, is always in the third slot.
 --- @param template string Path template ending in XXXXXX
 --- @return number | nil File descriptor, or nil on error
---- @return string Path to the created file, or error message
-local function mkstemp(template: string): number | nil, string
-  -- On success mkstemp returns (fd, path); on failure (nil, Errno), so the
-  -- second slot is the error, not a path.
+--- @return string Path to the created file, or nil on error
+--- @return string Error message if failed
+local function mkstemp(template: string): number | nil, string, string
+  -- The binding returns (fd, path) on success and (nil, Errno) on failure.
   local fd, path = unix.mkstemp(template)
   if not fd then
-    return nil, errstr(path as any, "mkstemp: " .. template)
+    return nil, nil, errstr(path as any, "mkstemp: " .. template)
   end
   return fd, path
 end
@@ -252,6 +357,9 @@ end
 local record FsOpsModule
   unlink: function(path: string): boolean, string
   rename: function(oldpath: string, newpath: string): boolean, string
+  copy: function(src: string, dst: string): boolean, string
+  move: function(oldpath: string, newpath: string): boolean, string
+  touch: function(path: string, mode?: number): boolean, string
   link: function(existingpath: string, newpath: string): boolean, string
   symlink: function(target: string, linkpath: string): boolean, string
   readlink: function(path: string): string | nil, string
@@ -263,7 +371,7 @@ local record FsOpsModule
   utimensat: function(path: string, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
   futimens: function(fd: number, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
   mkdtemp: function(template: string): string | nil, string
-  mkstemp: function(template: string): number | nil, string
+  mkstemp: function(template: string): number | nil, string, string
   tmpfd: function(): number | nil, string
   statfs: function(path: string): Statfs | nil, string
   fstatfs: function(fd: number): Statfs | nil, string
@@ -278,6 +386,9 @@ end
 local M: FsOpsModule = {
   unlink = unlink,
   rename = rename,
+  copy = copy,
+  move = move,
+  touch = touch,
   link = link,
   symlink = symlink,
   readlink = readlink,

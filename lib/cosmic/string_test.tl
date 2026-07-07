@@ -26,21 +26,14 @@ local function test_capitalize_single_char()
 end
 test_capitalize_single_char()
 
--- upper/lower tests
+-- upper/lower were removed: they duplicated Lua's string.upper/lower
+-- verbatim. Use the stdlib directly.
 
-local function test_upper()
-  assert(str.upper("hello") == "HELLO", "expected HELLO")
-  assert(str.upper("Hello World") == "HELLO WORLD", "expected HELLO WORLD")
-  assert(str.upper("") == "", "expected empty string")
+local function test_upper_lower_removed()
+  assert((str as {string: any}).upper == nil, "str.upper should be removed")
+  assert((str as {string: any}).lower == nil, "str.lower should be removed")
 end
-test_upper()
-
-local function test_lower()
-  assert(str.lower("HELLO") == "hello", "expected hello")
-  assert(str.lower("Hello World") == "hello world", "expected hello world")
-  assert(str.lower("") == "", "expected empty string")
-end
-test_lower()
+test_upper_lower_removed()
 
 -- trim tests
 

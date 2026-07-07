@@ -44,7 +44,7 @@ local function build_url(spec: VersionSpec, platform: string): string, string
 end
 
 local function download(url: string): string, string
-  local result = fetch.Fetch(url, {
+  local result = fetch.fetch(url, {
       headers = {["User-Agent"] = "curl/8.0"},
       maxresponse = 100 * 1024 * 1024,
       max_attempts = 8,

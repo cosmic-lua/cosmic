@@ -1,7 +1,6 @@
 #!/usr/bin/env cosmic
 local landlock = require("cosmic.landlock")
 local fs = require("cosmic.fs")
-local cio = require("cosmic.io")
 local spawn = require("cosmic.child")
 local a = require("cosmic.assert")
 
@@ -69,11 +68,11 @@ local function test_restrict_denies_outside_allowlist()
   fs.makedirs(allowed_dir)
   local allowed = fs.join(allowed_dir, "ok.txt")
   local denied = fs.join(tmpdir, "denied.txt")
-  cio.barf(allowed, "allowed-content")
-  cio.barf(denied, "denied-content")
+  fs.write(allowed, "allowed-content")
+  fs.write(denied, "denied-content")
 
   local script = fs.join(tmpdir, "landlock_restrict.lua")
-  cio.barf(script, string.format([[
+  fs.write(script, string.format([[
 local ll = require("cosmic.landlock")
 local ok, err = ll.restrict{ rules = { { path = %q, access = ll.READ } } }
 if not ok then
@@ -136,11 +135,11 @@ local function test_restrict_single_file_rule()
   fs.makedirs(dir)
   local target = fs.join(dir, "target.txt")
   local sibling = fs.join(dir, "sibling.txt")
-  cio.barf(target, "target-content")
-  cio.barf(sibling, "sibling-content")
+  fs.write(target, "target-content")
+  fs.write(sibling, "sibling-content")
 
   local script = fs.join(tmpdir, "landlock_filerule.lua")
-  cio.barf(script, string.format([[
+  fs.write(script, string.format([[
 local ll = require("cosmic.landlock")
 local ok, err = ll.restrict{ rules = { { path = %q, access = ll.READ } } }
 if not ok then

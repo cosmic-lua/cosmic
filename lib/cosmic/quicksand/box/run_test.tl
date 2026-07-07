@@ -12,7 +12,6 @@
 local quicksand = require("cosmic.quicksand")
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
-local cio = require("cosmic.io")
 local a = require("cosmic.assert")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -23,7 +22,7 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 -- signal (an outer seccomp filter SIGSYS-ing a namespace syscall).
 local function run_script(name: string, body: string): spawn.Result
   local script = fs.join(tmpdir, name)
-  cio.barf(script, body)
+  fs.write(script, body)
   local h = spawn.spawn({cosmic, script})
   local r = (h as spawn.Handle):wait() as spawn.Result
   if r.signal ~= nil then

@@ -1,9 +1,8 @@
 #!/usr/bin/env cosmic
 --- Tests for cosmic.zip wrapper module.
 
-local cio = require("cosmic.io")
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs_types")
+local fs_types = require("cosmic.fs.types")
 local zip = require("cosmic.zip")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
@@ -25,7 +24,7 @@ local function test_writer()
   writer:close()
 
   -- Verify the file exists
-  local data = cio.slurp(p)
+  local data = fs.read(p)
   assert(data and #data > 0, "zip file should exist and have content")
 end
 test_writer()
@@ -40,7 +39,7 @@ local function test_writer_multiple_files()
   writer:add("subdir/file3.txt", "Content 3")
   writer:close()
 
-  local data = cio.slurp(p)
+  local data = fs.read(p)
   assert(data and #data > 0, "zip file should exist")
 end
 test_writer_multiple_files()
@@ -171,7 +170,7 @@ local function test_from_memory()
   w:add("mem.txt", "In-memory content")
   w:close()
 
-  local zip_data = cio.slurp(p)
+  local zip_data = fs.read(p)
   assert(zip_data, "should read zip data")
 
   local r, err = zip.from(zip_data as string)
@@ -291,8 +290,8 @@ local function test_extract_basic()
   r:close()
   assert(ok, "extract should succeed: " .. tostring(err))
 
-  assert(cio.slurp(fs.join(dest, "top.txt")) == "top content", "top.txt should round-trip")
-  assert(cio.slurp(fs.join(dest, "sub/dir/nested.txt")) == "nested content", "nested file should round-trip")
+  assert(fs.read(fs.join(dest, "top.txt")) == "top content", "top.txt should round-trip")
+  assert(fs.read(fs.join(dest, "sub/dir/nested.txt")) == "nested content", "nested file should round-trip")
   local st = fs.stat(fs.join(dest, "run.sh"))
   assert(st, "run.sh should exist")
   local mode = (st as fs_types.Stat):mode() & tonumber("777", 8)
@@ -310,7 +309,7 @@ local function crafted_archive(patch_to: string): string
   w:add("good.txt", "innocent")
   w:add("XX/escaped.txt", "pwned")
   w:close()
-  local raw = cio.slurp(safe)
+  local raw = fs.read(safe)
   assert(#patch_to == #"XX/escaped.txt", "patch must preserve name length")
   local patched = string.gsub(raw as string, "XX/escaped%.txt", patch_to)
   return patched

@@ -71,7 +71,7 @@ end
 --- if the message carries none. Enables programmatic checks on errors
 --- whose numeric errno is no longer at hand:
 ---
----     local data, err = cio.slurp(path)
+---     local data, err = fs.read(path)
 ---     if errno.name_of(err) == "ENOENT" then ... end
 ---
 --- Matches the first `ENAME:` token — an uppercase word starting with E

@@ -33,7 +33,7 @@ local record NetRule
   header_value: string
 end
 
-local record NetOpts
+local record NetOptions
   proxy_env: boolean -- set HTTP(S)_PROXY in the child env
   allow: {string: NetRule}
   log_level: LogLevel
@@ -46,7 +46,7 @@ end
 --- fork, before exec.
 local type FsOpts = sandbox.Fs
 
-local record ProcOpts
+local record ProcOptions
   no_new_privs: boolean
   uid: integer
   gid: integer
@@ -58,7 +58,7 @@ end
 --- Env policy for the boxed workload: `keep` names inherit from the
 --- parent environment (everything else is dropped), `set` overrides /
 --- adds. Consumed by cosmic.quicksand.box.env.
-local record EnvOpts
+local record EnvOptions
   keep: {string}
   set: {string: string}
 end
@@ -66,12 +66,12 @@ end
 --- Full box policy. Every field is optional; omitting a section skips
 --- that subsystem. Scalars default to nil (i.e. no policy); list fields
 --- default to empty.
-local record BoxOpts
+local record BoxOptions
   hostname: string
   fs: FsOpts
-  net: NetOpts
-  proc: ProcOpts
-  env: EnvOpts
+  net: NetOptions
+  proc: ProcOptions
+  env: EnvOptions
   cwd: string
   pid_ns: boolean -- set false to opt out of CLONE_NEWPID isolation
 end
@@ -99,11 +99,11 @@ local record TypesModule
   type NetRuleType = NetRuleType
   type LogLevel = LogLevel
   type NetRule = NetRule
-  type NetOpts = NetOpts
+  type NetOptions = NetOptions
   type FsOpts = FsOpts
-  type ProcOpts = ProcOpts
-  type EnvOpts = EnvOpts
-  type BoxOpts = BoxOpts
+  type ProcOptions = ProcOptions
+  type EnvOptions = EnvOptions
+  type BoxOptions = BoxOptions
   type Capabilities = Capabilities
 end
 

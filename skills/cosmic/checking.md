@@ -127,11 +127,11 @@ global TEST_BIN: string
 
 ```teal
 -- WRONG: data might be nil
-local data = cio.slurp(path)
+local data = fs.read(path)
 print(#data)  -- error if data is nil
 
 -- RIGHT: handle the nil case
-local data, err = cio.slurp(path)
+local data, err = fs.read(path)
 if not data then
   error("read failed: " .. err)
 end

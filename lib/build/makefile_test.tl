@@ -1,7 +1,6 @@
 #!/usr/bin/env cosmic
 -- Test the actual repo Makefile using pre-generated make outputs
 
-local cio = require("cosmic.io")
 local fs = require("cosmic.fs")
 
 local TEST_DIR = os.getenv("TEST_DIR")
@@ -13,7 +12,7 @@ end
 
 local function read_make_output(filename: string): MakeOutput
   local filepath = fs.join(TEST_DIR, filename)
-  local content = cio.slurp(filepath)
+  local content = fs.read(filepath)
   assert(content, "failed to read " .. filepath)
   local text = content as string
 

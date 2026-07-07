@@ -1,0 +1,91 @@
+#!/usr/bin/env cosmic
+--- The PUBLIC manifest lint: every requireable top-level cosmic.* module
+--- embedded in the binary must be declared in cosmic.public as either
+--- public or internal, and the manifest must not go stale.
+local manifest = require("cosmic.public")
+local fs = require("cosmic.fs")
+local fs_types = require("cosmic.fs.types")
+
+local EMBEDDED = "/zip/.lua/cosmic"
+
+local function to_set(list: {string}): {string: boolean}
+  local set: {string: boolean} = {}
+  for _, name in ipairs(list) do
+    assert(not set[name], "duplicate manifest entry: " .. name)
+    set[name] = true
+  end
+  return set
+end
+
+local public_set = to_set(manifest.public)
+local internal_set = to_set(manifest.internal)
+
+local function test_no_overlap()
+  for _, name in ipairs(manifest.public) do
+    assert(not internal_set[name],
+      "module in both public and internal: " .. name)
+  end
+end
+test_no_overlap()
+
+--- Enumerate top-level module names embedded in the running binary:
+--- foo.lua files and directory modules (their init.lua is the module).
+local function embedded_modules(): {string: boolean}
+  local dir = fs.opendir(EMBEDDED)
+  assert(dir, "cannot open " .. EMBEDDED .. " (test must run in the binary)")
+  local d = dir as fs_types.Dir
+  local found: {string: boolean} = {}
+  while true do
+    local name = d:read()
+    if not name then break end
+    if name ~= "." and name ~= ".." then
+      local lua = name:match("^(.+)%.lua$")
+      if lua then
+        found[lua] = true
+      elseif fs.isdir(EMBEDDED .. "/" .. name) then
+        found[name] = true
+      end
+    end
+  end
+  d:close()
+  return found
+end
+
+local function test_every_module_is_declared()
+  local found = embedded_modules()
+  local missing: {string} = {}
+  for name in pairs(found) do
+    if name ~= "init" and not public_set[name] and not internal_set[name] then
+      missing[#missing + 1] = name
+    end
+  end
+  table.sort(missing)
+  assert(#missing == 0,
+    "modules missing from the cosmic.public manifest: "
+    .. table.concat(missing, ", "))
+end
+test_every_module_is_declared()
+
+local function test_manifest_is_not_stale()
+  local found = embedded_modules()
+  local stale: {string} = {}
+  for _, name in ipairs(manifest.public) do
+    if not found[name] then stale[#stale + 1] = name end
+  end
+  for _, name in ipairs(manifest.internal) do
+    if not found[name] then stale[#stale + 1] = name end
+  end
+  table.sort(stale)
+  assert(#stale == 0,
+    "manifest entries with no embedded module: " .. table.concat(stale, ", "))
+end
+test_manifest_is_not_stale()
+
+local function test_public_modules_load()
+  for _, name in ipairs(manifest.public) do
+    local ok, err = pcall(require, "cosmic." .. name)
+    assert(ok, "public module cosmic." .. name .. " failed to load: "
+      .. tostring(err))
+  end
+end
+test_public_modules_load()

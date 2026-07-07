@@ -14,14 +14,14 @@ local record Issue
 end
 
 --- Options for compiling Teal to Lua.
-local record CompileOpts
+local record CompileOptions
   include_dirs: {string}
   gen_target: string
   gen_compat: string
 end
 
 --- Options for type-checking Teal files.
-local record CheckOpts
+local record CheckOptions
   include_dirs: {string}
 end
 
@@ -222,10 +222,10 @@ end
 --- Compile a Teal file to Lua code.
 --- Uses lax mode for permissive compilation. Preserves shebang if present.
 --- @param input_path string Path to the Teal file to compile
---- @param opts CompileOpts Compilation options (include_dirs, gen_target, gen_compat)
+--- @param opts CompileOptions Compilation options (include_dirs, gen_target, gen_compat)
 --- @return CompileResult Result with ok status, generated Lua code, and any errors
-local function compile(input_path: string, opts: CompileOpts): CompileResult
-  opts = opts or {} as CompileOpts
+local function compile(input_path: string, opts: CompileOptions): CompileResult
+  opts = opts or {} as CompileOptions
 
   local dirs = merge_include_dirs(opts.include_dirs)
   local proc = process_file(input_path, dirs, true)
@@ -254,10 +254,10 @@ end
 --- Type-check a Teal file.
 --- Uses strict mode for thorough type checking. Collects errors and warnings.
 --- @param input_path string Path to the Teal file to check
---- @param opts CheckOpts Type-checking options (include_dirs)
+--- @param opts CheckOptions Type-checking options (include_dirs)
 --- @return CheckResult Result with ok status, warnings, and errors
-local function check(input_path: string, opts: CheckOpts): CheckResult
-  opts = opts or {} as CheckOpts
+local function check(input_path: string, opts: CheckOptions): CheckResult
+  opts = opts or {} as CheckOptions
 
   local dirs = merge_include_dirs(opts.include_dirs)
   local proc = process_file(input_path, dirs, false)
@@ -360,8 +360,8 @@ local function format_issues_with_hints(issues: {Issue}): string
 end
 
 local record TealModule
-  compile: function(input_path: string, opts?: CompileOpts): CompileResult
-  check: function(input_path: string, opts?: CheckOpts): CheckResult
+  compile: function(input_path: string, opts?: CompileOptions): CompileResult
+  check: function(input_path: string, opts?: CheckOptions): CheckResult
   format_issues: function(issues: {Issue}): string
   format_issues_with_hints: function(issues: {Issue}): string
   hint_for_message: function(msg: string): string | nil

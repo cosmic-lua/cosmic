@@ -9,7 +9,6 @@
 -- The directory must contain a main.lua entry point.
 local function Example_embed_directory()
   local fs = require("cosmic.fs")
-  local cio = require("cosmic.io")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
 
@@ -18,7 +17,7 @@ local function Example_embed_directory()
   -- Create a simple app directory with a main.lua entry point
   local appdir = fs.join(tmpdir, "myapp")
   fs.makedirs(appdir)
-  cio.barf(fs.join(appdir, "main.lua"), 'print("hello from myapp")\n')
+  fs.write(fs.join(appdir, "main.lua"), 'print("hello from myapp")\n')
 
   -- Build it
   local output = fs.join(tmpdir, "hello")
@@ -57,7 +56,6 @@ end
 -- Example_embed_with_libraries demonstrates using cosmic libraries in embedded code
 local function Example_embed_with_libraries()
   local fs = require("cosmic.fs")
-  local cio = require("cosmic.io")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
 
@@ -66,7 +64,7 @@ local function Example_embed_with_libraries()
   -- Create an app that uses cosmic.child (a bundled library)
   local appdir = fs.join(tmpdir, "app")
   fs.makedirs(appdir)
-  cio.barf(fs.join(appdir, "main.lua"), [[
+  fs.write(fs.join(appdir, "main.lua"), [[
 local child = require("cosmic.child")
 local r = child.run({"echo", "it works"})
 io.write(r.stdout)
@@ -88,7 +86,6 @@ end
 -- runtime.
 local function Example_embed_from_teal()
   local fs = require("cosmic.fs")
-  local cio = require("cosmic.io")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
 
@@ -98,7 +95,7 @@ local function Example_embed_from_teal()
 
   -- Write a Teal source file
   local tl_file = fs.join(tmpdir, "main.tl")
-  cio.barf(tl_file, 'local msg: string = "hello from teal"\nprint(msg)\n')
+  fs.write(tl_file, 'local msg: string = "hello from teal"\nprint(msg)\n')
 
   -- Compile .tl to .lua using cosmic --compile
   local r = spawn.run({cosmic, "--compile", tl_file}) as spawn.Result
@@ -106,7 +103,7 @@ local function Example_embed_from_teal()
   local lua_source = r.stdout
 
   -- Write the compiled Lua as the entry point
-  cio.barf(fs.join(appdir, "main.lua"), lua_source)
+  fs.write(fs.join(appdir, "main.lua"), lua_source)
 
   -- Embed and run
   local output = fs.join(tmpdir, "from_teal")

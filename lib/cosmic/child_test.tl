@@ -282,14 +282,13 @@ test_spawn_zip_non_executable()
 
 local function test_spawn_zip_embedded_binary()
   -- embed /bin/echo into a copy of cosmic, then spawn it from /zip/
-  local io_mod = require("cosmic.io")
   local tmpdir = os.getenv("TEST_TMPDIR") as string
 
   local bin_dir = fs.join(tmpdir, "embed", ".bin")
   fs.makedirs(bin_dir)
-  local echo_data = io_mod.slurp("/bin/echo")
+  local echo_data = fs.read("/bin/echo")
   assert(echo_data, "should read /bin/echo")
-  io_mod.barf(fs.join(bin_dir, "echo"), echo_data)
+  fs.write(fs.join(bin_dir, "echo"), echo_data)
   fs.chmod(fs.join(bin_dir, "echo"), 493) -- 0755
 
   local out_bin = fs.join(tmpdir, "cosmic-with-echo")

@@ -270,7 +270,7 @@ local function parse(source: string, file_path: string): ModuleDoc
       local record_end, _ = find_record_end(source, body_start + 1)
       local body = source:sub(body_start, record_end)
       -- Extract nested `record Name ... end` blocks as their own entries
-      -- (e.g. cosmic.fs_types.WalkStat), then blank them out so their
+      -- (e.g. cosmic.fs.types.WalkStat), then blank them out so their
       -- fields are not misattributed to the parent record.
       local search_pos = 1
       while true do

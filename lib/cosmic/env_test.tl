@@ -129,3 +129,28 @@ test_set_empty_value()
 env.unset("COSMIC_TEST_VAR")
 env.unset("COSMIC_TEST_OVERWRITE")
 env.unset("COSMIC_TEST_NO_OVERWRITE")
+
+local function test_get_default_when_unset()
+  env.unset("COSMIC_TEST_DEFAULT")
+  local value = env.get("COSMIC_TEST_DEFAULT", "fallback")
+  assert(value == "fallback", "expected default, got '" .. tostring(value) .. "'")
+  assert(env.get("COSMIC_TEST_DEFAULT") == nil,
+    "without a default, unset should still be nil")
+end
+test_get_default_when_unset()
+
+local function test_get_default_ignored_when_set()
+  env.set("COSMIC_TEST_DEFAULT", "real")
+  local value = env.get("COSMIC_TEST_DEFAULT", "fallback")
+  assert(value == "real", "set value should win over default, got '" .. tostring(value) .. "'")
+  env.unset("COSMIC_TEST_DEFAULT")
+end
+test_get_default_ignored_when_set()
+
+local function test_get_default_empty_value_wins()
+  env.set("COSMIC_TEST_DEFAULT", "")
+  local value = env.get("COSMIC_TEST_DEFAULT", "fallback")
+  assert(value == "", "empty string is set, default must not apply")
+  env.unset("COSMIC_TEST_DEFAULT")
+end
+test_get_default_empty_value_wins()

@@ -1,10 +1,9 @@
 --- Filesystem scenarios: directory walking, whole-file I/O, tree churn.
---- Exercises cosmic.fs and cosmic.io wrappers over the cosmo unix/path
+--- Exercises cosmic.fs and cosmic.fd wrappers over the cosmo unix/path
 --- C bindings, against a real temp directory tree.
 
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs_types")
-local cio = require("cosmic.io")
+local fs_types = require("cosmic.fs.types")
 local pt = require("perf.perf_types")
 
 local DIRS = 10
@@ -34,7 +33,7 @@ local function init_tree(): string
       return "makedirs: " .. tostring(merr)
     end
     for f = 1, FILES_PER_DIR do
-      local wok, werr = cio.barf(fs.join(sub, "file-" .. f .. ".txt"),
+      local wok, werr = fs.write(fs.join(sub, "file-" .. f .. ".txt"),
         "data-" .. d .. "-" .. f .. "\n")
       if not wok then
         return "barf: " .. tostring(werr)
@@ -102,9 +101,9 @@ local function scenarios(): {pt.Scenario}, string
     {
       name = "fs_barf_slurp_64k",
       fn = function(_: any): any
-        local wok, werr = cio.barf(blob_path, BLOB)
+        local wok, werr = fs.write(blob_path, BLOB)
         assert(wok, werr)
-        local data, rerr = cio.slurp(blob_path)
+        local data, rerr = fs.read(blob_path)
         assert(data, rerr)
         return data
       end,

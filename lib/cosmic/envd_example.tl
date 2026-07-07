@@ -8,13 +8,12 @@ local function Example_load_dir()
   local envd = require("cosmic.envd")
   local env = require("cosmic.env")
   local fs = require("cosmic.fs")
-  local cio = require("cosmic.io")
 
   local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
   local dir = fs.join(tmpdir, "envd_example")
   fs.makedirs(dir)
-  cio.barf(fs.join(dir, "00-defaults"), "MY_APP_NAME=cosmic-example\nMY_APP_PORT=8080\n")
-  cio.barf(fs.join(dir, "01-overrides"), "MY_APP_PORT=9090\n")
+  fs.write(fs.join(dir, "00-defaults"), "MY_APP_NAME=cosmic-example\nMY_APP_PORT=8080\n")
+  fs.write(fs.join(dir, "01-overrides"), "MY_APP_PORT=9090\n")
 
   env.unset("MY_APP_NAME")
   env.unset("MY_APP_PORT")
@@ -37,7 +36,6 @@ end
 -- re-embed, and run the new executable to show the vars are available.
 local function Example_extract_update_embed()
   local fs = require("cosmic.fs")
-  local cio = require("cosmic.io")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
 
@@ -51,10 +49,10 @@ local function Example_extract_update_embed()
   -- 2. add env.d with a credential
   local envd_dir = fs.join(extractdir, "embed", "env.d")
   fs.makedirs(envd_dir)
-  cio.barf(fs.join(envd_dir, "credentials"), "MY_SECRET_TOKEN=tok-example-12345\n")
+  fs.write(fs.join(envd_dir, "credentials"), "MY_SECRET_TOKEN=tok-example-12345\n")
 
   -- 3. re-embed with a main.lua that loads env.d and prints the var name
-  cio.barf(fs.join(extractdir, "main.lua"), [[
+  fs.write(fs.join(extractdir, "main.lua"), [[
 require("tl").loader()
 local envd = require("cosmic.envd")
 local env = require("cosmic.env")

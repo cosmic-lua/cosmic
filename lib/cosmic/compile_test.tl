@@ -3,14 +3,13 @@
 
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
-local cio = require("cosmic.io")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 local function write_temp(name: string, content: string): string
   local filepath = fs.join(tmpdir, name)
-  cio.barf(filepath, content)
+  fs.write(filepath, content)
   return filepath
 end
 
@@ -117,7 +116,7 @@ print("result=" .. add(2, 3))
   local ok, lua_code = __r7.ok, __r7.stdout
   assert(ok, "compilation should succeed")
 
-  cio.barf(output, lua_code as string)
+  fs.write(output, lua_code as string)
 
   local h8 = spawn.spawn({cosmic, output})
   local __r8 = (h8 as spawn.Handle):wait() as spawn.Result

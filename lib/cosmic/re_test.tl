@@ -179,21 +179,21 @@ test_search_optional()
 -- match convenience function tests
 
 local function test_match_true()
-  local result, err = re.match("world", "hello world")
+  local result, err = re.test("world", "hello world")
   assert(err == nil, "expected no error")
   assert(result == true, "expected true for matching pattern")
 end
 test_match_true()
 
 local function test_match_false()
-  local result, err = re.match("xyz", "hello world")
+  local result, err = re.test("xyz", "hello world")
   assert(err == nil, "expected no error")
   assert(result == false, "expected false for non-matching pattern")
 end
 test_match_false()
 
 local function test_match_invalid_pattern()
-  local result, err = re.match("[invalid", "hello world")
+  local result, err = re.test("[invalid", "hello world")
   assert(result == false, "expected false for invalid pattern")
   assert(err ~= nil, "expected error message")
 end

@@ -11,7 +11,9 @@ test_env_vars()
 local function test_require_cosmic()
   local cosmic = require("cosmic")
   assert(cosmic ~= nil, "cosmic should not be nil")
-  assert(cosmic._VERSION == "0.1.0", "expected version 0.1.0, got " .. tostring(cosmic._VERSION))
+  assert(type(cosmic._VERSION) == "string" and cosmic._VERSION ~= "",
+    "expected build-injected version string, got " .. tostring(cosmic._VERSION))
+  assert(cosmic._VERSION ~= "0.1.0", "version must not be the old hardcoded 0.1.0")
 end
 test_require_cosmic()
 

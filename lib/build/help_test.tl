@@ -1,8 +1,8 @@
 #!/usr/bin/env cosmic
 -- Test the Makefile help system
 
-local cio = require("cosmic.io")
 local help = require("make-help")
+local fs = require("cosmic.fs")
 
 local function test_parse_multiline_comment()
   local content = [[
@@ -120,7 +120,7 @@ end
 test_parse_phony_targets()
 
 local function test_all_phony_targets_documented()
-  local content = cio.slurp("Makefile")
+  local content = fs.read("Makefile")
   assert(content, "failed to read Makefile")
 
   local phony = help.parse_phony_targets(content)

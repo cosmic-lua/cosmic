@@ -3,7 +3,6 @@
 
 local fs = require("cosmic.fs")
 local env = require("cosmic.env")
-local cio = require("cosmic.io")
 local spawn = require("cosmic.child")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -11,7 +10,7 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 
 -- child.spawn now returns `Handle | nil`; tl 0.24.8 will not flow-narrow a
 -- record union, so wrap the spawn+read in one helper that casts the handle.
-local function check_run(argv: {string}, opts?: spawn.Opts): boolean | string, string
+local function check_run(argv: {string}, opts?: spawn.Options): boolean | string, string
   local h = spawn.spawn(argv, opts)
   local __r1 = (h as spawn.Handle):wait() as spawn.Result
   local ok, out = __r1.ok, __r1.stdout
@@ -20,7 +19,7 @@ end
 
 local function write_temp(name: string, content: string): string
   local filepath = fs.join(tmpdir, name)
-  cio.barf(filepath, content)
+  fs.write(filepath, content)
   return filepath
 end
 
@@ -111,7 +110,7 @@ print(st.size)
   -- records cannot be flow-narrowed in this Teal version.
   local safe = write_temp("honest_safe.tl", [[
 local fs = require("cosmic.fs")
-local types = require("cosmic.fs_types")
+local types = require("cosmic.fs.types")
 local st, err = fs.stat("/nonexistent")
 if not st then
   print(err)
@@ -144,7 +143,7 @@ local function test_check_with_tl_path()
   local typedir = fs.join(tmpdir, "mytypes")
   fs.makedirs(typedir, 0x1ed) -- 0755
   local deffile = fs.join(typedir, "mymod.d.tl")
-  cio.barf(deffile, [[
+  fs.write(deffile, [[
 local record mymod
   greet: function(name: string): string
 end
@@ -182,7 +181,7 @@ local function test_check_with_tl_path_double_semicolon()
   local typedir = fs.join(tmpdir, "mytypes2")
   fs.makedirs(typedir, 0x1ed) -- 0755
   local deffile = fs.join(typedir, "mymod2.d.tl")
-  cio.barf(deffile, [[
+  fs.write(deffile, [[
 local record mymod2
   hello: function(): string
 end

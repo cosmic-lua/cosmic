@@ -1,6 +1,5 @@
 --- Access embedded documentation — a `go doc`-style CLI over the binary.
 
-local cio = require("cosmic.io")
 local docs_render = require("cosmic.docs_render")
 local docs_lookup = require("cosmic.docs_lookup")
 local types = require("cosmic.doc_types")
@@ -23,7 +22,7 @@ local function load_index(): DocIndex | nil, string
     return cached_index, nil
   end
 
-  local source = cio.slurp(INDEX_PATH)
+  local source = require("cosmic.fs").read(INDEX_PATH)
   if not source then
     return nil, "no documentation index embedded"
   end
@@ -63,7 +62,7 @@ end
 --- List available guide topics from the embedded skills directory.
 local function list_guide_topics(): {string}
   local fs = require("cosmic.fs")
-  local fs_types = require("cosmic.fs_types")
+  local fs_types = require("cosmic.fs.types")
   local dir = fs.opendir(GUIDES_DIR)
   if not dir then return {} end
   local d = dir as fs_types.Dir
@@ -85,7 +84,7 @@ local function list_guides(): {{string, string}}
   local topics = list_guide_topics()
   local guides: {{string, string}} = {}
   for _, name in ipairs(topics) do
-    local content = cio.slurp(GUIDES_DIR .. "/" .. name .. ".md")
+    local content = require("cosmic.fs").read(GUIDES_DIR .. "/" .. name .. ".md")
     local desc = name
     if content then
       local heading = string.match(content, "^#%s+(.-)%s*\n")
@@ -98,8 +97,9 @@ end
 
 --- Show a guide topic or list all guides.
 local function show_guide(topic: string): DocsResult
+  local fs = require("cosmic.fs")
   if topic == "" then
-    local content, err = cio.slurp(GUIDES_DIR .. "/SKILL.md")
+    local content, err = fs.read(GUIDES_DIR .. "/SKILL.md")
     if not content then
       return {ok = false, output = "error: " .. (err or "no guides available")}
     end
@@ -119,7 +119,7 @@ local function show_guide(topic: string): DocsResult
     return {ok = false, output = table.concat(lines, "\n")}
   end
   local path = GUIDES_DIR .. "/" .. topic .. ".md"
-  local content, err = cio.slurp(path)
+  local content, err = fs.read(path)
   if not content then
     return {ok = false, output = "error: " .. (err or "failed to load " .. path)}
   end

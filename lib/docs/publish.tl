@@ -1,7 +1,6 @@
 -- docs-publish: publish generated docs to a git branch
-local cio = require("cosmic.io")
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs_types")
+local fs_types = require("cosmic.fs.types")
 local proc = require("cosmic.proc")
 local spawn = require("cosmic.child")
 
@@ -28,11 +27,11 @@ local function scan_docs(docs_dir: string): {DocInfo}
         local st0 = fs.stat(full_path)
         if st0 then
           local st = st0 as fs_types.Stat
-          if fs.is_dir(st:mode()) then
+          if st:is_dir() then
             scan(full_path)
           elseif name:match("%.md$") and name ~= "README.md" then
             -- Read first paragraph after the header for description
-            local content = cio.slurp(full_path)
+            local content = fs.read(full_path)
             local description = ""
             if content then
               -- Extract description: skip header line, take next non-empty paragraph
@@ -218,7 +217,7 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
 
   -- write readme with doc table
   local readme_content = make_readme(".")
-  cio.barf("README.md", readme_content)
+  fs.write("README.md", readme_content)
 
   -- stage all changes
   ok, err = run({"git", "add", "-A"})

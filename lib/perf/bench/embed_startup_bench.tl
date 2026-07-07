@@ -12,7 +12,6 @@
 local child = require("cosmic.child")
 local embed = require("cosmic.embed")
 local fs = require("cosmic.fs")
-local cio = require("cosmic.io")
 local pt = require("perf.perf_types")
 
 -- A code-heavy app: MODULES modules the entry point loads at boot, each
@@ -75,7 +74,7 @@ local function init_app(dir: string): string
   expected_sum = 0
   for i = 1, MODULES do
     expected_sum = expected_sum + i
-    local wok, werr = cio.barf(fs.join(dir, "mod_" .. i .. ".lua"), module_src(i))
+    local wok, werr = fs.write(fs.join(dir, "mod_" .. i .. ".lua"), module_src(i))
     if not wok then
       return "barf mod_" .. i .. ": " .. tostring(werr)
     end
@@ -86,7 +85,7 @@ local function init_app(dir: string): string
       'sum = sum + assert(loadfile("/zip/mod_%d.lua"))()', i)
   end
   main[#main + 1] = 'print("' .. SENTINEL .. ':" .. sum)'
-  local mok, merr = cio.barf(fs.join(dir, "main.lua"), table.concat(main, "\n") .. "\n")
+  local mok, merr = fs.write(fs.join(dir, "main.lua"), table.concat(main, "\n") .. "\n")
   if not mok then
     return "barf main.lua: " .. tostring(merr)
   end

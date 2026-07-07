@@ -1,7 +1,6 @@
 local portable = require("build.portable")
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs_types")
-local cio = require("cosmic.io")
+local fs_types = require("cosmic.fs.types")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
@@ -10,7 +9,7 @@ local function test_write_file_roundtrip()
   local data = "hello\0binary\nworld"
   local ok, err = portable.write_file(path, data)
   assert(ok, "write failed: " .. tostring(err))
-  local got = cio.slurp(path)
+  local got = fs.read(path)
   assert(got == data, "content mismatch: " .. tostring(got))
 end
 test_write_file_roundtrip()
@@ -19,7 +18,7 @@ local function test_write_file_truncates()
   local path = fs.join(tmpdir, "portable-trunc.txt")
   assert(portable.write_file(path, "a longer first write"))
   assert(portable.write_file(path, "short"))
-  local got = cio.slurp(path)
+  local got = fs.read(path)
   assert(got == "short", "expected truncation, got: " .. tostring(got))
 end
 test_write_file_truncates()
@@ -37,7 +36,7 @@ test_write_file_mode()
 local function test_write_file_empty()
   local path = fs.join(tmpdir, "portable-empty.txt")
   assert(portable.write_file(path, ""))
-  local got = cio.slurp(path)
+  local got = fs.read(path)
   assert(got == "", "expected empty file, got: " .. tostring(got))
 end
 test_write_file_empty()

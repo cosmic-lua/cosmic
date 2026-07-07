@@ -2,20 +2,13 @@
 --- Wraps low-level file descriptor operations from cosmo.unix.
 --- Supports Lua 5.4's to-be-closed via __close metamethod on Handle and Pipe.
 ---
---- WARNING: naming this module "io" shadows Lua's built-in io library:
----   local io = require("cosmic.io")  -- WRONG: hides io.stderr, io.stdin, etc.
----
---- Use a distinct local name instead:
----   local cio = require("cosmic.io")
----
---- cosmic.io has NO stderr, stdout, or stdin handles. For stream I/O use
+--- cosmic.fd has NO stderr, stdout, or stdin handles. For stream I/O use
 --- Lua's standard library directly:
 ---   io.stderr:write("error: " .. msg .. "\n")
 ---   io.stdout:write(data)
 ---
---- cosmic.io provides file-descriptor–level operations (open, read, write,
---- pipe, slurp, barf) for cases where you need explicit fd control.
-local cosmo = require("cosmo")
+--- For whole-file path-based operations use cosmic.fs: fs.read(path),
+--- fs.write(path, data), fs.truncate(path).
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").str
 
@@ -221,49 +214,28 @@ local function pipe(flags?: number): Pipe | nil, string
   return make_pipe(make_handle(reader_fd), make_handle(writer_fd))
 end
 
---- Truncate a file by path.
-local function truncate(path: string, length?: number): boolean, string
-  local ok, err = unix.truncate(path, length)
-  if not ok then
-    return false, errstr(err, "truncate: " .. path)
-  end
-  return true
-end
-
 --- Flush all file system buffers to disk.
 local function sync()
   unix.sync()
 end
 
---- Read entire file contents.
-local function slurp(path: string): string | nil, string
-  local data, err = cosmo.Slurp(path)
-  if not data then
-    -- The binding error already names the path (e.g. "open: /x: ENOENT: ...").
-    return nil, err or ("failed to read file: " .. path)
-  end
-  return data
+--- Wrap an already-open raw file descriptor in a Handle.
+--- Lets fds from fs.mkstemp()/fs.tmpfd() (or any other source) enter the
+--- Handle world: h:read()/h:write()/h:close(), plus automatic cleanup
+--- via the __close metamethod. The Handle takes ownership: closing it
+--- closes the fd.
+local function wrap(rawfd: number): Handle
+  return make_handle(rawfd)
 end
 
---- Write data to file, creating or overwriting it.
-local function barf(path: string, data: string, mode?: number): boolean, string
-  local ok, err = cosmo.Barf(path, data, {mode = mode})
-  if not ok then
-    return false, err or ("failed to write file: " .. path)
-  end
-  return true
-end
-
-local record IoModule
+local record FdModule
   -- Exported so callers can name/cast the fallible open/pipe results.
   type Handle = Handle
   type Pipe = Pipe
 
-  slurp: function(path: string): string | nil, string
-  barf: function(path: string, data: string, mode?: number): boolean, string
   open: function(path: string, flags: number, mode?: number, dirfd?: number): Handle | nil, string
+  wrap: function(rawfd: number): Handle
   pipe: function(flags?: number): Pipe | nil, string
-  truncate: function(path: string, length?: number): boolean, string
   sync: function()
 
   O_RDONLY: number
@@ -298,12 +270,10 @@ local record IoModule
   AT_FDCWD: number
 end
 
-local M: IoModule = {
-  slurp = slurp,
-  barf = barf,
+local M: FdModule = {
   open = open,
+  wrap = wrap,
   pipe = pipe,
-  truncate = truncate,
   sync = sync,
 
   O_RDONLY = unix.O_RDONLY,

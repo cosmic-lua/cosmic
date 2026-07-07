@@ -8,10 +8,10 @@
 --- but missing from the current run (deleting a benchmark cannot hide a
 --- regression), both count as failures.
 
-local cio = require("cosmic.io")
 local json = require("cosmic.json")
 local harness = require("perf.harness")
 local pt = require("perf.perf_types")
+local fs = require("cosmic.fs")
 
 local DEFAULT_THRESHOLD_PCT = 10.0
 
@@ -20,7 +20,7 @@ local DEFAULT_THRESHOLD_PCT = 10.0
 --- @return Results The decoded results, or nil on error
 --- @return string Error message on failure
 local function load_results(path: string): pt.Results, string
-  local data, rerr = cio.slurp(path)
+  local data, rerr = fs.read(path)
   if data == nil then
     return nil, path .. ": " .. tostring(rerr)
   end

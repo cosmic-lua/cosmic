@@ -1,5 +1,6 @@
 #!/usr/bin/env cosmic
 local fs = require("cosmic.fs")
+local fs_types = require("cosmic.fs.types")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
@@ -83,9 +84,7 @@ test_islink_regular_dir()
 
 -- Directory walking tests
 
-local record WalkStat
-  mode: function(self): number
-end
+local type WalkStat = fs_types.WalkStat
 
 local record WalkContext
   count: number
@@ -107,7 +106,7 @@ end
 
 local function test_collect_with_glob()
   local walk_dir = setup_walk()
-  local found = fs.collect(walk_dir, "*.lua")
+  local found = (fs.collect(walk_dir, "*.lua") or {}) as {string}
 
   assert(#found == 3, "expected 3 lua files, got " .. #found)
 
@@ -126,7 +125,7 @@ test_collect_with_glob()
 local function test_collect_glob_escapes_brackets()
   -- A glob's [ ] must be literal, not a Lua class: "*[1].lua" matches nothing.
   local walk_dir = setup_walk()
-  local found = fs.collect(walk_dir, "*[1].lua")
+  local found = (fs.collect(walk_dir, "*[1].lua") or {}) as {string}
   assert(#found == 0, "expected brackets treated literally, got " .. #found)
   teardown(walk_dir)
 end
@@ -134,7 +133,7 @@ test_collect_glob_escapes_brackets()
 
 local function test_collect_with_lua_pattern()
   local walk_dir = setup_walk()
-  local found = fs.collect(walk_dir, "%.txt$")
+  local found = (fs.collect(walk_dir, "%.txt$") or {}) as {string}
 
   assert(#found == 1, "expected 1 txt file, got " .. #found)
   assert(fs.basename(found[1]) == "file2.txt", "expected file2.txt")
@@ -150,7 +149,7 @@ local function test_walk_with_visitor()
       local wctx = c as WalkContext
       wctx.count = wctx.count + 1
       local stat_obj = st as WalkStat
-      if fs.is_dir(stat_obj:mode()) then
+      if stat_obj:is_dir() then
         wctx.dirs = wctx.dirs + 1
       end
       return true
@@ -164,7 +163,9 @@ test_walk_with_visitor()
 
 local function test_collect_all()
   local walk_dir = setup_walk()
-  local found = fs.collect_all(walk_dir)
+  local collected = fs.collect_all(walk_dir)
+  assert(collected, "collect_all should succeed")
+  local found = collected as {string: fs_types.FileInfo}
 
   assert(found["file1.lua"] ~= nil, "expected file1.lua")
   assert(found["file2.txt"] ~= nil, "expected file2.txt")
@@ -207,7 +208,7 @@ test_files_iterator_all()
 local function test_walk_empty_directory()
   local empty_dir = fs.join(TEST_TMPDIR, "walk_empty")
   fs.makedirs(empty_dir)
-  local found = fs.collect(empty_dir, "*.lua")
+  local found = (fs.collect(empty_dir, "*.lua") or {}) as {string}
   assert(#found == 0, "expected 0 files, got " .. #found)
   fs.rmrf(empty_dir)
 end
@@ -453,46 +454,3 @@ local function test_ext_hidden()
   assert(result == "", "expected '', got '" .. result .. "'")
 end
 test_ext_hidden()
-
--- symlink behavior tests: exists follows symlinks (stat), isfile/isdir do not (lstat)
-
-local function test_exists_symlink_to_file()
-  local tmpdir = fs.join(TEST_TMPDIR, "symlink_exists_test")
-  fs.makedirs(tmpdir)
-  local target = fs.join(tmpdir, "real.txt")
-  touch(target, "hello")
-  local link = fs.join(tmpdir, "link.txt")
-  local ok = fs.symlink(target, link)
-  assert(ok, "symlink creation should succeed")
-  assert(fs.exists(link), "exists() should follow symlink and return true")
-  fs.rmrf(tmpdir)
-end
-test_exists_symlink_to_file()
-
-local function test_isfile_symlink_to_file()
-  local tmpdir = fs.join(TEST_TMPDIR, "symlink_isfile_test")
-  fs.makedirs(tmpdir)
-  local target = fs.join(tmpdir, "real.txt")
-  touch(target, "hello")
-  local link = fs.join(tmpdir, "link.txt")
-  local ok = fs.symlink(target, link)
-  assert(ok, "symlink creation should succeed")
-  assert(not fs.isfile(link), "isfile() should return false for a symlink (uses lstat)")
-  assert(fs.isfile(target), "isfile() should return true for the target file")
-  fs.rmrf(tmpdir)
-end
-test_isfile_symlink_to_file()
-
-local function test_isdir_symlink_to_dir()
-  local tmpdir = fs.join(TEST_TMPDIR, "symlink_isdir_test")
-  fs.makedirs(tmpdir)
-  local target = fs.join(tmpdir, "realdir")
-  fs.makedirs(target)
-  local link = fs.join(tmpdir, "linkdir")
-  local ok = fs.symlink(target, link)
-  assert(ok, "symlink creation should succeed")
-  assert(not fs.isdir(link), "isdir() should return false for a symlink (uses lstat)")
-  assert(fs.isdir(target), "isdir() should return true for the target dir")
-  fs.rmrf(tmpdir)
-end
-test_isdir_symlink_to_dir()

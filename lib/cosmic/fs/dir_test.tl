@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs_types")
-local cio = require("cosmic.io")
+local fs_types = require("cosmic.fs.types")
+local cfd = require("cosmic.fd")
 local unix = require("cosmo.unix")
 
 local record Statfs
@@ -264,9 +264,9 @@ local function test_fdopendir()
 
   -- fdopendir must return a working Dir (not an error) on success; it
   -- takes ownership of the fd and closes it via dir:close().
-  local h, oerr = cio.open(test_dir, cio.O_RDONLY | cio.O_DIRECTORY)
+  local h, oerr = cfd.open(test_dir, cfd.O_RDONLY | cfd.O_DIRECTORY)
   assert(h, "opening directory fd failed: " .. (oerr or ""))
-  local dir, err = fs.fdopendir((h as cio.Handle):fd())
+  local dir, err = fs.fdopendir((h as cfd.Handle):fd())
   assert(dir, "fdopendir should succeed: " .. (err or ""))
   local d = dir as fs_types.Dir
 

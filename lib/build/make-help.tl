@@ -1,8 +1,8 @@
 #!/usr/bin/env cosmic
 -- Parse Makefile targets and extract documentation comments
 
-local cio = require("cosmic.io")
 local proc = require("cosmic.proc")
+local fs = require("cosmic.fs")
 
 local record Item
   type: string
@@ -128,7 +128,7 @@ local function main(args: {string}): number, string
   -- (make passes $(MAKEFILE_LIST), so included cook.mk files count too).
   local items: {Item} = {}
   for _, makefile in ipairs(makefiles) do
-    local content, read_err = cio.slurp(makefile)
+    local content, read_err = fs.read(makefile)
     if not content then
       return 1, "Failed to read " .. makefile .. ": " .. (read_err or "unknown error")
     end

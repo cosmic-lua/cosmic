@@ -1,19 +1,20 @@
 --- Unified filesystem module.
 --- Combines path manipulation, filesystem operations, and directory walking.
 local unix = require("cosmo.unix")
-local types = require("cosmic.fs_types")
+local types = require("cosmic.fs.types")
 local errstr = require("cosmic.errno").str
 local Stat = types.Stat
 local Dir = types.Dir
 local Statfs = types.Statfs
-local WalkStat = types.WalkStat
+local type WalkStat = types.WalkStat
 local FileInfo = types.FileInfo
 
 -- Re-export path functions from fs_path submodule
-local fs_path = require("cosmic.fs_path")
+local fs_path = require("cosmic.fs.path")
 
--- Re-export file operations from fs_ops submodule
-local fs_ops = require("cosmic.fs_ops")
+-- Re-export file operations from fs_ops / fs_file submodules
+local fs_ops = require("cosmic.fs.ops")
+local fs_file = require("cosmic.fs.file")
 
 -- Raw Dir type from cosmo.unix
 local record RawDir
@@ -67,21 +68,30 @@ end
 -- Stat operations
 
 --- Get file metadata.
---- Follows symbolic links by default.
+--- Follows symbolic links: stat on a symlink describes its target.
+--- Use lstat() to inspect the symlink itself.
 --- @param path string Path to the file or directory
---- @param follow_symlinks boolean Whether to follow symlinks (default true)
 --- @return Stat | nil File metadata, or nil on error
 --- @return string Error message if failed
-local function stat(path: string, follow_symlinks?: boolean): Stat | nil, string
-  local flags: number = nil
-  if follow_symlinks == false then
-    flags = unix.AT_SYMLINK_NOFOLLOW
-  end
-  local st, err = unix.stat(path, flags)
+local function stat(path: string): Stat | nil, string
+  local st, err = unix.stat(path)
   if not st then
     return nil, errstr(err, "stat: " .. path)
   end
-  return st as Stat
+  return types.wrap(st)
+end
+
+--- Get file metadata without following symbolic links.
+--- lstat on a symlink describes the link itself, not its target.
+--- @param path string Path to the file or symlink
+--- @return Stat | nil File metadata, or nil on error
+--- @return string Error message if failed
+local function lstat(path: string): Stat | nil, string
+  local st, err = unix.stat(path, unix.AT_SYMLINK_NOFOLLOW)
+  if not st then
+    return nil, errstr(err, "lstat: " .. path)
+  end
+  return types.wrap(st)
 end
 
 --- Get file metadata from file descriptor.
@@ -93,56 +103,7 @@ local function fstat(fd: number): Stat | nil, string
   if not st then
     return nil, errstr(err, "fstat")
   end
-  return st as Stat
-end
-
---- Check if mode represents a directory.
---- @param mode number File mode from stat
---- @return boolean True if directory
-local function is_dir(mode: number): boolean
-  return unix.S_ISDIR(mode)
-end
-
---- Check if mode represents a regular file.
---- @param mode number File mode from stat
---- @return boolean True if regular file
-local function is_file(mode: number): boolean
-  return unix.S_ISREG(mode)
-end
-
---- Check if mode represents a symbolic link.
---- @param mode number File mode from stat
---- @return boolean True if symbolic link
-local function is_link(mode: number): boolean
-  return unix.S_ISLNK(mode)
-end
-
---- Check if mode represents a block device.
---- @param mode number File mode from stat
---- @return boolean True if block device
-local function is_block_device(mode: number): boolean
-  return unix.S_ISBLK(mode)
-end
-
---- Check if mode represents a character device.
---- @param mode number File mode from stat
---- @return boolean True if character device
-local function is_char_device(mode: number): boolean
-  return unix.S_ISCHR(mode)
-end
-
---- Check if mode represents a FIFO (named pipe).
---- @param mode number File mode from stat
---- @return boolean True if FIFO
-local function is_fifo(mode: number): boolean
-  return unix.S_ISFIFO(mode)
-end
-
---- Check if mode represents a socket.
---- @param mode number File mode from stat
---- @return boolean True if socket
-local function is_socket(mode: number): boolean
-  return unix.S_ISSOCK(mode)
+  return types.wrap(st)
 end
 
 -- Directory operations
@@ -239,7 +200,10 @@ local function fdopendir(fd: number): Dir | nil, string
 end
 
 -- Re-export walk functions from fs_walk submodule
-local fs_walk = require("cosmic.fs_walk")
+local fs_walk = require("cosmic.fs.walk")
+
+--- Iterator over file paths, as returned by files().
+local type FileIter = fs_walk.FileIter
 
 --- Module interface
 local record FsModule
@@ -258,15 +222,9 @@ local record FsModule
   ext: function(p: string): string
 
   -- Stat operations
-  stat: function(path: string, follow_symlinks?: boolean): Stat | nil, string
+  stat: function(path: string): Stat | nil, string
+  lstat: function(path: string): Stat | nil, string
   fstat: function(fd: number): Stat | nil, string
-  is_dir: function(mode: number): boolean
-  is_file: function(mode: number): boolean
-  is_link: function(mode: number): boolean
-  is_block_device: function(mode: number): boolean
-  is_char_device: function(mode: number): boolean
-  is_fifo: function(mode: number): boolean
-  is_socket: function(mode: number): boolean
 
   -- Directory operations
   mkdir: function(path: string, mode?: number): boolean, string
@@ -277,9 +235,18 @@ local record FsModule
   opendir: function(path: string): Dir | nil, string
   fdopendir: function(fd: number): Dir | nil, string
 
+  -- Whole-file operations
+  read: function(path: string): string | nil, string
+  write: function(path: string, data: string, mode?: number): boolean, string
+  truncate: function(path: string, length?: number): boolean, string
+
   -- File operations
   unlink: function(path: string): boolean, string
   rename: function(oldpath: string, newpath: string): boolean, string
+  copy: function(src: string, dst: string): boolean, string
+  move: function(oldpath: string, newpath: string): boolean, string
+  touch: function(path: string, mode?: number): boolean, string
+  write_atomic: function(path: string, data: string, mode?: number): boolean, string
   link: function(existingpath: string, newpath: string): boolean, string
   symlink: function(target: string, linkpath: string): boolean, string
   readlink: function(path: string): string | nil, string
@@ -297,7 +264,7 @@ local record FsModule
 
   -- Temporary file operations
   mkdtemp: function(template: string): string | nil, string
-  mkstemp: function(template: string): number | nil, string
+  mkstemp: function(template: string): number | nil, string, string
   tmpfd: function(): number | nil, string
 
   -- Filesystem statistics
@@ -312,11 +279,13 @@ local record FsModule
   -- walk visitor signature: visitor(path, name, st, ctx)
   --   path = full path to the entry (e.g. "dir/sub/file.txt") — do NOT join with name.
   --   name = basename of the entry (e.g. "file.txt").
-  --   st   = WalkStat (import: local types = require("cosmic.fs_types"); types.WalkStat).
-  walk: function < T > (dir: string, visitor: function(string, string, WalkStat, any), ctx?: T): T
-  collect: function(dir: string, pattern: string): {string}
-  collect_all: function(dir: string): {string: FileInfo}
-  files: function(dir: string, pattern?: string): function(): string
+  --   st   = WalkStat (import: local types = require("cosmic.fs.types"); types.WalkStat).
+  -- Root open failure returns nil, err; subtree failures return the first
+  -- error alongside the results.
+  walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T), ctx?: T): T | nil, string
+  collect: function(dir: string, pattern: string): {string} | nil, string
+  collect_all: function(dir: string): {string: FileInfo} | nil, string
+  files: function(dir: string, pattern?: string): FileIter, string, any, any
 
   -- Access mode constants
   F_OK: number
@@ -342,14 +311,8 @@ local M: FsModule = {
 
   -- Stat operations
   stat = stat,
+  lstat = lstat,
   fstat = fstat,
-  is_dir = is_dir,
-  is_file = is_file,
-  is_link = is_link,
-  is_block_device = is_block_device,
-  is_char_device = is_char_device,
-  is_fifo = is_fifo,
-  is_socket = is_socket,
 
   -- Directory operations
   mkdir = mkdir,
@@ -360,9 +323,18 @@ local M: FsModule = {
   opendir = opendir,
   fdopendir = fdopendir,
 
+  -- Whole-file operations (re-exported from fs_ops)
+  read = fs_file.read,
+  write = fs_file.write,
+  truncate = fs_file.truncate,
+
   -- File operations (re-exported from fs_ops)
   unlink = fs_ops.unlink,
   rename = fs_ops.rename,
+  copy = fs_ops.copy,
+  move = fs_ops.move,
+  touch = fs_ops.touch,
+  write_atomic = fs_file.write_atomic,
   link = fs_ops.link,
   symlink = fs_ops.symlink,
   readlink = fs_ops.readlink,

@@ -42,7 +42,7 @@ end
 
 local function test_fetch_repeated_headers_normalized()
   local port, pid = serve(1)
-  local result = fetch.Fetch("http://127.0.0.1:" .. port .. "/", {allow_private = true})
+  local result = fetch.fetch("http://127.0.0.1:" .. port .. "/", {allow_private = true})
   proc.wait(pid)
   assert(result.ok == true, "fetch should succeed: " .. tostring(result.error))
 

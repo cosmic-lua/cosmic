@@ -3,7 +3,6 @@
 
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
-local cio = require("cosmic.io")
 local sys = require("cosmic.sys")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -36,7 +35,7 @@ test_help_mentions_welcome()
 -- Test COSMIC_NO_WELCOME suppresses welcome in scripts
 local function test_no_welcome_env()
   local test_script = fs.join(tmpdir, "no_welcome_test.lua")
-  cio.barf(test_script, [[
+  fs.write(test_script, [[
 -- Just check the env var is accessible
 local no_welcome = os.getenv("COSMIC_NO_WELCOME")
 if no_welcome then
@@ -65,8 +64,7 @@ end
 local function pty_available(): boolean
   -- Write a tiny probe script that prints tty detection result to stderr
   local probe = fs.join(tmpdir, "pty_probe.lua")
-  local io_mod = require("cosmic.io")
-  local write_ok, _ = io_mod.barf(probe, "local tty = require('cosmic.tty'); io.stderr:write(tostring(tty.stderr_isatty()))\n")
+  local write_ok, _ = fs.write(probe, "local tty = require('cosmic.tty'); io.stderr:write(tostring(tty.stderr_isatty()))\n")
   if not write_ok then
     return false
   end

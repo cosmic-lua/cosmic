@@ -2,8 +2,11 @@
 --- Run directly as a script with source files as arguments.
 
 local doc = require("cosmic.doc")
-local cio = require("cosmic.io")
 local codec = require("cosmic.codec")
+-- This script is compiled and run by the pinned BOOTSTRAP cosmic, whose
+-- embedded types predate the current tree; use the signature-stable
+-- cosmo.Slurp instead of cosmic.fs.read so it works under both.
+local cosmo = require("cosmo")
 
 local record DocIndexModule
   generate: function(files: {string}): string | nil, string
@@ -22,7 +25,7 @@ local function generate(files: {string}): string | nil, string
   for i = 1, #files do
     local file_path = files[i]
 
-    local source, slurp_err = cio.slurp(file_path)
+    local source, slurp_err = cosmo.Slurp(file_path)
     if not source then
       return nil, file_path .. ": " .. (slurp_err or "cannot read")
     end

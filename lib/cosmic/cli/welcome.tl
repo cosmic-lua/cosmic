@@ -1,14 +1,14 @@
 -- Welcome message state tracking for first-run experience
 
-local cio = require("cosmic.io")
 local czip = require("cosmic.zip")
+local fs = require("cosmic.fs")
 
 local MARKER < const > = ".cosmic/welcome-shown"
 
 --- Check if welcome has been shown.
 --- @return boolean True if welcome was already shown (marker embedded in binary)
 local function was_shown(): boolean
-  return cio.slurp("/zip/" .. MARKER) ~= nil
+  return fs.read("/zip/" .. MARKER) ~= nil
 end
 
 --- Mark welcome as shown by embedding marker in binary.

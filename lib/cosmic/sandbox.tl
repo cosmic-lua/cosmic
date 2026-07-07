@@ -68,7 +68,7 @@ local record Availability
 end
 
 local type Rule = landlock.Rule
-local type RestrictOpts = landlock.RestrictOpts
+local type RestrictOptions = landlock.RestrictOptions
 
 local record SandboxModule
   type Fs = Fs
@@ -77,7 +77,7 @@ local record SandboxModule
   type Availability = Availability
   apply: function(policy: Policy): boolean, string
   available: function(): Availability
-  plan_landlock: function(fs: Fs): RestrictOpts
+  plan_landlock: function(fs: Fs): RestrictOptions
 end
 
 -- Promise-name set for pre-enforcement validation, built from the
@@ -138,8 +138,8 @@ end
 --- empty rules list, which denies everything when applied.
 ---
 --- @param fs Fs nil treated as empty (deny-all)
---- @return RestrictOpts options for cosmic.landlock.restrict
-local function plan_landlock(fs: Fs): RestrictOpts
+--- @return RestrictOptions options for cosmic.landlock.restrict
+local function plan_landlock(fs: Fs): RestrictOptions
   local rules: {Rule} = {}
   local seen: {string: integer} = {}
   add_rules(rules, seen, fs and fs.ro or nil, landlock.READ | landlock.EXEC)

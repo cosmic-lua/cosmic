@@ -39,7 +39,7 @@ local record Result
 end
 
 --- Options for fetch requests.
-local record Opts
+local record Options
   --- HTTP method (default "GET").
   method: string
   --- Request body to send (for POST, PUT, PATCH).
@@ -157,14 +157,14 @@ local function validate_headers(headers: {string: string}): string
   return nil
 end
 
---- Project the transport-relevant Opts fields onto a fresh typed
+--- Project the transport-relevant Options fields onto a fresh typed
 --- cosmo.FetchOptions, shallow-copying headers so no attempt can observe
 --- another attempt's table (the C layer no longer mutates its options,
 --- but the copy keeps that a C-layer detail). Retry-loop fields stay
 --- wrapper-side.
---- @param opts Opts? wrapper options, or nil
+--- @param opts Options? wrapper options, or nil
 --- @return cosmo.FetchOptions? options for cosmo.Fetch/FetchStream, or nil
-local function to_fetch_options(opts?: Opts): cosmo.FetchOptions
+local function to_fetch_options(opts?: Options): cosmo.FetchOptions
   if not opts then
     return nil
   end
@@ -199,7 +199,7 @@ local function fail(err: any, kind: any): Result
     } as Result, result_mt) as Result
 end
 
-local function do_fetch(url: string, opts?: Opts): Result
+local function do_fetch(url: string, opts?: Options): Result
   local verr = validate_url(url)
   if verr then
     return fail(verr, nil)
@@ -254,9 +254,9 @@ end
 
 --- Fetch a URL and return a structured result.
 --- @param url string URL to fetch
---- @param opts Opts optional fetch options (retry, headers, redirects, ...)
+--- @param opts Options optional fetch options (retry, headers, redirects, ...)
 --- @return Result fetch result with ok, status, headers, body, url, or error
-local function Fetch(url: string, opts?: Opts): Result
+local function Fetch(url: string, opts?: Options): Result
   local max_attempts = (opts and opts.max_attempts) or 1
   local base_delay = (opts and opts.base_delay) or 0.5
   local max_delay = (opts and opts.max_delay) or 30
@@ -406,9 +406,9 @@ end
 --- (max_attempts, base_delay, max_delay, should_retry), which do not
 --- apply to streams.
 --- @param url string URL to fetch
---- @param opts Opts optional fetch options
+--- @param opts Options optional fetch options
 --- @return StreamResult with reader for incremental body access
-local function stream(url: string, opts?: Opts): StreamResult
+local function stream(url: string, opts?: Options): StreamResult
   local verr = validate_url(url)
   if verr then
     return stream_fail(verr, nil)
@@ -455,19 +455,19 @@ local function unix_proxy(path: string): string | nil, string
   return "unix://" .. path
 end
 
-local record fetch
-  Fetch: function(url: string, opts?: Opts): Result
-  stream: function(url: string, opts?: Opts): StreamResult
+local record FetchModule
+  fetch: function(url: string, opts?: Options): Result
+  stream: function(url: string, opts?: Options): StreamResult
   unix_proxy: function(path: string): string | nil, string
   type ErrorKind = ErrorKind
-  Opts: Opts
+  Options: Options
   Result: Result
   Reader: Reader
   StreamResult: StreamResult
 end
 
-local M: fetch = {
-  Fetch = Fetch,
+local M: FetchModule = {
+  fetch = Fetch,
   stream = stream,
   unix_proxy = unix_proxy,
 }

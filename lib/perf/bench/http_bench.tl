@@ -74,7 +74,7 @@ local function scenarios(): {pt.Scenario}, string
     {
       name = "http_fetch_get",
       fn = function(_: any): any
-        return fetch.Fetch(url, {allow_private = true})
+        return fetch.fetch(url, {allow_private = true})
       end,
       check = function(_: any, res: any): boolean, string
         local r = res as fetch.Result
@@ -99,7 +99,7 @@ local function scenarios(): {pt.Scenario}, string
       -- headers, so that scenario never touches this code path at all).
       name = "http_fetch_get_with_headers",
       fn = function(_: any): any
-        return fetch.Fetch(url, {
+        return fetch.fetch(url, {
             allow_private = true,
             headers = {
               ["Accept"] = "application/json",

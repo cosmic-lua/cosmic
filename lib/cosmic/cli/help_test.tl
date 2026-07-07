@@ -1,8 +1,8 @@
 #!/usr/bin/env cosmic
 -- test cosmic.help module
 
-local help = require("cosmic.help")
-local cli_args = require("cosmic.args")
+local help = require("cosmic.cli.help")
+local cli_args = require("cosmic.cli.args")
 
 local function test_generate_returns_string()
   local result = help.generate()
