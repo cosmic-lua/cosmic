@@ -37,7 +37,7 @@
 
 ```teal
 local record CapsModule
-  capabilities: function(): {string: boolean}
+  capabilities: function(): types.Capabilities
 end
 ```
 
@@ -45,7 +45,7 @@ end
 
 ```teal
 local record BoxRunModule
-  run: function(opts: {string: any}, argv: {string}): integer | nil, string
+  run: function(opts: BoxOpts, argv: {string}): integer | nil, string
 end
 ```
 
@@ -54,7 +54,7 @@ end
 ### run
 
 ```teal
-function run(opts: {string: any}, argv: {string}): integer | nil, string
+function run(opts: BoxOpts, argv: {string}): integer | nil, string
 ```
 
  Fork+orchestrate a Box policy around argv. Returns an integer exit

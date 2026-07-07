@@ -19,28 +19,6 @@
 
 ## Types
 
-### EnvOpts
-
- Pure env-policy helpers for cosmic.quicksand.Box.
- Given an env policy (`keep` list, `set` map) and the parent
- environment, return the env dict the boxed workload should see.
- Semantics:
-   keep   list of variable names to inherit from the parent
-          environment. Variables not in keep are dropped.
-   set    map of names to values that override / add to keep.
- Both fields are optional:
-   nil keep  → inherit nothing (empty starting set)
-   nil set   → no overrides
- Nothing here touches real process env — callers apply the result via
- their own setenv loop after fork, before execve.
-
-```teal
-local record EnvOpts
-  keep: {string}
-  set: {string: string}
-end
-```
-
 ### BoxEnvModule
 
 ```teal

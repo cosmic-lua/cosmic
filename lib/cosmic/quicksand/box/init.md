@@ -31,74 +31,7 @@
 
 ```teal
 local record CapsModule
-  capabilities: function(): {string: boolean}
-end
-```
-
-### NetRule
-
- A single allowlist rule for `net.allow`. Mirrors
- cosmic.quicksand.proxy.ProxyRule — empty table = pass-through.
-
-```teal
-local record NetRule
-  type: NetRuleType
-  token: string
-  username: string
-  password: string
-  header_name: string
-  header_value: string
-end
-```
-
-### NetOpts
-
-```teal
-local record NetOpts
-  proxy_env: boolean
-  allow: {string: NetRule}
-  log_level: LogLevel
-  resolve_timeout_ms: integer
-end
-```
-
-### ProcOpts
-
-```teal
-local record ProcOpts
-  no_new_privs: boolean
-  uid: integer
-  gid: integer
-  pledge: string
-  drop_caps: boolean
-  keep_caps: {string}
-end
-```
-
-### EnvOpts
-
-```teal
-local record EnvOpts
-  keep: {string}
-  set: {string: string}
-end
-```
-
-### BoxOpts
-
- Full box policy. Every field is optional; omitting a section skips
- that subsystem. Scalars default to nil (i.e. no policy); list fields
- default to empty.
-
-```teal
-local record BoxOpts
-  hostname: string
-  fs: FsOpts
-  net: NetOpts
-  proc: ProcOpts
-  env: EnvOpts
-  cwd: string
-  pid_ns: boolean
+  capabilities: function(): types.Capabilities
 end
 ```
 
@@ -121,7 +54,7 @@ end
 
 ```teal
 local record RunModule
-  run: function(opts: {string: any}, argv: {string}): integer | nil, string
+  run: function(opts: BoxOpts, argv: {string}): integer | nil, string
 end
 ```
 

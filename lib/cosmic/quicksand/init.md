@@ -20,30 +20,6 @@
 
 ## Types
 
-### Capabilities
-
- Fine-grained feature availability on the current host.
- Every field is a boolean. Higher-level helpers use these to fail
- fast with a specific reason instead of bailing out on ENOSYS
- partway through a setup sequence.
-
-```teal
-local record Capabilities
-  linux: boolean
-  user_ns: boolean
-  mount_ns: boolean
-  net_ns: boolean
-  uts_ns: boolean
-  pid_ns: boolean
-  pivot_root: boolean
-  cap_net_admin: boolean
-  landlock: boolean
-  pledge: boolean
-  unveil: boolean
-  caps: boolean
-end
-```
-
 ### BoxIface
 
  The typed surface of the re-exported Box builder (the box module's

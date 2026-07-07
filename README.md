@@ -82,6 +82,7 @@ High-level utilities and tools built on top of cosmo.
 | [http](lib/cosmic/quicksand/proxy/http.md) |  HTTP/1.1 wire helpers for the cosmic.quicksand.proxy egress proxy: |
 | [rules](lib/cosmic/quicksand/proxy/rules.md) |  Allowlist rule parsing, validation, and matching for the |
 | [serve](lib/cosmic/quicksand/proxy/serve.md) |  Listener, per-connection handler, and logging for the |
+| [types](lib/cosmic/quicksand/types.md) |  Shared record and enum types for the cosmic.quicksand family. |
 | [rand](lib/cosmic/rand.md) |  Random number generation. |
 | [re](lib/cosmic/re.md) |  Regular expression matching using POSIX extended regex syntax. |
 | [require](lib/cosmic/require.md) |  Enhanced require with helpful error messages. |
