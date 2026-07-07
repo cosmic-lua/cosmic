@@ -98,7 +98,7 @@ end
 --- Expects value to be nil and err to be a non-nil, non-empty string,
 --- matching the standard cosmic error-return convention.
 --- @param value any The first return value (expected to be nil)
---- @param err string The second return value (expected to be a non-empty string)
+--- @param e string The second return value (expected to be a non-empty string)
 --- @param label string? Optional label prepended to the failure message
 local function err(value: any, e: string, label?: string)
   local msg: string

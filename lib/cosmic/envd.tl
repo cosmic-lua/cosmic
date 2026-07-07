@@ -40,6 +40,9 @@ local ENVD_PATH = "/zip/embed/env.d"
 local record LoadResult
   count: integer
   source: string
+  --- Per-entry failures (unreadable files, env.set errors). Loading
+  --- continues past them; an empty list means a clean load.
+  errors: {string}
 end
 
 --- Expand ${VAR}, ${VAR:-default}, and ${VAR-default} references in a
@@ -86,7 +89,7 @@ end
 --- @param content string The dotenv content to parse
 --- @param ctx? {string: string} Context for variable expansion (default: {})
 --- @return {string: string} Parsed key-value pairs
-local function parse(content: string, ctx: {string: string}): {string: string}
+local function parse(content: string, ctx?: {string: string}): {string: string}
   local vars: {string: string} = {}
   local lookup: {string: string} = {}
   if ctx then
@@ -118,7 +121,7 @@ end
 --- @param dir string The directory to read dotenv files from
 --- @return LoadResult Result with count of variables set and source path
 local function load_dir(dir: string): LoadResult
-  local result: LoadResult = {count = 0, source = dir}
+  local result: LoadResult = {count = 0, source = dir, errors = {}}
   local cosmic_debug_val = env.get("COSMIC_DEBUG")
   local debug = cosmic_debug_val ~= nil and cosmic_debug_val ~= ""
 
@@ -147,15 +150,18 @@ local function load_dir(dir: string): LoadResult
   local sources: {string: string} = {}
   for _, name in ipairs(names) do
     local path = fs.join(dir, name)
-    local content = cio.slurp(path)
+    local content, read_err = cio.slurp(path)
     if content then
       local vars = parse(content, merged)
       for key, value in pairs(vars) do
         merged[key] = value
         sources[key] = name
       end
-    elseif debug then
-      io.stderr:write("[envd] skip " .. name .. ": unreadable\n")
+    else
+      table.insert(result.errors, "envd: " .. (read_err or (name .. ": unreadable")))
+      if debug then
+        io.stderr:write("[envd] skip " .. name .. ": " .. (read_err or "unreadable") .. "\n")
+      end
     end
   end
 
@@ -173,8 +179,12 @@ local function load_dir(dir: string): LoadResult
         io.stderr:write("[envd] skip " .. key .. " from " .. sources[key] .. ": overridden by environment\n")
       end
     else
-      env.set(key, merged[key])
-      result.count = result.count + 1
+      local set_ok, set_err = env.set(key, merged[key])
+      if not set_ok then
+        table.insert(result.errors, "envd: set " .. key .. ": " .. (set_err or "failed"))
+      else
+        result.count = result.count + 1
+      end
       if debug then
         io.stderr:write("[envd] set " .. key .. " from " .. sources[key] .. "\n")
       end
