@@ -19,20 +19,6 @@ local function capitalize(s: string): string
   return s:sub(1, 1):upper() .. s:sub(2)
 end
 
---- Convert a string to uppercase.
---- @param s string The string to convert
---- @return string The uppercase string
-local function upper(s: string): string
-  return s:upper()
-end
-
---- Convert a string to lowercase.
---- @param s string The string to convert
---- @return string The lowercase string
-local function lower(s: string): string
-  return s:lower()
-end
-
 --- Trim whitespace from both ends of a string.
 --- @param s string The string to trim
 --- @return string The trimmed string
@@ -107,8 +93,6 @@ end
 
 local record StringModule
   capitalize: function(s: string): string
-  upper: function(s: string): string
-  lower: function(s: string): string
   trim: function(s: string): string
   ltrim: function(s: string): string
   rtrim: function(s: string): string
@@ -119,8 +103,6 @@ end
 
 local M: StringModule = {
   capitalize = capitalize,
-  upper = upper,
-  lower = lower,
   trim = trim,
   ltrim = ltrim,
   rtrim = rtrim,

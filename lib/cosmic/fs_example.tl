@@ -24,7 +24,7 @@ local function Example_basic()
 
   -- Check if it exists
   local st = fs.stat(subdir)
-  if st and fs.is_dir((st as fs_types.Stat):mode()) then
+  if st and (st as fs_types.Stat):is_dir() then
     print("subdir is a directory")
   end
 

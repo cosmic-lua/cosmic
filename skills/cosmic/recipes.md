@@ -69,7 +69,7 @@ db:exec("CREATE TABLE IF NOT EXISTS files (" ..
 fs.walk("testdata", function(path: string, _name: string, st: any, _ctx: any)
     -- path is the FULL path; do not join it with the basename
     local stat = st as {mode: function(any): number, size: function(any): number}
-    if fs.is_file(stat:mode()) then
+    if stat:is_file() then
       local data = cio.slurp(path)
       if data then
         db:exec("INSERT INTO files (path, size, digest) VALUES (?, ?, ?) " ..

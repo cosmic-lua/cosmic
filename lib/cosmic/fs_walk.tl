@@ -5,7 +5,7 @@ local unix = require("cosmo.unix")
 local cosmo_path = require("cosmo.path")
 local types = require("cosmic.fs_types")
 local errstr = require("cosmic.errno").str
-local WalkStat = types.WalkStat
+local type WalkStat = types.WalkStat
 local FileInfo = types.FileInfo
 
 --- Handle for reading directory entries (internal).
@@ -40,9 +40,8 @@ local function walk_tree < T > (dir: string,
       -- This prevents infinite recursion through symlink cycles.
       local st, serr = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
       if st then
-        local wst = st as WalkStat
-        visitor(full_path, entry, wst, ctx)
-        if unix.S_ISDIR(wst:mode()) then
+        visitor(full_path, entry, types.wrap(st), ctx)
+        if unix.S_ISDIR(st:mode()) then
           walk_tree(full_path, visitor, ctx, errbox)
         end
       elseif not errbox[1] then
@@ -68,7 +67,7 @@ end
 ---
 --- WalkStat is defined in cosmic.fs_types. Import it as:
 ---   local types = require("cosmic.fs_types")
----   local WalkStat = types.WalkStat
+---   local type WalkStat = types.WalkStat
 ---
 --- If the root directory cannot be opened, returns nil plus the error.
 --- Failures below the root (unreadable subdirectory, vanished entry) do
@@ -95,9 +94,8 @@ local function walk < T > (dir: string, visitor: function(string, string, WalkSt
       local full_path = cosmo_path.join(dir, entry)
       local st, serr = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
       if st then
-        local wst = st as WalkStat
-        visitor(full_path, entry, wst, ctx)
-        if unix.S_ISDIR(wst:mode()) then
+        visitor(full_path, entry, types.wrap(st), ctx)
+        if unix.S_ISDIR(st:mode()) then
           walk_tree(full_path, visitor, ctx, errbox)
         end
       elseif not errbox[1] then
@@ -146,7 +144,7 @@ local function collect(dir: string, pattern: string): {string} | nil, string
 
   local results: {string} = {}
   local ctx, err = walk(dir, function(full_path: string, entry: string, st: WalkStat, acc: {string})
-      if not unix.S_ISDIR(st:mode()) and entry:match(lua_pattern) then
+      if not st:is_dir() and entry:match(lua_pattern) then
         table.insert(acc, full_path)
       end
     end, results)
@@ -202,11 +200,10 @@ local function collect_all(dir: string): {string: FileInfo} | nil, string
           -- S_ISDIR, preserving the same cycle prevention as above.
           local st, serr = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
           if st then
-            local wst = st as WalkStat
-            if unix.S_ISDIR(wst:mode()) then
+            if unix.S_ISDIR(st:mode()) then
               do_walk(full_path, rel_path)
-            elseif unix.S_ISREG(wst:mode()) then
-              local mode = wst:mode() & 0x1ff
+            elseif unix.S_ISREG(st:mode()) then
+              local mode = st:mode() & 0x1ff
               files[rel_path] = {mode = mode}
             end
           elseif not errbox[1] then
@@ -299,7 +296,7 @@ local type FileIter = function(): string
             -- Filesystem doesn't expose d_type; fall back to a real stat,
             -- using AT_SYMLINK_NOFOLLOW so a symlinked dir reports
             -- S_ISLNK, not S_ISDIR, preserving the same cycle prevention.
-            local st = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW) as WalkStat
+            local st = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
             if st then
               if unix.S_ISDIR(st:mode()) then
                 local subhandle = unix.opendir(full_path)

@@ -77,7 +77,7 @@ local function strip_components(source_dir: string, dest_dir: string, strip: num
   end
 
   local st = fs.stat(current)
-  if st and fs.is_dir((st as fs_types.Stat):mode()) then
+  if st and (st as fs_types.Stat):is_dir() then
     return move_contents(current, dest_dir)
   else
     local dst = fs.join(dest_dir, fs.basename(current))

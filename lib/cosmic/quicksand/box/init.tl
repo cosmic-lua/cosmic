@@ -16,7 +16,7 @@
 ---     os.exit(assert(box:run({ "/usr/bin/bash", "-c", "make test" })))
 ---
 --- Options are plain tables, composable with `Box.merge(base, over)`.
---- Full schema in `BoxOpts` below.
+--- Full schema in `BoxOptions` below.
 ---
 --- The capability probe is loaded lazily to avoid a require cycle with
 --- cosmic.quicksand (which re-exports Box from its umbrella). The
@@ -27,8 +27,8 @@ local types = require("cosmic.quicksand.types")
 
 --- The policy schema lives in cosmic.quicksand.types (shared with the
 --- fork/exec orchestrator and the umbrella); re-exported below so
---- callers can keep writing `Box.BoxOpts` etc.
-local type BoxOpts = types.BoxOpts
+--- callers can keep writing `Box.BoxOptions` etc.
+local type BoxOptions = types.BoxOptions
 local type FsOpts = types.FsOpts
 local type NetRule = types.NetRule
 local type NetRuleType = types.NetRuleType
@@ -47,7 +47,7 @@ end
 --- or nil + error on failure. `close()` releases any parent-held
 --- resources; idempotent and safe to call after `run`.
 local record Box
-  opts: BoxOpts
+  opts: BoxOptions
   _closed: boolean
   run: function(self: Box, argv: {string}): integer | nil, string
   close: function(self: Box): boolean
@@ -55,7 +55,7 @@ end
 
 -- Validate structural shape only — we cannot test syscall-level
 -- feasibility here; that is the job of run()'s capability preflight.
-local function validate(opts: BoxOpts): boolean, string
+local function validate(opts: BoxOptions): boolean, string
   if opts == nil then return true end
   if opts.cwd ~= nil and type(opts.cwd) ~= "string" then
     return false, "cwd must be a string"
@@ -101,7 +101,7 @@ end
 -- Check that every enabled feature can be honored by the host. Returns
 -- a specific error naming the first missing capability so callers can
 -- distinguish "not on Linux" from "landlock unavailable" etc.
-local function preflight(opts: BoxOpts): boolean, string
+local function preflight(opts: BoxOptions): boolean, string
   local c = caps()
   if not c.linux then
     return false, "quicksand: Linux only"
@@ -134,7 +134,7 @@ local function preflight(opts: BoxOpts): boolean, string
 end
 
 local record RunModule
-  run: function(opts: BoxOpts, argv: {string}): integer | nil, string
+  run: function(opts: BoxOptions, argv: {string}): integer | nil, string
 end
 
 local function run(self: Box, argv: {string}): integer | nil, string
@@ -159,10 +159,10 @@ end
 --- Build a Box from an options table. Validates structural shape; a
 --- bad `opts` returns nil + error without touching syscalls.
 ---
---- @param opts BoxOpts? policy (all fields optional)
+--- @param opts BoxOptions? policy (all fields optional)
 --- @return Box? box instance on success
 --- @return string? error message on failure
-local function new(opts?: BoxOpts): Box | nil, string
+local function new(opts?: BoxOptions): Box | nil, string
   local ok, err = validate(opts)
   if not ok then return nil, err end
   local j: Box = {
@@ -179,21 +179,21 @@ end
 --- (net.allow, env.set): per-key later wins. Returns a fresh table
 --- suitable for `Box.new`.
 ---
---- @param ... BoxOpts policy tables; nil entries are skipped
---- @return BoxOpts merged policy
-local function merge(...: BoxOpts): BoxOpts
-  return box_merge.merge(...) as BoxOpts
+--- @param ... BoxOptions policy tables; nil entries are skipped
+--- @return BoxOptions merged policy
+local function merge(...: BoxOptions): BoxOptions
+  return box_merge.merge(...) as BoxOptions
 end
 
 local record BoxModule
   type Box = Box
-  type BoxOpts = BoxOpts
+  type BoxOptions = BoxOptions
   type FsOpts = FsOpts
   type NetRule = NetRule
   type NetRuleType = NetRuleType
   type LogLevel = LogLevel
-  new: function(opts?: BoxOpts): Box | nil, string
-  merge: function(...: BoxOpts): BoxOpts
+  new: function(opts?: BoxOptions): Box | nil, string
+  merge: function(...: BoxOptions): BoxOptions
 end
 
 local M: BoxModule = {

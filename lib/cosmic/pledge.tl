@@ -71,7 +71,7 @@ local PROMISES: {Promise} = {
 --- Options for `apply`. `exec` sets the promises children keep after
 --- execve. `best_effort` turns an unsupported host into a successful
 --- no-op instead of an error — the explicit fail-open escape hatch.
-local record ApplyOpts
+local record ApplyOptions
   exec: string
   best_effort: boolean
 end
@@ -112,10 +112,10 @@ end
 --- `best_effort = true` to treat that case as a successful no-op.
 ---
 --- @param promises string Space-separated promise groups for this process
---- @param opts ApplyOpts? `exec` promises after execve; `best_effort` escape hatch
+--- @param opts ApplyOptions? `exec` promises after execve; `best_effort` escape hatch
 --- @return boolean True on success
 --- @return string? Error message on failure
-local function apply(promises: string, opts?: ApplyOpts): boolean, string
+local function apply(promises: string, opts?: ApplyOptions): boolean, string
   if not available() then
     if opts and opts.best_effort then return true end
     return false, "pledge unsupported on this host"
@@ -129,9 +129,9 @@ end
 
 local record PledgeModule
   type Promise = Promise
-  type ApplyOpts = ApplyOpts
+  type ApplyOptions = ApplyOptions
   PROMISES: {Promise}
-  apply: function(promises: string, opts?: ApplyOpts): boolean, string
+  apply: function(promises: string, opts?: ApplyOptions): boolean, string
   available: function(): boolean
 end
 

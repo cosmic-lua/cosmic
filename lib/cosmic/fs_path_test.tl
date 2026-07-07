@@ -84,9 +84,7 @@ test_islink_regular_dir()
 
 -- Directory walking tests
 
-local record WalkStat
-  mode: function(self): number
-end
+local type WalkStat = fs_types.WalkStat
 
 local record WalkContext
   count: number
@@ -151,7 +149,7 @@ local function test_walk_with_visitor()
       local wctx = c as WalkContext
       wctx.count = wctx.count + 1
       local stat_obj = st as WalkStat
-      if fs.is_dir(stat_obj:mode()) then
+      if stat_obj:is_dir() then
         wctx.dirs = wctx.dirs + 1
       end
       return true

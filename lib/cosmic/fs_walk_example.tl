@@ -23,7 +23,7 @@ local function Example_walk()
   fs.walk(tmpdir, function(_path: string, name: string, st: types.WalkStat, ctx: {string})
       -- path is the full path; name is just the basename.
       -- Never do fs.join(path, name) — that would double the path.
-      local kind = fs.is_dir(st:mode()) and "dir" or "file"
+      local kind = st:is_dir() and "dir" or "file"
       table.insert(ctx, kind .. " " .. name)
     end, entries)
 

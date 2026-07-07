@@ -23,7 +23,7 @@ local function Example_get()
   end
   s:close()
 
-  local result = fetch.Fetch("http://127.0.0.1:" .. math.tointeger(port) .. "/",
+  local result = fetch.fetch("http://127.0.0.1:" .. math.tointeger(port) .. "/",
     {allow_private = true})
   proc.wait(pid)
   print(result.status, result.body, result:is_success())
@@ -58,7 +58,7 @@ local function Example_retry()
   end
   s:close()
 
-  local result = fetch.Fetch("http://127.0.0.1:" .. math.tointeger(port) .. "/", {
+  local result = fetch.fetch("http://127.0.0.1:" .. math.tointeger(port) .. "/", {
       allow_private = true,
       max_attempts = 2,
       base_delay = 0.01, -- keep the example fast; default is 0.5s

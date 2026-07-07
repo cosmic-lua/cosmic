@@ -57,7 +57,7 @@ end
 --- Options for spawning a process.
 --- stdout/stderr as numbers are raw fds dup2'd onto the child's fd 1/2 (the
 --- corresponding Result field is then ""). See Example_spawn_pipe.
-local record Opts
+local record Options
   stdin: string | number -- string piped to stdin, or raw fd dup2'd onto fd 0
   stdout: number -- raw fd -> fd 1
   stderr: number -- raw fd -> fd 2
@@ -212,9 +212,9 @@ end
 --- To spawn cosmic itself, use `rawget(arg, -1)` — NOT arg[0], which is
 --- the script path (/zip/main.lua), not the interpreter.
 --- @param argv {string} Command and arguments
---- @param opts Opts? Spawn options
+--- @param opts Options? Spawn options
 --- @return Handle | nil, string? Process handle or nil + error
-local function spawn(argv: {string}, opts?: Opts): Handle | nil, string
+local function spawn(argv: {string}, opts?: Options): Handle | nil, string
   opts = opts or {}
 
   -- Resolve the executable into a LOCAL, never by mutating the caller's argv:
@@ -412,9 +412,9 @@ end
 
 --- One-shot spawn: run to completion and return the Result.
 --- @param argv {string} Command and arguments
---- @param opts Opts? Spawn options
+--- @param opts Options? Spawn options
 --- @return Result | nil, string? The Result, or nil + error
-local function run(argv: {string}, opts?: Opts): Result | nil, string
+local function run(argv: {string}, opts?: Options): Result | nil, string
   local h, err = spawn(argv, opts)
   if not h then
     return nil, err
@@ -425,12 +425,12 @@ end
 local record ChildModule
   -- Exported types so callers can name/cast the fallible results.
   type Handle = Handle
-  type Opts = Opts
+  type Options = Options
   type Result = Result
 
   -- High-level spawn API
-  spawn: function(argv: {string}, opts?: Opts): Handle | nil, string
-  run: function(argv: {string}, opts?: Opts): Result | nil, string
+  spawn: function(argv: {string}, opts?: Options): Handle | nil, string
+  run: function(argv: {string}, opts?: Options): Result | nil, string
 
   -- Zip binary helper
   prepare_zip_exec: function(zip_path: string): number | nil, string

@@ -16,9 +16,9 @@
 --- their own setenv loop after fork, before execve.
 local types = require("cosmic.quicksand.types")
 
-local type EnvOpts = types.EnvOpts
+local type EnvOptions = types.EnvOptions
 
-local function apply(opts: EnvOpts, parent: {string: string}): {string: string}
+local function apply(opts: EnvOptions, parent: {string: string}): {string: string}
   local out: {string: string} = {}
   if opts and opts.keep and parent then
     for _, name in ipairs(opts.keep) do
@@ -51,7 +51,7 @@ local function render(env: {string: string}): {string}
 end
 
 local record BoxEnvModule
-  apply: function(opts: EnvOpts, parent: {string: string}): {string: string}
+  apply: function(opts: EnvOptions, parent: {string: string}): {string: string}
   render: function(env: {string: string}): {string}
 end
 

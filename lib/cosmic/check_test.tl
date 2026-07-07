@@ -11,7 +11,7 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 
 -- child.spawn now returns `Handle | nil`; tl 0.24.8 will not flow-narrow a
 -- record union, so wrap the spawn+read in one helper that casts the handle.
-local function check_run(argv: {string}, opts?: spawn.Opts): boolean | string, string
+local function check_run(argv: {string}, opts?: spawn.Options): boolean | string, string
   local h = spawn.spawn(argv, opts)
   local __r1 = (h as spawn.Handle):wait() as spawn.Result
   local ok, out = __r1.ok, __r1.stdout

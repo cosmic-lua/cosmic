@@ -53,7 +53,7 @@ local function test_default_policy_retries_transport_error()
   -- Before #530 the retry loop only consulted should_retry when
   -- result.ok was true, so this could never succeed.
   local port, pid = serve({"", body_response("200 OK", "recovered")})
-  local result = fetch.Fetch("http://127.0.0.1:" .. port .. "/",
+  local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, max_attempts = 2, base_delay = 0.01})
   proc.wait(pid)
   assert(result.ok == true,
@@ -67,7 +67,7 @@ local function test_default_policy_retries_503()
       body_response("503 Service Unavailable", "busy"),
       body_response("200 OK", "fine"),
     })
-  local result = fetch.Fetch("http://127.0.0.1:" .. port .. "/",
+  local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, max_attempts = 2, base_delay = 0.01})
   proc.wait(pid)
   assert(result.ok == true and result.status == 200,
@@ -79,7 +79,7 @@ local function test_default_policy_does_not_retry_post()
   -- POST is not idempotent: the default policy must return the 503
   -- untouched instead of replaying the request.
   local port, pid = serve({body_response("503 Service Unavailable", "busy")})
-  local result = fetch.Fetch("http://127.0.0.1:" .. port .. "/",
+  local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, method = "POST", body = "x",
       max_attempts = 3, base_delay = 0.01})
   proc.wait(pid)
@@ -90,7 +90,7 @@ test_default_policy_does_not_retry_post()
 
 local function test_default_policy_does_not_retry_404()
   local port, pid = serve({body_response("404 Not Found", "gone")})
-  local result = fetch.Fetch("http://127.0.0.1:" .. port .. "/",
+  local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, max_attempts = 3, base_delay = 0.01})
   proc.wait(pid)
   assert(result.ok == true and result.status == 404,
@@ -103,7 +103,7 @@ local function test_custom_should_retry_sees_failures()
   -- loop returned transport errors immediately, without asking)
   local seen: {boolean} = {}
   local port, pid = serve({"", body_response("200 OK", "again")})
-  local result = fetch.Fetch("http://127.0.0.1:" .. port .. "/", {
+  local result = fetch.fetch("http://127.0.0.1:" .. port .. "/", {
       allow_private = true,
       max_attempts = 2,
       base_delay = 0.01,
@@ -122,7 +122,7 @@ test_custom_should_retry_sees_failures()
 local function test_custom_should_retry_false_stops()
   local port, pid = serve({body_response("503 Service Unavailable", "busy")})
   local attempts = 0
-  local result = fetch.Fetch("http://127.0.0.1:" .. port .. "/", {
+  local result = fetch.fetch("http://127.0.0.1:" .. port .. "/", {
       allow_private = true,
       max_attempts = 5,
       base_delay = 0.01,
@@ -139,7 +139,7 @@ test_custom_should_retry_false_stops()
 
 local function test_exhausted_attempts_return_last_failure()
   local port, pid = serve({"", ""})
-  local result = fetch.Fetch("http://127.0.0.1:" .. port .. "/",
+  local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, max_attempts = 2, base_delay = 0.01})
   proc.wait(pid)
   assert(result.ok == false, "both attempts failed; ok must be false")
@@ -151,7 +151,7 @@ test_exhausted_attempts_return_last_failure()
 local function test_validation_error_has_no_kind_and_default_never_retries()
   -- validation failures carry no error_kind, so the default policy's
   -- retryable-kind check can never match them
-  local result = fetch.Fetch("ftp://example.com/",
+  local result = fetch.fetch("ftp://example.com/",
     {max_attempts = 3, base_delay = 0.01})
   assert(result.ok == false, "validation failure expected")
   assert(result.error_kind == nil, "validation failures have no error_kind")

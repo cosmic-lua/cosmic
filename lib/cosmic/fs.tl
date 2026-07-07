@@ -6,7 +6,7 @@ local errstr = require("cosmic.errno").str
 local Stat = types.Stat
 local Dir = types.Dir
 local Statfs = types.Statfs
-local WalkStat = types.WalkStat
+local type WalkStat = types.WalkStat
 local FileInfo = types.FileInfo
 
 -- Re-export path functions from fs_path submodule
@@ -77,7 +77,7 @@ local function stat(path: string): Stat | nil, string
   if not st then
     return nil, errstr(err, "stat: " .. path)
   end
-  return st as Stat
+  return types.wrap(st)
 end
 
 --- Get file metadata without following symbolic links.
@@ -90,7 +90,7 @@ local function lstat(path: string): Stat | nil, string
   if not st then
     return nil, errstr(err, "lstat: " .. path)
   end
-  return st as Stat
+  return types.wrap(st)
 end
 
 --- Get file metadata from file descriptor.
@@ -102,56 +102,7 @@ local function fstat(fd: number): Stat | nil, string
   if not st then
     return nil, errstr(err, "fstat")
   end
-  return st as Stat
-end
-
---- Check if mode represents a directory.
---- @param mode number File mode from stat
---- @return boolean True if directory
-local function is_dir(mode: number): boolean
-  return unix.S_ISDIR(mode)
-end
-
---- Check if mode represents a regular file.
---- @param mode number File mode from stat
---- @return boolean True if regular file
-local function is_file(mode: number): boolean
-  return unix.S_ISREG(mode)
-end
-
---- Check if mode represents a symbolic link.
---- @param mode number File mode from stat
---- @return boolean True if symbolic link
-local function is_link(mode: number): boolean
-  return unix.S_ISLNK(mode)
-end
-
---- Check if mode represents a block device.
---- @param mode number File mode from stat
---- @return boolean True if block device
-local function is_block_device(mode: number): boolean
-  return unix.S_ISBLK(mode)
-end
-
---- Check if mode represents a character device.
---- @param mode number File mode from stat
---- @return boolean True if character device
-local function is_char_device(mode: number): boolean
-  return unix.S_ISCHR(mode)
-end
-
---- Check if mode represents a FIFO (named pipe).
---- @param mode number File mode from stat
---- @return boolean True if FIFO
-local function is_fifo(mode: number): boolean
-  return unix.S_ISFIFO(mode)
-end
-
---- Check if mode represents a socket.
---- @param mode number File mode from stat
---- @return boolean True if socket
-local function is_socket(mode: number): boolean
-  return unix.S_ISSOCK(mode)
+  return types.wrap(st)
 end
 
 -- Directory operations
@@ -273,13 +224,6 @@ local record FsModule
   stat: function(path: string): Stat | nil, string
   lstat: function(path: string): Stat | nil, string
   fstat: function(fd: number): Stat | nil, string
-  is_dir: function(mode: number): boolean
-  is_file: function(mode: number): boolean
-  is_link: function(mode: number): boolean
-  is_block_device: function(mode: number): boolean
-  is_char_device: function(mode: number): boolean
-  is_fifo: function(mode: number): boolean
-  is_socket: function(mode: number): boolean
 
   -- Directory operations
   mkdir: function(path: string, mode?: number): boolean, string
@@ -363,13 +307,6 @@ local M: FsModule = {
   stat = stat,
   lstat = lstat,
   fstat = fstat,
-  is_dir = is_dir,
-  is_file = is_file,
-  is_link = is_link,
-  is_block_device = is_block_device,
-  is_char_device = is_char_device,
-  is_fifo = is_fifo,
-  is_socket = is_socket,
 
   -- Directory operations
   mkdir = mkdir,

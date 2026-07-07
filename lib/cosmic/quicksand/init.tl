@@ -31,8 +31,8 @@ local type Capabilities = types.Capabilities
 --- The typed surface of the re-exported Box builder (the box module's
 --- own record type is not directly nameable from here).
 local record BoxIface
-  new: function(opts?: box.BoxOpts): box.Box | nil, string
-  merge: function(...: box.BoxOpts): box.BoxOpts
+  new: function(opts?: box.BoxOptions): box.Box | nil, string
+  merge: function(...: box.BoxOptions): box.BoxOptions
 end
 
 local record QuicksandModule

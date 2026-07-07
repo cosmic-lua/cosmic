@@ -40,7 +40,7 @@ local box_env = require("cosmic.quicksand.box.env")
 local types = require("cosmic.quicksand.types")
 local cenv = require("cosmic.env")
 
-local type BoxOpts = types.BoxOpts
+local type BoxOptions = types.BoxOptions
 
 -- The CLONE_* constants are declared `number` in the binding types;
 -- bitwise composition needs integers, so convert once here.
@@ -54,7 +54,7 @@ local record CapsModule
   capabilities: function(): types.Capabilities
 end
 
-local function clone_flags(opts: BoxOpts): integer
+local function clone_flags(opts: BoxOptions): integer
   local flags = NEWUSER | NEWNET | NEWNS
   if opts and opts.hostname then
     flags = flags | NEWUTS
@@ -75,7 +75,7 @@ local function clone_flags(opts: BoxOpts): integer
   return flags
 end
 
-local function compute_env(opts: BoxOpts): {string}
+local function compute_env(opts: BoxOptions): {string}
   local env_opts = opts and opts.env
   if not env_opts then
     return cenv.list()
@@ -104,7 +104,7 @@ end
 -- Apply post-fork workload restrictions. Returns nil on success or an
 -- error string so the caller can emit one consistent diagnostic and
 -- exit with a well-known status (126).
-local function workload_setup(opts: BoxOpts): string
+local function workload_setup(opts: BoxOptions): string
   if opts and opts.cwd then
     local ok, err = unix.chdir(opts.cwd)
     if not ok then return "chdir: " .. tostring(err) end
@@ -155,7 +155,7 @@ end
 local function supervisor(
     parent_netns_fd: integer,
     err_fd: integer,
-    opts: BoxOpts,
+    opts: BoxOptions,
     argv: {string})
   local function die(msg: string)
     unix.write(err_fd, msg)
@@ -247,7 +247,7 @@ end
 --- supervisor / pre-exec workload (unshare, uid_map, landlock, pledge,
 --- execvpe, ...), which report over the error pipe. An integer return
 --- is therefore always the workload's own exit status.
-local function run(opts: BoxOpts, argv: {string}): integer | nil, string
+local function run(opts: BoxOptions, argv: {string}): integer | nil, string
   local parent_fd: integer = nil
   local net = opts and opts.net
   if net and net.allow then
@@ -318,7 +318,7 @@ local function run(opts: BoxOpts, argv: {string}): integer | nil, string
 end
 
 local record BoxRunModule
-  run: function(opts: BoxOpts, argv: {string}): integer | nil, string
+  run: function(opts: BoxOptions, argv: {string}): integer | nil, string
 end
 
 local M: BoxRunModule = {

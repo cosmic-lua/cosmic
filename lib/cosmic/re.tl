@@ -71,12 +71,14 @@ end
 
 --- Check if pattern matches anywhere in text.
 --- Convenience function that returns boolean instead of matched text.
+--- Named test (not match) to avoid confusion with Lua's string.match,
+--- which returns the matched text.
 --- @param pattern string The regex pattern to match
 --- @param text string The text to search in
 --- @param flags number? Optional compile flags: BASIC, ICASE, NEWLINE, NOSUB
 --- @return boolean True if pattern matches, false otherwise
 --- @return string? Error message if compilation or the engine failed
-local function match(pattern: string, text: string, flags?: number): boolean, string
+local function test(pattern: string, text: string, flags?: number): boolean, string
   local m, _, err = search(pattern, text, flags)
   if err then
     return false, err
@@ -91,7 +93,7 @@ local record ReModule
   -- Functions
   compile: function(pattern: string, flags?: number): Regex | nil, string
   search: function(pattern: string, text: string, flags?: number): string | nil, {string} | nil, string | nil
-  match: function(pattern: string, text: string, flags?: number): boolean, string
+  test: function(pattern: string, text: string, flags?: number): boolean, string
 
   -- Compile flags
   BASIC: number -- Use basic (obsolete) regex syntax instead of extended
@@ -107,7 +109,7 @@ end
 local M: ReModule = {
   compile = compile,
   search = search,
-  match = match,
+  test = test,
 
   -- Expose flags from cosmo.re
   BASIC = re.BASIC,

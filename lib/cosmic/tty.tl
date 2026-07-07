@@ -18,7 +18,7 @@ local record TtyModule
   type Termios = Termios
 
   --- Options for raw()/make_raw().
-  record RawOpts
+  record RawOptions
     --- Keep ISIG set so Ctrl-C/Ctrl-Z still generate signals.
     keep_signals: boolean
   end
@@ -51,8 +51,8 @@ local record TtyModule
   stderr_isatty: function(): boolean
   getattr: function(fd: number): Termios | nil, string
   setattr: function(fd: number, action: number, termios: Termios): boolean, string
-  make_raw: function(termios: Termios, opts?: RawOpts): Termios
-  raw: function(fd: number, opts?: RawOpts): Termios | nil, string
+  make_raw: function(termios: Termios, opts?: RawOptions): Termios
+  raw: function(fd: number, opts?: RawOptions): Termios | nil, string
   noecho: function(fd: number): Termios | nil, string
   restore: function(fd: number, termios: Termios): boolean, string
   getpass: function(prompt: string): string | nil, string
@@ -152,9 +152,9 @@ end
 --- (unless opts.keep_signals), selects 8-bit characters, and sets
 --- VMIN=1/VTIME=0 so reads deliver one byte at a time without timeout.
 --- @param termios Termios Current terminal attributes
---- @param opts RawOpts? keep_signals: keep Ctrl-C/Ctrl-Z generating signals
+--- @param opts RawOptions? keep_signals: keep Ctrl-C/Ctrl-Z generating signals
 --- @return Termios New attributes to pass to setattr()
-local function make_raw(termios: Termios, opts?: TtyModule.RawOpts): Termios
+local function make_raw(termios: Termios, opts?: TtyModule.RawOptions): Termios
   local t = copy_termios(termios)
   t.iflag = t.iflag & ~ (unix.IGNBRK | unix.BRKINT | unix.PARMRK | unix.ISTRIP
     | unix.INLCR | unix.IGNCR | unix.ICRNL | unix.IXON)
@@ -176,10 +176,10 @@ end
 --- control, no output post-processing (see make_raw).
 --- Returns the original termios for later restoration.
 --- @param fd number File descriptor (typically 0 for stdin)
---- @param opts RawOpts? keep_signals: keep Ctrl-C/Ctrl-Z generating signals
+--- @param opts RawOptions? keep_signals: keep Ctrl-C/Ctrl-Z generating signals
 --- @return Termios | nil Original terminal attributes for restore()
 --- @return string? Error message if not a terminal
-local function raw(fd: number, opts?: TtyModule.RawOpts): Termios | nil, string
+local function raw(fd: number, opts?: TtyModule.RawOptions): Termios | nil, string
   local termios, err = getattr(fd)
   if not termios then
     return nil, err

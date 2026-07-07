@@ -28,7 +28,7 @@ local function scan_docs(docs_dir: string): {DocInfo}
         local st0 = fs.stat(full_path)
         if st0 then
           local st = st0 as fs_types.Stat
-          if fs.is_dir(st:mode()) then
+          if st:is_dir() then
             scan(full_path)
           elseif name:match("%.md$") and name ~= "README.md" then
             -- Read first paragraph after the header for description

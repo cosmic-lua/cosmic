@@ -40,7 +40,7 @@ local NAMES: {string} = {
 }
 
 --- Options for drop_bounding().
-local record DropOpts
+local record DropOptions
   keep: {string} -- capability names to retain in the bounding set
 end
 
@@ -137,10 +137,10 @@ end
 --- (EINVAL) is skipped; ENOSYS ends the sweep successfully. On a host
 --- without the CAP_* constants (non-Linux) this is a successful no-op.
 ---
---- @param opts DropOpts? optional keep-set
+--- @param opts DropOptions? optional keep-set
 --- @return boolean true on success
 --- @return string? error message on failure
-local function drop_bounding(opts?: DropOpts): boolean, string
+local function drop_bounding(opts?: DropOptions): boolean, string
   local last = unix.CAP_LAST_CAP as integer
   if last == nil then
     -- No capability constants (non-Linux, or a cosmos without them):
@@ -181,7 +181,7 @@ local record CapsModule
   mask: function(names: {string}): integer | nil, string
   bounding_read: function(cap: string): boolean | nil, string
   bounding_drop: function(cap: string): boolean, string
-  drop_bounding: function(opts?: DropOpts): boolean, string
+  drop_bounding: function(opts?: DropOptions): boolean, string
 end
 
 local M: CapsModule = {

@@ -4,7 +4,7 @@ local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").str
 
 --- Options for setitimer: specifies which timer, initial fire time, and repeat interval.
-local record SetitimerOpts
+local record SetitimerOptions
   which: number
   valuesec: number
   valuens: number
@@ -22,6 +22,9 @@ end
 
 --- Signal set for blocking, unblocking, and waiting on signals.
 --- Wraps unix.Sigset for use with sigprocmask, sigaction, and sigsuspend.
+--- Sigset is PascalCase because it is a record constructor: cosmic names
+--- functions snake_case and reserves PascalCase for records and the
+--- functions that construct them.
 local record Sigset
   --- Adds signal to bitset.
   add: function(self: Sigset, sig: number)
@@ -112,10 +115,10 @@ local record SignalModule
   sigsuspend: function(mask?: Sigset): nil, string
 
   --- Schedule SIGALRM signals at intervals.
-  --- Accepts a SetitimerOpts record with named fields for clarity.
+  --- Accepts a SetitimerOptions record with named fields for clarity.
   --- Returns a SetitimerResult with the previous timer values, or
   --- nil plus an error message.
-  setitimer: function(opts: SetitimerOpts): SetitimerResult | nil, string
+  setitimer: function(opts: SetitimerOptions): SetitimerResult | nil, string
 
   --- Send a signal to a process.
   --- pid > 0 signals one process by id; 0 signals current group; -1 signals all.
@@ -181,7 +184,7 @@ end
 --- Calls raw unix.setitimer which expects C-order (interval first, value second).
 --- Returns a SetitimerResult with previous timer values, or nil plus
 --- an error message on failure.
-local function setitimer(opts: SetitimerOpts): SetitimerResult | nil, string
+local function setitimer(opts: SetitimerOptions): SetitimerResult | nil, string
   local old_isec, old_ins, old_vsec, old_vns = unix.setitimer(
     opts.which,
     opts.intervalsec or 0,
