@@ -13,6 +13,49 @@ local record DocIndexModule
   main: function(args: {string}): integer
 end
 
+--- Normalize directory-module init shards to the module name users
+--- require: cosmic.fs.init -> cosmic.fs, cosmic.init -> cosmic.
+local function normalize_init(modules: {string: any})
+  local renames: {string: string} = {}
+  for name in pairs(modules) do
+    local parent = name:match("^(.+)%.init$")
+    if parent and not modules[parent] then
+      renames[name] = parent
+    end
+  end
+  for from, to in pairs(renames) do
+    modules[to] = modules[from]
+    modules[from] = nil
+  end
+end
+
+--- Mark each module's visibility from the cosmic.public manifest:
+--- public is exactly cosmic.<name> for names on the manifest's public
+--- list; every other cosmic.* entry and all repo tooling (perf.*, ...)
+--- is internal. cosmo.* C binding docs keep their own include_cosmo
+--- handling and are never marked. The manifest is loaded with a
+--- non-literal require (the handle_version pattern) because this
+--- script also runs under the pinned bootstrap binary, whose embedded
+--- stdlib may predate cosmic.public; without a manifest every module
+--- stays public rather than the index going dark.
+local function mark_visibility(modules: {string: any})
+  local manifest_mod = "cosmic.public"
+  local ok, manifest = pcall(require, manifest_mod)
+  if not ok then
+    return
+  end
+  local public: {string: boolean} = {}
+  for _, name in ipairs((manifest as {string: {string}}).public) do
+    public["cosmic." .. name] = true
+  end
+  for name, module_doc in pairs(modules) do
+    local is_cosmo = name == "cosmo" or name:match("^cosmo%.") ~= nil
+    if not is_cosmo and not public[name] then
+      (module_doc as {string: any}).internal = true
+    end
+  end
+end
+
 --- Generate serialized documentation index from source files.
 --- Merges examples from _example.tl files into their corresponding modules.
 --- @param files List of .tl or .d.tl file paths to process
@@ -67,6 +110,9 @@ local function generate(files: {string}): string | nil, string
       end
     end
   end
+
+  normalize_init(modules)
+  mark_visibility(modules)
 
   return codec.encode_lua({modules = modules})
 end

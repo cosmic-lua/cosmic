@@ -89,3 +89,24 @@ local function test_public_modules_load()
   end
 end
 test_public_modules_load()
+
+--- Documented ⇔ public (issue #556): every public module must have an
+--- entry in the embedded docs index. docs_public_test.tl checks the
+--- other direction (the listing shows public modules only).
+local function test_public_modules_are_documented()
+  local docs = require("cosmic.docs")
+  local doc_types = require("cosmic.doc_types")
+  local index, ierr = docs.load_index()
+  assert(index, "docs index must be embedded: " .. tostring(ierr))
+  local idx = index as doc_types.DocIndex
+  local undocumented: {string} = {}
+  for _, name in ipairs(manifest.public) do
+    if not idx.modules["cosmic." .. name] then
+      undocumented[#undocumented + 1] = name
+    end
+  end
+  table.sort(undocumented)
+  assert(#undocumented == 0,
+    "public modules with no docs entry: " .. table.concat(undocumented, ", "))
+end
+test_public_modules_are_documented()

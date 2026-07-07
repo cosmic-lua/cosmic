@@ -131,7 +131,9 @@ local function is_cosmo_module(name: string): boolean
   return name:match("^cosmo%.") ~= nil
 end
 
---- List all available documentation topics.
+--- List all available documentation topics. Internal modules (per the
+--- cosmic.public manifest) are excluded: they are not API. They remain
+--- searchable and directly addressable by name.
 --- @param include_cosmo boolean Include low-level cosmo.* modules (default: false)
 --- @return {{string, string}} List of {name, description} pairs, sorted by name
 local function list_topics(include_cosmo?: boolean): {{string, string}}
@@ -141,7 +143,7 @@ local function list_topics(include_cosmo?: boolean): {{string, string}}
 
   local topics: {{string, string}} = {}
   for name, doc in pairs(idx.modules) do
-    if include_cosmo or not is_cosmo_module(name) then
+    if not doc.internal and (include_cosmo or not is_cosmo_module(name)) then
       local desc = docs_render.first_paragraph(doc.module_doc)
       table.insert(topics, {name, desc})
     end
@@ -154,27 +156,11 @@ local function list_topics(include_cosmo?: boolean): {{string, string}}
   return topics
 end
 
---- Calculate match score for a search result.
-local function calc_score(
-    name_lower: string,
-    desc: string,
-    query_lower: string,
-    base_exact: integer,
-    base_partial: integer,
-    base_desc: integer
-  ): integer
-  if name_lower == query_lower then
-    return base_exact
-  elseif name_lower:find(query_lower, 1, true) then
-    return base_partial
-  end
-  if desc and desc:lower():find(query_lower, 1, true) then
-    return base_desc
-  end
-  return 0
-end
+local calc_score = docs_lookup.calc_score
 
---- Search documentation for a query string.
+--- Search documentation for a query string. Internal modules are
+--- included; their results carry internal = true so the renderer can
+--- badge them.
 --- @param query string The search query
 --- @param include_cosmo boolean Include low-level cosmo.* modules (default: false)
 --- @return {SearchResult} List of search results, sorted by relevance
@@ -195,7 +181,7 @@ local function search(query: string, include_cosmo?: boolean): {SearchResult}
     local mod_score = calc_score(simple_lower, mod_doc.module_doc, query_lower, 100, 80, 30)
     if mod_score > 0 then
       table.insert(results, {
-          module_name = mod_name, symbol_name = nil, symbol_type = "module",
+          module_name = mod_name, symbol_name = nil, symbol_type = "module", internal = mod_doc.internal,
           description = docs_render.first_paragraph(mod_doc.module_doc), match_score = mod_score,
         })
     end
@@ -205,7 +191,7 @@ local function search(query: string, include_cosmo?: boolean): {SearchResult}
         if score > 0 then
           if score <= 25 and module_boost > 0 then score = score + module_boost end
           table.insert(results, {
-              module_name = mod_name, symbol_name = func.name, symbol_type = "function",
+              module_name = mod_name, symbol_name = func.name, symbol_type = "function", internal = mod_doc.internal,
               description = docs_render.first_paragraph(func.description or ""), match_score = score,
             })
         end
@@ -217,7 +203,7 @@ local function search(query: string, include_cosmo?: boolean): {SearchResult}
         if score > 0 then
           if score <= 25 and module_boost > 0 then score = score + module_boost end
           table.insert(results, {
-              module_name = mod_name, symbol_name = rec.name, symbol_type = "record",
+              module_name = mod_name, symbol_name = rec.name, symbol_type = "record", internal = mod_doc.internal,
               description = docs_render.first_paragraph(rec.description or ""), match_score = score,
             })
         end
@@ -231,7 +217,7 @@ local function search(query: string, include_cosmo?: boolean): {SearchResult}
                 table.insert(results, {
                     module_name = mod_name, symbol_name = rec.name .. "." .. fname,
                     symbol_type = "method", description = docs_render.first_paragraph(fdesc or ""),
-                    match_score = ms,
+                    match_score = ms, internal = mod_doc.internal,
                   })
               end
             end
@@ -246,7 +232,7 @@ local function search(query: string, include_cosmo?: boolean): {SearchResult}
         if score > 0 then
           if score <= 20 and module_boost > 0 then score = score + module_boost end
           table.insert(results, {
-              module_name = mod_name, symbol_name = example_name, symbol_type = "example",
+              module_name = mod_name, symbol_name = example_name, symbol_type = "example", internal = mod_doc.internal,
               description = docs_render.first_paragraph(example.description or ""), match_score = score,
             })
         end
@@ -272,7 +258,7 @@ local function list_all_examples(include_cosmo?: boolean): {ExampleEntry}
 
   local examples: {ExampleEntry} = {}
   for mod_name, mod_doc in pairs(idx.modules) do
-    if not include_cosmo and is_cosmo_module(mod_name) then
+    if mod_doc.internal or (not include_cosmo and is_cosmo_module(mod_name)) then
       goto continue
     end
     if mod_doc.examples then
