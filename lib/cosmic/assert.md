@@ -81,7 +81,7 @@ function err(value: any, e: string, label?: string)
 **Parameters:**
 
 - `value` (any) - The first return value (expected to be nil)
-- `err` (string) - The second return value (expected to be a non-empty string)
+- `e` (string) - The second return value (expected to be a non-empty string)
 - `label` (string?) - Optional label prepended to the failure message
 
 ### enforcing

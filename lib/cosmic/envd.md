@@ -42,6 +42,9 @@
 local record LoadResult
   count: integer
   source: string
+  --  Per-entry failures (unreadable files, env.set errors). Loading
+  --  continues past them; an empty list means a clean load.
+  errors: {string}
 end
 ```
 
@@ -81,7 +84,7 @@ function expand(value: string, ctx: {string: string}): string
 ### parse
 
 ```teal
-function parse(content: string, ctx: {string: string}): {string: string}
+function parse(content: string, ctx?: {string: string}): {string: string}
 ```
 
  Parse a single dotenv-format string. Returns a map of KEY=VALUE pairs.

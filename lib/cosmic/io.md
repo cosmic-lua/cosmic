@@ -20,54 +20,6 @@
 
 ## Types
 
-### UnixIO
-
-```teal
-local record UnixIO
-  open: function(path: string, flags: number, mode?: number, dirfd?: number): number, any
-  close: function(fd: number): boolean, any
-  read: function(fd: number, bufsiz?: number, offset?: number): string, any
-  write: function(fd: number, data: string, offset?: number): number, any
-  lseek: function(fd: number, offset: number, whence?: number): number, any
-  truncate: function(path: string, length?: number): boolean, any
-  ftruncate: function(fd: number, length?: number): boolean, any
-  dup: function(oldfd: number, newfd?: number, flags?: number, lowest?: number): number, any
-  pipe: function(flags?: number): number, number, any
-  fcntl: function(fd: number, cmd: number, arg?: number): number, any
-  sync: function()
-  fsync: function(fd: number): boolean, any
-  fdatasync: function(fd: number): boolean, any
-  O_RDONLY: number
-  O_WRONLY: number
-  O_RDWR: number
-  O_CREAT: number
-  O_TRUNC: number
-  O_APPEND: number
-  O_EXCL: number
-  O_CLOEXEC: number
-  O_NONBLOCK: number
-  O_DIRECT: number
-  O_DIRECTORY: number
-  O_NOFOLLOW: number
-  SEEK_SET: number
-  SEEK_CUR: number
-  SEEK_END: number
-  F_DUPFD: number
-  F_GETFD: number
-  F_SETFD: number
-  F_GETFL: number
-  F_SETFL: number
-  F_SETLK: number
-  F_SETLKW: number
-  F_GETLK: number
-  F_RDLCK: number
-  F_WRLCK: number
-  F_UNLCK: number
-  FD_CLOEXEC: number
-  AT_FDCWD: number
-end
-```
-
 ### Handle
 
  File handle for I/O operations.
@@ -128,7 +80,6 @@ local record IoModule
   SEEK_SET: number
   SEEK_CUR: number
   SEEK_END: number
-  F_DUPFD: number
   F_GETFD: number
   F_SETFD: number
   F_GETFL: number

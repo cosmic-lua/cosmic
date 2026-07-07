@@ -105,19 +105,23 @@ local record SignalModule
   Sigset: function(...: number): Sigset
   --  Register a signal handler for the specified signal.
   --  The handler can be a Lua function, SIG_IGN, or SIG_DFL.
-  --  Returns the previous handler, flags, and mask.
-  sigaction: function(sig: number, handler?: function | number, flags?: number, mask?: Sigset): function | number, number, Sigset
+  --  Returns the previous handler, flags, and mask; on failure returns
+  --  nil, nil, nil plus an error message.
+  sigaction: function(sig: number, handler?: function | number, flags?: number, mask?: Sigset): function | number, number, Sigset, string
   --  Modify the process signal mask.
   --  how: SIG_BLOCK, SIG_UNBLOCK, or SIG_SETMASK
-  --  Returns the previous signal mask.
-  sigprocmask: function(how: number, set: Sigset): Sigset
+  --  Returns the previous signal mask, or nil plus an error message.
+  sigprocmask: function(how: number, set: Sigset): Sigset | nil, string
   --  Suspend the process until a signal is delivered.
   --  Temporarily replaces the signal mask with the provided mask.
-  sigsuspend: function(mask: Sigset): boolean, string
+  --  Always returns nil plus an error message: EINTR once a signal
+  --  was delivered and handled, or another errno on failure.
+  sigsuspend: function(mask?: Sigset): nil, string
   --  Schedule SIGALRM signals at intervals.
   --  Accepts a SetitimerOpts record with named fields for clarity.
-  --  Returns a SetitimerResult with the previous timer values.
-  setitimer: function(opts: SetitimerOpts): SetitimerResult
+  --  Returns a SetitimerResult with the previous timer values, or
+  --  nil plus an error message.
+  setitimer: function(opts: SetitimerOpts): SetitimerResult | nil, string
   --  Send a signal to a process.
   --  pid > 0 signals one process by id; 0 signals current group; -1 signals all.
   kill: function(pid: number, sig: number): boolean, string
@@ -207,9 +211,51 @@ function strsignal(sig: number): string
 ### setitimer
 
 ```teal
-function setitimer(opts: SetitimerOpts): SetitimerResult
+function setitimer(opts: SetitimerOpts): SetitimerResult | nil, string
 ```
 
  Set an interval timer with opts record for clarity.
  Calls raw unix.setitimer which expects C-order (interval first, value second).
- Returns a SetitimerResult with previous timer values.
+ Returns a SetitimerResult with previous timer values, or nil plus
+ an error message on failure.
+
+### sigaction
+
+```teal
+function sigaction(sig: number, handler?: any, flags?: number, mask?: Sigset): any, number, Sigset, string
+```
+
+### sigprocmask
+
+```teal
+function sigprocmask(how: number, set: Sigset): Sigset | nil, string
+```
+
+ Modify the process signal mask.
+
+**Parameters:**
+
+- `how` (number) - SIG_BLOCK, SIG_UNBLOCK, or SIG_SETMASK
+- `set` (Sigset) - The signal set to apply
+
+**Returns:**
+
+- Sigset - | nil The previous signal mask, or nil on failure
+- string? - Error message on failure
+
+### sigsuspend
+
+```teal
+function sigsuspend(mask?: Sigset): nil, string
+```
+
+ Suspend the process until a signal is delivered.
+
+**Parameters:**
+
+- `mask` (Sigset?) - Temporary signal mask while suspended
+
+**Returns:**
+
+- nil - Always nil (sigsuspend only returns after a signal)
+- string - Error message: EINTR after a signal was handled

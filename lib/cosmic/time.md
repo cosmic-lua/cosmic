@@ -58,8 +58,8 @@ local record TimeModule
   clock_gettime: function(clock?: number): number, number
   now: function(): number, number
   monotonic: function(): number, number
-  sleep: function(seconds: number, nanos?: number): number, number
-  sleep_ms: function(ms: number): number, number
+  sleep: function(seconds: number, nanos?: number): number | nil, number, string
+  sleep_ms: function(ms: number): number | nil, number, string
   gmtime: function(unixts: number): DateTime
   localtime: function(unixts: number): DateTime
   format_http: function(timestamp: number): string
@@ -123,10 +123,14 @@ function monotonic(): number, number
 ### sleep
 
 ```teal
-function sleep(seconds: number, nanos?: number): number, number
+function sleep(seconds: number, nanos?: number): number | nil, number, string
 ```
 
  Sleep for the specified duration.
+ Returns 0, 0 after an uninterrupted sleep. When a signal interrupts
+ the sleep, returns the remaining seconds and nanoseconds plus an
+ error string naming EINTR. Invalid input (e.g. a negative duration)
+ returns nil, nil, and an error naming EINVAL.
 
 **Parameters:**
 
@@ -135,16 +139,19 @@ function sleep(seconds: number, nanos?: number): number, number
 
 **Returns:**
 
-- number - Remaining seconds if interrupted
-- number - Remaining nanoseconds if interrupted
+- number - | nil Remaining seconds (0 on success), or nil on invalid input
+- number - Remaining nanoseconds (0 on success)
+- string? - Error message when interrupted (EINTR) or invalid (EINVAL)
 
 ### sleep_ms
 
 ```teal
-function sleep_ms(ms: number): number, number
+function sleep_ms(ms: number): number | nil, number, string
 ```
 
  Sleep for the specified number of milliseconds.
+ Same contract as sleep(): 0, 0 on success; remainder plus an EINTR
+ error when interrupted; nil, nil, err on invalid input.
 
 **Parameters:**
 
@@ -152,8 +159,9 @@ function sleep_ms(ms: number): number, number
 
 **Returns:**
 
-- number - Remaining seconds if interrupted
-- number - Remaining nanoseconds if interrupted
+- number - | nil Remaining seconds (0 on success), or nil on invalid input
+- number - Remaining nanoseconds (0 on success)
+- string? - Error message when interrupted (EINTR) or invalid (EINVAL)
 
 ### gmtime
 

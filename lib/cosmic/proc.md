@@ -15,45 +15,19 @@
 
 ## Types
 
-### Rusage
-
- Process resource usage statistics.
- Contains CPU time, memory usage, I/O, and context switch counters.
-
-```teal
-local record Rusage
-  utime: function(self: Rusage): number, number
-  stime: function(self: Rusage): number, number
-  maxrss: function(self: Rusage): number
-  idrss: function(self: Rusage): number
-  ixrss: function(self: Rusage): number
-  isrss: function(self: Rusage): number
-  minflt: function(self: Rusage): number
-  majflt: function(self: Rusage): number
-  nswap: function(self: Rusage): number
-  inblock: function(self: Rusage): number
-  oublock: function(self: Rusage): number
-  msgsnd: function(self: Rusage): number
-  msgrcv: function(self: Rusage): number
-  nsignals: function(self: Rusage): number
-  nvcsw: function(self: Rusage): number
-  nivcsw: function(self: Rusage): number
-end
-```
-
 ### ProcModule
 
 ```teal
 local record ProcModule
   getpid: function(): number
   getppid: function(): number
-  getsid: function(pid: number): number
+  getsid: function(pid: number): number | nil, string
   getpgrp: function(): number
-  getpgid: function(pid: number): number
-  setpgrp: function(): number
-  setpgid: function(pid: number, pgid: number): boolean
-  setsid: function(): number
-  daemon: function(nochdir?: boolean, noclose?: boolean): boolean
+  getpgid: function(pid: number): number | nil, string
+  setpgrp: function(): number | nil, string
+  setpgid: function(pid: number, pgid: number): boolean, string
+  setsid: function(): number | nil, string
+  daemon: function(nochdir?: boolean, noclose?: boolean): boolean, string
   exit: function(exitcode?: number)
   commandv: function(prog: string): string
   execve: function(prog: string, args: {string}, env: {string}): nil, string
@@ -63,17 +37,17 @@ local record ProcModule
   fork: function(): number
   posix_spawn: function(prog: string, argv: {string}, envp?: {string}): number
   posix_spawnp: function(prog: string, argv: {string}, envp?: {string}): number
-  wait: function(pid?: number, options?: number): number, number, Rusage
+  wait: function(pid?: number, options?: number): number | nil, number, Rusage, string
   kill: function(pid: number, sig: number): boolean
   WIFEXITED: function(status: number): boolean
   WEXITSTATUS: function(status: number): number
   WIFSIGNALED: function(status: number): boolean
   WTERMSIG: function(status: number): number
   getrusage: function(who?: number): Rusage
-  getrlimit: function(resource: number): number, number
+  getrlimit: function(resource: number): number | nil, number, string
   setrlimit: function(resource: number, soft: number, hard?: number): boolean, string
-  nice: function(inc: number): number
-  getpriority: function(which: number, who: number): number
+  nice: function(inc: number): number | nil, string
+  getpriority: function(which: number, who: number): number | nil, string
   setpriority: function(which: number, who: number, prio: number): boolean, string
   sched_yield: function()
   is_main: function(): boolean
@@ -98,36 +72,10 @@ end
 
 ## Functions
 
-### getpid
-
-```teal
-function getpid(): number
-```
-
- Returns process id of current process.
- This function does not fail.
-
-**Returns:**
-
-- number - The current process id
-
-### getppid
-
-```teal
-function getppid(): number
-```
-
- Returns process id of parent process.
- This function does not fail.
-
-**Returns:**
-
-- number - The parent process id
-
 ### getsid
 
 ```teal
-function getsid(pid: number): number
+function getsid(pid: number): number | nil, string
 ```
 
  Gets session id for a process.
@@ -138,7 +86,8 @@ function getsid(pid: number): number
 
 **Returns:**
 
-- number - The session id
+- number - | nil The session id, or nil on failure
+- string? - Error message on failure
 
 ### getpgrp
 
@@ -146,7 +95,7 @@ function getsid(pid: number): number
 function getpgrp(): number
 ```
 
- Gets process group id of calling process.
+ Gets process group id of calling process; does not fail.
 
 **Returns:**
 
@@ -155,7 +104,7 @@ function getpgrp(): number
 ### getpgid
 
 ```teal
-function getpgid(pid: number): number
+function getpgid(pid: number): number | nil, string
 ```
 
  Gets process group id for a specific process.
@@ -166,24 +115,26 @@ function getpgid(pid: number): number
 
 **Returns:**
 
-- number - The process group id
+- number - | nil The process group id, or nil on failure
+- string? - Error message on failure
 
 ### setpgrp
 
 ```teal
-function setpgrp(): number
+function setpgrp(): number | nil, string
 ```
 
  Sets process group id (same as setpgid(0, 0)).
 
 **Returns:**
 
-- number - The new process group id
+- number - | nil The new process group id, or nil on failure
+- string? - Error message on failure
 
 ### setpgid
 
 ```teal
-function setpgid(pid: number, pgid: number): boolean
+function setpgid(pid: number, pgid: number): boolean, string
 ```
 
  Sets process group id.
@@ -196,11 +147,12 @@ function setpgid(pid: number, pgid: number): boolean
 **Returns:**
 
 - boolean - True on success
+- string? - Error message on failure
 
 ### setsid
 
 ```teal
-function setsid(): number
+function setsid(): number | nil, string
 ```
 
  Creates a new session.
@@ -210,12 +162,13 @@ function setsid(): number
 
 **Returns:**
 
-- number - The new session id
+- number - | nil The new session id, or nil on failure
+- string? - Error message on failure
 
 ### daemon
 
 ```teal
-function daemon(nochdir?: boolean, noclose?: boolean): boolean
+function daemon(nochdir?: boolean, noclose?: boolean): boolean, string
 ```
 
  Daemonizes the current process.
@@ -229,20 +182,7 @@ function daemon(nochdir?: boolean, noclose?: boolean): boolean
 **Returns:**
 
 - boolean - True on success
-
-### exit
-
-```teal
-function exit(exitcode?: number)
-```
-
- Terminates the current process immediately.
- Memory is freed, file descriptors are closed, connections are reset.
- This function never returns.
-
-**Parameters:**
-
-- `exitcode` (number?) - Exit code (defaults to 0)
+- string? - Error message on failure
 
 ### commandv
 
@@ -268,9 +208,8 @@ function commandv(prog: string): string
 function execve(prog: string, args: {string}, env: {string}): nil, string
 ```
 
- Replaces current process with new program.
+ Replaces current process with new program; never returns on success.
  prog must be an absolute path (use commandv for PATH search).
- This function never returns on success.
 
 **Parameters:**
 
@@ -288,9 +227,8 @@ function execve(prog: string, args: {string}, env: {string}): nil, string
 function execvp(prog: string, argv?: {string}): nil, string
 ```
 
- Executes program with PATH search.
+ Executes program with PATH search; never returns on success.
  Unlike execve(), this searches for prog in $PATH.
- This function never returns on success.
 
 **Parameters:**
 
@@ -307,9 +245,8 @@ function execvp(prog: string, argv?: {string}): nil, string
 function execvpe(prog: string, argv: {string}, envp?: {string}): nil, string
 ```
 
- Executes program with PATH search and custom environment.
- Like execvp() but also allows specifying a custom environment.
- This function never returns on success.
+ Executes program with PATH search and custom environment; never
+ returns on success. Like execvp() with a custom environment.
 
 **Parameters:**
 
@@ -327,9 +264,8 @@ function execvpe(prog: string, argv: {string}, envp?: {string}): nil, string
 function fexecve(fd: number, argv: {string}, envp?: {string}): nil, string
 ```
 
- Executes program from file descriptor.
- Allows executing a program that has already been opened.
- This function never returns on success.
+ Executes program from an already-opened file descriptor; never
+ returns on success.
 
 **Parameters:**
 
@@ -392,7 +328,7 @@ function posix_spawnp(prog: string, argv: {string}, envp?: {string}): number
 ### wait
 
 ```teal
-function wait(pid?: number, options?: number): number, number, Rusage
+function wait(pid?: number, options?: number): number | nil, number, Rusage, string
 ```
 
  Waits for a child process to change state.
@@ -404,9 +340,10 @@ function wait(pid?: number, options?: number): number, number, Rusage
 
 **Returns:**
 
-- number - The pid that changed state (0 with WNOHANG if none)
+- number - | nil The pid that changed state (0 with WNOHANG if none), or nil on failure
 - number - Status word (interpret with WIFEXITED/WEXITSTATUS/...)
 - Rusage - Resource usage for the reaped child
+- string? - Error message on failure
 
 ### kill
 
@@ -424,38 +361,6 @@ function kill(pid: number, sig: number): boolean
 **Returns:**
 
 - boolean - True on success
-
-### WIFEXITED
-
-```teal
-function WIFEXITED(status: number): boolean
-```
-
- True if the child exited normally.
-
-### WEXITSTATUS
-
-```teal
-function WEXITSTATUS(status: number): number
-```
-
- The exit code (valid when WIFEXITED is true).
-
-### WIFSIGNALED
-
-```teal
-function WIFSIGNALED(status: number): boolean
-```
-
- True if the child was terminated by a signal.
-
-### WTERMSIG
-
-```teal
-function WTERMSIG(status: number): number
-```
-
- The terminating signal number (valid when WIFSIGNALED is true).
 
 ### getrusage
 
@@ -476,7 +381,7 @@ function getrusage(who?: number): Rusage
 ### getrlimit
 
 ```teal
-function getrlimit(resource: number): number, number
+function getrlimit(resource: number): number | nil, number, string
 ```
 
  Gets resource limits for the current process.
@@ -488,8 +393,9 @@ function getrlimit(resource: number): number, number
 
 **Returns:**
 
-- number - Soft limit (can be exceeded, may generate signal)
+- number - | nil Soft limit (can be exceeded, may generate signal), or nil on failure
 - number - Hard limit (cannot be exceeded by unprivileged processes)
+- string? - Error message on failure
 
 ### setrlimit
 
@@ -515,7 +421,7 @@ function setrlimit(resource: number, soft: number, hard?: number): boolean, stri
 ### nice
 
 ```teal
-function nice(inc: number): number
+function nice(inc: number): number | nil, string
 ```
 
  Adjusts the nice value (scheduling priority) of the calling process.
@@ -528,12 +434,13 @@ function nice(inc: number): number
 
 **Returns:**
 
-- number - The new nice value
+- number - | nil The new nice value, or nil on failure
+- string? - Error message on failure
 
 ### getpriority
 
 ```teal
-function getpriority(which: number, who: number): number
+function getpriority(which: number, who: number): number | nil, string
 ```
 
  Gets the scheduling priority of a process, process group, or user.
@@ -545,7 +452,8 @@ function getpriority(which: number, who: number): number
 
 **Returns:**
 
-- number - The priority value (nice value), ranging from -20 to 19
+- number - | nil The priority value (-20 to 19), or nil on failure
+- string? - Error message on failure
 
 ### setpriority
 
@@ -565,12 +473,3 @@ function setpriority(which: number, who: number, prio: number): boolean, string
 
 - boolean - True on success
 - string? - Error message on failure
-
-### sched_yield
-
-```teal
-function sched_yield()
-```
-
- Relinquishes the CPU, allowing other processes to run.
- Causes the calling thread to yield its scheduled time quantum.

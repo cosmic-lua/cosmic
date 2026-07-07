@@ -5,40 +5,6 @@
 
 ## Types
 
-### Termios
-
- Terminal I/O settings.
-
-```teal
-local record Termios
-  iflag: number
-  oflag: number
-  cflag: number
-  lflag: number
-  cc: {number}
-  ispeed: number
-  ospeed: number
-end
-```
-
-### UnixTty
-
-```teal
-local record UnixTty
-  isatty: function(fd: number): boolean
-  tiocgwinsz: function(fd: number): number, number
-  tcgetattr: function(fd: number): Termios, string
-  tcsetattr: function(fd: number, action: number, termios: Termios): boolean, string
-  TCSANOW: number
-  TCSADRAIN: number
-  TCSAFLUSH: number
-  ECHO: number
-  ICANON: number
-  ISIG: number
-  IEXTEN: number
-end
-```
-
 ### WinSize
 
  Window size information.
@@ -50,14 +16,23 @@ local record WinSize
 end
 ```
 
+### RawOpts
+
+ Options for raw()/make_raw().
+
+```teal
+local record RawOpts
+  --  Keep ISIG set so Ctrl-C/Ctrl-Z still generate signals.
+  keep_signals: boolean
+end
+```
+
 ### TtyModule
 
  Module type for TTY operations.
 
 ```teal
 local record TtyModule
-  --  Terminal I/O settings.
-  Termios: Termios
   --  tcsetattr actions.
   NOW: number
   DRAIN: number
@@ -67,6 +42,14 @@ local record TtyModule
   ICANON: number
   ISIG: number
   IEXTEN: number
+  --  Input/output mode flag constants (for make_raw assertions).
+  IXON: number
+  ICRNL: number
+  BRKINT: number
+  OPOST: number
+  --  cc indices (C-style; the Lua cc array is 1-based, so cc[VMIN + 1]).
+  VMIN: number
+  VTIME: number
   isatty: function(fd: number): boolean
   winsize: function(fd: number): WinSize | nil, string
   stdin_isatty: function(): boolean
@@ -74,7 +57,8 @@ local record TtyModule
   stderr_isatty: function(): boolean
   getattr: function(fd: number): Termios | nil, string
   setattr: function(fd: number, action: number, termios: Termios): boolean, string
-  raw: function(fd: number): Termios | nil, string
+  make_raw: function(termios: Termios, opts?: RawOpts): Termios
+  raw: function(fd: number, opts?: RawOpts): Termios | nil, string
   noecho: function(fd: number): Termios | nil, string
   restore: function(fd: number, termios: Termios): boolean, string
   getpass: function(prompt: string): string | nil, string
@@ -188,18 +172,43 @@ function setattr(fd: number, action: number, termios: Termios): boolean, string
 - boolean - True on success
 - string? - Error message on failure
 
+### make_raw
+
+```teal
+function make_raw(termios: Termios, opts?: TtyModule.RawOpts): Termios
+```
+
+ Compute raw-mode attributes from current ones (cfmakeraw semantics).
+ Pure: returns a new Termios, the input is not mutated. Clears input
+ translation and flow control (IXON, ICRNL, BRKINT, ...), output
+ post-processing (OPOST), echo, canonical mode, and signal generation
+ (unless opts.keep_signals), selects 8-bit characters, and sets
+ VMIN=1/VTIME=0 so reads deliver one byte at a time without timeout.
+
+**Parameters:**
+
+- `termios` (Termios) - Current terminal attributes
+- `opts` (RawOpts?) - keep_signals: keep Ctrl-C/Ctrl-Z generating signals
+
+**Returns:**
+
+- Termios - New attributes to pass to setattr()
+
 ### raw
 
 ```teal
-function raw(fd: number): Termios | nil, string
+function raw(fd: number, opts?: TtyModule.RawOpts): Termios | nil, string
 ```
 
- Puts terminal into raw mode (no echo, no line buffering, no signals).
+ Puts terminal into raw mode: no echo, no line buffering, no signal
+ keys (unless opts.keep_signals), no \r translation, no Ctrl-S flow
+ control, no output post-processing (see make_raw).
  Returns the original termios for later restoration.
 
 **Parameters:**
 
 - `fd` (number) - File descriptor (typically 0 for stdin)
+- `opts` (RawOpts?) - keep_signals: keep Ctrl-C/Ctrl-Z generating signals
 
 **Returns:**
 

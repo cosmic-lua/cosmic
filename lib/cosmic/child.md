@@ -113,7 +113,8 @@ function spawn(argv: {string}, opts?: Opts): Handle | nil, string
  Returns a Handle on success. If the program cannot be executed, spawn
  itself fails with `nil, "exec failed: ENOENT: ..."` — the error surfaces
  here, not as a bogus exit code from a later wait().
- To spawn cosmic itself, use `rawget(arg, -1)` — NOT arg[0] (gotchas #7).
+ To spawn cosmic itself, use `rawget(arg, -1)` — NOT arg[0], which is
+ the script path (/zip/main.lua), not the interpreter.
 
 **Parameters:**
 

@@ -11,7 +11,7 @@
 local record CodecModule
   encode_hex: function(data: string): string
   decode_hex: function(hex: string): string | nil, string
-  encode_lua: function(value: any, opts?: {string: any}): string
+  encode_lua: function(value: any, opts?: {string: any}): string | nil, string
   decode_lua_unsafe: function(code: string): any | nil, string
   encode_base64: function(data: string): string
   decode_base64: function(str: string): string | nil, string
@@ -62,7 +62,7 @@ function decode_hex(hex: string): string | nil, string
 ### encode_lua
 
 ```teal
-function encode_lua(value: any, opts?: {string: any}): string
+function encode_lua(value: any, opts?: {string: any}): string | nil, string
 ```
 
  Encode a Lua value as Lua source code.
@@ -75,7 +75,8 @@ function encode_lua(value: any, opts?: {string: any}): string
 
 **Returns:**
 
-- string - The Lua source code representation
+- string - | nil The Lua source code representation, or nil on error
+- string? - Error message if encoding failed
 
 ### decode_lua_unsafe
 

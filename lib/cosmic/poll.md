@@ -40,10 +40,9 @@ local record Poller
   clear: function(Poller)
   --  Poll for events with optional timeout.
   --  Returns an iterator over (fd, events) pairs for ready descriptors.
-  --  EINTR is retried internally. A hard poll error yields an empty iterator
-  --  (indistinguishable from a timeout); callers that must detect errors
-  --  should use poll() directly, which returns them.
-  wait: function(Poller, number): function(): number, Events
+  --  EINTR is retried internally. On a hard poll error the iterator is
+  --  empty and the error string is returned as the second value.
+  wait: function(Poller, number): function(): (number, Events), string
   --  Poll and return count of ready descriptors.
   poll: function(Poller, number): number | nil, string
   --  Get events for a specific fd after poll().
