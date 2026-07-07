@@ -60,13 +60,23 @@ local function test_v7_unique()
 end
 test_v7_unique()
 
+-- v7 leads with time: a 48-bit unix-ms timestamp plus a 12-bit
+-- sub-millisecond fraction fill chars 1-18, so UUIDs from different
+-- ~244ns ticks order lexicographically. Everything after char 18 is
+-- random, and RFC 9562's same-tick monotonicity (a counter) is
+-- optional and not implemented — two UUIDs minted inside one tick may
+-- sort either way. Assert exactly the guarantee: the time-bearing
+-- prefix never decreases, and same-tick UUIDs are still unique.
 local function test_v7_time_ordered()
   local ids: {string} = {}
   for _ = 1, 10 do
     table.insert(ids, uuid.v7())
   end
   for i = 2, #ids do
-    assert(ids[i - 1] < ids[i], "v7 UUIDs should be time-ordered, but " .. ids[i - 1] .. " >= " .. ids[i])
+    local prev, cur = ids[i - 1], ids[i]
+    assert(prev:sub(1, 18) <= cur:sub(1, 18),
+      "v7 time-bearing prefix must not decrease, but " .. prev .. " then " .. cur)
+    assert(prev ~= cur, "v7 UUIDs in the same tick must still be unique: " .. cur)
   end
 end
 test_v7_time_ordered()
