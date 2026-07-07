@@ -183,3 +183,63 @@ local function test_setitimer()
   signal.sigaction(signal.SIGALRM, old_handler)
 end
 test_setitimer()
+
+-- Error fidelity (issue #529): failures surface the binding's errno
+-- string instead of being fabricated or discarded.
+
+local function test_raise_error_names_errno()
+  local ok, err = signal.raise(999999)
+  assert(ok == false, "raise of invalid signal should fail")
+  assert(type(err) == "string" and err:match("EINVAL"),
+    "raise error should name EINVAL, got: " .. tostring(err))
+end
+test_raise_error_names_errno()
+
+local function test_setitimer_error_names_errno()
+  local result, err = signal.setitimer({
+      which = 999999,
+      valuesec = 0,
+      valuens = 0,
+      intervalsec = 0,
+      intervalns = 0,
+    })
+  assert(result == nil, "setitimer with bad which should return nil")
+  assert(type(err) == "string" and err:match("EINVAL"),
+    "setitimer error should name EINVAL, got: " .. tostring(err))
+end
+test_setitimer_error_names_errno()
+
+local function test_sigprocmask_error_names_errno()
+  local mask = signal.Sigset(signal.SIGUSR1)
+  local old, err = signal.sigprocmask(999999, mask)
+  assert(old == nil, "sigprocmask with bad how should return nil")
+  assert(type(err) == "string" and err:match("EINVAL"),
+    "sigprocmask error should name EINVAL, got: " .. tostring(err))
+end
+test_sigprocmask_error_names_errno()
+
+local function test_sigsuspend_returns_eintr()
+  -- sigsuspend never succeeds: it returns nil plus EINTR once a signal
+  -- is delivered. Arm a short one-shot timer to provide that signal.
+  local old_handler = signal.sigaction(signal.SIGALRM, function(_: number) end)
+  signal.setitimer({
+      which = signal.ITIMER_REAL,
+      valuesec = 0,
+      valuens = 50000000,
+      intervalsec = 0,
+      intervalns = 0,
+    })
+  local mask = signal.Sigset(signal.SIGUSR2)
+  local _, err = signal.sigsuspend(mask)
+  assert(type(err) == "string" and err:match("EINTR"),
+    "sigsuspend should return an EINTR error, got: " .. tostring(err))
+  signal.setitimer({
+      which = signal.ITIMER_REAL,
+      valuesec = 0,
+      valuens = 0,
+      intervalsec = 0,
+      intervalns = 0,
+    })
+  signal.sigaction(signal.SIGALRM, old_handler)
+end
+test_sigsuspend_returns_eintr()
