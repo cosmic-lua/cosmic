@@ -36,7 +36,7 @@ local czip = require("cosmic.zip")
 local fs = require("cosmic.fs")
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").str
-local Stat = require("cosmic.fs_types").Stat
+local Stat = require("cosmic.fs.types").Stat
 
 --- Result returned from embed and extract operations.
 local record EmbedResult

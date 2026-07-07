@@ -1,6 +1,6 @@
 -- docs-publish: publish generated docs to a git branch
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs_types")
+local fs_types = require("cosmic.fs.types")
 local proc = require("cosmic.proc")
 local spawn = require("cosmic.child")
 

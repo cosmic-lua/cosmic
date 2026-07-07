@@ -21,7 +21,9 @@ lib/
   cosmic/              standard library modules (*.tl)
     cook.mk            builds the cosmic binary
     init.tl            entry point: cosmic.main()
-    main.tl            CLI dispatcher (--compile, --docs, --test, etc.)
+    public.tl          PUBLIC manifest: public vs internal modules
+    cli/               CLI internals (main.tl dispatcher, help, style, ...)
+    fs/                fs directory module (init, path, ops, file, walk, types)
     *.tl               library modules
     *_test.tl          tests
     *_example.tl       runnable examples
@@ -205,7 +207,7 @@ the cosmic binary is an executable zip. it embeds:
 - Teal compiler in `.lua/tl.lua`
 - type definitions in `.lua/types/` and `.lua/teal-types/`
 - doc index in `.docs/index.lua`
-- entry point: `/zip/main.lua` (compiled from `lib/cosmic/main.tl`)
+- entry point: `/zip/main.lua` (compiled from `lib/cosmic/cli/main.tl`)
 
 CLI features:
 ```

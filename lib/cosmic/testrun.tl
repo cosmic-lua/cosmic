@@ -3,7 +3,7 @@
 local child = require("cosmic.child")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
-local instrument = require("cosmic.instrument")
+local instrument = require("cosmic.cli.instrument")
 
 --- Run a test executable and capture output.
 --- Creates a temporary directory (TEST_TMPDIR) for the test and cleans up after.

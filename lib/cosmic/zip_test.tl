@@ -2,7 +2,7 @@
 --- Tests for cosmic.zip wrapper module.
 
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs_types")
+local fs_types = require("cosmic.fs.types")
 local zip = require("cosmic.zip")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")

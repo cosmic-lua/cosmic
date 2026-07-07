@@ -3,7 +3,7 @@
 --- and file iteration.
 local unix = require("cosmo.unix")
 local cosmo_path = require("cosmo.path")
-local types = require("cosmic.fs_types")
+local types = require("cosmic.fs.types")
 local errstr = require("cosmic.errno").str
 local type WalkStat = types.WalkStat
 local FileInfo = types.FileInfo
@@ -65,8 +65,8 @@ end
 --- IMPORTANT: do NOT join path and name — path is already the full path.
 --- Joining them produces doubled paths like "dir/sub/file.txt/file.txt".
 ---
---- WalkStat is defined in cosmic.fs_types. Import it as:
----   local types = require("cosmic.fs_types")
+--- WalkStat is defined in cosmic.fs.types. Import it as:
+---   local types = require("cosmic.fs.types")
 ---   local type WalkStat = types.WalkStat
 ---
 --- If the root directory cannot be opened, returns nil plus the error.

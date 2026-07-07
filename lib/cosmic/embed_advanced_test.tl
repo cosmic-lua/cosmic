@@ -2,7 +2,7 @@
 -- advanced embed tests: extract, roundtrip, overwrite, permissions, corruption
 
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs_types")
+local fs_types = require("cosmic.fs.types")
 local time = require("cosmic.time")
 local spawn = require("cosmic.child")
 local zip = require("cosmic.zip")

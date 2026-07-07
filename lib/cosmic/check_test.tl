@@ -110,7 +110,7 @@ print(st.size)
   -- records cannot be flow-narrowed in this Teal version.
   local safe = write_temp("honest_safe.tl", [[
 local fs = require("cosmic.fs")
-local types = require("cosmic.fs_types")
+local types = require("cosmic.fs.types")
 local st, err = fs.stat("/nonexistent")
 if not st then
   print(err)

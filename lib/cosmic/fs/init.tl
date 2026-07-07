@@ -1,7 +1,7 @@
 --- Unified filesystem module.
 --- Combines path manipulation, filesystem operations, and directory walking.
 local unix = require("cosmo.unix")
-local types = require("cosmic.fs_types")
+local types = require("cosmic.fs.types")
 local errstr = require("cosmic.errno").str
 local Stat = types.Stat
 local Dir = types.Dir
@@ -10,11 +10,11 @@ local type WalkStat = types.WalkStat
 local FileInfo = types.FileInfo
 
 -- Re-export path functions from fs_path submodule
-local fs_path = require("cosmic.fs_path")
+local fs_path = require("cosmic.fs.path")
 
 -- Re-export file operations from fs_ops / fs_file submodules
-local fs_ops = require("cosmic.fs_ops")
-local fs_file = require("cosmic.fs_file")
+local fs_ops = require("cosmic.fs.ops")
+local fs_file = require("cosmic.fs.file")
 
 -- Raw Dir type from cosmo.unix
 local record RawDir
@@ -200,7 +200,7 @@ local function fdopendir(fd: number): Dir | nil, string
 end
 
 -- Re-export walk functions from fs_walk submodule
-local fs_walk = require("cosmic.fs_walk")
+local fs_walk = require("cosmic.fs.walk")
 
 --- Iterator over file paths, as returned by files().
 local type FileIter = fs_walk.FileIter
@@ -279,7 +279,7 @@ local record FsModule
   -- walk visitor signature: visitor(path, name, st, ctx)
   --   path = full path to the entry (e.g. "dir/sub/file.txt") — do NOT join with name.
   --   name = basename of the entry (e.g. "file.txt").
-  --   st   = WalkStat (import: local types = require("cosmic.fs_types"); types.WalkStat).
+  --   st   = WalkStat (import: local types = require("cosmic.fs.types"); types.WalkStat).
   -- Root open failure returns nil, err; subtree failures return the first
   -- error alongside the results.
   walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T), ctx?: T): T | nil, string

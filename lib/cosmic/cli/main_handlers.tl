@@ -1,6 +1,6 @@
 --- Command handler functions for the cosmic CLI.
 --- Each handler implements one CLI command flag.
-local instrument = require("cosmic.instrument")
+local instrument = require("cosmic.cli.instrument")
 
 --- Result from running docs command.
 local record DocsRunResult
@@ -44,7 +44,7 @@ end
 local function load_script_file(script_path: string): function(...: any): any ... | nil, string
   if script_path:match("%.tl$") then
     package.path = package.path .. ";/zip/.tl/?.tl" -- so teal can find cosmic modules
-    local script_cache = require("cosmic.script_cache")
+    local script_cache = require("cosmic.cli.script_cache")
     local code = script_cache.load(script_path)
     if not code then
       local teal = require("cosmic.teal")
@@ -353,7 +353,7 @@ local function handle_check_style(file: string): integer
     return 1
   end
   f:close()
-  local lint = require("cosmic.style")
+  local lint = require("cosmic.cli.style")
   local diagnostics = lint.lint_file(file)
   if #diagnostics == 0 then
     io.write("Style check passed\n")

@@ -3,7 +3,7 @@
 --- C bindings, against a real temp directory tree.
 
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs_types")
+local fs_types = require("cosmic.fs.types")
 local pt = require("perf.perf_types")
 
 local DIRS = 10

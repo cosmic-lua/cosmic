@@ -1,7 +1,7 @@
 --- Filesystem file operations, permissions, timestamps, and temp files.
 --- Internal submodule used by cosmic.fs.
 local unix = require("cosmo.unix")
-local types = require("cosmic.fs_types")
+local types = require("cosmic.fs.types")
 local errno = require("cosmic.errno")
 local errstr = errno.str
 local Statfs = types.Statfs

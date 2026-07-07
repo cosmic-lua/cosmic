@@ -1,6 +1,6 @@
 #!/usr/bin/env cosmic
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs_types")
+local fs_types = require("cosmic.fs.types")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 

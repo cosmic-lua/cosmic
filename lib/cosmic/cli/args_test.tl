@@ -373,7 +373,7 @@ test_nvim_version_pattern()
 
 -- Test that all CLI options appear in help text
 local function test_help_includes_all_options()
-  local cli = require("cosmic.args")
+  local cli = require("cosmic.cli.args")
 
   -- Run cosmic --help and capture output
   local h18 = spawn.spawn({cosmic, "--help"})

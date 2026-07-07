@@ -1,6 +1,6 @@
 #!/usr/bin/env cosmic
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs_types")
+local fs_types = require("cosmic.fs.types")
 local cfd = require("cosmic.fd")
 local unix = require("cosmo.unix")
 

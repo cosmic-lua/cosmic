@@ -3,7 +3,7 @@
 -- stage.lua: extract fetched archives based on version.lua format
 
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs_types")
+local fs_types = require("cosmic.fs.types")
 local portable = require("build.portable")
 local proc = require("cosmic.proc")
 local spawn = require("cosmic.child")

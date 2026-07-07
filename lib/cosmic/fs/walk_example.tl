@@ -1,4 +1,4 @@
---- Examples for the cosmic.fs_walk module.
+--- Examples for the cosmic.fs.walk module.
 --- Demonstrates walk(), collect(), and files() for directory traversal.
 
 -- Example_walk demonstrates walking a directory tree.
@@ -6,7 +6,7 @@
 -- as the second. Do not join them — path is already complete.
 local function Example_walk()
   local fs = require("cosmic.fs")
-  local types = require("cosmic.fs_types")
+  local types = require("cosmic.fs.types")
 
   -- Build a small tree under a temp directory.
   local tmpdir = fs.mkdtemp("/tmp/walk_ex_XXXXXX")

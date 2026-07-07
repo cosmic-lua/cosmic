@@ -30,9 +30,9 @@ if not os.getenv("COSMIC_NO_REQUIRE_HINTS") then
 end
 
 local getopt = require("cosmic.getopt")
-local cli_args = require("cosmic.args")
-local help = require("cosmic.help")
-local handlers = require("cosmic.main_handlers")
+local cli_args = require("cosmic.cli.args")
+local help = require("cosmic.cli.help")
+local handlers = require("cosmic.cli.main_handlers")
 
 -- Parsed options record
 local record Opts
@@ -335,7 +335,7 @@ local function resolve_optional_arg(flag: string, value: string): string
   return ""
 end
 
-local run = require("cosmic.run")
+local run = require("cosmic.cli.run")
 
 local function main(): integer, string
   local opts = parse_args()
@@ -366,7 +366,7 @@ local function main(): integer, string
 
   -- Show welcome on first invocation (skip when --help/--version/--welcome handled above)
   if not os.getenv("COSMIC_NO_WELCOME") then
-    local welcome = require("cosmic.welcome")
+    local welcome = require("cosmic.cli.welcome")
     if not welcome.was_shown() then
       local tty = require("cosmic.tty")
       if tty.stderr_isatty() then

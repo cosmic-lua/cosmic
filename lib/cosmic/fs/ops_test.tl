@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
 --- Tests for fs file operations: copy, move, touch, write_atomic, mkstemp.
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs_types")
+local fs_types = require("cosmic.fs.types")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 

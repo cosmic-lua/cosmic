@@ -1,6 +1,6 @@
 #!/usr/bin/env cosmic
 --- Tests for fs_walk module (symlink cycle safety)
-local fs_walk = require("cosmic.fs_walk")
+local fs_walk = require("cosmic.fs.walk")
 local fs = require("cosmic.fs")
 
 local tmpdir = os.getenv("TEST_TMPDIR") as string

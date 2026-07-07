@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
-local instrument = require("cosmic.instrument")
+local instrument = require("cosmic.cli.instrument")
 local env = require("cosmic.env")
 local time = require("cosmic.time")
 

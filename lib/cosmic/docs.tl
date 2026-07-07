@@ -62,7 +62,7 @@ end
 --- List available guide topics from the embedded skills directory.
 local function list_guide_topics(): {string}
   local fs = require("cosmic.fs")
-  local fs_types = require("cosmic.fs_types")
+  local fs_types = require("cosmic.fs.types")
   local dir = fs.opendir(GUIDES_DIR)
   if not dir then return {} end
   local d = dir as fs_types.Dir

@@ -3,7 +3,7 @@
 -- Example demonstrating basic fs operations
 local function Example_basic()
   local fs = require("cosmic.fs")
-  local fs_types = require("cosmic.fs_types")
+  local fs_types = require("cosmic.fs.types")
 
   -- Create a temp directory
   local tmpdir = fs.mkdtemp("/tmp/fs_example_XXXXXX")

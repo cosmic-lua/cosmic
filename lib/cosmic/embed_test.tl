@@ -2,7 +2,7 @@
 -- test cosmic --embed and --extract options
 
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs_types")
+local fs_types = require("cosmic.fs.types")
 local spawn = require("cosmic.child")
 local zip = require("cosmic.zip")
 

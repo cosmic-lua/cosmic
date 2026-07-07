@@ -58,7 +58,7 @@ substring.
 
 ```teal
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs_types")
+local fs_types = require("cosmic.fs.types")
 local hash = require("cosmic.hash")
 local sqlite = require("cosmic.sqlite")
 
@@ -87,7 +87,7 @@ db:close()
 ```
 
 for the precise `WalkStat` type, import it:
-`local types = require("cosmic.fs_types")` and annotate the visitor's third
+`local types = require("cosmic.fs.types")` and annotate the visitor's third
 parameter as `types.WalkStat`.
 
 ## spawn cosmic as a child (self-reinvocation)

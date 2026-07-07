@@ -30,7 +30,7 @@
 ---
 --- Set COSMIC_DEBUG=1 to see which vars are loaded and which are skipped.
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs_types")
+local fs_types = require("cosmic.fs.types")
 local env = require("cosmic.env")
 
 local ENVD_PATH = "/zip/embed/env.d"

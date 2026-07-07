@@ -1,6 +1,6 @@
 local portable = require("build.portable")
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs_types")
+local fs_types = require("cosmic.fs.types")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
