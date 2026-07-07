@@ -1,4 +1,4 @@
-# assert
+# check
 
  Assertion helpers for tests with auto-formatted failure messages.
  Functions in this module throw on failure (level 2) so the error points
@@ -6,10 +6,10 @@
 
 ## Types
 
-### AssertModule
+### CheckModule
 
 ```teal
-local record AssertModule
+local record CheckModule
   eq: function(actual: any, expected: any, label?: string)
   ne: function(actual: any, expected: any, label?: string)
   ok: function(value: any, label?: string)

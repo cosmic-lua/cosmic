@@ -23,8 +23,8 @@ High-level utilities and tools built on top of cosmo.
 
 | Module | Description |
 |--------|-------------|
-| [assert](lib/cosmic/assert.md) |  Assertion helpers for tests with auto-formatted failure messages. |
 | [benchmark](lib/cosmic/benchmark.md) |  Go-style benchmark testing. |
+| [check](lib/cosmic/check.md) |  Assertion helpers for tests with auto-formatted failure messages. |
 | [child](lib/cosmic/child.md) |  Child process management. |
 | [codec](lib/cosmic/codec.md) |  Encoding and decoding utilities for various formats. |
 | [compress](lib/cosmic/compress.md) |  Compression and decompression utilities. |
