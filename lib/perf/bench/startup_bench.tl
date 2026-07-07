@@ -8,7 +8,6 @@
 
 local child = require("cosmic.child")
 local fs = require("cosmic.fs")
-local cio = require("cosmic.io")
 local pt = require("perf.perf_types")
 
 local HELLO = "perf-hello"
@@ -83,15 +82,15 @@ local function scenarios(): {pt.Scenario}, string
   local hello_tl = fs.join(dir, "hello.tl")
   local compile_tl = fs.join(dir, "compile_target.tl")
   local hello_src = "print(\"" .. HELLO .. "\")\n"
-  local wok, werr = cio.barf(hello_lua, hello_src)
+  local wok, werr = fs.write(hello_lua, hello_src)
   if not wok then
     return nil, "barf: " .. tostring(werr)
   end
-  wok, werr = cio.barf(hello_tl, hello_src)
+  wok, werr = fs.write(hello_tl, hello_src)
   if not wok then
     return nil, "barf: " .. tostring(werr)
   end
-  wok, werr = cio.barf(compile_tl, COMPILE_SRC)
+  wok, werr = fs.write(compile_tl, COMPILE_SRC)
   if not wok then
     return nil, "barf: " .. tostring(werr)
   end

@@ -1,6 +1,5 @@
 #!/usr/bin/env cosmic
 
-local cio = require("cosmic.io")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 
@@ -11,9 +10,9 @@ local function write_test_result(base: string, exit_code: integer, stdout: strin
   if dir and dir ~= "" and dir ~= "." then
     fs.makedirs(dir)
   end
-  cio.barf(base .. ".got", tostring(exit_code) .. "\n")
-  cio.barf(base .. ".out", stdout or "")
-  cio.barf(base .. ".err", stderr or "")
+  fs.write(base .. ".got", tostring(exit_code) .. "\n")
+  fs.write(base .. ".out", stdout or "")
+  fs.write(base .. ".err", stderr or "")
 end
 
 local function run_reporter(...: string): integer, string, string

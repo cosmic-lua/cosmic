@@ -2,7 +2,6 @@
 local pledge = require("cosmic.pledge")
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
-local cio = require("cosmic.io")
 local a = require("cosmic.assert")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -43,7 +42,7 @@ test_fail_closed_when_unavailable()
 
 local function test_stdio_allows_write()
   local script = fs.join(tmpdir, "pledge_stdio.lua")
-  cio.barf(script, [[
+  fs.write(script, [[
 local pledge = require("cosmic.pledge")
 if not pledge.available() then
   io.write("skipped: pledge unsupported on this host\n")
@@ -74,7 +73,7 @@ local function test_restricts_filesystem()
   -- handle:read(); on Linux a pledge violation raises SIGSYS and kills the
   -- process, so a leak/skip cannot be signalled through the exit code alone.
   local script = fs.join(tmpdir, "pledge_no_fs.lua")
-  cio.barf(script, [[
+  fs.write(script, [[
 local pledge = require("cosmic.pledge")
 if not pledge.available() then
   io.write("unsupported: pledge unsupported on this host\n")

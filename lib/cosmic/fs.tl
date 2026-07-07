@@ -12,8 +12,9 @@ local FileInfo = types.FileInfo
 -- Re-export path functions from fs_path submodule
 local fs_path = require("cosmic.fs_path")
 
--- Re-export file operations from fs_ops submodule
+-- Re-export file operations from fs_ops / fs_file submodules
 local fs_ops = require("cosmic.fs_ops")
+local fs_file = require("cosmic.fs_file")
 
 -- Raw Dir type from cosmo.unix
 local record RawDir
@@ -234,6 +235,11 @@ local record FsModule
   opendir: function(path: string): Dir | nil, string
   fdopendir: function(fd: number): Dir | nil, string
 
+  -- Whole-file operations
+  read: function(path: string): string | nil, string
+  write: function(path: string, data: string, mode?: number): boolean, string
+  truncate: function(path: string, length?: number): boolean, string
+
   -- File operations
   unlink: function(path: string): boolean, string
   rename: function(oldpath: string, newpath: string): boolean, string
@@ -317,13 +323,18 @@ local M: FsModule = {
   opendir = opendir,
   fdopendir = fdopendir,
 
+  -- Whole-file operations (re-exported from fs_ops)
+  read = fs_file.read,
+  write = fs_file.write,
+  truncate = fs_file.truncate,
+
   -- File operations (re-exported from fs_ops)
   unlink = fs_ops.unlink,
   rename = fs_ops.rename,
   copy = fs_ops.copy,
   move = fs_ops.move,
   touch = fs_ops.touch,
-  write_atomic = fs_ops.write_atomic,
+  write_atomic = fs_file.write_atomic,
   link = fs_ops.link,
   symlink = fs_ops.symlink,
   readlink = fs_ops.readlink,

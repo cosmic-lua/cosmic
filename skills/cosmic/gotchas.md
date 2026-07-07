@@ -116,24 +116,24 @@ if your module is in a subdirectory:
 local m = require("subdir.mymod")   -- loads subdir/mymod.tl
 ```
 
-## 6. naming `cosmic.io` as `io`
+## 6. naming `cosmic.fd` as `io`
 
-`require("cosmic.io")` returns the cosmic.io module. if you bind it to a local named `io` you shadow Lua's built-in `io` library and lose access to `io.stderr`, `io.stdin`, `io.stdout`.
+`require("cosmic.fd")` returns the cosmic.fd module. if you bind it to a local named `io` you shadow Lua's built-in `io` library and lose access to `io.stderr`, `io.stdin`, `io.stdout`.
 
 **wrong:**
 ```teal
-local io = require("cosmic.io")   -- hides io.stderr!
+local io = require("cosmic.fd")   -- hides io.stderr!
 io.stderr:write("error\n")        -- runtime error: attempt to index nil
 ```
 
 **right:**
 ```teal
-local cio = require("cosmic.io")  -- keep built-in io accessible
-cio.barf("out.txt", data)
+local fs = require("cosmic.fs")  -- keep built-in io accessible
+fs.write("out.txt", data)
 io.stderr:write("error: " .. msg .. "\n")  -- standard Lua io still works
 ```
 
-cosmic.io has no stderr/stdout/stdin handles — use Lua's `io.stderr` directly for stream output.
+cosmic.fd has no stderr/stdout/stdin handles — use Lua's `io.stderr` directly for stream output.
 
 ## 7. `arg[0]` is not the interpreter — use `arg[-1]` to re-invoke cosmic
 

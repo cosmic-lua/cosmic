@@ -1,6 +1,6 @@
 #!/usr/bin/env cosmic
 local poll = require("cosmic.poll")
-local cio = require("cosmic.io")
+local cfd = require("cosmic.fd")
 local net = require("cosmic.net")
 local child = require("cosmic.child")
 
@@ -46,9 +46,9 @@ end
 test_poller_add_remove_raw_fd()
 
 local function test_poll_pipe_readable()
-  local pipe, err = cio.pipe()
+  local pipe, err = cfd.pipe()
   assert(pipe ~= nil, "pipe creation failed: " .. tostring(err))
-  local pipe = pipe as cio.Pipe
+  local pipe = pipe as cfd.Pipe
 
   -- Write to the pipe so it becomes readable
   local n = pipe.writer:write("hello")
@@ -74,9 +74,9 @@ end
 test_poll_pipe_readable()
 
 local function test_poll_pipe_writable()
-  local pipe, err = cio.pipe()
+  local pipe, err = cfd.pipe()
   assert(pipe ~= nil, "pipe creation failed: " .. tostring(err))
-  local pipe = pipe as cio.Pipe
+  local pipe = pipe as cfd.Pipe
 
   local p = poll.new()
   -- Check if writer is writable (should be, since buffer is empty)
@@ -95,13 +95,13 @@ end
 test_poll_pipe_writable()
 
 local function test_poll_multiple_fds()
-  local pipe1, err1 = cio.pipe()
+  local pipe1, err1 = cfd.pipe()
   assert(pipe1 ~= nil, "pipe1 creation failed: " .. tostring(err1))
-  local pipe1 = pipe1 as cio.Pipe
+  local pipe1 = pipe1 as cfd.Pipe
 
-  local pipe2, err2 = cio.pipe()
+  local pipe2, err2 = cfd.pipe()
   assert(pipe2 ~= nil, "pipe2 creation failed: " .. tostring(err2))
-  local pipe2 = pipe2 as cio.Pipe
+  local pipe2 = pipe2 as cfd.Pipe
 
   -- Write to both pipes
   pipe1.writer:write("hello")
@@ -127,9 +127,9 @@ end
 test_poll_multiple_fds()
 
 local function test_poll_timeout()
-  local pipe, err = cio.pipe()
+  local pipe, err = cfd.pipe()
   assert(pipe ~= nil, "pipe creation failed: " .. tostring(err))
-  local pipe = pipe as cio.Pipe
+  local pipe = pipe as cfd.Pipe
 
   local p = poll.new()
   -- Poll for read on empty pipe - should timeout
@@ -172,9 +172,9 @@ test_poll_with_socket()
 
 local function test_poll_with_child_pipes()
   -- Redirect the child's stdout into a pipe we own, then poll the read end.
-  local pp0, perr = cio.pipe()
+  local pp0, perr = cfd.pipe()
   assert(pp0 ~= nil, "pipe creation failed: " .. tostring(perr))
-  local pp = pp0 as cio.Pipe
+  local pp = pp0 as cfd.Pipe
   local handle, err = child.spawn({"echo", "hello"}, {stdout = pp.writer:fd()})
   assert(handle ~= nil, "spawn failed: " .. tostring(err))
   local h = handle as child.Handle
@@ -197,9 +197,9 @@ end
 test_poll_with_child_pipes()
 
 local function test_poll_events_method()
-  local pipe, err = cio.pipe()
+  local pipe, err = cfd.pipe()
   assert(pipe ~= nil, "pipe creation failed: " .. tostring(err))
-  local pipe = pipe as cio.Pipe
+  local pipe = pipe as cfd.Pipe
 
   pipe.writer:write("test")
 
@@ -224,9 +224,9 @@ end
 test_poll_events_method()
 
 local function test_poll_nonblocking()
-  local pipe, err = cio.pipe()
+  local pipe, err = cfd.pipe()
   assert(pipe ~= nil, "pipe creation failed: " .. tostring(err))
-  local pipe = pipe as cio.Pipe
+  local pipe = pipe as cfd.Pipe
 
   local p = poll.new()
   p:add(pipe.reader:fd(), poll.POLLIN)
@@ -240,9 +240,9 @@ end
 test_poll_nonblocking()
 
 local function test_poll_hangup()
-  local pipe, err = cio.pipe()
+  local pipe, err = cfd.pipe()
   assert(pipe ~= nil, "pipe creation failed: " .. tostring(err))
-  local pipe = pipe as cio.Pipe
+  local pipe = pipe as cfd.Pipe
 
   -- Close the writer to trigger hangup on reader
   pipe.writer:close()

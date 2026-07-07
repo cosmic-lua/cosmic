@@ -3,7 +3,6 @@
 -- (issue #377: tl_package_loader recompiles .tl sources when TL_PATH is set)
 
 local spawn = require("cosmic.child")
-local cio = require("cosmic.io")
 local fs = require("cosmic.fs")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -11,7 +10,7 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 
 local function write_temp(name: string, content: string): string
   local filepath = fs.join(tmpdir, name)
-  cio.barf(filepath, content)
+  fs.write(filepath, content)
   return filepath
 end
 
@@ -69,7 +68,7 @@ local function test_tl_loader_still_available()
   -- Create a .tl-only module (no .lua version)
   local moddir = fs.join(tmpdir, "tlonly")
   fs.makedirs(moddir)
-  cio.barf(fs.join(moddir, "mymod.tl"), [[
+  fs.write(fs.join(moddir, "mymod.tl"), [[
 return { answer = 42 }
 ]])
 

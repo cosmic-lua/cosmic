@@ -31,7 +31,6 @@
 --- Set COSMIC_DEBUG=1 to see which vars are loaded and which are skipped.
 local fs = require("cosmic.fs")
 local fs_types = require("cosmic.fs_types")
-local cio = require("cosmic.io")
 local env = require("cosmic.env")
 
 local ENVD_PATH = "/zip/embed/env.d"
@@ -150,7 +149,7 @@ local function load_dir(dir: string): LoadResult
   local sources: {string: string} = {}
   for _, name in ipairs(names) do
     local path = fs.join(dir, name)
-    local content, read_err = cio.slurp(path)
+    local content, read_err = fs.read(path)
     if content then
       local vars = parse(content, merged)
       for key, value in pairs(vars) do

@@ -7,7 +7,6 @@
 --- zip-slip validation).
 local zip = require("cosmo.zip")
 local fs = require("cosmic.fs")
-local cio = require("cosmic.io")
 
 --- Options for opening a ZIP archive.
 local record OpenOptions
@@ -282,7 +281,7 @@ local function extract(r: Reader, destdir: string, opts?: ExtractOptions): boole
         end
       end
 
-      local write_ok, write_err = cio.barf(filepath, content, file_mode)
+      local write_ok, write_err = fs.write(filepath, content, file_mode)
       if not write_ok then
         return false, "cannot write '" .. filepath .. "': " .. (write_err or "unknown error")
       end

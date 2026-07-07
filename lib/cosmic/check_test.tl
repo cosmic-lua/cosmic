@@ -3,7 +3,6 @@
 
 local fs = require("cosmic.fs")
 local env = require("cosmic.env")
-local cio = require("cosmic.io")
 local spawn = require("cosmic.child")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -20,7 +19,7 @@ end
 
 local function write_temp(name: string, content: string): string
   local filepath = fs.join(tmpdir, name)
-  cio.barf(filepath, content)
+  fs.write(filepath, content)
   return filepath
 end
 
@@ -144,7 +143,7 @@ local function test_check_with_tl_path()
   local typedir = fs.join(tmpdir, "mytypes")
   fs.makedirs(typedir, 0x1ed) -- 0755
   local deffile = fs.join(typedir, "mymod.d.tl")
-  cio.barf(deffile, [[
+  fs.write(deffile, [[
 local record mymod
   greet: function(name: string): string
 end
@@ -182,7 +181,7 @@ local function test_check_with_tl_path_double_semicolon()
   local typedir = fs.join(tmpdir, "mytypes2")
   fs.makedirs(typedir, 0x1ed) -- 0755
   local deffile = fs.join(typedir, "mymod2.d.tl")
-  cio.barf(deffile, [[
+  fs.write(deffile, [[
 local record mymod2
   hello: function(): string
 end

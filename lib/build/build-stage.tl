@@ -2,7 +2,6 @@
 -- ast-grep ignore: builds relative symlink paths
 -- stage.lua: extract fetched archives based on version.lua format
 
-local cio = require("cosmic.io")
 local fs = require("cosmic.fs")
 local fs_types = require("cosmic.fs_types")
 local portable = require("build.portable")
@@ -115,7 +114,7 @@ local function copy_binary(archive: string, dest_dir: string, module_name: strin
   local bin_dir = fs.join(dest_dir, "bin")
   fs.makedirs(bin_dir)
   local dest = fs.join(bin_dir, module_name)
-  local content, read_err = cio.slurp(archive)
+  local content, read_err = fs.read(archive)
   if not content then
     return nil, "failed to open " .. archive .. ": " .. (read_err or "unknown error")
   end

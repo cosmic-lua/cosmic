@@ -108,8 +108,8 @@ local function write_output(content: string, output: string, write_if_changed: b
     io.write(content)
     return 0
   end
-  local cio = require("cosmic.io")
-  local existing, _ = cio.slurp(output)
+  local fs = require("cosmic.fs")
+  local existing, _ = fs.read(output)
   if existing == content then
     return 0
   end
@@ -119,12 +119,11 @@ local function write_output(content: string, output: string, write_if_changed: b
     return 1, "write-if-changed: mkstemp failed for: " .. output
   end
   unix.close(tmp_fd)
-  local ok, err = cio.barf(tmp_path, content)
+  local ok, err = fs.write(tmp_path, content)
   if not ok then
     os.remove(tmp_path)
     return 1, "write-if-changed: failed to write tmp: " .. (err or "")
   end
-  local fs = require("cosmic.fs")
   local rok, rerr = fs.rename(tmp_path, output)
   if not rok then
     os.remove(tmp_path)
@@ -192,8 +191,8 @@ local function handle_check_format(file: string): integer
     return 1
   end
 
-  local cio = require("cosmic.io")
-  local original, read_err = cio.slurp(file)
+  local fs = require("cosmic.fs")
+  local original, read_err = fs.read(file)
   if not original then
     io.stderr:write(file .. ": " .. (read_err or "unknown error") .. "\n")
     instrument.finish(span, 1)
@@ -434,7 +433,6 @@ end
 --- Creates the output directory and writes SKILL.md there.
 local function handle_skill(dir: string): integer
   local fs = require("cosmic.fs")
-  local cio = require("cosmic.io")
 
   local ok, err = fs.makedirs(dir)
   if not ok then
@@ -443,7 +441,7 @@ local function handle_skill(dir: string): integer
   end
 
   local path = fs.join(dir, "SKILL.md")
-  local wok, werr = cio.barf(path, skill_content())
+  local wok, werr = fs.write(path, skill_content())
   if not wok then
     io.stderr:write("--skill: " .. (werr or "failed to write SKILL.md") .. "\n")
     return 1

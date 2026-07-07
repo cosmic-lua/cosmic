@@ -3,7 +3,6 @@
 
 local spawn = require("cosmic.child")
 local fs = require("cosmic.fs")
-local cio = require("cosmic.io")
 local cenv = require("cosmic.env")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -26,7 +25,7 @@ local function test_skill_writes_file()
   assert(ok, "cosmic --skill should succeed, got: " .. tostring(out))
   local skill_path = fs.join(dir, "SKILL.md")
   assert(fs.isfile(skill_path), "SKILL.md should exist at " .. skill_path)
-  local content, err = cio.slurp(skill_path)
+  local content, err = fs.read(skill_path)
   assert(content, "failed to read SKILL.md: " .. tostring(err))
   local c = content as string
   assert(c:match("^%-%-%-\n"), "should start with YAML frontmatter")
@@ -41,7 +40,7 @@ local function test_skill_content()
   local __r2 = (spawn.spawn({cosmic, "--skill", dir}, {env = clean_env()}) as spawn.Handle):wait() as spawn.Result
   local ok, _ = __r2.ok, __r2.stdout
   assert(ok, "cosmic --skill should succeed")
-  local content = assert(cio.slurp(fs.join(dir, "SKILL.md"))) as string
+  local content = assert(fs.read(fs.join(dir, "SKILL.md"))) as string
   assert(content:find("curl", 1, true),
     "should contain curl download command")
   assert(content:find("releases/latest/download/cosmic%-lua"),

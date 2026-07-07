@@ -2,7 +2,6 @@
 -- test cosmic script execution with .tl and .lua files
 
 local fs = require("cosmic.fs")
-local cio = require("cosmic.io")
 local spawn = require("cosmic.child")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -13,10 +12,10 @@ local test_subdir = fs.mkdtemp(fs.join(tmpdir, "cosmic_script_test_XXXXXX"))
 
 local function write_temp(name: string, content: string): string
   local filepath = fs.join(test_subdir, name)
-  cio.barf(filepath, content)
+  fs.write(filepath, content)
 
   -- Verify the file was written correctly
-  local written = cio.slurp(filepath)
+  local written = fs.read(filepath)
   assert(written == content, "write_temp: file content mismatch for " .. name)
 
   return filepath
@@ -176,7 +175,7 @@ print("shebang=" .. x)
 ]])
 
   -- Verify the file exists and has correct content
-  local verify = cio.slurp(script) as string
+  local verify = fs.read(script) as string
   assert(verify:find("shebang="), "script file should contain shebang test code, got: " .. verify:sub(1, 100))
 
   local h10 = spawn.spawn({cosmic, script}, {stderr = 1})
@@ -209,7 +208,7 @@ print("value=" .. x)
 
   -- Overwrite with different content; the mtime change must invalidate
   -- the cached compiled output from the runs above.
-  cio.barf(script, [[
+  fs.write(script, [[
 local x: number = 2
 print("value=" .. x)
 ]])

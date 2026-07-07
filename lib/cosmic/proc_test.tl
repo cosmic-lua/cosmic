@@ -1,6 +1,5 @@
 #!/usr/bin/env cosmic
 local fs = require("cosmic.fs")
-local cio = require("cosmic.io")
 local proc = require("cosmic.proc")
 
 local lua_bin = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -107,7 +106,7 @@ test_is_main_returns_boolean()
 
 local function test_is_main_true_when_run_directly()
   local script_path = fs.join(TEST_TMPDIR, "is_main_direct.lua")
-  cio.barf(script_path, [[
+  fs.write(script_path, [[
 local proc = require("cosmic.proc")
 if proc.is_main() then
   os.exit(0)
@@ -126,7 +125,7 @@ test_is_main_true_when_run_directly()
 
 local function test_proc_is_main_true_when_run_directly()
   local script_path = fs.join(TEST_TMPDIR, "proc_is_main_direct.lua")
-  cio.barf(script_path, [[
+  fs.write(script_path, [[
 local proc = require("cosmic.proc")
 if proc.is_main() then
   os.exit(0)
@@ -145,13 +144,13 @@ test_proc_is_main_true_when_run_directly()
 
 local function test_is_main_false_when_required()
   local mod_path = fs.join(TEST_TMPDIR, "is_main_module.lua")
-  cio.barf(mod_path, [[
+  fs.write(mod_path, [[
 local proc = require("cosmic.proc")
 return proc.is_main()
 ]])
 
   local script_path = fs.join(TEST_TMPDIR, "is_main_requirer.lua")
-  cio.barf(script_path, string.format([[
+  fs.write(script_path, string.format([[
 package.path = %q .. "/?.lua;" .. package.path
 local result = require("is_main_module")
 if result == false then

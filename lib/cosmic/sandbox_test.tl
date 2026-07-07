@@ -6,7 +6,6 @@ local unveil = require("cosmic.unveil")
 local sys = require("cosmic.sys")
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
-local cio = require("cosmic.io")
 local a = require("cosmic.assert")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -61,7 +60,7 @@ local function test_validation_rejects_before_enforcing()
   -- The rejection above must have enforced nothing: this process can
   -- still read its own test tmpdir.
   local probe = fs.join(tmpdir, "validation_probe")
-  cio.barf(probe, "ok")
+  fs.write(probe, "ok")
   local f = io.open(probe, "r")
   assert(f, "validation failures must not half-apply a sandbox")
   f:close()
@@ -179,11 +178,11 @@ local function test_apply_enforces_fs_and_sys()
   fs.makedirs(allowed_dir)
   local allowed = fs.join(allowed_dir, "ok.txt")
   local denied = fs.join(tmpdir, "outside.txt")
-  cio.barf(allowed, "allowed-content")
-  cio.barf(denied, "denied-content")
+  fs.write(allowed, "allowed-content")
+  fs.write(denied, "denied-content")
 
   local script = fs.join(tmpdir, "sandbox_apply.lua")
-  cio.barf(script, string.format([[
+  fs.write(script, string.format([[
 local sandbox = require("cosmic.sandbox")
 local ok, err = sandbox.apply({
   fs = { ro = { %q } },
@@ -233,10 +232,10 @@ local function test_invalid_sys_leaves_fs_unapplied()
   local dir = fs.join(tmpdir, "novalid")
   fs.makedirs(dir)
   local outside = fs.join(tmpdir, "still_readable.txt")
-  cio.barf(outside, "yes")
+  fs.write(outside, "yes")
 
   local script = fs.join(tmpdir, "sandbox_validate.lua")
-  cio.barf(script, string.format([[
+  fs.write(script, string.format([[
 local sandbox = require("cosmic.sandbox")
 local ok, err = sandbox.apply({
   fs = { ro = { %q } },

@@ -61,7 +61,7 @@ end
 -- file descriptor you own rather than letting run()/wait() capture it.
 --
 -- Key steps:
---   1. Create a pipe with cosmic.io.pipe().
+--   1. Create a pipe with cosmic.fd.pipe().
 --   2. Pass the write end fd to spawn via opts.stdout.
 --   3. Close the write end in the parent BEFORE reading — otherwise the
 --      reader will block forever waiting for EOF.
@@ -69,12 +69,12 @@ end
 --   5. Wait for the child.
 local function Example_run_pipe()
   local child = require("cosmic.child")
-  local cio = require("cosmic.io")
+  local cfd = require("cosmic.fd")
 
-  -- Create a pipe: p.reader and p.writer are cosmic.io Handles.
-  local p, err = cio.pipe()
+  -- Create a pipe: p.reader and p.writer are cosmic.fd Handles.
+  local p, err = cfd.pipe()
   assert(p, "pipe failed: " .. tostring(err))
-  local pp = p as cio.Pipe
+  local pp = p as cfd.Pipe
 
   -- Spawn echo, redirecting its stdout into the write end of the pipe.
   local h, serr = child.spawn({"echo", "from pipe"}, {stdout = pp.writer:fd()})

@@ -2,7 +2,6 @@
 local envd = require("cosmic.envd")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
-local cio = require("cosmic.io")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp/envd_test"
 fs.makedirs(tmpdir)
@@ -15,7 +14,7 @@ end
 
 local function test_basic_load()
   local dir = make_envd("basic")
-  cio.barf(fs.join(dir, "00-base"), "COSMIC_ENVD_TEST_A=value_a\nCOSMIC_ENVD_TEST_B=value_b\n")
+  fs.write(fs.join(dir, "00-base"), "COSMIC_ENVD_TEST_A=value_a\nCOSMIC_ENVD_TEST_B=value_b\n")
 
   env.unset("COSMIC_ENVD_TEST_A")
   env.unset("COSMIC_ENVD_TEST_B")
@@ -34,7 +33,7 @@ test_basic_load()
 
 local function test_no_overwrite()
   local dir = make_envd("nooverwrite")
-  cio.barf(fs.join(dir, "vars"), "COSMIC_ENVD_TEST_EXISTING=new_value\n")
+  fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_TEST_EXISTING=new_value\n")
 
   env.set("COSMIC_ENVD_TEST_EXISTING", "original_value")
 
@@ -49,7 +48,7 @@ test_no_overwrite()
 
 local function test_comments_skipped()
   local dir = make_envd("comments")
-  cio.barf(fs.join(dir, "vars"), "# this is a comment\nCOSMIC_ENVD_TEST_C=works\n# another comment\n")
+  fs.write(fs.join(dir, "vars"), "# this is a comment\nCOSMIC_ENVD_TEST_C=works\n# another comment\n")
 
   env.unset("COSMIC_ENVD_TEST_C")
   local result = envd.load_dir(dir)
@@ -62,7 +61,7 @@ test_comments_skipped()
 
 local function test_comment_only_file_sets_nothing()
   local dir = make_envd("commentonly")
-  cio.barf(fs.join(dir, "README"), "# this file is documentation\n# no vars here\n")
+  fs.write(fs.join(dir, "README"), "# this file is documentation\n# no vars here\n")
 
   local result = envd.load_dir(dir)
   assert(result.count == 0, "comment-only file should set nothing, got " .. tostring(result.count))
@@ -71,7 +70,7 @@ test_comment_only_file_sets_nothing()
 
 local function test_blank_lines_skipped()
   local dir = make_envd("blanks")
-  cio.barf(fs.join(dir, "vars"), "\n\nCOSMIC_ENVD_TEST_D=val\n\n")
+  fs.write(fs.join(dir, "vars"), "\n\nCOSMIC_ENVD_TEST_D=val\n\n")
 
   env.unset("COSMIC_ENVD_TEST_D")
   local result = envd.load_dir(dir)
@@ -85,8 +84,8 @@ test_blank_lines_skipped()
 local function test_lexical_order_concat()
   local dir = make_envd("order")
   -- 01-first sets a key, 02-second overrides it
-  cio.barf(fs.join(dir, "01-first"), "COSMIC_ENVD_TEST_ORDER=first\n")
-  cio.barf(fs.join(dir, "02-second"), "COSMIC_ENVD_TEST_ORDER=second\n")
+  fs.write(fs.join(dir, "01-first"), "COSMIC_ENVD_TEST_ORDER=first\n")
+  fs.write(fs.join(dir, "02-second"), "COSMIC_ENVD_TEST_ORDER=second\n")
 
   env.unset("COSMIC_ENVD_TEST_ORDER")
   local result = envd.load_dir(dir)
@@ -100,7 +99,7 @@ test_lexical_order_concat()
 
 local function test_value_with_equals()
   local dir = make_envd("equals")
-  cio.barf(fs.join(dir, "vars"), "COSMIC_ENVD_TEST_EQ=foo=bar=baz\n")
+  fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_TEST_EQ=foo=bar=baz\n")
 
   env.unset("COSMIC_ENVD_TEST_EQ")
   local result = envd.load_dir(dir)
@@ -114,7 +113,7 @@ test_value_with_equals()
 
 local function test_empty_value()
   local dir = make_envd("emptyval")
-  cio.barf(fs.join(dir, "vars"), "COSMIC_ENVD_TEST_EMPTY=\n")
+  fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_TEST_EMPTY=\n")
 
   env.unset("COSMIC_ENVD_TEST_EMPTY")
   local result = envd.load_dir(dir)
@@ -128,7 +127,7 @@ test_empty_value()
 
 local function test_invalid_key_lines_skipped()
   local dir = make_envd("invalidkey")
-  cio.barf(fs.join(dir, "vars"), "123BAD=skip\nhas-dash=skip\nCOSMIC_ENVD_TEST_OK=good\n")
+  fs.write(fs.join(dir, "vars"), "123BAD=skip\nhas-dash=skip\nCOSMIC_ENVD_TEST_OK=good\n")
 
   env.unset("COSMIC_ENVD_TEST_OK")
   local result = envd.load_dir(dir)
@@ -170,8 +169,8 @@ test_parse_comments_and_blanks()
 
 local function test_multiple_files_merge()
   local dir = make_envd("merge")
-  cio.barf(fs.join(dir, "01-a"), "COSMIC_ENVD_TEST_X=from_a\nCOSMIC_ENVD_TEST_Y=from_a\n")
-  cio.barf(fs.join(dir, "02-b"), "COSMIC_ENVD_TEST_Y=from_b\nCOSMIC_ENVD_TEST_Z=from_b\n")
+  fs.write(fs.join(dir, "01-a"), "COSMIC_ENVD_TEST_X=from_a\nCOSMIC_ENVD_TEST_Y=from_a\n")
+  fs.write(fs.join(dir, "02-b"), "COSMIC_ENVD_TEST_Y=from_b\nCOSMIC_ENVD_TEST_Z=from_b\n")
 
   env.unset("COSMIC_ENVD_TEST_X")
   env.unset("COSMIC_ENVD_TEST_Y")
@@ -192,7 +191,7 @@ test_multiple_files_merge()
 
 local function test_underscore_prefix_key()
   local dir = make_envd("underscore")
-  cio.barf(fs.join(dir, "vars"), "_COSMIC_ENVD_TEST_UNDER=val\n")
+  fs.write(fs.join(dir, "vars"), "_COSMIC_ENVD_TEST_UNDER=val\n")
 
   env.unset("_COSMIC_ENVD_TEST_UNDER")
   local result = envd.load_dir(dir)
@@ -275,8 +274,8 @@ test_expand_with_ctx()
 
 local function test_expand_across_files()
   local dir = make_envd("expand_across")
-  cio.barf(fs.join(dir, "01-base"), "COSMIC_ENVD_TEST_BASE=/opt\n")
-  cio.barf(fs.join(dir, "02-derived"), "COSMIC_ENVD_TEST_DERIVED=${COSMIC_ENVD_TEST_BASE}/bin\n")
+  fs.write(fs.join(dir, "01-base"), "COSMIC_ENVD_TEST_BASE=/opt\n")
+  fs.write(fs.join(dir, "02-derived"), "COSMIC_ENVD_TEST_DERIVED=${COSMIC_ENVD_TEST_BASE}/bin\n")
 
   env.unset("COSMIC_ENVD_TEST_BASE")
   env.unset("COSMIC_ENVD_TEST_DERIVED")
@@ -337,7 +336,7 @@ local function test_load_dir_crlf_file()
   local dir = make_envd("crlf_dir")
   -- Write a CRLF-encoded dotenv file using raw bytes
   local crlf_content = "COSMIC_ENVD_CRLF_C=crvalue\r\n"
-  cio.barf(fs.join(dir, "vars"), crlf_content)
+  fs.write(fs.join(dir, "vars"), crlf_content)
 
   env.unset("COSMIC_ENVD_CRLF_C")
   local result = envd.load_dir(dir)
@@ -358,7 +357,7 @@ local function test_cosmic_debug_empty_not_enabled()
   -- The observable behavior: with COSMIC_DEBUG="" the function should still work
   -- normally (count==1), and the result should be the same as with no debug.
   local dir = make_envd("debug_empty")
-  cio.barf(fs.join(dir, "vars"), "COSMIC_ENVD_DEBUG_TEST=value\n")
+  fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_DEBUG_TEST=value\n")
   env.unset("COSMIC_ENVD_DEBUG_TEST")
 
   -- Set COSMIC_DEBUG to empty string
@@ -376,7 +375,7 @@ test_cosmic_debug_empty_not_enabled()
 
 local function test_errors_empty_on_clean_load()
   local dir = make_envd("errclean")
-  cio.barf(fs.join(dir, "vars"), "COSMIC_ENVD_ERR_TEST_A=1\n")
+  fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_ERR_TEST_A=1\n")
   env.unset("COSMIC_ENVD_ERR_TEST_A")
 
   local result = envd.load_dir(dir)
@@ -389,7 +388,7 @@ test_errors_empty_on_clean_load()
 
 local function test_errors_collect_unreadable_entries()
   local dir = make_envd("errunreadable")
-  cio.barf(fs.join(dir, "00-good"), "COSMIC_ENVD_ERR_TEST_B=1\n")
+  fs.write(fs.join(dir, "00-good"), "COSMIC_ENVD_ERR_TEST_B=1\n")
   -- A subdirectory inside env.d cannot be slurped (EISDIR): the load
   -- must still apply the readable files and report the failure.
   fs.makedirs(fs.join(dir, "10-subdir"))

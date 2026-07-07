@@ -8,7 +8,6 @@
 --- another process, etc.) is treated as a cache miss/no-op, never a
 --- hard error — running the script must still work with no cache at all.
 local fs = require("cosmic.fs")
-local cio = require("cosmic.io")
 local hash = require("cosmic.hash")
 
 --- @return string The cache directory (override with COSMIC_TL_CACHE_DIR)
@@ -34,7 +33,7 @@ end
 --- @param script_path string Path to the .tl script
 --- @return string Cache file path, or nil if the script can't be read
 local function cache_file(script_path: string): string | nil
-  local content = cio.slurp(script_path)
+  local content = fs.read(script_path)
   if not content then
     return nil
   end
@@ -50,7 +49,7 @@ local function load_cached(script_path: string): string | nil
   if not path or not fs.isfile(path) then
     return nil
   end
-  return (cio.slurp(path))
+  return (fs.read(path))
 end
 
 --- Store compiled Lua code for a .tl script in the cache.
@@ -62,7 +61,7 @@ local function store(script_path: string, code: string)
     return
   end
   if fs.makedirs(cache_dir()) then
-    cio.barf(path, code)
+    fs.write(path, code)
   end
 end
 

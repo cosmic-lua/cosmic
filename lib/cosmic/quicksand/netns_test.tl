@@ -2,7 +2,6 @@
 local netns = require("cosmic.quicksand.netns")
 local quicksand = require("cosmic.quicksand")
 local fs = require("cosmic.fs")
-local cio = require("cosmic.io")
 local spawn = require("cosmic.child")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -41,7 +40,7 @@ local function test_unshare_subprocess()
     return
   end
   local script = fs.join(tmpdir, "unshare.lua")
-  cio.barf(script, [[
+  fs.write(script, [[
 local ns = require("cosmic.quicksand.netns")
 -- Drop into a fresh userns first so unprivileged callers can create a netns.
 -- An outer sandbox (pledge/seccomp) may block unshare entirely; tolerate

@@ -1,14 +1,13 @@
 #!/usr/bin/env cosmic
 
 local fs = require("cosmic.fs")
-local cio = require("cosmic.io")
 local lint = require("build.lint")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
 local function test_count_lines()
   local path = fs.join(tmpdir, "count_lines.txt")
-  cio.barf(path, "one\ntwo\nthree\n")
+  fs.write(path, "one\ntwo\nthree\n")
   local n = lint.count_lines(path)
   assert(n == 3, "expected 3 lines, got: " .. tostring(n))
 end
@@ -16,7 +15,7 @@ test_count_lines()
 
 local function test_count_lines_empty()
   local path = fs.join(tmpdir, "empty.txt")
-  cio.barf(path, "")
+  fs.write(path, "")
   local n = lint.count_lines(path)
   assert(n == 0, "expected 0 lines, got: " .. tostring(n))
 end
@@ -56,7 +55,7 @@ local function test_lint_file_under_default()
   for i = 1, 100 do
     table.insert(lines, "-- line " .. tostring(i))
   end
-  cio.barf(path, table.concat(lines, "\n") .. "\n")
+  fs.write(path, table.concat(lines, "\n") .. "\n")
 
   local diagnostics = lint.lint_file(path)
   assert(#diagnostics == 0, "expected no diagnostics for short file, got: " .. tostring(#diagnostics))
@@ -69,7 +68,7 @@ local function test_lint_file_over_default()
   for i = 1, 501 do
     table.insert(lines, "-- line " .. tostring(i))
   end
-  cio.barf(path, table.concat(lines, "\n") .. "\n")
+  fs.write(path, table.concat(lines, "\n") .. "\n")
 
   local diagnostics = lint.lint_file(path)
   assert(#diagnostics == 1, "expected 1 diagnostic for long file, got: " .. tostring(#diagnostics))
@@ -84,7 +83,7 @@ local function test_lint_file_skips_dtl()
   for i = 1, 600 do
     table.insert(lines, "-- line " .. tostring(i))
   end
-  cio.barf(path, table.concat(lines, "\n") .. "\n")
+  fs.write(path, table.concat(lines, "\n") .. "\n")
 
   local diagnostics = lint.lint_file(path)
   assert(#diagnostics == 0, "expected no diagnostics for .d.tl file, got: " .. tostring(#diagnostics))

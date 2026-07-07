@@ -10,7 +10,7 @@ at every stage. this is the shape of most small cosmic tools.
 
 ```teal
 local json = require("cosmic.json")
-local cio = require("cosmic.io")
+local fs = require("cosmic.fs")
 
 local function die(msg: string)
   io.stderr:write("error: " .. msg .. "\n")
@@ -22,7 +22,7 @@ local function main(): integer
   if path == nil then
     die("usage: tool.tl <input.json>")
   end
-  local data, read_err = cio.slurp(path as string)
+  local data, read_err = fs.read(path as string)
   if not data then
     die("cannot read '" .. tostring(path) .. "': " .. read_err)
   end
@@ -58,8 +58,8 @@ substring.
 
 ```teal
 local fs = require("cosmic.fs")
+local fs_types = require("cosmic.fs_types")
 local hash = require("cosmic.hash")
-local cio = require("cosmic.io")
 local sqlite = require("cosmic.sqlite")
 
 local db = sqlite.open("index.db")
@@ -68,9 +68,9 @@ db:exec("CREATE TABLE IF NOT EXISTS files (" ..
 
 fs.walk("testdata", function(path: string, _name: string, st: any, _ctx: any)
     -- path is the FULL path; do not join it with the basename
-    local stat = st as {mode: function(any): number, size: function(any): number}
+    local stat = st as fs_types.Stat
     if stat:is_file() then
-      local data = cio.slurp(path)
+      local data = fs.read(path)
       if data then
         db:exec("INSERT INTO files (path, size, digest) VALUES (?, ?, ?) " ..
           "ON CONFLICT(path) DO UPDATE SET size = excluded.size, " ..

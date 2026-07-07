@@ -1,7 +1,6 @@
 #!/usr/bin/env cosmic
 -- test docs-publish readme generation
 
-local cio = require("cosmic.io")
 local fs = require("cosmic.fs")
 
 local tmpdir = os.getenv("TEST_TMPDIR")
@@ -19,13 +18,13 @@ local function test_readme_has_doc_table()
   fs.makedirs(docs_dir .. "/lib/cosmic")
 
   -- Write mock doc files with module descriptions
-  cio.barf(fs.join(docs_dir, "lib/cosmic/embed.md"), [[# embed
+  fs.write(fs.join(docs_dir, "lib/cosmic/embed.md"), [[# embed
 
 Embed files into cosmic executable.
 
 ## Types
 ]])
-  cio.barf(fs.join(docs_dir, "lib/cosmic/spawn.md"), [[# spawn
+  fs.write(fs.join(docs_dir, "lib/cosmic/spawn.md"), [[# spawn
 
 Process spawning utilities.
 

@@ -3,7 +3,6 @@
 
 local fs = require("cosmic.fs")
 local fs_types = require("cosmic.fs_types")
-local cio = require("cosmic.io")
 local spawn = require("cosmic.child")
 local zip = require("cosmic.zip")
 
@@ -32,7 +31,7 @@ local function write_temp(name: string, content: string): string
   if dir ~= tmpdir then
     fs.makedirs(dir)
   end
-  cio.barf(filepath, content)
+  fs.write(filepath, content)
   return filepath
 end
 
@@ -51,7 +50,7 @@ local function test_embed_single_file()
   assert((stat as fs_types.Stat):mode() & 73 ~= 0, "output should be executable")
 
   -- Verify file is in the zip
-  local data = cio.slurp(output)
+  local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
   local reader = reader_maybe as Reader
@@ -84,7 +83,7 @@ local function test_embed_multiple_files()
   local ok, out = __r2.ok, __r2.stdout
   assert(ok, "cosmic --embed with multiple files should succeed: " .. (out or ""))
 
-  local data = cio.slurp(output)
+  local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
   local reader = reader_maybe as Reader
@@ -134,7 +133,7 @@ local function test_embed_lua_file()
   assert(ok, "embed should succeed: " .. (out or ""))
 
   -- Verify the lua file is in the zip with correct content
-  local data = cio.slurp(output)
+  local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
   local reader = reader_maybe as Reader
@@ -156,7 +155,7 @@ local function test_embed_binary_file()
   local ok, out = __r6.ok, __r6.stdout
   assert(ok, "embed binary should succeed: " .. (out or ""))
 
-  local data = cio.slurp(output)
+  local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
   local reader = reader_maybe as Reader
@@ -172,9 +171,9 @@ local function test_embed_directory()
   -- Create a directory structure
   local appdir = fs.join(tmpdir, "testapp")
   fs.makedirs(fs.join(appdir, "lib"))
-  cio.barf(fs.join(appdir, "main.lua"), 'print("hello")\n')
-  cio.barf(fs.join(appdir, "lib/util.lua"), 'return {x=1}\n')
-  cio.barf(fs.join(appdir, "data.txt"), "some data")
+  fs.write(fs.join(appdir, "main.lua"), 'print("hello")\n')
+  fs.write(fs.join(appdir, "lib/util.lua"), 'return {x=1}\n')
+  fs.write(fs.join(appdir, "data.txt"), "some data")
 
   local output = fs.join(tmpdir, "cosmic-dir")
   local __r7 = (spawn.spawn({cosmic, "--embed", appdir, "--output", output}) as spawn.Handle):wait() as spawn.Result
@@ -182,7 +181,7 @@ local function test_embed_directory()
   assert(ok, "embed directory should succeed: " .. (out or ""))
 
   -- Verify files are stored relative to directory root
-  local data = cio.slurp(output)
+  local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
   local reader = reader_maybe as Reader
@@ -204,16 +203,16 @@ test_embed_directory()
 local function test_embed_nested_directory()
   local appdir = fs.join(tmpdir, "nested")
   fs.makedirs(fs.join(appdir, "a/b/c"))
-  cio.barf(fs.join(appdir, "top.txt"), "top")
-  cio.barf(fs.join(appdir, "a/mid.txt"), "mid")
-  cio.barf(fs.join(appdir, "a/b/c/deep.txt"), "deep")
+  fs.write(fs.join(appdir, "top.txt"), "top")
+  fs.write(fs.join(appdir, "a/mid.txt"), "mid")
+  fs.write(fs.join(appdir, "a/b/c/deep.txt"), "deep")
 
   local output = fs.join(tmpdir, "cosmic-nested")
   local __r8 = (spawn.spawn({cosmic, "--embed", appdir, "--output", output}) as spawn.Handle):wait() as spawn.Result
   local ok, out = __r8.ok, __r8.stdout
   assert(ok, "embed nested directory should succeed: " .. (out or ""))
 
-  local data = cio.slurp(output)
+  local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
   local reader = reader_maybe as Reader
@@ -229,7 +228,7 @@ test_embed_nested_directory()
 local function test_embed_mixed()
   local appdir = fs.join(tmpdir, "mixapp")
   fs.makedirs(appdir)
-  cio.barf(fs.join(appdir, "main.lua"), 'print("mixed")\n')
+  fs.write(fs.join(appdir, "main.lua"), 'print("mixed")\n')
 
   local extra = write_temp("extra.txt", "extra content")
   local output = fs.join(tmpdir, "cosmic-mixed")
@@ -238,7 +237,7 @@ local function test_embed_mixed()
   local ok, out = __r9.ok, __r9.stdout
   assert(ok, "embed mixed should succeed: " .. (out or ""))
 
-  local data = cio.slurp(output)
+  local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
   local reader = reader_maybe as Reader
@@ -257,7 +256,7 @@ test_embed_mixed()
 local function test_embed_directory_executable()
   local appdir = fs.join(tmpdir, "runapp")
   fs.makedirs(appdir)
-  cio.barf(fs.join(appdir, "main.lua"), 'io.write("it works\\n")\n')
+  fs.write(fs.join(appdir, "main.lua"), 'io.write("it works\\n")\n')
 
   local output = fs.join(tmpdir, "cosmic-runapp")
   local __r10 = (spawn.spawn({cosmic, "--embed", appdir, "--output", output}) as spawn.Handle):wait() as spawn.Result
@@ -283,7 +282,7 @@ local function test_embed_uses_deflate()
   local ok, out = __r12.ok, __r12.stdout
   assert(ok, "embed should succeed: " .. (out or ""))
 
-  local data = cio.slurp(output)
+  local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
   local reader = reader_maybe as Reader
@@ -314,7 +313,7 @@ local function test_embed_stores_lua()
   local ok, out = __r13.ok, __r13.stdout
   assert(ok, "embed should succeed: " .. (out or ""))
 
-  local data = cio.slurp(output)
+  local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
   local reader = reader_maybe as Reader

@@ -301,57 +301,6 @@ local function mkstemp(template: string): number | nil, string, string
   return fd, path
 end
 
---- Write data to a file atomically: write to a temporary file in the
---- same directory, fsync it, then rename over the destination. Readers
---- see either the old contents or the complete new contents, never a
---- partial write; on failure the original file is untouched and the
---- temporary file is removed.
---- @param path string Destination path
---- @param data string Data to write
---- @param mode number Permission bits for the file (default 0644)
---- @return boolean True on success
---- @return string Error message if failed
-local function write_atomic(path: string, data: string, mode?: number): boolean, string
-  local fd, tmp, merr = mkstemp(path .. ".XXXXXX")
-  if not fd then
-    return false, merr
-  end
-  local function fail(err: string): boolean, string
-    unix.close(fd)
-    unix.unlink(tmp)
-    return false, err
-  end
-  local off: integer = 1
-  while off <= #data do
-    local n, werr = unix.write(fd, data:sub(off))
-    if not n then
-      return fail(errstr(werr, "write_atomic: write: " .. tmp))
-    end
-    off = off + math.floor(n)
-  end
-  local synced, serr = unix.fsync(fd)
-  if not synced then
-    return fail(errstr(serr, "write_atomic: fsync: " .. tmp))
-  end
-  -- mkstemp creates the file 0600; apply the requested bits before the
-  -- rename so the destination never appears with the wrong mode.
-  local chmodded, cerr = unix.chmod(tmp, mode or tonumber("644", 8))
-  if not chmodded then
-    return fail(errstr(cerr, "write_atomic: chmod: " .. tmp))
-  end
-  local closed, clerr = unix.close(fd)
-  if not closed then
-    unix.unlink(tmp)
-    return false, errstr(clerr, "write_atomic: close: " .. tmp)
-  end
-  local renamed, rerr = unix.rename(tmp, path, unix.AT_FDCWD, unix.AT_FDCWD)
-  if not renamed then
-    unix.unlink(tmp)
-    return false, errstr(rerr, "write_atomic: rename: " .. tmp .. " -> " .. path)
-  end
-  return true
-end
-
 --- Create a temporary file descriptor.
 --- @return number | nil File descriptor, or nil on error
 --- @return string Error message if failed
@@ -411,7 +360,6 @@ local record FsOpsModule
   copy: function(src: string, dst: string): boolean, string
   move: function(oldpath: string, newpath: string): boolean, string
   touch: function(path: string, mode?: number): boolean, string
-  write_atomic: function(path: string, data: string, mode?: number): boolean, string
   link: function(existingpath: string, newpath: string): boolean, string
   symlink: function(target: string, linkpath: string): boolean, string
   readlink: function(path: string): string | nil, string
@@ -441,7 +389,6 @@ local M: FsOpsModule = {
   copy = copy,
   move = move,
   touch = touch,
-  write_atomic = write_atomic,
   link = link,
   symlink = symlink,
   readlink = readlink,

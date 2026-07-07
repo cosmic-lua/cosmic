@@ -5,7 +5,6 @@
 
 local embed = require("cosmic.embed")
 local fs = require("cosmic.fs")
-local cio = require("cosmic.io")
 local czip = require("cosmic.zip")
 local pt = require("perf.perf_types")
 
@@ -66,7 +65,7 @@ local function init_tree(): string
       return "makedirs: " .. tostring(merr)
     end
     for f = 1, FILES_PER_DIR do
-      local wok, werr = cio.barf(
+      local wok, werr = fs.write(
         fs.join(sub, "file-" .. f .. ".txt"), "data-" .. d .. "-" .. f .. "\n")
       if not wok then
         return "barf: " .. tostring(werr)
@@ -84,7 +83,7 @@ end
 --- @return integer Number of non-directory zip entries, or nil on error
 --- @return string Error message, or nil on success
 local function count_zip_files(exe_path: string): integer, string
-  local data, rerr = cio.slurp(exe_path)
+  local data, rerr = fs.read(exe_path)
   if not data then
     return nil, "slurp: " .. tostring(rerr)
   end

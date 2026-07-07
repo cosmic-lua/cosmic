@@ -2,7 +2,6 @@
 -- test cosmic env var fallbacks: COSMIC_EMBED, COSMIC_OUTPUT, COSMIC_EXTRACT
 
 local fs = require("cosmic.fs")
-local cio = require("cosmic.io")
 local cenv = require("cosmic.env")
 local spawn = require("cosmic.child")
 local zip = require("cosmic.zip")
@@ -29,7 +28,7 @@ local function write_temp(name: string, content: string): string
   if dir ~= tmpdir then
     fs.makedirs(dir)
   end
-  cio.barf(filepath, content)
+  fs.write(filepath, content)
   return filepath
 end
 
@@ -56,7 +55,7 @@ local function test_embed_via_env()
   local stat = fs.stat(output)
   assert(stat, "output file should exist")
 
-  local data = cio.slurp(output)
+  local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
   local reader = reader_maybe as Reader
@@ -110,7 +109,7 @@ local function test_cli_priority_over_env()
   local ok, out = __r3.ok, __r3.stdout
   assert(ok, "cosmic --embed with env override should succeed: " .. (out or ""))
 
-  local data = cio.slurp(output)
+  local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
   local reader = reader_maybe as Reader
