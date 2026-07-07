@@ -92,10 +92,6 @@ local function serve_loop(srv: net.Socket)
 end
 
 local function scenarios(): {pt.Scenario}, string
-  if not fetch.has_stream() then
-    -- Streaming primitive absent in this build; nothing to measure.
-    return {}
-  end
   local srv, port, lerr = net.listen_tcp(LOCALHOST, 0)
   if srv == nil then
     return nil, "listen_tcp: " .. tostring(lerr)
@@ -110,17 +106,15 @@ local function scenarios(): {pt.Scenario}, string
     return nil, "fork failed"
   end
   server_pid = pid
-  -- cosmo.Fetch/FetchStream refuse direct connections to private IPs
-  -- (SSRF protection); proxied requests skip that check. Point the proxy
-  -- at the loopback server so the full streaming path runs.
-  local proxy = "http://127.0.0.1:" .. port
-  local url = "http://bench.invalid/"
+  -- allow_private opts out of the SSRF guard so the loopback server is
+  -- reachable directly, without the old point-a-proxy-at-it workaround.
+  local url = "http://127.0.0.1:" .. port .. "/"
 
   return {
     {
       name = "stream_lines_iterate",
       fn = function(_: any): any
-        local res = fetch.stream(url, {proxy = proxy})
+        local res = fetch.stream(url, {allow_private = true})
         if not res.ok then
           return {count = -1, last = tostring(res.error)}
         end

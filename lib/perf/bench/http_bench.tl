@@ -66,18 +66,15 @@ local function scenarios(): {pt.Scenario}, string
     return nil, "fork failed"
   end
   server_pid = pid
-  -- cosmo.Fetch refuses direct connections to private IPs (SSRF
-  -- protection, no opt-out), but proxied requests skip that check.
-  -- Point the proxy at the loopback server; it answers every request
-  -- with the same fixed response, so the full fetch code path runs.
-  local proxy = "http://127.0.0.1:" .. port
-  local url = "http://bench.invalid/"
+  -- allow_private opts out of the SSRF guard so the loopback server is
+  -- reachable directly, without the old point-a-proxy-at-it workaround.
+  local url = "http://127.0.0.1:" .. port .. "/"
 
   return {
     {
       name = "http_fetch_get",
       fn = function(_: any): any
-        return fetch.Fetch(url, {proxy = proxy})
+        return fetch.Fetch(url, {allow_private = true})
       end,
       check = function(_: any, res: any): boolean, string
         local r = res as fetch.Result
@@ -103,7 +100,7 @@ local function scenarios(): {pt.Scenario}, string
       name = "http_fetch_get_with_headers",
       fn = function(_: any): any
         return fetch.Fetch(url, {
-            proxy = proxy,
+            allow_private = true,
             headers = {
               ["Accept"] = "application/json",
               ["X-Test"] = "a moderately realistic header value, not just a few bytes",

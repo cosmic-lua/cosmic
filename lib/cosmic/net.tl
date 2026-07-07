@@ -1,38 +1,40 @@
 --- Networking and socket utilities.
 --- Wraps cosmo.unix socket functions for TCP/UDP and Unix domain sockets.
+--- IPv4 only: string addresses must be strict dotted quads; IPv6 is
+--- rejected with an explicit "IPv6 not supported" error.
 local unix = require("cosmo.unix")
-local cosmo = require("cosmo")
+local ip = require("cosmic.ip")
+local net_socket = require("cosmic.net_socket")
 
-local record NetSocket
-  make_socket: function(fd: number): Socket
-end
-local net_socket = require("cosmic.net_socket") as NetSocket
-
---- Socket handle for network I/O.
+--- Socket handle for network I/O (see cosmic.net_socket for the methods).
 --- Supports Lua 5.4's to-be-closed via __close metamethod.
-local record Socket
-  fd: number
-  close: function(self: Socket): boolean
-  closed: function(self: Socket): boolean
-  shutdown: function(self: Socket, how?: number): boolean, string
-  send: function(self: Socket, data: string, flags?: number): number | nil, string
-  sendto: function(self: Socket, data: string, ip: number, port: number, flags?: number): number | nil, string
-  recv: function(self: Socket, bufsiz?: number, flags?: number): string | nil, string
-  recvfrom: function(self: Socket, bufsiz?: number, flags?: number): string | nil, number, number, string
-  getsockname: function(self: Socket): number | nil, number, string
-  getpeername: function(self: Socket): number | nil, number, string
-  bind: function(self: Socket, ip?: number, port?: number): boolean, string
-  bind_unix: function(self: Socket, path: string): boolean, string
-  listen: function(self: Socket, backlog?: number): boolean, string
-  accept: function(self: Socket, flags?: number): Socket | nil, number, number, string
-  connect: function(self: Socket, ip: number, port: number): boolean, string
-  connect_unix: function(self: Socket, path: string): boolean, string
-  getsockopt: function(self: Socket, level: number, optname: number): number | boolean | nil, string
-  setsockopt: function(self: Socket, level: number, optname: number, value: number | boolean): boolean, string
-end
+local type Socket = net_socket.Socket
 
-local function make_socket(fd: number): Socket
-  return net_socket.make_socket(fd) as Socket
+local make_socket = net_socket.make_socket
+
+--- An address a TCP helper accepts: a dotted-quad string ("127.0.0.1"),
+--- a raw integer (0x7f000001), or a typed ip.Addr.
+local type Address = string | number | ip.Addr
+
+--- Resolve an Address union to a raw integer IP.
+--- @param addr Address The address in any accepted form
+--- @return integer | nil The IP as an integer, or nil on error
+--- @return string Error message on failure
+local function resolve_addr(addr: Address): integer | nil, string
+  if addr is string then
+    return ip.parse(addr)
+  end
+  local n: number
+  if addr is number then
+    n = addr
+  else
+    n = (addr as ip.Addr):int()
+  end
+  local i = math.tointeger(n)
+  if not i then
+    return nil, "invalid IP integer: " .. tostring(n)
+  end
+  return i
 end
 
 --- Create a new socket.
@@ -112,22 +114,24 @@ local function connect_unix(path: string): Socket | nil, string
   return s
 end
 
---- Create a TCP socket and connect to an IP address and port.
---- The IP is an integer (e.g. 0x7f000001 for 127.0.0.1). To convert a
---- dotted-quad string, use cosmic.ip:
----   local ip = require("cosmic.ip")
----   local addr = ip.parse("127.0.0.1")  -- 0x7f000001
---- @param ip number Remote IP address
+--- Create a TCP socket and connect to an address and port.
+--- The address may be a dotted-quad string ("127.0.0.1"), a raw integer
+--- (0x7f000001), or an ip.Addr. IPv6 is not supported.
+--- @param addr Address Remote IPv4 address
 --- @param port number Remote port
 --- @return Socket | nil Connected socket
 --- @return string Error message on failure
-local function connect_tcp(ip: number, port: number): Socket | nil, string
+local function connect_tcp(addr: Address, port: number): Socket | nil, string
+  local ipn, aerr = resolve_addr(addr)
+  if not ipn then
+    return nil, aerr
+  end
   local sock, err = socket(unix.AF_INET, unix.SOCK_STREAM, 0)
   if not sock then
     return nil, err
   end
   local s = sock as Socket
-  local ok, conn_err = s:connect(ip, port)
+  local ok, conn_err = s:connect(ipn, port)
   if not ok then
     s:close()
     return nil, conn_err
@@ -135,25 +139,29 @@ local function connect_tcp(ip: number, port: number): Socket | nil, string
   return s
 end
 
---- Create a TCP socket, bind it to host:port, and start listening.
+--- Create a TCP socket, bind it to addr:port, and start listening.
 --- Passing port 0 lets the OS assign an ephemeral port; the actual port is
 --- returned as the second value so callers never need a separate getsockname
---- call. The IP is an integer; convert strings with
---- require("cosmic.ip").parse("127.0.0.1").
+--- call. The address may be a dotted-quad string, a raw integer, or an
+--- ip.Addr (0 binds all interfaces). IPv6 is not supported.
 ---
 --- Example — listen on an OS-assigned port:
 ---   local net = require("cosmic.net")
----   local srv, port, err = net.listen_tcp(0x7f000001, 0)
+---   local srv, port, err = net.listen_tcp("127.0.0.1", 0)
 ---   -- port is now the OS-assigned port, e.g. 54321
----   local client = net.connect_tcp(0x7f000001, port)
+---   local client = net.connect_tcp("127.0.0.1", port)
 ---
---- @param ip number Local IP address to bind (e.g. 0x7f000001 for 127.0.0.1, 0 for all)
+--- @param addr Address Local IPv4 address to bind ("127.0.0.1", 0 for all)
 --- @param port number Local port to bind; use 0 for an OS-assigned ephemeral port
 --- @param backlog number Maximum pending connections (default 128)
 --- @return Socket | nil Listening socket ready to accept
 --- @return number Actual bound port (useful when port 0 was requested)
 --- @return string Error message on failure
-local function listen_tcp(ip: number, port: number, backlog?: number): Socket | nil, number, string
+local function listen_tcp(addr: Address, port: number, backlog?: number): Socket | nil, number, string
+  local ipn, aerr = resolve_addr(addr)
+  if not ipn then
+    return nil, nil, aerr
+  end
   local sock, serr = socket(unix.AF_INET, unix.SOCK_STREAM, 0)
   if not sock then
     return nil, nil, serr
@@ -164,7 +172,7 @@ local function listen_tcp(ip: number, port: number, backlog?: number): Socket | 
     s:close()
     return nil, nil, setopt_err
   end
-  local bok, bind_err = s:bind(ip, port)
+  local bok, bind_err = s:bind(ipn, port)
   if not bok then
     s:close()
     return nil, nil, bind_err
@@ -182,16 +190,28 @@ local function listen_tcp(ip: number, port: number, backlog?: number): Socket | 
   return s, bound_port
 end
 
---- Perform a non-blocking connect on a socket.
---- @param s Socket The non-blocking socket to connect
---- @param ip number Remote IP address
+--- Connect with a bounded wait instead of blocking indefinitely.
+--- Switches the socket to non-blocking mode (via Socket:set_nonblocking),
+--- starts the connect, and polls for completion up to timeoutms. The
+--- socket remains in non-blocking mode afterwards; call
+--- s:set_nonblocking(false) to restore blocking I/O.
+--- @param s Socket The socket to connect
+--- @param addr Address Remote IPv4 address
 --- @param port number Remote port
 --- @param timeoutms number Timeout in milliseconds (default 10000)
 --- @return boolean True on success
 --- @return string Error message on failure
-local function nb_connect(s: Socket, ip: number, port: number, timeoutms?: number): boolean, string
+local function nb_connect(s: Socket, addr: Address, port: number, timeoutms?: number): boolean, string
   timeoutms = timeoutms or 10000
-  local ok, conn_err = s:connect(ip, port)
+  local ipn, aerr = resolve_addr(addr)
+  if not ipn then
+    return false, aerr
+  end
+  local nb_ok, nb_err = s:set_nonblocking()
+  if not nb_ok then
+    return false, nb_err
+  end
+  local ok, conn_err = s:connect(ipn, port)
   if ok then return true end
   local fds: {number: number} = {[s.fd] = unix.POLLOUT}
   local revents = unix.poll(fds, timeoutms)
@@ -214,19 +234,6 @@ local function nb_connect(s: Socket, ip: number, port: number, timeoutms?: numbe
   return false, "nb_connect: unexpected poll events=" .. tostring(ev)
 end
 
---- Poll file descriptors for events.
---- @param fds {number:number} Map of fd to events to poll for
---- @param timeoutms number Timeout in milliseconds (-1 for infinite, 0 for non-blocking)
---- @return {number:number} | nil Map of fd to revents
---- @return string Error message on failure
-local function poll(fds: {number: number}, timeoutms?: number): {number: number} | nil, string
-  local result = unix.poll(fds, timeoutms or -1)
-  if not result then
-    return nil, "poll failed"
-  end
-  return result
-end
-
 --- Get the local hostname.
 --- @return string | nil The hostname
 --- @return string Error message on failure
@@ -236,25 +243,6 @@ local function gethostname(): string | nil, string
     return nil, "gethostname failed"
   end
   return name
-end
-
---- Parse an IP address string to numeric form.
---- @param str string IP address in dotted notation (e.g., "127.0.0.1")
---- @return number | nil Numeric IP address
---- @return string Error message on failure
-local function parseip(str: string): number | nil, string
-  local ip, err = cosmo.ParseIp(str)
-  if not ip then
-    return nil, err or "invalid IP address format"
-  end
-  return ip
-end
-
---- Format a numeric IP address to string.
---- @param ip number Numeric IP address
---- @return string IP address in dotted notation
-local function formatip(ip: number): string
-  return cosmo.FormatIp(ip)
 end
 
 --- Network interface information.
@@ -275,19 +263,17 @@ local function interfaces(): {Interface} | nil, string
 end
 
 local record NetModule
-  Socket: Socket
+  type Socket = Socket
+  type Address = Address
   Interface: Interface
   socket: function(family?: number, socktype?: number, protocol?: number): Socket | nil, string
   socketpair: function(family?: number, socktype?: number, protocol?: number): Socket | nil, Socket, string
   listen_unix: function(path: string, backlog?: number): Socket | nil, string
-  listen_tcp: function(ip: number, port: number, backlog?: number): Socket | nil, number, string
+  listen_tcp: function(addr: Address, port: number, backlog?: number): Socket | nil, number, string
   connect_unix: function(path: string): Socket | nil, string
-  connect_tcp: function(ip: number, port: number): Socket | nil, string
-  nb_connect: function(s: Socket, ip: number, port: number, timeoutms?: number): boolean, string
-  poll: function(fds: {number: number}, timeoutms?: number): {number: number} | nil, string
+  connect_tcp: function(addr: Address, port: number): Socket | nil, string
+  nb_connect: function(s: Socket, addr: Address, port: number, timeoutms?: number): boolean, string
   gethostname: function(): string | nil, string
-  parseip: function(str: string): number | nil, string
-  formatip: function(ip: number): string
   interfaces: function(): {Interface} | nil, string
   AF_INET: number
   AF_UNIX: number
@@ -368,10 +354,7 @@ local M: NetModule = {
   connect_unix = connect_unix,
   connect_tcp = connect_tcp,
   nb_connect = nb_connect,
-  poll = poll,
   gethostname = gethostname,
-  parseip = parseip,
-  formatip = formatip,
   interfaces = interfaces,
   AF_INET = unix.AF_INET,
   AF_UNIX = unix.AF_UNIX,

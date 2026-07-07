@@ -46,6 +46,8 @@ local record Socket
   getsockopt: function(self: Socket, level: number, optname: number): number | boolean | nil, string
   --- Set a socket option value.
   setsockopt: function(self: Socket, level: number, optname: number, value: number | boolean): boolean, string
+  --- Switch O_NONBLOCK on (default) or off for this socket.
+  set_nonblocking: function(self: Socket, enable?: boolean): boolean, string
 end
 
 --- Create a socket handle from a file descriptor.
@@ -53,6 +55,14 @@ end
 --- @return Socket The socket handle
 local function make_socket(fd: number): Socket
   local sock: Socket = {fd = fd}
+
+  -- macOS honors SO_NOSIGPIPE, not MSG_NOSIGNAL, on send(); set it once at
+  -- creation so writes there get EPIPE instead of a fatal SIGPIPE. The
+  -- constant is 0 on platforms that use MSG_NOSIGNAL instead (Linux,
+  -- OpenBSD, Windows), so the guard skips them.
+  if unix.SO_NOSIGPIPE ~= nil and unix.SO_NOSIGPIPE ~= 0 then
+    unix.setsockopt(fd, unix.SOL_SOCKET, unix.SO_NOSIGPIPE, true)
+  end
 
   function sock:close(): boolean
     if self.fd then
@@ -206,6 +216,22 @@ local function make_socket(fd: number): Socket
     return val
   end
 
+  function sock:set_nonblocking(enable?: boolean): boolean, string
+    if not self.fd then return false, "socket closed" end
+    -- unix.fcntl coerces F_GETFL's result to a boolean, so the current
+    -- flags cannot be read back. Sockets carry no other fcntl status
+    -- flag worth preserving, so set the flag word absolutely.
+    local want: integer = 0
+    if enable ~= false then
+      want = unix.O_NONBLOCK as integer
+    end
+    local ok, serr = unix.fcntl(self.fd, unix.F_SETFL, want)
+    if not ok then
+      return false, errstr(serr, "set_nonblocking")
+    end
+    return true
+  end
+
   function sock:setsockopt(level: number, optname: number, value: number | boolean): boolean, string
     if not self.fd then return false, "socket closed" end
     local ok, err = unix.setsockopt(self.fd, level, optname, value)
@@ -221,6 +247,7 @@ local function make_socket(fd: number): Socket
 end
 
 local record NetSocketModule
+  type Socket = Socket
   make_socket: function(fd: number): Socket
 end
 

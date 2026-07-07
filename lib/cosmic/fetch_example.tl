@@ -1,79 +1,106 @@
 --- Examples for the cosmic.fetch module.
---- Demonstrates HTTP requests and retry configuration.
----
---- These examples call a live HTTP endpoint (httpbin.org), so their exact
---- response depends on network conditions. They are deliberately written
---- without `-- Output:` assertions so CI does not flake when the endpoint is
---- slow, unreachable, or answers 5xx under load. The example runner still
---- compiles and executes each body, verifying the API is used correctly, and
---- every body guards against request failure so it never throws.
+--- Demonstrates HTTP requests, redirects, retry, and streaming — all
+--- against a forked loopback server, so the output is deterministic and
+--- no external host is contacted. allow_private opts out of the SSRF
+--- guard, which otherwise blocks requests to loopback/private addresses.
 
--- Example_get demonstrates a simple HTTP GET request.
+-- Example_get demonstrates a simple HTTP GET request against a local
+-- server: fork a child to answer one request, then fetch from it.
 local function Example_get()
   local fetch = require("cosmic.fetch")
-  local result = fetch.Fetch("https://httpbin.org/get")
-  -- result.ok reports whether the HTTP request completed; result.status holds
-  -- the response code on success, and result.error the reason on failure.
-  if result.ok then
-    print("status:", result.status)
-  else
-    print("request failed:", result.error)
+  local net = require("cosmic.net")
+  local proc = require("cosmic.proc")
+
+  local srv, port = net.listen_tcp("127.0.0.1", 0)
+  local s = srv as net.Socket
+  local pid = proc.fork()
+  if pid == 0 then
+    local conn = s:accept() as net.Socket
+    conn:recv(4096)
+    conn:send("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello")
+    conn:close()
+    os.exit(0)
   end
+  s:close()
+
+  local result = fetch.Fetch("http://127.0.0.1:" .. math.tointeger(port) .. "/",
+    {allow_private = true})
+  proc.wait(pid)
+  print(result.status, result.body, result:is_success())
+  -- Output:
+  -- 200	hello	true
 end
 
--- Example_get_json demonstrates fetching and parsing a JSON response.
-local function Example_get_json()
-  local fetch = require("cosmic.fetch")
-  local json = require("cosmic.json")
-  local result = fetch.Fetch("https://httpbin.org/json")
-  -- Guard on ok/body before decoding: a failed request has a nil body.
-  if result.ok and result.body then
-    local data = json.decode(result.body) as {string: {string: string}}
-    if data and data.slideshow then
-      print("title:", data.slideshow.title)
-    end
-  end
-end
-
--- Example_retry demonstrates retry with a should_retry callback.
--- The retry loop in Fetch only retries when result.ok is true (the HTTP
--- request succeeded) and should_retry returns true. Connection failures
--- (result.ok == false) are returned immediately without retry.
--- Backoff is exponential: 2^attempt seconds, capped by max_delay.
+-- Example_retry demonstrates the default retry policy: transport errors
+-- (dns/connect/timeout) and 429/502/503/504 responses are retried for
+-- idempotent methods, with full-jitter exponential backoff. Here the
+-- server answers 503 once, then 200; max_attempts = 2 rides it out.
 local function Example_retry()
   local fetch = require("cosmic.fetch")
+  local net = require("cosmic.net")
+  local proc = require("cosmic.proc")
 
-  -- Retry up to 3 times on 5xx server errors.
-  -- Attempt 1: immediate. Attempt 2: after 4s. Attempt 3: after 8s.
-  local result = fetch.Fetch("https://httpbin.org/get", {
-      max_attempts = 3,
-      max_delay = 10,
-      should_retry = function(r: fetch.Result): boolean
-        return r.ok and r.status >= 500
-      end,
+  local srv, port = net.listen_tcp("127.0.0.1", 0)
+  local s = srv as net.Socket
+  local pid = proc.fork()
+  if pid == 0 then
+    local responses = {
+      "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+      "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+    }
+    for _, resp in ipairs(responses) do
+      local conn = s:accept() as net.Socket
+      conn:recv(4096)
+      conn:send(resp)
+      conn:close()
+    end
+    os.exit(0)
+  end
+  s:close()
+
+  local result = fetch.Fetch("http://127.0.0.1:" .. math.tointeger(port) .. "/", {
+      allow_private = true,
+      max_attempts = 2,
+      base_delay = 0.01, -- keep the example fast; default is 0.5s
     })
-  print("ok:", result.ok)
+  proc.wait(pid)
+  print(result.status, result.body)
+  -- Output:
+  -- 200	ok
 end
 
--- Example_retry_on_status demonstrates retrying on specific HTTP status
--- codes like 429 (Too Many Requests) and 503 (Service Unavailable).
-local function Example_retry_on_status()
+-- Example_stream_lines demonstrates streaming a response and iterating
+-- its lines incrementally instead of buffering the whole body.
+local function Example_stream_lines()
   local fetch = require("cosmic.fetch")
+  local net = require("cosmic.net")
+  local proc = require("cosmic.proc")
 
-  local retryable: {number: boolean} = {
-    [429] = true, -- Too Many Requests
-    [503] = true, -- Service Unavailable
-    [502] = true, -- Bad Gateway
-  }
+  local srv, port = net.listen_tcp("127.0.0.1", 0)
+  local s = srv as net.Socket
+  local pid = proc.fork()
+  if pid == 0 then
+    local body = "alpha\nbeta\ngamma\n"
+    local conn = s:accept() as net.Socket
+    conn:recv(4096)
+    conn:send("HTTP/1.1 200 OK\r\nContent-Length: " .. #body
+      .. "\r\nConnection: close\r\n\r\n" .. body)
+    conn:close()
+    os.exit(0)
+  end
+  s:close()
 
-  local result = fetch.Fetch("https://httpbin.org/get", {
-      max_attempts = 5,
-      max_delay = 30,
-      should_retry = function(r: fetch.Result): boolean
-        return r.ok and (retryable[r.status] or false)
-      end,
-    })
-  print("ok:", result.ok)
+  local result = fetch.stream("http://127.0.0.1:" .. math.tointeger(port) .. "/",
+    {allow_private = true})
+  for line in result.reader:lines() do
+    print(line)
+  end
+  result.reader:close()
+  proc.wait(pid)
+  -- Output:
+  -- alpha
+  -- beta
+  -- gamma
 end
 
 return {}

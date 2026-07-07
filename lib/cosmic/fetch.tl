@@ -1,16 +1,41 @@
---- Structured HTTP fetch with optional retry.
---- Wraps cosmo.Fetch with structured results to prevent accidentally discarding errors.
+--- Structured HTTP fetch with retry, streaming, and honest error channels.
+--- Wraps cosmo.Fetch/FetchStream with structured results so errors, the
+--- effective URL, and the machine-readable failure kind are never discarded.
 
 local cosmo = require("cosmo")
+local fetch_headers = require("cosmic.fetch_headers")
 local time = require("cosmic.time")
+
+--- Machine-readable failure category, from the C fetch error channel.
+--- nil on wrapper-side validation failures (bad URL, bad header).
+local enum ErrorKind
+  "dns"
+  "connect"
+  "tls"
+  "timeout"
+  "proxy"
+  "protocol"
+  "too_large"
+  "blocked"
+end
 
 --- Result from a fetch operation.
 local record Result
   ok: boolean
-  status: number
+  status: integer
+  --- Response headers: lowercase names; repeated headers joined ", "
+  --- (RFC 9110 §5.3), so every value is a plain string.
   headers: {string: string}
+  --- Response headers with every value: lowercase names, values in
+  --- arrival order. Use for repeatable headers like Set-Cookie.
+  raw_headers: {string: {string}}
   body: string
+  --- Effective URL of the final request, after any redirects.
+  url: string
   error: string
+  error_kind: ErrorKind
+  --- True when ok and status is 2xx.
+  is_success: function(self: Result): boolean
 end
 
 --- Options for fetch requests.
@@ -21,21 +46,34 @@ local record Opts
   body: string
   --- HTTP headers to send with the request.
   headers: {string: string}
+  --- Follow 3xx redirects (default true).
+  follow_redirects: boolean
+  --- Maximum redirect hops when following redirects (default 5).
+  max_redirects: integer
+  --- Allow requests to loopback/private addresses, disabling the SSRF
+  --- guard for every hop of the redirect chain (default false).
+  allow_private: boolean
   --- HTTP proxy URL.
   proxy: string
   --- Maximum response body size in bytes.
-  maxresponse: number
-  --- Total number of attempts (1 = no retry, default 1).
-  --- Retries only occur when result.ok is true and should_retry returns true.
-  max_attempts: number
-  --- Maximum backoff delay in seconds (default 30).
-  --- Backoff is exponential: 2^attempt seconds, capped at this value.
-  max_delay: number
-  --- Predicate called after each successful HTTP response to decide retry.
-  --- Return true to retry (e.g. on status 429 or 503). If nil, no retries.
-  should_retry: function(Result): boolean
-  --- Request timeout in seconds. If nil, no timeout is applied.
+  maxresponse: integer
+  --- Per-socket-operation timeout in seconds (connect, each read/write,
+  --- TLS handshake) — NOT a whole-request deadline. 0 or nil keeps the
+  --- 60-second default; there is no "infinite" option.
   timeout: number
+  --- Total number of attempts (1 = no retry, default 1).
+  max_attempts: integer
+  --- Base backoff delay in seconds (default 0.5). Attempt n waits a
+  --- uniformly random ("full jitter") delay in
+  --- [0, min(max_delay, base_delay * 2^(n-1))].
+  base_delay: number
+  --- Backoff delay cap in seconds (default 30).
+  max_delay: number
+  --- Predicate consulted after every attempt (success or failure).
+  --- Return true to retry. When nil, the default policy retries
+  --- transport errors (dns/connect/timeout) and 429/502/503/504
+  --- responses, for idempotent methods only.
+  should_retry: function(Result): boolean
 end
 
 --- Streaming reader for incremental body access.
@@ -44,17 +82,34 @@ local record Reader
   read: function(self: Reader): string | nil, string
   close: function(self: Reader): boolean
   closed: function(self: Reader): boolean
-  lines: function(self: Reader): function(): string
+  lines: function(self: Reader): function(): string | nil, string
 end
 
 --- Result from a streaming fetch operation.
 local record StreamResult
   ok: boolean
-  status: number
+  status: integer
   headers: {string: string}
+  raw_headers: {string: {string}}
   reader: Reader
+  --- Effective URL of the final request, after any redirects.
+  url: string
   error: string
+  error_kind: ErrorKind
+  --- True when ok and status is 2xx.
+  is_success: function(self: StreamResult): boolean
 end
+
+-- Shared is_success helper, attached via metatable so successful and
+-- failed results alike answer the 2xx question without carrying a field.
+local result_mt = {
+  __index = {
+    is_success = function(self: Result): boolean
+      return self.ok and self.status ~= nil
+      and self.status >= 200 and self.status < 300
+    end,
+  },
+}
 
 local function validate_url(url: string): string
   if url == "" then
@@ -102,74 +157,129 @@ local function validate_headers(headers: {string: string}): string
   return nil
 end
 
---- Project the transport-relevant Opts fields onto a typed cosmo.FetchOptions.
---- Retry-loop fields (max_attempts, max_delay, should_retry) stay wrapper-side.
+--- Project the transport-relevant Opts fields onto a fresh typed
+--- cosmo.FetchOptions, shallow-copying headers so no attempt can observe
+--- another attempt's table (the C layer no longer mutates its options,
+--- but the copy keeps that a C-layer detail). Retry-loop fields stay
+--- wrapper-side.
 --- @param opts Opts? wrapper options, or nil
 --- @return cosmo.FetchOptions? options for cosmo.Fetch/FetchStream, or nil
 local function to_fetch_options(opts?: Opts): cosmo.FetchOptions
   if not opts then
     return nil
   end
-  return {
+  local headers: {string: string} = nil
+  if opts.headers then
+    headers = {}
+    for name, value in pairs(opts.headers) do
+      headers[name] = value
+    end
+  end
+  local fo: cosmo.FetchOptions = {
     method = opts.method,
     body = opts.body,
-    headers = opts.headers,
+    headers = headers,
     proxy = opts.proxy,
     maxresponse = opts.maxresponse,
     timeout = opts.timeout,
+    maxredirects = opts.max_redirects,
+    allowprivate = opts.allow_private,
   }
+  if opts.follow_redirects ~= nil then
+    fo.followredirect = opts.follow_redirects
+  end
+  return fo
+end
+
+local function fail(err: any, kind: any): Result
+  return setmetatable({
+      ok = false,
+      error = tostring(err or "unknown error"),
+      error_kind = kind as ErrorKind,
+    } as Result, result_mt) as Result
 end
 
 local function do_fetch(url: string, opts?: Opts): Result
   local verr = validate_url(url)
   if verr then
-    return {ok = false, error = verr}
+    return fail(verr, nil)
   end
   local herr = opts and validate_headers(opts.headers)
   if herr then
-    return {ok = false, error = herr}
+    return fail(herr, nil)
   end
 
-  local status: number
-  local headers_or_err: {string: string} | string
-  local body: string
-
-  status, headers_or_err, body = cosmo.Fetch(url, to_fetch_options(opts))
-
+  local status, headers_or_err, body_or_kind, final_url = cosmo.Fetch(url, to_fetch_options(opts))
   if not status then
-    return {ok = false, error = tostring(headers_or_err or "unknown error")}
+    return fail(headers_or_err, body_or_kind)
   end
 
-  return {
-    ok = true,
-    status = status,
-    headers = headers_or_err as {string: string},
-    body = body,
-  }
+  local headers, raw_headers = fetch_headers.normalize(headers_or_err as {string: any})
+  return setmetatable({
+      ok = true,
+      status = status as integer,
+      headers = headers,
+      raw_headers = raw_headers,
+      body = body_or_kind,
+      url = final_url,
+    } as Result, result_mt) as Result
 end
 
---- Fetch a URL and return structured result.
+local IDEMPOTENT: {string: boolean} = {
+  GET = true, HEAD = true, OPTIONS = true, PUT = true, DELETE = true, TRACE = true,
+}
+local RETRYABLE_KIND: {string: boolean} = {dns = true, connect = true, timeout = true}
+local RETRYABLE_STATUS: {integer: boolean} = {[429] = true, [502] = true, [503] = true, [504] = true}
+
+--- Default retry policy: transport blips (dns/connect/timeout) and
+--- 429/502/503/504 responses are retried, but only for idempotent methods.
+--- Validation failures (no error_kind) and tls/blocked/protocol/proxy/
+--- too_large failures are never retried.
+local function default_should_retry(result: Result, method: string): boolean
+  if not IDEMPOTENT[method] then
+    return false
+  end
+  if not result.ok then
+    return RETRYABLE_KIND[result.error_kind] or false
+  end
+  return RETRYABLE_STATUS[result.status] or false
+end
+
+local function backoff(attempt: integer, base_delay: number, max_delay: number)
+  -- Full jitter: uniform in [0, min(max_delay, base_delay * 2^(attempt-1))].
+  local delay = math.random() * math.min(max_delay, base_delay * 2 ^ (attempt - 1))
+  local secs = math.floor(delay)
+  time.sleep(secs, math.floor((delay - secs) * 1e9))
+end
+
+--- Fetch a URL and return a structured result.
 --- @param url string URL to fetch
---- @param opts Opts optional fetch options (retry, headers, etc.)
---- @return Result fetch result with ok, status, headers, body, or error
+--- @param opts Opts optional fetch options (retry, headers, redirects, ...)
+--- @return Result fetch result with ok, status, headers, body, url, or error
 local function Fetch(url: string, opts?: Opts): Result
   local max_attempts = (opts and opts.max_attempts) or 1
+  local base_delay = (opts and opts.base_delay) or 0.5
   local max_delay = (opts and opts.max_delay) or 30
   local should_retry = opts and opts.should_retry
+  local method = string.upper((opts and opts.method) or "GET")
 
   local result: Result
   for attempt = 1, max_attempts do
     result = do_fetch(url, opts)
-
-    if not result.ok or not should_retry or not should_retry(result) then
-      return result
+    if attempt == max_attempts then
+      break
     end
-
-    if attempt < max_attempts then
-      time.sleep(math.min(max_delay, 2 ^ attempt))
+    local retry: boolean
+    if should_retry then
+      retry = should_retry(result)
+    else
+      retry = default_should_retry(result, method)
     end
+    if not retry then
+      break
+    end
+    backoff(attempt, base_delay, max_delay)
   end
-
   return result
 end
 
@@ -181,8 +291,8 @@ local function make_reader(raw_reader: cosmo.StreamReader): Reader
   local reader: Reader = {}
 
   --- Read the next chunk from the stream.
-  --- @return string | nil chunk or nil on EOF
-  --- @return string error message on failure
+  --- @return string | nil chunk, or nil on EOF or failure
+  --- @return string error message on failure (nil on clean EOF)
   function reader:read(): string | nil, string
     if is_closed then
       return nil, "reader closed"
@@ -212,19 +322,22 @@ local function make_reader(raw_reader: cosmo.StreamReader): Reader
 
   --- Return an iterator that yields complete lines.
   --- Buffers partial lines across chunks until a newline is received.
+  --- On clean EOF a final unterminated line is yielded, then nil. On a
+  --- read error (reset, truncation, TLS failure) the iterator yields
+  --- nil plus the error message once — the buffered partial line is
+  --- truncated data and is discarded — then plain nil forever.
   --- @return function iterator yielding lines without trailing newline
-  function reader:lines(): function(): string
+  function reader:lines(): function(): string | nil, string
     -- Scan-position index into buffer: `pos` is the first unread byte.
     -- Advancing it instead of slicing off each returned line, and dropping
     -- the consumed prefix only when we must read more, keeps the whole loop
-    -- linear in the byte count. The previous buffer:sub()-per-line and
-    -- buffer..chunk-per-chunk both re-copied the entire buffer, making line
-    -- iteration O(n²) in the body size (audit §7.2 P1).
+    -- linear in the byte count (audit §7.2 P1).
     local buffer = ""
     local pos = 1
     local done = false
+    local pending_err: string = nil
 
-    return function(): string
+    return function(): string | nil, string
       while true do
         local newline_pos = buffer:find("\n", pos, true)
         if newline_pos then
@@ -233,8 +346,16 @@ local function make_reader(raw_reader: cosmo.StreamReader): Reader
           return line
         end
 
+        if pending_err then
+          local err = pending_err
+          pending_err = nil
+          done = true
+          return nil, err
+        end
+
         if done then
-          -- EOF with a final unterminated line still buffered: yield it once.
+          -- Clean EOF with a final unterminated line still buffered:
+          -- yield it once.
           if pos <= #buffer then
             local remaining = buffer:sub(pos)
             pos = #buffer + 1
@@ -250,8 +371,14 @@ local function make_reader(raw_reader: cosmo.StreamReader): Reader
           buffer = buffer:sub(pos)
           pos = 1
         end
-        local chunk = self:read()
-        if not chunk then
+        local chunk, err = self:read()
+        if err then
+          -- The buffered tail has no newline: it is truncated data, not a
+          -- line. Drop it and surface the error on the next iteration.
+          pending_err = err
+          buffer = ""
+          pos = 1
+        elseif not chunk then
           done = true
         else
           buffer = buffer .. chunk
@@ -265,44 +392,46 @@ local function make_reader(raw_reader: cosmo.StreamReader): Reader
     }) as Reader
 end
 
+local function stream_fail(err: any, kind: any): StreamResult
+  return setmetatable({
+      ok = false,
+      error = tostring(err or "unknown error"),
+      error_kind = kind as ErrorKind,
+    } as StreamResult, result_mt) as StreamResult
+end
+
 --- Open a streaming HTTP request.
---- Unlike Fetch, returns immediately with a reader for incremental body access.
+--- Unlike Fetch, returns immediately with a reader for incremental body
+--- access. Takes the same options as Fetch except the retry fields
+--- (max_attempts, base_delay, max_delay, should_retry), which do not
+--- apply to streams.
 --- @param url string URL to fetch
 --- @param opts Opts optional fetch options
 --- @return StreamResult with reader for incremental body access
 local function stream(url: string, opts?: Opts): StreamResult
   local verr = validate_url(url)
   if verr then
-    return {ok = false, error = verr}
+    return stream_fail(verr, nil)
   end
   local herr = opts and validate_headers(opts.headers)
   if herr then
-    return {ok = false, error = herr}
+    return stream_fail(herr, nil)
   end
 
-  local status: number
-  local headers_or_err: {string: string} | string
-  local raw_reader: cosmo.StreamReader
-
-  status, headers_or_err, raw_reader = cosmo.FetchStream(url, to_fetch_options(opts))
-
+  local status, headers_or_err, reader_or_kind, final_url = cosmo.FetchStream(url, to_fetch_options(opts))
   if not status then
-    return {ok = false, error = tostring(headers_or_err or "unknown error")}
+    return stream_fail(headers_or_err, reader_or_kind)
   end
 
-  return {
-    ok = true,
-    status = status,
-    headers = headers_or_err as {string: string},
-    reader = make_reader(raw_reader),
-  }
-end
-
---- Report whether the streaming fetch primitive is available in this build.
---- When false, stream() cannot be used; callers should fall back to Fetch().
---- @return boolean true if fetch.stream() is supported
-local function has_stream(): boolean
-  return cosmo.FetchStream ~= nil
+  local headers, raw_headers = fetch_headers.normalize(headers_or_err as {string: any})
+  return setmetatable({
+      ok = true,
+      status = status as integer,
+      headers = headers,
+      raw_headers = raw_headers,
+      reader = make_reader(reader_or_kind as cosmo.StreamReader),
+      url = final_url,
+    } as StreamResult, result_mt) as StreamResult
 end
 
 --- Build a unix domain socket proxy URL from a socket path.
@@ -329,8 +458,8 @@ end
 local record fetch
   Fetch: function(url: string, opts?: Opts): Result
   stream: function(url: string, opts?: Opts): StreamResult
-  has_stream: function(): boolean
   unix_proxy: function(path: string): string | nil, string
+  type ErrorKind = ErrorKind
   Opts: Opts
   Result: Result
   Reader: Reader
@@ -340,7 +469,6 @@ end
 local M: fetch = {
   Fetch = Fetch,
   stream = stream,
-  has_stream = has_stream,
   unix_proxy = unix_proxy,
 }
 

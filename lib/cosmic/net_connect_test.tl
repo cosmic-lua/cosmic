@@ -2,6 +2,7 @@
 --- Network connect and interface tests.
 local net = require("cosmic.net")
 local fs = require("cosmic.fs")
+local ip = require("cosmic.ip")
 local proc = require("cosmic.proc")
 
 local function test_interfaces()
@@ -18,25 +19,25 @@ local function test_interfaces()
     if iface.name == "lo" then
       has_loopback = true
       -- Loopback should be 127.0.0.1 (0x7f000001)
-      assert(iface.ip == 0x7f000001, "loopback should have 127.0.0.1, got " .. net.formatip(iface.ip))
+      assert(iface.ip == 0x7f000001, "loopback should have 127.0.0.1, got " .. ip.format(iface.ip))
     end
   end
   assert(has_loopback, "should have loopback interface")
 end
 test_interfaces()
 
-local function test_interfaces_formatip()
+local function test_interfaces_format()
   -- Test that we can format interface IPs
   local ifaces = net.interfaces()
   if ifaces then
     local ifaces = ifaces as {net.Interface}
     for _, iface in ipairs(ifaces) do
-      local ip_str = net.formatip(iface.ip)
+      local ip_str = ip.format(iface.ip)
       assert(ip_str:match("^%d+%.%d+%.%d+%.%d+$"), "expected dotted IP format, got " .. ip_str)
     end
   end
 end
-test_interfaces_formatip()
+test_interfaces_format()
 
 local function test_unix_domain_socket_bind_connect()
   local tmpdir = assert(fs.mkdtemp("/tmp/cosmic_net_test_XXXXXX"))
@@ -149,13 +150,15 @@ local function test_nb_connect_loopback()
   ok, err = server:listen()
   assert(ok, "listen failed: " .. tostring(err))
 
-  -- Create a non-blocking client socket
-  local client, cerr = net.socket(net.AF_INET, net.SOCK_STREAM | net.SOCK_NONBLOCK, 0)
+  -- A plain blocking socket: nb_connect switches it to non-blocking
+  -- itself via Socket:set_nonblocking (it used to silently block when
+  -- handed a blocking socket).
+  local client, cerr = net.socket()
   assert(client ~= nil, "client socket creation failed: " .. tostring(cerr))
   local client = client as net.Socket
 
-  -- nb_connect to the listening server
-  ok, err = net.nb_connect(client, 0x7f000001, server_port, 5000)
+  -- nb_connect to the listening server, by dotted-quad string
+  ok, err = net.nb_connect(client, "127.0.0.1", server_port, 5000)
   assert(ok, "nb_connect failed: " .. tostring(err))
 
   -- Accept the connection on the server side
@@ -238,6 +241,44 @@ local function test_connect_tcp()
   proc.wait(pid)
 end
 test_connect_tcp()
+
+local function test_connect_tcp_accepts_string_and_addr()
+  local server, port, lerr = net.listen_tcp("127.0.0.1", 0)
+  assert(server ~= nil, "listen_tcp with string address failed: " .. tostring(lerr))
+  local server = server as net.Socket
+
+  -- connect by dotted-quad string
+  local c1, e1 = net.connect_tcp("127.0.0.1", port)
+  assert(c1 ~= nil, "connect_tcp by string failed: " .. tostring(e1))
+  local c1s = c1 as net.Socket
+  local a1 = server:accept() as net.Socket
+  c1s:close()
+  a1:close()
+
+  -- connect by typed ip.Addr
+  local addr = ip.addr(0x7f000001)
+  local c2, e2 = net.connect_tcp(addr, port)
+  assert(c2 ~= nil, "connect_tcp by Addr failed: " .. tostring(e2))
+  local c2s = c2 as net.Socket
+  local a2 = server:accept() as net.Socket
+  c2s:close()
+  a2:close()
+
+  server:close()
+end
+test_connect_tcp_accepts_string_and_addr()
+
+local function test_connect_tcp_rejects_bad_addresses()
+  local sock, err = net.connect_tcp("not-an-ip", 80)
+  assert(sock == nil, "hostname strings are not addresses")
+  assert(err ~= nil, "expected an error message")
+
+  local sock6, err6 = net.connect_tcp("::1", 80)
+  assert(sock6 == nil, "IPv6 must be rejected")
+  assert(err6 ~= nil and err6:find("IPv6 not supported") ~= nil,
+    "expected 'IPv6 not supported', got: " .. tostring(err6))
+end
+test_connect_tcp_rejects_bad_addresses()
 
 local function test_connect_error_message()
   -- Connect to a port with no listener — should get a descriptive error, not just "connect failed"

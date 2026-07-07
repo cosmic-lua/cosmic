@@ -6,11 +6,6 @@
 -- request is rejected during validation, before any connection is attempted.
 local fetch = require("cosmic.fetch")
 
-local has_fetch_stream = fetch.has_stream()
-if not has_fetch_stream then
-  io.stderr:write("SKIP: fetch.stream header tests (FetchStream primitive not available)\n")
-end
-
 -- A dead loopback port: any request that passes validation fails to connect,
 -- so a header-validation error is unambiguously from validation, not the wire.
 local dead = "http://127.0.0.1:1"
@@ -75,7 +70,6 @@ end
 test_allows_clean_headers()
 
 local function test_stream_rejects_crlf_in_header_value()
-  if not has_fetch_stream then return end
   local result = fetch.stream(dead, {headers = {["X-Test"] = "value\r\nX-Injected: evil"}})
   assert(result.ok == false, "stream should reject CRLF in a header value")
   assert(result.error ~= nil and result.error:find("CR, LF, or NUL") ~= nil,
@@ -84,7 +78,6 @@ end
 test_stream_rejects_crlf_in_header_value()
 
 local function test_stream_rejects_crlf_in_header_name()
-  if not has_fetch_stream then return end
   local result = fetch.stream(dead, {headers = {["X-Bad\r\nX-Injected"] = "value"}})
   assert(result.ok == false, "stream should reject CRLF in a header name")
   assert(result.error ~= nil and result.error:find("header name") ~= nil,

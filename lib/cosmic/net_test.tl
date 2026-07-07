@@ -140,34 +140,6 @@ local function test_listen_accept_connect()
 end
 test_listen_accept_connect()
 
-local function test_parseip_formatip()
-  -- Test parseip
-  local ip, err = net.parseip("127.0.0.1")
-  assert(ip ~= nil, "parseip failed: " .. tostring(err))
-  assert(ip == 0x7f000001, "expected 0x7f000001, got " .. string.format("0x%x", ip as integer))
-
-  ip, err = net.parseip("192.168.1.1")
-  assert(ip ~= nil, "parseip failed: " .. tostring(err))
-  assert(ip == 0xc0a80101, "expected 0xc0a80101, got " .. string.format("0x%x", ip as integer))
-
-  -- Test formatip
-  local str = net.formatip(0x7f000001)
-  assert(str == "127.0.0.1", "expected '127.0.0.1', got '" .. str .. "'")
-
-  str = net.formatip(0xc0a80101)
-  assert(str == "192.168.1.1", "expected '192.168.1.1', got '" .. str .. "'")
-
-  -- Test invalid IP
-  ip, err = net.parseip("invalid")
-  assert(ip == nil, "expected nil for invalid IP")
-  assert(err ~= nil, "expected error message for invalid IP")
-
-  -- Test out of range
-  ip, err = net.parseip("256.0.0.1")
-  assert(ip == nil, "expected nil for out of range IP")
-end
-test_parseip_formatip()
-
 local function test_gethostname()
   local name, err = net.gethostname()
   assert(name ~= nil, "gethostname failed: " .. tostring(err))
@@ -193,7 +165,10 @@ local function test_shutdown()
 end
 test_shutdown()
 
-local function test_poll()
+local function test_poll_readiness()
+  -- net.poll was a duplicate of cosmic.poll and is gone; sockets compose
+  -- with the Poller directly via their fd.
+  local poll = require("cosmic.poll")
   local sock1, sock2, err = net.socketpair()
   assert(sock1 ~= nil and sock2 ~= nil, "socketpair failed: " .. tostring(err))
   local sock1 = sock1 as net.Socket
@@ -201,18 +176,17 @@ local function test_poll()
   -- Send data on sock1
   sock1:send("hello")
 
-  -- Poll sock2 for readable data using net.poll
-  local fds: {number: number} = {[sock2.fd] = net.POLLIN}
-  local result, poll_err = net.poll(fds, 1000)
-  assert(result ~= nil, "poll failed: " .. tostring(poll_err))
-  local result = result as {number: number}
-  assert(result[sock2.fd] ~= nil, "expected socket to be ready")
-  assert((result[sock2.fd] & net.POLLIN) > 0, "expected POLLIN event")
+  local poller = poll.new()
+  poller:add(sock2.fd, poll.POLLIN)
+  local ready, poll_err = poller:poll(1000)
+  assert(ready == 1, "expected one ready fd: " .. tostring(poll_err))
+  local ev = poller:events(sock2.fd)
+  assert(ev ~= nil and (ev as poll.Events).readable, "expected socket to be readable")
 
   sock1:close()
   sock2:close()
 end
-test_poll()
+test_poll_readiness()
 
 local function test_udp_sendto_recvfrom()
   -- Create two UDP sockets
