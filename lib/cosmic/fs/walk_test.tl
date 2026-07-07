@@ -2,6 +2,8 @@
 --- Tests for fs_walk module (symlink cycle safety)
 local fs_walk = require("cosmic.fs.walk")
 local fs = require("cosmic.fs")
+local type FileIter = fs_walk.FileIter
+local type WalkAction = fs_walk.WalkAction
 
 local tmpdir = os.getenv("TEST_TMPDIR") as string
 
@@ -84,7 +86,7 @@ local function test_files_symlink_cycle_terminates()
   fs.symlink("..", fs.join(subdir, "loop"))
 
   local collected: {string} = {}
-  for p in fs_walk.files(base, "*.lua") do
+  for p in assert(fs_walk.files(base, "*.lua")) as FileIter do
     collected[#collected + 1] = p
     -- Safety: abort if we find more than a small number
     assert(#collected <= 10,
@@ -147,13 +149,121 @@ end
 test_collect_all_missing_root_errors()
 
 local function test_files_missing_root_errors()
+  -- #558a: strict, like collect — a typo'd directory must be an error,
+  -- not an iterator that silently yields zero files.
   local missing = fs.join(tmpdir, "no", "such", "dir")
   local iter, err = fs_walk.files(missing)
-  assert(iter() == nil, "iterator over a missing root should be empty")
+  assert(iter == nil, "files() on a missing root should return nil")
   assert(err and err:match("ENOENT"),
     "files error should name ENOENT: " .. tostring(err))
 end
 test_files_missing_root_errors()
+
+-- #558b: visitor return protocol — "skip" prunes a subtree, "stop" ends
+-- the walk. Visitors that return nothing keep today's behavior.
+
+local record SkipCtx
+  visited: {string: boolean}
+end
+
+local function test_walk_skip_prunes_subtree()
+  local base = mksubdir("walk_skip")
+  local keep = fs.join(base, "keep")
+  local prune = fs.join(base, "prune")
+  fs.makedirs(keep)
+  fs.makedirs(prune)
+  write_file(fs.join(keep, "a.txt"), "a")
+  write_file(fs.join(prune, "b.txt"), "b")
+
+  local ctx: SkipCtx = {visited = {}}
+  local got, err = fs_walk.walk(base, function(_p: string, name: string,
+        _st: any, c: SkipCtx): WalkAction
+      c.visited[name] = true
+      if name == "prune" then
+        return "skip"
+      end
+      if name == "a.txt" then
+        return "skip" -- "skip" on a file is a no-op
+      end
+    end, ctx)
+  assert(got, "walk should succeed: " .. tostring(err))
+  assert(ctx.visited["prune"], "the pruned dir itself is visited")
+  assert(ctx.visited["keep"], "sibling dirs are visited")
+  assert(ctx.visited["a.txt"], "children of kept dirs are visited")
+  assert(not ctx.visited["b.txt"],
+    "children of a skipped dir must not be visited")
+end
+test_walk_skip_prunes_subtree()
+
+local record StopCtx
+  count: integer
+  stopped: boolean
+  after: integer
+end
+
+local function test_walk_stop_ends_walk()
+  local base = mksubdir("walk_stop")
+  for i = 1, 5 do
+    write_file(fs.join(base, "f" .. i .. ".txt"), "x")
+  end
+
+  local ctx: StopCtx = {count = 0, stopped = false, after = 0}
+  local got, err = fs_walk.walk(base, function(_p: string, _n: string,
+        _st: any, c: StopCtx): WalkAction
+      c.count = c.count + 1
+      return "stop"
+    end, ctx)
+  assert(got, "walk should return ctx after stop: " .. tostring(err))
+  assert(ctx.count == 1,
+    "stop must end the walk after the first visit, got " .. tostring(ctx.count))
+end
+test_walk_stop_ends_walk()
+
+local function test_walk_stop_in_subtree_aborts_walk()
+  local base = mksubdir("walk_stop_deep")
+  local subsub = fs.join(base, "sub", "subsub")
+  fs.makedirs(subsub)
+  write_file(fs.join(subsub, "deep.txt"), "x")
+  write_file(fs.join(base, "top1.txt"), "x")
+  write_file(fs.join(base, "top2.txt"), "x")
+
+  local ctx: StopCtx = {count = 0, stopped = false, after = 0}
+  fs_walk.walk(base, function(_p: string, name: string,
+        _st: any, c: StopCtx): WalkAction
+      if c.stopped then
+        c.after = c.after + 1
+      end
+      if name == "deep.txt" then
+        c.stopped = true
+        return "stop"
+      end
+    end, ctx)
+  assert(ctx.stopped, "deep.txt should have been visited")
+  assert(ctx.after == 0, "no entry may be visited after stop, got "
+    .. tostring(ctx.after))
+end
+test_walk_stop_in_subtree_aborts_walk()
+
+local function test_walk_skip_with_symlink_cycle_terminates()
+  local base = mksubdir("walk_skip_cycle")
+  local sub = fs.join(base, "sub")
+  fs.makedirs(sub)
+  write_file(fs.join(sub, "real.txt"), "hello")
+  fs.symlink("..", fs.join(sub, "loop"))
+
+  local ctx: StopCtx = {count = 0, stopped = false, after = 0}
+  local got, err = fs_walk.walk(base, function(_p: string, name: string,
+        _st: any, c: StopCtx): WalkAction
+      c.count = c.count + 1
+      if name == "loop" then
+        return "skip"
+      end
+    end, ctx)
+  assert(got, "walk should succeed: " .. tostring(err))
+  -- sub, real.txt, loop — pruning on top of cycle safety must terminate.
+  assert(ctx.count == 3, "expected 3 entries, got " .. tostring(ctx.count))
+end
+test_walk_skip_with_symlink_cycle_terminates()
 
 local function test_collect_success_has_no_error()
   local base = mksubdir("collect_ok")
@@ -171,7 +281,7 @@ test_collect_success_has_no_error()
 local function count_open_fds(): integer
   -- Exhausting the iterator closes its own handle as it goes.
   local n = 0
-  local iter = fs_walk.files("/proc/self/fd")
+  local iter = assert(fs_walk.files("/proc/self/fd")) as FileIter
   for _ in iter do n = n + 1 end
   return n
 end
@@ -188,7 +298,7 @@ local function test_files_early_break_closes_handles()
   end
 
   local before = count_open_fds()
-  for p in fs_walk.files(base, "*.txt") do
+  for p in assert(fs_walk.files(base, "*.txt")) as FileIter do
     assert(p, "expected a path")
     break -- abandon the iterator with directories still open
   end

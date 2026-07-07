@@ -205,8 +205,17 @@ local fs_walk = require("cosmic.fs.walk")
 --- Iterator over file paths, as returned by files().
 local type FileIter = fs_walk.FileIter
 
+--- Visitor verdict for walk(): nil continues, "skip" prunes, "stop" ends the walk.
+local type WalkAction = fs_walk.WalkAction
+
 --- Module interface
 local record FsModule
+  --- Iterator over file paths, as returned by files().
+  type FileIter = FileIter
+
+  --- Visitor verdict for walk(): nil continues, "skip" prunes, "stop" ends the walk.
+  type WalkAction = WalkAction
+
   -- Path manipulation
   dirname: function(str: string): string
   basename: function(str: string): string
@@ -276,16 +285,18 @@ local record FsModule
   minor: function(dev: number): number
 
   -- Directory walking.
-  -- walk visitor signature: visitor(path, name, st, ctx)
+  -- walk visitor signature: visitor(path, name, st, ctx): nil | "skip" | "stop"
   --   path = full path to the entry (e.g. "dir/sub/file.txt") — do NOT join with name.
   --   name = basename of the entry (e.g. "file.txt").
   --   st   = WalkStat (import: local types = require("cosmic.fs.types"); types.WalkStat).
+  -- Returning "skip" does not descend into the entry (dirs only); "stop"
+  -- ends the walk now; returning nothing continues.
   -- Root open failure returns nil, err; subtree failures return the first
   -- error alongside the results.
-  walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T), ctx?: T): T | nil, string
+  walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T): T | nil, string
   collect: function(dir: string, pattern: string): {string} | nil, string
   collect_all: function(dir: string): {string: FileInfo} | nil, string
-  files: function(dir: string, pattern?: string): FileIter, string, any, any
+  files: function(dir: string, pattern?: string): FileIter | nil, string, any, any
 
   -- Access mode constants
   F_OK: number
