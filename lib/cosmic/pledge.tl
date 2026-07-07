@@ -28,6 +28,46 @@
 local unix = require("cosmo.unix")
 local errno = require("cosmic.errno")
 
+--- The promise groups the libc accepts, as a Teal enum so typed callers
+--- get promise names checked at compile time. `apply` still takes the
+--- space-separated string pledge(2) expects; build it from enum values
+--- (e.g. `table.concat(list, " ")`) to keep the checking.
+local enum Promise
+  "stdio"
+  "rpath"
+  "wpath"
+  "cpath"
+  "dpath"
+  "flock"
+  "fattr"
+  "tty"
+  "inet"
+  "unix"
+  "dns"
+  "recvfd"
+  "sendfd"
+  "proc"
+  "exec"
+  "id"
+  "unveil"
+  "settime"
+  "prot_exec"
+  "vminfo"
+  "tmppath"
+  "anet"
+  "chown"
+end
+
+--- Every Promise value, for runtime validation of promise strings
+--- (Teal enums exist only at compile time). Kept in sync with the enum
+--- above; `cosmic.sandbox` uses this to reject unknown promises before
+--- any enforcement happens.
+local PROMISES: {Promise} = {
+  "stdio", "rpath", "wpath", "cpath", "dpath", "flock", "fattr", "tty",
+  "inet", "unix", "dns", "recvfd", "sendfd", "proc", "exec", "id",
+  "unveil", "settime", "prot_exec", "vminfo", "tmppath", "anet", "chown",
+}
+
 --- Options for `apply`. `exec` sets the promises children keep after
 --- execve. `best_effort` turns an unsupported host into a successful
 --- no-op instead of an error — the explicit fail-open escape hatch.
@@ -88,12 +128,15 @@ local function apply(promises: string, opts?: ApplyOpts): boolean, string
 end
 
 local record PledgeModule
+  type Promise = Promise
   type ApplyOpts = ApplyOpts
+  PROMISES: {Promise}
   apply: function(promises: string, opts?: ApplyOpts): boolean, string
   available: function(): boolean
 end
 
 local M: PledgeModule = {
+  PROMISES = PROMISES,
   apply = apply,
   available = available,
 }

@@ -23,6 +23,7 @@
 --- fork / exec orchestration lives in cosmic.quicksand.box.run and is
 --- required on demand from `run()` so construction stays cheap.
 local box_merge = require("cosmic.quicksand.box.merge")
+local sandbox = require("cosmic.sandbox")
 
 local record CapsModule
   capabilities: function(): {string: boolean}
@@ -33,10 +34,24 @@ local function caps(): {string: boolean}
   return qs.capabilities()
 end
 
+--- Authentication schemes a `net.allow` rule can inject.
+local enum NetRuleType
+  "bearer"
+  "basic"
+  "header"
+end
+
+--- Proxy log verbosity.
+local enum LogLevel
+  "quiet"
+  "info"
+  "debug"
+end
+
 --- A single allowlist rule for `net.allow`. Mirrors
 --- cosmic.quicksand.proxy.ProxyRule — empty table = pass-through.
 local record NetRule
-  type: string
+  type: NetRuleType
   token: string
   username: string
   password: string
@@ -47,16 +62,15 @@ end
 local record NetOpts
   proxy_env: boolean -- set HTTP(S)_PROXY in the child env
   allow: {string: NetRule}
-  log_level: string -- "quiet" | "info" | "debug"
+  log_level: LogLevel
   resolve_timeout_ms: integer -- per-dial DNS budget; <=0 opts out
 end
 
-local record FsOpts
-  ro: {string}
-  rw: {string}
-  exec: {string}
-  deny: {string}
-end
+--- The filesystem policy is cosmic.sandbox's Fs schema (ro/rw/exec
+--- path allowlists) — one vocabulary for boxed and in-process
+--- sandboxes. The boxed workload applies it via sandbox.apply after
+--- fork, before exec.
+local type FsOpts = sandbox.Fs
 
 local record ProcOpts
   no_new_privs: boolean
@@ -126,7 +140,11 @@ local function validate(opts: BoxOpts): boolean, string
   end
   local fs = opts.fs
   if fs then
-    for _, name in ipairs({"ro", "rw", "exec", "deny"}) do
+    if (fs as {string: any}).deny ~= nil then
+      return false, "fs.deny was removed: the fs policy is an allowlist,"
+      .. " every path not in fs.ro/rw/exec is already denied"
+    end
+    for _, name in ipairs({"ro", "rw", "exec"}) do
       local v = (fs as {string: any})[name]
       if v ~= nil and type(v) ~= "table" then
         return false, "fs." .. name .. " must be a list"
@@ -140,13 +158,6 @@ end
 -- a specific error naming the first missing capability so callers can
 -- distinguish "not on Linux" from "landlock unavailable" etc.
 local function preflight(opts: BoxOpts): boolean, string
-  -- Policy-shape problems are reported before host-capability gaps:
-  -- they are actionable everywhere and must not be masked by whatever
-  -- capability this particular host happens to lack.
-  if opts and opts.fs and opts.fs.deny
-  and not (opts.fs.ro or opts.fs.rw or opts.fs.exec) then
-    return false, "quicksand: fs.deny requires at least one of fs.ro, fs.rw, or fs.exec (deny is informational; landlock is allowlist-based)"
-  end
   local c = caps()
   if not c.linux then
     return false, "quicksand: Linux only"
@@ -220,7 +231,7 @@ local function new(opts?: BoxOpts): Box | nil, string
 end
 
 --- Compose policy tables left-to-right. Scalars: later wins. Lists
---- (fs.ro, fs.rw, fs.exec, fs.deny, env.keep): concat + dedupe. Maps
+--- (fs.ro, fs.rw, fs.exec, env.keep): concat + dedupe. Maps
 --- (net.allow, env.set): per-key later wins. Returns a fresh table
 --- suitable for `Box.new`.
 ---
@@ -232,6 +243,11 @@ end
 
 local record BoxModule
   type Box = Box
+  type BoxOpts = BoxOpts
+  type FsOpts = FsOpts
+  type NetRule = NetRule
+  type NetRuleType = NetRuleType
+  type LogLevel = LogLevel
   new: function(opts?: BoxOpts): Box | nil, string
   merge: function(...: BoxOpts): BoxOpts
 end
