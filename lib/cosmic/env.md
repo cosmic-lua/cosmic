@@ -12,7 +12,7 @@
 
 ```teal
 local record EnvModule
-  get: function(name: string): string
+  get: function(name: string, default?: string): string
   set: function(name: string, value: string, overwrite?: boolean): boolean, string
   unset: function(name: string): boolean, string
   clear: function(): boolean, string
@@ -26,19 +26,20 @@ end
 ### get
 
 ```teal
-function get(name: string): string
+function get(name: string, default?: string): string
 ```
 
  Get the value of an environment variable.
- Returns nil if the variable is not set.
+ Returns the default (nil if not given) when the variable is not set.
 
 **Parameters:**
 
 - `name` (string) - The name of the environment variable
+- `default` (string?) - Value to return when the variable is not set
 
 **Returns:**
 
-- string? - The value of the environment variable, or nil if not set
+- string? - The value of the environment variable, or the default
 
 ### set
 

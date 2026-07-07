@@ -1,4 +1,4 @@
-# fs_ops
+# ops
 
  Filesystem file operations, permissions, timestamps, and temp files.
  Internal submodule used by cosmic.fs.
@@ -11,6 +11,9 @@
 local record FsOpsModule
   unlink: function(path: string): boolean, string
   rename: function(oldpath: string, newpath: string): boolean, string
+  copy: function(src: string, dst: string): boolean, string
+  move: function(oldpath: string, newpath: string): boolean, string
+  touch: function(path: string, mode?: number): boolean, string
   link: function(existingpath: string, newpath: string): boolean, string
   symlink: function(target: string, linkpath: string): boolean, string
   readlink: function(path: string): string | nil, string
@@ -22,7 +25,7 @@ local record FsOpsModule
   utimensat: function(path: string, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
   futimens: function(fd: number, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
   mkdtemp: function(template: string): string | nil, string
-  mkstemp: function(template: string): number | nil, string
+  mkstemp: function(template: string): number | nil, string, string
   tmpfd: function(): number | nil, string
   statfs: function(path: string): Statfs | nil, string
   fstatfs: function(fd: number): Statfs | nil, string
@@ -67,6 +70,67 @@ function rename(oldpath: string, newpath: string): boolean, string
 
 - `oldpath` (string) - Current path
 - `newpath` (string) - New path
+
+**Returns:**
+
+- boolean - True on success
+- string - Error message if failed
+
+### copy
+
+```teal
+function copy(src: string, dst: string): boolean, string
+```
+
+ Copy a file, preserving its permission bits.
+ Follows symlinks: copying a symlink copies the target's contents.
+ The destination is created (or truncated) and receives the source's
+ mode bits.
+
+**Parameters:**
+
+- `src` (string) - Path to the source file
+- `dst` (string) - Path to the destination file
+
+**Returns:**
+
+- boolean - True on success
+- string - Error message if failed
+
+### move
+
+```teal
+function move(oldpath: string, newpath: string): boolean, string
+```
+
+ Move (rename) a file, falling back to copy+unlink across filesystems.
+ A plain rename() fails with EXDEV when oldpath and newpath are on
+ different filesystems; in that case the file is copied (mode
+ preserved) and the original unlinked.
+
+**Parameters:**
+
+- `oldpath` (string) - Current path
+- `newpath` (string) - New path
+
+**Returns:**
+
+- boolean - True on success
+- string - Error message if failed
+
+### touch
+
+```teal
+function touch(path: string, mode?: number): boolean, string
+```
+
+ Update a file's access and modification times to now, creating the
+ file (mode 0644 by default) if it does not exist.
+
+**Parameters:**
+
+- `path` (string) - Path to the file
+- `mode` (number) - Permission bits when creating (default 0644)
 
 **Returns:**
 
@@ -278,10 +342,12 @@ function mkdtemp(template: string): string | nil, string
 ### mkstemp
 
 ```teal
-function mkstemp(template: string): number | nil, string
+function mkstemp(template: string): number | nil, string, string
 ```
 
  Create a temporary file.
+ The second return is always the path (nil on failure); the error, if
+ any, is always in the third slot.
 
 **Parameters:**
 
@@ -290,7 +356,8 @@ function mkstemp(template: string): number | nil, string
 **Returns:**
 
 - number - | nil File descriptor, or nil on error
-- string - Path to the created file, or error message
+- string - Path to the created file, or nil on error
+- string - Error message if failed
 
 ### tmpfd
 

@@ -30,14 +30,14 @@
 
 ## Types
 
-### ApplyOpts
+### ApplyOptions
 
  Options for `apply`. `exec` sets the promises children keep after
  execve. `best_effort` turns an unsupported host into a successful
  no-op instead of an error — the explicit fail-open escape hatch.
 
 ```teal
-local record ApplyOpts
+local record ApplyOptions
   exec: string
   best_effort: boolean
 end
@@ -48,7 +48,7 @@ end
 ```teal
 local record PledgeModule
   PROMISES: {Promise}
-  apply: function(promises: string, opts?: ApplyOpts): boolean, string
+  apply: function(promises: string, opts?: ApplyOptions): boolean, string
   available: function(): boolean
 end
 ```
@@ -75,7 +75,7 @@ function available(): boolean
 ### apply
 
 ```teal
-function apply(promises: string, opts?: ApplyOpts): boolean, string
+function apply(promises: string, opts?: ApplyOptions): boolean, string
 ```
 
  Apply a pledge to the current process.
@@ -88,7 +88,7 @@ function apply(promises: string, opts?: ApplyOpts): boolean, string
 **Parameters:**
 
 - `promises` (string) - Space-separated promise groups for this process
-- `opts` (ApplyOpts?) - `exec` promises after execve; `best_effort` escape hatch
+- `opts` (ApplyOptions?) - `exec` promises after execve; `best_effort` escape hatch
 
 **Returns:**
 

@@ -42,7 +42,7 @@ local record Rule
 end
 ```
 
-### RestrictOpts
+### RestrictOptions
 
  Options for `restrict`. `handled` narrows which access categories
  the sandbox controls (categories outside it are left unrestricted;
@@ -52,7 +52,7 @@ end
  or holds CAP_SYS_ADMIN).
 
 ```teal
-local record RestrictOpts
+local record RestrictOptions
   handled: integer
   rules: {Rule}
   no_new_privs: boolean
@@ -85,7 +85,7 @@ local record LandlockModule
   ALL: integer
   abi: function(): integer | nil, string
   available: function(): boolean
-  restrict: function(opts: RestrictOpts): boolean, string
+  restrict: function(opts: RestrictOptions): boolean, string
 end
 ```
 
@@ -111,7 +111,7 @@ function available(): boolean
 ### restrict
 
 ```teal
-function restrict(opts: RestrictOpts): boolean, string
+function restrict(opts: RestrictOptions): boolean, string
 ```
 
  Apply a path allowlist to the current thread and all its future

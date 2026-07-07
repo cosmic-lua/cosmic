@@ -16,12 +16,12 @@ local record WinSize
 end
 ```
 
-### RawOpts
+### RawOptions
 
  Options for raw()/make_raw().
 
 ```teal
-local record RawOpts
+local record RawOptions
   --  Keep ISIG set so Ctrl-C/Ctrl-Z still generate signals.
   keep_signals: boolean
 end
@@ -57,8 +57,8 @@ local record TtyModule
   stderr_isatty: function(): boolean
   getattr: function(fd: number): Termios | nil, string
   setattr: function(fd: number, action: number, termios: Termios): boolean, string
-  make_raw: function(termios: Termios, opts?: RawOpts): Termios
-  raw: function(fd: number, opts?: RawOpts): Termios | nil, string
+  make_raw: function(termios: Termios, opts?: RawOptions): Termios
+  raw: function(fd: number, opts?: RawOptions): Termios | nil, string
   noecho: function(fd: number): Termios | nil, string
   restore: function(fd: number, termios: Termios): boolean, string
   getpass: function(prompt: string): string | nil, string
@@ -175,7 +175,7 @@ function setattr(fd: number, action: number, termios: Termios): boolean, string
 ### make_raw
 
 ```teal
-function make_raw(termios: Termios, opts?: TtyModule.RawOpts): Termios
+function make_raw(termios: Termios, opts?: TtyModule.RawOptions): Termios
 ```
 
  Compute raw-mode attributes from current ones (cfmakeraw semantics).
@@ -188,7 +188,7 @@ function make_raw(termios: Termios, opts?: TtyModule.RawOpts): Termios
 **Parameters:**
 
 - `termios` (Termios) - Current terminal attributes
-- `opts` (RawOpts?) - keep_signals: keep Ctrl-C/Ctrl-Z generating signals
+- `opts` (RawOptions?) - keep_signals: keep Ctrl-C/Ctrl-Z generating signals
 
 **Returns:**
 
@@ -197,7 +197,7 @@ function make_raw(termios: Termios, opts?: TtyModule.RawOpts): Termios
 ### raw
 
 ```teal
-function raw(fd: number, opts?: TtyModule.RawOpts): Termios | nil, string
+function raw(fd: number, opts?: TtyModule.RawOptions): Termios | nil, string
 ```
 
  Puts terminal into raw mode: no echo, no line buffering, no signal
@@ -208,7 +208,7 @@ function raw(fd: number, opts?: TtyModule.RawOpts): Termios | nil, string
 **Parameters:**
 
 - `fd` (number) - File descriptor (typically 0 for stdin)
-- `opts` (RawOpts?) - keep_signals: keep Ctrl-C/Ctrl-Z generating signals
+- `opts` (RawOptions?) - keep_signals: keep Ctrl-C/Ctrl-Z generating signals
 
 **Returns:**
 

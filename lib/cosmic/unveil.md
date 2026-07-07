@@ -27,14 +27,14 @@
 
 ## Types
 
-### UnveilOpts
+### UnveilOptions
 
  Options for `allow` / `commit`. `best_effort` turns an unsupported
  host into a successful no-op instead of an error — the explicit
  fail-open escape hatch.
 
 ```teal
-local record UnveilOpts
+local record UnveilOptions
   best_effort: boolean
 end
 ```
@@ -43,8 +43,8 @@ end
 
 ```teal
 local record UnveilModule
-  allow: function(path: string, permissions: Perm, opts?: UnveilOpts): boolean, string
-  commit: function(opts?: UnveilOpts): boolean, string
+  allow: function(path: string, permissions: Perm, opts?: UnveilOptions): boolean, string
+  commit: function(opts?: UnveilOptions): boolean, string
   available: function(): boolean
   apply: function(path: string, permissions: string): boolean, string
 end
@@ -73,7 +73,7 @@ function available(): boolean
 ### allow
 
 ```teal
-function allow(path: string, permissions: Perm, opts?: UnveilOpts): boolean, string
+function allow(path: string, permissions: Perm, opts?: UnveilOptions): boolean, string
 ```
 
  Unveil a path with the given permission set.
@@ -95,7 +95,7 @@ function allow(path: string, permissions: Perm, opts?: UnveilOpts): boolean, str
 ### commit
 
 ```teal
-function commit(opts?: UnveilOpts): boolean, string
+function commit(opts?: UnveilOptions): boolean, string
 ```
 
  Commit the unveil policy: the allowlist becomes final and further

@@ -20,24 +20,24 @@ local record Issue
 end
 ```
 
-### CompileOpts
+### CompileOptions
 
  Options for compiling Teal to Lua.
 
 ```teal
-local record CompileOpts
+local record CompileOptions
   include_dirs: {string}
   gen_target: string
   gen_compat: string
 end
 ```
 
-### CheckOpts
+### CheckOptions
 
  Options for type-checking Teal files.
 
 ```teal
-local record CheckOpts
+local record CheckOptions
   include_dirs: {string}
 end
 ```
@@ -108,8 +108,8 @@ end
 
 ```teal
 local record TealModule
-  compile: function(input_path: string, opts?: CompileOpts): CompileResult
-  check: function(input_path: string, opts?: CheckOpts): CheckResult
+  compile: function(input_path: string, opts?: CompileOptions): CompileResult
+  check: function(input_path: string, opts?: CheckOptions): CheckResult
   format_issues: function(issues: {Issue}): string
   format_issues_with_hints: function(issues: {Issue}): string
   hint_for_message: function(msg: string): string | nil
@@ -135,7 +135,7 @@ function get_default_include_dirs(): {string}
 ### compile
 
 ```teal
-function compile(input_path: string, opts: CompileOpts): CompileResult
+function compile(input_path: string, opts: CompileOptions): CompileResult
 ```
 
  Compile a Teal file to Lua code.
@@ -144,7 +144,7 @@ function compile(input_path: string, opts: CompileOpts): CompileResult
 **Parameters:**
 
 - `input_path` (string) - Path to the Teal file to compile
-- `opts` (CompileOpts) - Compilation options (include_dirs, gen_target, gen_compat)
+- `opts` (CompileOptions) - Compilation options (include_dirs, gen_target, gen_compat)
 
 **Returns:**
 
@@ -153,7 +153,7 @@ function compile(input_path: string, opts: CompileOpts): CompileResult
 ### check
 
 ```teal
-function check(input_path: string, opts: CheckOpts): CheckResult
+function check(input_path: string, opts: CheckOptions): CheckResult
 ```
 
  Type-check a Teal file.
@@ -162,7 +162,7 @@ function check(input_path: string, opts: CheckOpts): CheckResult
 **Parameters:**
 
 - `input_path` (string) - Path to the Teal file to check
-- `opts` (CheckOpts) - Type-checking options (include_dirs)
+- `opts` (CheckOptions) - Type-checking options (include_dirs)
 
 **Returns:**
 

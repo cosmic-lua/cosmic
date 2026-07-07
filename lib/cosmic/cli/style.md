@@ -2,7 +2,7 @@
 
  Style-check module for cosmic --check-style.
  Mirrors the relevant parts of lib/build/lint.tl but is embedded in the
- cosmic binary under the cosmic.* namespace so require("cosmic.style") works.
+ cosmic binary under the cosmic.* namespace so require("cosmic.cli.style") works.
 
 ## Types
 

@@ -1,4 +1,4 @@
-# fs
+# init
 
  Unified filesystem module.
  Combines path manipulation, filesystem operations, and directory walking.
@@ -35,15 +35,9 @@ local record FsModule
   relpath: function(p: string, base?: string): string
   splitext: function(p: string): string, string
   ext: function(p: string): string
-  stat: function(path: string, follow_symlinks?: boolean): Stat | nil, string
+  stat: function(path: string): Stat | nil, string
+  lstat: function(path: string): Stat | nil, string
   fstat: function(fd: number): Stat | nil, string
-  is_dir: function(mode: number): boolean
-  is_file: function(mode: number): boolean
-  is_link: function(mode: number): boolean
-  is_block_device: function(mode: number): boolean
-  is_char_device: function(mode: number): boolean
-  is_fifo: function(mode: number): boolean
-  is_socket: function(mode: number): boolean
   mkdir: function(path: string, mode?: number): boolean, string
   makedirs: function(path: string, mode?: number): boolean, string
   rmdir: function(path: string): boolean, string
@@ -51,8 +45,15 @@ local record FsModule
   getcwd: function(): string | nil, string
   opendir: function(path: string): Dir | nil, string
   fdopendir: function(fd: number): Dir | nil, string
+  read: function(path: string): string | nil, string
+  write: function(path: string, data: string, mode?: number): boolean, string
+  truncate: function(path: string, length?: number): boolean, string
   unlink: function(path: string): boolean, string
   rename: function(oldpath: string, newpath: string): boolean, string
+  copy: function(src: string, dst: string): boolean, string
+  move: function(oldpath: string, newpath: string): boolean, string
+  touch: function(path: string, mode?: number): boolean, string
+  write_atomic: function(path: string, data: string, mode?: number): boolean, string
   link: function(existingpath: string, newpath: string): boolean, string
   symlink: function(target: string, linkpath: string): boolean, string
   readlink: function(path: string): string | nil, string
@@ -64,16 +65,16 @@ local record FsModule
   utimensat: function(path: string, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
   futimens: function(fd: number, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
   mkdtemp: function(template: string): string | nil, string
-  mkstemp: function(template: string): number | nil, string
+  mkstemp: function(template: string): number | nil, string, string
   tmpfd: function(): number | nil, string
   statfs: function(path: string): Statfs | nil, string
   fstatfs: function(fd: number): Statfs | nil, string
   major: function(dev: number): number
   minor: function(dev: number): number
-  walk: function < T > (dir: string, visitor: function(string, string, WalkStat, any), ctx?: T): T
-  collect: function(dir: string, pattern: string): {string}
-  collect_all: function(dir: string): {string: FileInfo}
-  files: function(dir: string, pattern?: string): function(): string
+  walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T), ctx?: T): T | nil, string
+  collect: function(dir: string, pattern: string): {string} | nil, string
+  collect_all: function(dir: string): {string: FileInfo} | nil, string
+  files: function(dir: string, pattern?: string): FileIter, string, any, any
   F_OK: number
   R_OK: number
   W_OK: number
@@ -86,16 +87,34 @@ end
 ### stat
 
 ```teal
-function stat(path: string, follow_symlinks?: boolean): Stat | nil, string
+function stat(path: string): Stat | nil, string
 ```
 
  Get file metadata.
- Follows symbolic links by default.
+ Follows symbolic links: stat on a symlink describes its target.
+ Use lstat() to inspect the symlink itself.
 
 **Parameters:**
 
 - `path` (string) - Path to the file or directory
-- `follow_symlinks` (boolean) - Whether to follow symlinks (default true)
+
+**Returns:**
+
+- Stat - | nil File metadata, or nil on error
+- string - Error message if failed
+
+### lstat
+
+```teal
+function lstat(path: string): Stat | nil, string
+```
+
+ Get file metadata without following symbolic links.
+ lstat on a symlink describes the link itself, not its target.
+
+**Parameters:**
+
+- `path` (string) - Path to the file or symlink
 
 **Returns:**
 
@@ -118,118 +137,6 @@ function fstat(fd: number): Stat | nil, string
 
 - Stat - | nil File metadata, or nil on error
 - string - Error message if failed
-
-### is_dir
-
-```teal
-function is_dir(mode: number): boolean
-```
-
- Check if mode represents a directory.
-
-**Parameters:**
-
-- `mode` (number) - File mode from stat
-
-**Returns:**
-
-- boolean - True if directory
-
-### is_file
-
-```teal
-function is_file(mode: number): boolean
-```
-
- Check if mode represents a regular file.
-
-**Parameters:**
-
-- `mode` (number) - File mode from stat
-
-**Returns:**
-
-- boolean - True if regular file
-
-### is_link
-
-```teal
-function is_link(mode: number): boolean
-```
-
- Check if mode represents a symbolic link.
-
-**Parameters:**
-
-- `mode` (number) - File mode from stat
-
-**Returns:**
-
-- boolean - True if symbolic link
-
-### is_block_device
-
-```teal
-function is_block_device(mode: number): boolean
-```
-
- Check if mode represents a block device.
-
-**Parameters:**
-
-- `mode` (number) - File mode from stat
-
-**Returns:**
-
-- boolean - True if block device
-
-### is_char_device
-
-```teal
-function is_char_device(mode: number): boolean
-```
-
- Check if mode represents a character device.
-
-**Parameters:**
-
-- `mode` (number) - File mode from stat
-
-**Returns:**
-
-- boolean - True if character device
-
-### is_fifo
-
-```teal
-function is_fifo(mode: number): boolean
-```
-
- Check if mode represents a FIFO (named pipe).
-
-**Parameters:**
-
-- `mode` (number) - File mode from stat
-
-**Returns:**
-
-- boolean - True if FIFO
-
-### is_socket
-
-```teal
-function is_socket(mode: number): boolean
-```
-
- Check if mode represents a socket.
-
-**Parameters:**
-
-- `mode` (number) - File mode from stat
-
-**Returns:**
-
-- boolean - True if socket
 
 ### mkdir
 

@@ -30,12 +30,12 @@ local record Result
 end
 ```
 
-### Opts
+### Options
 
  Options for fetch requests.
 
 ```teal
-local record Opts
+local record Options
   --  HTTP method (default "GET").
   method: string
   --  Request body to send (for POST, PUT, PATCH).
@@ -107,14 +107,14 @@ local record StreamResult
 end
 ```
 
-### fetch
+### FetchModule
 
 ```teal
-local record fetch
-  Fetch: function(url: string, opts?: Opts): Result
-  stream: function(url: string, opts?: Opts): StreamResult
+local record FetchModule
+  fetch: function(url: string, opts?: Options): Result
+  stream: function(url: string, opts?: Options): StreamResult
   unix_proxy: function(path: string): string | nil, string
-  Opts: Opts
+  Options: Options
   Result: Result
   Reader: Reader
   StreamResult: StreamResult
@@ -122,6 +122,44 @@ end
 ```
 
 ## Functions
+
+### stream
+
+```teal
+function stream(url: string, opts?: Options): StreamResult
+```
+
+ Open a streaming HTTP request.
+ Unlike Fetch, returns immediately with a reader for incremental body
+ access. Takes the same options as Fetch except the retry fields
+ (max_attempts, base_delay, max_delay, should_retry), which do not
+ apply to streams.
+
+**Parameters:**
+
+- `url` (string) - URL to fetch
+- `opts` (Options) - optional fetch options
+
+**Returns:**
+
+- StreamResult - with reader for incremental body access
+
+### unix_proxy
+
+```teal
+function unix_proxy(path: string): string | nil, string
+```
+
+ Build a unix domain socket proxy URL from a socket path.
+
+**Parameters:**
+
+- `path` (string) - Absolute path to the unix domain socket
+
+**Returns:**
+
+- string - | nil proxy URL in unix:// format
+- string? - Error message if path is invalid
 
 ### reader:read
 

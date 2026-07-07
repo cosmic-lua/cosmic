@@ -5,12 +5,12 @@
 
 ## Types
 
-### SetitimerOpts
+### SetitimerOptions
 
  Options for setitimer: specifies which timer, initial fire time, and repeat interval.
 
 ```teal
-local record SetitimerOpts
+local record SetitimerOptions
   which: number
   valuesec: number
   valuens: number
@@ -36,6 +36,9 @@ end
 
  Signal set for blocking, unblocking, and waiting on signals.
  Wraps unix.Sigset for use with sigprocmask, sigaction, and sigsuspend.
+ Sigset is PascalCase because it is a record constructor: cosmic names
+ functions snake_case and reserves PascalCase for records and the
+ functions that construct them.
 
 ```teal
 local record Sigset
@@ -118,10 +121,10 @@ local record SignalModule
   --  was delivered and handled, or another errno on failure.
   sigsuspend: function(mask?: Sigset): nil, string
   --  Schedule SIGALRM signals at intervals.
-  --  Accepts a SetitimerOpts record with named fields for clarity.
+  --  Accepts a SetitimerOptions record with named fields for clarity.
   --  Returns a SetitimerResult with the previous timer values, or
   --  nil plus an error message.
-  setitimer: function(opts: SetitimerOpts): SetitimerResult | nil, string
+  setitimer: function(opts: SetitimerOptions): SetitimerResult | nil, string
   --  Send a signal to a process.
   --  pid > 0 signals one process by id; 0 signals current group; -1 signals all.
   kill: function(pid: number, sig: number): boolean, string
@@ -211,7 +214,7 @@ function strsignal(sig: number): string
 ### setitimer
 
 ```teal
-function setitimer(opts: SetitimerOpts): SetitimerResult | nil, string
+function setitimer(opts: SetitimerOptions): SetitimerResult | nil, string
 ```
 
  Set an interval timer with opts record for clarity.

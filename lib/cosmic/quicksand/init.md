@@ -27,8 +27,8 @@
 
 ```teal
 local record BoxIface
-  new: function(opts?: box.BoxOpts): box.Box | nil, string
-  merge: function(...: box.BoxOpts): box.BoxOpts
+  new: function(opts?: box.BoxOptions): box.Box | nil, string
+  merge: function(...: box.BoxOptions): box.BoxOptions
 end
 ```
 

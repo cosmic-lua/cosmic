@@ -1,22 +1,16 @@
-# io
+# fd
 
  File descriptor I/O operations.
  Wraps low-level file descriptor operations from cosmo.unix.
  Supports Lua 5.4's to-be-closed via __close metamethod on Handle and Pipe.
 
- WARNING: naming this module "io" shadows Lua's built-in io library:
-   local io = require("cosmic.io")  -- WRONG: hides io.stderr, io.stdin, etc.
-
- Use a distinct local name instead:
-   local cio = require("cosmic.io")
-
- cosmic.io has NO stderr, stdout, or stdin handles. For stream I/O use
+ cosmic.fd has NO stderr, stdout, or stdin handles. For stream I/O use
  Lua's standard library directly:
    io.stderr:write("error: " .. msg .. "\n")
    io.stdout:write(data)
 
- cosmic.io provides file-descriptor–level operations (open, read, write,
- pipe, slurp, barf) for cases where you need explicit fd control.
+ For whole-file path-based operations use cosmic.fs: fs.read(path),
+ fs.write(path, data), fs.truncate(path).
 
 ## Types
 
@@ -55,15 +49,13 @@ local record Pipe
 end
 ```
 
-### IoModule
+### FdModule
 
 ```teal
-local record IoModule
-  slurp: function(path: string): string | nil, string
-  barf: function(path: string, data: string, mode?: number): boolean, string
+local record FdModule
   open: function(path: string, flags: number, mode?: number, dirfd?: number): Handle | nil, string
+  wrap: function(rawfd: number): Handle
   pipe: function(flags?: number): Pipe | nil, string
-  truncate: function(path: string, length?: number): boolean, string
   sync: function()
   O_RDONLY: number
   O_WRONLY: number
@@ -114,14 +106,6 @@ function pipe(flags?: number): Pipe | nil, string
 
  Create a pipe. flags: O_CLOEXEC, O_NONBLOCK.
 
-### truncate
-
-```teal
-function truncate(path: string, length?: number): boolean, string
-```
-
- Truncate a file by path.
-
 ### sync
 
 ```teal
@@ -130,21 +114,17 @@ function sync()
 
  Flush all file system buffers to disk.
 
-### slurp
+### wrap
 
 ```teal
-function slurp(path: string): string | nil, string
+function wrap(rawfd: number): Handle
 ```
 
- Read entire file contents.
-
-### barf
-
-```teal
-function barf(path: string, data: string, mode?: number): boolean, string
-```
-
- Write data to file, creating or overwriting it.
+ Wrap an already-open raw file descriptor in a Handle.
+ Lets fds from fs.mkstemp()/fs.tmpfd() (or any other source) enter the
+ Handle world: h:read()/h:write()/h:close(), plus automatic cleanup
+ via the __close metamethod. The Handle takes ownership: closing it
+ closes the fd.
 
 ### handle:close
 

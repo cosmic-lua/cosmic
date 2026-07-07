@@ -18,7 +18,7 @@
      os.exit(assert(box:run({ "/usr/bin/bash", "-c", "make test" })))
 
  Options are plain tables, composable with `Box.merge(base, over)`.
- Full schema in `BoxOpts` below.
+ Full schema in `BoxOptions` below.
 
  The capability probe is loaded lazily to avoid a require cycle with
  cosmic.quicksand (which re-exports Box from its umbrella). The
@@ -43,7 +43,7 @@ end
 
 ```teal
 local record Box
-  opts: BoxOpts
+  opts: BoxOptions
   _closed: boolean
   run: function(self: Box, argv: {string}): integer | nil, string
   close: function(self: Box): boolean
@@ -54,7 +54,7 @@ end
 
 ```teal
 local record RunModule
-  run: function(opts: BoxOpts, argv: {string}): integer | nil, string
+  run: function(opts: BoxOptions, argv: {string}): integer | nil, string
 end
 ```
 
@@ -62,8 +62,8 @@ end
 
 ```teal
 local record BoxModule
-  new: function(opts?: BoxOpts): Box | nil, string
-  merge: function(...: BoxOpts): BoxOpts
+  new: function(opts?: BoxOptions): Box | nil, string
+  merge: function(...: BoxOptions): BoxOptions
 end
 ```
 
@@ -78,7 +78,7 @@ function run(self: Box, argv: {string}): integer | nil, string
 ### new
 
 ```teal
-function new(opts?: BoxOpts): Box | nil, string
+function new(opts?: BoxOptions): Box | nil, string
 ```
 
  Build a Box from an options table. Validates structural shape; a
@@ -86,7 +86,7 @@ function new(opts?: BoxOpts): Box | nil, string
 
 **Parameters:**
 
-- `opts` (BoxOpts?) - policy (all fields optional)
+- `opts` (BoxOptions?) - policy (all fields optional)
 
 **Returns:**
 
@@ -96,7 +96,7 @@ function new(opts?: BoxOpts): Box | nil, string
 ### merge
 
 ```teal
-function merge(...: BoxOpts): BoxOpts
+function merge(...: BoxOptions): BoxOptions
 ```
 
  Compose policy tables left-to-right. Scalars: later wins. Lists
@@ -106,8 +106,8 @@ function merge(...: BoxOpts): BoxOpts
 
 **Parameters:**
 
-- `...` (BoxOpts) - policy tables; nil entries are skipped
+- `...` (BoxOptions) - policy tables; nil entries are skipped
 
 **Returns:**
 
-- BoxOpts - merged policy
+- BoxOptions - merged policy

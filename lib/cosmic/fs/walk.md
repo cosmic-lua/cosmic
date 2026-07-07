@@ -1,4 +1,4 @@
-# fs_walk
+# walk
 
  Directory walking and file collection utilities.
  Provides recursive directory traversal, pattern-based file collection,
@@ -26,10 +26,10 @@ end
 local record FsWalkModule
   --  Walk dir tree. visitor(path, name, st, ctx): path is the FULL path; name is the basename.
   --  Do NOT join path and name — path is already complete.
-  walk: function < T > (dir: string, visitor: function(string, string, WalkStat, any), ctx?: T): T
-  collect: function(dir: string, pattern: string): {string}
-  collect_all: function(dir: string): {string: FileInfo}
-  files: function(dir: string, pattern?: string): function(): string
+  walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T), ctx?: T): T | nil, string
+  collect: function(dir: string, pattern: string): {string} | nil, string
+  collect_all: function(dir: string): {string: FileInfo} | nil, string
+  files: function(dir: string, pattern?: string): FileIter, string, any, any
 end
 ```
 
@@ -38,7 +38,7 @@ end
 ### walk
 
 ```teal
-function walk(dir: string, visitor: function(string, string, WalkStat, any), ctx?: T): T
+function walk(dir: string, visitor: function(string, string, WalkStat, T), ctx?: T): T | nil, string
 ```
 
  Walk a directory tree, calling visitor for each entry.
@@ -51,9 +51,13 @@ function walk(dir: string, visitor: function(string, string, WalkStat, any), ctx
    ctx   (T)       — the context value passed to walk().
  IMPORTANT: do NOT join path and name — path is already the full path.
  Joining them produces doubled paths like "dir/sub/file.txt/file.txt".
- WalkStat is defined in cosmic.fs_types. Import it as:
-   local types = require("cosmic.fs_types")
-   local WalkStat = types.WalkStat
+ WalkStat is defined in cosmic.fs.types. Import it as:
+   local types = require("cosmic.fs.types")
+   local type WalkStat = types.WalkStat
+ If the root directory cannot be opened, returns nil plus the error.
+ Failures below the root (unreadable subdirectory, vanished entry) do
+ not stop the walk; the first such error is returned alongside the
+ context so callers never mistake a partial walk for a complete one.
 
 **Parameters:**
 
@@ -63,16 +67,20 @@ function walk(dir: string, visitor: function(string, string, WalkStat, any), ctx
 
 **Returns:**
 
-- T - The context object, potentially modified by visitor
+- T - | nil The context object, or nil if the root could not be opened
+- string - First error encountered, if any
 
 ### collect
 
 ```teal
-function collect(dir: string, pattern: string): {string}
+function collect(dir: string, pattern: string): {string} | nil, string
 ```
 
  Collect file paths matching a pattern.
  Recursively walks directory tree and returns matching file paths.
+ If the root directory cannot be opened, returns nil plus the error.
+ Failures below the root do not stop the collection; the first such
+ error is returned alongside the results.
 
 **Parameters:**
 
@@ -81,16 +89,20 @@ function collect(dir: string, pattern: string): {string}
 
 **Returns:**
 
-- {string} - List of full paths to matching files
+- {string} - | nil List of matching paths, or nil if the root failed
+- string - First error encountered, if any
 
 ### collect_all
 
 ```teal
-function collect_all(dir: string): {string: FileInfo}
+function collect_all(dir: string): {string: FileInfo} | nil, string
 ```
 
  Recursively collect all files with their Unix permissions.
  Returns a map of relative paths to file information.
+ If the root directory cannot be opened, returns nil plus the error.
+ Failures below the root do not stop the collection; the first such
+ error is returned alongside the results.
 
 **Parameters:**
 
@@ -98,16 +110,22 @@ function collect_all(dir: string): {string: FileInfo}
 
 **Returns:**
 
-- {string:FileInfo} - Map of relative paths to file information
+- {string:FileInfo} - | nil Map of relative paths to file information
+- string - First error encountered, if any
 
 ### files
 
 ```teal
-function files(dir: string, pattern?: string): function(): string
+function files(dir: string, pattern?: string): FileIter, string, any, any
 ```
 
  Iterate over files matching a pattern.
- Returns an iterator that yields file paths.
+ Returns an iterator that yields file paths. The fourth return value
+ is a to-be-closed guard: a plain `for f in fs.files(dir) do ... end`
+ loop adopts it as the loop's closing value (Lua 5.4), so directory
+ handles are closed even when the loop exits early via break/error.
+ If the root directory cannot be opened, the iterator yields nothing
+ and the error is returned as the second value.
 
 **Parameters:**
 
@@ -117,3 +135,6 @@ function files(dir: string, pattern?: string): function(): string
 **Returns:**
 
 - function - Iterator yielding file paths
+- string - Error if the root directory could not be opened
+- nil - Unused (generic-for control slot)
+- any - Closing guard that releases open directory handles

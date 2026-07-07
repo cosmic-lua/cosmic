@@ -58,14 +58,14 @@ local record Handle
 end
 ```
 
-### Opts
+### Options
 
  Options for spawning a process.
  stdout/stderr as numbers are raw fds dup2'd onto the child's fd 1/2 (the
  corresponding Result field is then ""). See Example_spawn_pipe.
 
 ```teal
-local record Opts
+local record Options
   stdin: string | number
   stdout: number
   stderr: number
@@ -78,8 +78,8 @@ end
 
 ```teal
 local record ChildModule
-  spawn: function(argv: {string}, opts?: Opts): Handle | nil, string
-  run: function(argv: {string}, opts?: Opts): Result | nil, string
+  spawn: function(argv: {string}, opts?: Options): Handle | nil, string
+  run: function(argv: {string}, opts?: Options): Result | nil, string
   prepare_zip_exec: function(zip_path: string): number | nil, string
 end
 ```
@@ -106,7 +106,7 @@ function prepare_zip_exec(zip_path: string): number | nil, string
 ### spawn
 
 ```teal
-function spawn(argv: {string}, opts?: Opts): Handle | nil, string
+function spawn(argv: {string}, opts?: Options): Handle | nil, string
 ```
 
  Spawns a child process with I/O control. Uses fexecve for /zip/ paths.
@@ -119,7 +119,7 @@ function spawn(argv: {string}, opts?: Opts): Handle | nil, string
 **Parameters:**
 
 - `argv` ({string}) - Command and arguments
-- `opts` (Opts?) - Spawn options
+- `opts` (Options?) - Spawn options
 
 **Returns:**
 
@@ -128,7 +128,7 @@ function spawn(argv: {string}, opts?: Opts): Handle | nil, string
 ### run
 
 ```teal
-function run(argv: {string}, opts?: Opts): Result | nil, string
+function run(argv: {string}, opts?: Options): Result | nil, string
 ```
 
  One-shot spawn: run to completion and return the Result.
@@ -136,7 +136,7 @@ function run(argv: {string}, opts?: Opts): Result | nil, string
 **Parameters:**
 
 - `argv` ({string}) - Command and arguments
-- `opts` (Opts?) - Spawn options
+- `opts` (Options?) - Spawn options
 
 **Returns:**
 

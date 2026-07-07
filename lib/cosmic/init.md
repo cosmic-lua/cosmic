@@ -1,7 +1,7 @@
 # init
 
- Cosmopolitan Lua utilities.
- Main entry point and utilities for cosmic modules.
+ cosmic: a batteries-included Lua/Teal distribution built on
+ Cosmopolitan Libc. Main entry point helper for cosmic programs.
 
 ## Types
 
@@ -16,12 +16,23 @@ local record Env
 end
 ```
 
+### VersionInfo
+
+ Version information embedded at build time.
+
+```teal
+local record VersionInfo
+  cosmic: string
+  cosmos: string
+end
+```
+
 ### cosmic
 
 ```teal
 local record cosmic
   _VERSION: string
   _DESCRIPTION: string
-  main: function(fn: MainFn)
+  main: function(fn: function(args: {string}, env: Env): number, string)
 end
 ```

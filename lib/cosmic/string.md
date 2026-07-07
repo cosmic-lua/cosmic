@@ -17,8 +17,6 @@
 ```teal
 local record StringModule
   capitalize: function(s: string): string
-  upper: function(s: string): string
-  lower: function(s: string): string
   trim: function(s: string): string
   ltrim: function(s: string): string
   rtrim: function(s: string): string
@@ -46,38 +44,6 @@ function capitalize(s: string): string
 **Returns:**
 
 - string - The string with first character capitalized
-
-### upper
-
-```teal
-function upper(s: string): string
-```
-
- Convert a string to uppercase.
-
-**Parameters:**
-
-- `s` (string) - The string to convert
-
-**Returns:**
-
-- string - The uppercase string
-
-### lower
-
-```teal
-function lower(s: string): string
-```
-
- Convert a string to lowercase.
-
-**Parameters:**
-
-- `s` (string) - The string to convert
-
-**Returns:**
-
-- string - The lowercase string
 
 ### trim
 

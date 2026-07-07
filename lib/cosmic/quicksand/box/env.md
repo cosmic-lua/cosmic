@@ -23,7 +23,7 @@
 
 ```teal
 local record BoxEnvModule
-  apply: function(opts: EnvOpts, parent: {string: string}): {string: string}
+  apply: function(opts: EnvOptions, parent: {string: string}): {string: string}
   render: function(env: {string: string}): {string}
 end
 ```
@@ -33,7 +33,7 @@ end
 ### apply
 
 ```teal
-function apply(opts: EnvOpts, parent: {string: string}): {string: string}
+function apply(opts: EnvOptions, parent: {string: string}): {string: string}
 ```
 
 ### render

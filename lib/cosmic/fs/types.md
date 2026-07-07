@@ -1,6 +1,7 @@
-# fs_types
+# types
 
- Shared type definitions for the fs module family.
+ Shared type definitions for the fs module family, plus the runtime
+ wrapper that puts type predicates on Stat values.
 
 ## Types
 
@@ -39,7 +40,7 @@ end
 ### Stat
 
  File or directory metadata.
- Use is_dir(), is_file(), etc. to check file type.
+ Use the is_dir()/is_file()/is_link()/... methods to check file type.
 
 ```teal
 local record Stat
@@ -67,6 +68,20 @@ local record Stat
   dev: function(self: Stat): number
   --  Returns device ID for special files (0 or -1 for non-devices).
   rdev: function(self: Stat): number
+  --  Returns true if this is a directory.
+  is_dir: function(self: Stat): boolean
+  --  Returns true if this is a regular file.
+  is_file: function(self: Stat): boolean
+  --  Returns true if this is a symbolic link (only lstat can see one).
+  is_link: function(self: Stat): boolean
+  --  Returns true if this is a block device.
+  is_block_device: function(self: Stat): boolean
+  --  Returns true if this is a character device.
+  is_char_device: function(self: Stat): boolean
+  --  Returns true if this is a FIFO (named pipe).
+  is_fifo: function(self: Stat): boolean
+  --  Returns true if this is a socket.
+  is_socket: function(self: Stat): boolean
 end
 ```
 
@@ -92,18 +107,6 @@ local record Dir
 end
 ```
 
-### WalkStat
-
- File or directory metadata for walk visitor.
-
-```teal
-local record WalkStat
-  mode: function(self: WalkStat): number
-  size: function(self: WalkStat): number
-  mtim: function(self: WalkStat): number
-end
-```
-
 ### FileInfo
 
  File information with Unix permissions.
@@ -115,3 +118,22 @@ end
 ```
 
 ### fs_types
+
+```teal
+local record fs_types
+  --  Wrap a raw cosmo.unix Stat so it carries the type predicates.
+  wrap: function(raw: unix.Stat): Stat
+end
+```
+
+### Wrapped
+
+ Wrapper table: holds the raw stat userdata; a shared metatable
+ delegates the accessors and implements the predicates, so wrapping
+ costs one small table per stat call.
+
+```teal
+local record Wrapped
+  raw: unix.Stat
+end
+```

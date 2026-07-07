@@ -27,10 +27,10 @@ local record NetRule
 end
 ```
 
-### NetOpts
+### NetOptions
 
 ```teal
-local record NetOpts
+local record NetOptions
   proxy_env: boolean
   allow: {string: NetRule}
   log_level: LogLevel
@@ -38,10 +38,10 @@ local record NetOpts
 end
 ```
 
-### ProcOpts
+### ProcOptions
 
 ```teal
-local record ProcOpts
+local record ProcOptions
   no_new_privs: boolean
   uid: integer
   gid: integer
@@ -51,32 +51,32 @@ local record ProcOpts
 end
 ```
 
-### EnvOpts
+### EnvOptions
 
  Env policy for the boxed workload: `keep` names inherit from the
  parent environment (everything else is dropped), `set` overrides /
  adds. Consumed by cosmic.quicksand.box.env.
 
 ```teal
-local record EnvOpts
+local record EnvOptions
   keep: {string}
   set: {string: string}
 end
 ```
 
-### BoxOpts
+### BoxOptions
 
  Full box policy. Every field is optional; omitting a section skips
  that subsystem. Scalars default to nil (i.e. no policy); list fields
  default to empty.
 
 ```teal
-local record BoxOpts
+local record BoxOptions
   hostname: string
   fs: FsOpts
-  net: NetOpts
-  proc: ProcOpts
-  env: EnvOpts
+  net: NetOptions
+  proc: ProcOptions
+  env: EnvOptions
   cwd: string
   pid_ns: boolean
 end

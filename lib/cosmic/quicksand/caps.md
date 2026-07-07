@@ -23,12 +23,12 @@
 
 ## Types
 
-### DropOpts
+### DropOptions
 
  Options for drop_bounding().
 
 ```teal
-local record DropOpts
+local record DropOptions
   keep: {string}
 end
 ```
@@ -43,7 +43,7 @@ local record CapsModule
   mask: function(names: {string}): integer | nil, string
   bounding_read: function(cap: string): boolean | nil, string
   bounding_drop: function(cap: string): boolean, string
-  drop_bounding: function(opts?: DropOpts): boolean, string
+  drop_bounding: function(opts?: DropOptions): boolean, string
 end
 ```
 
@@ -142,7 +142,7 @@ function bounding_drop(cap: string): boolean, string
 ### drop_bounding
 
 ```teal
-function drop_bounding(opts?: DropOpts): boolean, string
+function drop_bounding(opts?: DropOptions): boolean, string
 ```
 
  Drop every capability from the bounding set, optionally retaining
@@ -158,7 +158,7 @@ function drop_bounding(opts?: DropOpts): boolean, string
 
 **Parameters:**
 
-- `opts` (DropOpts?) - optional keep-set
+- `opts` (DropOptions?) - optional keep-set
 
 **Returns:**
 

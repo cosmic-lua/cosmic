@@ -21,7 +21,7 @@ local record DateTime
   gmtoff: number
   wday: number
   yday: number
-  isdst: number
+  isdst: boolean
   zone: string
 end
 ```
@@ -58,6 +58,8 @@ local record TimeModule
   clock_gettime: function(clock?: number): number, number
   now: function(): number, number
   monotonic: function(): number, number
+  now_ms: function(): number
+  monotonic_ms: function(): number
   sleep: function(seconds: number, nanos?: number): number | nil, number, string
   sleep_ms: function(ms: number): number | nil, number, string
   gmtime: function(unixts: number): DateTime
@@ -119,6 +121,33 @@ function monotonic(): number, number
 
 - number - Seconds
 - number - Nanoseconds
+
+### now_ms
+
+```teal
+function now_ms(): number
+```
+
+ Get current wall clock time in whole milliseconds since the epoch.
+ Exact for timestamps within 2^53 ms (~285,000 years), so no manual
+ (secs, nanos) arithmetic is needed for timeouts or timestamps.
+
+**Returns:**
+
+- number - Milliseconds since epoch
+
+### monotonic_ms
+
+```teal
+function monotonic_ms(): number
+```
+
+ Get monotonic time in whole milliseconds from an unspecified epoch.
+ Use differences between two calls to measure elapsed time.
+
+**Returns:**
+
+- number - Milliseconds
 
 ### sleep
 

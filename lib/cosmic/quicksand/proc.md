@@ -31,12 +31,12 @@ local record Barrier
 end
 ```
 
-### InitOpts
+### InitOptions
 
  Options for become_init().
 
 ```teal
-local record InitOpts
+local record InitOptions
   sidecars: {integer}
   signals: {string}
   on_sidecar_exit: function(pid: integer, ws: integer)
@@ -52,7 +52,7 @@ local record ProcModule
   setup_userns_maps: function(uid: integer, gid: integer): boolean, string
   barrier: function(): Barrier | nil, string
   fork_pidns: function(): integer | nil, string
-  become_init: function(main_pid: integer, opts: InitOpts): integer
+  become_init: function(main_pid: integer, opts: InitOptions): integer
   DEFAULT_SIGNALS: {string}
 end
 ```
@@ -183,7 +183,7 @@ function fork_pidns(): integer | nil, string
 ### become_init
 
 ```teal
-function become_init(main_pid: integer, opts: InitOpts): integer
+function become_init(main_pid: integer, opts: InitOptions): integer
 ```
 
  Run a PID-1 supervisor loop. Forwards signals in opts.signals
@@ -201,7 +201,7 @@ function become_init(main_pid: integer, opts: InitOpts): integer
 **Parameters:**
 
 - `main_pid` (integer) - pid of the main user-visible child
-- `opts` (InitOpts?) - sidecar pids, signal set, exit hook
+- `opts` (InitOptions?) - sidecar pids, signal set, exit hook
 
 **Returns:**
 

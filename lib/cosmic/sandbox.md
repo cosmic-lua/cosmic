@@ -93,7 +93,7 @@ end
 local record SandboxModule
   apply: function(policy: Policy): boolean, string
   available: function(): Availability
-  plan_landlock: function(fs: Fs): RestrictOpts
+  plan_landlock: function(fs: Fs): RestrictOptions
 end
 ```
 
@@ -115,7 +115,7 @@ function available(): Availability
 ### plan_landlock
 
 ```teal
-function plan_landlock(fs: Fs): RestrictOpts
+function plan_landlock(fs: Fs): RestrictOptions
 ```
 
  Translate an fs policy to `cosmic.landlock.restrict` options. Pure:
@@ -130,7 +130,7 @@ function plan_landlock(fs: Fs): RestrictOpts
 
 **Returns:**
 
-- RestrictOpts - options for cosmic.landlock.restrict
+- RestrictOptions - options for cosmic.landlock.restrict
 
 ### apply
 

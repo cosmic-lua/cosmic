@@ -32,7 +32,7 @@ end
 local record ReModule
   compile: function(pattern: string, flags?: number): Regex | nil, string
   search: function(pattern: string, text: string, flags?: number): string | nil, {string} | nil, string | nil
-  match: function(pattern: string, text: string, flags?: number): boolean, string
+  test: function(pattern: string, text: string, flags?: number): boolean, string
   BASIC: number
   ICASE: number
   NEWLINE: number
@@ -91,14 +91,16 @@ function search(pattern: string, text: string, flags?: number): string | nil, {s
 - {string} - | nil Capture groups on match
 - string - | nil Error message if compilation or the engine failed
 
-### match
+### test
 
 ```teal
-function match(pattern: string, text: string, flags?: number): boolean, string
+function test(pattern: string, text: string, flags?: number): boolean, string
 ```
 
  Check if pattern matches anywhere in text.
  Convenience function that returns boolean instead of matched text.
+ Named test (not match) to avoid confusion with Lua's string.match,
+ which returns the matched text.
 
 **Parameters:**
 
