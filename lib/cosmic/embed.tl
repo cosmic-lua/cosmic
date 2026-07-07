@@ -145,7 +145,7 @@ local function collect_dir(dir: string): {FileToEmbed} | nil, string
         -- doesn't expose d_type; fall back to a real lstat so a symlinked
         -- dir reports S_ISLNK, not S_ISDIR, preserving the same cycle
         -- prevention as the d_type == DT_DIR branch above).
-        local st = fs.stat(full_path, false)
+        local st = fs.lstat(full_path)
         if st then
           local sst = st as Stat
           if fs.is_dir(sst:mode()) then

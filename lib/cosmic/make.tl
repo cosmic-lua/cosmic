@@ -38,7 +38,7 @@ local function scan(dir: string): Project
     examples = {},
   }
 
-  local files = fs.collect(dir, "*.tl")
+  local files = (fs.collect(dir, "*.tl") or {}) as {string}
   table.sort(files)
 
   for _, path in ipairs(files) do

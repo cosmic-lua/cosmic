@@ -38,23 +38,25 @@ local function exists(p: string): boolean
 end
 
 --- Check if path is a regular file.
---- Symbolic links are not followed (uses lstat): a symlink is never considered
---- a regular file, even if it points to one. Use islink() to detect symlinks,
---- or stat() to inspect the symlink target. Returns false on error.
+--- Symbolic links are followed (uses stat), matching POSIX `test -f`,
+--- Python, and Node: a symlink to a regular file counts as a regular
+--- file. Use islink() to detect the symlink itself. Returns false on error.
 --- @param p string The path to check
 --- @return boolean True if the path is a regular file
 local function isfile(p: string): boolean
-  return cosmo_path.isfile(p)
+  local st = unix.stat(p)
+  return st ~= nil and unix.S_ISREG(st:mode())
 end
 
 --- Check if path is a directory.
---- Symbolic links are not followed (uses lstat): a symlink is never considered
---- a directory, even if it points to one. Use islink() to detect symlinks,
---- or stat() to inspect the symlink target. Returns false on error.
+--- Symbolic links are followed (uses stat), matching POSIX `test -d`,
+--- Python, and Node: a symlink to a directory counts as a directory.
+--- Use islink() to detect the symlink itself. Returns false on error.
 --- @param p string The path to check
 --- @return boolean True if the path is a directory
 local function isdir(p: string): boolean
-  return cosmo_path.isdir(p)
+  local st = unix.stat(p)
+  return st ~= nil and unix.S_ISDIR(st:mode())
 end
 
 --- Check if path is a symbolic link.

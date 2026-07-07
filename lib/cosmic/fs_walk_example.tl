@@ -20,7 +20,7 @@ local function Example_walk()
 
   -- Collect entries and sort for deterministic output.
   local entries: {string} = {}
-  fs.walk(tmpdir, function(path: string, name: string, st: types.WalkStat, ctx: {string})
+  fs.walk(tmpdir, function(_path: string, name: string, st: types.WalkStat, ctx: {string})
       -- path is the full path; name is just the basename.
       -- Never do fs.join(path, name) — that would double the path.
       local kind = fs.is_dir(st:mode()) and "dir" or "file"
@@ -53,8 +53,9 @@ local function Example_collect()
   assert(cio.barf(fs.join(subdir, "util.lua"), "-- util\n"))
   assert(cio.barf(fs.join(tmpdir, "README.txt"), "readme\n"))
 
-  -- collect returns full paths; sort for deterministic output.
-  local luafiles = fs.collect(tmpdir, "*.lua")
+  -- collect returns full paths (or nil if the root could not be opened);
+  -- sort for deterministic output.
+  local luafiles = (fs.collect(tmpdir, "*.lua") or {}) as {string}
   table.sort(luafiles)
   for _, p in ipairs(luafiles) do
     -- print only the basename so output is not path-dependent.

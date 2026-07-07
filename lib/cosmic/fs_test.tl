@@ -65,15 +65,16 @@ local function test_stat_symlink()
   touch(filepath, "hello")
   fs.symlink(filepath, linkpath)
 
-  -- Follow symlinks by default
+  -- stat always follows symlinks
   local st = fs.stat(linkpath)
   assert(st, "stat should succeed")
   local s = st as fs_types.Stat
   assert(fs.is_file(s:mode()), "expected regular file when following symlink")
+  assert(s:size() == 5, "stat should describe the target, got size " .. s:size())
 
-  -- Don't follow symlinks
-  local st2 = fs.stat(linkpath, false)
-  assert(st2, "stat should succeed with follow_symlinks=false")
+  -- lstat never follows symlinks
+  local st2 = fs.lstat(linkpath)
+  assert(st2, "lstat should succeed")
   local s2 = st2 as fs_types.Stat
   assert(fs.is_link(s2:mode()), "expected symlink")
 
@@ -468,8 +469,8 @@ local function test_is_type_functions()
   assert(fs.is_dir(dir_s:mode()), "expected is_dir true for directory")
   assert(not fs.is_file(dir_s:mode()), "expected is_file false for directory")
 
-  local link_st = fs.stat(linkpath, false)
-  assert(link_st, "stat should succeed")
+  local link_st = fs.lstat(linkpath)
+  assert(link_st, "lstat should succeed")
   local link_s = link_st as fs_types.Stat
   assert(fs.is_link(link_s:mode()), "expected is_link true for symlink")
 

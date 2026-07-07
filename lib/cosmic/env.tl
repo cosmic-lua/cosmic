@@ -7,11 +7,16 @@ local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").str
 
 --- Get the value of an environment variable.
---- Returns nil if the variable is not set.
+--- Returns the default (nil if not given) when the variable is not set.
 --- @param name string The name of the environment variable
---- @return string? The value of the environment variable, or nil if not set
-local function get(name: string): string
-  return os.getenv(name)
+--- @param default string? Value to return when the variable is not set
+--- @return string? The value of the environment variable, or the default
+local function get(name: string, default?: string): string
+  local value = os.getenv(name)
+  if value == nil then
+    return default
+  end
+  return value
 end
 
 --- Set an environment variable.
@@ -81,7 +86,7 @@ local function list(): {string}
 end
 
 local record EnvModule
-  get: function(name: string): string
+  get: function(name: string, default?: string): string
   set: function(name: string, value: string, overwrite?: boolean): boolean, string
   unset: function(name: string): boolean, string
   clear: function(): boolean, string

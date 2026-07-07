@@ -4,6 +4,7 @@
 local unix = require("cosmo.unix")
 local cosmo_path = require("cosmo.path")
 local types = require("cosmic.fs_types")
+local errstr = require("cosmic.errno").str
 local WalkStat = types.WalkStat
 local FileInfo = types.FileInfo
 
@@ -14,6 +15,42 @@ local FileInfo = types.FileInfo
 local record WalkDirHandle
   read: function(self): string, number
   close: function(self)
+end
+
+--- Recursive walk helper. Records the first subtree error (opendir or
+--- stat failure below the root) in errbox[1] rather than swallowing it.
+local function walk_tree < T > (dir: string,
+    visitor: function(string, string, WalkStat, T), ctx: T,
+    errbox: {string})
+  local handle, oerr = unix.opendir(dir)
+  if not handle then
+    if not errbox[1] then
+      errbox[1] = errstr(oerr, "opendir: " .. dir)
+    end
+    return
+  end
+  local h = handle as WalkDirHandle
+
+  while true do
+    local entry = h:read()
+    if not entry then break end
+    if entry ~= "." and entry ~= ".." then
+      local full_path = cosmo_path.join(dir, entry)
+      -- Use AT_SYMLINK_NOFOLLOW so symlinked dirs are seen as S_ISLNK, not S_ISDIR.
+      -- This prevents infinite recursion through symlink cycles.
+      local st, serr = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
+      if st then
+        local wst = st as WalkStat
+        visitor(full_path, entry, wst, ctx)
+        if unix.S_ISDIR(wst:mode()) then
+          walk_tree(full_path, visitor, ctx, errbox)
+        end
+      elseif not errbox[1] then
+        errbox[1] = errstr(serr, "stat: " .. full_path)
+      end
+    end
+  end
+  h:close()
 end
 
 --- Walk a directory tree, calling visitor for each entry.
@@ -33,33 +70,43 @@ end
 ---   local types = require("cosmic.fs_types")
 ---   local WalkStat = types.WalkStat
 ---
+--- If the root directory cannot be opened, returns nil plus the error.
+--- Failures below the root (unreadable subdirectory, vanished entry) do
+--- not stop the walk; the first such error is returned alongside the
+--- context so callers never mistake a partial walk for a complete one.
 --- @param dir string The directory to walk
 --- @param visitor function Called for each entry: function(path, name, st, ctx)
 --- @param ctx T Optional context passed to every visitor call
---- @return T The context object, potentially modified by visitor
-local function walk < T > (dir: string, visitor: function(string, string, WalkStat, any), ctx?: T): T
+--- @return T | nil The context object, or nil if the root could not be opened
+--- @return string First error encountered, if any
+local function walk < T > (dir: string, visitor: function(string, string, WalkStat, T), ctx?: T): T | nil, string
   ctx = ctx or {} as T
-  local handle = unix.opendir(dir) as WalkDirHandle
-  if not handle then return ctx end
+  local handle, oerr = unix.opendir(dir)
+  if not handle then
+    return nil, errstr(oerr, "opendir: " .. dir)
+  end
+  local h = handle as WalkDirHandle
+  local errbox: {string} = {}
 
   while true do
-    local entry = handle:read()
+    local entry = h:read()
     if not entry then break end
     if entry ~= "." and entry ~= ".." then
       local full_path = cosmo_path.join(dir, entry)
-      -- Use AT_SYMLINK_NOFOLLOW so symlinked dirs are seen as S_ISLNK, not S_ISDIR.
-      -- This prevents infinite recursion through symlink cycles.
-      local st = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW) as WalkStat
+      local st, serr = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
       if st then
-        visitor(full_path, entry, st, ctx)
-        if unix.S_ISDIR(st:mode()) then
-          walk(full_path, visitor, ctx)
+        local wst = st as WalkStat
+        visitor(full_path, entry, wst, ctx)
+        if unix.S_ISDIR(wst:mode()) then
+          walk_tree(full_path, visitor, ctx, errbox)
         end
+      elseif not errbox[1] then
+        errbox[1] = errstr(serr, "stat: " .. full_path)
       end
     end
   end
-  handle:close()
-  return ctx
+  h:close()
+  return ctx, errbox[1]
 end
 
 --- Convert a glob pattern to a Lua pattern.
@@ -79,10 +126,14 @@ end
 
 --- Collect file paths matching a pattern.
 --- Recursively walks directory tree and returns matching file paths.
+--- If the root directory cannot be opened, returns nil plus the error.
+--- Failures below the root do not stop the collection; the first such
+--- error is returned alongside the results.
 --- @param dir string The directory to search
 --- @param pattern string Glob pattern (*.lua) or Lua pattern (%.lua$)
---- @return {string} List of full paths to matching files
-local function collect(dir: string, pattern: string): {string}
+--- @return {string} | nil List of matching paths, or nil if the root failed
+--- @return string First error encountered, if any
+local function collect(dir: string, pattern: string): {string} | nil, string
   -- Detect if it's a glob or Lua pattern
   -- Globs use * and ?, Lua patterns use % for escaping
   local is_glob = pattern:find("*", 1, true) or pattern:find("?", 1, true)
@@ -94,27 +145,41 @@ local function collect(dir: string, pattern: string): {string}
   end
 
   local results: {string} = {}
-  walk(dir, function(full_path: string, entry: string, st: WalkStat, ctx: {string})
+  local ctx, err = walk(dir, function(full_path: string, entry: string, st: WalkStat, acc: {string})
       if not unix.S_ISDIR(st:mode()) and entry:match(lua_pattern) then
-        table.insert(ctx, full_path)
+        table.insert(acc, full_path)
       end
     end, results)
-  return results
+  if not ctx then
+    return nil, err
+  end
+  return results, err
 end
 
 --- Recursively collect all files with their Unix permissions.
 --- Returns a map of relative paths to file information.
+--- If the root directory cannot be opened, returns nil plus the error.
+--- Failures below the root do not stop the collection; the first such
+--- error is returned alongside the results.
 --- @param dir string The directory to walk
---- @return {string:FileInfo} Map of relative paths to file information
-local function collect_all(dir: string): {string: FileInfo}
+--- @return {string:FileInfo} | nil Map of relative paths to file information
+--- @return string First error encountered, if any
+local function collect_all(dir: string): {string: FileInfo} | nil, string
   local files: {string: FileInfo} = {}
+  local errbox: {string} = {}
 
-  local function do_walk(base_dir: string, rel_base: string)
-    local handle = unix.opendir(base_dir) as WalkDirHandle
-    if not handle then return end
+  local function do_walk(base_dir: string, rel_base: string): boolean
+    local handle, oerr = unix.opendir(base_dir)
+    if not handle then
+      if not errbox[1] then
+        errbox[1] = errstr(oerr, "opendir: " .. base_dir)
+      end
+      return false
+    end
+    local h = handle as WalkDirHandle
 
     while true do
-      local entry, kind = handle:read()
+      local entry, kind = h:read()
       if not entry then break end
       if entry ~= "." and entry ~= ".." then
         local full_path = cosmo_path.join(base_dir, entry)
@@ -135,110 +200,141 @@ local function collect_all(dir: string): {string: FileInfo}
           -- doesn't expose d_type; fall back to a real stat). Use
           -- AT_SYMLINK_NOFOLLOW so a symlinked dir reports S_ISLNK, not
           -- S_ISDIR, preserving the same cycle prevention as above.
-          local st = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW) as WalkStat
+          local st, serr = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
           if st then
-            if unix.S_ISDIR(st:mode()) then
+            local wst = st as WalkStat
+            if unix.S_ISDIR(wst:mode()) then
               do_walk(full_path, rel_path)
-            elseif unix.S_ISREG(st:mode()) then
-              local mode = st:mode() & 0x1ff
+            elseif unix.S_ISREG(wst:mode()) then
+              local mode = wst:mode() & 0x1ff
               files[rel_path] = {mode = mode}
             end
+          elseif not errbox[1] then
+            errbox[1] = errstr(serr, "stat: " .. full_path)
           end
         end
       end
     end
-    handle:close()
+    h:close()
+    return true
   end
 
-  do_walk(dir, "")
-  return files
+  if not do_walk(dir, "") then
+    return nil, errbox[1]
+  end
+  return files, errbox[1]
 end
 
---- Iterate over files matching a pattern.
---- Returns an iterator that yields file paths.
---- @param dir string The directory to search
---- @param pattern string Glob pattern (*.lua) - defaults to all files (*)
---- @return function Iterator yielding file paths
-local function files(dir: string, pattern?: string): function(): string
-  pattern = pattern or "*"
+--- Iterator over file paths, as returned by files().
+local type FileIter = function(): string
 
-  -- Detect if it's a glob or Lua pattern
-  local is_glob = pattern:find("*", 1, true) or pattern:find("?", 1, true)
-  local lua_pattern: string
-  if is_glob then
-    lua_pattern = glob_to_pattern(pattern)
-  else
-    lua_pattern = pattern
-  end
+  --- Iterate over files matching a pattern.
+  --- Returns an iterator that yields file paths. The fourth return value
+  --- is a to-be-closed guard: a plain `for f in fs.files(dir) do ... end`
+  --- loop adopts it as the loop's closing value (Lua 5.4), so directory
+  --- handles are closed even when the loop exits early via break/error.
+  --- If the root directory cannot be opened, the iterator yields nothing
+  --- and the error is returned as the second value.
+  --- @param dir string The directory to search
+  --- @param pattern string Glob pattern (*.lua) - defaults to all files (*)
+  --- @return function Iterator yielding file paths
+  --- @return string Error if the root directory could not be opened
+  --- @return nil Unused (generic-for control slot)
+  --- @return any Closing guard that releases open directory handles
+  local function files(dir: string, pattern?: string): FileIter, string, any, any
+    pattern = pattern or "*"
 
-  -- Stack of (dir, handle) for depth-first traversal
-  local stack: {{string, WalkDirHandle}} = {}
-  local handle = unix.opendir(dir) as WalkDirHandle
-  if handle then
-    table.insert(stack, {dir, handle})
-  end
+    -- Detect if it's a glob or Lua pattern
+    local is_glob = pattern:find("*", 1, true) or pattern:find("?", 1, true)
+    local lua_pattern: string
+    if is_glob then
+      lua_pattern = glob_to_pattern(pattern)
+    else
+      lua_pattern = pattern
+    end
 
-  return function(): string
-    while #stack > 0 do
-      local current = stack[#stack]
-      local current_dir = current[1]
-      local current_handle = current[2]
+    -- Stack of (dir, handle) for depth-first traversal
+    local stack: {{string, WalkDirHandle}} = {}
+    local handle, oerr = unix.opendir(dir)
+    if not handle then
+      return function(): string return nil end,
+      errstr(oerr, "opendir: " .. dir), nil, nil
+    end
+    table.insert(stack, {dir, handle as WalkDirHandle})
 
-      local entry, kind = current_handle:read()
-      if not entry then
-        current_handle:close()
-        table.remove(stack)
-      elseif entry ~= "." and entry ~= ".." then
-        local full_path = cosmo_path.join(current_dir, entry)
-        if kind == unix.DT_DIR then
-          -- d_type never follows symlinks, so this is a real directory
-          -- (a symlinked dir reports DT_LNK), and skips a stat(2) call.
-          local subhandle = unix.opendir(full_path) as WalkDirHandle
-          if subhandle then
-            table.insert(stack, {full_path, subhandle})
-          end
-        elseif kind ~= unix.DT_UNKNOWN then
-          -- Definitely not a directory: files() never needs stat data,
-          -- only the path, so just check the pattern without stat(2).
-          if entry:match(lua_pattern) then
-            return full_path
-          end
-        else
-          -- Filesystem doesn't expose d_type; fall back to a real stat,
-          -- using AT_SYMLINK_NOFOLLOW so a symlinked dir reports
-          -- S_ISLNK, not S_ISDIR, preserving the same cycle prevention.
-          local st = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW) as WalkStat
-          if st then
-            if unix.S_ISDIR(st:mode()) then
-              local subhandle = unix.opendir(full_path) as WalkDirHandle
-              if subhandle then
-                table.insert(stack, {full_path, subhandle})
-              end
-            elseif entry:match(lua_pattern) then
+    local function close_all()
+      for i = #stack, 1, -1 do
+        stack[i][2]:close()
+        stack[i] = nil
+      end
+    end
+    local guard = setmetatable({}, {__close = close_all, __gc = close_all})
+
+    local iter = function(): string
+      while #stack > 0 do
+        local current = stack[#stack]
+        local current_dir = current[1]
+        local current_handle = current[2]
+
+        local entry, kind = current_handle:read()
+        if not entry then
+          current_handle:close()
+          table.remove(stack)
+        elseif entry ~= "." and entry ~= ".." then
+          local full_path = cosmo_path.join(current_dir, entry)
+          if kind == unix.DT_DIR then
+            -- d_type never follows symlinks, so this is a real directory
+            -- (a symlinked dir reports DT_LNK), and skips a stat(2) call.
+            local subhandle = unix.opendir(full_path)
+            if subhandle then
+              table.insert(stack, {full_path, subhandle as WalkDirHandle})
+            end
+          elseif kind ~= unix.DT_UNKNOWN then
+            -- Definitely not a directory: files() never needs stat data,
+            -- only the path, so just check the pattern without stat(2).
+            if entry:match(lua_pattern) then
               return full_path
+            end
+          else
+            -- Filesystem doesn't expose d_type; fall back to a real stat,
+            -- using AT_SYMLINK_NOFOLLOW so a symlinked dir reports
+            -- S_ISLNK, not S_ISDIR, preserving the same cycle prevention.
+            local st = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW) as WalkStat
+            if st then
+              if unix.S_ISDIR(st:mode()) then
+                local subhandle = unix.opendir(full_path)
+                if subhandle then
+                  table.insert(stack, {full_path, subhandle as WalkDirHandle})
+                end
+              elseif entry:match(lua_pattern) then
+                return full_path
+              end
             end
           end
         end
       end
+      return nil
     end
-    return nil
+    return iter, nil, nil, guard
   end
-end
 
-local record FsWalkModule
-  --- Walk dir tree. visitor(path, name, st, ctx): path is the FULL path; name is the basename.
-  --- Do NOT join path and name — path is already complete.
-  walk: function < T > (dir: string, visitor: function(string, string, WalkStat, any), ctx?: T): T
-  collect: function(dir: string, pattern: string): {string}
-  collect_all: function(dir: string): {string: FileInfo}
-  files: function(dir: string, pattern?: string): function(): string
-end
+  local record FsWalkModule
+    --- Iterator over file paths, as returned by files().
+    type FileIter = FileIter
 
-local M: FsWalkModule = {
-  walk = walk,
-  collect = collect,
-  collect_all = collect_all,
-  files = files,
-}
+    --- Walk dir tree. visitor(path, name, st, ctx): path is the FULL path; name is the basename.
+    --- Do NOT join path and name — path is already complete.
+    walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T), ctx?: T): T | nil, string
+    collect: function(dir: string, pattern: string): {string} | nil, string
+    collect_all: function(dir: string): {string: FileInfo} | nil, string
+    files: function(dir: string, pattern?: string): FileIter, string, any, any
+  end
 
-return M
+  local M: FsWalkModule = {
+    walk = walk,
+    collect = collect,
+    collect_all = collect_all,
+    files = files,
+  }
+
+  return M
