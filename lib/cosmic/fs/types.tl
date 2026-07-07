@@ -104,9 +104,45 @@ local record fs_types
 
 end
 
---- Wrapper table: holds the raw stat userdata; a shared metatable
---- delegates the accessors and implements the predicates, so wrapping
---- costs one small table per stat call.
+--- Predicates for the raw stat userdata, installed once on the shared
+--- metatable every cosmo.unix Stat carries. After installation wrap()
+--- returns the userdata unchanged — no per-call allocation, which
+--- matters on walk-heavy paths where every visited entry is wrapped
+--- (measured at ~+13-17% on fs_walk_tree/fs_stat_tree, issue #563).
+local raw_predicates: {string: any} = {
+  is_dir = function(self: unix.Stat): boolean return unix.S_ISDIR(self:mode()) end,
+  is_file = function(self: unix.Stat): boolean return unix.S_ISREG(self:mode()) end,
+  is_link = function(self: unix.Stat): boolean return unix.S_ISLNK(self:mode()) end,
+  is_block_device = function(self: unix.Stat): boolean return unix.S_ISBLK(self:mode()) end,
+  is_char_device = function(self: unix.Stat): boolean return unix.S_ISCHR(self:mode()) end,
+  is_fifo = function(self: unix.Stat): boolean return unix.S_ISFIFO(self:mode()) end,
+  is_socket = function(self: unix.Stat): boolean return unix.S_ISSOCK(self:mode()) end,
+}
+
+--- Install the predicates on the raw stat's metatable. Lazy — uses the
+--- first stat wrap() sees, so module load never needs a stat(2) call
+--- (which a sandbox could deny). Returns false if the metatable is not
+--- an extensible Lua table, in which case wrap() falls back to the
+--- per-call wrapper table below.
+local function install_predicates(raw: unix.Stat): boolean
+  local mt = getmetatable(raw as any)
+  if type(mt) ~= "table" then
+    return false
+  end
+  local idx = (mt as {string: any}).__index
+  if type(idx) ~= "table" then
+    return false
+  end
+  local methods = idx as {string: any}
+  for name, fn in pairs(raw_predicates) do
+    methods[name] = fn
+  end
+  return true
+end
+
+--- Fallback wrapper table: holds the raw stat userdata; a shared
+--- metatable delegates the accessors and implements the predicates, so
+--- wrapping costs one small table per stat call.
 local record Wrapped
   raw: unix.Stat
 end
@@ -137,7 +173,15 @@ local stat_mt: metatable < Wrapped > = {
   __index = stat_methods,
 }
 
+local wrap_mode: string = "unknown"
+
 fs_types.wrap = function(raw: unix.Stat): fs_types.Stat
+  if wrap_mode == "unknown" then
+    wrap_mode = install_predicates(raw) and "direct" or "fallback"
+  end
+  if wrap_mode == "direct" then
+    return raw as fs_types.Stat
+  end
   local wrapped: Wrapped = setmetatable({raw = raw}, stat_mt)
   return wrapped as fs_types.Stat
 end
