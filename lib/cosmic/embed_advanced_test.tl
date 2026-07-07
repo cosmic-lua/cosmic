@@ -313,7 +313,7 @@ local function test_extract_rejects_path_traversal()
   -- byte-patch it to a traversal name (no offsets change, so the zip stays
   -- valid). "XX/escaped.txt" -> "../escaped.txt".
   local safe = fs.join(tmpdir, "patched.zip")
-  local w = zip.open(safe, "w") as Writer
+  local w = zip.writer(safe) as Writer
   assert(w, "should open zip for writing")
   w:add("XX/escaped.txt", "pwned")
   w:close()

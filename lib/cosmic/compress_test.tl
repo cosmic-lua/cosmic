@@ -188,3 +188,28 @@ local function test_deflate_size_check_normal()
   assert(err == nil, "expected no error for 1000-byte input")
 end
 test_deflate_size_check_normal()
+
+-- Forged size-prefix tests (issue #531): the 4-byte prefix is
+-- attacker-controlled and must be validated before allocation.
+
+local function test_inflate_forged_huge_prefix()
+  -- 5-byte blob whose prefix claims ~4GB for 1 compressed byte. Must be
+  -- rejected up front (no 4GB allocation attempt).
+  local forged = string.char(0xFF, 0xFF, 0xFF, 0xFF) .. "x"
+  local result, err = compress.inflate(forged)
+  assert(result == nil, "forged size prefix should be rejected")
+  assert(err and err:match("implausible"), "expected implausibility error, got: " .. tostring(err))
+end
+test_inflate_forged_huge_prefix()
+
+local function test_inflate_max_output()
+  local deflated = assert(compress.deflate(string.rep("x", 2000)))
+  local result, err = compress.inflate(deflated, 100)
+  assert(result == nil, "declared size beyond max_output should be rejected")
+  assert(err and err:match("max_output"), "expected max_output error, got: " .. tostring(err))
+
+  result, err = compress.inflate(deflated, 2000)
+  assert(result, "max_output at the exact size should pass: " .. tostring(err))
+  assert(#(result as string) == 2000, "roundtrip under max_output should succeed")
+end
+test_inflate_max_output()

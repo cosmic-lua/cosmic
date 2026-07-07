@@ -3,6 +3,8 @@
 --- same SQL (e.g. inside a loop in a transaction) instead of preparing
 --- and finalizing a fresh one every time.
 
+local bind_mod = require("cosmic.sqlite_bind")
+
 local record RawStatement
   bind: function(self: RawStatement, n: number, value?: any): number
   step: function(self: RawStatement): number
@@ -60,7 +62,7 @@ local type OnClose = function(RawStatement)
     local function bind_and_step(raw_stmt: RawStatement, args: {integer: any}, n: integer): number
       raw_stmt:reset()
       for i = 1, n do
-        local rc = raw_stmt:bind(i, args[i])
+        local rc = bind_mod.bind_at(raw_stmt, i, args[i])
         if rc ~= ok_code then
           return rc
         end

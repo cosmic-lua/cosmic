@@ -265,7 +265,7 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
   -- Open the copy as an appender to modify its zip in-place
   local appender_result: any
   local appender_err: any
-  appender_result, appender_err = czip.open(tmp_path, "a")
+  appender_result, appender_err = czip.appender(tmp_path)
   if not appender_result then
     fs.unlink(tmp_path)
     return {ok = false, message = "error: failed to open zip for appending: " .. tostring(appender_err or "unknown error"), file_count = 0}
