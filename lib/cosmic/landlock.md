@@ -31,7 +31,9 @@
  A single path -> access-mask rule in a restrict() call.
  `access` is an OR of cosmic.landlock.* flag constants (READ, EXEC,
  WRITE_FILE, MAKE_REG, etc.) and must be a subset of the call's
- `handled` mask.
+ `handled` mask. When `path` is not a directory, directory-only
+ rights are stripped automatically, so `access = READ` works on a
+ regular file even though READ bundles READ_DIR.
 
 ```teal
 local record Rule
@@ -118,3 +120,8 @@ function restrict(opts: RestrictOpts): boolean, string
  Access categories above the running kernel's ABI are stripped from
  `handled` automatically, so `cosmic.landlock.ALL` stays portable.
  The ruleset fd is always closed before return.
+ Known gap: TRUNCATE is only handleable on landlock ABI >= 3, so on
+ older kernels a restricted process can still truncate(2) files
+ outside its allowlist. (Cosmopolitan's C unveil path plugs this with
+ a seccomp filter; this module does not.) Pair with `cosmic.pledge`
+ — truncate is governed by its "wpath" group — where that matters.

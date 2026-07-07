@@ -22,6 +22,14 @@
       and os.exit()s with the returned code. parent maps wait status
       to an exit code and returns it from run().
 
+ Setup failures are reported over a CLOEXEC error pipe (the same
+ pattern proxy.start uses for its bound port): the supervisor and the
+ pre-exec workload write the failing step there before exiting, and a
+ successful execve closes the workload's end automatically. run()
+ drains the pipe after wait() — a non-empty pipe always means setup
+ failed before the workload ran, so run() returns nil + the message
+ instead of masquerading the failure as a workload exit code.
+
 ## Types
 
 ### CapsModule
@@ -49,5 +57,8 @@ function run(opts: {string: any}, argv: {string}): integer | nil, string
 ```
 
  Fork+orchestrate a Box policy around argv. Returns an integer exit
- code on success, or nil + string when setup itself failed before the
- fork (e.g. couldn't open the parent netns fd).
+ code on success, or nil + string when setup failed — either before
+ the fork (e.g. couldn't open the parent netns fd) or inside the
+ supervisor / pre-exec workload (unshare, uid_map, landlock, pledge,
+ execvpe, ...), which report over the error pipe. An integer return
+ is therefore always the workload's own exit status.
