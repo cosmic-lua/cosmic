@@ -49,7 +49,7 @@ bin/
 - **source language**: Teal (`.tl` files) — typed Lua that compiles to Lua 5.4
 - **error handling**: return `value, string` (nil + error message on failure). never throw from library code.
 - **doc comments**: `---` prefix with `@param` and `@return` tags
-- **naming**: `snake_case` for functions and variables. `PascalCase` for record types.
+- **naming**: `snake_case` for functions and variables. `PascalCase` for record types and record constructors (e.g. `signal.Sigset()`); options records are named `Options` (or `<Thing>Options` when a module has several).
 - **formatting**: 2-space indent, LF line endings, enforced by `cosmic --check-format`
 - **file length**: all `.tl` files must be ≤500 lines. no exceptions. enforced by `bin/make lint`. `.d.tl` type declaration files are exempt (they describe C binding interfaces and cannot be split due to Teal's record system).
 - **imports**: prefer `cosmic.*` modules over raw `cosmo.*` C bindings. `cosmo.*` is only for library internals implementing wrappers.
