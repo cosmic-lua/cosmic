@@ -371,3 +371,48 @@ local function test_wait_option_constants_defined()
     "WCONTINUED should be a number or nil")
 end
 test_wait_option_constants_defined()
+
+-- Error fidelity (issue #529): failed session/group/priority/rlimit/exec
+-- calls must surface the binding's errno string, not truncate it.
+
+local function test_setpgid_error_names_errno()
+  -- pid 1 is in a different session, so setpgid(1, 1) always fails.
+  local ok, err = proc.setpgid(1, 1)
+  assert(ok == false, "setpgid(1, 1) should fail")
+  assert(type(err) == "string" and err:match("E%u+"),
+    "setpgid error should name the errno, got: " .. tostring(err))
+end
+test_setpgid_error_names_errno()
+
+local function test_getsid_error_names_errno()
+  local sid, err = proc.getsid(999999999)
+  assert(sid == nil, "getsid of absent pid should return nil")
+  assert(type(err) == "string" and err:match("ESRCH"),
+    "getsid error should name ESRCH, got: " .. tostring(err))
+end
+test_getsid_error_names_errno()
+
+local function test_getpriority_error_names_errno()
+  local prio, err = proc.getpriority(999999, 0)
+  assert(prio == nil, "getpriority with bad which should return nil")
+  assert(type(err) == "string" and err:match("EINVAL"),
+    "getpriority error should name EINVAL, got: " .. tostring(err))
+end
+test_getpriority_error_names_errno()
+
+local function test_getrlimit_error_names_errno()
+  local soft, hard, err = proc.getrlimit(999999)
+  assert(soft == nil and hard == nil, "getrlimit with bad resource should return nils")
+  assert(type(err) == "string" and err:match("EINVAL"),
+    "getrlimit error should name EINVAL, got: " .. tostring(err))
+end
+test_getrlimit_error_names_errno()
+
+local function test_execve_error_names_errno()
+  local _, err = proc.execve("/nonexistent/binary/xyz", {"/nonexistent/binary/xyz"}, {})
+  assert(type(err) == "string" and err:match("ENOENT"),
+    "execve error should name ENOENT, got: " .. tostring(err))
+  assert(err:match("/nonexistent/binary/xyz"),
+    "execve error should name the program, got: " .. tostring(err))
+end
+test_execve_error_names_errno()
