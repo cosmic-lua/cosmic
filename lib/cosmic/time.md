@@ -61,7 +61,7 @@ local record TimeModule
   now_ms: function(): number
   monotonic_ms: function(): number
   sleep: function(seconds: number, nanos?: number): number | nil, number, string
-  sleep_ms: function(ms: number): number | nil, number, string
+  sleep_ms: function(ms: number): number | nil, string
   gmtime: function(unixts: number): DateTime
   localtime: function(unixts: number): DateTime
   format_http: function(timestamp: number): string
@@ -175,12 +175,15 @@ function sleep(seconds: number, nanos?: number): number | nil, number, string
 ### sleep_ms
 
 ```teal
-function sleep_ms(ms: number): number | nil, number, string
+function sleep_ms(ms: number): number | nil, string
 ```
 
  Sleep for the specified number of milliseconds.
- Same contract as sleep(): 0, 0 on success; remainder plus an EINTR
- error when interrupted; nil, nil, err on invalid input.
+ The remainder is a single MILLISECONDS number — no (secs, nanos)
+ arithmetic in retry loops: 0 on an uninterrupted sleep; the
+ remaining milliseconds plus an EINTR-tagged error when a signal
+ interrupts; nil, err on invalid input (EINVAL). time.sleep keeps
+ its (secs, nanos, err) contract for symmetry with clock_gettime.
 
 **Parameters:**
 
@@ -188,8 +191,7 @@ function sleep_ms(ms: number): number | nil, number, string
 
 **Returns:**
 
-- number - | nil Remaining seconds (0 on success), or nil on invalid input
-- number - Remaining nanoseconds (0 on success)
+- number - | nil Remaining milliseconds (0 on success), or nil on invalid input
 - string? - Error message when interrupted (EINTR) or invalid (EINVAL)
 
 ### gmtime
