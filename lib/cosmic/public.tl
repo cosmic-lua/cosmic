@@ -39,7 +39,6 @@ local public: {string} = {
   "ip",
   "json",
   "landlock",
-  "make",
   "net",
   "pledge",
   "poll",
@@ -79,8 +78,20 @@ local public: {string} = {
 --- index generator) and the embedded-index query surface behind
 --- `--docs` (run/search/list_topics) are both `cosmic.doc`; two
 --- top-level modules one letter apart was itself the ergonomics bug.
+---
+--- #566 capstone decisions, recorded so they never re-open without new
+--- evidence: `make` is internal — its sole consumer is the `--make` CLI
+--- handler; it is project-scaffolding tooling, not runtime API
+--- (promoting internal→public later is cheap; the reverse is impossible
+--- after the stable cut). `envd` stays public (a runtime battery for
+--- user binaries: embedded env.d + envd.load(); zero in-repo consumers
+--- is its expected shape). `check` stays public (the assertion half of
+--- the shipped test battery alongside testrun/example/benchmark).
+--- `errno` stays public (the error convention's user-facing interface:
+--- wrappers document errno.is/errno.name_of by name).
 local internal: {string} = {
   "cli",
+  "make",
   "public",
   "require",
   "version",
