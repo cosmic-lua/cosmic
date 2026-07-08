@@ -5,16 +5,6 @@
 
 ## Types
 
-### DocIndex
-
- A documentation index containing all modules.
-
-```teal
-local record DocIndex
-  modules: {string: ModuleDoc}
-end
-```
-
 ### DocModule
 
 ```teal
@@ -27,6 +17,18 @@ local record DocModule
   serialize: function(doc: ModuleDoc): string
   serialize_index: function(index: DocIndex): string
   load_index: function(source: string): DocIndex | nil, string
+  run: function(query?: string): DocsResult
+  has_docs: function(): boolean
+  list_topics: function(include_cosmo?: boolean): {{string, string}}
+  embedded_index: function(): DocIndex | nil, string
+  render_module: function(name: string, doc: ModuleDoc): string
+  search: function(query: string, include_cosmo?: boolean): {SearchResult}
+  render_search_results: function(results: {SearchResult}, query: string): string
+  show_module_examples: function(query: string): DocsResult
+  show_guide: function(topic: string): DocsResult
+  list_guide_topics: function(): {string}
+  list_guides: function(): {{string, string}}
+  strip_frontmatter: function(content: string): string
 end
 ```
 

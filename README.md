@@ -25,19 +25,18 @@ High-level utilities and tools built on top of cosmo.
 |--------|-------------|
 | [benchmark](lib/cosmic/benchmark.md) |  Go-style benchmark testing. |
 | [check](lib/cosmic/check.md) |  Assertion helpers for tests with auto-formatted failure messages. |
-| [child](lib/cosmic/child.md) |  Child process management. |
+| [init](lib/cosmic/child/init.md) |  Child process management. |
 | [codec](lib/cosmic/codec.md) |  Encoding and decoding utilities for various formats. |
 | [compress](lib/cosmic/compress.md) |  Compression and decompression utilities. |
-| [doc](lib/cosmic/doc.md) |  Extract documentation from Teal files and render as markdown. |
-| [docs](lib/cosmic/docs.md) |  Access embedded documentation — a `go doc`-style CLI over the binary. |
+| [init](lib/cosmic/doc/init.md) |  Extract documentation from Teal files and render as markdown. |
 | [embed](lib/cosmic/embed.md) |  Embed files and directories into a cosmic executable. |
 | [env](lib/cosmic/env.md) |  Environment variable utilities. |
 | [envd](lib/cosmic/envd.md) |  Load environment variables from an embedded env.d directory. |
 | [errno](lib/cosmic/errno.md) |  Error information from system calls. |
 | [example](lib/cosmic/example.md) |  Go-style executable example testing. |
 | [fd](lib/cosmic/fd.md) |  File descriptor I/O operations. |
-| [fetch](lib/cosmic/fetch.md) |  Structured HTTP fetch with retry, streaming, and honest error channels. |
-| [format](lib/cosmic/format.md) |  Code formatter for Teal and Lua files. |
+| [init](lib/cosmic/fetch/init.md) |  Structured HTTP fetch with retry, streaming, and honest error channels. |
+| [init](lib/cosmic/format/init.md) |  Code formatter for Teal and Lua files. |
 | [init](lib/cosmic/fs/init.md) |  Unified filesystem module. |
 | [fuzzy](lib/cosmic/fuzzy.md) |  Fuzzy string matching utilities. |
 | [getopt](lib/cosmic/getopt.md) |  Command-line option parsing utilities. |
@@ -47,7 +46,7 @@ High-level utilities and tools built on top of cosmo.
 | [json](lib/cosmic/json.md) |  JSON encoding and decoding utilities. |
 | [landlock](lib/cosmic/landlock.md) |  Linux landlock filesystem sandbox. |
 | [make](lib/cosmic/make.md) |  Generate Makefiles for Teal projects. |
-| [net](lib/cosmic/net.md) |  Networking and socket utilities. |
+| [init](lib/cosmic/net/init.md) |  Networking and socket utilities. |
 | [pledge](lib/cosmic/pledge.md) |  Restrict the system calls available to the current process. |
 | [poll](lib/cosmic/poll.md) |  Typed interface for polling file descriptors. |
 | [proc](lib/cosmic/proc.md) |  Current process management. |
@@ -57,7 +56,7 @@ High-level utilities and tools built on top of cosmo.
 | [sandbox](lib/cosmic/sandbox.md) |  One-call, fail-closed sandbox facade over unveil, landlock, and |
 | [shm](lib/cosmic/shm.md) |  Shared memory for inter-process communication. |
 | [signal](lib/cosmic/signal.md) |  Signal handling utilities. |
-| [sqlite](lib/cosmic/sqlite.md) |  Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns. |
+| [init](lib/cosmic/sqlite/init.md) |  Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns. |
 | [sse](lib/cosmic/sse.md) |  Server-Sent Events parser for streaming HTTP responses. |
 | [string](lib/cosmic/string.md) |  String utilities. |
 | [sys](lib/cosmic/sys.md) |  System information utilities. |
