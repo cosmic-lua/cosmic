@@ -3,21 +3,21 @@
 --- `--docs` lists public modules only, internal modules stay searchable
 --- but badged, and their doc pages carry an internal-module header.
 
-local docs = require("cosmic.docs")
-local doc_types = require("cosmic.doc_types")
+local docs = require("cosmic.doc")
+local doc_types = require("cosmic.doc.types")
 local manifest = require("cosmic.public")
 
 -- These tests are about the embedded index; they must run in the built
 -- binary, where the index is always present.
-local index, ierr = docs.load_index()
+local index, ierr = docs.embedded_index()
 assert(index, "docs index must be embedded (run tests via the binary): "
   .. tostring(ierr))
 local idx = index as doc_types.DocIndex
 
 local INTERNAL_SAMPLES = {
-  "cosmic.child_io",
+  "cosmic.child.io",
   "cosmic.cli.args",
-  "cosmic.sqlite_bind",
+  "cosmic.sqlite.bind",
   "cosmic.fs.walk",
   "perf.harness",
 }
@@ -67,16 +67,16 @@ end
 test_directory_modules_indexed_under_their_name()
 
 local function test_internal_modules_stay_searchable_with_badge()
-  local results = docs.search("child_io")
+  local results = docs.search("child.io")
   local found: doc_types.SearchResult = nil
   for _, r in ipairs(results) do
-    if r.module_name == "cosmic.child_io" then found = r; break end
+    if r.module_name == "cosmic.child.io" then found = r; break end
   end
-  assert(found, "search must still find internal module cosmic.child_io")
+  assert(found, "search must still find internal module cosmic.child.io")
   assert((found as doc_types.SearchResult).internal,
     "search result for an internal module must carry internal = true")
-  local rendered = docs.render_search_results(results, "child_io")
-  assert(rendered:find("cosmic.child_io", 1, true), "rendered search output")
+  local rendered = docs.render_search_results(results, "child.io")
+  assert(rendered:find("cosmic.child.io", 1, true), "rendered search output")
   assert(rendered:find("(internal)", 1, true),
     "search results must badge internal modules with (internal)")
   print("test_internal_modules_stay_searchable_with_badge: PASS")
@@ -84,8 +84,8 @@ end
 test_internal_modules_stay_searchable_with_badge()
 
 local function test_internal_doc_page_carries_header()
-  local result = docs.run("cosmic.child_io")
-  assert(result.ok, "--docs cosmic.child_io must still render a page")
+  local result = docs.run("cosmic.child.io")
+  assert(result.ok, "--docs cosmic.child.io must still render a page")
   assert(result.output:find("internal module — not API, may change without notice", 1, true),
     "internal module page must carry the internal-module header")
   local public_page = docs.run("cosmic.json")

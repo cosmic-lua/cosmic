@@ -15,7 +15,7 @@ local function generate(): string
   table.insert(lines, static_help)
 
   -- Show module list with descriptions (only cosmic.* modules, not cosmo.* bindings)
-  local docs = require("cosmic.docs")
+  local docs = require("cosmic.doc")
   if docs.has_docs() then
     local topics = docs.list_topics() -- excludes cosmo.* by default
     if #topics > 0 then

@@ -23,8 +23,8 @@ local function make_mock_docs(name: string): string
   write_doc(docs_dir, "lib/cosmic/child.md", "child", "Process spawning utilities.")
   write_doc(docs_dir, "lib/cosmic/fs/init.md", "fs", "Unified filesystem module.")
   write_doc(docs_dir, "cosmo/unix.md", "unix", "System call bindings.")
-  -- internal: shard, CLI helper, directory-module shard, repo tooling
-  write_doc(docs_dir, "lib/cosmic/child_io.md", "child_io", "Low-level child-process I/O.")
+  -- internal: directory-module shards, CLI helper, repo tooling
+  write_doc(docs_dir, "lib/cosmic/child/io.md", "io", "Low-level child-process I/O.")
   write_doc(docs_dir, "lib/cosmic/cli/args.md", "args", "CLI option definitions.")
   write_doc(docs_dir, "lib/cosmic/fs/walk.md", "walk", "Directory walking utilities.")
   write_doc(docs_dir, "lib/perf/harness.md", "harness", "Benchmark harness.")
@@ -71,7 +71,7 @@ local function test_prune_internal_keeps_public_surface_only()
   end
 
   local pruned = {
-    "lib/cosmic/child_io.md",
+    "lib/cosmic/child/io.md",
     "lib/cosmic/cli/args.md",
     "lib/cosmic/fs/walk.md",
     "lib/perf/harness.md",
@@ -81,7 +81,7 @@ local function test_prune_internal_keeps_public_surface_only()
   end
 
   local readme = publish.make_readme(docs_dir)
-  assert(not readme:find("child_io"), "README must not index internal pages")
+  assert(not readme:find("child/io"), "README must not index internal pages")
 end
 test_prune_internal_keeps_public_surface_only()
 

@@ -235,8 +235,7 @@ all modules are under `lib/cosmic/` and imported as `cosmic.*`:
 | child | child process spawning with I/O control |
 | codec | hex encoding/decoding, Lua serialization |
 | compress | zlib compression/decompression |
-| doc | extract docs from Teal source files |
-| docs | query embedded documentation index |
+| doc | extract docs from source and query the embedded documentation index |
 | embed | create custom executables with embedded files |
 | env | environment variable get/set/unset |
 | envd | load environment variables from embedded env.d directory |

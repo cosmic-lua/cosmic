@@ -31,7 +31,7 @@ local function run_repl()
   require("cosmo")
 
   -- Inject help() into REPL
-  local docs = require("cosmic.docs")
+  local docs = require("cosmic.doc")
   rawset(_G, "help", function(query: string)
       local result = docs.run(query or "")
       print(result.output)
@@ -69,7 +69,7 @@ end
 --- @param query string The query string
 --- @return DocsRunResult Result with ok status and output text
 local function run_docs(query: string): DocsRunResult
-  local docs = require("cosmic.docs")
+  local docs = require("cosmic.doc")
 
   local result = docs.run(query)
   if result.ok then
@@ -292,7 +292,7 @@ end
 
 --- Handle --examples flag.
 local function handle_examples(module_name: string): integer
-  local docs = require("cosmic.docs")
+  local docs = require("cosmic.doc")
 
   if module_name == "" then
     local result = docs.run("examples")
@@ -327,7 +327,7 @@ end
 --- Handle --docs flag.
 local function handle_docs(query: string): integer
   if query == "" then
-    local docs = require("cosmic.docs")
+    local docs = require("cosmic.doc")
     local result = docs.run("")
     io.write(result.output .. "\n")
     return result.ok and 0 or 1

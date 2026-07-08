@@ -5,7 +5,7 @@
 --- once on the first row, and releases the statement when iteration drains.
 --- Lives in its own file so cosmic/sqlite.tl stays under the 500-line cap.
 
-local bind_mod = require("cosmic.sqlite_bind")
+local bind_mod = require("cosmic.sqlite.bind")
 
 local record RawStatement
   bind: function(self: RawStatement, n: number, value?: any): number

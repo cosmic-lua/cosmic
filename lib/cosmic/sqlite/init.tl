@@ -18,10 +18,10 @@
 --- timeout by default; see `OpenOptions`.
 
 local lsqlite3 = require("cosmo.lsqlite3")
-local stmt_cache_mod = require("cosmic.sqlite_stmt_cache")
-local row_iter = require("cosmic.sqlite_row_iter")
-local bind_mod = require("cosmic.sqlite_bind")
-local params_mod = require("cosmic.sqlite_params")
+local stmt_cache_mod = require("cosmic.sqlite.stmt_cache")
+local row_iter = require("cosmic.sqlite.row_iter")
+local bind_mod = require("cosmic.sqlite.bind")
+local params_mod = require("cosmic.sqlite.params")
 
 -- Raw lsqlite3 types (0-indexed, requires manual cleanup)
 local record RawStatement
@@ -257,7 +257,7 @@ local function make_database(raw_db: RawDatabase): Database
   local db: Database = {}
   local closed = false
 
-  -- Reuses prepared statements for db:exec (see cosmic.sqlite_stmt_cache).
+  -- Reuses prepared statements for db:exec (see cosmic.sqlite.stmt_cache).
   local stmt_cache = stmt_cache_mod.new(raw_db as any, sqlite3.OK, sqlite3.DONE, sqlite3.ROW, sqlite3.SCHEMA)
 
   function db:prepare(sql: string): Statement | nil, string
@@ -280,7 +280,7 @@ local function make_database(raw_db: RawDatabase): Database
       return nil, "query failed: " .. (err or "unknown error")
     end
     -- Hot path: skip the full Statement object and its per-call closures;
-    -- bind and iterate the raw statement directly (see cosmic.sqlite_row_iter).
+    -- bind and iterate the raw statement directly (see cosmic.sqlite.row_iter).
     local iter, bind_err = row_iter.query(
       raw_stmt as any, raw_db as any, on_close as any,
       sqlite3.OK, sqlite3.ROW, sqlite3.DONE, ...)
@@ -304,7 +304,7 @@ local function make_database(raw_db: RawDatabase): Database
       return true
     end
 
-    -- has params: reuse a cached prepared statement (see cosmic.sqlite_stmt_cache)
+    -- has params: reuse a cached prepared statement (see cosmic.sqlite.stmt_cache)
     local args: {integer: any} = {}
     for i = 1, n do
       args[i] = select(i, ...)
@@ -313,7 +313,7 @@ local function make_database(raw_db: RawDatabase): Database
   end
 
   -- exec_list, exec_named, query_list, query_named live in
-  -- cosmic.sqlite_params (same prepare/bind/consume shape, split out to
+  -- cosmic.sqlite.params (same prepare/bind/consume shape, split out to
   -- keep this file under the 500-line cap).
   params_mod.attach(db)
 

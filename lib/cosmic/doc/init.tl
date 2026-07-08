@@ -1,13 +1,13 @@
 --- Extract documentation from Teal files and render as markdown.
 --- Parses doc comments, records, functions, and examples from .tl files.
 
-local types = require("cosmic.doc_types")
+local types = require("cosmic.doc.types")
 local Param = types.Param
 local Return = types.Return
 local FunctionDoc = types.FunctionDoc
 local ModuleDoc = types.ModuleDoc
 
-local doc_render = require("cosmic.doc_render")
+local doc_render = require("cosmic.doc.render")
 
 local BYTE_NEWLINE = string.byte("\n")
 local BYTE_LPAREN = string.byte("(")
@@ -395,10 +395,9 @@ local function serialize(doc: ModuleDoc): string
   return (cosmo.EncodeLua(doc as table))
 end
 
---- A documentation index containing all modules.
-local record DocIndex
-  modules: {string: ModuleDoc}
-end
+--- A documentation index containing all modules (the shared record from
+--- cosmic.doc.types, so extraction and query agree on the type).
+local type DocIndex = types.DocIndex
 
 local function serialize_index(index: DocIndex): string
   return (cosmo.EncodeLua(index as table))
@@ -412,7 +411,15 @@ local function load_index(source: string): DocIndex | nil, string
   return result as DocIndex, nil
 end
 
+-- The query half of the module (issue #557: `doc` and `docs` converged
+-- into one family): lookup and search over the index embedded in the
+-- binary, behind the `--docs` CLI.
+local query = require("cosmic.doc.query")
+local DocsResult = types.DocsResult
+local SearchResult = types.SearchResult
+
 local record DocModule
+  -- Extraction: parse Teal source and render/serialize documentation.
   parse: function(source: string, file_path: string): ModuleDoc
   parse_dtl: function(source: string, file_path: string): ModuleDoc
   parse_file: function(file_path: string): ModuleDoc | nil, string
@@ -421,6 +428,20 @@ local record DocModule
   serialize: function(doc: ModuleDoc): string
   serialize_index: function(index: DocIndex): string
   load_index: function(source: string): DocIndex | nil, string
+
+  -- Query: the index embedded in the binary (`--docs`).
+  run: function(query?: string): DocsResult
+  has_docs: function(): boolean
+  list_topics: function(include_cosmo?: boolean): {{string, string}}
+  embedded_index: function(): DocIndex | nil, string
+  render_module: function(name: string, doc: ModuleDoc): string
+  search: function(query: string, include_cosmo?: boolean): {SearchResult}
+  render_search_results: function(results: {SearchResult}, query: string): string
+  show_module_examples: function(query: string): DocsResult
+  show_guide: function(topic: string): DocsResult
+  list_guide_topics: function(): {string}
+  list_guides: function(): {{string, string}}
+  strip_frontmatter: function(content: string): string
 end
 
 local M: DocModule = {
@@ -432,6 +453,19 @@ local M: DocModule = {
   serialize = serialize,
   serialize_index = serialize_index,
   load_index = load_index,
+
+  run = query.run,
+  has_docs = query.has_docs,
+  list_topics = query.list_topics,
+  embedded_index = query.embedded_index,
+  render_module = query.render_module,
+  search = query.search,
+  render_search_results = query.render_search_results,
+  show_module_examples = query.show_module_examples,
+  show_guide = query.show_guide,
+  list_guide_topics = query.list_guide_topics,
+  list_guides = query.list_guides,
+  strip_frontmatter = query.strip_frontmatter,
 }
 
 return M

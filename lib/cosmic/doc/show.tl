@@ -1,7 +1,7 @@
 --- Rendering functions for the docs module.
 --- Formats documentation records into human-readable CLI output.
 
-local types = require("cosmic.doc_types")
+local types = require("cosmic.doc.types")
 local Param = types.Param
 local Return = types.Return
 local FunctionDoc = types.FunctionDoc

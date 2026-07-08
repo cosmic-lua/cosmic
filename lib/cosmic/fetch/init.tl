@@ -3,7 +3,7 @@
 --- effective URL, and the machine-readable failure kind are never discarded.
 
 local cosmo = require("cosmo")
-local fetch_headers = require("cosmic.fetch_headers")
+local fetch_headers = require("cosmic.fetch.headers")
 local time = require("cosmic.time")
 
 --- Machine-readable failure category, from the C fetch error channel.

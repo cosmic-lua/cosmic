@@ -23,7 +23,6 @@ local public: {string} = {
   "codec",
   "compress",
   "doc",
-  "docs",
   "embed",
   "env",
   "envd",
@@ -69,25 +68,21 @@ local public: {string} = {
 
 --- Internal implementation shards and tooling: not API. The cli
 --- directory module (the binary's dispatcher and its helpers) is
---- likewise internal.
+--- likewise internal. Implementation shards of public modules live
+--- inside their directory module (fs/, sqlite/, doc/, docs/, fetch/,
+--- net/, child/, format/), so they no longer occupy top-level names
+--- (#557); submodules under a public name stay non-API.
+---
+--- `doc` vs `docs` (#557's judgment call, recorded so this never
+--- re-opens without new evidence): converged into the single public
+--- `doc` family. Extraction from Teal source (parse/render/gendoc, the
+--- index generator) and the embedded-index query surface behind
+--- `--docs` (run/search/list_topics) are both `cosmic.doc`; two
+--- top-level modules one letter apart was itself the ergonomics bug.
 local internal: {string} = {
-  "child_io",
   "cli",
-  "doc_render",
-  "doc_types",
-  "docindex",
-  "docs_lookup",
-  "docs_render",
-  "fetch_headers",
-  "format_rules",
-  "gendoc",
-  "net_socket",
   "public",
   "require",
-  "sqlite_bind",
-  "sqlite_params",
-  "sqlite_row_iter",
-  "sqlite_stmt_cache",
   "version",
 }
 

@@ -1,7 +1,7 @@
 --- Rendering and .d.tl parsing for the doc module.
 --- Contains the markdown renderer and the type declaration file parser.
 
-local types = require("cosmic.doc_types")
+local types = require("cosmic.doc.types")
 local Param = types.Param
 local Return = types.Return
 local FunctionDoc = types.FunctionDoc
@@ -73,6 +73,11 @@ end
 local function render(doc: ModuleDoc): string
   local lines: {string} = {}
   local module_name = doc.file:match("([^/]+)%.d%.tl$") or doc.file:match("([^/]+)%.tl$") or doc.file
+  if module_name == "init" then
+    -- A directory module's init shard is the module: title the page by
+    -- the directory name (fs/init.tl -> fs), not the shard filename.
+    module_name = doc.file:match("([^/]+)/init%.tl$") or module_name
+  end
   table.insert(lines, "# " .. module_name)
   table.insert(lines, "")
   if doc.module_doc then

@@ -1,8 +1,8 @@
 --- Access embedded documentation — a `go doc`-style CLI over the binary.
 
-local docs_render = require("cosmic.docs_render")
-local docs_lookup = require("cosmic.docs_lookup")
-local types = require("cosmic.doc_types")
+local docs_render = require("cosmic.doc.show")
+local docs_lookup = require("cosmic.doc.lookup")
+local types = require("cosmic.doc.types")
 local ModuleDoc = types.ModuleDoc
 local DocIndex = types.DocIndex
 local DocsResult = types.DocsResult
@@ -17,7 +17,7 @@ local cached_index: DocIndex = nil
 --- Load the embedded documentation index.
 --- @return DocIndex | nil The documentation index, or nil if not available
 --- @return string Error message if loading failed
-local function load_index(): DocIndex | nil, string
+local function embedded_index(): DocIndex | nil, string
   if cached_index then
     return cached_index, nil
   end
@@ -44,7 +44,7 @@ end
 --- Check if embedded docs are available.
 --- @return boolean True if docs are embedded
 local function has_docs(): boolean
-  local index, _ = load_index()
+  local index, _ = embedded_index()
   return index ~= nil
 end
 
@@ -137,7 +137,7 @@ end
 --- @param include_cosmo boolean Include low-level cosmo.* modules (default: false)
 --- @return {{string, string}} List of {name, description} pairs, sorted by name
 local function list_topics(include_cosmo?: boolean): {{string, string}}
-  local index, _ = load_index()
+  local index, _ = embedded_index()
   if not index then return {} end
   local idx = index as DocIndex
 
@@ -165,7 +165,7 @@ local calc_score = docs_lookup.calc_score
 --- @param include_cosmo boolean Include low-level cosmo.* modules (default: false)
 --- @return {SearchResult} List of search results, sorted by relevance
 local function search(query: string, include_cosmo?: boolean): {SearchResult}
-  local index, _ = load_index()
+  local index, _ = embedded_index()
   if not index then return {} end
   local idx = index as DocIndex
   local results: {SearchResult} = {}
@@ -178,7 +178,12 @@ local function search(query: string, include_cosmo?: boolean): {SearchResult}
     local module_contains_query = mod_name:lower():find(query_lower, 1, true) ~= nil
     local module_boost = module_contains_query and 15 or 0
 
-    local mod_score = calc_score(simple_lower, mod_doc.module_doc, query_lower, 100, 80, 30)
+    -- Score against both the simple name ("io") and the full dotted name
+    -- ("cosmic.child.io") so directory-module shards stay reachable by
+    -- their dotted suffix (e.g. a search for "child.io").
+    local mod_score = math.max(
+      calc_score(simple_lower, mod_doc.module_doc, query_lower, 100, 80, 30),
+      calc_score(mod_name:lower(), mod_doc.module_doc, query_lower, 100, 80, 30))
     if mod_score > 0 then
       table.insert(results, {
           module_name = mod_name, symbol_name = nil, symbol_type = "module", internal = mod_doc.internal,
@@ -252,7 +257,7 @@ end
 --- @param include_cosmo boolean Include low-level cosmo.* modules (default: false)
 --- @return {ExampleEntry} List of examples sorted by module then name
 local function list_all_examples(include_cosmo?: boolean): {ExampleEntry}
-  local index, _ = load_index()
+  local index, _ = embedded_index()
   if not index then return {} end
   local idx = index as DocIndex
 
@@ -288,7 +293,7 @@ end
 --- @param query string Module name (full, bare, or module.function)
 --- @return DocsResult Result with examples content
 local function show_module_examples(query: string): DocsResult
-  local index, err = load_index()
+  local index, err = embedded_index()
   if not index then
     return {ok = false, output = "error: " .. (err or "no documentation embedded")}
   end
@@ -352,7 +357,7 @@ end
 --- @param query string Optional query string (module or module.symbol)
 --- @return DocsResult Result with documentation content
 local function run(query?: string): DocsResult
-  local index, err = load_index()
+  local index, err = embedded_index()
   if not index then
     return {
       ok = false,
@@ -457,7 +462,7 @@ local record DocsModule
   run: function(query?: string): DocsResult
   has_docs: function(): boolean
   list_topics: function(include_cosmo?: boolean): {{string, string}}
-  load_index: function(): DocIndex | nil, string
+  embedded_index: function(): DocIndex | nil, string
   render_module: function(name: string, doc: ModuleDoc): string
   search: function(query: string, include_cosmo?: boolean): {SearchResult}
   render_search_results: function(results: {SearchResult}, query: string): string
@@ -472,7 +477,7 @@ local M: DocsModule = {
   run = run,
   has_docs = has_docs,
   list_topics = list_topics,
-  load_index = load_index,
+  embedded_index = embedded_index,
   render_module = docs_render.render_module,
   search = search,
   render_search_results = docs_render.render_search_results,

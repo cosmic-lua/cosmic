@@ -3,7 +3,7 @@
 --- same SQL (e.g. inside a loop in a transaction) instead of preparing
 --- and finalizing a fresh one every time.
 
-local bind_mod = require("cosmic.sqlite_bind")
+local bind_mod = require("cosmic.sqlite.bind")
 
 local record RawStatement
   bind: function(self: RawStatement, n: number, value?: any): number

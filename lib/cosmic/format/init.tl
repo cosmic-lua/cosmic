@@ -10,7 +10,7 @@ local record FormatRules
   needs_space: function(prev_prev: any, prev: any, cur: any, next_item: any): boolean
   compute_indent_change: function(line_items: {any}): integer, integer
 end
-local rules = require("cosmic.format_rules") as FormatRules
+local rules = require("cosmic.format.rules") as FormatRules
 
 --- A formatting issue (syntax error preventing formatting).
 local record Issue

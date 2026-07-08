@@ -13,7 +13,7 @@
 --- un-waited child and close its pipes, so `local h <close> = spawn{...}` (or
 --- simply dropping the handle) never leaves a zombie.
 local unix = require("cosmo.unix")
-local childio = require("cosmic.child_io")
+local childio = require("cosmic.child.io")
 local errno = require("cosmic.errno")
 
 --- Structured outcome of a finished child.
