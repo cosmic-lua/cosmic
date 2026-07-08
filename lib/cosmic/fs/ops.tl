@@ -1,10 +1,12 @@
 --- Filesystem file operations, permissions, timestamps, and temp files.
 --- Internal submodule used by cosmic.fs.
 local unix = require("cosmo.unix")
+local cfd = require("cosmic.fd")
 local types = require("cosmic.fs.types")
 local errno = require("cosmic.errno")
 local errstr = errno.str
 local Statfs = types.Statfs
+local type Handle = cfd.Handle
 
 -- File operations
 
@@ -204,10 +206,11 @@ end
 
 --- Check if the current process has access to a file.
 --- @param path string Path to check
---- @param mode number Access mode: F_OK (exists), R_OK, W_OK, X_OK
+--- @param mode number Access mode: F_OK (exists, the default), R_OK, W_OK, X_OK
 --- @return boolean True if access is allowed
-local function access(path: string, mode: number): boolean
-  return (unix.access(path, mode))
+local function access(path: string, mode?: number): boolean
+  -- The binding returns true or nil, err; callers get an honest boolean.
+  return unix.access(path, mode or unix.F_OK) == true
 end
 
 --- Change file permissions.
@@ -285,20 +288,24 @@ local function mkdtemp(template: string): string | nil, string
   return path
 end
 
---- Create a temporary file.
+--- Create a temporary file, returning an open fd.Handle plus its path.
+--- The Handle owns the descriptor (h:close() releases it); the file is
+--- NOT unlinked automatically — remove the path when done. For an
+--- anonymous descriptor with no path, use tmpfd() + fd.wrap().
 --- The second return is always the path (nil on failure); the error, if
 --- any, is always in the third slot.
---- @param template string Path template ending in XXXXXX
---- @return number | nil File descriptor, or nil on error
+--- @param template string Path template ending in XXXXXX (default: $TMPDIR/cosmic_XXXXXX)
+--- @return Handle | nil Open handle to the created file, or nil on error
 --- @return string Path to the created file, or nil on error
 --- @return string Error message if failed
-local function mkstemp(template: string): number | nil, string, string
+local function tmpfile(template?: string): Handle | nil, string, string
+  template = template or ((os.getenv("TMPDIR") or "/tmp") .. "/cosmic_XXXXXX")
   -- The binding returns (fd, path) on success and (nil, Errno) on failure.
   local fd, path = unix.mkstemp(template)
   if not fd then
-    return nil, nil, errstr(path as any, "mkstemp: " .. template)
+    return nil, nil, errstr(path as any, "tmpfile: " .. template)
   end
-  return fd, path
+  return cfd.wrap(fd), path
 end
 
 --- Create a temporary file descriptor.
@@ -372,13 +379,13 @@ local record FsOpsModule
   readlink: function(path: string): string | nil, string
   realpath: function(path: string): string | nil, string
   rmrf: function(path: string): boolean, string
-  access: function(path: string, mode: number): boolean
+  access: function(path: string, mode?: number): boolean
   chmod: function(path: string, mode: number): boolean, string
   chown: function(path: string, uid: number, gid: number): boolean, string
   utimensat: function(path: string, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
   futimens: function(fd: number, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
   mkdtemp: function(template: string): string | nil, string
-  mkstemp: function(template: string): number | nil, string, string
+  tmpfile: function(template?: string): Handle | nil, string, string
   tmpfd: function(): number | nil, string
   statfs: function(path: string): Statfs | nil, string
   fstatfs: function(fd: number): Statfs | nil, string
@@ -408,7 +415,7 @@ local M: FsOpsModule = {
   utimensat = utimensat,
   futimens = futimens,
   mkdtemp = mkdtemp,
-  mkstemp = mkstemp,
+  tmpfile = tmpfile,
   tmpfd = tmpfd,
   statfs = statfs,
   fstatfs = fstatfs,

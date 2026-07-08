@@ -1,5 +1,6 @@
 #!/usr/bin/env cosmic
 local fs = require("cosmic.fs")
+local cfd = require("cosmic.fd")
 local fs_types = require("cosmic.fs.types")
 local unix = require("cosmo.unix")
 
@@ -421,20 +422,21 @@ local function test_mkdtemp()
 end
 test_mkdtemp()
 
-local function test_mkstemp()
-  local fd, result = fs.mkstemp("/tmp/fs_test_XXXXXX")
-  assert(fd, "mkstemp should succeed: " .. (result or ""))
+local function test_tmpfile()
+  local h, result = fs.tmpfile("/tmp/fs_test_XXXXXX")
+  assert(h, "tmpfile should succeed: " .. (result or ""))
 
   local filepath = result
   assert(filepath:match("^/tmp/fs_test_"), "expected /tmp/fs_test_ prefix")
 
-  local st = fs.fstat(fd)
+  local hh = h as cfd.Handle
+  local st = fs.fstat(hh:fd())
   assert(st, "fstat should succeed")
 
-  unix.close(fd)
+  hh:close()
   fs.unlink(filepath)
 end
-test_mkstemp()
+test_tmpfile()
 
 local function test_tmpfd()
   local fd, err = fs.tmpfd()

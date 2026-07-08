@@ -278,16 +278,16 @@ local function test_wrap_tmpfd()
 end
 test_wrap_tmpfd()
 
-local function test_wrap_mkstemp()
-  local rawfd, path = fs.mkstemp(fs.join(TEST_TMPDIR, "wrap_XXXXXX"))
-  assert(rawfd, "mkstemp should succeed")
-  local h = cfd.wrap(rawfd)
-  assert(h:write("via mkstemp"))
-  assert(h:close())
-  assert(fs.read(path) == "via mkstemp", "data lands in the mkstemp file")
+local function test_tmpfile_handle()
+  local h, path = fs.tmpfile(fs.join(TEST_TMPDIR, "wrap_XXXXXX"))
+  assert(h, "tmpfile should succeed")
+  local hh = h as cfd.Handle
+  assert(hh:write("via tmpfile"))
+  assert(hh:close())
+  assert(fs.read(path) == "via tmpfile", "data lands in the tmpfile")
   fs.unlink(path)
 end
-test_wrap_mkstemp()
+test_tmpfile_handle()
 
 local function test_open_error_names_path_and_errno()
   local _, err = cfd.open("/nonexistent/path/to/file.txt", cfd.O_RDONLY)

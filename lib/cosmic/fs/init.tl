@@ -15,10 +15,12 @@ local fs_path = require("cosmic.fs.path")
 -- Re-export file operations from fs_ops / fs_file submodules
 local fs_ops = require("cosmic.fs.ops")
 local fs_file = require("cosmic.fs.file")
+local cfd = require("cosmic.fd")
+local type Handle = cfd.Handle
 
 -- Raw Dir type from cosmo.unix
 local record RawDir
-  read: function(self: RawDir): string
+  read: function(self: RawDir): string, number
   close: function(self: RawDir)
   fd: function(self: RawDir): number
   rewind: function(self: RawDir)
@@ -30,7 +32,10 @@ local function make_dir(raw: RawDir): Dir
   local is_closed = false
 
   local dir: Dir = {
-    read = function(_self: Dir): string
+    -- The second return is the dirent d_type (fs.DT_DIR / DT_REG /
+    -- DT_LNK / ... / DT_UNKNOWN) where the filesystem supports it,
+    -- so "is this entry a directory" needs no stat(2) call.
+    read = function(_self: Dir): string, number
       if is_closed then return nil end
       return raw:read()
     end,
@@ -202,6 +207,9 @@ end
 -- Re-export walk functions from fs_walk submodule
 local fs_walk = require("cosmic.fs.walk")
 
+-- Recursive tree operations
+local fs_tree = require("cosmic.fs.tree")
+
 --- Iterator over file paths, as returned by files().
 local type FileIter = fs_walk.FileIter
 
@@ -261,9 +269,10 @@ local record FsModule
   readlink: function(path: string): string | nil, string
   realpath: function(path: string): string | nil, string
   rmrf: function(path: string): boolean, string
+  copytree: function(src: string, dst: string): boolean, string
 
   -- Permission operations
-  access: function(path: string, mode: number): boolean
+  access: function(path: string, mode?: number): boolean
   chmod: function(path: string, mode: number): boolean, string
   chown: function(path: string, uid: number, gid: number): boolean, string
 
@@ -273,7 +282,7 @@ local record FsModule
 
   -- Temporary file operations
   mkdtemp: function(template: string): string | nil, string
-  mkstemp: function(template: string): number | nil, string, string
+  tmpfile: function(template?: string): Handle | nil, string, string
   tmpfd: function(): number | nil, string
 
   -- Filesystem statistics
@@ -298,7 +307,9 @@ local record FsModule
   -- Root open failure returns nil, err; subtree failures return the first
   -- error alongside the results.
   walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T): T | nil, string
+  -- collect's pattern is ALWAYS a glob; collect_matching takes a Lua pattern.
   collect: function(dir: string, pattern: string): {string} | nil, string
+  collect_matching: function(dir: string, lua_pattern: string): {string} | nil, string
   collect_all: function(dir: string): {string: FileInfo} | nil, string
   files: function(dir: string, pattern?: string): FileIter | nil, string, any, any
 
@@ -307,6 +318,16 @@ local record FsModule
   R_OK: number
   W_OK: number
   X_OK: number
+
+  -- Dirent d_type constants, as returned by Dir:read()'s second value
+  DT_BLK: number
+  DT_CHR: number
+  DT_DIR: number
+  DT_FIFO: number
+  DT_LNK: number
+  DT_REG: number
+  DT_SOCK: number
+  DT_UNKNOWN: number
 end
 
 local M: FsModule = {
@@ -355,6 +376,7 @@ local M: FsModule = {
   readlink = fs_ops.readlink,
   realpath = fs_ops.realpath,
   rmrf = fs_ops.rmrf,
+  copytree = fs_tree.copytree,
 
   -- Permission operations (re-exported from fs_ops)
   access = fs_ops.access,
@@ -367,7 +389,7 @@ local M: FsModule = {
 
   -- Temporary file operations (re-exported from fs_ops)
   mkdtemp = fs_ops.mkdtemp,
-  mkstemp = fs_ops.mkstemp,
+  tmpfile = fs_ops.tmpfile,
   tmpfd = fs_ops.tmpfd,
 
   -- Filesystem statistics (re-exported from fs_ops)
@@ -382,6 +404,7 @@ local M: FsModule = {
   -- Directory walking
   walk = fs_walk.walk,
   collect = fs_walk.collect,
+  collect_matching = fs_walk.collect_matching,
   collect_all = fs_walk.collect_all,
   files = fs_walk.files,
 
@@ -390,6 +413,15 @@ local M: FsModule = {
   R_OK = fs_ops.R_OK,
   W_OK = fs_ops.W_OK,
   X_OK = fs_ops.X_OK,
+
+  DT_BLK = unix.DT_BLK,
+  DT_CHR = unix.DT_CHR,
+  DT_DIR = unix.DT_DIR,
+  DT_FIFO = unix.DT_FIFO,
+  DT_LNK = unix.DT_LNK,
+  DT_REG = unix.DT_REG,
+  DT_SOCK = unix.DT_SOCK,
+  DT_UNKNOWN = unix.DT_UNKNOWN,
 }
 
 return M
