@@ -121,7 +121,8 @@ local function walk < T > (dir: string, visitor: function(string, string, WalkSt
 end
 
 --- Convert a glob pattern to a Lua pattern.
---- Supports * (any chars), ? (single char), and character classes [abc].
+--- Supports * (any run) and ? (one char); every other character —
+--- including [ ] brackets and Lua-pattern magic like % — is literal.
 --- @param glob string The glob pattern
 --- @return string The equivalent Lua pattern
 local function glob_to_pattern(glob: string): string
@@ -135,26 +136,9 @@ local function glob_to_pattern(glob: string): string
   return "^" .. pattern .. "$"
 end
 
---- Collect file paths matching a pattern.
---- Recursively walks directory tree and returns matching file paths.
---- If the root directory cannot be opened, returns nil plus the error.
---- Failures below the root do not stop the collection; the first such
---- error is returned alongside the results.
---- @param dir string The directory to search
---- @param pattern string Glob pattern (*.lua) or Lua pattern (%.lua$)
---- @return {string} | nil List of matching paths, or nil if the root failed
---- @return string First error encountered, if any
-local function collect(dir: string, pattern: string): {string} | nil, string
-  -- Detect if it's a glob or Lua pattern
-  -- Globs use * and ?, Lua patterns use % for escaping
-  local is_glob = pattern:find("*", 1, true) or pattern:find("?", 1, true)
-  local lua_pattern: string
-  if is_glob then
-    lua_pattern = glob_to_pattern(pattern)
-  else
-    lua_pattern = pattern
-  end
-
+--- Shared body of collect/collect_matching: walk the tree gathering
+--- files whose basename matches the given Lua pattern.
+local function collect_by_pattern(dir: string, lua_pattern: string): {string} | nil, string
   local results: {string} = {}
   local ctx, err = walk(dir, function(full_path: string, entry: string, st: WalkStat, acc: {string})
       if not st:is_dir() and entry:match(lua_pattern) then
@@ -165,6 +149,33 @@ local function collect(dir: string, pattern: string): {string} | nil, string
     return nil, err
   end
   return results, err
+end
+
+--- Collect file paths matching a glob.
+--- The pattern is ALWAYS a glob (`*` any run, `?` one char); other
+--- characters — including brackets and Lua-pattern magic like `%` —
+--- match literally. For Lua patterns use collect_matching().
+--- Recursively walks the directory tree and returns matching file paths.
+--- If the root directory cannot be opened, returns nil plus the error.
+--- Failures below the root do not stop the collection; the first such
+--- error is returned alongside the results.
+--- @param dir string The directory to search
+--- @param pattern string Glob pattern (*.lua)
+--- @return {string} | nil List of matching paths, or nil if the root failed
+--- @return string First error encountered, if any
+local function collect(dir: string, pattern: string): {string} | nil, string
+  return collect_by_pattern(dir, glob_to_pattern(pattern))
+end
+
+--- Collect file paths whose basename matches a Lua pattern (%.lua$).
+--- The explicit Lua-pattern sibling of collect(); the two are never
+--- guessed apart from the pattern's contents.
+--- @param dir string The directory to search
+--- @param lua_pattern string Lua pattern matched against each basename
+--- @return {string} | nil List of matching paths, or nil if the root failed
+--- @return string First error encountered, if any
+local function collect_matching(dir: string, lua_pattern: string): {string} | nil, string
+  return collect_by_pattern(dir, lua_pattern)
 end
 
 --- Recursively collect all files with their Unix permissions.
@@ -256,14 +267,8 @@ local type FileIter = function(): string
   local function files(dir: string, pattern?: string): FileIter | nil, string, any, any
     pattern = pattern or "*"
 
-    -- Detect if it's a glob or Lua pattern
-    local is_glob = pattern:find("*", 1, true) or pattern:find("?", 1, true)
-    local lua_pattern: string
-    if is_glob then
-      lua_pattern = glob_to_pattern(pattern)
-    else
-      lua_pattern = pattern
-    end
+    -- The pattern is always a glob (see collect); no heuristics.
+    local lua_pattern = glob_to_pattern(pattern)
 
     -- Stack of (dir, handle) for depth-first traversal
     local stack: {{string, WalkDirHandle}} = {}
@@ -341,6 +346,7 @@ local type FileIter = function(): string
     --- The visitor may return "skip" (don't descend) or "stop" (end the walk).
     walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T): T | nil, string
     collect: function(dir: string, pattern: string): {string} | nil, string
+    collect_matching: function(dir: string, lua_pattern: string): {string} | nil, string
     collect_all: function(dir: string): {string: FileInfo} | nil, string
     files: function(dir: string, pattern?: string): FileIter | nil, string, any, any
   end
@@ -348,6 +354,7 @@ local type FileIter = function(): string
   local M: FsWalkModule = {
     walk = walk,
     collect = collect,
+    collect_matching = collect_matching,
     collect_all = collect_all,
     files = files,
   }

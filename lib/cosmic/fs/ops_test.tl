@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
---- Tests for fs file operations: copy, move, touch, write_atomic, mkstemp.
+--- Tests for fs file operations: copy, move, touch, write_atomic, tmpfile.
 local fs = require("cosmic.fs")
+local cfd = require("cosmic.fd")
 local fs_types = require("cosmic.fs.types")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
@@ -161,25 +162,26 @@ local function test_write_atomic_failure_keeps_original()
 end
 test_write_atomic_failure_keeps_original()
 
-local function test_mkstemp_success_contract()
+local function test_tmpfile_success_contract()
   local test_dir = setup()
-  local fd, path, err = fs.mkstemp(fs.join(test_dir, "fs_ops_XXXXXX"))
-  assert(fd, "mkstemp should succeed: " .. (err or ""))
+  local h, path, err = fs.tmpfile(fs.join(test_dir, "fs_ops_XXXXXX"))
+  assert(h, "tmpfile should succeed: " .. (err or ""))
   assert(path and path:match("fs_ops_"), "second return should be the path")
   assert(err == nil, "error slot should be nil on success")
-  local handle = fs.fstat(fd)
-  assert(handle, "fstat on mkstemp fd should succeed")
-  require("cosmo.unix").close(fd)
+  local hh = h as cfd.Handle
+  local st = fs.fstat(hh:fd())
+  assert(st, "fstat on tmpfile fd should succeed")
+  hh:close()
   teardown(test_dir)
 end
-test_mkstemp_success_contract()
+test_tmpfile_success_contract()
 
-local function test_mkstemp_failure_contract()
+local function test_tmpfile_failure_contract()
   -- The second return is always the path (nil on failure); the error is
   -- always in the third slot.
-  local fd, path, err = fs.mkstemp("/no/such/dir/fs_ops_XXXXXX")
-  assert(fd == nil, "mkstemp should fail in a missing directory")
+  local h, path, err = fs.tmpfile("/no/such/dir/fs_ops_XXXXXX")
+  assert(h == nil, "tmpfile should fail in a missing directory")
   assert(path == nil, "path slot must be nil on failure, got " .. tostring(path))
   assert(err and err:match("ENOENT"), "error should name ENOENT: " .. (err or ""))
 end
-test_mkstemp_failure_contract()
+test_tmpfile_failure_contract()

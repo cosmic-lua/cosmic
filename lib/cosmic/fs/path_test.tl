@@ -133,7 +133,7 @@ test_collect_glob_escapes_brackets()
 
 local function test_collect_with_lua_pattern()
   local walk_dir = setup_walk()
-  local found = (fs.collect(walk_dir, "%.txt$") or {}) as {string}
+  local found = (fs.collect_matching(walk_dir, "%.txt$") or {}) as {string}
 
   assert(#found == 1, "expected 1 txt file, got " .. #found)
   assert(fs.basename(found[1]) == "file2.txt", "expected file2.txt")
