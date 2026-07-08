@@ -9,7 +9,7 @@
 
 ```teal
 local record RawDir
-  read: function(self: RawDir): string
+  read: function(self: RawDir): string, number
   close: function(self: RawDir)
   fd: function(self: RawDir): number
   rewind: function(self: RawDir)
@@ -59,13 +59,14 @@ local record FsModule
   readlink: function(path: string): string | nil, string
   realpath: function(path: string): string | nil, string
   rmrf: function(path: string): boolean, string
-  access: function(path: string, mode: number): boolean
+  copytree: function(src: string, dst: string): boolean, string
+  access: function(path: string, mode?: number): boolean
   chmod: function(path: string, mode: number): boolean, string
   chown: function(path: string, uid: number, gid: number): boolean, string
   utimensat: function(path: string, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
   futimens: function(fd: number, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
   mkdtemp: function(template: string): string | nil, string
-  mkstemp: function(template: string): number | nil, string, string
+  tmpfile: function(template?: string): Handle | nil, string, string
   tmpfd: function(): number | nil, string
   statfs: function(path: string): Statfs | nil, string
   fstatfs: function(fd: number): Statfs | nil, string
@@ -74,12 +75,21 @@ local record FsModule
   minor: function(dev: number): number
   walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T): T | nil, string
   collect: function(dir: string, pattern: string): {string} | nil, string
+  collect_matching: function(dir: string, lua_pattern: string): {string} | nil, string
   collect_all: function(dir: string): {string: FileInfo} | nil, string
   files: function(dir: string, pattern?: string): FileIter | nil, string, any, any
   F_OK: number
   R_OK: number
   W_OK: number
   X_OK: number
+  DT_BLK: number
+  DT_CHR: number
+  DT_DIR: number
+  DT_FIFO: number
+  DT_LNK: number
+  DT_REG: number
+  DT_SOCK: number
+  DT_UNKNOWN: number
 end
 ```
 
