@@ -6,6 +6,7 @@
 local fetch = require("cosmic.fetch")
 local net = require("cosmic.net")
 local proc = require("cosmic.proc")
+local signal = require("cosmic.signal")
 
 local function body_response(status_line: string, body: string): string
   return "HTTP/1.1 " .. status_line .. "\r\nContent-Length: " .. #body
@@ -13,18 +14,29 @@ local function body_response(status_line: string, body: string): string
 end
 
 --- Fork a loopback server that answers #responses requests in order.
---- An empty-string response closes the connection immediately WITHOUT
---- reading the request: the unread bytes make the kernel answer with an
---- RST, so the client sees a connection reset (error kind "connect").
---- (Reading the request first and then closing would send a clean FIN,
---- which the client reports as an EOF-before-headers "protocol" error —
---- deliberately not retryable.)
+--- An empty-string response reads ONE byte of the request and closes:
+--- the byte guarantees the request has arrived, so close() always
+--- finds unread bytes and the kernel answers with an RST — the client
+--- deterministically sees a connection reset (error kind "connect").
+--- Closing before the request arrives would send a clean FIN instead,
+--- which classifies as an EOF-before-headers "protocol" error — not
+--- retried — leaving this child blocked in accept() forever (#574).
+--- The child also arms a lifetime alarm: if the client stops early for
+--- any other reason, SIGALRM's default action kills the child so
+--- proc.wait() can never hang the suite.
 local function serve(responses: {string}): integer, number
   local srv, port = net.listen_tcp("127.0.0.1", 0)
   assert(srv ~= nil, "listen_tcp failed")
   local s = srv as net.Socket
   local pid = proc.fork()
   if pid == 0 then
+    signal.setitimer({
+        which = signal.ITIMER_REAL,
+        valuesec = 30,
+        valuens = 0,
+        intervalsec = 0,
+        intervalns = 0,
+      })
     for _, resp in ipairs(responses) do
       local conn = s:accept()
       if conn then
@@ -37,6 +49,8 @@ local function serve(responses: {string}): integer, number
             buf = buf .. data
           end
           c:send(resp)
+        else
+          c:recv(1)
         end
         c:close()
       end
