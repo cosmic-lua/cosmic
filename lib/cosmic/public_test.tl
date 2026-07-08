@@ -97,7 +97,6 @@ local function test_directory_module_entry_points()
   local surface: {string: string} = {
     sqlite = "open",
     doc = "parse_file",
-    docs = "run",
     fetch = "fetch",
     net = "socket",
     child = "spawn",
@@ -109,16 +108,21 @@ local function test_directory_module_entry_points()
     assert(type(mod[fn]) == "function",
       "cosmic." .. name .. " must expose " .. fn .. "()")
   end
+  -- doc carries both halves of the converged family (#557): extraction
+  -- (parse_file, checked above) and the embedded-index query surface.
+  local doc = require("cosmic.doc") as {string: any}
+  assert(type(doc["run"]) == "function", "cosmic.doc must expose run()")
+  assert(type(doc["search"]) == "function", "cosmic.doc must expose search()")
 end
 test_directory_module_entry_points()
 
 --- Documented ⇔ public (issue #556): every public module must have an
---- entry in the embedded docs index. docs/public_test.tl checks the
+--- entry in the embedded docs index. doc/public_test.tl checks the
 --- other direction (the listing shows public modules only).
 local function test_public_modules_are_documented()
-  local docs = require("cosmic.docs")
+  local docs = require("cosmic.doc")
   local doc_types = require("cosmic.doc.types")
-  local index, ierr = docs.load_index()
+  local index, ierr = docs.embedded_index()
   assert(index, "docs index must be embedded: " .. tostring(ierr))
   local idx = index as doc_types.DocIndex
   local undocumented: {string} = {}

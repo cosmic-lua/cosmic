@@ -3,13 +3,13 @@
 --- `--docs` lists public modules only, internal modules stay searchable
 --- but badged, and their doc pages carry an internal-module header.
 
-local docs = require("cosmic.docs")
+local docs = require("cosmic.doc")
 local doc_types = require("cosmic.doc.types")
 local manifest = require("cosmic.public")
 
 -- These tests are about the embedded index; they must run in the built
 -- binary, where the index is always present.
-local index, ierr = docs.load_index()
+local index, ierr = docs.embedded_index()
 assert(index, "docs index must be embedded (run tests via the binary): "
   .. tostring(ierr))
 local idx = index as doc_types.DocIndex

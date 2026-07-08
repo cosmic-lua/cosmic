@@ -23,7 +23,6 @@ local public: {string} = {
   "codec",
   "compress",
   "doc",
-  "docs",
   "embed",
   "env",
   "envd",
@@ -75,12 +74,11 @@ local public: {string} = {
 --- (#557); submodules under a public name stay non-API.
 ---
 --- `doc` vs `docs` (#557's judgment call, recorded so this never
---- re-opens without new evidence): kept as two public modules with
---- distinct jobs — `doc` extracts documentation from Teal source
---- (build-time tooling: render, gendoc, the embedded-index generator),
---- `docs` queries the index embedded in the binary (runtime lookup and
---- search behind `--docs`). The #566 public-list capstone re-judges
---- whether both stay public.
+--- re-opens without new evidence): converged into the single public
+--- `doc` family. Extraction from Teal source (parse/render/gendoc, the
+--- index generator) and the embedded-index query surface behind
+--- `--docs` (run/search/list_topics) are both `cosmic.doc`; two
+--- top-level modules one letter apart was itself the ergonomics bug.
 local internal: {string} = {
   "cli",
   "public",

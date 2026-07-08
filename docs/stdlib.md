@@ -86,8 +86,7 @@ local sqlite = require("cosmic.sqlite")
 | module | description |
 |--------|-------------|
 | `cosmic.teal` | Teal compilation and type checking |
-| `cosmic.doc` | extract docs from Teal source |
-| `cosmic.docs` | query embedded documentation |
+| `cosmic.doc` | extract docs from source; query the embedded doc index |
 | `cosmic.embed` | create custom executables |
 | `cosmic.example` | example runner |
 | `cosmic.benchmark` | benchmark runner |

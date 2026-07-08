@@ -105,7 +105,7 @@ local function test_guide_unknown()
 end
 test_guide_unknown()
 
-local docs = require("cosmic.docs")
+local docs = require("cosmic.doc")
 
 local function test_strip_frontmatter_with_frontmatter()
   local input = "---\nname: test\ndescription: A test\n---\n\n# Hello\n"

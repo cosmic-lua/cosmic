@@ -1,7 +1,7 @@
 #!/usr/bin/env lua
 --- Tests for the embedded documentation module.
 
-local docs = require("cosmic.docs")
+local docs = require("cosmic.doc")
 local doc_types = require("cosmic.doc.types")
 
 -- Test module loads correctly
@@ -10,7 +10,7 @@ local function test_module_loads()
   assert(docs.run, "docs.run should exist")
   assert(docs.has_docs, "docs.has_docs should exist")
   assert(docs.list_topics, "docs.list_topics should exist")
-  assert(docs.load_index, "docs.load_index should exist")
+  assert(docs.embedded_index, "docs.embedded_index should exist")
   assert(docs.render_module, "docs.render_module should exist")
   assert(docs.search, "docs.search should exist")
   assert(docs.render_search_results, "docs.render_search_results should exist")
@@ -26,7 +26,7 @@ end
 test_has_docs()
 
 local function test_load_index()
-  local index, err = docs.load_index()
+  local index, err = docs.embedded_index()
   -- Either we have docs or we get an error message
   if index then
     local idx = index as doc_types.DocIndex
@@ -358,7 +358,7 @@ local function test_show_module_examples_function_filter()
   end
 
   -- Find a module that has examples to test with
-  local index = docs.load_index()
+  local index = docs.embedded_index()
   assert(index, "index should load")
   local idx = index as doc_types.DocIndex
 
@@ -405,7 +405,7 @@ local function test_show_module_examples_no_match()
   end
 
   -- Find a module with examples
-  local index = docs.load_index()
+  local index = docs.embedded_index()
   assert(index, "index should load")
   local idx = index as doc_types.DocIndex
   local test_mod: string = nil
@@ -437,7 +437,7 @@ local function test_show_module_examples_module_only()
   end
 
   -- Find a module with examples
-  local index = docs.load_index()
+  local index = docs.embedded_index()
   assert(index, "index should load")
   local idx = index as doc_types.DocIndex
   local test_mod: string = nil
@@ -481,7 +481,7 @@ local function test_run_reexported_and_quick_example()
   local r = docs.run("cosmic.sqlite.query")
   assert(r, "run should return result")
   if r.ok then assert(r.output:match("query"), "should find query method") end
-  local index = docs.load_index()
+  local index = docs.embedded_index()
   local idx = index as doc_types.DocIndex
   local test_mod: string = nil
   for mod_name, mod_doc in pairs(idx.modules) do
