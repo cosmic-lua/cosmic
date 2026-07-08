@@ -88,12 +88,60 @@ end
 test_sleep_invalid_names_errno()
 
 local function test_sleep_ms_invalid_names_errno()
-  local secs, nanos, err = time.sleep_ms(-1000)
-  assert(secs == nil and nanos == nil, "invalid sleep_ms should return nil remainders")
+  local rem, err = time.sleep_ms(-1000)
+  assert(rem == nil, "invalid sleep_ms should return a nil remainder")
   assert(type(err) == "string" and err:match("EINVAL"),
     "sleep_ms error should name EINVAL, got: " .. tostring(err))
 end
 test_sleep_ms_invalid_names_errno()
+
+-- #562: sleep_ms's remainder is a single milliseconds number -- no more
+-- (secs, nanos) two-integer arithmetic in retry loops. Reached via casts
+-- so this file typechecks before and after the signature change.
+
+local function test_sleep_ms_uninterrupted_returns_zero_ms()
+  local sleep_ms = (time as {string: any}).sleep_ms as function(number): number, string
+  local rem, err = sleep_ms(1)
+  assert(rem == 0, "uninterrupted sleep_ms returns 0 ms, got " .. tostring(rem))
+  assert(err == nil, "no error on a clean sleep, got " .. tostring(err))
+end
+test_sleep_ms_uninterrupted_returns_zero_ms()
+
+local function test_sleep_ms_interrupted_returns_ms_remainder()
+  local signal = require("cosmic.signal")
+  local sleep_ms = (time as {string: any}).sleep_ms as function(number): number, string
+
+  local old_handler = signal.sigaction(signal.SIGALRM, function(_: number) end)
+  -- Single-shot timer: interrupt the sleep after ~50ms.
+  signal.setitimer({
+      which = signal.ITIMER_REAL,
+      valuesec = 0,
+      valuens = 50000000,
+      intervalsec = 0,
+      intervalns = 0,
+    })
+
+  local rem, err = sleep_ms(2000)
+
+  -- Disarm and restore before asserting so a failure can't leave a
+  -- ticking timer behind.
+  signal.setitimer({
+      which = signal.ITIMER_REAL,
+      valuesec = 0,
+      valuens = 0,
+      intervalsec = 0,
+      intervalns = 0,
+    })
+  signal.sigaction(signal.SIGALRM, old_handler)
+
+  assert(rem ~= nil, "interrupted sleep_ms must return a remainder")
+  assert(rem > 0 and rem <= 2000,
+    "remainder must be milliseconds within the requested duration, got "
+    .. tostring(rem))
+  assert(err and tostring(err):match("EINTR"),
+    "interrupted sleep_ms error should name EINTR, got: " .. tostring(err))
+end
+test_sleep_ms_interrupted_returns_ms_remainder()
 
 -- sleep_ms tests
 

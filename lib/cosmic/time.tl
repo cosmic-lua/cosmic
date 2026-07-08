@@ -115,16 +115,23 @@ local function sleep(seconds: number, nanos?: number): number | nil, number, str
 end
 
 --- Sleep for the specified number of milliseconds.
---- Same contract as sleep(): 0, 0 on success; remainder plus an EINTR
---- error when interrupted; nil, nil, err on invalid input.
+--- The remainder is a single MILLISECONDS number — no (secs, nanos)
+--- arithmetic in retry loops: 0 on an uninterrupted sleep; the
+--- remaining milliseconds plus an EINTR-tagged error when a signal
+--- interrupts; nil, err on invalid input (EINVAL). time.sleep keeps
+--- its (secs, nanos, err) contract for symmetry with clock_gettime.
 --- @param ms number Milliseconds to sleep
---- @return number | nil Remaining seconds (0 on success), or nil on invalid input
---- @return number Remaining nanoseconds (0 on success)
+--- @return number | nil Remaining milliseconds (0 on success), or nil on invalid input
 --- @return string? Error message when interrupted (EINTR) or invalid (EINVAL)
-local function sleep_ms(ms: number): number | nil, number, string
+local function sleep_ms(ms: number): number | nil, string
   local seconds = math.floor(ms / 1000)
   local remaining_ms = ms % 1000
-  return sleep(seconds, remaining_ms * 1000000)
+  local rem_s, rem_ns, err = sleep(seconds, remaining_ms * 1000000)
+  if rem_s == nil then
+    return nil, err
+  end
+  -- Round up so an interrupted sleep never reports 0 remaining.
+  return math.ceil(rem_s * 1000 + rem_ns / 1000000) as number, err
 end
 
 --- Break down a UNIX timestamp into UTC (Zulu) time components.
@@ -386,7 +393,7 @@ local record TimeModule
   now_ms: function(): number
   monotonic_ms: function(): number
   sleep: function(seconds: number, nanos?: number): number | nil, number, string
-  sleep_ms: function(ms: number): number | nil, number, string
+  sleep_ms: function(ms: number): number | nil, string
   gmtime: function(unixts: number): DateTime
   localtime: function(unixts: number): DateTime
   format_http: function(timestamp: number): string
