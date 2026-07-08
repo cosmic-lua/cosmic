@@ -133,7 +133,7 @@ local M: DocIndexModule = {
 }
 
 -- When run as a script, execute main
-if arg and arg[0] and arg[0]:match("docindex%.tl$") then
+if arg and arg[0] and arg[0]:match("doc[/\\]index%.tl$") then
   os.exit(main(arg))
 end
 

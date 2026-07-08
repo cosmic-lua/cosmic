@@ -1,7 +1,7 @@
 --- Symbol lookup and suggestion helpers for the docs module.
 --- Locates symbols across modules and builds not-found error messages.
 
-local types = require("cosmic.doc_types")
+local types = require("cosmic.doc.types")
 local ModuleDoc = types.ModuleDoc
 local DocIndex = types.DocIndex
 

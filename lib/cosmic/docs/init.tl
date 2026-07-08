@@ -1,8 +1,8 @@
 --- Access embedded documentation — a `go doc`-style CLI over the binary.
 
-local docs_render = require("cosmic.docs_render")
-local docs_lookup = require("cosmic.docs_lookup")
-local types = require("cosmic.doc_types")
+local docs_render = require("cosmic.docs.render")
+local docs_lookup = require("cosmic.docs.lookup")
+local types = require("cosmic.doc.types")
 local ModuleDoc = types.ModuleDoc
 local DocIndex = types.DocIndex
 local DocsResult = types.DocsResult
@@ -178,7 +178,12 @@ local function search(query: string, include_cosmo?: boolean): {SearchResult}
     local module_contains_query = mod_name:lower():find(query_lower, 1, true) ~= nil
     local module_boost = module_contains_query and 15 or 0
 
-    local mod_score = calc_score(simple_lower, mod_doc.module_doc, query_lower, 100, 80, 30)
+    -- Score against both the simple name ("io") and the full dotted name
+    -- ("cosmic.child.io") so directory-module shards stay reachable by
+    -- their dotted suffix (e.g. a search for "child.io").
+    local mod_score = math.max(
+      calc_score(simple_lower, mod_doc.module_doc, query_lower, 100, 80, 30),
+      calc_score(mod_name:lower(), mod_doc.module_doc, query_lower, 100, 80, 30))
     if mod_score > 0 then
       table.insert(results, {
           module_name = mod_name, symbol_name = nil, symbol_type = "module", internal = mod_doc.internal,

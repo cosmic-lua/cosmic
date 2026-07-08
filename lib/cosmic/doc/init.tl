@@ -1,13 +1,13 @@
 --- Extract documentation from Teal files and render as markdown.
 --- Parses doc comments, records, functions, and examples from .tl files.
 
-local types = require("cosmic.doc_types")
+local types = require("cosmic.doc.types")
 local Param = types.Param
 local Return = types.Return
 local FunctionDoc = types.FunctionDoc
 local ModuleDoc = types.ModuleDoc
 
-local doc_render = require("cosmic.doc_render")
+local doc_render = require("cosmic.doc.render")
 
 local BYTE_NEWLINE = string.byte("\n")
 local BYTE_LPAREN = string.byte("(")

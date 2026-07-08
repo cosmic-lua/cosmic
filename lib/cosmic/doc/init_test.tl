@@ -224,16 +224,16 @@ end
 test_embed_has_type_descriptions()
 
 local function test_child_has_type_descriptions()
-  local ok, md = doc.render_file("lib/cosmic/child.tl")
-  assert(ok, "should read child.tl")
+  local ok, md = doc.render_file("lib/cosmic/child/init.tl")
+  assert(ok, "should read child/init.tl")
   -- Handle should have a description
   assert(md:find("### Handle\n\n[^#]"), "Handle should have description")
 end
 test_child_has_type_descriptions()
 
 local function test_fetch_has_module_description()
-  local ok, md = doc.render_file("lib/cosmic/fetch.tl")
-  assert(ok, "should read fetch.tl")
+  local ok, md = doc.render_file("lib/cosmic/fetch/init.tl")
+  assert(ok, "should read fetch/init.tl")
   -- Module should have a description after the header
   assert(md:find("# fetch\n\n[^#]"), "fetch.tl should have module description")
   -- Should describe what it does

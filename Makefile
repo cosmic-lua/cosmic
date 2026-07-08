@@ -359,24 +359,24 @@ docs: $(all_docs)
 
 $(o)/docs/%.md: %.tl $(cosmic_bin) | $(bootstrap_files)
 	@mkdir -p $(@D)
-	@$(cosmic_bin) lib/cosmic/gendoc.tl $< > $@
+	@$(cosmic_bin) lib/cosmic/doc/gendoc.tl $< > $@
 
 $(o)/docs/cosmo/%.md: lib/types/cosmo/%.d.tl $(cosmic_bin) | $(bootstrap_files)
 	@mkdir -p $(@D)
-	@$(cosmic_bin) lib/cosmic/gendoc.tl $< > $@
+	@$(cosmic_bin) lib/cosmic/doc/gendoc.tl $< > $@
 
 # Generate serialized doc index for embedding (uses bootstrap cosmic to avoid circular dep)
 # Include both module sources and example files for the index
 # LUA_PATH points at the freshly compiled modules so the index generator uses
-# this tree's cosmic.doc/docindex code, not the bootstrap's embedded (older) copy
+# this tree's cosmic.doc code, not the bootstrap's embedded (older) copy
 doc_index_srcs := $(all_module_srcs) $(all_example_srcs) $(dtl_files)
 doc_index_lua := $(patsubst %.tl,$(o)/%.lua,$(all_module_srcs))
 doc_index := $(o)/docs/.index.lua
-doc_index_script := lib/cosmic/docindex.tl
+doc_index_script := lib/cosmic/doc/index.tl
 
 $(doc_index): $(doc_index_srcs) $(doc_index_lua) $(doc_index_script) | $(bootstrap_cosmic)
 	@mkdir -p $(@D)
-	@LUA_PATH="$(o)/lib/?.lua;;" $(bootstrap_cosmic) $(doc_index_script) $(doc_index_srcs) > $@.tmp
+	@LUA_PATH="$(o)/lib/?.lua;$(o)/lib/?/init.lua;;" $(bootstrap_cosmic) $(doc_index_script) $(doc_index_srcs) > $@.tmp
 	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 
 .PHONY: doc-index

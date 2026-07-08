@@ -2,7 +2,7 @@
 --- Tests for the embedded documentation module.
 
 local docs = require("cosmic.docs")
-local doc_types = require("cosmic.doc_types")
+local doc_types = require("cosmic.doc.types")
 
 -- Test module loads correctly
 local function test_module_loads()

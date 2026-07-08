@@ -380,7 +380,7 @@ test_query_named()
 
 --- A nested query for the SAME SQL text as a still-open outer query must
 --- not corrupt either cursor: db:query's statement cache (see
---- cosmic.sqlite_stmt_cache) only hands out its cached slot for a given
+--- cosmic.sqlite.stmt_cache) only hands out its cached slot for a given
 --- SQL text once at a time, giving a nested query for that same text its
 --- own separate statement instead.
 local function test_same_sql_nested_query_reentrant()

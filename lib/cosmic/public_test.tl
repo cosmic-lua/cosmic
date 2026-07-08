@@ -90,12 +90,34 @@ local function test_public_modules_load()
 end
 test_public_modules_load()
 
+--- Require-compat per converted family (issue #557): the public entry
+--- point of each directory module still loads under its old top-level
+--- name and exposes its documented surface.
+local function test_directory_module_entry_points()
+  local surface: {string: string} = {
+    sqlite = "open",
+    doc = "parse_file",
+    docs = "run",
+    fetch = "fetch",
+    net = "socket",
+    child = "spawn",
+    format = "format",
+    fs = "read",
+  }
+  for name, fn in pairs(surface) do
+    local mod = require("cosmic." .. name) as {string: any}
+    assert(type(mod[fn]) == "function",
+      "cosmic." .. name .. " must expose " .. fn .. "()")
+  end
+end
+test_directory_module_entry_points()
+
 --- Documented ⇔ public (issue #556): every public module must have an
---- entry in the embedded docs index. docs_public_test.tl checks the
+--- entry in the embedded docs index. docs/public_test.tl checks the
 --- other direction (the listing shows public modules only).
 local function test_public_modules_are_documented()
   local docs = require("cosmic.docs")
-  local doc_types = require("cosmic.doc_types")
+  local doc_types = require("cosmic.doc.types")
   local index, ierr = docs.load_index()
   assert(index, "docs index must be embedded: " .. tostring(ierr))
   local idx = index as doc_types.DocIndex

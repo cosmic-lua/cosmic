@@ -4,9 +4,9 @@
 --- rejected with an explicit "IPv6 not supported" error.
 local unix = require("cosmo.unix")
 local ip = require("cosmic.ip")
-local net_socket = require("cosmic.net_socket")
+local net_socket = require("cosmic.net.socket")
 
---- Socket handle for network I/O (see cosmic.net_socket for the methods).
+--- Socket handle for network I/O (see cosmic.net.socket for the methods).
 --- Supports Lua 5.4's to-be-closed via __close metamethod.
 local type Socket = net_socket.Socket
 
