@@ -302,15 +302,18 @@ local function show_module_examples(query: string): DocsResult
   local resolved = idx.modules[query] and query or (idx.modules["cosmic." .. query] and "cosmic." .. query or nil)
   if resolved then
     local doc = idx.modules[resolved]
-    if not doc.examples or #doc.examples == 0 then
-      return {ok = false, output = "No examples for " .. resolved}
+    if doc.examples and #doc.examples > 0 then
+      local simple_name = resolved:match("([^%.]+)$") or resolved
+      local lines: {string} = {"# " .. simple_name .. " examples", ""}
+      for _, example in ipairs(doc.examples) do
+        table.insert(lines, docs_render.render_example(example))
+      end
+      return {ok = true, output = table.concat(lines, "\n")}
     end
-    local simple_name = resolved:match("([^%.]+)$") or resolved
-    local lines: {string} = {"# " .. simple_name .. " examples", ""}
-    for _, example in ipairs(doc.examples) do
-      table.insert(lines, docs_render.render_example(example))
-    end
-    return {ok = true, output = table.concat(lines, "\n")}
+    -- The resolved module has no examples, but the query may also read as
+    -- module.function — cosmic.quicksand.box.run is both the (example-less)
+    -- run submodule and box's run() function. Fall through and try the
+    -- function-filter interpretation before reporting no examples.
   end
 
   local parts: {string} = {}
@@ -329,19 +332,22 @@ local function show_module_examples(query: string): DocsResult
 
   if mod_name and func_filter then
     local doc = idx.modules[mod_name]
-    if not doc.examples or #doc.examples == 0 then
-      return {ok = false, output = "No examples for " .. query}
+    if doc.examples and #doc.examples > 0 then
+      local matching = docs_render.find_matching_examples(doc.examples, func_filter)
+      if #matching > 0 then
+        local simple_mod = mod_name:match("([^%.]+)$") or mod_name
+        local lines: {string} = {"# " .. simple_mod .. "." .. func_filter .. " examples", ""}
+        for _, example in ipairs(matching) do
+          table.insert(lines, docs_render.render_example(example))
+        end
+        return {ok = true, output = table.concat(lines, "\n")}
+      end
     end
-    local matching = docs_render.find_matching_examples(doc.examples, func_filter)
-    if #matching == 0 then
-      return {ok = false, output = "No examples for " .. query}
-    end
-    local simple_mod = mod_name:match("([^%.]+)$") or mod_name
-    local lines: {string} = {"# " .. simple_mod .. "." .. func_filter .. " examples", ""}
-    for _, example in ipairs(matching) do
-      table.insert(lines, docs_render.render_example(example))
-    end
-    return {ok = true, output = table.concat(lines, "\n")}
+    return {ok = false, output = "No examples for " .. query}
+  end
+
+  if resolved then
+    return {ok = false, output = "No examples for " .. resolved}
   end
 
   local suggestions = docs_render.find_example_suggestions(query, idx)
