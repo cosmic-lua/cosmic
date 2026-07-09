@@ -72,11 +72,17 @@ end
  `for row in ... do` loop, then call `:err()` afterward to detect a step
  error (SQLITE_BUSY / CORRUPT / a RETURNING constraint failure) a for-loop
  cannot observe inline. `:err()` is nil only on a clean SQLITE_DONE.
+ Draining the loop releases the underlying prepared statement. When
+ iteration may stop early, call `:close()` (idempotent), or declare the
+ iterator to-be-closed — `local rows <close> = db:query(...)` — so the
+ statement is released on scope exit; garbage collection is the backstop.
 
 ```teal
 local record Rows
   __call: function(self: Rows): {string: any}
+  __close: function(self: Rows)
   err: function(self: Rows): string
+  close: function(self: Rows)
 end
 ```
 
