@@ -139,6 +139,65 @@ local function check_call_after_define(file: string, lines: {string}): {Diagnost
   return diagnostics
 end
 
+--- Tests and examples must use cosmic.* wrappers, never raw cosmo.* bindings
+--- (AGENTS.md "cosmo vs cosmic"). These files are the enumerated exceptions
+--- from the July audit's §1.7 — each needs the raw layer for a reason the
+--- wrappers cannot provide. Additions here require the same justification.
+local COSMO_REQUIRE_ALLOWLIST < const >: {string: boolean} = {
+  -- fault injection: monkey-patches unix.fork, so it must share the exact
+  -- cosmo.unix module table that child.tl uses
+  ["lib/cosmic/child/init_test.tl"] = true,
+  -- fault injection via the shared cosmo.unix table, plus a heredoc child
+  -- payload that raises SIGKILL on itself
+  ["lib/cosmic/child/io_test.tl"] = true,
+  -- exercises the require machinery itself, including raw cosmo modules
+  ["lib/cosmic/require_test.tl"] = true,
+  -- raw-fd fixtures: sets up open file descriptors without going through
+  -- the fs module under test
+  ["lib/cosmic/fs/init_test.tl"] = true,
+  ["lib/cosmic/fs/dir_test.tl"] = true,
+  -- heredoc payload run inside a namespaced child process
+  ["lib/cosmic/quicksand/proc_test.tl"] = true,
+  -- heredoc payloads exercising the script runner / compiler on sources
+  -- that themselves use cosmo
+  ["lib/cosmic/script_test.tl"] = true,
+  ["lib/cosmic/compile_test.tl"] = true,
+  -- fixture strings in this file quote the forbidden pattern itself
+  ["lib/build/lint_test.tl"] = true,
+  -- third-party Teal compiler test scaffold
+  ["3p/tl/tl_test.tl"] = true,
+}
+
+--- Flag require("cosmo") / require("cosmo.<mod>") in test and example files.
+--- Only `cosmo` exactly or a `cosmo.` prefix counts — `cosmos`, `cosmic`,
+--- etc. are unrelated modules.
+local function check_cosmo_require(file: string, lines: {string}): {Diagnostic}
+  if not (file:match("_test%.tl$") or file:match("_example%.tl$")) then
+    return {}
+  end
+  if COSMO_REQUIRE_ALLOWLIST[file] then
+    return {}
+  end
+  local diagnostics: {Diagnostic} = {}
+  for i, line in ipairs(lines) do
+    local col = line:find("require%s*%(%s*[\"']cosmo[\"'%.]")
+    if col then
+      table.insert(diagnostics, {
+          file = file,
+          line = i,
+          col = col as integer,
+          rule = "cosmo-require",
+          message = string.format(
+            "%s:%d: require(\"cosmo...\") forbidden in tests/examples; "
+              .. "use cosmic.* wrappers",
+            file, i
+          ),
+        })
+    end
+  end
+  return diagnostics
+end
+
 --- Files exempt from lint: .d.tl type declaration files (they describe C
 --- binding interfaces and cannot be split due to Teal's record system).
 local function is_exempt(path: string): boolean
@@ -203,13 +262,28 @@ local function main(...: string): integer
 
   local all_diagnostics: {Diagnostic} = {}
   for _, file in ipairs(files) do
-    -- The standalone lint binary only enforces file-length (run on all tracked files).
-    -- Column-length and assert-order are enforced via --check-style on .tl files.
+    -- The standalone lint binary enforces file-length (run on all tracked
+    -- files) and cosmo-require (tests/examples). Column-length and
+    -- assert-order are enforced via --check-style on .tl files.
     if not is_exempt(file) then
       local n = count_lines(file)
       local diags = check_file_length(file, n, DEFAULT_FILE_LINES)
       for _, d in ipairs(diags) do
         table.insert(all_diagnostics, d)
+      end
+      if file:match("_test%.tl$") or file:match("_example%.tl$") then
+        local f = io.open(file, "r")
+        if f then
+          local content = f:read("*a")
+          f:close()
+          local lines: {string} = {}
+          for line in ((content or "") .. "\n"):gmatch("([^\n]*)\n") do
+            lines[#lines + 1] = line
+          end
+          for _, d in ipairs(check_cosmo_require(file, lines)) do
+            table.insert(all_diagnostics, d)
+          end
+        end
       end
     end
   end
@@ -239,6 +313,7 @@ return {
   check_file_length = check_file_length,
   check_column_length = check_column_length,
   check_call_after_define = check_call_after_define,
+  check_cosmo_require = check_cosmo_require,
   lint_file = lint_file,
   main = main,
 }

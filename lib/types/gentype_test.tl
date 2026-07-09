@@ -8,13 +8,13 @@
 --- definitions.lua source (default: the copy embedded in this binary) for
 --- validating against a cosmopolitan checkout before a release is cut.
 
-local cosmo = require("cosmo")
+local fs = require("cosmic.fs")
 local gentype = require("types.gentype")
 local teal = require("cosmic.teal")
 
 local function defs_source(): string
   local path = os.getenv("GENTYPE_DEFS") or "/zip/.lua/definitions.lua"
-  local source = cosmo.Slurp(path)
+  local source = fs.read(path)
   assert(source, "Failed to read definitions.lua from " .. path)
   return source
 end
@@ -380,7 +380,7 @@ local function test_drift_all_modules()
     local result = gentype.run(m)
     assert(result.success, "generator failed for " .. m .. ": " .. (result.error or ""))
     local path = committed_path(m)
-    local committed = cosmo.Slurp(path)
+    local committed = fs.read(path)
     assert(committed, "missing committed type file " .. path
       .. " -- run `bin/make regen-types` and commit the result")
     if committed ~= result.output then
