@@ -139,13 +139,32 @@ end
 test_null_array_element_truncates()
 
 local function test_nan_inf_encoding()
-  local nan_json = json.encode({0 / 0})
-  assert(nan_json == "[null]", "NaN is documented to encode as null, got: " .. tostring(nan_json))
-  -- Inf encodes as an out-of-range literal, not null: it round-trips back
-  -- to Inf here but is not standard JSON for stricter parsers.
-  local inf_json = json.encode({math.huge})
-  assert(inf_json == "[1e5000]", "Inf is documented to encode as 1e5000, got: " .. tostring(inf_json))
-  local ninf_json = json.encode({-math.huge})
-  assert(ninf_json == "[-1e5000]", "-Inf is documented to encode as -1e5000, got: " .. tostring(ninf_json))
+  -- Non-finite numbers are rejected by default: encoding them silently
+  -- would produce output that stricter JSON parsers refuse.
+  local nan_json, nan_err = json.encode({0 / 0})
+  assert(nan_json == nil, "NaN is documented to fail encode, got: " .. tostring(nan_json))
+  assert(nan_err ~= nil, "NaN encode failure should carry an error message")
+  local inf_json, inf_err = json.encode({math.huge})
+  assert(inf_json == nil, "Inf is documented to fail encode, got: " .. tostring(inf_json))
+  assert(inf_err ~= nil, "Inf encode failure should carry an error message")
+  -- nan="null" opts into the v8 behavior for both NaN and Infinity.
+  local nan_null = json.encode({0 / 0}, {nan = "null"})
+  assert(nan_null == "[null]", "NaN with nan='null' should encode as null, got: " .. tostring(nan_null))
+  local inf_null = json.encode({math.huge, -math.huge}, {nan = "null"})
+  assert(inf_null == "[null,null]", "Inf with nan='null' should encode as null, got: " .. tostring(inf_null))
 end
 test_nan_inf_encoding()
+
+local function test_empty_array_roundtrip()
+  -- Decoded arrays carry the shared array marker, so [] survives a
+  -- round-trip instead of collapsing into {}.
+  local decoded = json.decode("[]")
+  assert(json.encode(decoded) == "[]", "decoded [] should re-encode as []")
+  -- Unmarked empty tables stay objects; array() opts a table in.
+  assert(json.encode({}) == "{}", "a plain empty table should encode as {}")
+  assert(json.encode(json.array({})) == "[]", "array({}) should encode as []")
+  assert(json.encode(json.array()) == "[]", "array() should create an empty array")
+  local marked = json.array({1, 2})
+  assert(json.encode(marked) == "[1,2]", "array() must not disturb elements")
+end
+test_empty_array_roundtrip()

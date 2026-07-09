@@ -2,22 +2,33 @@
 --- Provides zlib and raw deflate compression with consistent error handling.
 local cosmo = require("cosmo")
 
---- Compress data using zlib (with header).
---- The compressed output includes size information and can be decompressed
+--- Compress data using standard zlib framing.
+--- The zlib format carries its own integrity check (Adler-32), and the
+--- output interoperates with other zlib tooling. It can be decompressed
 --- without knowing the original size.
 --- @param data string The data to compress
 --- @return string The compressed data
 local function compress(data: string): string
-  return cosmo.Compress(data)
+  local result, err = cosmo.Deflate(data, {format = "zlib"})
+  if not result then
+    -- Unreachable with valid options; surface a loud failure rather than
+    -- silently breaking the infallible contract.
+    error("compress: " .. tostring(err))
+  end
+  return result
 end
 
 --- Decompress zlib-compressed data.
+--- The decompressed size need not be known in advance; output is bounded
+--- by max_output (default 64 MiB, enforced by the binding) so untrusted
+--- input cannot balloon memory.
 --- @param data string The compressed data (from compress())
+--- @param max_output number? Cap on the decompressed size in bytes
 --- @return string | nil The decompressed data, or nil on error
 --- @return string? Error message if decompression failed
-local function uncompress(data: string): string | nil, string
+local function uncompress(data: string, max_output?: number): string | nil, string
   -- The binding reports truncated or corrupt input as nil, err.
-  local result, err = cosmo.Uncompress(data)
+  local result, err = cosmo.Inflate(data, {format = "zlib", maxsize = max_output})
   if not result then
     return nil, err as string
   end
@@ -64,7 +75,9 @@ local MAX_DEFLATE_RATIO < const > = 1032
 --- validated BEFORE the output buffer is allocated: a declared size larger
 --- than max_output (when given), or implausibly large for the compressed
 --- payload (beyond DEFLATE's ~1032:1 maximum ratio), is rejected without
---- allocating.
+--- allocating, and the binding additionally caps decompression at the
+--- declared size. Output that does not match the declared size exactly is
+--- reported as corrupt.
 --- Note: Only compatible with data produced by deflate() in this module.
 --- @param data string The compressed data with size prefix
 --- @param max_output number? Reject a declared size larger than this many bytes
@@ -85,17 +98,22 @@ local function inflate(data: string, max_output?: number): string | nil, string
     return nil, "inflate: declared size " .. size .. " is implausible for " .. compressed_len .. " compressed bytes"
   end
   local compressed = data:sub(5)
-  -- The binding reports invalid input as nil, err.
-  local result, err = cosmo.Inflate(compressed, size)
+  -- The binding reports invalid input as nil, err. maxsize of 0 is not a
+  -- valid cap, so an empty payload uses 1 and the exactness check below
+  -- rejects any unexpected output.
+  local result, err = cosmo.Inflate(compressed, {maxsize = math.max(size, 1)})
   if not result then
     return nil, err as string
+  end
+  if #result ~= size then
+    return nil, "inflate: output size " .. #result .. " does not match declared size " .. size
   end
   return result
 end
 
 local record CompressModule
   compress: function(data: string): string
-  uncompress: function(data: string): string | nil, string
+  uncompress: function(data: string, max_output?: number): string | nil, string
   deflate: function(data: string): string | nil, string
   inflate: function(data: string, max_output?: number): string | nil, string
 end

@@ -25,6 +25,16 @@ local record Stat
   mode: number
 end
 
+--- Directory entry returned by `zip.Reader:list`.
+local record Entry
+  --- Entry path within the archive
+  name: string
+  --- Uncompressed size in bytes
+  size: number
+  --- Unix file mode/permissions
+  mode: number
+end
+
 local record AddOptions
   --- Compression method: `"store"` or `"deflate"`
   method: string
@@ -36,10 +46,12 @@ end
 
 --- Reader for extracting files from a ZIP archive.
 local record Reader
-  --- Lists all files in the ZIP archive.
-  list: function(self: Reader): {string}
+  --- Lists all files in the ZIP archive, in archive order. Each record
+  --- carries the entry's name, uncompressed size, and mode, so bulk
+  --- operations don't need a follow-up `stat` per entry.
+  list: function(self: Reader): {Entry}
   --- Gets metadata for a specific file in the archive.
-  stat: function(self: Reader, name: string): Stat | nil
+  stat: function(self: Reader, name: string): Stat | nil, string | nil
   --- Reads the contents of a file from the archive.
   read: function(self: Reader, name: string): string | nil, string | nil
   --- Closes the ZIP reader and releases resources.
@@ -74,6 +86,7 @@ end
 local record zip
   type OpenOptions = OpenOptions
   type Stat = Stat
+  type Entry = Entry
   type AddOptions = AddOptions
   type Reader = Reader
   type Writer = Writer
