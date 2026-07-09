@@ -1,6 +1,11 @@
 --- URL encoding, decoding, parsing, formatting, and escaping utilities.
 local cosmo = require("cosmo")
 
+-- C-speed percent-encoding validator (one scan, no allocation). Feature
+-- detected so this module still works on cosmos binaries older than the
+-- binding; decode() falls back to the Lua pattern check without it.
+local is_valid_percent_encoding = (cosmo as {string: any})["IsValidPercentEncoding"] as function(str: string): boolean
+
 --- Percent-encode a string for use as a URL query parameter value.
 --- Use this when building query strings manually: `"q=" .. url.encode(search_term)`.
 --- Spaces become %20, special characters become %XX hex sequences.
@@ -25,10 +30,18 @@ end
 local function decode(str: string): string | nil, string
   -- Check for invalid percent-encoding sequences before decoding
   -- Valid sequences are %XX where X is a hex digit
-  local check = str:gsub("%%(%x%x)", "") -- Remove valid sequences
-  if check:match("%%") then
-    -- Found a % that wasn't followed by two hex digits
-    return nil, "invalid percent-encoding"
+  if is_valid_percent_encoding then
+    if not is_valid_percent_encoding(str) then
+      return nil, "invalid percent-encoding"
+    end
+  else
+    -- Older cosmos binary: same check with Lua patterns (a full copy
+    -- via gsub plus a second scan, ~30x slower on multi-KB values).
+    local check = str:gsub("%%(%x%x)", "") -- Remove valid sequences
+    if check:match("%%") then
+      -- Found a % that wasn't followed by two hex digits
+      return nil, "invalid percent-encoding"
+    end
   end
 
   -- Use native C implementation for the actual decoding
