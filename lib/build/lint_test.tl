@@ -244,3 +244,48 @@ local function test_check_call_after_define_one_line_if()
   assert(#diags == 0, "expected no diagnostic for function with one-line if, got: " .. tostring(#diags))
 end
 test_check_call_after_define_one_line_if()
+
+-- cosmo-require: the forbidden pattern is spelled via concatenation below so
+-- this file's own fixtures don't trip the rule (it is allowlisted anyway).
+local REQ_COSMO = 'require("cosmo' .. '")'
+local REQ_COSMO_UNIX = 'require("cosmo' .. '.unix")'
+
+local function test_cosmo_require_flags_test_file()
+  local lines = {"local unix = " .. REQ_COSMO_UNIX, "print(unix)"}
+  local diags = lint.check_cosmo_require("lib/cosmic/foo_test.tl", lines)
+  assert(#diags == 1, "expected 1 diagnostic, got: " .. tostring(#diags))
+  assert(diags[1].rule == "cosmo-require", "expected cosmo-require rule")
+  assert(diags[1].line == 1, "expected line 1, got: " .. tostring(diags[1].line))
+end
+test_cosmo_require_flags_test_file()
+
+local function test_cosmo_require_flags_bare_cosmo_in_example()
+  local lines = {"local cosmo = " .. REQ_COSMO}
+  local diags = lint.check_cosmo_require("lib/cosmic/foo_example.tl", lines)
+  assert(#diags == 1, "expected 1 diagnostic, got: " .. tostring(#diags))
+end
+test_cosmo_require_flags_bare_cosmo_in_example()
+
+local function test_cosmo_require_ignores_non_test_files()
+  local lines = {"local unix = " .. REQ_COSMO_UNIX}
+  local diags = lint.check_cosmo_require("lib/cosmic/foo.tl", lines)
+  assert(#diags == 0, "library internals may require cosmo directly")
+end
+test_cosmo_require_ignores_non_test_files()
+
+local function test_cosmo_require_ignores_cosmic_requires()
+  local lines = {
+    'local fs = require("cosmic.fs")',
+    'local cosmos = require("cosmos")',
+  }
+  local diags = lint.check_cosmo_require("lib/cosmic/foo_test.tl", lines)
+  assert(#diags == 0, "cosmic.* and cosmos are not cosmo requires")
+end
+test_cosmo_require_ignores_cosmic_requires()
+
+local function test_cosmo_require_honors_allowlist()
+  local lines = {"local unix = " .. REQ_COSMO_UNIX}
+  local diags = lint.check_cosmo_require("lib/cosmic/child/init_test.tl", lines)
+  assert(#diags == 0, "allowlisted files must not be flagged")
+end
+test_cosmo_require_honors_allowlist()

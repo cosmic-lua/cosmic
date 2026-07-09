@@ -2,8 +2,8 @@
 --- Generate Teal .d.tl type definitions from cosmo-lua definitions.lua.
 --- Parses LuaLS annotations and produces Teal-compatible type declarations.
 
-local cosmo = require("cosmo")
 local cosmic = require("cosmic")
+local fs = require("cosmic.fs")
 local tl = require("tl")
 local gt = require("types.gentype_types")
 local Param = gt.Param
@@ -392,7 +392,7 @@ end
 
 --- Run the generator for a specific module or all modules.
 local function run(module_name: string): Result
-  local source = cosmo.Slurp(defs_path())
+  local source = fs.read(defs_path())
   if not source then
     return {success = false, error = "Failed to read " .. defs_path()}
   end
