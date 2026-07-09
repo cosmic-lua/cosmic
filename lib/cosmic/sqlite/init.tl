@@ -63,9 +63,16 @@ local sqlite3 = lsqlite3 as RawSqlite3
 --- `for row in ... do` loop, then call `:err()` afterward to detect a step
 --- error (SQLITE_BUSY / CORRUPT / a RETURNING constraint failure) a for-loop
 --- cannot observe inline. `:err()` is nil only on a clean SQLITE_DONE.
+---
+--- Draining the loop releases the underlying prepared statement. When
+--- iteration may stop early, call `:close()` (idempotent), or declare the
+--- iterator to-be-closed — `local rows <close> = db:query(...)` — so the
+--- statement is released on scope exit; garbage collection is the backstop.
 local record Rows
   metamethod __call: function(self: Rows): {string: any}
+  metamethod __close: function(self: Rows)
   err: function(self: Rows): string
+  close: function(self: Rows)
 end
 
 --- Callable positional-value iterator, the `Statement:values()` counterpart
@@ -327,18 +334,14 @@ local function make_database(raw_db: RawDatabase): Database
       return nil, err
     end
     local it = iter as Rows
-    -- Capture the first row, then drain the iterator so the statement is
-    -- finalized deterministically (returning early from a for-loop leaves
-    -- the iterator open and the prepared statement unfinalized until GC).
+    -- Capture the first row, then close the iterator so the statement is
+    -- released deterministically without stepping the remaining rows.
     local first: {string: any} = nil
     for row in it do
       first = row
       break
     end
-    -- Drain remaining rows so the wrapping closure calls stmt:close().
-    if first ~= nil then
-      while it() ~= nil do end
-    end
+    it:close()
     -- Surface a step error rather than a partial row that looks clean.
     local step_err = it:err()
     if step_err then

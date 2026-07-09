@@ -23,9 +23,14 @@ end
 
 -- Callable row iterator: `for row in iter do ... end`, then `iter:err()`
 -- surfaces a post-drain step error. Same shape as cosmic.sqlite's Rows.
+-- `close` releases the statement without draining; it also runs on scope
+-- exit (`local rows <close> = db:query(...)`) and on garbage collection,
+-- so an abandoned iterator cannot leak its prepared statement.
 local record Rows
   metamethod __call: function(self: Rows): {string: any}
+  metamethod __close: function(self: Rows)
   err: function(self: Rows): string
+  close: function(self: Rows)
 end
 
 -- on_close mirrors stmt_cache:checkout — non-nil returns the shared cached
@@ -51,6 +56,20 @@ local type OnClose = function(RawStatement)
     local first_call = true
     local done = false
 
+    -- Release exactly once: return the shared cached slot, or finalize a
+    -- throwaway. Reached from drain, from close/<close>, and from __gc.
+    local function release()
+      if done then
+        return
+      end
+      done = true
+      if on_close then
+        on_close(raw_stmt)
+      else
+        local _ = raw_stmt:finalize()
+      end
+    end
+
     local iter = setmetatable({} as Rows, {
         __call = function(_: Rows): {string: any}
           if done then
@@ -73,19 +92,23 @@ local type OnClose = function(RawStatement)
             return row
           end
           -- Anything but a clean SQLITE_DONE is a real error to surface.
-          done = true
           if rc ~= done_code then
             step_err = raw_db:errmsg()
           end
-          if on_close then
-            on_close(raw_stmt)
-          else
-            local _ = raw_stmt:finalize()
-          end
+          release()
           return nil
+        end,
+        __close = function(_: Rows)
+          release()
+        end,
+        __gc = function(_: Rows)
+          release()
         end,
       })
     iter.err = function(_: Rows): string return step_err end
+    iter.close = function(_: Rows)
+      release()
+    end
     return iter
   end
 
