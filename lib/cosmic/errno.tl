@@ -4,8 +4,9 @@
 --- (`"open: ENOENT: No such file or directory"`) plus the numeric errno.
 --- This module provides the canonical formatter (`str`) that most
 --- `cosmic.*` wrappers use to add operation context, and helpers for
---- programmatic errno handling (`is`, `code`), so error messages share
---- one shape across the stdlib:
+--- programmatic errno handling (`is`, `code`, and the `constants`
+--- name -> number table), so error messages share one shape across the
+--- stdlib:
 ---
 ---     local ok, err = unix.mkdir(path, mode)
 ---     if not ok then return false, errno.str(err, "mkdir: " .. path) end
@@ -85,9 +86,45 @@ local function name_of(msg: string): string
   return string.match(msg, "%f[%w](E[%u%d]+):")
 end
 
+-- Every errno name cosmo.unix may define. An explicit list rather than an
+-- `E*` scan of the module, which would pick up the termios flags (ECHO,
+-- ECHOE, ECHOK, ECHONL). Names the host does not define are skipped.
+local ERRNO_NAMES < const >: {string} = {
+  "E2BIG", "EACCES", "EADDRINUSE", "EADDRNOTAVAIL", "EAFNOSUPPORT",
+  "EAGAIN", "EALREADY", "EBADF", "EBADFD", "EBADMSG", "EBUSY",
+  "ECANCELED", "ECHILD", "ECONNABORTED", "ECONNREFUSED", "ECONNRESET",
+  "EDEADLK", "EDESTADDRREQ", "EDOM", "EDQUOT", "EEXIST", "EFAULT",
+  "EFBIG", "EFTYPE", "EHOSTDOWN", "EHOSTUNREACH", "EHWPOISON", "EIDRM",
+  "EILSEQ", "EINPROGRESS", "EINTR", "EINVAL", "EIO", "EISCONN",
+  "EISDIR", "ELOOP", "EMEDIUMTYPE", "EMFILE", "EMLINK", "EMSGSIZE",
+  "EMULTIHOP", "ENAMETOOLONG", "ENETDOWN", "ENETRESET", "ENETUNREACH",
+  "ENFILE", "ENOBUFS", "ENODATA", "ENODEV", "ENOENT", "ENOEXEC",
+  "ENOLCK", "ENOLINK", "ENOMEDIUM", "ENOMEM", "ENOMSG", "ENONET",
+  "ENOPROTOOPT", "ENOSPC", "ENOSR", "ENOSTR", "ENOSYS", "ENOTBLK",
+  "ENOTCONN", "ENOTDIR", "ENOTEMPTY", "ENOTRECOVERABLE", "ENOTSOCK",
+  "ENOTSUP", "ENOTTY", "ENXIO", "EOPNOTSUPP", "EOVERFLOW", "EOWNERDEAD",
+  "EPERM", "EPFNOSUPPORT", "EPIPE", "EPROTO", "EPROTONOSUPPORT",
+  "EPROTOTYPE", "ERANGE", "EREMOTE", "ERESTART", "ERFKILL", "EROFS",
+  "ESHUTDOWN", "ESOCKTNOSUPPORT", "ESPIPE", "ESRCH", "ESTALE", "ETIME",
+  "ETIMEDOUT", "ETOOMANYREFS", "ETXTBSY", "EUSERS", "EXDEV",
+}
+
+--- Errno name -> number for every constant the host defines
+--- (`constants.ENOENT`, `constants["EAGAIN"]`, ...). The table form of
+--- `code`: use it to iterate, to look names up dynamically, or to avoid
+--- reaching through `cosmo.unix` for a raw constant.
+local constants: {string: integer} = {}
+for _, name in ipairs(ERRNO_NAMES) do
+  local v = (unix as {string: any})[name]
+  if v is number then
+    constants[name] = v as integer
+  end
+end
+
 return {
   str = str,
   code = code,
   is = is,
   name_of = name_of,
+  constants = constants,
 }
