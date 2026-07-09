@@ -23,11 +23,11 @@ end
 --- @return string | nil The decoded string, or nil on error
 --- @return string? Error message if decoding failed
 local function decode(str: string): string | nil, string
-  -- Check for invalid percent-encoding sequences before decoding
-  -- Valid sequences are %XX where X is a hex digit
-  local check = str:gsub("%%(%x%x)", "") -- Remove valid sequences
-  if check:match("%%") then
-    -- Found a % that wasn't followed by two hex digits
+  -- Check for invalid percent-encoding sequences before decoding.
+  -- UnescapeParam is lenient (a % not followed by two hex digits passes
+  -- through unchanged), so reject malformed input up front; the C
+  -- predicate does it in one scan with no allocation.
+  if not cosmo.IsValidPercentEncoding(str) then
     return nil, "invalid percent-encoding"
   end
 
