@@ -81,3 +81,35 @@ end
 test_name_of_no_match()
 
 print("errno_test: PASS")
+
+-- constants: a name -> number table mirroring errno.code.
+local function test_constants_lookup()
+  local enoent = errno.constants.ENOENT
+  assert(type(enoent) == "number", "ENOENT should be a number")
+  assert(enoent == errno.code("ENOENT"), "constants must agree with code()")
+  assert(errno.constants.EAGAIN == errno.code("EAGAIN"), "EAGAIN must agree")
+  assert(errno.constants["E_NOT_A_REAL_ERRNO"] == nil, "unknown name is nil")
+end
+test_constants_lookup()
+
+-- constants: every entry is a well-formed errno name with an integer
+-- value, usable with errno.is; and the table is non-trivially populated.
+local function test_constants_shape()
+  local n = 0
+  for name, value in pairs(errno.constants) do
+    n = n + 1
+    assert(string.match(name, "^E[%u%d]+$"), "bad errno name: " .. name)
+    assert(math.type(value) == "integer", name .. " value must be an integer")
+    assert(errno.is(value, name), name .. " must round-trip through errno.is")
+  end
+  assert(n >= 50, "expected a populated table, got " .. tostring(n) .. " entries")
+end
+test_constants_shape()
+
+-- constants: the termios ECHO* flags are not errnos and must be absent.
+local function test_constants_excludes_termios()
+  for _, name in ipairs({"ECHO", "ECHOE", "ECHOK", "ECHONL"}) do
+    assert(errno.constants[name] == nil, name .. " is a termios flag, not an errno")
+  end
+end
+test_constants_excludes_termios()
