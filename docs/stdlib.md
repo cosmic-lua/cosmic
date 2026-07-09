@@ -122,7 +122,7 @@ end
 complex operations return a record:
 
 ```teal
-local result = fetch.get("https://example.com")
+local result = fetch.fetch("https://example.com")
 if result.ok then
   print(result.status, result.body)
 else
@@ -204,7 +204,7 @@ db:close()
 ```teal
 local fetch = require("cosmic.fetch")
 
-local result = fetch.get("https://api.example.com/data")
+local result = fetch.fetch("https://api.example.com/data")
 if result.ok then
   local json = require("cosmic.json")
   local data = json.decode(result.body)
