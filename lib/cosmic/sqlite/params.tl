@@ -8,7 +8,9 @@
 -- boundary crosses through `any`; same convention as sqlite_stmt_cache).
 local record Rows
   metamethod __call: function(self: Rows): {string: any}
+  metamethod __close: function(self: Rows)
   err: function(self: Rows): string
+  close: function(self: Rows)
 end
 
 local record Stmt
@@ -29,9 +31,18 @@ end
 
 -- Wrap a prepared+bound statement's row iterator: finalize the statement
 -- when iteration ends and forward the step error through `:err()`.
+-- `close` (also wired to `<close>` scope exit and garbage collection)
+-- finalizes the statement when iteration is abandoned early.
 local function make_query_iter(stmt: Stmt): Rows
   local raw_iter = stmt:rows()
   local done = false
+  local function release()
+    if done then
+      return
+    end
+    done = true
+    stmt:close()
+  end
   local iter = setmetatable({} as Rows, {
       __call = function(_: Rows): {string: any}
         if done then
@@ -39,14 +50,22 @@ local function make_query_iter(stmt: Stmt): Rows
         end
         local row = raw_iter()
         if row == nil then
-          done = true
-          stmt:close()
+          release()
           return nil
         end
         return row
       end,
+      __close = function(_: Rows)
+        release()
+      end,
+      __gc = function(_: Rows)
+        release()
+      end,
     })
   iter.err = function(_: Rows): string return raw_iter:err() end
+  iter.close = function(_: Rows)
+    release()
+  end
   return iter
 end
 
