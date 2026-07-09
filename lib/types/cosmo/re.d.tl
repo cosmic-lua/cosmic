@@ -14,7 +14,7 @@ local record Regex
   --- - `re.NOTBOL`
   --- - `re.NOTEOL`
   --- This has an O(𝑛) cost.
-  search: function(self: Regex, str: string, flags?: number): string, {string}, string | nil
+  search: function(self: Regex, str: string, flags?: number): string | nil, {string}, string | nil
 end
 
 local record re
@@ -91,7 +91,7 @@ local record re
   --- - `re.NOTEOL`
   --- This has exponential complexity. Please use `re.compile()` to compile your regular expressions once from `/.init.lua`. This API exists for convenience. This isn't recommended for prod.
   --- This uses POSIX extended syntax by default.
-  search: function(regex: string, text: string, flags?: number): string, {string}, string | nil
+  search: function(regex: string, text: string, flags?: number): string | nil, {string}, string | nil
   --- Compiles regular expression.
   --- - `re.BASIC`
   --- - `re.ICASE`
@@ -102,7 +102,7 @@ local record re
   --- If regex is an untrusted user value, then `unix.setrlimit` should be
   --- used to impose cpu and memory quotas for security.
   --- This uses POSIX extended syntax by default.
-  compile: function(regex: string, flags?: number): Regex, string | nil
+  compile: function(regex: string, flags?: number): Regex | nil, string | nil
 end
 
 return re

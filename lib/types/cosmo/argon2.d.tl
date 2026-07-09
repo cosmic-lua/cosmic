@@ -37,7 +37,7 @@ local record argon2
   --- - `"argon2id"` blend of other two methods [default]
   --- - `"argon2i"` maximize resistance to side-channel attacks
   --- - `"argon2d"` maximize resistance to gpu cracking attacks
-  hash_encoded: function(pass: string, salt?: string, config?: Config): string, string | nil
+  hash_encoded: function(pass: string, salt?: string, config?: Config): string | nil, string | nil
   --- Verifies a password against an encoded hash, e.g.
   ---     >: argon2.verify(encoded, "password")
   ---     true

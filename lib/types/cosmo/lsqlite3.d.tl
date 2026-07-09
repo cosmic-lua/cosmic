@@ -89,7 +89,7 @@ local record Database
   --- This prints:
   ---     Sum of col 1:   6
   ---     Sum of col 2:   66
-  create_aggregate: function(self: Database, name: string, nargs: number, step: function(ctx: Context, ...: string | number), final: function(ctx: Context), userdata?: any): boolean
+  create_aggregate: function(self: Database, name: string, nargs: number, step: function(ctx: Context, ...: string | number | nil), final: function(ctx: Context), userdata?: any): boolean
   --- This creates a collation callback. A collation callback is used to establish
   --- a collation order, mostly for string comparisons and sorting purposes.
   --- A simple example:
@@ -176,7 +176,7 @@ local record Database
   --- Returns `true` if the database `name` of connection `db` is read-only,
   --- `false` if it is read/write. Returns `nil` plus an error message if
   --- `name` is not the name of a database on connection `db`.
-  readonly: function(self: Database, name?: string): boolean, string | nil
+  readonly: function(self: Database, name?: string): boolean | nil, string | nil
   --- This function installs a rollback_hook callback handler.
   --- See: `db:commit_hook` and `db:update_hook`
   rollback_hook: function(self: Database, func: function(udata: any), udata: any)
@@ -233,7 +233,7 @@ local record Database
   ---     2       22
   ---     3       33
   urows: function(self: Database, sql: string): function, VM
-  wal_checkpoint: function(self: Database, mode?: number, name?: string): number, number, number | nil
+  wal_checkpoint: function(self: Database, mode?: number, name?: string): number | nil, number, number | nil
   wal_hook: function(self: Database, func?: (function(udata: any, db: Database, name: string, page_count: number): number), udata?: any)
 end
 
@@ -246,7 +246,7 @@ local record Statement
   --- `lua_isinteger`. If `value` is a boolean then it is bound as `0` for
   --- `false` or `1` for `true`. If `value` is `nil` or missing, any
   --- previous binding is removed.
-  bind: function(self: Statement, n: number, value: string | number | boolean): number
+  bind: function(self: Statement, n: number, value: string | number | boolean | nil): number
   --- Binds string `blob` (which can be a binary string) as a blob to
   --- statement parameter `n`.
   bind_blob: function(self: Statement, n: number, blob: string): number
@@ -274,7 +274,7 @@ local record Statement
   --- then `nil` is returned.
   bind_parameter_name: function(self: Statement, n: number): string | nil
   --- Binds the given values to statement parameters.
-  bind_values: function(self: Statement, ...: string | number): number
+  bind_values: function(self: Statement, ...: string | number | nil): number
   columns: function(self: Statement): number
   --- This function frees the prepared statement.
   finalize: function(self: Statement): number
@@ -335,12 +335,12 @@ local record Statement
 end
 
 local record VM
-  bind: function(self: VM, index: number, value: string | number | boolean): number
+  bind: function(self: VM, index: number, value: string | number | boolean | nil): number
   bind_blob: function(self: VM, index: number, value: string): number
   bind_names: function(self: VM, names: {string}): number
   bind_parameter_count: function(self: VM): number
   bind_parameter_name: function(self: VM, index: number): string
-  bind_values: function(self: VM, ...: string | number): number
+  bind_values: function(self: VM, ...: string | number | nil): number
   columns: function(self: VM): number
   finalize: function(self: VM): number
   get_name: function(self: VM, index: number): string
@@ -371,7 +371,7 @@ local record VM
   --- the content of the database file, `false` otherwise.
   readonly: function(self: VM): boolean
   reset: function(self: VM): number
-  rows: function(self: VM, sql: string): function(self: VM): {string | number}
+  rows: function(self: VM, sql: string): function(self: VM): {string | number | nil}
   step: function(self: VM): number
   urows: function(self: VM, sql: string): function(self: VM): any...
 end
@@ -691,11 +691,11 @@ local record lsqlite3
   --- Since `0.9.4`, there is a second optional `flags` argument to `lsqlite3.open`.
   --- See https://www.sqlite.org/c3ref/open.html for an explanation of these flags and options.
   ---     local db = lsqlite3.open('foo.db', lsqlite3.OPEN_READWRITE + lsqlite3.OPEN_CREATE + lsqlite3.OPEN_SHAREDCACHE)
-  open: function(filename: string, flags?: number): Database, number | nil, string | nil
+  open: function(filename: string, flags?: number): Database | nil, number | nil, string | nil
   --- Opens an SQLite database in memory and returns its handle as userdata. In case
   --- of an error, the function returns `nil`, an error code and an error message.
   --- (In-memory databases are volatile as they are never stored on disk.)
-  open_memory: function(): Database, number | nil, string | nil
+  open_memory: function(): Database | nil, number | nil, string | nil
   lversion: function(): string
   version: function(): string
   --- Sets global SQLite3 library configuration options.
@@ -709,7 +709,7 @@ local record lsqlite3
   ---   removes the current callback when `func` is `nil`. Returns
   ---   `lsqlite3.OK` followed by the previously installed callback and its
   ---   user data.
-  config: function(option: number, func?: function, udata?: any): number, function | nil, any, number | nil
+  config: function(option: number, func?: function, udata?: any): number | nil, function | nil, any, number | nil
 end
 
 return lsqlite3

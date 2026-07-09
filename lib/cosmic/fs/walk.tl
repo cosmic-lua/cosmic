@@ -48,7 +48,7 @@ local function walk_entries < T > (dir: string, h: WalkDirHandle,
           h:close()
           return true
         end
-        if action ~= "skip" and unix.S_ISDIR(st:mode()) then
+        if action ~= "skip" and unix.S_ISDIR((st as unix.Stat):mode()) then
           if walk_tree(full_path, visitor, ctx, errbox) then
             h:close()
             return true
@@ -224,10 +224,10 @@ local function collect_all(dir: string): {string: FileInfo} | nil, string
           -- S_ISDIR, preserving the same cycle prevention as above.
           local st, serr = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
           if st then
-            if unix.S_ISDIR(st:mode()) then
+            if unix.S_ISDIR((st as unix.Stat):mode()) then
               do_walk(full_path, rel_path)
-            elseif unix.S_ISREG(st:mode()) then
-              local mode = st:mode() & 0x1ff
+            elseif unix.S_ISREG((st as unix.Stat):mode()) then
+              local mode = (st as unix.Stat):mode() & 0x1ff
               files[rel_path] = {mode = mode}
             end
           elseif not errbox[1] then
@@ -317,7 +317,7 @@ local type FileIter = function(): string
             -- S_ISLNK, not S_ISDIR, preserving the same cycle prevention.
             local st = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
             if st then
-              if unix.S_ISDIR(st:mode()) then
+              if unix.S_ISDIR((st as unix.Stat):mode()) then
                 local subhandle = unix.opendir(full_path)
                 if subhandle then
                   table.insert(stack, {full_path, subhandle as WalkDirHandle})
