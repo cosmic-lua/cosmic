@@ -129,9 +129,12 @@ local function convert_type(t: string): string
   if t:match("|") then
     local parts: {string} = {}
     local seen: {string: boolean} = {}
+    local has_nil = false
     for part in t:gmatch("[^|]+") do
       part = part:match("^%s*(.-)%s*$")
-      if part ~= "nil" and part ~= "" then
+      if part == "nil" then
+        has_nil = true
+      elseif part ~= "" then
         local converted = convert_type(part)
         if not seen[converted] then
           seen[converted] = true
@@ -139,9 +142,14 @@ local function convert_type(t: string): string
         end
       end
     end
+    -- A `nil` member is meaningful: `integer|nil` is how upstream marks a
+    -- fallible success return, and dropping it hides the failure case from
+    -- the checker. `any` already admits nil.
+    local suffix = ""
+    if has_nil then suffix = " | nil" end
     if #parts == 0 then return "any"
-    elseif #parts == 1 then return parts[1]
-    else return table.concat(parts, " | ") end
+    elseif #parts == 1 then return parts[1] .. suffix
+    else return table.concat(parts, " | ") .. suffix end
   end
   local prefix, suffix = t:match("^([%w_]+)%.([%w_]+)$")
   if prefix and suffix then

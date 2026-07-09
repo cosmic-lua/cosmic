@@ -35,7 +35,7 @@ local function copy_entries(src: string, dst: string): boolean, string
         h:close()
         return false, errstr(serr, "copytree: stat: " .. s)
       end
-      local mode = st:mode()
+      local mode = (st as unix.Stat):mode()
       if unix.S_ISLNK(mode) then
         local target, rerr = unix.readlink(s)
         if not target then
@@ -71,10 +71,10 @@ copytree_into = function(src: string, dst: string): boolean, string
   if not st then
     return false, errstr(serr, "copytree: stat: " .. src)
   end
-  if not unix.S_ISDIR(st:mode()) then
+  if not unix.S_ISDIR((st as unix.Stat):mode()) then
     return false, "copytree: not a directory: " .. src
   end
-  local ok, merr = unix.makedirs(dst, st:mode() & tonumber("777", 8))
+  local ok, merr = unix.makedirs(dst, (st as unix.Stat):mode() & tonumber("777", 8))
   if not ok then
     return false, errstr(merr, "copytree: makedirs: " .. dst)
   end

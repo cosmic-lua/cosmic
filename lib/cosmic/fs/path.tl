@@ -45,7 +45,7 @@ end
 --- @return boolean True if the path is a regular file
 local function isfile(p: string): boolean
   local st = unix.stat(p)
-  return st ~= nil and unix.S_ISREG(st:mode())
+  return st ~= nil and unix.S_ISREG((st as unix.Stat):mode())
 end
 
 --- Check if path is a directory.
@@ -56,7 +56,7 @@ end
 --- @return boolean True if the path is a directory
 local function isdir(p: string): boolean
   local st = unix.stat(p)
-  return st ~= nil and unix.S_ISDIR(st:mode())
+  return st ~= nil and unix.S_ISDIR((st as unix.Stat):mode())
 end
 
 --- Check if path is a symbolic link.

@@ -102,7 +102,7 @@ local record cosmo
   ---     assert(Barf('x.txt', 'abc123'))
   ---     assert(Barf('x.txt', 'XX', {offset = 3}))
   ---     assert(assert(Slurp('x.txt', 1, 6)) == 'abXX23')
-  Barf: function(filename: string, data: string, options?: BarfOptions): boolean, string | nil, number | nil
+  Barf: function(filename: string, data: string, options?: BarfOptions): boolean | nil, string | nil, number | nil
   CategorizeIp: function(ip: number): string
   --- Compresses data using zlib DEFLATE with a small framing header.
   --- By default the result starts with a header that stores the
@@ -125,7 +125,7 @@ local record cosmo
   --- (up to 128) may be supplied, which allows alternative base32
   --- encodings to be decoded. Returns nil, err if the alphabet length is
   --- not a power of 2 in the range 2..128.
-  DecodeBase32: function(ascii: string, alphabet?: string): string, string | nil
+  DecodeBase32: function(ascii: string, alphabet?: string): string | nil, string | nil
   --- Decodes binary data encoded as base64.
   --- This turns ASCII into binary, in a permissive way that ignores
   --- characters outside the base64 alphabet, such as whitespace. See
@@ -134,7 +134,7 @@ local record cosmo
   --- Turns ASCII base-16 hexadecimal byte string into binary string,
   --- case-insensitively. Returns nil, err if the string has an odd length
   --- or contains a non-hex character.
-  DecodeHex: function(ascii: string): string, string | nil
+  DecodeHex: function(ascii: string): string | nil, string | nil
   --- Turns JSON string into a Lua data structure.
   --- This is a generally permissive parser, in the sense that like
   --- v8, it permits scalars as top-level values. Therefore we must
@@ -163,7 +163,7 @@ local record cosmo
   --- `EncodeJson()` and may not round-trip with original intent.
   --- This parser has perfect conformance with JSONTestSuite.
   --- This parser validates utf-8 and utf-16.
-  DecodeJson: function(input: string): any, string | nil
+  DecodeJson: function(input: string): any | nil, string | nil
   --- Turns ISO-8859-1 string into UTF-8.
   DecodeLatin1: function(iso_8859_1: string): string
   --- Compresses data.
@@ -176,13 +176,13 @@ local record cosmo
   --- `Crc32()` checksum in addition to the original uncompressed size.
   --- Lower numbers go faster (4 for instance is a sweet spot) and higher numbers go
   --- slower but have better compression.
-  Deflate: function(uncompressed: string, level?: number): string, string | nil
+  Deflate: function(uncompressed: string, level?: number): string | nil, string | nil
   --- Turns binary into ASCII using the provided alphabet (Crockford's
   --- base32 alphabet by default). Any alphabet that has a power of 2
   --- length (up to 128) may be supplied for encoding and decoding, which
   --- allows alternative base32 encodings to be produced. Returns nil, err
   --- if the alphabet length is not a power of 2 in the range 2..128.
-  EncodeBase32: function(binary: string, alphabet?: string): string, string | nil
+  EncodeBase32: function(binary: string, alphabet?: string): string | nil, string | nil
   --- Turns binary into ASCII. This can be used to create HTML data:
   --- URIs that do things like embed a PNG file in a web page. See
   --- encodebase64.c.
@@ -259,7 +259,7 @@ local record cosmo
   --- encodings in your input strings will be canonicalized rather than validated.
   --- NaNs are serialized as `null` and Infinities are `null` which is consistent
   --- with the v8 behavior.
-  EncodeJson: function(value: any, options?: EncoderOptions): string, string | nil
+  EncodeJson: function(value: any, options?: EncoderOptions): string | nil, string | nil
   --- Turns UTF-8 into ISO-8859-1 string.
   EncodeLatin1: function(utf8: string, flags?: number): string
   --- Turns Lua data structure into Lua code string.
@@ -329,7 +329,7 @@ local record cosmo
   ---     >: -9223372036854775807 - 1
   ---     -9223372036854775807 - 1
   --- The only failure return condition currently implemented is when C runs out of heap memory.
-  EncodeLua: function(value: any, options?: EncoderOptions): string, string | nil
+  EncodeLua: function(value: any, options?: EncoderOptions): string | nil, string | nil
   --- This function is the inverse of ParseUrl. The output will always be correctly
   --- formatted. The exception is if illegal characters are supplied in the scheme
   --- field, since there's no way of escaping those. Opaque parts are escaped as
@@ -442,7 +442,7 @@ local record cosmo
   --- (malformed request or response), `"too_large"` (response exceeded
   --- `maxresponse`), or `"blocked"` (refused by SSRF protection or the
   --- HTTPS-to-HTTP downgrade guard).
-  Fetch: function(url: string, body?: string | FetchOptions): number, {string: string}, string, string, string | nil, string | nil
+  Fetch: function(url: string, body?: string | FetchOptions): number | nil, {string: string}, string, string, string | nil, string | nil
   --- Sends an HTTP/HTTPS request and returns a streaming reader for the response body.
   --- Useful for Server-Sent Events (SSE), large downloads, or processing data incrementally.
   --- Accepts the same options table as `Fetch()`, including `timeout`, `maxresponse`,
@@ -457,14 +457,14 @@ local record cosmo
   --- redirects. On failure, returns `nil`, a descriptive error message,
   --- and a machine-readable failure kind with the same values as
   --- `Fetch()`.
-  FetchStream: function(url: string, options?: FetchOptions): number, {string: string}, StreamReader, string, string | nil, string | nil
+  FetchStream: function(url: string, options?: FetchOptions): number | nil, {string: string}, StreamReader, string, string | nil, string | nil
   --- Converts UNIX timestamp to an RFC1123 string that looks like this:
   --- `Mon, 29 Mar 2021 15:37:13 GMT`. See `formathttpdatetime.c`.
   FormatHttpDateTime: function(seconds: number): string
   --- Turns integer like `0x01020304` into a string like `"1.2.3.4"`. See also
   --- `ParseIp` for the inverse operation.
   FormatIp: function(uint32: number): string
-  GetCryptoHash: function(name: string, payload: string, key?: string): string, string | nil
+  GetCryptoHash: function(name: string, payload: string, key?: string): string | nil, string | nil
   --- Returns string describing host instruction set architecture.
   --- This can return:
   --- - `"X86_64"` for Intel and AMD systems
@@ -478,7 +478,7 @@ local record cosmo
   --- characters, which are discounted, as well as control codes and ANSI escape
   --- sequences.
   GetMonospaceWidth: function(str: string | number): number
-  GetRandomBytes: function(length?: number): string, string | nil
+  GetRandomBytes: function(length?: number): string | nil, string | nil
   --- Returns `true` if the string contains forbidden control codes.
   --- `flags` selects which characters are considered forbidden and may be
   --- any combination of:
@@ -498,7 +498,7 @@ local record cosmo
   --- However, it is permissable (although not advised) to specify some large number
   --- in which case (on success) the byte length of the output string may be less
   --- than `maxoutsize`.
-  Inflate: function(compressed: string, maxoutsize: number): string, string | nil
+  Inflate: function(compressed: string, maxoutsize: number): string | nil, string | nil
   --- Check if the calling script is being run directly (not require'd).
   --- This function provides a Python-like `if __name__ == "__main__"` idiom
   --- for Lua scripts. It returns true when the script is executed directly
@@ -545,7 +545,7 @@ local record cosmo
   --- Returns nil, err for invalid inputs (previously it returned the -1
   --- sentinel, which `FormatIp` rendered as the broadcast address). See also
   --- `FormatIp` for the inverse operation.
-  ParseIp: function(ip: string): number, string | nil
+  ParseIp: function(ip: string): number | nil, string | nil
   --- Parses `application/x-www-form-urlencoded` key/value parameters,
   --- e.g. `"a=b&c"` becomes `{{"a", "b"}, {"c"}}`. This returns the same
   --- data structure as the `params` field of the `Url` object returned by
@@ -603,7 +603,7 @@ local record cosmo
   --- If no IP address could be found, then `nil` is returned alongside a string of
   --- unspecified format describing the error. Calls to this function may be wrapped
   --- in `assert()` if an exception is desired.
-  ResolveIp: function(hostname: string): number, string | nil
+  ResolveIp: function(hostname: string): number | nil, string | nil
   --- Computes SHA256 checksum, returning 32 bytes of binary.
   Sha256: function(str: string): string
   --- Reads all data from file the easy way.
@@ -616,7 +616,7 @@ local record cosmo
   --- This function is uninterruptible so `unix.EINTR` errors will be ignored. This
   --- should only be a concern if you've installed signal handlers. Use the UNIX API
   --- if you need to react to it.
-  Slurp: function(filename: string, i?: number, j?: number): string, string | nil, number | nil
+  Slurp: function(filename: string, i?: number, j?: number): string | nil, string | nil, number | nil
   --- Formats a timestamp using strftime(3) format specifiers.
   --- Common format specifiers:
   --- - `%Y` four-digit year
@@ -634,7 +634,7 @@ local record cosmo
   ---     Strftime("%F %T", os.time())            -- "2024-12-29 15:30:00"
   ---     Strftime("%a, %d %b %Y", 0)             -- "Thu, 01 Jan 1970"
   ---     Strftime("%F %T", os.time(), true)      -- local time instead of UTC
-  Strftime: function(format: string, timestamp?: number, localtime?: boolean): string, string | nil
+  Strftime: function(format: string, timestamp?: number, localtime?: boolean): string | nil, string | nil
   --- Decompresses data produced by `Compress`.
   --- If `maxoutsize` is absent, the input is expected to begin with the
   --- header that `Compress` writes by default; the embedded length and
@@ -642,7 +642,7 @@ local record cosmo
   --- must be a raw zlib stream that decompresses to exactly `maxoutsize`
   --- bytes.
   --- This function returns nil, err if the input is truncated or corrupt.
-  Uncompress: function(compressed: string, maxoutsize?: number): string, string | nil
+  Uncompress: function(compressed: string, maxoutsize?: number): string | nil, string | nil
   --- Unescapes URL parameter name or value. Decodes `%XX` hex sequences and
   --- converts `+` to space (common in application/x-www-form-urlencoded).
   --- This is the inverse of EscapeParam.

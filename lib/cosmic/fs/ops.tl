@@ -54,7 +54,7 @@ local function copy(src: string, dst: string): boolean, string
     unix.close(srcfd)
     return false, errstr(serr, "copy: fstat: " .. src)
   end
-  local mode = st:mode() & 0x1ff
+  local mode = (st as unix.Stat):mode() & 0x1ff
   local dstfd, derr = unix.open(dst,
     unix.O_WRONLY | unix.O_CREAT | unix.O_TRUNC, mode)
   if not dstfd then
@@ -71,7 +71,7 @@ local function copy(src: string, dst: string): boolean, string
     if data == "" then break end
     local off: integer = 1
     while off <= #data do
-      local n, werr = unix.write(dstfd, data:sub(off))
+      local n, werr = unix.write(dstfd, string.sub(data, off))
       if not n then
         unix.close(srcfd)
         unix.close(dstfd)
