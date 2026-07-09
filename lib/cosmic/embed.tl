@@ -58,17 +58,17 @@ local record ZipAppender
   close: function(self: ZipAppender)
 end
 
---- Stat record for zip file metadata.
-local record ZipStat
+--- Directory entry returned by ZipReader:list().
+local record ZipEntry
+  name: string
+  size: number
   mode: number
-  method: number
 end
 
 --- Reader interface for reading files from a ZIP archive.
 local record ZipReader
-  list: function(self: ZipReader): {string}
+  list: function(self: ZipReader): {ZipEntry}
   read: function(self: ZipReader, name: string): string | nil, string | nil
-  stat: function(self: ZipReader, name: string): ZipStat | nil
   close: function(self: ZipReader)
 end
 
@@ -359,7 +359,8 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
   -- instead of one per file.
   local made_dirs: {string: boolean} = {}
 
-  for _, name in ipairs(entries) do
+  for _, entry in ipairs(entries) do
+    local name = entry.name
     -- Guard against zip-slip: an entry with an absolute path or a ".."
     -- component could otherwise be written outside output_dir.
     if unsafe_entry(name) then
@@ -387,14 +388,11 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
         made_dirs[dir] = true
       end
 
-      -- Get file mode from zip, default to 644
+      -- Sane-masked mode from the archive entry: permission bits only.
       local file_mode = tonumber("644", 8)
-      local zst = reader:stat(name)
-      if zst then
-        local mode = (zst as ZipStat).mode & tonumber("777", 8)
-        if mode > 0 then
-          file_mode = mode
-        end
+      local mode = entry.mode & tonumber("777", 8)
+      if mode > 0 then
+        file_mode = mode
       end
 
       local write_ok = fs.write(filepath, content, file_mode)

@@ -93,8 +93,8 @@ local function count_zip_files(exe_path: string): integer, string
   end
   local rr = reader as czip.Reader
   local count = 0
-  for _, name in ipairs(rr:list()) do
-    if name:sub(-1) ~= "/" then
+  for _, entry in ipairs(rr:list()) do
+    if entry.name:sub(-1) ~= "/" then
       count = count + 1
     end
   end

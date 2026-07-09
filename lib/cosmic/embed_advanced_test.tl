@@ -12,8 +12,14 @@ local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 -- Local declaration of Reader interface for type casting
+local record Entry
+  name: string
+  size: number
+  mode: number
+end
+
 local record Reader
-  list: function(self: Reader): {string}
+  list: function(self: Reader): {Entry}
   read: function(self: Reader, name: string): string | nil, string | nil
   stat: function(self: Reader, name: string): Stat | nil
   close: function(self: Reader)
@@ -124,10 +130,10 @@ local function test_embed_overwrites_cleanly()
   local orig_data = fs.read(cosmic)
   local orig_reader = zip.from(orig_data) as Reader
   local orig_files: {string: boolean} = {}
-  for _, name in ipairs(orig_reader:list()) do
+  for _, entry in ipairs(orig_reader:list()) do
     -- Skip directory entries
-    if name:sub(-1) ~= "/" then
-      orig_files[name] = true
+    if entry.name:sub(-1) ~= "/" then
+      orig_files[entry.name] = true
     end
   end
   orig_reader:close()
@@ -349,7 +355,7 @@ local function test_embed_symlink_loop_terminates()
   local reader = zip.from(data) as Reader
   local files = reader:list()
   for _, f in ipairs(files) do
-    assert(not f:match("loop"), "embedded zip should not contain loop path: " .. f)
+    assert(not f.name:match("loop"), "embedded zip should not contain loop path: " .. f.name)
   end
   reader:close()
 end
@@ -374,7 +380,7 @@ local function test_embed_symlink_to_outside_file_skipped()
   local reader = zip.from(data) as Reader
   local files = reader:list()
   for _, f in ipairs(files) do
-    assert(not f:match("leaked"), "symlink to outside file should not be embedded: " .. f)
+    assert(not f.name:match("leaked"), "symlink to outside file should not be embedded: " .. f.name)
   end
   reader:close()
 end

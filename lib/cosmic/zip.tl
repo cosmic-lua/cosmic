@@ -42,19 +42,32 @@ local record Stat
   mode: number
 end
 
+--- Directory entry returned by Reader:list().
+local record Entry
+  --- Entry path within the archive.
+  name: string
+  --- Uncompressed size in bytes.
+  size: number
+  --- Unix file mode/permissions.
+  mode: number
+end
+
 --- Reader for extracting files from a ZIP archive.
 local record Reader
-  --- Lists all files in the ZIP archive.
+  --- Lists all files in the ZIP archive, in archive order. Each record
+  --- carries the entry's name, uncompressed size, and mode, so bulk
+  --- operations don't need a follow-up stat per entry.
   --- Entry names come raw from the central directory: an archive built by
   --- another tool can contain absolute or "../" names. Validate before
   --- using a name as a filesystem path, or use extract().
-  --- @return {string} List of file paths in the archive
-  list: function(self: Reader): {string}
+  --- @return {Entry} Directory entry records for the archive
+  list: function(self: Reader): {Entry}
 
   --- Gets metadata for a specific file in the archive.
   --- @param name string The file path within the archive
-  --- @return Stat? File metadata, or nil if file not found
-  stat: function(self: Reader, name: string): Stat | nil
+  --- @return Stat | nil File metadata
+  --- @return string? Error message when the entry is absent
+  stat: function(self: Reader, name: string): Stat | nil, string
 
   --- Reads the contents of a file from the archive.
   --- @param name string The file path within the archive
@@ -231,16 +244,14 @@ local function extract(r: Reader, destdir: string, opts?: ExtractOptions): boole
   local entries = r:list()
 
   -- Validate everything up front: a single bad entry rejects the whole
-  -- archive before any bytes hit the filesystem.
-  for _, name in ipairs(entries) do
-    if unsafe_entry(name) then
-      return false, "unsafe path in archive: " .. name
+  -- archive before any bytes hit the filesystem. list() entries carry
+  -- size and mode, so no per-entry stat is needed.
+  for _, entry in ipairs(entries) do
+    if unsafe_entry(entry.name) then
+      return false, "unsafe path in archive: " .. entry.name
     end
-    if opts and opts.max_file_size then
-      local st = r:stat(name)
-      if st and (st as Stat).size > opts.max_file_size then
-        return false, "entry exceeds max_file_size: " .. name
-      end
+    if opts and opts.max_file_size and entry.size > opts.max_file_size then
+      return false, "entry exceeds max_file_size: " .. entry.name
     end
   end
 
@@ -258,7 +269,8 @@ local function extract(r: Reader, destdir: string, opts?: ExtractOptions): boole
   local ok, err = ensure_dir(destdir)
   if not ok then return false, err end
 
-  for _, name in ipairs(entries) do
+  for _, entry in ipairs(entries) do
+    local name = entry.name
     if name:sub(-1) == "/" then
       ok, err = ensure_dir(fs.join(destdir, name))
       if not ok then return false, err end
@@ -273,12 +285,9 @@ local function extract(r: Reader, destdir: string, opts?: ExtractOptions): boole
 
       -- Sane-masked mode from the archive: permission bits only.
       local file_mode = tonumber("644", 8)
-      local st = r:stat(name)
-      if st then
-        local mode = (st as Stat).mode & tonumber("777", 8)
-        if mode > 0 then
-          file_mode = mode
-        end
+      local mode = entry.mode & tonumber("777", 8)
+      if mode > 0 then
+        file_mode = mode
       end
 
       local write_ok, write_err = fs.write(filepath, content, file_mode)
@@ -301,6 +310,8 @@ local record ZipModule
   type ExtractOptions = ExtractOptions
   --- File metadata within a ZIP archive.
   type Stat = Stat
+  --- Directory entry returned by Reader:list().
+  type Entry = Entry
   --- Reader for extracting files from a ZIP archive.
   type Reader = Reader
   --- Writer for creating new ZIP archives.

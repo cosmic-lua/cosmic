@@ -10,8 +10,14 @@ local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 -- Local declaration of Reader interface for type casting
+local record Entry
+  name: string
+  size: number
+  mode: number
+end
+
 local record Reader
-  list: function(self: Reader): {string}
+  list: function(self: Reader): {Entry}
   read: function(self: Reader, name: string): string | nil, string | nil
   stat: function(self: Reader, name: string): Stat | nil
   close: function(self: Reader)
@@ -59,7 +65,7 @@ local function test_embed_single_file()
   local found = false
   local expected_name = input:gsub("^/+", "")
   for _, f in ipairs(files) do
-    if f == expected_name then
+    if f.name == expected_name then
       found = true
       break
     end

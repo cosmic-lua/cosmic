@@ -33,6 +33,22 @@ local record EncoderOptions
   indent: string
   --- defaults to 64. This option controls the maximum amount of recursion the serializer is allowed to perform. The max is 32767. You might not be able to set it that high if there isn't enough C stack memory. Your serializer checks for this and will return an error rather than crashing.
   maxdepth: number
+  --- `EncodeJson` only: encode NaN and Infinity as `null` (the v8 behavior) instead of failing with `nil, error`.
+  nan: string
+end
+
+local record DeflateOptions
+  --- compression level `-1`..`9`; defaults to `-1`, the zlib default (currently 6). `0` stores without compressing; higher levels are slower but compress better.
+  level: number
+  --- framing of the compressed stream; defaults to `"raw"` (headerless DEFLATE, as used inside ZIP files).
+  format: string
+end
+
+local record InflateOptions
+  --- cap on the decompressed size in bytes; defaults to 64 MiB. Decompression streams into a growing buffer and fails with `nil, error` once the cap is exceeded, so no attacker-controlled length is ever trusted as an allocation size.
+  maxsize: number
+  --- framing of the compressed stream; defaults to `"raw"`. `"auto"` detects zlib or gzip framing from the stream header (but cannot detect `"raw"`).
+  format: string
 end
 
 local record FetchOptions
@@ -89,6 +105,8 @@ end
 local record cosmo
   type Url = Url
   type EncoderOptions = EncoderOptions
+  type DeflateOptions = DeflateOptions
+  type InflateOptions = InflateOptions
   type FetchOptions = FetchOptions
   type BarfOptions = BarfOptions
   type StreamReader = StreamReader
@@ -104,16 +122,6 @@ local record cosmo
   ---     assert(assert(Slurp('x.txt', 1, 6)) == 'abXX23')
   Barf: function(filename: string, data: string, options?: BarfOptions): boolean | nil, string | nil, number | nil
   CategorizeIp: function(ip: number): string
-  --- Compresses data using zlib DEFLATE with a small framing header.
-  --- By default the result starts with a header that stores the
-  --- uncompressed byte length (as a ULEB64 varint) followed by a `Crc32`
-  --- checksum, so `Uncompress` can decode it without being told the
-  --- original size. If `raw` is truthy then only the raw zlib stream is
-  --- returned, in which case `Uncompress` requires the uncompressed size
-  --- as its second argument.
-  --- This function raises an error if the level is invalid or the system
-  --- runs out of memory.
-  Compress: function(uncompressed: string, level?: number, raw?: boolean): string
   --- Computes Phil Katz CRC-32 used by zip/zlib/gzip/etc.
   Crc32: function(initial: number, data: string): number
   --- Computes 32-bit Castagnoli Cyclic Redundancy Check.
@@ -155,12 +163,17 @@ local record cosmo
   ---     end
   --- This parser supports 64-bit signed integers. If an overflow
   --- happens, then the integer is silently coerced to double, as
-  --- consistent with v8. If a double overflows into `Infinity`, we
-  --- coerce it to `null` since that's what v8 does, and the same
-  --- goes for underflows which, like v8, are coerced to `0.0`.
+  --- consistent with v8. If a double overflows, it decodes as
+  --- `Infinity`, which `EncodeJson` refuses to re-encode unless
+  --- `nan="null"` is given; underflows, like v8, are coerced to `0.0`.
   --- When objects are parsed, your Lua object can't preserve the
   --- original ordering of fields. As such, they'll be sorted by
   --- `EncodeJson()` and may not round-trip with original intent.
+  --- Decoded arrays are marked with a shared `json.array` metatable so
+  --- that an empty `[]` won't round-trip as `{}`. The marker carries no
+  --- data: `next()` on a decoded `[]` returns nil, and `pairs()` sees
+  --- only the array elements. Use `jsonarray()` to mark tables you build
+  --- yourself.
   --- This parser has perfect conformance with JSONTestSuite.
   --- This parser validates utf-8 and utf-16.
   DecodeJson: function(input: string): any | nil, string | nil
@@ -169,14 +182,17 @@ local record cosmo
   --- Compresses data.
   ---     >: Deflate("hello")
   ---     "\xcbH\xcd\xc9\xc9\x07\x00"
-  ---     >: Inflate("\xcbH\xcd\xc9\xc9\x07\x00", 5)
+  ---     >: Inflate("\xcbH\xcd\xc9\xc9\x07\x00")
   ---     "hello"
-  --- The output format is raw DEFLATE that's suitable for embedding into formats
-  --- like a ZIP file. It's recommended that, like ZIP, you also store separately a
-  --- `Crc32()` checksum in addition to the original uncompressed size.
-  --- Lower numbers go faster (4 for instance is a sweet spot) and higher numbers go
-  --- slower but have better compression.
-  Deflate: function(uncompressed: string, level?: number): string | nil, string | nil
+  --- The default output format is raw DEFLATE that's suitable for embedding
+  --- into formats like a ZIP file. Pass `{format = "zlib"}` or
+  --- `{format = "gzip"}` for streams that interoperate with other zlib and
+  --- gzip tooling; those framings carry their own integrity checks, whereas
+  --- with `"raw"` it's recommended that, like ZIP, you also store a `Crc32()`
+  --- checksum separately.
+  --- Returns `nil, error` when an option value is invalid (for example a
+  --- level outside `-1`..`9` or an unknown format).
+  Deflate: function(uncompressed: string, options?: DeflateOptions): string | nil, string | nil
   --- Turns binary into ASCII using the provided alphabet (Crockford's
   --- base32 alphabet by default). Any alphabet that has a power of 2
   --- length (up to 128) may be supplied for encoding and decoding, which
@@ -207,23 +223,24 @@ local record cosmo
   ---     "[]"
   ---     >: EncodeJson({[2]=1, [3]=3})
   ---     nil     "json objects must only use string keys"
-  --- If the raw length of a table is reported as zero, then we
-  --- check for the magic element `[0]=false`. If it's present, then
-  --- your table will be serialized as empty array `[]`. An entry is
-  --- inserted by `DecodeJson()` automatically, only when encountering
-  --- empty arrays, and it's necessary in order to make empty arrays
-  --- round-trip. If raw length is zero and `[0]=false` is absent,
-  --- then your table will be serialized as an iterated object.
+  --- If the raw length of a table is reported as zero, then we check
+  --- whether it carries the shared `json.array` marker metatable. If it
+  --- does, your table will be serialized as empty array `[]`. The marker
+  --- is applied by `DecodeJson()` to every decoded array, so empty arrays
+  --- round-trip; use `jsonarray()` to mark empty tables you build
+  --- yourself. If raw length is zero and the marker is absent, then your
+  --- table will be serialized as an iterated object.
   ---     >: EncodeJson({})
   ---     "{}"
-  ---     >: EncodeJson({[0]=false})
+  ---     >: EncodeJson(jsonarray({}))
   ---     "[]"
   ---     >: EncodeJson({["hi"]=1})
   ---     "{\"hi\":1}"
-  ---     >: EncodeJson({["hi"]=1, [0]=false})
-  ---     "[]"
   ---     >: EncodeJson({["hi"]=1, [7]=false})
   ---     nil     "json objects must only use string keys"
+  --- A table carrying the `json.null` sentinel metatable (see the
+  --- `null` value on this module) is serialized as `null`, which makes
+  --- lossless `{"a":null}` round-trips possible.
   --- The following options may be used:
   --- - `useoutput`: `(bool=false)` encodes the result directly to the output buffer
   ---   and returns nil value. This option is ignored if used outside of request
@@ -240,25 +257,20 @@ local record cosmo
   ---   the serializer is allowed to perform. The max is 32767. You might not be able
   ---   to set it that high if there isn't enough C stack memory. Your serializer
   ---   checks for this and will return an error rather than crashing.
-  --- If the raw length of a table is reported as zero, then we
-  --- check for the magic element `[0]=false`. If it's present, then
-  --- your table will be serialized as empty array `[]`. An entry is
-  --- inserted by `DecodeJson()` automatically, only when encountering
-  --- empty arrays, and it's necessary in order to make empty arrays
-  --- round-trip. If raw length is zero and `[0]=false` is absent,
-  --- then your table will be serialized as an iterated object.
+  --- - `nan`: `(str)` The only accepted value is `"null"`, which makes NaN
+  ---   and Infinity serialize as `null` (the v8 behavior) instead of
+  ---   failing the encode.
   --- This function will return an error if:
   --- - value is cyclic
   --- - value has depth greater than 64
   --- - value contains functions, user data, or threads
   --- - value is table that blends string / non-string keys
+  --- - value contains NaN or Infinity and `nan="null"` wasn't given
   --- - Your serializer runs out of C heap memory (setrlimit)
   --- We assume strings in value contain UTF-8. This serializer currently does not
   --- produce UTF-8 output. The output format is right now ASCII. Your UTF-8 data
   --- will be safely transcoded to `\uXXXX` sequences which are UTF-16. Overlong
   --- encodings in your input strings will be canonicalized rather than validated.
-  --- NaNs are serialized as `null` and Infinities are `null` which is consistent
-  --- with the v8 behavior.
   EncodeJson: function(value: any, options?: EncoderOptions): string | nil, string | nil
   --- Turns UTF-8 into ISO-8859-1 string.
   EncodeLatin1: function(utf8: string, flags?: number): string
@@ -493,12 +505,13 @@ local record cosmo
   --- bits outside the values above.
   HasControlCodes: function(str: string, flags?: number): boolean
   --- Decompresses data.
-  --- This function performs the inverse of Deflate(). It's recommended that you
-  --- perform a `Crc32()` check on the output string after this function succeeds.
-  --- However, it is permissable (although not advised) to specify some large number
-  --- in which case (on success) the byte length of the output string may be less
-  --- than `maxoutsize`.
-  Inflate: function(compressed: string, maxoutsize: number): string | nil, string | nil
+  --- This function performs the inverse of `Deflate()`. The decompressed
+  --- size need not be known in advance: output streams into a growing
+  --- buffer, bounded by `options.maxsize` (default 64 MiB). Corrupt or
+  --- truncated input yields `nil, error` rather than raising. When using
+  --- the default `"raw"` framing it's recommended that you perform a
+  --- `Crc32()` check on the output string after this function succeeds.
+  Inflate: function(compressed: string, options?: InflateOptions): string | nil, string | nil
   --- Check if the calling script is being run directly (not require'd).
   --- This function provides a Python-like `if __name__ == "__main__"` idiom
   --- for Lua scripts. It returns true when the script is executed directly
@@ -533,6 +546,16 @@ local record cosmo
   --- Note: we intentionally regard TEST-NET IPs as public.
   IsPublicIp: function(uint32: number): boolean
   IsReasonablePath: function(str: string): boolean
+  --- Marks a table with the shared `json.array` metatable so `EncodeJson`
+  --- serializes it as a JSON array even when it's empty. `DecodeJson`
+  --- applies the same marker to every array it decodes, which is how an
+  --- empty `[]` round-trips instead of turning into `{}`. Passing no
+  --- argument creates and returns a fresh marked table.
+  ---     >: EncodeJson({})
+  ---     "{}"
+  ---     >: EncodeJson(jsonarray({}))
+  ---     "[]"
+  jsonarray: function(t?: {any}): {any}
   --- Parses a `host[:port]` string, e.g. `"example.com:8080"`.
   --- Please note a longstanding quirk inherited from redbean: only the
   --- port component is currently returned. This function yields the port
@@ -635,14 +658,6 @@ local record cosmo
   ---     Strftime("%a, %d %b %Y", 0)             -- "Thu, 01 Jan 1970"
   ---     Strftime("%F %T", os.time(), true)      -- local time instead of UTC
   Strftime: function(format: string, timestamp?: number, localtime?: boolean): string | nil, string | nil
-  --- Decompresses data produced by `Compress`.
-  --- If `maxoutsize` is absent, the input is expected to begin with the
-  --- header that `Compress` writes by default; the embedded length and
-  --- `Crc32` checksum are verified. If `maxoutsize` is given, the input
-  --- must be a raw zlib stream that decompresses to exactly `maxoutsize`
-  --- bytes.
-  --- This function returns nil, err if the input is truncated or corrupt.
-  Uncompress: function(compressed: string, maxoutsize?: number): string | nil, string | nil
   --- Unescapes URL parameter name or value. Decodes `%XX` hex sequences and
   --- converts `+` to space (common in application/x-www-form-urlencoded).
   --- This is the inverse of EscapeParam.

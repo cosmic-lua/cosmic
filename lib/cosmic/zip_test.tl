@@ -75,10 +75,13 @@ local function test_read_list()
 
   assert(#files == 3, "should have 3 files, got " .. #files)
   local found_a, found_b, found_d = false, false, false
-  for _, name in ipairs(files) do
-    if name == "a.txt" then found_a = true end
-    if name == "b.txt" then found_b = true end
-    if name == "c/d.txt" then found_d = true end
+  for _, entry in ipairs(files) do
+    if entry.name == "a.txt" then
+      found_a = true
+      assert(entry.size == 1, "a.txt should report size 1, got " .. tostring(entry.size))
+    end
+    if entry.name == "b.txt" then found_b = true end
+    if entry.name == "c/d.txt" then found_d = true end
   end
   assert(found_a, "should contain a.txt")
   assert(found_b, "should contain b.txt")
