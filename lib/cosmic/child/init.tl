@@ -14,6 +14,7 @@
 --- simply dropping the handle) never leaves a zombie.
 local unix = require("cosmo.unix")
 local childio = require("cosmic.child.io")
+local childfast = require("cosmic.child.fast")
 local errno = require("cosmic.errno")
 
 --- Structured outcome of a finished child.
@@ -281,6 +282,58 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
     if not stderr_w then return fail("pipe failed (stderr)") end
   end
 
+  -- Parent-side epilogue shared by both spawn paths: release the pipe ends
+  -- the child owns and build the pump state around the ends we keep.
+  local function parent_handle(pid: number): Handle
+    if not stdin_is_fd then unix.close(stdin_r) end
+    if not stdout_is_fd then unix.close(stdout_w) end
+    if not stderr_is_fd then unix.close(stderr_w) end
+    -- An opts.stdin string is delivered lazily by the pump (in wait/run), not
+    -- written synchronously here: a >pipe-buffer write before anyone drains
+    -- stdout/stderr would deadlock. The pump feeds stdin and drains both
+    -- output streams in one poll loop, so neither can happen.
+    local stdin_data: string = nil
+    if type(opts.stdin) == "string" then
+      stdin_data = opts.stdin as string
+    end
+    local st: childio.PumpState = {
+      stdout_fd = stdout_is_fd and nil or stdout_r,
+      stderr_fd = stderr_is_fd and nil or stderr_r,
+      stdin_fd = stdin_is_fd and nil or stdin_w,
+      stdin_data = stdin_data,
+      stdin_off = 0,
+      out = {},
+      err_out = {},
+    }
+    return make_handle(pid, st)
+  end
+
+  -- Fast path: posix_spawn (unix.spawn) needs no fork, runs no Lua in the
+  -- child, and reports exec failure from the call itself, so the exec-status
+  -- pipe below is unnecessary. It cannot fexecve a /zip/ binary or chdir, and
+  -- it skips wiring any fd that already sits at its std number — right for
+  -- caller-provided fds (the child inherits them as-is), wrong for our
+  -- CLOEXEC pipe ends, which land on 0-2 only when that std fd was closed;
+  -- fall back to fork for those cases.
+  if not exec_fd and not opts.cwd then
+    local pipe_on_std = (not stdin_is_fd and stdin_r == 0)
+    or (not stdout_is_fd and stdout_w == 1)
+    or (not stderr_is_fd and stderr_w == 2)
+    if not pipe_on_std then
+      local t0 = stdin_is_fd and opts.stdin as number or stdin_r
+      local t1 = stdout_is_fd and opts.stdout as number or stdout_w
+      local t2 = stderr_is_fd and opts.stderr as number or stderr_w
+      local env = opts.env and normalize_env(opts.env) or nil
+      local fpid, ferr = childfast.spawn(prog, argv, env, t0, t1, t2)
+      if ferr then
+        return fail(ferr)
+      end
+      if fpid then
+        return parent_handle(fpid)
+      end
+    end
+  end
+
   -- Exec-status pipe: CLOEXEC, so a successful execve closes the write end and
   -- the parent's read EOFs instantly. On exec failure the child writes the
   -- errno string here before _exit, making the failure visible to the parent.
@@ -388,26 +441,7 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
     return nil, errno.str(exec_msg, "exec failed")
   end
 
-  -- An opts.stdin string is delivered lazily by the pump (in wait/run), not
-  -- written synchronously here: a >pipe-buffer write before anyone drains
-  -- stdout/stderr would deadlock. The pump feeds stdin and drains both output
-  -- streams in one poll loop, so neither can happen.
-  local stdin_data: string = nil
-  if type(opts.stdin) == "string" then
-    stdin_data = opts.stdin as string
-  end
-
-  local st: childio.PumpState = {
-    stdout_fd = stdout_is_fd and nil or stdout_r,
-    stderr_fd = stderr_is_fd and nil or stderr_r,
-    stdin_fd = stdin_is_fd and nil or stdin_w,
-    stdin_data = stdin_data,
-    stdin_off = 0,
-    out = {},
-    err_out = {},
-  }
-
-  return make_handle(pid, st)
+  return parent_handle(pid)
 end
 
 --- One-shot spawn: run to completion and return the Result.
