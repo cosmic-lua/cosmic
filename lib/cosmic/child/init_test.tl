@@ -214,15 +214,31 @@ test_spawn_with_env_list()
 local function test_spawn_fork_failure()
   -- Monkey-patch unix.fork to simulate a fork failure; child.tl calls
   -- unix.fork() via the shared module table, so this affects child.spawn.
+  -- cwd forces the fork path (the posix_spawn fast path cannot chdir).
   local real_fork = rawget(unix, "fork")
   rawset(unix, "fork", function(): number return nil end)
-  local handle, err = child.spawn({lua_bin, "-e", "print('x')"})
+  local handle, err = child.spawn({lua_bin, "-e", "print('x')"}, {cwd = "."})
   rawset(unix, "fork", real_fork)
   assert(handle == nil, "expected nil handle on fork failure, got: " .. tostring(handle))
   assert(type(err) == "string", "expected error string on fork failure, got: " .. type(err))
   assert(err:find("fork", 1, true), "expected 'fork' in error message: " .. tostring(err))
 end
 test_spawn_fork_failure()
+
+local function test_spawn_fast_failure()
+  -- Same cleanup contract for the posix_spawn fast path: a spawn failure
+  -- must surface from spawn() itself, with the handle nil.
+  local real_spawn = rawget(unix, "spawn")
+  rawset(unix, "spawn", function(): number, string, number
+      return nil, "spawn: EAGAIN: Resource temporarily unavailable", 11
+    end)
+  local handle, err = child.spawn({lua_bin, "-e", "print('x')"})
+  rawset(unix, "spawn", real_spawn)
+  assert(handle == nil, "expected nil handle on spawn failure, got: " .. tostring(handle))
+  assert(err ~= nil and err:find("exec failed", 1, true),
+    "expected 'exec failed' in error message: " .. tostring(err))
+end
+test_spawn_fast_failure()
 
 -- === deadlock regression: large stderr output ===
 
