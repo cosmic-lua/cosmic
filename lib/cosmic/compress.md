@@ -10,7 +10,7 @@
 ```teal
 local record CompressModule
   compress: function(data: string): string
-  uncompress: function(data: string): string | nil, string
+  uncompress: function(data: string, max_output?: number): string | nil, string
   deflate: function(data: string): string | nil, string
   inflate: function(data: string, max_output?: number): string | nil, string
 end
@@ -24,8 +24,9 @@ end
 function compress(data: string): string
 ```
 
- Compress data using zlib (with header).
- The compressed output includes size information and can be decompressed
+ Compress data using standard zlib framing.
+ The zlib format carries its own integrity check (Adler-32), and the
+ output interoperates with other zlib tooling. It can be decompressed
  without knowing the original size.
 
 **Parameters:**
@@ -39,14 +40,18 @@ function compress(data: string): string
 ### uncompress
 
 ```teal
-function uncompress(data: string): string | nil, string
+function uncompress(data: string, max_output?: number): string | nil, string
 ```
 
  Decompress zlib-compressed data.
+ The decompressed size need not be known in advance; output is bounded
+ by max_output (default 64 MiB, enforced by the binding) so untrusted
+ input cannot balloon memory.
 
 **Parameters:**
 
 - `data` (string) - The compressed data (from compress())
+- `max_output` (number?) - Cap on the decompressed size in bytes
 
 **Returns:**
 
@@ -89,7 +94,9 @@ function inflate(data: string, max_output?: number): string | nil, string
  validated BEFORE the output buffer is allocated: a declared size larger
  than max_output (when given), or implausibly large for the compressed
  payload (beyond DEFLATE's ~1032:1 maximum ratio), is rejected without
- allocating.
+ allocating, and the binding additionally caps decompression at the
+ declared size. Output that does not match the declared size exactly is
+ reported as corrupt.
  Note: Only compatible with data produced by deflate() in this module.
 
 **Parameters:**

@@ -59,23 +59,58 @@ local record Stat
 end
 ```
 
+### Entry
+
+ Directory entry returned by Reader:list().
+
+```teal
+local record Entry
+  --  Entry path within the archive.
+  name: string
+  --  Uncompressed size in bytes.
+  size: number
+  --  Unix file mode/permissions.
+  mode: number
+end
+```
+
 ### Reader
 
  Reader for extracting files from a ZIP archive.
 
 ```teal
 local record Reader
-  --  Lists all files in the ZIP archive.
+  --  Lists all files in the ZIP archive, in archive order. Each record
+  --  carries the entry's name, uncompressed size, and mode, so bulk
+  --  operations don't need a follow-up stat per entry.
   --  Entry names come raw from the central directory: an archive built by
   --  another tool can contain absolute or "../" names. Validate before
   --  using a name as a filesystem path, or use extract().
-  list: function(self: Reader): {string}
+  list: function(self: Reader): {Entry}
   --  Gets metadata for a specific file in the archive.
-  stat: function(self: Reader, name: string): Stat | nil
+  stat: function(self: Reader, name: string): Stat | nil, string
   --  Reads the contents of a file from the archive.
   read: function(self: Reader, name: string): string | nil, string
   --  Closes the ZIP reader and releases resources.
   close: function(self: Reader)
+  --  Adds a file to the ZIP archive.
+  add: function(self: Writer, name: string, content: string, options?: AddOptions): boolean | nil, string
+  --  Closes the ZIP archive and writes the central directory.
+  close: function(self: Writer)
+  --  Adds a file to the ZIP archive.
+  add: function(self: Appender, name: string, content: string, options?: AddOptions): boolean | nil, string
+  --  Removes a file from the ZIP archive by name.
+  remove: function(self: Appender, name: string): boolean | nil, string
+  --  Closes the ZIP archive and writes the updated central directory.
+  close: function(self: Appender)
+  --  Refuse any entry whose declared uncompressed size exceeds this many
+  --  bytes (checked before anything is read or written).
+  max_file_size: number
+  options: OpenOptions): {string: number}
+  --  Open a ZIP archive for reading.
+  path: string | number, options?: OpenOptions): Reader | nil, string
+  handle: any
+  err: string
 end
 ```
 

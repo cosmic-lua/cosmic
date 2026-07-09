@@ -71,14 +71,15 @@ local record ZipAppender
 end
 ```
 
-### ZipStat
+### ZipEntry
 
- Stat record for zip file metadata.
+ Directory entry returned by ZipReader:list().
 
 ```teal
-local record ZipStat
+local record ZipEntry
+  name: string
+  size: number
   mode: number
-  method: number
 end
 ```
 
@@ -88,9 +89,8 @@ end
 
 ```teal
 local record ZipReader
-  list: function(self: ZipReader): {string}
+  list: function(self: ZipReader): {ZipEntry}
   read: function(self: ZipReader, name: string): string | nil, string | nil
-  stat: function(self: ZipReader, name: string): ZipStat | nil
   close: function(self: ZipReader)
 end
 ```
