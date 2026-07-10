@@ -216,6 +216,10 @@ function listen_tcp(addr: Address, port: number, backlog?: number): Socket | nil
    local srv, port, err = net.listen_tcp("127.0.0.1", 0)
    -- port is now the OS-assigned port, e.g. 54321
    local client = net.connect_tcp("127.0.0.1", port)
+ Recorded decision (api-review-2, #593): the (Socket, port, err) return
+ order — the bound port between the value and the error slot — is
+ deliberate port-0 ergonomics, kept as-is rather than reshuffled to the
+ usual value-then-error order.
 
 **Parameters:**
 

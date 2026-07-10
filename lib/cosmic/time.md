@@ -3,6 +3,12 @@
  Time and clock utilities.
  Wraps cosmo.unix time functions for timestamps, sleeping, and time breakdown.
 
+ Recorded decision (api-review-2, #593): the formatting surface stays the
+ curated trio — format_http/parse_http (RFC 7231), format_date/parse_date
+ (YYYY-MM-DD), format_iso8601/parse_iso8601 — plus timegm. A general
+ strftime passthrough (time.format(fmt, ts)) is deferred to post-stable
+ demand.
+
 ## Types
 
 ### DateTime
@@ -71,6 +77,8 @@ local record TimeModule
   format_iso8601: function(timestamp: number): string | nil, string
   parse_iso8601: function(str: string): number | nil, string
   timegm: function(year: number, month: number, day: number, hour: number, min: number, sec: number): number | nil, string
+  is_leap_year: function(year: number): boolean
+  days_in_month: function(year: number, month: number): number | nil, string
 end
 ```
 
@@ -242,6 +250,40 @@ function format_http(timestamp: number): string
 **Returns:**
 
 - string - HTTP date string (e.g., "Sun, 01 Feb 2026 12:00:00 GMT")
+
+### is_leap_year
+
+```teal
+function is_leap_year(year: number): boolean
+```
+
+ Return true if year is a leap year (Gregorian rules).
+
+**Parameters:**
+
+- `year` (number) - Full year (e.g., 2024)
+
+**Returns:**
+
+- boolean - True when the year has 366 days
+
+### days_in_month
+
+```teal
+function days_in_month(year: number, month: number): number | nil, string
+```
+
+ Number of days in the given month, accounting for leap years.
+
+**Parameters:**
+
+- `year` (number) - Full year (e.g., 2024)
+- `month` (number) - Month (1-12)
+
+**Returns:**
+
+- number - | nil Days in that month (28-31), or nil when month is out of range
+- string - Error message when month is out of range
 
 ### timegm
 
