@@ -423,3 +423,32 @@ local function test_gmtime_isdst_boolean()
   assert(type(lt.isdst) == "boolean", "localtime isdst must be a boolean")
 end
 test_gmtime_isdst_boolean()
+
+-- is_leap_year / days_in_month (exported in #593)
+
+local function test_is_leap_year()
+  assert(time.is_leap_year(2024) == true, "2024 is a leap year")
+  assert(time.is_leap_year(2025) == false, "2025 is not a leap year")
+  assert(time.is_leap_year(1900) == false, "1900 is not a leap year (century)")
+  assert(time.is_leap_year(2000) == true, "2000 is a leap year (divisible by 400)")
+end
+test_is_leap_year()
+
+local function test_days_in_month()
+  assert(time.days_in_month(2025, 1) == 31, "January has 31 days")
+  assert(time.days_in_month(2025, 2) == 28, "February 2025 has 28 days")
+  assert(time.days_in_month(2024, 2) == 29, "February 2024 has 29 days")
+  assert(time.days_in_month(2025, 4) == 30, "April has 30 days")
+  assert(time.days_in_month(2025, 12) == 31, "December has 31 days")
+end
+test_days_in_month()
+
+local function test_days_in_month_out_of_range()
+  local d, err = time.days_in_month(2025, 13)
+  assert(d == nil, "month 13 must be rejected")
+  assert(err ~= nil and string.find(err, "out of range") ~= nil,
+    "error names the range: " .. tostring(err))
+  local d0 = time.days_in_month(2025, 0)
+  assert(d0 == nil, "month 0 must be rejected")
+end
+test_days_in_month_out_of_range()

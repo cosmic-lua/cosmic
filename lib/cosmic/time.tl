@@ -1,5 +1,11 @@
 --- Time and clock utilities.
 --- Wraps cosmo.unix time functions for timestamps, sleeping, and time breakdown.
+---
+--- Recorded decision (api-review-2, #593): the formatting surface stays the
+--- curated trio — format_http/parse_http (RFC 7231), format_date/parse_date
+--- (YYYY-MM-DD), format_iso8601/parse_iso8601 — plus timegm. A general
+--- strftime passthrough (time.format(fmt, ts)) is deferred to post-stable
+--- demand.
 local unix = require("cosmo.unix")
 local cosmo = require("cosmo")
 local errno = require("cosmic.errno")
@@ -184,7 +190,9 @@ local function format_http(timestamp: number): string
   return cosmo.FormatHttpDateTime(timestamp)
 end
 
---- Return true if year is a leap year.
+--- Return true if year is a leap year (Gregorian rules).
+--- @param year number Full year (e.g., 2024)
+--- @return boolean True when the year has 366 days
 local function is_leap_year(year: number): boolean
   return year % 4 == 0 and (year % 100 ~= 0 or year % 400 == 0)
 end
@@ -193,7 +201,14 @@ end
 local MONTH_DAYS: {integer} = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}
 
 --- Number of days in the given month, accounting for leap years.
-local function days_in_month(year: number, month: number): number
+--- @param year number Full year (e.g., 2024)
+--- @param month number Month (1-12)
+--- @return number | nil Days in that month (28-31), or nil when month is out of range
+--- @return string Error message when month is out of range
+local function days_in_month(year: number, month: number): number | nil, string
+  if month < 1 or month > 12 then
+    return nil, "days_in_month: month out of range (1-12): " .. tostring(month)
+  end
   if month == 2 and is_leap_year(year) then
     return 29
   end
@@ -216,7 +231,8 @@ local function timegm(year: number, month: number, day: number,
   if month < 1 or month > 12 then
     return nil, "timegm: month out of range (1-12): " .. tostring(month)
   end
-  local dim = days_in_month(year, month)
+  -- month is already range-checked, so the nil arm is unreachable
+  local dim = days_in_month(year, month) as number
   if day < 1 or day > dim then
     return nil, "timegm: day out of range (1-" .. tostring(dim) .. "): "
     .. tostring(day)
@@ -403,6 +419,8 @@ local record TimeModule
   format_iso8601: function(timestamp: number): string | nil, string
   parse_iso8601: function(str: string): number | nil, string
   timegm: function(year: number, month: number, day: number, hour: number, min: number, sec: number): number | nil, string
+  is_leap_year: function(year: number): boolean
+  days_in_month: function(year: number, month: number): number | nil, string
 end
 
 local M: TimeModule = {
@@ -433,6 +451,8 @@ local M: TimeModule = {
   format_iso8601 = format_iso8601,
   parse_iso8601 = parse_iso8601,
   timegm = timegm,
+  is_leap_year = is_leap_year,
+  days_in_month = days_in_month,
 }
 
 return M

@@ -14,7 +14,8 @@
 --- a signal interrupts the call, it returns nil plus an EINTR-tagged
 --- error; callers that install signal handlers detect it with
 --- `errno.name_of(err) == "EINTR"` and retry themselves. (Automatic
---- retry is deferred to the signal-safety wave.)
+--- retry is deferred to the signal-safety wave, tracked in #595; the
+--- stream-contract EINTR decision is #589.)
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").str
 
