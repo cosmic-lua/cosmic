@@ -15,10 +15,13 @@ local sqlite = require("cosmic.sqlite")
 | module | description |
 |--------|-------------|
 | `cosmic.json` | JSON encode/decode |
-| `cosmic.io` | file descriptor I/O, pipes, slurp/spit |
+| `cosmic.fd` | file descriptor I/O: open/wrap handles, pipes |
 | `cosmic.fs` | filesystem paths, stat, walk, mkdir, temp files |
 | `cosmic.string` | trim, split, capitalize, starts_with |
 | `cosmic.env` | environment variable get/set/unset/list |
+| `cosmic.envd` | load environment variables from an embedded env.d directory |
+| `cosmic.errno` | errno names, numbers, and error-string helpers |
+| `cosmic.check` | assertion helpers for tests with auto-formatted failure messages |
 | `cosmic.sys` | OS and architecture detection |
 | `cosmic.time` | timestamps, sleep, clock, datetime breakdown |
 | `cosmic.uuid` | UUIDv4 (random) and UUIDv7 (time-ordered) |
@@ -50,8 +53,9 @@ local sqlite = require("cosmic.sqlite")
 |--------|-------------|
 | `cosmic.hash` | SHA-256 and Argon2 password hashing |
 | `cosmic.rand` | cryptographic random bytes |
+| `cosmic.sandbox` | one-call fail-closed facade over pledge, unveil, and landlock |
 | `cosmic.pledge` | restrict system calls on OpenBSD and Linux |
-| `cosmic.unveil` | restrict filesystem visibility on OpenBSD |
+| `cosmic.unveil` | restrict filesystem visibility on OpenBSD, or Linux via landlock |
 | `cosmic.landlock` | Linux >=5.13 self-restricting filesystem sandbox |
 | `cosmic.quicksand` | Linux namespace + allowlist proxy box primitives and declarative `Box` builder |
 
@@ -145,18 +149,19 @@ local id = uuid.v4()                       -- always succeeds
 ### File I/O
 
 ```teal
-local cio = require("cosmic.io")
+local fs = require("cosmic.fs")
+local fd = require("cosmic.fd")
 
 -- read entire file
-local content, err = cio.slurp("config.json")
+local content, err = fs.read("config.json")
 
 -- write entire file
-local ok, err = cio.spit("output.txt", content)
+local ok, err = fs.write("output.txt", content)
 
--- low-level fd operations
-local fd, err = cio.open("file.dat", cio.O_RDONLY)
-local data = cio.read(fd)
-cio.close(fd)
+-- low-level handle operations
+local h, err = fd.open("file.dat", fd.O_RDONLY)
+local data = h:read()
+h:close()
 ```
 
 ### Filesystem
@@ -216,11 +221,10 @@ end
 ```teal
 local child = require("cosmic.child")
 
-local handle, err = child.spawn({"ls", "-la"})
-if handle then
-  local ok, stdout = handle:read()
-  local status = handle:wait()
-  print(stdout)
+local result, err = child.run({"ls", "-la"})
+if result then
+  print(result.stdout)
+  print(result.ok, result.code)
 end
 ```
 
@@ -228,10 +232,8 @@ end
 
 ```teal
 local net = require("cosmic.net")
-local ip = require("cosmic.ip")
 
-local sock, err = net.tcp()
-sock:connect(ip.parse("127.0.0.1"):int(), 8080)
+local sock, err = net.connect_tcp("127.0.0.1", 8080)
 sock:send("GET / HTTP/1.0\r\n\r\n")
 local response = sock:recv(4096)
 sock:close()
