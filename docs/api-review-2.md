@@ -1,5 +1,8 @@
 # API review 2: post-#533 assessment and the last pre-stable breaks
 
+Tracking issue for the resulting breaking wave: #604 (children
+#598–#603, filed from §3 below).
+
 Date: 2026-07-10. Scope: review of the completed #533 convergence wave
 (13 issues + the T8 follow-ups, all closed), a gap analysis of the
 combined cosmo/cosmic surface against a Go-stdlib-style baseline for
