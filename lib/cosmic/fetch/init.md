@@ -76,6 +76,9 @@ end
 ### Reader
 
  Streaming reader for incremental body access.
+ Conforms to the stream contract (cosmic.stream): read returns the
+ next chunk, bare nil at end of stream, or nil + error on failure.
+ Chunk sizes are transport-determined; read takes no size argument.
  Supports Lua 5.4's to-be-closed via __close metamethod.
 
 ```teal

@@ -163,5 +163,5 @@ function handle:try_wait(): Result | nil, string
 ### handle:read
 
 ```teal
-function handle:read(size: integer): string | nil, string
+function handle:read(size?: number): string | nil, string
 ```

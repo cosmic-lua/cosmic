@@ -57,6 +57,7 @@ High-level utilities and tools built on top of cosmo.
 | [signal](lib/cosmic/signal.md) |  Signal handling utilities. |
 | [init](lib/cosmic/sqlite/init.md) |  Ergonomic SQLite wrapper with automatic cleanup and 1-indexed columns. |
 | [sse](lib/cosmic/sse.md) |  Server-Sent Events parser for streaming HTTP responses. |
+| [stream](lib/cosmic/stream.md) |  The stream contract: the byte-stream interfaces every producer and |
 | [string](lib/cosmic/string.md) |  String utilities. |
 | [sys](lib/cosmic/sys.md) |  System information utilities. |
 | [syslog](lib/cosmic/syslog.md) |  System logging. |

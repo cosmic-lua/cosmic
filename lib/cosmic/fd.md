@@ -24,6 +24,8 @@
 ### Handle
 
  File handle for I/O operations.
+ Conforms to the stream contract (cosmic.stream): read returns bare
+ nil at end of file, write returns bytes written or nil + error.
  Supports Lua 5.4's to-be-closed via __close metamethod.
 
 ```teal
