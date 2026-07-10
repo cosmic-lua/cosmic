@@ -164,8 +164,8 @@ local function scenarios(): {pt.Scenario}, string
     {
       name = "net_ip_roundtrip",
       fn = function(_: any): any
-        local n = ip.parse("192.168.1.1")
-        return ip.format(n)
+        local a = ip.parse("192.168.1.1")
+        return (a as ip.Addr):format()
       end,
       check = function(_: any, res: any): boolean, string
         if res as string ~= "192.168.1.1" then

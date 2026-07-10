@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 local net = require("cosmic.net")
 local fs = require("cosmic.fs")
+local ip = require("cosmic.ip")
 local proc = require("cosmic.proc")
 
 local function test_socket_creation()
@@ -65,11 +66,12 @@ local function test_bind_and_getsockname()
   local sock = sock as net.Socket
 
   -- Bind to ephemeral port on all interfaces
-  local ok, bind_err = sock:bind(0, 0)
+  local ok, bind_err = sock:bind("0.0.0.0", 0)
   assert(ok, "bind failed: " .. tostring(bind_err))
 
-  local ip, port, name_err = sock:getsockname()
-  assert(ip ~= nil, "getsockname failed: " .. tostring(name_err))
+  local addr, port, name_err = sock:getsockname()
+  assert(addr ~= nil, "getsockname failed: " .. tostring(name_err))
+  assert((addr as ip.Addr).family == "inet", "local address must be a typed Addr")
   assert(port > 0, "expected non-zero port, got " .. tostring(port))
 
   sock:close()
@@ -85,7 +87,7 @@ local function test_listen_accept_connect()
   local ok, setopt_err = server:setsockopt(net.SOL_SOCKET, net.SO_REUSEADDR, true)
   assert(ok, "setsockopt failed: " .. tostring(setopt_err))
 
-  ok, err = server:bind(0, 0)
+  ok, err = server:bind("0.0.0.0", 0)
   assert(ok, "bind failed: " .. tostring(err))
 
   local _, server_port = server:getsockname()
@@ -104,7 +106,7 @@ local function test_listen_accept_connect()
     end
     local client = client as net.Socket
     -- Connect to localhost
-    local connect_ok = client:connect(0x7f000001, server_port) -- 127.0.0.1
+    local connect_ok = client:connect("127.0.0.1", server_port) -- 127.0.0.1
     if not connect_ok then
       os.exit(2)
     end
@@ -120,6 +122,8 @@ local function test_listen_accept_connect()
   local client, client_ip, client_port, accept_err = server:accept()
   assert(client ~= nil, "accept failed: " .. tostring(accept_err))
   assert(client_ip ~= nil, "expected client IP")
+  assert(client_ip.family == "inet", "peer address must be a typed Addr")
+  assert(client_ip:is_loopback(), "peer should be loopback, got " .. client_ip:format())
   assert(client_port ~= nil and client_port > 0, "expected client port")
   local client = client as net.Socket
 
@@ -200,20 +204,22 @@ local function test_udp_sendto_recvfrom()
   local receiver = receiver as net.Socket
 
   -- Bind receiver to ephemeral port
-  local ok, bind_err = receiver:bind(0x7f000001, 0) -- 127.0.0.1
+  local ok, bind_err = receiver:bind("127.0.0.1", 0)
   assert(ok, "bind failed: " .. tostring(bind_err))
 
   local _, recv_port = receiver:getsockname()
   assert(recv_port > 0, "expected non-zero port")
 
   -- Send datagram
-  local sent, send_err = sender:sendto("hello udp", 0x7f000001, recv_port)
+  local sent, send_err = sender:sendto("hello udp", "127.0.0.1", recv_port)
   assert(sent == 9, "expected 9 bytes sent, got " .. tostring(sent) .. ": " .. tostring(send_err))
 
-  -- Receive datagram
+  -- Receive datagram: the sender address arrives as a typed ip.Addr
   local data, from_ip, from_port, recv_err = receiver:recvfrom(100)
   assert(data == "hello udp", "expected 'hello udp', got '" .. tostring(data) .. "': " .. tostring(recv_err))
   assert(from_ip ~= nil, "expected sender IP")
+  assert(from_ip.family == "inet", "sender address must be a typed Addr")
+  assert(from_ip:format() == "127.0.0.1", "expected loopback sender, got " .. from_ip:format())
   assert(from_port ~= nil and from_port > 0, "expected sender port")
 
   sender:close()
@@ -370,7 +376,7 @@ local function test_accept_socket_has_close_metamethod()
   local ok, setopt_err = server:setsockopt(net.SOL_SOCKET, net.SO_REUSEADDR, true)
   assert(ok, "setsockopt failed: " .. tostring(setopt_err))
 
-  ok, err = server:bind(0, 0)
+  ok, err = server:bind("0.0.0.0", 0)
   assert(ok, "bind failed: " .. tostring(err))
 
   local _, server_port = server:getsockname()
@@ -383,7 +389,7 @@ local function test_accept_socket_has_close_metamethod()
     local client = net.socket()
     if not client then os.exit(1) end
     local client = client as net.Socket
-    local connect_ok = client:connect(0x7f000001, server_port)
+    local connect_ok = client:connect("127.0.0.1", server_port)
     if not connect_ok then os.exit(2) end
     client:send("test")
     client:close()
@@ -409,7 +415,7 @@ test_accept_socket_has_close_metamethod()
 
 local function test_listen_tcp_ephemeral_port()
   -- listen_tcp with port 0 should return a listening socket and a port > 0
-  local srv, port, err = net.listen_tcp(0x7f000001, 0)
+  local srv, port, err = net.listen_tcp("127.0.0.1", 0)
   assert(srv ~= nil, "listen_tcp failed: " .. tostring(err))
   assert(port ~= nil and port > 0, "expected non-zero port, got " .. tostring(port))
   local srv = srv as net.Socket
@@ -419,7 +425,7 @@ test_listen_tcp_ephemeral_port()
 
 local function test_listen_tcp_connect_to_returned_port()
   -- bind on 127.0.0.1:0, then connect_tcp to the returned port
-  local srv, port, serr = net.listen_tcp(0x7f000001, 0)
+  local srv, port, serr = net.listen_tcp("127.0.0.1", 0)
   assert(srv ~= nil, "listen_tcp failed: " .. tostring(serr))
   assert(port > 0, "expected non-zero port")
   local srv = srv as net.Socket
@@ -427,7 +433,7 @@ local function test_listen_tcp_connect_to_returned_port()
   -- Fork: child connects and sends, parent accepts and reads
   local pid = proc.fork()
   if pid == 0 then
-    local csock = net.connect_tcp(0x7f000001, port)
+    local csock = net.connect_tcp("127.0.0.1", port)
     if not csock then
       os.exit(1)
     end
@@ -451,14 +457,14 @@ test_listen_tcp_connect_to_returned_port()
 local function test_listen_tcp_double_bind_same_port_fails()
   -- Bind a specific port, then try to bind the same port again without
   -- REUSEPORT; the second listen_tcp should fail.
-  local srv, port, serr = net.listen_tcp(0x7f000001, 0)
+  local srv, port, serr = net.listen_tcp("127.0.0.1", 0)
   assert(srv ~= nil, "first listen_tcp failed: " .. tostring(serr))
   assert(port > 0, "expected non-zero port")
   local srv = srv as net.Socket
 
   -- Second bind to the same explicit port should fail (SO_REUSEADDR alone
   -- does not allow two listeners on the same port simultaneously)
-  local srv2, _, serr2 = net.listen_tcp(0x7f000001, port)
+  local srv2, _, serr2 = net.listen_tcp("127.0.0.1", port)
   assert(srv2 == nil, "expected second listen_tcp to fail on same port")
   assert(serr2 ~= nil, "expected error message from second listen_tcp")
 
@@ -468,7 +474,7 @@ test_listen_tcp_double_bind_same_port_fails()
 
 local function test_listen_tcp_invalid_ip_bind_fails()
   -- Attempt to bind to a non-local IP should fail
-  local srv, _, serr = net.listen_tcp(0x01020304, 0) -- 1.2.3.4 is not local
+  local srv, _, serr = net.listen_tcp("1.2.3.4", 0) -- not a local address
   assert(srv == nil, "expected listen_tcp to fail on non-local IP")
   assert(serr ~= nil, "expected error message")
 end

@@ -12,7 +12,7 @@ local proc = require("cosmic.proc")
 local signal = require("cosmic.signal")
 local pt = require("perf.perf_types")
 
-local LOCALHOST = 0x7f000001
+local LOCALHOST = "127.0.0.1"
 local NUM_LINES = 4000
 
 --- Build a deterministic multi-line body, each line newline-terminated.
