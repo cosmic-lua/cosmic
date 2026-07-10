@@ -1,11 +1,12 @@
 --- Server-Sent Events parser for streaming HTTP responses.
---- Parses SSE format from a fetch.Reader and yields complete events,
---- following the WHATWG event stream processing model: unterminated
---- events at EOF are discarded, empty-data dispatches reset the event
---- type buffer, the last event ID updates as soon as an `id:` line is
---- seen, and `retry:` accepts only ASCII digits.
+--- Parses SSE format from any stream.Reader (a fetch.Reader, an fd
+--- Handle wrapping a socket, a child's stdout) and yields complete
+--- events, following the WHATWG event stream processing model:
+--- unterminated events at EOF are discarded, empty-data dispatches
+--- reset the event type buffer, the last event ID updates as soon as
+--- an `id:` line is seen, and `retry:` accepts only ASCII digits.
 
-local fetch = require("cosmic.fetch")
+local stream = require("cosmic.stream")
 
 --- A parsed SSE event.
 local record Event
@@ -54,6 +55,64 @@ local function parse_field(line: string): string, string
   return name, value
 end
 
+--- Buffered line iterator over any stream.Reader, with the semantics of
+--- fetch.Reader:lines(): complete lines without the trailing newline; on
+--- clean EOF a final unterminated line is yielded once, then nil; on a
+--- read error the buffered partial line is truncated data and is
+--- discarded — the iterator yields nil plus the error once, then plain
+--- nil forever. Private to sse until the post-stable buffered-reader
+--- battery generalizes it (#501).
+local function line_iter(reader: stream.Reader): function(): string | nil, string
+  -- Scan-position index into buffer: `pos` is the first unread byte
+  -- (same linear-time scheme as fetch.Reader:lines()).
+  local buffer = ""
+  local pos = 1
+  local done = false
+  local pending_err: string = nil
+
+  return function(): string | nil, string
+    while true do
+      local newline_pos = buffer:find("\n", pos, true)
+      if newline_pos then
+        local line = buffer:sub(pos, newline_pos - 1)
+        pos = newline_pos + 1
+        return line
+      end
+
+      if pending_err then
+        local err = pending_err
+        pending_err = nil
+        done = true
+        return nil, err
+      end
+
+      if done then
+        if pos <= #buffer then
+          local remaining = buffer:sub(pos)
+          pos = #buffer + 1
+          return remaining
+        end
+        return nil
+      end
+
+      if pos > 1 then
+        buffer = buffer:sub(pos)
+        pos = 1
+      end
+      local chunk, err = reader:read()
+      if err then
+        pending_err = err
+        buffer = ""
+        pos = 1
+      elseif not chunk then
+        done = true
+      else
+        buffer = buffer .. chunk
+      end
+    end
+  end
+end
+
 --- Parse SSE events from a streaming reader.
 --- Returns a Stream whose next() yields Event values (iterate with
 --- `for ev in stream.next do`); when the underlying reader fails
@@ -62,14 +121,14 @@ end
 --- distinguishable from a graceful close. A partially accumulated event
 --- at end-of-stream is discarded per the SSE spec, not dispatched.
 --- stream.last_event_id() exposes the id for reconnects.
---- @param reader fetch.Reader the reader to parse events from
+--- @param reader stream.Reader the reader to parse events from
 --- @return Stream the open event stream
-local function events(reader: fetch.Reader): Stream
+local function events(reader: stream.Reader): Stream
   local current_data: {string} = {}
   local current_event: string = nil
   local current_retry: number = nil
   local last_id: string = nil
-  local lines_iter = reader:lines()
+  local lines_iter = line_iter(reader)
   local done = false
 
   local function next_event(): Event | nil, string
@@ -151,7 +210,7 @@ end
 local record sse
   Event: Event
   Stream: Stream
-  events: function(reader: fetch.Reader): Stream
+  events: function(reader: stream.Reader): Stream
 end
 
 local M: sse = {

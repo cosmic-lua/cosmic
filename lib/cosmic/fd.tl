@@ -18,10 +18,13 @@
 --- stream-contract EINTR decision is #589.)
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").str
+local stream = require("cosmic.stream")
 
 --- File handle for I/O operations.
+--- Conforms to the stream contract (cosmic.stream): read returns bare
+--- nil at end of file, write returns bytes written or nil + error.
 --- Supports Lua 5.4's to-be-closed via __close metamethod.
-local record Handle
+local record Handle is stream.Reader, stream.Writer
   close: function(self: Handle): boolean, string
   closed: function(self: Handle): boolean
   fd: function(self: Handle): number

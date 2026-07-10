@@ -156,9 +156,10 @@ local function test_shutdown()
   local ok, shutdown_err = sock1:shutdown(net.SHUT_WR)
   assert(ok, "shutdown failed: " .. tostring(shutdown_err))
 
-  -- sock2 should now get EOF when reading
-  local data = sock2:recv()
-  assert(data == "", "expected empty string after shutdown, got '" .. tostring(data) .. "'")
+  -- sock2 should now get end-of-stream when reading: bare nil, no error
+  local data, recv_err = sock2:recv()
+  assert(data == nil, "expected nil after shutdown, got '" .. tostring(data) .. "'")
+  assert(recv_err == nil, "EOF must carry no error, got: " .. tostring(recv_err))
 
   sock1:close()
   sock2:close()

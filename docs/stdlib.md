@@ -16,6 +16,7 @@ local sqlite = require("cosmic.sqlite")
 |--------|-------------|
 | `cosmic.json` | JSON encode/decode |
 | `cosmic.fd` | file descriptor I/O: open/wrap handles, pipes |
+| `cosmic.stream` | the stream contract: Reader/Writer interfaces |
 | `cosmic.fs` | filesystem paths, stat, walk, mkdir, temp files |
 | `cosmic.string` | trim, split, capitalize, starts_with |
 | `cosmic.env` | environment variable get/set/unset/list |
@@ -235,7 +236,7 @@ local net = require("cosmic.net")
 
 local sock, err = net.connect_tcp("127.0.0.1", 8080)
 sock:send("GET / HTTP/1.0\r\n\r\n")
-local response = sock:recv(4096)
+local response = sock:recv(4096)  -- bare nil (no error) = peer closed
 sock:close()
 ```
 

@@ -29,8 +29,9 @@ local function Example_echo()
   -- echo: hello
 end
 
--- Example_recv_eof demonstrates end-of-stream detection: recv returns an
--- empty string (not nil) when the peer closes the connection
+-- Example_recv_eof demonstrates end-of-stream detection: recv returns
+-- bare nil (no error) when the peer closes the connection, matching the
+-- stream contract (cosmic.stream)
 local function Example_recv_eof()
   local net = require("cosmic.net")
   local srv, port, err = net.listen_tcp(0x7f000001, 0)
@@ -41,8 +42,9 @@ local function Example_recv_eof()
   local conn = srv:accept() as net.Socket
 
   client:close()
-  local data = conn:recv()
-  print(data == "" and "eof" or "data")
+  local data, recv_err = conn:recv()
+  assert(recv_err == nil)
+  print(data == nil and "eof" or "data")
 
   conn:close()
   srv:close()
