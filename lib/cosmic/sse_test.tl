@@ -338,3 +338,30 @@ local function test_error_discards_partial_event()
   assert(err == "reset", "the failure is reported")
 end
 test_error_discards_partial_event()
+
+local function test_events_from_socket_backed_reader()
+  -- The stream contract (#589): sse consumes ANY stream.Reader, not just
+  -- fetch.Reader — here a socket wrapped as an fd Handle.
+  local net = require("cosmic.net")
+  local fd = require("cosmic.fd")
+
+  local s1, s2, serr = net.socketpair()
+  assert(s1 ~= nil and s2 ~= nil, "socketpair failed: " .. tostring(serr))
+  local a = s1 as net.Socket
+  local b = s2 as net.Socket
+
+  assert(a:send("data: from a socket\n\nevent: ping\ndata: second\n\n"))
+  a:close()
+
+  local stream_events = sse.events(fd.wrap(b.fd))
+  local ev1 = stream_events.next() as sse.Event
+  assert(ev1.data == "from a socket", "first event data: " .. tostring(ev1.data))
+  assert(ev1.event == "message", "default event type")
+  local ev2 = stream_events.next() as sse.Event
+  assert(ev2.data == "second", "second event data: " .. tostring(ev2.data))
+  assert(ev2.event == "ping", "explicit event type")
+  local done, derr = stream_events.next()
+  assert(done == nil and derr == nil, "clean close ends the stream")
+  b:close()
+end
+test_events_from_socket_backed_reader()

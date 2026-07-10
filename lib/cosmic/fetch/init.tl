@@ -4,6 +4,7 @@
 
 local cosmo = require("cosmo")
 local fetch_headers = require("cosmic.fetch.headers")
+local stream = require("cosmic.stream")
 local time = require("cosmic.time")
 
 --- Machine-readable failure category, from the C fetch error channel.
@@ -77,8 +78,11 @@ local record Options
 end
 
 --- Streaming reader for incremental body access.
+--- Conforms to the stream contract (cosmic.stream): read returns the
+--- next chunk, bare nil at end of stream, or nil + error on failure.
+--- Chunk sizes are transport-determined; read takes no size argument.
 --- Supports Lua 5.4's to-be-closed via __close metamethod.
-local record Reader
+local record Reader is stream.Reader
   read: function(self: Reader): string | nil, string
   close: function(self: Reader): boolean
   closed: function(self: Reader): boolean

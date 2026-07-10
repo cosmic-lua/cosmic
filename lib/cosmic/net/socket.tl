@@ -20,8 +20,11 @@ local record Socket
   --- Send a datagram to ip:port; returns bytes sent, or nil + error.
   sendto: function(self: Socket, data: string, ip: number, port: number, flags?: number): number | nil, string
   --- Receive up to bufsiz bytes (blocks until data arrives).
-  --- Returns "" (empty string) with no error when the peer closed the
-  --- connection (EOF); returns nil + error message on failure.
+  --- Returns bare nil (no error) when the peer closed the connection —
+  --- end of stream, matching the stream contract (cosmic.stream). ""
+  --- is only ever a zero-byte datagram on message sockets. Returns
+  --- nil + error message on failure. bufsiz must be positive when
+  --- given (default 65536).
   recv: function(self: Socket, bufsiz?: number, flags?: number): string | nil, string
   --- Receive a datagram; returns data, sender ip, sender port.
   recvfrom: function(self: Socket, bufsiz?: number, flags?: number): string | nil, number, number, string
@@ -109,11 +112,23 @@ local function make_socket(fd: number): Socket
     return n
   end
 
+  -- Whether this socket is a message (datagram) socket; resolved on the
+  -- first empty recv and cached, so the common stream path pays nothing.
+  local dgram: boolean = nil
+
   function sock:recv(bufsiz?: number, flags?: number): string | nil, string
     if not self.fd then return nil, "socket closed" end
     local data, err = unix.recv(self.fd, bufsiz or 65536, flags or 0)
     if not data then
       return nil, errstr(err, "recv")
+    end
+    if data == "" then
+      if dgram == nil then
+        dgram = self:getsockopt(unix.SOL_SOCKET, unix.SO_TYPE) == unix.SOCK_DGRAM
+      end
+      if not dgram then
+        return nil -- peer closed: end of stream (api-review-2, #589)
+      end
     end
     return data
   end

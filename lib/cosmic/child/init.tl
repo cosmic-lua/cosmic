@@ -16,6 +16,7 @@ local unix = require("cosmo.unix")
 local childio = require("cosmic.child.io")
 local childfast = require("cosmic.child.fast")
 local errno = require("cosmic.errno")
+local stream = require("cosmic.stream")
 
 --- Structured outcome of a finished child.
 --- Exactly one of `code`/`signal` is set: `code` when the child exited,
@@ -30,7 +31,7 @@ end
 
 --- Handle for a spawned process.
 --- Fields prefixed `_` are internal bookkeeping; use the methods.
-local record Handle
+local record Handle is stream.Reader
   pid: integer
 
   -- internal state (do not touch)
@@ -49,10 +50,11 @@ local record Handle
   --- child has not finished in time; the handle stays usable (wait again, or
   --- kill it). Idempotent: repeat calls return the same cached Result.
   wait: function(self: Handle, timeout_ms?: integer): Result | nil, string
-  --- Streaming read of up to `size` bytes from the child's stdout. Returns
-  --- "" at end of file. `size` is required; for whole-output capture use
-  --- `wait`/`run`, which also collect stderr and cannot deadlock.
-  read: function(self: Handle, size: integer): string | nil, string
+  --- Streaming read of up to `size` bytes (default 65536) from the child's
+  --- stdout. Returns bare nil at end of file, matching the stream contract
+  --- (cosmic.stream). For whole-output capture use `wait`/`run`, which
+  --- also collect stderr and cannot deadlock.
+  read: function(self: Handle, size?: number): string | nil, string
 end
 
 --- Options for spawning a process.
@@ -191,14 +193,17 @@ local function make_handle(pid: number, st: childio.PumpState): Handle
     return finish(self, status as number)
   end
 
-  function handle:read(size: integer): string | nil, string
+  function handle:read(size?: number): string | nil, string
     local fd = self._st.stdout_fd
     if not fd then
       return nil, "stdout not captured"
     end
-    local chunk, err = unix.read(fd, size)
+    local chunk, err = unix.read(fd, size or 65536)
     if chunk == nil then
       return nil, errno.str(err, "read")
+    end
+    if chunk == "" then
+      return nil -- end of file (api-review-2, #589)
     end
     return chunk
   end

@@ -51,6 +51,7 @@ local public: {string} = {
   "signal",
   "sqlite",
   "sse",
+  "stream",
   "string",
   "sys",
   "syslog",
