@@ -193,6 +193,13 @@ local function restrict(opts: RestrictOptions): boolean, string
     local ok, err = unix.prctl(unix.PR_SET_NO_NEW_PRIVS, 1)
     if not ok then return fail("PR_SET_NO_NEW_PRIVS: " .. tostring(err)) end
   end
+  -- flush line-coverage data before rights drop: once the ruleset
+  -- lands, the coverage directory may no longer be writable
+  local cov = package.loaded["cosmic.coverage"]
+  if cov ~= nil then
+    local seal = (cov as {string: any})["seal"] as function()
+    seal()
+  end
   local ok, rerr = unix.landlock_restrict_self(rsfd, 0)
   unix.close(rsfd)
   if not ok then return false, "restrict_self: " .. tostring(rerr) end

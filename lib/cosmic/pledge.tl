@@ -28,6 +28,16 @@
 local unix = require("cosmo.unix")
 local errno = require("cosmic.errno")
 
+--- Flush line-coverage data before rights drop: a dump attempted after
+--- the pledge lands would violate it and kill the process.
+local function seal_coverage()
+  local cov = package.loaded["cosmic.coverage"]
+  if cov ~= nil then
+    local seal = (cov as {string: any})["seal"] as function()
+    seal()
+  end
+end
+
 --- The promise groups the libc accepts, as a Teal enum so typed callers
 --- get promise names checked at compile time. `apply` still takes the
 --- space-separated string pledge(2) expects; build it from enum values
@@ -120,6 +130,7 @@ local function apply(promises: string, opts?: ApplyOptions): boolean, string
     if opts and opts.best_effort then return true end
     return false, "pledge unsupported on this host"
   end
+  seal_coverage()
   local ok, err = unix.pledge(promises, opts and opts.exec)
   if not ok then
     return false, errno.str(err, "pledge")

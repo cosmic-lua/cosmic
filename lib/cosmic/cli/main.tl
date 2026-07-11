@@ -61,6 +61,7 @@ local record Opts
   test_argv: {string}
   test_output: string
   report_paths: {string}
+  coverage_report_paths: {string}
   make: string
   skill: string
   write_if_changed: boolean
@@ -96,6 +97,7 @@ local function parse_args(): Opts
     test_argv = nil,
     test_output = nil,
     report_paths = nil,
+    coverage_report_paths = nil,
     make = nil,
     skill = nil,
     write_if_changed = false,
@@ -132,6 +134,7 @@ local function parse_args(): Opts
   local long_greedy: {string: boolean} = {
     ["report"] = true,
     ["test"] = true,
+    ["coverage-report"] = true,
   }
 
   -- Options that take required arg + one additional positional arg
@@ -289,6 +292,9 @@ local function parse_args(): Opts
     elseif opt == "report" then
       opts.report_paths = r.args
       return opts
+    elseif opt == "coverage-report" then
+      opts.coverage_report_paths = r.args
+      return opts
     elseif opt == "make" then
       opts.make = optarg or ""
       return opts
@@ -317,22 +323,6 @@ local function parse_args(): Opts
   end
 
   return opts
-end
-
---- Resolve optional arg value that may be space-separated.
---- For flags like --docs, --examples, --make where getopt returns ""
---- but the value may be the next positional arg.
-local function resolve_optional_arg(flag: string, value: string): string
-  if value ~= "" then return value end
-  for i = 1, #arg do
-    if arg[i] == flag then
-      if i < #arg and not arg[i + 1]:match("^%-") then
-        return arg[i + 1]
-      end
-      break
-    end
-  end
-  return ""
 end
 
 local run = require("cosmic.cli.run")
@@ -386,14 +376,14 @@ local function main(): integer, string
   if opts.check_examples then return handlers.handle_check_examples(opts.check_examples) end
 
   if opts.examples ~= nil then
-    local module_name = resolve_optional_arg("--examples", opts.examples)
+    local module_name = cli_args.resolve_optional_arg("--examples", opts.examples)
     return handlers.handle_examples(module_name)
   end
 
   if opts.benchmark then return handlers.handle_benchmark(opts.benchmark) end
 
   if opts.docs ~= nil then
-    local query = resolve_optional_arg("--docs", opts.docs)
+    local query = cli_args.resolve_optional_arg("--docs", opts.docs)
     return handlers.handle_docs(query)
   end
 
@@ -410,8 +400,12 @@ local function main(): integer, string
     return testrun.report(opts.report_paths)
   end
 
+  if opts.coverage_report_paths then
+    return require("cosmic.coverage").report(opts.coverage_report_paths)
+  end
+
   if opts.make ~= nil then
-    local make_dir = resolve_optional_arg("--make", opts.make)
+    local make_dir = cli_args.resolve_optional_arg("--make", opts.make)
     local make_target: string = nil
     if make_dir ~= "" then
       for i = 1, #arg do
@@ -455,6 +449,12 @@ local function main(): integer, string
   -- Execute script file
   if opts.script then
     _G.arg = opts.script_args as {string}
+    -- Arm line-coverage collection when COSMIC_COVERAGE names a
+    -- directory (guarded so the common path never loads the module)
+    local cov_dump: function() = nil
+    if os.getenv("COSMIC_COVERAGE") then
+      cov_dump = require("cosmic.coverage").enable_from_env()
+    end
     local chunk, err = handlers.load_script_file(opts.script)
     if not chunk then
       local msg = err or "error loading script"
@@ -469,6 +469,9 @@ local function main(): integer, string
     local results: {any} = table.pack(xpcall(function()
           run_chunk(table.unpack(args))
         end, run.trim_traceback))
+    if cov_dump then
+      cov_dump()
+    end
     local ok = results[1] as boolean
     if not ok then
       return 1, results[2] as string

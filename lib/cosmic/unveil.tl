@@ -26,6 +26,16 @@ local cosmo = require("cosmo")
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").str
 
+--- Flush line-coverage data before rights drop: once visibility
+--- narrows, the coverage directory may no longer be writable.
+local function seal_coverage()
+  local cov = package.loaded["cosmic.coverage"]
+  if cov ~= nil then
+    local seal = (cov as {string: any})["seal"] as function()
+    seal()
+  end
+end
+
 --- The permission strings `allow` accepts: every combination of r/w/x/c
 --- in canonical rwxc order, as a Teal enum so typos ("rc" vs "cr",
 --- "rwd") are caught at compile time. The libc itself accepts any
@@ -98,6 +108,7 @@ local function allow(path: string, permissions: Perm, opts?: UnveilOptions): boo
     if opts and opts.best_effort then return true end
     return false, unsupported
   end
+  seal_coverage()
   local ok, err = unix.unveil(path, permissions)
   if not ok then
     return false, errstr(err, "unveil")
@@ -115,6 +126,7 @@ local function commit(opts?: UnveilOptions): boolean, string
     if opts and opts.best_effort then return true end
     return false, unsupported
   end
+  seal_coverage()
   local ok, err = unix.unveil(nil, nil)
   if not ok then
     return false, errstr(err, "unveil commit")

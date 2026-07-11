@@ -22,6 +22,7 @@ local public: {string} = {
   "child",
   "codec",
   "compress",
+  "coverage",
   "doc",
   "embed",
   "env",

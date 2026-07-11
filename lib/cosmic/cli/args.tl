@@ -27,13 +27,31 @@ local longopts: {getopt.LongOpt} = {
   {name = "welcome", has_arg = "none"},
   {name = "test", has_arg = "required"},
   {name = "report", has_arg = "none"},
+  {name = "coverage-report", has_arg = "none"},
   {name = "make", has_arg = "optional"},
   {name = "skill", has_arg = "required"},
   {name = "write-if-changed", has_arg = "none"},
   {name = "include-dir", has_arg = "required"},
 }
 
+--- Resolve optional arg value that may be space-separated.
+--- For flags like --docs, --examples, --make where getopt returns ""
+--- but the value may be the next positional arg.
+local function resolve_optional_arg(flag: string, value: string): string
+  if value ~= "" then return value end
+  for i = 1, #arg do
+    if arg[i] == flag then
+      if i < #arg and not arg[i + 1]:match("^%-") then
+        return arg[i + 1]
+      end
+      break
+    end
+  end
+  return ""
+end
+
 return {
   shortopts = shortopts,
   longopts = longopts,
+  resolve_optional_arg = resolve_optional_arg,
 }
