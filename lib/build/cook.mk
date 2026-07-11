@@ -12,8 +12,8 @@ build_tests := $(wildcard lib/build/*_test.tl)
 reporter := $(bootstrap_cosmic) -- $(build_reporter)
 linter := $(bootstrap_cosmic) -- $(build_lint)
 
-# reporter_test needs cosmic binary
-$(o)/lib/build/reporter_test.tl.test.got: $$(cosmic_bin)
+# reporter_test needs cosmic binary (in the plain and coverage test lanes)
+$(o)/lib/build/reporter_test.tl.test.got $(o)/coverage/lib/build/reporter_test.tl.test.got: $$(cosmic_bin)
 
 # make-help snapshot: generate actual help output
 $(o)/lib/build/make-help.snap: Makefile $(build_help) | $(bootstrap_cosmic)
@@ -33,5 +33,9 @@ $(build_make_out)/database.out: Makefile $(wildcard */*.mk) $(wildcard */*/*.mk)
 
 build_make_outputs := $(build_make_out)/dry-run.out $(build_make_out)/database.out
 
-$(o)/lib/build/makefile_test.tl.test.got: $(build_make_outputs)
-$(o)/lib/build/makefile_test.tl.test.got: TEST_DIR := $(build_make_out)
+# makefile_test consumes the fixtures in both test lanes
+build_makefile_test_got := \
+  $(o)/lib/build/makefile_test.tl.test.got \
+  $(o)/coverage/lib/build/makefile_test.tl.test.got
+$(build_makefile_test_got): $(build_make_outputs)
+$(build_makefile_test_got): TEST_DIR := $(build_make_out)

@@ -22,6 +22,8 @@ Cosmic options:
                                 e.g. cosmic --test o/foo ./cosmic foo_test.tl
   --report <paths>...           report on .got files written by --test
                                 e.g. cosmic --report o/foo.got
+  --coverage-report <paths>...  merge .cov data, print per-file line coverage
+                                e.g. cosmic --coverage-report o/coverage lib
   --make [dir] [target]         generate Makefile, pipe to make -f -
   --skill <dir>                 write agent skill file (SKILL.md) to directory
   --welcome                     show welcome message
@@ -36,6 +38,7 @@ Standard lua options:
   -W                          turn warnings into errors
 
 Environment variables:
+  COSMIC_COVERAGE            directory to dump line-coverage .cov files into
   COSMIC_NO_REQUIRE_HINTS    disable helpful module-not-found suggestions
   COSMIC_NO_WELCOME          suppress welcome message on first run
   COSMIC_FULL_TRACEBACK      show full stack traceback including internal frames

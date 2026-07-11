@@ -150,7 +150,10 @@ $(o)/%.tl.test.got: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) 
 quicksand_sandbox_tests := \
   $(o)/lib/cosmic/quicksand/netns_test.tl.test.got \
   $(o)/lib/cosmic/quicksand/proxy_test.tl.test.got \
-  $(o)/lib/cosmic/quicksand/box/run_test.tl.test.got
+  $(o)/lib/cosmic/quicksand/box/run_test.tl.test.got \
+  $(o)/coverage/lib/cosmic/quicksand/netns_test.tl.test.got \
+  $(o)/coverage/lib/cosmic/quicksand/proxy_test.tl.test.got \
+  $(o)/coverage/lib/cosmic/quicksand/box/run_test.tl.test.got
 $(quicksand_sandbox_tests): .PLEDGE =
 $(quicksand_sandbox_tests): .UNVEIL =
 
@@ -162,19 +165,44 @@ $(o)/%.tl.test.got: $(o)/%.lua $(test_files) $(o)/bin/cosmic | $(cosmic_bin)
 # derive compiled .lua from _tl (first pass: compute all _lua)
 $(foreach m,$(filter-out bootstrap,$(modules)),\
   $(if $($(m)_tl),$(eval $(m)_lua := $(patsubst %.tl,$(o)/%.lua,$($(m)_tl)))))
-# second pass: set up test dependencies
-$(foreach m,$(filter-out bootstrap,$(modules)),\
-  $(eval $(patsubst %,$(o)/%.test.got,$($(m)_tests)): $($(m)_files) $($(m)_lua))\
-  $(eval $(patsubst %,$(o)/%.test.got,$($(m)_tests)): TEST_DEPS += $($(m)_files) $($(m)_lua))\
+# second pass: set up test dependencies, for both the plain test tree and
+# the coverage lane's separate output tree
+test_got_dirs := $(o) $(o)/coverage
+$(foreach p,$(test_got_dirs),$(foreach m,$(filter-out bootstrap,$(modules)),\
+  $(eval $(patsubst %,$(p)/%.test.got,$($(m)_tests)): $($(m)_files) $($(m)_lua))\
+  $(eval $(patsubst %,$(p)/%.test.got,$($(m)_tests)): TEST_DEPS += $($(m)_files) $($(m)_lua))\
   $(if $($(m)_dir),\
-    $(eval $(patsubst %,$(o)/%.test.got,$($(m)_tests)): $($(m)_dir))\
-    $(eval $(patsubst %,$(o)/%.test.got,$($(m)_tests)): TEST_DEPS += $($(m)_dir))\
-    $(eval $(patsubst %,$(o)/%.test.got,$($(m)_tests)): TEST_DIR := $($(m)_dir)))\
+    $(eval $(patsubst %,$(p)/%.test.got,$($(m)_tests)): $($(m)_dir))\
+    $(eval $(patsubst %,$(p)/%.test.got,$($(m)_tests)): TEST_DEPS += $($(m)_dir))\
+    $(eval $(patsubst %,$(p)/%.test.got,$($(m)_tests)): TEST_DIR := $($(m)_dir)))\
   $(foreach d,$(filter-out $(m),$(default_deps) $($(m)_deps)),\
     $(if $($(d)_dir),\
-      $(eval $(patsubst %,$(o)/%.test.got,$($(m)_tests)): $($(d)_dir))\
-      $(eval $(patsubst %,$(o)/%.test.got,$($(m)_tests)): TEST_DEPS += $($(d)_dir)))\
-    $(eval $(patsubst %,$(o)/%.test.got,$($(m)_tests)): $($(d)_files) $($(d)_lua))))
+      $(eval $(patsubst %,$(p)/%.test.got,$($(m)_tests)): $($(d)_dir))\
+      $(eval $(patsubst %,$(p)/%.test.got,$($(m)_tests)): TEST_DEPS += $($(d)_dir)))\
+    $(eval $(patsubst %,$(p)/%.test.got,$($(m)_tests)): $($(d)_files) $($(d)_lua)))))
+
+# Coverage lane: the same tests in a separate output tree, run with
+# collection enabled, so `bin/make coverage` never invalidates the plain
+# `make test` results (and stays incremental itself). Each test leaves
+# .cov files in <got>.cov.d; the summary merges them and folds in lib/
+# so entirely untested modules still appear.
+coverage_got := $(patsubst %,$(o)/coverage/%.test.got,$(all_tests))
+
+.PHONY: coverage
+## Run all tests with line coverage and report per-file totals
+coverage: $(o)/coverage-summary.txt
+
+$(o)/coverage/%.tl.test.got: .PLEDGE = stdio rpath wpath cpath proc exec
+$(o)/coverage/%.tl.test.got: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null
+$(o)/coverage/%.tl.test.got: $(o)/%.lua $(test_files) $(o)/bin/cosmic | $(cosmic_bin)
+	@mkdir -p $(@D)
+	@TEST_DIR=$(TEST_DIR) COSMIC_COVERAGE=1 PATH=$(CURDIR)/$(o)/bin:$$PATH $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
+
+$(o)/coverage-summary.txt: .PLEDGE = stdio rpath wpath cpath proc exec
+$(o)/coverage-summary.txt: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o)
+$(o)/coverage-summary.txt: $(coverage_got) | $(cosmic_bin)
+	@$(cosmic_bin) --report $(coverage_got) > $(o)/coverage-tests.txt
+	@$(cosmic_bin) --coverage-report $(o)/coverage lib | tee $@
 
 # Privileged enforcement lane (Phase 1 step 8 prerequisite, audit §5.1).
 # The sandbox tests carry "outer sandbox blocked this -> skip" escape hatches,

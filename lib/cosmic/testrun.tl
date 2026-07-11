@@ -43,10 +43,23 @@ local function run(argv: {string}, output_base: string): integer
 
   -- Build environment with TEST_TMPDIR
   local child_env: {string} = {}
+  local cov_requested = false
   for key, val in pairs(env.all()) do
-    child_env[#child_env + 1] = key .. "=" .. val
+    if key == "COSMIC_COVERAGE" then
+      cov_requested = val ~= "" and val ~= "0"
+    else
+      child_env[#child_env + 1] = key .. "=" .. val
+    end
   end
   child_env[#child_env + 1] = "TEST_TMPDIR=" .. tmpdir
+  if cov_requested then
+    -- Per-test coverage directory: replaces the inherited value so the
+    -- test process (and any cosmic children it spawns) dumps its .cov
+    -- files here, isolated from parallel sibling tests.
+    local covdir = output_base .. ".cov.d"
+    fs.rmrf(covdir)
+    child_env[#child_env + 1] = "COSMIC_COVERAGE=" .. covdir
+  end
 
   -- Run the process to completion, capturing both streams without deadlock.
   local result, err = child.run(argv, {env = child_env})
