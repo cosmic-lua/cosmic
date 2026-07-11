@@ -61,14 +61,18 @@ end
 ### Options
 
  Options for spawning a process.
- stdout/stderr as numbers are raw fds dup2'd onto the child's fd 1/2 (the
- corresponding Result field is then ""). See Example_spawn_pipe.
+ stdout/stderr Handles (cosmic.fd) become the child's fd 1/2 (the
+ corresponding Result field is then ""). spawn does not take ownership
+ of a Handle: the child gets its own copy of the descriptor, so close
+ your end when you are done with it (see Example_run_pipe). Raw integer
+ fds are not part of this surface (api-review-2, #602); wrap one with
+ fd.wrap() if it comes from outside the fd module.
 
 ```teal
 local record Options
-  stdin: string | number
-  stdout: number
-  stderr: number
+  stdin: string | cfd.Handle
+  stdout: cfd.Handle
+  stderr: cfd.Handle
   env: {string}
   cwd: string
 end
