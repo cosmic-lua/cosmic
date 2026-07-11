@@ -49,11 +49,10 @@ end
 test_cosmic_help()
 
 local function test_warnings_flag()
-  -- -W should convert warnings to errors
-  -- stderr = 1 merges stderr into stdout so we can capture the warning message
-  local h4 = spawn.spawn({cosmic, "-W", "-e", "warn('test warning')"}, {env = clean_env(), stderr = 1})
+  -- -W should convert warnings to errors; the warning message lands on stderr
+  local h4 = spawn.spawn({cosmic, "-W", "-e", "warn('test warning')"}, {env = clean_env()})
   local __r4 = (h4 as spawn.Handle):wait() as spawn.Result
-  local ok, out, code = __r4.ok, __r4.stdout, __r4.code
+  local ok, out, code = __r4.ok, __r4.stderr, __r4.code
   assert(not ok, "cosmic should fail with -W when warning is issued")
   assert((out as string):find("warning: test warning", 1, true), "expected output to contain 'warning: test warning'")
   assert(code == 1, "expected exit code 1, got " .. tostring(code))

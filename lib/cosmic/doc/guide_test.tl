@@ -97,7 +97,7 @@ test_guide_make()
 
 local function test_guide_unknown()
   local r = spawn.run(
-    {cosmic, "--docs", "guide.nonexistent"}, {env = clean_env(), stderr = 1}
+    {cosmic, "--docs", "guide.nonexistent"}, {env = clean_env()}
   ) as spawn.Result
   local ok, code = r.ok, r.code
   assert(not ok, "cosmic --docs guide.nonexistent should fail")

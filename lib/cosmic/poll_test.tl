@@ -175,7 +175,7 @@ local function test_poll_with_child_pipes()
   local pp0, perr = cfd.pipe()
   assert(pp0 ~= nil, "pipe creation failed: " .. tostring(perr))
   local pp = pp0 as cfd.Pipe
-  local handle, err = child.spawn({"echo", "hello"}, {stdout = pp.writer:fd()})
+  local handle, err = child.spawn({"echo", "hello"}, {stdout = pp.writer})
   assert(handle ~= nil, "spawn failed: " .. tostring(err))
   local h = handle as child.Handle
   pp.writer:close()

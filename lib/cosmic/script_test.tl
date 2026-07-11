@@ -58,10 +58,10 @@ local x: number = "wrong type"
 print(x)
 ]])
 
-  -- stderr = 1 merges stderr into stdout so we can capture the error message
-  local h3 = spawn.spawn({cosmic, script}, {stderr = 1})
+  -- the type-error diagnostic lands on stderr
+  local h3 = spawn.spawn({cosmic, script})
   local __r3 = (h3 as spawn.Handle):wait() as spawn.Result
-  local ok, out = __r3.ok, __r3.stdout
+  local ok, out = __r3.ok, __r3.stderr
   assert(not ok, "cosmic should fail on .tl file with type error")
   assert((out as string):find("type_error.tl"), "error should reference the file name")
 end
@@ -178,9 +178,9 @@ print("shebang=" .. x)
   local verify = fs.read(script) as string
   assert(verify:find("shebang="), "script file should contain shebang test code, got: " .. verify:sub(1, 100))
 
-  local h10 = spawn.spawn({cosmic, script}, {stderr = 1})
+  local h10 = spawn.spawn({cosmic, script})
   local __r10 = (h10 as spawn.Handle):wait() as spawn.Result
-  local ok, out = __r10.ok, __r10.stdout
+  local ok, out = __r10.ok, __r10.stdout .. __r10.stderr
   assert(ok, "cosmic should execute .tl file with shebang, got: " .. tostring(out))
   assert((out as string):find("shebang=777"), "output should contain expected result, got: " .. tostring(out))
 end
