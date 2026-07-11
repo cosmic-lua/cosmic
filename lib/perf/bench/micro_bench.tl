@@ -120,7 +120,7 @@ local function scenarios(): {pt.Scenario}, string
       name = "compress_roundtrip_64k",
       fn = function(_: any): any
         local packed = compress.compress(BLOB)
-        return (compress.uncompress(packed))
+        return (compress.decompress(packed))
       end,
       check = function(_: any, res: any): boolean, string
         if res as string ~= BLOB then
@@ -131,16 +131,18 @@ local function scenarios(): {pt.Scenario}, string
     },
     {
       -- A small input, unlike compress_roundtrip_64k: isolates the
-      -- deflate()/inflate() size-prefix pack/unpack overhead from the
-      -- zlib compute itself, which barely registers on this little data.
-      name = "compress_deflate_roundtrip_small",
+      -- per-call wrapper overhead from the zlib compute itself, which
+      -- barely registers on this little data. Replaces
+      -- compress_deflate_roundtrip_small when #590 deleted the
+      -- size-prefixed deflate format.
+      name = "compress_raw_roundtrip_small",
       fn = function(_: any): any
-        local packed = compress.deflate(ABC)
-        return (compress.inflate(packed))
+        local packed = compress.compress(ABC, {format = "raw"})
+        return (compress.decompress(packed, {format = "raw"}))
       end,
       check = function(_: any, res: any): boolean, string
         if res as string ~= ABC then
-          return false, "deflate roundtrip corrupted data"
+          return false, "raw roundtrip corrupted data"
         end
         return true
       end,
