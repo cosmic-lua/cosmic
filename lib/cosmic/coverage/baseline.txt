@@ -50,7 +50,7 @@ lib/cosmic/fs/ops.tl 86 135
 lib/cosmic/fs/path.tl 108 120
 lib/cosmic/fs/tree.tl 32 54
 lib/cosmic/fs/types.tl 16 52
-lib/cosmic/fs/walk.tl 103 132
+lib/cosmic/fs/walk.tl 104 133
 lib/cosmic/fuzzy.tl 48 51
 lib/cosmic/getopt.tl 36 57
 lib/cosmic/hash.tl 47 49
@@ -127,4 +127,4 @@ lib/types/gentype.tl 258 300
 lib/types/gentype_parse.tl 274 289
 lib/types/gentype_render.tl 309 316
 lib/types/gentype_types.tl 2 2
-total 9635 13273
+total 9636 13274

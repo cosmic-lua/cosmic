@@ -287,6 +287,10 @@ local type FileIter = function(): string
     local guard = setmetatable({}, {__close = close_all, __gc = close_all})
 
     local iter = function(): string
+      -- anchor the guard as an upvalue: a caller that keeps only the
+      -- iterator (dropping the fourth return) must not let the guard's
+      -- __gc close these handles while the iterator is still running
+      local _ = guard
       while #stack > 0 do
         local current = stack[#stack]
         local current_dir = current[1]
