@@ -2,8 +2,11 @@
 
  Networking and socket utilities.
  Wraps cosmo.unix socket functions for TCP/UDP and Unix domain sockets.
- IPv4 only: string addresses must be strict dotted quads; IPv6 is
- rejected with an explicit "IPv6 not supported" error.
+ Addresses are typed (api-review-2, #588): every public signature
+ takes a dotted-quad string or an ip.Addr and returns ip.Addr — bare
+ integers are not addresses. IPv4 only: IPv6 strings are rejected
+ with an explicit "IPv6 not supported" error, and lands later as a
+ new Addr family, not a new API.
 
 ## Types
 
@@ -14,7 +17,7 @@
 ```teal
 local record Interface
   name: string
-  ip: number
+  ip: ip.Addr
 end
 ```
 
@@ -29,6 +32,7 @@ local record NetModule
   listen_tcp: function(addr: Address, port: number, backlog?: number): Socket | nil, number, string
   connect_unix: function(path: string): Socket | nil, string
   connect_tcp: function(addr: Address, port: number): Socket | nil, string
+  dial: function(host: string, port: number): Socket | nil, string
   nb_connect: function(s: Socket, addr: Address, port: number, timeoutms?: number): boolean, string
   gethostname: function(): string | nil, string
   interfaces: function(): {Interface} | nil, string
@@ -187,13 +191,36 @@ function connect_tcp(addr: Address, port: number): Socket | nil, string
 ```
 
  Create a TCP socket and connect to an address and port.
- The address may be a dotted-quad string ("127.0.0.1"), a raw integer
- (0x7f000001), or an ip.Addr. IPv6 is not supported.
+ The address may be a dotted-quad string ("127.0.0.1") or an ip.Addr.
+ IPv6 is not supported. For hostname resolution use dial().
 
 **Parameters:**
 
 - `addr` (Address) - Remote IPv4 address
 - `port` (number) - Remote port
+
+**Returns:**
+
+- Socket - | nil Connected socket
+- string - Error message on failure
+
+### dial
+
+```teal
+function dial(host: string, port: number): Socket | nil, string
+```
+
+ Open a TCP connection to host:port. This name and shape are the
+ stable dial contract (api-review-2, #588; reserved from #501): host
+ is a dotted-quad literal or a DNS name — resolution happens inside —
+ and the result is a connected Socket. Future address families and
+ richer endpoint forms extend the values dial accepts, never the
+ signature.
+
+**Parameters:**
+
+- `host` (string) - Host to connect to: dotted-quad literal or DNS name
+- `port` (number) - Remote TCP port
 
 **Returns:**
 
@@ -223,7 +250,7 @@ function listen_tcp(addr: Address, port: number, backlog?: number): Socket | nil
 
 **Parameters:**
 
-- `addr` (Address) - Local IPv4 address to bind ("127.0.0.1", 0 for all)
+- `addr` (Address) - Local IPv4 address to bind ("127.0.0.1", "0.0.0.0" for all)
 - `port` (number) - Local port to bind; use 0 for an OS-assigned ephemeral port
 - `backlog` (number) - Maximum pending connections (default 128)
 
