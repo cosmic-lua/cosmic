@@ -259,12 +259,14 @@ local function render(reports: {FileReport}): string
   return table.concat(out, "\n")
 end
 
---- Merge .cov data and render the coverage report to stdout.
+--- Merge .cov data into sorted per-file results.
 --- Each path may be a .cov file, a directory to scan for .cov files, or
 --- a source directory whose .tl files join the report even with no hits.
+--- Warnings about unreadable inputs go to stderr.
 --- @param paths {string} Input paths
---- @return integer Exit code: 0 on success, 1 when no coverage data was found
-local function report(paths: {string}): integer
+--- @return {FileReport} | nil Sorted results, or nil when no coverage data was found
+--- @return string? Error message when no data was found
+local function compute(paths: {string}): {FileReport} | nil, string
   local cov_files: {string} = {}
   local src_files: {string} = {}
   for _, p in ipairs(paths) do
@@ -277,8 +279,7 @@ local function report(paths: {string}): integer
     end
   end
   if #cov_files == 0 then
-    io.stderr:write("coverage: no .cov files found\n")
-    return 1
+    return nil, "coverage: no .cov files found"
   end
 
   local cwd = fs.getcwd() or ""
@@ -314,12 +315,26 @@ local function report(paths: {string}): integer
   table.sort(reports, function(a: FileReport, b: FileReport): boolean
       return a.display < b.display
     end)
-  io.write(render(reports) .. "\n")
+  return reports
+end
+
+--- Merge .cov data and render the coverage report to stdout.
+--- @param paths {string} Input paths (see compute)
+--- @return integer Exit code: 0 on success, 1 when no coverage data was found
+local function report(paths: {string}): integer
+  local reports, err = compute(paths)
+  if not reports then
+    io.stderr:write((err or "coverage: no data") .. "\n")
+    return 1
+  end
+  io.write(render(reports as {FileReport}) .. "\n")
   return 0
 end
 
 local record ReportModule
+  type FileReport = FileReport
   report: function(paths: {string}): integer
+  compute: function(paths: {string}): {FileReport} | nil, string
   normalize: function(src: string, cwd: string): string | nil, string
   format_ranges: function(lines: {integer}, max_ranges: integer): string
   read_cov: function(path: string): {string: {integer: integer}} | nil, string
@@ -327,6 +342,7 @@ end
 
 local M: ReportModule = {
   report = report,
+  compute = compute,
   normalize = normalize,
   format_ranges = format_ranges,
   read_cov = read_cov,

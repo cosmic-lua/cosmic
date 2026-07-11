@@ -38,6 +38,36 @@ jobs:
             fi
           done
 
+  # Coverage ratchet lane: reruns the test suite with line-coverage
+  # collection (o/coverage tree) and fails when per-file or total
+  # coverage declines below lib/cosmic/coverage/baseline.txt.
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: make coverage
+        shell: bash -x {0}
+        run: bin/make -j coverage
+
+      - name: dump failing test output
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          for got in $(find o/coverage -name '*.test.got' 2>/dev/null); do
+            code=$(cat "$got" 2>/dev/null || echo "?")
+            if [ "$code" != "0" ]; then
+              base=${got%.got}
+              echo "===== $got (exit $code) ====="
+              echo "--- stdout ($base.out) ---"
+              cat "$base.out" 2>/dev/null || true
+              echo "--- stderr ($base.err) ---"
+              cat "$base.err" 2>/dev/null || true
+              echo
+            fi
+          done
+
   # Privileged, unsandboxed lane that actually exercises the sandbox
   # primitives (audit §5.1). `make ci` runs under landlock-make, where the
   # sandbox tests skip their enforcement assertions; this lane runs them with

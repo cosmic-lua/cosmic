@@ -198,11 +198,33 @@ $(o)/coverage/%.tl.test.got: $(o)/%.lua $(test_files) $(o)/bin/cosmic | $(cosmic
 	@mkdir -p $(@D)
 	@TEST_DIR=$(TEST_DIR) COSMIC_COVERAGE=1 PATH=$(CURDIR)/$(o)/bin:$$PATH $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
+# Coverage ratchet: the committed baseline records covered/total per
+# file; the check fails when coverage declines or the file set drifts.
+# Skipped under only= (partial data would read as a huge decline).
+coverage_baseline := lib/cosmic/coverage/baseline.txt
+coverage_baseline_tool := $(o)/lib/cosmic/coverage/baseline.lua
+
 $(o)/coverage-summary.txt: .PLEDGE = stdio rpath wpath cpath proc exec
 $(o)/coverage-summary.txt: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o)
 $(o)/coverage-summary.txt: $(coverage_got) | $(cosmic_bin)
 	@$(cosmic_bin) --report $(coverage_got) > $(o)/coverage-tests.txt
 	@$(cosmic_bin) --coverage-report $(o)/coverage lib | tee $@
+	@if [ -n "$(only)" ]; then \
+	  echo "coverage ratchet skipped (only=$(only))"; \
+	elif [ -f $(coverage_baseline) ]; then \
+	  $(cosmic_bin) $(coverage_baseline_tool) check $(coverage_baseline) $(o)/coverage lib; \
+	else \
+	  echo "coverage ratchet skipped: no $(coverage_baseline); run 'bin/make coverage-baseline' to start it"; \
+	fi
+
+.PHONY: coverage-baseline
+## Rewrite the committed coverage ratchet baseline from the last coverage run
+coverage-baseline: .PLEDGE = stdio rpath wpath cpath proc exec
+coverage-baseline: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:lib/cosmic/coverage
+coverage-baseline: $(coverage_got) | $(cosmic_bin)
+	@$(cosmic_bin) $(coverage_baseline_tool) write $(o)/coverage lib > $(coverage_baseline).tmp
+	@mv $(coverage_baseline).tmp $(coverage_baseline)
+	@echo "wrote $(coverage_baseline)"
 
 # Privileged enforcement lane (Phase 1 step 8 prerequisite, audit §5.1).
 # The sandbox tests carry "outer sandbox blocked this -> skip" escape hatches,
