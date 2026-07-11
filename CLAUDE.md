@@ -159,7 +159,7 @@ bin/make build          # build cosmic binary
 bin/make test           # run all tests (incremental)
 bin/make teal           # type check all files
 bin/make format         # check formatting
-bin/make ci             # full CI: format + teal + test + example
+bin/make ci             # full CI: format + teal + test + example + lint + coverage
 bin/make docs           # generate markdown docs from source
 bin/make clean          # remove build artifacts
 ```
@@ -280,6 +280,8 @@ all modules are under `lib/cosmic/` and imported as `cosmic.*`:
 
 ```bash
 bin/make test                 # all tests
+bin/make coverage             # tests with line coverage + ratchet vs lib/cosmic/coverage/baseline.txt
+bin/make coverage-baseline    # rewrite the committed coverage ratchet floor
 bin/make test only=sqlite     # filter by pattern
 bin/make example              # run Example_* functions
 bin/make benchmark            # run Benchmark_* functions
@@ -326,6 +328,6 @@ work, whilp/cosmopolitan for the C layer); find work with
 
 ## CI
 
-- **pr.yml**: runs `make ci` (format + teal + test + example) on push/PR to main
+- **pr.yml**: runs `make ci` (format + teal + test + example + lint + coverage ratchet) on push/PR to main
 - **docs.yml**: publishes generated docs to `docs` branch on push to main
 - **release.yml**: daily release build producing `cosmic-lua` and `cosmic-lua-debug`

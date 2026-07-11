@@ -442,7 +442,7 @@ doc-publish: $(all_docs) $(docs_publish) | $(bootstrap_cosmic)
 	@$(bootstrap_cosmic) -- $(docs_publish) $(SOURCE_SHA) $(o)/docs $(or $(DOCS_BRANCH),docs)
 
 # CI stages
-ci_stages := format teal test example lint
+ci_stages := format teal test example lint coverage
 ci_summaries := $(foreach s,$(ci_stages),$(o)/$(s)-summary.txt)
 
 .PHONY: ci
