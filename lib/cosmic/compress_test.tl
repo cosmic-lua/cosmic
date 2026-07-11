@@ -1,28 +1,41 @@
 #!/usr/bin/env cosmic
 local compress = require("cosmic.compress")
 
--- Zlib compression tests
+-- Round-trip tests per format
 
-local function test_compress_basic()
-  local data = "hello world"
+local function test_roundtrip_default_zlib()
+  local data = "Hello, World! This is a test of zlib compression.\x00\xff"
   local compressed = compress.compress(data)
   assert(#compressed > 0, "expected non-empty output")
   assert(compressed ~= data, "expected different output")
+  local result, err = compress.decompress(compressed)
+  assert(err == nil, "roundtrip failed: " .. (err or ""))
+  assert(result == data, "roundtrip mismatch")
 end
-test_compress_basic()
+test_roundtrip_default_zlib()
 
-local function test_compress_empty()
-  local compressed = compress.compress("")
-  assert(compressed ~= nil, "expected non-nil output for empty input")
+local function test_roundtrip_explicit_formats()
+  local data = "format round-trip \x00\xff\x10\x20 payload"
+  local formats: {compress.Format} = {"zlib", "gzip", "raw"}
+  for _, format in ipairs(formats) do
+    local compressed = compress.compress(data, {format = format})
+    local result, err = compress.decompress(compressed, {format = format as compress.DecompressFormat})
+    assert(err == nil, format .. " roundtrip failed: " .. (err or ""))
+    assert(result == data, format .. " roundtrip mismatch")
+  end
 end
-test_compress_empty()
+test_roundtrip_explicit_formats()
 
-local function test_compress_binary()
-  local data = "\x00\xff\x10\x20"
-  local compressed = compress.compress(data)
-  assert(#compressed > 0, "expected non-empty output")
+local function test_roundtrip_empty_per_format()
+  local formats: {compress.Format} = {"zlib", "gzip", "raw"}
+  for _, format in ipairs(formats) do
+    local compressed = compress.compress("", {format = format})
+    local result, err = compress.decompress(compressed, {format = format as compress.DecompressFormat})
+    assert(err == nil, format .. " empty roundtrip failed: " .. (err or ""))
+    assert(result == "", format .. ": expected empty string")
+  end
 end
-test_compress_binary()
+test_roundtrip_empty_per_format()
 
 local function test_compress_large()
   local data = string.rep("hello world, ", 1000)
@@ -31,185 +44,125 @@ local function test_compress_large()
 end
 test_compress_large()
 
--- Zlib decompression tests
+-- Format framing tests: outputs carry the standard headers, so they
+-- interoperate with other tooling.
 
-local function test_uncompress_basic()
-  local data = "hello world"
-  local compressed = compress.compress(data)
-  local result, err = compress.uncompress(compressed)
-  assert(err == nil, "unexpected error: " .. (err or ""))
-  assert(result == data, "expected '" .. data .. "', got '" .. (result or "nil") .. "'")
+local function test_zlib_magic_bytes()
+  local compressed = compress.compress("hello", {format = "zlib"})
+  assert(string.byte(compressed, 1) == 0x78, "expected zlib CMF byte 0x78")
 end
-test_uncompress_basic()
+test_zlib_magic_bytes()
 
-local function test_uncompress_empty()
-  local compressed = compress.compress("")
-  local result, err = compress.uncompress(compressed)
-  assert(err == nil, "unexpected error: " .. (err or ""))
-  assert(result == "", "expected empty string")
+local function test_gzip_magic_bytes()
+  local compressed = compress.compress("hello", {format = "gzip"})
+  local b1, b2, b3 = string.byte(compressed, 1, 3)
+  assert(b1 == 0x1f and b2 == 0x8b, "expected gzip magic 1f 8b")
+  assert(b3 == 0x08, "expected deflate compression method byte 0x08")
 end
-test_uncompress_empty()
+test_gzip_magic_bytes()
 
-local function test_uncompress_binary()
-  local data = "\x00\xff\x10\x20"
-  local compressed = compress.compress(data)
-  local result, err = compress.uncompress(compressed)
-  assert(err == nil, "unexpected error: " .. (err or ""))
-  assert(result == data, "roundtrip mismatch for binary data")
+local function test_raw_has_no_header()
+  -- Raw is headerless DEFLATE: no zlib or gzip magic, and strictly
+  -- smaller than the framed encodings of the same input.
+  local data = "hello, raw deflate"
+  local raw = compress.compress(data, {format = "raw"})
+  local b1, b2 = string.byte(raw, 1, 2)
+  assert(not (b1 == 0x1f and b2 == 0x8b), "raw output must not carry gzip magic")
+  assert(b1 ~= 0x78, "raw output must not carry zlib header")
+  assert(#raw < #compress.compress(data, {format = "zlib"}), "raw must be smaller than zlib")
 end
-test_uncompress_binary()
+test_raw_has_no_header()
 
-local function test_uncompress_invalid()
-  local result, err = compress.uncompress("invalid data")
-  assert(result == nil, "expected nil for invalid data")
-  assert(err ~= nil, "expected error message")
+local function test_gzip_fixture_from_system_gzip()
+  -- Produced by `printf 'hello from system gzip\n' | gzip -n -9` on
+  -- GNU gzip: proof the format is the real one, not module-specific.
+  local fixture = "\x1f\x8b\x08\x00\x00\x00\x00\x00\x02\x03"
+  .. "\xcb\x48\xcd\xc9\xc9\x57\x48\x2b\xca\xcf\x55\x28\xae\x2c\x2e"
+  .. "\x49\xcd\x55\x48\xaf\xca\x2c\xe0\x02\x00"
+  .. "\x45\xf2\xe3\x07\x17\x00\x00\x00"
+  local result, err = compress.decompress(fixture, {format = "gzip"})
+  assert(err == nil, "system gzip fixture failed: " .. (err or ""))
+  assert(result == "hello from system gzip\n", "fixture content mismatch")
 end
-test_uncompress_invalid()
+test_gzip_fixture_from_system_gzip()
 
-local function test_zlib_roundtrip()
-  local original = "Hello, World! This is a test of zlib compression.\x00\xff"
-  local compressed = compress.compress(original)
-  local result, err = compress.uncompress(compressed)
-  assert(err == nil, "roundtrip failed: " .. (err or ""))
-  assert(result == original, "roundtrip mismatch")
-end
-test_zlib_roundtrip()
+-- "auto" detection tests
 
--- Raw deflate tests
-
-local function test_deflate_basic()
-  local data = "hello world"
-  local deflated = compress.deflate(data)
-  assert(#deflated > 4, "expected output with size prefix")
-end
-test_deflate_basic()
-
-local function test_deflate_empty()
-  local deflated, derr = compress.deflate("")
-  if not deflated then error(derr) end
-  assert(#deflated >= 4, "expected at least size prefix")
-  -- First 4 bytes should be 0 (size = 0)
-  assert(string.byte(deflated, 1) == 0, "expected size byte 1 to be 0")
-  assert(string.byte(deflated, 2) == 0, "expected size byte 2 to be 0")
-  assert(string.byte(deflated, 3) == 0, "expected size byte 3 to be 0")
-  assert(string.byte(deflated, 4) == 0, "expected size byte 4 to be 0")
-end
-test_deflate_empty()
-
-local function test_deflate_large()
-  local data = string.rep("hello world, ", 1000)
-  local deflated = compress.deflate(data)
-  -- 4 bytes prefix + compressed data should be smaller than original
-  assert(#deflated < #data, "expected compression ratio for repetitive data")
-end
-test_deflate_large()
-
--- Raw inflate tests
-
-local function test_inflate_basic()
-  local data = "hello world"
-  local deflated = compress.deflate(data)
-  local result, err = compress.inflate(deflated)
-  assert(err == nil, "unexpected error: " .. (err or ""))
-  assert(result == data, "expected '" .. data .. "', got '" .. (result or "nil") .. "'")
-end
-test_inflate_basic()
-
-local function test_inflate_empty()
-  local deflated = compress.deflate("")
-  local result, err = compress.inflate(deflated)
-  assert(err == nil, "unexpected error: " .. (err or ""))
-  assert(result == "", "expected empty string")
-end
-test_inflate_empty()
-
-local function test_inflate_binary()
-  local data = "\x00\xff\x10\x20"
-  local deflated = compress.deflate(data)
-  local result, err = compress.inflate(deflated)
-  assert(err == nil, "unexpected error: " .. (err or ""))
-  assert(result == data, "roundtrip mismatch for binary data")
-end
-test_inflate_binary()
-
-local function test_inflate_too_short()
-  local result, err = compress.inflate("abc")
-  assert(result == nil, "expected nil for too-short data")
-  assert(err ~= nil, "expected error message")
-  assert(err:match("too short"), "error should mention 'too short'")
-end
-test_inflate_too_short()
-
-local function test_inflate_invalid()
-  -- 4-byte prefix claiming size 100, followed by garbage
-  local invalid = "\x64\x00\x00\x00invalid"
-  local result, err = compress.inflate(invalid)
-  assert(result == nil, "expected nil for invalid data")
-  assert(err ~= nil, "expected error message")
-end
-test_inflate_invalid()
-
-local function test_deflate_roundtrip()
-  local original = "Hello, World! This is a test of raw deflate compression.\x00\xff"
-  local deflated = compress.deflate(original)
-  local result, err = compress.inflate(deflated)
-  assert(err == nil, "roundtrip failed: " .. (err or ""))
-  assert(result == original, "roundtrip mismatch")
-end
-test_deflate_roundtrip()
-
--- Size prefix encoding test
-
-local function test_deflate_size_prefix()
-  -- Test with various sizes to verify little-endian encoding
-  local sizes = {0, 1, 255, 256, 65535, 65536, 100000}
-  for _, size in ipairs(sizes) do
-    local data = string.rep("x", size)
-    local deflated, derr = compress.deflate(data)
-    if not deflated then error(derr) end
-    -- Read back the size from prefix
-    local b1, b2, b3, b4 = string.byte(deflated, 1, 4)
-    local read_size = b1 + b2 * 256 + b3 * 65536 + b4 * 16777216
-    assert(read_size == size, "size mismatch for " .. size .. ": got " .. read_size)
-    -- Verify roundtrip
-    local result, err = compress.inflate(deflated)
-    assert(err == nil, "roundtrip failed for size " .. size .. ": " .. (err or ""))
-    assert(#result == size, "result size mismatch for " .. size)
+local function test_auto_detects_zlib_and_gzip()
+  local data = "auto-detected payload"
+  local formats: {compress.Format} = {"zlib", "gzip"}
+  for _, format in ipairs(formats) do
+    local compressed = compress.compress(data, {format = format})
+    local result, err = compress.decompress(compressed, {format = "auto"})
+    assert(err == nil, "auto failed on " .. format .. ": " .. (err or ""))
+    assert(result == data, "auto mismatch on " .. format)
   end
 end
-test_deflate_size_prefix()
+test_auto_detects_zlib_and_gzip()
 
--- Size limit check test
-
-local function test_deflate_size_check_normal()
-  -- Verify that normal-sized input returns result, not error
-  local result, err = compress.deflate(string.rep("x", 1000))
-  assert(result ~= nil, "expected success for 1000-byte input: " .. tostring(err))
-  assert(err == nil, "expected no error for 1000-byte input")
+local function test_auto_rejects_raw()
+  -- Raw streams carry no header, so auto detection cannot identify them.
+  local raw = compress.compress("headerless", {format = "raw"})
+  local result, err = compress.decompress(raw, {format = "auto"})
+  assert(result == nil, "auto must not accept a headerless raw stream")
+  assert(err ~= nil, "expected error message")
 end
-test_deflate_size_check_normal()
+test_auto_rejects_raw()
 
--- Forged size-prefix tests (issue #531): the 4-byte prefix is
--- attacker-controlled and must be validated before allocation.
+-- Error handling tests
 
-local function test_inflate_forged_huge_prefix()
-  -- 5-byte blob whose prefix claims ~4GB for 1 compressed byte. Must be
-  -- rejected up front (no 4GB allocation attempt).
-  local forged = string.char(0xFF, 0xFF, 0xFF, 0xFF) .. "x"
-  local result, err = compress.inflate(forged)
-  assert(result == nil, "forged size prefix should be rejected")
-  assert(err and err:match("implausible"), "expected implausibility error, got: " .. tostring(err))
+local function test_decompress_invalid()
+  local result, err = compress.decompress("invalid data")
+  assert(result == nil, "expected nil for invalid data")
+  assert(err ~= nil, "expected error message")
 end
-test_inflate_forged_huge_prefix()
+test_decompress_invalid()
 
-local function test_inflate_max_output()
-  local deflated = assert(compress.deflate(string.rep("x", 2000)))
-  local result, err = compress.inflate(deflated, 100)
-  assert(result == nil, "declared size beyond max_output should be rejected")
-  assert(err and err:match("max_output"), "expected max_output error, got: " .. tostring(err))
-
-  result, err = compress.inflate(deflated, 2000)
-  assert(result, "max_output at the exact size should pass: " .. tostring(err))
-  assert(#(result as string) == 2000, "roundtrip under max_output should succeed")
+local function test_decompress_wrong_format()
+  local gz = compress.compress("cross-format", {format = "gzip"})
+  local result, err = compress.decompress(gz, {format = "zlib"})
+  assert(result == nil, "gzip input must not decompress as zlib")
+  assert(err ~= nil, "expected error message")
 end
-test_inflate_max_output()
+test_decompress_wrong_format()
+
+local function test_decompress_truncated()
+  local compressed = compress.compress(string.rep("truncate me, ", 100))
+  local result, err = compress.decompress(compressed:sub(1, #compressed // 2))
+  assert(result == nil, "truncated input must fail")
+  assert(err ~= nil, "expected error message")
+end
+test_decompress_truncated()
+
+-- Zip-bomb bound tests: max_output is enforced per format, so
+-- attacker-controlled input cannot balloon memory.
+
+local function test_max_output_bound_per_format()
+  local data = string.rep("x", 2000)
+  local formats: {compress.DecompressFormat} = {"zlib", "gzip", "raw", "auto"}
+  for _, format in ipairs(formats) do
+    local cformat: compress.Format = "gzip"
+    if format ~= "auto" then
+      cformat = format as compress.Format
+    end
+    local compressed = compress.compress(data, {format = cformat})
+    local result, err = compress.decompress(compressed, {format = format, max_output = 100})
+    assert(result == nil, format .. ": output beyond max_output must be rejected")
+    assert(err ~= nil, format .. ": expected error message")
+
+    result, err = compress.decompress(compressed, {format = format, max_output = 2000})
+    assert(result, format .. ": max_output at the exact size should pass: " .. tostring(err))
+    assert(#(result as string) == 2000, format .. ": roundtrip under max_output should succeed")
+  end
+end
+test_max_output_bound_per_format()
+
+-- Contract test: the bespoke prefixed-deflate surface is gone (#590).
+
+local function test_prefixed_deflate_surface_removed()
+  local m = compress as {string: any}
+  assert(m["deflate"] == nil, "deflate must be removed")
+  assert(m["inflate"] == nil, "inflate must be removed")
+  assert(m["uncompress"] == nil, "uncompress must be removed (renamed decompress)")
+end
+test_prefixed_deflate_surface_removed()

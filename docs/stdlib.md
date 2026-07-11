@@ -44,7 +44,7 @@ local sqlite = require("cosmic.sqlite")
 |--------|-------------|
 | `cosmic.sqlite` | SQLite with query/exec/transaction API |
 | `cosmic.codec` | hex encoding/decoding, Lua serialization |
-| `cosmic.compress` | zlib compress/decompress, raw deflate |
+| `cosmic.compress` | zlib/gzip/raw compress/decompress |
 | `cosmic.html` | HTML entity escaping |
 | `cosmic.zip` | ZIP archive reading and writing |
 
