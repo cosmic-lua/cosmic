@@ -1,0 +1,185 @@
+# coverage
+
+ Line coverage collection for cosmic programs.
+ Installs a Lua line hook that counts executed (source, line) pairs,
+ and dumps the counts as a Lua-serialized .cov file for
+ `cosmic --coverage-report` to merge and render.
+
+ The CLI arms collection automatically when the COSMIC_COVERAGE
+ environment variable names a directory: the hook starts before the
+ script loads and a .cov file is written there when the script
+ finishes (including via os.exit). `cosmic --test` rewrites the
+ variable to a per-test directory, so `bin/make coverage` gets one
+ .cov file per process, safe under parallel make.
+
+ start/stop nest: a script that exercises coverage itself while
+ running under coverage leaves the outer collection running.
+
+## Types
+
+### CoverageModule
+
+```teal
+local record CoverageModule
+  start: function()
+  stop: function()
+  running: function(): boolean
+  snapshot: function(): {string: {integer: integer}}
+  reset: function()
+  dump: function(dir?: string): boolean, string
+  seal: function()
+  enable: function(dir: string)
+  dir_from_env: function(): string | nil
+  enable_from_env: function(): function()
+  report: function(paths: {string}): integer
+end
+```
+
+## Functions
+
+### running
+
+```teal
+function running(): boolean
+```
+
+ Check whether collection is active.
+
+**Returns:**
+
+- boolean
+
+### start
+
+```teal
+function start()
+```
+
+ Begin collecting line hits (nestable).
+ The first start installs the line hook; nested starts only increment
+ the nesting depth, so libraries and tests can bracket their own
+ collection without tearing down an outer one.
+
+### stop
+
+```teal
+function stop()
+```
+
+ Stop collecting line hits (nestable).
+ Removes the line hook when the last nested start is balanced.
+ Collected counts are kept; use reset() to discard them.
+
+### snapshot
+
+```teal
+function snapshot(): {string: {integer: integer}}
+```
+
+ Return a copy of the collected counts.
+ Keys are chunk sources as reported by debug.getinfo (e.g.
+ "@o/lib/cosmic/fs/init.lua"), values map line number to hit count.
+
+**Returns:**
+
+- {string: - {integer: integer}}
+
+### reset
+
+```teal
+function reset()
+```
+
+ Discard all collected counts.
+
+### dump
+
+```teal
+function dump(dir?: string): boolean, string
+```
+
+ Write collected counts as a .cov file into a directory.
+ The filename is stable per process (pid plus start timestamp), so
+ repeated dumps from one process overwrite instead of double-counting;
+ concurrent processes never collide.
+
+**Parameters:**
+
+- `dir` (string?) - Directory to write into (default: the enable() directory)
+
+**Returns:**
+
+- boolean - True on success, false on failure
+- string? - Error message if the write failed
+
+### seal
+
+```teal
+function seal()
+```
+
+ Flush collected counts now and prevent every later dump.
+ The pledge/unveil/landlock wrappers call this before dropping
+ rights: after the sandbox lands, a dump would fail — and under
+ pledge the write attempt would kill the process. Lines executed
+ after sealing are still collected but never reported.
+
+### enable
+
+```teal
+function enable(dir: string)
+```
+
+ Arm collection for this process, dumping into dir on exit.
+ Used by the CLI when COSMIC_COVERAGE names a directory; also wraps
+ os.exit so early exits (like a test skip) still flush their counts.
+ A nested enable never re-targets an outer one's directory.
+
+**Parameters:**
+
+- `dir` (string) - Directory to write the .cov file into
+
+### dir_from_env
+
+```teal
+function dir_from_env(): string | nil
+```
+
+ Read the coverage directory from the COSMIC_COVERAGE variable.
+ Boolean-ish values ("", "0", "1", "true", "false") mean coverage is
+ requested or off but name no directory, so they return nil; anything
+ else is the directory to dump into.
+
+**Returns:**
+
+- string - | nil The dump directory, or nil when not configured
+
+### enable_from_env
+
+```teal
+function enable_from_env(): function()
+```
+
+ Arm collection from the COSMIC_COVERAGE variable, if it names a
+ directory. The CLI calls this before running a script.
+
+**Returns:**
+
+- function() - | nil A dump callback when armed, nil otherwise
+
+### report
+
+```teal
+function report(paths: {string}): integer
+```
+
+ Merge and render .cov files; the --coverage-report CLI entry point.
+ source directories to include as zero-coverage candidates
+
+**Parameters:**
+
+- `paths` ({string}) - .cov files, directories to scan for them, and
+
+**Returns:**
+
+- integer - Exit code (0 on success, 1 when no data was found)

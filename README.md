@@ -28,6 +28,7 @@ High-level utilities and tools built on top of cosmo.
 | [init](lib/cosmic/child/init.md) |  Child process management. |
 | [codec](lib/cosmic/codec.md) |  Encoding and decoding utilities for various formats. |
 | [compress](lib/cosmic/compress.md) |  Compression and decompression utilities. |
+| [init](lib/cosmic/coverage/init.md) |  Line coverage collection for cosmic programs. |
 | [init](lib/cosmic/doc/init.md) |  Extract documentation from Teal files and render as markdown. |
 | [embed](lib/cosmic/embed.md) |  Embed files and directories into a cosmic executable. |
 | [env](lib/cosmic/env.md) |  Environment variable utilities. |
