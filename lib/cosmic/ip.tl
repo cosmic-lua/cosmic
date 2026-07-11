@@ -1,5 +1,11 @@
 --- IP address parsing, formatting, and classification utilities.
---- IPv4 only: IPv6 addresses are rejected with an explicit error.
+--- The typed Addr is the only address currency in public signatures
+--- (api-review-2, #588): parse and lookup return Addr, sockets accept
+--- and return Addr, and classification lives on Addr methods. The
+--- implementation is IPv4-only — IPv6 strings are rejected with an
+--- explicit error — but the shape is ready for IPv6 as a value
+--- extension: a later "inet6" family is a new Addr value, not a new
+--- API. Addr:int() exposes the raw v4 integer for the C boundary.
 local cosmo = require("cosmo")
 
 --- Category of an IPv4 address, as reported by categorize().
@@ -27,12 +33,21 @@ local enum Category
   "ANONYMOUS"
 end
 
---- A typed IP address.
---- Wraps the raw integer representation with convenience methods.
+--- Address family. IPv4 only today; IPv6 (whilp/cosmopolitan#144) adds
+--- "inet6" as a value, leaving every Addr-taking signature unchanged.
+local enum Family
+  "inet"
+end
+
+--- A typed IP address: the one address type in public signatures.
+--- Compares by value (two Addrs are == when they hold the same
+--- address) and formats with tostring().
 local record Addr
   _n: number
-  --- Get the raw integer representation.
-  --- Use this when passing to net.Socket:connect() or other APIs that take integer IPs.
+  --- Address family; "inet" for IPv4.
+  family: Family
+  --- Get the raw integer representation (the IPv4 payload).
+  --- Use this at the C boundary or for arithmetic on the raw value.
   --- @return integer The IP address as an integer
   int: function(Addr): number
   --- Format as a dotted-quad string (e.g., "192.168.1.1").
@@ -76,8 +91,11 @@ local function addr_is_public(self: Addr): boolean
   return cosmo.IsPublicIp(self._n)
 end
 
+-- Methods and the family constant live on the shared metatable (#563
+-- precedent), so make_addr allocates one two-field table and nothing else.
 local Addr_mt: metatable < Addr > = {
   __index = {
+    family = "inet",
     int = addr_int,
     format = addr_format,
     categorize = addr_categorize,
@@ -88,6 +106,9 @@ local Addr_mt: metatable < Addr > = {
   __tostring = function(self: Addr): string
     return cosmo.FormatIp(self._n)
   end,
+  __eq = function(a: Addr, b: Addr): boolean
+    return a._n == b._n
+  end,
 }
 
 local function make_addr(n: number): Addr
@@ -95,20 +116,23 @@ local function make_addr(n: number): Addr
 end
 
 --- Wrap a raw integer as a typed Addr.
+--- This is the explicit int-to-Addr constructor for the C boundary
+--- (e.g. values from cosmo bindings); everything else should already
+--- hold an Addr.
 --- @param n integer The IP address as an integer
 --- @return Addr The typed IP address
 local function addr(n: number): Addr
   return make_addr(n)
 end
 
---- Parse an IPv4 address string to its integer representation.
+--- Parse an IPv4 address string into a typed Addr.
 --- Strict dotted quad only: exactly four decimal octets 0-255, no
 --- leading zeros ("127.1", "1.2.3.4.5", "01.2.3.4" are all errors).
 --- IPv6 is rejected with an explicit error.
 --- @param str string The IP address string (e.g., "192.168.1.1")
---- @return integer | nil The IP address as an integer, or nil on error
+--- @return Addr | nil The typed IP address, or nil on error
 --- @return string Error message if parsing failed
-local function parse(str: string): integer | nil, string
+local function parse(str: string): Addr | nil, string
   if not str or str == "" then
     return nil, "empty IP address"
   end
@@ -131,44 +155,7 @@ local function parse(str: string): integer | nil, string
     end
     n = n * 256 + v
   end
-  return n
-end
-
---- Format an integer IP address as a string.
---- @param ip integer The IP address as an integer
---- @return string The formatted IP address string
-local function format(ip: number): string
-  return cosmo.FormatIp(ip)
-end
-
---- Categorize an IP address.
---- Returns categories like "LOOPBACK", "PRIVATE", "ARIN", etc.
---- @param ip integer The IP address as an integer
---- @return Category The category name
-local function categorize(ip: number): Category
-  return cosmo.CategorizeIp(ip) as Category
-end
-
---- Check if an IP address is a loopback address (127.x.x.x).
---- @param ip integer The IP address as an integer
---- @return boolean True if the address is a loopback address
-local function is_loopback(ip: number): boolean
-  return cosmo.IsLoopbackIp(ip)
-end
-
---- Check if an IP address is a private address.
---- Private ranges: 10.x.x.x, 172.16-31.x.x, 192.168.x.x
---- @param ip integer The IP address as an integer
---- @return boolean True if the address is private
-local function is_private(ip: number): boolean
-  return cosmo.IsPrivateIp(ip)
-end
-
---- Check if an IP address is a public/routable address.
---- @param ip integer The IP address as an integer
---- @return boolean True if the address is public
-local function is_public(ip: number): boolean
-  return cosmo.IsPublicIp(ip)
+  return make_addr(n)
 end
 
 --- Look up a hostname and return a typed Addr.
@@ -177,34 +164,25 @@ end
 --- @return Addr? The resolved IP address, or nil on error
 --- @return string? Error message on failure
 local function lookup(hostname: string): Addr | nil, string
-  local ip, err = cosmo.ResolveIp(hostname)
-  if not ip then
+  local raw, err = cosmo.ResolveIp(hostname)
+  if not raw then
     return nil, "dns: lookup failed for " .. hostname .. ": " .. tostring(err)
   end
-  return make_addr(ip)
+  return make_addr(raw)
 end
 
 local record IpModule
   Addr: Addr
   type Category = Category
+  type Family = Family
   addr: function(n: number): Addr
-  parse: function(str: string): integer | nil, string
-  format: function(ip: number): string
-  categorize: function(ip: number): Category
-  is_loopback: function(ip: number): boolean
-  is_private: function(ip: number): boolean
-  is_public: function(ip: number): boolean
+  parse: function(str: string): Addr | nil, string
   lookup: function(hostname: string): Addr | nil, string
 end
 
 local M: IpModule = {
   addr = addr,
   parse = parse,
-  format = format,
-  categorize = categorize,
-  is_loopback = is_loopback,
-  is_private = is_private,
-  is_public = is_public,
   lookup = lookup,
 }
 

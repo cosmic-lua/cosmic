@@ -4,12 +4,12 @@
 -- listen on an OS-assigned port, connect, accept, echo one message back
 local function Example_echo()
   local net = require("cosmic.net")
-  local srv, port, err = net.listen_tcp(0x7f000001, 0)
+  local srv, port, err = net.listen_tcp("127.0.0.1", 0)
   assert(srv, err)
   assert(port > 0)
   local srv = srv as net.Socket
 
-  local client, cerr = net.connect_tcp(0x7f000001, port)
+  local client, cerr = net.connect_tcp("127.0.0.1", port)
   assert(client, cerr)
   local client = client as net.Socket
 
@@ -34,11 +34,11 @@ end
 -- stream contract (cosmic.stream)
 local function Example_recv_eof()
   local net = require("cosmic.net")
-  local srv, port, err = net.listen_tcp(0x7f000001, 0)
+  local srv, port, err = net.listen_tcp("127.0.0.1", 0)
   assert(srv, err)
   local srv = srv as net.Socket
 
-  local client = net.connect_tcp(0x7f000001, port) as net.Socket
+  local client = net.connect_tcp("127.0.0.1", port) as net.Socket
   local conn = srv:accept() as net.Socket
 
   client:close()

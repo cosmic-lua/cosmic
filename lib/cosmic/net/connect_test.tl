@@ -18,8 +18,9 @@ local function test_interfaces()
     assert(iface.ip ~= nil, "interface should have ip")
     if iface.name == "lo" then
       has_loopback = true
-      -- Loopback should be 127.0.0.1 (0x7f000001)
-      assert(iface.ip == 0x7f000001, "loopback should have 127.0.0.1, got " .. ip.format(iface.ip))
+      -- Loopback should be 127.0.0.1; Addr compares by value (__eq)
+      assert(iface.ip == ip.addr(0x7f000001),
+        "loopback should have 127.0.0.1, got " .. iface.ip:format())
     end
   end
   assert(has_loopback, "should have loopback interface")
@@ -32,7 +33,7 @@ local function test_interfaces_format()
   if ifaces then
     local ifaces = ifaces as {net.Interface}
     for _, iface in ipairs(ifaces) do
-      local ip_str = ip.format(iface.ip)
+      local ip_str = iface.ip:format()
       assert(ip_str:match("^%d+%.%d+%.%d+%.%d+$"), "expected dotted IP format, got " .. ip_str)
     end
   end
@@ -141,7 +142,7 @@ local function test_nb_connect_loopback()
   local ok, setopt_err = server:setsockopt(net.SOL_SOCKET, net.SO_REUSEADDR, true)
   assert(ok, "setsockopt failed: " .. tostring(setopt_err))
 
-  ok, err = server:bind(0x7f000001, 0) -- 127.0.0.1
+  ok, err = server:bind("127.0.0.1", 0) -- 127.0.0.1
   assert(ok, "bind failed: " .. tostring(err))
 
   local _, server_port = server:getsockname()
@@ -186,7 +187,7 @@ local function test_nb_connect_refused()
   local client = client as net.Socket
 
   -- Connect to localhost port 1 — should be refused
-  local ok, conn_err = net.nb_connect(client, 0x7f000001, 1, 2000)
+  local ok, conn_err = net.nb_connect(client, "127.0.0.1", 1, 2000)
   assert(not ok, "expected nb_connect to fail on refused port")
   assert(conn_err ~= nil, "expected error message from nb_connect")
 
@@ -203,7 +204,7 @@ local function test_connect_tcp()
   local ok, setopt_err = server:setsockopt(net.SOL_SOCKET, net.SO_REUSEADDR, true)
   assert(ok, "setsockopt failed: " .. tostring(setopt_err))
 
-  ok, err = server:bind(0x7f000001, 0)
+  ok, err = server:bind("127.0.0.1", 0)
   assert(ok, "bind failed: " .. tostring(err))
 
   local _, server_port = server:getsockname()
@@ -215,7 +216,7 @@ local function test_connect_tcp()
   -- Fork to create a client using connect_tcp
   local pid = proc.fork()
   if pid == 0 then
-    local client, cerr = net.connect_tcp(0x7f000001, server_port)
+    local client, cerr = net.connect_tcp("127.0.0.1", server_port)
     if not client then
       io.stderr:write("connect_tcp failed: " .. tostring(cerr) .. "\n")
       os.exit(1)
@@ -286,7 +287,7 @@ local function test_connect_error_message()
   assert(sock ~= nil, "socket creation failed: " .. tostring(err))
   local sock = sock as net.Socket
 
-  local ok, conn_err = sock:connect(0x7f000001, 1) -- localhost port 1
+  local ok, conn_err = sock:connect("127.0.0.1", 1) -- localhost port 1
   assert(not ok, "expected connect to fail")
   assert(conn_err ~= nil, "expected error message")
   -- Should start with "connect: " prefix (Errno pattern) rather than generic "connect failed"
@@ -302,14 +303,41 @@ print("All net tests passed")
 local function test_bind_error_names_errno()
   -- Binding a second socket to an in-use address must name EADDRINUSE.
   local first = assert(net.socket(net.AF_INET, net.SOCK_STREAM)) as net.Socket
-  assert(first:bind(0x7f000001, 0))
+  assert(first:bind("127.0.0.1", 0))
   assert(first:listen())
   local _, port = first:getsockname()
   local second = assert(net.socket(net.AF_INET, net.SOCK_STREAM)) as net.Socket
-  local ok, berr = second:bind(0x7f000001, port as number)
+  local ok, berr = second:bind("127.0.0.1", port as number)
   assert(ok == false, "second bind to same port should fail")
   assert(berr:match("EADDRINUSE"), "bind error should name EADDRINUSE, got: " .. berr)
   second:close()
   first:close()
 end
 test_bind_error_names_errno()
+
+local function test_dial()
+  -- dial is the stable name-and-shape entry point (#588, from #501):
+  -- resolution happens inside, for literals and DNS names alike.
+  local srv, port, serr = net.listen_tcp("127.0.0.1", 0)
+  assert(srv ~= nil, "listen_tcp failed: " .. tostring(serr))
+  local s = srv as net.Socket
+
+  local c1, derr = net.dial("127.0.0.1", port)
+  assert(c1 ~= nil, "dial literal failed: " .. tostring(derr))
+  local a1 = s:accept() as net.Socket;
+  (c1 as net.Socket):close()
+  a1:close()
+
+  local c2, herr = net.dial("localhost", port)
+  assert(c2 ~= nil, "dial hostname failed: " .. tostring(herr))
+  local a2 = s:accept() as net.Socket;
+  (c2 as net.Socket):close()
+  a2:close()
+  s:close()
+
+  local bad, berr = net.dial("this.host.does.not.exist.invalid", 80)
+  assert(bad == nil, "dial to unresolvable host must fail")
+  assert(berr ~= nil and berr:find("dial", 1, true) ~= nil,
+    "dial failure names the operation: " .. tostring(berr))
+end
+test_dial()

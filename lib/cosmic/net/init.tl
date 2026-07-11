@@ -1,7 +1,10 @@
 --- Networking and socket utilities.
 --- Wraps cosmo.unix socket functions for TCP/UDP and Unix domain sockets.
---- IPv4 only: string addresses must be strict dotted quads; IPv6 is
---- rejected with an explicit "IPv6 not supported" error.
+--- Addresses are typed (api-review-2, #588): every public signature
+--- takes a dotted-quad string or an ip.Addr and returns ip.Addr — bare
+--- integers are not addresses. IPv4 only: IPv6 strings are rejected
+--- with an explicit "IPv6 not supported" error, and lands later as a
+--- new Addr family, not a new API.
 local unix = require("cosmo.unix")
 local ip = require("cosmic.ip")
 local net_socket = require("cosmic.net.socket")
@@ -10,32 +13,11 @@ local net_socket = require("cosmic.net.socket")
 --- Supports Lua 5.4's to-be-closed via __close metamethod.
 local type Socket = net_socket.Socket
 
+--- An address a helper accepts: a dotted-quad string ("127.0.0.1") or a
+--- typed ip.Addr. Wrap C-boundary integers with ip.addr().
+local type Address = net_socket.Address
+
 local make_socket = net_socket.make_socket
-
---- An address a TCP helper accepts: a dotted-quad string ("127.0.0.1"),
---- a raw integer (0x7f000001), or a typed ip.Addr.
-local type Address = string | number | ip.Addr
-
---- Resolve an Address union to a raw integer IP.
---- @param addr Address The address in any accepted form
---- @return integer | nil The IP as an integer, or nil on error
---- @return string Error message on failure
-local function resolve_addr(addr: Address): integer | nil, string
-  if addr is string then
-    return ip.parse(addr)
-  end
-  local n: number
-  if addr is number then
-    n = addr
-  else
-    n = (addr as ip.Addr):int()
-  end
-  local i = math.tointeger(n)
-  if not i then
-    return nil, "invalid IP integer: " .. tostring(n)
-  end
-  return i
-end
 
 --- Create a new socket.
 --- @param family number Address family (AF_INET, AF_UNIX). Default: AF_INET
@@ -115,28 +97,49 @@ local function connect_unix(path: string): Socket | nil, string
 end
 
 --- Create a TCP socket and connect to an address and port.
---- The address may be a dotted-quad string ("127.0.0.1"), a raw integer
---- (0x7f000001), or an ip.Addr. IPv6 is not supported.
+--- The address may be a dotted-quad string ("127.0.0.1") or an ip.Addr.
+--- IPv6 is not supported. For hostname resolution use dial().
 --- @param addr Address Remote IPv4 address
 --- @param port number Remote port
 --- @return Socket | nil Connected socket
 --- @return string Error message on failure
 local function connect_tcp(addr: Address, port: number): Socket | nil, string
-  local ipn, aerr = resolve_addr(addr)
-  if not ipn then
-    return nil, aerr
-  end
   local sock, err = socket(unix.AF_INET, unix.SOCK_STREAM, 0)
   if not sock then
     return nil, err
   end
   local s = sock as Socket
-  local ok, conn_err = s:connect(ipn, port)
+  local ok, conn_err = s:connect(addr, port)
   if not ok then
     s:close()
     return nil, conn_err
   end
   return s
+end
+
+--- Open a TCP connection to host:port. This name and shape are the
+--- stable dial contract (api-review-2, #588; reserved from #501): host
+--- is a dotted-quad literal or a DNS name — resolution happens inside —
+--- and the result is a connected Socket. Future address families and
+--- richer endpoint forms extend the values dial accepts, never the
+--- signature.
+--- @param host string Host to connect to: dotted-quad literal or DNS name
+--- @param port number Remote TCP port
+--- @return Socket | nil Connected socket
+--- @return string Error message on failure
+local function dial(host: string, port: number): Socket | nil, string
+  local a: ip.Addr
+  local parsed = ip.parse(host)
+  if parsed then
+    a = parsed as ip.Addr
+  else
+    local looked, lerr = ip.lookup(host)
+    if not looked then
+      return nil, "dial " .. host .. ": " .. tostring(lerr)
+    end
+    a = looked as ip.Addr
+  end
+  return connect_tcp(a, port)
 end
 
 --- Create a TCP socket, bind it to addr:port, and start listening.
@@ -156,17 +159,13 @@ end
 --- deliberate port-0 ergonomics, kept as-is rather than reshuffled to the
 --- usual value-then-error order.
 ---
---- @param addr Address Local IPv4 address to bind ("127.0.0.1", 0 for all)
+--- @param addr Address Local IPv4 address to bind ("127.0.0.1", "0.0.0.0" for all)
 --- @param port number Local port to bind; use 0 for an OS-assigned ephemeral port
 --- @param backlog number Maximum pending connections (default 128)
 --- @return Socket | nil Listening socket ready to accept
 --- @return number Actual bound port (useful when port 0 was requested)
 --- @return string Error message on failure
 local function listen_tcp(addr: Address, port: number, backlog?: number): Socket | nil, number, string
-  local ipn, aerr = resolve_addr(addr)
-  if not ipn then
-    return nil, nil, aerr
-  end
   local sock, serr = socket(unix.AF_INET, unix.SOCK_STREAM, 0)
   if not sock then
     return nil, nil, serr
@@ -177,7 +176,7 @@ local function listen_tcp(addr: Address, port: number, backlog?: number): Socket
     s:close()
     return nil, nil, setopt_err
   end
-  local bok, bind_err = s:bind(ipn, port)
+  local bok, bind_err = s:bind(addr, port)
   if not bok then
     s:close()
     return nil, nil, bind_err
@@ -208,15 +207,11 @@ end
 --- @return string Error message on failure
 local function nb_connect(s: Socket, addr: Address, port: number, timeoutms?: number): boolean, string
   timeoutms = timeoutms or 10000
-  local ipn, aerr = resolve_addr(addr)
-  if not ipn then
-    return false, aerr
-  end
   local nb_ok, nb_err = s:set_nonblocking()
   if not nb_ok then
     return false, nb_err
   end
-  local ok, conn_err = s:connect(ipn, port)
+  local ok, conn_err = s:connect(addr, port)
   if ok then return true end
   local fds: {number: number} = {[s.fd] = unix.POLLOUT}
   local revents = unix.poll(fds, timeoutms)
@@ -253,7 +248,7 @@ end
 --- Network interface information.
 local record Interface
   name: string
-  ip: number
+  ip: ip.Addr
 end
 
 --- List network interfaces and their IPv4 addresses.
@@ -264,7 +259,14 @@ local function interfaces(): {Interface} | nil, string
   if not raw then
     return nil, "siocgifconf failed"
   end
-  return raw as {Interface}
+  local list: {Interface} = {}
+  for i, entry in ipairs(raw as {{string: any}}) do
+    list[i] = {
+      name = entry["name"] as string,
+      ip = ip.addr(entry["ip"] as number),
+    }
+  end
+  return list
 end
 
 local record NetModule
@@ -277,6 +279,7 @@ local record NetModule
   listen_tcp: function(addr: Address, port: number, backlog?: number): Socket | nil, number, string
   connect_unix: function(path: string): Socket | nil, string
   connect_tcp: function(addr: Address, port: number): Socket | nil, string
+  dial: function(host: string, port: number): Socket | nil, string
   nb_connect: function(s: Socket, addr: Address, port: number, timeoutms?: number): boolean, string
   gethostname: function(): string | nil, string
   interfaces: function(): {Interface} | nil, string
@@ -358,6 +361,7 @@ local M: NetModule = {
   listen_tcp = listen_tcp,
   connect_unix = connect_unix,
   connect_tcp = connect_tcp,
+  dial = dial,
   nb_connect = nb_connect,
   gethostname = gethostname,
   interfaces = interfaces,

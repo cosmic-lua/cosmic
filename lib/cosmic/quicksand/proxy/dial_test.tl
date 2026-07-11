@@ -33,7 +33,7 @@ local function test_resolve_literal_skips_resolver()
     function(_: string): integer, any
       error("resolver must not run for literals")
     end)
-  assert(got == ip.parse("8.8.8.8"),
+  assert(got == (ip.parse("8.8.8.8") as ip.Addr):int(),
     "literal should parse directly: " .. tostring(err))
 end
 test_resolve_literal_skips_resolver()

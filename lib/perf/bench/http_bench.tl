@@ -10,7 +10,7 @@ local proc = require("cosmic.proc")
 local signal = require("cosmic.signal")
 local pt = require("perf.perf_types")
 
-local LOCALHOST = 0x7f000001
+local LOCALHOST = "127.0.0.1"
 local BODY = "hello from the perf harness server"
 local RESPONSE = "HTTP/1.1 200 OK\r\n"
 .. "Content-Type: text/plain\r\n"

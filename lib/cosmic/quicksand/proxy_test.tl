@@ -3,7 +3,10 @@ local proxy = require("cosmic.quicksand.proxy")
 local quicksand = require("cosmic.quicksand")
 local net = require("cosmic.net")
 
+-- quicksand's bind_ip option is a raw integer (C-boundary internals);
+-- the cosmic.net surface takes dotted-quad strings or ip.Addr (#588).
 local LOOPBACK < const > = 0x7f000001
+local LOOPBACK_STR < const > = "127.0.0.1"
 
 local function test_module_exports()
   assert(type(proxy.start) == "function")
@@ -13,7 +16,7 @@ test_module_exports()
 -- Drive one request through a live proxy and return everything the
 -- server sends back before closing.
 local function roundtrip(port: integer, request: string): string
-  local sock = assert(net.connect_tcp(LOOPBACK, port)) as net.Socket
+  local sock = assert(net.connect_tcp(LOOPBACK_STR, port)) as net.Socket
   sock:send(request)
   local resp = ""
   while true do
@@ -67,7 +70,7 @@ local function test_start_stop_lifecycle()
 
   -- Connecting to the proxy and immediately closing should at least
   -- establish a TCP connection — verify by opening a client socket.
-  local sock = net.connect_tcp(LOOPBACK, h.port)
+  local sock = net.connect_tcp(LOOPBACK_STR, h.port)
   assert(sock, "failed to connect to proxy on port "
     .. tostring(h.port))
   local s = sock as net.Socket

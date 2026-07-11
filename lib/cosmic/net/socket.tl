@@ -1,7 +1,30 @@
 --- Socket implementation for the networking module.
 --- Contains the Socket constructor and all Socket method implementations.
+--- Addresses are typed (api-review-2, #588): methods accept a dotted-quad
+--- string or an ip.Addr, and return ip.Addr — bare integers are not part
+--- of the public surface (wrap C-boundary integers with ip.addr()).
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").str
+local ip = require("cosmic.ip")
+
+--- An address the socket layer accepts: a dotted-quad string
+--- ("127.0.0.1") or a typed ip.Addr.
+local type Address = string | ip.Addr
+
+--- Resolve an Address to the raw integer the C bindings take.
+--- @param addr Address The address in any accepted form
+--- @return integer | nil The IP as an integer, or nil on error
+--- @return string Error message on failure
+local function resolve_addr(addr: Address): integer | nil, string
+  if addr is string then
+    local a, err = ip.parse(addr)
+    if not a then
+      return nil, err
+    end
+    return math.tointeger((a as ip.Addr):int())
+  end
+  return math.tointeger((addr as ip.Addr):int())
+end
 
 --- Socket handle for network I/O.
 --- Sockets are BLOCKING by default: recv and accept wait until data or a
@@ -17,8 +40,8 @@ local record Socket
   shutdown: function(self: Socket, how?: number): boolean, string
   --- Send data; returns bytes sent, or nil + error.
   send: function(self: Socket, data: string, flags?: number): number | nil, string
-  --- Send a datagram to ip:port; returns bytes sent, or nil + error.
-  sendto: function(self: Socket, data: string, ip: number, port: number, flags?: number): number | nil, string
+  --- Send a datagram to addr:port; returns bytes sent, or nil + error.
+  sendto: function(self: Socket, data: string, addr: Address, port: number, flags?: number): number | nil, string
   --- Receive up to bufsiz bytes (blocks until data arrives).
   --- Returns bare nil (no error) when the peer closed the connection —
   --- end of stream, matching the stream contract (cosmic.stream). ""
@@ -26,23 +49,23 @@ local record Socket
   --- nil + error message on failure. bufsiz must be positive when
   --- given (default 65536).
   recv: function(self: Socket, bufsiz?: number, flags?: number): string | nil, string
-  --- Receive a datagram; returns data, sender ip, sender port.
-  recvfrom: function(self: Socket, bufsiz?: number, flags?: number): string | nil, number, number, string
-  --- Local address as (ip, port); use after bind(0) for the real port.
-  getsockname: function(self: Socket): number | nil, number, string
-  --- Peer address as (ip, port).
-  getpeername: function(self: Socket): number | nil, number, string
-  --- Bind to a local ip:port (integers; port 0 = OS-assigned).
-  bind: function(self: Socket, ip?: number, port?: number): boolean, string
+  --- Receive a datagram; returns data, sender Addr, sender port.
+  recvfrom: function(self: Socket, bufsiz?: number, flags?: number): string | nil, ip.Addr, number, string
+  --- Local address as (Addr, port); use after bind for the real port.
+  getsockname: function(self: Socket): ip.Addr | nil, number, string
+  --- Peer address as (Addr, port).
+  getpeername: function(self: Socket): ip.Addr | nil, number, string
+  --- Bind to a local addr:port (default all interfaces, OS-assigned port).
+  bind: function(self: Socket, addr?: Address, port?: number): boolean, string
   --- Bind to a unix-domain socket path.
   bind_unix: function(self: Socket, path: string): boolean, string
   --- Start listening for connections.
   listen: function(self: Socket, backlog?: number): boolean, string
   --- Accept one connection (blocks until a client connects).
-  --- Returns the connection socket, peer ip, peer port.
-  accept: function(self: Socket, flags?: number): Socket | nil, number, number, string
-  --- Connect to ip:port (integers; see cosmic.ip.parse for strings).
-  connect: function(self: Socket, ip: number, port: number): boolean, string
+  --- Returns the connection socket, peer Addr, peer port.
+  accept: function(self: Socket, flags?: number): Socket | nil, ip.Addr, number, string
+  --- Connect to addr:port.
+  connect: function(self: Socket, addr: Address, port: number): boolean, string
   --- Connect to a unix-domain socket path.
   connect_unix: function(self: Socket, path: string): boolean, string
   --- Read a socket option value.
@@ -103,9 +126,13 @@ local function make_socket(fd: number): Socket
     return n
   end
 
-  function sock:sendto(data: string, ip: number, port: number, flags?: number): number | nil, string
+  function sock:sendto(data: string, addr: Address, port: number, flags?: number): number | nil, string
     if not self.fd then return nil, "socket closed" end
-    local n, err = unix.sendto(self.fd, data, ip, port, (flags or 0) | unix.MSG_NOSIGNAL)
+    local raw, aerr = resolve_addr(addr)
+    if not raw then
+      return nil, aerr
+    end
+    local n, err = unix.sendto(self.fd, data, raw, port, (flags or 0) | unix.MSG_NOSIGNAL)
     if not n then
       return nil, errstr(err, "sendto")
     end
@@ -133,42 +160,50 @@ local function make_socket(fd: number): Socket
     return data
   end
 
-  function sock:recvfrom(bufsiz?: number, flags?: number): string | nil, number, number, string
+  function sock:recvfrom(bufsiz?: number, flags?: number): string | nil, ip.Addr, number, string
     if not self.fd then return nil, nil, nil, "socket closed" end
-    local data, ip, port = unix.recvfrom(self.fd, bufsiz or 65536, flags or 0)
+    local data, sender, port = unix.recvfrom(self.fd, bufsiz or 65536, flags or 0)
     if not data then
       -- On failure the binding returns (nil, err, errno): the error string
       -- arrives in the second slot, where the sender ip would have been.
-      return nil, nil, nil, errstr(ip, "recvfrom")
+      return nil, nil, nil, errstr(sender, "recvfrom")
     end
-    return data, ip, port
+    return data, ip.addr(sender), port
   end
 
-  function sock:getsockname(): number | nil, number, string
+  function sock:getsockname(): ip.Addr | nil, number, string
     if not self.fd then return nil, nil, "socket closed" end
-    local ip, port = unix.getsockname(self.fd)
-    if not ip then
+    local raw, port = unix.getsockname(self.fd)
+    if not raw then
       -- On failure the binding returns (nil, err, errno): the error string
       -- arrives in the second slot, where the port would have been.
       return nil, nil, errstr(port, "getsockname")
     end
-    return ip, port
+    return ip.addr(raw), port
   end
 
-  function sock:getpeername(): number | nil, number, string
+  function sock:getpeername(): ip.Addr | nil, number, string
     if not self.fd then return nil, nil, "socket closed" end
-    local ip, port = unix.getpeername(self.fd)
-    if not ip then
+    local raw, port = unix.getpeername(self.fd)
+    if not raw then
       -- On failure the binding returns (nil, err, errno): the error string
       -- arrives in the second slot, where the port would have been.
       return nil, nil, errstr(port, "getpeername")
     end
-    return ip, port
+    return ip.addr(raw), port
   end
 
-  function sock:bind(ip?: number, port?: number): boolean, string
+  function sock:bind(addr?: Address, port?: number): boolean, string
     if not self.fd then return false, "socket closed" end
-    local ok, err = unix.bind(self.fd, ip or 0, port or 0)
+    local raw: integer = 0
+    if addr ~= nil then
+      local r, aerr = resolve_addr(addr)
+      if not r then
+        return false, aerr
+      end
+      raw = r
+    end
+    local ok, err = unix.bind(self.fd, raw, port or 0)
     if not ok then
       return false, errstr(err, "bind")
     end
@@ -193,20 +228,24 @@ local function make_socket(fd: number): Socket
     return true
   end
 
-  function sock:accept(flags?: number): Socket | nil, number, number, string
+  function sock:accept(flags?: number): Socket | nil, ip.Addr, number, string
     if not self.fd then return nil, nil, nil, "socket closed" end
-    local clientfd, ip, port = unix.accept(self.fd, flags or 0)
+    local clientfd, peer, port = unix.accept(self.fd, flags or 0)
     if not clientfd then
       -- On failure the binding returns (nil, err, errno): the error string
       -- arrives in the second slot, where the peer ip would have been.
-      return nil, nil, nil, errstr(ip, "accept")
+      return nil, nil, nil, errstr(peer, "accept")
     end
-    return make_socket(clientfd), ip, port
+    return make_socket(clientfd), ip.addr(peer), port
   end
 
-  function sock:connect(ip: number, port: number): boolean, string
+  function sock:connect(addr: Address, port: number): boolean, string
     if not self.fd then return false, "socket closed" end
-    local ok, err = unix.connect(self.fd, ip, port)
+    local raw, aerr = resolve_addr(addr)
+    if not raw then
+      return false, aerr
+    end
+    local ok, err = unix.connect(self.fd, raw, port)
     if not ok then
       return false, errstr(err, "connect")
     end
@@ -263,6 +302,7 @@ end
 
 local record NetSocketModule
   type Socket = Socket
+  type Address = Address
   make_socket: function(fd: number): Socket
 end
 
