@@ -10,10 +10,11 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 
 -- child.spawn now returns `Handle | nil`; tl 0.24.8 will not flow-narrow a
 -- record union, so wrap the spawn+read in one helper that casts the handle.
+-- Returns stdout..stderr so assertions see diagnostics (hints go to stderr).
 local function check_run(argv: {string}, opts?: spawn.Options): boolean | string, string
   local h = spawn.spawn(argv, opts)
   local __r1 = (h as spawn.Handle):wait() as spawn.Result
-  local ok, out = __r1.ok, __r1.stdout
+  local ok, out = __r1.ok, __r1.stdout .. __r1.stderr
   return ok, out
 end
 
@@ -211,7 +212,7 @@ end
 test_check_with_tl_path_double_semicolon()
 
 -- Test that fix-hints appear for common Teal type-check traps.
--- We redirect stderr to stdout (opts.stderr=1) so the hint output is captured.
+-- Hints go to stderr; check_run returns stdout..stderr so they are captured.
 
 -- Hint 1: got number, expected integer
 local function test_check_hint_number_integer()
@@ -221,7 +222,7 @@ local n: number = 3.14
 local c = s:sub(n, n)
 print(c)
 ]])
-  local ok, out = check_run({cosmic, "--check-types", input}, {stderr = 1})
+  local ok, out = check_run({cosmic, "--check-types", input})
   assert(not ok, "should fail with type error")
   assert(out:find("hint:"), "should include a hint, got: " .. out)
   assert(out:find("math%.tointeger"), "hint should mention math.tointeger, got: " .. out)
@@ -239,7 +240,7 @@ for i, v in ipairs(arr) do
   print(i, v)
 end
 ]])
-  local ok, out = check_run({cosmic, "--check-types", input}, {stderr = 1})
+  local ok, out = check_run({cosmic, "--check-types", input})
   assert(not ok, "should fail with type error")
   assert(out:find("hint:"), "should include a hint, got: " .. out)
   assert(out:find("as {any}"), "hint should mention casting to array, got: " .. out)
@@ -254,7 +255,7 @@ local function f(): string
 end
 f()
 ]])
-  local ok, out = check_run({cosmic, "--check-types", input}, {stderr = 1})
+  local ok, out = check_run({cosmic, "--check-types", input})
   assert(not ok, "should fail with type error")
   assert(out:find("hint:"), "should include a hint, got: " .. out)
   assert(out:find("local v, err"), "hint should mention capturing multiple returns, got: " .. out)
@@ -271,7 +272,7 @@ local v = get()
 local s = v .. " world"
 print(s)
 ]])
-  local ok, out = check_run({cosmic, "--check-types", input}, {stderr = 1})
+  local ok, out = check_run({cosmic, "--check-types", input})
   assert(not ok, "should fail with type error")
   assert(out:find("hint:"), "should include a hint, got: " .. out)
   assert(out:find("cast first"), "hint should suggest casting, got: " .. out)
@@ -287,7 +288,7 @@ end
 local obj = get()
 print(obj.name)
 ]])
-  local ok, out = check_run({cosmic, "--check-types", input}, {stderr = 1})
+  local ok, out = check_run({cosmic, "--check-types", input})
   assert(not ok, "should fail with type error")
   assert(out:find("hint:"), "should include a hint, got: " .. out)
   assert(out:find("cast first"), "hint should suggest casting, got: " .. out)
@@ -302,7 +303,7 @@ local n: number = 3.14
 local c = s:sub(n, n)
 print(c)
 ]])
-  local ok, out = check_run({cosmic, "--check-types", input}, {stderr = 1})
+  local ok, out = check_run({cosmic, "--check-types", input})
   assert(not ok, "should fail with type error")
   -- Count occurrences of "hint:"
   local count = 0

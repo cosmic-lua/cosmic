@@ -7,6 +7,7 @@
 --- a shared PumpState so a `wait(timeout_ms)` that expires can be resumed by a
 --- later call, and the partial output collected so far is never lost.
 local unix = require("cosmo.unix")
+local cfd = require("cosmic.fd")
 local poll = require("cosmic.poll")
 local errno = require("cosmic.errno")
 local time = require("cosmic.time")
@@ -32,6 +33,45 @@ local record PumpState
   out: {string}
   err_out: {string}
   io_err: string
+end
+
+--- Raw descriptors resolved from the public spawn Options. The public
+--- surface speaks fd.Handle (api-review-2, #602); everything below this
+--- boundary speaks raw descriptors.
+local record Stdio
+  stdin_data: string
+  stdin_fd: number
+  stdout_fd: number
+  stderr_fd: number
+end
+
+--- Resolve the caller's stdio options to raw descriptors, once, at the
+--- boundary. A string stdin passes through as pump data; a Handle
+--- contributes its descriptor. A closed Handle is a caller bug surfaced
+--- here, not a confusing EBADF from deep inside the spawn plumbing.
+--- @param stdin string | cfd.Handle | nil string to pipe, or the child's fd 0
+--- @param stdout cfd.Handle | nil the child's fd 1
+--- @param stderr cfd.Handle | nil the child's fd 2
+--- @return Stdio | nil resolved descriptors
+--- @return string error message on a closed Handle
+local function resolve_stdio(stdin?: string | cfd.Handle, stdout?: cfd.Handle,
+    stderr?: cfd.Handle): Stdio | nil, string
+  local s: Stdio = {}
+  if stdin is string then
+    s.stdin_data = stdin
+  elseif stdin ~= nil then
+    s.stdin_fd = (stdin as cfd.Handle):fd()
+    if s.stdin_fd < 0 then return nil, "spawn: stdin handle is closed" end
+  end
+  if stdout then
+    s.stdout_fd = stdout:fd()
+    if s.stdout_fd < 0 then return nil, "spawn: stdout handle is closed" end
+  end
+  if stderr then
+    s.stderr_fd = stderr:fd()
+    if s.stderr_fd < 0 then return nil, "spawn: stderr handle is closed" end
+  end
+  return s
 end
 
 -- Current monotonic time in milliseconds. Used only for relative deadline
@@ -157,13 +197,17 @@ end
 
 local record ChildIoModule
   PumpState: PumpState
+  Stdio: Stdio
   pump: function(state: PumpState, deadline_ms: number): boolean
   now_ms: function(): number
+  resolve_stdio: function(stdin?: string | cfd.Handle, stdout?: cfd.Handle,
+  stderr?: cfd.Handle): Stdio | nil, string
 end
 
 local M: ChildIoModule = {
   pump = pump,
   now_ms = now_ms,
+  resolve_stdio = resolve_stdio,
 }
 
 return M

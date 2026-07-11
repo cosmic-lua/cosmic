@@ -62,7 +62,7 @@ end
 --
 -- Key steps:
 --   1. Create a pipe with cosmic.fd.pipe().
---   2. Pass the write end fd to spawn via opts.stdout.
+--   2. Pass the write-end Handle to spawn via opts.stdout.
 --   3. Close the write end in the parent BEFORE reading — otherwise the
 --      reader will block forever waiting for EOF.
 --   4. Read from the read end until EOF.
@@ -77,7 +77,7 @@ local function Example_run_pipe()
   local pp = p as cfd.Pipe
 
   -- Spawn echo, redirecting its stdout into the write end of the pipe.
-  local h, serr = child.spawn({"echo", "from pipe"}, {stdout = pp.writer:fd()})
+  local h, serr = child.spawn({"echo", "from pipe"}, {stdout = pp.writer})
   assert(h, "spawn failed: " .. tostring(serr))
 
   -- Close the write end in the parent so the reader sees EOF when the child exits.

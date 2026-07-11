@@ -1,5 +1,6 @@
 #!/usr/bin/env cosmic
 local child = require("cosmic.child")
+local cfd = require("cosmic.fd")
 local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 local env = require("cosmic.env")
@@ -391,3 +392,90 @@ local function test_spawn_overlap_no_stdin_leak()
   b:wait()
 end
 test_spawn_overlap_no_stdin_leak()
+
+-- === honest option types: fd.Handle in Options (#602 / api-review-2 B5) ===
+
+-- stdout as a Handle: the child writes into a pipe we own; run()'s own
+-- capture is then empty for that stream.
+local function test_spawn_stdout_handle()
+  local p = cfd.pipe() as cfd.Pipe
+  assert(p ~= nil, "pipe should succeed")
+  local h = child.spawn({"echo", "via-handle"}, {stdout = p.writer}) as child.Handle
+  assert(h ~= nil, "spawn with Handle stdout should succeed")
+  p.writer:close()
+  local out = p.reader:read() as string
+  p.reader:close()
+  local r = h:wait() as child.Result
+  assert(out == "via-handle\n", "expected 'via-handle\\n' through the pipe, got '" .. tostring(out) .. "'")
+  assert(r.stdout == "", "redirected stdout should leave Result.stdout empty")
+end
+test_spawn_stdout_handle()
+
+-- stderr as a Handle.
+local function test_spawn_stderr_handle()
+  local p = cfd.pipe() as cfd.Pipe
+  local h = child.spawn({"sh", "-c", "echo err-via-handle >&2"}, {stderr = p.writer}) as child.Handle
+  assert(h ~= nil, "spawn with Handle stderr should succeed")
+  p.writer:close()
+  local out = p.reader:read() as string
+  p.reader:close()
+  local r = h:wait() as child.Result
+  assert(out == "err-via-handle\n", "expected stderr through the pipe, got '" .. tostring(out) .. "'")
+  assert(r.stderr == "", "redirected stderr should leave Result.stderr empty")
+end
+test_spawn_stderr_handle()
+
+-- stdin as a Handle (the read end of a pipe we filled), alongside the
+-- string form which stays supported.
+local function test_spawn_stdin_handle()
+  local p = cfd.pipe() as cfd.Pipe
+  p.writer:write("handle stdin data")
+  p.writer:close()
+  local r = child.run({lua_bin, "-e", "io.write(io.read('*a'))"}, {stdin = p.reader}) as child.Result
+  p.reader:close()
+  assert(r ~= nil and r.ok, "run with Handle stdin should succeed")
+  assert(r.stdout == "handle stdin data",
+    "expected 'handle stdin data', got '" .. tostring(r.stdout) .. "'")
+end
+test_spawn_stdin_handle()
+
+-- A file Handle from fd.open works the same way as a pipe end.
+local function test_spawn_stdout_file_handle()
+  local path = fs.join(TEST_TMPDIR, "stdout-handle.txt")
+  local h = cfd.open(path, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, 420) as cfd.Handle -- 0644
+  assert(h ~= nil, "open should succeed")
+  local r = child.run({"echo", "to-file"}, {stdout = h}) as child.Result
+  h:close()
+  assert(r ~= nil and r.ok, "run with file Handle stdout should succeed")
+  assert(fs.read(path) == "to-file\n", "child output should land in the file")
+end
+test_spawn_stdout_file_handle()
+
+-- A closed Handle is a caller bug surfaced from spawn itself, not a
+-- confusing EBADF from the plumbing.
+local function test_spawn_closed_handle_fails()
+  local p = cfd.pipe() as cfd.Pipe
+  p:close()
+  local h, err = child.spawn({"echo", "x"}, {stdout = p.writer})
+  assert(h == nil, "spawn with a closed Handle should fail")
+  assert(err ~= nil and err:find("closed", 1, true),
+    "expected a 'closed' error, got: " .. tostring(err))
+end
+test_spawn_closed_handle_fails()
+
+-- Type-level contract: Options mentions no bare integer fds. A raw int
+-- for stdout must be rejected by the type checker.
+local function test_options_reject_raw_int_fd()
+  local script = fs.join(TEST_TMPDIR, "raw_fd_options.tl")
+  fs.write(script, [[
+local child = require("cosmic.child")
+child.run({"echo", "x"}, {stdout = 5})
+]])
+  local r = child.run({lua_bin, "--check-types", script}) as child.Result
+  assert(r ~= nil, "check-types run should complete")
+  assert(not r.ok, "a raw integer fd in Options must fail the type check")
+  local diag = r.stdout .. r.stderr
+  assert(diag:find("stdout", 1, true),
+    "diagnostic should name the offending field, got: " .. diag)
+end
+test_options_reject_raw_int_fd()

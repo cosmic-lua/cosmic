@@ -13,6 +13,7 @@
 --- un-waited child and close its pipes, so `local h <close> = spawn{...}` (or
 --- simply dropping the handle) never leaves a zombie.
 local unix = require("cosmo.unix")
+local cfd = require("cosmic.fd")
 local childio = require("cosmic.child.io")
 local childfast = require("cosmic.child.fast")
 local errno = require("cosmic.errno")
@@ -58,12 +59,16 @@ local record Handle is stream.Reader
 end
 
 --- Options for spawning a process.
---- stdout/stderr as numbers are raw fds dup2'd onto the child's fd 1/2 (the
---- corresponding Result field is then ""). See Example_spawn_pipe.
+--- stdout/stderr Handles (cosmic.fd) become the child's fd 1/2 (the
+--- corresponding Result field is then ""). spawn does not take ownership
+--- of a Handle: the child gets its own copy of the descriptor, so close
+--- your end when you are done with it (see Example_run_pipe). Raw integer
+--- fds are not part of this surface (api-review-2, #602); wrap one with
+--- fd.wrap() if it comes from outside the fd module.
 local record Options
-  stdin: string | number -- string piped to stdin, or raw fd dup2'd onto fd 0
-  stdout: number -- raw fd -> fd 1
-  stderr: number -- raw fd -> fd 2
+  stdin: string | cfd.Handle -- string piped to stdin, or Handle -> fd 0
+  stdout: cfd.Handle -- child's fd 1
+  stderr: cfd.Handle -- child's fd 2
   env: {string}
   cwd: string
 end
@@ -223,6 +228,16 @@ end
 local function spawn(argv: {string}, opts?: Options): Handle | nil, string
   opts = opts or {}
 
+  -- Resolve caller-provided Handles to raw descriptors once, at the
+  -- public boundary; below this point the plumbing speaks raw fds.
+  local sio, sio_err = childio.resolve_stdio(opts.stdin, opts.stdout, opts.stderr)
+  if not sio then
+    return nil, sio_err
+  end
+  local stdio = sio as childio.Stdio
+  local stdin_data, stdin_fd = stdio.stdin_data, stdio.stdin_fd
+  local stdout_fd, stderr_fd = stdio.stdout_fd, stdio.stderr_fd
+
   -- Resolve the executable into a LOCAL, never by mutating the caller's argv:
   -- a PATH search that wrote back into argv[1] corrupts the caller's table.
   local exec_fd: number
@@ -265,7 +280,7 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
 
   local stdin_r: number
   local stdin_w: number
-  local stdin_is_fd = type(opts.stdin) == "number"
+  local stdin_is_fd = stdin_fd ~= nil
   if not stdin_is_fd then
     stdin_r, stdin_w = new_pipe()
     if not stdin_w then return fail("pipe failed (stdin)") end
@@ -273,7 +288,7 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
 
   local stdout_r: number
   local stdout_w: number
-  local stdout_is_fd = type(opts.stdout) == "number"
+  local stdout_is_fd = stdout_fd ~= nil
   if not stdout_is_fd then
     stdout_r, stdout_w = new_pipe()
     if not stdout_w then return fail("pipe failed (stdout)") end
@@ -281,7 +296,7 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
 
   local stderr_r: number
   local stderr_w: number
-  local stderr_is_fd = type(opts.stderr) == "number"
+  local stderr_is_fd = stderr_fd ~= nil
   if not stderr_is_fd then
     stderr_r, stderr_w = new_pipe()
     if not stderr_w then return fail("pipe failed (stderr)") end
@@ -297,10 +312,6 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
     -- written synchronously here: a >pipe-buffer write before anyone drains
     -- stdout/stderr would deadlock. The pump feeds stdin and drains both
     -- output streams in one poll loop, so neither can happen.
-    local stdin_data: string = nil
-    if type(opts.stdin) == "string" then
-      stdin_data = opts.stdin as string
-    end
     local st: childio.PumpState = {
       stdout_fd = stdout_is_fd and nil or stdout_r,
       stderr_fd = stderr_is_fd and nil or stderr_r,
@@ -325,9 +336,9 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
     or (not stdout_is_fd and stdout_w == 1)
     or (not stderr_is_fd and stderr_w == 2)
     if not pipe_on_std then
-      local t0 = stdin_is_fd and opts.stdin as number or stdin_r
-      local t1 = stdout_is_fd and opts.stdout as number or stdout_w
-      local t2 = stderr_is_fd and opts.stderr as number or stderr_w
+      local t0 = stdin_is_fd and stdin_fd or stdin_r
+      local t1 = stdout_is_fd and stdout_fd or stdout_w
+      local t2 = stderr_is_fd and stderr_fd or stderr_w
       local env = opts.env and normalize_env(opts.env) or nil
       local fpid, ferr = childfast.spawn(prog, argv, env, t0, t1, t2)
       if ferr then
@@ -351,8 +362,8 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
 
     -- stdin (fd 0)
     if stdin_is_fd then
-      if opts.stdin ~= 0 then
-        unix.dup(opts.stdin as number, 0)
+      if stdin_fd ~= 0 then
+        unix.dup(stdin_fd, 0)
       end
     else
       if stdin_r ~= 0 then
@@ -367,8 +378,8 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
 
     -- stdout (fd 1)
     if stdout_is_fd then
-      if opts.stdout ~= 1 then
-        unix.dup(opts.stdout as number, 1)
+      if stdout_fd ~= 1 then
+        unix.dup(stdout_fd, 1)
       end
     else
       if stdout_w ~= 1 then
@@ -383,8 +394,8 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
 
     -- stderr (fd 2)
     if stderr_is_fd then
-      if opts.stderr ~= 2 then
-        unix.dup(opts.stderr as number, 2)
+      if stderr_fd ~= 2 then
+        unix.dup(stderr_fd, 2)
       end
     else
       if stderr_w ~= 2 then
