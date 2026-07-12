@@ -394,8 +394,11 @@ regen-types: $(cosmic_bin)
 	@echo "Type definitions regenerated. Verify with: bin/make test only=gentype"
 
 # Documentation generation - render .tl files as markdown
-# Module sources for docs: all _tl files (excludes tests and examples)
-all_module_srcs := $(call filter-only,$(foreach m,$(modules),$($(m)_tl)))
+# Module sources for docs: all _tl files (excludes tests and examples).
+# Deliberately NOT filter-only'd: these feed artifacts (published docs and
+# the doc index embedded in the binary). only= filters which tests and
+# checks run; it must never change what artifacts contain (#608).
+all_module_srcs := $(foreach m,$(modules),$($(m)_tl))
 all_docs := $(patsubst %.tl,$(o)/docs/%.md,$(all_module_srcs))
 
 # Documentation from .d.tl type definition files (cosmo modules)
@@ -419,12 +422,22 @@ $(o)/docs/cosmo/%.md: lib/types/cosmo/%.d.tl $(cosmic_bin) | $(bootstrap_files)
 # Include both module sources and example files for the index
 # LUA_PATH points at the freshly compiled modules so the index generator uses
 # this tree's cosmic.doc code, not the bootstrap's embedded (older) copy
-doc_index_srcs := $(all_module_srcs) $(all_example_srcs) $(dtl_files)
+# Example sources for the index are expanded unfiltered here (unlike
+# all_example_srcs, which only= legitimately filters as test targets):
+# the embedded index must always describe every module (#608)
+doc_index_example_srcs := $(foreach m,$(modules),$($(m)_examples))
+doc_index_srcs := $(all_module_srcs) $(doc_index_example_srcs) $(dtl_files)
 doc_index_lua := $(patsubst %.tl,$(o)/%.lua,$(all_module_srcs))
 doc_index := $(o)/docs/.index.lua
 doc_index_script := lib/cosmic/doc/index.tl
 
-$(doc_index): $(doc_index_srcs) $(doc_index_lua) $(doc_index_script) | $(bootstrap_cosmic)
+# Makefile is a prerequisite so trees whose index was poisoned by a
+# filtered rebuild (the mtime trap in #608: the broken index is newer
+# than every source, and .SECONDARY blocks rebuild-on-delete) self-heal
+# when this fix — or any future Makefile change — arrives; the
+# write-if-changed dance below keeps the binary from re-embedding when
+# the regenerated content is identical
+$(doc_index): $(doc_index_srcs) $(doc_index_lua) $(doc_index_script) Makefile | $(bootstrap_cosmic)
 	@mkdir -p $(@D)
 	@LUA_PATH="$(o)/lib/?.lua;$(o)/lib/?/init.lua;;" $(bootstrap_cosmic) $(doc_index_script) $(doc_index_srcs) > $@.tmp
 	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi

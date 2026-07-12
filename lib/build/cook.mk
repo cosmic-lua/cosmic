@@ -31,7 +31,14 @@ $(build_make_out)/database.out: Makefile $(wildcard */*.mk) $(wildcard */*/*.mk)
 	@mkdir -p $(@D)
 	@code=0; $(MAKE) -p -n -q >$@.tmp 2>&1 || code=$$?; echo "exit:$$code" >> $@.tmp; mv $@.tmp $@
 
-build_make_outputs := $(build_make_out)/dry-run.out $(build_make_out)/database.out
+# database dump under an only= filter that matches nothing: artifact
+# source lists (doc index, docs) must stay complete while test lists
+# empty out (#608)
+$(build_make_out)/only-database.out: Makefile $(wildcard */*.mk) $(wildcard */*/*.mk)
+	@mkdir -p $(@D)
+	@code=0; $(MAKE) -p -n -q only=__no_such_module__ >$@.tmp 2>&1 || code=$$?; echo "exit:$$code" >> $@.tmp; mv $@.tmp $@
+
+build_make_outputs := $(build_make_out)/dry-run.out $(build_make_out)/database.out $(build_make_out)/only-database.out
 
 # makefile_test consumes the fixtures in both test lanes
 build_makefile_test_got := \
