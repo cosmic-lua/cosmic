@@ -165,6 +165,112 @@ local function test_hmac_sha256_rfc4231_case2()
 end
 test_hmac_sha256_rfc4231_case2()
 
+-- digest (issue #601): NIST FIPS 180 / RFC 1321 / RFC 7693 "abc" vectors
+
+local function test_digest_known_answers()
+  local vectors: {hash.Algo: string} = {
+    sha256 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    sha512 = "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a"
+    .. "2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f",
+    sha384 = "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed"
+    .. "8086072ba1e7cc2358baeca134c825a7",
+    sha224 = "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7",
+    sha1 = "a9993e364706816aba3e25717850c26c9cd0d89d",
+    md5 = "900150983cd24fb0d6963f7d28e17f72",
+    blake2b256 = "bddd813c634239723171ef3fee98579b94964e3bb1cb3e427262c8c068d52319",
+  }
+  for algo, expected in pairs(vectors) do
+    local d, err = hash.digest(algo, "abc")
+    assert(d, "digest(" .. algo .. ") should succeed: " .. tostring(err))
+    local hex = codec.encode_hex(d)
+    assert(hex == expected, "digest(" .. algo .. ", 'abc') mismatch: " .. hex)
+  end
+end
+test_digest_known_answers()
+
+local function test_digest_raw_bytes_length()
+  local lengths: {hash.Algo: number} = {
+    sha256 = 32, sha512 = 64, sha384 = 48, sha224 = 28,
+    sha1 = 20, md5 = 16, blake2b256 = 32,
+  }
+  for algo, len in pairs(lengths) do
+    local d = hash.digest(algo, "")
+    assert(d and #d == len,
+      "digest(" .. algo .. ") should return " .. len .. " raw bytes")
+  end
+end
+test_digest_raw_bytes_length()
+
+local function test_digest_matches_sha256_convenience()
+  local d = hash.digest("sha256", "hello")
+  assert(d == hash.sha256("hello"), "digest('sha256') should match sha256()")
+end
+test_digest_matches_sha256_convenience()
+
+local function test_digest_unknown_algo()
+  local d, err = hash.digest("md4" as hash.Algo, "abc")
+  assert(d == nil, "digest should return nil for unknown algorithm")
+  assert(err and err:match("unknown hash algorithm"),
+    "error should name the problem, got: " .. tostring(err))
+end
+test_digest_unknown_algo()
+
+-- hmac (issue #601): RFC 4231 test vectors
+
+local function test_hmac_rfc4231_case2_sha256()
+  local tag, err = hash.hmac("sha256", "Jefe", "what do ya want for nothing?")
+  assert(tag, "hmac should succeed: " .. tostring(err))
+  local hex = codec.encode_hex(tag)
+  assert(hex == "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
+    "RFC 4231 case 2 (sha256) mismatch: " .. hex)
+end
+test_hmac_rfc4231_case2_sha256()
+
+local function test_hmac_rfc4231_case2_sha512()
+  local tag, err = hash.hmac("sha512", "Jefe", "what do ya want for nothing?")
+  assert(tag, "hmac should succeed: " .. tostring(err))
+  local hex = codec.encode_hex(tag)
+  assert(hex == "164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea250554"
+    .. "9758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737",
+    "RFC 4231 case 2 (sha512) mismatch: " .. hex)
+end
+test_hmac_rfc4231_case2_sha512()
+
+local function test_hmac_rfc2202_case1_sha1()
+  -- RFC 2202 section 3 case 1
+  local tag = hash.hmac("sha1", string.rep("\x0b", 20), "Hi There")
+  assert(tag, "hmac sha1 should succeed")
+  local hex = codec.encode_hex(tag as string)
+  assert(hex == "b617318655057264e28bc0b6fb378c8ef146be00",
+    "RFC 2202 case 1 (sha1) mismatch: " .. hex)
+end
+test_hmac_rfc2202_case1_sha1()
+
+local function test_hmac_matches_hmac_sha256_convenience()
+  local tag = hash.hmac("sha256", "key", "message")
+  assert(tag == hash.hmac_sha256("key", "message"),
+    "hmac('sha256') should match hmac_sha256()")
+end
+test_hmac_matches_hmac_sha256_convenience()
+
+local function test_hmac_unknown_algo()
+  local tag, err = hash.hmac("md4" as hash.Algo, "key", "data")
+  assert(tag == nil, "hmac should return nil for unknown algorithm")
+  assert(err and err:match("unknown hash algorithm"),
+    "error should name the problem, got: " .. tostring(err))
+end
+test_hmac_unknown_algo()
+
+local function test_hmac_empty_key_rejected()
+  -- The C binding treats an empty key as "no key" and silently computes
+  -- a plain digest; the wrapper must refuse rather than return a
+  -- non-HMAC value.
+  local tag, err = hash.hmac("sha256", "", "data")
+  assert(tag == nil, "hmac should return nil for empty key")
+  assert(err and err:match("key"), "error should mention the key, got: " .. tostring(err))
+end
+test_hmac_empty_key_rejected()
+
 -- Constant-time comparison
 
 local function test_constant_time_equal()
