@@ -290,10 +290,44 @@ local function ext(p: string): string
   return extension
 end
 
+--- Return the current user's home directory.
+--- Uses $HOME, falling back to $USERPROFILE (Windows).
+--- @return string | nil The home directory, or nil when unknown
+--- @return string? Error message when no home directory is set
+local function home(): string | nil, string
+  local dir = os.getenv("HOME") or os.getenv("USERPROFILE")
+  if not dir or dir == "" then
+    return nil, "home: HOME is not set"
+  end
+  return dir
+end
+
+--- Expand a leading "~" in a path to the user's home directory.
+--- Only bare "~" and "~/..." are expanded; "~user/..." forms and
+--- paths without the prefix are returned unchanged, as is any path
+--- when no home directory can be determined.
+--- @param p string The path to expand
+--- @return string The expanded path
+local function expanduser(p: string): string
+  if p ~= "~" and p:sub(1, 2) ~= "~/" then
+    return p
+  end
+  local dir = home()
+  if not dir then
+    return p
+  end
+  if p == "~" then
+    return dir
+  end
+  return cosmo_path.join(dir, p:sub(3))
+end
+
 local record FsPathModule
   dirname: function(str: string): string
   basename: function(str: string): string
   join: function(...: string): string
+  home: function(): string | nil, string
+  expanduser: function(p: string): string
   exists: function(path: string): boolean
   isfile: function(path: string): boolean
   isdir: function(path: string): boolean
@@ -309,6 +343,8 @@ local M: FsPathModule = {
   dirname = dirname,
   basename = basename,
   join = join,
+  home = home,
+  expanduser = expanduser,
   exists = exists,
   isfile = isfile,
   isdir = isdir,
