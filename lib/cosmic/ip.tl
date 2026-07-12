@@ -171,18 +171,146 @@ local function lookup(hostname: string): Addr | nil, string
   return make_addr(raw)
 end
 
+--- A parsed IPv4 CIDR block (e.g. "10.0.0.0/8"). Compares by value
+--- and formats with tostring(). Construct with cidr().
+local record Cidr
+  _n: integer
+  _bits: integer
+  --- Prefix length (0-32).
+  bits: function(Cidr): integer
+  --- First address of the block (the network address).
+  --- @return Addr The network address
+  network: function(Cidr): Addr
+  --- The netmask (e.g. 255.255.255.0 for /24).
+  --- @return Addr The netmask
+  netmask: function(Cidr): Addr
+  --- Last address of the block (the broadcast address).
+  --- @return Addr The broadcast address
+  broadcast: function(Cidr): Addr
+  --- Number of addresses in the block (including network/broadcast).
+  --- @return number The block size
+  size: function(Cidr): number
+  --- Check whether the block contains an address.
+  --- @param a Addr | string The address (typed or dotted quad)
+  --- @return boolean True when contained; false (plus an error
+  --- message) when a string address does not parse
+  contains: function(Cidr, Addr | string): boolean, string
+  --- Format as "addr/bits" (same as tostring()).
+  --- @return string The CIDR notation
+  format: function(Cidr): string
+end
+
+--- Netmask integer for a prefix length (0 -> 0, 24 -> 0xFFFFFF00).
+local function cidr_mask(bits: integer): integer
+  if bits == 0 then
+    return 0
+  end
+  return (~ ((1 << (32 - bits)) - 1)) & 0xFFFFFFFF
+end
+
+local function cidr_bits(self: Cidr): integer
+  return self._bits
+end
+
+local function cidr_network(self: Cidr): Addr
+  return make_addr(self._n)
+end
+
+local function cidr_netmask(self: Cidr): Addr
+  return make_addr(cidr_mask(self._bits))
+end
+
+local function cidr_broadcast(self: Cidr): Addr
+  return make_addr(self._n | (~ cidr_mask(self._bits) & 0xFFFFFFFF))
+end
+
+local function cidr_size(self: Cidr): number
+  return 1 << (32 - self._bits)
+end
+
+local function cidr_contains(self: Cidr, a: Addr | string): boolean, string
+  local n: integer
+  if a is string then
+    local parsed, err = parse(a)
+    if not parsed then
+      return false, err
+    end
+    n = math.tointeger((parsed as Addr):int())
+  else
+    n = math.tointeger((a as Addr):int())
+  end
+  return (n & cidr_mask(self._bits)) == self._n
+end
+
+local function cidr_format(self: Cidr): string
+  return cosmo.FormatIp(self._n) .. "/" .. self._bits
+end
+
+local Cidr_mt: metatable < Cidr > = {
+  __index = {
+    bits = cidr_bits,
+    network = cidr_network,
+    netmask = cidr_netmask,
+    broadcast = cidr_broadcast,
+    size = cidr_size,
+    contains = cidr_contains,
+    format = cidr_format,
+  } as Cidr,
+  __tostring = cidr_format,
+  __eq = function(a: Cidr, b: Cidr): boolean
+    return a._n == b._n and a._bits == b._bits
+  end,
+}
+
+local function make_cidr(n: integer, bits: integer): Cidr
+  return setmetatable({_n = n, _bits = bits} as Cidr, Cidr_mt)
+end
+
+--- Parse an IPv4 CIDR block ("addr/prefix", e.g. "192.168.0.0/16").
+--- The address part follows parse()'s strict dotted-quad rules; the
+--- prefix must be a decimal 0-32 without leading zeros. Host bits set
+--- below the prefix are masked away (like Go's ParseCIDR):
+--- cidr("10.1.2.3/8") is the 10.0.0.0/8 block.
+--- @param str string The CIDR string to parse
+--- @return Cidr | nil The parsed block, or nil on error
+--- @return string Error message if parsing failed
+local function cidr(str: string): Cidr | nil, string
+  local addr_part, bits_part = str:match("^([^/]*)/(%d+)$")
+  if not addr_part then
+    return nil, "invalid CIDR (want addr/prefix): " .. str
+  end
+  local base, err = parse(addr_part)
+  if not base then
+    return nil, err
+  end
+  local bp = bits_part as string
+  if #bp > 2 or (#bp > 1 and bp:sub(1, 1) == "0") then
+    return nil, "invalid CIDR prefix '" .. bp .. "' in: " .. str
+  end
+  local bits = math.tointeger(tonumber(bp))
+  if not bits or bits > 32 then
+    return nil, "invalid CIDR prefix '" .. bp .. "' in: " .. str
+  end
+  local b = bits as integer
+  local n = math.tointeger((base as Addr):int()) & cidr_mask(b)
+  return make_cidr(n, b)
+end
+
 local record IpModule
   Addr: Addr
   type Category = Category
   type Family = Family
+  type Cidr = Cidr
   addr: function(n: number): Addr
   parse: function(str: string): Addr | nil, string
+  cidr: function(str: string): Cidr | nil, string
   lookup: function(hostname: string): Addr | nil, string
 end
 
 local M: IpModule = {
   addr = addr,
   parse = parse,
+  cidr = cidr,
   lookup = lookup,
 }
 
