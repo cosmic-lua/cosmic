@@ -1,13 +1,6 @@
 --- Examples for the cosmic.sqlite module.
 --- Demonstrates database operations, prepared statements, and queries.
 
--- The module's Rows iterator record is not exported; mirror its shape here so
--- the fallible `db:query -> Rows | nil` results can be cast for iteration.
-local record Rows
-  metamethod __call: function(self: Rows): {string: any}
-  err: function(self: Rows): string
-end
-
 -- Example_open_file demonstrates database file path resolution
 local function Example_open_file()
   local sqlite = require("cosmic.sqlite")
@@ -38,7 +31,7 @@ local function Example_open()
   local db = sqlite.open(":memory:") as sqlite.Database
   db:exec("CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT)")
   db:exec("INSERT INTO kv (k, v) VALUES ('hello', 'world')")
-  for row in db:query("SELECT * FROM kv") as Rows do
+  for row in db:query("SELECT * FROM kv") as sqlite.Rows do
     print(row.k, row.v)
   end
   db:close()
@@ -60,7 +53,7 @@ local function Example_prepared()
   stmt:exec()
   stmt:close()
 
-  for row in db:query("SELECT * FROM users ORDER BY id") as Rows do
+  for row in db:query("SELECT * FROM users ORDER BY id") as sqlite.Rows do
     print(row.id, row.name)
   end
   db:close()
@@ -78,7 +71,7 @@ local function Example_query_params()
     db:exec("INSERT INTO nums (n) VALUES (" .. i .. ")")
   end
 
-  for row in db:query("SELECT * FROM nums WHERE n > ?", 2) as Rows do
+  for row in db:query("SELECT * FROM nums WHERE n > ?", 2) as sqlite.Rows do
     print(row.n)
   end
   db:close()
@@ -98,7 +91,7 @@ local function Example_exec_params()
   db:exec("INSERT INTO cities (name, pop) VALUES (?, ?)", "Delhi", 16787941)
   db:exec("INSERT INTO cities (name, pop) VALUES (?, ?)", "Shanghai", 24870895)
 
-  for row in db:query("SELECT * FROM cities ORDER BY pop DESC") as Rows do
+  for row in db:query("SELECT * FROM cities ORDER BY pop DESC") as sqlite.Rows do
     print(row.name, row.pop)
   end
   db:close()
@@ -118,7 +111,7 @@ local function Example_query_like()
   db:exec("INSERT INTO files (path) VALUES (?)", "src/util.tl")
   db:exec("INSERT INTO files (path) VALUES (?)", "docs/readme.md")
 
-  for row in db:query("SELECT path FROM files WHERE path LIKE ?", "%src%") as Rows do
+  for row in db:query("SELECT path FROM files WHERE path LIKE ?", "%src%") as sqlite.Rows do
     print(row.path)
   end
   db:close()

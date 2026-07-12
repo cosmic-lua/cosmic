@@ -3,13 +3,6 @@
 
 local sqlite = require("cosmic.sqlite")
 
--- The module's Rows iterator record is not exported; mirror its shape here so
--- the fallible `db:query* -> Rows | nil` results can be cast for iteration.
-local record Rows
-  metamethod __call: function(self: Rows): {string: any}
-  err: function(self: Rows): string
-end
-
 -- Nil handling in bind
 
 local function test_exec_trailing_nils()
@@ -20,7 +13,7 @@ local function test_exec_trailing_nils()
   local ok, err = db:exec("INSERT INTO t (a, b, c) VALUES (?, ?, ?)", "hello", nil, nil)
   assert(ok, "exec with trailing nils should succeed: " .. tostring(err))
 
-  for row in db:query("SELECT * FROM t") as Rows do
+  for row in db:query("SELECT * FROM t") as sqlite.Rows do
     assert(row.a == "hello", "a should be 'hello', got: " .. tostring(row.a))
     assert(row.b == nil, "b should be nil")
     assert(row.c == nil, "c should be nil")
@@ -36,7 +29,7 @@ local function test_exec_middle_nils()
   local ok, err = db:exec("INSERT INTO t (a, b, c) VALUES (?, ?, ?)", nil, "middle", nil)
   assert(ok, "exec with middle nils should succeed: " .. tostring(err))
 
-  for row in db:query("SELECT * FROM t") as Rows do
+  for row in db:query("SELECT * FROM t") as sqlite.Rows do
     assert(row.a == nil, "a should be nil")
     assert(row.b == "middle", "b should be 'middle'")
     assert(row.c == nil, "c should be nil")
@@ -55,7 +48,7 @@ local function test_bind_trailing_nils()
   stmt:exec()
   stmt:close()
 
-  for row in db:query("SELECT * FROM t") as Rows do
+  for row in db:query("SELECT * FROM t") as sqlite.Rows do
     assert(row.a == "first", "a should be 'first'")
     assert(row.b == 42, "b should be 42")
     assert(row.c == nil, "c should be nil")
@@ -77,7 +70,7 @@ local function test_bind_list()
   stmt:exec()
   stmt:close()
 
-  for row in db:query("SELECT * FROM t") as Rows do
+  for row in db:query("SELECT * FROM t") as sqlite.Rows do
     assert(row.a == "hello", "a should be 'hello'")
     assert(row.b == nil, "b should be nil")
     assert(row.c == "world", "c should be 'world'")
@@ -98,7 +91,7 @@ local function test_exec_list()
     values)
   assert(ok, "exec_list should succeed: " .. tostring(err))
 
-  for row in db:query("SELECT * FROM t") as Rows do
+  for row in db:query("SELECT * FROM t") as sqlite.Rows do
     assert(row.a == "one", "a should be 'one'")
     assert(row.b == nil, "b should be nil")
     assert(row.c == nil, "c should be nil")
@@ -118,7 +111,7 @@ local function test_exec_list_all_nils()
     values)
   assert(ok, "exec_list with all nils should succeed: " .. tostring(err))
 
-  for row in db:query("SELECT * FROM t") as Rows do
+  for row in db:query("SELECT * FROM t") as sqlite.Rows do
     assert(row.a == nil, "a should be nil")
     assert(row.b == nil, "b should be nil")
   end
@@ -135,7 +128,7 @@ local function test_query_list()
 
   local values = {"x"}
   local rows = {}
-  for row in db:query_list("SELECT * FROM t WHERE a = ?", values) as Rows do
+  for row in db:query_list("SELECT * FROM t WHERE a = ?", values) as sqlite.Rows do
     table.insert(rows, row)
   end
   assert(#rows == 1, "should get 1 row")
@@ -192,7 +185,7 @@ local function test_transaction_commit()
   assert(ok, "transaction should succeed: " .. tostring(err))
 
   local count = 0
-  for _ in db:query("SELECT * FROM t") as Rows do
+  for _ in db:query("SELECT * FROM t") as sqlite.Rows do
     count = count + 1
   end
   assert(count == 1, "should have 1 row after committed transaction")
@@ -212,7 +205,7 @@ local function test_transaction_rollback_on_error()
   assert(err and err:match("something went wrong"), "should include error message")
 
   local count = 0
-  for _ in db:query("SELECT * FROM t") as Rows do
+  for _ in db:query("SELECT * FROM t") as sqlite.Rows do
     count = count + 1
   end
   assert(count == 0, "should have 0 rows after rollback")
@@ -232,7 +225,7 @@ local function test_transaction_multiple_ops()
   assert(ok, "transaction should succeed")
 
   local count = 0
-  for _ in db:query("SELECT * FROM t") as Rows do
+  for _ in db:query("SELECT * FROM t") as sqlite.Rows do
     count = count + 1
   end
   assert(count == 3, "should have 3 rows")
@@ -256,7 +249,7 @@ local function test_transaction_rollback_on_false()
   assert(err == "boom", "should surface the body error, got " .. tostring(err))
 
   local count = 0
-  for _ in db:query("SELECT * FROM t") as Rows do
+  for _ in db:query("SELECT * FROM t") as sqlite.Rows do
     count = count + 1
   end
   assert(count == 0, "row must roll back when body returns false, got " .. tostring(count))
@@ -278,7 +271,7 @@ local function test_transaction_rollback_on_nil_err()
   assert(err == "nope", "should surface the body error, got " .. tostring(err))
 
   local count = 0
-  for _ in db:query("SELECT * FROM t") as Rows do
+  for _ in db:query("SELECT * FROM t") as sqlite.Rows do
     count = count + 1
   end
   assert(count == 0, "row must roll back when body returns nil, err, got " .. tostring(count))
@@ -297,7 +290,7 @@ local function test_transaction_commits_on_no_return()
   assert(ok, "should commit when body returns nothing: " .. tostring(err))
 
   local count = 0
-  for _ in db:query("SELECT * FROM t") as Rows do
+  for _ in db:query("SELECT * FROM t") as sqlite.Rows do
     count = count + 1
   end
   assert(count == 1, "row must commit when body returns nothing, got " .. tostring(count))
@@ -317,7 +310,7 @@ local function test_bind_named()
   stmt:exec()
   stmt:close()
 
-  for row in db:query("SELECT * FROM t") as Rows do
+  for row in db:query("SELECT * FROM t") as sqlite.Rows do
     assert(row.a == "hello", "a should be 'hello'")
     assert(row.b == nil, "b should be nil (unbound)")
     assert(row.c == "world", "c should be 'world'")
@@ -335,7 +328,7 @@ local function test_exec_named()
     {a = "one", b = 42})
   assert(ok, "exec_named should succeed: " .. tostring(err))
 
-  for row in db:query("SELECT * FROM t") as Rows do
+  for row in db:query("SELECT * FROM t") as sqlite.Rows do
     assert(row.a == "one", "a should be 'one'")
     assert(row.b == 42, "b should be 42")
     assert(row.c == nil, "c should be nil")
@@ -352,7 +345,7 @@ local function test_exec_named_all_nil()
     "INSERT INTO t (a, b) VALUES (:a, :b)", {})
   assert(ok, "exec_named with empty params should succeed: " .. tostring(err))
 
-  for row in db:query("SELECT * FROM t") as Rows do
+  for row in db:query("SELECT * FROM t") as sqlite.Rows do
     assert(row.a == nil, "a should be nil")
     assert(row.b == nil, "b should be nil")
   end
@@ -368,7 +361,7 @@ local function test_query_named()
   local names: {string} = {}
   for row in db:query_named(
     "SELECT * FROM t WHERE city = :city ORDER BY id",
-    {city = "NYC"}) as Rows do
+    {city = "NYC"}) as sqlite.Rows do
     table.insert(names, row.name as string)
   end
   assert(#names == 2, "should get 2 rows")
@@ -389,8 +382,8 @@ local function test_same_sql_nested_query_reentrant()
   db:exec("INSERT INTO t (name) VALUES ('a'), ('b'), ('c')")
 
   local pairs_seen: {string} = {}
-  for outer in db:query("SELECT * FROM t ORDER BY id") as Rows do
-    for inner in db:query("SELECT * FROM t ORDER BY id") as Rows do
+  for outer in db:query("SELECT * FROM t ORDER BY id") as sqlite.Rows do
+    for inner in db:query("SELECT * FROM t ORDER BY id") as sqlite.Rows do
       table.insert(pairs_seen, (outer.name as string) .. (inner.name as string))
     end
   end

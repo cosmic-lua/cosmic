@@ -7,13 +7,6 @@ local sqlite = require("cosmic.sqlite")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
--- The module's Rows iterator record is not exported; mirror its shape here so
--- the fallible `db:query* -> Rows | nil` results can be cast for iteration.
-local record Rows
-  metamethod __call: function(self: Rows): {string: any}
-  err: function(self: Rows): string
-end
-
 -- Blob binding
 
 local function test_blob_bind_affinity()
@@ -45,7 +38,7 @@ local function test_blob_in_query_params()
   -- db:query binds through the hot-path row iterator; make sure the blob
   -- marker is honored there too.
   local db = sqlite.open(":memory:") as sqlite.Database
-  local iter = db:query("SELECT typeof(?) AS ty", sqlite.blob("abc")) as Rows
+  local iter = db:query("SELECT typeof(?) AS ty", sqlite.blob("abc")) as sqlite.Rows
   assert(iter, "query should succeed")
   local row = iter()
   assert(row and row.ty == "blob", "query param should bind as blob")
@@ -67,7 +60,7 @@ local function test_blob_bind_and_bind_list()
   ok, err = db:exec_list("INSERT INTO t (a, b) VALUES (?, ?)", {sqlite.blob("p"), "q"})
   assert(ok, "exec_list with blob should succeed: " .. tostring(err))
 
-  local iter = db:query("SELECT typeof(a) AS ta, typeof(b) AS tb FROM t") as Rows
+  local iter = db:query("SELECT typeof(a) AS ta, typeof(b) AS tb FROM t") as sqlite.Rows
   local n = 0
   for row in iter do
     n = n + 1

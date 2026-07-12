@@ -464,10 +464,12 @@ local record FetchModule
   stream: function(url: string, opts?: Options): StreamResult
   unix_proxy: function(path: string): string | nil, string
   type ErrorKind = ErrorKind
-  Options: Options
-  Result: Result
-  Reader: Reader
-  StreamResult: StreamResult
+  --- Type aliases, not runtime values — the old `Result: Result`
+  --- field spelling declared phantom fields that were nil at runtime.
+  type Options = Options
+  type Result = Result
+  type Reader = Reader
+  type StreamResult = StreamResult
 end
 
 local M: FetchModule = {
