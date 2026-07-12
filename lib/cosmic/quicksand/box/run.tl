@@ -201,6 +201,7 @@ local function supervisor(
         upstream_ns_fd = parent_netns_fd,
         log_level = net.log_level or "quiet",
         resolve_timeout_ms = net.resolve_timeout_ms,
+        max_body_bytes = net.max_body_bytes,
       })
     if not h then
       die("proxy.start: " .. tostring(perr))

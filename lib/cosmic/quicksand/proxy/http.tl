@@ -24,6 +24,10 @@ local LENGTH_REQUIRED < const > = "HTTP/1.1 411 Length Required\r\n"
 .. "Content-Length: 0\r\n"
 .. "Connection: close\r\n\r\n"
 
+local PAYLOAD_TOO_LARGE < const > = "HTTP/1.1 413 Payload Too Large\r\n"
+.. "Content-Length: 0\r\n"
+.. "Connection: close\r\n\r\n"
+
 local UPSTREAM_FAIL < const > = "HTTP/1.1 502 Bad Gateway\r\n"
 .. "Content-Length: 0\r\n"
 .. "Connection: close\r\n\r\n"
@@ -135,11 +139,20 @@ local function header_get(headers: {Header}, lower_name: string): string | nil
   return nil
 end
 
---- Content-Length from a parsed header list; 0 if absent.
-local function content_length(headers: {Header}): integer
+--- Content-Length from a parsed header list: 0 when absent, nil when
+--- present but not a plain digit string (RFC 7230: 1*DIGIT) or too
+--- large for an integer — callers treat nil as a malformed request.
+--- tonumber() leniency here would accept hex, exponents, and
+--- negatives, letting a client name an absurd or nonsensical body
+--- size that read_body would then try to buffer.
+local function content_length(headers: {Header}): integer | nil
   local v = header_get(headers, "content-length")
   if not v then return 0 end
-  return (tonumber(v) or 0) as integer
+  local digits = string.match(v, "^(%d+)%s*$")
+  if not digits then return nil end
+  local n = math.tointeger(tonumber(digits))
+  if not n then return nil end
+  return n
 end
 
 --- Hop-by-hop headers per RFC 7230 6.1, plus content-length (always
@@ -249,6 +262,7 @@ local record HttpModule
   DENY: string
   BAD_REQUEST: string
   LENGTH_REQUIRED: string
+  PAYLOAD_TOO_LARGE: string
   UPSTREAM_FAIL: string
   read_headers: function(fd: integer, max: integer): string | nil, string
   send_all: function(fd: integer, data: string): boolean, string
@@ -258,7 +272,7 @@ local record HttpModule
   parse_absolute_uri: function(t: string): string | nil, string, integer, string
   parse_headers: function(block: string): {Header}
   header_get: function(headers: {Header}, lower_name: string): string | nil
-  content_length: function(headers: {Header}): integer
+  content_length: function(headers: {Header}): integer | nil
   rebuild_request: function(spec: ForwardSpec): string
   pump: function(a: integer, b: integer)
 end
@@ -267,6 +281,7 @@ local M: HttpModule = {
   DENY = DENY,
   BAD_REQUEST = BAD_REQUEST,
   LENGTH_REQUIRED = LENGTH_REQUIRED,
+  PAYLOAD_TOO_LARGE = PAYLOAD_TOO_LARGE,
   UPSTREAM_FAIL = UPSTREAM_FAIL,
   read_headers = read_headers,
   send_all = send_all,

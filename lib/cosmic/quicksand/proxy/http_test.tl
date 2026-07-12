@@ -50,6 +50,29 @@ local function test_headers_and_content_length()
 end
 test_headers_and_content_length()
 
+-- Content-Length is 1*DIGIT (RFC 7230). tonumber() leniency would let a
+-- client name a hex, exponent, or negative body size; anything but a
+-- plain digit string must read as malformed (nil), not silently as 0 —
+-- a "0" misread desyncs the connection with the body still unread.
+local function test_content_length_strict()
+  local function cl(v: string): integer | nil
+    local block = "POST / HTTP/1.1\r\nContent-Length: " .. v .. "\r\n\r\n"
+    return http.content_length(http.parse_headers(block))
+  end
+  assert(cl("0") == 0, "zero parses")
+  assert(cl("5") == 5, "digits parse")
+  assert(cl("007") == 7, "leading zeros parse")
+  assert(cl("banana") == nil, "garbage is malformed")
+  assert(cl("-5") == nil, "negative is malformed")
+  assert(cl("1e3") == nil, "exponent is malformed")
+  assert(cl("0x10") == nil, "hex is malformed")
+  assert(cl("4 4") == nil, "embedded space is malformed")
+  assert(cl("5.0") == nil, "float is malformed")
+  assert(cl("99999999999999999999999999") == nil,
+    "integer overflow is malformed")
+end
+test_content_length_strict()
+
 local function test_rebuild_request_injects_and_strips()
   local block = "POST http://a.example.com/p HTTP/1.1\r\n"
   .. "Host: a.example.com\r\nContent-Length: 5\r\nX-Foo: bar\r\n"
