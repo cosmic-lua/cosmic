@@ -160,9 +160,6 @@ end
 local record sqlite
   open: function(filename: string, opts?: OpenOptions): Database | nil, string
   blob: function(data: string): bind_mod.Blob
-  Database: Database
-  Statement: Statement
-  Rows: Rows
 end
 ```
 

@@ -117,10 +117,6 @@ local record FetchModule
   fetch: function(url: string, opts?: Options): Result
   stream: function(url: string, opts?: Options): StreamResult
   unix_proxy: function(path: string): string | nil, string
-  Options: Options
-  Result: Result
-  Reader: Reader
-  StreamResult: StreamResult
 end
 ```
 
