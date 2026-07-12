@@ -18,7 +18,7 @@ local sqlite = require("cosmic.sqlite")
 | `cosmic.fd` | file descriptor I/O: open/wrap handles, pipes |
 | `cosmic.stream` | the stream contract: Reader/Writer interfaces |
 | `cosmic.fs` | filesystem paths, stat, walk, mkdir, temp files |
-| `cosmic.string` | trim, split, capitalize, starts_with |
+| `cosmic.string` | trim, split, replace, contains, fields, lines, pad, dedent, truncate, shell_quote |
 | `cosmic.env` | environment variable get/set/unset/list |
 | `cosmic.envd` | load environment variables from an embedded env.d directory |
 | `cosmic.errno` | errno names, numbers, and error-string helpers |
