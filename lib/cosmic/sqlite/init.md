@@ -128,10 +128,16 @@ local record Database
   query_list: function(self: Database, sql: string, values: {any}): Rows | nil, string
   query_named: function(self: Database, sql: string, params: {string: any}): Rows | nil, string
   query_one: function(self: Database, sql: string, ...: any): {string: any} | nil, string
+  --  First column of the first row (nil + no error when no row matches
+  --  or the value is SQL NULL); see cosmic.sqlite.extras.
+  query_value: function(self: Database, sql: string, ...: any): any, string
   exec: function(self: Database, sql: string, ...: any): boolean, string
   exec_list: function(self: Database, sql: string, values: {any}): boolean, string
   exec_named: function(self: Database, sql: string, params: {string: any}): boolean, string
   transaction: function(self: Database, fn: function(Database)): boolean, string
+  --  Run fn in a nestable savepoint with transaction's rollback rules;
+  --  see cosmic.sqlite.extras.
+  savepoint: function(self: Database, fn: function(Database)): boolean, string
   last_insert_rowid: function(self: Database): number
   changes: function(self: Database): number
   close: function(self: Database)
