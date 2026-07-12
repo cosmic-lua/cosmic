@@ -11,31 +11,6 @@ local embed = require("cosmic.embed")
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
--- Local declaration of Reader interface for type casting
-local record Entry
-  name: string
-  size: number
-  mode: number
-end
-
-local record Reader
-  list: function(self: Reader): {Entry}
-  read: function(self: Reader, name: string): string | nil, string | nil
-  stat: function(self: Reader, name: string): Stat | nil
-  close: function(self: Reader)
-end
-
--- Stat record for file metadata
-local record Stat
-  mode: number
-end
-
--- Writer interface for crafting test archives
-local record Writer
-  add: function(self: Writer, name: string, content: string): boolean, string
-  close: function(self: Writer)
-end
-
 local function write_temp(name: string, content: string): string
   local filepath = fs.join(tmpdir, name)
   local dir = fs.dirname(filepath)
@@ -75,7 +50,7 @@ local function test_extract_embed_roundtrip()
 
   -- Read original main.lua from the zip
   local orig_data = fs.read(cosmic)
-  local orig_reader = zip.from(orig_data) as Reader
+  local orig_reader = zip.from(orig_data) as zip.Reader
   local orig_main = orig_reader:read("main.lua")
   assert(orig_main, "original should have main.lua")
   orig_reader:close()
@@ -92,7 +67,7 @@ local function test_extract_embed_roundtrip()
 
   -- Read main.lua from the re-embedded binary
   local new_data = fs.read(output)
-  local new_reader = zip.from(new_data) as Reader
+  local new_reader = zip.from(new_data) as zip.Reader
   local new_main = new_reader:read("main.lua")
   assert(new_main == orig_main, "roundtripped main.lua should match original")
   new_reader:close()
@@ -128,7 +103,7 @@ test_extract_modify_embed()
 local function test_embed_overwrites_cleanly()
   -- Read original zip file list
   local orig_data = fs.read(cosmic)
-  local orig_reader = zip.from(orig_data) as Reader
+  local orig_reader = zip.from(orig_data) as zip.Reader
   local orig_files: {string: boolean} = {}
   for _, entry in ipairs(orig_reader:list()) do
     -- Skip directory entries
@@ -150,7 +125,7 @@ local function test_embed_overwrites_cleanly()
 
   -- The new zip should have main.lua with the new content
   local new_data = fs.read(output)
-  local new_reader = zip.from(new_data) as Reader
+  local new_reader = zip.from(new_data) as zip.Reader
   local new_main = new_reader:read("main.lua")
   assert(new_main == 'print("new")\n', "main.lua should have new content: " .. tostring(new_main))
 
@@ -192,7 +167,7 @@ local function test_embed_preserves_file_modes()
   local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as Reader
+  local reader = reader_maybe as zip.Reader
 
   local script_stat = reader:stat("run.sh")
   local config_stat = reader:stat("config.txt")
@@ -203,9 +178,9 @@ local function test_embed_preserves_file_modes()
   assert(secret_stat, "secret.key should exist in zip")
 
   -- Check permission bits (mask with 0777 to get just permission bits)
-  local script_mode = (script_stat as Stat).mode & tonumber("777", 8)
-  local config_mode = (config_stat as Stat).mode & tonumber("777", 8)
-  local secret_mode = (secret_stat as Stat).mode & tonumber("777", 8)
+  local script_mode = (script_stat as zip.Stat).mode & tonumber("777", 8)
+  local config_mode = (config_stat as zip.Stat).mode & tonumber("777", 8)
+  local secret_mode = (secret_stat as zip.Stat).mode & tonumber("777", 8)
 
   assert(script_mode == tonumber("755", 8),
     "run.sh should have mode 755, got " .. string.format("%o", script_mode))
@@ -318,7 +293,7 @@ local function test_extract_rejects_path_traversal()
   -- byte-patch it to a traversal name (no offsets change, so the zip stays
   -- valid). "XX/escaped.txt" -> "../escaped.txt".
   local safe = fs.join(tmpdir, "patched.zip")
-  local w = zip.writer(safe) as Writer
+  local w = zip.writer(safe) as zip.Writer
   assert(w, "should open zip for writing")
   w:add("XX/escaped.txt", "pwned")
   w:close()
@@ -352,7 +327,7 @@ local function test_embed_symlink_loop_terminates()
   assert(result.ok, "embed of dir with symlink loop should succeed: " .. (result.message or ""))
   -- Only real.txt should be embedded, not any path through the loop
   local data = fs.read(fs.join(tmpdir, "cosmic-symlinkloop"))
-  local reader = zip.from(data) as Reader
+  local reader = zip.from(data) as zip.Reader
   local files = reader:list()
   for _, f in ipairs(files) do
     assert(not f.name:match("loop"), "embedded zip should not contain loop path: " .. f.name)
@@ -377,7 +352,7 @@ local function test_embed_symlink_to_outside_file_skipped()
   assert(result.ok, "embed should succeed even with outside symlink: " .. (result.message or ""))
   -- "leaked.txt" (the symlink) must not appear in the zip
   local data = fs.read(fs.join(tmpdir, "cosmic-symlinkoutside"))
-  local reader = zip.from(data) as Reader
+  local reader = zip.from(data) as zip.Reader
   local files = reader:list()
   for _, f in ipairs(files) do
     assert(not f.name:match("leaked"), "symlink to outside file should not be embedded: " .. f.name)

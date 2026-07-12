@@ -9,19 +9,6 @@ local zip = require("cosmic.zip")
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
--- Local declaration of Reader interface for type casting
-local record Reader
-  list: function(self: Reader): {string}
-  read: function(self: Reader, name: string): string | nil, string | nil
-  stat: function(self: Reader, name: string): Stat | nil
-  close: function(self: Reader)
-end
-
--- Stat record for file metadata
-local record Stat
-  mode: number
-end
-
 local function write_temp(name: string, content: string): string
   local filepath = fs.join(tmpdir, name)
   local dir = fs.dirname(filepath)
@@ -58,7 +45,7 @@ local function test_embed_via_env()
   local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as Reader
+  local reader = reader_maybe as zip.Reader
 
   local expected_name = input:gsub("^/+", "")
   local content = reader:read(expected_name)
@@ -112,7 +99,7 @@ local function test_cli_priority_over_env()
   local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as Reader
+  local reader = reader_maybe as zip.Reader
 
   -- CLI file should be present
   local cli_name = cli_input:gsub("^/+", "")

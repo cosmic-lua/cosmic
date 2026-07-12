@@ -9,28 +9,6 @@ local zip = require("cosmic.zip")
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
--- Local declaration of Reader interface for type casting
-local record Entry
-  name: string
-  size: number
-  mode: number
-end
-
-local record Reader
-  list: function(self: Reader): {Entry}
-  read: function(self: Reader, name: string): string | nil, string | nil
-  stat: function(self: Reader, name: string): Stat | nil
-  close: function(self: Reader)
-end
-
--- Stat record for file metadata
-local record Stat
-  mode: number
-  method: number
-  size: number
-  compressed_size: number
-end
-
 local function write_temp(name: string, content: string): string
   local filepath = fs.join(tmpdir, name)
   local dir = fs.dirname(filepath)
@@ -59,7 +37,7 @@ local function test_embed_single_file()
   local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as Reader
+  local reader = reader_maybe as zip.Reader
   local files = reader:list()
 
   local found = false
@@ -92,7 +70,7 @@ local function test_embed_multiple_files()
   local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as Reader
+  local reader = reader_maybe as zip.Reader
 
   local name1 = file1:gsub("^/+", "")
   local name2 = file2:gsub("^/+", "")
@@ -142,7 +120,7 @@ local function test_embed_lua_file()
   local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as Reader
+  local reader = reader_maybe as zip.Reader
   local name = modfile:gsub("^/+", "")
   local content = reader:read(name)
   assert(content == [[return { value = 42 }]], "lua content should be preserved")
@@ -164,7 +142,7 @@ local function test_embed_binary_file()
   local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as Reader
+  local reader = reader_maybe as zip.Reader
   local name = input:gsub("^/+", "")
   local content = reader:read(name)
   assert(content == binary, "binary content should be preserved exactly")
@@ -190,7 +168,7 @@ local function test_embed_directory()
   local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as Reader
+  local reader = reader_maybe as zip.Reader
 
   local c1 = reader:read("main.lua")
   assert(c1 == 'print("hello")\n', "main.lua should be at zip root: " .. tostring(c1))
@@ -221,7 +199,7 @@ local function test_embed_nested_directory()
   local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as Reader
+  local reader = reader_maybe as zip.Reader
 
   assert(reader:read("top.txt") == "top", "top-level file")
   assert(reader:read("a/mid.txt") == "mid", "mid-level file")
@@ -246,7 +224,7 @@ local function test_embed_mixed()
   local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as Reader
+  local reader = reader_maybe as zip.Reader
 
   local c1 = reader:read("main.lua")
   assert(c1 == 'print("mixed")\n', "directory file should be present")
@@ -291,12 +269,12 @@ local function test_embed_uses_deflate()
   local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as Reader
+  local reader = reader_maybe as zip.Reader
 
   local name = input:gsub("^/+", "")
   local st = reader:stat(name)
   assert(st ~= nil, "stat should return metadata for embedded file")
-  local stat = st as Stat
+  local stat = st as zip.Stat
   assert(stat.method == 8,
     "embedded file should use deflate (method=8), got: " .. tostring(stat.method))
   assert(stat.compressed_size < stat.size,
@@ -322,12 +300,12 @@ local function test_embed_stores_lua()
   local data = fs.read(output)
   local reader_maybe = zip.from(data)
   assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as Reader
+  local reader = reader_maybe as zip.Reader
 
   local name = input:gsub("^/+", "")
   local st = reader:stat(name)
   assert(st ~= nil, "stat should return metadata for embedded file")
-  local stat = st as Stat
+  local stat = st as zip.Stat
   assert(stat.method == 0,
     "embedded .lua should be stored (method=0), got: " .. tostring(stat.method))
   assert(stat.compressed_size == stat.size,

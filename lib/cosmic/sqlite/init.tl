@@ -443,12 +443,17 @@ end
 local record sqlite
   type Blob = bind_mod.Blob
   type OpenOptions = OpenOptions
+  --- Exported so callers can name the handles open() and its methods
+  --- return; these are type aliases, not runtime values (the old
+  --- `Database: Database` field spelling declared phantom fields that
+  --- were nil at runtime).
+  type Database = Database
+  type Statement = Statement
+  type Rows = Rows
+  type Values = Values
 
   open: function(filename: string, opts?: OpenOptions): Database | nil, string
   blob: function(data: string): bind_mod.Blob
-  Database: Database
-  Statement: Statement
-  Rows: Rows
 end
 
 local M: sqlite = {

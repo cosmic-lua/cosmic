@@ -7,26 +7,16 @@
 local serve = require("cosmic.quicksand.proxy.serve")
 local net = require("cosmic.net")
 
--- serve's Server record is module-local; declare a structural twin for
--- the methods this test drives (casts are the codebase's escape hatch
--- for un-exported record types).
-local record Srv
-  port: function(): integer
-  listen: function(): integer | nil, string
-  accept: function(): integer | nil, string
-  handle: function(client_fd: integer)
-end
-
 --- Start a proxy on an ephemeral loopback port with a tiny body cap
 --- and one allowed pass-through host.
-local function start_proxy(max_body: integer): Srv
+local function start_proxy(max_body: integer): serve.Server
   local srv = serve.new({
       bind_port = 0,
       allowed_hosts = {["a.example.com"] = {}},
       log_level = "quiet",
       max_body_bytes = max_body,
       resolve_timeout_ms = 200,
-    }) as Srv
+    }) as serve.Server
   assert(srv, "serve.new failed")
   assert(srv.listen(), "listen failed")
   return srv
@@ -35,7 +25,7 @@ end
 --- Send one raw request, run one in-process handle() pass, and return
 --- the full response. handle() closes the server-side fd; recv drains
 --- until EOF (nil per the stream contract).
-local function roundtrip(srv: Srv, request: string): string
+local function roundtrip(srv: serve.Server, request: string): string
   local sock = net.connect_tcp("127.0.0.1", srv.port()) as net.Socket
   assert(sock, "connect failed")
   assert(sock:send(request))
