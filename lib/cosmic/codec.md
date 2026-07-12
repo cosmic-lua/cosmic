@@ -18,6 +18,8 @@ local record CodecModule
   decode_lua_unsafe: function(code: string): any | nil, string
   encode_base64: function(data: string): string
   decode_base64: function(str: string): string | nil, string
+  encode_base64url: function(data: string): string
+  decode_base64url: function(str: string): string | nil, string
   encode_base32: function(data: string): string
   decode_base32: function(str: string): string | nil, string
   crc32: function(data: string, initial?: integer): integer
@@ -133,6 +135,43 @@ function decode_base64(str: string): string | nil, string
 **Parameters:**
 
 - `str` (string) - The base64 string to decode
+
+**Returns:**
+
+- string - | nil The decoded binary data, or nil on error
+- string? - Error message if decoding failed
+
+### encode_base64url
+
+```teal
+function encode_base64url(data: string): string
+```
+
+ Encode binary data as base64url (RFC 4648 section 5).
+ The URL- and filename-safe variant: "-" and "_" replace "+" and
+ "/", and no "=" padding is emitted.
+
+**Parameters:**
+
+- `data` (string) - The binary data to encode
+
+**Returns:**
+
+- string - The base64url encoded string
+
+### decode_base64url
+
+```teal
+function decode_base64url(str: string): string | nil, string
+```
+
+ Decode a base64url string to binary data.
+ Accepts the URL-safe alphabet ("-" and "_") with or without "="
+ padding. Standard-alphabet characters ("+", "/") are rejected.
+
+**Parameters:**
+
+- `str` (string) - The base64url string to decode
 
 **Returns:**
 
