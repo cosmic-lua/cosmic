@@ -22,6 +22,7 @@ local stmt_cache_mod = require("cosmic.sqlite.stmt_cache")
 local row_iter = require("cosmic.sqlite.row_iter")
 local bind_mod = require("cosmic.sqlite.bind")
 local params_mod = require("cosmic.sqlite.params")
+local extras_mod = require("cosmic.sqlite.extras")
 
 -- Raw lsqlite3 types (0-indexed, requires manual cleanup)
 local record RawStatement
@@ -103,10 +104,16 @@ local record Database
   query_list: function(self: Database, sql: string, values: {any}): Rows | nil, string
   query_named: function(self: Database, sql: string, params: {string: any}): Rows | nil, string
   query_one: function(self: Database, sql: string, ...: any): {string: any} | nil, string
+  --- First column of the first row (nil + no error when no row matches
+  --- or the value is SQL NULL); see cosmic.sqlite.extras.
+  query_value: function(self: Database, sql: string, ...: any): any, string
   exec: function(self: Database, sql: string, ...: any): boolean, string
   exec_list: function(self: Database, sql: string, values: {any}): boolean, string
   exec_named: function(self: Database, sql: string, params: {string: any}): boolean, string
   transaction: function(self: Database, fn: function(Database)): boolean, string
+  --- Run fn in a nestable savepoint with transaction's rollback rules;
+  --- see cosmic.sqlite.extras.
+  savepoint: function(self: Database, fn: function(Database)): boolean, string
   last_insert_rowid: function(self: Database): number
   changes: function(self: Database): number
   close: function(self: Database)
@@ -321,8 +328,10 @@ local function make_database(raw_db: RawDatabase): Database
 
   -- exec_list, exec_named, query_list, query_named live in
   -- cosmic.sqlite.params (same prepare/bind/consume shape, split out to
-  -- keep this file under the 500-line cap).
+  -- keep this file under the 500-line cap); query_value and savepoint
+  -- live in cosmic.sqlite.extras for the same reason.
   params_mod.attach(db)
+  extras_mod.attach(db)
 
   --- Return the first row matching a query, or nil if no rows match.
   --- Convenience method for single-row lookups.
