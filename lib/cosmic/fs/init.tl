@@ -216,6 +216,9 @@ local type FileIter = fs_walk.FileIter
 --- Visitor verdict for walk(): nil continues, "skip" prunes, "stop" ends the walk.
 local type WalkAction = fs_walk.WalkAction
 
+--- Options for walk() (max_depth).
+local type WalkOptions = fs_walk.WalkOptions
+
 --- Module interface
 local record FsModule
   --- Iterator over file paths, as returned by files().
@@ -223,6 +226,9 @@ local record FsModule
 
   --- Visitor verdict for walk(): nil continues, "skip" prunes, "stop" ends the walk.
   type WalkAction = WalkAction
+
+  --- Options for walk() (max_depth; entries directly in dir are depth 1).
+  type WalkOptions = WalkOptions
 
   -- Path manipulation
   dirname: function(str: string): string
@@ -310,7 +316,10 @@ local record FsModule
   -- ends the walk now; returning nothing continues.
   -- Root open failure returns nil, err; subtree failures return the first
   -- error alongside the results.
-  walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T): T | nil, string
+  walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string
+  -- glob expands a pattern without recursing; components ("src/*.lua")
+  -- are each globs, and matches of every entry type are returned sorted.
+  glob: function(dir: string, pattern: string): {string} | nil, string
   -- collect's pattern is ALWAYS a glob; collect_matching takes a Lua pattern.
   collect: function(dir: string, pattern: string): {string} | nil, string
   collect_matching: function(dir: string, lua_pattern: string): {string} | nil, string
@@ -409,6 +418,7 @@ local M: FsModule = {
 
   -- Directory walking
   walk = fs_walk.walk,
+  glob = fs_walk.glob,
   collect = fs_walk.collect,
   collect_matching = fs_walk.collect_matching,
   collect_all = fs_walk.collect_all,

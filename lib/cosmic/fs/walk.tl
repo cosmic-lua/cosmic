@@ -25,15 +25,25 @@ local enum WalkAction
   "stop"
 end
 
+--- Options for walk().
+local record WalkOptions
+  --- Maximum directory depth to visit: entries directly in dir are at
+  --- depth 1, entries one level down at depth 2, and so on. The walk
+  --- never descends into directories at the maximum depth. nil (or 0)
+  --- means unlimited.
+  max_depth: integer
+end
+
 local walk_tree: function < T > (string,
-function(string, string, WalkStat, T): (WalkAction ...), T, {string}): boolean
+function(string, string, WalkStat, T): (WalkAction ...), T, {string}, integer, integer): boolean
 
 --- Shared per-directory loop. Consumes (and closes) an already-open
 --- handle, records the first subtree error in errbox[1], and returns
---- true when a visitor asked to stop the walk.
+--- true when a visitor asked to stop the walk. Entries visited here are
+--- at depth; max_depth of 0 means unlimited.
 local function walk_entries < T > (dir: string, h: WalkDirHandle,
     visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx: T,
-    errbox: {string}): boolean
+    errbox: {string}, depth: integer, max_depth: integer): boolean
   while true do
     local entry = h:read()
     if not entry then break end
@@ -48,8 +58,9 @@ local function walk_entries < T > (dir: string, h: WalkDirHandle,
           h:close()
           return true
         end
-        if action ~= "skip" and unix.S_ISDIR((st as unix.Stat):mode()) then
-          if walk_tree(full_path, visitor, ctx, errbox) then
+        if action ~= "skip" and unix.S_ISDIR((st as unix.Stat):mode())
+        and (max_depth == 0 or depth < max_depth) then
+          if walk_tree(full_path, visitor, ctx, errbox, depth + 1, max_depth) then
             h:close()
             return true
           end
@@ -67,7 +78,7 @@ end
 --- in errbox[1] rather than swallowed or fatal.
 walk_tree = function < T > (dir: string,
     visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx: T,
-    errbox: {string}): boolean
+    errbox: {string}, depth: integer, max_depth: integer): boolean
   local handle, oerr = unix.opendir(dir)
   if not handle then
     if not errbox[1] then
@@ -75,7 +86,7 @@ walk_tree = function < T > (dir: string,
     end
     return false
   end
-  return walk_entries(dir, handle as WalkDirHandle, visitor, ctx, errbox)
+  return walk_entries(dir, handle as WalkDirHandle, visitor, ctx, errbox, depth, max_depth)
 end
 
 --- Walk a directory tree, calling visitor for each entry.
@@ -107,16 +118,21 @@ end
 --- @param dir string The directory to walk
 --- @param visitor function Called for each entry: function(path, name, st, ctx): nil|"skip"|"stop"
 --- @param ctx T Optional context passed to every visitor call
+--- @param opts WalkOptions? max_depth limits how deep the walk descends
 --- @return T | nil The context object, or nil if the root could not be opened
 --- @return string First error encountered, if any
-local function walk < T > (dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T): T | nil, string
+local function walk < T > (dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string
   ctx = ctx or {} as T
+  local max_depth = 0
+  if opts and opts.max_depth then
+    max_depth = opts.max_depth
+  end
   local handle, oerr = unix.opendir(dir)
   if not handle then
     return nil, errstr(oerr, "opendir: " .. dir)
   end
   local errbox: {string} = {}
-  walk_entries(dir, handle as WalkDirHandle, visitor, ctx, errbox)
+  walk_entries(dir, handle as WalkDirHandle, visitor, ctx, errbox, 1, max_depth)
   return ctx, errbox[1]
 end
 
@@ -165,6 +181,78 @@ end
 --- @return string First error encountered, if any
 local function collect(dir: string, pattern: string): {string} | nil, string
   return collect_by_pattern(dir, glob_to_pattern(pattern))
+end
+
+--- List entries in one directory whose name matches a glob component.
+--- Appends matching paths (any entry type) to out; returns an error
+--- string on opendir failure, nil otherwise.
+local function glob_level(dir: string, lua_pattern: string, out: {string}): string
+  local handle, oerr = unix.opendir(dir)
+  if not handle then
+    return errstr(oerr, "opendir: " .. dir)
+  end
+  local h = handle as WalkDirHandle
+  while true do
+    local entry = h:read()
+    if not entry then break end
+    if entry ~= "." and entry ~= ".." and entry:match(lua_pattern) then
+      table.insert(out, cosmo_path.join(dir, entry))
+    end
+  end
+  h:close()
+end
+
+--- Expand a glob pattern against a directory, WITHOUT recursing:
+--- unlike collect(), only the levels named by the pattern are read.
+--- The pattern may span path components ("src/*.lua", "*/init.tl");
+--- each component is a glob (`*` any run, `?` one char, both never
+--- crossing a "/"), other characters match literally, and there is no
+--- `**`. Unlike a shell, `*` also matches names starting with a dot.
+--- Matches of every entry type (files, dirs, symlinks) are returned,
+--- sorted. If dir itself cannot be opened, returns nil plus the error;
+--- an unreadable directory at a deeper level does not stop expansion,
+--- and the first such error is returned alongside the results.
+--- @param dir string The directory the pattern is relative to
+--- @param pattern string Glob pattern, optionally with "/" components
+--- @return {string} | nil Sorted matching paths, or nil if dir failed
+--- @return string First error encountered, if any
+local function glob(dir: string, pattern: string): {string} | nil, string
+  if pattern:sub(1, 1) == "/" then
+    return nil, "glob: pattern must be relative to dir: " .. pattern
+  end
+  local comps: {string} = {}
+  for comp in pattern:gmatch("[^/]+") do
+    table.insert(comps, comp)
+  end
+  if #comps == 0 then
+    return nil, "glob: empty pattern"
+  end
+  local current: {string} = {dir}
+  local first_err: string = nil
+  for i, comp in ipairs(comps) do
+    local lua_pattern = glob_to_pattern(comp)
+    local next_level: {string} = {}
+    for j, d in ipairs(current) do
+      -- Below the first level only descend through directories; a file
+      -- matching an intermediate component cannot contain entries.
+      if i == 1 or cosmo_path.isdir(d) then
+        local gerr = glob_level(d, lua_pattern, next_level)
+        if gerr then
+          -- The root directory failing is fatal; deeper failures are
+          -- recorded (first one wins) and expansion continues.
+          if i == 1 and j == 1 then
+            return nil, gerr
+          end
+          if not first_err then
+            first_err = gerr
+          end
+        end
+      end
+    end
+    current = next_level
+  end
+  table.sort(current)
+  return current, first_err
 end
 
 --- Collect file paths whose basename matches a Lua pattern (%.lua$).
@@ -345,10 +433,14 @@ local type FileIter = function(): string
     --- Visitor verdict: nil continues, "skip" prunes, "stop" ends the walk.
     type WalkAction = WalkAction
 
+    --- Options for walk() (max_depth).
+    type WalkOptions = WalkOptions
+
     --- Walk dir tree. visitor(path, name, st, ctx): path is the FULL path; name is the basename.
     --- Do NOT join path and name — path is already complete.
     --- The visitor may return "skip" (don't descend) or "stop" (end the walk).
-    walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T): T | nil, string
+    walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string
+    glob: function(dir: string, pattern: string): {string} | nil, string
     collect: function(dir: string, pattern: string): {string} | nil, string
     collect_matching: function(dir: string, lua_pattern: string): {string} | nil, string
     collect_all: function(dir: string): {string: FileInfo} | nil, string
@@ -357,6 +449,7 @@ local type FileIter = function(): string
 
   local M: FsWalkModule = {
     walk = walk,
+    glob = glob,
     collect = collect,
     collect_matching = collect_matching,
     collect_all = collect_all,
