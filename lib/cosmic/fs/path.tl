@@ -155,9 +155,9 @@ end
 --- Make path relative to another path (defaults to cwd).
 --- Pure string manipulation - does not access the filesystem.
 --- @param p string The path to make relative
---- @param base string The base path (defaults to cwd)
+--- @param base string? The base path (defaults to cwd)
 --- @return string The relative path
-local function relpath(p: string, base: string): string
+local function relpath(p: string, base?: string): string
   -- Get absolute versions of both paths. When both p and the implicit
   -- base need cwd (relative p, no explicit base), fetch it once instead
   -- of once per abspath() call.
