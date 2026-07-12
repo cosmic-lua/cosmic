@@ -1,7 +1,10 @@
 # codec
 
  Encoding and decoding utilities for various formats.
- Provides hex and Lua serialization codecs with consistent error handling.
+ Provides hex, base64, base32, Latin-1, and Lua serialization codecs
+ with consistent error handling, plus CRC-32 checksums (checksums are
+ encoding-adjacent error detection, not crypto — see cosmic.hash for
+ digests).
 
 ## Types
 
@@ -17,6 +20,8 @@ local record CodecModule
   decode_base64: function(str: string): string | nil, string
   encode_base32: function(data: string): string
   decode_base32: function(str: string): string | nil, string
+  crc32: function(data: string, initial?: integer): integer
+  crc32c: function(data: string, initial?: integer): integer
   encode_latin1: function(str: string): string | nil, string
   decode_latin1: function(data: string): string
 end
@@ -168,6 +173,46 @@ function decode_base32(str: string): string | nil, string
 
 - string - | nil The decoded binary data, or nil on error
 - string? - Error message if decoding failed
+
+### crc32
+
+```teal
+function crc32(data: string, initial?: integer): integer
+```
+
+ Compute the CRC-32 checksum of data (ISO 3309 / "Phil Katz" CRC,
+ as used by zip, zlib, and gzip; the same value zip.Stat reports).
+ Checksums are error-detection codes, not cryptographic digests —
+ for those, see cosmic.hash.digest.
+ Pass a previous result as initial to checksum a stream
+ incrementally: crc32(b, crc32(a)) == crc32(a .. b).
+
+**Parameters:**
+
+- `data` (string) - The data to checksum
+- `initial` (integer?) - Checksum to continue from (default 0)
+
+**Returns:**
+
+- integer - The CRC-32 checksum as an unsigned 32-bit integer
+
+### crc32c
+
+```teal
+function crc32c(data: string, initial?: integer): integer
+```
+
+ Compute the CRC-32C (Castagnoli) checksum of data, the variant
+ used by iSCSI, ext4, and LevelDB. Same contract as crc32.
+
+**Parameters:**
+
+- `data` (string) - The data to checksum
+- `initial` (integer?) - Checksum to continue from (default 0)
+
+**Returns:**
+
+- integer - The CRC-32C checksum as an unsigned 32-bit integer
 
 ### encode_latin1
 

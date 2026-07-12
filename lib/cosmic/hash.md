@@ -1,15 +1,24 @@
 # hash
 
  Hash utilities.
- Wraps cosmo.Sha256 and cosmo.argon2 for digest and password hashing.
+ Wraps cosmo.GetCryptoHash and cosmo.argon2 for digest, HMAC, and
+ password hashing.
 
  Example usage:
    local hash = require("cosmic.hash")
    local digest = hash.sha256_hex("hello")
+   local d = hash.digest("sha512", "hello")
+   local tag = hash.hmac("sha256", "secret", "message")
    local encoded = hash.password("password123")
    local valid = hash.verify_password(encoded, "password123")
 
- For random bytes, use cosmic.rand.bytes(n).
+ Digest and HMAC functions return raw bytes; hex-encode with
+ cosmic.codec.encode_hex if needed. For CRC-32 checksums, see
+ cosmic.codec.crc32. For random bytes, use cosmic.rand.bytes(n).
+
+ Reserved name: hash.new(algo): Hasher — a streaming digest object
+ API (update/final) is reserved for a post-stable battery. Do not
+ reuse this name for anything else.
 
 ## Types
 
@@ -37,6 +46,8 @@ end
 
 ```teal
 local record HashModule
+  digest: function(algo: Algo, data: string): string | nil, string
+  hmac: function(algo: Algo, key: string, data: string): string | nil, string
   sha256: function(data: string): string
   sha256_hex: function(data: string): string
   hmac_sha256: function(key: string, data: string): string
@@ -81,6 +92,52 @@ function sha256_hex(data: string): string
 **Returns:**
 
 - string - The SHA-256 hash as a hex string
+
+### digest
+
+```teal
+function digest(algo: Algo, data: string): string | nil, string
+```
+
+ Compute a message digest of data with the given algorithm.
+ Returns raw bytes; hex-encode with cosmic.codec.encode_hex if
+ needed. For the common case, sha256 / sha256_hex are equivalent
+ conveniences. MD5 and SHA-1 are provided for interoperability with
+ existing formats only — do not use them for new security purposes.
+
+**Parameters:**
+
+- `algo` (Algo) - The digest algorithm
+- `data` (string) - The data to hash
+
+**Returns:**
+
+- string - | nil The digest as raw bytes, or nil on error
+- string? - Error message if the algorithm is unknown
+
+### hmac
+
+```teal
+function hmac(algo: Algo, key: string, data: string): string | nil, string
+```
+
+ Compute an HMAC (RFC 2104) of data with a secret key using the
+ given digest algorithm. Returns raw bytes; hex-encode with
+ cosmic.codec.encode_hex if needed. Compare MACs with
+ constant_time_equal, not ==. The key must be non-empty: the C
+ binding treats an empty key as "no key" and would silently compute
+ a plain digest instead of an HMAC.
+
+**Parameters:**
+
+- `algo` (Algo) - The digest algorithm
+- `key` (string) - The secret key (must be non-empty)
+- `data` (string) - The message to authenticate
+
+**Returns:**
+
+- string - | nil The HMAC tag as raw bytes, or nil on error
+- string? - Error message if the algorithm is unknown or the key is empty
 
 ### hmac_sha256
 
