@@ -33,6 +33,10 @@ local record Server
 end
 
 local record ServeModule
+  --- The Server record new() returns, exported so callers (tests
+  --- included) can name it instead of casting to structural twins.
+  type Server = Server
+
   --- A single allowlist rule. `type` nil means pass-through
   --- (allowed, no header injection). Fields not relevant to the
   --- chosen type are ignored.
