@@ -315,7 +315,6 @@ end
 --- ```
 local function Example_makefile()
   local testrun = require("cosmic.testrun")
-  local fs = require("cosmic.fs")
   local tmpdir = fs.mkdtemp("/tmp/testrun_example_XXXXXX")
   if not tmpdir then return end
 

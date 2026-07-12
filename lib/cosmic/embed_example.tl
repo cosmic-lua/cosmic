@@ -117,4 +117,10 @@ local function Example_embed_from_teal()
   -- hello from teal
 end
 
-return {}
+-- Suppress unused warnings for examples
+local _ = {
+  Example_embed_directory,
+  Example_extract_roundtrip,
+  Example_embed_with_libraries,
+  Example_embed_from_teal,
+}

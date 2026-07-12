@@ -167,11 +167,11 @@ make_handle = function(fd: number): Handle
   end
 
   --- File control operations. cmd: F_GETFD, F_SETFD, F_GETFL, F_SETFL, F_SETLK, etc.
-  function handle:fcntl(cmd: number, arg?: number): number | nil, string
+  function handle:fcntl(cmd: number, value?: number): number | nil, string
     if not handle_fd then
       return nil, "handle closed"
     end
-    local result, err = unix.fcntl(handle_fd, cmd, arg)
+    local result, err = unix.fcntl(handle_fd, cmd, value)
     if result == nil then
       return nil, errstr(err, "fcntl")
     end

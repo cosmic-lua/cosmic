@@ -130,4 +130,10 @@ local function Example_portable_executable()
   -- portable app
 end
 
-return {}
+-- Suppress unused warnings for examples
+local _ = {
+  Example_shebang,
+  Example_script_args,
+  Example_install_to_path,
+  Example_portable_executable,
+}

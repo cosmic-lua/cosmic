@@ -35,4 +35,5 @@ assert(proc.no_new_privs())
   hh:wait()
 end
 
-return {}
+-- Suppress unused warnings for examples
+local _ = {Example_default_signals, Example_drop_privs_noop, Example_no_new_privs_subprocess}

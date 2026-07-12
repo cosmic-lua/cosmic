@@ -75,7 +75,7 @@ if if if
 
   local h4 = spawn.spawn({cosmic, script})
   local __r4 = (h4 as spawn.Handle):wait() as spawn.Result
-  local ok, out = __r4.ok, __r4.stdout
+  local ok = __r4.ok
   assert(not ok, "cosmic should fail on .tl file with syntax error")
 end
 test_teal_syntax_error()

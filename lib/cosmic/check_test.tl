@@ -32,7 +32,7 @@ local y: string = "hello"
 print(x, y)
 ]])
 
-  local ok, out = check_run({cosmic, "--check-types", input})
+  local ok, _out = check_run({cosmic, "--check-types", input})
   assert(ok, "cosmic --check-types should succeed on valid file")
 end
 test_check_valid()
@@ -43,7 +43,7 @@ local function test_check_type_error()
 local x: number = "not a number"
 ]])
 
-  local ok, out = check_run({cosmic, "--check-types", input})
+  local ok, _out = check_run({cosmic, "--check-types", input})
   assert(not ok, "cosmic --check-types should fail on type error")
 end
 test_check_type_error()
@@ -54,26 +54,38 @@ local function test_check_undefined_variable()
 local x: number = undefined_var
 ]])
 
-  local ok, out = check_run({cosmic, "--check-types", input})
+  local ok, _out = check_run({cosmic, "--check-types", input})
   assert(not ok, "cosmic --check-types should fail on undefined variable")
 end
 test_check_undefined_variable()
 
--- Test check reports warnings (but succeeds)
-local function test_check_warnings()
+-- Test check treats warnings as errors: an unused local must fail the check.
+local function test_check_warnings_fail()
   local input = write_temp("warnings.tl", [[
 local x: number = 42
--- x is unused, should generate warning but not fail
+-- x is unused: warnings are errors, so this must fail
+]])
+
+  local ok, _out = check_run({cosmic, "--check-types", input})
+  assert(not ok, "cosmic --check-types must fail on warnings")
+end
+test_check_warnings_fail()
+
+-- Test the sanctioned suppression: a leading underscore marks a value as
+-- deliberately unused, so the same file with _x passes.
+local function test_check_underscore_suppresses_unused()
+  local input = write_temp("warnings_ok.tl", [[
+local _x: number = 42
 ]])
 
   local ok, out = check_run({cosmic, "--check-types", input})
-  assert(ok, "cosmic --check-types should succeed with only warnings")
+  assert(ok, "leading-underscore locals must not warn: " .. tostring(out))
 end
-test_check_warnings()
+test_check_underscore_suppresses_unused()
 
 -- Test check on missing file
 local function test_check_missing_file()
-  local ok, out = check_run({cosmic, "--check-types", "/nonexistent/file.tl"})
+  local ok, _out = check_run({cosmic, "--check-types", "/nonexistent/file.tl"})
   assert(not ok, "cosmic --check-types should fail on missing file")
 end
 test_check_missing_file()
@@ -86,7 +98,7 @@ local result: string = fs.join("a", "b")
 print(result)
 ]])
 
-  local ok, out = check_run({cosmic, "--check-types", input})
+  local ok, _out = check_run({cosmic, "--check-types", input})
   assert(ok, "check with cosmic types should succeed")
 end
 test_check_with_cosmic_types()

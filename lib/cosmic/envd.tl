@@ -122,11 +122,11 @@ end
 local function load_dir(dir: string): LoadResult
   local result: LoadResult = {count = 0, source = dir, errors = {}}
   local cosmic_debug_val = env.get("COSMIC_DEBUG")
-  local debug = cosmic_debug_val ~= nil and cosmic_debug_val ~= ""
+  local debug_on = cosmic_debug_val ~= nil and cosmic_debug_val ~= ""
 
   local dh, dh_err = fs.opendir(dir)
   if not dh then
-    if debug then
+    if debug_on then
       io.stderr:write("[envd] skip " .. dir .. ": " .. (dh_err or "not found") .. "\n")
     end
     return result
@@ -158,7 +158,7 @@ local function load_dir(dir: string): LoadResult
       end
     else
       table.insert(result.errors, "envd: " .. (read_err or (name .. ": unreadable")))
-      if debug then
+      if debug_on then
         io.stderr:write("[envd] skip " .. name .. ": " .. (read_err or "unreadable") .. "\n")
       end
     end
@@ -174,7 +174,7 @@ local function load_dir(dir: string): LoadResult
   for _, key in ipairs(keys) do
     local existing = env.get(key)
     if existing then
-      if debug then
+      if debug_on then
         io.stderr:write("[envd] skip " .. key .. " from " .. sources[key] .. ": overridden by environment\n")
       end
     else
@@ -184,13 +184,13 @@ local function load_dir(dir: string): LoadResult
       else
         result.count = result.count + 1
       end
-      if debug then
+      if debug_on then
         io.stderr:write("[envd] set " .. key .. " from " .. sources[key] .. "\n")
       end
     end
   end
 
-  if debug then
+  if debug_on then
     io.stderr:write("[envd] loaded " .. tostring(result.count) .. " variable(s) from " .. dir .. "\n")
   end
 
@@ -200,7 +200,7 @@ end
 --- Load env vars from the embedded /zip/embed/env.d directory.
 --- Call this early in startup, before code that depends on the variables.
 --- @return LoadResult Result with count of variables set and source path
-local function load(): LoadResult
+local function load_envd(): LoadResult
   return load_dir(ENVD_PATH)
 end
 
@@ -212,7 +212,7 @@ local record EnvdModule
 end
 
 local M: EnvdModule = {
-  load = load,
+  load = load_envd,
   load_dir = load_dir,
   parse = parse,
   expand = expand,

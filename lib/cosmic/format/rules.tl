@@ -115,19 +115,6 @@ local function is_long_comment(tk: string): boolean
   or (tk:sub(1, 3) == "--[" and tk:sub(4, 4) == "=")
 end
 
---- Check if a colon is in method-call position (vs type annotation).
-local function is_method_colon(prev: Item, next_item: Item): boolean
-  if not prev or not next_item then
-    return false
-  end
-  if next_item.kind == "identifier" then
-    if prev.kind == "identifier" or prev.tk == ")" or prev.tk == "]" or prev.kind == "string" then
-      return true
-    end
-  end
-  return false
-end
-
 --- Determine if we need a space between two adjacent items on the same line.
 local function needs_space(prev_prev: Item, prev: Item, cur: Item, next_item: Item): boolean
   if cur.kind == "comment" then

@@ -31,4 +31,5 @@ local function Example_start_stop()
   h:stop()
 end
 
-return {}
+-- Suppress unused warnings for examples
+local _ = {Example_start_stop}

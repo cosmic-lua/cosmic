@@ -10,7 +10,7 @@ cosmic --make . check           # generate Makefile and type-check all files
 make check                      # if you have a saved Makefile
 ```
 
-`--check-types` runs Teal in strict mode. it reports errors and warnings on stderr. exit code 0 means the file passes.
+`--check-types` runs Teal in strict mode. it reports errors and warnings on stderr. exit code 0 means the file passes. warnings are treated as errors: an unused local, shadowed variable, or unreachable branch fails the check. mark a deliberately-unused value with a leading underscore (`local _out`, `_self: Poller`) to suppress the unused warning.
 
 ### Makefile Rules for Type Checking
 

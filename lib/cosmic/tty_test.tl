@@ -88,7 +88,7 @@ local function test_winsize_structure()
     io.stderr:write("SKIP: test_winsize_structure (stdout is not a tty)\n")
     return
   end
-  local ws, err = tty.winsize(1)
+  local ws, _err = tty.winsize(1)
   if ws then
     local w = ws as tty.WinSize
     assert(w.rows ~= nil, "winsize should have rows field")
@@ -139,7 +139,7 @@ local function test_getattr_structure()
     io.stderr:write("SKIP: test_getattr_structure (stdin is not a tty)\n")
     return
   end
-  local termios, err = tty.getattr(0)
+  local termios, _err = tty.getattr(0)
   if termios then
     local t = termios as tty.Termios
     assert(t.iflag ~= nil, "termios should have iflag")

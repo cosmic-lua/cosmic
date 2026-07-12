@@ -11,16 +11,6 @@ local embed = require("cosmic.embed")
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
-local function write_temp(name: string, content: string): string
-  local filepath = fs.join(tmpdir, name)
-  local dir = fs.dirname(filepath)
-  if dir ~= tmpdir then
-    fs.makedirs(dir)
-  end
-  fs.write(filepath, content)
-  return filepath
-end
-
 -- Test --extract extracts zip contents
 local function test_extract()
   local extractdir = fs.join(tmpdir, "extracted")

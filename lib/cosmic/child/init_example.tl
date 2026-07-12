@@ -97,4 +97,12 @@ local function Example_run_pipe()
   -- exit:	0
 end
 
-return {}
+-- Suppress unused warnings for examples
+local _ = {
+  Example_run,
+  Example_run_stdin,
+  Example_run_exit_code,
+  Example_kill,
+  Example_wait_timeout,
+  Example_run_pipe,
+}

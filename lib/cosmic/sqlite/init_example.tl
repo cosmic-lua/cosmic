@@ -120,4 +120,12 @@ local function Example_query_like()
   -- src/util.tl
 end
 
-return {}
+-- Suppress unused warnings for examples
+local _ = {
+  Example_open_file,
+  Example_open,
+  Example_prepared,
+  Example_query_params,
+  Example_exec_params,
+  Example_query_like,
+}

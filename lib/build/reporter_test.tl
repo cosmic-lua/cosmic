@@ -52,7 +52,7 @@ local function test_single_checker_mode()
   write_test_result(fs.join(test_dir, "test1.test"), 0, "all good\n", "")
   write_test_result(fs.join(test_dir, "test2.test"), 1, "", "assertion failed\n")
 
-  local code, stdout, stderr = run_reporter(
+  local code, stdout, _stderr = run_reporter(
     "--dir", test_dir,
     fs.join(test_dir, "test1.test.got"),
     fs.join(test_dir, "test2.test.got")
@@ -74,7 +74,7 @@ local function test_all_passing()
   write_test_result(fs.join(test_dir, "test1.test"), 0, "ok\n", "")
   write_test_result(fs.join(test_dir, "test2.test"), 0, "ok\n", "")
 
-  local code, stdout, stderr = run_reporter(
+  local code, stdout, _stderr = run_reporter(
     "--dir", test_dir,
     fs.join(test_dir, "test1.test.got"),
     fs.join(test_dir, "test2.test.got")
@@ -93,7 +93,7 @@ local function test_directory_stripping()
 
   write_test_result(fs.join(test_dir, "subdir", "file.test"), 0, "ok\n", "")
 
-  local code, stdout, stderr = run_reporter(
+  local code, stdout, _stderr = run_reporter(
     "--dir", test_dir,
     fs.join(test_dir, "subdir", "file.test.got")
   )
@@ -106,7 +106,7 @@ test_directory_stripping()
 
 -- test missing --dir flag
 local function test_missing_dir_flag()
-  local code, stdout, stderr = run_reporter("file.test.got")
+  local code, _stdout, stderr = run_reporter("file.test.got")
 
   assert(code == 1, "expected exit code 1")
   assert(stderr:match("%-%-dir is required"), "expected error about --dir")
@@ -115,7 +115,7 @@ test_missing_dir_flag()
 
 -- test no files specified
 local function test_no_files()
-  local code, stdout, stderr = run_reporter("--dir", tmpdir)
+  local code, _stdout, stderr = run_reporter("--dir", tmpdir)
 
   assert(code == 1, "expected exit code 1")
   assert(stderr:match("usage:"), "expected usage error")
@@ -129,7 +129,7 @@ local function test_message_from_stderr()
 
   write_test_result(fs.join(test_dir, "fail.test"), 1, "", "first line error\nsecond line\n")
 
-  local code, stdout, stderr = run_reporter(
+  local code, stdout, _stderr = run_reporter(
     "--dir", test_dir,
     fs.join(test_dir, "fail.test.got")
   )

@@ -93,7 +93,7 @@ local function new(): Poller
 
   local poller: Poller = {}
 
-  poller.add = function(self: Poller, fd: number, events: number)
+  poller.add = function(_self: Poller, fd: number, events: number)
     if fd == nil then
       -- A nil fd is a caller bug (e.g. an unchecked open); registering
       -- nothing would silently turn every wait into a timeout.
@@ -102,23 +102,23 @@ local function new(): Poller
     fds[fd] = events
   end
 
-  poller.remove = function(self: Poller, fd: number)
+  poller.remove = function(_self: Poller, fd: number)
     if fd then
       fds[fd] = nil
       results[fd] = nil
     end
   end
 
-  poller.clear = function(self: Poller)
+  poller.clear = function(_self: Poller)
     fds = {}
     results = {}
   end
 
-  poller.empty = function(self: Poller): boolean
+  poller.empty = function(_self: Poller): boolean
     return next(fds) == nil
   end
 
-  poller.count = function(self: Poller): number
+  poller.count = function(_self: Poller): number
     local n = 0
     for _ in pairs(fds) do
       n = n + 1
@@ -126,7 +126,7 @@ local function new(): Poller
     return n
   end
 
-  poller.poll = function(self: Poller, timeoutms: number): number | nil, string
+  poller.poll = function(_self: Poller, timeoutms: number): number | nil, string
     -- Retry when a signal interrupts the wait: an unretried EINTR otherwise
     -- surfaces as a poll failure, and a caller that loops on it (e.g. a drain
     -- loop waiting on a child that raised SIGCHLD) spins at 100% CPU.
@@ -150,7 +150,7 @@ local function new(): Poller
     return ready
   end
 
-  poller.events = function(self: Poller, fd: number): Events | nil
+  poller.events = function(_self: Poller, fd: number): Events | nil
     local revents = results[fd]
     if revents then
       return make_events(revents)

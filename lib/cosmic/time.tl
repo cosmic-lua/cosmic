@@ -26,18 +26,6 @@ local record DateTime
   zone: string -- Timezone name (e.g., "UTC", "PDT")
 end
 
---- Clock identifiers for clock_gettime().
-local record Clock
-  REALTIME: number -- Wall clock, subject to NTP adjustments
-  MONOTONIC: number -- Monotonic clock, not affected by system time changes
-  BOOTTIME: number -- Monotonic clock including suspend time
-  MONOTONIC_RAW: number -- Raw monotonic clock, not adjusted for NTP
-  REALTIME_COARSE: number -- Faster but less precise real time clock
-  MONOTONIC_COARSE: number -- Faster but less precise monotonic clock
-  THREAD_CPUTIME_ID: number -- CPU time for current thread
-  PROCESS_CPUTIME_ID: number -- CPU time for current process
-end
-
 --- Get current time from the specified clock.
 --- Returns seconds since epoch and nanoseconds.
 --- @param clock number? Clock identifier (default: CLOCK_REALTIME)
