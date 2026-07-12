@@ -26,6 +26,10 @@ local record FsModule
   dirname: function(str: string): string
   basename: function(str: string): string
   join: function(...: string): string
+  --  Current user's home directory (nil + error when unset).
+  home: function(): string | nil, string
+  --  Expand a leading "~" or "~/" to the home directory.
+  expanduser: function(p: string): string
   exists: function(path: string): boolean
   isfile: function(path: string): boolean
   isdir: function(path: string): boolean
