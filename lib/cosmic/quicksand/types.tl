@@ -38,6 +38,8 @@ local record NetOptions
   allow: {string: NetRule}
   log_level: LogLevel
   resolve_timeout_ms: integer -- per-dial DNS budget; <=0 opts out
+  max_body_bytes: integer -- proxy request-body cap; larger
+  -- Content-Lengths get 413. nil = 64 MiB, <=0 disables
 end
 
 --- The filesystem policy is cosmic.sandbox's Fs schema (ro/rw/exec

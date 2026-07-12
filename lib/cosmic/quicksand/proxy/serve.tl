@@ -57,6 +57,9 @@ local record ServeModule
     accept_backlog: integer -- default 32
     resolve_timeout_ms: integer -- per-dial DNS deadline in ms;
     -- nil = 5000, <= 0 disables the deadline entirely
+    max_body_bytes: integer -- request-body cap in bytes; a larger
+    -- Content-Length is refused with 413 before any body byte is
+    -- buffered. nil = 64 MiB, <= 0 disables the cap
     on_log: function({string: any}) -- overrides the default sink
   end
 
@@ -151,6 +154,12 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
   elseif opts.resolve_timeout_ms > 0 then
     resolve_timeout_ms = opts.resolve_timeout_ms
   end
+  local max_body_bytes: integer
+  if opts.max_body_bytes == nil then
+    max_body_bytes = 64 * 1024 * 1024
+  elseif opts.max_body_bytes > 0 then
+    max_body_bytes = opts.max_body_bytes
+  end
   local listen_fd: integer
 
   -- Reply with a canned response and close the client socket.
@@ -225,8 +234,24 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
       refuse(client_fd, http.DENY)
       return
     end
-    -- Read the request body (Content-Length only).
+    -- Read the request body (Content-Length only). A malformed
+    -- Content-Length is a 400; an over-cap one is refused with 413
+    -- before a single body byte is read, so a client inside the box
+    -- cannot make this worker buffer an attacker-chosen amount of
+    -- memory (#497).
     local clen = http.content_length(parsed)
+    if not clen then
+      logger.warn("bad_content_length",
+        {method = method, host = host, path = path})
+      refuse(client_fd, http.BAD_REQUEST)
+      return
+    end
+    if max_body_bytes and clen > max_body_bytes then
+      logger.warn("body_too_large", {method = method, host = host,
+          path = path, content_length = clen, max = max_body_bytes})
+      refuse(client_fd, http.PAYLOAD_TOO_LARGE)
+      return
+    end
     local body: string
     if clen > 0 then
       local b = http.read_body(client_fd, clen, leftover)
