@@ -93,6 +93,41 @@ local function decode_base64(str: string): string | nil, string
   return cosmo.DecodeBase64(str)
 end
 
+--- Encode binary data as base64url (RFC 4648 section 5).
+--- The URL- and filename-safe variant: "-" and "_" replace "+" and
+--- "/", and no "=" padding is emitted.
+--- @param data string The binary data to encode
+--- @return string The base64url encoded string
+local function encode_base64url(data: string): string
+  local b64 = cosmo.EncodeBase64(data)
+  b64 = string.gsub(b64, "%+", "-")
+  b64 = string.gsub(b64, "/", "_")
+  b64 = string.gsub(b64, "=", "")
+  return b64
+end
+
+--- Decode a base64url string to binary data.
+--- Accepts the URL-safe alphabet ("-" and "_") with or without "="
+--- padding. Standard-alphabet characters ("+", "/") are rejected.
+--- @param str string The base64url string to decode
+--- @return string | nil The decoded binary data, or nil on error
+--- @return string? Error message if decoding failed
+local function decode_base64url(str: string): string | nil, string
+  local content, padding = str:match("^([A-Za-z0-9%-_]*)(%=*)$")
+  if not content then
+    if str:match("[^A-Za-z0-9%-_=]") then
+      return nil, "invalid base64url character"
+    end
+    return nil, "invalid base64url: padding in middle"
+  end
+  if #padding > 2 then
+    return nil, "invalid base64url padding"
+  end
+  local b64 = string.gsub(content as string, "%-", "+")
+  b64 = string.gsub(b64, "_", "/")
+  return cosmo.DecodeBase64(b64)
+end
+
 --- Encode binary data as base32.
 --- Uses lowercase base32 alphabet (0-9a-v excluding i, l, o, u).
 --- @param data string The binary data to encode
@@ -175,6 +210,8 @@ local record CodecModule
   decode_lua_unsafe: function(code: string): any | nil, string
   encode_base64: function(data: string): string
   decode_base64: function(str: string): string | nil, string
+  encode_base64url: function(data: string): string
+  decode_base64url: function(str: string): string | nil, string
   encode_base32: function(data: string): string
   decode_base32: function(str: string): string | nil, string
   crc32: function(data: string, initial?: integer): integer
@@ -190,6 +227,8 @@ local M: CodecModule = {
   decode_lua_unsafe = decode_lua_unsafe,
   encode_base64 = encode_base64,
   decode_base64 = decode_base64,
+  encode_base64url = encode_base64url,
+  decode_base64url = decode_base64url,
   encode_base32 = encode_base32,
   decode_base32 = decode_base32,
   crc32 = crc32,
