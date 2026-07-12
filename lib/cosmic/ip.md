@@ -38,6 +38,33 @@ local record Addr
 end
 ```
 
+### Cidr
+
+ A parsed IPv4 CIDR block (e.g. "10.0.0.0/8"). Compares by value
+ and formats with tostring(). Construct with cidr().
+
+```teal
+local record Cidr
+  _n: integer
+  _bits: integer
+  --  Prefix length (0-32).
+  bits: function(Cidr): integer
+  --  First address of the block (the network address).
+  network: function(Cidr): Addr
+  --  The netmask (e.g. 255.255.255.0 for /24).
+  netmask: function(Cidr): Addr
+  --  Last address of the block (the broadcast address).
+  broadcast: function(Cidr): Addr
+  --  Number of addresses in the block (including network/broadcast).
+  size: function(Cidr): number
+  --  Check whether the block contains an address.
+  --  message) when a string address does not parse
+  contains: function(Cidr, Addr | string): boolean, string
+  --  Format as "addr/bits" (same as tostring()).
+  format: function(Cidr): string
+end
+```
+
 ### IpModule
 
 ```teal
@@ -45,6 +72,7 @@ local record IpModule
   Addr: Addr
   addr: function(n: number): Addr
   parse: function(str: string): Addr | nil, string
+  cidr: function(str: string): Cidr | nil, string
   lookup: function(hostname: string): Addr | nil, string
 end
 ```
@@ -107,3 +135,24 @@ function lookup(hostname: string): Addr | nil, string
 
 - Addr? - The resolved IP address, or nil on error
 - string? - Error message on failure
+
+### cidr
+
+```teal
+function cidr(str: string): Cidr | nil, string
+```
+
+ Parse an IPv4 CIDR block ("addr/prefix", e.g. "192.168.0.0/16").
+ The address part follows parse()'s strict dotted-quad rules; the
+ prefix must be a decimal 0-32 without leading zeros. Host bits set
+ below the prefix are masked away (like Go's ParseCIDR):
+ cidr("10.1.2.3/8") is the 10.0.0.0/8 block.
+
+**Parameters:**
+
+- `str` (string) - The CIDR string to parse
+
+**Returns:**
+
+- Cidr - | nil The parsed block, or nil on error
+- string - Error message if parsing failed
