@@ -89,3 +89,119 @@ local function test_int_invalid_args()
   assert(err and err:match("range"), "expected range error, got: " .. tostring(err))
 end
 test_int_invalid_args()
+
+-- float (#501)
+
+local function test_float_range()
+  for _ = 1, 200 do
+    local f = assert(rand.float())
+    assert(f >= 0 and f < 1, "float() out of [0,1): " .. tostring(f))
+    assert(math.type(f) == "float", "float() should return a float")
+  end
+end
+test_float_range()
+
+local function test_float_varies()
+  local a = assert(rand.float())
+  local b = assert(rand.float())
+  assert(a ~= b, "two float() draws should differ")
+end
+test_float_varies()
+
+-- choice (#501)
+
+local function test_choice_picks_member()
+  local list = {"a", "b", "c"}
+  for _ = 1, 50 do
+    local v = assert(rand.choice(list))
+    assert(v == "a" or v == "b" or v == "c", "choice returned non-member: " .. tostring(v))
+  end
+end
+test_choice_picks_member()
+
+local function test_choice_covers_all()
+  local seen: {string: boolean} = {}
+  for _ = 1, 200 do
+    seen[assert(rand.choice({"x", "y", "z"})) as string] = true
+  end
+  assert(seen.x and seen.y and seen.z, "choice never produced some member in 200 draws")
+end
+test_choice_covers_all()
+
+local function test_choice_single_and_empty()
+  assert(rand.choice({42}) == 42, "single-element choice must return it")
+  local v, err = rand.choice({})
+  assert(v == nil and err ~= nil, "empty list should fail with an error")
+end
+test_choice_single_and_empty()
+
+-- shuffle (#501)
+
+local function test_shuffle_permutes()
+  local list = {1, 2, 3, 4, 5, 6, 7, 8}
+  local out = assert(rand.shuffle(list))
+  assert(out == list, "shuffle should return the same list (in place)")
+  assert(#out == 8, "shuffle must preserve length")
+  local seen: {number: boolean} = {}
+  for _, v in ipairs(out) do
+    seen[v as number] = true
+  end
+  for v = 1, 8 do
+    assert(seen[v], "shuffle lost element " .. v)
+  end
+end
+test_shuffle_permutes()
+
+local function test_shuffle_actually_shuffles()
+  -- With 20 elements, 30 identity shuffles in a row is impossible in
+  -- practice (P = (1/20!)^30).
+  local moved = false
+  for _ = 1, 30 do
+    local list: {integer} = {}
+    for i = 1, 20 do
+      list[i] = i
+    end
+    assert(rand.shuffle(list as {any}))
+    for i = 1, 20 do
+      if list[i] ~= i then
+        moved = true
+      end
+    end
+    if moved then
+      break
+    end
+  end
+  assert(moved, "shuffle never changed the order")
+end
+test_shuffle_actually_shuffles()
+
+local function test_shuffle_small()
+  assert(#assert(rand.shuffle({})) == 0, "empty shuffle should be a no-op")
+  local one = assert(rand.shuffle({7})) as {any}
+  assert(#one == 1 and one[1] == 7, "single-element shuffle should be a no-op")
+end
+test_shuffle_small()
+
+-- token (#501)
+
+local function test_token_default()
+  local t = assert(rand.token()) as string
+  assert(#t == 32, "default token length should be 32, got " .. #t)
+  assert(t:match("^[%w]+$"), "token must be alphanumeric, got: " .. t)
+end
+test_token_default()
+
+local function test_token_length_and_uniqueness()
+  local t = assert(rand.token(8))
+  assert(#t == 8, "token(8) length should be 8")
+  local a = assert(rand.token(24))
+  local b = assert(rand.token(24))
+  assert(a ~= b, "two tokens should differ")
+end
+test_token_length_and_uniqueness()
+
+local function test_token_invalid_length()
+  local t, err = rand.token(0)
+  assert(t == nil and err ~= nil, "token(0) should fail")
+end
+test_token_invalid_length()

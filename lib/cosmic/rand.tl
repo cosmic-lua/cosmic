@@ -74,15 +74,92 @@ local function int(min: integer, max: integer): integer | nil, string
   end
 end
 
+--- Generate a cryptographically secure uniform float in [0, 1).
+--- Uses 53 random bits, so the result has full double precision.
+--- @return number | nil The random float, or nil on failure
+--- @return string? Error message on failure
+local function float(): number | nil, string
+  local v, err = int(0, (1 << 53) - 1)
+  if not v then
+    return nil, err
+  end
+  return v / (1 << 53)
+end
+
+--- Pick one element of a list uniformly at random (crypto-grade).
+--- @param list {any} The list to pick from
+--- @return any The chosen element, or nil on failure or empty list
+--- @return string? Error message on failure or empty list
+local function choice(list: {any}): any, string
+  if #list == 0 then
+    return nil, "rand.choice: empty list"
+  end
+  local i, err = int(1, #list)
+  if not i then
+    return nil, err
+  end
+  return list[i as integer]
+end
+
+--- Shuffle a list in place with an unbiased Fisher-Yates pass
+--- (crypto-grade). Returns the same list for call chaining.
+--- @param list {any} The list to shuffle (mutated in place)
+--- @return {any} | nil The shuffled list, or nil on failure
+--- @return string? Error message on failure
+local function shuffle(list: {any}): {any} | nil, string
+  for i = #list, 2, -1 do
+    local j, err = int(1, i)
+    if not j then
+      return nil, err
+    end
+    local jj = j as integer
+    list[i], list[jj] = list[jj], list[i]
+  end
+  return list
+end
+
+local TOKEN_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+
+--- Generate a random alphanumeric token (crypto-grade, unbiased).
+--- Tokens are URL- and filename-safe. Each character carries ~5.95 bits
+--- of entropy, so the default 32 characters give ~190 bits.
+--- @param len integer? Token length in characters (default 32)
+--- @return string | nil The token, or nil on failure
+--- @return string? Error message on failure
+local function token(len?: integer): string | nil, string
+  len = len or 32
+  if len < 1 then
+    return nil, "rand.token: len must be positive"
+  end
+  local chars: {string} = {}
+  for i = 1, len do
+    local j, err = int(1, #TOKEN_ALPHABET)
+    if not j then
+      return nil, err
+    end
+    local jj = j as integer
+    chars[i] = TOKEN_ALPHABET:sub(jj, jj)
+  end
+  return table.concat(chars)
+end
+
 local record RandModule
   bytes: function(n: number): string | nil, string
   int: function(min: integer, max: integer): integer | nil, string
+  float: function(): number | nil, string
+  choice: function(list: {any}): any, string
+  shuffle: function(list: {any}): {any} | nil, string
+  token: function(len?: integer): string | nil, string
   rand64: function(): number
 end
 
 local M: RandModule = {
   bytes = bytes,
   int = int,
+  float = float,
+  choice = choice,
+  shuffle = shuffle,
+  token = token,
   rand64 = rand64,
 }
 
