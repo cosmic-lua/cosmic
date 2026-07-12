@@ -26,6 +26,20 @@ local record Regex
 end
 ```
 
+### Span
+
+ A located match: absolute 1-based start/stop, the matched text,
+ and its capture groups.
+
+```teal
+local record Span
+  s: integer
+  e: integer
+  m: string
+  caps: {string}
+end
+```
+
 ### ReModule
 
 ```teal
@@ -33,6 +47,9 @@ local record ReModule
   compile: function(pattern: string, flags?: number): Regex | nil, string
   search: function(pattern: string, text: string, flags?: number): string | nil, {string} | nil, string | nil
   test: function(pattern: string, text: string, flags?: number): boolean, string
+  findall: function(pattern: string, text: string, flags?: number): {string} | nil, string
+  split: function(pattern: string, text: string, flags?: number): {string} | nil, string
+  gsub: function(pattern: string, text: string, repl: Repl, flags?: number): string | nil, string
   BASIC: number
   ICASE: number
   NEWLINE: number
@@ -112,3 +129,66 @@ function test(pattern: string, text: string, flags?: number): boolean, string
 
 - boolean - True if pattern matches, false otherwise
 - string? - Error message if compilation or the engine failed
+
+### findall
+
+```teal
+function findall(pattern: string, text: string, flags?: number): {string} | nil, string
+```
+
+ Find every non-overlapping match of pattern in text, leftmost
+ first. Patterns that can match the empty string are rejected.
+
+**Parameters:**
+
+- `pattern` (string) - The regex pattern to match
+- `text` (string) - The text to search in
+- `flags` (number?) - Optional compile flags: BASIC, ICASE, NEWLINE
+
+**Returns:**
+
+- {string} - | nil The matched substrings (empty when none), or nil on error
+- string? - Error message on a bad pattern or engine failure
+
+### split
+
+```teal
+function split(pattern: string, text: string, flags?: number): {string} | nil, string
+```
+
+ Split text around every match of pattern. Fields between matches
+ are kept verbatim, including empty ones from adjacent or
+ leading/trailing matches; text with no match yields one field.
+ Patterns that can match the empty string are rejected.
+
+**Parameters:**
+
+- `pattern` (string) - The regex pattern to split on
+- `text` (string) - The text to split
+- `flags` (number?) - Optional compile flags: BASIC, ICASE, NEWLINE
+
+**Returns:**
+
+- {string} - | nil The fields, or nil on error
+- string? - Error message on a bad pattern or engine failure
+
+### gsub
+
+```teal
+function gsub(pattern: string, text: string, repl: Repl, flags?: number): string | nil, string
+```
+
+ Replace every non-overlapping match of pattern in text.
+ Patterns that can match the empty string are rejected.
+
+**Parameters:**
+
+- `pattern` (string) - The regex pattern to match
+- `text` (string) - The text to operate on
+- `repl` (Repl) - A literal replacement string, or function(match, caps)
+- `flags` (number?) - Optional compile flags: BASIC, ICASE, NEWLINE
+
+**Returns:**
+
+- string - | nil The result, or nil on error
+- string? - Error message on a bad pattern or engine failure
