@@ -77,7 +77,8 @@ local record FsModule
   sync: function()
   major: function(dev: number): number
   minor: function(dev: number): number
-  walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T): T | nil, string
+  walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string
+  glob: function(dir: string, pattern: string): {string} | nil, string
   collect: function(dir: string, pattern: string): {string} | nil, string
   collect_matching: function(dir: string, lua_pattern: string): {string} | nil, string
   collect_all: function(dir: string): {string: FileInfo} | nil, string
