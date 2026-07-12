@@ -40,6 +40,10 @@ local record Socket
   shutdown: function(self: Socket, how?: number): boolean, string
   --- Send data; returns bytes sent, or nil + error.
   send: function(self: Socket, data: string, flags?: number): number | nil, string
+  --- Send all of data, retrying partial writes until done.
+  --- Returns false + error if any write fails; bytes already sent
+  --- before the failure stay sent.
+  sendall: function(self: Socket, data: string, flags?: number): boolean, string
   --- Send a datagram to addr:port; returns bytes sent, or nil + error.
   sendto: function(self: Socket, data: string, addr: Address, port: number, flags?: number): number | nil, string
   --- Receive up to bufsiz bytes (blocks until data arrives).
@@ -49,6 +53,17 @@ local record Socket
   --- nil + error message on failure. bufsiz must be positive when
   --- given (default 65536).
   recv: function(self: Socket, bufsiz?: number, flags?: number): string | nil, string
+  --- Receive exactly n bytes from a stream socket, blocking until they
+  --- arrive. Returns nil + error if the peer closes the connection
+  --- first (bytes read before the close are discarded).
+  recv_exact: function(self: Socket, n: number, flags?: number): string | nil, string
+  --- Read one line from a stream socket, blocking until a "\n" arrives.
+  --- The trailing "\n" (and a "\r" before it) is consumed but not
+  --- returned. At end of stream a final unterminated line is returned
+  --- as-is; after that (or on an empty stream) returns bare nil, matching
+  --- the stream contract. With max set, returns at most max bytes even
+  --- if no newline was seen (the rest stays readable), like fgets.
+  readline: function(self: Socket, max?: number): string | nil, string
   --- Receive a datagram; returns data, sender Addr, sender port.
   recvfrom: function(self: Socket, bufsiz?: number, flags?: number): string | nil, ip.Addr, number, string
   --- Local address as (Addr, port); use after bind for the real port.
@@ -74,6 +89,10 @@ local record Socket
   setsockopt: function(self: Socket, level: number, optname: number, value: number | boolean): boolean, string
   --- Switch O_NONBLOCK on (default) or off for this socket.
   set_nonblocking: function(self: Socket, enable?: boolean): boolean, string
+  --- Set a timeout in milliseconds for blocking sends and receives
+  --- (SO_RCVTIMEO + SO_SNDTIMEO). Timed-out operations fail with an
+  --- EAGAIN error. nil or 0 clears the timeout (block forever).
+  set_timeout: function(self: Socket, ms?: number): boolean, string
 end
 
 --- Create a socket handle from a file descriptor.
@@ -126,6 +145,18 @@ local function make_socket(fd: number): Socket
     return n
   end
 
+  function sock:sendall(data: string, flags?: number): boolean, string
+    local off: integer = 0
+    while off < #data do
+      local n, err = self:send(data:sub(off + 1), flags)
+      if not n then
+        return false, err
+      end
+      off = off + math.floor(n)
+    end
+    return true
+  end
+
   function sock:sendto(data: string, addr: Address, port: number, flags?: number): number | nil, string
     if not self.fd then return nil, "socket closed" end
     local raw, aerr = resolve_addr(addr)
@@ -158,6 +189,75 @@ local function make_socket(fd: number): Socket
       end
     end
     return data
+  end
+
+  function sock:recv_exact(n: number, flags?: number): string | nil, string
+    local parts: {string} = {}
+    local got = 0
+    while got < n do
+      local chunk, err = self:recv(n - got, flags)
+      if not chunk then
+        if err then
+          return nil, err
+        end
+        return nil, "recv_exact: connection closed after " .. got .. " of " .. n .. " bytes"
+      end
+      parts[#parts + 1] = chunk
+      got = got + #chunk
+    end
+    return table.concat(parts)
+  end
+
+  function sock:readline(max?: number): string | nil, string
+    if not self.fd then return nil, "socket closed" end
+    local parts: {string} = {}
+    local total = 0
+    local saw_newline = false
+    while true do
+      -- Peek without consuming, then consume exactly through the newline,
+      -- so bytes past the line stay readable by recv/recv_exact.
+      local data, err = unix.recv(self.fd, 4096, unix.MSG_PEEK)
+      if not data then
+        return nil, errstr(err, "readline")
+      end
+      local d = data as string
+      if d == "" then
+        -- End of stream: hand back a final unterminated line if any.
+        if total == 0 then
+          return nil
+        end
+        break
+      end
+      local nl = string.find(d, "\n", 1, true)
+      local take: integer = nl or #d
+      if max and total + take > max then
+        take = math.floor(max - total)
+        nl = nil
+      end
+      if take > 0 then
+        local chunk, cerr = self:recv_exact(take)
+        if not chunk then
+          return nil, cerr
+        end
+        parts[#parts + 1] = chunk
+        total = total + take
+      end
+      if nl then
+        saw_newline = true
+        break
+      end
+      if max and total >= max then
+        break
+      end
+    end
+    local line = table.concat(parts)
+    if saw_newline then
+      line = line:sub(1, -2)
+      if line:sub(-1) == "\r" then
+        line = line:sub(1, -2)
+      end
+    end
+    return line
   end
 
   function sock:recvfrom(bufsiz?: number, flags?: number): string | nil, ip.Addr, number, string
@@ -282,6 +382,25 @@ local function make_socket(fd: number): Socket
     local ok, serr = unix.fcntl(self.fd, unix.F_SETFL, want)
     if not ok then
       return false, errstr(serr, "set_nonblocking")
+    end
+    return true
+  end
+
+  function sock:set_timeout(ms?: number): boolean, string
+    if not self.fd then return false, "socket closed" end
+    ms = ms or 0
+    local secs = math.floor(ms / 1000)
+    local nanos = math.floor((ms % 1000) * 1000000)
+    -- The declared setsockopt signature takes one value; SO_RCVTIMEO and
+    -- SO_SNDTIMEO take (secs, nanos), so cast around it like bind_unix.
+    local sso = unix.setsockopt as function(number, number, number, number, number): (boolean, any)
+    local ok, err = sso(self.fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, secs, nanos)
+    if not ok then
+      return false, errstr(err, "set_timeout")
+    end
+    ok, err = sso(self.fd, unix.SOL_SOCKET, unix.SO_SNDTIMEO, secs, nanos)
+    if not ok then
+      return false, errstr(err, "set_timeout")
     end
     return true
   end
