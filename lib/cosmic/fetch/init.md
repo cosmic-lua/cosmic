@@ -27,6 +27,8 @@ local record Result
   error_kind: ErrorKind
   --  True when ok and status is 2xx.
   is_success: function(self: Result): boolean
+  --  Decode the response body as JSON (nil + error on bad JSON).
+  json: function(self: Result): any, string
 end
 ```
 
@@ -36,10 +38,21 @@ end
 
 ```teal
 local record Options
-  --  HTTP method (default "GET").
+  --  HTTP method (default "GET"; "POST" when json/form/multipart/body
+  --  is set and no method is given).
   method: string
   --  Request body to send (for POST, PUT, PATCH).
   body: string
+  --  Query parameters appended to the URL, percent-encoded, keys sorted.
+  query: {string: string}
+  --  JSON request body: encoded with cosmic.json, Content-Type set to
+  --  application/json unless the caller supplied one. At most one of
+  --  body/json/form/multipart may be set.
+  json: any
+  --  Form request body (application/x-www-form-urlencoded, keys sorted).
+  form: {string: string}
+  --  multipart/form-data request body parts (random boundary).
+  multipart: {Part}
   --  HTTP headers to send with the request.
   headers: {string: string}
   --  Follow 3xx redirects (default true).
@@ -115,6 +128,17 @@ end
 ```teal
 local record FetchModule
   fetch: function(url: string, opts?: Options): Result
+  --  GET/POST/PUT/DELETE conveniences: fetch with the method forced.
+  get: function(url: string, opts?: Options): Result
+  post: function(url: string, opts?: Options): Result
+  put: function(url: string, opts?: Options): Result
+  delete: function(url: string, opts?: Options): Result
+  --  Stream a URL to a file. The file is written only for a 2xx
+  --  response (created/truncated, then removed again on a mid-stream
+  --  failure); a non-2xx response returns its status with a bounded
+  --  diagnostic body and writes nothing. The result carries body = ""
+  --  on success.
+  download: function(url: string, path: string, opts?: Options): Result
   stream: function(url: string, opts?: Options): StreamResult
   unix_proxy: function(path: string): string | nil, string
 end
@@ -142,23 +166,6 @@ function stream(url: string, opts?: Options): StreamResult
 **Returns:**
 
 - StreamResult - with reader for incremental body access
-
-### unix_proxy
-
-```teal
-function unix_proxy(path: string): string | nil, string
-```
-
- Build a unix domain socket proxy URL from a socket path.
-
-**Parameters:**
-
-- `path` (string) - Absolute path to the unix domain socket
-
-**Returns:**
-
-- string - | nil proxy URL in unix:// format
-- string? - Error message if path is invalid
 
 ### reader:read
 
