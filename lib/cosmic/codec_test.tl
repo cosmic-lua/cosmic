@@ -386,3 +386,67 @@ local function test_crc32_unsigned_range()
     "crc32 should be an unsigned 32-bit value, got " .. tostring(result))
 end
 test_crc32_unsigned_range()
+
+-- base64url tests (#501)
+
+local function test_base64url_roundtrip()
+  local cases = {"", "f", "fo", "foo", "foob", "fooba", "foobar", "hello world"}
+  for _, s in ipairs(cases) do
+    local enc = codec.encode_base64url(s)
+    local dec, err = codec.decode_base64url(enc)
+    assert(dec == s, "round-trip failed for '" .. s .. "': " .. tostring(err))
+  end
+end
+test_base64url_roundtrip()
+
+local function test_base64url_alphabet()
+  -- 0xfb 0xff encodes to "-_8" in base64url ("+/8" in standard base64).
+  local enc = codec.encode_base64url("\xfb\xff")
+  assert(enc == "-_8", "expected '-_8', got '" .. enc .. "'")
+  assert(not enc:find("[+/=]"), "base64url output must not contain +, / or =")
+  local dec = codec.decode_base64url("-_8")
+  assert(dec == "\xfb\xff", "expected 0xfb 0xff back")
+end
+test_base64url_alphabet()
+
+local function test_base64url_no_padding_emitted()
+  -- "f" encodes to "Zg==" in padded base64; base64url emits "Zg".
+  assert(codec.encode_base64url("f") == "Zg", "expected unpadded 'Zg'")
+  assert(codec.encode_base64url("fo") == "Zm8", "expected unpadded 'Zm8'")
+end
+test_base64url_no_padding_emitted()
+
+local function test_base64url_decode_accepts_padding()
+  assert(codec.decode_base64url("Zg==") == "f", "padded input should decode")
+  assert(codec.decode_base64url("Zg") == "f", "unpadded input should decode")
+end
+test_base64url_decode_accepts_padding()
+
+local function test_base64url_rejects_standard_alphabet()
+  local dec, err = codec.decode_base64url("+_8")
+  assert(dec == nil and err ~= nil, "expected '+' to be rejected")
+  dec, err = codec.decode_base64url("a/b")
+  assert(dec == nil and err ~= nil, "expected '/' to be rejected")
+end
+test_base64url_rejects_standard_alphabet()
+
+local function test_base64url_rejects_bad_input()
+  local dec, err = codec.decode_base64url("a b")
+  assert(dec == nil and err ~= nil, "expected space to be rejected")
+  dec, err = codec.decode_base64url("Zg=X")
+  assert(dec == nil and err ~= nil, "expected padding in middle to be rejected")
+  dec, err = codec.decode_base64url("Zg===")
+  assert(dec == nil and err ~= nil, "expected over-long padding to be rejected")
+end
+test_base64url_rejects_bad_input()
+
+local function test_base64url_binary_roundtrip()
+  local all_bytes: {string} = {}
+  for i = 0, 255 do
+    all_bytes[i + 1] = string.char(i)
+  end
+  local blob = table.concat(all_bytes)
+  local dec = codec.decode_base64url(codec.encode_base64url(blob))
+  assert(dec == blob, "all-bytes blob should round-trip")
+end
+test_base64url_binary_roundtrip()
