@@ -344,3 +344,45 @@ local function test_latin1_roundtrip()
   assert(decoded == original, "roundtrip mismatch: got '" .. decoded .. "'")
 end
 test_latin1_roundtrip()
+
+-- CRC-32 checksum tests (issue #601)
+
+local function test_crc32_check_vector()
+  -- The standard CRC-32 check value: crc32("123456789") = 0xCBF43926
+  local result = codec.crc32("123456789")
+  assert(result == 0xCBF43926,
+    "crc32 check vector mismatch: " .. string.format("%x", result))
+end
+test_crc32_check_vector()
+
+local function test_crc32c_check_vector()
+  -- The standard CRC-32C (Castagnoli) check value: 0xE3069283
+  local result = codec.crc32c("123456789")
+  assert(result == 0xE3069283,
+    "crc32c check vector mismatch: " .. string.format("%x", result))
+end
+test_crc32c_check_vector()
+
+local function test_crc32_empty()
+  assert(codec.crc32("") == 0, "crc32 of empty string should be 0")
+  assert(codec.crc32c("") == 0, "crc32c of empty string should be 0")
+end
+test_crc32_empty()
+
+local function test_crc32_incremental()
+  local whole = codec.crc32("hello world")
+  local partial = codec.crc32(" world", codec.crc32("hello"))
+  assert(whole == partial, "incremental crc32 should match whole-input crc32")
+  local whole_c = codec.crc32c("hello world")
+  local partial_c = codec.crc32c(" world", codec.crc32c("hello"))
+  assert(whole_c == partial_c, "incremental crc32c should match whole-input crc32c")
+end
+test_crc32_incremental()
+
+local function test_crc32_unsigned_range()
+  -- Values are unsigned 32-bit integers, never negative.
+  local result = codec.crc32("\xff\xff\xff\xff")
+  assert(result >= 0 and result <= 0xFFFFFFFF,
+    "crc32 should be an unsigned 32-bit value, got " .. tostring(result))
+end
+test_crc32_unsigned_range()

@@ -1,16 +1,50 @@
 --- Hash utilities.
---- Wraps cosmo.Sha256 and cosmo.argon2 for digest and password hashing.
+--- Wraps cosmo.GetCryptoHash and cosmo.argon2 for digest, HMAC, and
+--- password hashing.
 ---
 --- Example usage:
 ---   local hash = require("cosmic.hash")
 ---   local digest = hash.sha256_hex("hello")
+---   local d = hash.digest("sha512", "hello")
+---   local tag = hash.hmac("sha256", "secret", "message")
 ---   local encoded = hash.password("password123")
 ---   local valid = hash.verify_password(encoded, "password123")
 ---
---- For random bytes, use cosmic.rand.bytes(n).
+--- Digest and HMAC functions return raw bytes; hex-encode with
+--- cosmic.codec.encode_hex if needed. For CRC-32 checksums, see
+--- cosmic.codec.crc32. For random bytes, use cosmic.rand.bytes(n).
+---
+--- Reserved name: hash.new(algo): Hasher — a streaming digest object
+--- API (update/final) is reserved for a post-stable battery. Do not
+--- reuse this name for anything else.
 local cosmo = require("cosmo")
 local argon2 = require("cosmo.argon2")
 local codec = require("cosmic.codec")
+
+--- Digest algorithms accepted by digest and hmac.
+local enum Algo
+  "sha256"
+  "sha512"
+  "sha384"
+  "sha224"
+  "sha1"
+  "md5"
+  "blake2b256"
+end
+
+-- The exact algorithm set frozen at the stable cut. The C binding
+-- resolves names case-insensitively and knows a few extra legacy
+-- digests (MD2, MD4), so this wrapper-side check is load-bearing:
+-- it keeps the runtime surface identical to the Algo enum.
+local valid_algos: {string: boolean} = {
+  sha256 = true,
+  sha512 = true,
+  sha384 = true,
+  sha224 = true,
+  sha1 = true,
+  md5 = true,
+  blake2b256 = true,
+}
 
 --- Options for password hashing with Argon2.
 --- All fields are optional and have sensible defaults.
@@ -52,6 +86,51 @@ local function sha256_hex(data: string): string
   -- cosmo.EncodeHex (which encode_hex delegates to) already emits
   -- lowercase hex, so :lower() here was a dead full-string scan.
   return codec.encode_hex(cosmo.Sha256(data))
+end
+
+--- Compute a message digest of data with the given algorithm.
+--- Returns raw bytes; hex-encode with cosmic.codec.encode_hex if
+--- needed. For the common case, sha256 / sha256_hex are equivalent
+--- conveniences. MD5 and SHA-1 are provided for interoperability with
+--- existing formats only — do not use them for new security purposes.
+--- @param algo Algo The digest algorithm
+--- @param data string The data to hash
+--- @return string | nil The digest as raw bytes, or nil on error
+--- @return string? Error message if the algorithm is unknown
+local function digest(algo: Algo, data: string): string | nil, string
+  if not valid_algos[algo] then
+    return nil, "unknown hash algorithm: " .. tostring(algo)
+  end
+  local d, err = cosmo.GetCryptoHash(algo, data)
+  if not d then
+    return nil, err as string
+  end
+  return d
+end
+
+--- Compute an HMAC (RFC 2104) of data with a secret key using the
+--- given digest algorithm. Returns raw bytes; hex-encode with
+--- cosmic.codec.encode_hex if needed. Compare MACs with
+--- constant_time_equal, not ==. The key must be non-empty: the C
+--- binding treats an empty key as "no key" and would silently compute
+--- a plain digest instead of an HMAC.
+--- @param algo Algo The digest algorithm
+--- @param key string The secret key (must be non-empty)
+--- @param data string The message to authenticate
+--- @return string | nil The HMAC tag as raw bytes, or nil on error
+--- @return string? Error message if the algorithm is unknown or the key is empty
+local function hmac(algo: Algo, key: string, data: string): string | nil, string
+  if not valid_algos[algo] then
+    return nil, "unknown hash algorithm: " .. tostring(algo)
+  end
+  if #key == 0 then
+    return nil, "hmac: key must be non-empty"
+  end
+  local d, err = cosmo.GetCryptoHash(algo, data, key)
+  if not d then
+    return nil, err as string
+  end
+  return d
 end
 
 --- Compute HMAC-SHA256 of data with a secret key (RFC 2104).
@@ -133,8 +212,11 @@ local function verify_password(encoded: string, pwd: string): boolean, string
 end
 
 local record HashModule
+  type Algo = Algo
   type HashOptions = HashOptions
 
+  digest: function(algo: Algo, data: string): string | nil, string
+  hmac: function(algo: Algo, key: string, data: string): string | nil, string
   sha256: function(data: string): string
   sha256_hex: function(data: string): string
   hmac_sha256: function(key: string, data: string): string
@@ -144,6 +226,8 @@ local record HashModule
 end
 
 local M: HashModule = {
+  digest = digest,
+  hmac = hmac,
   sha256 = sha256,
   sha256_hex = sha256_hex,
   hmac_sha256 = hmac_sha256,
