@@ -18,6 +18,10 @@
 local record RandModule
   bytes: function(n: number): string | nil, string
   int: function(min: integer, max: integer): integer | nil, string
+  float: function(): number | nil, string
+  choice: function(list: {any}): any, string
+  shuffle: function(list: {any}): {any} | nil, string
+  token: function(len?: integer): string | nil, string
   rand64: function(): number
 end
 ```
@@ -73,4 +77,72 @@ function int(min: integer, max: integer): integer | nil, string
 **Returns:**
 
 - integer - | nil The random integer, or nil on failure
+- string? - Error message on failure
+
+### float
+
+```teal
+function float(): number | nil, string
+```
+
+ Generate a cryptographically secure uniform float in [0, 1).
+ Uses 53 random bits, so the result has full double precision.
+
+**Returns:**
+
+- number - | nil The random float, or nil on failure
+- string? - Error message on failure
+
+### choice
+
+```teal
+function choice(list: {any}): any, string
+```
+
+ Pick one element of a list uniformly at random (crypto-grade).
+
+**Parameters:**
+
+- `list` ({any}) - The list to pick from
+
+**Returns:**
+
+- any - The chosen element, or nil on failure or empty list
+- string? - Error message on failure or empty list
+
+### shuffle
+
+```teal
+function shuffle(list: {any}): {any} | nil, string
+```
+
+ Shuffle a list in place with an unbiased Fisher-Yates pass
+ (crypto-grade). Returns the same list for call chaining.
+
+**Parameters:**
+
+- `list` ({any}) - The list to shuffle (mutated in place)
+
+**Returns:**
+
+- {any} - | nil The shuffled list, or nil on failure
+- string? - Error message on failure
+
+### token
+
+```teal
+function token(len?: integer): string | nil, string
+```
+
+ Generate a random alphanumeric token (crypto-grade, unbiased).
+ Tokens are URL- and filename-safe. Each character carries ~5.95 bits
+ of entropy, so the default 32 characters give ~190 bits.
+
+**Parameters:**
+
+- `len` (integer?) - Token length in characters (default 32)
+
+**Returns:**
+
+- string - | nil The token, or nil on failure
 - string? - Error message on failure
