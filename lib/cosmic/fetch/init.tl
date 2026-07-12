@@ -4,8 +4,16 @@
 
 local cosmo = require("cosmo")
 local fetch_headers = require("cosmic.fetch.headers")
+local fetch_extras = require("cosmic.fetch.extras")
+local json_mod = require("cosmic.json")
 local stream = require("cosmic.stream")
 local time = require("cosmic.time")
+
+local validate_url = fetch_extras.validate_url
+local validate_headers = fetch_extras.validate_headers
+
+--- One part of a multipart/form-data request body (see Options.multipart).
+local type Part = fetch_extras.Part
 
 --- Machine-readable failure category, from the C fetch error channel.
 --- nil on wrapper-side validation failures (bad URL, bad header).
@@ -37,14 +45,27 @@ local record Result
   error_kind: ErrorKind
   --- True when ok and status is 2xx.
   is_success: function(self: Result): boolean
+  --- Decode the response body as JSON (nil + error on bad JSON).
+  json: function(self: Result): any, string
 end
 
 --- Options for fetch requests.
 local record Options
-  --- HTTP method (default "GET").
+  --- HTTP method (default "GET"; "POST" when json/form/multipart/body
+  --- is set and no method is given).
   method: string
   --- Request body to send (for POST, PUT, PATCH).
   body: string
+  --- Query parameters appended to the URL, percent-encoded, keys sorted.
+  query: {string: string}
+  --- JSON request body: encoded with cosmic.json, Content-Type set to
+  --- application/json unless the caller supplied one. At most one of
+  --- body/json/form/multipart may be set.
+  json: any
+  --- Form request body (application/x-www-form-urlencoded, keys sorted).
+  form: {string: string}
+  --- multipart/form-data request body parts (random boundary).
+  multipart: {Part}
   --- HTTP headers to send with the request.
   headers: {string: string}
   --- Follow 3xx redirects (default true).
@@ -112,54 +133,17 @@ local result_mt = {
       return self.ok and self.status ~= nil
       and self.status >= 200 and self.status < 300
     end,
+    json = function(self: Result): any, string
+      if not self.body or self.body == "" then
+        return nil, "empty body"
+      end
+      return json_mod.decode(self.body)
+    end,
   },
 }
 
-local function validate_url(url: string): string
-  if url == "" then
-    return "empty URL"
-  end
-  local scheme = url:match("^([a-zA-Z][a-zA-Z0-9+%-.]*)://")
-  if not scheme then
-    return "unsupported URL scheme: (none)"
-  end
-  scheme = scheme:lower()
-  if scheme ~= "http" and scheme ~= "https" then
-    return "unsupported URL scheme: " .. scheme
-  end
-  return nil
-end
-
--- True when s carries a CR, LF, or NUL. One character-class scan instead
--- of three separate plain-text searches over the same string.
-local function has_forbidden_byte(s: string): boolean
-  return s:find("[\r\n\0]") ~= nil
-end
-
---- Reject header names or values that carry a CR, LF, or NUL. HTTP headers
---- are CRLF-delimited, so an embedded CR/LF in a name or value smuggles
---- additional header lines (or a body) past cosmo.Fetch — a request-splitting
---- / header-injection vector (audit §2.3). The error names the offending
---- header but never echoes the raw control bytes back.
---- @param headers {string: string} request headers, or nil
---- @return string? error message, or nil when every header is safe
-local function validate_headers(headers: {string: string}): string
-  if not headers then
-    return nil
-  end
-  for name, value in pairs(headers) do
-    if name == "" then
-      return "invalid header name: must not be empty"
-    end
-    if has_forbidden_byte(name) then
-      return "invalid header name: must not contain CR, LF, or NUL"
-    end
-    if value ~= nil and has_forbidden_byte(value) then
-      return "invalid value for header '" .. name .. "': must not contain CR, LF, or NUL"
-    end
-  end
-  return nil
-end
+-- validate_url/validate_headers and the request-body builders live in
+-- cosmic.fetch.extras (this file is at the 500-line cap).
 
 --- Project the transport-relevant Options fields onto a fresh typed
 --- cosmo.FetchOptions, shallow-copying headers so no attempt can observe
@@ -261,6 +245,14 @@ end
 --- @param opts Options optional fetch options (retry, headers, redirects, ...)
 --- @return Result fetch result with ok, status, headers, body, url, or error
 local function Fetch(url: string, opts?: Options): Result
+  -- Expand query/json/form/multipart first: prepare may set the method
+  -- (body options default to POST), which the retry policy inspects.
+  local purl, popts, perr = fetch_extras.prepare(url, opts)
+  if perr then
+    return fail(perr, nil)
+  end
+  url = purl
+  opts = popts as Options
   local max_attempts = (opts and opts.max_attempts) or 1
   local base_delay = (opts and opts.base_delay) or 0.5
   local max_delay = (opts and opts.max_delay) or 30
@@ -413,6 +405,12 @@ end
 --- @param opts Options optional fetch options
 --- @return StreamResult with reader for incremental body access
 local function stream(url: string, opts?: Options): StreamResult
+  local purl, popts, perr = fetch_extras.prepare(url, opts)
+  if perr then
+    return stream_fail(perr, nil)
+  end
+  url = purl
+  opts = popts as Options
   local verr = validate_url(url)
   if verr then
     return stream_fail(verr, nil)
@@ -438,44 +436,50 @@ local function stream(url: string, opts?: Options): StreamResult
     } as StreamResult, result_mt) as StreamResult
 end
 
---- Build a unix domain socket proxy URL from a socket path.
---- @param path string Absolute path to the unix domain socket
---- @return string | nil proxy URL in unix:// format
---- @return string? Error message if path is invalid
-local function unix_proxy(path: string): string | nil, string
-  if not path or path == "" then
-    return nil, "empty socket path"
-  end
-  if path:sub(1, 1) ~= "/" then
-    return nil, "socket path must be absolute"
-  end
-  if path:match("/%.%./") or path:match("/%.%.$") or path:match("/%./") or path:match("/%.$") then
-    return nil, "socket path must not contain . or .. segments"
-  end
-  -- unix(7) sockaddr_un sun_path is typically 108 bytes
-  if #path >= 108 then
-    return nil, "socket path too long"
-  end
-  return "unix://" .. path
-end
+-- The verb helpers and download are built in cosmic.fetch.extras around
+-- this file's fetch/stream; wrap hands them the result metatable so
+-- download's synthesized results answer is_success()/json() too.
+local made = fetch_extras.make(
+  Fetch as(function(string, any): any),
+    stream as(function(string, any): any),
+      function(t: any): any
+        return setmetatable(t as {string: any}, result_mt)
+      end)
 
-local record FetchModule
-  fetch: function(url: string, opts?: Options): Result
-  stream: function(url: string, opts?: Options): StreamResult
-  unix_proxy: function(path: string): string | nil, string
-  type ErrorKind = ErrorKind
-  --- Type aliases, not runtime values — the old `Result: Result`
-  --- field spelling declared phantom fields that were nil at runtime.
-  type Options = Options
-  type Result = Result
-  type Reader = Reader
-  type StreamResult = StreamResult
-end
+    local record FetchModule
+      fetch: function(url: string, opts?: Options): Result
+      --- GET/POST/PUT/DELETE conveniences: fetch with the method forced.
+      get: function(url: string, opts?: Options): Result
+      post: function(url: string, opts?: Options): Result
+      put: function(url: string, opts?: Options): Result
+      delete: function(url: string, opts?: Options): Result
+      --- Stream a URL to a file. The file is written only for a 2xx
+      --- response (created/truncated, then removed again on a mid-stream
+      --- failure); a non-2xx response returns its status with a bounded
+      --- diagnostic body and writes nothing. The result carries body = ""
+      --- on success.
+      download: function(url: string, path: string, opts?: Options): Result
+      stream: function(url: string, opts?: Options): StreamResult
+      unix_proxy: function(path: string): string | nil, string
+      type ErrorKind = ErrorKind
+      --- Type aliases, not runtime values — the old `Result: Result`
+      --- field spelling declared phantom fields that were nil at runtime.
+      type Options = Options
+      type Part = Part
+      type Result = Result
+      type Reader = Reader
+      type StreamResult = StreamResult
+    end
 
-local M: FetchModule = {
-  fetch = Fetch,
-  stream = stream,
-  unix_proxy = unix_proxy,
-}
+    local M: FetchModule = {
+      fetch = Fetch,
+      get = made.get as(function(string, Options): Result),
+        post = made.post as(function(string, Options): Result),
+          put = made.put as(function(string, Options): Result),
+            delete = made.delete as(function(string, Options): Result),
+              download = made.download as(function(string, string, Options): Result),
+                stream = stream,
+                unix_proxy = fetch_extras.unix_proxy,
+              }
 
-return M
+              return M
