@@ -43,16 +43,13 @@ local function defs_path(): string
   return os.getenv("GENTYPE_DEFS") or "/zip/.lua/definitions.lua"
 end
 
-
 --- Helper to process a class annotation block.
 local function process_class_block(anno_lines: {string}, module_name: string, classes: {ClassDecl})
   local desc, _, _, _, class_annotation, fields = parse_annotations(anno_lines)
   if not class_annotation then return end
 
-  -- A `---@class mod.Name: parent` parent survives into ClassDecl; the
-  -- only parent definitions.lua uses is `userdata`, which marks the
-  -- class as userdata-backed (rendered as Teal's `userdata` member so
-  -- `x is Class` compiles to a type(x) == "userdata" test).
+  -- `---@class mod.Name: userdata` marks a userdata-backed class,
+  -- rendered as Teal's `userdata` member (see gentype_render).
   local parent: string = nil
   for _, line in ipairs(anno_lines) do
     local par = line:match("^%s*%-%-%-@class%s+[%w_%.]+%s*:%s*([%w_%.]+)")
@@ -193,7 +190,7 @@ local function parse_module(source: string, module_name: string): ModuleDecl
       end
       i = i + 1
     elseif line:match("^%s*[%l_][%w_]*%s*=%s*") and not line:match("^%s*local%s") and
-      has_type_annotation(anno_lines) then
+    has_type_annotation(anno_lines) then
       -- A lowercase module-table field annotated with `---@type <T>` (e.g.
       -- `argon2.variants`) becomes a typed field on the module record.
       local fname = line:match("^%s*([%l_][%w_]*)%s*=")
@@ -331,8 +328,8 @@ local record Result
 end
 
 local UPSTREAM_HINT = "; fix the annotation upstream in whilp/cosmopolitan"
-  .. " tool/net/definitions.lua (its test_definitions_coverage.lua check 9"
-  .. " validates the same type grammar)"
+.. " tool/net/definitions.lua (its test_definitions_coverage.lua check 9"
+.. " validates the same type grammar)"
 
 --- Validate every parsed type expression in a module against the type
 --- grammar, so a malformed upstream annotation fails generation loudly with
@@ -341,8 +338,8 @@ local UPSTREAM_HINT = "; fix the annotation upstream in whilp/cosmopolitan"
 local function validate_module(module: ModuleDecl): string
   local function bad(decl: string, what: string, text: string): string
     return "invalid type annotation in definitions.lua module '" .. module.name
-      .. "': " .. decl .. " " .. what .. " has malformed type '"
-      .. tostring(text) .. "'" .. UPSTREAM_HINT
+    .. "': " .. decl .. " " .. what .. " has malformed type '"
+    .. tostring(text) .. "'" .. UPSTREAM_HINT
   end
   local function check_func(decl: string, f: FuncDecl): string
     for _, p in ipairs(f.params) do
@@ -393,8 +390,8 @@ local function syntax_check(output: string, module_name: string): string
   local ok, res = pcall(tl.process_string, output, false, env, name)
   if not ok then
     return "generated " .. name .. " failed to parse: " .. tostring(res)
-      .. "; this usually means a malformed type annotation in definitions.lua"
-      .. UPSTREAM_HINT
+    .. "; this usually means a malformed type annotation in definitions.lua"
+    .. UPSTREAM_HINT
   end
   local result = res as tl.Result
   if result and result.syntax_errors and #result.syntax_errors > 0 then
@@ -405,9 +402,9 @@ local function syntax_check(output: string, module_name: string): string
         .. ": " .. (e.msg or ""))
     end
     return "generated " .. name .. " is not valid Teal ("
-      .. table.concat(msgs, "; ")
-      .. "); this usually means a malformed type annotation in definitions.lua"
-      .. UPSTREAM_HINT
+    .. table.concat(msgs, "; ")
+    .. "); this usually means a malformed type annotation in definitions.lua"
+    .. UPSTREAM_HINT
   end
   return nil
 end
