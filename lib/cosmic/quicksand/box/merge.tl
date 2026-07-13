@@ -60,8 +60,8 @@ local function concat_unique(a: {any}, b: {any}): {any}
   return out
 end
 
-local function merge_map(a: {any: any}, b: {any: any}): {any: any}
-  local out: {any: any} = {}
+local function merge_map<K, V>(a: {K: V}, b: {K: V}): {K: V}
+  local out: {K: V} = {}
   if a then for k, v in pairs(a) do out[k] = v end end
   if b then for k, v in pairs(b) do out[k] = v end end
   return out

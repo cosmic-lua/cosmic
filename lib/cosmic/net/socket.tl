@@ -29,7 +29,9 @@ end
 --- Socket handle for network I/O.
 --- Sockets are BLOCKING by default: recv and accept wait until data or a
 --- connection arrives. Supports Lua 5.4's to-be-closed via __close.
-local record Socket
+local stream = require("cosmic.stream")
+
+local record Socket is stream.Reader, stream.Writer
   --- The underlying file descriptor.
   fd: number
   --- Close the socket.
@@ -40,6 +42,8 @@ local record Socket
   shutdown: function(self: Socket, how?: number): boolean, string
   --- Send data; returns bytes sent, or nil + error.
   send: function(self: Socket, data: string, flags?: number): number | nil, string
+  --- stream.Writer: alias for send (bytes written, or nil + error).
+  write: function(self: Socket, data: string): number | nil, string
   --- Send all of data, retrying partial writes until done.
   --- Returns false + error if any write fails; bytes already sent
   --- before the failure stay sent.
@@ -53,6 +57,9 @@ local record Socket
   --- nil + error message on failure. bufsiz must be positive when
   --- given (default 65536).
   recv: function(self: Socket, bufsiz?: number, flags?: number): string | nil, string
+  --- stream.Reader: alias for recv (chunk; bare nil at end of stream;
+  --- nil + error on failure).
+  read: function(self: Socket, n?: number): string | nil, string
   --- Receive exactly n bytes from a stream socket, blocking until they
   --- arrive. Returns nil + error if the peer closes the connection
   --- first (bytes read before the close are discarded).
@@ -190,6 +197,12 @@ local function make_socket(fd: number): Socket
     end
     return data
   end
+
+  -- The stream.Reader/Writer contract is exactly recv/send's: recv
+  -- returns bare nil at end of stream (api-review-2, #589) and send
+  -- returns bytes written. Alias rather than wrap.
+  sock.read = sock.recv
+  sock.write = sock.send
 
   function sock:recv_exact(n: number, flags?: number): string | nil, string
     local parts: {string} = {}
