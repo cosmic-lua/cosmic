@@ -46,6 +46,7 @@ High-level utilities and tools built on top of cosmo.
 | [ip](lib/cosmic/ip.md) |  IP address parsing, formatting, and classification utilities. |
 | [json](lib/cosmic/json.md) |  JSON encoding and decoding utilities. |
 | [landlock](lib/cosmic/landlock.md) |  Linux landlock filesystem sandbox. |
+| [log](lib/cosmic/log.md) |  Leveled logging. |
 | [init](lib/cosmic/net/init.md) |  Networking and socket utilities. |
 | [pledge](lib/cosmic/pledge.md) |  Restrict the system calls available to the current process. |
 | [poll](lib/cosmic/poll.md) |  Typed interface for polling file descriptors. |
