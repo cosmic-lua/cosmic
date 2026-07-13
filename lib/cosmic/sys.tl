@@ -32,6 +32,7 @@ local enum HostOs
   "openbsd"
   "netbsd"
   "metal"
+  "unknown"
 end
 
 -- Cosmopolitan's GetHostOs() returns tokens that do not all match the names
@@ -58,10 +59,12 @@ end
 
 --- Get the operating system name.
 --- Returns one of: "linux", "macos", "windows", "freebsd", "openbsd",
---- "netbsd", "metal".
+--- "netbsd", "metal" — or "unknown" if the C layer recognizes none
+--- (GetHostOs returns nil then; unreachable on shipped fat-binary
+--- targets, but the type admits it honestly).
 --- @return HostOs The operating system name
 local function host_os(): HostOs
-  return normalize_host_os(cosmo.GetHostOs())
+  return normalize_host_os(cosmo.GetHostOs() or "unknown")
 end
 
 --- Get the CPU architecture (instruction set architecture).

@@ -133,9 +133,9 @@ local record Database
   db_filename: function(self: Database, name: string): string | nil
   --- Deserializes data from a string which was created by `db:serialize`.
   deserialize: function(self: Database, s: string)
-  errcode: function(self: Database): number
+  errcode: function(self: Database): ResultCode
   errmsg: function(self: Database): string
-  exec: function(self: Database, sql: string, func?: (function(udata: any, cols: number, values: {string}, names: {string}): number), udata?: any)
+  exec: function(self: Database, sql: string, func?: (function(udata: any, cols: number, values: {string}, names: {string}): number), udata?: any): ResultCode
   --- This function causes any pending database operation to abort and return at
   --- the next opportunity.
   interrupt: function(self: Database)
@@ -233,7 +233,7 @@ local record Database
   ---     2       22
   ---     3       33
   urows: function(self: Database, sql: string): function, VM
-  wal_checkpoint: function(self: Database, mode?: number, name?: string): number | nil, number, number | nil
+  wal_checkpoint: function(self: Database, mode?: number, name?: string): number | nil, number, ResultCode | nil
   wal_hook: function(self: Database, func?: (function(udata: any, db: Database, name: string, page_count: number): number), udata?: any)
 end
 
@@ -265,7 +265,7 @@ local record Statement
   --- integer) then there might be gaps in the numbering and the value returned by
   --- this interface is the index of the statement parameter with the largest index
   --- value.
-  bind_parameter_count: function(self: Statement): any
+  bind_parameter_count: function(self: Statement): number
   --- Statement parameters of the form `":AAA"` or `"@AAA"` or `"$VVV"` have a name
   --- which is the string `":AAA"` or `"@AAA"` or `"$VVV"`. In other words, the
   --- initial `":"` or `"$"` or `"@"` is included as part of the name. Parameters of
@@ -278,35 +278,35 @@ local record Statement
   columns: function(self: Statement): number
   --- This function frees the prepared statement.
   finalize: function(self: Statement): number
-  get_name: function(self: Statement, n: any): any
-  get_named_types: function(self: Statement): table
+  get_name: function(self: Statement, n: number): string
+  get_named_types: function(self: Statement): {string}
   --- Alias for `lsqlite3.Statement:get_named_types()`.
-  type: function(self: Statement): table
-  get_named_values: function(self: Statement): table
+  type: function(self: Statement): {string}
+  get_named_values: function(self: Statement): {string | number | nil}
   --- Alias for `lsqlite3.Statement:get_named_values()`.
-  data: function(self: Statement): table
+  data: function(self: Statement): {string | number | nil}
   get_names: function(self: Statement): {string}
   --- Alias for `lsqlite3.Statement:get_names()`.
   inames: function(self: Statement): {string}
-  get_type: function(self: Statement, n: any): any
-  get_types: function(self: Statement): {any}
+  get_type: function(self: Statement, n: number): string | nil
+  get_types: function(self: Statement): {string}
   --- Alias for `lsqlite3.Statement:get_types()`.
-  itypes: function(self: Statement): {any}
-  get_unames: function(self: Statement): {any}
-  get_utypes: function(self: Statement): {any}
-  get_uvalues: function(self: Statement): {any}
-  get_value: function(self: Statement, n: any): any
-  get_values: function(self: Statement): {any}
+  itypes: function(self: Statement): {string}
+  get_unames: function(self: Statement): string...
+  get_utypes: function(self: Statement): string...
+  get_uvalues: function(self: Statement): string | number | nil
+  get_value: function(self: Statement, n: number): string | number | nil
+  get_values: function(self: Statement): {string | number | nil}
   --- Alias for `lsqlite3.Statement:get_values()`.
-  idata: function(self: Statement): {any}
+  idata: function(self: Statement): {string | number | nil}
   isopen: function(self: Statement): boolean
-  nrows: function(self: Statement): function
+  nrows: function(self: Statement): function(self: VM): {string: string | number}
   --- Returns `true` if the prepared statement makes no direct changes to
   --- the content of the database file, `false` otherwise.
   readonly: function(self: Statement): boolean
   --- This function resets the SQL statement, so that it is ready to be re-executed. Any statement variables that had values bound to them using the `stmt:bind*()` functions retain their values.
-  reset: function(self: Statement)
-  rows: function(self: Statement): function
+  reset: function(self: Statement): ResultCode
+  rows: function(self: Statement): function(self: VM): {string | number | nil}
   --- This function must be called to evaluate the (next iteration of the) prepared statement.
   --- - `lsqlite3.BUSY`: the engine was unable to acquire the locks needed.
   ---   If the statement is a COMMIT or occurs outside of an explicit transaction,
@@ -327,11 +327,11 @@ local record Statement
   --- - `lsqlite3.MISUSE`: the function was called inappropriately, perhaps because
   ---    the statement has already been finalized or a previous call to `stmt:step()`
   ---    has returned `lsqlite3.ERROR` or `lsqlite3.DONE`.
-  step: function(self: Statement): number
+  step: function(self: Statement): ResultCode
   --- Each iteration returns the values for the current row. This is the prepared
   --- statement equivalent of `db:urows()`.
-  urows: function(self: Statement): function
-  last_insert_rowid: function(self: Statement): any
+  urows: function(self: Statement): function(self: VM): any...
+  last_insert_rowid: function(self: Statement): number
 end
 
 local record VM
@@ -353,7 +353,7 @@ local record VM
   get_names: function(self: VM): {string}
   --- Alias for `lsqlite3.VM:get_names()`.
   inames: function(self: VM): {string}
-  get_type: function(self: VM, index: number): string
+  get_type: function(self: VM, index: number): string | nil
   get_types: function(self: VM): {string}
   --- Alias for `lsqlite3.VM:get_types()`.
   itypes: function(self: VM): {string}
@@ -370,17 +370,28 @@ local record VM
   --- Returns `true` if the prepared statement makes no direct changes to
   --- the content of the database file, `false` otherwise.
   readonly: function(self: VM): boolean
-  reset: function(self: VM): number
+  reset: function(self: VM): ResultCode
   rows: function(self: VM, sql: string): function(self: VM): {string | number | nil}
-  step: function(self: VM): number
+  step: function(self: VM): ResultCode
   urows: function(self: VM, sql: string): function(self: VM): any...
 end
+
+--- SQLite result/status code (the OK/ERROR/BUSY/DONE/ROW/... family
+--- of lsqlite3.* integer constants; see the SC() table in
+--- tool/net/lsqlite3.c).
+local type ResultCode = number
+
+--- Bitmask of lsqlite3.OPEN_* flags accepted by `lsqlite3.open` (see
+--- https://www.sqlite.org/c3ref/open.html).
+local type OpenFlag = number
 
 local record lsqlite3
   type Context = Context
   type Database = Database
   type Statement = Statement
   type VM = VM
+  type ResultCode = ResultCode
+  type OpenFlag = OpenFlag
 
   --- The `lsqlite3.OK` result code means that the operation was successful
   --- and that there were no errors. Most other result codes indicate an
@@ -691,11 +702,11 @@ local record lsqlite3
   --- Since `0.9.4`, there is a second optional `flags` argument to `lsqlite3.open`.
   --- See https://www.sqlite.org/c3ref/open.html for an explanation of these flags and options.
   ---     local db = lsqlite3.open('foo.db', lsqlite3.OPEN_READWRITE + lsqlite3.OPEN_CREATE + lsqlite3.OPEN_SHAREDCACHE)
-  open: function(filename: string, flags?: number): Database | nil, number | nil, string | nil
+  open: function(filename: string, flags?: OpenFlag): Database | nil, ResultCode | nil, string | nil
   --- Opens an SQLite database in memory and returns its handle as userdata. In case
   --- of an error, the function returns `nil`, an error code and an error message.
   --- (In-memory databases are volatile as they are never stored on disk.)
-  open_memory: function(): Database | nil, number | nil, string | nil
+  open_memory: function(): Database | nil, ResultCode | nil, string | nil
   lversion: function(): string
   version: function(): string
   --- Sets global SQLite3 library configuration options.
