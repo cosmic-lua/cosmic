@@ -183,7 +183,7 @@ local record Database
   --  used for all further method calls in connection with this specific SQL
   --  statement.
   --  See https://lua.sqlite.org/home/doc/tip/doc/lsqlite3.wiki#methods_for_prepared_statements for details.
-  prepare: function(self: Database, sql: string): Statement
+  prepare: function(self: Database, sql: string): Statement | nil, string | ResultCode
   --  Returns `true` if the database `name` of connection `db` is read-only,
   --  `false` if it is read/write. Returns `nil` plus an error message if
   --  `name` is not the name of a database on connection `db`.
