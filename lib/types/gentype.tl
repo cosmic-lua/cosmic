@@ -9,7 +9,6 @@ local gt = require("types.gentype_types")
 local Param = gt.Param
 local Return = gt.Return
 local FuncDecl = gt.FuncDecl
-local Constant = gt.Constant
 local Field = gt.Field
 local ClassDecl = gt.ClassDecl
 local ModuleDecl = gt.ModuleDecl
@@ -17,9 +16,13 @@ local ModuleDecl = gt.ModuleDecl
 local record GentypeRender
   generate_dtl: function(module: ModuleDecl): string
   convert_type: function(t: string): string
-  extract_module_content: function(source: string, module_name: string): string
 end
 local render = require("types.gentype_render") as GentypeRender
+
+local record GentypeExtract
+  extract_module_content: function(source: string, module_name: string): string
+end
+local extract = require("types.gentype_extract") as GentypeExtract
 
 local record GentypeParse
   parse_annotations: function(raw_lines: {string}): {string}, {Param}, {Return}, boolean, string, {Field}, boolean, string
@@ -126,12 +129,12 @@ end
 
 --- Parse a module from definitions.lua source.
 local function parse_module(source: string, module_name: string): ModuleDecl
-  local content = render.extract_module_content(source, module_name)
+  local content = extract.extract_module_content(source, module_name)
   if not content then return nil end
 
   local module: ModuleDecl = {
     name = module_name, description = {},
-    functions = {}, classes = {}, constants = {},
+    functions = {}, classes = {}, constants = {}, aliases = {},
   }
 
   -- Keep empty lines: a blank line terminates an annotation block (e.g. a
@@ -148,7 +151,23 @@ local function parse_module(source: string, module_name: string): ModuleDecl
   while i <= #lines do
     local line = lines[i]
 
-    if line:match("^%s*%-%-%-") or line:match("^%-%-%-") then
+    local aname, arest = line:match("^%-%-%-@alias%s+([%w_%.]+)%s+(.+)$")
+    if aname then
+      -- Only module-prefixed aliases become named types; bare legacy
+      -- aliases (uint32, JsonValue, ...) stay hardcoded conversions in
+      -- gentype_render.TYPE_ALIASES.
+      if aname:match("%.") then
+        local adesc = parse_annotations(anno_lines)
+        table.insert(module.aliases, {
+            name = aname:match("%.([%w_]+)$"),
+            module = module_name,
+            alias_type = arest:match("^(%S+)"),
+            description = adesc,
+          })
+      end
+      anno_lines = {}
+      i = i + 1
+    elseif line:match("^%s*%-%-%-") or line:match("^%-%-%-") then
       if line:match("^%-%-%-@class%s+") and in_class_block and #anno_lines > 0 then
         process_class_block(anno_lines, module_name, module.classes)
         anno_lines = {}
