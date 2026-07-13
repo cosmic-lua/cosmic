@@ -293,6 +293,7 @@ all modules are under `lib/cosmic/` and imported as `cosmic.*`:
 | string | trim, split, capitalize, starts_with, etc. |
 | sys | OS/architecture detection, sysconf (nproc, page size), uname |
 | syslog | system logging |
+| table | deep copy/merge/equality and map/filter/reduce for tables |
 | teal | Teal compilation and type checking |
 | testrun | test execution and reporting |
 | time | timestamps, sleep, clock, datetime |

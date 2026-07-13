@@ -14,6 +14,9 @@
 --- remaining stdlib-colliding names, recorded so this never re-opens:
 --- `string` collides but the entrenched `str` binding convention avoids
 --- the shadow and the module is a strict superset-by-addition — keep;
+--- `table` (added by #500's battery wave) collides likewise, the `tbl`
+--- binding convention avoids the shadow, and its surface (deep_*,
+--- map/filter/reduce) is disjoint from the stdlib's — keep;
 --- `require` is already internal; `env`, `time`, and the rest carry no
 --- Lua global collision — keep.
 local public: {string} = {
@@ -57,6 +60,7 @@ local public: {string} = {
   "string",
   "sys",
   "syslog",
+  "table",
   "teal",
   "testrun",
   "time",
