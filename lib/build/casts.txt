@@ -104,6 +104,7 @@
 24	lib/cosmic/landlock.tl
 1	lib/cosmic/landlock_example.tl
 6	lib/cosmic/landlock_test.tl
+1	lib/cosmic/log_test.tl
 2	lib/cosmic/make.tl
 29	lib/cosmic/net/connect_test.tl
 10	lib/cosmic/net/init.tl
