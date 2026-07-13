@@ -43,6 +43,15 @@ local record gentype_types
     description: {string}
   end
 
+  -- A named type alias (`---@alias mod.Name <type>`). A literal-string
+  -- union renders as a Teal enum; anything else as a transparent alias.
+  record AliasDecl
+    name: string -- bare name (module prefix stripped)
+    module: string
+    alias_type: string -- raw LuaLS right-hand side
+    description: {string}
+  end
+
   record ClassDecl
     name: string
     module: string
@@ -58,6 +67,7 @@ local record gentype_types
     functions: {FuncDecl}
     classes: {ClassDecl}
     constants: {Constant}
+    aliases: {AliasDecl}
   end
 
 end

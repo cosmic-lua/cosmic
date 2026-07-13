@@ -4,8 +4,6 @@ local gt = require("types.gentype_types")
 local Param = gt.Param
 local Return = gt.Return
 local FuncDecl = gt.FuncDecl
-local Constant = gt.Constant
-local ClassDecl = gt.ClassDecl
 local ModuleDecl = gt.ModuleDecl
 
 -- The module currently being rendered. A dotted type reference whose prefix
@@ -242,6 +240,21 @@ local function format_description(desc: {string}, indent: string): {string}
   return result
 end
 
+--- Split an alias right-hand side into enum members when it is a union
+--- of two or more string literals; nil otherwise.
+local function alias_enum_members(t: string): {string}
+  if not t or not t:match("|") then return nil end
+  local members: {string} = {}
+  for part in t:gmatch("[^|]+") do
+    part = part:match("^%s*(.-)%s*$")
+    local lit = part:match('^"(.*)"$') or part:match("^'(.*)'$")
+    if not lit then return nil end
+    table.insert(members, lit)
+  end
+  if #members < 2 then return nil end
+  return members
+end
+
 --- Collect foreign module prefixes referenced from the module's types
 --- (e.g. `unix.Errno` inside cosmo), so requires can be emitted for them.
 local function foreign_modules(module: ModuleDecl): {string}
@@ -267,6 +280,7 @@ local function foreign_modules(module: ModuleDecl): {string}
     for _, f in ipairs(cls.fields) do scan(f.field_type) end
   end
   for _, c in ipairs(module.constants) do scan(c.const_type) end
+  for _, al in ipairs(module.aliases or {}) do scan(al.alias_type) end
   local result: {string} = {}
   for prefix in pairs(seen) do table.insert(result, prefix) end
   table.sort(result)
@@ -336,6 +350,25 @@ local function generate_dtl(module: ModuleDecl): string
     end
   end
 
+  -- Named aliases: a literal-string union becomes a real Teal enum
+  -- (checked at call sites); anything else a transparent type alias.
+  for _, al in ipairs(module.aliases or {}) do
+    for _, line in ipairs(format_description(al.description, "")) do
+      table.insert(out, line)
+    end
+    local members = alias_enum_members(al.alias_type)
+    if members then
+      table.insert(out, "local enum " .. al.name)
+      for _, m in ipairs(members) do
+        table.insert(out, "  \"" .. m .. "\"")
+      end
+      table.insert(out, "end")
+    else
+      table.insert(out, "local type " .. al.name .. " = " .. convert_type(al.alias_type))
+    end
+    table.insert(out, "")
+  end
+
   table.insert(out, "local record " .. module.name)
 
   -- Export each class type on the module record so consumers can name it
@@ -349,6 +382,14 @@ local function generate_dtl(module: ModuleDecl): string
   for _, cls in ipairs(module.classes) do
     if not taken[cls.name] then
       table.insert(out, "  type " .. cls.name .. " = " .. cls.name)
+      taken[cls.name] = true
+      aliased = aliased + 1
+    end
+  end
+  for _, al in ipairs(module.aliases or {}) do
+    if not taken[al.name] then
+      table.insert(out, "  type " .. al.name .. " = " .. al.name)
+      taken[al.name] = true
       aliased = aliased + 1
     end
   end
@@ -390,93 +431,14 @@ local function generate_dtl(module: ModuleDecl): string
   return table.concat(out, "\n")
 end
 
---- Extract a module's content from definitions.lua.
---- Selects, line-based: (1) the `<mod> = { ... }` table section, with brace
---- depth counted only outside comments (a stray `}` in a doc comment must not
---- terminate the table early); (2) every annotation block followed by a
---- `function <mod>.<name>(` or `function <mod>.<Class>:<method>(` declaration,
---- wherever it appears in the file; (3) every standalone `---@class <mod>.*`
---- data-class block. Blocks belonging to other modules never leak in, so no
---- boundary heuristics are needed.
-local function extract_module_content(source: string, module_name: string): string
-  local lines: {string} = {}
-  for line in (source .. "\n"):gmatch("([^\n]*)\n") do
-    table.insert(lines, line)
-  end
-
-  -- 1) module table section
-  local start_idx: integer = nil
-  for idx, line in ipairs(lines) do
-    if line:match("^" .. module_name .. "%s*=%s*{") then
-      start_idx = idx
-      break
-    end
-  end
-  if not start_idx then return nil end
-
-  local out: {string} = {}
-  local depth = 0
-  local table_end = start_idx
-  for idx = start_idx, #lines do
-    local code = lines[idx]:gsub("%-%-.*$", "")
-    for brace in code:gmatch("[{}]") do
-      depth = depth + (brace == "{" and 1 or -1)
-    end
-    table.insert(out, lines[idx])
-    table_end = idx
-    if depth <= 0 then break end
-  end
-
-  -- 2) + 3) annotation blocks and declarations for this module
-  local fn_pattern = "^function%s+" .. module_name .. "%."
-  local class_pattern = "^%-%-%-@class%s+" .. module_name .. "%."
-  local pending: {string} = {}
-  local function flush_standalone_class()
-    local is_class = false
-    for _, a in ipairs(pending) do
-      if a:match(class_pattern) then
-        is_class = true
-        break
-      end
-    end
-    if is_class then
-      for _, a in ipairs(pending) do table.insert(out, a) end
-      table.insert(out, "")
-    end
-    pending = {}
-  end
-
-  for idx = 1, #lines do
-    if idx >= start_idx and idx <= table_end then
-      pending = {}
-    else
-      local line = lines[idx]
-      if line:match("^%-%-%-") then
-        table.insert(pending, line)
-      elseif line:match(fn_pattern) then
-        for _, a in ipairs(pending) do table.insert(out, a) end
-        table.insert(out, line)
-        pending = {}
-      else
-        flush_standalone_class()
-      end
-    end
-  end
-  flush_standalone_class()
-
-  return table.concat(out, "\n")
-end
-
 local record GentypeRenderModule
   generate_dtl: function(module: ModuleDecl): string
   convert_type: function(t: string): string
-  extract_module_content: function(source: string, module_name: string): string
 end
 
 local M: GentypeRenderModule = {
   generate_dtl = generate_dtl,
   convert_type = convert_type,
-  extract_module_content = extract_module_content,
 }
 
 return M
