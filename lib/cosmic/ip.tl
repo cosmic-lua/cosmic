@@ -11,27 +11,7 @@ local cosmo = require("cosmo")
 --- Category of an IPv4 address, as reported by categorize().
 --- LOOPBACK/PRIVATE/TESTNET/MULTICAST are special-use ranges; the rest
 --- name the registry or organization the block is delegated to.
-local enum Category
-  "MULTICAST"
-  "LOOPBACK"
-  "PRIVATE"
-  "TESTNET"
-  "AFRINIC"
-  "LACNIC"
-  "APNIC"
-  "ARIN"
-  "RIPE"
-  "DOD"
-  "AT&T"
-  "APPLE"
-  "FORD"
-  "COGENT"
-  "PRUDENTIAL"
-  "USPS"
-  "COMCAST"
-  "FUTURE"
-  "ANONYMOUS"
-end
+local type Category = cosmo.IpCategory
 
 --- Address family. IPv4 only today; IPv6 (whilp/cosmopolitan#144) adds
 --- "inet6" as a value, leaving every Addr-taking signature unchanged.
@@ -76,7 +56,7 @@ local function addr_format(self: Addr): string
 end
 
 local function addr_categorize(self: Addr): Category
-  return cosmo.CategorizeIp(self._n) as Category
+  return cosmo.CategorizeIp(self._n)
 end
 
 local function addr_is_loopback(self: Addr): boolean

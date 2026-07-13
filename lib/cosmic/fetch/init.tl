@@ -179,7 +179,10 @@ local function to_fetch_options(opts?: Options): cosmo.FetchOptions
   return fo
 end
 
-local function fail(err: any, kind: any): Result
+-- kind is the raw failure kind from cosmo.Fetch (its dual-shape third
+-- return is statically string); fetch's ErrorKind is a superset
+-- (adds "tls"/"too_large"), so the enum conversion is a checked cast.
+local function fail(err: any, kind: string): Result
   return setmetatable({
       ok = false,
       error = tostring(err or "unknown error"),
@@ -388,7 +391,9 @@ local function make_reader(raw_reader: cosmo.StreamReader): Reader
     }) as Reader
 end
 
-local function stream_fail(err: any, kind: any): StreamResult
+-- kind mirrors fail()'s: FetchStream's dual-shape third return is
+-- statically StreamReader (it carries the kind string on failure).
+local function stream_fail(err: any, kind: string | cosmo.StreamReader): StreamResult
   return setmetatable({
       ok = false,
       error = tostring(err or "unknown error"),
