@@ -179,9 +179,8 @@ local function to_fetch_options(opts?: Options): cosmo.FetchOptions
   return fo
 end
 
--- kind is the raw failure kind from cosmo.Fetch (its dual-shape third
--- return is statically string); fetch's ErrorKind is a superset
--- (adds "tls"/"too_large"), so the enum conversion is a checked cast.
+-- kind is cosmo.Fetch's dual-shape third return (statically string);
+-- fetch's ErrorKind is a superset, so the enum conversion is a cast.
 local function fail(err: any, kind: string): Result
   return setmetatable({
       ok = false,
@@ -219,7 +218,18 @@ end
 local IDEMPOTENT: {string: boolean} = {
   GET = true, HEAD = true, OPTIONS = true, PUT = true, DELETE = true, TRACE = true,
 }
-local RETRYABLE_KIND: {string: boolean} = {dns = true, connect = true, timeout = true}
+-- <total>: every ErrorKind must take an explicit retry-or-not position;
+-- adding a kind without deciding is a compile error.
+local RETRYABLE_KIND < total >: {ErrorKind: boolean} = {
+  dns = true,
+  connect = true,
+  tls = false,
+  timeout = true,
+  proxy = false,
+  protocol = false,
+  too_large = false,
+  blocked = false,
+}
 local RETRYABLE_STATUS: {integer: boolean} = {[429] = true, [502] = true, [503] = true, [504] = true}
 
 --- Default retry policy: transport blips (dns/connect/timeout) and

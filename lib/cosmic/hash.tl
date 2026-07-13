@@ -36,7 +36,7 @@ end
 -- resolves names case-insensitively and knows a few extra legacy
 -- digests (MD2, MD4), so this wrapper-side check is load-bearing:
 -- it keeps the runtime surface identical to the Algo enum.
-local valid_algos: {string: boolean} = {
+local valid_algos < total >: {Algo: boolean} = {
   sha256 = true,
   sha512 = true,
   sha384 = true,
