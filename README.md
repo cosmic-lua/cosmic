@@ -63,6 +63,7 @@ High-level utilities and tools built on top of cosmo.
 | [string](lib/cosmic/string.md) |  String utilities. |
 | [sys](lib/cosmic/sys.md) |  System information utilities. |
 | [syslog](lib/cosmic/syslog.md) |  System logging. |
+| [table](lib/cosmic/table.md) |  Table utilities. |
 | [teal](lib/cosmic/teal.md) |  Teal compilation and type-checking. |
 | [testrun](lib/cosmic/testrun.md) |  Test runner for cosmic executables. |
 | [time](lib/cosmic/time.md) |  Time and clock utilities. |
