@@ -35,7 +35,7 @@ local help = require("cosmic.cli.help")
 local handlers = require("cosmic.cli.main_handlers")
 
 -- Parsed options record
-local record Opts
+local record Options
   execute: {string}
   load: {string}
   interactive: boolean
@@ -70,8 +70,8 @@ local record Opts
 end
 
 -- Parse arguments using cosmo.getopt iterator API
-local function parse_args(): Opts
-  local opts: Opts = {
+local function parse_args(): Options
+  local opts: Options = {
     execute = {},
     load = {},
     interactive = false,

@@ -21,6 +21,12 @@ local enum LogLevel
   "debug"
 end
 
+--- Proxy log line encoding.
+local enum LogFormat
+  "text"
+  "json"
+end
+
 --- A single allowlist rule for `net.allow`. Mirrors
 --- cosmic.quicksand.proxy.ProxyRule (whose looser runtime schema is
 --- validated by proxy.start) — empty table = pass-through.
@@ -100,6 +106,7 @@ end
 local record TypesModule
   type NetRuleType = NetRuleType
   type LogLevel = LogLevel
+  type LogFormat = LogFormat
   type NetRule = NetRule
   type NetOptions = NetOptions
   type FsOpts = FsOpts

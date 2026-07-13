@@ -5,12 +5,7 @@
 
 local tl = require("tl")
 
-local record FormatRules
-  is_long_comment: function(tk: string): boolean
-  needs_space: function(prev_prev: any, prev: any, cur: any, next_item: any): boolean
-  compute_indent_change: function(line_items: {any}): integer, integer
-end
-local rules = require("cosmic.format.rules") as FormatRules
+local rules = require("cosmic.format.rules")
 
 --- A formatting issue (syntax error preventing formatting).
 local record Issue
@@ -29,12 +24,43 @@ local record FormatResult
 end
 
 -- An item in the output stream: either a token or a comment.
-local record Item
-  y: integer -- source line
-  x: integer -- source column
-  tk: string -- text
-  kind: string -- token kind (or "comment" for comments)
+local record Item is rules.Item
+  -- y/x/tk/kind come from the rules.Item interface.
   _newlines: integer -- cached newline count for multiline tokens
+  _tight_before: boolean -- render with no space before (type-param lists)
+end
+
+--- Mark type-parameter lists (`function<T>(`, `function name<K, V>(`) so
+--- the spacing pass renders them tightly; needs_space alone cannot tell
+--- `f<T>(` from a `<` comparison in its four-token window.
+local function mark_type_params(items: {Item})
+  for i, item in ipairs(items) do
+    if item.kind == "keyword" and item.tk == "function" then
+      local j = i + 1
+      if items[j] and items[j].kind == "identifier" then j = j + 1 end
+      if items[j] and items[j].tk == "<" then
+        local k = j + 1
+        local depth = 1
+        while items[k] and depth > 0 do
+          if items[k].tk == "<" then
+            depth = depth + 1
+          elseif items[k].tk == ">" then
+            depth = depth - 1
+          end
+          k = k + 1
+        end
+        if depth == 0 and items[k] and items[k].tk == "(" then
+          for m = j, k do
+            local it = items[m]
+            if m == j or it.tk == ">" or m == k
+            or (items[m - 1] and items[m - 1].tk == "<") then
+              it._tight_before = true
+            end
+          end
+        end
+      end
+    end
+  end
 end
 
 --- Count newlines in a string using plain find (faster than gmatch for counting).
@@ -223,13 +249,15 @@ local function format(input: string, filename: string): FormatResult
       out[#out + 1] = "\n"
     end
 
-    local pre_change, post_change = rules.compute_indent_change(line.items as {any})
+    local pre_change, post_change = rules.compute_indent_change(line.items)
 
     indent = math.max(0, indent + pre_change)
 
     if indent > 0 then
       out[#out + 1] = string.rep(indent_str, indent)
     end
+
+    mark_type_params(line.items)
 
     local prev_prev_item: Item = nil
     local prev_item: Item = nil
@@ -239,7 +267,8 @@ local function format(input: string, filename: string): FormatResult
         if item_idx < #line.items then
           next_item = line.items[item_idx + 1]
         end
-        if rules.needs_space(prev_prev_item as any, prev_item as any, item as any, next_item as any) then
+        if not item._tight_before
+        and rules.needs_space(prev_prev_item, prev_item, item, next_item) then
           out[#out + 1] = " "
         end
       end

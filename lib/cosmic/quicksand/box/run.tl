@@ -194,10 +194,9 @@ local function supervisor(
     local h, perr = proxy.start({
         bind_ip = cosmo.ParseIp("127.0.0.1") as integer,
         bind_port = 0,
-        -- Box's typed NetRule and the proxy's runtime-validated
-        -- ProxyRule are distinct records with the same wire shape;
-        -- proxy.start's rules.validate is the checker of record here.
-        allowed_hosts = net.allow as {string: proxy.ProxyRule},
+        -- NetRule and ProxyRule are the same nominal record now;
+        -- proxy.start's rules.validate still runtime-checks raw config.
+        allowed_hosts = net.allow,
         upstream_ns_fd = parent_netns_fd,
         log_level = net.log_level or "quiet",
         resolve_timeout_ms = net.resolve_timeout_ms,

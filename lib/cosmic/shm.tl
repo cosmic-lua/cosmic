@@ -137,13 +137,12 @@ local function wrap(raw: unix.Memory, size: number): Memory
   end
 
   -- Shared body for the atomic read-modify-write word operations.
-  local function atomic(op: string, fn: any, word_index: number, value: number): number | nil, string
+  local function atomic(op: string, fn: function(unix.Memory, number, number): number, word_index: number, value: number): number | nil, string
     local range_err = check_word(word_index, size, op)
     if range_err then
       return nil, range_err
     end
-    local call = fn as function(unix.Memory, number, number): number
-    local ok, res = pcall(call, raw, word_index, value)
+    local ok, res = pcall(fn, raw, word_index, value)
     if not ok then
       return nil, thrown(op, res)
     end
