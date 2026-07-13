@@ -97,7 +97,7 @@
 4	lib/cosmic/hash_test.tl
 13	lib/cosmic/include_dir_test.tl
 3	lib/cosmic/init.tl
-10	lib/cosmic/ip.tl
+9	lib/cosmic/ip.tl
 15	lib/cosmic/ip_test.tl
 2	lib/cosmic/json.tl
 12	lib/cosmic/json_test.tl
