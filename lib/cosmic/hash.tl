@@ -177,7 +177,7 @@ local function password(pwd: string, options?: HashOptions): string | nil, strin
         config.variant = options.variant
       else
         return nil, "invalid variant: " .. tostring(options.variant)
-          .. " (expected argon2id, argon2i, or argon2d)"
+        .. " (expected argon2id, argon2i, or argon2d)"
       end
     end
   end
