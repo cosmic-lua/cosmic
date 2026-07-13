@@ -21,51 +21,6 @@
 
 ## Types
 
-### RawStatement
-
-```teal
-local record RawStatement
-  bind_values: function(self: RawStatement, ...: any): number
-  bind: function(self: RawStatement, n: number, value?: any): number
-  bind_blob: function(self: RawStatement, n: number, blob: string): number
-  bind_names: function(self: RawStatement, params: {string: any}): number
-  bind_parameter_count: function(self: RawStatement): number
-  step: function(self: RawStatement): number
-  reset: function(self: RawStatement)
-  finalize: function(self: RawStatement): number
-  get_value: function(self: RawStatement, n: number): any
-  columns: function(self: RawStatement): number
-  get_name: function(self: RawStatement, n: number): string
-end
-```
-
-### RawDatabase
-
-```teal
-local record RawDatabase
-  close: function(self: RawDatabase): number
-  exec: function(self: RawDatabase, sql: string): number
-  prepare: function(self: RawDatabase, sql: string): RawStatement, number, string
-  busy_timeout: function(self: RawDatabase, milliseconds: number)
-  last_insert_rowid: function(self: RawDatabase): number
-  changes: function(self: RawDatabase): number
-  errmsg: function(self: RawDatabase): string
-end
-```
-
-### RawSqlite3
-
-```teal
-local record RawSqlite3
-  OK: number
-  ROW: number
-  DONE: number
-  SCHEMA: number
-  OPEN_READONLY: number
-  open: function(filename: string, flags?: number): RawDatabase, number, string
-end
-```
-
 ### Rows
 
  Callable row iterator with an out-of-band error channel. Use it in a
