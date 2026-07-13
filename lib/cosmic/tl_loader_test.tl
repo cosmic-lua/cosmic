@@ -80,7 +80,6 @@ print("answer=" .. tostring(mymod.answer))
 
   local h2 = spawn.spawn({cosmic, "-e", "package.path='" .. moddir .. "/?.tl;' .. package.path", script})
   local __r2 = (h2 as spawn.Handle):wait() as spawn.Result
-  local ok, out = __r2.ok, __r2.stdout
   -- This may not work exactly this way, but the point is tl_package_loader
   -- should still work for .tl-only modules
   -- For now, just verify the tl_package_loader exists in searchers

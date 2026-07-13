@@ -6,7 +6,7 @@ local cosmo = require("cosmo")
 local fetch_headers = require("cosmic.fetch.headers")
 local fetch_extras = require("cosmic.fetch.extras")
 local json_mod = require("cosmic.json")
-local stream = require("cosmic.stream")
+local stream_mod = require("cosmic.stream")
 local time = require("cosmic.time")
 
 local validate_url = fetch_extras.validate_url
@@ -103,7 +103,7 @@ end
 --- next chunk, bare nil at end of stream, or nil + error on failure.
 --- Chunk sizes are transport-determined; read takes no size argument.
 --- Supports Lua 5.4's to-be-closed via __close metamethod.
-local record Reader is stream.Reader
+local record Reader is stream_mod.Reader
   read: function(self: Reader): string | nil, string
   close: function(self: Reader): boolean
   closed: function(self: Reader): boolean

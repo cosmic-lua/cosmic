@@ -463,8 +463,8 @@ local function main(): integer, string
     end
     local run_chunk = chunk as function(...: any): any ...
     local args: {string} = {}
-    for i = 1, #opts.script_args do
-      args[i] = opts.script_args[i]
+    for i, a in pairs(opts.script_args) do
+      if i >= 1 then args[i] = a end
     end
     local results: {any} = table.pack(xpcall(function()
           run_chunk(table.unpack(args))

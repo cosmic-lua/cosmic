@@ -103,4 +103,5 @@ local function Example_stream_lines()
   -- gamma
 end
 
-return {}
+-- Suppress unused warnings for examples
+local _ = {Example_get, Example_retry, Example_stream_lines}

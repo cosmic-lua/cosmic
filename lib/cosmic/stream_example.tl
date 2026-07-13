@@ -53,4 +53,5 @@ local function Example_writer()
   -- ten bytes!
 end
 
-return {}
+-- Suppress unused warnings for examples
+local _ = {Example_reader, Example_writer}

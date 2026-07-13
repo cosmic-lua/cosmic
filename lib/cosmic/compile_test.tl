@@ -37,7 +37,7 @@ if if if
 
   local h2 = spawn.spawn({cosmic, "--compile", input})
   local __r2 = (h2 as spawn.Handle):wait() as spawn.Result
-  local ok, out = __r2.ok, __r2.stdout
+  local ok = __r2.ok
   assert(not ok, "cosmic --compile should fail on syntax error")
 end
 test_compile_syntax_error()
@@ -50,7 +50,7 @@ local x: number = "wrong type"
 
   local h3 = spawn.spawn({cosmic, "--compile", input})
   local __r3 = (h3 as spawn.Handle):wait() as spawn.Result
-  local ok, out = __r3.ok, __r3.stdout
+  local ok = __r3.ok
   assert(not ok, "cosmic --compile should fail on type error")
 end
 test_compile_type_error()
@@ -96,7 +96,7 @@ test_compile_generics()
 local function test_compile_missing_file()
   local h6 = spawn.spawn({cosmic, "--compile", "/nonexistent/file.tl"})
   local __r6 = (h6 as spawn.Handle):wait() as spawn.Result
-  local ok, out = __r6.ok, __r6.stdout
+  local ok = __r6.ok
   assert(not ok, "cosmic --compile should fail on missing file")
 end
 test_compile_missing_file()
@@ -136,7 +136,7 @@ print("read " .. #data .. " bytes")
 
   local h9 = spawn.spawn({cosmic, "--compile", input})
   local __r9 = (h9 as spawn.Handle):wait() as spawn.Result
-  local ok, out = __r9.ok, __r9.stdout
+  local ok = __r9.ok
   assert(ok, "compile with cosmic types should succeed")
 end
 test_compile_with_cosmic_types()

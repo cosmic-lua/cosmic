@@ -23,7 +23,7 @@ end
 -- Example_decode_error demonstrates error handling for invalid JSON
 local function Example_decode_error()
   local json = require("cosmic.json")
-  local result, err = json.decode("{invalid}")
+  local _, err = json.decode("{invalid}")
   if err then
     print("decode error: " .. err)
   end
@@ -34,7 +34,7 @@ end
 -- Example_encode_error demonstrates error handling for unencodable values
 local function Example_encode_error()
   local json = require("cosmic.json")
-  local result, err = json.encode(function() end)
+  local _, err = json.encode(function() end)
   if err then
     print("encode error: " .. err)
   end
@@ -42,4 +42,5 @@ local function Example_encode_error()
   -- encode error: unsupported lua type
 end
 
-return {}
+-- Suppress unused warnings for examples
+local _ = {Example_decode, Example_encode, Example_decode_error, Example_encode_error}

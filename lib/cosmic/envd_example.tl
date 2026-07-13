@@ -98,4 +98,5 @@ local function Example_variable_expansion()
   -- KEEP=
 end
 
-return {}
+-- Suppress unused warnings for examples
+local _ = {Example_load_dir, Example_extract_update_embed, Example_variable_expansion}

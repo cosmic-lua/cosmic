@@ -64,4 +64,5 @@ local function Example_all()
   -- environment has true variables
 end
 
-return {}
+-- Suppress unused warnings for examples
+local _ = {Example_get, Example_get_missing, Example_set_and_get, Example_unset, Example_all}

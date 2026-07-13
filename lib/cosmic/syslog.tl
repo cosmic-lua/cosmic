@@ -72,7 +72,7 @@ end
 
 --- Write a debug message to the system log.
 --- @param message string The message to log
-local function debug(message: string)
+local function debug_msg(message: string)
   unix.syslog(LOG_DEBUG, message)
 end
 
@@ -109,7 +109,7 @@ local M: SyslogModule = {
   warning = warning,
   notice = notice,
   info = info,
-  debug = debug,
+  debug = debug_msg,
 
   -- Priority constants
   LOG_EMERG = LOG_EMERG,

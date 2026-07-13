@@ -181,9 +181,9 @@ end
 --- Run a single example and capture its output.
 --- Executes the example code and compares actual output with expected output.
 --- @param example Example The example to run
---- @param file_path string Path to the source file (for context)
+--- @param _file_path string Path to the source file (unused; kept for call-site context)
 --- @return ExampleResult Result with pass/fail status and output comparison
-local function run_example(example: Example, file_path: string): ExampleResult
+local function run_example(example: Example, _file_path: string): ExampleResult
   local result: ExampleResult = {
     name = example.name,
     passed = false,

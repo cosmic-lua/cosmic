@@ -32,4 +32,5 @@ io.write("done\n")
   -- done
 end
 
-return {}
+-- Suppress unused warnings for examples
+local _ = {Example_apply}

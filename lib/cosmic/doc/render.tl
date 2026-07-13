@@ -5,8 +5,6 @@ local types = require("cosmic.doc.types")
 local Param = types.Param
 local Return = types.Return
 local FunctionDoc = types.FunctionDoc
-local RecordDoc = types.RecordDoc
-local ExampleDoc = types.ExampleDoc
 local ModuleDoc = types.ModuleDoc
 
 --- Extract leading doc comment before a position.

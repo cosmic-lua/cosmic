@@ -19,4 +19,5 @@ io.write("stdio only\n")
   -- stdio only
 end
 
-return {}
+-- Suppress unused warnings for examples
+local _ = {Example_apply}

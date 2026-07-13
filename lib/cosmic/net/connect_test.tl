@@ -6,10 +6,10 @@ local ip = require("cosmic.ip")
 local proc = require("cosmic.proc")
 
 local function test_interfaces()
-  local ifaces, err = net.interfaces()
-  assert(ifaces ~= nil, "interfaces() failed: " .. tostring(err))
-  assert(type(ifaces) == "table", "expected table, got " .. type(ifaces))
-  local ifaces = ifaces as {net.Interface}
+  local raw_ifaces, err = net.interfaces()
+  assert(raw_ifaces ~= nil, "interfaces() failed: " .. tostring(err))
+  assert(type(raw_ifaces) == "table", "expected table, got " .. type(raw_ifaces))
+  local ifaces = raw_ifaces as {net.Interface}
 
   -- Should have at least the loopback interface
   local has_loopback = false
@@ -29,9 +29,9 @@ test_interfaces()
 
 local function test_interfaces_format()
   -- Test that we can format interface IPs
-  local ifaces = net.interfaces()
-  if ifaces then
-    local ifaces = ifaces as {net.Interface}
+  local raw_ifaces = net.interfaces()
+  if raw_ifaces then
+    local ifaces = raw_ifaces as {net.Interface}
     for _, iface in ipairs(ifaces) do
       local ip_str = iface.ip:format()
       assert(ip_str:match("^%d+%.%d+%.%d+%.%d+$"), "expected dotted IP format, got " .. ip_str)
@@ -45,9 +45,9 @@ local function test_unix_domain_socket_bind_connect()
   local path = tmpdir .. "/test.sock"
 
   -- Create server socket
-  local server, err = net.socket(net.AF_UNIX, net.SOCK_STREAM, 0)
-  assert(server ~= nil, "unix server socket creation failed: " .. tostring(err))
-  local server = server as net.Socket
+  local raw_server, err = net.socket(net.AF_UNIX, net.SOCK_STREAM, 0)
+  assert(raw_server ~= nil, "unix raw_server socket creation failed: " .. tostring(err))
+  local server = raw_server as net.Socket
 
   -- Bind to path
   local ok, bind_err = server:bind_unix(path)
@@ -60,9 +60,9 @@ local function test_unix_domain_socket_bind_connect()
   -- Fork to create a client
   local pid = proc.fork()
   if pid == 0 then
-    local client = net.socket(net.AF_UNIX, net.SOCK_STREAM, 0)
-    if not client then os.exit(1) end
-    local client = client as net.Socket
+    local raw_client = net.socket(net.AF_UNIX, net.SOCK_STREAM, 0)
+    if not raw_client then os.exit(1) end
+    local client = raw_client as net.Socket
     local connect_ok = client:connect_unix(path)
     if not connect_ok then os.exit(2) end
     local sent = client:send("hello from unix client")
@@ -72,9 +72,9 @@ local function test_unix_domain_socket_bind_connect()
   end
 
   -- Parent: accept connection
-  local client, _, _, accept_err = server:accept()
-  assert(client ~= nil, "accept failed: " .. tostring(accept_err))
-  local client = client as net.Socket
+  local raw_client, _, _, accept_err = server:accept()
+  assert(raw_client ~= nil, "accept failed: " .. tostring(accept_err))
+  local client = raw_client as net.Socket
 
   -- Read data from client
   local data, recv_err = client:recv()
@@ -93,19 +93,19 @@ local function test_listen_unix_connect_unix()
   local path = tmpdir .. "/test.sock"
 
   -- Use module-level listen_unix helper
-  local server, err = net.listen_unix(path)
-  assert(server ~= nil, "listen_unix failed: " .. tostring(err))
-  local server = server as net.Socket
+  local raw_server, err = net.listen_unix(path)
+  assert(raw_server ~= nil, "listen_unix failed: " .. tostring(err))
+  local server = raw_server as net.Socket
 
   -- Fork to create a client using module-level connect_unix helper
   local pid = proc.fork()
   if pid == 0 then
-    local client, cerr = net.connect_unix(path)
-    if not client then
+    local raw_client, cerr = net.connect_unix(path)
+    if not raw_client then
       io.stderr:write("connect_unix failed: " .. tostring(cerr) .. "\n")
       os.exit(1)
     end
-    local client = client as net.Socket
+    local client = raw_client as net.Socket
     local sent = client:send("hello from connect_unix")
     if not sent then os.exit(2) end
     client:close()
@@ -113,9 +113,9 @@ local function test_listen_unix_connect_unix()
   end
 
   -- Parent: accept connection
-  local client, _, _, accept_err = server:accept()
-  assert(client ~= nil, "accept failed: " .. tostring(accept_err))
-  local client = client as net.Socket
+  local raw_client, _, _, accept_err = server:accept()
+  assert(raw_client ~= nil, "accept failed: " .. tostring(accept_err))
+  local client = raw_client as net.Socket
 
   -- Read data from client
   local data, recv_err = client:recv()
@@ -135,9 +135,9 @@ test_listen_unix_connect_unix()
 
 local function test_nb_connect_loopback()
   -- Create a listening socket
-  local server, err = net.socket()
-  assert(server ~= nil, "server socket creation failed: " .. tostring(err))
-  local server = server as net.Socket
+  local raw_server, err = net.socket()
+  assert(raw_server ~= nil, "raw_server socket creation failed: " .. tostring(err))
+  local server = raw_server as net.Socket
 
   local ok, setopt_err = server:setsockopt(net.SOL_SOCKET, net.SO_REUSEADDR, true)
   assert(ok, "setsockopt failed: " .. tostring(setopt_err))
@@ -154,18 +154,18 @@ local function test_nb_connect_loopback()
   -- A plain blocking socket: nb_connect switches it to non-blocking
   -- itself via Socket:set_nonblocking (it used to silently block when
   -- handed a blocking socket).
-  local client, cerr = net.socket()
-  assert(client ~= nil, "client socket creation failed: " .. tostring(cerr))
-  local client = client as net.Socket
+  local raw_client, cerr = net.socket()
+  assert(raw_client ~= nil, "raw_client socket creation failed: " .. tostring(cerr))
+  local client = raw_client as net.Socket
 
   -- nb_connect to the listening server, by dotted-quad string
   ok, err = net.nb_connect(client, "127.0.0.1", server_port, 5000)
   assert(ok, "nb_connect failed: " .. tostring(err))
 
   -- Accept the connection on the server side
-  local accepted, _, _, accept_err = server:accept()
-  assert(accepted ~= nil, "accept failed: " .. tostring(accept_err))
-  local accepted = accepted as net.Socket
+  local raw_accepted, _, _, accept_err = server:accept()
+  assert(raw_accepted ~= nil, "accept failed: " .. tostring(accept_err))
+  local accepted = raw_accepted as net.Socket
 
   -- Verify the connection works by sending data
   local sent, send_err = client:send("nb_hello")
@@ -182,9 +182,9 @@ test_nb_connect_loopback()
 
 local function test_nb_connect_refused()
   -- Create a non-blocking socket and try to connect to a port with no listener
-  local client, err = net.socket(net.AF_INET, net.SOCK_STREAM | net.SOCK_NONBLOCK, 0)
-  assert(client ~= nil, "client socket creation failed: " .. tostring(err))
-  local client = client as net.Socket
+  local raw_client, err = net.socket(net.AF_INET, net.SOCK_STREAM | net.SOCK_NONBLOCK, 0)
+  assert(raw_client ~= nil, "raw_client socket creation failed: " .. tostring(err))
+  local client = raw_client as net.Socket
 
   -- Connect to localhost port 1 — should be refused
   local ok, conn_err = net.nb_connect(client, "127.0.0.1", 1, 2000)
@@ -197,9 +197,9 @@ test_nb_connect_refused()
 
 local function test_connect_tcp()
   -- Create a listening socket
-  local server, err = net.socket()
-  assert(server ~= nil, "server socket creation failed: " .. tostring(err))
-  local server = server as net.Socket
+  local raw_server, err = net.socket()
+  assert(raw_server ~= nil, "raw_server socket creation failed: " .. tostring(err))
+  local server = raw_server as net.Socket
 
   local ok, setopt_err = server:setsockopt(net.SOL_SOCKET, net.SO_REUSEADDR, true)
   assert(ok, "setsockopt failed: " .. tostring(setopt_err))
@@ -216,12 +216,12 @@ local function test_connect_tcp()
   -- Fork to create a client using connect_tcp
   local pid = proc.fork()
   if pid == 0 then
-    local client, cerr = net.connect_tcp("127.0.0.1", server_port)
-    if not client then
+    local raw_client, cerr = net.connect_tcp("127.0.0.1", server_port)
+    if not raw_client then
       io.stderr:write("connect_tcp failed: " .. tostring(cerr) .. "\n")
       os.exit(1)
     end
-    local client = client as net.Socket
+    local client = raw_client as net.Socket
     local sent = client:send("hello from connect_tcp")
     if not sent then os.exit(2) end
     client:close()
@@ -229,9 +229,9 @@ local function test_connect_tcp()
   end
 
   -- Parent: accept connection
-  local client, _, _, accept_err = server:accept()
-  assert(client ~= nil, "accept failed: " .. tostring(accept_err))
-  local client = client as net.Socket
+  local raw_client, _, _, accept_err = server:accept()
+  assert(raw_client ~= nil, "accept failed: " .. tostring(accept_err))
+  local client = raw_client as net.Socket
 
   -- Read data from client
   local data, recv_err = client:recv()
@@ -244,9 +244,9 @@ end
 test_connect_tcp()
 
 local function test_connect_tcp_accepts_string_and_addr()
-  local server, port, lerr = net.listen_tcp("127.0.0.1", 0)
-  assert(server ~= nil, "listen_tcp with string address failed: " .. tostring(lerr))
-  local server = server as net.Socket
+  local raw_server, port, lerr = net.listen_tcp("127.0.0.1", 0)
+  assert(raw_server ~= nil, "listen_tcp with string address failed: " .. tostring(lerr))
+  local server = raw_server as net.Socket
 
   -- connect by dotted-quad string
   local c1, e1 = net.connect_tcp("127.0.0.1", port)
@@ -283,9 +283,9 @@ test_connect_tcp_rejects_bad_addresses()
 
 local function test_connect_error_message()
   -- Connect to a port with no listener — should get a descriptive error, not just "connect failed"
-  local sock, err = net.socket()
-  assert(sock ~= nil, "socket creation failed: " .. tostring(err))
-  local sock = sock as net.Socket
+  local raw_sock, err = net.socket()
+  assert(raw_sock ~= nil, "socket creation failed: " .. tostring(err))
+  local sock = raw_sock as net.Socket
 
   local ok, conn_err = sock:connect("127.0.0.1", 1) -- localhost port 1
   assert(not ok, "expected connect to fail")

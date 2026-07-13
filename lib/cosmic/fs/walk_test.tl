@@ -32,7 +32,6 @@ local function test_walk_symlink_cycle_terminates()
   -- Create a symlink cycle: sub/loop -> ..  (points back to base)
   fs.symlink("..", fs.join(subdir, "loop"))
 
-  local count = 0
   local max_depth_seen = 0
   -- walk the base directory; collect all entries to detect infinite loop
   -- (the test harness has a timeout; if we don't hang this is fine)
@@ -106,7 +105,7 @@ local function test_walk_symlink_file_visited()
   fs.symlink("real.txt", fs.join(base, "alias.txt"))
 
   local found: {string: boolean} = {}
-  fs_walk.walk(base, function(full_path: string, entry: string, _st: any, ctx: {string: boolean})
+  fs_walk.walk(base, function(_full_path: string, entry: string, _st: any, ctx: {string: boolean})
       ctx[entry] = true
     end, found)
   -- Both the real file and the symlink to a file should be visited

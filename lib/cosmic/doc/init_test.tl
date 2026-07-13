@@ -2,10 +2,8 @@
 -- test cosmic.doc module
 
 local fs = require("cosmic.fs")
-local spawn = require("cosmic.child")
 local doc = require("cosmic.doc")
 
-local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 local function write_temp(name: string, content: string): string

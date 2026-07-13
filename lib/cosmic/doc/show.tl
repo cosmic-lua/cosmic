@@ -2,8 +2,6 @@
 --- Formats documentation records into human-readable CLI output.
 
 local types = require("cosmic.doc.types")
-local Param = types.Param
-local Return = types.Return
 local FunctionDoc = types.FunctionDoc
 local RecordDoc = types.RecordDoc
 local ExampleDoc = types.ExampleDoc

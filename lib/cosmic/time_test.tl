@@ -14,7 +14,7 @@ end
 test_clock_gettime_default()
 
 local function test_clock_gettime_realtime()
-  local secs, nanos = time.clock_gettime(time.CLOCK_REALTIME)
+  local secs, _nanos = time.clock_gettime(time.CLOCK_REALTIME)
   assert(secs ~= nil, "expected seconds to be non-nil")
   assert(secs > 1700000000, "expected timestamp after 2023")
 end

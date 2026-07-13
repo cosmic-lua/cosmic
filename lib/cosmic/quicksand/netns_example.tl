@@ -6,7 +6,7 @@
 -- which the example also handles.
 local function Example_open_self()
   local netns = require("cosmic.quicksand.netns")
-  local fd, err = netns.open(nil)
+  local fd, _err = netns.open(nil)
   if not fd then
     io.write("no netns\n")
     return
@@ -34,4 +34,5 @@ assert(ns.bring_up("lo"))
   hh:wait()
 end
 
-return {}
+-- Suppress unused warnings for examples
+local _ = {Example_open_self, Example_unshare_in_subprocess}

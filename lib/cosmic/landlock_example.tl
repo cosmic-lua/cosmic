@@ -52,4 +52,5 @@ assert(ll.restrict{
   local _ = (h as spawn.Handle):wait()
 end
 
-return {}
+-- Suppress unused warnings for examples
+local _ = {Example_available, Example_masks, Example_restrict}

@@ -4,6 +4,7 @@ local record tl
     y: number
     x: number
     msg: string
+    tag: string -- warning kind: "unknown"|"unused"|"unread"|"redeclaration"|"branch"|"hint"
   end
 
   record Result
@@ -21,9 +22,25 @@ local record tl
     comments: {any}
   end
 
+  -- per-env feature/codegen defaults (tl.CheckOptions upstream)
+  record CheckOptions
+    feat_lax: string -- "on"|"off"
+    feat_arity: string -- "on"|"off"
+    gen_compat: string -- "off"|"optional"|"required"
+    gen_target: string -- "5.1"|"5.3"|"5.4"
+    run_internal_compiler_checks: boolean
+  end
+
+  record EnvOptions
+    defaults: CheckOptions
+    predefined_modules: {string}
+  end
+
   path: string
   loader: function()
+  warning_kinds: {string: boolean}
   init_env: function(boolean): any
+  new_env: function(EnvOptions): any, string
   lex: function(string, string): {Token}, {Error}
   parse_program: function({Token}, {Error}, string, string): any, {string}
   process_string: function(string, boolean, any, string): Result, string

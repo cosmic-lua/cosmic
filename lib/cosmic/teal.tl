@@ -11,6 +11,7 @@ local record Issue
   column: integer
   message: string
   severity: string -- "error" or "warning"
+  tag: string -- warning kind ("unused", "redeclaration", ...) when severity is "warning"
 end
 
 --- Options for compiling Teal to Lua.
@@ -21,8 +22,10 @@ local record CompileOptions
 end
 
 --- Options for type-checking Teal files.
+--- Warnings fail the check unless werror is explicitly set to false.
 local record CheckOptions
   include_dirs: {string}
+  werror: boolean
 end
 
 --- Result from compiling a Teal file.
@@ -57,6 +60,7 @@ local record TlError
   filename: string
   y: integer
   x: integer
+  tag: string
 end
 
 --- Result from Teal's process_string function.
@@ -128,7 +132,17 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
   path_parts[#path_parts + 1] = package.path
   tl.path = table.concat(path_parts, ";")
 
-  local env = tl.init_env(lax)
+  -- Options-form env construction: feature flags are explicit rather than
+  -- inherited from tl's version-dependent defaults. feat_arity stays "on"
+  -- (0.24 default) so function-arity mismatches are checked in strict mode.
+  local env = tl.new_env({
+      defaults = {
+        feat_lax = lax and "on" or "off",
+        feat_arity = "on",
+        gen_target = "5.4",
+        gen_compat = "off",
+      },
+    })
   local ok, result_or_err, proc_err = pcall(tl.process_string, input, false, env, input_path)
 
   tl.path = saved_tl_path
@@ -253,11 +267,15 @@ end
 
 --- Type-check a Teal file.
 --- Uses strict mode for thorough type checking. Collects errors and warnings.
+--- Warnings fail the check (ok = false) unless opts.werror is explicitly
+--- false: an unused local or shadowed variable is a defect the author must
+--- either fix or deliberately mark (leading underscore), never ignore.
 --- @param input_path string Path to the Teal file to check
---- @param opts CheckOptions Type-checking options (include_dirs)
+--- @param opts CheckOptions Type-checking options (include_dirs, werror)
 --- @return CheckResult Result with ok status, warnings, and errors
 local function check(input_path: string, opts: CheckOptions): CheckResult
   opts = opts or {} as CheckOptions
+  local werror = opts.werror ~= false
 
   local dirs = merge_include_dirs(opts.include_dirs)
   local proc = process_file(input_path, dirs, false)
@@ -277,12 +295,14 @@ local function check(input_path: string, opts: CheckOptions): CheckResult
             column = w.x or 0,
             message = w.msg,
             severity = "warning",
+            tag = w.tag,
           })
       end
     end
   end
 
-  return {ok = #errors == 0, warnings = warnings, errors = errors}
+  local ok = #errors == 0 and (not werror or #warnings == 0)
+  return {ok = ok, warnings = warnings, errors = errors}
 end
 
 --- Format issues for human-readable output.

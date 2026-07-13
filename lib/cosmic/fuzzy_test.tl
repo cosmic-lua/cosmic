@@ -42,14 +42,14 @@ end
 test_levenshtein_case_sensitive()
 
 local function test_levenshtein_symmetry()
-  -- distance(a,b) must equal distance(b,a) for all pairs
-  local pairs: {{string, string}} = {
+  -- distance(a,b) must equal distance(b,a) for all cases
+  local cases: {{string, string}} = {
     {"kitten", "sitting"},
     {"a", "abcdef"},
     {"short", "a much longer string"},
     {"xyz", ""},
   }
-  for _, p in ipairs(pairs) do
+  for _, p in ipairs(cases) do
     local d1 = fuzzy.levenshtein(p[1], p[2])
     local d2 = fuzzy.levenshtein(p[2], p[1])
     assert(d1 == d2, "levenshtein should be symmetric: '" .. p[1] .. "' <-> '" .. p[2] .. "': " .. tostring(d1) .. " vs " .. tostring(d2))

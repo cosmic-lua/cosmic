@@ -57,4 +57,5 @@ local function Example_run_return_shape()
   -- exclusive
 end
 
-return {}
+-- Suppress unused warnings for examples
+local _ = {Example_new_and_close, Example_merge, Example_run_return_shape}
