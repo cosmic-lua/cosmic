@@ -8,6 +8,9 @@ local re = require("cosmo.re")
 --- A compiled regular expression pattern.
 --- Use compile() to create, then call :search() for O(n) matching.
 local record Regex
+  -- Runtime values are cosmo.re's compiled-regex userdata (compile()
+  -- casts them in), so `x is Regex` must test for userdata.
+  userdata
   --- Search for pattern match in text.
   --- On a match, returns the matched substring plus a table of the
   --- parenthesized capture groups (an empty table when the pattern has
