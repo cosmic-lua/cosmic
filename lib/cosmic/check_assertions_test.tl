@@ -110,7 +110,9 @@ end
 test_ne_strings()
 
 local function test_ne_different_types()
-  check.ne(1, "1")
+  -- eq/ne are generic, so a cross-type comparison is normally a
+  -- check-time error; cast to keep exercising the runtime behavior.
+  check.ne(1 as any, "1")
   check.ne(nil, false)
 end
 test_ne_different_types()
