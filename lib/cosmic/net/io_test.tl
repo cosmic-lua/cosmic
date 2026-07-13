@@ -207,3 +207,21 @@ local function test_set_timeout_closed_socket()
   b:close()
 end
 test_set_timeout_closed_socket()
+
+-- Socket implements the stream interfaces: a socket can be handed to
+-- any consumer of stream.Reader / stream.Writer (e.g. cosmic.sse).
+local function test_socket_is_stream()
+  local stream = require("cosmic.stream")
+  local a, b = pair()
+  local w: stream.Writer = a
+  local r: stream.Reader = b
+  local n, werr = w:write("via stream")
+  assert(n == 10, "write failed: " .. tostring(werr))
+  local chunk, rerr = r:read()
+  assert(chunk == "via stream", "read failed: " .. tostring(rerr))
+  a:close()
+  local eof = r:read()
+  assert(eof == nil, "expected bare nil at end of stream")
+  b:close()
+end
+test_socket_is_stream()
