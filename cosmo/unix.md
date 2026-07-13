@@ -4,6 +4,21 @@ Type declarations for the `unix` module.
 
 ## Types
 
+### Uname
+
+ Fields reported by uname(2).
+
+```teal
+local record Uname
+  sysname: string
+  nodename: string
+  release: string
+  version: string
+  machine: string
+  domainname: string
+end
+```
+
 ### Termios
 
 ```teal
@@ -139,7 +154,7 @@ local record Memory
   --  `EAGAIN` is raised if, upon entry, the word at `word_index` had a
   --  different value than what's specified at `expect`.
   --  `ETIMEDOUT` is raised when the absolute deadline expires.
-  wait: function(self: Memory, word_index: number, expect: number, abs_deadline?: number, nanos?: number): number | nil, string | nil, number | nil
+  wait: function(self: Memory, word_index: number, expect: number, abs_deadline?: number, nanos?: number): number | nil, string | nil, Errno | nil
   --  Wakes other processes waiting on word.
   --  This method may be used to signal or broadcast to waiters. The
   --  `count` specifies the number of processes that should be woken,
@@ -160,7 +175,7 @@ local record Dir
   --  Closes directory stream object and associated its file descriptor.
   --  This is called automatically by the garbage collector.
   --  This may be called multiple times.
-  close: function(self: Dir): boolean | nil, string | nil, number | nil
+  close: function(self: Dir): boolean | nil, string | nil, Errno | nil
   --  Reads entry from directory stream.
   --  Returns `nil` if there are no more entries.
   --  On error, `nil` will be returned and `errno` will be non-nil.
@@ -177,8 +192,8 @@ local record Dir
   --  `unix.Dir` objects may be used as a for loop iterator.
   read: function(self: Dir): string | nil, number, number, number
   --  Returns `EOPNOTSUPP` if using a `/zip/...` path or if using Windows NT.
-  fd: function(self: Dir): number | nil, string | nil, number | nil
-  tell: function(self: Dir): number | nil, string | nil, number | nil
+  fd: function(self: Dir): number | nil, string | nil, Errno | nil
+  tell: function(self: Dir): number | nil, string | nil, Errno | nil
   --  Resets stream back to beginning.
   rewind: function(self: Dir)
 end
@@ -1437,7 +1452,7 @@ end
 ### open
 
 ```teal
-function open(path: string, flags: number, mode?: number, dirfd?: number): number | nil, string | nil, number | nil
+function open(path: string, flags: number, mode?: number, dirfd?: number): number | nil, string | nil, Errno | nil
 ```
 
  Opens file.
@@ -1493,12 +1508,12 @@ function open(path: string, flags: number, mode?: number, dirfd?: number): numbe
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### close
 
 ```teal
-function close(fd: number): boolean | nil, string | nil, number | nil
+function close(fd: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Closes file descriptor.
@@ -1525,12 +1540,12 @@ function close(fd: number): boolean | nil, string | nil, number | nil
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### read
 
 ```teal
-function read(fd: number, bufsiz?: number, offset?: number): string | nil, string | nil, number | nil
+function read(fd: number, bufsiz?: number, offset?: number): string | nil, string | nil, Errno | nil
 ```
 
  Reads from file descriptor.
@@ -1548,12 +1563,12 @@ function read(fd: number, bufsiz?: number, offset?: number): string | nil, strin
 
 - string | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### write
 
 ```teal
-function write(fd: number, data: string, offset?: number): number | nil, string | nil, number | nil
+function write(fd: number, data: string, offset?: number): number | nil, string | nil, Errno | nil
 ```
 
  Writes to file descriptor.
@@ -1568,7 +1583,7 @@ function write(fd: number, data: string, offset?: number): number | nil, string 
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### exit
 
@@ -1612,7 +1627,7 @@ function environ(): {string}
 ### setenv
 
 ```teal
-function setenv(name: string, value: string, overwrite?: boolean): boolean | nil, string | nil, number | nil
+function setenv(name: string, value: string, overwrite?: boolean): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets environment variable.
@@ -1629,12 +1644,12 @@ function setenv(name: string, value: string, overwrite?: boolean): boolean | nil
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### unsetenv
 
 ```teal
-function unsetenv(name: string): boolean | nil, string | nil, number | nil
+function unsetenv(name: string): boolean | nil, string | nil, Errno | nil
 ```
 
  Unsets environment variable.
@@ -1649,12 +1664,12 @@ function unsetenv(name: string): boolean | nil, string | nil, number | nil
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### clearenv
 
 ```teal
-function clearenv(): boolean | nil, string | nil, number | nil
+function clearenv(): boolean | nil, string | nil, Errno | nil
 ```
 
  Clears all environment variables.
@@ -1665,12 +1680,12 @@ function clearenv(): boolean | nil, string | nil, number | nil
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### getlogin
 
 ```teal
-function getlogin(): string | nil, string | nil, number | nil
+function getlogin(): string | nil, string | nil, Errno | nil
 ```
 
  Gets login name of current user.
@@ -1681,12 +1696,12 @@ function getlogin(): string | nil, string | nil, number | nil
 
 - string | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### fork
 
 ```teal
-function fork(): number | nil, string | nil, number | nil
+function fork(): number | nil, string | nil, Errno | nil
 ```
 
  Creates a new process mitosis style.
@@ -1749,12 +1764,12 @@ function fork(): number | nil, string | nil, number | nil
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### commandv
 
 ```teal
-function commandv(prog: string): string | nil, string | nil, number | nil
+function commandv(prog: string): string | nil, string | nil, Errno | nil
 ```
 
  Performs `$PATH` lookup of executable.
@@ -1778,12 +1793,12 @@ function commandv(prog: string): string | nil, string | nil, number | nil
 
 - string | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### execve
 
 ```teal
-function execve(prog: string, args: {string}, env: {string}): nil, string | nil, number | nil
+function execve(prog: string, args: {string}, env: {string}): nil, string | nil, Errno | nil
 ```
 
  Exits current process, replacing it with a new instance of the
@@ -1820,12 +1835,12 @@ function execve(prog: string, args: {string}, env: {string}): nil, string | nil,
 
 - nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### execvp
 
 ```teal
-function execvp(prog: string, argv?: {string}): nil, string | nil, number | nil
+function execvp(prog: string, argv?: {string}): nil, string | nil, Errno | nil
 ```
 
  Executes program with PATH search.
@@ -1843,12 +1858,12 @@ function execvp(prog: string, argv?: {string}): nil, string | nil, number | nil
 
 - nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### execvpe
 
 ```teal
-function execvpe(prog: string, argv: {string}, envp?: {string}): nil, string | nil, number | nil
+function execvpe(prog: string, argv: {string}, envp?: {string}): nil, string | nil, Errno | nil
 ```
 
  Executes program with PATH search and custom environment.
@@ -1868,12 +1883,12 @@ function execvpe(prog: string, argv: {string}, envp?: {string}): nil, string | n
 
 - nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### fexecve
 
 ```teal
-function fexecve(fd: number, argv: {string}, envp?: {string}): nil, string | nil, number | nil
+function fexecve(fd: number, argv: {string}, envp?: {string}): nil, string | nil, Errno | nil
 ```
 
  Executes program from file descriptor.
@@ -1897,12 +1912,12 @@ function fexecve(fd: number, argv: {string}, envp?: {string}): nil, string | nil
 
 - nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### spawn
 
 ```teal
-function spawn(prog: string, argv: {string}, envp?: {string}): number | nil, string | nil, number | nil
+function spawn(prog: string, argv: {string}, envp?: {string}): number | nil, string | nil, Errno | nil
 ```
 
  Spawns a new process.
@@ -1924,12 +1939,12 @@ function spawn(prog: string, argv: {string}, envp?: {string}): number | nil, str
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### spawnp
 
 ```teal
-function spawnp(prog: string, argv: {string}, envp?: {string}): number | nil, string | nil, number | nil
+function spawnp(prog: string, argv: {string}, envp?: {string}): number | nil, string | nil, Errno | nil
 ```
 
  Spawns a new process with PATH search.
@@ -1947,12 +1962,12 @@ function spawnp(prog: string, argv: {string}, envp?: {string}): number | nil, st
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### dup
 
 ```teal
-function dup(oldfd: number, newfd?: number, flags?: number, lowest?: number): number | nil, string | nil, number | nil
+function dup(oldfd: number, newfd?: number, flags?: number, lowest?: number): number | nil, string | nil, Errno | nil
 ```
 
  Duplicates file descriptor.
@@ -1981,12 +1996,12 @@ function dup(oldfd: number, newfd?: number, flags?: number, lowest?: number): nu
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### pipe
 
 ```teal
-function pipe(flags?: number): number | nil, number, string | nil, number | nil
+function pipe(flags?: number): number | nil, number, string | nil, Errno | nil
 ```
 
  Creates fifo which enables communication between processes.
@@ -2037,12 +2052,12 @@ function pipe(flags?: number): number | nil, number, string | nil, number | nil
 - number | nil
 - number
 - string | nil
-- number | nil
+- Errno | nil
 
 ### wait
 
 ```teal
-function wait(pid?: number, options?: number): number | nil, number, Rusage, string | nil, number | nil
+function wait(pid?: number, options?: number): number | nil, number, Rusage, string | nil, Errno | nil
 ```
 
  Waits for subprocess to terminate.
@@ -2090,7 +2105,7 @@ function wait(pid?: number, options?: number): number | nil, number, Rusage, str
 - number
 - Rusage
 - string | nil
-- number | nil
+- Errno | nil
 
 ### WIFEXITED
 
@@ -2186,7 +2201,7 @@ function getppid(): number
 ### kill
 
 ```teal
-function kill(pid: number, sig: number): boolean | nil, string | nil, number | nil
+function kill(pid: number, sig: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Sends signal to process(es).
@@ -2217,12 +2232,12 @@ function kill(pid: number, sig: number): boolean | nil, string | nil, number | n
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### killpg
 
 ```teal
-function killpg(pgrp: number, sig: number): boolean | nil, string | nil, number | nil
+function killpg(pgrp: number, sig: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Sends signal to process group.
@@ -2241,12 +2256,12 @@ function killpg(pgrp: number, sig: number): boolean | nil, string | nil, number 
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### raise
 
 ```teal
-function raise(sig: number): number | nil, string | nil, number | nil
+function raise(sig: number): number | nil, string | nil, Errno | nil
 ```
 
  Triggers signal in current process.
@@ -2260,12 +2275,12 @@ function raise(sig: number): number | nil, string | nil, number | nil
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### access
 
 ```teal
-function access(path: string, how: number, flags?: number, dirfd?: number): boolean | nil, string | nil, number | nil
+function access(path: string, how: number, flags?: number, dirfd?: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Checks if effective user of current process has permission to access file.
@@ -2282,12 +2297,12 @@ function access(path: string, how: number, flags?: number, dirfd?: number): bool
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### mkdir
 
 ```teal
-function mkdir(path: string, mode?: number, dirfd?: number): boolean | nil, string | nil, number | nil
+function mkdir(path: string, mode?: number, dirfd?: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Makes directory.
@@ -2314,12 +2329,12 @@ function mkdir(path: string, mode?: number, dirfd?: number): boolean | nil, stri
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### makedirs
 
 ```teal
-function makedirs(path: string, mode?: number): boolean | nil, string | nil, number | nil
+function makedirs(path: string, mode?: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Unlike mkdir() this convenience wrapper will automatically create
@@ -2338,12 +2353,12 @@ function makedirs(path: string, mode?: number): boolean | nil, string | nil, num
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### mkdtemp
 
 ```teal
-function mkdtemp(template: string): string | nil, string | nil, number | nil
+function mkdtemp(template: string): string | nil, string | nil, Errno | nil
 ```
 
  Creates a temporary directory with a unique name.
@@ -2362,12 +2377,12 @@ function mkdtemp(template: string): string | nil, string | nil, number | nil
 
 - string | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### mkstemp
 
 ```teal
-function mkstemp(template: string): number | nil, string, string | nil, number | nil
+function mkstemp(template: string): number | nil, string, string | nil, Errno | nil
 ```
 
  Creates a temporary file with a unique name.
@@ -2390,12 +2405,12 @@ function mkstemp(template: string): number | nil, string, string | nil, number |
 - number | nil
 - string
 - string | nil
-- number | nil
+- Errno | nil
 
 ### chdir
 
 ```teal
-function chdir(path: string): boolean | nil, string | nil, number | nil
+function chdir(path: string): boolean | nil, string | nil, Errno | nil
 ```
 
  Changes current directory to `path`.
@@ -2408,12 +2423,12 @@ function chdir(path: string): boolean | nil, string | nil, number | nil
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### unlink
 
 ```teal
-function unlink(path: string, dirfd?: number): boolean | nil, string | nil, number | nil
+function unlink(path: string, dirfd?: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Removes file at `path`.
@@ -2429,12 +2444,12 @@ function unlink(path: string, dirfd?: number): boolean | nil, string | nil, numb
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### rmdir
 
 ```teal
-function rmdir(path: string, dirfd?: number): boolean | nil, string | nil, number | nil
+function rmdir(path: string, dirfd?: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Removes empty directory at `path`.
@@ -2450,12 +2465,12 @@ function rmdir(path: string, dirfd?: number): boolean | nil, string | nil, numbe
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### rename
 
 ```teal
-function rename(oldpath: string, newpath: string, olddirfd: number, newdirfd: number): boolean | nil, string | nil, number | nil
+function rename(oldpath: string, newpath: string, olddirfd: number, newdirfd: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Renames file or directory.
@@ -2471,12 +2486,12 @@ function rename(oldpath: string, newpath: string, olddirfd: number, newdirfd: nu
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### link
 
 ```teal
-function link(existingpath: string, newpath: string, flags: number, olddirfd: number, newdirfd: number): boolean | nil, string | nil, number | nil
+function link(existingpath: string, newpath: string, flags: number, olddirfd: number, newdirfd: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Creates hard link, so your underlying inode has two names.
@@ -2493,12 +2508,12 @@ function link(existingpath: string, newpath: string, flags: number, olddirfd: nu
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### symlink
 
 ```teal
-function symlink(target: string, linkpath: string, newdirfd?: number): boolean | nil, string | nil, number | nil
+function symlink(target: string, linkpath: string, newdirfd?: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Creates symbolic link.
@@ -2516,12 +2531,12 @@ function symlink(target: string, linkpath: string, newdirfd?: number): boolean |
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### readlink
 
 ```teal
-function readlink(path: string, dirfd?: number): string | nil, string | nil, number | nil
+function readlink(path: string, dirfd?: number): string | nil, string | nil, Errno | nil
 ```
 
  Reads contents of symbolic link.
@@ -2542,12 +2557,12 @@ function readlink(path: string, dirfd?: number): string | nil, string | nil, num
 
 - string | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### realpath
 
 ```teal
-function realpath(path: string): string | nil, string | nil, number | nil
+function realpath(path: string): string | nil, string | nil, Errno | nil
 ```
 
  Returns absolute path of filename, with `.` and `..` components
@@ -2561,12 +2576,12 @@ function realpath(path: string): string | nil, string | nil, number | nil
 
 - string | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### utimensat
 
 ```teal
-function utimensat(path: string, asecs: number, ananos: number, msecs: number, mnanos: number, dirfd?: number, flags?: number): number | nil, string | nil, number | nil
+function utimensat(path: string, asecs: number, ananos: number, msecs: number, mnanos: number, dirfd?: number, flags?: number): number | nil, string | nil, Errno | nil
 ```
 
  Changes access and/or modified timestamps on file.
@@ -2605,12 +2620,12 @@ function utimensat(path: string, asecs: number, ananos: number, msecs: number, m
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### futimens
 
 ```teal
-function futimens(fd: number, asecs: number, ananos: number, msecs: number, mnanos: number): number | nil, string | nil, number | nil
+function futimens(fd: number, asecs: number, ananos: number, msecs: number, mnanos: number): number | nil, string | nil, Errno | nil
 ```
 
  Changes access and/or modified timestamps on file descriptor.
@@ -2641,12 +2656,12 @@ function futimens(fd: number, asecs: number, ananos: number, msecs: number, mnan
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### chown
 
 ```teal
-function chown(path: string, uid: number, gid: number, flags?: number, dirfd?: number): boolean | nil, string | nil, number | nil
+function chown(path: string, uid: number, gid: number, flags?: number, dirfd?: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Changes user and group on file.
@@ -2664,12 +2679,12 @@ function chown(path: string, uid: number, gid: number, flags?: number, dirfd?: n
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### chmod
 
 ```teal
-function chmod(path: string, mode: number, flags?: number, dirfd?: number): boolean | nil, string | nil, number | nil
+function chmod(path: string, mode: number, flags?: number, dirfd?: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Changes mode bits on file.
@@ -2687,12 +2702,12 @@ function chmod(path: string, mode: number, flags?: number, dirfd?: number): bool
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### getcwd
 
 ```teal
-function getcwd(): string | nil, string | nil, number | nil
+function getcwd(): string | nil, string | nil, Errno | nil
 ```
 
  Returns current working directory.
@@ -2705,12 +2720,12 @@ function getcwd(): string | nil, string | nil, number | nil
 
 - string | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### rmrf
 
 ```teal
-function rmrf(path: string): boolean | nil, string | nil, number | nil
+function rmrf(path: string): boolean | nil, string | nil, Errno | nil
 ```
 
  Recursively removes filesystem path.
@@ -2726,12 +2741,12 @@ function rmrf(path: string): boolean | nil, string | nil, number | nil
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### fcntl
 
 ```teal
-function fcntl(fd: number, cmd: number, ...: any): any | nil, string | nil, number | nil
+function fcntl(fd: number, cmd: FcntlCmd, ...: any): any | nil, string | nil, Errno | nil
 ```
 
  Manipulates file descriptor.
@@ -2836,19 +2851,19 @@ function fcntl(fd: number, cmd: number, ...: any): any | nil, string | nil, numb
 **Parameters:**
 
 - `fd` (number)
-- `cmd` (number)
+- `cmd` (FcntlCmd)
 - `...` (any)
 
 **Returns:**
 
 - any | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### getsid
 
 ```teal
-function getsid(pid: number): number | nil, string | nil, number | nil
+function getsid(pid: number): number | nil, string | nil, Errno | nil
 ```
 
  Gets session id.
@@ -2861,12 +2876,12 @@ function getsid(pid: number): number | nil, string | nil, number | nil
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### getpgrp
 
 ```teal
-function getpgrp(): number | nil, string | nil, number | nil
+function getpgrp(): number | nil, string | nil, Errno | nil
 ```
 
  Gets process group id.
@@ -2875,12 +2890,12 @@ function getpgrp(): number | nil, string | nil, number | nil
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### setpgrp
 
 ```teal
-function setpgrp(): number | nil, string | nil, number | nil
+function setpgrp(): number | nil, string | nil, Errno | nil
 ```
 
  Sets process group id. This is the same as `setpgid(0,0)`.
@@ -2889,12 +2904,12 @@ function setpgrp(): number | nil, string | nil, number | nil
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### setpgid
 
 ```teal
-function setpgid(pid: number, pgid: number): boolean | nil, string | nil, number | nil
+function setpgid(pid: number, pgid: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets process group id the modern way.
@@ -2908,12 +2923,12 @@ function setpgid(pid: number, pgid: number): boolean | nil, string | nil, number
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### getpgid
 
 ```teal
-function getpgid(pid: number): number | nil, string | nil, number | nil
+function getpgid(pid: number): number | nil, string | nil, Errno | nil
 ```
 
  Gets process group id the modern way.
@@ -2926,12 +2941,12 @@ function getpgid(pid: number): number | nil, string | nil, number | nil
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### setsid
 
 ```teal
-function setsid(): number | nil, string | nil, number | nil
+function setsid(): number | nil, string | nil, Errno | nil
 ```
 
  Sets session id.
@@ -2942,12 +2957,12 @@ function setsid(): number | nil, string | nil, number | nil
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### daemon
 
 ```teal
-function daemon(nochdir?: boolean, noclose?: boolean): boolean | nil, string | nil, number | nil
+function daemon(nochdir?: boolean, noclose?: boolean): boolean | nil, string | nil, Errno | nil
 ```
 
  Daemonizes the current process.
@@ -2970,7 +2985,7 @@ function daemon(nochdir?: boolean, noclose?: boolean): boolean | nil, string | n
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### getuid
 
@@ -3035,7 +3050,7 @@ function getegid(): number
 ### chroot
 
 ```teal
-function chroot(path: string): boolean | nil, string | nil, number | nil
+function chroot(path: string): boolean | nil, string | nil, Errno | nil
 ```
 
  Changes root directory.
@@ -3049,12 +3064,12 @@ function chroot(path: string): boolean | nil, string | nil, number | nil
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### setuid
 
 ```teal
-function setuid(uid: number): boolean | nil, string | nil, number | nil
+function setuid(uid: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets user id.
@@ -3085,12 +3100,12 @@ function setuid(uid: number): boolean | nil, string | nil, number | nil
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### setfsuid
 
 ```teal
-function setfsuid(uid: number): boolean | nil, string | nil, number | nil
+function setfsuid(uid: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets user id for file system ops.
@@ -3103,12 +3118,12 @@ function setfsuid(uid: number): boolean | nil, string | nil, number | nil
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### setfsgid
 
 ```teal
-function setfsgid(gid: number): boolean | nil, string | nil, number | nil
+function setfsgid(gid: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets group id for file system ops.
@@ -3121,12 +3136,12 @@ function setfsgid(gid: number): boolean | nil, string | nil, number | nil
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### setgid
 
 ```teal
-function setgid(gid: number): boolean | nil, string | nil, number | nil
+function setgid(gid: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets group id.
@@ -3140,12 +3155,12 @@ function setgid(gid: number): boolean | nil, string | nil, number | nil
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### setresuid
 
 ```teal
-function setresuid(real: number, effective: number, saved: number): boolean | nil, string | nil, number | nil
+function setresuid(real: number, effective: number, saved: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets real, effective, and saved user ids.
@@ -3163,12 +3178,12 @@ function setresuid(real: number, effective: number, saved: number): boolean | ni
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### setresgid
 
 ```teal
-function setresgid(real: number, effective: number, saved: number): boolean | nil, string | nil, number | nil
+function setresgid(real: number, effective: number, saved: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets real, effective, and saved group ids.
@@ -3186,7 +3201,7 @@ function setresgid(real: number, effective: number, saved: number): boolean | ni
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### umask
 
@@ -3217,7 +3232,7 @@ function umask(newmask: number): number
 ### sysconf
 
 ```teal
-function sysconf(name: number): number | nil, string | nil, number | nil
+function sysconf(name: number): number | nil, string | nil, Errno | nil
 ```
 
  Queries a configurable system limit or value.
@@ -3235,12 +3250,12 @@ function sysconf(name: number): number | nil, string | nil, number | nil
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### uname
 
 ```teal
-function uname(): any, string | nil, number | nil
+function uname(): Uname | nil, string | nil, Errno | nil
 ```
 
  Returns identity of the current operating system.
@@ -3250,9 +3265,9 @@ function uname(): any, string | nil, number | nil
 
 **Returns:**
 
-- any
+- Uname | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### syslog
 
@@ -3277,7 +3292,7 @@ function syslog(priority: number, msg: string)
 ### clock_gettime
 
 ```teal
-function clock_gettime(clock?: number): number | nil, number, string | nil, number | nil
+function clock_gettime(clock?: number): number | nil, number, string | nil, Errno | nil
 ```
 
  Returns nanosecond precision timestamp from system, e.g.
@@ -3359,12 +3374,12 @@ function clock_gettime(clock?: number): number | nil, number, string | nil, numb
 - number | nil
 - number
 - string | nil
-- number | nil
+- Errno | nil
 
 ### nanosleep
 
 ```teal
-function nanosleep(seconds: number, nanos?: number): number | nil, number, string | nil, number | nil
+function nanosleep(seconds: number, nanos?: number): number | nil, number, string | nil, Errno | nil
 ```
 
  Sleeps with nanosecond precision.
@@ -3380,7 +3395,7 @@ function nanosleep(seconds: number, nanos?: number): number | nil, number, strin
 - number | nil
 - number
 - string | nil
-- number | nil
+- Errno | nil
 
 ### sync
 
@@ -3394,7 +3409,7 @@ function sync()
 ### fsync
 
 ```teal
-function fsync(fd: number): boolean | nil, string | nil, number | nil
+function fsync(fd: number): boolean | nil, string | nil, Errno | nil
 ```
 
  These functions are used to make programs slower by asking the
@@ -3408,12 +3423,12 @@ function fsync(fd: number): boolean | nil, string | nil, number | nil
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### fdatasync
 
 ```teal
-function fdatasync(fd: number): boolean | nil, string | nil, number | nil
+function fdatasync(fd: number): boolean | nil, string | nil, Errno | nil
 ```
 
  These functions are used to make programs slower by asking the
@@ -3427,12 +3442,12 @@ function fdatasync(fd: number): boolean | nil, string | nil, number | nil
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### lseek
 
 ```teal
-function lseek(fd: number, offset: number, whence?: number): number | nil, string | nil, number | nil
+function lseek(fd: number, offset: number, whence?: number): number | nil, string | nil, Errno | nil
 ```
 
  Seeks to file position.
@@ -3452,12 +3467,12 @@ function lseek(fd: number, offset: number, whence?: number): number | nil, strin
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### truncate
 
 ```teal
-function truncate(path: string, length?: number): boolean | nil, string | nil, number | nil
+function truncate(path: string, length?: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Reduces or extends underlying physical medium of file.
@@ -3472,12 +3487,12 @@ function truncate(path: string, length?: number): boolean | nil, string | nil, n
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### ftruncate
 
 ```teal
-function ftruncate(fd: number, length?: number): boolean | nil, string | nil, number | nil
+function ftruncate(fd: number, length?: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Reduces or extends underlying physical medium of open file.
@@ -3492,12 +3507,12 @@ function ftruncate(fd: number, length?: number): boolean | nil, string | nil, nu
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### socket
 
 ```teal
-function socket(family?: number, type?: number, protocol?: number): number | nil, string | nil, number | nil
+function socket(family?: number, type?: number, protocol?: number): number | nil, string | nil, Errno | nil
 ```
 
  - `AF_INET`: Creates Internet Protocol Version 4 (IPv4) socket.
@@ -3528,12 +3543,12 @@ function socket(family?: number, type?: number, protocol?: number): number | nil
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### socketpair
 
 ```teal
-function socketpair(family?: number, type?: number, protocol?: number): number | nil, number, string | nil, number | nil
+function socketpair(family?: number, type?: number, protocol?: number): number | nil, number, string | nil, Errno | nil
 ```
 
  Creates bidirectional pipe.
@@ -3555,12 +3570,12 @@ function socketpair(family?: number, type?: number, protocol?: number): number |
 - number | nil
 - number
 - string | nil
-- number | nil
+- Errno | nil
 
 ### bind
 
 ```teal
-function bind(fd: number, ip?: number, port?: number): boolean | nil, string | nil, number | nil
+function bind(fd: number, ip?: number, port?: number): boolean | nil, string | nil, Errno | nil
 ```
 
   Binds socket.
@@ -3595,12 +3610,12 @@ function bind(fd: number, ip?: number, port?: number): boolean | nil, string | n
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### siocgifconf
 
 ```teal
-function siocgifconf(): any, string | nil, number | nil
+function siocgifconf(): any, string | nil, Errno | nil
 ```
 
  Returns list of network adapter addresses.
@@ -3609,12 +3624,12 @@ function siocgifconf(): any, string | nil, number | nil
 
 - any
 - string | nil
-- number | nil
+- Errno | nil
 
 ### getsockopt
 
 ```teal
-function getsockopt(fd: number, level: number, optname: number): number | nil, string | nil, number | nil
+function getsockopt(fd: number, level: number, optname: number): number | nil, string | nil, Errno | nil
 ```
 
  Tunes networking parameters.
@@ -3715,12 +3730,12 @@ function getsockopt(fd: number, level: number, optname: number): number | nil, s
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### setsockopt
 
 ```teal
-function setsockopt(fd: number, level: number, optname: number, value: boolean | number): boolean | nil, string | nil, number | nil
+function setsockopt(fd: number, level: number, optname: number, value: boolean | number): boolean | nil, string | nil, Errno | nil
 ```
 
  Tunes networking parameters.
@@ -3822,12 +3837,12 @@ function setsockopt(fd: number, level: number, optname: number, value: boolean |
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### poll
 
 ```teal
-function poll(fds: {number: number}, timeoutms?: number): {number: number} | nil, string | nil, number | nil
+function poll(fds: {number: number}, timeoutms?: number): {number: number} | nil, string | nil, Errno | nil
 ```
 
  Checks for events on a set of file descriptors.
@@ -3861,12 +3876,12 @@ function poll(fds: {number: number}, timeoutms?: number): {number: number} | nil
 
 - {number: number} | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### gethostname
 
 ```teal
-function gethostname(): string | nil, string | nil, number | nil
+function gethostname(): string | nil, string | nil, Errno | nil
 ```
 
  Returns hostname of system.
@@ -3875,12 +3890,12 @@ function gethostname(): string | nil, string | nil, number | nil
 
 - string | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### sethostname
 
 ```teal
-function sethostname(name: string): boolean | nil, string | nil, number | nil
+function sethostname(name: string): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets hostname of system.
@@ -3895,12 +3910,12 @@ function sethostname(name: string): boolean | nil, string | nil, number | nil
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### listen
 
 ```teal
-function listen(fd: number, backlog?: number): boolean | nil, string | nil, number | nil
+function listen(fd: number, backlog?: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Begins listening for incoming connections on a socket.
@@ -3914,12 +3929,12 @@ function listen(fd: number, backlog?: number): boolean | nil, string | nil, numb
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### accept
 
 ```teal
-function accept(serverfd: number, flags?: number): number | nil, number, number, string | nil, number | nil
+function accept(serverfd: number, flags?: number): number | nil, number, number, string | nil, Errno | nil
 ```
 
  Accepts new client socket descriptor for a listening tcp socket.
@@ -3938,12 +3953,12 @@ function accept(serverfd: number, flags?: number): number | nil, number, number,
 - number
 - number
 - string | nil
-- number | nil
+- Errno | nil
 
 ### connect
 
 ```teal
-function connect(fd: number, ip: number, port: number): boolean | nil, string | nil, number | nil
+function connect(fd: number, ip: number, port: number): boolean | nil, string | nil, Errno | nil
 ```
 
   Connects a TCP socket to a remote host.
@@ -3961,12 +3976,12 @@ function connect(fd: number, ip: number, port: number): boolean | nil, string | 
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### getsockname
 
 ```teal
-function getsockname(fd: number): number | nil, number, string | nil, number | nil
+function getsockname(fd: number): number | nil, number, string | nil, Errno | nil
 ```
 
  Retrieves the local address of a socket.
@@ -3980,12 +3995,12 @@ function getsockname(fd: number): number | nil, number, string | nil, number | n
 - number | nil
 - number
 - string | nil
-- number | nil
+- Errno | nil
 
 ### getpeername
 
 ```teal
-function getpeername(fd: number): number | nil, number, string | nil, number | nil
+function getpeername(fd: number): number | nil, number, string | nil, Errno | nil
 ```
 
  Retrieves the remote address of a socket.
@@ -4001,12 +4016,12 @@ function getpeername(fd: number): number | nil, number, string | nil, number | n
 - number | nil
 - number
 - string | nil
-- number | nil
+- Errno | nil
 
 ### recv
 
 ```teal
-function recv(fd: number, bufsiz?: number, flags?: number): string | nil, string | nil, number | nil
+function recv(fd: number, bufsiz?: number, flags?: number): string | nil, string | nil, Errno | nil
 ```
 
  - `MSG_WAITALL`
@@ -4024,12 +4039,12 @@ function recv(fd: number, bufsiz?: number, flags?: number): string | nil, string
 
 - string | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### recvfrom
 
 ```teal
-function recvfrom(fd: number, bufsiz?: number, flags?: number): string | nil, number, number, string | nil, number | nil
+function recvfrom(fd: number, bufsiz?: number, flags?: number): string | nil, number, number, string | nil, Errno | nil
 ```
 
  - `MSG_WAITALL`
@@ -4049,12 +4064,12 @@ function recvfrom(fd: number, bufsiz?: number, flags?: number): string | nil, nu
 - number
 - number
 - string | nil
-- number | nil
+- Errno | nil
 
 ### send
 
 ```teal
-function send(fd: number, data: string, flags?: number, offset?: number): number | nil, string | nil, number | nil
+function send(fd: number, data: string, flags?: number, offset?: number): number | nil, string | nil, Errno | nil
 ```
 
  This is the same as `write` except it has a `flags` argument
@@ -4075,12 +4090,12 @@ function send(fd: number, data: string, flags?: number, offset?: number): number
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### sendto
 
 ```teal
-function sendto(fd: number, data: string, ip: number, port: number, flags?: number): number | nil, string | nil, number | nil
+function sendto(fd: number, data: string, ip: number, port: number, flags?: number): number | nil, string | nil, Errno | nil
 ```
 
  This is useful for sending messages over UDP sockets to specific
@@ -4101,12 +4116,12 @@ function sendto(fd: number, data: string, ip: number, port: number, flags?: numb
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### shutdown
 
 ```teal
-function shutdown(fd: number, how: number): boolean | nil, string | nil, number | nil
+function shutdown(fd: number, how: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Partially closes socket.
@@ -4125,12 +4140,12 @@ function shutdown(fd: number, how: number): boolean | nil, string | nil, number 
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### sigprocmask
 
 ```teal
-function sigprocmask(how: number, newmask: Sigset): Sigset | nil, string | nil, number | nil
+function sigprocmask(how: number, newmask: Sigset): Sigset | nil, string | nil, Errno | nil
 ```
 
  Manipulates bitset of signals blocked by process.
@@ -4154,12 +4169,12 @@ function sigprocmask(how: number, newmask: Sigset): Sigset | nil, string | nil, 
 
 - Sigset | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### sigaction
 
 ```teal
-function sigaction(sig: number, handler?: function | number, flags?: number, mask?: Sigset): function | number | nil, number, Sigset, string | nil, number | nil
+function sigaction(sig: number, handler?: function | number, flags?: number, mask?: Sigset): function | number | nil, number, Sigset, string | nil, Errno | nil
 ```
 
  - `unix.SIGINT`
@@ -4242,12 +4257,12 @@ function sigaction(sig: number, handler?: function | number, flags?: number, mas
 - number
 - Sigset
 - string | nil
-- number | nil
+- Errno | nil
 
 ### sigsuspend
 
 ```teal
-function sigsuspend(mask?: Sigset): nil, string | nil, number | nil
+function sigsuspend(mask?: Sigset): nil, string | nil, Errno | nil
 ```
 
  Waits for signal to be delivered.
@@ -4261,12 +4276,12 @@ function sigsuspend(mask?: Sigset): nil, string | nil, number | nil
 
 - nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### sigpending
 
 ```teal
-function sigpending(): Sigset | nil, string | nil, number | nil
+function sigpending(): Sigset | nil, string | nil, Errno | nil
 ```
 
  Returns the set of signals pending delivery to the calling process
@@ -4276,12 +4291,12 @@ function sigpending(): Sigset | nil, string | nil, number | nil
 
 - Sigset | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### setitimer
 
 ```teal
-function setitimer(which: number, intervalsec: number, intervalns: number, valuesec: number, valuens: number): number | nil, number, number, number, string | nil, number | nil
+function setitimer(which: number, intervalsec: number, intervalns: number, valuesec: number, valuens: number): number | nil, number, number, number, string | nil, Errno | nil
 ```
 
  Causes `SIGALRM` signals to be generated at some point(s) in the
@@ -4315,7 +4330,7 @@ function setitimer(which: number, intervalsec: number, intervalns: number, value
 - number
 - number
 - string | nil
-- number | nil
+- Errno | nil
 
 ### strsignal
 
@@ -4343,7 +4358,7 @@ function strsignal(sig: number): string
 ### setrlimit
 
 ```teal
-function setrlimit(resource: number, soft: number, hard?: number): boolean | nil, string | nil, number | nil
+function setrlimit(resource: number, soft: number, hard?: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Changes resource limit.
@@ -4377,12 +4392,12 @@ function setrlimit(resource: number, soft: number, hard?: number): boolean | nil
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### getrlimit
 
 ```teal
-function getrlimit(resource: number): number | nil, number, string | nil, number | nil
+function getrlimit(resource: number): number | nil, number, string | nil, Errno | nil
 ```
 
  Returns information about resource limits for current process.
@@ -4396,12 +4411,12 @@ function getrlimit(resource: number): number | nil, number, string | nil, number
 - number | nil
 - number
 - string | nil
-- number | nil
+- Errno | nil
 
 ### nice
 
 ```teal
-function nice(inc: number): number | nil, string | nil, number | nil
+function nice(inc: number): number | nil, string | nil, Errno | nil
 ```
 
  Adjusts the nice value (scheduling priority) of the calling process.
@@ -4420,7 +4435,7 @@ function nice(inc: number): number | nil, string | nil, number | nil
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### verynice
 
@@ -4435,7 +4450,7 @@ function verynice()
 ### getpriority
 
 ```teal
-function getpriority(which: number, who: number): number | nil, string | nil, number | nil
+function getpriority(which: number, who: number): number | nil, string | nil, Errno | nil
 ```
 
  Gets the scheduling priority of a process, process group, or user.
@@ -4456,12 +4471,12 @@ function getpriority(which: number, who: number): number | nil, string | nil, nu
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### setpriority
 
 ```teal
-function setpriority(which: number, who: number, prio: number): boolean | nil, string | nil, number | nil
+function setpriority(which: number, who: number, prio: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets the scheduling priority of a process, process group, or user.
@@ -4483,12 +4498,12 @@ function setpriority(which: number, who: number, prio: number): boolean | nil, s
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### getrusage
 
 ```teal
-function getrusage(who?: number): Rusage | nil, string | nil, number | nil
+function getrusage(who?: number): Rusage | nil, string | nil, Errno | nil
 ```
 
  Returns information about resource usage for current process, e.g.
@@ -4507,12 +4522,12 @@ function getrusage(who?: number): Rusage | nil, string | nil, number | nil
 
 - Rusage | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### pledge
 
 ```teal
-function pledge(promises?: string, execpromises?: string, mode?: number): boolean | nil, string | nil, number | nil
+function pledge(promises?: string, execpromises?: string, mode?: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Restrict system operations.
@@ -4648,12 +4663,12 @@ function pledge(promises?: string, execpromises?: string, mode?: number): boolea
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### unveil
 
 ```teal
-function unveil(path: string, permissions: string): boolean | nil, string | nil, number | nil
+function unveil(path: string, permissions: string): boolean | nil, string | nil, Errno | nil
 ```
 
  Restricts filesystem operations, e.g.
@@ -4708,12 +4723,12 @@ function unveil(path: string, permissions: string): boolean | nil, string | nil,
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### gmtime
 
 ```teal
-function gmtime(unixts: number): number | nil, number, number, number, number, number, number, number, number, number, string, string | nil, number | nil
+function gmtime(unixts: number): number | nil, number, number, number, number, number, number, number, number, number, string, string | nil, Errno | nil
 ```
 
  Breaks down UNIX timestamp into Zulu Time numbers.
@@ -4736,12 +4751,12 @@ function gmtime(unixts: number): number | nil, number, number, number, number, n
 - number
 - string
 - string | nil
-- number | nil
+- Errno | nil
 
 ### localtime
 
 ```teal
-function localtime(unixts: number): number | nil, number, number, number, number, number, number, number, number, number, string, string | nil, number | nil
+function localtime(unixts: number): number | nil, number, number, number, number, number, number, number, number, number, string, string | nil, Errno | nil
 ```
 
  Breaks down UNIX timestamp into local time numbers, e.g.
@@ -4788,12 +4803,12 @@ function localtime(unixts: number): number | nil, number, number, number, number
 - number
 - string
 - string | nil
-- number | nil
+- Errno | nil
 
 ### stat
 
 ```teal
-function stat(path: string, flags?: number, dirfd?: number): Stat | nil, string | nil, number | nil
+function stat(path: string, flags?: number, dirfd?: number): Stat | nil, string | nil, Errno | nil
 ```
 
  Gets information about file or directory.
@@ -4809,7 +4824,7 @@ function stat(path: string, flags?: number, dirfd?: number): Stat | nil, string 
 
 - Stat | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### S_ISDIR
 
@@ -4926,7 +4941,7 @@ function S_ISSOCK(mode: number): boolean
 ### fstat
 
 ```teal
-function fstat(fd: number): Stat | nil, string | nil, number | nil
+function fstat(fd: number): Stat | nil, string | nil, Errno | nil
 ```
 
  Gets information about opened file descriptor.
@@ -4948,12 +4963,12 @@ function fstat(fd: number): Stat | nil, string | nil, number | nil
 
 - Stat | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### opendir
 
 ```teal
-function opendir(path: string): Dir | nil, string | nil, number | nil
+function opendir(path: string): Dir | nil, string | nil, Errno | nil
 ```
 
  Opens directory for listing its contents.
@@ -4974,12 +4989,12 @@ function opendir(path: string): Dir | nil, string | nil, number | nil
 
 - Dir | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### fdopendir
 
 ```teal
-function fdopendir(fd: number): Dir | nil, string | nil, number | nil
+function fdopendir(fd: number): Dir | nil, string | nil, Errno | nil
 ```
 
  Opens directory for listing its contents, via an fd.
@@ -4994,12 +5009,12 @@ function fdopendir(fd: number): Dir | nil, string | nil, number | nil
 
 - Dir | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### isatty
 
 ```teal
-function isatty(fd: number): boolean | nil, string | nil, number | nil
+function isatty(fd: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Returns true if file descriptor is a teletypewriter. Otherwise nil
@@ -5017,12 +5032,12 @@ function isatty(fd: number): boolean | nil, string | nil, number | nil
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### tiocgwinsz
 
 ```teal
-function tiocgwinsz(fd: number): number | nil, number, string | nil, number | nil
+function tiocgwinsz(fd: number): number | nil, number, string | nil, Errno | nil
 ```
 
 **Parameters:**
@@ -5034,12 +5049,12 @@ function tiocgwinsz(fd: number): number | nil, number, string | nil, number | ni
 - number | nil
 - number
 - string | nil
-- number | nil
+- Errno | nil
 
 ### tcgetattr
 
 ```teal
-function tcgetattr(fd: number): Termios | nil, string | nil, number | nil
+function tcgetattr(fd: number): Termios | nil, string | nil, Errno | nil
 ```
 
  Gets terminal attributes.
@@ -5069,12 +5084,12 @@ function tcgetattr(fd: number): Termios | nil, string | nil, number | nil
 
 - Termios | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### tcsetattr
 
 ```teal
-function tcsetattr(fd: number, action: number, termios: Termios): boolean | nil, string | nil, number | nil
+function tcsetattr(fd: number, action: number, termios: Termios): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets terminal attributes.
@@ -5098,12 +5113,12 @@ function tcsetattr(fd: number, action: number, termios: Termios): boolean | nil,
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### tmpfd
 
 ```teal
-function tmpfd(): number | nil, string | nil, number | nil
+function tmpfd(): number | nil, string | nil, Errno | nil
 ```
 
  Returns file descriptor of open anonymous file.
@@ -5121,7 +5136,7 @@ function tmpfd(): number | nil, string | nil, number | nil
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### sched_yield
 
@@ -5134,7 +5149,7 @@ function sched_yield()
 ### unshare
 
 ```teal
-function unshare(flags: number): boolean | nil, string | nil, number | nil
+function unshare(flags: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Disassociates parts of the caller's execution context, placing it
@@ -5149,12 +5164,12 @@ function unshare(flags: number): boolean | nil, string | nil, number | nil
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### setns
 
 ```teal
-function setns(fd: number, nstype?: number): boolean | nil, string | nil, number | nil
+function setns(fd: number, nstype?: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Reassociates the calling thread with the namespace referenced by
@@ -5171,12 +5186,12 @@ function setns(fd: number, nstype?: number): boolean | nil, string | nil, number
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### mount
 
 ```teal
-function mount(source?: string, target?: string, fstype?: string, flags?: number, data?: string): boolean | nil, string | nil, number | nil
+function mount(source?: string, target?: string, fstype?: string, flags?: number, data?: string): boolean | nil, string | nil, Errno | nil
 ```
 
  Mounts a filesystem. `flags` is a bitwise OR of `unix.MS_*`
@@ -5194,12 +5209,12 @@ function mount(source?: string, target?: string, fstype?: string, flags?: number
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### unmount
 
 ```teal
-function unmount(target: string, flags?: number): boolean | nil, string | nil, number | nil
+function unmount(target: string, flags?: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Unmounts a filesystem. On Linux this is the `umount2` syscall.
@@ -5215,12 +5230,12 @@ function unmount(target: string, flags?: number): boolean | nil, string | nil, n
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### pivot_root
 
 ```teal
-function pivot_root(new_root: string, put_old: string): boolean | nil, string | nil, number | nil
+function pivot_root(new_root: string, put_old: string): boolean | nil, string | nil, Errno | nil
 ```
 
  Moves the root filesystem of the current mount namespace to
@@ -5236,12 +5251,12 @@ function pivot_root(new_root: string, put_old: string): boolean | nil, string | 
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### prctl
 
 ```teal
-function prctl(option: number, arg2?: number, arg3?: number, arg4?: number, arg5?: number): number | nil, string | nil, number | nil
+function prctl(option: number, arg2?: number, arg3?: number, arg4?: number, arg5?: number): number | nil, string | nil, Errno | nil
 ```
 
  Performs an operation on the calling process. `option` is one of
@@ -5260,12 +5275,12 @@ function prctl(option: number, arg2?: number, arg3?: number, arg4?: number, arg5
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### capget
 
 ```teal
-function capget(pid?: number): number | nil, number, number, string | nil, number | nil
+function capget(pid?: number): number | nil, number, number, string | nil, Errno | nil
 ```
 
  Returns the calling thread's (or `pid`'s) capability sets as
@@ -5282,12 +5297,12 @@ function capget(pid?: number): number | nil, number, number, string | nil, numbe
 - number
 - number
 - string | nil
-- number | nil
+- Errno | nil
 
 ### capset
 
 ```teal
-function capset(effective: number, permitted: number, inheritable: number, pid?: number): boolean | nil, string | nil, number | nil
+function capset(effective: number, permitted: number, inheritable: number, pid?: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets the calling thread's (or `pid`'s) capability sets. Each
@@ -5304,12 +5319,12 @@ function capset(effective: number, permitted: number, inheritable: number, pid?:
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### ioctl
 
 ```teal
-function ioctl(fd: number, request: number, arg?: number | string): boolean | string | nil, string | nil, number | nil
+function ioctl(fd: number, request: number, arg?: number | string): boolean | string | nil, string | nil, Errno | nil
 ```
 
  Generic device control. When `arg` is nil or absent, the ioctl is
@@ -5328,12 +5343,12 @@ function ioctl(fd: number, request: number, arg?: number | string): boolean | st
 
 - boolean | string | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### landlock_create_ruleset
 
 ```teal
-function landlock_create_ruleset(handled_access_fs?: number, flags?: number): number | nil, string | nil, number | nil
+function landlock_create_ruleset(handled_access_fs?: number, flags?: number): number | nil, string | nil, Errno | nil
 ```
 
  Landlock: create ruleset. With no args, returns the kernel's
@@ -5350,12 +5365,12 @@ function landlock_create_ruleset(handled_access_fs?: number, flags?: number): nu
 
 - number | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### landlock_add_rule
 
 ```teal
-function landlock_add_rule(ruleset_fd: number, parent_fd: number, allowed: number, flags?: number): boolean | nil, string | nil, number | nil
+function landlock_add_rule(ruleset_fd: number, parent_fd: number, allowed: number, flags?: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Landlock: add a PATH_BENEATH rule granting `allowed` access to the
@@ -5373,12 +5388,12 @@ function landlock_add_rule(ruleset_fd: number, parent_fd: number, allowed: numbe
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### landlock_restrict_self
 
 ```teal
-function landlock_restrict_self(ruleset_fd: number, flags?: number): boolean | nil, string | nil, number | nil
+function landlock_restrict_self(ruleset_fd: number, flags?: number): boolean | nil, string | nil, Errno | nil
 ```
 
  Landlock: apply the ruleset to the current thread (and its future
@@ -5394,7 +5409,7 @@ function landlock_restrict_self(ruleset_fd: number, flags?: number): boolean | n
 
 - boolean | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### mapshared
 
@@ -5498,7 +5513,7 @@ function minor(rdev: number): number
 ### statfs
 
 ```teal
-function statfs(path: string): Statfs | nil, string | nil, number | nil
+function statfs(path: string): Statfs | nil, string | nil, Errno | nil
 ```
 
  Gets filesystem statistics for the filesystem that contains `path`.
@@ -5511,12 +5526,12 @@ function statfs(path: string): Statfs | nil, string | nil, number | nil
 
 - Statfs | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### fstatfs
 
 ```teal
-function fstatfs(fd: number): Statfs | nil, string | nil, number | nil
+function fstatfs(fd: number): Statfs | nil, string | nil, Errno | nil
 ```
 
  Gets filesystem statistics via an open file descriptor.
@@ -5529,7 +5544,7 @@ function fstatfs(fd: number): Statfs | nil, string | nil, number | nil
 
 - Statfs | nil
 - string | nil
-- number | nil
+- Errno | nil
 
 ### Sigset
 

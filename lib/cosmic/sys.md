@@ -76,7 +76,9 @@ function host_os(): HostOs
 
  Get the operating system name.
  Returns one of: "linux", "macos", "windows", "freebsd", "openbsd",
- "netbsd", "metal".
+ "netbsd", "metal" — or "unknown" if the C layer recognizes none
+ (GetHostOs returns nil then; unreachable on shipped fat-binary
+ targets, but the type admits it honestly).
 
 **Returns:**
 

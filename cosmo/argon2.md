@@ -17,7 +17,7 @@ local record Config
   --  the number of desired bytes in hash output, which defaults to 32.
   hash_len: number
   --  the Argon2 variant: `"argon2id"` blend of other two methods [default], `"argon2i"` maximize resistance to side-channel attacks, or `"argon2d"` maximize resistance to gpu cracking attacks
-  variant: string
+  variant: Variant
 end
 ```
 

@@ -38,7 +38,7 @@ local record HashOptions
   --  Output hash length in bytes (default: 32)
   hash_len: number
   --  Variant: "argon2id" (default), "argon2i", or "argon2d"
-  variant: string
+  variant: argon2.Variant
 end
 ```
 

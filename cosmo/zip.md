@@ -56,7 +56,7 @@ end
 ```teal
 local record AddOptions
   --  Compression method: `"store"` or `"deflate"`
-  method: string
+  method: CompressionMethod
   --  Modification time as Unix timestamp
   mtime: number
   --  Unix file mode (default 0644)
@@ -123,7 +123,7 @@ end
 ### open
 
 ```teal
-function open(path: string | number, mode?: string, options?: OpenOptions): any, string | nil
+function open(path: string | number, mode?: OpenMode, options?: OpenOptions): any, string | nil
 ```
 
  Opens a ZIP archive for reading, writing, or appending.
@@ -132,7 +132,7 @@ function open(path: string | number, mode?: string, options?: OpenOptions): any,
 **Parameters:**
 
 - `path` (string | number)
-- `mode` (string)
+- `mode` (OpenMode)
 - `options` (OpenOptions)
 
 **Returns:**
