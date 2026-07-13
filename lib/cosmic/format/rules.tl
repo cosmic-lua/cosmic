@@ -171,6 +171,17 @@ end
 --- Determine if a `function` keyword is a block-opening function definition
 --- vs a function TYPE annotation.
 local function is_function_block_opener(line_items: {Item}, func_idx: integer): boolean
+  -- `type X = function(...)` (optionally local/global-prefixed) declares a
+  -- function TYPE alias: no body follows, so it never opens a block.
+  -- Without this, everything after such an alias is indented into a
+  -- phantom function body that no `end` ever closes.
+  local first = line_items[1]
+  local second = line_items[2]
+  if first and (first.tk == "type"
+    or ((first.tk == "local" or first.tk == "global")
+      and second and second.tk == "type")) then
+    return false
+  end
   local paren_depth = 0
   for i = func_idx - 1, 1, -1 do
     local item = line_items[i]

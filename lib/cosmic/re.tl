@@ -223,82 +223,82 @@ end
 --- text and its capture groups; a nil return keeps the match unchanged.
 local type Repl = string | function(string, {string}): string
 
-  --- Replace every non-overlapping match of pattern in text.
-  --- Patterns that can match the empty string are rejected.
-  --- @param pattern string The regex pattern to match
-  --- @param text string The text to operate on
-  --- @param repl Repl A literal replacement string, or function(match, caps)
-  --- @param flags number? Optional compile flags: BASIC, ICASE, NEWLINE
-  --- @return string | nil The result, or nil on error
-  --- @return string? Error message on a bad pattern or engine failure
-  local function gsub(pattern: string, text: string, repl: Repl, flags?: number): string | nil, string
-    local regex, cerr = compile_for_iter(pattern, flags)
-    if not regex then
-      return nil, cerr
-    end
-    local spans, err = all_matches(regex as Regex, text)
-    if not spans then
-      return nil, err
-    end
-    local out: {string} = {}
-    local pos = 1
-    for _, sp in ipairs(spans as {Span}) do
-      out[#out + 1] = text:sub(pos, sp.s - 1)
-      if repl is string then
-        out[#out + 1] = repl
+--- Replace every non-overlapping match of pattern in text.
+--- Patterns that can match the empty string are rejected.
+--- @param pattern string The regex pattern to match
+--- @param text string The text to operate on
+--- @param repl Repl A literal replacement string, or function(match, caps)
+--- @param flags number? Optional compile flags: BASIC, ICASE, NEWLINE
+--- @return string | nil The result, or nil on error
+--- @return string? Error message on a bad pattern or engine failure
+local function gsub(pattern: string, text: string, repl: Repl, flags?: number): string | nil, string
+  local regex, cerr = compile_for_iter(pattern, flags)
+  if not regex then
+    return nil, cerr
+  end
+  local spans, err = all_matches(regex as Regex, text)
+  if not spans then
+    return nil, err
+  end
+  local out: {string} = {}
+  local pos = 1
+  for _, sp in ipairs(spans as {Span}) do
+    out[#out + 1] = text:sub(pos, sp.s - 1)
+    if repl is string then
+      out[#out + 1] = repl
+    else
+      local r = repl(sp.m, sp.caps)
+      if r is string then
+        out[#out + 1] = r
       else
-        local r = repl(sp.m, sp.caps)
-        if r is string then
-          out[#out + 1] = r
-        else
-          out[#out + 1] = sp.m
-        end
+        out[#out + 1] = sp.m
       end
-      pos = sp.e + 1
     end
-    out[#out + 1] = text:sub(pos)
-    return table.concat(out)
+    pos = sp.e + 1
   end
+  out[#out + 1] = text:sub(pos)
+  return table.concat(out)
+end
 
-  local record ReModule
-    -- Exported so callers can name/cast the fallible compile result.
-    type Regex = Regex
-    type Repl = Repl
+local record ReModule
+  -- Exported so callers can name/cast the fallible compile result.
+  type Regex = Regex
+  type Repl = Repl
 
-    -- Functions
-    compile: function(pattern: string, flags?: number): Regex | nil, string
-    search: function(pattern: string, text: string, flags?: number): string | nil, {string} | nil, string | nil
-    test: function(pattern: string, text: string, flags?: number): boolean, string
-    findall: function(pattern: string, text: string, flags?: number): {string} | nil, string
-    split: function(pattern: string, text: string, flags?: number): {string} | nil, string
-    gsub: function(pattern: string, text: string, repl: Repl, flags?: number): string | nil, string
+  -- Functions
+  compile: function(pattern: string, flags?: number): Regex | nil, string
+  search: function(pattern: string, text: string, flags?: number): string | nil, {string} | nil, string | nil
+  test: function(pattern: string, text: string, flags?: number): boolean, string
+  findall: function(pattern: string, text: string, flags?: number): {string} | nil, string
+  split: function(pattern: string, text: string, flags?: number): {string} | nil, string
+  gsub: function(pattern: string, text: string, repl: Repl, flags?: number): string | nil, string
 
-    -- Compile flags
-    BASIC: number -- Use basic (obsolete) regex syntax instead of extended
-    ICASE: number -- Case-insensitive matching
-    NEWLINE: number -- Treat newline as special (affects ^ and $)
-    NOSUB: number -- Report only success/failure, not match position
+  -- Compile flags
+  BASIC: number -- Use basic (obsolete) regex syntax instead of extended
+  ICASE: number -- Case-insensitive matching
+  NEWLINE: number -- Treat newline as special (affects ^ and $)
+  NOSUB: number -- Report only success/failure, not match position
 
-    -- Search flags
-    NOTBOL: number -- First character is not at beginning of line
-    NOTEOL: number -- Last character is not at end of line
-  end
+  -- Search flags
+  NOTBOL: number -- First character is not at beginning of line
+  NOTEOL: number -- Last character is not at end of line
+end
 
-  local M: ReModule = {
-    compile = compile,
-    search = search,
-    test = test,
-    findall = findall,
-    split = split,
-    gsub = gsub,
+local M: ReModule = {
+  compile = compile,
+  search = search,
+  test = test,
+  findall = findall,
+  split = split,
+  gsub = gsub,
 
-    -- Expose flags from cosmo.re
-    BASIC = re.BASIC,
-    ICASE = re.ICASE,
-    NEWLINE = re.NEWLINE,
-    NOSUB = re.NOSUB,
-    NOTBOL = re.NOTBOL,
-    NOTEOL = re.NOTEOL,
-  }
+  -- Expose flags from cosmo.re
+  BASIC = re.BASIC,
+  ICASE = re.ICASE,
+  NEWLINE = re.NEWLINE,
+  NOSUB = re.NOSUB,
+  NOTBOL = re.NOTBOL,
+  NOTEOL = re.NOTEOL,
+}
 
-  return M
+return M

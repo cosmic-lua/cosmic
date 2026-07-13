@@ -24,41 +24,9 @@ local bind_mod = require("cosmic.sqlite.bind")
 local params_mod = require("cosmic.sqlite.params")
 local extras_mod = require("cosmic.sqlite.extras")
 
--- Raw lsqlite3 types (0-indexed, requires manual cleanup)
-local record RawStatement
-  bind_values: function(self: RawStatement, ...: any): number
-  bind: function(self: RawStatement, n: number, value?: any): number
-  bind_blob: function(self: RawStatement, n: number, blob: string): number
-  bind_names: function(self: RawStatement, params: {string: any}): number
-  bind_parameter_count: function(self: RawStatement): number
-  step: function(self: RawStatement): number
-  reset: function(self: RawStatement)
-  finalize: function(self: RawStatement): number
-  get_value: function(self: RawStatement, n: number): any
-  columns: function(self: RawStatement): number
-  get_name: function(self: RawStatement, n: number): string
-end
-
-local record RawDatabase
-  close: function(self: RawDatabase): number
-  exec: function(self: RawDatabase, sql: string): number
-  prepare: function(self: RawDatabase, sql: string): RawStatement, number, string
-  busy_timeout: function(self: RawDatabase, milliseconds: number)
-  last_insert_rowid: function(self: RawDatabase): number
-  changes: function(self: RawDatabase): number
-  errmsg: function(self: RawDatabase): string
-end
-
-local record RawSqlite3
-  OK: number
-  ROW: number
-  DONE: number
-  SCHEMA: number
-  OPEN_READONLY: number
-  open: function(filename: string, flags?: number): RawDatabase, number, string
-end
-
-local sqlite3 = lsqlite3 as RawSqlite3
+-- The raw lsqlite3 surface is fully typed since the 2026.07.13 pin;
+-- the wrapper uses the generated types directly (no Raw* mirrors).
+local sqlite3 = lsqlite3
 
 --- Callable row iterator with an out-of-band error channel. Use it in a
 --- `for row in ... do` loop, then call `:err()` afterward to detect a step
@@ -119,7 +87,7 @@ local record Database
   close: function(self: Database)
 end
 
-local function make_statement(raw_stmt: RawStatement, raw_db: RawDatabase): Statement
+local function make_statement(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Database): Statement
   local stmt: Statement = {}
   local closed = false
 
@@ -267,22 +235,22 @@ local function make_statement(raw_stmt: RawStatement, raw_db: RawDatabase): Stat
     }) as Statement
 end
 
-local function make_database(raw_db: RawDatabase): Database
+local function make_database(raw_db: lsqlite3.Database): Database
   local db: Database = {}
   local closed = false
 
   -- Reuses prepared statements for db:exec (see cosmic.sqlite.stmt_cache).
-  local stmt_cache = stmt_cache_mod.new(raw_db as any, sqlite3.OK, sqlite3.DONE, sqlite3.ROW, sqlite3.SCHEMA)
+  local stmt_cache = stmt_cache_mod.new(raw_db, sqlite3.OK, sqlite3.DONE, sqlite3.ROW, sqlite3.SCHEMA)
 
   function db:prepare(sql: string): Statement | nil, string
     if closed then
       return nil, "database is closed"
     end
-    local raw_stmt, errcode, errmsg = raw_db:prepare(sql)
+    local raw_stmt = raw_db:prepare(sql)
     if not raw_stmt then
-      return nil, errmsg or ("error code " .. tostring(errcode))
+      return nil, raw_db:errmsg()
     end
-    return make_statement(raw_stmt, raw_db)
+    return make_statement(raw_stmt as lsqlite3.Statement, raw_db)
   end
 
   function db:query(sql: string, ...: any): Rows | nil, string
@@ -296,7 +264,7 @@ local function make_database(raw_db: RawDatabase): Database
     -- Hot path: skip the full Statement object and its per-call closures;
     -- bind and iterate the raw statement directly (see cosmic.sqlite.row_iter).
     local iter, bind_err = row_iter.query(
-      raw_stmt as any, raw_db as any, on_close as any,
+      raw_stmt, raw_db, on_close,
       sqlite3.OK, sqlite3.ROW, sqlite3.DONE, ...)
     if not iter then
       return nil, bind_err
@@ -430,9 +398,9 @@ end
 --- @return Database | nil Database handle with __close support
 --- @return string Error message on failure
 local function open(filename: string, opts?: OpenOptions): Database | nil, string
-  local raw_db: RawDatabase
-  local errcode: number
-  local errmsg: string
+  local raw_db: lsqlite3.Database | nil
+  local errcode: number | nil
+  local errmsg: string | nil
   if opts and opts.read_only then
     raw_db, errcode, errmsg = sqlite3.open(filename, sqlite3.OPEN_READONLY)
   else
@@ -441,12 +409,14 @@ local function open(filename: string, opts?: OpenOptions): Database | nil, strin
   if not raw_db then
     return nil, errmsg or ("error code " .. tostring(errcode))
   end
+  -- records don't flow-narrow; cast once after the guard
+  local dbh = raw_db as lsqlite3.Database
   local timeout_ms = 5000
   if opts and opts.busy_timeout_ms ~= nil then
     timeout_ms = opts.busy_timeout_ms
   end
-  raw_db:busy_timeout(timeout_ms)
-  return make_database(raw_db)
+  dbh:busy_timeout(timeout_ms)
+  return make_database(dbh)
 end
 
 local record sqlite

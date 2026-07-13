@@ -5,15 +5,12 @@
 --- affinity everywhere instead of defaulting to TEXT.
 --- Lives in its own file so cosmic/sqlite.tl stays under the 500-line cap.
 
+local lsqlite3 = require("cosmo.lsqlite3")
+
 --- Marker wrapper produced by `cosmic.sqlite.blob()`. Bind loops detect it
 --- by metatable identity and bind `data` via `bind_blob` instead of `bind`.
 local record Blob
   data: string
-end
-
-local record RawStatement
-  bind: function(self: RawStatement, n: number, value?: any): number
-  bind_blob: function(self: RawStatement, n: number, blob: string): number
 end
 
 -- Identity marker: getmetatable(v) == blob_mt is the only blob test, so a
@@ -35,27 +32,26 @@ local function is_blob(v: any): boolean
 end
 
 --- Bind one positional parameter, routing blob() wrappers to bind_blob.
---- The raw statement is typed `any` so callers don't need a
---- nominally-identical RawStatement type (same convention as
---- sqlite_stmt_cache and sqlite_row_iter).
---- @param raw_stmt_any any The prepared statement to bind into
+--- @param raw_stmt lsqlite3.Statement The prepared statement to bind into
 --- @param i integer 1-based parameter index
 --- @param v any The value (or blob() wrapper) to bind
 --- @return number The sqlite result code from the bind call
-local function bind_at(raw_stmt_any: any, i: integer, v: any): number
-  local raw_stmt = raw_stmt_any as RawStatement
+local function bind_at(raw_stmt: lsqlite3.Statement, i: integer, v: any): number
   if getmetatable(v) == blob_mt as any then
     return raw_stmt:bind_blob(i, (v as Blob).data)
   end
-  return raw_stmt:bind(i, v)
+  return raw_stmt:bind(i, v as string | number | boolean)
 end
 
 local record M
   type Blob = Blob
+  --- Statement release callback shared by stmt_cache (producer) and
+  --- row_iter (consumer) so the two sides name one nominal type.
+  type OnClose = function(lsqlite3.Statement)
 
   blob: function(data: string): Blob
   is_blob: function(v: any): boolean
-  bind_at: function(raw_stmt_any: any, i: integer, v: any): number
+  bind_at: function(raw_stmt: lsqlite3.Statement, i: integer, v: any): number
 end
 
 local mod: M = {

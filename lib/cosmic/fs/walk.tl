@@ -337,123 +337,123 @@ end
 --- Iterator over file paths, as returned by files().
 local type FileIter = function(): string
 
-  --- Iterate over files matching a pattern.
-  --- Returns an iterator that yields file paths. The fourth return value
-  --- is a to-be-closed guard: a plain `for f in fs.files(dir) do ... end`
-  --- loop adopts it as the loop's closing value (Lua 5.4), so directory
-  --- handles are closed even when the loop exits early via break/error.
-  --- If the root directory cannot be opened, returns nil plus the error —
-  --- iterate the checked value: `for f in assert(fs.files(dir)) as fs.FileIter do`
-  --- (assert passes all four returns through, keeping the closing guard;
-  --- the cast only narrows the type, it does not drop return values).
-  --- @param dir string The directory to search
-  --- @param pattern string Glob pattern (*.lua) - defaults to all files (*)
-  --- @return function | nil Iterator yielding file paths, or nil if the root could not be opened
-  --- @return string Error if the root directory could not be opened
-  --- @return nil Unused (generic-for control slot)
-  --- @return any Closing guard that releases open directory handles
-  local function files(dir: string, pattern?: string): FileIter | nil, string, any, any
-    pattern = pattern or "*"
+--- Iterate over files matching a pattern.
+--- Returns an iterator that yields file paths. The fourth return value
+--- is a to-be-closed guard: a plain `for f in fs.files(dir) do ... end`
+--- loop adopts it as the loop's closing value (Lua 5.4), so directory
+--- handles are closed even when the loop exits early via break/error.
+--- If the root directory cannot be opened, returns nil plus the error —
+--- iterate the checked value: `for f in assert(fs.files(dir)) as fs.FileIter do`
+--- (assert passes all four returns through, keeping the closing guard;
+--- the cast only narrows the type, it does not drop return values).
+--- @param dir string The directory to search
+--- @param pattern string Glob pattern (*.lua) - defaults to all files (*)
+--- @return function | nil Iterator yielding file paths, or nil if the root could not be opened
+--- @return string Error if the root directory could not be opened
+--- @return nil Unused (generic-for control slot)
+--- @return any Closing guard that releases open directory handles
+local function files(dir: string, pattern?: string): FileIter | nil, string, any, any
+  pattern = pattern or "*"
 
-    -- The pattern is always a glob (see collect); no heuristics.
-    local lua_pattern = glob_to_pattern(pattern)
+  -- The pattern is always a glob (see collect); no heuristics.
+  local lua_pattern = glob_to_pattern(pattern)
 
-    -- Stack of (dir, handle) for depth-first traversal
-    local stack: {{string, WalkDirHandle}} = {}
-    local handle, oerr = unix.opendir(dir)
-    if not handle then
-      return nil, errstr(oerr, "opendir: " .. dir)
+  -- Stack of (dir, handle) for depth-first traversal
+  local stack: {{string, WalkDirHandle}} = {}
+  local handle, oerr = unix.opendir(dir)
+  if not handle then
+    return nil, errstr(oerr, "opendir: " .. dir)
+  end
+  table.insert(stack, {dir, handle as WalkDirHandle})
+
+  local function close_all()
+    for i = #stack, 1, -1 do
+      stack[i][2]:close()
+      stack[i] = nil
     end
-    table.insert(stack, {dir, handle as WalkDirHandle})
+  end
+  local guard = setmetatable({}, {__close = close_all, __gc = close_all})
 
-    local function close_all()
-      for i = #stack, 1, -1 do
-        stack[i][2]:close()
-        stack[i] = nil
-      end
-    end
-    local guard = setmetatable({}, {__close = close_all, __gc = close_all})
+  local iter = function(): string
+    -- anchor the guard as an upvalue: a caller that keeps only the
+    -- iterator (dropping the fourth return) must not let the guard's
+    -- __gc close these handles while the iterator is still running
+    local _ = guard
+    while #stack > 0 do
+      local current = stack[#stack]
+      local current_dir = current[1]
+      local current_handle = current[2]
 
-    local iter = function(): string
-      -- anchor the guard as an upvalue: a caller that keeps only the
-      -- iterator (dropping the fourth return) must not let the guard's
-      -- __gc close these handles while the iterator is still running
-      local _ = guard
-      while #stack > 0 do
-        local current = stack[#stack]
-        local current_dir = current[1]
-        local current_handle = current[2]
-
-        local entry, kind = current_handle:read()
-        if not entry then
-          current_handle:close()
-          table.remove(stack)
-        elseif entry ~= "." and entry ~= ".." then
-          local full_path = cosmo_path.join(current_dir, entry)
-          if kind == unix.DT_DIR then
-            -- d_type never follows symlinks, so this is a real directory
-            -- (a symlinked dir reports DT_LNK), and skips a stat(2) call.
-            local subhandle = unix.opendir(full_path)
-            if subhandle then
-              table.insert(stack, {full_path, subhandle as WalkDirHandle})
-            end
-          elseif kind ~= unix.DT_UNKNOWN then
-            -- Definitely not a directory: files() never needs stat data,
-            -- only the path, so just check the pattern without stat(2).
-            if entry:match(lua_pattern) then
-              return full_path
-            end
-          else
-            -- Filesystem doesn't expose d_type; fall back to a real stat,
-            -- using AT_SYMLINK_NOFOLLOW so a symlinked dir reports
-            -- S_ISLNK, not S_ISDIR, preserving the same cycle prevention.
-            local st = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
-            if st then
-              if unix.S_ISDIR((st as unix.Stat):mode()) then
-                local subhandle = unix.opendir(full_path)
-                if subhandle then
-                  table.insert(stack, {full_path, subhandle as WalkDirHandle})
-                end
-              elseif entry:match(lua_pattern) then
-                return full_path
+      local entry, kind = current_handle:read()
+      if not entry then
+        current_handle:close()
+        table.remove(stack)
+      elseif entry ~= "." and entry ~= ".." then
+        local full_path = cosmo_path.join(current_dir, entry)
+        if kind == unix.DT_DIR then
+          -- d_type never follows symlinks, so this is a real directory
+          -- (a symlinked dir reports DT_LNK), and skips a stat(2) call.
+          local subhandle = unix.opendir(full_path)
+          if subhandle then
+            table.insert(stack, {full_path, subhandle as WalkDirHandle})
+          end
+        elseif kind ~= unix.DT_UNKNOWN then
+          -- Definitely not a directory: files() never needs stat data,
+          -- only the path, so just check the pattern without stat(2).
+          if entry:match(lua_pattern) then
+            return full_path
+          end
+        else
+          -- Filesystem doesn't expose d_type; fall back to a real stat,
+          -- using AT_SYMLINK_NOFOLLOW so a symlinked dir reports
+          -- S_ISLNK, not S_ISDIR, preserving the same cycle prevention.
+          local st = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
+          if st then
+            if unix.S_ISDIR((st as unix.Stat):mode()) then
+              local subhandle = unix.opendir(full_path)
+              if subhandle then
+                table.insert(stack, {full_path, subhandle as WalkDirHandle})
               end
+            elseif entry:match(lua_pattern) then
+              return full_path
             end
           end
         end
       end
-      return nil
     end
-    return iter, nil, nil, guard
+    return nil
   end
+  return iter, nil, nil, guard
+end
 
-  local record FsWalkModule
-    --- Iterator over file paths, as returned by files().
-    type FileIter = FileIter
+local record FsWalkModule
+  --- Iterator over file paths, as returned by files().
+  type FileIter = FileIter
 
-    --- Visitor verdict: nil continues, "skip" prunes, "stop" ends the walk.
-    type WalkAction = WalkAction
+  --- Visitor verdict: nil continues, "skip" prunes, "stop" ends the walk.
+  type WalkAction = WalkAction
 
-    --- Options for walk() (max_depth).
-    type WalkOptions = WalkOptions
+  --- Options for walk() (max_depth).
+  type WalkOptions = WalkOptions
 
-    --- Walk dir tree. visitor(path, name, st, ctx): path is the FULL path; name is the basename.
-    --- Do NOT join path and name — path is already complete.
-    --- The visitor may return "skip" (don't descend) or "stop" (end the walk).
-    walk: function<T>(dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string
-    glob: function(dir: string, pattern: string): {string} | nil, string
-    collect: function(dir: string, pattern: string): {string} | nil, string
-    collect_matching: function(dir: string, lua_pattern: string): {string} | nil, string
-    collect_all: function(dir: string): {string: FileInfo} | nil, string
-    files: function(dir: string, pattern?: string): FileIter | nil, string, any, any
-  end
+  --- Walk dir tree. visitor(path, name, st, ctx): path is the FULL path; name is the basename.
+  --- Do NOT join path and name — path is already complete.
+  --- The visitor may return "skip" (don't descend) or "stop" (end the walk).
+  walk: function<T>(dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string
+  glob: function(dir: string, pattern: string): {string} | nil, string
+  collect: function(dir: string, pattern: string): {string} | nil, string
+  collect_matching: function(dir: string, lua_pattern: string): {string} | nil, string
+  collect_all: function(dir: string): {string: FileInfo} | nil, string
+  files: function(dir: string, pattern?: string): FileIter | nil, string, any, any
+end
 
-  local M: FsWalkModule = {
-    walk = walk,
-    glob = glob,
-    collect = collect,
-    collect_matching = collect_matching,
-    collect_all = collect_all,
-    files = files,
-  }
+local M: FsWalkModule = {
+  walk = walk,
+  glob = glob,
+  collect = collect,
+  collect_matching = collect_matching,
+  collect_all = collect_all,
+  files = files,
+}
 
-  return M
+return M
