@@ -17,6 +17,7 @@ local record Issue
   column: integer
   message: string
   severity: string
+  tag: string
 end
 ```
 
@@ -35,10 +36,12 @@ end
 ### CheckOptions
 
  Options for type-checking Teal files.
+ Warnings fail the check unless werror is explicitly set to false.
 
 ```teal
 local record CheckOptions
   include_dirs: {string}
+  werror: boolean
 end
 ```
 
@@ -76,6 +79,7 @@ local record TlError
   filename: string
   y: integer
   x: integer
+  tag: string
 end
 ```
 
@@ -158,11 +162,14 @@ function check(input_path: string, opts: CheckOptions): CheckResult
 
  Type-check a Teal file.
  Uses strict mode for thorough type checking. Collects errors and warnings.
+ Warnings fail the check (ok = false) unless opts.werror is explicitly
+ false: an unused local or shadowed variable is a defect the author must
+ either fix or deliberately mark (leading underscore), never ignore.
 
 **Parameters:**
 
 - `input_path` (string) - Path to the Teal file to check
-- `opts` (CheckOptions) - Type-checking options (include_dirs)
+- `opts` (CheckOptions) - Type-checking options (include_dirs, werror)
 
 **Returns:**
 

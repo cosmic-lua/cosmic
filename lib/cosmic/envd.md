@@ -120,16 +120,3 @@ function load_dir(dir: string): LoadResult
 **Returns:**
 
 - LoadResult - Result with count of variables set and source path
-
-### load
-
-```teal
-function load(): LoadResult
-```
-
- Load env vars from the embedded /zip/embed/env.d directory.
- Call this early in startup, before code that depends on the variables.
-
-**Returns:**
-
-- LoadResult - Result with count of variables set and source path

@@ -127,15 +127,3 @@ function info(message: string)
 **Parameters:**
 
 - `message` (string) - The message to log
-
-### debug
-
-```teal
-function debug(message: string)
-```
-
- Write a debug message to the system log.
-
-**Parameters:**
-
-- `message` (string) - The message to log

@@ -222,7 +222,7 @@ function handle:dup(newfd?: number, flags?: number, lowest?: number): Handle | n
 ### handle:fcntl
 
 ```teal
-function handle:fcntl(cmd: number, arg?: number): number | nil, string
+function handle:fcntl(cmd: number, value?: number): number | nil, string
 ```
 
  File control operations. cmd: F_GETFD, F_SETFD, F_GETFL, F_SETFL, F_SETLK, etc.

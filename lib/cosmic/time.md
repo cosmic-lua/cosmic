@@ -32,23 +32,6 @@ local record DateTime
 end
 ```
 
-### Clock
-
- Clock identifiers for clock_gettime().
-
-```teal
-local record Clock
-  REALTIME: number
-  MONOTONIC: number
-  BOOTTIME: number
-  MONOTONIC_RAW: number
-  REALTIME_COARSE: number
-  MONOTONIC_COARSE: number
-  THREAD_CPUTIME_ID: number
-  PROCESS_CPUTIME_ID: number
-end
-```
-
 ### TimeModule
 
 ```teal
