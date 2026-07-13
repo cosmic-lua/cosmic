@@ -49,6 +49,19 @@ local function process_class_block(anno_lines: {string}, module_name: string, cl
   local desc, _, _, _, class_annotation, fields = parse_annotations(anno_lines)
   if not class_annotation then return end
 
+  -- A `---@class mod.Name: parent` parent survives into ClassDecl; the
+  -- only parent definitions.lua uses is `userdata`, which marks the
+  -- class as userdata-backed (rendered as Teal's `userdata` member so
+  -- `x is Class` compiles to a type(x) == "userdata" test).
+  local parent: string = nil
+  for _, line in ipairs(anno_lines) do
+    local par = line:match("^%s*%-%-%-@class%s+[%w_%.]+%s*:%s*([%w_%.]+)")
+    if par then
+      parent = par
+      break
+    end
+  end
+
   local class_name = class_annotation:match("%.([%w_]+)$") or class_annotation
   local filtered_desc: {string} = {}
   for _, d in ipairs(desc) do
@@ -71,6 +84,7 @@ local function process_class_block(anno_lines: {string}, module_name: string, cl
     table.insert(classes, {
         name = class_name,
         module = module_name,
+        parent = parent,
         fields = fields,
         methods = {},
         description = filtered_desc,

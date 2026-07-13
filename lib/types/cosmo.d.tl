@@ -90,6 +90,7 @@ end
 --- closed automatically on garbage collection, but calling `close`
 --- promptly is recommended.
 local record StreamReader
+  userdata
   --- Reads the next chunk of the response body.
   --- Returns a non-empty string chunk on success (chunked transfer framing
   --- that arrives without payload is consumed internally and never surfaces

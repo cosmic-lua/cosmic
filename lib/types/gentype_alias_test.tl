@@ -44,4 +44,24 @@ function zip.open(path, mode) end
 end
 test_alias_enum_and_scalar()
 
+-- A `---@class mod.Name: userdata` parent renders as Teal's `userdata`
+-- member, so `x is Name` compiles to a type(x) == "userdata" test.
+local function test_userdata_class_marker()
+  local source = [==[
+zip = {}
+
+---@class zip.Handle: userdata
+---@field fd integer
+
+--- Opens a handle.
+---@return zip.Handle h
+function zip.open() end
+]==]
+  local dtl = gentype.generate_dtl(gentype.parse_module(source, "zip"))
+  assert(dtl:match("local record Handle\n  userdata\n"),
+    "userdata parent should render as the userdata member:\n" .. dtl)
+  print("test_userdata_class_marker: PASS")
+end
+test_userdata_class_marker()
+
 print("\nAll tests passed!")

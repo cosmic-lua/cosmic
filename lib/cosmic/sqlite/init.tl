@@ -247,10 +247,10 @@ local function make_database(raw_db: lsqlite3.Database): Database
       return nil, "database is closed"
     end
     local raw_stmt = raw_db:prepare(sql)
-    if not raw_stmt then
-      return nil, raw_db:errmsg()
+    if raw_stmt is lsqlite3.Statement then
+      return make_statement(raw_stmt, raw_db)
     end
-    return make_statement(raw_stmt as lsqlite3.Statement, raw_db)
+    return nil, raw_db:errmsg()
   end
 
   function db:query(sql: string, ...: any): Rows | nil, string
@@ -406,17 +406,15 @@ local function open(filename: string, opts?: OpenOptions): Database | nil, strin
   else
     raw_db, errcode, errmsg = sqlite3.open(filename)
   end
-  if not raw_db then
-    return nil, errmsg or ("error code " .. tostring(errcode))
+  if raw_db is lsqlite3.Database then
+    local timeout_ms = 5000
+    if opts and opts.busy_timeout_ms ~= nil then
+      timeout_ms = opts.busy_timeout_ms
+    end
+    raw_db:busy_timeout(timeout_ms)
+    return make_database(raw_db)
   end
-  -- records don't flow-narrow; cast once after the guard
-  local dbh = raw_db as lsqlite3.Database
-  local timeout_ms = 5000
-  if opts and opts.busy_timeout_ms ~= nil then
-    timeout_ms = opts.busy_timeout_ms
-  end
-  dbh:busy_timeout(timeout_ms)
-  return make_database(dbh)
+  return nil, errmsg or ("error code " .. tostring(errcode))
 end
 
 local record sqlite

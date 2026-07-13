@@ -62,13 +62,14 @@ if sock is net.Socket then
 end
 ```
 
-caveats: narrowing does not survive an early-exit guard (`if not (x is Rec)
-then return end` does not narrow below it), and `is` is wrong for any
-record whose runtime value is userdata — every `cosmo.*` class (`re.Regex`,
-`lsqlite3.Statement`, ...) and cosmic records that wrap raw userdata
-(`fs.Stat`) — the table test fails at runtime and silently takes the wrong
-branch. in linear code and at userdata boundaries, use `as` to cast when
-you know more than the type checker:
+generated `cosmo.*` classes carry Teal's `userdata` marker, so `is` works
+on binding handles too (`stmt is lsqlite3.Statement` compiles to a
+`type() == "userdata"` test). caveats: narrowing does not survive an
+early-exit guard (`if not (x is Rec) then return end` does not narrow
+below it), and `is` is wrong for mixed-representation records — `fs.Stat`
+is usually the raw userdata but falls back to a plain wrapper table, so it
+stays on casts. in linear code, use `as` to cast when you know more than
+the type checker:
 
 ```teal
 local result = json.decode(input) as {string: any}

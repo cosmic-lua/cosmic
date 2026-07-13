@@ -3,6 +3,7 @@
 -- Do not edit by hand. Regenerate with: bin/make regen-types
 
 local record Regex
+  userdata
   --- Executes precompiled regular expression.
   --- On a match, returns the whole matched substring plus a table of the
   --- parenthesized capture groups (an empty table when the pattern has no groups).

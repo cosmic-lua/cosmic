@@ -147,12 +147,13 @@ or map unions through truthiness (`if not x`). Two sanctioned tools:
   `if sock is net.Socket then sock:send(...) end` narrows `Socket | nil`
   inside the positive branch (compiles to one `type(x) == "table"` check).
   Also works for dispatch over `any` (`if v is {string: any} then`).
-  Caveats: narrowing does NOT survive an early-exit guard
-  (`if not (x is Rec) then return end` does not narrow below), and `is` is
-  WRONG for any record whose runtime value is userdata — every `cosmo.*`
-  class (`re.Regex`, `lsqlite3.Statement`, ...) and cosmic records that
-  wrap raw userdata (`fs.Stat`) — the table test fails at runtime, silently
-  taking the wrong branch.
+  Generated `cosmo.*` classes carry Teal's `userdata` marker, so
+  `stmt is lsqlite3.Statement` compiles to the correct
+  `type(x) == "userdata"` test and works too. Caveats: narrowing does NOT
+  survive an early-exit guard (`if not (x is Rec) then return end` does
+  not narrow below), and `is` is WRONG for mixed-representation records —
+  `fs.Stat` is usually the raw stat userdata but falls back to a plain
+  wrapper table, so neither marker fits; it stays on casts.
 - **Cast in linear code and at userdata boundaries**: after an assert or
   early-exit guard, `(x as Rec).field`, `(x as {K:V})[k]`. Scalars
   (`string | nil`) narrow normally, except method-call syntax: use

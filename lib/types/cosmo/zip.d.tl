@@ -46,6 +46,7 @@ end
 
 --- Reader for extracting files from a ZIP archive.
 local record Reader
+  userdata
   --- Lists all files in the ZIP archive, in archive order. Each record
   --- carries the entry's name, uncompressed size, and mode, so bulk
   --- operations don't need a follow-up `stat` per entry.
@@ -60,6 +61,7 @@ end
 
 --- Writer for creating new ZIP archives.
 local record Writer
+  userdata
   --- Adds a file to the ZIP archive.
   add: function(self: Writer, name: string, content: string, options?: AddOptions): boolean | nil, string | nil
   --- Closes the ZIP archive and writes the central directory.
@@ -68,6 +70,7 @@ end
 
 --- Writer for appending files to an existing ZIP archive.
 local record Appender
+  userdata
   --- Adds a file to the ZIP archive.
   add: function(self: Appender, name: string, content: string, options?: AddOptions): boolean | nil, string | nil
   --- Removes entries by name from the archive.

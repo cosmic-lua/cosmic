@@ -6,6 +6,7 @@
 --- `db:create_aggregate()` and `db:create_function()`. It can be used to get
 --- further information about the state of a query.
 local record Context
+  userdata
   get_aggregate_data: function(self: Context): any
   --- Set the user-definable data field for callback funtions to `udata`.
   set_aggregate_data: function(self: Context, udata: any)
@@ -37,6 +38,7 @@ end
 --- the returned database object should be used for all further method calls in
 --- connection with that database.
 local record Database
+  userdata
   --- Sets or removes a busy handler for a database.
   --- The handler function is called with two parameters: `udata` and the number
   --- of (re-)tries for a pending transaction. It should return `nil`, `false` or
@@ -240,6 +242,7 @@ end
 --- After creating a prepared statement with `db:prepare()` the returned statement
 --- object should be used for all further calls in connection with that statement.
 local record Statement
+  userdata
   --- Binds `value` to statement parameter `n`. If the type of `value` is
   --- string it is bound as text. If the type of value is number, it is
   --- bound as an integer or double depending on its subtype using
@@ -335,6 +338,7 @@ local record Statement
 end
 
 local record VM
+  userdata
   bind: function(self: VM, index: number, value: string | number | boolean | nil): number
   bind_blob: function(self: VM, index: number, value: string): number
   bind_names: function(self: VM, names: {string}): number
