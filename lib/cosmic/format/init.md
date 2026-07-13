@@ -7,16 +7,6 @@
 
 ## Types
 
-### FormatRules
-
-```teal
-local record FormatRules
-  is_long_comment: function(tk: string): boolean
-  needs_space: function(prev_prev: any, prev: any, cur: any, next_item: any): boolean
-  compute_indent_change: function(line_items: {any}): integer, integer
-end
-```
-
 ### Issue
 
  A formatting issue (syntax error preventing formatting).
@@ -47,11 +37,8 @@ end
 
 ```teal
 local record Item
-  y: integer
-  x: integer
-  tk: string
-  kind: string
   _newlines: integer
+  _tight_before: boolean
 end
 ```
 
