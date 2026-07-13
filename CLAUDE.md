@@ -270,6 +270,7 @@ all modules are under `lib/cosmic/` and imported as `cosmic.*`:
 | fd | file descriptor I/O: open/wrap handles, pipes |
 | ip | IP address parsing, formatting, classification |
 | json | JSON encode/decode |
+| log | leveled logging to stderr with key=value fields |
 | net | TCP/UDP/Unix sockets |
 | poll | poll(2) wrapper for I/O multiplexing |
 | proc | current process: pid, exec, resource usage |
