@@ -49,14 +49,35 @@ local value: string = nil  -- ERROR: string cannot be nil
 
 use `?` on parameters to make them optional. for nullable local variables, use the nil-returning pattern from the function signature.
 
-### Type Casting
+### Narrowing and Casting
 
-use `as` to cast between types when you know more than the type checker:
+record and map nil-unions do not narrow through truthiness. where the code
+branches, prefer `is` — it narrows inside the positive branch and compiles
+to a single `type()` check:
+
+```teal
+local sock = net.connect_tcp(host, port) -- Socket | nil
+if sock is net.Socket then
+  sock:send("hello")                     -- narrowed, no cast
+end
+```
+
+caveats: narrowing does not survive an early-exit guard (`if not (x is Rec)
+then return end` does not narrow below it), and `is` is wrong for any
+record whose runtime value is userdata — every `cosmo.*` class (`re.Regex`,
+`lsqlite3.Statement`, ...) and cosmic records that wrap raw userdata
+(`fs.Stat`) — the table test fails at runtime and silently takes the wrong
+branch. in linear code and at userdata boundaries, use `as` to cast when
+you know more than the type checker:
 
 ```teal
 local result = json.decode(input) as {string: any}
 local count = value as integer
 ```
+
+per-file `as` counts are pinned by the cast ratchet (`lib/build/casts.txt`,
+enforced by `bin/make lint`). a new cast means raising the pin deliberately;
+removing casts means `bin/make casts-baseline` to lock the improvement in.
 
 ### Record Types
 
