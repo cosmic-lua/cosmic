@@ -73,21 +73,20 @@ local function walk(node: {any: any}, seen: {any: boolean}, out: {integer: boole
   seen[node] = true
   if node["kind"] == "statements" then
     for _, child in ipairs(node as {any}) do
-      if type(child) == "table" then
-        mark_statement(child as {any: any}, out)
+      if child is {any: any} then
+        mark_statement(child, out)
       end
     end
   end
   for _, v in pairs(node) do
-    if type(v) == "table" then
-      local t = v as {any: any}
-      if t["kind"] then
-        walk(t, seen, out)
+    if v is {any: any} then
+      if v["kind"] then
+        walk(v, seen, out)
       else
         -- kindless container (e.g. the if_blocks array): walk node elements
         for _, e in ipairs(v as {any}) do
-          if type(e) == "table" and (e as {any: any})["kind"] then
-            walk(e as {any: any}, seen, out)
+          if e is {any: any} and e["kind"] then
+            walk(e, seen, out)
           end
         end
       end

@@ -39,7 +39,7 @@
 10	lib/cosmic/coverage/init.tl
 1	lib/cosmic/coverage/init_example.tl
 8	lib/cosmic/coverage/init_test.tl
-15	lib/cosmic/coverage/lines.tl
+11	lib/cosmic/coverage/lines.tl
 1	lib/cosmic/coverage/lines_test.tl
 5	lib/cosmic/coverage/report.tl
 9	lib/cosmic/coverage/report_test.tl

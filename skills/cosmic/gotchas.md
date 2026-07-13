@@ -38,20 +38,28 @@ local data = json.decode(input)
 for _, item in ipairs(data) do  -- error: attempting ipairs on something that's not an array: <any type>
 ```
 
-**right:**
+**right — `is` when the shape is uncertain** (narrows in the positive
+branch, compiles to one `type()` check, and untrusted input that isn't
+the expected shape takes the other branch instead of misbehaving later):
 ```teal
-local data = json.decode(input) as {any}         -- cast to array
-for _, raw in ipairs(data) do
-  local item = raw as {string: any}              -- cast each element
-  print(item["name"] as string)
+local data = json.decode(input)
+if data is {any} then
+  for _, raw in ipairs(data) do
+    if raw is {string: any} then
+      print(raw["name"] as string)
+    end
+  end
 end
 ```
 
-for nested maps use chained casts:
+**right — `as` when the shape is trusted** (a schema you control):
 ```teal
 local obj = json.decode(input) as {string: any}
 local tags = obj["tags"] as {string}
 ```
+
+new casts count against the cast ratchet (`lib/build/casts.txt`); prefer
+the `is` form where the code branches anyway.
 
 ## 3. `arg` elements are `string | nil`
 
