@@ -8,6 +8,9 @@ local re = require("cosmo.re")
 --- A compiled regular expression pattern.
 --- Use compile() to create, then call :search() for O(n) matching.
 local record Regex
+  -- Runtime values are cosmo.re's compiled-regex userdata (compile()
+  -- casts them in), so `x is Regex` must test for userdata.
+  userdata
   --- Search for pattern match in text.
   --- On a match, returns the matched substring plus a table of the
   --- parenthesized capture groups (an empty table when the pattern has
@@ -53,20 +56,20 @@ end
 --- @return string | nil Error message if compilation or the engine failed
 local function search(pattern: string, text: string, flags?: number): string | nil, {string} | nil, string | nil
   local regex, cerr = compile(pattern, flags)
-  if not regex then
-    return nil, nil, cerr
-  end
-  -- Search flags (NOTBOL/NOTEOL) are not passed here; use compile() + :search() for those
-  local m, caps = (regex as Regex):search(text)
-  if not m then
-    if caps then
-      -- Engine failure: the binding reports nil, err.
-      return nil, nil, tostring(caps)
+  if regex is Regex then
+    -- Search flags (NOTBOL/NOTEOL) are not passed here; use compile() + :search() for those
+    local m, caps = regex:search(text)
+    if not m then
+      if caps then
+        -- Engine failure: the binding reports nil, err.
+        return nil, nil, tostring(caps)
+      end
+      -- No match is not an error.
+      return nil
     end
-    -- No match is not an error.
-    return nil
+    return m, caps
   end
-  return m, caps
+  return nil, nil, cerr
 end
 
 --- Check if pattern matches anywhere in text.

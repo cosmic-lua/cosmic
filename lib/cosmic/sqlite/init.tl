@@ -409,7 +409,10 @@ local function open(filename: string, opts?: OpenOptions): Database | nil, strin
   if not raw_db then
     return nil, errmsg or ("error code " .. tostring(errcode))
   end
-  -- records don't flow-narrow; cast once after the guard
+  -- records don't flow-narrow; cast once after the guard. (Not `is`:
+  -- the runtime tl loader can lax-recompile this module where the
+  -- required class's userdata marker doesn't resolve, degrading `is`
+  -- to a table test that rejects every real handle.)
   local dbh = raw_db as lsqlite3.Database
   local timeout_ms = 5000
   if opts and opts.busy_timeout_ms ~= nil then

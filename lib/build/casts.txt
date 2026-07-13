@@ -145,7 +145,7 @@
 7	lib/cosmic/quicksand/proxy_test.tl
 4	lib/cosmic/rand.tl
 6	lib/cosmic/rand_test.tl
-11	lib/cosmic/re.tl
+10	lib/cosmic/re.tl
 10	lib/cosmic/re_ops_test.tl
 15	lib/cosmic/re_test.tl
 1	lib/cosmic/require.tl

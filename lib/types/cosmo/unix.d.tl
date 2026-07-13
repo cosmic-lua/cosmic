@@ -48,6 +48,7 @@ end
 --- Reads, writes, and word operations will throw an exception if a
 --- memory boundary error or overflow occurs.
 local record Memory
+  userdata
   --- The starting byte index from which memory is copied, which defaults to zero.
   --- If `bytes` is none or nil, then the nul-terminated string at
   --- `offset` is returned. You may specify `bytes` to safely read
@@ -158,6 +159,7 @@ end
 --- Directory handle for reading directory entries.
 --- `unix.Dir` objects are created by `opendir()` or `fdopendir()`.
 local record Dir
+  userdata
   --- Closes directory stream object and associated its file descriptor.
   --- This is called automatically by the garbage collector.
   --- This may be called multiple times.
@@ -188,6 +190,7 @@ end
 --- Contains CPU time, memory usage, I/O, and context switch counters.
 --- `unix.Rusage` objects are created by `wait()` or `getrusage()`.
 local record Rusage
+  userdata
   --- It's always the case that `0 ≤ nanos < 1e9`.
   --- On Windows NT this is collected from GetProcessTimes().
   utime: function(self: Rusage): number, number
@@ -266,6 +269,7 @@ end
 --- `unix.Stat` objects are created by `stat()` or `fstat()`.
 --- Use `unix.S_ISDIR()`, `unix.S_ISREG()`, etc. to check file type from mode.
 local record Stat
+  userdata
   size: function(self: Stat): number
   --- Contains file type and permissions.
   --- For example, `0010644` is what you might see for a file and
@@ -328,6 +332,7 @@ end
 
 --- Filesystem statistics returned by `statfs()` and `fstatfs()`.
 local record Statfs
+  userdata
   --- Returns filesystem type identifier.
   type: function(self: Statfs): number
   --- Returns optimal transfer block size.
@@ -357,6 +362,7 @@ local record Statfs
 end
 
 local record Sigset
+  userdata
   --- Adds signal to bitset.
   add: function(self: Sigset, sig: number)
   --- Removes signal from bitset.

@@ -317,6 +317,10 @@ local function generate_dtl(module: ModuleDecl): string
         table.insert(out, line)
       end
       table.insert(out, "local record " .. cls.name)
+      if cls.parent == "userdata" then
+        -- `x is Class` must test for userdata, not a table.
+        table.insert(out, "  userdata")
+      end
 
       for _, field in ipairs(cls.fields) do
         if #field.description > 0 then
