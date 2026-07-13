@@ -46,10 +46,13 @@ end
 --- Assert deep equality between actual and expected.
 --- Uses deep comparison for tables, == for all other types.
 --- Throws with a formatted message when the assertion fails.
---- @param actual any The value produced by the code under test
---- @param expected any The value it should equal
+--- Generic over the compared type: comparing values of different types
+--- (a Stat against a string, a number against a boolean) fails at
+--- check time instead of always-unequal at runtime.
+--- @param actual T The value produced by the code under test
+--- @param expected T The value it should equal
 --- @param label string? Optional label prepended to the failure message
-local function eq(actual: any, expected: any, label?: string)
+local function eq<T>(actual: T, expected: T, label?: string)
   if deep_eq(actual, expected) then
     return
   end
@@ -64,10 +67,10 @@ end
 --- Assert that actual and expected are NOT equal.
 --- Uses deep comparison for tables, == for all other types.
 --- Throws with a formatted message when the assertion fails.
---- @param actual any The value produced by the code under test
---- @param expected any The value it should not equal
+--- @param actual T The value produced by the code under test
+--- @param expected T The value it should not equal
 --- @param label string? Optional label prepended to the failure message
-local function ne(actual: any, expected: any, label?: string)
+local function ne<T>(actual: T, expected: T, label?: string)
   if not deep_eq(actual, expected) then
     return
   end
@@ -152,8 +155,8 @@ local function enforced(label: string)
 end
 
 local record CheckModule
-  eq: function(actual: any, expected: any, label?: string)
-  ne: function(actual: any, expected: any, label?: string)
+  eq: function<T>(actual: T, expected: T, label?: string)
+  ne: function<T>(actual: T, expected: T, label?: string)
   ok: function(value: any, label?: string)
   err: function(value: any, e: string, label?: string)
   enforcing: function(): boolean

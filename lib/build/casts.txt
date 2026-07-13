@@ -11,7 +11,7 @@
 11	lib/cosmic/benchmark_test.tl
 25	lib/cosmic/binary_test.tl
 3	lib/cosmic/check.tl
-2	lib/cosmic/check_assertions_test.tl
+3	lib/cosmic/check_assertions_test.tl
 2	lib/cosmic/check_test.tl
 11	lib/cosmic/child/init.tl
 9	lib/cosmic/child/init_example.tl
