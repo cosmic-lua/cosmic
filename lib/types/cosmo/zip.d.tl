@@ -37,7 +37,7 @@ end
 
 local record AddOptions
   --- Compression method: `"store"` or `"deflate"`
-  method: string
+  method: CompressionMethod
   --- Modification time as Unix timestamp
   mtime: number
   --- Unix file mode (default 0644)
@@ -83,6 +83,21 @@ local record Appender
   close: function(self: Appender)
 end
 
+--- Archive open modes, validated by the strcmp chain in `LuaZipOpen`
+--- (`tool/net/lzip.c`).
+local enum OpenMode
+  "r"
+  "w"
+  "a"
+end
+
+--- Entry compression methods (`tool/net/lzip.c`); anything else is
+--- rejected with "invalid method".
+local enum CompressionMethod
+  "store"
+  "deflate"
+end
+
 local record zip
   type OpenOptions = OpenOptions
   type Stat = Stat
@@ -91,10 +106,12 @@ local record zip
   type Reader = Reader
   type Writer = Writer
   type Appender = Appender
+  type OpenMode = OpenMode
+  type CompressionMethod = CompressionMethod
 
   --- Opens a ZIP archive for reading, writing, or appending.
   --- The first argument can be a file path string or a file descriptor integer.
-  open: function(path: string | number, mode?: string, options?: OpenOptions): any, string | nil
+  open: function(path: string | number, mode?: OpenMode, options?: OpenOptions): any, string | nil
   --- Opens a ZIP archive from in-memory data for reading.
   from: function(data: string, options?: OpenOptions): Reader | nil, string | nil
   --- Creates a new ZIP archive for writing. This is equivalent to

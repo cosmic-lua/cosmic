@@ -58,17 +58,8 @@ local record HashOptions
   --- Output hash length in bytes (default: 32)
   hash_len: number
   --- Variant: "argon2id" (default), "argon2i", or "argon2d"
-  variant: string
+  variant: argon2.Variant
 end
-
--- Variant names accepted by the argon2 binding. An unknown variant
--- string makes the binding raise (programmer error), so the wrapper
--- validates here and returns nil, err instead.
-local valid_variants: {string: boolean} = {
-  argon2id = true,
-  argon2i = true,
-  argon2d = true,
-}
 
 --- Compute SHA-256 hash of data.
 --- Returns raw bytes (32 bytes).
@@ -178,10 +169,15 @@ local function password(pwd: string, options?: HashOptions): string | nil, strin
     if options.parallelism then config.parallelism = options.parallelism end
     if options.hash_len then config.hash_len = options.hash_len end
     if options.variant then
-      if valid_variants[options.variant] then
+      -- The generated argon2.Variant enum checks literals statically;
+      -- runtime strings smuggled in through casts still get nil, err
+      -- rather than the binding's raise (never throw from library code).
+      if options.variant == "argon2id" or options.variant == "argon2i"
+      or options.variant == "argon2d" then
         config.variant = options.variant
       else
-        return nil, "invalid variant: " .. options.variant .. " (expected argon2id, argon2i, or argon2d)"
+        return nil, "invalid variant: " .. tostring(options.variant)
+          .. " (expected argon2id, argon2i, or argon2d)"
       end
     end
   end

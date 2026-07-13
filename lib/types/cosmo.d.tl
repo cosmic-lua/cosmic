@@ -2,6 +2,8 @@
 -- GENERATED from cosmopolitan's definitions.lua by lib/types/gentype.tl.
 -- Do not edit by hand. Regenerate with: bin/make regen-types
 
+local unix = require("cosmo.unix")
+
 --- represented as the data structure `{{"a", "b"}, {"c"}, ...}`
 local record Url
   --- e.g. `"http"`
@@ -102,6 +104,42 @@ local record StreamReader
   close: function(self: StreamReader)
 end
 
+--- Machine-readable failure kind returned by `Fetch` / `FetchStream`.
+--- Every `LuaFetchError` call site in `tool/net/lfetch.c` uses one of
+--- these values; extend this alias when adding a new kind there.
+local enum FetchErrorKind
+  "blocked"
+  "connect"
+  "dns"
+  "protocol"
+  "proxy"
+  "timeout"
+end
+
+--- Network category names emitted by `CategorizeIp`, in the order
+--- `net/http/getipcategoryname.c` tests them.
+local enum IpCategory
+  "MULTICAST"
+  "LOOPBACK"
+  "PRIVATE"
+  "TESTNET"
+  "AFRINIC"
+  "LACNIC"
+  "APNIC"
+  "ARIN"
+  "RIPE"
+  "DOD"
+  "AT&T"
+  "APPLE"
+  "FORD"
+  "COGENT"
+  "PRUDENTIAL"
+  "USPS"
+  "COMCAST"
+  "FUTURE"
+  "ANONYMOUS"
+end
+
 local record cosmo
   type Url = Url
   type EncoderOptions = EncoderOptions
@@ -110,6 +148,8 @@ local record cosmo
   type FetchOptions = FetchOptions
   type BarfOptions = BarfOptions
   type StreamReader = StreamReader
+  type FetchErrorKind = FetchErrorKind
+  type IpCategory = IpCategory
 
   --- Writes all data to file the easy way.
   --- This function writes to the local file system. By default it truncates
@@ -120,8 +160,8 @@ local record cosmo
   ---     assert(Barf('x.txt', 'abc123'))
   ---     assert(Barf('x.txt', 'XX', {offset = 3}))
   ---     assert(assert(Slurp('x.txt', 1, 6)) == 'abXX23')
-  Barf: function(filename: string, data: string, options?: BarfOptions): boolean | nil, string | nil, number | nil
-  CategorizeIp: function(ip: number): string
+  Barf: function(filename: string, data: string, options?: BarfOptions): boolean | nil, string | nil, unix.Errno | nil
+  CategorizeIp: function(ip: number): IpCategory
   --- Computes Phil Katz CRC-32 used by zip/zlib/gzip/etc.
   Crc32: function(initial: number, data: string): number
   --- Computes 32-bit Castagnoli Cyclic Redundancy Check.
@@ -454,7 +494,7 @@ local record cosmo
   --- (malformed request or response), `"too_large"` (response exceeded
   --- `maxresponse`), or `"blocked"` (refused by SSRF protection or the
   --- HTTPS-to-HTTP downgrade guard).
-  Fetch: function(url: string, body?: string | FetchOptions): number | nil, {string: string}, string, string, string | nil, string | nil
+  Fetch: function(url: string, body?: string | FetchOptions): number | nil, {string: string}, string, string, string | nil, FetchErrorKind | nil
   --- Sends an HTTP/HTTPS request and returns a streaming reader for the response body.
   --- Useful for Server-Sent Events (SSE), large downloads, or processing data incrementally.
   --- Accepts the same options table as `Fetch()`, including `timeout`, `maxresponse`,
@@ -469,7 +509,7 @@ local record cosmo
   --- redirects. On failure, returns `nil`, a descriptive error message,
   --- and a machine-readable failure kind with the same values as
   --- `Fetch()`.
-  FetchStream: function(url: string, options?: FetchOptions): number | nil, {string: string}, StreamReader, string, string | nil, string | nil
+  FetchStream: function(url: string, options?: FetchOptions): number | nil, {string: string}, StreamReader, string, string | nil, FetchErrorKind | nil
   --- Converts UNIX timestamp to an RFC1123 string that looks like this:
   --- `Mon, 29 Mar 2021 15:37:13 GMT`. See `formathttpdatetime.c`.
   FormatHttpDateTime: function(seconds: number): string
@@ -482,8 +522,9 @@ local record cosmo
   --- - `"X86_64"` for Intel and AMD systems
   --- - `"AARCH64"` for ARM64, M1, and Raspberry Pi systems
   --- - `"POWERPC64"` for OpenPOWER Raptor Computing Systems
+  --- - `"S390X"` for IBM System/390 systems
   GetHostIsa: function(): string
-  GetHostOs: function(): string
+  GetHostOs: function(): string | nil
   GetHttpReason: function(code: number): string
   --- This is useful for fixed-width formatting. For example, CJK characters
   --- typically take up two cells. This function takes into consideration combining
@@ -646,7 +687,7 @@ local record cosmo
   --- This function is uninterruptible so `unix.EINTR` errors will be ignored. This
   --- should only be a concern if you've installed signal handlers. Use the UNIX API
   --- if you need to react to it.
-  Slurp: function(filename: string, i?: number, j?: number): string | nil, string | nil, number | nil
+  Slurp: function(filename: string, i?: number, j?: number): string | nil, string | nil, unix.Errno | nil
   --- Formats a timestamp using strftime(3) format specifiers.
   --- Common format specifiers:
   --- - `%Y` four-digit year

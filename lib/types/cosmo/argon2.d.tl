@@ -12,11 +12,20 @@ local record Config
   --- the number of desired bytes in hash output, which defaults to 32.
   hash_len: number
   --- the Argon2 variant: `"argon2id"` blend of other two methods [default], `"argon2i"` maximize resistance to side-channel attacks, or `"argon2d"` maximize resistance to gpu cracking attacks
-  variant: string
+  variant: Variant
+end
+
+--- Argon2 variant names accepted by `argon2.hash_encoded` (validated
+--- by the strcmp chain in `tool/net/largon2.c`).
+local enum Variant
+  "argon2id"
+  "argon2i"
+  "argon2d"
 end
 
 local record argon2
   type Config = Config
+  type Variant = Variant
 
   --- Hashes password.
   --- This is consistent with the README of the reference implementation:

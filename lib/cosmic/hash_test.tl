@@ -116,7 +116,10 @@ end
 test_password_unicode()
 
 local function test_password_invalid_variant()
-  local encoded, err = hash.password("password", {variant = "invalid"})
+  -- the Variant enum rejects this literal statically; cast to keep
+  -- exercising the wrapper's runtime nil, err guard for smuggled strings
+  local bad = {variant = "invalid"} as hash.HashOptions
+  local encoded, err = hash.password("password", bad)
   assert(encoded == nil, "password should fail with invalid variant")
   assert(err and err:match("invalid variant"), "error should mention invalid variant")
 end
