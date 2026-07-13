@@ -67,7 +67,9 @@ local record ServeModule
   new: function(opts: ProxyOptions): Server | nil, string
 end
 
-local LEVELS: {string: integer} = {quiet = 0, info = 1, debug = 2}
+-- <total>: adding a LogLevel member without deciding its threshold is a
+-- compile error, not a silent fallthrough to the `or 1` default.
+local LEVELS < total >: {qtypes.LogLevel: integer} = {quiet = 0, info = 1, debug = 2}
 
 local function ts(): string
   local s, ns = unix.clock_gettime(unix.CLOCK_REALTIME)
