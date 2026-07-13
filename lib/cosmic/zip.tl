@@ -19,7 +19,7 @@ end
 --- Options for adding a file to a ZIP archive.
 local record AddOptions
   --- Compression method: "store" (no compression) or "deflate" (compressed).
-  method: string
+  method: zip.CompressionMethod
   --- Modification time as Unix timestamp.
   mtime: number
   --- Unix file mode/permissions (default 0644).
