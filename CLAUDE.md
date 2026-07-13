@@ -256,6 +256,7 @@ all modules are under `lib/cosmic/` and imported as `cosmic.*`:
 
 | module | description |
 |--------|-------------|
+| ansi | ANSI terminal styling: colors, attributes, strip, NO_COLOR-aware gating |
 | benchmark | benchmark runner with `Benchmark_*` functions |
 | child | child process spawning with I/O control |
 | codec | hex encoding/decoding, Lua serialization |

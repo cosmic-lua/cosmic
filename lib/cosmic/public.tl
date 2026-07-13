@@ -20,6 +20,7 @@
 --- `require` is already internal; `env`, `time`, and the rest carry no
 --- Lua global collision — keep.
 local public: {string} = {
+  "ansi",
   "benchmark",
   "check",
   "child",
