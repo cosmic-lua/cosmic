@@ -40,6 +40,7 @@ local public: {string} = {
   "ip",
   "json",
   "landlock",
+  "log",
   "net",
   "pledge",
   "poll",
