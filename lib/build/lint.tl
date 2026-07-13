@@ -1,6 +1,7 @@
 #!/usr/bin/env lua
 
 local proc = require("cosmic.proc")
+local tl = require("tl")
 
 local record Diagnostic
   file: string
@@ -39,6 +40,75 @@ local function check_file_length(file: string, n: integer, limit: integer): {Dia
         col = 1,
         rule = "file-length",
         message = string.format("%s has %d lines (limit: %d)", file, n, limit),
+      }}
+  end
+  return {}
+end
+
+-- Cast ratchet: per-file `as` cast counts, pinned by lib/build/casts.txt
+-- (count<TAB>path, sorted; files absent from the list are pinned at 0).
+-- Counting is token-exact via the Teal lexer, so casts inside strings and
+-- comments never count. The pin is two-sided: growth fails (prefer `is`
+-- narrowing, or raise the entry deliberately), and improvement fails until
+-- the baseline is lowered (`bin/make casts-baseline`) so headroom cannot
+-- accumulate for later regressions.
+local CASTS_BASELINE < const > = "lib/build/casts.txt"
+
+local function load_casts_baseline(): {string: integer}
+  local base: {string: integer} = {}
+  local f = io.open(CASTS_BASELINE, "r")
+  if not f then
+    return base
+  end
+  for line in f:lines() do
+    local n, path = line:match("^(%d+)\t(.+)$")
+    local count = n and tonumber(n)
+    if count then
+      base[path] = math.tointeger(count)
+    end
+  end
+  f:close()
+  return base
+end
+
+local function count_casts(content: string, file: string): integer
+  local tokens = tl.lex(content, file)
+  if not tokens then
+    return 0
+  end
+  local n = 0
+  for _, t in ipairs(tokens) do
+    if t.tk == "as" then
+      n = n + 1
+    end
+  end
+  return n
+end
+
+local function check_cast_ratchet(file: string, content: string, base: {string: integer}): {Diagnostic}
+  local count = count_casts(content, file)
+  local pinned = base[file] or 0
+  if count > pinned then
+    return {{
+        file = file,
+        line = 1,
+        col = 1,
+        rule = "cast-ratchet",
+        message = string.format(
+          "%s has %d `as` casts (pinned at %d): prefer `x is Rec` narrowing"
+          .. " (see CLAUDE.md), or raise lib/build/casts.txt deliberately",
+          file, count, pinned),
+      }}
+  elseif count < pinned then
+    return {{
+        file = file,
+        line = 1,
+        col = 1,
+        rule = "cast-ratchet",
+        message = string.format(
+          "%s improved to %d `as` casts (pinned at %d): run"
+          .. " 'bin/make casts-baseline' to lock it in",
+          file, count, pinned),
       }}
   end
   return {}
@@ -126,7 +196,7 @@ local function check_call_after_define(file: string, lines: {string}): {Diagnost
               rule = "call-after-define",
               message = string.format(
                 "function '%s' must be called immediately after its definition "
-                  .. "(test/example files call each test_* function right after defining it)",
+                .. "(test/example files call each test_* function right after defining it)",
                 fname
               ),
             })
@@ -189,7 +259,7 @@ local function check_cosmo_require(file: string, lines: {string}): {Diagnostic}
           rule = "cosmo-require",
           message = string.format(
             "%s:%d: require(\"cosmo...\") forbidden in tests/examples; "
-              .. "use cosmic.* wrappers",
+            .. "use cosmic.* wrappers",
             file, i
           ),
         })
@@ -253,35 +323,75 @@ local function lint_file(path: string): {Diagnostic}
   return diagnostics
 end
 
+local function write_casts_baseline(files: {string}): integer
+  local entries: {string} = {}
+  for _, file in ipairs(files) do
+    if file:match("%.tl$") and not is_exempt(file) then
+      local f = io.open(file, "r")
+      if f then
+        local content = f:read("*a")
+        f:close()
+        local count = count_casts(content or "", file)
+        if count > 0 then
+          table.insert(entries, string.format("%d\t%s", count, file))
+        end
+      end
+    end
+  end
+  table.sort(entries, function(a: string, b: string): boolean
+      return a:match("\t(.+)$") < b:match("\t(.+)$")
+    end)
+  local f = io.open(CASTS_BASELINE, "w")
+  if not f then
+    io.stderr:write("cannot write " .. CASTS_BASELINE .. "\n")
+    return 1
+  end
+  f:write(table.concat(entries, "\n"), "\n")
+  f:close()
+  print(string.format("wrote %s (%d files with casts)", CASTS_BASELINE, #entries))
+  return 0
+end
+
 local function main(...: string): integer
   local files: {string} = {...}
+  if files[1] == "--write-casts-baseline" then
+    table.remove(files, 1)
+    return write_casts_baseline(files)
+  end
   if #files == 0 then
-    io.stderr:write("usage: lint.lua FILE...\n")
+    io.stderr:write("usage: lint.lua [--write-casts-baseline] FILE...\n")
     return 1
   end
 
+  local casts_base = load_casts_baseline()
   local all_diagnostics: {Diagnostic} = {}
   for _, file in ipairs(files) do
     -- The standalone lint binary enforces file-length (run on all tracked
-    -- files) and cosmo-require (tests/examples). Column-length and
-    -- assert-order are enforced via --check-style on .tl files.
+    -- files), the cast ratchet (.tl files), and cosmo-require
+    -- (tests/examples). Column-length and assert-order are enforced via
+    -- --check-style on .tl files.
     if not is_exempt(file) then
       local n = count_lines(file)
       local diags = check_file_length(file, n, DEFAULT_FILE_LINES)
       for _, d in ipairs(diags) do
         table.insert(all_diagnostics, d)
       end
-      if file:match("_test%.tl$") or file:match("_example%.tl$") then
+      if file:match("%.tl$") then
         local f = io.open(file, "r")
         if f then
           local content = f:read("*a")
           f:close()
-          local lines: {string} = {}
-          for line in ((content or "") .. "\n"):gmatch("([^\n]*)\n") do
-            lines[#lines + 1] = line
-          end
-          for _, d in ipairs(check_cosmo_require(file, lines)) do
+          for _, d in ipairs(check_cast_ratchet(file, content or "", casts_base)) do
             table.insert(all_diagnostics, d)
+          end
+          if file:match("_test%.tl$") or file:match("_example%.tl$") then
+            local lines: {string} = {}
+            for line in ((content or "") .. "\n"):gmatch("([^\n]*)\n") do
+              lines[#lines + 1] = line
+            end
+            for _, d in ipairs(check_cosmo_require(file, lines)) do
+              table.insert(all_diagnostics, d)
+            end
           end
         end
       end
@@ -314,6 +424,8 @@ return {
   check_column_length = check_column_length,
   check_call_after_define = check_call_after_define,
   check_cosmo_require = check_cosmo_require,
+  count_casts = count_casts,
+  check_cast_ratchet = check_cast_ratchet,
   lint_file = lint_file,
   main = main,
 }

@@ -138,11 +138,30 @@ end
 Errors are strings: failed `cosmo.unix` calls return `nil, err, errno` (a
 formatted string plus the numeric errno), wrappers add context with
 `errno.str(err, prefix)`, and branch on the numeric errno via
-`errno.is(errno_value, "EINTR")`. Because Teal (0.24.8) does not flow-narrow record or map unions, a
-caller that has ruled out `nil` casts at the use site — `(x as Rec).field`,
-`(x as {K:V})[k]` — mirroring `lib/cosmic/embed.tl`. Scalars (`string | nil`)
-narrow, except method-call syntax: use `string.sub(x, …)` not `x:sub(…)` on a
-narrowed value.
+`errno.is(errno_value, "EINTR")`.
+
+**Narrowing record/map unions.** Teal (0.24.8) does not flow-narrow record
+or map unions through truthiness (`if not x`). Two sanctioned tools:
+
+- **Prefer `is` where the code branches, for table-backed records**:
+  `if sock is net.Socket then sock:send(...) end` narrows `Socket | nil`
+  inside the positive branch (compiles to one `type(x) == "table"` check).
+  Also works for dispatch over `any` (`if v is {string: any} then`).
+  Caveats: narrowing does NOT survive an early-exit guard
+  (`if not (x is Rec) then return end` does not narrow below), and `is` is
+  WRONG for any record whose runtime value is userdata — every `cosmo.*`
+  class (`re.Regex`, `lsqlite3.Statement`, ...) and cosmic records that
+  wrap raw userdata (`fs.Stat`) — the table test fails at runtime, silently
+  taking the wrong branch.
+- **Cast in linear code and at userdata boundaries**: after an assert or
+  early-exit guard, `(x as Rec).field`, `(x as {K:V})[k]`. Scalars
+  (`string | nil`) narrow normally, except method-call syntax: use
+  `string.sub(x, …)` not `x:sub(…)` on a narrowed value.
+
+Total `as` casts are pinned per file by `lib/build/casts.txt` (the
+cast ratchet, enforced by `bin/make lint`): adding a cast means raising the
+pin deliberately; removing casts means running `bin/make casts-baseline`
+to lock the improvement in.
 
 rules:
 - never throw from library code

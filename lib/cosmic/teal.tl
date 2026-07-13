@@ -337,7 +337,7 @@ local function hint_for_message(msg: string): string | nil
   end
   -- Pattern 2: nil union not narrowed (X | nil where X expected)
   if msg:find("%| nil") and msg:find("expected") then
-    return "  hint: narrow first, e.g. `if v == nil then return nil, \"missing\" end`"
+    return "  hint: narrow first: `if v is Rec then ... end` (plain-table records), or cast after a guard for userdata handles"
   end
   -- Pattern 3: excess return values (wrong number of returns)
   if msg:find("excess return values") then
