@@ -2,7 +2,9 @@
 --- Contains lookup tables, token classifiers, and indent computation.
 
 -- An item in the output stream: either a token or a comment.
-local record Item
+-- An interface so the formatter's richer Item record (which caches
+-- newline counts) subtypes it and the rule functions stay fully typed.
+local interface Item
   y: integer
   x: integer
   tk: string
@@ -297,14 +299,15 @@ local function compute_indent_change(line_items: {Item}): integer, integer
 end
 
 local record FormatRulesModule
+  type Item = Item
   is_long_comment: function(tk: string): boolean
-  needs_space: function(prev_prev: any, prev: any, cur: any, next_item: any): boolean
-  compute_indent_change: function(line_items: {any}): integer, integer
+  needs_space: function(prev_prev: Item, prev: Item, cur: Item, next_item: Item): boolean
+  compute_indent_change: function(line_items: {Item}): integer, integer
 end
 
 local M: FormatRulesModule = {}
 M.is_long_comment = is_long_comment
-M.needs_space = needs_space as function(any, any, any, any): boolean
-M.compute_indent_change = compute_indent_change as function({any}): integer, integer
+M.needs_space = needs_space
+M.compute_indent_change = compute_indent_change
 
 return M

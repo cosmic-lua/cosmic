@@ -127,6 +127,7 @@ local function test_auth_header()
     })
   assert(n == "x-k" and v == "s", "custom header")
   assert(rules.auth_header({}) == nil, "pass-through injects nothing")
-  assert(rules.auth_header(true) == nil, "true injects nothing")
+  -- raw config can smuggle `true` past the types; auth_header must not index it
+  assert(rules.auth_header(true as rules.ProxyRule) == nil, "true injects nothing")
 end
 test_auth_header()

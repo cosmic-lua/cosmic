@@ -163,10 +163,12 @@ local function encode_multipart(parts: {Part}): string | nil, string
   return table.concat(out), "multipart/form-data; boundary=" .. boundary
 end
 
--- Mirror of the Options fields prepare touches (Teal records are
--- nominal; the boundary crosses through `any`, like cosmic.sqlite's
--- helper modules).
-local record Opts
+-- Internal mirror of the fetch.Options fields prepare touches. The
+-- full Options record lives in fetch/init.tl (its should_retry
+-- callback references Result, and extras cannot require init back);
+-- prepare is generic over the caller's record so the module boundary
+-- itself stays fully typed.
+local record PrepareOptions
   method: string
   body: string
   headers: {string: string}
@@ -176,7 +178,7 @@ local record Opts
   multipart: {Part}
 end
 
-local function set_default_content_type(o: Opts, ctype: string)
+local function set_default_content_type(o: PrepareOptions, ctype: string)
   if o.headers then
     for k in pairs(o.headers) do
       if k:lower() == "content-type" then
@@ -195,15 +197,15 @@ end
 --- options table is never mutated; a body-producing option defaults the
 --- method to POST when none is set.
 --- @param url string The request URL
---- @param opts_any any The fetch Options, or nil
+--- @param opts_in T The fetch Options record, or nil
 --- @return string The URL with query params appended
---- @return any The prepared options
+--- @return T The prepared options
 --- @return string? Error message on invalid or conflicting options
-local function prepare(url: string, opts_any: any): string, any, string
-  if opts_any == nil then
+local function prepare<T>(url: string, opts_in: T): string, T, string
+  if opts_in == nil then
     return url, nil, nil
   end
-  local opts = opts_any as Opts
+  local opts = opts_in as PrepareOptions
   local sources = 0
   if opts.body then sources = sources + 1 end
   if opts.json ~= nil then sources = sources + 1 end
@@ -213,15 +215,15 @@ local function prepare(url: string, opts_any: any): string, any, string
     return url, nil, "at most one of body, json, form, multipart may be set"
   end
   if sources == 0 and not opts.query then
-    return url, opts_any, nil
+    return url, opts_in, nil
   end
 
   -- Shallow copy (headers too) so no caller table is mutated.
   local o: {string: any} = {}
-  for k, v in pairs(opts_any as {string: any}) do
+  for k, v in pairs(opts_in as {string: any}) do
     o[k] = v
   end
-  local prepared = o as Opts
+  local prepared = o as PrepareOptions
   if opts.headers then
     local h: {string: string} = {}
     for k, v in pairs(opts.headers) do
@@ -258,7 +260,7 @@ local function prepare(url: string, opts_any: any): string, any, string
   if prepared.body and not prepared.method then
     prepared.method = "POST"
   end
-  return url, o, nil
+  return url, o as T, nil
 end
 
 -- Mirrors of the stream result surface download consumes.
@@ -386,7 +388,7 @@ local record ExtrasModule
   validate_url: function(url: string): string
   validate_headers: function(headers: {string: string}): string
   unix_proxy: function(path: string): string | nil, string
-  prepare: function(url: string, opts_any: any): string, any, string
+  prepare: function<T>(url: string, opts_in: T): string, T, string
   make: function(fetch_fn: function(string, any): any,
   stream_fn: function(string, any): any,
   wrap: function(any): any): Made

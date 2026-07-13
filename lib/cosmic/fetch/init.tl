@@ -252,7 +252,7 @@ local function Fetch(url: string, opts?: Options): Result
     return fail(perr, nil)
   end
   url = purl
-  opts = popts as Options
+  opts = popts
   local max_attempts = (opts and opts.max_attempts) or 1
   local base_delay = (opts and opts.base_delay) or 0.5
   local max_delay = (opts and opts.max_delay) or 30
@@ -410,7 +410,7 @@ local function stream(url: string, opts?: Options): StreamResult
     return stream_fail(perr, nil)
   end
   url = purl
-  opts = popts as Options
+  opts = popts
   local verr = validate_url(url)
   if verr then
     return stream_fail(verr, nil)

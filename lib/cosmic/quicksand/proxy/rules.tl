@@ -17,19 +17,26 @@
 --- typo'd rule silently degrading to pass-through would strip auth
 --- from an otherwise-authenticated egress path.
 local cosmo = require("cosmo")
+local qtypes = require("cosmic.quicksand.types")
+
+--- The typed allowlist rule: one nominal record for the whole
+--- quicksand family (cosmic.quicksand.types.NetRule, re-exported by
+--- the proxy modules as ProxyRule). validate()/validate_rule() still
+--- accept raw untyped config; everything after index() is typed.
+local type ProxyRule = qtypes.NetRule
 
 --- One wildcard ("*.suffix") allowlist entry. `port` nil = any port.
 local record SuffixEntry
   suffix: string
   port: integer
-  rule: any
+  rule: ProxyRule
 end
 
 --- Fast lookup structure built from an allowlist by index().
 --- exact[host][port] and exact[host]["*"] hold exact-host rules;
 --- suffix is walked in insertion order for "*.suffix" patterns.
 local record Index
-  exact: {string: {any: any}}
+  exact: {string: {any: ProxyRule}}
   suffix: {SuffixEntry}
 end
 
@@ -134,9 +141,15 @@ end
 --- Build a lookup Index from an allowlist table. Wildcard entries
 --- are stored with a leading "." and matched at the tail of the
 --- candidate host, in insertion order.
-local function index(allowed_hosts: {string: any}): Index
+local function index(allowed_hosts: {string: ProxyRule}): Index
   local idx: Index = {exact = {}, suffix = {}}
   for k, rule in pairs(allowed_hosts or {}) do
+    -- Raw config reaches here through casts and may carry `true` for
+    -- pass-through (validate() accepts it); normalize to an empty rule
+    -- so nothing downstream ever indexes a boolean.
+    if type(rule) ~= "table" then
+      rule = {} as ProxyRule
+    end
     local wild = k:match("^%*%.(.+)$")
     if wild then
       local h, p = parse_rule(wild)
@@ -158,7 +171,7 @@ end
 --- Look up a (host, port) pair. Returns the rule value on a hit, or
 --- nil. Exact-host matches win over suffix patterns; suffix patterns
 --- return the first hit in insertion order.
-local function match(idx: Index, host: string, port: integer): any
+local function match(idx: Index, host: string, port: integer): ProxyRule | nil
   host = host:lower()
   local entry = idx.exact[host]
   if entry then
@@ -176,30 +189,33 @@ end
 
 --- Build the auth header a rule injects on plain-HTTP requests.
 --- Returns (name, value), or nil for pass-through rules.
-local function auth_header(rule: any): string | nil, string
-  if not (rule is table) then return nil end
-  local r = rule as {string: any}
-  local t = r["type"]
+local function auth_header(rule: ProxyRule): string | nil, string
+  -- Raw config can still smuggle `true` through casts; stay defensive
+  -- rather than index a boolean at runtime.
+  if rule == nil or type(rule) ~= "table" then return nil end
+  local t = rule.type
   if t == "bearer" then
-    return "Authorization", "Bearer " .. tostring(r["token"])
+    return "Authorization", "Bearer " .. tostring(rule.token)
   elseif t == "basic" then
     local enc = cosmo.EncodeBase64(
-      tostring(r["username"]) .. ":" .. tostring(r["password"]))
+      tostring(rule.username) .. ":" .. tostring(rule.password))
     return "Authorization", "Basic " .. enc
   elseif t == "header" then
-    return r["header_name"] as string, r["header_value"] as string
+    return rule.header_name, rule.header_value
   end
   return nil
 end
 
 local record RulesModule
+  type ProxyRule = ProxyRule
+  type Index = Index
   parse_rule: function(key: string): string, integer
   validate_key: function(key: string): string
   validate_rule: function(key: string, rule: any): string
   validate: function(allowed_hosts: {string: any}): boolean, string
-  index: function(allowed_hosts: {string: any}): Index
-  match: function(idx: Index, host: string, port: integer): any
-  auth_header: function(rule: any): string | nil, string
+  index: function(allowed_hosts: {string: ProxyRule}): Index
+  match: function(idx: Index, host: string, port: integer): ProxyRule | nil
+  auth_header: function(rule: ProxyRule): string | nil, string
 end
 
 local M: RulesModule = {

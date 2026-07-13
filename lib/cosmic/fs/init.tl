@@ -316,7 +316,7 @@ local record FsModule
   -- ends the walk now; returning nothing continues.
   -- Root open failure returns nil, err; subtree failures return the first
   -- error alongside the results.
-  walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string
+  walk: function<T>(dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string
   -- glob expands a pattern without recursing; components ("src/*.lua")
   -- are each globs, and matches of every entry type are returned sorted.
   glob: function(dir: string, pattern: string): {string} | nil, string

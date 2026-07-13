@@ -34,14 +34,14 @@ local record WalkOptions
   max_depth: integer
 end
 
-local walk_tree: function < T > (string,
+local walk_tree: function<T>(string,
 function(string, string, WalkStat, T): (WalkAction ...), T, {string}, integer, integer): boolean
 
 --- Shared per-directory loop. Consumes (and closes) an already-open
 --- handle, records the first subtree error in errbox[1], and returns
 --- true when a visitor asked to stop the walk. Entries visited here are
 --- at depth; max_depth of 0 means unlimited.
-local function walk_entries < T > (dir: string, h: WalkDirHandle,
+local function walk_entries<T>(dir: string, h: WalkDirHandle,
     visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx: T,
     errbox: {string}, depth: integer, max_depth: integer): boolean
   while true do
@@ -76,7 +76,7 @@ end
 
 --- Recursive walk helper. An opendir failure below the root is recorded
 --- in errbox[1] rather than swallowed or fatal.
-walk_tree = function < T > (dir: string,
+walk_tree = function<T>(dir: string,
     visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx: T,
     errbox: {string}, depth: integer, max_depth: integer): boolean
   local handle, oerr = unix.opendir(dir)
@@ -121,7 +121,7 @@ end
 --- @param opts WalkOptions? max_depth limits how deep the walk descends
 --- @return T | nil The context object, or nil if the root could not be opened
 --- @return string First error encountered, if any
-local function walk < T > (dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string
+local function walk<T>(dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string
   ctx = ctx or {} as T
   local max_depth = 0
   if opts and opts.max_depth then
@@ -439,7 +439,7 @@ local type FileIter = function(): string
     --- Walk dir tree. visitor(path, name, st, ctx): path is the FULL path; name is the basename.
     --- Do NOT join path and name — path is already complete.
     --- The visitor may return "skip" (don't descend) or "stop" (end the walk).
-    walk: function < T > (dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string
+    walk: function<T>(dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string
     glob: function(dir: string, pattern: string): {string} | nil, string
     collect: function(dir: string, pattern: string): {string} | nil, string
     collect_matching: function(dir: string, lua_pattern: string): {string} | nil, string

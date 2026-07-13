@@ -10,6 +10,9 @@
 local unix = require("cosmo.unix")
 local cosmo = require("cosmo")
 local rules = require("cosmic.quicksand.proxy.rules")
+local qtypes = require("cosmic.quicksand.types")
+
+local type ProxyRule = qtypes.NetRule
 local http = require("cosmic.quicksand.proxy.http")
 local updial = require("cosmic.quicksand.proxy.dial")
 local errno = require("cosmic.errno")
@@ -39,15 +42,9 @@ local record ServeModule
 
   --- A single allowlist rule. `type` nil means pass-through
   --- (allowed, no header injection). Fields not relevant to the
-  --- chosen type are ignored.
-  record ProxyRule
-    type: string -- "bearer" | "basic" | "header" | nil
-    token: string -- bearer
-    username: string -- basic
-    password: string -- basic
-    header_name: string -- header
-    header_value: string -- header
-  end
+  --- chosen type are ignored. This is cosmic.quicksand.types.NetRule:
+  --- one nominal record for the whole quicksand family.
+  type ProxyRule = ProxyRule
 
   --- Options for start() / new().
   record ProxyOptions
@@ -55,8 +52,8 @@ local record ServeModule
     bind_port: integer -- default 3128; 0 = ephemeral
     allowed_hosts: {string: ProxyRule}
     upstream_ns_fd: integer -- netns fd to dial in; nil = current ns
-    log_level: string -- "quiet" | "info" | "debug" (default "info")
-    log_format: string -- "text" | "json"            (default "text")
+    log_level: qtypes.LogLevel -- default "info"
+    log_format: qtypes.LogFormat -- default "text"
     log_file: string -- path; default stderr
     accept_backlog: integer -- default 32
     resolve_timeout_ms: integer -- per-dial DNS deadline in ms;
@@ -147,7 +144,7 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
   opts = opts or {}
   local logger, lerr = make_logger(opts)
   if not logger then return nil, lerr end
-  local idx = rules.index((opts.allowed_hosts or {}) as {string: any})
+  local idx = rules.index(opts.allowed_hosts or {})
   local bind_ip: integer = opts.bind_ip or cosmo.ParseIp("127.0.0.1") as integer
   local bind_port: integer = opts.bind_port or 3128
   local backlog: integer = opts.accept_backlog or 32
@@ -273,7 +270,7 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
       refuse(client_fd, http.UPSTREAM_FAIL)
       return
     end
-    local injn, injv = rules.auth_header(rule)
+    local injn, injv = rules.auth_header(rule as ProxyRule)
     local host_hdr = host
     if (scheme == "http" and port ~= 80)
     or (scheme == "https" and port ~= 443) then
