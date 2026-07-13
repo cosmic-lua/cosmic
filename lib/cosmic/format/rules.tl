@@ -179,7 +179,7 @@ local function is_function_block_opener(line_items: {Item}, func_idx: integer): 
   local second = line_items[2]
   if first and (first.tk == "type"
     or ((first.tk == "local" or first.tk == "global")
-    and second and second.tk == "type")) then
+      and second and second.tk == "type")) then
     return false
   end
   local paren_depth = 0
