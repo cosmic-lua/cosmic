@@ -350,25 +350,49 @@ test_load_dir_crlf_file()
 
 -- FIX 3b: COSMIC_DEBUG='' (empty string) must NOT enable debug mode.
 -- Only a non-empty COSMIC_DEBUG value should enable debug output.
+-- Rewritten for issue #505: capture the debug channel (envd writes via
+-- io.stderr) instead of asserting a count that passes either way.
+local function load_dir_capturing_stderr(dir: string): envd.LoadResult, string
+  local capture_path = fs.join(tmpdir, "envd_debug_capture")
+  local real_stderr = io.stderr
+  io.stderr = assert(io.open(capture_path, "w"))
+  local result = envd.load_dir(dir)
+  io.stderr:close()
+  io.stderr = real_stderr
+  return result, fs.read(capture_path) as string
+end
+
 local function test_cosmic_debug_empty_not_enabled()
-  -- When COSMIC_DEBUG is set to empty string, load_dir should NOT print debug.
-  -- We can't easily capture stderr, but we can verify that setting COSMIC_DEBUG=""
-  -- does NOT cause any side-effects that only happen in debug mode.
-  -- The observable behavior: with COSMIC_DEBUG="" the function should still work
-  -- normally (count==1), and the result should be the same as with no debug.
   local dir = make_envd("debug_empty")
   fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_DEBUG_TEST=value\n")
   env.unset("COSMIC_ENVD_DEBUG_TEST")
 
-  -- Set COSMIC_DEBUG to empty string
   env.set("COSMIC_DEBUG", "")
-  local result = envd.load_dir(dir)
+  local result, captured = load_dir_capturing_stderr(dir)
   env.unset("COSMIC_DEBUG")
 
   assert(result.count == 1, "expected 1 with empty COSMIC_DEBUG, got " .. tostring(result.count))
+  assert(not captured:match("%[envd%]"),
+    "COSMIC_DEBUG='' must not emit debug output, got: " .. captured)
   env.unset("COSMIC_ENVD_DEBUG_TEST")
 end
 test_cosmic_debug_empty_not_enabled()
+
+local function test_cosmic_debug_nonempty_emits_debug()
+  local dir = make_envd("debug_on")
+  fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_DEBUG_TEST2=value\n")
+  env.unset("COSMIC_ENVD_DEBUG_TEST2")
+
+  env.set("COSMIC_DEBUG", "1")
+  local result, captured = load_dir_capturing_stderr(dir)
+  env.unset("COSMIC_DEBUG")
+
+  assert(result.count == 1, "expected 1 with COSMIC_DEBUG=1, got " .. tostring(result.count))
+  assert(captured:match("%[envd%] set COSMIC_ENVD_DEBUG_TEST2"),
+    "COSMIC_DEBUG=1 must log each set variable, got: " .. captured)
+  env.unset("COSMIC_ENVD_DEBUG_TEST2")
+end
+test_cosmic_debug_nonempty_emits_debug()
 
 -- LoadResult.errors (issue #529, review item 39): per-file read failures
 -- are collected instead of being visible only under COSMIC_DEBUG.

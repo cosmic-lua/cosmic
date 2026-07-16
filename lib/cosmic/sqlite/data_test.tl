@@ -130,3 +130,57 @@ local function test_read_only_missing_file_fails()
   assert(err, "should return an error message")
 end
 test_read_only_missing_file_fails()
+
+-- constraint violations (issue #505): exec must return false plus the
+-- constraint's own message, never throw or silently succeed.
+
+local function test_unique_constraint_violation()
+  local db = sqlite.open(":memory:") as sqlite.Database
+  db:exec("CREATE TABLE t (u TEXT UNIQUE)")
+  assert(db:exec("INSERT INTO t (u) VALUES (?)", "dup"))
+  local ok, err = db:exec("INSERT INTO t (u) VALUES (?)", "dup")
+  assert(not ok, "duplicate insert should fail")
+  assert(err and err:match("UNIQUE constraint failed"),
+    "error should name the UNIQUE constraint, got: " .. tostring(err))
+  local row = db:query_one("SELECT COUNT(*) AS c FROM t") as {string: any}
+  assert(row.c == 1, "the failed insert must not add a row")
+  db:close()
+end
+test_unique_constraint_violation()
+
+local function test_not_null_constraint_violation()
+  local db = sqlite.open(":memory:") as sqlite.Database
+  db:exec("CREATE TABLE t (n TEXT NOT NULL)")
+  local ok, err = db:exec("INSERT INTO t (n) VALUES (?)", nil)
+  assert(not ok, "NULL insert into NOT NULL column should fail")
+  assert(err and err:match("NOT NULL constraint failed"),
+    "error should name the NOT NULL constraint, got: " .. tostring(err))
+  db:close()
+end
+test_not_null_constraint_violation()
+
+-- SQLITE_BUSY (issue #505): real lock contention between two connections
+-- to the same file, not just the busy_timeout PRAGMA readback above.
+
+local function test_busy_second_connection_write_blocked()
+  local path = fs.join(TEST_TMPDIR, "busy_test.db")
+  local a = sqlite.open(path) as sqlite.Database
+  a:exec("CREATE TABLE k (v TEXT)")
+  -- busy_timeout_ms=0: fail immediately instead of stalling the test.
+  local b = sqlite.open(path, {busy_timeout_ms = 0}) as sqlite.Database
+
+  assert(a:exec("BEGIN IMMEDIATE"))
+  assert(a:exec("INSERT INTO k (v) VALUES (?)", "held"))
+
+  local ok, err = b:exec("INSERT INTO k (v) VALUES (?)", "blocked")
+  assert(not ok, "write while another connection holds the lock should fail")
+  assert(err and err:match("locked"),
+    "error should report the lock, got: " .. tostring(err))
+
+  assert(a:exec("COMMIT"))
+  local ok2, err2 = b:exec("INSERT INTO k (v) VALUES (?)", "after")
+  assert(ok2, "write after the lock is released should succeed: " .. tostring(err2))
+  a:close()
+  b:close()
+end
+test_busy_second_connection_write_blocked()

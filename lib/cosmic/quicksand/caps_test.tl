@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 local caps = require("cosmic.quicksand.caps")
 local quicksand = require("cosmic.quicksand")
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
 
@@ -104,7 +105,12 @@ local function test_drop_bounding_child()
   local h = spawn.spawn({cosmic, "-e", CHILD_DROP})
   local __r1 = (h as spawn.Handle):wait() as spawn.Result
   local ok, out = __r1.ok, __r1.stdout
-  if not ok then return end
+  if not ok then
+    -- An outer seccomp/pledge filter can kill the child before it can
+    -- report; a silent return here would hide that from the skip report.
+    check.skip("caps drop child died before reporting (outer sandbox)")
+    return
+  end
   local s = out as string
   assert(s:find("dropped") or s:find("skipped"),
     "expected dropped or skipped, got: " .. s)

@@ -1,4 +1,7 @@
 #!/usr/bin/env cosmic
+local cfd = require("cosmic.fd")
+local fs = require("cosmic.fs")
+local spawn = require("cosmic.child")
 local tty = require("cosmic.tty")
 
 -- Test module exports
@@ -12,53 +15,45 @@ local function test_module_exports()
 end
 test_module_exports()
 
--- Test isatty with standard file descriptors
--- Note: In test environments, stdin/stdout/stderr are typically not ttys
+-- isatty (issue #505): assert real verdicts on fds whose tty-ness is
+-- known, instead of only checking the return type.
 
-local function test_isatty_returns_boolean()
-  local result = tty.isatty(0)
-  assert(type(result) == "boolean", "isatty should return boolean, got " .. type(result))
+local function test_isatty_regular_file_is_false()
+  local test_file = fs.join(os.getenv("TEST_TMPDIR") as string, "not_a_tty")
+  fs.write(test_file, "x")
+  local h = cfd.open(test_file, cfd.O_RDONLY)
+  assert(h, "should open the scratch file")
+  local hh = h as cfd.Handle
+  assert(tty.isatty(hh:fd()) == false, "a regular file fd is not a tty")
+  hh:close()
 end
-test_isatty_returns_boolean()
+test_isatty_regular_file_is_false()
 
-local function test_isatty_stdin()
-  local result = tty.isatty(0)
-  -- In test environment, stdin is typically not a tty (piped)
-  assert(type(result) == "boolean", "isatty(0) should return boolean")
+local function test_isatty_bad_fd_is_false()
+  assert(tty.isatty(999) == false, "an unopened fd is not a tty")
 end
-test_isatty_stdin()
+test_isatty_bad_fd_is_false()
 
-local function test_isatty_stdout()
-  local result = tty.isatty(1)
-  assert(type(result) == "boolean", "isatty(1) should return boolean")
+local function test_isatty_pty_master_is_true()
+  -- A pty master is the one fd guaranteed to BE a tty. /dev/ptmx exists
+  -- on Linux; elsewhere this case is exercised wherever the device exists.
+  if not fs.exists("/dev/ptmx") then
+    return
+  end
+  local h, err = cfd.open("/dev/ptmx", cfd.O_RDWR)
+  assert(h, "opening /dev/ptmx should succeed: " .. tostring(err))
+  local hh = h as cfd.Handle
+  assert(tty.isatty(hh:fd()) == true, "a pty master must report as a tty")
+  hh:close()
 end
-test_isatty_stdout()
+test_isatty_pty_master_is_true()
 
-local function test_isatty_stderr()
-  local result = tty.isatty(2)
-  assert(type(result) == "boolean", "isatty(2) should return boolean")
+local function test_convenience_functions_agree_with_isatty()
+  assert(tty.stdin_isatty() == tty.isatty(0), "stdin_isatty must equal isatty(0)")
+  assert(tty.stdout_isatty() == tty.isatty(1), "stdout_isatty must equal isatty(1)")
+  assert(tty.stderr_isatty() == tty.isatty(2), "stderr_isatty must equal isatty(2)")
 end
-test_isatty_stderr()
-
--- Test convenience functions
-
-local function test_stdin_isatty()
-  local result = tty.stdin_isatty()
-  assert(type(result) == "boolean", "stdin_isatty should return boolean")
-end
-test_stdin_isatty()
-
-local function test_stdout_isatty()
-  local result = tty.stdout_isatty()
-  assert(type(result) == "boolean", "stdout_isatty should return boolean")
-end
-test_stdout_isatty()
-
-local function test_stderr_isatty()
-  local result = tty.stderr_isatty()
-  assert(type(result) == "boolean", "stderr_isatty should return boolean")
-end
-test_stderr_isatty()
+test_convenience_functions_agree_with_isatty()
 
 -- Test winsize function
 
@@ -173,37 +168,42 @@ local function test_noecho_non_tty()
 end
 test_noecho_non_tty()
 
--- Test getpass function
+-- getpass (issue #505): exercised end-to-end in a subprocess with a
+-- piped (non-tty) stdin, instead of only checking the export exists.
 
-local function test_getpass_exported()
-  assert(tty.getpass ~= nil, "getpass function should be exported")
-  assert(type(tty.getpass) == "function", "getpass should be a function")
+local getpass_script = fs.join(os.getenv("TEST_TMPDIR") as string, "getpass_child.lua")
+fs.write(getpass_script, [[
+local tty = require("cosmic.tty")
+local line, err = tty.getpass("pw: ")
+if line == nil then
+  io.write("ERR:" .. tostring(err))
+else
+  io.write("GOT:" .. line)
 end
-test_getpass_exported()
+]])
+local cosmic_bin = fs.join(os.getenv("TEST_BIN") as string, "cosmic")
+
+local function test_getpass_non_tty_reads_one_line()
+  local h = spawn.spawn({cosmic_bin, getpass_script}, {stdin = "sekrit\nsecond\n"})
+  assert(h, "getpass child should spawn")
+  local r = (h as spawn.Handle):wait() as spawn.Result
+  assert(r.ok, "getpass child should exit 0: " .. tostring(r.stderr))
+  assert(r.stdout == "GOT:sekrit",
+    "getpass should return exactly the first stdin line, got: " .. tostring(r.stdout))
+  assert((r.stderr as string):match("^pw: "),
+    "the prompt must go to stderr, got: " .. tostring(r.stderr))
+end
+test_getpass_non_tty_reads_one_line()
 
 local function test_getpass_non_tty_eof()
-  -- When stdin is not a tty and is at EOF, getpass should return nil, "EOF"
-  if not tty.isatty(0) then
-    -- stdin in test env is closed/at EOF or piped with no data
-    -- We can't easily test the EOF path without modifying stdin,
-    -- but we can verify the function is callable without panicking.
-    -- The non-tty path reads from stdin; if stdin has data it returns a line.
-    -- Skip actual invocation since it would consume stdin unexpectedly.
-    io.stderr:write("SKIP: test_getpass_non_tty_eof (cannot safely consume stdin in test)\n")
-  end
+  local h = spawn.spawn({cosmic_bin, getpass_script}, {stdin = ""})
+  assert(h, "getpass child should spawn")
+  local r = (h as spawn.Handle):wait() as spawn.Result
+  assert(r.ok, "getpass child should exit 0: " .. tostring(r.stderr))
+  assert(r.stdout == "ERR:EOF",
+    "getpass at stdin EOF should return nil, 'EOF', got: " .. tostring(r.stdout))
 end
 test_getpass_non_tty_eof()
-
-local function test_getpass_tty_only()
-  -- When stdin is a tty, getpass would prompt interactively — skip in test env.
-  if tty.isatty(0) then
-    io.stderr:write("SKIP: test_getpass_tty_only (stdin is a tty, interactive test not supported)\n")
-  else
-    -- Non-tty: function exists and has correct signature, already tested above.
-    assert(tty.getpass ~= nil, "getpass exported")
-  end
-end
-test_getpass_tty_only()
 
 -- make_raw: pure raw-mode computation, unit-testable without a tty
 -- (issue #529, review item 35).

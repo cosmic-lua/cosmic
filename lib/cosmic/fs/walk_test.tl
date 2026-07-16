@@ -2,6 +2,7 @@
 --- Tests for fs_walk module (symlink cycle safety)
 local fs_walk = require("cosmic.fs.walk")
 local fs = require("cosmic.fs")
+local user = require("cosmic.user")
 local type FileIter = fs_walk.FileIter
 local type WalkAction = fs_walk.WalkAction
 
@@ -157,6 +158,37 @@ local function test_files_missing_root_errors()
     "files error should name ENOENT: " .. tostring(err))
 end
 test_files_missing_root_errors()
+
+-- Error propagation: an unreadable subdirectory does not stop the walk,
+-- but the error is surfaced alongside the context (issue #505) — a
+-- partial walk must never be mistaken for a complete one.
+
+local function test_walk_permission_denied_subdir_reports_error()
+  if user.geteuid() == 0 then
+    return -- root bypasses permission checks; nothing to observe
+  end
+  local base = mksubdir("walk_denied")
+  local open_dir = fs.join(base, "open")
+  local locked = fs.join(base, "locked")
+  fs.makedirs(open_dir)
+  fs.makedirs(locked)
+  write_file(fs.join(open_dir, "seen.txt"), "x")
+  write_file(fs.join(locked, "hidden.txt"), "x")
+  assert(fs.chmod(locked, 0))
+
+  local visited: {string: boolean} = {}
+  local ctx, err = fs_walk.walk(base, function(_p: string, name: string,
+        _st: any, c: {string: boolean})
+      c[name] = true
+    end, visited)
+  assert(fs.chmod(locked, tonumber("755", 8)))
+
+  assert(ctx ~= nil, "a denied subdir must not abort the walk")
+  assert(visited["seen.txt"], "readable entries must still be visited")
+  assert(err and err:match("EACCES"),
+    "walk must surface the denied subdir as EACCES: " .. tostring(err))
+end
+test_walk_permission_denied_subdir_reports_error()
 
 -- #558b: visitor return protocol — "skip" prunes a subtree, "stop" ends
 -- the walk. Visitors that return nothing keep today's behavior.

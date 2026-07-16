@@ -53,17 +53,16 @@ local function test_user_ns_agrees_with_scratch_probe()
 end
 test_user_ns_agrees_with_scratch_probe()
 
-local function test_is_supported_returns_boolean()
-  local v = quicksand.is_supported()
-  assert(type(v) == "boolean", "is_supported() should return a boolean, got " .. type(v))
-end
-test_is_supported_returns_boolean()
-
+-- is_supported (issue #505): pinned to the capability report it is
+-- derived from (which the shape test above proves is all booleans),
+-- and stable across calls — not just "returns a boolean".
 local function test_is_supported_matches_capabilities()
   local c = quicksand.capabilities()
   local expected = c.linux and c.net_ns and c.mount_ns
   assert(quicksand.is_supported() == expected,
     "is_supported() must agree with capabilities().linux/net_ns/mount_ns")
+  assert(quicksand.is_supported() == expected,
+    "is_supported() must be deterministic across calls")
 end
 test_is_supported_matches_capabilities()
 
