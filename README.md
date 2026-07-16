@@ -23,6 +23,7 @@ High-level utilities and tools built on top of cosmo.
 
 | Module | Description |
 |--------|-------------|
+| [ansi](lib/cosmic/ansi.md) |  ANSI terminal styling. |
 | [benchmark](lib/cosmic/benchmark.md) |  Go-style benchmark testing. |
 | [check](lib/cosmic/check.md) |  Assertion helpers for tests with auto-formatted failure messages. |
 | [init](lib/cosmic/child/init.md) |  Child process management. |
