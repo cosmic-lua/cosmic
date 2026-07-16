@@ -38,6 +38,7 @@ High-level utilities and tools built on top of cosmo.
 | [example](lib/cosmic/example.md) |  Go-style executable example testing. |
 | [fd](lib/cosmic/fd.md) |  File descriptor I/O operations. |
 | [init](lib/cosmic/fetch/init.md) |  Structured HTTP fetch with retry, streaming, and honest error channels. |
+| [flags](lib/cosmic/flags.md) |  Declarative command-line flag parsing. |
 | [init](lib/cosmic/format/init.md) |  Code formatter for Teal and Lua files. |
 | [init](lib/cosmic/fs/init.md) |  Unified filesystem module. |
 | [fuzzy](lib/cosmic/fuzzy.md) |  Fuzzy string matching utilities. |
