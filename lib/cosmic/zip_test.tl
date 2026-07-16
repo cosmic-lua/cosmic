@@ -165,6 +165,57 @@ local function test_appender()
 end
 test_appender()
 
+-- Appender:remove (issue #505): previously wholly untested.
+
+local function test_appender_remove()
+  local p = zip_path("remove_test.zip")
+  local w = zip.writer(p) as zip.Writer
+  w:add("gone.txt", "delete me")
+  w:add("kept.txt", "keep me")
+  w:close()
+
+  local a, err = zip.appender(p)
+  assert(a, "should open for appending: " .. tostring(err))
+  local appender = a as zip.Appender
+  local ok, remove_err = appender:remove("gone.txt")
+  assert(ok, "remove of an existing entry should succeed: " .. tostring(remove_err))
+  appender:close()
+
+  local r = zip.reader(p) as zip.Reader
+  local files = r:list()
+  assert(#files == 1, "archive should have 1 entry after remove, got " .. #files)
+  assert(files[1].name == "kept.txt",
+    "the surviving entry should be kept.txt, got " .. tostring(files[1].name))
+  local kept = r:read("kept.txt")
+  assert(kept == "keep me", "surviving entry content must be intact")
+  local gone, read_err = r:read("gone.txt")
+  assert(gone == nil, "the removed entry must not be readable")
+  assert(read_err and read_err:match("not found"),
+    "reading a removed entry should say not found, got: " .. tostring(read_err))
+  r:close()
+end
+test_appender_remove()
+
+local function test_appender_remove_missing_entry()
+  local p = zip_path("remove_missing_test.zip")
+  local w = zip.writer(p) as zip.Writer
+  w:add("only.txt", "here")
+  w:close()
+
+  local appender = zip.appender(p) as zip.Appender
+  local ok, err = appender:remove("no-such-entry.txt")
+  assert(ok == nil, "remove of a missing entry should fail")
+  assert(err and err:match("not found"),
+    "error should say the entry was not found, got: " .. tostring(err))
+  appender:close()
+
+  -- The archive is untouched by the failed remove.
+  local r = zip.reader(p) as zip.Reader
+  assert(r:read("only.txt") == "here", "existing entry must survive a failed remove")
+  r:close()
+end
+test_appender_remove_missing_entry()
+
 -- In-memory reading with from()
 
 local function test_from_memory()

@@ -155,6 +155,83 @@ local function test_nan_inf_encoding()
 end
 test_nan_inf_encoding()
 
+-- Precision, nesting, \uXXXX escapes, and NUL bytes (issue #505).
+
+local function test_integer_precision_roundtrip()
+  -- 2^53 + 1 is not representable as a double; it survives only if the
+  -- encoder and decoder keep 64-bit integers as integers.
+  local n = 9007199254740993
+  local encoded = json.encode(n)
+  assert(encoded == "9007199254740993",
+    "integer must encode without float rounding, got: " .. tostring(encoded))
+  local decoded = json.decode(encoded as string)
+  assert(decoded as integer == n, "integer must round-trip exactly")
+  assert(math.type(decoded as number) == "integer",
+    "decoded integer should stay an integer")
+end
+test_integer_precision_roundtrip()
+
+local function test_float_precision_roundtrip()
+  for _, f in ipairs({0.1, 3.141592653589793, 1e308, -2.5e-10}) do
+    local decoded = json.decode(json.encode(f) as string)
+    assert(decoded as number == f,
+      "float should round-trip bit-exactly: " .. tostring(f)
+      .. " -> " .. tostring(decoded))
+  end
+end
+test_float_precision_roundtrip()
+
+local function test_decode_unicode_escapes()
+  assert(json.decode('"\\u0041"') as string == "A", "\\u0041 should decode to A")
+  assert(json.decode('"\\u00e9"') as string == "\xc3\xa9",
+    "\\u00e9 should decode to UTF-8 e-acute")
+  -- Surrogate pair: U+1F600 (emoji) is 4 UTF-8 bytes.
+  local emoji = json.decode('"\\uD83D\\uDE00"') as string
+  assert(emoji == "\xf0\x9f\x98\x80",
+    "surrogate pair should decode to 4-byte UTF-8, got " .. tostring(emoji))
+end
+test_decode_unicode_escapes()
+
+local function test_nul_byte_roundtrip()
+  local decoded = json.decode('"\\u0000"') as string
+  assert(#decoded == 1 and decoded == "\0",
+    "\\u0000 should decode to a 1-byte NUL string")
+  local encoded = json.encode("\0")
+  assert(encoded == '"\\u0000"',
+    "an embedded NUL should encode as \\u0000, got: " .. tostring(encoded))
+  local rt = json.decode(json.encode("a\0b") as string) as string
+  assert(rt == "a\0b" and #rt == 3, "NUL inside a string must round-trip")
+end
+test_nul_byte_roundtrip()
+
+local function test_decode_depth_limit()
+  -- 63 nested arrays decode; 64 exceed the C decoder's depth limit and
+  -- must fail with a clean error, never crash or recurse unbounded.
+  local ok63 = string.rep("[", 63) .. "1" .. string.rep("]", 63)
+  assert(json.decode(ok63) ~= nil, "63 nesting levels should decode")
+  local deep = string.rep("[", 64) .. "1" .. string.rep("]", 64)
+  local decoded, err = json.decode(deep)
+  assert(decoded == nil, "64 nesting levels should be rejected")
+  assert(err and err:match("depth"),
+    "error should name the depth limit, got: " .. tostring(err))
+end
+test_decode_depth_limit()
+
+local function test_encode_default_depth_limit()
+  -- Without an explicit maxdepth, a very deep table still fails cleanly.
+  local t: {any} = {1}
+  local root = t
+  for _ = 1, 200 do
+    local inner: {any} = {1}
+    t[1] = inner
+    t = inner
+  end
+  local encoded, err = json.encode(root)
+  assert(encoded == nil, "encoding a 200-deep table should fail")
+  assert(err ~= nil, "deep-table failure should carry an error message")
+end
+test_encode_default_depth_limit()
+
 local function test_empty_array_roundtrip()
   -- Decoded arrays carry the shared array marker, so [] survives a
   -- round-trip instead of collapsing into {}.

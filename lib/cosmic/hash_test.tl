@@ -30,6 +30,25 @@ local function test_sha256_empty_string()
 end
 test_sha256_empty_string()
 
+-- NIST FIPS 180-4 vectors (issue #505): the canonical empty and "abc"
+-- inputs, asserted byte-for-byte, not just by length.
+
+local function test_sha256_nist_empty_vector()
+  local digest = hash.sha256_hex("")
+  local expected = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  assert(digest == expected,
+    "sha256('') should match the NIST vector, got " .. digest)
+end
+test_sha256_nist_empty_vector()
+
+local function test_sha256_nist_abc_vector()
+  local digest = hash.sha256_hex("abc")
+  local expected = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+  assert(digest == expected,
+    "sha256('abc') should match the NIST vector, got " .. digest)
+end
+test_sha256_nist_abc_vector()
+
 local function test_sha256_hex_returns_64_chars()
   local digest = hash.sha256_hex("hello")
   assert(#digest == 64, "sha256_hex should return 64 characters, got " .. #digest)
@@ -114,6 +133,37 @@ local function test_password_unicode()
   assert(valid == true, "verify_password should verify unicode password")
 end
 test_password_unicode()
+
+-- argon2i / argon2d variants (issue #505): happy-path round trips, not
+-- just the invalid-variant guard below.
+
+local function test_password_argon2i_roundtrip()
+  local encoded, err = hash.password("pw-i", {
+      variant = "argon2i", m_cost = 2048, t_cost = 1, parallelism = 1,
+    })
+  assert(encoded, "argon2i password should succeed: " .. tostring(err))
+  assert(string.match(encoded as string, "^%$argon2i%$"),
+    "encoded string should carry the argon2i tag, got: " .. tostring(encoded))
+  assert(hash.verify_password(encoded, "pw-i") == true,
+    "argon2i verify should accept the right password")
+  assert(hash.verify_password(encoded, "wrong") == false,
+    "argon2i verify should reject a wrong password")
+end
+test_password_argon2i_roundtrip()
+
+local function test_password_argon2d_roundtrip()
+  local encoded, err = hash.password("pw-d", {
+      variant = "argon2d", m_cost = 2048, t_cost = 1, parallelism = 1,
+    })
+  assert(encoded, "argon2d password should succeed: " .. tostring(err))
+  assert(string.match(encoded as string, "^%$argon2d%$"),
+    "encoded string should carry the argon2d tag, got: " .. tostring(encoded))
+  assert(hash.verify_password(encoded, "pw-d") == true,
+    "argon2d verify should accept the right password")
+  assert(hash.verify_password(encoded, "wrong") == false,
+    "argon2d verify should reject a wrong password")
+end
+test_password_argon2d_roundtrip()
 
 local function test_password_invalid_variant()
   -- the Variant enum rejects this literal statically; cast to keep

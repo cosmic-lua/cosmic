@@ -205,6 +205,9 @@ local function load_envd(): LoadResult
 end
 
 local record EnvdModule
+  --- Result of a load()/load_dir() call (count, source, errors).
+  type LoadResult = LoadResult
+
   load: function(): LoadResult
   load_dir: function(dir: string): LoadResult
   parse: function(content: string, ctx?: {string: string}): {string: string}

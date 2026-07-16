@@ -298,6 +298,29 @@ local function test_transaction_commits_on_no_return()
 end
 test_transaction_commits_on_no_return()
 
+local function test_nested_transaction_fails_inner_only()
+  -- BEGIN does not nest in SQLite (issue #505): an inner db:transaction
+  -- must fail with SQLite's own message, while the outer transaction and
+  -- its writes survive. Nesting is what savepoint() is for.
+  local db = sqlite.open(":memory:") as sqlite.Database
+  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+
+  local ok, err = db:transaction(function(d: sqlite.Database)
+      local inner_ok, inner_err = d:transaction(function(_d2: sqlite.Database)
+        end)
+      assert(not inner_ok, "an inner transaction must fail")
+      assert(inner_err and inner_err:match("within a transaction"),
+        "inner error should name the nesting problem, got: " .. tostring(inner_err))
+      d:exec("INSERT INTO t (name) VALUES (?)", "outer-survives")
+    end)
+  assert(ok, "the outer transaction must still commit: " .. tostring(err))
+
+  local row = db:query_one("SELECT COUNT(*) AS c FROM t") as {string: any}
+  assert(row.c == 1, "the outer write must commit, got " .. tostring(row.c))
+  db:close()
+end
+test_nested_transaction_fails_inner_only()
+
 -- Named parameters
 
 local function test_bind_named()

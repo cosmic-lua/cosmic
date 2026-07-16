@@ -46,6 +46,39 @@ local function test_join_basic()
 end
 test_join_basic()
 
+-- join semantics (issue #505): pin the documented edge cases so a change
+-- in the underlying C binding surfaces as a failure, not silent drift.
+
+local function test_join_absolute_later_arg_resets()
+  assert(fs.join("a", "/abs") == "/abs",
+    "an absolute later component must reset the result")
+end
+test_join_absolute_later_arg_resets()
+
+local function test_join_empty_components_skipped()
+  assert(fs.join("a", "", "b") == "a/b", "empty middle component is skipped")
+  assert(fs.join("", "b") == "b", "empty first component is skipped")
+end
+test_join_empty_components_skipped()
+
+local function test_join_no_doubled_separator()
+  assert(fs.join("a/", "b") == "a/b",
+    "a trailing slash on the left must not double the separator")
+end
+test_join_no_doubled_separator()
+
+local function test_join_single_component()
+  assert(fs.join("a") == "a", "a single component joins to itself")
+end
+test_join_single_component()
+
+local function test_join_does_not_normalize()
+  -- join concatenates; it does not resolve ".." (that is normalize's job).
+  assert(fs.join("a", "..", "b") == "a/../b",
+    "join must not collapse '..' segments")
+end
+test_join_does_not_normalize()
+
 local function test_join_multiple()
   local result = fs.join("/usr", "local", "bin")
   assert(result == "/usr/local/bin", "expected '/usr/local/bin', got '" .. result .. "'")

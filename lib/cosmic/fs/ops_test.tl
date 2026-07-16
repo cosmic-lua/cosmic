@@ -176,6 +176,86 @@ local function test_tmpfile_success_contract()
 end
 test_tmpfile_success_contract()
 
+-- utimensat/futimens (issue #505): exact timestamp semantics, not just
+-- "touch moved mtime forward".
+
+local function test_utimensat_sets_exact_times()
+  local test_dir = setup()
+  local p = fs.join(test_dir, "stamped")
+  touch(p, "x")
+
+  local ok, err = fs.utimensat(p, 1234567890, 500000000, 987654321, 250000000)
+  assert(ok, "utimensat should succeed: " .. (err or ""))
+
+  local st = fs.stat(p)
+  assert(st, "stat should succeed")
+  local a_s, a_ns = (st as fs_types.Stat):atim()
+  local m_s, m_ns = (st as fs_types.Stat):mtim()
+  assert(a_s == 1234567890 and a_ns == 500000000,
+    "atime should be exactly what was set, got " .. a_s .. "." .. a_ns)
+  assert(m_s == 987654321 and m_ns == 250000000,
+    "mtime should be exactly what was set, got " .. m_s .. "." .. m_ns)
+
+  teardown(test_dir)
+end
+test_utimensat_sets_exact_times()
+
+local function test_utimensat_missing_path()
+  local test_dir = setup()
+  local ok, err = fs.utimensat(fs.join(test_dir, "absent"), 1, 0, 1, 0)
+  assert(not ok, "utimensat on a missing path should fail")
+  assert(err and err:match("ENOENT"), "error should name ENOENT: " .. (err or ""))
+  teardown(test_dir)
+end
+test_utimensat_missing_path()
+
+local function test_futimens_sets_exact_times()
+  local test_dir = setup()
+  local p = fs.join(test_dir, "fstamped")
+  touch(p, "x")
+
+  local h, herr = cfd.open(p, 0)
+  assert(h, "open should succeed: " .. tostring(herr))
+  local hh = h as cfd.Handle
+  local ok, err = fs.futimens(hh:fd(), 111, 0, 222, 0)
+  assert(ok, "futimens should succeed: " .. (err or ""))
+
+  local st = fs.fstat(hh:fd())
+  assert(st, "fstat should succeed")
+  local a_s, a_ns = (st as fs_types.Stat):atim()
+  local m_s, m_ns = (st as fs_types.Stat):mtim()
+  assert(a_s == 111 and a_ns == 0,
+    "atime should be 111.0, got " .. a_s .. "." .. a_ns)
+  assert(m_s == 222 and m_ns == 0,
+    "mtime should be 222.0, got " .. m_s .. "." .. m_ns)
+  hh:close()
+
+  teardown(test_dir)
+end
+test_futimens_sets_exact_times()
+
+local function test_futimens_bad_fd()
+  local ok, err = fs.futimens(9999, 1, 0, 1, 0)
+  assert(not ok, "futimens on a bad fd should fail")
+  assert(err and err:match("EBADF"), "error should name EBADF: " .. (err or ""))
+end
+test_futimens_bad_fd()
+
+-- rmrf failure path (issue #505): a path whose parent component is a
+-- regular file fails with ENOTDIR regardless of privileges.
+
+local function test_rmrf_failure_reports_error()
+  local test_dir = setup()
+  local blocker = fs.join(test_dir, "afile")
+  touch(blocker, "x")
+  local ok, err = fs.rmrf(fs.join(blocker, "child"))
+  assert(not ok, "rmrf through a file component should fail")
+  assert(err and err:match("ENOTDIR"), "error should name ENOTDIR: " .. (err or ""))
+  assert(fs.isfile(blocker), "the blocking file must be untouched")
+  teardown(test_dir)
+end
+test_rmrf_failure_reports_error()
+
 local function test_tmpfile_failure_contract()
   -- The second return is always the path (nil on failure); the error is
   -- always in the third slot.

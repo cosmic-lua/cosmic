@@ -24,6 +24,26 @@ local function test_bytes_various_sizes()
 end
 test_bytes_various_sizes()
 
+local function test_bytes_statistical_sanity()
+  -- 4096 draws should touch nearly all 256 byte values: the chance a
+  -- given value is absent is (255/256)^4096 ~ 1e-7, so requiring 250
+  -- distinct values can only fail on a broken (constant/low-entropy)
+  -- generator, not on bad luck.
+  local b = assert(rand.bytes(4096)) as string
+  local seen: {integer: boolean} = {}
+  local distinct = 0
+  for i = 1, #b do
+    local v = string.byte(b, i)
+    if not seen[v] then
+      seen[v] = true
+      distinct = distinct + 1
+    end
+  end
+  assert(distinct >= 250,
+    "4096 random bytes should cover >=250 distinct values, got " .. distinct)
+end
+test_bytes_statistical_sanity()
+
 -- Fast pseudo-random tests (non-cryptographic).
 
 local function test_rand64()
