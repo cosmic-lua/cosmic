@@ -267,6 +267,7 @@ all modules are under `lib/cosmic/` and imported as `cosmic.*`:
 | envd | load environment variables from embedded env.d directory |
 | example | example runner with `Example_*` functions |
 | fetch | HTTP client with retry support |
+| flags | declarative command-line flag parsing with generated --help |
 | format | Teal/Lua code formatter |
 | fs | filesystem: paths, stat, walk, read/write, mkdir, symlink, tmp |
 | fuzzy | fuzzy string matching (Levenshtein distance) |

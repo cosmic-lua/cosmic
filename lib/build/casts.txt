@@ -74,6 +74,8 @@
 2	lib/cosmic/fetch/retry_test.tl
 2	lib/cosmic/fetch/stream_test.tl
 3	lib/cosmic/fetch/verbs_test.tl
+1	lib/cosmic/flags.tl
+1	lib/cosmic/flags_test.tl
 8	lib/cosmic/format/init.tl
 12	lib/cosmic/fs/dir_test.tl
 1	lib/cosmic/fs/file.tl
