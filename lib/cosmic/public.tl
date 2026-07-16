@@ -35,6 +35,7 @@ local public: {string} = {
   "example",
   "fd",
   "fetch",
+  "flags",
   "format",
   "fs",
   "fuzzy",
