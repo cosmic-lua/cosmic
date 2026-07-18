@@ -74,12 +74,28 @@ local record FsModule
   tmpfd: function(): number | nil, string
   statfs: function(path: string): Statfs | nil, string
   fstatfs: function(fd: number): Statfs | nil, string
+  --  Flush all filesystem buffers to disk, system-wide (sync(2)).
+  --  Per-file flushing is Handle:sync()/Handle:datasync() in cosmic.fd.
   sync: function()
   major: function(dev: number): number
   minor: function(dev: number): number
+  --  Walk a directory tree depth-first, calling the visitor per entry.
+  --  Visitor signature: visitor(path, name, st, ctx): nil | "skip" | "stop"
+  --    path = full path to the entry (e.g. "dir/sub/file.txt") — do NOT join with name.
+  --    name = basename of the entry (e.g. "file.txt").
+  --    st   = WalkStat (import: local types = require("cosmic.fs.types"); types.WalkStat).
+  --  Returning "skip" does not descend into the entry (dirs only); "stop"
+  --  ends the walk now; returning nothing continues.
+  --  Root open failure returns nil, err; subtree failures return the first
+  --  error alongside the results.
   walk: function<T>(dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string
+  --  Expand a glob pattern without recursing; components ("src/*.lua")
+  --  are each globs, and matches of every entry type are returned sorted.
   glob: function(dir: string, pattern: string): {string} | nil, string
+  --  Recursively collect files under dir whose names match a glob
+  --  pattern (collect's pattern is ALWAYS a glob).
   collect: function(dir: string, pattern: string): {string} | nil, string
+  --  Recursively collect files under dir whose names match a Lua pattern.
   collect_matching: function(dir: string, lua_pattern: string): {string} | nil, string
   collect_all: function(dir: string): {string: FileInfo} | nil, string
   files: function(dir: string, pattern?: string): FileIter | nil, string, any, any
