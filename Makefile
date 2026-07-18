@@ -97,18 +97,15 @@ all_fetched := $(patsubst %/.versioned,%/.fetched,$(all_versioned))
 ## Fetch all dependencies only
 fetched: $(all_fetched)
 # Downloads are integrity-checked against the sha256 pinned in each module's
-# version.lua, so TLS here is a transport safeguard, not the trust root. The
-# bootstrap cosmic trusts only its embedded CA set by default (upstream's
-# anti-MITM opt-in), which is too narrow for github.com's cert chain; trust
-# the host's CA store for these fetches so the build works on stock runners
-# and behind TLS-intercepting proxies alike. An operator-supplied
-# SSL_CERT_FILE bundle is unveiled so the sandboxed fetch can read it.
+# version.lua, so TLS is a transport safeguard, not the trust root. The
+# bootstrap trusts only its embedded CA set (too narrow for github.com);
+# trust the host CA store so fetches work on stock runners and behind
+# TLS-intercepting proxies. An operator SSL_CERT_FILE bundle is unveiled.
 # Fetch/stage scripts run under the pinned bootstrap but are written
-# against THIS tree's cosmic.* APIs (resolved via the exported LUA_PATH).
-# Without the compiled stdlib as a prerequisite, a cold parallel build
-# could run them mid-compile and require() fell back to the bootstrap's
-# embedded older-API stdlib ("attempt to call a nil value (field
-# 'fetch')"). Unfiltered on purpose: only= must not shrink the closure.
+# against THIS tree's cosmic.* APIs (via the exported LUA_PATH). Without
+# the compiled stdlib as a prerequisite, a cold parallel build let
+# require() fall back to the bootstrap's embedded older-API stdlib
+# mid-compile. Unfiltered: only= must not shrink the closure.
 stdlib_lua := $(patsubst %.tl,$(o)/%.lua,$(filter lib/cosmic/%,$(foreach x,$(modules),$($(x)_tl))))
 
 $(o)/%/.fetched: export SSL_USE_SYSTEM_CERTS = 1
@@ -149,6 +146,11 @@ export NO_COLOR := 1
 # Test rule: execute test via cosmic --test command
 $(o)/%.tl.test.got: .PLEDGE = stdio rpath wpath cpath proc exec
 $(o)/%.tl.test.got: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null
+
+# teal_config_test reads tlconfig.lua (outside the default test unveil)
+tlconfig_tests := $(o)/lib/cosmic/teal_config_test.tl.test.got \
+  $(o)/coverage/lib/cosmic/teal_config_test.tl.test.got
+$(tlconfig_tests): .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null r:tlconfig.lua
 
 # Namespace-exercising tests need to call unshare(CLONE_NEWUSER|NEWNET|...)
 # and write /proc/self/{uid,gid}_map. No pledge promise covers unshare,

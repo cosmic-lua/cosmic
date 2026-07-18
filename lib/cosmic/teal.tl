@@ -42,6 +42,12 @@ local record CheckResult
   errors: {Issue}
 end
 
+--- Generation defaults shared by every compile path. tlconfig.lua
+--- mirrors these for editor/LSP tooling; teal_config_test.tl fails if
+--- the mirror drifts.
+local DEFAULT_GEN_TARGET < const > = "5.4"
+local DEFAULT_GEN_COMPAT < const > = "off"
+
 --- Get default include directories for cosmic type definitions.
 --- Returns paths to bundled and local type definition directories.
 --- @return {string} List of default include directory paths
@@ -139,8 +145,8 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
       defaults = {
         feat_lax = lax and "on" or "off",
         feat_arity = "on",
-        gen_target = "5.4",
-        gen_compat = "off",
+        gen_target = DEFAULT_GEN_TARGET,
+        gen_compat = DEFAULT_GEN_COMPAT,
       },
     })
   -- process_string returns exactly one value (a Result); errors land in
@@ -258,7 +264,7 @@ local function compile(input_path: string, opts: CompileOptions): CompileResult
   -- options table silently fell back to tl's default (non-5.4) target,
   -- which rejects 5.4-only syntax like <close> attributes. gen_compat
   -- is an env-level default (set in make_env), not a generate option.
-  local lua_code = tl.generate(proc.tl_result.ast, opts.gen_target or "5.4")
+  local lua_code = tl.generate(proc.tl_result.ast, opts.gen_target or DEFAULT_GEN_TARGET)
 
   if proc.shebang then
     lua_code = proc.shebang .. lua_code
@@ -382,6 +388,8 @@ local function format_issues_with_hints(issues: {Issue}): string
 end
 
 local record TealModule
+  DEFAULT_GEN_TARGET: string
+  DEFAULT_GEN_COMPAT: string
   compile: function(input_path: string, opts?: CompileOptions): CompileResult
   check: function(input_path: string, opts?: CheckOptions): CheckResult
   format_issues: function(issues: {Issue}): string
@@ -391,6 +399,8 @@ local record TealModule
 end
 
 local M: TealModule = {
+  DEFAULT_GEN_TARGET = DEFAULT_GEN_TARGET,
+  DEFAULT_GEN_COMPAT = DEFAULT_GEN_COMPAT,
   compile = compile,
   check = check,
   format_issues = format_issues,
