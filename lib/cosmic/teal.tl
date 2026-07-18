@@ -143,7 +143,9 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
         gen_compat = "off",
       },
     })
-  local ok, result_or_err, proc_err = pcall(tl.process_string, input, false, env, input_path)
+  -- process_string returns exactly one value (a Result); errors land in
+  -- its syntax_errors/type_errors fields or arrive here as a throw.
+  local ok, result_or_err = pcall(tl.process_string, input, false, env, input_path)
 
   tl.path = saved_tl_path
 
@@ -166,7 +168,7 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
         file = input_path,
         line = 0,
         column = 0,
-        message = proc_err or "processing failed",
+        message = "processing failed",
         severity = "error",
       },
     }

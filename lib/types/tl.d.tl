@@ -39,11 +39,14 @@ local record tl
   path: string
   loader: function()
   warning_kinds: {string: boolean}
-  init_env: function(boolean): any
+  -- positional args: lax?, gen_compat? ("off"|...), gen_target? ("5.4"|...)
+  init_env: function(? boolean, ? string, ? string): any, string
   new_env: function(EnvOptions): any, string
   lex: function(string, string): {Token}, {Error}
   parse_program: function({Token}, {Error}, string, string): any, {string}
-  process_string: function(string, boolean, any, string): Result, string
+  -- always returns a Result; parse/check failures land in its
+  -- syntax_errors/type_errors fields, never in a second return
+  process_string: function(string, boolean, any, string): Result
   -- second argument is the generation TARGET string ("5.4"), not an
   -- options table; returns nil plus an error on codegen failure
   generate: function(any, string): string, string
