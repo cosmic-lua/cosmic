@@ -103,10 +103,21 @@ fetched: $(all_fetched)
 # the host's CA store for these fetches so the build works on stock runners
 # and behind TLS-intercepting proxies alike. An operator-supplied
 # SSL_CERT_FILE bundle is unveiled so the sandboxed fetch can read it.
+# The fetch/stage scripts run under the pinned bootstrap binary but are
+# compiled from THIS tree and written against THIS tree's cosmic.* APIs,
+# which they load through the exported LUA_PATH. Without the compiled
+# stdlib as a prerequisite, a cold parallel build can run them while
+# o/lib/cosmic/*.lua is still compiling; require() then falls back to the
+# bootstrap's embedded (older-API) stdlib mid-build — observed as
+# "attempt to call a nil value (field 'fetch')" when the embedded fetch
+# predates the Fetch->fetch rename. Unfiltered on purpose: an only= run
+# must not shrink the closure.
+stdlib_lua := $(patsubst %.tl,$(o)/%.lua,$(filter lib/cosmic/%,$(foreach x,$(modules),$($(x)_tl))))
+
 $(o)/%/.fetched: export SSL_USE_SYSTEM_CERTS = 1
 $(o)/%/.fetched: .PLEDGE = stdio rpath wpath cpath inet dns
 $(o)/%/.fetched: .UNVEIL = rx:$(o)/bootstrap r:3p rwc:$(o) r:/etc/resolv.conf r:/etc/ssl $(if $(SSL_CERT_FILE),r:$(SSL_CERT_FILE))
-$(o)/%/.fetched: $(o)/%/.versioned $(build_files) | $(bootstrap_cosmic)
+$(o)/%/.fetched: $(o)/%/.versioned $(build_files) $(stdlib_lua) | $(bootstrap_cosmic)
 	@$(bootstrap_cosmic) -- $(build_fetch) $$(readlink $<) $(platform) $@
 
 # versions get staged: o/module/.staged -> o/staged/module/<ver>-<sha>
@@ -116,7 +127,7 @@ all_staged := $(patsubst %/.fetched,%/.staged,$(all_fetched))
 staged: $(all_staged)
 $(o)/%/.staged: .PLEDGE = stdio rpath wpath cpath proc exec
 $(o)/%/.staged: .UNVEIL = rx:$(o)/bootstrap r:3p rwc:$(o) rx:/usr/bin
-$(o)/%/.staged: $(o)/%/.fetched $(build_files)
+$(o)/%/.staged: $(o)/%/.fetched $(build_files) $(stdlib_lua)
 	@$(bootstrap_cosmic) -- $(build_stage) $$(readlink $(o)/$*/.versioned) $(platform) $< $@
 
 all_tests := $(call filter-only,$(foreach x,$(modules),$($(x)_tests)))
