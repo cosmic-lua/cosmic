@@ -5,18 +5,19 @@
 --- beneath it.
 
 -- Example_open_write_read demonstrates opening with flags (mode 420
--- is 0644), writing, seeking back, and reading.
+-- is 0644), writing, seeking back, and reading. The <close>
+-- attribute releases the descriptor on scope exit (Lua 5.4
+-- to-be-closed).
 local function Example_open_write_read()
   local fd = require("cosmic.fd")
   local fs = require("cosmic.fs")
   local dir = fs.mkdtemp("/tmp/fd_example_XXXXXX")
   local path = fs.join(dir, "note.txt")
 
-  local h = assert(fd.open(path, fd.O_RDWR | fd.O_CREAT, 420)) as fd.Handle
+  local h < close > = assert(fd.open(path, fd.O_RDWR | fd.O_CREAT, 420)) as fd.Handle
   print(h:write("hello fd"))
   h:seek(0, fd.SEEK_SET)
   print(h:read(5))
-  h:close()
   fs.rmrf(dir)
   -- Output:
   -- 8
@@ -33,10 +34,9 @@ local function Example_positional()
   local path = fs.join(dir, "data.txt")
   fs.write(path, "abcdef")
 
-  local h = assert(fd.open(path, fd.O_RDONLY)) as fd.Handle
+  local h < close > = assert(fd.open(path, fd.O_RDONLY)) as fd.Handle
   print(h:read(3, 2))
   print(h:read(2))
-  h:close()
   fs.rmrf(dir)
   -- Output:
   -- cde
@@ -47,10 +47,9 @@ end
 -- writer end come back from the reader end in order.
 local function Example_pipe()
   local fd = require("cosmic.fd")
-  local p = assert(fd.pipe()) as fd.Pipe
+  local p < close > = assert(fd.pipe()) as fd.Pipe
   p.writer:write("ping")
   print(p.reader:read(4))
-  p:close()
   -- Output:
   -- ping
 end

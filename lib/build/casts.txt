@@ -61,7 +61,6 @@
 3	lib/cosmic/envd_example.tl
 1	lib/cosmic/envd_test.tl
 4	lib/cosmic/errno.tl
-1	lib/cosmic/example.tl
 1	lib/cosmic/example_coverage_test.tl
 7	lib/cosmic/example_test.tl
 3	lib/cosmic/fd.tl

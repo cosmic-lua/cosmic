@@ -44,7 +44,9 @@ local record tl
   lex: function(string, string): {Token}, {Error}
   parse_program: function({Token}, {Error}, string, string): any, {string}
   process_string: function(string, boolean, any, string): Result, string
-  generate: function(any, {string: any}): string
+  -- second argument is the generation TARGET string ("5.4"), not an
+  -- options table; returns nil plus an error on codegen failure
+  generate: function(any, string): string, string
 end
 
 return tl

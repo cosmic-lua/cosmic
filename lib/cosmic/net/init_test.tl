@@ -339,13 +339,17 @@ local function test_socket_has_close_metamethod()
   assert(mt.__close ~= nil, "expected socket metatable to have __close")
   assert(type(mt.__close) == "function", "expected __close to be a function")
 
-  -- Test that __close calls close()
+  -- Test that __close calls close(): leaving a <close> scope closes it
   assert(sock:closed() == false, "expected socket to not be closed")
-  mt.__close(sock)
+  do
+    local _ < close > = sock
+  end
   assert(sock:closed() == true, "expected socket to be closed after __close")
 
   -- __close should be idempotent (via close())
-  mt.__close(sock)
+  do
+    local _ < close > = sock
+  end
   assert(sock:closed() == true, "expected socket to remain closed")
 end
 test_socket_has_close_metamethod()

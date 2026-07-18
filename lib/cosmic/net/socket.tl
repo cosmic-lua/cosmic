@@ -32,6 +32,7 @@ end
 local stream = require("cosmic.stream")
 
 local record Socket is stream.Reader, stream.Writer
+  metamethod __close: function(self: Socket)
   --- The underlying file descriptor.
   fd: number
   --- Close the socket.
