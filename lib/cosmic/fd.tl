@@ -25,6 +25,7 @@ local stream = require("cosmic.stream")
 --- nil at end of file, write returns bytes written or nil + error.
 --- Supports Lua 5.4's to-be-closed via __close metamethod.
 local record Handle is stream.Reader, stream.Writer
+  metamethod __close: function(self: Handle)
   close: function(self: Handle): boolean, string
   closed: function(self: Handle): boolean
   fd: function(self: Handle): number
@@ -186,6 +187,7 @@ end
 --- Pipe for inter-process communication.
 --- Supports Lua 5.4's to-be-closed via __close metamethod.
 local record Pipe
+  metamethod __close: function(self: Pipe)
   reader: Handle
   writer: Handle
   close: function(self: Pipe): boolean

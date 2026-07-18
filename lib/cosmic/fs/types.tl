@@ -80,6 +80,7 @@ local record fs_types
   --- Handle for reading directory entries.
   --- Supports automatic cleanup with `<close>` attribute.
   record Dir
+    metamethod __close: function(self: Dir)
     --- Reads next directory entry. Returns nil when done. The second
     --- return is the dirent d_type (fs.DT_DIR / DT_REG / DT_LNK / ... /
     --- DT_UNKNOWN where the filesystem does not expose it), so callers

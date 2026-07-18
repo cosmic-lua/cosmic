@@ -102,8 +102,8 @@ end
 --- Conforms to the stream contract (cosmic.stream): read returns the
 --- next chunk, bare nil at end of stream, or nil + error on failure.
 --- Chunk sizes are transport-determined; read takes no size argument.
---- Supports Lua 5.4's to-be-closed via __close metamethod.
 local record Reader is stream_mod.Reader
+  metamethod __close: function(self: Reader)
   read: function(self: Reader): string | nil, string
   close: function(self: Reader): boolean
   closed: function(self: Reader): boolean

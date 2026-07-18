@@ -33,6 +33,7 @@ end
 --- Handle for a spawned process.
 --- Fields prefixed `_` are internal bookkeeping; use the methods.
 local record Handle is stream.Reader
+  metamethod __close: function(self: Handle)
   pid: integer
 
   -- internal state (do not touch)

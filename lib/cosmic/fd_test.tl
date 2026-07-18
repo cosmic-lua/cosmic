@@ -359,7 +359,9 @@ local function test_close_metamethod_exists()
   assert(mt, "handle should have metatable")
   assert(mt.__close, "handle metatable should have __close")
 
-  mt.__close(f)
+  do
+    local _ < close > = f
+  end
   assert(f:closed(), "handle should be closed after __close")
 
   os.remove(filepath)
@@ -372,7 +374,9 @@ local function test_pipe_close_metamethod_exists()
   assert(mt, "pipe should have metatable")
   assert(mt.__close, "pipe metatable should have __close")
 
-  mt.__close(p)
+  do
+    local _ < close > = p
+  end
   assert(p:closed(), "pipe should be closed after __close")
 end
 test_pipe_close_metamethod_exists()

@@ -252,11 +252,11 @@ local function compile(input_path: string, opts: CompileOptions): CompileResult
     return {ok = false, code = nil, errors = errors}
   end
 
-  local gen_opts: {string: any} = {
-    gen_target = opts.gen_target or "5.4",
-    gen_compat = opts.gen_compat or "off",
-  }
-  local lua_code = tl.generate(proc.tl_result.ast, gen_opts)
+  -- tl.generate's second argument is the target STRING; passing an
+  -- options table silently fell back to tl's default (non-5.4) target,
+  -- which rejects 5.4-only syntax like <close> attributes. gen_compat
+  -- is an env-level default (set in make_env), not a generate option.
+  local lua_code = tl.generate(proc.tl_result.ast, opts.gen_target or "5.4")
 
   if proc.shebang then
     lua_code = proc.shebang .. lua_code

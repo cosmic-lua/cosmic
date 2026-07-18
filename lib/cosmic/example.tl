@@ -216,10 +216,10 @@ local function run_example(example: Example, _file_path: string): ExampleResult
     return result
   end
 
-  local lua_code = tl.generate(tl_result.ast, {
-      gen_target = "5.4",
-      gen_compat = "off",
-    } as {string: any})
+  -- tl.generate's second argument is the target STRING, not an options
+  -- table; passing a table silently fell back to the default (non-5.4)
+  -- target, which rejects 5.4-only features like <close> attributes.
+  local lua_code = tl.generate(tl_result.ast, "5.4")
 
   if not lua_code then
     result.error = "compile error: code generation failed"
