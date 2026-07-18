@@ -40,7 +40,9 @@ local sqlite3 = lsqlite3
 local record Rows
   metamethod __call: function(self: Rows): {string: any}
   metamethod __close: function(self: Rows)
+  --- Step error from iteration, or nil after a clean SQLITE_DONE.
   err: function(self: Rows): string
+  --- Release the underlying prepared statement early (idempotent).
   close: function(self: Rows)
 end
 
@@ -48,42 +50,82 @@ end
 --- to `Rows`. Same `:err()` contract.
 local record Values
   metamethod __call: function(self: Values): any ...
+  --- Step error from iteration, or nil after a clean SQLITE_DONE.
   err: function(self: Values): string
 end
 
 --- Statement handle with automatic cleanup.
 local record Statement
+  --- Bind parameters by position (resets the statement first). Handles
+  --- trailing nils; `sqlite.blob()` wrappers bind with BLOB affinity.
   bind: function(self: Statement, ...: any): boolean, string
+  --- Bind positional parameters from a list; the count comes from the
+  --- SQL, so nil holes in the table bind as NULL.
   bind_list: function(self: Statement, values: {any}): boolean, string
+  --- Bind :name placeholders from a key/value table (keys without the
+  --- colon). `sqlite.blob()` wrappers are rejected — use positional
+  --- binding for blobs.
   bind_named: function(self: Statement, params: {string: any}): boolean, string
+  --- Callable iterator over result rows as {column: value} tables;
+  --- check `:err()` after the loop for step errors.
   rows: function(self: Statement): Rows
+  --- Callable iterator yielding each row's column values positionally;
+  --- same `:err()` contract as rows().
   values: function(self: Statement): Values
+  --- Step the statement to completion (for INSERT/UPDATE/DDL).
   exec: function(self: Statement): boolean, string
+  --- Reset for re-execution; existing bindings are kept.
   reset: function(self: Statement)
+  --- Number of result columns.
   columns: function(self: Statement): number
+  --- Name of result column n (1-indexed).
   column_name: function(self: Statement, n: number): string
+  --- Finalize the statement (idempotent); also runs on scope exit via
+  --- to-be-closed.
   close: function(self: Statement)
 end
 
 --- Database handle with automatic cleanup.
 local record Database
+  --- Compile sql into a reusable Statement for manual bind/iterate;
+  --- prefer query()/exec() unless you need statement reuse.
   prepare: function(self: Database, sql: string): Statement | nil, string
+  --- Run sql with positional `?` parameters and iterate result rows as
+  --- {column: value} tables: `for row in db:query(...) do ... end`.
+  --- Statements are cached per connection. Check `:err()` after the
+  --- loop (or use `<close>`) per the Rows contract.
   query: function(self: Database, sql: string, ...: any): Rows | nil, string
+  --- query() with parameters in a list, so nil holes bind as NULL.
   query_list: function(self: Database, sql: string, values: {any}): Rows | nil, string
+  --- query() with :name placeholders bound from a key/value table.
   query_named: function(self: Database, sql: string, params: {string: any}): Rows | nil, string
+  --- First matching row, or nil (with no error) when no row matches.
+  --- The statement is always finalized, even when rows remain.
   query_one: function(self: Database, sql: string, ...: any): {string: any} | nil, string
   --- First column of the first row (nil + no error when no row matches
   --- or the value is SQL NULL); see cosmic.sqlite.extras.
   query_value: function(self: Database, sql: string, ...: any): any, string
+  --- Execute sql with positional `?` parameters; use for statements
+  --- that return no rows (INSERT/UPDATE/DELETE/DDL). Multi-statement
+  --- sql is only supported in the no-parameter form.
   exec: function(self: Database, sql: string, ...: any): boolean, string
+  --- exec() with parameters in a list, so nil holes bind as NULL.
   exec_list: function(self: Database, sql: string, values: {any}): boolean, string
+  --- exec() with :name placeholders bound from a key/value table.
   exec_named: function(self: Database, sql: string, params: {string: any}): boolean, string
+  --- Run fn inside BEGIN IMMEDIATE .. COMMIT. Rolls back when fn
+  --- raises, returns false, or returns nil plus an error; returning
+  --- nothing commits.
   transaction: function(self: Database, fn: function(Database)): boolean, string
   --- Run fn in a nestable savepoint with transaction's rollback rules;
   --- see cosmic.sqlite.extras.
   savepoint: function(self: Database, fn: function(Database)): boolean, string
+  --- rowid of the most recent successful INSERT (0 if closed).
   last_insert_rowid: function(self: Database): number
+  --- Rows modified by the most recent INSERT/UPDATE/DELETE (0 if closed).
   changes: function(self: Database): number
+  --- Close the database and its cached statements (idempotent); also
+  --- runs on scope exit via to-be-closed.
   close: function(self: Database)
 end
 
