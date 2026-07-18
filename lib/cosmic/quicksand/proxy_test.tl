@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 local proxy = require("cosmic.quicksand.proxy")
 local quicksand = require("cosmic.quicksand")
+local check = require("cosmic.check")
 local net = require("cosmic.net")
 
 -- quicksand's bind_ip option is a raw integer (C-boundary internals);
@@ -50,7 +51,10 @@ test_start_rejects_invalid_rules_pre_fork()
 -- the proxy plumbing is Linux-only.
 local function test_start_stop_lifecycle()
   local c = quicksand.capabilities()
-  if not c.linux then return end
+  if not c.linux then
+    check.skip("quicksand proxy is Linux-only")
+    return
+  end
 
   local handle, err = proxy.start({
       bind_ip = LOOPBACK,
@@ -88,7 +92,10 @@ test_start_stop_lifecycle()
 -- gets 403 back, for both plain-HTTP and CONNECT.
 local function test_deny_unknown_host()
   local c = quicksand.capabilities()
-  if not c.linux then return end
+  if not c.linux then
+    check.skip("quicksand proxy is Linux-only")
+    return
+  end
 
   local handle = assert(proxy.start({
         bind_ip = LOOPBACK,
@@ -111,6 +118,7 @@ local function test_deny_unknown_host()
     "expected 403 from CONNECT deny, got: " .. resp)
 
   handle:stop()
+  check.enforced("proxy deny-by-default")
 end
 test_deny_unknown_host()
 
@@ -118,7 +126,10 @@ test_deny_unknown_host()
 -- origin-form targets get 400; chunked request bodies get 411.
 local function test_malformed_and_chunked_requests()
   local c = quicksand.capabilities()
-  if not c.linux then return end
+  if not c.linux then
+    check.skip("quicksand proxy is Linux-only")
+    return
+  end
 
   local handle = assert(proxy.start({
         bind_ip = LOOPBACK,
@@ -153,7 +164,10 @@ test_malformed_and_chunked_requests()
 -- allowlist alone must not be enough to reach loopback or RFC1918.
 local function test_allowed_private_upstream_gets_502()
   local c = quicksand.capabilities()
-  if not c.linux then return end
+  if not c.linux then
+    check.skip("quicksand proxy is Linux-only")
+    return
+  end
 
   local handle = assert(proxy.start({
         bind_ip = LOOPBACK,
@@ -172,6 +186,7 @@ local function test_allowed_private_upstream_gets_502()
     "expected 502 for private upstream, got: " .. resp)
 
   handle:stop()
+  check.enforced("proxy SSRF guard")
 end
 test_allowed_private_upstream_gets_502()
 
@@ -179,7 +194,10 @@ test_allowed_private_upstream_gets_502()
 -- with SIGSTOP) is SIGKILL'd after the timeout and still reaped.
 local function test_stop_escalates_to_sigkill()
   local c = quicksand.capabilities()
-  if not c.linux then return end
+  if not c.linux then
+    check.skip("quicksand proxy is Linux-only")
+    return
+  end
   local signal = require("cosmic.signal")
 
   local handle = assert(proxy.start({
