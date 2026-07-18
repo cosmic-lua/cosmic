@@ -112,6 +112,8 @@ end
 
 ```teal
 local record TealModule
+  DEFAULT_GEN_TARGET: string
+  DEFAULT_GEN_COMPAT: string
   compile: function(input_path: string, opts?: CompileOptions): CompileResult
   check: function(input_path: string, opts?: CheckOptions): CheckResult
   format_issues: function(issues: {Issue}): string
