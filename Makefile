@@ -221,7 +221,7 @@ $(o)/coverage-summary.txt: $(coverage_got) | $(cosmic_bin)
 ## Rewrite the committed cast-ratchet pin from current per-file `as` counts
 casts-baseline: .PLEDGE = stdio rpath wpath cpath proc exec
 casts-baseline: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:lib/build
-casts-baseline: $(build_lint) | $(bootstrap_cosmic)
+casts-baseline: $(build_lint) $(lint_style_lua) | $(bootstrap_cosmic)
 	@$(linter) --write-casts-baseline $(shell git ls-files '*.tl')
 
 .PHONY: coverage-baseline
@@ -317,7 +317,7 @@ lint: $(o)/lint-summary.txt
 $(o)/lint-summary.txt: $(all_linted) | $(build_reporter)
 	@$(reporter) --dir $(o) $(patsubst %,%.got,$(basename $(all_linted))) | tee $@
 
-$(o)/%.lint.ok: % $(build_lint) lib/build/casts.txt | $(bootstrap_cosmic)
+$(o)/%.lint.ok: % $(build_lint) $(lint_style_lua) lib/build/casts.txt | $(bootstrap_cosmic)
 	@mkdir -p $(@D)
 	-@$(linter) $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $(basename $@).got; cp $(basename $@).got $@
 
