@@ -290,26 +290,40 @@ local function test_cosmo_require_honors_allowlist()
 end
 test_cosmo_require_honors_allowlist()
 
--- Parity: cosmic --check-style (lib/cosmic/cli/style.tl) carries twin
--- implementations of the checks below; audit §5.2 caught them drifting
--- once (fixed in #658). This corpus runs both twins over the same
--- inputs and fails on any diagnostic mismatch, so the next divergence
--- is caught at CI time instead of landing silently (#661).
+-- The shared checks are ONE implementation now: lint.tl delegates to
+-- cosmic.cli.style (#661), so `bin/make lint` and `cosmic --check-style`
+-- literally share function objects — asserted below. The corpus that
+-- used to compare the twins now pins expected diagnostics for every
+-- construct that has fooled a depth tracker before (audit §5.2, #658).
 local style = require("cosmic.cli.style")
 
-local record ParityCase
+local function test_shared_checks_are_delegated()
+  assert(lint.check_file_length == style.check_file_length,
+    "lint must delegate check_file_length to cosmic.cli.style")
+  assert(lint.check_column_length == style.check_column_length,
+    "lint must delegate check_column_length to cosmic.cli.style")
+  assert(lint.check_call_after_define == style.check_call_after_define,
+    "lint must delegate check_call_after_define to cosmic.cli.style")
+  assert(lint.lint_file == style.lint_file,
+    "lint must delegate lint_file to cosmic.cli.style")
+end
+test_shared_checks_are_delegated()
+
+local record CorpusCase
   name: string
   lines: {string}
+  want: string
 end
 
-local parity_cases: {ParityCase} = {
-  {name = "ok_simple", lines = {
+local corpus_cases: {CorpusCase} = {
+  {name = "ok_simple", want = "", lines = {
       "local function foo()",
       "  return 1",
       "end",
       "foo()",
     }},
-  {name = "missing_call_two_defs", lines = {
+  {name = "missing_call_two_defs",
+    want = "call-after-define@1,call-after-define@4", lines = {
       "local function foo()",
       "  return 1",
       "end",
@@ -319,7 +333,7 @@ local parity_cases: {ParityCase} = {
       "foo()",
       "bar()",
     }},
-  {name = "ok_block_scopes", lines = {
+  {name = "ok_block_scopes", want = "", lines = {
       "local function foo()",
       "  if true then",
       "    local x = 1",
@@ -341,7 +355,7 @@ local parity_cases: {ParityCase} = {
       "end",
       "foo()",
     }},
-  {name = "missing_call_block_scopes", lines = {
+  {name = "missing_call_block_scopes", want = "call-after-define@1", lines = {
       "local function foo()",
       "  if true then",
       "    local x = 1",
@@ -349,7 +363,7 @@ local parity_cases: {ParityCase} = {
       "end",
       "local other = 1",
     }},
-  {name = "ok_nested_functions", lines = {
+  {name = "ok_nested_functions", want = "", lines = {
       "local function foo()",
       "  local function helper()",
       "    return 1",
@@ -358,7 +372,7 @@ local parity_cases: {ParityCase} = {
       "end",
       "foo()",
     }},
-  {name = "ok_anonymous_function_arg", lines = {
+  {name = "ok_anonymous_function_arg", want = "", lines = {
       "local function foo()",
       "  local out = map({1}, function(n: number): number",
       "      return n * n",
@@ -367,7 +381,8 @@ local parity_cases: {ParityCase} = {
       "end",
       "foo()",
     }},
-  {name = "comment_between_define_and_call", lines = {
+  {name = "comment_between_define_and_call",
+    want = "call-after-define@1", lines = {
       "local function foo()",
       "  return 1",
       "end",
@@ -384,37 +399,25 @@ local function diag_signature(diags: {lint.Diagnostic}): string
   return table.concat(parts, ",")
 end
 
-local function style_diag_signature(diags: {style.Diagnostic}): string
-  local parts: {string} = {}
-  for _, d in ipairs(diags) do
-    parts[#parts + 1] = d.rule .. "@" .. tostring(d.line)
-  end
-  return table.concat(parts, ",")
-end
-
-local function test_call_after_define_parity_with_style()
-  for _, case in ipairs(parity_cases) do
-    local from_lint = diag_signature(lint.check_call_after_define("case.tl", case.lines))
-    local from_style = style_diag_signature(style.check_call_after_define("case.tl", case.lines))
-    assert(from_lint == from_style,
-      case.name .. ": twins disagree: lint=[" .. from_lint .. "] style=[" .. from_style .. "]")
+local function test_call_after_define_corpus()
+  for _, case in ipairs(corpus_cases) do
+    local got = diag_signature(lint.check_call_after_define("case.tl", case.lines))
+    assert(got == case.want,
+      case.name .. ": want [" .. case.want .. "] got [" .. got .. "]")
   end
 end
-test_call_after_define_parity_with_style()
+test_call_after_define_corpus()
 
-local function test_column_length_parity_with_style()
+local function test_column_length_expectations()
   local lines = {string.rep("x", 90), string.rep("y", 91), "short", string.rep("z", 200)}
-  local from_lint = diag_signature(lint.check_column_length("case.tl", lines, 90))
-  local from_style = style_diag_signature(style.check_column_length("case.tl", lines, 90))
-  assert(from_lint == from_style,
-    "column-length twins disagree: lint=[" .. from_lint .. "] style=[" .. from_style .. "]")
+  local got = diag_signature(lint.check_column_length("case.tl", lines, 90))
+  assert(got == "column-length@2,column-length@4",
+    "column-length: got [" .. got .. "]")
 end
-test_column_length_parity_with_style()
+test_column_length_expectations()
 
-local function test_file_length_parity_with_style()
-  local from_lint = diag_signature(lint.check_file_length("case.tl", 501, 500))
-  local from_style = style_diag_signature(style.check_file_length("case.tl", 501, 500))
-  assert(from_lint == from_style and from_lint ~= "",
-    "file-length twins disagree: lint=[" .. from_lint .. "] style=[" .. from_style .. "]")
+local function test_file_length_expectations()
+  local got = diag_signature(lint.check_file_length("case.tl", 501, 500))
+  assert(got == "file-length@501", "file-length: got [" .. got .. "]")
 end
-test_file_length_parity_with_style()
+test_file_length_expectations()
