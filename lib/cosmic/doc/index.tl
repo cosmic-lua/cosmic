@@ -108,6 +108,11 @@ local function generate(files: {string}): string | nil, string
           table.insert(mod_table.examples as {any}, ex)
         end
       end
+    else
+      -- No source module with this name (e.g. deploy_example.tl):
+      -- register the example doc itself under the base name so its
+      -- examples stay addressable instead of being silently dropped.
+      modules[base_name] = example_doc
     end
   end
 
