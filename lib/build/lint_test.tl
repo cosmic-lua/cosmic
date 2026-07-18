@@ -289,3 +289,132 @@ local function test_cosmo_require_honors_allowlist()
   assert(#diags == 0, "allowlisted files must not be flagged")
 end
 test_cosmo_require_honors_allowlist()
+
+-- Parity: cosmic --check-style (lib/cosmic/cli/style.tl) carries twin
+-- implementations of the checks below; audit §5.2 caught them drifting
+-- once (fixed in #658). This corpus runs both twins over the same
+-- inputs and fails on any diagnostic mismatch, so the next divergence
+-- is caught at CI time instead of landing silently (#661).
+local style = require("cosmic.cli.style")
+
+local record ParityCase
+  name: string
+  lines: {string}
+end
+
+local parity_cases: {ParityCase} = {
+  {name = "ok_simple", lines = {
+      "local function foo()",
+      "  return 1",
+      "end",
+      "foo()",
+    }},
+  {name = "missing_call_two_defs", lines = {
+      "local function foo()",
+      "  return 1",
+      "end",
+      "local function bar()",
+      "  return 2",
+      "end",
+      "foo()",
+      "bar()",
+    }},
+  {name = "ok_block_scopes", lines = {
+      "local function foo()",
+      "  if true then",
+      "    local x = 1",
+      "  end",
+      "  for i = 1, 2 do",
+      "    local y = i",
+      "  end",
+      "  while false do",
+      "    local z = 3",
+      "  end",
+      "  do",
+      "    local w = 4",
+      "  end",
+      "  local n = 2",
+      "  repeat",
+      "    n = n - 1",
+      "  until n == 0",
+      "  return 1",
+      "end",
+      "foo()",
+    }},
+  {name = "missing_call_block_scopes", lines = {
+      "local function foo()",
+      "  if true then",
+      "    local x = 1",
+      "  end",
+      "end",
+      "local other = 1",
+    }},
+  {name = "ok_nested_functions", lines = {
+      "local function foo()",
+      "  local function helper()",
+      "    return 1",
+      "  end",
+      "  return helper()",
+      "end",
+      "foo()",
+    }},
+  {name = "ok_anonymous_function_arg", lines = {
+      "local function foo()",
+      "  local out = map({1}, function(n: number): number",
+      "      return n * n",
+      "    end)",
+      "  return out",
+      "end",
+      "foo()",
+    }},
+  {name = "comment_between_define_and_call", lines = {
+      "local function foo()",
+      "  return 1",
+      "end",
+      "-- a comment is not a call",
+      "foo()",
+    }},
+}
+
+local function diag_signature(diags: {lint.Diagnostic}): string
+  local parts: {string} = {}
+  for _, d in ipairs(diags) do
+    parts[#parts + 1] = d.rule .. "@" .. tostring(d.line)
+  end
+  return table.concat(parts, ",")
+end
+
+local function style_diag_signature(diags: {style.Diagnostic}): string
+  local parts: {string} = {}
+  for _, d in ipairs(diags) do
+    parts[#parts + 1] = d.rule .. "@" .. tostring(d.line)
+  end
+  return table.concat(parts, ",")
+end
+
+local function test_call_after_define_parity_with_style()
+  for _, case in ipairs(parity_cases) do
+    local from_lint = diag_signature(lint.check_call_after_define("case.tl", case.lines))
+    local from_style = style_diag_signature(style.check_call_after_define("case.tl", case.lines))
+    assert(from_lint == from_style,
+      case.name .. ": twins disagree: lint=[" .. from_lint .. "] style=[" .. from_style .. "]")
+  end
+end
+test_call_after_define_parity_with_style()
+
+local function test_column_length_parity_with_style()
+  local lines = {string.rep("x", 90), string.rep("y", 91), "short", string.rep("z", 200)}
+  local from_lint = diag_signature(lint.check_column_length("case.tl", lines, 90))
+  local from_style = style_diag_signature(style.check_column_length("case.tl", lines, 90))
+  assert(from_lint == from_style,
+    "column-length twins disagree: lint=[" .. from_lint .. "] style=[" .. from_style .. "]")
+end
+test_column_length_parity_with_style()
+
+local function test_file_length_parity_with_style()
+  local from_lint = diag_signature(lint.check_file_length("case.tl", 501, 500))
+  local from_style = style_diag_signature(style.check_file_length("case.tl", 501, 500))
+  assert(from_lint == from_style and from_lint ~= "",
+    "file-length twins disagree: lint=[" .. from_lint .. "] style=[" .. from_style .. "]")
+end
+test_file_length_parity_with_style()
