@@ -65,6 +65,7 @@
 1	lib/cosmic/example_coverage_test.tl
 7	lib/cosmic/example_test.tl
 3	lib/cosmic/fd.tl
+3	lib/cosmic/fd_example.tl
 7	lib/cosmic/fd_read_test.tl
 24	lib/cosmic/fd_test.tl
 9	lib/cosmic/fetch/extras.tl
@@ -96,6 +97,7 @@
 2	lib/cosmic/fs/walk_example.tl
 6	lib/cosmic/fs/walk_test.tl
 10	lib/cosmic/getopt.tl
+3	lib/cosmic/getopt_example.tl
 16	lib/cosmic/getopt_test.tl
 3	lib/cosmic/hash.tl
 6	lib/cosmic/hash_test.tl
@@ -119,6 +121,7 @@
 2	lib/cosmic/pledge.tl
 1	lib/cosmic/pledge_example.tl
 6	lib/cosmic/pledge_test.tl
+3	lib/cosmic/poll_example.tl
 12	lib/cosmic/poll_test.tl
 4	lib/cosmic/public_test.tl
 5	lib/cosmic/quicksand/box/init.tl
@@ -159,6 +162,7 @@
 24	lib/cosmic/sandbox_test.tl
 39	lib/cosmic/script_test.tl
 9	lib/cosmic/shm.tl
+3	lib/cosmic/shm_example.tl
 18	lib/cosmic/shm_test.tl
 7	lib/cosmic/signal.tl
 11	lib/cosmic/skill_test.tl
