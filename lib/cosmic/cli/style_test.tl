@@ -63,6 +63,53 @@ bar()
 end
 test_style_call_after_define()
 
+-- A function body containing if/for/do blocks must not fool the
+-- closing-end detection (audit §5.2: style.tl had drifted from its
+-- tested twin lib/build/lint.tl, which counts all block openers).
+-- Exercised through the CLI so bin/make lint and cosmic --check-style
+-- are proven to agree on the same input.
+local function test_style_block_scopes_in_body()
+  local input = write_temp("style_blocks.tl", [[
+local function foo()
+  if true then
+    local x = 1
+  end
+  for i = 1, 2 do
+    local y = i
+  end
+  do
+    local z = 3
+  end
+  return 1
+end
+foo()
+]])
+
+  local h = spawn.spawn({cosmic, "--check-style", input})
+  local __r5 = (h as spawn.Handle):wait() as spawn.Result
+  local ok, _ = __r5.ok, __r5.stdout
+  assert(ok, "block scopes inside a body must not trip call-after-define")
+end
+test_style_block_scopes_in_body()
+
+-- The same block-heavy body with the call missing must still fail.
+local function test_style_block_scopes_missing_call()
+  local input = write_temp("style_blocks_bad.tl", [[
+local function foo()
+  if true then
+    local x = 1
+  end
+end
+local other = 1
+]])
+
+  local h = spawn.spawn({cosmic, "--check-style", input})
+  local __r6 = (h as spawn.Handle):wait() as spawn.Result
+  local ok, _ = __r6.ok, __r6.stdout
+  assert(not ok, "missing call must still fail with block scopes in the body")
+end
+test_style_block_scopes_missing_call()
+
 -- Missing file: should fail
 local function test_style_missing_file()
   local h = spawn.spawn({cosmic, "--check-style", "/nonexistent/file.tl"})
