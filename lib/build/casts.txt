@@ -65,6 +65,7 @@
 1	lib/cosmic/example_coverage_test.tl
 7	lib/cosmic/example_test.tl
 3	lib/cosmic/fd.tl
+3	lib/cosmic/fd_example.tl
 7	lib/cosmic/fd_read_test.tl
 24	lib/cosmic/fd_test.tl
 9	lib/cosmic/fetch/extras.tl

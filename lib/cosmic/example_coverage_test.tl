@@ -28,7 +28,6 @@ local MISSING_ALLOWED: {string} = {
   "doc",
   "errno",
   "example",
-  "fd",
   "format",
   "fuzzy",
   "hash",
