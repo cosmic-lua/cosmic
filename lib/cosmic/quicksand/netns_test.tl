@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 local netns = require("cosmic.quicksand.netns")
 local quicksand = require("cosmic.quicksand")
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
 
@@ -37,6 +38,7 @@ test_open_self()
 local function test_unshare_subprocess()
   local c = quicksand.capabilities()
   if not (c.linux and c.net_ns and (c.user_ns or c.cap_net_admin)) then
+    check.skip("netns unshare: namespaces unavailable on this host")
     return
   end
   local script = fs.join(tmpdir, "unshare.lua")
@@ -65,10 +67,16 @@ io.write("ok\n")
   local ok, out = __r1.ok, __r1.stdout
   -- An outer seccomp/pledge filter may SIGSYS the subprocess on unshare.
   -- Accept signal death as a skip.
-  if not ok then return end
+  if not ok then
+    check.skip("netns unshare child died before reporting (outer sandbox)")
+    return
+  end
   local s = out as string
   assert(s:find("ok") or s:find("skipped"),
     "expected ok or skipped, got: " .. s)
+  if s:find("skipped") then
+    check.skip("netns unshare: " .. s:gsub("%s+$", ""))
+  end
 end
 test_unshare_subprocess()
 
@@ -79,6 +87,7 @@ local function test_get_flags_loopback()
   local flags, err = netns.get_flags("lo")
   if not flags then
     assert(type(err) == "string", "get_flags must explain its failure")
+    check.skip("get_flags lo denied on this host: " .. err)
     return
   end
   assert(math.type(flags) == "integer", "flags should be an integer")

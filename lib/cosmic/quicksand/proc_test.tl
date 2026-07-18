@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 local proc = require("cosmic.quicksand.proc")
 local quicksand = require("cosmic.quicksand")
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
 
@@ -24,7 +25,10 @@ test_module_exports()
 -- environment permits the write.
 local function test_setup_userns_maps_returns_error_outside_userns()
   local c = quicksand.capabilities()
-  if not c.linux then return end
+  if not c.linux then
+    check.skip("userns maps: non-Linux host")
+    return
+  end
   local script = fs.join(tmpdir, "userns_maps.lua")
   fs.write(script, [[
 local proc = require("cosmic.quicksand.proc")
@@ -39,10 +43,16 @@ end
   local h = spawn.spawn({cosmic, script})
   local __r1 = (h as spawn.Handle):wait() as spawn.Result
   local ok, out = __r1.ok, __r1.stdout
-  if not ok then return end
+  if not ok then
+    check.skip("userns maps child died before reporting (outer sandbox)")
+    return
+  end
   local s = out as string
   assert(s:find("ok") or s:find("skipped"),
     "expected ok or skipped, got: " .. s)
+  if s:find("skipped") then
+    check.skip("userns maps: " .. s:gsub("%s+$", ""))
+  end
 end
 test_setup_userns_maps_returns_error_outside_userns()
 
@@ -65,7 +75,10 @@ test_drop_privs_nil_is_noop()
 -- effects on file descriptors — run in subprocesses.
 local function test_no_new_privs_subprocess()
   local c = quicksand.capabilities()
-  if not c.linux then return end
+  if not c.linux then
+    check.skip("no_new_privs: non-Linux host")
+    return
+  end
   local script = fs.join(tmpdir, "nnp.lua")
   fs.write(script, [[
 local proc = require("cosmic.quicksand.proc")
@@ -82,16 +95,25 @@ io.write("ok\n")
   local ok, out = __r2.ok, __r2.stdout
   -- An outer seccomp/pledge filter may SIGSYS the subprocess on prctl.
   -- Accept signal death as a skip.
-  if not ok then return end
+  if not ok then
+    check.skip("no_new_privs child died before reporting (outer sandbox)")
+    return
+  end
   local s = out as string
   assert(s:find("ok") or s:find("skipped"),
     "expected ok or skipped, got: " .. s)
+  if s:find("skipped") then
+    check.skip("no_new_privs: " .. s:gsub("%s+$", ""))
+  end
 end
 test_no_new_privs_subprocess()
 
 local function test_barrier_signal_wait()
   local c = quicksand.capabilities()
-  if not c.linux then return end
+  if not c.linux then
+    check.skip("barrier: non-Linux host")
+    return
+  end
   local script = fs.join(tmpdir, "barrier.lua")
   fs.write(script, [[
 local unix = require("cosmo.unix")
@@ -120,9 +142,15 @@ io.write("done\n")
   local __r3 = (h as spawn.Handle):wait() as spawn.Result
   local ok, out = __r3.ok, __r3.stdout
   -- Signal death under an outer sandbox counts as skip.
-  if not ok then return end
+  if not ok then
+    check.skip("barrier child died before reporting (outer sandbox)")
+    return
+  end
   local s = out as string
   assert(s:find("done") or s:find("skipped"),
     "expected done or skipped, got: " .. s)
+  if s:find("skipped") then
+    check.skip("barrier: " .. s:gsub("%s+$", ""))
+  end
 end
 test_barrier_signal_wait()

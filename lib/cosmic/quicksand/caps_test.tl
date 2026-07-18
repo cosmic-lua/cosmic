@@ -22,7 +22,10 @@ test_module_exports()
 -- constants; CAP_LAST_CAP (a bound, not a capability) is deliberately
 -- excluded from NAMES.
 local function test_names_resolve()
-  if not caps.supported() then return end
+  if not caps.supported() then
+    check.skip("capabilities unsupported on this host")
+    return
+  end
   assert(#caps.NAMES > 0, "NAMES should be non-empty")
   for _, name in ipairs(caps.NAMES) do
     local n, err = caps.number_of(name)
@@ -47,7 +50,10 @@ test_number_of_unknown()
 
 -- mask sets bit N (1 << number) per name; unknown names error; empty is 0.
 local function test_mask()
-  if not caps.supported() then return end
+  if not caps.supported() then
+    check.skip("capabilities unsupported on this host")
+    return
+  end
   assert(caps.mask({}) == 0, "empty mask should be 0")
   local chown = caps.number_of("CAP_CHOWN")
   local m = caps.mask({"CAP_CHOWN"})
@@ -63,7 +69,10 @@ test_mask()
 -- bounding_read is non-destructive: it returns a boolean (or a graceful
 -- nil + error under an outer sandbox), never throws.
 local function test_bounding_read()
-  if not caps.supported() then return end
+  if not caps.supported() then
+    check.skip("capabilities unsupported on this host")
+    return
+  end
   local present, err = caps.bounding_read("CAP_CHOWN")
   assert(present ~= nil or type(err) == "string",
     "bounding_read should return a boolean or nil+err")
@@ -100,7 +109,10 @@ local CHILD_DROP = table.concat({
 
 local function test_drop_bounding_child()
   local c = quicksand.capabilities()
-  if not c.linux or not test_bin then return end
+  if not c.linux or not test_bin then
+    check.skip("caps drop child: non-Linux host or no TEST_BIN")
+    return
+  end
   local cosmic = fs.join(test_bin, "cosmic")
   local h = spawn.spawn({cosmic, "-e", CHILD_DROP})
   local __r1 = (h as spawn.Handle):wait() as spawn.Result
@@ -116,6 +128,11 @@ local function test_drop_bounding_child()
     "expected dropped or skipped, got: " .. s)
   assert(not s:find("bad:"),
     "drop must leave the capability absent from the bounding set: " .. s)
+  if s:find("skipped") then
+    check.skip("caps drop: " .. s:gsub("%s+$", ""))
+  else
+    check.enforced("caps bounding drop")
+  end
 end
 test_drop_bounding_child()
 
