@@ -222,8 +222,10 @@ bin/make test only=gentype
 `GENTYPE_DEFS=/path/to/definitions.lua` overrides the definitions source for
 validating against a cosmopolitan checkout before a release is cut.
 
-handcrafted exceptions (not generated, maintained by hand): `lib/types/tl.d.tl`
-(Teal compiler API), `lib/types/make-help.d.tl`.
+`lib/types/tl.d.tl` (Teal compiler API) is generated too — by
+`lib/types/gentl.tl` from the staged tl source (`bin/make regen-tl-types`
+after a tl version bump; `gentl_test.tl` fails on drift). The one
+handcrafted exception is `lib/types/make-help.d.tl`.
 
 ## cosmic Binary
 
