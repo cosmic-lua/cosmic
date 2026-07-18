@@ -30,6 +30,7 @@
 
 ```teal
 local record Handle
+  __close: function(self: Handle)
   close: function(self: Handle): boolean, string
   closed: function(self: Handle): boolean
   fd: function(self: Handle): number
@@ -51,6 +52,7 @@ end
 
 ```teal
 local record Pipe
+  __close: function(self: Pipe)
   reader: Handle
   writer: Handle
   close: function(self: Pipe): boolean

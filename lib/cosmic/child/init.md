@@ -40,6 +40,7 @@ end
 
 ```teal
 local record Handle
+  __close: function(self: Handle)
   pid: integer
   _st: childio.PumpState
   _result: Result
