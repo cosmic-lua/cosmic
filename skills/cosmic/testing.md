@@ -90,6 +90,29 @@ test_write_file()
 
 `TEST_TMPDIR` is cleaned up automatically after each test.
 
+## The Test Sandbox
+
+`bin/make test` runs every test under a landlock-make sandbox. the default grants (the test lane at `Makefile:142-143`; the coverage lane at `Makefile:195-196` is identical) are:
+
+- `.PLEDGE = stdio rpath wpath cpath proc exec`
+- `.UNVEIL = rx:o/bootstrap r:lib r:3p rwcx:o rwc:$TMP rx:/usr rx:/proc r:/etc r:/dev/null`
+
+what that means for a test author:
+
+- **filesystem**: read `lib/` and `3p/`, write only under `o/` and `TEST_TMPDIR`. writes anywhere else fail.
+- **loopback TCP works** — despite no `inet` promise in the pledge list. binding and connecting on `127.0.0.1` is fine; the precedent is `lib/cosmic/net/connect_test.tl:247` (`net.listen_tcp("127.0.0.1", 0)`), which the whole `net`/`serve` test surface leans on. bind port 0 and use the assigned port; never hardcode ports.
+- **DNS and egress do NOT work**. a lookup or outbound connect fails or the child is killed. only write such a call if the test expects the failure (e.g. asserting that a dial to a non-allowed host errors).
+- **process control works**: fork/exec are granted (`proc exec`), so `cosmic.child` spawns are fine — but the child inherits the same sandbox.
+
+### opting out
+
+two escalation paths exist; prefer the tight default whenever the test can live with it:
+
+- **namespace tests** (anything calling `unshare(2)` or writing `/proc/self/*_map` — the quicksand netns/proxy/box suites): no pledge promise covers unshare, so these tests are listed in `quicksand_sandbox_tests` (`Makefile:150-158`) which sets empty `.PLEDGE`/`.UNVEIL` for exactly those `.got` targets. to add one, append its plain and `coverage/` target paths to that list.
+- **enforcement tests** (pledge/unveil/landlock primitives asserting that restriction *actually* blocks): under the outer sandbox their assertions degrade to visible skips. the separate privileged `enforce` lane (`Makefile:236-270`, `bin/make enforce`) reruns them unsandboxed with `COSMIC_ENFORCE=1`, where a skip becomes a loud failure, plus a tripwire that fails the lane if nothing enforced at all.
+
+a per-rule override (custom `.PLEDGE`/`.UNVEIL` for one `.got` target) is possible but rare; reach for it only when a test needs one extra grant (say, an additional read path) and neither list above fits.
+
 ## Running Tests
 
 `cosmic --test` runs a test file and captures its output. the command form is:
