@@ -103,10 +103,18 @@ fetched: $(all_fetched)
 # the host's CA store for these fetches so the build works on stock runners
 # and behind TLS-intercepting proxies alike. An operator-supplied
 # SSL_CERT_FILE bundle is unveiled so the sandboxed fetch can read it.
+# Fetch/stage scripts run under the pinned bootstrap but are written
+# against THIS tree's cosmic.* APIs (resolved via the exported LUA_PATH).
+# Without the compiled stdlib as a prerequisite, a cold parallel build
+# could run them mid-compile and require() fell back to the bootstrap's
+# embedded older-API stdlib ("attempt to call a nil value (field
+# 'fetch')"). Unfiltered on purpose: only= must not shrink the closure.
+stdlib_lua := $(patsubst %.tl,$(o)/%.lua,$(filter lib/cosmic/%,$(foreach x,$(modules),$($(x)_tl))))
+
 $(o)/%/.fetched: export SSL_USE_SYSTEM_CERTS = 1
 $(o)/%/.fetched: .PLEDGE = stdio rpath wpath cpath inet dns
 $(o)/%/.fetched: .UNVEIL = rx:$(o)/bootstrap r:3p rwc:$(o) r:/etc/resolv.conf r:/etc/ssl $(if $(SSL_CERT_FILE),r:$(SSL_CERT_FILE))
-$(o)/%/.fetched: $(o)/%/.versioned $(build_files) | $(bootstrap_cosmic)
+$(o)/%/.fetched: $(o)/%/.versioned $(build_files) $(stdlib_lua) | $(bootstrap_cosmic)
 	@$(bootstrap_cosmic) -- $(build_fetch) $$(readlink $<) $(platform) $@
 
 # versions get staged: o/module/.staged -> o/staged/module/<ver>-<sha>
@@ -116,7 +124,7 @@ all_staged := $(patsubst %/.fetched,%/.staged,$(all_fetched))
 staged: $(all_staged)
 $(o)/%/.staged: .PLEDGE = stdio rpath wpath cpath proc exec
 $(o)/%/.staged: .UNVEIL = rx:$(o)/bootstrap r:3p rwc:$(o) rx:/usr/bin
-$(o)/%/.staged: $(o)/%/.fetched $(build_files)
+$(o)/%/.staged: $(o)/%/.fetched $(build_files) $(stdlib_lua)
 	@$(bootstrap_cosmic) -- $(build_stage) $$(readlink $(o)/$*/.versioned) $(platform) $< $@
 
 all_tests := $(call filter-only,$(foreach x,$(modules),$($(x)_tests)))
@@ -228,7 +236,7 @@ $(o)/coverage-summary.txt: $(coverage_got) | $(cosmic_bin)
 ## Rewrite the committed cast-ratchet pin from current per-file `as` counts
 casts-baseline: .PLEDGE = stdio rpath wpath cpath proc exec
 casts-baseline: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:lib/build
-casts-baseline: $(build_lint) | $(bootstrap_cosmic)
+casts-baseline: $(build_lint) $(lint_style_lua) | $(bootstrap_cosmic)
 	@$(linter) --write-casts-baseline $(shell git ls-files '*.tl')
 
 .PHONY: coverage-baseline
@@ -324,7 +332,7 @@ lint: $(o)/lint-summary.txt
 $(o)/lint-summary.txt: $(all_linted) | $(build_reporter)
 	@$(reporter) --dir $(o) $(patsubst %,%.got,$(basename $(all_linted))) | tee $@
 
-$(o)/%.lint.ok: % $(build_lint) lib/build/casts.txt | $(bootstrap_cosmic)
+$(o)/%.lint.ok: % $(build_lint) $(lint_style_lua) lib/build/casts.txt | $(bootstrap_cosmic)
 	@mkdir -p $(@D)
 	-@$(linter) $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $(basename $@).got; cp $(basename $@).got $@
 

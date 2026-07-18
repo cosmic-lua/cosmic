@@ -10,7 +10,11 @@ build_files := $(build_fetch) $(build_stage) $(build_portable) $(build_reporter)
 build_tests := $(wildcard lib/build/*_test.tl)
 
 reporter := $(bootstrap_cosmic) -- $(build_reporter)
-linter := $(bootstrap_cosmic) -- $(build_lint)
+# lint.lua delegates its shared checks to cosmic.cli.style; LUA_PATH points
+# at this tree's freshly compiled modules (the doc/index.tl pattern) so the
+# delegation runs THIS tree's style code, not the bootstrap's embedded copy.
+lint_style_lua := $(o)/lib/cosmic/cli/style.lua
+linter := LUA_PATH="$(o)/lib/?.lua;$(o)/lib/?/init.lua;;" $(bootstrap_cosmic) -- $(build_lint)
 
 # reporter_test needs cosmic binary (in the plain and coverage test lanes)
 $(o)/lib/build/reporter_test.tl.test.got $(o)/coverage/lib/build/reporter_test.tl.test.got: $$(cosmic_bin)
