@@ -103,15 +103,12 @@ fetched: $(all_fetched)
 # the host's CA store for these fetches so the build works on stock runners
 # and behind TLS-intercepting proxies alike. An operator-supplied
 # SSL_CERT_FILE bundle is unveiled so the sandboxed fetch can read it.
-# The fetch/stage scripts run under the pinned bootstrap binary but are
-# compiled from THIS tree and written against THIS tree's cosmic.* APIs,
-# which they load through the exported LUA_PATH. Without the compiled
-# stdlib as a prerequisite, a cold parallel build can run them while
-# o/lib/cosmic/*.lua is still compiling; require() then falls back to the
-# bootstrap's embedded (older-API) stdlib mid-build — observed as
-# "attempt to call a nil value (field 'fetch')" when the embedded fetch
-# predates the Fetch->fetch rename. Unfiltered on purpose: an only= run
-# must not shrink the closure.
+# Fetch/stage scripts run under the pinned bootstrap but are written
+# against THIS tree's cosmic.* APIs (resolved via the exported LUA_PATH).
+# Without the compiled stdlib as a prerequisite, a cold parallel build
+# could run them mid-compile and require() fell back to the bootstrap's
+# embedded older-API stdlib ("attempt to call a nil value (field
+# 'fetch')"). Unfiltered on purpose: only= must not shrink the closure.
 stdlib_lua := $(patsubst %.tl,$(o)/%.lua,$(filter lib/cosmic/%,$(foreach x,$(modules),$($(x)_tl))))
 
 $(o)/%/.fetched: export SSL_USE_SYSTEM_CERTS = 1
