@@ -202,14 +202,12 @@ local function run_example(example: Example, _file_path: string): ExampleResult
   -- Compile through Teal first to handle type annotations
   local teal_source = example.body
 
-  -- Initialize Teal environment and process the source
-  local env = tl.init_env(true) -- lax mode
-  local tl_result, proc_err = tl.process_string(teal_source, true, env, "@" .. example.name)
-
-  if not tl_result then
-    result.error = "process error: " .. (proc_err or "unknown")
-    return result
-  end
+  -- Initialize Teal environment (lax, compat off, 5.4 target — same
+  -- settings cosmic.teal's make_env uses) and process the source.
+  -- process_string always returns a Result; failures land in its
+  -- syntax_errors field, not a second return.
+  local env = tl.init_env(true, "off", "5.4")
+  local tl_result = tl.process_string(teal_source, true, env, "@" .. example.name)
 
   if tl_result.syntax_errors and #tl_result.syntax_errors > 0 then
     result.error = "syntax error: " .. tl_result.syntax_errors[1].msg
