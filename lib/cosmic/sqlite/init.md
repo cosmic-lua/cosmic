@@ -36,7 +36,9 @@
 local record Rows
   __call: function(self: Rows): {string: any}
   __close: function(self: Rows)
+  --  Step error from iteration, or nil after a clean SQLITE_DONE.
   err: function(self: Rows): string
+  --  Release the underlying prepared statement early (idempotent).
   close: function(self: Rows)
 end
 ```
@@ -49,6 +51,7 @@ end
 ```teal
 local record Values
   __call: function(self: Values): any ...
+  --  Step error from iteration, or nil after a clean SQLITE_DONE.
   err: function(self: Values): string
 end
 ```
@@ -59,15 +62,32 @@ end
 
 ```teal
 local record Statement
+  --  Bind parameters by position (resets the statement first). Handles
+  --  trailing nils; `sqlite.blob()` wrappers bind with BLOB affinity.
   bind: function(self: Statement, ...: any): boolean, string
+  --  Bind positional parameters from a list; the count comes from the
+  --  SQL, so nil holes in the table bind as NULL.
   bind_list: function(self: Statement, values: {any}): boolean, string
+  --  Bind :name placeholders from a key/value table (keys without the
+  --  colon). `sqlite.blob()` wrappers are rejected — use positional
+  --  binding for blobs.
   bind_named: function(self: Statement, params: {string: any}): boolean, string
+  --  Callable iterator over result rows as {column: value} tables;
+  --  check `:err()` after the loop for step errors.
   rows: function(self: Statement): Rows
+  --  Callable iterator yielding each row's column values positionally;
+  --  same `:err()` contract as rows().
   values: function(self: Statement): Values
+  --  Step the statement to completion (for INSERT/UPDATE/DDL).
   exec: function(self: Statement): boolean, string
+  --  Reset for re-execution; existing bindings are kept.
   reset: function(self: Statement)
+  --  Number of result columns.
   columns: function(self: Statement): number
+  --  Name of result column n (1-indexed).
   column_name: function(self: Statement, n: number): string
+  --  Finalize the statement (idempotent); also runs on scope exit via
+  --  to-be-closed.
   close: function(self: Statement)
 end
 ```
@@ -78,24 +98,9 @@ end
 
 ```teal
 local record Database
+  --  Compile sql into a reusable Statement for manual bind/iterate;
+  --  prefer query()/exec() unless you need statement reuse.
   prepare: function(self: Database, sql: string): Statement | nil, string
-  query: function(self: Database, sql: string, ...: any): Rows | nil, string
-  query_list: function(self: Database, sql: string, values: {any}): Rows | nil, string
-  query_named: function(self: Database, sql: string, params: {string: any}): Rows | nil, string
-  query_one: function(self: Database, sql: string, ...: any): {string: any} | nil, string
-  --  First column of the first row (nil + no error when no row matches
-  --  or the value is SQL NULL); see cosmic.sqlite.extras.
-  query_value: function(self: Database, sql: string, ...: any): any, string
-  exec: function(self: Database, sql: string, ...: any): boolean, string
-  exec_list: function(self: Database, sql: string, values: {any}): boolean, string
-  exec_named: function(self: Database, sql: string, params: {string: any}): boolean, string
-  transaction: function(self: Database, fn: function(Database)): boolean, string
-  --  Run fn in a nestable savepoint with transaction's rollback rules;
-  --  see cosmic.sqlite.extras.
-  savepoint: function(self: Database, fn: function(Database)): boolean, string
-  last_insert_rowid: function(self: Database): number
-  changes: function(self: Database): number
-  close: function(self: Database)
 end
 ```
 
