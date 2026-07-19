@@ -21,7 +21,15 @@
 
  Directory contents are stored relative to the directory root, so
  myapp/main.lua becomes /zip/main.lua in the resulting executable.
- Embedding a main.lua overrides the default entry point.
+ Embedding a main.lua overrides the default entry point. A custom
+ entry is stored byte-identical at /zip/main.user.lua behind a
+ generated /zip/main.lua that first installs the cosmic runtime .tl
+ searcher (#687) — so require() in embedded apps resolves .tl
+ modules with the same guarantees as `cosmic script.tl` (markers
+ resolve, compile errors fail the require, output cached), with no
+ loader boilerplate in the app. An unmodified dispatcher main.lua
+ (extract/re-embed roundtrip) and an already-wrapped entry pass
+ through unchanged.
 
  The resulting executable keeps cosmic's bundled libraries, so embedded
  code can require("cosmic.fetch"), require("lsqlite3"), etc.
