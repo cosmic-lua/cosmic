@@ -22,10 +22,14 @@ export PATH := $(CURDIR)/$(o)/bootstrap:$(CURDIR)/$(o)/bin:$(HOST_PATH)
 pledge_build := stdio rpath wpath cpath proc exec
 unveil_base := rx:$(o)/bootstrap r:lib r:3p
 unveil_host := rx:/usr rx:/proc r:/etc r:/dev/null
-# Host set proven under real enforcement by the sandbox-canary (#724):
-# shell + coreutils + loaders. ENOENT entries are skipped, so the
+# Host set proven under real enforcement by the sandbox-canary (#724)
+# and the enforced families' CI runs: shell + coreutils + loaders.
+# /dev/null must be writable (recipes redirect to it); /dev/urandom is
+# mbedtls3's entropy source (its non-glibc build cannot use the
+# getrandom syscall, so TLS init fopens the device — fetch SIGILLed
+# under Landlock without it). ENOENT entries are skipped, so the
 # generous list is safe across hosts.
-unveil_hostx := rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc r:/dev/null
+unveil_hostx := rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc rw:/dev/null r:/dev/urandom
 unveil_dep := rx:$(o)/bootstrap r:3p rwc:$(o)
 unveil_test := $(unveil_base) rwcx:$(o) rwc:$(TMP) $(unveil_host)
 unveil_run := $(unveil_base) rwc:$(o) rwc:$(TMP) $(unveil_host)
