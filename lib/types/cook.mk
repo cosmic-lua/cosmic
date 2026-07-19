@@ -13,8 +13,8 @@ $(o)/lib/types/gentl_test.tl.test.got $(o)/coverage/lib/types/gentl_test.tl.test
 
 .PHONY: regen-tl-types
 ## Regenerate lib/types/tl.d.tl from the staged tl source
-regen-tl-types: .PLEDGE = stdio rpath wpath cpath proc exec
-regen-tl-types: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:lib/types
+regen-tl-types: .PLEDGE := $(pledge_build)
+regen-tl-types: .UNVEIL := $(unveil_base) rwcx:$(o) rwc:lib/types
 regen-tl-types: $(o)/lib/types/gentl.lua $$(tl_staged) | $(bootstrap_cosmic)
 	@$(bootstrap_cosmic) $(o)/lib/types/gentl.lua $(o)/tl/.staged/tl.tl > lib/types/tl.d.tl.tmp
 	@mv lib/types/tl.d.tl.tmp lib/types/tl.d.tl
