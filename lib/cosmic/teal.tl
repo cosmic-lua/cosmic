@@ -1,6 +1,9 @@
 --- Teal compilation and type-checking.
---- --compile uses lax mode for permissive compilation.
---- --check uses strict mode for thorough type checking.
+--- --compile uses lax mode for permissive compilation (the gradual-typing
+--- on-ramp for plain-Lua scripts); --compile-strict type-checks strictly
+--- (warnings fail, matching --check-types) and generates from the same
+--- checked AST — the build uses it for in-tree sources so nothing ships
+--- that did not typecheck. --check-types uses strict mode.
 
 local tl = require("tl")
 
@@ -15,10 +18,13 @@ local record Issue
 end
 
 --- Options for compiling Teal to Lua.
+--- strict type-checks strictly before generating (warnings fail too,
+--- matching check's default) and emits code from that same checked AST.
 local record CompileOptions
   include_dirs: {string}
   gen_target: string
   gen_compat: string
+  strict: boolean
 end
 
 --- Options for type-checking Teal files.
@@ -227,6 +233,29 @@ local function collect_errors(result: TlResult, input_path: string): {Issue}
   return errors
 end
 
+--- Collect warnings from a tl result as Issue records.
+--- @param result TlResult The result from tl.process_string
+--- @param input_path string Path to the source file for error reporting
+--- @return {Issue} List of warning issues
+local function collect_warnings(result: TlResult, input_path: string): {Issue}
+  local warnings: {Issue} = {}
+  if result.warnings then
+    for _, w in ipairs(result.warnings) do
+      if w.msg then
+        table.insert(warnings, {
+            file = w.filename or input_path,
+            line = w.y or 0,
+            column = w.x or 0,
+            message = w.msg,
+            severity = "warning",
+            tag = w.tag,
+          })
+      end
+    end
+  end
+  return warnings
+end
+
 --- Merge caller-provided include directories with defaults.
 --- Caller dirs come first (higher priority), followed by default dirs.
 --- @param extra {string} Additional include directories from caller
@@ -247,20 +276,28 @@ local function merge_include_dirs(extra: {string}): {string}
 end
 
 --- Compile a Teal file to Lua code.
---- Uses lax mode for permissive compilation. Preserves shebang if present.
+--- Lax mode by default (permissive, for user scripts); opts.strict
+--- type-checks strictly first — warnings fail too, matching check's
+--- default — and generates from that same checked AST, so a strict
+--- compile can never ship code the checker rejected. Preserves shebang.
 --- @param input_path string Path to the Teal file to compile
---- @param opts CompileOptions Compilation options (include_dirs, gen_target, gen_compat)
+--- @param opts CompileOptions Compilation options (include_dirs, gen_target, gen_compat, strict)
 --- @return CompileResult Result with ok status, generated Lua code, and any errors
 local function compile(input_path: string, opts: CompileOptions): CompileResult
   opts = opts or {} as CompileOptions
 
   local dirs = merge_include_dirs(opts.include_dirs)
-  local proc = process_file(input_path, dirs, true)
+  local proc = process_file(input_path, dirs, not opts.strict)
   if proc.error then
     return {ok = false, code = nil, errors = {proc.error}}
   end
 
   local errors = collect_errors(proc.tl_result, input_path)
+  if opts.strict then
+    for _, w in ipairs(collect_warnings(proc.tl_result, input_path)) do
+      table.insert(errors, w)
+    end
+  end
   if #errors > 0 then
     return {ok = false, code = nil, errors = errors}
   end
@@ -297,22 +334,7 @@ local function check(input_path: string, opts: CheckOptions): CheckResult
   end
 
   local errors = collect_errors(proc.tl_result, input_path)
-
-  local warnings: {Issue} = {}
-  if proc.tl_result.warnings then
-    for _, w in ipairs(proc.tl_result.warnings) do
-      if w.msg then
-        table.insert(warnings, {
-            file = w.filename or input_path,
-            line = w.y or 0,
-            column = w.x or 0,
-            message = w.msg,
-            severity = "warning",
-            tag = w.tag,
-          })
-      end
-    end
-  end
+  local warnings = collect_warnings(proc.tl_result, input_path)
 
   local ok = #errors == 0 and (not werror or #warnings == 0)
   return {ok = ok, warnings = warnings, errors = errors}

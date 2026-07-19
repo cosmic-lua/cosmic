@@ -3,17 +3,11 @@
 
 global warn: function(...: any)
 
--- Install a lazy searcher at the end of package.searchers instead of
--- eagerly require("tl")-ing the ~15k-line Teal compiler on every startup,
--- including runs that never touch a .tl file. It loads the real compiler
--- and replaces itself on first invocation, i.e. the first require() that
--- the default Lua searcher can't resolve.
---
--- The end position (not position 2, where tl.loader() itself inserts)
--- ensures the default Lua file searcher runs first, so pre-compiled .lua
--- modules are found before falling back to compiling .tl source. Without
--- this, setting TL_PATH causes ~330ms startup overhead from recompiling
--- cosmic modules. See: https://github.com/whilp/cosmic/issues/377
+-- Lazy searcher at the END of package.searchers: the ~15k-line Teal
+-- compiler loads only on the first require() the default searchers can't
+-- resolve, and the end position (not 2, where tl.loader() inserts) lets
+-- the default Lua searcher find pre-compiled .lua first — without it,
+-- setting TL_PATH costs ~330ms recompiling cosmic modules (#377).
 if package.searchers then
   local function lazy_tl_searcher(module_name: string): any, any
     local tl = require("tl")
@@ -45,6 +39,7 @@ local record Options
   script: string
   script_args: {integer: string}
   compile: string
+  compile_strict: string
   format: string
   fix: string
   check_format: string
@@ -81,6 +76,7 @@ local function parse_args(): Options
     script = nil,
     script_args = {},
     compile = nil,
+    compile_strict = nil,
     format = nil,
     fix = nil,
     check_format = nil,
@@ -249,6 +245,9 @@ local function parse_args(): Options
     elseif opt == "compile" then
       opts.compile = optarg
       return opts
+    elseif opt == "compile-strict" then
+      opts.compile_strict = optarg
+      return opts
     elseif opt == "format" then
       opts.format = optarg
       return opts
@@ -366,6 +365,7 @@ local function main(): integer, string
     end
   end
   if opts.compile then return handlers.handle_compile(opts.compile, opts.output, opts.write_if_changed, opts.include_dirs) end
+  if opts.compile_strict then return handlers.handle_compile(opts.compile_strict, opts.output, opts.write_if_changed, opts.include_dirs, true) end
   if opts.format then return handlers.handle_format(opts.format, opts.output, opts.write_if_changed) end
   if opts.fix then return handlers.handle_format(opts.fix, opts.fix, true) end
   if opts.check_format then return handlers.handle_check_format(opts.check_format) end
