@@ -493,7 +493,7 @@ ci:
 		fi; \
 		echo "::endgroup::"; \
 	done
-	@if [ -f $(o)/failed ]; then echo "failed:"; cat $(o)/failed; exit 1; fi
+	@if [ -f $(o)/failed ]; then echo "ci: FAIL ($$(paste -sd' ' $(o)/failed))"; exit 1; else echo "ci: PASS"; fi
 
 debug-modules:
 	@echo $(modules)
