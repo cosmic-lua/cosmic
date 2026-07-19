@@ -26,7 +26,7 @@ end
 ### hash_encoded
 
 ```teal
-function hash_encoded(pass: string, salt?: string, config?: Config): string | nil, string | nil
+function hash_encoded(pass: string, salt?: string, config?: Config): string | nil, string
 ```
 
  Hashes password.
@@ -58,12 +58,12 @@ function hash_encoded(pass: string, salt?: string, config?: Config): string | ni
 **Returns:**
 
 - string | nil
-- string | nil
+- string
 
 ### verify
 
 ```teal
-function verify(encoded: string, pass: string): boolean, string | nil
+function verify(encoded: string, pass: string): boolean, string
 ```
 
  Verifies a password against an encoded hash, e.g.
@@ -81,4 +81,4 @@ function verify(encoded: string, pass: string): boolean, string | nil
 **Returns:**
 
 - boolean
-- string | nil
+- string

@@ -75,9 +75,9 @@ local record Reader
   --  operations don't need a follow-up `stat` per entry.
   list: function(self: Reader): {Entry}
   --  Gets metadata for a specific file in the archive.
-  stat: function(self: Reader, name: string): Stat | nil, string | nil
+  stat: function(self: Reader, name: string): Stat | nil, string
   --  Reads the contents of a file from the archive.
-  read: function(self: Reader, name: string): string | nil, string | nil
+  read: function(self: Reader, name: string): string | nil, string
   --  Closes the ZIP reader and releases resources.
   close: function(self: Reader)
 end
@@ -90,7 +90,7 @@ end
 ```teal
 local record Writer
   --  Adds a file to the ZIP archive.
-  add: function(self: Writer, name: string, content: string, options?: AddOptions): boolean | nil, string | nil
+  add: function(self: Writer, name: string, content: string, options?: AddOptions): boolean | nil, string
   --  Closes the ZIP archive and writes the central directory.
   close: function(self: Writer)
 end
@@ -103,7 +103,7 @@ end
 ```teal
 local record Appender
   --  Adds a file to the ZIP archive.
-  add: function(self: Appender, name: string, content: string, options?: AddOptions): boolean | nil, string | nil
+  add: function(self: Appender, name: string, content: string, options?: AddOptions): boolean | nil, string
   --  Removes entries by name from the archive.
   --  If `name` ends with `/`, all entries whose names start with that
   --  directory prefix are removed; otherwise the single entry whose name
@@ -112,7 +112,7 @@ local record Appender
   --  The local file data of removed existing entries remains as dead space
   --  in the archive; only the central directory reference is removed.
   --  Fails with an error if no entry matched or the appender is closed.
-  remove: function(self: Appender, name: string): boolean | nil, string | nil
+  remove: function(self: Appender, name: string): boolean | nil, string
   --  Closes the ZIP archive and writes the updated central directory.
   close: function(self: Appender)
 end
@@ -123,7 +123,7 @@ end
 ### open
 
 ```teal
-function open(path: string | integer, mode?: OpenMode, options?: OpenOptions): any, string | nil
+function open(path: string | integer, mode?: OpenMode, options?: OpenOptions): any, string
 ```
 
  Opens a ZIP archive for reading, writing, or appending.
@@ -138,12 +138,12 @@ function open(path: string | integer, mode?: OpenMode, options?: OpenOptions): a
 **Returns:**
 
 - any
-- string | nil
+- string
 
 ### from
 
 ```teal
-function from(data: string, options?: OpenOptions): Reader | nil, string | nil
+function from(data: string, options?: OpenOptions): Reader | nil, string
 ```
 
  Opens a ZIP archive from in-memory data for reading.
@@ -156,12 +156,12 @@ function from(data: string, options?: OpenOptions): Reader | nil, string | nil
 **Returns:**
 
 - Reader | nil
-- string | nil
+- string
 
 ### create
 
 ```teal
-function create(path: string | integer, options?: OpenOptions): Writer | nil, string | nil
+function create(path: string | integer, options?: OpenOptions): Writer | nil, string
 ```
 
  Creates a new ZIP archive for writing. This is equivalent to
@@ -175,12 +175,12 @@ function create(path: string | integer, options?: OpenOptions): Writer | nil, st
 **Returns:**
 
 - Writer | nil
-- string | nil
+- string
 
 ### append
 
 ```teal
-function append(path: string, options?: OpenOptions): Appender | nil, string | nil
+function append(path: string, options?: OpenOptions): Appender | nil, string
 ```
 
  Opens an existing ZIP archive for appending. This is equivalent to
@@ -196,12 +196,12 @@ function append(path: string, options?: OpenOptions): Appender | nil, string | n
 **Returns:**
 
 - Appender | nil
-- string | nil
+- string
 
 ### validate_name
 
 ```teal
-function validate_name(name: string): boolean | nil, string | nil
+function validate_name(name: string): boolean | nil, string
 ```
 
  Validates a ZIP entry name without adding it to an archive, applying
@@ -215,4 +215,4 @@ function validate_name(name: string): boolean | nil, string | nil
 **Returns:**
 
 - boolean | nil
-- string | nil
+- string

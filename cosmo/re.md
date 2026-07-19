@@ -19,7 +19,7 @@ local record Regex
   --  - `re.NOTBOL`
   --  - `re.NOTEOL`
   --  This has an O(𝑛) cost.
-  search: function(self: Regex, str: string, flags?: SearchFlag): string | nil, {string}, string | nil
+  search: function(self: Regex, str: string, flags?: SearchFlag): string | nil, {string}, string
 end
 ```
 
@@ -92,7 +92,7 @@ end
 ### search
 
 ```teal
-function search(regex: string, text: string, flags?: CompileFlag | SearchFlag): string | nil, {string}, string | nil
+function search(regex: string, text: string, flags?: CompileFlag | SearchFlag): string | nil, {string}, string
 ```
 
  Searches for regular expression match in text.
@@ -121,12 +121,12 @@ function search(regex: string, text: string, flags?: CompileFlag | SearchFlag): 
 
 - string | nil
 - {string}
-- string | nil
+- string
 
 ### compile
 
 ```teal
-function compile(regex: string, flags?: CompileFlag): Regex | nil, string | nil
+function compile(regex: string, flags?: CompileFlag): Regex | nil, string
 ```
 
  Compiles regular expression.
@@ -148,4 +148,4 @@ function compile(regex: string, flags?: CompileFlag): Regex | nil, string | nil
 **Returns:**
 
 - Regex | nil
-- string | nil
+- string

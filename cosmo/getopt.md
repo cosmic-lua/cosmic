@@ -39,7 +39,7 @@ end
 ### parse
 
 ```teal
-function parse(args: {string}, optstring: string, longopts?: {table}): Result | nil, string | nil
+function parse(args: {string}, optstring: string, longopts?: {table}): Result | nil, string
 ```
 
  Parse a command-line argument vector in one shot.
@@ -94,4 +94,4 @@ function parse(args: {string}, optstring: string, longopts?: {table}): Result | 
 **Returns:**
 
 - Result | nil
-- string | nil
+- string
