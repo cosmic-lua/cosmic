@@ -23,6 +23,9 @@ local record gentype_types
     is_method: boolean
     class_name: string
     nodiscard: boolean
+    -- Sorted `---@generic` type-parameter names, rendered as a Teal
+    -- generic function signature (`function<T>(...)`).
+    generics: {string}
     -- True when an `@overload fun(...): nil, <error> Errno` failure form is
     -- present, meaning the call returns `<value>, Errno` at runtime.
     fallible: boolean

@@ -25,7 +25,7 @@ end
 local extract = require("types.gentype_extract") as GentypeExtract
 
 local record GentypeParse
-  parse_annotations: function(raw_lines: {string}): {string}, {Param}, {Return}, boolean, string, {Field}, boolean, string
+  parse_annotations: function(raw_lines: {string}): {string}, {Param}, {Return}, boolean, string, {Field}, boolean, string, {string}
   valid_type: function(t: string): boolean
 end
 local parse = require("types.gentype_parse") as GentypeParse
@@ -266,12 +266,12 @@ local function parse_module(source: string, module_name: string): ModuleDecl
         anno_lines = func_lines
       end
 
-      local desc, params, returns, nodiscard, _, _, fallible, error_type = parse_annotations(anno_lines)
+      local desc, params, returns, nodiscard, _, _, fallible, error_type, generics = parse_annotations(anno_lines)
       params = reconcile_params(params, params_str)
       table.insert(module.functions, {
           name = fname, module = module_name, description = desc,
           params = params, returns = returns, is_method = false, nodiscard = nodiscard,
-          fallible = fallible, error_type = error_type,
+          fallible = fallible, error_type = error_type, generics = generics,
         })
       anno_lines = {}
       i = i + 1
@@ -279,13 +279,13 @@ local function parse_module(source: string, module_name: string): ModuleDecl
       local full_class_name, method_name = line:match("^function%s+([%w_%.]+):([%w_]+)%s*%(")
       local class_name = full_class_name:match("%.([%w_]+)$") or full_class_name
       local method_params_str = line:match("%((.-)%)")
-      local desc, params, returns, nodiscard, _, _, fallible, error_type = parse_annotations(anno_lines)
+      local desc, params, returns, nodiscard, _, _, fallible, error_type, generics = parse_annotations(anno_lines)
       params = reconcile_params(params, method_params_str)
       local method: FuncDecl = {
         name = method_name, module = module_name, description = desc,
         params = params, returns = returns, is_method = true,
         class_name = class_name, nodiscard = nodiscard,
-        fallible = fallible, error_type = error_type,
+        fallible = fallible, error_type = error_type, generics = generics,
       }
       local found = false
       for _, cls in ipairs(module.classes) do

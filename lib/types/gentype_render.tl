@@ -162,6 +162,17 @@ local function convert_type(t: string): string
   return t
 end
 
+--- Render a Teal generic type-parameter list (`<Udata>`), or "" when the
+--- function declares none. Generic names pass through convert_type's
+--- identifier fallthrough untouched, so params/returns reference them
+--- directly.
+local function render_generics(generics: {string}): string
+  if not generics or #generics == 0 then
+    return ""
+  end
+  return "<" .. table.concat(generics, ", ") .. ">"
+end
+
 --- Render a parameter list (optionally with a self receiver).
 local function render_params(params: {Param}, self_name: string): string
   local parts: {string} = {}
@@ -350,7 +361,8 @@ local function generate_dtl(module: ModuleDecl): string
         end
         local params_str = render_params(method.params, cls.name)
         local ret_str = render_returns(method.returns, method.fallible, method.error_type)
-        table.insert(out, "  " .. method.name .. ": function(" .. params_str .. ")" .. ret_str)
+        table.insert(out, "  " .. method.name .. ": function" .. render_generics(method.generics)
+          .. "(" .. params_str .. ")" .. ret_str)
       end
       table.insert(out, "end")
       table.insert(out, "")
@@ -426,7 +438,8 @@ local function generate_dtl(module: ModuleDecl): string
     end
     local params_str = render_params(func.params, nil)
     local ret_str = render_returns(func.returns, func.fallible, func.error_type)
-    table.insert(out, "  " .. func.name .. ": function(" .. params_str .. ")" .. ret_str)
+    table.insert(out, "  " .. func.name .. ": function" .. render_generics(func.generics)
+      .. "(" .. params_str .. ")" .. ret_str)
   end
 
   table.insert(out, "end")
