@@ -52,8 +52,9 @@ local function Example_extract_update_embed()
   fs.write(fs.join(envd_dir, "credentials"), "MY_SECRET_TOKEN=tok-example-12345\n")
 
   -- 3. re-embed with a main.lua that loads env.d and prints the var name
+  -- No loader prelude: --embed wraps a custom entry with the cosmic
+  -- runtime searcher (#687), so require() just works.
   fs.write(fs.join(extractdir, "main.lua"), [[
-require("tl").loader()
 local envd = require("cosmic.envd")
 local env = require("cosmic.env")
 local result = envd.load()
