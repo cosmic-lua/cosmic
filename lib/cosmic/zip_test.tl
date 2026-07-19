@@ -190,7 +190,7 @@ local function test_appender_remove()
   assert(kept == "keep me", "surviving entry content must be intact")
   local gone, read_err = r:read("gone.txt")
   assert(gone == nil, "the removed entry must not be readable")
-  assert(read_err and read_err:match("not found"),
+  assert(read_err and string.match(read_err, "not found"),
     "reading a removed entry should say not found, got: " .. tostring(read_err))
   r:close()
 end
@@ -205,7 +205,7 @@ local function test_appender_remove_missing_entry()
   local appender = zip.appender(p) as zip.Appender
   local ok, err = appender:remove("no-such-entry.txt")
   assert(ok == nil, "remove of a missing entry should fail")
-  assert(err and err:match("not found"),
+  assert(err and string.match(err, "not found"),
     "error should say the entry was not found, got: " .. tostring(err))
   appender:close()
 

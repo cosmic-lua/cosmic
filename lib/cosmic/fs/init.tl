@@ -18,17 +18,8 @@ local fs_file = require("cosmic.fs.file")
 local cfd = require("cosmic.fd")
 local type Handle = cfd.Handle
 
--- Raw Dir type from cosmo.unix
-local record RawDir
-  read: function(self: RawDir): string, integer
-  close: function(self: RawDir)
-  fd: function(self: RawDir): integer
-  rewind: function(self: RawDir)
-  tell: function(self: RawDir): integer
-end
-
--- Wrap a raw cosmo Dir with __close support
-local function make_dir(raw: RawDir): Dir
+-- Wrap a raw unix.Dir with __close support
+local function make_dir(raw: unix.Dir): Dir
   local is_closed = false
 
   local dir: Dir = {
@@ -37,7 +28,8 @@ local function make_dir(raw: RawDir): Dir
     -- so "is this entry a directory" needs no stat(2) call.
     read = function(_self: Dir): string, integer
       if is_closed then return nil end
-      return raw:read()
+      local name, kind = raw:read()
+      return name, kind
     end,
     close = function(_self: Dir)
       if not is_closed then
@@ -47,14 +39,14 @@ local function make_dir(raw: RawDir): Dir
     end,
     fd = function(_self: Dir): integer
       if is_closed then return -1 end
-      return raw:fd()
+      return (raw:fd())
     end,
     rewind = function(_self: Dir)
       if not is_closed then raw:rewind() end
     end,
     tell = function(_self: Dir): integer
       if is_closed then return -1 end
-      return raw:tell()
+      return (raw:tell())
     end,
     closed = function(_self: Dir): boolean
       return is_closed
@@ -184,11 +176,18 @@ end
 --- @return Dir | nil Directory handle, or nil on error
 --- @return string Error message if failed
 local function opendir(path: string): Dir | nil, string
+  -- Cast, not `is`: embedded apps whose main.lua installs
+  -- require("tl").loader() (the documented embed pattern) can
+  -- lax-recompile this module through tl's OWN loader, where the
+  -- cosmo.unix .d.tl marker doesn't resolve and `is` degrades to a
+  -- table test that rejects every real Dir handle (seen breaking
+  -- envd_example's re-embedded app). The cosmic searcher guarantees
+  -- resolution only inside the cosmic dispatcher.
   local raw, err = unix.opendir(path)
-  if not raw then
-    return nil, errstr(err, "opendir: " .. path)
+  if raw ~= nil then
+    return make_dir(raw as unix.Dir)
   end
-  return make_dir(raw as RawDir)
+  return nil, errstr(err, "opendir: " .. path)
 end
 
 --- Open a directory from a file descriptor.
@@ -197,11 +196,12 @@ end
 --- @return Dir | nil Directory handle, or nil on error
 --- @return string Error message if failed
 local function fdopendir(fd: integer): Dir | nil, string
+  -- Cast, not `is`: same tl.loader() degradation hazard as opendir.
   local raw, err = unix.fdopendir(fd)
-  if not raw then
-    return nil, errstr(err, "fdopendir")
+  if raw ~= nil then
+    return make_dir(raw as unix.Dir)
   end
-  return make_dir(raw as RawDir)
+  return nil, errstr(err, "fdopendir")
 end
 
 -- Re-export walk functions from fs_walk submodule

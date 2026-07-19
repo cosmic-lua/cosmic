@@ -8,125 +8,45 @@
 local zip = require("cosmo.zip")
 local fs = require("cosmic.fs")
 
---- Options for opening a ZIP archive.
-local record OpenOptions
-  --- Compression level 0-9 (0=none, 9=maximum). Used when writing/appending.
-  level: integer
-  --- Maximum file size limit in bytes.
-  max_file_size: integer
-end
+--- Options for opening a ZIP archive: compression level 0-9 (used when
+--- writing/appending) and max_file_size limit. The generated
+--- cosmo.zip.OpenOptions record.
+local type OpenOptions = zip.OpenOptions
 
---- Options for adding a file to a ZIP archive.
-local record AddOptions
-  --- Compression method: "store" (no compression) or "deflate" (compressed).
-  method: zip.CompressionMethod
-  --- Modification time as Unix timestamp.
-  mtime: integer
-  --- Unix file mode/permissions (default 0644).
-  mode: integer
-end
+--- Options for adding a file to a ZIP archive: method ("store" or
+--- "deflate"), mtime, and mode. The generated cosmo.zip.AddOptions record.
+local type AddOptions = zip.AddOptions
 
---- File metadata within a ZIP archive.
-local record Stat
-  --- Uncompressed file size in bytes.
-  size: integer
-  --- Compressed file size in bytes.
-  compressed_size: integer
-  --- CRC32 checksum of uncompressed data.
-  crc32: integer
-  --- Modification time as Unix timestamp.
-  mtime: integer
-  --- Compression method (0=stored, 8=deflated).
-  method: integer
-  --- Unix file mode/permissions.
-  mode: integer
-end
+--- File metadata within a ZIP archive: size, compressed_size, crc32,
+--- mtime, method (0=stored, 8=deflated), and mode. The generated
+--- cosmo.zip.Stat record.
+local type Stat = zip.Stat
 
---- Directory entry returned by Reader:list().
-local record Entry
-  --- Entry path within the archive.
-  name: string
-  --- Uncompressed size in bytes.
-  size: integer
-  --- Unix file mode/permissions.
-  mode: integer
-end
+--- Directory entry returned by Reader:list(): name, size, and mode. The
+--- generated cosmo.zip.Entry record.
+local type Entry = zip.Entry
 
---- Reader for extracting files from a ZIP archive.
-local record Reader
-  --- Lists all files in the ZIP archive, in archive order. Each record
-  --- carries the entry's name, uncompressed size, and mode, so bulk
-  --- operations don't need a follow-up stat per entry.
-  --- Entry names come raw from the central directory: an archive built by
-  --- another tool can contain absolute or "../" names. Validate before
-  --- using a name as a filesystem path, or use extract().
-  --- @return {Entry} Directory entry records for the archive
-  list: function(self: Reader): {Entry}
+--- Reader for extracting files from a ZIP archive (the generated
+--- cosmo.zip.Reader class): list(), stat(name), read(name), close().
+--- Entry names come raw from the central directory: an archive built by
+--- another tool can contain absolute or "../" names. Validate before
+--- using a name as a filesystem path, or use extract().
+local type Reader = zip.Reader
 
-  --- Gets metadata for a specific file in the archive.
-  --- @param name string The file path within the archive
-  --- @return Stat | nil File metadata
-  --- @return string? Error message when the entry is absent
-  stat: function(self: Reader, name: string): Stat | nil, string
+--- Writer for creating new ZIP archives (the generated cosmo.zip.Writer
+--- class): add(name, content, options?), close().
+local type Writer = zip.Writer
 
-  --- Reads the contents of a file from the archive.
-  --- @param name string The file path within the archive
-  --- @return string? The file contents, or nil on error
-  --- @return string? Error message if reading failed
-  read: function(self: Reader, name: string): string | nil, string
-
-  --- Closes the ZIP reader and releases resources.
-  close: function(self: Reader)
-end
-
---- Writer for creating new ZIP archives.
-local record Writer
-  --- Adds a file to the ZIP archive.
-  --- @param name string The file path within the archive
-  --- @param content string The file contents
-  --- @param options AddOptions? Optional compression and metadata settings
-  --- @return boolean? true on success, nil on failure
-  --- @return string? Error message if adding failed
-  add: function(self: Writer, name: string, content: string, options?: AddOptions): boolean | nil, string
-
-  --- Closes the ZIP archive and writes the central directory.
-  close: function(self: Writer)
-end
-
---- Appender for adding files to an existing ZIP archive.
-local record Appender
-  --- Adds a file to the ZIP archive.
-  --- @param name string The file path within the archive
-  --- @param content string The file contents
-  --- @param options AddOptions? Optional compression and metadata settings
-  --- @return boolean? true on success, nil on failure
-  --- @return string? Error message if adding failed
-  add: function(self: Appender, name: string, content: string, options?: AddOptions): boolean | nil, string
-
-  --- Removes a file from the ZIP archive by name.
-  --- @param name string The file path within the archive to remove
-  --- @return boolean? true on success, nil on failure
-  --- @return string? Error message if removal failed
-  remove: function(self: Appender, name: string): boolean | nil, string
-
-  --- Closes the ZIP archive and writes the updated central directory.
-  close: function(self: Appender)
-end
+--- Appender for adding files to an existing ZIP archive (the generated
+--- cosmo.zip.Appender class): add(name, content, options?), remove(name),
+--- close().
+local type Appender = zip.Appender
 
 --- Options for extract().
 local record ExtractOptions
   --- Refuse any entry whose declared uncompressed size exceeds this many
   --- bytes (checked before anything is read or written).
   max_file_size: integer
-end
-
--- Build a plain options table so the nominal cosmo.zip.OpenOptions record
--- doesn't conflict with this module's OpenOptions.
-local function raw_options(options: OpenOptions): {string: integer}
-  return {
-    level = options.level,
-    max_file_size = options.max_file_size,
-  }
 end
 
 --- Open a ZIP archive for reading.
@@ -138,7 +58,7 @@ local function reader(path: string | integer, options?: OpenOptions): Reader | n
   local handle: any
   local err: string
   if options then
-    handle, err = zip.open(path, "r", raw_options(options) as zip.OpenOptions)
+    handle, err = zip.open(path, "r", options)
   else
     handle, err = zip.open(path, "r")
   end
@@ -154,17 +74,17 @@ end
 --- @return Writer | nil The archive writer, or nil on error
 --- @return string? Error message if opening failed
 local function writer(path: string | integer, options?: OpenOptions): Writer | nil, string
-  local handle: any
+  local handle: Writer
   local err: string
   if options then
-    handle, err = zip.create(path, raw_options(options) as zip.OpenOptions)
+    handle, err = zip.create(path, options)
   else
     handle, err = zip.create(path)
   end
   if not handle then
     return nil, err or "failed to create zip archive"
   end
-  return handle as Writer
+  return handle
 end
 
 --- Open a ZIP archive for appending, creating it if it does not exist.
@@ -175,17 +95,17 @@ end
 --- @return Appender | nil The archive appender, or nil on error
 --- @return string? Error message if opening failed
 local function appender(path: string, options?: OpenOptions): Appender | nil, string
-  local handle: any
+  local handle: Appender
   local err: string
   if options then
-    handle, err = zip.append(path, raw_options(options) as zip.OpenOptions)
+    handle, err = zip.append(path, options)
   else
     handle, err = zip.append(path)
   end
   if not handle then
     return nil, err or "failed to open zip archive for appending"
   end
-  return handle as Appender
+  return handle
 end
 
 --- Open a ZIP archive from in-memory data for reading.
@@ -194,17 +114,17 @@ end
 --- @return Reader? The archive reader, or nil on error
 --- @return string? Error message if opening failed
 local function from(data: string, options?: OpenOptions): Reader | nil, string
-  local handle: any
+  local handle: Reader
   local err: string
   if options then
-    handle, err = zip.from(data, raw_options(options) as zip.OpenOptions)
+    handle, err = zip.from(data, options)
   else
     handle, err = zip.from(data)
   end
   if not handle then
     return nil, err or "failed to open zip from data"
   end
-  return handle as Reader
+  return handle
 end
 
 --- Report whether a zip entry name would escape the extraction root
