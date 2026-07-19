@@ -478,7 +478,7 @@ ci_summaries := $(foreach s,$(ci_stages),$(o)/$(s)-summary.txt)
 .PHONY: ci
 ## Run CI checks (format, teal, test, example, lint) in parallel
 ci:
-	@rm -f $(o)/failed
+	@rm -f $(o)/failed $(ci_summaries)
 	@$(MAKE) --keep-going $(ci_stages) || true
 	@for s in $(ci_stages); do \
 		echo "::group::$$s"; \
