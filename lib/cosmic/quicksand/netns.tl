@@ -20,50 +20,18 @@
 local unix = require("cosmo.unix")
 local errno = require("cosmic.errno")
 
-local IFREQ_UNION_SIZE < const > = 24
-local IFNAMSIZ < const > = 16 -- mirrors unix.IFNAMSIZ; kernel ABI constant
-
---- Build a `struct ifreq` for SIOCGIFFLAGS/SIOCSIFFLAGS: char
---- ifr_name[IFNAMSIZ] at offset 0, int16 ifr_flags at offset IFNAMSIZ,
---- padded to the largest union member.
-local function build_ifreq(name: string, flags: integer): string
-  assert(#name < IFNAMSIZ, "interface name too long")
-  local name_field = name .. string.rep("\0", IFNAMSIZ - #name)
-  -- Pack the 16-bit ifr_flags unsigned: IFF_* bits above 0x7fff (the sign
-  -- bit of a signed i2) would overflow "<i2" and raise from string.pack.
-  local flags_field = string.pack("<I2", flags)
-  return name_field .. flags_field
-  .. string.rep("\0", IFREQ_UNION_SIZE - #flags_field)
-end
-
---- Parse the 16-bit flags field out of an ifreq returned by ioctl().
-local function parse_ifreq_flags(ifr: string): integer
-  return (string.unpack("<I2", ifr, IFNAMSIZ + 1))
-end
-
---- Open an AF_INET dgram socket for the SIOC* interface ioctls.
---- SOCK_CLOEXEC: don't leak this short-lived control socket into any
---- exec'd child.
-local function control_socket(): integer, string
-  local sk, err = unix.socket(
-    unix.AF_INET, unix.SOCK_DGRAM | unix.SOCK_CLOEXEC, 0)
-  if not sk then return nil, errno.str(err, "socket") end
-  return sk
-end
-
 --- Read the current IFF_* flags on `name` in the current net namespace.
+--- The `struct ifreq` ABI lives in the C binding (cosmopolitan#199);
+--- no kernel structs are packed here.
 ---
 --- @param name string interface name (e.g. "lo")
 --- @return integer? flags bitmask on success
 --- @return string? error message on failure
 local function get_flags(name: string): integer | nil, string
-  if #name >= IFNAMSIZ then return nil, "interface name too long" end
-  local sk, err = control_socket()
-  if not sk then return nil, err end
-  local result, ioerr = unix.ioctl(sk, unix.SIOCGIFFLAGS, build_ifreq(name, 0))
-  unix.close(sk)
-  if not result then return nil, errno.str(ioerr, "SIOCGIFFLAGS") end
-  return parse_ifreq_flags(result as string) -- cast: ioctl union to string
+  if #name >= unix.IFNAMSIZ then return nil, "interface name too long" end
+  local flags, err = unix.siocgifflags(name)
+  if not flags then return nil, errno.str(err, "SIOCGIFFLAGS") end
+  return flags
 end
 
 --- Set the IFF_* flags on `name` in the current net namespace.
@@ -73,12 +41,9 @@ end
 --- @return boolean true on success
 --- @return string? error message on failure
 local function set_flags(name: string, flags: integer): boolean, string
-  if #name >= IFNAMSIZ then return false, "interface name too long" end
-  local sk, err = control_socket()
-  if not sk then return false, err end
-  local ok, ioerr = unix.ioctl(sk, unix.SIOCSIFFLAGS, build_ifreq(name, flags))
-  unix.close(sk)
-  if not ok then return false, errno.str(ioerr, "SIOCSIFFLAGS") end
+  if #name >= unix.IFNAMSIZ then return false, "interface name too long" end
+  local ok, err = unix.siocsifflags(name, flags)
+  if not ok then return false, errno.str(err, "SIOCSIFFLAGS") end
   return true
 end
 
