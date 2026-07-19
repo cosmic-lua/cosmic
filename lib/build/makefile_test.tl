@@ -91,3 +91,20 @@ local function test_ci_grading_catches_exit_after_clean_summary()
     "expected the failure recorded as an exit failure\noutput: " .. tail)
 end
 test_ci_grading_catches_exit_after_clean_summary()
+
+-- test: the lint stage is guarded against a silently-empty file list
+-- (#719). Outside a git checkout `git ls-files` fails silently and
+-- lint would green-light zero checks; the summary recipe must carry
+-- the loud guard, and the tracked-file machinery must exist. The
+-- database dump includes both variable definitions and recipe text.
+local function test_lint_guard_present()
+  local result = read_make_output("database.out")
+  local out = result.output
+  assert(out:find("not a git checkout", 1, true),
+    "lint summary recipe should fail loudly on an empty git ls-files")
+  assert(out:match("\nlint_present := "),
+    "expected lint_present (wildcard-filtered tracked files) in database")
+  assert(out:match("\nlint_deleted := "),
+    "expected lint_deleted (tracked-but-missing files) in database")
+end
+test_lint_guard_present()
