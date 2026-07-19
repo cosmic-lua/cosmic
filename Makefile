@@ -58,9 +58,11 @@ filter-only = $(if $(only),$(foreach f,$1,$(if $(findstring $(only),$(f)),$(f)))
 
 cp := cp -p
 
-$(o)/%: %
-	@mkdir -p $(@D)
-	@$(cp) $< $@
+# plain cp: -p's acl step trips the enforced pledge (#729); .exists orders
+# cold-tree copies after o/ exists (unveil skips missing paths silently)
+$(o)/%: % | $(o)/.exists
+	@mkdir -p $(@D) && cp $< $@
+$(o)/.exists: ; @mkdir -p $(@D) && touch $@
 
 # compile .tl to .lua; flag from cook.mk's probe (strict-capable ->
 # hermetic LUA_PATH=";;", pre-flag -> tree LUA_PATH self-healing, #666).
@@ -496,5 +498,3 @@ ci:
 		echo "::endgroup::"; \
 	done
 	@if [ -f $(o)/failed ]; then echo "ci: FAIL ($$(paste -sd' ' $(o)/failed))"; exit 1; else echo "ci: PASS"; fi
-
-

@@ -19,7 +19,7 @@ lib/cosmic/cli/main.tl 0 276
 lib/cosmic/cli/main_handlers.tl 16 224
 lib/cosmic/cli/run.tl 4 31
 lib/cosmic/cli/script_cache.tl 26 29
-lib/cosmic/cli/searcher.tl 17 26
+lib/cosmic/cli/searcher.tl 13 26
 lib/cosmic/cli/style.tl 115 122
 lib/cosmic/cli/welcome.tl 0 25
 lib/cosmic/codec.tl 52 57
@@ -138,4 +138,4 @@ lib/types/gentype_parse.tl 267 288
 lib/types/gentype_render.tl 309 312
 lib/types/gentype_types.tl 2 2
 tlconfig.lua 7 7
-total 11246 14769
+total 11242 14769

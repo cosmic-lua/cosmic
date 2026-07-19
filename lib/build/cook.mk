@@ -72,8 +72,8 @@ $(build_make_out)/only-database.out: $(build_make_srcs)
 canary_dir := $(o)/sandbox-canary
 canary_escape := $(o)/sandbox-canary-escape.txt
 $(canary_dir)/probe.got: .SANDBOXED := 1
-$(canary_dir)/probe.got: .PLEDGE := stdio rpath wpath cpath proc exec
-$(canary_dir)/probe.got: .UNVEIL := rwc:$(canary_dir) rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc r:/dev/null
+$(canary_dir)/probe.got: .PLEDGE := $(pledge_build)
+$(canary_dir)/probe.got: .UNVEIL := rwc:$(canary_dir) $(unveil_hostx)
 $(canary_dir)/probe.got: .FORCE
 	@if echo escaped 2>/dev/null > $(canary_escape); then \
 	  echo escaped > $@; \
