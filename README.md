@@ -69,6 +69,9 @@ hello.tl` checks without running. `./cosmic-lua -i` starts a REPL, and
 
 ## learn more
 
+- [docs/goals.md](docs/goals.md) and
+  [docs/decisions.md](docs/decisions.md) — why cosmic exists, what it
+  promises, and the tradeoffs behind it
 - [docs/stdlib.md](docs/stdlib.md) — standard library tour and error
   handling conventions
 - [docs/architecture.md](docs/architecture.md) — how the binary is put

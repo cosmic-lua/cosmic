@@ -11,6 +11,12 @@ the primary artifact is `cosmic-lua` — a single executable containing:
 - embedded documentation index
 - build tooling for creating custom executables
 
+the project's mission, ranked promises, and measurable goals live in
+[docs/goals.md](docs/goals.md); the tradeoffs behind them are recorded
+ADR-style in [docs/decisions.md](docs/decisions.md). consult both before
+proposing directional changes — settled decisions are amended there, not
+relitigated in passing.
+
 ## Repository Layout
 
 ```
