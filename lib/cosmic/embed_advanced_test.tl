@@ -355,4 +355,47 @@ local function test_embed_symlink_to_outside_file_skipped()
 end
 test_embed_symlink_to_outside_file_skipped()
 
+-- --exe operates on an existing app instead of the running executable
+-- (#690 F1): extract a produced app (restoring file modes), and layer
+-- new files onto it, all without extract/re-embed gymnastics. Flag
+-- order is free: --exe is collected before early-returning options.
+local function test_exe_flag_extract_and_layer()
+  local appdir = fs.join(tmpdir, "exeapp")
+  fs.makedirs(appdir)
+  fs.write(fs.join(appdir, "main.lua"),
+    'print("v1", io.open("/zip/extra.txt") and "extra" or "noextra")\n')
+  fs.write(fs.join(appdir, "tool.sh"), "#!/bin/sh\necho t\n")
+  fs.chmod(fs.join(appdir, "tool.sh"), tonumber("755", 8))
+
+  local app1 = fs.join(tmpdir, "exe-app1")
+  local __e1 = (spawn.spawn({cosmic, "--embed", appdir, "--output", app1}) as spawn.Handle):wait() as spawn.Result
+  assert(__e1.ok, "embed app1: " .. tostring(__e1.stderr))
+
+  -- Extract FROM the app (--exe after the early-returning --extract).
+  local x = fs.join(tmpdir, "exe-x")
+  local __e2 = (spawn.spawn({cosmic, "--extract", x, "--exe", app1}) as spawn.Handle):wait() as spawn.Result
+  assert(__e2.ok, "extract --exe: " .. tostring(__e2.stderr))
+  local wrapper = fs.read(fs.join(x, "main.lua"))
+  assert(wrapper and string.find(wrapper, "cosmic-embed searcher wrapper", 1, true),
+    "extracted main.lua should be the wrapper")
+  assert(fs.read(fs.join(x, "main.user.lua")), "user entry should extract")
+  local st = fs.stat(fs.join(x, "tool.sh"))
+  assert(st, "tool.sh should extract")
+  local mode = (st as fs_types.Stat):mode() & tonumber("777", 8)
+  assert(mode == tonumber("755", 8),
+    "exec mode should be restored, got " .. string.format("%o", mode))
+
+  -- Layer a file onto the existing app.
+  local extra = fs.join(tmpdir, "extra.txt")
+  fs.write(extra, "x")
+  local app2 = fs.join(tmpdir, "exe-app2")
+  local __e3 = (spawn.spawn({cosmic, "--embed", extra, "--output", app2, "--exe", app1})
+    as spawn.Handle):wait() as spawn.Result
+  assert(__e3.ok, "layer --exe: " .. tostring(__e3.stderr))
+  local __e4 = (spawn.spawn({app2}) as spawn.Handle):wait() as spawn.Result
+  assert(__e4.ok and tostring(__e4.stdout):match("v1"),
+    "layered app should run its entry: " .. tostring(__e4.stdout))
+end
+test_exe_flag_extract_and_layer()
+
 print("All embed tests passed!")
