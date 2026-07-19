@@ -260,7 +260,7 @@ local function prepare<T>(url: string, opts_in: T): string, T, string
   if prepared.body and not prepared.method then
     prepared.method = "POST"
   end
-  return url, o, nil
+  return url, o as T, nil
 end
 
 -- Mirrors of the stream result surface download consumes.
@@ -315,7 +315,7 @@ local function make(fetch_fn: function(string, any): any,
 
   made.download = function(url: string, path: string, opts_any: any): any
     local res_any = stream_fn(url, opts_any)
-    local res = res_any
+    local res = res_any as StreamRes
     if not res.ok then
       return res_any
     end
@@ -348,7 +348,7 @@ local function make(fetch_fn: function(string, any): any,
     if not handle then
       return fail_with("download: " .. tostring(oerr))
     end
-    local h = handle
+    local h = handle as fd.Handle
     while true do
       local chunk, rerr = res.reader:read()
       if rerr then
@@ -357,7 +357,7 @@ local function make(fetch_fn: function(string, any): any,
         return fail_with("download: " .. rerr)
       end
       if not chunk then break end
-      local c = chunk
+      local c = chunk as string
       local off = 0
       while off < #c do
         local n, werr = h:write(c:sub(off + 1))

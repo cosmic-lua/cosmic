@@ -276,8 +276,8 @@ local function parse_http(str: string): integer | nil, string
     return nil, "parse_http: unknown month: " .. mon
   end
   return timegm(
-    tonumber(y) as integer, month, tonumber(d) as integer,
-    tonumber(h) as integer, tonumber(mi) as integer, tonumber(s) as integer)
+    math.tointeger(tonumber(y)), month, math.tointeger(tonumber(d)),
+    math.tointeger(tonumber(h)), math.tointeger(tonumber(mi)), math.tointeger(tonumber(s)))
 end
 
 --- Format a UNIX timestamp as a date string in UTC.
@@ -302,7 +302,7 @@ local function parse_date(str: string): integer | nil, string
     return nil, "parse_date: not a YYYY-MM-DD date: " .. str
   end
   return timegm(
-    tonumber(y) as integer, tonumber(mo) as integer, tonumber(d) as integer,
+    math.tointeger(tonumber(y)), math.tointeger(tonumber(mo)), math.tointeger(tonumber(d)),
     0, 0, 0)
 end
 
@@ -336,8 +336,8 @@ local function parse_offset(tz: string): integer, string
   if not sign then
     return nil, "invalid timezone offset: " .. tz
   end
-  local h = tonumber(oh) as integer
-  local m = tonumber(om) as integer
+  local h = math.tointeger(tonumber(oh))
+  local m = math.tointeger(tonumber(om))
   if h > 23 or m > 59 then
     return nil, "timezone offset out of range: " .. tz
   end
@@ -358,7 +358,7 @@ local function parse_iso8601(str: string): integer | nil, string
   local dy, dmo, dd = str:match("^(%d%d%d%d)-(%d%d)-(%d%d)$")
   if dy then
     return timegm(
-      tonumber(dy) as integer, tonumber(dmo) as integer, tonumber(dd) as integer,
+      math.tointeger(tonumber(dy)), math.tointeger(tonumber(dmo)), math.tointeger(tonumber(dd)),
       0, 0, 0)
   end
   local y, mo, d, h, mi, s, rest = str:match(
@@ -370,8 +370,8 @@ local function parse_iso8601(str: string): integer | nil, string
   local after = rest:match("^%.%d+(.*)$")
   local tz = after or rest
   local epoch, err = timegm(
-    tonumber(y) as integer, tonumber(mo) as integer, tonumber(d) as integer,
-    tonumber(h) as integer, tonumber(mi) as integer, tonumber(s) as integer)
+    math.tointeger(tonumber(y)), math.tointeger(tonumber(mo)), math.tointeger(tonumber(d)),
+    math.tointeger(tonumber(h)), math.tointeger(tonumber(mi)), math.tointeger(tonumber(s)))
   if not epoch then
     return nil, err
   end

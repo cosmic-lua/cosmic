@@ -408,7 +408,7 @@ local function stream_fail(err: any, kind: string | cosmo.StreamReader): StreamR
       ok = false,
       error = tostring(err or "unknown error"),
       error_kind = kind as ErrorKind,
-    } as StreamResult, result_mt) as StreamResult
+    }, result_mt)
 end
 
 --- Open a streaming HTTP request.
@@ -443,12 +443,12 @@ local function stream(url: string, opts?: Options): StreamResult
   local headers, raw_headers = fetch_headers.normalize(headers_or_err as {string: any})
   return setmetatable({
       ok = true,
-      status = status as integer,
+      status = status,
       headers = headers,
       raw_headers = raw_headers,
-      reader = make_reader(reader_or_kind as cosmo.StreamReader),
+      reader = make_reader(reader_or_kind),
       url = final_url,
-    } as StreamResult, result_mt) as StreamResult
+    }, result_mt)
 end
 
 -- The verb helpers and download are built in cosmic.fetch.extras around

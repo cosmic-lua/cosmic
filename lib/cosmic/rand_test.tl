@@ -165,7 +165,7 @@ local function test_shuffle_permutes()
   assert(#out == 8, "shuffle must preserve length")
   local seen: {number: boolean} = {}
   for _, v in ipairs(out) do
-    seen[v as number] = true
+    seen[v] = true
   end
   for v = 1, 8 do
     assert(seen[v], "shuffle lost element " .. v)

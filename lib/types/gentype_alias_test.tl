@@ -29,11 +29,11 @@ function zip.open(path, mode) end
 ]==]
   local dtl = gentype.generate_dtl(gentype.parse_module(source, "zip"))
   assert(dtl:match("local enum OpenMode\n  \"r\"\n  \"w\"\n  \"a\"\nend"),
-    "literal-union alias should render as a Teal enum:\n" .. dtl)
+    "literal-union alias should render Teal enum:\n" .. dtl)
   assert(dtl:match("--- Archive open modes%.\nlocal enum OpenMode"),
     "alias description should precede the enum:\n" .. dtl)
   assert(dtl:match("local type Errno = integer"),
-    "scalar alias should render as a transparent type alias:\n" .. dtl)
+    "scalar alias should render transparent type alias:\n" .. dtl)
   assert(dtl:match("  type OpenMode = OpenMode"),
     "enum should be re-exported on the module record:\n" .. dtl)
   assert(dtl:match("open: function%(path: string, mode%?: OpenMode%)"),
@@ -59,7 +59,7 @@ function zip.open() end
 ]==]
   local dtl = gentype.generate_dtl(gentype.parse_module(source, "zip"))
   assert(dtl:match("local record Handle\n  userdata\n"),
-    "userdata parent should render as the userdata member:\n" .. dtl)
+    "userdata parent should render userdata member:\n" .. dtl)
   print("test_userdata_class_marker: PASS")
 end
 test_userdata_class_marker()

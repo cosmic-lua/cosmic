@@ -86,10 +86,10 @@ end
 --- so callers can classify the failure (e.g. a benign ENOENT).
 local function write_file(path: string, data: string): boolean, string, integer
   local fd, oerr, oeno = unix.open(path, unix.O_WRONLY)
-  if not fd then return false, oerr, oeno as integer end
+  if not fd then return false, oerr, oeno end
   local n, werr, weno = unix.write(fd, data)
   unix.close(fd)
-  if not n then return false, werr, weno as integer end
+  if not n then return false, werr, weno end
   return true
 end
 
@@ -113,8 +113,8 @@ end
 --- @return boolean true on success
 --- @return string? error message on failure
 local function setup_userns_maps(uid: integer, gid: integer): boolean, string
-  if uid == nil then uid = unix.geteuid() as integer end
-  if gid == nil then gid = unix.getegid() as integer end
+  if uid == nil then uid = unix.geteuid() end
+  if gid == nil then gid = unix.getegid() end
   local ok, err = write_file("/proc/self/uid_map",
     "0 " .. tostring(uid) .. " 1\n")
   if not ok then return false, errno.str(err, "uid_map write") end
@@ -154,8 +154,8 @@ local function barrier(): Barrier | nil, string
   -- lands in the second slot where the write fd would have been.
   local r, w = unix.pipe()
   if not r then return nil, errno.str(w, "pipe") end
-  local rfd: integer = r as integer
-  local wfd: integer = w as integer
+  local rfd: integer = r
+  local wfd: integer = w
   local b: Barrier = {}
   b.signal = function(_: Barrier)
     if wfd then
@@ -207,7 +207,7 @@ local function fork_pidns(): integer | nil, string
   end
   local pid, ferr = unix.fork()
   if not pid then return nil, errno.str(ferr, "fork") end
-  return pid as integer
+  return pid
 end
 
 --- Run a PID-1 supervisor loop. Forwards signals in opts.signals
@@ -262,10 +262,10 @@ local function become_init(main_pid: integer, opts: InitOptions): integer
         kill_and_reap(s)
       end
       if unix.WIFEXITED(ws) then
-        return unix.WEXITSTATUS(ws) as integer
+        return unix.WEXITSTATUS(ws)
       end
       if unix.WIFSIGNALED(ws) then
-        return 128 + (unix.WTERMSIG(ws) as integer)
+        return 128 + (unix.WTERMSIG(ws))
       end
       return 1
     else
@@ -274,7 +274,7 @@ local function become_init(main_pid: integer, opts: InitOptions): integer
       for _, s in ipairs(sidecars) do
         if s == pid then
           if opts.on_sidecar_exit then
-            pcall(opts.on_sidecar_exit, pid as integer, ws as integer)
+            pcall(opts.on_sidecar_exit, pid, ws)
           end
           kill_and_reap(main_pid)
           return 1

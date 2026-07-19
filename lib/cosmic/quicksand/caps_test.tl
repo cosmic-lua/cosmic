@@ -43,7 +43,7 @@ local function test_number_of_unknown()
   local n, err = caps.number_of("CAP_NOT_A_REAL_CAPABILITY")
   assert(n == nil, "unknown cap should not resolve")
   assert(type(err) == "string", "should return an error string")
-  local n2, err2 = caps.number_of(nil as string)
+  local n2, err2 = caps.number_of(nil)
   assert(n2 == nil and type(err2) == "string", "nil name should error, not throw")
 end
 test_number_of_unknown()

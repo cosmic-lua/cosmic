@@ -38,7 +38,7 @@ end
 
 --- Parse the 16-bit flags field out of an ifreq returned by ioctl().
 local function parse_ifreq_flags(ifr: string): integer
-  return (string.unpack("<I2", ifr, IFNAMSIZ + 1)) as integer
+  return (string.unpack("<I2", ifr, IFNAMSIZ + 1))
 end
 
 --- Open an AF_INET dgram socket for the SIOC* interface ioctls.
@@ -48,7 +48,7 @@ local function control_socket(): integer, string
   local sk, err = unix.socket(
     unix.AF_INET, unix.SOCK_DGRAM | unix.SOCK_CLOEXEC, 0)
   if not sk then return nil, errno.str(err, "socket") end
-  return sk as integer
+  return sk
 end
 
 --- Read the current IFF_* flags on `name` in the current net namespace.
@@ -98,7 +98,7 @@ local function open(pid: integer): integer | nil, string
   local fd, err = unix.open("/proc/" .. tag .. "/ns/net",
     unix.O_RDONLY | unix.O_CLOEXEC)
   if not fd then return nil, errno.str(err, "netns.open") end
-  return fd as integer
+  return fd
 end
 
 --- Join the net namespace represented by `fd` (e.g. from open()).
@@ -151,7 +151,7 @@ local function bring_up(name: string): boolean, string
   if not flags then
     return false, errno.str(err, "bring_up " .. name)
   end
-  return set_flags(name, flags | (unix.IFF_UP as integer))
+  return set_flags(name, flags | (unix.IFF_UP))
 end
 
 --- Bring `name` down in the current net namespace. Idempotent.
@@ -164,7 +164,7 @@ local function bring_down(name: string): boolean, string
   if not flags then
     return false, errno.str(err, "bring_down " .. name)
   end
-  return set_flags(name, flags & ~ (unix.IFF_UP as integer))
+  return set_flags(name, flags & ~ (unix.IFF_UP))
 end
 
 --- Close a file descriptor previously returned by open().

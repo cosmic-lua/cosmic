@@ -90,7 +90,7 @@ end
 local function parse_connect_target(t: string): string | nil, integer
   local h, p = t:match("^([^:]+):(%d+)$")
   if not h then return nil end
-  return h, tonumber(p) as integer
+  return h, math.tointeger(tonumber(p))
 end
 
 --- Parse an absolute URI "http://host[:port]/path" (proxies receive
@@ -105,7 +105,7 @@ local function parse_absolute_uri(t: string): string | nil, string, integer, str
   if not s then return nil end
   local h, p = hp:match("^([^:]+):(%d+)$")
   if h then
-    return s, h, tonumber(p) as integer, path
+    return s, h, math.tointeger(tonumber(p)), path
   end
   if s == "https" then
     return s, hp, 443, path
@@ -228,9 +228,9 @@ local function pump(a: integer, b: integer)
   local open: {integer: boolean} = {}
   open[a] = true
   open[b] = true
-  local hup_mask = (unix.POLLHUP as integer)
-  | (unix.POLLERR as integer)
-  | (unix.POLLNVAL as integer)
+  local hup_mask = (unix.POLLHUP)
+  | (unix.POLLERR)
+  | (unix.POLLNVAL)
   local function close_side(fd: integer, peer: integer)
     pcall(unix.shutdown, peer, unix.SHUT_WR)
     fds[fd] = nil
@@ -241,11 +241,11 @@ local function pump(a: integer, b: integer)
     if not ready then return end
     for fd, ev in pairs(ready as {integer: integer}) do
       local peer = (fd == a) and b or a
-      local evi = ev as integer
-      local readable = (evi & (unix.POLLIN as integer)) ~= 0
+      local evi = ev
+      local readable = (evi & (unix.POLLIN)) ~= 0
       local hup = (evi & hup_mask) ~= 0
       if readable then
-        local chunk = unix.recv(fd as integer, 16384)
+        local chunk = unix.recv(fd, 16384)
         if not chunk or chunk == "" then
           close_side(fd, peer)
         elseif not send_all(peer, chunk) then

@@ -217,8 +217,8 @@ local function report(paths: {string}): integer
           stdout = stdout_content,
           stderr = stderr_content,
           status = status,
-          test_count = test_count as integer,
-        } as TestResult)
+          test_count = test_count,
+        })
     end
   end
 

@@ -31,7 +31,7 @@ local errno = require("cosmic.errno")
 local function resolve(host: string, timeout_ms: integer,
     resolver: function(string): integer, any): integer | nil, string
   local ip = cosmo.ParseIp(host)
-  if ip and ip ~= -1 then return ip as integer end
+  if ip and ip ~= -1 then return ip end
   if not resolver then
     resolver = cosmo.ResolveIp as function(string): integer, any
   end
@@ -42,8 +42,8 @@ local function resolve(host: string, timeout_ms: integer,
   end
   local r, w = unix.pipe()
   if not r then return nil, errno.str(w, "pipe") end
-  local rfd = r as integer
-  local wfd = w as integer
+  local rfd = r
+  local wfd = w
   local pid, ferr = unix.fork()
   if not pid then
     unix.close(rfd)
@@ -78,7 +78,7 @@ local function resolve(host: string, timeout_ms: integer,
   pcall(unix.wait, pid)
   local tag = data:sub(1, 1)
   if tag == "O" and #data >= 9 then
-    return (string.unpack("<i8", data, 2)) as integer
+    return (string.unpack("<i8", data, 2))
   end
   if tag == "E" then
     return nil, data:sub(2)
@@ -117,9 +117,9 @@ local function dial(host: string, port: integer, upstream_ns_fd: integer,
     return nil, "request to private network blocked (SSRF protection)"
   end
   local sk, serr = unix.socket(unix.AF_INET,
-    (unix.SOCK_STREAM as integer) | (unix.SOCK_CLOEXEC as integer), 0)
+    (unix.SOCK_STREAM) | (unix.SOCK_CLOEXEC), 0)
   if not sk then return nil, errno.str(serr, "socket") end
-  local skfd = sk as integer
+  local skfd = sk
   local ok, cerr = unix.connect(skfd, ip, port)
   if not ok then
     unix.close(skfd)

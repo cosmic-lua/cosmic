@@ -85,7 +85,7 @@ test_split_edges_and_adjacent()
 
 local function test_split_no_match()
   local fields = check.must(re.split(",", "abc"))
-  assert(#fields == 1 and fields[1] == "abc", "expected whole string as one field")
+  assert(#fields == 1 and fields[1] == "abc", "expected whole string field")
 end
 test_split_no_match()
 

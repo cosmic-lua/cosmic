@@ -84,7 +84,7 @@ end
 -- runtime mirror of the pledge Promise enum.
 local valid_promise: {string: boolean} = {}
 for _, p in ipairs(pledge.PROMISES) do
-  valid_promise[p as string] = true
+  valid_promise[p] = true
 end
 
 --- True when this host can enforce an fs section: landlock on Linux,

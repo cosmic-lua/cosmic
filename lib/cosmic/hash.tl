@@ -121,7 +121,7 @@ local function hmac(algo: Algo, key: string, data: string): string | nil, string
   local d, err = cosmo.GetCryptoHash(
     string.upper(algo) as cosmo.CryptoHashName, data, key)
   if not d then
-    return nil, err as string
+    return nil, err
   end
   return d
 end
@@ -187,7 +187,7 @@ local function password(pwd: string, options?: HashOptions): string | nil, strin
   -- salt = nil: the binding generates 16 random bytes with a CSPRNG.
   local encoded, err = argon2.hash_encoded(pwd, nil, config)
   if not encoded then
-    return nil, err as string
+    return nil, err
   end
   return encoded
 end

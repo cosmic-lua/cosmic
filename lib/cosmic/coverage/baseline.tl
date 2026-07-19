@@ -85,8 +85,8 @@ local function parse(text: string): {string: Entry} | nil, Entry, string
         return nil, nil, string.format("baseline line %d unparsable: %s", lineno, line)
       end
       local entry: Entry = {
-        covered = tonumber(covered) as integer,
-        total = tonumber(all) as integer,
+        covered = math.tointeger(tonumber(covered)),
+        total = math.tointeger(tonumber(all)),
       }
       if path == "total" then
         total = entry

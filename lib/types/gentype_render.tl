@@ -197,9 +197,13 @@ end
 --- entries degrade to bare `function` (Teal cannot express them).
 local function render_returns(returns: {Return}, fallible: boolean, error_type: string): string
   local ret_types: {string} = {}
+  local ret_names: {integer: string} = {}
   for _, r in ipairs(returns) do
     if r.description ~= "type" then
       table.insert(ret_types, convert_type(r.return_type))
+      if r.description then
+        ret_names[#ret_types] = r.description:match("^([%w_]+)")
+      end
     end
   end
   -- A fallible function folds its failure overload into a trailing error
@@ -222,6 +226,21 @@ local function render_returns(returns: {Return}, fallible: boolean, error_type: 
     local first = ret_types[1]
     if not first:match("%.%.%.$") and first ~= "nil" and not first:find("| nil", 1, true) then
       ret_types[1] = first .. " | nil"
+    end
+  end
+  -- Error positions are plain: a trailing return NAMED error/err/errno
+  -- (`@return string? error`) is nil exactly when the call succeeded, so
+  -- rendering it `| nil` forces a useless second narrowing on every
+  -- caller that already narrowed the value (`err as string`). Match
+  -- cosmic's own `value, string` convention and strip the suffix; the
+  -- checker still forces narrowing where it matters, on the value. The
+  -- rule is name-gated so genuinely-optional success values (accept's
+  -- ip/port, say) keep their honest `| nil`.
+  for i = 2, #ret_types do
+    local n = ret_names[i]
+    if (n == "error" or n == "err" or n == "errno")
+      and ret_types[i]:sub(-6) == " | nil" then
+      ret_types[i] = ret_types[i]:sub(1, -7)
     end
   end
   for i, rt in ipairs(ret_types) do

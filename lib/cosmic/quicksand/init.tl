@@ -97,13 +97,13 @@ local function probe_ns(): boolean
   or unix.CLONE_NEWNS == nil then
     return false
   end
-  local flags = (unix.CLONE_NEWUSER as integer)
-  | (unix.CLONE_NEWNET as integer)
-  | (unix.CLONE_NEWNS as integer)
+  local flags = (unix.CLONE_NEWUSER)
+  | (unix.CLONE_NEWNET)
+  | (unix.CLONE_NEWNS)
   local r, w = unix.pipe(unix.O_CLOEXEC)
   if not r then return false end
-  local rfd = r as integer
-  local wfd = w as integer
+  local rfd = r
+  local wfd = w
   local pid = unix.fork()
   if pid == nil then
     unix.close(rfd)
@@ -121,7 +121,7 @@ local function probe_ns(): boolean
   unix.close(wfd)
   local b = unix.read(rfd, 1)
   unix.close(rfd)
-  unix.wait(pid as integer)
+  unix.wait(pid)
   return b == "1"
 end
 
@@ -171,7 +171,7 @@ local M: QuicksandModule = {
   is_supported = is_supported,
   probe = probe,
   probe_ns = probe_ns,
-  Box = box as BoxIface,
+  Box = box,
 }
 
 return M

@@ -190,7 +190,7 @@ test_parse_iso8601_z_suffix()
 
 local function test_parse_iso8601_no_suffix()
   local ts = time.parse_iso8601("2025-01-01T00:00:00")
-  assert(ts == 1735689600, "expected 1735689600 (treat as UTC), got " .. tostring(ts))
+  assert(ts == 1735689600, "expected 1735689600 (treat), got " .. tostring(ts))
 end
 test_parse_iso8601_no_suffix()
 

@@ -184,7 +184,7 @@ local function raw(fd: integer, opts?: TtyModule.RawOptions): Termios | nil, str
   if not termios then
     return nil, err
   end
-  local t = termios as Termios
+  local t = termios
   local original = copy_termios(t)
   local ok, set_err = setattr(fd, unix.TCSANOW, make_raw(t, opts))
   if not ok then
@@ -253,12 +253,12 @@ local function getpass(prompt: string): string | nil, string
     end)
   -- Write newline to stderr since echo is off (regardless of outcome)
   io.stderr:write("\n")
-  restore(0, original as Termios)
+  restore(0, original)
   if not read_ok then
     -- pcall caught an error: line_or_err is the error message
     return nil, tostring(line_or_err)
   end
-  local line = line_or_err as string
+  local line = line_or_err
   if line == nil then
     return nil, "EOF"
   end

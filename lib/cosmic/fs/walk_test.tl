@@ -6,7 +6,7 @@ local fs = require("cosmic.fs")
 local user = require("cosmic.user")
 local type WalkAction = fs_walk.WalkAction
 
-local tmpdir = os.getenv("TEST_TMPDIR") as string
+local tmpdir = os.getenv("TEST_TMPDIR")
 
 -- Helper: create a directory under tmpdir
 local function mksubdir(name: string): string
@@ -186,7 +186,7 @@ local function test_walk_permission_denied_subdir_reports_error()
   assert(ctx ~= nil, "a denied subdir must not abort the walk")
   assert(visited["seen.txt"], "readable entries must still be visited")
   assert(err and err:match("EACCES"),
-    "walk must surface the denied subdir as EACCES: " .. tostring(err))
+    "walk must surface the denied subdir: " .. tostring(err))
 end
 test_walk_permission_denied_subdir_reports_error()
 
