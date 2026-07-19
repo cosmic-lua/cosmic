@@ -22,9 +22,32 @@ export PATH := $(CURDIR)/$(o)/bootstrap:$(CURDIR)/$(o)/bin:$(HOST_PATH)
 pledge_build := stdio rpath wpath cpath proc exec
 unveil_base := rx:$(o)/bootstrap r:lib r:3p
 unveil_host := rx:/usr rx:/proc r:/etc r:/dev/null
+# Host set proven under real enforcement by the sandbox-canary (#724):
+# shell + coreutils + loaders. ENOENT entries are skipped, so the
+# generous list is safe across hosts.
+unveil_hostx := rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc r:/dev/null
 unveil_dep := rx:$(o)/bootstrap r:3p rwc:$(o)
 unveil_test := $(unveil_base) rwcx:$(o) rwc:$(TMP) $(unveil_host)
 unveil_run := $(unveil_base) rwc:$(o) rwc:$(TMP) $(unveil_host)
+
+# First ENFORCED rule family (#729): the .tl compile rule. landlock-make
+# auto-grants rx on every prerequisite (source, types, bootstrap, flag
+# stamp) and on the recipe shell, merges the global .PLEDGE/.UNVEIL in,
+# and always adds the "prot_exec exec" promises — so the target grants
+# only add what the defaults lack: write access to the output tree,
+# tlconfig.lua (read by strict compiles), and the executable host dirs.
+# pledge() enforces everywhere via seccomp; unveil() needs Landlock (CI's
+# build job has it, the canary proves it). Requires the assimilated
+# bootstrap below: a raw APE exec falls back to extracting a loader into
+# $HOME/.ape-*, which no grant covers. Pattern variables attach by
+# target NAME, so every *.lua target under $(o) is enforced — including
+# the `$(o)/%: %` copies (their `cp -p` needs the fattr promise) and
+# the doc index. version.lua opts back out where it is defined: its
+# recipe needs git + .git, and its `|| echo unknown` fallback would
+# otherwise silently mint an artifact with no version.
+$(o)/%.lua: .SANDBOXED := 1
+$(o)/%.lua: .PLEDGE := $(pledge_build) fattr
+$(o)/%.lua: .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_hostx)
 
 # Type definition generation (define early so it's available to all modules).
 # Must match MODULES in lib/types/gentype.tl: "cosmo" renders the top-level
@@ -50,6 +73,7 @@ $(bootstrap_cosmic):
 	curl -fsSL -o $@ $(bootstrap_url)
 	@echo "$(bootstrap_sha256)  $@" | sha256sum -c - || { rm -f $@; echo "bootstrap cosmic checksum verification failed" >&2; exit 1; }
 	chmod +x $@
+	@$@ --assimilate
 	@ln -sf cosmic $(@D)/lua
 
 # Strict-compile capability probe: newer bootstraps ship --compile-strict
