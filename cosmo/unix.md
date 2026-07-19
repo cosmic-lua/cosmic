@@ -163,9 +163,10 @@ local record Memory
   --  as a result of the system call. No failure conditions are defined.
   wake: function(self: Memory, index: integer, count?: integer): integer
   --  Releases the shared-memory mapping immediately, instead of waiting
-  --  for the garbage collector to do it. Idempotent: repeat calls are
-  --  no-ops. After unmap, calling any other method on this object raises
-  --  an error rather than touching the freed memory.
+  --  for the garbage collector to do it. Idempotent: returns true when
+  --  this call released the mapping and false when it was already
+  --  unmapped. After unmap, calling any other method on this object
+  --  raises an error rather than touching the freed memory.
   unmap: function(self: Memory): boolean
 end
 ```
@@ -3628,6 +3629,48 @@ function siocgifconf(): any, string, Errno
 **Returns:**
 
 - any
+- string
+- Errno
+
+### siocgifflags
+
+```teal
+function siocgifflags(ifname: string): integer | nil, string, Errno
+```
+
+ Reads the IFF_* flag bitmask of the named network interface
+ (SIOCGIFFLAGS). The `struct ifreq` ABI lives in C, so callers pass
+ the interface name instead of hand-packing kernel structs.
+
+**Parameters:**
+
+- `ifname` (string)
+
+**Returns:**
+
+- integer | nil
+- string
+- Errno
+
+### siocsifflags
+
+```teal
+function siocsifflags(ifname: string, flags: integer): boolean | nil, string, Errno
+```
+
+ Writes the IFF_* flag bitmask of the named network interface
+ (SIOCSIFFLAGS). Typically requires privilege (or a user namespace
+ that grants it, e.g. for bringing loopback up in a fresh netns).
+ Read-modify-write with `unix.siocgifflags` to change single bits.
+
+**Parameters:**
+
+- `ifname` (string)
+- `flags` (integer)
+
+**Returns:**
+
+- boolean | nil
 - string
 - Errno
 
