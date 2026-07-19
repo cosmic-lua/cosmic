@@ -74,8 +74,8 @@ $(foreach m,$(modules),$(if $($(m)_version),\
   $(eval $(m)_staged := $(o)/$(m)/.staged)\
   $(if $($(m)_dir),,$(eval $(m)_dir := $(o)/$(m)/.staged))))
 
-# default deps for regular modules (also excluded from file dep expansion)
-default_deps := bootstrap test
+# modules excluded from file dep expansion
+default_deps := bootstrap
 
 # expand module deps: M_files depends on deps' _files and _staged
 $(foreach m,$(filter-out $(default_deps),$(modules)),\
@@ -167,29 +167,18 @@ quicksand_sandbox_tests := \
 $(quicksand_sandbox_tests): .PLEDGE =
 $(quicksand_sandbox_tests): .UNVEIL =
 
-$(o)/%.tl.test.got: $(o)/%.lua $(test_files) $(o)/bin/cosmic | $(cosmic_bin)
+$(o)/%.tl.test.got: $(o)/%.lua $(cosmic_bin)
 	@mkdir -p $(@D)
 	@TEST_DIR=$(TEST_DIR) PATH=$(CURDIR)/$(o)/bin:$$PATH $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
-# expand test deps: M's tests depend on own _files/_tl plus deps' _dir/_files/_lua
-# derive compiled .lua from _tl (first pass: compute all _lua)
-$(foreach m,$(filter-out bootstrap,$(modules)),\
-  $(if $($(m)_tl),$(eval $(m)_lua := $(patsubst %.tl,$(o)/%.lua,$($(m)_tl)))))
-# second pass: set up test dependencies, for both the plain test tree and
-# the coverage lane's separate output tree
-test_got_dirs := $(o) $(o)/coverage
-$(foreach p,$(test_got_dirs),$(foreach m,$(filter-out bootstrap,$(modules)),\
-  $(eval $(patsubst %,$(p)/%.test.got,$($(m)_tests)): $($(m)_files) $($(m)_lua))\
-  $(eval $(patsubst %,$(p)/%.test.got,$($(m)_tests)): TEST_DEPS += $($(m)_files) $($(m)_lua))\
-  $(if $($(m)_dir),\
-    $(eval $(patsubst %,$(p)/%.test.got,$($(m)_tests)): $($(m)_dir))\
-    $(eval $(patsubst %,$(p)/%.test.got,$($(m)_tests)): TEST_DEPS += $($(m)_dir))\
-    $(eval $(patsubst %,$(p)/%.test.got,$($(m)_tests)): TEST_DIR := $($(m)_dir)))\
-  $(foreach d,$(filter-out $(m),$(default_deps) $($(m)_deps)),\
-    $(if $($(d)_dir),\
-      $(eval $(patsubst %,$(p)/%.test.got,$($(m)_tests)): $($(d)_dir))\
-      $(eval $(patsubst %,$(p)/%.test.got,$($(m)_tests)): TEST_DEPS += $($(d)_dir)))\
-    $(eval $(patsubst %,$(p)/%.test.got,$($(m)_tests)): $($(d)_files) $($(d)_lua)))))
+# Test deps beyond the pattern rule (own compiled .lua + $(cosmic_bin))
+# live in each module's cook.mk: perf tests attach $(perf_lua), build
+# tests $(build_files), docs tests $(docs_files), cosmos/tl tests their
+# staged tree + TEST_DIR, cosmic_debug_test the debug binary. Everything
+# else rides on $(cosmic_bin), which already depends on the whole
+# embedded stdlib, the staged 3p trees, and the type declarations — the
+# old per-module foreach/eval expansion here (and its write-only
+# TEST_DEPS accumulator) duplicated that transitive closure (#715).
 
 # Coverage lane: the same tests in a separate output tree, run with
 # collection enabled, so `bin/make coverage` never invalidates the plain
@@ -204,7 +193,7 @@ coverage: $(o)/coverage-summary.txt
 
 $(o)/coverage/%.tl.test.got: .PLEDGE = stdio rpath wpath cpath proc exec
 $(o)/coverage/%.tl.test.got: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null
-$(o)/coverage/%.tl.test.got: $(o)/%.lua $(test_files) $(o)/bin/cosmic | $(cosmic_bin)
+$(o)/coverage/%.tl.test.got: $(o)/%.lua $(cosmic_bin)
 	@mkdir -p $(@D)
 	@TEST_DIR=$(TEST_DIR) COSMIC_COVERAGE=1 PATH=$(CURDIR)/$(o)/bin:$$PATH $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
@@ -259,7 +248,7 @@ enforce: $(o)/enforce-summary.txt
 $(enforce_got): .PLEDGE =
 $(enforce_got): .UNVEIL =
 
-$(o)/enforce/%.tl.test.got: $(o)/%.lua $(cosmic_bin) | $(cosmic_bin)
+$(o)/enforce/%.tl.test.got: $(o)/%.lua $(cosmic_bin)
 	@mkdir -p $(@D)
 	@TEST_BIN=$(o)/bin COSMIC_ENFORCE=1 PATH=$(CURDIR)/$(o)/bin:$$PATH \
 	  $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<

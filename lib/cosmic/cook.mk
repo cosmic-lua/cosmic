@@ -7,8 +7,21 @@ cosmic_main := $(o)/lib/cosmic/cli/main.lua
 cosmic_args := lib/cosmic/.args
 cosmic_bin := $(o)/bin/cosmic
 cosmic_debug_bin := $(o)/bin/cosmic-debug
-cosmic_files := $(cosmic_bin) $(cosmic_debug_bin) $(cosmic_lua)
+# cosmic_files deliberately carries only the binaries: the compiled
+# stdlib below reaches everything through $(cosmic_bin)'s own prereqs
+# (the old trailing $(cosmic_lua) here always expanded empty — it was
+# not defined until after the includes)
+cosmic_files := $(cosmic_bin) $(cosmic_debug_bin)
 cosmic_deps := cosmos tl
+cosmic_lua := $(patsubst %.tl,$(o)/%.lua,$(cosmic_tl))
+
+# cosmic_debug_test runs o/bin/cosmic-debug; every other test needs only
+# $(cosmic_bin) (a pattern-rule prerequisite), so the debug binary is
+# attached to just this test instead of all cosmic tests (#715)
+cosmic_debug_test_got := \
+  $(o)/lib/cosmic/cosmic_debug_test.tl.test.got \
+  $(o)/coverage/lib/cosmic/cosmic_debug_test.tl.test.got
+$(cosmic_debug_test_got): $(cosmic_debug_bin)
 
 cosmic_built := $(o)/cosmic/.built
 cosmic_sys := sys/help.md

@@ -16,8 +16,13 @@ reporter := $(bootstrap_cosmic) -- $(build_reporter)
 lint_style_lua := $(o)/lib/cosmic/cli/style.lua
 linter := LUA_PATH="$(o)/lib/?.lua;$(o)/lib/?/init.lua;;" $(bootstrap_cosmic) -- $(build_lint)
 
-# reporter_test needs cosmic binary (in the plain and coverage test lanes)
-$(o)/lib/build/reporter_test.tl.test.got $(o)/coverage/lib/build/reporter_test.tl.test.got: $$(cosmic_bin)
+# build tests exercise the compiled build tools (reporter, lint,
+# make-help, ...) at runtime via LUA_PATH=$(o)/lib/build, so they need
+# them built and fresh (#715)
+build_test_got := \
+  $(patsubst %,$(o)/%.test.got,$(build_tests)) \
+  $(patsubst %,$(o)/coverage/%.test.got,$(build_tests))
+$(build_test_got): $(build_files)
 
 # make-help snapshot: generate actual help output
 $(o)/lib/build/make-help.snap: Makefile $(build_help) | $(bootstrap_cosmic)

@@ -1,7 +1,5 @@
 #!/usr/bin/env cosmic
 
--- Note: TEST_DEPS tests removed - TEST_DEPS is a Make variable not passed to Lua tests
-
 local function test_env_vars()
   assert(os.getenv("TEST_O") ~= nil, "TEST_O should be set")
   assert(os.getenv("TEST_PLATFORM") ~= nil, "TEST_PLATFORM should be set")
