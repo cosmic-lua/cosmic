@@ -62,13 +62,18 @@ $(build_make_out)/only-database.out: $(build_make_srcs)
 # rx list below is safe across hosts; the probe directory must exist
 # BEFORE the sandboxed rule runs (unveil on a missing path is a no-op).
 # CI runs this in the privileged enforce job, where Landlock is real.
+# .UNVEIL must be := — landlock-make unveils the variable's RAW value
+# without expanding it, so a recursive `$(canary_dir)` reaches unveil
+# as a literal dollar string and is silently skipped as nonexistent
+# (witnessed in CI: the probe was denied writing its own verdict).
+# Every enforcement-bound .UNVEIL carrying $(...) needs this spelling.
 canary_dir := $(o)/sandbox-canary
 canary_escape := $(o)/sandbox-canary-escape.txt
-$(canary_dir)/probe.got: .SANDBOXED = 1
-$(canary_dir)/probe.got: .PLEDGE = stdio rpath wpath cpath proc exec
-$(canary_dir)/probe.got: .UNVEIL = rwc:$(canary_dir) rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc r:/dev/null
+$(canary_dir)/probe.got: .SANDBOXED := 1
+$(canary_dir)/probe.got: .PLEDGE := stdio rpath wpath cpath proc exec
+$(canary_dir)/probe.got: .UNVEIL := rwc:$(canary_dir) rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc r:/dev/null
 $(canary_dir)/probe.got: .FORCE
-	@if echo escaped > $(canary_escape) 2>/dev/null; then \
+	@if echo escaped 2>/dev/null > $(canary_escape); then \
 	  echo escaped > $@; \
 	else \
 	  echo blocked > $@; \

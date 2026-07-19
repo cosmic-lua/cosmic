@@ -42,7 +42,11 @@ include 3p/tl/cook.mk
 # documented intent, not active enforcement. (Even with .SANDBOXED,
 # cosmopolitan's unveil() silently no-ops on hosts without Landlock.)
 # The sandbox-canary target proves the mechanism itself still works;
-# see it before flipping enforcement on for real rules.
+# see it before flipping enforcement on for real rules. NOTE: make
+# hands .UNVEIL values to unveil UNEXPANDED, so an enforcement-bound
+# .UNVEIL containing $(...) must use := (the canary probe shows how);
+# the recursive references below survive only because nothing enforces
+# them yet.
 # global defaults: read-only access, no network, basic stdio
 .PLEDGE = stdio rpath
 .UNVEIL = \
