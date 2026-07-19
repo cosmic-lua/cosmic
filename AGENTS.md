@@ -240,6 +240,12 @@ bin/make test only=gentype
 # 2. fix any lib/cosmic wrappers the new types break; commit everything together
 ```
 
+`regen-types` runs the generator under the staged cosmos binary with only
+gentype's require closure compiled, so it works even when the rest of the
+tree does not compile yet — e.g. wrapper code staged ahead of the pin bump
+that introduces its bindings (#711). On a cold tree, run `bin/make staged`
+once first.
+
 `GENTYPE_DEFS=/path/to/definitions.lua` overrides the definitions source for
 validating against a cosmopolitan checkout before a release is cut.
 

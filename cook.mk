@@ -39,3 +39,51 @@ $(compile_flag_stamp): $(bootstrap_files)
 		echo --compile > $@; \
 	fi
 	@rm -f $@.probe.tl
+
+# Type definition regeneration.
+# The generated .d.tl files are a pure function of (lib/types/gentype*.tl, the
+# definitions.lua embedded in the pinned cosmos release). This target runs the
+# CURRENT generator against the CURRENT pin, so regen is reproducible: bump
+# 3p/cosmos/version.lua, run `bin/make regen-types`, commit. The gentype drift
+# test fails until you do. Module list ($(type_modules)) defined above.
+#
+# gentype runs under the STAGED cosmos lua binary — whose embedded
+# /zip/.lua/definitions.lua IS the pinned source of truth — with LUA_PATH
+# limited to gentype's compiled require closure. Depending on $(cosmic_bin)
+# here would compile the WHOLE tree against the old committed .d.tl,
+# deadlocking any pin bump that lands together with code already using the
+# new bindings (#711). The closure below is the transitive requires of
+# types.gentype; if it drifts, the recipe fails loudly with "module not
+# found" — extend the list, and do NOT swap in $(stdlib_lua) (that
+# re-creates the deadlock).
+#
+# The staged cosmos/tl trees are checked at RECIPE time, not as
+# prerequisites: the .staged targets themselves depend on $(stdlib_lua)
+# (their fetch/stage scripts run against the tree's cosmic.* APIs), so a
+# make-graph dependency on them would re-import the whole-tree compile
+# this target exists to avoid. On a cold tree, run `bin/make staged`
+# once first.
+gentype_closure_tl := \
+  $(wildcard lib/types/gentype*.tl) \
+  lib/cosmic/init.tl lib/cosmic/proc.tl lib/cosmic/errno.tl \
+  lib/cosmic/fd.tl lib/cosmic/stream.tl \
+  lib/cosmic/fs/init.tl lib/cosmic/fs/file.tl lib/cosmic/fs/ops.tl \
+  lib/cosmic/fs/path.tl lib/cosmic/fs/tree.tl lib/cosmic/fs/types.tl \
+  lib/cosmic/fs/walk.tl
+gentype_closure_lua := $(patsubst %.tl,$(o)/%.lua,$(gentype_closure_tl))
+
+.PHONY: regen-types
+## Regenerate .d.tl type definitions from the pinned cosmos definitions.lua
+regen-types: $(gentype_closure_lua)
+	@test -x $(cosmos_lua_bin) || { echo "regen-types: staged cosmos missing; run 'bin/make staged' first"; exit 1; }
+	@test -f $(tl_dir)/tl.lua || { echo "regen-types: staged tl missing; run 'bin/make staged' first"; exit 1; }
+	@echo "Regenerating type definitions from the pinned cosmos definitions.lua..."
+	@for mod in $(type_modules); do \
+		case $$mod in \
+			cosmo) out=lib/types/cosmo.d.tl ;; \
+			*) out=lib/types/cosmo/$$mod.d.tl ;; \
+		esac; \
+		echo "  $$out"; \
+		LUA_PATH="$(o)/lib/?.lua;$(o)/lib/?/init.lua;$(tl_dir)/?.lua;;" $(cosmos_lua_bin) -e "local r = require('types.gentype').run('$$mod'); assert(r.success, r.error); io.write(r.output)" > $$out.tmp && mv $$out.tmp $$out || { rm -f $$out.tmp; exit 1; }; \
+	done
+	@echo "Type definitions regenerated. Verify with: bin/make test only=gentype"
