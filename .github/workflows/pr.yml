@@ -38,6 +38,35 @@ jobs:
             fi
           done
 
+  # No-network gate (#730). By design only three things touch the
+  # network — the landlock-make download, the bootstrap download, and
+  # the fetch rule — each integrity-checked against a committed sha256,
+  # so the pins are the trust root and TLS is transport. This job makes
+  # the property falsifiable: fetch with network allowed, then run the
+  # ENTIRE gate inside a network namespace whose only interface is
+  # loopback (brought up for the localhost socket tests). A stray
+  # download anywhere in a recipe, build script, or test fails loudly
+  # instead of working silently. unshare maps root so lo can come up —
+  # via the pinned bootstrap's own quicksand.netns, not host iproute2
+  # (#732) — and the runner image ships
+  # kernel.apparmor_restrict_unprivileged_userns=0; the quicksand
+  # namespace tests already rely on unprivileged userns.
+  offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: fetch with network allowed
+        shell: bash -x {0}
+        run: bin/make -j fetched
+
+      - name: make ci with network denied
+        shell: bash -x {0}
+        run: |
+          unshare --map-root-user --net sh -c '
+            o/bootstrap/cosmic -e "assert(require(\"cosmic.quicksand.netns\").bring_up(\"lo\"))" \
+              && exec bin/make -j ci'
+
   # Cross-OS smoke lane (#510 step 11). The full gate is Linux-only
   # (landlock-make), but the artifact is a fat APE binary shipped for six
   # OSes — of which releases previously exercised zero beyond Linux. Build
