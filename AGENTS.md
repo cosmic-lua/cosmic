@@ -278,6 +278,12 @@ all modules are under `lib/cosmic/` and imported as `cosmic.*`:
 
 ## Testing
 
+**Reading gate results**: `bin/make ci` (and each stage) signals via exit
+code AND ends with a `ci: PASS` / `ci: FAIL (stages)` verdict line. Never
+launder a gate's exit status through a pipe (`bin/make ci | tail` returns
+tail's status, not make's) — use `set -o pipefail`, or read the verdict
+line, which survives any truncation.
+
 ```bash
 bin/make test                 # all tests
 bin/make coverage             # tests with line coverage + ratchet vs lib/cosmic/coverage/baseline.txt
