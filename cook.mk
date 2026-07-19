@@ -22,10 +22,15 @@ export PATH := $(CURDIR)/$(o)/bootstrap:$(CURDIR)/$(o)/bin:$(HOST_PATH)
 pledge_build := stdio rpath wpath cpath proc exec
 unveil_base := rx:$(o)/bootstrap r:lib r:3p
 unveil_host := rx:/usr rx:/proc r:/etc r:/dev/null
-# Host set proven under real enforcement by the sandbox-canary (#724):
-# shell + coreutils + loaders. ENOENT entries are skipped, so the
+# Host set proven under real enforcement by the sandbox-canary (#724)
+# and the enforced families' CI runs: shell + coreutils + loaders.
+# /dev/null must be writable (recipes redirect to it). mbedtls3's
+# non-glibc build cannot use the getrandom syscall, so TLS entropy
+# fopens MBEDTLS_PLATFORM_DEV_RANDOM — which defaults to /dev/random,
+# not /dev/urandom (platform.h:398) — and fetch SIGILLs under Landlock
+# without it; grant both devices. ENOENT entries are skipped, so the
 # generous list is safe across hosts.
-unveil_hostx := rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc r:/dev/null
+unveil_hostx := rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc rw:/dev/null r:/dev/random r:/dev/urandom
 unveil_dep := rx:$(o)/bootstrap r:3p rwc:$(o)
 unveil_test := $(unveil_base) rwcx:$(o) rwc:$(TMP) $(unveil_host)
 unveil_run := $(unveil_base) rwc:$(o) rwc:$(TMP) $(unveil_host)
@@ -48,6 +53,26 @@ unveil_run := $(unveil_base) rwc:$(o) rwc:$(TMP) $(unveil_host)
 $(o)/%.lua: .SANDBOXED := 1
 $(o)/%.lua: .PLEDGE := $(pledge_build) fattr
 $(o)/%.lua: .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_hostx)
+
+# Second ENFORCED family (#729): every remaining rule that execs the
+# assimilated bootstrap — fetch, stage, lint, and the reporter
+# summaries. (The check/test rules exec $(cosmic_bin), which must stay
+# a fat APE; enforcing them needs an answer for the APE loader first,
+# so they are the next family, not this one.) fetch/stage keep their
+# annotations at the rules in the Makefile; the flips live here beside
+# the grant sets.
+$(o)/%/.fetched: .SANDBOXED := 1
+$(o)/%/.staged: .SANDBOXED := 1
+$(o)/%.lint.ok: .SANDBOXED := 1
+$(o)/%.lint.ok: .PLEDGE := $(pledge_build)
+$(o)/%.lint.ok: .UNVEIL := rwc:$(o) $(unveil_hostx)
+# Reporter summaries (bootstrap + tee). test/coverage/enforce summaries
+# exec $(cosmic_bin) and stay unsandboxed with the check rules.
+reporter_summaries := $(o)/teal-summary.txt $(o)/format-summary.txt \
+  $(o)/lint-summary.txt $(o)/example-summary.txt $(o)/benchmark-summary.txt
+$(reporter_summaries): .SANDBOXED := 1
+$(reporter_summaries): .PLEDGE := $(pledge_build)
+$(reporter_summaries): .UNVEIL := rwc:$(o) $(unveil_hostx)
 
 # Type definition generation (define early so it's available to all modules).
 # Must match MODULES in lib/types/gentype.tl: "cosmo" renders the top-level
@@ -74,6 +99,7 @@ $(bootstrap_cosmic):
 	@echo "$(bootstrap_sha256)  $@" | sha256sum -c - || { rm -f $@; echo "bootstrap cosmic checksum verification failed" >&2; exit 1; }
 	chmod +x $@
 	@$@ --assimilate
+	@printf '\177ELF' | cmp -s - <(head -c 4 $@) || { echo "bootstrap assimilation failed: $@ is still an APE — sandboxed rules need a native ELF (no loader grants)" >&2; exit 1; }
 	@ln -sf cosmic $(@D)/lua
 
 # Strict-compile capability probe: newer bootstraps ship --compile-strict
