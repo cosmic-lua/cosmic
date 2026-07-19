@@ -77,7 +77,7 @@ lib/cosmic/quicksand/box/merge.tl 66 67
 lib/cosmic/quicksand/box/run.tl 0 157
 lib/cosmic/quicksand/caps.tl 59 77
 lib/cosmic/quicksand/init.tl 66 75
-lib/cosmic/quicksand/netns.tl 47 55
+lib/cosmic/quicksand/netns.tl 37 55
 lib/cosmic/quicksand/proc.tl 57 117
 lib/cosmic/quicksand/proxy.tl 48 84
 lib/cosmic/quicksand/proxy/dial.tl 22 33
@@ -88,7 +88,7 @@ lib/cosmic/quicksand/types.tl 3 3
 lib/cosmic/rand.tl 66 73
 lib/cosmic/re.tl 115 125
 lib/cosmic/require.tl 93 124
-lib/cosmic/sandbox.tl 88 108
+lib/cosmic/sandbox.tl 85 107
 lib/cosmic/shm.tl 117 128
 lib/cosmic/signal.tl 101 109
 lib/cosmic/sqlite/bind.tl 15 15
@@ -108,7 +108,7 @@ lib/cosmic/teal.tl 169 184
 lib/cosmic/testrun.tl 150 196
 lib/cosmic/time.tl 142 155
 lib/cosmic/tty.tl 93 122
-lib/cosmic/unveil.tl 30 48
+lib/cosmic/unveil.tl 28 48
 lib/cosmic/url.tl 122 124
 lib/cosmic/user.tl 48 61
 lib/cosmic/uuid.tl 9 9
@@ -138,4 +138,4 @@ lib/types/gentype_parse.tl 267 288
 lib/types/gentype_render.tl 309 312
 lib/types/gentype_types.tl 2 2
 tlconfig.lua 7 7
-total 11261 14770
+total 11246 14769
