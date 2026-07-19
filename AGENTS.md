@@ -214,7 +214,7 @@ key concepts:
 - **modules**: each directory declares a module via `cook.mk` with `_tl`, `_tests`, `_files`, `_deps`
 - **versioned deps**: 3p modules use `version.lua` → fetch → stage pipeline
 - **bootstrap**: a pre-built cosmic binary bootstraps compilation of `.tl` → `.lua`
-- **sandboxing**: landlock-make applies pledge/unveil per-rule for build isolation
+- **sandboxing**: per-rule `.PLEDGE`/`.UNVEIL` annotations document each rule's intended access; landlock-make enforces them only for rules that set `.SANDBOXED = 1` (today just the `sandbox-canary` probe, which CI runs to prove the mechanism works)
 - **output directory**: all build artifacts go to `o/`
 
 ## Type Generation

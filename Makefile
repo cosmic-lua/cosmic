@@ -35,7 +35,14 @@ include 3p/cosmos/cook.mk
 include 3p/tl/cook.mk
 
 
-# landlock-make sandbox constraints (only effective when using landlock-make)
+# landlock-make sandbox annotations. IMPORTANT (#716): landlock-make
+# only enforces .PLEDGE/.UNVEIL for rules that set .SANDBOXED = 1, and
+# nothing in this build sets it except the sandbox-canary probe — so
+# these annotations, and every per-rule override below, are currently
+# documented intent, not active enforcement. (Even with .SANDBOXED,
+# cosmopolitan's unveil() silently no-ops on hosts without Landlock.)
+# The sandbox-canary target proves the mechanism itself still works;
+# see it before flipping enforcement on for real rules.
 # global defaults: read-only access, no network, basic stdio
 .PLEDGE = stdio rpath
 .UNVEIL = \

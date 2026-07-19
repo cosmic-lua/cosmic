@@ -51,6 +51,47 @@ $(build_make_out)/only-database.out: $(build_make_srcs)
 	@mkdir -p $(@D)
 	@code=0; $(MAKE) -p -n -q only=__no_such_module__ >$@.tmp 2>&1 || code=$$?; echo "exit:$$code" >> $@.tmp; mv $@.tmp $@
 
+# Build-sandbox canary (#716). landlock-make enforces .PLEDGE/.UNVEIL
+# only for rules that set .SANDBOXED (default off — see the note at the
+# Makefile's global defaults), and cosmopolitan's unveil() silently
+# no-ops where Landlock is unavailable, so nothing else in this build
+# can prove the enforcement mechanism still works. The probe rule opts
+# in with .SANDBOXED = 1 and a grant limited to its own directory, then
+# attempts a write outside that grant, recording the verdict inside it.
+# ENOENT unveil entries are skipped by landlock-make, so the generous
+# rx list below is safe across hosts; the probe directory must exist
+# BEFORE the sandboxed rule runs (unveil on a missing path is a no-op).
+# CI runs this in the privileged enforce job, where Landlock is real.
+canary_dir := $(o)/sandbox-canary
+canary_escape := $(o)/sandbox-canary-escape.txt
+$(canary_dir)/probe.got: .SANDBOXED = 1
+$(canary_dir)/probe.got: .PLEDGE = stdio rpath wpath cpath proc exec
+$(canary_dir)/probe.got: .UNVEIL = rwc:$(canary_dir) rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc r:/dev/null
+$(canary_dir)/probe.got: .FORCE
+	@if echo escaped > $(canary_escape) 2>/dev/null; then \
+	  echo escaped > $@; \
+	else \
+	  echo blocked > $@; \
+	fi
+
+.PHONY: sandbox-canary
+## Verify the build sandbox blocks an out-of-grant write (skips without Landlock)
+sandbox-canary: $$(cosmic_bin)
+	@rm -f $(canary_escape) $(canary_dir)/probe.got
+	@mkdir -p $(canary_dir)
+	@if ! $(cosmic_bin) -e 'os.exit(require("cosmic.unveil").available() and 0 or 1)'; then \
+	  echo "sandbox-canary: SKIP — Landlock unavailable; the build sandbox cannot enforce on this host"; \
+	elif ! $(MAKE) $(canary_dir)/probe.got; then \
+	  echo "sandbox-canary: FAIL — the probe rule could not run under the sandbox (grants too tight?)"; \
+	  exit 1; \
+	elif grep -qs escaped $(canary_dir)/probe.got; then \
+	  rm -f $(canary_escape); \
+	  echo "sandbox-canary: FAIL — the build sandbox is not enforcing (out-of-grant write succeeded)"; \
+	  exit 1; \
+	else \
+	  echo "sandbox-canary: PASS — out-of-grant write was blocked"; \
+	fi
+
 # ci grading self-test stage for the ci-launder.out fixture below:
 # writes a clean summary, then fails — the graded verdict must be FAIL
 # via the per-stage exit marker, never PASS via the summary text (#714).
