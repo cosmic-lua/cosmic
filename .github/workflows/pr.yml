@@ -46,11 +46,12 @@ jobs:
   # ENTIRE gate inside a network namespace whose only interface is
   # loopback (brought up for the localhost socket tests). A stray
   # download anywhere in a recipe, build script, or test fails loudly
-  # instead of working silently. unshare maps root so lo can come up —
-  # via the pinned bootstrap's own quicksand.netns, not host iproute2
-  # (#732) — and the runner image ships
-  # kernel.apparmor_restrict_unprivileged_userns=0; the quicksand
-  # namespace tests already rely on unprivileged userns.
+  # instead of working silently. The runner restricts unprivileged user
+  # namespaces (unshare --map-root-user dies writing uid_map), so the
+  # netns comes from real root via passwordless sudo: bring lo up as
+  # root — with the pinned bootstrap's own quicksand.netns, not host
+  # iproute2 (#732) — then drop back to the runner user so the build
+  # runs with the same identity as the main ci job.
   offline:
     runs-on: ubuntu-latest
     steps:
@@ -63,9 +64,9 @@ jobs:
       - name: make ci with network denied
         shell: bash -x {0}
         run: |
-          unshare --map-root-user --net sh -c '
+          sudo unshare --net sh -c '
             o/bootstrap/cosmic -e "assert(require(\"cosmic.quicksand.netns\").bring_up(\"lo\"))" \
-              && exec bin/make -j ci'
+              && exec sudo -u runner bin/make -j ci'
 
   # Cross-OS smoke lane (#510 step 11). The full gate is Linux-only
   # (landlock-make), but the artifact is a fat APE binary shipped for six
