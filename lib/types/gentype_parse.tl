@@ -316,15 +316,22 @@ local function parse_annotations(raw_lines: {string}): {string}, {Param}, {Retur
           -- Split into another return only when the comma is followed by a
           -- genuine type token: a builtin type name or a module-dotted type
           -- (`unix.Errno`). Prose in a trailing description ("ARIN, APNIC,
-          -- DOD, etc.") must stay in the description.
+          -- DOD, etc.") must stay in the description. The literal types
+          -- true/false/nil are deliberately NOT continuation tokens: no
+          -- annotation continues a return list with a bare literal, but
+          -- boolean descriptions routinely read "true when ..., false when
+          -- ..." and failure prose "..., nil on failure" — treating those
+          -- words as types grew phantom returns (unix.Memory:unmap,
+          -- whilp/cosmopolitan#198). Literals on their own @return lines
+          -- are unaffected; only this comma decision is narrowed.
           local rest_after_comma = full_return:sub(i + 1)
           local next_word = rest_after_comma:match("^%s*([%w_%.]+)")
           local builtin_types: {string: boolean} = {
             ["integer"] = true, ["string"] = true, ["number"] = true,
-            ["boolean"] = true, ["any"] = true, ["nil"] = true,
+            ["boolean"] = true, ["any"] = true,
             ["table"] = true, ["function"] = true, ["userdata"] = true,
             ["uint32"] = true, ["uint16"] = true, ["int64"] = true,
-            ["true"] = true, ["false"] = true, ["fun"] = true,
+            ["fun"] = true,
           }
           local is_type_token = false
           if next_word then
