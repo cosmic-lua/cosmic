@@ -150,13 +150,14 @@ or map unions through truthiness (`if not x`). Two sanctioned tools:
   member in its OWN source (see re.tl's Regex) — then `is` compiles to
   the correct `type(x) == "userdata"` test everywhere. Caveats:
   narrowing does NOT survive an early-exit guard (`if not (x is Rec)
-  then return end` does not narrow below); do NOT use `is` with a
-  REQUIRED `cosmo.*` class (the runtime tl loader can lax-recompile a
-  module where the required .d.tl marker doesn't resolve, silently
-  degrading `is` to a table test — keep casts at those boundaries);
-  and `is` is WRONG for mixed-representation records — `fs.Stat` is
-  usually the raw stat userdata but falls back to a plain wrapper
-  table, so neither marker fits; it stays on casts.
+  then return end` does not narrow below); and `is` is WRONG for
+  mixed-representation records — `fs.Stat` is usually the raw stat
+  userdata but falls back to a plain wrapper table, so neither marker
+  fits; it stays on casts. (The old ban on `is` with REQUIRED
+  `cosmo.*` classes is lifted: the cosmic runtime searcher (#669)
+  resolves .d.tl markers through the same include dirs as the
+  checker, so `is` can no longer silently degrade to a table test;
+  existing boundary casts get converted incrementally.)
 - **Cast in linear code and at userdata boundaries**: after an assert or
   early-exit guard, `(x as Rec).field`, `(x as {K:V})[k]`. Scalars
   (`string | nil`) narrow normally, except method-call syntax: use

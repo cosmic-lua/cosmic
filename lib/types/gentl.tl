@@ -148,6 +148,10 @@ end
 
 local FUNCTIONS: {Entry} = {
   {name = "loader"},
+  {name = "search_module", comment = {
+      "-- returns found filename, an open FILE handle (caller must close",
+      "-- it), and the list of tried path patterns",
+    }},
   {name = "init_env", comment = {
       "-- positional args: lax?, gen_compat? (\"off\"|...), gen_target? (\"5.4\"|...)",
     }},

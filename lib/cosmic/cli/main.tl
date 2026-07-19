@@ -3,22 +3,10 @@
 
 global warn: function(...: any)
 
--- Lazy searcher at the END of package.searchers: the ~15k-line Teal
--- compiler loads only on the first require() the default searchers can't
--- resolve, and the end position (not 2, where tl.loader() inserts) lets
--- the default Lua searcher find pre-compiled .lua first — without it,
--- setting TL_PATH costs ~330ms recompiling cosmic modules (#377).
-if package.searchers then
-  local function lazy_tl_searcher(module_name: string): any, any
-    local tl = require("tl")
-    tl.loader()
-    local real = table.remove(package.searchers, 2)
-    package.searchers[#package.searchers] = real
-    local loader_fn, extra = real(module_name)
-    return loader_fn, extra
-  end
-  table.insert(package.searchers, lazy_tl_searcher)
-end
+-- cosmic-owned runtime .tl searcher (#669): resolves and compiles .tl
+-- modules through cosmic.teal, fails the require() on compile errors,
+-- and caches compiled output. See cosmic.cli.searcher for the details.
+require("cosmic.cli.searcher").install()
 if not os.getenv("COSMIC_NO_REQUIRE_HINTS") then
   require("cosmic.require").install()
 end

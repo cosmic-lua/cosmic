@@ -172,9 +172,10 @@ local function run_benchmark(benchmark: Benchmark, _file_path: string): Benchmar
     error = nil,
   }
 
-  -- Build a script that returns the benchmark function
+  -- Build a script that returns the benchmark function. No loader
+  -- prelude: the cosmic dispatcher's runtime .tl searcher already
+  -- resolves require statements in benchmark bodies.
   local script = [[
-require("tl").loader()
 return function()
 ]] .. benchmark.body .. [[
 end

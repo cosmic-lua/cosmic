@@ -224,10 +224,9 @@ local function run_example(example: Example, _file_path: string): ExampleResult
     return result
   end
 
-  -- Prepend tl loader for require statements
-  local script = [[
-require("tl").loader()
-]] .. lua_code
+  -- No loader prelude: the cosmic dispatcher's runtime .tl searcher
+  -- already resolves require statements in example bodies.
+  local script = lua_code
 
   -- Execute using load
   local chunk, load_err = load(script, example.name)

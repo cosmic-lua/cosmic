@@ -2,8 +2,6 @@
 --- Generate markdown documentation from a Teal file.
 --- Usage: cosmic gendoc.tl <file.tl>
 
-require("tl").loader()
-
 local doc = require("cosmic.doc")
 
 local file_path = arg[1]
