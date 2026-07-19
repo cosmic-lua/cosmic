@@ -163,7 +163,7 @@
 39	lib/cosmic/script_test.tl
 9	lib/cosmic/shm.tl
 3	lib/cosmic/shm_example.tl
-19	lib/cosmic/shm_test.tl
+20	lib/cosmic/shm_test.tl
 7	lib/cosmic/signal.tl
 11	lib/cosmic/skill_test.tl
 51	lib/cosmic/sqlite/advanced_test.tl
@@ -225,4 +225,5 @@
 1	lib/perf/perf_test.tl
 3	lib/perf/run.tl
 4	lib/types/gentype.tl
+0	lib/types/gentype_return_test.tl
 1	lib/types/tl_conformance_test.tl

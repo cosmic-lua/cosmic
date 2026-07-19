@@ -55,7 +55,13 @@ local record ShmModule
     --- retries.
     wait: function(self: Memory, word_index: integer, expect: integer, abs_deadline?: integer, nanos?: integer): integer | nil, string
     --- Wake processes waiting on a word; returns how many woke.
+    --- Wakes nothing once the region has been unmapped.
     wake: function(self: Memory, word_index: integer, count?: integer): integer
+    --- Release the mapping now instead of waiting for the garbage
+    --- collector. Idempotent: true when this call released the mapping,
+    --- false when it was already unmapped. Afterwards every fallible
+    --- method returns an error naming the unmapped state (#493).
+    unmap: function(self: Memory): boolean
     --- The mapped region size in bytes.
     size: function(self: Memory): integer
   end
@@ -214,14 +220,24 @@ local function wrap(raw: unix.Memory, size: integer): Memory
     return rc as integer
   end
 
+  -- wake is declared infallible, so it cannot grow an error slot for the
+  -- unmapped state; mirror the out-of-range posture (wake nothing) and
+  -- keep the raw call — which throws once unmapped — behind the flag.
+  local unmapped = false
+
   function mem:wake(word_index: integer, count?: integer): integer
     local range_err = check_word(word_index, size, "wake")
-    if range_err then
+    if range_err or unmapped then
       -- wake never fails in the binding; an out-of-range index wakes
       -- nothing rather than growing an error slot for it.
       return 0
     end
     return raw:wake(word_index, count)
+  end
+
+  function mem:unmap(): boolean
+    unmapped = true
+    return (raw:unmap())
   end
 
   return mem

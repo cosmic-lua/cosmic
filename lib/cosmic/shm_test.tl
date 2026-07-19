@@ -259,3 +259,24 @@ local function test_memory_wait_retries_eintr_until_deadline()
     .. tostring(err))
 end
 test_memory_wait_retries_eintr_until_deadline()
+
+-- #493: unmap releases the mapping deterministically instead of waiting
+-- for the garbage collector. Idempotent and observable; afterwards every
+-- fallible method returns an error instead of touching freed memory, and
+-- wake wakes nothing.
+local function test_memory_unmap()
+  local mem = assert(shm.mapshared(64)) as shm.Memory
+  assert(mem:store(0, 7))
+  assert(mem:unmap() == true, "first unmap should release and say so")
+  assert(mem:unmap() == false, "second unmap should be a no-op")
+  local v, err = mem:load(0)
+  assert(v == nil, "load after unmap should fail")
+  assert(type(err) == "string" and err:find("unmapped"),
+    "load error should say unmapped, got: " .. tostring(err))
+  local ok, werr = mem:write("x")
+  assert(ok == false and type(werr) == "string", "write after unmap should fail")
+  local rc, werr2 = mem:wait(0, 0)
+  assert(rc == nil and type(werr2) == "string", "wait after unmap should fail")
+  assert(mem:wake(0) == 0, "wake after unmap should wake nothing")
+end
+test_memory_unmap()
