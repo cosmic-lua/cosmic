@@ -220,6 +220,7 @@ end
     -- Warm up / calibrate
     local start = monotonic_ns()
     for _ = 1, n do
+      -- cast: from any
       local run_ok, run_err: boolean, any = pcall(bench_fn as function())
       if not run_ok then
         -- Restore stdout/stderr before returning

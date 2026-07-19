@@ -97,11 +97,11 @@ local function build_items(tokens: {tl.Token}): {Item}
   for _, token in ipairs(tokens) do
     if token.comments then
       for _, raw_c in ipairs(token.comments) do
-        local c = raw_c as {string: any}
+        local c = raw_c as {string: any} -- cast: from any
         items[#items + 1] = {
-          y = c["y"] as integer,
-          x = c["x"] as integer,
-          tk = c["text"] as string,
+          y = c["y"] as integer, -- cast: from any
+          x = c["x"] as integer, -- cast: from any
+          tk = c["text"] as string, -- cast: from any
           kind = "comment",
         }
       end
@@ -136,8 +136,8 @@ local function format(input: string, filename: string): FormatResult
       if e.msg then
         errors[#errors + 1] = {
           file = e.filename or filename,
-          line = e.y as integer or 0,
-          column = e.x as integer or 0,
+          line = e.y as integer or 0, -- cast: tl declares number
+          column = e.x as integer or 0, -- cast: tl declares number
           message = e.msg,
           severity = "error",
         }
@@ -157,8 +157,8 @@ local function format(input: string, filename: string): FormatResult
       if e.msg then
         errors[#errors + 1] = {
           file = e.filename or filename,
-          line = e.y as integer or 0,
-          column = e.x as integer or 0,
+          line = e.y as integer or 0, -- cast: tl declares number
+          column = e.x as integer or 0, -- cast: tl declares number
           message = e.msg,
           severity = "error",
         }

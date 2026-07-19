@@ -29,7 +29,7 @@ local function move_contents(source_dir: string, dest_dir: string): boolean, str
   if not dir0 then
     return nil, "failed to open directory " .. source_dir .. ": " .. (dir_err or "unknown error")
   end
-  local dir = dir0 as fs_types.Dir
+  local dir = dir0 as fs_types.Dir -- cast: record union after guard
   while true do
     local name = dir:read()
     if not name then break end
@@ -60,7 +60,7 @@ local function strip_components(source_dir: string, dest_dir: string, strip: num
     if not dir0 then
       return nil, "failed to open directory " .. current .. ": " .. (dir_err or "unknown error")
     end
-    local dir = dir0 as fs_types.Dir
+    local dir = dir0 as fs_types.Dir -- cast: record union after guard -- cast: record union after guard
     local entries: {string} = {}
     while true do
       local name = dir:read()
@@ -70,13 +70,14 @@ local function strip_components(source_dir: string, dest_dir: string, strip: num
       end
     end
     if #entries ~= 1 then
+      -- cast: %d needs integer
       return nil, string.format("strip %d: expected 1 entry at level, found %d", strip as integer, #entries)
     end
     current = fs.join(current, entries[1])
   end
 
   local st = fs.stat(current)
-  if st and (st as fs_types.Stat):is_dir() then
+  if st and (st as fs_types.Stat):is_dir() then -- cast: mixed-representation Stat
     return move_contents(current, dest_dir)
   else
     local dst = fs.join(dest_dir, fs.basename(current))
@@ -87,7 +88,7 @@ end
 local function extract_zip(archive: string, dest_dir: string, strip: number): boolean, string
   local temp_dir = fs.mkdtemp(fs.join(fs.dirname(dest_dir), ".stage_XXXXXX"))
   local result = spawn.run({"/usr/bin/unzip", "-o", "-q", "-d", temp_dir, archive})
-  local r = result as spawn.Result
+  local r = result as spawn.Result -- cast: record union, nil checked below
   if not r or not r.ok then
     fs.rmrf(temp_dir)
     return nil, "unzip failed with exit code " .. tostring(r and r.code)
@@ -100,7 +101,7 @@ end
 local function extract_targz(archive: string, dest_dir: string, strip: number): boolean, string
   local temp_dir = fs.mkdtemp(fs.join(fs.dirname(dest_dir), ".stage_XXXXXX"))
   local result = spawn.run({"tar", "-xzf", archive, "-C", temp_dir})
-  local r = result as spawn.Result
+  local r = result as spawn.Result -- cast: record union, nil checked below
   if not r or not r.ok then
     fs.rmrf(temp_dir)
     return nil, "tar failed with exit code " .. tostring(r and r.code)
@@ -133,7 +134,7 @@ local function extract_gz(archive: string, dest_dir: string, module_name: string
   if not result then
     return nil, "gunzip failed: " .. tostring(serr)
   end
-  local r = result as spawn.Result
+  local r = result as spawn.Result -- cast: record union after guard
   if not r.ok then
     return nil, "gunzip failed (exit " .. tostring(r.code) .. "): " .. r.stderr
   end
@@ -273,7 +274,7 @@ local function find_archive(fetch_dir: string, format: string): string, string
   if not dir0 then
     return nil, "failed to open " .. fetch_dir .. ": " .. (dir_err or "unknown error")
   end
-  local dir = dir0 as fs_types.Dir
+  local dir = dir0 as fs_types.Dir -- cast: record union after guard
   while true do
     local name = dir:read()
     if not name then break end
@@ -296,6 +297,7 @@ local function main(version_file: string, platform: string, input: string, outpu
     return nil, "STAGE_O env var required"
   end
 
+  -- cast: pcall returns any
   local load_ok, spec = pcall(dofile, version_file) as(boolean, VersionSpec)
   if not load_ok then
     return nil, "failed to load " .. version_file .. ": " .. tostring(spec)

@@ -177,6 +177,7 @@ local function restrict(opts: RestrictOptions): boolean, string
     -- (READ, RW, ...). A rule left with no grantable bits is skipped —
     -- landlock denies by default, so granting nothing needs no rule.
     local st = unix.fstat(pfd)
+    -- cast: record union after guard
     if st and not unix.S_ISDIR((st as unix.Stat):mode()) then
       access = access & FILE_BITS
     end
@@ -197,6 +198,7 @@ local function restrict(opts: RestrictOptions): boolean, string
   -- lands, the coverage directory may no longer be writable
   local cov = package.loaded["cosmic.coverage"]
   if cov ~= nil then
+    -- cast: from any; function shape
     local seal = (cov as {string: any})["seal"] as function()
     seal()
   end

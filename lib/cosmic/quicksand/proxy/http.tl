@@ -239,7 +239,7 @@ local function pump(a: integer, b: integer)
   while open[a] or open[b] do
     local ready = unix.poll(fds)
     if not ready then return end
-    for fd, ev in pairs(ready as {integer: integer}) do
+    for fd, ev in pairs(ready as {integer: integer}) do -- cast: record union after guard
       local peer = (fd == a) and b or a
       local evi = ev
       local readable = (evi & (unix.POLLIN)) ~= 0

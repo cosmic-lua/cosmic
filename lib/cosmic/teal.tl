@@ -185,7 +185,7 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
       },
     }
   end
-  local result = result_or_err as TlResult
+  local result = result_or_err as TlResult -- cast: from any
 
   if not result then
     return {
@@ -297,7 +297,7 @@ local function search_module(module_name: string, include_dirs?: {string}): stri
   local found, fd = tl.search_module(module_name, false)
   tl.path = saved_tl_path
   if fd ~= nil then
-    local f = fd as FILE
+    local f = fd as FILE -- cast: from any
     f:close()
   end
   return found

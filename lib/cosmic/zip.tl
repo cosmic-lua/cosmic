@@ -65,7 +65,7 @@ local function reader(path: string | integer, options?: OpenOptions): Reader | n
   if not handle then
     return nil, err or "failed to open zip archive"
   end
-  return handle as Reader
+  return handle as Reader -- cast: from any
 end
 
 --- Create a new ZIP archive for writing. Any existing file is truncated.

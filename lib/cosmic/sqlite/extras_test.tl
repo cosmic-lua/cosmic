@@ -75,7 +75,7 @@ test_query_value_closed_db()
 -- savepoint tests
 
 local function count(db: sqlite.Database): number
-  return db:query_value("SELECT COUNT(*) FROM t") as number
+  return db:query_value("SELECT COUNT(*) FROM t") as number -- cast: from any
 end
 
 local function test_savepoint_commit()
@@ -107,7 +107,7 @@ local function test_savepoint_rollback_on_false()
   local ok = db:savepoint(function(d: sqlite.Database): boolean
       assert(d:exec("INSERT INTO t (name) VALUES ('carol')"))
       return false
-    end as function(sqlite.Database))
+    end as function(sqlite.Database)) -- cast: function shape
   assert(not ok, "expected savepoint to fail on returned false")
   assert(count(db) == 2, "expected insert rolled back")
   db:close()
@@ -119,7 +119,7 @@ local function test_savepoint_rollback_on_nil_err()
   local ok, err = db:savepoint(function(d: sqlite.Database): any, string
       assert(d:exec("INSERT INTO t (name) VALUES ('carol')"))
       return nil, "signaled failure"
-    end as function(sqlite.Database))
+    end as function(sqlite.Database)) -- cast: function shape
   assert(not ok, "expected savepoint to fail on nil+err")
   assert(err == "signaled failure", "expected error message, got " .. tostring(err))
   assert(count(db) == 2, "expected insert rolled back")
@@ -134,7 +134,7 @@ local function test_savepoint_nested_inner_rollback()
       local inner_ok = d:savepoint(function(d2: sqlite.Database): boolean
           assert(d2:exec("INSERT INTO t (name) VALUES ('inner')"))
           return false
-        end as function(sqlite.Database))
+        end as function(sqlite.Database)) -- cast: function shape
       assert(not inner_ok, "expected inner savepoint to roll back")
     end)
   assert(ok, "outer savepoint failed: " .. tostring(err))
@@ -152,7 +152,7 @@ local function test_savepoint_inside_transaction()
       d:savepoint(function(d2: sqlite.Database): boolean
           assert(d2:exec("INSERT INTO t (name) VALUES ('sp')"))
           return false
-        end as function(sqlite.Database))
+        end as function(sqlite.Database)) -- cast: function shape
     end)
   assert(ok, "transaction failed: " .. tostring(err))
   assert(count(db) == 3, "expected transaction insert kept, savepoint rolled back")

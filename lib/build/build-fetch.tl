@@ -31,12 +31,12 @@ local function build_url(spec: VersionSpec, platform: string): string, string
   end
 
   local vars: {string: string} = {platform = platform}
-  for k, v in pairs(spec as {string: any}) do
+  for k, v in pairs(spec as {string: any}) do -- cast: iterate record fields
     if type(v) ~= "table" then
       vars[k] = tostring(v)
     end
   end
-  for k, v in pairs(plat as {string: any}) do
+  for k, v in pairs(plat as {string: any}) do -- cast: iterate record fields
     vars[k] = tostring(v)
   end
 
@@ -88,6 +88,7 @@ local function main(version_file: string, platform: string, output: string): boo
     return nil, "FETCH_O env var required"
   end
 
+  -- cast: pcall returns any
   local ok, spec = pcall(dofile, version_file) as(boolean, VersionSpec)
   if not ok then
     return nil, "failed to load " .. version_file .. ": " .. tostring(spec)

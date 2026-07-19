@@ -17,7 +17,7 @@ local function scan_docs(docs_dir: string): {DocInfo}
   local function scan(dir: string)
     local handle0 = fs.opendir(dir)
     if not handle0 then return end
-    local handle = handle0 as fs_types.Dir
+    local handle = handle0 as fs_types.Dir -- cast: record union after guard
 
     while true do
       local name = handle:read()
@@ -26,7 +26,7 @@ local function scan_docs(docs_dir: string): {DocInfo}
         local full_path = fs.join(dir, name)
         local st0 = fs.stat(full_path)
         if st0 then
-          local st = st0 as fs_types.Stat
+          local st = st0 as fs_types.Stat -- cast: mixed-representation Stat
           if st:is_dir() then
             scan(full_path)
           elseif name:match("%.md$") and name ~= "README.md" then
@@ -81,7 +81,7 @@ local function load_public_set(): {string: boolean}
     return nil
   end
   local set: {string: boolean} = {}
-  for _, name in ipairs((manifest as {string: {string}}).public) do
+  for _, name in ipairs((manifest as {string: {string}}).public) do -- cast: from any
     set[name] = true
   end
   return set
@@ -209,7 +209,7 @@ local function run(argv: {string}): boolean, string
   if not result then
     return nil, err
   end
-  local r = result as spawn.Result
+  local r = result as spawn.Result -- cast: record union after guard
   if not r.ok then
     return nil, table.concat(argv, " ") .. " failed with exit code " .. tostring(r.code)
   end
@@ -240,6 +240,7 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
 
   -- fetch and checkout docs branch, or create orphan
   local fetch_res = spawn.run({"git", "fetch", "origin", branch})
+  -- cast: record union after nil check
   local fetch_ok = fetch_res ~= nil and (fetch_res as spawn.Result).ok
 
   if fetch_ok then
@@ -257,7 +258,7 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
   -- clear working directory
   local dir0 = fs.opendir(".")
   if dir0 then
-    local dir = dir0 as fs_types.Dir
+    local dir = dir0 as fs_types.Dir -- cast: record union after guard
     while true do
       local name = dir:read()
       if not name then break end
@@ -282,6 +283,7 @@ local function main(source_sha: string, docs_dir: string, branch: string): boole
 
   -- check if there are changes
   local diff_res = spawn.run({"git", "diff", "--staged", "--quiet"})
+  -- cast: record union after nil check
   if diff_res ~= nil and (diff_res as spawn.Result).ok then
     io.stderr:write("no documentation changes detected\n")
     return true

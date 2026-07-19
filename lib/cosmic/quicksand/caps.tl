@@ -55,7 +55,7 @@ local function number_of(name: string): integer | nil, string
   if type(name) ~= "string" then
     return nil, "capability name must be a string"
   end
-  local n = (unix as {string: any})[name] as integer
+  local n = (unix as {string: any})[name] as integer -- cast: dynamic constant lookup
   if n == nil then
     return nil, "unknown capability: " .. name
   end

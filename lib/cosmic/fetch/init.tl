@@ -179,14 +179,12 @@ local function to_fetch_options(opts?: Options): cosmo.FetchOptions
   return fo
 end
 
--- kind is cosmo.Fetch's dual-shape third return (statically string);
--- fetch's ErrorKind is a superset, so the enum conversion is a cast.
 local function fail(err: any, kind: string): Result
   return setmetatable({
       ok = false,
       error = tostring(err or "unknown error"),
-      error_kind = kind as ErrorKind,
-    } as Result, result_mt) as Result
+      error_kind = kind as ErrorKind, -- cast: enum superset of binding string
+    } as Result, result_mt) as Result -- cast: table seeded as record
 end
 
 local function do_fetch(url: string, opts?: Options): Result
@@ -204,15 +202,16 @@ local function do_fetch(url: string, opts?: Options): Result
     return fail(headers_or_err, body_or_kind)
   end
 
+  -- cast: from any
   local headers, raw_headers = fetch_headers.normalize(headers_or_err as {string: any})
   return setmetatable({
       ok = true,
-      status = status as integer,
+      status = status as integer, -- cast: dual-shape binding return
       headers = headers,
       raw_headers = raw_headers,
       body = body_or_kind,
       url = final_url,
-    } as Result, result_mt) as Result
+    } as Result, result_mt) as Result -- cast: table seeded as record
 end
 
 local IDEMPOTENT: {string: boolean} = {
@@ -398,7 +397,7 @@ local function make_reader(raw_reader: cosmo.StreamReader): Reader
 
   return setmetatable(reader, {
       __close = function(self: Reader) self:close() end
-    }) as Reader
+    }) as Reader -- cast: table seeded as record
 end
 
 -- kind mirrors fail()'s: FetchStream's dual-shape third return is
@@ -407,7 +406,7 @@ local function stream_fail(err: any, kind: string | cosmo.StreamReader): StreamR
   return setmetatable({
       ok = false,
       error = tostring(err or "unknown error"),
-      error_kind = kind as ErrorKind,
+      error_kind = kind as ErrorKind, -- cast: enum superset of binding string
     }, result_mt)
 end
 
@@ -440,6 +439,7 @@ local function stream(url: string, opts?: Options): StreamResult
     return stream_fail(headers_or_err, reader_or_kind)
   end
 
+  -- cast: from any
   local headers, raw_headers = fetch_headers.normalize(headers_or_err as {string: any})
   return setmetatable({
       ok = true,
@@ -451,14 +451,13 @@ local function stream(url: string, opts?: Options): StreamResult
     }, result_mt)
 end
 
--- The verb helpers and download are built in cosmic.fetch.extras around
--- this file's fetch/stream; wrap hands them the result metatable so
--- download's synthesized results answer is_success()/json() too.
+-- Verb helpers/download come from fetch_extras.make; it receives the
+-- result metatable so download's synthesized results answer is_success().
 local made = fetch_extras.make(
-  Fetch as(function(string, any): any),
-    stream as(function(string, any): any),
+  Fetch as(function(string, any): any), -- cast: function shape
+    stream as(function(string, any): any), -- cast: function shape
       function(t: any): any
-        return setmetatable(t as {string: any}, result_mt)
+        return setmetatable(t as {string: any}, result_mt) -- cast: from any
       end)
 
     local record FetchModule
@@ -488,10 +487,11 @@ local made = fetch_extras.make(
 
     local M: FetchModule = {
       fetch = Fetch,
-      get = made.get as(function(string, Options): Result),
-        post = made.post as(function(string, Options): Result),
-          put = made.put as(function(string, Options): Result),
-            delete = made.delete as(function(string, Options): Result),
+      get = made.get as(function(string, Options): Result), -- cast: function shape
+        post = made.post as(function(string, Options): Result), -- cast: function shape
+          put = made.put as(function(string, Options): Result), -- cast: function shape
+            delete = made.delete as(function(string, Options): Result), -- cast: function shape
+              -- cast: function shape
               download = made.download as(function(string, string, Options): Result),
                 stream = stream,
                 unix_proxy = fetch_extras.unix_proxy,

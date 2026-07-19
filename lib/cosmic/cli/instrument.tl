@@ -46,7 +46,7 @@ local function begin_span(op: string, file: string): Span
   local ut_s, ut_ns = 0.0, 0.0
   local st_s, st_ns = 0.0, 0.0
   if ru then
-    local r = ru as unix.Rusage
+    local r = ru as unix.Rusage -- cast: record union after guard
     ut_s, ut_ns = r:utime()
     st_s, st_ns = r:stime()
   end
@@ -79,22 +79,23 @@ local function finish_span(span: Span, exit_code: integer): string
   local st_s, st_ns = 0.0, 0.0
   local maxrss = 0
   if ru then
-    local r = ru as unix.Rusage
+    local r = ru as unix.Rusage -- cast: record union after guard
     ut_s, ut_ns = r:utime()
     st_s, st_ns = r:stime()
-    maxrss = math.floor(r:maxrss()) as integer
+    maxrss = math.floor(r:maxrss()) as integer -- cast: number to integer
   end
 
   -- wall time delta in ms
   local wall_delta = (wall_s - span.start_wall) * 1000
   + (wall_ns - span.start_wall_ns) / 1000000
-  local wall_ms = math.floor(wall_delta) as integer
+  local wall_ms = math.floor(wall_delta) as integer -- cast: number to integer
 
   -- cpu time delta in ms (utime + stime)
   local utime_delta = (ut_s - span.start_utime_s) * 1000
   + (ut_ns - span.start_utime_ns) / 1000000
   local stime_delta = (st_s - span.start_stime_s) * 1000
   + (st_ns - span.start_stime_ns) / 1000000
+  -- cast: number to integer
   local cpu_ms = math.floor(utime_delta + stime_delta) as integer
 
   local line = string.format(
@@ -125,10 +126,10 @@ local function parse_line(line: string): InstrumentData
   return {
     op = op,
     file = file,
-    exit = (tonumber(exit_str) or 0) as integer,
-    wall_ms = (tonumber(wall_str) or 0) as integer,
-    cpu_ms = (tonumber(cpu_str) or 0) as integer,
-    maxrss_kb = (tonumber(maxrss_str) or 0) as integer,
+    exit = (tonumber(exit_str) or 0) as integer, -- cast: number to integer
+    wall_ms = (tonumber(wall_str) or 0) as integer, -- cast: number to integer
+    cpu_ms = (tonumber(cpu_str) or 0) as integer, -- cast: number to integer
+    maxrss_kb = (tonumber(maxrss_str) or 0) as integer, -- cast: number to integer
   }
 end
 

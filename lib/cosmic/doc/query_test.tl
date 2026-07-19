@@ -30,7 +30,7 @@ local function test_load_index()
   local index, err = docs.embedded_index()
   -- Either we have docs or we get an error message
   if index then
-    local idx = index as doc_types.DocIndex
+    local idx = index as doc_types.DocIndex -- cast: record union after guard
     assert(type(idx) == "table", "index should be a table")
     assert(idx.modules, "index should have modules")
     print("test_load_index: PASS (docs available)")

@@ -12,7 +12,7 @@ end
 test_host_os_returns_string()
 
 local function test_host_os_is_lowercase()
-  local os_name = sys.host_os() as string
+  local os_name = sys.host_os() as string -- cast: enum to plain string
   assert(os_name == os_name:lower(), "host_os should return lowercase, got " .. os_name)
 end
 test_host_os_is_lowercase()
@@ -29,7 +29,7 @@ test_host_os_is_known_value()
 local function test_host_os_never_returns_raw_token()
   -- The raw cosmopolitan token for macOS is "XNU"; host_os() must never
   -- leak it (docs promise "macos"). Same for any lowercased raw form.
-  local os_name = sys.host_os() as string
+  local os_name = sys.host_os() as string -- cast: enum to plain string
   assert(os_name ~= "xnu", "host_os must translate XNU to macos, got " .. os_name)
 end
 test_host_os_never_returns_raw_token()
@@ -49,7 +49,7 @@ local function test_normalize_host_os_mapping()
   }
   for _, case in ipairs(cases) do
     local raw, want = case[1], case[2]
-    local got = sys.normalize_host_os(raw) as string
+    local got = sys.normalize_host_os(raw) as string -- cast: enum to plain string
     assert(got == want,
       "normalize_host_os(" .. raw .. ") should be " .. want .. ", got " .. tostring(got))
   end

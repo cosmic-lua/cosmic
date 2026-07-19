@@ -129,15 +129,15 @@ local raw_predicates: {string: any} = {
 --- an extensible Lua table, in which case wrap() falls back to the
 --- per-call wrapper table below.
 local function install_predicates(raw: unix.Stat): boolean
-  local mt = getmetatable(raw as any)
+  local mt = getmetatable(raw as any) -- cast: userdata boundary
   if type(mt) ~= "table" then
     return false
   end
-  local idx = (mt as {string: any}).__index
+  local idx = (mt as {string: any}).__index -- cast: from any
   if type(idx) ~= "table" then
     return false
   end
-  local methods = idx as {string: any}
+  local methods = idx as {string: any} -- cast: from any
   for name, fn in pairs(raw_predicates) do
     methods[name] = fn
   end
@@ -184,10 +184,10 @@ fs_types.wrap = function(raw: unix.Stat): fs_types.Stat
     wrap_mode = install_predicates(raw) and "direct" or "fallback"
   end
   if wrap_mode == "direct" then
-    return raw as fs_types.Stat
+    return raw as fs_types.Stat -- cast: mixed-representation Stat
   end
   local wrapped: Wrapped = setmetatable({raw = raw}, stat_mt)
-  return wrapped as fs_types.Stat
+  return wrapped as fs_types.Stat -- cast: mixed-representation Stat
 end
 
 return fs_types

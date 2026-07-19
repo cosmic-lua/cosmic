@@ -112,7 +112,7 @@ local function read_cov(path: string): {string: {integer: integer}} | nil, strin
   if data == nil then
     return nil, derr
   end
-  local t = data as {string: any}
+  local t = data as {string: any} -- cast: from any
   if t["version"] ~= 1 then
     return nil, "unsupported coverage data version"
   end
@@ -120,7 +120,7 @@ local function read_cov(path: string): {string: {integer: integer}} | nil, strin
   if hits == nil then
     return nil, "missing hits table"
   end
-  return hits as {string: {integer: integer}}
+  return hits as {string: {integer: integer}} -- cast: from any
 end
 
 --- Merge one chunk's hit counts into the per-file entries.
@@ -289,6 +289,7 @@ local function compute(paths: {string}): {FileReport} | nil, string
     if not hits then
       io.stderr:write("coverage: " .. path .. ": " .. (err or "unreadable") .. "\n")
     else
+      -- cast: record union after guard
       for src, lines in pairs(hits as {string: {integer: integer}}) do
         local display, parse = normalize(src, cwd)
         if display then
@@ -327,7 +328,7 @@ local function report(paths: {string}): integer
     io.stderr:write((err or "coverage: no data") .. "\n")
     return 1
   end
-  io.write(render(reports as {FileReport}) .. "\n")
+  io.write(render(reports as {FileReport}) .. "\n") -- cast: record union after guard
   return 0
 end
 

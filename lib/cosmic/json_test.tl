@@ -3,7 +3,7 @@ local check = require("cosmic.check")
 local json = require("cosmic.json")
 
 local function test_decode_object()
-  local result = json.decode('{"a":1,"b":"hello"}') as {string: any}
+  local result = json.decode('{"a":1,"b":"hello"}') as {string: any} -- cast: from any
   assert(type(result) == "table", "expected table")
   assert(result.a == 1, "expected a=1")
   assert(result.b == "hello", "expected b='hello'")
@@ -11,7 +11,7 @@ end
 test_decode_object()
 
 local function test_decode_array()
-  local result = json.decode('[1,2,3]') as {number}
+  local result = json.decode('[1,2,3]') as {number} -- cast: from any
   assert(type(result) == "table", "expected table")
   assert(result[1] == 1, "expected [1]=1")
   assert(result[2] == 2, "expected [2]=2")
@@ -51,9 +51,9 @@ test_encode_primitives()
 local function test_roundtrip()
   local original = {name = "test", values = {1, 2, 3}, nested = {flag = true}}
   local encoded = json.encode(original)
-  local decoded = json.decode(encoded) as {string: any}
+  local decoded = json.decode(encoded) as {string: any} -- cast: from any
   assert(decoded.name == original.name, "name mismatch")
-  local nested = decoded.nested as {string: boolean}
+  local nested = decoded.nested as {string: boolean} -- cast: from any
   assert(nested.flag == original.nested.flag, "nested flag mismatch")
 end
 test_roundtrip()
@@ -122,7 +122,7 @@ test_encode_maxdepth()
 -- C encoder/decoder shows up as a test failure, not a silent contract drift.
 
 local function test_null_object_key_dropped()
-  local decoded = json.decode('{"a":null,"b":1}') as {string: any}
+  local decoded = json.decode('{"a":null,"b":1}') as {string: any} -- cast: from any
   assert(decoded.a == nil, "null object value should decode to nil")
   assert(decoded.b == 1, "sibling value should survive")
   local reencoded = json.encode(decoded)
@@ -131,7 +131,7 @@ end
 test_null_object_key_dropped()
 
 local function test_null_array_element_truncates()
-  local decoded = json.decode("[1,null,2]") as {any}
+  local decoded = json.decode("[1,null,2]") as {any} -- cast: from any
   assert(decoded[1] == 1, "first element should survive")
   assert(decoded[2] == nil, "null element should decode to nil (hole)")
   assert(decoded[3] == 2, "element after null should still be reachable")
@@ -195,7 +195,7 @@ end
 test_decode_unicode_escapes()
 
 local function test_nul_byte_roundtrip()
-  local decoded = json.decode('"\\u0000"') as string
+  local decoded = json.decode('"\\u0000"') as string -- cast: from any
   assert(#decoded == 1 and decoded == "\0",
     "\\u0000 should decode to a 1-byte NUL string")
   local encoded = json.encode("\0")

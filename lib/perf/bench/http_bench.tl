@@ -42,7 +42,7 @@ local function serve_loop(srv: net.Socket)
   while true do
     local conn = srv:accept()
     if conn then
-      local cc = conn as net.Socket
+      local cc = conn as net.Socket -- cast: record union after guard
       if read_request(cc) then
         cc:send(RESPONSE)
       end
@@ -77,7 +77,7 @@ local function scenarios(): {pt.Scenario}, string
         return fetch.fetch(url, {allow_private = true})
       end,
       check = function(_: any, res: any): boolean, string
-        local r = res as fetch.Result
+        local r = res as fetch.Result -- cast: from any
         if r == nil then
           return false, "no result"
         end
@@ -108,7 +108,7 @@ local function scenarios(): {pt.Scenario}, string
           })
       end,
       check = function(_: any, res: any): boolean, string
-        local r = res as fetch.Result
+        local r = res as fetch.Result -- cast: from any
         if r == nil then
           return false, "no result"
         end
@@ -129,7 +129,7 @@ local function scenarios(): {pt.Scenario}, string
       fn = function(_: any): any
         local sock, cerr = net.connect_tcp(LOCALHOST, port)
         assert(sock, cerr)
-        local ss = sock as net.Socket
+        local ss = sock as net.Socket -- cast: record union after guard
         local sent, serr = ss:send("GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
         assert(sent, serr)
         local buf = ""
@@ -144,7 +144,7 @@ local function scenarios(): {pt.Scenario}, string
         return buf
       end,
       check = function(_: any, res: any): boolean, string
-        local s = res as string
+        local s = res as string -- cast: from any
         if s == nil or not s:find("200 OK", 1, true) then
           return false, "no 200 response"
         end

@@ -141,7 +141,7 @@ local function make_statement(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Dat
   --- Values wrapped with `sqlite.blob()` are bound with BLOB affinity.
   function stmt:bind(...: any): boolean, string
     raw_stmt:reset()
-    local n = select("#", ...) as integer
+    local n = select("#", ...)
     for i = 1, n do
       local val = select(i, ...)
       local rc = bind_mod.bind_at(raw_stmt, i, val)
@@ -157,9 +157,9 @@ local function make_statement(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Dat
   --- Values wrapped with `sqlite.blob()` are bound with BLOB affinity.
   function stmt:bind_list(values: {any}): boolean, string
     raw_stmt:reset()
-    local count = raw_stmt:bind_parameter_count() as integer
+    local count = raw_stmt:bind_parameter_count()
     for i = 1, count do
-      local rc = bind_mod.bind_at(raw_stmt, i, values[i as integer])
+      local rc = bind_mod.bind_at(raw_stmt, i, values[i])
       if rc ~= sqlite3.OK then
         return false, raw_db:errmsg()
       end
@@ -193,7 +193,7 @@ local function make_statement(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Dat
     local col_names: {integer: string}
     local first_call = true
 
-    local iter = setmetatable({} as Rows, {
+    local iter = setmetatable({} as Rows, { -- cast: empty table into callable record
         __call = function(_: Rows): {string: any}
           local rc = raw_stmt:step()
           if rc == sqlite3.ROW then
@@ -202,12 +202,12 @@ local function make_statement(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Dat
               first_call = false
               col_names = {}
               for idx = 0, col_count - 1 do
-                col_names[(idx + 1) as integer] = raw_stmt:get_name(idx)
+                col_names[idx + 1] = raw_stmt:get_name(idx)
               end
             end
             local row: {string: any} = {}
             for idx = 0, col_count - 1 do
-              local name = col_names[(idx + 1) as integer]
+              local name = col_names[idx + 1]
               row[name] = raw_stmt:get_value(idx)
             end
             return row
@@ -225,15 +225,15 @@ local function make_statement(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Dat
 
   function stmt:values(): Values
     local step_err: string
-    local col_count = raw_stmt:columns() as integer
+    local col_count = raw_stmt:columns()
 
-    local iter = setmetatable({} as Values, {
+    local iter = setmetatable({} as Values, { -- cast: empty table into callable record
         __call = function(_: Values): any ...
           local rc = raw_stmt:step()
           if rc == sqlite3.ROW then
             local vals: {integer: any} = {}
             for idx = 0, col_count - 1 do
-              vals[(idx + 1) as integer] = raw_stmt:get_value(idx)
+              vals[idx + 1] = raw_stmt:get_value(idx)
             end
             -- Bound the unpack: a NULL first column leaves vals[1] == nil,
             -- and an unbounded unpack would drop the remaining columns.
@@ -277,7 +277,7 @@ local function make_statement(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Dat
 
   return setmetatable(stmt, {
       __close = function(self: Statement) self:close() end
-    }) as Statement
+    })
 end
 
 local function make_database(raw_db: lsqlite3.Database): Database
@@ -295,7 +295,7 @@ local function make_database(raw_db: lsqlite3.Database): Database
     if not raw_stmt then
       return nil, raw_db:errmsg()
     end
-    return make_statement(raw_stmt as lsqlite3.Statement, raw_db)
+    return make_statement(raw_stmt, raw_db)
   end
 
   function db:query(sql: string, ...: any): Rows | nil, string
@@ -314,14 +314,14 @@ local function make_database(raw_db: lsqlite3.Database): Database
     if not iter then
       return nil, bind_err
     end
-    return iter as Rows
+    return iter as Rows -- cast: row_iter record to public Rows
   end
 
   function db:exec(sql: string, ...: any): boolean, string
     if closed then
       return false, "database is closed"
     end
-    local n = select("#", ...) as integer
+    local n = select("#", ...)
     if n == 0 then
       -- no params: use raw exec (faster for DDL)
       local rc = raw_db:exec(sql)
@@ -355,7 +355,7 @@ local function make_database(raw_db: lsqlite3.Database): Database
     if not iter then
       return nil, err
     end
-    local it = iter as Rows
+    local it = iter as Rows -- cast: record union after guard
     -- Capture the first row, then close the iterator so the statement is
     -- released deterministically without stepping the remaining rows.
     local first: {string: any} = nil
@@ -380,14 +380,15 @@ local function make_database(raw_db: lsqlite3.Database): Database
     if not ok then
       return false, err or "begin failed"
     end
+    -- cast: pcall variadic returns
     local success, result, result_err = pcall(fn, self) as(boolean, any, any)
     if not success then
       self:exec("ROLLBACK")
-      return false, (result as string) or "transaction failed"
+      return false, (result as string) or "transaction failed" -- cast: from any
     end
     if result == false or (result == nil and result_err ~= nil) then
       self:exec("ROLLBACK")
-      return false, (result_err as string) or "transaction rolled back"
+      return false, (result_err as string) or "transaction rolled back" -- cast: from any
     end
     return self:exec("COMMIT")
   end

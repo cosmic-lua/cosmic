@@ -20,6 +20,7 @@ local function test_roundtrip_explicit_formats()
   local formats: {compress.Format} = {"zlib", "gzip", "raw"}
   for _, format in ipairs(formats) do
     local compressed = compress.compress(data, {format = format})
+    -- cast: enum widening
     local result, err = compress.decompress(compressed, {format = format as compress.DecompressFormat})
     assert(err == nil, format .. " roundtrip failed: " .. (err or ""))
     assert(result == data, format .. " roundtrip mismatch")
@@ -31,6 +32,7 @@ local function test_roundtrip_empty_per_format()
   local formats: {compress.Format} = {"zlib", "gzip", "raw"}
   for _, format in ipairs(formats) do
     local compressed = compress.compress("", {format = format})
+    -- cast: enum widening
     local result, err = compress.decompress(compressed, {format = format as compress.DecompressFormat})
     assert(err == nil, format .. " empty roundtrip failed: " .. (err or ""))
     assert(result == "", format .. ": expected empty string")
@@ -144,7 +146,7 @@ local function test_max_output_bound_per_format()
   for _, format in ipairs(formats) do
     local cformat: compress.Format = "gzip"
     if format ~= "auto" then
-      cformat = format as compress.Format
+      cformat = format as compress.Format -- cast: enum narrowing after guard
     end
     local compressed = compress.compress(data, {format = cformat})
     local result, err = compress.decompress(compressed, {format = format, max_output = 100})
@@ -162,7 +164,7 @@ test_max_output_bound_per_format()
 -- Contract test: the bespoke prefixed-deflate surface is gone (#590).
 
 local function test_prefixed_deflate_surface_removed()
-  local m = compress as {string: any}
+  local m = compress as {string: any} -- cast: probe removed surface
   assert(m["deflate"] == nil, "deflate must be removed")
   assert(m["inflate"] == nil, "inflate must be removed")
   assert(m["uncompress"] == nil, "uncompress must be removed (renamed decompress)")

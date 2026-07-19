@@ -54,7 +54,7 @@ local function test_cosmic_main_returns_when_not_main()
     return 0
   end
   -- when required (not main), cosmic.main should return without calling fn
-  cosmic.main(app as function({string}, any): number, string)
+  cosmic.main(app as function({string}, any): number, string) -- cast: function shape
   assert(not called, "expected app not to be called when not main")
 end
 test_cosmic_main_returns_when_not_main()

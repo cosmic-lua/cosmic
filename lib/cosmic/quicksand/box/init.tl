@@ -39,7 +39,7 @@ local record CapsModule
 end
 
 local function caps(): types.Capabilities
-  local qs = require("cosmic.quicksand") as CapsModule
+  local qs = require("cosmic.quicksand") as CapsModule -- cast: from any
   return qs.capabilities()
 end
 
@@ -84,12 +84,12 @@ local function validate(opts: BoxOptions): boolean, string
   end
   local fs = opts.fs
   if fs then
-    if (fs as {string: any}).deny ~= nil then
+    if (fs as {string: any}).deny ~= nil then -- cast: probe for removed field
       return false, "fs.deny was removed: the fs policy is an allowlist,"
       .. " every path not in fs.ro/rw/exec is already denied"
     end
     for _, name in ipairs({"ro", "rw", "exec"}) do
-      local v = (fs as {string: any})[name]
+      local v = (fs as {string: any})[name] -- cast: dynamic key into record
       if v ~= nil and type(v) ~= "table" then
         return false, "fs." .. name .. " must be a list"
       end
@@ -146,7 +146,7 @@ local function run(self: Box, argv: {string}): integer | nil, string
   end
   local ok, err = preflight(self.opts)
   if not ok then return nil, err end
-  local rm = require("cosmic.quicksand.box.run") as RunModule
+  local rm = require("cosmic.quicksand.box.run") as RunModule -- cast: from any
   return rm.run(self.opts, argv)
 end
 
@@ -182,7 +182,7 @@ end
 --- @param ... BoxOptions policy tables; nil entries are skipped
 --- @return BoxOptions merged policy
 local function merge(...: BoxOptions): BoxOptions
-  return box_merge.merge(...) as BoxOptions
+  return box_merge.merge(...) as BoxOptions -- cast: untyped merge result
 end
 
 local record BoxModule

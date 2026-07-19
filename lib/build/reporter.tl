@@ -166,7 +166,9 @@ local function main(...: string): integer, string
           status_str = "fail"
         end
         local base = string.gsub(file, "%.got$", "")
+        -- cast: or fallback does not narrow
         local out_content = (fs.read(base .. ".out") or "") as string
+        -- cast: or fallback does not narrow
         local err_content = (fs.read(base .. ".err") or "") as string
 
         local message = ""
@@ -187,6 +189,7 @@ local function main(...: string): integer, string
           checker = checker,
         }
 
+        -- cast: dynamic key into record
         local status_list = (results as {string: {CheckResult}})[result.status]
         if status_list then
           table.insert(status_list, result)

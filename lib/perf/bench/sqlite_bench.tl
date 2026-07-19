@@ -89,7 +89,7 @@ local function scenarios(): {pt.Scenario}, string
         if row == nil then
           return false, "count query failed: " .. tostring(qerr)
         end
-        local r = row as {string: any}
+        local r = row as {string: any} -- cast: record union after guard
         if r.n ~= 0 then
           return false, "scratch table not empty: " .. tostring(r.n)
         end
@@ -107,15 +107,15 @@ local function scenarios(): {pt.Scenario}, string
       -- Validated against the row's own id (the harness may run extra
       -- probe iterations, so query_id has moved on by check time).
       check = function(_: any, res: any): boolean, string
-        local row = res as {string: any}
+        local row = res as {string: any} -- cast: from any
         if row == nil then
           return false, "no row returned"
         end
-        local id = row.id as number
+        local id = row.id as number -- cast: from any
         if id == nil or row.name ~= "row-" .. math.floor(id) then
           return false, "wrong row: " .. tostring(row.name)
         end
-        if row.score as number ~= id * 0.25 then
+        if row.score as number ~= id * 0.25 then -- cast: from any
           return false, "wrong score: " .. tostring(row.score)
         end
         return true
@@ -129,7 +129,7 @@ local function scenarios(): {pt.Scenario}, string
         return row
       end,
       check = function(_: any, res: any): boolean, string
-        local row = res as {string: any}
+        local row = res as {string: any} -- cast: from any
         if row == nil then
           return false, "no row returned"
         end
@@ -138,7 +138,7 @@ local function scenarios(): {pt.Scenario}, string
         end
         -- SUM(i * 0.25) for i in 1..ROWS
         local expected = ROWS * (ROWS + 1) / 2 * 0.25
-        local total = row.total as number
+        local total = row.total as number -- cast: from any
         if total == nil or math.abs(total - expected) > 0.001 then
           return false, "wrong sum: " .. tostring(row.total)
         end

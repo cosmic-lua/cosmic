@@ -132,7 +132,7 @@ local function load_dir(dir: string): LoadResult
     return result
   end
 
-  local handle = dh as fs_types.Dir
+  local handle = dh as fs_types.Dir -- cast: record union after guard
   local names: {string} = {}
   while true do
     local name = handle:read()

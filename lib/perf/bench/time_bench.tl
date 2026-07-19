@@ -16,7 +16,7 @@ local function scenarios(): {pt.Scenario}, string
         return (time.format_date(TS))
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= "2025-01-02" then
+        if res as string ~= "2025-01-02" then -- cast: from any
           return false, "wrong date: " .. tostring(res)
         end
         return true
@@ -28,7 +28,7 @@ local function scenarios(): {pt.Scenario}, string
         return (time.format_iso8601(TS))
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= "2025-01-02T02:54:05Z" then
+        if res as string ~= "2025-01-02T02:54:05Z" then -- cast: from any
           return false, "wrong iso8601: " .. tostring(res)
         end
         return true

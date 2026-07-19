@@ -23,7 +23,7 @@ local function decode_hex(hex: string): string | nil, string
   -- and reports bad data as nil, err; forward its error verbatim.
   local result, err = cosmo.DecodeHex(hex)
   if not result then
-    return nil, err as string
+    return nil, err
   end
   return result
 end
@@ -35,9 +35,10 @@ end
 --- @return string | nil The Lua source code representation, or nil on error
 --- @return string? Error message if encoding failed
 local function encode_lua(value: any, opts?: {string: any}): string | nil, string
+  -- cast: map to options record
   local result, err = cosmo.EncodeLua(value, opts as cosmo.EncoderOptions)
   if result == nil then
-    return nil, err as string
+    return nil, err
   end
   return result
 end
@@ -53,11 +54,11 @@ end
 local function decode_lua_unsafe(code: string): any | nil, string
   local chunk, err = load("return " .. code, "=(decode_lua_unsafe)", "t", {})
   if not chunk then
-    return nil, err as string
+    return nil, err
   end
   local ok, result = pcall(chunk)
   if not ok then
-    return nil, result as string
+    return nil, result as string -- cast: from any
   end
   return result, nil
 end

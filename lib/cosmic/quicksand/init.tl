@@ -62,7 +62,7 @@ end
 --- @return boolean true when the syscall is wired up on this host
 local function probe(fn: any): boolean
   if not fn then return false end
-  local call = fn as function(any, any): any, string, integer
+  local call = fn as function(any, any): any, string, integer -- cast: function shape
   local ok, _, eno = call(nil, nil)
   if ok then return true end
   if errno.is(eno, "ENOSYS") then return false end

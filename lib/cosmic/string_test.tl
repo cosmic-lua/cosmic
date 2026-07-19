@@ -30,7 +30,9 @@ test_capitalize_single_char()
 -- verbatim. Use the stdlib directly.
 
 local function test_upper_lower_removed()
+  -- cast: probe removed surface
   assert((str as {string: any}).upper == nil, "str.upper should be removed")
+  -- cast: probe removed surface
   assert((str as {string: any}).lower == nil, "str.lower should be removed")
 end
 test_upper_lower_removed()

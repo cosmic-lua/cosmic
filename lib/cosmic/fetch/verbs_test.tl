@@ -201,6 +201,7 @@ local function test_result_json()
   proc.wait(math.tointeger(pid))
   assert(r.ok, "request failed: " .. tostring(r.error))
   local v = r:json()
+  -- cast: from any
   assert((v as {string: any}).answer == 42, "expected decoded json body")
 end
 test_result_json()

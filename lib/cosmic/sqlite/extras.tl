@@ -27,7 +27,7 @@ end
 --- doesn't need to be duplicated here.
 --- @param db_any any The Database being built by make_database
 local function attach(db_any: any)
-  local db = db_any as Db
+  local db = db_any as Db -- cast: from any
 
   --- Return the first column of the first row, for scalar lookups like
   --- COUNT(*) or a single-value SELECT. Returns nil with no error both
@@ -38,7 +38,7 @@ local function attach(db_any: any)
     if not stmt then
       return nil, "query failed: " .. (err or "unknown error")
     end
-    local st = stmt as Stmt
+    local st = stmt as Stmt -- cast: record union after guard
     local ok, bind_err = st:bind(...)
     if not ok then
       st:close()
@@ -71,16 +71,17 @@ local function attach(db_any: any)
     if not ok then
       return false, err or "savepoint failed"
     end
+    -- cast: pcall multi-return shape
     local success, result, result_err = pcall(fn, self) as(boolean, any, any)
     if not success then
       self:exec("ROLLBACK TO " .. name)
       self:exec("RELEASE " .. name)
-      return false, (result as string) or "savepoint failed"
+      return false, (result as string) or "savepoint failed" -- cast: from any
     end
     if result == false or (result == nil and result_err ~= nil) then
       self:exec("ROLLBACK TO " .. name)
       self:exec("RELEASE " .. name)
-      return false, (result_err as string) or "savepoint rolled back"
+      return false, (result_err as string) or "savepoint rolled back" -- cast: from any
     end
     return self:exec("RELEASE " .. name)
   end

@@ -37,7 +37,7 @@ local function scenarios(): {pt.Scenario}, string
         return fuzzy.find_similar(QUERY, CANDIDATES)
       end,
       check = function(_: any, res: any): boolean, string
-        local names = res as {string}
+        local names = res as {string} -- cast: from any
         if names == nil or #names ~= 1 then
           return false, "expected exactly one match, got " ..
           tostring(names and #names)

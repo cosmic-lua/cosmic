@@ -134,7 +134,7 @@ local function encode_multipart(parts: {Part}): string | nil, string
   if not raw then
     return nil, rerr
   end
-  local boundary = "cosmic" .. codec.encode_hex(raw as string)
+  local boundary = "cosmic" .. codec.encode_hex(raw)
   local out: {string} = {}
   for _, part in ipairs(parts) do
     if not part.name or part.name == "" then
@@ -205,7 +205,7 @@ local function prepare<T>(url: string, opts_in: T): string, T, string
   if opts_in == nil then
     return url, nil, nil
   end
-  local opts = opts_in as PrepareOptions
+  local opts = opts_in as PrepareOptions -- cast: generic T via mirror record
   local sources = 0
   if opts.body then sources = sources + 1 end
   if opts.json ~= nil then sources = sources + 1 end
@@ -220,10 +220,10 @@ local function prepare<T>(url: string, opts_in: T): string, T, string
 
   -- Shallow copy (headers too) so no caller table is mutated.
   local o: {string: any} = {}
-  for k, v in pairs(opts_in as {string: any}) do
+  for k, v in pairs(opts_in as {string: any}) do -- cast: generic T as map to copy
     o[k] = v
   end
-  local prepared = o as PrepareOptions
+  local prepared = o as PrepareOptions -- cast: copied map as mirror record
   if opts.headers then
     local h: {string: string} = {}
     for k, v in pairs(opts.headers) do
@@ -260,7 +260,7 @@ local function prepare<T>(url: string, opts_in: T): string, T, string
   if prepared.body and not prepared.method then
     prepared.method = "POST"
   end
-  return url, o as T, nil
+  return url, o as T, nil -- cast: copied map back to generic T
 end
 
 -- Mirrors of the stream result surface download consumes.
@@ -294,7 +294,7 @@ local function verb(fetch_fn: function(string, any): any, method: string): funct
   return function(url: string, opts_any: any): any
     local o: {string: any} = {}
     if opts_any then
-      for k, v in pairs(opts_any as {string: any}) do
+      for k, v in pairs(opts_any as {string: any}) do -- cast: from any
         o[k] = v
       end
     end
@@ -315,7 +315,7 @@ local function make(fetch_fn: function(string, any): any,
 
   made.download = function(url: string, path: string, opts_any: any): any
     local res_any = stream_fn(url, opts_any)
-    local res = res_any as StreamRes
+    local res = res_any as StreamRes -- cast: from any
     if not res.ok then
       return res_any
     end
@@ -348,7 +348,7 @@ local function make(fetch_fn: function(string, any): any,
     if not handle then
       return fail_with("download: " .. tostring(oerr))
     end
-    local h = handle as fd.Handle
+    local h = handle as fd.Handle -- cast: record union after guard
     while true do
       local chunk, rerr = res.reader:read()
       if rerr then
@@ -357,7 +357,7 @@ local function make(fetch_fn: function(string, any): any,
         return fail_with("download: " .. rerr)
       end
       if not chunk then break end
-      local c = chunk as string
+      local c = chunk as string -- cast: method syntax defeats narrowing
       local off = 0
       while off < #c do
         local n, werr = h:write(c:sub(off + 1))

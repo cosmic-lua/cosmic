@@ -35,14 +35,14 @@ local function scenarios(): {pt.Scenario}, string
         return (json.decode(SMALL))
       end,
       check = function(_: any, res: any): boolean, string
-        local t = res as {string: any}
+        local t = res as {string: any} -- cast: from any
         if t == nil then
           return false, "decode returned nil"
         end
         if t.name ~= "cosmic" then
           return false, "bad name: " .. tostring(t.name)
         end
-        local tags = t.tags as {any}
+        local tags = t.tags as {any} -- cast: from any
         if tags == nil or #tags ~= 3 then
           return false, "bad tags"
         end
@@ -55,7 +55,7 @@ local function scenarios(): {pt.Scenario}, string
         return (json.decode(large_json))
       end,
       check = function(_: any, res: any): boolean, string
-        local items = res as {{string: any}}
+        local items = res as {{string: any}} -- cast: from any
         if items == nil or #items ~= LARGE_ITEMS then
           return false, "bad item count"
         end
@@ -71,11 +71,11 @@ local function scenarios(): {pt.Scenario}, string
         return (json.encode(large_table))
       end,
       check = function(_: any, res: any): boolean, string
-        local s = res as string
+        local s = res as string -- cast: from any
         if s == nil or #s == 0 then
           return false, "encode returned nothing"
         end
-        local items = json.decode(s) as {{string: any}}
+        local items = json.decode(s) as {{string: any}} -- cast: from any
         if items == nil or #items ~= LARGE_ITEMS then
           return false, "roundtrip lost items"
         end
@@ -92,11 +92,11 @@ local function scenarios(): {pt.Scenario}, string
         return (json.encode(decoded))
       end,
       check = function(_: any, res: any): boolean, string
-        local s = res as string
+        local s = res as string -- cast: from any
         if s == nil then
           return false, "roundtrip returned nil"
         end
-        local t = json.decode(s) as {string: any}
+        local t = json.decode(s) as {string: any} -- cast: from any
         if t == nil or t.version ~= 3 then
           return false, "roundtrip corrupted content"
         end

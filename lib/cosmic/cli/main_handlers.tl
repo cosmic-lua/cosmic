@@ -55,7 +55,7 @@ local function load_script_file(script_path: string): function(...: any): any ..
       code = result.code
       script_cache.store(script_path, code)
     end
-    local src = code as string
+    local src = code as string -- cast: set on both branches
     if src:sub(1, 2) == "#!" then
       src = src:sub((src:find("\n") or 0) + 1)
     end
@@ -93,7 +93,7 @@ local function handle_version(): integer
       cosmic: string
       cosmos: string
     end
-    local v = ver as VersionInfo
+    local v = ver as VersionInfo -- cast: from any (pcall result)
     io.write("cosmic-lua " .. v.cosmic .. " (cosmos " .. v.cosmos .. ", " .. _VERSION .. ")\n")
   else
     io.write(_VERSION .. "\n")

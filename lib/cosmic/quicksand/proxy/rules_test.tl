@@ -54,7 +54,7 @@ local function test_validate_rejects_malformed_rules()
   for i, case in ipairs(cases) do
     local ok, err = rules.validate({["a.example.com"] = case[1]})
     assert(not ok, "case " .. tostring(i) .. " should fail validation")
-    assert(err:find(case[2] as string, 1, true),
+    assert(err:find(case[2] as string, 1, true), -- cast: tuple element
       "case " .. tostring(i) .. " error should mention "
       .. tostring(case[2]) .. ", got: " .. err)
   end
@@ -74,7 +74,7 @@ local function test_validate_rejects_malformed_port_keys()
     "*.internal:443x", -- wildcard form, bad port
   }
   for _, key in ipairs(bad_keys) do
-    local ok, err = rules.validate({[key] = {} as any})
+    local ok, err = rules.validate({[key] = {}})
     assert(not ok, "key should be rejected: " .. key)
     assert(err:find(key, 1, true),
       "error should name the offending key " .. key .. ", got: " .. err)
@@ -93,7 +93,7 @@ local function test_validate_accepts_valid_port_keys()
     "db.internal", "db.internal:*", "db.internal:", "*.internal:8443",
   }
   for _, key in ipairs(good_keys) do
-    local ok, err = rules.validate({[key] = {} as any})
+    local ok, err = rules.validate({[key] = {}})
     assert(ok, "key should be accepted: " .. key .. ", got: " .. tostring(err))
   end
 end
@@ -101,16 +101,16 @@ test_validate_accepts_valid_port_keys()
 
 local function test_validate_accepts_pass_through_and_complete_rules()
   assert(rules.validate({}), "empty allowlist")
-  assert(rules.validate({["a.example.com"] = {} as any}), "empty rule table")
+  assert(rules.validate({["a.example.com"] = {}}), "empty rule table")
   assert(rules.validate({["a.example.com"] = true}), "true rule")
   assert(rules.validate({
-        ["a.example.com"] = {type = "bearer", token = "t"} as any,
+        ["a.example.com"] = {type = "bearer", token = "t"},
         ["b.example.com"] = {
           type = "basic", username = "u", password = "p",
-        } as any,
+        },
         ["c.example.com"] = {
           type = "header", header_name = "x-k", header_value = "v",
-        } as any,
+        },
       }), "complete rules of every type")
 end
 test_validate_accepts_pass_through_and_complete_rules()
@@ -127,7 +127,7 @@ local function test_auth_header()
     })
   assert(n == "x-k" and v == "s", "custom header")
   assert(rules.auth_header({}) == nil, "pass-through injects nothing")
-  -- raw config can smuggle `true` past the types; auth_header must not index it
+  -- cast: deliberate invalid input: raw config can smuggle `true` past the types
   assert(rules.auth_header(true as rules.ProxyRule) == nil, "true injects nothing")
 end
 test_auth_header()

@@ -22,7 +22,7 @@ local function test_all_scenarios_pass()
   for _, name in ipairs(MODULES) do
     local ok, mod = pcall(require, name)
     assert(ok, name .. ": " .. tostring(mod))
-    local bench = mod as pt.BenchModule
+    local bench = mod as pt.BenchModule -- cast: from any
     assert(bench.scenarios ~= nil, name .. ": missing scenarios()")
     assert(bench.cleanup ~= nil, name .. ": missing cleanup()")
 

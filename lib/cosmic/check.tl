@@ -28,8 +28,8 @@ local function deep_eq(a: any, b: any): boolean
   if type(a) ~= "table" or type(b) ~= "table" then
     return false
   end
-  local ta = a as {any: any}
-  local tb = b as {any: any}
+  local ta = a as {any: any} -- cast: from any
+  local tb = b as {any: any} -- cast: from any
   for k, v in pairs(ta) do
     if not deep_eq(v, tb[k]) then
       return false

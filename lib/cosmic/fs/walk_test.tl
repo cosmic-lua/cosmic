@@ -67,7 +67,7 @@ local function test_collect_all_symlink_cycle_terminates()
 
   local collected = fs_walk.collect_all(base)
   assert(collected, "collect_all should succeed")
-  local files = collected as {string: any}
+  local files = collected as {string: any} -- cast: record union after guard
   -- Should contain sub/real.txt but NOT any path with loop/ in it
   for rel_path in pairs(files) do
     assert(not rel_path:match("loop"),
@@ -302,6 +302,7 @@ local function test_collect_success_has_no_error()
   local results, err = fs_walk.collect(base, "*.lua")
   assert(results, "collect should succeed")
   assert(err == nil, "no error expected on a clean walk, got " .. tostring(err))
+  -- cast: record union after guard
   assert(#(results as {string}) == 1, "expected exactly one match")
 end
 test_collect_success_has_no_error()

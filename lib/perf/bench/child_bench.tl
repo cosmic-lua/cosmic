@@ -14,10 +14,10 @@ local function scenarios(): {pt.Scenario}, string
       fn = function(_: any): any
         local result, err = child.run({"/bin/true"})
         assert(result, err)
-        return (result as child.Result).code
+        return (result as child.Result).code -- cast: record union after guard
       end,
       check = function(_: any, res: any): boolean, string
-        if res as integer ~= 0 then
+        if res as integer ~= 0 then -- cast: from any
           return false, "expected exit code 0, got " .. tostring(res)
         end
         return true

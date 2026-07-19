@@ -165,8 +165,7 @@ end
 test_password_argon2d_roundtrip()
 
 local function test_password_invalid_variant()
-  -- the Variant enum rejects this literal statically; cast to keep
-  -- exercising the wrapper's runtime nil, err guard for smuggled strings
+  -- cast: deliberate invalid input past Variant enum, for runtime guard
   local bad = {variant = "invalid"} as hash.HashOptions
   local encoded, err = hash.password("password", bad)
   assert(encoded == nil, "password should fail with invalid variant")
@@ -260,7 +259,7 @@ end
 test_digest_matches_sha256_convenience()
 
 local function test_digest_unknown_algo()
-  local d, err = hash.digest("md4" as hash.Algo, "abc")
+  local d, err = hash.digest("md4" as hash.Algo, "abc") -- cast: deliberate invalid input
   assert(d == nil, "digest should return nil for unknown algorithm")
   assert(err and err:match("unknown hash algorithm"),
     "error should name the problem, got: " .. tostring(err))
@@ -305,6 +304,7 @@ end
 test_hmac_matches_hmac_sha256_convenience()
 
 local function test_hmac_unknown_algo()
+  -- cast: deliberate invalid input
   local tag, err = hash.hmac("md4" as hash.Algo, "key", "data")
   assert(tag == nil, "hmac should return nil for unknown algorithm")
   assert(err and err:match("unknown hash algorithm"),

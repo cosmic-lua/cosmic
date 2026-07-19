@@ -48,7 +48,7 @@ end
 --- @param name string errno constant name
 --- @return integer? errno number
 local function code(name: string): integer
-  return (unix as {string: any})[name] as integer
+  return (unix as {string: any})[name] as integer -- cast: dynamic E* lookup, from any
 end
 
 --- True when a failed call's numeric errno (the third return value of a
@@ -115,9 +115,9 @@ local ERRNO_NAMES < const >: {string} = {
 --- reaching through `cosmo.unix` for a raw constant.
 local constants: {string: integer} = {}
 for _, name in ipairs(ERRNO_NAMES) do
-  local v = (unix as {string: any})[name]
+  local v = (unix as {string: any})[name] -- cast: dynamic E* lookup
   if v is number then
-    constants[name] = v as integer
+    constants[name] = v as integer -- cast: number to integer
   end
 end
 

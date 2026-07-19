@@ -54,7 +54,7 @@ local function copy(src: string, dst: string): boolean, string
     unix.close(srcfd)
     return false, errstr(serr, "copy: fstat: " .. src)
   end
-  local mode = (st as unix.Stat):mode() & 0x1ff
+  local mode = (st as unix.Stat):mode() & 0x1ff -- cast: record union after guard
   local dstfd, derr = unix.open(dst,
     unix.O_WRONLY | unix.O_CREAT | unix.O_TRUNC, mode)
   if not dstfd then
@@ -303,7 +303,7 @@ local function tmpfile(template?: string): Handle | nil, string, string
   -- The binding returns (fd, path) on success and (nil, Errno) on failure.
   local fd, path = unix.mkstemp(template)
   if not fd then
-    return nil, nil, errstr(path as any, "tmpfile: " .. template)
+    return nil, nil, errstr(path, "tmpfile: " .. template)
   end
   return cfd.wrap(fd), path
 end
@@ -330,7 +330,7 @@ local function statfs(path: string): Statfs | nil, string
   if not info then
     return nil, errstr(err, "statfs: " .. path)
   end
-  return info as Statfs
+  return info as Statfs -- cast: userdata boundary
 end
 
 --- Get filesystem statistics from a file descriptor.
@@ -342,7 +342,7 @@ local function fstatfs(fd: integer): Statfs | nil, string
   if not info then
     return nil, errstr(err, "fstatfs")
   end
-  return info as Statfs
+  return info as Statfs -- cast: userdata boundary
 end
 
 --- Flush all filesystem buffers to disk, system-wide (sync(2)).

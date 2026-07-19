@@ -185,7 +185,7 @@ local function parse(spec: Spec, argv: {string}): Parsed | nil, string
   if not r0 then
     return nil, prog(spec) .. ": " .. tostring(gerr)
   end
-  local r = r0 as getopt.Result
+  local r = r0 as getopt.Result -- cast: record union after guard
 
   if r.unknown[1] then
     return nil, prog(spec) .. ": unknown option: " .. r.unknown[1] .. " (try --help)"

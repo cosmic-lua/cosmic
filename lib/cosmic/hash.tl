@@ -93,9 +93,9 @@ local function digest(algo: Algo, data: string): string | nil, string
     return nil, "unknown hash algorithm: " .. tostring(algo)
   end
   local d, err = cosmo.GetCryptoHash(
-    string.upper(algo) as cosmo.CryptoHashName, data)
+    string.upper(algo) as cosmo.CryptoHashName, data) -- cast: enum widening
   if not d then
-    return nil, err as string
+    return nil, err
   end
   return d
 end
@@ -119,7 +119,7 @@ local function hmac(algo: Algo, key: string, data: string): string | nil, string
     return nil, "hmac: key must be non-empty"
   end
   local d, err = cosmo.GetCryptoHash(
-    string.upper(algo) as cosmo.CryptoHashName, data, key)
+    string.upper(algo) as cosmo.CryptoHashName, data, key) -- cast: enum widening
   if not d then
     return nil, err
   end
