@@ -81,6 +81,27 @@ local function now_ms(): number
   return secs * 1000 + nanos / 1000000
 end
 
+--- Read up to bufsiz bytes from fd, retrying when a signal interrupts the
+--- read (the signal-safety wave, #595). Returns unix.read's (data, err).
+local function read_retry(fd: integer, bufsiz: integer): string | nil, string | nil
+  local data, err, eno = unix.read(fd, bufsiz)
+  while data == nil and errno.is(eno, "EINTR") do
+    data, err, eno = unix.read(fd, bufsiz)
+  end
+  return data, err
+end
+
+--- Reap pid with a blocking wait, retrying when a signal interrupts it
+--- (the signal-safety wave, #595). Returns (pid, status); on a hard wait
+--- failure pid is nil and the error string sits in the status slot.
+local function wait_retry(pid: integer): integer | nil, integer
+  local wpid, status, weno = unix.wait(pid)
+  while wpid == nil and errno.is(weno, "EINTR") do
+    wpid, status, weno = unix.wait(pid)
+  end
+  return wpid, status
+end
+
 -- Put a pipe write end into non-blocking mode so a stdin write in the pump
 -- can never block the loop that is simultaneously draining stdout/stderr.
 -- F_SETFL replaces the file-status flags, but a fresh pipe write end carries
@@ -130,8 +151,11 @@ local function pump(state: PumpState, deadline_ms: number): boolean
     if not ev0 then return end
     local ev = ev0 as {string: boolean}
     if ev.readable then
-      local chunk, rerr = unix.read(fd, CHUNK)
+      local chunk, rerr, reno = unix.read(fd, CHUNK)
       if chunk == nil then
+        -- Interrupted by a signal: leave the fd registered; the next poll
+        -- round retries (the signal-safety wave, #595).
+        if errno.is(reno, "EINTR") then return end
         state.io_err = state.io_err or errno.str(rerr, "read")
         p:remove(fd); unix.close(fd)
         if which == "out" then state.stdout_fd = nil else state.stderr_fd = nil end
@@ -175,8 +199,9 @@ local function pump(state: PumpState, deadline_ms: number): boolean
           if state.stdin_off >= #state.stdin_data then
             p:remove(state.stdin_fd); unix.close(state.stdin_fd); state.stdin_fd = nil
           end
-        elseif errno.is(weno, "EAGAIN") then
-          -- Not actually writable yet; try again on the next poll.
+        elseif errno.is(weno, "EAGAIN") or errno.is(weno, "EINTR") then
+          -- Not actually writable yet (EAGAIN), or a signal interrupted the
+          -- write (EINTR): try again on the next poll.
         elseif errno.is(weno, "EPIPE") then
           -- The child stopped reading stdin; stop feeding it (not an error).
           p:remove(state.stdin_fd); unix.close(state.stdin_fd); state.stdin_fd = nil
@@ -200,6 +225,8 @@ local record ChildIoModule
   Stdio: Stdio
   pump: function(state: PumpState, deadline_ms: number): boolean
   now_ms: function(): number
+  read_retry: function(fd: integer, bufsiz: integer): string | nil, string | nil
+  wait_retry: function(pid: integer): integer | nil, integer
   resolve_stdio: function(stdin?: string | cfd.Handle, stdout?: cfd.Handle,
   stderr?: cfd.Handle): Stdio | nil, string
 end
@@ -207,6 +234,8 @@ end
 local M: ChildIoModule = {
   pump = pump,
   now_ms = now_ms,
+  read_retry = read_retry,
+  wait_retry = wait_retry,
   resolve_stdio = resolve_stdio,
 }
 

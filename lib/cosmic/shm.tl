@@ -10,6 +10,7 @@
 --- pcall-translated.
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").str
+local errno_is = require("cosmic.errno").is
 
 local WORD = 8
 
@@ -45,8 +46,10 @@ local record ShmModule
     --- Atomic XOR; returns the old value.
     fetch_xor: function(self: Memory, word_index: integer, value: integer): integer | nil, string
     --- Wait until the word no longer holds `expect`. Returns 0 when
-    --- woken; nil plus an error naming EAGAIN (value already differed),
-    --- ETIMEDOUT (deadline expired), or EINTR (signal).
+    --- woken; nil plus an error naming EAGAIN (value already differed)
+    --- or ETIMEDOUT (deadline expired). A wait interrupted by a signal
+    --- is retried automatically (#595); the absolute deadline keeps the
+    --- timeout exact across retries.
     wait: function(self: Memory, word_index: integer, expect: integer, abs_deadline?: integer, nanos?: integer): integer | nil, string
     --- Wake processes waiting on a word; returns how many woke.
     wake: function(self: Memory, word_index: integer, count?: integer): integer
@@ -189,10 +192,16 @@ local function wrap(raw: unix.Memory, size: integer): Memory
     if range_err then
       return nil, range_err
     end
-    -- The binding returns (nil, err, errno) for EAGAIN/ETIMEDOUT/EINTR
-    -- and throws for a futex word with nonzero high bits; keep both as
-    -- error returns.
-    local ok, rc, err = pcall(raw.wait, raw, word_index, expect, abs_deadline, nanos)
+    -- The binding returns (nil, err, errno) for EAGAIN/ETIMEDOUT and
+    -- throws for a futex word with nonzero high bits; keep both as
+    -- error returns. A wait interrupted by a signal is retried (the
+    -- signal-safety wave, #595): the deadline is absolute, so retrying
+    -- keeps the timeout exact, and a word that changed meanwhile
+    -- surfaces honestly as EAGAIN on the retry.
+    local ok, rc, err, weno = pcall(raw.wait, raw, word_index, expect, abs_deadline, nanos)
+    while ok and rc == nil and errno_is(weno, "EINTR") do
+      ok, rc, err, weno = pcall(raw.wait, raw, word_index, expect, abs_deadline, nanos)
+    end
     if not ok then
       return nil, thrown("wait", rc)
     end

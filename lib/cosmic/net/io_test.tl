@@ -225,3 +225,43 @@ local function test_socket_is_stream()
   b:close()
 end
 test_socket_is_stream()
+
+-- #595 signal-safety wave: a blocking recv interrupted by a signal is
+-- retried automatically instead of surfacing EINTR. The handler supplies
+-- the payload via the peer socket.
+local function test_recv_retries_eintr()
+  local signal = require("cosmic.signal")
+  local a, b = pair()
+  local fired = false
+  local old_handler = signal.sigaction(signal.SIGALRM, function(_: number)
+      if not fired then
+        fired = true
+        a:sendall("ping")
+      end
+    end)
+  -- Interval timer: keeps firing until the blocked recv observes a signal,
+  -- so the test cannot hang however the timing lands.
+  signal.setitimer({
+      which = signal.ITIMER_REAL,
+      valuesec = 0,
+      valuens = 30000000,
+      intervalsec = 0,
+      intervalns = 30000000,
+    })
+  local data, err = b:recv()
+  -- Disarm and restore before asserting so a failure can't leave a
+  -- ticking timer behind.
+  signal.setitimer({
+      which = signal.ITIMER_REAL,
+      valuesec = 0,
+      valuens = 0,
+      intervalsec = 0,
+      intervalns = 0,
+    })
+  signal.sigaction(signal.SIGALRM, old_handler)
+  assert(data == "ping", "interrupted recv should retry and return the peer's"
+    .. " payload, got " .. tostring(data) .. " (err: " .. tostring(err) .. ")")
+  a:close()
+  b:close()
+end
+test_recv_retries_eintr()

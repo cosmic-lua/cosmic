@@ -139,7 +139,7 @@ local function cleanup(self: Handle)
   self._closed = true
   if not self._result then
     unix.kill(self.pid, unix.SIGKILL)
-    unix.wait(self.pid)
+    childio.wait_retry(self.pid)
   end
   close_fds(self)
 end
@@ -176,7 +176,7 @@ local function make_handle(pid: integer, st: childio.PumpState): Handle
     if timed_out then
       return nil, "timeout"
     end
-    local _, status = unix.wait(self.pid)
+    local _, status = childio.wait_retry(self.pid)
     if type(status) ~= "number" then
       return nil, "wait failed: " .. tostring(status)
     end
@@ -204,7 +204,7 @@ local function make_handle(pid: integer, st: childio.PumpState): Handle
     if not fd then
       return nil, "stdout not captured"
     end
-    local chunk, err = unix.read(fd, size or 65536)
+    local chunk, err = childio.read_retry(fd, size or 65536)
     if chunk == nil then
       return nil, errno.str(err, "read")
     end
@@ -447,11 +447,12 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
   unix.close(exec_w)
 
   -- A non-empty read means exec failed inside the child: reap it and surface
-  -- the error from spawn itself. EOF (empty read) means exec succeeded.
-  local exec_msg = unix.read(exec_r, 4096)
+  -- the error from spawn itself. EOF (empty read) means exec succeeded — so
+  -- the read must retry EINTR (read_retry), not misreport it as EOF.
+  local exec_msg = childio.read_retry(exec_r, 4096)
   unix.close(exec_r)
   if exec_msg ~= nil and exec_msg ~= "" then
-    unix.wait(pid)
+    childio.wait_retry(pid)
     if not stdin_is_fd then unix.close(stdin_w) end
     if not stdout_is_fd then unix.close(stdout_r) end
     if not stderr_is_fd then unix.close(stderr_r) end

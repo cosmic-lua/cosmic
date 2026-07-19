@@ -76,6 +76,9 @@ end
 --- the sleep, returns the remaining seconds and nanoseconds plus an
 --- error string naming EINTR. Invalid input (e.g. a negative duration)
 --- returns nil, nil, and an error naming EINVAL.
+--- sleep is a deliberate exception to the automatic EINTR retry policy
+--- (cosmic.stream, #595): the interruption IS the result, and the
+--- remainder lets callers resume or bail as they choose.
 --- @param seconds integer Seconds to sleep
 --- @param nanos integer? Additional nanoseconds to sleep (default: 0)
 --- @return integer | nil Remaining seconds (0 on success), or nil on invalid input
