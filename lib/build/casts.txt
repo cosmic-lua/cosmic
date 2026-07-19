@@ -57,7 +57,7 @@
 42	lib/cosmic/embed_advanced_test.tl
 8	lib/cosmic/embed_env_test.tl
 8	lib/cosmic/embed_example.tl
-38	lib/cosmic/embed_test.tl
+42	lib/cosmic/embed_test.tl
 1	lib/cosmic/envd.tl
 3	lib/cosmic/envd_example.tl
 1	lib/cosmic/envd_test.tl

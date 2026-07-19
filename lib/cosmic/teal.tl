@@ -68,6 +68,7 @@ local function get_default_include_dirs(): {string}
     "lib/types", -- Local cosmic types (development, takes precedence)
     "/zip/.lua/types", -- Bundled cosmic types (in binary)
     "/zip/.tl", -- Bundled cosmic .tl source (for type checking)
+    "/zip", -- The app's own zip root: embedded modules beside main.lua (#690)
   }
 end
 
