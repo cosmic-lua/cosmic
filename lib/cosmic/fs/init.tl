@@ -237,6 +237,9 @@ local record FsModule
   isfile: function(path: string): boolean
   isdir: function(path: string): boolean
   islink: function(path: string): boolean
+  --- True for POSIX ("/x"), drive-letter ("C:/x", "C:\x"), and UNC
+  --- ("\\server\share") absolute paths.
+  is_absolute: function(p: string): boolean
   normalize: function(p: string): string
   abspath: function(p: string): string
   relpath: function(p: string, base?: string): string
@@ -351,6 +354,7 @@ local M: FsModule = {
   isfile = fs_path.isfile,
   isdir = fs_path.isdir,
   islink = fs_path.islink,
+  is_absolute = fs_path.is_absolute,
   normalize = fs_path.normalize,
   abspath = fs_path.abspath,
   relpath = fs_path.relpath,

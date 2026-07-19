@@ -386,6 +386,6 @@ work, whilp/cosmopolitan for the C layer); find work with
 
 ## CI
 
-- **pr.yml**: runs `make ci` (format + teal + test + example + lint + coverage ratchet) on push/PR to main
+- **pr.yml**: runs `make ci` (format + teal + test + example + lint + coverage ratchet) on push/PR to main, plus macOS/Windows smoke jobs that run the built binary (`-e`, `--docs`, portable test files) on real runners
 - **docs.yml**: publishes generated docs to `docs` branch on push to main
 - **release.yml**: daily release build producing `cosmic-lua` and `cosmic-lua-debug`

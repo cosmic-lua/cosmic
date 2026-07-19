@@ -96,6 +96,17 @@ local function test_guide_make()
 end
 test_guide_make()
 
+local function test_guide_platforms()
+  local __r10 = check.must(check.must(spawn.spawn({cosmic, "--docs", "guide.platforms"}, {env = clean_env()})):wait())
+  local ok, out = __r10.ok, __r10.stdout
+  assert(ok, "cosmic --docs guide.platforms should succeed")
+  local s = out
+  assert(s:find("Platform Support", 1, true), "platforms guide should contain Platform Support header")
+  assert(s:find("Sandbox Behavior", 1, true), "platforms guide should cover per-OS sandbox behavior")
+  assert(s:find("is_absolute", 1, true), "platforms guide should document Windows path handling")
+end
+test_guide_platforms()
+
 local function test_guide_unknown()
   local r = check.must(spawn.run(
       {cosmic, "--docs", "guide.nonexistent"}, {env = clean_env()}))
