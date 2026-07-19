@@ -733,7 +733,14 @@ local record cosmo
   --- If no IP address could be found, then `nil` is returned alongside a string of
   --- unspecified format describing the error. Calls to this function may be wrapped
   --- in `assert()` if an exception is desired.
-  ResolveIp: function(hostname: string): integer | nil, string
+  --- When `timeout_ms` is given and non-negative, the DNS lookup is bounded:
+  --- past the deadline `nil` is returned with a "DNS lookup timed out" error
+  --- instead of blocking for the resolver's full internal budget. The lookup
+  --- runs on a disowned worker thread past the deadline, so a slow resolver
+  --- costs a bounded background thread, never the caller's time. Literal IP
+  --- inputs parse immediately and never wait. Omit `timeout_ms` (or pass a
+  --- negative value) for the unbounded blocking behavior.
+  ResolveIp: function(hostname: string, timeout_ms?: integer): integer | nil, string
   --- Computes SHA256 checksum, returning 32 bytes of binary.
   Sha256: function(str: string): string
   --- Reads all data from file the easy way.
