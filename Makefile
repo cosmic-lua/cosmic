@@ -308,13 +308,32 @@ $(o)/%.format.got: $(o)/% $(cosmic_bin) | $(bootstrap_files)
 	@mkdir -p $(@D)
 	-@$(cosmic_bin) --check-format $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $@
 
-all_linted := $(patsubst %,$(o)/%.lint.ok,$(shell git ls-files 2>/dev/null))
+# Lint every tracked file (#719). git ls-files fails SILENTLY outside
+# a git checkout — an empty list would lint nothing and report green,
+# so the summary recipe fails loudly instead. Tracked-but-deleted files
+# appear in ls-files but cannot be made: lint what exists, surface the
+# skips in the summary, fail if the filter collapses the list. The
+# stamp records the linted set so a deletion (which only SHRINKS the
+# prerequisite list) still rebuilds the summary instead of staying
+# stale-green "up to date".
+lint_tracked := $(shell git ls-files 2>/dev/null)
+lint_present := $(wildcard $(lint_tracked))
+lint_deleted := $(filter-out $(lint_present),$(lint_tracked))
+all_linted := $(patsubst %,$(o)/%.lint.ok,$(lint_present))
+
+lint_list_stamp := $(o)/lint-files.stamp
+$(lint_list_stamp): .FORCE
+	@mkdir -p $(@D); printf '%s\n' $(lint_present) > $@.tmp
+	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 
 ## Check file length limits on all files
 lint: $(o)/lint-summary.txt
 
-$(o)/lint-summary.txt: $(all_linted) | $(build_reporter)
+$(o)/lint-summary.txt: $(all_linted) $(lint_list_stamp) | $(build_reporter)
+	@test -n "$(strip $(lint_tracked))" || { echo "lint: git ls-files found nothing — not a git checkout?"; exit 1; }
+	@test -n "$(strip $(lint_present))" || { echo "lint: no tracked file exists on disk — filter collapsed the list?"; exit 1; }
 	@$(reporter) --dir $(o) $(patsubst %,%.got,$(basename $(all_linted))) | tee $@
+	@$(if $(lint_deleted),echo "lint: skipped deleted tracked file(s): $(lint_deleted)" | tee -a $@,true)
 
 $(o)/%.lint.ok: % $(build_lint) $(lint_style_lua) | $(bootstrap_cosmic)
 	@mkdir -p $(@D)
