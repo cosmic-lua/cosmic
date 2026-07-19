@@ -96,7 +96,7 @@
 13	lib/cosmic/fs/walk.tl
 2	lib/cosmic/fs/walk_example.tl
 6	lib/cosmic/fs/walk_test.tl
-10	lib/cosmic/getopt.tl
+4	lib/cosmic/getopt.tl
 3	lib/cosmic/getopt_example.tl
 16	lib/cosmic/getopt_test.tl
 3	lib/cosmic/hash.tl
@@ -203,7 +203,7 @@
 6	lib/cosmic/url.tl
 14	lib/cosmic/url_test.tl
 7	lib/cosmic/version_test.tl
-8	lib/cosmic/zip.tl
+1	lib/cosmic/zip.tl
 44	lib/cosmic/zip_test.tl
 7	lib/docs/publish.tl
 2	lib/docs/publish_test.tl

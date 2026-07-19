@@ -22,6 +22,9 @@ end
 
 --- Signal set for blocking, unblocking, and waiting on signals.
 --- Wraps unix.Sigset for use with sigprocmask, sigaction, and sigsuspend.
+--- This mirror is deliberate: the generated unix record cannot re-export
+--- the Sigset record type because its `Sigset` name is taken by the
+--- constructor function field, so the binding's type is unnameable here.
 --- Sigset is PascalCase because it is a record constructor: cosmic names
 --- functions snake_case and reserves PascalCase for records and the
 --- functions that construct them.

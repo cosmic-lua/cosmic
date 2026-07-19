@@ -5,15 +5,17 @@
 local cosmo_getopt = require("cosmo.getopt")
 
 -- The underlying cosmo.getopt binding changed shape across cosmos releases:
--- newer builds expose a single-shot `parse`, while older ones (including the
--- pinned build bootstrap) expose the stateful `new`/parser iterator. Describe
--- both shapes loosely so we can feature-detect whichever is present at
--- runtime; either field may be nil depending on the cosmos version.
-local record RawGetopt
+-- newer builds expose the single-shot `parse` the generated declarations
+-- describe, while older ones (including the pinned build bootstrap) expose
+-- only a stateful `new`/parser iterator that the generated declarations no
+-- longer carry. This record is that legacy surface, kept for runtime
+-- feature detection; either field may be nil depending on the cosmos
+-- version.
+local record LegacyGetopt
   parse: function(args: {string}, optstring: string, longopts: {table}): any, any
   new: function(args: {string}, optstring: string, longopts: {table}): any
 end
-local raw = cosmo_getopt as RawGetopt
+local legacy = cosmo_getopt as LegacyGetopt
 
 --- Defines a long option with its name, argument behavior, and optional short alias.
 --- @field name string The long option name (e.g., "help" for --help)
@@ -25,28 +27,22 @@ local record LongOpt
   short: string
 end
 
---- A single recognized option and its argument.
+--- A single recognized option and its argument (the generated
+--- cosmo.getopt.Option record).
 --- For a long option that has a short alias, `opt` is that short letter; for a
 --- long-only option, `opt` is the long name. `arg` is nil when the option takes
 --- no argument.
 --- @field opt string The option letter or long name
 --- @field arg string|nil The option's argument, if any
-local record Option
-  opt: string
-  arg: string
-end
+local type Option = cosmo_getopt.Option
 
---- The outcome of a single `parse` call.
+--- The outcome of a single `parse` call (the generated
+--- cosmo.getopt.Result record).
 --- @field opts {Option} Recognized options, in the order encountered
 --- @field args {string} Non-option (positional) arguments
 --- @field unknown {string} Unrecognized options, each including its dashes
 --- @field missing {string} Options that required an argument but got none
-local record Result
-  opts: {Option}
-  args: {string}
-  unknown: {string}
-  missing: {string}
-end
+local type Result = cosmo_getopt.Result
 
 --- A parser object for iterating through command-line options one at a time.
 --- Retained as a thin compatibility shim over `parse`; prefer `parse`.
@@ -109,13 +105,13 @@ end
 local function parse(args: {string}, optstring: string, longopts?: {LongOpt}): Result | nil, string
   local raw_longopts = to_raw_longopts(longopts)
 
-  if raw.parse then
-    -- Newer cosmos: native single-shot parse.
-    local res, err = raw.parse(args, optstring, raw_longopts)
+  if legacy.parse then
+    -- Newer cosmos: native single-shot parse via the generated surface.
+    local res, err = cosmo_getopt.parse(args, optstring, raw_longopts)
     if not res then
-      return nil, err as string
+      return nil, err
     end
-    return res as Result
+    return res
   end
 
   -- Older cosmos (build bootstrap): emulate parse via the iterator. The
@@ -123,19 +119,19 @@ local function parse(args: {string}, optstring: string, longopts?: {LongOpt}): R
   -- `unknown` here; the accurate split is only available on the native path,
   -- which is what the shipped binary uses.
   local result: Result = {opts = {}, args = {}, unknown = {}, missing = {}}
-  local p = raw.new(args, optstring, raw_longopts) as Parser
+  local p = legacy.new(args, optstring, raw_longopts) as Parser
   while true do
     local opt, optarg = p:next()
     if not opt then
       break
     end
     if opt == "?" then
-      table.insert(result.unknown, optarg as string)
+      table.insert(result.unknown, optarg)
     else
-      table.insert(result.opts, {opt = opt as string, arg = optarg as string})
+      table.insert(result.opts, {opt = opt, arg = optarg})
     end
   end
-  result.args = p:remaining() as {string}
+  result.args = p:remaining()
   return result
 end
 
@@ -147,9 +143,9 @@ end
 --- @param longopts {LongOpt}|nil Long option definitions
 --- @return Parser A parser instance for iterating through options
 local function new(args: {string}, optstring: string, longopts?: {LongOpt}): Parser
-  if raw.new then
+  if legacy.new then
     -- Older cosmos: use the native iterator directly.
-    return raw.new(args, optstring, to_raw_longopts(longopts)) as Parser
+    return legacy.new(args, optstring, to_raw_longopts(longopts)) as Parser
   end
 
   -- Newer cosmos: replay parse() results through an iterator interface.
