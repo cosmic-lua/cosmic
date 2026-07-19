@@ -34,7 +34,7 @@ local function roundtrip(srv: serve.Server, request: string): string
   while true do
     local chunk = sock:recv(4096)
     if not chunk then break end
-    table.insert(parts, check.must(chunk))
+    table.insert(parts, (check.must(chunk)))
   end
   sock:close()
   return table.concat(parts)

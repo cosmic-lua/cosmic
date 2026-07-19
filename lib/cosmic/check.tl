@@ -128,7 +128,10 @@ end
 --- `for p in check.must(fs.files(d)) do` keeps the 4th return — the
 --- to-be-closed guard that releases directory handles on early break.
 --- A plain `value, err` pair still collapses to the value alone, so
---- `print(check.must(fs.read(p)))` prints no trailing nil.
+--- `print(check.must(fs.read(p)))` prints no trailing nil. The checker,
+--- though, sees the declared three-value tuple: when must is the LAST
+--- argument to another call, parenthesize to truncate it —
+--- `table.insert(parts, (check.must(chunk)))`.
 --- @param v T? The fallible value (nil on failure)
 --- @param e string? Failure message; a `nil, err` pair fills this in
 --- @param ... any Extra returns (iterator state, closing guard, ...)

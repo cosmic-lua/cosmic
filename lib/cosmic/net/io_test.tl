@@ -5,7 +5,7 @@ local net = require("cosmic.net")
 local function pair(): net.Socket, net.Socket
   local a, b, err = net.socketpair()
   assert(a ~= nil and b ~= nil, "socketpair failed: " .. tostring(err))
-  return check.must(a), b
+  return (check.must(a)), b
 end
 
 -- sendall tests

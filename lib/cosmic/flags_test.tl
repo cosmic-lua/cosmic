@@ -16,7 +16,7 @@ local spec: flags.Spec = {
 
 -- Parse a command line that must succeed.
 local function must(s: flags.Spec, argv: {string}): flags.Parsed
-  return check.must(flags.parse(s, argv))
+  return (check.must(flags.parse(s, argv)))
 end
 
 local function test_short_and_long_forms()
