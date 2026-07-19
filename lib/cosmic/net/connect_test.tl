@@ -4,12 +4,11 @@ local net = require("cosmic.net")
 local fs = require("cosmic.fs")
 local ip = require("cosmic.ip")
 local proc = require("cosmic.proc")
+local check = require("cosmic.check")
 
 local function test_interfaces()
-  local raw_ifaces, err = net.interfaces()
-  assert(raw_ifaces ~= nil, "interfaces() failed: " .. tostring(err))
-  assert(type(raw_ifaces) == "table", "expected table, got " .. type(raw_ifaces))
-  local ifaces = raw_ifaces as {net.Interface}
+  local ifaces = check.must(net.interfaces())
+  assert(type(ifaces) == "table", "expected table, got " .. type(ifaces))
 
   -- Should have at least the loopback interface
   local has_loopback = false
@@ -29,13 +28,10 @@ test_interfaces()
 
 local function test_interfaces_format()
   -- Test that we can format interface IPs
-  local raw_ifaces = net.interfaces()
-  if raw_ifaces then
-    local ifaces = raw_ifaces as {net.Interface}
-    for _, iface in ipairs(ifaces) do
-      local ip_str = iface.ip:format()
-      assert(ip_str:match("^%d+%.%d+%.%d+%.%d+$"), "expected dotted IP format, got " .. ip_str)
-    end
+  local ifaces = check.must(net.interfaces())
+  for _, iface in ipairs(ifaces) do
+    local ip_str = iface.ip:format()
+    assert(ip_str:match("^%d+%.%d+%.%d+%.%d+$"), "expected dotted IP format, got " .. ip_str)
   end
 end
 test_interfaces_format()
@@ -45,13 +41,11 @@ local function test_unix_domain_socket_bind_connect()
   local path = tmpdir .. "/test.sock"
 
   -- Create server socket
-  local raw_server, err = net.socket(net.AF_UNIX, net.SOCK_STREAM, 0)
-  assert(raw_server ~= nil, "unix raw_server socket creation failed: " .. tostring(err))
-  local server = raw_server as net.Socket
+  local server = check.must(net.socket(net.AF_UNIX, net.SOCK_STREAM, 0))
 
   -- Bind to path
-  local ok, bind_err = server:bind_unix(path)
-  assert(ok, "bind_unix failed: " .. tostring(bind_err))
+  local ok, err = server:bind_unix(path)
+  assert(ok, "bind_unix failed: " .. tostring(err))
 
   -- Listen
   ok, err = server:listen()
@@ -60,9 +54,7 @@ local function test_unix_domain_socket_bind_connect()
   -- Fork to create a client
   local pid = proc.fork()
   if pid == 0 then
-    local raw_client = net.socket(net.AF_UNIX, net.SOCK_STREAM, 0)
-    if not raw_client then os.exit(1) end
-    local client = raw_client as net.Socket
+    local client = check.must(net.socket(net.AF_UNIX, net.SOCK_STREAM, 0))
     local connect_ok = client:connect_unix(path)
     if not connect_ok then os.exit(2) end
     local sent = client:send("hello from unix client")
@@ -73,8 +65,7 @@ local function test_unix_domain_socket_bind_connect()
 
   -- Parent: accept connection
   local raw_client, _, _, accept_err = server:accept()
-  assert(raw_client ~= nil, "accept failed: " .. tostring(accept_err))
-  local client = raw_client as net.Socket
+  local client = check.must(raw_client, "accept failed: " .. tostring(accept_err))
 
   -- Read data from client
   local data, recv_err = client:recv()
@@ -93,19 +84,12 @@ local function test_listen_unix_connect_unix()
   local path = tmpdir .. "/test.sock"
 
   -- Use module-level listen_unix helper
-  local raw_server, err = net.listen_unix(path)
-  assert(raw_server ~= nil, "listen_unix failed: " .. tostring(err))
-  local server = raw_server as net.Socket
+  local server = check.must(net.listen_unix(path))
 
   -- Fork to create a client using module-level connect_unix helper
   local pid = proc.fork()
   if pid == 0 then
-    local raw_client, cerr = net.connect_unix(path)
-    if not raw_client then
-      io.stderr:write("connect_unix failed: " .. tostring(cerr) .. "\n")
-      os.exit(1)
-    end
-    local client = raw_client as net.Socket
+    local client = check.must(net.connect_unix(path))
     local sent = client:send("hello from connect_unix")
     if not sent then os.exit(2) end
     client:close()
@@ -114,8 +98,7 @@ local function test_listen_unix_connect_unix()
 
   -- Parent: accept connection
   local raw_client, _, _, accept_err = server:accept()
-  assert(raw_client ~= nil, "accept failed: " .. tostring(accept_err))
-  local client = raw_client as net.Socket
+  local client = check.must(raw_client, "accept failed: " .. tostring(accept_err))
 
   -- Read data from client
   local data, recv_err = client:recv()
@@ -135,12 +118,10 @@ test_listen_unix_connect_unix()
 
 local function test_nb_connect_loopback()
   -- Create a listening socket
-  local raw_server, err = net.socket()
-  assert(raw_server ~= nil, "raw_server socket creation failed: " .. tostring(err))
-  local server = raw_server as net.Socket
+  local server = check.must(net.socket())
 
-  local ok, setopt_err = server:setsockopt(net.SOL_SOCKET, net.SO_REUSEADDR, true)
-  assert(ok, "setsockopt failed: " .. tostring(setopt_err))
+  local ok, err = server:setsockopt(net.SOL_SOCKET, net.SO_REUSEADDR, true)
+  assert(ok, "setsockopt failed: " .. tostring(err))
 
   ok, err = server:bind("127.0.0.1", 0) -- 127.0.0.1
   assert(ok, "bind failed: " .. tostring(err))
@@ -154,9 +135,7 @@ local function test_nb_connect_loopback()
   -- A plain blocking socket: nb_connect switches it to non-blocking
   -- itself via Socket:set_nonblocking (it used to silently block when
   -- handed a blocking socket).
-  local raw_client, cerr = net.socket()
-  assert(raw_client ~= nil, "raw_client socket creation failed: " .. tostring(cerr))
-  local client = raw_client as net.Socket
+  local client = check.must(net.socket())
 
   -- nb_connect to the listening server, by dotted-quad string
   ok, err = net.nb_connect(client, "127.0.0.1", server_port, 5000)
@@ -164,8 +143,7 @@ local function test_nb_connect_loopback()
 
   -- Accept the connection on the server side
   local raw_accepted, _, _, accept_err = server:accept()
-  assert(raw_accepted ~= nil, "accept failed: " .. tostring(accept_err))
-  local accepted = raw_accepted as net.Socket
+  local accepted = check.must(raw_accepted, "accept failed: " .. tostring(accept_err))
 
   -- Verify the connection works by sending data
   local sent, send_err = client:send("nb_hello")
@@ -182,9 +160,7 @@ test_nb_connect_loopback()
 
 local function test_nb_connect_refused()
   -- Create a non-blocking socket and try to connect to a port with no listener
-  local raw_client, err = net.socket(net.AF_INET, net.SOCK_STREAM | net.SOCK_NONBLOCK, 0)
-  assert(raw_client ~= nil, "raw_client socket creation failed: " .. tostring(err))
-  local client = raw_client as net.Socket
+  local client = check.must(net.socket(net.AF_INET, net.SOCK_STREAM | net.SOCK_NONBLOCK, 0))
 
   -- Connect to localhost port 1 — should be refused
   local ok, conn_err = net.nb_connect(client, "127.0.0.1", 1, 2000)
@@ -197,12 +173,10 @@ test_nb_connect_refused()
 
 local function test_connect_tcp()
   -- Create a listening socket
-  local raw_server, err = net.socket()
-  assert(raw_server ~= nil, "raw_server socket creation failed: " .. tostring(err))
-  local server = raw_server as net.Socket
+  local server = check.must(net.socket())
 
-  local ok, setopt_err = server:setsockopt(net.SOL_SOCKET, net.SO_REUSEADDR, true)
-  assert(ok, "setsockopt failed: " .. tostring(setopt_err))
+  local ok, err = server:setsockopt(net.SOL_SOCKET, net.SO_REUSEADDR, true)
+  assert(ok, "setsockopt failed: " .. tostring(err))
 
   ok, err = server:bind("127.0.0.1", 0)
   assert(ok, "bind failed: " .. tostring(err))
@@ -216,12 +190,7 @@ local function test_connect_tcp()
   -- Fork to create a client using connect_tcp
   local pid = proc.fork()
   if pid == 0 then
-    local raw_client, cerr = net.connect_tcp("127.0.0.1", server_port)
-    if not raw_client then
-      io.stderr:write("connect_tcp failed: " .. tostring(cerr) .. "\n")
-      os.exit(1)
-    end
-    local client = raw_client as net.Socket
+    local client = check.must(net.connect_tcp("127.0.0.1", server_port))
     local sent = client:send("hello from connect_tcp")
     if not sent then os.exit(2) end
     client:close()
@@ -230,8 +199,7 @@ local function test_connect_tcp()
 
   -- Parent: accept connection
   local raw_client, _, _, accept_err = server:accept()
-  assert(raw_client ~= nil, "accept failed: " .. tostring(accept_err))
-  local client = raw_client as net.Socket
+  local client = check.must(raw_client, "accept failed: " .. tostring(accept_err))
 
   -- Read data from client
   local data, recv_err = client:recv()
@@ -245,24 +213,20 @@ test_connect_tcp()
 
 local function test_connect_tcp_accepts_string_and_addr()
   local raw_server, port, lerr = net.listen_tcp("127.0.0.1", 0)
-  assert(raw_server ~= nil, "listen_tcp with string address failed: " .. tostring(lerr))
-  local server = raw_server as net.Socket
+  local server = check.must(raw_server,
+    "listen_tcp with string address failed: " .. tostring(lerr))
 
   -- connect by dotted-quad string
-  local c1, e1 = net.connect_tcp("127.0.0.1", port)
-  assert(c1 ~= nil, "connect_tcp by string failed: " .. tostring(e1))
-  local c1s = c1 as net.Socket
-  local a1 = server:accept() as net.Socket
-  c1s:close()
+  local c1 = check.must(net.connect_tcp("127.0.0.1", port))
+  local a1 = check.must((server:accept()))
+  c1:close()
   a1:close()
 
   -- connect by typed ip.Addr
   local addr = ip.addr(0x7f000001)
-  local c2, e2 = net.connect_tcp(addr, port)
-  assert(c2 ~= nil, "connect_tcp by Addr failed: " .. tostring(e2))
-  local c2s = c2 as net.Socket
-  local a2 = server:accept() as net.Socket
-  c2s:close()
+  local c2 = check.must(net.connect_tcp(addr, port))
+  local a2 = check.must((server:accept()))
+  c2:close()
   a2:close()
 
   server:close()
@@ -283,9 +247,7 @@ test_connect_tcp_rejects_bad_addresses()
 
 local function test_connect_error_message()
   -- Connect to a port with no listener — should get a descriptive error, not just "connect failed"
-  local raw_sock, err = net.socket()
-  assert(raw_sock ~= nil, "socket creation failed: " .. tostring(err))
-  local sock = raw_sock as net.Socket
+  local sock = check.must(net.socket())
 
   local ok, conn_err = sock:connect("127.0.0.1", 1) -- localhost port 1
   assert(not ok, "expected connect to fail")
@@ -302,11 +264,11 @@ print("All net tests passed")
 -- Error fidelity (issue #529): bind errors carry the errno name.
 local function test_bind_error_names_errno()
   -- Binding a second socket to an in-use address must name EADDRINUSE.
-  local first = assert(net.socket(net.AF_INET, net.SOCK_STREAM)) as net.Socket
+  local first = check.must(net.socket(net.AF_INET, net.SOCK_STREAM))
   assert(first:bind("127.0.0.1", 0))
   assert(first:listen())
   local _, port = first:getsockname()
-  local second = assert(net.socket(net.AF_INET, net.SOCK_STREAM)) as net.Socket
+  local second = check.must(net.socket(net.AF_INET, net.SOCK_STREAM))
   local ok, berr = second:bind("127.0.0.1", port)
   assert(ok == false, "second bind to same port should fail")
   assert(berr:match("EADDRINUSE"), "bind error should name EADDRINUSE, got: " .. berr)
@@ -319,19 +281,16 @@ local function test_dial()
   -- dial is the stable name-and-shape entry point (#588, from #501):
   -- resolution happens inside, for literals and DNS names alike.
   local srv, port, serr = net.listen_tcp("127.0.0.1", 0)
-  assert(srv ~= nil, "listen_tcp failed: " .. tostring(serr))
-  local s = srv as net.Socket
+  local s = check.must(srv, "listen_tcp failed: " .. tostring(serr))
 
-  local c1, derr = net.dial("127.0.0.1", port)
-  assert(c1 ~= nil, "dial literal failed: " .. tostring(derr))
-  local a1 = s:accept() as net.Socket;
-  (c1 as net.Socket):close()
+  local c1 = check.must(net.dial("127.0.0.1", port))
+  local a1 = check.must((s:accept()))
+  c1:close()
   a1:close()
 
-  local c2, herr = net.dial("localhost", port)
-  assert(c2 ~= nil, "dial hostname failed: " .. tostring(herr))
-  local a2 = s:accept() as net.Socket;
-  (c2 as net.Socket):close()
+  local c2 = check.must(net.dial("localhost", port))
+  local a2 = check.must((s:accept()))
+  c2:close()
   a2:close()
   s:close()
 
@@ -346,25 +305,22 @@ test_dial()
 -- the default but can be opted out, and SO_REUSEPORT can be opted in.
 local function test_listen_tcp_socket_options()
   local s1, port, derr = net.listen_tcp("127.0.0.1", 0)
-  assert(s1 ~= nil, "listen_tcp failed: " .. tostring(derr))
+  local d = check.must(s1, "listen_tcp failed: " .. tostring(derr))
   assert(port > 0, "expected a bound port")
-  local d = s1 as net.Socket
   local ra = d:getsockopt(net.SOL_SOCKET, net.SO_REUSEADDR)
   assert(ra == true or ra == 1,
     "SO_REUSEADDR should default on, got " .. tostring(ra))
   d:close()
 
   local s2, _, oerr = net.listen_tcp("127.0.0.1", 0, nil, {reuseaddr = false})
-  assert(s2 ~= nil, "listen_tcp with reuseaddr=false failed: " .. tostring(oerr))
-  local o = s2 as net.Socket
+  local o = check.must(s2, "listen_tcp with reuseaddr=false failed: " .. tostring(oerr))
   local ra2 = o:getsockopt(net.SOL_SOCKET, net.SO_REUSEADDR)
   assert(ra2 == false or ra2 == 0,
     "reuseaddr=false should leave SO_REUSEADDR off, got " .. tostring(ra2))
   o:close()
 
   local s3, _, perr = net.listen_tcp("127.0.0.1", 0, nil, {reuseport = true})
-  assert(s3 ~= nil, "listen_tcp with reuseport failed: " .. tostring(perr))
-  local p = s3 as net.Socket
+  local p = check.must(s3, "listen_tcp with reuseport failed: " .. tostring(perr))
   local rp = p:getsockopt(net.SOL_SOCKET, net.SO_REUSEPORT)
   assert(rp == true or rp == 1,
     "reuseport=true should set SO_REUSEPORT, got " .. tostring(rp))

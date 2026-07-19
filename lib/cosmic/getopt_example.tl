@@ -2,13 +2,15 @@
 --- Demonstrates one-shot parsing of short and long options, positional
 --- arguments, and unknown-option reporting.
 
+local check = require("cosmic.check")
+
 -- Example_parse_short demonstrates classic short-option parsing:
 -- in the optstring "vo:", -v is a flag and -o requires an argument.
 -- Everything that is not an option lands in result.args.
 local function Example_parse_short()
   local getopt = require("cosmic.getopt")
-  local result = assert(getopt.parse(
-      {"-v", "-o", "out.txt", "input.txt"}, "vo:")) as getopt.Result
+  local result = check.must(getopt.parse(
+      {"-v", "-o", "out.txt", "input.txt"}, "vo:"))
   for _, opt in ipairs(result.opts) do
     print(opt.opt .. "=" .. tostring(opt.arg))
   end
@@ -28,8 +30,8 @@ local function Example_parse_long()
     {name = "verbose", has_arg = "none", short = "v"},
     {name = "output", has_arg = "required", short = "o"},
   }
-  local result = assert(getopt.parse(
-      {"--verbose", "--output=out.txt", "file.txt"}, "vo:", longopts)) as getopt.Result
+  local result = check.must(getopt.parse(
+      {"--verbose", "--output=out.txt", "file.txt"}, "vo:", longopts))
   for _, opt in ipairs(result.opts) do
     print(opt.opt .. "=" .. tostring(opt.arg))
   end
@@ -46,7 +48,7 @@ end
 -- result.missing (as the bare option letter).
 local function Example_unknown_and_missing()
   local getopt = require("cosmic.getopt")
-  local result = assert(getopt.parse({"-x", "-o"}, "vo:")) as getopt.Result
+  local result = check.must(getopt.parse({"-x", "-o"}, "vo:"))
   print(result.unknown[1])
   print(result.missing[1])
   -- Output:

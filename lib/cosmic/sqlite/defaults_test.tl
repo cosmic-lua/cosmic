@@ -4,6 +4,7 @@
 --- their OpenOptions opt-outs. busy_timeout coverage lives in
 --- data_test.tl.
 
+local check = require("cosmic.check")
 local sqlite = require("cosmic.sqlite")
 local fs = require("cosmic.fs")
 
@@ -12,7 +13,7 @@ local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 -- foreign_keys default
 
 local function test_foreign_keys_enforced_by_default()
-  local db = sqlite.open(":memory:") as sqlite.Database
+  local db = check.must(sqlite.open(":memory:"))
   db:exec("CREATE TABLE parent (id INTEGER PRIMARY KEY)")
   db:exec("CREATE TABLE child (pid INTEGER REFERENCES parent(id))")
   local ok, err = db:exec("INSERT INTO child (pid) VALUES (?)", 42)
@@ -24,7 +25,7 @@ end
 test_foreign_keys_enforced_by_default()
 
 local function test_foreign_keys_opt_out()
-  local db = sqlite.open(":memory:", {foreign_keys = false}) as sqlite.Database
+  local db = check.must(sqlite.open(":memory:", {foreign_keys = false}))
   db:exec("CREATE TABLE parent (id INTEGER PRIMARY KEY)")
   db:exec("CREATE TABLE child (pid INTEGER REFERENCES parent(id))")
   local ok, err = db:exec("INSERT INTO child (pid) VALUES (?)", 42)
@@ -37,7 +38,7 @@ test_foreign_keys_opt_out()
 
 local function test_wal_default_on_file_db()
   local path = fs.join(TEST_TMPDIR, "wal_default.db")
-  local db = sqlite.open(path) as sqlite.Database
+  local db = check.must(sqlite.open(path))
   local mode = db:query_value("PRAGMA journal_mode")
   assert(mode == "wal", "file db should default to WAL, got: " .. tostring(mode))
   local sync = db:query_value("PRAGMA synchronous")
@@ -48,7 +49,7 @@ test_wal_default_on_file_db()
 
 local function test_wal_opt_out()
   local path = fs.join(TEST_TMPDIR, "wal_optout.db")
-  local db = sqlite.open(path, {wal = false}) as sqlite.Database
+  local db = check.must(sqlite.open(path, {wal = false}))
   local mode = db:query_value("PRAGMA journal_mode")
   assert(mode == "delete", "wal=false should keep the rollback journal, got: " .. tostring(mode))
   local sync = db:query_value("PRAGMA synchronous")
@@ -58,7 +59,7 @@ end
 test_wal_opt_out()
 
 local function test_memory_db_ignores_wal()
-  local db = sqlite.open(":memory:") as sqlite.Database
+  local db = check.must(sqlite.open(":memory:"))
   local mode = db:query_value("PRAGMA journal_mode")
   assert(mode == "memory", "in-memory db keeps journal_mode=memory, got: " .. tostring(mode))
   db:exec("CREATE TABLE t (v TEXT)")
@@ -69,15 +70,15 @@ test_memory_db_ignores_wal()
 
 local function test_read_only_skips_wal()
   local path = fs.join(TEST_TMPDIR, "ro_defaults.db")
-  local db = sqlite.open(path, {wal = false}) as sqlite.Database
+  local db = check.must(sqlite.open(path, {wal = false}))
   db:exec("CREATE TABLE t (v TEXT)")
   db:exec("INSERT INTO t (v) VALUES (?)", "hello")
   db:close()
 
-  local rdb = sqlite.open(path, {read_only = true}) as sqlite.Database
+  local rdb = check.must(sqlite.open(path, {read_only = true}))
   local mode = rdb:query_value("PRAGMA journal_mode")
   assert(mode == "delete", "read-only open must not switch journal mode, got: " .. tostring(mode))
-  local row = rdb:query_one("SELECT v FROM t") as {string: any}
+  local row = check.must(rdb:query_one("SELECT v FROM t"))
   assert(row and row.v == "hello", "read-only handle should read data")
   rdb:close()
 end
@@ -87,10 +88,10 @@ local function test_wal_readers_not_blocked_by_writer()
   -- WAL persists in the file, so the second connection shares it; a
   -- reader proceeds while a writer holds an open transaction.
   local path = fs.join(TEST_TMPDIR, "wal_share.db")
-  local a = sqlite.open(path) as sqlite.Database
+  local a = check.must(sqlite.open(path))
   a:exec("CREATE TABLE t (v TEXT)")
   a:exec("INSERT INTO t (v) VALUES (?)", "one")
-  local b = sqlite.open(path, {busy_timeout_ms = 0}) as sqlite.Database
+  local b = check.must(sqlite.open(path, {busy_timeout_ms = 0}))
 
   assert(a:exec("BEGIN IMMEDIATE"))
   assert(a:exec("INSERT INTO t (v) VALUES (?)", "two"))

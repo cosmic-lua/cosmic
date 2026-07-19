@@ -1,8 +1,8 @@
 #!/usr/bin/env cosmic
 --- Tests for fs file operations: copy, move, touch, write_atomic, tmpfile.
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local cfd = require("cosmic.fd")
-local fs_types = require("cosmic.fs.types")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
@@ -44,9 +44,8 @@ local function test_copy_preserves_mode()
   f:close()
   assert(content == "#!/bin/sh\necho hi\n", "content should match")
 
-  local st = fs.stat(dst)
-  assert(st, "stat dst should succeed")
-  local mode = (st as fs_types.Stat):mode() & tonumber("777", 8)
+  local st = check.must(fs.stat(dst), "stat dst should succeed")
+  local mode = st:mode() & tonumber("777", 8)
   assert(mode == tonumber("755", 8),
     string.format("expected mode 755, got %o", mode))
 
@@ -101,14 +100,12 @@ local function test_touch_creates_and_updates()
 
   -- Backdate mtime, then touch again: mtime must move forward.
   assert(fs.utimensat(p, 1000, 0, 1000, 0))
-  local before = fs.stat(p)
-  assert(before, "stat should succeed")
+  local before = check.must(fs.stat(p), "stat should succeed")
   local ok2, err2 = fs.touch(p)
   assert(ok2, "touch should succeed on existing file: " .. (err2 or ""))
-  local after = fs.stat(p)
-  assert(after, "stat should succeed")
-  local before_m = (before as fs_types.Stat):mtim()
-  local after_m = (after as fs_types.Stat):mtim()
+  local after = check.must(fs.stat(p), "stat should succeed")
+  local before_m = before:mtim()
+  local after_m = after:mtim()
   assert(after_m > before_m,
     "touch should update mtime: " .. before_m .. " -> " .. after_m)
 
@@ -128,14 +125,13 @@ local function test_write_atomic_roundtrip()
   assert(f:read("*a") == "new contents", "contents should be replaced")
   f:close()
 
-  local st = fs.stat(p)
-  assert(st, "stat should succeed")
-  local mode = (st as fs_types.Stat):mode() & tonumber("777", 8)
+  local st = check.must(fs.stat(p), "stat should succeed")
+  local mode = st:mode() & tonumber("777", 8)
   assert(mode == tonumber("600", 8),
     string.format("expected mode 600, got %o", mode))
 
   -- No temporary residue left behind.
-  local leftovers = (fs.collect(test_dir, "config.json.*") or {}) as {string}
+  local leftovers = check.must(fs.collect(test_dir, "config.json.*"))
   assert(#leftovers == 0, "no temp files should remain: " .. tostring(leftovers[1]))
 
   teardown(test_dir)
@@ -168,7 +164,7 @@ local function test_tmpfile_success_contract()
   assert(h, "tmpfile should succeed: " .. (err or ""))
   assert(path and path:match("fs_ops_"), "second return should be the path")
   assert(err == nil, "error slot should be nil on success")
-  local hh = h as cfd.Handle
+  local hh = check.must(h)
   local st = fs.fstat(hh:fd())
   assert(st, "fstat on tmpfile fd should succeed")
   hh:close()
@@ -187,10 +183,9 @@ local function test_utimensat_sets_exact_times()
   local ok, err = fs.utimensat(p, 1234567890, 500000000, 987654321, 250000000)
   assert(ok, "utimensat should succeed: " .. (err or ""))
 
-  local st = fs.stat(p)
-  assert(st, "stat should succeed")
-  local a_s, a_ns = (st as fs_types.Stat):atim()
-  local m_s, m_ns = (st as fs_types.Stat):mtim()
+  local st = check.must(fs.stat(p), "stat should succeed")
+  local a_s, a_ns = st:atim()
+  local m_s, m_ns = st:mtim()
   assert(a_s == 1234567890 and a_ns == 500000000,
     "atime should be exactly what was set, got " .. a_s .. "." .. a_ns)
   assert(m_s == 987654321 and m_ns == 250000000,
@@ -214,16 +209,13 @@ local function test_futimens_sets_exact_times()
   local p = fs.join(test_dir, "fstamped")
   touch(p, "x")
 
-  local h, herr = cfd.open(p, 0)
-  assert(h, "open should succeed: " .. tostring(herr))
-  local hh = h as cfd.Handle
+  local hh = check.must(cfd.open(p, 0))
   local ok, err = fs.futimens(hh:fd(), 111, 0, 222, 0)
   assert(ok, "futimens should succeed: " .. (err or ""))
 
-  local st = fs.fstat(hh:fd())
-  assert(st, "fstat should succeed")
-  local a_s, a_ns = (st as fs_types.Stat):atim()
-  local m_s, m_ns = (st as fs_types.Stat):mtim()
+  local st = check.must(fs.fstat(hh:fd()), "fstat should succeed")
+  local a_s, a_ns = st:atim()
+  local m_s, m_ns = st:mtim()
   assert(a_s == 111 and a_ns == 0,
     "atime should be 111.0, got " .. a_s .. "." .. a_ns)
   assert(m_s == 222 and m_ns == 0,

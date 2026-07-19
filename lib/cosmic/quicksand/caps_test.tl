@@ -114,8 +114,8 @@ local function test_drop_bounding_child()
     return
   end
   local cosmic = fs.join(test_bin, "cosmic")
-  local h = spawn.spawn({cosmic, "-e", CHILD_DROP})
-  local __r1 = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, "-e", CHILD_DROP}))
+  local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout
   if not ok then
     -- An outer seccomp/pledge filter can kill the child before it can
@@ -123,7 +123,7 @@ local function test_drop_bounding_child()
     check.skip("caps drop child died before reporting (outer sandbox)")
     return
   end
-  local s = out as string
+  local s = out
   assert(s:find("dropped") or s:find("skipped"),
     "expected dropped or skipped, got: " .. s)
   assert(not s:find("bad:"),

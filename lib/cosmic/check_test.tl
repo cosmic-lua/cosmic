@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 -- test cosmic --check-types option
 
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local env = require("cosmic.env")
 local spawn = require("cosmic.child")
@@ -8,12 +9,11 @@ local spawn = require("cosmic.child")
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
 
--- child.spawn now returns `Handle | nil`; tl 0.24.8 will not flow-narrow a
--- record union, so wrap the spawn+read in one helper that casts the handle.
+-- Wrap the spawn+read in one helper that narrows the handle via check.must.
 -- Returns stdout..stderr so assertions see diagnostics (hints go to stderr).
 local function check_run(argv: {string}, opts?: spawn.Options): boolean | string, string
-  local h = spawn.spawn(argv, opts)
-  local __r1 = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn(argv, opts))
+  local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout .. __r1.stderr
   return ok, out
 end

@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local rand = require("cosmic.rand")
 
 local function test_bytes_returns_requested_length()
@@ -29,7 +30,7 @@ local function test_bytes_statistical_sanity()
   -- given value is absent is (255/256)^4096 ~ 1e-7, so requiring 250
   -- distinct values can only fail on a broken (constant/low-entropy)
   -- generator, not on bad luck.
-  local b = assert(rand.bytes(4096)) as string
+  local b = check.must(rand.bytes(4096))
   local seen: {integer: boolean} = {}
   local distinct = 0
   for i = 1, #b do
@@ -197,7 +198,7 @@ test_shuffle_actually_shuffles()
 
 local function test_shuffle_small()
   assert(#assert(rand.shuffle({})) == 0, "empty shuffle should be a no-op")
-  local one = assert(rand.shuffle({7})) as {any}
+  local one = check.must(rand.shuffle({7}))
   assert(#one == 1 and one[1] == 7, "single-element shuffle should be a no-op")
 end
 test_shuffle_small()
@@ -205,7 +206,7 @@ test_shuffle_small()
 -- token (#501)
 
 local function test_token_default()
-  local t = assert(rand.token()) as string
+  local t = check.must(rand.token())
   assert(#t == 32, "default token length should be 32, got " .. #t)
   assert(t:match("^[%w]+$"), "token must be alphanumeric, got: " .. t)
 end

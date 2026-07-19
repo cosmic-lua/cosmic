@@ -1,22 +1,9 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local fs_types = require("cosmic.fs.types")
 local cfd = require("cosmic.fd")
 local unix = require("cosmo.unix")
-
-local record Statfs
-  type: function(self: Statfs): number
-  bsize: function(self: Statfs): number
-  blocks: function(self: Statfs): number
-  bfree: function(self: Statfs): number
-  bavail: function(self: Statfs): number
-  files: function(self: Statfs): number
-  ffree: function(self: Statfs): number
-  fsid: function(self: Statfs): number, number
-  namelen: function(self: Statfs): number
-  frsize: function(self: Statfs): number
-  flags: function(self: Statfs): number
-end
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
@@ -67,9 +54,7 @@ test_dir_has_close_metamethod()
 local function test_dir_closed_method()
   local test_dir = setup()
 
-  local dir = fs.opendir(test_dir)
-  assert(dir, "opendir should succeed")
-  local d = dir as fs_types.Dir
+  local d = check.must(fs.opendir(test_dir), "opendir should succeed")
 
   assert(not d:closed(), "dir should not be closed initially")
   d:close()
@@ -82,9 +67,7 @@ test_dir_closed_method()
 local function test_dir_close_idempotent()
   local test_dir = setup()
 
-  local dir = fs.opendir(test_dir)
-  assert(dir, "opendir should succeed")
-  local d = dir as fs_types.Dir
+  local d = check.must(fs.opendir(test_dir), "opendir should succeed")
 
   d:close()
   assert(d:closed(), "dir should be closed")
@@ -102,9 +85,7 @@ local function test_dir_methods_after_close()
   local test_dir = setup()
   touch(fs.join(test_dir, "file.txt"))
 
-  local dir = fs.opendir(test_dir)
-  assert(dir, "opendir should succeed")
-  local d = dir as fs_types.Dir
+  local d = check.must(fs.opendir(test_dir), "opendir should succeed")
   d:close()
 
   -- read() returns nil when closed
@@ -131,9 +112,7 @@ local function test_dir_rewind_and_tell()
   touch(fs.join(test_dir, "file1.txt"))
   touch(fs.join(test_dir, "file2.txt"))
 
-  local dir = fs.opendir(test_dir)
-  assert(dir, "opendir should succeed")
-  local d = dir as fs_types.Dir
+  local d = check.must(fs.opendir(test_dir), "opendir should succeed")
 
   -- Read some entries
   local count = 0
@@ -162,9 +141,7 @@ test_dir_rewind_and_tell()
 local function test_dir_fd()
   local test_dir = setup()
 
-  local dir = fs.opendir(test_dir)
-  assert(dir, "opendir should succeed")
-  local d = dir as fs_types.Dir
+  local d = check.must(fs.opendir(test_dir), "opendir should succeed")
 
   local fd = d:fd()
   assert(fd >= 0, "fd should be a valid file descriptor")
@@ -177,9 +154,7 @@ test_dir_fd()
 -- Filesystem statistics tests
 
 local function test_statfs()
-  local raw_info, err = fs.statfs("/")
-  assert(raw_info, "statfs should succeed: " .. (err or ""))
-  local info = raw_info as Statfs
+  local info = check.must(fs.statfs("/"))
 
   -- Check that we can call all the methods
   assert(info:type() ~= nil, "type() should return a value")
@@ -209,9 +184,7 @@ local function test_fstatfs()
   local fd = unix.open("/", unix.O_RDONLY | unix.O_DIRECTORY)
   assert(fd, "open should succeed")
 
-  local raw_info, err = fs.fstatfs(fd)
-  assert(raw_info, "fstatfs should succeed: " .. (err or ""))
-  local info = raw_info as Statfs
+  local info = check.must(fs.fstatfs(fd))
 
   assert(info:bsize() > 0, "bsize() should be positive")
   assert(info:blocks() > 0, "blocks() should be positive")
@@ -243,11 +216,10 @@ local function test_major_minor_regular_file()
   local filepath = fs.join(test_dir, "file.txt")
   touch(filepath)
 
-  local st = fs.stat(filepath)
-  assert(st, "stat should succeed")
+  local st = check.must(fs.stat(filepath), "stat should succeed")
 
   -- Regular files have a dev (the filesystem device)
-  local dev = (st as fs_types.Stat):dev()
+  local dev = st:dev()
   local maj = fs.major(dev)
   local min = fs.minor(dev)
   assert(maj ~= nil, "major() should return a value for dev")
@@ -264,11 +236,8 @@ local function test_fdopendir()
 
   -- fdopendir must return a working Dir (not an error) on success; it
   -- takes ownership of the fd and closes it via dir:close().
-  local h, oerr = cfd.open(test_dir, cfd.O_RDONLY | cfd.O_DIRECTORY)
-  assert(h, "opening directory fd failed: " .. (oerr or ""))
-  local dir, err = fs.fdopendir((h as cfd.Handle):fd())
-  assert(dir, "fdopendir should succeed: " .. (err or ""))
-  local d = dir as fs_types.Dir
+  local h = check.must(cfd.open(test_dir, cfd.O_RDONLY | cfd.O_DIRECTORY))
+  local d = check.must(fs.fdopendir(h:fd()))
 
   local entries: {string: boolean} = {}
   while true do

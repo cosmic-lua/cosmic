@@ -13,6 +13,7 @@
 -- with a shebang line. The shebang is stripped during compilation so it
 -- does not interfere with the Lua parser.
 local function Example_shebang()
+  local check = require("cosmic.check")
   local fs = require("cosmic.fs")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
@@ -24,7 +25,7 @@ local function Example_shebang()
   fs.write(script, '#!/usr/bin/env cosmic\nlocal name: string = "world"\nprint("hello " .. name)\n')
 
   -- Run it via cosmic (portable across all platforms)
-  local r = spawn.run({cosmic, script}) as spawn.Result
+  local r = check.must(spawn.run({cosmic, script}))
   fs.rmrf(tmpdir)
   assert(r.ok, r.stderr)
   print(r.stdout)
@@ -36,6 +37,7 @@ end
 -- command-line arguments. Arguments passed after the script name are
 -- available in the global `arg` table, just like standard Lua.
 local function Example_script_args()
+  local check = require("cosmic.check")
   local fs = require("cosmic.fs")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
@@ -50,12 +52,12 @@ print("hello " .. name)
 ]])
 
   -- Run with an argument
-  local r = spawn.run({cosmic, script, "alice"}) as spawn.Result
+  local r = check.must(spawn.run({cosmic, script, "alice"}))
   assert(r.ok, r.stderr)
   io.write(r.stdout)
 
   -- Run without arguments to use the default
-  r = spawn.run({cosmic, script}) as spawn.Result
+  r = check.must(spawn.run({cosmic, script}))
   fs.rmrf(tmpdir)
   assert(r.ok, r.stderr)
   io.write(r.stdout)
@@ -68,6 +70,7 @@ end
 -- so it can be invoked by name. On Unix, mark it executable with chmod.
 -- Users add their bin directory to PATH if it is not already there.
 local function Example_install_to_path()
+  local check = require("cosmic.check")
   local fs = require("cosmic.fs")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
@@ -84,7 +87,7 @@ local function Example_install_to_path()
   fs.chmod(script, 0x1ED) -- 0755
 
   -- Run it via cosmic (simulating PATH lookup)
-  local r = spawn.run({cosmic, script}) as spawn.Result
+  local r = check.must(spawn.run({cosmic, script}))
   fs.rmrf(tmpdir)
   assert(r.ok, r.stderr)
   print(r.stdout)
@@ -96,6 +99,7 @@ end
 -- standalone binary from a Teal script. The result is a single file
 -- that runs on any platform without needing cosmic installed.
 local function Example_portable_executable()
+  local check = require("cosmic.check")
   local fs = require("cosmic.fs")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
@@ -107,7 +111,7 @@ local function Example_portable_executable()
   fs.write(tl_file, 'local msg: string = "portable app"\nprint(msg)\n')
 
   -- Compile .tl to .lua (--embed requires plain Lua)
-  local r = spawn.run({cosmic, "--compile", tl_file}) as spawn.Result
+  local r = check.must(spawn.run({cosmic, "--compile", tl_file}))
   assert(r.ok, r.stderr)
   local lua_source = r.stdout
 
@@ -118,11 +122,11 @@ local function Example_portable_executable()
 
   -- Build a standalone executable
   local output = fs.join(tmpdir, "myapp")
-  r = spawn.run({cosmic, "--embed", appdir, "--output", output}) as spawn.Result
+  r = check.must(spawn.run({cosmic, "--embed", appdir, "--output", output}))
   assert(r.ok, r.stderr)
 
   -- Run the standalone binary — no cosmic needed on the target machine
-  r = spawn.run({output}) as spawn.Result
+  r = check.must(spawn.run({output}))
   fs.rmrf(tmpdir)
   assert(r.ok, r.stderr)
   print(r.stdout)

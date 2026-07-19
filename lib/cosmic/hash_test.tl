@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local codec = require("cosmic.codec")
 local hash = require("cosmic.hash")
 
@@ -138,11 +139,10 @@ test_password_unicode()
 -- just the invalid-variant guard below.
 
 local function test_password_argon2i_roundtrip()
-  local encoded, err = hash.password("pw-i", {
-      variant = "argon2i", m_cost = 2048, t_cost = 1, parallelism = 1,
-    })
-  assert(encoded, "argon2i password should succeed: " .. tostring(err))
-  assert(string.match(encoded as string, "^%$argon2i%$"),
+  local encoded = check.must(hash.password("pw-i", {
+        variant = "argon2i", m_cost = 2048, t_cost = 1, parallelism = 1,
+      }))
+  assert(string.match(encoded, "^%$argon2i%$"),
     "encoded string should carry the argon2i tag, got: " .. tostring(encoded))
   assert(hash.verify_password(encoded, "pw-i") == true,
     "argon2i verify should accept the right password")
@@ -152,11 +152,10 @@ end
 test_password_argon2i_roundtrip()
 
 local function test_password_argon2d_roundtrip()
-  local encoded, err = hash.password("pw-d", {
-      variant = "argon2d", m_cost = 2048, t_cost = 1, parallelism = 1,
-    })
-  assert(encoded, "argon2d password should succeed: " .. tostring(err))
-  assert(string.match(encoded as string, "^%$argon2d%$"),
+  local encoded = check.must(hash.password("pw-d", {
+        variant = "argon2d", m_cost = 2048, t_cost = 1, parallelism = 1,
+      }))
+  assert(string.match(encoded, "^%$argon2d%$"),
     "encoded string should carry the argon2d tag, got: " .. tostring(encoded))
   assert(hash.verify_password(encoded, "pw-d") == true,
     "argon2d verify should accept the right password")
@@ -291,9 +290,8 @@ test_hmac_rfc4231_case2_sha512()
 
 local function test_hmac_rfc2202_case1_sha1()
   -- RFC 2202 section 3 case 1
-  local tag = hash.hmac("sha1", string.rep("\x0b", 20), "Hi There")
-  assert(tag, "hmac sha1 should succeed")
-  local hex = codec.encode_hex(tag as string)
+  local tag = check.must(hash.hmac("sha1", string.rep("\x0b", 20), "Hi There"))
+  local hex = codec.encode_hex(tag)
   assert(hex == "b617318655057264e28bc0b6fb378c8ef146be00",
     "RFC 2202 case 1 (sha1) mismatch: " .. hex)
 end

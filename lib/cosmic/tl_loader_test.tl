@@ -2,6 +2,7 @@
 -- test that tl_package_loader is not at position 2 in package.searchers
 -- (issue #377: tl_package_loader recompiles .tl sources when TL_PATH is set)
 
+local check = require("cosmic.check")
 local spawn = require("cosmic.child")
 local fs = require("cosmic.fs")
 local fstypes = require("cosmic.fs.types")
@@ -54,11 +55,11 @@ else
 end
 ]])
 
-  local h1 = spawn.spawn({cosmic, script})
-  local __r1 = (h1 as spawn.Handle):wait() as spawn.Result
+  local h1 = check.must(spawn.spawn({cosmic, script}))
+  local __r1 = check.must(h1:wait())
   local ok, out = __r1.ok, __r1.stdout
   assert(ok, "script should succeed: " .. tostring(out))
-  assert((out as string):find("PASS"),
+  assert(out:find("PASS"),
     "searcher[2] should not be tl_package_loader: " .. tostring(out))
 end
 test_tl_loader_not_at_position_2()
@@ -84,13 +85,13 @@ local mymod = require("mymod")
 print("answer=" .. tostring(mymod.answer))
 ]])
 
-  local h2 = spawn.spawn({cosmic, script}, {
-      env = {"TL_PATH=" .. moddir .. "/?.tl"},
-    })
-  local __r2 = (h2 as spawn.Handle):wait() as spawn.Result
+  local h2 = check.must(spawn.spawn({cosmic, script}, {
+        env = {"TL_PATH=" .. moddir .. "/?.tl"},
+      }))
+  local __r2 = check.must(h2:wait())
   local ok2a, out2a = __r2.ok, __r2.stdout
   assert(ok2a, ".tl-only require should succeed: " .. tostring(__r2.stderr))
-  assert((out2a as string):find("answer=42", 1, true),
+  assert(out2a:find("answer=42", 1, true),
     ".tl-only module should load and run: " .. tostring(out2a))
 
   local check_script = write_temp("check_tl_exists.lua", [[
@@ -107,11 +108,11 @@ else
 end
 ]])
 
-  local h3 = spawn.spawn({cosmic, check_script})
-  local __r3 = (h3 as spawn.Handle):wait() as spawn.Result
+  local h3 = check.must(spawn.spawn({cosmic, check_script}))
+  local __r3 = check.must(h3:wait())
   local ok2, out2 = __r3.ok, __r3.stdout
   assert(ok2, "check script should succeed: " .. tostring(out2))
-  assert((out2 as string):find("PASS"),
+  assert(out2:find("PASS"),
     "tl_package_loader should still be present: " .. tostring(out2))
 end
 test_tl_loader_still_available()
@@ -130,10 +131,10 @@ return { x = x }
 local badmod = require("badmod")
 print("should not get here: " .. tostring(badmod))
 ]])
-  local h = spawn.spawn({cosmic, script}, {
-      env = {"TL_PATH=" .. baddir .. "/?.tl"},
-    })
-  local r = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, script}, {
+        env = {"TL_PATH=" .. baddir .. "/?.tl"},
+      }))
+  local r = check.must(h:wait())
   assert(not r.ok, "require of a broken .tl module must fail")
   local err = tostring(r.stderr)
   assert(err:find("badmod", 1, true) and err:find("got integer", 1, true),
@@ -157,20 +158,20 @@ return { value = value }
 print("value=" .. require("goodmod").value)
 ]])
   local cachedir = fs.join(tmpdir, "tlcache")
-  local h = spawn.spawn({cosmic, script}, {
-      env = {
-        "TL_PATH=" .. gooddir .. "/?.tl",
-        "COSMIC_TL_CACHE_DIR=" .. cachedir,
-      },
-    })
-  local r = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, script}, {
+        env = {
+          "TL_PATH=" .. gooddir .. "/?.tl",
+          "COSMIC_TL_CACHE_DIR=" .. cachedir,
+        },
+      }))
+  local r = check.must(h:wait())
   assert(r.ok, "good .tl require should succeed: " .. tostring(r.stderr))
   assert(tostring(r.stdout):find("value=cached", 1, true))
   local counted = fs.walk(cachedir, function(_path: string, _name: string, _st: fstypes.WalkStat, acc: {integer})
       acc[1] = acc[1] + 1
     end, {0})
-  assert(counted, "cache dir should exist and be walkable")
-  assert((counted as {integer})[1] > 0,
+  local n = check.must(counted, "cache dir should exist and be walkable")
+  assert(n[1] > 0,
     "compile cache should hold the required module's output")
 end
 test_require_uses_compile_cache()

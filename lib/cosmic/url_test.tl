@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local url = require("cosmic.url")
 
 local function test_encode_spaces()
@@ -175,9 +176,7 @@ test_parse_query_plus_as_space()
 -- parse tests (url.parse is the URL parser; query strings are parse_query)
 
 local function test_parse_full()
-  local result = url.parse("https://user:pass@example.com:8080/path?foo=1&bar=2#frag")
-  assert(result ~= nil, "parse should succeed")
-  local u = result as url.Url
+  local u = check.must(url.parse("https://user:pass@example.com:8080/path?foo=1&bar=2#frag"))
   assert(u.scheme == "https", "expected 'https', got '" .. tostring(u.scheme) .. "'")
   assert(u.user == "user", "expected 'user', got '" .. tostring(u.user) .. "'")
   assert(u.pass == "pass", "expected 'pass', got '" .. tostring(u.pass) .. "'")
@@ -193,9 +192,7 @@ local function test_parse_is_a_url_parser_not_a_query_parser()
   -- The old url.parse treated its input as a query string, so a full URL
   -- came back as {["http://example.com/path?a"] = "1"}. It must parse as
   -- a URL now.
-  local result = url.parse("http://example.com/path?a=1")
-  assert(result ~= nil, "parse should succeed")
-  local u = result as url.Url
+  local u = check.must(url.parse("http://example.com/path?a=1"))
   assert(u.scheme == "http", "expected scheme 'http', got '" .. tostring(u.scheme) .. "'")
   assert(u.host == "example.com", "expected host, got '" .. tostring(u.host) .. "'")
   assert(u.path == "/path", "expected path '/path', got '" .. tostring(u.path) .. "'")
@@ -204,9 +201,7 @@ end
 test_parse_is_a_url_parser_not_a_query_parser()
 
 local function test_parse_minimal()
-  local result = url.parse("http://example.com")
-  assert(result ~= nil, "parse should succeed")
-  local u = result as url.Url
+  local u = check.must(url.parse("http://example.com"))
   assert(u.scheme == "http", "expected 'http', got '" .. tostring(u.scheme) .. "'")
   assert(u.host == "example.com", "expected 'example.com', got '" .. tostring(u.host) .. "'")
   assert(u.port == nil, "expected nil port, got " .. tostring(u.port))
@@ -232,7 +227,7 @@ end
 test_parse_invalid_port()
 
 local function test_parse_with_path_only()
-  local result = url.parse("http://example.com/api/v1/users") as url.Url
+  local result = check.must(url.parse("http://example.com/api/v1/users"))
   assert(result.scheme == "http", "expected 'http'")
   assert(result.host == "example.com", "expected 'example.com'")
   assert(result.path == "/api/v1/users", "expected '/api/v1/users', got '" .. tostring(result.path) .. "'")
@@ -240,13 +235,13 @@ end
 test_parse_with_path_only()
 
 local function test_parse_with_query_only()
-  local result = url.parse("http://example.com?search=test") as url.Url
+  local result = check.must(url.parse("http://example.com?search=test"))
   assert(result.query == "search=test", "expected 'search=test', got '" .. tostring(result.query) .. "'")
 end
 test_parse_with_query_only()
 
 local function test_parse_with_fragment_only()
-  local result = url.parse("http://example.com#section") as url.Url
+  local result = check.must(url.parse("http://example.com#section"))
   assert(result.fragment == "section", "expected 'section', got '" .. tostring(result.fragment) .. "'")
 end
 test_parse_with_fragment_only()
@@ -254,9 +249,9 @@ test_parse_with_fragment_only()
 -- format tests
 
 local function test_format_roundtrip_basic()
-  local u = url.parse("https://example.com:8080/path?foo=1&bar=2#frag") as url.Url
+  local u = check.must(url.parse("https://example.com:8080/path?foo=1&bar=2#frag"))
   local formatted = url.format(u)
-  local reparsed = url.parse(formatted) as url.Url
+  local reparsed = check.must(url.parse(formatted))
   assert(reparsed.scheme == "https" and reparsed.host == "example.com"
     and reparsed.port == 8080 and reparsed.path == "/path"
     and reparsed.fragment == "frag",
@@ -270,9 +265,9 @@ test_format_roundtrip_basic()
 local function test_format_preserves_encoded_delimiters()
   -- ?a=x%26y is ONE param whose value contains '&'; format must keep it
   -- one param instead of decoding %26 into a delimiter.
-  local u = url.parse("http://x.com/?a=x%26y") as url.Url
+  local u = check.must(url.parse("http://x.com/?a=x%26y"))
   local formatted = url.format(u)
-  local reparsed = url.parse(formatted) as url.Url
+  local reparsed = check.must(url.parse(formatted))
   local params = url.parse_query(reparsed.query)
   assert(params.a ~= nil and params.a[1] == "x&y",
     "param 'a' must survive as 'x&y', got: " .. formatted)
@@ -281,7 +276,7 @@ test_format_preserves_encoded_delimiters()
 
 local function test_format_minimal()
   local formatted = url.format({scheme = "http", host = "example.com", path = "/x"})
-  local u = url.parse(formatted) as url.Url
+  local u = check.must(url.parse(formatted))
   assert(u.scheme == "http" and u.host == "example.com" and u.path == "/x",
     "format of a hand-built Url must parse back, got: " .. formatted)
 end
@@ -444,7 +439,7 @@ test_escape_ip_ipv6()
 -- into a literal & (which would look like two params).
 
 local function test_parse_query_field_preserves_encoding()
-  local result = url.parse("http://x.com/?a=x%26y") as url.Url
+  local result = check.must(url.parse("http://x.com/?a=x%26y"))
   assert(result.query ~= nil, "query should not be nil")
   assert(result.query ~= "a=x&y",
     "query must not decode %26 to &, got: " .. tostring(result.query))
@@ -456,7 +451,7 @@ test_parse_query_field_preserves_encoding()
 
 local function test_parse_query_field_flag_param()
   -- ?flag has a key with no value; reconstructing must not emit a bare "=".
-  local result = url.parse("http://x.com/?flag") as url.Url
+  local result = check.must(url.parse("http://x.com/?flag"))
   assert(result.query ~= nil, "query should not be nil for flag param")
   assert(result.query:match("flag"), "query should contain 'flag'")
   assert(not result.query:match("flag=$"), "query must not end with 'flag='")

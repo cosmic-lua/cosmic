@@ -2,11 +2,13 @@
 --- Demonstrates process spawning, stdin handling, structured results,
 --- timeouts, and killing a running child.
 
+local check = require("cosmic.check")
+
 -- Example_run demonstrates the one-shot run(): spawn, wait, and capture the
 -- structured Result (stdout, stderr, code/signal, ok) in a single call.
 local function Example_run()
   local child = require("cosmic.child")
-  local r = child.run({"echo", "hello world"}) as child.Result
+  local r = check.must(child.run({"echo", "hello world"}))
   io.write(r.stdout)
   -- Output:
   -- hello world
@@ -15,7 +17,7 @@ end
 -- Example_run_stdin demonstrates feeding stdin to a process.
 local function Example_run_stdin()
   local child = require("cosmic.child")
-  local r = child.run({"cat"}, {stdin = "hello from stdin"}) as child.Result
+  local r = check.must(child.run({"cat"}, {stdin = "hello from stdin"}))
   io.write(r.stdout)
   -- Output:
   -- hello from stdin
@@ -24,7 +26,7 @@ end
 -- Example_run_exit_code demonstrates inspecting the exit code.
 local function Example_run_exit_code()
   local child = require("cosmic.child")
-  local r = child.run({"sh", "-c", "exit 0"}) as child.Result
+  local r = check.must(child.run({"sh", "-c", "exit 0"}))
   print("exit code:", r.code)
   -- Output:
   -- exit code:	0
@@ -34,9 +36,9 @@ end
 -- SIGTERM (signal 15); wait() then reports the terminating signal.
 local function Example_kill()
   local child = require("cosmic.child")
-  local h = child.spawn({"sleep", "10"}) as child.Handle
+  local h = check.must(child.spawn({"sleep", "10"}))
   h:kill()
-  local r = h:wait() as child.Result
+  local r = check.must(h:wait())
   print("signal:", r.signal)
   -- Output:
   -- signal:	15
@@ -47,7 +49,7 @@ end
 -- usable, so we kill and reap it afterwards.
 local function Example_wait_timeout()
   local child = require("cosmic.child")
-  local h = child.spawn({"sleep", "10"}) as child.Handle
+  local h = check.must(child.spawn({"sleep", "10"}))
   local r, err = h:wait(50)
   print(r, err)
   h:kill()
@@ -71,14 +73,11 @@ local function Example_run_pipe()
   local child = require("cosmic.child")
   local cfd = require("cosmic.fd")
 
-  -- Create a pipe: p.reader and p.writer are cosmic.fd Handles.
-  local p, err = cfd.pipe()
-  assert(p, "pipe failed: " .. tostring(err))
-  local pp = p as cfd.Pipe
+  -- Create a pipe: pp.reader and pp.writer are cosmic.fd Handles.
+  local pp = check.must(cfd.pipe())
 
   -- Spawn echo, redirecting its stdout into the write end of the pipe.
-  local h, serr = child.spawn({"echo", "from pipe"}, {stdout = pp.writer})
-  assert(h, "spawn failed: " .. tostring(serr))
+  local h = check.must(child.spawn({"echo", "from pipe"}, {stdout = pp.writer}))
 
   -- Close the write end in the parent so the reader sees EOF when the child exits.
   pp.writer:close()
@@ -88,7 +87,7 @@ local function Example_run_pipe()
   pp.reader:close()
 
   -- Wait for the child to exit.
-  local r = (h as child.Handle):wait() as child.Result
+  local r = check.must(h:wait())
 
   io.write(out)
   print("exit:", r.code)

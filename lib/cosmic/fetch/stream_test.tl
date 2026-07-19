@@ -5,19 +5,19 @@
 local fetch = require("cosmic.fetch")
 local net = require("cosmic.net")
 local proc = require("cosmic.proc")
+local check = require("cosmic.check")
 
 --- Fork a loopback server answering one request per response string,
 --- closing the connection right after each send.
 local function serve(responses: {string}): integer, integer
   local srv, port = net.listen_tcp("127.0.0.1", 0)
-  assert(srv ~= nil, "listen_tcp failed")
-  local s = srv as net.Socket
+  local s = check.must(srv, "listen_tcp failed")
   local pid = proc.fork()
   if pid == 0 then
     for _, resp in ipairs(responses) do
       local conn = s:accept()
-      if conn then
-        local c = conn as net.Socket
+      if conn is net.Socket then
+        local c = conn
         local buf = ""
         while not buf:find("\r\n\r\n", 1, true) do
           local data = c:recv(4096)

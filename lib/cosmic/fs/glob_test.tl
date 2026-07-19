@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local types = require("cosmic.fs.types")
 local type WalkStat = types.WalkStat
@@ -26,7 +27,7 @@ end
 -- glob tests
 
 local function test_glob_single_level_not_recursive()
-  local paths = assert(fs.glob(root, "*.lua")) as {string}
+  local paths = check.must(fs.glob(root, "*.lua"))
   local rel = names(paths)
   assert(#rel == 3, "expected 3 top-level .lua files, got " .. #rel)
   assert(rel[1] == ".hidden.lua" and rel[2] == "a.lua" and rel[3] == "b.lua",
@@ -35,35 +36,35 @@ end
 test_glob_single_level_not_recursive()
 
 local function test_glob_path_components()
-  local paths = assert(fs.glob(root, "src/*.lua")) as {string}
+  local paths = check.must(fs.glob(root, "src/*.lua"))
   local rel = names(paths)
   assert(#rel == 1 and rel[1] == "src/x.lua", "expected src/x.lua, got " .. table.concat(rel, ","))
 end
 test_glob_path_components()
 
 local function test_glob_component_wildcard_dir()
-  local paths = assert(fs.glob(root, "*/deep/*.lua")) as {string}
+  local paths = check.must(fs.glob(root, "*/deep/*.lua"))
   local rel = names(paths)
   assert(#rel == 1 and rel[1] == "src/deep/z.lua", "expected src/deep/z.lua")
 end
 test_glob_component_wildcard_dir()
 
 local function test_glob_matches_directories_too()
-  local paths = assert(fs.glob(root, "s?c")) as {string}
+  local paths = check.must(fs.glob(root, "s?c"))
   local rel = names(paths)
   assert(#rel == 1 and rel[1] == "src", "expected the src directory itself")
 end
 test_glob_matches_directories_too()
 
 local function test_glob_literal_component()
-  local paths = assert(fs.glob(root, "a.lua")) as {string}
+  local paths = check.must(fs.glob(root, "a.lua"))
   assert(#paths == 1, "expected exact-name match")
 end
 test_glob_literal_component()
 
 local function test_glob_no_match_and_missing_dirs()
-  assert(#(assert(fs.glob(root, "*.nope")) as {string}) == 0, "expected no matches")
-  assert(#(assert(fs.glob(root, "missing/*.lua")) as {string}) == 0,
+  assert(#(check.must(fs.glob(root, "*.nope"))) == 0, "expected no matches")
+  assert(#(check.must(fs.glob(root, "missing/*.lua"))) == 0,
     "expected no matches through a missing directory")
 end
 test_glob_no_match_and_missing_dirs()

@@ -55,10 +55,10 @@ if not ok then
 end
 io.write("pledged\n")
 ]])
-  local h = spawn.spawn({cosmic, script})
-  local __r1 = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, script}))
+  local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout
-  local s = (out or "") as string
+  local s = out or ""
   if s:find("skipped") then
     check.skip("pledge unsupported on this host: " .. s)
     return
@@ -92,10 +92,10 @@ if f then
 end
 io.write("restricted\n")
 ]])
-  local h = spawn.spawn({cosmic, script})
-  local __r2 = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, script}))
+  local __r2 = check.must(h:wait())
   local ok, out = __r2.ok, __r2.stdout
-  local s = (out or "") as string
+  local s = out or ""
   if s:find("unsupported") then
     -- A genuine platform gap reported by the fail-closed probe: soft skip.
     check.skip("pledge unsupported on this host: " .. s)

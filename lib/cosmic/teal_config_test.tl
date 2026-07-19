@@ -5,6 +5,7 @@
 -- test's Makefile target grants r:tlconfig.lua and r:Makefile — the repo
 -- root is outside the default test unveil.
 
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local teal = require("cosmic.teal")
 
@@ -67,9 +68,7 @@ test_tlconfig_matches_teal_defaults()
 -- the checker searches, or --check-types behaves differently under
 -- bin/make than standalone.
 local function test_makefile_include_dirs_match_mirror()
-  local raw = fs.read("Makefile")
-  assert(raw, "Makefile should be readable")
-  local content = raw as string
+  local content = check.must(fs.read("Makefile"), "Makefile should be readable")
   local line = content:match("\nINCLUDE_DIRS %?= ([^\n]*)")
   assert(line, "Makefile should declare 'INCLUDE_DIRS ?= ...'")
   local dirs: {string} = {}

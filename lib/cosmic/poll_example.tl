@@ -6,10 +6,11 @@
 -- empty pipe is writable but not readable; after a write, both ends
 -- are ready. A timeout of 0 makes poll() non-blocking.
 local function Example_pipe_readiness()
+  local check = require("cosmic.check")
   local fd = require("cosmic.fd")
   local poll = require("cosmic.poll")
 
-  local p = assert(fd.pipe()) as fd.Pipe
+  local p = check.must(fd.pipe())
   local set = poll.new()
   set:add(p.writer:fd(), poll.POLLOUT)
   set:add(p.reader:fd(), poll.POLLIN)
@@ -18,7 +19,7 @@ local function Example_pipe_readiness()
   p.writer:write("ping")
   print(set:poll(0)) -- now the reader is ready too
 
-  local ev = set:events(p.reader:fd()) as poll.Events
+  local ev = check.must(set:events(p.reader:fd()))
   print(ev.readable)
   print(p.reader:read(4))
   p:close()
@@ -33,10 +34,11 @@ end
 -- fd with its resolved Events record instead of requiring a follow-up
 -- events() lookup per descriptor.
 local function Example_wait_iterator()
+  local check = require("cosmic.check")
   local fd = require("cosmic.fd")
   local poll = require("cosmic.poll")
 
-  local p = assert(fd.pipe()) as fd.Pipe
+  local p = check.must(fd.pipe())
   p.writer:write("x")
 
   local set = poll.new()

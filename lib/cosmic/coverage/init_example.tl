@@ -1,6 +1,8 @@
 #!/usr/bin/env cosmic
 --- Examples for cosmic.coverage.
 
+local check = require("cosmic.check")
+
 --- Count executed lines for a chunk of code.
 --- start() installs a line hook, stop() removes it, and snapshot()
 --- returns hit counts keyed by chunk source and line number.
@@ -14,7 +16,7 @@ local function Example_collect()
   run()
   coverage.stop()
   local snap = coverage.snapshot()
-  local hits = snap["@example_chunk.lua"] as {integer: integer}
+  local hits = check.must(snap["@example_chunk.lua"])
   print("line 1 ran " .. hits[1] .. " time(s)")
   print("line 3 ran " .. hits[3] .. " time(s)")
   -- Output:

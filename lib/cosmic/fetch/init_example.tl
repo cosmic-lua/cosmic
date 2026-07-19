@@ -4,6 +4,8 @@
 --- no external host is contacted. allow_private opts out of the SSRF
 --- guard, which otherwise blocks requests to loopback/private addresses.
 
+local check = require("cosmic.check")
+
 -- Example_get demonstrates a simple HTTP GET request against a local
 -- server: fork a child to answer one request, then fetch from it.
 local function Example_get()
@@ -12,10 +14,10 @@ local function Example_get()
   local proc = require("cosmic.proc")
 
   local srv, port = net.listen_tcp("127.0.0.1", 0)
-  local s = srv as net.Socket
+  local s = check.must(srv)
   local pid = proc.fork()
   if pid == 0 then
-    local conn = s:accept() as net.Socket
+    local conn = check.must((s:accept()))
     conn:recv(4096)
     conn:send("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello")
     conn:close()
@@ -41,7 +43,7 @@ local function Example_retry()
   local proc = require("cosmic.proc")
 
   local srv, port = net.listen_tcp("127.0.0.1", 0)
-  local s = srv as net.Socket
+  local s = check.must(srv)
   local pid = proc.fork()
   if pid == 0 then
     local responses = {
@@ -49,7 +51,7 @@ local function Example_retry()
       "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
     }
     for _, resp in ipairs(responses) do
-      local conn = s:accept() as net.Socket
+      local conn = check.must((s:accept()))
       conn:recv(4096)
       conn:send(resp)
       conn:close()
@@ -77,11 +79,11 @@ local function Example_stream_lines()
   local proc = require("cosmic.proc")
 
   local srv, port = net.listen_tcp("127.0.0.1", 0)
-  local s = srv as net.Socket
+  local s = check.must(srv)
   local pid = proc.fork()
   if pid == 0 then
     local body = "alpha\nbeta\ngamma\n"
-    local conn = s:accept() as net.Socket
+    local conn = check.must((s:accept()))
     conn:recv(4096)
     conn:send("HTTP/1.1 200 OK\r\nContent-Length: " .. #body
       .. "\r\nConnection: close\r\n\r\n" .. body)

@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local cfd = require("cosmic.fd")
 local fs = require("cosmic.fs")
 
@@ -8,17 +9,13 @@ local function test_open_read_write_close()
   local filepath = fs.join(TEST_TMPDIR, "io_test_basic.txt")
   local content = "hello, cosmic.fd!"
 
-  local f, err = cfd.open(filepath, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8))
-  assert(f, "open for write failed: " .. (err or ""))
-  local fh = f as cfd.Handle
+  local fh = check.must(cfd.open(filepath, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8)))
 
   local n, werr = fh:write(content)
   assert(n == #content, "write failed: " .. (werr or "") .. " wrote " .. tostring(n) .. " expected " .. #content)
   assert(fh:close(), "close failed")
 
-  f, err = cfd.open(filepath, cfd.O_RDONLY)
-  assert(f, "open for read failed: " .. (err or ""))
-  fh = f as cfd.Handle
+  fh = check.must(cfd.open(filepath, cfd.O_RDONLY))
 
   local data, rerr = fh:read(1024)
   assert(data == content, "read failed: " .. (rerr or "") .. " got '" .. tostring(data) .. "'")
@@ -32,11 +29,11 @@ local function test_seek()
   local filepath = fs.join(TEST_TMPDIR, "io_test_seek.txt")
   local content = "0123456789"
 
-  local f = assert(cfd.open(filepath, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8))) as cfd.Handle
+  local f = check.must(cfd.open(filepath, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8)))
   assert(f:write(content))
   assert(f:close())
 
-  f = assert(cfd.open(filepath, cfd.O_RDONLY)) as cfd.Handle
+  f = check.must(cfd.open(filepath, cfd.O_RDONLY))
 
   local pos, err = f:seek(5, cfd.SEEK_SET)
   assert(pos == 5, "seek SEEK_SET failed: " .. (err or "") .. " pos=" .. tostring(pos))
@@ -59,7 +56,7 @@ local function test_handle_truncate()
   local filepath = fs.join(TEST_TMPDIR, "io_test_htrunc.txt")
   local content = "0123456789"
 
-  local f = assert(cfd.open(filepath, cfd.O_RDWR | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8))) as cfd.Handle
+  local f = check.must(cfd.open(filepath, cfd.O_RDWR | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8)))
   assert(f:write(content))
 
   local ok, err = f:truncate(5)
@@ -78,7 +75,7 @@ local function test_truncate()
   local filepath = fs.join(TEST_TMPDIR, "io_test_trunc.txt")
   local content = "0123456789"
 
-  local f = assert(cfd.open(filepath, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8))) as cfd.Handle
+  local f = check.must(cfd.open(filepath, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8)))
   assert(f:write(content))
   assert(f:close())
 
@@ -86,7 +83,7 @@ local function test_truncate()
   local ok, err = fs.truncate(filepath, 3)
   assert(ok, "truncate failed: " .. (err or ""))
 
-  f = assert(cfd.open(filepath, cfd.O_RDONLY)) as cfd.Handle
+  f = check.must(cfd.open(filepath, cfd.O_RDONLY))
   local data = assert(f:read(100))
   assert(data == "012", "expected '012' got '" .. data .. "'")
   assert(f:close())
@@ -99,12 +96,10 @@ local function test_dup()
   local filepath = fs.join(TEST_TMPDIR, "io_test_dup.txt")
   local content = "dup test"
 
-  local f = assert(cfd.open(filepath, cfd.O_RDWR | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8))) as cfd.Handle
+  local f = check.must(cfd.open(filepath, cfd.O_RDWR | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8)))
   assert(f:write(content))
 
-  local f2, err = f:dup()
-  assert(f2, "dup failed: " .. (err or ""))
-  local f2h = f2 as cfd.Handle
+  local f2h = check.must(f:dup())
   assert(f2h:fd() ~= f:fd(), "dup should return different fd")
 
   assert(f2h:seek(0, cfd.SEEK_SET))
@@ -118,9 +113,7 @@ end
 test_dup()
 
 local function test_pipe()
-  local p, err = cfd.pipe()
-  assert(p, "pipe failed: " .. (err or ""))
-  local ph = p as cfd.Pipe
+  local ph = check.must(cfd.pipe())
   assert(ph.reader, "pipe missing reader")
   assert(ph.writer, "pipe missing writer")
   assert(ph.reader:fd() ~= ph.writer:fd(), "reader and writer should be different fds")
@@ -140,7 +133,7 @@ test_pipe()
 local function test_sync()
   local filepath = fs.join(TEST_TMPDIR, "io_test_sync.txt")
 
-  local f = assert(cfd.open(filepath, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8))) as cfd.Handle
+  local f = check.must(cfd.open(filepath, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8)))
   assert(f:write("sync test"))
 
   local ok, err = f:sync()
@@ -184,7 +177,7 @@ test_constants()
 local function test_fcntl()
   local filepath = fs.join(TEST_TMPDIR, "io_test_fcntl.txt")
 
-  local f = assert(cfd.open(filepath, cfd.O_RDWR | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8))) as cfd.Handle
+  local f = check.must(cfd.open(filepath, cfd.O_RDWR | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8)))
 
   -- Get file descriptor flags
   local fdflags, err = f:fcntl(cfd.F_GETFD)
@@ -210,15 +203,15 @@ test_open_nonexistent_fails()
 local function test_append_mode()
   local filepath = fs.join(TEST_TMPDIR, "io_test_append.txt")
 
-  local f = assert(cfd.open(filepath, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8))) as cfd.Handle
+  local f = check.must(cfd.open(filepath, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8)))
   assert(f:write("hello"))
   assert(f:close())
 
-  f = assert(cfd.open(filepath, cfd.O_WRONLY | cfd.O_APPEND)) as cfd.Handle
+  f = check.must(cfd.open(filepath, cfd.O_WRONLY | cfd.O_APPEND))
   assert(f:write(" world"))
   assert(f:close())
 
-  f = assert(cfd.open(filepath, cfd.O_RDONLY)) as cfd.Handle
+  f = check.must(cfd.open(filepath, cfd.O_RDONLY))
   local data = assert(f:read(100))
   assert(data == "hello world", "append mode failed: got '" .. data .. "'")
   assert(f:close())
@@ -280,8 +273,7 @@ test_wrap_tmpfd()
 
 local function test_tmpfile_handle()
   local h, path = fs.tmpfile(fs.join(TEST_TMPDIR, "wrap_XXXXXX"))
-  assert(h, "tmpfile should succeed")
-  local hh = h as cfd.Handle
+  local hh = check.must(h, "tmpfile should succeed")
   assert(hh:write("via tmpfile"))
   assert(hh:close())
   assert(fs.read(path) == "via tmpfile", "data lands in the tmpfile")
@@ -307,7 +299,7 @@ test_truncate_error_names_path_and_errno()
 local function test_write_error_names_errno()
   local filepath = fs.join(TEST_TMPDIR, "io_test_rdonly.txt")
   assert(fs.write(filepath, "content"))
-  local f = assert(cfd.open(filepath, cfd.O_RDONLY)) as cfd.Handle
+  local f = check.must(cfd.open(filepath, cfd.O_RDONLY))
   local n, err = f:write("nope")
   assert(n == nil, "write to O_RDONLY handle should fail")
   assert(err:match("EBADF"), "write error should name EBADF, got: " .. err)
@@ -319,7 +311,7 @@ test_write_error_names_errno()
 local function test_closed_handle()
   local filepath = fs.join(TEST_TMPDIR, "io_test_closed.txt")
 
-  local f = assert(cfd.open(filepath, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8))) as cfd.Handle
+  local f = check.must(cfd.open(filepath, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8)))
   assert(not f:closed(), "handle should not be closed yet")
   assert(f:close())
   assert(f:closed(), "handle should be closed")
@@ -340,7 +332,7 @@ test_closed_handle()
 local function test_fd_method()
   local filepath = fs.join(TEST_TMPDIR, "io_test_fd.txt")
 
-  local f = assert(cfd.open(filepath, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8))) as cfd.Handle
+  local f = check.must(cfd.open(filepath, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8)))
   local fd = f:fd()
   assert(fd > 0, "fd should be positive")
 
@@ -354,7 +346,7 @@ test_fd_method()
 local function test_close_metamethod_exists()
   local filepath = fs.join(TEST_TMPDIR, "io_test_meta.txt")
 
-  local f = assert(cfd.open(filepath, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8))) as cfd.Handle
+  local f = check.must(cfd.open(filepath, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8)))
   local mt = getmetatable(f)
   assert(mt, "handle should have metatable")
   assert(mt.__close, "handle metatable should have __close")
@@ -369,7 +361,7 @@ end
 test_close_metamethod_exists()
 
 local function test_pipe_close_metamethod_exists()
-  local p = assert(cfd.pipe()) as cfd.Pipe
+  local p = check.must(cfd.pipe())
   local mt = getmetatable(p)
   assert(mt, "pipe should have metatable")
   assert(mt.__close, "pipe metatable should have __close")
@@ -384,7 +376,7 @@ test_pipe_close_metamethod_exists()
 local function test_read_write_with_offset()
   local filepath = fs.join(TEST_TMPDIR, "io_test_pread.txt")
 
-  local f = assert(cfd.open(filepath, cfd.O_RDWR | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8))) as cfd.Handle
+  local f = check.must(cfd.open(filepath, cfd.O_RDWR | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8)))
   assert(f:write("0123456789"))
 
   -- Read at offset (pread behavior)
@@ -423,7 +415,7 @@ test_write_with_mode()
 local function test_datasync()
   local filepath = fs.join(TEST_TMPDIR, "io_test_datasync.txt")
 
-  local f = assert(cfd.open(filepath, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8))) as cfd.Handle
+  local f = check.must(cfd.open(filepath, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8)))
   assert(f:write("datasync test"))
 
   local ok, err = f:datasync()
@@ -442,7 +434,7 @@ test_datasync()
 local function test_close_returns_boolean_and_is_idempotent()
   local filepath = fs.join(TEST_TMPDIR, "io_test_close_bool.txt")
 
-  local f = assert(cfd.open(filepath, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8))) as cfd.Handle
+  local f = check.must(cfd.open(filepath, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, tonumber("644", 8)))
   assert(f:write("x"))
 
   -- First close should succeed and return true

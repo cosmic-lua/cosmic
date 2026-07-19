@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local compress = require("cosmic.compress")
 
 -- Round-trip tests per format
@@ -150,9 +151,10 @@ local function test_max_output_bound_per_format()
     assert(result == nil, format .. ": output beyond max_output must be rejected")
     assert(err ~= nil, format .. ": expected error message")
 
-    result, err = compress.decompress(compressed, {format = format, max_output = 2000})
-    assert(result, format .. ": max_output at the exact size should pass: " .. tostring(err))
-    assert(#(result as string) == 2000, format .. ": roundtrip under max_output should succeed")
+    local full = check.must(
+      compress.decompress(compressed, {format = format, max_output = 2000}),
+      format .. ": max_output at the exact size should pass")
+    assert(#full == 2000, format .. ": roundtrip under max_output should succeed")
   end
 end
 test_max_output_bound_per_format()

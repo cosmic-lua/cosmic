@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 -- test cosmic script execution with .tl and .lua files
 
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
 
@@ -28,11 +29,11 @@ local x: number = 42
 print("answer=" .. x)
 ]])
 
-  local h1 = spawn.spawn({cosmic, script})
-  local __r1 = (h1 as spawn.Handle):wait() as spawn.Result
+  local h1 = check.must(spawn.spawn({cosmic, script}))
+  local __r1 = check.must(h1:wait())
   local ok, out = __r1.ok, __r1.stdout
   assert(ok, "cosmic should execute .tl file")
-  assert((out as string):find("answer=42"), "output should contain expected result")
+  assert(out:find("answer=42"), "output should contain expected result")
 end
 test_execute_teal_file()
 
@@ -43,11 +44,11 @@ local x = 99
 print("value=" .. x)
 ]])
 
-  local h2 = spawn.spawn({cosmic, script})
-  local __r2 = (h2 as spawn.Handle):wait() as spawn.Result
+  local h2 = check.must(spawn.spawn({cosmic, script}))
+  local __r2 = check.must(h2:wait())
   local ok, out = __r2.ok, __r2.stdout
   assert(ok, "cosmic should execute .lua file")
-  assert((out as string):find("value=99"), "output should contain expected result")
+  assert(out:find("value=99"), "output should contain expected result")
 end
 test_execute_lua_file()
 
@@ -59,11 +60,11 @@ print(x)
 ]])
 
   -- the type-error diagnostic lands on stderr
-  local h3 = spawn.spawn({cosmic, script})
-  local __r3 = (h3 as spawn.Handle):wait() as spawn.Result
+  local h3 = check.must(spawn.spawn({cosmic, script}))
+  local __r3 = check.must(h3:wait())
   local ok, out = __r3.ok, __r3.stderr
   assert(not ok, "cosmic should fail on .tl file with type error")
-  assert((out as string):find("type_error.tl"), "error should reference the file name")
+  assert(out:find("type_error.tl"), "error should reference the file name")
 end
 test_teal_type_error()
 
@@ -73,8 +74,8 @@ local function test_teal_syntax_error()
 if if if
 ]])
 
-  local h4 = spawn.spawn({cosmic, script})
-  local __r4 = (h4 as spawn.Handle):wait() as spawn.Result
+  local h4 = check.must(spawn.spawn({cosmic, script}))
+  local __r4 = check.must(h4:wait())
   local ok = __r4.ok
   assert(not ok, "cosmic should fail on .tl file with syntax error")
 end
@@ -92,11 +93,11 @@ local p: Point = { x = 10, y = 20 }
 print("point=" .. p.x .. "," .. p.y)
 ]])
 
-  local h5 = spawn.spawn({cosmic, script})
-  local __r5 = (h5 as spawn.Handle):wait() as spawn.Result
+  local h5 = check.must(spawn.spawn({cosmic, script}))
+  local __r5 = check.must(h5:wait())
   local ok, out = __r5.ok, __r5.stdout
   assert(ok, "cosmic should execute .tl file with records")
-  assert((out as string):find("point=10,20"), "output should contain expected result")
+  assert(out:find("point=10,20"), "output should contain expected result")
 end
 test_teal_with_records()
 
@@ -109,11 +110,11 @@ end
 print("result=" .. identity(123))
 ]])
 
-  local h6 = spawn.spawn({cosmic, script})
-  local __r6 = (h6 as spawn.Handle):wait() as spawn.Result
+  local h6 = check.must(spawn.spawn({cosmic, script}))
+  local __r6 = check.must(h6:wait())
   local ok, out = __r6.ok, __r6.stdout
   assert(ok, "cosmic should execute .tl file with generics")
-  assert((out as string):find("result=123"), "output should contain expected result")
+  assert(out:find("result=123"), "output should contain expected result")
 end
 test_teal_with_generics()
 
@@ -125,11 +126,11 @@ local data: string = cosmo.Slurp("/dev/null") or ""
 print("bytes=" .. #data)
 ]])
 
-  local h7 = spawn.spawn({cosmic, script})
-  local __r7 = (h7 as spawn.Handle):wait() as spawn.Result
+  local h7 = check.must(spawn.spawn({cosmic, script}))
+  local __r7 = check.must(h7:wait())
   local ok, out = __r7.ok, __r7.stdout
   assert(ok, "cosmic should execute .tl file with cosmic module requires")
-  assert((out as string):find("bytes=0"), "output should contain expected result")
+  assert(out:find("bytes=0"), "output should contain expected result")
 end
 test_teal_require_cosmic()
 
@@ -141,13 +142,13 @@ print("arg1=" .. (arg[1] or "nil"))
 print("arg2=" .. (arg[2] or "nil"))
 ]])
 
-  local h8 = spawn.spawn({cosmic, script, "first", "second"})
-  local __r8 = (h8 as spawn.Handle):wait() as spawn.Result
+  local h8 = check.must(spawn.spawn({cosmic, script, "first", "second"}))
+  local __r8 = check.must(h8:wait())
   local ok, out = __r8.ok, __r8.stdout
   assert(ok, "cosmic should execute .tl file with args")
-  assert((out as string):find("arg0=" .. script), "arg[0] should be script path")
-  assert((out as string):find("arg1=first"), "arg[1] should be first argument")
-  assert((out as string):find("arg2=second"), "arg[2] should be second argument")
+  assert(out:find("arg0=" .. script), "arg[0] should be script path")
+  assert(out:find("arg1=first"), "arg[1] should be first argument")
+  assert(out:find("arg2=second"), "arg[2] should be second argument")
 end
 test_teal_script_args()
 
@@ -158,12 +159,12 @@ print("arg0=" .. arg[0])
 print("arg1=" .. (arg[1] or "nil"))
 ]])
 
-  local h9 = spawn.spawn({cosmic, script, "test"})
-  local __r9 = (h9 as spawn.Handle):wait() as spawn.Result
+  local h9 = check.must(spawn.spawn({cosmic, script, "test"}))
+  local __r9 = check.must(h9:wait())
   local ok, out = __r9.ok, __r9.stdout
   assert(ok, "cosmic should execute .lua file with args")
-  assert((out as string):find("arg0=" .. script), "arg[0] should be script path")
-  assert((out as string):find("arg1=test"), "arg[1] should be argument")
+  assert(out:find("arg0=" .. script), "arg[0] should be script path")
+  assert(out:find("arg1=test"), "arg[1] should be argument")
 end
 test_lua_script_args()
 
@@ -175,14 +176,14 @@ print("shebang=" .. x)
 ]])
 
   -- Verify the file exists and has correct content
-  local verify = fs.read(script) as string
+  local verify = check.must(fs.read(script))
   assert(verify:find("shebang="), "script file should contain shebang test code, got: " .. verify:sub(1, 100))
 
-  local h10 = spawn.spawn({cosmic, script})
-  local __r10 = (h10 as spawn.Handle):wait() as spawn.Result
+  local h10 = check.must(spawn.spawn({cosmic, script}))
+  local __r10 = check.must(h10:wait())
   local ok, out = __r10.ok, __r10.stdout .. __r10.stderr
   assert(ok, "cosmic should execute .tl file with shebang, got: " .. tostring(out))
-  assert((out as string):find("shebang=777"), "output should contain expected result, got: " .. tostring(out))
+  assert(out:find("shebang=777"), "output should contain expected result, got: " .. tostring(out))
 end
 test_teal_with_shebang()
 
@@ -199,11 +200,11 @@ print("value=" .. x)
 ]])
 
   for _ = 1, 2 do
-    local h11 = spawn.spawn({cosmic, script})
-    local __r11 = (h11 as spawn.Handle):wait() as spawn.Result
+    local h11 = check.must(spawn.spawn({cosmic, script}))
+    local __r11 = check.must(h11:wait())
     local ok, out = __r11.ok, __r11.stdout
     assert(ok, "cosmic should execute .tl file: " .. tostring(out))
-    assert((out as string):find("value=1"), "expected value=1, got: " .. tostring(out))
+    assert(out:find("value=1"), "expected value=1, got: " .. tostring(out))
   end
 
   -- Overwrite with different content; the mtime change must invalidate
@@ -212,11 +213,11 @@ print("value=" .. x)
 local x: number = 2
 print("value=" .. x)
 ]])
-  local h12 = spawn.spawn({cosmic, script})
-  local __r12 = (h12 as spawn.Handle):wait() as spawn.Result
+  local h12 = check.must(spawn.spawn({cosmic, script}))
+  local __r12 = check.must(h12:wait())
   local ok, out = __r12.ok, __r12.stdout
   assert(ok, "cosmic should execute changed .tl file: " .. tostring(out))
-  assert((out as string):find("value=2"),
+  assert(out:find("value=2"),
     "expected value=2 after script change (stale cache?), got: " .. tostring(out))
 end
 test_script_cache_reuse_and_invalidation()

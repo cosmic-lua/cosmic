@@ -1,12 +1,11 @@
 #!/usr/bin/env cosmic
 --- Tests for coverage executable-line analysis.
+local check = require("cosmic.check")
 local cov_lines = require("cosmic.coverage.lines")
 
 --- Compute lines for Lua source, asserting the parse succeeded.
 local function lines_of(source: string, name: string): {integer: boolean}
-  local result, err = cov_lines.executable_lines(source, name)
-  assert(result, "parse failed: " .. (err or "?"))
-  return result as {integer: boolean}
+  return check.must(cov_lines.executable_lines(source, name))
 end
 
 local function test_marks_basic_statements()

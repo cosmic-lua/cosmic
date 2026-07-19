@@ -3,16 +3,15 @@
 --- `--docs` lists public modules only, internal modules stay searchable
 --- but badged, and their doc pages carry an internal-module header.
 
+local check = require("cosmic.check")
 local docs = require("cosmic.doc")
 local doc_types = require("cosmic.doc.types")
 local manifest = require("cosmic.public")
 
 -- These tests are about the embedded index; they must run in the built
 -- binary, where the index is always present.
-local index, ierr = docs.embedded_index()
-assert(index, "docs index must be embedded (run tests via the binary): "
-  .. tostring(ierr))
-local idx = index as doc_types.DocIndex
+local idx = check.must(docs.embedded_index(),
+  "docs index must be embedded (run tests via the binary)")
 
 local INTERNAL_SAMPLES = {
   "cosmic.child.io",
@@ -25,7 +24,7 @@ local INTERNAL_SAMPLES = {
 local function topic_names(): {string: boolean}
   local names: {string: boolean} = {}
   for _, topic in ipairs(docs.list_topics()) do
-    names[topic[1] as string] = true
+    names[topic[1]] = true
   end
   return names
 end
@@ -73,7 +72,7 @@ local function test_internal_modules_stay_searchable_with_badge()
     if r.module_name == "cosmic.child.io" then found = r; break end
   end
   assert(found, "search must still find internal module cosmic.child.io")
-  assert((found as doc_types.SearchResult).internal,
+  assert(found.internal,
     "search result for an internal module must carry internal = true")
   local rendered = docs.render_search_results(results, "child.io")
   assert(rendered:find("cosmic.child.io", 1, true), "rendered search output")

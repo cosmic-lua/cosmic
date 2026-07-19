@@ -1,6 +1,8 @@
 --- Examples for the cosmic.fs.walk module.
 --- Demonstrates walk(), collect(), and files() for directory traversal.
 
+local check = require("cosmic.check")
+
 -- Example_walk demonstrates walking a directory tree.
 -- The visitor receives the FULL path as the first argument and the basename
 -- as the second. Do not join them — path is already complete.
@@ -53,7 +55,7 @@ local function Example_collect()
 
   -- collect returns full paths (or nil if the root could not be opened);
   -- sort for deterministic output.
-  local luafiles = (fs.collect(tmpdir, "*.lua") or {}) as {string}
+  local luafiles = check.must(fs.collect(tmpdir, "*.lua"))
   table.sort(luafiles)
   for _, p in ipairs(luafiles) do
     -- print only the basename so output is not path-dependent.

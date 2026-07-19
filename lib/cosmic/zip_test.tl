@@ -1,8 +1,8 @@
 #!/usr/bin/env cosmic
 --- Tests for cosmic.zip wrapper module.
 
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs.types")
 local zip = require("cosmic.zip")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
@@ -16,9 +16,7 @@ end
 
 local function test_writer()
   local p = zip_path("write_test.zip")
-  local w, err = zip.writer(p)
-  assert(w, "should open for writing: " .. tostring(err))
-  local writer = w as zip.Writer
+  local writer = check.must(zip.writer(p))
   local ok, add_err = writer:add("hello.txt", "Hello, World!")
   assert(ok, "should add file: " .. tostring(add_err))
   writer:close()
@@ -31,9 +29,7 @@ test_writer()
 
 local function test_writer_multiple_files()
   local p = zip_path("multi_test.zip")
-  local w, err = zip.writer(p)
-  assert(w, "should open for writing: " .. tostring(err))
-  local writer = w as zip.Writer
+  local writer = check.must(zip.writer(p))
   writer:add("file1.txt", "Content 1")
   writer:add("file2.txt", "Content 2")
   writer:add("subdir/file3.txt", "Content 3")
@@ -49,27 +45,25 @@ test_writer_multiple_files()
 local function test_reader()
   -- Create a zip first
   local p = zip_path("read_test.zip")
-  local w = zip.writer(p) as zip.Writer
+  local w = check.must(zip.writer(p))
   w:add("test.txt", "Test content")
   w:close()
 
   -- Now read it
-  local r, err = zip.reader(p)
-  assert(r, "should open for reading: " .. tostring(err))
-  local reader = r as zip.Reader
+  local reader = check.must(zip.reader(p))
   reader:close()
 end
 test_reader()
 
 local function test_read_list()
   local p = zip_path("list_test.zip")
-  local w = zip.writer(p) as zip.Writer
+  local w = check.must(zip.writer(p))
   w:add("a.txt", "A")
   w:add("b.txt", "B")
   w:add("c/d.txt", "D")
   w:close()
 
-  local r = zip.reader(p) as zip.Reader
+  local r = check.must(zip.reader(p))
   local files = r:list()
   r:close()
 
@@ -91,11 +85,11 @@ test_read_list()
 
 local function test_read_content()
   local p = zip_path("content_test.zip")
-  local w = zip.writer(p) as zip.Writer
+  local w = check.must(zip.writer(p))
   w:add("hello.txt", "Hello, ZIP!")
   w:close()
 
-  local r = zip.reader(p) as zip.Reader
+  local r = check.must(zip.reader(p))
   local content, err = r:read("hello.txt")
   r:close()
 
@@ -106,27 +100,25 @@ test_read_content()
 
 local function test_read_stat()
   local p = zip_path("stat_test.zip")
-  local w = zip.writer(p) as zip.Writer
+  local w = check.must(zip.writer(p))
   w:add("data.bin", "0123456789") -- 10 bytes
   w:close()
 
-  local r = zip.reader(p) as zip.Reader
-  local stat = r:stat("data.bin")
+  local r = check.must(zip.reader(p))
+  local st = check.must(r:stat("data.bin"), "should get stat")
   r:close()
 
-  assert(stat, "should get stat")
-  local st = stat as zip.Stat
   assert(st.size == 10, "size should be 10, got " .. tostring(st.size))
 end
 test_read_stat()
 
 local function test_read_nonexistent_file()
   local p = zip_path("nonexistent_test.zip")
-  local w = zip.writer(p) as zip.Writer
+  local w = check.must(zip.writer(p))
   w:add("exists.txt", "I exist")
   w:close()
 
-  local r = zip.reader(p) as zip.Reader
+  local r = check.must(zip.reader(p))
   local content = r:read("does_not_exist.txt")
   r:close()
 
@@ -140,20 +132,18 @@ local function test_appender()
   local p = zip_path("append_test.zip")
 
   -- Create initial zip
-  local w = zip.writer(p) as zip.Writer
+  local w = check.must(zip.writer(p))
   w:add("first.txt", "First file")
   w:close()
 
   -- Append to it
-  local a, err = zip.appender(p)
-  assert(a, "should open for appending: " .. tostring(err))
-  local appender = a as zip.Appender
+  local appender = check.must(zip.appender(p))
   local ok, add_err = appender:add("second.txt", "Second file")
   assert(ok, "should add file: " .. tostring(add_err))
   appender:close()
 
   -- Verify both files exist
-  local r = zip.reader(p) as zip.Reader
+  local r = check.must(zip.reader(p))
   local files = r:list()
   local first_content = r:read("first.txt")
   local second_content = r:read("second.txt")
@@ -169,19 +159,17 @@ test_appender()
 
 local function test_appender_remove()
   local p = zip_path("remove_test.zip")
-  local w = zip.writer(p) as zip.Writer
+  local w = check.must(zip.writer(p))
   w:add("gone.txt", "delete me")
   w:add("kept.txt", "keep me")
   w:close()
 
-  local a, err = zip.appender(p)
-  assert(a, "should open for appending: " .. tostring(err))
-  local appender = a as zip.Appender
+  local appender = check.must(zip.appender(p))
   local ok, remove_err = appender:remove("gone.txt")
   assert(ok, "remove of an existing entry should succeed: " .. tostring(remove_err))
   appender:close()
 
-  local r = zip.reader(p) as zip.Reader
+  local r = check.must(zip.reader(p))
   local files = r:list()
   assert(#files == 1, "archive should have 1 entry after remove, got " .. #files)
   assert(files[1].name == "kept.txt",
@@ -198,11 +186,11 @@ test_appender_remove()
 
 local function test_appender_remove_missing_entry()
   local p = zip_path("remove_missing_test.zip")
-  local w = zip.writer(p) as zip.Writer
+  local w = check.must(zip.writer(p))
   w:add("only.txt", "here")
   w:close()
 
-  local appender = zip.appender(p) as zip.Appender
+  local appender = check.must(zip.appender(p))
   local ok, err = appender:remove("no-such-entry.txt")
   assert(ok == nil, "remove of a missing entry should fail")
   assert(err and string.match(err, "not found"),
@@ -210,7 +198,7 @@ local function test_appender_remove_missing_entry()
   appender:close()
 
   -- The archive is untouched by the failed remove.
-  local r = zip.reader(p) as zip.Reader
+  local r = check.must(zip.reader(p))
   assert(r:read("only.txt") == "here", "existing entry must survive a failed remove")
   r:close()
 end
@@ -220,16 +208,13 @@ test_appender_remove_missing_entry()
 
 local function test_from_memory()
   local p = zip_path("memory_test.zip")
-  local w = zip.writer(p) as zip.Writer
+  local w = check.must(zip.writer(p))
   w:add("mem.txt", "In-memory content")
   w:close()
 
-  local zip_data = fs.read(p)
-  assert(zip_data, "should read zip data")
+  local zip_data = check.must(fs.read(p), "should read zip data")
 
-  local r, err = zip.from(zip_data as string)
-  assert(r, "should open from memory: " .. tostring(err))
-  local rr = r as zip.Reader
+  local rr = check.must(zip.from(zip_data))
   local content = rr:read("mem.txt")
   rr:close()
 
@@ -249,13 +234,11 @@ test_reader_invalid_path()
 local function test_appender_creates_missing_archive()
   -- append has create-or-append semantics: a missing archive is created.
   local p = zip_path("appender_creates.zip")
-  local a, err = zip.appender(p)
-  assert(a, "appender should create a missing archive: " .. tostring(err))
-  local appender = a as zip.Appender
+  local appender = check.must(zip.appender(p), "appender should create a missing archive")
   appender:add("x.txt", "hi")
   appender:close()
 
-  local r = zip.reader(p) as zip.Reader
+  local r = check.must(zip.reader(p))
   assert(r:read("x.txt") == "hi", "created archive should contain the entry")
   r:close()
 end
@@ -279,7 +262,7 @@ test_from_invalid_data()
 
 local function test_add_with_options()
   local p = zip_path("options_test.zip")
-  local w = zip.writer(p) as zip.Writer
+  local w = check.must(zip.writer(p))
   -- Use larger content that will definitely compress
   local large_content = string.rep("Hello World! ", 100) -- 1300 bytes of repeated data
   local ok, err = w:add("stored.txt", large_content, {method = "store"})
@@ -288,15 +271,10 @@ local function test_add_with_options()
   assert(ok, "should add with deflate method: " .. tostring(err))
   w:close()
 
-  local r = zip.reader(p) as zip.Reader
-  local stored_stat = r:stat("stored.txt")
-  local deflated_stat = r:stat("deflated.txt")
+  local r = check.must(zip.reader(p))
+  local stored_st = check.must(r:stat("stored.txt"), "should have stored.txt stat")
+  local deflated_st = check.must(r:stat("deflated.txt"), "should have deflated.txt stat")
   r:close()
-
-  assert(stored_stat, "should have stored.txt stat")
-  assert(deflated_stat, "should have deflated.txt stat")
-  local stored_st = stored_stat as zip.Stat
-  local deflated_st = deflated_stat as zip.Stat
   -- Stored files should have method 0, deflated should have method 8
   assert(stored_st.method == 0, "stored method should be 0, got " .. tostring(stored_st.method))
   assert(deflated_st.method == 8, "deflated method should be 8, got " .. tostring(deflated_st.method))
@@ -308,21 +286,17 @@ test_add_with_options()
 
 local function test_writer_with_compression_level()
   local p = zip_path("level_test.zip")
-  local w, err = zip.writer(p, {level = 9})
-  assert(w, "should open with compression level: " .. tostring(err))
-  local writer = w as zip.Writer
+  local writer = check.must(zip.writer(p, {level = 9}))
   -- Add a file that benefits from compression
   local content = string.rep("AAAA", 1000) -- 4000 bytes of repeated data
   writer:add("compressible.txt", content)
   writer:close()
 
   -- Verify it compressed
-  local r = zip.reader(p) as zip.Reader
-  local stat = r:stat("compressible.txt")
+  local r = check.must(zip.reader(p))
+  local st = check.must(r:stat("compressible.txt"), "should have stat")
   r:close()
 
-  assert(stat, "should have stat")
-  local st = stat as zip.Stat
   assert(st.size == 4000, "uncompressed size should be 4000")
   assert(st.compressed_size < st.size, "compressed size should be smaller")
 end
@@ -332,13 +306,13 @@ test_writer_with_compression_level()
 
 local function test_extract_basic()
   local p = zip_path("extract_basic.zip")
-  local w = zip.writer(p) as zip.Writer
+  local w = check.must(zip.writer(p))
   w:add("top.txt", "top content")
   w:add("sub/dir/nested.txt", "nested content")
   w:add("run.sh", "#!/bin/sh\n", {mode = tonumber("755", 8)})
   w:close()
 
-  local r = zip.reader(p) as zip.Reader
+  local r = check.must(zip.reader(p))
   local dest = zip_path("extract_basic_out")
   local ok, err = zip.extract(r, dest)
   r:close()
@@ -346,9 +320,8 @@ local function test_extract_basic()
 
   assert(fs.read(fs.join(dest, "top.txt")) == "top content", "top.txt should round-trip")
   assert(fs.read(fs.join(dest, "sub/dir/nested.txt")) == "nested content", "nested file should round-trip")
-  local st = fs.stat(fs.join(dest, "run.sh"))
-  assert(st, "run.sh should exist")
-  local mode = (st as fs_types.Stat):mode() & tonumber("777", 8)
+  local st = check.must(fs.stat(fs.join(dest, "run.sh")), "run.sh should exist")
+  local mode = st:mode() & tonumber("777", 8)
   assert(mode == tonumber("755", 8), "mode from the archive should apply, got " .. string.format("%o", mode))
 end
 test_extract_basic()
@@ -359,19 +332,19 @@ test_extract_basic()
 -- "../escaped.txt".
 local function crafted_archive(patch_to: string): string
   local safe = zip_path("crafted_" .. patch_to:gsub("%W", "_") .. ".zip")
-  local w = zip.writer(safe) as zip.Writer
+  local w = check.must(zip.writer(safe))
   w:add("good.txt", "innocent")
   w:add("XX/escaped.txt", "pwned")
   w:close()
-  local raw = fs.read(safe)
+  local raw = check.must(fs.read(safe))
   assert(#patch_to == #"XX/escaped.txt", "patch must preserve name length")
-  local patched = string.gsub(raw as string, "XX/escaped%.txt", patch_to)
+  local patched = string.gsub(raw, "XX/escaped%.txt", patch_to)
   return patched
 end
 
 local function test_extract_rejects_traversal()
   local data = crafted_archive("../escaped.txt")
-  local r = zip.from(data) as zip.Reader
+  local r = check.must(zip.from(data))
   local dest = zip_path("traversal_out")
   local ok, err = zip.extract(r, dest)
   r:close()
@@ -387,7 +360,7 @@ test_extract_rejects_traversal()
 
 local function test_extract_rejects_absolute()
   local data = crafted_archive("/e/escaped.txt")
-  local r = zip.from(data) as zip.Reader
+  local r = check.must(zip.from(data))
   local dest = zip_path("absolute_out")
   local ok, err = zip.extract(r, dest)
   r:close()
@@ -400,7 +373,7 @@ test_extract_rejects_absolute()
 
 local function test_extract_rejects_backslash_traversal()
   local data = crafted_archive("..\\escaped.txt")
-  local r = zip.from(data) as zip.Reader
+  local r = check.must(zip.from(data))
   local dest = zip_path("backslash_out")
   local ok, err = zip.extract(r, dest)
   r:close()
@@ -412,12 +385,12 @@ test_extract_rejects_backslash_traversal()
 
 local function test_extract_max_file_size()
   local p = zip_path("extract_size.zip")
-  local w = zip.writer(p) as zip.Writer
+  local w = check.must(zip.writer(p))
   w:add("small.txt", "ok")
   w:add("big.txt", string.rep("x", 4096))
   w:close()
 
-  local r = zip.reader(p) as zip.Reader
+  local r = check.must(zip.reader(p))
   local dest = zip_path("size_out")
   local ok, err = zip.extract(r, dest, {max_file_size = 1024})
   r:close()

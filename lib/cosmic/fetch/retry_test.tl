@@ -3,6 +3,7 @@
 --- the default policy, retryable statuses retry for idempotent methods,
 --- and custom should_retry sees failures too. All against forked
 --- loopback servers; base_delay is tiny so backoff never slows the suite.
+local check = require("cosmic.check")
 local fetch = require("cosmic.fetch")
 local net = require("cosmic.net")
 local proc = require("cosmic.proc")
@@ -26,8 +27,7 @@ end
 --- proc.wait() can never hang the suite.
 local function serve(responses: {string}): integer, integer
   local srv, port = net.listen_tcp("127.0.0.1", 0)
-  assert(srv ~= nil, "listen_tcp failed")
-  local s = srv as net.Socket
+  local s = check.must(srv, "listen_tcp failed")
   local pid = proc.fork()
   if pid == 0 then
     signal.setitimer({

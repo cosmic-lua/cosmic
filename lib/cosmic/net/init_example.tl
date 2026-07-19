@@ -4,22 +4,19 @@
 -- listen on an OS-assigned port, connect, accept, echo one message back
 local function Example_echo()
   local net = require("cosmic.net")
+  local check = require("cosmic.check")
   local raw_srv, port, err = net.listen_tcp("127.0.0.1", 0)
-  assert(raw_srv, err)
+  local srv = check.must(raw_srv, err)
   assert(port > 0)
-  local srv = raw_srv as net.Socket
 
-  local raw_client, cerr = net.connect_tcp("127.0.0.1", port)
-  assert(raw_client, cerr)
-  local client = raw_client as net.Socket
+  local client = check.must(net.connect_tcp("127.0.0.1", port))
 
   local raw_conn, _, _, aerr = srv:accept()
-  assert(raw_conn, aerr)
-  local conn = raw_conn as net.Socket
+  local conn = check.must(raw_conn, aerr)
 
   client:send("hello")
-  local msg = conn:recv()
-  conn:send("echo: " .. (msg as string))
+  local msg = check.must(conn:recv())
+  conn:send("echo: " .. msg)
   print(client:recv())
 
   client:close()
@@ -34,12 +31,12 @@ end
 -- stream contract (cosmic.stream)
 local function Example_recv_eof()
   local net = require("cosmic.net")
+  local check = require("cosmic.check")
   local raw_srv, port, err = net.listen_tcp("127.0.0.1", 0)
-  assert(raw_srv, err)
-  local srv = raw_srv as net.Socket
+  local srv = check.must(raw_srv, err)
 
-  local client = net.connect_tcp("127.0.0.1", port) as net.Socket
-  local conn = srv:accept() as net.Socket
+  local client = check.must(net.connect_tcp("127.0.0.1", port))
+  local conn = check.must((srv:accept()))
 
   client:close()
   local data, recv_err = conn:recv()

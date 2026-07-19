@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 --- Tests for the #560 fd contract: read() EOF/EAGAIN shape, sync placement.
 local cfd = require("cosmic.fd")
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 
 global TEST_TMPDIR: string
@@ -11,7 +12,7 @@ global TEST_TMPDIR: string
 local function test_read_eof_returns_nil()
   local filepath = fs.join(TEST_TMPDIR, "io_test_eof.txt")
   assert(fs.write(filepath, "abc"))
-  local f = assert(cfd.open(filepath, cfd.O_RDONLY)) as cfd.Handle
+  local f = check.must(cfd.open(filepath, cfd.O_RDONLY))
   assert(f:read(100) == "abc", "first read returns the content")
   local data, err = f:read(100)
   assert(data == nil, "read at EOF should return nil, got '" .. tostring(data) .. "'")
@@ -24,7 +25,7 @@ test_read_eof_returns_nil()
 local function test_read_empty_file_returns_nil()
   local filepath = fs.join(TEST_TMPDIR, "io_test_empty.txt")
   assert(fs.write(filepath, ""))
-  local f = assert(cfd.open(filepath, cfd.O_RDONLY)) as cfd.Handle
+  local f = check.must(cfd.open(filepath, cfd.O_RDONLY))
   local data, err = f:read(100)
   assert(data == nil, "first read of an empty file should return nil, got '" .. tostring(data) .. "'")
   assert(err == nil, "EOF is not an error, got: " .. tostring(err))
@@ -36,7 +37,7 @@ test_read_empty_file_returns_nil()
 local function test_read_loop_terminates_on_nil()
   local filepath = fs.join(TEST_TMPDIR, "io_test_loop.txt")
   assert(fs.write(filepath, "0123456789"))
-  local f = assert(cfd.open(filepath, cfd.O_RDONLY)) as cfd.Handle
+  local f = check.must(cfd.open(filepath, cfd.O_RDONLY))
   local parts: {string} = {}
   while true do
     local chunk, err = f:read(4)
@@ -55,7 +56,7 @@ test_read_loop_terminates_on_nil()
 -- Pin: a nonblocking read with no data is a FAILURE (nil + EAGAIN error),
 -- distinct from EOF (nil + no error).
 local function test_nonblocking_pipe_read_names_eagain()
-  local p = assert(cfd.pipe(cfd.O_NONBLOCK)) as cfd.Pipe
+  local p = check.must(cfd.pipe(cfd.O_NONBLOCK))
   local data, err = p.reader:read(10)
   assert(data == nil, "empty nonblocking pipe read should return nil")
   assert(err and err:match("EAGAIN"), "error should name EAGAIN, got: " .. tostring(err))
@@ -69,7 +70,7 @@ test_nonblocking_pipe_read_names_eagain()
 -- retried read then returns.
 local function test_blocking_read_retries_eintr()
   local signal = require("cosmic.signal")
-  local p = assert(cfd.pipe()) as cfd.Pipe
+  local p = check.must(cfd.pipe())
   local fired = false
   local old_handler = signal.sigaction(signal.SIGALRM, function(_: number)
       if not fired then

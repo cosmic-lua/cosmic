@@ -2,6 +2,7 @@
 --- Core fetch tests against forked loopback servers: no external hosts,
 --- no skip scaffolding. allow_private opts out of the SSRF guard so the
 --- success path is exercised hermetically.
+local check = require("cosmic.check")
 local fetch = require("cosmic.fetch")
 local net = require("cosmic.net")
 local proc = require("cosmic.proc")
@@ -33,8 +34,7 @@ end
 --- @return integer port, integer child pid (caller must proc.wait it)
 local function serve(responses: {string}): integer, integer
   local srv, port = net.listen_tcp("127.0.0.1", 0)
-  assert(srv ~= nil, "listen_tcp failed")
-  local s = srv as net.Socket
+  local s = check.must(srv, "listen_tcp failed")
   local pid = proc.fork()
   if pid == 0 then
     for _, resp in ipairs(responses) do
@@ -163,8 +163,7 @@ local function test_redirect_followed_reports_final_url()
   -- serve() can't express a redirect that targets its own port (the
   -- response text needs the port), so fork by hand here.
   local srv, port2 = net.listen_tcp("127.0.0.1", 0)
-  assert(srv ~= nil, "listen_tcp failed")
-  local s = srv as net.Socket
+  local s = check.must(srv, "listen_tcp failed")
   local final_url = "http://127.0.0.1:" .. math.tointeger(port2) .. "/final"
   local pid2 = proc.fork()
   if pid2 == 0 then
@@ -198,8 +197,7 @@ test_redirect_followed_reports_final_url()
 
 local function test_opts_table_not_mutated()
   local srv, port = net.listen_tcp("127.0.0.1", 0)
-  assert(srv ~= nil, "listen_tcp failed")
-  local s = srv as net.Socket
+  local s = check.must(srv, "listen_tcp failed")
   local redirect_url = "http://127.0.0.1:" .. math.tointeger(port) .. "/after"
   local pid = proc.fork()
   if pid == 0 then

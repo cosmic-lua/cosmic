@@ -7,6 +7,7 @@
 -- fail-closed: where a section cannot be enforced (no landlock, not
 -- OpenBSD), apply reports failure instead of pretending to restrict.
 local function Example_apply()
+  local check = require("cosmic.check")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
   local script = [[
@@ -26,7 +27,7 @@ else
 end
 io.write("done\n")
 ]]
-  local r = spawn.run({cosmic, "-e", script}) as spawn.Result
+  local r = check.must(spawn.run({cosmic, "-e", script}))
   io.write(r.stdout)
   -- Output:
   -- done

@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 -- test cosmic --compile option
 
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
 
@@ -20,12 +21,12 @@ local x: number = 42
 print(x)
 ]])
 
-  local h1 = spawn.spawn({cosmic, "--compile", input})
-  local __r1 = (h1 as spawn.Handle):wait() as spawn.Result
+  local h1 = check.must(spawn.spawn({cosmic, "--compile", input}))
+  local __r1 = check.must(h1:wait())
   local ok, out = __r1.ok, __r1.stdout
   assert(ok, "cosmic --compile should succeed")
-  assert(not (out as string):find(": number"), "output should not contain type annotations")
-  assert((out as string):find("local x = 42"), "output should contain compiled Lua")
+  assert(not out:find(": number"), "output should not contain type annotations")
+  assert(out:find("local x = 42"), "output should contain compiled Lua")
 end
 test_compile_basic()
 
@@ -35,8 +36,8 @@ local function test_compile_syntax_error()
 if if if
 ]])
 
-  local h2 = spawn.spawn({cosmic, "--compile", input})
-  local __r2 = (h2 as spawn.Handle):wait() as spawn.Result
+  local h2 = check.must(spawn.spawn({cosmic, "--compile", input}))
+  local __r2 = check.must(h2:wait())
   local ok = __r2.ok
   assert(not ok, "cosmic --compile should fail on syntax error")
 end
@@ -48,8 +49,8 @@ local function test_compile_type_error()
 local x: number = "wrong type"
 ]])
 
-  local h3 = spawn.spawn({cosmic, "--compile", input})
-  local __r3 = (h3 as spawn.Handle):wait() as spawn.Result
+  local h3 = check.must(spawn.spawn({cosmic, "--compile", input}))
+  local __r3 = check.must(h3:wait())
   local ok = __r3.ok
   assert(not ok, "cosmic --compile should fail on type error")
 end
@@ -67,11 +68,11 @@ local p: Point = { x = 10, y = 20 }
 print(p.x, p.y)
 ]])
 
-  local h4 = spawn.spawn({cosmic, "--compile", input})
-  local __r4 = (h4 as spawn.Handle):wait() as spawn.Result
+  local h4 = check.must(spawn.spawn({cosmic, "--compile", input}))
+  local __r4 = check.must(h4:wait())
   local ok, out = __r4.ok, __r4.stdout
   assert(ok, "cosmic --compile should succeed with records")
-  assert((out as string):find("local p = {"), "should compile record to table")
+  assert(out:find("local p = {"), "should compile record to table")
 end
 test_compile_record()
 
@@ -84,18 +85,18 @@ end
 print(identity(42))
 ]])
 
-  local h5 = spawn.spawn({cosmic, "--compile", input})
-  local __r5 = (h5 as spawn.Handle):wait() as spawn.Result
+  local h5 = check.must(spawn.spawn({cosmic, "--compile", input}))
+  local __r5 = check.must(h5:wait())
   local ok, out = __r5.ok, __r5.stdout
   assert(ok, "cosmic --compile should succeed with generics")
-  assert((out as string):find("local function identity%(x%)"), "generics should be erased")
+  assert(out:find("local function identity%(x%)"), "generics should be erased")
 end
 test_compile_generics()
 
 -- Test missing input file
 local function test_compile_missing_file()
-  local h6 = spawn.spawn({cosmic, "--compile", "/nonexistent/file.tl"})
-  local __r6 = (h6 as spawn.Handle):wait() as spawn.Result
+  local h6 = check.must(spawn.spawn({cosmic, "--compile", "/nonexistent/file.tl"}))
+  local __r6 = check.must(h6:wait())
   local ok = __r6.ok
   assert(not ok, "cosmic --compile should fail on missing file")
 end
@@ -111,18 +112,18 @@ print("result=" .. add(2, 3))
 ]])
   local output = fs.join(tmpdir, "runnable.lua")
 
-  local h7 = spawn.spawn({cosmic, "--compile", input})
-  local __r7 = (h7 as spawn.Handle):wait() as spawn.Result
+  local h7 = check.must(spawn.spawn({cosmic, "--compile", input}))
+  local __r7 = check.must(h7:wait())
   local ok, lua_code = __r7.ok, __r7.stdout
   assert(ok, "compilation should succeed")
 
-  fs.write(output, lua_code as string)
+  fs.write(output, lua_code)
 
-  local h8 = spawn.spawn({cosmic, output})
-  local __r8 = (h8 as spawn.Handle):wait() as spawn.Result
+  local h8 = check.must(spawn.spawn({cosmic, output}))
+  local __r8 = check.must(h8:wait())
   local run_ok, run_out = __r8.ok, __r8.stdout
   assert(run_ok, "compiled output should run")
-  assert((run_out as string):find("result=5"), "compiled code should produce correct output")
+  assert(run_out:find("result=5"), "compiled code should produce correct output")
 end
 test_compiled_output_runs()
 
@@ -134,8 +135,8 @@ local data: string = cosmo.Slurp("/dev/null") or ""
 print("read " .. #data .. " bytes")
 ]])
 
-  local h9 = spawn.spawn({cosmic, "--compile", input})
-  local __r9 = (h9 as spawn.Handle):wait() as spawn.Result
+  local h9 = check.must(spawn.spawn({cosmic, "--compile", input}))
+  local __r9 = check.must(h9:wait())
   local ok = __r9.ok
   assert(ok, "compile with cosmic types should succeed")
 end
@@ -148,12 +149,12 @@ local x: number = 42
 print(x)
 ]])
 
-  local h10 = spawn.spawn({cosmic, "--compile", input})
-  local __r10 = (h10 as spawn.Handle):wait() as spawn.Result
+  local h10 = check.must(spawn.spawn({cosmic, "--compile", input}))
+  local __r10 = check.must(h10:wait())
   local ok, out = __r10.ok, __r10.stdout
   assert(ok, "cosmic --compile should succeed")
-  assert((out as string):sub(1, 21) == "#!/usr/bin/env cosmic", "shebang should be preserved at start of output")
-  assert((out as string):find("\nlocal x = 42"), "compiled Lua should follow shebang")
+  assert(out:sub(1, 21) == "#!/usr/bin/env cosmic", "shebang should be preserved at start of output")
+  assert(out:find("\nlocal x = 42"), "compiled Lua should follow shebang")
 end
 test_compile_preserves_shebang()
 
@@ -163,12 +164,12 @@ local function test_compile_no_shebang()
 print(x)
 ]])
 
-  local h11 = spawn.spawn({cosmic, "--compile", input})
-  local __r11 = (h11 as spawn.Handle):wait() as spawn.Result
+  local h11 = check.must(spawn.spawn({cosmic, "--compile", input}))
+  local __r11 = check.must(h11:wait())
   local ok, out = __r11.ok, __r11.stdout
   assert(ok, "cosmic --compile should succeed")
-  assert((out as string):sub(1, 2) ~= "#!", "output should not have shebang if source didn't")
-  assert((out as string):find("local x = 42"), "output should contain compiled Lua")
+  assert(out:sub(1, 2) ~= "#!", "output should not have shebang if source didn't")
+  assert(out:find("local x = 42"), "output should contain compiled Lua")
 end
 test_compile_no_shebang()
 
@@ -180,11 +181,11 @@ local function foo()
 end
 ]])
 
-  local h12 = spawn.spawn({cosmic, "--compile", input})
-  local __r12 = (h12 as spawn.Handle):wait() as spawn.Result
+  local h12 = check.must(spawn.spawn({cosmic, "--compile", input}))
+  local __r12 = check.must(h12:wait())
   local ok, out = __r12.ok, __r12.stdout
   assert(ok, "compile should succeed in lax mode with unknown variables")
-  assert((out as string):find("unknown_global_var"), "output should contain the unknown variable")
+  assert(out:find("unknown_global_var"), "output should contain the unknown variable")
 end
 test_compile_lax_mode()
 
@@ -197,8 +198,8 @@ print(x)
   local output = fs.join(tmpdir, "wic.lua")
 
   -- First run: file does not exist, should be created
-  local h13 = spawn.spawn({cosmic, "--write-if-changed", "--output", output, "--compile", input})
-  local __r13 = (h13 as spawn.Handle):wait() as spawn.Result
+  local h13 = check.must(spawn.spawn({cosmic, "--write-if-changed", "--output", output, "--compile", input}))
+  local __r13 = check.must(h13:wait())
   local ok1, _ = __r13.ok, __r13.stdout
   assert(ok1, "first compile --write-if-changed should succeed")
 
@@ -209,8 +210,8 @@ print(x)
   assert(content1:find("local x = 42"), "output should contain compiled Lua")
 
   -- Record modification time
-  local h14 = spawn.spawn({"stat", "-c", "%Y", output})
-  local __r14 = (h14 as spawn.Handle):wait() as spawn.Result
+  local h14 = check.must(spawn.spawn({"stat", "-c", "%Y", output}))
+  local __r14 = check.must(h14:wait())
   local mtime1_ok, mtime1 = __r14.ok, __r14.stdout
   assert(mtime1_ok, "stat should succeed")
 
@@ -218,13 +219,13 @@ print(x)
   os.execute("sleep 1")
 
   -- Second run: identical content, file should NOT be rewritten
-  local h15 = spawn.spawn({cosmic, "--write-if-changed", "--output", output, "--compile", input})
-  local __r15 = (h15 as spawn.Handle):wait() as spawn.Result
+  local h15 = check.must(spawn.spawn({cosmic, "--write-if-changed", "--output", output, "--compile", input}))
+  local __r15 = check.must(h15:wait())
   local ok2, _ = __r15.ok, __r15.stdout
   assert(ok2, "second compile --write-if-changed should succeed")
 
-  local h16 = spawn.spawn({"stat", "-c", "%Y", output})
-  local __r16 = (h16 as spawn.Handle):wait() as spawn.Result
+  local h16 = check.must(spawn.spawn({"stat", "-c", "%Y", output}))
+  local __r16 = check.must(h16:wait())
   local mtime2_ok, mtime2 = __r16.ok, __r16.stdout
   assert(mtime2_ok, "stat should succeed after second run")
   assert(mtime1 == mtime2, "file mtime should be unchanged when content identical: " .. tostring(mtime1) .. " vs " .. tostring(mtime2))
@@ -237,8 +238,8 @@ local function test_format_write_if_changed()
   local output = fs.join(tmpdir, "wic_fmt_out.lua")
 
   -- First run: output file does not exist, should be created
-  local h17 = spawn.spawn({cosmic, "--write-if-changed", "--output", output, "--format", input})
-  local __r17 = (h17 as spawn.Handle):wait() as spawn.Result
+  local h17 = check.must(spawn.spawn({cosmic, "--write-if-changed", "--output", output, "--format", input}))
+  local __r17 = check.must(h17:wait())
   local ok1, _ = __r17.ok, __r17.stdout
   assert(ok1, "first format --write-if-changed should succeed")
 
@@ -249,8 +250,8 @@ local function test_format_write_if_changed()
   assert(content1:find("local x = 42"), "output should contain formatted Lua")
 
   -- Record modification time
-  local h18 = spawn.spawn({"stat", "-c", "%Y", output})
-  local __r18 = (h18 as spawn.Handle):wait() as spawn.Result
+  local h18 = check.must(spawn.spawn({"stat", "-c", "%Y", output}))
+  local __r18 = check.must(h18:wait())
   local mtime1_ok, mtime1 = __r18.ok, __r18.stdout
   assert(mtime1_ok, "stat should succeed")
 
@@ -258,13 +259,13 @@ local function test_format_write_if_changed()
   os.execute("sleep 1")
 
   -- Second run: identical content, file should NOT be rewritten
-  local h19 = spawn.spawn({cosmic, "--write-if-changed", "--output", output, "--format", input})
-  local __r19 = (h19 as spawn.Handle):wait() as spawn.Result
+  local h19 = check.must(spawn.spawn({cosmic, "--write-if-changed", "--output", output, "--format", input}))
+  local __r19 = check.must(h19:wait())
   local ok2, _ = __r19.ok, __r19.stdout
   assert(ok2, "second format --write-if-changed should succeed")
 
-  local h20 = spawn.spawn({"stat", "-c", "%Y", output})
-  local __r20 = (h20 as spawn.Handle):wait() as spawn.Result
+  local h20 = check.must(spawn.spawn({"stat", "-c", "%Y", output}))
+  local __r20 = check.must(h20:wait())
   local mtime2_ok, mtime2 = __r20.ok, __r20.stdout
   assert(mtime2_ok, "stat should succeed after second format run")
   assert(mtime1 == mtime2, "file mtime should be unchanged when format output identical: " .. tostring(mtime1) .. " vs " .. tostring(mtime2))

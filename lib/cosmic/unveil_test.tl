@@ -101,10 +101,10 @@ else
 end
 ]], allowed_dir, allowed_file, hidden_file))
 
-  local h = spawn.spawn({cosmic, script})
-  local __r1 = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, script}))
+  local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout
-  local s = (out or "") as string
+  local s = out or ""
   -- Plain-text find of the distinct setup marker: the success marker
   -- "denied-blocked" must not match here.
   if s:find("unveil-blocked:", 1, true) then

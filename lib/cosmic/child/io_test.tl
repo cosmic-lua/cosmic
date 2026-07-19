@@ -3,6 +3,7 @@
 -- concurrently with stdout/stderr draining so no direction deadlocks, a child
 -- that stops reading stdin cannot SIGPIPE-kill the parent, and run()/wait()
 -- capture both output streams plus the exit status.
+local check = require("cosmic.check")
 local child = require("cosmic.child")
 local fs = require("cosmic.fs")
 local signal = require("cosmic.signal")
@@ -18,8 +19,8 @@ local function test_large_stdin_no_deadlock()
   -- so both directions overflow at once. The pump interleaves the write with
   -- draining stdout, so neither side blocks.
   local big = string.rep("z", 262144)
-  local r = child.run({lua_bin, "-e", "io.write(io.read('*a'))"}, {stdin = big}) as child.Result
-  assert(r ~= nil, "run should succeed")
+  local r = check.must(child.run({lua_bin, "-e", "io.write(io.read('*a'))"}, {stdin = big}),
+    "run should succeed")
   assert(r.ok, "command should succeed")
   assert(#r.stdout == #big, "expected " .. #big .. " bytes echoed, got " .. #r.stdout)
   assert(r.stdout == big, "echoed stdin should match input")
@@ -31,21 +32,20 @@ local function test_stdin_to_early_exiting_child_no_sigpipe()
   -- Feeding a large stdin then hits a broken pipe: SIGPIPE is ignored, so the
   -- write fails with EPIPE and the run completes with the child's exit code.
   local big = string.rep("q", 262144)
-  local r = child.run({lua_bin, "-e", "os.exit(3)"}, {stdin = big}) as child.Result
-  assert(r ~= nil, "run should succeed")
+  local r = check.must(child.run({lua_bin, "-e", "os.exit(3)"}, {stdin = big}),
+    "run should succeed")
   assert(r.code == 3, "expected exit code 3 from early-exiting child, got " .. tostring(r.code))
 end
 test_stdin_to_early_exiting_child_no_sigpipe()
 
 local function test_run_captures_both_streams()
-  local r = child.run({lua_bin, "-e", [[
+  local r = check.must(child.run({lua_bin, "-e", [[
     io.write("on stdout")
     io.flush()
     io.stderr:write("on stderr")
     io.stderr:flush()
     os.exit(7)
-  ]]}) as child.Result
-  assert(r ~= nil, "run should succeed")
+  ]]}), "run should succeed")
   assert(r.stdout == "on stdout", "expected stdout 'on stdout', got '" .. tostring(r.stdout) .. "'")
   assert(r.stderr == "on stderr", "expected stderr 'on stderr', got '" .. tostring(r.stderr) .. "'")
   assert(r.code == 7, "expected exit code 7, got " .. tostring(r.code))
@@ -56,11 +56,10 @@ test_run_captures_both_streams()
 local function test_run_reports_signal_death()
   -- The child SIGKILLs itself; the Result reports the signal (not a fake exit)
   -- and leaves `code` nil.
-  local r = child.run({lua_bin, "-e", [[
+  local r = check.must(child.run({lua_bin, "-e", [[
     local unix = require("cosmo.unix")
     unix.kill(unix.getpid(), unix.SIGKILL)
-  ]]}) as child.Result
-  assert(r ~= nil, "run should succeed")
+  ]]}), "run should succeed")
   assert(r.code == nil, "signal death has no exit code, got " .. tostring(r.code))
   assert(r.signal == signal.SIGKILL, "expected SIGKILL, got " .. tostring(r.signal))
   assert(r.ok == false, "signal death is not ok")
@@ -71,12 +70,11 @@ local function test_large_stdin_with_output_no_deadlock()
   -- Large stdin AND large stdout at once: the child reads all of stdin and
   -- writes twice as much to stdout. The pump must interleave write and reads.
   local big = string.rep("m", 200000)
-  local r = child.run({lua_bin, "-e", [[
+  local r = check.must(child.run({lua_bin, "-e", [[
     local data = io.read("*a")
     io.write(data)
     io.write(data)
-  ]]}, {stdin = big}) as child.Result
-  assert(r ~= nil, "run should succeed")
+  ]]}, {stdin = big}), "run should succeed")
   assert(r.code == 0, "expected exit 0, got " .. tostring(r.code))
   assert(#r.stdout == 2 * #big, "expected " .. (2 * #big) .. " bytes, got " .. #r.stdout)
   assert(r.stderr == "", "expected empty stderr, got " .. #r.stderr .. " bytes")

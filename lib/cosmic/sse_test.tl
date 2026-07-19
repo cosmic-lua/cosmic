@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local sse = require("cosmic.sse")
 local fetch = require("cosmic.fetch")
 
@@ -309,8 +310,8 @@ test_read_error_propagates()
 
 local function test_read_error_then_iterator_exhausted()
   local stream = sse.events(mock_reader("data: one\n\n", "boom"))
-  local first = stream.next()
-  assert(first ~= nil and (first as sse.Event).data == "one", "first event expected")
+  local first = check.must(stream.next())
+  assert(first.data == "one", "first event expected")
   local second, err = stream.next()
   assert(second == nil and err == "boom", "error must be yielded once")
   local third, err3 = stream.next()
