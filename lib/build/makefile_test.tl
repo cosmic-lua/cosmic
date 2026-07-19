@@ -92,6 +92,29 @@ local function test_ci_grading_catches_exit_after_clean_summary()
 end
 test_ci_grading_catches_exit_after_clean_summary()
 
+-- test: the environment clamp holds under a hostile caller env (#731).
+-- The env-clamp.out fixture runs a nested make with a non-C locale, a
+-- non-UTC timezone, and a poisoned PATH head; the probe recipe echoes
+-- what it actually sees. Recipes must get the pinned values and the
+-- deliberately constructed PATH, never the caller's ambient ones.
+local function test_env_clamp_holds_under_hostile_env()
+  local result = read_make_output("env-clamp.out")
+  assert(result.exit_code == 0,
+    "expected env-probe to succeed under a hostile env, got code: " ..
+    tostring(result.exit_code) .. "\noutput: " .. result.output:sub(1, 500))
+  assert(result.output:match("\nLC_ALL=C\n") or result.output:match("^LC_ALL=C\n"),
+    "expected recipes to see LC_ALL=C\noutput: " .. result.output:sub(1, 500))
+  assert(result.output:match("\nTZ=UTC\n"),
+    "expected recipes to see TZ=UTC\noutput: " .. result.output:sub(1, 500))
+  local path = result.output:match("\nPATH=([^\n]*)")
+  assert(path, "expected a PATH= line in probe output")
+  assert(not path:find("/hostile/bin", 1, true),
+    "caller's PATH leaked into recipes: " .. path)
+  assert(path:find("/o/bootstrap:", 1, true) and path:find("/o/bin:", 1, true),
+    "expected the deliberate o/bootstrap and o/bin entries, got: " .. path)
+end
+test_env_clamp_holds_under_hostile_env()
+
 -- test: the lint stage is guarded against a silently-empty file list
 -- (#719). Outside a git checkout `git ls-files` fails silently and
 -- lint would green-light zero checks; the summary recipe must carry
