@@ -265,3 +265,18 @@ local function test_recv_retries_eintr()
   b:close()
 end
 test_recv_retries_eintr()
+
+-- #493: send exposes the binding's offset parameter — a partial-send
+-- loop can window the buffer without copying via data:sub.
+local function test_send_offset()
+  local a, b = pair()
+  local n, err = a:send("XXhello", 0, 2)
+  assert(n == 5, "send with offset should send the tail, got "
+    .. tostring(n) .. " (err: " .. tostring(err) .. ")")
+  local got = b:recv()
+  assert(got == "hello", "peer should see bytes past the offset, got: "
+    .. tostring(got))
+  a:close()
+  b:close()
+end
+test_send_offset()

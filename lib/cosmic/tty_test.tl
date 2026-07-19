@@ -277,3 +277,18 @@ local function test_winsize_error_names_errno()
     "winsize error should name the errno, got: " .. tostring(err))
 end
 test_winsize_error_names_errno()
+
+-- #493: restore accepts a tcsetattr action (NOW default, DRAIN, FLUSH)
+-- instead of hard-coding TCSANOW. No pty here, so exercise the
+-- signature and the error path on a non-tty fd.
+local function test_restore_accepts_action()
+  assert(type(tty.DRAIN) == "number", "DRAIN constant should be exported")
+  assert(type(tty.FLUSH) == "number", "FLUSH constant should be exported")
+  local p = assert(cfd.pipe()) as cfd.Pipe
+  local t = fixture_termios()
+  local ok, err = tty.restore(p.reader:fd(), t, tty.DRAIN)
+  assert(not ok, "restore on a non-tty fd should fail")
+  assert(type(err) == "string", "expected an error message")
+  p:close()
+end
+test_restore_accepts_action()
