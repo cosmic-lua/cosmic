@@ -448,20 +448,18 @@ local function open(filename: string, opts?: OpenOptions): Database | nil, strin
   else
     raw_db, errcode, errmsg = sqlite3.open(filename)
   end
-  if not raw_db then
-    return nil, errmsg or ("error code " .. tostring(errcode))
+  -- `is` narrows in the positive branch (early-exit guards don't);
+  -- safe at this cosmo.* boundary since #681/#688 made the cosmic
+  -- searcher the only loader cosmic installs.
+  if raw_db is lsqlite3.Database then
+    local timeout_ms = 5000
+    if opts and opts.busy_timeout_ms ~= nil then
+      timeout_ms = opts.busy_timeout_ms
+    end
+    raw_db:busy_timeout(timeout_ms)
+    return make_database(raw_db)
   end
-  -- records don't flow-narrow; cast once after the guard. (`is` became
-  -- safe at cosmo.* boundaries once the cosmic runtime searcher (#669)
-  -- guaranteed .d.tl resolution; converting boundary casts like this
-  -- one is #491 follow-up work.)
-  local dbh = raw_db as lsqlite3.Database
-  local timeout_ms = 5000
-  if opts and opts.busy_timeout_ms ~= nil then
-    timeout_ms = opts.busy_timeout_ms
-  end
-  dbh:busy_timeout(timeout_ms)
-  return make_database(dbh)
+  return nil, errmsg or ("error code " .. tostring(errcode))
 end
 
 local record sqlite
