@@ -43,16 +43,12 @@ include 3p/tl/cook.mk
 # cosmopolitan's unveil() silently no-ops on hosts without Landlock.)
 # The sandbox-canary target proves the mechanism itself still works;
 # see it before flipping enforcement on for real rules. NOTE: make
-# hands .UNVEIL values to unveil UNEXPANDED, so an enforcement-bound
-# .UNVEIL containing $(...) must use := (the canary probe shows how);
-# the recursive references below survive only because nothing enforces
-# them yet.
+# hands .UNVEIL values to unveil UNEXPANDED, so .PLEDGE/.UNVEIL are
+# assigned with := repo-wide, composed from the shared grant sets in
+# cook.mk (#718); keep any new override in that spelling.
 # global defaults: read-only access, no network, basic stdio
-.PLEDGE = stdio rpath
-.UNVEIL = \
-	rx:$(o)/bootstrap \
-	r:lib \
-	r:3p
+.PLEDGE := stdio rpath
+.UNVEIL := $(unveil_base)
 
 .PHONY: help
 ## Show this help message
@@ -120,8 +116,8 @@ fetched: $(all_fetched)
 stdlib_lua := $(patsubst %.tl,$(o)/%.lua,$(filter lib/cosmic/%,$(foreach x,$(modules),$($(x)_tl))))
 
 $(o)/%/.fetched: export SSL_USE_SYSTEM_CERTS = 1
-$(o)/%/.fetched: .PLEDGE = stdio rpath wpath cpath inet dns
-$(o)/%/.fetched: .UNVEIL = rx:$(o)/bootstrap r:3p rwc:$(o) r:/etc/resolv.conf r:/etc/ssl $(if $(SSL_CERT_FILE),r:$(SSL_CERT_FILE))
+$(o)/%/.fetched: .PLEDGE := stdio rpath wpath cpath inet dns
+$(o)/%/.fetched: .UNVEIL := $(unveil_dep) r:/etc/resolv.conf r:/etc/ssl $(if $(SSL_CERT_FILE),r:$(SSL_CERT_FILE))
 $(o)/%/.fetched: $(o)/%/.versioned $(build_files) $(stdlib_lua) | $(bootstrap_cosmic)
 	@$(bootstrap_cosmic) -- $(build_fetch) $$(readlink $<) $(platform) $@
 
@@ -130,8 +126,8 @@ $(o)/%/.fetched: $(o)/%/.versioned $(build_files) $(stdlib_lua) | $(bootstrap_co
 all_staged := $(patsubst %/.fetched,%/.staged,$(all_fetched))
 ## Fetch and extract all dependencies
 staged: $(all_staged)
-$(o)/%/.staged: .PLEDGE = stdio rpath wpath cpath proc exec
-$(o)/%/.staged: .UNVEIL = rx:$(o)/bootstrap r:3p rwc:$(o) rx:/usr/bin
+$(o)/%/.staged: .PLEDGE := $(pledge_build)
+$(o)/%/.staged: .UNVEIL := $(unveil_dep) rx:/usr/bin
 $(o)/%/.staged: $(o)/%/.fetched $(build_files) $(stdlib_lua)
 	@$(bootstrap_cosmic) -- $(build_stage) $$(readlink $(o)/$*/.versioned) $(platform) $< $@
 
@@ -155,13 +151,13 @@ export LUA_PATH := $(subst $(space),;,$(foreach d,$(lua_path_dirs),$(CURDIR)/$(d
 export NO_COLOR := 1
 
 # Test rule: execute test via cosmic --test command
-$(o)/%.tl.test.got: .PLEDGE = stdio rpath wpath cpath proc exec
-$(o)/%.tl.test.got: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null
+$(o)/%.tl.test.got: .PLEDGE := $(pledge_build)
+$(o)/%.tl.test.got: .UNVEIL := $(unveil_test)
 
 # teal_config_test reads tlconfig.lua and the Makefile (outside the test unveil)
 tlconfig_tests := $(o)/lib/cosmic/teal_config_test.tl.test.got \
   $(o)/coverage/lib/cosmic/teal_config_test.tl.test.got
-$(tlconfig_tests): .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null r:tlconfig.lua r:Makefile
+$(tlconfig_tests): .UNVEIL := $(unveil_test) r:tlconfig.lua r:Makefile
 
 # Namespace-exercising tests need to call unshare(CLONE_NEWUSER|NEWNET|...)
 # and write /proc/self/{uid,gid}_map. No pledge promise covers unshare,
@@ -202,8 +198,8 @@ coverage_got := $(patsubst %,$(o)/coverage/%.test.got,$(all_tests))
 ## Run all tests with line coverage and report per-file totals
 coverage: $(o)/coverage-summary.txt
 
-$(o)/coverage/%.tl.test.got: .PLEDGE = stdio rpath wpath cpath proc exec
-$(o)/coverage/%.tl.test.got: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null
+$(o)/coverage/%.tl.test.got: .PLEDGE := $(pledge_build)
+$(o)/coverage/%.tl.test.got: .UNVEIL := $(unveil_test)
 $(o)/coverage/%.tl.test.got: $(o)/%.lua $(cosmic_bin)
 	@mkdir -p $(@D)
 	@TEST_DIR=$(TEST_DIR) COSMIC_COVERAGE=1 PATH=$(CURDIR)/$(o)/bin:$$PATH $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
@@ -214,8 +210,8 @@ $(o)/coverage/%.tl.test.got: $(o)/%.lua $(cosmic_bin)
 coverage_baseline := lib/cosmic/coverage/baseline.txt
 coverage_baseline_tool := $(o)/lib/cosmic/coverage/baseline.lua
 
-$(o)/coverage-summary.txt: .PLEDGE = stdio rpath wpath cpath proc exec
-$(o)/coverage-summary.txt: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o)
+$(o)/coverage-summary.txt: .PLEDGE := $(pledge_build)
+$(o)/coverage-summary.txt: .UNVEIL := $(unveil_base) rwcx:$(o)
 $(o)/coverage-summary.txt: $(coverage_got) | $(cosmic_bin)
 	@$(cosmic_bin) --report $(coverage_got) > $(o)/coverage-tests.txt
 	@$(cosmic_bin) --coverage-report $(o)/coverage lib | tee $@
@@ -229,8 +225,8 @@ $(o)/coverage-summary.txt: $(coverage_got) | $(cosmic_bin)
 
 .PHONY: coverage-baseline
 ## Rewrite the committed coverage ratchet baseline from the last coverage run
-coverage-baseline: .PLEDGE = stdio rpath wpath cpath proc exec
-coverage-baseline: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:lib/cosmic/coverage
+coverage-baseline: .PLEDGE := $(pledge_build)
+coverage-baseline: .UNVEIL := $(unveil_base) rwcx:$(o) rwc:lib/cosmic/coverage
 coverage-baseline: $(coverage_got) | $(cosmic_bin)
 	@$(cosmic_bin) $(coverage_baseline_tool) write $(o)/coverage lib > $(coverage_baseline).tmp
 	@mv $(coverage_baseline).tmp $(coverage_baseline)
@@ -358,8 +354,8 @@ example: $(o)/example-summary.txt
 $(o)/example-summary.txt: $(all_examples) | $(build_reporter)
 	@$(reporter) --dir $(o) $^ | tee $@
 
-$(o)/%.tl.example.got: .PLEDGE = stdio rpath wpath cpath proc exec
-$(o)/%.tl.example.got: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwc:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null
+$(o)/%.tl.example.got: .PLEDGE := $(pledge_build)
+$(o)/%.tl.example.got: .UNVEIL := $(unveil_run)
 $(o)/%.tl.example.got: %.tl $(cosmic_bin) | $(bootstrap_files)
 	@mkdir -p $(@D)
 	@set +e; $(cosmic_bin) --check-examples $< > $(basename $@).out 2> $(basename $@).err; echo $$? > $@
@@ -375,8 +371,8 @@ benchmark: $(o)/benchmark-summary.txt
 $(o)/benchmark-summary.txt: $(all_benchmarks) | $(build_reporter)
 	@$(reporter) --dir $(o) $^ | tee $@
 
-$(o)/%.tl.benchmark.got: .PLEDGE = stdio rpath wpath cpath proc exec
-$(o)/%.tl.benchmark.got: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwc:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null
+$(o)/%.tl.benchmark.got: .PLEDGE := $(pledge_build)
+$(o)/%.tl.benchmark.got: .UNVEIL := $(unveil_run)
 $(o)/%.tl.benchmark.got: %.tl $(cosmic_bin) | $(bootstrap_files)
 	@mkdir -p $(@D)
 	@set +e; $(cosmic_bin) --benchmark $< > $(basename $@).out 2> $(basename $@).err; echo $$? > $@
@@ -437,8 +433,8 @@ doc-index: $(doc_index)
 
 .PHONY: doc-publish
 ## Publish docs to git branch (SOURCE_SHA required, uses $(o)/docs)
-doc-publish: .PLEDGE = stdio rpath wpath cpath proc exec inet dns
-doc-publish: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwc:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null rwc:.git rwc:. r:/home r:/root
+doc-publish: .PLEDGE := $(pledge_build) inet dns
+doc-publish: .UNVEIL := $(unveil_run) rwc:.git rwc:. r:/home r:/root
 doc-publish: $(all_docs) $(docs_publish) | $(bootstrap_cosmic)
 	@test -n "$(SOURCE_SHA)" || { echo "SOURCE_SHA required"; exit 1; }
 	@$(bootstrap_cosmic) -- $(docs_publish) $(SOURCE_SHA) $(o)/docs $(or $(DOCS_BRANCH),docs)

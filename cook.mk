@@ -1,6 +1,19 @@
 # cosmic repository module definitions
 # This file aggregates all modules for the build system
 
+# Shared sandbox grant sets (#718): compose per rule, so a deliberate
+# deviation reads as `$(unveil_test) r:extra` at the rule instead of a
+# wall of near-identical 90-column strings. Defined here (before the
+# lib/3p cook.mk includes) so their rules can use them too. Rules MUST
+# assign .PLEDGE/.UNVEIL with := — landlock-make hands the values to
+# enforcement unexpanded (see the sandbox-canary note in lib/build).
+pledge_build := stdio rpath wpath cpath proc exec
+unveil_base := rx:$(o)/bootstrap r:lib r:3p
+unveil_host := rx:/usr rx:/proc r:/etc r:/dev/null
+unveil_dep := rx:$(o)/bootstrap r:3p rwc:$(o)
+unveil_test := $(unveil_base) rwcx:$(o) rwc:$(TMP) $(unveil_host)
+unveil_run := $(unveil_base) rwc:$(o) rwc:$(TMP) $(unveil_host)
+
 # Type definition generation (define early so it's available to all modules).
 # Must match MODULES in lib/types/gentype.tl: "cosmo" renders the top-level
 # cosmo record (lib/types/cosmo.d.tl); the rest render lib/types/cosmo/<m>.d.tl.

@@ -42,8 +42,8 @@ cosmic_local_bin := $(perf_sandbox)/cosmic-local
 
 .PHONY: perf perf-baseline perf-compare perf-bin perf-selfcheck
 
-perf-bin: .PLEDGE = stdio rpath wpath cpath proc exec
-perf-bin: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null $(if $(COSMO_LUA),r:$(COSMO_LUA))
+perf-bin: .PLEDGE := $(pledge_build)
+perf-bin: .UNVEIL := $(unveil_test) $(if $(COSMO_LUA),r:$(COSMO_LUA))
 
 ## Build o/perf/cosmic-local: the cosmic payload on a local cosmopolitan lua (COSMO_LUA=...)
 perf-bin: $(cosmic_bin)
@@ -57,8 +57,8 @@ perf-bin: $(cosmic_bin)
 	@echo "built $(cosmic_local_bin) from $(COSMO_LUA)"
 	@echo "measure it with: PERF_BIN=$(cosmic_local_bin) bin/make perf-compare"
 
-perf perf-baseline: .PLEDGE = stdio rpath wpath cpath proc exec
-perf perf-baseline: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null
+perf perf-baseline: .PLEDGE := $(pledge_build)
+perf perf-baseline: .UNVEIL := $(unveil_test)
 
 ## Run perf scenarios and write o/perf/current.json
 perf: $$(perf_lua) $(cosmic_bin)
@@ -70,8 +70,8 @@ perf-baseline: $$(perf_lua) $(cosmic_bin)
 	@mkdir -p $(perf_sandbox)
 	@$(perf_cmd) --out $(perf_sandbox)/baseline.json $(perf_bench_mods)
 
-perf-compare: .PLEDGE = stdio rpath wpath cpath proc exec
-perf-compare: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null
+perf-compare: .PLEDGE := $(pledge_build)
+perf-compare: .UNVEIL := $(unveil_test)
 
 perf_compare_cmd = $(PERF_BIN) -- $(perf_run) --compare \
 	$(perf_sandbox)/baseline.json $(perf_sandbox)/current.json \
@@ -101,8 +101,8 @@ perf-compare: perf
 		$(perf_cmd) --out $(perf_sandbox)/selfcheck-b.json $(perf_bench_mods) \
 			&& $(perf_triage_cmd); }
 
-perf-selfcheck: .PLEDGE = stdio rpath wpath cpath proc exec
-perf-selfcheck: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null
+perf-selfcheck: .PLEDGE := $(pledge_build)
+perf-selfcheck: .UNVEIL := $(unveil_test)
 
 perf_selfcheck_cmd = $(PERF_BIN) -- $(perf_run) --compare \
 	$(perf_sandbox)/selfcheck-a.json $(perf_sandbox)/selfcheck-b.json \
