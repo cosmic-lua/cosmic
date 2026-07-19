@@ -54,7 +54,7 @@ local record Database
   --  `0` if the transaction is to be aborted. All other values will result in
   --  another attempt to perform the transaction. (See the SQLite documentation
   --  for important hints about writing busy handlers.)
-  busy_handler: function(self: Database, func?: function(udata: any, tries: integer), udata?: any)
+  busy_handler: function<Udata>(self: Database, func?: function(udata: Udata, tries: integer), udata?: Udata)
   --  Sets a busy handler that waits for `milliseconds` if a transaction cannot proceed.
   --  Calling this function will remove any busy handler set by `db:busy_handler()`;
   --  calling it with an argument less than or equal to `0` will turn off all busy handlers.
@@ -74,7 +74,7 @@ local record Database
   --  If `func` returns `false` or `nil` the COMMIT is allowed to proceed,
   --  otherwise the COMMIT is converted to a ROLLBACK.
   --  See: `db:rollback_hook` and `db:update_hook`
-  commit_hook: function(self: Database, func: function(udata: any), udata: any)
+  commit_hook: function<Udata>(self: Database, func: function(udata: Udata), udata: Udata)
   --  It should accept a function context (see Methods for callback contexts) plus
   --  the same number of parameters as given in `nargs`.
   --  It receives one argument, the function context.
@@ -146,7 +146,7 @@ local record Database
   deserialize: function(self: Database, s: string)
   errcode: function(self: Database): ResultCode
   errmsg: function(self: Database): string
-  exec: function(self: Database, sql: string, func?: (function(udata: any, cols: integer, values: {string}, names: {string}): integer), udata?: any): ResultCode
+  exec: function<Udata>(self: Database, sql: string, func?: (function(udata: Udata, cols: integer, values: {string}, names: {string}): integer), udata?: Udata): ResultCode
   --  This function causes any pending database operation to abort and return at
   --  the next opportunity.
   interrupt: function(self: Database)
@@ -190,7 +190,7 @@ local record Database
   readonly: function(self: Database, name?: string): boolean | nil, string | nil
   --  This function installs a rollback_hook callback handler.
   --  See: `db:commit_hook` and `db:update_hook`
-  rollback_hook: function(self: Database, func: function(udata: any), udata: any)
+  rollback_hook: function<Udata>(self: Database, func: function(udata: Udata), udata: Udata)
   --  Creates an iterator that returns the successive rows selected by the SQL
   --  statement given in string `sql`. Each call to the iterator returns a table in
   --  which the numerical indices 1 to n correspond to the selected columns 1 to n in
@@ -227,7 +227,7 @@ local record Database
   --  database and table name containing the affected row. The final
   --  callback parameter is the rowid of the row. In the case of an
   --  update, this is the rowid after the update takes place.
-  update_hook: function(self: Database, func: function(udata: any, op: integer, db: Database, name: string, rowid: integer), udata: any)
+  update_hook: function<Udata>(self: Database, func: function(udata: Udata, op: integer, db: Database, name: string, rowid: integer), udata: Udata)
   --  Creates an iterator that returns the successive rows selected by the SQL
   --  statement given in string sql. Each call to the iterator returns the values
   --  that correspond to the columns in the currently selected row.
@@ -245,7 +245,7 @@ local record Database
   --      3       33
   urows: function(self: Database, sql: string): function, VM
   wal_checkpoint: function(self: Database, mode?: integer, name?: string): integer | nil, integer, ResultCode | nil
-  wal_hook: function(self: Database, func?: (function(udata: any, db: Database, name: string, page_count: integer): integer), udata?: any)
+  wal_hook: function<Udata>(self: Database, func?: (function(udata: Udata, db: Database, name: string, page_count: integer): integer), udata?: Udata)
 end
 ```
 
