@@ -57,9 +57,17 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: fetch with network allowed
+      # fetch AND stage online: staging is a local, deterministic
+      # function of the sha-pinned archives (the netns red-test proves a
+      # missing archive still fails loudly offline), and pre-staging
+      # keeps the offline phase's scheduling profile close to the build
+      # job's — a step-2 burst that raced staging against the leftover
+      # compiles produced a scheduling-sensitive module-resolution
+      # failure in publish_test that no grant explains (see the
+      # diagnostic step below).
+      - name: fetch and stage with network allowed
         shell: bash -x {0}
-        run: bin/make -j fetched
+        run: bin/make -j staged
 
       - name: make ci with network denied
         shell: bash -x {0}
