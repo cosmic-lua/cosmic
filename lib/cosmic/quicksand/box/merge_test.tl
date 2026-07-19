@@ -19,7 +19,7 @@ local function test_list_concat_dedupe()
   local out = m.merge(
     {fs = {ro = {"/a", "/b"}}},
     {fs = {ro = {"/b", "/c"}}})
-  local ro = (out.fs as {string: any}).ro as {string}
+  local ro = (out.fs as {string: any}).ro as {string} -- cast: from any
   assert(#ro == 3, "got: " .. tostring(#ro))
   assert(ro[1] == "/a" and ro[2] == "/b" and ro[3] == "/c", "order+dedupe wrong")
 end
@@ -30,7 +30,7 @@ local function test_list_first_seen_wins_ordering()
   local out = m.merge(
     {fs = {rw = {"/tmp", "/work"}}},
     {fs = {rw = {"/work", "/cache"}}})
-  local rw = (out.fs as {string: any}).rw as {string}
+  local rw = (out.fs as {string: any}).rw as {string} -- cast: from any
   assert(rw[1] == "/tmp" and rw[2] == "/work" and rw[3] == "/cache")
 end
 test_list_first_seen_wins_ordering()
@@ -39,7 +39,7 @@ local function test_map_per_key_later_wins()
   local out = m.merge(
     {net = {allow = {["a:80"] = {}, ["b:80"] = {type = "bearer", token = "x"}}}},
     {net = {allow = {["b:80"] = {}, ["c:80"] = {}}}})
-  local allow = (out.net as {string: any}).allow as {string: any}
+  local allow = (out.net as {string: any}).allow as {string: any} -- cast: from any
   assert(allow["a:80"] ~= nil, "a:80 kept")
   assert(allow["b:80"] ~= nil, "b:80 kept")
   assert(allow["c:80"] ~= nil, "c:80 added")

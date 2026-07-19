@@ -227,13 +227,6 @@ $(o)/coverage-summary.txt: $(coverage_got) | $(cosmic_bin)
 	  echo "coverage ratchet skipped: no $(coverage_baseline); run 'bin/make coverage-baseline' to start it"; \
 	fi
 
-.PHONY: casts-baseline
-## Rewrite the committed cast-ratchet pin from current per-file `as` counts
-casts-baseline: .PLEDGE = stdio rpath wpath cpath proc exec
-casts-baseline: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:lib/build
-casts-baseline: $(build_lint) $(lint_style_lua) | $(bootstrap_cosmic)
-	@$(linter) --write-casts-baseline $(shell git ls-files '*.tl')
-
 .PHONY: coverage-baseline
 ## Rewrite the committed coverage ratchet baseline from the last coverage run
 coverage-baseline: .PLEDGE = stdio rpath wpath cpath proc exec
@@ -327,7 +320,7 @@ lint: $(o)/lint-summary.txt
 $(o)/lint-summary.txt: $(all_linted) | $(build_reporter)
 	@$(reporter) --dir $(o) $(patsubst %,%.got,$(basename $(all_linted))) | tee $@
 
-$(o)/%.lint.ok: % $(build_lint) $(lint_style_lua) lib/build/casts.txt | $(bootstrap_cosmic)
+$(o)/%.lint.ok: % $(build_lint) $(lint_style_lua) | $(bootstrap_cosmic)
 	@mkdir -p $(@D)
 	-@$(linter) $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $(basename $@).got; cp $(basename $@).got $@
 
