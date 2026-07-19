@@ -189,7 +189,7 @@
 5	lib/cosmic/table_example.tl
 8	lib/cosmic/table_test.tl
 3	lib/cosmic/teal.tl
-2	lib/cosmic/teal_config_test.tl
+3	lib/cosmic/teal_config_test.tl
 8	lib/cosmic/testrun.tl
 26	lib/cosmic/time.tl
 4	lib/cosmic/time_test.tl

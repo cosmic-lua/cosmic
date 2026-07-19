@@ -147,10 +147,10 @@ export NO_COLOR := 1
 $(o)/%.tl.test.got: .PLEDGE = stdio rpath wpath cpath proc exec
 $(o)/%.tl.test.got: .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null
 
-# teal_config_test reads tlconfig.lua (outside the default test unveil)
+# teal_config_test reads tlconfig.lua and the Makefile (outside the test unveil)
 tlconfig_tests := $(o)/lib/cosmic/teal_config_test.tl.test.got \
   $(o)/coverage/lib/cosmic/teal_config_test.tl.test.got
-$(tlconfig_tests): .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null r:tlconfig.lua
+$(tlconfig_tests): .UNVEIL = rx:$(o)/bootstrap r:lib r:3p rwcx:$(o) rwc:$(TMP) rx:/usr rx:/proc r:/etc r:/dev/null r:tlconfig.lua r:Makefile
 
 # Namespace-exercising tests need to call unshare(CLONE_NEWUSER|NEWNET|...)
 # and write /proc/self/{uid,gid}_map. No pledge promise covers unshare,
