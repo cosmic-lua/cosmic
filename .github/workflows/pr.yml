@@ -142,6 +142,14 @@ jobs:
         shell: bash -x {0}
         run: bin/make -j enforce
 
+      # Build-sandbox canary (#716): proves landlock-make's .SANDBOXED
+      # enforcement mechanism blocks an out-of-grant write on a
+      # Landlock-capable host. Runs here (not in `make ci`) because it
+      # needs the real kernel facility this runner provides.
+      - name: make sandbox-canary
+        shell: bash -x {0}
+        run: bin/make sandbox-canary
+
       - name: dump enforcement output
         if: always()
         shell: bash
