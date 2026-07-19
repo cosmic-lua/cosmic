@@ -1,8 +1,11 @@
 # teal
 
  Teal compilation and type-checking.
- --compile uses lax mode for permissive compilation.
- --check uses strict mode for thorough type checking.
+ --compile uses lax mode for permissive compilation (the gradual-typing
+ on-ramp for plain-Lua scripts); --compile-strict type-checks strictly
+ (warnings fail, matching --check-types) and generates from the same
+ checked AST — the build uses it for in-tree sources so nothing ships
+ that did not typecheck. --check-types uses strict mode.
 
 ## Types
 
@@ -24,12 +27,15 @@ end
 ### CompileOptions
 
  Options for compiling Teal to Lua.
+ strict type-checks strictly before generating (warnings fail too,
+ matching check's default) and emits code from that same checked AST.
 
 ```teal
 local record CompileOptions
   include_dirs: {string}
   gen_target: string
   gen_compat: string
+  strict: boolean
 end
 ```
 
@@ -146,12 +152,15 @@ function compile(input_path: string, opts: CompileOptions): CompileResult
 ```
 
  Compile a Teal file to Lua code.
- Uses lax mode for permissive compilation. Preserves shebang if present.
+ Lax mode by default (permissive, for user scripts); opts.strict
+ type-checks strictly first — warnings fail too, matching check's
+ default — and generates from that same checked AST, so a strict
+ compile can never ship code the checker rejected. Preserves shebang.
 
 **Parameters:**
 
 - `input_path` (string) - Path to the Teal file to compile
-- `opts` (CompileOptions) - Compilation options (include_dirs, gen_target, gen_compat)
+- `opts` (CompileOptions) - Compilation options (include_dirs, gen_target, gen_compat, strict)
 
 **Returns:**
 
