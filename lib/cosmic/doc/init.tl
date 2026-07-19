@@ -211,19 +211,19 @@ local function parse(source: string, file_path: string): ModuleDoc
   end
   -- Local functions
   for func_start, is_local, func_name in source:gmatch("()(local%s+)function%s+([%w_:]+)<?[^>%(]*>?%s*%(") do
-    update_line_num(func_start as integer)
-    local line_start = func_start as integer
+    update_line_num(func_start)
+    local line_start = func_start
     while line_start > 1 and source:byte(line_start - 1) ~= BYTE_NEWLINE do
       line_start = line_start - 1
     end
-    local line_prefix = source:sub(line_start, (func_start as integer) - 1)
+    local line_prefix = source:sub(line_start, (func_start) - 1)
     if line_prefix:match("^%s*%-%-") then goto continue_local end
-    if not (func_name as string):match("^Example") then
-      local signature = extract_signature(source, func_start as integer)
-      local func_doc = extract_doc_comment(source, func_start as integer)
+    if not (func_name):match("^Example") then
+      local signature = extract_signature(source, func_start)
+      local func_doc = extract_doc_comment(source, func_start)
       local params, returns, description = parse_annotations(func_doc)
       table.insert(doc.functions, {
-          name = func_name as string, description = description,
+          name = func_name, description = description,
           params = params, returns = returns, signature = signature,
           line = line_num, is_local = is_local ~= nil,
         })
@@ -234,21 +234,21 @@ local function parse(source: string, file_path: string): ModuleDoc
   line_num = 1
   last_pos = 1
   for func_start, func_name in source:gmatch("()function%s+([%w_:]+)<?[^>%(]*>?%s*%(") do
-    local line_start = func_start as integer
+    local line_start = func_start
     while line_start > 1 and source:byte(line_start - 1) ~= BYTE_NEWLINE do
       line_start = line_start - 1
     end
-    local line_prefix = source:sub(line_start, (func_start as integer) - 1)
+    local line_prefix = source:sub(line_start, (func_start) - 1)
     if line_prefix:match("^%s*%-%-") then goto continue_nonlocal end
-    local before = source:sub(math.max(1, (func_start as integer) - 20), (func_start as integer) - 1)
+    local before = source:sub(math.max(1, (func_start) - 20), (func_start) - 1)
     if not before:match("local%s*$") and not before:match(":%s*$") then
-      update_line_num(func_start as integer)
-      if not (func_name as string):match("^Example") then
-        local signature = extract_signature(source, func_start as integer)
-        local func_doc = extract_doc_comment(source, func_start as integer)
+      update_line_num(func_start)
+      if not (func_name):match("^Example") then
+        local signature = extract_signature(source, func_start)
+        local func_doc = extract_doc_comment(source, func_start)
         local params, returns, description = parse_annotations(func_doc)
         table.insert(doc.functions, {
-            name = func_name as string, description = description,
+            name = func_name, description = description,
             params = params, returns = returns, signature = signature,
             line = line_num, is_local = false,
           })
@@ -260,11 +260,11 @@ local function parse(source: string, file_path: string): ModuleDoc
   line_num = 1
   last_pos = 1
   for rec_start, rec_name in source:gmatch("()local%s+record%s+([%w_]+)") do
-    update_line_num(rec_start as integer)
-    local rec_doc = extract_doc_comment(source, rec_start as integer)
+    update_line_num(rec_start)
+    local rec_doc = extract_doc_comment(source, rec_start)
     local _, _, description = parse_annotations(rec_doc)
     local fields: {{string, string, string}} = {}
-    local body_start = source:find("\n", rec_start as integer)
+    local body_start = source:find("\n", rec_start)
     if body_start then
       local record_end, _ = find_record_end(source, body_start + 1)
       local body = source:sub(body_start, record_end)
@@ -282,7 +282,7 @@ local function parse(source: string, file_path: string): ModuleDoc
         local n_doc = extract_doc_comment(source, body_start + n_start)
         local _, _, n_description = parse_annotations(n_doc)
         table.insert(doc.records, {
-            name = n_name as string, description = n_description,
+            name = n_name, description = n_description,
             fields = parse_record_fields(source, n_body, body_start + n_body_start - 1),
             line = line_num,
           })
@@ -293,7 +293,7 @@ local function parse(source: string, file_path: string): ModuleDoc
       fields = parse_record_fields(source, body, body_start)
     end
     table.insert(doc.records, {
-        name = rec_name as string, description = description,
+        name = rec_name, description = description,
         fields = fields, line = line_num,
       })
   end
@@ -301,10 +301,10 @@ local function parse(source: string, file_path: string): ModuleDoc
   line_num = 1
   last_pos = 1
   for func_start, func_name in source:gmatch("()local%s+function%s+(Example[%w_]*)%s*%(") do
-    update_line_num(func_start as integer)
-    local example_doc = extract_doc_comment(source, func_start as integer, true)
+    update_line_num(func_start)
+    local example_doc = extract_doc_comment(source, func_start, true)
     local _, _, example_description = parse_annotations(example_doc)
-    local body_start = source:find("%)", func_start as integer) + 1
+    local body_start = source:find("%)", func_start) + 1
     local depth = 1
     local i = body_start
     while i <= #source and depth > 0 do
@@ -352,7 +352,7 @@ local function parse(source: string, file_path: string): ModuleDoc
       expected = table.concat(output_lines, "\n")
     end
     table.insert(doc.examples, {
-        name = func_name as string, description = example_description,
+        name = func_name, description = example_description,
         body = body, expected_output = expected, line = line_num,
       })
   end
@@ -391,7 +391,7 @@ local cosmo = require("cosmo")
 
 --- Serialize a ModuleDoc to Lua source code.
 local function serialize(doc: ModuleDoc): string
-  return (cosmo.EncodeLua(doc as table))
+  return (cosmo.EncodeLua(doc))
 end
 
 --- A documentation index containing all modules (the shared record from
@@ -399,7 +399,7 @@ end
 local type DocIndex = types.DocIndex
 
 local function serialize_index(index: DocIndex): string
-  return (cosmo.EncodeLua(index as table))
+  return (cosmo.EncodeLua(index))
 end
 
 local function load_index(source: string): DocIndex | nil, string

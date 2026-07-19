@@ -392,7 +392,7 @@ description: >
 # cosmic
 
 cosmic is a batteries-included Lua distribution for writing portable
-scripts and tools. it ships as a single binary with built-in support for
+scripts and tools. it ships single binary with built-in support for
 HTTP fetching, JSON, SQLite, filesystem operations, child processes,
 cryptographic hashing, compression, regex, sockets, and more — no external
 dependencies needed. source files are written in Teal (typed Lua) and run

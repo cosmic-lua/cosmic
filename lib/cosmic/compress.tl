@@ -60,7 +60,7 @@ local function decompress(data: string, opts?: DecompressOptions): string | nil,
   -- The binding reports truncated or corrupt input as nil, err.
   local result, err = cosmo.Inflate(data, {format = format, maxsize = max_output})
   if not result then
-    return nil, err as string
+    return nil, err
   end
   return result
 end

@@ -128,7 +128,7 @@ local st, err = fs.stat("/nonexistent")
 if not st then
   print(err)
 else
-  print((st as types.Stat).size)
+  print((st).size)
 end
 ]])
   local ok_safe, out_safe = check_run({cosmic, "--check-types", safe})

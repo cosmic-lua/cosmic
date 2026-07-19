@@ -22,10 +22,10 @@ local function generate(): string
       local cosmic_topics: {{string, string}} = {}
 
       for _, topic in ipairs(topics) do
-        local name: string = topic[1] as string
+        local name: string = topic[1]
         if name:match("^cosmic%.") then
           local short_name = name:gsub("^cosmic%.", "")
-          local desc: string = topic[2] as string
+          local desc: string = topic[2]
           table.insert(cosmic_topics, {short_name, desc})
         end
       end
