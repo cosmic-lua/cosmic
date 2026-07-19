@@ -99,6 +99,7 @@ $(bootstrap_cosmic):
 	@echo "$(bootstrap_sha256)  $@" | sha256sum -c - || { rm -f $@; echo "bootstrap cosmic checksum verification failed" >&2; exit 1; }
 	chmod +x $@
 	@$@ --assimilate
+	@printf '\177ELF' | cmp -s - <(head -c 4 $@) || { echo "bootstrap assimilation failed: $@ is still an APE — sandboxed rules need a native ELF (no loader grants)" >&2; exit 1; }
 	@ln -sf cosmic $(@D)/lua
 
 # Strict-compile capability probe: newer bootstraps ship --compile-strict

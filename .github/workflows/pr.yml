@@ -87,18 +87,13 @@ jobs:
         shell: bash
         run: |
           echo "compile-flag: $(cat o/bootstrap/compile-flag)"
-          ls -la o/bootstrap/
+          echo "bootstrap magic: $(head -c 4 o/bootstrap/cosmic | od -An -c | tr -d ' ')"
+          ls ~/.ape-* 2>/dev/null || echo "no ~/.ape loader"
           rm -f o/lib/docs/publish_test.lua o/ci-ok-* o/*-summary.txt
           sudo unshare --net sh -c '
             o/bootstrap/cosmic -e "assert(require(\"cosmic.quicksand.netns\").bring_up(\"lo\"))" \
               && exec sudo -u runner bin/make -j ci' 2>&1 \
-            | grep -a -B 15 -A 15 "module not found" | head -80
-          echo "=== solo rerun of the same target in this lane, for contrast ==="
-          rm -f o/lib/docs/publish_test.lua
-          sudo unshare --net sh -c '
-            o/bootstrap/cosmic -e "assert(require(\"cosmic.quicksand.netns\").bring_up(\"lo\"))" \
-              && exec sudo -u runner bin/make o/lib/docs/publish_test.lua' 2>&1 | head -20
-          echo "solo exit: $?; target exists: $(ls o/lib/docs/publish_test.lua 2>&1)"
+            | { grep -a -B 15 -A 15 "module not found" || echo "rerun did NOT reproduce"; } | head -80
 
   # Reproducibility gate (#733): build the binary twice from the same
   # tree — the second time into a fresh output tree so the whole
