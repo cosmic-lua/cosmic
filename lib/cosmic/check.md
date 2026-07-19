@@ -13,7 +13,7 @@ local record CheckModule
   eq: function<T>(actual: T, expected: T, label?: string)
   ne: function<T>(actual: T, expected: T, label?: string)
   ok: function(value: any, label?: string)
-  must: function<T>(v: T | nil, e?: string): T
+  must: function<T>(v: T | nil, e?: string, ...: any): T, string, any ...
   err: function(value: any, e: string, label?: string)
   enforcing: function(): boolean
   skip: function(reason: string, strict?: boolean)
@@ -91,7 +91,7 @@ function err(value: any, e: string, label?: string)
 ### must
 
 ```teal
-function must(v: T | nil, e?: string): T
+function must(v: T | nil, e?: string, ...: any): T, string, any ...
 ```
 
  Assert a fallible return and narrow away nil.
@@ -100,20 +100,26 @@ function must(v: T | nil, e?: string): T
  need `assert(x) as T` at every site. `must` centralizes that unsoundness
  behind a runtime nil check. Lua passes multiple returns through, so
  `must(fs.read(path))` fails with fs.read's own error string.
- CAVEAT: must returns ONLY the first value. Never wrap a call whose
- extra returns feed a generic-for (e.g. `fs.files`, whose 4th return
- is the to-be-closed guard that releases directory handles on early
- break) — keep `for p in assert(fs.files(d)) as fs.FileIter do` there,
- since assert forwards all four returns and must would drop the guard.
+ Like `assert`, must forwards extra returns past the second, so
+ `for p in check.must(fs.files(d)) do` keeps the 4th return — the
+ to-be-closed guard that releases directory handles on early break.
+ A plain `value, err` pair still collapses to the value alone, so
+ `print(check.must(fs.read(p)))` prints no trailing nil. The checker,
+ though, sees the declared three-value tuple: when must is the LAST
+ argument to another call, parenthesize to truncate it —
+ `table.insert(parts, (check.must(chunk)))`.
 
 **Parameters:**
 
 - `v` (T?) - The fallible value (nil on failure)
 - `e` (string?) - Failure message; a `nil, err` pair fills this in
+- `...` (any) - Extra returns (iterator state, closing guard, ...)
 
 **Returns:**
 
 - T - The value, known non-nil
+- string - The second argument, forwarded when extras exist
+- any... - The extra returns, forwarded unchanged
 
 ### enforcing
 
