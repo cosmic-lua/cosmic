@@ -44,6 +44,9 @@ local record tl
   path: string
   warning_kinds: {string: boolean}
   loader: function()
+  -- returns found filename, an open FILE handle (caller must close
+  -- it), and the list of tried path patterns
+  search_module: function(string, boolean): string, any, {string}
   -- positional args: lax?, gen_compat? ("off"|...), gen_target? ("5.4"|...)
   init_env: function(? boolean, ? boolean | string, ? string, ? {string}): any, string
   new_env: function(? EnvOptions): any, string

@@ -24,6 +24,7 @@
 5	lib/cosmic/cli/main.tl
 2	lib/cosmic/cli/main_handlers.tl
 1	lib/cosmic/cli/script_cache.tl
+1	lib/cosmic/cli/searcher.tl
 12	lib/cosmic/cli/style_test.tl
 1	lib/cosmic/cli/welcome.tl
 11	lib/cosmic/cli/welcome_test.tl
@@ -188,12 +189,12 @@
 1	lib/cosmic/syslog_test.tl
 5	lib/cosmic/table_example.tl
 8	lib/cosmic/table_test.tl
-3	lib/cosmic/teal.tl
+4	lib/cosmic/teal.tl
 3	lib/cosmic/teal_config_test.tl
 8	lib/cosmic/testrun.tl
 26	lib/cosmic/time.tl
 4	lib/cosmic/time_test.tl
-8	lib/cosmic/tl_loader_test.tl
+14	lib/cosmic/tl_loader_test.tl
 6	lib/cosmic/tty.tl
 16	lib/cosmic/tty_test.tl
 4	lib/cosmic/unveil.tl

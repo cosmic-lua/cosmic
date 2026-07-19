@@ -71,6 +71,31 @@ local function get_default_include_dirs(): {string}
   }
 end
 
+--- Assemble the tl module-search path from TL_PATH + include dirs +
+--- package.path, so tl.search_module finds all required modules
+--- regardless of whether TL_PATH is set. tl.search_module priority:
+--- TL_PATH env > tl.path > package.path. By putting include_dirs in
+--- tl.path (which takes precedence over package.path), they are always
+--- consulted — even when TL_PATH is set. Appending package.path
+--- preserves CWD-relative and system search patterns.
+--- @param include_dirs {string} Directories to search for modules/types
+--- @return string The assembled search path for tl.path
+local function assemble_tl_path(include_dirs: {string}): string
+  local path_parts: {string} = {}
+  local tl_path = os.getenv("TL_PATH")
+  if tl_path then
+    path_parts[#path_parts + 1] = tl_path
+  end
+  for _, dir in ipairs(include_dirs) do
+    path_parts[#path_parts + 1] = dir .. "/?.d.tl"
+    path_parts[#path_parts + 1] = dir .. "/?/init.d.tl"
+    path_parts[#path_parts + 1] = dir .. "/?.tl"
+    path_parts[#path_parts + 1] = dir .. "/?/init.tl"
+  end
+  path_parts[#path_parts + 1] = package.path
+  return table.concat(path_parts, ";")
+end
+
 --- Error from the Teal compiler.
 local record TlError
   msg: string
@@ -128,26 +153,8 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
 
   include_dirs = include_dirs or get_default_include_dirs()
 
-  -- Assemble tl.path from TL_PATH env var + include_dirs + package.path so
-  -- tl.search_module finds all required modules regardless of whether TL_PATH
-  -- is set. tl.search_module priority: TL_PATH env > tl.path > package.path.
-  -- By setting tl.path (which takes precedence over package.path), we ensure
-  -- include_dirs are always consulted — even when TL_PATH is set.
-  -- Appending package.path preserves CWD-relative and system search patterns.
   local saved_tl_path = tl.path
-  local path_parts: {string} = {}
-  local tl_path = os.getenv("TL_PATH")
-  if tl_path then
-    path_parts[#path_parts + 1] = tl_path
-  end
-  for _, dir in ipairs(include_dirs) do
-    path_parts[#path_parts + 1] = dir .. "/?.d.tl"
-    path_parts[#path_parts + 1] = dir .. "/?/init.d.tl"
-    path_parts[#path_parts + 1] = dir .. "/?.tl"
-    path_parts[#path_parts + 1] = dir .. "/?/init.tl"
-  end
-  path_parts[#path_parts + 1] = package.path
-  tl.path = table.concat(path_parts, ";")
+  tl.path = assemble_tl_path(include_dirs)
 
   -- Options-form env construction: feature flags are explicit rather than
   -- inherited from tl's version-dependent defaults. feat_arity stays "on"
@@ -273,6 +280,26 @@ local function merge_include_dirs(extra: {string}): {string}
     merged[#merged + 1] = d
   end
   return merged
+end
+
+--- Find the source file for a module name using the same search path
+--- the compiler uses (TL_PATH, include dirs, package.path). Used by the
+--- runtime .tl searcher so require() resolves modules exactly like
+--- --compile/--check-types do.
+--- @param module_name string Module name as passed to require()
+--- @param include_dirs? {string} Extra include dirs (defaults merged in)
+--- @return string|nil Path to the found source, or nil
+local function search_module(module_name: string, include_dirs?: {string}): string | nil
+  local dirs = merge_include_dirs(include_dirs)
+  local saved_tl_path = tl.path
+  tl.path = assemble_tl_path(dirs)
+  local found, fd = tl.search_module(module_name, false)
+  tl.path = saved_tl_path
+  if fd ~= nil then
+    local f = fd as FILE
+    f:close()
+  end
+  return found
 end
 
 --- Compile a Teal file to Lua code.
@@ -420,6 +447,7 @@ local record TealModule
   MAKEFILE_INCLUDE_DIRS: {string}
   compile: function(input_path: string, opts?: CompileOptions): CompileResult
   check: function(input_path: string, opts?: CheckOptions): CheckResult
+  search_module: function(module_name: string, include_dirs?: {string}): string | nil
   format_issues: function(issues: {Issue}): string
   format_issues_with_hints: function(issues: {Issue}): string
   hint_for_message: function(msg: string): string | nil
@@ -432,6 +460,7 @@ local M: TealModule = {
   MAKEFILE_INCLUDE_DIRS = MAKEFILE_INCLUDE_DIRS,
   compile = compile,
   check = check,
+  search_module = search_module,
   format_issues = format_issues,
   format_issues_with_hints = format_issues_with_hints,
   hint_for_message = hint_for_message,

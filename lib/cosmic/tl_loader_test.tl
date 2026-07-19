@@ -4,6 +4,7 @@
 
 local spawn = require("cosmic.child")
 local fs = require("cosmic.fs")
+local fstypes = require("cosmic.fs.types")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
@@ -65,24 +66,33 @@ test_tl_loader_not_at_position_2()
 --- Test that the tl_package_loader is still present (as a later searcher)
 --- so that .tl-only modules can still be loaded.
 local function test_tl_loader_still_available()
-  -- Create a .tl-only module (no .lua version)
+  -- Create a .tl-only module (no .lua version). The type annotation
+  -- makes it invalid as raw Lua, so only the cosmic .tl searcher can
+  -- load it — the default Lua searcher grabbing it would error.
+  -- Resolution goes through TL_PATH (never package.path: the default
+  -- Lua searcher consults package.path FIRST and would loadfile the
+  -- raw .tl as Lua).
   local moddir = fs.join(tmpdir, "tlonly")
   fs.makedirs(moddir)
   fs.write(fs.join(moddir, "mymod.tl"), [[
-return { answer = 42 }
+local answer: integer = 42
+return { answer = answer }
 ]])
 
   local script = write_temp("use_tlonly.tl", [[
--- Add tmpdir to TL_PATH so tl_package_loader can find our .tl module
 local mymod = require("mymod")
 print("answer=" .. tostring(mymod.answer))
 ]])
 
-  local h2 = spawn.spawn({cosmic, "-e", "package.path='" .. moddir .. "/?.tl;' .. package.path", script})
+  local h2 = spawn.spawn({cosmic, script}, {
+      env = {"TL_PATH=" .. moddir .. "/?.tl"},
+    })
   local __r2 = (h2 as spawn.Handle):wait() as spawn.Result
-  -- This may not work exactly this way, but the point is tl_package_loader
-  -- should still work for .tl-only modules
-  -- For now, just verify the tl_package_loader exists in searchers
+  local ok2a, out2a = __r2.ok, __r2.stdout
+  assert(ok2a, ".tl-only require should succeed: " .. tostring(__r2.stderr))
+  assert((out2a as string):find("answer=42", 1, true),
+    ".tl-only module should load and run: " .. tostring(out2a))
+
   local check_script = write_temp("check_tl_exists.lua", [[
 local searchers = package.searchers
 local n = 0
@@ -105,5 +115,64 @@ end
     "tl_package_loader should still be present: " .. tostring(out2))
 end
 test_tl_loader_still_available()
+
+--- A required .tl module that fails to compile must fail the require()
+--- with the compile issues — tl's old loader type-checked and then
+--- generated code anyway, silently running broken modules (#669).
+local function test_require_fails_on_compile_error()
+  local baddir = fs.join(tmpdir, "tlbad")
+  fs.makedirs(baddir)
+  fs.write(fs.join(baddir, "badmod.tl"), [[
+local x: string = 42
+return { x = x }
+]])
+  local script = write_temp("use_bad.tl", [[
+local badmod = require("badmod")
+print("should not get here: " .. tostring(badmod))
+]])
+  local h = spawn.spawn({cosmic, script}, {
+      env = {"TL_PATH=" .. baddir .. "/?.tl"},
+    })
+  local r = (h as spawn.Handle):wait() as spawn.Result
+  assert(not r.ok, "require of a broken .tl module must fail")
+  local err = tostring(r.stderr)
+  assert(err:find("badmod", 1, true) and err:find("got integer", 1, true),
+    "failure should carry the compile issue: " .. err)
+  local out = tostring(r.stdout)
+  assert(not out:find("should not get here", 1, true),
+    "broken module must not run: " .. out)
+end
+test_require_fails_on_compile_error()
+
+--- Required .tl modules go through the content-hash compile cache, so a
+--- script's require tree compiles once per content+build, not per run.
+local function test_require_uses_compile_cache()
+  local gooddir = fs.join(tmpdir, "tlgood")
+  fs.makedirs(gooddir)
+  fs.write(fs.join(gooddir, "goodmod.tl"), [[
+local value: string = "cached"
+return { value = value }
+]])
+  local script = write_temp("use_good.tl", [[
+print("value=" .. require("goodmod").value)
+]])
+  local cachedir = fs.join(tmpdir, "tlcache")
+  local h = spawn.spawn({cosmic, script}, {
+      env = {
+        "TL_PATH=" .. gooddir .. "/?.tl",
+        "COSMIC_TL_CACHE_DIR=" .. cachedir,
+      },
+    })
+  local r = (h as spawn.Handle):wait() as spawn.Result
+  assert(r.ok, "good .tl require should succeed: " .. tostring(r.stderr))
+  assert(tostring(r.stdout):find("value=cached", 1, true))
+  local counted = fs.walk(cachedir, function(_path: string, _name: string, _st: fstypes.WalkStat, acc: {integer})
+      acc[1] = acc[1] + 1
+    end, {0})
+  assert(counted, "cache dir should exist and be walkable")
+  assert((counted as {integer})[1] > 0,
+    "compile cache should hold the required module's output")
+end
+test_require_uses_compile_cache()
 
 print("All tl_loader tests passed!")

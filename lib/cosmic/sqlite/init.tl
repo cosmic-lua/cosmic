@@ -451,10 +451,10 @@ local function open(filename: string, opts?: OpenOptions): Database | nil, strin
   if not raw_db then
     return nil, errmsg or ("error code " .. tostring(errcode))
   end
-  -- records don't flow-narrow; cast once after the guard. (Not `is`:
-  -- the runtime tl loader can lax-recompile this module where the
-  -- required class's userdata marker doesn't resolve, degrading `is`
-  -- to a table test that rejects every real handle.)
+  -- records don't flow-narrow; cast once after the guard. (`is` became
+  -- safe at cosmo.* boundaries once the cosmic runtime searcher (#669)
+  -- guaranteed .d.tl resolution; converting boundary casts like this
+  -- one is #491 follow-up work.)
   local dbh = raw_db as lsqlite3.Database
   local timeout_ms = 5000
   if opts and opts.busy_timeout_ms ~= nil then
