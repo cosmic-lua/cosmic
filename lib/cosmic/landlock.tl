@@ -23,21 +23,21 @@
 --- network isolation.
 local unix = require("cosmo.unix")
 
-local EXECUTE < const > = unix.LANDLOCK_ACCESS_FS_EXECUTE as integer
-local WRITE_FILE < const > = unix.LANDLOCK_ACCESS_FS_WRITE_FILE as integer
-local READ_FILE < const > = unix.LANDLOCK_ACCESS_FS_READ_FILE as integer
-local READ_DIR < const > = unix.LANDLOCK_ACCESS_FS_READ_DIR as integer
-local REMOVE_DIR < const > = unix.LANDLOCK_ACCESS_FS_REMOVE_DIR as integer
-local REMOVE_FILE < const > = unix.LANDLOCK_ACCESS_FS_REMOVE_FILE as integer
-local MAKE_CHAR < const > = unix.LANDLOCK_ACCESS_FS_MAKE_CHAR as integer
-local MAKE_DIR < const > = unix.LANDLOCK_ACCESS_FS_MAKE_DIR as integer
-local MAKE_REG < const > = unix.LANDLOCK_ACCESS_FS_MAKE_REG as integer
-local MAKE_SOCK < const > = unix.LANDLOCK_ACCESS_FS_MAKE_SOCK as integer
-local MAKE_FIFO < const > = unix.LANDLOCK_ACCESS_FS_MAKE_FIFO as integer
-local MAKE_BLOCK < const > = unix.LANDLOCK_ACCESS_FS_MAKE_BLOCK as integer
-local MAKE_SYM < const > = unix.LANDLOCK_ACCESS_FS_MAKE_SYM as integer
-local REFER < const > = unix.LANDLOCK_ACCESS_FS_REFER as integer -- ABI 2+
-local TRUNCATE < const > = unix.LANDLOCK_ACCESS_FS_TRUNCATE as integer -- ABI 3+
+local EXECUTE < const > = unix.LANDLOCK_ACCESS_FS_EXECUTE
+local WRITE_FILE < const > = unix.LANDLOCK_ACCESS_FS_WRITE_FILE
+local READ_FILE < const > = unix.LANDLOCK_ACCESS_FS_READ_FILE
+local READ_DIR < const > = unix.LANDLOCK_ACCESS_FS_READ_DIR
+local REMOVE_DIR < const > = unix.LANDLOCK_ACCESS_FS_REMOVE_DIR
+local REMOVE_FILE < const > = unix.LANDLOCK_ACCESS_FS_REMOVE_FILE
+local MAKE_CHAR < const > = unix.LANDLOCK_ACCESS_FS_MAKE_CHAR
+local MAKE_DIR < const > = unix.LANDLOCK_ACCESS_FS_MAKE_DIR
+local MAKE_REG < const > = unix.LANDLOCK_ACCESS_FS_MAKE_REG
+local MAKE_SOCK < const > = unix.LANDLOCK_ACCESS_FS_MAKE_SOCK
+local MAKE_FIFO < const > = unix.LANDLOCK_ACCESS_FS_MAKE_FIFO
+local MAKE_BLOCK < const > = unix.LANDLOCK_ACCESS_FS_MAKE_BLOCK
+local MAKE_SYM < const > = unix.LANDLOCK_ACCESS_FS_MAKE_SYM
+local REFER < const > = unix.LANDLOCK_ACCESS_FS_REFER -- ABI 2+
+local TRUNCATE < const > = unix.LANDLOCK_ACCESS_FS_TRUNCATE -- ABI 3+
 
 --- Convenience masks. `ALL` is the full current set; `RW` covers read
 --- + write (including creating and removing files) but *not* execute —
@@ -126,7 +126,7 @@ local function abi(): integer | nil, string
   if not v then
     return nil, err and tostring(err) or "landlock unavailable"
   end
-  return v as integer
+  return v
 end
 
 --- True when abi() >= 1. Gate box setup on this.
@@ -157,7 +157,7 @@ local function restrict(opts: RestrictOptions): boolean, string
   local handled = (opts.handled or ALL) & mask
   local rs, cerr = unix.landlock_create_ruleset(handled, 0)
   if not rs then return false, tostring(cerr) end
-  local rsfd = rs as integer
+  local rsfd = rs
   local function fail(msg: string): boolean, string
     unix.close(rsfd)
     return false, msg
@@ -168,7 +168,7 @@ local function restrict(opts: RestrictOptions): boolean, string
     end
     local access = (rule.access or 0) & mask
     local pfd, perr = unix.open(rule.path,
-      (unix.O_PATH as integer) | (unix.O_CLOEXEC as integer))
+      (unix.O_PATH) | (unix.O_CLOEXEC))
     if not pfd then
       return fail(string.format("open(%q): %s", rule.path, tostring(perr)))
     end
@@ -176,12 +176,12 @@ local function restrict(opts: RestrictOptions): boolean, string
     -- the kernel; strip them so file paths accept the composite masks
     -- (READ, RW, ...). A rule left with no grantable bits is skipped —
     -- landlock denies by default, so granting nothing needs no rule.
-    local st = unix.fstat(pfd as integer)
+    local st = unix.fstat(pfd)
     if st and not unix.S_ISDIR((st as unix.Stat):mode()) then
       access = access & FILE_BITS
     end
     if access ~= 0 then
-      local ok, rerr = unix.landlock_add_rule(rsfd, pfd as integer, access, 0)
+      local ok, rerr = unix.landlock_add_rule(rsfd, pfd, access, 0)
       if not ok then
         unix.close(pfd)
         return fail(string.format("add_rule(%q): %s", rule.path, tostring(rerr)))

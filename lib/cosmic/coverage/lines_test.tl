@@ -5,7 +5,7 @@ local cov_lines = require("cosmic.coverage.lines")
 
 --- Compute lines for Lua source, asserting the parse succeeded.
 local function lines_of(source: string, name: string): {integer: boolean}
-  return check.must(cov_lines.executable_lines(source, name))
+  return (check.must(cov_lines.executable_lines(source, name)))
 end
 
 local function test_marks_basic_statements()

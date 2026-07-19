@@ -59,7 +59,7 @@ local function write_atomic(path: string, data: string, mode?: integer): boolean
   -- The binding returns (fd, path) on success and (nil, Errno) on failure.
   local fd, tmp = unix.mkstemp(path .. ".XXXXXX")
   if not fd then
-    return false, errstr(tmp as any, "write_atomic: mkstemp: " .. path .. ".XXXXXX")
+    return false, errstr(tmp, "write_atomic: mkstemp: " .. path .. ".XXXXXX")
   end
   local function fail(err: string): boolean, string
     unix.close(fd)

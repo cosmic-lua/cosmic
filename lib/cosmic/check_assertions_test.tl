@@ -224,7 +224,7 @@ end
 test_err_fails_when_error_string_is_empty()
 
 local function test_err_fails_with_label()
-  local threw, msg = must_fail(function(): string check.err("whoops" as any, "err msg", "ctx") return "" end)
+  local threw, msg = must_fail(function(): string check.err("whoops", "err msg", "ctx") return "" end)
   assert(threw, "expected err to throw")
   assert(msg:match("ctx"), "expected label in message")
   assert(msg:match("err failed"), "expected 'err failed' in message")
@@ -265,6 +265,53 @@ local function test_must_passes_false_through()
   check.eq(check.must(b), false)
 end
 test_must_passes_false_through()
+
+-- must: multi-return forwarding (the assert-parity contract)
+
+local type Iter = function(): string
+
+-- mimic fs.files' shape: iterator, err, control, to-be-closed guard
+local function fake_files(fail: boolean, guard: any): Iter | nil, string, any, any
+  if fail then
+    return nil, "cannot open"
+  end
+  local n = 0
+  local iter = function(): string
+    n = n + 1
+    if n <= 2 then
+      return "f" .. n
+    end
+    return nil
+  end
+  return iter, nil, nil, guard
+end
+
+local function test_must_single_pair_collapses()
+  -- a plain value, err pair yields exactly one value: no trailing nil
+  -- in print()/varargs contexts
+  check.eq(select("#", check.must(make_widget(false))), 1)
+end
+test_must_single_pair_collapses()
+
+local function test_must_forwards_extra_returns()
+  local guard: any = {}
+  check.eq(select("#", check.must(fake_files(false, guard))), 4)
+  local _iter, _e, _ctl, g = check.must(fake_files(false, guard))
+  check.ok(rawequal(g, guard), "4th return must be the same guard value")
+end
+test_must_forwards_extra_returns()
+
+local function test_must_keeps_closing_guard_in_for()
+  -- the reason forwarding matters: the 4th return is Lua 5.4's
+  -- to-be-closed slot, so an early break must still run __close
+  local closed = false
+  local guard = setmetatable({}, {__close = function() closed = true end})
+  for _ in check.must(fake_files(false, guard)) do
+    break
+  end
+  check.ok(closed, "early break must close the forwarded guard")
+end
+test_must_keeps_closing_guard_in_for()
 
 -- must: failing cases
 

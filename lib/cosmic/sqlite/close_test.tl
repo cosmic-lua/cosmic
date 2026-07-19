@@ -58,7 +58,7 @@ local function test_query_to_be_closed_scope()
   local rows = check.must(db:query("SELECT * FROM t ORDER BY id"))
   local first = rows()
   assert(first and first.name == "a", "should get first row")
-  local mt = getmetatable(rows as any) as {string: any}
+  local mt = getmetatable(rows) as {string: any}
   local close_mm = mt["__close"] as function(any, any)
   assert(close_mm, "Rows must have a __close metamethod")
   close_mm(rows, nil)

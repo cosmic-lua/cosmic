@@ -126,7 +126,7 @@ local function test_files_pattern_is_always_glob()
 
   -- "foo?.lua" is a glob: ? is exactly one character.
   local seen: {string: boolean} = {}
-  for p in assert(fs.files(dir, "foo?.lua")) as fs.FileIter do
+  for p in check.must(fs.files(dir, "foo?.lua")) do
     seen[fs.basename(p)] = true
   end
   assert(seen["foo1.lua"], "glob ? matches one char")
@@ -154,9 +154,9 @@ local function test_dir_read_returns_d_type()
     kinds[name] = kind
   end
   close(d)
-  assert(kinds["subdir"] == fsa.DT_DIR as number,
+  assert(kinds["subdir"] == fsa.DT_DIR,
     "Dir:read must report DT_DIR for a subdir, got " .. tostring(kinds["subdir"]))
-  assert(kinds["plain.txt"] == fsa.DT_REG as number,
+  assert(kinds["plain.txt"] == fsa.DT_REG,
     "Dir:read must report DT_REG for a file, got " .. tostring(kinds["plain.txt"]))
   fs.rmrf(dir)
 end

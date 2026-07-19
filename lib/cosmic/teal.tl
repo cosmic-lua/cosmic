@@ -312,7 +312,7 @@ end
 --- @param opts CompileOptions Compilation options (include_dirs, gen_target, gen_compat, strict)
 --- @return CompileResult Result with ok status, generated Lua code, and any errors
 local function compile(input_path: string, opts: CompileOptions): CompileResult
-  opts = opts or {} as CompileOptions
+  opts = opts or {}
 
   local dirs = merge_include_dirs(opts.include_dirs)
   local proc = process_file(input_path, dirs, not opts.strict)
@@ -352,7 +352,7 @@ end
 --- @param opts CheckOptions Type-checking options (include_dirs, werror)
 --- @return CheckResult Result with ok status, warnings, and errors
 local function check(input_path: string, opts: CheckOptions): CheckResult
-  opts = opts or {} as CheckOptions
+  opts = opts or {}
   local werror = opts.werror ~= false
 
   local dirs = merge_include_dirs(opts.include_dirs)

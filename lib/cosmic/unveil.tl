@@ -83,7 +83,7 @@ local function available(): boolean
     avail = true
   elseif host == "LINUX" then
     local abi = unix.landlock_create_ruleset()
-    avail = abi ~= nil and (abi as integer) >= 1
+    avail = abi ~= nil and (abi) >= 1
   else
     avail = false
   end

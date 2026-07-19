@@ -96,7 +96,7 @@ local function parse(url: string): Url | nil, string
     local parts: {string} = {}
     for _, pair in ipairs(parsed.params) do
       local k = cosmo.EscapeParam(pair[1])
-      local v = pair[2] as string
+      local v = pair[2]
       if v ~= nil then
         table.insert(parts, k .. "=" .. cosmo.EscapeParam(v))
       else
@@ -138,7 +138,7 @@ local function format(u: Url): string
       path = u.path,
       params = params,
       fragment = u.fragment,
-    } as cosmo.Url)
+    })
 end
 
 --- Parse a host:port string into its components.
@@ -158,8 +158,8 @@ local function parse_host(hostport: string): string | nil, integer, string
 
   local bracket_host, rest = hostport:match("^%[([^%]]+)%](.*)$")
   if bracket_host then
-    host = bracket_host as string
-    local r = rest as string
+    host = bracket_host
+    local r = rest
     if r ~= "" then
       port_str = r:match("^:(%d+)$")
       if not port_str then

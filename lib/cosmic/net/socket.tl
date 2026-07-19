@@ -24,7 +24,7 @@ local function resolve_addr(addr: Address): integer | nil, string
     end
     return (a as ip.Addr):int()
   end
-  return (addr as ip.Addr):int()
+  return (addr):int()
 end
 
 --- Socket handle for network I/O.
@@ -255,7 +255,7 @@ local function make_socket(fd: integer): Socket
       if not data then
         return nil, errstr(err, "readline")
       end
-      local d = data as string
+      local d = data
       if d == "" then
         -- End of stream: hand back a final unterminated line if any.
         if total == 0 then
@@ -418,7 +418,7 @@ local function make_socket(fd: integer): Socket
     -- flag worth preserving, so set the flag word absolutely.
     local want: integer = 0
     if enable ~= false then
-      want = unix.O_NONBLOCK as integer
+      want = unix.O_NONBLOCK
     end
     local ok, serr = unix.fcntl(self.fd, unix.F_SETFL, want)
     if not ok then
@@ -457,7 +457,7 @@ local function make_socket(fd: integer): Socket
 
   return setmetatable(sock, {
       __close = function(self: Socket) self:close() end
-    }) as Socket
+    })
 end
 
 local record NetSocketModule

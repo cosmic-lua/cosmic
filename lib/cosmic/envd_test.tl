@@ -120,7 +120,7 @@ local function test_empty_value()
   local result = envd.load_dir(dir)
   assert(result.count == 1, "expected 1, got " .. tostring(result.count))
   assert(env.get("COSMIC_ENVD_TEST_EMPTY") == "",
-    "empty value should be set as empty string, got '" .. tostring(env.get("COSMIC_ENVD_TEST_EMPTY")) .. "'")
+    "empty value should be set string, got '" .. tostring(env.get("COSMIC_ENVD_TEST_EMPTY")) .. "'")
 
   env.unset("COSMIC_ENVD_TEST_EMPTY")
 end
@@ -360,7 +360,7 @@ local function load_dir_capturing_stderr(dir: string): envd.LoadResult, string
   local result = envd.load_dir(dir)
   io.stderr:close()
   io.stderr = real_stderr
-  return result, check.must(fs.read(capture_path))
+  return result, (check.must(fs.read(capture_path)))
 end
 
 local function test_cosmic_debug_empty_not_enabled()

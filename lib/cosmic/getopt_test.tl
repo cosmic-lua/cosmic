@@ -142,7 +142,7 @@ local function test_mixed_short_and_long()
   assert(#r.opts == 3, "expected 3 options")
   assert(r.opts[1].opt == "v", "expected 'v' first")
   assert(r.opts[2].opt == "o", "expected 'o' second")
-  assert(r.opts[2].arg == "out.txt", "expected 'out.txt' as output arg")
+  assert(r.opts[2].arg == "out.txt", "expected 'out.txt' arg")
   assert(r.opts[3].opt == "h", "expected 'h' third")
 end
 test_mixed_short_and_long()

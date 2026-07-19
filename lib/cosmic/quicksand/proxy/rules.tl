@@ -52,7 +52,7 @@ local function parse_rule(key: string): string, integer
   if p == "*" or p == "" then
     return h:lower(), nil
   end
-  return h:lower(), tonumber(p) as integer
+  return h:lower(), math.tointeger(tonumber(p))
 end
 
 --- Validate an allowlist *key* (host-spec). Returns nil on success or a
@@ -148,7 +148,7 @@ local function index(allowed_hosts: {string: ProxyRule}): Index
     -- pass-through (validate() accepts it); normalize to an empty rule
     -- so nothing downstream ever indexes a boolean.
     if type(rule) ~= "table" then
-      rule = {} as ProxyRule
+      rule = {}
     end
     local wild = k:match("^%*%.(.+)$")
     if wild then

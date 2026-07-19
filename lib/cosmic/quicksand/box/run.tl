@@ -237,7 +237,7 @@ local function supervisor(
     return -- unreachable
   end
 
-  local code = qproc.become_init(pid as integer, {sidecars = sidecars})
+  local code = qproc.become_init(pid, {sidecars = sidecars})
   os.exit(code)
 end
 
@@ -268,8 +268,8 @@ local function run(opts: BoxOptions, argv: {string}): integer | nil, string
     end
     return nil, "quicksand: pipe: " .. tostring(ew)
   end
-  local erfd = er as integer
-  local ewfd = ew as integer
+  local erfd = er
+  local ewfd = ew
 
   local pid, ferr = unix.fork()
   if not pid then
@@ -309,10 +309,10 @@ local function run(opts: BoxOptions, argv: {string}): integer | nil, string
   end
 
   if unix.WIFEXITED(status) then
-    return unix.WEXITSTATUS(status) as integer
+    return unix.WEXITSTATUS(status)
   end
   if unix.WIFSIGNALED(status) then
-    return 128 + (unix.WTERMSIG(status) as integer)
+    return 128 + (unix.WTERMSIG(status))
   end
   return nil, "quicksand: unexpected wait status " .. tostring(status)
 end

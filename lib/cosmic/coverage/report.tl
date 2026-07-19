@@ -292,7 +292,7 @@ local function compute(paths: {string}): {FileReport} | nil, string
       for src, lines in pairs(hits as {string: {integer: integer}}) do
         local display, parse = normalize(src, cwd)
         if display then
-          merge_hits(entries, display as string, parse, lines)
+          merge_hits(entries, display, parse, lines)
         end
       end
     end

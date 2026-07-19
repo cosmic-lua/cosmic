@@ -123,7 +123,7 @@ local function test_try_wait()
   h:kill(signal.SIGKILL)
   local res: child.Result = nil
   for _ = 1, 200 do
-    res = h:try_wait() as child.Result
+    res = h:try_wait()
     if res ~= nil then break end
     time.sleep(0, 10000000) -- 10ms
   end

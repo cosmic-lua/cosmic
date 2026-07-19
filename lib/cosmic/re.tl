@@ -163,7 +163,7 @@ local function all_matches(regex: Regex, text: string): {Span} | nil, string
     if not s then
       return nil, "failed to locate match position for: " .. m
     end
-    local si = s as integer
+    local si = s
     spans[#spans + 1] = {s = si, e = si + #m - 1, m = m, caps = caps}
     pos = si + #m
   end
@@ -182,7 +182,7 @@ local function findall(pattern: string, text: string, flags?: integer): {string}
   if not regex then
     return nil, cerr
   end
-  local spans, err = all_matches(regex as Regex, text)
+  local spans, err = all_matches(regex, text)
   if not spans then
     return nil, err
   end
@@ -207,7 +207,7 @@ local function split(pattern: string, text: string, flags?: integer): {string} |
   if not regex then
     return nil, cerr
   end
-  local spans, err = all_matches(regex as Regex, text)
+  local spans, err = all_matches(regex, text)
   if not spans then
     return nil, err
   end
@@ -239,7 +239,7 @@ local function gsub(pattern: string, text: string, repl: Repl, flags?: integer):
   if not regex then
     return nil, cerr
   end
-  local spans, err = all_matches(regex as Regex, text)
+  local spans, err = all_matches(regex, text)
   if not spans then
     return nil, err
   end

@@ -60,7 +60,7 @@ local function resolve_stdio(stdin?: string | cfd.Handle, stdout?: cfd.Handle,
   if stdin is string then
     s.stdin_data = stdin
   elseif stdin ~= nil then
-    s.stdin_fd = (stdin as cfd.Handle):fd()
+    s.stdin_fd = (stdin):fd()
     if s.stdin_fd < 0 then return nil, "spawn: stdin handle is closed" end
   end
   if stdout then
@@ -178,7 +178,7 @@ local function pump(state: PumpState, deadline_ms: number): boolean
       if rem <= 0 then return true end
       -- poll wants an integer millisecond count; floor the remaining time
       -- (any sub-millisecond remainder is caught by the next deadline check).
-      timeout = math.floor(rem) as integer
+      timeout = math.floor(rem)
     end
     local ready, perr = p:poll(timeout)
     if ready == nil then
@@ -195,7 +195,7 @@ local function pump(state: PumpState, deadline_ms: number): boolean
         local slice = state.stdin_data:sub(state.stdin_off + 1, state.stdin_off + CHUNK)
         local n, werr, weno = unix.write(state.stdin_fd, slice)
         if n ~= nil then
-          state.stdin_off = state.stdin_off + (n as integer)
+          state.stdin_off = state.stdin_off + (n)
           if state.stdin_off >= #state.stdin_data then
             p:remove(state.stdin_fd); unix.close(state.stdin_fd); state.stdin_fd = nil
           end

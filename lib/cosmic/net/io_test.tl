@@ -5,7 +5,7 @@ local net = require("cosmic.net")
 local function pair(): net.Socket, net.Socket
   local a, b, err = net.socketpair()
   assert(a ~= nil and b ~= nil, "socketpair failed: " .. tostring(err))
-  return check.must(a), b
+  return (check.must(a)), b
 end
 
 -- sendall tests
@@ -145,7 +145,7 @@ local function test_readline_max()
   local head = b:readline(3)
   assert(head == "abc", "expected max-bounded read, got: " .. tostring(head))
   local rest = b:readline()
-  assert(rest == "def", "expected remainder as next line, got: " .. tostring(rest))
+  assert(rest == "def", "expected remainder line, got: " .. tostring(rest))
   a:close()
   b:close()
 end

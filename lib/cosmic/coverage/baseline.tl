@@ -85,13 +85,13 @@ local function parse(text: string): {string: Entry} | nil, Entry, string
         return nil, nil, string.format("baseline line %d unparsable: %s", lineno, line)
       end
       local entry: Entry = {
-        covered = tonumber(covered) as integer,
-        total = tonumber(all) as integer,
+        covered = math.tointeger(tonumber(covered)),
+        total = math.tointeger(tonumber(all)),
       }
       if path == "total" then
         total = entry
       else
-        entries[path as string] = entry
+        entries[path] = entry
       end
     end
   end
@@ -163,7 +163,7 @@ local function check(baseline_path: string, paths: {string}): integer
     io.stderr:write((cerr or "coverage: no data") .. "\n")
     return 1
   end
-  local entries, total, perr = parse(text as string)
+  local entries, total, perr = parse(text)
   if not entries then
     io.stderr:write("coverage ratchet: " .. (perr or "malformed baseline") .. "\n")
     return 1

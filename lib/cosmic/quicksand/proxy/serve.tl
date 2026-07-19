@@ -73,7 +73,7 @@ local LEVELS < total >: {qtypes.LogLevel: integer} = {quiet = 0, info = 1, debug
 
 local function ts(): string
   local s, ns = unix.clock_gettime(unix.CLOCK_REALTIME)
-  return string.format("%d.%09d", s as integer, ns as integer)
+  return string.format("%d.%09d", s, ns)
 end
 
 --- Build a Logger from options: level (quiet/info/debug), format
@@ -147,7 +147,7 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
   local logger, lerr = make_logger(opts)
   if not logger then return nil, lerr end
   local idx = rules.index(opts.allowed_hosts or {})
-  local bind_ip: integer = opts.bind_ip or cosmo.ParseIp("127.0.0.1") as integer
+  local bind_ip: integer = opts.bind_ip or cosmo.ParseIp("127.0.0.1")
   local bind_port: integer = opts.bind_port or 3128
   local backlog: integer = opts.accept_backlog or 32
   local upstream_ns_fd = opts.upstream_ns_fd
@@ -272,7 +272,7 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
       refuse(client_fd, http.UPSTREAM_FAIL)
       return
     end
-    local injn, injv = rules.auth_header(rule as ProxyRule)
+    local injn, injv = rules.auth_header(rule)
     local host_hdr = host
     if (scheme == "http" and port ~= 80)
     or (scheme == "https" and port ~= 443) then
@@ -284,7 +284,7 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
         headers = parsed,
         body = body,
         host_hdr = host_hdr,
-        inject_name = injn as string,
+        inject_name = injn,
         inject_value = injv,
       })
     if not http.send_all(up, req) then
@@ -335,9 +335,9 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
     -- from inside the box). Per-connection forks also explicitly
     -- close it.
     local fd, serr = unix.socket(unix.AF_INET,
-      (unix.SOCK_STREAM as integer) | (unix.SOCK_CLOEXEC as integer), 0)
+      (unix.SOCK_STREAM) | (unix.SOCK_CLOEXEC), 0)
     if not fd then return nil, errno.str(serr, "socket") end
-    local lfd = fd as integer
+    local lfd = fd
     unix.setsockopt(lfd, unix.SOL_SOCKET, unix.SO_REUSEADDR, 1)
     local bok, berr = unix.bind(lfd, bind_ip, bind_port)
     if not bok then
@@ -351,7 +351,7 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
     end
     -- Refresh bind_port if the caller asked for an ephemeral port.
     local _, got_port = unix.getsockname(lfd)
-    if got_port then bind_port = got_port as integer end
+    if got_port then bind_port = got_port end
     listen_fd = lfd
     logger.info("listen",
       {ip = cosmo.FormatIp(bind_ip), port = bind_port})
@@ -361,7 +361,7 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
   local function accept(): integer | nil, string
     local cli, aerr = unix.accept(listen_fd)
     if not cli then return nil, errno.str(aerr, "accept") end
-    return cli as integer
+    return cli
   end
 
   -- Run the accept loop forever, forking per connection and reaping
@@ -392,10 +392,10 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
         local pid = unix.fork()
         if pid == 0 then
           unix.close(listen_fd)
-          handle(cli as integer)
+          handle(cli)
           unix.exit(0)
         else
-          unix.close(cli as integer)
+          unix.close(cli)
           reap()
         end
       end

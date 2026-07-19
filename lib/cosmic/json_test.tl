@@ -20,10 +20,10 @@ end
 test_decode_array()
 
 local function test_decode_primitives()
-  assert(json.decode("42") as number == 42, "expected 42")
-  assert(json.decode('"hello"') as string == "hello", "expected 'hello'")
-  assert(json.decode("true") as boolean == true, "expected true")
-  assert(json.decode("false") as boolean == false, "expected false")
+  assert(json.decode("42") == 42, "expected 42")
+  assert(json.decode('"hello"') == "hello", "expected 'hello'")
+  assert(json.decode("true") == true, "expected true")
+  assert(json.decode("false") == false, "expected false")
   assert(json.decode("null") == nil, "expected nil")
 end
 test_decode_primitives()
@@ -151,9 +151,9 @@ local function test_nan_inf_encoding()
   assert(inf_err ~= nil, "Inf encode failure should carry an error message")
   -- nan="null" opts into the v8 behavior for both NaN and Infinity.
   local nan_null = json.encode({0 / 0}, {nan = "null"})
-  assert(nan_null == "[null]", "NaN with nan='null' should encode as null, got: " .. tostring(nan_null))
+  assert(nan_null == "[null]", "NaN with nan='null' should encode, got: " .. tostring(nan_null))
   local inf_null = json.encode({math.huge, -math.huge}, {nan = "null"})
-  assert(inf_null == "[null,null]", "Inf with nan='null' should encode as null, got: " .. tostring(inf_null))
+  assert(inf_null == "[null,null]", "Inf with nan='null' should encode, got: " .. tostring(inf_null))
 end
 test_nan_inf_encoding()
 
@@ -167,16 +167,16 @@ local function test_integer_precision_roundtrip()
   assert(encoded == "9007199254740993",
     "integer must encode without float rounding, got: " .. tostring(encoded))
   local decoded = json.decode(encoded)
-  assert(decoded as integer == n, "integer must round-trip exactly")
-  assert(math.type(decoded as number) == "integer",
+  assert(decoded == n, "integer must round-trip exactly")
+  assert(math.type(decoded) == "integer",
     "decoded integer should stay an integer")
 end
 test_integer_precision_roundtrip()
 
 local function test_float_precision_roundtrip()
   for _, f in ipairs({0.1, 3.141592653589793, 1e308, -2.5e-10}) do
-    local decoded = json.decode(check.must(json.encode(f)))
-    assert(decoded as number == f,
+    local decoded = json.decode((check.must(json.encode(f))))
+    assert(decoded == f,
       "float should round-trip bit-exactly: " .. tostring(f)
       .. " -> " .. tostring(decoded))
   end
@@ -184,11 +184,11 @@ end
 test_float_precision_roundtrip()
 
 local function test_decode_unicode_escapes()
-  assert(json.decode('"\\u0041"') as string == "A", "\\u0041 should decode to A")
-  assert(json.decode('"\\u00e9"') as string == "\xc3\xa9",
+  assert(json.decode('"\\u0041"') == "A", "\\u0041 should decode to A")
+  assert(json.decode('"\\u00e9"') == "\xc3\xa9",
     "\\u00e9 should decode to UTF-8 e-acute")
   -- Surrogate pair: U+1F600 (emoji) is 4 UTF-8 bytes.
-  local emoji = json.decode('"\\uD83D\\uDE00"') as string
+  local emoji = json.decode('"\\uD83D\\uDE00"')
   assert(emoji == "\xf0\x9f\x98\x80",
     "surrogate pair should decode to 4-byte UTF-8, got " .. tostring(emoji))
 end
@@ -201,7 +201,7 @@ local function test_nul_byte_roundtrip()
   local encoded = json.encode("\0")
   assert(encoded == '"\\u0000"',
     "an embedded NUL should encode as \\u0000, got: " .. tostring(encoded))
-  local rt = json.decode(check.must(json.encode("a\0b"))) as string
+  local rt = json.decode((check.must(json.encode("a\0b"))))
   assert(rt == "a\0b" and #rt == 3, "NUL inside a string must round-trip")
 end
 test_nul_byte_roundtrip()

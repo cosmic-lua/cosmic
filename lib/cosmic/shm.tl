@@ -107,7 +107,7 @@ local function wrap(raw: unix.Memory, size: integer): Memory
     if not ok then
       return nil, thrown("read", res)
     end
-    return res as string
+    return res
   end
 
   function mem:write(data: string, offset?: integer, bytes?: integer): boolean, string
@@ -136,7 +136,7 @@ local function wrap(raw: unix.Memory, size: integer): Memory
     if not ok then
       return nil, thrown("load", res)
     end
-    return res as integer
+    return res
   end
 
   function mem:store(word_index: integer, value: integer): boolean, string
@@ -161,7 +161,7 @@ local function wrap(raw: unix.Memory, size: integer): Memory
     if not ok then
       return nil, thrown(op, res)
     end
-    return res as integer
+    return res
   end
 
   function mem:xchg(word_index: integer, value: integer): integer | nil, string
@@ -193,7 +193,7 @@ local function wrap(raw: unix.Memory, size: integer): Memory
     if not ok then
       return nil, nil, thrown("cmpxchg", success)
     end
-    return success as boolean, actual as integer
+    return success, actual
   end
 
   function mem:wait(word_index: integer, expect: integer, abs_deadline?: integer, nanos?: integer): integer | nil, string
@@ -217,7 +217,7 @@ local function wrap(raw: unix.Memory, size: integer): Memory
     if rc == nil then
       return nil, errstr(err, "wait")
     end
-    return rc as integer
+    return rc
   end
 
   -- wake is declared infallible, so it cannot grow an error slot for the
@@ -281,7 +281,7 @@ local function mapshared(size: integer): Memory | nil, string
   if not ok then
     return nil, thrown("mapshared", raw)
   end
-  return wrap(raw as unix.Memory, size)
+  return wrap(raw, size)
 end
 
 local M: ShmModule = {

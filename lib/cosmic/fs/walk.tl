@@ -343,9 +343,10 @@ local type FileIter = function(): string
 --- loop adopts it as the loop's closing value (Lua 5.4), so directory
 --- handles are closed even when the loop exits early via break/error.
 --- If the root directory cannot be opened, returns nil plus the error —
---- iterate the checked value: `for f in assert(fs.files(dir)) as fs.FileIter do`
---- (assert passes all four returns through, keeping the closing guard;
---- the cast only narrows the type, it does not drop return values).
+--- in tests/examples iterate the checked value with
+--- `for f in check.must(fs.files(dir)) do` (must, like assert, forwards
+--- all four returns, keeping the closing guard); in library code use
+--- `assert(fs.files(dir)) as fs.FileIter`, which also forwards them.
 --- @param dir string The directory to search
 --- @param pattern string Glob pattern (*.lua) - defaults to all files (*)
 --- @return function | nil Iterator yielding file paths, or nil if the root could not be opened

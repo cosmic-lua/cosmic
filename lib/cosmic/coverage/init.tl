@@ -170,7 +170,7 @@ local function dump(dir?: string): boolean, string
   if not body then
     return false, "coverage: " .. (enc_err or "encode failed")
   end
-  local wok, werr = fs.write(fs.join(d, dump_name), body as string)
+  local wok, werr = fs.write(fs.join(d, dump_name), body)
   if not wok then
     return false, "coverage: " .. (werr or "write failed")
   end

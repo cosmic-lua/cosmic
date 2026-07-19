@@ -132,26 +132,26 @@ local function test_plan_landlock_mapping()
   local opts = plan_any({ro = {"/usr"}})
   local r = find_rule(opts.rules as {any}, "/usr")
   assert(r, "expected /usr rule")
-  check.eq(r.access as integer, landlock.READ | landlock.EXEC, "ro -> READ|EXEC")
+  check.eq(r.access, landlock.READ | landlock.EXEC, "ro -> READ|EXEC")
 
   opts = plan_any({rw = {"/tmp"}})
   r = find_rule(opts.rules as {any}, "/tmp")
   assert(r, "expected /tmp rule")
-  check.eq(r.access as integer, landlock.RW, "rw -> RW (no exec)")
+  check.eq(r.access, landlock.RW, "rw -> RW (no exec)")
   assert((landlock.RW & landlock.EXEC) == 0, "RW must not include EXEC")
 
   -- A path in several groups gets the union of their masks.
   opts = plan_any({ro = {"/shared"}, rw = {"/shared"}})
   r = find_rule(opts.rules as {any}, "/shared")
   assert(r, "expected /shared rule")
-  check.eq(r.access as integer, (landlock.READ | landlock.EXEC) | landlock.RW,
+  check.eq(r.access, (landlock.READ | landlock.EXEC) | landlock.RW,
     "overlapping groups OR their masks")
 
   -- Empty policy plans to zero rules (deny-all when applied), full
   -- handled mask, and no_new_privs so it works unprivileged.
   opts = plan_any(nil)
   check.eq(#(opts.rules as {any}), 0, "nil fs -> no rules")
-  check.eq(opts.handled as integer, landlock.ALL, "handled is ALL")
+  check.eq(opts.handled, landlock.ALL, "handled is ALL")
   check.eq(opts.no_new_privs, true, "no_new_privs defaults on")
 
   -- Rule order follows declaration order.

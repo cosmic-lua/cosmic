@@ -108,7 +108,7 @@ local function err(value: any, e: string, label?: string)
   if value ~= nil then
     msg = string.format("err failed: expected nil value, got %s", render(value))
   elseif not e or e == "" then
-    msg = "err failed: expected non-empty error string, got " .. render(e as any)
+    msg = "err failed: expected non-empty error string, got " .. render(e)
   end
   if msg then
     if label then
@@ -124,19 +124,28 @@ end
 --- need `assert(x) as T` at every site. `must` centralizes that unsoundness
 --- behind a runtime nil check. Lua passes multiple returns through, so
 --- `must(fs.read(path))` fails with fs.read's own error string.
---- CAVEAT: must returns ONLY the first value. Never wrap a call whose
---- extra returns feed a generic-for (e.g. `fs.files`, whose 4th return
---- is the to-be-closed guard that releases directory handles on early
---- break) — keep `for p in assert(fs.files(d)) as fs.FileIter do` there,
---- since assert forwards all four returns and must would drop the guard.
+--- Like `assert`, must forwards extra returns past the second, so
+--- `for p in check.must(fs.files(d)) do` keeps the 4th return — the
+--- to-be-closed guard that releases directory handles on early break.
+--- A plain `value, err` pair still collapses to the value alone, so
+--- `print(check.must(fs.read(p)))` prints no trailing nil. The checker,
+--- though, sees the declared three-value tuple: when must is the LAST
+--- argument to another call, parenthesize to truncate it —
+--- `table.insert(parts, (check.must(chunk)))`.
 --- @param v T? The fallible value (nil on failure)
 --- @param e string? Failure message; a `nil, err` pair fills this in
+--- @param ... any Extra returns (iterator state, closing guard, ...)
 --- @return T The value, known non-nil
-local function must<T>(v: T | nil, e?: string): T
+--- @return string The second argument, forwarded when extras exist
+--- @return any... The extra returns, forwarded unchanged
+local function must<T>(v: T | nil, e?: string, ...: any): T, string, any ...
   if v == nil then
     error(e or "must failed: expected value, got nil", 2)
   end
-  return v
+  if select("#", ...) == 0 then
+    return v
+  end
+  return v, e, ...
 end
 
 --- Report whether the enforcement lane is active.
@@ -179,7 +188,7 @@ local record CheckModule
   eq: function<T>(actual: T, expected: T, label?: string)
   ne: function<T>(actual: T, expected: T, label?: string)
   ok: function(value: any, label?: string)
-  must: function<T>(v: T | nil, e?: string): T
+  must: function<T>(v: T | nil, e?: string, ...: any): T, string, any ...
   err: function(value: any, e: string, label?: string)
   enforcing: function(): boolean
   skip: function(reason: string, strict?: boolean)

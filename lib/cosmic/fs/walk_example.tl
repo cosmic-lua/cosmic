@@ -69,6 +69,7 @@ end
 
 -- Example_files demonstrates the files() iterator for streaming traversal.
 local function Example_files()
+  local check = require("cosmic.check")
   local fs = require("cosmic.fs")
 
   local tmpdir = fs.mkdtemp("/tmp/files_ex_XXXXXX")
@@ -78,10 +79,9 @@ local function Example_files()
   assert(fs.write(fs.join(tmpdir, "b.txt"), "b\n"))
 
   local names: {string} = {}
-  -- files() returns nil, err if the root cannot be opened; assert passes
-  -- the iterator and its closing guard through on success (the cast only
-  -- narrows the type — it does not drop the extra return values).
-  for p in assert(fs.files(tmpdir, "*.txt")) as fs.FileIter do
+  -- files() returns nil, err if the root cannot be opened; must passes
+  -- the iterator and its closing guard through on success.
+  for p in check.must(fs.files(tmpdir, "*.txt")) do
     table.insert(names, fs.basename(p))
   end
   table.sort(names)
