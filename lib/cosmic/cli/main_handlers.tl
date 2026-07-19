@@ -265,17 +265,17 @@ local function handle_check_types(file: string, include_dirs?: {string}): intege
 end
 
 --- Handle --embed flag.
-local function handle_embed(paths: {string}, output: string): integer
+local function handle_embed(paths: {string}, output: string, exe?: string): integer
   local embed = require("cosmic.embed")
-  local result = embed.run(paths, output)
+  local result = embed.run(paths, output, exe)
   io.write(result.message .. "\n")
   return result.ok and 0 or 1
 end
 
 --- Handle --extract flag.
-local function handle_extract(dir: string): integer
+local function handle_extract(dir: string, exe?: string): integer
   local embed = require("cosmic.embed")
-  local result = embed.extract(dir)
+  local result = embed.extract(dir, exe)
   io.write(result.message .. "\n")
   return result.ok and 0 or 1
 end
@@ -462,8 +462,8 @@ local record HandlersModule
   handle_check_format: function(file: string): integer
   handle_check_types: function(file: string, include_dirs?: {string}): integer
   handle_check_style: function(file: string): integer
-  handle_embed: function(paths: {string}, output: string): integer
-  handle_extract: function(dir: string): integer
+  handle_embed: function(paths: {string}, output: string, exe?: string): integer
+  handle_extract: function(dir: string, exe?: string): integer
   handle_check_examples: function(file: string): integer
   handle_examples: function(module_name: string): integer
   handle_benchmark: function(spec: string): integer

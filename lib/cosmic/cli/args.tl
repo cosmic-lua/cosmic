@@ -21,6 +21,7 @@ local longopts: {getopt.LongOpt} = {
   {name = "embed", has_arg = "required"},
   {name = "output", has_arg = "required"},
   {name = "extract", has_arg = "required"},
+  {name = "exe", has_arg = "required"},
   {name = "check-examples", has_arg = "required"},
   {name = "examples", has_arg = "optional"},
   {name = "benchmark", has_arg = "required"},

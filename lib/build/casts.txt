@@ -54,7 +54,7 @@
 7	lib/cosmic/doc/query.tl
 2	lib/cosmic/doc/query_test.tl
 7	lib/cosmic/embed.tl
-42	lib/cosmic/embed_advanced_test.tl
+51	lib/cosmic/embed_advanced_test.tl
 8	lib/cosmic/embed_env_test.tl
 8	lib/cosmic/embed_example.tl
 42	lib/cosmic/embed_test.tl

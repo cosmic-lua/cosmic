@@ -36,6 +36,7 @@ local record Options
   embed: {string}
   output: string
   extract: string
+  exe: string
   check_examples: string
   examples: string
   benchmark: string
@@ -73,6 +74,7 @@ local function parse_args(): Options
     embed = {},
     output = nil,
     extract = nil,
+    exe = nil,
     check_examples = nil,
     examples = nil,
     benchmark = nil,
@@ -211,6 +213,14 @@ local function parse_args(): Options
     return opts
   end
 
+  -- Global modifiers are collected before the dispatch loop so they are
+  -- honored regardless of position (`--extract dir --exe app`).
+  for _, o in ipairs(r.opts) do
+    if o.opt == "exe" then
+      opts.exe = o.arg
+    end
+  end
+
   for _, o in ipairs(r.opts) do
     local opt = o.opt
     local optarg = o.arg
@@ -336,7 +346,6 @@ local function main(): integer, string
   if extract_env and not opts.extract then
     opts.extract = extract_env
   end
-
   if opts.version then return handlers.handle_version() end
   if opts.help then io.write(help.generate() .. "\n"); return 0 end
   if opts.welcome then io.write(handlers.generate_welcome()); return 0 end
@@ -359,8 +368,8 @@ local function main(): integer, string
   if opts.check_format then return handlers.handle_check_format(opts.check_format) end
   if opts.check_types then return handlers.handle_check_types(opts.check_types, opts.include_dirs) end
   if opts.check_style then return handlers.handle_check_style(opts.check_style) end
-  if #opts.embed > 0 then return handlers.handle_embed(opts.embed, opts.output) end
-  if opts.extract then return handlers.handle_extract(opts.extract) end
+  if #opts.embed > 0 then return handlers.handle_embed(opts.embed, opts.output, opts.exe) end
+  if opts.extract then return handlers.handle_extract(opts.extract, opts.exe) end
   if opts.check_examples then return handlers.handle_check_examples(opts.check_examples) end
 
   if opts.examples ~= nil then
