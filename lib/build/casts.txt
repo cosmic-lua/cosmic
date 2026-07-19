@@ -49,13 +49,12 @@
 1	lib/cosmic/fs/file.tl
 4	lib/cosmic/fs/ops.tl
 2	lib/cosmic/fs/path.tl
-9	lib/cosmic/fs/path_test.tl
-18	lib/cosmic/fs/traps_test.tl
+7	lib/cosmic/fs/path_test.tl
+17	lib/cosmic/fs/traps_test.tl
 4	lib/cosmic/fs/tree.tl
 5	lib/cosmic/fs/types.tl
 13	lib/cosmic/fs/walk.tl
-1	lib/cosmic/fs/walk_example.tl
-6	lib/cosmic/fs/walk_test.tl
+3	lib/cosmic/fs/walk_test.tl
 4	lib/cosmic/getopt.tl
 5	lib/cosmic/hash.tl
 3	lib/cosmic/hash_test.tl
@@ -129,7 +128,7 @@
 2	lib/perf/bench/child_bench.tl
 5	lib/perf/bench/embed_bench.tl
 3	lib/perf/bench/embed_startup_bench.tl
-7	lib/perf/bench/fs_bench.tl
+6	lib/perf/bench/fs_bench.tl
 1	lib/perf/bench/fuzzy_bench.tl
 5	lib/perf/bench/http_bench.tl
 7	lib/perf/bench/json_bench.tl

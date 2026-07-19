@@ -1,9 +1,9 @@
 #!/usr/bin/env cosmic
 --- Tests for fs_walk module (symlink cycle safety)
+local check = require("cosmic.check")
 local fs_walk = require("cosmic.fs.walk")
 local fs = require("cosmic.fs")
 local user = require("cosmic.user")
-local type FileIter = fs_walk.FileIter
 local type WalkAction = fs_walk.WalkAction
 
 local tmpdir = os.getenv("TEST_TMPDIR") as string
@@ -86,7 +86,7 @@ local function test_files_symlink_cycle_terminates()
   fs.symlink("..", fs.join(subdir, "loop"))
 
   local collected: {string} = {}
-  for p in assert(fs_walk.files(base, "*.lua")) as FileIter do
+  for p in check.must(fs_walk.files(base, "*.lua")) do
     collected[#collected + 1] = p
     -- Safety: abort if we find more than a small number
     assert(#collected <= 10,
@@ -312,7 +312,7 @@ test_collect_success_has_no_error()
 local function count_open_fds(): integer
   -- Exhausting the iterator closes its own handle as it goes.
   local n = 0
-  local iter = assert(fs_walk.files("/proc/self/fd")) as FileIter
+  local iter = check.must(fs_walk.files("/proc/self/fd"))
   for _ in iter do n = n + 1 end
   return n
 end
@@ -329,7 +329,7 @@ local function test_files_early_break_closes_handles()
   end
 
   local before = count_open_fds()
-  for p in assert(fs_walk.files(base, "*.txt")) as FileIter do
+  for p in check.must(fs_walk.files(base, "*.txt")) do
     assert(p, "expected a path")
     break -- abandon the iterator with directories still open
   end

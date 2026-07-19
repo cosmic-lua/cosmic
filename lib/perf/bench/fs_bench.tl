@@ -2,6 +2,7 @@
 --- Exercises cosmic.fs and cosmic.fd wrappers over the cosmo unix/path
 --- C bindings, against a real temp directory tree.
 
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local fs_types = require("cosmic.fs.types")
 local pt = require("perf.perf_types")
@@ -84,7 +85,7 @@ local function scenarios(): {pt.Scenario}, string
       name = "fs_files_tree",
       fn = function(_: any): any
         local count = 0
-        for _ in assert(fs.files(tmpdir, "*.txt")) as fs.FileIter do
+        for _ in check.must(fs.files(tmpdir, "*.txt")) do
           count = count + 1
         end
         return count
