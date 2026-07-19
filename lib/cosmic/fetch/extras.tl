@@ -2,6 +2,7 @@
 --- body building (query/json/form/multipart), the verb helpers, and
 --- download. Lives in its own file so fetch/init.tl stays under the
 --- 500-line cap; init wires everything together.
+local cosmo = require("cosmo")
 local url_mod = require("cosmic.url")
 local json_mod = require("cosmic.json")
 local codec = require("cosmic.codec")
@@ -22,17 +23,28 @@ local record Part
   content_type: string
 end
 
+--- Validate a fetch URL with the same parser the HTTP client uses
+--- (cosmo.ParseUrl) rather than a hand-rolled scheme pattern that could
+--- disagree with it (audit §1.6). ParseUrl preserves scheme case, so
+--- the http/https comparison still lowercases; a scheme-only URL like
+--- "http://" parses but carries no host, which fetch cannot use.
+--- @param url string The URL to validate
+--- @return string? Error message, or nil when the URL is usable
 local function validate_url(url: string): string
   if url == "" then
     return "empty URL"
   end
-  local scheme = url:match("^([a-zA-Z][a-zA-Z0-9+%-.]*)://")
+  local u = cosmo.ParseUrl(url)
+  local scheme = u.scheme
   if not scheme then
     return "unsupported URL scheme: (none)"
   end
   scheme = scheme:lower()
   if scheme ~= "http" and scheme ~= "https" then
     return "unsupported URL scheme: " .. scheme
+  end
+  if not u.host or u.host == "" then
+    return "missing URL host"
   end
   return nil
 end
@@ -79,8 +91,12 @@ local function unix_proxy(path: string): string | nil, string
   if path:sub(1, 1) ~= "/" then
     return nil, "socket path must be absolute"
   end
-  if path:match("/%.%./") or path:match("/%.%.$") or path:match("/%./") or path:match("/%.$") then
-    return nil, "socket path must not contain . or .. segments"
+  -- Delegate segment logic to fs.normalize instead of hand-rolled dot
+  -- patterns (audit §1.6): a path that is not already normal carries a
+  -- "." or ".." segment or a redundant slash, and is rejected rather
+  -- than silently rewritten.
+  if fs.normalize(path) ~= path then
+    return nil, "socket path must not contain . or .. segments or redundant slashes"
   end
   -- unix(7) sockaddr_un sun_path is typically 108 bytes
   if #path >= 108 then

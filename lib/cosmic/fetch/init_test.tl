@@ -273,6 +273,25 @@ local function test_fetch_no_scheme_rejected()
 end
 test_fetch_no_scheme_rejected()
 
+local function test_fetch_missing_host_rejected()
+  local result = fetch.fetch("http://")
+  assert(result.ok == false, "result.ok should be false for host-less URL")
+  assert(result.error == "missing URL host",
+    "expected 'missing URL host', got: " .. tostring(result.error))
+end
+test_fetch_missing_host_rejected()
+
+-- The scheme comparison is case-insensitive: an uppercase scheme must
+-- get past the scheme check (this host-less URL then fails on the host,
+-- proving the scheme was accepted without any network traffic).
+local function test_fetch_uppercase_scheme_accepted()
+  local result = fetch.fetch("HTTPS://")
+  assert(result.ok == false, "host-less URL still fails")
+  assert(result.error == "missing URL host",
+    "uppercase scheme should pass the scheme check, got: " .. tostring(result.error))
+end
+test_fetch_uppercase_scheme_accepted()
+
 -- unix_proxy helper tests
 
 local function test_unix_proxy_valid_path()
@@ -296,19 +315,46 @@ local function test_unix_proxy_relative_path()
 end
 test_unix_proxy_relative_path()
 
+local unix_proxy_segment_err = "socket path must not contain . or .. segments or redundant slashes"
+
 local function test_unix_proxy_dotdot_segment()
   local url, err = fetch.unix_proxy("/tmp/../etc/proxy.sock")
   assert(url == nil, "expected nil for path with .. segment")
-  assert(err == "socket path must not contain . or .. segments", "expected segment error, got: " .. tostring(err))
+  assert(err == unix_proxy_segment_err, "expected segment error, got: " .. tostring(err))
 end
 test_unix_proxy_dotdot_segment()
 
 local function test_unix_proxy_dot_segment()
   local url, err = fetch.unix_proxy("/tmp/./proxy.sock")
   assert(url == nil, "expected nil for path with . segment")
-  assert(err == "socket path must not contain . or .. segments", "expected segment error, got: " .. tostring(err))
+  assert(err == unix_proxy_segment_err, "expected segment error, got: " .. tostring(err))
 end
 test_unix_proxy_dot_segment()
+
+-- The delegated fs.normalize check also catches what the old dot
+-- patterns missed: redundant and trailing slashes.
+local function test_unix_proxy_redundant_slash()
+  local url, err = fetch.unix_proxy("/tmp//proxy.sock")
+  assert(url == nil, "expected nil for path with redundant slash")
+  assert(err == unix_proxy_segment_err, "expected segment error, got: " .. tostring(err))
+end
+test_unix_proxy_redundant_slash()
+
+local function test_unix_proxy_trailing_slash()
+  local url, err = fetch.unix_proxy("/tmp/proxy.sock/")
+  assert(url == nil, "expected nil for path with trailing slash")
+  assert(err == unix_proxy_segment_err, "expected segment error, got: " .. tostring(err))
+end
+test_unix_proxy_trailing_slash()
+
+-- Trailing ".." with no slash after it — a shape the old hand-rolled
+-- patterns had to cover with a dedicated case each.
+local function test_unix_proxy_trailing_dotdot()
+  local url, err = fetch.unix_proxy("/tmp/..")
+  assert(url == nil, "expected nil for path ending in ..")
+  assert(err == unix_proxy_segment_err, "expected segment error, got: " .. tostring(err))
+end
+test_unix_proxy_trailing_dotdot()
 
 local function test_unix_proxy_too_long_path()
   local long_path = "/" .. string.rep("a", 108)
