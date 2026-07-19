@@ -1,9 +1,11 @@
 #!/usr/bin/env cosmic
--- tlconfig.lua (editor/LSP tooling) mirrors the checker options compiled
--- into cosmic.teal; this test replaces the old "keep the two in sync by
--- hand" comment with enforcement. The test's Makefile target grants
--- r:tlconfig.lua — the repo root is outside the default test unveil.
+-- tlconfig.lua (editor/LSP tooling) and the Makefile's INCLUDE_DIRS both
+-- mirror the checker options compiled into cosmic.teal; this test replaces
+-- the old "keep the two in sync by hand" comment with enforcement. The
+-- test's Makefile target grants r:tlconfig.lua and r:Makefile — the repo
+-- root is outside the default test unveil.
 
+local fs = require("cosmic.fs")
 local teal = require("cosmic.teal")
 
 local function test_tlconfig_matches_teal_defaults()
@@ -22,15 +24,65 @@ local function test_tlconfig_matches_teal_defaults()
     .. teal.DEFAULT_GEN_COMPAT .. ")")
 
   -- Every editor include dir must be one the compiled-in checker also
-  -- searches, so the LSP and cosmic --check-types resolve the same types.
-  local defaults: {string: boolean} = {}
+  -- searches (defaults or the Makefile's extra dirs), so the LSP and
+  -- cosmic --check-types resolve the same types.
+  local cfg_dirs = cfg.include_dir as {string}
+  local blessed: {string: boolean} = {}
   for _, d in ipairs(teal.get_default_include_dirs()) do
-    defaults[d] = true
+    blessed[d] = true
   end
-  for _, d in ipairs(cfg.include_dir as {string}) do
-    assert(defaults[d],
+  for _, d in ipairs(teal.MAKEFILE_INCLUDE_DIRS) do
+    blessed[d] = true
+  end
+  for _, d in ipairs(cfg_dirs) do
+    assert(blessed[d],
       "tlconfig include_dir '" .. d
-      .. "' is not in cosmic.teal's default include dirs")
+      .. "' is not in cosmic.teal's default or Makefile include dirs")
+  end
+
+  -- And the editor must cover everything the checker sees locally: every
+  -- repo-relative dir the build/checker searches (Makefile extras plus
+  -- non-/zip defaults) must appear in tlconfig, or the LSP resolves less
+  -- than --check-types does.
+  local editor: {string: boolean} = {}
+  for _, d in ipairs(cfg_dirs) do
+    editor[d] = true
+  end
+  for _, d in ipairs(teal.MAKEFILE_INCLUDE_DIRS) do
+    assert(editor[d],
+      "Makefile include dir '" .. d .. "' is missing from tlconfig.lua")
+  end
+  for _, d in ipairs(teal.get_default_include_dirs()) do
+    if d:sub(1, 5) ~= "/zip/" then
+      assert(editor[d],
+        "checker default include dir '" .. d
+        .. "' is missing from tlconfig.lua")
+    end
   end
 end
 test_tlconfig_matches_teal_defaults()
+
+-- The Makefile's INCLUDE_DIRS default must equal the mirror compiled into
+-- cosmic.teal — the build and the library must agree on what extra dirs
+-- the checker searches, or --check-types behaves differently under
+-- bin/make than standalone.
+local function test_makefile_include_dirs_match_mirror()
+  local raw = fs.read("Makefile")
+  assert(raw, "Makefile should be readable")
+  local content = raw as string
+  local line = content:match("\nINCLUDE_DIRS %?= ([^\n]*)")
+  assert(line, "Makefile should declare 'INCLUDE_DIRS ?= ...'")
+  local dirs: {string} = {}
+  for d in line:gmatch("%S+") do
+    dirs[#dirs + 1] = d
+  end
+  assert(#dirs == #teal.MAKEFILE_INCLUDE_DIRS,
+    "Makefile INCLUDE_DIRS has " .. #dirs .. " entries, cosmic.teal mirror has "
+    .. #teal.MAKEFILE_INCLUDE_DIRS)
+  for i, d in ipairs(teal.MAKEFILE_INCLUDE_DIRS) do
+    assert(dirs[i] == d,
+      "Makefile INCLUDE_DIRS[" .. i .. "] is '" .. tostring(dirs[i])
+      .. "', cosmic.teal mirror says '" .. d .. "'")
+  end
+end
+test_makefile_include_dirs_match_mirror()
