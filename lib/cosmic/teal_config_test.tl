@@ -53,7 +53,7 @@ local function test_tlconfig_matches_teal_defaults()
       "Makefile include dir '" .. d .. "' is missing from tlconfig.lua")
   end
   for _, d in ipairs(teal.get_default_include_dirs()) do
-    if d:sub(1, 5) ~= "/zip/" then
+    if d ~= "/zip" and d:sub(1, 5) ~= "/zip/" then
       assert(editor[d],
         "checker default include dir '" .. d
         .. "' is missing from tlconfig.lua")
