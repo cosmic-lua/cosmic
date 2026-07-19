@@ -68,7 +68,8 @@ local function pty_available(): boolean
   if not write_ok then
     return false
   end
-  -- Run cosmic through script to simulate a PTY (suppress welcome to avoid mutating binary)
+  -- Run cosmic through script to simulate a PTY (suppress welcome so this
+  -- probe leaves no first-run state behind)
   local cmd = "COSMIC_NO_WELCOME=1 " .. cosmic .. " " .. probe
   local r = spawn.run({"script", "-qc", cmd, "/dev/null"}) as spawn.Result
   local s = r.stdout
@@ -90,28 +91,37 @@ if not pty_available() then
   return
 end
 
--- Helper to run cosmic in a PTY (using script command) to trigger TTY-based welcome
-local function run_with_pty(args: {string}): boolean, string
-  -- Copy binary to temp location so it's fresh (no embedded marker)
-  local fresh_cosmic = fs.join(tmpdir, "cosmic-fresh-" .. tostring(os.time()))
-  local cp = spawn.run({"cp", cosmic, fresh_cosmic}) as spawn.Result
-  assert(cp.ok, "failed to copy cosmic binary")
+-- The "welcome shown" marker lives in $XDG_CONFIG_HOME/cosmic (#510 step
+-- 10), so each test isolates first-run state with its own config dir.
+local function fresh_confdir(name: string): string
+  local dir = fs.join(tmpdir, "conf-" .. name)
+  assert(fs.makedirs(dir))
+  return dir
+end
 
-  -- Build command string for script
-  local cmd = fresh_cosmic
+-- Copy the cosmic binary so no test ever touches the shared TEST_BIN one.
+local function copy_binary(name: string): string
+  local dest = fs.join(tmpdir, "cosmic-" .. name)
+  local cp = spawn.run({"cp", cosmic, dest}) as spawn.Result
+  assert(cp.ok, "failed to copy cosmic binary")
+  return dest
+end
+
+-- Helper to run a cosmic binary in a PTY (via the script command, which
+-- merges stdout/stderr) with first-run state isolated to confdir.
+local function run_with_pty(bin: string, args: {string}, confdir: string): boolean, string
+  local cmd = "XDG_CONFIG_HOME='" .. confdir .. "' " .. bin
   for _, a in ipairs(args) do
     -- Escape single quotes in arguments
     cmd = cmd .. " '" .. a:gsub("'", "'\\''") .. "'"
   end
-
-  -- Use script command to provide PTY (merges stdout/stderr)
   local r = spawn.run({"script", "-qc", cmd, "/dev/null"}) as spawn.Result
   return r.ok, r.stdout
 end
 
 -- Test welcome appears on first run with -e flag
 local function test_welcome_with_e_flag()
-  local ok, out = run_with_pty({"-e", "print('hello')"})
+  local ok, out = run_with_pty(copy_binary("e-flag"), {"-e", "print('hello')"}, fresh_confdir("e-flag"))
   assert(ok, "cosmic -e should succeed: " .. out)
   assert(out:find("Welcome to cosmic%-lua!"), "welcome should appear with -e: " .. out)
   assert(out:find("hello"), "should execute the statement: " .. out)
@@ -121,7 +131,7 @@ test_welcome_with_e_flag()
 
 -- Test welcome does NOT appear with -v flag (early-return skips welcome)
 local function test_welcome_skipped_with_v_flag()
-  local ok, out = run_with_pty({"-v"})
+  local ok, out = run_with_pty(copy_binary("v-flag"), {"-v"}, fresh_confdir("v-flag"))
   assert(ok, "cosmic -v should succeed: " .. out)
   assert(not out:find("Welcome to cosmic%-lua!"), "welcome should NOT appear with -v: " .. out)
   assert(out:find("Lua 5%.4") or out:find("cosmic%-lua"), "should show version: " .. out)
@@ -129,44 +139,92 @@ local function test_welcome_skipped_with_v_flag()
 end
 test_welcome_skipped_with_v_flag()
 
--- Test welcome does NOT appear on second run (marker embedded)
-local function test_welcome_not_shown_twice()
-  -- Copy binary to temp location
-  local fresh_cosmic = fs.join(tmpdir, "cosmic-twice-test")
-  local cp = spawn.run({"cp", cosmic, fresh_cosmic}) as spawn.Result
-  assert(cp.ok, "failed to copy cosmic binary")
+-- #510 step 10: showing the welcome must NOT modify the executable.
+-- The old marker was zip-appended to the running binary, which broke
+-- release checksum verification (and loops forever on Windows, where
+-- the running exe is locked).
+local function test_welcome_does_not_modify_binary()
+  local bin = copy_binary("immutable")
+  local before = assert(fs.read(bin))
+  local ok, out = run_with_pty(bin, {"-e", "print(1)"}, fresh_confdir("immutable"))
+  assert(ok, "run should succeed: " .. out)
+  assert(out:find("Welcome to cosmic%-lua!"), "welcome should appear: " .. out)
+  local after = assert(fs.read(bin))
+  assert(#before == #after and before == after,
+    "showing the welcome must not modify the binary (size "
+    .. tostring(#before) .. " -> " .. tostring(#after) .. ")")
+  print("test_welcome_does_not_modify_binary: PASS")
+end
+test_welcome_does_not_modify_binary()
 
-  -- First run - should show welcome (use -e to avoid early-return)
-  local cmd1 = fresh_cosmic .. " -e 'print(1)'"
-  local r1 = spawn.run({"script", "-qc", cmd1, "/dev/null"}) as spawn.Result
-  local s1 = r1.stdout
-  assert(r1.ok, "first run should succeed: " .. s1)
+-- #510 step 10: the shown marker is written under $XDG_CONFIG_HOME.
+local function test_marker_written_to_config_dir()
+  local confdir = fresh_confdir("marker")
+  local ok, out = run_with_pty(copy_binary("marker"), {"-e", "print(1)"}, confdir)
+  assert(ok, "run should succeed: " .. out)
+  assert(out:find("Welcome to cosmic%-lua!"), "welcome should appear: " .. out)
+  assert(fs.isfile(fs.join(confdir, "cosmic", "welcome-shown")),
+    "marker should be written to $XDG_CONFIG_HOME/cosmic/welcome-shown")
+  print("test_marker_written_to_config_dir: PASS")
+end
+test_marker_written_to_config_dir()
+
+-- With XDG_CONFIG_HOME unset, the marker falls back to $HOME/.config.
+local function test_marker_home_fallback()
+  local home = fs.join(tmpdir, "home-fallback")
+  assert(fs.makedirs(home))
+  local bin = copy_binary("home-fallback")
+  local cmd = "XDG_CONFIG_HOME= HOME='" .. home .. "' " .. bin .. " -e 'print(1)'"
+  local r = spawn.run({"script", "-qc", cmd, "/dev/null"}) as spawn.Result
+  assert(r.ok, "run should succeed: " .. r.stdout)
+  assert(r.stdout:find("Welcome to cosmic%-lua!"), "welcome should appear: " .. r.stdout)
+  assert(fs.isfile(fs.join(home, ".config", "cosmic", "welcome-shown")),
+    "marker should fall back to $HOME/.config/cosmic/welcome-shown")
+  print("test_marker_home_fallback: PASS")
+end
+test_marker_home_fallback()
+
+-- Test welcome does NOT appear on second run (same binary, same config)
+local function test_welcome_not_shown_twice()
+  local bin = copy_binary("twice")
+  local confdir = fresh_confdir("twice")
+  local ok1, s1 = run_with_pty(bin, {"-e", "print(1)"}, confdir)
+  assert(ok1, "first run should succeed: " .. s1)
   assert(s1:find("Welcome to cosmic%-lua!"), "first run should show welcome: " .. s1)
 
-  -- Second run with SAME binary - should NOT show welcome (marker embedded)
-  local r2 = spawn.run({"script", "-qc", cmd1, "/dev/null"}) as spawn.Result
-  local s2 = r2.stdout
-  assert(r2.ok, "second run should succeed: " .. s2)
+  local ok2, s2 = run_with_pty(bin, {"-e", "print(1)"}, confdir)
+  assert(ok2, "second run should succeed: " .. s2)
   assert(not s2:find("Welcome to cosmic%-lua!"), "second run should NOT show welcome: " .. s2)
-
   print("test_welcome_not_shown_twice: PASS")
 end
 test_welcome_not_shown_twice()
 
+-- A marker embedded in the binary still counts as shown: it lets a
+-- distributor pre-seed a binary, and keeps copies mutated by older
+-- cosmic versions (which zip-appended the marker) quiet.
+local function test_embedded_marker_suppresses()
+  local czip = require("cosmic.zip")
+  local bin = copy_binary("embedded")
+  local a = assert(czip.appender(bin)) as czip.Appender
+  assert(a:add(".cosmic/welcome-shown", ""))
+  a:close()
+  local ok, out = run_with_pty(bin, {"-e", "print(1)"}, fresh_confdir("embedded"))
+  assert(ok, "run should succeed: " .. out)
+  assert(not out:find("Welcome to cosmic%-lua!"),
+    "embedded marker should suppress welcome: " .. out)
+  print("test_embedded_marker_suppresses: PASS")
+end
+test_embedded_marker_suppresses()
+
 -- Test COSMIC_NO_WELCOME suppresses welcome even on first run
 local function test_no_welcome_env_suppresses()
-  -- Copy binary to temp location
-  local fresh_cosmic = fs.join(tmpdir, "cosmic-no-welcome-test")
-  local cp = spawn.run({"cp", cosmic, fresh_cosmic}) as spawn.Result
-  assert(cp.ok, "failed to copy cosmic binary")
-
-  -- Run with COSMIC_NO_WELCOME set (use -e to avoid early-return)
-  local cmd = "COSMIC_NO_WELCOME=1 " .. fresh_cosmic .. " -e 'print(1)'"
+  local bin = copy_binary("no-welcome")
+  local confdir = fresh_confdir("no-welcome")
+  local cmd = "COSMIC_NO_WELCOME=1 XDG_CONFIG_HOME='" .. confdir .. "' " .. bin .. " -e 'print(1)'"
   local r = spawn.run({"script", "-qc", cmd, "/dev/null"}) as spawn.Result
   local s = r.stdout
   assert(r.ok, "should succeed: " .. s)
   assert(not s:find("Welcome to cosmic%-lua!"), "welcome should be suppressed: " .. s)
-
   print("test_no_welcome_env_suppresses: PASS")
 end
 test_no_welcome_env_suppresses()

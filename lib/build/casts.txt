@@ -27,8 +27,8 @@
 1	lib/cosmic/cli/script_cache.tl
 1	lib/cosmic/cli/searcher.tl
 12	lib/cosmic/cli/style_test.tl
-1	lib/cosmic/cli/welcome.tl
-11	lib/cosmic/cli/welcome_test.tl
+0	lib/cosmic/cli/welcome.tl
+9	lib/cosmic/cli/welcome_test.tl
 9	lib/cosmic/codec.tl
 4	lib/cosmic/codec_test.tl
 51	lib/cosmic/compile_test.tl
