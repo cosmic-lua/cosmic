@@ -34,7 +34,7 @@ local record EncodeOptions
   --  Indentation string used when pretty is true (default " ").
   indent: string
   --  Maximum serializer recursion depth (default 64, max 32767).
-  maxdepth: number
+  maxdepth: integer
   --  The only accepted value is "null": encode NaN and Infinity as
   --  `null` (the v8 behavior) instead of failing with nil, error.
   nan: string

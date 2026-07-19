@@ -9,17 +9,17 @@
 
 ```teal
 local record UserModule
-  getuid: function(): number
-  getgid: function(): number
-  geteuid: function(): number
-  getegid: function(): number
+  getuid: function(): integer
+  getgid: function(): integer
+  geteuid: function(): integer
+  getegid: function(): integer
   getlogin: function(): string | nil, string
-  setuid: function(uid: number): boolean, string
-  setgid: function(gid: number): boolean, string
-  setfsuid: function(uid: number): boolean, string
-  setresuid: function(real: number, effective: number, saved: number): boolean, string
-  setresgid: function(real: number, effective: number, saved: number): boolean, string
-  umask: function(newmask: number): number
+  setuid: function(uid: integer): boolean, string
+  setgid: function(gid: integer): boolean, string
+  setfsuid: function(uid: integer): boolean, string
+  setresuid: function(real: integer, effective: integer, saved: integer): boolean, string
+  setresgid: function(real: integer, effective: integer, saved: integer): boolean, string
+  umask: function(newmask: integer): integer
   chroot: function(path: string): boolean, string
 end
 ```
@@ -29,19 +29,19 @@ end
 ### getuid
 
 ```teal
-function getuid(): number
+function getuid(): integer
 ```
 
  Get the real user ID of the calling process.
 
 **Returns:**
 
-- number - The real user ID
+- integer - The real user ID
 
 ### getgid
 
 ```teal
-function getgid(): number
+function getgid(): integer
 ```
 
  Get the real group ID of the calling process.
@@ -49,12 +49,12 @@ function getgid(): number
 
 **Returns:**
 
-- number - The real group ID
+- integer - The real group ID
 
 ### geteuid
 
 ```teal
-function geteuid(): number
+function geteuid(): integer
 ```
 
  Get the effective user ID of the calling process.
@@ -64,12 +64,12 @@ function geteuid(): number
 
 **Returns:**
 
-- number - The effective user ID
+- integer - The effective user ID
 
 ### getegid
 
 ```teal
-function getegid(): number
+function getegid(): integer
 ```
 
  Get the effective group ID of the calling process.
@@ -77,7 +77,7 @@ function getegid(): number
 
 **Returns:**
 
-- number - The effective group ID
+- integer - The effective group ID
 
 ### getlogin
 
@@ -95,7 +95,7 @@ function getlogin(): string | nil, string
 ### setuid
 
 ```teal
-function setuid(uid: number): boolean, string
+function setuid(uid: integer): boolean, string
 ```
 
  Set the user ID of the calling process.
@@ -103,7 +103,7 @@ function setuid(uid: number): boolean, string
 
 **Parameters:**
 
-- `uid` (number) - The user ID to set
+- `uid` (integer) - The user ID to set
 
 **Returns:**
 
@@ -113,7 +113,7 @@ function setuid(uid: number): boolean, string
 ### setgid
 
 ```teal
-function setgid(gid: number): boolean, string
+function setgid(gid: integer): boolean, string
 ```
 
  Set the group ID of the calling process.
@@ -121,7 +121,7 @@ function setgid(gid: number): boolean, string
 
 **Parameters:**
 
-- `gid` (number) - The group ID to set
+- `gid` (integer) - The group ID to set
 
 **Returns:**
 
@@ -131,14 +131,14 @@ function setgid(gid: number): boolean, string
 ### setfsuid
 
 ```teal
-function setfsuid(uid: number): boolean, string
+function setfsuid(uid: integer): boolean, string
 ```
 
  Set the filesystem user ID.
 
 **Parameters:**
 
-- `uid` (number) - The filesystem user ID to set
+- `uid` (integer) - The filesystem user ID to set
 
 **Returns:**
 
@@ -148,7 +148,7 @@ function setfsuid(uid: number): boolean, string
 ### setresuid
 
 ```teal
-function setresuid(real: number, effective: number, saved: number): boolean, string
+function setresuid(real: integer, effective: integer, saved: integer): boolean, string
 ```
 
  Set real, effective, and saved user IDs.
@@ -156,9 +156,9 @@ function setresuid(real: number, effective: number, saved: number): boolean, str
 
 **Parameters:**
 
-- `real` (number) - The real user ID to set (-1 to leave unchanged)
-- `effective` (number) - The effective user ID to set (-1 to leave unchanged)
-- `saved` (number) - The saved user ID to set (-1 to leave unchanged)
+- `real` (integer) - The real user ID to set (-1 to leave unchanged)
+- `effective` (integer) - The effective user ID to set (-1 to leave unchanged)
+- `saved` (integer) - The saved user ID to set (-1 to leave unchanged)
 
 **Returns:**
 
@@ -168,7 +168,7 @@ function setresuid(real: number, effective: number, saved: number): boolean, str
 ### setresgid
 
 ```teal
-function setresgid(real: number, effective: number, saved: number): boolean, string
+function setresgid(real: integer, effective: integer, saved: integer): boolean, string
 ```
 
  Set real, effective, and saved group IDs.
@@ -176,9 +176,9 @@ function setresgid(real: number, effective: number, saved: number): boolean, str
 
 **Parameters:**
 
-- `real` (number) - The real group ID to set (-1 to leave unchanged)
-- `effective` (number) - The effective group ID to set (-1 to leave unchanged)
-- `saved` (number) - The saved group ID to set (-1 to leave unchanged)
+- `real` (integer) - The real group ID to set (-1 to leave unchanged)
+- `effective` (integer) - The effective group ID to set (-1 to leave unchanged)
+- `saved` (integer) - The saved group ID to set (-1 to leave unchanged)
 
 **Returns:**
 
@@ -188,7 +188,7 @@ function setresgid(real: number, effective: number, saved: number): boolean, str
 ### umask
 
 ```teal
-function umask(newmask: number): number
+function umask(newmask: integer): integer
 ```
 
  Set the file mode creation mask.
@@ -197,11 +197,11 @@ function umask(newmask: number): number
 
 **Parameters:**
 
-- `newmask` (number) - The new file mode creation mask
+- `newmask` (integer) - The new file mode creation mask
 
 **Returns:**
 
-- number - The previous umask value
+- integer - The previous umask value
 
 ### chroot
 

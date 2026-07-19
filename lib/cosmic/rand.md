@@ -16,13 +16,13 @@
 
 ```teal
 local record RandModule
-  bytes: function(n: number): string | nil, string
+  bytes: function(n: integer): string | nil, string
   int: function(min: integer, max: integer): integer | nil, string
   float: function(): number | nil, string
   choice: function(list: {any}): any, string
   shuffle: function(list: {any}): {any} | nil, string
   token: function(len?: integer): string | nil, string
-  rand64: function(): number
+  rand64: function(): integer
 end
 ```
 
@@ -31,14 +31,14 @@ end
 ### bytes
 
 ```teal
-function bytes(n: number): string | nil, string
+function bytes(n: integer): string | nil, string
 ```
 
  Generate cryptographically secure random bytes.
 
 **Parameters:**
 
-- `n` (number) - The number of random bytes to generate (1..4194304)
+- `n` (integer) - The number of random bytes to generate (1..4194304)
 
 **Returns:**
 
@@ -48,7 +48,7 @@ function bytes(n: number): string | nil, string
 ### rand64
 
 ```teal
-function rand64(): number
+function rand64(): integer
 ```
 
  Generate a fast 64-bit pseudo-random integer (non-cryptographic).

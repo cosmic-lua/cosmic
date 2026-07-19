@@ -47,7 +47,7 @@ local record Handle
   _closed: boolean
   --  Sends `sig` (default SIGTERM) to the child. Fails once the child has
   --  been reaped, since its pid may have been recycled.
-  kill: function(self: Handle, sig?: number): boolean, string
+  kill: function(self: Handle, sig?: integer): boolean, string
   --  Non-blocking reap: the cached/final Result if the child has finished,
   --  `nil, nil` while it is still running, or `nil, err` on a wait error.
   try_wait: function(self: Handle): Result | nil, string
@@ -85,7 +85,7 @@ end
 local record ChildModule
   spawn: function(argv: {string}, opts?: Options): Handle | nil, string
   run: function(argv: {string}, opts?: Options): Result | nil, string
-  prepare_zip_exec: function(zip_path: string): number | nil, string
+  prepare_zip_exec: function(zip_path: string): integer | nil, string
 end
 ```
 
@@ -94,7 +94,7 @@ end
 ### prepare_zip_exec
 
 ```teal
-function prepare_zip_exec(zip_path: string): number | nil, string
+function prepare_zip_exec(zip_path: string): integer | nil, string
 ```
 
  Prepares an executable fd from a /zip/ path for fexecve.
@@ -105,7 +105,7 @@ function prepare_zip_exec(zip_path: string): number | nil, string
 
 **Returns:**
 
-- number - | nil The file descriptor ready for fexecve
+- integer - | nil The file descriptor ready for fexecve
 - string - Error message on failure
 
 ### spawn
@@ -150,7 +150,7 @@ function run(argv: {string}, opts?: Options): Result | nil, string
 ### handle:kill
 
 ```teal
-function handle:kill(sig?: number): boolean, string
+function handle:kill(sig?: integer): boolean, string
 ```
 
 ### handle:wait
@@ -168,5 +168,5 @@ function handle:try_wait(): Result | nil, string
 ### handle:read
 
 ```teal
-function handle:read(size?: number): string | nil, string
+function handle:read(size?: integer): string | nil, string
 ```

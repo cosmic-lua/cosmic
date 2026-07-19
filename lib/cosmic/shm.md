@@ -24,33 +24,33 @@
 local record Memory
   --  Read bytes from the region. With no bytes count, reads up to the
   --  first NUL byte (string semantics).
-  read: function(self: Memory, offset?: number, bytes?: number): string | nil, string
+  read: function(self: Memory, offset?: integer, bytes?: integer): string | nil, string
   --  Write bytes to the region (appends a NUL when no count is given).
-  write: function(self: Memory, data: string, offset?: number, bytes?: number): boolean, string
+  write: function(self: Memory, data: string, offset?: integer, bytes?: integer): boolean, string
   --  Atomic load of a word.
-  load: function(self: Memory, word_index: number): number | nil, string
+  load: function(self: Memory, word_index: integer): integer | nil, string
   --  Atomic store to a word.
-  store: function(self: Memory, word_index: number, value: number): boolean, string
+  store: function(self: Memory, word_index: integer, value: integer): boolean, string
   --  Atomic exchange; returns the old value.
-  xchg: function(self: Memory, word_index: number, value: number): number | nil, string
+  xchg: function(self: Memory, word_index: integer, value: integer): integer | nil, string
   --  Compare-and-exchange; returns success plus the actual old value.
-  cmpxchg: function(self: Memory, word_index: number, old: number, new: number): boolean | nil, number, string
+  cmpxchg: function(self: Memory, word_index: integer, old: integer, new: integer): boolean | nil, integer, string
   --  Atomic add; returns the old value.
-  fetch_add: function(self: Memory, word_index: number, value: number): number | nil, string
+  fetch_add: function(self: Memory, word_index: integer, value: integer): integer | nil, string
   --  Atomic AND; returns the old value.
-  fetch_and: function(self: Memory, word_index: number, value: number): number | nil, string
+  fetch_and: function(self: Memory, word_index: integer, value: integer): integer | nil, string
   --  Atomic OR; returns the old value.
-  fetch_or: function(self: Memory, word_index: number, value: number): number | nil, string
+  fetch_or: function(self: Memory, word_index: integer, value: integer): integer | nil, string
   --  Atomic XOR; returns the old value.
-  fetch_xor: function(self: Memory, word_index: number, value: number): number | nil, string
+  fetch_xor: function(self: Memory, word_index: integer, value: integer): integer | nil, string
   --  Wait until the word no longer holds `expect`. Returns 0 when
   --  woken; nil plus an error naming EAGAIN (value already differed),
   --  ETIMEDOUT (deadline expired), or EINTR (signal).
-  wait: function(self: Memory, word_index: number, expect: number, abs_deadline?: number, nanos?: number): number | nil, string
+  wait: function(self: Memory, word_index: integer, expect: integer, abs_deadline?: integer, nanos?: integer): integer | nil, string
   --  Wake processes waiting on a word; returns how many woke.
-  wake: function(self: Memory, word_index: number, count?: number): number
+  wake: function(self: Memory, word_index: integer, count?: integer): integer
   --  The mapped region size in bytes.
-  size: function(self: Memory): number
+  size: function(self: Memory): integer
 end
 ```
 
@@ -60,7 +60,7 @@ end
 
 ```teal
 local record ShmModule
-  mapshared: function(size: number): Memory | nil, string
+  mapshared: function(size: integer): Memory | nil, string
 end
 ```
 
@@ -69,7 +69,7 @@ end
 ### mapshared
 
 ```teal
-function mapshared(size: number): Memory | nil, string
+function mapshared(size: integer): Memory | nil, string
 ```
 
  Creates a shared memory region.
@@ -92,7 +92,7 @@ function mapshared(size: number): Memory | nil, string
 
 **Parameters:**
 
-- `size` (number) - Size in bytes: positive, a multiple of the 8-byte word size
+- `size` (integer) - Size in bytes: positive, a multiple of the 8-byte word size
 
 **Returns:**
 
@@ -102,77 +102,77 @@ function mapshared(size: number): Memory | nil, string
 ### mem:size
 
 ```teal
-function mem:size(): number
+function mem:size(): integer
 ```
 
 ### mem:read
 
 ```teal
-function mem:read(offset?: number, bytes?: number): string | nil, string
+function mem:read(offset?: integer, bytes?: integer): string | nil, string
 ```
 
 ### mem:write
 
 ```teal
-function mem:write(data: string, offset?: number, bytes?: number): boolean, string
+function mem:write(data: string, offset?: integer, bytes?: integer): boolean, string
 ```
 
 ### mem:load
 
 ```teal
-function mem:load(word_index: number): number | nil, string
+function mem:load(word_index: integer): integer | nil, string
 ```
 
 ### mem:store
 
 ```teal
-function mem:store(word_index: number, value: number): boolean, string
+function mem:store(word_index: integer, value: integer): boolean, string
 ```
 
 ### mem:xchg
 
 ```teal
-function mem:xchg(word_index: number, value: number): number | nil, string
+function mem:xchg(word_index: integer, value: integer): integer | nil, string
 ```
 
 ### mem:fetch_add
 
 ```teal
-function mem:fetch_add(word_index: number, value: number): number | nil, string
+function mem:fetch_add(word_index: integer, value: integer): integer | nil, string
 ```
 
 ### mem:fetch_and
 
 ```teal
-function mem:fetch_and(word_index: number, value: number): number | nil, string
+function mem:fetch_and(word_index: integer, value: integer): integer | nil, string
 ```
 
 ### mem:fetch_or
 
 ```teal
-function mem:fetch_or(word_index: number, value: number): number | nil, string
+function mem:fetch_or(word_index: integer, value: integer): integer | nil, string
 ```
 
 ### mem:fetch_xor
 
 ```teal
-function mem:fetch_xor(word_index: number, value: number): number | nil, string
+function mem:fetch_xor(word_index: integer, value: integer): integer | nil, string
 ```
 
 ### mem:cmpxchg
 
 ```teal
-function mem:cmpxchg(word_index: number, old: number, new: number): boolean | nil, number, string
+function mem:cmpxchg(word_index: integer, old: integer, new: integer): boolean | nil, integer, string
 ```
 
 ### mem:wait
 
 ```teal
-function mem:wait(word_index: number, expect: number, abs_deadline?: number, nanos?: number): number | nil, string
+function mem:wait(word_index: integer, expect: integer, abs_deadline?: integer, nanos?: integer): integer | nil, string
 ```
 
 ### mem:wake
 
 ```teal
-function mem:wake(word_index: number, count?: number): number
+function mem:wake(word_index: integer, count?: integer): integer
 ```

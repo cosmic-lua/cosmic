@@ -9,7 +9,7 @@
 
 ```teal
 local record SyslogModule
-  write: function(priority: number, message: string)
+  write: function(priority: integer, message: string)
   emerg: function(message: string)
   alert: function(message: string)
   crit: function(message: string)
@@ -18,14 +18,14 @@ local record SyslogModule
   notice: function(message: string)
   info: function(message: string)
   debug: function(message: string)
-  LOG_EMERG: number
-  LOG_ALERT: number
-  LOG_CRIT: number
-  LOG_ERR: number
-  LOG_WARNING: number
-  LOG_NOTICE: number
-  LOG_INFO: number
-  LOG_DEBUG: number
+  LOG_EMERG: integer
+  LOG_ALERT: integer
+  LOG_CRIT: integer
+  LOG_ERR: integer
+  LOG_WARNING: integer
+  LOG_NOTICE: integer
+  LOG_INFO: integer
+  LOG_DEBUG: integer
 end
 ```
 
@@ -34,14 +34,14 @@ end
 ### write
 
 ```teal
-function write(priority: number, message: string)
+function write(priority: integer, message: string)
 ```
 
  Write a message to the system log.
 
 **Parameters:**
 
-- `priority` (number) - Log priority (LOG_EMERG through LOG_DEBUG)
+- `priority` (integer) - Log priority (LOG_EMERG through LOG_DEBUG)
 - `message` (string) - The message to log
 
 ### emerg

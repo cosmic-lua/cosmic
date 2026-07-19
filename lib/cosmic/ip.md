@@ -19,12 +19,12 @@
 
 ```teal
 local record Addr
-  _n: number
+  _n: integer
   --  Address family; "inet" for IPv4.
   family: Family
   --  Get the raw integer representation (the IPv4 payload).
   --  Use this at the C boundary or for arithmetic on the raw value.
-  int: function(Addr): number
+  int: function(Addr): integer
   --  Format as a dotted-quad string (e.g., "192.168.1.1").
   format: function(Addr): string
   --  Categorize the address (e.g., "LOOPBACK", "PRIVATE", "ARIN").
@@ -56,7 +56,7 @@ local record Cidr
   --  Last address of the block (the broadcast address).
   broadcast: function(Cidr): Addr
   --  Number of addresses in the block (including network/broadcast).
-  size: function(Cidr): number
+  size: function(Cidr): integer
   --  Check whether the block contains an address.
   --  message) when a string address does not parse
   contains: function(Cidr, Addr | string): boolean, string
@@ -70,7 +70,7 @@ end
 ```teal
 local record IpModule
   Addr: Addr
-  addr: function(n: number): Addr
+  addr: function(n: integer): Addr
   parse: function(str: string): Addr | nil, string
   cidr: function(str: string): Cidr | nil, string
   lookup: function(hostname: string): Addr | nil, string
@@ -82,7 +82,7 @@ end
 ### addr
 
 ```teal
-function addr(n: number): Addr
+function addr(n: integer): Addr
 ```
 
  Wrap a raw integer as a typed Addr.

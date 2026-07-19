@@ -26,85 +26,85 @@ end
 ```teal
 local record NetModule
   Interface: Interface
-  socket: function(family?: number, socktype?: number, protocol?: number): Socket | nil, string
-  socketpair: function(family?: number, socktype?: number, protocol?: number): Socket | nil, Socket, string
-  listen_unix: function(path: string, backlog?: number): Socket | nil, string
-  listen_tcp: function(addr: Address, port: number, backlog?: number): Socket | nil, number, string
+  socket: function(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, string
+  socketpair: function(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, Socket, string
+  listen_unix: function(path: string, backlog?: integer): Socket | nil, string
+  listen_tcp: function(addr: Address, port: integer, backlog?: integer): Socket | nil, integer, string
   connect_unix: function(path: string): Socket | nil, string
-  connect_tcp: function(addr: Address, port: number): Socket | nil, string
-  dial: function(host: string, port: number): Socket | nil, string
-  nb_connect: function(s: Socket, addr: Address, port: number, timeoutms?: number): boolean, string
+  connect_tcp: function(addr: Address, port: integer): Socket | nil, string
+  dial: function(host: string, port: integer): Socket | nil, string
+  nb_connect: function(s: Socket, addr: Address, port: integer, timeoutms?: integer): boolean, string
   gethostname: function(): string | nil, string
   interfaces: function(): {Interface} | nil, string
-  AF_INET: number
-  AF_UNIX: number
-  AF_UNSPEC: number
-  SOCK_STREAM: number
-  SOCK_DGRAM: number
-  SOCK_RAW: number
-  SOCK_RDM: number
-  SOCK_SEQPACKET: number
-  SOCK_CLOEXEC: number
-  SOCK_NONBLOCK: number
-  IPPROTO_TCP: number
-  IPPROTO_UDP: number
-  IPPROTO_IP: number
-  IPPROTO_ICMP: number
-  IPPROTO_RAW: number
-  SOL_SOCKET: number
-  SOL_TCP: number
-  SOL_UDP: number
-  SOL_IP: number
-  SO_REUSEADDR: number
-  SO_REUSEPORT: number
-  SO_KEEPALIVE: number
-  SO_BROADCAST: number
-  SO_LINGER: number
-  SO_RCVBUF: number
-  SO_SNDBUF: number
-  SO_RCVTIMEO: number
-  SO_SNDTIMEO: number
-  SO_ERROR: number
-  SO_TYPE: number
-  SO_ACCEPTCONN: number
-  SO_DEBUG: number
-  SO_DONTROUTE: number
-  SO_RCVLOWAT: number
-  SO_SNDLOWAT: number
-  TCP_NODELAY: number
-  TCP_CORK: number
-  TCP_KEEPIDLE: number
-  TCP_KEEPINTVL: number
-  TCP_KEEPCNT: number
-  TCP_MAXSEG: number
-  TCP_SYNCNT: number
-  TCP_DEFER_ACCEPT: number
-  TCP_FASTOPEN: number
-  TCP_FASTOPEN_CONNECT: number
-  TCP_QUICKACK: number
-  TCP_NOTSENT_LOWAT: number
-  TCP_WINDOW_CLAMP: number
-  TCP_SAVE_SYN: number
-  TCP_SAVED_SYN: number
-  SHUT_RD: number
-  SHUT_WR: number
-  SHUT_RDWR: number
-  POLLIN: number
-  POLLOUT: number
-  POLLERR: number
-  POLLHUP: number
-  POLLNVAL: number
-  POLLPRI: number
-  POLLRDBAND: number
-  POLLRDHUP: number
-  POLLRDNORM: number
-  POLLWRBAND: number
-  POLLWRNORM: number
-  MSG_PEEK: number
-  MSG_WAITALL: number
-  MSG_OOB: number
-  MSG_DONTROUTE: number
-  MSG_NOSIGNAL: number
+  AF_INET: integer
+  AF_UNIX: integer
+  AF_UNSPEC: integer
+  SOCK_STREAM: integer
+  SOCK_DGRAM: integer
+  SOCK_RAW: integer
+  SOCK_RDM: integer
+  SOCK_SEQPACKET: integer
+  SOCK_CLOEXEC: integer
+  SOCK_NONBLOCK: integer
+  IPPROTO_TCP: integer
+  IPPROTO_UDP: integer
+  IPPROTO_IP: integer
+  IPPROTO_ICMP: integer
+  IPPROTO_RAW: integer
+  SOL_SOCKET: integer
+  SOL_TCP: integer
+  SOL_UDP: integer
+  SOL_IP: integer
+  SO_REUSEADDR: integer
+  SO_REUSEPORT: integer
+  SO_KEEPALIVE: integer
+  SO_BROADCAST: integer
+  SO_LINGER: integer
+  SO_RCVBUF: integer
+  SO_SNDBUF: integer
+  SO_RCVTIMEO: integer
+  SO_SNDTIMEO: integer
+  SO_ERROR: integer
+  SO_TYPE: integer
+  SO_ACCEPTCONN: integer
+  SO_DEBUG: integer
+  SO_DONTROUTE: integer
+  SO_RCVLOWAT: integer
+  SO_SNDLOWAT: integer
+  TCP_NODELAY: integer
+  TCP_CORK: integer
+  TCP_KEEPIDLE: integer
+  TCP_KEEPINTVL: integer
+  TCP_KEEPCNT: integer
+  TCP_MAXSEG: integer
+  TCP_SYNCNT: integer
+  TCP_DEFER_ACCEPT: integer
+  TCP_FASTOPEN: integer
+  TCP_FASTOPEN_CONNECT: integer
+  TCP_QUICKACK: integer
+  TCP_NOTSENT_LOWAT: integer
+  TCP_WINDOW_CLAMP: integer
+  TCP_SAVE_SYN: integer
+  TCP_SAVED_SYN: integer
+  SHUT_RD: integer
+  SHUT_WR: integer
+  SHUT_RDWR: integer
+  POLLIN: integer
+  POLLOUT: integer
+  POLLERR: integer
+  POLLHUP: integer
+  POLLNVAL: integer
+  POLLPRI: integer
+  POLLRDBAND: integer
+  POLLRDHUP: integer
+  POLLRDNORM: integer
+  POLLWRBAND: integer
+  POLLWRNORM: integer
+  MSG_PEEK: integer
+  MSG_WAITALL: integer
+  MSG_OOB: integer
+  MSG_DONTROUTE: integer
+  MSG_NOSIGNAL: integer
 end
 ```
 
@@ -113,16 +113,16 @@ end
 ### socket
 
 ```teal
-function socket(family?: number, socktype?: number, protocol?: number): Socket | nil, string
+function socket(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, string
 ```
 
  Create a new socket.
 
 **Parameters:**
 
-- `family` (number) - Address family (AF_INET, AF_UNIX). Default: AF_INET
-- `socktype` (number) - Socket type (SOCK_STREAM, SOCK_DGRAM). Default: SOCK_STREAM
-- `protocol` (number) - Protocol (IPPROTO_TCP, IPPROTO_UDP). Default: 0
+- `family` (integer) - Address family (AF_INET, AF_UNIX). Default: AF_INET
+- `socktype` (integer) - Socket type (SOCK_STREAM, SOCK_DGRAM). Default: SOCK_STREAM
+- `protocol` (integer) - Protocol (IPPROTO_TCP, IPPROTO_UDP). Default: 0
 
 **Returns:**
 
@@ -132,16 +132,16 @@ function socket(family?: number, socktype?: number, protocol?: number): Socket |
 ### socketpair
 
 ```teal
-function socketpair(family?: number, socktype?: number, protocol?: number): Socket | nil, Socket, string
+function socketpair(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, Socket, string
 ```
 
  Create a pair of connected sockets.
 
 **Parameters:**
 
-- `family` (number) - Address family (AF_UNIX). Default: AF_UNIX
-- `socktype` (number) - Socket type (SOCK_STREAM, SOCK_DGRAM). Default: SOCK_STREAM
-- `protocol` (number) - Protocol. Default: 0
+- `family` (integer) - Address family (AF_UNIX). Default: AF_UNIX
+- `socktype` (integer) - Socket type (SOCK_STREAM, SOCK_DGRAM). Default: SOCK_STREAM
+- `protocol` (integer) - Protocol. Default: 0
 
 **Returns:**
 
@@ -152,7 +152,7 @@ function socketpair(family?: number, socktype?: number, protocol?: number): Sock
 ### listen_unix
 
 ```teal
-function listen_unix(path: string, backlog?: number): Socket | nil, string
+function listen_unix(path: string, backlog?: integer): Socket | nil, string
 ```
 
  Create a Unix domain socket, bind it to a path, and start listening.
@@ -160,7 +160,7 @@ function listen_unix(path: string, backlog?: number): Socket | nil, string
 **Parameters:**
 
 - `path` (string) - Filesystem path for the socket
-- `backlog` (number) - Maximum pending connections (default 128)
+- `backlog` (integer) - Maximum pending connections (default 128)
 
 **Returns:**
 
@@ -187,7 +187,7 @@ function connect_unix(path: string): Socket | nil, string
 ### connect_tcp
 
 ```teal
-function connect_tcp(addr: Address, port: number): Socket | nil, string
+function connect_tcp(addr: Address, port: integer): Socket | nil, string
 ```
 
  Create a TCP socket and connect to an address and port.
@@ -197,7 +197,7 @@ function connect_tcp(addr: Address, port: number): Socket | nil, string
 **Parameters:**
 
 - `addr` (Address) - Remote IPv4 address
-- `port` (number) - Remote port
+- `port` (integer) - Remote port
 
 **Returns:**
 
@@ -207,7 +207,7 @@ function connect_tcp(addr: Address, port: number): Socket | nil, string
 ### dial
 
 ```teal
-function dial(host: string, port: number): Socket | nil, string
+function dial(host: string, port: integer): Socket | nil, string
 ```
 
  Open a TCP connection to host:port. This name and shape are the
@@ -220,7 +220,7 @@ function dial(host: string, port: number): Socket | nil, string
 **Parameters:**
 
 - `host` (string) - Host to connect to: dotted-quad literal or DNS name
-- `port` (number) - Remote TCP port
+- `port` (integer) - Remote TCP port
 
 **Returns:**
 
@@ -230,7 +230,7 @@ function dial(host: string, port: number): Socket | nil, string
 ### listen_tcp
 
 ```teal
-function listen_tcp(addr: Address, port: number, backlog?: number): Socket | nil, number, string
+function listen_tcp(addr: Address, port: integer, backlog?: integer): Socket | nil, integer, string
 ```
 
  Create a TCP socket, bind it to addr:port, and start listening.
@@ -251,19 +251,19 @@ function listen_tcp(addr: Address, port: number, backlog?: number): Socket | nil
 **Parameters:**
 
 - `addr` (Address) - Local IPv4 address to bind ("127.0.0.1", "0.0.0.0" for all)
-- `port` (number) - Local port to bind; use 0 for an OS-assigned ephemeral port
-- `backlog` (number) - Maximum pending connections (default 128)
+- `port` (integer) - Local port to bind; use 0 for an OS-assigned ephemeral port
+- `backlog` (integer) - Maximum pending connections (default 128)
 
 **Returns:**
 
 - Socket - | nil Listening socket ready to accept
-- number - Actual bound port (useful when port 0 was requested)
+- integer - Actual bound port (useful when port 0 was requested)
 - string - Error message on failure
 
 ### nb_connect
 
 ```teal
-function nb_connect(s: Socket, addr: Address, port: number, timeoutms?: number): boolean, string
+function nb_connect(s: Socket, addr: Address, port: integer, timeoutms?: integer): boolean, string
 ```
 
  Connect with a bounded wait instead of blocking indefinitely.
@@ -276,8 +276,8 @@ function nb_connect(s: Socket, addr: Address, port: number, timeoutms?: number):
 
 - `s` (Socket) - The socket to connect
 - `addr` (Address) - Remote IPv4 address
-- `port` (number) - Remote port
-- `timeoutms` (number) - Timeout in milliseconds (default 10000)
+- `port` (integer) - Remote port
+- `timeoutms` (integer) - Timeout in milliseconds (default 10000)
 
 **Returns:**
 

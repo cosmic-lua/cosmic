@@ -24,19 +24,19 @@ end
 ```teal
 local record Termios
   --  Input mode flags (e.g. `unix.BRKINT`, `unix.ICRNL`).
-  iflag: number
+  iflag: integer
   --  Output mode flags (e.g. `unix.OPOST`, `unix.ONLCR`).
-  oflag: number
+  oflag: integer
   --  Control mode flags (e.g. `unix.CS8`, `unix.CREAD`).
-  cflag: number
+  cflag: integer
   --  Local mode flags (e.g. `unix.ECHO`, `unix.ICANON`).
-  lflag: number
+  lflag: integer
   --  Control characters array (indexed 1 to `unix.NCCS`).
-  cc: {number}
+  cc: {integer}
   --  Input baud rate.
-  ispeed: number
+  ispeed: integer
   --  Output baud rate.
-  ospeed: number
+  ospeed: integer
 end
 ```
 
@@ -64,7 +64,7 @@ local record Memory
   --  This operation happens atomically. Each shared mapping has a
   --  single lock which is used to synchronize reads and writes to
   --  that specific map. To make it scale, create additional maps.
-  read: function(self: Memory, offset?: number, bytes?: number): string
+  read: function(self: Memory, offset?: integer, bytes?: integer): string
   --  Writes bytes to memory region.
   --  `offset` is the starting byte index to which memory is copied,
   --  which defaults to zero.
@@ -74,19 +74,19 @@ local record Memory
   --  This operation happens atomically. Each shared mapping has a
   --  single lock which is used to synchronize reads and writes to
   --  that specific map. To make it scale, create additional maps.
-  write: function(self: Memory, data: string, offset?: number, bytes?: number)
+  write: function(self: Memory, data: string, offset?: integer, bytes?: integer)
   --  Loads word from memory region.
   --  This operation is atomic and has relaxed barrier semantics.
-  load: function(self: Memory, word_index: number): number
+  load: function(self: Memory, word_index: integer): integer
   --  Stores word from memory region.
   --  This operation is atomic and has relaxed barrier semantics.
-  store: function(self: Memory, word_index: number, value: number)
+  store: function(self: Memory, word_index: integer, value: integer)
   --  Exchanges value.
   --  This sets word at `word_index` to `value` and returns the value
   --  previously held in by the word.
   --  This operation is atomic and provides the same memory barrier
   --  semantics as the aligned x86 LOCK XCHG instruction.
-  xchg: function(self: Memory, word_index: number, value: number): number
+  xchg: function(self: Memory, word_index: integer, value: integer): integer
   --  Compares and exchanges value.
   --  This inspects the word at `word_index` and if its value is the same
   --  as `old` then it'll be replaced by the value `new`, in which case
@@ -94,26 +94,26 @@ local record Memory
   --  word, then `false` shall be returned along with the word.
   --  This operation happens atomically and provides the same memory
   --  barrier semantics as the aligned x86 LOCK CMPXCHG instruction.
-  cmpxchg: function(self: Memory, word_index: number, old: number, new: number): boolean, number
+  cmpxchg: function(self: Memory, word_index: integer, old: integer, new: integer): boolean, integer
   --  Fetches then adds value.
   --  This method modifies the word at `word_index` to contain the sum of
   --  value and the `value` paremeter. This method then returns the value
   --  as it existed before the addition was performed.
   --  This operation is atomic and provides the same memory barrier
   --  semantics as the aligned x86 LOCK XADD instruction.
-  fetch_add: function(self: Memory, word_index: number, value: number): number
+  fetch_add: function(self: Memory, word_index: integer, value: integer): integer
   --  Fetches and bitwise ands value.
   --  This operation happens atomically and provides the same memory
   --  barrier ordering semantics as its x86 implementation.
-  fetch_and: function(self: Memory, word_index: number, value: number): number
+  fetch_and: function(self: Memory, word_index: integer, value: integer): integer
   --  Fetches and bitwise ors value.
   --  This operation happens atomically and provides the same memory
   --  barrier ordering semantics as its x86 implementation.
-  fetch_or: function(self: Memory, word_index: number, value: number): number
+  fetch_or: function(self: Memory, word_index: integer, value: integer): integer
   --  Fetches and bitwise xors value.
   --  This operation happens atomically and provides the same memory
   --  barrier ordering semantics as its x86 implementation.
-  fetch_xor: function(self: Memory, word_index: number, value: number): number
+  fetch_xor: function(self: Memory, word_index: integer, value: integer): integer
   --  Waits for word to have a different value.
   --  This method asks the kernel to suspend the process until either the
   --  absolute deadline expires or we're woken up by another process that
@@ -154,14 +154,14 @@ local record Memory
   --  `EAGAIN` is raised if, upon entry, the word at `word_index` had a
   --  different value than what's specified at `expect`.
   --  `ETIMEDOUT` is raised when the absolute deadline expires.
-  wait: function(self: Memory, word_index: number, expect: number, abs_deadline?: number, nanos?: number): number | nil, string | nil, Errno | nil
+  wait: function(self: Memory, word_index: integer, expect: integer, abs_deadline?: integer, nanos?: integer): integer | nil, string | nil, Errno | nil
   --  Wakes other processes waiting on word.
   --  This method may be used to signal or broadcast to waiters. The
   --  `count` specifies the number of processes that should be woken,
   --  which defaults to `INT_MAX`.
   --  The return value is the number of processes that were actually woken
   --  as a result of the system call. No failure conditions are defined.
-  wake: function(self: Memory, index: number, count?: number): number
+  wake: function(self: Memory, index: integer, count?: integer): integer
 end
 ```
 
@@ -190,10 +190,10 @@ local record Dir
   --  - `DT_UNKNOWN`
   --  Note: This function also serves as the `__call` metamethod, so that
   --  `unix.Dir` objects may be used as a for loop iterator.
-  read: function(self: Dir): string | nil, number, number, number
+  read: function(self: Dir): string | nil, integer, integer, integer
   --  Returns `EOPNOTSUPP` if using a `/zip/...` path or if using Windows NT.
-  fd: function(self: Dir): number | nil, string | nil, Errno | nil
-  tell: function(self: Dir): number | nil, string | nil, Errno | nil
+  fd: function(self: Dir): integer | nil, string | nil, Errno | nil
+  tell: function(self: Dir): integer | nil, string | nil, Errno | nil
   --  Resets stream back to beginning.
   rewind: function(self: Dir)
 end
@@ -209,13 +209,13 @@ end
 local record Rusage
   --  It's always the case that `0 ≤ nanos < 1e9`.
   --  On Windows NT this is collected from GetProcessTimes().
-  utime: function(self: Rusage): number, number
+  utime: function(self: Rusage): integer, integer
   --  It's always the case that `0 ≤ nanos < 1e9`.
   --  On Windows NT this is collected from GetProcessTimes().
-  stime: function(self: Rusage): number, number
+  stime: function(self: Rusage): integer, integer
   --  On Windows NT this is collected from
   --  `NtProcessMemoryCountersEx::PeakWorkingSetSize / 1024`.
-  maxrss: function(self: Rusage): number
+  maxrss: function(self: Rusage): integer
   --  If you chart memory usage over the lifetime of your process, then
   --  this would be the space filled in beneath the chart. The frequency
   --  of kernel scheduling is defined as `unix.CLK_TCK`.  Each time a tick
@@ -223,7 +223,7 @@ local record Rusage
   --  it to this value. You can derive the average consumption from this
   --  value by computing how many ticks are in `utime + stime`.
   --  Currently only available on FreeBSD and NetBSD.
-  idrss: function(self: Rusage): number
+  idrss: function(self: Rusage): integer
   --  If you chart memory usage over the lifetime of your process, then
   --  this would be the space filled in beneath the chart. The frequency
   --  of kernel scheduling is defined as unix.CLK_TCK.  Each time a tick
@@ -231,7 +231,7 @@ local record Rusage
   --  it to this value. You can derive the average consumption from this
   --  value by computing how many ticks are in `utime + stime`.
   --  Currently only available on FreeBSD and NetBSD.
-  ixrss: function(self: Rusage): number
+  ixrss: function(self: Rusage): integer
   --  If you chart memory usage over the lifetime of your process, then
   --  this would be the space filled in beneath the chart. The frequency
   --  of kernel scheduling is defined as `unix.CLK_TCK`. Each time a tick
@@ -241,43 +241,43 @@ local record Rusage
   --  This is only applicable to redbean if its built with MODE=tiny,
   --  because redbean likes to allocate its own deterministic stack.
   --  Currently only available on FreeBSD and NetBSD.
-  isrss: function(self: Rusage): number
+  isrss: function(self: Rusage): integer
   --  This number indicates how many times redbean was preempted by the
   --  kernel to `memcpy()` a 4096-byte page. This is one of the tradeoffs
   --  `fork()` entails. This number is usually tinier, when your binaries
   --  are tinier.
   --  Not available on Windows NT.
-  minflt: function(self: Rusage): number
+  minflt: function(self: Rusage): integer
   --  Returns number of major page faults.
   --  This number indicates how many times redbean was preempted by the
   --  kernel to perform i/o. For example, you might have used `mmap()` to
   --  load a large file into memory lazily.
   --  On Windows NT this is `NtProcessMemoryCountersEx::PageFaultCount`.
-  majflt: function(self: Rusage): number
+  majflt: function(self: Rusage): integer
   --  Operating systems like to reserve hard disk space to back their RAM
   --  guarantees, like using a gold standard for fiat currency. When your
   --  system is under heavy memory load, swap operations may happen while
   --  redbean is working. This number keeps track of them.
   --  Not available on Linux, Windows NT.
-  nswap: function(self: Rusage): number
+  nswap: function(self: Rusage): integer
   --  On Windows NT this is `NtIoCounters::ReadOperationCount`.
-  inblock: function(self: Rusage): number
+  inblock: function(self: Rusage): integer
   --  On Windows NT this is `NtIoCounters::WriteOperationCount`.
-  oublock: function(self: Rusage): number
+  oublock: function(self: Rusage): integer
   --  Not available on Linux, Windows NT.
-  msgsnd: function(self: Rusage): number
+  msgsnd: function(self: Rusage): integer
   --  Not available on Linux, Windows NT.
-  msgrcv: function(self: Rusage): number
+  msgrcv: function(self: Rusage): integer
   --  Not available on Linux.
-  nsignals: function(self: Rusage): number
+  nsignals: function(self: Rusage): integer
   --  This number is a good thing. It means your redbean finished its work
   --  quickly enough within a time slice that it was able to give back the
   --  remaining time to the system.
-  nvcsw: function(self: Rusage): number
+  nvcsw: function(self: Rusage): integer
   --  This number is a bad thing. It means your redbean was preempted by a
   --  higher priority process after failing to finish its work, within the
   --  allotted time slice.
-  nivcsw: function(self: Rusage): number
+  nivcsw: function(self: Rusage): integer
 end
 ```
 
@@ -290,7 +290,7 @@ end
 
 ```teal
 local record Stat
-  size: function(self: Stat): number
+  size: function(self: Stat): integer
   --  Contains file type and permissions.
   --  For example, `0010644` is what you might see for a file and
   --  `0040755` is what you might see for a directory.
@@ -302,9 +302,9 @@ local record Stat
   --  - `unix.S_ISBLK(st:mode())` means block device
   --  - `unix.S_ISFIFO(st:mode())` means fifo or pipe
   --  - `unix.S_ISSOCK(st:mode())` means socket
-  mode: function(self: Stat): number
-  uid: function(self: Stat): number
-  gid: function(self: Stat): number
+  mode: function(self: Stat): integer
+  uid: function(self: Stat): integer
+  gid: function(self: Stat): integer
   --  File birth time.
   --  This field should be accurate on Apple, Windows, and BSDs. On Linux
   --  this is the minimum of atim/mtim/ctim. On Windows NT nanos is only
@@ -316,38 +316,38 @@ local record Stat
   --    Write('%.4d-%.2d-%.2dT%.2d:%.2d:%.2d.%.9d%+.2d%.2d % {
   --             year, mon, mday, hour, min, sec, nanos,
   --             gmtoffsec / (60 * 60), math.abs(gmtoffsec) % 60})
-  birthtim: function(self: Stat): number, number
-  mtim: function(self: Stat): number, number
+  birthtim: function(self: Stat): integer, integer
+  mtim: function(self: Stat): integer, integer
   --  Please note that file systems are sometimes mounted with `noatime`
   --  out of concern for i/o performance. Linux also provides `O_NOATIME`
   --  as an option for open().
   --  On Windows NT this is the same as birth time.
-  atim: function(self: Stat): number, number
+  atim: function(self: Stat): integer, integer
   --  Means time file status was last changed on UNIX.
   --  On Windows NT this is the same as birth time.
-  ctim: function(self: Stat): number, number
+  ctim: function(self: Stat): integer, integer
   --  This provides some indication of how much physical storage a file
   --  actually consumes. For example, for small file systems, your system
   --  might report this number as being 8, which means 4096 bytes.
-  blocks: function(self: Stat): number
+  blocks: function(self: Stat): integer
   --  This field might be of assistance in computing optimal i/o sizes.
   --  Please note this field has no relationship to blocks, as the latter
   --  is fixed at a 512 byte size.
-  blksize: function(self: Stat): number
+  blksize: function(self: Stat): integer
   --  This can be used to detect some other process used `rename()` to swap
   --  out a file underneath you, so you can do a refresh. redbean does it
   --  during each main process heartbeat for its own use cases.
   --  On Windows NT this is set to `NtByHandleFileInformation::FileIndex`.
-  ino: function(self: Stat): number
+  ino: function(self: Stat): integer
   --  On Windows NT this is set to `NtByHandleFileInformation::VolumeSerialNumber`.
-  dev: function(self: Stat): number
+  dev: function(self: Stat): integer
   --  This value may be set to `0` or `-1` for files that aren't devices,
   --  depending on the operating system. `unix.major()` and `unix.minor()`
   --  may be used to extract the device numbers.
-  rdev: function(self: Stat): number
-  nlink: function(self: Stat): number
-  gen: function(self: Stat): number
-  flags: function(self: Stat): number
+  rdev: function(self: Stat): integer
+  nlink: function(self: Stat): integer
+  gen: function(self: Stat): integer
+  flags: function(self: Stat): integer
 end
 ```
 
@@ -358,29 +358,29 @@ end
 ```teal
 local record Statfs
   --  Returns filesystem type identifier.
-  type: function(self: Statfs): number
+  type: function(self: Statfs): integer
   --  Returns optimal transfer block size.
-  bsize: function(self: Statfs): number
+  bsize: function(self: Statfs): integer
   --  Returns total data blocks in filesystem.
-  blocks: function(self: Statfs): number
+  blocks: function(self: Statfs): integer
   --  Returns free blocks in filesystem.
-  bfree: function(self: Statfs): number
+  bfree: function(self: Statfs): integer
   --  Returns free blocks available to unprivileged user.
-  bavail: function(self: Statfs): number
+  bavail: function(self: Statfs): integer
   --  Returns total file nodes in filesystem.
-  files: function(self: Statfs): number
+  files: function(self: Statfs): integer
   --  Returns free file nodes in filesystem.
-  ffree: function(self: Statfs): number
+  ffree: function(self: Statfs): integer
   --  Returns filesystem ID as two numbers.
-  fsid: function(self: Statfs): number, number
+  fsid: function(self: Statfs): integer, integer
   --  Returns maximum length of filenames.
-  namelen: function(self: Statfs): number
+  namelen: function(self: Statfs): integer
   --  Returns fragment size.
-  frsize: function(self: Statfs): number
+  frsize: function(self: Statfs): integer
   --  Returns mount flags.
-  flags: function(self: Statfs): number
+  flags: function(self: Statfs): integer
   --  Returns the owner of the mount.
-  owner: function(self: Statfs): number
+  owner: function(self: Statfs): integer
   --  Returns the filesystem type name, e.g. "ext4".
   fstypename: function(self: Statfs): string
 end
@@ -391,14 +391,14 @@ end
 ```teal
 local record Sigset
   --  Adds signal to bitset.
-  add: function(self: Sigset, sig: number)
+  add: function(self: Sigset, sig: integer)
   --  Removes signal from bitset.
-  remove: function(self: Sigset, sig: number)
+  remove: function(self: Sigset, sig: integer)
   --  Sets all bits in signal bitset to `true`.
   fill: function(self: Sigset)
   --  Sets all bits in signal bitset to `false`.
   clear: function(self: Sigset)
-  contains: function(self: Sigset, sig: number): boolean
+  contains: function(self: Sigset, sig: integer): boolean
   __repr: function(self: Sigset): string
   __tostring: function(self: Sigset): string
 end
@@ -411,11 +411,11 @@ Constants defined in the unix module.
 ```teal
 local record unix Constants
   --  @type integer
-  AF_INET: number
+  AF_INET: integer
   --  @type integer
-  AF_UNIX: number
+  AF_UNIX: integer
   --  @type integer
-  AF_UNSPEC: number
+  AF_UNSPEC: integer
   --  @type integer Returns maximum length of arguments for new processes.
   --  This is the character limit when calling `execve()`. It's the sum of
   --  the lengths of `argv` and `envp` including any nul terminators and
@@ -426,58 +426,58 @@ local record unix Constants
   --  On Windows NT it's 32767*2 because CreateProcess lpCommandLine and
   --  environment block are separately constrained to 32,767 characters.
   --  Most other systems define this limit much higher.
-  ARG_MAX: number
+  ARG_MAX: integer
   --  @type integer
-  AT_EACCESS: number
+  AT_EACCESS: integer
   --  @type integer
-  AT_FDCWD: number
+  AT_FDCWD: integer
   --  @type integer
-  AT_SYMLINK_NOFOLLOW: number
+  AT_SYMLINK_NOFOLLOW: integer
   --  @type integer Returns default buffer size.
   --  The UNIX module does not perform any buffering between calls.
   --  Each time a read or write is performed via the UNIX API your redbean
   --  will allocate a buffer of this size by default. This current default
   --  would be 4096 across platforms.
-  BUFSIZ: number
+  BUFSIZ: integer
   --  @type integer Returns the scheduler frequency.
   --  This is granularity at which the kernel does work. For example, the
   --  Linux kernel normally operates at 100hz so its CLK_TCK will be 100.
   --  This value is useful for making sense out of unix.Rusage data.
-  CLK_TCK: number
+  CLK_TCK: integer
   --  @type integer
-  CLOCK_REALTIME: number
+  CLOCK_REALTIME: integer
   --  @type integer
-  CLOCK_MONOTONIC: number
+  CLOCK_MONOTONIC: integer
   --  @type integer
-  CLOCK_BOOTTIME: number
+  CLOCK_BOOTTIME: integer
   --  @type integer
-  CLOCK_MONOTONIC_RAW: number
+  CLOCK_MONOTONIC_RAW: integer
   --  @type integer
-  CLOCK_REALTIME_COARSE: number
+  CLOCK_REALTIME_COARSE: integer
   --  @type integer
-  CLOCK_MONOTONIC_COARSE: number
-  CLOCK_THREAD_CPUTIME_ID: number
+  CLOCK_MONOTONIC_COARSE: integer
+  CLOCK_THREAD_CPUTIME_ID: integer
   --  @type integer
-  CLOCK_PROCESS_CPUTIME_ID: number
+  CLOCK_PROCESS_CPUTIME_ID: integer
   --  @type integer
-  DT_BLK: number
+  DT_BLK: integer
   --  @type integer
-  DT_CHR: number
+  DT_CHR: integer
   --  @type integer
-  DT_DIR: number
+  DT_DIR: integer
   --  @type integer
-  DT_FIFO: number
+  DT_FIFO: integer
   --  @type integer
-  DT_LNK: number
+  DT_LNK: integer
   --  @type integer
-  DT_REG: number
+  DT_REG: integer
   --  @type integer
-  DT_SOCK: number
+  DT_SOCK: integer
   --  @type integer
-  DT_UNKNOWN: number
+  DT_UNKNOWN: integer
   --  @type integer Argument list too long.
   --  Raised by `execve`, `sched_setattr`.
-  E2BIG: number
+  E2BIG: integer
   --  @type integer Permission denied.
   --  Raised by `access`, `bind`, `chdir`, `chmod`, `chown`, `chroot`,
   --  `clock_getres`, `connect`, `execve`, `fcntl`, `getpriority`,
@@ -485,13 +485,13 @@ local record unix Constants
   --  `prctl`, `ptrace`, `readlink`, `rename`, `rmdir`, `semget`,
   --  `send`, `setpgid`, `socket`, `stat`, `symlink`, `truncate`,
   --  `unlink`, `uselib`, `utime`, `utimensat`.
-  EACCES: number
+  EACCES: integer
   --  @type integer Address already in use. Raised by `bind`, `connect`, `listen`.
-  EADDRINUSE: number
+  EADDRINUSE: integer
   --  @type integer Address not available. Raised by `bind`, `connect`.
-  EADDRNOTAVAIL: number
+  EADDRNOTAVAIL: integer
   --  @type integer Address family not supported. Raised by `connect`, `socket`, `socketpair`.
-  EAFNOSUPPORT: number
+  EAFNOSUPPORT: integer
   --  @type integer
   --  Resource temporarily unavailable (e.g. SO_RCVTIMEO expired, too many
   --  processes, too much memory locked, read or write with O_NONBLOCK
@@ -501,9 +501,9 @@ local record unix Constants
   --  `send`, `setresuid`, `setreuid`, `setuid`, `sigwaitinfo`,
   --  `splice`, `tee`, `timer_create`, `timerfd_create`, `tkill`,
   --  `write`,
-  EAGAIN: number
+  EAGAIN: integer
   --  @type integer Connection already in progress. Raised by `connect`, `send`.
-  EALREADY: number
+  EALREADY: integer
   --  @type integer Bad file descriptor; cf. EBADFD.
   --  Raised by `accept`, `access`, `bind`, `chdir`, `chmod`, `chown`,
   --  `close`, `connect`, `copy_file_range`, `dup`, `fcntl`, `flock`,
@@ -513,97 +513,97 @@ local record unix Constants
   --  `readlink`, `recv`, `rename`, `select`, `send`, `shutdown`,
   --  `splice`, `stat`, `symlink`, `sync`, `sync_file_range`,
   --  `timerfd_create`, `truncate`, `unlink`, `utimensat`, `write`.
-  EBADF: number
+  EBADF: integer
   --  @type integer
-  EBADFD: number
+  EBADFD: integer
   --  @type integer
-  EBADMSG: number
+  EBADMSG: integer
   --  @type integer Device or resource busy.
   --  Raised by dup, fcntl, msync, prctl, ptrace, rename,
   --  rmdir.
-  EBUSY: number
+  EBUSY: integer
   --  @type integer
-  ECANCELED: number
+  ECANCELED: integer
   --  @type integer No child process.
   --  Raised by `wait`, `waitpid`, `waitid`, `wait3`, `wait4`.
-  ECHILD: number
+  ECHILD: integer
   --  @type integer Connection reset before accept. Raised by `accept`.
-  ECONNABORTED: number
+  ECONNABORTED: integer
   --  @type integer System-imposed limit on the number of threads was encountered.
   --  Raised by connect, listen, recv.
-  ECONNREFUSED: number
-  ECONNRESET: number
+  ECONNREFUSED: integer
+  ECONNRESET: integer
   --  @type integer Resource deadlock avoided.
   --  Raised by `fcntl`.
-  EDEADLK: number
+  EDEADLK: integer
   --  @type integer Destination address required. Raised by `send`, `write`.
-  EDESTADDRREQ: number
+  EDESTADDRREQ: integer
   --  @type integer
-  EDOM: number
+  EDOM: integer
   --  @type integer Disk quota exceeded.
   --  Raised by link, mkdir, mknod, open, rename, symlink,
   --  write.
-  EDQUOT: number
+  EDQUOT: integer
   --  @type integer File exists.
   --  Raised by `link`, `mkdir`, `mknod`, `mmap`, `open`, `rename`,
   --  `rmdir`, `symlink`.
-  EEXIST: number
+  EEXIST: integer
   --  @type integer
-  EFAULT: number
+  EFAULT: integer
   --  @type integer File too large.
   --  Raised by `copy_file_range`, `open`, `truncate`, `write`.
-  EFBIG: number
+  EFBIG: integer
   --  @type integer Inappropriate file type or format.
-  EFTYPE: number
+  EFTYPE: integer
   --  @type integer Host is down. Raised by `accept`.
-  EHOSTDOWN: number
+  EHOSTDOWN: integer
   --  @type integer Host is unreachable. Raised by `accept`.
-  EHOSTUNREACH: number
+  EHOSTUNREACH: integer
   --  @type integer Memory page has hardware error.
-  EHWPOISON: number
+  EHWPOISON: integer
   --  @type integer Identifier removed. Raised by `msgctl`.
-  EIDRM: number
+  EIDRM: integer
   --  @type integer
-  EILSEQ: number
+  EILSEQ: integer
   --  @type integer
-  EINPROGRESS: number
+  EINPROGRESS: integer
   --  @type integer The greatest of all errnos; crucial for building real time reliable software.
   --  Raised by `accept`, `clock_nanosleep`, `close`, `connect`, `dup`, `fcntl`,
   --  `flock`, `getrandom`, `nanosleep`, `open`, `pause`, `poll`, `ptrace`, `read`, `recv`,
   --  `select`, `send`, `sigsuspend`, `sigwaitinfo`, `truncate`, `wait`, `write`.
-  EINTR: number
+  EINTR: integer
   --  @type integer Invalid argument.
   --  Raised by [pretty much everything].
-  EINVAL: number
+  EINVAL: integer
   --  @type integer
   --  Raised by `access`, `acct`, `chdir`, `chmod`, `chown`, `chroot`, `close`,
   --  `copy_file_range`, `execve`, `fallocate`, `fsync`, `ioperm`, `link`, `madvise`,
   --  `mbind`, `pciconfig_read`, `ptrace`, `read`, `readlink`, `sendfile`, `statfs`,
   --  `symlink`, `sync_file_range`, `truncate`, `unlink`, `write`.
-  EIO: number
-  EISCONN: number
+  EIO: integer
+  EISCONN: integer
   --  @type integer Is a directory.
   --  Raised by `copy_file_range`, `execve`, `open`, `read`, `rename`, `truncate`,
   --  `unlink`.
-  EISDIR: number
+  EISDIR: integer
   --  @type integer Too many levels of symbolic links.
   --  Raised by access, bind, chdir, chmod, chown, chroot, execve, link,
   --  mkdir, mknod, open, readlink, rename, rmdir, stat, symlink,
   --  truncate, unlink, utimensat.
-  ELOOP: number
+  ELOOP: integer
   --  @type integer Wrong medium type. Raised by `mount`.
-  EMEDIUMTYPE: number
+  EMEDIUMTYPE: integer
   --  @type integer Too many open files.
   --  Raised by `accept`, `dup`, `execve`, `fanotify_init`, `fcntl`,
   --  `open`, `pipe`, `socket`, `socketpair`, `timerfd_create`.
-  EMFILE: number
+  EMFILE: integer
   --  @type integer Too many links;
   --  Raised by `link`, `mkdir`, `rename`.
-  EMLINK: number
+  EMLINK: integer
   --  @type integer Message too long. Raised by `send`.
-  EMSGSIZE: number
+  EMSGSIZE: integer
   --  @type integer Multihop attempted.
-  EMULTIHOP: number
+  EMULTIHOP: integer
   --  @type integer Filename too long. Cosmopolitan Libc currently defines `PATH_MAX` as
   --  1024 characters. On UNIX that limit should only apply to system call
   --  wrappers like realpath. On Windows NT it's observed by all system
@@ -612,68 +612,68 @@ local record unix Constants
   --  `execve`, `gethostname`, `link`, `mkdir`, `mknod`, `open`,
   --  `readlink`, `rename`, `rmdir`, `stat`, `symlink`, `truncate`,
   --  `unlink`, `utimensat`.
-  ENAMETOOLONG: number
+  ENAMETOOLONG: integer
   --  @type integer Network is down. Raised by `accept`.
-  ENETDOWN: number
+  ENETDOWN: integer
   --  @type integer Connection reset by network.
-  ENETRESET: number
+  ENETRESET: integer
   --  @type integer Host is unreachable. Raised by `accept`, `connect`.
-  ENETUNREACH: number
+  ENETUNREACH: integer
   --  @type integer Too many open files in system.
   --  Raised by `accept`, `execve`, `mmap`, `open`, `pipe`, `socket`,
   --  `socketpair`, `swapon`, `timerfd_create`, `uselib`,
   --  `userfaultfd`.
-  ENFILE: number
+  ENFILE: integer
   --  @type integer No buffer space available;
   --  Raised by `getpeername`, `getsockname`, `send`.
-  ENOBUFS: number
+  ENOBUFS: integer
   --  @type integer No message is available in xsi stream or named pipe is being closed;
   --  no data available; barely in posix; returned by ioctl; very close in
   --  spirit to EPIPE?
-  ENODATA: number
+  ENODATA: integer
   --  @type integer No such device.
   --  Raised by `arch_prctl`, `mmap`, `open`, `prctl`, `timerfd_create`.
-  ENODEV: number
+  ENODEV: integer
   --  @type integer No such file or directory.
   --  Raised by `access`, `bind`, `chdir`, `chmod`, `chown`, `chroot`,
   --  `clock_getres`, `execve`, `opendir`, `link`, `mkdir`, `mknod`,
   --  `open`, `readlink`, `rename`, `rmdir`, `stat`, `swapon`,
   --  `symlink`, `truncate`, `unlink`, `utime`, `utimensat`.
-  ENOENT: number
+  ENOENT: integer
   --  @type integer Exec format error. Raised by `execve`, `uselib`.
-  ENOEXEC: number
+  ENOEXEC: integer
   --  @type integer No locks available. Raised by `fcntl`, `flock`.
-  ENOLCK: number
+  ENOLCK: integer
   --  @type integer Link has been severed.
-  ENOLINK: number
+  ENOLINK: integer
   --  @type integer No medium found. Raised by `mount`.
-  ENOMEDIUM: number
+  ENOMEDIUM: integer
   --  @type integer
-  ENOMEM: number
+  ENOMEM: integer
   --  @type integer Raised by `msgop`.
-  ENOMSG: number
+  ENOMSG: integer
   --  @type integer
-  ENONET: number
+  ENONET: integer
   --  @type integer Protocol not available. Raised by `getsockopt`, `accept`.
-  ENOPROTOOPT: number
+  ENOPROTOOPT: integer
   --  @type integer No space left on device.
   --  Raised by `copy_file_range`, `fsync`, `link`, `mkdir`, `mknod`,
   --  `open`, `rename`, `symlink`, `sync_file_range`, `write`.
-  ENOSPC: number
+  ENOSPC: integer
   --  @type integer Out of streams resources.
-  ENOSR: number
+  ENOSR: integer
   --  @type integer Device not a stream.
-  ENOSTR: number
+  ENOSTR: integer
   --  @type integer System call not available on this platform. On
   --      Windows this is raised by `chroot`, `setuid`, `setgid`,
   --      `getsid`, `setsid`, and others we're doing our best to
   --      document.
-  ENOSYS: number
+  ENOSYS: integer
   --  @type integer Block device required. Raised by `umount`.
-  ENOTBLK: number
+  ENOTBLK: integer
   --  @type integer Socket is not connected.
   --  Raised by `getpeername`, `recv`, `send`, `shutdown`.
-  ENOTCONN: number
+  ENOTCONN: integer
   --  @type integer Not a directory. This means that a directory
   --      component in a supplied path *existed* but wasn't a
   --      directory. For example, if you try to `open("foo/bar")` and
@@ -682,33 +682,33 @@ local record unix Constants
   --  `mkdir`, `mknod`, `opendir`, `readlink`, `rename`, `rmdir`,
   --  `stat`, `symlink`, `truncate`, `unlink`, `utimensat`, `bind`,
   --  `chmod`, `chown`, `fcntl`, `futimesat`.
-  ENOTDIR: number
+  ENOTDIR: integer
   --  @type integer Directory not empty. Raised by `rmdir`.
-  ENOTEMPTY: number
+  ENOTEMPTY: integer
   --  @type integer
-  ENOTRECOVERABLE: number
+  ENOTRECOVERABLE: integer
   --  @type integer Not a socket.
   --  Raised by `accept`, `bind`, `connect`, `getpeername`,
   --  `getsockname`, `getsockopt`, `listen`, `recv`, `send`,
   --  `shutdown`.
-  ENOTSOCK: number
+  ENOTSOCK: integer
   --  @type integer Operation not supported.
   --  Raised by `chmod`, `clock_getres`, `clock_nanosleep`,
   --  `timer_create`.
-  ENOTSUP: number
+  ENOTSUP: integer
   --  @type integer Inappropriate i/o control operation. Raised by `ioctl`.
-  ENOTTY: number
+  ENOTTY: integer
   --  @type integer No such device or address. Raised by `lseek`, `open`, `prctl`.
-  ENXIO: number
+  ENXIO: integer
   --  @type integer Socket operation not supported.
   --  Raised by accept, listen, mmap, prctl, readv, send,
   --  socketpair.
-  EOPNOTSUPP: number
+  EOPNOTSUPP: integer
   --  @type integer Raised by `copy_file_range`, `fanotify_init`, `lseek`, `mmap`,
   --  `open`, `stat`, `statfs`
-  EOVERFLOW: number
+  EOVERFLOW: integer
   --  @type integer
-  EOWNERDEAD: number
+  EOWNERDEAD: integer
   --  @type integer Operation not permitted.
   --  Raised by `accept`, `chmod`, `chown`, `chroot`,
   --  `copy_file_range`, `execve`, `fallocate`, `fanotify_init`,
@@ -730,9 +730,9 @@ local record unix Constants
   --  `setxattr`, `sigaltstack`, `spu_create`, `stime`, `swapon`,
   --  `symlink`, `syslog`, `truncate`, `unlink`, `utime`, `utimensat`,
   --  `write`.
-  EPERM: number
+  EPERM: integer
   --  @type integer Protocol family not supported.
-  EPFNOSUPPORT: number
+  EPFNOSUPPORT: integer
   --  @type integer Broken pipe.
   --  Returned by `write`, `send`. This happens when you try
   --  to write data to a subprocess via a pipe but the reader end has
@@ -741,200 +741,200 @@ local record unix Constants
   --  Unlike default UNIX programs, redbean currently ignores `SIGPIPE` by
   --  default, so this error code is a distinct possibility when pipes or
   --  sockets are being used.
-  EPIPE: number
+  EPIPE: integer
   --  @type integer Raised by `accept`, `connect`, `socket`, `socketpair`.
-  EPROTO: number
+  EPROTO: integer
   --  @type integer Protocol not supported. Raised by `socket`, `socketpair`.
-  EPROTONOSUPPORT: number
+  EPROTONOSUPPORT: integer
   --  @type integer Protocol wrong type for socket. Raised by `connect`.
-  EPROTOTYPE: number
+  EPROTOTYPE: integer
   --  @type integer Result too large.
   --  Raised by `prctl`.
-  ERANGE: number
+  ERANGE: integer
   --  @type integer
-  EREMOTE: number
+  EREMOTE: integer
   --  @type integer
-  ERESTART: number
+  ERESTART: integer
   --  @type integer Operation not possible due to RF-kill.
-  ERFKILL: number
+  ERFKILL: integer
   --  @type integer Read-only filesystem.
   --  Raised by access, bind, chmod, chown, link, mkdir, mknod, open,
   --  rename, rmdir, symlink, truncate, unlink, utime, utimensat.
-  EROFS: number
+  EROFS: integer
   --  @type integer Cannot send after transport endpoint shutdown; note that shutdown write is an `EPIPE`.
-  ESHUTDOWN: number
+  ESHUTDOWN: integer
   --  @type integer Socket type not supported.
-  ESOCKTNOSUPPORT: number
+  ESOCKTNOSUPPORT: integer
   --  @type integer Invalid seek.
   --  Raised by `lseek`, `splice`, `sync_file_range`.
-  ESPIPE: number
+  ESPIPE: integer
   --  @type integer No such process.
   --  Raised by `getpriority`, `getrlimit`, `getsid`, `ioprio_set`, `kill`, `setpgid`, `tkill`, `utimensat`.
-  ESRCH: number
+  ESRCH: integer
   --  @type integer
-  ESTALE: number
+  ESTALE: integer
   --  @type integer Timer expired. Raised by `connect`.
-  ETIME: number
+  ETIME: integer
   --  @type integer Connection timed out. Raised by `connect`.
-  ETIMEDOUT: number
+  ETIMEDOUT: integer
   --  @type integer Too many references: cannot splice. Raised by `sendmsg`.
-  ETOOMANYREFS: number
+  ETOOMANYREFS: integer
   --  @type integer Won't open executable that's executing in write mode.
   --  Raised by access, copy_file_range, execve, mmap, open, truncate.
-  ETXTBSY: number
+  ETXTBSY: integer
   --  @type integer
-  EUSERS: number
+  EUSERS: integer
   --  @type integer Improper link.
   --  Raised by copy_file_range, link, rename.
-  EXDEV: number
+  EXDEV: integer
   --  @type integer
-  FD_CLOEXEC: number
+  FD_CLOEXEC: integer
   --  @type integer
-  F_GETFD: number
+  F_GETFD: integer
   --  @type integer
-  F_GETFL: number
+  F_GETFL: integer
   --  @type integer
-  F_GETLK: number
+  F_GETLK: integer
   --  @type integer
-  F_OK: number
+  F_OK: integer
   --  @type integer
-  F_RDLCK: number
+  F_RDLCK: integer
   --  @type integer
-  F_SETFD: number
+  F_SETFD: integer
   --  @type integer
-  F_SETFL: number
+  F_SETFL: integer
   --  @type integer
-  F_SETLK: number
+  F_SETLK: integer
   --  @type integer
-  F_SETLKW: number
+  F_SETLKW: integer
   --  @type integer
-  F_UNLCK: number
+  F_UNLCK: integer
   --  @type integer
-  F_WRLCK: number
+  F_WRLCK: integer
   --  @type integer
-  IPPROTO_ICMP: number
+  IPPROTO_ICMP: integer
   --  @type integer
-  IPPROTO_IP: number
+  IPPROTO_IP: integer
   --  @type integer
-  IPPROTO_RAW: number
+  IPPROTO_RAW: integer
   --  @type integer
-  IPPROTO_TCP: number
+  IPPROTO_TCP: integer
   --  @type integer
-  IPPROTO_UDP: number
+  IPPROTO_UDP: integer
   --  @type integer
-  IP_ADD_MEMBERSHIP: number
+  IP_ADD_MEMBERSHIP: integer
   --  @type integer
-  IP_DROP_MEMBERSHIP: number
+  IP_DROP_MEMBERSHIP: integer
   --  @type integer
-  IP_HDRINCL: number
+  IP_HDRINCL: integer
   --  @type integer
-  IP_MTU: number
+  IP_MTU: integer
   --  @type integer
-  IP_MULTICAST_IF: number
+  IP_MULTICAST_IF: integer
   --  @type integer
-  IP_MULTICAST_LOOP: number
+  IP_MULTICAST_LOOP: integer
   --  @type integer
-  IP_MULTICAST_TTL: number
+  IP_MULTICAST_TTL: integer
   --  @type integer
-  IP_OPTIONS: number
+  IP_OPTIONS: integer
   --  @type integer
-  IP_PKTINFO: number
+  IP_PKTINFO: integer
   --  @type integer
-  IP_RECVTOS: number
+  IP_RECVTOS: integer
   --  @type integer
-  IP_RECVTTL: number
+  IP_RECVTTL: integer
   --  @type integer
-  IP_TOS: number
+  IP_TOS: integer
   --  @type integer
-  IP_TTL: number
+  IP_TTL: integer
   --  @type integer
-  ITIMER_PROF: number
+  ITIMER_PROF: integer
   --  @type integer
-  ITIMER_REAL: number
+  ITIMER_REAL: integer
   --  @type integer
-  ITIMER_VIRTUAL: number
+  ITIMER_VIRTUAL: integer
   --  @type integer
-  LOG_ALERT: number
+  LOG_ALERT: integer
   --  @type integer
-  LOG_CRIT: number
+  LOG_CRIT: integer
   --  @type integer
-  LOG_DEBUG: number
+  LOG_DEBUG: integer
   --  @type integer
-  LOG_EMERG: number
+  LOG_EMERG: integer
   --  @type integer
-  LOG_ERR: number
+  LOG_ERR: integer
   --  @type integer
-  LOG_INFO: number
+  LOG_INFO: integer
   --  @type integer
-  LOG_NOTICE: number
+  LOG_NOTICE: integer
   --  @type integer
-  LOG_WARNING: number
+  LOG_WARNING: integer
   --  @type integer
-  MSG_CTRUNC: number
+  MSG_CTRUNC: integer
   --  @type integer
-  MSG_DONTROUTE: number
+  MSG_DONTROUTE: integer
   --  @type integer
-  MSG_DONTWAIT: number
+  MSG_DONTWAIT: integer
   --  @type integer
-  MSG_NOSIGNAL: number
+  MSG_NOSIGNAL: integer
   --  @type integer
-  MSG_OOB: number
+  MSG_OOB: integer
   --  @type integer
-  MSG_PEEK: number
+  MSG_PEEK: integer
   --  @type integer
-  MSG_TRUNC: number
+  MSG_TRUNC: integer
   --  @type integer
-  MSG_WAITALL: number
+  MSG_WAITALL: integer
   --  @type integer  Returns maximum length of file path component.
   --  POSIX requires this be at least 14. Most operating systems define it
   --  as 255. It's a good idea to not exceed 253 since that's the limit on
   --  DNS labels.
-  NAME_MAX: number
+  NAME_MAX: integer
   --  @type integer Returns maximum number of signals supported by underlying system.
   --  The limit for unix.Sigset is 128 to support FreeBSD, but most
   --  operating systems define this much lower, like 32. This constant
   --  reflects the value chosen by the underlying operating system.
-  NSIG: number
+  NSIG: integer
   --  @type integer open for reading (default)
-  O_RDONLY: number
+  O_RDONLY: integer
   --  @type integer open for writing
-  O_WRONLY: number
+  O_WRONLY: integer
   --  @type integer open for reading and writing
-  O_RDWR: number
+  O_RDWR: integer
   --  @type integer create file if it doesn't exist
-  O_CREAT: number
+  O_CREAT: integer
   --  @type integer automatic `ftruncate(fd, 0)` if exists
-  O_TRUNC: number
+  O_TRUNC: integer
   --  @type integer automatic `close()` upon `execve()`
-  O_CLOEXEC: number
+  O_CLOEXEC: integer
   --  @type integer exclusive access (see below)
-  O_EXCL: number
+  O_EXCL: integer
   --  @type integer open file for append only
-  O_APPEND: number
+  O_APPEND: integer
   --  @type integer asks read/write to fail with EAGAIN rather than block
-  O_NONBLOCK: number
+  O_NONBLOCK: integer
   --  @type integer it's complicated (not supported on Apple and OpenBSD)
-  O_DIRECT: number
+  O_DIRECT: integer
   --  @type integer useful for stat'ing (hint on UNIX but required on NT)
-  O_DIRECTORY: number
+  O_DIRECTORY: integer
   --  @type integer fail if it's a symlink (zero on Windows)
-  O_NOFOLLOW: number
+  O_NOFOLLOW: integer
   --  @type integer automatically delete file upon close()
-  O_UNLINK: number
+  O_UNLINK: integer
   --  @type integer open a path reference only, without read/write access
   --  (Linux only; fails with EINVAL elsewhere). Usable with landlock
   --  rule paths and *at() calls even when the path itself is unreadable.
-  O_PATH: number
+  O_PATH: integer
   --  @type integer it's complicated (zero on non-Linux/Apple)
-  O_DSYNC: number
+  O_DSYNC: integer
   --  @type integer synchronize i/o operations appropriately
-  O_SYNC: number
+  O_SYNC: integer
   --  @type integer don't record access time (zero on non-Linux)
-  O_NOATIME: number
+  O_NOATIME: integer
   --  @type integer
-  O_ACCMODE: number
+  O_ACCMODE: integer
   --  @type integer
-  O_NOCTTY: number
+  O_NOCTTY: integer
   --  @type integer Returns maximum length of file path.
   --  This applies to a complete path being passed to system calls.
   --  POSIX.1 XSI requires this be at least 1024 so that's what most
@@ -945,20 +945,20 @@ local record unix Constants
   --  implemented at the C library level; however such functions are
   --  the exception rather than the norm, and report `enametoolong()`,
   --  when exceeding the libc limit.
-  PATH_MAX: number
+  PATH_MAX: integer
   --  the default on Linux. It's effectively the same as killing the
   --  process, since redbean has no threads. The termination signal
   --  can't be caught and will be either `SIGSYS` or `SIGABRT`.
   --  Consider enabling stderr logging below so you'll know why your
   --  program failed. Otherwise check the system log.
-  PLEDGE_PENALTY_KILL_THREAD: number
+  PLEDGE_PENALTY_KILL_THREAD: integer
   --  This is always the case on OpenBSD.
-  PLEDGE_PENALTY_KILL_PROCESS: number
+  PLEDGE_PENALTY_KILL_PROCESS: integer
   --  instead of killing. This is a gentler solution that allows code to
   --  display a friendly warning. Please note this may lead to weird
   --  behaviors if the software being sandboxed is lazy about checking
   --  error results.
-  PLEDGE_PENALTY_RETURN_EPERM: number
+  PLEDGE_PENALTY_RETURN_EPERM: integer
   --  know which promises are needed whenever violations occur. Without
   --  this, violations will be logged to `dmesg` on Linux if the penalty
   --  is to kill the process. You would then need to manually look up
@@ -969,481 +969,481 @@ local record unix Constants
   --  uses SECCOMP trapping) also means that the `unix.WTERMSIG()` on
   --  your killed processes will always be `unix.SIGABRT` on both Linux
   --  and OpenBSD. Otherwise, Linux prefers to raise `unix.SIGSYS`.
-  PLEDGE_STDERR_LOGGING: number
+  PLEDGE_STDERR_LOGGING: integer
   --  @type integer Returns maximum size at which pipe i/o is guaranteed atomic.
   --  POSIX requires this be at least 512. Linux is more generous and
   --  allows 4096. On Windows NT this is currently 4096, and it's the
   --  parameter redbean passes to `CreateNamedPipe()`.
-  PIPE_BUF: number
+  PIPE_BUF: integer
   --  @type integer
-  POLLERR: number
+  POLLERR: integer
   --  @type integer
-  POLLHUP: number
+  POLLHUP: integer
   --  @type integer
-  POLLIN: number
+  POLLIN: integer
   --  @type integer
-  POLLNVAL: number
+  POLLNVAL: integer
   --  @type integer
-  POLLOUT: number
+  POLLOUT: integer
   --  @type integer
-  POLLPRI: number
+  POLLPRI: integer
   --  @type integer
-  POLLRDBAND: number
+  POLLRDBAND: integer
   --  @type integer
-  POLLRDHUP: number
+  POLLRDHUP: integer
   --  @type integer
-  POLLRDNORM: number
+  POLLRDNORM: integer
   --  @type integer
-  POLLWRBAND: number
+  POLLWRBAND: integer
   --  @type integer
-  POLLWRNORM: number
+  POLLWRNORM: integer
   --  @type integer
-  RLIMIT_AS: number
+  RLIMIT_AS: integer
   --  @type integer
-  RLIMIT_CPU: number
+  RLIMIT_CPU: integer
   --  @type integer
-  RLIMIT_FSIZE: number
+  RLIMIT_FSIZE: integer
   --  @type integer
-  RLIMIT_NOFILE: number
+  RLIMIT_NOFILE: integer
   --  @type integer
-  RLIMIT_NPROC: number
+  RLIMIT_NPROC: integer
   --  @type integer
-  RLIMIT_RSS: number
+  RLIMIT_RSS: integer
   --  @type integer getpriority/setpriority: target is a process id
-  PRIO_PROCESS: number
+  PRIO_PROCESS: integer
   --  @type integer getpriority/setpriority: target is a process group id
-  PRIO_PGRP: number
+  PRIO_PGRP: integer
   --  @type integer getpriority/setpriority: target is a user id
-  PRIO_USER: number
+  PRIO_USER: integer
   --  @type integer sysconf: maximum length of arguments to exec()
-  SC_ARG_MAX: number
+  SC_ARG_MAX: integer
   --  @type integer sysconf: maximum simultaneous processes per user id
-  SC_CHILD_MAX: number
+  SC_CHILD_MAX: integer
   --  @type integer sysconf: clock ticks per second
-  SC_CLK_TCK: number
+  SC_CLK_TCK: integer
   --  @type integer sysconf: maximum number of open files per process
-  SC_OPEN_MAX: number
+  SC_OPEN_MAX: integer
   --  @type integer sysconf: size of a memory page in bytes
-  SC_PAGESIZE: number
+  SC_PAGESIZE: integer
   --  @type integer sysconf: number of processors configured
-  SC_NPROCESSORS_CONF: number
+  SC_NPROCESSORS_CONF: integer
   --  @type integer sysconf: number of processors currently online
-  SC_NPROCESSORS_ONLN: number
+  SC_NPROCESSORS_ONLN: integer
   --  @type integer termios input mode flags (Termios.iflag)
-  BRKINT: number
-  ICRNL: number
-  IGNBRK: number
-  IGNCR: number
-  IGNPAR: number
-  INLCR: number
-  INPCK: number
-  ISTRIP: number
-  IXANY: number
-  IXOFF: number
-  IXON: number
-  PARMRK: number
+  BRKINT: integer
+  ICRNL: integer
+  IGNBRK: integer
+  IGNCR: integer
+  IGNPAR: integer
+  INLCR: integer
+  INPCK: integer
+  ISTRIP: integer
+  IXANY: integer
+  IXOFF: integer
+  IXON: integer
+  PARMRK: integer
   --  @type integer termios output mode flags (Termios.oflag)
-  OPOST: number
-  OCRNL: number
-  ONLCR: number
-  ONLRET: number
-  ONOCR: number
+  OPOST: integer
+  OCRNL: integer
+  ONLCR: integer
+  ONLRET: integer
+  ONOCR: integer
   --  @type integer termios control mode flags (Termios.cflag)
-  CLOCAL: number
-  CREAD: number
-  CS5: number
-  CS6: number
-  CS7: number
-  CS8: number
-  CSIZE: number
-  CSTOPB: number
-  HUPCL: number
-  PARENB: number
-  PARODD: number
+  CLOCAL: integer
+  CREAD: integer
+  CS5: integer
+  CS6: integer
+  CS7: integer
+  CS8: integer
+  CSIZE: integer
+  CSTOPB: integer
+  HUPCL: integer
+  PARENB: integer
+  PARODD: integer
   --  @type integer termios local mode flags (Termios.lflag)
-  ECHO: number
-  ECHOE: number
-  ECHOK: number
-  ECHONL: number
-  ICANON: number
-  IEXTEN: number
-  ISIG: number
-  NOFLSH: number
-  TOSTOP: number
+  ECHO: integer
+  ECHOE: integer
+  ECHOK: integer
+  ECHONL: integer
+  ICANON: integer
+  IEXTEN: integer
+  ISIG: integer
+  NOFLSH: integer
+  TOSTOP: integer
   --  @type integer termios control-character indices (Termios.cc)
-  VEOF: number
-  VEOL: number
-  VERASE: number
-  VINTR: number
-  VKILL: number
-  VMIN: number
-  VQUIT: number
-  VSTART: number
-  VSTOP: number
-  VTIME: number
-  NCCS: number
+  VEOF: integer
+  VEOL: integer
+  VERASE: integer
+  VINTR: integer
+  VKILL: integer
+  VMIN: integer
+  VQUIT: integer
+  VSTART: integer
+  VSTOP: integer
+  VTIME: integer
+  NCCS: integer
   --  @type integer tcsetattr() action values
-  TCSANOW: number
-  TCSADRAIN: number
-  TCSAFLUSH: number
+  TCSANOW: integer
+  TCSADRAIN: integer
+  TCSAFLUSH: integer
   --  @type integer network interface ioctls (siocgifconf/ifreq)
-  IFNAMSIZ: number
-  IFF_ALLMULTI: number
-  IFF_AUTOMEDIA: number
-  IFF_BROADCAST: number
-  IFF_DEBUG: number
-  IFF_DYNAMIC: number
-  IFF_LOOPBACK: number
-  IFF_MASTER: number
-  IFF_MULTICAST: number
-  IFF_NOARP: number
-  IFF_NOTRAILERS: number
-  IFF_POINTOPOINT: number
-  IFF_PORTSEL: number
-  IFF_PROMISC: number
-  IFF_RUNNING: number
-  IFF_SLAVE: number
-  IFF_UP: number
-  SIOCGIFADDR: number
-  SIOCGIFBRDADDR: number
-  SIOCGIFDSTADDR: number
-  SIOCGIFFLAGS: number
-  SIOCGIFINDEX: number
-  SIOCGIFMETRIC: number
-  SIOCGIFMTU: number
-  SIOCGIFNAME: number
-  SIOCGIFNETMASK: number
-  SIOCSIFADDR: number
-  SIOCSIFBRDADDR: number
-  SIOCSIFDSTADDR: number
-  SIOCSIFFLAGS: number
-  SIOCSIFMETRIC: number
-  SIOCSIFMTU: number
-  SIOCSIFNETMASK: number
+  IFNAMSIZ: integer
+  IFF_ALLMULTI: integer
+  IFF_AUTOMEDIA: integer
+  IFF_BROADCAST: integer
+  IFF_DEBUG: integer
+  IFF_DYNAMIC: integer
+  IFF_LOOPBACK: integer
+  IFF_MASTER: integer
+  IFF_MULTICAST: integer
+  IFF_NOARP: integer
+  IFF_NOTRAILERS: integer
+  IFF_POINTOPOINT: integer
+  IFF_PORTSEL: integer
+  IFF_PROMISC: integer
+  IFF_RUNNING: integer
+  IFF_SLAVE: integer
+  IFF_UP: integer
+  SIOCGIFADDR: integer
+  SIOCGIFBRDADDR: integer
+  SIOCGIFDSTADDR: integer
+  SIOCGIFFLAGS: integer
+  SIOCGIFINDEX: integer
+  SIOCGIFMETRIC: integer
+  SIOCGIFMTU: integer
+  SIOCGIFNAME: integer
+  SIOCGIFNETMASK: integer
+  SIOCSIFADDR: integer
+  SIOCSIFBRDADDR: integer
+  SIOCSIFDSTADDR: integer
+  SIOCSIFFLAGS: integer
+  SIOCSIFMETRIC: integer
+  SIOCSIFMTU: integer
+  SIOCSIFNETMASK: integer
   --  @type integer unshare()/setns() namespace flags
-  CLONE_NEWCGROUP: number
-  CLONE_NEWIPC: number
-  CLONE_NEWNET: number
-  CLONE_NEWNS: number
-  CLONE_NEWPID: number
-  CLONE_NEWTIME: number
-  CLONE_NEWUSER: number
-  CLONE_NEWUTS: number
+  CLONE_NEWCGROUP: integer
+  CLONE_NEWIPC: integer
+  CLONE_NEWNET: integer
+  CLONE_NEWNS: integer
+  CLONE_NEWPID: integer
+  CLONE_NEWTIME: integer
+  CLONE_NEWUSER: integer
+  CLONE_NEWUTS: integer
   --  @type integer landlock access-rights bits (landlock_add_rule)
-  LANDLOCK_ACCESS_FS_EXECUTE: number
-  LANDLOCK_ACCESS_FS_WRITE_FILE: number
-  LANDLOCK_ACCESS_FS_READ_FILE: number
-  LANDLOCK_ACCESS_FS_READ_DIR: number
-  LANDLOCK_ACCESS_FS_REMOVE_DIR: number
-  LANDLOCK_ACCESS_FS_REMOVE_FILE: number
-  LANDLOCK_ACCESS_FS_MAKE_CHAR: number
-  LANDLOCK_ACCESS_FS_MAKE_DIR: number
-  LANDLOCK_ACCESS_FS_MAKE_REG: number
-  LANDLOCK_ACCESS_FS_MAKE_SOCK: number
-  LANDLOCK_ACCESS_FS_MAKE_FIFO: number
-  LANDLOCK_ACCESS_FS_MAKE_BLOCK: number
-  LANDLOCK_ACCESS_FS_MAKE_SYM: number
-  LANDLOCK_ACCESS_FS_REFER: number
-  LANDLOCK_ACCESS_FS_TRUNCATE: number
-  LANDLOCK_CREATE_RULESET_VERSION: number
-  LANDLOCK_RULE_PATH_BENEATH: number
+  LANDLOCK_ACCESS_FS_EXECUTE: integer
+  LANDLOCK_ACCESS_FS_WRITE_FILE: integer
+  LANDLOCK_ACCESS_FS_READ_FILE: integer
+  LANDLOCK_ACCESS_FS_READ_DIR: integer
+  LANDLOCK_ACCESS_FS_REMOVE_DIR: integer
+  LANDLOCK_ACCESS_FS_REMOVE_FILE: integer
+  LANDLOCK_ACCESS_FS_MAKE_CHAR: integer
+  LANDLOCK_ACCESS_FS_MAKE_DIR: integer
+  LANDLOCK_ACCESS_FS_MAKE_REG: integer
+  LANDLOCK_ACCESS_FS_MAKE_SOCK: integer
+  LANDLOCK_ACCESS_FS_MAKE_FIFO: integer
+  LANDLOCK_ACCESS_FS_MAKE_BLOCK: integer
+  LANDLOCK_ACCESS_FS_MAKE_SYM: integer
+  LANDLOCK_ACCESS_FS_REFER: integer
+  LANDLOCK_ACCESS_FS_TRUNCATE: integer
+  LANDLOCK_CREATE_RULESET_VERSION: integer
+  LANDLOCK_RULE_PATH_BENEATH: integer
   --  @type integer prctl() options
-  PR_CAPBSET_DROP: number
-  PR_CAPBSET_READ: number
-  PR_GET_CHILD_SUBREAPER: number
-  PR_GET_DUMPABLE: number
-  PR_GET_KEEPCAPS: number
-  PR_GET_NAME: number
-  PR_GET_NO_NEW_PRIVS: number
-  PR_GET_PDEATHSIG: number
-  PR_SET_CHILD_SUBREAPER: number
-  PR_SET_DUMPABLE: number
-  PR_SET_KEEPCAPS: number
-  PR_SET_NAME: number
-  PR_SET_NO_NEW_PRIVS: number
-  PR_SET_PDEATHSIG: number
+  PR_CAPBSET_DROP: integer
+  PR_CAPBSET_READ: integer
+  PR_GET_CHILD_SUBREAPER: integer
+  PR_GET_DUMPABLE: integer
+  PR_GET_KEEPCAPS: integer
+  PR_GET_NAME: integer
+  PR_GET_NO_NEW_PRIVS: integer
+  PR_GET_PDEATHSIG: integer
+  PR_SET_CHILD_SUBREAPER: integer
+  PR_SET_DUMPABLE: integer
+  PR_SET_KEEPCAPS: integer
+  PR_SET_NAME: integer
+  PR_SET_NO_NEW_PRIVS: integer
+  PR_SET_PDEATHSIG: integer
   --  @type integer Linux capability bits (prctl PR_CAPBSET_*, capget/capset).
-  CAP_AUDIT_CONTROL: number
-  CAP_AUDIT_READ: number
-  CAP_AUDIT_WRITE: number
-  CAP_BLOCK_SUSPEND: number
-  CAP_BPF: number
-  CAP_CHECKPOINT_RESTORE: number
-  CAP_CHOWN: number
-  CAP_DAC_OVERRIDE: number
-  CAP_DAC_READ_SEARCH: number
-  CAP_FOWNER: number
-  CAP_FSETID: number
-  CAP_IPC_LOCK: number
-  CAP_IPC_OWNER: number
-  CAP_KILL: number
-  CAP_LAST_CAP: number
-  CAP_LEASE: number
-  CAP_LINUX_IMMUTABLE: number
-  CAP_MAC_ADMIN: number
-  CAP_MAC_OVERRIDE: number
-  CAP_MKNOD: number
-  CAP_NET_ADMIN: number
-  CAP_NET_BIND_SERVICE: number
-  CAP_NET_BROADCAST: number
-  CAP_NET_RAW: number
-  CAP_PERFMON: number
-  CAP_SETFCAP: number
-  CAP_SETGID: number
-  CAP_SETPCAP: number
-  CAP_SETUID: number
-  CAP_SYSLOG: number
-  CAP_SYS_ADMIN: number
-  CAP_SYS_BOOT: number
-  CAP_SYS_CHROOT: number
-  CAP_SYS_MODULE: number
-  CAP_SYS_NICE: number
-  CAP_SYS_PACCT: number
-  CAP_SYS_PTRACE: number
-  CAP_SYS_RAWIO: number
-  CAP_SYS_RESOURCE: number
-  CAP_SYS_TIME: number
-  CAP_SYS_TTY_CONFIG: number
-  CAP_WAKE_ALARM: number
+  CAP_AUDIT_CONTROL: integer
+  CAP_AUDIT_READ: integer
+  CAP_AUDIT_WRITE: integer
+  CAP_BLOCK_SUSPEND: integer
+  CAP_BPF: integer
+  CAP_CHECKPOINT_RESTORE: integer
+  CAP_CHOWN: integer
+  CAP_DAC_OVERRIDE: integer
+  CAP_DAC_READ_SEARCH: integer
+  CAP_FOWNER: integer
+  CAP_FSETID: integer
+  CAP_IPC_LOCK: integer
+  CAP_IPC_OWNER: integer
+  CAP_KILL: integer
+  CAP_LAST_CAP: integer
+  CAP_LEASE: integer
+  CAP_LINUX_IMMUTABLE: integer
+  CAP_MAC_ADMIN: integer
+  CAP_MAC_OVERRIDE: integer
+  CAP_MKNOD: integer
+  CAP_NET_ADMIN: integer
+  CAP_NET_BIND_SERVICE: integer
+  CAP_NET_BROADCAST: integer
+  CAP_NET_RAW: integer
+  CAP_PERFMON: integer
+  CAP_SETFCAP: integer
+  CAP_SETGID: integer
+  CAP_SETPCAP: integer
+  CAP_SETUID: integer
+  CAP_SYSLOG: integer
+  CAP_SYS_ADMIN: integer
+  CAP_SYS_BOOT: integer
+  CAP_SYS_CHROOT: integer
+  CAP_SYS_MODULE: integer
+  CAP_SYS_NICE: integer
+  CAP_SYS_PACCT: integer
+  CAP_SYS_PTRACE: integer
+  CAP_SYS_RAWIO: integer
+  CAP_SYS_RESOURCE: integer
+  CAP_SYS_TIME: integer
+  CAP_SYS_TTY_CONFIG: integer
+  CAP_WAKE_ALARM: integer
   --  @type integer mount()/umount2() flags
-  MS_BIND: number
-  MS_DIRSYNC: number
-  MS_LAZYTIME: number
-  MS_MANDLOCK: number
-  MS_MOVE: number
-  MS_NOATIME: number
-  MS_NODEV: number
-  MS_NODIRATIME: number
-  MS_NOEXEC: number
-  MS_NOSUID: number
-  MS_POSIXACL: number
-  MS_PRIVATE: number
-  MS_RDONLY: number
-  MS_REC: number
-  MS_RELATIME: number
-  MS_REMOUNT: number
-  MS_SHARED: number
-  MS_SILENT: number
-  MS_SLAVE: number
-  MS_STRICTATIME: number
-  MS_SYNCHRONOUS: number
-  MS_UNBINDABLE: number
-  MNT_DETACH: number
-  MNT_EXPIRE: number
-  MNT_FORCE: number
-  UMOUNT_NOFOLLOW: number
+  MS_BIND: integer
+  MS_DIRSYNC: integer
+  MS_LAZYTIME: integer
+  MS_MANDLOCK: integer
+  MS_MOVE: integer
+  MS_NOATIME: integer
+  MS_NODEV: integer
+  MS_NODIRATIME: integer
+  MS_NOEXEC: integer
+  MS_NOSUID: integer
+  MS_POSIXACL: integer
+  MS_PRIVATE: integer
+  MS_RDONLY: integer
+  MS_REC: integer
+  MS_RELATIME: integer
+  MS_REMOUNT: integer
+  MS_SHARED: integer
+  MS_SILENT: integer
+  MS_SLAVE: integer
+  MS_STRICTATIME: integer
+  MS_SYNCHRONOUS: integer
+  MS_UNBINDABLE: integer
+  MNT_DETACH: integer
+  MNT_EXPIRE: integer
+  MNT_FORCE: integer
+  UMOUNT_NOFOLLOW: integer
   --  @type integer statvfs f_flag bits (unix.Statfs / statvfs)
-  ST_APPEND: number
-  ST_IMMUTABLE: number
-  ST_MANDLOCK: number
-  ST_NOATIME: number
-  ST_NODEV: number
-  ST_NODIRATIME: number
-  ST_NOEXEC: number
-  ST_NOSUID: number
-  ST_RDONLY: number
-  ST_RELATIME: number
-  ST_SYNCHRONOUS: number
-  ST_WRITE: number
+  ST_APPEND: integer
+  ST_IMMUTABLE: integer
+  ST_MANDLOCK: integer
+  ST_NOATIME: integer
+  ST_NODEV: integer
+  ST_NODIRATIME: integer
+  ST_NOEXEC: integer
+  ST_NOSUID: integer
+  ST_RDONLY: integer
+  ST_RELATIME: integer
+  ST_SYNCHRONOUS: integer
+  ST_WRITE: integer
   --  @type integer
-  RUSAGE_BOTH: number
+  RUSAGE_BOTH: integer
   --  @type integer
-  RUSAGE_CHILDREN: number
+  RUSAGE_CHILDREN: integer
   --  @type integer
-  RUSAGE_SELF: number
+  RUSAGE_SELF: integer
   --  @type integer
-  RUSAGE_THREAD: number
+  RUSAGE_THREAD: integer
   --  @type integer
-  R_OK: number
+  R_OK: integer
   --  @type integer
-  SA_NOCLDSTOP: number
+  SA_NOCLDSTOP: integer
   --  @type integer
-  SA_NOCLDWAIT: number
+  SA_NOCLDWAIT: integer
   --  @type integer
-  SA_NODEFER: number
+  SA_NODEFER: integer
   --  @type integer
-  SA_RESETHAND: number
+  SA_RESETHAND: integer
   --  @type integer
-  SA_RESTART: number
+  SA_RESTART: integer
   --  @type integer
-  SEEK_CUR: number
+  SEEK_CUR: integer
   --  @type integer
-  SEEK_END: number
+  SEEK_END: integer
   --  @type integer
-  SEEK_SET: number
-  SHUT_RD: number
-  SHUT_WR: number
-  SHUT_RDWR: number
+  SEEK_SET: integer
+  SHUT_RD: integer
+  SHUT_WR: integer
+  SHUT_RDWR: integer
   --  @type integer Process aborted.
-  SIGABRT: number
+  SIGABRT: integer
   --  @type integer Sent by setitimer().
-  SIGALRM: number
+  SIGALRM: integer
   --  @type integer Valid memory access that went beyond underlying end of file.
-  SIGBUS: number
+  SIGBUS: integer
   --  @type integer Child process exited or terminated and is now a zombie (unless this
   --  is `SIG_IGN` or `SA_NOCLDWAIT`) or child process stopped due to terminal
   --  i/o or profiling/debugging (unless you used `SA_NOCLDSTOP`)
-  SIGCHLD: number
+  SIGCHLD: integer
   --  @type integer Child process resumed from profiling/debugging.
-  SIGCONT: number
+  SIGCONT: integer
   --  @type integer Illegal math.
-  SIGFPE: number
+  SIGFPE: integer
   --  @type integer Terminal hangup or daemon reload; auto-broadcasted to process group.
-  SIGHUP: number
+  SIGHUP: integer
   --  @type integer Illegal instruction.
-  SIGILL: number
+  SIGILL: integer
   --  @type integer Terminal CTRL-C keystroke.
-  SIGINT: number
+  SIGINT: integer
   --  @type integer Terminate with extreme prejudice.
-  SIGKILL: number
+  SIGKILL: integer
   --  @type integer Write to closed file descriptor.
-  SIGPIPE: number
+  SIGPIPE: integer
   --  @type integer Profiling timer expired.
-  SIGPROF: number
+  SIGPROF: integer
   --  @type integer Terminal CTRL-\ keystroke.
-  SIGQUIT: number
+  SIGQUIT: integer
   --  @type integer Invalid memory access.
-  SIGSEGV: number
+  SIGSEGV: integer
   --  @type integer Child process stopped due to profiling/debugging.
-  SIGSTOP: number
+  SIGSTOP: integer
   --  @type integer
-  SIGSYS: number
+  SIGSYS: integer
   --  @type integer Terminate.
-  SIGTERM: number
+  SIGTERM: integer
   --  @type integer INT3 instruction.
-  SIGTRAP: number
+  SIGTRAP: integer
   --  @type integer Terminal CTRL-Z keystroke.
-  SIGTSTP: number
+  SIGTSTP: integer
   --  @type integer Terminal input for background process.
-  SIGTTIN: number
+  SIGTTIN: integer
   --  @type integer Terminal input for background process.
-  SIGTTOU: number
+  SIGTTOU: integer
   --  @type integer
-  SIGURG: number
+  SIGURG: integer
   --  @type integer Do whatever you want.
-  SIGUSR1: number
+  SIGUSR1: integer
   --  @type integer Do whatever you want.
-  SIGUSR2: number
+  SIGUSR2: integer
   --  @type integer Virtual alarm clock.
-  SIGVTALRM: number
+  SIGVTALRM: integer
   --  @type integer Terminal resized.
-  SIGWINCH: number
+  SIGWINCH: integer
   --  @type integer CPU time limit exceeded.
-  SIGXCPU: number
+  SIGXCPU: integer
   --  @type integer File size limit exceeded.
-  SIGXFSZ: number
+  SIGXFSZ: integer
   --  @type integer
-  SIG_BLOCK: number
+  SIG_BLOCK: integer
   --  @type integer
-  SIG_DFL: number
+  SIG_DFL: integer
   --  @type integer
-  SIG_IGN: number
+  SIG_IGN: integer
   --  @type integer
-  SIG_SETMASK: number
+  SIG_SETMASK: integer
   --  @type integer
-  SIG_UNBLOCK: number
+  SIG_UNBLOCK: integer
   --  @type integer
-  SOCK_CLOEXEC: number
+  SOCK_CLOEXEC: integer
   --  @type integer
-  SOCK_DGRAM: number
+  SOCK_DGRAM: integer
   --  @type integer
-  SOCK_NONBLOCK: number
+  SOCK_NONBLOCK: integer
   --  @type integer
-  SOCK_RAW: number
+  SOCK_RAW: integer
   --  @type integer
-  SOCK_RDM: number
+  SOCK_RDM: integer
   --  @type integer
-  SOCK_SEQPACKET: number
+  SOCK_SEQPACKET: integer
   --  @type integer
-  SOCK_STREAM: number
+  SOCK_STREAM: integer
   --  @type integer
-  SOL_IP: number
+  SOL_IP: integer
   --  @type integer
-  SOL_SOCKET: number
+  SOL_SOCKET: integer
   --  @type integer
-  SOL_TCP: number
+  SOL_TCP: integer
   --  @type integer
-  SOL_UDP: number
+  SOL_UDP: integer
   --  @type integer
-  SO_ACCEPTCONN: number
+  SO_ACCEPTCONN: integer
   --  @type integer
-  SO_BROADCAST: number
+  SO_BROADCAST: integer
   --  @type integer
-  SO_DEBUG: number
+  SO_DEBUG: integer
   --  @type integer
-  SO_DONTROUTE: number
+  SO_DONTROUTE: integer
   --  @type integer
-  SO_ERROR: number
+  SO_ERROR: integer
   --  @type integer
-  SO_KEEPALIVE: number
+  SO_KEEPALIVE: integer
   --  @type integer
-  SO_LINGER: number
+  SO_LINGER: integer
   --  @type integer
-  SO_NOSIGPIPE: number
+  SO_NOSIGPIPE: integer
   --  @type integer
-  SO_OOBINLINE: number
+  SO_OOBINLINE: integer
   --  @type integer
-  SO_RCVBUF: number
+  SO_RCVBUF: integer
   --  @type integer
-  SO_RCVLOWAT: number
+  SO_RCVLOWAT: integer
   --  @type integer
-  SO_RCVTIMEO: number
+  SO_RCVTIMEO: integer
   --  @type integer
-  SO_REUSEADDR: number
+  SO_REUSEADDR: integer
   --  @type integer
-  SO_REUSEPORT: number
+  SO_REUSEPORT: integer
   --  @type integer
-  SO_SNDBUF: number
+  SO_SNDBUF: integer
   --  @type integer
-  SO_SNDLOWAT: number
+  SO_SNDLOWAT: integer
   --  @type integer
-  SO_SNDTIMEO: number
+  SO_SNDTIMEO: integer
   --  @type integer
-  SO_TYPE: number
+  SO_TYPE: integer
   --  @type integer
-  TCP_CORK: number
+  TCP_CORK: integer
   --  @type integer
-  TCP_DEFER_ACCEPT: number
+  TCP_DEFER_ACCEPT: integer
   --  @type integer
-  TCP_FASTOPEN: number
+  TCP_FASTOPEN: integer
   --  @type integer
-  TCP_FASTOPEN_CONNECT: number
+  TCP_FASTOPEN_CONNECT: integer
   --  @type integer
-  TCP_KEEPCNT: number
+  TCP_KEEPCNT: integer
   --  @type integer
-  TCP_KEEPIDLE: number
+  TCP_KEEPIDLE: integer
   --  @type integer
-  TCP_KEEPINTVL: number
+  TCP_KEEPINTVL: integer
   --  @type integer
-  TCP_MAXSEG: number
+  TCP_MAXSEG: integer
   --  @type integer
-  TCP_NODELAY: number
+  TCP_NODELAY: integer
   --  @type integer
-  TCP_NOTSENT_LOWAT: number
+  TCP_NOTSENT_LOWAT: integer
   --  @type integer
-  TCP_QUICKACK: number
+  TCP_QUICKACK: integer
   --  @type integer
-  TCP_SAVED_SYN: number
+  TCP_SAVED_SYN: integer
   --  @type integer
-  TCP_SAVE_SYN: number
+  TCP_SAVE_SYN: integer
   --  @type integer
-  TCP_SYNCNT: number
+  TCP_SYNCNT: integer
   --  @type integer
-  TCP_WINDOW_CLAMP: number
+  TCP_WINDOW_CLAMP: integer
   --  @type integer
-  UTIME_NOW: number
+  UTIME_NOW: integer
   --  @type integer
-  UTIME_OMIT: number
+  UTIME_OMIT: integer
   --  @type integer
-  WNOHANG: number
+  WNOHANG: integer
   --  @type integer
-  WUNTRACED: number
+  WUNTRACED: integer
   --  @type integer Report continued child processes.
-  WCONTINUED: number
+  WCONTINUED: integer
   --  @type integer
-  W_OK: number
+  W_OK: integer
   --  @type integer
-  X_OK: number
+  X_OK: integer
 end
 ```
 
@@ -1452,7 +1452,7 @@ end
 ### open
 
 ```teal
-function open(path: string, flags: number, mode?: number, dirfd?: number): number | nil, string | nil, Errno | nil
+function open(path: string, flags: integer, mode?: integer, dirfd?: integer): integer | nil, string | nil, Errno | nil
 ```
 
  Opens file.
@@ -1500,20 +1500,20 @@ function open(path: string, flags: number, mode?: number, dirfd?: number): numbe
 **Parameters:**
 
 - `path` (string)
-- `flags` (number)
-- `mode` (number)
-- `dirfd` (number)
+- `flags` (integer)
+- `mode` (integer)
+- `dirfd` (integer)
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
 ### close
 
 ```teal
-function close(fd: number): boolean | nil, string | nil, Errno | nil
+function close(fd: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Closes file descriptor.
@@ -1534,7 +1534,7 @@ function close(fd: number): boolean | nil, string | nil, Errno | nil
 
 **Parameters:**
 
-- `fd` (number)
+- `fd` (integer)
 
 **Returns:**
 
@@ -1545,7 +1545,7 @@ function close(fd: number): boolean | nil, string | nil, Errno | nil
 ### read
 
 ```teal
-function read(fd: number, bufsiz?: number, offset?: number): string | nil, string | nil, Errno | nil
+function read(fd: integer, bufsiz?: integer, offset?: integer): string | nil, string | nil, Errno | nil
 ```
 
  Reads from file descriptor.
@@ -1555,9 +1555,9 @@ function read(fd: number, bufsiz?: number, offset?: number): string | nil, strin
 
 **Parameters:**
 
-- `fd` (number)
-- `bufsiz` (number)
-- `offset` (number)
+- `fd` (integer)
+- `bufsiz` (integer)
+- `offset` (integer)
 
 **Returns:**
 
@@ -1568,27 +1568,27 @@ function read(fd: number, bufsiz?: number, offset?: number): string | nil, strin
 ### write
 
 ```teal
-function write(fd: number, data: string, offset?: number): number | nil, string | nil, Errno | nil
+function write(fd: integer, data: string, offset?: integer): integer | nil, string | nil, Errno | nil
 ```
 
  Writes to file descriptor.
 
 **Parameters:**
 
-- `fd` (number)
+- `fd` (integer)
 - `data` (string)
-- `offset` (number)
+- `offset` (integer)
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
 ### exit
 
 ```teal
-function exit(exitcode?: number)
+function exit(exitcode?: integer)
 ```
 
  Invokes `_Exit(exitcode)` on the process. This will immediately
@@ -1598,7 +1598,7 @@ function exit(exitcode?: number)
 
 **Parameters:**
 
-- `exitcode` (number)
+- `exitcode` (integer)
 
 ### environ
 
@@ -1701,7 +1701,7 @@ function getlogin(): string | nil, string | nil, Errno | nil
 ### fork
 
 ```teal
-function fork(): number | nil, string | nil, Errno | nil
+function fork(): integer | nil, string | nil, Errno | nil
 ```
 
  Creates a new process mitosis style.
@@ -1762,7 +1762,7 @@ function fork(): number | nil, string | nil, Errno | nil
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
@@ -1888,7 +1888,7 @@ function execvpe(prog: string, argv: {string}, envp?: {string}): nil, string | n
 ### fexecve
 
 ```teal
-function fexecve(fd: number, argv: {string}, envp?: {string}): nil, string | nil, Errno | nil
+function fexecve(fd: integer, argv: {string}, envp?: {string}): nil, string | nil, Errno | nil
 ```
 
  Executes program from file descriptor.
@@ -1904,7 +1904,7 @@ function fexecve(fd: number, argv: {string}, envp?: {string}): nil, string | nil
 
 **Parameters:**
 
-- `fd` (number)
+- `fd` (integer)
 - `argv` ({string})
 - `envp` ({string})
 
@@ -1917,7 +1917,7 @@ function fexecve(fd: number, argv: {string}, envp?: {string}): nil, string | nil
 ### spawn
 
 ```teal
-function spawn(prog: string, argv: {string}, envp?: {string}): number | nil, string | nil, Errno | nil
+function spawn(prog: string, argv: {string}, envp?: {string}): integer | nil, string | nil, Errno | nil
 ```
 
  Spawns a new process.
@@ -1937,14 +1937,14 @@ function spawn(prog: string, argv: {string}, envp?: {string}): number | nil, str
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
 ### spawnp
 
 ```teal
-function spawnp(prog: string, argv: {string}, envp?: {string}): number | nil, string | nil, Errno | nil
+function spawnp(prog: string, argv: {string}, envp?: {string}): integer | nil, string | nil, Errno | nil
 ```
 
  Spawns a new process with PATH search.
@@ -1960,14 +1960,14 @@ function spawnp(prog: string, argv: {string}, envp?: {string}): number | nil, st
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
 ### dup
 
 ```teal
-function dup(oldfd: number, newfd?: number, flags?: number, lowest?: number): number | nil, string | nil, Errno | nil
+function dup(oldfd: integer, newfd?: integer, flags?: integer, lowest?: integer): integer | nil, string | nil, Errno | nil
 ```
 
  Duplicates file descriptor.
@@ -1987,21 +1987,21 @@ function dup(oldfd: number, newfd?: number, flags?: number, lowest?: number): nu
 
 **Parameters:**
 
-- `oldfd` (number)
-- `newfd` (number)
-- `flags` (number)
-- `lowest` (number)
+- `oldfd` (integer)
+- `newfd` (integer)
+- `flags` (integer)
+- `lowest` (integer)
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
 ### pipe
 
 ```teal
-function pipe(flags?: number): number | nil, number, string | nil, Errno | nil
+function pipe(flags?: integer): integer | nil, integer, string | nil, Errno | nil
 ```
 
  Creates fifo which enables communication between processes.
@@ -2045,19 +2045,19 @@ function pipe(flags?: number): number | nil, number, string | nil, Errno | nil
 
 **Parameters:**
 
-- `flags` (number)
+- `flags` (integer)
 
 **Returns:**
 
-- number | nil
-- number
+- integer | nil
+- integer
 - string | nil
 - Errno | nil
 
 ### wait
 
 ```teal
-function wait(pid?: number, options?: number): number | nil, number, Rusage, string | nil, Errno | nil
+function wait(pid?: integer, options?: integer): integer | nil, integer, Rusage, string | nil, Errno | nil
 ```
 
  Waits for subprocess to terminate.
@@ -2096,13 +2096,13 @@ function wait(pid?: number, options?: number): number | nil, number, Rusage, str
 
 **Parameters:**
 
-- `pid` (number)
-- `options` (number)
+- `pid` (integer)
+- `options` (integer)
 
 **Returns:**
 
-- number | nil
-- number
+- integer | nil
+- integer
 - Rusage
 - string | nil
 - Errno | nil
@@ -2110,14 +2110,14 @@ function wait(pid?: number, options?: number): number | nil, number, Rusage, str
 ### WIFEXITED
 
 ```teal
-function WIFEXITED(wstatus: number): boolean
+function WIFEXITED(wstatus: integer): boolean
 ```
 
  Returns `true` if process exited cleanly.
 
 **Parameters:**
 
-- `wstatus` (number)
+- `wstatus` (integer)
 
 **Returns:**
 
@@ -2126,30 +2126,30 @@ function WIFEXITED(wstatus: number): boolean
 ### WEXITSTATUS
 
 ```teal
-function WEXITSTATUS(wstatus: number): number
+function WEXITSTATUS(wstatus: integer): integer
 ```
 
  Returns code passed to exit() assuming `WIFEXITED(wstatus)` is true.
 
 **Parameters:**
 
-- `wstatus` (number)
+- `wstatus` (integer)
 
 **Returns:**
 
-- number
+- integer
 
 ### WIFSIGNALED
 
 ```teal
-function WIFSIGNALED(wstatus: number): boolean
+function WIFSIGNALED(wstatus: integer): boolean
 ```
 
  Returns `true` if process terminated due to a signal.
 
 **Parameters:**
 
-- `wstatus` (number)
+- `wstatus` (integer)
 
 **Returns:**
 
@@ -2158,7 +2158,7 @@ function WIFSIGNALED(wstatus: number): boolean
 ### WTERMSIG
 
 ```teal
-function WTERMSIG(wstatus: number): number
+function WTERMSIG(wstatus: integer): integer
 ```
 
  Returns signal that caused process to terminate assuming
@@ -2166,16 +2166,16 @@ function WTERMSIG(wstatus: number): number
 
 **Parameters:**
 
-- `wstatus` (number)
+- `wstatus` (integer)
 
 **Returns:**
 
-- number
+- integer
 
 ### getpid
 
 ```teal
-function getpid(): number
+function getpid(): integer
 ```
 
  Returns process id of current process.
@@ -2183,12 +2183,12 @@ function getpid(): number
 
 **Returns:**
 
-- number
+- integer
 
 ### getppid
 
 ```teal
-function getppid(): number
+function getppid(): integer
 ```
 
  Returns process id of parent process.
@@ -2196,12 +2196,12 @@ function getppid(): number
 
 **Returns:**
 
-- number
+- integer
 
 ### kill
 
 ```teal
-function kill(pid: number, sig: number): boolean | nil, string | nil, Errno | nil
+function kill(pid: integer, sig: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Sends signal to process(es).
@@ -2225,8 +2225,8 @@ function kill(pid: number, sig: number): boolean | nil, string | nil, Errno | ni
 
 **Parameters:**
 
-- `pid` (number)
-- `sig` (number)
+- `pid` (integer)
+- `sig` (integer)
 
 **Returns:**
 
@@ -2237,7 +2237,7 @@ function kill(pid: number, sig: number): boolean | nil, string | nil, Errno | ni
 ### killpg
 
 ```teal
-function killpg(pgrp: number, sig: number): boolean | nil, string | nil, Errno | nil
+function killpg(pgrp: integer, sig: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Sends signal to process group.
@@ -2249,8 +2249,8 @@ function killpg(pgrp: number, sig: number): boolean | nil, string | nil, Errno |
 
 **Parameters:**
 
-- `pgrp` (number)
-- `sig` (number)
+- `pgrp` (integer)
+- `sig` (integer)
 
 **Returns:**
 
@@ -2261,7 +2261,7 @@ function killpg(pgrp: number, sig: number): boolean | nil, string | nil, Errno |
 ### raise
 
 ```teal
-function raise(sig: number): number | nil, string | nil, Errno | nil
+function raise(sig: integer): integer | nil, string | nil, Errno | nil
 ```
 
  Triggers signal in current process.
@@ -2269,18 +2269,18 @@ function raise(sig: number): number | nil, string | nil, Errno | nil
 
 **Parameters:**
 
-- `sig` (number)
+- `sig` (integer)
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
 ### access
 
 ```teal
-function access(path: string, how: number, flags?: number, dirfd?: number): boolean | nil, string | nil, Errno | nil
+function access(path: string, how: integer, flags?: integer, dirfd?: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Checks if effective user of current process has permission to access file.
@@ -2289,9 +2289,9 @@ function access(path: string, how: number, flags?: number, dirfd?: number): bool
 **Parameters:**
 
 - `path` (string)
-- `how` (number)
-- `flags` (number)
-- `dirfd` (number)
+- `how` (integer)
+- `flags` (integer)
+- `dirfd` (integer)
 
 **Returns:**
 
@@ -2302,7 +2302,7 @@ function access(path: string, how: number, flags?: number, dirfd?: number): bool
 ### mkdir
 
 ```teal
-function mkdir(path: string, mode?: number, dirfd?: number): boolean | nil, string | nil, Errno | nil
+function mkdir(path: string, mode?: integer, dirfd?: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Makes directory.
@@ -2322,8 +2322,8 @@ function mkdir(path: string, mode?: number, dirfd?: number): boolean | nil, stri
 **Parameters:**
 
 - `path` (string)
-- `mode` (number)
-- `dirfd` (number)
+- `mode` (integer)
+- `dirfd` (integer)
 
 **Returns:**
 
@@ -2334,7 +2334,7 @@ function mkdir(path: string, mode?: number, dirfd?: number): boolean | nil, stri
 ### makedirs
 
 ```teal
-function makedirs(path: string, mode?: number): boolean | nil, string | nil, Errno | nil
+function makedirs(path: string, mode?: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Unlike mkdir() this convenience wrapper will automatically create
@@ -2347,7 +2347,7 @@ function makedirs(path: string, mode?: number): boolean | nil, string | nil, Err
 **Parameters:**
 
 - `path` (string)
-- `mode` (number)
+- `mode` (integer)
 
 **Returns:**
 
@@ -2382,7 +2382,7 @@ function mkdtemp(template: string): string | nil, string | nil, Errno | nil
 ### mkstemp
 
 ```teal
-function mkstemp(template: string): number | nil, string, string | nil, Errno | nil
+function mkstemp(template: string): integer | nil, string, string | nil, Errno | nil
 ```
 
  Creates a temporary file with a unique name.
@@ -2402,7 +2402,7 @@ function mkstemp(template: string): number | nil, string, string | nil, Errno | 
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string
 - string | nil
 - Errno | nil
@@ -2428,7 +2428,7 @@ function chdir(path: string): boolean | nil, string | nil, Errno | nil
 ### unlink
 
 ```teal
-function unlink(path: string, dirfd?: number): boolean | nil, string | nil, Errno | nil
+function unlink(path: string, dirfd?: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Removes file at `path`.
@@ -2438,7 +2438,7 @@ function unlink(path: string, dirfd?: number): boolean | nil, string | nil, Errn
 **Parameters:**
 
 - `path` (string)
-- `dirfd` (number)
+- `dirfd` (integer)
 
 **Returns:**
 
@@ -2449,7 +2449,7 @@ function unlink(path: string, dirfd?: number): boolean | nil, string | nil, Errn
 ### rmdir
 
 ```teal
-function rmdir(path: string, dirfd?: number): boolean | nil, string | nil, Errno | nil
+function rmdir(path: string, dirfd?: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Removes empty directory at `path`.
@@ -2459,7 +2459,7 @@ function rmdir(path: string, dirfd?: number): boolean | nil, string | nil, Errno
 **Parameters:**
 
 - `path` (string)
-- `dirfd` (number)
+- `dirfd` (integer)
 
 **Returns:**
 
@@ -2470,7 +2470,7 @@ function rmdir(path: string, dirfd?: number): boolean | nil, string | nil, Errno
 ### rename
 
 ```teal
-function rename(oldpath: string, newpath: string, olddirfd: number, newdirfd: number): boolean | nil, string | nil, Errno | nil
+function rename(oldpath: string, newpath: string, olddirfd: integer, newdirfd: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Renames file or directory.
@@ -2479,8 +2479,8 @@ function rename(oldpath: string, newpath: string, olddirfd: number, newdirfd: nu
 
 - `oldpath` (string)
 - `newpath` (string)
-- `olddirfd` (number)
-- `newdirfd` (number)
+- `olddirfd` (integer)
+- `newdirfd` (integer)
 
 **Returns:**
 
@@ -2491,7 +2491,7 @@ function rename(oldpath: string, newpath: string, olddirfd: number, newdirfd: nu
 ### link
 
 ```teal
-function link(existingpath: string, newpath: string, flags: number, olddirfd: number, newdirfd: number): boolean | nil, string | nil, Errno | nil
+function link(existingpath: string, newpath: string, flags: integer, olddirfd: integer, newdirfd: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Creates hard link, so your underlying inode has two names.
@@ -2500,9 +2500,9 @@ function link(existingpath: string, newpath: string, flags: number, olddirfd: nu
 
 - `existingpath` (string)
 - `newpath` (string)
-- `flags` (number)
-- `olddirfd` (number)
-- `newdirfd` (number)
+- `flags` (integer)
+- `olddirfd` (integer)
+- `newdirfd` (integer)
 
 **Returns:**
 
@@ -2513,7 +2513,7 @@ function link(existingpath: string, newpath: string, flags: number, olddirfd: nu
 ### symlink
 
 ```teal
-function symlink(target: string, linkpath: string, newdirfd?: number): boolean | nil, string | nil, Errno | nil
+function symlink(target: string, linkpath: string, newdirfd?: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Creates symbolic link.
@@ -2525,7 +2525,7 @@ function symlink(target: string, linkpath: string, newdirfd?: number): boolean |
 
 - `target` (string)
 - `linkpath` (string)
-- `newdirfd` (number)
+- `newdirfd` (integer)
 
 **Returns:**
 
@@ -2536,7 +2536,7 @@ function symlink(target: string, linkpath: string, newdirfd?: number): boolean |
 ### readlink
 
 ```teal
-function readlink(path: string, dirfd?: number): string | nil, string | nil, Errno | nil
+function readlink(path: string, dirfd?: integer): string | nil, string | nil, Errno | nil
 ```
 
  Reads contents of symbolic link.
@@ -2551,7 +2551,7 @@ function readlink(path: string, dirfd?: number): string | nil, string | nil, Err
 **Parameters:**
 
 - `path` (string)
-- `dirfd` (number)
+- `dirfd` (integer)
 
 **Returns:**
 
@@ -2581,7 +2581,7 @@ function realpath(path: string): string | nil, string | nil, Errno | nil
 ### utimensat
 
 ```teal
-function utimensat(path: string, asecs: number, ananos: number, msecs: number, mnanos: number, dirfd?: number, flags?: number): number | nil, string | nil, Errno | nil
+function utimensat(path: string, asecs: integer, ananos: integer, msecs: integer, mnanos: integer, dirfd?: integer, flags?: integer): integer | nil, string | nil, Errno | nil
 ```
 
  Changes access and/or modified timestamps on file.
@@ -2609,23 +2609,23 @@ function utimensat(path: string, asecs: number, ananos: number, msecs: number, m
 **Parameters:**
 
 - `path` (string)
-- `asecs` (number)
-- `ananos` (number)
-- `msecs` (number)
-- `mnanos` (number)
-- `dirfd` (number)
-- `flags` (number)
+- `asecs` (integer)
+- `ananos` (integer)
+- `msecs` (integer)
+- `mnanos` (integer)
+- `dirfd` (integer)
+- `flags` (integer)
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
 ### futimens
 
 ```teal
-function futimens(fd: number, asecs: number, ananos: number, msecs: number, mnanos: number): number | nil, string | nil, Errno | nil
+function futimens(fd: integer, asecs: integer, ananos: integer, msecs: integer, mnanos: integer): integer | nil, string | nil, Errno | nil
 ```
 
  Changes access and/or modified timestamps on file descriptor.
@@ -2646,22 +2646,22 @@ function futimens(fd: number, asecs: number, ananos: number, msecs: number, mnan
 
 **Parameters:**
 
-- `fd` (number)
-- `asecs` (number)
-- `ananos` (number)
-- `msecs` (number)
-- `mnanos` (number)
+- `fd` (integer)
+- `asecs` (integer)
+- `ananos` (integer)
+- `msecs` (integer)
+- `mnanos` (integer)
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
 ### chown
 
 ```teal
-function chown(path: string, uid: number, gid: number, flags?: number, dirfd?: number): boolean | nil, string | nil, Errno | nil
+function chown(path: string, uid: integer, gid: integer, flags?: integer, dirfd?: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Changes user and group on file.
@@ -2670,10 +2670,10 @@ function chown(path: string, uid: number, gid: number, flags?: number, dirfd?: n
 **Parameters:**
 
 - `path` (string)
-- `uid` (number)
-- `gid` (number)
-- `flags` (number)
-- `dirfd` (number)
+- `uid` (integer)
+- `gid` (integer)
+- `flags` (integer)
+- `dirfd` (integer)
 
 **Returns:**
 
@@ -2684,7 +2684,7 @@ function chown(path: string, uid: number, gid: number, flags?: number, dirfd?: n
 ### chmod
 
 ```teal
-function chmod(path: string, mode: number, flags?: number, dirfd?: number): boolean | nil, string | nil, Errno | nil
+function chmod(path: string, mode: integer, flags?: integer, dirfd?: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Changes mode bits on file.
@@ -2694,9 +2694,9 @@ function chmod(path: string, mode: number, flags?: number, dirfd?: number): bool
 **Parameters:**
 
 - `path` (string)
-- `mode` (number)
-- `flags` (number)
-- `dirfd` (number)
+- `mode` (integer)
+- `flags` (integer)
+- `dirfd` (integer)
 
 **Returns:**
 
@@ -2746,7 +2746,7 @@ function rmrf(path: string): boolean | nil, string | nil, Errno | nil
 ### fcntl
 
 ```teal
-function fcntl(fd: number, cmd: FcntlCmd, ...: any): any | nil, string | nil, Errno | nil
+function fcntl(fd: integer, cmd: FcntlCmd, ...: any): any | nil, string | nil, Errno | nil
 ```
 
  Manipulates file descriptor.
@@ -2850,7 +2850,7 @@ function fcntl(fd: number, cmd: FcntlCmd, ...: any): any | nil, string | nil, Er
 
 **Parameters:**
 
-- `fd` (number)
+- `fd` (integer)
 - `cmd` (FcntlCmd)
 - `...` (any)
 
@@ -2863,61 +2863,61 @@ function fcntl(fd: number, cmd: FcntlCmd, ...: any): any | nil, string | nil, Er
 ### getsid
 
 ```teal
-function getsid(pid: number): number | nil, string | nil, Errno | nil
+function getsid(pid: integer): integer | nil, string | nil, Errno | nil
 ```
 
  Gets session id.
 
 **Parameters:**
 
-- `pid` (number)
+- `pid` (integer)
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
 ### getpgrp
 
 ```teal
-function getpgrp(): number | nil, string | nil, Errno | nil
+function getpgrp(): integer | nil, string | nil, Errno | nil
 ```
 
  Gets process group id.
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
 ### setpgrp
 
 ```teal
-function setpgrp(): number | nil, string | nil, Errno | nil
+function setpgrp(): integer | nil, string | nil, Errno | nil
 ```
 
  Sets process group id. This is the same as `setpgid(0,0)`.
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
 ### setpgid
 
 ```teal
-function setpgid(pid: number, pgid: number): boolean | nil, string | nil, Errno | nil
+function setpgid(pid: integer, pgid: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets process group id the modern way.
 
 **Parameters:**
 
-- `pid` (number)
-- `pgid` (number)
+- `pid` (integer)
+- `pgid` (integer)
 
 **Returns:**
 
@@ -2928,25 +2928,25 @@ function setpgid(pid: number, pgid: number): boolean | nil, string | nil, Errno 
 ### getpgid
 
 ```teal
-function getpgid(pid: number): number | nil, string | nil, Errno | nil
+function getpgid(pid: integer): integer | nil, string | nil, Errno | nil
 ```
 
  Gets process group id the modern way.
 
 **Parameters:**
 
-- `pid` (number)
+- `pid` (integer)
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
 ### setsid
 
 ```teal
-function setsid(): number | nil, string | nil, Errno | nil
+function setsid(): integer | nil, string | nil, Errno | nil
 ```
 
  Sets session id.
@@ -2955,7 +2955,7 @@ function setsid(): number | nil, string | nil, Errno | nil
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
@@ -2990,7 +2990,7 @@ function daemon(nochdir?: boolean, noclose?: boolean): boolean | nil, string | n
 ### getuid
 
 ```teal
-function getuid(): number
+function getuid(): integer
 ```
 
  Gets real user id.
@@ -3000,12 +3000,12 @@ function getuid(): number
 
 **Returns:**
 
-- number
+- integer
 
 ### getgid
 
 ```teal
-function getgid(): number
+function getgid(): integer
 ```
 
  Sets real group id.
@@ -3014,12 +3014,12 @@ function getgid(): number
 
 **Returns:**
 
-- number
+- integer
 
 ### geteuid
 
 ```teal
-function geteuid(): number
+function geteuid(): integer
 ```
 
  Gets effective user id.
@@ -3031,12 +3031,12 @@ function geteuid(): number
 
 **Returns:**
 
-- number
+- integer
 
 ### getegid
 
 ```teal
-function getegid(): number
+function getegid(): integer
 ```
 
  Gets effective group id.
@@ -3045,7 +3045,7 @@ function getegid(): number
 
 **Returns:**
 
-- number
+- integer
 
 ### chroot
 
@@ -3069,7 +3069,7 @@ function chroot(path: string): boolean | nil, string | nil, Errno | nil
 ### setuid
 
 ```teal
-function setuid(uid: number): boolean | nil, string | nil, Errno | nil
+function setuid(uid: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets user id.
@@ -3094,7 +3094,7 @@ function setuid(uid: number): boolean | nil, string | nil, Errno | nil
 
 **Parameters:**
 
-- `uid` (number)
+- `uid` (integer)
 
 **Returns:**
 
@@ -3105,14 +3105,14 @@ function setuid(uid: number): boolean | nil, string | nil, Errno | nil
 ### setfsuid
 
 ```teal
-function setfsuid(uid: number): boolean | nil, string | nil, Errno | nil
+function setfsuid(uid: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets user id for file system ops.
 
 **Parameters:**
 
-- `uid` (number)
+- `uid` (integer)
 
 **Returns:**
 
@@ -3123,14 +3123,14 @@ function setfsuid(uid: number): boolean | nil, string | nil, Errno | nil
 ### setfsgid
 
 ```teal
-function setfsgid(gid: number): boolean | nil, string | nil, Errno | nil
+function setfsgid(gid: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets group id for file system ops.
 
 **Parameters:**
 
-- `gid` (number)
+- `gid` (integer)
 
 **Returns:**
 
@@ -3141,7 +3141,7 @@ function setfsgid(gid: number): boolean | nil, string | nil, Errno | nil
 ### setgid
 
 ```teal
-function setgid(gid: number): boolean | nil, string | nil, Errno | nil
+function setgid(gid: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets group id.
@@ -3149,7 +3149,7 @@ function setgid(gid: number): boolean | nil, string | nil, Errno | nil
 
 **Parameters:**
 
-- `gid` (number)
+- `gid` (integer)
 
 **Returns:**
 
@@ -3160,7 +3160,7 @@ function setgid(gid: number): boolean | nil, string | nil, Errno | nil
 ### setresuid
 
 ```teal
-function setresuid(real: number, effective: number, saved: number): boolean | nil, string | nil, Errno | nil
+function setresuid(real: integer, effective: integer, saved: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets real, effective, and saved user ids.
@@ -3170,9 +3170,9 @@ function setresuid(real: number, effective: number, saved: number): boolean | ni
 
 **Parameters:**
 
-- `real` (number)
-- `effective` (number)
-- `saved` (number)
+- `real` (integer)
+- `effective` (integer)
+- `saved` (integer)
 
 **Returns:**
 
@@ -3183,7 +3183,7 @@ function setresuid(real: number, effective: number, saved: number): boolean | ni
 ### setresgid
 
 ```teal
-function setresgid(real: number, effective: number, saved: number): boolean | nil, string | nil, Errno | nil
+function setresgid(real: integer, effective: integer, saved: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets real, effective, and saved group ids.
@@ -3193,9 +3193,9 @@ function setresgid(real: number, effective: number, saved: number): boolean | ni
 
 **Parameters:**
 
-- `real` (number)
-- `effective` (number)
-- `saved` (number)
+- `real` (integer)
+- `effective` (integer)
+- `saved` (integer)
 
 **Returns:**
 
@@ -3206,7 +3206,7 @@ function setresgid(real: number, effective: number, saved: number): boolean | ni
 ### umask
 
 ```teal
-function umask(newmask: number): number
+function umask(newmask: integer): integer
 ```
 
  Sets file permission mask and returns the old one.
@@ -3223,16 +3223,16 @@ function umask(newmask: number): number
 
 **Parameters:**
 
-- `newmask` (number)
+- `newmask` (integer)
 
 **Returns:**
 
-- number
+- integer
 
 ### sysconf
 
 ```teal
-function sysconf(name: number): number | nil, string | nil, Errno | nil
+function sysconf(name: integer): integer | nil, string | nil, Errno | nil
 ```
 
  Queries a configurable system limit or value.
@@ -3244,11 +3244,11 @@ function sysconf(name: number): number | nil, string | nil, Errno | nil
 
 **Parameters:**
 
-- `name` (number)
+- `name` (integer)
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
@@ -3272,7 +3272,7 @@ function uname(): Uname | nil, string | nil, Errno | nil
 ### syslog
 
 ```teal
-function syslog(priority: number, msg: string)
+function syslog(priority: integer, msg: string)
 ```
 
  Generates a log message, which will be distributed by syslogd.
@@ -3286,13 +3286,13 @@ function syslog(priority: number, msg: string)
 
 **Parameters:**
 
-- `priority` (number)
+- `priority` (integer)
 - `msg` (string)
 
 ### clock_gettime
 
 ```teal
-function clock_gettime(clock?: number): number | nil, number, string | nil, Errno | nil
+function clock_gettime(clock?: integer): integer | nil, integer, string | nil, Errno | nil
 ```
 
  Returns nanosecond precision timestamp from system, e.g.
@@ -3367,19 +3367,19 @@ function clock_gettime(clock?: number): number | nil, number, string | nil, Errn
 
 **Parameters:**
 
-- `clock` (number)
+- `clock` (integer)
 
 **Returns:**
 
-- number | nil
-- number
+- integer | nil
+- integer
 - string | nil
 - Errno | nil
 
 ### nanosleep
 
 ```teal
-function nanosleep(seconds: number, nanos?: number): number | nil, number, string | nil, Errno | nil
+function nanosleep(seconds: integer, nanos?: integer): integer | nil, integer, string | nil, Errno | nil
 ```
 
  Sleeps with nanosecond precision.
@@ -3387,13 +3387,13 @@ function nanosleep(seconds: number, nanos?: number): number | nil, number, strin
 
 **Parameters:**
 
-- `seconds` (number)
-- `nanos` (number)
+- `seconds` (integer)
+- `nanos` (integer)
 
 **Returns:**
 
-- number | nil
-- number
+- integer | nil
+- integer
 - string | nil
 - Errno | nil
 
@@ -3409,7 +3409,7 @@ function sync()
 ### fsync
 
 ```teal
-function fsync(fd: number): boolean | nil, string | nil, Errno | nil
+function fsync(fd: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  These functions are used to make programs slower by asking the
@@ -3417,7 +3417,7 @@ function fsync(fd: number): boolean | nil, string | nil, Errno | nil
 
 **Parameters:**
 
-- `fd` (number)
+- `fd` (integer)
 
 **Returns:**
 
@@ -3428,7 +3428,7 @@ function fsync(fd: number): boolean | nil, string | nil, Errno | nil
 ### fdatasync
 
 ```teal
-function fdatasync(fd: number): boolean | nil, string | nil, Errno | nil
+function fdatasync(fd: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  These functions are used to make programs slower by asking the
@@ -3436,7 +3436,7 @@ function fdatasync(fd: number): boolean | nil, string | nil, Errno | nil
 
 **Parameters:**
 
-- `fd` (number)
+- `fd` (integer)
 
 **Returns:**
 
@@ -3447,7 +3447,7 @@ function fdatasync(fd: number): boolean | nil, string | nil, Errno | nil
 ### lseek
 
 ```teal
-function lseek(fd: number, offset: number, whence?: number): number | nil, string | nil, Errno | nil
+function lseek(fd: integer, offset: integer, whence?: integer): integer | nil, string | nil, Errno | nil
 ```
 
  Seeks to file position.
@@ -3459,20 +3459,20 @@ function lseek(fd: number, offset: number, whence?: number): number | nil, strin
 
 **Parameters:**
 
-- `fd` (number)
-- `offset` (number)
-- `whence` (number)
+- `fd` (integer)
+- `offset` (integer)
+- `whence` (integer)
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
 ### truncate
 
 ```teal
-function truncate(path: string, length?: number): boolean | nil, string | nil, Errno | nil
+function truncate(path: string, length?: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Reduces or extends underlying physical medium of file.
@@ -3481,7 +3481,7 @@ function truncate(path: string, length?: number): boolean | nil, string | nil, E
 **Parameters:**
 
 - `path` (string)
-- `length` (number)
+- `length` (integer)
 
 **Returns:**
 
@@ -3492,7 +3492,7 @@ function truncate(path: string, length?: number): boolean | nil, string | nil, E
 ### ftruncate
 
 ```teal
-function ftruncate(fd: number, length?: number): boolean | nil, string | nil, Errno | nil
+function ftruncate(fd: integer, length?: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Reduces or extends underlying physical medium of open file.
@@ -3500,8 +3500,8 @@ function ftruncate(fd: number, length?: number): boolean | nil, string | nil, Er
 
 **Parameters:**
 
-- `fd` (number)
-- `length` (number)
+- `fd` (integer)
+- `length` (integer)
 
 **Returns:**
 
@@ -3512,7 +3512,7 @@ function ftruncate(fd: number, length?: number): boolean | nil, string | nil, Er
 ### socket
 
 ```teal
-function socket(family?: number, type?: number, protocol?: number): number | nil, string | nil, Errno | nil
+function socket(family?: integer, type?: integer, protocol?: integer): integer | nil, string | nil, Errno | nil
 ```
 
  - `AF_INET`: Creates Internet Protocol Version 4 (IPv4) socket.
@@ -3535,20 +3535,20 @@ function socket(family?: number, type?: number, protocol?: number): number | nil
 
 **Parameters:**
 
-- `family` (number)
-- `type` (number)
-- `protocol` (number)
+- `family` (integer)
+- `type` (integer)
+- `protocol` (integer)
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
 ### socketpair
 
 ```teal
-function socketpair(family?: number, type?: number, protocol?: number): number | nil, number, string | nil, Errno | nil
+function socketpair(family?: integer, type?: integer, protocol?: integer): integer | nil, integer, string | nil, Errno | nil
 ```
 
  Creates bidirectional pipe.
@@ -3561,21 +3561,21 @@ function socketpair(family?: number, type?: number, protocol?: number): number |
 
 **Parameters:**
 
-- `family` (number)
-- `type` (number)
-- `protocol` (number)
+- `family` (integer)
+- `type` (integer)
+- `protocol` (integer)
 
 **Returns:**
 
-- number | nil
-- number
+- integer | nil
+- integer
 - string | nil
 - Errno | nil
 
 ### bind
 
 ```teal
-function bind(fd: number, ip?: number, port?: number): boolean | nil, string | nil, Errno | nil
+function bind(fd: integer, ip?: integer, port?: integer): boolean | nil, string | nil, Errno | nil
 ```
 
   Binds socket.
@@ -3602,9 +3602,9 @@ function bind(fd: number, ip?: number, port?: number): boolean | nil, string | n
 
 **Parameters:**
 
-- `fd` (number)
-- `ip` (number)
-- `port` (number)
+- `fd` (integer)
+- `ip` (integer)
+- `port` (integer)
 
 **Returns:**
 
@@ -3629,7 +3629,7 @@ function siocgifconf(): any, string | nil, Errno | nil
 ### getsockopt
 
 ```teal
-function getsockopt(fd: number, level: number, optname: number): number | nil, string | nil, Errno | nil
+function getsockopt(fd: integer, level: integer, optname: integer): integer | nil, string | nil, Errno | nil
 ```
 
  Tunes networking parameters.
@@ -3722,20 +3722,20 @@ function getsockopt(fd: number, level: number, optname: number): number | nil, s
 
 **Parameters:**
 
-- `fd` (number)
-- `level` (number)
-- `optname` (number)
+- `fd` (integer)
+- `level` (integer)
+- `optname` (integer)
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
 ### setsockopt
 
 ```teal
-function setsockopt(fd: number, level: number, optname: number, value: boolean | number): boolean | nil, string | nil, Errno | nil
+function setsockopt(fd: integer, level: integer, optname: integer, value: boolean | integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Tunes networking parameters.
@@ -3828,10 +3828,10 @@ function setsockopt(fd: number, level: number, optname: number, value: boolean |
 
 **Parameters:**
 
-- `fd` (number)
-- `level` (number)
-- `optname` (number)
-- `value` (boolean | number)
+- `fd` (integer)
+- `level` (integer)
+- `optname` (integer)
+- `value` (boolean | integer)
 
 **Returns:**
 
@@ -3842,7 +3842,7 @@ function setsockopt(fd: number, level: number, optname: number, value: boolean |
 ### poll
 
 ```teal
-function poll(fds: {number: number}, timeoutms?: number): {number: number} | nil, string | nil, Errno | nil
+function poll(fds: {integer: integer}, timeoutms?: integer): {integer: integer} | nil, string | nil, Errno | nil
 ```
 
  Checks for events on a set of file descriptors.
@@ -3869,12 +3869,12 @@ function poll(fds: {number: number}, timeoutms?: number): {number: number} | nil
 
 **Parameters:**
 
-- `fds` ({number: number})
-- `timeoutms` (number)
+- `fds` ({integer: integer})
+- `timeoutms` (integer)
 
 **Returns:**
 
-- {number: number} | nil
+- {integer: integer} | nil
 - string | nil
 - Errno | nil
 
@@ -3915,15 +3915,15 @@ function sethostname(name: string): boolean | nil, string | nil, Errno | nil
 ### listen
 
 ```teal
-function listen(fd: number, backlog?: number): boolean | nil, string | nil, Errno | nil
+function listen(fd: integer, backlog?: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Begins listening for incoming connections on a socket.
 
 **Parameters:**
 
-- `fd` (number)
-- `backlog` (number)
+- `fd` (integer)
+- `backlog` (integer)
 
 **Returns:**
 
@@ -3934,7 +3934,7 @@ function listen(fd: number, backlog?: number): boolean | nil, string | nil, Errn
 ### accept
 
 ```teal
-function accept(serverfd: number, flags?: number): number | nil, number, number, string | nil, Errno | nil
+function accept(serverfd: integer, flags?: integer): integer | nil, integer, integer, string | nil, Errno | nil
 ```
 
  Accepts new client socket descriptor for a listening tcp socket.
@@ -3944,21 +3944,21 @@ function accept(serverfd: number, flags?: number): number | nil, number, number,
 
 **Parameters:**
 
-- `serverfd` (number)
-- `flags` (number)
+- `serverfd` (integer)
+- `flags` (integer)
 
 **Returns:**
 
-- number | nil
-- number
-- number
+- integer | nil
+- integer
+- integer
 - string | nil
 - Errno | nil
 
 ### connect
 
 ```teal
-function connect(fd: number, ip: number, port: number): boolean | nil, string | nil, Errno | nil
+function connect(fd: integer, ip: integer, port: integer): boolean | nil, string | nil, Errno | nil
 ```
 
   Connects a TCP socket to a remote host.
@@ -3968,9 +3968,9 @@ function connect(fd: number, ip: number, port: number): boolean | nil, string | 
 
 **Parameters:**
 
-- `fd` (number)
-- `ip` (number)
-- `port` (number)
+- `fd` (integer)
+- `ip` (integer)
+- `port` (integer)
 
 **Returns:**
 
@@ -3981,26 +3981,26 @@ function connect(fd: number, ip: number, port: number): boolean | nil, string | 
 ### getsockname
 
 ```teal
-function getsockname(fd: number): number | nil, number, string | nil, Errno | nil
+function getsockname(fd: integer): integer | nil, integer, string | nil, Errno | nil
 ```
 
  Retrieves the local address of a socket.
 
 **Parameters:**
 
-- `fd` (number)
+- `fd` (integer)
 
 **Returns:**
 
-- number | nil
-- number
+- integer | nil
+- integer
 - string | nil
 - Errno | nil
 
 ### getpeername
 
 ```teal
-function getpeername(fd: number): number | nil, number, string | nil, Errno | nil
+function getpeername(fd: integer): integer | nil, integer, string | nil, Errno | nil
 ```
 
  Retrieves the remote address of a socket.
@@ -4009,19 +4009,19 @@ function getpeername(fd: number): number | nil, number, string | nil, Errno | ni
 
 **Parameters:**
 
-- `fd` (number)
+- `fd` (integer)
 
 **Returns:**
 
-- number | nil
-- number
+- integer | nil
+- integer
 - string | nil
 - Errno | nil
 
 ### recv
 
 ```teal
-function recv(fd: number, bufsiz?: number, flags?: number): string | nil, string | nil, Errno | nil
+function recv(fd: integer, bufsiz?: integer, flags?: integer): string | nil, string | nil, Errno | nil
 ```
 
  - `MSG_WAITALL`
@@ -4031,9 +4031,9 @@ function recv(fd: number, bufsiz?: number, flags?: number): string | nil, string
 
 **Parameters:**
 
-- `fd` (number)
-- `bufsiz` (number)
-- `flags` (number)
+- `fd` (integer)
+- `bufsiz` (integer)
+- `flags` (integer)
 
 **Returns:**
 
@@ -4044,7 +4044,7 @@ function recv(fd: number, bufsiz?: number, flags?: number): string | nil, string
 ### recvfrom
 
 ```teal
-function recvfrom(fd: number, bufsiz?: number, flags?: number): string | nil, number, number, string | nil, Errno | nil
+function recvfrom(fd: integer, bufsiz?: integer, flags?: integer): string | nil, integer, integer, string | nil, Errno | nil
 ```
 
  - `MSG_WAITALL`
@@ -4054,22 +4054,22 @@ function recvfrom(fd: number, bufsiz?: number, flags?: number): string | nil, nu
 
 **Parameters:**
 
-- `fd` (number)
-- `bufsiz` (number)
-- `flags` (number)
+- `fd` (integer)
+- `bufsiz` (integer)
+- `flags` (integer)
 
 **Returns:**
 
 - string | nil
-- number
-- number
+- integer
+- integer
 - string | nil
 - Errno | nil
 
 ### send
 
 ```teal
-function send(fd: number, data: string, flags?: number, offset?: number): number | nil, string | nil, Errno | nil
+function send(fd: integer, data: string, flags?: integer, offset?: integer): integer | nil, string | nil, Errno | nil
 ```
 
  This is the same as `write` except it has a `flags` argument
@@ -4081,21 +4081,21 @@ function send(fd: number, data: string, flags?: number, offset?: number): number
 
 **Parameters:**
 
-- `fd` (number)
+- `fd` (integer)
 - `data` (string)
-- `flags` (number)
-- `offset` (number)
+- `flags` (integer)
+- `offset` (integer)
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
 ### sendto
 
 ```teal
-function sendto(fd: number, data: string, ip: number, port: number, flags?: number): number | nil, string | nil, Errno | nil
+function sendto(fd: integer, data: string, ip: integer, port: integer, flags?: integer): integer | nil, string | nil, Errno | nil
 ```
 
  This is useful for sending messages over UDP sockets to specific
@@ -4106,22 +4106,22 @@ function sendto(fd: number, data: string, ip: number, port: number, flags?: numb
 
 **Parameters:**
 
-- `fd` (number)
+- `fd` (integer)
 - `data` (string)
-- `ip` (number)
-- `port` (number)
-- `flags` (number)
+- `ip` (integer)
+- `port` (integer)
+- `flags` (integer)
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
 ### shutdown
 
 ```teal
-function shutdown(fd: number, how: number): boolean | nil, string | nil, Errno | nil
+function shutdown(fd: integer, how: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Partially closes socket.
@@ -4133,8 +4133,8 @@ function shutdown(fd: number, how: number): boolean | nil, string | nil, Errno |
 
 **Parameters:**
 
-- `fd` (number)
-- `how` (number)
+- `fd` (integer)
+- `how` (integer)
 
 **Returns:**
 
@@ -4145,7 +4145,7 @@ function shutdown(fd: number, how: number): boolean | nil, string | nil, Errno |
 ### sigprocmask
 
 ```teal
-function sigprocmask(how: number, newmask: Sigset): Sigset | nil, string | nil, Errno | nil
+function sigprocmask(how: integer, newmask: Sigset): Sigset | nil, string | nil, Errno | nil
 ```
 
  Manipulates bitset of signals blocked by process.
@@ -4162,7 +4162,7 @@ function sigprocmask(how: number, newmask: Sigset): Sigset | nil, string | nil, 
 
 **Parameters:**
 
-- `how` (number)
+- `how` (integer)
 - `newmask` (Sigset)
 
 **Returns:**
@@ -4174,7 +4174,7 @@ function sigprocmask(how: number, newmask: Sigset): Sigset | nil, string | nil, 
 ### sigaction
 
 ```teal
-function sigaction(sig: number, handler?: function | number, flags?: number, mask?: Sigset): function | number | nil, number, Sigset, string | nil, Errno | nil
+function sigaction(sig: integer, handler?: function | integer, flags?: integer, mask?: Sigset): function | integer | nil, integer, Sigset, string | nil, Errno | nil
 ```
 
  - `unix.SIGINT`
@@ -4246,15 +4246,15 @@ function sigaction(sig: number, handler?: function | number, flags?: number, mas
 
 **Parameters:**
 
-- `sig` (number)
-- `handler` (function | number)
-- `flags` (number)
+- `sig` (integer)
+- `handler` (function | integer)
+- `flags` (integer)
 - `mask` (Sigset)
 
 **Returns:**
 
-- function | number | nil
-- number
+- function | integer | nil
+- integer
 - Sigset
 - string | nil
 - Errno | nil
@@ -4296,7 +4296,7 @@ function sigpending(): Sigset | nil, string | nil, Errno | nil
 ### setitimer
 
 ```teal
-function setitimer(which: number, intervalsec: number, intervalns: number, valuesec: number, valuens: number): number | nil, number, number, number, string | nil, Errno | nil
+function setitimer(which: integer, intervalsec: integer, intervalns: integer, valuesec: integer, valuens: integer): integer | nil, integer, integer, integer, string | nil, Errno | nil
 ```
 
  Causes `SIGALRM` signals to be generated at some point(s) in the
@@ -4317,25 +4317,25 @@ function setitimer(which: number, intervalsec: number, intervalns: number, value
 
 **Parameters:**
 
-- `which` (number)
-- `intervalsec` (number)
-- `intervalns` (number)
-- `valuesec` (number)
-- `valuens` (number)
+- `which` (integer)
+- `intervalsec` (integer)
+- `intervalns` (integer)
+- `valuesec` (integer)
+- `valuens` (integer)
 
 **Returns:**
 
-- number | nil
-- number
-- number
-- number
+- integer | nil
+- integer
+- integer
+- integer
 - string | nil
 - Errno | nil
 
 ### strsignal
 
 ```teal
-function strsignal(sig: number): string
+function strsignal(sig: integer): string
 ```
 
  Turns platform-specific `sig` code into its symbolic name.
@@ -4349,7 +4349,7 @@ function strsignal(sig: number): string
 
 **Parameters:**
 
-- `sig` (number)
+- `sig` (integer)
 
 **Returns:**
 
@@ -4358,7 +4358,7 @@ function strsignal(sig: number): string
 ### setrlimit
 
 ```teal
-function setrlimit(resource: number, soft: number, hard?: number): boolean | nil, string | nil, Errno | nil
+function setrlimit(resource: integer, soft: integer, hard?: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Changes resource limit.
@@ -4384,9 +4384,9 @@ function setrlimit(resource: number, soft: number, hard?: number): boolean | nil
 
 **Parameters:**
 
-- `resource` (number)
-- `soft` (number)
-- `hard` (number)
+- `resource` (integer)
+- `soft` (integer)
+- `hard` (integer)
 
 **Returns:**
 
@@ -4397,26 +4397,26 @@ function setrlimit(resource: number, soft: number, hard?: number): boolean | nil
 ### getrlimit
 
 ```teal
-function getrlimit(resource: number): number | nil, number, string | nil, Errno | nil
+function getrlimit(resource: integer): integer | nil, integer, string | nil, Errno | nil
 ```
 
  Returns information about resource limits for current process.
 
 **Parameters:**
 
-- `resource` (number)
+- `resource` (integer)
 
 **Returns:**
 
-- number | nil
-- number
+- integer | nil
+- integer
 - string | nil
 - Errno | nil
 
 ### nice
 
 ```teal
-function nice(inc: number): number | nil, string | nil, Errno | nil
+function nice(inc: integer): integer | nil, string | nil, Errno | nil
 ```
 
  Adjusts the nice value (scheduling priority) of the calling process.
@@ -4429,11 +4429,11 @@ function nice(inc: number): number | nil, string | nil, Errno | nil
 
 **Parameters:**
 
-- `inc` (number)
+- `inc` (integer)
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
@@ -4450,7 +4450,7 @@ function verynice()
 ### getpriority
 
 ```teal
-function getpriority(which: number, who: number): number | nil, string | nil, Errno | nil
+function getpriority(which: integer, who: integer): integer | nil, string | nil, Errno | nil
 ```
 
  Gets the scheduling priority of a process, process group, or user.
@@ -4464,19 +4464,19 @@ function getpriority(which: number, who: number): number | nil, string | nil, Er
 
 **Parameters:**
 
-- `which` (number)
-- `who` (number)
+- `which` (integer)
+- `who` (integer)
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
 ### setpriority
 
 ```teal
-function setpriority(which: number, who: number, prio: number): boolean | nil, string | nil, Errno | nil
+function setpriority(which: integer, who: integer, prio: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets the scheduling priority of a process, process group, or user.
@@ -4490,9 +4490,9 @@ function setpriority(which: number, who: number, prio: number): boolean | nil, s
 
 **Parameters:**
 
-- `which` (number)
-- `who` (number)
-- `prio` (number)
+- `which` (integer)
+- `who` (integer)
+- `prio` (integer)
 
 **Returns:**
 
@@ -4503,7 +4503,7 @@ function setpriority(which: number, who: number, prio: number): boolean | nil, s
 ### getrusage
 
 ```teal
-function getrusage(who?: number): Rusage | nil, string | nil, Errno | nil
+function getrusage(who?: integer): Rusage | nil, string | nil, Errno | nil
 ```
 
  Returns information about resource usage for current process, e.g.
@@ -4516,7 +4516,7 @@ function getrusage(who?: number): Rusage | nil, string | nil, Errno | nil
 
 **Parameters:**
 
-- `who` (number)
+- `who` (integer)
 
 **Returns:**
 
@@ -4527,7 +4527,7 @@ function getrusage(who?: number): Rusage | nil, string | nil, Errno | nil
 ### pledge
 
 ```teal
-function pledge(promises?: string, execpromises?: string, mode?: number): boolean | nil, string | nil, Errno | nil
+function pledge(promises?: string, execpromises?: string, mode?: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Restrict system operations.
@@ -4657,7 +4657,7 @@ function pledge(promises?: string, execpromises?: string, mode?: number): boolea
 
 - `promises` (string)
 - `execpromises` (string)
-- `mode` (number)
+- `mode` (integer)
 
 **Returns:**
 
@@ -4728,27 +4728,27 @@ function unveil(path: string, permissions: string): boolean | nil, string | nil,
 ### gmtime
 
 ```teal
-function gmtime(unixts: number): number | nil, number, number, number, number, number, number, number, number, number, string, string | nil, Errno | nil
+function gmtime(unixts: integer): integer | nil, integer, integer, integer, integer, integer, integer, integer, integer, integer, string, string | nil, Errno | nil
 ```
 
  Breaks down UNIX timestamp into Zulu Time numbers.
 
 **Parameters:**
 
-- `unixts` (number)
+- `unixts` (integer)
 
 **Returns:**
 
-- number | nil
-- number
-- number
-- number
-- number
-- number
-- number
-- number
-- number
-- number
+- integer | nil
+- integer
+- integer
+- integer
+- integer
+- integer
+- integer
+- integer
+- integer
+- integer
 - string
 - string | nil
 - Errno | nil
@@ -4756,7 +4756,7 @@ function gmtime(unixts: number): number | nil, number, number, number, number, n
 ### localtime
 
 ```teal
-function localtime(unixts: number): number | nil, number, number, number, number, number, number, number, number, number, string, string | nil, Errno | nil
+function localtime(unixts: integer): integer | nil, integer, integer, integer, integer, integer, integer, integer, integer, integer, string, string | nil, Errno | nil
 ```
 
  Breaks down UNIX timestamp into local time numbers, e.g.
@@ -4787,20 +4787,20 @@ function localtime(unixts: number): number | nil, number, number, number, number
 
 **Parameters:**
 
-- `unixts` (number)
+- `unixts` (integer)
 
 **Returns:**
 
-- number | nil
-- number
-- number
-- number
-- number
-- number
-- number
-- number
-- number
-- number
+- integer | nil
+- integer
+- integer
+- integer
+- integer
+- integer
+- integer
+- integer
+- integer
+- integer
 - string
 - string | nil
 - Errno | nil
@@ -4808,7 +4808,7 @@ function localtime(unixts: number): number | nil, number, number, number, number
 ### stat
 
 ```teal
-function stat(path: string, flags?: number, dirfd?: number): Stat | nil, string | nil, Errno | nil
+function stat(path: string, flags?: integer, dirfd?: integer): Stat | nil, string | nil, Errno | nil
 ```
 
  Gets information about file or directory.
@@ -4817,8 +4817,8 @@ function stat(path: string, flags?: number, dirfd?: number): Stat | nil, string 
 **Parameters:**
 
 - `path` (string)
-- `flags` (number)
-- `dirfd` (number)
+- `flags` (integer)
+- `dirfd` (integer)
 
 **Returns:**
 
@@ -4829,14 +4829,14 @@ function stat(path: string, flags?: number, dirfd?: number): Stat | nil, string 
 ### S_ISDIR
 
 ```teal
-function S_ISDIR(mode: number): boolean
+function S_ISDIR(mode: integer): boolean
 ```
 
  Tests if file mode represents a directory.
 
 **Parameters:**
 
-- `mode` (number)
+- `mode` (integer)
 
 **Returns:**
 
@@ -4845,14 +4845,14 @@ function S_ISDIR(mode: number): boolean
 ### S_ISREG
 
 ```teal
-function S_ISREG(mode: number): boolean
+function S_ISREG(mode: integer): boolean
 ```
 
  Tests if file mode represents a regular file.
 
 **Parameters:**
 
-- `mode` (number)
+- `mode` (integer)
 
 **Returns:**
 
@@ -4861,14 +4861,14 @@ function S_ISREG(mode: number): boolean
 ### S_ISLNK
 
 ```teal
-function S_ISLNK(mode: number): boolean
+function S_ISLNK(mode: integer): boolean
 ```
 
  Tests if file mode represents a symbolic link.
 
 **Parameters:**
 
-- `mode` (number)
+- `mode` (integer)
 
 **Returns:**
 
@@ -4877,14 +4877,14 @@ function S_ISLNK(mode: number): boolean
 ### S_ISBLK
 
 ```teal
-function S_ISBLK(mode: number): boolean
+function S_ISBLK(mode: integer): boolean
 ```
 
  Tests if file mode represents a block device.
 
 **Parameters:**
 
-- `mode` (number)
+- `mode` (integer)
 
 **Returns:**
 
@@ -4893,14 +4893,14 @@ function S_ISBLK(mode: number): boolean
 ### S_ISCHR
 
 ```teal
-function S_ISCHR(mode: number): boolean
+function S_ISCHR(mode: integer): boolean
 ```
 
  Tests if file mode represents a character device.
 
 **Parameters:**
 
-- `mode` (number)
+- `mode` (integer)
 
 **Returns:**
 
@@ -4909,14 +4909,14 @@ function S_ISCHR(mode: number): boolean
 ### S_ISFIFO
 
 ```teal
-function S_ISFIFO(mode: number): boolean
+function S_ISFIFO(mode: integer): boolean
 ```
 
  Tests if file mode represents a FIFO/pipe.
 
 **Parameters:**
 
-- `mode` (number)
+- `mode` (integer)
 
 **Returns:**
 
@@ -4925,14 +4925,14 @@ function S_ISFIFO(mode: number): boolean
 ### S_ISSOCK
 
 ```teal
-function S_ISSOCK(mode: number): boolean
+function S_ISSOCK(mode: integer): boolean
 ```
 
  Tests if file mode represents a socket.
 
 **Parameters:**
 
-- `mode` (number)
+- `mode` (integer)
 
 **Returns:**
 
@@ -4941,7 +4941,7 @@ function S_ISSOCK(mode: number): boolean
 ### fstat
 
 ```teal
-function fstat(fd: number): Stat | nil, string | nil, Errno | nil
+function fstat(fd: integer): Stat | nil, string | nil, Errno | nil
 ```
 
  Gets information about opened file descriptor.
@@ -4957,7 +4957,7 @@ function fstat(fd: number): Stat | nil, string | nil, Errno | nil
 
 **Parameters:**
 
-- `fd` (number)
+- `fd` (integer)
 
 **Returns:**
 
@@ -4994,7 +4994,7 @@ function opendir(path: string): Dir | nil, string | nil, Errno | nil
 ### fdopendir
 
 ```teal
-function fdopendir(fd: number): Dir | nil, string | nil, Errno | nil
+function fdopendir(fd: integer): Dir | nil, string | nil, Errno | nil
 ```
 
  Opens directory for listing its contents, via an fd.
@@ -5003,7 +5003,7 @@ function fdopendir(fd: number): Dir | nil, string | nil, Errno | nil
 
 **Parameters:**
 
-- `fd` (number)
+- `fd` (integer)
 
 **Returns:**
 
@@ -5014,7 +5014,7 @@ function fdopendir(fd: number): Dir | nil, string | nil, Errno | nil
 ### isatty
 
 ```teal
-function isatty(fd: number): boolean | nil, string | nil, Errno | nil
+function isatty(fd: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Returns true if file descriptor is a teletypewriter. Otherwise nil
@@ -5026,7 +5026,7 @@ function isatty(fd: number): boolean | nil, string | nil, Errno | nil
 
 **Parameters:**
 
-- `fd` (number)
+- `fd` (integer)
 
 **Returns:**
 
@@ -5037,24 +5037,24 @@ function isatty(fd: number): boolean | nil, string | nil, Errno | nil
 ### tiocgwinsz
 
 ```teal
-function tiocgwinsz(fd: number): number | nil, number, string | nil, Errno | nil
+function tiocgwinsz(fd: integer): integer | nil, integer, string | nil, Errno | nil
 ```
 
 **Parameters:**
 
-- `fd` (number)
+- `fd` (integer)
 
 **Returns:**
 
-- number | nil
-- number
+- integer | nil
+- integer
 - string | nil
 - Errno | nil
 
 ### tcgetattr
 
 ```teal
-function tcgetattr(fd: number): Termios | nil, string | nil, Errno | nil
+function tcgetattr(fd: integer): Termios | nil, string | nil, Errno | nil
 ```
 
  Gets terminal attributes.
@@ -5078,7 +5078,7 @@ function tcgetattr(fd: number): Termios | nil, string | nil, Errno | nil
 
 **Parameters:**
 
-- `fd` (number)
+- `fd` (integer)
 
 **Returns:**
 
@@ -5089,7 +5089,7 @@ function tcgetattr(fd: number): Termios | nil, string | nil, Errno | nil
 ### tcsetattr
 
 ```teal
-function tcsetattr(fd: number, action: number, termios: Termios): boolean | nil, string | nil, Errno | nil
+function tcsetattr(fd: integer, action: integer, termios: Termios): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets terminal attributes.
@@ -5105,8 +5105,8 @@ function tcsetattr(fd: number, action: number, termios: Termios): boolean | nil,
 
 **Parameters:**
 
-- `fd` (number)
-- `action` (number)
+- `fd` (integer)
+- `action` (integer)
 - `termios` (Termios)
 
 **Returns:**
@@ -5118,7 +5118,7 @@ function tcsetattr(fd: number, action: number, termios: Termios): boolean | nil,
 ### tmpfd
 
 ```teal
-function tmpfd(): number | nil, string | nil, Errno | nil
+function tmpfd(): integer | nil, string | nil, Errno | nil
 ```
 
  Returns file descriptor of open anonymous file.
@@ -5134,7 +5134,7 @@ function tmpfd(): number | nil, string | nil, Errno | nil
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
@@ -5149,7 +5149,7 @@ function sched_yield()
 ### unshare
 
 ```teal
-function unshare(flags: number): boolean | nil, string | nil, Errno | nil
+function unshare(flags: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Disassociates parts of the caller's execution context, placing it
@@ -5158,7 +5158,7 @@ function unshare(flags: number): boolean | nil, string | nil, Errno | nil
 
 **Parameters:**
 
-- `flags` (number)
+- `flags` (integer)
 
 **Returns:**
 
@@ -5169,7 +5169,7 @@ function unshare(flags: number): boolean | nil, string | nil, Errno | nil
 ### setns
 
 ```teal
-function setns(fd: number, nstype?: number): boolean | nil, string | nil, Errno | nil
+function setns(fd: integer, nstype?: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Reassociates the calling thread with the namespace referenced by
@@ -5179,8 +5179,8 @@ function setns(fd: number, nstype?: number): boolean | nil, string | nil, Errno 
 
 **Parameters:**
 
-- `fd` (number)
-- `nstype` (number)
+- `fd` (integer)
+- `nstype` (integer)
 
 **Returns:**
 
@@ -5191,7 +5191,7 @@ function setns(fd: number, nstype?: number): boolean | nil, string | nil, Errno 
 ### mount
 
 ```teal
-function mount(source?: string, target?: string, fstype?: string, flags?: number, data?: string): boolean | nil, string | nil, Errno | nil
+function mount(source?: string, target?: string, fstype?: string, flags?: integer, data?: string): boolean | nil, string | nil, Errno | nil
 ```
 
  Mounts a filesystem. `flags` is a bitwise OR of `unix.MS_*`
@@ -5202,7 +5202,7 @@ function mount(source?: string, target?: string, fstype?: string, flags?: number
 - `source` (string)
 - `target` (string)
 - `fstype` (string)
-- `flags` (number)
+- `flags` (integer)
 - `data` (string)
 
 **Returns:**
@@ -5214,7 +5214,7 @@ function mount(source?: string, target?: string, fstype?: string, flags?: number
 ### unmount
 
 ```teal
-function unmount(target: string, flags?: number): boolean | nil, string | nil, Errno | nil
+function unmount(target: string, flags?: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Unmounts a filesystem. On Linux this is the `umount2` syscall.
@@ -5224,7 +5224,7 @@ function unmount(target: string, flags?: number): boolean | nil, string | nil, E
 **Parameters:**
 
 - `target` (string)
-- `flags` (number)
+- `flags` (integer)
 
 **Returns:**
 
@@ -5256,7 +5256,7 @@ function pivot_root(new_root: string, put_old: string): boolean | nil, string | 
 ### prctl
 
 ```teal
-function prctl(option: number, arg2?: number, arg3?: number, arg4?: number, arg5?: number): number | nil, string | nil, Errno | nil
+function prctl(option: integer, arg2?: integer, arg3?: integer, arg4?: integer, arg5?: integer): integer | nil, string | nil, Errno | nil
 ```
 
  Performs an operation on the calling process. `option` is one of
@@ -5265,22 +5265,22 @@ function prctl(option: number, arg2?: number, arg3?: number, arg4?: number, arg5
 
 **Parameters:**
 
-- `option` (number)
-- `arg2` (number)
-- `arg3` (number)
-- `arg4` (number)
-- `arg5` (number)
+- `option` (integer)
+- `arg2` (integer)
+- `arg3` (integer)
+- `arg4` (integer)
+- `arg5` (integer)
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
 ### capget
 
 ```teal
-function capget(pid?: number): number | nil, number, number, string | nil, Errno | nil
+function capget(pid?: integer): integer | nil, integer, integer, string | nil, Errno | nil
 ```
 
  Returns the calling thread's (or `pid`'s) capability sets as
@@ -5289,20 +5289,20 @@ function capget(pid?: number): number | nil, number, number, string | nil, Errno
 
 **Parameters:**
 
-- `pid` (number)
+- `pid` (integer)
 
 **Returns:**
 
-- number | nil
-- number
-- number
+- integer | nil
+- integer
+- integer
 - string | nil
 - Errno | nil
 
 ### capset
 
 ```teal
-function capset(effective: number, permitted: number, inheritable: number, pid?: number): boolean | nil, string | nil, Errno | nil
+function capset(effective: integer, permitted: integer, inheritable: integer, pid?: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Sets the calling thread's (or `pid`'s) capability sets. Each
@@ -5310,10 +5310,10 @@ function capset(effective: number, permitted: number, inheritable: number, pid?:
 
 **Parameters:**
 
-- `effective` (number)
-- `permitted` (number)
-- `inheritable` (number)
-- `pid` (number)
+- `effective` (integer)
+- `permitted` (integer)
+- `inheritable` (integer)
+- `pid` (integer)
 
 **Returns:**
 
@@ -5324,7 +5324,7 @@ function capset(effective: number, permitted: number, inheritable: number, pid?:
 ### ioctl
 
 ```teal
-function ioctl(fd: number, request: number, arg?: number | string): boolean | string | nil, string | nil, Errno | nil
+function ioctl(fd: integer, request: integer, arg?: integer | string): boolean | string | nil, string | nil, Errno | nil
 ```
 
  Generic device control. When `arg` is nil or absent, the ioctl is
@@ -5335,9 +5335,9 @@ function ioctl(fd: number, request: number, arg?: number | string): boolean | st
 
 **Parameters:**
 
-- `fd` (number)
-- `request` (number)
-- `arg` (number | string)
+- `fd` (integer)
+- `request` (integer)
+- `arg` (integer | string)
 
 **Returns:**
 
@@ -5348,7 +5348,7 @@ function ioctl(fd: number, request: number, arg?: number | string): boolean | st
 ### landlock_create_ruleset
 
 ```teal
-function landlock_create_ruleset(handled_access_fs?: number, flags?: number): number | nil, string | nil, Errno | nil
+function landlock_create_ruleset(handled_access_fs?: integer, flags?: integer): integer | nil, string | nil, Errno | nil
 ```
 
  Landlock: create ruleset. With no args, returns the kernel's
@@ -5358,19 +5358,19 @@ function landlock_create_ruleset(handled_access_fs?: number, flags?: number): nu
 
 **Parameters:**
 
-- `handled_access_fs` (number)
-- `flags` (number)
+- `handled_access_fs` (integer)
+- `flags` (integer)
 
 **Returns:**
 
-- number | nil
+- integer | nil
 - string | nil
 - Errno | nil
 
 ### landlock_add_rule
 
 ```teal
-function landlock_add_rule(ruleset_fd: number, parent_fd: number, allowed: number, flags?: number): boolean | nil, string | nil, Errno | nil
+function landlock_add_rule(ruleset_fd: integer, parent_fd: integer, allowed: integer, flags?: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Landlock: add a PATH_BENEATH rule granting `allowed` access to the
@@ -5379,10 +5379,10 @@ function landlock_add_rule(ruleset_fd: number, parent_fd: number, allowed: numbe
 
 **Parameters:**
 
-- `ruleset_fd` (number)
-- `parent_fd` (number)
-- `allowed` (number)
-- `flags` (number)
+- `ruleset_fd` (integer)
+- `parent_fd` (integer)
+- `allowed` (integer)
+- `flags` (integer)
 
 **Returns:**
 
@@ -5393,7 +5393,7 @@ function landlock_add_rule(ruleset_fd: number, parent_fd: number, allowed: numbe
 ### landlock_restrict_self
 
 ```teal
-function landlock_restrict_self(ruleset_fd: number, flags?: number): boolean | nil, string | nil, Errno | nil
+function landlock_restrict_self(ruleset_fd: integer, flags?: integer): boolean | nil, string | nil, Errno | nil
 ```
 
  Landlock: apply the ruleset to the current thread (and its future
@@ -5402,8 +5402,8 @@ function landlock_restrict_self(ruleset_fd: number, flags?: number): boolean | n
 
 **Parameters:**
 
-- `ruleset_fd` (number)
-- `flags` (number)
+- `ruleset_fd` (integer)
+- `flags` (integer)
 
 **Returns:**
 
@@ -5414,7 +5414,7 @@ function landlock_restrict_self(ruleset_fd: number, flags?: number): boolean | n
 ### mapshared
 
 ```teal
-function mapshared(size: number): Memory
+function mapshared(size: integer): Memory
 ```
 
  Creates interprocess shared memory mapping.
@@ -5472,7 +5472,7 @@ function mapshared(size: number): Memory
 
 **Parameters:**
 
-- `size` (number)
+- `size` (integer)
 
 **Returns:**
 
@@ -5481,34 +5481,34 @@ function mapshared(size: number): Memory
 ### major
 
 ```teal
-function major(rdev: number): number
+function major(rdev: integer): integer
 ```
 
  Extracts the major device number from a device id such as `Stat:rdev()`.
 
 **Parameters:**
 
-- `rdev` (number)
+- `rdev` (integer)
 
 **Returns:**
 
-- number
+- integer
 
 ### minor
 
 ```teal
-function minor(rdev: number): number
+function minor(rdev: integer): integer
 ```
 
  Extracts the minor device number from a device id such as `Stat:rdev()`.
 
 **Parameters:**
 
-- `rdev` (number)
+- `rdev` (integer)
 
 **Returns:**
 
-- number
+- integer
 
 ### statfs
 
@@ -5531,14 +5531,14 @@ function statfs(path: string): Statfs | nil, string | nil, Errno | nil
 ### fstatfs
 
 ```teal
-function fstatfs(fd: number): Statfs | nil, string | nil, Errno | nil
+function fstatfs(fd: integer): Statfs | nil, string | nil, Errno | nil
 ```
 
  Gets filesystem statistics via an open file descriptor.
 
 **Parameters:**
 
-- `fd` (number)
+- `fd` (integer)
 
 **Returns:**
 
@@ -5549,7 +5549,7 @@ function fstatfs(fd: number): Statfs | nil, string | nil, Errno | nil
 ### Sigset
 
 ```teal
-function Sigset(sig: number, ...: number): Sigset
+function Sigset(sig: integer, ...: integer): Sigset
 ```
 
  Signal set for blocking, unblocking, and waiting on signals.
@@ -5561,8 +5561,8 @@ function Sigset(sig: number, ...: number): Sigset
 
 **Parameters:**
 
-- `sig` (number)
-- `...` (number)
+- `sig` (integer)
+- `...` (integer)
 
 **Returns:**
 

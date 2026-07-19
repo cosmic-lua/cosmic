@@ -22,7 +22,7 @@ local record Regex
   --  not an error: it returns a single bare nil. A genuine engine
   --  failure (e.g. out of memory) returns nil, err — the error string
   --  arrives in the second position, mirroring the cosmo.re binding.
-  search: function(self: Regex, text: string, flags?: number): string, {string}, string | nil
+  search: function(self: Regex, text: string, flags?: integer): string, {string}, string | nil
 end
 ```
 
@@ -44,18 +44,18 @@ end
 
 ```teal
 local record ReModule
-  compile: function(pattern: string, flags?: number): Regex | nil, string
-  search: function(pattern: string, text: string, flags?: number): string | nil, {string} | nil, string | nil
-  test: function(pattern: string, text: string, flags?: number): boolean, string
-  findall: function(pattern: string, text: string, flags?: number): {string} | nil, string
-  split: function(pattern: string, text: string, flags?: number): {string} | nil, string
-  gsub: function(pattern: string, text: string, repl: Repl, flags?: number): string | nil, string
-  BASIC: number
-  ICASE: number
-  NEWLINE: number
-  NOSUB: number
-  NOTBOL: number
-  NOTEOL: number
+  compile: function(pattern: string, flags?: integer): Regex | nil, string
+  search: function(pattern: string, text: string, flags?: integer): string | nil, {string} | nil, string | nil
+  test: function(pattern: string, text: string, flags?: integer): boolean, string
+  findall: function(pattern: string, text: string, flags?: integer): {string} | nil, string
+  split: function(pattern: string, text: string, flags?: integer): {string} | nil, string
+  gsub: function(pattern: string, text: string, repl: Repl, flags?: integer): string | nil, string
+  BASIC: integer
+  ICASE: integer
+  NEWLINE: integer
+  NOSUB: integer
+  NOTBOL: integer
+  NOTEOL: integer
 end
 ```
 
@@ -64,7 +64,7 @@ end
 ### compile
 
 ```teal
-function compile(pattern: string, flags?: number): Regex | nil, string
+function compile(pattern: string, flags?: integer): Regex | nil, string
 ```
 
  Compile a regular expression pattern.
@@ -74,7 +74,7 @@ function compile(pattern: string, flags?: number): Regex | nil, string
 **Parameters:**
 
 - `pattern` (string) - The regex pattern to compile
-- `flags` (number?) - Optional flags: BASIC, ICASE, NEWLINE, NOSUB
+- `flags` (integer?) - Optional flags: BASIC, ICASE, NEWLINE, NOSUB
 
 **Returns:**
 
@@ -84,7 +84,7 @@ function compile(pattern: string, flags?: number): Regex | nil, string
 ### search
 
 ```teal
-function search(pattern: string, text: string, flags?: number): string | nil, {string} | nil, string | nil
+function search(pattern: string, text: string, flags?: integer): string | nil, {string} | nil, string | nil
 ```
 
  Search for pattern match in text (convenience function).
@@ -100,7 +100,7 @@ function search(pattern: string, text: string, flags?: number): string | nil, {s
 
 - `pattern` (string) - The regex pattern to search for
 - `text` (string) - The text to search in
-- `flags` (number?) - Optional compile flags: BASIC, ICASE, NEWLINE, NOSUB
+- `flags` (integer?) - Optional compile flags: BASIC, ICASE, NEWLINE, NOSUB
 
 **Returns:**
 
@@ -111,7 +111,7 @@ function search(pattern: string, text: string, flags?: number): string | nil, {s
 ### test
 
 ```teal
-function test(pattern: string, text: string, flags?: number): boolean, string
+function test(pattern: string, text: string, flags?: integer): boolean, string
 ```
 
  Check if pattern matches anywhere in text.
@@ -123,7 +123,7 @@ function test(pattern: string, text: string, flags?: number): boolean, string
 
 - `pattern` (string) - The regex pattern to match
 - `text` (string) - The text to search in
-- `flags` (number?) - Optional compile flags: BASIC, ICASE, NEWLINE, NOSUB
+- `flags` (integer?) - Optional compile flags: BASIC, ICASE, NEWLINE, NOSUB
 
 **Returns:**
 
@@ -133,7 +133,7 @@ function test(pattern: string, text: string, flags?: number): boolean, string
 ### findall
 
 ```teal
-function findall(pattern: string, text: string, flags?: number): {string} | nil, string
+function findall(pattern: string, text: string, flags?: integer): {string} | nil, string
 ```
 
  Find every non-overlapping match of pattern in text, leftmost
@@ -143,7 +143,7 @@ function findall(pattern: string, text: string, flags?: number): {string} | nil,
 
 - `pattern` (string) - The regex pattern to match
 - `text` (string) - The text to search in
-- `flags` (number?) - Optional compile flags: BASIC, ICASE, NEWLINE
+- `flags` (integer?) - Optional compile flags: BASIC, ICASE, NEWLINE
 
 **Returns:**
 
@@ -153,7 +153,7 @@ function findall(pattern: string, text: string, flags?: number): {string} | nil,
 ### split
 
 ```teal
-function split(pattern: string, text: string, flags?: number): {string} | nil, string
+function split(pattern: string, text: string, flags?: integer): {string} | nil, string
 ```
 
  Split text around every match of pattern. Fields between matches
@@ -165,7 +165,7 @@ function split(pattern: string, text: string, flags?: number): {string} | nil, s
 
 - `pattern` (string) - The regex pattern to split on
 - `text` (string) - The text to split
-- `flags` (number?) - Optional compile flags: BASIC, ICASE, NEWLINE
+- `flags` (integer?) - Optional compile flags: BASIC, ICASE, NEWLINE
 
 **Returns:**
 
@@ -175,7 +175,7 @@ function split(pattern: string, text: string, flags?: number): {string} | nil, s
 ### gsub
 
 ```teal
-function gsub(pattern: string, text: string, repl: Repl, flags?: number): string | nil, string
+function gsub(pattern: string, text: string, repl: Repl, flags?: integer): string | nil, string
 ```
 
  Replace every non-overlapping match of pattern in text.
@@ -186,7 +186,7 @@ function gsub(pattern: string, text: string, repl: Repl, flags?: number): string
 - `pattern` (string) - The regex pattern to match
 - `text` (string) - The text to operate on
 - `repl` (Repl) - A literal replacement string, or function(match, caps)
-- `flags` (number?) - Optional compile flags: BASIC, ICASE, NEWLINE
+- `flags` (integer?) - Optional compile flags: BASIC, ICASE, NEWLINE
 
 **Returns:**
 

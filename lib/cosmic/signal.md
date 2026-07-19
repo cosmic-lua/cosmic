@@ -11,11 +11,11 @@
 
 ```teal
 local record SetitimerOptions
-  which: number
-  valuesec: number
-  valuens: number
-  intervalsec: number
-  intervalns: number
+  which: integer
+  valuesec: integer
+  valuens: integer
+  intervalsec: integer
+  intervalns: integer
 end
 ```
 
@@ -25,10 +25,10 @@ end
 
 ```teal
 local record SetitimerResult
-  valuesec: number
-  valuens: number
-  intervalsec: number
-  intervalns: number
+  valuesec: integer
+  valuens: integer
+  intervalsec: integer
+  intervalns: integer
 end
 ```
 
@@ -43,15 +43,15 @@ end
 ```teal
 local record Sigset
   --  Adds signal to bitset.
-  add: function(self: Sigset, sig: number)
+  add: function(self: Sigset, sig: integer)
   --  Removes signal from bitset.
-  remove: function(self: Sigset, sig: number)
+  remove: function(self: Sigset, sig: integer)
   --  Sets all bits in signal bitset to true.
   fill: function(self: Sigset)
   --  Sets all bits in signal bitset to false.
   clear: function(self: Sigset)
   --  Returns true if signal is in the bitset.
-  contains: function(self: Sigset, sig: number): boolean
+  contains: function(self: Sigset, sig: integer): boolean
 end
 ```
 
@@ -62,59 +62,59 @@ end
 
 ```teal
 local record SignalModule
-  SIGABRT: number
-  SIGALRM: number
-  SIGBUS: number
-  SIGCHLD: number
-  SIGCONT: number
-  SIGFPE: number
-  SIGHUP: number
-  SIGILL: number
-  SIGINT: number
-  SIGKILL: number
-  SIGPIPE: number
-  SIGPROF: number
-  SIGQUIT: number
-  SIGSEGV: number
-  SIGSTOP: number
-  SIGSYS: number
-  SIGTERM: number
-  SIGTRAP: number
-  SIGTSTP: number
-  SIGTTIN: number
-  SIGTTOU: number
-  SIGURG: number
-  SIGUSR1: number
-  SIGUSR2: number
-  SIGVTALRM: number
-  SIGWINCH: number
-  SIGXCPU: number
-  SIGXFSZ: number
-  SIG_BLOCK: number
-  SIG_UNBLOCK: number
-  SIG_SETMASK: number
-  SIG_DFL: number
-  SIG_IGN: number
-  SA_NOCLDSTOP: number
-  SA_NOCLDWAIT: number
-  SA_NODEFER: number
-  SA_RESETHAND: number
-  SA_RESTART: number
-  ITIMER_REAL: number
-  ITIMER_VIRTUAL: number
-  ITIMER_PROF: number
+  SIGABRT: integer
+  SIGALRM: integer
+  SIGBUS: integer
+  SIGCHLD: integer
+  SIGCONT: integer
+  SIGFPE: integer
+  SIGHUP: integer
+  SIGILL: integer
+  SIGINT: integer
+  SIGKILL: integer
+  SIGPIPE: integer
+  SIGPROF: integer
+  SIGQUIT: integer
+  SIGSEGV: integer
+  SIGSTOP: integer
+  SIGSYS: integer
+  SIGTERM: integer
+  SIGTRAP: integer
+  SIGTSTP: integer
+  SIGTTIN: integer
+  SIGTTOU: integer
+  SIGURG: integer
+  SIGUSR1: integer
+  SIGUSR2: integer
+  SIGVTALRM: integer
+  SIGWINCH: integer
+  SIGXCPU: integer
+  SIGXFSZ: integer
+  SIG_BLOCK: integer
+  SIG_UNBLOCK: integer
+  SIG_SETMASK: integer
+  SIG_DFL: integer
+  SIG_IGN: integer
+  SA_NOCLDSTOP: integer
+  SA_NOCLDWAIT: integer
+  SA_NODEFER: integer
+  SA_RESETHAND: integer
+  SA_RESTART: integer
+  ITIMER_REAL: integer
+  ITIMER_VIRTUAL: integer
+  ITIMER_PROF: integer
   --  Create a new signal set containing the specified signals.
   --  The returned Sigset has methods: add(sig), remove(sig), fill(), clear(), contains(sig).
-  Sigset: function(...: number): Sigset
+  Sigset: function(...: integer): Sigset
   --  Register a signal handler for the specified signal.
   --  The handler can be a Lua function, SIG_IGN, or SIG_DFL.
   --  Returns the previous handler, flags, and mask; on failure returns
   --  nil, nil, nil plus an error message.
-  sigaction: function(sig: number, handler?: function | number, flags?: number, mask?: Sigset): function | number, number, Sigset, string
+  sigaction: function(sig: integer, handler?: function | integer, flags?: integer, mask?: Sigset): function | integer, integer, Sigset, string
   --  Modify the process signal mask.
   --  how: SIG_BLOCK, SIG_UNBLOCK, or SIG_SETMASK
   --  Returns the previous signal mask, or nil plus an error message.
-  sigprocmask: function(how: number, set: Sigset): Sigset | nil, string
+  sigprocmask: function(how: integer, set: Sigset): Sigset | nil, string
   --  Suspend the process until a signal is delivered.
   --  Temporarily replaces the signal mask with the provided mask.
   --  Always returns nil plus an error message: EINTR once a signal
@@ -127,15 +127,15 @@ local record SignalModule
   setitimer: function(opts: SetitimerOptions): SetitimerResult | nil, string
   --  Send a signal to a process.
   --  pid > 0 signals one process by id; 0 signals current group; -1 signals all.
-  kill: function(pid: number, sig: number): boolean, string
+  kill: function(pid: integer, sig: integer): boolean, string
   --  Send a signal to a process group.
-  killpg: function(pgrp: number, sig: number): boolean, string
+  killpg: function(pgrp: integer, sig: integer): boolean, string
   --  Send a signal to the current process.
-  raise: function(sig: number): boolean, string
+  raise: function(sig: integer): boolean, string
   --  Get the name of a signal.
-  strsignal: function(sig: number): string
+  strsignal: function(sig: integer): string
   --  Send a signal to a process.
-  pid: number, sig: number): boolean, string
+  pid: integer, sig: integer): boolean, string
 end
 ```
 
@@ -144,15 +144,15 @@ end
 ### kill
 
 ```teal
-function kill(pid: number, sig: number): boolean, string
+function kill(pid: integer, sig: integer): boolean, string
 ```
 
  Send a signal to a process.
 
 **Parameters:**
 
-- `pid` (number) - The process ID (>0 for specific process, 0 for process group, -1 for all)
-- `sig` (number) - The signal to send
+- `pid` (integer) - The process ID (>0 for specific process, 0 for process group, -1 for all)
+- `sig` (integer) - The signal to send
 
 **Returns:**
 
@@ -162,15 +162,15 @@ function kill(pid: number, sig: number): boolean, string
 ### killpg
 
 ```teal
-function killpg(pgrp: number, sig: number): boolean, string
+function killpg(pgrp: integer, sig: integer): boolean, string
 ```
 
  Send a signal to a process group.
 
 **Parameters:**
 
-- `pgrp` (number) - The process group ID
-- `sig` (number) - The signal to send
+- `pgrp` (integer) - The process group ID
+- `sig` (integer) - The signal to send
 
 **Returns:**
 
@@ -180,7 +180,7 @@ function killpg(pgrp: number, sig: number): boolean, string
 ### raise
 
 ```teal
-function raise(sig: number): boolean, string
+function raise(sig: integer): boolean, string
 ```
 
  Send a signal to the current process.
@@ -188,7 +188,7 @@ function raise(sig: number): boolean, string
 
 **Parameters:**
 
-- `sig` (number) - The signal to send
+- `sig` (integer) - The signal to send
 
 **Returns:**
 
@@ -198,14 +198,14 @@ function raise(sig: number): boolean, string
 ### strsignal
 
 ```teal
-function strsignal(sig: number): string
+function strsignal(sig: integer): string
 ```
 
  Get the name of a signal.
 
 **Parameters:**
 
-- `sig` (number) - The signal number
+- `sig` (integer) - The signal number
 
 **Returns:**
 
@@ -225,20 +225,20 @@ function setitimer(opts: SetitimerOptions): SetitimerResult | nil, string
 ### sigaction
 
 ```teal
-function sigaction(sig: number, handler?: any, flags?: number, mask?: Sigset): any, number, Sigset, string
+function sigaction(sig: integer, handler?: any, flags?: integer, mask?: Sigset): any, integer, Sigset, string
 ```
 
 ### sigprocmask
 
 ```teal
-function sigprocmask(how: number, set: Sigset): Sigset | nil, string
+function sigprocmask(how: integer, set: Sigset): Sigset | nil, string
 ```
 
  Modify the process signal mask.
 
 **Parameters:**
 
-- `how` (number) - SIG_BLOCK, SIG_UNBLOCK, or SIG_SETMASK
+- `how` (integer) - SIG_BLOCK, SIG_UNBLOCK, or SIG_SETMASK
 - `set` (Sigset) - The signal set to apply
 
 **Returns:**

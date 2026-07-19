@@ -30,21 +30,21 @@ end
 
 ```teal
 local record SysModule
-  SC_ARG_MAX: number
-  SC_CHILD_MAX: number
-  SC_CLK_TCK: number
-  SC_OPEN_MAX: number
-  SC_PAGESIZE: number
-  SC_NPROCESSORS_CONF: number
-  SC_NPROCESSORS_ONLN: number
+  SC_ARG_MAX: integer
+  SC_CHILD_MAX: integer
+  SC_CLK_TCK: integer
+  SC_OPEN_MAX: integer
+  SC_PAGESIZE: integer
+  SC_NPROCESSORS_CONF: integer
+  SC_NPROCESSORS_ONLN: integer
   host_os: function(): HostOs
   normalize_host_os: function(raw: string): HostOs
   host_isa: function(): string
   platform: function(): string
-  sysconf: function(name: number): number | nil, string
-  nproc: function(): number | nil, string
-  nproc_configured: function(): number | nil, string
-  page_size: function(): number | nil, string
+  sysconf: function(name: integer): integer | nil, string
+  nproc: function(): integer | nil, string
+  nproc_configured: function(): integer | nil, string
+  page_size: function(): integer | nil, string
   uname: function(): Uname | nil, string
 end
 ```
@@ -113,7 +113,7 @@ function platform(): string
 ### sysconf
 
 ```teal
-function sysconf(name: number): number | nil, string
+function sysconf(name: integer): integer | nil, string
 ```
 
  Query a runtime system configuration value.
@@ -122,30 +122,30 @@ function sysconf(name: number): number | nil, string
 
 **Parameters:**
 
-- `name` (number) - One of the unix.SC_* constants
+- `name` (integer) - One of the unix.SC_* constants
 
 **Returns:**
 
-- number - | nil The configuration value
+- integer - | nil The configuration value
 - string? - Error message on failure
 
 ### nproc
 
 ```teal
-function nproc(): number | nil, string
+function nproc(): integer | nil, string
 ```
 
  Number of processors currently online (available to run threads).
 
 **Returns:**
 
-- number - | nil The online processor count
+- integer - | nil The online processor count
 - string? - Error message on failure
 
 ### nproc_configured
 
 ```teal
-function nproc_configured(): number | nil, string
+function nproc_configured(): integer | nil, string
 ```
 
  Number of processors configured in the system.
@@ -153,20 +153,20 @@ function nproc_configured(): number | nil, string
 
 **Returns:**
 
-- number - | nil The configured processor count
+- integer - | nil The configured processor count
 - string? - Error message on failure
 
 ### page_size
 
 ```teal
-function page_size(): number | nil, string
+function page_size(): integer | nil, string
 ```
 
  Memory page size in bytes.
 
 **Returns:**
 
-- number - | nil The page size in bytes
+- integer - | nil The page size in bytes
 - string? - Error message on failure
 
 ### uname

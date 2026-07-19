@@ -54,7 +54,7 @@ end
 
 ```teal
 local record AddOptions
-  mode: number
+  mode: integer
   method: string
 end
 ```
@@ -78,8 +78,8 @@ end
 ```teal
 local record ZipEntry
   name: string
-  size: number
-  mode: number
+  size: integer
+  mode: integer
 end
 ```
 
@@ -104,7 +104,7 @@ end
 
 ```teal
 local record EmbedDirHandle
-  read: function(self): string, number
+  read: function(self): string, integer
   close: function(self)
 end
 ```
@@ -114,7 +114,7 @@ end
 ```teal
 local record DirEntry
   name: string
-  kind: number
+  kind: integer
 end
 ```
 
@@ -125,7 +125,7 @@ local record FileToEmbed
   path: string
   content: string
   stored_name: string
-  mode: number
+  mode: integer
 end
 ```
 

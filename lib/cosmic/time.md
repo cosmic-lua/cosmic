@@ -18,15 +18,15 @@
 
 ```teal
 local record DateTime
-  year: number
-  month: number
-  day: number
-  hour: number
-  min: number
-  sec: number
-  gmtoff: number
-  wday: number
-  yday: number
+  year: integer
+  month: integer
+  day: integer
+  hour: integer
+  min: integer
+  sec: integer
+  gmtoff: integer
+  wday: integer
+  yday: integer
   isdst: boolean
   zone: string
 end
@@ -36,32 +36,32 @@ end
 
 ```teal
 local record TimeModule
-  CLOCK_REALTIME: number
-  CLOCK_MONOTONIC: number
-  CLOCK_BOOTTIME: number
-  CLOCK_MONOTONIC_RAW: number
-  CLOCK_REALTIME_COARSE: number
-  CLOCK_MONOTONIC_COARSE: number
-  CLOCK_THREAD_CPUTIME_ID: number
-  CLOCK_PROCESS_CPUTIME_ID: number
-  clock_gettime: function(clock?: number): number, number
-  now: function(): number, number
-  monotonic: function(): number, number
-  now_ms: function(): number
-  monotonic_ms: function(): number
-  sleep: function(seconds: number, nanos?: number): number | nil, number, string
-  sleep_ms: function(ms: number): number | nil, string
-  gmtime: function(unixts: number): DateTime
-  localtime: function(unixts: number): DateTime
-  format_http: function(timestamp: number): string
-  parse_http: function(str: string): number | nil, string
-  format_date: function(timestamp: number): string | nil, string
-  parse_date: function(str: string): number | nil, string
-  format_iso8601: function(timestamp: number): string | nil, string
-  parse_iso8601: function(str: string): number | nil, string
-  timegm: function(year: number, month: number, day: number, hour: number, min: number, sec: number): number | nil, string
-  is_leap_year: function(year: number): boolean
-  days_in_month: function(year: number, month: number): number | nil, string
+  CLOCK_REALTIME: integer
+  CLOCK_MONOTONIC: integer
+  CLOCK_BOOTTIME: integer
+  CLOCK_MONOTONIC_RAW: integer
+  CLOCK_REALTIME_COARSE: integer
+  CLOCK_MONOTONIC_COARSE: integer
+  CLOCK_THREAD_CPUTIME_ID: integer
+  CLOCK_PROCESS_CPUTIME_ID: integer
+  clock_gettime: function(clock?: integer): integer, integer
+  now: function(): integer, integer
+  monotonic: function(): integer, integer
+  now_ms: function(): integer
+  monotonic_ms: function(): integer
+  sleep: function(seconds: integer, nanos?: integer): integer | nil, integer, string
+  sleep_ms: function(ms: number): integer | nil, string
+  gmtime: function(unixts: integer): DateTime
+  localtime: function(unixts: integer): DateTime
+  format_http: function(timestamp: integer): string
+  parse_http: function(str: string): integer | nil, string
+  format_date: function(timestamp: integer): string | nil, string
+  parse_date: function(str: string): integer | nil, string
+  format_iso8601: function(timestamp: integer): string | nil, string
+  parse_iso8601: function(str: string): integer | nil, string
+  timegm: function(year: integer, month: integer, day: integer, hour: integer, min: integer, sec: integer): integer | nil, string
+  is_leap_year: function(year: integer): boolean
+  days_in_month: function(year: integer, month: integer): integer | nil, string
 end
 ```
 
@@ -70,7 +70,7 @@ end
 ### clock_gettime
 
 ```teal
-function clock_gettime(clock?: number): number, number
+function clock_gettime(clock?: integer): integer, integer
 ```
 
  Get current time from the specified clock.
@@ -78,17 +78,17 @@ function clock_gettime(clock?: number): number, number
 
 **Parameters:**
 
-- `clock` (number?) - Clock identifier (default: CLOCK_REALTIME)
+- `clock` (integer?) - Clock identifier (default: CLOCK_REALTIME)
 
 **Returns:**
 
-- number - Seconds since epoch
-- number - Nanoseconds
+- integer - Seconds since epoch
+- integer - Nanoseconds
 
 ### now
 
 ```teal
-function now(): number, number
+function now(): integer, integer
 ```
 
  Get current wall clock time (real time).
@@ -96,13 +96,13 @@ function now(): number, number
 
 **Returns:**
 
-- number - Seconds since epoch
-- number - Nanoseconds
+- integer - Seconds since epoch
+- integer - Nanoseconds
 
 ### monotonic
 
 ```teal
-function monotonic(): number, number
+function monotonic(): integer, integer
 ```
 
  Get monotonic time (not affected by system time changes).
@@ -110,13 +110,13 @@ function monotonic(): number, number
 
 **Returns:**
 
-- number - Seconds
-- number - Nanoseconds
+- integer - Seconds
+- integer - Nanoseconds
 
 ### now_ms
 
 ```teal
-function now_ms(): number
+function now_ms(): integer
 ```
 
  Get current wall clock time in whole milliseconds since the epoch.
@@ -125,12 +125,12 @@ function now_ms(): number
 
 **Returns:**
 
-- number - Milliseconds since epoch
+- integer - Milliseconds since epoch
 
 ### monotonic_ms
 
 ```teal
-function monotonic_ms(): number
+function monotonic_ms(): integer
 ```
 
  Get monotonic time in whole milliseconds from an unspecified epoch.
@@ -138,12 +138,12 @@ function monotonic_ms(): number
 
 **Returns:**
 
-- number - Milliseconds
+- integer - Milliseconds
 
 ### sleep
 
 ```teal
-function sleep(seconds: number, nanos?: number): number | nil, number, string
+function sleep(seconds: integer, nanos?: integer): integer | nil, integer, string
 ```
 
  Sleep for the specified duration.
@@ -154,19 +154,19 @@ function sleep(seconds: number, nanos?: number): number | nil, number, string
 
 **Parameters:**
 
-- `seconds` (number) - Seconds to sleep
-- `nanos` (number?) - Additional nanoseconds to sleep (default: 0)
+- `seconds` (integer) - Seconds to sleep
+- `nanos` (integer?) - Additional nanoseconds to sleep (default: 0)
 
 **Returns:**
 
-- number - | nil Remaining seconds (0 on success), or nil on invalid input
-- number - Remaining nanoseconds (0 on success)
+- integer - | nil Remaining seconds (0 on success), or nil on invalid input
+- integer - Remaining nanoseconds (0 on success)
 - string? - Error message when interrupted (EINTR) or invalid (EINVAL)
 
 ### sleep_ms
 
 ```teal
-function sleep_ms(ms: number): number | nil, string
+function sleep_ms(ms: number): integer | nil, string
 ```
 
  Sleep for the specified number of milliseconds.
@@ -182,20 +182,20 @@ function sleep_ms(ms: number): number | nil, string
 
 **Returns:**
 
-- number - | nil Remaining milliseconds (0 on success), or nil on invalid input
+- integer - | nil Remaining milliseconds (0 on success), or nil on invalid input
 - string? - Error message when interrupted (EINTR) or invalid (EINVAL)
 
 ### gmtime
 
 ```teal
-function gmtime(unixts: number): DateTime
+function gmtime(unixts: integer): DateTime
 ```
 
  Break down a UNIX timestamp into UTC (Zulu) time components.
 
 **Parameters:**
 
-- `unixts` (number) - UNIX timestamp (seconds since epoch)
+- `unixts` (integer) - UNIX timestamp (seconds since epoch)
 
 **Returns:**
 
@@ -204,7 +204,7 @@ function gmtime(unixts: number): DateTime
 ### localtime
 
 ```teal
-function localtime(unixts: number): DateTime
+function localtime(unixts: integer): DateTime
 ```
 
  Break down a UNIX timestamp into local time components.
@@ -212,7 +212,7 @@ function localtime(unixts: number): DateTime
 
 **Parameters:**
 
-- `unixts` (number) - UNIX timestamp (seconds since epoch)
+- `unixts` (integer) - UNIX timestamp (seconds since epoch)
 
 **Returns:**
 
@@ -221,14 +221,14 @@ function localtime(unixts: number): DateTime
 ### format_http
 
 ```teal
-function format_http(timestamp: number): string
+function format_http(timestamp: integer): string
 ```
 
  Format a UNIX timestamp as an HTTP date string (RFC 7231).
 
 **Parameters:**
 
-- `timestamp` (number) - UNIX timestamp (seconds since epoch)
+- `timestamp` (integer) - UNIX timestamp (seconds since epoch)
 
 **Returns:**
 
@@ -237,14 +237,14 @@ function format_http(timestamp: number): string
 ### is_leap_year
 
 ```teal
-function is_leap_year(year: number): boolean
+function is_leap_year(year: integer): boolean
 ```
 
  Return true if year is a leap year (Gregorian rules).
 
 **Parameters:**
 
-- `year` (number) - Full year (e.g., 2024)
+- `year` (integer) - Full year (e.g., 2024)
 
 **Returns:**
 
@@ -253,26 +253,26 @@ function is_leap_year(year: number): boolean
 ### days_in_month
 
 ```teal
-function days_in_month(year: number, month: number): number | nil, string
+function days_in_month(year: integer, month: integer): integer | nil, string
 ```
 
  Number of days in the given month, accounting for leap years.
 
 **Parameters:**
 
-- `year` (number) - Full year (e.g., 2024)
-- `month` (number) - Month (1-12)
+- `year` (integer) - Full year (e.g., 2024)
+- `month` (integer) - Month (1-12)
 
 **Returns:**
 
-- number - | nil Days in that month (28-31), or nil when month is out of range
+- integer - | nil Days in that month (28-31), or nil when month is out of range
 - string - Error message when month is out of range
 
 ### timegm
 
 ```teal
-function timegm(year: number, month: number, day: number,
-    hour: number, min: number, sec: number): number | nil, string
+function timegm(year: integer, month: integer, day: integer,
+    hour: integer, min: integer, sec: integer): integer | nil, string
 ```
 
  Convert UTC broken-down time to UNIX epoch seconds.
@@ -281,22 +281,22 @@ function timegm(year: number, month: number, day: number,
 
 **Parameters:**
 
-- `year` (number) - Full year (e.g., 2025)
-- `month` (number) - Month (1-12)
-- `day` (number) - Day of month (1-31)
-- `hour` (number) - Hour (0-23)
-- `min` (number) - Minute (0-59)
-- `sec` (number) - Second (0-60)
+- `year` (integer) - Full year (e.g., 2025)
+- `month` (integer) - Month (1-12)
+- `day` (integer) - Day of month (1-31)
+- `hour` (integer) - Hour (0-23)
+- `min` (integer) - Minute (0-59)
+- `sec` (integer) - Second (0-60)
 
 **Returns:**
 
-- number - | nil UNIX epoch seconds, or nil on invalid input
+- integer - | nil UNIX epoch seconds, or nil on invalid input
 - string - Error message when input is out of range
 
 ### parse_http
 
 ```teal
-function parse_http(str: string): number | nil, string
+function parse_http(str: string): integer | nil, string
 ```
 
  Parse an HTTP date string (RFC 7231) into a UNIX timestamp.
@@ -310,20 +310,20 @@ function parse_http(str: string): number | nil, string
 
 **Returns:**
 
-- number - | nil UNIX timestamp, or nil if parsing failed
+- integer - | nil UNIX timestamp, or nil if parsing failed
 - string - Error message on failure
 
 ### format_date
 
 ```teal
-function format_date(timestamp: number): string | nil, string
+function format_date(timestamp: integer): string | nil, string
 ```
 
  Format a UNIX timestamp as a date string in UTC.
 
 **Parameters:**
 
-- `timestamp` (number) - UNIX timestamp (seconds since epoch)
+- `timestamp` (integer) - UNIX timestamp (seconds since epoch)
 
 **Returns:**
 
@@ -333,7 +333,7 @@ function format_date(timestamp: number): string | nil, string
 ### parse_date
 
 ```teal
-function parse_date(str: string): number | nil, string
+function parse_date(str: string): integer | nil, string
 ```
 
  Parse a YYYY-MM-DD date string into a UNIX timestamp (midnight UTC).
@@ -344,20 +344,20 @@ function parse_date(str: string): number | nil, string
 
 **Returns:**
 
-- number - | nil UNIX timestamp, or nil if parsing failed
+- integer - | nil UNIX timestamp, or nil if parsing failed
 - string - Error message on failure
 
 ### format_iso8601
 
 ```teal
-function format_iso8601(timestamp: number): string | nil, string
+function format_iso8601(timestamp: integer): string | nil, string
 ```
 
  Format a UNIX timestamp as an ISO 8601 string in UTC.
 
 **Parameters:**
 
-- `timestamp` (number) - UNIX timestamp (seconds since epoch)
+- `timestamp` (integer) - UNIX timestamp (seconds since epoch)
 
 **Returns:**
 
@@ -367,7 +367,7 @@ function format_iso8601(timestamp: number): string | nil, string
 ### parse_iso8601
 
 ```teal
-function parse_iso8601(str: string): number | nil, string
+function parse_iso8601(str: string): integer | nil, string
 ```
 
  Parse an ISO 8601 timestamp string into a UNIX epoch seconds value.
@@ -382,5 +382,5 @@ function parse_iso8601(str: string): number | nil, string
 
 **Returns:**
 
-- number - | nil UNIX timestamp, or nil if parsing failed
+- integer - | nil UNIX timestamp, or nil if parsing failed
 - string - Error message on failure

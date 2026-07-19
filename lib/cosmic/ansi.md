@@ -44,7 +44,7 @@ local record AnsiModule
   dim: function(text: string): string
   underline: function(text: string): string
   strip: function(text: string): string
-  enabled: function(fd?: number): boolean
+  enabled: function(fd?: integer): boolean
 end
 ```
 
@@ -268,7 +268,7 @@ function strip(text: string): string
 ### enabled
 
 ```teal
-function enabled(fd?: number): boolean
+function enabled(fd?: integer): boolean
 ```
 
  Decide whether styled output is appropriate for a stream, honoring
@@ -278,7 +278,7 @@ function enabled(fd?: number): boolean
 
 **Parameters:**
 
-- `fd` (number?) - File descriptor to check (default 1, stdout)
+- `fd` (integer?) - File descriptor to check (default 1, stdout)
 
 **Returns:**
 

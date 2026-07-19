@@ -11,8 +11,8 @@
 
 ```teal
 local record WinSize
-  rows: number
-  cols: number
+  rows: integer
+  cols: integer
 end
 ```
 
@@ -34,33 +34,33 @@ end
 ```teal
 local record TtyModule
   --  tcsetattr actions.
-  NOW: number
-  DRAIN: number
-  FLUSH: number
+  NOW: integer
+  DRAIN: integer
+  FLUSH: integer
   --  Common lflag constants.
-  ECHO: number
-  ICANON: number
-  ISIG: number
-  IEXTEN: number
+  ECHO: integer
+  ICANON: integer
+  ISIG: integer
+  IEXTEN: integer
   --  Input/output mode flag constants (for make_raw assertions).
-  IXON: number
-  ICRNL: number
-  BRKINT: number
-  OPOST: number
+  IXON: integer
+  ICRNL: integer
+  BRKINT: integer
+  OPOST: integer
   --  cc indices (C-style; the Lua cc array is 1-based, so cc[VMIN + 1]).
-  VMIN: number
-  VTIME: number
-  isatty: function(fd: number): boolean
-  winsize: function(fd: number): WinSize | nil, string
+  VMIN: integer
+  VTIME: integer
+  isatty: function(fd: integer): boolean
+  winsize: function(fd: integer): WinSize | nil, string
   stdin_isatty: function(): boolean
   stdout_isatty: function(): boolean
   stderr_isatty: function(): boolean
-  getattr: function(fd: number): Termios | nil, string
-  setattr: function(fd: number, action: number, termios: Termios): boolean, string
+  getattr: function(fd: integer): Termios | nil, string
+  setattr: function(fd: integer, action: integer, termios: Termios): boolean, string
   make_raw: function(termios: Termios, opts?: RawOptions): Termios
-  raw: function(fd: number, opts?: RawOptions): Termios | nil, string
-  noecho: function(fd: number): Termios | nil, string
-  restore: function(fd: number, termios: Termios): boolean, string
+  raw: function(fd: integer, opts?: RawOptions): Termios | nil, string
+  noecho: function(fd: integer): Termios | nil, string
+  restore: function(fd: integer, termios: Termios): boolean, string
   getpass: function(prompt: string): string | nil, string
 end
 ```
@@ -70,14 +70,14 @@ end
 ### isatty
 
 ```teal
-function isatty(fd: number): boolean
+function isatty(fd: integer): boolean
 ```
 
  Checks if a file descriptor refers to a terminal.
 
 **Parameters:**
 
-- `fd` (number) - File descriptor to check (0=stdin, 1=stdout, 2=stderr)
+- `fd` (integer) - File descriptor to check (0=stdin, 1=stdout, 2=stderr)
 
 **Returns:**
 
@@ -86,14 +86,14 @@ function isatty(fd: number): boolean
 ### winsize
 
 ```teal
-function winsize(fd: number): TtyModule.WinSize | nil, string
+function winsize(fd: integer): TtyModule.WinSize | nil, string
 ```
 
  Gets the terminal window size for a file descriptor.
 
 **Parameters:**
 
-- `fd` (number) - File descriptor (typically 0, 1, or 2)
+- `fd` (integer) - File descriptor (typically 0, 1, or 2)
 
 **Returns:**
 
@@ -139,14 +139,14 @@ function stderr_isatty(): boolean
 ### getattr
 
 ```teal
-function getattr(fd: number): Termios | nil, string
+function getattr(fd: integer): Termios | nil, string
 ```
 
  Gets terminal attributes for a file descriptor.
 
 **Parameters:**
 
-- `fd` (number) - File descriptor (typically 0 for stdin)
+- `fd` (integer) - File descriptor (typically 0 for stdin)
 
 **Returns:**
 
@@ -156,15 +156,15 @@ function getattr(fd: number): Termios | nil, string
 ### setattr
 
 ```teal
-function setattr(fd: number, action: number, termios: Termios): boolean, string
+function setattr(fd: integer, action: integer, termios: Termios): boolean, string
 ```
 
  Sets terminal attributes for a file descriptor.
 
 **Parameters:**
 
-- `fd` (number) - File descriptor
-- `action` (number) - When to apply changes (NOW, DRAIN, or FLUSH)
+- `fd` (integer) - File descriptor
+- `action` (integer) - When to apply changes (NOW, DRAIN, or FLUSH)
 - `termios` (Termios) - Terminal attributes to set
 
 **Returns:**
@@ -197,7 +197,7 @@ function make_raw(termios: Termios, opts?: TtyModule.RawOptions): Termios
 ### raw
 
 ```teal
-function raw(fd: number, opts?: TtyModule.RawOptions): Termios | nil, string
+function raw(fd: integer, opts?: TtyModule.RawOptions): Termios | nil, string
 ```
 
  Puts terminal into raw mode: no echo, no line buffering, no signal
@@ -207,7 +207,7 @@ function raw(fd: number, opts?: TtyModule.RawOptions): Termios | nil, string
 
 **Parameters:**
 
-- `fd` (number) - File descriptor (typically 0 for stdin)
+- `fd` (integer) - File descriptor (typically 0 for stdin)
 - `opts` (RawOptions?) - keep_signals: keep Ctrl-C/Ctrl-Z generating signals
 
 **Returns:**
@@ -218,7 +218,7 @@ function raw(fd: number, opts?: TtyModule.RawOptions): Termios | nil, string
 ### noecho
 
 ```teal
-function noecho(fd: number): Termios | nil, string
+function noecho(fd: integer): Termios | nil, string
 ```
 
  Disables echo on terminal (for password input).
@@ -226,7 +226,7 @@ function noecho(fd: number): Termios | nil, string
 
 **Parameters:**
 
-- `fd` (number) - File descriptor (typically 0 for stdin)
+- `fd` (integer) - File descriptor (typically 0 for stdin)
 
 **Returns:**
 
@@ -236,14 +236,14 @@ function noecho(fd: number): Termios | nil, string
 ### restore
 
 ```teal
-function restore(fd: number, termios: Termios): boolean, string
+function restore(fd: integer, termios: Termios): boolean, string
 ```
 
  Restores terminal attributes.
 
 **Parameters:**
 
-- `fd` (number) - File descriptor
+- `fd` (integer) - File descriptor
 - `termios` (Termios) - Terminal attributes from raw() or noecho()
 
 **Returns:**

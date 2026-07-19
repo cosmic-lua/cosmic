@@ -9,13 +9,13 @@ Type declarations for the `argon2` module.
 ```teal
 local record Config
   --  the memory hardness in kibibytes, which defaults to 4096 (4 mibibytes). It's recommended that this be tuned upwards.
-  m_cost: number
+  m_cost: integer
   --  the number of iterations, which defaults to `3`.
-  t_cost: number
+  t_cost: integer
   --  the parallelism factor, which defaults to `1`.
-  parallelism: number
+  parallelism: integer
   --  the number of desired bytes in hash output, which defaults to 32.
-  hash_len: number
+  hash_len: integer
   --  the Argon2 variant: `"argon2id"` blend of other two methods [default], `"argon2i"` maximize resistance to side-channel attacks, or `"argon2d"` maximize resistance to gpu cracking attacks
   variant: Variant
 end

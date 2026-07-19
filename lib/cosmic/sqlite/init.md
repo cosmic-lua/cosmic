@@ -83,9 +83,9 @@ local record Statement
   --  Reset for re-execution; existing bindings are kept.
   reset: function(self: Statement)
   --  Number of result columns.
-  columns: function(self: Statement): number
+  columns: function(self: Statement): integer
   --  Name of result column n (1-indexed).
-  column_name: function(self: Statement, n: number): string
+  column_name: function(self: Statement, n: integer): string
   --  Finalize the statement (idempotent); also runs on scope exit via
   --  to-be-closed.
   close: function(self: Statement)
@@ -224,11 +224,11 @@ function db:transaction(fn: function(Database)): boolean, string
 ### db:last_insert_rowid
 
 ```teal
-function db:last_insert_rowid(): number
+function db:last_insert_rowid(): integer
 ```
 
 ### db:changes
 
 ```teal
-function db:changes(): number
+function db:changes(): integer
 ```

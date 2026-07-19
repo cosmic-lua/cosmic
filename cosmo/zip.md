@@ -9,9 +9,9 @@ Type declarations for the `zip` module.
 ```teal
 local record OpenOptions
   --  Compression level 0-9 (for "w" and "a" modes)
-  level: number
+  level: integer
   --  Maximum file size limit in bytes
-  max_file_size: number
+  max_file_size: integer
 end
 ```
 
@@ -22,17 +22,17 @@ end
 ```teal
 local record Stat
   --  Uncompressed file size in bytes
-  size: number
+  size: integer
   --  Compressed file size in bytes
-  compressed_size: number
+  compressed_size: integer
   --  CRC32 checksum of uncompressed data
-  crc32: number
+  crc32: integer
   --  Modification time as Unix timestamp
-  mtime: number
+  mtime: integer
   --  Compression method (0=stored, 8=deflated)
-  method: number
+  method: integer
   --  Unix file mode/permissions
-  mode: number
+  mode: integer
 end
 ```
 
@@ -45,9 +45,9 @@ local record Entry
   --  Entry path within the archive
   name: string
   --  Uncompressed size in bytes
-  size: number
+  size: integer
   --  Unix file mode/permissions
-  mode: number
+  mode: integer
 end
 ```
 
@@ -58,9 +58,9 @@ local record AddOptions
   --  Compression method: `"store"` or `"deflate"`
   method: CompressionMethod
   --  Modification time as Unix timestamp
-  mtime: number
+  mtime: integer
   --  Unix file mode (default 0644)
-  mode: number
+  mode: integer
 end
 ```
 
@@ -123,7 +123,7 @@ end
 ### open
 
 ```teal
-function open(path: string | number, mode?: OpenMode, options?: OpenOptions): any, string | nil
+function open(path: string | integer, mode?: OpenMode, options?: OpenOptions): any, string | nil
 ```
 
  Opens a ZIP archive for reading, writing, or appending.
@@ -131,7 +131,7 @@ function open(path: string | number, mode?: OpenMode, options?: OpenOptions): an
 
 **Parameters:**
 
-- `path` (string | number)
+- `path` (string | integer)
 - `mode` (OpenMode)
 - `options` (OpenOptions)
 
@@ -161,7 +161,7 @@ function from(data: string, options?: OpenOptions): Reader | nil, string | nil
 ### create
 
 ```teal
-function create(path: string | number, options?: OpenOptions): Writer | nil, string | nil
+function create(path: string | integer, options?: OpenOptions): Writer | nil, string | nil
 ```
 
  Creates a new ZIP archive for writing. This is equivalent to
@@ -169,7 +169,7 @@ function create(path: string | number, options?: OpenOptions): Writer | nil, str
 
 **Parameters:**
 
-- `path` (string | number)
+- `path` (string | integer)
 - `options` (OpenOptions)
 
 **Returns:**

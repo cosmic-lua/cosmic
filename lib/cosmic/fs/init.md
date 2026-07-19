@@ -9,11 +9,11 @@
 
 ```teal
 local record RawDir
-  read: function(self: RawDir): string, number
+  read: function(self: RawDir): string, integer
   close: function(self: RawDir)
-  fd: function(self: RawDir): number
+  fd: function(self: RawDir): integer
   rewind: function(self: RawDir)
-  tell: function(self: RawDir): number
+  tell: function(self: RawDir): integer
 end
 ```
 
@@ -41,44 +41,44 @@ local record FsModule
   ext: function(p: string): string
   stat: function(path: string): Stat | nil, string
   lstat: function(path: string): Stat | nil, string
-  fstat: function(fd: number): Stat | nil, string
-  mkdir: function(path: string, mode?: number): boolean, string
-  makedirs: function(path: string, mode?: number): boolean, string
+  fstat: function(fd: integer): Stat | nil, string
+  mkdir: function(path: string, mode?: integer): boolean, string
+  makedirs: function(path: string, mode?: integer): boolean, string
   rmdir: function(path: string): boolean, string
   chdir: function(path: string): boolean, string
   getcwd: function(): string | nil, string
   opendir: function(path: string): Dir | nil, string
-  fdopendir: function(fd: number): Dir | nil, string
+  fdopendir: function(fd: integer): Dir | nil, string
   read: function(path: string): string | nil, string
-  write: function(path: string, data: string, mode?: number): boolean, string
-  truncate: function(path: string, length?: number): boolean, string
+  write: function(path: string, data: string, mode?: integer): boolean, string
+  truncate: function(path: string, length?: integer): boolean, string
   unlink: function(path: string): boolean, string
   rename: function(oldpath: string, newpath: string): boolean, string
   copy: function(src: string, dst: string): boolean, string
   move: function(oldpath: string, newpath: string): boolean, string
-  touch: function(path: string, mode?: number): boolean, string
-  write_atomic: function(path: string, data: string, mode?: number): boolean, string
+  touch: function(path: string, mode?: integer): boolean, string
+  write_atomic: function(path: string, data: string, mode?: integer): boolean, string
   link: function(existingpath: string, newpath: string): boolean, string
   symlink: function(target: string, linkpath: string): boolean, string
   readlink: function(path: string): string | nil, string
   realpath: function(path: string): string | nil, string
   rmrf: function(path: string): boolean, string
   copytree: function(src: string, dst: string): boolean, string
-  access: function(path: string, mode?: number): boolean
-  chmod: function(path: string, mode: number): boolean, string
-  chown: function(path: string, uid: number, gid: number): boolean, string
-  utimensat: function(path: string, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
-  futimens: function(fd: number, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
+  access: function(path: string, mode?: integer): boolean
+  chmod: function(path: string, mode: integer): boolean, string
+  chown: function(path: string, uid: integer, gid: integer): boolean, string
+  utimensat: function(path: string, atime_secs: integer, atime_nsecs: integer, mtime_secs: integer, mtime_nsecs: integer): boolean, string
+  futimens: function(fd: integer, atime_secs: integer, atime_nsecs: integer, mtime_secs: integer, mtime_nsecs: integer): boolean, string
   mkdtemp: function(template: string): string | nil, string
   tmpfile: function(template?: string): Handle | nil, string, string
-  tmpfd: function(): number | nil, string
+  tmpfd: function(): integer | nil, string
   statfs: function(path: string): Statfs | nil, string
-  fstatfs: function(fd: number): Statfs | nil, string
+  fstatfs: function(fd: integer): Statfs | nil, string
   --  Flush all filesystem buffers to disk, system-wide (sync(2)).
   --  Per-file flushing is Handle:sync()/Handle:datasync() in cosmic.fd.
   sync: function()
-  major: function(dev: number): number
-  minor: function(dev: number): number
+  major: function(dev: integer): integer
+  minor: function(dev: integer): integer
   --  Walk a directory tree depth-first, calling the visitor per entry.
   --  Visitor signature: visitor(path, name, st, ctx): nil | "skip" | "stop"
   --    path = full path to the entry (e.g. "dir/sub/file.txt") — do NOT join with name.
@@ -99,18 +99,18 @@ local record FsModule
   collect_matching: function(dir: string, lua_pattern: string): {string} | nil, string
   collect_all: function(dir: string): {string: FileInfo} | nil, string
   files: function(dir: string, pattern?: string): FileIter | nil, string, any, any
-  F_OK: number
-  R_OK: number
-  W_OK: number
-  X_OK: number
-  DT_BLK: number
-  DT_CHR: number
-  DT_DIR: number
-  DT_FIFO: number
-  DT_LNK: number
-  DT_REG: number
-  DT_SOCK: number
-  DT_UNKNOWN: number
+  F_OK: integer
+  R_OK: integer
+  W_OK: integer
+  X_OK: integer
+  DT_BLK: integer
+  DT_CHR: integer
+  DT_DIR: integer
+  DT_FIFO: integer
+  DT_LNK: integer
+  DT_REG: integer
+  DT_SOCK: integer
+  DT_UNKNOWN: integer
 end
 ```
 
@@ -156,14 +156,14 @@ function lstat(path: string): Stat | nil, string
 ### fstat
 
 ```teal
-function fstat(fd: number): Stat | nil, string
+function fstat(fd: integer): Stat | nil, string
 ```
 
  Get file metadata from file descriptor.
 
 **Parameters:**
 
-- `fd` (number) - File descriptor
+- `fd` (integer) - File descriptor
 
 **Returns:**
 
@@ -173,7 +173,7 @@ function fstat(fd: number): Stat | nil, string
 ### mkdir
 
 ```teal
-function mkdir(path: string, mode?: number): boolean, string
+function mkdir(path: string, mode?: integer): boolean, string
 ```
 
  Create a directory.
@@ -182,7 +182,7 @@ function mkdir(path: string, mode?: number): boolean, string
 **Parameters:**
 
 - `path` (string) - Path to the directory to create
-- `mode` (number) - Permission bits (default 0755)
+- `mode` (integer) - Permission bits (default 0755)
 
 **Returns:**
 
@@ -192,7 +192,7 @@ function mkdir(path: string, mode?: number): boolean, string
 ### makedirs
 
 ```teal
-function makedirs(path: string, mode?: number): boolean, string
+function makedirs(path: string, mode?: integer): boolean, string
 ```
 
  Create a directory and any missing parent directories.
@@ -200,7 +200,7 @@ function makedirs(path: string, mode?: number): boolean, string
 **Parameters:**
 
 - `path` (string) - Path to the directory to create
-- `mode` (number) - Permission bits (default 0755)
+- `mode` (integer) - Permission bits (default 0755)
 
 **Returns:**
 
@@ -276,7 +276,7 @@ function opendir(path: string): Dir | nil, string
 ### fdopendir
 
 ```teal
-function fdopendir(fd: number): Dir | nil, string
+function fdopendir(fd: integer): Dir | nil, string
 ```
 
  Open a directory from a file descriptor.
@@ -284,7 +284,7 @@ function fdopendir(fd: number): Dir | nil, string
 
 **Parameters:**
 
-- `fd` (number) - File descriptor for an open directory
+- `fd` (integer) - File descriptor for an open directory
 
 **Returns:**
 

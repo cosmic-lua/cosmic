@@ -22,7 +22,7 @@ local record Events
   --  True if the fd is invalid.
   invalid: boolean
   --  Raw revents bitmask from poll.
-  revents: number
+  revents: integer
 end
 ```
 
@@ -33,24 +33,24 @@ end
 ```teal
 local record Poller
   --  Add a file descriptor to the set.
-  add: function(Poller, number, number)
+  add: function(Poller, integer, integer)
   --  Remove a file descriptor from the set.
-  remove: function(Poller, number)
+  remove: function(Poller, integer)
   --  Clear all file descriptors from the set.
   clear: function(Poller)
   --  Poll for events with optional timeout.
   --  Returns an iterator over (fd, events) pairs for ready descriptors.
   --  EINTR is retried internally. On a hard poll error the iterator is
   --  empty and the error string is returned as the second value.
-  wait: function(Poller, number): function(): (number, Events), string
+  wait: function(Poller, integer): function(): (integer, Events), string
   --  Poll and return count of ready descriptors.
-  poll: function(Poller, number): number | nil, string
+  poll: function(Poller, integer): integer | nil, string
   --  Get events for a specific fd after poll().
-  events: function(Poller, number): Events | nil
+  events: function(Poller, integer): Events | nil
   --  Returns true if the poller has no registered fds.
   empty: function(Poller): boolean
   --  Returns the number of registered fds.
-  count: function(Poller): number
+  count: function(Poller): integer
 end
 ```
 
@@ -60,19 +60,19 @@ end
 local record PollModule
   new: function(): Poller
   --  Event mask for readable data.
-  POLLIN: number
+  POLLIN: integer
   --  Event mask for writable.
-  POLLOUT: number
+  POLLOUT: integer
   --  Event mask for priority data (e.g., OOB on TCP).
-  POLLPRI: number
+  POLLPRI: integer
   --  Event mask for error condition.
-  POLLERR: number
+  POLLERR: integer
   --  Event mask for hangup.
-  POLLHUP: number
+  POLLHUP: integer
   --  Event mask for invalid fd.
-  POLLNVAL: number
+  POLLNVAL: integer
   --  Event mask for peer closed connection.
-  POLLRDHUP: number
+  POLLRDHUP: integer
 end
 ```
 

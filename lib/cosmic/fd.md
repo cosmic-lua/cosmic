@@ -33,15 +33,15 @@ local record Handle
   __close: function(self: Handle)
   close: function(self: Handle): boolean, string
   closed: function(self: Handle): boolean
-  fd: function(self: Handle): number
-  read: function(self: Handle, size?: number, offset?: number): string | nil, string
-  write: function(self: Handle, data: string, offset?: number): number | nil, string
-  seek: function(self: Handle, offset: number, whence?: number): number | nil, string
-  truncate: function(self: Handle, length?: number): boolean, string
+  fd: function(self: Handle): integer
+  read: function(self: Handle, size?: integer, offset?: integer): string | nil, string
+  write: function(self: Handle, data: string, offset?: integer): integer | nil, string
+  seek: function(self: Handle, offset: integer, whence?: integer): integer | nil, string
+  truncate: function(self: Handle, length?: integer): boolean, string
   sync: function(self: Handle): boolean, string
   datasync: function(self: Handle): boolean, string
-  dup: function(self: Handle, newfd?: number, flags?: number, lowest?: number): Handle | nil, string
-  fcntl: function(self: Handle, cmd: number, arg?: number): number | nil, string
+  dup: function(self: Handle, newfd?: integer, flags?: integer, lowest?: integer): Handle | nil, string
+  fcntl: function(self: Handle, cmd: integer, arg?: integer): integer | nil, string
 end
 ```
 
@@ -64,36 +64,36 @@ end
 
 ```teal
 local record FdModule
-  open: function(path: string, flags: number, mode?: number, dirfd?: number): Handle | nil, string
-  wrap: function(rawfd: number): Handle
-  pipe: function(flags?: number): Pipe | nil, string
-  O_RDONLY: number
-  O_WRONLY: number
-  O_RDWR: number
-  O_CREAT: number
-  O_TRUNC: number
-  O_APPEND: number
-  O_EXCL: number
-  O_CLOEXEC: number
-  O_NONBLOCK: number
-  O_DIRECT: number
-  O_DIRECTORY: number
-  O_NOFOLLOW: number
-  SEEK_SET: number
-  SEEK_CUR: number
-  SEEK_END: number
-  F_GETFD: number
-  F_SETFD: number
-  F_GETFL: number
-  F_SETFL: number
-  F_SETLK: number
-  F_SETLKW: number
-  F_GETLK: number
-  F_RDLCK: number
-  F_WRLCK: number
-  F_UNLCK: number
-  FD_CLOEXEC: number
-  AT_FDCWD: number
+  open: function(path: string, flags: integer, mode?: integer, dirfd?: integer): Handle | nil, string
+  wrap: function(rawfd: integer): Handle
+  pipe: function(flags?: integer): Pipe | nil, string
+  O_RDONLY: integer
+  O_WRONLY: integer
+  O_RDWR: integer
+  O_CREAT: integer
+  O_TRUNC: integer
+  O_APPEND: integer
+  O_EXCL: integer
+  O_CLOEXEC: integer
+  O_NONBLOCK: integer
+  O_DIRECT: integer
+  O_DIRECTORY: integer
+  O_NOFOLLOW: integer
+  SEEK_SET: integer
+  SEEK_CUR: integer
+  SEEK_END: integer
+  F_GETFD: integer
+  F_SETFD: integer
+  F_GETFL: integer
+  F_SETFL: integer
+  F_SETLK: integer
+  F_SETLKW: integer
+  F_GETLK: integer
+  F_RDLCK: integer
+  F_WRLCK: integer
+  F_UNLCK: integer
+  FD_CLOEXEC: integer
+  AT_FDCWD: integer
 end
 ```
 
@@ -102,7 +102,7 @@ end
 ### open
 
 ```teal
-function open(path: string, flags: number, mode?: number, dirfd?: number): Handle | nil, string
+function open(path: string, flags: integer, mode?: integer, dirfd?: integer): Handle | nil, string
 ```
 
  Open a file. flags: O_RDONLY, O_WRONLY, O_RDWR, combined with O_CREAT, O_TRUNC, etc.
@@ -111,7 +111,7 @@ function open(path: string, flags: number, mode?: number, dirfd?: number): Handl
 ### pipe
 
 ```teal
-function pipe(flags?: number): Pipe | nil, string
+function pipe(flags?: integer): Pipe | nil, string
 ```
 
  Create a pipe. flags: O_CLOEXEC, O_NONBLOCK.
@@ -119,7 +119,7 @@ function pipe(flags?: number): Pipe | nil, string
 ### wrap
 
 ```teal
-function wrap(rawfd: number): Handle
+function wrap(rawfd: integer): Handle
 ```
 
  Wrap an already-open raw file descriptor in a Handle.
@@ -149,7 +149,7 @@ function handle:closed(): boolean
 ### handle:fd
 
 ```teal
-function handle:fd(): number
+function handle:fd(): integer
 ```
 
  Returns the underlying file descriptor, or -1 if closed.
@@ -157,7 +157,7 @@ function handle:fd(): number
 ### handle:read
 
 ```teal
-function handle:read(size?: number, offset?: number): string | nil, string
+function handle:read(size?: integer, offset?: integer): string | nil, string
 ```
 
  Read up to size bytes. Returns nil with NO error on EOF (Lua
@@ -170,7 +170,7 @@ function handle:read(size?: number, offset?: number): string | nil, string
 ### handle:write
 
 ```teal
-function handle:write(data: string, offset?: number): number | nil, string
+function handle:write(data: string, offset?: integer): integer | nil, string
 ```
 
  Write data. Returns number of bytes written (which may be fewer
@@ -181,7 +181,7 @@ function handle:write(data: string, offset?: number): number | nil, string
 ### handle:seek
 
 ```teal
-function handle:seek(offset: number, whence?: number): number | nil, string
+function handle:seek(offset: integer, whence?: integer): integer | nil, string
 ```
 
  Seek to position. whence: SEEK_SET (default), SEEK_CUR, SEEK_END.
@@ -190,7 +190,7 @@ function handle:seek(offset: number, whence?: number): number | nil, string
 ### handle:truncate
 
 ```teal
-function handle:truncate(length?: number): boolean, string
+function handle:truncate(length?: integer): boolean, string
 ```
 
  Truncate to length (default 0).
@@ -214,7 +214,7 @@ function handle:datasync(): boolean, string
 ### handle:dup
 
 ```teal
-function handle:dup(newfd?: number, flags?: number, lowest?: number): Handle | nil, string
+function handle:dup(newfd?: integer, flags?: integer, lowest?: integer): Handle | nil, string
 ```
 
  Duplicate the handle.
@@ -224,7 +224,7 @@ function handle:dup(newfd?: number, flags?: number, lowest?: number): Handle | n
 ### handle:fcntl
 
 ```teal
-function handle:fcntl(cmd: number, value?: number): number | nil, string
+function handle:fcntl(cmd: integer, value?: integer): integer | nil, string
 ```
 
  File control operations. cmd: F_GETFD, F_SETFD, F_GETFL, F_SETFL, F_SETLK, etc.
