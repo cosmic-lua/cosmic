@@ -69,14 +69,91 @@ local function islink(p: string): boolean
   return cosmo_path.islink(p)
 end
 
+--- Return the drive letter (uppercased) when the path begins with a
+--- Windows drive-letter root like "C:/" or "C:\". Drive-relative forms
+--- ("C:foo") are not roots and return nil.
+local function win_drive(p: string): string | nil
+  local d = p:match("^(%a):[/\\]")
+  if d then
+    return d:upper()
+  end
+  return nil
+end
+
+--- Check whether a path is absolute on any supported OS.
+--- Absolute forms: POSIX ("/usr/lib"), Windows drive-letter roots
+--- ("C:/foo", "C:\foo"), and UNC roots ("\\server\share"). A single
+--- leading backslash is NOT absolute: on POSIX, "\" is an ordinary
+--- filename character, and cosmic runs the same code on every OS.
+--- Drive-relative forms ("C:foo") are not absolute either.
+--- @param p string The path to check
+--- @return boolean True if the path is absolute
+local function is_absolute(p: string): boolean
+  if p:sub(1, 1) == "/" then
+    return true
+  end
+  if p:sub(1, 2) == "\\\\" then
+    return true
+  end
+  return win_drive(p) ~= nil
+end
+
+--- Split on the separator pattern and collapse "." and ".." components.
+--- Rooted paths drop a leading ".."; relative paths preserve it.
+local function collapse(p: string, rooted: boolean, pat: string): {string}
+  local parts: {string} = {}
+  local n = 0
+  for part in p:gmatch(pat) do
+    if part == "." then
+      -- skip current dir
+    elseif part == ".." then
+      if n > 0 and parts[n] ~= ".." then
+        parts[n] = nil
+        n = n - 1
+      elseif not rooted then
+        -- for relative paths, preserve leading ..
+        n = n + 1
+        parts[n] = ".."
+      end
+      -- for rooted paths starting with /.., just ignore the ..
+    else
+      n = n + 1
+      parts[n] = part
+    end
+  end
+  return parts
+end
+
 --- Normalize path by removing `.` and `..` components without filesystem access.
 --- Also removes redundant slashes. Pure string manipulation.
 --- Examples: "/usr/./lib" -> "/usr/lib", "/usr/lib/../bin" -> "/usr/bin"
+--- Windows-absolute inputs keep their root: drive-letter paths ("C:\foo",
+--- "C:/foo") normalize to a forward-slash form with an uppercase drive
+--- ("C:/foo"), and UNC paths ("\\server\share") keep the backslash form.
+--- Elsewhere in a POSIX path, "\" is an ordinary filename character.
 --- @param p string The path to normalize
 --- @return string The normalized path
 local function normalize(p: string): string
   if p == "" then
     return "."
+  end
+
+  -- Windows drive-letter root: both separators split the body, the
+  -- result uses forward slashes (accepted by Windows and cosmopolitan),
+  -- and the drive letter is canonicalized to upper case.
+  local drive = win_drive(p)
+  if drive then
+    local parts = collapse(p:sub(4), true, "[^/\\]+")
+    if #parts == 0 then
+      return drive .. ":/"
+    end
+    return drive .. ":/" .. table.concat(parts, "/")
+  end
+
+  -- UNC root: keep the leading "\\" (so the result is still recognized
+  -- as UNC) and the backslash separators.
+  if p:sub(1, 2) == "\\\\" then
+    return "\\\\" .. table.concat(collapse(p:sub(3), true, "[^/\\]+"), "\\")
   end
 
   -- Fast path: a path that is already normal — no redundant "//" or
@@ -97,38 +174,17 @@ local function normalize(p: string): string
     return p
   end
 
-  local is_absolute = p:sub(1, 1) == "/"
+  local rooted = p:sub(1, 1) == "/"
+  local parts = collapse(p, rooted, "[^/]+")
 
-  -- Split into components, filtering empty strings (from // or trailing /)
-  local parts: {string} = {}
-  local n = 0
-  for part in p:gmatch("[^/]+") do
-    if part == "." then
-      -- skip current dir
-    elseif part == ".." then
-      if n > 0 and parts[n] ~= ".." then
-        parts[n] = nil
-        n = n - 1
-      elseif not is_absolute then
-        -- for relative paths, preserve leading ..
-        n = n + 1
-        parts[n] = ".."
-      end
-      -- for absolute paths starting with /.., just ignore the ..
-    else
-      n = n + 1
-      parts[n] = part
-    end
-  end
-
-  if is_absolute then
-    if n == 0 then
+  if rooted then
+    if #parts == 0 then
       return "/"
     else
       return "/" .. table.concat(parts, "/")
     end
   else
-    if n == 0 then
+    if #parts == 0 then
       return "."
     else
       return table.concat(parts, "/")
@@ -138,13 +194,15 @@ end
 
 --- Convert relative path to absolute by prepending cwd.
 --- Does NOT resolve symlinks or access filesystem (except to get cwd).
+--- Windows-absolute paths (drive-letter or UNC roots, see is_absolute)
+--- are already absolute and only get normalized — cwd is not prepended.
 --- @param p string The path to make absolute
 --- @return string The absolute path
 local function abspath(p: string): string
   if p == "" then
     return unix.getcwd() or "."
   end
-  if p:sub(1, 1) == "/" then
+  if is_absolute(p) then
     return normalize(p)
   end
   local cwd = unix.getcwd()
@@ -154,8 +212,26 @@ local function abspath(p: string): string
   return normalize(cwd .. "/" .. p)
 end
 
+--- Root classification for relpath: paths under different roots (drive
+--- letters, UNC shares, POSIX "/") have no relative form.
+local function root_of(p: string): string
+  local drive = win_drive(p)
+  if drive then
+    return drive .. ":"
+  end
+  if p:sub(1, 2) == "\\\\" then
+    -- UNC: the root is the \\server\share pair — different shares have
+    -- no relative form. An unparseable UNC prefix compares as itself.
+    return p:match("^(\\\\[^/\\]+[/\\][^/\\]+)") or p
+  end
+  return "/"
+end
+
 --- Make path relative to another path (defaults to cwd).
 --- Pure string manipulation - does not access the filesystem.
+--- When the two paths live under different roots (different drive
+--- letters, UNC vs drive, Windows vs POSIX), no relative path exists;
+--- the normalized absolute target is returned instead.
 --- @param p string The path to make relative
 --- @param base string? The base path (defaults to cwd)
 --- @return string The relative path
@@ -168,7 +244,7 @@ local function relpath(p: string, base?: string): string
   if base then
     abs_p = abspath(p)
     abs_base = abspath(base)
-  elseif p:sub(1, 1) == "/" then
+  elseif is_absolute(p) then
     abs_p = normalize(p)
     abs_base = unix.getcwd() or "."
   else
@@ -177,10 +253,23 @@ local function relpath(p: string, base?: string): string
     abs_base = cwd
   end
 
+  local root = root_of(abs_p)
+  if root ~= root_of(abs_base) then
+    return abs_p
+  end
+
+  -- After normalize, drive-letter paths use "/" separators (the "C:"
+  -- prefix survives splitting as an ordinary first component, so equal
+  -- drives fall into the common prefix); UNC paths use "\".
+  local pat = "[^/]+"
+  if root:sub(1, 2) == "\\\\" then
+    pat = "[^\\]+"
+  end
+
   -- Split into components
   local function split_path(s: string): {string}
     local path_parts: {string} = {}
-    for part in s:gmatch("[^/]+") do
+    for part in s:gmatch(pat) do
       table.insert(path_parts, part)
     end
     return path_parts
@@ -334,6 +423,7 @@ local record FsPathModule
   isfile: function(path: string): boolean
   isdir: function(path: string): boolean
   islink: function(path: string): boolean
+  is_absolute: function(p: string): boolean
   normalize: function(p: string): string
   abspath: function(p: string): string
   relpath: function(p: string, base?: string): string
@@ -351,6 +441,7 @@ local M: FsPathModule = {
   isfile = isfile,
   isdir = isdir,
   islink = islink,
+  is_absolute = is_absolute,
   normalize = normalize,
   abspath = abspath,
   relpath = relpath,

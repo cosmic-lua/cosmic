@@ -38,6 +38,96 @@ jobs:
             fi
           done
 
+  # Cross-OS smoke lane (#510 step 11). The full gate is Linux-only
+  # (landlock-make), but the artifact is a fat APE binary shipped for six
+  # OSes — of which releases previously exercised zero beyond Linux. Build
+  # once on Linux, then prove on real macOS and Windows runners that the
+  # binary starts, serves embedded docs, and passes the portable test
+  # files (string, json, fs paths — including the Windows-path suite).
+  smoke-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: build cosmic
+        shell: bash -x {0}
+        run: bin/make -j build
+
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: cosmic-smoke
+          path: o/bin/cosmic
+
+  smoke:
+    needs: smoke-build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: cosmic-smoke
+          path: dl/
+
+      - name: smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          # upload-artifact >= v7 delivers a zip that download-artifact >= v8
+          # does not extract (same trap release.yml documents); unzip via
+          # python's zipfile so the step works in git-bash too, and handle
+          # the delivered-directly layout as well.
+          PY=$(command -v python3 || command -v python)
+          for z in $(find dl -type f -name '*.zip'); do
+            "$PY" -m zipfile -e "$z" dl/
+          done
+          src=$(find dl -type f -name cosmic | head -1)
+          if [ -z "$src" ]; then
+            echo "cosmic binary not found in downloaded artifact:" >&2
+            find dl >&2
+            exit 1
+          fi
+          # The .exe suffix is required for Windows to execute the APE
+          # (a valid PE); it is inert elsewhere.
+          cp "$src" cosmic.exe
+          chmod +x cosmic.exe
+
+          tmp="$RUNNER_TEMP/cosmic-smoke"
+          mkdir -p "$tmp"
+          # cosmic is a native binary: hand it a native (mixed-form)
+          # Windows path, not git-bash's /d/... POSIX rendering.
+          if command -v cygpath >/dev/null 2>&1; then tmp=$(cygpath -m "$tmp"); fi
+          export TEST_TMPDIR="$tmp"
+
+          echo "::group::cosmic -e"
+          out=$(./cosmic.exe -e 'print("smoke-" .. require("cosmic.sys").host_os())')
+          echo "$out"
+          case "$out" in *smoke-*) ;; *) echo "unexpected -e output" >&2; exit 1 ;; esac
+          echo "::endgroup::"
+
+          echo "::group::cosmic --docs"
+          ./cosmic.exe --docs guide.platforms > docs-smoke.txt
+          grep -q "Platform Support" docs-smoke.txt
+          ./cosmic.exe --docs fs.read > docs-fs.txt
+          grep -qi "read" docs-fs.txt
+          echo "::endgroup::"
+
+          for t in \
+            lib/cosmic/string_test.tl \
+            lib/cosmic/json_test.tl \
+            lib/cosmic/fs/path_test.tl \
+            lib/cosmic/fs/path_normalize_test.tl \
+            lib/cosmic/fs/path_windows_test.tl; do
+            echo "::group::$t"
+            ./cosmic.exe "$t"
+            echo "::endgroup::"
+          done
+          echo "smoke: PASS"
+
   # Privileged, unsandboxed lane that actually exercises the sandbox
   # primitives (audit §5.1). `make ci` runs under landlock-make, where the
   # sandbox tests skip their enforcement assertions; this lane runs them with
