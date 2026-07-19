@@ -8,7 +8,7 @@ cosmic_args := lib/cosmic/.args
 cosmic_bin := $(o)/bin/cosmic
 cosmic_debug_bin := $(o)/bin/cosmic-debug
 cosmic_files := $(cosmic_bin) $(cosmic_debug_bin) $(cosmic_lua)
-cosmic_deps := cosmos tl teal-types
+cosmic_deps := cosmos tl
 
 cosmic_built := $(o)/cosmic/.built
 cosmic_sys := sys/help.md
@@ -38,7 +38,7 @@ $(cosmic_version_lua): .FORCE | $$(cosmos_staged)
 
 .PHONY: .FORCE
 
-$(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(teal-types_staged) $$(doc_index) $(cosmic_version_lua) $(cosmic_sys) $(cosmic_skills) $(cosmic_types)
+$(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(doc_index) $(cosmic_version_lua) $(cosmic_sys) $(cosmic_skills) $(cosmic_types)
 	@rm -rf $(cosmic_built)
 	@mkdir -p $(cosmic_built)/.lua/cosmic $(cosmic_built)/.tl/cosmic $(@D)
 	@for f in $(cosmic_lua); do \
@@ -55,7 +55,6 @@ $(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(tea
 	done
 	@$(cp) $(cosmic_version_lua) $(cosmic_built)/.lua/cosmic/version.lua
 	@$(cp) $(tl_dir)/tl.lua $(cosmic_built)/.lua/
-	@cp -r $(teal-types_dir)/types $(cosmic_built)/.lua/teal-types
 	@cp -r lib/types $(cosmic_built)/.lua/types
 	@mkdir -p $(cosmic_built)/.docs
 	@$(cp) $(doc_index) $(cosmic_built)/.docs/index.lua

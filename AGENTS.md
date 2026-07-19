@@ -32,7 +32,6 @@ lib/
 3p/
   cosmos/              Cosmopolitan Lua binary + zip tool
   tl/                  Teal compiler
-  teal-types/          community type definitions
 bin/
   make                 bootstrap script that downloads landlock-make
   cosmo-make           landlock-make binary (gitignored, downloaded)
@@ -205,7 +204,7 @@ handcrafted exception is `lib/types/make-help.d.tl`.
 the cosmic binary is an executable zip. it embeds:
 - compiled `.lua` modules in `.lua/cosmic/`
 - Teal compiler in `.lua/tl.lua`
-- type definitions in `.lua/types/` and `.lua/teal-types/`
+- type definitions in `.lua/types/`
 - doc index in `.docs/index.lua`
 - entry point: `/zip/main.lua` (compiled from `lib/cosmic/main.tl`)
 

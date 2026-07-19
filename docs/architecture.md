@@ -38,7 +38,7 @@ dependency chain:
 ```
 bootstrap cosmic (pre-built)
   → compiles build scripts (build-fetch.lua, build-stage.lua)
-  → fetches/stages 3p deps (cosmos, tl, teal-types)
+  → fetches/stages 3p deps (cosmos, tl)
   → compiles cosmic modules (.tl → .lua)
   → builds cosmic binary (link lua + zip modules)
   → stage1: refreshed bootstrap = new cosmic
