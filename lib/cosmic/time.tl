@@ -223,7 +223,7 @@ local function timegm(year: integer, month: integer, day: integer,
     return nil, "timegm: month out of range (1-12): " .. tostring(month)
   end
   -- month is already range-checked, so the nil arm is unreachable
-  local dim = days_in_month(year, month) as integer
+  local dim = days_in_month(year, month)
   if day < 1 or day > dim then
     return nil, "timegm: day out of range (1-" .. tostring(dim) .. "): "
     .. tostring(day)
@@ -287,7 +287,7 @@ end
 local function format_date(timestamp: integer): string | nil, string
   local s, err = cosmo.Strftime("%Y-%m-%d", timestamp)
   if not s then
-    return nil, err as string
+    return nil, err
   end
   return s
 end
@@ -313,7 +313,7 @@ end
 local function format_iso8601(timestamp: integer): string | nil, string
   local s, err = cosmo.Strftime("%Y-%m-%dT%H:%M:%SZ", timestamp)
   if not s then
-    return nil, err as string
+    return nil, err
   end
   return s
 end

@@ -60,7 +60,7 @@ local function send_all(fd: integer, data: string): boolean, string
     local n, err = unix.send(fd, data, 0, off)
     if not n then return false, tostring(err) end
     if n == 0 then return false, "short write" end
-    off = off + (n as integer)
+    off = off + (n)
   end
   return true
 end
