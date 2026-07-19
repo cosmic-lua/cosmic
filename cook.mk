@@ -24,12 +24,13 @@ unveil_base := rx:$(o)/bootstrap r:lib r:3p
 unveil_host := rx:/usr rx:/proc r:/etc r:/dev/null
 # Host set proven under real enforcement by the sandbox-canary (#724)
 # and the enforced families' CI runs: shell + coreutils + loaders.
-# /dev/null must be writable (recipes redirect to it); /dev/urandom is
-# mbedtls3's entropy source (its non-glibc build cannot use the
-# getrandom syscall, so TLS init fopens the device — fetch SIGILLed
-# under Landlock without it). ENOENT entries are skipped, so the
+# /dev/null must be writable (recipes redirect to it). mbedtls3's
+# non-glibc build cannot use the getrandom syscall, so TLS entropy
+# fopens MBEDTLS_PLATFORM_DEV_RANDOM — which defaults to /dev/random,
+# not /dev/urandom (platform.h:398) — and fetch SIGILLs under Landlock
+# without it; grant both devices. ENOENT entries are skipped, so the
 # generous list is safe across hosts.
-unveil_hostx := rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc rw:/dev/null r:/dev/urandom
+unveil_hostx := rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc rw:/dev/null r:/dev/random r:/dev/urandom
 unveil_dep := rx:$(o)/bootstrap r:3p rwc:$(o)
 unveil_test := $(unveil_base) rwcx:$(o) rwc:$(TMP) $(unveil_host)
 unveil_run := $(unveil_base) rwc:$(o) rwc:$(TMP) $(unveil_host)
