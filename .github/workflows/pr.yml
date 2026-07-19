@@ -77,17 +77,21 @@ jobs:
               && exec sudo -u runner bin/make -j ci'
 
       # Temporary diagnostic (#729 family 2): the publish_test compile
-      # failed module resolution ONLY in this lane; rerun it solo with
-      # landlock-make debug to see the exact unveil set it got.
+      # fails module resolution only in this lane and only under the ci
+      # sub-make — a solo rerun of the same target in the same netns
+      # passed with a complete unveil set. Reproduce IN the failing
+      # context (full ci goal, sub-make) with -d and capture that
+      # target's actual unveil dump plus the error.
       - name: debug failed compile under sandbox
         if: failure()
         shell: bash
         run: |
-          rm -f o/lib/docs/publish_test.lua
+          rm -f o/lib/docs/publish_test.lua o/ci-ok-* o/*-summary.txt
           sudo unshare --net sh -c '
             o/bootstrap/cosmic -e "assert(require(\"cosmic.quicksand.netns\").bring_up(\"lo\"))" \
-              && exec sudo -u runner bin/make -d o/lib/docs/publish_test.lua' 2>&1 \
-            | grep -aiE "unveil|pledging|sandboxing|publish|error|denied" | head -100
+              && exec sudo -u runner bin/make -j -d ci' 2>&1 \
+            | grep -aE "publish|module not found" -A 45 \
+            | grep -aiE "unveil|pledging|sandboxing|publish|error|denied|Executing" | head -150
 
   # Reproducibility gate (#733): build the binary twice from the same
   # tree — the second time into a fresh output tree so the whole
