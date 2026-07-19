@@ -61,7 +61,6 @@ local function get_default_include_dirs(): {string}
   return {
     "lib/types", -- Local cosmic types (development, takes precedence)
     "/zip/.lua/types", -- Bundled cosmic types (in binary)
-    "/zip/.lua/teal-types", -- Bundled third-party types (in binary)
     "/zip/.tl", -- Bundled cosmic .tl source (for type checking)
   }
 end

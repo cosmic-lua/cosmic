@@ -33,7 +33,6 @@ include cook.mk
 include lib/cook.mk
 include 3p/cosmos/cook.mk
 include 3p/tl/cook.mk
-include 3p/teal-types/cook.mk
 
 
 # landlock-make sandbox constraints (only effective when using landlock-make)
