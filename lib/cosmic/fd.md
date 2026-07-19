@@ -12,12 +12,12 @@
  For whole-file path-based operations use cosmic.fs: fs.read(path),
  fs.write(path, data), fs.truncate(path).
 
- EINTR posture: Handle read/write/seek do NOT retry automatically. When
- a signal interrupts the call, it returns nil plus an EINTR-tagged
- error; callers that install signal handlers detect it with
- `errno.name_of(err) == "EINTR"` and retry themselves. (Automatic
- retry is deferred to the signal-safety wave, tracked in #595; the
- stream-contract EINTR decision is #589.)
+ EINTR posture: Handle read/write retry automatically when a signal
+ interrupts the call (the signal-safety wave, #595). A pending Lua
+ signal handler runs between the interrupted call and its retry, so
+ handlers never starve; to break out of a blocking call instead, use
+ O_NONBLOCK plus poll, or close the descriptor from the handler.
+ The full policy and its exceptions live in cosmic.stream.
 
 ## Types
 
@@ -163,8 +163,8 @@ function handle:read(size?: integer, offset?: integer): string | nil, string
  Read up to size bytes. Returns nil with NO error on EOF (Lua
  convention: `while true do local chunk = h:read(n); if not chunk
  then break end ... end`), and nil WITH an error on failure —
- including EAGAIN on a nonblocking fd with no data, and EINTR when
- a signal interrupts the read (see the module header; not retried).
+ including EAGAIN on a nonblocking fd with no data. A read
+ interrupted by a signal is retried (see the module header).
  If offset is provided, reads at that position (pread behavior).
 
 ### handle:write
@@ -175,7 +175,8 @@ function handle:write(data: string, offset?: integer): integer | nil, string
 
  Write data. Returns number of bytes written (which may be fewer
  than #data — callers writing everything must loop). On failure
- returns nil plus an error; EINTR is not retried (see module header).
+ returns nil plus an error. A write interrupted by a signal before
+ any byte lands is retried (see the module header).
  If offset is provided, writes at that position (pwrite behavior).
 
 ### handle:seek
@@ -185,7 +186,7 @@ function handle:seek(offset: integer, whence?: integer): integer | nil, string
 ```
 
  Seek to position. whence: SEEK_SET (default), SEEK_CUR, SEEK_END.
- On failure returns nil plus an error; EINTR is not retried.
+ On failure returns nil plus an error.
 
 ### handle:truncate
 

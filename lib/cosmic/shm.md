@@ -47,8 +47,10 @@ local record Memory
   --  Atomic XOR; returns the old value.
   fetch_xor: function(self: Memory, word_index: integer, value: integer): integer | nil, string
   --  Wait until the word no longer holds `expect`. Returns 0 when
-  --  woken; nil plus an error naming EAGAIN (value already differed),
-  --  ETIMEDOUT (deadline expired), or EINTR (signal).
+  --  woken; nil plus an error naming EAGAIN (value already differed)
+  --  or ETIMEDOUT (deadline expired). A wait interrupted by a signal
+  --  is retried automatically (#595); the absolute deadline keeps the
+  --  timeout exact across retries.
   wait: function(self: Memory, word_index: integer, expect: integer, abs_deadline?: integer, nanos?: integer): integer | nil, string
   --  Wake processes waiting on a word; returns how many woke.
   wake: function(self: Memory, word_index: integer, count?: integer): integer

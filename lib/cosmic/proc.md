@@ -332,6 +332,7 @@ function wait(pid?: integer, options?: integer): integer | nil, integer, Rusage,
 ```
 
  Waits for a child process to change state.
+ A raw passthrough: EINTR surfaces here, unlike child.Handle:wait (#595).
 
 **Parameters:**
 

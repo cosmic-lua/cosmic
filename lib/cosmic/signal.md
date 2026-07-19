@@ -122,6 +122,9 @@ local record SignalModule
   --  Temporarily replaces the signal mask with the provided mask.
   --  Always returns nil plus an error message: EINTR once a signal
   --  was delivered and handled, or another errno on failure.
+  --  A deliberate exception to the automatic EINTR retry policy
+  --  (cosmic.stream, #595): waiting for the interruption is the call's
+  --  entire purpose.
   sigsuspend: function(mask?: Sigset): nil, string
   --  Schedule SIGALRM signals at intervals.
   --  Accepts a SetitimerOptions record with named fields for clarity.
