@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local fs_types = require("cosmic.fs.types")
 
@@ -212,7 +213,7 @@ local function test_files_iterator()
   local walk_dir = setup_walk()
   local found: {string: boolean} = {}
 
-  for filepath in assert(fs.files(walk_dir, "*.lua")) as fs.FileIter do
+  for filepath in check.must(fs.files(walk_dir, "*.lua")) do
     found[fs.basename(filepath)] = true
   end
 
@@ -228,7 +229,7 @@ local function test_files_iterator_all()
   local walk_dir = setup_walk()
   local count = 0
 
-  for _ in assert(fs.files(walk_dir)) as fs.FileIter do
+  for _ in check.must(fs.files(walk_dir)) do
     count = count + 1
   end
 

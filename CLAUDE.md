@@ -147,11 +147,12 @@ or map unions through truthiness (`if not x`). Three sanctioned tools:
   no cast, no assert. Lua passes multiple returns through, so a failing
   call reports the callee's own error string. `must` narrows nil only
   (`false` passes through), and it throws, so it is for tests/examples,
-  never library code. Never write `assert(x) as T` in a test; that
-  pattern is retired — EXCEPT for multi-return iterators: `must` forwards
-  only the first value, so `for p in assert(fs.files(d)) as fs.FileIter`
-  must stay (the 4th return is the to-be-closed guard; dropping it leaks
-  directory handles on early break).
+  never library code. Like `assert`, must forwards extra returns past
+  the second, so `for p in check.must(fs.files(d)) do` keeps the 4th
+  return (the to-be-closed guard that releases directory handles on
+  early break); a plain `value, err` pair still collapses to the value
+  alone. Never write `assert(x) as T` in a test; that pattern is
+  retired.
 - **Prefer `is` where the code branches, for table-backed records**:
   `if sock is net.Socket then sock:send(...) end` narrows `Socket | nil`
   inside the positive branch (compiles to one `type(x) == "table"` check).
