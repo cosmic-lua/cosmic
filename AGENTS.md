@@ -27,7 +27,9 @@ lib/
   cosmic/              standard library modules (*.tl)
     cook.mk            builds the cosmic binary
     init.tl            entry point: cosmic.main()
-    main.tl            CLI dispatcher (--compile, --docs, --test, etc.)
+    public.tl          PUBLIC manifest: public vs internal modules
+    cli/               CLI internals (main.tl dispatcher, help, style, ...)
+    fs/                fs directory module (init, path, ops, file, walk, types)
     *.tl               library modules
     *_test.tl          tests
     *_example.tl       runnable examples
@@ -52,8 +54,9 @@ bin/
 - **source language**: Teal (`.tl` files) — typed Lua that compiles to Lua 5.4
 - **error handling**: return `value, string` (nil + error message on failure). never throw from library code.
 - **doc comments**: `---` prefix with `@param` and `@return` tags
-- **naming**: `snake_case` for functions and variables. `PascalCase` for record types.
+- **naming**: `snake_case` for functions and variables. `PascalCase` for record types and record constructors (e.g. `signal.Sigset()`); options records are named `Options` (or `<Thing>Options` when a module has several).
 - **formatting**: 2-space indent, LF line endings, enforced by `cosmic --check-format`
+- **warnings are errors**: `--check-types` fails on any Teal warning (unused, shadowing, unreachable branch). mark deliberately-unused values with a leading underscore (`local _out`, `_self: Poller`).
 - **file length**: all `.tl` files must be ≤500 lines. no exceptions. enforced by `bin/make lint`. `.d.tl` type declaration files are exempt (they describe C binding interfaces and cannot be split due to Teal's record system).
 - **imports**: prefer `cosmic.*` modules over raw `cosmo.*` C bindings. `cosmo.*` is only for library internals implementing wrappers.
 - **tests**: `*_test.tl` files alongside source, run via `make test`
@@ -70,8 +73,8 @@ common mappings:
 
 | cosmo | cosmic |
 |-------|--------|
-| `cosmo.Barf(path, data)` | `require("cosmic.io").barf(path, data)` |
-| `cosmo.Slurp(path)` | `require("cosmic.io").slurp(path)` |
+| `cosmo.Barf(path, data)` | `require("cosmic.fs").write(path, data)` |
+| `cosmo.Slurp(path)` | `require("cosmic.fs").read(path)` |
 | `cosmo.path.join(...)` | `require("cosmic.fs").join(...)` |
 | `cosmo.path.isfile(p)` | `require("cosmic.fs").isfile(p)` |
 | `cosmo.unix.mkdtemp(t)` | `require("cosmic.fs").mkdtemp(t)` |
@@ -140,12 +143,48 @@ end
 Errors are strings: failed `cosmo.unix` calls return `nil, err, errno` (a
 formatted string plus the numeric errno), wrappers add context with
 `errno.str(err, prefix)`, and branch on the numeric errno via
-`errno.is(errno_value, "EINTR")`. Because Teal (0.24.8) does not flow-narrow record or map unions, a
-caller that has ruled out `nil` casts at the use site — `(x as Rec).field`,
-`(x as {K:V})[k]` — mirroring `lib/cosmic/embed.tl`. Scalars (`string | nil`)
-narrow, except method-call syntax: use `string.sub(x, …)` not `x:sub(…)` on a
-narrowed value. In tests and examples, narrow fallible returns with
-`require("cosmic.check").must(...)` instead of `assert(x) as T`.
+`errno.is(errno_value, "EINTR")`.
+
+**Narrowing record/map unions.** Teal (0.24.8) does not flow-narrow record
+or map unions through truthiness (`if not x`). Three sanctioned tools:
+
+- **In tests and examples, use `check.must`** for fallible returns:
+  `local db = check.must(sqlite.open(path))` yields a plain `Database` —
+  no cast, no assert. Lua passes multiple returns through, so a failing
+  call reports the callee's own error string. `must` narrows nil only
+  (`false` passes through), and it throws, so it is for tests/examples,
+  never library code. Never write `assert(x) as T` in a test; that
+  pattern is retired — EXCEPT for multi-return iterators: `must` forwards
+  only the first value, so `for p in assert(fs.files(d)) as fs.FileIter`
+  must stay (the 4th return is the to-be-closed guard; dropping it leaks
+  directory handles on early break).
+- **Prefer `is` where the code branches, for table-backed records**:
+  `if sock is net.Socket then sock:send(...) end` narrows `Socket | nil`
+  inside the positive branch (compiles to one `type(x) == "table"` check).
+  Also works for dispatch over `any` (`if v is {string: any} then`).
+  A record whose runtime values are userdata needs Teal's `userdata`
+  member in its OWN source (see re.tl's Regex) — then `is` compiles to
+  the correct `type(x) == "userdata"` test everywhere. Caveats:
+  narrowing does NOT survive an early-exit guard (`if not (x is Rec)
+  then return end` does not narrow below); and `is` is WRONG for
+  mixed-representation records — `fs.Stat` is usually the raw stat
+  userdata but falls back to a plain wrapper table, so neither marker
+  fits; it stays on casts. (The old ban on `is` with REQUIRED
+  `cosmo.*` classes is LIFTED: the cosmic searcher is the only loader
+  cosmic installs — the dispatcher (#669/#681) and the embed entry
+  wrapper (#687/#688) both resolve .d.tl markers, so `is` cannot
+  silently degrade. The one unsupported path is user code explicitly
+  calling `require("tl").loader()`, which shadows the cosmic searcher
+  with tl's silent one.)
+- **Cast in linear code and at userdata boundaries**: after an assert or
+  early-exit guard, `(x as Rec).field`, `(x as {K:V})[k]`. Scalars
+  (`string | nil`) narrow normally, except method-call syntax: use
+  `string.sub(x, …)` not `x:sub(…)` on a narrowed value.
+
+Total `as` casts are pinned per file by `lib/build/casts.txt` (the
+cast ratchet, enforced by `bin/make lint`): adding a cast means raising the
+pin deliberately; removing casts means running `bin/make casts-baseline`
+to lock the improvement in.
 
 rules:
 - never throw from library code
@@ -213,7 +252,7 @@ the cosmic binary is an executable zip. it embeds:
 - Teal compiler in `.lua/tl.lua`
 - type definitions in `.lua/types/`
 - doc index in `.docs/index.lua`
-- entry point: `/zip/main.lua` (compiled from `lib/cosmic/main.tl`)
+- entry point: `/zip/main.lua` (compiled from `lib/cosmic/cli/main.tl`)
 
 CLI features:
 ```
@@ -237,26 +276,28 @@ all modules are under `lib/cosmic/` and imported as `cosmic.*`:
 
 | module | description |
 |--------|-------------|
+| ansi | ANSI terminal styling: colors, attributes, strip, NO_COLOR-aware gating |
 | benchmark | benchmark runner with `Benchmark_*` functions |
 | child | child process spawning with I/O control |
 | codec | hex encoding/decoding, Lua serialization |
 | compress | zlib compression/decompression |
-| doc | extract docs from Teal source files |
-| docs | query embedded documentation index |
+| doc | extract docs from source and query the embedded documentation index |
 | embed | create custom executables with embedded files |
 | env | environment variable get/set/unset |
 | envd | load environment variables from embedded env.d directory |
 | example | example runner with `Example_*` functions |
 | fetch | HTTP client with retry support |
+| flags | declarative command-line flag parsing with generated --help |
 | format | Teal/Lua code formatter |
-| fs | filesystem: paths, stat, walk, mkdir, symlink, tmp |
+| fs | filesystem: paths, stat, walk, read/write, mkdir, symlink, tmp |
 | fuzzy | fuzzy string matching (Levenshtein distance) |
 | getopt | command-line option parsing (short + long opts) |
 | hash | SHA-256 digest and Argon2 password hashing |
 | html | HTML escaping |
-| io | file descriptor I/O, pipes, slurp/spit |
+| fd | file descriptor I/O: open/wrap handles, pipes |
 | ip | IP address parsing, formatting, classification |
 | json | JSON encode/decode |
+| log | leveled logging to stderr with key=value fields |
 | net | TCP/UDP/Unix sockets |
 | poll | poll(2) wrapper for I/O multiplexing |
 | proc | current process: pid, exec, resource usage |
@@ -274,6 +315,7 @@ all modules are under `lib/cosmic/` and imported as `cosmic.*`:
 | string | trim, split, capitalize, starts_with, etc. |
 | sys | OS/architecture detection, sysconf (nproc, page size), uname |
 | syslog | system logging |
+| table | deep copy/merge/equality and map/filter/reduce for tables |
 | teal | Teal compilation and type checking |
 | testrun | test execution and reporting |
 | time | timestamps, sleep, clock, datetime |

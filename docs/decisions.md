@@ -11,22 +11,28 @@ old one.
 
 ---
 
-## D1 — agents are the primary user
+## D1 — builders of command-line software are the user; agents are the lens
 
 - **date:** 2026-07
 - **context:** cosmic's goals could optimize for AI coding agents, for
   human script writers, for tool distributors, or for its author alone.
   the agent-usability studies showed the agent experience is measurable
-  and improvable in ways that compound.
-- **decision:** rank users: agents first, then script-writing
-  developers, then tool distributors. when goals conflict, the
-  higher-ranked user's experience wins.
-- **rejected:** optimizing for the author alone (kept only its spirit:
-  adoption is not a goal — see D2); optimizing for broad developer
-  adoption.
+  and improvable in ways that compound — and that the frictions agents
+  hit are the same frictions humans hit.
+- **decision:** the user is anyone — human or agent — who writes and
+  distributes command-line software. agents matter twice: as a real
+  audience worth enabling in their own right, and as the measuring
+  instrument, because an interface a fresh agent can navigate from a
+  bare sandbox is navigable by anyone. a change that served agents at
+  humans' expense would be wrong (and the studies suggest such changes
+  barely exist — the lenses see the same frictions).
+- **rejected:** optimizing for agents specifically, humans be damned;
+  optimizing for the author alone (kept only its spirit: adoption is
+  not a goal — see D2); optimizing for broad developer adoption.
 - **consequences:** docs, error messages, and CLI output are designed
-  agent-legible first. the agent-eval harness (G1) is the primary
-  instrument of product judgment.
+  to be legible without outside context. the agent-eval harness (G1)
+  is the primary instrument of product judgment, measuring on behalf of
+  every builder.
 
 ## D2 — quality is the mission; adoption is not
 
@@ -49,8 +55,8 @@ old one.
   adversarial testing; plus transfer to user code.
 - **decision:** no-silent-bugs ranks first, at full depth (types never
   lie + documented behavior is verified + adversarially verified + the
-  promise transfers to user code). agent efficiency second,
-  self-sufficiency third, tool-building as the payoff.
+  promise transfers to user code). efficiency second (observed through
+  agent evals), self-sufficiency third, tool-building as the payoff.
 - **rejected:** stopping at type-layer honesty; treating correctness
   and efficiency as co-equal.
 - **consequences:** the eval win condition gates on zero silent bugs
@@ -113,8 +119,8 @@ old one.
 - **context:** cosmic has deep sandboxing machinery (pledge, unveil,
   landlock, quicksand, the `sandbox` facade), all opt-in from inside
   the script. self-sandboxing protects against bugs, not against
-  generated or untrusted code that simply doesn't call it. the primary
-  user runs code nobody wrote.
+  generated or untrusted code that simply doesn't call it — and
+  generated code is a first-class workload here.
 - **decision:** scripts run under a restrictive default policy;
   capabilities are granted explicitly by the operator
   (`--allow-net`-style). the denial message names the capability and
@@ -168,15 +174,15 @@ old one.
   the safety mechanism.
 - **rejected:** migration tooling as a requirement for breakage; a
   declared stable core; semver and a 1.0.
-- **consequences:** maximum evolution speed. agents — the primary user
-  — refit code cheaply, making this cheaper than it looks. pinning is
-  the user's responsibility and the documented idiom.
+- **consequences:** maximum evolution speed. agents — a first-class
+  user — refit code cheaply, making this cheaper than it looks. pinning
+  is the user's responsibility and the documented idiom.
 
 ## D11 — sequencing: harness first
 
 - **date:** 2026-07
 - **context:** five substantial commitments (G1 harness, G2
-  containment, G3 casts-to-zero, G4 gates, G7 servers) cannot land at
+  containment, G3 honest types, G4 gates, G7 servers) cannot land at
   once.
 - **decision:** build the measurement before the features: G1 first,
   then G2, then G4, with G3 running underneath on upstream lead time

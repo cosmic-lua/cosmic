@@ -12,20 +12,26 @@ building correct, self-contained software. that is the whole mission.
 adoption, popularity, and ecosystem growth are explicitly not goals — if
 cosmic is excellent and three people use it, it has succeeded.
 
-## Users, ranked
+## Who cosmic is for
 
-when goals conflict, the experience of the higher-ranked user wins:
+anyone — human or AI agent — who wants to write and distribute
+command-line software. one audience, seen through two lenses:
 
-1. **AI coding agents.** an agent dropped into a bare sandbox with only
-   the cosmic binary should ship correct software with fewer cycles than
-   on any other runtime. docs, error messages, and gates are
-   agent-legible first.
-2. **script-writing developers.** anyone who wants typed, portable,
-   single-file scripts and tools.
-3. **tool distributors.** people whose end product is a
-   `cosmic --embed`-built executable.
+- **agents are worth enabling in their own right.** an agent dropped
+  into a bare sandbox with only the cosmic binary is a real and growing
+  builder of software, and cosmic should be the best runtime it could
+  find there.
+- **agents are the measuring instrument.** a runtime whose docs, error
+  messages, and gates a fresh agent can navigate without outside help is
+  navigable by anyone. agent evals make "good for the builder"
+  cheaply and repeatably observable — that is their role.
 
-humans benefit from agent-first design incidentally, and that is fine.
+the two lenses see the same frictions: a change that helped agents at
+humans' expense would be wrong, and is also unlikely to exist.
+
+tool distributors — people whose end product is a `cosmic
+--embed`-built executable — are the downstream beneficiaries of all of
+it.
 
 ## Promises, ranked
 
@@ -50,11 +56,12 @@ the anchor promise, at full depth:
   cosmic's gates inherits the property — the gates are strong enough
   that passing them means something.
 
-### 2. agent efficiency
+### 2. efficiency
 
-an agent given only the cosmic binary completes real tasks in strictly
-fewer cycles (tool calls, tokens, wall-clock) than the same agent given
-Python, Node, or Go.
+a builder given only the cosmic binary completes real tasks with
+strictly less work — fewer cycles, fewer errors, less friction — than
+on Python, Node, or Go. the claim is about anyone building; it is
+observed conveniently and continuously through agent evals (G1).
 
 ### 3. self-sufficiency
 
@@ -83,9 +90,6 @@ same tasks.
 - **win condition:** (hard gate) zero silent bugs across the suite;
   (standing target) strictly fewer agent cycles than every baseline
   runtime on every task.
-- **status:** not started. sequenced first — build the instrument
-  before the features it will measure (held with low conviction; see
-  [decisions.md D11](decisions.md)).
 
 ### G2 — contained by default
 
@@ -101,18 +105,20 @@ a message that names the capability and the exact flag to grant it.
   (observable in G1 transcripts).
 - **win condition:** no eval task is failed or slowed by containment
   ergonomics, while default-deny holds.
-- **status:** not started. this is a deliberate compatibility break.
 
-### G3 — casts to zero
+### G3 — an honest type layer, no escape hatches
 
-drive Teal's narrowing and soundness gaps closed upstream-first
-(fork-if-blocked, the Cosmopolitan precedent) until `lib/` needs zero
-`as` casts. the cast ratchet (`lib/build/casts.txt`) is scar tissue,
-not a goal: when the count reaches zero, the ratchet retires.
+every type is checked, none asserted: drive Teal's narrowing and
+soundness gaps closed upstream-first (fork-if-blocked, the Cosmopolitan
+precedent) until the stdlib needs no `as` casts and no workaround
+doctrine. mechanisms that police the gap in the meantime — today, the
+cast pin in `lib/build/casts.txt` — are scaffolding, not goals: each
+retires when the gap it polices closes.
 
-- **measured by:** the cast ratchet's total, per release.
-- **win condition:** zero casts; ratchet deleted; the narrowing
-  doctrine in AGENTS.md shrinks to a footnote.
+- **measured by:** total `as` casts in `lib/`, per release; the size of
+  the narrowing doctrine in AGENTS.md.
+- **win condition:** zero casts; the scaffolding deleted; the doctrine
+  reduced to a footnote.
 
 ### G4 — zero-config project gates
 
@@ -120,8 +126,9 @@ one built-in verb runs the full no-silent-bugs apparatus against any
 user project with zero configuration: format gate, type check
 (warnings-as-errors), tests, example verification, and coverage
 ratcheting against a committed baseline. user projects inherit exactly
-the discipline cosmic applies to itself. (the cast ratchet is excluded —
-it retires with G3.)
+the discipline cosmic applies to itself. (only durable gates transfer —
+scaffolding that polices a temporary toolchain gap, like the cast pin,
+does not; see G3.)
 
 - **measured by:** a scaffolded project gets a meaningful `PASS`/`FAIL`
   verdict from one command with no setup; the eval suite's project
