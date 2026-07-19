@@ -28,7 +28,9 @@ bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-06-9b
 # verify it before executing. Update this when bumping bootstrap_url.
 bootstrap_sha256 := 2217687a73958110ebeae85a2d8b7af401472212bbdd168cd24a06fc37793173
 
-export PATH := $(o)/bootstrap:$(PATH)
+# anchored with CURDIR like the Makefile's $(o)/bin entry — a relative
+# entry breaks for any recipe that cd's (#721)
+export PATH := $(CURDIR)/$(o)/bootstrap:$(PATH)
 
 $(bootstrap_cosmic):
 	@mkdir -p $(@D)

@@ -346,7 +346,7 @@ line, which survives any truncation.
 bin/make test                 # all tests
 bin/make coverage             # tests with line coverage + ratchet vs lib/cosmic/coverage/baseline.txt
 bin/make coverage-baseline    # rewrite the committed coverage ratchet floor
-bin/make test only=sqlite     # filter by pattern
+bin/make test only=sqlite     # filter by substring (also narrows fetch/stage)
 bin/make example              # run Example_* functions
 bin/make benchmark            # run Benchmark_* functions
 ```
