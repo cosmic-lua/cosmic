@@ -111,6 +111,13 @@ local record SignalModule
   Sigset: function(...: integer): Sigset
   --  Register a signal handler for the specified signal.
   --  The handler can be a Lua function, SIG_IGN, or SIG_DFL.
+  --  Lua handlers are DEFERRED: the C-level handler only records the
+  --  signal, and the Lua function runs between VM instructions once the
+  --  interpreter regains control — ordinary VM context, so any Lua code
+  --  is safe inside it (no async-signal-safety constraints). A signal
+  --  arriving during a blocking call surfaces there as EINTR first; the
+  --  ergonomic wrappers run the handler and retry (cosmic.stream, #595).
+  --  An error raised inside a handler is logged, not propagated.
   --  Returns the previous handler, flags, and mask; on failure returns
   --  nil, nil, nil plus an error message.
   sigaction: function(sig: integer, handler?: function | integer, flags?: integer, mask?: Sigset): function | integer, integer, Sigset, string

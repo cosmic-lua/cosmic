@@ -48,9 +48,12 @@ local record Memory
   fetch_xor: function(self: Memory, word_index: integer, value: integer): integer | nil, string
   --  Wait until the word no longer holds `expect`. Returns 0 when
   --  woken; nil plus an error naming EAGAIN (value already differed)
-  --  or ETIMEDOUT (deadline expired). A wait interrupted by a signal
-  --  is retried automatically (#595); the absolute deadline keeps the
-  --  timeout exact across retries.
+  --  or ETIMEDOUT (deadline expired). The deadline is an ABSOLUTE
+  --  CLOCK_REALTIME time — whole seconds in `abs_deadline` plus
+  --  nanoseconds in `nanos` (e.g. from time.now()); omit both to wait
+  --  forever. A wait interrupted by a signal is retried automatically
+  --  (#595); the absolute deadline keeps the timeout exact across
+  --  retries.
   wait: function(self: Memory, word_index: integer, expect: integer, abs_deadline?: integer, nanos?: integer): integer | nil, string
   --  Wake processes waiting on a word; returns how many woke.
   wake: function(self: Memory, word_index: integer, count?: integer): integer
