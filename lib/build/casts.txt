@@ -98,7 +98,7 @@
 4	lib/cosmic/getopt.tl
 3	lib/cosmic/getopt_example.tl
 16	lib/cosmic/getopt_test.tl
-3	lib/cosmic/hash.tl
+5	lib/cosmic/hash.tl
 6	lib/cosmic/hash_test.tl
 13	lib/cosmic/include_dir_test.tl
 3	lib/cosmic/init.tl

@@ -7,21 +7,12 @@
 local cosmo = require("cosmo")
 
 --- Compressed stream framing produced by compress().
-local enum Format
-  "zlib"
-  "gzip"
-  "raw"
-end
+local type Format = cosmo.CompressFormat
 
 --- Framing accepted by decompress(). "auto" detects zlib or gzip from
 --- the stream header; raw streams carry no header and must be named
 --- explicitly.
-local enum DecompressFormat
-  "zlib"
-  "gzip"
-  "raw"
-  "auto"
-end
+local type DecompressFormat = cosmo.UncompressFormat
 
 --- Options for compress().
 local record CompressOptions
