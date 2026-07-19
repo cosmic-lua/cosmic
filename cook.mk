@@ -35,10 +35,15 @@ type_modules := cosmo unix path getopt lsqlite3 re argon2 zip repl
 modules += bootstrap
 bootstrap_cosmic := $(o)/bootstrap/cosmic
 bootstrap_files := $(bootstrap_cosmic)
-bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-06-9b7f95b/cosmic-lua
+bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-19-5c6bce5/cosmic-lua
 # SHA-256 of the bootstrap cosmic binary. It compiles the entire project, so
 # verify it before executing. Update this when bumping bootstrap_url.
-bootstrap_sha256 := 2217687a73958110ebeae85a2d8b7af401472212bbdd168cd24a06fc37793173
+# This pin ships --compile-strict, so the probe selects hermetic
+# LUA_PATH=";;" compiles — a reproducibility requirement (#733): the
+# pre-strict tree-LUA_PATH path made compiled output depend on parallel
+# build order (bootstrap's embedded stdlib vs the tree's, whichever
+# existed first).
+bootstrap_sha256 := 6c2a0afe6c942560ce2a0d796ddf8f8df096ce2c92b8ce142c28da59ecac6dc6
 
 $(bootstrap_cosmic):
 	@mkdir -p $(@D)
