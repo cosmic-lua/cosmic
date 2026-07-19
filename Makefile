@@ -36,16 +36,13 @@ include 3p/tl/cook.mk
 
 
 # landlock-make sandbox annotations. IMPORTANT (#716): landlock-make
-# only enforces .PLEDGE/.UNVEIL for rules that set .SANDBOXED = 1, and
-# nothing in this build sets it except the sandbox-canary probe — so
-# these annotations, and every per-rule override below, are currently
-# documented intent, not active enforcement. (Even with .SANDBOXED,
-# cosmopolitan's unveil() silently no-ops on hosts without Landlock.)
-# The sandbox-canary target proves the mechanism itself still works;
-# see it before flipping enforcement on for real rules. NOTE: make
-# hands .UNVEIL values to unveil UNEXPANDED, so .PLEDGE/.UNVEIL are
-# assigned with := repo-wide, composed from the shared grant sets in
-# cook.mk (#718); keep any new override in that spelling.
+# only enforces .PLEDGE/.UNVEIL for rules that set .SANDBOXED = 1 —
+# nothing here sets it except the sandbox-canary probe, so these
+# annotations are documented intent, not active enforcement (and
+# cosmopolitan's unveil() no-ops without Landlock). The canary proves
+# the mechanism works; see it before flipping enforcement on. NOTE:
+# make hands .UNVEIL values to unveil UNEXPANDED — assign with := and
+# compose from the shared grant sets in cook.mk (#718).
 # global defaults: read-only access, no network, basic stdio
 .PLEDGE := stdio rpath
 .UNVEIL := $(unveil_base)
@@ -53,7 +50,7 @@ include 3p/tl/cook.mk
 .PHONY: help
 ## Show this help message
 help: $(build_files) | $(bootstrap_cosmic)
-	@$(bootstrap_cosmic) $(build_help) $(MAKEFILE_LIST)
+	@LUA_PATH="$(tree_lua_path)" $(bootstrap_cosmic) $(build_help) $(MAKEFILE_LIST)
 
 ## Filter targets by pattern (make test only=teal)
 filter-only = $(if $(only),$(foreach f,$1,$(if $(findstring $(only),$(f)),$(f))),$1)
@@ -68,7 +65,7 @@ $(o)/%: %
 # hermetic LUA_PATH=";;", pre-flag -> tree LUA_PATH self-healing, #666).
 $(o)/%.lua: %.tl $(types_files) $(tl_files) $(bootstrap_files) $(compile_flag_stamp)
 	@mkdir -p $(@D)
-	@f=$$(cat $(compile_flag_stamp)); if [ "$$f" = "--compile-strict" ]; then export LUA_PATH=";;"; fi; $(bootstrap_cosmic) $(include_dir_flags) $$f $< > $@.tmp
+	@f=$$(cat $(compile_flag_stamp)); if [ "$$f" = "--compile-strict" ]; then export LUA_PATH=";;"; else export LUA_PATH="$(tree_lua_path)"; fi; $(bootstrap_cosmic) $(include_dir_flags) $$f $< > $@.tmp
 	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 
 # tl files: modules declare _tl, derive compiled .lua outputs
@@ -109,9 +106,9 @@ fetched: $(all_fetched)
 # trust the host CA store so fetches work on stock runners and behind
 # TLS-intercepting proxies. An operator SSL_CERT_FILE bundle is unveiled.
 # Fetch/stage scripts run under the pinned bootstrap but are written
-# against THIS tree's cosmic.* APIs (via the exported LUA_PATH). Without
-# the compiled stdlib as a prerequisite, a cold parallel build let
-# require() fall back to the bootstrap's embedded older-API stdlib
+# against THIS tree's cosmic.* APIs (via their explicit LUA_PATH).
+# Without the compiled stdlib as a prerequisite, a cold parallel build
+# let require() fall back to the bootstrap's embedded older-API stdlib
 # mid-compile. Unfiltered: only= must not shrink the closure.
 stdlib_lua := $(patsubst %.tl,$(o)/%.lua,$(filter lib/cosmic/%,$(foreach x,$(modules),$($(x)_tl))))
 
@@ -119,7 +116,7 @@ $(o)/%/.fetched: export SSL_USE_SYSTEM_CERTS = 1
 $(o)/%/.fetched: .PLEDGE := stdio rpath wpath cpath inet dns
 $(o)/%/.fetched: .UNVEIL := $(unveil_dep) r:/etc/resolv.conf r:/etc/ssl $(if $(SSL_CERT_FILE),r:$(SSL_CERT_FILE))
 $(o)/%/.fetched: $(o)/%/.versioned $(build_files) $(stdlib_lua) | $(bootstrap_cosmic)
-	@$(bootstrap_cosmic) -- $(build_fetch) $$(readlink $<) $(platform) $@
+	@LUA_PATH="$(tree_lua_path)" $(bootstrap_cosmic) -- $(build_fetch) $$(readlink $<) $(platform) $@
 
 # versions get staged: o/module/.staged -> o/staged/module/<ver>-<sha>
 .PHONY: staged
@@ -129,7 +126,7 @@ staged: $(all_staged)
 $(o)/%/.staged: .PLEDGE := $(pledge_build)
 $(o)/%/.staged: .UNVEIL := $(unveil_dep) rx:/usr/bin
 $(o)/%/.staged: $(o)/%/.fetched $(build_files) $(stdlib_lua)
-	@$(bootstrap_cosmic) -- $(build_stage) $$(readlink $(o)/$*/.versioned) $(platform) $< $@
+	@LUA_PATH="$(tree_lua_path)" $(bootstrap_cosmic) -- $(build_stage) $$(readlink $(o)/$*/.versioned) $(platform) $< $@
 
 all_tests := $(call filter-only,$(foreach x,$(modules),$($(x)_tests)))
 all_tested := $(patsubst %,$(o)/%.test.got,$(all_tests))
@@ -144,10 +141,13 @@ export TEST_O := $(o)
 export TEST_PLATFORM := $(platform)
 export TEST_BIN := $(o)/bin
 # TEST_TMPDIR is set per-test by cosmic --test command
-# LUA_PATH: aggregate _lua_dirs from modules
+# tree_lua_path aggregates _lua_dirs from modules. Deliberately NOT
+# exported (#720): the ambient export was the root of the stale-stdlib
+# bug class (#666, #608) — recipes opt in via LUA_PATH="$(tree_lua_path)";
+# everything else runs against the binary's embedded copy.
 space := $(subst ,, )
 lua_path_dirs := $(foreach m,$(modules),$($(m)_lua_dirs))
-export LUA_PATH := $(subst $(space),;,$(foreach d,$(lua_path_dirs),$(CURDIR)/$(d)/?.lua $(CURDIR)/$(d)/?/init.lua));;
+tree_lua_path := $(subst $(space),;,$(foreach d,$(lua_path_dirs),$(CURDIR)/$(d)/?.lua $(CURDIR)/$(d)/?/init.lua));;
 export NO_COLOR := 1
 
 # Test rule: execute test via cosmic --test command
@@ -176,7 +176,7 @@ $(quicksand_sandbox_tests): .UNVEIL =
 
 $(o)/%.tl.test.got: $(o)/%.lua $(cosmic_bin)
 	@mkdir -p $(@D)
-	@TEST_DIR=$(TEST_DIR) PATH=$(CURDIR)/$(o)/bin:$$PATH $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
+	@TEST_DIR=$(TEST_DIR) LUA_PATH="$(tree_lua_path)" PATH=$(CURDIR)/$(o)/bin:$$PATH $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
 # Test deps beyond the pattern rule (own compiled .lua + $(cosmic_bin))
 # live in each module's cook.mk: perf tests attach $(perf_lua), build
@@ -202,7 +202,7 @@ $(o)/coverage/%.tl.test.got: .PLEDGE := $(pledge_build)
 $(o)/coverage/%.tl.test.got: .UNVEIL := $(unveil_test)
 $(o)/coverage/%.tl.test.got: $(o)/%.lua $(cosmic_bin)
 	@mkdir -p $(@D)
-	@TEST_DIR=$(TEST_DIR) COSMIC_COVERAGE=1 PATH=$(CURDIR)/$(o)/bin:$$PATH $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
+	@TEST_DIR=$(TEST_DIR) COSMIC_COVERAGE=1 LUA_PATH="$(tree_lua_path)" PATH=$(CURDIR)/$(o)/bin:$$PATH $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
 # Coverage ratchet: the committed baseline records covered/total per
 # file; the check fails when coverage declines or the file set drifts.
@@ -257,7 +257,7 @@ $(enforce_got): .UNVEIL =
 
 $(o)/enforce/%.tl.test.got: $(o)/%.lua $(cosmic_bin)
 	@mkdir -p $(@D)
-	@TEST_BIN=$(o)/bin COSMIC_ENFORCE=1 PATH=$(CURDIR)/$(o)/bin:$$PATH \
+	@TEST_BIN=$(o)/bin COSMIC_ENFORCE=1 LUA_PATH="$(tree_lua_path)" PATH=$(CURDIR)/$(o)/bin:$$PATH \
 	  $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
 $(o)/enforce-summary.txt: $(enforce_got) | $(cosmic_bin)
@@ -394,7 +394,7 @@ $(o)/%.tl.benchmark.got: .PLEDGE := $(pledge_build)
 $(o)/%.tl.benchmark.got: .UNVEIL := $(unveil_run)
 $(o)/%.tl.benchmark.got: %.tl $(cosmic_bin) | $(bootstrap_files)
 	@mkdir -p $(@D)
-	@set +e; $(cosmic_bin) --benchmark $< > $(basename $@).out 2> $(basename $@).err; echo $$? > $@
+	@set +e; LUA_PATH="$(tree_lua_path)" $(cosmic_bin) --benchmark $< > $(basename $@).out 2> $(basename $@).err; echo $$? > $@
 
 # Documentation generation - render .tl files as markdown
 # Module sources for docs: all _tl files (excludes tests and examples).
@@ -456,7 +456,7 @@ doc-publish: .PLEDGE := $(pledge_build) inet dns
 doc-publish: .UNVEIL := $(unveil_run) rwc:.git rwc:. r:/home r:/root
 doc-publish: $(all_docs) $(docs_publish) | $(bootstrap_cosmic)
 	@test -n "$(SOURCE_SHA)" || { echo "SOURCE_SHA required"; exit 1; }
-	@$(bootstrap_cosmic) -- $(docs_publish) $(SOURCE_SHA) $(o)/docs $(or $(DOCS_BRANCH),docs)
+	@LUA_PATH="$(tree_lua_path)" $(bootstrap_cosmic) -- $(docs_publish) $(SOURCE_SHA) $(o)/docs $(or $(DOCS_BRANCH),docs)
 
 # CI stages
 ci_stages := format teal test example lint coverage

@@ -34,7 +34,7 @@ PERF_ONLY ?=
 PERF_THRESHOLD ?= 10
 
 perf_only_flag = $(if $(PERF_ONLY),--only $(PERF_ONLY))
-perf_cmd = PERF_BIN=$(PERF_BIN) $(PERF_BIN) -- $(perf_run) \
+perf_cmd = PERF_BIN=$(PERF_BIN) LUA_PATH="$(tree_lua_path)" $(PERF_BIN) -- $(perf_run) \
 	--samples $(PERF_SAMPLES) --min-secs $(PERF_MIN_SECS) $(perf_only_flag)
 
 perf_sandbox := $(o)/perf
@@ -73,14 +73,14 @@ perf-baseline: $$(perf_lua) $(cosmic_bin)
 perf-compare: .PLEDGE := $(pledge_build)
 perf-compare: .UNVEIL := $(unveil_test)
 
-perf_compare_cmd = $(PERF_BIN) -- $(perf_run) --compare \
+perf_compare_cmd = LUA_PATH="$(tree_lua_path)" $(PERF_BIN) -- $(perf_run) --compare \
 	$(perf_sandbox)/baseline.json $(perf_sandbox)/current.json \
 	--threshold $(PERF_THRESHOLD)
 
 # Final stage: reclassify any surviving regression the current binary
 # cannot reproduce against itself (selfcheck-b vs the current run) as
 # "noise" rather than a failure — the A/A control, run automatically.
-perf_triage_cmd = $(PERF_BIN) -- $(perf_run) --compare \
+perf_triage_cmd = LUA_PATH="$(tree_lua_path)" $(PERF_BIN) -- $(perf_run) --compare \
 	$(perf_sandbox)/baseline.json $(perf_sandbox)/current.json \
 	--threshold $(PERF_THRESHOLD) \
 	--selfcheck-a $(perf_sandbox)/current.json \
@@ -104,7 +104,7 @@ perf-compare: perf
 perf-selfcheck: .PLEDGE := $(pledge_build)
 perf-selfcheck: .UNVEIL := $(unveil_test)
 
-perf_selfcheck_cmd = $(PERF_BIN) -- $(perf_run) --compare \
+perf_selfcheck_cmd = LUA_PATH="$(tree_lua_path)" $(PERF_BIN) -- $(perf_run) --compare \
 	$(perf_sandbox)/selfcheck-a.json $(perf_sandbox)/selfcheck-b.json \
 	--threshold $(PERF_THRESHOLD)
 
