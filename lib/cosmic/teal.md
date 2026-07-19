@@ -123,6 +123,7 @@ local record TealModule
   MAKEFILE_INCLUDE_DIRS: {string}
   compile: function(input_path: string, opts?: CompileOptions): CompileResult
   check: function(input_path: string, opts?: CheckOptions): CheckResult
+  search_module: function(module_name: string, include_dirs?: {string}): string | nil
   format_issues: function(issues: {Issue}): string
   format_issues_with_hints: function(issues: {Issue}): string
   hint_for_message: function(msg: string): string | nil
@@ -144,6 +145,26 @@ function get_default_include_dirs(): {string}
 **Returns:**
 
 - {string} - List of default include directory paths
+
+### search_module
+
+```teal
+function search_module(module_name: string, include_dirs?: {string}): string | nil
+```
+
+ Find the source file for a module name using the same search path
+ the compiler uses (TL_PATH, include dirs, package.path). Used by the
+ runtime .tl searcher so require() resolves modules exactly like
+ --compile/--check-types do.
+
+**Parameters:**
+
+- `module_name` (string) - Module name as passed to require()
+- `include_dirs?` ({string}) - Extra include dirs (defaults merged in)
+
+**Returns:**
+
+- string|nil - Path to the found source, or nil
 
 ### compile
 
