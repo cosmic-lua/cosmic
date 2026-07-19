@@ -19,6 +19,9 @@
  Words are 64-bit; word_index is 0-based. Futex words (wait/wake)
  only inspect the low 32 bits — store only int32 values in words
  you wait on.
+ Not a mirror of the generated unix.Memory: this is a deliberately
+ narrowed surface whose methods validate bounds in Lua, return
+ nil, err instead of throwing, and add size().
 
 ```teal
 local record Memory

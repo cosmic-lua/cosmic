@@ -5,18 +5,6 @@
 
 ## Types
 
-### RawDir
-
-```teal
-local record RawDir
-  read: function(self: RawDir): string, integer
-  close: function(self: RawDir)
-  fd: function(self: RawDir): integer
-  rewind: function(self: RawDir)
-  tell: function(self: RawDir): integer
-end
-```
-
 ### FsModule
 
  Module interface

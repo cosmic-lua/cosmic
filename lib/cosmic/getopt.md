@@ -7,10 +7,10 @@
 
 ## Types
 
-### RawGetopt
+### LegacyGetopt
 
 ```teal
-local record RawGetopt
+local record LegacyGetopt
   parse: function(args: {string}, optstring: string, longopts: {table}): any, any
   new: function(args: {string}, optstring: string, longopts: {table}): any
 end
@@ -28,39 +28,6 @@ local record LongOpt
   name: string
   has_arg: string
   short: string
-end
-```
-
-### Option
-
- A single recognized option and its argument.
- For a long option that has a short alias, `opt` is that short letter; for a
- long-only option, `opt` is the long name. `arg` is nil when the option takes
- no argument.
- @field opt string The option letter or long name
- @field arg string|nil The option's argument, if any
-
-```teal
-local record Option
-  opt: string
-  arg: string
-end
-```
-
-### Result
-
- The outcome of a single `parse` call.
- @field opts {Option} Recognized options, in the order encountered
- @field args {string} Non-option (positional) arguments
- @field unknown {string} Unrecognized options, each including its dashes
- @field missing {string} Options that required an argument but got none
-
-```teal
-local record Result
-  opts: {Option}
-  args: {string}
-  unknown: {string}
-  missing: {string}
 end
 ```
 
