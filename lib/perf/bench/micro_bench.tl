@@ -171,7 +171,7 @@ local function scenarios(): {pt.Scenario}, string
         return (a as ip.Addr):format()
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= "192.168.1.1" then
+        if res as string ~= "192.168.1.1" then -- cast: from any
           return false, "ip roundtrip mismatch: " .. tostring(res)
         end
         return true
@@ -186,7 +186,7 @@ local function scenarios(): {pt.Scenario}, string
         return (url.decode(QUERY_ENCODED))
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= QUERY_VALUE then
+        if res as string ~= QUERY_VALUE then -- cast: from any
           return false, "url decode roundtrip corrupted data"
         end
         return true

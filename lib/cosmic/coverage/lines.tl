@@ -26,8 +26,8 @@ local exec_kinds: {string: boolean} = {
 --- @param node {any:any} A statement node (direct child of a statements block)
 --- @param out {integer: boolean} Set of executable lines to add to
 local function mark_statement(node: {any: any}, out: {integer: boolean})
-  local kind = node["kind"] as string
-  local y = node["y"] as integer
+  local kind = node["kind"] as string -- cast: from any
+  local y = node["y"] as integer -- cast: from any
   if not kind or not y then
     return
   end
@@ -41,18 +41,18 @@ local function mark_statement(node: {any: any}, out: {integer: boolean})
   elseif kind == "repeat" then
     -- the VM attributes the loop test to the `until` line; the
     -- `repeat` line itself carries no instructions
-    local exp = node["exp"] as {any: any}
+    local exp = node["exp"] as {any: any} -- cast: from any
     if exp and exp["y"] then
-      out[exp["y"] as integer] = true
+      out[exp["y"] as integer] = true -- cast: from any
     end
   elseif kind == "if" then
     -- each `if`/`elseif` line evaluates its condition; a bare `else`
     -- carries no instructions
-    local blocks = node["if_blocks"] as {{any: any}}
+    local blocks = node["if_blocks"] as {{any: any}} -- cast: from any
     if blocks then
       for _, block in ipairs(blocks) do
         if block["exp"] and block["y"] then
-          out[block["y"] as integer] = true
+          out[block["y"] as integer] = true -- cast: from any
         end
       end
     end
@@ -72,7 +72,7 @@ local function walk(node: {any: any}, seen: {any: boolean}, out: {integer: boole
   end
   seen[node] = true
   if node["kind"] == "statements" then
-    for _, child in ipairs(node as {any}) do
+    for _, child in ipairs(node as {any}) do -- cast: array view of ast map
       if child is {any: any} then
         mark_statement(child, out)
       end
@@ -84,7 +84,7 @@ local function walk(node: {any: any}, seen: {any: boolean}, out: {integer: boole
         walk(v, seen, out)
       else
         -- kindless container (e.g. the if_blocks array): walk node elements
-        for _, e in ipairs(v as {any}) do
+        for _, e in ipairs(v as {any}) do -- cast: array view of ast map
           if e is {any: any} and e["kind"] then
             walk(e, seen, out)
           end
@@ -110,16 +110,18 @@ local function executable_lines(source: string, name: string): {integer: boolean
   end
   if lex_errs and #lex_errs > 0 then
     local e = lex_errs[1]
+    -- cast: number to integer for %d
     return nil, string.format("%s:%d: %s", name, (e.y or 0) as integer, e.msg or "lex error")
   end
   local parse_errs: {tl.Error} = {}
   local ast = tl.parse_program(tokens, parse_errs, name, lang)
   if #parse_errs > 0 then
     local e = parse_errs[1]
+    -- cast: number to integer for %d
     return nil, string.format("%s:%d: %s", name, (e.y or 0) as integer, e.msg or "parse error")
   end
   local out: {integer: boolean} = {}
-  walk(ast as {any: any}, {}, out)
+  walk(ast as {any: any}, {}, out) -- cast: ast node as generic map
   return out
 end
 

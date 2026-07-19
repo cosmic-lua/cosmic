@@ -91,7 +91,7 @@ test_promise_list_matches_validator()
 -- missing a mechanism (the check precedes any syscall).
 local function test_fail_closed_when_unavailable()
   local avail = sandbox.available()
-  local apply_any = sandbox.apply as function(any): boolean, string
+  local apply_any = sandbox.apply
   if avail.fs and avail.sys then
     check.skip("sandbox fully available on this host; fail-closed path not exercisable")
     return
@@ -127,7 +127,7 @@ local function find_rule(rules: {any}, path: string): {string: any}
 end
 
 local function test_plan_landlock_mapping()
-  local plan_any = sandbox.plan_landlock as function(any): {string: any}
+  local plan_any = sandbox.plan_landlock
 
   local opts = plan_any({ro = {"/usr"}})
   local r = find_rule(opts.rules as {any}, "/usr")

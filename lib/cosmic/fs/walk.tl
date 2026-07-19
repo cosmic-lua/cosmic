@@ -58,6 +58,7 @@ local function walk_entries<T>(dir: string, h: WalkDirHandle,
           h:close()
           return true
         end
+        -- cast: record union after guard
         if action ~= "skip" and unix.S_ISDIR((st as unix.Stat):mode())
         and (max_depth == 0 or depth < max_depth) then
           if walk_tree(full_path, visitor, ctx, errbox, depth + 1, max_depth) then
@@ -86,6 +87,7 @@ walk_tree = function<T>(dir: string,
     end
     return false
   end
+  -- cast: userdata boundary
   return walk_entries(dir, handle as WalkDirHandle, visitor, ctx, errbox, depth, max_depth)
 end
 
@@ -122,7 +124,7 @@ end
 --- @return T | nil The context object, or nil if the root could not be opened
 --- @return string First error encountered, if any
 local function walk<T>(dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string
-  ctx = ctx or {} as T
+  ctx = ctx or {} as T -- cast: fresh table as generic T
   local max_depth = 0
   if opts and opts.max_depth then
     max_depth = opts.max_depth
@@ -132,6 +134,7 @@ local function walk<T>(dir: string, visitor: function(string, string, WalkStat, 
     return nil, errstr(oerr, "opendir: " .. dir)
   end
   local errbox: {string} = {}
+  -- cast: userdata boundary
   walk_entries(dir, handle as WalkDirHandle, visitor, ctx, errbox, 1, max_depth)
   return ctx, errbox[1]
 end
@@ -191,7 +194,7 @@ local function glob_level(dir: string, lua_pattern: string, out: {string}): stri
   if not handle then
     return errstr(oerr, "opendir: " .. dir)
   end
-  local h = handle as WalkDirHandle
+  local h = handle as WalkDirHandle -- cast: userdata boundary
   while true do
     local entry = h:read()
     if not entry then break end
@@ -286,7 +289,7 @@ local function collect_all(dir: string): {string: FileInfo} | nil, string
       end
       return false
     end
-    local h = handle as WalkDirHandle
+    local h = handle as WalkDirHandle -- cast: userdata boundary
 
     while true do
       local entry, kind = h:read()
@@ -312,9 +315,12 @@ local function collect_all(dir: string): {string: FileInfo} | nil, string
           -- S_ISDIR, preserving the same cycle prevention as above.
           local st, serr = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
           if st then
+            -- cast: record union after guard
             if unix.S_ISDIR((st as unix.Stat):mode()) then
               do_walk(full_path, rel_path)
+            -- cast: record union after guard
             elseif unix.S_ISREG((st as unix.Stat):mode()) then
+              -- cast: record union after guard
               local mode = (st as unix.Stat):mode() & 0x1ff
               files[rel_path] = {mode = mode}
             end

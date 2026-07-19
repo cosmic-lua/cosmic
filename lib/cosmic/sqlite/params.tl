@@ -43,7 +43,7 @@ local function make_query_iter(stmt: Stmt): Rows
     done = true
     stmt:close()
   end
-  local iter = setmetatable({} as Rows, {
+  local iter = setmetatable({} as Rows, { -- cast: table seeded as record
       __call = function(_: Rows): {string: any}
         if done then
           return nil
@@ -74,7 +74,7 @@ end
 --- Database record doesn't need to be duplicated here.
 --- @param db_any any The Database being built by make_database
 local function attach(db_any: any)
-  local db = db_any as Db
+  local db = db_any as Db -- cast: from any
 
   --- Execute SQL with parameters from a list (table). The count is derived
   --- from the SQL itself, so nil values in the table are handled correctly.
@@ -83,7 +83,7 @@ local function attach(db_any: any)
     if not stmt then
       return false, err or "prepare failed"
     end
-    local st = stmt as Stmt
+    local st = stmt as Stmt -- cast: record union after guard
 
     local ok, bind_err = st:bind_list(values)
     if not ok then
@@ -103,7 +103,7 @@ local function attach(db_any: any)
     if not stmt then
       return false, err or "prepare failed"
     end
-    local st = stmt as Stmt
+    local st = stmt as Stmt -- cast: record union after guard
 
     local ok, bind_err = st:bind_named(params)
     if not ok then
@@ -124,7 +124,7 @@ local function attach(db_any: any)
     if not stmt then
       return nil, "query failed: " .. (err or "unknown error")
     end
-    local st = stmt as Stmt
+    local st = stmt as Stmt -- cast: record union after guard
 
     local ok, bind_err = st:bind_list(values)
     if not ok then
@@ -142,7 +142,7 @@ local function attach(db_any: any)
     if not stmt then
       return nil, "query failed: " .. (err or "unknown error")
     end
-    local st = stmt as Stmt
+    local st = stmt as Stmt -- cast: record union after guard
 
     local ok, bind_err = st:bind_named(params)
     if not ok then

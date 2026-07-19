@@ -64,7 +64,7 @@ local function listen_unix(path: string, backlog?: integer): Socket | nil, strin
   if not sock then
     return nil, err
   end
-  local s = sock as Socket
+  local s = sock as Socket -- cast: record union after guard
   local ok, bind_err = s:bind_unix(path)
   if not ok then
     s:close()
@@ -87,7 +87,7 @@ local function connect_unix(path: string): Socket | nil, string
   if not sock then
     return nil, err
   end
-  local s = sock as Socket
+  local s = sock as Socket -- cast: record union after guard
   local ok, conn_err = s:connect_unix(path)
   if not ok then
     s:close()
@@ -108,7 +108,7 @@ local function connect_tcp(addr: Address, port: integer): Socket | nil, string
   if not sock then
     return nil, err
   end
-  local s = sock as Socket
+  local s = sock as Socket -- cast: record union after guard
   local ok, conn_err = s:connect(addr, port)
   if not ok then
     s:close()
@@ -131,13 +131,13 @@ local function dial(host: string, port: integer): Socket | nil, string
   local a: ip.Addr
   local parsed = ip.parse(host)
   if parsed then
-    a = parsed as ip.Addr
+    a = parsed as ip.Addr -- cast: record union after guard
   else
     local looked, lerr = ip.lookup(host)
     if not looked then
       return nil, "dial " .. host .. ": " .. tostring(lerr)
     end
-    a = looked as ip.Addr
+    a = looked as ip.Addr -- cast: record union after guard
   end
   return connect_tcp(a, port)
 end
@@ -183,7 +183,7 @@ local function listen_tcp(addr: Address, port: integer, backlog?: integer, opts?
   if not sock then
     return nil, nil, serr
   end
-  local s = sock as Socket
+  local s = sock as Socket -- cast: record union after guard
   if opts.reuseaddr ~= false then
     local ok, setopt_err = s:setsockopt(unix.SOL_SOCKET, unix.SO_REUSEADDR, true)
     if not ok then
@@ -240,7 +240,7 @@ local function nb_connect(s: Socket, addr: Address, port: integer, timeoutms?: i
   if not revents then
     return false, "nb_connect: poll failed"
   end
-  local ev = (revents as {integer: integer})[s.fd] or 0
+  local ev = (revents as {integer: integer})[s.fd] or 0 -- cast: record union after guard
   if ev == 0 then return false, "nb_connect: connect timed out" end
   if ev & unix.POLLERR ~= 0 then
     local so_err = s:getsockopt(unix.SOL_SOCKET, unix.SO_ERROR)
@@ -282,10 +282,10 @@ local function interfaces(): {Interface} | nil, string
     return nil, "siocgifconf failed"
   end
   local list: {Interface} = {}
-  for i, entry in ipairs(raw as {{string: any}}) do
+  for i, entry in ipairs(raw as {{string: any}}) do -- cast: from any
     list[i] = {
-      name = entry["name"] as string,
-      ip = ip.addr(entry["ip"] as integer),
+      name = entry["name"] as string, -- cast: from any
+      ip = ip.addr(entry["ip"] as integer), -- cast: from any
     }
   end
   return list
