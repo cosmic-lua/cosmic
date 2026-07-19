@@ -32,16 +32,31 @@ cosmic_types := $(wildcard lib/types/*.tl) $(wildcard lib/types/*.d.tl) $(wildca
 
 cosmic_version_lua := $(o)/cosmic/version.lua
 
+# Reproducible pack (#733): zip entries carry the staged files' mtimes —
+# build time, not source state — so two builds of the same tree differed
+# byte-for-byte. Clamp the whole staging tree to SOURCE_DATE_EPOCH (the
+# source commit date: deliberate input, like version.lua's git describe)
+# before packing. main.lua and .args are staged into the tree first so
+# the clamp reaches them (the old -j0 add from o/ paths could not be
+# clamped without touching build intermediates make still tracks).
+# Gate: the reproducible CI job double-builds and cmps.
+SOURCE_DATE_EPOCH ?= $(shell git log -1 --format=%ct 2>/dev/null || echo 0)
+
 # Pack the cosmic payload into the binary given as $(1). The boot-critical
 # Lua — .lua/cosmic/* modules, main.lua and .args — is inflate()d on EVERY
 # invocation (29 inflate() calls at boot; see whilp/cosmic#487, backlog 24), so store
 # it uncompressed to skip the decompress. The rest (tl.lua, the type
 # declarations, docs, .tl source, skills) is either large or lazy-loaded and
 # not on the startup path, so keep it deflated to hold the size cost down.
+# -X strips the Unix extra fields (atime/mtime/uid/gid): zip reading a
+# staged file bumps its atime to pack time, which leaked into local
+# headers even with mtimes clamped. Entry mtimes stay as (clamped) DOS
+# timestamps; mode bits live in the central attrs and survive -X.
 define pack-cosmic
-	@cd $(cosmic_built) && $(CURDIR)/$(cosmos_zip_bin) -qr0 $(CURDIR)/$(1) .lua/cosmic
-	@cd $(cosmic_built) && $(CURDIR)/$(cosmos_zip_bin) -qr $(CURDIR)/$(1) .lua .tl .docs sys skills -x '.lua/cosmic/*'
-	@$(cosmos_zip_bin) -qj0 $(1) $(cosmic_main) $(cosmic_args)
+	@find $(cosmic_built) -exec touch -d @$(SOURCE_DATE_EPOCH) {} +
+	@cd $(cosmic_built) && $(CURDIR)/$(cosmos_zip_bin) -qr0X $(CURDIR)/$(1) .lua/cosmic
+	@cd $(cosmic_built) && $(CURDIR)/$(cosmos_zip_bin) -qrX $(CURDIR)/$(1) .lua .tl .docs sys skills -x '.lua/cosmic/*'
+	@cd $(cosmic_built) && $(CURDIR)/$(cosmos_zip_bin) -q0X $(CURDIR)/$(1) main.lua .args
 endef
 
 $(cosmic_version_lua): .FORCE | $$(cosmos_staged)
@@ -75,6 +90,8 @@ $(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(doc
 	@$(cp) $(cosmic_sys) $(cosmic_built)/sys/
 	@mkdir -p $(cosmic_built)/skills/cosmic
 	@$(cp) $(cosmic_skills) $(cosmic_built)/skills/cosmic/
+	@$(cp) $(cosmic_main) $(cosmic_built)/main.lua
+	@$(cp) $(cosmic_args) $(cosmic_built)/.args
 	@$(cp) $(cosmos_lua_bin) $@
 	@chmod +x $@
 	$(call pack-cosmic,$@)

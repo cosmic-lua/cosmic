@@ -68,6 +68,27 @@ jobs:
             o/bootstrap/cosmic -e "assert(require(\"cosmic.quicksand.netns\").bring_up(\"lo\"))" \
               && exec sudo -u runner bin/make -j ci'
 
+  # Reproducibility gate (#733): build the binary twice from the same
+  # tree — the second time into a fresh output tree so the whole
+  # pipeline (compile, doc index, version stamp, pack) reruns — and
+  # cmp. Green proves the artifact is a pure function of the source
+  # tree; any future nondeterminism (timestamps, ordering, embedded
+  # strings) fails loudly instead of shipping. Same checkout, so the
+  # deliberate git-describe input stays constant.
+  reproducible:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: build twice and compare
+        shell: bash -x {0}
+        run: |
+          bin/make -j build
+          cp o/bin/cosmic cosmic-first
+          bin/make -j o=o2 build
+          cmp cosmic-first o2/bin/cosmic
+          echo "reproducible: PASS — double build is byte-identical"
+
   # Cross-OS smoke lane (#510 step 11). The full gate is Linux-only
   # (landlock-make), but the artifact is a fat APE binary shipped for six
   # OSes — of which releases previously exercised zero beyond Linux. Build
