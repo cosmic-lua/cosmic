@@ -16,8 +16,10 @@
      db:close()
 
  Binary values: wrap with `sqlite.blob(s)` to store with BLOB affinity
- (a bare Lua string always binds as TEXT). Opening sets a 5000ms busy
- timeout by default; see `OpenOptions`.
+ (a bare Lua string always binds as TEXT). Opening applies sensible
+ per-connection defaults — a 5000ms busy timeout, foreign_keys=ON,
+ and WAL journal mode with synchronous=NORMAL; each has an
+ `OpenOptions` field to tune or disable it.
 
 ## Types
 
@@ -101,22 +103,6 @@ local record Database
   --  Compile sql into a reusable Statement for manual bind/iterate;
   --  prefer query()/exec() unless you need statement reuse.
   prepare: function(self: Database, sql: string): Statement | nil, string
-end
-```
-
-### OpenOptions
-
- Options for opening a database.
-
-```teal
-local record OpenOptions
-  --  Busy timeout in milliseconds (default 5000). When another connection
-  --  holds a conflicting lock, statements wait up to this long before
-  --  failing with SQLITE_BUSY. Pass 0 to fail immediately (SQLite's raw
-  --  default).
-  busy_timeout_ms: integer
-  --  Open the database read-only (default false). The file must exist.
-  read_only: boolean
 end
 ```
 
