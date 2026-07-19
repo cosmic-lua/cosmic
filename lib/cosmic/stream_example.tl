@@ -5,6 +5,7 @@
 -- is an fd pipe Handle; a fetch.Reader or a child.Handle drains with the
 -- exact same code.
 local function Example_reader()
+  local check = require("cosmic.check")
   local fd = require("cosmic.fd")
   local stream = require("cosmic.stream")
 
@@ -21,7 +22,7 @@ local function Example_reader()
     return table.concat(parts)
   end
 
-  local p = fd.pipe() as fd.Pipe
+  local p = check.must(fd.pipe())
   p.writer:write("hello, ")
   p.writer:write("stream")
   p.writer:close()
@@ -35,6 +36,7 @@ end
 -- Example_writer demonstrates the Writer half: anything with
 -- write(data) -> bytes | nil, err accepts bytes the same way.
 local function Example_writer()
+  local check = require("cosmic.check")
   local fd = require("cosmic.fd")
   local stream = require("cosmic.stream")
 
@@ -43,7 +45,7 @@ local function Example_writer()
     return n
   end
 
-  local p = fd.pipe() as fd.Pipe
+  local p = check.must(fd.pipe())
   print(put(p.writer, "ten bytes!"))
   p.writer:close()
   print(p.reader:read())

@@ -62,8 +62,8 @@ local up, uerr = ns.bring_up("lo")
 if not up then io.stderr:write("bring_up: " .. tostring(uerr) .. "\n"); os.exit(1) end
 io.write("ok\n")
 ]])
-  local h = spawn.spawn({cosmic, script})
-  local __r1 = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, script}))
+  local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout
   -- An outer seccomp/pledge filter may SIGSYS the subprocess on unshare.
   -- Accept signal death as a skip.
@@ -71,7 +71,7 @@ io.write("ok\n")
     check.skip("netns unshare child died before reporting (outer sandbox)")
     return
   end
-  local s = out as string
+  local s = out
   assert(s:find("ok") or s:find("skipped"),
     "expected ok or skipped, got: " .. s)
   if s:find("skipped") then

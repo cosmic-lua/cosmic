@@ -37,8 +37,7 @@ end
 --- @return integer port, integer child pid (caller must proc.wait it)
 local function serve(responses: {string}): integer, integer
   local srv, port = net.listen_tcp("127.0.0.1", 0)
-  assert(srv ~= nil, "listen_tcp failed")
-  local s = srv as net.Socket
+  local s = check.must(srv, "listen_tcp failed")
   local pid = proc.fork()
   if pid == 0 then
     for _, resp in ipairs(responses) do

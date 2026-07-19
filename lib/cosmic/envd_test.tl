@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local envd = require("cosmic.envd")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
@@ -359,7 +360,7 @@ local function load_dir_capturing_stderr(dir: string): envd.LoadResult, string
   local result = envd.load_dir(dir)
   io.stderr:close()
   io.stderr = real_stderr
-  return result, fs.read(capture_path) as string
+  return result, check.must(fs.read(capture_path))
 end
 
 local function test_cosmic_debug_empty_not_enabled()

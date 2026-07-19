@@ -1,12 +1,12 @@
 #!/usr/bin/env cosmic
 --- Tests for fs_walk module (symlink cycle safety)
-local check = require("cosmic.check")
 local fs_walk = require("cosmic.fs.walk")
 local fs = require("cosmic.fs")
 local user = require("cosmic.user")
+local type FileIter = fs_walk.FileIter
 local type WalkAction = fs_walk.WalkAction
 
-local tmpdir = check.must(os.getenv("TEST_TMPDIR"))
+local tmpdir = os.getenv("TEST_TMPDIR") as string
 
 -- Helper: create a directory under tmpdir
 local function mksubdir(name: string): string
@@ -65,7 +65,9 @@ local function test_collect_all_symlink_cycle_terminates()
   write_file(fs.join(subdir, "real.txt"), "data")
   fs.symlink("..", fs.join(subdir, "loop"))
 
-  local files = check.must(fs_walk.collect_all(base), "collect_all should succeed")
+  local collected = fs_walk.collect_all(base)
+  assert(collected, "collect_all should succeed")
+  local files = collected as {string: any}
   -- Should contain sub/real.txt but NOT any path with loop/ in it
   for rel_path in pairs(files) do
     assert(not rel_path:match("loop"),
@@ -84,8 +86,7 @@ local function test_files_symlink_cycle_terminates()
   fs.symlink("..", fs.join(subdir, "loop"))
 
   local collected: {string} = {}
-  local iter, ierr = fs_walk.files(base, "*.lua")
-  for p in check.must(iter, ierr) do
+  for p in assert(fs_walk.files(base, "*.lua")) as FileIter do
     collected[#collected + 1] = p
     -- Safety: abort if we find more than a small number
     assert(#collected <= 10,
@@ -299,9 +300,9 @@ local function test_collect_success_has_no_error()
   local base = mksubdir("collect_ok")
   write_file(fs.join(base, "one.lua"), "-- 1")
   local results, err = fs_walk.collect(base, "*.lua")
-  local found = check.must(results, "collect should succeed")
+  assert(results, "collect should succeed")
   assert(err == nil, "no error expected on a clean walk, got " .. tostring(err))
-  assert(#found == 1, "expected exactly one match")
+  assert(#(results as {string}) == 1, "expected exactly one match")
 end
 test_collect_success_has_no_error()
 
@@ -311,8 +312,8 @@ test_collect_success_has_no_error()
 local function count_open_fds(): integer
   -- Exhausting the iterator closes its own handle as it goes.
   local n = 0
-  local it, ierr = fs_walk.files("/proc/self/fd")
-  for _ in check.must(it, ierr) do n = n + 1 end
+  local iter = assert(fs_walk.files("/proc/self/fd")) as FileIter
+  for _ in iter do n = n + 1 end
   return n
 end
 
@@ -328,8 +329,7 @@ local function test_files_early_break_closes_handles()
   end
 
   local before = count_open_fds()
-  local iter, ierr = fs_walk.files(base, "*.txt")
-  for p in check.must(iter, ierr) do
+  for p in assert(fs_walk.files(base, "*.txt")) as FileIter do
     assert(p, "expected a path")
     break -- abandon the iterator with directories still open
   end

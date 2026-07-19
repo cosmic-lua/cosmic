@@ -1,9 +1,10 @@
 --- Examples for the cosmic.fs module.
 
+local check = require("cosmic.check")
+
 -- Example demonstrating basic fs operations
 local function Example_basic()
   local fs = require("cosmic.fs")
-  local fs_types = require("cosmic.fs.types")
 
   -- Create a temp directory
   local tmpdir = fs.mkdtemp("/tmp/fs_example_XXXXXX")
@@ -23,8 +24,8 @@ local function Example_basic()
   end
 
   -- Check if it exists
-  local st = fs.stat(subdir)
-  if st and (st as fs_types.Stat):is_dir() then
+  local st = check.must(fs.stat(subdir))
+  if st:is_dir() then
     print("subdir is a directory")
   end
 

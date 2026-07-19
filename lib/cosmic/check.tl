@@ -124,6 +124,11 @@ end
 --- need `assert(x) as T` at every site. `must` centralizes that unsoundness
 --- behind a runtime nil check. Lua passes multiple returns through, so
 --- `must(fs.read(path))` fails with fs.read's own error string.
+--- CAVEAT: must returns ONLY the first value. Never wrap a call whose
+--- extra returns feed a generic-for (e.g. `fs.files`, whose 4th return
+--- is the to-be-closed guard that releases directory handles on early
+--- break) — keep `for p in assert(fs.files(d)) as fs.FileIter do` there,
+--- since assert forwards all four returns and must would drop the guard.
 --- @param v T? The fallible value (nil on failure)
 --- @param e string? Failure message; a `nil, err` pair fills this in
 --- @return T The value, known non-nil

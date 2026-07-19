@@ -323,7 +323,7 @@ local function test_stream_iterates_with_for_in()
   local stream = sse.events(mock_reader("data: a\n\ndata: b\n\n"))
   local seen: {string} = {}
   for event in stream.next do
-    table.insert(seen, (event as sse.Event).data)
+    table.insert(seen, check.must(event).data)
   end
   assert(#seen == 2 and seen[1] == "a" and seen[2] == "b",
     "stream.next must work as a for-in iterator")
@@ -348,17 +348,17 @@ local function test_events_from_socket_backed_reader()
 
   local s1, s2, serr = net.socketpair()
   assert(s1 ~= nil and s2 ~= nil, "socketpair failed: " .. tostring(serr))
-  local a = s1 as net.Socket
-  local b = s2 as net.Socket
+  local a = check.must(s1)
+  local b = s2
 
   assert(a:send("data: from a socket\n\nevent: ping\ndata: second\n\n"))
   a:close()
 
   local stream_events = sse.events(fd.wrap(b.fd))
-  local ev1 = stream_events.next() as sse.Event
+  local ev1 = check.must(stream_events.next())
   assert(ev1.data == "from a socket", "first event data: " .. tostring(ev1.data))
   assert(ev1.event == "message", "default event type")
-  local ev2 = stream_events.next() as sse.Event
+  local ev2 = check.must(stream_events.next())
   assert(ev2.data == "second", "second event data: " .. tostring(ev2.data))
   assert(ev2.event == "ping", "explicit event type")
   local done, derr = stream_events.next()

@@ -4,6 +4,8 @@
 --- cosmic.child. Output checks are omitted where the result depends on
 --- kernel support that varies by host.
 
+local check = require("cosmic.check")
+
 -- Example_available demonstrates the capability probe. Applications
 -- should gate box setup on available() so they degrade cleanly on
 -- kernels older than 5.13 and on non-Linux hosts. This example prints
@@ -48,8 +50,8 @@ assert(ll.restrict{
   },
 })
 ]]
-  local h = spawn.spawn({cosmic, "-e", script})
-  local _ = (h as spawn.Handle):wait()
+  local h = check.must(spawn.spawn({cosmic, "-e", script}))
+  local _ = h:wait()
 end
 
 -- Suppress unused warnings for examples

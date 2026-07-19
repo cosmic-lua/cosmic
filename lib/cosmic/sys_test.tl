@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local sys = require("cosmic.sys")
 
 -- host_os tests
@@ -146,9 +147,7 @@ test_sysconf_direct()
 -- uname tests
 
 local function test_uname_fields()
-  local uts, err = sys.uname()
-  assert(uts, "uname should succeed, got error: " .. tostring(err))
-  local u = uts as sys.Uname
+  local u = check.must(sys.uname())
   assert(type(u.sysname) == "string" and #u.sysname > 0,
     "uname.sysname should be a non-empty string")
   assert(type(u.nodename) == "string", "uname.nodename should be a string")

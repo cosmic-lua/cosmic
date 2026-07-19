@@ -1,6 +1,7 @@
 #!/usr/bin/env lua
 --- Tests for the embedded documentation module.
 
+local check = require("cosmic.check")
 local docs = require("cosmic.doc")
 local doc_types = require("cosmic.doc.types")
 
@@ -355,8 +356,7 @@ local function test_run_reexported_and_quick_example()
   local r = docs.run("cosmic.sqlite.query")
   assert(r, "run should return result")
   if r.ok then assert(r.output:match("query"), "should find query method") end
-  local index = docs.embedded_index()
-  local idx = index as doc_types.DocIndex
+  local idx = check.must(docs.embedded_index())
   local test_mod: string = nil
   for mod_name, mod_doc in pairs(idx.modules) do
     if mod_doc.examples and #mod_doc.examples > 0 then test_mod = mod_name; break end
