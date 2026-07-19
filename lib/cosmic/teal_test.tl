@@ -115,6 +115,68 @@ f({})
 end
 test_hint_index_any()
 
+-- The lax/strict contract, previously asserted only by docstring:
+-- --compile (default) is the permissive gradual-typing on-ramp; strict
+-- compile refuses everything --check-types refuses (type errors AND
+-- warnings) and generates from the checked AST.
+local function test_compile_lax_strict_contract()
+  -- Lax forgives UNKNOWNS (the plain-Lua on-ramp), not explicit
+  -- contradictions: an undeclared variable passes lax and fails strict.
+  local unknown = fs.join(tmpdir, "c_unknown.tl")
+  assert(fs.write(unknown, "print(xyzzy)\n"))
+  assert(teal.compile(unknown).ok,
+    "default compile is lax: unknown variables must not stop codegen")
+  local strict = teal.compile(unknown, {strict = true})
+  assert(not strict.ok, "strict compile must reject unknown variables")
+  assert(#strict.errors > 0 and strict.errors[1].severity == "error")
+  assert(not teal.check(unknown).ok, "check must reject what strict compile rejects")
+
+  -- An explicitly annotated contradiction fails both ways: lax still
+  -- checks what you declared.
+  local type_err = fs.join(tmpdir, "c_type_err.tl")
+  assert(fs.write(type_err, "local s: string = 42\nprint(s)\n"))
+  assert(not teal.compile(type_err).ok,
+    "even lax compile rejects an annotated contradiction")
+  assert(not teal.compile(type_err, {strict = true}).ok)
+
+  local warn_only = fs.join(tmpdir, "c_warn.tl")
+  assert(fs.write(warn_only, "local unused = 1\nprint(\"hi\")\n"))
+  assert(teal.compile(warn_only).ok,
+    "default compile must not fail on warnings")
+  local strict_warn = teal.compile(warn_only, {strict = true})
+  assert(not strict_warn.ok, "strict compile must fail on warnings, matching check")
+  assert(strict_warn.errors[1].severity == "warning",
+    "the failure should carry the warning issue")
+end
+test_compile_lax_strict_contract()
+
+-- A clean file must generate identical code both ways (same AST, same
+-- 5.4 target), and 5.4-only syntax must survive the strict path.
+local function test_strict_compile_codegen()
+  local clean = fs.join(tmpdir, "c_clean.tl")
+  assert(fs.write(clean,
+      "local function add(a: integer, b: integer): integer\n"
+      .. "  return a + b\n"
+      .. "end\n"
+      .. "print(add(1, 2))\n"))
+  local lax = teal.compile(clean)
+  local strict = teal.compile(clean, {strict = true})
+  assert(lax.ok and strict.ok, "clean file should compile both ways")
+  assert(lax.code == strict.code,
+    "lax and strict codegen of a clean file must be identical")
+
+  local closer = fs.join(tmpdir, "c_close.tl")
+  assert(fs.write(closer,
+      "local f <close> = assert(io.open(\"/dev/null\", \"r\"))\n"
+      .. "print(f ~= nil)\n"))
+  local sc = teal.compile(closer, {strict = true})
+  assert(sc.ok, "strict compile of <close> should pass: "
+    .. (sc.ok and "" or teal.format_issues(sc.errors)))
+  assert(sc.code:find("<close>", 1, true),
+    "strict compile must keep the 5.4 <close> attribute")
+end
+test_strict_compile_codegen()
+
 local function test_no_hint_for_plain_errors()
   -- A message outside every known trap must produce no hint at all.
   assert(teal.hint_for_message("unknown variable: x") == nil,

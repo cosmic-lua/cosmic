@@ -132,11 +132,11 @@ local function write_output(content: string, output: string, write_if_changed: b
   return 0
 end
 
---- Handle --compile flag.
-local function handle_compile(file: string, output?: string, write_if_changed?: boolean, include_dirs?: {string}): integer, string
+--- Handle --compile / --compile-strict flags.
+local function handle_compile(file: string, output?: string, write_if_changed?: boolean, include_dirs?: {string}, strict?: boolean): integer, string
   local span = instrument.begin("compile", file)
   local teal = require("cosmic.teal")
-  local result = teal.compile(file, {include_dirs = include_dirs})
+  local result = teal.compile(file, {include_dirs = include_dirs, strict = strict})
   local exit_code: integer
   local err_msg: string
   if result.ok then
@@ -457,7 +457,7 @@ local record HandlersModule
   load_script_file: function(script_path: string): function(...: any): any ... | nil, string
   run_docs: function(query: string): DocsRunResult
   handle_version: function(): integer
-  handle_compile: function(file: string, output?: string, write_if_changed?: boolean, include_dirs?: {string}): integer, string
+  handle_compile: function(file: string, output?: string, write_if_changed?: boolean, include_dirs?: {string}, strict?: boolean): integer, string
   handle_format: function(file: string, output?: string, write_if_changed?: boolean): integer, string
   handle_check_format: function(file: string): integer
   handle_check_types: function(file: string, include_dirs?: {string}): integer

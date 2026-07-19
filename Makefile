@@ -57,10 +57,11 @@ $(o)/%: %
 	@mkdir -p $(@D)
 	@$(cp) $< $@
 
-# compile .tl files to .lua (extension changes)
-$(o)/%.lua: %.tl $(types_files) $(tl_files) $(bootstrap_files)
+# compile .tl to .lua; flag from cook.mk's probe (strict-capable ->
+# hermetic LUA_PATH=";;", pre-flag -> tree LUA_PATH self-healing, #666).
+$(o)/%.lua: %.tl $(types_files) $(tl_files) $(bootstrap_files) $(compile_flag_stamp)
 	@mkdir -p $(@D)
-	@$(bootstrap_cosmic) $(include_dir_flags) --compile $< > $@.tmp
+	@f=$$(cat $(compile_flag_stamp)); if [ "$$f" = "--compile-strict" ]; then export LUA_PATH=";;"; fi; $(bootstrap_cosmic) $(include_dir_flags) $$f $< > $@.tmp
 	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 
 # tl files: modules declare _tl, derive compiled .lua outputs

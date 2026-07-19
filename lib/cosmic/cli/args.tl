@@ -12,6 +12,7 @@ local longopts: {getopt.LongOpt} = {
   {name = "version", has_arg = "none", short = "v"},
   {name = "help", has_arg = "none", short = "h"},
   {name = "compile", has_arg = "required"},
+  {name = "compile-strict", has_arg = "required"},
   {name = "format", has_arg = "required"},
   {name = "fix", has_arg = "required"},
   {name = "check-format", has_arg = "required"},
