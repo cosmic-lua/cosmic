@@ -1,9 +1,7 @@
 #!/usr/bin/env cosmic
 local check = require("cosmic.check")
 local dial = require("cosmic.quicksand.proxy.dial")
-local quicksand = require("cosmic.quicksand")
 local ip = require("cosmic.ip")
-local time = require("cosmic.time")
 
 -- SSRF protection: dialing a private / reserved literal must be
 -- refused after resolution, before any socket is opened. Covers
@@ -49,36 +47,23 @@ local function test_resolve_error_propagates()
 end
 test_resolve_error_propagates()
 
--- The bounded path forks a helper and ships the result (or error)
--- back over a pipe.
-local function test_resolve_bounded_roundtrip()
-  local c = quicksand.capabilities()
-  if not c.linux then return end
-  local got, err = dial.resolve("host.test", 2000,
+-- Bounded lookups are the C binding's job now (cosmo.ResolveIp's
+-- timeout_ms, cosmopolitan#199, where the deadline behavior is pinned
+-- against a tarpitted resolver upstream). At this layer: a deadline
+-- must not disturb the literal fast path, and a seam resolver's value
+-- comes back directly — no helper process, no pipe.
+local function test_resolve_literal_with_deadline()
+  local got, err = dial.resolve("8.8.8.8", 150, nil)
+  assert(got == check.must(ip.parse("8.8.8.8")):int(),
+    "literal must parse immediately under a deadline: " .. tostring(err))
+end
+test_resolve_literal_with_deadline()
+
+local function test_resolve_seam_value_returned_directly()
+  local got, err = dial.resolve("host.test", nil,
     function(_: string): integer, any
       return 1234
     end)
-  assert(got == 1234, "value should cross the pipe: " .. tostring(err))
-  got, err = dial.resolve("host.test", 2000,
-    function(_: string): integer, any
-      return nil, "nope"
-    end)
-  assert(got == nil and err == "nope",
-    "error should cross the pipe, got: " .. tostring(err))
+  assert(got == 1234, "seam value should return directly: " .. tostring(err))
 end
-test_resolve_bounded_roundtrip()
-
--- A resolver that outlives its deadline is SIGKILL'd and reported as
--- a timeout, so a tarpitting DNS server can't wedge a worker.
-local function test_resolve_timeout_kills_slow_resolver()
-  local c = quicksand.capabilities()
-  if not c.linux then return end
-  local got, err = dial.resolve("host.test", 150,
-    function(_: string): integer, any
-      time.sleep(30)
-      return 1
-    end)
-  assert(got == nil, "slow resolve should fail")
-  assert(err == "resolve timeout", "expected timeout, got: " .. tostring(err))
-end
-test_resolve_timeout_kills_slow_resolver()
+test_resolve_seam_value_returned_directly()

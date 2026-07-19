@@ -12,79 +12,34 @@ local cosmo = require("cosmo")
 local errno = require("cosmic.errno")
 
 --- Resolve `host` to an IPv4 integer. Literal IPs parse immediately;
---- otherwise the lookup goes through `resolver` (default
---- cosmo.ResolveIp, which uses the system resolver in the *current*
---- netns — call after setns() to the upstream namespace).
+--- hostnames go through cosmo.ResolveIp, which uses the system
+--- resolver in the *current* netns — call after setns() to the
+--- upstream namespace.
 ---
---- When `timeout_ms` is non-nil the lookup runs in a forked helper
---- and the parent polls the result pipe; past the deadline the helper
---- is SIGKILL'd and (nil, "resolve timeout") is returned, so a
---- hostile or tarpitting resolver can't wedge a per-connection worker
---- past its budget. Literal IPs skip the fork entirely.
+--- When `timeout_ms` is non-nil the lookup is bounded by the C
+--- binding's own deadline (cosmopolitan#199): past it, ResolveIp
+--- disowns its worker and returns a "DNS lookup timed out" error, so
+--- a hostile or tarpitting resolver can't wedge a per-connection
+--- worker past its budget. Literal IPs never wait.
 ---
 --- @param host string hostname or literal IPv4
 --- @param timeout_ms integer? resolution deadline (nil = unbounded)
---- @param resolver function? test seam returning (ip, err); defaults
----   to cosmo.ResolveIp
+--- @param resolver function? test seam returning (ip, err); called
+---   without a deadline — bounded lookups are the C binding's job
 --- @return integer? IPv4 address as an integer
 --- @return string? error message on failure
 local function resolve(host: string, timeout_ms: integer,
     resolver: function(string): integer, any): integer | nil, string
   local ip = cosmo.ParseIp(host)
   if ip and ip ~= -1 then return ip end
-  if not resolver then
-    resolver = cosmo.ResolveIp as function(string): integer, any -- cast: function shape
-  end
-  if not timeout_ms then
+  if resolver then
     local resolved, rerr = resolver(host)
     if not resolved then return nil, errno.str(rerr, "resolve") end
     return resolved
   end
-  local r, w = unix.pipe()
-  if not r then return nil, errno.str(w, "pipe") end
-  local rfd = r
-  local wfd = w
-  local pid, ferr = unix.fork()
-  if not pid then
-    unix.close(rfd)
-    unix.close(wfd)
-    return nil, errno.str(ferr, "fork")
-  end
-  if pid == 0 then
-    unix.close(rfd)
-    local resolved, rerr = resolver(host)
-    if resolved then
-      unix.write(wfd, "O" .. string.pack("<i8", resolved))
-    else
-      unix.write(wfd, "E" .. tostring(rerr or "resolve failed"))
-    end
-    unix.close(wfd)
-    unix.exit(0)
-  end
-  unix.close(wfd)
-  local fds: {integer: integer} = {}
-  fds[rfd] = unix.POLLIN
-  local ready = unix.poll(fds, timeout_ms)
-  -- cast: record union after guard
-  if not ready or not (ready as {integer: integer})[rfd] then
-    pcall(unix.kill, pid, unix.SIGKILL)
-    pcall(unix.wait, pid)
-    unix.close(rfd)
-    return nil, "resolve timeout"
-  end
-  -- Drain the pipe. The helper writes at most 9 bytes (1 status byte
-  -- + 8-byte packed int) on success, or "E" + a short error string.
-  local data = (unix.read(rfd, 4096) or "") as string -- cast: union survives or-default
-  unix.close(rfd)
-  pcall(unix.wait, pid)
-  local tag = data:sub(1, 1)
-  if tag == "O" and #data >= 9 then
-    return (string.unpack("<i8", data, 2))
-  end
-  if tag == "E" then
-    return nil, data:sub(2)
-  end
-  return nil, "resolve failed"
+  local resolved, rerr = cosmo.ResolveIp(host, timeout_ms)
+  if not resolved then return nil, rerr end
+  return resolved
 end
 
 --- Open a TCP connection to (host, port) in the namespace identified

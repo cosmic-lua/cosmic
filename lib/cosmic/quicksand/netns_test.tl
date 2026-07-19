@@ -80,7 +80,8 @@ io.write("ok\n")
 end
 test_unshare_subprocess()
 
--- get_flags/set_flags exercise the ifreq packing + SIOC* ioctls that
+-- get_flags/set_flags exercise the unix.siocgifflags/siocsifflags
+-- bindings (struct ifreq lives in C, cosmopolitan#199) that
 -- bring_up/bring_down are built on. Loopback exists in any namespace,
 -- but an outer sandbox may deny AF_INET sockets — tolerate that.
 local function test_get_flags_loopback()
@@ -101,9 +102,9 @@ local function test_get_flags_bad_interface()
 end
 test_get_flags_bad_interface()
 
--- A flag with the 0x8000 bit set must not overflow the ifreq packing:
--- "<i2" (signed) would raise "integer overflow" from string.pack, "<I2"
--- (unsigned) packs it cleanly. The interface is nonexistent so
+-- A flag with the 0x8000 bit set must pass through cleanly (the old
+-- Teal ifreq packing once overflowed signed 16-bit here, cosmic#431;
+-- the C binding stores it as uint16_t). The interface is nonexistent so
 -- SIOCSIFFLAGS can never mutate a real device, regardless of privilege.
 local function test_set_flags_high_bit_no_overflow()
   local ok, err = netns.set_flags("nope0", 0x8000)

@@ -155,9 +155,10 @@ local record Memory
   --- as a result of the system call. No failure conditions are defined.
   wake: function(self: Memory, index: integer, count?: integer): integer
   --- Releases the shared-memory mapping immediately, instead of waiting
-  --- for the garbage collector to do it. Idempotent: repeat calls are
-  --- no-ops. After unmap, calling any other method on this object raises
-  --- an error rather than touching the freed memory.
+  --- for the garbage collector to do it. Idempotent: returns true when
+  --- this call released the mapping and false when it was already
+  --- unmapped. After unmap, calling any other method on this object
+  --- raises an error rather than touching the freed memory.
   unmap: function(self: Memory): boolean
 end
 
@@ -2294,6 +2295,15 @@ local record unix
   bind: function(fd: integer, ip?: integer, port?: integer): boolean | nil, string, Errno
   --- Returns list of network adapter addresses.
   siocgifconf: function(): any, string, Errno
+  --- Reads the IFF_* flag bitmask of the named network interface
+  --- (SIOCGIFFLAGS). The `struct ifreq` ABI lives in C, so callers pass
+  --- the interface name instead of hand-packing kernel structs.
+  siocgifflags: function(ifname: string): integer | nil, string, Errno
+  --- Writes the IFF_* flag bitmask of the named network interface
+  --- (SIOCSIFFLAGS). Typically requires privilege (or a user namespace
+  --- that grants it, e.g. for bringing loopback up in a fresh netns).
+  --- Read-modify-write with `unix.siocgifflags` to change single bits.
+  siocsifflags: function(ifname: string, flags: integer): boolean | nil, string, Errno
   --- Tunes networking parameters.
   --- `level` and `optname` may be one of the following pairs. The ellipses
   --- type signature above changes depending on which options are used.
