@@ -407,7 +407,7 @@ local function load_index(source: string): DocIndex | nil, string
   if not chunk then return nil, "failed to parse index: " .. (err or "unknown") end
   local ok, result = pcall(chunk)
   if not ok then return nil, "failed to load index: " .. tostring(result) end
-  return result as DocIndex, nil
+  return result as DocIndex, nil -- cast: from any
 end
 
 -- The query half of the module (issue #557: `doc` and `docs` converged

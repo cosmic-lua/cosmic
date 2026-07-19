@@ -66,7 +66,7 @@ local function int(min: integer, max: integer): integer | nil, string
     end
     local v = 0
     for i = 1, nbytes do
-      v = v * 256 + string.byte(data as string, i)
+      v = v * 256 + string.byte(data, i)
     end
     if v < limit then
       return min + v % range
@@ -98,7 +98,7 @@ local function choice(list: {any}): any, string
   if not i then
     return nil, err
   end
-  return list[i as integer]
+  return list[i as integer] -- cast: nil not narrowed after guard
 end
 
 --- Shuffle a list in place with an unbiased Fisher-Yates pass
@@ -112,7 +112,7 @@ local function shuffle(list: {any}): {any} | nil, string
     if not j then
       return nil, err
     end
-    local jj = j as integer
+    local jj = j as integer -- cast: nil not narrowed after guard
     list[i], list[jj] = list[jj], list[i]
   end
   return list

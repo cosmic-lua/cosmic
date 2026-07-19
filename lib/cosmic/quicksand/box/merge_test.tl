@@ -19,7 +19,7 @@ local function test_list_concat_dedupe()
   local out = m.merge(
     {fs = {ro = {"/a", "/b"}}},
     {fs = {ro = {"/b", "/c"}}})
-  local ro = (out.fs as {string: any}).ro as {string}
+  local ro = (out.fs as {string: any}).ro as {string} -- cast: from any
   assert(#ro == 3, "got: " .. tostring(#ro))
   assert(ro[1] == "/a" and ro[2] == "/b" and ro[3] == "/c", "order+dedupe wrong")
 end
@@ -30,7 +30,7 @@ local function test_list_first_seen_wins_ordering()
   local out = m.merge(
     {fs = {rw = {"/tmp", "/work"}}},
     {fs = {rw = {"/work", "/cache"}}})
-  local rw = (out.fs as {string: any}).rw as {string}
+  local rw = (out.fs as {string: any}).rw as {string} -- cast: from any
   assert(rw[1] == "/tmp" and rw[2] == "/work" and rw[3] == "/cache")
 end
 test_list_first_seen_wins_ordering()
@@ -39,12 +39,12 @@ local function test_map_per_key_later_wins()
   local out = m.merge(
     {net = {allow = {["a:80"] = {}, ["b:80"] = {type = "bearer", token = "x"}}}},
     {net = {allow = {["b:80"] = {}, ["c:80"] = {}}}})
-  local allow = (out.net as {string: any}).allow as {string: any}
+  local allow = (out.net as {string: any}).allow as {string: any} -- cast: from any
   assert(allow["a:80"] ~= nil, "a:80 kept")
   assert(allow["b:80"] ~= nil, "b:80 kept")
   assert(allow["c:80"] ~= nil, "c:80 added")
   -- Later wins per key — b:80 should be the empty table, not the bearer one.
-  local b = allow["b:80"] as {string: any}
+  local b = allow["b:80"] as {string: any} -- cast: from any
   assert(b.type == nil, "b:80 should be overwritten, got type=" .. tostring(b.type))
 end
 test_map_per_key_later_wins()
@@ -53,10 +53,10 @@ local function test_env_set_and_keep()
   local out = m.merge(
     {env = {keep = {"PATH", "HOME"}, set = {FOO = "1"}}},
     {env = {keep = {"HOME", "TERM"}, set = {FOO = "2", BAR = "3"}}})
-  local env = out.env as {string: any}
-  local keep = env.keep as {string}
+  local env = out.env as {string: any} -- cast: from any
+  local keep = env.keep as {string} -- cast: from any
   assert(#keep == 3, "keep dedupe failed: " .. tostring(#keep))
-  local s = env.set as {string: string}
+  local s = env.set as {string: string} -- cast: from any
   assert(s.FOO == "2", "later wins")
   assert(s.BAR == "3")
 end
@@ -66,7 +66,7 @@ local function test_nested_proc_scalars()
   local out = m.merge(
     {proc = {uid = 1000, gid = 1000, pledge = "stdio"}},
     {proc = {uid = 2000}})
-  local p = out.proc as {string: any}
+  local p = out.proc as {string: any} -- cast: from any
   assert(p.uid == 2000, "later wins")
   assert(p.gid == 1000, "gid preserved")
   assert(p.pledge == "stdio", "pledge preserved")
@@ -84,8 +84,8 @@ test_nil_table_skipped()
 local function test_returns_fresh_table()
   local a: {string: any} = {fs = {ro = {"/usr"}}}
   local out = m.merge(a)
-  local ra = (a.fs as {string: any}).ro as {string}
-  local ro = (out.fs as {string: any}).ro as {string}
+  local ra = (a.fs as {string: any}).ro as {string} -- cast: from any
+  local ro = (out.fs as {string: any}).ro as {string} -- cast: from any
   table.insert(ro, "/etc")
   assert(#ra == 1, "source list mutated: " .. tostring(#ra))
 end

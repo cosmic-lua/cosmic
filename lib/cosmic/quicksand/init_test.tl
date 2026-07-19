@@ -178,7 +178,7 @@ end
 test_unveil_matches_landlock_on_linux()
 
 local function test_box_reexported()
-  local J = quicksand.Box as {string: any}
+  local J = quicksand.Box as {string: any} -- cast: record as map for introspection
   assert(J, "Box should be re-exported from cosmic.quicksand")
   assert(type(J.new) == "function")
   assert(type(J.merge) == "function")

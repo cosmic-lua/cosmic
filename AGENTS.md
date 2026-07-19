@@ -182,10 +182,12 @@ or map unions through truthiness (`if not x`). Three sanctioned tools:
   (`string | nil`) narrow normally, except method-call syntax: use
   `string.sub(x, …)` not `x:sub(…)` on a narrowed value.
 
-Total `as` casts are pinned per file by `lib/build/casts.txt` (the
-cast ratchet, enforced by `bin/make lint`): adding a cast means raising the
-pin deliberately; removing casts means running `bin/make casts-baseline`
-to lock the improvement in.
+Every `as` cast must carry a justification (enforced by `bin/make lint`):
+a line containing a cast needs `-- cast: <reason>` trailing on the line,
+or as a comment on the line directly above when the 90-column width
+won't fit it. Write the actual reason (`from any`, `userdata boundary`,
+`tuple element`, `mixed-representation Stat`, ...) — a cast you cannot
+justify is one to remove, via `is`, `check.must`, or a precise type.
 
 rules:
 - never throw from library code

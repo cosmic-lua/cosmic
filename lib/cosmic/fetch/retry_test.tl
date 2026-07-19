@@ -40,7 +40,7 @@ local function serve(responses: {string}): integer, integer
     for _, resp in ipairs(responses) do
       local conn = s:accept()
       if conn then
-        local c = conn as net.Socket
+        local c = conn as net.Socket -- cast: record union after guard
         if #resp > 0 then
           local buf = ""
           while not buf:find("\r\n\r\n", 1, true) do

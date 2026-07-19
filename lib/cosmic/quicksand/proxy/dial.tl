@@ -33,7 +33,7 @@ local function resolve(host: string, timeout_ms: integer,
   local ip = cosmo.ParseIp(host)
   if ip and ip ~= -1 then return ip end
   if not resolver then
-    resolver = cosmo.ResolveIp as function(string): integer, any
+    resolver = cosmo.ResolveIp as function(string): integer, any -- cast: function shape
   end
   if not timeout_ms then
     local resolved, rerr = resolver(host)
@@ -65,6 +65,7 @@ local function resolve(host: string, timeout_ms: integer,
   local fds: {integer: integer} = {}
   fds[rfd] = unix.POLLIN
   local ready = unix.poll(fds, timeout_ms)
+  -- cast: record union after guard
   if not ready or not (ready as {integer: integer})[rfd] then
     pcall(unix.kill, pid, unix.SIGKILL)
     pcall(unix.wait, pid)
@@ -73,7 +74,7 @@ local function resolve(host: string, timeout_ms: integer,
   end
   -- Drain the pipe. The helper writes at most 9 bytes (1 status byte
   -- + 8-byte packed int) on success, or "E" + a short error string.
-  local data = (unix.read(rfd, 4096) or "") as string
+  local data = (unix.read(rfd, 4096) or "") as string -- cast: union survives or-default
   unix.close(rfd)
   pcall(unix.wait, pid)
   local tag = data:sub(1, 1)

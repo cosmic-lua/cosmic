@@ -21,14 +21,14 @@ local blob_mt: metatable < Blob > = {}
 --- @param data string The raw bytes to bind as a BLOB
 --- @return Blob The marker wrapper recognized by every bind path
 local function blob(data: string): Blob
-  return setmetatable({data = data} as Blob, blob_mt)
+  return setmetatable({data = data}, blob_mt)
 end
 
 --- Report whether a value is a `blob()` wrapper.
 --- @param v any The value to test
 --- @return boolean true when v was produced by blob()
 local function is_blob(v: any): boolean
-  return getmetatable(v) == blob_mt as any
+  return getmetatable(v) == blob_mt as any -- cast: metatable identity compare
 end
 
 --- Bind one positional parameter, routing blob() wrappers to bind_blob.
@@ -37,10 +37,10 @@ end
 --- @param v any The value (or blob() wrapper) to bind
 --- @return number The sqlite result code from the bind call
 local function bind_at(raw_stmt: lsqlite3.Statement, i: integer, v: any): number
-  if getmetatable(v) == blob_mt as any then
-    return raw_stmt:bind_blob(i, (v as Blob).data)
+  if getmetatable(v) == blob_mt as any then -- cast: metatable identity compare
+    return raw_stmt:bind_blob(i, (v as Blob).data) -- cast: from any
   end
-  return raw_stmt:bind(i, v as string | number | boolean)
+  return raw_stmt:bind(i, v as string | number | boolean) -- cast: from any
 end
 
 local record M

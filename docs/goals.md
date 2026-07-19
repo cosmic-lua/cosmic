@@ -112,8 +112,9 @@ every type is checked, none asserted: drive Teal's narrowing and
 soundness gaps closed upstream-first (fork-if-blocked, the Cosmopolitan
 precedent) until the stdlib needs no `as` casts and no workaround
 doctrine. mechanisms that police the gap in the meantime — today, the
-cast pin in `lib/build/casts.txt` — are scaffolding, not goals: each
-retires when the gap it polices closes.
+per-site `-- cast: <reason>` justification enforced by `bin/make lint`
+— are scaffolding, not goals: each retires when the gap it polices
+closes.
 
 - **measured by:** total `as` casts in `lib/`, per release; the size of
   the narrowing doctrine in AGENTS.md.
@@ -127,8 +128,8 @@ user project with zero configuration: format gate, type check
 (warnings-as-errors), tests, example verification, and coverage
 ratcheting against a committed baseline. user projects inherit exactly
 the discipline cosmic applies to itself. (only durable gates transfer —
-scaffolding that polices a temporary toolchain gap, like the cast pin,
-does not; see G3.)
+scaffolding that polices a temporary toolchain gap, like cast
+justification, does not; see G3.)
 
 - **measured by:** a scaffolded project gets a meaningful `PASS`/`FAIL`
   verdict from one command with no setup; the eval suite's project

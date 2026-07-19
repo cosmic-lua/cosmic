@@ -15,7 +15,7 @@ local record LegacyGetopt
   parse: function(args: {string}, optstring: string, longopts: {table}): any, any
   new: function(args: {string}, optstring: string, longopts: {table}): any
 end
-local legacy = cosmo_getopt as LegacyGetopt
+local legacy = cosmo_getopt as LegacyGetopt -- cast: legacy binding surface
 
 --- Defines a long option with its name, argument behavior, and optional short alias.
 --- @field name string The long option name (e.g., "help" for --help)
@@ -119,7 +119,7 @@ local function parse(args: {string}, optstring: string, longopts?: {LongOpt}): R
   -- `unknown` here; the accurate split is only available on the native path,
   -- which is what the shipped binary uses.
   local result: Result = {opts = {}, args = {}, unknown = {}, missing = {}}
-  local p = legacy.new(args, optstring, raw_longopts) as Parser
+  local p = legacy.new(args, optstring, raw_longopts) as Parser -- cast: from any
   while true do
     local opt, optarg = p:next()
     if not opt then
@@ -145,11 +145,12 @@ end
 local function new(args: {string}, optstring: string, longopts?: {LongOpt}): Parser
   if legacy.new then
     -- Older cosmos: use the native iterator directly.
+    -- cast: from any
     return legacy.new(args, optstring, to_raw_longopts(longopts)) as Parser
   end
 
   -- Newer cosmos: replay parse() results through an iterator interface.
-  local r = parse(args, optstring, longopts) as Result
+  local r = parse(args, optstring, longopts) as Result -- cast: record union, nil handled
   local stream: {Option} = {}
   if r then
     for _, o in ipairs(r.opts) do

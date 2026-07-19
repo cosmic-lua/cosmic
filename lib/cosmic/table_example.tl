@@ -16,8 +16,8 @@ local function Example_deep_merge()
     debug = true,
   }
   local config = tbl.deep_merge(defaults, overrides)
-  print((config.limits as {string: any}).mem,
-    (config.limits as {string: any}).cpu, config.debug)
+  print((config.limits as {string: any}).mem, -- cast: from any
+    (config.limits as {string: any}).cpu, config.debug) -- cast: from any
   -- Output:
   -- 128	1	true
 end
@@ -27,10 +27,10 @@ end
 local function Example_deep_copy()
   local tbl = require("cosmic.table")
   local original: {string: any} = {settings = {theme = "dark"}}
-  local copy = tbl.deep_copy(original) as {string: any}
-  local copy_settings = copy.settings as {string: any}
+  local copy = tbl.deep_copy(original) as {string: any} -- cast: from any
+  local copy_settings = copy.settings as {string: any} -- cast: from any
   copy_settings.theme = "light"
-  print((original.settings as {string: any}).theme)
+  print((original.settings as {string: any}).theme) -- cast: from any
   -- Output:
   -- dark
 end

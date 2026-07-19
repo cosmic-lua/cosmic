@@ -35,9 +35,9 @@ end
 local function compile(pattern: string, flags?: integer): Regex | nil, string
   local result, err = re.compile(pattern, flags)
   if not result then
-    return nil, err as string
+    return nil, err
   end
-  return result as Regex
+  return result as Regex -- cast: userdata boundary
 end
 
 --- Search for pattern match in text (convenience function).
@@ -134,7 +134,7 @@ local function compile_for_iter(pattern: string, flags?: integer): Regex | nil, 
   if not regex then
     return nil, cerr
   end
-  local em = (regex as Regex):search("")
+  local em = (regex as Regex):search("") -- cast: record union after guard
   if em then
     return nil, "pattern matches the empty string (unsupported): " .. pattern
   end
@@ -187,7 +187,7 @@ local function findall(pattern: string, text: string, flags?: integer): {string}
     return nil, err
   end
   local out: {string} = {}
-  for i, sp in ipairs(spans as {Span}) do
+  for i, sp in ipairs(spans as {Span}) do -- cast: record union after guard
     out[i] = sp.m
   end
   return out
@@ -213,7 +213,7 @@ local function split(pattern: string, text: string, flags?: integer): {string} |
   end
   local out: {string} = {}
   local pos = 1
-  for _, sp in ipairs(spans as {Span}) do
+  for _, sp in ipairs(spans as {Span}) do -- cast: record union after guard
     out[#out + 1] = text:sub(pos, sp.s - 1)
     pos = sp.e + 1
   end
@@ -245,7 +245,7 @@ local function gsub(pattern: string, text: string, repl: Repl, flags?: integer):
   end
   local out: {string} = {}
   local pos = 1
-  for _, sp in ipairs(spans as {Span}) do
+  for _, sp in ipairs(spans as {Span}) do -- cast: record union after guard
     out[#out + 1] = text:sub(pos, sp.s - 1)
     if repl is string then
       out[#out + 1] = repl

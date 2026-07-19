@@ -45,13 +45,13 @@ local function mark_visibility(modules: {string: any})
     return
   end
   local public: {string: boolean} = {}
-  for _, name in ipairs((manifest as {string: {string}}).public) do
+  for _, name in ipairs((manifest as {string: {string}}).public) do -- cast: from any
     public["cosmic." .. name] = true
   end
   for name, module_doc in pairs(modules) do
     local is_cosmo = name == "cosmo" or name:match("^cosmo%.") ~= nil
     if not is_cosmo and not public[name] then
-      (module_doc as {string: any}).internal = true
+      (module_doc as {string: any}).internal = true -- cast: from any
     end
   end
 end
@@ -100,12 +100,12 @@ local function generate(files: {string}): string | nil, string
     local mod = modules[base_name]
     if mod then
       -- Merge examples into the module's examples
-      local mod_table = mod as {string: any}
-      local example_table = example_doc as {string: any}
+      local mod_table = mod as {string: any} -- cast: from any
+      local example_table = example_doc as {string: any} -- cast: from any
       if example_table.examples then
         mod_table.examples = mod_table.examples or {}
-        for _, ex in ipairs(example_table.examples as {any}) do
-          table.insert(mod_table.examples as {any}, ex)
+        for _, ex in ipairs(example_table.examples as {any}) do -- cast: from any
+          table.insert(mod_table.examples as {any}, ex) -- cast: from any
         end
       end
     else

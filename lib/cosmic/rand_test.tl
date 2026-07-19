@@ -101,7 +101,7 @@ local function test_int_invalid_args()
   assert(n == nil, "min > max should fail")
   assert(err and err:match("min"), "expected min/max error, got: " .. tostring(err))
 
-  n, err = rand.int(1.5 as integer, 3)
+  n, err = rand.int(1.5 as integer, 3) -- cast: deliberate invalid input
   assert(n == nil, "non-integer min should fail")
   assert(err, "expected error for non-integer min")
 
@@ -143,7 +143,7 @@ test_choice_picks_member()
 local function test_choice_covers_all()
   local seen: {string: boolean} = {}
   for _ = 1, 200 do
-    seen[assert(rand.choice({"x", "y", "z"})) as string] = true
+    seen[assert(rand.choice({"x", "y", "z"})) as string] = true -- cast: from any
   end
   assert(seen.x and seen.y and seen.z, "choice never produced some member in 200 draws")
 end
@@ -182,7 +182,7 @@ local function test_shuffle_actually_shuffles()
     for i = 1, 20 do
       list[i] = i
     end
-    assert(rand.shuffle(list as {any}))
+    assert(rand.shuffle(list as {any})) -- cast: widen {integer} to {any} param
     for i = 1, 20 do
       if list[i] ~= i then
         moved = true

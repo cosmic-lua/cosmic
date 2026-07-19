@@ -28,7 +28,7 @@ local function load_results(path: string): pt.Results, string
   if decoded == nil then
     return nil, path .. ": " .. tostring(jerr)
   end
-  local results = decoded as pt.Results
+  local results = decoded as pt.Results -- cast: from any
   if results.results == nil then
     return nil, path .. ": not a perf results file (missing 'results')"
   end

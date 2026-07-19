@@ -97,7 +97,7 @@ local function format_help(items: {Item}, options?: FormatOptions): string
   table.insert(output, "Targets:")
 
   for _, item in ipairs(targets) do
-    local pad_len = math.max(0, width - #item.name) as integer
+    local pad_len = math.max(0, width - #item.name) as integer -- cast: number to integer
     table.insert(output, "  " .. item.name .. string.rep(" ", pad_len) .. item.description)
   end
 
@@ -106,6 +106,7 @@ local function format_help(items: {Item}, options?: FormatOptions): string
     table.insert(output, "")
     table.insert(output, "Options:")
     for _, item in ipairs(vars) do
+      -- cast: number to integer
       local pad_len = math.max(0, width - #item.name) as integer
       table.insert(output, "  " .. item.name .. string.rep(" ", pad_len) .. item.description)
     end
@@ -146,7 +147,7 @@ if proc.is_main() then
   if err then
     io.stderr:write(err .. "\n")
   end
-  os.exit(exit_code as integer)
+  os.exit(exit_code as integer) -- cast: number to integer
 end
 
 -- Extract all .PHONY targets from makefile content

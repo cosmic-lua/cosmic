@@ -82,7 +82,7 @@ local Addr_mt: metatable < Addr > = {
     is_loopback = addr_is_loopback,
     is_private = addr_is_private,
     is_public = addr_is_public,
-  } as Addr,
+  } as Addr, -- cast: __index method table as record
   __tostring = function(self: Addr): string
     return cosmo.FormatIp(self._n)
   end,
@@ -92,7 +92,7 @@ local Addr_mt: metatable < Addr > = {
 }
 
 local function make_addr(n: integer): Addr
-  return setmetatable({_n = n} as Addr, Addr_mt)
+  return setmetatable({_n = n} as Addr, Addr_mt) -- cast: partial table into record
 end
 
 --- Wrap a raw integer as a typed Addr.
@@ -215,9 +215,9 @@ local function cidr_contains(self: Cidr, a: Addr | string): boolean, string
     if not parsed then
       return false, err
     end
-    n = (parsed as Addr):int()
+    n = (parsed as Addr):int() -- cast: record union after guard
   else
-    n = (a as Addr):int()
+    n = (a as Addr):int() -- cast: record union in is-else branch
   end
   return (n & cidr_mask(self._bits)) == self._n
 end
@@ -235,7 +235,7 @@ local Cidr_mt: metatable < Cidr > = {
     size = cidr_size,
     contains = cidr_contains,
     format = cidr_format,
-  } as Cidr,
+  } as Cidr, -- cast: __index method table as record
   __tostring = cidr_format,
   __eq = function(a: Cidr, b: Cidr): boolean
     return a._n == b._n and a._bits == b._bits
@@ -243,6 +243,7 @@ local Cidr_mt: metatable < Cidr > = {
 }
 
 local function make_cidr(n: integer, bits: integer): Cidr
+  -- cast: partial table into record
   return setmetatable({_n = n, _bits = bits} as Cidr, Cidr_mt)
 end
 
@@ -263,7 +264,7 @@ local function cidr(str: string): Cidr | nil, string
   if not base then
     return nil, err
   end
-  local bp = bits_part as string
+  local bp = bits_part
   if #bp > 2 or (#bp > 1 and bp:sub(1, 1) == "0") then
     return nil, "invalid CIDR prefix '" .. bp .. "' in: " .. str
   end
@@ -271,8 +272,8 @@ local function cidr(str: string): Cidr | nil, string
   if not bits or bits > 32 then
     return nil, "invalid CIDR prefix '" .. bp .. "' in: " .. str
   end
-  local b = bits as integer
-  local n = (base as Addr):int() & cidr_mask(b)
+  local b = bits
+  local n = (base as Addr):int() & cidr_mask(b) -- cast: record union after guard
   return make_cidr(n, b)
 end
 

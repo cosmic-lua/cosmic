@@ -92,7 +92,7 @@ local function validate_rule(key: string, rule: any): string
     return string.format("allowed_hosts[%q]: rule must be a table, true, "
       .. "or nil (got %s)", key, type(rule))
   end
-  local r = rule as {string: any}
+  local r = rule as {string: any} -- cast: from any
   local t = r["type"]
   if t == nil then return nil end
   if t == "bearer" then

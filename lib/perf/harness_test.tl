@@ -13,7 +13,7 @@ local function test_run_scenario_measures_and_checks()
         return "value"
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= "value" then
+        if res as string ~= "value" then -- cast: from any
           return false, "unexpected result"
         end
         return true
@@ -37,9 +37,10 @@ local function test_setup_result_reaches_fn_and_teardown()
         return {token = "abc"}
       end,
       fn = function(ctx: any): any
-        return (ctx as {string: string}).token
+        return (ctx as {string: string}).token -- cast: from any
       end,
       check = function(_: any, res: any): boolean, string
+        -- cast: from any
         return res as string == "abc", "token did not flow through"
       end,
       teardown = function(ctx: any)

@@ -266,7 +266,7 @@ test_memory_wait_retries_eintr_until_deadline()
 -- fallible method returns an error instead of touching freed memory, and
 -- wake wakes nothing.
 local function test_memory_unmap()
-  local mem = assert(shm.mapshared(64)) as shm.Memory
+  local mem = assert(shm.mapshared(64)) as shm.Memory -- cast: record union after guard
   assert(mem:store(0, 7))
   assert(mem:unmap() == true, "first unmap should release and say so")
   assert(mem:unmap() == false, "second unmap should be a no-op")

@@ -48,13 +48,13 @@ local function generate_modules(files: {string}): {string: any}
   local encoded = check.must(index.generate(files))
   local data, derr = codec.decode_lua_unsafe(encoded)
   assert(data, "index should decode: " .. tostring(derr))
-  return (data as {string: any}).modules as {string: any}
+  return (data as {string: any}).modules as {string: any} -- cast: from any
 end
 
 local function find_module(modules: {string: any}, suffix: string): {string: any}
   for name, mod in pairs(modules) do
     if name:match("%." .. suffix .. "$") or name == suffix then
-      return mod as {string: any}
+      return mod as {string: any} -- cast: from any
     end
   end
   return nil
@@ -65,7 +65,7 @@ local function test_examples_merge_into_module()
   local modules = generate_modules({widget_path, widget_example_path})
   local mod = find_module(modules, "widget")
   assert(mod, "widget module should be indexed")
-  local examples = mod.examples as {any}
+  local examples = mod.examples as {any} -- cast: from any
   assert(examples and #examples == 1,
     "widget_example should merge into the widget module")
   assert(find_module(modules, "widget_example") == nil,
@@ -80,7 +80,7 @@ local function test_orphan_example_registered()
   local modules = generate_modules({widget_path, orphan_example_path})
   local mod = find_module(modules, "orphan")
   assert(mod, "orphan example file should be indexed under its base name")
-  local examples = mod.examples as {any}
+  local examples = mod.examples as {any} -- cast: from any
   assert(examples and #examples == 1,
     "orphan examples should be addressable, not dropped")
 end

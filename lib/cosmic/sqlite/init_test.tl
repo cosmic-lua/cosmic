@@ -98,7 +98,7 @@ local function test_exec_multiple_params()
   for row in check.must(db:query("SELECT * FROM t")) do
     assert(row.a == "hello", "a should be 'hello'")
     assert(row.b == 42, "b should be 42")
-    assert(math.abs((row.c as number) - 3.14) < 0.001, "c should be ~3.14")
+    assert(math.abs((row.c as number) - 3.14) < 0.001, "c ~3.14") -- cast: from any
   end
   db:close()
 end
@@ -173,7 +173,7 @@ local function test_query_rows()
 
   local names: {string} = {}
   for row in check.must(db:query("SELECT * FROM t ORDER BY id")) do
-    table.insert(names, row.name as string)
+    table.insert(names, row.name as string) -- cast: from any
   end
 
   assert(#names == 3, "should get 3 rows")
@@ -191,7 +191,7 @@ local function test_query_with_params()
 
   local names: {string} = {}
   for row in check.must(db:query("SELECT * FROM t WHERE id > ? ORDER BY id", 1)) do
-    table.insert(names, row.name as string)
+    table.insert(names, row.name as string) -- cast: from any
   end
 
   assert(#names == 2, "should get 2 rows")
@@ -225,7 +225,7 @@ local function test_statement_values()
 
   assert(a == "hello", "first value should be 'hello'")
   assert(b == 42, "second value should be 42")
-  assert(math.abs((c as number) - 3.14) < 0.001, "third value should be ~3.14")
+  assert(math.abs((c as number) - 3.14) < 0.001, "third ~3.14") -- cast: from any
   stmt:close()
   db:close()
 end
@@ -395,7 +395,7 @@ local function test_multiple_params()
   for row in check.must(db:query("SELECT * FROM t")) do
     assert(row.a == "hello", "a should be 'hello'")
     assert(row.b == 42, "b should be 42")
-    assert(math.abs((row.c as number) - 3.14) < 0.001, "c should be ~3.14")
+    assert(math.abs((row.c as number) - 3.14) < 0.001, "c ~3.14") -- cast: from any
   end
   db:close()
 end
@@ -423,6 +423,7 @@ local function test_nested_queries()
   local results: {string} = {}
   for parent in check.must(db:query("SELECT * FROM parents ORDER BY id")) do
     for child in check.must(db:query("SELECT * FROM children WHERE parent_id = ? ORDER BY id", parent.id)) do
+      -- cast: from any
       table.insert(results, (parent.name as string) .. "->" .. (child.name as string))
     end
   end

@@ -72,14 +72,14 @@ local function run(argv: {string}, output_base: string): integer
     exit_code = 127
     stderr_content = err or "spawn failed"
   else
-    local r = result as child.Result
+    local r = result as child.Result -- cast: record union after guard
     stdout_content = r.stdout
     stderr_content = r.stderr
     -- Signal death is reported as the conventional 128+signal exit code.
     if r.code ~= nil then
       exit_code = r.code
     elseif r.signal ~= nil then
-      exit_code = (128 + r.signal) as integer
+      exit_code = (128 + r.signal) as integer -- cast: number to integer
     end
   end
 
@@ -177,13 +177,14 @@ local function report(paths: {string}): integer
       failed = failed + 1
       table.insert(results, {
           name = name,
-          exit_code = -1 as integer,
+          exit_code = -1,
           stdout = "",
           stderr = "cannot read .got file",
           status = "fail",
-          test_count = 0 as integer,
-        } as TestResult)
+          test_count = 0,
+        })
     else
+      -- cast: number to integer
       local exit_code = (tonumber(string.match(got_content, "^(%d+)")) or -1) as integer
 
       -- Read stdout and stderr

@@ -110,8 +110,7 @@ end
 test_ne_strings()
 
 local function test_ne_different_types()
-  -- eq/ne are generic, so a cross-type comparison is normally a
-  -- check-time error; cast to keep exercising the runtime behavior.
+  -- cast: cross-type ne is a check-time error; exercise runtime
   check.ne(1 as any, "1")
   check.ne(nil, false)
 end
@@ -330,7 +329,7 @@ test_must_uses_err_string_from_multi_return()
 
 local function test_must_default_message()
   local threw, msg = must_fail(function(): string
-      check.must(nil as string | nil)
+      check.must(nil as string | nil) -- cast: deliberate invalid input
       return ""
     end)
   assert(threw, "expected must to throw on nil")
@@ -352,7 +351,7 @@ test_eq_error_points_at_caller()
 local function with_enforce(on: boolean, f: function())
   local prev = env.get("COSMIC_ENFORCE")
   if on then env.set("COSMIC_ENFORCE", "1", true) else env.unset("COSMIC_ENFORCE") end
-  local ok, e = pcall(f as function(): any)
+  local ok, e = pcall(f as function(): any) -- cast: function shape
   if prev then env.set("COSMIC_ENFORCE", prev, true) else env.unset("COSMIC_ENFORCE") end
   if not ok then error(e, 0) end
 end

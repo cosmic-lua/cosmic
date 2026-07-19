@@ -12,7 +12,7 @@ local teal = require("cosmic.teal")
 local function test_tlconfig_matches_teal_defaults()
   local chunk, err = loadfile("tlconfig.lua")
   assert(chunk, "tlconfig.lua should load: " .. tostring(err))
-  local cfg = chunk() as {string: any}
+  local cfg = chunk() as {string: any} -- cast: from any
   assert(cfg, "tlconfig.lua should return a table")
 
   assert(cfg.gen_target == teal.DEFAULT_GEN_TARGET,
@@ -27,7 +27,7 @@ local function test_tlconfig_matches_teal_defaults()
   -- Every editor include dir must be one the compiled-in checker also
   -- searches (defaults or the Makefile's extra dirs), so the LSP and
   -- cosmic --check-types resolve the same types.
-  local cfg_dirs = cfg.include_dir as {string}
+  local cfg_dirs = cfg.include_dir as {string} -- cast: from any
   local blessed: {string: boolean} = {}
   for _, d in ipairs(teal.get_default_include_dirs()) do
     blessed[d] = true

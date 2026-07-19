@@ -126,12 +126,13 @@ local function collect_meta(samples: integer, min_secs: number): pt.Meta
     isa = csys.host_isa(),
     nproc = csys.nproc(),
   }
+  -- cast: from any
   meta.bin = os.getenv("PERF_BIN") or rawget(arg, -1) as string or "unknown"
   -- Resolved dynamically: cosmic.version only exists inside a built binary.
   local version_module = "cosmic.version"
   local vok, version = pcall(require, version_module)
   if vok then
-    local v = version as {string: string}
+    local v = version as {string: string} -- cast: from any
     meta.cosmic_version = v.cosmic
     meta.cosmos_version = v.cosmos
   end
@@ -147,7 +148,7 @@ local function load_module(name: string): pt.BenchModule, string
   if not ok then
     return nil, "require " .. name .. ": " .. tostring(mod)
   end
-  local bm = mod as pt.BenchModule
+  local bm = mod as pt.BenchModule -- cast: from any
   if bm == nil or bm.scenarios == nil then
     return nil, name .. ": not a bench module (missing scenarios())"
   end

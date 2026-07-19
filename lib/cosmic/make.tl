@@ -38,7 +38,7 @@ local function scan(dir: string): Project
     examples = {},
   }
 
-  local files = (fs.collect(dir, "*.tl") or {}) as {string}
+  local files = (fs.collect(dir, "*.tl") or {}) as {string} -- cast: or keeps nil union
   table.sort(files)
 
   for _, path in ipairs(files) do
@@ -231,4 +231,4 @@ return {
   scan = scan,
   generate = generate,
   run = run,
-} as MakeModule
+} as MakeModule -- cast: table to module record

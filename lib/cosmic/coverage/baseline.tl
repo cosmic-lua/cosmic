@@ -168,6 +168,7 @@ local function check(baseline_path: string, paths: {string}): integer
     io.stderr:write("coverage ratchet: " .. (perr or "malformed baseline") .. "\n")
     return 1
   end
+  -- cast: record union after guard
   local problems = compare(reports as {FileReport}, entries as {string: Entry}, total)
   if #problems > 0 then
     for _, p in ipairs(problems) do
@@ -191,7 +192,7 @@ local function write(paths: {string}): integer
     io.stderr:write((cerr or "coverage: no data") .. "\n")
     return 1
   end
-  io.write(render(reports as {FileReport}))
+  io.write(render(reports as {FileReport})) -- cast: record union after guard
   return 0
 end
 

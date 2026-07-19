@@ -7,7 +7,7 @@
 -- this tree's freshly compiled modules (the doc/index.tl pattern), so
 -- the delegation always runs THIS tree's style code, not the
 -- bootstrap's embedded copy. This file adds only the build-side
--- checks: the cast ratchet and the cosmo-require rule.
+-- checks: cast justification and the cosmo-require rule.
 local proc = require("cosmic.proc")
 local style = require("cosmic.cli.style")
 local tl = require("tl")
@@ -32,73 +32,58 @@ local function count_lines(path: string): integer
   return n
 end
 
--- Cast ratchet: per-file `as` cast counts, pinned by lib/build/casts.txt
--- (count<TAB>path, sorted; files absent from the list are pinned at 0).
--- Counting is token-exact via the Teal lexer, so casts inside strings and
--- comments never count. The pin is two-sided: growth fails (prefer `is`
--- narrowing, or raise the entry deliberately), and improvement fails until
--- the baseline is lowered (`bin/make casts-baseline`) so headroom cannot
--- accumulate for later regressions.
-local CASTS_BASELINE < const > = "lib/build/casts.txt"
-
-local function load_casts_baseline(): {string: integer}
-  local base: {string: integer} = {}
-  local f = io.open(CASTS_BASELINE, "r")
-  if not f then
-    return base
-  end
-  for line in f:lines() do
-    local n, path = line:match("^(%d+)\t(.+)$")
-    local count = n and tonumber(n)
-    if count then
-      base[path] = math.tointeger(count)
-    end
-  end
-  f:close()
-  return base
-end
-
-local function count_casts(content: string, file: string): integer
+-- Cast justification: every `as` cast is an unchecked hole in the type
+-- system, so each one must be deliberate and say why. A line containing a
+-- cast needs `-- cast: <reason>` either trailing on that line or as a
+-- comment on the line directly above (for lines the 90-column width cannot
+-- fit a trailing comment on). Detection is token-exact via the Teal lexer,
+-- so casts inside strings and comments never count. This replaced the
+-- count-ratchet (lib/build/casts.txt): a count pins how MANY holes exist,
+-- a justification records WHY each one does, with no baseline bookkeeping.
+local function cast_lines(content: string, file: string): {integer}
   local tokens = tl.lex(content, file)
   if not tokens then
-    return 0
+    return {}
   end
-  local n = 0
+  local seen: {integer: boolean} = {}
+  local lines: {integer} = {}
   for _, t in ipairs(tokens) do
-    if t.tk == "as" then
-      n = n + 1
+    if t.tk == "as" and not seen[t.y] then
+      seen[t.y] = true
+      table.insert(lines, t.y)
     end
   end
-  return n
+  return lines
 end
 
-local function check_cast_ratchet(file: string, content: string, base: {string: integer}): {Diagnostic}
-  local count = count_casts(content, file)
-  local pinned = base[file] or 0
-  if count > pinned then
-    return {{
-        file = file,
-        line = 1,
-        col = 1,
-        rule = "cast-ratchet",
-        message = string.format(
-          "%s has %d `as` casts (pinned at %d): prefer `x is Rec` narrowing"
-          .. " (see CLAUDE.md), or raise lib/build/casts.txt deliberately",
-          file, count, pinned),
-      }}
-  elseif count < pinned then
-    return {{
-        file = file,
-        line = 1,
-        col = 1,
-        rule = "cast-ratchet",
-        message = string.format(
-          "%s improved to %d `as` casts (pinned at %d): run"
-          .. " 'bin/make casts-baseline' to lock it in",
-          file, count, pinned),
-      }}
+local function is_justified(lines: {string}, y: integer): boolean
+  local here = lines[y]
+  if here and here:match("%-%- cast: %S") then
+    return true
   end
-  return {}
+  local above = lines[y - 1]
+  return above ~= nil and above:match("^%s*%-%- cast: %S") ~= nil
+end
+
+local function check_cast_justification(file: string, content: string,
+    lines: {string}): {Diagnostic}
+  local diagnostics: {Diagnostic} = {}
+  for _, y in ipairs(cast_lines(content, file)) do
+    if not is_justified(lines, y) then
+      table.insert(diagnostics, {
+          file = file,
+          line = y,
+          col = 1,
+          rule = "cast-justify",
+          message = string.format(
+            "%s:%d: `as` cast without justification: prefer `is` narrowing"
+            .. " or check.must (see CLAUDE.md); a deliberate cast takes a"
+            .. " trailing `-- cast: <reason>` (or on the line above)",
+            file, y),
+        })
+    end
+  end
+  return diagnostics
 end
 
 --- Tests and examples must use cosmic.* wrappers, never raw cosmo.* bindings
@@ -166,51 +151,17 @@ local function is_exempt(path: string): boolean
   return path:match("%.d%.tl$") ~= nil
 end
 
-local function write_casts_baseline(files: {string}): integer
-  local entries: {string} = {}
-  for _, file in ipairs(files) do
-    if file:match("%.tl$") and not is_exempt(file) then
-      local f = io.open(file, "r")
-      if f then
-        local content = f:read("*a")
-        f:close()
-        local count = count_casts(content or "", file)
-        if count > 0 then
-          table.insert(entries, string.format("%d\t%s", count, file))
-        end
-      end
-    end
-  end
-  table.sort(entries, function(a: string, b: string): boolean
-      return a:match("\t(.+)$") < b:match("\t(.+)$")
-    end)
-  local f = io.open(CASTS_BASELINE, "w")
-  if not f then
-    io.stderr:write("cannot write " .. CASTS_BASELINE .. "\n")
-    return 1
-  end
-  f:write(table.concat(entries, "\n"), "\n")
-  f:close()
-  print(string.format("wrote %s (%d files with casts)", CASTS_BASELINE, #entries))
-  return 0
-end
-
 local function main(...: string): integer
   local files: {string} = {...}
-  if files[1] == "--write-casts-baseline" then
-    table.remove(files, 1)
-    return write_casts_baseline(files)
-  end
   if #files == 0 then
-    io.stderr:write("usage: lint.lua [--write-casts-baseline] FILE...\n")
+    io.stderr:write("usage: lint.lua FILE...\n")
     return 1
   end
 
-  local casts_base = load_casts_baseline()
   local all_diagnostics: {Diagnostic} = {}
   for _, file in ipairs(files) do
     -- The standalone lint binary enforces file-length (run on all tracked
-    -- files), the cast ratchet (.tl files), and cosmo-require
+    -- files), cast justification (.tl files), and cosmo-require
     -- (tests/examples). Column-length and assert-order are enforced via
     -- --check-style on .tl files (same cosmic.cli.style implementation).
     if not is_exempt(file) then
@@ -224,14 +175,14 @@ local function main(...: string): integer
         if f then
           local content = f:read("*a")
           f:close()
-          for _, d in ipairs(check_cast_ratchet(file, content or "", casts_base)) do
+          local lines: {string} = {}
+          for line in ((content or "") .. "\n"):gmatch("([^\n]*)\n") do
+            lines[#lines + 1] = line
+          end
+          for _, d in ipairs(check_cast_justification(file, content or "", lines)) do
             table.insert(all_diagnostics, d)
           end
           if file:match("_test%.tl$") or file:match("_example%.tl$") then
-            local lines: {string} = {}
-            for line in ((content or "") .. "\n"):gmatch("([^\n]*)\n") do
-              lines[#lines + 1] = line
-            end
             for _, d in ipairs(check_cosmo_require(file, lines)) do
               table.insert(all_diagnostics, d)
             end
@@ -270,7 +221,6 @@ return {
   lint_file = style.lint_file,
   -- build-side checks
   check_cosmo_require = check_cosmo_require,
-  count_casts = count_casts,
-  check_cast_ratchet = check_cast_ratchet,
+  check_cast_justification = check_cast_justification,
   main = main,
 }

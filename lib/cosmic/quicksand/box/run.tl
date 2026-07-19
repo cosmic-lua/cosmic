@@ -42,13 +42,12 @@ local cenv = require("cosmic.env")
 
 local type BoxOptions = types.BoxOptions
 
--- The CLONE_* constants are declared `number` in the binding types;
--- bitwise composition needs integers, so convert once here.
-local NEWUSER < const > = unix.CLONE_NEWUSER as integer
-local NEWNET < const > = unix.CLONE_NEWNET as integer
-local NEWNS < const > = unix.CLONE_NEWNS as integer
-local NEWUTS < const > = unix.CLONE_NEWUTS as integer
-local NEWPID < const > = unix.CLONE_NEWPID as integer
+-- The CLONE_* constants are declared `number` in the binding types.
+local NEWUSER < const > = unix.CLONE_NEWUSER as integer -- cast: bitop needs integer
+local NEWNET < const > = unix.CLONE_NEWNET as integer -- cast: bitop needs integer
+local NEWNS < const > = unix.CLONE_NEWNS as integer -- cast: bitop needs integer
+local NEWUTS < const > = unix.CLONE_NEWUTS as integer -- cast: bitop needs integer
+local NEWPID < const > = unix.CLONE_NEWPID as integer -- cast: bitop needs integer
 
 local record CapsModule
   capabilities: function(): types.Capabilities
@@ -67,7 +66,7 @@ local function clone_flags(opts: BoxOptions): integer
   if opts == nil or opts.pid_ns ~= false then
     -- Lazy require: the umbrella re-exports Box, so a top-level
     -- require here would be a cycle.
-    local qs = require("cosmic.quicksand") as CapsModule
+    local qs = require("cosmic.quicksand") as CapsModule -- cast: from any
     if qs.capabilities().pid_ns then
       flags = flags | NEWPID
     end
@@ -192,7 +191,7 @@ local function supervisor(
   local net = opts and opts.net
   if net and net.allow then
     local h, perr = proxy.start({
-        bind_ip = cosmo.ParseIp("127.0.0.1") as integer,
+        bind_ip = cosmo.ParseIp("127.0.0.1") as integer, -- cast: number to integer
         bind_port = 0,
         -- NetRule and ProxyRule are the same nominal record now;
         -- proxy.start's rules.validate still runtime-checks raw config.
@@ -205,9 +204,7 @@ local function supervisor(
     if not h then
       die("proxy.start: " .. tostring(perr))
     end
-    -- tl 0.24.8 does not narrow the ProxyHandle | nil union through
-    -- the die() above; cast at the proven non-nil use site.
-    local handle = h as proxy.ProxyHandle
+    local handle = h as proxy.ProxyHandle -- cast: record union after guard (die)
     table.insert(sidecars, handle.pid)
     proxy_port = handle.port
   end

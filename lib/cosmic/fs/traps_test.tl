@@ -7,7 +7,7 @@ local fs = require("cosmic.fs")
 
 global TEST_TMPDIR: string
 
-local fsa = fs as {string: any}
+local fsa = fs as {string: any} -- cast: signature transition
 
 local function write_file(path: string, content: string, mode?: integer)
   assert(fs.write(path, content, mode))
@@ -26,6 +26,7 @@ local function test_copytree()
   -- symlink cycle: sub/loop -> .. must be recreated, not descended into
   assert(fs.symlink("..", fs.join(src, "sub", "loop")))
 
+  -- cast: from any
   local copytree = fsa.copytree as function(string, string): boolean, string
   assert(copytree, "fs.copytree should exist")
   local dst = fs.join(base, "dst")
@@ -47,6 +48,7 @@ end
 test_copytree()
 
 local function test_copytree_missing_src_errors()
+  -- cast: from any
   local copytree = fsa.copytree as function(string, string): boolean, string
   local ok, err = copytree(fs.join(TEST_TMPDIR, "nope"), fs.join(TEST_TMPDIR, "out"))
   assert(ok == false, "copytree of missing src must fail")
@@ -56,24 +58,25 @@ test_copytree_missing_src_errors()
 
 -- 2. tmpfile: Handle + path on the happy path; fs.mkstemp is gone.
 local function test_tmpfile_handle_and_path()
-  local tmpfile = fsa.tmpfile as function(string): any, string, string
+  local tmpfile = fsa.tmpfile as function(string): any, string, string -- cast: from any
   assert(tmpfile, "fs.tmpfile should exist")
   local h, path, err = tmpfile(fs.join(TEST_TMPDIR, "traps_XXXXXX"))
   assert(h, "tmpfile failed: " .. tostring(err))
-  local hh = h as {string: any}
+  local hh = h as {string: any} -- cast: from any
+  -- cast: from any
   assert((hh.write as function(any, string): number, string)(h, "via handle"))
-  assert((hh.close as function(any): boolean, string)(h))
+  assert((hh.close as function(any): boolean, string)(h)) -- cast: from any
   assert(fs.read(path) == "via handle", "fs.read sees what the Handle wrote")
   fs.unlink(path)
 end
 test_tmpfile_handle_and_path()
 
 local function test_tmpfile_default_template()
-  local tmpfile = fsa.tmpfile as function(): any, string, string
+  local tmpfile = fsa.tmpfile as function(): any, string, string -- cast: from any
   local h, path = tmpfile()
   assert(h, "tmpfile() with no template should create somewhere sane")
-  local hh = h as {string: any}
-  assert((hh.close as function(any): boolean, string)(h))
+  local hh = h as {string: any} -- cast: from any
+  assert((hh.close as function(any): boolean, string)(h)) -- cast: from any
   assert(fs.isfile(path), "returned path exists")
   fs.unlink(path)
 end
@@ -109,6 +112,7 @@ local function test_collect_matching_takes_lua_patterns()
   write_file(fs.join(dir, "x.txt"), "x")
   write_file(fs.join(dir, "y.lua"), "y")
 
+  -- cast: from any
   local collect_matching = fsa.collect_matching as function(string, string): {string} | nil, string
   assert(collect_matching, "fs.collect_matching should exist")
   local hits = check.must(collect_matching(dir, "%.txt$"))
@@ -144,9 +148,9 @@ local function test_dir_read_returns_d_type()
   assert(fsa.DT_DIR ~= nil, "fs.DT_DIR should be exported")
   assert(fsa.DT_REG ~= nil, "fs.DT_REG should be exported")
   local d = assert(fs.opendir(dir))
-  local dd = d as {string: any}
-  local read = dd.read as function(any): string, number
-  local close = dd.close as function(any)
+  local dd = d as {string: any} -- cast: signature transition
+  local read = dd.read as function(any): string, number -- cast: from any
+  local close = dd.close as function(any) -- cast: from any
   local kinds: {string: number} = {}
   while true do
     local name, kind = read(d)
@@ -166,7 +170,7 @@ test_dir_read_returns_d_type()
 local function test_access_defaults_to_exists()
   local path = fs.join(TEST_TMPDIR, "acc.txt")
   write_file(path, "here")
-  local access = fsa.access as function(string): boolean
+  local access = fsa.access as function(string): boolean -- cast: from any
   assert(access(path) == true, "access(path) with no mode means exists")
   assert(access(fs.join(TEST_TMPDIR, "missing.txt")) == false,
     "access on a missing path is false")

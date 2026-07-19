@@ -95,7 +95,7 @@ end
 
 local function test_set_level_rejects_runtime_garbage()
   reset("info")
-  local ok, err = log.set_level("verbose" as log.Level)
+  local ok, err = log.set_level("verbose" as log.Level) -- cast: deliberate invalid input
   assert(not ok, "expected rejection")
   assert(err and err:find("unknown log level: verbose", 1, true),
     "got: " .. tostring(err))

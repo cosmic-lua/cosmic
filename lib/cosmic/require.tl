@@ -230,7 +230,7 @@ end
 --- Install enhanced require globally.
 --- Call this early in startup to enable helpful error messages.
 local function install()
-  _G.require = enhanced_require as function(string): any
+  _G.require = enhanced_require as function(string): any -- cast: function shape
 end
 
 --- Restore original require.

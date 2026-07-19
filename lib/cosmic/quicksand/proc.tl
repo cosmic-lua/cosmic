@@ -231,10 +231,10 @@ local function become_init(main_pid: integer, opts: InitOptions): integer
   opts = opts or {}
   local sidecars: {integer} = opts.sidecars or {}
   local signals: {string} = opts.signals or DEFAULT_SIGNALS
-  local by_name = unix as {string: any}
+  local by_name = unix as {string: any} -- cast: constant lookup by name
 
   for _, s in ipairs(signals) do
-    local n = by_name[s] as integer
+    local n = by_name[s] as integer -- cast: from any
     if n then
       unix.sigaction(n, function()
           pcall(unix.kill, main_pid, n)

@@ -5,11 +5,11 @@ local tbl = require("cosmic.table")
 
 local function test_deep_copy_is_independent()
   local orig: {string: any} = {a = 1, nested = {b = {2, 3}}}
-  local copy = tbl.deep_copy(orig) as {string: any}
+  local copy = tbl.deep_copy(orig) as {string: any} -- cast: from any
   assert(tbl.deep_eq(orig, copy), "copy differs from original")
-  local copy_nested = copy.nested as {string: any}
+  local copy_nested = copy.nested as {string: any} -- cast: from any
   copy_nested.b = "mutated"
-  assert(tbl.deep_eq((orig.nested as {string: any}).b, {2, 3}),
+  assert(tbl.deep_eq((orig.nested as {string: any}).b, {2, 3}), -- cast: from any
     "mutating the copy leaked into the original")
 end
 
@@ -23,7 +23,7 @@ end
 local function test_deep_copy_preserves_cycles()
   local orig: {string: any} = {name = "root"}
   orig.self = orig
-  local copy = tbl.deep_copy(orig) as {string: any}
+  local copy = tbl.deep_copy(orig) as {string: any} -- cast: from any
   assert(copy.self == copy, "cycle not preserved")
   assert(copy ~= orig, "copy is the original")
   assert(copy.name == "root")
@@ -32,7 +32,7 @@ end
 local function test_deep_copy_preserves_shared_references()
   local shared: {number} = {1}
   local orig: {string: any} = {x = shared, y = shared}
-  local copy = tbl.deep_copy(orig) as {string: any}
+  local copy = tbl.deep_copy(orig) as {string: any} -- cast: from any
   assert(copy.x == copy.y, "shared reference duplicated")
   assert(copy.x ~= shared, "shared table not copied")
 end
@@ -40,7 +40,7 @@ end
 local function test_deep_copy_copies_table_keys()
   local key: {string: string} = {id = "k"}
   local orig: {any: any} = {[key] = "v"}
-  local copy = tbl.deep_copy(orig) as {any: any}
+  local copy = tbl.deep_copy(orig) as {any: any} -- cast: from any
   assert(copy[key] == nil, "table key was not copied")
   local found = false
   for k, v in pairs(copy) do
@@ -114,9 +114,9 @@ local function test_deep_merge_mutates_neither_input()
   local merged = tbl.deep_merge(base, override)
   assert(tbl.deep_eq(base, {limits = {mem = 64}}), "base mutated")
   assert(tbl.deep_eq(override, {limits = {cpu = 2}}), "override mutated")
-  local merged_limits = merged.limits as {string: any}
+  local merged_limits = merged.limits as {string: any} -- cast: from any
   merged_limits.mem = 999
-  assert((base.limits as {string: any}).mem == 64,
+  assert((base.limits as {string: any}).mem == 64, -- cast: from any
     "merge result shares tables with base")
 end
 
