@@ -56,7 +56,13 @@ local record Memory
   --  retries.
   wait: function(self: Memory, word_index: integer, expect: integer, abs_deadline?: integer, nanos?: integer): integer | nil, string
   --  Wake processes waiting on a word; returns how many woke.
+  --  Wakes nothing once the region has been unmapped.
   wake: function(self: Memory, word_index: integer, count?: integer): integer
+  --  Release the mapping now instead of waiting for the garbage
+  --  collector. Idempotent: true when this call released the mapping,
+  --  false when it was already unmapped. Afterwards every fallible
+  --  method returns an error naming the unmapped state (#493).
+  unmap: function(self: Memory): boolean
   --  The mapped region size in bytes.
   size: function(self: Memory): integer
 end
@@ -183,4 +189,10 @@ function mem:wait(word_index: integer, expect: integer, abs_deadline?: integer, 
 
 ```teal
 function mem:wake(word_index: integer, count?: integer): integer
+```
+
+### mem:unmap
+
+```teal
+function mem:unmap(): boolean
 ```

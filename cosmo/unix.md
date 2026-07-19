@@ -162,6 +162,11 @@ local record Memory
   --  The return value is the number of processes that were actually woken
   --  as a result of the system call. No failure conditions are defined.
   wake: function(self: Memory, index: integer, count?: integer): integer
+  --  Releases the shared-memory mapping immediately, instead of waiting
+  --  for the garbage collector to do it. Idempotent: repeat calls are
+  --  no-ops. After unmap, calling any other method on this object raises
+  --  an error rather than touching the freed memory.
+  unmap: function(self: Memory): boolean
 end
 ```
 
