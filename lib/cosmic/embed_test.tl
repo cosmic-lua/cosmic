@@ -170,8 +170,14 @@ local function test_embed_directory()
   assert(reader_maybe, "failed to open zip from data")
   local reader = reader_maybe as zip.Reader
 
+  -- A custom entry is wrapped (#687): main.lua is the generated
+  -- searcher-installing wrapper; the user entry is byte-identical at
+  -- main.user.lua.
   local c1 = reader:read("main.lua")
-  assert(c1 == 'print("hello")\n', "main.lua should be at zip root: " .. tostring(c1))
+  assert(c1 and string.find(c1, "cosmic-embed searcher wrapper", 1, true),
+    "main.lua should be the embed wrapper: " .. tostring(c1))
+  local cu = reader:read("main.user.lua")
+  assert(cu == 'print("hello")\n', "main.user.lua should hold the user entry: " .. tostring(cu))
 
   local c2 = reader:read("lib/util.lua")
   assert(c2 == 'return {x=1}\n', "lib/util.lua should be relative")
@@ -226,8 +232,8 @@ local function test_embed_mixed()
   assert(reader_maybe, "failed to open zip from data")
   local reader = reader_maybe as zip.Reader
 
-  local c1 = reader:read("main.lua")
-  assert(c1 == 'print("mixed")\n', "directory file should be present")
+  local c1 = reader:read("main.user.lua")
+  assert(c1 == 'print("mixed")\n', "directory entry should be present (wrapped, #687)")
 
   local extra_name = extra:gsub("^/+", "")
   local c2 = reader:read(extra_name)

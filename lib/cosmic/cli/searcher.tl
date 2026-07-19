@@ -58,11 +58,17 @@ local function cosmic_tl_searcher(module_name: string): any, any
   return chunk, found
 end
 
---- Append the searcher to package.searchers (no-op without searchers).
+local installed = false
+
+--- Append the searcher to package.searchers. Idempotent (the embed
+--- wrapper installs it before the app entry, which may itself be the
+--- dispatcher that installs it too); no-op without package.searchers.
 local function install()
-  if package.searchers then
-    table.insert(package.searchers, cosmic_tl_searcher)
+  if installed or not package.searchers then
+    return
   end
+  installed = true
+  table.insert(package.searchers, cosmic_tl_searcher)
 end
 
 local record SearcherModule

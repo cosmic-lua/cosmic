@@ -113,11 +113,15 @@ local function test_embed_overwrites_cleanly()
   local ok, out = __r7.ok, __r7.stdout
   assert(ok, "embed should succeed: " .. (out or ""))
 
-  -- The new zip should have main.lua with the new content
+  -- The custom entry is wrapped (#687): main.lua is the generated
+  -- searcher wrapper; the user content lives at main.user.lua.
   local new_data = fs.read(output)
   local new_reader = zip.from(new_data) as zip.Reader
   local new_main = new_reader:read("main.lua")
-  assert(new_main == 'print("new")\n', "main.lua should have new content: " .. tostring(new_main))
+  assert(new_main and string.find(new_main, "cosmic-embed searcher wrapper", 1, true),
+    "main.lua should be the embed wrapper: " .. tostring(new_main))
+  local user_main = new_reader:read("main.user.lua")
+  assert(user_main == 'print("new")\n', "main.user.lua should have the new content: " .. tostring(user_main))
 
   -- All original files should still be present
   for name in pairs(orig_files) do

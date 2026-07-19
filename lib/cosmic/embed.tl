@@ -19,7 +19,15 @@
 ---
 --- Directory contents are stored relative to the directory root, so
 --- myapp/main.lua becomes /zip/main.lua in the resulting executable.
---- Embedding a main.lua overrides the default entry point.
+--- Embedding a main.lua overrides the default entry point. A custom
+--- entry is stored byte-identical at /zip/main.user.lua behind a
+--- generated /zip/main.lua that first installs the cosmic runtime .tl
+--- searcher (#687) — so require() in embedded apps resolves .tl
+--- modules with the same guarantees as `cosmic script.tl` (markers
+--- resolve, compile errors fail the require, output cached), with no
+--- loader boilerplate in the app. An unmodified dispatcher main.lua
+--- (extract/re-embed roundtrip) and an already-wrapped entry pass
+--- through unchanged.
 ---
 --- The resulting executable keeps cosmic's bundled libraries, so embedded
 --- code can require("cosmic.fetch"), require("lsqlite3"), etc.
@@ -177,6 +185,64 @@ local function collect_dir(dir: string): {FileToEmbed} | nil, string
   return collected, nil
 end
 
+--- Sentinel first line of the generated entry wrapper; recognizing it
+--- keeps wrapping idempotent across extract/embed roundtrips.
+local WRAP_SENTINEL < const > = "-- cosmic-embed searcher wrapper (#687); app entry: /zip/main.user.lua"
+
+--- The generated /zip/main.lua: install the cosmic runtime .tl
+--- searcher, then run the byte-identical user entry.
+local WRAP_MAIN < const > = WRAP_SENTINEL .. "\n" .. [[
+require("cosmic.cli.searcher").install()
+local chunk = assert(loadfile("/zip/main.user.lua"))
+return chunk(...)
+]]
+
+--- Wrap a user-supplied main.lua behind the searcher-installing entry.
+--- Mutates files_to_embed in place: the user entry moves to
+--- main.user.lua and the generated wrapper becomes main.lua. Skipped
+--- when the embedded main.lua is the source executable's own (an
+--- unmodified dispatcher roundtrip) or already the wrapper.
+--- @param files_to_embed {FileToEmbed} Collected entries (mutated)
+--- @param exe_path string Source executable (for the roundtrip check)
+--- @return string|nil Error message, or nil
+local function wrap_user_main(files_to_embed: {FileToEmbed}, exe_path: string): string | nil
+  local main_entry: FileToEmbed = nil
+  local has_user_slot = false
+  for _, f in ipairs(files_to_embed) do
+    if f.stored_name == "main.lua" then
+      main_entry = f
+    elseif f.stored_name == "main.user.lua" then
+      has_user_slot = true
+    end
+  end
+  if not main_entry then
+    return nil
+  end
+  if main_entry.content:sub(1, #WRAP_SENTINEL) == WRAP_SENTINEL then
+    return nil -- already wrapped (extract/embed roundtrip)
+  end
+  local exe_reader = czip.reader(exe_path)
+  if exe_reader ~= nil then
+    local rd = exe_reader as czip.Reader
+    local exe_main = rd:read("main.lua")
+    rd:close()
+    if exe_main == main_entry.content then
+      return nil -- unmodified dispatcher entry: keep the roundtrip exact
+    end
+  end
+  if has_user_slot then
+    return "error: main.user.lua is reserved by the embed entry wrapper (#687); rename that file"
+  end
+  main_entry.stored_name = "main.user.lua"
+  files_to_embed[#files_to_embed + 1] = {
+    path = "main.lua",
+    content = WRAP_MAIN,
+    stored_name = "main.lua",
+    mode = tonumber("644", 8),
+  }
+  return nil
+end
+
 --- Embed files and directories into a copy of the cosmic executable.
 --- Creates a new executable with the given paths appended to the zip archive.
 --- Paths can be files or directories. Directories are walked recursively and
@@ -236,6 +302,11 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
 
   if #files_to_embed == 0 then
     return {ok = false, message = "error: no files found to embed", file_count = 0}
+  end
+
+  local wrap_err = wrap_user_main(files_to_embed, exe_path)
+  if wrap_err then
+    return {ok = false, message = wrap_err, file_count = 0}
   end
 
   -- Build in a temp file, then atomically rename into place.
