@@ -53,9 +53,10 @@ local record tl
   lex: function(string, string): {Token}, {Error}
   parse_program: function({Token}, {Error}, ? string, ? string): any, {string}
   -- always returns a Result; parse/check failures land in its
-  -- syntax_errors/type_errors fields, never in a second return
-  -- (5th upstream param _module_name is unused and omitted here)
-  process_string: function(string, boolean, any, string): Result
+  -- syntax_errors/type_errors fields, never in a second return.
+  -- Upstream requires the 5th param (_module_name); it is unused,
+  -- so it is declared optional here for 4-arg cosmic call sites
+  process_string: function(string, boolean, any, string, ? string): Result
   -- second argument is the generation TARGET string ("5.4"), not an
   -- options table; returns nil plus an error on codegen failure
   generate: function(any, string, ? any): string, string
