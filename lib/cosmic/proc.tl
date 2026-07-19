@@ -202,6 +202,7 @@ local function posix_spawnp(prog: string, argv: {string}, envp?: {string}): inte
 end
 
 --- Waits for a child process to change state.
+--- A raw passthrough: EINTR surfaces here, unlike child.Handle:wait (#595).
 --- @param pid integer? Child pid to wait for (-1 or nil for any child)
 --- @param options integer? Wait options (e.g. WNOHANG)
 --- @return integer | nil The pid that changed state (0 with WNOHANG if none), or nil on failure

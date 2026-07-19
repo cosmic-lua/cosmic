@@ -218,3 +218,44 @@ local function test_memory_wait_wrong_expect_returns_eagain()
     "wait error should name EAGAIN, got: " .. tostring(err))
 end
 test_memory_wait_wrong_expect_returns_eagain()
+
+-- #595 signal-safety wave: a futex wait interrupted by a signal is retried
+-- automatically — the absolute deadline keeps the timeout exact across
+-- retries, so the wait ends in ETIMEDOUT, never EINTR.
+local function test_memory_wait_retries_eintr_until_deadline()
+  local signal = require("cosmic.signal")
+  local time = require("cosmic.time")
+  local mem = assert(shm.mapshared(64)) as shm.Memory
+  mem:store(0, 0)
+  local old_handler = signal.sigaction(signal.SIGALRM, function(_: number) end)
+  -- Interval timer: interrupts the wait several times before the deadline.
+  signal.setitimer({
+      which = signal.ITIMER_REAL,
+      valuesec = 0,
+      valuens = 30000000,
+      intervalsec = 0,
+      intervalns = 30000000,
+    })
+  local secs, nanos = time.now()
+  nanos = nanos + 200000000
+  if nanos >= 1000000000 then
+    secs = secs + 1
+    nanos = nanos - 1000000000
+  end
+  local rc, err = mem:wait(0, 0, secs, nanos)
+  -- Disarm and restore before asserting so a failure can't leave a
+  -- ticking timer behind.
+  signal.setitimer({
+      which = signal.ITIMER_REAL,
+      valuesec = 0,
+      valuens = 0,
+      intervalsec = 0,
+      intervalns = 0,
+    })
+  signal.sigaction(signal.SIGALRM, old_handler)
+  assert(rc == nil, "wait on an unchanged word should time out")
+  assert(type(err) == "string" and err:match("ETIMEDOUT"),
+    "interrupted wait should retry to the deadline (ETIMEDOUT), got: "
+    .. tostring(err))
+end
+test_memory_wait_retries_eintr_until_deadline()

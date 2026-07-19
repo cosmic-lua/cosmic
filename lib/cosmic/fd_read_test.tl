@@ -63,6 +63,46 @@ local function test_nonblocking_pipe_read_names_eagain()
 end
 test_nonblocking_pipe_read_names_eagain()
 
+-- #595 signal-safety wave: a blocking read interrupted by a signal is
+-- retried automatically instead of surfacing EINTR. Pending Lua signal
+-- handlers run between retries — this handler supplies the payload the
+-- retried read then returns.
+local function test_blocking_read_retries_eintr()
+  local signal = require("cosmic.signal")
+  local p = assert(cfd.pipe()) as cfd.Pipe
+  local fired = false
+  local old_handler = signal.sigaction(signal.SIGALRM, function(_: number)
+      if not fired then
+        fired = true
+        p.writer:write("x")
+      end
+    end)
+  -- Interval timer: keeps firing until the blocked read observes a signal,
+  -- so the test cannot hang however the timing lands.
+  signal.setitimer({
+      which = signal.ITIMER_REAL,
+      valuesec = 0,
+      valuens = 30000000,
+      intervalsec = 0,
+      intervalns = 30000000,
+    })
+  local data, err = p.reader:read(10)
+  -- Disarm and restore before asserting so a failure can't leave a
+  -- ticking timer behind.
+  signal.setitimer({
+      which = signal.ITIMER_REAL,
+      valuesec = 0,
+      valuens = 0,
+      intervalsec = 0,
+      intervalns = 0,
+    })
+  signal.sigaction(signal.SIGALRM, old_handler)
+  assert(data == "x", "interrupted read should retry and return the handler's"
+    .. " payload, got " .. tostring(data) .. " (err: " .. tostring(err) .. ")")
+  p:close()
+end
+test_blocking_read_retries_eintr()
+
 -- The system-wide sync(2) belongs to fs, not fd (no alias, pre-stable).
 local function test_sync_moved_to_fs()
   assert((cfd as {string: any}).sync == nil, "fd.sync should be gone")

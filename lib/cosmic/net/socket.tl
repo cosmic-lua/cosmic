@@ -5,6 +5,7 @@
 --- of the public surface (wrap C-boundary integers with ip.addr()).
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").str
+local errno_is = require("cosmic.errno").is
 local ip = require("cosmic.ip")
 
 --- An address the socket layer accepts: a dotted-quad string
@@ -28,7 +29,10 @@ end
 
 --- Socket handle for network I/O.
 --- Sockets are BLOCKING by default: recv and accept wait until data or a
---- connection arrives. Supports Lua 5.4's to-be-closed via __close.
+--- connection arrives. Blocking calls interrupted by a signal are retried
+--- automatically (the signal-safety wave, #595; policy in cosmic.stream)
+--- — except connect, see its doc. Use set_timeout or poll for
+--- interruptible waits. Supports Lua 5.4's to-be-closed via __close.
 local stream = require("cosmic.stream")
 
 local record Socket is stream.Reader, stream.Writer
@@ -87,7 +91,10 @@ local record Socket is stream.Reader, stream.Writer
   --- Accept one connection (blocks until a client connects).
   --- Returns the connection socket, peer Addr, peer port.
   accept: function(self: Socket, flags?: integer): Socket | nil, ip.Addr, integer, string
-  --- Connect to addr:port.
+  --- Connect to addr:port. The one blocking call NOT retried on EINTR:
+  --- POSIX keeps the connection attempt going in the background after a
+  --- signal, so a blind retry would fail with EALREADY. On EINTR, poll
+  --- the socket for writability to learn the outcome.
   connect: function(self: Socket, addr: Address, port: integer): boolean, string
   --- Connect to a unix-domain socket path.
   connect_unix: function(self: Socket, path: string): boolean, string
@@ -146,7 +153,10 @@ local function make_socket(fd: integer): Socket
   -- per-OS flag, so ORing it in is portable.
   function sock:send(data: string, flags?: integer): integer | nil, string
     if not self.fd then return nil, "socket closed" end
-    local n, err = unix.send(self.fd, data, (flags or 0) | unix.MSG_NOSIGNAL)
+    local n, err, eno = unix.send(self.fd, data, (flags or 0) | unix.MSG_NOSIGNAL)
+    while n == nil and errno_is(eno, "EINTR") do
+      n, err, eno = unix.send(self.fd, data, (flags or 0) | unix.MSG_NOSIGNAL)
+    end
     if not n then
       return nil, errstr(err, "send")
     end
@@ -171,7 +181,10 @@ local function make_socket(fd: integer): Socket
     if not raw then
       return nil, aerr
     end
-    local n, err = unix.sendto(self.fd, data, raw, port, (flags or 0) | unix.MSG_NOSIGNAL)
+    local n, err, eno = unix.sendto(self.fd, data, raw, port, (flags or 0) | unix.MSG_NOSIGNAL)
+    while n == nil and errno_is(eno, "EINTR") do
+      n, err, eno = unix.sendto(self.fd, data, raw, port, (flags or 0) | unix.MSG_NOSIGNAL)
+    end
     if not n then
       return nil, errstr(err, "sendto")
     end
@@ -184,7 +197,10 @@ local function make_socket(fd: integer): Socket
 
   function sock:recv(bufsiz?: integer, flags?: integer): string | nil, string
     if not self.fd then return nil, "socket closed" end
-    local data, err = unix.recv(self.fd, bufsiz or 65536, flags or 0)
+    local data, err, eno = unix.recv(self.fd, bufsiz or 65536, flags or 0)
+    while data == nil and errno_is(eno, "EINTR") do
+      data, err, eno = unix.recv(self.fd, bufsiz or 65536, flags or 0)
+    end
     if not data then
       return nil, errstr(err, "recv")
     end
@@ -230,7 +246,10 @@ local function make_socket(fd: integer): Socket
     while true do
       -- Peek without consuming, then consume exactly through the newline,
       -- so bytes past the line stay readable by recv/recv_exact.
-      local data, err = unix.recv(self.fd, 4096, unix.MSG_PEEK)
+      local data, err, eno = unix.recv(self.fd, 4096, unix.MSG_PEEK)
+      while data == nil and errno_is(eno, "EINTR") do
+        data, err, eno = unix.recv(self.fd, 4096, unix.MSG_PEEK)
+      end
       if not data then
         return nil, errstr(err, "readline")
       end
@@ -277,6 +296,9 @@ local function make_socket(fd: integer): Socket
   function sock:recvfrom(bufsiz?: integer, flags?: integer): string | nil, ip.Addr, integer, string
     if not self.fd then return nil, nil, nil, "socket closed" end
     local data, sender, port = unix.recvfrom(self.fd, bufsiz or 65536, flags or 0)
+    while data == nil and errno_is(port, "EINTR") do
+      data, sender, port = unix.recvfrom(self.fd, bufsiz or 65536, flags or 0)
+    end
     if not data then
       -- On failure the binding returns (nil, err, errno): the error string
       -- arrives in the second slot, where the sender ip would have been.
@@ -345,6 +367,9 @@ local function make_socket(fd: integer): Socket
   function sock:accept(flags?: integer): Socket | nil, ip.Addr, integer, string
     if not self.fd then return nil, nil, nil, "socket closed" end
     local clientfd, peer, port = unix.accept(self.fd, flags or 0)
+    while clientfd == nil and errno_is(port, "EINTR") do
+      clientfd, peer, port = unix.accept(self.fd, flags or 0)
+    end
     if not clientfd then
       -- On failure the binding returns (nil, err, errno): the error string
       -- arrives in the second slot, where the peer ip would have been.
