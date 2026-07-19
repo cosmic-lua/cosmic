@@ -21,8 +21,9 @@ export FETCH_O := $(CURDIR)/$(o)/fetched
 TMP ?= /tmp
 export TMPDIR := $(TMP)
 
-# Platform for build scripts (all deps use wildcard "*" platform)
-platform := linux-x86_64
+# Platform tag for fetch/stage matching and TEST_PLATFORM. All deps pin
+# "*" today; derived so a non-wildcard dep cannot mis-fetch cross-OS (#721)
+platform := $(shell uname -s | tr '[:upper:]' '[:lower:]')-$(shell uname -m)
 
 ## INCLUDE_DIRS: directories to search for type definitions (repeatable)
 INCLUDE_DIRS ?= lib
@@ -52,7 +53,7 @@ include 3p/tl/cook.mk
 help: $(build_files) | $(bootstrap_cosmic)
 	@LUA_PATH="$(tree_lua_path)" $(bootstrap_cosmic) $(build_help) $(MAKEFILE_LIST)
 
-## Filter targets by pattern (make test only=teal)
+## Filter targets by substring (make test only=teal; also narrows fetch/stage)
 filter-only = $(if $(only),$(foreach f,$1,$(if $(findstring $(only),$(f)),$(f))),$1)
 
 cp := cp -p
@@ -145,7 +146,8 @@ export TEST_BIN := $(o)/bin
 # exported (#720): the ambient export was the root of the stale-stdlib
 # bug class (#666, #608) — recipes opt in via LUA_PATH="$(tree_lua_path)";
 # everything else runs against the binary's embedded copy.
-space := $(subst ,, )
+empty :=
+space := $(empty) $(empty)
 lua_path_dirs := $(foreach m,$(modules),$($(m)_lua_dirs))
 tree_lua_path := $(subst $(space),;,$(foreach d,$(lua_path_dirs),$(CURDIR)/$(d)/?.lua $(CURDIR)/$(d)/?/init.lua));;
 export NO_COLOR := 1
@@ -495,6 +497,4 @@ ci:
 	done
 	@if [ -f $(o)/failed ]; then echo "ci: FAIL ($$(paste -sd' ' $(o)/failed))"; exit 1; else echo "ci: PASS"; fi
 
-debug-modules:
-	@echo $(modules)
 
