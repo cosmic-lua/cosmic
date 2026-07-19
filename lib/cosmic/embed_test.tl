@@ -261,6 +261,37 @@ local function test_embed_directory_executable()
 end
 test_embed_directory_executable()
 
+-- An app can require its own embedded modules beside main.lua with no
+-- configuration (#690): .lua via the wrapper's package.path prepend,
+-- .tl via the searcher's /zip include dir. A broken embedded .tl fails
+-- the require with the compile issue (the #681 guarantee, in-app).
+local function test_embed_app_local_requires()
+  local appdir = fs.join(tmpdir, "localmods")
+  fs.makedirs(appdir)
+  fs.write(fs.join(appdir, "greet.tl"),
+    'local function hi(n: string): string\n  return "hi " .. n\nend\n'
+    .. "return { hi = hi }\n")
+  fs.write(fs.join(appdir, "util.lua"), 'return { v = "lua-mod" }\n')
+  fs.write(fs.join(appdir, "bad.tl"), "local x: string = 42\nreturn { x = x }\n")
+  fs.write(fs.join(appdir, "main.lua"),
+    'print(require("greet").hi("zip"), require("util").v)\n'
+    .. 'local ok, err = pcall(require, "bad")\n'
+    .. 'print("bad:", ok, err)\n')
+
+  local output = fs.join(tmpdir, "cosmic-localmods")
+  local __r12 = (spawn.spawn({cosmic, "--embed", appdir, "--output", output}) as spawn.Handle):wait() as spawn.Result
+  assert(__r12.ok, "embed should succeed: " .. tostring(__r12.stderr))
+
+  local __r13 = (spawn.spawn({output}) as spawn.Handle):wait() as spawn.Result
+  local out = tostring(__r13.stdout)
+  assert(__r13.ok, "app should run: " .. tostring(__r13.stderr))
+  assert(out:match("hi zip"), "embedded .tl module should resolve: " .. out)
+  assert(out:match("lua%-mod"), "embedded .lua module should resolve: " .. out)
+  assert(out:match("bad:%s+false"), "broken .tl require should fail: " .. out)
+  assert(out:match("got integer"), "failure should carry the compile issue: " .. out)
+end
+test_embed_app_local_requires()
+
 -- Test that embedded non-.lua files use deflate compression (method=8)
 local function test_embed_uses_deflate()
   -- Use compressible content (repeated pattern) to ensure deflate is applied

@@ -21,13 +21,12 @@
 --- myapp/main.lua becomes /zip/main.lua in the resulting executable.
 --- Embedding a main.lua overrides the default entry point. A custom
 --- entry is stored byte-identical at /zip/main.user.lua behind a
---- generated /zip/main.lua that first installs the cosmic runtime .tl
---- searcher (#687) — so require() in embedded apps resolves .tl
---- modules with the same guarantees as `cosmic script.tl` (markers
---- resolve, compile errors fail the require, output cached), with no
---- loader boilerplate in the app. An unmodified dispatcher main.lua
---- (extract/re-embed roundtrip) and an already-wrapped entry pass
---- through unchanged.
+--- generated /zip/main.lua that puts the zip root on the module path
+--- and installs the cosmic runtime .tl searcher (#687/#690): modules
+--- embedded beside main.lua resolve with the same guarantees as
+--- `cosmic script.tl`, no loader boilerplate. An unmodified
+--- dispatcher main.lua (extract/re-embed roundtrip) and an
+--- already-wrapped entry pass through unchanged.
 ---
 --- The resulting executable keeps cosmic's bundled libraries, so embedded
 --- code can require("cosmic.fetch"), require("lsqlite3"), etc.
@@ -189,9 +188,11 @@ end
 --- keeps wrapping idempotent across extract/embed roundtrips.
 local WRAP_SENTINEL < const > = "-- cosmic-embed searcher wrapper (#687); app entry: /zip/main.user.lua"
 
---- The generated /zip/main.lua: install the cosmic runtime .tl
---- searcher, then run the byte-identical user entry.
+--- The generated /zip/main.lua: put the app's zip root on the module
+--- path (embedded mod.lua / mod.tl beside main.lua resolve; #690),
+--- install the cosmic searcher, then run the byte-identical entry.
 local WRAP_MAIN < const > = WRAP_SENTINEL .. "\n" .. [[
+package.path = "/zip/?.lua;/zip/?/init.lua;" .. package.path
 require("cosmic.cli.searcher").install()
 local chunk = assert(loadfile("/zip/main.user.lua"))
 return chunk(...)
