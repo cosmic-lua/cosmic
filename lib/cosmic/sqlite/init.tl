@@ -14,10 +14,13 @@
 ---     db:close()
 ---
 --- Binary values: wrap with `sqlite.blob(s)` to store with BLOB affinity
---- (a bare Lua string always binds as TEXT). Opening sets a 5000ms busy
---- timeout by default; see `OpenOptions`.
+--- (a bare Lua string always binds as TEXT). Opening applies sensible
+--- per-connection defaults — a 5000ms busy timeout, foreign_keys=ON,
+--- and WAL journal mode with synchronous=NORMAL; each has an
+--- `OpenOptions` field to tune or disable it.
 
 local lsqlite3 = require("cosmo.lsqlite3")
+local defaults_mod = require("cosmic.sqlite.defaults")
 local stmt_cache_mod = require("cosmic.sqlite.stmt_cache")
 local row_iter = require("cosmic.sqlite.row_iter")
 local bind_mod = require("cosmic.sqlite.bind")
@@ -416,27 +419,21 @@ local function make_database(raw_db: lsqlite3.Database): Database
     }) as Database
 end
 
---- Options for opening a database.
-local record OpenOptions
-  --- Busy timeout in milliseconds (default 5000). When another connection
-  --- holds a conflicting lock, statements wait up to this long before
-  --- failing with SQLITE_BUSY. Pass 0 to fail immediately (SQLite's raw
-  --- default).
-  busy_timeout_ms: integer
-  --- Open the database read-only (default false). The file must exist.
-  read_only: boolean
-end
+--- Options for opening a database (see cosmic.sqlite.defaults).
+local type OpenOptions = defaults_mod.OpenOptions
 
 --- Open or create an SQLite database.
 --- Relative paths are resolved against the current working directory.
 --- Absolute paths (e.g. "/var/data/app.db") work as expected.
 --- Use ":memory:" for an in-memory database that is not written to disk.
 --- The file is created if it does not already exist (unless read_only).
---- A 5000ms busy timeout is set by default so two processes sharing a
---- file database wait for each other instead of failing instantly with
---- SQLITE_BUSY; override with opts.busy_timeout_ms.
+--- Opening applies cosmic's per-connection defaults: a 5000ms busy
+--- timeout so concurrent processes wait for each other instead of
+--- failing instantly with SQLITE_BUSY, foreign_keys=ON, and — for
+--- writable connections — WAL journal mode with synchronous=NORMAL.
+--- Each default has an OpenOptions field to tune or disable it.
 --- @param filename string Database path (use ":memory:" for in-memory)
---- @param opts OpenOptions? busy_timeout_ms and read_only
+--- @param opts OpenOptions? busy_timeout_ms, read_only, foreign_keys, wal
 --- @return Database | nil Database handle with __close support
 --- @return string Error message on failure
 local function open(filename: string, opts?: OpenOptions): Database | nil, string
@@ -452,11 +449,11 @@ local function open(filename: string, opts?: OpenOptions): Database | nil, strin
   -- safe at this cosmo.* boundary since #681/#688 made the cosmic
   -- searcher the only loader cosmic installs.
   if raw_db is lsqlite3.Database then
-    local timeout_ms = 5000
-    if opts and opts.busy_timeout_ms ~= nil then
-      timeout_ms = opts.busy_timeout_ms
+    local ok, derr = defaults_mod.apply(raw_db, opts)
+    if not ok then
+      raw_db:close()
+      return nil, derr
     end
-    raw_db:busy_timeout(timeout_ms)
     return make_database(raw_db)
   end
   return nil, errmsg or ("error code " .. tostring(errcode))
