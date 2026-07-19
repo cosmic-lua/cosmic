@@ -120,7 +120,22 @@ $(build_make_out)/ci-launder.out: $(build_make_srcs)
 	@mkdir -p $(@D)
 	@code=0; $(MAKE) ci o=$(o)/citest ci_stages=ci-selftest-launder >$@.tmp 2>&1 || code=$$?; echo "exit:$$code" >> $@.tmp; mv $@.tmp $@
 
-build_make_outputs := $(build_make_out)/dry-run.out $(build_make_out)/database.out $(build_make_out)/only-database.out $(build_make_out)/ci-launder.out
+# Environment clamp probe (#731): echoes the env a recipe actually sees.
+# Test apparatus like ci-selftest-launder above, not a help target.
+.PHONY: env-probe
+env-probe:
+	@echo "LC_ALL=$$LC_ALL"; echo "TZ=$$TZ"; echo "PATH=$$PATH"
+
+# Gate for the clamp: run a nested make under a hostile caller env — a
+# non-C locale, a non-UTC timezone, a poisoned PATH head — and record
+# what the probe recipe saw. makefile_test asserts the clamp held; if
+# someone reverts the exports in cook.mk this fixture goes hostile and
+# the test fails, so the property stays falsifiable (#728).
+$(build_make_out)/env-clamp.out: $(build_make_srcs)
+	@mkdir -p $(@D)
+	@code=0; LC_ALL=tr_TR.UTF-8 TZ=Pacific/Kiritimati PATH="/hostile/bin:$$PATH" $(MAKE) -s env-probe >$@.tmp 2>&1 || code=$$?; echo "exit:$$code" >> $@.tmp; mv $@.tmp $@
+
+build_make_outputs := $(build_make_out)/dry-run.out $(build_make_out)/database.out $(build_make_out)/only-database.out $(build_make_out)/ci-launder.out $(build_make_out)/env-clamp.out
 
 # makefile_test consumes the fixtures in both test lanes
 build_makefile_test_got := \

@@ -13,7 +13,7 @@ MAKEFLAGS += -j$(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || ech
 modules :=
 o := o
 
-export PATH := $(CURDIR)/$(o)/bin:$(PATH)
+# PATH, LC_ALL, TZ are clamped in cook.mk (#731) — deliberate, not inherited
 export STAGE_O := $(CURDIR)/$(o)/staged
 export FETCH_O := $(CURDIR)/$(o)/fetched
 

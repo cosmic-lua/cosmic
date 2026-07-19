@@ -1,6 +1,18 @@
 # cosmic repository module definitions
 # This file aggregates all modules for the build system
 
+# Environment clamp (#731): recipes otherwise inherit the caller's full
+# environment, so hermeticity would depend on the invoking shell being
+# unremarkable. Pin locale and timezone, and construct PATH deliberately
+# — o/bootstrap, o/bin (staged tools), then a small, visible host-tool
+# surface (#732 shrinks it; HOST_PATH= overrides for unusual hosts).
+# Entries are CURDIR-anchored: a relative entry breaks for any recipe
+# that cd's (#721). Gate: the env-clamp fixture in lib/build/cook.mk.
+export LC_ALL := C
+export TZ := UTC
+HOST_PATH ?= /usr/bin:/bin
+export PATH := $(CURDIR)/$(o)/bootstrap:$(CURDIR)/$(o)/bin:$(HOST_PATH)
+
 # Shared sandbox grant sets (#718): compose per rule, so a deliberate
 # deviation reads as `$(unveil_test) r:extra` at the rule instead of a
 # wall of near-identical 90-column strings. Defined here (before the
@@ -27,10 +39,6 @@ bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-06-9b
 # SHA-256 of the bootstrap cosmic binary. It compiles the entire project, so
 # verify it before executing. Update this when bumping bootstrap_url.
 bootstrap_sha256 := 2217687a73958110ebeae85a2d8b7af401472212bbdd168cd24a06fc37793173
-
-# anchored with CURDIR like the Makefile's $(o)/bin entry — a relative
-# entry breaks for any recipe that cd's (#721)
-export PATH := $(CURDIR)/$(o)/bootstrap:$(PATH)
 
 $(bootstrap_cosmic):
 	@mkdir -p $(@D)
