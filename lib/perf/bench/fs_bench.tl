@@ -69,7 +69,7 @@ local function scenarios(): {pt.Scenario}, string
         return count
       end,
       check = function(_: any, res: any): boolean, string
-        local count = res as integer
+        local count = res as integer -- cast: from any
         if count ~= tree_entries then
           return false, string.format("walked %s entries, want %d",
             tostring(count), tree_entries)
@@ -91,7 +91,7 @@ local function scenarios(): {pt.Scenario}, string
         return count
       end,
       check = function(_: any, res: any): boolean, string
-        local count = res as integer
+        local count = res as integer -- cast: from any
         if count ~= DIRS * FILES_PER_DIR then
           return false, string.format("found %s *.txt files, want %d",
             tostring(count), DIRS * FILES_PER_DIR)
@@ -109,7 +109,7 @@ local function scenarios(): {pt.Scenario}, string
         return data
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= BLOB then
+        if res as string ~= BLOB then -- cast: from any
           return false, "read back different content"
         end
         return true
@@ -124,7 +124,7 @@ local function scenarios(): {pt.Scenario}, string
         return fs.relpath("dir-1/file-1.txt")
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= "dir-1/file-1.txt" then
+        if res as string ~= "dir-1/file-1.txt" then -- cast: from any
           return false, "wrong relpath: " .. tostring(res)
         end
         return true
@@ -142,7 +142,7 @@ local function scenarios(): {pt.Scenario}, string
           for f = 1, FILES_PER_DIR do
             local st, serr = fs.stat(fs.join(tmpdir, "dir-" .. d, "file-" .. f .. ".txt"))
             assert(st, serr)
-            local stt = st as fs_types.Stat
+            local stt = st as fs_types.Stat -- cast: mixed-representation Stat
             size_total = size_total + stt:size()
           end
         end
@@ -156,7 +156,7 @@ local function scenarios(): {pt.Scenario}, string
             expected = expected + #("data-" .. d .. "-" .. f .. "\n")
           end
         end
-        if res as number ~= expected then
+        if res as number ~= expected then -- cast: from any
           return false, string.format("stat size total %s, want %d",
             tostring(res), expected)
         end

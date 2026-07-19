@@ -113,7 +113,7 @@ local function collect_dir(dir: string): {FileToEmbed} | nil, string
 
   local function do_walk(base_dir: string, rel_prefix: string): string
     local raw, dir_err = unix.opendir(base_dir)
-    local handle = raw as EmbedDirHandle
+    local handle = raw as EmbedDirHandle -- cast: userdata boundary
     if not handle then
       return "cannot open directory '" .. base_dir .. "': " .. errstr(dir_err, "opendir")
     end
@@ -153,7 +153,7 @@ local function collect_dir(dir: string): {FileToEmbed} | nil, string
         -- prevention as the d_type == DT_DIR branch above).
         local st = fs.lstat(full_path)
         if st then
-          local sst = st as Stat
+          local sst = st as Stat -- cast: mixed-representation Stat
           if sst:is_dir() then
             local walk_err = do_walk(full_path, rel)
             if walk_err then return walk_err end
@@ -224,7 +224,7 @@ local function wrap_user_main(files_to_embed: {FileToEmbed}, exe_path: string): 
   end
   local exe_reader = czip.reader(exe_path)
   if exe_reader ~= nil then
-    local rd = exe_reader as czip.Reader
+    local rd = exe_reader as czip.Reader -- cast: record union after guard
     local exe_main = rd:read("main.lua")
     rd:close()
     if exe_main == main_entry.content then
@@ -274,7 +274,7 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
       if not dir_files then
         return {ok = false, message = "error: " .. (err or "unknown error"), file_count = 0}
       end
-      for _, f in ipairs(dir_files as {FileToEmbed}) do
+      for _, f in ipairs(dir_files as {FileToEmbed}) do -- cast: record union after guard
         files_to_embed[#files_to_embed + 1] = f
       end
     else
@@ -289,7 +289,7 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
       local st = fs.stat(p)
       local file_mode = tonumber("644", 8) -- default
       if st then
-        file_mode = (st as Stat):mode() & tonumber("777", 8)
+        file_mode = (st as Stat):mode() & tonumber("777", 8) -- cast: mixed-rep Stat
       end
 
       files_to_embed[#files_to_embed + 1] = {
@@ -341,7 +341,7 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
     fs.unlink(tmp_path)
     return {ok = false, message = "error: failed to open zip for appending: " .. tostring(appender_err or "unknown error"), file_count = 0}
   end
-  local appender = appender_result as ZipAppender
+  local appender = appender_result as ZipAppender -- cast: from any
 
   -- Remove existing entries that conflict, then add new ones.
   -- Store .lua uncompressed; deflate everything else. The produced
@@ -421,7 +421,7 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
   if not reader_maybe then
     return {ok = false, message = "error: no zip archive found in '" .. exe_path .. "'", file_count = 0}
   end
-  local reader = reader_maybe as ZipReader
+  local reader = reader_maybe as ZipReader -- cast: record union after guard
 
   local entries = reader:list()
   local count = 0

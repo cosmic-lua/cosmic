@@ -33,7 +33,7 @@ local errno = require("cosmic.errno")
 local function seal_coverage()
   local cov = package.loaded["cosmic.coverage"]
   if cov ~= nil then
-    local seal = (cov as {string: any})["seal"] as function()
+    local seal = (cov as {string: any})["seal"] as function() -- cast: from any
     seal()
   end
 end

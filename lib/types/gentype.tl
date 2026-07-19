@@ -17,18 +17,18 @@ local record GentypeRender
   generate_dtl: function(module: ModuleDecl): string
   convert_type: function(t: string): string
 end
-local render = require("types.gentype_render") as GentypeRender
+local render = require("types.gentype_render") as GentypeRender -- cast: narrow surface
 
 local record GentypeExtract
   extract_module_content: function(source: string, module_name: string): string
 end
-local extract = require("types.gentype_extract") as GentypeExtract
+local extract = require("types.gentype_extract") as GentypeExtract -- cast: narrow surface
 
 local record GentypeParse
   parse_annotations: function(raw_lines: {string}): {string}, {Param}, {Return}, boolean, string, {Field}, boolean, string, {string}
   valid_type: function(t: string): boolean
 end
-local parse = require("types.gentype_parse") as GentypeParse
+local parse = require("types.gentype_parse") as GentypeParse -- cast: narrow surface
 local parse_annotations = parse.parse_annotations
 
 -- Modules to generate (in order). "cosmo" is the top-level cosmo record

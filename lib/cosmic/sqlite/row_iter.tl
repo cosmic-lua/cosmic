@@ -52,7 +52,7 @@ local function make(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Database, on_
     end
   end
 
-  local iter = setmetatable({} as Rows, {
+  local iter = setmetatable({} as Rows, { -- cast: table seeded as record
       __call = function(_: Rows): {string: any}
         if done then
           return nil

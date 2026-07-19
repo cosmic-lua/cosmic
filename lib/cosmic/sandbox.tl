@@ -200,12 +200,12 @@ local function check_policy(policy: Policy): string
     if type(fs) ~= "table" then
       return "sandbox: fs must be a table"
     end
-    if (fs as {string: any}).deny ~= nil then
+    if (fs as {string: any}).deny ~= nil then -- cast: record to map probe
       return "sandbox: fs.deny does not exist: the fs policy is an"
       .. " allowlist, every path not in ro/rw/exec is already denied"
     end
     for _, name in ipairs({"ro", "rw", "exec"}) do
-      local v = (fs as {string: any})[name]
+      local v = (fs as {string: any})[name] -- cast: record to map probe
       if v ~= nil and type(v) ~= "table" then
         return "sandbox: fs." .. name .. " must be a list of paths"
       end

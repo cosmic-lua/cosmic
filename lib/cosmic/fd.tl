@@ -184,7 +184,7 @@ make_handle = function(fd: integer): Handle
     if result == nil then
       return nil, errstr(err, "fcntl")
     end
-    return result as integer
+    return result as integer -- cast: from any
   end
 
   return setmetatable(handle, {

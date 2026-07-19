@@ -80,7 +80,7 @@ local function normalize_env(env: {string}): {string}
     return env
   end
   local list: {string} = {}
-  for k, v in pairs(env as {string: string}) do
+  for k, v in pairs(env as {string: string}) do -- cast: env list reused as map
     table.insert(list, k .. "=" .. v)
   end
   return list
@@ -235,7 +235,7 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
   if not sio then
     return nil, sio_err
   end
-  local stdio = sio as childio.Stdio
+  local stdio = sio as childio.Stdio -- cast: record union after guard
   local stdin_data, stdin_fd = stdio.stdin_data, stdio.stdin_fd
   local stdout_fd, stderr_fd = stdio.stdout_fd, stdio.stderr_fd
 
@@ -249,7 +249,7 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
       return nil, err
     end
     exec_fd = fd
-  elseif not (argv[1] as string):find("/") then
+  elseif not argv[1]:find("/") then
     local cmd = unix.commandv(argv[1])
     if not cmd then
       return nil, "command not found: " .. argv[1]
@@ -420,10 +420,10 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
     local eerr: string
     if exec_fd then
       local _, e = unix.fexecve(exec_fd, argv, env)
-      eerr = e as string
+      eerr = e
     else
       local _, e = unix.execve(prog, argv, env)
-      eerr = e as string
+      eerr = e
     end
     -- Only reached when exec failed. Report the errno through the pipe so the
     -- parent's spawn() can return it, then exit distinctly.
@@ -471,7 +471,7 @@ local function run(argv: {string}, opts?: Options): Result | nil, string
   if not h then
     return nil, err
   end
-  return (h as Handle):wait()
+  return (h as Handle):wait() -- cast: record union after guard
 end
 
 local record ChildModule

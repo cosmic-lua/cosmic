@@ -113,6 +113,7 @@ end
 --- @return string? error message on failure
 local function start(opts: ProxyOptions): ProxyHandle | nil, string
   opts = opts or {}
+  -- cast: widen rule map for validator
   local vok, verr = rules.validate((opts.allowed_hosts or {}) as {string: any})
   if not vok then return nil, verr end
   local r, w = unix.pipe()
@@ -137,12 +138,12 @@ local function start(opts: ProxyOptions): ProxyHandle | nil, string
     end
     -- srv is a `Server | nil` record union; tl 0.24.8 does not narrow
     -- record unions through the nil-check above, so reach the methods
-    -- through a map view (with per-method function casts for the return
-    -- shapes) at the proven non-nil use site.
-    local server = srv as {string: any}
+    -- through a map view at the proven non-nil use site.
+    local server = srv as {string: any} -- cast: record union after guard
+    -- cast: function shape from map view
     local listen_fn = server.listen as function(): (integer | nil, string)
-    local port_fn = server.port as function(): integer
-    local serve_fn = server.serve_forever as function()
+    local port_fn = server.port as function(): integer -- cast: function shape
+    local serve_fn = server.serve_forever as function() -- cast: function shape
     local fd, lerr = listen_fn()
     if not fd then
       unix.write(wfd, string.pack("<i4", -1))

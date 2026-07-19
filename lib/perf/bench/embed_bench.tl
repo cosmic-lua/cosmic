@@ -52,7 +52,7 @@ local function find_bin(): string
       return p
     end
   end
-  return rawget(arg, -1) as string
+  return rawget(arg, -1) as string -- cast: from any
 end
 
 --- Create DIRS directories of FILES_PER_DIR small files under srcdir.
@@ -91,7 +91,7 @@ local function count_zip_files(exe_path: string): integer, string
   if not reader then
     return nil, "zip.from: " .. tostring(zerr)
   end
-  local rr = reader as czip.Reader
+  local rr = reader as czip.Reader -- cast: record union after guard
   local count = 0
   for _, entry in ipairs(rr:list()) do
     if entry.name:sub(-1) ~= "/" then
@@ -138,7 +138,7 @@ local function scenarios(): {pt.Scenario}, string
         return embed.run({srcdir}, packed_exe, bin)
       end,
       check = function(_: any, res: any): boolean, string
-        local r = res as EmbedResult
+        local r = res as EmbedResult -- cast: from any
         if not r.ok then
           return false, "embed.run failed"
         end
@@ -170,8 +170,8 @@ local function scenarios(): {pt.Scenario}, string
         return embed.extract(extract_dir, packed_exe)
       end,
       check = function(ctx: any, res: any): boolean, string
-        local r = res as EmbedResult
-        local expected = ctx as integer
+        local r = res as EmbedResult -- cast: from any
+        local expected = ctx as integer -- cast: from any
         if not r.ok then
           return false, "embed.extract failed"
         end

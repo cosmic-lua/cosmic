@@ -193,7 +193,7 @@ local function make_statement(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Dat
     local col_names: {integer: string}
     local first_call = true
 
-    local iter = setmetatable({} as Rows, {
+    local iter = setmetatable({} as Rows, { -- cast: empty table into callable record
         __call = function(_: Rows): {string: any}
           local rc = raw_stmt:step()
           if rc == sqlite3.ROW then
@@ -227,7 +227,7 @@ local function make_statement(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Dat
     local step_err: string
     local col_count = raw_stmt:columns()
 
-    local iter = setmetatable({} as Values, {
+    local iter = setmetatable({} as Values, { -- cast: empty table into callable record
         __call = function(_: Values): any ...
           local rc = raw_stmt:step()
           if rc == sqlite3.ROW then
@@ -314,7 +314,7 @@ local function make_database(raw_db: lsqlite3.Database): Database
     if not iter then
       return nil, bind_err
     end
-    return iter as Rows
+    return iter as Rows -- cast: row_iter record to public Rows
   end
 
   function db:exec(sql: string, ...: any): boolean, string
@@ -355,7 +355,7 @@ local function make_database(raw_db: lsqlite3.Database): Database
     if not iter then
       return nil, err
     end
-    local it = iter as Rows
+    local it = iter as Rows -- cast: record union after guard
     -- Capture the first row, then close the iterator so the statement is
     -- released deterministically without stepping the remaining rows.
     local first: {string: any} = nil
@@ -380,14 +380,15 @@ local function make_database(raw_db: lsqlite3.Database): Database
     if not ok then
       return false, err or "begin failed"
     end
+    -- cast: pcall variadic returns
     local success, result, result_err = pcall(fn, self) as(boolean, any, any)
     if not success then
       self:exec("ROLLBACK")
-      return false, (result as string) or "transaction failed"
+      return false, (result as string) or "transaction failed" -- cast: from any
     end
     if result == false or (result == nil and result_err ~= nil) then
       self:exec("ROLLBACK")
-      return false, (result_err as string) or "transaction rolled back"
+      return false, (result_err as string) or "transaction rolled back" -- cast: from any
     end
     return self:exec("COMMIT")
   end

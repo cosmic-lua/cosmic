@@ -103,13 +103,13 @@ local function test_directory_module_entry_points()
     fs = "read",
   }
   for name, fn in pairs(surface) do
-    local mod = require("cosmic." .. name) as {string: any}
+    local mod = require("cosmic." .. name) as {string: any} -- cast: from any
     assert(type(mod[fn]) == "function",
       "cosmic." .. name .. " must expose " .. fn .. "()")
   end
   -- doc carries both halves of the converged family (#557): extraction
   -- (parse_file, checked above) and the embedded-index query surface.
-  local doc = require("cosmic.doc") as {string: any}
+  local doc = require("cosmic.doc") as {string: any} -- cast: from any
   assert(type(doc["run"]) == "function", "cosmic.doc must expose run()")
   assert(type(doc["search"]) == "function", "cosmic.doc must expose search()")
 end

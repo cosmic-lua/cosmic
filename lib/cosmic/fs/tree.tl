@@ -23,7 +23,7 @@ local function copy_entries(src: string, dst: string): boolean, string
   if not handle then
     return false, errstr(oerr, "copytree: opendir: " .. src)
   end
-  local h = handle as TreeDirHandle
+  local h = handle as TreeDirHandle -- cast: userdata boundary
   while true do
     local entry = h:read()
     if not entry then break end
@@ -35,7 +35,7 @@ local function copy_entries(src: string, dst: string): boolean, string
         h:close()
         return false, errstr(serr, "copytree: stat: " .. s)
       end
-      local mode = (st as unix.Stat):mode()
+      local mode = (st as unix.Stat):mode() -- cast: record union after guard
       if unix.S_ISLNK(mode) then
         local target, rerr = unix.readlink(s)
         if not target then
@@ -71,9 +71,10 @@ copytree_into = function(src: string, dst: string): boolean, string
   if not st then
     return false, errstr(serr, "copytree: stat: " .. src)
   end
-  if not unix.S_ISDIR((st as unix.Stat):mode()) then
+  if not unix.S_ISDIR((st as unix.Stat):mode()) then -- cast: record union after guard
     return false, "copytree: not a directory: " .. src
   end
+  -- cast: record union after guard
   local ok, merr = unix.makedirs(dst, (st as unix.Stat):mode() & tonumber("777", 8))
   if not ok then
     return false, errstr(merr, "copytree: makedirs: " .. dst)

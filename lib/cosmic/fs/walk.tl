@@ -318,7 +318,7 @@ local function collect_all(dir: string): {string: FileInfo} | nil, string
             -- cast: record union after guard
             if unix.S_ISDIR((st as unix.Stat):mode()) then
               do_walk(full_path, rel_path)
-            -- cast: record union after guard
+              -- cast: record union after guard
             elseif unix.S_ISREG((st as unix.Stat):mode()) then
               -- cast: record union after guard
               local mode = (st as unix.Stat):mode() & 0x1ff
@@ -371,7 +371,7 @@ local function files(dir: string, pattern?: string): FileIter | nil, string, any
   if not handle then
     return nil, errstr(oerr, "opendir: " .. dir)
   end
-  table.insert(stack, {dir, handle as WalkDirHandle})
+  table.insert(stack, {dir, handle as WalkDirHandle}) -- cast: userdata boundary
 
   local function close_all()
     for i = #stack, 1, -1 do
@@ -402,6 +402,7 @@ local function files(dir: string, pattern?: string): FileIter | nil, string, any
           -- (a symlinked dir reports DT_LNK), and skips a stat(2) call.
           local subhandle = unix.opendir(full_path)
           if subhandle then
+            -- cast: userdata boundary
             table.insert(stack, {full_path, subhandle as WalkDirHandle})
           end
         elseif kind ~= unix.DT_UNKNOWN then
@@ -416,9 +417,11 @@ local function files(dir: string, pattern?: string): FileIter | nil, string, any
           -- S_ISLNK, not S_ISDIR, preserving the same cycle prevention.
           local st = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
           if st then
+            -- cast: record union after guard
             if unix.S_ISDIR((st as unix.Stat):mode()) then
               local subhandle = unix.opendir(full_path)
               if subhandle then
+                -- cast: userdata boundary
                 table.insert(stack, {full_path, subhandle as WalkDirHandle})
               end
             elseif entry:match(lua_pattern) then

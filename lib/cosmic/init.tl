@@ -26,7 +26,7 @@ local function main(fn: function(args: {string}, env: Env): number, string)
   local env: Env = {stderr = io.stderr, stdout = io.stdout}
   local code, err = fn(arg, env)
   if err then env.stderr:write(err .. "\n") end
-  os.exit((code or 0) as integer)
+  os.exit((code or 0) as integer) -- cast: os.exit wants integer
 end
 
 --- The build-injected version string, or "unknown" outside a packed
@@ -36,8 +36,8 @@ local function version(): string
   -- so there is no type information for it in the tree.
   local mod = "cosmic.version"
   local ok, info = pcall(require, mod)
-  if ok and (info as VersionInfo).cosmic then
-    return (info as VersionInfo).cosmic
+  if ok and (info as VersionInfo).cosmic then -- cast: from any
+    return (info as VersionInfo).cosmic -- cast: from any
   end
   return "unknown"
 end

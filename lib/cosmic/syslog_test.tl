@@ -31,6 +31,7 @@ local function test_write_smoke_never_throws()
     function() syslog.debug("cosmic.syslog test: debug()") end,
   }
   for i, call in ipairs(calls) do
+    -- cast: function shape (yields pcall result)
     local ok, thrown = pcall(call as function(): any)
     assert(ok, "syslog call " .. i .. " must not throw: " .. tostring(thrown))
   end

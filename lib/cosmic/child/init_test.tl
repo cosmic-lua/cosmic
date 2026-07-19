@@ -187,7 +187,7 @@ local function test_spawn_with_env_map()
   local vars = env.all()
   local r = check.must(child.run({lua_bin, "-e", [[
     io.write(os.getenv("COSMIC_TEST_MAP") or "")
-  ]]}, {env = vars as {string}}))
+  ]]}, {env = vars as {string}})) -- cast: dual-shape env accepts map
   assert(r.ok, "child should exit 0, got code " .. tostring(r.code))
   assert(r.stdout == sentinel, "expected '" .. sentinel .. "', got '" .. tostring(r.stdout) .. "'")
 end

@@ -57,31 +57,32 @@ local function install_wrappers(do_dump: function())
   end
   wrappers_installed = true
 
-  local co = coroutine as {string: any}
-  local raw_create = co["create"] as function(any): any
+  local co = coroutine as {string: any} -- cast: patch stdlib table
+  local raw_create = co["create"] as function(any): any -- cast: from any
   co["create"] = function(f: any): any
     local thread = raw_create(f)
     if depth > 0 then
-      debug.sethook(thread as thread, on_line, "l")
+      debug.sethook(thread as thread, on_line, "l") -- cast: from any
     end
     return thread
   end
   co["wrap"] = function(f: any): any
     local thread = raw_create(f)
     if depth > 0 then
-      debug.sethook(thread as thread, on_line, "l")
+      debug.sethook(thread as thread, on_line, "l") -- cast: from any
     end
     return function(...: any): any ...
+      -- cast: from any
       local results = table.pack(coroutine.resume(thread as thread, ...))
       if not results[1] then
         error(results[2], 0)
       end
-      return table.unpack(results, 2, results.n as integer)
+      return table.unpack(results, 2, results.n as integer) -- cast: from any
     end
   end
 
-  local os_mod = os as {string: any}
-  local raw_exit = os_mod["exit"] as function(any, any)
+  local os_mod = os as {string: any} -- cast: patch stdlib table
+  local raw_exit = os_mod["exit"] as function(any, any) -- cast: from any
   os_mod["exit"] = function(code: any, close: any)
     do_dump()
     raw_exit(code, close)
@@ -114,7 +115,7 @@ local function stop()
   end
   depth = depth - 1
   if depth == 0 then
-    local clear_hook = debug.sethook as function()
+    local clear_hook = debug.sethook as function() -- cast: function shape
     clear_hook()
   end
 end

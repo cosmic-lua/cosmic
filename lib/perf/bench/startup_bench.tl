@@ -48,7 +48,7 @@ local function find_bin(): string
       return p
     end
   end
-  return rawget(arg, -1) as string
+  return rawget(arg, -1) as string -- cast: from any
 end
 
 --- Spawn the binary with the given argv tail and return trimmed stdout.
@@ -63,7 +63,7 @@ local function spawn_capture(bin: string, argv_tail: {string}): string
   end
   local result, serr = child.run(argv)
   assert(result, serr)
-  local r = result as child.Result
+  local r = result as child.Result -- cast: record union after guard
   assert(r.ok, "exit code " .. tostring(r.code) .. ": " .. tostring(r.stdout))
   return (r.stdout:gsub("%s+$", ""))
 end
@@ -103,7 +103,7 @@ local function scenarios(): {pt.Scenario}, string
         return spawn_capture(bin, {hello_lua})
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= HELLO then
+        if res as string ~= HELLO then -- cast: from any
           return false, "wrong output: " .. tostring(res)
         end
         return true
@@ -116,7 +116,7 @@ local function scenarios(): {pt.Scenario}, string
         return spawn_capture(bin, {hello_tl})
       end,
       check = function(_: any, res: any): boolean, string
-        if res as string ~= HELLO then
+        if res as string ~= HELLO then -- cast: from any
           return false, "wrong output: " .. tostring(res)
         end
         return true
@@ -129,7 +129,7 @@ local function scenarios(): {pt.Scenario}, string
         return spawn_capture(bin, {"--compile", compile_tl})
       end,
       check = function(_: any, res: any): boolean, string
-        local out = res as string
+        local out = res as string -- cast: from any
         if out == nil or not out:find("local function dist", 1, true) then
           return false, "compile output missing function"
         end

@@ -100,6 +100,7 @@ test_sleep_ms_invalid_names_errno()
 -- so this file typechecks before and after the signature change.
 
 local function test_sleep_ms_uninterrupted_returns_zero_ms()
+  -- cast: signature transition (#562)
   local sleep_ms = (time as {string: any}).sleep_ms as function(number): number, string
   local rem, err = sleep_ms(1)
   assert(rem == 0, "uninterrupted sleep_ms returns 0 ms, got " .. tostring(rem))
@@ -109,6 +110,7 @@ test_sleep_ms_uninterrupted_returns_zero_ms()
 
 local function test_sleep_ms_interrupted_returns_ms_remainder()
   local signal = require("cosmic.signal")
+  -- cast: signature transition (#562)
   local sleep_ms = (time as {string: any}).sleep_ms as function(number): number, string
 
   local old_handler = signal.sigaction(signal.SIGALRM, function(_: number) end)

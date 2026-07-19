@@ -80,16 +80,16 @@ merge_section = function(prefix: string, a: {string: any}, b: {string: any}): {s
     local av = a and a[k] or nil
     local bv = b and b[k] or nil
     if schema.lists[path] then
-      out[k] = concat_unique(av as {any}, bv as {any})
+      out[k] = concat_unique(av as {any}, bv as {any}) -- cast: from any
     elseif schema.maps[path] then
-      out[k] = merge_map(av as {any: any}, bv as {any: any})
+      out[k] = merge_map(av as {any: any}, bv as {any: any}) -- cast: from any
     elseif type(av) == "table" or type(bv) == "table" then
       -- Nested section like `fs`, `net`, `env`, `proc`. Recursing
       -- even when one side is nil guarantees the caller's tables are
       -- never shared into the output.
       out[k] = merge_section(path,
-        (av as {string: any}) or {},
-        (bv as {string: any}) or {})
+        (av as {string: any}) or {}, -- cast: from any
+        (bv as {string: any}) or {}) -- cast: from any
     else
       -- Scalar: later wins; nil is a no-op.
       if bv ~= nil then

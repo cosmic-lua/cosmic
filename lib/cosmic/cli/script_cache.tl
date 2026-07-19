@@ -25,7 +25,7 @@ local function build_id(): string
   local mod = "cosmic.version"
   local ok, ver = pcall(require, mod)
   if ok then
-    return tostring((ver as {string: string}).cosmic)
+    return tostring((ver as {string: string}).cosmic) -- cast: from any
   end
   return "unknown"
 end

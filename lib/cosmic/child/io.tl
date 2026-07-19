@@ -149,7 +149,7 @@ local function pump(state: PumpState, deadline_ms: number): boolean
   local function read_ready(fd: integer, buf: {string}, which: string)
     local ev0 = p:events(fd)
     if not ev0 then return end
-    local ev = ev0 as {string: boolean}
+    local ev = ev0 as {string: boolean} -- cast: record union after guard
     if ev.readable then
       local chunk, rerr, reno = unix.read(fd, CHUNK)
       if chunk == nil then
@@ -190,6 +190,7 @@ local function pump(state: PumpState, deadline_ms: number): boolean
       return true
     end
     if state.stdin_fd then
+      -- cast: record union, nil handled
       local ev = p:events(state.stdin_fd) as {string: boolean}
       if ev and ev.writable then
         local slice = state.stdin_data:sub(state.stdin_off + 1, state.stdin_off + CHUNK)

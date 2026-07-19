@@ -45,6 +45,7 @@ end
 --- @return boolean True if the path is a regular file
 local function isfile(p: string): boolean
   local st = unix.stat(p)
+  -- cast: record union after guard
   return st ~= nil and unix.S_ISREG((st as unix.Stat):mode())
 end
 
@@ -56,6 +57,7 @@ end
 --- @return boolean True if the path is a directory
 local function isdir(p: string): boolean
   local st = unix.stat(p)
+  -- cast: record union after guard
   return st ~= nil and unix.S_ISDIR((st as unix.Stat):mode())
 end
 

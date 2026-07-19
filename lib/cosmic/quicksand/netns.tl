@@ -63,7 +63,7 @@ local function get_flags(name: string): integer | nil, string
   local result, ioerr = unix.ioctl(sk, unix.SIOCGIFFLAGS, build_ifreq(name, 0))
   unix.close(sk)
   if not result then return nil, errno.str(ioerr, "SIOCGIFFLAGS") end
-  return parse_ifreq_flags(result as string)
+  return parse_ifreq_flags(result as string) -- cast: ioctl union to string
 end
 
 --- Set the IFF_* flags on `name` in the current net namespace.

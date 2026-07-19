@@ -56,7 +56,7 @@ local function send_all(conn: net.Socket, data: string): boolean
     if n == nil then
       return false
     end
-    off = off + (n as integer)
+    off = off + n
   end
   return true
 end
@@ -82,7 +82,7 @@ local function serve_loop(srv: net.Socket)
   while true do
     local conn = srv:accept()
     if conn then
-      local cc = conn as net.Socket
+      local cc = conn as net.Socket -- cast: record union after guard
       if read_request(cc) then
         send_all(cc, RESPONSE)
       end
@@ -130,7 +130,7 @@ local function scenarios(): {pt.Scenario}, string
         return stats
       end,
       check = function(_: any, result: any): boolean, string
-        local s = result as LineStats
+        local s = result as LineStats -- cast: from any
         if s == nil then
           return false, "no result"
         end

@@ -40,7 +40,7 @@ local function serve(responses: {string}): integer, integer
     for _, resp in ipairs(responses) do
       local conn = s:accept()
       if conn then
-        local c = conn as net.Socket
+        local c = conn as net.Socket -- cast: record union after guard
         local req = read_request(c)
         if resp == "echo" then
           c:send("HTTP/1.1 200 OK\r\nContent-Length: " .. #req
@@ -170,7 +170,7 @@ local function test_redirect_followed_reports_final_url()
     for i = 1, 2 do
       local conn = s:accept()
       if conn then
-        local c = conn as net.Socket
+        local c = conn as net.Socket -- cast: record union after guard
         read_request(c)
         if i == 1 then
           c:send("HTTP/1.1 302 Found\r\nLocation: " .. final_url
@@ -204,7 +204,7 @@ local function test_opts_table_not_mutated()
     for i = 1, 2 do
       local conn = s:accept()
       if conn then
-        local c = conn as net.Socket
+        local c = conn as net.Socket -- cast: record union after guard
         read_request(c)
         if i == 1 then
           c:send("HTTP/1.1 303 See Other\r\nLocation: " .. redirect_url

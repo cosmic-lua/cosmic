@@ -35,6 +35,7 @@ test_available_agrees_with_mechanisms()
 -- Structural validation happens before any enforcement, so rejected
 -- policies are safe to exercise in-process: nothing may be applied.
 local function test_validation_rejects_before_enforcing()
+  -- cast: deliberate invalid input
   local apply_any = sandbox.apply as function(any): boolean, string
 
   local ok, err = apply_any(nil)
@@ -72,7 +73,7 @@ test_validation_rejects_before_enforcing()
 -- validator must reject what the libc rejects.
 local function test_promise_list_matches_validator()
   assert(#pledge.PROMISES > 0, "PROMISES must be non-empty")
-  local all = table.concat(pledge.PROMISES as {string}, " ")
+  local all = table.concat(pledge.PROMISES as {string}, " ") -- cast: enum to strings
   -- Validation of a known-good promise string reaches the availability
   -- gate, never the "unknown promise" branch: prove it by pairing the
   -- valid string with an impossible fs section... on hosts where fs is
@@ -80,6 +81,7 @@ local function test_promise_list_matches_validator()
   -- is available, validate indirectly via the subprocess tests below —
   -- here just assert the validator accepts each token by rejecting a
   -- string that appends one bogus token.
+  -- cast: deliberate invalid input
   local apply_any = sandbox.apply as function(any): boolean, string
   local _, err = apply_any({sys = {promises = all .. " not_a_promise"}})
   assert(err and err:find("not_a_promise", 1, true),
@@ -120,7 +122,7 @@ test_fail_closed_when_unavailable()
 -- deleted box/fs vocabulary this facade replaces).
 local function find_rule(rules: {any}, path: string): {string: any}
   for _, r in ipairs(rules) do
-    local rr = r as {string: any}
+    local rr = r as {string: any} -- cast: from any
     if rr.path == path then return rr end
   end
   return nil
@@ -130,19 +132,19 @@ local function test_plan_landlock_mapping()
   local plan_any = sandbox.plan_landlock
 
   local opts = plan_any({ro = {"/usr"}})
-  local r = find_rule(opts.rules as {any}, "/usr")
+  local r = find_rule(opts.rules, "/usr")
   assert(r, "expected /usr rule")
   check.eq(r.access, landlock.READ | landlock.EXEC, "ro -> READ|EXEC")
 
   opts = plan_any({rw = {"/tmp"}})
-  r = find_rule(opts.rules as {any}, "/tmp")
+  r = find_rule(opts.rules, "/tmp")
   assert(r, "expected /tmp rule")
   check.eq(r.access, landlock.RW, "rw -> RW (no exec)")
   assert((landlock.RW & landlock.EXEC) == 0, "RW must not include EXEC")
 
   -- A path in several groups gets the union of their masks.
   opts = plan_any({ro = {"/shared"}, rw = {"/shared"}})
-  r = find_rule(opts.rules as {any}, "/shared")
+  r = find_rule(opts.rules, "/shared")
   assert(r, "expected /shared rule")
   check.eq(r.access, (landlock.READ | landlock.EXEC) | landlock.RW,
     "overlapping groups OR their masks")
@@ -150,16 +152,16 @@ local function test_plan_landlock_mapping()
   -- Empty policy plans to zero rules (deny-all when applied), full
   -- handled mask, and no_new_privs so it works unprivileged.
   opts = plan_any(nil)
-  check.eq(#(opts.rules as {any}), 0, "nil fs -> no rules")
+  check.eq(#opts.rules, 0, "nil fs -> no rules")
   check.eq(opts.handled, landlock.ALL, "handled is ALL")
   check.eq(opts.no_new_privs, true, "no_new_privs defaults on")
 
   -- Rule order follows declaration order.
   opts = plan_any({ro = {"/a", "/b", "/c"}})
-  local rules = opts.rules as {any}
-  check.eq((rules[1] as {string: any}).path, "/a")
-  check.eq((rules[2] as {string: any}).path, "/b")
-  check.eq((rules[3] as {string: any}).path, "/c")
+  local rules = opts.rules
+  check.eq(rules[1].path, "/a")
+  check.eq(rules[2].path, "/b")
+  check.eq(rules[3].path, "/c")
 end
 test_plan_landlock_mapping()
 

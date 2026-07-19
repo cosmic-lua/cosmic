@@ -31,7 +31,7 @@ local errstr = require("cosmic.errno").str
 local function seal_coverage()
   local cov = package.loaded["cosmic.coverage"]
   if cov ~= nil then
-    local seal = (cov as {string: any})["seal"] as function()
+    local seal = (cov as {string: any})["seal"] as function() -- cast: from any
     seal()
   end
 end
@@ -146,7 +146,7 @@ local function apply(path: string, permissions: string): boolean, string
   if path == nil and permissions == nil then
     return commit()
   end
-  return allow(path, permissions as Perm)
+  return allow(path, permissions as Perm) -- cast: enum widening
 end
 
 local record UnveilModule

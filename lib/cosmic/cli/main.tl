@@ -186,7 +186,7 @@ local function parse_args(): Options
     opts.error = "cosmic-lua: " .. (perr or "failed to parse arguments")
     return opts
   end
-  local r = r0 as getopt.Result
+  local r = r0 as getopt.Result -- cast: record union after guard
 
   -- A required argument that's absent lands in `missing` (named without
   -- dashes). Give a targeted usage hint where we have one, else a generic
@@ -445,7 +445,7 @@ local function main(): integer, string
 
   -- Execute script file
   if opts.script then
-    _G.arg = opts.script_args as {string}
+    _G.arg = opts.script_args as {string} -- cast: arg map includes 0/-1 keys
     -- Arm line-coverage collection when COSMIC_COVERAGE names a
     -- directory (guarded so the common path never loads the module)
     local cov_dump: function() = nil
@@ -458,7 +458,7 @@ local function main(): integer, string
       msg = run.augment_module_errors(msg)
       return 1, "cosmic-lua: " .. msg
     end
-    local run_chunk = chunk as function(...: any): any ...
+    local run_chunk = chunk as function(...: any): any ... -- cast: function shape
     local args: {string} = {}
     for i, a in pairs(opts.script_args) do
       if i >= 1 then args[i] = a end
@@ -469,9 +469,9 @@ local function main(): integer, string
     if cov_dump then
       cov_dump()
     end
-    local ok = results[1] as boolean
+    local ok = results[1] as boolean -- cast: from any
     if not ok then
-      return 1, results[2] as string
+      return 1, results[2] as string -- cast: from any
     end
     return 0
   end

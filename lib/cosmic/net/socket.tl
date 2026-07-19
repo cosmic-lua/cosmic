@@ -22,7 +22,7 @@ local function resolve_addr(addr: Address): integer | nil, string
     if not a then
       return nil, err
     end
-    return (a as ip.Addr):int()
+    return (a as ip.Addr):int() -- cast: record union after guard
   end
   return (addr):int()
 end
@@ -350,6 +350,7 @@ local function make_socket(fd: integer): Socket
 
   function sock:bind_unix(path: string): boolean, string
     if not self.fd then return false, "socket closed" end
+    -- cast: function shape (unix-path overload)
     local ok, err = (unix.bind as function(number, string): (boolean, string))(self.fd, path)
     if not ok then
       return false, errstr(err, "bind_unix: " .. path)
@@ -395,6 +396,7 @@ local function make_socket(fd: integer): Socket
 
   function sock:connect_unix(path: string): boolean, string
     if not self.fd then return false, "socket closed" end
+    -- cast: function shape (unix-path overload)
     local ok, err = (unix.connect as function(number, string): (boolean, any))(self.fd, path)
     if not ok then
       return false, errstr(err, "connect_unix")
@@ -432,8 +434,9 @@ local function make_socket(fd: integer): Socket
     ms = ms or 0
     local secs = math.floor(ms / 1000)
     local nanos = math.floor((ms % 1000) * 1000000)
-    -- The declared setsockopt signature takes one value; SO_RCVTIMEO and
-    -- SO_SNDTIMEO take (secs, nanos), so cast around it like bind_unix.
+    -- SO_RCVTIMEO/SO_SNDTIMEO take (secs, nanos); the declared
+    -- setsockopt signature takes one value, so cast around it.
+    -- cast: function shape (timeval overload)
     local sso = unix.setsockopt as function(number, number, number, number, number): (boolean, any)
     local ok, err = sso(self.fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, secs, nanos)
     if not ok then

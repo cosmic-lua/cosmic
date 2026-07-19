@@ -221,8 +221,11 @@ end
 -- The binding's Sigset is a distinct nominal record the generated
 -- declarations do not export, so calls go through casts that mirror its
 -- signature — but never ones that erase the error slots.
+-- cast: function shape for nominal Sigset
 local raw_sigaction = unix.sigaction as function(sig: integer, handler?: any, flags?: integer, mask?: Sigset): (any, any, any)
+-- cast: function shape for nominal Sigset
 local raw_sigprocmask = unix.sigprocmask as function(integer, Sigset): (Sigset, any)
+-- cast: function shape for nominal Sigset
 local raw_sigsuspend = unix.sigsuspend as function(Sigset): (any, any)
 
 --- Register a signal handler for the specified signal.
@@ -261,7 +264,7 @@ local function sigaction(sig: integer, handler?: any, flags?: integer, mask?: Si
     -- arrives in the second slot.
     return nil, nil, nil, errstr(prev_flags, "sigaction")
   end
-  return prev, prev_flags as integer, prev_mask as Sigset
+  return prev, prev_flags as integer, prev_mask as Sigset -- cast: from any
 end
 
 --- Modify the process signal mask.
@@ -286,8 +289,9 @@ local function sigsuspend(mask?: Sigset): nil, string
   return nil, errstr(err, "sigsuspend")
 end
 
-local M = {} as SignalModule
+local M = {} as SignalModule -- cast: record built incrementally
 
+-- cast: function shape for nominal Sigset
 M.Sigset = unix.Sigset as function(...: integer): Sigset
 M.sigaction = sigaction
 M.sigprocmask = sigprocmask

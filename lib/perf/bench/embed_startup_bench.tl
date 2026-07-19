@@ -46,7 +46,7 @@ local function find_bin(): string
       return p
     end
   end
-  return rawget(arg, -1) as string
+  return rawget(arg, -1) as string -- cast: from any
 end
 
 --- Source text for module i: returns the integer i after defining a padded
@@ -99,7 +99,7 @@ end
 local function spawn_capture(bin: string): string
   local result, serr = child.run({bin})
   assert(result, serr)
-  local r = result as child.Result
+  local r = result as child.Result -- cast: record union after guard
   assert(r.ok, "exit code " .. tostring(r.code) .. ": " .. tostring(r.stdout))
   return (r.stdout:gsub("%s+$", ""))
 end
@@ -143,7 +143,7 @@ local function scenarios(): {pt.Scenario}, string
         return spawn_capture(packed_exe)
       end,
       check = function(_: any, res2: any): boolean, string
-        if res2 as string ~= want then
+        if res2 as string ~= want then -- cast: from any
           return false, "wrong output: " .. tostring(res2) .. " want " .. want
         end
         return true

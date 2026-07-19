@@ -54,7 +54,7 @@ local host_os_names: {string: HostOs} = {
 --- @return HostOs The normalized operating system name
 local function normalize_host_os(raw: string): HostOs
   local lowered = raw:lower()
-  return host_os_names[lowered] or (lowered as HostOs)
+  return host_os_names[lowered] or (lowered as HostOs) -- cast: enum widening
 end
 
 --- Get the operating system name.
@@ -88,7 +88,7 @@ end
 --- @return integer | nil The configuration value
 --- @return string? Error message on failure
 local function sysconf(name: integer): integer | nil, string
-  local val, err = unix.sysconf(name) as(integer, any)
+  local val, err = unix.sysconf(name)
   if not val then
     return nil, errstr(err, "sysconf")
   end
@@ -123,7 +123,7 @@ end
 --- @return Uname | nil The system identification record
 --- @return string? Error message on failure
 local function uname(): Uname | nil, string
-  local uts, err = unix.uname() as(Uname, any)
+  local uts, err = unix.uname() as(Uname, any) -- cast: pre-narrow record union tuple
   if not uts then
     return nil, errstr(err, "uname")
   end

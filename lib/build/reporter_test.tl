@@ -34,7 +34,7 @@ local function run_reporter(...: string): integer, string, string
   if not result then
     return 1, "", tostring(serr)
   end
-  local r = result as child.Result
+  local r = result as child.Result -- cast: record union after guard
   local exit_code: integer = 1
   if r.code ~= nil then
     exit_code = r.code

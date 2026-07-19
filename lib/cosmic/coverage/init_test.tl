@@ -17,7 +17,7 @@ local tmpdir = check.must(os.getenv("TEST_TMPDIR"))
 local function load_chunk(source: string, name: string): function()
   local chunk = load(source, name)
   assert(chunk, "load failed for " .. name)
-  return chunk as function()
+  return chunk as function() -- cast: function shape
 end
 
 --- Collect .cov file paths under a directory.
