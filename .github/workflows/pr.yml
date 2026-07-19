@@ -68,6 +68,19 @@ jobs:
             o/bootstrap/cosmic -e "assert(require(\"cosmic.quicksand.netns\").bring_up(\"lo\"))" \
               && exec sudo -u runner bin/make -j ci'
 
+      # Temporary diagnostic (#729 family 2): the publish_test compile
+      # failed module resolution ONLY in this lane; rerun it solo with
+      # landlock-make debug to see the exact unveil set it got.
+      - name: debug failed compile under sandbox
+        if: failure()
+        shell: bash
+        run: |
+          rm -f o/lib/docs/publish_test.lua
+          sudo unshare --net sh -c '
+            o/bootstrap/cosmic -e "assert(require(\"cosmic.quicksand.netns\").bring_up(\"lo\"))" \
+              && exec sudo -u runner bin/make -d o/lib/docs/publish_test.lua' 2>&1 \
+            | grep -aiE "unveil|pledging|sandboxing|publish|error|denied" | head -100
+
   # Reproducibility gate (#733): build the binary twice from the same
   # tree — the second time into a fresh output tree so the whole
   # pipeline (compile, doc index, version stamp, pack) reruns — and
