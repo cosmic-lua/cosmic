@@ -14,7 +14,7 @@ local RESPONSE = "HTTP/1.1 200 OK\r\n"
 .. "Connection: close\r\n\r\nhi"
 
 --- Fork a loopback server answering n requests with RESPONSE.
-local function serve(n: integer): integer, number
+local function serve(n: integer): integer, integer
   local srv, port = net.listen_tcp("127.0.0.1", 0)
   assert(srv ~= nil, "listen_tcp failed")
   local s = srv as net.Socket

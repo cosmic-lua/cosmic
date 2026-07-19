@@ -98,7 +98,7 @@ local function is_public_page(rel_path: string, public_set: {string: boolean}): 
     return true
   end
   local name = rel_path:match("^lib/cosmic/([^/]+)%.md$")
-    or rel_path:match("^lib/cosmic/([^/]+)/init%.md$")
+  or rel_path:match("^lib/cosmic/([^/]+)/init%.md$")
   return name ~= nil and public_set[name] == true
 end
 

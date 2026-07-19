@@ -34,21 +34,21 @@ local record EncoderOptions
   --- defaults to " ". This option controls the indentation of pretty formatting. This field is ignored if pretty isn't true.
   indent: string
   --- defaults to 64. This option controls the maximum amount of recursion the serializer is allowed to perform. The max is 32767. You might not be able to set it that high if there isn't enough C stack memory. Your serializer checks for this and will return an error rather than crashing.
-  maxdepth: number
+  maxdepth: integer
   --- `EncodeJson` only: encode NaN and Infinity as `null` (the v8 behavior) instead of failing with `nil, error`.
   nan: string
 end
 
 local record DeflateOptions
   --- compression level `-1`..`9`; defaults to `-1`, the zlib default (currently 6). `0` stores without compressing; higher levels are slower but compress better.
-  level: number
+  level: integer
   --- framing of the compressed stream; defaults to `"raw"` (headerless DEFLATE, as used inside ZIP files).
   format: string
 end
 
 local record InflateOptions
   --- cap on the decompressed size in bytes; defaults to 64 MiB. Decompression streams into a growing buffer and fails with `nil, error` once the cap is exceeded, so no attacker-controlled length is ever trusted as an allocation size.
-  maxsize: number
+  maxsize: integer
   --- framing of the compressed stream; defaults to `"raw"`. `"auto"` detects zlib or gzip framing from the stream header (but cannot detect `"raw"`).
   format: string
 end
@@ -61,7 +61,7 @@ local record FetchOptions
   --- request payload.
   body: string
   --- maximum number of redirects to follow.
-  maxredirects: number
+  maxredirects: integer
   --- whether to follow redirects. Defaults to `true`.
   followredirect: boolean
   --- allow requests to private, loopback, and other non-public network addresses (disables the SSRF guard). Applies to every hop of a redirect chain. Defaults to `false`.
@@ -71,18 +71,18 @@ local record FetchOptions
   --- proxy URL to route the request through.
   proxy: string
   --- limit on response (or per-read buffer) size.
-  maxresponse: number
+  maxresponse: integer
   --- request timeout in seconds. `0` or absent keeps the 60-second default; there is no "infinite" option.
   timeout: number
 end
 
 local record BarfOptions
   --- file mode for a newly created file, defaults to 0644
-  mode: number
+  mode: integer
   --- append to the file instead of truncating it (default false)
   append: boolean
   --- 1-indexed byte offset for overwriting a slice of the file; incompatible with `append`
-  offset: number
+  offset: integer
 end
 
 --- Streaming reader for an HTTP response body, returned by
@@ -162,11 +162,11 @@ local record cosmo
   ---     assert(Barf('x.txt', 'XX', {offset = 3}))
   ---     assert(assert(Slurp('x.txt', 1, 6)) == 'abXX23')
   Barf: function(filename: string, data: string, options?: BarfOptions): boolean | nil, string | nil, unix.Errno | nil
-  CategorizeIp: function(ip: number): IpCategory
+  CategorizeIp: function(ip: integer): IpCategory
   --- Computes Phil Katz CRC-32 used by zip/zlib/gzip/etc.
-  Crc32: function(initial: number, data: string): number
+  Crc32: function(initial: integer, data: string): integer
   --- Computes 32-bit Castagnoli Cyclic Redundancy Check.
-  Crc32c: function(initial: number, data: string): number
+  Crc32c: function(initial: integer, data: string): integer
   --- Turns ASCII into binary using the provided alphabet. The default
   --- decoding uses Crockford's base32 alphabet in a permissive way that
   --- ignores whitespace and dash (`-`) and stops at the first character
@@ -314,7 +314,7 @@ local record cosmo
   --- encodings in your input strings will be canonicalized rather than validated.
   EncodeJson: function(value: any, options?: EncoderOptions): string | nil, string | nil
   --- Turns UTF-8 into ISO-8859-1 string.
-  EncodeLatin1: function(utf8: string, flags?: number): string
+  EncodeLatin1: function(utf8: string, flags?: integer): string
   --- Turns Lua data structure into Lua code string.
   --- Since Lua uses tables as both hashmaps and arrays, tables will only be
   --- serialized as an array with determinate order, if it's an array in the
@@ -495,7 +495,7 @@ local record cosmo
   --- (malformed request or response), `"too_large"` (response exceeded
   --- `maxresponse`), or `"blocked"` (refused by SSRF protection or the
   --- HTTPS-to-HTTP downgrade guard).
-  Fetch: function(url: string, body?: string | FetchOptions): number | nil, {string: string}, string, string, string | nil, FetchErrorKind | nil
+  Fetch: function(url: string, body?: string | FetchOptions): integer | nil, {string: string}, string, string, string | nil, FetchErrorKind | nil
   --- Sends an HTTP/HTTPS request and returns a streaming reader for the response body.
   --- Useful for Server-Sent Events (SSE), large downloads, or processing data incrementally.
   --- Accepts the same options table as `Fetch()`, including `timeout`, `maxresponse`,
@@ -510,13 +510,13 @@ local record cosmo
   --- redirects. On failure, returns `nil`, a descriptive error message,
   --- and a machine-readable failure kind with the same values as
   --- `Fetch()`.
-  FetchStream: function(url: string, options?: FetchOptions): number | nil, {string: string}, StreamReader, string, string | nil, FetchErrorKind | nil
+  FetchStream: function(url: string, options?: FetchOptions): integer | nil, {string: string}, StreamReader, string, string | nil, FetchErrorKind | nil
   --- Converts UNIX timestamp to an RFC1123 string that looks like this:
   --- `Mon, 29 Mar 2021 15:37:13 GMT`. See `formathttpdatetime.c`.
-  FormatHttpDateTime: function(seconds: number): string
+  FormatHttpDateTime: function(seconds: integer): string
   --- Turns integer like `0x01020304` into a string like `"1.2.3.4"`. See also
   --- `ParseIp` for the inverse operation.
-  FormatIp: function(uint32: number): string
+  FormatIp: function(uint32: integer): string
   GetCryptoHash: function(name: string, payload: string, key?: string): string | nil, string | nil
   --- Returns string describing host instruction set architecture.
   --- This can return:
@@ -526,13 +526,13 @@ local record cosmo
   --- - `"S390X"` for IBM System/390 systems
   GetHostIsa: function(): string
   GetHostOs: function(): string | nil
-  GetHttpReason: function(code: number): string
+  GetHttpReason: function(code: integer): string
   --- This is useful for fixed-width formatting. For example, CJK characters
   --- typically take up two cells. This function takes into consideration combining
   --- characters, which are discounted, as well as control codes and ANSI escape
   --- sequences.
-  GetMonospaceWidth: function(str: string | number): number
-  GetRandomBytes: function(length?: number): string | nil, string | nil
+  GetMonospaceWidth: function(str: string | integer): integer
+  GetRandomBytes: function(length?: integer): string | nil, string | nil
   --- Returns `true` if the string contains forbidden control codes.
   --- `flags` selects which characters are considered forbidden and may be
   --- any combination of:
@@ -545,7 +545,7 @@ local record cosmo
   --- If `flags` is zero (the default) then no characters are forbidden
   --- and this function returns `false`. Raises an error if `flags` has
   --- bits outside the values above.
-  HasControlCodes: function(str: string, flags?: number): boolean
+  HasControlCodes: function(str: string, flags?: integer): boolean
   --- Decompresses data.
   --- This function performs the inverse of `Deflate()`. The decompressed
   --- size need not be known in advance: output streams into a growing
@@ -583,10 +583,10 @@ local record cosmo
   --- and numbers greater than 65535 are rejected. See
   --- `isacceptableport.c`.
   IsAcceptablePort: function(str: string): boolean
-  IsLoopbackIp: function(uint32: number): boolean
-  IsPrivateIp: function(uint32: number): boolean
+  IsLoopbackIp: function(uint32: integer): boolean
+  IsPrivateIp: function(uint32: integer): boolean
   --- Note: we intentionally regard TEST-NET IPs as public.
-  IsPublicIp: function(uint32: number): boolean
+  IsPublicIp: function(uint32: integer): boolean
   IsReasonablePath: function(str: string): boolean
   --- Returns `true` if a percent-encoded string is well-formed, i.e.
   --- every `%` byte begins a valid `%XX` sequence where both `X` are hex
@@ -617,7 +617,7 @@ local record cosmo
   --- Returns nil, err for invalid inputs (previously it returned the -1
   --- sentinel, which `FormatIp` rendered as the broadcast address). See also
   --- `FormatIp` for the inverse operation.
-  ParseIp: function(ip: string): number | nil, string | nil
+  ParseIp: function(ip: string): integer | nil, string | nil
   --- Parses `application/x-www-form-urlencoded` key/value parameters,
   --- e.g. `"a=b&c"` becomes `{{"a", "b"}, {"c"}}`. This returns the same
   --- data structure as the `params` field of the `Url` object returned by
@@ -658,10 +658,10 @@ local record cosmo
   --- won't make SIP easy. What it can do is parse HTTP URLs and most
   --- URIs like data:opaque, better in fact than most things which
   --- claim to be URI parsers.
-  ParseUrl: function(url: string, flags?: number): Url
+  ParseUrl: function(url: string, flags?: integer): Url
   --- This linear congruential generator passes practrand and bigcrush. This
   --- generator is safe across `fork()`, threads, and signal handlers.
-  Rand64: function(): number
+  Rand64: function(): integer
   --- Gets IP address associated with hostname.
   --- This function first checks if hostname is already an IP address, in which case
   --- it returns the result of `ParseIp`. Otherwise, it checks HOSTS.TXT on the local
@@ -675,7 +675,7 @@ local record cosmo
   --- If no IP address could be found, then `nil` is returned alongside a string of
   --- unspecified format describing the error. Calls to this function may be wrapped
   --- in `assert()` if an exception is desired.
-  ResolveIp: function(hostname: string): number | nil, string | nil
+  ResolveIp: function(hostname: string): integer | nil, string | nil
   --- Computes SHA256 checksum, returning 32 bytes of binary.
   Sha256: function(str: string): string
   --- Reads all data from file the easy way.
@@ -688,7 +688,7 @@ local record cosmo
   --- This function is uninterruptible so `unix.EINTR` errors will be ignored. This
   --- should only be a concern if you've installed signal handlers. Use the UNIX API
   --- if you need to react to it.
-  Slurp: function(filename: string, i?: number, j?: number): string | nil, string | nil, unix.Errno | nil
+  Slurp: function(filename: string, i?: integer, j?: integer): string | nil, string | nil, unix.Errno | nil
   --- Formats a timestamp using strftime(3) format specifiers.
   --- Common format specifiers:
   --- - `%Y` four-digit year
@@ -706,7 +706,7 @@ local record cosmo
   ---     Strftime("%F %T", os.time())            -- "2024-12-29 15:30:00"
   ---     Strftime("%a, %d %b %Y", 0)             -- "Thu, 01 Jan 1970"
   ---     Strftime("%F %T", os.time(), true)      -- local time instead of UTC
-  Strftime: function(format: string, timestamp?: number, localtime?: boolean): string | nil, string | nil
+  Strftime: function(format: string, timestamp?: integer, localtime?: boolean): string | nil, string | nil
   --- Unescapes URL parameter name or value. Decodes `%XX` hex sequences and
   --- converts `+` to space (common in application/x-www-form-urlencoded).
   --- This is the inverse of EscapeParam.

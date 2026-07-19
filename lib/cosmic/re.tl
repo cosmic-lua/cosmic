@@ -19,20 +19,20 @@ local record Regex
   --- failure (e.g. out of memory) returns nil, err — the error string
   --- arrives in the second position, mirroring the cosmo.re binding.
   --- @param text string The text to search
-  --- @param flags number? Optional flags: NOTBOL, NOTEOL
+  --- @param flags integer? Optional flags: NOTBOL, NOTEOL
   --- @return string The matched substring, or nil if no match
   --- @return {string} Capture groups on match (error string on engine failure)
-  search: function(self: Regex, text: string, flags?: number): string, {string}, string | nil
+  search: function(self: Regex, text: string, flags?: integer): string, {string}, string | nil
 end
 
 --- Compile a regular expression pattern.
 --- Compiled patterns can be reused for efficient O(n) matching.
 --- Uses POSIX extended syntax by default.
 --- @param pattern string The regex pattern to compile
---- @param flags number? Optional flags: BASIC, ICASE, NEWLINE, NOSUB
+--- @param flags integer? Optional flags: BASIC, ICASE, NEWLINE, NOSUB
 --- @return Regex? The compiled regex, or nil on error
 --- @return string? Error message if compilation failed
-local function compile(pattern: string, flags?: number): Regex | nil, string
+local function compile(pattern: string, flags?: integer): Regex | nil, string
   local result, err = re.compile(pattern, flags)
   if not result then
     return nil, err as string
@@ -50,11 +50,11 @@ end
 --- nil, nil, err.
 --- @param pattern string The regex pattern to search for
 --- @param text string The text to search in
---- @param flags number? Optional compile flags: BASIC, ICASE, NEWLINE, NOSUB
+--- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE, NOSUB
 --- @return string | nil The matched substring, or nil on no match or error
 --- @return {string} | nil Capture groups on match
 --- @return string | nil Error message if compilation or the engine failed
-local function search(pattern: string, text: string, flags?: number): string | nil, {string} | nil, string | nil
+local function search(pattern: string, text: string, flags?: integer): string | nil, {string} | nil, string | nil
   local regex, cerr = compile(pattern, flags)
   if regex is Regex then
     -- Search flags (NOTBOL/NOTEOL) are not passed here; use compile() + :search() for those
@@ -78,10 +78,10 @@ end
 --- which returns the matched text.
 --- @param pattern string The regex pattern to match
 --- @param text string The text to search in
---- @param flags number? Optional compile flags: BASIC, ICASE, NEWLINE, NOSUB
+--- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE, NOSUB
 --- @return boolean True if pattern matches, false otherwise
 --- @return string? Error message if compilation or the engine failed
-local function test(pattern: string, text: string, flags?: number): boolean, string
+local function test(pattern: string, text: string, flags?: integer): boolean, string
   local m, _, err = search(pattern, text, flags)
   if err then
     return false, err
@@ -111,7 +111,7 @@ local function locate(regex: Regex, text: string, pos: integer, m: string): inte
     if not found then
       return nil
     end
-    local vflags: number = 0
+    local vflags: integer = 0
     if found > 1 then
       vflags = vflags | re.NOTBOL
     end
@@ -129,7 +129,7 @@ end
 --- Compile a pattern for iteration and reject patterns that can match
 --- the empty string: without offsets from the engine a zero-length
 --- match cannot be positioned or advanced past.
-local function compile_for_iter(pattern: string, flags?: number): Regex | nil, string
+local function compile_for_iter(pattern: string, flags?: integer): Regex | nil, string
   local regex, cerr = compile(pattern, flags)
   if not regex then
     return nil, cerr
@@ -148,7 +148,7 @@ local function all_matches(regex: Regex, text: string): {Span} | nil, string
   local spans: {Span} = {}
   local pos = 1
   while pos <= #text do
-    local sflags: number = 0
+    local sflags: integer = 0
     if pos > 1 then
       sflags = re.NOTBOL
     end
@@ -174,10 +174,10 @@ end
 --- first. Patterns that can match the empty string are rejected.
 --- @param pattern string The regex pattern to match
 --- @param text string The text to search in
---- @param flags number? Optional compile flags: BASIC, ICASE, NEWLINE
+--- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE
 --- @return {string} | nil The matched substrings (empty when none), or nil on error
 --- @return string? Error message on a bad pattern or engine failure
-local function findall(pattern: string, text: string, flags?: number): {string} | nil, string
+local function findall(pattern: string, text: string, flags?: integer): {string} | nil, string
   local regex, cerr = compile_for_iter(pattern, flags)
   if not regex then
     return nil, cerr
@@ -199,10 +199,10 @@ end
 --- Patterns that can match the empty string are rejected.
 --- @param pattern string The regex pattern to split on
 --- @param text string The text to split
---- @param flags number? Optional compile flags: BASIC, ICASE, NEWLINE
+--- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE
 --- @return {string} | nil The fields, or nil on error
 --- @return string? Error message on a bad pattern or engine failure
-local function split(pattern: string, text: string, flags?: number): {string} | nil, string
+local function split(pattern: string, text: string, flags?: integer): {string} | nil, string
   local regex, cerr = compile_for_iter(pattern, flags)
   if not regex then
     return nil, cerr
@@ -231,10 +231,10 @@ local type Repl = string | function(string, {string}): string
 --- @param pattern string The regex pattern to match
 --- @param text string The text to operate on
 --- @param repl Repl A literal replacement string, or function(match, caps)
---- @param flags number? Optional compile flags: BASIC, ICASE, NEWLINE
+--- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE
 --- @return string | nil The result, or nil on error
 --- @return string? Error message on a bad pattern or engine failure
-local function gsub(pattern: string, text: string, repl: Repl, flags?: number): string | nil, string
+local function gsub(pattern: string, text: string, repl: Repl, flags?: integer): string | nil, string
   local regex, cerr = compile_for_iter(pattern, flags)
   if not regex then
     return nil, cerr
@@ -269,22 +269,22 @@ local record ReModule
   type Repl = Repl
 
   -- Functions
-  compile: function(pattern: string, flags?: number): Regex | nil, string
-  search: function(pattern: string, text: string, flags?: number): string | nil, {string} | nil, string | nil
-  test: function(pattern: string, text: string, flags?: number): boolean, string
-  findall: function(pattern: string, text: string, flags?: number): {string} | nil, string
-  split: function(pattern: string, text: string, flags?: number): {string} | nil, string
-  gsub: function(pattern: string, text: string, repl: Repl, flags?: number): string | nil, string
+  compile: function(pattern: string, flags?: integer): Regex | nil, string
+  search: function(pattern: string, text: string, flags?: integer): string | nil, {string} | nil, string | nil
+  test: function(pattern: string, text: string, flags?: integer): boolean, string
+  findall: function(pattern: string, text: string, flags?: integer): {string} | nil, string
+  split: function(pattern: string, text: string, flags?: integer): {string} | nil, string
+  gsub: function(pattern: string, text: string, repl: Repl, flags?: integer): string | nil, string
 
   -- Compile flags
-  BASIC: number -- Use basic (obsolete) regex syntax instead of extended
-  ICASE: number -- Case-insensitive matching
-  NEWLINE: number -- Treat newline as special (affects ^ and $)
-  NOSUB: number -- Report only success/failure, not match position
+  BASIC: integer -- Use basic (obsolete) regex syntax instead of extended
+  ICASE: integer -- Case-insensitive matching
+  NEWLINE: integer -- Treat newline as special (affects ^ and $)
+  NOSUB: integer -- Report only success/failure, not match position
 
   -- Search flags
-  NOTBOL: number -- First character is not at beginning of line
-  NOTEOL: number -- Last character is not at end of line
+  NOTBOL: integer -- First character is not at beginning of line
+  NOTEOL: integer -- Last character is not at end of line
 end
 
 local M: ReModule = {

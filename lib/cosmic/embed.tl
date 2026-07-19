@@ -47,7 +47,7 @@ end
 
 --- Options for adding files to a ZIP archive.
 local record AddOptions
-  mode: number
+  mode: integer
   method: string
 end
 
@@ -61,8 +61,8 @@ end
 --- Directory entry returned by ZipReader:list().
 local record ZipEntry
   name: string
-  size: number
-  mode: number
+  size: integer
+  mode: integer
 end
 
 --- Reader interface for reading files from a ZIP archive.
@@ -77,7 +77,7 @@ end
 --- letting collect_dir skip a stat(2) call for entries d_type already
 --- identifies as neither a directory nor a regular file.
 local record EmbedDirHandle
-  read: function(self): string, number
+  read: function(self): string, integer
   close: function(self)
 end
 
@@ -85,7 +85,7 @@ end
 -- embed order without needing two parallel arrays.
 local record DirEntry
   name: string
-  kind: number
+  kind: integer
 end
 
 -- Internal record for files staged for embedding.
@@ -93,7 +93,7 @@ local record FileToEmbed
   path: string
   content: string
   stored_name: string
-  mode: number
+  mode: integer
 end
 
 --- Recursively collect all files from a directory.

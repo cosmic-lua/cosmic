@@ -8,56 +8,56 @@ local record fs_types
   --- Returned by statfs() and fstatfs().
   record Statfs
     --- Returns filesystem type identifier.
-    type: function(self: Statfs): number
+    type: function(self: Statfs): integer
     --- Returns optimal transfer block size.
-    bsize: function(self: Statfs): number
+    bsize: function(self: Statfs): integer
     --- Returns total data blocks in filesystem.
-    blocks: function(self: Statfs): number
+    blocks: function(self: Statfs): integer
     --- Returns free blocks in filesystem.
-    bfree: function(self: Statfs): number
+    bfree: function(self: Statfs): integer
     --- Returns free blocks available to unprivileged user.
-    bavail: function(self: Statfs): number
+    bavail: function(self: Statfs): integer
     --- Returns total file nodes in filesystem.
-    files: function(self: Statfs): number
+    files: function(self: Statfs): integer
     --- Returns free file nodes in filesystem.
-    ffree: function(self: Statfs): number
-    --- Returns filesystem ID as two numbers.
-    fsid: function(self: Statfs): number, number
+    ffree: function(self: Statfs): integer
+    --- Returns filesystem ID as two integers.
+    fsid: function(self: Statfs): integer, integer
     --- Returns maximum length of filenames.
-    namelen: function(self: Statfs): number
+    namelen: function(self: Statfs): integer
     --- Returns fragment size.
-    frsize: function(self: Statfs): number
+    frsize: function(self: Statfs): integer
     --- Returns mount flags.
-    flags: function(self: Statfs): number
+    flags: function(self: Statfs): integer
   end
 
   --- File or directory metadata.
   --- Use the is_dir()/is_file()/is_link()/... methods to check file type.
   record Stat
     --- Returns file size in bytes.
-    size: function(self: Stat): number
+    size: function(self: Stat): integer
     --- Returns file mode (permissions and type bits).
-    mode: function(self: Stat): number
+    mode: function(self: Stat): integer
     --- Returns owner user ID.
-    uid: function(self: Stat): number
+    uid: function(self: Stat): integer
     --- Returns owner group ID.
-    gid: function(self: Stat): number
+    gid: function(self: Stat): integer
     --- Returns birth time as seconds, nanoseconds.
-    birthtim: function(self: Stat): number, number
+    birthtim: function(self: Stat): integer, integer
     --- Returns modification time as seconds, nanoseconds.
-    mtim: function(self: Stat): number, number
+    mtim: function(self: Stat): integer, integer
     --- Returns access time as seconds, nanoseconds.
-    atim: function(self: Stat): number, number
+    atim: function(self: Stat): integer, integer
     --- Returns status change time as seconds, nanoseconds.
-    ctim: function(self: Stat): number, number
+    ctim: function(self: Stat): integer, integer
     --- Returns number of 512-byte blocks allocated.
-    blocks: function(self: Stat): number
+    blocks: function(self: Stat): integer
     --- Returns number of hard links.
-    nlink: function(self: Stat): number
+    nlink: function(self: Stat): integer
     --- Returns device ID containing the file.
-    dev: function(self: Stat): number
+    dev: function(self: Stat): integer
     --- Returns device ID for special files (0 or -1 for non-devices).
-    rdev: function(self: Stat): number
+    rdev: function(self: Stat): integer
     --- Returns true if this is a directory.
     is_dir: function(self: Stat): boolean
     --- Returns true if this is a regular file.
@@ -85,22 +85,22 @@ local record fs_types
     --- return is the dirent d_type (fs.DT_DIR / DT_REG / DT_LNK / ... /
     --- DT_UNKNOWN where the filesystem does not expose it), so callers
     --- can classify entries without a stat(2) per entry.
-    read: function(self: Dir): string, number
+    read: function(self: Dir): string, integer
     --- Closes directory handle.
     close: function(self: Dir)
     --- Returns file descriptor for this directory.
-    fd: function(self: Dir): number
+    fd: function(self: Dir): integer
     --- Rewinds to beginning of directory.
     rewind: function(self: Dir)
     --- Returns current position in directory stream.
-    tell: function(self: Dir): number
+    tell: function(self: Dir): integer
     --- Returns true if directory handle is closed.
     closed: function(self: Dir): boolean
   end
 
   --- File information with Unix permissions.
   record FileInfo
-    mode: number
+    mode: integer
   end
 
   --- Wrap a raw cosmo.unix Stat so it carries the type predicates.
@@ -152,18 +152,18 @@ local record Wrapped
 end
 
 local stat_methods: {string: any} = {
-  size = function(self: Wrapped): number return self.raw:size() end,
-  mode = function(self: Wrapped): number return self.raw:mode() end,
-  uid = function(self: Wrapped): number return self.raw:uid() end,
-  gid = function(self: Wrapped): number return self.raw:gid() end,
-  birthtim = function(self: Wrapped): number, number return self.raw:birthtim() end,
-  mtim = function(self: Wrapped): number, number return self.raw:mtim() end,
-  atim = function(self: Wrapped): number, number return self.raw:atim() end,
-  ctim = function(self: Wrapped): number, number return self.raw:ctim() end,
-  blocks = function(self: Wrapped): number return self.raw:blocks() end,
-  nlink = function(self: Wrapped): number return self.raw:nlink() end,
-  dev = function(self: Wrapped): number return self.raw:dev() end,
-  rdev = function(self: Wrapped): number return self.raw:rdev() end,
+  size = function(self: Wrapped): integer return self.raw:size() end,
+  mode = function(self: Wrapped): integer return self.raw:mode() end,
+  uid = function(self: Wrapped): integer return self.raw:uid() end,
+  gid = function(self: Wrapped): integer return self.raw:gid() end,
+  birthtim = function(self: Wrapped): integer, integer return self.raw:birthtim() end,
+  mtim = function(self: Wrapped): integer, integer return self.raw:mtim() end,
+  atim = function(self: Wrapped): integer, integer return self.raw:atim() end,
+  ctim = function(self: Wrapped): integer, integer return self.raw:ctim() end,
+  blocks = function(self: Wrapped): integer return self.raw:blocks() end,
+  nlink = function(self: Wrapped): integer return self.raw:nlink() end,
+  dev = function(self: Wrapped): integer return self.raw:dev() end,
+  rdev = function(self: Wrapped): integer return self.raw:rdev() end,
   is_dir = function(self: Wrapped): boolean return unix.S_ISDIR(self.raw:mode()) end,
   is_file = function(self: Wrapped): boolean return unix.S_ISREG(self.raw:mode()) end,
   is_link = function(self: Wrapped): boolean return unix.S_ISLNK(self.raw:mode()) end,

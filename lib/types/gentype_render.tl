@@ -15,7 +15,10 @@ local current_module: string = nil
 
 -- Type conversion from LuaLS to Teal
 local TYPE_ALIASES: {string: string} = {
-  ["integer"] = "number",
+  -- Teal (targeting 5.4) has a real integer type; erasing upstream
+  -- integer annotations to number forced math.tointeger shims and
+  -- "got number, expected integer" casts on every consumer (#674).
+  ["integer"] = "integer",
   ["number"] = "number",
   ["string"] = "string",
   ["boolean"] = "boolean",
@@ -25,11 +28,11 @@ local TYPE_ALIASES: {string: string} = {
   ["function"] = "function",
   ["userdata"] = "userdata",
   ["FILE"] = "FILE",
-  ["uint32"] = "number",
-  ["uint16"] = "number",
-  ["uint8"] = "number",
-  ["int8"] = "number",
-  ["int64"] = "number",
+  ["uint32"] = "integer",
+  ["uint16"] = "integer",
+  ["uint8"] = "integer",
+  ["int8"] = "integer",
+  ["int64"] = "integer",
   -- definitions.lua declares these via ---@alias; the recursive JSON aliases
   -- have no Teal equivalent.
   ["JsonValue"] = "any",
@@ -63,8 +66,8 @@ local function convert_type(t: string): string
   if t:match("`") then return "any" end
   if TYPE_ALIASES[t] then return TYPE_ALIASES[t] end
   if t == "true" or t == "false" then return "boolean" end
-  if t:match("^%-?%d+$") then return "number" end
-  if t == "integer" then return "number" end
+  if t:match("^%-?%d+$") then return "integer" end
+  if t == "integer" then return "integer" end
   local fun_args, fun_ret = t:match("^fun%((.*)%)%s*:%s*(.+)$")
   if not fun_args then
     fun_args = t:match("^fun%((.*)%)$")

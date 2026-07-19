@@ -5,13 +5,13 @@ local errno = require("cosmic.errno")
 
 --- Poll event flags.
 --- Use these to specify which events to monitor.
-local POLLIN: number = unix.POLLIN
-local POLLOUT: number = unix.POLLOUT
-local POLLPRI: number = unix.POLLPRI
-local POLLERR: number = unix.POLLERR
-local POLLHUP: number = unix.POLLHUP
-local POLLNVAL: number = unix.POLLNVAL
-local POLLRDHUP: number = unix.POLLRDHUP
+local POLLIN: integer = unix.POLLIN
+local POLLOUT: integer = unix.POLLOUT
+local POLLPRI: integer = unix.POLLPRI
+local POLLERR: integer = unix.POLLERR
+local POLLHUP: integer = unix.POLLHUP
+local POLLNVAL: integer = unix.POLLNVAL
+local POLLRDHUP: integer = unix.POLLRDHUP
 
 --- Resolved events from a poll operation.
 local record Events
@@ -26,45 +26,45 @@ local record Events
   --- True if the fd is invalid.
   invalid: boolean
   --- Raw revents bitmask from poll.
-  revents: number
+  revents: integer
 end
 
 --- Poll set for monitoring multiple file descriptors.
 local record Poller
   --- Add a file descriptor to the set.
-  --- @param fd number File descriptor number
-  --- @param events number Event mask (POLLIN, POLLOUT, etc.)
-  add: function(Poller, number, number)
+  --- @param fd integer File descriptor number
+  --- @param events integer Event mask (POLLIN, POLLOUT, etc.)
+  add: function(Poller, integer, integer)
   --- Remove a file descriptor from the set.
-  --- @param fd number The file descriptor to remove
-  remove: function(Poller, number)
+  --- @param fd integer The file descriptor to remove
+  remove: function(Poller, integer)
   --- Clear all file descriptors from the set.
   clear: function(Poller)
   --- Poll for events with optional timeout.
   --- Returns an iterator over (fd, events) pairs for ready descriptors.
   --- EINTR is retried internally. On a hard poll error the iterator is
   --- empty and the error string is returned as the second value.
-  --- @param timeoutms number Timeout in ms (-1 for infinite, 0 for non-blocking)
-  --- @return function Iterator yielding (fd: number, events: Events)
+  --- @param timeoutms integer Timeout in ms (-1 for infinite, 0 for non-blocking)
+  --- @return function Iterator yielding (fd: integer, events: Events)
   --- @return string? Error message when the underlying poll failed
-  wait: function(Poller, number): function(): (number, Events), string
+  wait: function(Poller, integer): function(): (integer, Events), string
   --- Poll and return count of ready descriptors.
-  --- @param timeoutms number Timeout in ms (-1 for infinite, 0 for non-blocking)
-  --- @return number | nil Count of ready descriptors
+  --- @param timeoutms integer Timeout in ms (-1 for infinite, 0 for non-blocking)
+  --- @return integer | nil Count of ready descriptors
   --- @return string Error message on failure
-  poll: function(Poller, number): number | nil, string
+  poll: function(Poller, integer): integer | nil, string
   --- Get events for a specific fd after poll().
-  --- @param fd number The file descriptor
+  --- @param fd integer The file descriptor
   --- @return Events | nil The events for this fd, or nil if not ready
-  events: function(Poller, number): Events | nil
+  events: function(Poller, integer): Events | nil
   --- Returns true if the poller has no registered fds.
   empty: function(Poller): boolean
   --- Returns the number of registered fds.
-  count: function(Poller): number
+  count: function(Poller): integer
 end
 
 --- Make Events from raw revents bitmask.
-local function make_events(revents: number): Events
+local function make_events(revents: integer): Events
   return {
     readable = (revents & POLLIN) ~= 0,
     writable = (revents & POLLOUT) ~= 0,
@@ -88,12 +88,12 @@ end
 ---     end
 ---   end
 local function new(): Poller
-  local fds: {number: number} = {}
-  local results: {number: number} = {}
+  local fds: {integer: integer} = {}
+  local results: {integer: integer} = {}
 
   local poller: Poller = {}
 
-  poller.add = function(_self: Poller, fd: number, events: number)
+  poller.add = function(_self: Poller, fd: integer, events: integer)
     if fd == nil then
       -- A nil fd is a caller bug (e.g. an unchecked open); registering
       -- nothing would silently turn every wait into a timeout.
@@ -102,7 +102,7 @@ local function new(): Poller
     fds[fd] = events
   end
 
-  poller.remove = function(_self: Poller, fd: number)
+  poller.remove = function(_self: Poller, fd: integer)
     if fd then
       fds[fd] = nil
       results[fd] = nil
@@ -118,7 +118,7 @@ local function new(): Poller
     return next(fds) == nil
   end
 
-  poller.count = function(_self: Poller): number
+  poller.count = function(_self: Poller): integer
     local n = 0
     for _ in pairs(fds) do
       n = n + 1
@@ -126,13 +126,13 @@ local function new(): Poller
     return n
   end
 
-  poller.poll = function(_self: Poller, timeoutms: number): number | nil, string
+  poller.poll = function(_self: Poller, timeoutms: integer): integer | nil, string
     -- Retry when a signal interrupts the wait: an unretried EINTR otherwise
     -- surfaces as a poll failure, and a caller that loops on it (e.g. a drain
     -- loop waiting on a child that raised SIGCHLD) spins at 100% CPU.
-    local res: {number: number}
+    local res: {integer: integer}
     local err: string
-    local eno: number
+    local eno: integer
     while true do
       res, err, eno = unix.poll(fds, timeoutms or -1)
       if res ~= nil or not errno.is(eno, "EINTR") then
@@ -150,7 +150,7 @@ local function new(): Poller
     return ready
   end
 
-  poller.events = function(_self: Poller, fd: number): Events | nil
+  poller.events = function(_self: Poller, fd: integer): Events | nil
     local revents = results[fd]
     if revents then
       return make_events(revents)
@@ -158,17 +158,17 @@ local function new(): Poller
     return nil
   end
 
-  poller.wait = function(self: Poller, timeoutms: number): function(): (number, Events), string
+  poller.wait = function(self: Poller, timeoutms: integer): function(): (integer, Events), string
     local n, err = self:poll(timeoutms)
     if n == nil then
-      return function(): (number, Events)
+      return function(): (integer, Events)
         return nil, nil
       end, err
     end
     local iter_results = results
-    local k: number = nil
-    return function(): (number, Events)
-      local v: number
+    local k: integer = nil
+    return function(): (integer, Events)
+      local v: integer
       k, v = next(iter_results, k)
       if k then
         return k, make_events(v)
@@ -187,19 +187,19 @@ local record PollModule
   new: function(): Poller
 
   --- Event mask for readable data.
-  POLLIN: number
+  POLLIN: integer
   --- Event mask for writable.
-  POLLOUT: number
+  POLLOUT: integer
   --- Event mask for priority data (e.g., OOB on TCP).
-  POLLPRI: number
+  POLLPRI: integer
   --- Event mask for error condition.
-  POLLERR: number
+  POLLERR: integer
   --- Event mask for hangup.
-  POLLHUP: number
+  POLLHUP: integer
   --- Event mask for invalid fd.
-  POLLNVAL: number
+  POLLNVAL: integer
   --- Event mask for peer closed connection.
-  POLLRDHUP: number
+  POLLRDHUP: integer
 end
 
 local M: PollModule = {

@@ -101,8 +101,6 @@ local function check_cast_ratchet(file: string, content: string, base: {string: 
   return {}
 end
 
-
-
 --- Tests and examples must use cosmic.* wrappers, never raw cosmo.* bindings
 --- (AGENTS.md "cosmo vs cosmic"). These files are the enumerated exceptions
 --- from the July audit's §1.7 — each needs the raw layer for a reason the
@@ -167,7 +165,6 @@ end
 local function is_exempt(path: string): boolean
   return path:match("%.d%.tl$") ~= nil
 end
-
 
 local function write_casts_baseline(files: {string}): integer
   local entries: {string} = {}

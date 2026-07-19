@@ -35,7 +35,7 @@ local RESPONSE = "HTTP/1.1 200 OK\r\n"
 .. "Connection: close\r\n\r\n"
 .. BODY
 
-local server_pid: number
+local server_pid: integer
 local listener: net.Socket
 
 --- A single line-iteration outcome, checked after timing.

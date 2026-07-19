@@ -31,7 +31,7 @@ end
 --- and close without answering (a transport failure for the client).
 --- A response of "echo" answers 200 with the raw request as the body.
 --- @return integer port, integer child pid (caller must proc.wait it)
-local function serve(responses: {string}): integer, number
+local function serve(responses: {string}): integer, integer
   local srv, port = net.listen_tcp("127.0.0.1", 0)
   assert(srv ~= nil, "listen_tcp failed")
   local s = srv as net.Socket

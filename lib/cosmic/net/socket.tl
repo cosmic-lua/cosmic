@@ -21,9 +21,9 @@ local function resolve_addr(addr: Address): integer | nil, string
     if not a then
       return nil, err
     end
-    return math.tointeger((a as ip.Addr):int())
+    return (a as ip.Addr):int()
   end
-  return math.tointeger((addr as ip.Addr):int())
+  return (addr as ip.Addr):int()
 end
 
 --- Socket handle for network I/O.
@@ -34,79 +34,79 @@ local stream = require("cosmic.stream")
 local record Socket is stream.Reader, stream.Writer
   metamethod __close: function(self: Socket)
   --- The underlying file descriptor.
-  fd: number
+  fd: integer
   --- Close the socket.
   close: function(self: Socket): boolean
   --- True when the socket has been closed.
   closed: function(self: Socket): boolean
   --- Shut down reading and/or writing (unix.SHUT_RD/WR/RDWR).
-  shutdown: function(self: Socket, how?: number): boolean, string
+  shutdown: function(self: Socket, how?: integer): boolean, string
   --- Send data; returns bytes sent, or nil + error.
-  send: function(self: Socket, data: string, flags?: number): number | nil, string
+  send: function(self: Socket, data: string, flags?: integer): integer | nil, string
   --- stream.Writer: alias for send (bytes written, or nil + error).
-  write: function(self: Socket, data: string): number | nil, string
+  write: function(self: Socket, data: string): integer | nil, string
   --- Send all of data, retrying partial writes until done.
   --- Returns false + error if any write fails; bytes already sent
   --- before the failure stay sent.
-  sendall: function(self: Socket, data: string, flags?: number): boolean, string
+  sendall: function(self: Socket, data: string, flags?: integer): boolean, string
   --- Send a datagram to addr:port; returns bytes sent, or nil + error.
-  sendto: function(self: Socket, data: string, addr: Address, port: number, flags?: number): number | nil, string
+  sendto: function(self: Socket, data: string, addr: Address, port: integer, flags?: integer): integer | nil, string
   --- Receive up to bufsiz bytes (blocks until data arrives).
   --- Returns bare nil (no error) when the peer closed the connection —
   --- end of stream, matching the stream contract (cosmic.stream). ""
   --- is only ever a zero-byte datagram on message sockets. Returns
   --- nil + error message on failure. bufsiz must be positive when
   --- given (default 65536).
-  recv: function(self: Socket, bufsiz?: number, flags?: number): string | nil, string
+  recv: function(self: Socket, bufsiz?: integer, flags?: integer): string | nil, string
   --- stream.Reader: alias for recv (chunk; bare nil at end of stream;
   --- nil + error on failure).
-  read: function(self: Socket, n?: number): string | nil, string
+  read: function(self: Socket, n?: integer): string | nil, string
   --- Receive exactly n bytes from a stream socket, blocking until they
   --- arrive. Returns nil + error if the peer closes the connection
   --- first (bytes read before the close are discarded).
-  recv_exact: function(self: Socket, n: number, flags?: number): string | nil, string
+  recv_exact: function(self: Socket, n: integer, flags?: integer): string | nil, string
   --- Read one line from a stream socket, blocking until a "\n" arrives.
   --- The trailing "\n" (and a "\r" before it) is consumed but not
   --- returned. At end of stream a final unterminated line is returned
   --- as-is; after that (or on an empty stream) returns bare nil, matching
   --- the stream contract. With max set, returns at most max bytes even
   --- if no newline was seen (the rest stays readable), like fgets.
-  readline: function(self: Socket, max?: number): string | nil, string
+  readline: function(self: Socket, max?: integer): string | nil, string
   --- Receive a datagram; returns data, sender Addr, sender port.
-  recvfrom: function(self: Socket, bufsiz?: number, flags?: number): string | nil, ip.Addr, number, string
+  recvfrom: function(self: Socket, bufsiz?: integer, flags?: integer): string | nil, ip.Addr, integer, string
   --- Local address as (Addr, port); use after bind for the real port.
-  getsockname: function(self: Socket): ip.Addr | nil, number, string
+  getsockname: function(self: Socket): ip.Addr | nil, integer, string
   --- Peer address as (Addr, port).
-  getpeername: function(self: Socket): ip.Addr | nil, number, string
+  getpeername: function(self: Socket): ip.Addr | nil, integer, string
   --- Bind to a local addr:port (default all interfaces, OS-assigned port).
-  bind: function(self: Socket, addr?: Address, port?: number): boolean, string
+  bind: function(self: Socket, addr?: Address, port?: integer): boolean, string
   --- Bind to a unix-domain socket path.
   bind_unix: function(self: Socket, path: string): boolean, string
   --- Start listening for connections.
-  listen: function(self: Socket, backlog?: number): boolean, string
+  listen: function(self: Socket, backlog?: integer): boolean, string
   --- Accept one connection (blocks until a client connects).
   --- Returns the connection socket, peer Addr, peer port.
-  accept: function(self: Socket, flags?: number): Socket | nil, ip.Addr, number, string
+  accept: function(self: Socket, flags?: integer): Socket | nil, ip.Addr, integer, string
   --- Connect to addr:port.
-  connect: function(self: Socket, addr: Address, port: number): boolean, string
+  connect: function(self: Socket, addr: Address, port: integer): boolean, string
   --- Connect to a unix-domain socket path.
   connect_unix: function(self: Socket, path: string): boolean, string
   --- Read a socket option value.
-  getsockopt: function(self: Socket, level: number, optname: number): number | boolean | nil, string
+  getsockopt: function(self: Socket, level: integer, optname: integer): integer | boolean | nil, string
   --- Set a socket option value.
-  setsockopt: function(self: Socket, level: number, optname: number, value: number | boolean): boolean, string
+  setsockopt: function(self: Socket, level: integer, optname: integer, value: integer | boolean): boolean, string
   --- Switch O_NONBLOCK on (default) or off for this socket.
   set_nonblocking: function(self: Socket, enable?: boolean): boolean, string
   --- Set a timeout in milliseconds for blocking sends and receives
   --- (SO_RCVTIMEO + SO_SNDTIMEO). Timed-out operations fail with an
   --- EAGAIN error. nil or 0 clears the timeout (block forever).
-  set_timeout: function(self: Socket, ms?: number): boolean, string
+  set_timeout: function(self: Socket, ms?: integer): boolean, string
 end
 
 --- Create a socket handle from a file descriptor.
---- @param fd number The file descriptor
+--- @param fd integer The file descriptor
 --- @return Socket The socket handle
-local function make_socket(fd: number): Socket
+local function make_socket(fd: integer): Socket
   local sock: Socket = {fd = fd}
 
   -- macOS honors SO_NOSIGPIPE, not MSG_NOSIGNAL, on send(); set it once at
@@ -130,7 +130,7 @@ local function make_socket(fd: number): Socket
     return self.fd == nil
   end
 
-  function sock:shutdown(how?: number): boolean, string
+  function sock:shutdown(how?: integer): boolean, string
     if not self.fd then return false, "socket closed" end
     how = how or unix.SHUT_RDWR
     local ok, err = unix.shutdown(self.fd, how)
@@ -144,7 +144,7 @@ local function make_socket(fd: number): Socket
   -- would otherwise kill the whole process (exit 141) instead of returning an
   -- EPIPE error the caller can handle. cosmo maps MSG_NOSIGNAL to the native
   -- per-OS flag, so ORing it in is portable.
-  function sock:send(data: string, flags?: number): number | nil, string
+  function sock:send(data: string, flags?: integer): integer | nil, string
     if not self.fd then return nil, "socket closed" end
     local n, err = unix.send(self.fd, data, (flags or 0) | unix.MSG_NOSIGNAL)
     if not n then
@@ -153,19 +153,19 @@ local function make_socket(fd: number): Socket
     return n
   end
 
-  function sock:sendall(data: string, flags?: number): boolean, string
+  function sock:sendall(data: string, flags?: integer): boolean, string
     local off: integer = 0
     while off < #data do
       local n, err = self:send(data:sub(off + 1), flags)
       if not n then
         return false, err
       end
-      off = off + math.floor(n)
+      off = off + n
     end
     return true
   end
 
-  function sock:sendto(data: string, addr: Address, port: number, flags?: number): number | nil, string
+  function sock:sendto(data: string, addr: Address, port: integer, flags?: integer): integer | nil, string
     if not self.fd then return nil, "socket closed" end
     local raw, aerr = resolve_addr(addr)
     if not raw then
@@ -182,7 +182,7 @@ local function make_socket(fd: number): Socket
   -- first empty recv and cached, so the common stream path pays nothing.
   local dgram: boolean = nil
 
-  function sock:recv(bufsiz?: number, flags?: number): string | nil, string
+  function sock:recv(bufsiz?: integer, flags?: integer): string | nil, string
     if not self.fd then return nil, "socket closed" end
     local data, err = unix.recv(self.fd, bufsiz or 65536, flags or 0)
     if not data then
@@ -205,7 +205,7 @@ local function make_socket(fd: number): Socket
   sock.read = sock.recv
   sock.write = sock.send
 
-  function sock:recv_exact(n: number, flags?: number): string | nil, string
+  function sock:recv_exact(n: integer, flags?: integer): string | nil, string
     local parts: {string} = {}
     local got = 0
     while got < n do
@@ -222,7 +222,7 @@ local function make_socket(fd: number): Socket
     return table.concat(parts)
   end
 
-  function sock:readline(max?: number): string | nil, string
+  function sock:readline(max?: integer): string | nil, string
     if not self.fd then return nil, "socket closed" end
     local parts: {string} = {}
     local total = 0
@@ -245,7 +245,7 @@ local function make_socket(fd: number): Socket
       local nl = string.find(d, "\n", 1, true)
       local take: integer = nl or #d
       if max and total + take > max then
-        take = math.floor(max - total)
+        take = max - total
         nl = nil
       end
       if take > 0 then
@@ -274,7 +274,7 @@ local function make_socket(fd: number): Socket
     return line
   end
 
-  function sock:recvfrom(bufsiz?: number, flags?: number): string | nil, ip.Addr, number, string
+  function sock:recvfrom(bufsiz?: integer, flags?: integer): string | nil, ip.Addr, integer, string
     if not self.fd then return nil, nil, nil, "socket closed" end
     local data, sender, port = unix.recvfrom(self.fd, bufsiz or 65536, flags or 0)
     if not data then
@@ -285,7 +285,7 @@ local function make_socket(fd: number): Socket
     return data, ip.addr(sender), port
   end
 
-  function sock:getsockname(): ip.Addr | nil, number, string
+  function sock:getsockname(): ip.Addr | nil, integer, string
     if not self.fd then return nil, nil, "socket closed" end
     local raw, port = unix.getsockname(self.fd)
     if not raw then
@@ -296,7 +296,7 @@ local function make_socket(fd: number): Socket
     return ip.addr(raw), port
   end
 
-  function sock:getpeername(): ip.Addr | nil, number, string
+  function sock:getpeername(): ip.Addr | nil, integer, string
     if not self.fd then return nil, nil, "socket closed" end
     local raw, port = unix.getpeername(self.fd)
     if not raw then
@@ -307,7 +307,7 @@ local function make_socket(fd: number): Socket
     return ip.addr(raw), port
   end
 
-  function sock:bind(addr?: Address, port?: number): boolean, string
+  function sock:bind(addr?: Address, port?: integer): boolean, string
     if not self.fd then return false, "socket closed" end
     local raw: integer = 0
     if addr ~= nil then
@@ -333,7 +333,7 @@ local function make_socket(fd: number): Socket
     return true
   end
 
-  function sock:listen(backlog?: number): boolean, string
+  function sock:listen(backlog?: integer): boolean, string
     if not self.fd then return false, "socket closed" end
     local ok, err = unix.listen(self.fd, backlog or 128)
     if not ok then
@@ -342,7 +342,7 @@ local function make_socket(fd: number): Socket
     return true
   end
 
-  function sock:accept(flags?: number): Socket | nil, ip.Addr, number, string
+  function sock:accept(flags?: integer): Socket | nil, ip.Addr, integer, string
     if not self.fd then return nil, nil, nil, "socket closed" end
     local clientfd, peer, port = unix.accept(self.fd, flags or 0)
     if not clientfd then
@@ -353,7 +353,7 @@ local function make_socket(fd: number): Socket
     return make_socket(clientfd), ip.addr(peer), port
   end
 
-  function sock:connect(addr: Address, port: number): boolean, string
+  function sock:connect(addr: Address, port: integer): boolean, string
     if not self.fd then return false, "socket closed" end
     local raw, aerr = resolve_addr(addr)
     if not raw then
@@ -375,7 +375,7 @@ local function make_socket(fd: number): Socket
     return true
   end
 
-  function sock:getsockopt(level: number, optname: number): number | boolean | nil, string
+  function sock:getsockopt(level: integer, optname: integer): integer | boolean | nil, string
     if not self.fd then return nil, "socket closed" end
     local val, err = unix.getsockopt(self.fd, level, optname)
     if val == nil then
@@ -400,7 +400,7 @@ local function make_socket(fd: number): Socket
     return true
   end
 
-  function sock:set_timeout(ms?: number): boolean, string
+  function sock:set_timeout(ms?: integer): boolean, string
     if not self.fd then return false, "socket closed" end
     ms = ms or 0
     local secs = math.floor(ms / 1000)
@@ -419,7 +419,7 @@ local function make_socket(fd: number): Socket
     return true
   end
 
-  function sock:setsockopt(level: number, optname: number, value: number | boolean): boolean, string
+  function sock:setsockopt(level: integer, optname: integer, value: integer | boolean): boolean, string
     if not self.fd then return false, "socket closed" end
     local ok, err = unix.setsockopt(self.fd, level, optname, value)
     if not ok then
@@ -436,7 +436,7 @@ end
 local record NetSocketModule
   type Socket = Socket
   type Address = Address
-  make_socket: function(fd: number): Socket
+  make_socket: function(fd: integer): Socket
 end
 
 local M: NetSocketModule = {

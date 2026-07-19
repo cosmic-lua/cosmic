@@ -32,7 +32,7 @@ function zip.open(path, mode) end
     "literal-union alias should render as a Teal enum:\n" .. dtl)
   assert(dtl:match("--- Archive open modes%.\nlocal enum OpenMode"),
     "alias description should precede the enum:\n" .. dtl)
-  assert(dtl:match("local type Errno = number"),
+  assert(dtl:match("local type Errno = integer"),
     "scalar alias should render as a transparent type alias:\n" .. dtl)
   assert(dtl:match("  type OpenMode = OpenMode"),
     "enum should be re-exported on the module record:\n" .. dtl)

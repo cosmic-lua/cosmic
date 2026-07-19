@@ -120,10 +120,10 @@ end
 --- Update a file's access and modification times to now, creating the
 --- file (mode 0644 by default) if it does not exist.
 --- @param path string Path to the file
---- @param mode number Permission bits when creating (default 0644)
+--- @param mode integer Permission bits when creating (default 0644)
 --- @return boolean True on success
 --- @return string Error message if failed
-local function touch(path: string, mode?: number): boolean, string
+local function touch(path: string, mode?: integer): boolean, string
   local fd, oerr = unix.open(path,
     unix.O_WRONLY | unix.O_CREAT, mode or tonumber("644", 8))
   if not fd then
@@ -206,19 +206,19 @@ end
 
 --- Check if the current process has access to a file.
 --- @param path string Path to check
---- @param mode number Access mode: F_OK (exists, the default), R_OK, W_OK, X_OK
+--- @param mode integer Access mode: F_OK (exists, the default), R_OK, W_OK, X_OK
 --- @return boolean True if access is allowed
-local function access(path: string, mode?: number): boolean
+local function access(path: string, mode?: integer): boolean
   -- The binding returns true or nil, err; callers get an honest boolean.
   return unix.access(path, mode or unix.F_OK) == true
 end
 
 --- Change file permissions.
 --- @param path string Path to the file
---- @param mode number New permission bits (e.g., 0644)
+--- @param mode integer New permission bits (e.g., 0644)
 --- @return boolean True on success
 --- @return string Error message if failed
-local function chmod(path: string, mode: number): boolean, string
+local function chmod(path: string, mode: integer): boolean, string
   local ok, err = unix.chmod(path, mode)
   if not ok then
     return false, errstr(err, "chmod: " .. path)
@@ -228,11 +228,11 @@ end
 
 --- Change file owner and group.
 --- @param path string Path to the file
---- @param uid number New owner user ID
---- @param gid number New owner group ID
+--- @param uid integer New owner user ID
+--- @param gid integer New owner group ID
 --- @return boolean True on success
 --- @return string Error message if failed
-local function chown(path: string, uid: number, gid: number): boolean, string
+local function chown(path: string, uid: integer, gid: integer): boolean, string
   local ok, err = unix.chown(path, uid, gid)
   if not ok then
     return false, errstr(err, "chown: " .. path)
@@ -250,7 +250,7 @@ end
 --- @param mtime_nsecs number Modification time nanoseconds
 --- @return boolean True on success
 --- @return string Error message if failed
-local function utimensat(path: string, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
+local function utimensat(path: string, atime_secs: integer, atime_nsecs: integer, mtime_secs: integer, mtime_nsecs: integer): boolean, string
   local rc, err = unix.utimensat(path, atime_secs or 0, atime_nsecs or unix.UTIME_OMIT, mtime_secs or 0, mtime_nsecs or unix.UTIME_OMIT)
   if rc ~= 0 then
     return false, errstr(err, "utimensat: " .. path)
@@ -259,14 +259,14 @@ local function utimensat(path: string, atime_secs: number, atime_nsecs: number, 
 end
 
 --- Change file access and modification times on a file descriptor.
---- @param fd number File descriptor
---- @param atime_secs number Access time seconds (nil to keep current)
+--- @param fd integer File descriptor
+--- @param atime_secs integer Access time seconds (nil to keep current)
 --- @param atime_nsecs number Access time nanoseconds
 --- @param mtime_secs number Modification time seconds (nil to keep current)
 --- @param mtime_nsecs number Modification time nanoseconds
 --- @return boolean True on success
 --- @return string Error message if failed
-local function futimens(fd: number, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
+local function futimens(fd: integer, atime_secs: integer, atime_nsecs: integer, mtime_secs: integer, mtime_nsecs: integer): boolean, string
   local rc, err = unix.futimens(fd, atime_secs or 0, atime_nsecs or unix.UTIME_OMIT, mtime_secs or 0, mtime_nsecs or unix.UTIME_OMIT)
   if rc ~= 0 then
     return false, errstr(err, "futimens")
@@ -309,9 +309,9 @@ local function tmpfile(template?: string): Handle | nil, string, string
 end
 
 --- Create a temporary file descriptor.
---- @return number | nil File descriptor, or nil on error
+--- @return integer | nil File descriptor, or nil on error
 --- @return string Error message if failed
-local function tmpfd(): number | nil, string
+local function tmpfd(): integer | nil, string
   local fd, err = unix.tmpfd()
   if not fd then
     return nil, errstr(err, "tmpfd")
@@ -334,10 +334,10 @@ local function statfs(path: string): Statfs | nil, string
 end
 
 --- Get filesystem statistics from a file descriptor.
---- @param fd number File descriptor
+--- @param fd integer File descriptor
 --- @return Statfs | nil Filesystem statistics, or nil on error
 --- @return string Error message if failed
-local function fstatfs(fd: number): Statfs | nil, string
+local function fstatfs(fd: integer): Statfs | nil, string
   local info, err = unix.fstatfs(fd)
   if not info then
     return nil, errstr(err, "fstatfs")
@@ -355,16 +355,16 @@ end
 -- Device number utilities
 
 --- Extract major device number from a device ID.
---- @param dev number Device ID from stat
---- @return number Major device number
-local function major(dev: number): number
+--- @param dev integer Device ID from stat
+--- @return integer Major device number
+local function major(dev: integer): integer
   return unix.major(dev)
 end
 
 --- Extract minor device number from a device ID.
---- @param dev number Device ID from stat
---- @return number Minor device number
-local function minor(dev: number): number
+--- @param dev integer Device ID from stat
+--- @return integer Minor device number
+local function minor(dev: integer): integer
   return unix.minor(dev)
 end
 
@@ -373,29 +373,29 @@ local record FsOpsModule
   rename: function(oldpath: string, newpath: string): boolean, string
   copy: function(src: string, dst: string): boolean, string
   move: function(oldpath: string, newpath: string): boolean, string
-  touch: function(path: string, mode?: number): boolean, string
+  touch: function(path: string, mode?: integer): boolean, string
   link: function(existingpath: string, newpath: string): boolean, string
   symlink: function(target: string, linkpath: string): boolean, string
   readlink: function(path: string): string | nil, string
   realpath: function(path: string): string | nil, string
   rmrf: function(path: string): boolean, string
-  access: function(path: string, mode?: number): boolean
-  chmod: function(path: string, mode: number): boolean, string
-  chown: function(path: string, uid: number, gid: number): boolean, string
-  utimensat: function(path: string, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
-  futimens: function(fd: number, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
+  access: function(path: string, mode?: integer): boolean
+  chmod: function(path: string, mode: integer): boolean, string
+  chown: function(path: string, uid: integer, gid: integer): boolean, string
+  utimensat: function(path: string, atime_secs: integer, atime_nsecs: integer, mtime_secs: integer, mtime_nsecs: integer): boolean, string
+  futimens: function(fd: integer, atime_secs: integer, atime_nsecs: integer, mtime_secs: integer, mtime_nsecs: integer): boolean, string
   mkdtemp: function(template: string): string | nil, string
   tmpfile: function(template?: string): Handle | nil, string, string
-  tmpfd: function(): number | nil, string
+  tmpfd: function(): integer | nil, string
   statfs: function(path: string): Statfs | nil, string
-  fstatfs: function(fd: number): Statfs | nil, string
+  fstatfs: function(fd: integer): Statfs | nil, string
   sync: function()
-  major: function(dev: number): number
-  minor: function(dev: number): number
-  F_OK: number
-  R_OK: number
-  W_OK: number
-  X_OK: number
+  major: function(dev: integer): integer
+  minor: function(dev: integer): integer
+  F_OK: integer
+  R_OK: integer
+  W_OK: integer
+  X_OK: integer
 end
 
 local M: FsOpsModule = {

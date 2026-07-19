@@ -13,7 +13,7 @@
 3	lib/cosmic/check.tl
 3	lib/cosmic/check_assertions_test.tl
 2	lib/cosmic/check_test.tl
-11	lib/cosmic/child/init.tl
+6	lib/cosmic/child/init.tl
 9	lib/cosmic/child/init_example.tl
 48	lib/cosmic/child/init_test.tl
 5	lib/cosmic/child/io.tl
@@ -112,7 +112,7 @@
 6	lib/cosmic/landlock_test.tl
 1	lib/cosmic/log_test.tl
 2	lib/cosmic/make.tl
-29	lib/cosmic/net/connect_test.tl
+28	lib/cosmic/net/connect_test.tl
 10	lib/cosmic/net/init.tl
 7	lib/cosmic/net/init_example.tl
 27	lib/cosmic/net/init_test.tl
@@ -192,11 +192,11 @@
 4	lib/cosmic/teal.tl
 3	lib/cosmic/teal_config_test.tl
 8	lib/cosmic/testrun.tl
-26	lib/cosmic/time.tl
+22	lib/cosmic/time.tl
 4	lib/cosmic/time_test.tl
 14	lib/cosmic/tl_loader_test.tl
-6	lib/cosmic/tty.tl
-16	lib/cosmic/tty_test.tl
+4	lib/cosmic/tty.tl
+12	lib/cosmic/tty_test.tl
 4	lib/cosmic/unveil.tl
 1	lib/cosmic/unveil_example.tl
 3	lib/cosmic/unveil_test.tl

@@ -21,10 +21,10 @@ end
 --- Write data to a file, creating or overwriting it.
 --- @param path string Path to the file
 --- @param data string Data to write
---- @param mode number Permission bits when creating (default 0644)
+--- @param mode integer Permission bits when creating (default 0644)
 --- @return boolean True on success
 --- @return string Error message if failed
-local function write(path: string, data: string, mode?: number): boolean, string
+local function write(path: string, data: string, mode?: integer): boolean, string
   local ok, err = cosmo.Barf(path, data, {mode = mode})
   if not ok then
     return false, err or ("failed to write file: " .. path)
@@ -34,10 +34,10 @@ end
 
 --- Truncate a file to the given length (default 0).
 --- @param path string Path to the file
---- @param length number New length in bytes (default 0)
+--- @param length integer New length in bytes (default 0)
 --- @return boolean True on success
 --- @return string Error message if failed
-local function truncate(path: string, length?: number): boolean, string
+local function truncate(path: string, length?: integer): boolean, string
   local ok, err = unix.truncate(path, length)
   if not ok then
     return false, errstr(err, "truncate: " .. path)
@@ -52,10 +52,10 @@ end
 --- temporary file is removed.
 --- @param path string Destination path
 --- @param data string Data to write
---- @param mode number Permission bits for the file (default 0644)
+--- @param mode integer Permission bits for the file (default 0644)
 --- @return boolean True on success
 --- @return string Error message if failed
-local function write_atomic(path: string, data: string, mode?: number): boolean, string
+local function write_atomic(path: string, data: string, mode?: integer): boolean, string
   -- The binding returns (fd, path) on success and (nil, Errno) on failure.
   local fd, tmp = unix.mkstemp(path .. ".XXXXXX")
   if not fd then
@@ -99,9 +99,9 @@ end
 
 local record FsFileModule
   read: function(path: string): string | nil, string
-  write: function(path: string, data: string, mode?: number): boolean, string
-  truncate: function(path: string, length?: number): boolean, string
-  write_atomic: function(path: string, data: string, mode?: number): boolean, string
+  write: function(path: string, data: string, mode?: integer): boolean, string
+  truncate: function(path: string, length?: integer): boolean, string
+  write_atomic: function(path: string, data: string, mode?: integer): boolean, string
 end
 
 local M: FsFileModule = {

@@ -222,16 +222,16 @@ end
 --- unix.poll, and issues shutdown(SHUT_WR) toward the peer on each
 --- half-close so it sees clean EOF.
 local function pump(a: integer, b: integer)
-  local fds: {number: number} = {}
+  local fds: {integer: integer} = {}
   fds[a] = unix.POLLIN
   fds[b] = unix.POLLIN
-  local open: {number: boolean} = {}
+  local open: {integer: boolean} = {}
   open[a] = true
   open[b] = true
   local hup_mask = (unix.POLLHUP as integer)
   | (unix.POLLERR as integer)
   | (unix.POLLNVAL as integer)
-  local function close_side(fd: number, peer: integer)
+  local function close_side(fd: integer, peer: integer)
     pcall(unix.shutdown, peer, unix.SHUT_WR)
     fds[fd] = nil
     open[fd] = false
@@ -239,7 +239,7 @@ local function pump(a: integer, b: integer)
   while open[a] or open[b] do
     local ready = unix.poll(fds)
     if not ready then return end
-    for fd, ev in pairs(ready as {number: number}) do
+    for fd, ev in pairs(ready as {integer: integer}) do
       local peer = (fd == a) and b or a
       local evi = ev as integer
       local readable = (evi & (unix.POLLIN as integer)) ~= 0

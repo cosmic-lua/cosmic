@@ -19,10 +19,10 @@ local CLOSED = -1
 -- Move std fd `n` out of the way. The copy is CLOEXEC (it must never
 -- leak into the child) and placed at 10+ so it cannot collide with the
 -- 0-2 range being wired.
--- @param n number the std fd (0, 1, or 2)
--- @return number | nil saved fd, CLOSED if `n` was not open, or nil when
+-- @param n integer the std fd (0, 1, or 2)
+-- @return integer | nil saved fd, CLOSED if `n` was not open, or nil when
 --   the caller should abandon the fast path
-local function save_fd(n: number): number | nil
+local function save_fd(n: integer): integer | nil
   local saved, _, eno = unix.dup(n, nil, unix.O_CLOEXEC, 10)
   if saved then
     return saved
@@ -40,16 +40,16 @@ end
 --- @param prog string resolved executable path
 --- @param argv {string} argument vector (argv[1] is the program name)
 --- @param envp {string} | nil environment, or nil to inherit
---- @param fd0 number child's stdin
---- @param fd1 number child's stdout
---- @param fd2 number child's stderr
---- @return number | nil child pid; nil means failure or fallback
+--- @param fd0 integer child's stdin
+--- @param fd1 integer child's stdout
+--- @param fd2 integer child's stderr
+--- @return integer | nil child pid; nil means failure or fallback
 --- @return string | nil error: set only for a real spawn failure that
 ---   should be reported; `nil, nil` means "fall back to the fork path"
 local function spawn(prog: string, argv: {string}, envp: {string} | nil,
-    fd0: number, fd1: number, fd2: number): number | nil, string
-  local targets: {number} = {fd0, fd1, fd2}
-  local saves: {number} = {}
+    fd0: integer, fd1: integer, fd2: integer): integer | nil, string
+  local targets: {integer} = {fd0, fd1, fd2}
+  local saves: {integer} = {}
 
   -- Save the std fds that are about to be replaced.
   for i = 1, 3 do
@@ -80,7 +80,7 @@ local function spawn(prog: string, argv: {string}, envp: {string} | nil,
     end
   end
 
-  local pid: number
+  local pid: integer
   local serr: string
   if wired then
     local p, e = unix.spawn(prog, argv, envp)
@@ -113,7 +113,7 @@ end
 
 local record FastModule
   spawn: function(prog: string, argv: {string}, envp: {string} | nil,
-  fd0: number, fd1: number, fd2: number): number | nil, string
+  fd0: integer, fd1: integer, fd2: integer): integer | nil, string
 end
 
 local M: FastModule = {

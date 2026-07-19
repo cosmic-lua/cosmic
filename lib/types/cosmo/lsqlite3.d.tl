@@ -24,7 +24,7 @@ local record Context
   --- Sets the result of a callback function to the error value in `err`.
   result_error: function(self: Context, err: any)
   --- Sets the result of a callback function to the integer `number`
-  result_int: function(self: Context, number: number)
+  result_int: function(self: Context, number: integer)
   --- Sets the result of a callback function to `nil`.
   result_null: function(self: Context)
   --- Sets the result of a callback function to the string in `str`.
@@ -45,19 +45,19 @@ local record Database
   --- `0` if the transaction is to be aborted. All other values will result in
   --- another attempt to perform the transaction. (See the SQLite documentation
   --- for important hints about writing busy handlers.)
-  busy_handler: function(self: Database, func?: function(udata: any, tries: number), udata?: any)
+  busy_handler: function(self: Database, func?: function(udata: any, tries: integer), udata?: any)
   --- Sets a busy handler that waits for `milliseconds` if a transaction cannot proceed.
   --- Calling this function will remove any busy handler set by `db:busy_handler()`;
   --- calling it with an argument less than or equal to `0` will turn off all busy handlers.
-  busy_timeout: function(self: Database, milliseconds: number)
+  busy_timeout: function(self: Database, milliseconds: integer)
   --- Only changes that are directly specified by INSERT, UPDATE, or DELETE
   --- statements are counted. Auxiliary changes caused by triggers are not
   --- counted. Use `db:total_changes()` to find the total number of changes.
-  changes: function(self: Database): number
+  changes: function(self: Database): integer
   --- Closes a database. All SQL statements prepared using `db:prepare()` should
   --- have been finalized before this function is called. The function returns
   --- `lsqlite3.OK` on success or else a numerical error code.
-  close: function(self: Database): number
+  close: function(self: Database): integer
   --- Finalizes all statements that have not been explicitly finalized. If
   --- `temponly` is `true`, only internal, temporary statements are finalized.
   close_vm: function(self: Database, temponly?: boolean)
@@ -91,7 +91,7 @@ local record Database
   --- This prints:
   ---     Sum of col 1:   6
   ---     Sum of col 2:   66
-  create_aggregate: function(self: Database, name: string, nargs: number, step: function(ctx: Context, ...: string | number | nil), final: function(ctx: Context), userdata?: any): boolean
+  create_aggregate: function(self: Database, name: string, nargs: integer, step: function(ctx: Context, ...: string | number | nil), final: function(ctx: Context), userdata?: any): boolean
   --- This creates a collation callback. A collation callback is used to establish
   --- a collation order, mostly for string comparisons and sorting purposes.
   --- A simple example:
@@ -112,7 +112,7 @@ local record Database
   ---    for row in db:nrows('SELECT * FROM test') do
   ---      print(row.id, row.content)
   ---    end
-  create_collation: function(self: Database, name: string, func: (function(s1: string, s2: string): number))
+  create_collation: function(self: Database, name: string, func: (function(s1: string, s2: string): integer))
   --- This function creates a callback function. Callback function are called by
   --- SQLite3 once for every row in a query.
   --- It should accept a function context (see Methods for callback contexts) plus
@@ -128,7 +128,7 @@ local record Database
   ---     for col1,col2,col3,sum in db:urows('SELECT *,sum_cols(col1,col2,col3) FROM test') do
   ---       util.printf('%2i+%2i+%2i=%2i\n',col1,col2,col3,sum)
   ---     end
-  create_function: function(self: Database, name: string, nargs: number, func: function(ctx: Context, ...: any), userdata?: any): boolean
+  create_function: function(self: Database, name: string, nargs: integer, func: function(ctx: Context, ...: any), userdata?: any): boolean
   --- If there is no attached database name on the database connection, then no value is
   --- returned; if database name is a temporary or in-memory database, then an
   --- empty string is returned.
@@ -137,7 +137,7 @@ local record Database
   deserialize: function(self: Database, s: string)
   errcode: function(self: Database): ResultCode
   errmsg: function(self: Database): string
-  exec: function(self: Database, sql: string, func?: (function(udata: any, cols: number, values: {string}, names: {string}): number), udata?: any): ResultCode
+  exec: function(self: Database, sql: string, func?: (function(udata: any, cols: integer, values: {string}, names: {string}): integer), udata?: any): ResultCode
   --- This function causes any pending database operation to abort and return at
   --- the next opportunity.
   interrupt: function(self: Database)
@@ -149,7 +149,7 @@ local record Database
   --- If an INSERT occurs within a trigger, then the rowid of the inserted row is
   --- returned as long as the trigger is running. Once the trigger terminates, the
   --- value returned reverts to the last value inserted before the trigger fired.
-  last_insert_rowid: function(self: Database): number
+  last_insert_rowid: function(self: Database): integer
   --- Creates an iterator that returns the successive rows selected by the
   --- SQL statement given in string `sql`. Each call to the iterator
   --- returns a table in which the named fields correspond to the columns
@@ -206,7 +206,7 @@ local record Database
   --- This includes UPDATE, INSERT and DELETE statements executed as part of trigger
   --- programs. All changes are counted as soon as the statement that produces them
   --- is completed by calling either `stmt:reset()` or `stmt:finalize()`.
-  total_changes: function(self: Database): number
+  total_changes: function(self: Database): integer
   --- This function installs an update_hook Data Change Notification
   --- Callback handler. See: `db:commit_hook` and `db:rollback_hook`
   --- whenever a row is updated, inserted or deleted. This callback
@@ -218,7 +218,7 @@ local record Database
   --- database and table name containing the affected row. The final
   --- callback parameter is the rowid of the row. In the case of an
   --- update, this is the rowid after the update takes place.
-  update_hook: function(self: Database, func: function(udata: any, op: number, db: Database, name: string, rowid: number), udata: any)
+  update_hook: function(self: Database, func: function(udata: any, op: integer, db: Database, name: string, rowid: integer), udata: any)
   --- Creates an iterator that returns the successive rows selected by the SQL
   --- statement given in string sql. Each call to the iterator returns the values
   --- that correspond to the columns in the currently selected row.
@@ -235,8 +235,8 @@ local record Database
   ---     2       22
   ---     3       33
   urows: function(self: Database, sql: string): function, VM
-  wal_checkpoint: function(self: Database, mode?: number, name?: string): number | nil, number, ResultCode | nil
-  wal_hook: function(self: Database, func?: (function(udata: any, db: Database, name: string, page_count: number): number), udata?: any)
+  wal_checkpoint: function(self: Database, mode?: integer, name?: string): integer | nil, integer, ResultCode | nil
+  wal_hook: function(self: Database, func?: (function(udata: any, db: Database, name: string, page_count: integer): integer), udata?: any)
 end
 
 --- After creating a prepared statement with `db:prepare()` the returned statement
@@ -249,16 +249,16 @@ local record Statement
   --- `lua_isinteger`. If `value` is a boolean then it is bound as `0` for
   --- `false` or `1` for `true`. If `value` is `nil` or missing, any
   --- previous binding is removed.
-  bind: function(self: Statement, n: number, value: string | number | boolean | nil): number
+  bind: function(self: Statement, n: integer, value: string | number | boolean | nil): integer
   --- Binds string `blob` (which can be a binary string) as a blob to
   --- statement parameter `n`.
-  bind_blob: function(self: Statement, n: number, blob: string): number
+  bind_blob: function(self: Statement, n: integer, blob: string): integer
   --- Binds the values in `nametable` to statement parameters. If the
   --- statement parameters are named (i.e., of the form `":AAA"` or
   --- `"$AAA"`) then this function looks for appropriately named fields in
   --- nametable; if the statement parameters are not named, it looks for
   --- numerical fields 1 to the number of statement parameters.
-  bind_names: function(self: Statement, nametable: table): number, number
+  bind_names: function(self: Statement, nametable: table): integer, integer
   --- When the statement parameters are of the forms `":AAA"` or `"?"`, then they are
   --- assigned sequentially increasing numbers beginning with one, so the value
   --- returned is the number of parameters. However if the same statement parameter
@@ -268,20 +268,20 @@ local record Statement
   --- integer) then there might be gaps in the numbering and the value returned by
   --- this interface is the index of the statement parameter with the largest index
   --- value.
-  bind_parameter_count: function(self: Statement): number
+  bind_parameter_count: function(self: Statement): integer
   --- Statement parameters of the form `":AAA"` or `"@AAA"` or `"$VVV"` have a name
   --- which is the string `":AAA"` or `"@AAA"` or `"$VVV"`. In other words, the
   --- initial `":"` or `"$"` or `"@"` is included as part of the name. Parameters of
   --- the form `"?"` or `"?NNN"` have no name. The first bound parameter has an index
   --- of `1`. If the value `n` is out of range or if the `n`-th parameter is nameless,
   --- then `nil` is returned.
-  bind_parameter_name: function(self: Statement, n: number): string | nil
+  bind_parameter_name: function(self: Statement, n: integer): string | nil
   --- Binds the given values to statement parameters.
-  bind_values: function(self: Statement, ...: string | number | nil): number
-  columns: function(self: Statement): number
+  bind_values: function(self: Statement, ...: string | number | nil): integer
+  columns: function(self: Statement): integer
   --- This function frees the prepared statement.
-  finalize: function(self: Statement): number
-  get_name: function(self: Statement, n: number): string
+  finalize: function(self: Statement): integer
+  get_name: function(self: Statement, n: integer): string
   get_named_types: function(self: Statement): {string}
   --- Alias for `lsqlite3.Statement:get_named_types()`.
   type: function(self: Statement): {string}
@@ -291,14 +291,14 @@ local record Statement
   get_names: function(self: Statement): {string}
   --- Alias for `lsqlite3.Statement:get_names()`.
   inames: function(self: Statement): {string}
-  get_type: function(self: Statement, n: number): string | nil
+  get_type: function(self: Statement, n: integer): string | nil
   get_types: function(self: Statement): {string}
   --- Alias for `lsqlite3.Statement:get_types()`.
   itypes: function(self: Statement): {string}
   get_unames: function(self: Statement): string...
   get_utypes: function(self: Statement): string...
   get_uvalues: function(self: Statement): string | number | nil
-  get_value: function(self: Statement, n: number): string | number | nil
+  get_value: function(self: Statement, n: integer): string | number | nil
   get_values: function(self: Statement): {string | number | nil}
   --- Alias for `lsqlite3.Statement:get_values()`.
   idata: function(self: Statement): {string | number | nil}
@@ -334,20 +334,20 @@ local record Statement
   --- Each iteration returns the values for the current row. This is the prepared
   --- statement equivalent of `db:urows()`.
   urows: function(self: Statement): function(self: VM): any...
-  last_insert_rowid: function(self: Statement): number
+  last_insert_rowid: function(self: Statement): integer
 end
 
 local record VM
   userdata
-  bind: function(self: VM, index: number, value: string | number | boolean | nil): number
-  bind_blob: function(self: VM, index: number, value: string): number
-  bind_names: function(self: VM, names: {string}): number
-  bind_parameter_count: function(self: VM): number
+  bind: function(self: VM, index: integer, value: string | number | boolean | nil): integer
+  bind_blob: function(self: VM, index: integer, value: string): integer
+  bind_names: function(self: VM, names: {string}): integer
+  bind_parameter_count: function(self: VM): integer
   bind_parameter_name: function(self: VM, index: number): string
-  bind_values: function(self: VM, ...: string | number | nil): number
-  columns: function(self: VM): number
-  finalize: function(self: VM): number
-  get_name: function(self: VM, index: number): string
+  bind_values: function(self: VM, ...: string | number | nil): integer
+  columns: function(self: VM): integer
+  finalize: function(self: VM): integer
+  get_name: function(self: VM, index: integer): string
   get_named_types: function(self: VM): {string}
   --- Alias for `lsqlite3.VM:get_named_types()`.
   type: function(self: VM): {string}
@@ -357,19 +357,19 @@ local record VM
   get_names: function(self: VM): {string}
   --- Alias for `lsqlite3.VM:get_names()`.
   inames: function(self: VM): {string}
-  get_type: function(self: VM, index: number): string | nil
+  get_type: function(self: VM, index: integer): string | nil
   get_types: function(self: VM): {string}
   --- Alias for `lsqlite3.VM:get_types()`.
   itypes: function(self: VM): {string}
   get_unames: function(self: VM): string...
   get_utypes: function(self: VM): string...
   get_uvalues: function(self: VM): string | number | nil
-  get_value: function(self: VM, index: number): string | number | nil
+  get_value: function(self: VM, index: integer): string | number | nil
   get_values: function(self: VM): {string | number | nil}
   --- Alias for `lsqlite3.VM:get_values()`.
   idata: function(self: VM): {string | number | nil}
   isopen: function(self: VM): boolean
-  last_insert_rowid: function(self: VM): number
+  last_insert_rowid: function(self: VM): integer
   nrows: function(self: VM, sql: string): function(self: VM): {string: string | number}
   --- Returns `true` if the prepared statement makes no direct changes to
   --- the content of the database file, `false` otherwise.
@@ -383,11 +383,11 @@ end
 --- SQLite result/status code (the OK/ERROR/BUSY/DONE/ROW/... family
 --- of lsqlite3.* integer constants; see the SC() table in
 --- tool/net/lsqlite3.c).
-local type ResultCode = number
+local type ResultCode = integer
 
 --- Bitmask of lsqlite3.OPEN_* flags accepted by `lsqlite3.open` (see
 --- https://www.sqlite.org/c3ref/open.html).
-local type OpenFlag = number
+local type OpenFlag = integer
 
 local record lsqlite3
   type Context = Context
@@ -400,10 +400,10 @@ local record lsqlite3
   --- The `lsqlite3.OK` result code means that the operation was successful
   --- and that there were no errors. Most other result codes indicate an
   --- error.
-  OK: number
+  OK: integer
   --- The `lsqlite3.ERROR` result code is a generic error code that is used
   --- when no other more specific error code is available.
-  ERROR: number
+  ERROR: integer
   --- The `lsqlite3.INTERNAL` result code indicates an internal malfunction.
   --- In a working version of SQLite, an application should never see this
   --- result code. If application does encounter this result code, it shows
@@ -411,10 +411,10 @@ local record lsqlite3
   --- SQLite does not currently generate this result code. However,
   --- application-defined SQL functions or virtual tables, or VFSes, or other
   --- extensions might cause this result code to be returned.
-  INTERNAL: number
+  INTERNAL: integer
   --- The `lsqlite3.PERM` result code indicates that the requested access mode
   --- for a newly created database could not be provided.
-  PERM: number
+  PERM: integer
   --- The `lsqlite3.ABORT` result code indicates that an operation was aborted
   --- prior to completion, usually be application request. See also:
   --- `lsqlite3.INTERRUPT`.
@@ -423,7 +423,7 @@ local record lsqlite3
   --- If a ROLLBACK operation occurs on the same database connection as a
   --- pending read or write, then the pending read or write may fail with an
   --- `lsqlite3.ABORT` error.
-  ABORT: number
+  ABORT: integer
   --- The lsqlite3.BUSY result code indicates that the database file could not
   --- be written (or in some cases read) because of concurrent activity by
   --- some other database connection, usually a database connection in a
@@ -447,7 +447,7 @@ local record lsqlite3
   --- connection, probably in a separate process, whereas `lsqlite3.LOCKED`
   --- indicates a conflict within the same database connection (or sometimes
   --- a database connection with a shared cache).
-  BUSY: number
+  BUSY: integer
   --- The `lsqlite3.LOCKED` result code indicates that a write operation could
   --- not continue because of a conflict within the same database connection
   --- or a conflict with a different database connection that uses a shared
@@ -461,32 +461,32 @@ local record lsqlite3
   --- (or on a connection with a shared cache) whereas `lsqlite3.BUSY`
   --- indicates a conflict with a different database connection, probably in
   --- a different process.
-  LOCKED: number
+  LOCKED: integer
   --- The `lsqlite3.NOMEM` result code indicates that SQLite was unable to
   --- allocate all the memory it needed to complete the operation. In other
   --- words, an internal call to `sqlite3_malloc()` or `sqlite3_realloc()` has
   --- failed in a case where the memory being allocated was required in order
   --- to continue the operation.
-  NOMEM: number
+  NOMEM: integer
   --- The `lsqlite3.READONLY` result code is returned when an attempt is made
   --- to alter some data for which the current database connection does not
   --- have write permission.
-  READONLY: number
+  READONLY: integer
   --- The `lsqlite3.INTERRUPT` result code indicates that an operation was
   --- interrupted by the `sqlite3_interrupt()` interface. See also:
   --- `lsqlite3.ABORT`
-  INTERRUPT: number
+  INTERRUPT: integer
   --- The `lsqlite3.IOERR` result code says that the operation could not
   --- finish because the operating system reported an I/O error.
   --- A full disk drive will normally give an `lsqlite3.FULL` error rather
   --- than an `lsqlite3.IOERR` error.
   --- There are many different extended result codes for I/O errors that
   --- identify the specific I/O operation that failed.
-  IOERR: number
+  IOERR: integer
   --- The `lsqlite3.CORRUPT` result code indicates that the database file has
   --- been corrupted. See [How To Corrupt Your Database Files](https://www.sqlite.org/lockingv3.html#how_to_corrupt)
   --- for further discussion on how corruption can occur.
-  CORRUPT: number
+  CORRUPT: integer
   --- The `lsqlite3.NOTFOUND` result code is exposed in three ways:
   --- `lsqlite3.NOTFOUND` can be returned by the `sqlite3_file_control()`
   --- interface to indicate that the file control opcode passed as the third
@@ -499,7 +499,7 @@ local record lsqlite3
   --- The `lsqlite3.NOTFOUND` result code is also used internally by the
   --- SQLite implementation, but those internal uses are not exposed to the
   --- application.
-  NOTFOUND: number
+  NOTFOUND: integer
   --- The `lsqlite3.FULL` result code indicates that a write could not
   --- complete because the disk is full. Note that this error can occur when
   --- trying to write information into the main database file, or it can also
@@ -508,11 +508,11 @@ local record lsqlite3
   --- abundance of primary disk space because the error occurs when writing
   --- into temporary disk files on a system where temporary files are stored
   --- on a separate partition with much less space that the primary disk.
-  FULL: number
+  FULL: integer
   --- The `lsqlite3.CANTOPEN` result code indicates that SQLite was unable to
   --- open a file. The file in question might be a primary database file or
   --- one of several temporary disk files.
-  CANTOPEN: number
+  CANTOPEN: integer
   --- The `lsqlite3.PROTOCOL` result code indicates a problem with the file
   --- locking protocol used by SQLite. The `lsqlite3.PROTOCOL` error is
   --- currently only returned when using WAL mode and attempting to start a
@@ -525,9 +525,9 @@ local record lsqlite3
   --- appear in practice very, very rarely, and only when there are many
   --- separate processes all competing intensely to write to the same
   --- database.
-  PROTOCOL: number
+  PROTOCOL: integer
   --- The `lsqlite3.EMPTY` result code is not currently used.
-  EMPTY: number
+  EMPTY: integer
   --- The `lsqlite3.SCHEMA` result code indicates that the database schema has
   --- changed. This result code can be returned from `Statement:step()`. If
   --- the database schema was changed by some other process in between the
@@ -537,7 +537,7 @@ local record lsqlite3
   --- `SQLITE_MAX_SCHEMA_RETRY` times (default: 50). The `step()` interface
   --- will only return `lsqlite3.SCHEMA` back to the application if the
   --- failure persists after these many retries.
-  SCHEMA: number
+  SCHEMA: integer
   --- The `lsqlite3.TOOBIG` error code indicates that a string or BLOB was too
   --- large. The default maximum length of a string or BLOB in SQLite is
   --- 1,000,000,000 bytes. This maximum length can be changed at compile-time
@@ -548,7 +548,7 @@ local record lsqlite3
   --- statement is passed into one of the `db:prepare()` interface. The
   --- maximum length of an SQL statement defaults to a much smaller value of
   --- 1,000,000,000 bytes.
-  TOOBIG: number
+  TOOBIG: integer
   --- The `lsqlite3.CONSTRAINT` error code means that an SQL constraint
   --- violation occurred while trying to process an SQL statement. Additional
   --- information about the failed constraint can be found by consulting the
@@ -560,7 +560,7 @@ local record lsqlite3
   --- particular combination of inputs submitted to `xBestIndex()` cannot
   --- result in a usable query plan and should not be given further
   --- consideration.
-  CONSTRAINT: number
+  CONSTRAINT: integer
   --- SQLite is normally very forgiving about mismatches between the type of a
   --- value and the declared type of the container in which that value is to
   --- be stored. For example, SQLite allows the application to store a large
@@ -571,7 +571,7 @@ local record lsqlite3
   --- anything other than an integer (or a NULL which will be automatically
   --- converted into the next available integer rowid) results in an
   --- `lsqlite3.MISMATCH` error.
-  MISMATCH: number
+  MISMATCH: integer
   --- The `lsqlite3.MISUSE` return code might be returned if the application
   --- uses any SQLite interface in a way that is undefined or unsupported. For
   --- example, using a prepared statement after that prepared statement has
@@ -585,115 +585,115 @@ local record lsqlite3
   --- ship an application that sometimes returns `lsqlite3.MISUSE` from a
   --- standard SQLite interface because that application contains potentially
   --- serious bugs.
-  MISUSE: number
+  MISUSE: integer
   --- The `lsqlite3.NOLFS` error can be returned on systems that do not
   --- support large files when the database grows to be larger than what the
   --- filesystem can handle. "NOLFS" stands for "NO Large File Support".
-  NOLFS: number
+  NOLFS: integer
   --- The `lsqlite3.FORMAT` error code is not currently used by SQLite.
-  FORMAT: number
+  FORMAT: integer
   --- The `lsqlite3.RANGE` error indices that the parameter number argument to
   --- one of the `bind` routines or the column number in one of the `column`
   --- routines is out of range.
-  RANGE: number
+  RANGE: integer
   --- When attempting to open a file, the `lsqlite3.NOTADB` error indicates
   --- that the file being opened does not appear to be an SQLite database
   --- file.
-  NOTADB: number
+  NOTADB: integer
   --- The `lsqlite3.ROW` result code returned by sqlite3_step() indicates that
   --- another row of output is available.
-  ROW: number
+  ROW: integer
   --- The `lsqlite3.DONE` result code indicates that an operation has
   --- completed. The `lsqlite3.DONE` result code is most commonly seen as a
   --- return value from `step()` indicating that the SQL statement has run to
   --- completion, but `lsqlite3.DONE` can also be returned by other multi-step
   --- interfaces.
-  DONE: number
-  CREATE_INDEX: number
-  CREATE_TABLE: number
-  CREATE_TEMP_INDEX: number
-  CREATE_TEMP_TABLE: number
-  CREATE_TEMP_TRIGGER: number
-  CREATE_TEMP_VIEW: number
-  CREATE_TRIGGER: number
-  CREATE_VIEW: number
-  DELETE: number
-  DROP_INDEX: number
-  DROP_TABLE: number
-  DROP_TEMP_INDEX: number
-  DROP_TEMP_TABLE: number
-  DROP_TEMP_TRIGGER: number
-  DROP_TEMP_VIEW: number
-  DROP_TRIGGER: number
-  DROP_VIEW: number
-  INSERT: number
-  PRAGMA: number
-  READ: number
-  SELECT: number
-  TRANSACTION: number
-  UPDATE: number
-  ATTACH: number
-  DETACH: number
-  ALTER_TABLE: number
-  REINDEX: number
-  ANALYZE: number
-  CREATE_VTABLE: number
-  DROP_VTABLE: number
-  FUNCTION: number
-  SAVEPOINT: number
+  DONE: integer
+  CREATE_INDEX: integer
+  CREATE_TABLE: integer
+  CREATE_TEMP_INDEX: integer
+  CREATE_TEMP_TABLE: integer
+  CREATE_TEMP_TRIGGER: integer
+  CREATE_TEMP_VIEW: integer
+  CREATE_TRIGGER: integer
+  CREATE_VIEW: integer
+  DELETE: integer
+  DROP_INDEX: integer
+  DROP_TABLE: integer
+  DROP_TEMP_INDEX: integer
+  DROP_TEMP_TABLE: integer
+  DROP_TEMP_TRIGGER: integer
+  DROP_TEMP_VIEW: integer
+  DROP_TRIGGER: integer
+  DROP_VIEW: integer
+  INSERT: integer
+  PRAGMA: integer
+  READ: integer
+  SELECT: integer
+  TRANSACTION: integer
+  UPDATE: integer
+  ATTACH: integer
+  DETACH: integer
+  ALTER_TABLE: integer
+  REINDEX: integer
+  ANALYZE: integer
+  CREATE_VTABLE: integer
+  DROP_VTABLE: integer
+  FUNCTION: integer
+  SAVEPOINT: integer
   --- The database is created if it does not already exist.
-  OPEN_CREATE: number
+  OPEN_CREATE: integer
   --- The database is opened with shared cache disabled, overriding the
   --- default shared cache setting provided by sqlite3_enable_shared_cache().
-  OPEN_PRIVATECACHE: number
+  OPEN_PRIVATECACHE: integer
   --- The new database connection will use the "serialized" threading mode.
   --- This means the multiple threads can safely attempt to use the same
   --- database connection at the same time. (Mutexes will block any actual
   --- concurrency, but in this mode there is no harm in trying.)
-  OPEN_FULLMUTEX: number
+  OPEN_FULLMUTEX: integer
   --- The new database connection will use the "multi-thread" threading mode.
   --- This means that separate threads are allowed to use SQLite at the same
   --- time, as long as each thread is using a different database connection.
-  OPEN_NOMUTEX: number
+  OPEN_NOMUTEX: integer
   --- The database will be opened as an in-memory database. The database is
   --- named by the "filename" argument for the purposes of cache-sharing, if
   --- shared cache mode is enabled, but the "filename" is otherwise ignored.
-  OPEN_MEMORY: number
+  OPEN_MEMORY: integer
   --- The filename can be interpreted as a URI if this flag is set. See
   --- https://www.sqlite.org/c3ref/open.html
-  OPEN_URI: number
+  OPEN_URI: integer
   --- The database is opened for reading and writing if possible, or reading
   --- only if the file is write protected by the operating system. In either
   --- case the database must already exist, otherwise an error is returned.
-  OPEN_READWRITE: number
+  OPEN_READWRITE: integer
   --- The database is opened in read-only mode. If the database does not
   --- already exist, an error is returned.
-  OPEN_READONLY: number
+  OPEN_READONLY: integer
   --- The database is opened shared cache enabled, overriding the default
   --- shared cache setting provided by sqlite3_enable_shared_cache(). The use
   --- of shared cache mode is discouraged and hence shared cache capabilities
   --- may be omitted from many builds of SQLite. In such cases, this option is
   --- a no-op.
-  OPEN_SHAREDCACHE: number
-  TEXT: number
-  BLOB: number
-  NULL: number
-  FLOAT: number
-  INTEGER: number
-  CONFIG_SINGLETHREAD: number
-  CONFIG_MULTITHREAD: number
-  CONFIG_SERIALIZED: number
-  CONFIG_LOG: number
+  OPEN_SHAREDCACHE: integer
+  TEXT: integer
+  BLOB: integer
+  NULL: integer
+  FLOAT: integer
+  INTEGER: integer
+  CONFIG_SINGLETHREAD: integer
+  CONFIG_MULTITHREAD: integer
+  CONFIG_SERIALIZED: integer
+  CONFIG_LOG: integer
   --- for any database readers or writers to finish. See `db:wal_checkpoint`.
-  CHECKPOINT_PASSIVE: number
+  CHECKPOINT_PASSIVE: integer
   --- reading from the most recent database snapshot, then checkpoints all
   --- frames. See `db:wal_checkpoint`.
-  CHECKPOINT_FULL: number
+  CHECKPOINT_FULL: integer
   --- blocks until all readers are reading from the database file only.
   --- See `db:wal_checkpoint`.
-  CHECKPOINT_RESTART: number
+  CHECKPOINT_RESTART: integer
   --- truncates the log file before returning. See `db:wal_checkpoint`.
-  CHECKPOINT_TRUNCATE: number
+  CHECKPOINT_TRUNCATE: integer
 
   --- Opens (or creates if it does not exist) an SQLite database with name filename
   --- and returns its handle as userdata (the returned object should be used for all
@@ -724,7 +724,7 @@ local record lsqlite3
   ---   removes the current callback when `func` is `nil`. Returns
   ---   `lsqlite3.OK` followed by the previously installed callback and its
   ---   user data.
-  config: function(option: number, func?: function, udata?: any): number | nil, function | nil, any, number | nil
+  config: function(option: integer, func?: function, udata?: any): integer | nil, function | nil, any, integer | nil
 end
 
 return lsqlite3

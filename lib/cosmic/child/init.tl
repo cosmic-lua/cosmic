@@ -43,7 +43,7 @@ local record Handle is stream.Reader
 
   --- Sends `sig` (default SIGTERM) to the child. Fails once the child has
   --- been reaped, since its pid may have been recycled.
-  kill: function(self: Handle, sig?: number): boolean, string
+  kill: function(self: Handle, sig?: integer): boolean, string
   --- Non-blocking reap: the cached/final Result if the child has finished,
   --- `nil, nil` while it is still running, or `nil, err` on a wait error.
   try_wait: function(self: Handle): Result | nil, string
@@ -56,7 +56,7 @@ local record Handle is stream.Reader
   --- stdout. Returns bare nil at end of file, matching the stream contract
   --- (cosmic.stream). For whole-output capture use `wait`/`run`, which
   --- also collect stderr and cannot deadlock.
-  read: function(self: Handle, size?: number): string | nil, string
+  read: function(self: Handle, size?: integer): string | nil, string
 end
 
 --- Options for spawning a process.
@@ -93,9 +93,9 @@ end
 
 --- Prepares an executable fd from a /zip/ path for fexecve.
 --- @param zip_path string Path starting with /zip/
---- @return number | nil The file descriptor ready for fexecve
+--- @return integer | nil The file descriptor ready for fexecve
 --- @return string Error message on failure
-local function prepare_zip_exec(zip_path: string): number | nil, string
+local function prepare_zip_exec(zip_path: string): integer | nil, string
   local fd = unix.open(zip_path, unix.O_RDONLY)
   if not fd then
     return nil, "failed to open zip path: " .. zip_path
@@ -113,16 +113,16 @@ local function close_fds(self: Handle)
 end
 
 -- Build and cache the Result from a reaped status word, then release fds.
-local function finish(self: Handle, status: number): Result
+local function finish(self: Handle, status: integer): Result
   local r: Result = {
     stdout = table.concat(self._st.out),
     stderr = table.concat(self._st.err_out),
   }
   if unix.WIFEXITED(status) then
-    r.code = unix.WEXITSTATUS(status) as integer
+    r.code = unix.WEXITSTATUS(status)
     r.ok = r.code == 0
   elseif unix.WIFSIGNALED(status) then
-    r.signal = unix.WTERMSIG(status) as integer
+    r.signal = unix.WTERMSIG(status)
     r.ok = false
   else
     r.ok = false
@@ -150,10 +150,10 @@ local handle_mt: metatable < Handle > = {
 }
 
 -- Attach the Handle methods and finalizers to a freshly forked child.
-local function make_handle(pid: number, st: childio.PumpState): Handle
-  local handle: Handle = {pid = pid as integer, _st = st}
+local function make_handle(pid: integer, st: childio.PumpState): Handle
+  local handle: Handle = {pid = pid, _st = st}
 
-  function handle:kill(sig?: number): boolean, string
+  function handle:kill(sig?: integer): boolean, string
     if self._result then
       return false, "kill: process already reaped"
     end
@@ -180,7 +180,7 @@ local function make_handle(pid: number, st: childio.PumpState): Handle
     if type(status) ~= "number" then
       return nil, "wait failed: " .. tostring(status)
     end
-    return finish(self, status as number)
+    return finish(self, status)
   end
 
   function handle:try_wait(): Result | nil, string
@@ -196,10 +196,10 @@ local function make_handle(pid: number, st: childio.PumpState): Handle
     end
     -- Reaped: the child is gone, so draining hits EOF promptly.
     childio.pump(self._st, nil)
-    return finish(self, status as number)
+    return finish(self, status)
   end
 
-  function handle:read(size?: number): string | nil, string
+  function handle:read(size?: integer): string | nil, string
     local fd = self._st.stdout_fd
     if not fd then
       return nil, "stdout not captured"
@@ -241,7 +241,7 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
 
   -- Resolve the executable into a LOCAL, never by mutating the caller's argv:
   -- a PATH search that wrote back into argv[1] corrupts the caller's table.
-  local exec_fd: number
+  local exec_fd: integer
   local prog = argv[1]
   if is_zip_path(argv[1]) then
     local fd, err = prepare_zip_exec(argv[1])
@@ -259,7 +259,7 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
 
   -- Track every fd we open so a mid-way pipe() failure (fd exhaustion) can be
   -- unwound cleanly, including the exec fd on the early-return path.
-  local opened: {number} = {}
+  local opened: {integer} = {}
   local function fail(msg: string): Handle, string
     for _, fd in ipairs(opened) do unix.close(fd) end
     if exec_fd then unix.close(exec_fd) end
@@ -269,7 +269,7 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
   -- spawned while this handle is still open (which would keep an earlier
   -- child from seeing stdin EOF). The child's own dup2 onto 0/1/2 clears
   -- CLOEXEC on the ends it keeps.
-  local function new_pipe(): number, number
+  local function new_pipe(): integer, integer
     local r, w = unix.pipe(unix.O_CLOEXEC)
     if r == nil or w == nil then
       return nil, nil
@@ -279,24 +279,24 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
     return r, w
   end
 
-  local stdin_r: number
-  local stdin_w: number
+  local stdin_r: integer
+  local stdin_w: integer
   local stdin_is_fd = stdin_fd ~= nil
   if not stdin_is_fd then
     stdin_r, stdin_w = new_pipe()
     if not stdin_w then return fail("pipe failed (stdin)") end
   end
 
-  local stdout_r: number
-  local stdout_w: number
+  local stdout_r: integer
+  local stdout_w: integer
   local stdout_is_fd = stdout_fd ~= nil
   if not stdout_is_fd then
     stdout_r, stdout_w = new_pipe()
     if not stdout_w then return fail("pipe failed (stdout)") end
   end
 
-  local stderr_r: number
-  local stderr_w: number
+  local stderr_r: integer
+  local stderr_w: integer
   local stderr_is_fd = stderr_fd ~= nil
   if not stderr_is_fd then
     stderr_r, stderr_w = new_pipe()
@@ -305,7 +305,7 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
 
   -- Parent-side epilogue shared by both spawn paths: release the pipe ends
   -- the child owns and build the pump state around the ends we keep.
-  local function parent_handle(pid: number): Handle
+  local function parent_handle(pid: integer): Handle
     if not stdin_is_fd then unix.close(stdin_r) end
     if not stdout_is_fd then unix.close(stdout_w) end
     if not stderr_is_fd then unix.close(stderr_w) end
@@ -484,7 +484,7 @@ local record ChildModule
   run: function(argv: {string}, opts?: Options): Result | nil, string
 
   -- Zip binary helper
-  prepare_zip_exec: function(zip_path: string): number | nil, string
+  prepare_zip_exec: function(zip_path: string): integer | nil, string
 end
 
 local M: ChildModule = {

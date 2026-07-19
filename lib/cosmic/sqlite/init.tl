@@ -77,9 +77,9 @@ local record Statement
   --- Reset for re-execution; existing bindings are kept.
   reset: function(self: Statement)
   --- Number of result columns.
-  columns: function(self: Statement): number
+  columns: function(self: Statement): integer
   --- Name of result column n (1-indexed).
-  column_name: function(self: Statement, n: number): string
+  column_name: function(self: Statement, n: integer): string
   --- Finalize the statement (idempotent); also runs on scope exit via
   --- to-be-closed.
   close: function(self: Statement)
@@ -121,9 +121,9 @@ local record Database
   --- see cosmic.sqlite.extras.
   savepoint: function(self: Database, fn: function(Database)): boolean, string
   --- rowid of the most recent successful INSERT (0 if closed).
-  last_insert_rowid: function(self: Database): number
+  last_insert_rowid: function(self: Database): integer
   --- Rows modified by the most recent INSERT/UPDATE/DELETE (0 if closed).
-  changes: function(self: Database): number
+  changes: function(self: Database): integer
   --- Close the database and its cached statements (idempotent); also
   --- runs on scope exit via to-be-closed.
   close: function(self: Database)
@@ -258,11 +258,11 @@ local function make_statement(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Dat
     raw_stmt:reset()
   end
 
-  stmt.columns = function(_: Statement): number
+  stmt.columns = function(_: Statement): integer
     return raw_stmt:columns()
   end
 
-  stmt.column_name = function(_: Statement, n: number): string
+  stmt.column_name = function(_: Statement, n: integer): string
     return raw_stmt:get_name(n - 1)
   end
 
@@ -389,14 +389,14 @@ local function make_database(raw_db: lsqlite3.Database): Database
     return self:exec("COMMIT")
   end
 
-  function db:last_insert_rowid(): number
+  function db:last_insert_rowid(): integer
     if closed then
       return 0
     end
     return raw_db:last_insert_rowid()
   end
 
-  function db:changes(): number
+  function db:changes(): integer
     if closed then
       return 0
     end

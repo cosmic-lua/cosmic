@@ -22,20 +22,20 @@ local type Rusage = unix.Rusage
 -- Identity --
 
 --- Returns process id of current process; does not fail.
---- @return number The current process id
-local getpid: function(): number = unix.getpid
+--- @return integer The current process id
+local getpid: function(): integer = unix.getpid
 
 --- Returns process id of parent process; does not fail.
---- @return number The parent process id
-local getppid: function(): number = unix.getppid
+--- @return integer The parent process id
+local getppid: function(): integer = unix.getppid
 
 -- Session & Group --
 
 --- Gets session id for a process.
---- @param pid number The process id to query
---- @return number | nil The session id, or nil on failure
+--- @param pid integer The process id to query
+--- @return integer | nil The session id, or nil on failure
 --- @return string? Error message on failure
-local function getsid(pid: number): number | nil, string
+local function getsid(pid: integer): integer | nil, string
   local sid, err = unix.getsid(pid)
   if sid == nil then
     return nil, errstr(err, "getsid")
@@ -44,16 +44,16 @@ local function getsid(pid: number): number | nil, string
 end
 
 --- Gets process group id of calling process; does not fail.
---- @return number The process group id
-local function getpgrp(): number
+--- @return integer The process group id
+local function getpgrp(): integer
   return (unix.getpgrp())
 end
 
 --- Gets process group id for a specific process.
---- @param pid number The process id to query
---- @return number | nil The process group id, or nil on failure
+--- @param pid integer The process id to query
+--- @return integer | nil The process group id, or nil on failure
 --- @return string? Error message on failure
-local function getpgid(pid: number): number | nil, string
+local function getpgid(pid: integer): integer | nil, string
   local pgid, err = unix.getpgid(pid)
   if pgid == nil then
     return nil, errstr(err, "getpgid")
@@ -62,9 +62,9 @@ local function getpgid(pid: number): number | nil, string
 end
 
 --- Sets process group id (same as setpgid(0, 0)).
---- @return number | nil The new process group id, or nil on failure
+--- @return integer | nil The new process group id, or nil on failure
 --- @return string? Error message on failure
-local function setpgrp(): number | nil, string
+local function setpgrp(): integer | nil, string
   local pgid, err = unix.setpgrp()
   if pgid == nil then
     return nil, errstr(err, "setpgrp")
@@ -73,11 +73,11 @@ local function setpgrp(): number | nil, string
 end
 
 --- Sets process group id.
---- @param pid number Process id (0 means calling process)
---- @param pgid number Process group id (0 means use pid as pgid)
+--- @param pid integer Process id (0 means calling process)
+--- @param pgid integer Process group id (0 means use pid as pgid)
 --- @return boolean True on success
 --- @return string? Error message on failure
-local function setpgid(pid: number, pgid: number): boolean, string
+local function setpgid(pid: integer, pgid: integer): boolean, string
   local ok, err = unix.setpgid(pid, pgid)
   if not ok then
     return false, errstr(err, "setpgid")
@@ -89,9 +89,9 @@ end
 --- The calling process becomes the session leader and process group leader.
 --- Used for creating daemons.
 --- Fails with ENOSYS on Windows NT.
---- @return number | nil The new session id, or nil on failure
+--- @return integer | nil The new session id, or nil on failure
 --- @return string? Error message on failure
-local function setsid(): number | nil, string
+local function setsid(): integer | nil, string
   local sid, err = unix.setsid()
   if sid == nil then
     return nil, errstr(err, "setsid")
@@ -118,8 +118,8 @@ end
 --- Terminates the current process immediately.
 --- Memory is freed, file descriptors are closed, connections are reset.
 --- This function never returns.
---- @param exitcode number? Exit code (defaults to 0)
-local exit: function(exitcode?: number) = unix.exit
+--- @param exitcode integer? Exit code (defaults to 0)
+local exit: function(exitcode?: integer) = unix.exit
 
 -- Exec (replace current process) --
 
@@ -166,11 +166,11 @@ end
 
 --- Executes program from an already-opened file descriptor; never
 --- returns on success.
---- @param fd number Open file descriptor pointing to an executable
+--- @param fd integer Open file descriptor pointing to an executable
 --- @param argv {string} Argument vector passed to the program
 --- @param envp {string}? Environment variables. Inherits if not specified
 --- @return nil, string Only returns on error
-local function fexecve(fd: number, argv: {string}, envp?: {string}): nil, string
+local function fexecve(fd: integer, argv: {string}, envp?: {string}): nil, string
   local _, err = unix.fexecve(fd, argv, envp)
   return nil, errstr(err, "fexecve")
 end
@@ -178,8 +178,8 @@ end
 -- Process Control (children) --
 
 --- Creates a new process (fork).
---- @return number The child pid in the parent, 0 in the child
-local function fork(): number
+--- @return integer The child pid in the parent, 0 in the child
+local function fork(): integer
   return (unix.fork())
 end
 
@@ -187,8 +187,8 @@ end
 --- @param prog string Absolute path to the executable
 --- @param argv {string} Argument vector passed to the program
 --- @param envp {string}? Environment (KEY=value); inherits if omitted
---- @return number The child pid on success
-local function posix_spawn(prog: string, argv: {string}, envp?: {string}): number
+--- @return integer The child pid on success
+local function posix_spawn(prog: string, argv: {string}, envp?: {string}): integer
   return (unix.spawn(prog, argv, envp))
 end
 
@@ -196,19 +196,19 @@ end
 --- @param prog string Program name to execute
 --- @param argv {string} Argument vector passed to the program
 --- @param envp {string}? Environment (KEY=value); inherits if omitted
---- @return number The child pid on success
-local function posix_spawnp(prog: string, argv: {string}, envp?: {string}): number
+--- @return integer The child pid on success
+local function posix_spawnp(prog: string, argv: {string}, envp?: {string}): integer
   return (unix.spawnp(prog, argv, envp))
 end
 
 --- Waits for a child process to change state.
---- @param pid number? Child pid to wait for (-1 or nil for any child)
---- @param options number? Wait options (e.g. WNOHANG)
---- @return number | nil The pid that changed state (0 with WNOHANG if none), or nil on failure
---- @return number Status word (interpret with WIFEXITED/WEXITSTATUS/...)
+--- @param pid integer? Child pid to wait for (-1 or nil for any child)
+--- @param options integer? Wait options (e.g. WNOHANG)
+--- @return integer | nil The pid that changed state (0 with WNOHANG if none), or nil on failure
+--- @return integer Status word (interpret with WIFEXITED/WEXITSTATUS/...)
 --- @return Rusage Resource usage for the reaped child
 --- @return string? Error message on failure
-local function wait(pid?: number, options?: number): number | nil, number, Rusage, string
+local function wait(pid?: integer, options?: integer): integer | nil, integer, Rusage, string
   local wpid, status, rusage = unix.wait(pid, options)
   if wpid == nil then
     -- On failure the binding returns (nil, err, errno): the error string
@@ -219,31 +219,31 @@ local function wait(pid?: number, options?: number): number | nil, number, Rusag
 end
 
 --- Sends a signal to a process.
---- @param pid number Process id to signal
---- @param sig number Signal number (e.g. SIGTERM, SIGKILL)
+--- @param pid integer Process id to signal
+--- @param sig integer Signal number (e.g. SIGTERM, SIGKILL)
 --- @return boolean True on success
-local function kill(pid: number, sig: number): boolean
+local function kill(pid: integer, sig: integer): boolean
   return (unix.kill(pid, sig))
 end
 
 --- True if the child exited normally.
-local WIFEXITED: function(status: number): boolean = unix.WIFEXITED
+local WIFEXITED: function(status: integer): boolean = unix.WIFEXITED
 
 --- The exit code (valid when WIFEXITED is true).
-local WEXITSTATUS: function(status: number): number = unix.WEXITSTATUS
+local WEXITSTATUS: function(status: integer): integer = unix.WEXITSTATUS
 
 --- True if the child was terminated by a signal.
-local WIFSIGNALED: function(status: number): boolean = unix.WIFSIGNALED
+local WIFSIGNALED: function(status: integer): boolean = unix.WIFSIGNALED
 
 --- The terminating signal number (valid when WIFSIGNALED is true).
-local WTERMSIG: function(status: number): number = unix.WTERMSIG
+local WTERMSIG: function(status: integer): integer = unix.WTERMSIG
 
 -- Resource Usage --
 
 --- Gets resource usage statistics.
---- @param who number? Who to query: RUSAGE_SELF (default), RUSAGE_CHILDREN, RUSAGE_THREAD, RUSAGE_BOTH
+--- @param who integer? Who to query: RUSAGE_SELF (default), RUSAGE_CHILDREN, RUSAGE_THREAD, RUSAGE_BOTH
 --- @return Rusage Resource usage statistics
-local function getrusage(who?: number): Rusage
+local function getrusage(who?: integer): Rusage
   return (unix.getrusage(who))
 end
 
@@ -251,11 +251,11 @@ end
 
 --- Gets resource limits for the current process.
 --- Returns the soft and hard limits for the specified resource.
---- @param resource number The RLIMIT_* constant identifying the resource
---- @return number | nil Soft limit (can be exceeded, may generate signal), or nil on failure
---- @return number Hard limit (cannot be exceeded by unprivileged processes)
+--- @param resource integer The RLIMIT_* constant identifying the resource
+--- @return integer | nil Soft limit (can be exceeded, may generate signal), or nil on failure
+--- @return integer Hard limit (cannot be exceeded by unprivileged processes)
 --- @return string? Error message on failure
-local function getrlimit(resource: number): number | nil, number, string
+local function getrlimit(resource: integer): integer | nil, integer, string
   local soft, hard = unix.getrlimit(resource)
   if soft == nil then
     -- On failure the binding returns (nil, err, errno): the error string
@@ -268,12 +268,12 @@ end
 --- Sets resource limits for the current process.
 --- The soft limit can be raised up to the hard limit.
 --- Only privileged processes can raise the hard limit.
---- @param resource number The RLIMIT_* constant identifying the resource
---- @param soft number New soft limit
---- @param hard number? New hard limit (defaults to soft if not provided)
+--- @param resource integer The RLIMIT_* constant identifying the resource
+--- @param soft integer New soft limit
+--- @param hard integer? New hard limit (defaults to soft if not provided)
 --- @return boolean True on success
 --- @return string? Error message on failure
-local function setrlimit(resource: number, soft: number, hard?: number): boolean, string
+local function setrlimit(resource: integer, soft: integer, hard?: integer): boolean, string
   local ok, err = unix.setrlimit(resource, soft, hard)
   if not ok then
     return false, errstr(err, "setrlimit")
@@ -286,10 +286,10 @@ end
 --- Adjusts the nice value (scheduling priority) of the calling process.
 --- The nice value ranges from -20 (highest priority) to 19 (lowest priority).
 --- Only privileged processes can lower the nice value (increase priority).
---- @param inc number Value to add to current nice value
---- @return number | nil The new nice value, or nil on failure
+--- @param inc integer Value to add to current nice value
+--- @return integer | nil The new nice value, or nil on failure
 --- @return string? Error message on failure
-local function nice(inc: number): number | nil, string
+local function nice(inc: integer): integer | nil, string
   local val, err = unix.nice(inc)
   if val == nil then
     return nil, errstr(err, "nice")
@@ -298,11 +298,11 @@ local function nice(inc: number): number | nil, string
 end
 
 --- Gets the scheduling priority of a process, process group, or user.
---- @param which number What `who` refers to: PRIO_PROCESS, PRIO_PGRP, or PRIO_USER
---- @param who number The id to query (0 = calling process/group/user)
---- @return number | nil The priority value (-20 to 19), or nil on failure
+--- @param which integer What `who` refers to: PRIO_PROCESS, PRIO_PGRP, or PRIO_USER
+--- @param who integer The id to query (0 = calling process/group/user)
+--- @return integer | nil The priority value (-20 to 19), or nil on failure
 --- @return string? Error message on failure
-local function getpriority(which: number, who: number): number | nil, string
+local function getpriority(which: integer, who: integer): integer | nil, string
   local prio, err = unix.getpriority(which, who)
   if prio == nil then
     return nil, errstr(err, "getpriority")
@@ -311,12 +311,12 @@ local function getpriority(which: number, who: number): number | nil, string
 end
 
 --- Sets the scheduling priority of a process, process group, or user.
---- @param which number What `who` refers to: PRIO_PROCESS, PRIO_PGRP, or PRIO_USER
---- @param who number The id to modify (0 = calling process/group/user)
---- @param prio number New priority value (-20 to 19, lower = higher priority)
+--- @param which integer What `who` refers to: PRIO_PROCESS, PRIO_PGRP, or PRIO_USER
+--- @param who integer The id to modify (0 = calling process/group/user)
+--- @param prio integer New priority value (-20 to 19, lower = higher priority)
 --- @return boolean True on success
 --- @return string? Error message on failure
-local function setpriority(which: number, who: number, prio: number): boolean, string
+local function setpriority(which: integer, who: integer, prio: integer): boolean, string
   local ok, err = unix.setpriority(which, who, prio)
   if not ok then
     return false, errstr(err, "setpriority")
@@ -342,50 +342,50 @@ local is_main: function(): boolean = cosmo.is_main
 
 local record ProcModule
   -- Identity
-  getpid: function(): number
-  getppid: function(): number
+  getpid: function(): integer
+  getppid: function(): integer
 
   -- Session & Group
-  getsid: function(pid: number): number | nil, string
-  getpgrp: function(): number
-  getpgid: function(pid: number): number | nil, string
-  setpgrp: function(): number | nil, string
-  setpgid: function(pid: number, pgid: number): boolean, string
-  setsid: function(): number | nil, string
+  getsid: function(pid: integer): integer | nil, string
+  getpgrp: function(): integer
+  getpgid: function(pid: integer): integer | nil, string
+  setpgrp: function(): integer | nil, string
+  setpgid: function(pid: integer, pgid: integer): boolean, string
+  setsid: function(): integer | nil, string
   daemon: function(nochdir?: boolean, noclose?: boolean): boolean, string
 
   -- Termination
-  exit: function(exitcode?: number)
+  exit: function(exitcode?: integer)
 
   -- Exec
   commandv: function(prog: string): string
   execve: function(prog: string, args: {string}, env: {string}): nil, string
   execvp: function(prog: string, argv?: {string}): nil, string
   execvpe: function(prog: string, argv: {string}, envp?: {string}): nil, string
-  fexecve: function(fd: number, argv: {string}, envp?: {string}): nil, string
+  fexecve: function(fd: integer, argv: {string}, envp?: {string}): nil, string
 
   -- Process control (children)
-  fork: function(): number
-  posix_spawn: function(prog: string, argv: {string}, envp?: {string}): number
-  posix_spawnp: function(prog: string, argv: {string}, envp?: {string}): number
-  wait: function(pid?: number, options?: number): number | nil, number, Rusage, string
-  kill: function(pid: number, sig: number): boolean
-  WIFEXITED: function(status: number): boolean
-  WEXITSTATUS: function(status: number): number
-  WIFSIGNALED: function(status: number): boolean
-  WTERMSIG: function(status: number): number
+  fork: function(): integer
+  posix_spawn: function(prog: string, argv: {string}, envp?: {string}): integer
+  posix_spawnp: function(prog: string, argv: {string}, envp?: {string}): integer
+  wait: function(pid?: integer, options?: integer): integer | nil, integer, Rusage, string
+  kill: function(pid: integer, sig: integer): boolean
+  WIFEXITED: function(status: integer): boolean
+  WEXITSTATUS: function(status: integer): integer
+  WIFSIGNALED: function(status: integer): boolean
+  WTERMSIG: function(status: integer): integer
 
   -- Resource usage
-  getrusage: function(who?: number): Rusage
+  getrusage: function(who?: integer): Rusage
 
   -- Resource limits
-  getrlimit: function(resource: number): number | nil, number, string
-  setrlimit: function(resource: number, soft: number, hard?: number): boolean, string
+  getrlimit: function(resource: integer): integer | nil, integer, string
+  setrlimit: function(resource: integer, soft: integer, hard?: integer): boolean, string
 
   -- Priority
-  nice: function(inc: number): number | nil, string
-  getpriority: function(which: number, who: number): number | nil, string
-  setpriority: function(which: number, who: number, prio: number): boolean, string
+  nice: function(inc: integer): integer | nil, string
+  getpriority: function(which: integer, who: integer): integer | nil, string
+  setpriority: function(which: integer, who: integer, prio: integer): boolean, string
 
   -- Scheduling
   sched_yield: function()
@@ -394,28 +394,28 @@ local record ProcModule
   is_main: function(): boolean
 
   -- Rusage constants
-  RUSAGE_SELF: number
-  RUSAGE_CHILDREN: number
-  RUSAGE_THREAD: number
-  RUSAGE_BOTH: number
+  RUSAGE_SELF: integer
+  RUSAGE_CHILDREN: integer
+  RUSAGE_THREAD: integer
+  RUSAGE_BOTH: integer
 
   -- Resource limit constants
-  RLIMIT_AS: number
-  RLIMIT_CPU: number
-  RLIMIT_FSIZE: number
-  RLIMIT_NOFILE: number
-  RLIMIT_NPROC: number
-  RLIMIT_RSS: number
+  RLIMIT_AS: integer
+  RLIMIT_CPU: integer
+  RLIMIT_FSIZE: integer
+  RLIMIT_NOFILE: integer
+  RLIMIT_NPROC: integer
+  RLIMIT_RSS: integer
 
   -- Priority scope constants
-  PRIO_PROCESS: number
-  PRIO_PGRP: number
-  PRIO_USER: number
+  PRIO_PROCESS: integer
+  PRIO_PGRP: integer
+  PRIO_USER: integer
 
   -- Wait options
-  WNOHANG: number
-  WUNTRACED: number
-  WCONTINUED: number
+  WNOHANG: integer
+  WUNTRACED: integer
+  WCONTINUED: integer
 end
 
 local M: ProcModule = {
