@@ -13,6 +13,7 @@ local record CheckModule
   eq: function<T>(actual: T, expected: T, label?: string)
   ne: function<T>(actual: T, expected: T, label?: string)
   ok: function(value: any, label?: string)
+  must: function<T>(v: T | nil, e?: string): T
   err: function(value: any, e: string, label?: string)
   enforcing: function(): boolean
   skip: function(reason: string, strict?: boolean)
@@ -86,6 +87,33 @@ function err(value: any, e: string, label?: string)
 - `value` (any) - The first return value (expected to be nil)
 - `e` (string) - The second return value (expected to be a non-empty string)
 - `label` (string?) - Optional label prepended to the failure message
+
+### must
+
+```teal
+function must(v: T | nil, e?: string): T
+```
+
+ Assert a fallible return and narrow away nil.
+ The one sanctioned narrowing hole for tests and examples: tl 0.24.8 does
+ not flow-narrow record unions through `assert`, so fallible calls used to
+ need `assert(x) as T` at every site. `must` centralizes that unsoundness
+ behind a runtime nil check. Lua passes multiple returns through, so
+ `must(fs.read(path))` fails with fs.read's own error string.
+ CAVEAT: must returns ONLY the first value. Never wrap a call whose
+ extra returns feed a generic-for (e.g. `fs.files`, whose 4th return
+ is the to-be-closed guard that releases directory handles on early
+ break) — keep `for p in assert(fs.files(d)) as fs.FileIter do` there,
+ since assert forwards all four returns and must would drop the guard.
+
+**Parameters:**
+
+- `v` (T?) - The fallible value (nil on failure)
+- `e` (string?) - Failure message; a `nil, err` pair fills this in
+
+**Returns:**
+
+- T - The value, known non-nil
 
 ### enforcing
 
