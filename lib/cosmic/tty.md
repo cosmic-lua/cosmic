@@ -60,7 +60,7 @@ local record TtyModule
   make_raw: function(termios: Termios, opts?: RawOptions): Termios
   raw: function(fd: integer, opts?: RawOptions): Termios | nil, string
   noecho: function(fd: integer): Termios | nil, string
-  restore: function(fd: integer, termios: Termios): boolean, string
+  restore: function(fd: integer, termios: Termios, action?: integer): boolean, string
   getpass: function(prompt: string): string | nil, string
 end
 ```
@@ -236,15 +236,17 @@ function noecho(fd: integer): Termios | nil, string
 ### restore
 
 ```teal
-function restore(fd: integer, termios: Termios): boolean, string
+function restore(fd: integer, termios: Termios, action?: integer): boolean, string
 ```
 
  Restores terminal attributes.
+ pending output is written), or FLUSH (DRAIN + discard pending input)
 
 **Parameters:**
 
 - `fd` (integer) - File descriptor
 - `termios` (Termios) - Terminal attributes from raw() or noecho()
+- `action` (integer?) - When to apply: NOW (default), DRAIN (after
 
 **Returns:**
 

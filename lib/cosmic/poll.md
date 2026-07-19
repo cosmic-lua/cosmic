@@ -3,6 +3,13 @@
  Typed interface for polling file descriptors.
  Provides an ergonomic wrapper around unix.poll().
 
+ Descriptor conventions (#493, deliberate): poll is the lowest layer
+ and speaks raw integer fds. net.Socket exposes a public `fd` field
+ (sockets hand their descriptor around by design); fd.Handle exposes
+ :fd() as a method because the Handle owns its descriptor and
+ invalidates it on close — :fd() returns -1 once closed, and a -1
+ must never be registered here.
+
 ## Types
 
 ### Events
@@ -87,9 +94,9 @@ function new(): Poller
  Create a new poll set.
  Example:
    local p = poll.new()
-   p:add(handle.stdout.fd, poll.POLLIN)  -- child.Pipe: use .fd field
-   p:add(reader:fd(), poll.POLLIN)       -- io.Handle: call :fd() method
-   p:add(sock.fd, poll.POLLIN)           -- net.Socket: use .fd field
+   p:add(sock.fd, poll.POLLIN)           -- net.Socket: .fd field
+   p:add(h:fd(), poll.POLLIN)            -- fd.Handle: :fd() method
+   p:add(pipe.reader:fd(), poll.POLLIN)  -- fd.Pipe ends are Handles
    for fd, events in p:wait(30000) do
      if events.readable then
        -- read from fd

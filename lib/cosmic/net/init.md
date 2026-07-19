@@ -10,6 +10,22 @@
 
 ## Types
 
+### ListenOptions
+
+ Socket options for listen_tcp (#493: the hidden SO_REUSEADDR is now
+ an opt-out, and SO_REUSEPORT an opt-in).
+
+```teal
+local record ListenOptions
+  --  Set SO_REUSEADDR on the listener (default true: rebinding a
+  --  just-closed address must not fail with EADDRINUSE).
+  reuseaddr: boolean
+  --  Set SO_REUSEPORT on the listener (default false): lets several
+  --  processes bind the same addr:port and share the accept load.
+  reuseport: boolean
+end
+```
+
 ### Interface
 
  Network interface information.
@@ -29,7 +45,7 @@ local record NetModule
   socket: function(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, string
   socketpair: function(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, Socket, string
   listen_unix: function(path: string, backlog?: integer): Socket | nil, string
-  listen_tcp: function(addr: Address, port: integer, backlog?: integer): Socket | nil, integer, string
+  listen_tcp: function(addr: Address, port: integer, backlog?: integer, opts?: ListenOptions): Socket | nil, integer, string
   connect_unix: function(path: string): Socket | nil, string
   connect_tcp: function(addr: Address, port: integer): Socket | nil, string
   dial: function(host: string, port: integer): Socket | nil, string
@@ -230,7 +246,7 @@ function dial(host: string, port: integer): Socket | nil, string
 ### listen_tcp
 
 ```teal
-function listen_tcp(addr: Address, port: integer, backlog?: integer): Socket | nil, integer, string
+function listen_tcp(addr: Address, port: integer, backlog?: integer, opts?: ListenOptions): Socket | nil, integer, string
 ```
 
  Create a TCP socket, bind it to addr:port, and start listening.
@@ -253,6 +269,7 @@ function listen_tcp(addr: Address, port: integer, backlog?: integer): Socket | n
 - `addr` (Address) - Local IPv4 address to bind ("127.0.0.1", "0.0.0.0" for all)
 - `port` (integer) - Local port to bind; use 0 for an OS-assigned ephemeral port
 - `backlog` (integer) - Maximum pending connections (default 128)
+- `opts` (ListenOptions?) - Socket options (reuseaddr default true, reuseport default false)
 
 **Returns:**
 
