@@ -54,7 +54,7 @@ local record TtyModule
   make_raw: function(termios: Termios, opts?: RawOptions): Termios
   raw: function(fd: integer, opts?: RawOptions): Termios | nil, string
   noecho: function(fd: integer): Termios | nil, string
-  restore: function(fd: integer, termios: Termios): boolean, string
+  restore: function(fd: integer, termios: Termios, action?: integer): boolean, string
   getpass: function(prompt: string): string | nil, string
 end
 
@@ -216,10 +216,12 @@ end
 --- Restores terminal attributes.
 --- @param fd integer File descriptor
 --- @param termios Termios Terminal attributes from raw() or noecho()
+--- @param action integer? When to apply: NOW (default), DRAIN (after
+--- pending output is written), or FLUSH (DRAIN + discard pending input)
 --- @return boolean True on success
 --- @return string? Error message on failure
-local function restore(fd: integer, termios: Termios): boolean, string
-  return setattr(fd, unix.TCSANOW, termios)
+local function restore(fd: integer, termios: Termios, action?: integer): boolean, string
+  return setattr(fd, action or unix.TCSANOW, termios)
 end
 
 --- Reads a password from the terminal without echoing.

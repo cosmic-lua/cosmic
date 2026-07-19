@@ -45,8 +45,10 @@ local record Socket is stream.Reader, stream.Writer
   closed: function(self: Socket): boolean
   --- Shut down reading and/or writing (unix.SHUT_RD/WR/RDWR).
   shutdown: function(self: Socket, how?: integer): boolean, string
-  --- Send data; returns bytes sent, or nil + error.
-  send: function(self: Socket, data: string, flags?: integer): integer | nil, string
+  --- Send data; returns bytes sent, or nil + error. offset skips that
+  --- many leading bytes of data (0-based), so partial-send loops can
+  --- window the buffer without copying it via data:sub.
+  send: function(self: Socket, data: string, flags?: integer, offset?: integer): integer | nil, string
   --- stream.Writer: alias for send (bytes written, or nil + error).
   write: function(self: Socket, data: string): integer | nil, string
   --- Send all of data, retrying partial writes until done.
@@ -151,11 +153,11 @@ local function make_socket(fd: integer): Socket
   -- would otherwise kill the whole process (exit 141) instead of returning an
   -- EPIPE error the caller can handle. cosmo maps MSG_NOSIGNAL to the native
   -- per-OS flag, so ORing it in is portable.
-  function sock:send(data: string, flags?: integer): integer | nil, string
+  function sock:send(data: string, flags?: integer, offset?: integer): integer | nil, string
     if not self.fd then return nil, "socket closed" end
-    local n, err, eno = unix.send(self.fd, data, (flags or 0) | unix.MSG_NOSIGNAL)
+    local n, err, eno = unix.send(self.fd, data, (flags or 0) | unix.MSG_NOSIGNAL, offset)
     while n == nil and errno_is(eno, "EINTR") do
-      n, err, eno = unix.send(self.fd, data, (flags or 0) | unix.MSG_NOSIGNAL)
+      n, err, eno = unix.send(self.fd, data, (flags or 0) | unix.MSG_NOSIGNAL, offset)
     end
     if not n then
       return nil, errstr(err, "send")
@@ -166,7 +168,7 @@ local function make_socket(fd: integer): Socket
   function sock:sendall(data: string, flags?: integer): boolean, string
     local off: integer = 0
     while off < #data do
-      local n, err = self:send(data:sub(off + 1), flags)
+      local n, err = self:send(data, flags, off)
       if not n then
         return false, err
       end

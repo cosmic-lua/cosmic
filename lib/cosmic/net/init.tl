@@ -142,6 +142,17 @@ local function dial(host: string, port: integer): Socket | nil, string
   return connect_tcp(a, port)
 end
 
+--- Socket options for listen_tcp (#493: the hidden SO_REUSEADDR is now
+--- an opt-out, and SO_REUSEPORT an opt-in).
+local record ListenOptions
+  --- Set SO_REUSEADDR on the listener (default true: rebinding a
+  --- just-closed address must not fail with EADDRINUSE).
+  reuseaddr: boolean
+  --- Set SO_REUSEPORT on the listener (default false): lets several
+  --- processes bind the same addr:port and share the accept load.
+  reuseport: boolean
+end
+
 --- Create a TCP socket, bind it to addr:port, and start listening.
 --- Passing port 0 lets the OS assign an ephemeral port; the actual port is
 --- returned as the second value so callers never need a separate getsockname
@@ -162,19 +173,30 @@ end
 --- @param addr Address Local IPv4 address to bind ("127.0.0.1", "0.0.0.0" for all)
 --- @param port integer Local port to bind; use 0 for an OS-assigned ephemeral port
 --- @param backlog integer Maximum pending connections (default 128)
+--- @param opts ListenOptions? Socket options (reuseaddr default true, reuseport default false)
 --- @return Socket | nil Listening socket ready to accept
 --- @return integer Actual bound port (useful when port 0 was requested)
 --- @return string Error message on failure
-local function listen_tcp(addr: Address, port: integer, backlog?: integer): Socket | nil, integer, string
+local function listen_tcp(addr: Address, port: integer, backlog?: integer, opts?: ListenOptions): Socket | nil, integer, string
+  opts = opts or {}
   local sock, serr = socket(unix.AF_INET, unix.SOCK_STREAM, 0)
   if not sock then
     return nil, nil, serr
   end
   local s = sock as Socket
-  local ok, setopt_err = s:setsockopt(unix.SOL_SOCKET, unix.SO_REUSEADDR, true)
-  if not ok then
-    s:close()
-    return nil, nil, setopt_err
+  if opts.reuseaddr ~= false then
+    local ok, setopt_err = s:setsockopt(unix.SOL_SOCKET, unix.SO_REUSEADDR, true)
+    if not ok then
+      s:close()
+      return nil, nil, setopt_err
+    end
+  end
+  if opts.reuseport then
+    local ok, setopt_err = s:setsockopt(unix.SOL_SOCKET, unix.SO_REUSEPORT, true)
+    if not ok then
+      s:close()
+      return nil, nil, setopt_err
+    end
   end
   local bok, bind_err = s:bind(addr, port)
   if not bok then
@@ -272,11 +294,12 @@ end
 local record NetModule
   type Socket = Socket
   type Address = Address
+  type ListenOptions = ListenOptions
   Interface: Interface
   socket: function(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, string
   socketpair: function(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, Socket, string
   listen_unix: function(path: string, backlog?: integer): Socket | nil, string
-  listen_tcp: function(addr: Address, port: integer, backlog?: integer): Socket | nil, integer, string
+  listen_tcp: function(addr: Address, port: integer, backlog?: integer, opts?: ListenOptions): Socket | nil, integer, string
   connect_unix: function(path: string): Socket | nil, string
   connect_tcp: function(addr: Address, port: integer): Socket | nil, string
   dial: function(host: string, port: integer): Socket | nil, string

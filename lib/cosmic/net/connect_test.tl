@@ -341,3 +341,33 @@ local function test_dial()
     "dial failure names the operation: " .. tostring(berr))
 end
 test_dial()
+
+-- #493: listen_tcp socket options are configurable — SO_REUSEADDR stays
+-- the default but can be opted out, and SO_REUSEPORT can be opted in.
+local function test_listen_tcp_socket_options()
+  local s1, port, derr = net.listen_tcp("127.0.0.1", 0)
+  assert(s1 ~= nil, "listen_tcp failed: " .. tostring(derr))
+  assert(port > 0, "expected a bound port")
+  local d = s1 as net.Socket
+  local ra = d:getsockopt(net.SOL_SOCKET, net.SO_REUSEADDR)
+  assert(ra == true or ra == 1,
+    "SO_REUSEADDR should default on, got " .. tostring(ra))
+  d:close()
+
+  local s2, _, oerr = net.listen_tcp("127.0.0.1", 0, nil, {reuseaddr = false})
+  assert(s2 ~= nil, "listen_tcp with reuseaddr=false failed: " .. tostring(oerr))
+  local o = s2 as net.Socket
+  local ra2 = o:getsockopt(net.SOL_SOCKET, net.SO_REUSEADDR)
+  assert(ra2 == false or ra2 == 0,
+    "reuseaddr=false should leave SO_REUSEADDR off, got " .. tostring(ra2))
+  o:close()
+
+  local s3, _, perr = net.listen_tcp("127.0.0.1", 0, nil, {reuseport = true})
+  assert(s3 ~= nil, "listen_tcp with reuseport failed: " .. tostring(perr))
+  local p = s3 as net.Socket
+  local rp = p:getsockopt(net.SOL_SOCKET, net.SO_REUSEPORT)
+  assert(rp == true or rp == 1,
+    "reuseport=true should set SO_REUSEPORT, got " .. tostring(rp))
+  p:close()
+end
+test_listen_tcp_socket_options()
