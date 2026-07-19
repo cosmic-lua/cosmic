@@ -5,6 +5,14 @@ perf_tl := $(filter-out $(perf_tests),$(perf_srcs))
 # compiled perf modules are require()d as perf.* via LUA_PATH
 perf_lua_dirs := $(o)/lib
 perf_deps := cosmic
+perf_lua := $(patsubst %.tl,$(o)/%.lua,$(perf_tl))
+
+# perf tests load the compiled perf.* modules at runtime (see
+# perf_lua_dirs above), so they need them built and fresh (#715)
+perf_test_got := \
+  $(patsubst %,$(o)/%.test.got,$(perf_tests)) \
+  $(patsubst %,$(o)/coverage/%.test.got,$(perf_tests))
+$(perf_test_got): $(perf_lua)
 
 perf_bench_srcs := $(wildcard lib/perf/bench/*_bench.tl)
 perf_bench_mods := $(subst /,.,$(patsubst lib/%.tl,%,$(perf_bench_srcs)))
