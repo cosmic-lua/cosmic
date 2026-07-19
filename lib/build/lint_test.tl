@@ -421,3 +421,74 @@ local function test_file_length_expectations()
   assert(got == "file-length@501", "file-length: got [" .. got .. "]")
 end
 test_file_length_expectations()
+
+-- cast-justify: every line with an `as` cast needs `-- cast: <reason>`
+-- trailing or on the line directly above; strings/comments never count.
+
+local function justify_diags(lines: {string}): string
+  local content = table.concat(lines, "\n") .. "\n"
+  return diag_signature(lint.check_cast_justification("case.tl", content, lines))
+end
+
+local function test_cast_justify_trailing_comment_passes()
+  local got = justify_diags({
+    'local a = b as integer -- cast: from any',
+  })
+  assert(got == "", "trailing justification should pass, got [" .. got .. "]")
+end
+test_cast_justify_trailing_comment_passes()
+
+local function test_cast_justify_above_line_comment_passes()
+  local got = justify_diags({
+    '  -- cast: record union after guard',
+    '  local a = b as integer',
+  })
+  assert(got == "", "above-line justification should pass, got [" .. got .. "]")
+end
+test_cast_justify_above_line_comment_passes()
+
+local function test_cast_justify_missing_flags_line()
+  local got = justify_diags({
+    'local a = b as integer',
+    'local c = d as string -- cast: from any',
+  })
+  assert(got == "cast-justify@1", "unjustified line 1 only, got [" .. got .. "]")
+end
+test_cast_justify_missing_flags_line()
+
+local function test_cast_justify_empty_reason_fails()
+  local got = justify_diags({
+    'local a = b as integer -- cast: ',
+  })
+  assert(got == "cast-justify@1", "empty reason must fail, got [" .. got .. "]")
+end
+test_cast_justify_empty_reason_fails()
+
+local function test_cast_justify_one_comment_covers_line()
+  local got = justify_diags({
+    'local a, b = c as integer, d as string -- cast: tuple element',
+  })
+  assert(got == "", "one comment covers all casts on the line, got [" .. got .. "]")
+end
+test_cast_justify_one_comment_covers_line()
+
+local function test_cast_justify_ignores_strings_and_comments()
+  local got = justify_diags({
+    'local s = "x as integer"',
+    'local l = [==[ y as string ]==]',
+    '-- prose: treat a as b',
+  })
+  assert(got == "", "strings/comments are not casts, got [" .. got .. "]")
+end
+test_cast_justify_ignores_strings_and_comments()
+
+local function test_cast_justify_above_comment_does_not_chain()
+  local got = justify_diags({
+    '-- cast: from any',
+    'local a = b as integer',
+    'local c = d as integer',
+  })
+  assert(got == "cast-justify@3",
+    "above-line comment covers only the next line, got [" .. got .. "]")
+end
+test_cast_justify_above_comment_does_not_chain()
