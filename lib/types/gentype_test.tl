@@ -205,9 +205,10 @@ function re.search(regex, text) end
   print("test_vararg_return: PASS")
 end
 
--- LuaLS generics (`---@generic T`) have no Teal record-field equivalent; each
--- generic name degrades to `any` wherever it appears.
-local function test_generic_degrades_to_any()
+-- LuaLS function-level generics (`---@generic T`) render as real Teal
+-- generic type parameters (`function<T>(...)`), with the generic name
+-- kept in the params/returns that reference it.
+local function test_generics_emitted()
   local source = [==[
 lsqlite3 = {}
 --- Sets a busy handler.
@@ -217,9 +218,9 @@ lsqlite3 = {}
 function lsqlite3.busy_handler(func, udata) end
 ]==]
   local dtl = gentype.generate_dtl(gentype.parse_module(source, "lsqlite3"))
-  assert(dtl:match("busy_handler: function%(func%?: function%(udata: any, tries: integer%), udata%?: any%)"),
-    "generic types should degrade to any:\n" .. dtl)
-  print("test_generic_degrades_to_any: PASS")
+  assert(dtl:match("busy_handler: function<Udata>%(func%?: function%(udata: Udata, tries: integer%), udata%?: Udata%)"),
+    "generics should render as Teal type parameters:\n" .. dtl)
+  print("test_generics_emitted: PASS")
 end
 
 -- Constants inside the module table are indented, and so are their doc
@@ -476,7 +477,7 @@ local function run_tests()
   test_errno_overload_render()
   test_paren_union_types()
   test_vararg_return()
-  test_generic_degrades_to_any()
+  test_generics_emitted()
   test_constant_docs_and_comment_braces()
   test_data_class_and_type_export()
   test_qualified_class_methods()

@@ -232,7 +232,7 @@ local function valid_type(t: string): boolean
 end
 
 --- Parse annotations from a block of text before a declaration.
-local function parse_annotations(raw_lines: {string}): {string}, {Param}, {Return}, boolean, string, {Field}, boolean, string
+local function parse_annotations(raw_lines: {string}): {string}, {Param}, {Return}, boolean, string, {Field}, boolean, string, {string}
   local desc: {string} = {}
   local params: {Param} = {}
   local returns: {Return} = {}
@@ -409,8 +409,11 @@ local function parse_annotations(raw_lines: {string}): {string}, {Param}, {Retur
     end
   end
 
-  -- LuaLS generics (`---@generic T`) have no Teal equivalent in a record
-  -- field type; degrade each generic name to `any` wherever it appears.
+  -- Function-level generics render as real Teal type parameters
+  -- (`function<T>(...)`), so params/returns keep the generic names.
+  -- Record FIELD types have no per-field generic scope in Teal; degrade
+  -- generic names to `any` there only.
+  local generic_list: {string} = {}
   if next(generics) then
     local function degrade(t: string): string
       if not t then return t end
@@ -419,17 +422,19 @@ local function parse_annotations(raw_lines: {string}): {string}, {Param}, {Retur
       end
       return t
     end
-    for _, p in ipairs(params) do p.param_type = degrade(p.param_type) end
-    for _, r in ipairs(returns) do r.return_type = degrade(r.return_type) end
     for _, f in ipairs(fields) do f.field_type = degrade(f.field_type) end
+    for g in pairs(generics) do
+      generic_list[#generic_list + 1] = g
+    end
+    table.sort(generic_list)
   end
 
-  return desc, params, returns, nodiscard, class_annotation, fields, fallible, error_type
+  return desc, params, returns, nodiscard, class_annotation, fields, fallible, error_type, generic_list
 end
 
 local record GentypeParseModule
   split_type_desc: function(rest: string): string, string
-  parse_annotations: function(raw_lines: {string}): {string}, {Param}, {Return}, boolean, string, {Field}, boolean, string
+  parse_annotations: function(raw_lines: {string}): {string}, {Param}, {Return}, boolean, string, {Field}, boolean, string, {string}
   valid_type: function(t: string): boolean
 end
 
