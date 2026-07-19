@@ -2,11 +2,10 @@
 --- Demonstrates process spawning, stdin handling, structured results,
 --- timeouts, and killing a running child.
 
-local check = require("cosmic.check")
-
 -- Example_run demonstrates the one-shot run(): spawn, wait, and capture the
 -- structured Result (stdout, stderr, code/signal, ok) in a single call.
 local function Example_run()
+  local check = require("cosmic.check")
   local child = require("cosmic.child")
   local r = check.must(child.run({"echo", "hello world"}))
   io.write(r.stdout)
@@ -16,6 +15,7 @@ end
 
 -- Example_run_stdin demonstrates feeding stdin to a process.
 local function Example_run_stdin()
+  local check = require("cosmic.check")
   local child = require("cosmic.child")
   local r = check.must(child.run({"cat"}, {stdin = "hello from stdin"}))
   io.write(r.stdout)
@@ -25,6 +25,7 @@ end
 
 -- Example_run_exit_code demonstrates inspecting the exit code.
 local function Example_run_exit_code()
+  local check = require("cosmic.check")
   local child = require("cosmic.child")
   local r = check.must(child.run({"sh", "-c", "exit 0"}))
   print("exit code:", r.code)
@@ -35,6 +36,7 @@ end
 -- Example_kill demonstrates killing a running child. kill() defaults to
 -- SIGTERM (signal 15); wait() then reports the terminating signal.
 local function Example_kill()
+  local check = require("cosmic.check")
   local child = require("cosmic.child")
   local h = check.must(child.spawn({"sleep", "10"}))
   h:kill()
@@ -48,6 +50,7 @@ end
 -- nil, "timeout" if the child has not finished in time; the handle stays
 -- usable, so we kill and reap it afterwards.
 local function Example_wait_timeout()
+  local check = require("cosmic.check")
   local child = require("cosmic.child")
   local h = check.must(child.spawn({"sleep", "10"}))
   local r, err = h:wait(50)
@@ -70,6 +73,7 @@ end
 --   4. Read from the read end until EOF.
 --   5. Wait for the child.
 local function Example_run_pipe()
+  local check = require("cosmic.check")
   local child = require("cosmic.child")
   local cfd = require("cosmic.fd")
 

@@ -1,8 +1,6 @@
 --- Examples for the cosmic.fs.walk module.
 --- Demonstrates walk(), collect(), and files() for directory traversal.
 
-local check = require("cosmic.check")
-
 -- Example_walk demonstrates walking a directory tree.
 -- The visitor receives the FULL path as the first argument and the basename
 -- as the second. Do not join them — path is already complete.
@@ -42,6 +40,7 @@ end
 
 -- Example_collect demonstrates collecting files matching a glob pattern.
 local function Example_collect()
+  local check = require("cosmic.check")
   local fs = require("cosmic.fs")
 
   local tmpdir = fs.mkdtemp("/tmp/collect_ex_XXXXXX")

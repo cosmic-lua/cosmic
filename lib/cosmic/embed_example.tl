@@ -5,11 +5,10 @@
 --- (plain Lua). Teal files are not compiled at runtime — compile them to
 --- .lua first with --compile. See Example_embed_from_teal for that workflow.
 
-local check = require("cosmic.check")
-
 -- Example_embed_directory demonstrates embedding a directory into a new executable.
 -- The directory must contain a main.lua entry point.
 local function Example_embed_directory()
+  local check = require("cosmic.check")
   local fs = require("cosmic.fs")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
@@ -36,6 +35,7 @@ end
 
 -- Example_extract_roundtrip demonstrates extracting and re-embedding
 local function Example_extract_roundtrip()
+  local check = require("cosmic.check")
   local fs = require("cosmic.fs")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
@@ -57,6 +57,7 @@ end
 
 -- Example_embed_with_libraries demonstrates using cosmic libraries in embedded code
 local function Example_embed_with_libraries()
+  local check = require("cosmic.check")
   local fs = require("cosmic.fs")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
@@ -87,6 +88,7 @@ end
 -- then embed. The entry point must be main.lua since Teal is not compiled at
 -- runtime.
 local function Example_embed_from_teal()
+  local check = require("cosmic.check")
   local fs = require("cosmic.fs")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]

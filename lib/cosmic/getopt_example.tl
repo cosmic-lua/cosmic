@@ -2,12 +2,11 @@
 --- Demonstrates one-shot parsing of short and long options, positional
 --- arguments, and unknown-option reporting.
 
-local check = require("cosmic.check")
-
 -- Example_parse_short demonstrates classic short-option parsing:
 -- in the optstring "vo:", -v is a flag and -o requires an argument.
 -- Everything that is not an option lands in result.args.
 local function Example_parse_short()
+  local check = require("cosmic.check")
   local getopt = require("cosmic.getopt")
   local result = check.must(getopt.parse(
       {"-v", "-o", "out.txt", "input.txt"}, "vo:"))
@@ -25,6 +24,7 @@ end
 -- records. A long option with a short alias reports as that short
 -- letter, so --verbose and -v are indistinguishable to the caller.
 local function Example_parse_long()
+  local check = require("cosmic.check")
   local getopt = require("cosmic.getopt")
   local longopts: {getopt.LongOpt} = {
     {name = "verbose", has_arg = "none", short = "v"},
@@ -47,6 +47,7 @@ end
 -- and options whose required argument is absent collect in
 -- result.missing (as the bare option letter).
 local function Example_unknown_and_missing()
+  local check = require("cosmic.check")
   local getopt = require("cosmic.getopt")
   local result = check.must(getopt.parse({"-x", "-o"}, "vo:"))
   print(result.unknown[1])

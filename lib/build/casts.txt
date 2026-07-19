@@ -94,6 +94,7 @@
 3	lib/cosmic/sandbox.tl
 18	lib/cosmic/sandbox_test.tl
 9	lib/cosmic/shm.tl
+1	lib/cosmic/shm_test.tl
 7	lib/cosmic/signal.tl
 3	lib/cosmic/sqlite/advanced_test.tl
 5	lib/cosmic/sqlite/bind.tl

@@ -4,12 +4,11 @@
 --- which is what makes the atomics useful; the examples stay in one
 --- process so their output is deterministic.
 
-local check = require("cosmic.check")
-
 -- Example_string_io demonstrates byte-level access: write() with no
 -- count appends a NUL, and read() with no count reads back up to it
 -- (string semantics).
 local function Example_string_io()
+  local check = require("cosmic.check")
   local shm = require("cosmic.shm")
   local mem = check.must(shm.mapshared(4096))
   mem:write("hello")
@@ -24,6 +23,7 @@ end
 -- Words are 64-bit and word_index is 0-based; fetch_add returns the
 -- value from before the addition.
 local function Example_atomic_counter()
+  local check = require("cosmic.check")
   local shm = require("cosmic.shm")
   local mem = check.must(shm.mapshared(4096))
   mem:store(0, 41)
@@ -37,6 +37,7 @@ end
 -- happens when the word still holds the expected old value, and the
 -- actual old value comes back either way.
 local function Example_cmpxchg()
+  local check = require("cosmic.check")
   local shm = require("cosmic.shm")
   local mem = check.must(shm.mapshared(4096))
   mem:store(0, 7)

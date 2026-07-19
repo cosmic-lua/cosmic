@@ -4,11 +4,10 @@
 --- no external host is contacted. allow_private opts out of the SSRF
 --- guard, which otherwise blocks requests to loopback/private addresses.
 
-local check = require("cosmic.check")
-
 -- Example_get demonstrates a simple HTTP GET request against a local
 -- server: fork a child to answer one request, then fetch from it.
 local function Example_get()
+  local check = require("cosmic.check")
   local fetch = require("cosmic.fetch")
   local net = require("cosmic.net")
   local proc = require("cosmic.proc")
@@ -38,6 +37,7 @@ end
 -- idempotent methods, with full-jitter exponential backoff. Here the
 -- server answers 503 once, then 200; max_attempts = 2 rides it out.
 local function Example_retry()
+  local check = require("cosmic.check")
   local fetch = require("cosmic.fetch")
   local net = require("cosmic.net")
   local proc = require("cosmic.proc")
@@ -74,6 +74,7 @@ end
 -- Example_stream_lines demonstrates streaming a response and iterating
 -- its lines incrementally instead of buffering the whole body.
 local function Example_stream_lines()
+  local check = require("cosmic.check")
   local fetch = require("cosmic.fetch")
   local net = require("cosmic.net")
   local proc = require("cosmic.proc")

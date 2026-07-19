@@ -241,7 +241,7 @@ local function make_widget(fail: boolean): Widget | nil, string
   if fail then
     return nil, "widget factory exploded"
   end
-  return { name = "gear" }
+  return {name = "gear"}
 end
 
 local function test_must_narrows_record_union()

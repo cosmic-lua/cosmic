@@ -1,10 +1,9 @@
 --- Examples for the cosmic.sqlite module.
 --- Demonstrates database operations, prepared statements, and queries.
 
-local check = require("cosmic.check")
-
 -- Example_open_file demonstrates database file path resolution
 local function Example_open_file()
+  local check = require("cosmic.check")
   local sqlite = require("cosmic.sqlite")
   local fs = require("cosmic.fs")
 
@@ -29,6 +28,7 @@ end
 
 -- Example_open demonstrates opening an in-memory database
 local function Example_open()
+  local check = require("cosmic.check")
   local sqlite = require("cosmic.sqlite")
   local db = check.must(sqlite.open(":memory:"))
   db:exec("CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT)")
@@ -43,6 +43,7 @@ end
 
 -- Example_prepared demonstrates prepared statements
 local function Example_prepared()
+  local check = require("cosmic.check")
   local sqlite = require("cosmic.sqlite")
   local db = check.must(sqlite.open(":memory:"))
   db:exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
@@ -66,6 +67,7 @@ end
 
 -- Example_query_params demonstrates query with parameters
 local function Example_query_params()
+  local check = require("cosmic.check")
   local sqlite = require("cosmic.sqlite")
   local db = check.must(sqlite.open(":memory:"))
   db:exec("CREATE TABLE nums (n INTEGER)")
@@ -85,6 +87,7 @@ end
 
 -- Example_exec_params demonstrates exec with parameter binding
 local function Example_exec_params()
+  local check = require("cosmic.check")
   local sqlite = require("cosmic.sqlite")
   local db = check.must(sqlite.open(":memory:"))
   db:exec("CREATE TABLE cities (id INTEGER PRIMARY KEY, name TEXT, pop INTEGER)")
@@ -106,6 +109,7 @@ end
 -- Example_query_like demonstrates substring matching with LIKE
 -- (the SQL wildcard is %, not *)
 local function Example_query_like()
+  local check = require("cosmic.check")
   local sqlite = require("cosmic.sqlite")
   local db = check.must(sqlite.open(":memory:"))
   db:exec("CREATE TABLE files (path TEXT)")

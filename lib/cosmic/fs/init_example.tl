@@ -1,9 +1,8 @@
 --- Examples for the cosmic.fs module.
 
-local check = require("cosmic.check")
-
 -- Example demonstrating basic fs operations
 local function Example_basic()
+  local check = require("cosmic.check")
   local fs = require("cosmic.fs")
 
   -- Create a temp directory

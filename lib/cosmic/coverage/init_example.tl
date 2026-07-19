@@ -1,12 +1,11 @@
 #!/usr/bin/env cosmic
 --- Examples for cosmic.coverage.
 
-local check = require("cosmic.check")
-
 --- Count executed lines for a chunk of code.
 --- start() installs a line hook, stop() removes it, and snapshot()
 --- returns hit counts keyed by chunk source and line number.
 local function Example_collect()
+  local check = require("cosmic.check")
   local coverage = require("cosmic.coverage")
   local chunk = load(
     "local total = 0\nfor i = 1, 4 do\n  total = total + i\nend\n",
