@@ -176,16 +176,12 @@ end
 --- @return Dir | nil Directory handle, or nil on error
 --- @return string Error message if failed
 local function opendir(path: string): Dir | nil, string
-  -- Cast, not `is`: embedded apps whose main.lua installs
-  -- require("tl").loader() (the documented embed pattern) can
-  -- lax-recompile this module through tl's OWN loader, where the
-  -- cosmo.unix .d.tl marker doesn't resolve and `is` degrades to a
-  -- table test that rejects every real Dir handle (seen breaking
-  -- envd_example's re-embedded app). The cosmic searcher guarantees
-  -- resolution only inside the cosmic dispatcher.
+  -- `is` is safe here since every cosmic-installed loader (dispatcher
+  -- searcher #681, embed wrapper #688) resolves the unix.Dir userdata
+  -- marker; explicit tl.loader() installs are unsupported (#687).
   local raw, err = unix.opendir(path)
-  if raw ~= nil then
-    return make_dir(raw as unix.Dir)
+  if raw is unix.Dir then
+    return make_dir(raw)
   end
   return nil, errstr(err, "opendir: " .. path)
 end
@@ -196,10 +192,9 @@ end
 --- @return Dir | nil Directory handle, or nil on error
 --- @return string Error message if failed
 local function fdopendir(fd: integer): Dir | nil, string
-  -- Cast, not `is`: same tl.loader() degradation hazard as opendir.
   local raw, err = unix.fdopendir(fd)
-  if raw ~= nil then
-    return make_dir(raw as unix.Dir)
+  if raw is unix.Dir then
+    return make_dir(raw)
   end
   return nil, errstr(err, "fdopendir")
 end

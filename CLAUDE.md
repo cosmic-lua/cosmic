@@ -153,13 +153,13 @@ or map unions through truthiness (`if not x`). Two sanctioned tools:
   then return end` does not narrow below); and `is` is WRONG for
   mixed-representation records — `fs.Stat` is usually the raw stat
   userdata but falls back to a plain wrapper table, so neither marker
-  fits; it stays on casts. (The ban on `is` with REQUIRED `cosmo.*`
-  classes is NARROWED, not lifted: under the cosmic dispatcher the
-  runtime searcher (#669) resolves .d.tl markers, so `is` cannot
-  degrade there — but stdlib modules that EMBEDDED apps may recompile
-  via the documented `require("tl").loader()` main.lua pattern bypass
-  the cosmic searcher and still degrade; those keep casts, e.g.
-  fs.opendir.)
+  fits; it stays on casts. (The old ban on `is` with REQUIRED
+  `cosmo.*` classes is LIFTED: the cosmic searcher is the only loader
+  cosmic installs — the dispatcher (#669/#681) and the embed entry
+  wrapper (#687/#688) both resolve .d.tl markers, so `is` cannot
+  silently degrade. The one unsupported path is user code explicitly
+  calling `require("tl").loader()`, which shadows the cosmic searcher
+  with tl's silent one.)
 - **Cast in linear code and at userdata boundaries**: after an assert or
   early-exit guard, `(x as Rec).field`, `(x as {K:V})[k]`. Scalars
   (`string | nil`) narrow normally, except method-call syntax: use
