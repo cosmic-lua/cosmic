@@ -202,9 +202,9 @@ end
 --- the NO_COLOR convention (https://no-color.org: set to any value,
 --- including empty, disables color), TERM=dumb, and whether the fd is
 --- a terminal.
---- @param fd number? File descriptor to check (default 1, stdout)
+--- @param fd integer? File descriptor to check (default 1, stdout)
 --- @return boolean True when it is reasonable to emit styled output
-local function enabled(fd?: number): boolean
+local function enabled(fd?: integer): boolean
   if env.get("NO_COLOR") ~= nil then
     return false
   end
@@ -236,7 +236,7 @@ local record AnsiModule
   underline: function(text: string): string
 
   strip: function(text: string): string
-  enabled: function(fd?: number): boolean
+  enabled: function(fd?: integer): boolean
 end
 
 local M: AnsiModule = {

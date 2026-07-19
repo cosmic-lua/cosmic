@@ -25,9 +25,9 @@ local CHUNK = 65536
 --- resumed pump only watches what is still live. `out`/`err_out` accumulate
 --- across calls; `stdin_off` records progress feeding `stdin_data`.
 local record PumpState
-  stdout_fd: number
-  stderr_fd: number
-  stdin_fd: number
+  stdout_fd: integer
+  stderr_fd: integer
+  stdin_fd: integer
   stdin_data: string
   stdin_off: integer
   out: {string}
@@ -40,9 +40,9 @@ end
 --- boundary speaks raw descriptors.
 local record Stdio
   stdin_data: string
-  stdin_fd: number
-  stdout_fd: number
-  stderr_fd: number
+  stdin_fd: integer
+  stdout_fd: integer
+  stderr_fd: integer
 end
 
 --- Resolve the caller's stdio options to raw descriptors, once, at the
@@ -86,7 +86,7 @@ end
 -- F_SETFL replaces the file-status flags, but a fresh pipe write end carries
 -- none worth preserving (F_SETFL ignores the access mode), so setting
 -- O_NONBLOCK outright is safe.
-local function set_nonblocking(fd: number): boolean, string
+local function set_nonblocking(fd: integer): boolean, string
   local ok = unix.fcntl(fd, unix.F_SETFL, unix.O_NONBLOCK)
   if not ok then
     return false, "fcntl F_SETFL O_NONBLOCK failed"
@@ -125,7 +125,7 @@ local function pump(state: PumpState, deadline_ms: number): boolean
   -- Read whatever is ready on fd into buf; on EOF, a read error, or a hangup
   -- with no pending data, drop it from the set and close/nil it in `state`.
   -- When both readable and hangup are set, data still remains, so read.
-  local function read_ready(fd: number, buf: {string}, which: string)
+  local function read_ready(fd: integer, buf: {string}, which: string)
     local ev0 = p:events(fd)
     if not ev0 then return end
     local ev = ev0 as {string: boolean}

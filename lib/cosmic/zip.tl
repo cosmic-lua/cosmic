@@ -11,9 +11,9 @@ local fs = require("cosmic.fs")
 --- Options for opening a ZIP archive.
 local record OpenOptions
   --- Compression level 0-9 (0=none, 9=maximum). Used when writing/appending.
-  level: number
+  level: integer
   --- Maximum file size limit in bytes.
-  max_file_size: number
+  max_file_size: integer
 end
 
 --- Options for adding a file to a ZIP archive.
@@ -21,25 +21,25 @@ local record AddOptions
   --- Compression method: "store" (no compression) or "deflate" (compressed).
   method: zip.CompressionMethod
   --- Modification time as Unix timestamp.
-  mtime: number
+  mtime: integer
   --- Unix file mode/permissions (default 0644).
-  mode: number
+  mode: integer
 end
 
 --- File metadata within a ZIP archive.
 local record Stat
   --- Uncompressed file size in bytes.
-  size: number
+  size: integer
   --- Compressed file size in bytes.
-  compressed_size: number
+  compressed_size: integer
   --- CRC32 checksum of uncompressed data.
-  crc32: number
+  crc32: integer
   --- Modification time as Unix timestamp.
-  mtime: number
+  mtime: integer
   --- Compression method (0=stored, 8=deflated).
-  method: number
+  method: integer
   --- Unix file mode/permissions.
-  mode: number
+  mode: integer
 end
 
 --- Directory entry returned by Reader:list().
@@ -47,9 +47,9 @@ local record Entry
   --- Entry path within the archive.
   name: string
   --- Uncompressed size in bytes.
-  size: number
+  size: integer
   --- Unix file mode/permissions.
-  mode: number
+  mode: integer
 end
 
 --- Reader for extracting files from a ZIP archive.
@@ -117,12 +117,12 @@ end
 local record ExtractOptions
   --- Refuse any entry whose declared uncompressed size exceeds this many
   --- bytes (checked before anything is read or written).
-  max_file_size: number
+  max_file_size: integer
 end
 
 -- Build a plain options table so the nominal cosmo.zip.OpenOptions record
 -- doesn't conflict with this module's OpenOptions.
-local function raw_options(options: OpenOptions): {string: number}
+local function raw_options(options: OpenOptions): {string: integer}
   return {
     level = options.level,
     max_file_size = options.max_file_size,
@@ -130,11 +130,11 @@ local function raw_options(options: OpenOptions): {string: number}
 end
 
 --- Open a ZIP archive for reading.
---- @param path string|number File path or file descriptor
+--- @param path string|integer File path or file descriptor
 --- @param options OpenOptions? Size limits
 --- @return Reader | nil The archive reader, or nil on error
 --- @return string? Error message if opening failed
-local function reader(path: string | number, options?: OpenOptions): Reader | nil, string
+local function reader(path: string | integer, options?: OpenOptions): Reader | nil, string
   local handle: any
   local err: string
   if options then
@@ -149,11 +149,11 @@ local function reader(path: string | number, options?: OpenOptions): Reader | ni
 end
 
 --- Create a new ZIP archive for writing. Any existing file is truncated.
---- @param path string|number File path or file descriptor
+--- @param path string|integer File path or file descriptor
 --- @param options OpenOptions? Compression level and size limits
 --- @return Writer | nil The archive writer, or nil on error
 --- @return string? Error message if opening failed
-local function writer(path: string | number, options?: OpenOptions): Writer | nil, string
+local function writer(path: string | integer, options?: OpenOptions): Writer | nil, string
   local handle: any
   local err: string
   if options then
@@ -319,8 +319,8 @@ local record ZipModule
   --- Appender for adding files to an existing ZIP archive.
   type Appender = Appender
 
-  reader: function(path: string | number, options?: OpenOptions): Reader | nil, string
-  writer: function(path: string | number, options?: OpenOptions): Writer | nil, string
+  reader: function(path: string | integer, options?: OpenOptions): Reader | nil, string
+  writer: function(path: string | integer, options?: OpenOptions): Writer | nil, string
   appender: function(path: string, options?: OpenOptions): Appender | nil, string
   from: function(data: string, options?: OpenOptions): Reader | nil, string
   extract: function(r: Reader, destdir: string, opts?: ExtractOptions): boolean, string

@@ -4,15 +4,15 @@ local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").str
 
 --- Get the real user ID of the calling process.
---- @return number The real user ID
-local function getuid(): number
+--- @return integer The real user ID
+local function getuid(): integer
   return unix.getuid()
 end
 
 --- Get the real group ID of the calling process.
 --- On Windows this is polyfilled as getuid().
---- @return number The real group ID
-local function getgid(): number
+--- @return integer The real group ID
+local function getgid(): integer
   return unix.getgid()
 end
 
@@ -20,15 +20,15 @@ end
 --- For example, if your binary is setuid, getuid() returns the uid of the user
 --- running the program, while geteuid() returns the uid of the file owner.
 --- On Windows this is polyfilled as getuid().
---- @return number The effective user ID
-local function geteuid(): number
+--- @return integer The effective user ID
+local function geteuid(): integer
   return unix.geteuid()
 end
 
 --- Get the effective group ID of the calling process.
 --- On Windows this is polyfilled as getuid().
---- @return number The effective group ID
-local function getegid(): number
+--- @return integer The effective group ID
+local function getegid(): integer
   return unix.getegid()
 end
 
@@ -45,10 +45,10 @@ end
 
 --- Set the user ID of the calling process.
 --- Returns ENOSYS on Windows NT if uid isn't getuid().
---- @param uid number The user ID to set
+--- @param uid integer The user ID to set
 --- @return boolean True on success
 --- @return string? Error message on failure
-local function setuid(uid: number): boolean, string
+local function setuid(uid: integer): boolean, string
   local ok, err = unix.setuid(uid)
   if not ok then
     return false, errstr(err, "setuid")
@@ -58,10 +58,10 @@ end
 
 --- Set the group ID of the calling process.
 --- Returns ENOSYS on Windows NT if gid isn't getgid().
---- @param gid number The group ID to set
+--- @param gid integer The group ID to set
 --- @return boolean True on success
 --- @return string? Error message on failure
-local function setgid(gid: number): boolean, string
+local function setgid(gid: integer): boolean, string
   local ok, err = unix.setgid(gid)
   if not ok then
     return false, errstr(err, "setgid")
@@ -70,10 +70,10 @@ local function setgid(gid: number): boolean, string
 end
 
 --- Set the filesystem user ID.
---- @param uid number The filesystem user ID to set
+--- @param uid integer The filesystem user ID to set
 --- @return boolean True on success
 --- @return string? Error message on failure
-local function setfsuid(uid: number): boolean, string
+local function setfsuid(uid: integer): boolean, string
   local ok, err = unix.setfsuid(uid)
   if not ok then
     return false, errstr(err, "setfsuid")
@@ -83,12 +83,12 @@ end
 
 --- Set real, effective, and saved user IDs.
 --- Pass -1 for any argument to leave that ID unchanged.
---- @param real number The real user ID to set (-1 to leave unchanged)
---- @param effective number The effective user ID to set (-1 to leave unchanged)
---- @param saved number The saved user ID to set (-1 to leave unchanged)
+--- @param real integer The real user ID to set (-1 to leave unchanged)
+--- @param effective integer The effective user ID to set (-1 to leave unchanged)
+--- @param saved integer The saved user ID to set (-1 to leave unchanged)
 --- @return boolean True on success
 --- @return string? Error message on failure
-local function setresuid(real: number, effective: number, saved: number): boolean, string
+local function setresuid(real: integer, effective: integer, saved: integer): boolean, string
   local ok, err = unix.setresuid(real, effective, saved)
   if not ok then
     return false, errstr(err, "setresuid")
@@ -98,12 +98,12 @@ end
 
 --- Set real, effective, and saved group IDs.
 --- Pass -1 for any argument to leave that ID unchanged.
---- @param real number The real group ID to set (-1 to leave unchanged)
---- @param effective number The effective group ID to set (-1 to leave unchanged)
---- @param saved number The saved group ID to set (-1 to leave unchanged)
+--- @param real integer The real group ID to set (-1 to leave unchanged)
+--- @param effective integer The effective group ID to set (-1 to leave unchanged)
+--- @param saved integer The saved group ID to set (-1 to leave unchanged)
 --- @return boolean True on success
 --- @return string? Error message on failure
-local function setresgid(real: number, effective: number, saved: number): boolean, string
+local function setresgid(real: integer, effective: integer, saved: integer): boolean, string
   local ok, err = unix.setresgid(real, effective, saved)
   if not ok then
     return false, errstr(err, "setresgid")
@@ -114,9 +114,9 @@ end
 --- Set the file mode creation mask.
 --- The umask is used by open(), mkdir(), etc. to modify the permissions
 --- of newly created files and directories.
---- @param newmask number The new file mode creation mask
---- @return number The previous umask value
-local function umask(newmask: number): number
+--- @param newmask integer The new file mode creation mask
+--- @return integer The previous umask value
+local function umask(newmask: integer): integer
   return unix.umask(newmask)
 end
 
@@ -135,17 +135,17 @@ local function chroot(path: string): boolean, string
 end
 
 local record UserModule
-  getuid: function(): number
-  getgid: function(): number
-  geteuid: function(): number
-  getegid: function(): number
+  getuid: function(): integer
+  getgid: function(): integer
+  geteuid: function(): integer
+  getegid: function(): integer
   getlogin: function(): string | nil, string
-  setuid: function(uid: number): boolean, string
-  setgid: function(gid: number): boolean, string
-  setfsuid: function(uid: number): boolean, string
-  setresuid: function(real: number, effective: number, saved: number): boolean, string
-  setresgid: function(real: number, effective: number, saved: number): boolean, string
-  umask: function(newmask: number): number
+  setuid: function(uid: integer): boolean, string
+  setgid: function(gid: integer): boolean, string
+  setfsuid: function(uid: integer): boolean, string
+  setresuid: function(real: integer, effective: integer, saved: integer): boolean, string
+  setresgid: function(real: integer, effective: integer, saved: integer): boolean, string
+  umask: function(newmask: integer): integer
   chroot: function(path: string): boolean, string
 end
 

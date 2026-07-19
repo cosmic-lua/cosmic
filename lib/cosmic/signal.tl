@@ -5,19 +5,19 @@ local errstr = require("cosmic.errno").str
 
 --- Options for setitimer: specifies which timer, initial fire time, and repeat interval.
 local record SetitimerOptions
-  which: number
-  valuesec: number
-  valuens: number
-  intervalsec: number
-  intervalns: number
+  which: integer
+  valuesec: integer
+  valuens: integer
+  intervalsec: integer
+  intervalns: integer
 end
 
 --- Result from setitimer: previous timer values.
 local record SetitimerResult
-  valuesec: number
-  valuens: number
-  intervalsec: number
-  intervalns: number
+  valuesec: integer
+  valuens: integer
+  intervalsec: integer
+  intervalns: integer
 end
 
 --- Signal set for blocking, unblocking, and waiting on signals.
@@ -27,15 +27,15 @@ end
 --- functions that construct them.
 local record Sigset
   --- Adds signal to bitset.
-  add: function(self: Sigset, sig: number)
+  add: function(self: Sigset, sig: integer)
   --- Removes signal from bitset.
-  remove: function(self: Sigset, sig: number)
+  remove: function(self: Sigset, sig: integer)
   --- Sets all bits in signal bitset to true.
   fill: function(self: Sigset)
   --- Sets all bits in signal bitset to false.
   clear: function(self: Sigset)
   --- Returns true if signal is in the bitset.
-  contains: function(self: Sigset, sig: number): boolean
+  contains: function(self: Sigset, sig: integer): boolean
 end
 
 --- Signal handling module.
@@ -43,70 +43,70 @@ end
 local record SignalModule
 
   -- Signal constants
-  SIGABRT: number
-  SIGALRM: number
-  SIGBUS: number
-  SIGCHLD: number
-  SIGCONT: number
-  SIGFPE: number
-  SIGHUP: number
-  SIGILL: number
-  SIGINT: number
-  SIGKILL: number
-  SIGPIPE: number
-  SIGPROF: number
-  SIGQUIT: number
-  SIGSEGV: number
-  SIGSTOP: number
-  SIGSYS: number
-  SIGTERM: number
-  SIGTRAP: number
-  SIGTSTP: number
-  SIGTTIN: number
-  SIGTTOU: number
-  SIGURG: number
-  SIGUSR1: number
-  SIGUSR2: number
-  SIGVTALRM: number
-  SIGWINCH: number
-  SIGXCPU: number
-  SIGXFSZ: number
+  SIGABRT: integer
+  SIGALRM: integer
+  SIGBUS: integer
+  SIGCHLD: integer
+  SIGCONT: integer
+  SIGFPE: integer
+  SIGHUP: integer
+  SIGILL: integer
+  SIGINT: integer
+  SIGKILL: integer
+  SIGPIPE: integer
+  SIGPROF: integer
+  SIGQUIT: integer
+  SIGSEGV: integer
+  SIGSTOP: integer
+  SIGSYS: integer
+  SIGTERM: integer
+  SIGTRAP: integer
+  SIGTSTP: integer
+  SIGTTIN: integer
+  SIGTTOU: integer
+  SIGURG: integer
+  SIGUSR1: integer
+  SIGUSR2: integer
+  SIGVTALRM: integer
+  SIGWINCH: integer
+  SIGXCPU: integer
+  SIGXFSZ: integer
 
   -- Signal mask operations
-  SIG_BLOCK: number
-  SIG_UNBLOCK: number
-  SIG_SETMASK: number
+  SIG_BLOCK: integer
+  SIG_UNBLOCK: integer
+  SIG_SETMASK: integer
 
   -- Default/ignore handlers
-  SIG_DFL: number
-  SIG_IGN: number
+  SIG_DFL: integer
+  SIG_IGN: integer
 
   -- sigaction flags
-  SA_NOCLDSTOP: number
-  SA_NOCLDWAIT: number
-  SA_NODEFER: number
-  SA_RESETHAND: number
-  SA_RESTART: number
+  SA_NOCLDSTOP: integer
+  SA_NOCLDWAIT: integer
+  SA_NODEFER: integer
+  SA_RESETHAND: integer
+  SA_RESTART: integer
 
   -- Timer types
-  ITIMER_REAL: number
-  ITIMER_VIRTUAL: number
-  ITIMER_PROF: number
+  ITIMER_REAL: integer
+  ITIMER_VIRTUAL: integer
+  ITIMER_PROF: integer
 
   --- Create a new signal set containing the specified signals.
   --- The returned Sigset has methods: add(sig), remove(sig), fill(), clear(), contains(sig).
-  Sigset: function(...: number): Sigset
+  Sigset: function(...: integer): Sigset
 
   --- Register a signal handler for the specified signal.
   --- The handler can be a Lua function, SIG_IGN, or SIG_DFL.
   --- Returns the previous handler, flags, and mask; on failure returns
   --- nil, nil, nil plus an error message.
-  sigaction: function(sig: number, handler?: function | number, flags?: number, mask?: Sigset): function | number, number, Sigset, string
+  sigaction: function(sig: integer, handler?: function | integer, flags?: integer, mask?: Sigset): function | integer, integer, Sigset, string
 
   --- Modify the process signal mask.
   --- how: SIG_BLOCK, SIG_UNBLOCK, or SIG_SETMASK
   --- Returns the previous signal mask, or nil plus an error message.
-  sigprocmask: function(how: number, set: Sigset): Sigset | nil, string
+  sigprocmask: function(how: integer, set: Sigset): Sigset | nil, string
 
   --- Suspend the process until a signal is delivered.
   --- Temporarily replaces the signal mask with the provided mask.
@@ -122,24 +122,24 @@ local record SignalModule
 
   --- Send a signal to a process.
   --- pid > 0 signals one process by id; 0 signals current group; -1 signals all.
-  kill: function(pid: number, sig: number): boolean, string
+  kill: function(pid: integer, sig: integer): boolean, string
 
   --- Send a signal to a process group.
-  killpg: function(pgrp: number, sig: number): boolean, string
+  killpg: function(pgrp: integer, sig: integer): boolean, string
 
   --- Send a signal to the current process.
-  raise: function(sig: number): boolean, string
+  raise: function(sig: integer): boolean, string
 
   --- Get the name of a signal.
-  strsignal: function(sig: number): string
+  strsignal: function(sig: integer): string
 end
 
 --- Send a signal to a process.
---- @param pid number The process ID (>0 for specific process, 0 for process group, -1 for all)
---- @param sig number The signal to send
+--- @param pid integer The process ID (>0 for specific process, 0 for process group, -1 for all)
+--- @param sig integer The signal to send
 --- @return boolean True on success
 --- @return string? Error message on failure
-local function kill(pid: number, sig: number): boolean, string
+local function kill(pid: integer, sig: integer): boolean, string
   local ok, err = unix.kill(pid, sig)
   if not ok then
     return false, errstr(err, "kill")
@@ -148,11 +148,11 @@ local function kill(pid: number, sig: number): boolean, string
 end
 
 --- Send a signal to a process group.
---- @param pgrp number The process group ID
---- @param sig number The signal to send
+--- @param pgrp integer The process group ID
+--- @param sig integer The signal to send
 --- @return boolean True on success
 --- @return string? Error message on failure
-local function killpg(pgrp: number, sig: number): boolean, string
+local function killpg(pgrp: integer, sig: integer): boolean, string
   local ok, err = unix.killpg(pgrp, sig)
   if not ok then
     return false, errstr(err, "killpg")
@@ -162,10 +162,10 @@ end
 
 --- Send a signal to the current process.
 --- Equivalent to kill(getpid(), sig).
---- @param sig number The signal to send
+--- @param sig integer The signal to send
 --- @return boolean True on success
 --- @return string? Error message on failure
-local function raise(sig: number): boolean, string
+local function raise(sig: integer): boolean, string
   local rc, err = unix.raise(sig)
   if rc == nil then
     return false, errstr(err, "raise")
@@ -174,9 +174,9 @@ local function raise(sig: number): boolean, string
 end
 
 --- Get the name of a signal.
---- @param sig number The signal number
+--- @param sig integer The signal number
 --- @return string The signal name (e.g., "SIGKILL")
-local function strsignal(sig: number): string
+local function strsignal(sig: integer): string
   return unix.strsignal(sig)
 end
 
@@ -208,23 +208,23 @@ end
 -- The binding's Sigset is a distinct nominal record the generated
 -- declarations do not export, so calls go through casts that mirror its
 -- signature — but never ones that erase the error slots.
-local raw_sigaction = unix.sigaction as function(sig: number, handler?: any, flags?: number, mask?: Sigset): (any, any, any)
-local raw_sigprocmask = unix.sigprocmask as function(number, Sigset): (Sigset, any)
+local raw_sigaction = unix.sigaction as function(sig: integer, handler?: any, flags?: integer, mask?: Sigset): (any, any, any)
+local raw_sigprocmask = unix.sigprocmask as function(integer, Sigset): (Sigset, any)
 local raw_sigsuspend = unix.sigsuspend as function(Sigset): (any, any)
 
 --- Register a signal handler for the specified signal.
---- @param sig number The signal to handle
---- @param handler function | number? Lua function, SIG_IGN, or SIG_DFL
---- @param flags number? sigaction flags (e.g. SA_RESTART)
+--- @param sig integer The signal to handle
+--- @param handler function | integer? Lua function, SIG_IGN, or SIG_DFL
+--- @param flags integer? sigaction flags (e.g. SA_RESTART)
 --- @param mask Sigset? Signals to block during handler execution
---- @return function | number The previous handler, or nil on failure
---- @return number The previous flags
+--- @return function | integer The previous handler, or nil on failure
+--- @return integer The previous flags
 --- @return Sigset The previous mask
 --- @return string? Error message on failure
 -- handler and the first return are typed any here because the formatter
--- cannot parse a bare `function | number` union in a function statement;
+-- cannot parse a bare `function | integer` union in a function statement;
 -- the SignalModule record above carries the precise public type.
-local function sigaction(sig: number, handler?: any, flags?: number, mask?: Sigset): any, number, Sigset, string
+local function sigaction(sig: integer, handler?: any, flags?: integer, mask?: Sigset): any, integer, Sigset, string
   -- Never pass explicit trailing nils: the binding leaves nil-valued
   -- stack slots 3/4 in place, which shifts the stack index it later uses
   -- to store a Lua handler in its registry table — the handler would be
@@ -244,15 +244,15 @@ local function sigaction(sig: number, handler?: any, flags?: number, mask?: Sigs
     -- arrives in the second slot.
     return nil, nil, nil, errstr(prev_flags, "sigaction")
   end
-  return prev, prev_flags as number, prev_mask as Sigset
+  return prev, prev_flags as integer, prev_mask as Sigset
 end
 
 --- Modify the process signal mask.
---- @param how number SIG_BLOCK, SIG_UNBLOCK, or SIG_SETMASK
+--- @param how integer SIG_BLOCK, SIG_UNBLOCK, or SIG_SETMASK
 --- @param set Sigset The signal set to apply
 --- @return Sigset | nil The previous signal mask, or nil on failure
 --- @return string? Error message on failure
-local function sigprocmask(how: number, set: Sigset): Sigset | nil, string
+local function sigprocmask(how: integer, set: Sigset): Sigset | nil, string
   local old, err = raw_sigprocmask(how, set)
   if old == nil then
     return nil, errstr(err, "sigprocmask")
@@ -271,7 +271,7 @@ end
 
 local M = {} as SignalModule
 
-M.Sigset = unix.Sigset as function(...: number): Sigset
+M.Sigset = unix.Sigset as function(...: integer): Sigset
 M.sigaction = sigaction
 M.sigprocmask = sigprocmask
 M.sigsuspend = sigsuspend

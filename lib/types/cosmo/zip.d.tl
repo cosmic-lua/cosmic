@@ -4,25 +4,25 @@
 
 local record OpenOptions
   --- Compression level 0-9 (for "w" and "a" modes)
-  level: number
+  level: integer
   --- Maximum file size limit in bytes
-  max_file_size: number
+  max_file_size: integer
 end
 
 --- File metadata within a ZIP archive.
 local record Stat
   --- Uncompressed file size in bytes
-  size: number
+  size: integer
   --- Compressed file size in bytes
-  compressed_size: number
+  compressed_size: integer
   --- CRC32 checksum of uncompressed data
-  crc32: number
+  crc32: integer
   --- Modification time as Unix timestamp
-  mtime: number
+  mtime: integer
   --- Compression method (0=stored, 8=deflated)
-  method: number
+  method: integer
   --- Unix file mode/permissions
-  mode: number
+  mode: integer
 end
 
 --- Directory entry returned by `zip.Reader:list`.
@@ -30,18 +30,18 @@ local record Entry
   --- Entry path within the archive
   name: string
   --- Uncompressed size in bytes
-  size: number
+  size: integer
   --- Unix file mode/permissions
-  mode: number
+  mode: integer
 end
 
 local record AddOptions
   --- Compression method: `"store"` or `"deflate"`
   method: CompressionMethod
   --- Modification time as Unix timestamp
-  mtime: number
+  mtime: integer
   --- Unix file mode (default 0644)
-  mode: number
+  mode: integer
 end
 
 --- Reader for extracting files from a ZIP archive.
@@ -114,12 +114,12 @@ local record zip
 
   --- Opens a ZIP archive for reading, writing, or appending.
   --- The first argument can be a file path string or a file descriptor integer.
-  open: function(path: string | number, mode?: OpenMode, options?: OpenOptions): any, string | nil
+  open: function(path: string | integer, mode?: OpenMode, options?: OpenOptions): any, string | nil
   --- Opens a ZIP archive from in-memory data for reading.
   from: function(data: string, options?: OpenOptions): Reader | nil, string | nil
   --- Creates a new ZIP archive for writing. This is equivalent to
   --- `zip.open(path, "w", options)`. Any existing file is truncated.
-  create: function(path: string | number, options?: OpenOptions): Writer | nil, string | nil
+  create: function(path: string | integer, options?: OpenOptions): Writer | nil, string | nil
   --- Opens an existing ZIP archive for appending. This is equivalent to
   --- `zip.open(path, "a", options)`. Unlike `zip.open` and `zip.create`,
   --- a file descriptor is not accepted; the archive must be given as a

@@ -106,7 +106,7 @@ end
 test_child_handle_conforms()
 
 --- Fork a loopback server answering one request, closing right after.
-local function serve_once(response: string): integer, number
+local function serve_once(response: string): integer, integer
   local srv, port = net.listen_tcp("127.0.0.1", 0)
   assert(srv ~= nil, "listen_tcp failed")
   local s = srv as net.Socket

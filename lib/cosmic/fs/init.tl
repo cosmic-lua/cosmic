@@ -20,11 +20,11 @@ local type Handle = cfd.Handle
 
 -- Raw Dir type from cosmo.unix
 local record RawDir
-  read: function(self: RawDir): string, number
+  read: function(self: RawDir): string, integer
   close: function(self: RawDir)
-  fd: function(self: RawDir): number
+  fd: function(self: RawDir): integer
   rewind: function(self: RawDir)
-  tell: function(self: RawDir): number
+  tell: function(self: RawDir): integer
 end
 
 -- Wrap a raw cosmo Dir with __close support
@@ -35,7 +35,7 @@ local function make_dir(raw: RawDir): Dir
     -- The second return is the dirent d_type (fs.DT_DIR / DT_REG /
     -- DT_LNK / ... / DT_UNKNOWN) where the filesystem supports it,
     -- so "is this entry a directory" needs no stat(2) call.
-    read = function(_self: Dir): string, number
+    read = function(_self: Dir): string, integer
       if is_closed then return nil end
       return raw:read()
     end,
@@ -45,14 +45,14 @@ local function make_dir(raw: RawDir): Dir
         is_closed = true
       end
     end,
-    fd = function(_self: Dir): number
+    fd = function(_self: Dir): integer
       if is_closed then return -1 end
       return raw:fd()
     end,
     rewind = function(_self: Dir)
       if not is_closed then raw:rewind() end
     end,
-    tell = function(_self: Dir): number
+    tell = function(_self: Dir): integer
       if is_closed then return -1 end
       return raw:tell()
     end,
@@ -100,10 +100,10 @@ local function lstat(path: string): Stat | nil, string
 end
 
 --- Get file metadata from file descriptor.
---- @param fd number File descriptor
+--- @param fd integer File descriptor
 --- @return Stat | nil File metadata, or nil on error
 --- @return string Error message if failed
-local function fstat(fd: number): Stat | nil, string
+local function fstat(fd: integer): Stat | nil, string
   local st, err = unix.fstat(fd)
   if not st then
     return nil, errstr(err, "fstat")
@@ -116,10 +116,10 @@ end
 --- Create a directory.
 --- Parent directories must exist. Use makedirs() to create parents.
 --- @param path string Path to the directory to create
---- @param mode number Permission bits (default 0755)
+--- @param mode integer Permission bits (default 0755)
 --- @return boolean True on success
 --- @return string Error message if failed
-local function mkdir(path: string, mode?: number): boolean, string
+local function mkdir(path: string, mode?: integer): boolean, string
   mode = mode or tonumber("755", 8)
   local ok, err = unix.mkdir(path, mode)
   if not ok then
@@ -130,10 +130,10 @@ end
 
 --- Create a directory and any missing parent directories.
 --- @param path string Path to the directory to create
---- @param mode number Permission bits (default 0755)
+--- @param mode integer Permission bits (default 0755)
 --- @return boolean True on success
 --- @return string Error message if failed
-local function makedirs(path: string, mode?: number): boolean, string
+local function makedirs(path: string, mode?: integer): boolean, string
   mode = mode or tonumber("755", 8)
   local ok, err = unix.makedirs(path, mode)
   if not ok then
@@ -193,10 +193,10 @@ end
 
 --- Open a directory from a file descriptor.
 --- Supports automatic cleanup with `<close>` attribute.
---- @param fd number File descriptor for an open directory
+--- @param fd integer File descriptor for an open directory
 --- @return Dir | nil Directory handle, or nil on error
 --- @return string Error message if failed
-local function fdopendir(fd: number): Dir | nil, string
+local function fdopendir(fd: integer): Dir | nil, string
   local raw, err = unix.fdopendir(fd)
   if not raw then
     return nil, errstr(err, "fdopendir")
@@ -251,29 +251,29 @@ local record FsModule
   -- Stat operations
   stat: function(path: string): Stat | nil, string
   lstat: function(path: string): Stat | nil, string
-  fstat: function(fd: number): Stat | nil, string
+  fstat: function(fd: integer): Stat | nil, string
 
   -- Directory operations
-  mkdir: function(path: string, mode?: number): boolean, string
-  makedirs: function(path: string, mode?: number): boolean, string
+  mkdir: function(path: string, mode?: integer): boolean, string
+  makedirs: function(path: string, mode?: integer): boolean, string
   rmdir: function(path: string): boolean, string
   chdir: function(path: string): boolean, string
   getcwd: function(): string | nil, string
   opendir: function(path: string): Dir | nil, string
-  fdopendir: function(fd: number): Dir | nil, string
+  fdopendir: function(fd: integer): Dir | nil, string
 
   -- Whole-file operations
   read: function(path: string): string | nil, string
-  write: function(path: string, data: string, mode?: number): boolean, string
-  truncate: function(path: string, length?: number): boolean, string
+  write: function(path: string, data: string, mode?: integer): boolean, string
+  truncate: function(path: string, length?: integer): boolean, string
 
   -- File operations
   unlink: function(path: string): boolean, string
   rename: function(oldpath: string, newpath: string): boolean, string
   copy: function(src: string, dst: string): boolean, string
   move: function(oldpath: string, newpath: string): boolean, string
-  touch: function(path: string, mode?: number): boolean, string
-  write_atomic: function(path: string, data: string, mode?: number): boolean, string
+  touch: function(path: string, mode?: integer): boolean, string
+  write_atomic: function(path: string, data: string, mode?: integer): boolean, string
   link: function(existingpath: string, newpath: string): boolean, string
   symlink: function(target: string, linkpath: string): boolean, string
   readlink: function(path: string): string | nil, string
@@ -282,30 +282,30 @@ local record FsModule
   copytree: function(src: string, dst: string): boolean, string
 
   -- Permission operations
-  access: function(path: string, mode?: number): boolean
-  chmod: function(path: string, mode: number): boolean, string
-  chown: function(path: string, uid: number, gid: number): boolean, string
+  access: function(path: string, mode?: integer): boolean
+  chmod: function(path: string, mode: integer): boolean, string
+  chown: function(path: string, uid: integer, gid: integer): boolean, string
 
   -- Timestamp operations
-  utimensat: function(path: string, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
-  futimens: function(fd: number, atime_secs: number, atime_nsecs: number, mtime_secs: number, mtime_nsecs: number): boolean, string
+  utimensat: function(path: string, atime_secs: integer, atime_nsecs: integer, mtime_secs: integer, mtime_nsecs: integer): boolean, string
+  futimens: function(fd: integer, atime_secs: integer, atime_nsecs: integer, mtime_secs: integer, mtime_nsecs: integer): boolean, string
 
   -- Temporary file operations
   mkdtemp: function(template: string): string | nil, string
   tmpfile: function(template?: string): Handle | nil, string, string
-  tmpfd: function(): number | nil, string
+  tmpfd: function(): integer | nil, string
 
   -- Filesystem statistics
   statfs: function(path: string): Statfs | nil, string
-  fstatfs: function(fd: number): Statfs | nil, string
+  fstatfs: function(fd: integer): Statfs | nil, string
 
   --- Flush all filesystem buffers to disk, system-wide (sync(2)).
   --- Per-file flushing is Handle:sync()/Handle:datasync() in cosmic.fd.
   sync: function()
 
   -- Device number utilities
-  major: function(dev: number): number
-  minor: function(dev: number): number
+  major: function(dev: integer): integer
+  minor: function(dev: integer): integer
 
   --- Walk a directory tree depth-first, calling the visitor per entry.
   --- Visitor signature: visitor(path, name, st, ctx): nil | "skip" | "stop"
@@ -329,20 +329,20 @@ local record FsModule
   files: function(dir: string, pattern?: string): FileIter | nil, string, any, any
 
   -- Access mode constants
-  F_OK: number
-  R_OK: number
-  W_OK: number
-  X_OK: number
+  F_OK: integer
+  R_OK: integer
+  W_OK: integer
+  X_OK: integer
 
   -- Dirent d_type constants, as returned by Dir:read()'s second value
-  DT_BLK: number
-  DT_CHR: number
-  DT_DIR: number
-  DT_FIFO: number
-  DT_LNK: number
-  DT_REG: number
-  DT_SOCK: number
-  DT_UNKNOWN: number
+  DT_BLK: integer
+  DT_CHR: integer
+  DT_DIR: integer
+  DT_FIFO: integer
+  DT_LNK: integer
+  DT_REG: integer
+  DT_SOCK: integer
+  DT_UNKNOWN: integer
 end
 
 local M: FsModule = {

@@ -10,10 +10,10 @@
 local cosmo = require("cosmo")
 
 --- Generate cryptographically secure random bytes.
---- @param n number The number of random bytes to generate (1..4194304)
+--- @param n integer The number of random bytes to generate (1..4194304)
 --- @return string | nil Random bytes, or nil on failure
 --- @return string? Error message on failure
-local function bytes(n: number): string | nil, string
+local function bytes(n: integer): string | nil, string
   local data, err = cosmo.GetRandomBytes(n)
   if not data then
     return nil, err or "GetRandomBytes failed"
@@ -24,7 +24,7 @@ end
 --- Generate a fast 64-bit pseudo-random integer (non-cryptographic).
 --- Note: result is a signed 64-bit Lua integer; may appear negative if high bit is set.
 --- @return integer Random 64-bit integer
-local function rand64(): number
+local function rand64(): integer
   return cosmo.Rand64()
 end
 
@@ -144,13 +144,13 @@ local function token(len?: integer): string | nil, string
 end
 
 local record RandModule
-  bytes: function(n: number): string | nil, string
+  bytes: function(n: integer): string | nil, string
   int: function(min: integer, max: integer): integer | nil, string
   float: function(): number | nil, string
   choice: function(list: {any}): any, string
   shuffle: function(list: {any}): {any} | nil, string
   token: function(len?: integer): string | nil, string
-  rand64: function(): number
+  rand64: function(): integer
 end
 
 local M: RandModule = {

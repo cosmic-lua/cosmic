@@ -8,7 +8,7 @@ local proc = require("cosmic.proc")
 
 --- Fork a loopback server answering one request per response string,
 --- closing the connection right after each send.
-local function serve(responses: {string}): integer, number
+local function serve(responses: {string}): integer, integer
   local srv, port = net.listen_tcp("127.0.0.1", 0)
   assert(srv ~= nil, "listen_tcp failed")
   local s = srv as net.Socket

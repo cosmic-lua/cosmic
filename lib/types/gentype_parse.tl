@@ -283,13 +283,12 @@ local function parse_annotations(raw_lines: {string}): {string}, {Param}, {Retur
 
     local fname, ftype, fdesc = line:match("^%-%-%-@field%s+([%w_%.%?]+)%s+([^%s]+)%s*(.*)$")
     if fname then
-      local optional = false
+      -- Teal record fields have no optional marker; strip the `?` from
+      -- both name and type positions and drop the distinction.
       if fname:match("%?$") then
-        optional = true
         fname = fname:sub(1, -2)
       end
       if ftype:match("%?$") then
-        optional = true
         ftype = ftype:sub(1, -2)
       end
       table.insert(fields, {name = fname, field_type = ftype, description = {fdesc or ""}})
@@ -355,7 +354,7 @@ local function parse_annotations(raw_lines: {string}): {string}, {Param}, {Retur
         -- A variadic return (`@return string ... desc`) is rendered as a Teal
         -- vararg return type. Nothing can follow a vararg, so stop here.
         local va_type = return_part:match("^([%w_%.]+)%s+%.%.%.") or
-          (return_part == "..." and "any" or nil)
+        (return_part == "..." and "any" or nil)
         if va_type then
           table.insert(returns, {return_type = va_type .. "...", description = ""})
           break

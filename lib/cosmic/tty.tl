@@ -10,8 +10,8 @@ local type Termios = unix.Termios
 local record TtyModule
   --- Window size information.
   record WinSize
-    rows: number
-    cols: number
+    rows: integer
+    cols: integer
   end
 
   --- Terminal I/O settings.
@@ -24,52 +24,52 @@ local record TtyModule
   end
 
   --- tcsetattr actions.
-  NOW: number
-  DRAIN: number
-  FLUSH: number
+  NOW: integer
+  DRAIN: integer
+  FLUSH: integer
 
   --- Common lflag constants.
-  ECHO: number
-  ICANON: number
-  ISIG: number
-  IEXTEN: number
+  ECHO: integer
+  ICANON: integer
+  ISIG: integer
+  IEXTEN: integer
 
   --- Input/output mode flag constants (for make_raw assertions).
-  IXON: number
-  ICRNL: number
-  BRKINT: number
-  OPOST: number
+  IXON: integer
+  ICRNL: integer
+  BRKINT: integer
+  OPOST: integer
 
   --- cc indices (C-style; the Lua cc array is 1-based, so cc[VMIN + 1]).
-  VMIN: number
-  VTIME: number
+  VMIN: integer
+  VTIME: integer
 
-  isatty: function(fd: number): boolean
-  winsize: function(fd: number): WinSize | nil, string
+  isatty: function(fd: integer): boolean
+  winsize: function(fd: integer): WinSize | nil, string
   stdin_isatty: function(): boolean
   stdout_isatty: function(): boolean
   stderr_isatty: function(): boolean
-  getattr: function(fd: number): Termios | nil, string
-  setattr: function(fd: number, action: number, termios: Termios): boolean, string
+  getattr: function(fd: integer): Termios | nil, string
+  setattr: function(fd: integer, action: integer, termios: Termios): boolean, string
   make_raw: function(termios: Termios, opts?: RawOptions): Termios
-  raw: function(fd: number, opts?: RawOptions): Termios | nil, string
-  noecho: function(fd: number): Termios | nil, string
-  restore: function(fd: number, termios: Termios): boolean, string
+  raw: function(fd: integer, opts?: RawOptions): Termios | nil, string
+  noecho: function(fd: integer): Termios | nil, string
+  restore: function(fd: integer, termios: Termios): boolean, string
   getpass: function(prompt: string): string | nil, string
 end
 
 --- Checks if a file descriptor refers to a terminal.
---- @param fd number File descriptor to check (0=stdin, 1=stdout, 2=stderr)
+--- @param fd integer File descriptor to check (0=stdin, 1=stdout, 2=stderr)
 --- @return boolean True if fd is a terminal
-local function isatty(fd: number): boolean
+local function isatty(fd: integer): boolean
   return (unix.isatty(fd))
 end
 
 --- Gets the terminal window size for a file descriptor.
---- @param fd number File descriptor (typically 0, 1, or 2)
+--- @param fd integer File descriptor (typically 0, 1, or 2)
 --- @return WinSize|nil Window size record with rows and cols, or nil on error
 --- @return string|nil Error message if not a terminal
-local function winsize(fd: number): TtyModule.WinSize | nil, string
+local function winsize(fd: integer): TtyModule.WinSize | nil, string
   local rows, cols = unix.tiocgwinsz(fd)
   if rows == nil then
     -- On failure the binding returns (nil, err, errno): the error string
@@ -98,10 +98,10 @@ local function stderr_isatty(): boolean
 end
 
 --- Gets terminal attributes for a file descriptor.
---- @param fd number File descriptor (typically 0 for stdin)
+--- @param fd integer File descriptor (typically 0 for stdin)
 --- @return Termios | nil Terminal attributes
 --- @return string? Error message if not a terminal
-local function getattr(fd: number): Termios | nil, string
+local function getattr(fd: integer): Termios | nil, string
   local termios, err = unix.tcgetattr(fd)
   if not termios then
     return nil, errstr(err, "tcgetattr")
@@ -110,12 +110,12 @@ local function getattr(fd: number): Termios | nil, string
 end
 
 --- Sets terminal attributes for a file descriptor.
---- @param fd number File descriptor
---- @param action number When to apply changes (NOW, DRAIN, or FLUSH)
+--- @param fd integer File descriptor
+--- @param action integer When to apply changes (NOW, DRAIN, or FLUSH)
 --- @param termios Termios Terminal attributes to set
 --- @return boolean True on success
 --- @return string? Error message on failure
-local function setattr(fd: number, action: number, termios: Termios): boolean, string
+local function setattr(fd: integer, action: integer, termios: Termios): boolean, string
   local ok, err = unix.tcsetattr(fd, action, termios)
   if not ok then
     return false, errstr(err, "tcsetattr")
@@ -130,7 +130,7 @@ end
 --- @param t Termios Terminal attributes to copy
 --- @return Termios An independent copy
 local function copy_termios(t: Termios): Termios
-  local cc: {number} = {}
+  local cc: {integer} = {}
   for i, v in ipairs(t.cc) do
     cc[i] = v
   end
@@ -166,8 +166,8 @@ local function make_raw(termios: Termios, opts?: TtyModule.RawOptions): Termios
   t.lflag = t.lflag & ~ lclear
   t.cflag = (t.cflag & ~ (unix.CSIZE | unix.PARENB)) | unix.CS8
   -- The Lua cc array is 1-based: cc[i + 1] holds C's c_cc[i].
-  t.cc[(unix.VMIN + 1) as integer] = 1
-  t.cc[(unix.VTIME + 1) as integer] = 0
+  t.cc[unix.VMIN + 1] = 1
+  t.cc[unix.VTIME + 1] = 0
   return t
 end
 
@@ -175,11 +175,11 @@ end
 --- keys (unless opts.keep_signals), no \r translation, no Ctrl-S flow
 --- control, no output post-processing (see make_raw).
 --- Returns the original termios for later restoration.
---- @param fd number File descriptor (typically 0 for stdin)
+--- @param fd integer File descriptor (typically 0 for stdin)
 --- @param opts RawOptions? keep_signals: keep Ctrl-C/Ctrl-Z generating signals
 --- @return Termios | nil Original terminal attributes for restore()
 --- @return string? Error message if not a terminal
-local function raw(fd: number, opts?: TtyModule.RawOptions): Termios | nil, string
+local function raw(fd: integer, opts?: TtyModule.RawOptions): Termios | nil, string
   local termios, err = getattr(fd)
   if not termios then
     return nil, err
@@ -195,10 +195,10 @@ end
 
 --- Disables echo on terminal (for password input).
 --- Returns the original termios for later restoration.
---- @param fd number File descriptor (typically 0 for stdin)
+--- @param fd integer File descriptor (typically 0 for stdin)
 --- @return Termios | nil Original terminal attributes for restore()
 --- @return string? Error message if not a terminal
-local function noecho(fd: number): Termios | nil, string
+local function noecho(fd: integer): Termios | nil, string
   local termios, err = getattr(fd)
   if not termios then
     return nil, err
@@ -214,11 +214,11 @@ local function noecho(fd: number): Termios | nil, string
 end
 
 --- Restores terminal attributes.
---- @param fd number File descriptor
+--- @param fd integer File descriptor
 --- @param termios Termios Terminal attributes from raw() or noecho()
 --- @return boolean True on success
 --- @return string? Error message on failure
-local function restore(fd: number, termios: Termios): boolean, string
+local function restore(fd: integer, termios: Termios): boolean, string
   return setattr(fd, unix.TCSANOW, termios)
 end
 

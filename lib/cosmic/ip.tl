@@ -23,13 +23,13 @@ end
 --- Compares by value (two Addrs are == when they hold the same
 --- address) and formats with tostring().
 local record Addr
-  _n: number
+  _n: integer
   --- Address family; "inet" for IPv4.
   family: Family
   --- Get the raw integer representation (the IPv4 payload).
   --- Use this at the C boundary or for arithmetic on the raw value.
   --- @return integer The IP address as an integer
-  int: function(Addr): number
+  int: function(Addr): integer
   --- Format as a dotted-quad string (e.g., "192.168.1.1").
   --- @return string The formatted IP address
   format: function(Addr): string
@@ -47,7 +47,7 @@ local record Addr
   is_public: function(Addr): boolean
 end
 
-local function addr_int(self: Addr): number
+local function addr_int(self: Addr): integer
   return self._n
 end
 
@@ -91,7 +91,7 @@ local Addr_mt: metatable < Addr > = {
   end,
 }
 
-local function make_addr(n: number): Addr
+local function make_addr(n: integer): Addr
   return setmetatable({_n = n} as Addr, Addr_mt)
 end
 
@@ -101,7 +101,7 @@ end
 --- hold an Addr.
 --- @param n integer The IP address as an integer
 --- @return Addr The typed IP address
-local function addr(n: number): Addr
+local function addr(n: integer): Addr
   return make_addr(n)
 end
 
@@ -168,8 +168,8 @@ local record Cidr
   --- @return Addr The broadcast address
   broadcast: function(Cidr): Addr
   --- Number of addresses in the block (including network/broadcast).
-  --- @return number The block size
-  size: function(Cidr): number
+  --- @return integer The block size
+  size: function(Cidr): integer
   --- Check whether the block contains an address.
   --- @param a Addr | string The address (typed or dotted quad)
   --- @return boolean True when contained; false (plus an error
@@ -204,7 +204,7 @@ local function cidr_broadcast(self: Cidr): Addr
   return make_addr(self._n | (~ cidr_mask(self._bits) & 0xFFFFFFFF))
 end
 
-local function cidr_size(self: Cidr): number
+local function cidr_size(self: Cidr): integer
   return 1 << (32 - self._bits)
 end
 
@@ -215,9 +215,9 @@ local function cidr_contains(self: Cidr, a: Addr | string): boolean, string
     if not parsed then
       return false, err
     end
-    n = math.tointeger((parsed as Addr):int())
+    n = (parsed as Addr):int()
   else
-    n = math.tointeger((a as Addr):int())
+    n = (a as Addr):int()
   end
   return (n & cidr_mask(self._bits)) == self._n
 end
@@ -272,7 +272,7 @@ local function cidr(str: string): Cidr | nil, string
     return nil, "invalid CIDR prefix '" .. bp .. "' in: " .. str
   end
   local b = bits as integer
-  local n = math.tointeger((base as Addr):int()) & cidr_mask(b)
+  local n = (base as Addr):int() & cidr_mask(b)
   return make_cidr(n, b)
 end
 
@@ -281,7 +281,7 @@ local record IpModule
   type Category = Category
   type Family = Family
   type Cidr = Cidr
-  addr: function(n: number): Addr
+  addr: function(n: integer): Addr
   parse: function(str: string): Addr | nil, string
   cidr: function(str: string): Cidr | nil, string
   lookup: function(hostname: string): Addr | nil, string

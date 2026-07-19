@@ -84,11 +84,11 @@ end
 --- Query a runtime system configuration value.
 --- `name` is one of the `unix.SC_*` constants (e.g. `unix.SC_PAGESIZE`,
 --- `unix.SC_NPROCESSORS_ONLN`). Returns nil plus an error message on failure.
---- @param name number One of the unix.SC_* constants
---- @return number | nil The configuration value
+--- @param name integer One of the unix.SC_* constants
+--- @return integer | nil The configuration value
 --- @return string? Error message on failure
-local function sysconf(name: number): number | nil, string
-  local val, err = unix.sysconf(name) as(number, any)
+local function sysconf(name: integer): integer | nil, string
+  local val, err = unix.sysconf(name) as(integer, any)
   if not val then
     return nil, errstr(err, "sysconf")
   end
@@ -96,24 +96,24 @@ local function sysconf(name: number): number | nil, string
 end
 
 --- Number of processors currently online (available to run threads).
---- @return number | nil The online processor count
+--- @return integer | nil The online processor count
 --- @return string? Error message on failure
-local function nproc(): number | nil, string
+local function nproc(): integer | nil, string
   return sysconf(unix.SC_NPROCESSORS_ONLN)
 end
 
 --- Number of processors configured in the system.
 --- May exceed `nproc()` when some processors are offline.
---- @return number | nil The configured processor count
+--- @return integer | nil The configured processor count
 --- @return string? Error message on failure
-local function nproc_configured(): number | nil, string
+local function nproc_configured(): integer | nil, string
   return sysconf(unix.SC_NPROCESSORS_CONF)
 end
 
 --- Memory page size in bytes.
---- @return number | nil The page size in bytes
+--- @return integer | nil The page size in bytes
 --- @return string? Error message on failure
-local function page_size(): number | nil, string
+local function page_size(): integer | nil, string
   return sysconf(unix.SC_PAGESIZE)
 end
 
@@ -135,22 +135,22 @@ local record SysModule
   type Uname = Uname
 
   -- sysconf(3) name constants
-  SC_ARG_MAX: number
-  SC_CHILD_MAX: number
-  SC_CLK_TCK: number
-  SC_OPEN_MAX: number
-  SC_PAGESIZE: number
-  SC_NPROCESSORS_CONF: number
-  SC_NPROCESSORS_ONLN: number
+  SC_ARG_MAX: integer
+  SC_CHILD_MAX: integer
+  SC_CLK_TCK: integer
+  SC_OPEN_MAX: integer
+  SC_PAGESIZE: integer
+  SC_NPROCESSORS_CONF: integer
+  SC_NPROCESSORS_ONLN: integer
 
   host_os: function(): HostOs
   normalize_host_os: function(raw: string): HostOs
   host_isa: function(): string
   platform: function(): string
-  sysconf: function(name: number): number | nil, string
-  nproc: function(): number | nil, string
-  nproc_configured: function(): number | nil, string
-  page_size: function(): number | nil, string
+  sysconf: function(name: integer): integer | nil, string
+  nproc: function(): integer | nil, string
+  nproc_configured: function(): integer | nil, string
+  page_size: function(): integer | nil, string
   uname: function(): Uname | nil, string
 end
 

@@ -31,18 +31,18 @@ end
 local function test_convert_type()
   -- Simple types
   assert(gentype.convert_type("string") == "string", "string type")
-  assert(gentype.convert_type("integer") == "number", "integer -> number (Teal compat)")
+  assert(gentype.convert_type("integer") == "integer", "integer stays integer")
   assert(gentype.convert_type("number") == "number", "number type")
   assert(gentype.convert_type("boolean") == "boolean", "boolean type")
   assert(gentype.convert_type("any") == "any", "any type")
 
   -- Alias types
-  assert(gentype.convert_type("uint32") == "number", "uint32 -> number (Teal compat)")
-  assert(gentype.convert_type("uint16") == "number", "uint16 -> number (Teal compat)")
+  assert(gentype.convert_type("uint32") == "integer", "uint32 -> integer")
+  assert(gentype.convert_type("uint16") == "integer", "uint16 -> integer")
 
   -- Array types
   assert(gentype.convert_type("string[]") == "{string}", "string[] -> {string}")
-  assert(gentype.convert_type("integer[]") == "{number}", "integer[] -> {number}")
+  assert(gentype.convert_type("integer[]") == "{integer}", "integer[] -> {integer}")
 
   -- Table types
   assert(gentype.convert_type("table<string,any>") == "{string: any}", "table<K,V> -> {K: V}")
@@ -50,23 +50,23 @@ local function test_convert_type()
 
   -- Nullable types render as a Teal union with nil.
   assert(gentype.convert_type("string?") == "string | nil", "string? -> string | nil")
-  assert(gentype.convert_type("integer?") == "number | nil", "integer? -> number | nil")
+  assert(gentype.convert_type("integer?") == "integer | nil", "integer? -> integer | nil")
 
   -- Parenthesized union types are unwrapped and converted (LuaLS grouping).
   assert(gentype.convert_type("(true | string)") == "boolean | string", "(true | string) union")
-  assert(gentype.convert_type("(integer | string)?") == "number | string | nil", "optional paren union")
+  assert(gentype.convert_type("(integer | string)?") == "integer | string | nil", "optional paren union")
 
   -- Variadic types keep the ellipsis with a converted base.
   assert(gentype.convert_type("string...") == "string...", "string... passthrough")
-  assert(gentype.convert_type("integer...") == "number...", "integer... -> number...")
+  assert(gentype.convert_type("integer...") == "integer...", "integer... passthrough")
 
   -- Function types convert their argument and return types. A function type
   -- with a return is parenthesized so a following `, next` in a type list
   -- cannot parse as another return of the nested function.
   assert(gentype.convert_type("fun(udata: integer, tries: integer)")
-    == "function(udata: number, tries: number)", "fun arg types convert")
+    == "function(udata: integer, tries: integer)", "fun arg types convert")
   assert(gentype.convert_type("fun(x: integer): integer")
-    == "(function(x: number): number)", "fun return type converts, parenthesized")
+    == "(function(x: integer): integer)", "fun return type converts, parenthesized")
 
   -- Module-prefixed types
   assert(gentype.convert_type("lsqlite3.Database") == "Database", "lsqlite3.Database -> Database")
@@ -149,14 +149,14 @@ function unix.dup(fd) end
     "fallible mkdir should render 'T | nil, Errno':\n" .. dtl)
   assert(dtl:match("getcwd: function%(%): string | nil, Errno"),
     "fallible getcwd should render 'T | nil, Errno':\n" .. dtl)
-  assert(dtl:match("getpid: function%(%): number"),
-    "getpid should still render its number return:\n" .. dtl)
+  assert(dtl:match("getpid: function%(%): integer"),
+    "getpid should still render its integer return:\n" .. dtl)
   assert(not dtl:match("getpid[^\n]*Errno"),
     "non-fallible getpid must NOT gain an Errno return:\n" .. dtl)
   assert(not dtl:match("getpid[^\n]*| nil"),
     "non-fallible getpid must NOT gain a nil union:\n" .. dtl)
-  assert(dtl:match("dup: function%([^\n]*%): number | nil, Errno"),
-    "dup should render 'number | nil' and a single trailing Errno:\n" .. dtl)
+  assert(dtl:match("dup: function%([^\n]*%): integer | nil, Errno"),
+    "dup should render 'integer | nil' and a single trailing Errno:\n" .. dtl)
   assert(not dtl:match("dup:[^\n]*Errno, Errno"),
     "dup must not gain a duplicate Errno:\n" .. dtl)
 
@@ -177,7 +177,7 @@ unix = {}
 function unix.ioctl(fd, request, arg) end
 ]==]
   local dtl = gentype.generate_dtl(gentype.parse_module(source, "unix"))
-  assert(dtl:match("ioctl: function%(fd: number, request: number, arg%?: number | string%): boolean | string | nil, Errno"),
+  assert(dtl:match("ioctl: function%(fd: integer, request: integer, arg%?: integer | string%): boolean | string | nil, Errno"),
     "parenthesized union types should render as Teal unions with a nil success:\n" .. dtl)
   print("test_paren_union_types: PASS")
 end
@@ -217,7 +217,7 @@ lsqlite3 = {}
 function lsqlite3.busy_handler(func, udata) end
 ]==]
   local dtl = gentype.generate_dtl(gentype.parse_module(source, "lsqlite3"))
-  assert(dtl:match("busy_handler: function%(func%?: function%(udata: any, tries: number%), udata%?: any%)"),
+  assert(dtl:match("busy_handler: function%(func%?: function%(udata: any, tries: integer%), udata%?: any%)"),
     "generic types should degrade to any:\n" .. dtl)
   print("test_generic_degrades_to_any: PASS")
 end
@@ -235,9 +235,9 @@ re = {
 }
 ]==]
   local dtl = gentype.generate_dtl(gentype.parse_module(source, "re"))
-  assert(dtl:match("%-%-%- Missing }\n  EBRACE: number"),
+  assert(dtl:match("%-%-%- Missing }\n  EBRACE: integer"),
     "constant doc comments should render above the constant:\n" .. dtl)
-  assert(dtl:match("BADBR: number"),
+  assert(dtl:match("BADBR: integer"),
     "constants after a stray `}` in a comment must still parse:\n" .. dtl)
   print("test_constant_docs_and_comment_braces: PASS")
 end
@@ -278,7 +278,7 @@ function argon2.hash_encoded(pass, config) end
   assert(dtl:match("type Variant = Variant"), "class types should be exported:\n" .. dtl)
   assert(dtl:match("variants: Variants"),
     "@type-annotated module field should render on the record:\n" .. dtl)
-  assert(dtl:match("m_cost: number"), "Config fields should render:\n" .. dtl)
+  assert(dtl:match("m_cost: integer"), "Config fields should render:\n" .. dtl)
   print("test_data_class_and_type_export: PASS")
 end
 
@@ -302,7 +302,7 @@ function lsqlite3.open(filename) end
 ]==]
   local dtl = gentype.generate_dtl(gentype.parse_module(source, "lsqlite3"))
   assert(dtl:match("local record Database"), "Database class should render:\n" .. dtl)
-  assert(dtl:match("changes: function%(self: Database%): number"),
+  assert(dtl:match("changes: function%(self: Database%): integer"),
     "qualified class method should attach to its class:\n" .. dtl)
   assert(dtl:match("open: function%(filename: string%): Database"),
     "module function should reference the class type:\n" .. dtl)

@@ -209,7 +209,7 @@ test_getpass_non_tty_eof()
 -- (issue #529, review item 35).
 
 local function fixture_termios(): tty.Termios
-  local cc: {number} = {}
+  local cc: {integer} = {}
   for i = 1, 20 do
     cc[i] = i
   end
@@ -241,8 +241,8 @@ test_make_raw_clears_input_and_output_flags()
 local function test_make_raw_sets_vmin_vtime()
   local t = fixture_termios()
   local raw = tty.make_raw(t)
-  local vmin = (tty.VMIN + 1) as integer
-  local vtime = (tty.VTIME + 1) as integer
+  local vmin = tty.VMIN + 1
+  local vtime = tty.VTIME + 1
   assert(raw.cc[vmin] == 1, "raw mode must set VMIN=1")
   assert(raw.cc[vtime] == 0, "raw mode must set VTIME=0")
 end
@@ -259,8 +259,8 @@ test_make_raw_keep_signals()
 local function test_make_raw_does_not_alias_or_mutate_input()
   local t = fixture_termios()
   local raw = tty.make_raw(t)
-  local vmin = (tty.VMIN + 1) as integer
-  local vtime = (tty.VTIME + 1) as integer
+  local vmin = tty.VMIN + 1
+  local vtime = tty.VTIME + 1
   assert(raw.cc ~= t.cc, "make_raw must deep-copy cc, not alias it")
   assert(t.iflag & tty.IXON ~= 0, "make_raw must not mutate its input")
   assert(t.cc[vmin] ~= raw.cc[vmin] or t.cc[vtime] ~= raw.cc[vtime],

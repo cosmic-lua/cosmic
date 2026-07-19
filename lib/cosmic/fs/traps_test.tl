@@ -9,7 +9,7 @@ global TEST_TMPDIR: string
 
 local fsa = fs as {string: any}
 
-local function write_file(path: string, content: string, mode?: number)
+local function write_file(path: string, content: string, mode?: integer)
   assert(fs.write(path, content, mode))
 end
 

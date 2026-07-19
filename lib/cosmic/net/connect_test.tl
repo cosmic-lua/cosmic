@@ -307,7 +307,7 @@ local function test_bind_error_names_errno()
   assert(first:listen())
   local _, port = first:getsockname()
   local second = assert(net.socket(net.AF_INET, net.SOCK_STREAM)) as net.Socket
-  local ok, berr = second:bind("127.0.0.1", port as number)
+  local ok, berr = second:bind("127.0.0.1", port)
   assert(ok == false, "second bind to same port should fail")
   assert(berr:match("EADDRINUSE"), "bind error should name EADDRINUSE, got: " .. berr)
   second:close()

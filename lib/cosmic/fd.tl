@@ -28,21 +28,21 @@ local record Handle is stream.Reader, stream.Writer
   metamethod __close: function(self: Handle)
   close: function(self: Handle): boolean, string
   closed: function(self: Handle): boolean
-  fd: function(self: Handle): number
-  read: function(self: Handle, size?: number, offset?: number): string | nil, string
-  write: function(self: Handle, data: string, offset?: number): number | nil, string
-  seek: function(self: Handle, offset: number, whence?: number): number | nil, string
-  truncate: function(self: Handle, length?: number): boolean, string
+  fd: function(self: Handle): integer
+  read: function(self: Handle, size?: integer, offset?: integer): string | nil, string
+  write: function(self: Handle, data: string, offset?: integer): integer | nil, string
+  seek: function(self: Handle, offset: integer, whence?: integer): integer | nil, string
+  truncate: function(self: Handle, length?: integer): boolean, string
   sync: function(self: Handle): boolean, string
   datasync: function(self: Handle): boolean, string
-  dup: function(self: Handle, newfd?: number, flags?: number, lowest?: number): Handle | nil, string
-  fcntl: function(self: Handle, cmd: number, arg?: number): number | nil, string
+  dup: function(self: Handle, newfd?: integer, flags?: integer, lowest?: integer): Handle | nil, string
+  fcntl: function(self: Handle, cmd: integer, arg?: integer): integer | nil, string
 end
 
-local make_handle: function(fd: number): Handle
+local make_handle: function(fd: integer): Handle
 
-make_handle = function(fd: number): Handle
-  local handle_fd: number = fd
+make_handle = function(fd: integer): Handle
+  local handle_fd: integer = fd
   local handle: Handle = {}
 
   --- Close the handle. Idempotent.
@@ -65,7 +65,7 @@ make_handle = function(fd: number): Handle
   end
 
   --- Returns the underlying file descriptor, or -1 if closed.
-  function handle:fd(): number
+  function handle:fd(): integer
     return handle_fd or -1
   end
 
@@ -75,7 +75,7 @@ make_handle = function(fd: number): Handle
   --- including EAGAIN on a nonblocking fd with no data, and EINTR when
   --- a signal interrupts the read (see the module header; not retried).
   --- If offset is provided, reads at that position (pread behavior).
-  function handle:read(size?: number, offset?: number): string | nil, string
+  function handle:read(size?: integer, offset?: integer): string | nil, string
     if not handle_fd then
       return nil, "handle closed"
     end
@@ -93,7 +93,7 @@ make_handle = function(fd: number): Handle
   --- than #data — callers writing everything must loop). On failure
   --- returns nil plus an error; EINTR is not retried (see module header).
   --- If offset is provided, writes at that position (pwrite behavior).
-  function handle:write(data: string, offset?: number): number | nil, string
+  function handle:write(data: string, offset?: integer): integer | nil, string
     if not handle_fd then
       return nil, "handle closed"
     end
@@ -106,7 +106,7 @@ make_handle = function(fd: number): Handle
 
   --- Seek to position. whence: SEEK_SET (default), SEEK_CUR, SEEK_END.
   --- On failure returns nil plus an error; EINTR is not retried.
-  function handle:seek(offset: number, whence?: number): number | nil, string
+  function handle:seek(offset: integer, whence?: integer): integer | nil, string
     if not handle_fd then
       return nil, "handle closed"
     end
@@ -118,7 +118,7 @@ make_handle = function(fd: number): Handle
   end
 
   --- Truncate to length (default 0).
-  function handle:truncate(length?: number): boolean, string
+  function handle:truncate(length?: integer): boolean, string
     if not handle_fd then
       return false, "handle closed"
     end
@@ -156,7 +156,7 @@ make_handle = function(fd: number): Handle
   --- Duplicate the handle.
   --- If newfd is provided, duplicates to that specific fd (dup2 behavior).
   --- flags can include O_CLOEXEC. lowest specifies minimum acceptable fd.
-  function handle:dup(newfd?: number, flags?: number, lowest?: number): Handle | nil, string
+  function handle:dup(newfd?: integer, flags?: integer, lowest?: integer): Handle | nil, string
     if not handle_fd then
       return nil, "handle closed"
     end
@@ -168,7 +168,7 @@ make_handle = function(fd: number): Handle
   end
 
   --- File control operations. cmd: F_GETFD, F_SETFD, F_GETFL, F_SETFL, F_SETLK, etc.
-  function handle:fcntl(cmd: number, value?: number): number | nil, string
+  function handle:fcntl(cmd: integer, value?: integer): integer | nil, string
     if not handle_fd then
       return nil, "handle closed"
     end
@@ -176,7 +176,7 @@ make_handle = function(fd: number): Handle
     if result == nil then
       return nil, errstr(err, "fcntl")
     end
-    return result as number
+    return result as integer
   end
 
   return setmetatable(handle, {
@@ -217,7 +217,7 @@ end
 
 --- Open a file. flags: O_RDONLY, O_WRONLY, O_RDWR, combined with O_CREAT, O_TRUNC, etc.
 --- If dirfd is provided, path is relative to that directory (openat behavior).
-local function open(path: string, flags: number, mode?: number, dirfd?: number): Handle | nil, string
+local function open(path: string, flags: integer, mode?: integer, dirfd?: integer): Handle | nil, string
   local fd, err = unix.open(path, flags, mode, dirfd)
   if not fd then
     return nil, errstr(err, "open: " .. path)
@@ -226,7 +226,7 @@ local function open(path: string, flags: number, mode?: number, dirfd?: number):
 end
 
 --- Create a pipe. flags: O_CLOEXEC, O_NONBLOCK.
-local function pipe(flags?: number): Pipe | nil, string
+local function pipe(flags?: integer): Pipe | nil, string
   local reader_fd, writer_fd = unix.pipe(flags)
   if not reader_fd then
     -- On failure the binding returns (nil, err, errno): the error string
@@ -241,7 +241,7 @@ end
 --- Handle world: h:read()/h:write()/h:close(), plus automatic cleanup
 --- via the __close metamethod. The Handle takes ownership: closing it
 --- closes the fd.
-local function wrap(rawfd: number): Handle
+local function wrap(rawfd: integer): Handle
   return make_handle(rawfd)
 end
 
@@ -250,40 +250,40 @@ local record FdModule
   type Handle = Handle
   type Pipe = Pipe
 
-  open: function(path: string, flags: number, mode?: number, dirfd?: number): Handle | nil, string
-  wrap: function(rawfd: number): Handle
-  pipe: function(flags?: number): Pipe | nil, string
+  open: function(path: string, flags: integer, mode?: integer, dirfd?: integer): Handle | nil, string
+  wrap: function(rawfd: integer): Handle
+  pipe: function(flags?: integer): Pipe | nil, string
 
-  O_RDONLY: number
-  O_WRONLY: number
-  O_RDWR: number
-  O_CREAT: number
-  O_TRUNC: number
-  O_APPEND: number
-  O_EXCL: number
-  O_CLOEXEC: number
-  O_NONBLOCK: number
-  O_DIRECT: number
-  O_DIRECTORY: number
-  O_NOFOLLOW: number
+  O_RDONLY: integer
+  O_WRONLY: integer
+  O_RDWR: integer
+  O_CREAT: integer
+  O_TRUNC: integer
+  O_APPEND: integer
+  O_EXCL: integer
+  O_CLOEXEC: integer
+  O_NONBLOCK: integer
+  O_DIRECT: integer
+  O_DIRECTORY: integer
+  O_NOFOLLOW: integer
 
-  SEEK_SET: number
-  SEEK_CUR: number
-  SEEK_END: number
+  SEEK_SET: integer
+  SEEK_CUR: integer
+  SEEK_END: integer
 
-  F_GETFD: number
-  F_SETFD: number
-  F_GETFL: number
-  F_SETFL: number
-  F_SETLK: number
-  F_SETLKW: number
-  F_GETLK: number
-  F_RDLCK: number
-  F_WRLCK: number
-  F_UNLCK: number
-  FD_CLOEXEC: number
+  F_GETFD: integer
+  F_SETFD: integer
+  F_GETFL: integer
+  F_SETFL: integer
+  F_SETLK: integer
+  F_SETLKW: integer
+  F_GETLK: integer
+  F_RDLCK: integer
+  F_WRLCK: integer
+  F_UNLCK: integer
+  FD_CLOEXEC: integer
 
-  AT_FDCWD: number
+  AT_FDCWD: integer
 end
 
 local M: FdModule = {

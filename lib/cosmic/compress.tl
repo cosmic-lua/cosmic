@@ -34,7 +34,7 @@ local record DecompressOptions
   --- input framing; defaults to "zlib"
   format: DecompressFormat
   --- cap on the decompressed size in bytes (default 64 MiB)
-  max_output: number
+  max_output: integer
 end
 
 --- Compress data using a standard framing.

@@ -21,11 +21,11 @@ end
 --- Bitmask of compilation flags accepted by `re.compile` and
 --- `re.search` (`re.BASIC`, `re.ICASE`, `re.NEWLINE`, `re.NOSUB`;
 --- masked in `tool/net/lre.c`).
-local type CompileFlag = number
+local type CompileFlag = integer
 
 --- Bitmask of search-time flags accepted by `re.search` and
 --- `re.Regex:search` (`re.NOTBOL`, `re.NOTEOL`).
-local type SearchFlag = number
+local type SearchFlag = integer
 
 local record re
   type Regex = Regex
@@ -33,60 +33,60 @@ local record re
   type SearchFlag = SearchFlag
 
   --- No match
-  NOMATCH: number
+  NOMATCH: integer
   --- Invalid regex
-  BADPAT: number
+  BADPAT: integer
   --- Unknown collating element
-  ECOLLATE: number
+  ECOLLATE: integer
   --- Unknown character class name
-  ECTYPE: number
+  ECTYPE: integer
   --- Trailing backslash
-  EESCAPE: number
+  EESCAPE: integer
   --- Invalid back reference
-  ESUBREG: number
+  ESUBREG: integer
   --- Missing ]
-  EBRACK: number
+  EBRACK: integer
   --- Missing )
-  EPAREN: number
+  EPAREN: integer
   --- Missing }
-  EBRACE: number
+  EBRACE: integer
   --- Invalid contents of {}
-  BADBR: number
+  BADBR: integer
   --- Invalid character range.
-  ERANGE: number
+  ERANGE: integer
   --- Out of memory
-  ESPACE: number
+  ESPACE: integer
   --- Repetition not preceded by valid expression
-  BADRPT: number
+  BADRPT: integer
   --- Use this flag if you prefer the default POSIX regex syntax.
   --- We use extended regex notation by default. For example, an extended regular
   --- expression for matching an IP address might look like
   --- `([0-9]*)\.([0-9]*)\.([0-9]*)\.([0-9]*)` whereas with basic syntax it would
   --- look like `\([0-9]*\)\.\([0-9]*\)\.\([0-9]*\)\.\([0-9]*\)`.
   --- This flag may only be used with `re.compile` and `re.search`.
-  BASIC: number
+  BASIC: integer
   --- Use this flag if you prefer the default POSIX regex syntax. We use extended
   ---  regex notation by default. For example, an extended regular expression for
   --- matching an IP address might look like `([0-9]*)\.([0-9]*)\.([0-9]*)\.([0-9]*)`
   --- whereas with basic syntax it would look like `\([0-9]*\)\.\([0-9]*\)\.\([0-9]*\)\.\([0-9]*\)`.
   --- This flag may only be used with `re.compile` and `re.search`.
-  ICASE: number
+  ICASE: integer
   --- Use this flag to change the handling of NEWLINE (\x0a) characters. When this
   --- flag is set, (1) a NEWLINE shall not be matched by a "." or any form of a
   --- non-matching list, (2) a "^" shall match the zero-length string immediately
   --- after a NEWLINE (regardless of `re.NOTBOL`), and (3) a "$" shall match the
   --- zero-length string immediately before a NEWLINE (regardless of `re.NOTEOL`).
-  NEWLINE: number
+  NEWLINE: integer
   --- Causes `re.search` to only report success and failure. This is reported via
   --- the API by returning empty string for success. This flag may only be used
   --- ` with `re.compile` and `re.search`.
-  NOSUB: number
+  NOSUB: integer
   --- The first character of the string pointed to by string is not the beginning
   --- of the line. This flag may only be used with `re.search` and `regex_t*:search`.
-  NOTBOL: number
+  NOTBOL: integer
   --- The last character of the string pointed to by string is not the end of the
   --- line. This flag may only be used with `re.search` and `regex_t*:search`.
-  NOTEOL: number
+  NOTEOL: integer
 
   --- Searches for regular expression match in text.
   --- This is a shorthand notation roughly equivalent to:

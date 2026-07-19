@@ -20,19 +20,19 @@ end
 
 local record Termios
   --- Input mode flags (e.g. `unix.BRKINT`, `unix.ICRNL`).
-  iflag: number
+  iflag: integer
   --- Output mode flags (e.g. `unix.OPOST`, `unix.ONLCR`).
-  oflag: number
+  oflag: integer
   --- Control mode flags (e.g. `unix.CS8`, `unix.CREAD`).
-  cflag: number
+  cflag: integer
   --- Local mode flags (e.g. `unix.ECHO`, `unix.ICANON`).
-  lflag: number
+  lflag: integer
   --- Control characters array (indexed 1 to `unix.NCCS`).
-  cc: {number}
+  cc: {integer}
   --- Input baud rate.
-  ispeed: number
+  ispeed: integer
   --- Output baud rate.
-  ospeed: number
+  ospeed: integer
 end
 
 --- Shared memory for inter-process communication.
@@ -56,7 +56,7 @@ local record Memory
   --- This operation happens atomically. Each shared mapping has a
   --- single lock which is used to synchronize reads and writes to
   --- that specific map. To make it scale, create additional maps.
-  read: function(self: Memory, offset?: number, bytes?: number): string
+  read: function(self: Memory, offset?: integer, bytes?: integer): string
   --- Writes bytes to memory region.
   --- `offset` is the starting byte index to which memory is copied,
   --- which defaults to zero.
@@ -66,19 +66,19 @@ local record Memory
   --- This operation happens atomically. Each shared mapping has a
   --- single lock which is used to synchronize reads and writes to
   --- that specific map. To make it scale, create additional maps.
-  write: function(self: Memory, data: string, offset?: number, bytes?: number)
+  write: function(self: Memory, data: string, offset?: integer, bytes?: integer)
   --- Loads word from memory region.
   --- This operation is atomic and has relaxed barrier semantics.
-  load: function(self: Memory, word_index: number): number
+  load: function(self: Memory, word_index: integer): integer
   --- Stores word from memory region.
   --- This operation is atomic and has relaxed barrier semantics.
-  store: function(self: Memory, word_index: number, value: number)
+  store: function(self: Memory, word_index: integer, value: integer)
   --- Exchanges value.
   --- This sets word at `word_index` to `value` and returns the value
   --- previously held in by the word.
   --- This operation is atomic and provides the same memory barrier
   --- semantics as the aligned x86 LOCK XCHG instruction.
-  xchg: function(self: Memory, word_index: number, value: number): number
+  xchg: function(self: Memory, word_index: integer, value: integer): integer
   --- Compares and exchanges value.
   --- This inspects the word at `word_index` and if its value is the same
   --- as `old` then it'll be replaced by the value `new`, in which case
@@ -86,26 +86,26 @@ local record Memory
   --- word, then `false` shall be returned along with the word.
   --- This operation happens atomically and provides the same memory
   --- barrier semantics as the aligned x86 LOCK CMPXCHG instruction.
-  cmpxchg: function(self: Memory, word_index: number, old: number, new: number): boolean, number
+  cmpxchg: function(self: Memory, word_index: integer, old: integer, new: integer): boolean, integer
   --- Fetches then adds value.
   --- This method modifies the word at `word_index` to contain the sum of
   --- value and the `value` paremeter. This method then returns the value
   --- as it existed before the addition was performed.
   --- This operation is atomic and provides the same memory barrier
   --- semantics as the aligned x86 LOCK XADD instruction.
-  fetch_add: function(self: Memory, word_index: number, value: number): number
+  fetch_add: function(self: Memory, word_index: integer, value: integer): integer
   --- Fetches and bitwise ands value.
   --- This operation happens atomically and provides the same memory
   --- barrier ordering semantics as its x86 implementation.
-  fetch_and: function(self: Memory, word_index: number, value: number): number
+  fetch_and: function(self: Memory, word_index: integer, value: integer): integer
   --- Fetches and bitwise ors value.
   --- This operation happens atomically and provides the same memory
   --- barrier ordering semantics as its x86 implementation.
-  fetch_or: function(self: Memory, word_index: number, value: number): number
+  fetch_or: function(self: Memory, word_index: integer, value: integer): integer
   --- Fetches and bitwise xors value.
   --- This operation happens atomically and provides the same memory
   --- barrier ordering semantics as its x86 implementation.
-  fetch_xor: function(self: Memory, word_index: number, value: number): number
+  fetch_xor: function(self: Memory, word_index: integer, value: integer): integer
   --- Waits for word to have a different value.
   --- This method asks the kernel to suspend the process until either the
   --- absolute deadline expires or we're woken up by another process that
@@ -146,14 +146,14 @@ local record Memory
   --- `EAGAIN` is raised if, upon entry, the word at `word_index` had a
   --- different value than what's specified at `expect`.
   --- `ETIMEDOUT` is raised when the absolute deadline expires.
-  wait: function(self: Memory, word_index: number, expect: number, abs_deadline?: number, nanos?: number): number | nil, string | nil, Errno | nil
+  wait: function(self: Memory, word_index: integer, expect: integer, abs_deadline?: integer, nanos?: integer): integer | nil, string | nil, Errno | nil
   --- Wakes other processes waiting on word.
   --- This method may be used to signal or broadcast to waiters. The
   --- `count` specifies the number of processes that should be woken,
   --- which defaults to `INT_MAX`.
   --- The return value is the number of processes that were actually woken
   --- as a result of the system call. No failure conditions are defined.
-  wake: function(self: Memory, index: number, count?: number): number
+  wake: function(self: Memory, index: integer, count?: integer): integer
 end
 
 --- Directory handle for reading directory entries.
@@ -178,10 +178,10 @@ local record Dir
   --- - `DT_UNKNOWN`
   --- Note: This function also serves as the `__call` metamethod, so that
   --- `unix.Dir` objects may be used as a for loop iterator.
-  read: function(self: Dir): string | nil, number, number, number
+  read: function(self: Dir): string | nil, integer, integer, integer
   --- Returns `EOPNOTSUPP` if using a `/zip/...` path or if using Windows NT.
-  fd: function(self: Dir): number | nil, string | nil, Errno | nil
-  tell: function(self: Dir): number | nil, string | nil, Errno | nil
+  fd: function(self: Dir): integer | nil, string | nil, Errno | nil
+  tell: function(self: Dir): integer | nil, string | nil, Errno | nil
   --- Resets stream back to beginning.
   rewind: function(self: Dir)
 end
@@ -193,13 +193,13 @@ local record Rusage
   userdata
   --- It's always the case that `0 ≤ nanos < 1e9`.
   --- On Windows NT this is collected from GetProcessTimes().
-  utime: function(self: Rusage): number, number
+  utime: function(self: Rusage): integer, integer
   --- It's always the case that `0 ≤ nanos < 1e9`.
   --- On Windows NT this is collected from GetProcessTimes().
-  stime: function(self: Rusage): number, number
+  stime: function(self: Rusage): integer, integer
   --- On Windows NT this is collected from
   --- `NtProcessMemoryCountersEx::PeakWorkingSetSize / 1024`.
-  maxrss: function(self: Rusage): number
+  maxrss: function(self: Rusage): integer
   --- If you chart memory usage over the lifetime of your process, then
   --- this would be the space filled in beneath the chart. The frequency
   --- of kernel scheduling is defined as `unix.CLK_TCK`.  Each time a tick
@@ -207,7 +207,7 @@ local record Rusage
   --- it to this value. You can derive the average consumption from this
   --- value by computing how many ticks are in `utime + stime`.
   --- Currently only available on FreeBSD and NetBSD.
-  idrss: function(self: Rusage): number
+  idrss: function(self: Rusage): integer
   --- If you chart memory usage over the lifetime of your process, then
   --- this would be the space filled in beneath the chart. The frequency
   --- of kernel scheduling is defined as unix.CLK_TCK.  Each time a tick
@@ -215,7 +215,7 @@ local record Rusage
   --- it to this value. You can derive the average consumption from this
   --- value by computing how many ticks are in `utime + stime`.
   --- Currently only available on FreeBSD and NetBSD.
-  ixrss: function(self: Rusage): number
+  ixrss: function(self: Rusage): integer
   --- If you chart memory usage over the lifetime of your process, then
   --- this would be the space filled in beneath the chart. The frequency
   --- of kernel scheduling is defined as `unix.CLK_TCK`. Each time a tick
@@ -225,43 +225,43 @@ local record Rusage
   --- This is only applicable to redbean if its built with MODE=tiny,
   --- because redbean likes to allocate its own deterministic stack.
   --- Currently only available on FreeBSD and NetBSD.
-  isrss: function(self: Rusage): number
+  isrss: function(self: Rusage): integer
   --- This number indicates how many times redbean was preempted by the
   --- kernel to `memcpy()` a 4096-byte page. This is one of the tradeoffs
   --- `fork()` entails. This number is usually tinier, when your binaries
   --- are tinier.
   --- Not available on Windows NT.
-  minflt: function(self: Rusage): number
+  minflt: function(self: Rusage): integer
   --- Returns number of major page faults.
   --- This number indicates how many times redbean was preempted by the
   --- kernel to perform i/o. For example, you might have used `mmap()` to
   --- load a large file into memory lazily.
   --- On Windows NT this is `NtProcessMemoryCountersEx::PageFaultCount`.
-  majflt: function(self: Rusage): number
+  majflt: function(self: Rusage): integer
   --- Operating systems like to reserve hard disk space to back their RAM
   --- guarantees, like using a gold standard for fiat currency. When your
   --- system is under heavy memory load, swap operations may happen while
   --- redbean is working. This number keeps track of them.
   --- Not available on Linux, Windows NT.
-  nswap: function(self: Rusage): number
+  nswap: function(self: Rusage): integer
   --- On Windows NT this is `NtIoCounters::ReadOperationCount`.
-  inblock: function(self: Rusage): number
+  inblock: function(self: Rusage): integer
   --- On Windows NT this is `NtIoCounters::WriteOperationCount`.
-  oublock: function(self: Rusage): number
+  oublock: function(self: Rusage): integer
   --- Not available on Linux, Windows NT.
-  msgsnd: function(self: Rusage): number
+  msgsnd: function(self: Rusage): integer
   --- Not available on Linux, Windows NT.
-  msgrcv: function(self: Rusage): number
+  msgrcv: function(self: Rusage): integer
   --- Not available on Linux.
-  nsignals: function(self: Rusage): number
+  nsignals: function(self: Rusage): integer
   --- This number is a good thing. It means your redbean finished its work
   --- quickly enough within a time slice that it was able to give back the
   --- remaining time to the system.
-  nvcsw: function(self: Rusage): number
+  nvcsw: function(self: Rusage): integer
   --- This number is a bad thing. It means your redbean was preempted by a
   --- higher priority process after failing to finish its work, within the
   --- allotted time slice.
-  nivcsw: function(self: Rusage): number
+  nivcsw: function(self: Rusage): integer
 end
 
 --- File metadata and attributes.
@@ -270,7 +270,7 @@ end
 --- Use `unix.S_ISDIR()`, `unix.S_ISREG()`, etc. to check file type from mode.
 local record Stat
   userdata
-  size: function(self: Stat): number
+  size: function(self: Stat): integer
   --- Contains file type and permissions.
   --- For example, `0010644` is what you might see for a file and
   --- `0040755` is what you might see for a directory.
@@ -282,9 +282,9 @@ local record Stat
   --- - `unix.S_ISBLK(st:mode())` means block device
   --- - `unix.S_ISFIFO(st:mode())` means fifo or pipe
   --- - `unix.S_ISSOCK(st:mode())` means socket
-  mode: function(self: Stat): number
-  uid: function(self: Stat): number
-  gid: function(self: Stat): number
+  mode: function(self: Stat): integer
+  uid: function(self: Stat): integer
+  gid: function(self: Stat): integer
   --- File birth time.
   --- This field should be accurate on Apple, Windows, and BSDs. On Linux
   --- this is the minimum of atim/mtim/ctim. On Windows NT nanos is only
@@ -296,67 +296,67 @@ local record Stat
   ---   Write('%.4d-%.2d-%.2dT%.2d:%.2d:%.2d.%.9d%+.2d%.2d % {
   ---            year, mon, mday, hour, min, sec, nanos,
   ---            gmtoffsec / (60 * 60), math.abs(gmtoffsec) % 60})
-  birthtim: function(self: Stat): number, number
-  mtim: function(self: Stat): number, number
+  birthtim: function(self: Stat): integer, integer
+  mtim: function(self: Stat): integer, integer
   --- Please note that file systems are sometimes mounted with `noatime`
   --- out of concern for i/o performance. Linux also provides `O_NOATIME`
   --- as an option for open().
   --- On Windows NT this is the same as birth time.
-  atim: function(self: Stat): number, number
+  atim: function(self: Stat): integer, integer
   --- Means time file status was last changed on UNIX.
   --- On Windows NT this is the same as birth time.
-  ctim: function(self: Stat): number, number
+  ctim: function(self: Stat): integer, integer
   --- This provides some indication of how much physical storage a file
   --- actually consumes. For example, for small file systems, your system
   --- might report this number as being 8, which means 4096 bytes.
-  blocks: function(self: Stat): number
+  blocks: function(self: Stat): integer
   --- This field might be of assistance in computing optimal i/o sizes.
   --- Please note this field has no relationship to blocks, as the latter
   --- is fixed at a 512 byte size.
-  blksize: function(self: Stat): number
+  blksize: function(self: Stat): integer
   --- This can be used to detect some other process used `rename()` to swap
   --- out a file underneath you, so you can do a refresh. redbean does it
   --- during each main process heartbeat for its own use cases.
   --- On Windows NT this is set to `NtByHandleFileInformation::FileIndex`.
-  ino: function(self: Stat): number
+  ino: function(self: Stat): integer
   --- On Windows NT this is set to `NtByHandleFileInformation::VolumeSerialNumber`.
-  dev: function(self: Stat): number
+  dev: function(self: Stat): integer
   --- This value may be set to `0` or `-1` for files that aren't devices,
   --- depending on the operating system. `unix.major()` and `unix.minor()`
   --- may be used to extract the device numbers.
-  rdev: function(self: Stat): number
-  nlink: function(self: Stat): number
-  gen: function(self: Stat): number
-  flags: function(self: Stat): number
+  rdev: function(self: Stat): integer
+  nlink: function(self: Stat): integer
+  gen: function(self: Stat): integer
+  flags: function(self: Stat): integer
 end
 
 --- Filesystem statistics returned by `statfs()` and `fstatfs()`.
 local record Statfs
   userdata
   --- Returns filesystem type identifier.
-  type: function(self: Statfs): number
+  type: function(self: Statfs): integer
   --- Returns optimal transfer block size.
-  bsize: function(self: Statfs): number
+  bsize: function(self: Statfs): integer
   --- Returns total data blocks in filesystem.
-  blocks: function(self: Statfs): number
+  blocks: function(self: Statfs): integer
   --- Returns free blocks in filesystem.
-  bfree: function(self: Statfs): number
+  bfree: function(self: Statfs): integer
   --- Returns free blocks available to unprivileged user.
-  bavail: function(self: Statfs): number
+  bavail: function(self: Statfs): integer
   --- Returns total file nodes in filesystem.
-  files: function(self: Statfs): number
+  files: function(self: Statfs): integer
   --- Returns free file nodes in filesystem.
-  ffree: function(self: Statfs): number
+  ffree: function(self: Statfs): integer
   --- Returns filesystem ID as two numbers.
-  fsid: function(self: Statfs): number, number
+  fsid: function(self: Statfs): integer, integer
   --- Returns maximum length of filenames.
-  namelen: function(self: Statfs): number
+  namelen: function(self: Statfs): integer
   --- Returns fragment size.
-  frsize: function(self: Statfs): number
+  frsize: function(self: Statfs): integer
   --- Returns mount flags.
-  flags: function(self: Statfs): number
+  flags: function(self: Statfs): integer
   --- Returns the owner of the mount.
-  owner: function(self: Statfs): number
+  owner: function(self: Statfs): integer
   --- Returns the filesystem type name, e.g. "ext4".
   fstypename: function(self: Statfs): string
 end
@@ -364,14 +364,14 @@ end
 local record Sigset
   userdata
   --- Adds signal to bitset.
-  add: function(self: Sigset, sig: number)
+  add: function(self: Sigset, sig: integer)
   --- Removes signal from bitset.
-  remove: function(self: Sigset, sig: number)
+  remove: function(self: Sigset, sig: integer)
   --- Sets all bits in signal bitset to `true`.
   fill: function(self: Sigset)
   --- Sets all bits in signal bitset to `false`.
   clear: function(self: Sigset)
-  contains: function(self: Sigset, sig: number): boolean
+  contains: function(self: Sigset, sig: integer): boolean
   __repr: function(self: Sigset): string
   __tostring: function(self: Sigset): string
 end
@@ -381,12 +381,12 @@ end
 --- third_party/lua/lunix.c): always one of the exported E* constants
 --- (unix.EINTR, unix.ENOENT, ...). An alias rather than a checked
 --- enum: Teal enums are string-only.
-local type Errno = number
+local type Errno = integer
 
 --- An `unix.F_*` command constant selecting the operation performed by
 --- `unix.fcntl` (`unix.F_GETFD`, `unix.F_SETFD`, `unix.F_GETFL`,
 --- `unix.F_SETFL`, `unix.F_SETLK`, `unix.F_SETLKW`, `unix.F_GETLK`, ...).
-local type FcntlCmd = number
+local type FcntlCmd = integer
 
 local record unix
   type Uname = Uname
@@ -400,11 +400,11 @@ local record unix
   type FcntlCmd = FcntlCmd
 
   --- @type integer
-  AF_INET: number
+  AF_INET: integer
   --- @type integer
-  AF_UNIX: number
+  AF_UNIX: integer
   --- @type integer
-  AF_UNSPEC: number
+  AF_UNSPEC: integer
   --- @type integer Returns maximum length of arguments for new processes.
   --- This is the character limit when calling `execve()`. It's the sum of
   --- the lengths of `argv` and `envp` including any nul terminators and
@@ -415,58 +415,58 @@ local record unix
   --- On Windows NT it's 32767*2 because CreateProcess lpCommandLine and
   --- environment block are separately constrained to 32,767 characters.
   --- Most other systems define this limit much higher.
-  ARG_MAX: number
+  ARG_MAX: integer
   --- @type integer
-  AT_EACCESS: number
+  AT_EACCESS: integer
   --- @type integer
-  AT_FDCWD: number
+  AT_FDCWD: integer
   --- @type integer
-  AT_SYMLINK_NOFOLLOW: number
+  AT_SYMLINK_NOFOLLOW: integer
   --- @type integer Returns default buffer size.
   --- The UNIX module does not perform any buffering between calls.
   --- Each time a read or write is performed via the UNIX API your redbean
   --- will allocate a buffer of this size by default. This current default
   --- would be 4096 across platforms.
-  BUFSIZ: number
+  BUFSIZ: integer
   --- @type integer Returns the scheduler frequency.
   --- This is granularity at which the kernel does work. For example, the
   --- Linux kernel normally operates at 100hz so its CLK_TCK will be 100.
   --- This value is useful for making sense out of unix.Rusage data.
-  CLK_TCK: number
+  CLK_TCK: integer
   --- @type integer
-  CLOCK_REALTIME: number
+  CLOCK_REALTIME: integer
   --- @type integer
-  CLOCK_MONOTONIC: number
+  CLOCK_MONOTONIC: integer
   --- @type integer
-  CLOCK_BOOTTIME: number
+  CLOCK_BOOTTIME: integer
   --- @type integer
-  CLOCK_MONOTONIC_RAW: number
+  CLOCK_MONOTONIC_RAW: integer
   --- @type integer
-  CLOCK_REALTIME_COARSE: number
+  CLOCK_REALTIME_COARSE: integer
   --- @type integer
-  CLOCK_MONOTONIC_COARSE: number
-  CLOCK_THREAD_CPUTIME_ID: number
+  CLOCK_MONOTONIC_COARSE: integer
+  CLOCK_THREAD_CPUTIME_ID: integer
   --- @type integer
-  CLOCK_PROCESS_CPUTIME_ID: number
+  CLOCK_PROCESS_CPUTIME_ID: integer
   --- @type integer
-  DT_BLK: number
+  DT_BLK: integer
   --- @type integer
-  DT_CHR: number
+  DT_CHR: integer
   --- @type integer
-  DT_DIR: number
+  DT_DIR: integer
   --- @type integer
-  DT_FIFO: number
+  DT_FIFO: integer
   --- @type integer
-  DT_LNK: number
+  DT_LNK: integer
   --- @type integer
-  DT_REG: number
+  DT_REG: integer
   --- @type integer
-  DT_SOCK: number
+  DT_SOCK: integer
   --- @type integer
-  DT_UNKNOWN: number
+  DT_UNKNOWN: integer
   --- @type integer Argument list too long.
   --- Raised by `execve`, `sched_setattr`.
-  E2BIG: number
+  E2BIG: integer
   --- @type integer Permission denied.
   --- Raised by `access`, `bind`, `chdir`, `chmod`, `chown`, `chroot`,
   --- `clock_getres`, `connect`, `execve`, `fcntl`, `getpriority`,
@@ -474,13 +474,13 @@ local record unix
   --- `prctl`, `ptrace`, `readlink`, `rename`, `rmdir`, `semget`,
   --- `send`, `setpgid`, `socket`, `stat`, `symlink`, `truncate`,
   --- `unlink`, `uselib`, `utime`, `utimensat`.
-  EACCES: number
+  EACCES: integer
   --- @type integer Address already in use. Raised by `bind`, `connect`, `listen`.
-  EADDRINUSE: number
+  EADDRINUSE: integer
   --- @type integer Address not available. Raised by `bind`, `connect`.
-  EADDRNOTAVAIL: number
+  EADDRNOTAVAIL: integer
   --- @type integer Address family not supported. Raised by `connect`, `socket`, `socketpair`.
-  EAFNOSUPPORT: number
+  EAFNOSUPPORT: integer
   --- @type integer
   --- Resource temporarily unavailable (e.g. SO_RCVTIMEO expired, too many
   --- processes, too much memory locked, read or write with O_NONBLOCK
@@ -490,9 +490,9 @@ local record unix
   --- `send`, `setresuid`, `setreuid`, `setuid`, `sigwaitinfo`,
   --- `splice`, `tee`, `timer_create`, `timerfd_create`, `tkill`,
   --- `write`,
-  EAGAIN: number
+  EAGAIN: integer
   --- @type integer Connection already in progress. Raised by `connect`, `send`.
-  EALREADY: number
+  EALREADY: integer
   --- @type integer Bad file descriptor; cf. EBADFD.
   --- Raised by `accept`, `access`, `bind`, `chdir`, `chmod`, `chown`,
   --- `close`, `connect`, `copy_file_range`, `dup`, `fcntl`, `flock`,
@@ -502,97 +502,97 @@ local record unix
   --- `readlink`, `recv`, `rename`, `select`, `send`, `shutdown`,
   --- `splice`, `stat`, `symlink`, `sync`, `sync_file_range`,
   --- `timerfd_create`, `truncate`, `unlink`, `utimensat`, `write`.
-  EBADF: number
+  EBADF: integer
   --- @type integer
-  EBADFD: number
+  EBADFD: integer
   --- @type integer
-  EBADMSG: number
+  EBADMSG: integer
   --- @type integer Device or resource busy.
   --- Raised by dup, fcntl, msync, prctl, ptrace, rename,
   --- rmdir.
-  EBUSY: number
+  EBUSY: integer
   --- @type integer
-  ECANCELED: number
+  ECANCELED: integer
   --- @type integer No child process.
   --- Raised by `wait`, `waitpid`, `waitid`, `wait3`, `wait4`.
-  ECHILD: number
+  ECHILD: integer
   --- @type integer Connection reset before accept. Raised by `accept`.
-  ECONNABORTED: number
+  ECONNABORTED: integer
   --- @type integer System-imposed limit on the number of threads was encountered.
   --- Raised by connect, listen, recv.
-  ECONNREFUSED: number
-  ECONNRESET: number
+  ECONNREFUSED: integer
+  ECONNRESET: integer
   --- @type integer Resource deadlock avoided.
   --- Raised by `fcntl`.
-  EDEADLK: number
+  EDEADLK: integer
   --- @type integer Destination address required. Raised by `send`, `write`.
-  EDESTADDRREQ: number
+  EDESTADDRREQ: integer
   --- @type integer
-  EDOM: number
+  EDOM: integer
   --- @type integer Disk quota exceeded.
   --- Raised by link, mkdir, mknod, open, rename, symlink,
   --- write.
-  EDQUOT: number
+  EDQUOT: integer
   --- @type integer File exists.
   --- Raised by `link`, `mkdir`, `mknod`, `mmap`, `open`, `rename`,
   --- `rmdir`, `symlink`.
-  EEXIST: number
+  EEXIST: integer
   --- @type integer
-  EFAULT: number
+  EFAULT: integer
   --- @type integer File too large.
   --- Raised by `copy_file_range`, `open`, `truncate`, `write`.
-  EFBIG: number
+  EFBIG: integer
   --- @type integer Inappropriate file type or format.
-  EFTYPE: number
+  EFTYPE: integer
   --- @type integer Host is down. Raised by `accept`.
-  EHOSTDOWN: number
+  EHOSTDOWN: integer
   --- @type integer Host is unreachable. Raised by `accept`.
-  EHOSTUNREACH: number
+  EHOSTUNREACH: integer
   --- @type integer Memory page has hardware error.
-  EHWPOISON: number
+  EHWPOISON: integer
   --- @type integer Identifier removed. Raised by `msgctl`.
-  EIDRM: number
+  EIDRM: integer
   --- @type integer
-  EILSEQ: number
+  EILSEQ: integer
   --- @type integer
-  EINPROGRESS: number
+  EINPROGRESS: integer
   --- @type integer The greatest of all errnos; crucial for building real time reliable software.
   --- Raised by `accept`, `clock_nanosleep`, `close`, `connect`, `dup`, `fcntl`,
   --- `flock`, `getrandom`, `nanosleep`, `open`, `pause`, `poll`, `ptrace`, `read`, `recv`,
   --- `select`, `send`, `sigsuspend`, `sigwaitinfo`, `truncate`, `wait`, `write`.
-  EINTR: number
+  EINTR: integer
   --- @type integer Invalid argument.
   --- Raised by [pretty much everything].
-  EINVAL: number
+  EINVAL: integer
   --- @type integer
   --- Raised by `access`, `acct`, `chdir`, `chmod`, `chown`, `chroot`, `close`,
   --- `copy_file_range`, `execve`, `fallocate`, `fsync`, `ioperm`, `link`, `madvise`,
   --- `mbind`, `pciconfig_read`, `ptrace`, `read`, `readlink`, `sendfile`, `statfs`,
   --- `symlink`, `sync_file_range`, `truncate`, `unlink`, `write`.
-  EIO: number
-  EISCONN: number
+  EIO: integer
+  EISCONN: integer
   --- @type integer Is a directory.
   --- Raised by `copy_file_range`, `execve`, `open`, `read`, `rename`, `truncate`,
   --- `unlink`.
-  EISDIR: number
+  EISDIR: integer
   --- @type integer Too many levels of symbolic links.
   --- Raised by access, bind, chdir, chmod, chown, chroot, execve, link,
   --- mkdir, mknod, open, readlink, rename, rmdir, stat, symlink,
   --- truncate, unlink, utimensat.
-  ELOOP: number
+  ELOOP: integer
   --- @type integer Wrong medium type. Raised by `mount`.
-  EMEDIUMTYPE: number
+  EMEDIUMTYPE: integer
   --- @type integer Too many open files.
   --- Raised by `accept`, `dup`, `execve`, `fanotify_init`, `fcntl`,
   --- `open`, `pipe`, `socket`, `socketpair`, `timerfd_create`.
-  EMFILE: number
+  EMFILE: integer
   --- @type integer Too many links;
   --- Raised by `link`, `mkdir`, `rename`.
-  EMLINK: number
+  EMLINK: integer
   --- @type integer Message too long. Raised by `send`.
-  EMSGSIZE: number
+  EMSGSIZE: integer
   --- @type integer Multihop attempted.
-  EMULTIHOP: number
+  EMULTIHOP: integer
   --- @type integer Filename too long. Cosmopolitan Libc currently defines `PATH_MAX` as
   --- 1024 characters. On UNIX that limit should only apply to system call
   --- wrappers like realpath. On Windows NT it's observed by all system
@@ -601,68 +601,68 @@ local record unix
   --- `execve`, `gethostname`, `link`, `mkdir`, `mknod`, `open`,
   --- `readlink`, `rename`, `rmdir`, `stat`, `symlink`, `truncate`,
   --- `unlink`, `utimensat`.
-  ENAMETOOLONG: number
+  ENAMETOOLONG: integer
   --- @type integer Network is down. Raised by `accept`.
-  ENETDOWN: number
+  ENETDOWN: integer
   --- @type integer Connection reset by network.
-  ENETRESET: number
+  ENETRESET: integer
   --- @type integer Host is unreachable. Raised by `accept`, `connect`.
-  ENETUNREACH: number
+  ENETUNREACH: integer
   --- @type integer Too many open files in system.
   --- Raised by `accept`, `execve`, `mmap`, `open`, `pipe`, `socket`,
   --- `socketpair`, `swapon`, `timerfd_create`, `uselib`,
   --- `userfaultfd`.
-  ENFILE: number
+  ENFILE: integer
   --- @type integer No buffer space available;
   --- Raised by `getpeername`, `getsockname`, `send`.
-  ENOBUFS: number
+  ENOBUFS: integer
   --- @type integer No message is available in xsi stream or named pipe is being closed;
   --- no data available; barely in posix; returned by ioctl; very close in
   --- spirit to EPIPE?
-  ENODATA: number
+  ENODATA: integer
   --- @type integer No such device.
   --- Raised by `arch_prctl`, `mmap`, `open`, `prctl`, `timerfd_create`.
-  ENODEV: number
+  ENODEV: integer
   --- @type integer No such file or directory.
   --- Raised by `access`, `bind`, `chdir`, `chmod`, `chown`, `chroot`,
   --- `clock_getres`, `execve`, `opendir`, `link`, `mkdir`, `mknod`,
   --- `open`, `readlink`, `rename`, `rmdir`, `stat`, `swapon`,
   --- `symlink`, `truncate`, `unlink`, `utime`, `utimensat`.
-  ENOENT: number
+  ENOENT: integer
   --- @type integer Exec format error. Raised by `execve`, `uselib`.
-  ENOEXEC: number
+  ENOEXEC: integer
   --- @type integer No locks available. Raised by `fcntl`, `flock`.
-  ENOLCK: number
+  ENOLCK: integer
   --- @type integer Link has been severed.
-  ENOLINK: number
+  ENOLINK: integer
   --- @type integer No medium found. Raised by `mount`.
-  ENOMEDIUM: number
+  ENOMEDIUM: integer
   --- @type integer
-  ENOMEM: number
+  ENOMEM: integer
   --- @type integer Raised by `msgop`.
-  ENOMSG: number
+  ENOMSG: integer
   --- @type integer
-  ENONET: number
+  ENONET: integer
   --- @type integer Protocol not available. Raised by `getsockopt`, `accept`.
-  ENOPROTOOPT: number
+  ENOPROTOOPT: integer
   --- @type integer No space left on device.
   --- Raised by `copy_file_range`, `fsync`, `link`, `mkdir`, `mknod`,
   --- `open`, `rename`, `symlink`, `sync_file_range`, `write`.
-  ENOSPC: number
+  ENOSPC: integer
   --- @type integer Out of streams resources.
-  ENOSR: number
+  ENOSR: integer
   --- @type integer Device not a stream.
-  ENOSTR: number
+  ENOSTR: integer
   --- @type integer System call not available on this platform. On
   ---     Windows this is raised by `chroot`, `setuid`, `setgid`,
   ---     `getsid`, `setsid`, and others we're doing our best to
   ---     document.
-  ENOSYS: number
+  ENOSYS: integer
   --- @type integer Block device required. Raised by `umount`.
-  ENOTBLK: number
+  ENOTBLK: integer
   --- @type integer Socket is not connected.
   --- Raised by `getpeername`, `recv`, `send`, `shutdown`.
-  ENOTCONN: number
+  ENOTCONN: integer
   --- @type integer Not a directory. This means that a directory
   ---     component in a supplied path *existed* but wasn't a
   ---     directory. For example, if you try to `open("foo/bar")` and
@@ -671,33 +671,33 @@ local record unix
   --- `mkdir`, `mknod`, `opendir`, `readlink`, `rename`, `rmdir`,
   --- `stat`, `symlink`, `truncate`, `unlink`, `utimensat`, `bind`,
   --- `chmod`, `chown`, `fcntl`, `futimesat`.
-  ENOTDIR: number
+  ENOTDIR: integer
   --- @type integer Directory not empty. Raised by `rmdir`.
-  ENOTEMPTY: number
+  ENOTEMPTY: integer
   --- @type integer
-  ENOTRECOVERABLE: number
+  ENOTRECOVERABLE: integer
   --- @type integer Not a socket.
   --- Raised by `accept`, `bind`, `connect`, `getpeername`,
   --- `getsockname`, `getsockopt`, `listen`, `recv`, `send`,
   --- `shutdown`.
-  ENOTSOCK: number
+  ENOTSOCK: integer
   --- @type integer Operation not supported.
   --- Raised by `chmod`, `clock_getres`, `clock_nanosleep`,
   --- `timer_create`.
-  ENOTSUP: number
+  ENOTSUP: integer
   --- @type integer Inappropriate i/o control operation. Raised by `ioctl`.
-  ENOTTY: number
+  ENOTTY: integer
   --- @type integer No such device or address. Raised by `lseek`, `open`, `prctl`.
-  ENXIO: number
+  ENXIO: integer
   --- @type integer Socket operation not supported.
   --- Raised by accept, listen, mmap, prctl, readv, send,
   --- socketpair.
-  EOPNOTSUPP: number
+  EOPNOTSUPP: integer
   --- @type integer Raised by `copy_file_range`, `fanotify_init`, `lseek`, `mmap`,
   --- `open`, `stat`, `statfs`
-  EOVERFLOW: number
+  EOVERFLOW: integer
   --- @type integer
-  EOWNERDEAD: number
+  EOWNERDEAD: integer
   --- @type integer Operation not permitted.
   --- Raised by `accept`, `chmod`, `chown`, `chroot`,
   --- `copy_file_range`, `execve`, `fallocate`, `fanotify_init`,
@@ -719,9 +719,9 @@ local record unix
   --- `setxattr`, `sigaltstack`, `spu_create`, `stime`, `swapon`,
   --- `symlink`, `syslog`, `truncate`, `unlink`, `utime`, `utimensat`,
   --- `write`.
-  EPERM: number
+  EPERM: integer
   --- @type integer Protocol family not supported.
-  EPFNOSUPPORT: number
+  EPFNOSUPPORT: integer
   --- @type integer Broken pipe.
   --- Returned by `write`, `send`. This happens when you try
   --- to write data to a subprocess via a pipe but the reader end has
@@ -730,200 +730,200 @@ local record unix
   --- Unlike default UNIX programs, redbean currently ignores `SIGPIPE` by
   --- default, so this error code is a distinct possibility when pipes or
   --- sockets are being used.
-  EPIPE: number
+  EPIPE: integer
   --- @type integer Raised by `accept`, `connect`, `socket`, `socketpair`.
-  EPROTO: number
+  EPROTO: integer
   --- @type integer Protocol not supported. Raised by `socket`, `socketpair`.
-  EPROTONOSUPPORT: number
+  EPROTONOSUPPORT: integer
   --- @type integer Protocol wrong type for socket. Raised by `connect`.
-  EPROTOTYPE: number
+  EPROTOTYPE: integer
   --- @type integer Result too large.
   --- Raised by `prctl`.
-  ERANGE: number
+  ERANGE: integer
   --- @type integer
-  EREMOTE: number
+  EREMOTE: integer
   --- @type integer
-  ERESTART: number
+  ERESTART: integer
   --- @type integer Operation not possible due to RF-kill.
-  ERFKILL: number
+  ERFKILL: integer
   --- @type integer Read-only filesystem.
   --- Raised by access, bind, chmod, chown, link, mkdir, mknod, open,
   --- rename, rmdir, symlink, truncate, unlink, utime, utimensat.
-  EROFS: number
+  EROFS: integer
   --- @type integer Cannot send after transport endpoint shutdown; note that shutdown write is an `EPIPE`.
-  ESHUTDOWN: number
+  ESHUTDOWN: integer
   --- @type integer Socket type not supported.
-  ESOCKTNOSUPPORT: number
+  ESOCKTNOSUPPORT: integer
   --- @type integer Invalid seek.
   --- Raised by `lseek`, `splice`, `sync_file_range`.
-  ESPIPE: number
+  ESPIPE: integer
   --- @type integer No such process.
   --- Raised by `getpriority`, `getrlimit`, `getsid`, `ioprio_set`, `kill`, `setpgid`, `tkill`, `utimensat`.
-  ESRCH: number
+  ESRCH: integer
   --- @type integer
-  ESTALE: number
+  ESTALE: integer
   --- @type integer Timer expired. Raised by `connect`.
-  ETIME: number
+  ETIME: integer
   --- @type integer Connection timed out. Raised by `connect`.
-  ETIMEDOUT: number
+  ETIMEDOUT: integer
   --- @type integer Too many references: cannot splice. Raised by `sendmsg`.
-  ETOOMANYREFS: number
+  ETOOMANYREFS: integer
   --- @type integer Won't open executable that's executing in write mode.
   --- Raised by access, copy_file_range, execve, mmap, open, truncate.
-  ETXTBSY: number
+  ETXTBSY: integer
   --- @type integer
-  EUSERS: number
+  EUSERS: integer
   --- @type integer Improper link.
   --- Raised by copy_file_range, link, rename.
-  EXDEV: number
+  EXDEV: integer
   --- @type integer
-  FD_CLOEXEC: number
+  FD_CLOEXEC: integer
   --- @type integer
-  F_GETFD: number
+  F_GETFD: integer
   --- @type integer
-  F_GETFL: number
+  F_GETFL: integer
   --- @type integer
-  F_GETLK: number
+  F_GETLK: integer
   --- @type integer
-  F_OK: number
+  F_OK: integer
   --- @type integer
-  F_RDLCK: number
+  F_RDLCK: integer
   --- @type integer
-  F_SETFD: number
+  F_SETFD: integer
   --- @type integer
-  F_SETFL: number
+  F_SETFL: integer
   --- @type integer
-  F_SETLK: number
+  F_SETLK: integer
   --- @type integer
-  F_SETLKW: number
+  F_SETLKW: integer
   --- @type integer
-  F_UNLCK: number
+  F_UNLCK: integer
   --- @type integer
-  F_WRLCK: number
+  F_WRLCK: integer
   --- @type integer
-  IPPROTO_ICMP: number
+  IPPROTO_ICMP: integer
   --- @type integer
-  IPPROTO_IP: number
+  IPPROTO_IP: integer
   --- @type integer
-  IPPROTO_RAW: number
+  IPPROTO_RAW: integer
   --- @type integer
-  IPPROTO_TCP: number
+  IPPROTO_TCP: integer
   --- @type integer
-  IPPROTO_UDP: number
+  IPPROTO_UDP: integer
   --- @type integer
-  IP_ADD_MEMBERSHIP: number
+  IP_ADD_MEMBERSHIP: integer
   --- @type integer
-  IP_DROP_MEMBERSHIP: number
+  IP_DROP_MEMBERSHIP: integer
   --- @type integer
-  IP_HDRINCL: number
+  IP_HDRINCL: integer
   --- @type integer
-  IP_MTU: number
+  IP_MTU: integer
   --- @type integer
-  IP_MULTICAST_IF: number
+  IP_MULTICAST_IF: integer
   --- @type integer
-  IP_MULTICAST_LOOP: number
+  IP_MULTICAST_LOOP: integer
   --- @type integer
-  IP_MULTICAST_TTL: number
+  IP_MULTICAST_TTL: integer
   --- @type integer
-  IP_OPTIONS: number
+  IP_OPTIONS: integer
   --- @type integer
-  IP_PKTINFO: number
+  IP_PKTINFO: integer
   --- @type integer
-  IP_RECVTOS: number
+  IP_RECVTOS: integer
   --- @type integer
-  IP_RECVTTL: number
+  IP_RECVTTL: integer
   --- @type integer
-  IP_TOS: number
+  IP_TOS: integer
   --- @type integer
-  IP_TTL: number
+  IP_TTL: integer
   --- @type integer
-  ITIMER_PROF: number
+  ITIMER_PROF: integer
   --- @type integer
-  ITIMER_REAL: number
+  ITIMER_REAL: integer
   --- @type integer
-  ITIMER_VIRTUAL: number
+  ITIMER_VIRTUAL: integer
   --- @type integer
-  LOG_ALERT: number
+  LOG_ALERT: integer
   --- @type integer
-  LOG_CRIT: number
+  LOG_CRIT: integer
   --- @type integer
-  LOG_DEBUG: number
+  LOG_DEBUG: integer
   --- @type integer
-  LOG_EMERG: number
+  LOG_EMERG: integer
   --- @type integer
-  LOG_ERR: number
+  LOG_ERR: integer
   --- @type integer
-  LOG_INFO: number
+  LOG_INFO: integer
   --- @type integer
-  LOG_NOTICE: number
+  LOG_NOTICE: integer
   --- @type integer
-  LOG_WARNING: number
+  LOG_WARNING: integer
   --- @type integer
-  MSG_CTRUNC: number
+  MSG_CTRUNC: integer
   --- @type integer
-  MSG_DONTROUTE: number
+  MSG_DONTROUTE: integer
   --- @type integer
-  MSG_DONTWAIT: number
+  MSG_DONTWAIT: integer
   --- @type integer
-  MSG_NOSIGNAL: number
+  MSG_NOSIGNAL: integer
   --- @type integer
-  MSG_OOB: number
+  MSG_OOB: integer
   --- @type integer
-  MSG_PEEK: number
+  MSG_PEEK: integer
   --- @type integer
-  MSG_TRUNC: number
+  MSG_TRUNC: integer
   --- @type integer
-  MSG_WAITALL: number
+  MSG_WAITALL: integer
   --- @type integer  Returns maximum length of file path component.
   --- POSIX requires this be at least 14. Most operating systems define it
   --- as 255. It's a good idea to not exceed 253 since that's the limit on
   --- DNS labels.
-  NAME_MAX: number
+  NAME_MAX: integer
   --- @type integer Returns maximum number of signals supported by underlying system.
   --- The limit for unix.Sigset is 128 to support FreeBSD, but most
   --- operating systems define this much lower, like 32. This constant
   --- reflects the value chosen by the underlying operating system.
-  NSIG: number
+  NSIG: integer
   --- @type integer open for reading (default)
-  O_RDONLY: number
+  O_RDONLY: integer
   --- @type integer open for writing
-  O_WRONLY: number
+  O_WRONLY: integer
   --- @type integer open for reading and writing
-  O_RDWR: number
+  O_RDWR: integer
   --- @type integer create file if it doesn't exist
-  O_CREAT: number
+  O_CREAT: integer
   --- @type integer automatic `ftruncate(fd, 0)` if exists
-  O_TRUNC: number
+  O_TRUNC: integer
   --- @type integer automatic `close()` upon `execve()`
-  O_CLOEXEC: number
+  O_CLOEXEC: integer
   --- @type integer exclusive access (see below)
-  O_EXCL: number
+  O_EXCL: integer
   --- @type integer open file for append only
-  O_APPEND: number
+  O_APPEND: integer
   --- @type integer asks read/write to fail with EAGAIN rather than block
-  O_NONBLOCK: number
+  O_NONBLOCK: integer
   --- @type integer it's complicated (not supported on Apple and OpenBSD)
-  O_DIRECT: number
+  O_DIRECT: integer
   --- @type integer useful for stat'ing (hint on UNIX but required on NT)
-  O_DIRECTORY: number
+  O_DIRECTORY: integer
   --- @type integer fail if it's a symlink (zero on Windows)
-  O_NOFOLLOW: number
+  O_NOFOLLOW: integer
   --- @type integer automatically delete file upon close()
-  O_UNLINK: number
+  O_UNLINK: integer
   --- @type integer open a path reference only, without read/write access
   --- (Linux only; fails with EINVAL elsewhere). Usable with landlock
   --- rule paths and *at() calls even when the path itself is unreadable.
-  O_PATH: number
+  O_PATH: integer
   --- @type integer it's complicated (zero on non-Linux/Apple)
-  O_DSYNC: number
+  O_DSYNC: integer
   --- @type integer synchronize i/o operations appropriately
-  O_SYNC: number
+  O_SYNC: integer
   --- @type integer don't record access time (zero on non-Linux)
-  O_NOATIME: number
+  O_NOATIME: integer
   --- @type integer
-  O_ACCMODE: number
+  O_ACCMODE: integer
   --- @type integer
-  O_NOCTTY: number
+  O_NOCTTY: integer
   --- @type integer Returns maximum length of file path.
   --- This applies to a complete path being passed to system calls.
   --- POSIX.1 XSI requires this be at least 1024 so that's what most
@@ -934,20 +934,20 @@ local record unix
   --- implemented at the C library level; however such functions are
   --- the exception rather than the norm, and report `enametoolong()`,
   --- when exceeding the libc limit.
-  PATH_MAX: number
+  PATH_MAX: integer
   --- the default on Linux. It's effectively the same as killing the
   --- process, since redbean has no threads. The termination signal
   --- can't be caught and will be either `SIGSYS` or `SIGABRT`.
   --- Consider enabling stderr logging below so you'll know why your
   --- program failed. Otherwise check the system log.
-  PLEDGE_PENALTY_KILL_THREAD: number
+  PLEDGE_PENALTY_KILL_THREAD: integer
   --- This is always the case on OpenBSD.
-  PLEDGE_PENALTY_KILL_PROCESS: number
+  PLEDGE_PENALTY_KILL_PROCESS: integer
   --- instead of killing. This is a gentler solution that allows code to
   --- display a friendly warning. Please note this may lead to weird
   --- behaviors if the software being sandboxed is lazy about checking
   --- error results.
-  PLEDGE_PENALTY_RETURN_EPERM: number
+  PLEDGE_PENALTY_RETURN_EPERM: integer
   --- know which promises are needed whenever violations occur. Without
   --- this, violations will be logged to `dmesg` on Linux if the penalty
   --- is to kill the process. You would then need to manually look up
@@ -958,481 +958,481 @@ local record unix
   --- uses SECCOMP trapping) also means that the `unix.WTERMSIG()` on
   --- your killed processes will always be `unix.SIGABRT` on both Linux
   --- and OpenBSD. Otherwise, Linux prefers to raise `unix.SIGSYS`.
-  PLEDGE_STDERR_LOGGING: number
+  PLEDGE_STDERR_LOGGING: integer
   --- @type integer Returns maximum size at which pipe i/o is guaranteed atomic.
   --- POSIX requires this be at least 512. Linux is more generous and
   --- allows 4096. On Windows NT this is currently 4096, and it's the
   --- parameter redbean passes to `CreateNamedPipe()`.
-  PIPE_BUF: number
+  PIPE_BUF: integer
   --- @type integer
-  POLLERR: number
+  POLLERR: integer
   --- @type integer
-  POLLHUP: number
+  POLLHUP: integer
   --- @type integer
-  POLLIN: number
+  POLLIN: integer
   --- @type integer
-  POLLNVAL: number
+  POLLNVAL: integer
   --- @type integer
-  POLLOUT: number
+  POLLOUT: integer
   --- @type integer
-  POLLPRI: number
+  POLLPRI: integer
   --- @type integer
-  POLLRDBAND: number
+  POLLRDBAND: integer
   --- @type integer
-  POLLRDHUP: number
+  POLLRDHUP: integer
   --- @type integer
-  POLLRDNORM: number
+  POLLRDNORM: integer
   --- @type integer
-  POLLWRBAND: number
+  POLLWRBAND: integer
   --- @type integer
-  POLLWRNORM: number
+  POLLWRNORM: integer
   --- @type integer
-  RLIMIT_AS: number
+  RLIMIT_AS: integer
   --- @type integer
-  RLIMIT_CPU: number
+  RLIMIT_CPU: integer
   --- @type integer
-  RLIMIT_FSIZE: number
+  RLIMIT_FSIZE: integer
   --- @type integer
-  RLIMIT_NOFILE: number
+  RLIMIT_NOFILE: integer
   --- @type integer
-  RLIMIT_NPROC: number
+  RLIMIT_NPROC: integer
   --- @type integer
-  RLIMIT_RSS: number
+  RLIMIT_RSS: integer
   --- @type integer getpriority/setpriority: target is a process id
-  PRIO_PROCESS: number
+  PRIO_PROCESS: integer
   --- @type integer getpriority/setpriority: target is a process group id
-  PRIO_PGRP: number
+  PRIO_PGRP: integer
   --- @type integer getpriority/setpriority: target is a user id
-  PRIO_USER: number
+  PRIO_USER: integer
   --- @type integer sysconf: maximum length of arguments to exec()
-  SC_ARG_MAX: number
+  SC_ARG_MAX: integer
   --- @type integer sysconf: maximum simultaneous processes per user id
-  SC_CHILD_MAX: number
+  SC_CHILD_MAX: integer
   --- @type integer sysconf: clock ticks per second
-  SC_CLK_TCK: number
+  SC_CLK_TCK: integer
   --- @type integer sysconf: maximum number of open files per process
-  SC_OPEN_MAX: number
+  SC_OPEN_MAX: integer
   --- @type integer sysconf: size of a memory page in bytes
-  SC_PAGESIZE: number
+  SC_PAGESIZE: integer
   --- @type integer sysconf: number of processors configured
-  SC_NPROCESSORS_CONF: number
+  SC_NPROCESSORS_CONF: integer
   --- @type integer sysconf: number of processors currently online
-  SC_NPROCESSORS_ONLN: number
+  SC_NPROCESSORS_ONLN: integer
   --- @type integer termios input mode flags (Termios.iflag)
-  BRKINT: number
-  ICRNL: number
-  IGNBRK: number
-  IGNCR: number
-  IGNPAR: number
-  INLCR: number
-  INPCK: number
-  ISTRIP: number
-  IXANY: number
-  IXOFF: number
-  IXON: number
-  PARMRK: number
+  BRKINT: integer
+  ICRNL: integer
+  IGNBRK: integer
+  IGNCR: integer
+  IGNPAR: integer
+  INLCR: integer
+  INPCK: integer
+  ISTRIP: integer
+  IXANY: integer
+  IXOFF: integer
+  IXON: integer
+  PARMRK: integer
   --- @type integer termios output mode flags (Termios.oflag)
-  OPOST: number
-  OCRNL: number
-  ONLCR: number
-  ONLRET: number
-  ONOCR: number
+  OPOST: integer
+  OCRNL: integer
+  ONLCR: integer
+  ONLRET: integer
+  ONOCR: integer
   --- @type integer termios control mode flags (Termios.cflag)
-  CLOCAL: number
-  CREAD: number
-  CS5: number
-  CS6: number
-  CS7: number
-  CS8: number
-  CSIZE: number
-  CSTOPB: number
-  HUPCL: number
-  PARENB: number
-  PARODD: number
+  CLOCAL: integer
+  CREAD: integer
+  CS5: integer
+  CS6: integer
+  CS7: integer
+  CS8: integer
+  CSIZE: integer
+  CSTOPB: integer
+  HUPCL: integer
+  PARENB: integer
+  PARODD: integer
   --- @type integer termios local mode flags (Termios.lflag)
-  ECHO: number
-  ECHOE: number
-  ECHOK: number
-  ECHONL: number
-  ICANON: number
-  IEXTEN: number
-  ISIG: number
-  NOFLSH: number
-  TOSTOP: number
+  ECHO: integer
+  ECHOE: integer
+  ECHOK: integer
+  ECHONL: integer
+  ICANON: integer
+  IEXTEN: integer
+  ISIG: integer
+  NOFLSH: integer
+  TOSTOP: integer
   --- @type integer termios control-character indices (Termios.cc)
-  VEOF: number
-  VEOL: number
-  VERASE: number
-  VINTR: number
-  VKILL: number
-  VMIN: number
-  VQUIT: number
-  VSTART: number
-  VSTOP: number
-  VTIME: number
-  NCCS: number
+  VEOF: integer
+  VEOL: integer
+  VERASE: integer
+  VINTR: integer
+  VKILL: integer
+  VMIN: integer
+  VQUIT: integer
+  VSTART: integer
+  VSTOP: integer
+  VTIME: integer
+  NCCS: integer
   --- @type integer tcsetattr() action values
-  TCSANOW: number
-  TCSADRAIN: number
-  TCSAFLUSH: number
+  TCSANOW: integer
+  TCSADRAIN: integer
+  TCSAFLUSH: integer
   --- @type integer network interface ioctls (siocgifconf/ifreq)
-  IFNAMSIZ: number
-  IFF_ALLMULTI: number
-  IFF_AUTOMEDIA: number
-  IFF_BROADCAST: number
-  IFF_DEBUG: number
-  IFF_DYNAMIC: number
-  IFF_LOOPBACK: number
-  IFF_MASTER: number
-  IFF_MULTICAST: number
-  IFF_NOARP: number
-  IFF_NOTRAILERS: number
-  IFF_POINTOPOINT: number
-  IFF_PORTSEL: number
-  IFF_PROMISC: number
-  IFF_RUNNING: number
-  IFF_SLAVE: number
-  IFF_UP: number
-  SIOCGIFADDR: number
-  SIOCGIFBRDADDR: number
-  SIOCGIFDSTADDR: number
-  SIOCGIFFLAGS: number
-  SIOCGIFINDEX: number
-  SIOCGIFMETRIC: number
-  SIOCGIFMTU: number
-  SIOCGIFNAME: number
-  SIOCGIFNETMASK: number
-  SIOCSIFADDR: number
-  SIOCSIFBRDADDR: number
-  SIOCSIFDSTADDR: number
-  SIOCSIFFLAGS: number
-  SIOCSIFMETRIC: number
-  SIOCSIFMTU: number
-  SIOCSIFNETMASK: number
+  IFNAMSIZ: integer
+  IFF_ALLMULTI: integer
+  IFF_AUTOMEDIA: integer
+  IFF_BROADCAST: integer
+  IFF_DEBUG: integer
+  IFF_DYNAMIC: integer
+  IFF_LOOPBACK: integer
+  IFF_MASTER: integer
+  IFF_MULTICAST: integer
+  IFF_NOARP: integer
+  IFF_NOTRAILERS: integer
+  IFF_POINTOPOINT: integer
+  IFF_PORTSEL: integer
+  IFF_PROMISC: integer
+  IFF_RUNNING: integer
+  IFF_SLAVE: integer
+  IFF_UP: integer
+  SIOCGIFADDR: integer
+  SIOCGIFBRDADDR: integer
+  SIOCGIFDSTADDR: integer
+  SIOCGIFFLAGS: integer
+  SIOCGIFINDEX: integer
+  SIOCGIFMETRIC: integer
+  SIOCGIFMTU: integer
+  SIOCGIFNAME: integer
+  SIOCGIFNETMASK: integer
+  SIOCSIFADDR: integer
+  SIOCSIFBRDADDR: integer
+  SIOCSIFDSTADDR: integer
+  SIOCSIFFLAGS: integer
+  SIOCSIFMETRIC: integer
+  SIOCSIFMTU: integer
+  SIOCSIFNETMASK: integer
   --- @type integer unshare()/setns() namespace flags
-  CLONE_NEWCGROUP: number
-  CLONE_NEWIPC: number
-  CLONE_NEWNET: number
-  CLONE_NEWNS: number
-  CLONE_NEWPID: number
-  CLONE_NEWTIME: number
-  CLONE_NEWUSER: number
-  CLONE_NEWUTS: number
+  CLONE_NEWCGROUP: integer
+  CLONE_NEWIPC: integer
+  CLONE_NEWNET: integer
+  CLONE_NEWNS: integer
+  CLONE_NEWPID: integer
+  CLONE_NEWTIME: integer
+  CLONE_NEWUSER: integer
+  CLONE_NEWUTS: integer
   --- @type integer landlock access-rights bits (landlock_add_rule)
-  LANDLOCK_ACCESS_FS_EXECUTE: number
-  LANDLOCK_ACCESS_FS_WRITE_FILE: number
-  LANDLOCK_ACCESS_FS_READ_FILE: number
-  LANDLOCK_ACCESS_FS_READ_DIR: number
-  LANDLOCK_ACCESS_FS_REMOVE_DIR: number
-  LANDLOCK_ACCESS_FS_REMOVE_FILE: number
-  LANDLOCK_ACCESS_FS_MAKE_CHAR: number
-  LANDLOCK_ACCESS_FS_MAKE_DIR: number
-  LANDLOCK_ACCESS_FS_MAKE_REG: number
-  LANDLOCK_ACCESS_FS_MAKE_SOCK: number
-  LANDLOCK_ACCESS_FS_MAKE_FIFO: number
-  LANDLOCK_ACCESS_FS_MAKE_BLOCK: number
-  LANDLOCK_ACCESS_FS_MAKE_SYM: number
-  LANDLOCK_ACCESS_FS_REFER: number
-  LANDLOCK_ACCESS_FS_TRUNCATE: number
-  LANDLOCK_CREATE_RULESET_VERSION: number
-  LANDLOCK_RULE_PATH_BENEATH: number
+  LANDLOCK_ACCESS_FS_EXECUTE: integer
+  LANDLOCK_ACCESS_FS_WRITE_FILE: integer
+  LANDLOCK_ACCESS_FS_READ_FILE: integer
+  LANDLOCK_ACCESS_FS_READ_DIR: integer
+  LANDLOCK_ACCESS_FS_REMOVE_DIR: integer
+  LANDLOCK_ACCESS_FS_REMOVE_FILE: integer
+  LANDLOCK_ACCESS_FS_MAKE_CHAR: integer
+  LANDLOCK_ACCESS_FS_MAKE_DIR: integer
+  LANDLOCK_ACCESS_FS_MAKE_REG: integer
+  LANDLOCK_ACCESS_FS_MAKE_SOCK: integer
+  LANDLOCK_ACCESS_FS_MAKE_FIFO: integer
+  LANDLOCK_ACCESS_FS_MAKE_BLOCK: integer
+  LANDLOCK_ACCESS_FS_MAKE_SYM: integer
+  LANDLOCK_ACCESS_FS_REFER: integer
+  LANDLOCK_ACCESS_FS_TRUNCATE: integer
+  LANDLOCK_CREATE_RULESET_VERSION: integer
+  LANDLOCK_RULE_PATH_BENEATH: integer
   --- @type integer prctl() options
-  PR_CAPBSET_DROP: number
-  PR_CAPBSET_READ: number
-  PR_GET_CHILD_SUBREAPER: number
-  PR_GET_DUMPABLE: number
-  PR_GET_KEEPCAPS: number
-  PR_GET_NAME: number
-  PR_GET_NO_NEW_PRIVS: number
-  PR_GET_PDEATHSIG: number
-  PR_SET_CHILD_SUBREAPER: number
-  PR_SET_DUMPABLE: number
-  PR_SET_KEEPCAPS: number
-  PR_SET_NAME: number
-  PR_SET_NO_NEW_PRIVS: number
-  PR_SET_PDEATHSIG: number
+  PR_CAPBSET_DROP: integer
+  PR_CAPBSET_READ: integer
+  PR_GET_CHILD_SUBREAPER: integer
+  PR_GET_DUMPABLE: integer
+  PR_GET_KEEPCAPS: integer
+  PR_GET_NAME: integer
+  PR_GET_NO_NEW_PRIVS: integer
+  PR_GET_PDEATHSIG: integer
+  PR_SET_CHILD_SUBREAPER: integer
+  PR_SET_DUMPABLE: integer
+  PR_SET_KEEPCAPS: integer
+  PR_SET_NAME: integer
+  PR_SET_NO_NEW_PRIVS: integer
+  PR_SET_PDEATHSIG: integer
   --- @type integer Linux capability bits (prctl PR_CAPBSET_*, capget/capset).
-  CAP_AUDIT_CONTROL: number
-  CAP_AUDIT_READ: number
-  CAP_AUDIT_WRITE: number
-  CAP_BLOCK_SUSPEND: number
-  CAP_BPF: number
-  CAP_CHECKPOINT_RESTORE: number
-  CAP_CHOWN: number
-  CAP_DAC_OVERRIDE: number
-  CAP_DAC_READ_SEARCH: number
-  CAP_FOWNER: number
-  CAP_FSETID: number
-  CAP_IPC_LOCK: number
-  CAP_IPC_OWNER: number
-  CAP_KILL: number
-  CAP_LAST_CAP: number
-  CAP_LEASE: number
-  CAP_LINUX_IMMUTABLE: number
-  CAP_MAC_ADMIN: number
-  CAP_MAC_OVERRIDE: number
-  CAP_MKNOD: number
-  CAP_NET_ADMIN: number
-  CAP_NET_BIND_SERVICE: number
-  CAP_NET_BROADCAST: number
-  CAP_NET_RAW: number
-  CAP_PERFMON: number
-  CAP_SETFCAP: number
-  CAP_SETGID: number
-  CAP_SETPCAP: number
-  CAP_SETUID: number
-  CAP_SYSLOG: number
-  CAP_SYS_ADMIN: number
-  CAP_SYS_BOOT: number
-  CAP_SYS_CHROOT: number
-  CAP_SYS_MODULE: number
-  CAP_SYS_NICE: number
-  CAP_SYS_PACCT: number
-  CAP_SYS_PTRACE: number
-  CAP_SYS_RAWIO: number
-  CAP_SYS_RESOURCE: number
-  CAP_SYS_TIME: number
-  CAP_SYS_TTY_CONFIG: number
-  CAP_WAKE_ALARM: number
+  CAP_AUDIT_CONTROL: integer
+  CAP_AUDIT_READ: integer
+  CAP_AUDIT_WRITE: integer
+  CAP_BLOCK_SUSPEND: integer
+  CAP_BPF: integer
+  CAP_CHECKPOINT_RESTORE: integer
+  CAP_CHOWN: integer
+  CAP_DAC_OVERRIDE: integer
+  CAP_DAC_READ_SEARCH: integer
+  CAP_FOWNER: integer
+  CAP_FSETID: integer
+  CAP_IPC_LOCK: integer
+  CAP_IPC_OWNER: integer
+  CAP_KILL: integer
+  CAP_LAST_CAP: integer
+  CAP_LEASE: integer
+  CAP_LINUX_IMMUTABLE: integer
+  CAP_MAC_ADMIN: integer
+  CAP_MAC_OVERRIDE: integer
+  CAP_MKNOD: integer
+  CAP_NET_ADMIN: integer
+  CAP_NET_BIND_SERVICE: integer
+  CAP_NET_BROADCAST: integer
+  CAP_NET_RAW: integer
+  CAP_PERFMON: integer
+  CAP_SETFCAP: integer
+  CAP_SETGID: integer
+  CAP_SETPCAP: integer
+  CAP_SETUID: integer
+  CAP_SYSLOG: integer
+  CAP_SYS_ADMIN: integer
+  CAP_SYS_BOOT: integer
+  CAP_SYS_CHROOT: integer
+  CAP_SYS_MODULE: integer
+  CAP_SYS_NICE: integer
+  CAP_SYS_PACCT: integer
+  CAP_SYS_PTRACE: integer
+  CAP_SYS_RAWIO: integer
+  CAP_SYS_RESOURCE: integer
+  CAP_SYS_TIME: integer
+  CAP_SYS_TTY_CONFIG: integer
+  CAP_WAKE_ALARM: integer
   --- @type integer mount()/umount2() flags
-  MS_BIND: number
-  MS_DIRSYNC: number
-  MS_LAZYTIME: number
-  MS_MANDLOCK: number
-  MS_MOVE: number
-  MS_NOATIME: number
-  MS_NODEV: number
-  MS_NODIRATIME: number
-  MS_NOEXEC: number
-  MS_NOSUID: number
-  MS_POSIXACL: number
-  MS_PRIVATE: number
-  MS_RDONLY: number
-  MS_REC: number
-  MS_RELATIME: number
-  MS_REMOUNT: number
-  MS_SHARED: number
-  MS_SILENT: number
-  MS_SLAVE: number
-  MS_STRICTATIME: number
-  MS_SYNCHRONOUS: number
-  MS_UNBINDABLE: number
-  MNT_DETACH: number
-  MNT_EXPIRE: number
-  MNT_FORCE: number
-  UMOUNT_NOFOLLOW: number
+  MS_BIND: integer
+  MS_DIRSYNC: integer
+  MS_LAZYTIME: integer
+  MS_MANDLOCK: integer
+  MS_MOVE: integer
+  MS_NOATIME: integer
+  MS_NODEV: integer
+  MS_NODIRATIME: integer
+  MS_NOEXEC: integer
+  MS_NOSUID: integer
+  MS_POSIXACL: integer
+  MS_PRIVATE: integer
+  MS_RDONLY: integer
+  MS_REC: integer
+  MS_RELATIME: integer
+  MS_REMOUNT: integer
+  MS_SHARED: integer
+  MS_SILENT: integer
+  MS_SLAVE: integer
+  MS_STRICTATIME: integer
+  MS_SYNCHRONOUS: integer
+  MS_UNBINDABLE: integer
+  MNT_DETACH: integer
+  MNT_EXPIRE: integer
+  MNT_FORCE: integer
+  UMOUNT_NOFOLLOW: integer
   --- @type integer statvfs f_flag bits (unix.Statfs / statvfs)
-  ST_APPEND: number
-  ST_IMMUTABLE: number
-  ST_MANDLOCK: number
-  ST_NOATIME: number
-  ST_NODEV: number
-  ST_NODIRATIME: number
-  ST_NOEXEC: number
-  ST_NOSUID: number
-  ST_RDONLY: number
-  ST_RELATIME: number
-  ST_SYNCHRONOUS: number
-  ST_WRITE: number
+  ST_APPEND: integer
+  ST_IMMUTABLE: integer
+  ST_MANDLOCK: integer
+  ST_NOATIME: integer
+  ST_NODEV: integer
+  ST_NODIRATIME: integer
+  ST_NOEXEC: integer
+  ST_NOSUID: integer
+  ST_RDONLY: integer
+  ST_RELATIME: integer
+  ST_SYNCHRONOUS: integer
+  ST_WRITE: integer
   --- @type integer
-  RUSAGE_BOTH: number
+  RUSAGE_BOTH: integer
   --- @type integer
-  RUSAGE_CHILDREN: number
+  RUSAGE_CHILDREN: integer
   --- @type integer
-  RUSAGE_SELF: number
+  RUSAGE_SELF: integer
   --- @type integer
-  RUSAGE_THREAD: number
+  RUSAGE_THREAD: integer
   --- @type integer
-  R_OK: number
+  R_OK: integer
   --- @type integer
-  SA_NOCLDSTOP: number
+  SA_NOCLDSTOP: integer
   --- @type integer
-  SA_NOCLDWAIT: number
+  SA_NOCLDWAIT: integer
   --- @type integer
-  SA_NODEFER: number
+  SA_NODEFER: integer
   --- @type integer
-  SA_RESETHAND: number
+  SA_RESETHAND: integer
   --- @type integer
-  SA_RESTART: number
+  SA_RESTART: integer
   --- @type integer
-  SEEK_CUR: number
+  SEEK_CUR: integer
   --- @type integer
-  SEEK_END: number
+  SEEK_END: integer
   --- @type integer
-  SEEK_SET: number
-  SHUT_RD: number
-  SHUT_WR: number
-  SHUT_RDWR: number
+  SEEK_SET: integer
+  SHUT_RD: integer
+  SHUT_WR: integer
+  SHUT_RDWR: integer
   --- @type integer Process aborted.
-  SIGABRT: number
+  SIGABRT: integer
   --- @type integer Sent by setitimer().
-  SIGALRM: number
+  SIGALRM: integer
   --- @type integer Valid memory access that went beyond underlying end of file.
-  SIGBUS: number
+  SIGBUS: integer
   --- @type integer Child process exited or terminated and is now a zombie (unless this
   --- is `SIG_IGN` or `SA_NOCLDWAIT`) or child process stopped due to terminal
   --- i/o or profiling/debugging (unless you used `SA_NOCLDSTOP`)
-  SIGCHLD: number
+  SIGCHLD: integer
   --- @type integer Child process resumed from profiling/debugging.
-  SIGCONT: number
+  SIGCONT: integer
   --- @type integer Illegal math.
-  SIGFPE: number
+  SIGFPE: integer
   --- @type integer Terminal hangup or daemon reload; auto-broadcasted to process group.
-  SIGHUP: number
+  SIGHUP: integer
   --- @type integer Illegal instruction.
-  SIGILL: number
+  SIGILL: integer
   --- @type integer Terminal CTRL-C keystroke.
-  SIGINT: number
+  SIGINT: integer
   --- @type integer Terminate with extreme prejudice.
-  SIGKILL: number
+  SIGKILL: integer
   --- @type integer Write to closed file descriptor.
-  SIGPIPE: number
+  SIGPIPE: integer
   --- @type integer Profiling timer expired.
-  SIGPROF: number
+  SIGPROF: integer
   --- @type integer Terminal CTRL-\ keystroke.
-  SIGQUIT: number
+  SIGQUIT: integer
   --- @type integer Invalid memory access.
-  SIGSEGV: number
+  SIGSEGV: integer
   --- @type integer Child process stopped due to profiling/debugging.
-  SIGSTOP: number
+  SIGSTOP: integer
   --- @type integer
-  SIGSYS: number
+  SIGSYS: integer
   --- @type integer Terminate.
-  SIGTERM: number
+  SIGTERM: integer
   --- @type integer INT3 instruction.
-  SIGTRAP: number
+  SIGTRAP: integer
   --- @type integer Terminal CTRL-Z keystroke.
-  SIGTSTP: number
+  SIGTSTP: integer
   --- @type integer Terminal input for background process.
-  SIGTTIN: number
+  SIGTTIN: integer
   --- @type integer Terminal input for background process.
-  SIGTTOU: number
+  SIGTTOU: integer
   --- @type integer
-  SIGURG: number
+  SIGURG: integer
   --- @type integer Do whatever you want.
-  SIGUSR1: number
+  SIGUSR1: integer
   --- @type integer Do whatever you want.
-  SIGUSR2: number
+  SIGUSR2: integer
   --- @type integer Virtual alarm clock.
-  SIGVTALRM: number
+  SIGVTALRM: integer
   --- @type integer Terminal resized.
-  SIGWINCH: number
+  SIGWINCH: integer
   --- @type integer CPU time limit exceeded.
-  SIGXCPU: number
+  SIGXCPU: integer
   --- @type integer File size limit exceeded.
-  SIGXFSZ: number
+  SIGXFSZ: integer
   --- @type integer
-  SIG_BLOCK: number
+  SIG_BLOCK: integer
   --- @type integer
-  SIG_DFL: number
+  SIG_DFL: integer
   --- @type integer
-  SIG_IGN: number
+  SIG_IGN: integer
   --- @type integer
-  SIG_SETMASK: number
+  SIG_SETMASK: integer
   --- @type integer
-  SIG_UNBLOCK: number
+  SIG_UNBLOCK: integer
   --- @type integer
-  SOCK_CLOEXEC: number
+  SOCK_CLOEXEC: integer
   --- @type integer
-  SOCK_DGRAM: number
+  SOCK_DGRAM: integer
   --- @type integer
-  SOCK_NONBLOCK: number
+  SOCK_NONBLOCK: integer
   --- @type integer
-  SOCK_RAW: number
+  SOCK_RAW: integer
   --- @type integer
-  SOCK_RDM: number
+  SOCK_RDM: integer
   --- @type integer
-  SOCK_SEQPACKET: number
+  SOCK_SEQPACKET: integer
   --- @type integer
-  SOCK_STREAM: number
+  SOCK_STREAM: integer
   --- @type integer
-  SOL_IP: number
+  SOL_IP: integer
   --- @type integer
-  SOL_SOCKET: number
+  SOL_SOCKET: integer
   --- @type integer
-  SOL_TCP: number
+  SOL_TCP: integer
   --- @type integer
-  SOL_UDP: number
+  SOL_UDP: integer
   --- @type integer
-  SO_ACCEPTCONN: number
+  SO_ACCEPTCONN: integer
   --- @type integer
-  SO_BROADCAST: number
+  SO_BROADCAST: integer
   --- @type integer
-  SO_DEBUG: number
+  SO_DEBUG: integer
   --- @type integer
-  SO_DONTROUTE: number
+  SO_DONTROUTE: integer
   --- @type integer
-  SO_ERROR: number
+  SO_ERROR: integer
   --- @type integer
-  SO_KEEPALIVE: number
+  SO_KEEPALIVE: integer
   --- @type integer
-  SO_LINGER: number
+  SO_LINGER: integer
   --- @type integer
-  SO_NOSIGPIPE: number
+  SO_NOSIGPIPE: integer
   --- @type integer
-  SO_OOBINLINE: number
+  SO_OOBINLINE: integer
   --- @type integer
-  SO_RCVBUF: number
+  SO_RCVBUF: integer
   --- @type integer
-  SO_RCVLOWAT: number
+  SO_RCVLOWAT: integer
   --- @type integer
-  SO_RCVTIMEO: number
+  SO_RCVTIMEO: integer
   --- @type integer
-  SO_REUSEADDR: number
+  SO_REUSEADDR: integer
   --- @type integer
-  SO_REUSEPORT: number
+  SO_REUSEPORT: integer
   --- @type integer
-  SO_SNDBUF: number
+  SO_SNDBUF: integer
   --- @type integer
-  SO_SNDLOWAT: number
+  SO_SNDLOWAT: integer
   --- @type integer
-  SO_SNDTIMEO: number
+  SO_SNDTIMEO: integer
   --- @type integer
-  SO_TYPE: number
+  SO_TYPE: integer
   --- @type integer
-  TCP_CORK: number
+  TCP_CORK: integer
   --- @type integer
-  TCP_DEFER_ACCEPT: number
+  TCP_DEFER_ACCEPT: integer
   --- @type integer
-  TCP_FASTOPEN: number
+  TCP_FASTOPEN: integer
   --- @type integer
-  TCP_FASTOPEN_CONNECT: number
+  TCP_FASTOPEN_CONNECT: integer
   --- @type integer
-  TCP_KEEPCNT: number
+  TCP_KEEPCNT: integer
   --- @type integer
-  TCP_KEEPIDLE: number
+  TCP_KEEPIDLE: integer
   --- @type integer
-  TCP_KEEPINTVL: number
+  TCP_KEEPINTVL: integer
   --- @type integer
-  TCP_MAXSEG: number
+  TCP_MAXSEG: integer
   --- @type integer
-  TCP_NODELAY: number
+  TCP_NODELAY: integer
   --- @type integer
-  TCP_NOTSENT_LOWAT: number
+  TCP_NOTSENT_LOWAT: integer
   --- @type integer
-  TCP_QUICKACK: number
+  TCP_QUICKACK: integer
   --- @type integer
-  TCP_SAVED_SYN: number
+  TCP_SAVED_SYN: integer
   --- @type integer
-  TCP_SAVE_SYN: number
+  TCP_SAVE_SYN: integer
   --- @type integer
-  TCP_SYNCNT: number
+  TCP_SYNCNT: integer
   --- @type integer
-  TCP_WINDOW_CLAMP: number
+  TCP_WINDOW_CLAMP: integer
   --- @type integer
-  UTIME_NOW: number
+  UTIME_NOW: integer
   --- @type integer
-  UTIME_OMIT: number
+  UTIME_OMIT: integer
   --- @type integer
-  WNOHANG: number
+  WNOHANG: integer
   --- @type integer
-  WUNTRACED: number
+  WUNTRACED: integer
   --- @type integer Report continued child processes.
-  WCONTINUED: number
+  WCONTINUED: integer
   --- @type integer
-  W_OK: number
+  W_OK: integer
   --- @type integer
-  X_OK: number
+  X_OK: integer
 
   --- Opens file.
   --- Returns a file descriptor integer that needs to be closed, e.g.
@@ -1475,7 +1475,7 @@ local record unix
   --- Returns `ENOTDIR` if `path` contained a directory component that
   --- wasn't a directory
   --- .
-  open: function(path: string, flags: number, mode?: number, dirfd?: number): number | nil, string | nil, Errno | nil
+  open: function(path: string, flags: integer, mode?: integer, dirfd?: integer): integer | nil, string | nil, Errno | nil
   --- Closes file descriptor.
   --- This function should never be called twice for the same file
   --- descriptor, regardless of whether or not an error happened. The file
@@ -1491,19 +1491,19 @@ local record unix
   --- Returns `EBADF` if `fd` wasn't valid.
   --- Returns `EINTR` possibly maybe.
   --- Returns `EIO` if an i/o error occurred.
-  close: function(fd: number): boolean | nil, string | nil, Errno | nil
+  close: function(fd: integer): boolean | nil, string | nil, Errno | nil
   --- Reads from file descriptor.
   --- This function returns empty string on end of file. The exception is
   --- if `bufsiz` is zero, in which case an empty returned string means
   --- the file descriptor works.
-  read: function(fd: number, bufsiz?: number, offset?: number): string | nil, string | nil, Errno | nil
+  read: function(fd: integer, bufsiz?: integer, offset?: integer): string | nil, string | nil, Errno | nil
   --- Writes to file descriptor.
-  write: function(fd: number, data: string, offset?: number): number | nil, string | nil, Errno | nil
+  write: function(fd: integer, data: string, offset?: integer): integer | nil, string | nil, Errno | nil
   --- Invokes `_Exit(exitcode)` on the process. This will immediately
   --- halt the current process. Memory will be freed. File descriptors
   --- will be closed. Any open connections it owns will be reset. This
   --- function never returns.
-  exit: function(exitcode?: number)
+  exit: function(exitcode?: integer)
   --- Returns raw environment variables.
   --- This allocates and constructs the C/C++ `environ` variable as a Lua
   --- table consisting of string keys and string values.
@@ -1589,7 +1589,7 @@ local record unix
   --- Hence it should come as no surprise that `fork()` would go slower on
   --- operating systems that have more security features. So depending on
   --- your use case, you can choose the operating system that suits you.
-  fork: function(): number | nil, string | nil, Errno | nil
+  fork: function(): integer | nil, string | nil, Errno | nil
   --- Performs `$PATH` lookup of executable.
   ---     unix = require 'unix'
   ---     prog = assert(unix.commandv('ls'))
@@ -1650,7 +1650,7 @@ local record unix
   --- `envp` is the environment. If not specified, inherits the
   --- current environment.
   --- This function never returns on success.
-  fexecve: function(fd: number, argv: {string}, envp?: {string}): nil, string | nil, Errno | nil
+  fexecve: function(fd: integer, argv: {string}, envp?: {string}): nil, string | nil, Errno | nil
   --- Spawns a new process.
   --- Unlike `fork()` + `execve()`, this uses `posix_spawn()` which
   --- can be more efficient on some platforms.
@@ -1659,12 +1659,12 @@ local record unix
   --- `envp` is the environment. If not specified, inherits the
   --- current environment.
   --- Returns the child process id on success.
-  spawn: function(prog: string, argv: {string}, envp?: {string}): number | nil, string | nil, Errno | nil
+  spawn: function(prog: string, argv: {string}, envp?: {string}): integer | nil, string | nil, Errno | nil
   --- Spawns a new process with PATH search.
   --- Like `spawn()` but searches for `prog` in the directories
   --- listed in the `PATH` environment variable.
   --- Returns the child process id on success.
-  spawnp: function(prog: string, argv: {string}, envp?: {string}): number | nil, string | nil, Errno | nil
+  spawnp: function(prog: string, argv: {string}, envp?: {string}): integer | nil, string | nil, Errno | nil
   --- Duplicates file descriptor.
   --- `newfd` may be specified to choose a specific number for the new
   --- file descriptor. If it's already open, then the preexisting one will
@@ -1679,7 +1679,7 @@ local record unix
   --- Will ensure that, in the rare event standard output or standard
   --- error are closed, you won't accidentally duplicate standard input to
   --- those numbers.
-  dup: function(oldfd: number, newfd?: number, flags?: number, lowest?: number): number | nil, string | nil, Errno | nil
+  dup: function(oldfd: integer, newfd?: integer, flags?: integer, lowest?: integer): integer | nil, string | nil, Errno | nil
   --- Creates fifo which enables communication between processes.
   --- - `O_CLOEXEC`: Automatically close file descriptor upon execve()
   --- - `O_NONBLOCK`: Request `EAGAIN` be raised rather than blocking
@@ -1718,7 +1718,7 @@ local record unix
   ---        assert(unix.close(reader))
   ---        assert(unix.wait())
   ---     end
-  pipe: function(flags?: number): number | nil, number, string | nil, Errno | nil
+  pipe: function(flags?: integer): integer | nil, integer, string | nil, Errno | nil
   --- Waits for subprocess to terminate.
   --- `pid` defaults to `-1` which means any child process. Setting
   --- `pid` to `0` is equivalent to `-getpid()`. If `pid < -1` then
@@ -1752,22 +1752,22 @@ local record unix
   ---           break
   ---        end
   ---     end
-  wait: function(pid?: number, options?: number): number | nil, number, Rusage, string | nil, Errno | nil
+  wait: function(pid?: integer, options?: integer): integer | nil, integer, Rusage, string | nil, Errno | nil
   --- Returns `true` if process exited cleanly.
-  WIFEXITED: function(wstatus: number): boolean
+  WIFEXITED: function(wstatus: integer): boolean
   --- Returns code passed to exit() assuming `WIFEXITED(wstatus)` is true.
-  WEXITSTATUS: function(wstatus: number): number
+  WEXITSTATUS: function(wstatus: integer): integer
   --- Returns `true` if process terminated due to a signal.
-  WIFSIGNALED: function(wstatus: number): boolean
+  WIFSIGNALED: function(wstatus: integer): boolean
   --- Returns signal that caused process to terminate assuming
   --- `WIFSIGNALED(wstatus)` is `true`.
-  WTERMSIG: function(wstatus: number): number
+  WTERMSIG: function(wstatus: integer): integer
   --- Returns process id of current process.
   --- This function does not fail.
-  getpid: function(): number
+  getpid: function(): integer
   --- Returns process id of parent process.
   --- This function does not fail.
-  getppid: function(): number
+  getppid: function(): integer
   --- Sends signal to process(es).
   --- The impact of this action can be terminating the process, or
   --- interrupting it to request something happen.
@@ -1786,20 +1786,20 @@ local record unix
   --- standard, which are `SIGINT` and `SIGQUIT`. All other signals on the
   --- Windows platform that are sent to another process via kill() will be
   --- treated like `SIGKILL`.
-  kill: function(pid: number, sig: number): boolean | nil, string | nil, Errno | nil
+  kill: function(pid: integer, sig: integer): boolean | nil, string | nil, Errno | nil
   --- Sends signal to process group.
   --- This is similar to `kill()` but sends the signal to all processes
   --- in the specified process group.
   --- `pgrp` is the process group id. If 0, sends to the calling process's
   --- process group.
   --- `sig` can be any signal value (e.g., `SIGTERM`, `SIGKILL`, etc.).
-  killpg: function(pgrp: number, sig: number): boolean | nil, string | nil, Errno | nil
+  killpg: function(pgrp: integer, sig: integer): boolean | nil, string | nil, Errno | nil
   --- Triggers signal in current process.
   --- This is pretty much the same as `kill(getpid(), sig)`.
-  raise: function(sig: number): number | nil, string | nil, Errno | nil
+  raise: function(sig: integer): integer | nil, string | nil, Errno | nil
   --- Checks if effective user of current process has permission to access file.
   --- - `AT_SYMLINK_NOFOLLOW`: do not follow symbolic links.
-  access: function(path: string, how: number, flags?: number, dirfd?: number): boolean | nil, string | nil, Errno | nil
+  access: function(path: string, how: integer, flags?: integer, dirfd?: integer): boolean | nil, string | nil, Errno | nil
   --- Makes directory.
   --- `path` is the path of the directory you wish to create.
   --- `mode` is octal permission bits, e.g. `0755`.
@@ -1813,14 +1813,14 @@ local record unix
   --- Fails with `EACCES` if the parent directory doesn't grant write
   --- permission to the current user.
   --- Fails with `ENAMETOOLONG` if the path is too long.
-  mkdir: function(path: string, mode?: number, dirfd?: number): boolean | nil, string | nil, Errno | nil
+  mkdir: function(path: string, mode?: integer, dirfd?: integer): boolean | nil, string | nil, Errno | nil
   --- Unlike mkdir() this convenience wrapper will automatically create
   --- parent parent directories as needed. If the directory already exists
   --- then, unlike mkdir() which returns EEXIST, the makedirs() function
   --- will return success.
   --- `path` is the path of the directory you wish to create.
   --- `mode` is octal permission bits, e.g. `0755`.
-  makedirs: function(path: string, mode?: number): boolean | nil, string | nil, Errno | nil
+  makedirs: function(path: string, mode?: integer): boolean | nil, string | nil, Errno | nil
   --- Creates a temporary directory with a unique name.
   --- `template` must end with "XXXXXX" which will be replaced with random
   --- characters to create a unique directory name.
@@ -1839,26 +1839,26 @@ local record unix
   ---     unix.write(fd, "hello")
   ---     unix.close(fd)
   ---     unix.unlink(path)
-  mkstemp: function(template: string): number | nil, string, string | nil, Errno | nil
+  mkstemp: function(template: string): integer | nil, string, string | nil, Errno | nil
   --- Changes current directory to `path`.
   chdir: function(path: string): boolean | nil, string | nil, Errno | nil
   --- Removes file at `path`.
   --- If `path` refers to a symbolic link, the link is removed.
   --- Returns `EISDIR` if `path` refers to a directory. See `rmdir()`.
-  unlink: function(path: string, dirfd?: number): boolean | nil, string | nil, Errno | nil
+  unlink: function(path: string, dirfd?: integer): boolean | nil, string | nil, Errno | nil
   --- Removes empty directory at `path`.
   --- Returns `ENOTDIR` if `path` isn't a directory, or a path component
   --- in `path` exists yet wasn't a directory.
-  rmdir: function(path: string, dirfd?: number): boolean | nil, string | nil, Errno | nil
+  rmdir: function(path: string, dirfd?: integer): boolean | nil, string | nil, Errno | nil
   --- Renames file or directory.
-  rename: function(oldpath: string, newpath: string, olddirfd: number, newdirfd: number): boolean | nil, string | nil, Errno | nil
+  rename: function(oldpath: string, newpath: string, olddirfd: integer, newdirfd: integer): boolean | nil, string | nil, Errno | nil
   --- Creates hard link, so your underlying inode has two names.
-  link: function(existingpath: string, newpath: string, flags: number, olddirfd: number, newdirfd: number): boolean | nil, string | nil, Errno | nil
+  link: function(existingpath: string, newpath: string, flags: integer, olddirfd: integer, newdirfd: integer): boolean | nil, string | nil, Errno | nil
   --- Creates symbolic link.
   --- On Windows NT a symbolic link is called a "reparse point" and can
   --- only be created from an administrator account. Your redbean will
   --- automatically request the appropriate permissions.
-  symlink: function(target: string, linkpath: string, newdirfd?: number): boolean | nil, string | nil, Errno | nil
+  symlink: function(target: string, linkpath: string, newdirfd?: integer): boolean | nil, string | nil, Errno | nil
   --- Reads contents of symbolic link.
   --- Note that broken links are supported on all platforms. A symbolic
   --- link can contain just about anything. It's important to not assume
@@ -1867,7 +1867,7 @@ local record unix
   --- furthermore prefixes `//?/` to WIN32 DOS-style absolute paths,
   --- thereby assisting with simple absolute filename checks in addition
   --- to enabling one to exceed the traditional 260 character limit.
-  readlink: function(path: string, dirfd?: number): string | nil, string | nil, Errno | nil
+  readlink: function(path: string, dirfd?: integer): string | nil, string | nil, Errno | nil
   --- Returns absolute path of filename, with `.` and `..` components
   --- removed, and symlinks will be resolved.
   realpath: function(path: string): string | nil, string | nil, Errno | nil
@@ -1892,7 +1892,7 @@ local record unix
   --- - `AT_SYMLINK_NOFOLLOW`: Do not follow symbolic links. This makes it
   --- possible to edit the timestamps on the symbolic link itself,
   --- rather than the file it points to.
-  utimensat: function(path: string, asecs: number, ananos: number, msecs: number, mnanos: number, dirfd?: number, flags?: number): number | nil, string | nil, Errno | nil
+  utimensat: function(path: string, asecs: integer, ananos: integer, msecs: integer, mnanos: integer, dirfd?: integer, flags?: integer): integer | nil, string | nil, Errno | nil
   --- Changes access and/or modified timestamps on file descriptor.
   --- `fd` is the file descriptor of a file opened with `unix.open`.
   --- The `asecs` and `ananos` parameters set the access time. If they're
@@ -1908,14 +1908,14 @@ local record unix
   --- - `unix.UTIME_OMIT`: Do not alter this timestamp.
   --- This system call is currently not available on very old versions of
   --- Linux, e.g. RHEL5.
-  futimens: function(fd: number, asecs: number, ananos: number, msecs: number, mnanos: number): number | nil, string | nil, Errno | nil
+  futimens: function(fd: integer, asecs: integer, ananos: integer, msecs: integer, mnanos: integer): integer | nil, string | nil, Errno | nil
   --- Changes user and group on file.
   --- Returns `ENOSYS` on Windows NT.
-  chown: function(path: string, uid: number, gid: number, flags?: number, dirfd?: number): boolean | nil, string | nil, Errno | nil
+  chown: function(path: string, uid: integer, gid: integer, flags?: integer, dirfd?: integer): boolean | nil, string | nil, Errno | nil
   --- Changes mode bits on file.
   --- On Windows NT the chmod system call only changes the read-only
   --- status of a file.
-  chmod: function(path: string, mode: number, flags?: number, dirfd?: number): boolean | nil, string | nil, Errno | nil
+  chmod: function(path: string, mode: integer, flags?: integer, dirfd?: integer): boolean | nil, string | nil, Errno | nil
   --- Returns current working directory.
   --- On Windows NT, this function transliterates `\` to `/` and
   --- furthermore prefixes `//?/` to WIN32 DOS-style absolute paths,
@@ -2025,21 +2025,21 @@ local record unix
   ---   Returned `pid` is the process id of the current lock owner.
   ---   This function is currently not supported on Windows.
   ---   Returns `EBADF` if `fd` wasn't open.
-  fcntl: function(fd: number, cmd: FcntlCmd, ...: any): any | nil, string | nil, Errno | nil
+  fcntl: function(fd: integer, cmd: FcntlCmd, ...: any): any | nil, string | nil, Errno | nil
   --- Gets session id.
-  getsid: function(pid: number): number | nil, string | nil, Errno | nil
+  getsid: function(pid: integer): integer | nil, string | nil, Errno | nil
   --- Gets process group id.
-  getpgrp: function(): number | nil, string | nil, Errno | nil
+  getpgrp: function(): integer | nil, string | nil, Errno | nil
   --- Sets process group id. This is the same as `setpgid(0,0)`.
-  setpgrp: function(): number | nil, string | nil, Errno | nil
+  setpgrp: function(): integer | nil, string | nil, Errno | nil
   --- Sets process group id the modern way.
-  setpgid: function(pid: number, pgid: number): boolean | nil, string | nil, Errno | nil
+  setpgid: function(pid: integer, pgid: integer): boolean | nil, string | nil, Errno | nil
   --- Gets process group id the modern way.
-  getpgid: function(pid: number): number | nil, string | nil, Errno | nil
+  getpgid: function(pid: integer): integer | nil, string | nil, Errno | nil
   --- Sets session id.
   --- This function can be used to create daemons.
   --- Fails with `ENOSYS` on Windows NT.
-  setsid: function(): number | nil, string | nil, Errno | nil
+  setsid: function(): integer | nil, string | nil, Errno | nil
   --- Daemonizes the current process.
   --- This function performs the standard Unix daemonization steps:
   --- forks, creates a new session, and optionally changes directory
@@ -2055,22 +2055,22 @@ local record unix
   --- On Windows this system call is polyfilled by running `GetUserNameW()`
   --- through Knuth's multiplicative hash.
   --- This function does not fail.
-  getuid: function(): number
+  getuid: function(): integer
   --- Sets real group id.
   --- On Windows this system call is polyfilled as getuid().
   --- This function does not fail.
-  getgid: function(): number
+  getgid: function(): integer
   --- Gets effective user id.
   --- For example, if your redbean is a setuid binary, then getuid() will
   --- return the uid of the user running the program, and geteuid() shall
   --- return zero which means root, assuming that's the file owning user.
   --- On Windows this system call is polyfilled as getuid().
   --- This function does not fail.
-  geteuid: function(): number
+  geteuid: function(): integer
   --- Gets effective group id.
   --- On Windows this system call is polyfilled as getuid().
   --- This function does not fail.
-  getegid: function(): number
+  getegid: function(): integer
   --- Changes root directory.
   --- Returns `ENOSYS` on Windows NT.
   chroot: function(path: string): boolean | nil, string | nil, Errno | nil
@@ -2093,24 +2093,24 @@ local record unix
   --- system manual about the subtleties of changing user id in a way that
   --- isn't restorable.
   --- Returns `ENOSYS` on Windows NT if `uid` isn't `getuid()`.
-  setuid: function(uid: number): boolean | nil, string | nil, Errno | nil
+  setuid: function(uid: integer): boolean | nil, string | nil, Errno | nil
   --- Sets user id for file system ops.
-  setfsuid: function(uid: number): boolean | nil, string | nil, Errno | nil
+  setfsuid: function(uid: integer): boolean | nil, string | nil, Errno | nil
   --- Sets group id for file system ops.
-  setfsgid: function(gid: number): boolean | nil, string | nil, Errno | nil
+  setfsgid: function(gid: integer): boolean | nil, string | nil, Errno | nil
   --- Sets group id.
   --- Returns `ENOSYS` on Windows NT if `gid` isn't `getgid()`.
-  setgid: function(gid: number): boolean | nil, string | nil, Errno | nil
+  setgid: function(gid: integer): boolean | nil, string | nil, Errno | nil
   --- Sets real, effective, and saved user ids.
   --- If any of the above parameters are -1, then it's a no-op.
   --- Returns `ENOSYS` on Windows NT.
   --- Returns `ENOSYS` on Macintosh and NetBSD if `saved` isn't -1.
-  setresuid: function(real: number, effective: number, saved: number): boolean | nil, string | nil, Errno | nil
+  setresuid: function(real: integer, effective: integer, saved: integer): boolean | nil, string | nil, Errno | nil
   --- Sets real, effective, and saved group ids.
   --- If any of the above parameters are -1, then it's a no-op.
   --- Returns `ENOSYS` on Windows NT.
   --- Returns `ENOSYS` on Macintosh and NetBSD if `saved` isn't -1.
-  setresgid: function(real: number, effective: number, saved: number): boolean | nil, string | nil, Errno | nil
+  setresgid: function(real: integer, effective: integer, saved: integer): boolean | nil, string | nil, Errno | nil
   --- Sets file permission mask and returns the old one.
   --- This is used to remove bits from the `mode` parameter of functions
   --- like open() and mkdir(). The masks typically used are 027 and 022.
@@ -2122,14 +2122,14 @@ local record unix
   ---     unix.umask(mask)
   --- On Windows NT this is a no-op and `mask` is returned.
   --- This function does not fail.
-  umask: function(newmask: number): number
+  umask: function(newmask: integer): integer
   --- Queries a configurable system limit or value.
   --- `name` selects which value to return, e.g.
   ---     unix.sysconf(unix.SC_NPROCESSORS_ONLN)  -- online cpu count
   ---     unix.sysconf(unix.SC_PAGESIZE)          -- mmap() page size
   ---     unix.sysconf(unix.SC_CLK_TCK)           -- clock ticks per second
   --- Returns `nil` with an `EINVAL` errno when `name` isn't recognized.
-  sysconf: function(name: number): number | nil, string | nil, Errno | nil
+  sysconf: function(name: integer): integer | nil, string | nil, Errno | nil
   --- Returns identity of the current operating system.
   --- Example:
   ---     local u = assert(unix.uname())
@@ -2143,7 +2143,7 @@ local record unix
   --- `LOG_ERR`, `LOG_WARNING`, `LOG_NOTICE`, `LOG_INFO`, `LOG_DEBUG`.
   --- This function currently works on Linux, Windows, and NetBSD. On
   --- WIN32 it uses the ReportEvent() facility.
-  syslog: function(priority: number, msg: string)
+  syslog: function(priority: integer, msg: string)
   --- Returns nanosecond precision timestamp from system, e.g.
   ---    >: unix.clock_gettime()
   ---    1651137352      774458779
@@ -2213,32 +2213,32 @@ local record unix
   --- Returns `EINVAL` if clock isn't supported on platform.
   --- This function only fails if `clock` is invalid.
   --- This function goes fastest on Linux and Windows.
-  clock_gettime: function(clock?: number): number | nil, number, string | nil, Errno | nil
+  clock_gettime: function(clock?: integer): integer | nil, integer, string | nil, Errno | nil
   --- Sleeps with nanosecond precision.
   --- Returns `EINTR` if a signal was received while waiting.
-  nanosleep: function(seconds: number, nanos?: number): number | nil, number, string | nil, Errno | nil
+  nanosleep: function(seconds: integer, nanos?: integer): integer | nil, integer, string | nil, Errno | nil
   --- These functions are used to make programs slower by asking the
   --- operating system to flush data to the physical medium.
   sync: function()
   --- These functions are used to make programs slower by asking the
   --- operating system to flush data to the physical medium.
-  fsync: function(fd: number): boolean | nil, string | nil, Errno | nil
+  fsync: function(fd: integer): boolean | nil, string | nil, Errno | nil
   --- These functions are used to make programs slower by asking the
   --- operating system to flush data to the physical medium.
-  fdatasync: function(fd: number): boolean | nil, string | nil, Errno | nil
+  fdatasync: function(fd: integer): boolean | nil, string | nil, Errno | nil
   --- Seeks to file position.
   --- `whence` can be one of:
   --- - `SEEK_SET`: Sets the file position to `offset` [default]
   --- - `SEEK_CUR`: Sets the file position to `position + offset`
   --- - `SEEK_END`: Sets the file position to `filesize + offset`
   --- Returns the new position relative to the start of the file.
-  lseek: function(fd: number, offset: number, whence?: number): number | nil, string | nil, Errno | nil
+  lseek: function(fd: integer, offset: integer, whence?: integer): integer | nil, string | nil, Errno | nil
   --- Reduces or extends underlying physical medium of file.
   --- If file was originally larger, content >length is lost.
-  truncate: function(path: string, length?: number): boolean | nil, string | nil, Errno | nil
+  truncate: function(path: string, length?: integer): boolean | nil, string | nil, Errno | nil
   --- Reduces or extends underlying physical medium of open file.
   --- If file was originally larger, content >length is lost.
-  ftruncate: function(fd: number, length?: number): boolean | nil, string | nil, Errno | nil
+  ftruncate: function(fd: integer, length?: integer): boolean | nil, string | nil, Errno | nil
   --- - `AF_INET`: Creates Internet Protocol Version 4 (IPv4) socket.
   --- - `AF_UNIX`: Creates local UNIX domain socket. On the New Technology
   --- this requires Windows 10 and only works with `SOCK_STREAM`.
@@ -2256,7 +2256,7 @@ local record unix
   --- - `IPPROTO_RAW`
   --- - `IPPROTO_IP`
   --- - `IPPROTO_ICMP`
-  socket: function(family?: number, type?: number, protocol?: number): number | nil, string | nil, Errno | nil
+  socket: function(family?: integer, type?: integer, protocol?: integer): integer | nil, string | nil, Errno | nil
   --- Creates bidirectional pipe.
   --- - `SOCK_STREAM`
   --- - `SOCK_DGRAM`
@@ -2264,7 +2264,7 @@ local record unix
   --- You may bitwise OR any of the following into `type`:
   --- - `SOCK_CLOEXEC`
   --- - `SOCK_NONBLOCK`
-  socketpair: function(family?: number, type?: number, protocol?: number): number | nil, number, string | nil, Errno | nil
+  socketpair: function(family?: integer, type?: integer, protocol?: integer): integer | nil, integer, string | nil, Errno | nil
   ---  Binds socket.
   ---  `ip` and `port` are in host endian order. For example, if you
   ---  wanted to listen on `1.2.3.4:31337` you could do any of these
@@ -2286,7 +2286,7 @@ local record unix
   ---      end
   ---  Further note that calling `unix.bind(sock)` is equivalent to not
   ---  calling bind() at all, since the above behavior is the default.
-  bind: function(fd: number, ip?: number, port?: number): boolean | nil, string | nil, Errno | nil
+  bind: function(fd: integer, ip?: integer, port?: integer): boolean | nil, string | nil, Errno | nil
   --- Returns list of network adapter addresses.
   siocgifconf: function(): any, string | nil, Errno | nil
   --- Tunes networking parameters.
@@ -2376,7 +2376,7 @@ local record unix
   --- earlier on the listening socket. This is Linux-only. You can use the
   --- `OnServerListen` hook to enable SYN saving in your Redbean. When the
   --- `TCP_SAVE_SYN` option isn't used, this may return empty string.
-  getsockopt: function(fd: number, level: number, optname: number): number | nil, string | nil, Errno | nil
+  getsockopt: function(fd: integer, level: integer, optname: integer): integer | nil, string | nil, Errno | nil
   --- Tunes networking parameters.
   --- `level` and `optname` may be one of the following pairs. The ellipses
   --- type signature above changes depending on which options are used.
@@ -2464,7 +2464,7 @@ local record unix
   --- earlier on the listening socket. This is Linux-only. You can use the
   --- `OnServerListen` hook to enable SYN saving in your Redbean. When the
   --- `TCP_SAVE_SYN` option isn't used, this may return empty string.
-  setsockopt: function(fd: number, level: number, optname: number, value: boolean | number): boolean | nil, string | nil, Errno | nil
+  setsockopt: function(fd: integer, level: integer, optname: integer, value: boolean | integer): boolean | nil, string | nil, Errno | nil
   --- Checks for events on a set of file descriptors.
   --- The table of file descriptors to poll uses sparse integer keys. Any
   --- pairs with non-integer keys will be ignored. Pairs with negative
@@ -2486,7 +2486,7 @@ local record unix
   --- - `POLLNVAL` (revents): Invalid request.
   --- If this is set to -1 then that means block as long as it takes until there's an
   --- event or an interrupt. If the timeout expires, an empty table is returned.
-  poll: function(fds: {number: number}, timeoutms?: number): {number: number} | nil, string | nil, Errno | nil
+  poll: function(fds: {integer: integer}, timeoutms?: integer): {integer: integer} | nil, string | nil, Errno | nil
   --- Returns hostname of system.
   gethostname: function(): string | nil, string | nil, Errno | nil
   --- Sets hostname of system.
@@ -2494,53 +2494,53 @@ local record unix
   --- otherwise. Not supported on Windows, where it returns `ENOSYS`.
   sethostname: function(name: string): boolean | nil, string | nil, Errno | nil
   --- Begins listening for incoming connections on a socket.
-  listen: function(fd: number, backlog?: number): boolean | nil, string | nil, Errno | nil
+  listen: function(fd: integer, backlog?: integer): boolean | nil, string | nil, Errno | nil
   --- Accepts new client socket descriptor for a listening tcp socket.
   --- `flags` may have any combination (using bitwise OR) of:
   --- - `SOCK_CLOEXEC`
   --- - `SOCK_NONBLOCK`
-  accept: function(serverfd: number, flags?: number): number | nil, number, number, string | nil, Errno | nil
+  accept: function(serverfd: integer, flags?: integer): integer | nil, integer, integer, string | nil, Errno | nil
   ---  Connects a TCP socket to a remote host.
   ---  With TCP this is a blocking operation. For a UDP socket it simply
   ---  remembers the intended address so that `send()` or `write()` may be used
   ---  rather than `sendto()`.
-  connect: function(fd: number, ip: number, port: number): boolean | nil, string | nil, Errno | nil
+  connect: function(fd: integer, ip: integer, port: integer): boolean | nil, string | nil, Errno | nil
   --- Retrieves the local address of a socket.
-  getsockname: function(fd: number): number | nil, number, string | nil, Errno | nil
+  getsockname: function(fd: integer): integer | nil, integer, string | nil, Errno | nil
   --- Retrieves the remote address of a socket.
   --- This operation will either fail on `AF_UNIX` sockets or return an
   --- empty string.
-  getpeername: function(fd: number): number | nil, number, string | nil, Errno | nil
+  getpeername: function(fd: integer): integer | nil, integer, string | nil, Errno | nil
   --- - `MSG_WAITALL`
   --- - `MSG_DONTROUTE`
   --- - `MSG_PEEK`
   --- - `MSG_OOB`
-  recv: function(fd: number, bufsiz?: number, flags?: number): string | nil, string | nil, Errno | nil
+  recv: function(fd: integer, bufsiz?: integer, flags?: integer): string | nil, string | nil, Errno | nil
   --- - `MSG_WAITALL`
   --- - `MSG_DONTROUTE`
   --- - `MSG_PEEK`
   --- - `MSG_OOB`
-  recvfrom: function(fd: number, bufsiz?: number, flags?: number): string | nil, number, number, string | nil, Errno | nil
+  recvfrom: function(fd: integer, bufsiz?: integer, flags?: integer): string | nil, integer, integer, string | nil, Errno | nil
   --- This is the same as `write` except it has a `flags` argument
   --- that's intended for sockets.
   --- - `MSG_NOSIGNAL`: Don't SIGPIPE on EOF
   --- - `MSG_OOB`: Send stream data through out of bound channel
   --- - `MSG_DONTROUTE`: Don't go through gateway (for diagnostics)
   --- - `MSG_MORE`: Manual corking to belay nodelay (0 on non-Linux)
-  send: function(fd: number, data: string, flags?: number, offset?: number): number | nil, string | nil, Errno | nil
+  send: function(fd: integer, data: string, flags?: integer, offset?: integer): integer | nil, string | nil, Errno | nil
   --- This is useful for sending messages over UDP sockets to specific
   --- addresses.
   --- - `MSG_OOB`
   --- - `MSG_DONTROUTE`
   --- - `MSG_NOSIGNAL`
-  sendto: function(fd: number, data: string, ip: number, port: number, flags?: number): number | nil, string | nil, Errno | nil
+  sendto: function(fd: integer, data: string, ip: integer, port: integer, flags?: integer): integer | nil, string | nil, Errno | nil
   --- Partially closes socket.
   --- - `SHUT_RD`: sends a tcp half close for reading
   --- - `SHUT_WR`: sends a tcp half close for writing
   --- - `SHUT_RDWR`
   --- This system call currently has issues on Macintosh, so portable code
   --- should log rather than assert failures reported by `shutdown()`.
-  shutdown: function(fd: number, how: number): boolean | nil, string | nil, Errno | nil
+  shutdown: function(fd: integer, how: integer): boolean | nil, string | nil, Errno | nil
   --- Manipulates bitset of signals blocked by process.
   --- - `SIG_BLOCK`: applies `mask` to set of blocked signals using bitwise OR
   --- - `SIG_UNBLOCK`: removes bits in `mask` from set of blocked signals
@@ -2552,7 +2552,7 @@ local record unix
   ---   oldmask = assert(unix.sigprocmask(unix.SIG_BLOCK, newmask))
   ---   -- do something...
   ---   assert(unix.sigprocmask(unix.SIG_SETMASK, oldmask))
-  sigprocmask: function(how: number, newmask: Sigset): Sigset | nil, string | nil, Errno | nil
+  sigprocmask: function(how: integer, newmask: Sigset): Sigset | nil, string | nil, Errno | nil
   --- - `unix.SIGINT`
   --- - `unix.SIGQUIT`
   --- - `unix.SIGTERM`
@@ -2619,7 +2619,7 @@ local record unix
   --- handlers (e.g. `unix.SIG_IGN`, `unix.SIG_DFL`, or a raw function pointer)
   --- are installed directly and are not deferred.
   --- It's a good idea to not do too much work in a signal handler.
-  sigaction: function(sig: number, handler?: function | number, flags?: number, mask?: Sigset): function | number | nil, number, Sigset, string | nil, Errno | nil
+  sigaction: function(sig: integer, handler?: function | integer, flags?: integer, mask?: Sigset): function | integer | nil, integer, Sigset, string | nil, Errno | nil
   --- Waits for signal to be delivered.
   --- The signal mask is temporarily replaced with `mask` during this system call.
   sigsuspend: function(mask?: Sigset): nil, string | nil, Errno | nil
@@ -2641,7 +2641,7 @@ local record unix
   --- Here's how you'd do a single-shot timeout in 1 second:
   ---     unix.sigaction(unix.SIGALRM, MyOnSigAlrm, unix.SA_RESETHAND)
   ---     unix.setitimer(unix.ITIMER_REAL, 0, 0, 1, 0)
-  setitimer: function(which: number, intervalsec: number, intervalns: number, valuesec: number, valuens: number): number | nil, number, number, number, string | nil, Errno | nil
+  setitimer: function(which: integer, intervalsec: integer, intervalns: integer, valuesec: integer, valuens: integer): integer | nil, integer, integer, integer, string | nil, Errno | nil
   --- Turns platform-specific `sig` code into its symbolic name.
   --- For example:
   ---     >: unix.strsignal(9)
@@ -2650,7 +2650,7 @@ local record unix
   ---     "SIGKILL"
   --- Please note that signal numbers are normally different across
   --- supported platforms, and the constants should be preferred.
-  strsignal: function(sig: number): string
+  strsignal: function(sig: integer): string
   --- Changes resource limit.
   --- - `RLIMIT_AS` limits the size of the virtual address space. This
   --- will work on all platforms. It's emulated on XNU and Windows which
@@ -2671,9 +2671,9 @@ local record unix
   --- If a limit isn't supported by the host platform, it'll be set to
   --- 127. On most platforms these limits are enforced by the kernel and
   --- as such are inherited by subprocesses.
-  setrlimit: function(resource: number, soft: number, hard?: number): boolean | nil, string | nil, Errno | nil
+  setrlimit: function(resource: integer, soft: integer, hard?: integer): boolean | nil, string | nil, Errno | nil
   --- Returns information about resource limits for current process.
-  getrlimit: function(resource: number): number | nil, number, string | nil, Errno | nil
+  getrlimit: function(resource: integer): integer | nil, integer, string | nil, Errno | nil
   --- Adjusts the nice value (scheduling priority) of the calling process.
   --- The nice value ranges from -20 (highest priority) to 19 (lowest priority).
   --- Only privileged processes can lower the nice value (increase priority).
@@ -2681,7 +2681,7 @@ local record unix
   --- priority, negative values increase it.
   --- Returns the new nice value on success. Note that -1 is a valid return
   --- value, so errors must be detected by checking the second return value.
-  nice: function(inc: number): number | nil, string | nil, Errno | nil
+  nice: function(inc: integer): integer | nil, string | nil, Errno | nil
   --- Lowers the calling process to the lowest scheduling priority.
   --- On Linux this additionally requests the idle scheduling policy and a
   --- best-effort idle i/o priority. This function does not fail.
@@ -2694,7 +2694,7 @@ local record unix
   --- Returns the priority value (nice value) which ranges from -20 to 19.
   --- Note that -1 is a valid return value, so errors must be detected by
   --- checking the second return value.
-  getpriority: function(which: number, who: number): number | nil, string | nil, Errno | nil
+  getpriority: function(which: integer, who: integer): integer | nil, string | nil, Errno | nil
   --- Sets the scheduling priority of a process, process group, or user.
   --- `which` specifies what `who` refers to:
   --- - `PRIO_PROCESS`: `who` is a process id (0 = calling process)
@@ -2703,7 +2703,7 @@ local record unix
   --- `prio` is the new priority value (nice value), ranging from -20
   --- (highest priority) to 19 (lowest priority). Only privileged processes
   --- can set negative priority values.
-  setpriority: function(which: number, who: number, prio: number): boolean | nil, string | nil, Errno | nil
+  setpriority: function(which: integer, who: integer, prio: integer): boolean | nil, string | nil, Errno | nil
   --- Returns information about resource usage for current process, e.g.
   ---     >: unix.getrusage()
   ---     {utime={0, 53644000}, maxrss=44896, minflt=545, oublock=24, nvcsw=9}
@@ -2711,7 +2711,7 @@ local record unix
   --- - `RUSAGE_THREAD`: current thread
   --- - `RUSAGE_CHILDREN`: not supported on Windows NT
   --- - `RUSAGE_BOTH`: not supported on non-Linux
-  getrusage: function(who?: number): Rusage | nil, string | nil, Errno | nil
+  getrusage: function(who?: integer): Rusage | nil, string | nil, Errno | nil
   --- Restrict system operations.
   --- This can be used to sandbox your redbean workers. It allows finer
   --- customization compared to the `-S` flag.
@@ -2834,7 +2834,7 @@ local record unix
   ---   means that the `unix.WTERMSIG()` on your killed processes will
   ---   always be `unix.SIGABRT` on both Linux and OpenBSD. Otherwise,
   ---   Linux prefers to raise `unix.SIGSYS`.
-  pledge: function(promises?: string, execpromises?: string, mode?: number): boolean | nil, string | nil, Errno | nil
+  pledge: function(promises?: string, execpromises?: string, mode?: integer): boolean | nil, string | nil, Errno | nil
   --- Restricts filesystem operations, e.g.
   ---    unix.unveil(".", "r");     -- current dir + children visible
   ---    unix.unveil("/etc", "r");  -- make /etc readable too
@@ -2879,7 +2879,7 @@ local record unix
   ---   the pledge promise "cpath".
   unveil: function(path: string, permissions: string): boolean | nil, string | nil, Errno | nil
   --- Breaks down UNIX timestamp into Zulu Time numbers.
-  gmtime: function(unixts: number): number | nil, number, number, number, number, number, number, number, number, number, string, string | nil, Errno | nil
+  gmtime: function(unixts: integer): integer | nil, integer, integer, integer, integer, integer, integer, integer, integer, integer, string, string | nil, Errno | nil
   --- Breaks down UNIX timestamp into local time numbers, e.g.
   ---     >: unix.localtime(unix.clock_gettime())
   ---     2022    4       28      2       14      22      -25200  4       117     1       "PDT"
@@ -2905,24 +2905,24 @@ local record unix
   --- can simply copy it inside your redbean. The same is also the case
   --- for future updates to the database, which can be swapped out when
   --- needed, without having to recompile.
-  localtime: function(unixts: number): number | nil, number, number, number, number, number, number, number, number, number, string, string | nil, Errno | nil
+  localtime: function(unixts: integer): integer | nil, integer, integer, integer, integer, integer, integer, integer, integer, integer, string, string | nil, Errno | nil
   --- Gets information about file or directory.
   --- - `AT_SYMLINK_NOFOLLOW`: do not follow symbolic links.
-  stat: function(path: string, flags?: number, dirfd?: number): Stat | nil, string | nil, Errno | nil
+  stat: function(path: string, flags?: integer, dirfd?: integer): Stat | nil, string | nil, Errno | nil
   --- Tests if file mode represents a directory.
-  S_ISDIR: function(mode: number): boolean
+  S_ISDIR: function(mode: integer): boolean
   --- Tests if file mode represents a regular file.
-  S_ISREG: function(mode: number): boolean
+  S_ISREG: function(mode: integer): boolean
   --- Tests if file mode represents a symbolic link.
-  S_ISLNK: function(mode: number): boolean
+  S_ISLNK: function(mode: integer): boolean
   --- Tests if file mode represents a block device.
-  S_ISBLK: function(mode: number): boolean
+  S_ISBLK: function(mode: integer): boolean
   --- Tests if file mode represents a character device.
-  S_ISCHR: function(mode: number): boolean
+  S_ISCHR: function(mode: integer): boolean
   --- Tests if file mode represents a FIFO/pipe.
-  S_ISFIFO: function(mode: number): boolean
+  S_ISFIFO: function(mode: integer): boolean
   --- Tests if file mode represents a socket.
-  S_ISSOCK: function(mode: number): boolean
+  S_ISSOCK: function(mode: integer): boolean
   --- Gets information about opened file descriptor.
   --- `flags` may have any of:
   --- - `AT_SYMLINK_NOFOLLOW`: do not follow symbolic links.
@@ -2933,7 +2933,7 @@ local record unix
   ---     st = assert(unix.fstat(fd))
   ---     Log(kLogInfo, 'hello.txt is %d bytes in size' % {st:size()})
   ---     unix.close(fd)
-  fstat: function(fd: number): Stat | nil, string | nil, Errno | nil
+  fstat: function(fd: integer): Stat | nil, string | nil, Errno | nil
   --- Opens directory for listing its contents.
   --- For example, to print a simple directory listing:
   ---     Write('<ul>\r\n')
@@ -2947,15 +2947,15 @@ local record unix
   --- Opens directory for listing its contents, via an fd.
   --- The returned `unix.Dir` takes ownership of the file descriptor
   --- and will close it automatically when garbage collected.
-  fdopendir: function(fd: number): Dir | nil, string | nil, Errno | nil
+  fdopendir: function(fd: integer): Dir | nil, string | nil, Errno | nil
   --- Returns true if file descriptor is a teletypewriter. Otherwise nil
   --- with an Errno object holding one of the following values:
   --- - `ENOTTY` if `fd` is valid but not a teletypewriter
   --- - `EBADF` if `fd` isn't a valid file descriptor.
   --- - `EPERM` if pledge() is used without `tty` in lenient mode
   --- No other error numbers are possible.
-  isatty: function(fd: number): boolean | nil, string | nil, Errno | nil
-  tiocgwinsz: function(fd: number): number | nil, number, string | nil, Errno | nil
+  isatty: function(fd: integer): boolean | nil, string | nil, Errno | nil
+  tiocgwinsz: function(fd: integer): integer | nil, integer, string | nil, Errno | nil
   --- Gets terminal attributes.
   --- Returns a termios table containing the terminal I/O settings for the
   --- specified file descriptor. The table contains these fields:
@@ -2974,7 +2974,7 @@ local record unix
   ---     local password = io.read()
   ---     tio.lflag = old_lflag
   ---     unix.tcsetattr(0, unix.TCSANOW, tio)
-  tcgetattr: function(fd: number): Termios | nil, string | nil, Errno | nil
+  tcgetattr: function(fd: integer): Termios | nil, string | nil, Errno | nil
   --- Sets terminal attributes.
   --- Modifies the terminal I/O settings for the specified file descriptor
   --- using the provided termios table. The `action` parameter controls when
@@ -2985,7 +2985,7 @@ local record unix
   ---   input is discarded
   --- The termios table should contain the same fields as returned by
   --- `unix.tcgetattr()`. Missing fields default to zero.
-  tcsetattr: function(fd: number, action: number, termios: Termios): boolean | nil, string | nil, Errno | nil
+  tcsetattr: function(fd: integer, action: integer, termios: Termios): boolean | nil, string | nil, Errno | nil
   --- Returns file descriptor of open anonymous file.
   --- This creates a secure temporary file inside `$TMPDIR`. If it isn't
   --- defined, then `/tmp` is used on UNIX and GetTempPath() is used on
@@ -2996,25 +2996,25 @@ local record unix
   --- On the New Technology, temporary files created by this function
   --- should have better performance, because `kNtFileAttributeTemporary`
   --- asks the kernel to more aggressively cache and reduce i/o ops.
-  tmpfd: function(): number | nil, string | nil, Errno | nil
+  tmpfd: function(): integer | nil, string | nil, Errno | nil
   --- Relinquishes scheduled quantum.
   sched_yield: function()
   --- Disassociates parts of the caller's execution context, placing it
   --- into fresh namespace(s) specified by `flags` (bitwise OR of
   --- `unix.CLONE_NEW*` constants). Linux-only; returns ENOSYS elsewhere.
-  unshare: function(flags: number): boolean | nil, string | nil, Errno | nil
+  unshare: function(flags: integer): boolean | nil, string | nil, Errno | nil
   --- Reassociates the calling thread with the namespace referenced by
   --- `fd` (typically from `/proc/<pid>/ns/*`). `nstype`, if nonzero,
   --- must match a `unix.CLONE_NEW*` constant and asserts the kind of
   --- namespace. Linux-only; returns ENOSYS elsewhere.
-  setns: function(fd: number, nstype?: number): boolean | nil, string | nil, Errno | nil
+  setns: function(fd: integer, nstype?: integer): boolean | nil, string | nil, Errno | nil
   --- Mounts a filesystem. `flags` is a bitwise OR of `unix.MS_*`
   --- constants; `data` is a filesystem-specific options string.
-  mount: function(source?: string, target?: string, fstype?: string, flags?: number, data?: string): boolean | nil, string | nil, Errno | nil
+  mount: function(source?: string, target?: string, fstype?: string, flags?: integer, data?: string): boolean | nil, string | nil, Errno | nil
   --- Unmounts a filesystem. On Linux this is the `umount2` syscall.
   --- `flags` may include `unix.MNT_FORCE`, `unix.MNT_DETACH`,
   --- `unix.MNT_EXPIRE`, `unix.UMOUNT_NOFOLLOW`.
-  unmount: function(target: string, flags?: number): boolean | nil, string | nil, Errno | nil
+  unmount: function(target: string, flags?: integer): boolean | nil, string | nil, Errno | nil
   --- Moves the root filesystem of the current mount namespace to
   --- `put_old` and makes `new_root` the new root. Usually paired with
   --- `chdir("/")` in the child. Requires a private mount namespace.
@@ -3022,33 +3022,33 @@ local record unix
   --- Performs an operation on the calling process. `option` is one of
   --- the `unix.PR_*` constants; remaining arguments are option-specific.
   --- Returns the integer result (0 for most setters).
-  prctl: function(option: number, arg2?: number, arg3?: number, arg4?: number, arg5?: number): number | nil, string | nil, Errno | nil
+  prctl: function(option: integer, arg2?: integer, arg3?: integer, arg4?: integer, arg5?: integer): integer | nil, string | nil, Errno | nil
   --- Returns the calling thread's (or `pid`'s) capability sets as
   --- 64-bit bitmasks. Each bit position N corresponds to `unix.CAP_*`
   --- constant N. Linux-only.
-  capget: function(pid?: number): number | nil, number, number, string | nil, Errno | nil
+  capget: function(pid?: integer): integer | nil, integer, integer, string | nil, Errno | nil
   --- Sets the calling thread's (or `pid`'s) capability sets. Each
   --- argument is a 64-bit bitmask of `1 << unix.CAP_*` bits. Linux-only.
-  capset: function(effective: number, permitted: number, inheritable: number, pid?: number): boolean | nil, string | nil, Errno | nil
+  capset: function(effective: integer, permitted: integer, inheritable: integer, pid?: integer): boolean | nil, string | nil, Errno | nil
   --- Generic device control. When `arg` is nil or absent, the ioctl is
   --- invoked with a null pointer. When `arg` is an integer, it's passed
   --- by value. When `arg` is a string, a mutable copy of the same size
   --- is passed to the kernel and the (possibly-modified) buffer of the
   --- same length is returned.
-  ioctl: function(fd: number, request: number, arg?: number | string): boolean | string | nil, string | nil, Errno | nil
+  ioctl: function(fd: integer, request: integer, arg?: integer | string): boolean | string | nil, string | nil, Errno | nil
   --- Landlock: create ruleset. With no args, returns the kernel's
   --- supported ABI version. With `handled_access_fs`, creates a new
   --- ruleset file descriptor that handles the given access categories
   --- (bitwise OR of `unix.LANDLOCK_ACCESS_FS_*`). Linux 5.13+.
-  landlock_create_ruleset: function(handled_access_fs?: number, flags?: number): number | nil, string | nil, Errno | nil
+  landlock_create_ruleset: function(handled_access_fs?: integer, flags?: integer): integer | nil, string | nil, Errno | nil
   --- Landlock: add a PATH_BENEATH rule granting `allowed` access to the
   --- subtree rooted at `parent_fd` (opened with `unix.O_PATH`). `allowed`
   --- must be a subset of the ruleset's handled set.
-  landlock_add_rule: function(ruleset_fd: number, parent_fd: number, allowed: number, flags?: number): boolean | nil, string | nil, Errno | nil
+  landlock_add_rule: function(ruleset_fd: integer, parent_fd: integer, allowed: integer, flags?: integer): boolean | nil, string | nil, Errno | nil
   --- Landlock: apply the ruleset to the current thread (and its future
   --- children). Caller must set `PR_SET_NO_NEW_PRIVS` first or hold
   --- `CAP_SYS_ADMIN`. The restriction is irrevocable.
-  landlock_restrict_self: function(ruleset_fd: number, flags?: number): boolean | nil, string | nil, Errno | nil
+  landlock_restrict_self: function(ruleset_fd: integer, flags?: integer): boolean | nil, string | nil, Errno | nil
   --- Creates interprocess shared memory mapping.
   --- This function allocates special memory that'll be inherited across
   --- fork in a shared way. By default all memory in Redbean is "private"
@@ -3101,22 +3101,22 @@ local record unix
   --- the Cosmopolitan Libc mmap() granularity is 2**16.
   --- This system call does not fail. An exception is instead thrown
   --- if sufficient memory isn't available.
-  mapshared: function(size: number): Memory
+  mapshared: function(size: integer): Memory
   --- Extracts the major device number from a device id such as `Stat:rdev()`.
-  major: function(rdev: number): number
+  major: function(rdev: integer): integer
   --- Extracts the minor device number from a device id such as `Stat:rdev()`.
-  minor: function(rdev: number): number
+  minor: function(rdev: integer): integer
   --- Gets filesystem statistics for the filesystem that contains `path`.
   statfs: function(path: string): Statfs | nil, string | nil, Errno | nil
   --- Gets filesystem statistics via an open file descriptor.
-  fstatfs: function(fd: number): Statfs | nil, string | nil, Errno | nil
+  fstatfs: function(fd: integer): Statfs | nil, string | nil, Errno | nil
   --- Signal set for blocking, unblocking, and waiting on signals.
   --- Used with `unix.sigprocmask()`, `unix.sigaction()`, and `unix.sigsuspend()`.
   --- The unix.Sigset class defines a mutable bitset that may currently
   --- contain 128 entries. See `unix.NSIG` to find out how many signals
   --- your operating system actually supports.
   --- Constructs new signal bitset object.
-  Sigset: function(sig: number, ...: number): Sigset
+  Sigset: function(sig: integer, ...: integer): Sigset
 end
 
 return unix

@@ -62,10 +62,10 @@ local function resolve(host: string, timeout_ms: integer,
     unix.exit(0)
   end
   unix.close(wfd)
-  local fds: {number: number} = {}
+  local fds: {integer: integer} = {}
   fds[rfd] = unix.POLLIN
   local ready = unix.poll(fds, timeout_ms)
-  if not ready or not (ready as {number: number})[rfd] then
+  if not ready or not (ready as {integer: integer})[rfd] then
     pcall(unix.kill, pid, unix.SIGKILL)
     pcall(unix.wait, pid)
     unix.close(rfd)

@@ -13,43 +13,43 @@ local errno = require("cosmic.errno")
 --- DateTime represents a broken-down timestamp.
 --- Returned by gmtime() and localtime().
 local record DateTime
-  year: number -- Full year (e.g., 2024)
-  month: number -- Month (1-12)
-  day: number -- Day of month (1-31)
-  hour: number -- Hour (0-23)
-  min: number -- Minute (0-59)
-  sec: number -- Second (0-60, 60 for a leap second)
-  gmtoff: number -- Offset from UTC in seconds
-  wday: number -- Day of week (0=Sunday, 6=Saturday)
-  yday: number -- Day of year (0-365)
+  year: integer -- Full year (e.g., 2024)
+  month: integer -- Month (1-12)
+  day: integer -- Day of month (1-31)
+  hour: integer -- Hour (0-23)
+  min: integer -- Minute (0-59)
+  sec: integer -- Second (0-60, 60 for a leap second)
+  gmtoff: integer -- Offset from UTC in seconds
+  wday: integer -- Day of week (0=Sunday, 6=Saturday)
+  yday: integer -- Day of year (0-365)
   isdst: boolean -- True when daylight saving time is in effect
   zone: string -- Timezone name (e.g., "UTC", "PDT")
 end
 
 --- Get current time from the specified clock.
 --- Returns seconds since epoch and nanoseconds.
---- @param clock number? Clock identifier (default: CLOCK_REALTIME)
---- @return number Seconds since epoch
---- @return number Nanoseconds
-local function clock_gettime(clock?: number): number, number
+--- @param clock integer? Clock identifier (default: CLOCK_REALTIME)
+--- @return integer Seconds since epoch
+--- @return integer Nanoseconds
+local function clock_gettime(clock?: integer): integer, integer
   local secs, nanos = unix.clock_gettime(clock)
   return secs, nanos
 end
 
 --- Get current wall clock time (real time).
 --- Returns seconds since epoch and nanoseconds.
---- @return number Seconds since epoch
---- @return number Nanoseconds
-local function now(): number, number
+--- @return integer Seconds since epoch
+--- @return integer Nanoseconds
+local function now(): integer, integer
   local secs, nanos = unix.clock_gettime(unix.CLOCK_REALTIME)
   return secs, nanos
 end
 
 --- Get monotonic time (not affected by system time changes).
 --- Returns seconds and nanoseconds from an unspecified epoch.
---- @return number Seconds
---- @return number Nanoseconds
-local function monotonic(): number, number
+--- @return integer Seconds
+--- @return integer Nanoseconds
+local function monotonic(): integer, integer
   local secs, nanos = unix.clock_gettime(unix.CLOCK_MONOTONIC)
   return secs, nanos
 end
@@ -57,16 +57,16 @@ end
 --- Get current wall clock time in whole milliseconds since the epoch.
 --- Exact for timestamps within 2^53 ms (~285,000 years), so no manual
 --- (secs, nanos) arithmetic is needed for timeouts or timestamps.
---- @return number Milliseconds since epoch
-local function now_ms(): number
+--- @return integer Milliseconds since epoch
+local function now_ms(): integer
   local secs, nanos = unix.clock_gettime(unix.CLOCK_REALTIME)
   return secs * 1000 + math.floor(nanos / 1000000)
 end
 
 --- Get monotonic time in whole milliseconds from an unspecified epoch.
 --- Use differences between two calls to measure elapsed time.
---- @return number Milliseconds
-local function monotonic_ms(): number
+--- @return integer Milliseconds
+local function monotonic_ms(): integer
   local secs, nanos = unix.clock_gettime(unix.CLOCK_MONOTONIC)
   return secs * 1000 + math.floor(nanos / 1000000)
 end
@@ -76,12 +76,12 @@ end
 --- the sleep, returns the remaining seconds and nanoseconds plus an
 --- error string naming EINTR. Invalid input (e.g. a negative duration)
 --- returns nil, nil, and an error naming EINVAL.
---- @param seconds number Seconds to sleep
---- @param nanos number? Additional nanoseconds to sleep (default: 0)
---- @return number | nil Remaining seconds (0 on success), or nil on invalid input
---- @return number Remaining nanoseconds (0 on success)
+--- @param seconds integer Seconds to sleep
+--- @param nanos integer? Additional nanoseconds to sleep (default: 0)
+--- @return integer | nil Remaining seconds (0 on success), or nil on invalid input
+--- @return integer Remaining nanoseconds (0 on success)
 --- @return string? Error message when interrupted (EINTR) or invalid (EINVAL)
-local function sleep(seconds: number, nanos?: number): number | nil, number, string
+local function sleep(seconds: integer, nanos?: integer): integer | nil, integer, string
   local ns = nanos or 0
   local t0s, t0n = unix.clock_gettime(unix.CLOCK_MONOTONIC)
   -- On failure the binding returns (nil, err, errno): the error string
@@ -101,8 +101,8 @@ local function sleep(seconds: number, nanos?: number): number | nil, number, str
     if remaining < 0 then
       remaining = 0
     end
-    return math.floor(remaining / 1000000000) as number,
-    math.floor(remaining % 1000000000) as number,
+    return math.floor(remaining / 1000000000),
+    remaining % 1000000000,
     errno.str(rem_ns, "sleep")
   end
   return nil, nil, errno.str(rem_ns, "sleep")
@@ -115,23 +115,23 @@ end
 --- interrupts; nil, err on invalid input (EINVAL). time.sleep keeps
 --- its (secs, nanos, err) contract for symmetry with clock_gettime.
 --- @param ms number Milliseconds to sleep
---- @return number | nil Remaining milliseconds (0 on success), or nil on invalid input
+--- @return integer | nil Remaining milliseconds (0 on success), or nil on invalid input
 --- @return string? Error message when interrupted (EINTR) or invalid (EINVAL)
-local function sleep_ms(ms: number): number | nil, string
+local function sleep_ms(ms: number): integer | nil, string
   local seconds = math.floor(ms / 1000)
   local remaining_ms = ms % 1000
-  local rem_s, rem_ns, err = sleep(seconds, remaining_ms * 1000000)
+  local rem_s, rem_ns, err = sleep(seconds, math.floor(remaining_ms * 1000000))
   if rem_s == nil then
     return nil, err
   end
   -- Round up so an interrupted sleep never reports 0 remaining.
-  return math.ceil(rem_s * 1000 + rem_ns / 1000000) as number, err
+  return math.ceil(rem_s * 1000 + rem_ns / 1000000), err
 end
 
 --- Break down a UNIX timestamp into UTC (Zulu) time components.
---- @param unixts number UNIX timestamp (seconds since epoch)
+--- @param unixts integer UNIX timestamp (seconds since epoch)
 --- @return DateTime Broken-down time in UTC
-local function gmtime(unixts: number): DateTime
+local function gmtime(unixts: integer): DateTime
   local year, mon, mday, hour, min, sec, gmtoff, wday, yday, isdst, zone =
   unix.gmtime(unixts)
   return {
@@ -151,9 +151,9 @@ end
 
 --- Break down a UNIX timestamp into local time components.
 --- Respects the TZ environment variable.
---- @param unixts number UNIX timestamp (seconds since epoch)
+--- @param unixts integer UNIX timestamp (seconds since epoch)
 --- @return DateTime Broken-down time in local timezone
-local function localtime(unixts: number): DateTime
+local function localtime(unixts: integer): DateTime
   local year, mon, mday, hour, min, sec, gmtoff, wday, yday, isdst, zone =
   unix.localtime(unixts)
   return {
@@ -172,16 +172,16 @@ local function localtime(unixts: number): DateTime
 end
 
 --- Format a UNIX timestamp as an HTTP date string (RFC 7231).
---- @param timestamp number UNIX timestamp (seconds since epoch)
+--- @param timestamp integer UNIX timestamp (seconds since epoch)
 --- @return string HTTP date string (e.g., "Sun, 01 Feb 2026 12:00:00 GMT")
-local function format_http(timestamp: number): string
+local function format_http(timestamp: integer): string
   return cosmo.FormatHttpDateTime(timestamp)
 end
 
 --- Return true if year is a leap year (Gregorian rules).
---- @param year number Full year (e.g., 2024)
+--- @param year integer Full year (e.g., 2024)
 --- @return boolean True when the year has 366 days
-local function is_leap_year(year: number): boolean
+local function is_leap_year(year: integer): boolean
   return year % 4 == 0 and (year % 100 ~= 0 or year % 400 == 0)
 end
 
@@ -189,38 +189,38 @@ end
 local MONTH_DAYS: {integer} = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}
 
 --- Number of days in the given month, accounting for leap years.
---- @param year number Full year (e.g., 2024)
---- @param month number Month (1-12)
---- @return number | nil Days in that month (28-31), or nil when month is out of range
+--- @param year integer Full year (e.g., 2024)
+--- @param month integer Month (1-12)
+--- @return integer | nil Days in that month (28-31), or nil when month is out of range
 --- @return string Error message when month is out of range
-local function days_in_month(year: number, month: number): number | nil, string
+local function days_in_month(year: integer, month: integer): integer | nil, string
   if month < 1 or month > 12 then
     return nil, "days_in_month: month out of range (1-12): " .. tostring(month)
   end
   if month == 2 and is_leap_year(year) then
     return 29
   end
-  return MONTH_DAYS[month as integer]
+  return MONTH_DAYS[month]
 end
 
 --- Convert UTC broken-down time to UNIX epoch seconds.
 --- Fields are range-checked; out-of-range values (e.g. month 13, Feb 30)
 --- return nil plus an error rather than throwing.
---- @param year number Full year (e.g., 2025)
---- @param month number Month (1-12)
---- @param day number Day of month (1-31)
---- @param hour number Hour (0-23)
---- @param min number Minute (0-59)
---- @param sec number Second (0-60)
---- @return number | nil UNIX epoch seconds, or nil on invalid input
+--- @param year integer Full year (e.g., 2025)
+--- @param month integer Month (1-12)
+--- @param day integer Day of month (1-31)
+--- @param hour integer Hour (0-23)
+--- @param min integer Minute (0-59)
+--- @param sec integer Second (0-60)
+--- @return integer | nil UNIX epoch seconds, or nil on invalid input
 --- @return string Error message when input is out of range
-local function timegm(year: number, month: number, day: number,
-    hour: number, min: number, sec: number): number | nil, string
+local function timegm(year: integer, month: integer, day: integer,
+    hour: integer, min: integer, sec: integer): integer | nil, string
   if month < 1 or month > 12 then
     return nil, "timegm: month out of range (1-12): " .. tostring(month)
   end
   -- month is already range-checked, so the nil arm is unreachable
-  local dim = days_in_month(year, month) as number
+  local dim = days_in_month(year, month) as integer
   if day < 1 or day > dim then
     return nil, "timegm: day out of range (1-" .. tostring(dim) .. "): "
     .. tostring(day)
@@ -250,7 +250,7 @@ local function timegm(year: number, month: number, day: number,
 end
 
 --- Month abbreviation (RFC 7231 IMF-fixdate) to month number.
-local MONTH_ABBR: {string: number} = {
+local MONTH_ABBR: {string: integer} = {
   Jan = 1, Feb = 2, Mar = 3, Apr = 4, May = 5, Jun = 6,
   Jul = 7, Aug = 8, Sep = 9, Oct = 10, Nov = 11, Dec = 12,
 }
@@ -260,9 +260,9 @@ local MONTH_ABBR: {string: number} = {
 --- requires senders to generate (e.g. "Sun, 06 Nov 1994 08:49:37 GMT").
 --- The obsolete RFC 850 and asctime forms are not accepted.
 --- @param str string HTTP date string
---- @return number | nil UNIX timestamp, or nil if parsing failed
+--- @return integer | nil UNIX timestamp, or nil if parsing failed
 --- @return string Error message on failure
-local function parse_http(str: string): number | nil, string
+local function parse_http(str: string): integer | nil, string
   local d, mon, y, h, mi, s = str:match(
     "^%a%a%a, (%d%d) (%a%a%a) (%d%d%d%d) (%d%d):(%d%d):(%d%d) GMT$")
   if not d then
@@ -273,15 +273,15 @@ local function parse_http(str: string): number | nil, string
     return nil, "parse_http: unknown month: " .. mon
   end
   return timegm(
-    tonumber(y) as number, month, tonumber(d) as number,
-    tonumber(h) as number, tonumber(mi) as number, tonumber(s) as number)
+    tonumber(y) as integer, month, tonumber(d) as integer,
+    tonumber(h) as integer, tonumber(mi) as integer, tonumber(s) as integer)
 end
 
 --- Format a UNIX timestamp as a date string in UTC.
---- @param timestamp number UNIX timestamp (seconds since epoch)
+--- @param timestamp integer UNIX timestamp (seconds since epoch)
 --- @return string | nil Date string (e.g., "2025-01-01"), or nil on error
 --- @return string Error message if formatting failed
-local function format_date(timestamp: number): string | nil, string
+local function format_date(timestamp: integer): string | nil, string
   local s, err = cosmo.Strftime("%Y-%m-%d", timestamp)
   if not s then
     return nil, err as string
@@ -291,23 +291,23 @@ end
 
 --- Parse a YYYY-MM-DD date string into a UNIX timestamp (midnight UTC).
 --- @param str string Date string (e.g., "2025-01-01")
---- @return number | nil UNIX timestamp, or nil if parsing failed
+--- @return integer | nil UNIX timestamp, or nil if parsing failed
 --- @return string Error message on failure
-local function parse_date(str: string): number | nil, string
+local function parse_date(str: string): integer | nil, string
   local y, mo, d = str:match("^(%d%d%d%d)-(%d%d)-(%d%d)$")
   if not y then
     return nil, "parse_date: not a YYYY-MM-DD date: " .. str
   end
   return timegm(
-    tonumber(y) as number, tonumber(mo) as number, tonumber(d) as number,
+    tonumber(y) as integer, tonumber(mo) as integer, tonumber(d) as integer,
     0, 0, 0)
 end
 
 --- Format a UNIX timestamp as an ISO 8601 string in UTC.
---- @param timestamp number UNIX timestamp (seconds since epoch)
+--- @param timestamp integer UNIX timestamp (seconds since epoch)
 --- @return string | nil ISO 8601 string (e.g., "2025-01-01T00:00:00Z"), or nil on error
 --- @return string Error message if formatting failed
-local function format_iso8601(timestamp: number): string | nil, string
+local function format_iso8601(timestamp: integer): string | nil, string
   local s, err = cosmo.Strftime("%Y-%m-%dT%H:%M:%SZ", timestamp)
   if not s then
     return nil, err as string
@@ -317,8 +317,8 @@ end
 
 --- Resolve an ISO 8601 timezone suffix into a signed offset in seconds.
 --- Accepts "", "Z"/"z" (UTC), "±HH:MM", "±HHMM", and "±HH".
---- @return number Offset east of UTC in seconds, or nil if unparseable
-local function parse_offset(tz: string): number, string
+--- @return integer Offset east of UTC in seconds, or nil if unparseable
+local function parse_offset(tz: string): integer, string
   if tz == "" or tz == "Z" or tz == "z" then
     return 0
   end
@@ -333,8 +333,8 @@ local function parse_offset(tz: string): number, string
   if not sign then
     return nil, "invalid timezone offset: " .. tz
   end
-  local h = tonumber(oh) as number
-  local m = tonumber(om) as number
+  local h = tonumber(oh) as integer
+  local m = tonumber(om) as integer
   if h > 23 or m > 59 then
     return nil, "timezone offset out of range: " .. tz
   end
@@ -348,14 +348,14 @@ end
 --- truncated to whole seconds. Also accepts date-only "YYYY-MM-DD" (midnight
 --- UTC).
 --- @param str string ISO 8601 string (e.g., "2025-01-01T00:00:00.5Z")
---- @return number | nil UNIX timestamp, or nil if parsing failed
+--- @return integer | nil UNIX timestamp, or nil if parsing failed
 --- @return string Error message on failure
-local function parse_iso8601(str: string): number | nil, string
+local function parse_iso8601(str: string): integer | nil, string
   -- try date-only format first
   local dy, dmo, dd = str:match("^(%d%d%d%d)-(%d%d)-(%d%d)$")
   if dy then
     return timegm(
-      tonumber(dy) as number, tonumber(dmo) as number, tonumber(dd) as number,
+      tonumber(dy) as integer, tonumber(dmo) as integer, tonumber(dd) as integer,
       0, 0, 0)
   end
   local y, mo, d, h, mi, s, rest = str:match(
@@ -367,8 +367,8 @@ local function parse_iso8601(str: string): number | nil, string
   local after = rest:match("^%.%d+(.*)$")
   local tz = after or rest
   local epoch, err = timegm(
-    tonumber(y) as number, tonumber(mo) as number, tonumber(d) as number,
-    tonumber(h) as number, tonumber(mi) as number, tonumber(s) as number)
+    tonumber(y) as integer, tonumber(mo) as integer, tonumber(d) as integer,
+    tonumber(h) as integer, tonumber(mi) as integer, tonumber(s) as integer)
   if not epoch then
     return nil, err
   end
@@ -381,34 +381,34 @@ end
 
 local record TimeModule
   -- Clock constants
-  CLOCK_REALTIME: number
-  CLOCK_MONOTONIC: number
-  CLOCK_BOOTTIME: number
-  CLOCK_MONOTONIC_RAW: number
-  CLOCK_REALTIME_COARSE: number
-  CLOCK_MONOTONIC_COARSE: number
-  CLOCK_THREAD_CPUTIME_ID: number
-  CLOCK_PROCESS_CPUTIME_ID: number
+  CLOCK_REALTIME: integer
+  CLOCK_MONOTONIC: integer
+  CLOCK_BOOTTIME: integer
+  CLOCK_MONOTONIC_RAW: integer
+  CLOCK_REALTIME_COARSE: integer
+  CLOCK_MONOTONIC_COARSE: integer
+  CLOCK_THREAD_CPUTIME_ID: integer
+  CLOCK_PROCESS_CPUTIME_ID: integer
 
   -- Functions
-  clock_gettime: function(clock?: number): number, number
-  now: function(): number, number
-  monotonic: function(): number, number
-  now_ms: function(): number
-  monotonic_ms: function(): number
-  sleep: function(seconds: number, nanos?: number): number | nil, number, string
-  sleep_ms: function(ms: number): number | nil, string
-  gmtime: function(unixts: number): DateTime
-  localtime: function(unixts: number): DateTime
-  format_http: function(timestamp: number): string
-  parse_http: function(str: string): number | nil, string
-  format_date: function(timestamp: number): string | nil, string
-  parse_date: function(str: string): number | nil, string
-  format_iso8601: function(timestamp: number): string | nil, string
-  parse_iso8601: function(str: string): number | nil, string
-  timegm: function(year: number, month: number, day: number, hour: number, min: number, sec: number): number | nil, string
-  is_leap_year: function(year: number): boolean
-  days_in_month: function(year: number, month: number): number | nil, string
+  clock_gettime: function(clock?: integer): integer, integer
+  now: function(): integer, integer
+  monotonic: function(): integer, integer
+  now_ms: function(): integer
+  monotonic_ms: function(): integer
+  sleep: function(seconds: integer, nanos?: integer): integer | nil, integer, string
+  sleep_ms: function(ms: number): integer | nil, string
+  gmtime: function(unixts: integer): DateTime
+  localtime: function(unixts: integer): DateTime
+  format_http: function(timestamp: integer): string
+  parse_http: function(str: string): integer | nil, string
+  format_date: function(timestamp: integer): string | nil, string
+  parse_date: function(str: string): integer | nil, string
+  format_iso8601: function(timestamp: integer): string | nil, string
+  parse_iso8601: function(str: string): integer | nil, string
+  timegm: function(year: integer, month: integer, day: integer, hour: integer, min: integer, sec: integer): integer | nil, string
+  is_leap_year: function(year: integer): boolean
+  days_in_month: function(year: integer, month: integer): integer | nil, string
 end
 
 local M: TimeModule = {
