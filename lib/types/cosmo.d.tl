@@ -36,21 +36,21 @@ local record EncoderOptions
   --- defaults to 64. This option controls the maximum amount of recursion the serializer is allowed to perform. The max is 32767. You might not be able to set it that high if there isn't enough C stack memory. Your serializer checks for this and will return an error rather than crashing.
   maxdepth: integer
   --- `EncodeJson` only: encode NaN and Infinity as `null` (the v8 behavior) instead of failing with `nil, error`.
-  nan: string
+  nan: JsonNanMode
 end
 
 local record DeflateOptions
   --- compression level `-1`..`9`; defaults to `-1`, the zlib default (currently 6). `0` stores without compressing; higher levels are slower but compress better.
   level: integer
   --- framing of the compressed stream; defaults to `"raw"` (headerless DEFLATE, as used inside ZIP files).
-  format: string
+  format: CompressFormat
 end
 
 local record InflateOptions
   --- cap on the decompressed size in bytes; defaults to 64 MiB. Decompression streams into a growing buffer and fails with `nil, error` once the cap is exceeded, so no attacker-controlled length is ever trusted as an allocation size.
   maxsize: integer
   --- framing of the compressed stream; defaults to `"raw"`. `"auto"` detects zlib or gzip framing from the stream header (but cannot detect `"raw"`).
-  format: string
+  format: UncompressFormat
 end
 
 local record FetchOptions
@@ -141,6 +141,58 @@ local enum IpCategory
   "ANONYMOUS"
 end
 
+--- The only accepted `nan` mode in `EncodeJson` options: serialize NaN
+--- and Infinity as `null` (the v8 behavior) instead of failing.
+local type JsonNanMode = string
+
+--- Framing of a compressed stream produced by `Deflate`.
+local enum CompressFormat
+  "raw"
+  "zlib"
+  "gzip"
+end
+
+--- Framing accepted by `Inflate`; `"auto"` detects zlib or gzip framing
+--- from the stream header (but cannot detect `"raw"`).
+local enum UncompressFormat
+  "raw"
+  "zlib"
+  "gzip"
+  "auto"
+end
+
+--- Hash function names accepted by `GetCryptoHash`, exactly the set
+--- `tool/lua/test_crypto_hash.lua` verifies against the C.
+local enum CryptoHashName
+  "MD5"
+  "SHA1"
+  "SHA224"
+  "SHA256"
+  "SHA384"
+  "SHA512"
+  "BLAKE2B256"
+end
+
+--- Host instruction set architecture names returned by `GetHostIsa`.
+local enum HostIsa
+  "X86_64"
+  "AARCH64"
+  "POWERPC64"
+  "S390X"
+end
+
+--- Host OS names returned by `GetHostOs` (nil when unrecognized stays at
+--- the call site's return annotation).
+local enum HostOs
+  "LINUX"
+  "METAL"
+  "WINDOWS"
+  "XNU"
+  "NETBSD"
+  "FREEBSD"
+  "OPENBSD"
+end
+
 local record cosmo
   type Url = Url
   type EncoderOptions = EncoderOptions
@@ -151,6 +203,12 @@ local record cosmo
   type StreamReader = StreamReader
   type FetchErrorKind = FetchErrorKind
   type IpCategory = IpCategory
+  type JsonNanMode = JsonNanMode
+  type CompressFormat = CompressFormat
+  type UncompressFormat = UncompressFormat
+  type CryptoHashName = CryptoHashName
+  type HostIsa = HostIsa
+  type HostOs = HostOs
 
   --- Writes all data to file the easy way.
   --- This function writes to the local file system. By default it truncates
@@ -517,15 +575,15 @@ local record cosmo
   --- Turns integer like `0x01020304` into a string like `"1.2.3.4"`. See also
   --- `ParseIp` for the inverse operation.
   FormatIp: function(uint32: integer): string
-  GetCryptoHash: function(name: string, payload: string, key?: string): string | nil, string | nil
+  GetCryptoHash: function(name: CryptoHashName, payload: string, key?: string): string | nil, string | nil
   --- Returns string describing host instruction set architecture.
   --- This can return:
   --- - `"X86_64"` for Intel and AMD systems
   --- - `"AARCH64"` for ARM64, M1, and Raspberry Pi systems
   --- - `"POWERPC64"` for OpenPOWER Raptor Computing Systems
   --- - `"S390X"` for IBM System/390 systems
-  GetHostIsa: function(): string
-  GetHostOs: function(): string | nil
+  GetHostIsa: function(): HostIsa
+  GetHostOs: function(): HostOs | nil
   GetHttpReason: function(code: integer): string
   --- This is useful for fixed-width formatting. For example, CJK characters
   --- typically take up two cells. This function takes into consideration combining
