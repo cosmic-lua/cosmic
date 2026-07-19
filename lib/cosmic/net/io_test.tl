@@ -1,10 +1,11 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local net = require("cosmic.net")
 
 local function pair(): net.Socket, net.Socket
   local a, b, err = net.socketpair()
   assert(a ~= nil and b ~= nil, "socketpair failed: " .. tostring(err))
-  return a as net.Socket, b
+  return check.must(a), b
 end
 
 -- sendall tests

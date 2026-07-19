@@ -96,8 +96,8 @@ if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n
   -- an outer sandbox is blocking an otherwise-supported mechanism — a
   -- strict skip that the enforce lane (COSMIC_ENFORCE=1, no outer sandbox)
   -- turns into a hard failure.
-  local h = spawn.spawn({cosmic, script})
-  local __r1 = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, script}))
+  local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout
   -- Under an outer seccomp/pledge filter the landlock syscall may be
   -- blocked with SIGSYS rather than EPERM, killing the subprocess
@@ -106,7 +106,7 @@ if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n
     check.skip("landlock restrict blocked (subprocess died before enforcing)", true)
     return
   end
-  local s = out as string
+  local s = out
   if s:find("skipped") then
     check.skip("landlock restrict blocked: " .. s, true)
     return
@@ -152,14 +152,14 @@ local g = io.open(%q, "r")
 if g then io.write("sibling-leaked\n"); g:close() else io.write("sibling-blocked\n") end
 ]], target, target, sibling))
 
-  local h = spawn.spawn({cosmic, script})
-  local __r2 = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, script}))
+  local __r2 = check.must(h:wait())
   local ok, out = __r2.ok, __r2.stdout
   if not ok then
     check.skip("landlock restrict blocked (subprocess died before enforcing)", true)
     return
   end
-  local s = out as string
+  local s = out
   -- Plain-text find: "-" is a Lua pattern quantifier, so a pattern
   -- search for "restrict-failed" would never match the literal marker.
   if s:find("restrict-failed", 1, true) then

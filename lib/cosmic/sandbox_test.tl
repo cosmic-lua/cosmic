@@ -198,14 +198,14 @@ local g = io.open(%q, "r")
 if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n") end
 ]], allowed_dir, allowed, denied))
 
-  local h = spawn.spawn({cosmic, script})
-  local r = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, script}))
+  local r = check.must(h:wait())
   if r.signal ~= nil then
     check.skip("sandbox subprocess killed by signal " .. tostring(r.signal)
       .. " (outer sandbox)", true)
     return
   end
-  local s = (r.stdout or "") as string
+  local s = r.stdout or ""
   if s:find("sandbox-blocked:", 1, true) then
     -- available() said yes yet apply failed: an outer sandbox
     -- pre-empted it. Strict: a hard failure on the enforce lane.
@@ -249,10 +249,10 @@ local f = io.open(%q, "r")
 if f then io.write("unapplied-ok\n"); f:close() else io.write("half-applied\n") end
 ]], dir, outside))
 
-  local h = spawn.spawn({cosmic, script})
-  local r = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, script}))
+  local r = check.must(h:wait())
   if r.signal ~= nil then return end
-  local s = (r.stdout or "") as string
+  local s = r.stdout or ""
   assert(s:find("unapplied-ok", 1, true),
     "a rejected policy must enforce nothing: " .. s)
 end

@@ -1,10 +1,10 @@
 #!/usr/bin/env cosmic
 --- Tests for the coverage ratchet baseline.
 local baseline = require("cosmic.coverage.baseline")
+local check = require("cosmic.check")
 local rep = require("cosmic.coverage.report")
 
 local type FileReport = rep.FileReport
-local type Entry = baseline.Entry
 
 local function reports(rows: {{string, integer, integer}}): {FileReport}
   local out: {FileReport} = {}
@@ -25,8 +25,7 @@ local function test_render_parse_roundtrip()
         {"lib/b.tl", 0, 5},
       }))
   local entries, total, err = baseline.parse(text)
-  assert(entries, "parse failed: " .. (err or "?"))
-  local e = entries as {string: Entry}
+  local e = check.must(entries, err)
   assert(e["lib/a.tl"].covered == 9 and e["lib/a.tl"].total == 10, "row a lost")
   assert(e["lib/b.tl"].covered == 0 and e["lib/b.tl"].total == 5, "row b lost")
   assert(total and total.covered == 9 and total.total == 15, "total row wrong")
@@ -46,7 +45,7 @@ local function violations(current: {{string, integer, integer}},
   local text = baseline.render(reports(base))
   local entries, total = baseline.parse(text)
   return baseline.compare(reports(current),
-    entries as {string: Entry}, total)
+    check.must(entries), total)
 end
 
 local function test_holds_when_unchanged_or_improved()

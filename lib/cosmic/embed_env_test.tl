@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 -- test cosmic env var fallbacks: COSMIC_EMBED, COSMIC_OUTPUT, COSMIC_EXTRACT
 
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local cenv = require("cosmic.env")
 local spawn = require("cosmic.child")
@@ -34,7 +35,7 @@ local function test_embed_via_env()
   env[#env + 1] = "COSMIC_OUTPUT=" .. output
 
   -- Invoke without --embed or --output flags
-  local __r1 = (spawn.spawn({cosmic}, {env = env}) as spawn.Handle):wait() as spawn.Result
+  local __r1 = check.must(check.must(spawn.spawn({cosmic}, {env = env})):wait())
   local ok, out = __r1.ok, __r1.stdout
   assert(ok, "cosmic with COSMIC_EMBED env should succeed: " .. (out or ""))
 
@@ -43,9 +44,7 @@ local function test_embed_via_env()
   assert(stat, "output file should exist")
 
   local data = fs.read(output)
-  local reader_maybe = zip.from(data)
-  assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as zip.Reader
+  local reader = check.must(zip.from(data), "failed to open zip from data")
 
   local expected_name = input:gsub("^/+", "")
   local content = reader:read(expected_name)
@@ -67,7 +66,7 @@ local function test_extract_via_env()
   env[#env + 1] = "COSMIC_EXTRACT=" .. extractdir
 
   -- Invoke without --extract flag
-  local __r2 = (spawn.spawn({cosmic}, {env = env}) as spawn.Handle):wait() as spawn.Result
+  local __r2 = check.must(check.must(spawn.spawn({cosmic}, {env = env})):wait())
   local ok, out = __r2.ok, __r2.stdout
   assert(ok, "cosmic with COSMIC_EXTRACT env should succeed: " .. (out or ""))
 
@@ -92,14 +91,12 @@ local function test_cli_priority_over_env()
   env[#env + 1] = "COSMIC_OUTPUT=" .. output
 
   -- Pass --embed via CLI (should override env)
-  local __r3 = (spawn.spawn({cosmic, "--embed", cli_input, "--output", output}, {env = env}) as spawn.Handle):wait() as spawn.Result
+  local __r3 = check.must(check.must(spawn.spawn({cosmic, "--embed", cli_input, "--output", output}, {env = env})):wait())
   local ok, out = __r3.ok, __r3.stdout
   assert(ok, "cosmic --embed with env override should succeed: " .. (out or ""))
 
   local data = fs.read(output)
-  local reader_maybe = zip.from(data)
-  assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as zip.Reader
+  local reader = check.must(zip.from(data), "failed to open zip from data")
 
   -- CLI file should be present
   local cli_name = cli_input:gsub("^/+", "")

@@ -9,6 +9,7 @@ local function Example_start_stop()
     io.write("not linux\n")
     return
   end
+  local check = require("cosmic.check")
   local proxy = require("cosmic.quicksand.proxy")
   local handle, err = proxy.start({
       bind_ip = 0x7f000001,
@@ -27,7 +28,7 @@ local function Example_start_stop()
     return
   end
   io.write("listening\n")
-  local h = handle as proxy.ProxyHandle
+  local h = check.must(handle)
   h:stop()
 end
 

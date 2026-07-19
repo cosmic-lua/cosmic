@@ -14,9 +14,9 @@
 --- Coverage is read from the docs index embedded in the binary, which
 --- merges each X_example.tl into module X (and shard examples like
 --- quicksand/netns_example.tl into cosmic.<name>.<shard>).
+local check = require("cosmic.check")
 local manifest = require("cosmic.public")
 local doc = require("cosmic.doc")
-local doc_types = require("cosmic.doc.types")
 
 -- Shrink only. Never add an entry; delete each one as #509 lands its
 -- example. (31 of 46 public modules at ratchet birth.)
@@ -50,8 +50,8 @@ local MISSING_ALLOWED: {string} = {
 }
 
 local index, ierr = doc.embedded_index()
-assert(index, "docs index must be embedded (run via the binary): " .. tostring(ierr))
-local idx = index as doc_types.DocIndex
+local idx = check.must(index,
+  "docs index must be embedded (run via the binary): " .. tostring(ierr))
 
 --- True when the module (or any shard beneath it) carries examples in
 --- the embedded docs index.

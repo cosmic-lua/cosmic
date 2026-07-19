@@ -1,11 +1,10 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local ip = require("cosmic.ip")
 
 --- Parse an address the test knows is valid, asserting success.
 local function p(s: string): ip.Addr
-  local a, err = ip.parse(s)
-  assert(a ~= nil, "parse failed for " .. s .. ": " .. tostring(err))
-  return a as ip.Addr
+  return check.must(ip.parse(s))
 end
 
 -- parse tests: parse returns a typed Addr (api-review-2, #588)
@@ -191,7 +190,7 @@ local function test_lookup_localhost()
   local a, err = ip.lookup("localhost")
   assert(a, "expected Addr for localhost, got nil: " .. tostring(err))
   assert(err == nil, "expected nil error, got " .. tostring(err))
-  local aa = a as ip.Addr
+  local aa = check.must(a)
   assert(aa:int() == 2130706433, "expected 127.0.0.1, got " .. tostring(aa:int()))
   assert(aa == p("127.0.0.1"), "lookup and parse agree by value")
 end
@@ -223,9 +222,7 @@ end
 test_addr_methods()
 
 local function test_lookup_returns_addr_with_methods()
-  local a, err = ip.lookup("localhost")
-  assert(a, "lookup failed: " .. tostring(err))
-  local aa = a as ip.Addr
+  local aa = check.must(ip.lookup("localhost"))
   assert(aa:format() == "127.0.0.1", "expected '127.0.0.1', got '" .. aa:format() .. "'")
   assert(aa:is_loopback() == true, "expected loopback")
   assert(tostring(aa) == "127.0.0.1", "expected tostring '127.0.0.1'")
@@ -235,7 +232,7 @@ test_lookup_returns_addr_with_methods()
 -- CIDR tests (#501)
 
 local function test_cidr_parse()
-  local c = assert(ip.cidr("192.168.0.0/16")) as ip.Cidr
+  local c = check.must(ip.cidr("192.168.0.0/16"))
   assert(c:bits() == 16, "expected 16 bits")
   assert(tostring(c:network()) == "192.168.0.0", "expected network 192.168.0.0")
   assert(tostring(c) == "192.168.0.0/16", "expected tostring 192.168.0.0/16")
@@ -244,24 +241,24 @@ end
 test_cidr_parse()
 
 local function test_cidr_masks_host_bits()
-  local c = assert(ip.cidr("10.1.2.3/8")) as ip.Cidr
+  local c = check.must(ip.cidr("10.1.2.3/8"))
   assert(tostring(c:network()) == "10.0.0.0", "expected host bits masked away")
   assert(tostring(c) == "10.0.0.0/8", "expected canonical form")
 end
 test_cidr_masks_host_bits()
 
 local function test_cidr_netmask_broadcast_size()
-  local c = assert(ip.cidr("192.168.1.0/24")) as ip.Cidr
+  local c = check.must(ip.cidr("192.168.1.0/24"))
   assert(tostring(c:netmask()) == "255.255.255.0", "expected /24 netmask")
   assert(tostring(c:broadcast()) == "192.168.1.255", "expected broadcast")
   assert(c:size() == 256, "expected 256 addresses, got " .. tostring(c:size()))
 
-  local host = assert(ip.cidr("1.2.3.4/32")) as ip.Cidr
+  local host = check.must(ip.cidr("1.2.3.4/32"))
   assert(tostring(host:netmask()) == "255.255.255.255", "expected /32 netmask")
   assert(tostring(host:broadcast()) == "1.2.3.4", "expected /32 broadcast = itself")
   assert(host:size() == 1, "expected single address")
 
-  local all = assert(ip.cidr("0.0.0.0/0")) as ip.Cidr
+  local all = check.must(ip.cidr("0.0.0.0/0"))
   assert(tostring(all:netmask()) == "0.0.0.0", "expected /0 netmask")
   assert(tostring(all:broadcast()) == "255.255.255.255", "expected /0 broadcast")
   assert(all:size() == 4294967296, "expected 2^32 addresses")
@@ -269,7 +266,7 @@ end
 test_cidr_netmask_broadcast_size()
 
 local function test_cidr_contains()
-  local c = assert(ip.cidr("192.168.1.0/24")) as ip.Cidr
+  local c = check.must(ip.cidr("192.168.1.0/24"))
   assert(c:contains("192.168.1.1"), "expected member")
   assert(c:contains("192.168.1.0"), "expected network address contained")
   assert(c:contains("192.168.1.255"), "expected broadcast address contained")
@@ -279,17 +276,17 @@ local function test_cidr_contains()
   local a = assert(ip.parse("192.168.1.42"))
   assert(c:contains(a), "expected typed Addr accepted")
 
-  local all = assert(ip.cidr("0.0.0.0/0")) as ip.Cidr
+  local all = check.must(ip.cidr("0.0.0.0/0"))
   assert(all:contains("8.8.8.8"), "expected /0 to contain everything")
 
-  local host = assert(ip.cidr("1.2.3.4/32")) as ip.Cidr
+  local host = check.must(ip.cidr("1.2.3.4/32"))
   assert(host:contains("1.2.3.4"), "expected /32 to contain itself")
   assert(not host:contains("1.2.3.5"), "expected /32 to exclude neighbors")
 end
 test_cidr_contains()
 
 local function test_cidr_contains_bad_string()
-  local c = assert(ip.cidr("10.0.0.0/8")) as ip.Cidr
+  local c = check.must(ip.cidr("10.0.0.0/8"))
   local ok, err = c:contains("not-an-ip")
   assert(ok == false, "expected false for unparseable address")
   assert(err ~= nil, "expected an error message")
@@ -297,9 +294,9 @@ end
 test_cidr_contains_bad_string()
 
 local function test_cidr_equality()
-  local a = assert(ip.cidr("10.0.0.0/8")) as ip.Cidr
-  local b = assert(ip.cidr("10.9.9.9/8")) as ip.Cidr
-  local c = assert(ip.cidr("10.0.0.0/9")) as ip.Cidr
+  local a = check.must(ip.cidr("10.0.0.0/8"))
+  local b = check.must(ip.cidr("10.9.9.9/8"))
+  local c = check.must(ip.cidr("10.0.0.0/9"))
   assert(a == b, "expected same masked block to compare equal")
   assert(a ~= c, "expected different prefix to differ")
 end

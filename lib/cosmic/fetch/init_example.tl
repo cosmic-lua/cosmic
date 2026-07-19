@@ -7,15 +7,16 @@
 -- Example_get demonstrates a simple HTTP GET request against a local
 -- server: fork a child to answer one request, then fetch from it.
 local function Example_get()
+  local check = require("cosmic.check")
   local fetch = require("cosmic.fetch")
   local net = require("cosmic.net")
   local proc = require("cosmic.proc")
 
   local srv, port = net.listen_tcp("127.0.0.1", 0)
-  local s = srv as net.Socket
+  local s = check.must(srv)
   local pid = proc.fork()
   if pid == 0 then
-    local conn = s:accept() as net.Socket
+    local conn = check.must((s:accept()))
     conn:recv(4096)
     conn:send("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello")
     conn:close()
@@ -36,12 +37,13 @@ end
 -- idempotent methods, with full-jitter exponential backoff. Here the
 -- server answers 503 once, then 200; max_attempts = 2 rides it out.
 local function Example_retry()
+  local check = require("cosmic.check")
   local fetch = require("cosmic.fetch")
   local net = require("cosmic.net")
   local proc = require("cosmic.proc")
 
   local srv, port = net.listen_tcp("127.0.0.1", 0)
-  local s = srv as net.Socket
+  local s = check.must(srv)
   local pid = proc.fork()
   if pid == 0 then
     local responses = {
@@ -49,7 +51,7 @@ local function Example_retry()
       "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
     }
     for _, resp in ipairs(responses) do
-      local conn = s:accept() as net.Socket
+      local conn = check.must((s:accept()))
       conn:recv(4096)
       conn:send(resp)
       conn:close()
@@ -72,16 +74,17 @@ end
 -- Example_stream_lines demonstrates streaming a response and iterating
 -- its lines incrementally instead of buffering the whole body.
 local function Example_stream_lines()
+  local check = require("cosmic.check")
   local fetch = require("cosmic.fetch")
   local net = require("cosmic.net")
   local proc = require("cosmic.proc")
 
   local srv, port = net.listen_tcp("127.0.0.1", 0)
-  local s = srv as net.Socket
+  local s = check.must(srv)
   local pid = proc.fork()
   if pid == 0 then
     local body = "alpha\nbeta\ngamma\n"
-    local conn = s:accept() as net.Socket
+    local conn = check.must((s:accept()))
     conn:recv(4096)
     conn:send("HTTP/1.1 200 OK\r\nContent-Length: " .. #body
       .. "\r\nConnection: close\r\n\r\n" .. body)

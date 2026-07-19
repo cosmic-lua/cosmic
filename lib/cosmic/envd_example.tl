@@ -35,6 +35,7 @@ end
 -- current executable's zip, add an env.d directory with credentials,
 -- re-embed, and run the new executable to show the vars are available.
 local function Example_extract_update_embed()
+  local check = require("cosmic.check")
   local fs = require("cosmic.fs")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
@@ -43,7 +44,7 @@ local function Example_extract_update_embed()
 
   -- 1. extract current executable
   local extractdir = fs.join(tmpdir, "extracted")
-  local r = spawn.run({cosmic, "--extract", extractdir}) as spawn.Result
+  local r = check.must(spawn.run({cosmic, "--extract", extractdir}))
   assert(r.ok, r.stderr)
 
   -- 2. add env.d with a credential
@@ -64,11 +65,11 @@ print("MY_SECRET_TOKEN is " .. (env.get("MY_SECRET_TOKEN") and "set" or "unset")
 
   -- 4. build new executable
   local output = fs.join(tmpdir, "myapp")
-  r = spawn.run({cosmic, "--embed", extractdir, "--output", output}) as spawn.Result
+  r = check.must(spawn.run({cosmic, "--embed", extractdir, "--output", output}))
   assert(r.ok, r.stderr)
 
   -- 5. run it
-  r = spawn.run({output}) as spawn.Result
+  r = check.must(spawn.run({output}))
   fs.rmrf(tmpdir)
   print(r.stdout)
   -- Output:

@@ -149,7 +149,7 @@ local function test_capabilities_does_not_self_brick()
   -- unix.unveil(nil, nil) commit, which locks the calling process into a
   -- deny-all sandbox. Prove ordinary filesystem IO still works afterward by
   -- reading back a file written before the probe.
-  local tmp = os.getenv("TEST_TMPDIR") as string
+  local tmp = check.must(os.getenv("TEST_TMPDIR"))
   local path = tmp .. "/unveil_probe_check"
   local w = io.open(path, "w")
   assert(w, "should create probe check file")

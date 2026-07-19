@@ -2,6 +2,7 @@
 --- Header normalization tests (issue #530 part 1): repeated response
 --- headers must surface as a joined string in result.headers and as an
 --- ordered list in result.raw_headers, with lowercase names in both.
+local check = require("cosmic.check")
 local fetch = require("cosmic.fetch")
 local net = require("cosmic.net")
 local proc = require("cosmic.proc")
@@ -16,14 +17,13 @@ local RESPONSE = "HTTP/1.1 200 OK\r\n"
 --- Fork a loopback server answering n requests with RESPONSE.
 local function serve(n: integer): integer, integer
   local srv, port = net.listen_tcp("127.0.0.1", 0)
-  assert(srv ~= nil, "listen_tcp failed")
-  local s = srv as net.Socket
+  local s = check.must(srv, "listen_tcp failed")
   local pid = proc.fork()
   if pid == 0 then
     for _ = 1, n do
       local conn = s:accept()
       if conn then
-        local c = conn as net.Socket
+        local c = check.must(conn)
         local buf = ""
         while not buf:find("\r\n\r\n", 1, true) do
           local data = c:recv(4096)

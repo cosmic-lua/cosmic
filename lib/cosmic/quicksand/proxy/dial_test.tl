@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local dial = require("cosmic.quicksand.proxy.dial")
 local quicksand = require("cosmic.quicksand")
 local ip = require("cosmic.ip")
@@ -33,7 +34,7 @@ local function test_resolve_literal_skips_resolver()
     function(_: string): integer, any
       error("resolver must not run for literals")
     end)
-  assert(got == (ip.parse("8.8.8.8") as ip.Addr):int(),
+  assert(got == check.must(ip.parse("8.8.8.8")):int(),
     "literal should parse directly: " .. tostring(err))
 end
 test_resolve_literal_skips_resolver()

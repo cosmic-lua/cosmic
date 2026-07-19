@@ -17,6 +17,7 @@
 -- reject fails check 2; a probe that drifts from the shim fails
 -- check 1. On a tl version bump the probe re-validates automatically.
 
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local teal = require("cosmic.teal")
 
@@ -119,9 +120,8 @@ test_probe_passes_against_staged_tl()
 -- in the probe, so a member added to gentl's surface cannot ship
 -- unprobed.
 local function test_probe_covers_every_shim_member()
-  local shim = fs.read("lib/types/tl.d.tl")
-  assert(shim, "lib/types/tl.d.tl should be readable")
-  for name in (shim as string):gmatch("\n  ([%w_]+): function") do
+  local shim = check.must(fs.read("lib/types/tl.d.tl"))
+  for name in shim:gmatch("\n  ([%w_]+): function") do
     assert(PROBE:find("tl%." .. name .. "%f[^%w_]"),
       "shim member 'tl." .. name .. "' is not exercised by the probe")
   end

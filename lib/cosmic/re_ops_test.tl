@@ -1,36 +1,37 @@
 #!/usr/bin/env cosmic
 local re = require("cosmic.re")
+local check = require("cosmic.check")
 
 -- findall tests
 
 local function test_findall_basic()
-  local ms = assert(re.findall("[0-9]+", "a1b22c333")) as {string}
+  local ms = check.must(re.findall("[0-9]+", "a1b22c333"))
   assert(#ms == 3, "expected 3 matches, got " .. #ms)
   assert(ms[1] == "1" and ms[2] == "22" and ms[3] == "333", "expected 1,22,333")
 end
 test_findall_basic()
 
 local function test_findall_no_match()
-  local ms = assert(re.findall("[0-9]+", "abc")) as {string}
+  local ms = check.must(re.findall("[0-9]+", "abc"))
   assert(#ms == 0, "expected empty list for no matches")
 end
 test_findall_no_match()
 
 local function test_findall_non_overlapping()
-  local ms = assert(re.findall("aa", "aaaa")) as {string}
+  local ms = check.must(re.findall("aa", "aaaa"))
   assert(#ms == 2, "expected 2 non-overlapping matches, got " .. #ms)
 end
 test_findall_non_overlapping()
 
 local function test_findall_leftmost_longest()
-  local ms = assert(re.findall("ab*", "abbb ab a")) as {string}
+  local ms = check.must(re.findall("ab*", "abbb ab a"))
   assert(#ms == 3, "expected 3 matches, got " .. #ms)
   assert(ms[1] == "abbb" and ms[2] == "ab" and ms[3] == "a", "expected longest matches")
 end
 test_findall_leftmost_longest()
 
 local function test_findall_icase_flag()
-  local ms = assert(re.findall("foo", "Foo foo FOO", re.ICASE)) as {string}
+  local ms = check.must(re.findall("foo", "Foo foo FOO", re.ICASE))
   assert(#ms == 3, "expected 3 case-insensitive matches, got " .. #ms)
   assert(ms[1] == "Foo" and ms[3] == "FOO", "expected original casing in results")
 end
@@ -60,7 +61,7 @@ test_anchor_dollar_positions_correctly()
 
 local function test_anchor_caret_only_start()
   assert(re.gsub("^a", "aaa", "X") == "Xaa", "expected only the leading a replaced")
-  local ms = assert(re.findall("^a+", "aa a")) as {string}
+  local ms = check.must(re.findall("^a+", "aa a"))
   assert(#ms == 1 and ms[1] == "aa", "expected a single anchored match")
 end
 test_anchor_caret_only_start()
@@ -68,14 +69,14 @@ test_anchor_caret_only_start()
 -- split tests
 
 local function test_split_basic()
-  local fields = assert(re.split("[0-9]+", "a1b22c")) as {string}
+  local fields = check.must(re.split("[0-9]+", "a1b22c"))
   assert(#fields == 3, "expected 3 fields, got " .. #fields)
   assert(fields[1] == "a" and fields[2] == "b" and fields[3] == "c", "expected a,b,c")
 end
 test_split_basic()
 
 local function test_split_edges_and_adjacent()
-  local fields = assert(re.split("-", "-a--b-")) as {string}
+  local fields = check.must(re.split("-", "-a--b-"))
   assert(#fields == 5, "expected 5 fields, got " .. #fields)
   assert(fields[1] == "" and fields[2] == "a" and fields[3] == "", "expected empty edge fields")
   assert(fields[4] == "b" and fields[5] == "", "expected trailing empty field")
@@ -83,13 +84,13 @@ end
 test_split_edges_and_adjacent()
 
 local function test_split_no_match()
-  local fields = assert(re.split(",", "abc")) as {string}
+  local fields = check.must(re.split(",", "abc"))
   assert(#fields == 1 and fields[1] == "abc", "expected whole string as one field")
 end
 test_split_no_match()
 
 local function test_split_whitespace_runs()
-  local fields = assert(re.split("[ \t]+", "a  b\tc")) as {string}
+  local fields = check.must(re.split("[ \t]+", "a  b\tc"))
   assert(#fields == 3, "expected 3 fields, got " .. #fields)
   assert(fields[3] == "c", "expected c")
 end

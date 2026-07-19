@@ -1,20 +1,16 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local net = require("cosmic.net")
-local ip = require("cosmic.ip")
 local proc = require("cosmic.proc")
 
 local function test_socket_creation()
   -- Test TCP socket creation
-  local sock, err = net.socket()
-  assert(sock ~= nil, "socket creation failed: " .. tostring(err))
-  local tcp = sock as net.Socket
+  local tcp = check.must(net.socket())
   assert(tcp.fd > 0, "expected valid fd, got " .. tostring(tcp.fd))
   tcp:close()
 
   -- Test UDP socket creation
-  local usock, uerr = net.socket(net.AF_INET, net.SOCK_DGRAM)
-  assert(usock ~= nil, "UDP socket creation failed: " .. tostring(uerr))
-  local udp = usock as net.Socket
+  local udp = check.must(net.socket(net.AF_INET, net.SOCK_DGRAM))
   udp:close()
 end
 test_socket_creation()
@@ -22,7 +18,7 @@ test_socket_creation()
 local function test_socketpair()
   local raw_sock1, sock2, err = net.socketpair()
   assert(raw_sock1 ~= nil and sock2 ~= nil, "socketpair failed: " .. tostring(err))
-  local sock1 = raw_sock1 as net.Socket
+  local sock1 = check.must(raw_sock1)
 
   -- Test sending data between the pair
   local sent, send_err = sock1:send("hello")
@@ -42,7 +38,7 @@ local function test_send_to_closed_peer_returns_error()
   -- unambiguous red before send() ORed in MSG_NOSIGNAL).
   local raw_a, b, err = net.socketpair()
   assert(raw_a ~= nil and b ~= nil, "socketpair failed: " .. tostring(err))
-  local a = raw_a as net.Socket
+  local a = check.must(raw_a)
   b:close()
 
   -- Loop so a kernel that accepts the first write into the buffer before
@@ -60,9 +56,7 @@ end
 test_send_to_closed_peer_returns_error()
 
 local function test_bind_and_getsockname()
-  local raw_sock, err = net.socket()
-  assert(raw_sock ~= nil, "socket creation failed: " .. tostring(err))
-  local sock = raw_sock as net.Socket
+  local sock = check.must(net.socket())
 
   -- Bind to ephemeral port on all interfaces
   local ok, bind_err = sock:bind("0.0.0.0", 0)
@@ -70,7 +64,7 @@ local function test_bind_and_getsockname()
 
   local addr, port, name_err = sock:getsockname()
   assert(addr ~= nil, "getsockname failed: " .. tostring(name_err))
-  assert((addr as ip.Addr).family == "inet", "local address must be a typed Addr")
+  assert(check.must(addr).family == "inet", "local address must be a typed Addr")
   assert(port > 0, "expected non-zero port, got " .. tostring(port))
 
   sock:close()
@@ -79,12 +73,10 @@ test_bind_and_getsockname()
 
 local function test_listen_accept_connect()
   -- Create server socket
-  local raw_server, err = net.socket()
-  assert(raw_server ~= nil, "raw_server socket creation failed: " .. tostring(err))
-  local server = raw_server as net.Socket
+  local server = check.must(net.socket())
 
-  local ok, setopt_err = server:setsockopt(net.SOL_SOCKET, net.SO_REUSEADDR, true)
-  assert(ok, "setsockopt failed: " .. tostring(setopt_err))
+  local ok, err = server:setsockopt(net.SOL_SOCKET, net.SO_REUSEADDR, true)
+  assert(ok, "setsockopt failed: " .. tostring(err))
 
   ok, err = server:bind("0.0.0.0", 0)
   assert(ok, "bind failed: " .. tostring(err))
@@ -103,7 +95,7 @@ local function test_listen_accept_connect()
     if not raw_client then
       os.exit(1)
     end
-    local client = raw_client as net.Socket
+    local client = check.must(raw_client)
     -- Connect to localhost
     local connect_ok = client:connect("127.0.0.1", server_port) -- 127.0.0.1
     if not connect_ok then
@@ -124,7 +116,7 @@ local function test_listen_accept_connect()
   assert(client_ip.family == "inet", "peer address must be a typed Addr")
   assert(client_ip:is_loopback(), "peer should be loopback, got " .. client_ip:format())
   assert(client_port ~= nil and client_port > 0, "expected raw_client port")
-  local client = raw_client as net.Socket
+  local client = check.must(raw_client)
 
   -- Read data from client
   local data, recv_err = client:recv()
@@ -153,7 +145,7 @@ test_gethostname()
 local function test_shutdown()
   local raw_sock1, sock2, err = net.socketpair()
   assert(raw_sock1 ~= nil and sock2 ~= nil, "socketpair failed: " .. tostring(err))
-  local sock1 = raw_sock1 as net.Socket
+  local sock1 = check.must(raw_sock1)
 
   -- Shutdown write side of sock1
   local ok, shutdown_err = sock1:shutdown(net.SHUT_WR)
@@ -175,7 +167,7 @@ local function test_poll_readiness()
   local poll = require("cosmic.poll")
   local raw_sock1, sock2, err = net.socketpair()
   assert(raw_sock1 ~= nil and sock2 ~= nil, "socketpair failed: " .. tostring(err))
-  local sock1 = raw_sock1 as net.Socket
+  local sock1 = check.must(raw_sock1)
 
   -- Send data on sock1
   sock1:send("hello")
@@ -184,8 +176,8 @@ local function test_poll_readiness()
   poller:add(sock2.fd, poll.POLLIN)
   local ready, poll_err = poller:poll(1000)
   assert(ready == 1, "expected one ready fd: " .. tostring(poll_err))
-  local ev = poller:events(sock2.fd)
-  assert(ev ~= nil and (ev as poll.Events).readable, "expected socket to be readable")
+  local ev = check.must(poller:events(sock2.fd))
+  assert(ev.readable, "expected socket to be readable")
 
   sock1:close()
   sock2:close()
@@ -194,13 +186,9 @@ test_poll_readiness()
 
 local function test_udp_sendto_recvfrom()
   -- Create two UDP sockets
-  local raw_sender, err = net.socket(net.AF_INET, net.SOCK_DGRAM)
-  assert(raw_sender ~= nil, "raw_sender socket creation failed: " .. tostring(err))
-  local sender = raw_sender as net.Socket
+  local sender = check.must(net.socket(net.AF_INET, net.SOCK_DGRAM))
 
-  local raw_receiver, rerr = net.socket(net.AF_INET, net.SOCK_DGRAM)
-  assert(raw_receiver ~= nil, "raw_receiver socket creation failed: " .. tostring(rerr))
-  local receiver = raw_receiver as net.Socket
+  local receiver = check.must(net.socket(net.AF_INET, net.SOCK_DGRAM))
 
   -- Bind receiver to ephemeral port
   local ok, bind_err = receiver:bind("127.0.0.1", 0)
@@ -227,9 +215,7 @@ end
 test_udp_sendto_recvfrom()
 
 local function test_socket_options()
-  local raw_sock, err = net.socket()
-  assert(raw_sock ~= nil, "socket creation failed: " .. tostring(err))
-  local sock = raw_sock as net.Socket
+  local sock = check.must(net.socket())
 
   -- Set TCP_NODELAY
   local ok, setopt_err = sock:setsockopt(net.SOL_TCP, net.TCP_NODELAY, true)
@@ -283,9 +269,7 @@ end
 test_constants_exist()
 
 local function test_socket_closed_method()
-  local raw_sock, err = net.socket()
-  assert(raw_sock ~= nil, "socket creation failed: " .. tostring(err))
-  local sock = raw_sock as net.Socket
+  local sock = check.must(net.socket())
 
   -- Socket should not be closed initially
   assert(sock:closed() == false, "expected socket to not be closed initially")
@@ -304,9 +288,7 @@ end
 test_socket_closed_method()
 
 local function test_socket_methods_after_close()
-  local raw_sock, err = net.socket()
-  assert(raw_sock ~= nil, "socket creation failed: " .. tostring(err))
-  local sock = raw_sock as net.Socket
+  local sock = check.must(net.socket())
   sock:close()
 
   -- Every operation on a closed socket must return its error shape, never
@@ -329,9 +311,7 @@ test_socket_methods_after_close()
 
 local function test_socket_has_close_metamethod()
   -- Verify socket has __close metamethod for Lua 5.4 to-be-closed support
-  local raw_sock, err = net.socket()
-  assert(raw_sock ~= nil, "socket creation failed: " .. tostring(err))
-  local sock = raw_sock as net.Socket
+  local sock = check.must(net.socket())
 
   -- Get the metatable and verify __close exists
   local mt = getmetatable(sock)
@@ -358,7 +338,7 @@ local function test_socketpair_has_close_metamethod()
   -- Verify socketpair sockets also have __close
   local raw_sock1, sock2, err = net.socketpair()
   assert(raw_sock1 ~= nil and sock2 ~= nil, "socketpair failed: " .. tostring(err))
-  local sock1 = raw_sock1 as net.Socket
+  local sock1 = check.must(raw_sock1)
 
   local mt1 = getmetatable(sock1)
   local mt2 = getmetatable(sock2)
@@ -372,12 +352,10 @@ test_socketpair_has_close_metamethod()
 
 local function test_accept_socket_has_close_metamethod()
   -- Create server socket
-  local raw_server, err = net.socket()
-  assert(raw_server ~= nil, "raw_server socket creation failed: " .. tostring(err))
-  local server = raw_server as net.Socket
+  local server = check.must(net.socket())
 
-  local ok, setopt_err = server:setsockopt(net.SOL_SOCKET, net.SO_REUSEADDR, true)
-  assert(ok, "setsockopt failed: " .. tostring(setopt_err))
+  local ok, err = server:setsockopt(net.SOL_SOCKET, net.SO_REUSEADDR, true)
+  assert(ok, "setsockopt failed: " .. tostring(err))
 
   ok, err = server:bind("0.0.0.0", 0)
   assert(ok, "bind failed: " .. tostring(err))
@@ -391,7 +369,7 @@ local function test_accept_socket_has_close_metamethod()
   if pid == 0 then
     local raw_client = net.socket()
     if not raw_client then os.exit(1) end
-    local client = raw_client as net.Socket
+    local client = check.must(raw_client)
     local connect_ok = client:connect("127.0.0.1", server_port)
     if not connect_ok then os.exit(2) end
     client:send("test")
@@ -402,7 +380,7 @@ local function test_accept_socket_has_close_metamethod()
   -- Accept and verify __close exists on accepted socket
   local raw_client, _, _, accept_err = server:accept()
   assert(raw_client ~= nil, "accept failed: " .. tostring(accept_err))
-  local client = raw_client as net.Socket
+  local client = check.must(raw_client)
 
   local mt = getmetatable(client)
   assert(mt ~= nil and mt.__close ~= nil, "expected accepted socket to have __close")
@@ -421,7 +399,7 @@ local function test_listen_tcp_ephemeral_port()
   local raw_srv, port, err = net.listen_tcp("127.0.0.1", 0)
   assert(raw_srv ~= nil, "listen_tcp failed: " .. tostring(err))
   assert(port ~= nil and port > 0, "expected non-zero port, got " .. tostring(port))
-  local srv = raw_srv as net.Socket
+  local srv = check.must(raw_srv)
   srv:close()
 end
 test_listen_tcp_ephemeral_port()
@@ -431,7 +409,7 @@ local function test_listen_tcp_connect_to_returned_port()
   local raw_srv, port, serr = net.listen_tcp("127.0.0.1", 0)
   assert(raw_srv ~= nil, "listen_tcp failed: " .. tostring(serr))
   assert(port > 0, "expected non-zero port")
-  local srv = raw_srv as net.Socket
+  local srv = check.must(raw_srv)
 
   -- Fork: child connects and sends, parent accepts and reads
   local pid = proc.fork()
@@ -440,7 +418,7 @@ local function test_listen_tcp_connect_to_returned_port()
     if not raw_csock then
       os.exit(1)
     end
-    local csock = raw_csock as net.Socket
+    local csock = check.must(raw_csock)
     csock:send("hi")
     csock:close()
     os.exit(0)
@@ -448,7 +426,7 @@ local function test_listen_tcp_connect_to_returned_port()
 
   local raw_conn, _, _, aerr = srv:accept()
   assert(raw_conn ~= nil, "accept failed: " .. tostring(aerr))
-  local conn = raw_conn as net.Socket
+  local conn = check.must(raw_conn)
   local data = conn:recv()
   assert(data == "hi", "expected 'hi', got '" .. tostring(data) .. "'")
   conn:close()
@@ -463,7 +441,7 @@ local function test_listen_tcp_double_bind_same_port_fails()
   local raw_srv, port, serr = net.listen_tcp("127.0.0.1", 0)
   assert(raw_srv ~= nil, "first listen_tcp failed: " .. tostring(serr))
   assert(port > 0, "expected non-zero port")
-  local srv = raw_srv as net.Socket
+  local srv = check.must(raw_srv)
 
   -- Second bind to the same explicit port should fail (SO_REUSEADDR alone
   -- does not allow two listeners on the same port simultaneously)

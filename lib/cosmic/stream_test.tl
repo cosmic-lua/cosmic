@@ -4,6 +4,7 @@
 --- nil (no error) at end of stream, and keeps returning bare nil after
 --- EOF; failures return nil plus an error message. Run against
 --- fd.Handle, net.Socket, fetch.Reader, and child.Handle.
+local check = require("cosmic.check")
 local stream = require("cosmic.stream")
 local fd = require("cosmic.fd")
 local net = require("cosmic.net")
@@ -40,7 +41,7 @@ local function check_reader(r: stream.Reader, want: string, label: string)
 end
 
 local function test_fd_handle_conforms()
-  local p = fd.pipe() as fd.Pipe
+  local p = check.must(fd.pipe())
   assert(p.writer:write("fd bytes"))
   p.writer:close()
   check_reader(p.reader, "fd bytes", "fd.Handle")
@@ -51,8 +52,8 @@ test_fd_handle_conforms()
 local function test_socket_recv_eof_is_nil()
   local s1, s2, err = net.socketpair()
   assert(s1 ~= nil and s2 ~= nil, "socketpair failed: " .. tostring(err))
-  local a = s1 as net.Socket
-  local b = s2 as net.Socket
+  local a = check.must(s1)
+  local b = check.must(s2)
 
   assert(a:send("socket bytes"))
   a:close()
@@ -81,8 +82,8 @@ local function test_socket_zero_byte_datagram_stays_empty()
   -- message socket. It must NOT be collapsed into nil.
   local s1, s2, err = net.socketpair(nil, net.SOCK_DGRAM)
   assert(s1 ~= nil and s2 ~= nil, "dgram socketpair failed: " .. tostring(err))
-  local a = s1 as net.Socket
-  local b = s2 as net.Socket
+  local a = check.must(s1)
+  local b = check.must(s2)
 
   assert(a:send(""))
   local dgram, derr = b:recv(4096)
@@ -99,7 +100,7 @@ end
 test_socket_zero_byte_datagram_stays_empty()
 
 local function test_child_handle_conforms()
-  local h = child.spawn({lua_bin, "-e", "io.write('child bytes'); io.flush()"}) as child.Handle
+  local h = check.must(child.spawn({lua_bin, "-e", "io.write('child bytes'); io.flush()"}))
   check_reader(h, "child bytes", "child.Handle")
   h:wait()
 end
@@ -108,13 +109,12 @@ test_child_handle_conforms()
 --- Fork a loopback server answering one request, closing right after.
 local function serve_once(response: string): integer, integer
   local srv, port = net.listen_tcp("127.0.0.1", 0)
-  assert(srv ~= nil, "listen_tcp failed")
-  local s = srv as net.Socket
+  local s = check.must(srv, "listen_tcp failed")
   local pid = proc.fork()
   if pid == 0 then
     local conn = s:accept()
     if conn then
-      local c = conn as net.Socket
+      local c = check.must(conn)
       local buf = ""
       while not buf:find("\r\n\r\n", 1, true) do
         local data = c:recv(4096)

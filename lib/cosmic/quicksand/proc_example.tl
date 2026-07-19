@@ -24,15 +24,15 @@ end
 -- subprocess because the bit cannot be cleared once set. No output
 -- check: behavior depends on kernel support.
 local function Example_no_new_privs_subprocess()
+  local check = require("cosmic.check")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
   local script = [[
 local proc = require("cosmic.quicksand.proc")
 assert(proc.no_new_privs())
 ]]
-  local h = spawn.spawn({cosmic, "-e", script})
-  local hh = h as spawn.Handle
-  hh:wait()
+  local h = check.must(spawn.spawn({cosmic, "-e", script}))
+  h:wait()
 end
 
 -- Suppress unused warnings for examples

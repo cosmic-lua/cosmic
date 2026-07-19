@@ -2,8 +2,8 @@
 --- Tests for the #559 fs batch: copytree, tmpfile, glob-only patterns,
 --- Dir:read d_type, access default. New/changed surfaces are reached via
 --- casts so this file typechecks red (pre-change) and green alike.
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs.types")
 
 global TEST_TMPDIR: string
 
@@ -34,7 +34,7 @@ local function test_copytree()
 
   assert(fs.read(fs.join(dst, "a.txt")) == "alpha", "file content copied")
   assert(fs.read(fs.join(dst, "sub", "b.txt")) == "beta", "nested content copied")
-  local st = assert(fs.stat(fs.join(dst, "a.txt"))) as fs_types.Stat
+  local st = check.must(fs.stat(fs.join(dst, "a.txt")))
   assert((st:mode() & tonumber("777", 8)) == tonumber("755", 8),
     "exec bit preserved")
   assert(fs.islink(fs.join(dst, "link")), "symlink recreated as symlink")
@@ -96,7 +96,7 @@ local function test_collect_pattern_is_always_glob()
   -- Under the old heuristic "%.txt$" had no * or ?, so it silently ran as
   -- a Lua pattern and matched x.txt. As a glob it matches only the file
   -- literally named "%.txt$".
-  local hits = (fs.collect(dir, "%.txt$") or {}) as {string}
+  local hits = check.must(fs.collect(dir, "%.txt$"))
   assert(#hits == 1, "glob should match exactly the literal file, got " .. #hits)
   assert(fs.basename(hits[1]) == "%.txt$", "literal-name match")
   fs.rmrf(dir)
@@ -111,7 +111,7 @@ local function test_collect_matching_takes_lua_patterns()
 
   local collect_matching = fsa.collect_matching as function(string, string): {string} | nil, string
   assert(collect_matching, "fs.collect_matching should exist")
-  local hits = (collect_matching(dir, "%.txt$") or {}) as {string}
+  local hits = check.must(collect_matching(dir, "%.txt$"))
   assert(#hits == 1 and fs.basename(hits[1]) == "x.txt",
     "Lua pattern matches via collect_matching")
   fs.rmrf(dir)

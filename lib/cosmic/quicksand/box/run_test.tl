@@ -23,8 +23,8 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 local function run_script(name: string, body: string): spawn.Result
   local script = fs.join(tmpdir, name)
   fs.write(script, body)
-  local h = spawn.spawn({cosmic, script})
-  local r = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, script}))
+  local r = check.must(h:wait())
   if r.signal ~= nil then
     check.skip("box subprocess killed by signal " .. tostring(r.signal)
       .. " (outer sandbox)", true)
@@ -58,7 +58,7 @@ io.write("ok exit=0\n")
   if not r then return end
   assert(r.ok, "box run of /bin/true must succeed: "
     .. tostring(r.stdout) .. tostring(r.stderr))
-  assert((r.stdout as string):find("ok exit=0"),
+  assert(r.stdout:find("ok exit=0"),
     "expected ok, got: " .. tostring(r.stdout))
 end
 test_run_true_in_subprocess()
@@ -91,7 +91,7 @@ io.write("ok nil-error: " .. tostring(rerr) .. "\n")
   if not r then return end
   assert(r.ok, "bogus pledge must return nil + pledge error: "
     .. tostring(r.stdout) .. tostring(r.stderr))
-  assert((r.stdout as string):find("ok nil%-error"),
+  assert(r.stdout:find("ok nil%-error"),
     "expected nil-error report, got: " .. tostring(r.stdout))
 end
 test_setup_failure_returns_error_not_exit_code()
@@ -129,7 +129,7 @@ end
   if not r then return end
   assert(r.ok, "uid-drop box must succeed or name the uid_map gap: "
     .. tostring(r.stdout) .. tostring(r.stderr))
-  local s = r.stdout as string
+  local s = r.stdout
   if s:find("skipped") then
     check.skip("uid_map write needs privileges: " .. s)
     return
@@ -161,7 +161,7 @@ end
   if not r then return end
   assert(r.ok, "pid-ns box must succeed: "
     .. tostring(r.stdout) .. tostring(r.stderr))
-  assert((r.stdout as string):find("ok"),
+  assert(r.stdout:find("ok"),
     "workload PID should be <= 2, got: " .. tostring(r.stdout))
 end
 test_pid_namespace_workload_has_low_pid_subprocess()
@@ -190,7 +190,7 @@ io.write("ok\n")
   if not r then return end
   assert(r.ok, "pid_ns opt-out box must succeed: "
     .. tostring(r.stdout) .. tostring(r.stderr))
-  assert((r.stdout as string):find("ok"),
+  assert(r.stdout:find("ok"),
     "expected ok, got: " .. tostring(r.stdout))
 end
 test_pid_namespace_opt_out_subprocess()

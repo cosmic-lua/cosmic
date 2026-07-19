@@ -40,6 +40,7 @@ end
 
 -- Example_collect demonstrates collecting files matching a glob pattern.
 local function Example_collect()
+  local check = require("cosmic.check")
   local fs = require("cosmic.fs")
 
   local tmpdir = fs.mkdtemp("/tmp/collect_ex_XXXXXX")
@@ -53,7 +54,7 @@ local function Example_collect()
 
   -- collect returns full paths (or nil if the root could not be opened);
   -- sort for deterministic output.
-  local luafiles = (fs.collect(tmpdir, "*.lua") or {}) as {string}
+  local luafiles = check.must(fs.collect(tmpdir, "*.lua"))
   table.sort(luafiles)
   for _, p in ipairs(luafiles) do
     -- print only the basename so output is not path-dependent.

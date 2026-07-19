@@ -118,6 +118,27 @@ local function err(value: any, e: string, label?: string)
   end
 end
 
+--- Assert a fallible return and narrow away nil.
+--- The one sanctioned narrowing hole for tests and examples: tl 0.24.8 does
+--- not flow-narrow record unions through `assert`, so fallible calls used to
+--- need `assert(x) as T` at every site. `must` centralizes that unsoundness
+--- behind a runtime nil check. Lua passes multiple returns through, so
+--- `must(fs.read(path))` fails with fs.read's own error string.
+--- CAVEAT: must returns ONLY the first value. Never wrap a call whose
+--- extra returns feed a generic-for (e.g. `fs.files`, whose 4th return
+--- is the to-be-closed guard that releases directory handles on early
+--- break) — keep `for p in assert(fs.files(d)) as fs.FileIter do` there,
+--- since assert forwards all four returns and must would drop the guard.
+--- @param v T? The fallible value (nil on failure)
+--- @param e string? Failure message; a `nil, err` pair fills this in
+--- @return T The value, known non-nil
+local function must<T>(v: T | nil, e?: string): T
+  if v == nil then
+    error(e or "must failed: expected value, got nil", 2)
+  end
+  return v
+end
+
 --- Report whether the enforcement lane is active.
 --- True when COSMIC_ENFORCE=1, which the privileged, unsandboxed CI lane
 --- (`bin/make enforce`) sets. In that mode a sandbox test that cannot
@@ -158,6 +179,7 @@ local record CheckModule
   eq: function<T>(actual: T, expected: T, label?: string)
   ne: function<T>(actual: T, expected: T, label?: string)
   ok: function(value: any, label?: string)
+  must: function<T>(v: T | nil, e?: string): T
   err: function(value: any, e: string, label?: string)
   enforcing: function(): boolean
   skip: function(reason: string, strict?: boolean)
@@ -168,6 +190,7 @@ local M: CheckModule = {
   eq = eq,
   ne = ne,
   ok = ok,
+  must = must,
   err = err,
   enforcing = enforcing,
   skip = skip,

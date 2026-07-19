@@ -1,10 +1,11 @@
 #!/usr/bin/env cosmic
 --- Tests for coverage report merging and rendering helpers.
+local check = require("cosmic.check")
 local codec = require("cosmic.codec")
 local fs = require("cosmic.fs")
 local report = require("cosmic.coverage.report")
 
-local tmpdir = os.getenv("TEST_TMPDIR") as string
+local tmpdir = check.must(os.getenv("TEST_TMPDIR"))
 
 -- format_ranges
 
@@ -36,12 +37,11 @@ end
 test_normalize_maps_compiled_artifact_to_source()
 
 local function test_normalize_strips_cwd_prefix()
-  local cwd = fs.getcwd()
-  assert(cwd, "getcwd failed")
-  local display = report.normalize("@" .. cwd .. "/o/lib/cosmic/codec.lua", cwd as string)
+  local cwd = check.must(fs.getcwd(), "getcwd failed")
+  local display = report.normalize("@" .. cwd .. "/o/lib/cosmic/codec.lua", cwd)
   assert(display == "lib/cosmic/codec.tl", "got: " .. tostring(display))
   -- a ./-prefixed spelling of the same chunk must merge into the same row
-  local dotted = report.normalize("@./o/lib/cosmic/codec.lua", cwd as string)
+  local dotted = report.normalize("@./o/lib/cosmic/codec.lua", cwd)
   assert(dotted == "lib/cosmic/codec.tl", "got: " .. tostring(dotted))
 end
 test_normalize_strips_cwd_prefix()
@@ -60,13 +60,12 @@ test_normalize_skips_non_files_and_foreign_paths()
 local function test_normalize_accepts_existing_tl_script()
   -- a directly-run script records a cwd-relative source; absolute
   -- sources normalize only when they sit under the given cwd
-  local saved = fs.getcwd()
-  assert(saved, "getcwd failed")
+  local saved = check.must(fs.getcwd(), "getcwd failed")
   assert(fs.write(fs.join(tmpdir, "direct.tl"), "local x = 1\nreturn x\n"))
   assert(fs.chdir(tmpdir))
   local display, parse = report.normalize("@direct.tl", "")
   local abs_display = report.normalize("@" .. fs.join(tmpdir, "direct.tl"), tmpdir)
-  fs.chdir(saved as string)
+  fs.chdir(saved)
   assert(display == "direct.tl", "got: " .. tostring(display))
   assert(parse == "direct.tl", "got: " .. tostring(parse))
   assert(abs_display == "direct.tl", "got: " .. tostring(abs_display))
@@ -77,16 +76,13 @@ test_normalize_accepts_existing_tl_script()
 
 local function test_read_cov_roundtrip()
   local path = fs.join(tmpdir, "rt.cov")
-  local body = codec.encode_lua({
-      version = 1,
-      hits = {["@x.lua"] = {[3] = 7}},
-    })
-  assert(body, "encode failed")
-  assert(fs.write(path, body as string))
-  local hits, err = report.read_cov(path)
-  assert(hits, "read_cov failed: " .. (err or "?"))
-  local h = hits as {string: {integer: integer}}
-  assert((h["@x.lua"] as {integer: integer})[3] == 7, "hit count lost in roundtrip")
+  local body = check.must(codec.encode_lua({
+        version = 1,
+        hits = {["@x.lua"] = {[3] = 7}},
+      }), "encode failed")
+  assert(fs.write(path, body))
+  local h = check.must(report.read_cov(path))
+  assert(h["@x.lua"][3] == 7, "hit count lost in roundtrip")
 end
 test_read_cov_roundtrip()
 
@@ -98,8 +94,8 @@ local function test_read_cov_rejects_garbage_and_bad_version()
   assert(err and #err > 0, "garbage must carry an error")
 
   local badver = fs.join(tmpdir, "badver.cov")
-  local body = codec.encode_lua({version = 99, hits = {}})
-  assert(fs.write(badver, body as string))
+  local body = check.must(codec.encode_lua({version = 99, hits = {}}))
+  assert(fs.write(badver, body))
   hits, err = report.read_cov(badver)
   assert(hits == nil, "unsupported version must not decode")
   assert(err and #err > 0, "unsupported version must carry an error")
@@ -121,11 +117,11 @@ local function test_report_renders_merged_data()
   assert(fs.makedirs(covroot))
   -- two processes hitting the same repo file merge into one row
   for i, hits in ipairs({{[9] = 1}, {[9] = 2, [10] = 1}}) do
-    local body = codec.encode_lua({
-        version = 1,
-        hits = {["@o/lib/cosmic/codec.lua"] = hits},
-      })
-    assert(fs.write(fs.join(covroot, i .. ".cov"), body as string))
+    local body = check.must(codec.encode_lua({
+          version = 1,
+          hits = {["@o/lib/cosmic/codec.lua"] = hits},
+        }))
+    assert(fs.write(fs.join(covroot, i .. ".cov"), body))
   end
   local code = report.report({covroot})
   assert(code == 0, "report failed with " .. code)

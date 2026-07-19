@@ -9,6 +9,7 @@
 -- backing sandbox, allow() returns false + "unveil unsupported on this
 -- host" instead of pretending to restrict.
 local function Example_allow()
+  local check = require("cosmic.check")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
   local script = [[
@@ -22,7 +23,7 @@ else
 end
 io.write("done\n")
 ]]
-  local r = spawn.run({cosmic, "-e", script}) as spawn.Result
+  local r = check.must(spawn.run({cosmic, "-e", script}))
   io.write(r.stdout)
   -- Output:
   -- done

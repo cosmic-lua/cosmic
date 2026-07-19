@@ -17,7 +17,7 @@ test_module_exports()
 -- Drive one request through a live proxy and return everything the
 -- server sends back before closing.
 local function roundtrip(port: integer, request: string): string
-  local sock = assert(net.connect_tcp(LOOPBACK_STR, port)) as net.Socket
+  local sock = check.must(net.connect_tcp(LOOPBACK_STR, port))
   sock:send(request)
   local resp = ""
   while true do
@@ -56,16 +56,14 @@ local function test_start_stop_lifecycle()
     return
   end
 
-  local handle, err = proxy.start({
-      bind_ip = LOOPBACK,
-      bind_port = 0, -- ephemeral
-      allowed_hosts = {
-        ["api.example.com:443"] = {},
-      },
-      log_level = "quiet",
-    })
-  assert(handle, "proxy.start failed: " .. tostring(err))
-  local h = handle as proxy.ProxyHandle
+  local h = check.must(proxy.start({
+        bind_ip = LOOPBACK,
+        bind_port = 0, -- ephemeral
+        allowed_hosts = {
+          ["api.example.com:443"] = {},
+        },
+        log_level = "quiet",
+      }))
   assert(type(h.pid) == "number" and h.pid > 0,
     "pid should be positive")
   assert(type(h.port) == "number" and h.port > 0,
@@ -74,11 +72,9 @@ local function test_start_stop_lifecycle()
 
   -- Connecting to the proxy and immediately closing should at least
   -- establish a TCP connection — verify by opening a client socket.
-  local sock = net.connect_tcp(LOOPBACK_STR, h.port)
-  assert(sock, "failed to connect to proxy on port "
-    .. tostring(h.port))
-  local s = sock as net.Socket
-  s:close()
+  local sock = check.must(net.connect_tcp(LOOPBACK_STR, h.port),
+    "failed to connect to proxy on port " .. tostring(h.port))
+  sock:close()
 
   h:stop()
   assert(h.pid == 0, "stop() should zero the pid")
@@ -97,14 +93,14 @@ local function test_deny_unknown_host()
     return
   end
 
-  local handle = assert(proxy.start({
+  local handle = check.must(proxy.start({
         bind_ip = LOOPBACK,
         bind_port = 0,
         allowed_hosts = {
           ["allowed.example.com:80"] = {},
         },
         log_level = "quiet",
-      })) as proxy.ProxyHandle
+      }))
 
   local resp = roundtrip(handle.port,
     "GET http://denied.example.com/ HTTP/1.1\r\n"
@@ -131,14 +127,14 @@ local function test_malformed_and_chunked_requests()
     return
   end
 
-  local handle = assert(proxy.start({
+  local handle = check.must(proxy.start({
         bind_ip = LOOPBACK,
         bind_port = 0,
         allowed_hosts = {
           ["allowed.example.com"] = {},
         },
         log_level = "quiet",
-      })) as proxy.ProxyHandle
+      }))
 
   local resp = roundtrip(handle.port, "garbage\r\n\r\n")
   assert(resp:find("400", 1, true),
@@ -169,7 +165,7 @@ local function test_allowed_private_upstream_gets_502()
     return
   end
 
-  local handle = assert(proxy.start({
+  local handle = check.must(proxy.start({
         bind_ip = LOOPBACK,
         bind_port = 0,
         allowed_hosts = {
@@ -178,7 +174,7 @@ local function test_allowed_private_upstream_gets_502()
         },
         log_level = "quiet",
         resolve_timeout_ms = 2000,
-      })) as proxy.ProxyHandle
+      }))
 
   local resp = roundtrip(handle.port,
     "CONNECT 127.0.0.1:80 HTTP/1.1\r\n\r\n")
@@ -200,12 +196,12 @@ local function test_stop_escalates_to_sigkill()
   end
   local signal = require("cosmic.signal")
 
-  local handle = assert(proxy.start({
+  local handle = check.must(proxy.start({
         bind_ip = LOOPBACK,
         bind_port = 0,
         allowed_hosts = {},
         log_level = "quiet",
-      })) as proxy.ProxyHandle
+      }))
   assert(signal.kill(handle.pid, signal.SIGSTOP))
   local before = os.time()
   assert(handle:stop(300), "stop() with a hung child should return")

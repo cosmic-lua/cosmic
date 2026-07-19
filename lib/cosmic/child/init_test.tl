@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local child = require("cosmic.child")
 local cfd = require("cosmic.fd")
 local fs = require("cosmic.fs")
@@ -18,11 +19,9 @@ local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
 -- (a) kill a long-running child; wait() reports the terminating signal.
 local function test_kill_reports_signal()
-  local h = child.spawn({"sleep", "10"}) as child.Handle
-  assert(h ~= nil, "spawn should succeed")
+  local h = check.must(child.spawn({"sleep", "10"}))
   assert(h:kill(), "kill (default SIGTERM) should succeed")
-  local r = h:wait() as child.Result
-  assert(r ~= nil, "wait should return a Result")
+  local r = check.must(h:wait())
   assert(r.signal == signal.SIGTERM,
     "expected SIGTERM, got signal=" .. tostring(r.signal) .. " code=" .. tostring(r.code))
   assert(r.signal == 15, "SIGTERM should be 15, got " .. tostring(r.signal))
@@ -33,10 +32,9 @@ test_kill_reports_signal()
 
 -- (b) wait() is idempotent: the reaped Result is cached and returned again.
 local function test_wait_idempotent()
-  local h = child.spawn({lua_bin, "-e", "os.exit(3)"}) as child.Handle
-  assert(h ~= nil, "spawn should succeed")
-  local r1 = h:wait() as child.Result
-  local r2 = h:wait() as child.Result
+  local h = check.must(child.spawn({lua_bin, "-e", "os.exit(3)"}))
+  local r1 = check.must(h:wait())
+  local r2 = check.must(h:wait())
   assert(r1 == r2, "second wait() must return the same cached Result")
   assert(r1.code == 3, "expected code 3, got " .. tostring(r1.code))
 end
@@ -45,13 +43,12 @@ test_wait_idempotent()
 -- (c) wait(timeout_ms) returns nil, "timeout" for a child that has not exited;
 -- the handle stays usable so we can then kill and reap it.
 local function test_wait_timeout()
-  local h = child.spawn({"sleep", "10"}) as child.Handle
-  assert(h ~= nil, "spawn should succeed")
+  local h = check.must(child.spawn({"sleep", "10"}))
   local r, err = h:wait(100)
   assert(r == nil, "expected nil Result on timeout")
   assert(err == "timeout", "expected 'timeout', got " .. tostring(err))
   h:kill(signal.SIGKILL)
-  local r2 = h:wait() as child.Result
+  local r2 = check.must(h:wait())
   assert(r2.signal == signal.SIGKILL, "expected SIGKILL after timeout+kill")
 end
 test_wait_timeout()
@@ -68,8 +65,7 @@ test_exec_failure_visible()
 
 -- (e) run() captures stdout and stderr independently along with the exit code.
 local function test_run_captures_streams_and_code()
-  local r = child.run({"sh", "-c", "echo o; echo e >&2; exit 3"}) as child.Result
-  assert(r ~= nil, "run should succeed")
+  local r = check.must(child.run({"sh", "-c", "echo o; echo e >&2; exit 3"}))
   assert(r.stdout == "o\n", "expected stdout 'o\\n', got '" .. tostring(r.stdout) .. "'")
   assert(r.stderr == "e\n", "expected stderr 'e\\n', got '" .. tostring(r.stderr) .. "'")
   assert(r.code == 3, "expected code 3, got " .. tostring(r.code))
@@ -80,8 +76,7 @@ test_run_captures_streams_and_code()
 -- === High-level run/spawn behavior ===
 
 local function test_run_simple()
-  local r = child.run({lua_bin, "-e", "print('hello')"}) as child.Result
-  assert(r ~= nil, "run should succeed")
+  local r = check.must(child.run({lua_bin, "-e", "print('hello')"}))
   assert(r.ok, "command should succeed")
   assert(r.stdout == "hello\n", "expected 'hello\\n', got '" .. tostring(r.stdout) .. "'")
 end
@@ -95,25 +90,25 @@ end
 test_command_not_found()
 
 local function test_run_exit_code()
-  local r = child.run({lua_bin, "-e", "os.exit(0)"}) as child.Result
+  local r = check.must(child.run({lua_bin, "-e", "os.exit(0)"}))
   assert(r.code == 0, "expected exit code 0, got " .. tostring(r.code))
   assert(r.ok, "exit 0 should be ok")
 
-  r = child.run({lua_bin, "-e", "os.exit(1)"}) as child.Result
+  r = check.must(child.run({lua_bin, "-e", "os.exit(1)"}))
   assert(r.code == 1, "expected exit code 1, got " .. tostring(r.code))
   assert(not r.ok, "exit 1 should not be ok")
 end
 test_run_exit_code()
 
 local function test_run_stdin_string()
-  local r = child.run({lua_bin, "-e", "io.write(io.read('*a'))"}, {stdin = "hello from stdin"}) as child.Result
+  local r = check.must(child.run({lua_bin, "-e", "io.write(io.read('*a'))"}, {stdin = "hello from stdin"}))
   assert(r.ok, "command should succeed")
   assert(r.stdout == "hello from stdin", "expected 'hello from stdin', got '" .. tostring(r.stdout) .. "'")
 end
 test_run_stdin_string()
 
 local function test_run_cwd_option()
-  local r = child.run({"pwd"}, {cwd = TEST_TMPDIR}) as child.Result
+  local r = check.must(child.run({"pwd"}, {cwd = TEST_TMPDIR}))
   assert(r.ok, "pwd should succeed, code: " .. tostring(r.code) .. " stderr: " .. tostring(r.stderr))
   local pwd_output = r.stdout:gsub("\n$", "")
   assert(pwd_output == TEST_TMPDIR, "expected pwd '" .. TEST_TMPDIR .. "', got '" .. tostring(pwd_output) .. "'")
@@ -123,7 +118,7 @@ test_run_cwd_option()
 -- === Handle-level methods: try_wait, read, kill-after-reap ===
 
 local function test_try_wait()
-  local h = child.spawn({"sleep", "10"}) as child.Handle
+  local h = check.must(child.spawn({"sleep", "10"}))
   assert(h:try_wait() == nil, "try_wait on a running child returns nil")
   h:kill(signal.SIGKILL)
   local res: child.Result = nil
@@ -138,10 +133,10 @@ end
 test_try_wait()
 
 local function test_read_streaming()
-  local h = child.spawn({lua_bin, "-e", "io.write('abcdef'); io.flush()"}) as child.Handle
-  local chunk = h:read(3) as string
-  assert(chunk ~= nil and #chunk >= 1, "streaming read should return bytes, got " .. tostring(chunk))
-  local r = h:wait() as child.Result
+  local h = check.must(child.spawn({lua_bin, "-e", "io.write('abcdef'); io.flush()"}))
+  local chunk = check.must(h:read(3))
+  assert(#chunk >= 1, "streaming read should return bytes, got " .. tostring(chunk))
+  local r = check.must(h:wait())
   assert(chunk .. r.stdout == "abcdef",
     "streamed + pumped output should reassemble, got '" .. chunk .. "' + '" .. r.stdout .. "'")
 end
@@ -154,7 +149,7 @@ local function test_abandoned_handle_reaped()
   -- returns the pid is gone (kill(pid, 0) fails with ESRCH).
   local pid: integer = 0
   do
-    local h = child.spawn({"sleep", "30"}) as child.Handle
+    local h = check.must(child.spawn({"sleep", "30"}))
     pid = h.pid
   end
   collectgarbage("collect")
@@ -165,7 +160,7 @@ end
 test_abandoned_handle_reaped()
 
 local function test_kill_after_reap_fails()
-  local h = child.spawn({lua_bin, "-e", "os.exit(0)"}) as child.Handle
+  local h = check.must(child.spawn({lua_bin, "-e", "os.exit(0)"}))
   h:wait()
   local ok, err = h:kill()
   assert(not ok, "kill after reap should fail")
@@ -178,9 +173,9 @@ test_kill_after_reap_fails()
 local function test_spawn_inherits_env()
   local sentinel = "cosmic_test_inherit_" .. tostring(proc.getpid())
   env.set("COSMIC_TEST_SENTINEL", sentinel)
-  local r = child.run({lua_bin, "-e", [[
+  local r = check.must(child.run({lua_bin, "-e", [[
     io.write(os.getenv("COSMIC_TEST_SENTINEL") or "")
-  ]]}) as child.Result
+  ]]}))
   assert(r.ok, "child should exit 0, got code " .. tostring(r.code))
   assert(r.stdout == sentinel, "expected '" .. sentinel .. "', got '" .. tostring(r.stdout) .. "'")
 end
@@ -190,9 +185,9 @@ local function test_spawn_with_env_map()
   local sentinel = "cosmic_test_map_" .. tostring(proc.getpid())
   env.set("COSMIC_TEST_MAP", sentinel)
   local vars = env.all()
-  local r = child.run({lua_bin, "-e", [[
+  local r = check.must(child.run({lua_bin, "-e", [[
     io.write(os.getenv("COSMIC_TEST_MAP") or "")
-  ]]}, {env = vars as {string}}) as child.Result
+  ]]}, {env = vars as {string}}))
   assert(r.ok, "child should exit 0, got code " .. tostring(r.code))
   assert(r.stdout == sentinel, "expected '" .. sentinel .. "', got '" .. tostring(r.stdout) .. "'")
 end
@@ -202,9 +197,9 @@ local function test_spawn_with_env_list()
   local sentinel = "cosmic_test_list_" .. tostring(proc.getpid())
   env.set("COSMIC_TEST_LIST", sentinel)
   local vars = env.list()
-  local r = child.run({lua_bin, "-e", [[
+  local r = check.must(child.run({lua_bin, "-e", [[
     io.write(os.getenv("COSMIC_TEST_LIST") or "")
-  ]]}, {env = vars}) as child.Result
+  ]]}, {env = vars}))
   assert(r.ok, "child should exit 0, got code " .. tostring(r.code))
   assert(r.stdout == sentinel, "expected '" .. sentinel .. "', got '" .. tostring(r.stdout) .. "'")
 end
@@ -244,14 +239,14 @@ test_spawn_fast_failure()
 -- === deadlock regression: large stderr output ===
 
 local function test_run_no_deadlock_large_stderr()
-  local r = child.run({lua_bin, "-e", [[
+  local r = check.must(child.run({lua_bin, "-e", [[
     io.write("stdout ok\n")
     io.flush()
     local big = string.rep("x", 131072)
     io.stderr:write(big)
     io.stderr:flush()
     os.exit(0)
-  ]]}) as child.Result
+  ]]}))
   assert(r.code == 0, "expected exit code 0, got " .. tostring(r.code))
   assert(r.stdout == "stdout ok\n", "expected 'stdout ok\\n', got '" .. tostring(r.stdout) .. "'")
   assert(#r.stderr == 131072, "expected 128KB stderr, got " .. #r.stderr)
@@ -299,7 +294,7 @@ test_spawn_zip_non_executable()
 
 local function test_spawn_zip_embedded_binary()
   -- embed /bin/echo into a copy of cosmic, then spawn it from /zip/
-  local tmpdir = os.getenv("TEST_TMPDIR") as string
+  local tmpdir = check.must(os.getenv("TEST_TMPDIR"))
 
   local bin_dir = fs.join(tmpdir, "embed", ".bin")
   fs.makedirs(bin_dir)
@@ -309,19 +304,17 @@ local function test_spawn_zip_embedded_binary()
   fs.chmod(fs.join(bin_dir, "echo"), 493) -- 0755
 
   local out_bin = fs.join(tmpdir, "cosmic-with-echo")
-  local build = child.run(
-    {lua_bin, "--embed", fs.join(tmpdir, "embed"), "--output", out_bin}) as child.Result
-  assert(build ~= nil, "embed run should succeed")
+  local build = check.must(child.run(
+      {lua_bin, "--embed", fs.join(tmpdir, "embed"), "--output", out_bin}))
   assert(build.ok, "embed should exit 0, got " .. tostring(build.code) .. ": " .. build.stderr)
 
   -- run the embedded binary: spawn /zip/.bin/echo via fexecve
-  local r = child.run({out_bin, "-e", [[
+  local r = check.must(child.run({out_bin, "-e", [[
     local child = require("cosmic.child")
     local r = child.run({"/zip/.bin/echo", "hello-from-zip"})
     assert(r, "spawn /zip/.bin/echo failed")
     io.write(r.stdout)
-  ]]}) as child.Result
-  assert(r ~= nil, "should run embedded binary")
+  ]]}))
   assert(r.ok, "embedded binary should succeed: " .. tostring(r.stderr))
   assert(r.stdout == "hello-from-zip\n",
     "expected 'hello-from-zip\\n', got '" .. tostring(r.stdout) .. "'")
@@ -331,12 +324,12 @@ test_spawn_zip_embedded_binary()
 -- === fd redirection correctness ===
 
 local function test_spawn_stdout_stderr_separate()
-  local r = child.run({lua_bin, "-e", [[
+  local r = check.must(child.run({lua_bin, "-e", [[
     io.stdout:write("to-stdout\n")
     io.stdout:flush()
     io.stderr:write("to-stderr\n")
     io.stderr:flush()
-  ]]}) as child.Result
+  ]]}))
   assert(r.ok, "command should succeed, exit=" .. tostring(r.code))
   assert(r.stdout == "to-stdout\n",
     "expected 'to-stdout\\n' on stdout, got '" .. tostring(r.stdout) .. "'")
@@ -347,8 +340,8 @@ test_spawn_stdout_stderr_separate()
 
 local function test_spawn_many_captures_correct()
   for i = 1, 5 do
-    local r = child.run({lua_bin, "-e",
-        "io.write('iter" .. tostring(i) .. "\\n')"}) as child.Result
+    local r = check.must(child.run({lua_bin, "-e",
+          "io.write('iter" .. tostring(i) .. "\\n')"}))
     assert(r.ok, "iteration " .. i .. " should succeed")
     assert(r.stdout == "iter" .. tostring(i) .. "\n",
       "expected 'iter" .. i .. "\\n', got '" .. tostring(r.stdout) .. "'")
@@ -360,8 +353,7 @@ test_spawn_many_captures_correct()
 
 local function test_spawn_does_not_mutate_argv()
   local argv = {"echo", "x"}
-  local h = child.spawn(argv) as child.Handle
-  assert(h ~= nil, "spawn should succeed")
+  local h = check.must(child.spawn(argv))
   h:wait()
   assert(argv[1] == "echo",
     "spawn must not mutate caller's argv[1], got '" .. tostring(argv[1]) .. "'")
@@ -372,14 +364,12 @@ local function test_spawn_overlap_no_stdin_leak()
   -- CLOEXEC pipes stop a later child from inheriting an earlier child's stdin
   -- write end. Spawn A (reads stdin to EOF), then a long-lived B; A must see
   -- EOF once the parent closes its write end and finish without waiting on B.
-  local a = child.spawn({lua_bin, "-e", "io.write(io.read('*a') or '')"},
-    {stdin = "hello"}) as child.Handle
-  assert(a ~= nil, "spawn A should succeed")
-  local b = child.spawn({lua_bin, "-e", "require('cosmic.time').sleep(10)"}) as child.Handle
-  assert(b ~= nil, "spawn B should succeed")
+  local a = check.must(child.spawn({lua_bin, "-e", "io.write(io.read('*a') or '')"},
+      {stdin = "hello"}))
+  local b = check.must(child.spawn({lua_bin, "-e", "require('cosmic.time').sleep(10)"}))
 
   local s0, n0 = time.monotonic()
-  local r = a:wait() as child.Result
+  local r = check.must(a:wait())
   local s1, n1 = time.monotonic()
   local elapsed = (s1 - s0) + (n1 - n0) / 1e9
 
@@ -398,14 +388,12 @@ test_spawn_overlap_no_stdin_leak()
 -- stdout as a Handle: the child writes into a pipe we own; run()'s own
 -- capture is then empty for that stream.
 local function test_spawn_stdout_handle()
-  local p = cfd.pipe() as cfd.Pipe
-  assert(p ~= nil, "pipe should succeed")
-  local h = child.spawn({"echo", "via-handle"}, {stdout = p.writer}) as child.Handle
-  assert(h ~= nil, "spawn with Handle stdout should succeed")
+  local p = check.must(cfd.pipe())
+  local h = check.must(child.spawn({"echo", "via-handle"}, {stdout = p.writer}))
   p.writer:close()
-  local out = p.reader:read() as string
+  local out = check.must(p.reader:read())
   p.reader:close()
-  local r = h:wait() as child.Result
+  local r = check.must(h:wait())
   assert(out == "via-handle\n", "expected 'via-handle\\n' through the pipe, got '" .. tostring(out) .. "'")
   assert(r.stdout == "", "redirected stdout should leave Result.stdout empty")
 end
@@ -413,13 +401,12 @@ test_spawn_stdout_handle()
 
 -- stderr as a Handle.
 local function test_spawn_stderr_handle()
-  local p = cfd.pipe() as cfd.Pipe
-  local h = child.spawn({"sh", "-c", "echo err-via-handle >&2"}, {stderr = p.writer}) as child.Handle
-  assert(h ~= nil, "spawn with Handle stderr should succeed")
+  local p = check.must(cfd.pipe())
+  local h = check.must(child.spawn({"sh", "-c", "echo err-via-handle >&2"}, {stderr = p.writer}))
   p.writer:close()
-  local out = p.reader:read() as string
+  local out = check.must(p.reader:read())
   p.reader:close()
-  local r = h:wait() as child.Result
+  local r = check.must(h:wait())
   assert(out == "err-via-handle\n", "expected stderr through the pipe, got '" .. tostring(out) .. "'")
   assert(r.stderr == "", "redirected stderr should leave Result.stderr empty")
 end
@@ -428,12 +415,12 @@ test_spawn_stderr_handle()
 -- stdin as a Handle (the read end of a pipe we filled), alongside the
 -- string form which stays supported.
 local function test_spawn_stdin_handle()
-  local p = cfd.pipe() as cfd.Pipe
+  local p = check.must(cfd.pipe())
   p.writer:write("handle stdin data")
   p.writer:close()
-  local r = child.run({lua_bin, "-e", "io.write(io.read('*a'))"}, {stdin = p.reader}) as child.Result
+  local r = check.must(child.run({lua_bin, "-e", "io.write(io.read('*a'))"}, {stdin = p.reader}))
   p.reader:close()
-  assert(r ~= nil and r.ok, "run with Handle stdin should succeed")
+  assert(r.ok, "run with Handle stdin should succeed")
   assert(r.stdout == "handle stdin data",
     "expected 'handle stdin data', got '" .. tostring(r.stdout) .. "'")
 end
@@ -442,11 +429,10 @@ test_spawn_stdin_handle()
 -- A file Handle from fd.open works the same way as a pipe end.
 local function test_spawn_stdout_file_handle()
   local path = fs.join(TEST_TMPDIR, "stdout-handle.txt")
-  local h = cfd.open(path, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, 420) as cfd.Handle -- 0644
-  assert(h ~= nil, "open should succeed")
-  local r = child.run({"echo", "to-file"}, {stdout = h}) as child.Result
+  local h = check.must(cfd.open(path, cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC, 420)) -- 0644
+  local r = check.must(child.run({"echo", "to-file"}, {stdout = h}))
   h:close()
-  assert(r ~= nil and r.ok, "run with file Handle stdout should succeed")
+  assert(r.ok, "run with file Handle stdout should succeed")
   assert(fs.read(path) == "to-file\n", "child output should land in the file")
 end
 test_spawn_stdout_file_handle()
@@ -454,7 +440,7 @@ test_spawn_stdout_file_handle()
 -- A closed Handle is a caller bug surfaced from spawn itself, not a
 -- confusing EBADF from the plumbing.
 local function test_spawn_closed_handle_fails()
-  local p = cfd.pipe() as cfd.Pipe
+  local p = check.must(cfd.pipe())
   p:close()
   local h, err = child.spawn({"echo", "x"}, {stdout = p.writer})
   assert(h == nil, "spawn with a closed Handle should fail")
@@ -471,8 +457,7 @@ local function test_options_reject_raw_int_fd()
 local child = require("cosmic.child")
 child.run({"echo", "x"}, {stdout = 5})
 ]])
-  local r = child.run({lua_bin, "--check-types", script}) as child.Result
-  assert(r ~= nil, "check-types run should complete")
+  local r = check.must(child.run({lua_bin, "--check-types", script}))
   assert(not r.ok, "a raw integer fd in Options must fail the type check")
   local diag = r.stdout .. r.stderr
   assert(diag:find("stdout", 1, true),

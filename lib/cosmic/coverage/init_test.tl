@@ -3,6 +3,7 @@
 --- These run correctly both standalone and under an outer coverage run
 --- (`bin/make coverage`): start/stop nest, and enable() never re-targets
 --- an outer collection's dump directory.
+local check = require("cosmic.check")
 local child = require("cosmic.child")
 local coverage = require("cosmic.coverage")
 local env = require("cosmic.env")
@@ -10,7 +11,7 @@ local fs = require("cosmic.fs")
 local report = require("cosmic.coverage.report")
 local types = require("cosmic.fs.types")
 
-local tmpdir = os.getenv("TEST_TMPDIR") as string
+local tmpdir = check.must(os.getenv("TEST_TMPDIR"))
 
 --- Load a chunk under a controlled name, so hit assertions are stable.
 local function load_chunk(source: string, name: string): function()
@@ -39,9 +40,8 @@ local function test_start_stop_counts_lines()
   local snap = coverage.snapshot()
   local hits = snap["@covtest_chunk.lua"]
   assert(hits, "no hits recorded for the loaded chunk")
-  local h = hits as {integer: integer}
-  assert(h[1] == 1, "line 1 expected 1 hit, got " .. tostring(h[1]))
-  assert(h[3] == 3, "loop body expected 3 hits, got " .. tostring(h[3]))
+  assert(hits[1] == 1, "line 1 expected 1 hit, got " .. tostring(hits[1]))
+  assert(hits[3] == 3, "loop body expected 3 hits, got " .. tostring(hits[3]))
 end
 test_start_stop_counts_lines()
 
@@ -71,7 +71,7 @@ local function test_coroutine_lines_counted()
   local snap = coverage.snapshot()
   local hits = snap["@covtest_co.lua"]
   assert(hits, "no hits recorded inside the coroutine")
-  assert((hits as {integer: integer})[3] == 2, "coroutine loop body expected 2 hits")
+  assert(hits[3] == 2, "coroutine loop body expected 2 hits")
 end
 test_coroutine_lines_counted()
 
@@ -87,9 +87,7 @@ local function test_dump_writes_one_stable_file()
   assert(ok, "second dump failed: " .. (err or "?"))
   local names = cov_files_in(dir)
   assert(#names == 1, "expected one .cov file, got " .. #names)
-  local hits, rerr = report.read_cov(names[1])
-  assert(hits, "read_cov failed: " .. (rerr or "?"))
-  local h = hits as {string: {integer: integer}}
+  local h = check.must(report.read_cov(names[1]))
   assert(h["@covtest_dump.lua"], "dumped data missing the chunk's hits")
 end
 test_dump_writes_one_stable_file()
@@ -148,18 +146,14 @@ local function test_cli_gate_dumps_on_exit()
     end
   end
   child_env[#child_env + 1] = "COSMIC_COVERAGE=" .. covdir
-  local result, err = child.run({cosmic_bin, script}, {env = child_env})
-  assert(result, "child failed to start: " .. (err or "?"))
-  local r = result as child.Result
+  local r = check.must(child.run({cosmic_bin, script}, {env = child_env}))
   assert(r.code == 0, "child exited " .. tostring(r.code) .. ": " .. r.stderr)
   local names = cov_files_in(covdir)
   assert(#names == 1, "expected one .cov file from the child, got " .. #names)
-  local hits, rerr = report.read_cov(names[1])
-  assert(hits, "read_cov failed: " .. (rerr or "?"))
-  local h = hits as {string: {integer: integer}}
+  local h = check.must(report.read_cov(names[1]))
   local script_hits = h["@" .. script]
   assert(script_hits, "child did not record the script's lines")
-  assert((script_hits as {integer: integer})[1], "script line 1 not hit")
+  assert(script_hits[1], "script line 1 not hit")
 end
 test_cli_gate_dumps_on_exit()
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 -- Test the actual repo Makefile using pre-generated make outputs
 
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 
 local TEST_DIR = os.getenv("TEST_DIR")
@@ -12,9 +13,7 @@ end
 
 local function read_make_output(filename: string): MakeOutput
   local filepath = fs.join(TEST_DIR, filename)
-  local content = fs.read(filepath)
-  assert(content, "failed to read " .. filepath)
-  local text = content as string
+  local text = check.must(fs.read(filepath), "failed to read " .. filepath)
 
   local exit_code = text:match("exit:(%d+)%s*$")
   assert(exit_code, "missing exit code in " .. filepath)

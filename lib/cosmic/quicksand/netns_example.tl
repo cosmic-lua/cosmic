@@ -1,5 +1,7 @@
 --- Examples for cosmic.quicksand.netns.
 
+local check = require("cosmic.check")
+
 -- Example_open_self opens the current process's own netns file
 -- descriptor. Useful as a sanity check and as a reference for the
 -- fd-based enter() flow. On non-Linux hosts open() returns nil+err,
@@ -29,9 +31,8 @@ if not ns.unshare_user() then return end
 assert(ns.unshare())
 assert(ns.bring_up("lo"))
 ]]
-  local h = spawn.spawn({cosmic, "-e", script})
-  local hh = h as spawn.Handle
-  hh:wait()
+  local h = check.must(spawn.spawn({cosmic, "-e", script}))
+  h:wait()
 end
 
 -- Suppress unused warnings for examples

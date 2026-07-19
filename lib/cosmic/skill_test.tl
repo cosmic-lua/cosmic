@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 -- test cosmic --skill
 
+local check = require("cosmic.check")
 local spawn = require("cosmic.child")
 local fs = require("cosmic.fs")
 local cenv = require("cosmic.env")
@@ -20,14 +21,12 @@ end
 
 local function test_skill_writes_file()
   local dir = fs.join(tmpdir, "skill-out")
-  local __r1 = (spawn.spawn({cosmic, "--skill", dir}, {env = clean_env()}) as spawn.Handle):wait() as spawn.Result
+  local __r1 = check.must(check.must(spawn.spawn({cosmic, "--skill", dir}, {env = clean_env()})):wait())
   local ok, out = __r1.ok, __r1.stdout
   assert(ok, "cosmic --skill should succeed, got: " .. tostring(out))
   local skill_path = fs.join(dir, "SKILL.md")
   assert(fs.isfile(skill_path), "SKILL.md should exist at " .. skill_path)
-  local content, err = fs.read(skill_path)
-  assert(content, "failed to read SKILL.md: " .. tostring(err))
-  local c = content as string
+  local c = check.must(fs.read(skill_path))
   assert(c:match("^%-%-%-\n"), "should start with YAML frontmatter")
   assert(c:match("name: cosmic"), "frontmatter should have name")
   assert(c:match("description:"), "frontmatter should have description")
@@ -37,10 +36,10 @@ test_skill_writes_file()
 
 local function test_skill_content()
   local dir = fs.join(tmpdir, "skill-content")
-  local __r2 = (spawn.spawn({cosmic, "--skill", dir}, {env = clean_env()}) as spawn.Handle):wait() as spawn.Result
+  local __r2 = check.must(check.must(spawn.spawn({cosmic, "--skill", dir}, {env = clean_env()})):wait())
   local ok, _ = __r2.ok, __r2.stdout
   assert(ok, "cosmic --skill should succeed")
-  local content = assert(fs.read(fs.join(dir, "SKILL.md"))) as string
+  local content = check.must(fs.read(fs.join(dir, "SKILL.md")))
   assert(content:find("curl", 1, true),
     "should contain curl download command")
   assert(content:find("releases/latest/download/cosmic%-lua"),
@@ -69,7 +68,7 @@ test_skill_content()
 
 local function test_skill_creates_nested_dir()
   local dir = fs.join(tmpdir, "skill-nested", "a", "b")
-  local __r3 = (spawn.spawn({cosmic, "--skill", dir}, {env = clean_env()}) as spawn.Handle):wait() as spawn.Result
+  local __r3 = check.must(check.must(spawn.spawn({cosmic, "--skill", dir}, {env = clean_env()})):wait())
   local ok, _ = __r3.ok, __r3.stdout
   assert(ok, "cosmic --skill should create nested directories")
   assert(fs.isfile(fs.join(dir, "SKILL.md")), "SKILL.md should exist in nested dir")
@@ -78,10 +77,10 @@ test_skill_creates_nested_dir()
 
 local function test_skill_prints_path()
   local dir = fs.join(tmpdir, "skill-path")
-  local __r4 = (spawn.spawn({cosmic, "--skill", dir}, {env = clean_env()}) as spawn.Handle):wait() as spawn.Result
+  local __r4 = check.must(check.must(spawn.spawn({cosmic, "--skill", dir}, {env = clean_env()})):wait())
   local ok, out = __r4.ok, __r4.stdout
   assert(ok, "cosmic --skill should succeed")
-  local s = out as string
+  local s = out
   local expected = fs.join(dir, "SKILL.md")
   assert(s:find(expected, 1, true), "should print path to SKILL.md, got: " .. s)
 end

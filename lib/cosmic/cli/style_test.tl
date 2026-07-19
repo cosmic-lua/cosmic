@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 -- test cosmic --check-style option
 
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
 
@@ -22,8 +23,8 @@ end
 add(1, 2)
 ]])
 
-  local h = spawn.spawn({cosmic, "--check-style", input})
-  local __r1 = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, "--check-style", input}))
+  local __r1 = check.must(h:wait())
   local ok, _ = __r1.ok, __r1.stdout
   assert(ok, "cosmic --check-style should succeed on valid file")
 end
@@ -34,8 +35,8 @@ local function test_style_long_line()
   local long_line = string.rep("x", 91)
   local input = write_temp("style_long.tl", long_line .. "\n")
 
-  local h = spawn.spawn({cosmic, "--check-style", input})
-  local __r2 = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, "--check-style", input}))
+  local __r2 = check.must(h:wait())
   local ok, _ = __r2.ok, __r2.stdout
   assert(not ok, "cosmic --check-style should fail on file with long line")
 end
@@ -56,8 +57,8 @@ foo()
 bar()
 ]])
 
-  local h = spawn.spawn({cosmic, "--check-style", input})
-  local __r3 = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, "--check-style", input}))
+  local __r3 = check.must(h:wait())
   local ok, _ = __r3.ok, __r3.stdout
   assert(not ok, "cosmic --check-style should fail when function not called immediately after definition")
 end
@@ -85,8 +86,8 @@ end
 foo()
 ]])
 
-  local h = spawn.spawn({cosmic, "--check-style", input})
-  local __r5 = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, "--check-style", input}))
+  local __r5 = check.must(h:wait())
   local ok, _ = __r5.ok, __r5.stdout
   assert(ok, "block scopes inside a body must not trip call-after-define")
 end
@@ -103,8 +104,8 @@ end
 local other = 1
 ]])
 
-  local h = spawn.spawn({cosmic, "--check-style", input})
-  local __r6 = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, "--check-style", input}))
+  local __r6 = check.must(h:wait())
   local ok, _ = __r6.ok, __r6.stdout
   assert(not ok, "missing call must still fail with block scopes in the body")
 end
@@ -112,8 +113,8 @@ test_style_block_scopes_missing_call()
 
 -- Missing file: should fail
 local function test_style_missing_file()
-  local h = spawn.spawn({cosmic, "--check-style", "/nonexistent/file.tl"})
-  local __r4 = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, "--check-style", "/nonexistent/file.tl"}))
+  local __r4 = check.must(h:wait())
   local ok, _ = __r4.ok, __r4.stdout
   assert(not ok, "cosmic --check-style should fail on missing file")
 end

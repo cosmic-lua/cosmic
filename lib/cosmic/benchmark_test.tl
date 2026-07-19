@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 -- test cosmic.benchmark module
 
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
 local benchmark = require("cosmic.benchmark")
@@ -90,12 +91,12 @@ local function Benchmark_cmd()
   local x = 1 + 1
 end
 ]])
-  local h1 = spawn.spawn({cosmic, "--benchmark", input})
-  local __r1 = (h1 as spawn.Handle):wait() as spawn.Result
+  local h1 = check.must(spawn.spawn({cosmic, "--benchmark", input}))
+  local __r1 = check.must(h1:wait())
   local ok, out = __r1.ok, __r1.stdout
   assert(ok, "cosmic --benchmark should succeed")
-  assert((out as string):find("Benchmark_cmd"), "output should contain benchmark name")
-  assert((out as string):find("ns/op") or (out as string):find("µs/op") or (out as string):find("ms/op"), "output should show timing")
+  assert(out:find("Benchmark_cmd"), "output should contain benchmark name")
+  assert(out:find("ns/op") or out:find("µs/op") or out:find("ms/op"), "output should show timing")
 end
 test_cosmic_benchmark()
 
@@ -104,7 +105,7 @@ local function test_cosmic_benchmark_skip()
   local input = write_temp("cmd_bench_skip.tl", [[
 local x = 1
 ]])
-  local r = spawn.run({cosmic, "--benchmark", input}) as spawn.Result
+  local r = check.must(spawn.run({cosmic, "--benchmark", input}))
   assert(r.code == 2, "should return skip code 2")
   assert(r.stdout:find("SKIP"), "output should show SKIP")
 end
@@ -202,12 +203,12 @@ local function Benchmark_beta()
   local y = 2
 end
 ]])
-  local h2 = spawn.spawn({cosmic, "--benchmark", input .. ":alpha"})
-  local __r2 = (h2 as spawn.Handle):wait() as spawn.Result
+  local h2 = check.must(spawn.spawn({cosmic, "--benchmark", input .. ":alpha"}))
+  local __r2 = check.must(h2:wait())
   local ok, out = __r2.ok, __r2.stdout
   assert(ok, "cosmic --benchmark with filter should succeed")
-  assert((out as string):find("Benchmark_alpha"), "output should contain matching benchmark")
-  assert(not (out as string):find("Benchmark_beta"), "output should not contain non-matching benchmark")
+  assert(out:find("Benchmark_alpha"), "output should contain matching benchmark")
+  assert(not out:find("Benchmark_beta"), "output should not contain non-matching benchmark")
 end
 test_cosmic_benchmark_filter()
 

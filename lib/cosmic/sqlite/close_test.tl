@@ -4,16 +4,17 @@
 --- prepared statement. Lives in its own file so advanced_test.tl stays
 --- under the 500-line cap.
 
+local check = require("cosmic.check")
 local sqlite = require("cosmic.sqlite")
 
 -- Abandoned query iterators: close(), <close>, and GC release the statement
 
 local function test_query_close_releases_early()
-  local db = sqlite.open(":memory:") as sqlite.Database
+  local db = check.must(sqlite.open(":memory:"))
   db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
   db:exec("INSERT INTO t (name) VALUES ('a'), ('b'), ('c')")
 
-  local rows = db:query("SELECT * FROM t ORDER BY id") as sqlite.Rows
+  local rows = check.must(db:query("SELECT * FROM t ORDER BY id"))
   local first = rows()
   assert(first and first.name == "a", "should get first row")
   rows:close()
@@ -22,7 +23,7 @@ local function test_query_close_releases_early()
 
   -- The cached statement slot must be usable again for the same SQL.
   local n = 0
-  for _ in db:query("SELECT * FROM t ORDER BY id") as sqlite.Rows do
+  for _ in check.must(db:query("SELECT * FROM t ORDER BY id")) do
     n = n + 1
   end
   assert(n == 3, "re-query after close should see all rows, got: " .. tostring(n))
@@ -31,15 +32,15 @@ end
 test_query_close_releases_early()
 
 local function test_query_close_idempotent()
-  local db = sqlite.open(":memory:") as sqlite.Database
+  local db = check.must(sqlite.open(":memory:"))
   db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY)")
   db:exec("INSERT INTO t DEFAULT VALUES")
 
-  local rows = db:query("SELECT * FROM t") as sqlite.Rows
+  local rows = check.must(db:query("SELECT * FROM t"))
   rows:close()
   rows:close()
 
-  local drained = db:query("SELECT * FROM t") as sqlite.Rows
+  local drained = check.must(db:query("SELECT * FROM t"))
   while drained() ~= nil do end
   drained:close()
   db:close()
@@ -47,14 +48,14 @@ end
 test_query_close_idempotent()
 
 local function test_query_to_be_closed_scope()
-  local db = sqlite.open(":memory:") as sqlite.Database
+  local db = check.must(sqlite.open(":memory:"))
   db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
   db:exec("INSERT INTO t (name) VALUES ('a'), ('b')")
 
   -- The repo build compiles Teal targeting 5.3 syntax, so exercise the
   -- __close metamethod directly instead of a `local rows <close> = ...`
   -- declaration (which works in user scripts running on the 5.4 runtime).
-  local rows = db:query("SELECT * FROM t ORDER BY id") as sqlite.Rows
+  local rows = check.must(db:query("SELECT * FROM t ORDER BY id"))
   local first = rows()
   assert(first and first.name == "a", "should get first row")
   local mt = getmetatable(rows as any) as {string: any}
@@ -64,7 +65,7 @@ local function test_query_to_be_closed_scope()
   assert(rows() == nil, "__close must release the iterator")
 
   local n = 0
-  for _ in db:query("SELECT * FROM t ORDER BY id") as sqlite.Rows do
+  for _ in check.must(db:query("SELECT * FROM t ORDER BY id")) do
     n = n + 1
   end
   assert(n == 2, "re-query after <close> should see all rows, got: " .. tostring(n))
@@ -73,12 +74,12 @@ end
 test_query_to_be_closed_scope()
 
 local function test_query_abandoned_iterator_collected()
-  local db = sqlite.open(":memory:") as sqlite.Database
+  local db = check.must(sqlite.open(":memory:"))
   db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY)")
   db:exec("INSERT INTO t DEFAULT VALUES")
 
   do
-    local rows = db:query("SELECT * FROM t") as sqlite.Rows
+    local rows = check.must(db:query("SELECT * FROM t"))
     assert(rows() ~= nil, "should get a row")
     -- Abandon without close: the GC backstop must release the statement.
   end
@@ -86,7 +87,7 @@ local function test_query_abandoned_iterator_collected()
   collectgarbage("collect")
 
   local n = 0
-  for _ in db:query("SELECT * FROM t") as sqlite.Rows do
+  for _ in check.must(db:query("SELECT * FROM t")) do
     n = n + 1
   end
   assert(n == 1, "query after GC of abandoned iterator should work")
@@ -95,11 +96,11 @@ end
 test_query_abandoned_iterator_collected()
 
 local function test_query_list_close_early()
-  local db = sqlite.open(":memory:") as sqlite.Database
+  local db = check.must(sqlite.open(":memory:"))
   db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
   db:exec("INSERT INTO t (name) VALUES ('a'), ('b')")
 
-  local rows = db:query_list("SELECT * FROM t WHERE name != ? ORDER BY id", {"z"}) as sqlite.Rows
+  local rows = check.must(db:query_list("SELECT * FROM t WHERE name != ? ORDER BY id", {"z"}))
   local first = rows()
   assert(first and first.name == "a", "should get first row")
   rows:close()

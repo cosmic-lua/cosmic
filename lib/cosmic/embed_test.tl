@@ -1,8 +1,8 @@
 #!/usr/bin/env cosmic
 -- test cosmic --embed and --extract options
 
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs.types")
 local spawn = require("cosmic.child")
 local zip = require("cosmic.zip")
 
@@ -24,20 +24,17 @@ local function test_embed_single_file()
   local input = write_temp("hello.txt", "hello world")
   local output = fs.join(tmpdir, "cosmic-single")
 
-  local __r1 = (spawn.spawn({cosmic, "--embed", input, "--output", output}) as spawn.Handle):wait() as spawn.Result
+  local __r1 = check.must(check.must(spawn.spawn({cosmic, "--embed", input, "--output", output})):wait())
   local ok, out = __r1.ok, __r1.stdout
   assert(ok, "cosmic --embed should succeed: " .. (out or ""))
 
   -- Verify output exists and is executable
-  local stat = fs.stat(output)
-  assert(stat, "output file should exist")
-  assert((stat as fs_types.Stat):mode() & 73 ~= 0, "output should be executable")
+  local stat = check.must(fs.stat(output), "output file should exist")
+  assert(stat:mode() & 73 ~= 0, "output should be executable")
 
   -- Verify file is in the zip
   local data = fs.read(output)
-  local reader_maybe = zip.from(data)
-  assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as zip.Reader
+  local reader = check.must(zip.from(data), "failed to open zip from data")
   local files = reader:list()
 
   local found = false
@@ -63,14 +60,12 @@ local function test_embed_multiple_files()
   local file2 = write_temp("multi/two.txt", "content two")
   local output = fs.join(tmpdir, "cosmic-multi")
 
-  local __r2 = (spawn.spawn({cosmic, "--embed", file1, "--embed", file2, "--output", output}) as spawn.Handle):wait() as spawn.Result
+  local __r2 = check.must(check.must(spawn.spawn({cosmic, "--embed", file1, "--embed", file2, "--output", output})):wait())
   local ok, out = __r2.ok, __r2.stdout
   assert(ok, "cosmic --embed with multiple files should succeed: " .. (out or ""))
 
   local data = fs.read(output)
-  local reader_maybe = zip.from(data)
-  assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as zip.Reader
+  local reader = check.must(zip.from(data), "failed to open zip from data")
 
   local name1 = file1:gsub("^/+", "")
   local name2 = file2:gsub("^/+", "")
@@ -89,7 +84,7 @@ local function test_embed_custom_output()
   local output = fs.join(tmpdir, "subdir/myapp")
   fs.makedirs(fs.dirname(output))
 
-  local __r3 = (spawn.spawn({cosmic, "--embed", input, "--output", output}) as spawn.Handle):wait() as spawn.Result
+  local __r3 = check.must(check.must(spawn.spawn({cosmic, "--embed", input, "--output", output})):wait())
   local ok, out = __r3.ok, __r3.stdout
   assert(ok, "cosmic --embed with custom output path should succeed: " .. (out or ""))
 
@@ -101,7 +96,7 @@ test_embed_custom_output()
 -- Test error on missing input file
 local function test_embed_missing_file()
   local output = fs.join(tmpdir, "cosmic-missing")
-  local __r4 = (spawn.spawn({cosmic, "--embed", "/nonexistent/file.txt", "--output", output}) as spawn.Handle):wait() as spawn.Result
+  local __r4 = check.must(check.must(spawn.spawn({cosmic, "--embed", "/nonexistent/file.txt", "--output", output})):wait())
   local ok, _out = __r4.ok, __r4.stdout
   assert(not ok, "cosmic --embed should fail on missing file")
 end
@@ -112,15 +107,13 @@ local function test_embed_lua_file()
   local modfile = write_temp("mymod.lua", [[return { value = 42 }]])
   local output = fs.join(tmpdir, "cosmic-lua")
 
-  local __r5 = (spawn.spawn({cosmic, "--embed", modfile, "--output", output}) as spawn.Handle):wait() as spawn.Result
+  local __r5 = check.must(check.must(spawn.spawn({cosmic, "--embed", modfile, "--output", output})):wait())
   local ok, out = __r5.ok, __r5.stdout
   assert(ok, "embed should succeed: " .. (out or ""))
 
   -- Verify the lua file is in the zip with correct content
   local data = fs.read(output)
-  local reader_maybe = zip.from(data)
-  assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as zip.Reader
+  local reader = check.must(zip.from(data), "failed to open zip from data")
   local name = modfile:gsub("^/+", "")
   local content = reader:read(name)
   assert(content == [[return { value = 42 }]], "lua content should be preserved")
@@ -135,14 +128,12 @@ local function test_embed_binary_file()
   local input = write_temp("binary.bin", binary)
   local output = fs.join(tmpdir, "cosmic-binary")
 
-  local __r6 = (spawn.spawn({cosmic, "--embed", input, "--output", output}) as spawn.Handle):wait() as spawn.Result
+  local __r6 = check.must(check.must(spawn.spawn({cosmic, "--embed", input, "--output", output})):wait())
   local ok, out = __r6.ok, __r6.stdout
   assert(ok, "embed binary should succeed: " .. (out or ""))
 
   local data = fs.read(output)
-  local reader_maybe = zip.from(data)
-  assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as zip.Reader
+  local reader = check.must(zip.from(data), "failed to open zip from data")
   local name = input:gsub("^/+", "")
   local content = reader:read(name)
   assert(content == binary, "binary content should be preserved exactly")
@@ -160,15 +151,13 @@ local function test_embed_directory()
   fs.write(fs.join(appdir, "data.txt"), "some data")
 
   local output = fs.join(tmpdir, "cosmic-dir")
-  local __r7 = (spawn.spawn({cosmic, "--embed", appdir, "--output", output}) as spawn.Handle):wait() as spawn.Result
+  local __r7 = check.must(check.must(spawn.spawn({cosmic, "--embed", appdir, "--output", output})):wait())
   local ok, out = __r7.ok, __r7.stdout
   assert(ok, "embed directory should succeed: " .. (out or ""))
 
   -- Verify files are stored relative to directory root
   local data = fs.read(output)
-  local reader_maybe = zip.from(data)
-  assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as zip.Reader
+  local reader = check.must(zip.from(data), "failed to open zip from data")
 
   -- A custom entry is wrapped (#687): main.lua is the generated
   -- searcher-installing wrapper; the user entry is byte-identical at
@@ -198,14 +187,12 @@ local function test_embed_nested_directory()
   fs.write(fs.join(appdir, "a/b/c/deep.txt"), "deep")
 
   local output = fs.join(tmpdir, "cosmic-nested")
-  local __r8 = (spawn.spawn({cosmic, "--embed", appdir, "--output", output}) as spawn.Handle):wait() as spawn.Result
+  local __r8 = check.must(check.must(spawn.spawn({cosmic, "--embed", appdir, "--output", output})):wait())
   local ok, out = __r8.ok, __r8.stdout
   assert(ok, "embed nested directory should succeed: " .. (out or ""))
 
   local data = fs.read(output)
-  local reader_maybe = zip.from(data)
-  assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as zip.Reader
+  local reader = check.must(zip.from(data), "failed to open zip from data")
 
   assert(reader:read("top.txt") == "top", "top-level file")
   assert(reader:read("a/mid.txt") == "mid", "mid-level file")
@@ -223,14 +210,12 @@ local function test_embed_mixed()
   local extra = write_temp("extra.txt", "extra content")
   local output = fs.join(tmpdir, "cosmic-mixed")
 
-  local __r9 = (spawn.spawn({cosmic, "--embed", appdir, "--embed", extra, "--output", output}) as spawn.Handle):wait() as spawn.Result
+  local __r9 = check.must(check.must(spawn.spawn({cosmic, "--embed", appdir, "--embed", extra, "--output", output})):wait())
   local ok, out = __r9.ok, __r9.stdout
   assert(ok, "embed mixed should succeed: " .. (out or ""))
 
   local data = fs.read(output)
-  local reader_maybe = zip.from(data)
-  assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as zip.Reader
+  local reader = check.must(zip.from(data), "failed to open zip from data")
 
   local c1 = reader:read("main.user.lua")
   assert(c1 == 'print("mixed")\n', "directory entry should be present (wrapped, #687)")
@@ -249,12 +234,12 @@ local function test_embed_directory_executable()
   fs.write(fs.join(appdir, "main.lua"), 'io.write("it works\\n")\n')
 
   local output = fs.join(tmpdir, "cosmic-runapp")
-  local __r10 = (spawn.spawn({cosmic, "--embed", appdir, "--output", output}) as spawn.Handle):wait() as spawn.Result
+  local __r10 = check.must(check.must(spawn.spawn({cosmic, "--embed", appdir, "--output", output})):wait())
   local ok, out = __r10.ok, __r10.stdout
   assert(ok, "embed should succeed: " .. (out or ""))
 
   -- Run the custom executable
-  local __r11 = (spawn.spawn({output}) as spawn.Handle):wait() as spawn.Result
+  local __r11 = check.must(check.must(spawn.spawn({output})):wait())
   ok, out = __r11.ok, __r11.stdout
   assert(ok, "custom executable should run: " .. (out or ""))
   assert(out:match("it works"), "should print expected output, got: " .. (out or ""))
@@ -279,10 +264,10 @@ local function test_embed_app_local_requires()
     .. 'print("bad:", ok, err)\n')
 
   local output = fs.join(tmpdir, "cosmic-localmods")
-  local __r12 = (spawn.spawn({cosmic, "--embed", appdir, "--output", output}) as spawn.Handle):wait() as spawn.Result
+  local __r12 = check.must(check.must(spawn.spawn({cosmic, "--embed", appdir, "--output", output})):wait())
   assert(__r12.ok, "embed should succeed: " .. tostring(__r12.stderr))
 
-  local __r13 = (spawn.spawn({output}) as spawn.Handle):wait() as spawn.Result
+  local __r13 = check.must(check.must(spawn.spawn({output})):wait())
   local out = tostring(__r13.stdout)
   assert(__r13.ok, "app should run: " .. tostring(__r13.stderr))
   assert(out:match("hi zip"), "embedded .tl module should resolve: " .. out)
@@ -299,19 +284,16 @@ local function test_embed_uses_deflate()
   local input = write_temp("deflate_test.txt", compressible)
   local output = fs.join(tmpdir, "cosmic-deflate")
 
-  local __r12 = (spawn.spawn({cosmic, "--embed", input, "--output", output}) as spawn.Handle):wait() as spawn.Result
+  local __r12 = check.must(check.must(spawn.spawn({cosmic, "--embed", input, "--output", output})):wait())
   local ok, out = __r12.ok, __r12.stdout
   assert(ok, "embed should succeed: " .. (out or ""))
 
   local data = fs.read(output)
-  local reader_maybe = zip.from(data)
-  assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as zip.Reader
+  local reader = check.must(zip.from(data), "failed to open zip from data")
 
   local name = input:gsub("^/+", "")
-  local st = reader:stat(name)
-  assert(st ~= nil, "stat should return metadata for embedded file")
-  local stat = st as zip.Stat
+  local stat = check.must(reader:stat(name),
+    "stat should return metadata for embedded file")
   assert(stat.method == 8,
     "embedded file should use deflate (method=8), got: " .. tostring(stat.method))
   assert(stat.compressed_size < stat.size,
@@ -330,19 +312,16 @@ local function test_embed_stores_lua()
   local input = write_temp("store_test.lua", compressible)
   local output = fs.join(tmpdir, "cosmic-store")
 
-  local __r13 = (spawn.spawn({cosmic, "--embed", input, "--output", output}) as spawn.Handle):wait() as spawn.Result
+  local __r13 = check.must(check.must(spawn.spawn({cosmic, "--embed", input, "--output", output})):wait())
   local ok, out = __r13.ok, __r13.stdout
   assert(ok, "embed should succeed: " .. (out or ""))
 
   local data = fs.read(output)
-  local reader_maybe = zip.from(data)
-  assert(reader_maybe, "failed to open zip from data")
-  local reader = reader_maybe as zip.Reader
+  local reader = check.must(zip.from(data), "failed to open zip from data")
 
   local name = input:gsub("^/+", "")
-  local st = reader:stat(name)
-  assert(st ~= nil, "stat should return metadata for embedded file")
-  local stat = st as zip.Stat
+  local stat = check.must(reader:stat(name),
+    "stat should return metadata for embedded file")
   assert(stat.method == 0,
     "embedded .lua should be stored (method=0), got: " .. tostring(stat.method))
   assert(stat.compressed_size == stat.size,

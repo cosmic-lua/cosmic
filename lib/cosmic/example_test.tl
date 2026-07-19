@@ -4,6 +4,7 @@
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
 local example = require("cosmic.example")
+local check = require("cosmic.check")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
@@ -131,11 +132,11 @@ local function Example_cmd()
   -- works
 end
 ]])
-  local h = spawn.spawn({cosmic, "--check-examples", input})
-  local __r1 = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, "--check-examples", input}))
+  local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout
   assert(ok, "cosmic --check-examples should succeed")
-  assert((out as string):find("PASS"), "output should show PASS")
+  assert(out:find("PASS"), "output should show PASS")
 end
 test_cosmic_example_pass()
 
@@ -148,11 +149,11 @@ local function Example_cmd()
   -- expected
 end
 ]])
-  local h = spawn.spawn({cosmic, "--check-examples", input})
-  local __r2 = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, "--check-examples", input}))
+  local __r2 = check.must(h:wait())
   local ok, out = __r2.ok, __r2.stdout
   assert(not ok, "cosmic --check-examples should fail")
-  assert((out as string):find("FAIL"), "output should show FAIL")
+  assert(out:find("FAIL"), "output should show FAIL")
 end
 test_cosmic_example_fail()
 
@@ -161,7 +162,7 @@ local function test_cosmic_example_skip()
   local input = write_temp("cmd_skip.tl", [[
 local x = 1
 ]])
-  local r = spawn.run({cosmic, "--check-examples", input}) as spawn.Result
+  local r = check.must(spawn.run({cosmic, "--check-examples", input}))
   assert(r.code == 2, "should return skip code 2")
   assert(r.stdout:find("SKIP"), "output should show SKIP")
 end

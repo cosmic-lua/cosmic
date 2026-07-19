@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 --- Tests for the #595 signal-safety wave: blocking child I/O interrupted
 --- by a signal is retried automatically instead of surfacing EINTR.
+local check = require("cosmic.check")
 local child = require("cosmic.child")
 local signal = require("cosmic.signal")
 
@@ -8,8 +9,7 @@ local signal = require("cosmic.signal")
 -- signal interrupts it, so it returns bare nil at the child's EOF
 -- instead of surfacing EINTR mid-wait.
 local function test_read_retries_eintr()
-  local h = child.spawn({"sleep", "0.3"}) as child.Handle
-  assert(h ~= nil, "spawn should succeed")
+  local h = check.must(child.spawn({"sleep", "0.3"}))
   local old_handler = signal.sigaction(signal.SIGALRM, function(_: number) end)
   -- Interval timer: fires several times while read blocks on the silent
   -- child, each one interrupting the read.

@@ -2,9 +2,9 @@
 --- The PUBLIC manifest lint: every requireable top-level cosmic.* module
 --- embedded in the binary must be declared in cosmic.public as either
 --- public or internal, and the manifest must not go stale.
+local check = require("cosmic.check")
 local manifest = require("cosmic.public")
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs.types")
 
 local EMBEDDED = "/zip/.lua/cosmic"
 
@@ -31,9 +31,8 @@ test_no_overlap()
 --- Enumerate top-level module names embedded in the running binary:
 --- foo.lua files and directory modules (their init.lua is the module).
 local function embedded_modules(): {string: boolean}
-  local dir = fs.opendir(EMBEDDED)
-  assert(dir, "cannot open " .. EMBEDDED .. " (test must run in the binary)")
-  local d = dir as fs_types.Dir
+  local d = check.must(fs.opendir(EMBEDDED),
+    "cannot open " .. EMBEDDED .. " (test must run in the binary)")
   local found: {string: boolean} = {}
   while true do
     local name = d:read()
@@ -121,10 +120,7 @@ test_directory_module_entry_points()
 --- other direction (the listing shows public modules only).
 local function test_public_modules_are_documented()
   local docs = require("cosmic.doc")
-  local doc_types = require("cosmic.doc.types")
-  local index, ierr = docs.embedded_index()
-  assert(index, "docs index must be embedded: " .. tostring(ierr))
-  local idx = index as doc_types.DocIndex
+  local idx = check.must(docs.embedded_index())
   local undocumented: {string} = {}
   for _, name in ipairs(manifest.public) do
     if not idx.modules["cosmic." .. name] then

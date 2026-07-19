@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local codec = require("cosmic.codec")
 
 -- Hex encoding tests
@@ -99,7 +100,7 @@ end
 test_encode_lua_boolean()
 
 local function test_encode_lua_table()
-  local result = codec.encode_lua({a = 1}) as string
+  local result = check.must(codec.encode_lua({a = 1}))
   assert(string.match(result, "a") and string.match(result, "1"), "expected table with a=1")
 end
 test_encode_lua_table()

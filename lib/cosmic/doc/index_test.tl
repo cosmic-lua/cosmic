@@ -5,6 +5,7 @@ local fs = require("cosmic.fs")
 local env = require("cosmic.env")
 local codec = require("cosmic.codec")
 local index = require("cosmic.doc.index")
+local check = require("cosmic.check")
 
 local tmpdir = env.get("TEST_TMPDIR")
 assert(tmpdir, "TEST_TMPDIR must be set")
@@ -44,9 +45,8 @@ return {}
 ]])
 
 local function generate_modules(files: {string}): {string: any}
-  local encoded, err = index.generate(files)
-  assert(encoded, "generate failed: " .. tostring(err))
-  local data, derr = codec.decode_lua_unsafe(encoded as string)
+  local encoded = check.must(index.generate(files))
+  local data, derr = codec.decode_lua_unsafe(encoded)
   assert(data, "index should decode: " .. tostring(derr))
   return (data as {string: any}).modules as {string: any}
 end

@@ -40,14 +40,14 @@ else
   io.write("skipped: " .. err .. "\n")
 end
 ]])
-  local h = spawn.spawn({cosmic, script})
-  local __r1 = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, script}))
+  local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout
   if not ok then
     check.skip("userns maps child died before reporting (outer sandbox)")
     return
   end
-  local s = out as string
+  local s = out
   assert(s:find("ok") or s:find("skipped"),
     "expected ok or skipped, got: " .. s)
   if s:find("skipped") then
@@ -90,8 +90,8 @@ if not ok then
 end
 io.write("ok\n")
 ]])
-  local h = spawn.spawn({cosmic, script})
-  local __r2 = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, script}))
+  local __r2 = check.must(h:wait())
   local ok, out = __r2.ok, __r2.stdout
   -- An outer seccomp/pledge filter may SIGSYS the subprocess on prctl.
   -- Accept signal death as a skip.
@@ -99,7 +99,7 @@ io.write("ok\n")
     check.skip("no_new_privs child died before reporting (outer sandbox)")
     return
   end
-  local s = out as string
+  local s = out
   assert(s:find("ok") or s:find("skipped"),
     "expected ok or skipped, got: " .. s)
   if s:find("skipped") then
@@ -138,15 +138,15 @@ b:wait()
 unix.wait(pid)
 io.write("done\n")
 ]])
-  local h = spawn.spawn({cosmic, script})
-  local __r3 = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic, script}))
+  local __r3 = check.must(h:wait())
   local ok, out = __r3.ok, __r3.stdout
   -- Signal death under an outer sandbox counts as skip.
   if not ok then
     check.skip("barrier child died before reporting (outer sandbox)")
     return
   end
-  local s = out as string
+  local s = out
   assert(s:find("done") or s:find("skipped"),
     "expected done or skipped, got: " .. s)
   if s:find("skipped") then

@@ -1,5 +1,6 @@
 #!/usr/bin/env cosmic
 local Box = require("cosmic.quicksand.box")
+local check = require("cosmic.check")
 local quicksand = require("cosmic.quicksand")
 
 local function test_module_exports()
@@ -9,23 +10,21 @@ end
 test_module_exports()
 
 local function test_new_empty()
-  local j0, err = Box.new(nil)
-  assert(j0, "new(nil) should succeed: " .. tostring(err))
-  local j = j0 as Box.Box
+  local j = check.must(Box.new(nil))
   assert(type(j.run) == "function")
   assert(type(j.close) == "function")
 end
 test_new_empty()
 
 local function test_new_with_opts()
-  local j = assert(Box.new({
+  local j = check.must(Box.new({
         hostname = "work",
         fs = {ro = {"/usr"}, rw = {"/tmp"}},
         net = {allow = {["api.example.com:443"] = {}}},
         proc = {no_new_privs = true, uid = 1000},
         env = {keep = {"PATH"}, set = {FOO = "bar"}},
         cwd = "/tmp",
-      })) as Box.Box
+      }))
   assert(j.opts.hostname == "work")
   assert(j.opts.cwd == "/tmp")
 end
@@ -53,7 +52,7 @@ end
 test_new_rejects_bad_types()
 
 local function test_run_requires_argv()
-  local j = assert(Box.new()) as Box.Box
+  local j = check.must(Box.new())
   local run_any = j.run as function(any, any): any, any
   local code, err = run_any(j, nil)
   assert(code == nil)
@@ -68,7 +67,7 @@ test_run_requires_argv()
 local function test_run_on_non_linux_returns_specific_error()
   local c = quicksand.capabilities()
   if c.linux then return end
-  local j = assert(Box.new()) as Box.Box
+  local j = check.must(Box.new())
   local code, err = j:run({"/bin/true"})
   assert(code == nil, "run should fail on non-linux")
   assert(err and (err as string):find("Linux only", 1, true),
@@ -84,7 +83,7 @@ local function test_run_on_linux_returns_clean_shape()
   -- (integer|nil, string|nil) pair rather than a raised error.
   local c = quicksand.capabilities()
   if not c.linux then return end
-  local j = assert(Box.new()) as Box.Box
+  local j = check.must(Box.new())
   local code, err = j:run({"/bin/true"})
   if code == nil then
     assert(type(err) == "string", "nil code must come with string err")
@@ -95,7 +94,7 @@ end
 test_run_on_linux_returns_clean_shape()
 
 local function test_run_after_close_fails()
-  local j = assert(Box.new()) as Box.Box
+  local j = check.must(Box.new())
   assert(j:close())
   local code, err = j:run({"/bin/true"})
   assert(code == nil)
@@ -104,7 +103,7 @@ end
 test_run_after_close_fails()
 
 local function test_close_idempotent()
-  local j = assert(Box.new()) as Box.Box
+  local j = check.must(Box.new())
   assert(j:close())
   assert(j:close(), "second close should be a no-op")
 end

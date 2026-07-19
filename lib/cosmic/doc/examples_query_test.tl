@@ -5,7 +5,7 @@
 --- Split from query_test.tl to stay under the 500-line cap.
 
 local docs = require("cosmic.doc")
-local doc_types = require("cosmic.doc.types")
+local check = require("cosmic.check")
 
 -- Test show_module_examples with function-level filter
 local function test_show_module_examples_function_filter()
@@ -16,9 +16,7 @@ local function test_show_module_examples_function_filter()
   end
 
   -- Find a module that has examples to test with
-  local index = docs.embedded_index()
-  assert(index, "index should load")
-  local idx = index as doc_types.DocIndex
+  local idx = check.must(docs.embedded_index())
 
   -- Find a module with examples and functions. Iterate sorted so the pick
   -- is the same on every run — pairs() order varies per process, and a
@@ -71,9 +69,7 @@ local function test_show_module_examples_no_match()
   end
 
   -- Find a module with examples
-  local index = docs.embedded_index()
-  assert(index, "index should load")
-  local idx = index as doc_types.DocIndex
+  local idx = check.must(docs.embedded_index())
   local test_mod: string = nil
   for mod_name, mod_doc in pairs(idx.modules) do
     if mod_doc.examples and #mod_doc.examples > 0 then
@@ -103,9 +99,7 @@ local function test_show_module_examples_module_only()
   end
 
   -- Find a module with examples
-  local index = docs.embedded_index()
-  assert(index, "index should load")
-  local idx = index as doc_types.DocIndex
+  local idx = check.must(docs.embedded_index())
   local test_mod: string = nil
   for mod_name, mod_doc in pairs(idx.modules) do
     if mod_doc.examples and #mod_doc.examples > 0 then
@@ -151,9 +145,7 @@ local function test_show_module_examples_module_function_collision()
     print("test_show_module_examples_module_function_collision: PASS (skipped)")
     return
   end
-  local index = docs.embedded_index()
-  assert(index, "index should load")
-  local idx = index as doc_types.DocIndex
+  local idx = check.must(docs.embedded_index())
   if not (idx.modules["cosmic.quicksand.box.run"] and idx.modules["cosmic.quicksand.box"]) then
     print("test_show_module_examples_module_function_collision: PASS (fixture modules absent)")
     return

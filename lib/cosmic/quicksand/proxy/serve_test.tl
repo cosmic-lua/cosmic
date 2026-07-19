@@ -4,20 +4,20 @@
 --- malformed one with 400, in both cases before a single body byte is
 --- read or buffered. Every request here is refused before the upstream
 --- dial, so the tests need only loopback sockets, no DNS or egress.
+local check = require("cosmic.check")
 local serve = require("cosmic.quicksand.proxy.serve")
 local net = require("cosmic.net")
 
 --- Start a proxy on an ephemeral loopback port with a tiny body cap
 --- and one allowed pass-through host.
 local function start_proxy(max_body: integer): serve.Server
-  local srv = serve.new({
-      bind_port = 0,
-      allowed_hosts = {["a.example.com"] = {}},
-      log_level = "quiet",
-      max_body_bytes = max_body,
-      resolve_timeout_ms = 200,
-    }) as serve.Server
-  assert(srv, "serve.new failed")
+  local srv = check.must(serve.new({
+        bind_port = 0,
+        allowed_hosts = {["a.example.com"] = {}},
+        log_level = "quiet",
+        max_body_bytes = max_body,
+        resolve_timeout_ms = 200,
+      }), "serve.new failed")
   assert(srv.listen(), "listen failed")
   return srv
 end
@@ -26,17 +26,15 @@ end
 --- the full response. handle() closes the server-side fd; recv drains
 --- until EOF (nil per the stream contract).
 local function roundtrip(srv: serve.Server, request: string): string
-  local sock = net.connect_tcp("127.0.0.1", srv.port()) as net.Socket
-  assert(sock, "connect failed")
+  local sock = check.must(net.connect_tcp("127.0.0.1", srv.port()), "connect failed")
   assert(sock:send(request))
-  local fd = srv.accept() as integer
-  assert(fd, "accept failed")
+  local fd = check.must(srv.accept(), "accept failed")
   srv.handle(fd)
   local parts: {string} = {}
   while true do
     local chunk = sock:recv(4096)
     if not chunk then break end
-    table.insert(parts, chunk as string)
+    table.insert(parts, check.must(chunk))
   end
   sock:close()
   return table.concat(parts)

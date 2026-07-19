@@ -1,10 +1,9 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local sqlite = require("cosmic.sqlite")
 
 local function open_db(): sqlite.Database
-  local db, err = sqlite.open(":memory:")
-  assert(db ~= nil, "open failed: " .. tostring(err))
-  local d = db as sqlite.Database
+  local d = check.must(sqlite.open(":memory:"))
   assert(d:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT, score REAL)"))
   assert(d:exec("INSERT INTO t (name, score) VALUES ('alice', 1.5), ('bob', 2.5)"))
   return d

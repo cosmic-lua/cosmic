@@ -8,6 +8,7 @@
 -- Example_embed_directory demonstrates embedding a directory into a new executable.
 -- The directory must contain a main.lua entry point.
 local function Example_embed_directory()
+  local check = require("cosmic.check")
   local fs = require("cosmic.fs")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
@@ -21,11 +22,11 @@ local function Example_embed_directory()
 
   -- Build it
   local output = fs.join(tmpdir, "hello")
-  local r = spawn.run({cosmic, "--embed", appdir, "--output", output}) as spawn.Result
+  local r = check.must(spawn.run({cosmic, "--embed", appdir, "--output", output}))
   assert(r.ok, r.stderr)
 
   -- Run it
-  r = spawn.run({output}) as spawn.Result
+  r = check.must(spawn.run({output}))
   fs.rmrf(tmpdir)
   print(r.stdout)
   -- Output:
@@ -34,6 +35,7 @@ end
 
 -- Example_extract_roundtrip demonstrates extracting and re-embedding
 local function Example_extract_roundtrip()
+  local check = require("cosmic.check")
   local fs = require("cosmic.fs")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
@@ -42,7 +44,7 @@ local function Example_extract_roundtrip()
 
   -- Extract the running executable's zip contents
   local extractdir = fs.join(tmpdir, "extracted")
-  local r = spawn.run({cosmic, "--extract", extractdir}) as spawn.Result
+  local r = check.must(spawn.run({cosmic, "--extract", extractdir}))
   assert(r.ok, r.stderr)
 
   -- The extracted directory contains main.lua and all bundled files
@@ -55,6 +57,7 @@ end
 
 -- Example_embed_with_libraries demonstrates using cosmic libraries in embedded code
 local function Example_embed_with_libraries()
+  local check = require("cosmic.check")
   local fs = require("cosmic.fs")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
@@ -71,10 +74,10 @@ io.write(r.stdout)
 ]])
 
   local output = fs.join(tmpdir, "myapp")
-  local r = spawn.run({cosmic, "--embed", appdir, "--output", output}) as spawn.Result
+  local r = check.must(spawn.run({cosmic, "--embed", appdir, "--output", output}))
   assert(r.ok, r.stderr)
 
-  r = spawn.run({output}) as spawn.Result
+  r = check.must(spawn.run({output}))
   fs.rmrf(tmpdir)
   print(r.stdout)
   -- Output:
@@ -85,6 +88,7 @@ end
 -- then embed. The entry point must be main.lua since Teal is not compiled at
 -- runtime.
 local function Example_embed_from_teal()
+  local check = require("cosmic.check")
   local fs = require("cosmic.fs")
   local spawn = require("cosmic.child")
   local cosmic = arg[-1]
@@ -98,7 +102,7 @@ local function Example_embed_from_teal()
   fs.write(tl_file, 'local msg: string = "hello from teal"\nprint(msg)\n')
 
   -- Compile .tl to .lua using cosmic --compile
-  local r = spawn.run({cosmic, "--compile", tl_file}) as spawn.Result
+  local r = check.must(spawn.run({cosmic, "--compile", tl_file}))
   assert(r.ok, r.stderr)
   local lua_source = r.stdout
 
@@ -107,10 +111,10 @@ local function Example_embed_from_teal()
 
   -- Embed and run
   local output = fs.join(tmpdir, "from_teal")
-  r = spawn.run({cosmic, "--embed", appdir, "--output", output}) as spawn.Result
+  r = check.must(spawn.run({cosmic, "--embed", appdir, "--output", output}))
   assert(r.ok, r.stderr)
 
-  r = spawn.run({output}) as spawn.Result
+  r = check.must(spawn.run({output}))
   fs.rmrf(tmpdir)
   print(r.stdout)
   -- Output:

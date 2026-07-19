@@ -7,6 +7,7 @@ local fetch = require("cosmic.fetch")
 local fs = require("cosmic.fs")
 local net = require("cosmic.net")
 local proc = require("cosmic.proc")
+local check = require("cosmic.check")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
@@ -36,14 +37,13 @@ end
 --- @return integer port, integer child pid (caller must proc.wait it)
 local function serve(responses: {string}): integer, integer
   local srv, port = net.listen_tcp("127.0.0.1", 0)
-  assert(srv ~= nil, "listen_tcp failed")
-  local s = srv as net.Socket
+  local s = check.must(srv, "listen_tcp failed")
   local pid = proc.fork()
   if pid == 0 then
     for _, resp in ipairs(responses) do
       local conn = s:accept()
-      if conn then
-        local c = conn as net.Socket
+      if conn is net.Socket then
+        local c = conn
         local req = read_request(c)
         if resp == "echo" then
           c:send("HTTP/1.1 200 OK\r\nContent-Length: " .. #req

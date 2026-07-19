@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local json = require("cosmic.json")
 
 local function test_decode_object()
@@ -90,16 +91,17 @@ test_encode_invalid_value()
 -- Encode options (issue #531: options used to be silently ignored)
 
 local function test_encode_pretty()
-  local result = json.encode({a = 1, b = 2}, {pretty = true})
-  assert(result, "pretty encode should succeed")
-  assert(string.match(result as string, "\n"), "pretty output should contain a newline, got: " .. tostring(result))
+  local result = check.must(json.encode({a = 1, b = 2}, {pretty = true}),
+    "pretty encode should succeed")
+  assert(string.match(result, "\n"), "pretty output should contain a newline, got: " .. tostring(result))
 end
 test_encode_pretty()
 
 local function test_encode_pretty_indent()
-  local result = json.encode({a = {b = 1}, c = 2}, {pretty = true, indent = "    "})
-  assert(result, "pretty encode with indent should succeed")
-  assert(string.match(result as string, "\n    "), "output should use the custom indent, got: " .. tostring(result))
+  local result = check.must(
+    json.encode({a = {b = 1}, c = 2}, {pretty = true, indent = "    "}),
+    "pretty encode with indent should succeed")
+  assert(string.match(result, "\n    "), "output should use the custom indent, got: " .. tostring(result))
 end
 test_encode_pretty_indent()
 
@@ -161,10 +163,10 @@ local function test_integer_precision_roundtrip()
   -- 2^53 + 1 is not representable as a double; it survives only if the
   -- encoder and decoder keep 64-bit integers as integers.
   local n = 9007199254740993
-  local encoded = json.encode(n)
+  local encoded = check.must(json.encode(n))
   assert(encoded == "9007199254740993",
     "integer must encode without float rounding, got: " .. tostring(encoded))
-  local decoded = json.decode(encoded as string)
+  local decoded = json.decode(encoded)
   assert(decoded as integer == n, "integer must round-trip exactly")
   assert(math.type(decoded as number) == "integer",
     "decoded integer should stay an integer")
@@ -173,7 +175,7 @@ test_integer_precision_roundtrip()
 
 local function test_float_precision_roundtrip()
   for _, f in ipairs({0.1, 3.141592653589793, 1e308, -2.5e-10}) do
-    local decoded = json.decode(json.encode(f) as string)
+    local decoded = json.decode(check.must(json.encode(f)))
     assert(decoded as number == f,
       "float should round-trip bit-exactly: " .. tostring(f)
       .. " -> " .. tostring(decoded))
@@ -199,7 +201,7 @@ local function test_nul_byte_roundtrip()
   local encoded = json.encode("\0")
   assert(encoded == '"\\u0000"',
     "an embedded NUL should encode as \\u0000, got: " .. tostring(encoded))
-  local rt = json.decode(json.encode("a\0b") as string) as string
+  local rt = json.decode(check.must(json.encode("a\0b"))) as string
   assert(rt == "a\0b" and #rt == 3, "NUL inside a string must round-trip")
 end
 test_nul_byte_roundtrip()

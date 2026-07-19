@@ -1,5 +1,6 @@
 #!/usr/bin/env cosmic
 local str = require("cosmic.string")
+local check = require("cosmic.check")
 
 -- pad_left tests
 
@@ -167,9 +168,9 @@ test_shell_quote_empty()
 local function test_shell_quote_roundtrip()
   local child = require("cosmic.child")
   local payload = "it's a $test; with \"quotes\" and *globs*"
-  local result, err = child.run({"/bin/sh", "-c", "printf %s " .. str.shell_quote(payload)})
-  assert(result, "sh failed: " .. tostring(err))
-  local out = (result as child.Result).stdout
+  local result = check.must(
+    child.run({"/bin/sh", "-c", "printf %s " .. str.shell_quote(payload)}))
+  local out = result.stdout
   assert(out == payload, "expected round-trip through sh, got: " .. tostring(out))
 end
 test_shell_quote_roundtrip()

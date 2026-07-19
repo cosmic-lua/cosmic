@@ -1,5 +1,6 @@
 #!/usr/bin/env cosmic
 local cfd = require("cosmic.fd")
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
 local tty = require("cosmic.tty")
@@ -19,13 +20,11 @@ test_module_exports()
 -- known, instead of only checking the return type.
 
 local function test_isatty_regular_file_is_false()
-  local test_file = fs.join(os.getenv("TEST_TMPDIR") as string, "not_a_tty")
+  local test_file = fs.join(check.must(os.getenv("TEST_TMPDIR")), "not_a_tty")
   fs.write(test_file, "x")
-  local h = cfd.open(test_file, cfd.O_RDONLY)
-  assert(h, "should open the scratch file")
-  local hh = h as cfd.Handle
-  assert(tty.isatty(hh:fd()) == false, "a regular file fd is not a tty")
-  hh:close()
+  local h = check.must(cfd.open(test_file, cfd.O_RDONLY), "should open the scratch file")
+  assert(tty.isatty(h:fd()) == false, "a regular file fd is not a tty")
+  h:close()
 end
 test_isatty_regular_file_is_false()
 
@@ -40,11 +39,9 @@ local function test_isatty_pty_master_is_true()
   if not fs.exists("/dev/ptmx") then
     return
   end
-  local h, err = cfd.open("/dev/ptmx", cfd.O_RDWR)
-  assert(h, "opening /dev/ptmx should succeed: " .. tostring(err))
-  local hh = h as cfd.Handle
-  assert(tty.isatty(hh:fd()) == true, "a pty master must report as a tty")
-  hh:close()
+  local h = check.must(cfd.open("/dev/ptmx", cfd.O_RDWR))
+  assert(tty.isatty(h:fd()) == true, "a pty master must report as a tty")
+  h:close()
 end
 test_isatty_pty_master_is_true()
 
@@ -171,7 +168,7 @@ test_noecho_non_tty()
 -- getpass (issue #505): exercised end-to-end in a subprocess with a
 -- piped (non-tty) stdin, instead of only checking the export exists.
 
-local getpass_script = fs.join(os.getenv("TEST_TMPDIR") as string, "getpass_child.lua")
+local getpass_script = fs.join(check.must(os.getenv("TEST_TMPDIR")), "getpass_child.lua")
 fs.write(getpass_script, [[
 local tty = require("cosmic.tty")
 local line, err = tty.getpass("pw: ")
@@ -181,24 +178,24 @@ else
   io.write("GOT:" .. line)
 end
 ]])
-local cosmic_bin = fs.join(os.getenv("TEST_BIN") as string, "cosmic")
+local cosmic_bin = fs.join(check.must(os.getenv("TEST_BIN")), "cosmic")
 
 local function test_getpass_non_tty_reads_one_line()
-  local h = spawn.spawn({cosmic_bin, getpass_script}, {stdin = "sekrit\nsecond\n"})
-  assert(h, "getpass child should spawn")
-  local r = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic_bin, getpass_script}, {stdin = "sekrit\nsecond\n"}),
+    "getpass child should spawn")
+  local r = check.must(h:wait())
   assert(r.ok, "getpass child should exit 0: " .. tostring(r.stderr))
   assert(r.stdout == "GOT:sekrit",
     "getpass should return exactly the first stdin line, got: " .. tostring(r.stdout))
-  assert((r.stderr as string):match("^pw: "),
+  assert(r.stderr:match("^pw: "),
     "the prompt must go to stderr, got: " .. tostring(r.stderr))
 end
 test_getpass_non_tty_reads_one_line()
 
 local function test_getpass_non_tty_eof()
-  local h = spawn.spawn({cosmic_bin, getpass_script}, {stdin = ""})
-  assert(h, "getpass child should spawn")
-  local r = (h as spawn.Handle):wait() as spawn.Result
+  local h = check.must(spawn.spawn({cosmic_bin, getpass_script}, {stdin = ""}),
+    "getpass child should spawn")
+  local r = check.must(h:wait())
   assert(r.ok, "getpass child should exit 0: " .. tostring(r.stderr))
   assert(r.stdout == "ERR:EOF",
     "getpass at stdin EOF should return nil, 'EOF', got: " .. tostring(r.stdout))
@@ -284,7 +281,7 @@ test_winsize_error_names_errno()
 local function test_restore_accepts_action()
   assert(type(tty.DRAIN) == "number", "DRAIN constant should be exported")
   assert(type(tty.FLUSH) == "number", "FLUSH constant should be exported")
-  local p = assert(cfd.pipe()) as cfd.Pipe
+  local p = check.must(cfd.pipe())
   local t = fixture_termios()
   local ok, err = tty.restore(p.reader:fd(), t, tty.DRAIN)
   assert(not ok, "restore on a non-tty fd should fail")

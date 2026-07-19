@@ -1,4 +1,5 @@
 --- Tests for cosmic.flags.
+local check = require("cosmic.check")
 local flags = require("cosmic.flags")
 
 local spec: flags.Spec = {
@@ -15,9 +16,7 @@ local spec: flags.Spec = {
 
 -- Parse a command line that must succeed.
 local function must(s: flags.Spec, argv: {string}): flags.Parsed
-  local parsed, err = flags.parse(s, argv)
-  assert(parsed, "unexpected parse error: " .. tostring(err))
-  return parsed as flags.Parsed
+  return check.must(flags.parse(s, argv))
 end
 
 local function test_short_and_long_forms()

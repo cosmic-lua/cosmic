@@ -138,7 +138,8 @@ formatted string plus the numeric errno), wrappers add context with
 caller that has ruled out `nil` casts at the use site — `(x as Rec).field`,
 `(x as {K:V})[k]` — mirroring `lib/cosmic/embed.tl`. Scalars (`string | nil`)
 narrow, except method-call syntax: use `string.sub(x, …)` not `x:sub(…)` on a
-narrowed value.
+narrowed value. In tests and examples, narrow fallible returns with
+`require("cosmic.check").must(...)` instead of `assert(x) as T`.
 
 rules:
 - never throw from library code

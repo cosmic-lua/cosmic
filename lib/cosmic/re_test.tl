@@ -1,4 +1,5 @@
 #!/usr/bin/env cosmic
+local check = require("cosmic.check")
 local re = require("cosmic.re")
 
 -- compile tests
@@ -35,57 +36,50 @@ test_compile_invalid_unbalanced_parens()
 -- search with compiled regex tests
 
 local function test_regex_search_match()
-  local regex = re.compile("world")
-  assert(regex, "compile failed")
-  local result = (regex as re.Regex):search("hello world")
+  local regex = check.must(re.compile("world"), "compile failed")
+  local result = regex:search("hello world")
   assert(result == "world", "expected 'world', got '" .. tostring(result) .. "'")
 end
 test_regex_search_match()
 
 local function test_regex_search_no_match()
-  local regex = re.compile("xyz")
-  assert(regex, "compile failed")
-  local result = (regex as re.Regex):search("hello world")
+  local regex = check.must(re.compile("xyz"), "compile failed")
+  local result = regex:search("hello world")
   assert(result == nil, "expected nil for no match")
 end
 test_regex_search_no_match()
 
 local function test_regex_search_beginning()
-  local regex = re.compile("^hello")
-  assert(regex, "compile failed")
-  local result = (regex as re.Regex):search("hello world")
+  local regex = check.must(re.compile("^hello"), "compile failed")
+  local result = regex:search("hello world")
   assert(result == "hello", "expected 'hello', got '" .. tostring(result) .. "'")
 end
 test_regex_search_beginning()
 
 local function test_regex_search_end()
-  local regex = re.compile("world$")
-  assert(regex, "compile failed")
-  local result = (regex as re.Regex):search("hello world")
+  local regex = check.must(re.compile("world$"), "compile failed")
+  local result = regex:search("hello world")
   assert(result == "world", "expected 'world', got '" .. tostring(result) .. "'")
 end
 test_regex_search_end()
 
 local function test_regex_search_character_class()
-  local regex = re.compile("[0-9]+")
-  assert(regex, "compile failed")
-  local result = (regex as re.Regex):search("abc123def")
+  local regex = check.must(re.compile("[0-9]+"), "compile failed")
+  local result = regex:search("abc123def")
   assert(result == "123", "expected '123', got '" .. tostring(result) .. "'")
 end
 test_regex_search_character_class()
 
 local function test_regex_search_alternation()
-  local regex = re.compile("cat|dog")
-  assert(regex, "compile failed")
-  local result = (regex as re.Regex):search("I have a dog")
+  local regex = check.must(re.compile("cat|dog"), "compile failed")
+  local result = regex:search("I have a dog")
   assert(result == "dog", "expected 'dog', got '" .. tostring(result) .. "'")
 end
 test_regex_search_alternation()
 
 local function test_regex_search_captures()
-  local regex = re.compile("([a-z]+)([0-9]+)")
-  assert(regex, "compile failed")
-  local result, caps = (regex as re.Regex):search("abc123")
+  local regex = check.must(re.compile("([a-z]+)([0-9]+)"), "compile failed")
+  local result, caps = regex:search("abc123")
   assert(result == "abc123", "expected 'abc123', got '" .. tostring(result) .. "'")
   assert(caps ~= nil, "expected captures table on match")
   assert(#caps == 2, "expected 2 captures, got " .. tostring(#caps))
@@ -96,9 +90,8 @@ test_regex_search_captures()
 
 local function test_regex_search_no_match_no_error()
   -- A no-match from a compiled regex is a single bare nil, not an error.
-  local regex = re.compile("cat")
-  assert(regex, "compile failed")
-  local result, caps = (regex as re.Regex):search("dog only")
+  local regex = check.must(re.compile("cat"), "compile failed")
+  local result, caps = regex:search("dog only")
   assert(result == nil, "expected nil for no match")
   assert(caps == nil, "expected no second value for no match")
 end
@@ -110,8 +103,8 @@ local function test_search_simple()
   local result, caps, err = re.search("world", "hello world")
   assert(err == nil, "expected no error, got: " .. tostring(err))
   assert(result == "world", "expected 'world', got '" .. tostring(result) .. "'")
-  local c = caps as {string}
-  assert(c ~= nil and #c == 0, "expected empty captures table for pattern without groups")
+  local c = check.must(caps)
+  assert(#c == 0, "expected empty captures table for pattern without groups")
 end
 test_search_simple()
 
@@ -137,8 +130,7 @@ local function test_search_captures()
   local result, caps, err = re.search("([0-9]+)-([a-z]+)", "id 42-abc!")
   assert(err == nil, "expected no error, got: " .. tostring(err))
   assert(result == "42-abc", "expected '42-abc', got '" .. tostring(result) .. "'")
-  local c = caps as {string}
-  assert(c ~= nil, "expected captures table")
+  local c = check.must(caps, "expected captures table")
   assert(#c == 2, "expected 2 captures, got " .. tostring(#c))
   assert(c[1] == "42", "expected first capture '42', got '" .. tostring(c[1]) .. "'")
   assert(c[2] == "abc", "expected second capture 'abc', got '" .. tostring(c[2]) .. "'")
@@ -148,7 +140,7 @@ test_search_captures()
 local function test_search_nonparticipating_group()
   local result, caps = re.search("(aa)|(bb)", "xxaaxx")
   assert(result == "aa", "expected 'aa', got '" .. tostring(result) .. "'")
-  local c = caps as {string}
+  local c = check.must(caps)
   assert(#c == 2, "expected 2 capture slots, got " .. tostring(#c))
   assert(c[1] == "aa", "expected first capture 'aa', got '" .. tostring(c[1]) .. "'")
   assert(c[2] == "", "non-participating group should be empty string, got '" .. tostring(c[2]) .. "'")
@@ -213,9 +205,8 @@ end
 test_icase_flag()
 
 local function test_compile_icase_flag()
-  local regex, err = re.compile("WORLD", re.ICASE)
-  assert(regex ~= nil, "expected compiled regex: " .. tostring(err))
-  local result = (regex as re.Regex):search("hello world")
+  local regex = check.must(re.compile("WORLD", re.ICASE))
+  local result = regex:search("hello world")
   assert(result == "world", "expected 'world' with ICASE flag")
 end
 test_compile_icase_flag()
@@ -268,16 +259,15 @@ end
 test_escaped_special_characters()
 
 local function test_reuse_compiled_regex()
-  local regex = re.compile("[a-z]+")
-  assert(regex, "compile failed")
+  local regex = check.must(re.compile("[a-z]+"), "compile failed")
 
-  local r1 = (regex as re.Regex):search("123abc456")
+  local r1 = regex:search("123abc456")
   assert(r1 == "abc", "first search failed")
 
-  local r2 = (regex as re.Regex):search("xyz789")
+  local r2 = regex:search("xyz789")
   assert(r2 == "xyz", "second search failed")
 
-  local r3 = (regex as re.Regex):search("12345")
+  local r3 = regex:search("12345")
   assert(r3 == nil, "expected nil for no match")
 end
 test_reuse_compiled_regex()

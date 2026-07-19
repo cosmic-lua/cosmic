@@ -1,6 +1,6 @@
 local portable = require("build.portable")
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs.types")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
@@ -26,9 +26,8 @@ test_write_file_truncates()
 local function test_write_file_mode()
   local path = fs.join(tmpdir, "portable-mode.bin")
   assert(portable.write_file(path, "#!x", tonumber("755", 8)))
-  local st = fs.stat(path)
-  assert(st, "stat failed")
-  local perms = (st as fs_types.Stat):mode() & 511
+  local st = check.must(fs.stat(path), "stat failed")
+  local perms = st:mode() & 511
   assert(perms == tonumber("755", 8), "expected 0755, got " .. tostring(perms))
 end
 test_write_file_mode()
