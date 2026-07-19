@@ -140,8 +140,15 @@ formatted string plus the numeric errno), wrappers add context with
 `errno.is(errno_value, "EINTR")`.
 
 **Narrowing record/map unions.** Teal (0.24.8) does not flow-narrow record
-or map unions through truthiness (`if not x`). Two sanctioned tools:
+or map unions through truthiness (`if not x`). Three sanctioned tools:
 
+- **In tests and examples, use `check.must`** for fallible returns:
+  `local db = check.must(sqlite.open(path))` yields a plain `Database` —
+  no cast, no assert. Lua passes multiple returns through, so a failing
+  call reports the callee's own error string. `must` narrows nil only
+  (`false` passes through), and it throws, so it is for tests/examples,
+  never library code. Never write `assert(x) as T` in a test; that
+  pattern is retired.
 - **Prefer `is` where the code branches, for table-backed records**:
   `if sock is net.Socket then sock:send(...) end` narrows `Socket | nil`
   inside the positive branch (compiles to one `type(x) == "table"` check).

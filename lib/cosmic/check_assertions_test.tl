@@ -231,6 +231,66 @@ local function test_err_fails_with_label()
 end
 test_err_fails_with_label()
 
+-- must: passing cases
+
+local record Widget
+  name: string
+end
+
+local function make_widget(fail: boolean): Widget | nil, string
+  if fail then
+    return nil, "widget factory exploded"
+  end
+  return { name = "gear" }
+end
+
+local function test_must_narrows_record_union()
+  -- the point of must: the result is a plain Widget, fields usable
+  -- with no `as` cast and no assert
+  local w = check.must(make_widget(false))
+  check.eq(w.name, "gear")
+end
+test_must_narrows_record_union()
+
+local function test_must_narrows_scalar_with_method_syntax()
+  local s: string | nil = "hello"
+  local narrowed = check.must(s)
+  check.eq(narrowed:upper(), "HELLO")
+end
+test_must_narrows_scalar_with_method_syntax()
+
+local function test_must_passes_false_through()
+  -- must narrows nil only; false is a real value, unlike assert()
+  local b: boolean | nil = false
+  check.eq(check.must(b), false)
+end
+test_must_passes_false_through()
+
+-- must: failing cases
+
+local function test_must_uses_err_string_from_multi_return()
+  -- Lua passes both returns through, so the API's own error string
+  -- becomes the failure message
+  local threw, msg = must_fail(function(): string
+      check.must(make_widget(true))
+      return ""
+    end)
+  assert(threw, "expected must to throw on nil")
+  assert(msg:match("widget factory exploded"),
+    "expected the callee's error string, got: " .. msg)
+end
+test_must_uses_err_string_from_multi_return()
+
+local function test_must_default_message()
+  local threw, msg = must_fail(function(): string
+      check.must(nil as string | nil)
+      return ""
+    end)
+  assert(threw, "expected must to throw on nil")
+  assert(msg:match("must failed"), "expected default message, got: " .. msg)
+end
+test_must_default_message()
+
 -- caller line attribution: error level 2 means throw points at caller
 
 local function test_eq_error_points_at_caller()
