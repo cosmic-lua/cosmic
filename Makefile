@@ -419,13 +419,14 @@ doc_index_lua := $(patsubst %.tl,$(o)/%.lua,$(all_module_srcs))
 doc_index := $(o)/docs/.index.lua
 doc_index_script := lib/cosmic/doc/index.tl
 
-# Makefile is a prerequisite so trees whose index was poisoned by a
-# filtered rebuild (the mtime trap in #608: the broken index is newer
-# than every source, and .SECONDARY blocks rebuild-on-delete) self-heal
-# when this fix — or any future Makefile change — arrives; the
-# write-if-changed dance below keeps the binary from re-embedding when
-# the regenerated content is identical
-$(doc_index): $(doc_index_srcs) $(doc_index_lua) $(doc_index_script) Makefile | $(bootstrap_cosmic)
+# $(MAKEFILE_LIST) — the Makefile and every included cook.mk — is a
+# prerequisite so trees whose index was poisoned by a filtered rebuild
+# (the mtime trap in #608: the broken index is newer than every source,
+# and .SECONDARY blocks rebuild-on-delete) self-heal when this fix — or
+# any future build-logic change — arrives; a bare Makefile prereq missed
+# cook.mk edits (#717). The write-if-changed dance below keeps the
+# binary from re-embedding when the regenerated content is identical
+$(doc_index): $(doc_index_srcs) $(doc_index_lua) $(doc_index_script) $(MAKEFILE_LIST) | $(bootstrap_cosmic)
 	@mkdir -p $(@D)
 	@LUA_PATH="$(o)/lib/?.lua;$(o)/lib/?/init.lua;;" $(bootstrap_cosmic) $(doc_index_script) $(doc_index_srcs) > $@.tmp
 	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
@@ -445,18 +446,31 @@ doc-publish: $(all_docs) $(docs_publish) | $(bootstrap_cosmic)
 # CI stages
 ci_stages := format teal test example lint coverage
 ci_summaries := $(foreach s,$(ci_stages),$(o)/$(s)-summary.txt)
+ci_marks := $(foreach s,$(ci_stages),$(o)/ci-ok-$(s))
+
+# Per-stage exit marker: made only after the stage's entire subtree
+# succeeded. Grading below reads it so a recipe that fails AFTER writing
+# a clean summary still fails the stage (#714: the coverage ratchet
+# laundered its exit status through the already-tee'd summary). All
+# markers build in ONE sub-make, so stages keep sharing the target graph
+# and run in parallel without racing on common prerequisites.
+$(o)/ci-ok-%: %
+	@mkdir -p $(@D)
+	@touch $@
 
 .PHONY: ci
 ## Run CI checks (format, teal, test, example, lint) in parallel
 ci:
-	@rm -f $(o)/failed $(ci_summaries)
-	@$(MAKE) --keep-going $(ci_stages) || true
+	@rm -f $(o)/failed $(ci_summaries) $(ci_marks)
+	@$(MAKE) --keep-going $(ci_marks) || true
 	@for s in $(ci_stages); do \
 		echo "::group::$$s"; \
 		if [ -f $(o)/$$s-summary.txt ]; then \
 			cat $(o)/$$s-summary.txt; \
 			if grep -qE "[1-9][0-9]* failed" $(o)/$$s-summary.txt; then \
 				echo $$s >> $(o)/failed; \
+			elif [ ! -f $(o)/ci-ok-$$s ]; then \
+				echo "$$s (exit)" >> $(o)/failed; \
 			fi; \
 		else \
 			echo "$$s: no summary produced"; \

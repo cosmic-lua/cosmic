@@ -73,3 +73,21 @@ local function test_only_filter_exempts_artifact_sources()
     tests:sub(1, 200))
 end
 test_only_filter_exempts_artifact_sources()
+
+-- test: ci grading catches a stage that fails after writing a clean
+-- summary (#714). The ci-launder.out fixture runs the ci harness over
+-- ci-selftest-launder, whose recipe tees a passing summary and then
+-- exits 1 — the per-stage exit marker, not the summary text, must
+-- decide the verdict.
+local function test_ci_grading_catches_exit_after_clean_summary()
+  local result = read_make_output("ci-launder.out")
+  local tail = result.output:sub(-500)
+  assert(result.exit_code ~= 0,
+    "expected ci to fail when a stage exits nonzero after a clean summary" ..
+    "\noutput: " .. tail)
+  assert(result.output:find("ci: FAIL", 1, true),
+    "expected a ci: FAIL verdict line\noutput: " .. tail)
+  assert(result.output:find("ci-selftest-launder (exit)", 1, true),
+    "expected the failure recorded as an exit failure\noutput: " .. tail)
+end
+test_ci_grading_catches_exit_after_clean_summary()
