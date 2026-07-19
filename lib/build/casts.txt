@@ -170,6 +170,7 @@
 5	lib/cosmic/sqlite/bind.tl
 17	lib/cosmic/sqlite/close_test.tl
 26	lib/cosmic/sqlite/data_test.tl
+10	lib/cosmic/sqlite/defaults_test.tl
 5	lib/cosmic/sqlite/extras.tl
 6	lib/cosmic/sqlite/extras_test.tl
 18	lib/cosmic/sqlite/init.tl
