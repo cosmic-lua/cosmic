@@ -52,9 +52,9 @@ local record Reader
   --- operations don't need a follow-up `stat` per entry.
   list: function(self: Reader): {Entry}
   --- Gets metadata for a specific file in the archive.
-  stat: function(self: Reader, name: string): Stat | nil, string | nil
+  stat: function(self: Reader, name: string): Stat | nil, string
   --- Reads the contents of a file from the archive.
-  read: function(self: Reader, name: string): string | nil, string | nil
+  read: function(self: Reader, name: string): string | nil, string
   --- Closes the ZIP reader and releases resources.
   close: function(self: Reader)
 end
@@ -63,7 +63,7 @@ end
 local record Writer
   userdata
   --- Adds a file to the ZIP archive.
-  add: function(self: Writer, name: string, content: string, options?: AddOptions): boolean | nil, string | nil
+  add: function(self: Writer, name: string, content: string, options?: AddOptions): boolean | nil, string
   --- Closes the ZIP archive and writes the central directory.
   close: function(self: Writer)
 end
@@ -72,7 +72,7 @@ end
 local record Appender
   userdata
   --- Adds a file to the ZIP archive.
-  add: function(self: Appender, name: string, content: string, options?: AddOptions): boolean | nil, string | nil
+  add: function(self: Appender, name: string, content: string, options?: AddOptions): boolean | nil, string
   --- Removes entries by name from the archive.
   --- If `name` ends with `/`, all entries whose names start with that
   --- directory prefix are removed; otherwise the single entry whose name
@@ -81,7 +81,7 @@ local record Appender
   --- The local file data of removed existing entries remains as dead space
   --- in the archive; only the central directory reference is removed.
   --- Fails with an error if no entry matched or the appender is closed.
-  remove: function(self: Appender, name: string): boolean | nil, string | nil
+  remove: function(self: Appender, name: string): boolean | nil, string
   --- Closes the ZIP archive and writes the updated central directory.
   close: function(self: Appender)
 end
@@ -114,21 +114,21 @@ local record zip
 
   --- Opens a ZIP archive for reading, writing, or appending.
   --- The first argument can be a file path string or a file descriptor integer.
-  open: function(path: string | integer, mode?: OpenMode, options?: OpenOptions): any, string | nil
+  open: function(path: string | integer, mode?: OpenMode, options?: OpenOptions): any, string
   --- Opens a ZIP archive from in-memory data for reading.
-  from: function(data: string, options?: OpenOptions): Reader | nil, string | nil
+  from: function(data: string, options?: OpenOptions): Reader | nil, string
   --- Creates a new ZIP archive for writing. This is equivalent to
   --- `zip.open(path, "w", options)`. Any existing file is truncated.
-  create: function(path: string | integer, options?: OpenOptions): Writer | nil, string | nil
+  create: function(path: string | integer, options?: OpenOptions): Writer | nil, string
   --- Opens an existing ZIP archive for appending. This is equivalent to
   --- `zip.open(path, "a", options)`. Unlike `zip.open` and `zip.create`,
   --- a file descriptor is not accepted; the archive must be given as a
   --- path.
-  append: function(path: string, options?: OpenOptions): Appender | nil, string | nil
+  append: function(path: string, options?: OpenOptions): Appender | nil, string
   --- Validates a ZIP entry name without adding it to an archive, applying
   --- the same rules that `add` enforces (relative path, no `..` segments,
   --- no control characters, etc.).
-  validate_name: function(name: string): boolean | nil, string | nil
+  validate_name: function(name: string): boolean | nil, string
 end
 
 return zip

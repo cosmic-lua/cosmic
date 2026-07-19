@@ -393,7 +393,7 @@ local function syntax_check(output: string, module_name: string): string
     .. "; this usually means a malformed type annotation in definitions.lua"
     .. UPSTREAM_HINT
   end
-  local result = res as tl.Result
+  local result = res
   if result and result.syntax_errors and #result.syntax_errors > 0 then
     local msgs: {string} = {}
     for idx, e in ipairs(result.syntax_errors) do

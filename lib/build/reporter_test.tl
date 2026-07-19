@@ -39,7 +39,7 @@ local function run_reporter(...: string): integer, string, string
   if r.code ~= nil then
     exit_code = r.code
   elseif r.signal ~= nil then
-    exit_code = (128 + r.signal) as integer
+    exit_code = (128 + r.signal)
   end
   return exit_code, r.stdout, r.stderr
 end

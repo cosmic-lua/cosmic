@@ -33,7 +33,7 @@ end
 
 -- Test that make_readme generates a table of doc links
 local function test_readme_has_doc_table()
-  local publish = require("lib.docs.publish") as PublishModule
+  local publish = require("lib.docs.publish")
   local docs_dir = make_mock_docs("docs-readme")
 
   local readme = publish.make_readme(docs_dir)

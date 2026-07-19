@@ -178,7 +178,7 @@ local record Database
   --- Returns `true` if the database `name` of connection `db` is read-only,
   --- `false` if it is read/write. Returns `nil` plus an error message if
   --- `name` is not the name of a database on connection `db`.
-  readonly: function(self: Database, name?: string): boolean | nil, string | nil
+  readonly: function(self: Database, name?: string): boolean | nil, string
   --- This function installs a rollback_hook callback handler.
   --- See: `db:commit_hook` and `db:update_hook`
   rollback_hook: function<Udata>(self: Database, func: function(udata: Udata), udata: Udata)
@@ -235,7 +235,7 @@ local record Database
   ---     2       22
   ---     3       33
   urows: function(self: Database, sql: string): function, VM
-  wal_checkpoint: function(self: Database, mode?: integer, name?: string): integer | nil, integer, ResultCode | nil
+  wal_checkpoint: function(self: Database, mode?: integer, name?: string): integer | nil, integer, ResultCode
   wal_hook: function<Udata>(self: Database, func?: (function(udata: Udata, db: Database, name: string, page_count: integer): integer), udata?: Udata)
 end
 

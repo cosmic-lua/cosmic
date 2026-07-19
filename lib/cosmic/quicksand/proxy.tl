@@ -57,7 +57,7 @@ end
 
 local function now_ms(): integer
   local s, ns = unix.clock_gettime(unix.CLOCK_MONOTONIC)
-  return (s as integer) * 1000 + (ns as integer) // 1000000
+  return (s) * 1000 + (ns) // 1000000
 end
 
 --- Send SIGTERM and reap the proxy child, escalating to SIGKILL when
@@ -117,8 +117,8 @@ local function start(opts: ProxyOptions): ProxyHandle | nil, string
   if not vok then return nil, verr end
   local r, w = unix.pipe()
   if not r then return nil, errno.str(w, "pipe") end
-  local rfd = r as integer
-  local wfd = w as integer
+  local rfd = r
+  local wfd = w
   local pid, ferr = unix.fork()
   if not pid then
     unix.close(rfd)
@@ -164,12 +164,12 @@ local function start(opts: ProxyOptions): ProxyHandle | nil, string
     pcall(unix.wait, pid)
     return nil, "proxy child failed to report a port"
   end
-  local port = (string.unpack("<i4", packed)) as integer
+  local port = (string.unpack("<i4", packed))
   if port < 0 then
     pcall(unix.wait, pid)
     return nil, "proxy child failed to listen"
   end
-  local h: ProxyHandle = {pid = pid as integer, port = port}
+  local h: ProxyHandle = {pid = pid, port = port}
   h.stop = handle_stop
   h.alive = handle_alive
   return h

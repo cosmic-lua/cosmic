@@ -43,7 +43,7 @@ end
 --- @return string? Error message if decoding failed
 local function decode(str: string): any, string
   local result, err = cosmo.DecodeJson(str)
-  return result, err as string
+  return result, err
 end
 
 --- Encode a Lua value as a JSON string.
@@ -71,7 +71,7 @@ local function encode(value: any, options?: EncodeOptions): string | nil, string
   else
     result, err = cosmo.EncodeJson(value)
   end
-  return result, err as string
+  return result, err
 end
 
 --- Mark a table as a JSON array so encode() serializes it as `[]` even

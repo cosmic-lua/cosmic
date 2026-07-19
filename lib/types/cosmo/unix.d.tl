@@ -146,7 +146,7 @@ local record Memory
   --- `EAGAIN` is raised if, upon entry, the word at `word_index` had a
   --- different value than what's specified at `expect`.
   --- `ETIMEDOUT` is raised when the absolute deadline expires.
-  wait: function(self: Memory, word_index: integer, expect: integer, abs_deadline?: integer, nanos?: integer): integer | nil, string | nil, Errno | nil
+  wait: function(self: Memory, word_index: integer, expect: integer, abs_deadline?: integer, nanos?: integer): integer | nil, string, Errno
   --- Wakes other processes waiting on word.
   --- This method may be used to signal or broadcast to waiters. The
   --- `count` specifies the number of processes that should be woken,
@@ -168,7 +168,7 @@ local record Dir
   --- Closes directory stream object and associated its file descriptor.
   --- This is called automatically by the garbage collector.
   --- This may be called multiple times.
-  close: function(self: Dir): boolean | nil, string | nil, Errno | nil
+  close: function(self: Dir): boolean | nil, string, Errno
   --- Reads entry from directory stream.
   --- Returns `nil` if there are no more entries.
   --- On error, `nil` will be returned and `errno` will be non-nil.
@@ -185,8 +185,8 @@ local record Dir
   --- `unix.Dir` objects may be used as a for loop iterator.
   read: function(self: Dir): string | nil, integer, integer, integer
   --- Returns `EOPNOTSUPP` if using a `/zip/...` path or if using Windows NT.
-  fd: function(self: Dir): integer | nil, string | nil, Errno | nil
-  tell: function(self: Dir): integer | nil, string | nil, Errno | nil
+  fd: function(self: Dir): integer | nil, string, Errno
+  tell: function(self: Dir): integer | nil, string, Errno
   --- Resets stream back to beginning.
   rewind: function(self: Dir)
 end
@@ -1480,7 +1480,7 @@ local record unix
   --- Returns `ENOTDIR` if `path` contained a directory component that
   --- wasn't a directory
   --- .
-  open: function(path: string, flags: integer, mode?: integer, dirfd?: integer): integer | nil, string | nil, Errno | nil
+  open: function(path: string, flags: integer, mode?: integer, dirfd?: integer): integer | nil, string, Errno
   --- Closes file descriptor.
   --- This function should never be called twice for the same file
   --- descriptor, regardless of whether or not an error happened. The file
@@ -1496,14 +1496,14 @@ local record unix
   --- Returns `EBADF` if `fd` wasn't valid.
   --- Returns `EINTR` possibly maybe.
   --- Returns `EIO` if an i/o error occurred.
-  close: function(fd: integer): boolean | nil, string | nil, Errno | nil
+  close: function(fd: integer): boolean | nil, string, Errno
   --- Reads from file descriptor.
   --- This function returns empty string on end of file. The exception is
   --- if `bufsiz` is zero, in which case an empty returned string means
   --- the file descriptor works.
-  read: function(fd: integer, bufsiz?: integer, offset?: integer): string | nil, string | nil, Errno | nil
+  read: function(fd: integer, bufsiz?: integer, offset?: integer): string | nil, string, Errno
   --- Writes to file descriptor.
-  write: function(fd: integer, data: string, offset?: integer): integer | nil, string | nil, Errno | nil
+  write: function(fd: integer, data: string, offset?: integer): integer | nil, string, Errno
   --- Invokes `_Exit(exitcode)` on the process. This will immediately
   --- halt the current process. Memory will be freed. File descriptors
   --- will be closed. Any open connections it owns will be reset. This
@@ -1526,19 +1526,19 @@ local record unix
   --- Sets environment variable.
   --- This wraps the C `setenv()` function to allow Lua scripts to set
   --- environment variables.
-  setenv: function(name: string, value: string, overwrite?: boolean): boolean | nil, string | nil, Errno | nil
+  setenv: function(name: string, value: string, overwrite?: boolean): boolean | nil, string, Errno
   --- Unsets environment variable.
   --- This wraps the C `unsetenv()` function to allow Lua scripts to remove
   --- environment variables.
-  unsetenv: function(name: string): boolean | nil, string | nil, Errno | nil
+  unsetenv: function(name: string): boolean | nil, string, Errno
   --- Clears all environment variables.
   --- This wraps the C `clearenv()` function to allow Lua scripts to remove
   --- all environment variables at once.
-  clearenv: function(): boolean | nil, string | nil, Errno | nil
+  clearenv: function(): boolean | nil, string, Errno
   --- Gets login name of current user.
   --- This wraps the C `getlogin()` function to retrieve the login name
   --- associated with the current session.
-  getlogin: function(): string | nil, string | nil, Errno | nil
+  getlogin: function(): string | nil, string, Errno
   --- Creates a new process mitosis style.
   --- This system call returns twice. The parent process gets the nonzero
   --- pid. The child gets zero.
@@ -1594,7 +1594,7 @@ local record unix
   --- Hence it should come as no surprise that `fork()` would go slower on
   --- operating systems that have more security features. So depending on
   --- your use case, you can choose the operating system that suits you.
-  fork: function(): integer | nil, string | nil, Errno | nil
+  fork: function(): integer | nil, string, Errno
   --- Performs `$PATH` lookup of executable.
   ---     unix = require 'unix'
   ---     prog = assert(unix.commandv('ls'))
@@ -1607,7 +1607,7 @@ local record unix
   --- they can be discovered like they would on UNIX. If you want to find
   --- a program like notepad on the $PATH using this function, then you
   --- need to specify "notepad.exe" so it includes the extension.
-  commandv: function(prog: string): string | nil, string | nil, Errno | nil
+  commandv: function(prog: string): string | nil, string, Errno
   --- Exits current process, replacing it with a new instance of the
   --- specified program. `prog` needs to be an absolute path, see
   --- commandv(). `env` defaults to to the current `environ`. Here's
@@ -1631,20 +1631,20 @@ local record unix
   --- This function never returns on success.
   --- `EAGAIN` is returned if you've enforced a max number of
   --- processes using `setrlimit(RLIMIT_NPROC)`.
-  execve: function(prog: string, args: {string}, env: {string}): nil, string | nil, Errno | nil
+  execve: function(prog: string, args: {string}, env: {string}): nil, string, Errno
   --- Executes program with PATH search.
   --- Unlike `execve()`, this function searches for `prog` in the
   --- directories listed in the `PATH` environment variable.
   --- If `argv` is not provided, it defaults to `{prog}`.
   --- This function never returns on success.
-  execvp: function(prog: string, argv?: {string}): nil, string | nil, Errno | nil
+  execvp: function(prog: string, argv?: {string}): nil, string, Errno
   --- Executes program with PATH search and custom environment.
   --- Like `execvp()` but also allows specifying a custom environment.
   --- `envp` is a string list table where each string is typically
   --- in the form `"KEY=value"`. If not specified, inherits the
   --- current environment.
   --- This function never returns on success.
-  execvpe: function(prog: string, argv: {string}, envp?: {string}): nil, string | nil, Errno | nil
+  execvpe: function(prog: string, argv: {string}, envp?: {string}): nil, string, Errno
   --- Executes program from file descriptor.
   --- This allows executing a program that has already been opened,
   --- which can be useful for executing programs that have been
@@ -1655,7 +1655,7 @@ local record unix
   --- `envp` is the environment. If not specified, inherits the
   --- current environment.
   --- This function never returns on success.
-  fexecve: function(fd: integer, argv: {string}, envp?: {string}): nil, string | nil, Errno | nil
+  fexecve: function(fd: integer, argv: {string}, envp?: {string}): nil, string, Errno
   --- Spawns a new process.
   --- Unlike `fork()` + `execve()`, this uses `posix_spawn()` which
   --- can be more efficient on some platforms.
@@ -1664,12 +1664,12 @@ local record unix
   --- `envp` is the environment. If not specified, inherits the
   --- current environment.
   --- Returns the child process id on success.
-  spawn: function(prog: string, argv: {string}, envp?: {string}): integer | nil, string | nil, Errno | nil
+  spawn: function(prog: string, argv: {string}, envp?: {string}): integer | nil, string, Errno
   --- Spawns a new process with PATH search.
   --- Like `spawn()` but searches for `prog` in the directories
   --- listed in the `PATH` environment variable.
   --- Returns the child process id on success.
-  spawnp: function(prog: string, argv: {string}, envp?: {string}): integer | nil, string | nil, Errno | nil
+  spawnp: function(prog: string, argv: {string}, envp?: {string}): integer | nil, string, Errno
   --- Duplicates file descriptor.
   --- `newfd` may be specified to choose a specific number for the new
   --- file descriptor. If it's already open, then the preexisting one will
@@ -1684,7 +1684,7 @@ local record unix
   --- Will ensure that, in the rare event standard output or standard
   --- error are closed, you won't accidentally duplicate standard input to
   --- those numbers.
-  dup: function(oldfd: integer, newfd?: integer, flags?: integer, lowest?: integer): integer | nil, string | nil, Errno | nil
+  dup: function(oldfd: integer, newfd?: integer, flags?: integer, lowest?: integer): integer | nil, string, Errno
   --- Creates fifo which enables communication between processes.
   --- - `O_CLOEXEC`: Automatically close file descriptor upon execve()
   --- - `O_NONBLOCK`: Request `EAGAIN` be raised rather than blocking
@@ -1723,7 +1723,7 @@ local record unix
   ---        assert(unix.close(reader))
   ---        assert(unix.wait())
   ---     end
-  pipe: function(flags?: integer): integer | nil, integer, string | nil, Errno | nil
+  pipe: function(flags?: integer): integer | nil, integer, string, Errno
   --- Waits for subprocess to terminate.
   --- `pid` defaults to `-1` which means any child process. Setting
   --- `pid` to `0` is equivalent to `-getpid()`. If `pid < -1` then
@@ -1757,7 +1757,7 @@ local record unix
   ---           break
   ---        end
   ---     end
-  wait: function(pid?: integer, options?: integer): integer | nil, integer, Rusage, string | nil, Errno | nil
+  wait: function(pid?: integer, options?: integer): integer | nil, integer, Rusage, string, Errno
   --- Returns `true` if process exited cleanly.
   WIFEXITED: function(wstatus: integer): boolean
   --- Returns code passed to exit() assuming `WIFEXITED(wstatus)` is true.
@@ -1791,20 +1791,20 @@ local record unix
   --- standard, which are `SIGINT` and `SIGQUIT`. All other signals on the
   --- Windows platform that are sent to another process via kill() will be
   --- treated like `SIGKILL`.
-  kill: function(pid: integer, sig: integer): boolean | nil, string | nil, Errno | nil
+  kill: function(pid: integer, sig: integer): boolean | nil, string, Errno
   --- Sends signal to process group.
   --- This is similar to `kill()` but sends the signal to all processes
   --- in the specified process group.
   --- `pgrp` is the process group id. If 0, sends to the calling process's
   --- process group.
   --- `sig` can be any signal value (e.g., `SIGTERM`, `SIGKILL`, etc.).
-  killpg: function(pgrp: integer, sig: integer): boolean | nil, string | nil, Errno | nil
+  killpg: function(pgrp: integer, sig: integer): boolean | nil, string, Errno
   --- Triggers signal in current process.
   --- This is pretty much the same as `kill(getpid(), sig)`.
-  raise: function(sig: integer): integer | nil, string | nil, Errno | nil
+  raise: function(sig: integer): integer | nil, string, Errno
   --- Checks if effective user of current process has permission to access file.
   --- - `AT_SYMLINK_NOFOLLOW`: do not follow symbolic links.
-  access: function(path: string, how: integer, flags?: integer, dirfd?: integer): boolean | nil, string | nil, Errno | nil
+  access: function(path: string, how: integer, flags?: integer, dirfd?: integer): boolean | nil, string, Errno
   --- Makes directory.
   --- `path` is the path of the directory you wish to create.
   --- `mode` is octal permission bits, e.g. `0755`.
@@ -1818,14 +1818,14 @@ local record unix
   --- Fails with `EACCES` if the parent directory doesn't grant write
   --- permission to the current user.
   --- Fails with `ENAMETOOLONG` if the path is too long.
-  mkdir: function(path: string, mode?: integer, dirfd?: integer): boolean | nil, string | nil, Errno | nil
+  mkdir: function(path: string, mode?: integer, dirfd?: integer): boolean | nil, string, Errno
   --- Unlike mkdir() this convenience wrapper will automatically create
   --- parent parent directories as needed. If the directory already exists
   --- then, unlike mkdir() which returns EEXIST, the makedirs() function
   --- will return success.
   --- `path` is the path of the directory you wish to create.
   --- `mode` is octal permission bits, e.g. `0755`.
-  makedirs: function(path: string, mode?: integer): boolean | nil, string | nil, Errno | nil
+  makedirs: function(path: string, mode?: integer): boolean | nil, string, Errno
   --- Creates a temporary directory with a unique name.
   --- `template` must end with "XXXXXX" which will be replaced with random
   --- characters to create a unique directory name.
@@ -1833,7 +1833,7 @@ local record unix
   --- Example:
   ---     local tmpdir = unix.mkdtemp("/tmp/myapp_XXXXXX")
   ---     -- tmpdir is now something like "/tmp/myapp_a3b2c1"
-  mkdtemp: function(template: string): string | nil, string | nil, Errno | nil
+  mkdtemp: function(template: string): string | nil, string, Errno
   --- Creates a temporary file with a unique name.
   --- `template` must end with "XXXXXX" which will be replaced with random
   --- characters to create a unique filename.
@@ -1844,26 +1844,26 @@ local record unix
   ---     unix.write(fd, "hello")
   ---     unix.close(fd)
   ---     unix.unlink(path)
-  mkstemp: function(template: string): integer | nil, string, string | nil, Errno | nil
+  mkstemp: function(template: string): integer | nil, string, string, Errno
   --- Changes current directory to `path`.
-  chdir: function(path: string): boolean | nil, string | nil, Errno | nil
+  chdir: function(path: string): boolean | nil, string, Errno
   --- Removes file at `path`.
   --- If `path` refers to a symbolic link, the link is removed.
   --- Returns `EISDIR` if `path` refers to a directory. See `rmdir()`.
-  unlink: function(path: string, dirfd?: integer): boolean | nil, string | nil, Errno | nil
+  unlink: function(path: string, dirfd?: integer): boolean | nil, string, Errno
   --- Removes empty directory at `path`.
   --- Returns `ENOTDIR` if `path` isn't a directory, or a path component
   --- in `path` exists yet wasn't a directory.
-  rmdir: function(path: string, dirfd?: integer): boolean | nil, string | nil, Errno | nil
+  rmdir: function(path: string, dirfd?: integer): boolean | nil, string, Errno
   --- Renames file or directory.
-  rename: function(oldpath: string, newpath: string, olddirfd: integer, newdirfd: integer): boolean | nil, string | nil, Errno | nil
+  rename: function(oldpath: string, newpath: string, olddirfd: integer, newdirfd: integer): boolean | nil, string, Errno
   --- Creates hard link, so your underlying inode has two names.
-  link: function(existingpath: string, newpath: string, flags: integer, olddirfd: integer, newdirfd: integer): boolean | nil, string | nil, Errno | nil
+  link: function(existingpath: string, newpath: string, flags: integer, olddirfd: integer, newdirfd: integer): boolean | nil, string, Errno
   --- Creates symbolic link.
   --- On Windows NT a symbolic link is called a "reparse point" and can
   --- only be created from an administrator account. Your redbean will
   --- automatically request the appropriate permissions.
-  symlink: function(target: string, linkpath: string, newdirfd?: integer): boolean | nil, string | nil, Errno | nil
+  symlink: function(target: string, linkpath: string, newdirfd?: integer): boolean | nil, string, Errno
   --- Reads contents of symbolic link.
   --- Note that broken links are supported on all platforms. A symbolic
   --- link can contain just about anything. It's important to not assume
@@ -1872,10 +1872,10 @@ local record unix
   --- furthermore prefixes `//?/` to WIN32 DOS-style absolute paths,
   --- thereby assisting with simple absolute filename checks in addition
   --- to enabling one to exceed the traditional 260 character limit.
-  readlink: function(path: string, dirfd?: integer): string | nil, string | nil, Errno | nil
+  readlink: function(path: string, dirfd?: integer): string | nil, string, Errno
   --- Returns absolute path of filename, with `.` and `..` components
   --- removed, and symlinks will be resolved.
-  realpath: function(path: string): string | nil, string | nil, Errno | nil
+  realpath: function(path: string): string | nil, string, Errno
   --- Changes access and/or modified timestamps on file.
   --- `path` is a string with the name of the file.
   --- The `asecs` and `ananos` parameters set the access time. If they're
@@ -1897,7 +1897,7 @@ local record unix
   --- - `AT_SYMLINK_NOFOLLOW`: Do not follow symbolic links. This makes it
   --- possible to edit the timestamps on the symbolic link itself,
   --- rather than the file it points to.
-  utimensat: function(path: string, asecs: integer, ananos: integer, msecs: integer, mnanos: integer, dirfd?: integer, flags?: integer): integer | nil, string | nil, Errno | nil
+  utimensat: function(path: string, asecs: integer, ananos: integer, msecs: integer, mnanos: integer, dirfd?: integer, flags?: integer): integer | nil, string, Errno
   --- Changes access and/or modified timestamps on file descriptor.
   --- `fd` is the file descriptor of a file opened with `unix.open`.
   --- The `asecs` and `ananos` parameters set the access time. If they're
@@ -1913,25 +1913,25 @@ local record unix
   --- - `unix.UTIME_OMIT`: Do not alter this timestamp.
   --- This system call is currently not available on very old versions of
   --- Linux, e.g. RHEL5.
-  futimens: function(fd: integer, asecs: integer, ananos: integer, msecs: integer, mnanos: integer): integer | nil, string | nil, Errno | nil
+  futimens: function(fd: integer, asecs: integer, ananos: integer, msecs: integer, mnanos: integer): integer | nil, string, Errno
   --- Changes user and group on file.
   --- Returns `ENOSYS` on Windows NT.
-  chown: function(path: string, uid: integer, gid: integer, flags?: integer, dirfd?: integer): boolean | nil, string | nil, Errno | nil
+  chown: function(path: string, uid: integer, gid: integer, flags?: integer, dirfd?: integer): boolean | nil, string, Errno
   --- Changes mode bits on file.
   --- On Windows NT the chmod system call only changes the read-only
   --- status of a file.
-  chmod: function(path: string, mode: integer, flags?: integer, dirfd?: integer): boolean | nil, string | nil, Errno | nil
+  chmod: function(path: string, mode: integer, flags?: integer, dirfd?: integer): boolean | nil, string, Errno
   --- Returns current working directory.
   --- On Windows NT, this function transliterates `\` to `/` and
   --- furthermore prefixes `//?/` to WIN32 DOS-style absolute paths,
   --- thereby assisting with simple absolute filename checks in addition
   --- to enabling one to exceed the traditional 260 character limit.
-  getcwd: function(): string | nil, string | nil, Errno | nil
+  getcwd: function(): string | nil, string, Errno
   --- Recursively removes filesystem path.
   --- Like `unix.makedirs()` this function isn't actually a system call but
   --- rather is a Libc convenience wrapper. It's intended to be equivalent
   --- to using the UNIX shell's `rm -rf path` command.
-  rmrf: function(path: string): boolean | nil, string | nil, Errno | nil
+  rmrf: function(path: string): boolean | nil, string, Errno
   --- Manipulates file descriptor.
   --- `cmd` may be one of:
   --- - `unix.F_GETFD` Returns file descriptor flags.
@@ -2030,21 +2030,21 @@ local record unix
   ---   Returned `pid` is the process id of the current lock owner.
   ---   This function is currently not supported on Windows.
   ---   Returns `EBADF` if `fd` wasn't open.
-  fcntl: function(fd: integer, cmd: FcntlCmd, ...: any): any | nil, string | nil, Errno | nil
+  fcntl: function(fd: integer, cmd: FcntlCmd, ...: any): any | nil, string, Errno
   --- Gets session id.
-  getsid: function(pid: integer): integer | nil, string | nil, Errno | nil
+  getsid: function(pid: integer): integer | nil, string, Errno
   --- Gets process group id.
-  getpgrp: function(): integer | nil, string | nil, Errno | nil
+  getpgrp: function(): integer | nil, string, Errno
   --- Sets process group id. This is the same as `setpgid(0,0)`.
-  setpgrp: function(): integer | nil, string | nil, Errno | nil
+  setpgrp: function(): integer | nil, string, Errno
   --- Sets process group id the modern way.
-  setpgid: function(pid: integer, pgid: integer): boolean | nil, string | nil, Errno | nil
+  setpgid: function(pid: integer, pgid: integer): boolean | nil, string, Errno
   --- Gets process group id the modern way.
-  getpgid: function(pid: integer): integer | nil, string | nil, Errno | nil
+  getpgid: function(pid: integer): integer | nil, string, Errno
   --- Sets session id.
   --- This function can be used to create daemons.
   --- Fails with `ENOSYS` on Windows NT.
-  setsid: function(): integer | nil, string | nil, Errno | nil
+  setsid: function(): integer | nil, string, Errno
   --- Daemonizes the current process.
   --- This function performs the standard Unix daemonization steps:
   --- forks, creates a new session, and optionally changes directory
@@ -2055,7 +2055,7 @@ local record unix
   --- `/dev/null`. Defaults to false (will redirect to `/dev/null`).
   --- This is a convenience wrapper that combines `fork()`, `setsid()`,
   --- and related operations.
-  daemon: function(nochdir?: boolean, noclose?: boolean): boolean | nil, string | nil, Errno | nil
+  daemon: function(nochdir?: boolean, noclose?: boolean): boolean | nil, string, Errno
   --- Gets real user id.
   --- On Windows this system call is polyfilled by running `GetUserNameW()`
   --- through Knuth's multiplicative hash.
@@ -2078,7 +2078,7 @@ local record unix
   getegid: function(): integer
   --- Changes root directory.
   --- Returns `ENOSYS` on Windows NT.
-  chroot: function(path: string): boolean | nil, string | nil, Errno | nil
+  chroot: function(path: string): boolean | nil, string, Errno
   --- Sets user id.
   --- One use case for this function is dropping root privileges. Should
   --- you ever choose to run redbean as root and decide not to use the
@@ -2098,24 +2098,24 @@ local record unix
   --- system manual about the subtleties of changing user id in a way that
   --- isn't restorable.
   --- Returns `ENOSYS` on Windows NT if `uid` isn't `getuid()`.
-  setuid: function(uid: integer): boolean | nil, string | nil, Errno | nil
+  setuid: function(uid: integer): boolean | nil, string, Errno
   --- Sets user id for file system ops.
-  setfsuid: function(uid: integer): boolean | nil, string | nil, Errno | nil
+  setfsuid: function(uid: integer): boolean | nil, string, Errno
   --- Sets group id for file system ops.
-  setfsgid: function(gid: integer): boolean | nil, string | nil, Errno | nil
+  setfsgid: function(gid: integer): boolean | nil, string, Errno
   --- Sets group id.
   --- Returns `ENOSYS` on Windows NT if `gid` isn't `getgid()`.
-  setgid: function(gid: integer): boolean | nil, string | nil, Errno | nil
+  setgid: function(gid: integer): boolean | nil, string, Errno
   --- Sets real, effective, and saved user ids.
   --- If any of the above parameters are -1, then it's a no-op.
   --- Returns `ENOSYS` on Windows NT.
   --- Returns `ENOSYS` on Macintosh and NetBSD if `saved` isn't -1.
-  setresuid: function(real: integer, effective: integer, saved: integer): boolean | nil, string | nil, Errno | nil
+  setresuid: function(real: integer, effective: integer, saved: integer): boolean | nil, string, Errno
   --- Sets real, effective, and saved group ids.
   --- If any of the above parameters are -1, then it's a no-op.
   --- Returns `ENOSYS` on Windows NT.
   --- Returns `ENOSYS` on Macintosh and NetBSD if `saved` isn't -1.
-  setresgid: function(real: integer, effective: integer, saved: integer): boolean | nil, string | nil, Errno | nil
+  setresgid: function(real: integer, effective: integer, saved: integer): boolean | nil, string, Errno
   --- Sets file permission mask and returns the old one.
   --- This is used to remove bits from the `mode` parameter of functions
   --- like open() and mkdir(). The masks typically used are 027 and 022.
@@ -2134,12 +2134,12 @@ local record unix
   ---     unix.sysconf(unix.SC_PAGESIZE)          -- mmap() page size
   ---     unix.sysconf(unix.SC_CLK_TCK)           -- clock ticks per second
   --- Returns `nil` with an `EINVAL` errno when `name` isn't recognized.
-  sysconf: function(name: integer): integer | nil, string | nil, Errno | nil
+  sysconf: function(name: integer): integer | nil, string, Errno
   --- Returns identity of the current operating system.
   --- Example:
   ---     local u = assert(unix.uname())
   ---     print(u.sysname, u.release, u.machine)
-  uname: function(): Uname | nil, string | nil, Errno | nil
+  uname: function(): Uname | nil, string, Errno
   --- Generates a log message, which will be distributed by syslogd.
   --- `priority` is a bitmask containing the facility value and the level
   --- value. If no facility value is ORed into priority, then the default
@@ -2218,32 +2218,32 @@ local record unix
   --- Returns `EINVAL` if clock isn't supported on platform.
   --- This function only fails if `clock` is invalid.
   --- This function goes fastest on Linux and Windows.
-  clock_gettime: function(clock?: integer): integer | nil, integer, string | nil, Errno | nil
+  clock_gettime: function(clock?: integer): integer | nil, integer, string, Errno
   --- Sleeps with nanosecond precision.
   --- Returns `EINTR` if a signal was received while waiting.
-  nanosleep: function(seconds: integer, nanos?: integer): integer | nil, integer, string | nil, Errno | nil
+  nanosleep: function(seconds: integer, nanos?: integer): integer | nil, integer, string, Errno
   --- These functions are used to make programs slower by asking the
   --- operating system to flush data to the physical medium.
   sync: function()
   --- These functions are used to make programs slower by asking the
   --- operating system to flush data to the physical medium.
-  fsync: function(fd: integer): boolean | nil, string | nil, Errno | nil
+  fsync: function(fd: integer): boolean | nil, string, Errno
   --- These functions are used to make programs slower by asking the
   --- operating system to flush data to the physical medium.
-  fdatasync: function(fd: integer): boolean | nil, string | nil, Errno | nil
+  fdatasync: function(fd: integer): boolean | nil, string, Errno
   --- Seeks to file position.
   --- `whence` can be one of:
   --- - `SEEK_SET`: Sets the file position to `offset` [default]
   --- - `SEEK_CUR`: Sets the file position to `position + offset`
   --- - `SEEK_END`: Sets the file position to `filesize + offset`
   --- Returns the new position relative to the start of the file.
-  lseek: function(fd: integer, offset: integer, whence?: integer): integer | nil, string | nil, Errno | nil
+  lseek: function(fd: integer, offset: integer, whence?: integer): integer | nil, string, Errno
   --- Reduces or extends underlying physical medium of file.
   --- If file was originally larger, content >length is lost.
-  truncate: function(path: string, length?: integer): boolean | nil, string | nil, Errno | nil
+  truncate: function(path: string, length?: integer): boolean | nil, string, Errno
   --- Reduces or extends underlying physical medium of open file.
   --- If file was originally larger, content >length is lost.
-  ftruncate: function(fd: integer, length?: integer): boolean | nil, string | nil, Errno | nil
+  ftruncate: function(fd: integer, length?: integer): boolean | nil, string, Errno
   --- - `AF_INET`: Creates Internet Protocol Version 4 (IPv4) socket.
   --- - `AF_UNIX`: Creates local UNIX domain socket. On the New Technology
   --- this requires Windows 10 and only works with `SOCK_STREAM`.
@@ -2261,7 +2261,7 @@ local record unix
   --- - `IPPROTO_RAW`
   --- - `IPPROTO_IP`
   --- - `IPPROTO_ICMP`
-  socket: function(family?: integer, type?: integer, protocol?: integer): integer | nil, string | nil, Errno | nil
+  socket: function(family?: integer, type?: integer, protocol?: integer): integer | nil, string, Errno
   --- Creates bidirectional pipe.
   --- - `SOCK_STREAM`
   --- - `SOCK_DGRAM`
@@ -2269,7 +2269,7 @@ local record unix
   --- You may bitwise OR any of the following into `type`:
   --- - `SOCK_CLOEXEC`
   --- - `SOCK_NONBLOCK`
-  socketpair: function(family?: integer, type?: integer, protocol?: integer): integer | nil, integer, string | nil, Errno | nil
+  socketpair: function(family?: integer, type?: integer, protocol?: integer): integer | nil, integer, string, Errno
   ---  Binds socket.
   ---  `ip` and `port` are in host endian order. For example, if you
   ---  wanted to listen on `1.2.3.4:31337` you could do any of these
@@ -2291,9 +2291,9 @@ local record unix
   ---      end
   ---  Further note that calling `unix.bind(sock)` is equivalent to not
   ---  calling bind() at all, since the above behavior is the default.
-  bind: function(fd: integer, ip?: integer, port?: integer): boolean | nil, string | nil, Errno | nil
+  bind: function(fd: integer, ip?: integer, port?: integer): boolean | nil, string, Errno
   --- Returns list of network adapter addresses.
-  siocgifconf: function(): any, string | nil, Errno | nil
+  siocgifconf: function(): any, string, Errno
   --- Tunes networking parameters.
   --- `level` and `optname` may be one of the following pairs. The ellipses
   --- type signature above changes depending on which options are used.
@@ -2381,7 +2381,7 @@ local record unix
   --- earlier on the listening socket. This is Linux-only. You can use the
   --- `OnServerListen` hook to enable SYN saving in your Redbean. When the
   --- `TCP_SAVE_SYN` option isn't used, this may return empty string.
-  getsockopt: function(fd: integer, level: integer, optname: integer): integer | nil, string | nil, Errno | nil
+  getsockopt: function(fd: integer, level: integer, optname: integer): integer | nil, string, Errno
   --- Tunes networking parameters.
   --- `level` and `optname` may be one of the following pairs. The ellipses
   --- type signature above changes depending on which options are used.
@@ -2469,7 +2469,7 @@ local record unix
   --- earlier on the listening socket. This is Linux-only. You can use the
   --- `OnServerListen` hook to enable SYN saving in your Redbean. When the
   --- `TCP_SAVE_SYN` option isn't used, this may return empty string.
-  setsockopt: function(fd: integer, level: integer, optname: integer, value: boolean | integer): boolean | nil, string | nil, Errno | nil
+  setsockopt: function(fd: integer, level: integer, optname: integer, value: boolean | integer): boolean | nil, string, Errno
   --- Checks for events on a set of file descriptors.
   --- The table of file descriptors to poll uses sparse integer keys. Any
   --- pairs with non-integer keys will be ignored. Pairs with negative
@@ -2491,61 +2491,61 @@ local record unix
   --- - `POLLNVAL` (revents): Invalid request.
   --- If this is set to -1 then that means block as long as it takes until there's an
   --- event or an interrupt. If the timeout expires, an empty table is returned.
-  poll: function(fds: {integer: integer}, timeoutms?: integer): {integer: integer} | nil, string | nil, Errno | nil
+  poll: function(fds: {integer: integer}, timeoutms?: integer): {integer: integer} | nil, string, Errno
   --- Returns hostname of system.
-  gethostname: function(): string | nil, string | nil, Errno | nil
+  gethostname: function(): string | nil, string, Errno
   --- Sets hostname of system.
   --- Requires CAP_SYS_ADMIN on Linux (or root on BSDs); returns `EPERM`
   --- otherwise. Not supported on Windows, where it returns `ENOSYS`.
-  sethostname: function(name: string): boolean | nil, string | nil, Errno | nil
+  sethostname: function(name: string): boolean | nil, string, Errno
   --- Begins listening for incoming connections on a socket.
-  listen: function(fd: integer, backlog?: integer): boolean | nil, string | nil, Errno | nil
+  listen: function(fd: integer, backlog?: integer): boolean | nil, string, Errno
   --- Accepts new client socket descriptor for a listening tcp socket.
   --- `flags` may have any combination (using bitwise OR) of:
   --- - `SOCK_CLOEXEC`
   --- - `SOCK_NONBLOCK`
-  accept: function(serverfd: integer, flags?: integer): integer | nil, integer, integer, string | nil, Errno | nil
+  accept: function(serverfd: integer, flags?: integer): integer | nil, integer, integer, string, Errno
   ---  Connects a TCP socket to a remote host.
   ---  With TCP this is a blocking operation. For a UDP socket it simply
   ---  remembers the intended address so that `send()` or `write()` may be used
   ---  rather than `sendto()`.
-  connect: function(fd: integer, ip: integer, port: integer): boolean | nil, string | nil, Errno | nil
+  connect: function(fd: integer, ip: integer, port: integer): boolean | nil, string, Errno
   --- Retrieves the local address of a socket.
-  getsockname: function(fd: integer): integer | nil, integer, string | nil, Errno | nil
+  getsockname: function(fd: integer): integer | nil, integer, string, Errno
   --- Retrieves the remote address of a socket.
   --- This operation will either fail on `AF_UNIX` sockets or return an
   --- empty string.
-  getpeername: function(fd: integer): integer | nil, integer, string | nil, Errno | nil
+  getpeername: function(fd: integer): integer | nil, integer, string, Errno
   --- - `MSG_WAITALL`
   --- - `MSG_DONTROUTE`
   --- - `MSG_PEEK`
   --- - `MSG_OOB`
-  recv: function(fd: integer, bufsiz?: integer, flags?: integer): string | nil, string | nil, Errno | nil
+  recv: function(fd: integer, bufsiz?: integer, flags?: integer): string | nil, string, Errno
   --- - `MSG_WAITALL`
   --- - `MSG_DONTROUTE`
   --- - `MSG_PEEK`
   --- - `MSG_OOB`
-  recvfrom: function(fd: integer, bufsiz?: integer, flags?: integer): string | nil, integer, integer, string | nil, Errno | nil
+  recvfrom: function(fd: integer, bufsiz?: integer, flags?: integer): string | nil, integer, integer, string, Errno
   --- This is the same as `write` except it has a `flags` argument
   --- that's intended for sockets.
   --- - `MSG_NOSIGNAL`: Don't SIGPIPE on EOF
   --- - `MSG_OOB`: Send stream data through out of bound channel
   --- - `MSG_DONTROUTE`: Don't go through gateway (for diagnostics)
   --- - `MSG_MORE`: Manual corking to belay nodelay (0 on non-Linux)
-  send: function(fd: integer, data: string, flags?: integer, offset?: integer): integer | nil, string | nil, Errno | nil
+  send: function(fd: integer, data: string, flags?: integer, offset?: integer): integer | nil, string, Errno
   --- This is useful for sending messages over UDP sockets to specific
   --- addresses.
   --- - `MSG_OOB`
   --- - `MSG_DONTROUTE`
   --- - `MSG_NOSIGNAL`
-  sendto: function(fd: integer, data: string, ip: integer, port: integer, flags?: integer): integer | nil, string | nil, Errno | nil
+  sendto: function(fd: integer, data: string, ip: integer, port: integer, flags?: integer): integer | nil, string, Errno
   --- Partially closes socket.
   --- - `SHUT_RD`: sends a tcp half close for reading
   --- - `SHUT_WR`: sends a tcp half close for writing
   --- - `SHUT_RDWR`
   --- This system call currently has issues on Macintosh, so portable code
   --- should log rather than assert failures reported by `shutdown()`.
-  shutdown: function(fd: integer, how: integer): boolean | nil, string | nil, Errno | nil
+  shutdown: function(fd: integer, how: integer): boolean | nil, string, Errno
   --- Manipulates bitset of signals blocked by process.
   --- - `SIG_BLOCK`: applies `mask` to set of blocked signals using bitwise OR
   --- - `SIG_UNBLOCK`: removes bits in `mask` from set of blocked signals
@@ -2557,7 +2557,7 @@ local record unix
   ---   oldmask = assert(unix.sigprocmask(unix.SIG_BLOCK, newmask))
   ---   -- do something...
   ---   assert(unix.sigprocmask(unix.SIG_SETMASK, oldmask))
-  sigprocmask: function(how: integer, newmask: Sigset): Sigset | nil, string | nil, Errno | nil
+  sigprocmask: function(how: integer, newmask: Sigset): Sigset | nil, string, Errno
   --- - `unix.SIGINT`
   --- - `unix.SIGQUIT`
   --- - `unix.SIGTERM`
@@ -2624,13 +2624,13 @@ local record unix
   --- handlers (e.g. `unix.SIG_IGN`, `unix.SIG_DFL`, or a raw function pointer)
   --- are installed directly and are not deferred.
   --- It's a good idea to not do too much work in a signal handler.
-  sigaction: function(sig: integer, handler?: function | integer, flags?: integer, mask?: Sigset): function | integer | nil, integer, Sigset, string | nil, Errno | nil
+  sigaction: function(sig: integer, handler?: function | integer, flags?: integer, mask?: Sigset): function | integer | nil, integer, Sigset, string, Errno
   --- Waits for signal to be delivered.
   --- The signal mask is temporarily replaced with `mask` during this system call.
-  sigsuspend: function(mask?: Sigset): nil, string | nil, Errno | nil
+  sigsuspend: function(mask?: Sigset): nil, string, Errno
   --- Returns the set of signals pending delivery to the calling process
   --- that are currently blocked.
-  sigpending: function(): Sigset | nil, string | nil, Errno | nil
+  sigpending: function(): Sigset | nil, string, Errno
   --- Causes `SIGALRM` signals to be generated at some point(s) in the
   --- future. The `which` parameter should be `ITIMER_REAL`.
   --- Here's an example of how to create a 400 ms interval timer:
@@ -2646,7 +2646,7 @@ local record unix
   --- Here's how you'd do a single-shot timeout in 1 second:
   ---     unix.sigaction(unix.SIGALRM, MyOnSigAlrm, unix.SA_RESETHAND)
   ---     unix.setitimer(unix.ITIMER_REAL, 0, 0, 1, 0)
-  setitimer: function(which: integer, intervalsec: integer, intervalns: integer, valuesec: integer, valuens: integer): integer | nil, integer, integer, integer, string | nil, Errno | nil
+  setitimer: function(which: integer, intervalsec: integer, intervalns: integer, valuesec: integer, valuens: integer): integer | nil, integer, integer, integer, string, Errno
   --- Turns platform-specific `sig` code into its symbolic name.
   --- For example:
   ---     >: unix.strsignal(9)
@@ -2676,9 +2676,9 @@ local record unix
   --- If a limit isn't supported by the host platform, it'll be set to
   --- 127. On most platforms these limits are enforced by the kernel and
   --- as such are inherited by subprocesses.
-  setrlimit: function(resource: integer, soft: integer, hard?: integer): boolean | nil, string | nil, Errno | nil
+  setrlimit: function(resource: integer, soft: integer, hard?: integer): boolean | nil, string, Errno
   --- Returns information about resource limits for current process.
-  getrlimit: function(resource: integer): integer | nil, integer, string | nil, Errno | nil
+  getrlimit: function(resource: integer): integer | nil, integer, string, Errno
   --- Adjusts the nice value (scheduling priority) of the calling process.
   --- The nice value ranges from -20 (highest priority) to 19 (lowest priority).
   --- Only privileged processes can lower the nice value (increase priority).
@@ -2686,7 +2686,7 @@ local record unix
   --- priority, negative values increase it.
   --- Returns the new nice value on success. Note that -1 is a valid return
   --- value, so errors must be detected by checking the second return value.
-  nice: function(inc: integer): integer | nil, string | nil, Errno | nil
+  nice: function(inc: integer): integer | nil, string, Errno
   --- Lowers the calling process to the lowest scheduling priority.
   --- On Linux this additionally requests the idle scheduling policy and a
   --- best-effort idle i/o priority. This function does not fail.
@@ -2699,7 +2699,7 @@ local record unix
   --- Returns the priority value (nice value) which ranges from -20 to 19.
   --- Note that -1 is a valid return value, so errors must be detected by
   --- checking the second return value.
-  getpriority: function(which: integer, who: integer): integer | nil, string | nil, Errno | nil
+  getpriority: function(which: integer, who: integer): integer | nil, string, Errno
   --- Sets the scheduling priority of a process, process group, or user.
   --- `which` specifies what `who` refers to:
   --- - `PRIO_PROCESS`: `who` is a process id (0 = calling process)
@@ -2708,7 +2708,7 @@ local record unix
   --- `prio` is the new priority value (nice value), ranging from -20
   --- (highest priority) to 19 (lowest priority). Only privileged processes
   --- can set negative priority values.
-  setpriority: function(which: integer, who: integer, prio: integer): boolean | nil, string | nil, Errno | nil
+  setpriority: function(which: integer, who: integer, prio: integer): boolean | nil, string, Errno
   --- Returns information about resource usage for current process, e.g.
   ---     >: unix.getrusage()
   ---     {utime={0, 53644000}, maxrss=44896, minflt=545, oublock=24, nvcsw=9}
@@ -2716,7 +2716,7 @@ local record unix
   --- - `RUSAGE_THREAD`: current thread
   --- - `RUSAGE_CHILDREN`: not supported on Windows NT
   --- - `RUSAGE_BOTH`: not supported on non-Linux
-  getrusage: function(who?: integer): Rusage | nil, string | nil, Errno | nil
+  getrusage: function(who?: integer): Rusage | nil, string, Errno
   --- Restrict system operations.
   --- This can be used to sandbox your redbean workers. It allows finer
   --- customization compared to the `-S` flag.
@@ -2839,7 +2839,7 @@ local record unix
   ---   means that the `unix.WTERMSIG()` on your killed processes will
   ---   always be `unix.SIGABRT` on both Linux and OpenBSD. Otherwise,
   ---   Linux prefers to raise `unix.SIGSYS`.
-  pledge: function(promises?: string, execpromises?: string, mode?: integer): boolean | nil, string | nil, Errno | nil
+  pledge: function(promises?: string, execpromises?: string, mode?: integer): boolean | nil, string, Errno
   --- Restricts filesystem operations, e.g.
   ---    unix.unveil(".", "r");     -- current dir + children visible
   ---    unix.unveil("/etc", "r");  -- make /etc readable too
@@ -2882,9 +2882,9 @@ local record unix
   ---   corresponding to the pledge promises "exec" and "execnative".
   --- - `c` allows `path` to be created and removed, corresponding to
   ---   the pledge promise "cpath".
-  unveil: function(path: string, permissions: string): boolean | nil, string | nil, Errno | nil
+  unveil: function(path: string, permissions: string): boolean | nil, string, Errno
   --- Breaks down UNIX timestamp into Zulu Time numbers.
-  gmtime: function(unixts: integer): integer | nil, integer, integer, integer, integer, integer, integer, integer, integer, integer, string, string | nil, Errno | nil
+  gmtime: function(unixts: integer): integer | nil, integer, integer, integer, integer, integer, integer, integer, integer, integer, string, string, Errno
   --- Breaks down UNIX timestamp into local time numbers, e.g.
   ---     >: unix.localtime(unix.clock_gettime())
   ---     2022    4       28      2       14      22      -25200  4       117     1       "PDT"
@@ -2910,10 +2910,10 @@ local record unix
   --- can simply copy it inside your redbean. The same is also the case
   --- for future updates to the database, which can be swapped out when
   --- needed, without having to recompile.
-  localtime: function(unixts: integer): integer | nil, integer, integer, integer, integer, integer, integer, integer, integer, integer, string, string | nil, Errno | nil
+  localtime: function(unixts: integer): integer | nil, integer, integer, integer, integer, integer, integer, integer, integer, integer, string, string, Errno
   --- Gets information about file or directory.
   --- - `AT_SYMLINK_NOFOLLOW`: do not follow symbolic links.
-  stat: function(path: string, flags?: integer, dirfd?: integer): Stat | nil, string | nil, Errno | nil
+  stat: function(path: string, flags?: integer, dirfd?: integer): Stat | nil, string, Errno
   --- Tests if file mode represents a directory.
   S_ISDIR: function(mode: integer): boolean
   --- Tests if file mode represents a regular file.
@@ -2938,7 +2938,7 @@ local record unix
   ---     st = assert(unix.fstat(fd))
   ---     Log(kLogInfo, 'hello.txt is %d bytes in size' % {st:size()})
   ---     unix.close(fd)
-  fstat: function(fd: integer): Stat | nil, string | nil, Errno | nil
+  fstat: function(fd: integer): Stat | nil, string, Errno
   --- Opens directory for listing its contents.
   --- For example, to print a simple directory listing:
   ---     Write('<ul>\r\n')
@@ -2948,19 +2948,19 @@ local record unix
   ---         end
   ---     end
   ---     Write('</ul>\r\n')
-  opendir: function(path: string): Dir | nil, string | nil, Errno | nil
+  opendir: function(path: string): Dir | nil, string, Errno
   --- Opens directory for listing its contents, via an fd.
   --- The returned `unix.Dir` takes ownership of the file descriptor
   --- and will close it automatically when garbage collected.
-  fdopendir: function(fd: integer): Dir | nil, string | nil, Errno | nil
+  fdopendir: function(fd: integer): Dir | nil, string, Errno
   --- Returns true if file descriptor is a teletypewriter. Otherwise nil
   --- with an Errno object holding one of the following values:
   --- - `ENOTTY` if `fd` is valid but not a teletypewriter
   --- - `EBADF` if `fd` isn't a valid file descriptor.
   --- - `EPERM` if pledge() is used without `tty` in lenient mode
   --- No other error numbers are possible.
-  isatty: function(fd: integer): boolean | nil, string | nil, Errno | nil
-  tiocgwinsz: function(fd: integer): integer | nil, integer, string | nil, Errno | nil
+  isatty: function(fd: integer): boolean | nil, string, Errno
+  tiocgwinsz: function(fd: integer): integer | nil, integer, string, Errno
   --- Gets terminal attributes.
   --- Returns a termios table containing the terminal I/O settings for the
   --- specified file descriptor. The table contains these fields:
@@ -2979,7 +2979,7 @@ local record unix
   ---     local password = io.read()
   ---     tio.lflag = old_lflag
   ---     unix.tcsetattr(0, unix.TCSANOW, tio)
-  tcgetattr: function(fd: integer): Termios | nil, string | nil, Errno | nil
+  tcgetattr: function(fd: integer): Termios | nil, string, Errno
   --- Sets terminal attributes.
   --- Modifies the terminal I/O settings for the specified file descriptor
   --- using the provided termios table. The `action` parameter controls when
@@ -2990,7 +2990,7 @@ local record unix
   ---   input is discarded
   --- The termios table should contain the same fields as returned by
   --- `unix.tcgetattr()`. Missing fields default to zero.
-  tcsetattr: function(fd: integer, action: integer, termios: Termios): boolean | nil, string | nil, Errno | nil
+  tcsetattr: function(fd: integer, action: integer, termios: Termios): boolean | nil, string, Errno
   --- Returns file descriptor of open anonymous file.
   --- This creates a secure temporary file inside `$TMPDIR`. If it isn't
   --- defined, then `/tmp` is used on UNIX and GetTempPath() is used on
@@ -3001,59 +3001,59 @@ local record unix
   --- On the New Technology, temporary files created by this function
   --- should have better performance, because `kNtFileAttributeTemporary`
   --- asks the kernel to more aggressively cache and reduce i/o ops.
-  tmpfd: function(): integer | nil, string | nil, Errno | nil
+  tmpfd: function(): integer | nil, string, Errno
   --- Relinquishes scheduled quantum.
   sched_yield: function()
   --- Disassociates parts of the caller's execution context, placing it
   --- into fresh namespace(s) specified by `flags` (bitwise OR of
   --- `unix.CLONE_NEW*` constants). Linux-only; returns ENOSYS elsewhere.
-  unshare: function(flags: integer): boolean | nil, string | nil, Errno | nil
+  unshare: function(flags: integer): boolean | nil, string, Errno
   --- Reassociates the calling thread with the namespace referenced by
   --- `fd` (typically from `/proc/<pid>/ns/*`). `nstype`, if nonzero,
   --- must match a `unix.CLONE_NEW*` constant and asserts the kind of
   --- namespace. Linux-only; returns ENOSYS elsewhere.
-  setns: function(fd: integer, nstype?: integer): boolean | nil, string | nil, Errno | nil
+  setns: function(fd: integer, nstype?: integer): boolean | nil, string, Errno
   --- Mounts a filesystem. `flags` is a bitwise OR of `unix.MS_*`
   --- constants; `data` is a filesystem-specific options string.
-  mount: function(source?: string, target?: string, fstype?: string, flags?: integer, data?: string): boolean | nil, string | nil, Errno | nil
+  mount: function(source?: string, target?: string, fstype?: string, flags?: integer, data?: string): boolean | nil, string, Errno
   --- Unmounts a filesystem. On Linux this is the `umount2` syscall.
   --- `flags` may include `unix.MNT_FORCE`, `unix.MNT_DETACH`,
   --- `unix.MNT_EXPIRE`, `unix.UMOUNT_NOFOLLOW`.
-  unmount: function(target: string, flags?: integer): boolean | nil, string | nil, Errno | nil
+  unmount: function(target: string, flags?: integer): boolean | nil, string, Errno
   --- Moves the root filesystem of the current mount namespace to
   --- `put_old` and makes `new_root` the new root. Usually paired with
   --- `chdir("/")` in the child. Requires a private mount namespace.
-  pivot_root: function(new_root: string, put_old: string): boolean | nil, string | nil, Errno | nil
+  pivot_root: function(new_root: string, put_old: string): boolean | nil, string, Errno
   --- Performs an operation on the calling process. `option` is one of
   --- the `unix.PR_*` constants; remaining arguments are option-specific.
   --- Returns the integer result (0 for most setters).
-  prctl: function(option: integer, arg2?: integer, arg3?: integer, arg4?: integer, arg5?: integer): integer | nil, string | nil, Errno | nil
+  prctl: function(option: integer, arg2?: integer, arg3?: integer, arg4?: integer, arg5?: integer): integer | nil, string, Errno
   --- Returns the calling thread's (or `pid`'s) capability sets as
   --- 64-bit bitmasks. Each bit position N corresponds to `unix.CAP_*`
   --- constant N. Linux-only.
-  capget: function(pid?: integer): integer | nil, integer, integer, string | nil, Errno | nil
+  capget: function(pid?: integer): integer | nil, integer, integer, string, Errno
   --- Sets the calling thread's (or `pid`'s) capability sets. Each
   --- argument is a 64-bit bitmask of `1 << unix.CAP_*` bits. Linux-only.
-  capset: function(effective: integer, permitted: integer, inheritable: integer, pid?: integer): boolean | nil, string | nil, Errno | nil
+  capset: function(effective: integer, permitted: integer, inheritable: integer, pid?: integer): boolean | nil, string, Errno
   --- Generic device control. When `arg` is nil or absent, the ioctl is
   --- invoked with a null pointer. When `arg` is an integer, it's passed
   --- by value. When `arg` is a string, a mutable copy of the same size
   --- is passed to the kernel and the (possibly-modified) buffer of the
   --- same length is returned.
-  ioctl: function(fd: integer, request: integer, arg?: integer | string): boolean | string | nil, string | nil, Errno | nil
+  ioctl: function(fd: integer, request: integer, arg?: integer | string): boolean | string | nil, string, Errno
   --- Landlock: create ruleset. With no args, returns the kernel's
   --- supported ABI version. With `handled_access_fs`, creates a new
   --- ruleset file descriptor that handles the given access categories
   --- (bitwise OR of `unix.LANDLOCK_ACCESS_FS_*`). Linux 5.13+.
-  landlock_create_ruleset: function(handled_access_fs?: integer, flags?: integer): integer | nil, string | nil, Errno | nil
+  landlock_create_ruleset: function(handled_access_fs?: integer, flags?: integer): integer | nil, string, Errno
   --- Landlock: add a PATH_BENEATH rule granting `allowed` access to the
   --- subtree rooted at `parent_fd` (opened with `unix.O_PATH`). `allowed`
   --- must be a subset of the ruleset's handled set.
-  landlock_add_rule: function(ruleset_fd: integer, parent_fd: integer, allowed: integer, flags?: integer): boolean | nil, string | nil, Errno | nil
+  landlock_add_rule: function(ruleset_fd: integer, parent_fd: integer, allowed: integer, flags?: integer): boolean | nil, string, Errno
   --- Landlock: apply the ruleset to the current thread (and its future
   --- children). Caller must set `PR_SET_NO_NEW_PRIVS` first or hold
   --- `CAP_SYS_ADMIN`. The restriction is irrevocable.
-  landlock_restrict_self: function(ruleset_fd: integer, flags?: integer): boolean | nil, string | nil, Errno | nil
+  landlock_restrict_self: function(ruleset_fd: integer, flags?: integer): boolean | nil, string, Errno
   --- Creates interprocess shared memory mapping.
   --- This function allocates special memory that'll be inherited across
   --- fork in a shared way. By default all memory in Redbean is "private"
@@ -3112,9 +3112,9 @@ local record unix
   --- Extracts the minor device number from a device id such as `Stat:rdev()`.
   minor: function(rdev: integer): integer
   --- Gets filesystem statistics for the filesystem that contains `path`.
-  statfs: function(path: string): Statfs | nil, string | nil, Errno | nil
+  statfs: function(path: string): Statfs | nil, string, Errno
   --- Gets filesystem statistics via an open file descriptor.
-  fstatfs: function(fd: integer): Statfs | nil, string | nil, Errno | nil
+  fstatfs: function(fd: integer): Statfs | nil, string, Errno
   --- Signal set for blocking, unblocking, and waiting on signals.
   --- Used with `unix.sigprocmask()`, `unix.sigaction()`, and `unix.sigsuspend()`.
   --- The unix.Sigset class defines a mutable bitset that may currently

@@ -189,7 +189,7 @@ make_handle = function(fd: integer): Handle
 
   return setmetatable(handle, {
       __close = function(self: Handle) self:close() end
-    }) as Handle
+    })
 end
 
 --- Pipe for inter-process communication.
@@ -220,7 +220,7 @@ local function make_pipe(reader: Handle, writer: Handle): Pipe
 
   return setmetatable(p, {
       __close = function(self: Pipe) self:close() end
-    }) as Pipe
+    })
 end
 
 --- Open a file. flags: O_RDONLY, O_WRONLY, O_RDWR, combined with O_CREAT, O_TRUNC, etc.

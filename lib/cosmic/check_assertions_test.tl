@@ -224,7 +224,7 @@ end
 test_err_fails_when_error_string_is_empty()
 
 local function test_err_fails_with_label()
-  local threw, msg = must_fail(function(): string check.err("whoops" as any, "err msg", "ctx") return "" end)
+  local threw, msg = must_fail(function(): string check.err("whoops", "err msg", "ctx") return "" end)
   assert(threw, "expected err to throw")
   assert(msg:match("ctx"), "expected label in message")
   assert(msg:match("err failed"), "expected 'err failed' in message")

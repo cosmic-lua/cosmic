@@ -145,7 +145,7 @@ local function test_readline_max()
   local head = b:readline(3)
   assert(head == "abc", "expected max-bounded read, got: " .. tostring(head))
   local rest = b:readline()
-  assert(rest == "def", "expected remainder as next line, got: " .. tostring(rest))
+  assert(rest == "def", "expected remainder line, got: " .. tostring(rest))
   a:close()
   b:close()
 end

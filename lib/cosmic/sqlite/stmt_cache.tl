@@ -42,7 +42,7 @@ local function new(raw_db: lsqlite3.Database, ok_code: number, done_code: number
     if not raw_stmt then
       return nil, raw_db:errmsg()
     end
-    local stmt = raw_stmt as lsqlite3.Statement
+    local stmt = raw_stmt
     cache[sql] = stmt
     return stmt
   end
@@ -91,7 +91,7 @@ local function new(raw_db: lsqlite3.Database, ok_code: number, done_code: number
     end
     -- prepare is Statement | nil once the pin carries the honest
     -- annotation; records don't flow-narrow, so cast after the guard.
-    local stmt = raw_stmt as lsqlite3.Statement
+    local stmt = raw_stmt
     if not cached then
       query_cache[sql] = stmt
       checked_out[sql] = true

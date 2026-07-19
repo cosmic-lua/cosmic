@@ -10,11 +10,11 @@ local function reports(rows: {{string, integer, integer}}): {FileReport}
   local out: {FileReport} = {}
   for _, row in ipairs(rows) do
     out[#out + 1] = {
-      display = row[1] as string,
-      covered = row[2] as integer,
-      total = row[3] as integer,
+      display = row[1],
+      covered = row[2],
+      total = row[3],
       missing = {},
-    } as FileReport
+    }
   end
   return out
 end

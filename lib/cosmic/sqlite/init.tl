@@ -416,7 +416,7 @@ local function make_database(raw_db: lsqlite3.Database): Database
 
   return setmetatable(db, {
       __close = function(self: Database) self:close() end
-    }) as Database
+    })
 end
 
 --- Options for opening a database (see cosmic.sqlite.defaults).

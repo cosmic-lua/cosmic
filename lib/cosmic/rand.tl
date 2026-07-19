@@ -137,7 +137,7 @@ local function token(len?: integer): string | nil, string
     if not j then
       return nil, err
     end
-    local jj = j as integer
+    local jj = j
     chars[i] = TOKEN_ALPHABET:sub(jj, jj)
   end
   return table.concat(chars)

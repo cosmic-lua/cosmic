@@ -178,7 +178,7 @@ function unix.ioctl(fd, request, arg) end
 ]==]
   local dtl = gentype.generate_dtl(gentype.parse_module(source, "unix"))
   assert(dtl:match("ioctl: function%(fd: integer, request: integer, arg%?: integer | string%): boolean | string | nil, Errno"),
-    "parenthesized union types should render as Teal unions with a nil success:\n" .. dtl)
+    "parenthesized union types should render unions with a nil success:\n" .. dtl)
   print("test_paren_union_types: PASS")
 end
 
@@ -219,7 +219,7 @@ function lsqlite3.busy_handler(func, udata) end
 ]==]
   local dtl = gentype.generate_dtl(gentype.parse_module(source, "lsqlite3"))
   assert(dtl:match("busy_handler: function<Udata>%(func%?: function%(udata: Udata, tries: integer%), udata%?: Udata%)"),
-    "generics should render as Teal type parameters:\n" .. dtl)
+    "generics should render type parameters:\n" .. dtl)
   print("test_generics_emitted: PASS")
 end
 

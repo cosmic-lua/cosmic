@@ -64,12 +64,12 @@ local function make(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Database, on_
             first_call = false
             col_names = {}
             for idx = 0, col_count - 1 do
-              col_names[(idx + 1) as integer] = raw_stmt:get_name(idx)
+              col_names[(idx + 1)] = raw_stmt:get_name(idx)
             end
           end
           local row: {string: any} = {}
           for idx = 0, col_count - 1 do
-            row[col_names[(idx + 1) as integer]] = raw_stmt:get_value(idx)
+            row[col_names[(idx + 1)]] = raw_stmt:get_value(idx)
           end
           return row
         end
@@ -108,7 +108,7 @@ end
 --- @return string Error message when binding failed
 local function query(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Database, on_close: OnClose, ok_code: number, row_code: number, done_code: number, ...: any): Rows | nil, string
   raw_stmt:reset()
-  local n = select("#", ...) as integer
+  local n = select("#", ...)
   for i = 1, n do
     local rc = bind_mod.bind_at(raw_stmt, i, (select(i, ...)))
     if rc ~= ok_code then

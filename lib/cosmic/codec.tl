@@ -123,7 +123,7 @@ local function decode_base64url(str: string): string | nil, string
   if #padding > 2 then
     return nil, "invalid base64url padding"
   end
-  local b64 = string.gsub(content as string, "%-", "+")
+  local b64 = string.gsub(content, "%-", "+")
   b64 = string.gsub(b64, "_", "/")
   return cosmo.DecodeBase64(b64)
 end
@@ -154,7 +154,7 @@ local function decode_base32(str: string): string | nil, string
   -- length; forward its error anyway rather than swallowing it.
   local result, err = cosmo.DecodeBase32(str)
   if not result then
-    return nil, err as string
+    return nil, err
   end
   return result
 end
@@ -169,7 +169,7 @@ end
 --- @param initial integer? Checksum to continue from (default 0)
 --- @return integer The CRC-32 checksum as an unsigned 32-bit integer
 local function crc32(data: string, initial?: integer): integer
-  return cosmo.Crc32(initial or 0, data) as integer
+  return cosmo.Crc32(initial or 0, data)
 end
 
 --- Compute the CRC-32C (Castagnoli) checksum of data, the variant
@@ -178,7 +178,7 @@ end
 --- @param initial integer? Checksum to continue from (default 0)
 --- @return integer The CRC-32C checksum as an unsigned 32-bit integer
 local function crc32c(data: string, initial?: integer): integer
-  return cosmo.Crc32c(initial or 0, data) as integer
+  return cosmo.Crc32c(initial or 0, data)
 end
 
 --- Encode a UTF-8 string as Latin-1 (ISO-8859-1).

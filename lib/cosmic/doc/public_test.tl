@@ -56,9 +56,9 @@ test_listing_is_exactly_the_public_manifest()
 
 local function test_directory_modules_indexed_under_their_name()
   assert(idx.modules["cosmic.fs"],
-    "directory module must be indexed as cosmic.fs, not cosmic.fs.init")
+    "directory module must be indexed, not cosmic.fs.init")
   assert(not idx.modules["cosmic.fs.init"],
-    "init shard must not appear as its own module")
+    "init shard must not appear own module")
   local result = docs.run("fs")
   assert(result.ok, "--docs fs must resolve to the fs module page")
   print("test_directory_modules_indexed_under_their_name: PASS")

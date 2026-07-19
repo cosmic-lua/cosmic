@@ -108,7 +108,7 @@ local function err(value: any, e: string, label?: string)
   if value ~= nil then
     msg = string.format("err failed: expected nil value, got %s", render(value))
   elseif not e or e == "" then
-    msg = "err failed: expected non-empty error string, got " .. render(e as any)
+    msg = "err failed: expected non-empty error string, got " .. render(e)
   end
   if msg then
     if label then

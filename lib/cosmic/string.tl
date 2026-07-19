@@ -277,7 +277,7 @@ local function dedent(s: string): string
       if margin == nil then
         margin = prefix
       else
-        local m = margin as string
+        local m = margin
         local i = 0
         local limit = math.min(#m, #prefix)
         while i < limit and prefix:sub(i + 1, i + 1) == string.sub(m, i + 1, i + 1) do
@@ -290,7 +290,7 @@ local function dedent(s: string): string
   if margin == nil or margin == "" then
     return s
   end
-  local m = margin as string
+  local m = margin
   local out: {string} = {}
   for i, line in ipairs(split(s, "\n")) do
     if line:sub(1, #m) == m then

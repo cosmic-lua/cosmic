@@ -326,7 +326,7 @@ local function test_stream_iterates_with_for_in()
     table.insert(seen, check.must(event).data)
   end
   assert(#seen == 2 and seen[1] == "a" and seen[2] == "b",
-    "stream.next must work as a for-in iterator")
+    "stream.next must work for-in iterator")
 end
 test_stream_iterates_with_for_in()
 

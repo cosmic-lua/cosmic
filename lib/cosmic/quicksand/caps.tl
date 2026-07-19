@@ -141,7 +141,7 @@ end
 --- @return boolean true on success
 --- @return string? error message on failure
 local function drop_bounding(opts?: DropOptions): boolean, string
-  local last = unix.CAP_LAST_CAP as integer
+  local last = unix.CAP_LAST_CAP
   if last == nil then
     -- No capability constants (non-Linux, or a cosmos without them):
     -- there is nothing to drop.

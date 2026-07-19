@@ -147,7 +147,7 @@ local function check_cosmo_require(file: string, lines: {string}): {Diagnostic}
       table.insert(diagnostics, {
           file = file,
           line = i,
-          col = col as integer,
+          col = col,
           rule = "cosmo-require",
           message = string.format(
             "%s:%d: require(\"cosmo...\") forbidden in tests/examples; "
