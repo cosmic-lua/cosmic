@@ -224,3 +224,4 @@
 1	lib/perf/perf_test.tl
 3	lib/perf/run.tl
 4	lib/types/gentype.tl
+1	lib/types/tl_conformance_test.tl

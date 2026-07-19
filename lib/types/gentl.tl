@@ -98,15 +98,22 @@ end
 --- emitted positionally; `name?: T` becomes `? T`. max_params caps the
 --- emitted arity for trailing upstream parameters cosmic's surface
 --- deliberately omits (the cap may only drop, never reorder).
-local function render_signature(args: string, rets: string, max_params: integer): string
+--- optional_from marks parameters from that position optional even when
+--- upstream requires them, so cosmic call sites may omit trailing
+--- arguments upstream would demand (tl_conformance_test.tl proves the
+--- full-arity call still satisfies upstream).
+local function render_signature(args: string, rets: string, max_params: integer, optional_from: integer): string
   local params: {string} = {}
   for _, p in ipairs(split_top(args)) do
-    local pname, ptype = p:match("^%s*([%w_]+%??)%s*:%s*(.+)$")
+    local pname, ptype = p:match("^%s*([%w_%.]+%??)%s*:%s*(.+)$")
     if not ptype then
       pname, ptype = "", p
     end
-    local prefix = pname:find("?", 1, true) and "? " or ""
-    params[#params + 1] = prefix .. erase(ptype)
+    local optional = pname:find("?", 1, true) ~= nil
+    if optional_from and #params + 1 >= optional_from then
+      optional = true
+    end
+    params[#params + 1] = (optional and "? " or "") .. erase(ptype)
     if max_params and #params >= max_params then
       break
     end
@@ -143,6 +150,7 @@ end
 local record Entry
   name: string
   max_params: integer
+  optional_from: integer
   comment: {string}
 end
 
@@ -158,10 +166,11 @@ local FUNCTIONS: {Entry} = {
   {name = "new_env"},
   {name = "lex"},
   {name = "parse_program"},
-  {name = "process_string", max_params = 4, comment = {
+  {name = "process_string", optional_from = 5, comment = {
       "-- always returns a Result; parse/check failures land in its",
-      "-- syntax_errors/type_errors fields, never in a second return",
-      "-- (5th upstream param _module_name is unused and omitted here)",
+      "-- syntax_errors/type_errors fields, never in a second return.",
+      "-- Upstream requires the 5th param (_module_name); it is unused,",
+      "-- so it is declared optional here for 4-arg cosmic call sites",
     }},
   {name = "generate", comment = {
       "-- second argument is the generation TARGET string (\"5.4\"), not an",
@@ -250,7 +259,7 @@ local function generate(source: string): string | nil, string
       end
     end
     lines[#lines + 1] = "  " .. entry.name .. ": "
-    .. render_signature(args, rets, entry.max_params) .. "\n"
+    .. render_signature(args, rets, entry.max_params, entry.optional_from) .. "\n"
   end
   lines[#lines + 1] = "end\n\nreturn tl\n"
   return table.concat(lines)
