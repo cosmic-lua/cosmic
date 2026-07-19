@@ -100,7 +100,10 @@ end
 
 local function extract_targz(archive: string, dest_dir: string, strip: number): boolean, string
   local temp_dir = fs.mkdtemp(fs.join(fs.dirname(dest_dir), ".stage_XXXXXX"))
-  local result = spawn.run({"tar", "-xzf", archive, "-C", temp_dir})
+  -- -m / --no-same-owner: a staged tree should not inherit the archive's
+  -- mtimes or ownership, and restoring them needs utimensat/chown, which
+  -- the stage rule's pledge (#729) deliberately does not promise
+  local result = spawn.run({"tar", "-xzmf", archive, "--no-same-owner", "-C", temp_dir})
   local r = result as spawn.Result -- cast: record union, nil checked below
   if not r or not r.ok then
     fs.rmrf(temp_dir)

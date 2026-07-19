@@ -116,8 +116,8 @@ fetched: $(all_fetched)
 stdlib_lua := $(patsubst %.tl,$(o)/%.lua,$(filter lib/cosmic/%,$(foreach x,$(modules),$($(x)_tl))))
 
 $(o)/%/.fetched: export SSL_USE_SYSTEM_CERTS = 1
-$(o)/%/.fetched: .PLEDGE := stdio rpath wpath cpath inet dns
-$(o)/%/.fetched: .UNVEIL := $(unveil_dep) r:/etc/resolv.conf r:/etc/ssl $(if $(SSL_CERT_FILE),r:$(SSL_CERT_FILE))
+$(o)/%/.fetched: .PLEDGE := $(pledge_build) inet dns
+$(o)/%/.fetched: .UNVEIL := $(unveil_dep) $(unveil_hostx) r:/etc/resolv.conf r:/etc/ssl $(if $(SSL_CERT_FILE),r:$(SSL_CERT_FILE))
 $(o)/%/.fetched: $(o)/%/.versioned $(build_files) $(stdlib_lua) | $(bootstrap_cosmic)
 	@LUA_PATH="$(tree_lua_path)" $(bootstrap_cosmic) -- $(build_fetch) $$(readlink $<) $(platform) $@
 
@@ -127,7 +127,7 @@ all_staged := $(patsubst %/.fetched,%/.staged,$(all_fetched))
 ## Fetch and extract all dependencies
 staged: $(all_staged)
 $(o)/%/.staged: .PLEDGE := $(pledge_build)
-$(o)/%/.staged: .UNVEIL := $(unveil_dep) rx:/usr/bin
+$(o)/%/.staged: .UNVEIL := $(unveil_dep) $(unveil_hostx)
 $(o)/%/.staged: $(o)/%/.fetched $(build_files) $(stdlib_lua)
 	@LUA_PATH="$(tree_lua_path)" $(bootstrap_cosmic) -- $(build_stage) $$(readlink $(o)/$*/.versioned) $(platform) $< $@
 

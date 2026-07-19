@@ -49,6 +49,26 @@ $(o)/%.lua: .SANDBOXED := 1
 $(o)/%.lua: .PLEDGE := $(pledge_build) fattr
 $(o)/%.lua: .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_hostx)
 
+# Second ENFORCED family (#729): every remaining rule that execs the
+# assimilated bootstrap — fetch, stage, lint, and the reporter
+# summaries. (The check/test rules exec $(cosmic_bin), which must stay
+# a fat APE; enforcing them needs an answer for the APE loader first,
+# so they are the next family, not this one.) fetch/stage keep their
+# annotations at the rules in the Makefile; the flips live here beside
+# the grant sets.
+$(o)/%/.fetched: .SANDBOXED := 1
+$(o)/%/.staged: .SANDBOXED := 1
+$(o)/%.lint.ok: .SANDBOXED := 1
+$(o)/%.lint.ok: .PLEDGE := $(pledge_build)
+$(o)/%.lint.ok: .UNVEIL := rwc:$(o) $(unveil_hostx)
+# Reporter summaries (bootstrap + tee). test/coverage/enforce summaries
+# exec $(cosmic_bin) and stay unsandboxed with the check rules.
+reporter_summaries := $(o)/teal-summary.txt $(o)/format-summary.txt \
+  $(o)/lint-summary.txt $(o)/example-summary.txt $(o)/benchmark-summary.txt
+$(reporter_summaries): .SANDBOXED := 1
+$(reporter_summaries): .PLEDGE := $(pledge_build)
+$(reporter_summaries): .UNVEIL := rwc:$(o) $(unveil_hostx)
+
 # Type definition generation (define early so it's available to all modules).
 # Must match MODULES in lib/types/gentype.tl: "cosmo" renders the top-level
 # cosmo record (lib/types/cosmo.d.tl); the rest render lib/types/cosmo/<m>.d.tl.
