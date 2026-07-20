@@ -39,21 +39,25 @@ all: $(o)/canary.got $(probes)
 # silently skips a grant whose path is absent, so `rwc:o` would be dropped
 # and the child could not write its output (cosmic solves this with its
 # $(o)/.exists ordering trick). run.sh pre-creates `o` outside the sandbox.
+#
+# The read is done by the recipe SHELL itself (`: < file`, a redirection on a
+# builtin — no exec), so the only thing under test is whether Landlock lets
+# the sandboxed process OPEN a file covered by the global `r:shared` grant.
+# Using `cat` here confounded a Landlock deny with cat dying (exec/seccomp).
 $(o)/probe-%.got: .SANDBOXED := 1
 $(o)/probe-%.got: $(deps)
-	@if cat shared/secret >/dev/null 2>$(o)/probe-$*.err; then \
+	@if : < shared/secret 2>$(o)/probe-$*.err; then \
 	  echo ok > $@ ; \
 	else \
-	  printf 'DENIED: %s\n' "$$(cat $(o)/probe-$*.err)" > $@ ; \
+	  { printf 'DENIED rc=%s ' "$$?"; cat $(o)/probe-$*.err 2>/dev/null; } > $@ ; \
 	fi
 
-# Enforcement canary: read a file in a dir that is NOT unveiled. Under real
-# Landlock this MUST be denied; if it reads `ok`, Landlock is no-oping and the
-# whole run is inconclusive (every probe would trivially pass). run.sh checks
-# this before trusting a clean result.
+# Enforcement canary: open a file in a dir that is NOT unveiled, the same way
+# (shell redirection). Under real Landlock this MUST be denied; if it opens
+# `ok`, Landlock is no-oping and the run is inconclusive.
 $(o)/canary.got: .SANDBOXED := 1
 $(o)/canary.got: $(deps)
-	@if cat hidden/secret >/dev/null 2>/dev/null; then \
+	@if : < hidden/secret 2>/dev/null; then \
 	  echo 'ENFORCE=no' > $@ ; \
 	else \
 	  echo 'ENFORCE=yes' > $@ ; \

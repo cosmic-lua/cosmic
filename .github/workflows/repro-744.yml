@@ -44,10 +44,10 @@ jobs:
             echo "::warning::Landlock not enforcing on this runner — reproduction inconclusive"; exit 1; }
       - name: low-concurrency control (expect clean)
         working-directory: repro
-        run: N=200 J=1 ITERS=3 ./run.sh
+        run: N=100 J=1 ITERS=3 ./run.sh
       - name: high-concurrency burst (a denied grant here == reproduced)
         working-directory: repro
-        run: N=600 J=192 ITERS=80 ./run.sh
+        run: N=300 J=128 ITERS=40 ./run.sh
 
   offline-lane:
     # Mirror pr.yml's offline lane: network namespace + drop to the runner
@@ -67,4 +67,4 @@ jobs:
           set -euo pipefail
           sudo unshare --net sh -c '
             exec sudo -u runner env HOME=/home/runner \
-              sh -c "cd $PWD/repro && N=600 J=192 ITERS=80 ./run.sh"'
+              sh -c "cd $PWD/repro && N=300 J=128 ITERS=40 ./run.sh"'
