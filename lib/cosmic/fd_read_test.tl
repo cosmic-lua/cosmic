@@ -4,7 +4,7 @@ local cfd = require("cosmic.fd")
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 
-global TEST_TMPDIR: string
+local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
 -- read() EOF contract — nil with no error means EOF; nil with an error
 -- means failure. "" is never returned.

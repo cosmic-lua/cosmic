@@ -16,7 +16,11 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      # timeout: a recipe child dying mid-test can leave forked test
+      # parents blocked on accept/wait, wedging make — convert a hang
+      # into a failure so the dump step below fires
       - name: make ci
+        timeout-minutes: 20
         shell: bash -x {0}
         run: bin/make -j ci
 

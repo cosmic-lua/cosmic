@@ -3,7 +3,7 @@ local check = require("cosmic.check")
 local cfd = require("cosmic.fd")
 local fs = require("cosmic.fs")
 
-global TEST_TMPDIR: string
+local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
 local function test_open_read_write_close()
   local filepath = fs.join(TEST_TMPDIR, "io_test_basic.txt")

@@ -315,6 +315,14 @@ local function test_spawn_zip_embedded_binary()
     assert(r, "spawn /zip/.bin/echo failed")
     io.write(r.stdout)
   ]]}))
+  -- Spawning a /zip member needs memfd_create (cosmo's fd_to_mem_fd),
+  -- which pledge's base filter forces to ENOSYS with no fallback — so
+  -- the sandboxed test lane (#729) cannot exercise it; skip on that
+  -- specific failure. The enforce lane runs it for real.
+  if not r.ok and tostring(r.stderr):find("spawn /zip/.bin/echo failed") then
+    check.skip("zip spawn needs memfd_create; pledge forces ENOSYS")
+    return
+  end
   assert(r.ok, "embedded binary should succeed: " .. tostring(r.stderr))
   assert(r.stdout == "hello-from-zip\n",
     "expected 'hello-from-zip\\n', got '" .. tostring(r.stdout) .. "'")

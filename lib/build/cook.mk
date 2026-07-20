@@ -143,3 +143,10 @@ build_makefile_test_got := \
   $(o)/coverage/lib/build/makefile_test.tl.test.got
 $(build_makefile_test_got): $(build_make_outputs)
 $(build_makefile_test_got): TEST_DIR := $(build_make_out)
+
+# help_test parses the real Makefile, which the test unveil set does
+# not cover (#729 test family)
+build_help_test_got := \
+  $(o)/lib/build/help_test.tl.test.got \
+  $(o)/coverage/lib/build/help_test.tl.test.got
+$(build_help_test_got): .UNVEIL := $(unveil_test) r:Makefile

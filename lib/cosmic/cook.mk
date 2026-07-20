@@ -118,8 +118,33 @@ $(cosmic_check_bin): $(cosmic_bin)
 	@$@ --assimilate
 	@printf '\177ELF' | cmp -s - <(head -c 4 $@) || { echo "cosmic-check assimilation failed: still an APE" >&2; exit 1; }
 
+# The APE loader, staged where the clamped PATH can see it (#729 test
+# family): the APE shell stub prefers `exec ape "$o" "$@"` for any
+# loader named ape on PATH, before falling back to extracting one into
+# ${TMPDIR:-$HOME}/.ape-<version> — a path no sandbox grant covers.
+# With o/bin/ape staged, every fat-APE exec (the test lanes running
+# $(cosmic_bin), embed-test children, ...) resolves through granted
+# paths; and since the loader maps-and-jumps rather than re-execing,
+# test-created APEs in TMP need only read access. Extraction: run the
+# fat artifact once with TMPDIR pointed at a fresh absolute mktemp dir
+# (the exact flow every pre-#742 runner exec used), then move the cache
+# file the stub writes into place. A relative TMPDIR segfaulted on the
+# runner.
+ape_loader := $(o)/bin/ape
+$(ape_loader): $(cosmic_bin)
+	@t=$$(mktemp -d) && PATH="$(HOST_PATH)" TMPDIR=$$t $(CURDIR)/$< -e 'return' >/dev/null && \
+	  set -- $$t/.ape-*; [ -x "$$1" ] || { echo "ape loader extraction failed" >&2; exit 1; }; \
+	  mv -f "$$1" $@ && rmdir "$$t"
+
 cosmic: $(cosmic_bin)
 
 cosmic-debug: $(cosmic_debug_bin)
 
 .PHONY: cosmic cosmic-debug
+
+# tty_test opens pty pairs; the pty multiplexer and slave directory are
+# outside the shared test unveil set (#729 test family)
+cosmic_tty_test_got := \
+  $(o)/lib/cosmic/tty_test.tl.test.got \
+  $(o)/coverage/lib/cosmic/tty_test.tl.test.got
+$(cosmic_tty_test_got): .UNVEIL := $(unveil_test) rw:/dev/ptmx rw:/dev/pts

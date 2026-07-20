@@ -7,6 +7,14 @@ local proc = require("cosmic.proc")
 local check = require("cosmic.check")
 
 local function test_interfaces()
+  -- SIOCGIFCONF has no pledge promise (inet allows only SIOCATMARK), so
+  -- the sandboxed test lane (#729) cannot exercise it; skip on denial
+  -- like the netns tests. The enforce lane still runs it for real.
+  local probe, ierr = net.interfaces()
+  if not probe then
+    check.skip("interfaces() denied by sandbox: " .. tostring(ierr))
+    return
+  end
   local ifaces = check.must(net.interfaces())
   assert(type(ifaces) == "table", "expected table, got " .. type(ifaces))
 
@@ -27,7 +35,13 @@ end
 test_interfaces()
 
 local function test_interfaces_format()
-  -- Test that we can format interface IPs
+  -- Test that we can format interface IPs (skips under sandbox like
+  -- test_interfaces above: SIOCGIFCONF has no pledge promise)
+  local probe = net.interfaces()
+  if not probe then
+    check.skip("interfaces() denied by sandbox")
+    return
+  end
   local ifaces = check.must(net.interfaces())
   for _, iface in ipairs(ifaces) do
     local ip_str = iface.ip:format()

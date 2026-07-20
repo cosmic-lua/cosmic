@@ -21,8 +21,7 @@ export FETCH_O := $(CURDIR)/$(o)/fetched
 TMP ?= /tmp
 export TMPDIR := $(TMP)
 
-# Platform tag for fetch/stage matching and TEST_PLATFORM. All deps pin
-# "*" today; derived so a non-wildcard dep cannot mis-fetch cross-OS (#721)
+# Platform tag (fetch/stage matching, TEST_PLATFORM); derived, not hardcoded (#721)
 platform := $(shell uname -s | tr '[:upper:]' '[:lower:]')-$(shell uname -m)
 
 ## INCLUDE_DIRS: directories to search for type definitions (repeatable)
@@ -64,8 +63,7 @@ $(o)/%: % | $(o)/.exists
 	@mkdir -p $(@D) && cp $< $@
 $(o)/.exists: ; @mkdir -p $(@D) && touch $@
 
-# compile .tl to .lua; flag from cook.mk's probe (strict-capable ->
-# hermetic LUA_PATH=";;", pre-flag -> tree LUA_PATH self-healing, #666).
+# compile .tl to .lua; flag from cook.mk's probe (strict ;; vs tree path, #666)
 $(o)/%.lua: %.tl $(types_files) $(tl_files) $(bootstrap_files) $(compile_flag_stamp)
 	@mkdir -p $(@D)
 	@f=$$(cat $(compile_flag_stamp)); if [ "$$f" = "--compile-strict" ]; then export LUA_PATH=";;"; else export LUA_PATH="$(tree_lua_path)"; fi; $(bootstrap_cosmic) $(include_dir_flags) $$f $< > $@.tmp
@@ -155,7 +153,7 @@ tree_lua_path := $(subst $(space),;,$(foreach d,$(lua_path_dirs),$(CURDIR)/$(d)/
 export NO_COLOR := 1
 
 # Test rule: execute test via cosmic --test command
-$(o)/%.tl.test.got: .PLEDGE := $(pledge_build)
+$(o)/%.tl.test.got: .PLEDGE := $(pledge_test)
 $(o)/%.tl.test.got: .UNVEIL := $(unveil_test)
 
 # teal_config_test reads tlconfig.lua and the Makefile (outside the test unveil)
@@ -175,10 +173,11 @@ quicksand_sandbox_tests := \
   $(o)/coverage/lib/cosmic/quicksand/netns_test.tl.test.got \
   $(o)/coverage/lib/cosmic/quicksand/proxy_test.tl.test.got \
   $(o)/coverage/lib/cosmic/quicksand/box/run_test.tl.test.got
+$(quicksand_sandbox_tests): .SANDBOXED := 0
 $(quicksand_sandbox_tests): .PLEDGE =
 $(quicksand_sandbox_tests): .UNVEIL =
 
-$(o)/%.tl.test.got: $(o)/%.lua $(cosmic_bin)
+$(o)/%.tl.test.got: $(o)/%.lua $(cosmic_bin) $(ape_loader)
 	@mkdir -p $(@D)
 	@TEST_DIR=$(TEST_DIR) LUA_PATH="$(tree_lua_path)" PATH=$(CURDIR)/$(o)/bin:$$PATH $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
@@ -202,9 +201,9 @@ coverage_got := $(patsubst %,$(o)/coverage/%.test.got,$(all_tests))
 ## Run all tests with line coverage and report per-file totals
 coverage: $(o)/coverage-summary.txt
 
-$(o)/coverage/%.tl.test.got: .PLEDGE := $(pledge_build)
+$(o)/coverage/%.tl.test.got: .PLEDGE := $(pledge_test)
 $(o)/coverage/%.tl.test.got: .UNVEIL := $(unveil_test)
-$(o)/coverage/%.tl.test.got: $(o)/%.lua $(cosmic_bin)
+$(o)/coverage/%.tl.test.got: $(o)/%.lua $(cosmic_bin) $(ape_loader)
 	@mkdir -p $(@D)
 	@TEST_DIR=$(TEST_DIR) COSMIC_COVERAGE=1 LUA_PATH="$(tree_lua_path)" PATH=$(CURDIR)/$(o)/bin:$$PATH $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
@@ -256,6 +255,7 @@ enforce_got := $(patsubst %,$(o)/enforce/%.test.got,$(enforce_srcs))
 enforce: $(o)/enforce-summary.txt
 
 # Drop the outer sandbox for these targets so enforcement actually runs.
+$(enforce_got): .SANDBOXED := 0
 $(enforce_got): .PLEDGE =
 $(enforce_got): .UNVEIL =
 

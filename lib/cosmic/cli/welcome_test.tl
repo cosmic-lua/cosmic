@@ -46,7 +46,9 @@ else
 end
 ]])
 
-  local env = {"COSMIC_NO_WELCOME=1"}
+  -- keep PATH: a replacement env with no PATH strands the APE stub —
+  -- it can't find the staged `ape` loader (see tl_loader_test)
+  local env = {"COSMIC_NO_WELCOME=1", "PATH=" .. os.getenv("PATH")}
   local r = check.must(spawn.run({cosmic, test_script}, {env = env}))
   local s = r.stdout
   assert(r.ok, "script should succeed: " .. s)
