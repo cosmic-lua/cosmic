@@ -31,7 +31,9 @@ unveil_base := rx:$(o)/bootstrap r:lib r:3p
 # generous list is safe across hosts.
 unveil_hostx := rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc rw:/dev/null r:/dev/random r:/dev/urandom
 unveil_dep := rx:$(o)/bootstrap r:3p rwc:$(o)
-unveil_test := $(unveil_base) rwcx:$(o) rwc:$(TMP) $(unveil_hostx)
+# TMP is x: tests exec what they build there — embed outputs, scripts
+# under TEST_TMPDIR (proven need: embed/child/testrun under Landlock)
+unveil_test := $(unveil_base) rwcx:$(o) rwcx:$(TMP) $(unveil_hostx)
 unveil_run := $(unveil_base) rwc:$(o) rwc:$(TMP) $(unveil_hostx)
 # Test lanes run sockets, fs-permission, and TLS-touching code: promises
 # beyond pledge_build discovered empirically under local seccomp.

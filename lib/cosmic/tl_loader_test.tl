@@ -85,8 +85,11 @@ local mymod = require("mymod")
 print("answer=" .. tostring(mymod.answer))
 ]])
 
+  -- keep PATH: a replacement env with no PATH strands the APE stub —
+  -- it can't find the staged `ape` loader and falls back to extracting
+  -- into ${TMPDIR:-${HOME:-.}}, none of which the test sandbox grants
   local h2 = check.must(spawn.spawn({cosmic, script}, {
-        env = {"TL_PATH=" .. moddir .. "/?.tl"},
+        env = {"TL_PATH=" .. moddir .. "/?.tl", "PATH=" .. os.getenv("PATH")},
       }))
   local __r2 = check.must(h2:wait())
   local ok2a, out2a = __r2.ok, __r2.stdout

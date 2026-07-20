@@ -141,3 +141,10 @@ cosmic: $(cosmic_bin)
 cosmic-debug: $(cosmic_debug_bin)
 
 .PHONY: cosmic cosmic-debug
+
+# tty_test opens pty pairs; the pty multiplexer and slave directory are
+# outside the shared test unveil set (#729 test family)
+cosmic_tty_test_got := \
+  $(o)/lib/cosmic/tty_test.tl.test.got \
+  $(o)/coverage/lib/cosmic/tty_test.tl.test.got
+$(cosmic_tty_test_got): .UNVEIL := $(unveil_test) rw:/dev/ptmx rw:/dev/pts

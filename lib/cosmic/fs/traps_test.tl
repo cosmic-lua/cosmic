@@ -5,7 +5,7 @@
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 
-global TEST_TMPDIR: string
+local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
 local fsa = fs as {string: any} -- cast: signature transition
 
