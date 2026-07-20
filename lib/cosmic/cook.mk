@@ -126,13 +126,15 @@ $(cosmic_check_bin): $(cosmic_bin)
 # $(cosmic_bin), embed-test children, ...) resolves through granted
 # paths; and since the loader maps-and-jumps rather than re-execing,
 # test-created APEs in TMP need only read access. Extraction: run the
-# fat artifact once with TMPDIR pointed at o/bin, then rename the
-# cache file the stub writes.
+# fat artifact once with TMPDIR pointed at a fresh absolute mktemp dir
+# (the exact flow every pre-#742 runner exec used), then move the cache
+# file the stub writes into place. A relative TMPDIR segfaulted on the
+# runner.
 ape_loader := $(o)/bin/ape
 $(ape_loader): $(cosmic_bin)
-	@rm -f $(@D)/.ape-*
-	@PATH="$(HOST_PATH)" TMPDIR=$(@D) $< -e 'return' >/dev/null
-	@set -- $(@D)/.ape-*; [ -x "$$1" ] || { echo "ape loader extraction failed" >&2; exit 1; }; mv -f "$$1" $@
+	@t=$$(mktemp -d) && PATH="$(HOST_PATH)" TMPDIR=$$t $(CURDIR)/$< -e 'return' >/dev/null && \
+	  set -- $$t/.ape-*; [ -x "$$1" ] || { echo "ape loader extraction failed" >&2; exit 1; }; \
+	  mv -f "$$1" $@ && rmdir "$$t"
 
 cosmic: $(cosmic_bin)
 
