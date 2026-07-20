@@ -1,0 +1,70 @@
+name: repro-744
+
+# Minimal reproduction of #744: a fresh, high-concurrency burst of
+# Landlock-sandboxed children where one intermittently loses its global
+# `r:shared` unveil grant and is denied a read it was granted. Runs the
+# pinned landlock-make over repro/Makefile (no teal/cosmic/bootstrap).
+#
+# Each job: prove Landlock enforces (canary), run a low-concurrency control
+# (must stay clean), then a heavily oversubscribed burst. A denied granted
+# read fails the burst step — that red IS the reproduction.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/cosmic-744-repro]
+
+permissions:
+  contents: read
+
+env:
+  MAKE_URL: https://github.com/whilp/cosmopolitan/releases/download/2026.07.20-c5b6ed206/make
+  MAKE_SHA: 1f0e254c075534da5518ffa1f6e040ea38bae9e0ea14bd5f7a726aef7420262e
+
+jobs:
+  plain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: fetch pinned landlock-make
+        working-directory: repro
+        run: |
+          set -euo pipefail
+          curl -fsSL -o cosmo-make "$MAKE_URL"
+          echo "$MAKE_SHA  cosmo-make" | sha256sum -c -
+          chmod +x cosmo-make
+      - name: enforcement canary (must be DENIED under real Landlock)
+        working-directory: repro
+        run: |
+          set -euo pipefail
+          rm -rf o
+          ./cosmo-make -j1 N=1 o/canary.got >/dev/null 2>&1 || true
+          echo "canary: $(cat o/canary.got)"
+          grep -q 'ENFORCE=yes' o/canary.got || {
+            echo "::warning::Landlock not enforcing on this runner — reproduction inconclusive"; exit 1; }
+      - name: low-concurrency control (expect clean)
+        working-directory: repro
+        run: N=200 J=1 ITERS=3 ./run.sh
+      - name: high-concurrency burst (a denied grant here == reproduced)
+        working-directory: repro
+        run: N=600 J=192 ITERS=80 ./run.sh
+
+  offline-lane:
+    # Mirror pr.yml's offline lane: network namespace + drop to the runner
+    # user, the exact context where #744 was observed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: fetch pinned landlock-make
+        working-directory: repro
+        run: |
+          set -euo pipefail
+          curl -fsSL -o cosmo-make "$MAKE_URL"
+          echo "$MAKE_SHA  cosmo-make" | sha256sum -c -
+          chmod +x cosmo-make
+      - name: burst inside netns as the runner user
+        run: |
+          set -euo pipefail
+          sudo unshare --net sh -c '
+            exec sudo -u runner env HOME=/home/runner \
+              sh -c "cd $PWD/repro && N=600 J=192 ITERS=80 ./run.sh"'
