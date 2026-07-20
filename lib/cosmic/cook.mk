@@ -118,6 +118,22 @@ $(cosmic_check_bin): $(cosmic_bin)
 	@$@ --assimilate
 	@printf '\177ELF' | cmp -s - <(head -c 4 $@) || { echo "cosmic-check assimilation failed: still an APE" >&2; exit 1; }
 
+# The APE loader, staged where the clamped PATH can see it (#729 test
+# family): the APE shell stub prefers `exec ape "$o" "$@"` for any
+# loader named ape on PATH, before falling back to extracting one into
+# ${TMPDIR:-$HOME}/.ape-<version> — a path no sandbox grant covers.
+# With o/bin/ape staged, every fat-APE exec (the test lanes running
+# $(cosmic_bin), embed-test children, ...) resolves through granted
+# paths; and since the loader maps-and-jumps rather than re-execing,
+# test-created APEs in TMP need only read access. Extraction: run the
+# fat artifact once with TMPDIR pointed at o/bin, then rename the
+# cache file the stub writes.
+ape_loader := $(o)/bin/ape
+$(ape_loader): $(cosmic_bin)
+	@rm -f $(@D)/.ape-*
+	@PATH="$(HOST_PATH)" TMPDIR=$(@D) $< -e 'return' >/dev/null
+	@set -- $(@D)/.ape-*; [ -x "$$1" ] || { echo "ape loader extraction failed" >&2; exit 1; }; mv -f "$$1" $@
+
 cosmic: $(cosmic_bin)
 
 cosmic-debug: $(cosmic_debug_bin)

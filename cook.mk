@@ -21,7 +21,6 @@ export PATH := $(CURDIR)/$(o)/bootstrap:$(CURDIR)/$(o)/bin:$(HOST_PATH)
 # enforcement unexpanded (see the sandbox-canary note in lib/build).
 pledge_build := stdio rpath wpath cpath proc exec
 unveil_base := rx:$(o)/bootstrap r:lib r:3p
-unveil_host := rx:/usr rx:/proc r:/etc r:/dev/null
 # Host set proven under real enforcement by the sandbox-canary (#724)
 # and the enforced families' CI runs: shell + coreutils + loaders.
 # /dev/null must be writable (recipes redirect to it). mbedtls3's
@@ -32,8 +31,11 @@ unveil_host := rx:/usr rx:/proc r:/etc r:/dev/null
 # generous list is safe across hosts.
 unveil_hostx := rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc rw:/dev/null r:/dev/random r:/dev/urandom
 unveil_dep := rx:$(o)/bootstrap r:3p rwc:$(o)
-unveil_test := $(unveil_base) rwcx:$(o) rwc:$(TMP) $(unveil_host)
-unveil_run := $(unveil_base) rwc:$(o) rwc:$(TMP) $(unveil_host)
+unveil_test := $(unveil_base) rwcx:$(o) rwc:$(TMP) $(unveil_hostx)
+unveil_run := $(unveil_base) rwc:$(o) rwc:$(TMP) $(unveil_hostx)
+# Test lanes run sockets, fs-permission, and TLS-touching code: promises
+# beyond pledge_build discovered empirically under local seccomp.
+pledge_test := $(pledge_build) fattr inet dns unix tty id flock
 
 # First ENFORCED rule family (#729): the .tl compile rule. landlock-make
 # auto-grants rx on every prerequisite (source, types, bootstrap, flag
@@ -77,15 +79,24 @@ $(reporter_summaries): .UNVEIL := rwc:$(o) $(unveil_hostx)
 # Third ENFORCED family (#729): the teal/format check rules, which exec
 # the assimilated $(cosmic_check_bin) duplicate (see lib/cosmic/cook.mk)
 # instead of the fat-APE artifact. Failures inside the sandbox surface
-# as check failures in the summaries — loud, not silent. The test and
-# example lanes (running arbitrary module code against the real APE)
-# stay unsandboxed for now.
+# as check failures in the summaries — loud, not silent.
 $(o)/%.teal.got: .SANDBOXED := 1
 $(o)/%.teal.got: .PLEDGE := $(pledge_build)
 $(o)/%.teal.got: .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_hostx)
 $(o)/%.format.got: .SANDBOXED := 1
 $(o)/%.format.got: .PLEDGE := $(pledge_build)
 $(o)/%.format.got: .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_hostx)
+
+# Fourth ENFORCED family (#729): the plain and coverage test lanes,
+# running the real fat-APE $(cosmic_bin) via the staged o/bin/ape
+# loader (see lib/cosmic/cook.mk) — the APE stub prefers a loader
+# named ape on PATH over extracting one into unveil-able-nowhere
+# ~/.ape-*. The quicksand namespace tests and the privileged enforce
+# lane opt back out where their empty grant overrides live in the
+# Makefile: they exercise unshare and real self-sandboxing, which no
+# outer sandbox can permit.
+$(o)/%.tl.test.got: .SANDBOXED := 1
+$(o)/coverage/%.tl.test.got: .SANDBOXED := 1
 
 # Type definition generation (define early so it's available to all modules).
 # Must match MODULES in lib/types/gentype.tl: "cosmo" renders the top-level
