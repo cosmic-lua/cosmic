@@ -78,7 +78,7 @@ lib/cosmic/quicksand/box/run.tl 0 157
 lib/cosmic/quicksand/caps.tl 59 77
 lib/cosmic/quicksand/init.tl 66 75
 lib/cosmic/quicksand/netns.tl 37 55
-lib/cosmic/quicksand/proc.tl 57 117
+lib/cosmic/quicksand/proc.tl 54 117
 lib/cosmic/quicksand/proxy.tl 48 84
 lib/cosmic/quicksand/proxy/dial.tl 22 33
 lib/cosmic/quicksand/proxy/http.tl 133 164
@@ -138,4 +138,4 @@ lib/types/gentype_parse.tl 267 288
 lib/types/gentype_render.tl 309 312
 lib/types/gentype_types.tl 2 2
 tlconfig.lua 7 7
-total 11193 14727
+total 11190 14727
