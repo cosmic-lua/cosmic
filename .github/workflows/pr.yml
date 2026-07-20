@@ -24,24 +24,49 @@ jobs:
         shell: bash -x {0}
         run: bin/make -j ci
 
-      # Temporary diagnostic (#729 test family): every sandboxed test
-      # SIGSEGVs on the runner via the o/bin/ape loader path while the
-      # same flow passes locally. Isolate the layers.
-      - name: debug ape loader on runner
+      # Temporary diagnostic (#729 test family): sandboxed tests SIGSEGV
+      # on the runner in the exec chain (stub -> o/bin/ape -> payload)
+      # before the test harness starts; unsandboxed the same chain works.
+      # Matrix: which sandbox layer (pledge vs unveil/Landlock) x which
+      # exec path (assimilated control, loader direct, stub) faults —
+      # then strace the failing exec for the syscall trail.
+      - name: debug sandboxed loader crash
         if: failure()
         timeout-minutes: 5
         shell: bash
         run: |
           set +e
-          file o/bin/ape; ls -la o/bin/
-          echo "--- loader direct, unsandboxed (124 = hang):"
-          timeout 15 o/bin/ape "$PWD/o/bin/cosmic" -e 'print("via-loader-ok")'; echo "exit: $?"
-          echo "--- stub exec path, unsandboxed:"
-          timeout 15 env PATH="$PWD/o/bin:$PATH" o/bin/cosmic -e 'print("via-stub-ok")'; echo "exit: $?"
-          echo "--- one sandboxed test via make:"
-          rm -f o/lib/cosmic/json_test.tl.test.got
-          timeout 60 bin/make o/lib/cosmic/json_test.tl.test.got; echo "make exit: $?"
-          tail -5 o/lib/cosmic/json_test.tl.test.err 2>/dev/null
+          cat > probe.mk <<'EOF'
+          PLEDGE_TEST := stdio rpath wpath cpath proc exec fattr inet dns unix tty id flock
+          UNVEIL_TEST := rx:o/bootstrap r:lib r:3p rwcx:o rwc:/tmp rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc rw:/dev/null r:/dev/random r:/dev/urandom
+          p-check p-loader p-stub p-pledge-only p-unveil-only: .SANDBOXED := 1
+          p-check p-loader p-stub: .PLEDGE := $(PLEDGE_TEST)
+          p-check p-loader p-stub p-unveil-only: .UNVEIL := $(UNVEIL_TEST)
+          p-pledge-only: .PLEDGE := $(PLEDGE_TEST)
+          p-check:
+          	@o/bin/cosmic-check -e 'print("check-ok")'
+          p-loader:
+          	@o/bin/ape $(CURDIR)/o/bin/cosmic -e 'print("loader-ok")'
+          p-stub:
+          	@PATH=$(CURDIR)/o/bin:/usr/bin:/bin o/bin/cosmic -e 'print("stub-ok")'
+          p-pledge-only:
+          	@PATH=$(CURDIR)/o/bin:/usr/bin:/bin o/bin/cosmic -e 'print("pledge-only-ok")'
+          p-unveil-only:
+          	@PATH=$(CURDIR)/o/bin:/usr/bin:/bin o/bin/cosmic -e 'print("unveil-only-ok")'
+          EOF
+          for t in p-check p-loader p-stub p-pledge-only p-unveil-only; do
+            echo "--- probe $t:"
+            timeout 20 bin/make -f probe.mk "$t"; echo "exit: $?"
+          done
+          echo "--- strace of sandboxed stub exec:"
+          mkdir -p /tmp/ptrace
+          timeout 30 strace -ff -s 200 -e trace=%process,%memory,openat \
+            -o /tmp/ptrace/t bin/make -f probe.mk p-stub
+          for f in /tmp/ptrace/t.*; do
+            if grep -lq 'SIGSEGV\|SIGSYS' "$f" >/dev/null 2>&1; then
+              echo "===== $f (tail):"; tail -80 "$f"
+            fi
+          done
 
       - name: dump failing test output
         if: failure()
