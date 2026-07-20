@@ -377,9 +377,7 @@ example: $(o)/example-summary.txt
 $(o)/example-summary.txt: $(all_examples) | $(build_reporter)
 	@$(reporter) --dir $(o) $^ | tee $@
 
-$(o)/%.tl.example.got: .PLEDGE := $(pledge_build)
-$(o)/%.tl.example.got: .UNVEIL := $(unveil_run)
-$(o)/%.tl.example.got: %.tl $(cosmic_bin) | $(bootstrap_files)
+$(o)/%.tl.example.got: %.tl $(cosmic_bin) $(ape_loader) | $(bootstrap_files)
 	@mkdir -p $(@D)
 	@set +e; $(cosmic_bin) --check-examples $< > $(basename $@).out 2> $(basename $@).err; echo $$? > $@
 

@@ -89,6 +89,15 @@ $(o)/%.format.got: .SANDBOXED := 1
 $(o)/%.format.got: .PLEDGE := $(pledge_build)
 $(o)/%.format.got: .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_hostx)
 
+# Fifth ENFORCED family (#729): examples. Same grant sets as the test
+# lanes — examples exercise the same modules (sockets, tty, chmod) and
+# embed/deploy examples exec what they build under TEST_TMPDIR. The
+# quicksand namespace examples opt out like their tests (no pledge
+# promise covers unshare); see lib/cosmic/cook.mk.
+$(o)/%.tl.example.got: .SANDBOXED := 1
+$(o)/%.tl.example.got: .PLEDGE := $(pledge_test)
+$(o)/%.tl.example.got: .UNVEIL := $(unveil_test)
+
 # Fourth ENFORCED family (#729): the plain and coverage test lanes,
 # running the real fat-APE $(cosmic_bin) via the staged o/bin/ape
 # loader (see lib/cosmic/cook.mk) — the APE stub prefers a loader

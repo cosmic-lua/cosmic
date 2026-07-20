@@ -148,3 +148,12 @@ cosmic_tty_test_got := \
   $(o)/lib/cosmic/tty_test.tl.test.got \
   $(o)/coverage/lib/cosmic/tty_test.tl.test.got
 $(cosmic_tty_test_got): .UNVEIL := $(unveil_test) rw:/dev/ptmx rw:/dev/pts
+
+# Namespace-exercising examples opt out of the enforced example family
+# like the quicksand tests: unshare has no pledge promise (#729)
+quicksand_sandbox_examples := \
+  $(o)/lib/cosmic/quicksand/netns_example.tl.example.got \
+  $(o)/lib/cosmic/quicksand/proxy_example.tl.example.got
+$(quicksand_sandbox_examples): .SANDBOXED := 0
+$(quicksand_sandbox_examples): .PLEDGE =
+$(quicksand_sandbox_examples): .UNVEIL =
