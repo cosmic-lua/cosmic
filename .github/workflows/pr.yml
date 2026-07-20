@@ -20,6 +20,24 @@ jobs:
         shell: bash -x {0}
         run: bin/make -j ci
 
+      # Temporary diagnostic (#729 test family): every sandboxed test
+      # SIGSEGVs on the runner via the o/bin/ape loader path while the
+      # same flow passes locally. Isolate the layers.
+      - name: debug ape loader on runner
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          file o/bin/ape; ls -la o/bin/
+          echo "--- loader direct, unsandboxed:"
+          o/bin/ape o/bin/cosmic -e 'print("via-loader-ok")'; echo "exit: $?"
+          echo "--- stub exec path, unsandboxed:"
+          PATH="$PWD/o/bin:$PATH" o/bin/cosmic -e 'print("via-stub-ok")'; echo "exit: $?"
+          echo "--- one sandboxed test via make:"
+          rm -f o/lib/cosmic/json_test.tl.test.got
+          bin/make o/lib/cosmic/json_test.tl.test.got; echo "make exit: $?"
+          cat o/lib/cosmic/json_test.tl.test.err 2>/dev/null | tail -5
+
       - name: dump failing test output
         if: failure()
         shell: bash
