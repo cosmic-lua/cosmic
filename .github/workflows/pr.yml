@@ -25,18 +25,19 @@ jobs:
       # same flow passes locally. Isolate the layers.
       - name: debug ape loader on runner
         if: failure()
+        timeout-minutes: 5
         shell: bash
         run: |
           set +e
           file o/bin/ape; ls -la o/bin/
-          echo "--- loader direct, unsandboxed:"
-          o/bin/ape o/bin/cosmic -e 'print("via-loader-ok")'; echo "exit: $?"
+          echo "--- loader direct, unsandboxed (124 = hang):"
+          timeout 15 o/bin/ape "$PWD/o/bin/cosmic" -e 'print("via-loader-ok")'; echo "exit: $?"
           echo "--- stub exec path, unsandboxed:"
-          PATH="$PWD/o/bin:$PATH" o/bin/cosmic -e 'print("via-stub-ok")'; echo "exit: $?"
+          timeout 15 env PATH="$PWD/o/bin:$PATH" o/bin/cosmic -e 'print("via-stub-ok")'; echo "exit: $?"
           echo "--- one sandboxed test via make:"
           rm -f o/lib/cosmic/json_test.tl.test.got
-          bin/make o/lib/cosmic/json_test.tl.test.got; echo "make exit: $?"
-          cat o/lib/cosmic/json_test.tl.test.err 2>/dev/null | tail -5
+          timeout 60 bin/make o/lib/cosmic/json_test.tl.test.got; echo "make exit: $?"
+          tail -5 o/lib/cosmic/json_test.tl.test.err 2>/dev/null
 
       - name: dump failing test output
         if: failure()
