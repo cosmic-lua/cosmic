@@ -57,19 +57,14 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      # fetch, stage, AND compile online; only the checks/tests/summaries
-      # phase runs network-denied. The compile rules are hermetic and
-      # pledge-denied network structurally (#729), so moving them online
-      # does not weaken the property this job proves — that the parts of
-      # the gate that RUN code (tests, examples, checks) cannot reach the
-      # network. The narrower split also sidesteps a first-fresh-run-only
-      # sandbox anomaly in this lane: a parallel burst of freshly
-      # sandboxed compiles under Landlock intermittently lost module
-      # resolution (identical unveil sets, solo rerun green) — suspected
-      # landlock-make vfork/unveil state interaction, tracked upstream.
-      - name: fetch, stage, and build with network allowed
+      # fetch and stage online; everything else — compiles, checks,
+      # tests, summaries — runs network-denied. (This split was briefly
+      # relaxed to build online while landlock-make corrupted sandbox
+      # state across vfork children under parallel bursts; fixed in
+      # whilp/cosmopolitan#201, pinned via bin/make.)
+      - name: fetch and stage with network allowed
         shell: bash -x {0}
-        run: bin/make -j staged files
+        run: bin/make -j staged
 
       - name: make ci with network denied
         shell: bash -x {0}

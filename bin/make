@@ -4,11 +4,11 @@ set -e
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MAKE_BIN="${SCRIPT_DIR}/cosmo-make"
-RELEASE_URL="https://github.com/whilp/cosmopolitan/releases/download/2026.01.04-bc03f9aa8/make"
+RELEASE_URL="https://github.com/whilp/cosmopolitan/releases/download/2026.07.20-a93ff63d7/make"
 # SHA-256 of the landlock-make binary. This binary is executed with full
 # control over the build, so verify its integrity before running it. Update
 # this when bumping RELEASE_URL.
-MAKE_SHA256="c7c8e7f09a1ed51d875bd6b3b1048e9faeb9d76cb3c7eedf01e153cced4a9373"
+MAKE_SHA256="0f8df501908d629c748dc337682832894c2ef60cb20534833883f5e8e1902248"
 
 verify_sha256() {
     # Usage: verify_sha256 <file> <expected-hex>. Returns non-zero on mismatch.
