@@ -22,6 +22,63 @@ env:
   MAKE_SHA: 1f0e254c075534da5518ffa1f6e040ea38bae9e0ea14bd5f7a726aef7420262e
 
 jobs:
+  landlock-probe:
+    # Ground truth, independent of landlock-make: is Landlock actually
+    # available and enforcing on this runner? Create a ruleset granting read
+    # under /tmp only, self-restrict, then try to open a file OUTSIDE it.
+    runs-on: ubuntu-latest
+    steps:
+      - name: raw Landlock availability + enforcement
+        run: |
+          set -uo pipefail
+          echo "kernel: $(uname -r)"
+          echo "lsm: $(cat /sys/kernel/security/lsm 2>/dev/null || echo '<unreadable>')"
+          cat > /tmp/ll.c <<'EOF'
+          #define _GNU_SOURCE
+          #include <stdio.h>
+          #include <string.h>
+          #include <errno.h>
+          #include <fcntl.h>
+          #include <unistd.h>
+          #include <sys/syscall.h>
+          #include <sys/prctl.h>
+          #include <linux/landlock.h>
+          #ifndef __NR_landlock_create_ruleset
+          #define __NR_landlock_create_ruleset 444
+          #define __NR_landlock_add_rule 445
+          #define __NR_landlock_restrict_self 446
+          #endif
+          #ifndef LANDLOCK_CREATE_RULESET_VERSION
+          #define LANDLOCK_CREATE_RULESET_VERSION (1U<<0)
+          #endif
+          static int try_open(const char*p){int fd=open(p,O_RDONLY);if(fd>=0){close(fd);return 0;}return -errno;}
+          int main(){
+            long abi=syscall(__NR_landlock_create_ruleset,NULL,0,LANDLOCK_CREATE_RULESET_VERSION);
+            printf("landlock ABI = %ld (%s)\n",abi,abi<0?strerror(errno):"available");
+            if(abi<1){printf("VERDICT: Landlock UNAVAILABLE on this runner\n");return 0;}
+            struct landlock_ruleset_attr ra={.handled_access_fs=LANDLOCK_ACCESS_FS_READ_FILE|LANDLOCK_ACCESS_FS_READ_DIR};
+            int rs=syscall(__NR_landlock_create_ruleset,&ra,sizeof(ra),0);
+            if(rs<0){printf("create_ruleset: %s\n",strerror(errno));return 0;}
+            int dfd=open("/tmp",O_PATH|O_CLOEXEC);
+            struct landlock_path_beneath_attr pb={.allowed_access=LANDLOCK_ACCESS_FS_READ_FILE|LANDLOCK_ACCESS_FS_READ_DIR,.parent_fd=dfd};
+            if(syscall(__NR_landlock_add_rule,rs,LANDLOCK_RULE_PATH_BENEATH,&pb,0)){printf("add_rule: %s\n",strerror(errno));return 0;}
+            close(dfd);
+            if(prctl(PR_SET_NO_NEW_PRIVS,1,0,0,0)){printf("no_new_privs: %s\n",strerror(errno));return 0;}
+            int rr=syscall(__NR_landlock_restrict_self,rs,0);
+            printf("restrict_self = %d (%s)\n",rr,rr?strerror(errno):"ok");
+            int granted=try_open("/tmp");
+            int outside=try_open("/etc/hostname");
+            printf("open /tmp (granted)       -> %d\n",granted);
+            printf("open /etc/hostname (deny) -> %d\n",outside);
+            if(rr==0 && granted==0 && outside==-EACCES)
+              printf("VERDICT: Landlock ENFORCING (granted allowed, ungranted EACCES)\n");
+            else
+              printf("VERDICT: Landlock present but NOT enforcing as expected\n");
+            return 0;
+          }
+          EOF
+          gcc -O2 -o /tmp/ll /tmp/ll.c && /tmp/ll
+
   plain:
     runs-on: ubuntu-latest
     steps:
