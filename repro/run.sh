@@ -21,7 +21,9 @@ total_denied=0
 runs_with_denied=0
 enforced=unknown
 for it in $(seq 1 "$ITERS"); do
-  rm -rf o
+  # Fresh output tree, but `o` must exist BEFORE the sandboxed children run
+  # (unveil skips a grant whose path is absent), so create it outside make.
+  rm -rf o && mkdir -p o
   # -k so one denied child never aborts the rest of the burst.
   "$MAKE" -k -j"$J" N="$N" all >/dev/null 2>&1 || true
   [ -f o/canary.got ] && enforced=$(sed -n 's/^ENFORCE=//p' o/canary.got)

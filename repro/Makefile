@@ -35,9 +35,12 @@ probes := $(foreach i,$(shell seq 1 $(N)),$(o)/probe-$(i).got)
 .PHONY: all
 all: $(o)/canary.got $(probes)
 
+# NOTE: `o` must already exist when a sandboxed child runs — unveil()
+# silently skips a grant whose path is absent, so `rwc:o` would be dropped
+# and the child could not write its output (cosmic solves this with its
+# $(o)/.exists ordering trick). run.sh pre-creates `o` outside the sandbox.
 $(o)/probe-%.got: .SANDBOXED := 1
 $(o)/probe-%.got: $(deps)
-	@mkdir -p $(o)
 	@if cat shared/secret >/dev/null 2>$(o)/probe-$*.err; then \
 	  echo ok > $@ ; \
 	else \
@@ -50,7 +53,6 @@ $(o)/probe-%.got: $(deps)
 # this before trusting a clean result.
 $(o)/canary.got: .SANDBOXED := 1
 $(o)/canary.got: $(deps)
-	@mkdir -p $(o)
 	@if cat hidden/secret >/dev/null 2>/dev/null; then \
 	  echo 'ENFORCE=no' > $@ ; \
 	else \

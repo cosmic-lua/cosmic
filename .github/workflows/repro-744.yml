@@ -37,9 +37,9 @@ jobs:
         working-directory: repro
         run: |
           set -euo pipefail
-          rm -rf o
+          rm -rf o && mkdir -p o
           ./cosmo-make -j1 N=1 o/canary.got >/dev/null 2>&1 || true
-          echo "canary: $(cat o/canary.got)"
+          echo "canary: $(cat o/canary.got 2>/dev/null)"
           grep -q 'ENFORCE=yes' o/canary.got || {
             echo "::warning::Landlock not enforcing on this runner — reproduction inconclusive"; exit 1; }
       - name: low-concurrency control (expect clean)
