@@ -16,7 +16,11 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      # timeout: loader-path children crashing under the sandbox leave
+      # forked test parents blocked on accept/wait, wedging make — a
+      # hang must convert to failure so the diagnostic below fires
       - name: make ci
+        timeout-minutes: 20
         shell: bash -x {0}
         run: bin/make -j ci
 
