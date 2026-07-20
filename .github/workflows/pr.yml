@@ -39,10 +39,11 @@ jobs:
           cat > probe.mk <<'EOF'
           PLEDGE_TEST := stdio rpath wpath cpath proc exec fattr inet dns unix tty id flock
           UNVEIL_TEST := rx:o/bootstrap r:lib r:3p rwcx:o rwc:/tmp rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc rw:/dev/null r:/dev/random r:/dev/urandom
-          p-check p-loader p-stub p-pledge-only p-unveil-only: .SANDBOXED := 1
+          p-check p-loader p-stub p-pledge-only p-unveil-only p-no-tty: .SANDBOXED := 1
           p-check p-loader p-stub: .PLEDGE := $(PLEDGE_TEST)
-          p-check p-loader p-stub p-unveil-only: .UNVEIL := $(UNVEIL_TEST)
+          p-check p-loader p-stub p-unveil-only p-no-tty: .UNVEIL := $(UNVEIL_TEST)
           p-pledge-only: .PLEDGE := $(PLEDGE_TEST)
+          p-no-tty: .PLEDGE := stdio rpath wpath cpath proc exec fattr inet dns unix id flock
           p-check:
           	@o/bin/cosmic-check -e 'print("check-ok")'
           p-loader:
@@ -53,8 +54,10 @@ jobs:
           	@PATH=$(CURDIR)/o/bin:/usr/bin:/bin o/bin/cosmic -e 'print("pledge-only-ok")'
           p-unveil-only:
           	@PATH=$(CURDIR)/o/bin:/usr/bin:/bin o/bin/cosmic -e 'print("unveil-only-ok")'
+          p-no-tty:
+          	@PATH=$(CURDIR)/o/bin:/usr/bin:/bin o/bin/cosmic -e 'print("no-tty-ok")'
           EOF
-          for t in p-check p-loader p-stub p-pledge-only p-unveil-only; do
+          for t in p-check p-loader p-stub p-pledge-only p-unveil-only p-no-tty; do
             echo "--- probe $t:"
             timeout 20 bin/make -f probe.mk "$t"; echo "exit: $?"
           done
