@@ -17,6 +17,11 @@ ITERS=${ITERS:-40}
 echo "repro: MAKE=$MAKE N=$N J=$J ITERS=$ITERS"
 "$MAKE" --version 2>/dev/null | head -1 || true
 
+# Build the static reader once (the sandboxed recipes exec it).
+if [ ! -x reader ]; then
+  gcc -static -O2 -o reader reader.c || { echo "gcc -static failed"; exit 3; }
+fi
+
 total_denied=0
 runs_with_denied=0
 enforced=unknown

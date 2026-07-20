@@ -90,16 +90,7 @@ jobs:
           curl -fsSL -o cosmo-make "$MAKE_URL"
           echo "$MAKE_SHA  cosmo-make" | sha256sum -c -
           chmod +x cosmo-make
-      - name: enforcement canary (must be DENIED under real Landlock)
-        working-directory: repro
-        run: |
-          set -euo pipefail
-          rm -rf o && mkdir -p o
-          ./cosmo-make -j1 N=1 o/canary.got >/dev/null 2>&1 || true
-          echo "canary: $(cat o/canary.got 2>/dev/null)"
-          grep -q 'ENFORCE=yes' o/canary.got || {
-            echo "::warning::Landlock not enforcing on this runner — reproduction inconclusive"; exit 1; }
-      - name: low-concurrency control (expect clean)
+      - name: low-concurrency control (must enforce + stay clean)
         working-directory: repro
         run: N=100 J=1 ITERS=3 ./run.sh
       - name: high-concurrency burst (a denied grant here == reproduced)

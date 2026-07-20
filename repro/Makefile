@@ -35,29 +35,31 @@ probes := $(foreach i,$(shell seq 1 $(N)),$(o)/probe-$(i).got)
 .PHONY: all
 all: $(o)/canary.got $(probes)
 
-# NOTE: `o` must already exist when a sandboxed child runs — unveil()
+# NOTE 1: `o` must already exist when a sandboxed child runs — unveil()
 # silently skips a grant whose path is absent, so `rwc:o` would be dropped
-# and the child could not write its output (cosmic solves this with its
-# $(o)/.exists ordering trick). run.sh pre-creates `o` outside the sandbox.
+# and the child could not write its output. run.sh pre-creates `o`.
 #
-# The read is done by the recipe SHELL itself (`: < file`, a redirection on a
-# builtin — no exec), so the only thing under test is whether Landlock lets
-# the sandboxed process OPEN a file covered by the global `r:shared` grant.
-# Using `cat` here confounded a Landlock deny with cat dying (exec/seccomp).
+# NOTE 2: the read MUST happen in an exec'd child, not a shell builtin —
+# landlock-make only forks+sandboxes an external exec; a builtin (`: < f`)
+# runs inside make's own unsandboxed process and tests nothing. So each probe
+# execs the static ./reader (a prerequisite, auto-granted rx) on shared/secret
+# — a file covered ONLY by the global `r:shared` grant, never a prereq, like
+# lib/cosmic/*.tl under r:lib. reader is static: rx on it + r on the target is
+# all it needs, so a denial can only be Landlock refusing the granted read.
 $(o)/probe-%.got: .SANDBOXED := 1
-$(o)/probe-%.got: $(deps)
-	@if : < shared/secret 2>$(o)/probe-$*.err; then \
+$(o)/probe-%.got: reader $(deps)
+	@if ./reader shared/secret 2>$(o)/probe-$*.err; then \
 	  echo ok > $@ ; \
 	else \
 	  { printf 'DENIED rc=%s ' "$$?"; cat $(o)/probe-$*.err 2>/dev/null; } > $@ ; \
 	fi
 
-# Enforcement canary: open a file in a dir that is NOT unveiled, the same way
-# (shell redirection). Under real Landlock this MUST be denied; if it opens
-# `ok`, Landlock is no-oping and the run is inconclusive.
+# Enforcement canary: exec the same reader on a file in a dir that is NOT
+# unveiled. Under real Landlock this MUST be denied; if it opens, Landlock is
+# no-oping (or the reader ran unsandboxed) and the run is inconclusive.
 $(o)/canary.got: .SANDBOXED := 1
-$(o)/canary.got: $(deps)
-	@if : < hidden/secret 2>/dev/null; then \
+$(o)/canary.got: reader $(deps)
+	@if ./reader hidden/secret 2>/dev/null; then \
 	  echo 'ENFORCE=no' > $@ ; \
 	else \
 	  echo 'ENFORCE=yes' > $@ ; \
