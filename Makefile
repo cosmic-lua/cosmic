@@ -66,7 +66,7 @@ $(o)/.exists: ; @mkdir -p $(@D) && touch $@
 # compile .tl to .lua; flag from cook.mk's probe (strict ;; vs tree path, #666)
 $(o)/%.lua: %.tl $(types_files) $(tl_files) $(bootstrap_files) $(compile_flag_stamp)
 	@mkdir -p $(@D)
-	@f=$$(cat $(compile_flag_stamp)); if [ "$$f" = "--compile-strict" ]; then export LUA_PATH=";;"; else export LUA_PATH="$(tree_lua_path)"; fi; $(bootstrap_cosmic) $(include_dir_flags) $$f $< > $@.tmp
+	@f=$$(cat $(compile_flag_stamp)); if [ "$$f" = "--compile-strict" ]; then export LUA_PATH=";;"; else export LUA_PATH="$(tree_lua_path)"; fi; export TL_PATH="$(tree_tl_path)"; $(bootstrap_cosmic) $(include_dir_flags) $$f $< > $@.tmp
 	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 
 # tl files: modules declare _tl, derive compiled .lua outputs
@@ -151,6 +151,8 @@ space := $(empty) $(empty)
 lua_path_dirs := $(foreach m,$(modules),$($(m)_lua_dirs))
 tree_lua_path := $(subst $(space),;,$(foreach d,$(lua_path_dirs),$(CURDIR)/$(d)/?.lua $(CURDIR)/$(d)/?/init.lua));;
 export NO_COLOR := 1
+# Tree-only absolute type-resolution path — TL_PATH pins tl.search_module to the tree, never the bootstrap's stale /zip copy (#744; see cook.mk, makefile_test).
+tree_tl_path := $(subst $(space),;,$(foreach d,$(CURDIR) $(foreach e,$(INCLUDE_DIRS),$(CURDIR)/$(e)) $(CURDIR)/lib/types,$(d)/?.lua $(d)/?/init.lua))
 
 # Test rule: execute test via cosmic --test command
 $(o)/%.tl.test.got: .PLEDGE := $(pledge_test)
@@ -298,7 +300,7 @@ $(o)/teal-summary.txt: $(all_teals) | $(build_reporter)
 
 $(o)/%.teal.got: $(o)/% $(cosmic_check_bin) | $(bootstrap_files)
 	@mkdir -p $(@D)
-	-@$(cosmic_check_bin) $(include_dir_flags) --check-types $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $@
+	-@TL_PATH="$(tree_tl_path)" $(cosmic_check_bin) $(include_dir_flags) --check-types $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $@
 
 all_formats := $(patsubst %,%.format.got,$(all_checkable_files))
 
