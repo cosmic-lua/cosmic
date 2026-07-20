@@ -67,12 +67,25 @@ $(o)/%.lint.ok: .SANDBOXED := 1
 $(o)/%.lint.ok: .PLEDGE := $(pledge_build)
 $(o)/%.lint.ok: .UNVEIL := rwc:$(o) $(unveil_hostx)
 # Reporter summaries (bootstrap + tee). test/coverage/enforce summaries
-# exec $(cosmic_bin) and stay unsandboxed with the check rules.
+# exec $(cosmic_bin) and stay unsandboxed with the test lanes.
 reporter_summaries := $(o)/teal-summary.txt $(o)/format-summary.txt \
   $(o)/lint-summary.txt $(o)/example-summary.txt $(o)/benchmark-summary.txt
 $(reporter_summaries): .SANDBOXED := 1
 $(reporter_summaries): .PLEDGE := $(pledge_build)
 $(reporter_summaries): .UNVEIL := rwc:$(o) $(unveil_hostx)
+
+# Third ENFORCED family (#729): the teal/format check rules, which exec
+# the assimilated $(cosmic_check_bin) duplicate (see lib/cosmic/cook.mk)
+# instead of the fat-APE artifact. Failures inside the sandbox surface
+# as check failures in the summaries — loud, not silent. The test and
+# example lanes (running arbitrary module code against the real APE)
+# stay unsandboxed for now.
+$(o)/%.teal.got: .SANDBOXED := 1
+$(o)/%.teal.got: .PLEDGE := $(pledge_build)
+$(o)/%.teal.got: .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_hostx)
+$(o)/%.format.got: .SANDBOXED := 1
+$(o)/%.format.got: .PLEDGE := $(pledge_build)
+$(o)/%.format.got: .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_hostx)
 
 # Type definition generation (define early so it's available to all modules).
 # Must match MODULES in lib/types/gentype.tl: "cosmo" renders the top-level

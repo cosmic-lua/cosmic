@@ -296,9 +296,9 @@ teal: $(o)/teal-summary.txt
 $(o)/teal-summary.txt: $(all_teals) | $(build_reporter)
 	@$(reporter) --dir $(o) $^ | tee $@
 
-$(o)/%.teal.got: $(o)/% $(cosmic_bin) | $(bootstrap_files)
+$(o)/%.teal.got: $(o)/% $(cosmic_check_bin) | $(bootstrap_files)
 	@mkdir -p $(@D)
-	-@$(cosmic_bin) $(include_dir_flags) --check-types $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $@
+	-@$(cosmic_check_bin) $(include_dir_flags) --check-types $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $@
 
 all_formats := $(patsubst %,%.format.got,$(all_checkable_files))
 
@@ -308,9 +308,9 @@ format: $(o)/format-summary.txt
 $(o)/format-summary.txt: $(all_formats) | $(build_reporter)
 	@$(reporter) --dir $(o) $^ | tee $@
 
-$(o)/%.format.got: $(o)/% $(cosmic_bin) | $(bootstrap_files)
+$(o)/%.format.got: $(o)/% $(cosmic_check_bin) | $(bootstrap_files)
 	@mkdir -p $(@D)
-	-@$(cosmic_bin) --check-format $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $@
+	-@$(cosmic_check_bin) --check-format $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $@
 
 # Lint every tracked file (#719). git ls-files fails SILENTLY outside
 # a git checkout — an empty list would lint nothing and report green,

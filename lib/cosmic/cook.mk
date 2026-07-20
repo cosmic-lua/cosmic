@@ -106,6 +106,18 @@ $(cosmic_debug_bin): $(cosmic_bin)
 	@chmod +x $@
 	$(call pack-cosmic,$@)
 
+# Assimilated duplicate for sandboxed build-time exec (#729, third
+# family): the teal/format check rules exec cosmic hundreds of times,
+# and a raw APE exec falls back to loader paths (~/.ape-*) no grant
+# covers. Same bytes as the artifact, converted in place to a native
+# ELF like the bootstrap; the shipped $(cosmic_bin) stays a fat APE
+# (the cross-OS smoke lanes cover real-APE behavior).
+cosmic_check_bin := $(o)/bin/cosmic-check
+$(cosmic_check_bin): $(cosmic_bin)
+	@$(cp) $< $@
+	@$@ --assimilate
+	@printf '\177ELF' | cmp -s - <(head -c 4 $@) || { echo "cosmic-check assimilation failed: still an APE" >&2; exit 1; }
+
 cosmic: $(cosmic_bin)
 
 cosmic-debug: $(cosmic_debug_bin)
