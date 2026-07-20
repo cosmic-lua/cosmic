@@ -30,6 +30,10 @@ N ?= 300
 # global grant, so each ruleset is built the way the real ones are.
 deps := $(wildcard deps/*)
 
+# HAMMER: open/close the granted file this many times per probe, to surface a
+# transient open() failure (fd exhaustion / interrupt) under the burst.
+HAMMER ?= 2000
+
 probes := $(foreach i,$(shell seq 1 $(N)),$(o)/probe-$(i).got)
 
 .PHONY: all
@@ -48,7 +52,7 @@ all: $(o)/canary.got $(probes)
 # all it needs, so a denial can only be Landlock refusing the granted read.
 $(o)/probe-%.got: .SANDBOXED := 1
 $(o)/probe-%.got: reader $(deps)
-	@if ./reader shared/secret 2>$(o)/probe-$*.err; then \
+	@if ./reader shared/secret $(HAMMER) 2>$(o)/probe-$*.err; then \
 	  echo ok > $@ ; \
 	else \
 	  { printf 'DENIED rc=%s ' "$$?"; cat $(o)/probe-$*.err 2>/dev/null; } > $@ ; \

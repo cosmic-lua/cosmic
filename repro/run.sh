@@ -13,8 +13,12 @@ MAKE=${MAKE:-./cosmo-make}
 N=${N:-300}
 J=${J:-$(nproc 2>/dev/null || echo 4)}
 ITERS=${ITERS:-40}
+HAMMER=${HAMMER:-2000}
 
-echo "repro: MAKE=$MAKE N=$N J=$J ITERS=$ITERS"
+echo "repro: MAKE=$MAKE N=$N J=$J ITERS=$ITERS HAMMER=$HAMMER"
+echo "fd limits: RLIMIT_NOFILE soft=$(ulimit -Sn) hard=$(ulimit -Hn); \
+fs.file-max=$(cat /proc/sys/fs/file-max 2>/dev/null || echo '?'); \
+fs.file-nr=$(cat /proc/sys/fs/file-nr 2>/dev/null || echo '?')"
 "$MAKE" --version 2>/dev/null | head -1 || true
 
 # Build the static reader once (the sandboxed recipes exec it).
@@ -30,14 +34,15 @@ for it in $(seq 1 "$ITERS"); do
   # (unveil skips a grant whose path is absent), so create it outside make.
   rm -rf o && mkdir -p o
   # -k so one denied child never aborts the rest of the burst.
-  "$MAKE" -k -j"$J" N="$N" all >/dev/null 2>&1 || true
+  "$MAKE" -k -j"$J" N="$N" HAMMER="$HAMMER" all >/dev/null 2>&1 || true
   [ -f o/canary.got ] && enforced=$(sed -n 's/^ENFORCE=//p' o/canary.got)
   d=$(grep -l '^DENIED' o/probe-*.got 2>/dev/null | wc -l | tr -d ' ')
   if [ "${d:-0}" -gt 0 ]; then
     runs_with_denied=$((runs_with_denied + 1))
     total_denied=$((total_denied + d))
-    printf 'iter %d: %d/%d probes DENIED | %s\n' \
-      "$it" "$d" "$N" "$(grep -h '^DENIED' o/probe-*.got | head -1)"
+    errs=$(grep -ho 'errno=[0-9]*([A-Z]*)' o/probe-*.got 2>/dev/null \
+      | sort | uniq -c | tr '\n' ' ')
+    printf 'iter %d: %d/%d probes DENIED | errno: %s\n' "$it" "$d" "$N" "$errs"
   fi
 done
 
