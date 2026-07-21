@@ -19,10 +19,13 @@ jobs:
   # 3p/*/version.lua pin: change the digest, re-check the floors, commit.
   #
   # buildpack-deps:noble is Ubuntu 24.04 — the same release ubuntu-latest
-  # currently serves — and already ships git + curl + ca-certificates +
-  # coreutils, so the gate needs no apt-get; nothing re-introduces an
-  # unpinned package fetch. The digest is the multi-arch index for the
-  # `noble-scm` tag; GitHub pulls its linux/amd64 child on the x86-64 runner.
+  # currently serves — and its base tag ships git, curl, ca-certificates,
+  # coreutils AND unzip (the cosmos staging step shells out to
+  # /usr/bin/unzip to unpack cosmos.zip — a host-tool dependency #732
+  # will eventually fold into the bootstrap), so the gate needs no apt-get
+  # and nothing re-introduces an unpinned package fetch. The digest is the
+  # multi-arch index for the `noble` tag; GitHub pulls its linux/amd64
+  # child on the x86-64 runner.
   #
   # Parity with the bare runner is load-bearing and comes from two knobs:
   #   - options: --privileged so the container's capability profile matches
@@ -40,7 +43,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: buildpack-deps@sha256:2458a10b05846cc49b2f09c1ae1b870e6656db9f85ac5454dcede21180673d70 # noble-scm (Ubuntu 24.04)
+      image: buildpack-deps@sha256:cfb30ff3856780c63b00ec3ad2e4aed77ae6afce5975ebb8ad9525ec45354e2e # noble (Ubuntu 24.04)
       options: --privileged
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
