@@ -66,7 +66,7 @@ $(o)/.exists: ; @mkdir -p $(@D) && touch $@
 # compile .tl to .lua; flag from cook.mk's probe (strict ;; vs tree path, #666)
 $(o)/%.lua: %.tl $(types_files) $(tl_files) $(bootstrap_files) $(compile_flag_stamp)
 	@mkdir -p $(@D)
-	@f=$$(cat $(compile_flag_stamp)); if [ "$$f" = "--compile-strict" ]; then export LUA_PATH=";;"; else export LUA_PATH="$(tree_lua_path)"; fi; export TL_PATH="$(tree_tl_path)"; $(bootstrap_cosmic) $(include_dir_flags) $$f $< > $@.tmp
+	@f=$$(cat $(compile_flag_stamp)); if [ "$$f" = "--compile-strict" ]; then export LUA_PATH=";;"; else export LUA_PATH="$(tree_lua_path)"; fi; export TL_PATH="$(tree_tl_path)"; $(COMPILE_WRAP) $(bootstrap_cosmic) $(include_dir_flags) $$f $< > $@.tmp
 	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 
 # tl files: modules declare _tl, derive compiled .lua outputs

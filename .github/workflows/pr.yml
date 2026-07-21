@@ -77,6 +77,29 @@ jobs:
             o/bootstrap/cosmic -e "assert(require(\"cosmic.quicksand.netns\").bring_up(\"lo\"))" \
               && exec sudo -u runner bin/make -j ci'
 
+  # #744 investigation job (temporary; remove once the cause is settled).
+  # Mirrors the offline lane's environment — the only place the flake and
+  # live Landlock coincide — but instead of `make ci` runs the COMPILE_WRAP
+  # probe, which drives repeated fresh enforced compile bursts and, when the
+  # flake hits, records from INSIDE the failing child whether the
+  # require-closure is EACCES while its prerequisites stay readable. That is
+  # the decisive datum: it confirms or kills the "bled ruleset dropped
+  # r:lib, per-target grants survived" mechanism. The job always exits 0
+  # (investigation, not a gate); read its log for the captured diagnostics.
+  repro744:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: stage online
+        shell: bash -x {0}
+        run: bin/make -j staged
+      - name: probe the enforced compile burst (network denied, as runner)
+        shell: bash -x {0}
+        run: |
+          sudo unshare --net sh -c '
+            o/bootstrap/cosmic -e "assert(require(\"cosmic.quicksand.netns\").bring_up(\"lo\"))" \
+              && exec sudo -u runner bin/make repro-744-probe REPRO744_RUNS=80'
+
   # Reproducibility gate (#733): build the binary twice from the same
   # tree — the second time into a fresh output tree so the whole
   # pipeline (compile, doc index, version stamp, pack) reruns — and

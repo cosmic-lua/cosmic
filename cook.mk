@@ -58,6 +58,14 @@ $(o)/%.lua: .SANDBOXED := 1
 $(o)/%.lua: .PLEDGE := $(pledge_build) fattr
 $(o)/%.lua: .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_hostx)
 
+# Diagnostic hook for #744 (empty by default — zero effect on normal builds
+# and the reproducibility gate). `make repro-744-probe` sets it to an
+# instrumentation wrapper that runs inside the enforced compile child and,
+# on a "module not found" failure, records whether the require-closure is
+# readable under that child's inherited Landlock ruleset. See
+# lib/build/repro-744-probe.sh.
+COMPILE_WRAP :=
+
 # Second ENFORCED family (#729): every remaining rule that execs the
 # assimilated bootstrap — fetch, stage, lint, and the reporter
 # summaries. (The check/test rules exec $(cosmic_bin), which must stay

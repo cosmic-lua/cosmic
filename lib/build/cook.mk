@@ -108,6 +108,51 @@ sandbox-canary: $$(cosmic_bin)
 repro-744: | $(bootstrap_cosmic)
 	@lib/build/repro-744.sh
 
+# Decisive in-child ruleset probe for #744. Drives the enforced compile
+# burst repeatedly under landlock-make with the COMPILE_WRAP instrument, so
+# when the flake hits, the failing child records — under its own inherited
+# ruleset — whether the require-closure is EACCES while its prerequisites
+# stay readable (confirms/kills the bled-r:lib mechanism). Needs live
+# Landlock and the staged tree; run it on the offline lane. REPRO744_RUNS
+# sets the number of fresh bursts (default 40).
+repro744_diag := $(CURDIR)/$(o)/repro744-diag
+repro744_wrap := $(CURDIR)/$(o)/repro-744-probe.sh
+REPRO744_RUNS ?= 40
+.PHONY: repro-744-probe
+## Instrument the enforced compile burst to capture the #744 fault's cause (skips without Landlock)
+repro-744-probe: staged | $(bootstrap_cosmic)
+	@set -e; \
+	if ! $(bootstrap_cosmic) -e 'os.exit(require("cosmic.unveil").available() and 0 or 1)'; then \
+	  echo "repro-744-probe: SKIP — Landlock unavailable (unveil.available()=false); the compile"; \
+	  echo "  sandbox cannot enforce here, so the fault is impossible. Run on the offline lane."; \
+	  exit 0; \
+	fi; \
+	rm -rf $(repro744_diag); mkdir -p $(repro744_diag); \
+	cp lib/build/repro-744-probe.sh $(repro744_wrap); \
+	echo "repro-744-probe: driving $(REPRO744_RUNS) fresh enforced compile bursts..."; \
+	i=1; while [ $$i -le $(REPRO744_RUNS) ]; do \
+	  find $(o)/lib -name '*.lua' -delete 2>/dev/null || true; \
+	  $(MAKE) --keep-going $(all_lua) \
+	    COMPILE_WRAP='sh $(repro744_wrap) $(repro744_diag)' >/dev/null 2>&1 || true; \
+	  if ls $(repro744_diag)/*.diag >/dev/null 2>&1; then \
+	    echo "repro-744-probe: HIT on run $$i"; break; \
+	  fi; \
+	  i=$$((i+1)); \
+	done; \
+	if ls $(repro744_diag)/*.diag >/dev/null 2>&1; then \
+	  echo "=== captured failing-child diagnostics ==="; \
+	  cat $(repro744_diag)/*.diag; \
+	  if grep -qE 'init\.tl +EACCES|check\.tl +EACCES|publish\.tl +EACCES' $(repro744_diag)/*.diag; then \
+	    echo "repro-744-probe: CONFIRMED — require-closure was EACCES in the failing child"; \
+	    echo "  (a per-target grant on the require-closure would close it)."; \
+	  else \
+	    echo "repro-744-probe: module-not-found reproduced but the require-closure was NOT EACCES —"; \
+	    echo "  the bled-r:lib mechanism is WRONG; see the probe output above for the real cause."; \
+	  fi; \
+	else \
+	  echo "repro-744-probe: no reproduction in $(REPRO744_RUNS) runs (raise REPRO744_RUNS and retry)."; \
+	fi
+
 # ci grading self-test stage for the ci-launder.out fixture below:
 # writes a clean summary, then fails — the graded verdict must be FAIL
 # via the per-stage exit marker, never PASS via the summary text (#714).
