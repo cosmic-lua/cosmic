@@ -1,0 +1,39 @@
+# Throwaway instrumentation for whilp/cosmic#744.
+#
+# Reproduces the offline lane's intermittent strict-compile failure
+# ("module not found" / "invalid key 'must'") under its EXACT conditions —
+# network namespace, real root bringing up lo, then dropping to the runner
+# user — but with INSTRUMENT=1, which routes every strict compile through
+# lib/io-log.lua. That harness wraps io.open for the duration of the compile
+# and dumps the errno of any failed file open, so when tl.search_module
+# exhausts its path we learn WHY each candidate open failed (a transient
+# EMFILE/ENFILE/EACCES vs a plain ENOENT miss) instead of only seeing the
+# downstream "module not found". strace would perturb the timing; an in-proc
+# io.open shim does not.
+#
+# The compile outputs are wiped and rebuilt each iteration to force fresh,
+# high-concurrency strict-compile bursts; staged deps + bootstrap are kept.
+# Stops and fails loudly on the first captured signature.
+name: instrument-744
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/cosmic-744-instrument]
+
+jobs:
+  instrument:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: fetch and stage with network allowed
+        shell: bash -x {0}
+        run: bin/make -j staged
+
+      - name: instrumented strict-compile burst, network denied
+        shell: bash -x {0}
+        run: |
+          sudo unshare --net sh -c '
+            o/bootstrap/cosmic -e "assert(require(\"cosmic.quicksand.netns\").bring_up(\"lo\"))" \
+              && exec sudo -u runner bash -x .github/instrument-744-burst.sh'
