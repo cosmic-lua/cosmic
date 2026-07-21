@@ -99,6 +99,15 @@ sandbox-canary: $$(cosmic_bin)
 	  echo "sandbox-canary: PASS — out-of-grant write was blocked"; \
 	fi
 
+# Minimal reproduction of #744 (sandboxed-compile module-resolution flake).
+# Not part of ci — it is a manual investigation harness, and the fault it
+# reproduces needs live Landlock (it self-skips otherwise). See the script
+# header for the full root-cause analysis.
+.PHONY: repro-744
+## Reproduce the #744 sandboxed-compile module-resolution fault (skips without Landlock)
+repro-744: | $(bootstrap_cosmic)
+	@lib/build/repro-744.sh
+
 # ci grading self-test stage for the ci-launder.out fixture below:
 # writes a clean summary, then fails — the graded verdict must be FAIL
 # via the per-stage exit marker, never PASS via the summary text (#714).
