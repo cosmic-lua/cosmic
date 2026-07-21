@@ -108,18 +108,22 @@ sandbox-canary: $$(cosmic_bin)
 repro-744: | $(bootstrap_cosmic)
 	@lib/build/repro-744.sh
 
-# Decisive in-child ruleset probe for #744. Drives the enforced compile
-# burst repeatedly under landlock-make with the COMPILE_WRAP instrument, so
-# when the flake hits, the failing child records — under its own inherited
-# ruleset — whether the require-closure is EACCES while its prerequisites
-# stay readable (confirms/kills the bled-r:lib mechanism). Needs live
-# Landlock and the staged tree; run it on the offline lane. REPRO744_RUNS
-# sets the number of fresh bursts (default 40).
+# Decisive in-child ruleset probe for #744. Drives the full enforced
+# `make ci` burst repeatedly under landlock-make with the COMPILE_WRAP
+# instrument, so when the flake hits, the failing compile child records —
+# under its own inherited ruleset — whether the require-closure is EACCES
+# while its prerequisites stay readable (confirms/kills the bled-r:lib
+# mechanism). A COMPILE-ONLY burst (make all_lua) did NOT reproduce it even
+# on a hot runner, so this drives the heterogeneous `make ci` graph:
+# compiles forking concurrently with teal/format/test/coverage/lint/example
+# children that carry DIFFERENT grant sets — the #200 cross-rule sandbox
+# bleed needs that diversity. Needs live Landlock and the staged tree; run
+# it on the offline lane. REPRO744_RUNS sets the number of fresh ci runs.
 repro744_diag := $(CURDIR)/$(o)/repro744-diag
 repro744_wrap := $(CURDIR)/$(o)/repro-744-probe.sh
-REPRO744_RUNS ?= 40
+REPRO744_RUNS ?= 6
 .PHONY: repro-744-probe
-## Instrument the enforced compile burst to capture the #744 fault's cause (skips without Landlock)
+## Instrument the enforced ci burst to capture the #744 fault's cause (skips without Landlock)
 repro-744-probe: staged | $(bootstrap_cosmic)
 	@set -e; \
 	if ! $(bootstrap_cosmic) -e 'os.exit(require("cosmic.unveil").available() and 0 or 1)'; then \
@@ -129,10 +133,10 @@ repro-744-probe: staged | $(bootstrap_cosmic)
 	fi; \
 	rm -rf $(repro744_diag); mkdir -p $(repro744_diag); \
 	cp lib/build/repro-744-probe.sh $(repro744_wrap); \
-	echo "repro-744-probe: driving $(REPRO744_RUNS) fresh enforced compile bursts..."; \
+	echo "repro-744-probe: driving $(REPRO744_RUNS) fresh enforced 'make ci' bursts..."; \
 	i=1; while [ $$i -le $(REPRO744_RUNS) ]; do \
 	  find $(o)/lib -name '*.lua' -delete 2>/dev/null || true; \
-	  $(MAKE) --keep-going $(all_lua) \
+	  $(MAKE) ci \
 	    COMPILE_WRAP='sh $(repro744_wrap) $(repro744_diag)' >/dev/null 2>&1 || true; \
 	  if ls $(repro744_diag)/*.diag >/dev/null 2>&1; then \
 	    echo "repro-744-probe: HIT on run $$i"; break; \

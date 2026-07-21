@@ -98,7 +98,7 @@ jobs:
         run: |
           sudo unshare --net sh -c '
             o/bootstrap/cosmic -e "assert(require(\"cosmic.quicksand.netns\").bring_up(\"lo\"))" \
-              && exec sudo -u runner bin/make repro-744-probe REPRO744_RUNS=80'
+              && exec sudo -u runner bin/make repro-744-probe REPRO744_RUNS=8'
 
   # Reproducibility gate (#733): build the binary twice from the same
   # tree — the second time into a fresh output tree so the whole
