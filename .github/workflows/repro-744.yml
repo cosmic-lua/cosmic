@@ -158,3 +158,45 @@ jobs:
           sudo unshare --net sh -c '
             exec sudo -u runner env HOME=/home/runner \
               sh -c "cd $PWD/repro/teal && N=250 K=100 ITERS=20 ./run.sh"'
+
+  # Iteration 4: replicate PR #746's exact resolution — absolute tree-only
+  # TL_PATH + root-dotted require("lib.mods.x") (the lib.docs.publish shape),
+  # --include-dir lib, r:lib grant — under the sandbox. A "module not found"
+  # here convicts #746's resolution rather than #744.
+  tlpath:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: fetch pinned landlock-make
+        working-directory: repro/tlpath
+        run: |
+          set -euo pipefail
+          curl -fsSL -o cosmo-make "$MAKE_URL"
+          echo "$MAKE_SHA  cosmo-make" | sha256sum -c -
+          chmod +x cosmo-make
+      - name: tl_path resolution burst (real compiler, sandboxed)
+        working-directory: repro/tlpath
+        run: N=250 K=100 ITERS=30 ./run.sh
+
+  tlpath-offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: fetch make + bootstrap (online, before the netns)
+        working-directory: repro/tlpath
+        run: |
+          set -euo pipefail
+          curl -fsSL -o cosmo-make "$MAKE_URL"
+          echo "$MAKE_SHA  cosmo-make" | sha256sum -c -
+          chmod +x cosmo-make
+          curl -fsSL -o cosmic \
+            https://github.com/whilp/cosmic/releases/download/2026-07-19-5c6bce5/cosmic-lua
+          echo "6c2a0afe6c942560ce2a0d796ddf8f8df096ce2c92b8ce142c28da59ecac6dc6  cosmic" | sha256sum -c -
+          chmod +x cosmic
+          ./cosmic --assimilate
+      - name: tl_path resolution burst inside netns as the runner user
+        run: |
+          set -euo pipefail
+          sudo unshare --net sh -c '
+            exec sudo -u runner env HOME=/home/runner \
+              sh -c "cd $PWD/repro/tlpath && N=250 K=100 ITERS=30 ./run.sh"'
