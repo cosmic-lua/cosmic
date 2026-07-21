@@ -11,18 +11,62 @@ permissions:
   contents: read
 
 jobs:
+  # The make-ci gate runs in a DIGEST-pinned container (#734). On plain
+  # `ubuntu-latest` the OS image rolls monthly (e.g. ubuntu24/20260714.240),
+  # so it is an unpinned build input — the coverage-floor churn in #722 was
+  # exactly this leak (the ratchet's floors encode the environment, and the
+  # environment drifted). The image below is bumped deliberately, like any
+  # 3p/*/version.lua pin: change the digest, re-check the floors, commit.
+  #
+  # buildpack-deps:noble is Ubuntu 24.04 — the same release ubuntu-latest
+  # currently serves — and already ships git + curl + ca-certificates +
+  # coreutils, so the gate needs no apt-get; nothing re-introduces an
+  # unpinned package fetch. The digest is the multi-arch index for the
+  # `noble-scm` tag; GitHub pulls its linux/amd64 child on the x86-64 runner.
+  #
+  # Parity with the bare runner is load-bearing and comes from two knobs:
+  #   - options: --privileged so the container's capability profile matches
+  #     the host. make ci enforces .SANDBOXED via real Landlock (#729) and
+  #     the quicksand tests call unshare(CLONE_NEWUSER|NEWNET) + mount;
+  #     Docker's default seccomp/AppArmor would silently strip those,
+  #     degrading enforcement to a no-op and dropping coverage below the
+  #     committed baseline.
+  #   - a non-root builder user (below): GHA container jobs run as root, but
+  #     the gate is identity-sensitive — fs/walk_test skips its EACCES path
+  #     under geteuid()==0 — so running as root would move coverage. This
+  #     mirrors the offline lane's `sudo -u runner`.
+  # Only this correctness+coverage gate is pinned here; the offline and
+  # enforce lanes stay on the bare runner (they own sudo + host netns).
   build:
     runs-on: ubuntu-latest
+    container:
+      image: buildpack-deps@sha256:2458a10b05846cc49b2f09c1ae1b870e6656db9f85ac5454dcede21180673d70 # noble-scm (Ubuntu 24.04)
+      options: --privileged
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      # Hand the checkout and HOME to a non-root user so `bin/make -j ci`
+      # runs with geteuid()!=0 (coverage parity, see the job comment). The
+      # system-wide safe.directory keeps git usable for every user — the
+      # gate shells out to `git ls-files` (lint) and `git describe`
+      # (version stamp) from inside the sandboxed recipes.
+      - name: prepare non-root builder
+        shell: bash
+        run: |
+          set -eux
+          useradd -m -s /bin/bash builder
+          chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
+          git config --system --add safe.directory "$GITHUB_WORKSPACE"
 
       # timeout: a recipe child dying mid-test can leave forked test
       # parents blocked on accept/wait, wedging make — convert a hang
       # into a failure so the dump step below fires
       - name: make ci
         timeout-minutes: 20
-        shell: bash -x {0}
-        run: bin/make -j ci
+        shell: bash
+        run: |
+          set -eux
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bin/make -j ci
 
       - name: dump failing test output
         if: failure()
