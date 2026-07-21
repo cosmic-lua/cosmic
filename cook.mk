@@ -125,7 +125,10 @@ bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-19-5c
 # LUA_PATH=";;" compiles — a reproducibility requirement (#733): the
 # pre-strict tree-LUA_PATH path made compiled output depend on parallel
 # build order (bootstrap's embedded stdlib vs the tree's, whichever
-# existed first).
+# existed first). LUA_PATH governs runtime require; the TYPE-resolution
+# axis (tl.search_module) is pinned separately to the tree via TL_PATH in
+# the compile/check recipes, so a compile can never type-check against the
+# bootstrap's stale embedded source (#744 — see tree_tl_path).
 bootstrap_sha256 := 6c2a0afe6c942560ce2a0d796ddf8f8df096ce2c92b8ce142c28da59ecac6dc6
 
 $(bootstrap_cosmic):

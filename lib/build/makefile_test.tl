@@ -131,3 +131,35 @@ local function test_lint_guard_present()
     "expected lint_deleted (tracked-but-missing files) in database")
 end
 test_lint_guard_present()
+
+-- test: in-tree compiles pin type resolution to an absolute, tree-only
+-- search path (#744). tl.search_module walks its path with io.open and
+-- treats any failure — ENOENT, but also a transient EMFILE/ENFILE under
+-- the offline lane's parallel sandbox — as "file absent", falling through
+-- to the next entry. Its default path also carries the bootstrap's OWN
+-- embedded, older copy of this tree under /zip, so a transient miss on a
+-- tree source resolved cosmic.* to that stale copy (a cosmic.check
+-- predating check.must → "invalid key 'must'"). The compile recipe must
+-- set TL_PATH (which overrides tl.path outright) to tree-only roots: no
+-- /zip fallback, so a miss fails honestly instead of resolving stale, and
+-- CURDIR-anchored so a mis-rooted recipe still resolves.
+local function test_compile_pins_tree_only_tl_path()
+  local out = read_make_output("database.out").output
+  -- the recipe must wire type resolution to the tree-only path
+  assert(out:find('export TL_PATH="$(tree_tl_path)"', 1, true),
+    "expected the compile recipe to export TL_PATH=$(tree_tl_path)")
+  -- and the resolved value must be absolute, tree-only, no /zip fallback
+  local tl_path = out:match("\ntree_tl_path := ([^\n]*)")
+  assert(tl_path, "expected tree_tl_path definition in database output")
+  assert(tl_path:find("/lib/?.lua", 1, true),
+    "tree_tl_path should search the tree's lib/ absolutely, got: " .. tl_path)
+  assert(tl_path:find("/lib/types/?.lua", 1, true),
+    "tree_tl_path should search lib/types absolutely, got: " .. tl_path)
+  assert(not tl_path:find("/zip", 1, true),
+    "tree_tl_path must not fall back to the bootstrap's embedded /zip source, got: " .. tl_path)
+  for entry in tl_path:gmatch("[^;]+") do
+    assert(entry:sub(1, 1) == "/",
+      "tree_tl_path entries must be absolute (CURDIR-anchored), got: " .. entry)
+  end
+end
+test_compile_pins_tree_only_tl_path()
