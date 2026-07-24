@@ -198,11 +198,21 @@ bootstrap_sha256 := 6c2a0afe6c942560ce2a0d796ddf8f8df096ce2c92b8ce142c28da59ecac
 # bin/make is the SOLE provisioner of the bootstrap (#756 cleanup): it
 # runs before every make invocation, parses the pin above via sed,
 # downloads/verifies/assimilates, and re-downloads when the pin moves
-# (the .pin stamp beside the binary). This rule is only a tripwire for
-# invocations that bypassed bin/make — it never downloads, so the
-# curl/sha256sum/cmp shell exception it carried is retired.
+# (the .pin stamp beside the binary). Neither rule below downloads, so
+# the curl/sha256sum/cmp shell exception this rule carried is retired.
+ifeq ($(o),o)
+# Canonical tree: only a bypassed bin/make can get here — trip loudly.
 $(bootstrap_cosmic):
 	$(error $(bootstrap_cosmic) missing — run builds via bin/make, which provisions the trust root)
+else
+# Non-default output tree (o=o2, the reproducible double-build):
+# derive the bootstrap from the canonical tree bin/make provisioned —
+# same bytes, argv-only recipe.
+$(bootstrap_cosmic): o/bootstrap/cosmic
+	@mkdir -p $(@D)
+	@cp -p o/bootstrap/cosmic $@
+	@ln -sf cosmic $(@D)/lua
+endif
 
 # Strict-compile capability probe: newer bootstraps ship --compile-strict
 # (strict type check, then generate from that same checked AST, so nothing
