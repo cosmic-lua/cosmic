@@ -95,9 +95,17 @@ $(o)/%/.staged: .SANDBOXED := 1
 $(o)/%/.fetched $(o)/%/.staged: export LUA_PATH = $(tree_lua_path)
 $(o)/%/.fetched $(o)/%/.staged: private SHELL := /dev/null/enoshell
 $(o)/%/.fetched $(o)/%/.staged: private .SHELLFLAGS := -c
-$(o)/%.lint.ok: .SANDBOXED := 1
-$(o)/%.lint.ok: .PLEDGE := $(pledge_build)
-$(o)/%.lint.ok: .UNVEIL := rwc:$(o) $(unveil_hostx)
+# De-hosted (#732): lint runs through the pinned bootstrap's --test
+# capture (which mkdtemps under $(TMP)); the .ok alias file is retired —
+# the .got IS the target. LUA_PATH points the lint child at this tree's
+# compiled style code (the doc/index.tl pattern); the --test wrapper
+# sees it too, as the old shell prefix already had it.
+$(o)/%.lint.got: .SANDBOXED := 1
+$(o)/%.lint.got: .PLEDGE := $(pledge_build)
+$(o)/%.lint.got: .UNVEIL := rwc:$(o) rwc:$(TMP) $(unveil_dev)
+$(o)/%.lint.got: export LUA_PATH = $(o)/lib/?.lua;$(o)/lib/?/init.lua;;
+$(o)/%.lint.got: private SHELL := /dev/null/enoshell
+$(o)/%.lint.got: private .SHELLFLAGS := -c
 # Reporter summaries (bootstrap + tee). test/coverage/enforce summaries
 # exec $(cosmic_bin) and stay unsandboxed with the test lanes.
 reporter_summaries := $(o)/teal-summary.txt $(o)/format-summary.txt \

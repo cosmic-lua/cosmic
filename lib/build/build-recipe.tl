@@ -94,23 +94,115 @@ local function do_compile(args: {string}): integer
 end
 
 --- capture <bootstrap> <out> <script+args...> — run a script under the
---- bootstrap with LUA_PATH=$TREE_LUA_PATH and write its stdout to out
---- if changed (the doc-index rule's shape).
+--- bootstrap and write its stdout to out if changed (the doc-index
+--- rule's shape). The child sees LUA_PATH=$TREE_LUA_PATH when the rule
+--- exports one; otherwise it inherits the recipe's ";;" (embedded).
 local function do_capture(args: {string}): integer
   local bootstrap, out = args[1], args[2]
   if not out or not args[3] then
     return fail("usage: capture <bootstrap> <out> <script> [args...]")
   end
   local tree = child_tree_lua_path()
-  if not tree then
-    return fail("TREE_LUA_PATH required for capture")
+  if tree then
+    env.set("LUA_PATH", tree)
   end
-  env.set("LUA_PATH", tree)
   local argv: {string} = {bootstrap}
   for i = 3, #args do
     table.insert(argv, args[i])
   end
   return run_into(argv, out)
+end
+
+--- tee <out> <cmd...> — run a command, print its stdout AND write it to
+--- out (the summary rules' `| tee $@` shape, pipefail semantics: the
+--- child's exit code propagates after the file is written).
+local function do_tee(args: {string}): integer
+  local out = args[1]
+  if not out or not args[2] then
+    return fail("usage: tee <out> <cmd> [args...]")
+  end
+  local argv: {string} = {}
+  for i = 2, #args do
+    table.insert(argv, args[i])
+  end
+  local result, serr = child.run(argv)
+  if not result then
+    return fail("spawn " .. argv[1] .. " failed: " .. tostring(serr))
+  end
+  local r = result as child.Result -- cast: record union after guard
+  if r.stderr and r.stderr ~= "" then
+    io.stderr:write(r.stderr)
+  end
+  io.write(r.stdout)
+  fs.makedirs(fs.dirname(out))
+  local ok, werr = fs.write(out, r.stdout)
+  if not ok then
+    return fail("write " .. out .. " failed: " .. (werr or "unknown error"))
+  end
+  if not r.ok then
+    return r.code or 1
+  end
+  return 0
+end
+
+--- list <out> <items...> — write items one per line, only if changed
+--- (the lint file-list stamp's printf + cmp/mv shape).
+local function do_list(args: {string}): integer
+  local out = args[1]
+  if not out then
+    return fail("usage: list <out> [items...]")
+  end
+  local parts: {string} = {}
+  for i = 2, #args do
+    table.insert(parts, args[i])
+  end
+  local content = table.concat(parts, "\n") .. "\n"
+  local existing = fs.read(out)
+  if existing == content then
+    return 0
+  end
+  fs.makedirs(fs.dirname(out))
+  local ok, werr = fs.write(out, content)
+  if not ok then
+    return fail("write " .. out .. " failed: " .. (werr or "unknown error"))
+  end
+  return 0
+end
+
+--- require-marker <marker> <dir> — fail unless some file under dir
+--- contains marker as a plain substring (the enforce lane's tripwire:
+--- grep -rqs replacement).
+local function do_require_marker(args: {string}): integer
+  local marker, dir = args[1], args[2]
+  if not dir then
+    return fail("usage: require-marker <marker> <dir>")
+  end
+  local function scan(d: string): boolean
+    local dir0 = fs.opendir(d)
+    if not dir0 then return false end
+    local dh = dir0 as fs_types.Dir -- cast: record union after guard
+    while true do
+      local name = dh:read()
+      if not name then break end
+      if name ~= "." and name ~= ".." then
+        local p = fs.join(d, name)
+        local st = fs.stat(p)
+        if st and (st as fs_types.Stat):is_dir() then -- cast: mixed-representation Stat
+          if scan(p) then return true end
+        else
+          local content = fs.read(p)
+          if content and string.find(content, marker, 1, true) then
+            return true
+          end
+        end
+      end
+    end
+    return false
+  end
+  if scan(dir) then
+    return 0
+  end
+  return fail("no file under " .. dir .. " contains '" .. marker .. "'")
 end
 
 --- copy <src> <dst> — mkdir -p + cp, preserving the permission bits.
@@ -159,6 +251,9 @@ local modes: {string: function({string}): integer} = {
   compile = do_compile,
   copy = do_copy,
   link = do_link,
+  list = do_list,
+  ["require-marker"] = do_require_marker,
+  tee = do_tee,
 }
 
 local function main(...: string): integer
@@ -166,7 +261,7 @@ local function main(...: string): integer
   local mode = table.remove(args, 1)
   local run_mode = mode and modes[mode]
   if not run_mode then
-    return fail("usage: build-recipe capture|compile|copy|link ...")
+    return fail("usage: build-recipe capture|compile|copy|link|list|require-marker|tee ...")
   end
   return run_mode(args)
 end
