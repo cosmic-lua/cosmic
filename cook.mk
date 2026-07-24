@@ -30,13 +30,6 @@ unveil_base := rx:$(o)/bootstrap r:lib r:3p
 # without it; grant both devices. ENOENT entries are skipped, so the
 # generous list is safe across hosts.
 unveil_dev := rw:/dev/null r:/dev/random r:/dev/urandom
-# cosmo-make runs every recipe line through $(SHELL) (bash, pipefail),
-# even a metacharacter-free argv — witnessed on the runner: dropping
-# these grants fails with "/bin/bash: Permission denied". De-hosted
-# rules (#732) grant the shell binary and its loader/libraries, nothing
-# else from the host toolchain (rx:/lib resolves to /usr/lib on merged-
-# usr hosts — libraries, not the /usr/bin tool surface).
-unveil_shell := rx:/bin/bash rx:/lib rx:/lib64
 # Host set proven under real enforcement by the sandbox-canary (#724)
 # and the enforced families' CI runs: shell + coreutils + loaders.
 unveil_hostx := rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc $(unveil_dev)
@@ -77,6 +70,19 @@ $(o)/%.lua: .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_hostx)
 # the grant sets.
 $(o)/%/.fetched: .SANDBOXED := 1
 $(o)/%/.staged: .SANDBOXED := 1
+# De-hosted (#732): these recipes are metacharacter-free argv, so a
+# plain -c re-enables make's direct-exec fast path (the global pipefail
+# .SHELLFLAGS forces the shell; these recipes have no pipes) and no
+# shell runs at all — the poisoned SHELL is the tripwire that fails
+# loudly if a recipe ever regresses to shell syntax. private: cold-tree
+# prerequisites (stdlib compiles) must not inherit either override —
+# but NOT on the export: a private export never reaches the recipe env
+# (witnessed: bootstrap fell back to its embedded stdlib); inheritance
+# is benign because every compile recipe sets LUA_PATH explicitly.
+# Recursive (=): tree_lua_path is computed after the includes (#720).
+$(o)/%/.fetched $(o)/%/.staged: export LUA_PATH = $(tree_lua_path)
+$(o)/%/.fetched $(o)/%/.staged: private SHELL := /dev/null/enoshell
+$(o)/%/.fetched $(o)/%/.staged: private .SHELLFLAGS := -c
 $(o)/%.lint.ok: .SANDBOXED := 1
 $(o)/%.lint.ok: .PLEDGE := $(pledge_build)
 $(o)/%.lint.ok: .UNVEIL := rwc:$(o) $(unveil_hostx)
