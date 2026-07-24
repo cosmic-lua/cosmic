@@ -7,7 +7,6 @@ build_portable := $(o)/lib/build/portable.lua
 build_reporter := $(o)/lib/build/reporter.lua
 build_help := $(o)/lib/build/make-help.lua
 build_lint := $(o)/lib/build/lint.lua
-build_recipe := $(o)/lib/build/build-recipe.lua
 build_pack := $(o)/lib/build/build-pack.lua
 # make-boot runs from SOURCE under the bootstrap (bin/make invokes it
 # before any make exists); the compiled copy is built so it gets the
@@ -15,24 +14,12 @@ build_pack := $(o)/lib/build/build-pack.lua
 build_makeboot := $(o)/lib/build/make-boot.lua
 build_files := $(build_fetch) $(build_stage) $(build_untar) $(build_pack) $(build_portable) $(build_reporter) $(build_help) $(build_lint) $(build_makeboot)
 
-# Self-bootstrap exception (#732): the driver drives the shell-free
-# compile/copy/link recipes, so it cannot be compiled by them — this one
-# target keeps the old shell recipe (and the host grants + real shell it
-# needs), and everything else compiles through the driver. The source is
-# lib/cosmic/build.tl (#756 item 3): the same module the cosmic binary
-# embeds behind `--build`; this compiled copy exists only until a
-# bootstrap pin ships that flag, at which point the recipes call
-# `$(bootstrap_cosmic) --build ...` and this rule disappears. The driver
-# runs against the bootstrap's EMBEDDED stdlib (see its header), so the
-# bootstrap sha covers its runtime and no tree .lua is required first.
-$(build_recipe): private SHELL := /bin/bash
-$(build_recipe): private .SHELLFLAGS := -o pipefail -c
-$(build_recipe): export LUA_PATH := ;;
-$(build_recipe): .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_hostx)
-$(build_recipe): lib/cosmic/build.tl $(types_files) $(tl_files) $(bootstrap_files) $(compile_flag_stamp)
-	@mkdir -p $(@D)
-	@f=$$(cat $(compile_flag_stamp)); if [ "$$f" = "--compile-strict" ]; then export LUA_PATH=";;"; else export LUA_PATH="$(tree_lua_path)"; fi; export TL_PATH="$(tree_tl_path)"; $(bootstrap_cosmic) $(include_dir_flags) $$f $< > $@.tmp
-	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
+# The recipe steps (copy/compile/capture/tee/...) are the pinned
+# bootstrap's own `--build` surface (#756 item 3): cosmic.build ships
+# EMBEDDED in the bootstrap, so the bootstrap sha covers the driver's
+# entire runtime and no tree .lua is required first. The old compiled
+# driver — and the self-bootstrap shell exception rule that built it,
+# the last real-shell + host-grant build rule — is gone.
 build_tests := $(wildcard lib/build/*_test.tl)
 
 # lint.lua delegates its shared checks to cosmic.cli.style; LUA_PATH points
@@ -51,8 +38,8 @@ $(build_test_got): $(build_files)
 # make-help snapshot: generate actual help output (driver capture, #732)
 $(o)/lib/build/make-help.snap: export LUA_PATH := ;;
 $(o)/lib/build/make-help.snap: export TREE_LUA_PATH = $(tree_lua_path)
-$(o)/lib/build/make-help.snap: Makefile $(build_help) $(build_recipe) | $(bootstrap_cosmic)
-	@$(bootstrap_cosmic) -- $(build_recipe) capture $(bootstrap_cosmic) $@ $(build_help) Makefile
+$(o)/lib/build/make-help.snap: Makefile $(build_help) | $(bootstrap_cosmic)
+	@$(bootstrap_cosmic) --build capture $(bootstrap_cosmic) $@ $(build_help) Makefile
 
 # makefile validation outputs
 build_make_out := $(o)/lib/build/make
@@ -152,21 +139,17 @@ $(o)/ci-selftest-launder-summary.txt:
 # above; the graded verdict must be FAIL. o= points the nested run at
 # its own output tree so its failed/summary/marker files never collide
 # with the real ci run that builds this fixture.
-# The nested tree has no bootstrap/driver of its own; the ci recipe's
-# remove/verdict steps exec them, so the fixture hands in the parent's
-# by absolute path (#732) — and marks them -o (old-file: use, never
-# remake): without that, a parent-tree bootstrap refresh makes them
-# look stale INSIDE the nested run, which then rebuilds the parent's
-# own driver in a race against the outer make (witnessed: the nested
-# compile's cmp/mv losing its .tmp mid-flight).
-# Order-only on the driver: -o means "use, never remake", so on a COLD
-# tree the fixture must not start until the parent's driver exists —
-# without this the nested remove step dies on the missing .lua and the
-# fixture records an exec error instead of the graded ci: FAIL verdict
-# (witnessed: the release build's cold `make test`, 2026-07-24).
-$(build_make_out)/ci-launder.out: $(build_make_srcs) | $(build_recipe) $(bootstrap_cosmic)
+# The nested tree has no bootstrap of its own; the ci recipe's --build
+# steps exec it, so the fixture hands in the parent's by absolute path
+# (#732) — and marks it -o (old-file: use, never remake): without that,
+# a parent-tree bootstrap refresh makes it look stale INSIDE the nested
+# run, racing the outer make. The old compiled-driver handoff (and its
+# cold-tree ENOENT ordering hazard) is gone with the driver itself
+# (#756 item 3): bin/make provisions the bootstrap before any rule
+# runs, so it always exists.
+$(build_make_out)/ci-launder.out: $(build_make_srcs) | $(bootstrap_cosmic)
 	@mkdir -p $(@D)
-	@code=0; $(MAKE) ci o=$(o)/citest ci_stages=ci-selftest-launder bootstrap_cosmic=$(CURDIR)/$(bootstrap_cosmic) build_recipe=$(CURDIR)/$(build_recipe) -o $(CURDIR)/$(bootstrap_cosmic) -o $(CURDIR)/$(build_recipe) >$@.tmp 2>&1 || code=$$?; echo "exit:$$code" >> $@.tmp; mv $@.tmp $@
+	@code=0; $(MAKE) ci o=$(o)/citest ci_stages=ci-selftest-launder bootstrap_cosmic=$(CURDIR)/$(bootstrap_cosmic) -o $(CURDIR)/$(bootstrap_cosmic) >$@.tmp 2>&1 || code=$$?; echo "exit:$$code" >> $@.tmp; mv $@.tmp $@
 
 # Environment clamp probe (#731): echoes the env a recipe actually sees.
 # Test apparatus like ci-selftest-launder above, not a help target.

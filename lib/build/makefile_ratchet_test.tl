@@ -71,7 +71,6 @@ local real_shell_allowed: {string} = {
   "o/bootstrap/compile-flag", -- pre-driver strict-compile probe
   "o/ci-selftest-launder-summary.txt", -- deliberately laundering fixture
   "o/cosmic/version.lua", -- git describe interpolation
-  "o/lib/build/build-recipe.lua", -- driver self-bootstrap compile
   "o/lib/build/make/ci-launder.out", -- nested-make fixture
   "o/lib/build/make/database.out", -- nested-make fixture
   "o/lib/build/make/dry-run.out", -- nested-make fixture
@@ -131,7 +130,6 @@ local hostx_allowed: {string} = {
   "o/coverage/lib/build/help_test.tl.test.got", -- unveil_test + Makefile
   "o/coverage/lib/cosmic/teal_config_test.tl.test.got", -- unveil_test + tlconfig
   "o/coverage/lib/cosmic/tty_test.tl.test.got", -- unveil_test + pty devs
-  "o/lib/build/build-recipe.lua", -- self-bootstrap shell
   "o/lib/build/help_test.tl.test.got", -- unveil_test + Makefile
   "o/lib/cosmic/teal_config_test.tl.test.got", -- unveil_test + tlconfig
   "o/lib/cosmic/tty_test.tl.test.got", -- unveil_test + pty devs

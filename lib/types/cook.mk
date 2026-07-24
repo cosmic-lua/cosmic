@@ -17,6 +17,6 @@ $(o)/lib/types/gentl_test.tl.test.got $(o)/coverage/lib/types/gentl_test.tl.test
 # write-if-changed, nothing written when the generator fails.
 regen-tl-types: .PLEDGE := $(pledge_build)
 regen-tl-types: .UNVEIL := $(unveil_base) rwcx:$(o) rwc:lib/types
-regen-tl-types: $(o)/lib/types/gentl.lua $$(tl_staged) $(build_recipe) | $(bootstrap_cosmic)
-	@$(bootstrap_cosmic) -- $(build_recipe) capture $(bootstrap_cosmic) lib/types/tl.d.tl $(o)/lib/types/gentl.lua $(o)/tl/.staged/tl.tl
+regen-tl-types: $(o)/lib/types/gentl.lua $$(tl_staged) | $(bootstrap_cosmic)
+	@$(bootstrap_cosmic) --build capture $(bootstrap_cosmic) lib/types/tl.d.tl $(o)/lib/types/gentl.lua $(o)/tl/.staged/tl.tl
 	@echo wrote lib/types/tl.d.tl

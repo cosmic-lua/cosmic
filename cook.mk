@@ -68,18 +68,18 @@ pledge_test := $(pledge_build) fattr inet dns unix tty id flock
 $(o)/%.lua: .SANDBOXED := 1
 $(o)/%.lua: .PLEDGE := $(pledge_build) fattr
 # De-hosted (#732): compiles and the $(o)/%: % copies run through the
-# build-recipe driver — direct bootstrap execs under the global
-# no-shell default. The driver's own compile opts back out in
-# lib/build/cook.mk (self-bootstrap exception).
+# pinned bootstrap's own --build recipe steps (#756 item 3) — direct
+# bootstrap execs under the global no-shell default.
 $(o)/%.lua: .UNVEIL := r:tlconfig.lua $(unveil_dev)
 # .ENV (#756 item 5): the compile child sees ONLY the declared set —
 # the three path axes below plus the pinned locale/tz and NO_COLOR
 # (deterministic output). A hostile caller variable cannot reach it;
 # gate: the env-clamp fixture's clamped probe in lib/build/cook.mk.
 $(o)/%.lua: .ENV := LUA_PATH TREE_LUA_PATH TL_PATH LC_ALL TZ NO_COLOR
-# LUA_PATH=;; pins the DRIVER to the bootstrap's embedded stdlib (a
-# caller's LUA_PATH must not redirect its requires); the compile child
-# gets ";;" (strict) or TREE_LUA_PATH — the #666 axis, one layer down.
+# LUA_PATH=;; pins the --build dispatcher to the bootstrap's embedded
+# stdlib (a caller's LUA_PATH must not redirect its requires); the
+# compile child gets ";;" (strict) or TREE_LUA_PATH — the #666 axis,
+# one layer down.
 $(o)/%.lua: export LUA_PATH := ;;
 $(o)/%.lua: export TREE_LUA_PATH = $(tree_lua_path)
 $(o)/%.lua: export TL_PATH = $(tree_tl_path)
@@ -190,18 +190,21 @@ type_modules := cosmo unix path getopt lsqlite3 re argon2 zip repl
 modules += bootstrap
 bootstrap_cosmic := $(o)/bootstrap/cosmic
 bootstrap_files := $(bootstrap_cosmic)
-bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-19-5c6bce5/cosmic-lua
+bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-24-45acffa/cosmic-lua
 # SHA-256 of the bootstrap cosmic binary. It compiles the entire project, so
 # verify it before executing. Update this when bumping bootstrap_url.
-# This pin ships --compile-strict, so the probe selects hermetic
-# LUA_PATH=";;" compiles — a reproducibility requirement (#733): the
-# pre-strict tree-LUA_PATH path made compiled output depend on parallel
-# build order (bootstrap's embedded stdlib vs the tree's, whichever
-# existed first). LUA_PATH governs runtime require; the TYPE-resolution
-# axis (tl.search_module) is pinned separately to the tree via TL_PATH in
-# the compile/check recipes, so a compile can never type-check against the
-# bootstrap's stale embedded source (#744 — see tree_tl_path).
-bootstrap_sha256 := 6c2a0afe6c942560ce2a0d796ddf8f8df096ce2c92b8ce142c28da59ecac6dc6
+# This pin ships --build (#756 item 3), so every recipe step — compile,
+# copy, link, capture, tee, list, remove, require-*, verdict — is the
+# bootstrap's own surface and the compiled driver is gone. It also ships
+# --compile-strict, so the probe selects hermetic LUA_PATH=";;" compiles
+# — a reproducibility requirement (#733): the pre-strict tree-LUA_PATH
+# path made compiled output depend on parallel build order (bootstrap's
+# embedded stdlib vs the tree's, whichever existed first). LUA_PATH
+# governs runtime require; the TYPE-resolution axis (tl.search_module)
+# is pinned separately to the tree via TL_PATH in the compile/check
+# recipes, so a compile can never type-check against the bootstrap's
+# stale embedded source (#744 — see tree_tl_path).
+bootstrap_sha256 := 2469fb2f5a9197d8bacdeefd6b99366f318b813a2de48578b047e43c5954158e
 
 # bin/make is the SOLE provisioner of the bootstrap (#756 cleanup): it
 # runs before every make invocation, parses the pin above via sed,
