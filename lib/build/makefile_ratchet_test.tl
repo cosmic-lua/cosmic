@@ -79,8 +79,6 @@ local real_shell_allowed: {string} = {
   "o/lib/build/make/only-database.out", -- nested-make fixture
   "o/sandbox-canary/probe.got", -- out-of-grant write attempt
   "perf-bin", -- COSMO_LUA guard
-  "perf-compare", -- retry/triage chain
-  "perf-selfcheck", -- A/A chain
   "regen-types", -- dev regen loop
   "sandbox-canary", -- verdict branching
 }
