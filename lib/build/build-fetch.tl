@@ -88,6 +88,14 @@ local function main(version_file: string, platform: string, output: string): boo
     return nil, "FETCH_O env var required"
   end
 
+  -- the make rule passes o/<module>/.versioned, a symlink to the module's
+  -- version.lua; resolve it here so error messages name the real file and
+  -- the recipe needs no host readlink (#732)
+  local resolved = fs.readlink(version_file)
+  if resolved then
+    version_file = resolved
+  end
+
   -- cast: pcall returns any
   local ok, spec = pcall(dofile, version_file) as(boolean, VersionSpec)
   if not ok then

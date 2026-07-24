@@ -21,15 +21,18 @@ export PATH := $(CURDIR)/$(o)/bootstrap:$(CURDIR)/$(o)/bin:$(HOST_PATH)
 # enforcement unexpanded (see the sandbox-canary note in lib/build).
 pledge_build := stdio rpath wpath cpath proc exec
 unveil_base := rx:$(o)/bootstrap r:lib r:3p
-# Host set proven under real enforcement by the sandbox-canary (#724)
-# and the enforced families' CI runs: shell + coreutils + loaders.
+# Device nodes the cosmic runtime itself touches — not host tools, so
+# de-hosted rules (#732) grant these without the toolchain surface.
 # /dev/null must be writable (recipes redirect to it). mbedtls3's
 # non-glibc build cannot use the getrandom syscall, so TLS entropy
 # fopens MBEDTLS_PLATFORM_DEV_RANDOM — which defaults to /dev/random,
 # not /dev/urandom (platform.h:398) — and fetch SIGILLs under Landlock
 # without it; grant both devices. ENOENT entries are skipped, so the
 # generous list is safe across hosts.
-unveil_hostx := rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc rw:/dev/null r:/dev/random r:/dev/urandom
+unveil_dev := rw:/dev/null r:/dev/random r:/dev/urandom
+# Host set proven under real enforcement by the sandbox-canary (#724)
+# and the enforced families' CI runs: shell + coreutils + loaders.
+unveil_hostx := rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc $(unveil_dev)
 unveil_dep := rx:$(o)/bootstrap r:3p rwc:$(o)
 # TMP is x: tests exec what they build there — embed outputs, scripts
 # under TEST_TMPDIR (proven need: embed/child/testrun under Landlock)
@@ -67,6 +70,19 @@ $(o)/%.lua: .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_hostx)
 # the grant sets.
 $(o)/%/.fetched: .SANDBOXED := 1
 $(o)/%/.staged: .SANDBOXED := 1
+# De-hosted (#732): these recipes are metacharacter-free argv, so a
+# plain -c re-enables make's direct-exec fast path (the global pipefail
+# .SHELLFLAGS forces the shell; these recipes have no pipes) and no
+# shell runs at all — the poisoned SHELL is the tripwire that fails
+# loudly if a recipe ever regresses to shell syntax. private: cold-tree
+# prerequisites (stdlib compiles) must not inherit either override —
+# but NOT on the export: a private export never reaches the recipe env
+# (witnessed: bootstrap fell back to its embedded stdlib); inheritance
+# is benign because every compile recipe sets LUA_PATH explicitly.
+# Recursive (=): tree_lua_path is computed after the includes (#720).
+$(o)/%/.fetched $(o)/%/.staged: export LUA_PATH = $(tree_lua_path)
+$(o)/%/.fetched $(o)/%/.staged: private SHELL := /dev/null/enoshell
+$(o)/%/.fetched $(o)/%/.staged: private .SHELLFLAGS := -c
 $(o)/%.lint.ok: .SANDBOXED := 1
 $(o)/%.lint.ok: .PLEDGE := $(pledge_build)
 $(o)/%.lint.ok: .UNVEIL := rwc:$(o) $(unveil_hostx)
