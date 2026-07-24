@@ -135,3 +135,7 @@ the bootstrap avoids circular dependency (need cosmic to compile cosmic):
 4. `make stage2` (alias for `make ci`) re-checks everything with the refreshed bootstrap
 
 the bootstrap URL is pinned in `cook.mk`.
+
+the build's trust root — what `bin/make` fetches, what stays outside
+the root, and the settled decision that pinned make is permanent — is
+recorded in [decisions.md](decisions.md) (D13, D14).
