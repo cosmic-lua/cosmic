@@ -198,7 +198,9 @@ $(build_make_outputs): private .SHELLFLAGS := -o pipefail -c
 # makefile_test consumes the fixtures in both test lanes
 build_makefile_test_got := \
   $(o)/lib/build/makefile_test.tl.test.got \
-  $(o)/coverage/lib/build/makefile_test.tl.test.got
+  $(o)/coverage/lib/build/makefile_test.tl.test.got \
+  $(o)/lib/build/makefile_ratchet_test.tl.test.got \
+  $(o)/coverage/lib/build/makefile_ratchet_test.tl.test.got
 $(build_makefile_test_got): $(build_make_outputs)
 $(build_makefile_test_got): TEST_DIR := $(build_make_out)
 
