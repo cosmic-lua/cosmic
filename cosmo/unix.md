@@ -4632,7 +4632,10 @@ function pledge(promises?: string, execpromises?: string, mode?: integer): boole
  Allows isatty, tiocgwinsz, tcgets, tcsets, tcsetsw, tcsetsf.
  ### inet
  Allows socket (AF_INET), listen, bind, connect, accept,
- getpeername, getsockname, setsockopt, getsockopt.
+ getpeername, getsockname, setsockopt, getsockopt, plus the
+ read-only interface ioctls used by siocgifconf() and
+ siocgifflags() (SIOCGIFCONF, SIOCGIFFLAGS, SIOCGIFNETMASK) on
+ Linux.
  ### unix
  Allows socket (AF_UNIX), listen, bind, connect, accept,
  getpeername, getsockname, setsockopt, getsockopt.
@@ -4653,7 +4656,9 @@ function pledge(promises?: string, execpromises?: string, mode?: integer): boole
  ### unveil
  Allows unveil().
  ### exec
- Allows execve.
+ Allows execve, and on Linux memfd_create, which is needed to spawn
+ programs embedded in the zip filesystem (e.g.
+ `unix.execve("/zip/foo.com", ...)`).
  If the executable in question needs a loader, then you will need
  "rpath prot_exec" too. With APE, security is strongest when you
  assimilate your binaries beforehand, using the --assimilate flag,
