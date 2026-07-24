@@ -46,17 +46,26 @@ perf-bin: .PLEDGE := $(pledge_build)
 perf-bin: .UNVEIL := $(unveil_test) $(if $(COSMO_LUA),r:$(COSMO_LUA))
 
 ## Build o/perf/cosmic-local: the cosmic payload on a local cosmopolitan lua (COSMO_LUA=...)
-perf-bin: $(cosmic_bin)
+# The payload rides build-pack like the shipped binaries (#755 moved the
+# pack there but left a call to the deleted pack-cosmic define here, so
+# perf-bin silently produced a payload-less binary).
+# Shell exception (#756 item 2): the COSMO_LUA guard.
+perf-bin: private SHELL := /bin/bash
+perf-bin: private .SHELLFLAGS := -o pipefail -c
+perf-bin: $(cosmic_bin) $(build_pack)
 	@test -n "$(COSMO_LUA)" || { \
 		echo "perf-bin: set COSMO_LUA=/path/to/cosmopolitan/o/tool/lua/lua" >&2; \
 		echo "perf-bin: see lib/perf/optimize/cosmopolitan.md" >&2; exit 1; }
 	@mkdir -p $(perf_sandbox)
-	@cp $(COSMO_LUA) $(cosmic_local_bin)
-	@chmod +x $(cosmic_local_bin)
-	$(call pack-cosmic,$(cosmic_local_bin))
+	@$(pack) --out $(cosmic_local_bin) --base $(COSMO_LUA)
 	@echo "built $(cosmic_local_bin) from $(COSMO_LUA)"
 	@echo "measure it with: PERF_BIN=$(cosmic_local_bin) bin/make perf-compare"
 
+# Shell exceptions (#756 item 2): every perf recipe runs $(perf_cmd),
+# whose PERF_BIN/LUA_PATH env prefixes need a shell (and perf-compare's
+# retry/triage chain branches); measurement apparatus, not build logic.
+perf perf-baseline perf-compare perf-selfcheck: private SHELL := /bin/bash
+perf perf-baseline perf-compare perf-selfcheck: private .SHELLFLAGS := -o pipefail -c
 perf perf-baseline: .PLEDGE := $(pledge_build)
 perf perf-baseline: .UNVEIL := $(unveil_test)
 

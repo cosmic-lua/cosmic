@@ -1,5 +1,9 @@
 .SECONDEXPANSION:
 .SECONDARY:
+# Parse-time shell: $(shell) queries here and in the includes (nproc,
+# uname, git) read this value DURING parsing — poisoning it here empties
+# them silently (witnessed: an empty SOURCE_DATE_EPOCH in the pack).
+# Recipes get the no-shell default at the BOTTOM of this file (#756).
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 .DEFAULT_GOAL := help
@@ -50,8 +54,6 @@ include 3p/tl/cook.mk
 .PHONY: help
 ## Show this help message
 help: export LUA_PATH = $(tree_lua_path)
-help: private SHELL := /dev/null/enoshell
-help: private .SHELLFLAGS := -c
 help: $(build_files) | $(bootstrap_cosmic)
 	@$(bootstrap_cosmic) $(build_help) $(MAKEFILE_LIST)
 
@@ -64,8 +66,6 @@ filter-only = $(if $(only),$(foreach f,$1,$(if $(findstring $(only),$(f)),$(f)))
 # copies after o/ exists (unveil skips missing paths silently).
 $(o)/%: % $(build_recipe) | $(o)/.exists $(bootstrap_cosmic)
 	@$(bootstrap_cosmic) -- $(build_recipe) copy $< $@
-$(o)/.exists: private SHELL := /dev/null/enoshell
-$(o)/.exists: private .SHELLFLAGS := -c
 $(o)/.exists: $(build_recipe) | $(bootstrap_cosmic)
 	@$(bootstrap_cosmic) -- $(build_recipe) list $@
 
@@ -139,8 +139,6 @@ all_tested := $(patsubst %,$(o)/%.test.got,$(all_tests))
 test: $(o)/test-summary.txt
 
 $(o)/test-summary.txt: export LUA_PATH := ;;
-$(o)/test-summary.txt: private SHELL := /dev/null/enoshell
-$(o)/test-summary.txt: private .SHELLFLAGS := -c
 $(o)/test-summary.txt: $(all_tested) | $(cosmic_bin) $(build_recipe)
 	@$(bootstrap_cosmic) -- $(build_recipe) tee $@ $(cosmic_bin) --report $^
 
@@ -222,6 +220,9 @@ $(o)/coverage/%.tl.test.got: $(o)/%.lua $(cosmic_bin) $(ape_loader)
 coverage_baseline := lib/cosmic/coverage/baseline.txt
 coverage_baseline_tool := $(o)/lib/cosmic/coverage/baseline.lua
 
+# Shell exception (#756 item 2): the ratchet conditional (item-1 residue).
+$(o)/coverage-summary.txt: private SHELL := /bin/bash
+$(o)/coverage-summary.txt: private .SHELLFLAGS := -o pipefail -c
 $(o)/coverage-summary.txt: .PLEDGE := $(pledge_build)
 $(o)/coverage-summary.txt: .UNVEIL := $(unveil_base) rwcx:$(o)
 $(o)/coverage-summary.txt: $(coverage_got) | $(cosmic_bin) $(build_recipe)
@@ -239,9 +240,8 @@ $(o)/coverage-summary.txt: $(coverage_got) | $(cosmic_bin) $(build_recipe)
 ## Rewrite the committed coverage ratchet baseline from the last coverage run
 coverage-baseline: .PLEDGE := $(pledge_build)
 coverage-baseline: .UNVEIL := $(unveil_base) rwcx:$(o) rwc:lib/cosmic/coverage
-coverage-baseline: $(coverage_got) | $(cosmic_bin)
-	@$(cosmic_bin) $(coverage_baseline_tool) write $(o)/coverage lib > $(coverage_baseline).tmp
-	@mv $(coverage_baseline).tmp $(coverage_baseline)
+coverage-baseline: $(coverage_got) | $(cosmic_bin) $(build_recipe)
+	@$(bootstrap_cosmic) -- $(build_recipe) capture $(cosmic_bin) $(coverage_baseline) $(coverage_baseline_tool) write $(o)/coverage lib
 	@echo "wrote $(coverage_baseline)"
 
 # Privileged enforcement lane (Phase 1 step 8 prerequisite, audit §5.1).
@@ -275,8 +275,6 @@ $(o)/enforce/%.tl.test.got: $(o)/%.lua $(cosmic_bin)
 # The require-marker line is the tripwire: it fails the lane when no
 # enforcement ran (every sandbox test skipped — outer sandbox active?).
 $(o)/enforce-summary.txt: export LUA_PATH := ;;
-$(o)/enforce-summary.txt: private SHELL := /dev/null/enoshell
-$(o)/enforce-summary.txt: private .SHELLFLAGS := -c
 $(o)/enforce-summary.txt: $(enforce_got) | $(cosmic_bin) $(build_recipe)
 	@$(bootstrap_cosmic) -- $(build_recipe) tee $@ $(cosmic_bin) --report $^
 	@$(bootstrap_cosmic) -- $(build_recipe) require-marker enforce-ran: $(o)/enforce
@@ -418,13 +416,13 @@ all_docs += $(dtl_docs)
 ## Generate documentation from source
 docs: $(all_docs)
 
-$(o)/docs/%.md: %.tl $(cosmic_bin) | $(bootstrap_files)
-	@mkdir -p $(@D)
-	@$(cosmic_bin) lib/cosmic/doc/gendoc.tl $< > $@
+# De-shelled (#756 item 2): the driver's capture mode owns the output
+# file (and its parent directory) — no mkdir, no redirect.
+$(o)/docs/%.md: %.tl $(cosmic_bin) $(build_recipe) | $(bootstrap_files)
+	@$(bootstrap_cosmic) -- $(build_recipe) capture $(cosmic_bin) $@ lib/cosmic/doc/gendoc.tl $<
 
-$(o)/docs/cosmo/%.md: lib/types/cosmo/%.d.tl $(cosmic_bin) | $(bootstrap_files)
-	@mkdir -p $(@D)
-	@$(cosmic_bin) lib/cosmic/doc/gendoc.tl $< > $@
+$(o)/docs/cosmo/%.md: lib/types/cosmo/%.d.tl $(cosmic_bin) $(build_recipe) | $(bootstrap_files)
+	@$(bootstrap_cosmic) -- $(build_recipe) capture $(cosmic_bin) $@ lib/cosmic/doc/gendoc.tl $<
 
 # Generate serialized doc index for embedding (uses bootstrap cosmic to avoid circular dep)
 # Include both module sources and example files for the index
@@ -456,6 +454,9 @@ doc-index: $(doc_index)
 
 .PHONY: doc-publish
 ## Publish docs to git branch (SOURCE_SHA required, uses $(o)/docs)
+# Shell exception (#756 item 2): SOURCE_SHA guard + env prefix; git anyway.
+doc-publish: private SHELL := /bin/bash
+doc-publish: private .SHELLFLAGS := -o pipefail -c
 doc-publish: .PLEDGE := $(pledge_build) inet dns
 doc-publish: .UNVEIL := $(unveil_run) rwc:.git rwc:. r:/home r:/root
 doc-publish: $(all_docs) $(docs_publish) | $(bootstrap_cosmic)
@@ -473,8 +474,6 @@ ci_marks := $(foreach s,$(ci_stages),$(o)/ci-ok-$(s))
 # laundered its exit status through the already-tee'd summary). All
 # markers build in ONE sub-make, so stages keep sharing the target graph
 # and run in parallel without racing on common prerequisites.
-$(o)/ci-ok-%: private SHELL := /dev/null/enoshell
-$(o)/ci-ok-%: private .SHELLFLAGS := -c
 $(o)/ci-ok-%: %
 	@$(bootstrap_cosmic) -- $(build_recipe) list $@
 
@@ -483,10 +482,19 @@ $(o)/ci-ok-%: %
 # De-hosted (#732): the grading loop lives in the driver's verdict mode
 # (same #714 semantics — summary text AND exit marker — gated by the
 # ci-launder fixture); `-` on the sub-make replaces `|| true`.
-ci: private SHELL := /dev/null/enoshell
-ci: private .SHELLFLAGS := -c
 ci: export LUA_PATH := ;;
 ci: | $(bootstrap_cosmic) $(build_recipe)
 	@$(bootstrap_cosmic) -- $(build_recipe) remove $(ci_summaries) $(ci_marks)
 	-@$(MAKE) --keep-going $(ci_marks)
 	@$(bootstrap_cosmic) -- $(build_recipe) verdict $(o) $(ci_stages)
+
+# No-shell DEFAULT (#756 item 2, inverting #732's per-family opt-in).
+# Set LAST so the parse-time $(shell) queries above ran under the real
+# shell; recipes read SHELL's FINAL value, so the poison reaches every
+# rule. A recipe is a shell-free argv line (make's direct-exec fast
+# path spawns no shell); one that regresses to shell syntax fails
+# loudly on every host, Landlock or not. Rules that genuinely need a
+# shell override SHELL/.SHELLFLAGS per rule with `private` (the grant
+# must not leak to prerequisites); makefile_test ratchets that list.
+SHELL := /dev/null/enoshell
+.SHELLFLAGS := -c
