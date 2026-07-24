@@ -9,7 +9,7 @@ bin/make build    # downloads bootstrap, fetches deps, builds cosmic
 bin/make test     # run tests
 ```
 
-`bin/make` is a shell script that downloads landlock-make on first run. all build artifacts go to `o/`.
+`bin/make` is a shell script that, on first run, downloads the sha-pinned bootstrap cosmic and uses it to extract `make` from the sha-pinned cosmos.zip (`lib/build/make-boot.tl`). all build artifacts go to `o/`.
 
 ## Workflow
 

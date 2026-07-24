@@ -6,6 +6,7 @@ lib/build/build-recipe.tl 172 206
 lib/build/build-stage.tl 45 251
 lib/build/build-untar.tl 121 130
 lib/build/lint.tl 97 132
+lib/build/make-boot.tl 51 86
 lib/build/make-help.tl 79 97
 lib/build/portable.tl 16 18
 lib/build/reporter.tl 145 159
@@ -141,4 +142,4 @@ lib/types/gentype_parse.tl 267 288
 lib/types/gentype_render.tl 309 312
 lib/types/gentype_types.tl 2 2
 tlconfig.lua 7 7
-total 11624 15225
+total 11675 15311

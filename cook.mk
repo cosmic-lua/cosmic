@@ -196,6 +196,8 @@ bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-19-5c
 # bootstrap's stale embedded source (#744 — see tree_tl_path).
 bootstrap_sha256 := 6c2a0afe6c942560ce2a0d796ddf8f8df096ce2c92b8ce142c28da59ecac6dc6
 
+# bin/make mirrors this rule (ensure_bootstrap, parsing the pin above via
+# sed) for the cold-tree case where no make exists yet — keep them in sync.
 $(bootstrap_cosmic):
 	@mkdir -p $(@D)
 	curl -fsSL -o $@ $(bootstrap_url)
