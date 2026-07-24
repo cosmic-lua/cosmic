@@ -164,14 +164,28 @@ env-probe: private .SHELLFLAGS := -o pipefail -c
 env-probe:
 	@echo "LC_ALL=$$LC_ALL"; echo "TZ=$$TZ"; echo "PATH=$$PATH"
 
+# Clamped twin (#756 item 5): .ENV must strip everything undeclared.
+# The env-clamp fixture sends a hostile CANARY through make; this
+# recipe proves it never reaches a clamped child (env-probe above stays
+# unclamped, showing the passthrough behavior for comparison).
+# Shell exception: probe apparatus, like env-probe.
+.PHONY: env-probe-clamped
+env-probe-clamped: .ENV := LC_ALL TZ PATH
+env-probe-clamped: private SHELL := /bin/bash
+env-probe-clamped: private .SHELLFLAGS := -o pipefail -c
+env-probe-clamped:
+	@echo "CANARY=$${CANARY:-unset}"; echo "CLAMPED_LC_ALL=$$LC_ALL"
+
 # Gate for the clamp: run a nested make under a hostile caller env — a
-# non-C locale, a non-UTC timezone, a poisoned PATH head — and record
-# what the probe recipe saw. makefile_test asserts the clamp held; if
-# someone reverts the exports in cook.mk this fixture goes hostile and
-# the test fails, so the property stays falsifiable (#728).
+# non-C locale, a non-UTC timezone, a poisoned PATH head, and a CANARY
+# variable — and record what both probe recipes saw. makefile_test
+# asserts the axis clamp held (#731) AND that the CANARY never reached
+# the .ENV-clamped probe (#756 item 5); if someone reverts the exports
+# in cook.mk or the clamp, this fixture goes hostile and the test
+# fails, so both properties stay falsifiable (#728).
 $(build_make_out)/env-clamp.out: $(build_make_srcs)
 	@mkdir -p $(@D)
-	@code=0; LC_ALL=tr_TR.UTF-8 TZ=Pacific/Kiritimati PATH="/hostile/bin:$$PATH" $(MAKE) -s env-probe >$@.tmp 2>&1 || code=$$?; echo "exit:$$code" >> $@.tmp; mv $@.tmp $@
+	@code=0; LC_ALL=tr_TR.UTF-8 TZ=Pacific/Kiritimati PATH="/hostile/bin:$$PATH" CANARY=evil $(MAKE) -s env-probe env-probe-clamped >$@.tmp 2>&1 || code=$$?; echo "exit:$$code" >> $@.tmp; mv $@.tmp $@
 
 build_make_outputs := $(build_make_out)/dry-run.out $(build_make_out)/database.out $(build_make_out)/only-database.out $(build_make_out)/ci-launder.out $(build_make_out)/env-clamp.out
 

@@ -115,6 +115,23 @@ local function test_env_clamp_holds_under_hostile_env()
 end
 test_env_clamp_holds_under_hostile_env()
 
+-- test: .ENV strips undeclared variables (#756 item 5). The same
+-- fixture sends CANARY=evil through the nested make; the clamped probe
+-- must never see it, while its declared LC_ALL still flows through.
+local function test_env_allowlist_strips_canary()
+  local out = read_make_output("env-clamp.out").output
+  assert(out:find("CANARY=unset", 1, true),
+    "expected the .ENV-clamped probe to report CANARY=unset\noutput: " ..
+    out:sub(1, 500))
+  assert(not out:find("CANARY=evil", 1, true),
+    "hostile CANARY leaked into an .ENV-clamped recipe\noutput: " ..
+    out:sub(1, 500))
+  assert(out:find("CLAMPED_LC_ALL=C", 1, true),
+    "declared LC_ALL should still reach the clamped probe\noutput: " ..
+    out:sub(1, 500))
+end
+test_env_allowlist_strips_canary()
+
 -- test: the lint stage is guarded against a silently-empty file list
 -- (#719). Outside a git checkout `git ls-files` fails silently and
 -- lint would green-light zero checks; the summary recipe must carry
@@ -216,6 +233,7 @@ local real_shell < const > = "/bin/bash"
 local real_shell_allowed: {string} = {
   "doc-publish", -- SOURCE_SHA guard + git publishing
   "env-probe", -- shows the env a recipe shell sees
+  "env-probe-clamped", -- .ENV canary probe (#756 item 5)
   "o/bin/ape", -- APE loader extraction IS the stub flow
   "o/bootstrap/compile-flag", -- pre-driver strict-compile probe
   "o/bootstrap/cosmic", -- trust-root download (curl + sha pipe)
