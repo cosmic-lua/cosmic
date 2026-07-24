@@ -116,12 +116,20 @@ $(reporter_summaries): private .SHELLFLAGS := -c
 # the assimilated $(cosmic_check_bin) duplicate (see lib/cosmic/cook.mk)
 # instead of the fat-APE artifact. Failures inside the sandbox surface
 # as check failures in the summaries — loud, not silent.
+# De-hosted (#732): the checks run through `--test` capture on the
+# assimilated check binary — no shell, no redirect plumbing, no host
+# grants. testrun mkdtemps the per-check TEST_TMPDIR under $(TMP).
 $(o)/%.teal.got: .SANDBOXED := 1
 $(o)/%.teal.got: .PLEDGE := $(pledge_build)
-$(o)/%.teal.got: .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_hostx)
+$(o)/%.teal.got: .UNVEIL := rwc:$(o) r:tlconfig.lua rwc:$(TMP) $(unveil_dev)
+$(o)/%.teal.got: export TL_PATH = $(tree_tl_path)
+$(o)/%.teal.got: private SHELL := /dev/null/enoshell
+$(o)/%.teal.got: private .SHELLFLAGS := -c
 $(o)/%.format.got: .SANDBOXED := 1
 $(o)/%.format.got: .PLEDGE := $(pledge_build)
-$(o)/%.format.got: .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_hostx)
+$(o)/%.format.got: .UNVEIL := rwc:$(o) r:tlconfig.lua rwc:$(TMP) $(unveil_dev)
+$(o)/%.format.got: private SHELL := /dev/null/enoshell
+$(o)/%.format.got: private .SHELLFLAGS := -c
 
 # Fifth ENFORCED family (#729): examples. Same grant sets as the test
 # lanes — examples exercise the same modules (sockets, tty, chmod) and
@@ -131,6 +139,8 @@ $(o)/%.format.got: .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_hostx)
 $(o)/%.tl.example.got: .SANDBOXED := 1
 $(o)/%.tl.example.got: .PLEDGE := $(pledge_test)
 $(o)/%.tl.example.got: .UNVEIL := $(unveil_test)
+$(o)/%.tl.example.got: private SHELL := /dev/null/enoshell
+$(o)/%.tl.example.got: private .SHELLFLAGS := -c
 
 # Fourth ENFORCED family (#729): the plain and coverage test lanes,
 # running the real fat-APE $(cosmic_bin) via the staged o/bin/ape
@@ -140,8 +150,21 @@ $(o)/%.tl.example.got: .UNVEIL := $(unveil_test)
 # lane opt back out where their empty grant overrides live in the
 # Makefile: they exercise unshare and real self-sandboxing, which no
 # outer sandbox can permit.
+# The test/coverage/enforce recipes are shell-free too (#732): the env
+# prefixes became target-scoped exports (TEST_DIR is exported globally
+# in the Makefile so per-module target values reach recipe envs; the
+# PATH prefix was redundant since the #731 clamp already puts o/bin on
+# PATH). Their grants are unchanged — tests legitimately exec host
+# tools (sh, etc.) under $(unveil_test).
 $(o)/%.tl.test.got: .SANDBOXED := 1
+$(o)/%.tl.test.got: export LUA_PATH = $(tree_lua_path)
+$(o)/%.tl.test.got: private SHELL := /dev/null/enoshell
+$(o)/%.tl.test.got: private .SHELLFLAGS := -c
 $(o)/coverage/%.tl.test.got: .SANDBOXED := 1
+$(o)/enforce/%.tl.test.got: export LUA_PATH = $(tree_lua_path)
+$(o)/%.tl.benchmark.got: export LUA_PATH = $(tree_lua_path)
+$(o)/%.tl.benchmark.got: private SHELL := /dev/null/enoshell
+$(o)/%.tl.benchmark.got: private .SHELLFLAGS := -c
 
 # Type definition generation (define early so it's available to all modules).
 # Must match MODULES in lib/types/gentype.tl: "cosmo" renders the top-level

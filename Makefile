@@ -139,6 +139,8 @@ $(o)/test-summary.txt: $(all_tested) | $(cosmic_bin)
 
 export TEST_O := $(o)
 export TEST_PLATFORM := $(platform)
+# per-module target-specific TEST_DIR values reach recipe envs via this
+export TEST_DIR
 export TEST_BIN := $(o)/bin
 # TEST_TMPDIR is set per-test by cosmic --test command
 # tree_lua_path aggregates _lua_dirs from modules. Deliberately NOT
@@ -179,8 +181,7 @@ $(quicksand_sandbox_tests): .PLEDGE =
 $(quicksand_sandbox_tests): .UNVEIL =
 
 $(o)/%.tl.test.got: $(o)/%.lua $(cosmic_bin) $(ape_loader)
-	@mkdir -p $(@D)
-	@TEST_DIR=$(TEST_DIR) LUA_PATH="$(tree_lua_path)" PATH=$(CURDIR)/$(o)/bin:$$PATH $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
+	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
 # Test deps beyond the pattern rule (own compiled .lua + $(cosmic_bin))
 # live in each module's cook.mk: perf tests attach $(perf_lua), build
@@ -204,9 +205,9 @@ coverage: $(o)/coverage-summary.txt
 
 $(o)/coverage/%.tl.test.got: .PLEDGE := $(pledge_test)
 $(o)/coverage/%.tl.test.got: .UNVEIL := $(unveil_test)
+$(o)/coverage/%.tl.test.got: export COSMIC_COVERAGE := 1
 $(o)/coverage/%.tl.test.got: $(o)/%.lua $(cosmic_bin) $(ape_loader)
-	@mkdir -p $(@D)
-	@TEST_DIR=$(TEST_DIR) COSMIC_COVERAGE=1 LUA_PATH="$(tree_lua_path)" PATH=$(CURDIR)/$(o)/bin:$$PATH $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
+	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
 # Coverage ratchet: the committed baseline records covered/total per
 # file; the check fails when coverage declines or the file set drifts.
@@ -260,10 +261,9 @@ $(enforce_got): .SANDBOXED := 0
 $(enforce_got): .PLEDGE =
 $(enforce_got): .UNVEIL =
 
+$(o)/enforce/%.tl.test.got: export COSMIC_ENFORCE := 1
 $(o)/enforce/%.tl.test.got: $(o)/%.lua $(cosmic_bin)
-	@mkdir -p $(@D)
-	@TEST_BIN=$(o)/bin COSMIC_ENFORCE=1 LUA_PATH="$(tree_lua_path)" PATH=$(CURDIR)/$(o)/bin:$$PATH \
-	  $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
+	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
 $(o)/enforce-summary.txt: $(enforce_got) | $(cosmic_bin)
 	@$(cosmic_bin) --report $^ | tee $@
@@ -298,8 +298,7 @@ $(o)/teal-summary.txt: $(all_teals) | $(build_reporter)
 	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $^
 
 $(o)/%.teal.got: $(o)/% $(cosmic_check_bin) | $(bootstrap_files)
-	@mkdir -p $(@D)
-	-@TL_PATH="$(tree_tl_path)" $(cosmic_check_bin) $(include_dir_flags) --check-types $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $@
+	@$(cosmic_check_bin) --test $(basename $@) $(cosmic_check_bin) $(include_dir_flags) --check-types $<
 
 all_formats := $(patsubst %,%.format.got,$(all_checkable_files))
 
@@ -310,8 +309,7 @@ $(o)/format-summary.txt: $(all_formats) | $(build_reporter)
 	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $^
 
 $(o)/%.format.got: $(o)/% $(cosmic_check_bin) | $(bootstrap_files)
-	@mkdir -p $(@D)
-	-@$(cosmic_check_bin) --check-format $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $@
+	@$(cosmic_check_bin) --test $(basename $@) $(cosmic_check_bin) --check-format $<
 
 # Lint every tracked file (#719). git ls-files fails SILENTLY outside
 # a git checkout — an empty list would lint nothing and report green,
@@ -379,8 +377,7 @@ $(o)/example-summary.txt: $(all_examples) | $(build_reporter)
 	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $^
 
 $(o)/%.tl.example.got: %.tl $(cosmic_bin) $(ape_loader) | $(bootstrap_files)
-	@mkdir -p $(@D)
-	@set +e; $(cosmic_bin) --check-examples $< > $(basename $@).out 2> $(basename $@).err; echo $$? > $@
+	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) --check-examples $<
 
 # Benchmark testing - run Benchmark_* functions in .tl files (exclude test files)
 all_benchmark_srcs := $(call filter-only,$(foreach m,$(modules),$(filter-out $($(m)_tests),$($(m)_tl))))
@@ -396,8 +393,7 @@ $(o)/benchmark-summary.txt: $(all_benchmarks) | $(build_reporter)
 $(o)/%.tl.benchmark.got: .PLEDGE := $(pledge_build)
 $(o)/%.tl.benchmark.got: .UNVEIL := $(unveil_run)
 $(o)/%.tl.benchmark.got: %.tl $(cosmic_bin) | $(bootstrap_files)
-	@mkdir -p $(@D)
-	@set +e; LUA_PATH="$(tree_lua_path)" $(cosmic_bin) --benchmark $< > $(basename $@).out 2> $(basename $@).err; echo $$? > $@
+	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) --benchmark $<
 
 # Documentation generation - render .tl files as markdown
 # Module sources for docs: all _tl files (excludes tests and examples).
