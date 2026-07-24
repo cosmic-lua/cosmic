@@ -110,11 +110,11 @@ fetched: $(all_fetched)
 # operator SSL_CERT_FILE bundle is unveiled). The scripts run under the
 # pinned bootstrap against THIS tree's cosmic.* APIs — the compiled
 # stdlib is a prerequisite (a cold parallel build once fell back to the
-# bootstrap's embedded stdlib; only= must not shrink it). De-hosted
-# (#732): symlink resolution and extraction are in-process, and the
-# no-shell/LUA_PATH target variables in cook.mk (with the .SANDBOXED
-# flips) make each recipe a direct bootstrap exec — no $(unveil_hostx):
-# ONLY the pinned bootstrap executes under these grants.
+# bootstrap's embedded stdlib; only= must not shrink it). Extraction is
+# in-process (#732) and each recipe is a direct bootstrap exec under
+# the global no-shell default — no $(unveil_hostx): ONLY the pinned
+# bootstrap executes under these grants, with .ENV/.SANDBOXED/LUA_PATH
+# for the family living in cook.mk.
 stdlib_lua := $(patsubst %.tl,$(o)/%.lua,$(filter lib/cosmic/%,$(foreach x,$(modules),$($(x)_tl))))
 $(o)/%/.fetched: export SSL_USE_SYSTEM_CERTS = 1
 $(o)/%/.fetched: .PLEDGE := $(pledge_build) inet dns

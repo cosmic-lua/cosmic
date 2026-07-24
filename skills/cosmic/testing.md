@@ -92,7 +92,7 @@ test_write_file()
 
 ## The Test Sandbox
 
-`bin/make test` runs every test under a landlock-make sandbox. the default grants (the test lane at `Makefile:142-143`; the coverage lane at `Makefile:195-196` is identical) are:
+`bin/make test` runs every test under a landlock-make sandbox. the default grants (the `$(o)/%.tl.test.got` pledge/unveil lines in the Makefile; the coverage lane is identical) are:
 
 - `.PLEDGE = stdio rpath wpath cpath proc exec`
 - `.UNVEIL = rx:o/bootstrap r:lib r:3p rwcx:o rwc:$TMP rx:/usr rx:/proc r:/etc r:/dev/null`
@@ -108,8 +108,8 @@ what that means for a test author:
 
 two escalation paths exist; prefer the tight default whenever the test can live with it:
 
-- **namespace tests** (anything calling `unshare(2)` or writing `/proc/self/*_map` — the quicksand netns/proxy/box suites): no pledge promise covers unshare, so these tests are listed in `quicksand_sandbox_tests` (`Makefile:150-158`) which sets empty `.PLEDGE`/`.UNVEIL` for exactly those `.got` targets. to add one, append its plain and `coverage/` target paths to that list.
-- **enforcement tests** (pledge/unveil/landlock primitives asserting that restriction *actually* blocks): under the outer sandbox their assertions degrade to visible skips. the separate privileged `enforce` lane (`Makefile:236-270`, `bin/make enforce`) reruns them unsandboxed with `COSMIC_ENFORCE=1`, where a skip becomes a loud failure, plus a tripwire that fails the lane if nothing enforced at all.
+- **namespace tests** (anything calling `unshare(2)` or writing `/proc/self/*_map` — the quicksand netns/proxy/box suites): no pledge promise covers unshare, so these tests are listed in `quicksand_sandbox_tests` in the Makefile, which sets empty `.PLEDGE`/`.UNVEIL` for exactly those `.got` targets. to add one, append its plain and `coverage/` target paths to that list.
+- **enforcement tests** (pledge/unveil/landlock primitives asserting that restriction *actually* blocks): under the outer sandbox their assertions degrade to visible skips. the separate privileged `enforce` lane (`bin/make enforce`) reruns them unsandboxed with `COSMIC_ENFORCE=1`, where a skip becomes a loud failure, plus a tripwire that fails the lane if nothing enforced at all.
 
 a per-rule override (custom `.PLEDGE`/`.UNVEIL` for one `.got` target) is possible but rare; reach for it only when a test needs one extra grant (say, an additional read path) and neither list above fits.
 

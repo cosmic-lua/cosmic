@@ -47,11 +47,19 @@ bootstrap cosmic (pre-built)
 
 ### Sandboxed Build
 
-when using landlock-make (the default via `bin/make`), each build rule gets:
+`bin/make` is the trust root: it fetches the sha-pinned bootstrap cosmic,
+which extracts `make` from the sha-pinned cosmos.zip — two pinned
+artifacts, one committed fetcher, no other host downloads (#756).
+
+under landlock-make, each build rule declares its access:
 - **pledge**: restricts available system calls (e.g., `stdio rpath`)
 - **unveil**: restricts filesystem visibility (e.g., `r:lib rwc:o/`)
+- **.ENV**: clamps the child environment to named variables
 
-this ensures build rules only access declared inputs and outputs.
+recipes are shell-free by default: `SHELL` is poisoned globally and a
+recipe is a single argv line, with the real shell a per-rule exception.
+makefile ratchet tests enumerate the exceptions and the host-exec
+grants, and fail when either set grows (#756 item 2).
 
 ## Directory Structure
 

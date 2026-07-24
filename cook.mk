@@ -60,9 +60,9 @@ pledge_test := $(pledge_build) fattr inet dns unix tty id flock
 $(o)/%.lua: .SANDBOXED := 1
 $(o)/%.lua: .PLEDGE := $(pledge_build) fattr
 # De-hosted (#732): compiles and the $(o)/%: % copies run through the
-# build-recipe driver — direct bootstrap execs under the same no-shell
-# fast path + poisoned-SHELL tripwire as fetch/stage. The driver's own
-# compile opts back out in lib/build/cook.mk (self-bootstrap exception).
+# build-recipe driver — direct bootstrap execs under the global
+# no-shell default. The driver's own compile opts back out in
+# lib/build/cook.mk (self-bootstrap exception).
 $(o)/%.lua: .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_dev)
 # .ENV (#756 item 5): the compile child sees ONLY the declared set —
 # the three path axes below plus the pinned locale/tz and NO_COLOR
