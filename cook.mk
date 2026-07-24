@@ -59,7 +59,19 @@ pledge_test := $(pledge_build) fattr inet dns unix tty id flock
 # otherwise silently mint an artifact with no version.
 $(o)/%.lua: .SANDBOXED := 1
 $(o)/%.lua: .PLEDGE := $(pledge_build) fattr
-$(o)/%.lua: .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_hostx)
+# De-hosted (#732): compiles and the $(o)/%: % copies run through the
+# build-recipe driver — direct bootstrap execs under the same no-shell
+# fast path + poisoned-SHELL tripwire as fetch/stage. The driver's own
+# compile opts back out in lib/build/cook.mk (self-bootstrap exception).
+$(o)/%.lua: .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_dev)
+$(o)/%.lua: private SHELL := /dev/null/enoshell
+$(o)/%.lua: private .SHELLFLAGS := -c
+# LUA_PATH=;; pins the DRIVER to the bootstrap's embedded stdlib (a
+# caller's LUA_PATH must not redirect its requires); the compile child
+# gets ";;" (strict) or TREE_LUA_PATH — the #666 axis, one layer down.
+$(o)/%.lua: export LUA_PATH := ;;
+$(o)/%.lua: export TREE_LUA_PATH = $(tree_lua_path)
+$(o)/%.lua: export TL_PATH = $(tree_tl_path)
 
 # Second ENFORCED family (#729): every remaining rule that execs the
 # assimilated bootstrap — fetch, stage, lint, and the reporter

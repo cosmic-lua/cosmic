@@ -64,6 +64,11 @@ endef
 # fallback would swallow the denial into a silently version-less
 # artifact. Target-specific wins over pattern-specific.
 $(cosmic_version_lua): .SANDBOXED := 0
+# a .lua-named target inherits the compile family's poisoned no-shell
+# SHELL (#732); this recipe is a deliberate host exception (git) and
+# keeps the real shell alongside its sandbox opt-out above
+$(cosmic_version_lua): SHELL := /bin/bash
+$(cosmic_version_lua): .SHELLFLAGS := -o pipefail -c
 $(cosmic_version_lua): .FORCE | $$(cosmos_staged)
 	@mkdir -p $(@D)
 	@echo "return { cosmic = \"$$(git describe --tags --always --dirty 2>/dev/null || echo unknown)\", cosmos = \"$$($(cosmos_lua_bin) -e "print(dofile('3p/cosmos/version.lua').version)")\" }" > $@.tmp

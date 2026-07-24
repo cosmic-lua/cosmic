@@ -7,7 +7,23 @@ build_portable := $(o)/lib/build/portable.lua
 build_reporter := $(o)/lib/build/reporter.lua
 build_help := $(o)/lib/build/make-help.lua
 build_lint := $(o)/lib/build/lint.lua
+build_recipe := $(o)/lib/build/build-recipe.lua
 build_files := $(build_fetch) $(build_stage) $(build_untar) $(build_portable) $(build_reporter) $(build_help) $(build_lint)
+
+# Self-bootstrap exception (#732): build-recipe drives the shell-free
+# compile/copy/link recipes, so it cannot be compiled by them — this one
+# target keeps the old shell recipe (and the host grants + real shell it
+# needs), and everything else compiles through the driver. The driver
+# runs against the bootstrap's EMBEDDED stdlib (see its header), so the
+# bootstrap sha covers its runtime and no tree .lua is required first.
+$(build_recipe): SHELL := /bin/bash
+$(build_recipe): .SHELLFLAGS := -o pipefail -c
+$(build_recipe): export LUA_PATH := ;;
+$(build_recipe): .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_hostx)
+$(build_recipe): lib/build/build-recipe.tl $(types_files) $(tl_files) $(bootstrap_files) $(compile_flag_stamp)
+	@mkdir -p $(@D)
+	@f=$$(cat $(compile_flag_stamp)); if [ "$$f" = "--compile-strict" ]; then export LUA_PATH=";;"; else export LUA_PATH="$(tree_lua_path)"; fi; export TL_PATH="$(tree_tl_path)"; $(bootstrap_cosmic) $(include_dir_flags) $$f $< > $@.tmp
+	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 build_tests := $(wildcard lib/build/*_test.tl)
 
 # lint.lua delegates its shared checks to cosmic.cli.style; LUA_PATH points

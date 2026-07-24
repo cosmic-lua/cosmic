@@ -57,17 +57,16 @@ filter-only = $(if $(only),$(foreach f,$1,$(if $(findstring $(only),$(f)),$(f)))
 
 cp := cp -p
 
-# plain cp: -p's acl step trips the enforced pledge (#729); .exists orders
-# cold-tree copies after o/ exists (unveil skips missing paths silently)
-$(o)/%: % | $(o)/.exists
-	@mkdir -p $(@D) && cp $< $@
+# Copies and compiles run through the build-recipe driver (#732): no
+# shell, no host mkdir/cp/cat/cmp/mv (LUA_PATH pins live in cook.mk
+# with the family's other pattern vars). .exists orders cold-tree
+# copies after o/ exists (unveil skips missing paths silently).
+$(o)/%: % $(build_recipe) | $(o)/.exists $(bootstrap_cosmic)
+	@$(bootstrap_cosmic) -- $(build_recipe) copy $< $@
 $(o)/.exists: ; @mkdir -p $(@D) && touch $@
 
-# compile .tl to .lua; flag from cook.mk's probe (strict ;; vs tree path, #666)
-$(o)/%.lua: %.tl $(types_files) $(tl_files) $(bootstrap_files) $(compile_flag_stamp)
-	@mkdir -p $(@D)
-	@f=$$(cat $(compile_flag_stamp)); if [ "$$f" = "--compile-strict" ]; then export LUA_PATH=";;"; else export LUA_PATH="$(tree_lua_path)"; fi; export TL_PATH="$(tree_tl_path)"; $(bootstrap_cosmic) $(include_dir_flags) $$f $< > $@.tmp
-	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
+$(o)/%.lua: %.tl $(types_files) $(tl_files) $(bootstrap_files) $(compile_flag_stamp) $(build_recipe)
+	@$(bootstrap_cosmic) -- $(build_recipe) compile $(compile_flag_stamp) $(bootstrap_cosmic) $< $@ $(include_dir_flags)
 
 # tl files: modules declare _tl, derive compiled .lua outputs
 all_tl := $(call filter-only,$(foreach x,$(modules),$($(x)_tl)))
@@ -93,7 +92,7 @@ all_versions := $(call filter-only,$(foreach x,$(modules),$($(x)_version)))
 
 # versioned modules: o/module/.versioned -> version.lua
 $(foreach m,$(modules),$(if $($(m)_version),\
-  $(eval $(o)/$(m)/.versioned: $($(m)_version) ; @mkdir -p $$(@D) && ln -sfn $(CURDIR)/$$< $$@)))
+  $(eval $(o)/$(m)/.versioned: $($(m)_version) $(build_recipe) | $(bootstrap_cosmic) ; @$(bootstrap_cosmic) -- $(build_recipe) link $(CURDIR)/$$< $$@)))
 all_versioned := $(call filter-only,$(foreach m,$(modules),$(if $($(m)_version),$(o)/$(m)/.versioned)))
 
 # versions get fetched: o/module/.fetched -> o/fetched/module/<ver>-<sha>/<archive>
@@ -445,10 +444,9 @@ doc_index_script := lib/cosmic/doc/index.tl
 # any future build-logic change — arrives; a bare Makefile prereq missed
 # cook.mk edits (#717). The write-if-changed dance below keeps the
 # binary from re-embedding when the regenerated content is identical
-$(doc_index): $(doc_index_srcs) $(doc_index_lua) $(doc_index_script) $(MAKEFILE_LIST) | $(bootstrap_cosmic)
-	@mkdir -p $(@D)
-	@LUA_PATH="$(o)/lib/?.lua;$(o)/lib/?/init.lua;;" $(bootstrap_cosmic) $(doc_index_script) $(doc_index_srcs) > $@.tmp
-	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
+$(doc_index): export TREE_LUA_PATH = $(o)/lib/?.lua;$(o)/lib/?/init.lua;;
+$(doc_index): $(doc_index_srcs) $(doc_index_lua) $(doc_index_script) $(build_recipe) $(MAKEFILE_LIST) | $(bootstrap_cosmic)
+	@$(bootstrap_cosmic) -- $(build_recipe) capture $(bootstrap_cosmic) $@ $(doc_index_script) $(doc_index_srcs)
 
 .PHONY: doc-index
 ## Generate serialized documentation index
