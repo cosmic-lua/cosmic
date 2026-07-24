@@ -15,14 +15,36 @@ env:
   PRERELEASE: true
 
 jobs:
+  # The release build runs in the same digest-pinned container as the CI
+  # lanes (#734, see pr.yml for the full rationale): the shipped binaries
+  # are built by the same make machinery the gate checks, and the
+  # reproducible lane only proves determinism WITHIN one environment —
+  # pinning here keeps the artifact's build environment a deliberate,
+  # reviewable input. The container-compat of every target below (teal,
+  # test, build) is proven by pr.yml's lanes in the identical image. The
+  # `release` job stays on the bare runner: it runs no build machinery,
+  # only artifact download + `gh release create` (gh is not in the image).
   build:
     runs-on: ubuntu-latest
+    container:
+      image: buildpack-deps@sha256:cfb30ff3856780c63b00ec3ad2e4aed77ae6afce5975ebb8ad9525ec45354e2e # noble (Ubuntu 24.04)
+      options: --privileged
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      - name: prepare non-root builder
+        shell: bash
+        run: |
+          set -eux
+          useradd -m -s /bin/bash builder
+          chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
+          git config --system --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: make teal test build
-        shell: bash -x {0}
-        run: bin/make -j teal test build
+        shell: bash
+        run: |
+          set -eux
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bin/make -j teal test build
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
