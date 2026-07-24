@@ -13,13 +13,10 @@ $(o)/lib/types/gentl_test.tl.test.got $(o)/coverage/lib/types/gentl_test.tl.test
 
 .PHONY: regen-tl-types
 ## Regenerate lib/types/tl.d.tl from the staged tl source
-# Shell exception (#756 item 2): dev-facing regen (redirect + mv); the
-# gentl drift test gates its output, not this recipe.
-regen-tl-types: private SHELL := /bin/bash
-regen-tl-types: private .SHELLFLAGS := -o pipefail -c
+# De-shelled (#756 item 1): the driver's capture mode owns the output —
+# write-if-changed, nothing written when the generator fails.
 regen-tl-types: .PLEDGE := $(pledge_build)
 regen-tl-types: .UNVEIL := $(unveil_base) rwcx:$(o) rwc:lib/types
-regen-tl-types: $(o)/lib/types/gentl.lua $$(tl_staged) | $(bootstrap_cosmic)
-	@$(bootstrap_cosmic) $(o)/lib/types/gentl.lua $(o)/tl/.staged/tl.tl > lib/types/tl.d.tl.tmp
-	@mv lib/types/tl.d.tl.tmp lib/types/tl.d.tl
-	@echo "wrote lib/types/tl.d.tl"
+regen-tl-types: $(o)/lib/types/gentl.lua $$(tl_staged) $(build_recipe) | $(bootstrap_cosmic)
+	@$(bootstrap_cosmic) -- $(build_recipe) capture $(bootstrap_cosmic) lib/types/tl.d.tl $(o)/lib/types/gentl.lua $(o)/tl/.staged/tl.tl
+	@echo wrote lib/types/tl.d.tl

@@ -183,6 +183,26 @@ local function check(baseline_path: string, paths: {string}): integer
   return 0
 end
 
+--- Gate mode for the coverage-summary recipe (shell-free, #756 item 1):
+--- skip under a test filter (partial data would read as a huge decline)
+--- or when no baseline is committed; otherwise run the ratchet check.
+--- @param baseline_path string Path to the committed baseline
+--- @param only string The active only= filter ("" when unset)
+--- @param paths {string} Report inputs (see report.compute)
+--- @return integer Exit code: 0 when skipped or the ratchet holds
+local function gate(baseline_path: string, only: string, paths: {string}): integer
+  if only ~= "" then
+    io.write("coverage ratchet skipped (only=" .. only .. ")\n")
+    return 0
+  end
+  if not fs.isfile(baseline_path) then
+    io.write("coverage ratchet skipped: no " .. baseline_path ..
+      "; run 'bin/make coverage-baseline' to start it\n")
+    return 0
+  end
+  return check(baseline_path, paths)
+end
+
 --- Write a fresh baseline for the given report inputs to stdout.
 --- @param paths {string} Report inputs (see report.compute)
 --- @return integer Exit code: 0 on success
@@ -210,8 +230,21 @@ local function main(argv: {string}): integer
       paths[#paths + 1] = argv[i]
     end
     return check(argv[2], paths)
+  elseif mode == "gate" and argv[2] and argv[3] and argv[4] then
+    -- --only=<str> stays one argv token even when the filter is empty,
+    -- so the no-shell recipe needs no quoting
+    local only = argv[3]:match("^%-%-only=(.*)$")
+    if only then
+      local paths: {string} = {}
+      for i = 4, #argv do
+        paths[#paths + 1] = argv[i]
+      end
+      return gate(argv[2], only, paths)
+    end
   end
-  io.stderr:write("usage: baseline.lua write <paths...> | check <baseline> <paths...>\n")
+  io.stderr:write("usage: baseline.lua write <paths...>" ..
+    " | check <baseline> <paths...>" ..
+    " | gate <baseline> --only=<str> <paths...>\n")
   return 2
 end
 
@@ -225,6 +258,7 @@ local record BaselineModule
   parse: function(text: string): {string: Entry} | nil, Entry, string
   compare: function(reports: {FileReport}, entries: {string: Entry}, total: Entry): {string}
   check: function(baseline_path: string, paths: {string}): integer
+  gate: function(baseline_path: string, only: string, paths: {string}): integer
   write: function(paths: {string}): integer
 end
 
@@ -233,6 +267,7 @@ local M: BaselineModule = {
   parse = parse,
   compare = compare,
   check = check,
+  gate = gate,
   write = write,
 }
 
