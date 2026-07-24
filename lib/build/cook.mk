@@ -9,7 +9,11 @@ build_help := $(o)/lib/build/make-help.lua
 build_lint := $(o)/lib/build/lint.lua
 build_recipe := $(o)/lib/build/build-recipe.lua
 build_pack := $(o)/lib/build/build-pack.lua
-build_files := $(build_fetch) $(build_stage) $(build_untar) $(build_pack) $(build_portable) $(build_reporter) $(build_help) $(build_lint)
+# make-boot runs from SOURCE under the bootstrap (bin/make invokes it
+# before any make exists); the compiled copy is built so it gets the
+# strict-compile type gate like every other build script.
+build_makeboot := $(o)/lib/build/make-boot.lua
+build_files := $(build_fetch) $(build_stage) $(build_untar) $(build_pack) $(build_portable) $(build_reporter) $(build_help) $(build_lint) $(build_makeboot)
 
 # Self-bootstrap exception (#732): build-recipe drives the shell-free
 # compile/copy/link recipes, so it cannot be compiled by them — this one

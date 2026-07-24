@@ -20,10 +20,9 @@ jobs:
   #
   # buildpack-deps:noble is Ubuntu 24.04 — the same release ubuntu-latest
   # currently serves — and its base tag ships git, curl, ca-certificates,
-  # coreutils AND unzip (the cosmos staging step shells out to
-  # /usr/bin/unzip to unpack cosmos.zip — a host-tool dependency #732
-  # will eventually fold into the bootstrap), so the gate needs no apt-get
-  # and nothing re-introduces an unpinned package fetch. The digest is the
+  # and coreutils (archive extraction is in-process since #732 — no host
+  # unzip/tar in the build), so the gate needs no apt-get and nothing
+  # re-introduces an unpinned package fetch. The digest is the
   # multi-arch index for the `noble` tag; GitHub pulls its linux/amd64
   # child on the x86-64 runner.
   #
@@ -94,8 +93,9 @@ jobs:
           done
 
   # No-network gate (#730). By design only three things touch the
-  # network — the landlock-make download, the bootstrap download, and
-  # the fetch rule — each integrity-checked against a committed sha256,
+  # network — the bootstrap download and the cosmos.zip download that
+  # yields bin/cosmo-make (both via bin/make, #756 item 6), and the
+  # fetch rule — each integrity-checked against a committed sha256,
   # so the pins are the trust root and TLS is transport. This job makes
   # the property falsifiable: fetch with network allowed, then run the
   # ENTIRE gate inside a network namespace whose only interface is

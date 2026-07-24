@@ -1,14 +1,20 @@
 #!/bin/sh
 set -e
 
-# Get the directory where this script is located
+# Trust root (#756 item 6). This script is the only host-shell step in the
+# build: with POSIX sh + curl + sha256sum + sed/od it obtains ONE pinned
+# artifact — the bootstrap cosmic (url + sha in cook.mk, single source for
+# this script and the Makefile's own rule) — and everything after runs
+# under that pin: the bootstrap extracts `make` from the sha-pinned
+# cosmos.zip (pin in 3p/cosmos/version.lua) via lib/build/make-boot.tl,
+# so no separate landlock-make release asset and no host unzip exist in
+# the chain. Trust root: kernel -> this script -> two pinned artifacts ->
+# everything else.
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 MAKE_BIN="${SCRIPT_DIR}/cosmo-make"
-RELEASE_URL="https://github.com/whilp/cosmopolitan/releases/download/2026.07.24-e95cebe09/make"
-# SHA-256 of the landlock-make binary. This binary is executed with full
-# control over the build, so verify its integrity before running it. Update
-# this when bumping RELEASE_URL.
-MAKE_SHA256="186e4c9b65ec41bf126ffd79accc9b7c4d90ca3c6c1ffb25dde9b13547303d3d"
+BOOTSTRAP="${ROOT}/o/bootstrap/cosmic"
 
 verify_sha256() {
     # Usage: verify_sha256 <file> <expected-hex>. Returns non-zero on mismatch.
@@ -25,31 +31,69 @@ verify_sha256() {
     [ "${actual}" = "${expected}" ]
 }
 
-# Download make if it doesn't exist. Retry on transient CDN errors
-# (e.g. 504 Gateway Timeout) that occasionally hit unauthenticated GitHub
-# release downloads.
-if [ ! -f "${MAKE_BIN}" ]; then
-    MAKE_BIN_TMP="${MAKE_BIN}.tmp.$$"
-    echo "Downloading landlock-make..." >&2
+download() {
+    # Usage: download <url> <dest>. Atomic, with retries on transient CDN
+    # errors (e.g. 504 Gateway Timeout) that occasionally hit
+    # unauthenticated GitHub release downloads.
+    url="$1"
+    dest="$2"
+    dest_tmp="${dest}.tmp.$$"
     attempt=0
     until curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors \
-        -o "${MAKE_BIN_TMP}" "${RELEASE_URL}"; do
+        -o "${dest_tmp}" "${url}"; do
         attempt=$((attempt + 1))
         if [ "${attempt}" -ge 3 ]; then
-            echo "Failed to download landlock-make after ${attempt} attempts" >&2
-            rm -f "${MAKE_BIN_TMP}"
-            exit 1
+            echo "Failed to download ${url} after ${attempt} attempts" >&2
+            rm -f "${dest_tmp}"
+            return 1
         fi
-        echo "Retrying landlock-make download (attempt ${attempt})..." >&2
+        echo "Retrying download of ${url} (attempt ${attempt})..." >&2
         sleep $((attempt * 5))
     done
-    if ! verify_sha256 "${MAKE_BIN_TMP}" "${MAKE_SHA256}"; then
-        echo "landlock-make checksum verification failed; refusing to run" >&2
-        rm -f "${MAKE_BIN_TMP}"
+    mv -f "${dest_tmp}" "${dest}"
+}
+
+ensure_bootstrap() {
+    # Mirror of the Makefile's $(bootstrap_cosmic) rule (which still
+    # covers the MAKE_BIN-exists-but-o/-cleaned case): download, verify
+    # against the cook.mk pin, assimilate to a native ELF (sandboxed
+    # rules cannot grant the APE loader's ~/.ape-* extraction), check.
+    [ -x "${BOOTSTRAP}" ] && return 0
+    bootstrap_url="$(sed -n 's/^bootstrap_url := //p' "${ROOT}/cook.mk")"
+    bootstrap_sha256="$(sed -n 's/^bootstrap_sha256 := //p' "${ROOT}/cook.mk")"
+    if [ -z "${bootstrap_url}" ] || [ -z "${bootstrap_sha256}" ]; then
+        echo "could not read bootstrap_url/bootstrap_sha256 from ${ROOT}/cook.mk" >&2
         exit 1
     fi
-    chmod +x "${MAKE_BIN_TMP}"
-    mv -f "${MAKE_BIN_TMP}" "${MAKE_BIN}"
+    echo "Downloading bootstrap cosmic..." >&2
+    mkdir -p "${ROOT}/o/bootstrap"
+    boot_tmp="${BOOTSTRAP}.boot.$$"
+    download "${bootstrap_url}" "${boot_tmp}" || exit 1
+    if ! verify_sha256 "${boot_tmp}" "${bootstrap_sha256}"; then
+        echo "bootstrap cosmic checksum verification failed; refusing to run" >&2
+        rm -f "${boot_tmp}"
+        exit 1
+    fi
+    chmod +x "${boot_tmp}"
+    "${boot_tmp}" --assimilate
+    if [ "$(head -c 4 "${boot_tmp}" | od -An -tx1 | tr -d ' \n')" != "7f454c46" ]; then
+        echo "bootstrap assimilation failed: still an APE — sandboxed rules need a native ELF (no loader grants)" >&2
+        rm -f "${boot_tmp}"
+        exit 1
+    fi
+    mv -f "${boot_tmp}" "${BOOTSTRAP}"
+    ln -sf cosmic "${ROOT}/o/bootstrap/lua"
+}
+
+if [ ! -f "${MAKE_BIN}" ]; then
+    ensure_bootstrap
+    # SSL_USE_SYSTEM_CERTS: the bootstrap's embedded CAs are too narrow
+    # for github.com (same knob as the Makefile's fetch rule); the sha
+    # pin is the trust root, TLS is transport. LUA_PATH=";;" pins
+    # make-boot's requires to the bootstrap's embedded stdlib.
+    SSL_USE_SYSTEM_CERTS=1 LUA_PATH=";;" "${BOOTSTRAP}" \
+        "${ROOT}/lib/build/make-boot.tl" \
+        "${ROOT}/3p/cosmos/version.lua" make "${MAKE_BIN}"
 fi
 
 # Execute make with all arguments

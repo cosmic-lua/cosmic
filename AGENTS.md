@@ -41,8 +41,9 @@ lib/
   cosmos/              Cosmopolitan Lua binary + zip tool
   tl/                  Teal compiler
 bin/
-  make                 bootstrap script that downloads landlock-make
-  cosmo-make           landlock-make binary (gitignored, downloaded)
+  make                 trust-root script: fetches the pinned bootstrap cosmic,
+                       which extracts make from the pinned cosmos.zip
+  cosmo-make           landlock-make binary (gitignored, extracted from cosmos.zip)
 .github/workflows/
   pr.yml               CI on push/PR (make ci)
   docs.yml             publish docs on push to main
