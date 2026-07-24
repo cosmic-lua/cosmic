@@ -110,12 +110,12 @@ fetched: $(all_fetched)
 # back to the bootstrap's embedded stdlib; only= must not shrink it) —
 # and are de-hosted (#732): .versioned resolution and extraction happen
 # in-process, LUA_PATH by target-scoped export (ambient export retired,
-# #727; compile recipes set their own), so each recipe is a plain argv: no /bin/sh, no $(unveil_hostx), only the bootstrap executes.
+# #727; compile recipes set their own), so each recipe is plain argv. No $(unveil_hostx): beyond $(unveil_shell), only the bootstrap executes.
 stdlib_lua := $(patsubst %.tl,$(o)/%.lua,$(filter lib/cosmic/%,$(foreach x,$(modules),$($(x)_tl))))
 $(o)/%/.fetched $(o)/%/.staged: export LUA_PATH = $(tree_lua_path)
 $(o)/%/.fetched: export SSL_USE_SYSTEM_CERTS = 1
 $(o)/%/.fetched: .PLEDGE := $(pledge_build) inet dns
-$(o)/%/.fetched: .UNVEIL := $(unveil_dep) $(unveil_dev) r:/etc/resolv.conf r:/etc/hosts r:/etc/ssl $(if $(SSL_CERT_FILE),r:$(SSL_CERT_FILE))
+$(o)/%/.fetched: .UNVEIL := $(unveil_dep) $(unveil_dev) $(unveil_shell) r:/etc/resolv.conf r:/etc/hosts r:/etc/ssl $(if $(SSL_CERT_FILE),r:$(SSL_CERT_FILE))
 $(o)/%/.fetched: $(o)/%/.versioned $(build_files) $(stdlib_lua) | $(bootstrap_cosmic)
 	@$(bootstrap_cosmic) -- $(build_fetch) $< $(platform) $@
 
@@ -125,7 +125,7 @@ all_staged := $(patsubst %/.fetched,%/.staged,$(all_fetched))
 ## Fetch and extract all dependencies
 staged: $(all_staged)
 $(o)/%/.staged: .PLEDGE := $(pledge_build)
-$(o)/%/.staged: .UNVEIL := $(unveil_dep) $(unveil_dev)
+$(o)/%/.staged: .UNVEIL := $(unveil_dep) $(unveil_dev) $(unveil_shell)
 $(o)/%/.staged: $(o)/%/.fetched $(build_files) $(stdlib_lua)
 	@$(bootstrap_cosmic) -- $(build_stage) $(o)/$*/.versioned $(platform) $< $@
 

@@ -30,6 +30,13 @@ unveil_base := rx:$(o)/bootstrap r:lib r:3p
 # without it; grant both devices. ENOENT entries are skipped, so the
 # generous list is safe across hosts.
 unveil_dev := rw:/dev/null r:/dev/random r:/dev/urandom
+# cosmo-make runs every recipe line through $(SHELL) (bash, pipefail),
+# even a metacharacter-free argv — witnessed on the runner: dropping
+# these grants fails with "/bin/bash: Permission denied". De-hosted
+# rules (#732) grant the shell binary and its loader/libraries, nothing
+# else from the host toolchain (rx:/lib resolves to /usr/lib on merged-
+# usr hosts — libraries, not the /usr/bin tool surface).
+unveil_shell := rx:/bin/bash rx:/lib rx:/lib64
 # Host set proven under real enforcement by the sandbox-canary (#724)
 # and the enforced families' CI runs: shell + coreutils + loaders.
 unveil_hostx := rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc $(unveil_dev)
