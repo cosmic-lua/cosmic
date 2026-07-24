@@ -57,17 +57,16 @@ filter-only = $(if $(only),$(foreach f,$1,$(if $(findstring $(only),$(f)),$(f)))
 
 cp := cp -p
 
-# plain cp: -p's acl step trips the enforced pledge (#729); .exists orders
-# cold-tree copies after o/ exists (unveil skips missing paths silently)
-$(o)/%: % | $(o)/.exists
-	@mkdir -p $(@D) && cp $< $@
+# Copies and compiles run through the build-recipe driver (#732): no
+# shell, no host mkdir/cp/cat/cmp/mv (LUA_PATH pins live in cook.mk
+# with the family's other pattern vars). .exists orders cold-tree
+# copies after o/ exists (unveil skips missing paths silently).
+$(o)/%: % $(build_recipe) | $(o)/.exists $(bootstrap_cosmic)
+	@$(bootstrap_cosmic) -- $(build_recipe) copy $< $@
 $(o)/.exists: ; @mkdir -p $(@D) && touch $@
 
-# compile .tl to .lua; flag from cook.mk's probe (strict ;; vs tree path, #666)
-$(o)/%.lua: %.tl $(types_files) $(tl_files) $(bootstrap_files) $(compile_flag_stamp)
-	@mkdir -p $(@D)
-	@f=$$(cat $(compile_flag_stamp)); if [ "$$f" = "--compile-strict" ]; then export LUA_PATH=";;"; else export LUA_PATH="$(tree_lua_path)"; fi; export TL_PATH="$(tree_tl_path)"; $(bootstrap_cosmic) $(include_dir_flags) $$f $< > $@.tmp
-	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
+$(o)/%.lua: %.tl $(types_files) $(tl_files) $(bootstrap_files) $(compile_flag_stamp) $(build_recipe)
+	@$(bootstrap_cosmic) -- $(build_recipe) compile $(compile_flag_stamp) $(bootstrap_cosmic) $< $@ $(include_dir_flags)
 
 # tl files: modules declare _tl, derive compiled .lua outputs
 all_tl := $(call filter-only,$(foreach x,$(modules),$($(x)_tl)))
@@ -93,7 +92,7 @@ all_versions := $(call filter-only,$(foreach x,$(modules),$($(x)_version)))
 
 # versioned modules: o/module/.versioned -> version.lua
 $(foreach m,$(modules),$(if $($(m)_version),\
-  $(eval $(o)/$(m)/.versioned: $($(m)_version) ; @mkdir -p $$(@D) && ln -sfn $(CURDIR)/$$< $$@)))
+  $(eval $(o)/$(m)/.versioned: $($(m)_version) $(build_recipe) | $(bootstrap_cosmic) ; @$(bootstrap_cosmic) -- $(build_recipe) link $(CURDIR)/$$< $$@)))
 all_versioned := $(call filter-only,$(foreach m,$(modules),$(if $($(m)_version),$(o)/$(m)/.versioned)))
 
 # versions get fetched: o/module/.fetched -> o/fetched/module/<ver>-<sha>/<archive>
@@ -140,6 +139,8 @@ $(o)/test-summary.txt: $(all_tested) | $(cosmic_bin)
 
 export TEST_O := $(o)
 export TEST_PLATFORM := $(platform)
+# per-module target-specific TEST_DIR values reach recipe envs via this
+export TEST_DIR
 export TEST_BIN := $(o)/bin
 # TEST_TMPDIR is set per-test by cosmic --test command
 # tree_lua_path aggregates _lua_dirs from modules. Deliberately NOT
@@ -180,8 +181,7 @@ $(quicksand_sandbox_tests): .PLEDGE =
 $(quicksand_sandbox_tests): .UNVEIL =
 
 $(o)/%.tl.test.got: $(o)/%.lua $(cosmic_bin) $(ape_loader)
-	@mkdir -p $(@D)
-	@TEST_DIR=$(TEST_DIR) LUA_PATH="$(tree_lua_path)" PATH=$(CURDIR)/$(o)/bin:$$PATH $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
+	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
 # Test deps beyond the pattern rule (own compiled .lua + $(cosmic_bin))
 # live in each module's cook.mk: perf tests attach $(perf_lua), build
@@ -205,9 +205,9 @@ coverage: $(o)/coverage-summary.txt
 
 $(o)/coverage/%.tl.test.got: .PLEDGE := $(pledge_test)
 $(o)/coverage/%.tl.test.got: .UNVEIL := $(unveil_test)
+$(o)/coverage/%.tl.test.got: export COSMIC_COVERAGE := 1
 $(o)/coverage/%.tl.test.got: $(o)/%.lua $(cosmic_bin) $(ape_loader)
-	@mkdir -p $(@D)
-	@TEST_DIR=$(TEST_DIR) COSMIC_COVERAGE=1 LUA_PATH="$(tree_lua_path)" PATH=$(CURDIR)/$(o)/bin:$$PATH $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
+	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
 # Coverage ratchet: the committed baseline records covered/total per
 # file; the check fails when coverage declines or the file set drifts.
@@ -261,10 +261,9 @@ $(enforce_got): .SANDBOXED := 0
 $(enforce_got): .PLEDGE =
 $(enforce_got): .UNVEIL =
 
+$(o)/enforce/%.tl.test.got: export COSMIC_ENFORCE := 1
 $(o)/enforce/%.tl.test.got: $(o)/%.lua $(cosmic_bin)
-	@mkdir -p $(@D)
-	@TEST_BIN=$(o)/bin COSMIC_ENFORCE=1 LUA_PATH="$(tree_lua_path)" PATH=$(CURDIR)/$(o)/bin:$$PATH \
-	  $(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
+	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
 $(o)/enforce-summary.txt: $(enforce_got) | $(cosmic_bin)
 	@$(cosmic_bin) --report $^ | tee $@
@@ -299,8 +298,7 @@ $(o)/teal-summary.txt: $(all_teals) | $(build_reporter)
 	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $^
 
 $(o)/%.teal.got: $(o)/% $(cosmic_check_bin) | $(bootstrap_files)
-	@mkdir -p $(@D)
-	-@TL_PATH="$(tree_tl_path)" $(cosmic_check_bin) $(include_dir_flags) --check-types $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $@
+	@$(cosmic_check_bin) --test $(basename $@) $(cosmic_check_bin) $(include_dir_flags) --check-types $<
 
 all_formats := $(patsubst %,%.format.got,$(all_checkable_files))
 
@@ -311,8 +309,7 @@ $(o)/format-summary.txt: $(all_formats) | $(build_reporter)
 	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $^
 
 $(o)/%.format.got: $(o)/% $(cosmic_check_bin) | $(bootstrap_files)
-	@mkdir -p $(@D)
-	-@$(cosmic_check_bin) --check-format $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $@
+	@$(cosmic_check_bin) --test $(basename $@) $(cosmic_check_bin) --check-format $<
 
 # Lint every tracked file (#719). git ls-files fails SILENTLY outside
 # a git checkout — an empty list would lint nothing and report green,
@@ -380,8 +377,7 @@ $(o)/example-summary.txt: $(all_examples) | $(build_reporter)
 	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $^
 
 $(o)/%.tl.example.got: %.tl $(cosmic_bin) $(ape_loader) | $(bootstrap_files)
-	@mkdir -p $(@D)
-	@set +e; $(cosmic_bin) --check-examples $< > $(basename $@).out 2> $(basename $@).err; echo $$? > $@
+	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) --check-examples $<
 
 # Benchmark testing - run Benchmark_* functions in .tl files (exclude test files)
 all_benchmark_srcs := $(call filter-only,$(foreach m,$(modules),$(filter-out $($(m)_tests),$($(m)_tl))))
@@ -397,8 +393,7 @@ $(o)/benchmark-summary.txt: $(all_benchmarks) | $(build_reporter)
 $(o)/%.tl.benchmark.got: .PLEDGE := $(pledge_build)
 $(o)/%.tl.benchmark.got: .UNVEIL := $(unveil_run)
 $(o)/%.tl.benchmark.got: %.tl $(cosmic_bin) | $(bootstrap_files)
-	@mkdir -p $(@D)
-	@set +e; LUA_PATH="$(tree_lua_path)" $(cosmic_bin) --benchmark $< > $(basename $@).out 2> $(basename $@).err; echo $$? > $@
+	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) --benchmark $<
 
 # Documentation generation - render .tl files as markdown
 # Module sources for docs: all _tl files (excludes tests and examples).
@@ -445,10 +440,9 @@ doc_index_script := lib/cosmic/doc/index.tl
 # any future build-logic change — arrives; a bare Makefile prereq missed
 # cook.mk edits (#717). The write-if-changed dance below keeps the
 # binary from re-embedding when the regenerated content is identical
-$(doc_index): $(doc_index_srcs) $(doc_index_lua) $(doc_index_script) $(MAKEFILE_LIST) | $(bootstrap_cosmic)
-	@mkdir -p $(@D)
-	@LUA_PATH="$(o)/lib/?.lua;$(o)/lib/?/init.lua;;" $(bootstrap_cosmic) $(doc_index_script) $(doc_index_srcs) > $@.tmp
-	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
+$(doc_index): export TREE_LUA_PATH = $(o)/lib/?.lua;$(o)/lib/?/init.lua;;
+$(doc_index): $(doc_index_srcs) $(doc_index_lua) $(doc_index_script) $(build_recipe) $(MAKEFILE_LIST) | $(bootstrap_cosmic)
+	@$(bootstrap_cosmic) -- $(build_recipe) capture $(bootstrap_cosmic) $@ $(doc_index_script) $(doc_index_srcs)
 
 .PHONY: doc-index
 ## Generate serialized documentation index
