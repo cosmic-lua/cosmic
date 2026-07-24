@@ -1,7 +1,8 @@
 #!/usr/bin/env cosmic
--- Tests for the build-recipe driver (#732). The driver is spawned the
--- way make spawns it, with the test cosmic binary standing in as the
--- pinned bootstrap for compile mode.
+-- Tests for cosmic.build (#732, #756 item 3): the shell-free recipe
+-- steps behind `--build`, spawned the way make will spawn them, with
+-- the test cosmic binary standing in as the pinned bootstrap for
+-- compile mode.
 
 local child = require("cosmic.child")
 local env = require("cosmic.env")
@@ -10,11 +11,9 @@ local fs_types = require("cosmic.fs.types")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 local test_bin = fs.join(os.getenv("TEST_BIN") or "", "cosmic")
-local test_o = os.getenv("TEST_O") or "o"
-local driver = fs.join(test_o, "lib/build/build-recipe.lua")
 
 local function run_driver(...: string): integer, string, string
-  local args: {string} = {test_bin, "--", driver}
+  local args: {string} = {test_bin, "--build"}
   for _, a in ipairs({...}) do
     table.insert(args, a)
   end
@@ -132,6 +131,18 @@ local function test_tee_prints_and_writes()
   assert(written:match("report line"), "tee must write the file")
 end
 test_tee_prints_and_writes()
+
+local function test_child_flags_not_consumed()
+  -- the payload after the mode is a foreign argv: cosmic flags in it
+  -- belong to the child (the recipe shape `--build tee out cosmic
+  -- --report ...`), and the dispatcher must not let getopt permute
+  -- them into its own options
+  local out = fs.join(tmpdir, "tee/version.txt")
+  local code, stdout, err = run_driver("tee", out, test_bin, "--version")
+  assert(code == 0, "tee --version failed (" .. tostring(code) .. "): " .. err)
+  assert(stdout:match("cosmic%-lua"), "child --version output expected, got: " .. stdout)
+end
+test_child_flags_not_consumed()
 
 local function test_tee_propagates_failure_after_writing()
   local out = fs.join(tmpdir, "tee/fail.txt")

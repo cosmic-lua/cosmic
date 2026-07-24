@@ -46,6 +46,8 @@ local record Options
   test_output: string
   report_paths: {string}
   coverage_report_paths: {string}
+  build_mode: string
+  build_argv: {string}
   make: string
   skill: string
   write_if_changed: boolean
@@ -55,6 +57,8 @@ end
 
 -- Parse arguments using cosmo.getopt iterator API
 local function parse_args(): Options
+  -- Absent record fields read as nil; only the accumulating and
+  -- boolean fields need initial values.
   local opts: Options = {
     execute = {},
     load = {},
@@ -62,59 +66,17 @@ local function parse_args(): Options
     version = false,
     warnings = false,
     help = false,
-    script = nil,
     script_args = {},
-    compile = nil,
-    compile_strict = nil,
-    format = nil,
-    fix = nil,
-    check_format = nil,
-    check_types = nil,
-    check_style = nil,
     embed = {},
-    output = nil,
-    extract = nil,
-    exe = nil,
-    check_examples = nil,
-    examples = nil,
-    benchmark = nil,
-    docs = nil,
     welcome = false,
-    test_argv = nil,
-    test_output = nil,
-    report_paths = nil,
-    coverage_report_paths = nil,
-    make = nil,
-    skill = nil,
     write_if_changed = false,
     include_dirs = {},
-    error = nil,
   }
 
   local shortopts = cli_args.shortopts
   local longopts: {getopt.LongOpt} = cli_args.longopts
-
-  -- Parse shortopts to build set of options that require arguments
-  local short_needs_arg: {string: boolean} = {}
-  local j = 1
-  while j <= #shortopts do
-    local c = shortopts:sub(j, j)
-    if c ~= ":" then
-      if j < #shortopts and shortopts:sub(j + 1, j + 1) == ":" and
-      (j + 1 >= #shortopts or shortopts:sub(j + 2, j + 2) ~= ":") then
-        short_needs_arg[c] = true
-      end
-    end
-    j = j + 1
-  end
-
-  -- Parse longopts to build set of options that require arguments
-  local long_needs_arg: {string: boolean} = {}
-  for _, opt in ipairs(longopts) do
-    if opt.has_arg == "required" then
-      long_needs_arg[opt.name] = true
-    end
-  end
+  local short_needs_arg = cli_args.short_needs_arg
+  local long_needs_arg = cli_args.long_needs_arg
 
   -- Options that consume all remaining arguments (no script after them)
   local long_greedy: {string: boolean} = {
@@ -128,6 +90,12 @@ local function parse_args(): Options
 
   -- Find first non-option argument (script name) to know where to stop parsing
   local script_idx: integer = nil
+  -- --build's payload after the mode is a FOREIGN argv — the recipe
+  -- child's own flags (`--build tee out cosmic --report ...`). getopt
+  -- permutes, so it would consume those flags as cosmic options; slice
+  -- the payload off here and parse only up to the mode argument.
+  local build_payload: {string} = nil
+  local build_parse_end: integer = nil
   local i = 1
   while i <= #arg do
     local a = arg[i]
@@ -136,7 +104,15 @@ local function parse_args(): Options
       break
     elseif a:sub(1, 2) == "--" then
       local opt_name = a:sub(3)
-      if long_greedy[opt_name] then
+      if opt_name == "build" then
+        build_payload = {}
+        for k = i + 2, #arg do
+          build_payload[#build_payload + 1] = arg[k]
+        end
+        build_parse_end = i + 1
+        script_idx = nil
+        break
+      elseif long_greedy[opt_name] then
         script_idx = nil
         break
       elseif long_extra_arg[opt_name] then
@@ -165,6 +141,10 @@ local function parse_args(): Options
       if arg[k] ~= "--" then
         cosmic_args[#cosmic_args + 1] = arg[k]
       end
+    end
+  elseif build_parse_end then
+    for k = 1, math.min(build_parse_end, #arg) do
+      cosmic_args[#cosmic_args + 1] = arg[k]
     end
   else
     cosmic_args = arg
@@ -195,6 +175,8 @@ local function parse_args(): Options
     local m = r.missing[1]
     if m == "test" then
       opts.error = "cosmic-lua: --test requires: --test <output> <cmd>...\nSee: cosmic-lua --help"
+    elseif m == "build" then
+      opts.error = "cosmic-lua: --build requires: --build <mode> <args>...\nSee: cosmic-lua --help"
     elseif m == "embed" then
       opts.error = "cosmic-lua: --embed requires: --embed <path>\nSee: cosmic-lua --help"
     elseif m == "output" then
@@ -291,6 +273,10 @@ local function parse_args(): Options
       return opts
     elseif opt == "coverage-report" then
       opts.coverage_report_paths = r.args
+      return opts
+    elseif opt == "build" then
+      opts.build_mode = optarg
+      opts.build_argv = build_payload or {}
       return opts
     elseif opt == "make" then
       opts.make = optarg or ""
@@ -399,6 +385,21 @@ local function main(): integer, string
 
   if opts.coverage_report_paths then
     return require("cosmic.coverage").report(opts.coverage_report_paths)
+  end
+
+  if opts.build_mode then
+    -- Arm line coverage like the script path below does: --build runs
+    -- in the coverage lane must still report cosmic.build's lines.
+    local cov_dump: function() = nil
+    if os.getenv("COSMIC_COVERAGE") then
+      cov_dump = require("cosmic.coverage").enable_from_env()
+    end
+    local build = require("cosmic.build")
+    local code = build.main(opts.build_mode, table.unpack(opts.build_argv))
+    if cov_dump then
+      cov_dump()
+    end
+    return code
   end
 
   if opts.make ~= nil then

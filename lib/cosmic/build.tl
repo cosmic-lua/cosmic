@@ -1,18 +1,24 @@
-#!/usr/bin/env lua
---- Shell-free recipe steps for the compile, copy, version-link, and
---- doc-index rules (#732): `compile` replaces the cat/if/redirect/
---- cmp/mv dance, `copy` replaces mkdir+cp, `link` replaces
---- mkdir+ln -sfn, `capture` replaces redirect+cmp/mv for scripts.
+--- Shell-free recipe steps for the build's make rules (#732): `compile`
+--- replaces the cat/if/redirect/cmp/mv dance, `copy` replaces mkdir+cp,
+--- `link` replaces mkdir+ln -sfn, `capture` and `tee` replace redirects
+--- with cmp/mv or tee, plus list/remove/require-*/verdict.
 ---
---- Runs under the PINNED bootstrap against its EMBEDDED stdlib only —
---- deliberately no tree requires, unlike every other build script: the
---- compile rule is what BUILDS the tree's .lua files, so a tree
+--- Dual life (#756 item 3): embedded in the cosmic binary behind the
+--- greedy `--build <mode> <args>...` CLI flag — the surface recipes
+--- call once the bootstrap pin ships it — AND compiled to
+--- o/lib/build/build-recipe.lua by the self-bootstrap exception rule in
+--- lib/build/cook.mk, because today's PINNED bootstrap predates
+--- `--build` and the compile rule cannot compile its own driver. When a
+--- release carrying `--build` is pinned, the recipes become
+--- `$(bootstrap_cosmic) --build ...` and the compiled driver (and its
+--- exception rule) disappears.
+---
+--- Requires the EMBEDDED stdlib only — deliberately no tree modules:
+--- the compile rule is what BUILDS the tree's .lua files, so a tree
 --- dependency here is circular, and the recipes export LUA_PATH=";;"
 --- so a caller's LUA_PATH cannot redirect the driver's own requires.
---- The bootstrap sha therefore covers this driver's entire runtime; a
+--- The bootstrap sha therefore covers the driver's entire runtime; a
 --- bootstrap bump that breaks an embedded API fails the build loudly.
---- The driver's own .lua is compiled by a self-bootstrap exception
---- rule (see lib/build/cook.mk) — it cannot compile itself.
 
 local child = require("cosmic.child")
 local env = require("cosmic.env")
@@ -21,7 +27,7 @@ local fs_types = require("cosmic.fs.types")
 local proc = require("cosmic.proc")
 
 local function fail(msg: string): integer
-  io.stderr:write("build-recipe: " .. msg .. "\n")
+  io.stderr:write("--build: " .. msg .. "\n")
   return 1
 end
 
@@ -323,7 +329,7 @@ local function main(...: string): integer
   local mode = table.remove(args, 1)
   local run_mode = mode and modes[mode]
   if not run_mode then
-    return fail("usage: build-recipe <mode> ... (see the modes table)")
+    return fail("usage: --build <mode> ... (see the modes table)")
   end
   return run_mode(args)
 end
