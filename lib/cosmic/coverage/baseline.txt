@@ -1,5 +1,6 @@
 # coverage ratchet baseline: `bin/make coverage-baseline` rewrites this file.
 # columns: path covered-lines total-lines
+lib/build/audit-unveil.tl 172 193
 lib/build/build-fetch.tl 23 95
 lib/build/build-pack.tl 97 132
 lib/build/build-stage.tl 45 251

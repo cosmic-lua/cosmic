@@ -92,6 +92,22 @@ makefile ratchet tests enumerate the exception set, the
 `$(unveil_hostx)` carriers, and statically scan recipe text for shell
 syntax — all three fail when a set grows without a declared reason.
 
+most grants are not written by hand at all: landlock-make derives them
+from the declared graph (prerequisites readable, the target's directory
+writable, plus the global base), so a rule declares only genuinely-extra
+paths. that derivation is gated upstream in
+`test/tool/build/make_sandbox_test.sh` (whilp/cosmopolitan#210).
+
+`bin/make audit-unveil` shrinks the hand-written remainder with evidence
+instead of guesswork (#756 item 4): it rebuilds a representative target
+per enforced family with one grant entry withheld, and reports the
+entries that rule did not need. two limits are structural — it needs
+Landlock (it refuses to run without it, since every verdict would read
+UNUSED for the wrong reason), and it only reaches grants composed from a
+shared variable, not per-rule literals. its verdicts are scoped to the
+targets it audited; a rule outside that list may still need an entry it
+reports.
+
 ### Building the cosmic Binary
 
 the cosmic binary is assembled in `lib/cosmic/cook.mk`:
