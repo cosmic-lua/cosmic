@@ -69,7 +69,6 @@ local real_shell_allowed: {string} = {
   "env-probe-clamped", -- .ENV canary probe (#756 item 5)
   "o/bin/ape", -- APE loader extraction IS the stub flow
   "o/bootstrap/compile-flag", -- pre-driver strict-compile probe
-  "o/bootstrap/cosmic", -- trust-root download (curl + sha pipe)
   "o/ci-selftest-launder-summary.txt", -- deliberately laundering fixture
   "o/cosmic/version.lua", -- git describe interpolation
   "o/lib/build/build-recipe.lua", -- driver self-bootstrap compile

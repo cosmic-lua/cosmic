@@ -2,14 +2,15 @@
 set -e
 
 # Trust root (#756 item 6). This script is the only host-shell step in the
-# build: with POSIX sh + curl + sha256sum + sed/od it obtains ONE pinned
-# artifact — the bootstrap cosmic (url + sha in cook.mk, single source for
-# this script and the Makefile's own rule) — and everything after runs
+# build and the ONLY provisioner of the trust root (#756 cleanup): with
+# POSIX sh + curl + sha256sum + sed/od it obtains ONE pinned artifact —
+# the bootstrap cosmic (url + sha in cook.mk) — and everything after runs
 # under that pin: the bootstrap extracts `make` from the sha-pinned
 # cosmos.zip (pin in 3p/cosmos/version.lua) via lib/build/make-boot.tl,
 # so no separate landlock-make release asset and no host unzip exist in
-# the chain. Trust root: kernel -> this script -> two pinned artifacts ->
-# everything else.
+# the chain. The Makefile's $(bootstrap_cosmic) rule only errors — it
+# never downloads. Trust root: kernel -> this script -> two pinned
+# artifacts -> everything else.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -54,16 +55,22 @@ download() {
 }
 
 ensure_bootstrap() {
-    # Mirror of the Makefile's $(bootstrap_cosmic) rule (which still
-    # covers the MAKE_BIN-exists-but-o/-cleaned case): download, verify
-    # against the cook.mk pin, assimilate to a native ELF (sandboxed
-    # rules cannot grant the APE loader's ~/.ape-* extraction), check.
-    [ -x "${BOOTSTRAP}" ] && return 0
+    # Sole provisioner of the bootstrap (#756 cleanup; the Makefile's
+    # rule only errors): download, verify against the cook.mk pin,
+    # assimilate to a native ELF (sandboxed rules cannot grant the APE
+    # loader's ~/.ape-* extraction), check. The stamp beside the binary
+    # records which pin produced it, so a cook.mk pin bump re-downloads
+    # instead of leaving local trees on the previous bootstrap (string
+    # compare on the hot path — no hashing per invocation).
     bootstrap_url="$(sed -n 's/^bootstrap_url := //p' "${ROOT}/cook.mk")"
     bootstrap_sha256="$(sed -n 's/^bootstrap_sha256 := //p' "${ROOT}/cook.mk")"
     if [ -z "${bootstrap_url}" ] || [ -z "${bootstrap_sha256}" ]; then
         echo "could not read bootstrap_url/bootstrap_sha256 from ${ROOT}/cook.mk" >&2
         exit 1
+    fi
+    if [ -x "${BOOTSTRAP}" ] &&
+        [ "$(cat "${BOOTSTRAP}.pin" 2>/dev/null)" = "${bootstrap_sha256}" ]; then
+        return 0
     fi
     echo "Downloading bootstrap cosmic..." >&2
     mkdir -p "${ROOT}/o/bootstrap"
@@ -83,13 +90,17 @@ ensure_bootstrap() {
     fi
     mv -f "${boot_tmp}" "${BOOTSTRAP}"
     ln -sf cosmic "${ROOT}/o/bootstrap/lua"
+    printf '%s\n' "${bootstrap_sha256}" > "${BOOTSTRAP}.pin"
 }
+
+# Always: covers the cleaned-o/ case (the Makefile no longer downloads)
+# and bootstrap pin bumps (the stamp mismatch re-downloads).
+ensure_bootstrap
 
 # Re-extract when the cosmos pin moved (-nt: version.lua newer than the
 # extracted make), not only when the binary is missing — a pin bump must
 # refresh local trees' make, or they keep running the previous release's.
 if [ ! -f "${MAKE_BIN}" ] || [ "${ROOT}/3p/cosmos/version.lua" -nt "${MAKE_BIN}" ]; then
-    ensure_bootstrap
     # SSL_USE_SYSTEM_CERTS: the bootstrap's embedded CAs are too narrow
     # for github.com (same knob as the Makefile's fetch rule); the sha
     # pin is the trust root, TLS is transport. LUA_PATH=";;" pins

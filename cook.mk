@@ -195,20 +195,14 @@ bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-19-5c
 # bootstrap's stale embedded source (#744 — see tree_tl_path).
 bootstrap_sha256 := 6c2a0afe6c942560ce2a0d796ddf8f8df096ce2c92b8ce142c28da59ecac6dc6
 
-# bin/make mirrors this rule (ensure_bootstrap, parsing the pin above via
-# sed) for the cold-tree case where no make exists yet — keep them in sync.
-# Shell exception (#756 item 2): the trust-root download — curl, the
-# sha256sum pipe, and the ELF check predate everything the driver needs.
-$(bootstrap_cosmic): private SHELL := /bin/bash
-$(bootstrap_cosmic): private .SHELLFLAGS := -o pipefail -c
+# bin/make is the SOLE provisioner of the bootstrap (#756 cleanup): it
+# runs before every make invocation, parses the pin above via sed,
+# downloads/verifies/assimilates, and re-downloads when the pin moves
+# (the .pin stamp beside the binary). This rule is only a tripwire for
+# invocations that bypassed bin/make — it never downloads, so the
+# curl/sha256sum/cmp shell exception it carried is retired.
 $(bootstrap_cosmic):
-	@mkdir -p $(@D)
-	curl -fsSL -o $@ $(bootstrap_url)
-	@echo "$(bootstrap_sha256)  $@" | sha256sum -c - || { rm -f $@; echo "bootstrap cosmic checksum verification failed" >&2; exit 1; }
-	chmod +x $@
-	@$@ --assimilate
-	@printf '\177ELF' | cmp -s - <(head -c 4 $@) || { echo "bootstrap assimilation failed: $@ is still an APE — sandboxed rules need a native ELF (no loader grants)" >&2; exit 1; }
-	@ln -sf cosmic $(@D)/lua
+	$(error $(bootstrap_cosmic) missing — run builds via bin/make, which provisions the trust root)
 
 # Strict-compile capability probe: newer bootstraps ship --compile-strict
 # (strict type check, then generate from that same checked AST, so nothing
