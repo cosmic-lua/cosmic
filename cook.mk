@@ -21,15 +21,18 @@ export PATH := $(CURDIR)/$(o)/bootstrap:$(CURDIR)/$(o)/bin:$(HOST_PATH)
 # enforcement unexpanded (see the sandbox-canary note in lib/build).
 pledge_build := stdio rpath wpath cpath proc exec
 unveil_base := rx:$(o)/bootstrap r:lib r:3p
-# Host set proven under real enforcement by the sandbox-canary (#724)
-# and the enforced families' CI runs: shell + coreutils + loaders.
+# Device nodes the cosmic runtime itself touches — not host tools, so
+# de-hosted rules (#732) grant these without the toolchain surface.
 # /dev/null must be writable (recipes redirect to it). mbedtls3's
 # non-glibc build cannot use the getrandom syscall, so TLS entropy
 # fopens MBEDTLS_PLATFORM_DEV_RANDOM — which defaults to /dev/random,
 # not /dev/urandom (platform.h:398) — and fetch SIGILLs under Landlock
 # without it; grant both devices. ENOENT entries are skipped, so the
 # generous list is safe across hosts.
-unveil_hostx := rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc rw:/dev/null r:/dev/random r:/dev/urandom
+unveil_dev := rw:/dev/null r:/dev/random r:/dev/urandom
+# Host set proven under real enforcement by the sandbox-canary (#724)
+# and the enforced families' CI runs: shell + coreutils + loaders.
+unveil_hostx := rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc $(unveil_dev)
 unveil_dep := rx:$(o)/bootstrap r:3p rwc:$(o)
 # TMP is x: tests exec what they build there — embed outputs, scripts
 # under TEST_TMPDIR (proven need: embed/child/testrun under Landlock)

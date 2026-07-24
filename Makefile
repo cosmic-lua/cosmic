@@ -101,23 +101,23 @@ all_versioned := $(call filter-only,$(foreach m,$(modules),$(if $($(m)_version),
 all_fetched := $(patsubst %/.versioned,%/.fetched,$(all_versioned))
 ## Fetch all dependencies only
 fetched: $(all_fetched)
-# Downloads are integrity-checked against the sha256 pinned in each module's
-# version.lua, so TLS is a transport safeguard, not the trust root. The
-# bootstrap trusts only its embedded CA set (too narrow for github.com);
-# trust the host CA store so fetches work on stock runners and behind
-# TLS-intercepting proxies. An operator SSL_CERT_FILE bundle is unveiled.
-# Fetch/stage scripts run under the pinned bootstrap but are written
-# against THIS tree's cosmic.* APIs (via their explicit LUA_PATH).
-# Without the compiled stdlib as a prerequisite, a cold parallel build
-# let require() fall back to the bootstrap's embedded older-API stdlib
-# mid-compile. Unfiltered: only= must not shrink the closure.
+# Downloads are integrity-checked against the sha256 pinned in each
+# module's version.lua — TLS is transport, not the trust root — via the
+# host CA store (the bootstrap's embedded CAs are too narrow for
+# github.com; an operator SSL_CERT_FILE bundle is unveiled). The scripts
+# run under the pinned bootstrap against THIS tree's cosmic.* APIs —
+# the compiled stdlib is a prerequisite (a cold parallel build once fell
+# back to the bootstrap's embedded stdlib; only= must not shrink it) —
+# and are de-hosted (#732): .versioned resolution and extraction happen
+# in-process, LUA_PATH by target-scoped export (ambient export retired,
+# #727; compile recipes set their own), so each recipe is a plain argv: no /bin/sh, no $(unveil_hostx), only the bootstrap executes.
 stdlib_lua := $(patsubst %.tl,$(o)/%.lua,$(filter lib/cosmic/%,$(foreach x,$(modules),$($(x)_tl))))
-
+$(o)/%/.fetched $(o)/%/.staged: export LUA_PATH = $(tree_lua_path)
 $(o)/%/.fetched: export SSL_USE_SYSTEM_CERTS = 1
 $(o)/%/.fetched: .PLEDGE := $(pledge_build) inet dns
-$(o)/%/.fetched: .UNVEIL := $(unveil_dep) $(unveil_hostx) r:/etc/resolv.conf r:/etc/ssl $(if $(SSL_CERT_FILE),r:$(SSL_CERT_FILE))
+$(o)/%/.fetched: .UNVEIL := $(unveil_dep) $(unveil_dev) r:/etc/resolv.conf r:/etc/hosts r:/etc/ssl $(if $(SSL_CERT_FILE),r:$(SSL_CERT_FILE))
 $(o)/%/.fetched: $(o)/%/.versioned $(build_files) $(stdlib_lua) | $(bootstrap_cosmic)
-	@LUA_PATH="$(tree_lua_path)" $(bootstrap_cosmic) -- $(build_fetch) $$(readlink $<) $(platform) $@
+	@$(bootstrap_cosmic) -- $(build_fetch) $< $(platform) $@
 
 # versions get staged: o/module/.staged -> o/staged/module/<ver>-<sha>
 .PHONY: staged
@@ -125,9 +125,9 @@ all_staged := $(patsubst %/.fetched,%/.staged,$(all_fetched))
 ## Fetch and extract all dependencies
 staged: $(all_staged)
 $(o)/%/.staged: .PLEDGE := $(pledge_build)
-$(o)/%/.staged: .UNVEIL := $(unveil_dep) $(unveil_hostx)
+$(o)/%/.staged: .UNVEIL := $(unveil_dep) $(unveil_dev)
 $(o)/%/.staged: $(o)/%/.fetched $(build_files) $(stdlib_lua)
-	@LUA_PATH="$(tree_lua_path)" $(bootstrap_cosmic) -- $(build_stage) $$(readlink $(o)/$*/.versioned) $(platform) $< $@
+	@$(bootstrap_cosmic) -- $(build_stage) $(o)/$*/.versioned $(platform) $< $@
 
 all_tests := $(call filter-only,$(foreach x,$(modules),$($(x)_tests)))
 all_tested := $(patsubst %,$(o)/%.test.got,$(all_tests))
