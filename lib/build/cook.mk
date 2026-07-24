@@ -159,7 +159,12 @@ $(o)/ci-selftest-launder-summary.txt:
 # look stale INSIDE the nested run, which then rebuilds the parent's
 # own driver in a race against the outer make (witnessed: the nested
 # compile's cmp/mv losing its .tmp mid-flight).
-$(build_make_out)/ci-launder.out: $(build_make_srcs)
+# Order-only on the driver: -o means "use, never remake", so on a COLD
+# tree the fixture must not start until the parent's driver exists —
+# without this the nested remove step dies on the missing .lua and the
+# fixture records an exec error instead of the graded ci: FAIL verdict
+# (witnessed: the release build's cold `make test`, 2026-07-24).
+$(build_make_out)/ci-launder.out: $(build_make_srcs) | $(build_recipe) $(bootstrap_cosmic)
 	@mkdir -p $(@D)
 	@code=0; $(MAKE) ci o=$(o)/citest ci_stages=ci-selftest-launder bootstrap_cosmic=$(CURDIR)/$(bootstrap_cosmic) build_recipe=$(CURDIR)/$(build_recipe) -o $(CURDIR)/$(bootstrap_cosmic) -o $(CURDIR)/$(build_recipe) >$@.tmp 2>&1 || code=$$?; echo "exit:$$code" >> $@.tmp; mv $@.tmp $@
 
