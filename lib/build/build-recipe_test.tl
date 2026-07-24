@@ -121,3 +121,54 @@ local function test_unknown_mode()
   assert(err:match("usage"), "expected usage error, got: " .. err)
 end
 test_unknown_mode()
+
+local function test_tee_prints_and_writes()
+  local out = fs.join(tmpdir, "tee/summary.txt")
+  local code, stdout, err = run_driver("tee", out, test_bin, "-e", "print('report line')")
+  assert(code == 0, "tee failed (" .. tostring(code) .. "): " .. err)
+  assert(stdout:match("report line"), "tee must print to stdout")
+  -- cast: or fallback does not narrow
+  local written = (fs.read(out) or "") as string
+  assert(written:match("report line"), "tee must write the file")
+end
+test_tee_prints_and_writes()
+
+local function test_tee_propagates_failure_after_writing()
+  local out = fs.join(tmpdir, "tee/fail.txt")
+  local code = run_driver("tee", out, test_bin, "-e", "print('partial') os.exit(3)")
+  assert(code == 3, "tee must propagate the child's exit code, got: " .. tostring(code))
+  -- cast: or fallback does not narrow
+  local written = (fs.read(out) or "") as string
+  assert(written:match("partial"), "tee must write the file before failing")
+end
+test_tee_propagates_failure_after_writing()
+
+local function test_list_write_if_changed()
+  local out = fs.join(tmpdir, "list/files.stamp")
+  local code = run_driver("list", out, "a.tl", "b.tl")
+  assert(code == 0, "list failed")
+  assert(fs.read(out) == "a.tl\nb.tl\n", "list content")
+  local st1 = fs.stat(out)
+  assert(st1, "stamp should exist")
+  local s1, n1 = (st1 as fs_types.Stat):mtim() -- cast: mixed-representation Stat
+  code = run_driver("list", out, "a.tl", "b.tl")
+  assert(code == 0, "unchanged list must succeed")
+  local s2, n2 = (fs.stat(out) as fs_types.Stat):mtim() -- cast: mixed-representation Stat
+  assert(s1 == s2 and n1 == n2, "unchanged list must not rewrite the stamp")
+  code = run_driver("list", out, "a.tl")
+  assert(code == 0, "changed list must rewrite")
+  assert(fs.read(out) == "a.tl\n", "changed list content")
+end
+test_list_write_if_changed()
+
+local function test_require_marker()
+  local dir = fs.join(tmpdir, "markers/nested")
+  fs.makedirs(dir)
+  assert(fs.write(fs.join(dir, "probe.err"), "x enforce-ran: pledge\n"))
+  local code = run_driver("require-marker", "enforce-ran:", fs.join(tmpdir, "markers"))
+  assert(code == 0, "marker present must pass")
+  local code2, _out, err = run_driver("require-marker", "absent-marker:", fs.join(tmpdir, "markers"))
+  assert(code2 ~= 0, "missing marker must fail")
+  assert(err:match("absent%-marker"), "failure names the marker, got: " .. err)
+end
+test_require_marker()

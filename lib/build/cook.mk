@@ -30,7 +30,6 @@ build_tests := $(wildcard lib/build/*_test.tl)
 # at this tree's freshly compiled modules (the doc/index.tl pattern) so the
 # delegation runs THIS tree's style code, not the bootstrap's embedded copy.
 lint_style_lua := $(o)/lib/cosmic/cli/style.lua
-linter := LUA_PATH="$(o)/lib/?.lua;$(o)/lib/?/init.lua;;" $(bootstrap_cosmic) -- $(build_lint)
 
 # build tests exercise the compiled build tools (reporter, lint,
 # make-help, ...) at runtime via LUA_PATH=$(o)/lib/build, so they need
@@ -40,10 +39,13 @@ build_test_got := \
   $(patsubst %,$(o)/coverage/%.test.got,$(build_tests))
 $(build_test_got): $(build_files)
 
-# make-help snapshot: generate actual help output
-$(o)/lib/build/make-help.snap: Makefile $(build_help) | $(bootstrap_cosmic)
-	@mkdir -p $(@D)
-	@LUA_PATH="$(tree_lua_path)" $(bootstrap_cosmic) $(build_help) Makefile > $@
+# make-help snapshot: generate actual help output (driver capture, #732)
+$(o)/lib/build/make-help.snap: export LUA_PATH := ;;
+$(o)/lib/build/make-help.snap: export TREE_LUA_PATH = $(tree_lua_path)
+$(o)/lib/build/make-help.snap: private SHELL := /dev/null/enoshell
+$(o)/lib/build/make-help.snap: private .SHELLFLAGS := -c
+$(o)/lib/build/make-help.snap: Makefile $(build_help) $(build_recipe) | $(bootstrap_cosmic)
+	@$(bootstrap_cosmic) -- $(build_recipe) capture $(bootstrap_cosmic) $@ $(build_help) Makefile
 
 # makefile validation outputs
 build_make_out := $(o)/lib/build/make

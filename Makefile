@@ -134,8 +134,11 @@ all_tested := $(patsubst %,$(o)/%.test.got,$(all_tests))
 ## Run all tests (incremental)
 test: $(o)/test-summary.txt
 
-$(o)/test-summary.txt: $(all_tested) | $(cosmic_bin)
-	@$(cosmic_bin) --report $^ | tee $@
+$(o)/test-summary.txt: export LUA_PATH := ;;
+$(o)/test-summary.txt: private SHELL := /dev/null/enoshell
+$(o)/test-summary.txt: private .SHELLFLAGS := -c
+$(o)/test-summary.txt: $(all_tested) | $(cosmic_bin) $(build_recipe)
+	@$(bootstrap_cosmic) -- $(build_recipe) tee $@ $(cosmic_bin) --report $^
 
 export TEST_O := $(o)
 export TEST_PLATFORM := $(platform)
@@ -217,9 +220,9 @@ coverage_baseline_tool := $(o)/lib/cosmic/coverage/baseline.lua
 
 $(o)/coverage-summary.txt: .PLEDGE := $(pledge_build)
 $(o)/coverage-summary.txt: .UNVEIL := $(unveil_base) rwcx:$(o)
-$(o)/coverage-summary.txt: $(coverage_got) | $(cosmic_bin)
-	@$(cosmic_bin) --report $(coverage_got) > $(o)/coverage-tests.txt
-	@$(cosmic_bin) --coverage-report $(o)/coverage lib | tee $@
+$(o)/coverage-summary.txt: $(coverage_got) | $(cosmic_bin) $(build_recipe)
+	@$(bootstrap_cosmic) -- $(build_recipe) capture $(cosmic_bin) $(o)/coverage-tests.txt --report $(coverage_got)
+	@$(bootstrap_cosmic) -- $(build_recipe) tee $@ $(cosmic_bin) --coverage-report $(o)/coverage lib
 	@if [ -n "$(only)" ]; then \
 	  echo "coverage ratchet skipped (only=$(only))"; \
 	elif [ -f $(coverage_baseline) ]; then \
@@ -265,13 +268,14 @@ $(o)/enforce/%.tl.test.got: export COSMIC_ENFORCE := 1
 $(o)/enforce/%.tl.test.got: $(o)/%.lua $(cosmic_bin)
 	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
-$(o)/enforce-summary.txt: $(enforce_got) | $(cosmic_bin)
-	@$(cosmic_bin) --report $^ | tee $@
-	@if ! grep -rqs "enforce-ran:" $(o)/enforce/; then \
-	  echo "enforce tripwire: no enforcement ran — every sandbox test skipped."; \
-	  echo "  the privileged lane is not exercising enforcement (outer sandbox still active?)."; \
-	  exit 1; \
-	fi
+# The require-marker line is the tripwire: it fails the lane when no
+# enforcement ran (every sandbox test skipped — outer sandbox active?).
+$(o)/enforce-summary.txt: export LUA_PATH := ;;
+$(o)/enforce-summary.txt: private SHELL := /dev/null/enoshell
+$(o)/enforce-summary.txt: private .SHELLFLAGS := -c
+$(o)/enforce-summary.txt: $(enforce_got) | $(cosmic_bin) $(build_recipe)
+	@$(bootstrap_cosmic) -- $(build_recipe) tee $@ $(cosmic_bin) --report $^
+	@$(bootstrap_cosmic) -- $(build_recipe) require-marker enforce-ran: $(o)/enforce
 
 all_built_files := $(call filter-only,$(foreach x,$(modules),$($(x)_files)))
 all_built_files += $(all_lua)
@@ -322,12 +326,11 @@ $(o)/%.format.got: $(o)/% $(cosmic_check_bin) | $(bootstrap_files)
 lint_tracked := $(shell git ls-files 2>/dev/null)
 lint_present := $(wildcard $(lint_tracked))
 lint_deleted := $(filter-out $(lint_present),$(lint_tracked))
-all_linted := $(patsubst %,$(o)/%.lint.ok,$(lint_present))
+all_linted := $(patsubst %,$(o)/%.lint.got,$(lint_present))
 
 lint_list_stamp := $(o)/lint-files.stamp
-$(lint_list_stamp): .FORCE
-	@mkdir -p $(@D); printf '%s\n' $(lint_present) > $@.tmp
-	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
+$(lint_list_stamp): .FORCE $(build_recipe)
+	@$(bootstrap_cosmic) -- $(build_recipe) list $@ $(lint_present)
 
 ## Check file length limits on all files
 lint: $(o)/lint-summary.txt
@@ -336,11 +339,10 @@ $(o)/lint-summary.txt: export REPORTER_NOTE = $(if $(lint_deleted),lint: skipped
 $(o)/lint-summary.txt: $(all_linted) $(lint_list_stamp) | $(build_reporter)
 	$(if $(strip $(lint_tracked)),,$(error lint: git ls-files found nothing — not a git checkout?))
 	$(if $(strip $(lint_present)),,$(error lint: no tracked file exists on disk — filter collapsed the list?))
-	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $(patsubst %,%.got,$(basename $(all_linted)))
+	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $(all_linted)
 
-$(o)/%.lint.ok: % $(build_lint) $(lint_style_lua) | $(bootstrap_cosmic)
-	@mkdir -p $(@D)
-	-@$(linter) $< > $(basename $@).out 2> $(basename $@).err; STATUS=$$?; echo $$STATUS > $(basename $@).got; cp $(basename $@).got $@
+$(o)/%.lint.got: % $(build_lint) $(lint_style_lua) | $(bootstrap_cosmic)
+	@$(bootstrap_cosmic) --test $(basename $@) $(bootstrap_cosmic) -- $(build_lint) $<
 
 .PHONY: clean
 ## Remove all build artifacts
