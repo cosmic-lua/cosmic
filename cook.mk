@@ -64,6 +64,11 @@ $(o)/%.lua: .PLEDGE := $(pledge_build) fattr
 # fast path + poisoned-SHELL tripwire as fetch/stage. The driver's own
 # compile opts back out in lib/build/cook.mk (self-bootstrap exception).
 $(o)/%.lua: .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_dev)
+# .ENV (#756 item 5): the compile child sees ONLY the declared set —
+# the three path axes below plus the pinned locale/tz and NO_COLOR
+# (deterministic output). A hostile caller variable cannot reach it;
+# gate: the env-clamp fixture's clamped probe in lib/build/cook.mk.
+$(o)/%.lua: .ENV := LUA_PATH TREE_LUA_PATH TL_PATH LC_ALL TZ NO_COLOR
 # LUA_PATH=;; pins the DRIVER to the bootstrap's embedded stdlib (a
 # caller's LUA_PATH must not redirect its requires); the compile child
 # gets ";;" (strict) or TREE_LUA_PATH — the #666 axis, one layer down.
@@ -89,6 +94,14 @@ $(o)/%/.staged: .SANDBOXED := 1
 # fell back to its embedded stdlib); inheritance is benign because
 # every compile recipe sets LUA_PATH explicitly. Recursive (=):
 # tree_lua_path is computed after the includes (#720).
+# .ENV (#756 item 5): fetch declares the network extras — operator
+# proxy/CA variables (both cases; this is exactly the "per-rule
+# declared extras" shape) — stage only the tree paths. SSL_USE_
+# SYSTEM_CERTS rides the fetch rule's own export in the Makefile.
+$(o)/%/.fetched: .ENV := LUA_PATH FETCH_O SSL_USE_SYSTEM_CERTS SSL_CERT_FILE \
+  HTTPS_PROXY https_proxy HTTP_PROXY http_proxy NO_PROXY no_proxy \
+  LC_ALL TZ NO_COLOR TMPDIR
+$(o)/%/.staged: .ENV := LUA_PATH STAGE_O FETCH_O LC_ALL TZ NO_COLOR TMPDIR
 $(o)/%/.fetched $(o)/%/.staged: export LUA_PATH = $(tree_lua_path)
 # De-hosted (#732): lint runs through the pinned bootstrap's --test
 # capture (which mkdtemps under $(TMP)); the .ok alias file is retired —
@@ -98,6 +111,7 @@ $(o)/%/.fetched $(o)/%/.staged: export LUA_PATH = $(tree_lua_path)
 $(o)/%.lint.got: .SANDBOXED := 1
 $(o)/%.lint.got: .PLEDGE := $(pledge_build)
 $(o)/%.lint.got: .UNVEIL := rwc:$(o) rwc:$(TMP) $(unveil_dev)
+$(o)/%.lint.got: .ENV := LUA_PATH TMPDIR LC_ALL TZ NO_COLOR
 $(o)/%.lint.got: export LUA_PATH = $(o)/lib/?.lua;$(o)/lib/?/init.lua;;
 # Reporter summaries (bootstrap + tee). test/coverage/enforce summaries
 # exec $(cosmic_bin) and stay unsandboxed with the test lanes.
@@ -109,6 +123,8 @@ $(reporter_summaries): .PLEDGE := $(pledge_build)
 # `| tee`), so these recipes are direct bootstrap execs — same no-shell
 # fast path + tripwire as fetch/stage above.
 $(reporter_summaries): .UNVEIL := rwc:$(o) $(unveil_dev)
+# REPORTER_NOTE: the lint summary's deleted-files note rides the env
+$(reporter_summaries): .ENV := LUA_PATH REPORTER_NOTE LC_ALL TZ NO_COLOR
 $(reporter_summaries): export LUA_PATH = $(tree_lua_path)
 
 # Third ENFORCED family (#729): the teal/format check rules, which exec
@@ -121,10 +137,12 @@ $(reporter_summaries): export LUA_PATH = $(tree_lua_path)
 $(o)/%.teal.got: .SANDBOXED := 1
 $(o)/%.teal.got: .PLEDGE := $(pledge_build)
 $(o)/%.teal.got: .UNVEIL := rwc:$(o) r:tlconfig.lua rwc:$(TMP) $(unveil_dev)
+$(o)/%.teal.got: .ENV := TL_PATH TMPDIR LC_ALL TZ NO_COLOR
 $(o)/%.teal.got: export TL_PATH = $(tree_tl_path)
 $(o)/%.format.got: .SANDBOXED := 1
 $(o)/%.format.got: .PLEDGE := $(pledge_build)
 $(o)/%.format.got: .UNVEIL := rwc:$(o) r:tlconfig.lua rwc:$(TMP) $(unveil_dev)
+$(o)/%.format.got: .ENV := TMPDIR LC_ALL TZ NO_COLOR
 
 # Fifth ENFORCED family (#729): examples. Same grant sets as the test
 # lanes — examples exercise the same modules (sockets, tty, chmod) and

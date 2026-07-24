@@ -85,7 +85,10 @@ ensure_bootstrap() {
     ln -sf cosmic "${ROOT}/o/bootstrap/lua"
 }
 
-if [ ! -f "${MAKE_BIN}" ]; then
+# Re-extract when the cosmos pin moved (-nt: version.lua newer than the
+# extracted make), not only when the binary is missing — a pin bump must
+# refresh local trees' make, or they keep running the previous release's.
+if [ ! -f "${MAKE_BIN}" ] || [ "${ROOT}/3p/cosmos/version.lua" -nt "${MAKE_BIN}" ]; then
     ensure_bootstrap
     # SSL_USE_SYSTEM_CERTS: the bootstrap's embedded CAs are too narrow
     # for github.com (same knob as the Makefile's fetch rule); the sha
