@@ -221,7 +221,6 @@ local real_shell_allowed: {string} = {
   "o/bootstrap/cosmic", -- trust-root download (curl + sha pipe)
   "o/ci-selftest-launder-summary.txt", -- deliberately laundering fixture
   "o/cosmic/version.lua", -- git describe interpolation
-  "o/coverage-summary.txt", -- ratchet conditional (item-1 residue)
   "o/lib/build/build-recipe.lua", -- driver self-bootstrap compile
   "o/lib/build/make/ci-launder.out", -- nested-make fixture
   "o/lib/build/make/database.out", -- nested-make fixture
@@ -229,12 +228,9 @@ local real_shell_allowed: {string} = {
   "o/lib/build/make/env-clamp.out", -- nested-make fixture
   "o/lib/build/make/only-database.out", -- nested-make fixture
   "o/sandbox-canary/probe.got", -- out-of-grant write attempt
-  "perf", -- perf_cmd env prefixes
-  "perf-baseline", -- perf_cmd env prefixes
   "perf-bin", -- COSMO_LUA guard
   "perf-compare", -- retry/triage chain
   "perf-selfcheck", -- A/A chain
-  "regen-tl-types", -- dev regen (redirect + mv)
   "regen-types", -- dev regen loop
   "sandbox-canary", -- verdict branching
 }

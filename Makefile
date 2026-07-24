@@ -220,21 +220,15 @@ $(o)/coverage/%.tl.test.got: $(o)/%.lua $(cosmic_bin) $(ape_loader)
 coverage_baseline := lib/cosmic/coverage/baseline.txt
 coverage_baseline_tool := $(o)/lib/cosmic/coverage/baseline.lua
 
-# Shell exception (#756 item 2): the ratchet conditional (item-1 residue).
-$(o)/coverage-summary.txt: private SHELL := /bin/bash
-$(o)/coverage-summary.txt: private .SHELLFLAGS := -o pipefail -c
+# De-shelled (#756 item 1): the skip/check branching lives in the
+# baseline tool's gate mode; --only=$(only) stays one argv token even
+# when the filter is empty, so no quoting and no shell.
 $(o)/coverage-summary.txt: .PLEDGE := $(pledge_build)
 $(o)/coverage-summary.txt: .UNVEIL := $(unveil_base) rwcx:$(o)
 $(o)/coverage-summary.txt: $(coverage_got) | $(cosmic_bin) $(build_recipe)
 	@$(bootstrap_cosmic) -- $(build_recipe) capture $(cosmic_bin) $(o)/coverage-tests.txt --report $(coverage_got)
 	@$(bootstrap_cosmic) -- $(build_recipe) tee $@ $(cosmic_bin) --coverage-report $(o)/coverage lib
-	@if [ -n "$(only)" ]; then \
-	  echo "coverage ratchet skipped (only=$(only))"; \
-	elif [ -f $(coverage_baseline) ]; then \
-	  $(cosmic_bin) $(coverage_baseline_tool) check $(coverage_baseline) $(o)/coverage lib; \
-	else \
-	  echo "coverage ratchet skipped: no $(coverage_baseline); run 'bin/make coverage-baseline' to start it"; \
-	fi
+	@$(cosmic_bin) $(coverage_baseline_tool) gate $(coverage_baseline) --only=$(only) $(o)/coverage lib
 
 .PHONY: coverage-baseline
 ## Rewrite the committed coverage ratchet baseline from the last coverage run
@@ -242,7 +236,7 @@ coverage-baseline: .PLEDGE := $(pledge_build)
 coverage-baseline: .UNVEIL := $(unveil_base) rwcx:$(o) rwc:lib/cosmic/coverage
 coverage-baseline: $(coverage_got) | $(cosmic_bin) $(build_recipe)
 	@$(bootstrap_cosmic) -- $(build_recipe) capture $(cosmic_bin) $(coverage_baseline) $(coverage_baseline_tool) write $(o)/coverage lib
-	@echo "wrote $(coverage_baseline)"
+	@echo wrote $(coverage_baseline)
 
 # Privileged enforcement lane (Phase 1 step 8 prerequisite, audit §5.1).
 # The sandbox tests carry "outer sandbox blocked this -> skip" escape hatches,
@@ -363,7 +357,7 @@ build: cosmic
 ## CI stage 1: build cosmic and refresh bootstrap with updated bundled types
 stage1: $(cosmic_bin)
 	@cp $(cosmic_bin) $(bootstrap_cosmic)
-	@echo "Bootstrap refreshed from $(cosmic_bin)"
+	@echo Bootstrap refreshed from $(cosmic_bin)
 
 .PHONY: stage2
 ## CI stage 2: type check and test with refreshed bootstrap (alias for ci)

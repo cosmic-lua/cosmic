@@ -109,3 +109,29 @@ local function test_total_ratchet_catches_masked_decline()
     #probs .. ": " .. tostring(probs[1]))
 end
 test_total_ratchet_catches_masked_decline()
+
+local function test_gate_skips_under_only_filter()
+  local code = baseline.gate("/no/such/baseline.txt", "sqlite", {})
+  assert(code == 0, "gate must skip (exit 0) under an only= filter")
+end
+test_gate_skips_under_only_filter()
+
+local function test_gate_skips_without_baseline()
+  local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
+  local code = baseline.gate(tmpdir .. "/absent-baseline.txt", "", {})
+  assert(code == 0, "gate must skip (exit 0) when no baseline is committed")
+end
+test_gate_skips_without_baseline()
+
+local function test_gate_checks_when_baseline_present()
+  local fs = require("cosmic.fs")
+  local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
+  local path = fs.join(tmpdir, "gate-baseline.txt")
+  assert(fs.write(path, baseline.render(reports({{"lib/a.tl", 9, 10}}))))
+  -- an empty report set makes every baseline entry stale: the gate must
+  -- delegate to check and FAIL, proving it does not skip when it
+  -- should be checking
+  local code = baseline.gate(path, "", {})
+  assert(code == 1, "gate must run the real check when a baseline exists")
+end
+test_gate_checks_when_baseline_present()
