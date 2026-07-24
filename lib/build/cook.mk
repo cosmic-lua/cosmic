@@ -10,9 +10,6 @@ build_lint := $(o)/lib/build/lint.lua
 build_files := $(build_fetch) $(build_stage) $(build_untar) $(build_portable) $(build_reporter) $(build_help) $(build_lint)
 build_tests := $(wildcard lib/build/*_test.tl)
 
-# recursive (=): tree_lua_path is computed in the Makefile after the
-# includes; recipes expand it at run time (#720)
-reporter = LUA_PATH="$(tree_lua_path)" $(bootstrap_cosmic) -- $(build_reporter)
 # lint.lua delegates its shared checks to cosmic.cli.style; LUA_PATH points
 # at this tree's freshly compiled modules (the doc/index.tl pattern) so the
 # delegation runs THIS tree's style code, not the bootstrap's embedded copy.

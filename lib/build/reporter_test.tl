@@ -138,3 +138,47 @@ local function test_message_from_stderr()
   assert(stdout:match("first line error"), "expected first line of stderr as message")
 end
 test_message_from_stderr()
+
+-- --out writes the same report the recipes used to `| tee` (#732)
+local function test_out_writes_file()
+  local test_dir = fs.join(tmpdir, "out-file")
+  fs.makedirs(test_dir)
+
+  write_test_result(fs.join(test_dir, "a.test"), 0, "ok\n", "")
+  local out_path = fs.join(test_dir, "summary.txt")
+
+  local code, stdout, _stderr = run_reporter(
+    "--dir", test_dir, "--out", out_path,
+    fs.join(test_dir, "a.test.got")
+  )
+
+  assert(code == 0, "expected exit code 0, got: " .. tostring(code))
+  local written = fs.read(out_path)
+  assert(written == stdout, "summary file must match stdout, got: " .. tostring(written))
+end
+test_out_writes_file()
+
+-- REPORTER_NOTE appends a line to report and file: note text carries
+-- spaces, which a shell-free recipe argv cannot pass as a flag (#732)
+local function test_reporter_note()
+  local test_dir = fs.join(tmpdir, "note")
+  fs.makedirs(test_dir)
+
+  write_test_result(fs.join(test_dir, "a.test"), 0, "ok\n", "")
+  local out_path = fs.join(test_dir, "summary.txt")
+  env.set("REPORTER_NOTE", "lint: skipped deleted tracked file(s): gone.tl")
+
+  local code, stdout, _stderr = run_reporter(
+    "--dir", test_dir, "--out", out_path,
+    fs.join(test_dir, "a.test.got")
+  )
+  env.unset("REPORTER_NOTE")
+
+  assert(code == 0, "expected exit code 0, got: " .. tostring(code))
+  assert(stdout:match("skipped deleted tracked file%(s%): gone%.tl"),
+    "expected note in stdout, got: " .. stdout)
+  -- cast: or fallback does not narrow
+  local written = (fs.read(out_path) or "") as string
+  assert(written:match("gone%.tl"), "expected note in summary file")
+end
+test_reporter_note()

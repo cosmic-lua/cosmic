@@ -296,7 +296,7 @@ check: teal
 teal: $(o)/teal-summary.txt
 
 $(o)/teal-summary.txt: $(all_teals) | $(build_reporter)
-	@$(reporter) --dir $(o) $^ | tee $@
+	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $^
 
 $(o)/%.teal.got: $(o)/% $(cosmic_check_bin) | $(bootstrap_files)
 	@mkdir -p $(@D)
@@ -308,7 +308,7 @@ all_formats := $(patsubst %,%.format.got,$(all_checkable_files))
 format: $(o)/format-summary.txt
 
 $(o)/format-summary.txt: $(all_formats) | $(build_reporter)
-	@$(reporter) --dir $(o) $^ | tee $@
+	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $^
 
 $(o)/%.format.got: $(o)/% $(cosmic_check_bin) | $(bootstrap_files)
 	@mkdir -p $(@D)
@@ -335,11 +335,11 @@ $(lint_list_stamp): .FORCE
 ## Check file length limits on all files
 lint: $(o)/lint-summary.txt
 
+$(o)/lint-summary.txt: export REPORTER_NOTE = $(if $(lint_deleted),lint: skipped deleted tracked file(s): $(lint_deleted))
 $(o)/lint-summary.txt: $(all_linted) $(lint_list_stamp) | $(build_reporter)
-	@test -n "$(strip $(lint_tracked))" || { echo "lint: git ls-files found nothing — not a git checkout?"; exit 1; }
-	@test -n "$(strip $(lint_present))" || { echo "lint: no tracked file exists on disk — filter collapsed the list?"; exit 1; }
-	@$(reporter) --dir $(o) $(patsubst %,%.got,$(basename $(all_linted))) | tee $@
-	@$(if $(lint_deleted),echo "lint: skipped deleted tracked file(s): $(lint_deleted)" | tee -a $@,true)
+	$(if $(strip $(lint_tracked)),,$(error lint: git ls-files found nothing — not a git checkout?))
+	$(if $(strip $(lint_present)),,$(error lint: no tracked file exists on disk — filter collapsed the list?))
+	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $(patsubst %,%.got,$(basename $(all_linted)))
 
 $(o)/%.lint.ok: % $(build_lint) $(lint_style_lua) | $(bootstrap_cosmic)
 	@mkdir -p $(@D)
@@ -377,7 +377,7 @@ all_examples := $(patsubst %.tl,$(o)/%.tl.example.got,$(all_example_srcs))
 example: $(o)/example-summary.txt
 
 $(o)/example-summary.txt: $(all_examples) | $(build_reporter)
-	@$(reporter) --dir $(o) $^ | tee $@
+	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $^
 
 $(o)/%.tl.example.got: %.tl $(cosmic_bin) $(ape_loader) | $(bootstrap_files)
 	@mkdir -p $(@D)
@@ -392,7 +392,7 @@ all_benchmarks := $(patsubst %.tl,$(o)/%.tl.benchmark.got,$(all_benchmark_srcs))
 benchmark: $(o)/benchmark-summary.txt
 
 $(o)/benchmark-summary.txt: $(all_benchmarks) | $(build_reporter)
-	@$(reporter) --dir $(o) $^ | tee $@
+	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $^
 
 $(o)/%.tl.benchmark.got: .PLEDGE := $(pledge_build)
 $(o)/%.tl.benchmark.got: .UNVEIL := $(unveil_run)

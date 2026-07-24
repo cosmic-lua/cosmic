@@ -92,7 +92,13 @@ reporter_summaries := $(o)/teal-summary.txt $(o)/format-summary.txt \
   $(o)/lint-summary.txt $(o)/example-summary.txt $(o)/benchmark-summary.txt
 $(reporter_summaries): .SANDBOXED := 1
 $(reporter_summaries): .PLEDGE := $(pledge_build)
-$(reporter_summaries): .UNVEIL := rwc:$(o) $(unveil_hostx)
+# De-hosted (#732): the reporter writes its own summary (--out replaces
+# `| tee`), so these recipes are direct bootstrap execs — same no-shell
+# fast path + tripwire as fetch/stage above.
+$(reporter_summaries): .UNVEIL := rwc:$(o) $(unveil_dev)
+$(reporter_summaries): export LUA_PATH = $(tree_lua_path)
+$(reporter_summaries): private SHELL := /dev/null/enoshell
+$(reporter_summaries): private .SHELLFLAGS := -c
 
 # Third ENFORCED family (#729): the teal/format check rules, which exec
 # the assimilated $(cosmic_check_bin) duplicate (see lib/cosmic/cook.mk)

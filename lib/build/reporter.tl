@@ -96,8 +96,12 @@ end
 local function main(...: string): integer, string
   local args = {...}
   local dir: string = nil
+  local out: string = nil
 
-  local longopts: {getopt.LongOpt} = {{name = "dir", has_arg = "required"}}
+  local longopts: {getopt.LongOpt} = {
+    {name = "dir", has_arg = "required"},
+    {name = "out", has_arg = "required"},
+  }
   local parser = getopt.new(args, "", longopts)
 
   while true do
@@ -105,14 +109,16 @@ local function main(...: string): integer, string
     if not opt then break end
     if opt == "dir" then
       dir = optarg
+    elseif opt == "out" then
+      out = optarg
     elseif opt == "?" then
-      return 1, "usage: reporter.lua --dir DIR FILES..."
+      return 1, "usage: reporter.lua --dir DIR [--out FILE] FILES..."
     end
   end
 
   local files = parser:remaining()
   if not files or #files == 0 then
-    return 1, "usage: reporter.lua --dir DIR FILES..."
+    return 1, "usage: reporter.lua --dir DIR [--out FILE] FILES..."
   end
   if not dir then
     return 1, "error: --dir is required"
@@ -242,7 +248,24 @@ local function main(...: string): integer, string
     table.insert(parts, failures)
   end
 
-  print(table.concat(parts, "\n"))
+  -- REPORTER_NOTE: an extra line from the make rule (e.g. lint's
+  -- skipped-deleted-files notice). An env var, not a flag: note text
+  -- carries spaces, which a shell-free recipe argv cannot (#732).
+  local note = os.getenv("REPORTER_NOTE")
+  if note and note ~= "" then
+    table.insert(parts, note)
+  end
+
+  local report = table.concat(parts, "\n")
+  print(report)
+  -- --out replaces the recipes' `| tee $@` (#732): the reporter writes
+  -- its own summary file, so the rule needs no shell and no host tee.
+  if out then
+    local ok, werr = fs.write(out, report .. "\n")
+    if not ok then
+      return 1, "error: cannot write " .. out .. ": " .. (werr or "unknown error")
+    end
+  end
   return total_failed == 0 and 0 or 1, nil
 end
 
