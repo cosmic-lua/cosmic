@@ -101,8 +101,12 @@ cosmic_check_bin := $(o)/bin/cosmic-check
 # --assimilate is handled by the APE shell stub, which a direct (no
 # shell) exec bypasses — the pinned cosmos assimilate tool converts in
 # place instead, keeping this recipe shell-free (#732).
+# remove the previous run's backup first: assimilate writes $@.bak and
+# refuses to overwrite one, so a rebuild over yesterday's assimilation
+# failed with "File exists" (witnessed after a bootstrap refresh).
 $(cosmic_check_bin): $(cosmic_bin) $(build_recipe) | $$(cosmos_staged)
 	@$(bootstrap_cosmic) -- $(build_recipe) copy $< $@
+	@$(bootstrap_cosmic) -- $(build_recipe) remove $@.bak
 	@$(cosmos_dir)/assimilate $@
 	@$(bootstrap_cosmic) -- $(build_recipe) require-elf $@
 

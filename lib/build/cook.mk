@@ -145,10 +145,14 @@ $(o)/ci-selftest-launder-summary.txt:
 # with the real ci run that builds this fixture.
 # The nested tree has no bootstrap/driver of its own; the ci recipe's
 # remove/verdict steps exec them, so the fixture hands in the parent's
-# by absolute path (#732).
+# by absolute path (#732) — and marks them -o (old-file: use, never
+# remake): without that, a parent-tree bootstrap refresh makes them
+# look stale INSIDE the nested run, which then rebuilds the parent's
+# own driver in a race against the outer make (witnessed: the nested
+# compile's cmp/mv losing its .tmp mid-flight).
 $(build_make_out)/ci-launder.out: $(build_make_srcs)
 	@mkdir -p $(@D)
-	@code=0; $(MAKE) ci o=$(o)/citest ci_stages=ci-selftest-launder bootstrap_cosmic=$(CURDIR)/$(bootstrap_cosmic) build_recipe=$(CURDIR)/$(build_recipe) >$@.tmp 2>&1 || code=$$?; echo "exit:$$code" >> $@.tmp; mv $@.tmp $@
+	@code=0; $(MAKE) ci o=$(o)/citest ci_stages=ci-selftest-launder bootstrap_cosmic=$(CURDIR)/$(bootstrap_cosmic) build_recipe=$(CURDIR)/$(build_recipe) -o $(CURDIR)/$(bootstrap_cosmic) -o $(CURDIR)/$(build_recipe) >$@.tmp 2>&1 || code=$$?; echo "exit:$$code" >> $@.tmp; mv $@.tmp $@
 
 # Environment clamp probe (#731): echoes the env a recipe actually sees.
 # Test apparatus like ci-selftest-launder above, not a help target.
