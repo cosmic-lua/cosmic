@@ -221,6 +221,49 @@ local function do_require_elf(args: {string}): integer
   return 0
 end
 
+--- remove <paths...> — rm -f: delete files, ignoring missing ones.
+local function do_remove(args: {string}): integer
+  for _, p in ipairs(args) do
+    fs.unlink(p)
+  end
+  return 0
+end
+
+--- verdict <o_dir> <stages...> — the ci grading loop (#714): print each
+--- stage's summary in a log group, grade it by summary text AND the
+--- per-stage ci-ok exit marker (a stage failing after writing a clean
+--- summary must still fail), and end with the verdict line.
+local function do_verdict(args: {string}): integer
+  local o_dir = args[1]
+  if not o_dir or not args[2] then
+    return fail("usage: verdict <o_dir> <stages...>")
+  end
+  local failed: {string} = {}
+  for i = 2, #args do
+    local s = args[i]
+    io.write("::group::" .. s .. "\n")
+    local summary = fs.read(fs.join(o_dir, s .. "-summary.txt"))
+    if summary then
+      io.write(summary)
+      if string.match(summary, "[1-9]%d* failed") then
+        table.insert(failed, s)
+      elseif not fs.stat(fs.join(o_dir, "ci-ok-" .. s)) then
+        table.insert(failed, s .. " (exit)")
+      end
+    else
+      io.write(s .. ": no summary produced\n")
+      table.insert(failed, s)
+    end
+    io.write("::endgroup::\n")
+  end
+  if #failed > 0 then
+    io.write("ci: FAIL (" .. table.concat(failed, " ") .. ")\n")
+    return 1
+  end
+  io.write("ci: PASS\n")
+  return 0
+end
+
 --- copy <src> <dst> — mkdir -p + cp, preserving the permission bits.
 local function do_copy(args: {string}): integer
   local src, dst = args[1], args[2]
@@ -268,9 +311,11 @@ local modes: {string: function({string}): integer} = {
   copy = do_copy,
   link = do_link,
   list = do_list,
+  remove = do_remove,
   ["require-elf"] = do_require_elf,
   ["require-marker"] = do_require_marker,
   tee = do_tee,
+  verdict = do_verdict,
 }
 
 local function main(...: string): integer
@@ -278,7 +323,7 @@ local function main(...: string): integer
   local mode = table.remove(args, 1)
   local run_mode = mode and modes[mode]
   if not run_mode then
-    return fail("usage: build-recipe capture|compile|copy|link|list|require-elf|require-marker|tee ...")
+    return fail("usage: build-recipe <mode> ... (see the modes table)")
   end
   return run_mode(args)
 end

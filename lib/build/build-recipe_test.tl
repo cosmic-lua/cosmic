@@ -185,3 +185,37 @@ local function test_require_elf()
   assert(err:match("not a native ELF"), "failure explains, got: " .. err)
 end
 test_require_elf()
+
+local function test_remove()
+  local a = fs.join(tmpdir, "rm-a")
+  assert(fs.write(a, "x"))
+  local code = run_driver("remove", a, fs.join(tmpdir, "rm-missing"))
+  assert(code == 0, "remove must succeed, missing files ignored")
+  assert(not fs.stat(a), "existing file removed")
+end
+test_remove()
+
+local function test_verdict()
+  local o_dir = fs.join(tmpdir, "verdict")
+  fs.makedirs(o_dir)
+  -- pass: clean summary + marker; launder: clean summary, NO marker;
+  -- bad: failing summary; ghost: no summary at all
+  assert(fs.write(fs.join(o_dir, "good-summary.txt"), "good: 2 checks: 2 passed, 0 failed\n"))
+  assert(fs.write(fs.join(o_dir, "ci-ok-good"), "\n"))
+  assert(fs.write(fs.join(o_dir, "launder-summary.txt"), "launder: 1 passed\n"))
+  assert(fs.write(fs.join(o_dir, "bad-summary.txt"), "bad: 3 checks: 2 passed, 1 failed\n"))
+  assert(fs.write(fs.join(o_dir, "ci-ok-bad"), "\n"))
+
+  local code, stdout = run_driver("verdict", o_dir, "good")
+  assert(code == 0, "all-green must pass")
+  assert(stdout:match("ci: PASS"), "expected PASS verdict")
+
+  code, stdout = run_driver("verdict", o_dir, "good", "launder", "bad", "ghost")
+  assert(code ~= 0, "failures must fail the verdict")
+  assert(stdout:match("::group::good"), "stage groups printed")
+  -- the #714 grading: text-clean summary without an exit marker fails
+  assert(stdout:match("ci: FAIL %(launder %(exit%) bad ghost%)"),
+    "expected marker/summary/missing grading, got: " .. stdout)
+  assert(stdout:match("ghost: no summary produced"), "missing summary named")
+end
+test_verdict()

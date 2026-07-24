@@ -133,9 +133,12 @@ $(o)/ci-selftest-launder-summary.txt:
 # above; the graded verdict must be FAIL. o= points the nested run at
 # its own output tree so its failed/summary/marker files never collide
 # with the real ci run that builds this fixture.
+# The nested tree has no bootstrap/driver of its own; the ci recipe's
+# remove/verdict steps exec them, so the fixture hands in the parent's
+# by absolute path (#732).
 $(build_make_out)/ci-launder.out: $(build_make_srcs)
 	@mkdir -p $(@D)
-	@code=0; $(MAKE) ci o=$(o)/citest ci_stages=ci-selftest-launder >$@.tmp 2>&1 || code=$$?; echo "exit:$$code" >> $@.tmp; mv $@.tmp $@
+	@code=0; $(MAKE) ci o=$(o)/citest ci_stages=ci-selftest-launder bootstrap_cosmic=$(CURDIR)/$(bootstrap_cosmic) build_recipe=$(CURDIR)/$(build_recipe) >$@.tmp 2>&1 || code=$$?; echo "exit:$$code" >> $@.tmp; mv $@.tmp $@
 
 # Environment clamp probe (#731): echoes the env a recipe actually sees.
 # Test apparatus like ci-selftest-launder above, not a help target.
