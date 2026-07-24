@@ -116,10 +116,16 @@ fetched: $(all_fetched)
 # bootstrap executes under these grants, with .ENV/.SANDBOXED/LUA_PATH
 # for the family living in cook.mk.
 stdlib_lua := $(patsubst %.tl,$(o)/%.lua,$(filter lib/cosmic/%,$(foreach x,$(modules),$($(x)_tl))))
+# The fetch/stage trees must EXIST before their sandboxed rules launch
+# (unveil silently skips missing paths — the same trap the target-dir
+# derivation closed upstream, one level up); the driver's list mode
+# mints them like $(o)/.exists.
+$(FETCH_O)/.exists $(STAGE_O)/.exists: $(build_recipe) | $(bootstrap_cosmic)
+	@$(bootstrap_cosmic) -- $(build_recipe) list $@
 $(o)/%/.fetched: export SSL_USE_SYSTEM_CERTS = 1
 $(o)/%/.fetched: .PLEDGE := $(pledge_build) inet dns
-$(o)/%/.fetched: .UNVEIL := $(unveil_dep) $(unveil_dev) r:/etc/resolv.conf r:/etc/hosts r:/etc/ssl $(if $(SSL_CERT_FILE),r:$(SSL_CERT_FILE))
-$(o)/%/.fetched: $(o)/%/.versioned $(build_files) $(stdlib_lua) | $(bootstrap_cosmic)
+$(o)/%/.fetched: .UNVEIL := $(unveil_fetch) $(unveil_dev) r:/etc/resolv.conf r:/etc/hosts r:/etc/ssl $(if $(SSL_CERT_FILE),r:$(SSL_CERT_FILE))
+$(o)/%/.fetched: $(o)/%/.versioned $(build_files) $(stdlib_lua) | $(bootstrap_cosmic) $(FETCH_O)/.exists
 	@$(bootstrap_cosmic) -- $(build_fetch) $< $(platform) $@
 
 # versions get staged: o/module/.staged -> o/staged/module/<ver>-<sha>
@@ -128,8 +134,8 @@ all_staged := $(patsubst %/.fetched,%/.staged,$(all_fetched))
 ## Fetch and extract all dependencies
 staged: $(all_staged)
 $(o)/%/.staged: .PLEDGE := $(pledge_build)
-$(o)/%/.staged: .UNVEIL := $(unveil_dep) $(unveil_dev)
-$(o)/%/.staged: $(o)/%/.fetched $(build_files) $(stdlib_lua)
+$(o)/%/.staged: .UNVEIL := $(unveil_stage) $(unveil_dev)
+$(o)/%/.staged: $(o)/%/.fetched $(build_files) $(stdlib_lua) | $(STAGE_O)/.exists
 	@$(bootstrap_cosmic) -- $(build_stage) $(o)/$*/.versioned $(platform) $< $@
 
 all_tests := $(call filter-only,$(foreach x,$(modules),$($(x)_tests)))
