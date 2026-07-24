@@ -122,6 +122,9 @@ $(cosmic_check_bin): $(cosmic_bin) $(build_recipe) | $$(cosmos_staged)
 # (the exact flow every pre-#742 runner exec used), then move the cache
 # file the stub writes into place. A relative TMPDIR segfaulted on the
 # runner.
+# Shell exception (#732): extraction IS the APE shell-stub flow — a
+# direct cosmopolitan exec maps the binary and never writes the .ape-*
+# cache (witnessed), so this recipe must go through a real shell.
 ape_loader := $(o)/bin/ape
 $(ape_loader): $(cosmic_bin)
 	@t=$$(mktemp -d) && PATH="$(HOST_PATH)" TMPDIR=$$t $(CURDIR)/$< -e 'return' >/dev/null && \

@@ -210,6 +210,9 @@ $(bootstrap_cosmic):
 # ships that did not typecheck); the pinned bootstrap may predate the flag.
 # Probe once and use the best flag it supports — after a bootstrap pin bump
 # (or CI's stage1 refresh) in-tree compiles become strict automatically.
+# Shell exception (#732): the probe is pre-driver trust machinery — the
+# driver's own compile READS this stamp, so probing through the driver
+# would cycle. It stays shell, grouped with the bootstrap download.
 compile_flag_stamp := $(o)/bootstrap/compile-flag
 $(compile_flag_stamp): $(bootstrap_files)
 	@mkdir -p $(@D)

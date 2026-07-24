@@ -49,8 +49,11 @@ include 3p/tl/cook.mk
 
 .PHONY: help
 ## Show this help message
+help: export LUA_PATH = $(tree_lua_path)
+help: private SHELL := /dev/null/enoshell
+help: private .SHELLFLAGS := -c
 help: $(build_files) | $(bootstrap_cosmic)
-	@LUA_PATH="$(tree_lua_path)" $(bootstrap_cosmic) $(build_help) $(MAKEFILE_LIST)
+	@$(bootstrap_cosmic) $(build_help) $(MAKEFILE_LIST)
 
 ## Filter targets by substring (make test only=teal; also narrows fetch/stage)
 filter-only = $(if $(only),$(foreach f,$1,$(if $(findstring $(only),$(f)),$(f))),$1)
@@ -61,7 +64,10 @@ filter-only = $(if $(only),$(foreach f,$1,$(if $(findstring $(only),$(f)),$(f)))
 # copies after o/ exists (unveil skips missing paths silently).
 $(o)/%: % $(build_recipe) | $(o)/.exists $(bootstrap_cosmic)
 	@$(bootstrap_cosmic) -- $(build_recipe) copy $< $@
-$(o)/.exists: ; @mkdir -p $(@D) && touch $@
+$(o)/.exists: private SHELL := /dev/null/enoshell
+$(o)/.exists: private .SHELLFLAGS := -c
+$(o)/.exists: $(build_recipe) | $(bootstrap_cosmic)
+	@$(bootstrap_cosmic) -- $(build_recipe) list $@
 
 $(o)/%.lua: %.tl $(types_files) $(tl_files) $(bootstrap_files) $(compile_flag_stamp) $(build_recipe)
 	@$(bootstrap_cosmic) -- $(build_recipe) compile $(compile_flag_stamp) $(bootstrap_cosmic) $< $@ $(include_dir_flags)
@@ -467,28 +473,20 @@ ci_marks := $(foreach s,$(ci_stages),$(o)/ci-ok-$(s))
 # laundered its exit status through the already-tee'd summary). All
 # markers build in ONE sub-make, so stages keep sharing the target graph
 # and run in parallel without racing on common prerequisites.
+$(o)/ci-ok-%: private SHELL := /dev/null/enoshell
+$(o)/ci-ok-%: private .SHELLFLAGS := -c
 $(o)/ci-ok-%: %
-	@mkdir -p $(@D)
-	@touch $@
+	@$(bootstrap_cosmic) -- $(build_recipe) list $@
 
 .PHONY: ci
 ## Run CI checks (format, teal, test, example, lint) in parallel
-ci:
-	@rm -f $(o)/failed $(ci_summaries) $(ci_marks)
-	@$(MAKE) --keep-going $(ci_marks) || true
-	@for s in $(ci_stages); do \
-		echo "::group::$$s"; \
-		if [ -f $(o)/$$s-summary.txt ]; then \
-			cat $(o)/$$s-summary.txt; \
-			if grep -qE "[1-9][0-9]* failed" $(o)/$$s-summary.txt; then \
-				echo $$s >> $(o)/failed; \
-			elif [ ! -f $(o)/ci-ok-$$s ]; then \
-				echo "$$s (exit)" >> $(o)/failed; \
-			fi; \
-		else \
-			echo "$$s: no summary produced"; \
-			echo $$s >> $(o)/failed; \
-		fi; \
-		echo "::endgroup::"; \
-	done
-	@if [ -f $(o)/failed ]; then echo "ci: FAIL ($$(paste -sd' ' $(o)/failed))"; exit 1; else echo "ci: PASS"; fi
+# De-hosted (#732): the grading loop lives in the driver's verdict mode
+# (same #714 semantics — summary text AND exit marker — gated by the
+# ci-launder fixture); `-` on the sub-make replaces `|| true`.
+ci: private SHELL := /dev/null/enoshell
+ci: private .SHELLFLAGS := -c
+ci: export LUA_PATH := ;;
+ci: | $(bootstrap_cosmic) $(build_recipe)
+	@$(bootstrap_cosmic) -- $(build_recipe) remove $(ci_summaries) $(ci_marks)
+	-@$(MAKE) --keep-going $(ci_marks)
+	@$(bootstrap_cosmic) -- $(build_recipe) verdict $(o) $(ci_stages)
