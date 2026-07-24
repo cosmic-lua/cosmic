@@ -2,11 +2,13 @@
 -- ast-grep ignore: builds relative symlink paths
 -- stage.lua: extract fetched archives based on version.lua format
 
+local compress = require("cosmic.compress")
 local fs = require("cosmic.fs")
 local fs_types = require("cosmic.fs.types")
 local portable = require("build.portable")
 local proc = require("cosmic.proc")
-local spawn = require("cosmic.child")
+local untar = require("build.build-untar")
+local zip = require("cosmic.zip")
 
 local record PlatformSpec
   sha: string
@@ -85,31 +87,36 @@ local function strip_components(source_dir: string, dest_dir: string, strip: num
   end
 end
 
+-- Extraction is in-process (#732): cosmic.zip / build.build-untar /
+-- cosmic.compress instead of spawning host unzip/tar/gunzip, so the
+-- stage rule's unveil set carries no host-toolchain grants.
 local function extract_zip(archive: string, dest_dir: string, strip: number): boolean, string
   local temp_dir = fs.mkdtemp(fs.join(fs.dirname(dest_dir), ".stage_XXXXXX"))
-  local result = spawn.run({"/usr/bin/unzip", "-o", "-q", "-d", temp_dir, archive})
-  local r = result as spawn.Result -- cast: record union, nil checked below
-  if not r or not r.ok then
+  local reader, open_err = zip.reader(archive)
+  if not reader then
     fs.rmrf(temp_dir)
-    return nil, "unzip failed with exit code " .. tostring(r and r.code)
+    return nil, "zip open failed: " .. (open_err or "unknown error")
   end
-  local ok, err = strip_components(temp_dir, dest_dir, strip)
+  local r = reader as zip.Reader -- cast: record union after guard
+  local ok, err = zip.extract(r, temp_dir)
+  r:close()
+  if not ok then
+    fs.rmrf(temp_dir)
+    return nil, "zip extract failed: " .. (err or "unknown error")
+  end
+  ok, err = strip_components(temp_dir, dest_dir, strip)
   fs.rmrf(temp_dir)
   return ok, err
 end
 
 local function extract_targz(archive: string, dest_dir: string, strip: number): boolean, string
   local temp_dir = fs.mkdtemp(fs.join(fs.dirname(dest_dir), ".stage_XXXXXX"))
-  -- -m / --no-same-owner: a staged tree should not inherit the archive's
-  -- mtimes or ownership, and restoring them needs utimensat/chown, which
-  -- the stage rule's pledge (#729) deliberately does not promise
-  local result = spawn.run({"tar", "-xzmf", archive, "--no-same-owner", "-C", temp_dir})
-  local r = result as spawn.Result -- cast: record union, nil checked below
-  if not r or not r.ok then
+  local ok, err = untar.extract(archive, temp_dir)
+  if not ok then
     fs.rmrf(temp_dir)
-    return nil, "tar failed with exit code " .. tostring(r and r.code)
+    return nil, err
   end
-  local ok, err = strip_components(temp_dir, dest_dir, strip)
+  ok, err = strip_components(temp_dir, dest_dir, strip)
   fs.rmrf(temp_dir)
   return ok, err
 end
@@ -133,15 +140,14 @@ local function extract_gz(archive: string, dest_dir: string, module_name: string
   local bin_dir = fs.join(dest_dir, "bin")
   fs.makedirs(bin_dir)
   local dest = fs.join(bin_dir, module_name)
-  local result, serr = spawn.run({"gunzip", "-c", archive})
-  if not result then
-    return nil, "gunzip failed: " .. tostring(serr)
+  local body, read_err = fs.read(archive)
+  if not body then
+    return nil, "read " .. archive .. " failed: " .. (read_err or "unknown error")
   end
-  local r = result as spawn.Result -- cast: record union after guard
-  if not r.ok then
-    return nil, "gunzip failed (exit " .. tostring(r.code) .. "): " .. r.stderr
+  local content, gz_err = compress.decompress(body, {format = "gzip"})
+  if not content then
+    return nil, "gunzip " .. archive .. " failed: " .. (gz_err or "unknown error")
   end
-  local content = r.stdout
   local ok, write_err = portable.write_file(dest, content, tonumber("755", 8))
   if not ok then
     return nil, "failed to create " .. dest .. ": " .. (write_err or "unknown error")
@@ -298,6 +304,14 @@ local function main(version_file: string, platform: string, input: string, outpu
   local stage_o = os.getenv("STAGE_O")
   if not stage_o then
     return nil, "STAGE_O env var required"
+  end
+
+  -- the make rule passes o/<module>/.versioned, a symlink to the module's
+  -- version.lua; resolve it here so error messages name the real file and
+  -- the recipe needs no host readlink (#732)
+  local resolved = fs.readlink(version_file)
+  if resolved then
+    version_file = resolved
   end
 
   -- cast: pcall returns any
