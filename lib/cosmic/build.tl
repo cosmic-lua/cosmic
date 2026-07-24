@@ -3,15 +3,12 @@
 --- `link` replaces mkdir+ln -sfn, `capture` and `tee` replace redirects
 --- with cmp/mv or tee, plus list/remove/require-*/verdict.
 ---
---- Dual life (#756 item 3): embedded in the cosmic binary behind the
---- greedy `--build <mode> <args>...` CLI flag — the surface recipes
---- call once the bootstrap pin ships it — AND compiled to
---- o/lib/build/build-recipe.lua by the self-bootstrap exception rule in
---- lib/build/cook.mk, because today's PINNED bootstrap predates
---- `--build` and the compile rule cannot compile its own driver. When a
---- release carrying `--build` is pinned, the recipes become
---- `$(bootstrap_cosmic) --build ...` and the compiled driver (and its
---- exception rule) disappears.
+--- Embedded in the cosmic binary behind the greedy `--build <mode>
+--- <args>...` CLI flag (#756 item 3). The build's make recipes exec the
+--- PINNED bootstrap's copy (`$(bootstrap_cosmic) --build ...`), so
+--- changes here reach the recipes only through a release + bootstrap
+--- pin bump — an edit to this file cannot affect the build that
+--- compiles it.
 ---
 --- Requires the EMBEDDED stdlib only — deliberately no tree modules:
 --- the compile rule is what BUILDS the tree's .lua files, so a tree

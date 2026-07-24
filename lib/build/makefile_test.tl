@@ -162,9 +162,15 @@ test_lint_guard_present()
 -- CURDIR-anchored so a mis-rooted recipe still resolves.
 local function test_compile_pins_tree_only_tl_path()
   local out = read_make_output("database.out").output
-  -- the recipe must wire type resolution to the tree-only path
-  assert(out:find('export TL_PATH="$(tree_tl_path)"', 1, true),
-    "expected the compile recipe to export TL_PATH=$(tree_tl_path)")
+  -- the compile family must wire type resolution to the tree-only path:
+  -- the o/%.lua pattern's target-specific export shows in the database
+  -- as a target block whose variable line carries the raw reference
+  local pinned = false
+  for value in out:gmatch("o/%%%.lua :\n[^\n]*\n# TL_PATH := ([^\n]*)") do
+    pinned = value == "$$(tree_tl_path)"
+  end
+  assert(pinned,
+    "expected the o/%.lua family to export TL_PATH=$(tree_tl_path)")
   -- and the resolved value must be absolute, tree-only, no /zip fallback
   local tl_path = out:match("\ntree_tl_path := ([^\n]*)")
   assert(tl_path, "expected tree_tl_path definition in database output")
