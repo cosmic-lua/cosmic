@@ -98,7 +98,12 @@ local public: {string} = {
 --- the shipped test battery alongside testrun/example/benchmark).
 --- `errno` stays public (the error convention's user-facing interface:
 --- wrappers document errno.is/errno.name_of by name).
+---
+--- #756 item 3: `build` is internal — the shell-free recipe steps
+--- behind the `--build` CLI flag; build-system tooling like `make`,
+--- not runtime API.
 local internal: {string} = {
+  "build",
   "cli",
   "make",
   "public",

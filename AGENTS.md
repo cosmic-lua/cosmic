@@ -276,6 +276,7 @@ cosmic --docs <query>         search documentation
 cosmic --examples [module]    browse examples
 cosmic --test <out> <cmd>     run test, capture output
 cosmic --report <paths>       report test results
+cosmic --build <mode> <args>  run a shell-free build recipe step
 cosmic --embed <path>         embed files into executable
 cosmic --benchmark file.tl    run benchmarks
 cosmic -i                     interactive REPL

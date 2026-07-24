@@ -26,6 +26,8 @@ Cosmic options:
                                 e.g. cosmic --report o/foo.got
   --coverage-report <paths>...  merge .cov data, print per-file line coverage
                                 e.g. cosmic --coverage-report o/coverage lib
+  --build <mode> <args>...      run a shell-free build recipe step
+                                (copy, link, list, capture, tee, compile, ...)
   --make [dir] [target]         generate Makefile, pipe to make -f -
   --skill <dir>                 write agent skill file (SKILL.md) to directory
   --welcome                     show welcome message

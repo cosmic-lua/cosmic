@@ -2,7 +2,6 @@
 # columns: path covered-lines total-lines
 lib/build/build-fetch.tl 23 95
 lib/build/build-pack.tl 97 132
-lib/build/build-recipe.tl 172 206
 lib/build/build-stage.tl 45 251
 lib/build/build-untar.tl 121 130
 lib/build/lint.tl 97 132
@@ -12,6 +11,7 @@ lib/build/portable.tl 16 18
 lib/build/reporter.tl 145 159
 lib/cosmic/ansi.tl 86 86
 lib/cosmic/benchmark.tl 180 212
+lib/cosmic/build.tl 172 206
 lib/cosmic/check.tl 80 82
 lib/cosmic/child/fast.tl 40 52
 lib/cosmic/child/init.tl 214 247
