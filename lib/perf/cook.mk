@@ -68,12 +68,6 @@ perf-bin: $(cosmic_bin) $(build_pack)
 	@echo "built $(cosmic_local_bin) from $(COSMO_LUA)"
 	@echo "measure it with: PERF_BIN=$(cosmic_local_bin) bin/make perf-compare"
 
-# Shell exceptions (#756 item 2): the compare/selfcheck retry and
-# triage chains branch on exit codes; measurement apparatus, not build
-# logic. perf and perf-baseline are argv-only since the export
-# conversion above.
-perf-compare perf-selfcheck: private SHELL := /bin/bash
-perf-compare perf-selfcheck: private .SHELLFLAGS := -o pipefail -c
 perf perf-baseline: .PLEDGE := $(pledge_build)
 perf perf-baseline: .UNVEIL := $(unveil_test)
 
@@ -90,40 +84,25 @@ perf-baseline: $$(perf_lua) $(cosmic_bin)
 perf-compare: .PLEDGE := $(pledge_build)
 perf-compare: .UNVEIL := $(unveil_test)
 
-perf_compare_cmd = $(PERF_BIN) -- $(perf_run) --compare \
-	$(perf_sandbox)/baseline.json $(perf_sandbox)/current.json \
-	--threshold $(PERF_THRESHOLD)
-
-# Final stage: reclassify any surviving regression the current binary
-# cannot reproduce against itself (selfcheck-b vs the current run) as
-# "noise" rather than a failure — the A/A control, run automatically.
-perf_triage_cmd = $(PERF_BIN) -- $(perf_run) --compare \
-	$(perf_sandbox)/baseline.json $(perf_sandbox)/current.json \
-	--threshold $(PERF_THRESHOLD) \
-	--selfcheck-a $(perf_sandbox)/current.json \
-	--selfcheck-b $(perf_sandbox)/selfcheck-b.json
+# De-shelled (#756 cleanup): the retry and A/A-triage orchestration
+# lives in perf.gate (tested with injected measurements); the recipe is
+# one argv line. After the positional results paths, everything but
+# --threshold is handed to perf.run per re-measurement pass (no `--`
+# separator — the cosmic dispatcher consumes a standalone one).
+perf_gate := $(o)/lib/perf/gate.lua
+perf_gate_run_args = --samples $(PERF_SAMPLES) --min-secs $(PERF_MIN_SECS) \
+	$(perf_only_flag) $(perf_bench_mods)
 
 ## Re-run scenarios and fail on any regression vs the saved baseline
-# A failed comparison retries once with fresh measurements so machine
-# noise has to strike twice in the same direction. If a regression still
-# stands, one more pass of the same binary drives an automatic A/A
-# triage: scenarios that swing past the bar against themselves are
-# reclassified "noise" and the gate passes iff a real regression remains.
+# A flagged regression re-measures once (noise must strike twice in the
+# same direction); if it persists, an automatic A/A self-check
+# reclassifies swings the binary shows against itself as "noise", and
+# the gate fails iff a real regression remains.
 perf-compare: perf
-	@$(perf_compare_cmd) || { \
-		echo "perf-compare: regression flagged; re-measuring once to filter noise"; \
-		$(perf_cmd) --out $(perf_sandbox)/current.json $(perf_bench_mods) \
-			&& $(perf_compare_cmd); } || { \
-		echo "perf-compare: regression persists; running A/A self-check to separate real regressions from machine noise"; \
-		$(perf_cmd) --out $(perf_sandbox)/selfcheck-b.json $(perf_bench_mods) \
-			&& $(perf_triage_cmd); }
+	@$(PERF_BIN) -- $(perf_gate) compare $(perf_sandbox)/baseline.json $(perf_sandbox)/current.json $(perf_sandbox)/selfcheck-b.json --threshold $(PERF_THRESHOLD) $(perf_gate_run_args)
 
 perf-selfcheck: .PLEDGE := $(pledge_build)
 perf-selfcheck: .UNVEIL := $(unveil_test)
-
-perf_selfcheck_cmd = $(PERF_BIN) -- $(perf_run) --compare \
-	$(perf_sandbox)/selfcheck-a.json $(perf_sandbox)/selfcheck-b.json \
-	--threshold $(PERF_THRESHOLD)
 
 ## A/A control: measure this machine's noise floor by comparing the SAME
 ## binary against itself. Anything flagged here moves more than the bar on
@@ -134,8 +113,4 @@ perf_selfcheck_cmd = $(PERF_BIN) -- $(perf_run) --compare \
 # fast focused check on just the scenario perf-compare flagged.
 perf-selfcheck: $$(perf_lua) $(cosmic_bin)
 	@mkdir -p $(perf_sandbox)
-	@$(perf_cmd) --out $(perf_sandbox)/selfcheck-a.json $(perf_bench_mods)
-	@$(perf_cmd) --out $(perf_sandbox)/selfcheck-b.json $(perf_bench_mods)
-	@$(perf_selfcheck_cmd) && \
-		echo "perf-selfcheck: nothing exceeded the bar — the machine is quiet at this threshold" || \
-		echo "perf-selfcheck: the scenarios flagged above vary by more than the bar on noise alone; discount same-named perf-compare regressions"
+	@$(PERF_BIN) -- $(perf_gate) selfcheck $(perf_sandbox)/selfcheck-a.json $(perf_sandbox)/selfcheck-b.json --threshold $(PERF_THRESHOLD) $(perf_gate_run_args)

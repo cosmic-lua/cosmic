@@ -131,6 +131,7 @@ lib/perf/bench/startup_bench.tl 74 86
 lib/perf/bench/stream_bench.tl 0 80
 lib/perf/bench/time_bench.tl 0 14
 lib/perf/compare.tl 104 107
+lib/perf/gate.tl 95 115
 lib/perf/harness.tl 138 149
 lib/perf/perf_types.tl 2 2
 lib/perf/run.tl 93 182
@@ -142,4 +143,4 @@ lib/types/gentype_parse.tl 267 288
 lib/types/gentype_render.tl 309 312
 lib/types/gentype_types.tl 2 2
 tlconfig.lua 7 7
-total 11675 15311
+total 11770 15426
