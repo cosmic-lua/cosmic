@@ -77,8 +77,9 @@ $(build_make_out)/only-database.out: $(build_make_srcs)
 # Makefile's global defaults), and cosmopolitan's unveil() silently
 # no-ops where Landlock is unavailable, so nothing else in this build
 # can prove the enforcement mechanism still works. The probe rule opts
-# in with .SANDBOXED = 1 and a grant limited to its own directory, then
-# attempts a write outside that grant, recording the verdict inside it.
+# in with .SANDBOXED = 1, then attempts a write outside its grants,
+# recording the verdict beside its target (the derived target-dir
+# grant, #756 item 4).
 # ENOENT unveil entries are skipped by landlock-make, so the generous
 # rx list below is safe across hosts; the probe directory must exist
 # BEFORE the sandboxed rule runs (unveil on a missing path is a no-op).
@@ -96,7 +97,11 @@ $(canary_dir)/probe.got sandbox-canary: private SHELL := /bin/bash
 $(canary_dir)/probe.got sandbox-canary: private .SHELLFLAGS := -o pipefail -c
 $(canary_dir)/probe.got: .SANDBOXED := 1
 $(canary_dir)/probe.got: .PLEDGE := $(pledge_build)
-$(canary_dir)/probe.got: .UNVEIL := rwc:$(canary_dir) $(unveil_hostx)
+# The probe's own-directory grant is gone (#756 item 4): the target-dir
+# auto-grant must cover the verdict write, so the canary now ALSO
+# proves the derived grant under real Landlock — if the auto-grant
+# broke, the probe could not record its verdict and the canary fails.
+$(canary_dir)/probe.got: .UNVEIL := $(unveil_hostx)
 $(canary_dir)/probe.got: .FORCE
 	@if echo escaped 2>/dev/null > $(canary_escape); then \
 	  echo escaped > $@; \

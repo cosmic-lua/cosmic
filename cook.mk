@@ -33,7 +33,15 @@ unveil_dev := rw:/dev/null r:/dev/random r:/dev/urandom
 # Host set proven under real enforcement by the sandbox-canary (#724)
 # and the enforced families' CI runs: shell + coreutils + loaders.
 unveil_hostx := rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc $(unveil_dev)
-unveil_dep := rx:$(o)/bootstrap r:3p rwc:$(o)
+# Grants derived from the graph (#756 item 4, whilp/cosmopolitan#211):
+# landlock-make auto-grants rx on prerequisites and rwc on the target's
+# directory, so sandboxed families no longer hand-grant the whole
+# output tree — only genuinely-extra paths. fetch writes the archive
+# cache; stage reads it and writes the staged tree (their stamps and
+# symlinks live in the target's own directory, covered by the
+# auto-grant).
+unveil_fetch := rx:$(o)/bootstrap r:3p rwc:$(FETCH_O)
+unveil_stage := rx:$(o)/bootstrap r:3p r:$(FETCH_O) rwc:$(STAGE_O)
 # TMP is x: tests exec what they build there — embed outputs, scripts
 # under TEST_TMPDIR (proven need: embed/child/testrun under Landlock)
 unveil_test := $(unveil_base) rwcx:$(o) rwcx:$(TMP) $(unveil_hostx)
@@ -63,7 +71,7 @@ $(o)/%.lua: .PLEDGE := $(pledge_build) fattr
 # build-recipe driver — direct bootstrap execs under the global
 # no-shell default. The driver's own compile opts back out in
 # lib/build/cook.mk (self-bootstrap exception).
-$(o)/%.lua: .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_dev)
+$(o)/%.lua: .UNVEIL := r:tlconfig.lua $(unveil_dev)
 # .ENV (#756 item 5): the compile child sees ONLY the declared set —
 # the three path axes below plus the pinned locale/tz and NO_COLOR
 # (deterministic output). A hostile caller variable cannot reach it;
@@ -110,7 +118,7 @@ $(o)/%/.fetched $(o)/%/.staged: export LUA_PATH = $(tree_lua_path)
 # sees it too, as the old shell prefix already had it.
 $(o)/%.lint.got: .SANDBOXED := 1
 $(o)/%.lint.got: .PLEDGE := $(pledge_build)
-$(o)/%.lint.got: .UNVEIL := rwc:$(o) rwc:$(TMP) $(unveil_dev)
+$(o)/%.lint.got: .UNVEIL := rwc:$(TMP) $(unveil_dev)
 $(o)/%.lint.got: .ENV := LUA_PATH TMPDIR LC_ALL TZ NO_COLOR
 $(o)/%.lint.got: export LUA_PATH = $(o)/lib/?.lua;$(o)/lib/?/init.lua;;
 # Reporter summaries (bootstrap + tee). test/coverage/enforce summaries
@@ -122,7 +130,7 @@ $(reporter_summaries): .PLEDGE := $(pledge_build)
 # De-hosted (#732): the reporter writes its own summary (--out replaces
 # `| tee`), so these recipes are direct bootstrap execs — same no-shell
 # fast path + tripwire as fetch/stage above.
-$(reporter_summaries): .UNVEIL := rwc:$(o) $(unveil_dev)
+$(reporter_summaries): .UNVEIL := $(unveil_dev)
 # REPORTER_NOTE: the lint summary's deleted-files note rides the env
 $(reporter_summaries): .ENV := LUA_PATH REPORTER_NOTE LC_ALL TZ NO_COLOR
 $(reporter_summaries): export LUA_PATH = $(tree_lua_path)
@@ -136,12 +144,12 @@ $(reporter_summaries): export LUA_PATH = $(tree_lua_path)
 # grants. testrun mkdtemps the per-check TEST_TMPDIR under $(TMP).
 $(o)/%.teal.got: .SANDBOXED := 1
 $(o)/%.teal.got: .PLEDGE := $(pledge_build)
-$(o)/%.teal.got: .UNVEIL := rwc:$(o) r:tlconfig.lua rwc:$(TMP) $(unveil_dev)
+$(o)/%.teal.got: .UNVEIL := r:tlconfig.lua rwc:$(TMP) $(unveil_dev)
 $(o)/%.teal.got: .ENV := TL_PATH TMPDIR LC_ALL TZ NO_COLOR
 $(o)/%.teal.got: export TL_PATH = $(tree_tl_path)
 $(o)/%.format.got: .SANDBOXED := 1
 $(o)/%.format.got: .PLEDGE := $(pledge_build)
-$(o)/%.format.got: .UNVEIL := rwc:$(o) r:tlconfig.lua rwc:$(TMP) $(unveil_dev)
+$(o)/%.format.got: .UNVEIL := r:tlconfig.lua rwc:$(TMP) $(unveil_dev)
 $(o)/%.format.got: .ENV := TMPDIR LC_ALL TZ NO_COLOR
 
 # Fifth ENFORCED family (#729): examples. Same grant sets as the test
