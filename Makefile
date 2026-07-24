@@ -55,8 +55,6 @@ help: $(build_files) | $(bootstrap_cosmic)
 ## Filter targets by substring (make test only=teal; also narrows fetch/stage)
 filter-only = $(if $(only),$(foreach f,$1,$(if $(findstring $(only),$(f)),$(f))),$1)
 
-cp := cp -p
-
 # Copies and compiles run through the build-recipe driver (#732): no
 # shell, no host mkdir/cp/cat/cmp/mv (LUA_PATH pins live in cook.mk
 # with the family's other pattern vars). .exists orders cold-tree

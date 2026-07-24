@@ -205,6 +205,22 @@ local function do_require_marker(args: {string}): integer
   return fail("no file under " .. dir .. " contains '" .. marker .. "'")
 end
 
+--- require-elf <file> — fail unless file starts with the ELF magic
+--- (the assimilation checks' `printf '\177ELF' | cmp` process
+--- substitution).
+local function do_require_elf(args: {string}): integer
+  local path = args[1]
+  if not path then
+    return fail("usage: require-elf <file>")
+  end
+  local content = fs.read(path)
+  if not content or string.sub(content, 1, 4) ~= "\127ELF" then
+    return fail(path .. " is not a native ELF — assimilation failed"
+      .. " (sandboxed rules need a native ELF, no loader grants)")
+  end
+  return 0
+end
+
 --- copy <src> <dst> — mkdir -p + cp, preserving the permission bits.
 local function do_copy(args: {string}): integer
   local src, dst = args[1], args[2]
@@ -252,6 +268,7 @@ local modes: {string: function({string}): integer} = {
   copy = do_copy,
   link = do_link,
   list = do_list,
+  ["require-elf"] = do_require_elf,
   ["require-marker"] = do_require_marker,
   tee = do_tee,
 }
@@ -261,7 +278,7 @@ local function main(...: string): integer
   local mode = table.remove(args, 1)
   local run_mode = mode and modes[mode]
   if not run_mode then
-    return fail("usage: build-recipe capture|compile|copy|link|list|require-marker|tee ...")
+    return fail("usage: build-recipe capture|compile|copy|link|list|require-elf|require-marker|tee ...")
   end
   return run_mode(args)
 end

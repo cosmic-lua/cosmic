@@ -172,3 +172,16 @@ local function test_require_marker()
   assert(err:match("absent%-marker"), "failure names the marker, got: " .. err)
 end
 test_require_marker()
+
+local function test_require_elf()
+  local elf = fs.join(tmpdir, "native.bin")
+  assert(fs.write(elf, "\127ELF rest-of-binary"))
+  local code = run_driver("require-elf", elf)
+  assert(code == 0, "ELF magic must pass")
+  local ape = fs.join(tmpdir, "still-ape.bin")
+  assert(fs.write(ape, "MZqFpD='"))
+  local code2, _out, err = run_driver("require-elf", ape)
+  assert(code2 ~= 0, "non-ELF must fail")
+  assert(err:match("not a native ELF"), "failure explains, got: " .. err)
+end
+test_require_elf()

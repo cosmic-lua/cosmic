@@ -8,7 +8,8 @@ build_reporter := $(o)/lib/build/reporter.lua
 build_help := $(o)/lib/build/make-help.lua
 build_lint := $(o)/lib/build/lint.lua
 build_recipe := $(o)/lib/build/build-recipe.lua
-build_files := $(build_fetch) $(build_stage) $(build_untar) $(build_portable) $(build_reporter) $(build_help) $(build_lint)
+build_pack := $(o)/lib/build/build-pack.lua
+build_files := $(build_fetch) $(build_stage) $(build_untar) $(build_pack) $(build_portable) $(build_reporter) $(build_help) $(build_lint)
 
 # Self-bootstrap exception (#732): build-recipe drives the shell-free
 # compile/copy/link recipes, so it cannot be compiled by them — this one
