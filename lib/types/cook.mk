@@ -13,6 +13,10 @@ $(o)/lib/types/gentl_test.tl.test.got $(o)/coverage/lib/types/gentl_test.tl.test
 
 .PHONY: regen-tl-types
 ## Regenerate lib/types/tl.d.tl from the staged tl source
+# Shell exception (#756 item 2): dev-facing regen (redirect + mv); the
+# gentl drift test gates its output, not this recipe.
+regen-tl-types: private SHELL := /bin/bash
+regen-tl-types: private .SHELLFLAGS := -o pipefail -c
 regen-tl-types: .PLEDGE := $(pledge_build)
 regen-tl-types: .UNVEIL := $(unveil_base) rwcx:$(o) rwc:lib/types
 regen-tl-types: $(o)/lib/types/gentl.lua $$(tl_staged) | $(bootstrap_cosmic)

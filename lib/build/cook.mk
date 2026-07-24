@@ -21,8 +21,8 @@ build_files := $(build_fetch) $(build_stage) $(build_untar) $(build_pack) $(buil
 # needs), and everything else compiles through the driver. The driver
 # runs against the bootstrap's EMBEDDED stdlib (see its header), so the
 # bootstrap sha covers its runtime and no tree .lua is required first.
-$(build_recipe): SHELL := /bin/bash
-$(build_recipe): .SHELLFLAGS := -o pipefail -c
+$(build_recipe): private SHELL := /bin/bash
+$(build_recipe): private .SHELLFLAGS := -o pipefail -c
 $(build_recipe): export LUA_PATH := ;;
 $(build_recipe): .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_hostx)
 $(build_recipe): lib/build/build-recipe.tl $(types_files) $(tl_files) $(bootstrap_files) $(compile_flag_stamp)
@@ -47,8 +47,6 @@ $(build_test_got): $(build_files)
 # make-help snapshot: generate actual help output (driver capture, #732)
 $(o)/lib/build/make-help.snap: export LUA_PATH := ;;
 $(o)/lib/build/make-help.snap: export TREE_LUA_PATH = $(tree_lua_path)
-$(o)/lib/build/make-help.snap: private SHELL := /dev/null/enoshell
-$(o)/lib/build/make-help.snap: private .SHELLFLAGS := -c
 $(o)/lib/build/make-help.snap: Makefile $(build_help) $(build_recipe) | $(bootstrap_cosmic)
 	@$(bootstrap_cosmic) -- $(build_recipe) capture $(bootstrap_cosmic) $@ $(build_help) Makefile
 
@@ -92,6 +90,10 @@ $(build_make_out)/only-database.out: $(build_make_srcs)
 # Every enforcement-bound .UNVEIL carrying $(...) needs this spelling.
 canary_dir := $(o)/sandbox-canary
 canary_escape := $(o)/sandbox-canary-escape.txt
+# Shell exceptions (#756 item 2): the probe's out-of-grant write attempt
+# and the canary's verdict branching are the enforcement test itself.
+$(canary_dir)/probe.got sandbox-canary: private SHELL := /bin/bash
+$(canary_dir)/probe.got sandbox-canary: private .SHELLFLAGS := -o pipefail -c
 $(canary_dir)/probe.got: .SANDBOXED := 1
 $(canary_dir)/probe.got: .PLEDGE := $(pledge_build)
 $(canary_dir)/probe.got: .UNVEIL := rwc:$(canary_dir) $(unveil_hostx)
@@ -128,6 +130,10 @@ sandbox-canary: $$(cosmic_bin)
 .PHONY: ci-selftest-launder
 ci-selftest-launder: $(o)/ci-selftest-launder-summary.txt
 
+# Shell exception (#756 item 2): deliberately tees a clean summary and
+# then fails — the laundering the ci grading gate must catch.
+$(o)/ci-selftest-launder-summary.txt: private SHELL := /bin/bash
+$(o)/ci-selftest-launder-summary.txt: private .SHELLFLAGS := -o pipefail -c
 $(o)/ci-selftest-launder-summary.txt:
 	@mkdir -p $(@D)
 	@echo "ci grading selftest: 1 passed" | tee $@
@@ -147,6 +153,10 @@ $(build_make_out)/ci-launder.out: $(build_make_srcs)
 # Environment clamp probe (#731): echoes the env a recipe actually sees.
 # Test apparatus like ci-selftest-launder above, not a help target.
 .PHONY: env-probe
+# Shell exception (#756 item 2): the probe exists to show the env a
+# recipe's shell actually sees.
+env-probe: private SHELL := /bin/bash
+env-probe: private .SHELLFLAGS := -o pipefail -c
 env-probe:
 	@echo "LC_ALL=$$LC_ALL"; echo "TZ=$$TZ"; echo "PATH=$$PATH"
 
@@ -160,6 +170,12 @@ $(build_make_out)/env-clamp.out: $(build_make_srcs)
 	@code=0; LC_ALL=tr_TR.UTF-8 TZ=Pacific/Kiritimati PATH="/hostile/bin:$$PATH" $(MAKE) -s env-probe >$@.tmp 2>&1 || code=$$?; echo "exit:$$code" >> $@.tmp; mv $@.tmp $@
 
 build_make_outputs := $(build_make_out)/dry-run.out $(build_make_out)/database.out $(build_make_out)/only-database.out $(build_make_out)/ci-launder.out $(build_make_out)/env-clamp.out
+
+# Shell exceptions (#756 item 2): the fixture rules above run nested
+# makes with exit-code capture and redirects — test apparatus, not build
+# logic.
+$(build_make_outputs): private SHELL := /bin/bash
+$(build_make_outputs): private .SHELLFLAGS := -o pipefail -c
 
 # makefile_test consumes the fixtures in both test lanes
 build_makefile_test_got := \

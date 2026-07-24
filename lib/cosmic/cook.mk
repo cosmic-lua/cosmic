@@ -72,11 +72,11 @@ pack = $(bootstrap_cosmic) -- $(build_pack) --built $(cosmic_built) \
 # fallback would swallow the denial into a silently version-less
 # artifact. Target-specific wins over pattern-specific.
 $(cosmic_version_lua): .SANDBOXED := 0
-# a .lua-named target inherits the compile family's poisoned no-shell
-# SHELL (#732); this recipe is a deliberate host exception (git) and
-# keeps the real shell alongside its sandbox opt-out above
-$(cosmic_version_lua): SHELL := /bin/bash
-$(cosmic_version_lua): .SHELLFLAGS := -o pipefail -c
+# Shell exception (#732/#756 item 2): git describe + cosmos version
+# interpolation; a deliberate host dependency, alongside its sandbox
+# opt-out above.
+$(cosmic_version_lua): private SHELL := /bin/bash
+$(cosmic_version_lua): private .SHELLFLAGS := -o pipefail -c
 $(cosmic_version_lua): .FORCE | $$(cosmos_staged)
 	@mkdir -p $(@D)
 	@echo "return { cosmic = \"$$(git describe --tags --always --dirty 2>/dev/null || echo unknown)\", cosmos = \"$$($(cosmos_lua_bin) -e "print(dofile('3p/cosmos/version.lua').version)")\" }" > $@.tmp
@@ -85,8 +85,6 @@ $(cosmic_version_lua): .FORCE | $$(cosmos_staged)
 .PHONY: .FORCE
 
 $(cosmic_bin) $(cosmic_debug_bin): export LUA_PATH = $(tree_lua_path)
-$(cosmic_bin) $(cosmic_debug_bin): private SHELL := /dev/null/enoshell
-$(cosmic_bin) $(cosmic_debug_bin): private .SHELLFLAGS := -c
 $(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(doc_index) $(cosmic_version_lua) $(cosmic_sys) $(cosmic_skills) $(cosmic_types) $(build_pack) | $(bootstrap_cosmic)
 	@$(pack) --out $@ --base $(cosmos_lua_bin)
 
@@ -100,8 +98,6 @@ $(cosmic_debug_bin): $(cosmic_bin) $(build_pack)
 # ELF like the bootstrap; the shipped $(cosmic_bin) stays a fat APE
 # (the cross-OS smoke lanes cover real-APE behavior).
 cosmic_check_bin := $(o)/bin/cosmic-check
-$(cosmic_check_bin): private SHELL := /dev/null/enoshell
-$(cosmic_check_bin): private .SHELLFLAGS := -c
 # --assimilate is handled by the APE shell stub, which a direct (no
 # shell) exec bypasses — the pinned cosmos assimilate tool converts in
 # place instead, keeping this recipe shell-free (#732).
@@ -126,6 +122,8 @@ $(cosmic_check_bin): $(cosmic_bin) $(build_recipe) | $$(cosmos_staged)
 # direct cosmopolitan exec maps the binary and never writes the .ape-*
 # cache (witnessed), so this recipe must go through a real shell.
 ape_loader := $(o)/bin/ape
+$(ape_loader): private SHELL := /bin/bash
+$(ape_loader): private .SHELLFLAGS := -o pipefail -c
 $(ape_loader): $(cosmic_bin)
 	@t=$$(mktemp -d) && PATH="$(HOST_PATH)" TMPDIR=$$t $(CURDIR)/$< -e 'return' >/dev/null && \
 	  set -- $$t/.ape-*; [ -x "$$1" ] || { echo "ape loader extraction failed" >&2; exit 1; }; \

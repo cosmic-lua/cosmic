@@ -64,8 +64,6 @@ $(o)/%.lua: .PLEDGE := $(pledge_build) fattr
 # fast path + poisoned-SHELL tripwire as fetch/stage. The driver's own
 # compile opts back out in lib/build/cook.mk (self-bootstrap exception).
 $(o)/%.lua: .UNVEIL := rwc:$(o) r:tlconfig.lua $(unveil_dev)
-$(o)/%.lua: private SHELL := /dev/null/enoshell
-$(o)/%.lua: private .SHELLFLAGS := -c
 # LUA_PATH=;; pins the DRIVER to the bootstrap's embedded stdlib (a
 # caller's LUA_PATH must not redirect its requires); the compile child
 # gets ";;" (strict) or TREE_LUA_PATH — the #666 axis, one layer down.
@@ -82,19 +80,16 @@ $(o)/%.lua: export TL_PATH = $(tree_tl_path)
 # the grant sets.
 $(o)/%/.fetched: .SANDBOXED := 1
 $(o)/%/.staged: .SANDBOXED := 1
-# De-hosted (#732): these recipes are metacharacter-free argv, so a
-# plain -c re-enables make's direct-exec fast path (the global pipefail
-# .SHELLFLAGS forces the shell; these recipes have no pipes) and no
-# shell runs at all — the poisoned SHELL is the tripwire that fails
-# loudly if a recipe ever regresses to shell syntax. private: cold-tree
-# prerequisites (stdlib compiles) must not inherit either override —
-# but NOT on the export: a private export never reaches the recipe env
-# (witnessed: bootstrap fell back to its embedded stdlib); inheritance
-# is benign because every compile recipe sets LUA_PATH explicitly.
-# Recursive (=): tree_lua_path is computed after the includes (#720).
+# De-hosted (#732): these recipes are metacharacter-free argv, so
+# make's direct-exec fast path runs them with no shell at all; the
+# GLOBAL poisoned SHELL (#756 item 2, set at the bottom of the
+# Makefile) is the tripwire that fails loudly if any recipe regresses
+# to shell syntax. The LUA_PATH export is deliberately NOT private: a
+# private export never reaches the recipe env (witnessed: bootstrap
+# fell back to its embedded stdlib); inheritance is benign because
+# every compile recipe sets LUA_PATH explicitly. Recursive (=):
+# tree_lua_path is computed after the includes (#720).
 $(o)/%/.fetched $(o)/%/.staged: export LUA_PATH = $(tree_lua_path)
-$(o)/%/.fetched $(o)/%/.staged: private SHELL := /dev/null/enoshell
-$(o)/%/.fetched $(o)/%/.staged: private .SHELLFLAGS := -c
 # De-hosted (#732): lint runs through the pinned bootstrap's --test
 # capture (which mkdtemps under $(TMP)); the .ok alias file is retired —
 # the .got IS the target. LUA_PATH points the lint child at this tree's
@@ -104,8 +99,6 @@ $(o)/%.lint.got: .SANDBOXED := 1
 $(o)/%.lint.got: .PLEDGE := $(pledge_build)
 $(o)/%.lint.got: .UNVEIL := rwc:$(o) rwc:$(TMP) $(unveil_dev)
 $(o)/%.lint.got: export LUA_PATH = $(o)/lib/?.lua;$(o)/lib/?/init.lua;;
-$(o)/%.lint.got: private SHELL := /dev/null/enoshell
-$(o)/%.lint.got: private .SHELLFLAGS := -c
 # Reporter summaries (bootstrap + tee). test/coverage/enforce summaries
 # exec $(cosmic_bin) and stay unsandboxed with the test lanes.
 reporter_summaries := $(o)/teal-summary.txt $(o)/format-summary.txt \
@@ -117,8 +110,6 @@ $(reporter_summaries): .PLEDGE := $(pledge_build)
 # fast path + tripwire as fetch/stage above.
 $(reporter_summaries): .UNVEIL := rwc:$(o) $(unveil_dev)
 $(reporter_summaries): export LUA_PATH = $(tree_lua_path)
-$(reporter_summaries): private SHELL := /dev/null/enoshell
-$(reporter_summaries): private .SHELLFLAGS := -c
 
 # Third ENFORCED family (#729): the teal/format check rules, which exec
 # the assimilated $(cosmic_check_bin) duplicate (see lib/cosmic/cook.mk)
@@ -131,13 +122,9 @@ $(o)/%.teal.got: .SANDBOXED := 1
 $(o)/%.teal.got: .PLEDGE := $(pledge_build)
 $(o)/%.teal.got: .UNVEIL := rwc:$(o) r:tlconfig.lua rwc:$(TMP) $(unveil_dev)
 $(o)/%.teal.got: export TL_PATH = $(tree_tl_path)
-$(o)/%.teal.got: private SHELL := /dev/null/enoshell
-$(o)/%.teal.got: private .SHELLFLAGS := -c
 $(o)/%.format.got: .SANDBOXED := 1
 $(o)/%.format.got: .PLEDGE := $(pledge_build)
 $(o)/%.format.got: .UNVEIL := rwc:$(o) r:tlconfig.lua rwc:$(TMP) $(unveil_dev)
-$(o)/%.format.got: private SHELL := /dev/null/enoshell
-$(o)/%.format.got: private .SHELLFLAGS := -c
 
 # Fifth ENFORCED family (#729): examples. Same grant sets as the test
 # lanes — examples exercise the same modules (sockets, tty, chmod) and
@@ -147,8 +134,6 @@ $(o)/%.format.got: private .SHELLFLAGS := -c
 $(o)/%.tl.example.got: .SANDBOXED := 1
 $(o)/%.tl.example.got: .PLEDGE := $(pledge_test)
 $(o)/%.tl.example.got: .UNVEIL := $(unveil_test)
-$(o)/%.tl.example.got: private SHELL := /dev/null/enoshell
-$(o)/%.tl.example.got: private .SHELLFLAGS := -c
 
 # Fourth ENFORCED family (#729): the plain and coverage test lanes,
 # running the real fat-APE $(cosmic_bin) via the staged o/bin/ape
@@ -166,13 +151,9 @@ $(o)/%.tl.example.got: private .SHELLFLAGS := -c
 # tools (sh, etc.) under $(unveil_test).
 $(o)/%.tl.test.got: .SANDBOXED := 1
 $(o)/%.tl.test.got: export LUA_PATH = $(tree_lua_path)
-$(o)/%.tl.test.got: private SHELL := /dev/null/enoshell
-$(o)/%.tl.test.got: private .SHELLFLAGS := -c
 $(o)/coverage/%.tl.test.got: .SANDBOXED := 1
 $(o)/enforce/%.tl.test.got: export LUA_PATH = $(tree_lua_path)
 $(o)/%.tl.benchmark.got: export LUA_PATH = $(tree_lua_path)
-$(o)/%.tl.benchmark.got: private SHELL := /dev/null/enoshell
-$(o)/%.tl.benchmark.got: private .SHELLFLAGS := -c
 
 # Type definition generation (define early so it's available to all modules).
 # Must match MODULES in lib/types/gentype.tl: "cosmo" renders the top-level
@@ -198,6 +179,10 @@ bootstrap_sha256 := 6c2a0afe6c942560ce2a0d796ddf8f8df096ce2c92b8ce142c28da59ecac
 
 # bin/make mirrors this rule (ensure_bootstrap, parsing the pin above via
 # sed) for the cold-tree case where no make exists yet — keep them in sync.
+# Shell exception (#756 item 2): the trust-root download — curl, the
+# sha256sum pipe, and the ELF check predate everything the driver needs.
+$(bootstrap_cosmic): private SHELL := /bin/bash
+$(bootstrap_cosmic): private .SHELLFLAGS := -o pipefail -c
 $(bootstrap_cosmic):
 	@mkdir -p $(@D)
 	curl -fsSL -o $@ $(bootstrap_url)
@@ -216,6 +201,8 @@ $(bootstrap_cosmic):
 # driver's own compile READS this stamp, so probing through the driver
 # would cycle. It stays shell, grouped with the bootstrap download.
 compile_flag_stamp := $(o)/bootstrap/compile-flag
+$(compile_flag_stamp): private SHELL := /bin/bash
+$(compile_flag_stamp): private .SHELLFLAGS := -o pipefail -c
 $(compile_flag_stamp): $(bootstrap_files)
 	@mkdir -p $(@D)
 	@printf 'print("probe")\n' > $@.probe.tl
@@ -260,6 +247,10 @@ gentype_closure_lua := $(patsubst %.tl,$(o)/%.lua,$(gentype_closure_tl))
 
 .PHONY: regen-types
 ## Regenerate .d.tl type definitions from the pinned cosmos definitions.lua
+# Shell exception (#756 item 2): dev-facing regen loop (for/case/redirect);
+# the gentype drift test gates its output, not this recipe.
+regen-types: private SHELL := /bin/bash
+regen-types: private .SHELLFLAGS := -o pipefail -c
 regen-types: $(gentype_closure_lua)
 	@test -x $(cosmos_lua_bin) || { echo "regen-types: staged cosmos missing; run 'bin/make staged' first"; exit 1; }
 	@test -f $(tl_dir)/tl.lua || { echo "regen-types: staged tl missing; run 'bin/make staged' first"; exit 1; }
