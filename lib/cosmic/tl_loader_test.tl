@@ -134,8 +134,12 @@ return { x = x }
 local badmod = require("badmod")
 print("should not get here: " .. tostring(badmod))
 ]])
+  -- keep PATH (same trap as test_tl_loader_still_available above): a
+  -- replacement env without it strands the APE stub away from the
+  -- staged `ape` loader, and its ./.ape-* fallback is denied under the
+  -- test sandbox
   local h = check.must(spawn.spawn({cosmic, script}, {
-        env = {"TL_PATH=" .. baddir .. "/?.tl"},
+        env = {"TL_PATH=" .. baddir .. "/?.tl", "PATH=" .. os.getenv("PATH")},
       }))
   local r = check.must(h:wait())
   assert(not r.ok, "require of a broken .tl module must fail")
@@ -165,6 +169,7 @@ print("value=" .. require("goodmod").value)
         env = {
           "TL_PATH=" .. gooddir .. "/?.tl",
           "COSMIC_TL_CACHE_DIR=" .. cachedir,
+          "PATH=" .. os.getenv("PATH"), -- APE stub needs the staged loader
         },
       }))
   local r = check.must(h:wait())
