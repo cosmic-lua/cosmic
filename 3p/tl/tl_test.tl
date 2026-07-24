@@ -1,12 +1,19 @@
 #!/usr/bin/env cosmic
 -- ast-grep ignore: test file needs package.path manipulation
 local path = require("cosmo.path")
-local tl = require("tl")
 
-global TEST_DIR: string
+-- TEST_DIR is the staged tl dir, set by the make rule. Read it from the
+-- environment, like every other test: a bare `global TEST_DIR` is never
+-- populated — cosmic injects only _G.arg — so it was always nil, the
+-- prepend below added a useless cwd-relative "?.lua", and the require
+-- resolved the binary's embedded tl instead of the staged source this
+-- test exists to exercise (and ran before the prepend besides).
+local TEST_DIR = assert(os.getenv("TEST_DIR"),
+  "tl_test requires TEST_DIR (the staged tl dir)")
 
--- add tl.lua to package.path
+-- add the staged tl.lua to package.path BEFORE requiring it
 package.path = path.join(TEST_DIR, "?.lua") .. ";" .. package.path
+local tl = require("tl")
 
 local function test_load_tl()
   assert(tl ~= nil, "failed to load tl")
