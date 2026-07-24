@@ -75,12 +75,22 @@ each test:
 with landlock-make (`bin/make`), each rule declares security constraints:
 
 ```makefile
-$(o)/%.tl.test.got: .PLEDGE = stdio rpath wpath cpath proc exec
-$(o)/%.tl.test.got: .UNVEIL = rx:$(o)/bootstrap r:lib rwc:$(o) rwc:$(TMP)
+$(o)/%.tl.test.got: .PLEDGE := stdio rpath wpath cpath proc exec
+$(o)/%.tl.test.got: .UNVEIL := rx:$(o)/bootstrap r:lib rwc:$(o) rwc:$(TMP)
+$(o)/%.lua: .ENV := LUA_PATH TREE_LUA_PATH TL_PATH LC_ALL TZ NO_COLOR
 ```
 
 - `.PLEDGE` restricts system calls (OpenBSD pledge semantics)
 - `.UNVEIL` restricts filesystem paths and permissions
+- `.ENV` clamps the child environment to the named variables (#756 item
+  5); the env-clamp fixture's canary probe gates it
+
+recipes are shell-free by default (#756 item 2): the global `SHELL` is
+poisoned, recipes are single argv lines run via make's direct-exec
+path, and the real shell is a per-rule `private` exception. The
+makefile ratchet tests enumerate the exception set, the
+`$(unveil_hostx)` carriers, and statically scan recipe text for shell
+syntax — all three fail when a set grows without a declared reason.
 
 ### Building the cosmic Binary
 

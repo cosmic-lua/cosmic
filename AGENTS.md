@@ -214,7 +214,8 @@ bin/make clean          # remove build artifacts
 key concepts:
 - **modules**: each directory declares a module via `cook.mk` with `_tl`, `_tests`, `_files`, `_deps`
 - **versioned deps**: 3p modules use `version.lua` → fetch → stage pipeline
-- **bootstrap**: a pre-built cosmic binary bootstraps compilation of `.tl` → `.lua`
+- **bootstrap**: a pre-built cosmic binary bootstraps compilation of `.tl` → `.lua`; `bin/make` is its sole provisioner (sha-pinned, re-fetched on pin bumps)
+- **no-shell default**: `SHELL` is poisoned globally — recipes are single argv lines, the real shell is a per-rule exception, and the makefile ratchet tests enumerate the exceptions, the host-exec grants, and statically scan recipe text (#756 item 2)
 - **sandboxing**: per-rule `.PLEDGE`/`.UNVEIL` annotations document each rule's intended access; landlock-make enforces them only for rules that set `.SANDBOXED = 1` (today just the `sandbox-canary` probe, which CI runs to prove the mechanism works). `.ENV` clamps a rule's child environment to the named variables (#756 item 5) — the driver-exec families declare theirs in cook.mk, gated by the env-clamp fixture's canary probe
 - **output directory**: all build artifacts go to `o/`
 
