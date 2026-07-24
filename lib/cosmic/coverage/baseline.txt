@@ -1,7 +1,8 @@
 # coverage ratchet baseline: `bin/make coverage-baseline` rewrites this file.
 # columns: path covered-lines total-lines
 lib/build/build-fetch.tl 23 95
-lib/build/build-recipe.tl 133 165
+lib/build/build-pack.tl 97 132
+lib/build/build-recipe.tl 142 175
 lib/build/build-stage.tl 45 251
 lib/build/build-untar.tl 121 130
 lib/build/lint.tl 97 132
@@ -140,4 +141,4 @@ lib/types/gentype_parse.tl 267 288
 lib/types/gentype_render.tl 309 312
 lib/types/gentype_types.tl 2 2
 tlconfig.lua 7 7
-total 11313 14873
+total 11594 15194

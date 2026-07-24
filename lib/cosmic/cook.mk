@@ -41,23 +41,31 @@ cosmic_version_lua := $(o)/cosmic/version.lua
 # clamped without touching build intermediates make still tracks).
 # Gate: the reproducible CI job double-builds and cmps.
 SOURCE_DATE_EPOCH ?= $(shell git log -1 --format=%ct 2>/dev/null || echo 0)
+# flatten NOW (parse time, real shell): a recursive value would expand
+# inside pack recipes, where $(shell) runs under the poisoned no-shell
+# SHELL and silently yields an empty epoch (#732)
+SOURCE_DATE_EPOCH := $(SOURCE_DATE_EPOCH)
 
-# Pack the cosmic payload into the binary given as $(1). The boot-critical
-# Lua — .lua/cosmic/* modules, main.lua and .args — is inflate()d on EVERY
-# invocation (29 inflate() calls at boot; see whilp/cosmic#487, backlog 24), so store
-# it uncompressed to skip the decompress. The rest (tl.lua, the type
-# declarations, docs, .tl source, skills) is either large or lazy-loaded and
-# not on the startup path, so keep it deflated to hold the size cost down.
-# -X strips the Unix extra fields (atime/mtime/uid/gid): zip reading a
-# staged file bumps its atime to pack time, which leaked into local
-# headers even with mtimes clamped. Entry mtimes stay as (clamped) DOS
-# timestamps; mode bits live in the central attrs and survive -X.
-define pack-cosmic
-	@find $(cosmic_built) -exec touch -d @$(SOURCE_DATE_EPOCH) {} +
-	@cd $(cosmic_built) && $(CURDIR)/$(cosmos_zip_bin) -qr0X $(CURDIR)/$(1) .lua/cosmic
-	@cd $(cosmic_built) && $(CURDIR)/$(cosmos_zip_bin) -qrX $(CURDIR)/$(1) .lua .tl .docs sys skills -x '.lua/cosmic/*'
-	@cd $(cosmic_built) && $(CURDIR)/$(cosmos_zip_bin) -q0X $(CURDIR)/$(1) main.lua .args
-endef
+# De-hosted pack (#732): staging, the SOURCE_DATE_EPOCH mtime clamp,
+# and the zip pipeline live in build-pack.tl (which owns the pack
+# policy: store boot-critical Lua, deflate the rest, -X for #733
+# reproducibility). Make stays the source of truth for WHAT ships —
+# every file is an explicit --copy SRC DST pair below; the zip tool is
+# the pinned cosmos binary, not a host tool. Recursive (=): expanded at
+# recipe time, after the includes define tl_dir/doc_index.
+pack_copies = \
+  $(foreach f,$(cosmic_lua),--copy $(f) .lua/cosmic/$(patsubst $(o)/lib/cosmic/%,%,$(f))) \
+  $(foreach f,$(cosmic_tl),--copy $(f) .tl/cosmic/$(patsubst lib/cosmic/%,%,$(f))) \
+  $(foreach f,$(cosmic_sys),--copy $(f) sys/$(notdir $(f))) \
+  $(foreach f,$(cosmic_skills),--copy $(f) skills/cosmic/$(notdir $(f))) \
+  --copy $(cosmic_version_lua) .lua/cosmic/version.lua \
+  --copy $(tl_dir)/tl.lua .lua/tl.lua \
+  --copy $(doc_index) .docs/index.lua \
+  --copy $(cosmic_main) main.lua \
+  --copy $(cosmic_args) .args \
+  --copytree lib/types .lua/types
+pack = $(bootstrap_cosmic) -- $(build_pack) --built $(cosmic_built) \
+  --epoch $(SOURCE_DATE_EPOCH) --zip $(cosmos_zip_bin) $(pack_copies)
 
 # Opt out of the enforced *.lua pattern family (#729): git describe
 # reads .git (never unveiled), and this recipe's `|| echo unknown`
@@ -76,40 +84,14 @@ $(cosmic_version_lua): .FORCE | $$(cosmos_staged)
 
 .PHONY: .FORCE
 
-$(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(doc_index) $(cosmic_version_lua) $(cosmic_sys) $(cosmic_skills) $(cosmic_types)
-	@rm -rf $(cosmic_built)
-	@mkdir -p $(cosmic_built)/.lua/cosmic $(cosmic_built)/.tl/cosmic $(@D)
-	@for f in $(cosmic_lua); do \
-		rel="$${f#$(o)/lib/cosmic/}"; \
-		dst="$(cosmic_built)/.lua/cosmic/$$rel"; \
-		mkdir -p "$$(dirname "$$dst")"; \
-		$(cp) "$$f" "$$dst"; \
-	done
-	@for f in $(cosmic_tl); do \
-		rel="$${f#lib/cosmic/}"; \
-		dst="$(cosmic_built)/.tl/cosmic/$$rel"; \
-		mkdir -p "$$(dirname "$$dst")"; \
-		$(cp) "$$f" "$$dst"; \
-	done
-	@$(cp) $(cosmic_version_lua) $(cosmic_built)/.lua/cosmic/version.lua
-	@$(cp) $(tl_dir)/tl.lua $(cosmic_built)/.lua/
-	@cp -r lib/types $(cosmic_built)/.lua/types
-	@mkdir -p $(cosmic_built)/.docs
-	@$(cp) $(doc_index) $(cosmic_built)/.docs/index.lua
-	@mkdir -p $(cosmic_built)/sys
-	@$(cp) $(cosmic_sys) $(cosmic_built)/sys/
-	@mkdir -p $(cosmic_built)/skills/cosmic
-	@$(cp) $(cosmic_skills) $(cosmic_built)/skills/cosmic/
-	@$(cp) $(cosmic_main) $(cosmic_built)/main.lua
-	@$(cp) $(cosmic_args) $(cosmic_built)/.args
-	@$(cp) $(cosmos_lua_bin) $@
-	@chmod +x $@
-	$(call pack-cosmic,$@)
+$(cosmic_bin) $(cosmic_debug_bin): export LUA_PATH = $(tree_lua_path)
+$(cosmic_bin) $(cosmic_debug_bin): private SHELL := /dev/null/enoshell
+$(cosmic_bin) $(cosmic_debug_bin): private .SHELLFLAGS := -c
+$(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(doc_index) $(cosmic_version_lua) $(cosmic_sys) $(cosmic_skills) $(cosmic_types) $(build_pack) | $(bootstrap_cosmic)
+	@$(pack) --out $@ --base $(cosmos_lua_bin)
 
-$(cosmic_debug_bin): $(cosmic_bin)
-	@$(cp) $(cosmos_lua_debug_bin) $@
-	@chmod +x $@
-	$(call pack-cosmic,$@)
+$(cosmic_debug_bin): $(cosmic_bin) $(build_pack)
+	@$(pack) --out $@ --base $(cosmos_lua_debug_bin)
 
 # Assimilated duplicate for sandboxed build-time exec (#729, third
 # family): the teal/format check rules exec cosmic hundreds of times,
@@ -118,10 +100,15 @@ $(cosmic_debug_bin): $(cosmic_bin)
 # ELF like the bootstrap; the shipped $(cosmic_bin) stays a fat APE
 # (the cross-OS smoke lanes cover real-APE behavior).
 cosmic_check_bin := $(o)/bin/cosmic-check
-$(cosmic_check_bin): $(cosmic_bin)
-	@$(cp) $< $@
-	@$@ --assimilate
-	@printf '\177ELF' | cmp -s - <(head -c 4 $@) || { echo "cosmic-check assimilation failed: still an APE" >&2; exit 1; }
+$(cosmic_check_bin): private SHELL := /dev/null/enoshell
+$(cosmic_check_bin): private .SHELLFLAGS := -c
+# --assimilate is handled by the APE shell stub, which a direct (no
+# shell) exec bypasses — the pinned cosmos assimilate tool converts in
+# place instead, keeping this recipe shell-free (#732).
+$(cosmic_check_bin): $(cosmic_bin) $(build_recipe) | $$(cosmos_staged)
+	@$(bootstrap_cosmic) -- $(build_recipe) copy $< $@
+	@$(cosmos_dir)/assimilate $@
+	@$(bootstrap_cosmic) -- $(build_recipe) require-elf $@
 
 # The APE loader, staged where the clamped PATH can see it (#729 test
 # family): the APE shell stub prefers `exec ape "$o" "$@"` for any
