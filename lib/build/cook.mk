@@ -13,7 +13,22 @@ build_pack := $(o)/lib/build/build-pack.lua
 # strict-compile type gate like every other build script.
 build_makeboot := $(o)/lib/build/make-boot.lua
 build_audit := $(o)/lib/build/audit-unveil.lua
+# The module's _files: everything under lib/build compiled, which is what
+# `make files` builds and what the build tests exercise at runtime.
 build_files := $(build_fetch) $(build_stage) $(build_untar) $(build_pack) $(build_portable) $(build_reporter) $(build_help) $(build_lint) $(build_makeboot) $(build_audit)
+
+# Per-consumer runtime closures (#780). build_files conflates "what a
+# recipe execs" with "everything here, compiled so it gets the strict
+# type gate" — so `make help` compiled ten scripts to run one, and an
+# edit to audit-unveil.tl invalidated the fetch and stage rules. These
+# are the actual require closures (build.* only; the cosmic.* halves ride
+# $(stdlib_lua), already a prerequisite of both rules):
+#   build-fetch -> build.portable
+#   build-stage -> build.portable, build.build-untar
+# make-boot is deliberately in NEITHER: bin/make runs it from SOURCE
+# before any make exists, so its compiled copy exists only for the gate.
+build_fetch_files := $(build_fetch) $(build_portable)
+build_stage_files := $(build_stage) $(build_untar) $(build_portable)
 
 # The recipe steps (copy/compile/capture/tee/...) are the pinned
 # bootstrap's own `--build` surface (#756 item 3): cosmic.build ships
