@@ -157,11 +157,53 @@ the first-fetch shell in `bin/cosmic`.
 
    Still open here: the portable in-process gate, which only matters
    once generator and test units exist (phase 2).
-2. **User-facing `--make`.** constant rules + facts generator;
-   `build`/`test`/`check`/`fmt`/`run`/`fetch`/`clean` over the
-   conventions; fenced tests; artifact stripping; embedded make;
-   reproducibility. **this phase answers the original ask** and ships
-   independently of everything below.
+2. **User-facing `--make`.** the phase that **answers the original
+   ask**, and the one that is almost entirely user-facing: `--make`
+   does not run in this repo's own recipes, so unlike phase 1 a bug
+   here cannot take the build down with it, and nothing needs a release
+   until phase 3. Code lives in `lib/cosmic/make/` (a directory module
+   replacing today's `make.tl`), moving to `_make/` when the tree
+   flattens — no reason to hold the split hostage to the rename.
+
+   - **2a — project model and `check`.** the walk and the
+     classification (package, `_test`, `_example`, `.d.tl`, `*.pin.tl`,
+     `*.gen.tl`, `testdata/`, asset, ignore), the validator (reserved
+     import paths, `foo.tl`+`foo.lua`, `cmd/foo`→`cmd/bar`, spaces and
+     metacharacters), root discovery with the ancestor guard and the
+     `make: root=` banner, and `--make check` running in-process. The
+     old `--make [dir] [target]` Makefile generator is **dropped here**,
+     not carried: two grammars for one flag is worse than one rewrite
+     of the guides. Gates: fixture trees, and every validator message
+     asserted — those are what a fresh agent hits first.
+   - **2b — the graph.** constant `o/cosmic.mk` plus the `o/project.mk`
+     facts generator, driving make with the sentinel;
+     `build`/`test`/`fmt`/`clean` lowered onto it; parallelism.
+   - **2c — the artifact.** compile → stage → embed → `o/bin/<name>`,
+     stripping to the floor, reproducibility (the `AddOptions.mtime`
+     plumbing), `cmd/` multi-binary. This is the slice where a tree of
+     `.tl`/`.lua` plus tests becomes an executable.
+   - **2d — pins and `fetch`.** `*.pin.tl` static extraction and the
+     network-only-under-`fetch` posture.
+   - **2e — embedded make.** packing it into the release, which user
+     projects need and this repo does not (it has `bin/cosmo-make`).
+     Carries the D13 amendment, so it is the one slice with release
+     mechanics — deliberately last.
+
+   Three things phase 1 paid for, carried forward rather than
+   relearned:
+
+   - **fenced tests land opt-in.** 2b/2c introduce the test fence
+     (writes to `TEST_TMPDIR`, reads to the staged subtree). Nothing
+     available here can enforce Landlock, so it ships behind the flag
+     with a canary in the enforce lane, and the default flips only
+     after that canary asserts.
+   - **skip semantics are not inherited.** `--test` propagates exit 2
+     to make, so a test file that means to skip fails its rule instead
+     of being graded. The `test` verb has to define this deliberately.
+   - **doc churn is work, not a footnote.** retiring the Makefile
+     generator means rewriting `skills/cosmic/make.md` and
+     `makefile.md`, and `doc/guide_test.tl` asserts `guide.makefile`
+     resolves — it is test-visible, and it lands in 2a with the drop.
 3. **Dogfood.** flatten to root = module root, introduce `_` internals,
    migrate families behind `-include cosmic.mk`: packages,
    tests/examples, pins, generators, the pack. `bin/make` → `bin/cosmic`.
