@@ -3,6 +3,10 @@
 local getopt = require("cosmic.getopt")
 local proc = require("cosmic.proc")
 local fs = require("cosmic.fs")
+-- The .got exit-code contract and its icons live in cosmic.testrun (#779):
+-- both reporters feed cosmic.build's ci verdict, so they must agree on what
+-- an exit code means. See status_of there.
+local testrun = require("cosmic.testrun")
 
 local record CheckResult
   status: string
@@ -19,13 +23,6 @@ local record CategorizedResults
   ignore: {CheckResult}
 end
 
-local status_icons: {string: string} = {
-  pass = "✓",
-  fail = "✗",
-  skip = "→",
-  ignore = "○",
-}
-
 local function extract_checker(filename: string): string
   return filename:match("%.([^%.]+)%.got$")
 end
@@ -34,7 +31,7 @@ local function format_results(results: {CheckResult}): string
   local lines: {string} = {}
   for _, result in ipairs(results) do
     local status = string.upper(result.status)
-    local icon = status_icons[result.status] or " "
+    local icon = testrun.STATUS_ICONS[result.status] or " "
     local checker = result.checker or ""
     local line = string.format("%s %-6s %-8s %s", icon, status, checker, result.name)
     if result.status ~= "pass" and result.message and result.message ~= "" then
@@ -162,15 +159,9 @@ local function main(...: string): integer, string
     for _, file in ipairs(result_files) do
       local content = fs.read(file)
       if content then
-        local exit_code = tonumber(string.match(content, "^(%d+)"))
-        local status_str: string
-        if exit_code == 0 then
-          status_str = "pass"
-        elseif exit_code == 2 then
-          status_str = "skip"
-        else
-          status_str = "fail"
-        end
+        -- cast: tonumber returns number, status_of takes integer
+        local exit_code = (tonumber(string.match(content, "^(%d+)")) or -1) as integer
+        local status_str = testrun.status_of(exit_code)
         local base = string.gsub(file, "%.got$", "")
         -- cast: or fallback does not narrow
         local out_content = (fs.read(base .. ".out") or "") as string

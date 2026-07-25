@@ -5,6 +5,33 @@ local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local instrument = require("cosmic.cli.instrument")
 
+--- Display icons for a `.got` status.
+local STATUS_ICONS: {string: string} = {
+  pass = "✓",
+  fail = "✗",
+  skip = "→",
+  ignore = "○",
+}
+
+--- Classify the exit code recorded in a `.got` file.
+---
+--- ONE definition of the contract (#779). The build has two reporters —
+--- this module covers the test/coverage/enforce lanes, lib/build/reporter
+--- covers teal/format/lint/example/benchmark — and cosmic.build's
+--- `--build verdict` grades whichever of them wrote a stage's summary. A
+--- silent disagreement about what exit 2 means would mis-grade `ci`, the
+--- same failure class as #714 one layer up, so both read it from here.
+--- @param exit_code integer Exit code from the .got file
+--- @return string "pass" (0), "skip" (2), or "fail" (anything else)
+local function status_of(exit_code: integer): string
+  if exit_code == 0 then
+    return "pass"
+  elseif exit_code == 2 then
+    return "skip"
+  end
+  return "fail"
+end
+
 --- Run a test executable and capture output.
 --- Creates a temporary directory (TEST_TMPDIR) for the test and cleans up after.
 --- @param argv {string} Command and arguments
@@ -200,15 +227,12 @@ local function report(paths: {string}): integer
         end
       end
 
-      local status: string
-      if exit_code == 0 then
-        status = "pass"
+      local status = status_of(exit_code)
+      if status == "pass" then
         passed = passed + 1
-      elseif exit_code == 2 then
-        status = "skip"
+      elseif status == "skip" then
         skipped = skipped + 1
       else
-        status = "fail"
         failed = failed + 1
       end
 
@@ -229,14 +253,7 @@ local function report(paths: {string}): integer
   local slowest_ms = 0
 
   for _, result in ipairs(results) do
-    local icon: string
-    if result.status == "pass" then
-      icon = "✓"
-    elseif result.status == "skip" then
-      icon = "→"
-    else
-      icon = "✗"
-    end
+    local icon = STATUS_ICONS[result.status] or STATUS_ICONS.fail
     -- extract timing from stderr instrumentation lines
     local timing = ""
     if result.stderr ~= "" then
@@ -340,11 +357,15 @@ local _ = Example_makefile
 local record TestrunModule
   run: function(argv: {string}, output_base: string): integer
   report: function(paths: {string}): integer
+  status_of: function(exit_code: integer): string
+  STATUS_ICONS: {string: string}
 end
 
 local M: TestrunModule = {
   run = run,
   report = report,
+  status_of = status_of,
+  STATUS_ICONS = STATUS_ICONS,
 }
 
 return M
