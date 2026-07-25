@@ -418,6 +418,7 @@ local function test_the_fence_denies_an_undeclared_write()
     end
   end
   envlist[#envlist + 1] = "TMPDIR=" .. root
+  envlist[#envlist + 1] = "COSMIC_FENCE=1"
   envlist[#envlist + 1] = "COSMIC_EXEC_ROOT=" .. fs.dirname(fs.abspath(test_bin))
 
   -- A: unfenced, the write lands.

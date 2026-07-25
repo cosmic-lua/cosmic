@@ -305,6 +305,18 @@ cosmic verb or `exec`.
   subtree instead of its argv, per the same rule generators and tests
   use.
 
+  **A derived fence still needs a floor.** Shipping the derivation with
+  nothing else turned three CI lanes red at once: argv says nothing
+  about the APE loader beside a binary (a fat APE that cannot reach it
+  fails `ENOEXEC`, which reads like a corrupt file rather than a denied
+  path), nor about `/dev/urandom`, nor about the paths a *child's* own
+  argv names — `tee <out> cosmic --report <got…>` hands those to a
+  process that inherits the fence. The make rules already spell this
+  floor as `unveil_base`/`unveil_dev`; the derived fence needs its own.
+  It is therefore **opt-in (`COSMIC_FENCE=1`) until the canary proves
+  it on a Landlock host** — no machine available while writing it could
+  enforce anything, so every local run was a silent no-op.
+
 **The trailing `;` is load-bearing.** Setting `SHELL` is not enough:
 make does not use `SHELL` for a line it judges shell-free — job.c
 builds argv and execs directly whenever the line contains none of

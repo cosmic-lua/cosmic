@@ -119,10 +119,15 @@ test_exec_gets_the_subtree_not_its_argv()
 
 local function test_an_argumentless_verb_still_plans()
   -- A malformed line still reaches the verb, which reports its own
-  -- usage error; the fence must not throw on the way there.
+  -- usage error; the fence must not throw on the way there. The
+  -- runtime floor is still granted -- what must be absent is any grant
+  -- derived from arguments that were not given.
   local p = driver.plan("copy", {})
   assert(p is sandbox.Fs, "an argument-less copy must still plan")
-  assert(#p.ro == 0, "no source, no read grant")
+  for _, path in ipairs(p.ro) do
+    assert(path:sub(1, 5) == "/dev/",
+      "no arguments, so only the floor may be readable, got: " .. path)
+  end
 end
 test_an_argumentless_verb_still_plans()
 
@@ -136,3 +141,43 @@ local function test_the_running_binary_stays_executable()
   end
 end
 test_the_running_binary_stays_executable()
+
+local function test_a_childs_own_paths_are_readable()
+  -- `tee <out> <cmd> [args...]` hands the tail to a child: those
+  -- arguments are the child's inputs (`--report o/x.got`), and the
+  -- fence is inherited across the spawn, so the parent must grant
+  -- them. Flags are not paths and drop out by not existing.
+  local got = touch("fence-report.got")
+  local p = driver.plan("tee", {fs.join(tmpdir, "sum.txt"), "cosmic", "--report", got})
+  assert(p is sandbox.Fs, "tee must plan a policy")
+  assert(has(p.ro, got), "the child's input must be readable")
+  assert(not has(p.ro, "--report"), "a flag is not a path")
+end
+test_a_childs_own_paths_are_readable()
+
+local function test_exec_grants_the_ape_loader()
+  -- A fat APE reaches its loader beside itself (the repo stages
+  -- o/bin/ape for this). Without the grant the exec fails ENOEXEC,
+  -- which reads like a corrupt binary rather than a denied path -- the
+  -- exact failure that turned three CI lanes red.
+  local dir = fs.join(tmpdir, "apedir")
+  assert(fs.makedirs(dir))
+  local prog = fs.join(dir, "tool")
+  local loader = fs.join(dir, "ape")
+  assert(fs.write(prog, "x"))
+  assert(fs.write(loader, "x"))
+  local p = driver.plan("exec", {prog})
+  assert(p is sandbox.Fs, "exec must plan a policy")
+  assert(has(p.exec, prog), "the program must be executable")
+  assert(has(p.exec, loader), "the APE loader beside it must be executable")
+end
+test_exec_grants_the_ape_loader()
+
+local function test_the_runtime_floor_is_granted()
+  -- Derived-from-argv says nothing about what every process needs.
+  local p = driver.plan("list", {fs.join(tmpdir, "out.txt")})
+  assert(p is sandbox.Fs, "list must plan a policy")
+  assert(has(p.rw, "/dev/null"), "/dev/null must be writable")
+  assert(has(p.ro, "/dev/urandom"), "/dev/urandom must be readable")
+end
+test_the_runtime_floor_is_granted()
