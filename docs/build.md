@@ -40,14 +40,16 @@ recipe surface (`cosmic --build`, #732/#756 item 3) — no redirect, no host
 `cat`/`cmp`/`mv`:
 
 ```makefile
-$(o)/%.lua: %.tl $(types_files) $(bootstrap_files) $(compile_flag_stamp)
-    @$(bootstrap_cosmic) --build compile $(compile_flag_stamp) $(bootstrap_cosmic) $< $@ $(include_dir_flags)
+$(o)/%.lua: %.tl $(types_files) $(bootstrap_files)
+    @$(bootstrap_cosmic) --build compile $(bootstrap_cosmic) $< $@ $(include_dir_flags)
 ```
 
-compiles are strict (`--compile-strict`: type check, then generate from
-that same checked AST) with `LUA_PATH=";;"`, which is what makes the
-output independent of parallel build order (#733). the flag is pinned in
-`cook.mk`, not probed (#776).
+compiles are **always** strict (`--compile-strict`: type check, then
+generate from that same checked AST) with `LUA_PATH=";;"`, which is what
+makes the output independent of parallel build order (#733). there is no
+flag to select: #776 retired both the probe and the stamp file the driver
+used to read, along with the non-strict fallback that could degrade
+silently.
 
 ### Versioned Dependencies (3p/)
 
@@ -121,7 +123,7 @@ with landlock-make (`bin/make`), each rule declares security constraints:
 ```makefile
 $(o)/%.tl.test.got: .PLEDGE := stdio rpath wpath cpath proc exec
 $(o)/%.tl.test.got: .UNVEIL := rx:$(o)/bootstrap r:lib rwc:$(o) rwc:$(TMP)
-$(o)/%.lua: .ENV := LUA_PATH TREE_LUA_PATH TL_PATH LC_ALL TZ NO_COLOR
+$(o)/%.lua: .ENV := LUA_PATH TL_PATH LC_ALL TZ NO_COLOR
 ```
 
 - `.PLEDGE` restricts system calls (OpenBSD pledge semantics)
@@ -166,15 +168,33 @@ writable, plus the global base), so a rule declares only genuinely-extra
 paths. that derivation is gated upstream in
 `test/tool/build/make_sandbox_test.sh` (whilp/cosmopolitan#210).
 
-`bin/make audit-unveil` shrinks the hand-written remainder with evidence
-instead of guesswork (#756 item 4): it rebuilds a representative target
-per enforced family with one grant entry withheld, and reports the
-entries that rule did not need. two limits are structural — it needs
-Landlock (it refuses to run without it, since every verdict would read
-UNUSED for the wrong reason), and it only reaches grants composed from a
-shared variable, not per-rule literals. its verdicts are scoped to the
-targets it audited; a rule outside that list may still need an entry it
-reports.
+#### what each family's sandbox actually buys
+
+"enforced" does not mean "equally confined" — the grant sets differ by
+an order of magnitude, and it is worth knowing which guarantee you are
+relying on (#781):
+
+| family | grants beyond the base | what is actually denied |
+|---|---|---|
+| compile (`%.lua`) | `r:tlconfig.lua` + device nodes | everything else: no host exec, no network, no writes outside the target's directory |
+| teal / format | `r:tlconfig.lua`, `rwc:$(TMP)`, devices | same — **no** `$(unveil_hostx)` |
+| lint | `rwc:$(TMP)`, devices | same |
+| fetch | archive cache, resolv/hosts/ssl, `inet dns` | writes outside the fetch cache; the only family with network |
+| stage | fetch cache read, staged tree write | network, host exec |
+| test / example / benchmark | `rwcx:$(o)`, `rwcx:$(TMP)`, **`$(unveil_hostx)`** | writes outside `o/` and `$(TMP)` — notably the source tree (`lib`, `3p` are `r:`) and `$HOME` |
+
+the first five are genuinely tight: an undeclared read fails. the test
+lanes are not — `$(unveil_hostx)` is `rx:` over `/usr`, `/bin`, `/lib`,
+`/lib64`, `/proc` plus `r:/etc`, because tests legitimately exec host
+tools. what the test-lane sandbox buys is narrower and still worth
+having: **a test cannot write outside `o/` and `$(TMP)`**, so it cannot
+scribble on the source tree or your home directory. read "tests are
+sandboxed" as that, not as the compile family's guarantee.
+
+this is why the `$(unveil_hostx)` ratchet earns its keep. its value is
+not in cataloguing the loose lanes — it is that `rx:/usr` appearing on
+a *tight* family (a compile, a fetch, a lint) fails the ratchet loudly
+instead of silently widening the build's best-confined rules.
 
 ### Building the cosmic Binary
 

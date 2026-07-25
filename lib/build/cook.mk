@@ -12,15 +12,14 @@ build_pack := $(o)/lib/build/build-pack.lua
 # before any make exists); the compiled copy is built so it gets the
 # strict-compile type gate like every other build script.
 build_makeboot := $(o)/lib/build/make-boot.lua
-build_audit := $(o)/lib/build/audit-unveil.lua
 # The module's _files: everything under lib/build compiled, which is what
 # `make files` builds and what the build tests exercise at runtime.
-build_files := $(build_fetch) $(build_stage) $(build_untar) $(build_pack) $(build_portable) $(build_reporter) $(build_help) $(build_lint) $(build_makeboot) $(build_audit)
+build_files := $(build_fetch) $(build_stage) $(build_untar) $(build_pack) $(build_portable) $(build_reporter) $(build_help) $(build_lint) $(build_makeboot)
 
 # Per-consumer runtime closures (#780). build_files conflates "what a
 # recipe execs" with "everything here, compiled so it gets the strict
 # type gate" — so `make help` compiled ten scripts to run one, and an
-# edit to audit-unveil.tl invalidated the fetch and stage rules. These
+# edit to any one of them invalidated the fetch and stage rules. These
 # are the actual require closures (build.* only; the cosmic.* halves ride
 # $(stdlib_lua), already a prerequisite of both rules):
 #   build-fetch -> build.portable
@@ -216,29 +215,3 @@ $(build_makefile_test_got): TEST_DIR := $(build_make_out)
 # not cover (#729 test family)
 build_help_test_got := $(call test_got,lib/build/help_test.tl)
 $(build_help_test_got): .UNVEIL := $(unveil_test) r:Makefile
-
-# Unused-grant audit (whilp/cosmopolitan#210 item 3, #756 item 4).
-# Leave-one-out: rebuild a target with one grant entry withheld from a
-# shared set; if it still builds, that entry was not needed for that
-# rule. Withholding rides make's command-line variable override, so no
-# rule here changes — but it also means the audit only reaches grants
-# composed from a variable, not per-rule literals.
-#
-# One representative target per enforced family. They are deliberately
-# small and deterministic: the audit rebuilds each one once per grant
-# entry, so a slow target multiplies.
-audit_targets := \
-  $(o)/lib/cosmic/uuid.lua \
-  $(o)/lib/cosmic/uuid.tl.teal.got \
-  $(o)/lib/cosmic/uuid.tl.format.got \
-  $(o)/lib/cosmic/uuid.tl.lint.got \
-  $(o)/lib/cosmic/uuid_test.tl.test.got
-
-.PHONY: audit-unveil
-## Report .UNVEIL grants no audited rule needs (leave-one-out; needs Landlock)
-# Apparatus, not build logic: it execs nested makes and deletes targets,
-# so it runs outside the sandbox like the canary and the fixtures.
-audit-unveil: .SANDBOXED := 0
-audit-unveil: export LUA_PATH = $(tree_lua_path)
-audit-unveil: $(build_audit) $$(cosmic_bin)
-	@$(cosmic_bin) -- $(build_audit) --make $(MAKE) $(audit_targets:%=--target %)

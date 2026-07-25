@@ -206,7 +206,6 @@ local sandboxed_enforced: {string} = {
 -- and enforcing grants nothing exercises is not a falsifiable gate. It
 -- flips when a lane runs it.
 local sandboxed_exempt: {string} = {
-  "audit-unveil", -- apparatus: execs nested makes, deletes targets
   "o/cosmic/version.lua", -- reads .git; silent-fallback hazard
   "o/coverage/lib/cosmic/quicksand/box/run_test.tl.test.got",
   "o/coverage/lib/cosmic/quicksand/netns_test.tl.test.got",
