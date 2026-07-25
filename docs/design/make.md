@@ -51,8 +51,9 @@ it runs, and `--test`'s argv slicing (#804), which the `test` verb keeps.
 3. **cosmic as `SHELL`** — make invokes `cosmic -c '<line>'` for every
    recipe line. lines are whitespace-split argv whose `argv[0]` must be
    a cosmic verb, or `exec` — which resolves **only to pinned bytes**.
-4. **the pinned make, embedded** — extracted to a cache dir on first
-   use. one binary, offline, no host toolchain.
+4. **the pinned make, embedded** — extracted to `o/make` on first use.
+   one binary, offline, no host toolchain. (Landed in 2e; costs ~765 KB
+   on the release, uncompensated — see make-plan.md.)
 
 ```
 $ cosmic --make build          # strict check, compile, stage, embed → o/bin/myapp
@@ -342,7 +343,8 @@ cosmic verb or `exec`.
   `exec` is the one verb whose reads are not derivable — a pinned
   compiler reads headers nobody listed — so it is fenced to the unit's
   subtree instead of its argv, per the same rule generators and tests
-  use.
+  use. Landed after 2d, which is what supplied `unit_dir`: until there
+  were units this was a promise with nothing behind it.
 
   **A derived fence still needs a floor.** Shipping the derivation with
   nothing else turned three CI lanes red at once: argv says nothing

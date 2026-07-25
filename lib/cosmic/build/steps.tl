@@ -181,6 +181,17 @@ local function do_test(args: {string}): integer
   for i = 2, #args do
     argv[#argv + 1] = args[i]
   end
+  -- The test fence, behavioural half: point TMP at a scratch directory
+  -- beside this step's own output, so testrun's mkdtemp lands there and
+  -- the test's TEST_TMPDIR is inside its own unit rather than in a
+  -- shared /tmp. Two things follow, and the first matters more than the
+  -- second: tests stop being able to collide with each other through
+  -- the temp directory at all, on every platform, whether or not a
+  -- kernel is enforcing anything; and the derived fence's write grant
+  -- (this step's output directory) already covers it, so the kernel
+  -- half needs no extra rule.
+  env.set("TMP", out .. ".tmp.d")
+  fs.makedirs(out .. ".tmp.d")
   local testrun = require("cosmic.testrun")
   testrun.run(argv, out)
   if not fs.isfile(out .. ".got") then

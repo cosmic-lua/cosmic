@@ -88,6 +88,19 @@ byte-identical.
 a build narrowed with paths compiles only what you selected and stops
 there — half a tree cannot make a whole artifact.
 
+## Test isolation
+
+each test gets its own scratch directory *inside its own build step* —
+`TEST_TMPDIR` points at `o/<test>.test.tmp.d`, not at a shared `/tmp`.
+tests cannot collide through the temp directory, on any platform.
+
+with `COSMIC_FENCE=1` on a Landlock host that becomes enforced rather
+than merely arranged: a test may write only its own step's directory,
+and reads are the compiled tree plus its own source directory (which is
+where `testdata/` lives, so fixtures need no special grant). the flag is
+opt-in until the canary in the enforce lane has proven the denial on a
+real kernel.
+
 ## Pins
 
 a `*.pin.tl` declares an external asset. it is **data, not code**:
@@ -126,18 +139,21 @@ already hash correctly touches no network at all.
 
 ## The engine
 
-`check` and `clean` run in process. `build`, `test` and `fmt` run on a
-dependency graph, so they are incremental and parallel — and that needs
-a make binary. cosmic does not carry one yet, so name it:
+`check`, `clean` and `fetch` run in process. `build`, `test` and `fmt`
+run on a dependency graph, so they are incremental and parallel — and
+that needs a make binary. **cosmic carries one.** it extracts itself to
+`o/make` the first time you need it, so a fresh clone on a machine with
+no toolchain builds:
 
 ```bash
-COSMIC_MAKE=/path/to/make cosmic --make build
+cosmic --make build     # nothing installed, nothing fetched
 ```
 
-PATH is deliberately not searched. a build whose engine came from
-whatever the host had installed is a build nobody can reproduce; the
-engine is named or (once cosmic embeds one) pinned, never guessed.
-`COSMIC_JOBS` overrides the job count, which otherwise follows `nproc`.
+PATH is never searched. a build whose engine came from whatever the
+host had installed is a build nobody can reproduce; the engine is
+pinned inside the binary, or named with `COSMIC_MAKE=/path/to/make`,
+never guessed. `COSMIC_JOBS` overrides the job count, which otherwise
+follows `nproc`.
 
 two files land in `o/` and make reads both:
 

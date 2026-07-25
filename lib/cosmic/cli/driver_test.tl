@@ -104,18 +104,59 @@ local function test_list_does_not_read_its_items()
 end
 test_list_does_not_read_its_items()
 
-local function test_exec_gets_the_subtree_not_its_argv()
-  -- A foreign program's reads are not derivable from its arguments -- a
-  -- compiler reads headers nobody listed -- so exec is fenced to the
-  -- working tree plus the build root instead.
+-- A foreign program's reads are not derivable from its arguments -- a
+-- compiler reads headers nobody listed -- so exec is fenced to the
+-- UNITS its argv touches rather than to those arguments. Phase 1 stood
+-- this in as "." (the whole working tree) for want of a notion of a
+-- unit; 2d's Units investigation supplied one, and it is the single
+-- abstraction that investigation earned: a fence wants a directory
+-- where a stage wants a file list.
+local function test_exec_gets_its_units_not_the_whole_tree()
   local prog = touch("fence-tool")
   local p = driver.plan("exec", {prog, "--flag"})
   assert(p is sandbox.Fs, "exec must plan a policy")
   assert(has(p.exec, prog), "the program must be executable")
-  assert(has(p.ro, "."), "the working tree must be readable")
+  assert(has(p.ro, tmpdir), "the program's own unit must be readable")
+  assert(not has(p.ro, "."), "the whole working tree must NOT be readable")
   assert(not has(p.ro, "--flag"), "arguments are not paths")
 end
-test_exec_gets_the_subtree_not_its_argv()
+test_exec_gets_its_units_not_the_whole_tree()
+
+-- A path argument brings its own unit, so a step reading an input from
+-- elsewhere gets that directory and no more.
+local function test_exec_reads_the_units_its_arguments_name()
+  local prog = touch("fence-tool2")
+  local input = fs.join(tmpdir, "unit-input")
+  assert(fs.makedirs(input))
+  local src = fs.join(input, "a.txt")
+  assert(fs.write(src, "x\n"))
+  local p = driver.plan("exec", {prog, src})
+  assert(p is sandbox.Fs, "exec must plan a policy")
+  assert(has(p.ro, input), "the argument's unit must be readable")
+end
+test_exec_reads_the_units_its_arguments_name()
+
+-- A generation unit spans its whole subtree, so a path inside one
+-- resolves to the directory holding the *.gen.tl -- not to the path's
+-- own directory. That is the one case where a unit is bigger than a
+-- package.
+local function test_a_generation_unit_is_the_whole_subtree()
+  local prog = touch("fence-tool3")
+  local unit = fs.join(tmpdir, "gen-unit")
+  local deep = fs.join(unit, "sub")
+  assert(fs.makedirs(deep))
+  assert(fs.write(fs.join(unit, "index.gen.tl"), "return {}\n"))
+  local src = fs.join(deep, "input.txt")
+  assert(fs.write(src, "x\n"))
+  local p = driver.plan("exec", {prog, src})
+  assert(p is sandbox.Fs, "exec must plan a policy")
+  assert(has(p.ro, unit),
+    "the generation unit's root must be readable, got: " ..
+    table.concat(p.ro, " "))
+  assert(not has(p.ro, deep),
+    "…and the leaf directory alone is not the unit")
+end
+test_a_generation_unit_is_the_whole_subtree()
 
 local function test_an_argumentless_verb_still_plans()
   -- A malformed line still reaches the verb, which reports its own

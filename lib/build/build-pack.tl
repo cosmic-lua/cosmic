@@ -189,10 +189,12 @@ local function main(...: string): integer
   end
   ok, err = zip_add(zip_bin, built, abs_out, "-qr0X", {".lua/cosmic"})
   if not ok then return fail(err) end
-  -- cosmic.mk rides with the deflated group rather than the stored one:
-  -- it is read once, when `--make` drives a build, not on every start.
+  -- cosmic.mk and the embedded make ride with the deflated group rather
+  -- than the stored one: both are read once, when `--make` drives a
+  -- build, not on every start. make is ~1.6 MB raw and compresses to
+  -- roughly half that, which is the whole cost of 2e.
   ok, err = zip_add(zip_bin, built, abs_out, "-qrX",
-    {".lua", ".tl", ".docs", "sys", "skills", "cosmic.mk",
+    {".lua", ".tl", ".docs", "sys", "skills", "cosmic.mk", "make",
       "-x", ".lua/cosmic/*"})
   if not ok then return fail(err) end
   ok, err = zip_add(zip_bin, built, abs_out, "-q0X", {"main.lua", ".args"})

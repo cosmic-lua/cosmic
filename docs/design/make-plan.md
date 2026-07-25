@@ -336,19 +336,65 @@ the first-fetch shell in `bin/cosmic`.
        `cosmic.fetch`, so "can a build phone home" is answered by
        grepping seven files. The test asserts it from outside too: a
        project whose pin points at a dead port still builds.
-   - **2e — embedded make.** packing it into the release, which user
-     projects need and this repo does not (it has `bin/cosmo-make`).
-     Carries the D13 amendment, so it is the one slice with release
-     mechanics — deliberately last.
+   - **2e — embedded make. Landed.** packing it into the release, which
+     user projects need and this repo does not (it has
+     `bin/cosmo-make`). Carries the D13 amendment, so it is the one
+     slice with release mechanics — deliberately last.
+
+     The pinned make from `cosmos.zip` ships at `/zip/make` and
+     `find_make` extracts it to `o/make` on first use, through a temp
+     file and a rename so a concurrent build cannot exec a half-written
+     engine. Gate: a fixture project builds and runs with `COSMIC_MAKE`
+     unset — nothing installed, nothing fetched.
+
+     **The cost, stated rather than justified away.** +765 KB on the
+     release (7.89 MB → 8.66 MB), which is almost exactly the ~760 KB
+     the design projected. What the design also projected is that
+     stripping would pay for it, and 2c found it does not: the strip
+     leaves dead space, so it recovers ~14 KB, not ~1.2 MB. So this is
+     an uncompensated 10% and was accepted as one — deliberately, on
+     the grounds that a build system which cannot build without a host
+     toolchain is not a build system. The size table in make.md is a
+     projection; the compaction that would make it true is filed
+     upstream and is not a blocker.
+
+     One thing worth knowing about the extracted engine: it is a fat
+     APE, so its shell stub needs a POSIX environment to reach its
+     loader. A build with `PATH` emptied entirely fails inside the
+     stub, not inside cosmic. Found by writing that test too
+     aggressively.
+
+   Also closed here: **`exec` is fenced to its units**, not to `.`.
+   Phase 1 stood the grant in as the whole working tree for want of any
+   notion of a unit; 2d's investigation supplied one, and `unit_dir` is
+   the single abstraction that investigation earned — a fence wants a
+   directory where a stage wants a file list. `exec` now reads the
+   units its argv touches (the program's own always included, so a step
+   with no path arguments is not fenced to nothing), and a generation
+   unit resolves to the directory holding its `*.gen.tl` rather than to
+   the leaf.
 
    Three things phase 1 paid for, carried forward rather than
    relearned:
 
-   - **fenced tests land opt-in.** 2b/2c introduce the test fence
-     (writes to `TEST_TMPDIR`, reads to the staged subtree). Nothing
-     available here can enforce Landlock, so it ships behind the flag
-     with a canary in the enforce lane, and the default flips only
-     after that canary asserts.
+   - **fenced tests land opt-in. Landed after 2e**, having been missed
+     in 2b/2c — the plan assigned it there and the slices shipped
+     without it, which is recorded here rather than quietly closed.
+     Two halves, and the split is the useful part:
+
+     - **portable and unconditional:** the `test` verb points `TMP` at
+       a scratch directory beside the step's own output, so a test's
+       `TEST_TMPDIR` lands in `o/<test>.test.tmp.d`. Tests stop being
+       able to collide through the temp directory on *every* platform,
+       Landlock or not, and it needs no flag because it takes nothing
+       away.
+     - **kernel-enforced and opt-in:** the derived write grant is that
+       same directory and nothing else, and reads are the compiled tree
+       plus the test's own source directory (where `testdata/` lives,
+       so fixtures need no special grant — the design's rule, stated as
+       two paths). Behind `COSMIC_FENCE=1`, with an A/B canary in the
+       enforce lane asserting the denial. Both canaries skip on a host
+       without Landlock, which is precisely what that lane is for.
    - **skip semantics are not inherited.** `--test` propagates exit 2
      to make, so a test file that means to skip fails its rule instead
      of being graded. The `test` verb has to define this deliberately.

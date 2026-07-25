@@ -242,6 +242,55 @@ local function test_build_never_resolves_a_pin()
 end
 test_build_never_resolves_a_pin()
 
+-- 2e, end to end: no engine named, nothing installed, and the build
+-- still runs. This is the promise the whole design is for -- one
+-- binary, offline, no host toolchain -- and it is the only test here
+-- that deliberately does NOT set COSMIC_MAKE.
+local function test_builds_with_no_engine_named()
+  local root = app("embedded")
+  local argv: {string} = {cosmic, "--make", "build"}
+  local h = check.must(spawn.spawn(argv, {
+        cwd = root,
+        -- PATH stays: the extracted engine is a fat APE whose shell
+        -- stub needs a POSIX environment to reach its loader. What is
+        -- withheld is COSMIC_MAKE, and find_make never consults PATH
+        -- (asserted in graph_test), so the engine can only have come
+        -- out of the binary -- which o/make below is the evidence for.
+        env = {"PATH=" .. (os.getenv("PATH") or ""),
+          "TMPDIR=" .. tmpdir, "NO_COLOR=1", "COSMIC_NO_WELCOME=1"},
+      }))
+  local r = check.must(h:wait())
+  local out = (r.stdout or "") .. (r.stderr or "")
+  assert(r.code == 0, "a build with no engine named must work: " .. out)
+  assert(fs.isfile(fs.join(root, "o/make")),
+    "the engine should have extracted itself to o/make")
+  assert(fs.isfile(fs.join(root, "o/bin/build-embedded")),
+    "…and produced the artifact")
+end
+test_builds_with_no_engine_named()
+
+-- The test fence, portable half: a test's temp directory lands inside
+-- its own step, not in a shared /tmp. This is what stops tests
+-- colliding through the temp directory at all, and unlike the kernel
+-- half it holds on every platform -- which is why it is asserted here
+-- rather than only in the enforce lane's canary.
+local function test_a_test_gets_its_own_scratch_directory()
+  local root = app("scratch")
+  assert(fs.write(fs.join(root, "db/tmp_test.tl"),
+      'local t = os.getenv("TEST_TMPDIR")\n' ..
+      'assert(t, "TEST_TMPDIR must be set")\n' ..
+      'print("tmpdir=" .. t)\n'))
+  local r = make(root, "test")
+  assert(r.code == 0, "tests should pass: " .. r.err)
+  local got = check.must(fs.read(
+      fs.join(root, "o/db/tmp_test.tl.test.out")))
+  local where = got:match("tmpdir=([^\n]+)")
+  assert(where, "the test should report its TEST_TMPDIR, got: " .. got)
+  assert(where:find("o/db/tmp_test.tl.test.tmp.d", 1, true),
+    "a test's scratch must live inside its own step, got: " .. where)
+end
+test_a_test_gets_its_own_scratch_directory()
+
 -- clean removes o/ in process: driving it through a graph whose rules
 -- live in o/ is a knot with no payoff.
 local function test_clean_removes_the_build_directory()

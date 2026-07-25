@@ -171,7 +171,12 @@ local function test_find_make_never_searches_path()
   if saved_make then
     cenv.set("COSMIC_MAKE", saved_make)
   end
-  assert(found == "", "PATH must not be searched, got: " .. found)
+  -- Not "" any more: with the engine embedded, find_make extracts one.
+  -- What must never happen is picking up the host's.
+  assert(found ~= fs.join(box, "bin", "make"),
+    "PATH must not be searched, but the host's make was chosen: " .. found)
+  assert(found == fs.join(box, "o", "make"),
+    "the engine must be the extracted one, got: " .. found)
 end
 test_find_make_never_searches_path()
 
@@ -198,27 +203,54 @@ local function test_find_make_honors_the_override()
 end
 test_find_make_honors_the_override()
 
--- The refusal has to tell a user what to do about it, since until the
--- embedded make lands there is nothing to find.
-local function test_missing_make_names_the_override()
-  local box = fs.join(tmpdir, "graph-bare")
+-- 2e: the engine ships in the binary, so a project needs nothing
+-- installed. Amends D13, whose rejection reasoned from THIS repo --
+-- where both pins are already in hand -- and does not survive the user
+-- case, where one binary in a bare sandbox has nothing to find.
+local function test_the_engine_ships_in_the_binary()
+  local bytes = fs.read(graph.MAKE_ZIP)
+  assert(bytes, "the binary must carry an engine at " .. graph.MAKE_ZIP)
+  local engine = bytes as string -- cast: scalar narrowing after the guard
+  assert(#engine > 100000, "too small to be an engine: " .. #engine)
+end
+test_the_engine_ships_in_the_binary()
+
+-- Extraction produces something executable. A non-executable engine is
+-- the one failure that reads as "no make binary" rather than as a
+-- permissions problem.
+local function test_extract_make_is_executable()
+  local to = fs.join(tmpdir, "graph-engine", "make")
+  fs.rmrf(fs.dirname(to))
+  local ok, err = graph.extract_make(to)
+  assert(ok, "extraction should succeed: " .. tostring(err))
+  assert(fs.isfile(to), "the engine should land at " .. to)
+  local st = check.must(fs.stat(to))
+  local exec_bit = tonumber("100", 8) as integer -- cast: octal is integral
+  assert(st:mode() & exec_bit ~= 0, "the extracted engine must be executable")
+  assert(not fs.exists(to .. ".tmp"), "the temp file must not survive")
+end
+test_extract_make_is_executable()
+
+-- With nothing named, find_make extracts rather than refusing. That is
+-- the difference between --make being usable and being a demo.
+local function test_find_make_extracts_when_nothing_is_named()
+  local box = fs.join(tmpdir, "graph-embedded")
   fs.rmrf(box)
   assert(fs.makedirs(box))
   local saved = cenv.get("COSMIC_MAKE")
   cenv.unset("COSMIC_MAKE")
-  local err = in_dir(box, function(): string
-      local _, e = graph.find_make()
-      return e or ""
+  local found = in_dir(box, function(): string
+      local g = graph.find_make()
+      return g or ""
     end)
   if saved then
     cenv.set("COSMIC_MAKE", saved)
   end
-  assert(err:find("COSMIC_MAKE=/path/to/make", 1, true),
-    "the refusal must show the command, got: " .. err)
-  assert(err:find("PATH is not searched", 1, true),
-    "the refusal must say why, got: " .. err)
+  assert(found ~= "", "find_make must extract the embedded engine")
+  assert(found == fs.join(box, "o/make"), "got: " .. found)
+  assert(fs.isfile(found), "…and it must be there")
 end
-test_missing_make_names_the_override()
+test_find_make_extracts_when_nothing_is_named()
 
 -- Everything is parallel by default; the count is overridable.
 local function test_jobs_flag()

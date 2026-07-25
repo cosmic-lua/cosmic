@@ -35,6 +35,16 @@ cosmic_sys := sys/help.md
 # the binary at /zip/cosmic.mk and is byte-identical for every project;
 # graph.tl copies it out to o/cosmic.mk. A source file, not generated.
 cosmic_mk := lib/cosmic/make/cosmic.mk
+# The graph engine itself (2e, amending D13): the pinned make from the
+# sha-pinned cosmos.zip, shipped at /zip/make and extracted to o/make on
+# first use. D13 rejected embedding it, but reasoned from THIS repo,
+# where both pins are already in hand -- that argument does not survive
+# the user case, where one binary in a bare sandbox has nothing to find
+# and nothing to fetch with. Cost, stated plainly: ~760 KB compressed on
+# every release, and NOT paid for by stripping (see 2c -- Appender:remove
+# leaves dead space). Accepted deliberately: a build system that cannot
+# build without a host toolchain is not one.
+cosmic_make_bin = $(cosmos_dir)/make
 cosmic_skills := $(wildcard skills/cosmic/*.md)
 # lib/types is copied wholesale into the binary (.lua/types); without this
 # dependency, editing the type generator or a .d.tl leaves a stale binary.
@@ -74,6 +84,7 @@ pack_copies = \
   --copy $(cosmic_main) main.lua \
   --copy $(cosmic_args) .args \
   --copy $(cosmic_mk) cosmic.mk \
+  --copy $(cosmic_make_bin) make \
   --copytree lib/types .lua/types
 pack = $(bootstrap_cosmic) -- $(build_pack) --built $(cosmic_built) \
   --epoch $(SOURCE_DATE_EPOCH) --zip $(cosmos_zip_bin) $(pack_copies)
@@ -96,7 +107,7 @@ $(cosmic_version_lua): .FORCE | $$(cosmos_staged)
 .PHONY: .FORCE
 
 $(cosmic_bin) $(cosmic_debug_bin): export LUA_PATH = $(tree_lua_path)
-$(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(doc_index) $(cosmic_version_lua) $(cosmic_sys) $(cosmic_skills) $(cosmic_mk) $(cosmic_types) $(build_pack) | $(bootstrap_cosmic)
+$(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(doc_index) $(cosmic_version_lua) $(cosmic_sys) $(cosmic_skills) $(cosmic_mk) $(cosmic_types) $(build_pack) $$(cosmos_staged) | $(bootstrap_cosmic)
 	@$(pack) --out $@ --base $(cosmos_lua_bin)
 
 $(cosmic_debug_bin): $(cosmic_bin) $(build_pack)

@@ -37,13 +37,16 @@ local shapes: {string: Shape} = {
   capture = {exec = {1}, rw = {2}, ro = {3}, rest_ro = 4},
   -- tee <out> <cmd> [args...]
   tee = {rw = {1}, exec = {2}, rest_ro = 3},
-  -- test <out> <cmd> [args...] — same shape as tee. The out position
-  -- is a BASE name (`<out>.got`, `.out`, `.err`), and a write grants
-  -- the parent directory anyway, so naming the base is exact. What
-  -- this shape does NOT yet carry is the test's own fence — writes
-  -- confined to TEST_TMPDIR, reads to the staged subtree — because
-  -- there is no stage before 2c; the child here runs with whatever
-  -- the recipe inherited.
+  -- test <out> <cmd> [args...]. The out position is a BASE name
+  -- (`<out>.got`, `.out`, `.err`, and the step's scratch directory),
+  -- and a write grants the parent directory anyway, so naming the base
+  -- is exact — and it is the ONLY write this step gets. The verb
+  -- points TMP inside that directory, so a test's TEST_TMPDIR lands
+  -- there too and needs no grant of its own.
+  --
+  -- Reads are the compiled tree, added below: a test imports the
+  -- modules it was written against, and naming only its own compiled
+  -- file would deny it every import on the first fenced run.
   test = {rw = {1}, exec = {2}, rest_ro = 3},
   -- list <out> [items...] — items are text written into out, not read
   list = {rw = {1}},
@@ -122,6 +125,37 @@ local function nearest_existing(path: string): string
   return "."
 end
 
+--- The directory of the unit that owns `path`.
+---
+--- Every output under `o/` comes from a unit: a directory that declares
+--- it, a scope of inputs that is also its grant set, and an output path
+--- derived from its position (see the Units section of the design). A
+--- *generation* unit is the one kind that spans a whole subtree, so a
+--- path inside one belongs to the directory holding the `*.gen.tl`.
+--- Everything else belongs to its own directory, which is not a
+--- fallback but the rule: a package IS a directory with sources in it.
+--- @param path string A path, relative or absolute
+--- @return string The owning unit's directory
+local function unit_dir(path: string): string
+  local dir = fs.dirname(path)
+  local at = dir
+  for _ = 1, 64 do
+    if at == "" or at == "." or at == "/" then
+      break
+    end
+    local gen = fs.glob(at, "*.gen.tl")
+    if gen ~= nil and #(gen as {string}) > 0 then -- cast: record union after the guard
+      return at
+    end
+    local up = fs.dirname(at)
+    if up == at then
+      break
+    end
+    at = up
+  end
+  return dir
+end
+
 --- Derive the filesystem policy for one step. Returns nil when the
 --- verb has no shape, which the ratchet test makes impossible.
 ---
@@ -150,9 +184,49 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil
   for _, p in ipairs(rw_raw) do
     rw[#rw + 1] = nearest_existing(p)
   end
+  if verb == "test" then
+    -- A test reads the tree it imports. The staged module tree is the
+    -- build root, and the test's own source directory carries its
+    -- `testdata/` — fixtures need no special grant because they are in
+    -- the subtree, which is the design's rule stated as two paths.
+    local root = os.getenv("COSMIC_EXEC_ROOT") or "o"
+    if fs.isdir(root) then
+      ro[#ro + 1] = root
+    end
+    for i = 3, #args do
+      local src = unit_dir(args[i])
+      if fs.isdir(src) then
+        ro[#ro + 1] = src
+      end
+    end
+  end
   if verb == "exec" then
-    -- The subtree stand-in described above.
-    ro[#ro + 1] = "."
+    -- Tightened from the phase-1 stand-in, which granted "." — the
+    -- whole working tree — because there was no notion of a unit yet.
+    -- There is now: 2d's Units investigation found that the one
+    -- abstraction the evidence earns is `unit_dir(path)`, precisely
+    -- because a fence wants a DIRECTORY where a stage wants a file
+    -- list. So exec reads the units its argv touches, and nothing else.
+    --
+    -- Still derivation, not declaration: no rule says what its unit is,
+    -- the paths in the line do. The program's own unit is always
+    -- included, so a step with no path arguments still reads the
+    -- directory it was run from rather than nothing at all.
+    local units: {string: boolean} = {}
+    units[unit_dir(args[1] or ".")] = true
+    for i = 2, #args do
+      if fs.exists(args[i]) then
+        units[unit_dir(args[i])] = true
+      end
+    end
+    local names: {string} = {}
+    for dir in pairs(units) do
+      names[#names + 1] = dir
+    end
+    table.sort(names)
+    for _, dir in ipairs(names) do
+      ro[#ro + 1] = dir
+    end
     local root = os.getenv("COSMIC_EXEC_ROOT") or "o"
     if fs.isdir(root) then
       rw[#rw + 1] = root

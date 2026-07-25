@@ -75,7 +75,7 @@ lib/cosmic/log.tl 72 74
 lib/cosmic/make/artifact.tl 73 83
 lib/cosmic/make/check.tl 54 55
 lib/cosmic/make/fetch.tl 67 70
-lib/cosmic/make/graph.tl 126 141
+lib/cosmic/make/graph.tl 139 161
 lib/cosmic/make/init.tl 132 144
 lib/cosmic/make/pin.tl 102 108
 lib/cosmic/make/project.tl 180 188

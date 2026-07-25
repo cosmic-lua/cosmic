@@ -67,3 +67,57 @@ local function test_the_fence_denies_an_undeclared_write()
   check.enforced("recipe fence")
 end
 test_the_fence_denies_an_undeclared_write()
+
+-- The TEST fence, same A/B shape. A test's writes belong to its own
+-- step: the `test` verb points TMP at a scratch directory beside the
+-- step's output, and the derived fence grants that directory and
+-- nothing else. So a test reaching for a path outside it is denied.
+--
+-- This is the canary the plan asked for before the fence can stop being
+-- opt-in. It asserts the DENIAL, not the redirection -- the redirection
+-- holds on every platform and is covered by an ordinary test; only a
+-- kernel can prove the second half.
+local function test_the_fence_confines_a_test_to_its_own_step()
+  if not sandbox.available().fs then
+    check.skip("no landlock on this host; the fence cannot bite")
+    return
+  end
+
+  local root = fs.join(tmpdir, "testfence")
+  assert(fs.makedirs(root))
+  local target = fs.join(tmpdir, "test-escaped.txt")
+  local script = fs.join(root, "escape.lua")
+  assert(fs.write(script,
+      "local f = io.open('" .. target .. "', 'w')\n" ..
+      "if not f then os.exit(9) end\n" ..
+      "f:write('x')\n f:close()\n"))
+
+  local envlist: {string} = {}
+  for _, entry in ipairs(env.list()) do
+    if not entry:match("^COSMIC_FENCE=") and not entry:match("^TMPDIR=") then
+      envlist[#envlist + 1] = entry
+    end
+  end
+  envlist[#envlist + 1] = "TMPDIR=" .. root
+  envlist[#envlist + 1] = "COSMIC_FENCE=1"
+
+  -- A: the same script run directly writes the file.
+  local direct = check.must(child.run({cosmic, script}, {env = envlist}))
+  assert(direct.ok, "the script must succeed unfenced: " .. direct.stderr)
+  assert(fs.isfile(target), "unfenced, the write must land")
+  assert(fs.unlink(target))
+
+  -- B: through the test verb, whose fence grants only the step's own
+  -- output directory. The verb always exits 0 (it records rather than
+  -- grades), so the assertion is on the file, not the status.
+  local out = fs.join(root, "step", "escape")
+  local fenced = check.must(child.run(
+      {cosmic, "-c", "test " .. out .. " " .. cosmic .. " " .. script},
+      {env = envlist}))
+  assert(fenced.ok, "the test verb records rather than grades: " ..
+    fenced.stderr)
+  assert(not fs.isfile(target),
+    "fenced, a test must NOT write outside its own step")
+  check.enforced("test fence")
+end
+test_the_fence_confines_a_test_to_its_own_step()

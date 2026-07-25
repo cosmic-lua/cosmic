@@ -25,6 +25,11 @@ local type Project = types.Project
 --- Where the constant rules live inside the binary.
 local RULES_ZIP < const > = "/zip/cosmic.mk"
 
+--- Where the graph engine lives inside the binary. Amends D13: make
+--- ships in the release, because a user with one binary in a bare
+--- sandbox has nothing to find and nothing to fetch with.
+local MAKE_ZIP < const > = "/zip/make"
+
 --- Environment override naming the make binary.
 local MAKE_ENV < const > = "COSMIC_MAKE"
 
@@ -152,13 +157,47 @@ local function materialize(proj: Project, cosmic: string): string | nil, string
   return out
 end
 
+--- Extract the embedded make to `o/make`.
+---
+--- The engine ships inside the binary (2e), so a project needs nothing
+--- installed: extraction is a copy out of this executable's own zip,
+--- and it happens once. Written through a temp file and renamed, so a
+--- concurrent build cannot exec a half-written engine.
+--- @param to string Destination path
+--- @return boolean, string Success, or false plus the reason
+local function extract_make(to: string): boolean, string
+  local bytes = fs.read(MAKE_ZIP)
+  if not bytes then
+    return false, "make: this cosmic carries no engine at " .. MAKE_ZIP
+  end
+  local ok, merr = fs.makedirs(fs.dirname(to))
+  if not ok then
+    return false, "make: cannot create " .. fs.dirname(to) .. ": " ..
+    (merr or "unknown error")
+  end
+  local tmp = to .. ".tmp"
+  local wok, werr = fs.write(tmp, bytes, tonumber("755", 8) as integer) -- cast: octal is integral
+  if not wok then
+    return false, "make: cannot write " .. tmp .. ": " .. (werr or "unknown error")
+  end
+  -- write's mode only applies on create, so set it unconditionally: an
+  -- engine that is not executable is the one failure mode that reads as
+  -- "no make binary" rather than as a permissions problem.
+  fs.chmod(tmp, tonumber("755", 8) as integer) -- cast: octal is integral
+  local rok, rerr = fs.rename(tmp, to)
+  if not rok then
+    fs.unlink(tmp)
+    return false, "make: cannot install " .. to .. ": " .. (rerr or "unknown error")
+  end
+  return true
+end
+
 --- Find the make binary.
 ---
---- `COSMIC_MAKE` names it, else the extracted copy under `o/`. PATH is
---- deliberately not searched: a build that picks up whatever make the
---- host happens to have is a build whose engine is not pinned, and the
---- whole point of the embedded make (2e) is that there is nothing to
---- find. Until that lands, naming it is the honest interim.
+--- `COSMIC_MAKE` names it; otherwise the copy under `o/`, extracted from
+--- this binary on first use. PATH is never searched: a build that picks
+--- up whatever make the host happens to have is a build whose engine is
+--- not pinned, and with the engine embedded there is nothing to find.
 --- @return string|nil The make binary, or nil with the refusal
 --- @return string The error message
 local function find_make(): string | nil, string
@@ -174,10 +213,13 @@ local function find_make(): string | nil, string
   if fs.isfile(extracted) then
     return extracted
   end
-  return nil, "make: no make binary. This cosmic does not carry one yet;" ..
-  " point " .. MAKE_ENV .. " at one (" .. MAKE_ENV .. "=/path/to/make" ..
-  " cosmic --make build). PATH is not searched: the engine is pinned or" ..
-  " it is named, never guessed."
+  local ok, err = extract_make(extracted)
+  if not ok then
+    return nil, (err or "make: no engine") ..
+    "\nmake: name one instead: " .. MAKE_ENV .. "=/path/to/make" ..
+    " cosmic --make build"
+  end
+  return extracted
 end
 
 --- How many jobs to run. Everything is parallel by default, which is
@@ -265,6 +307,8 @@ end
 
 local record GraphModule
   MAKE_ENV: string
+  MAKE_ZIP: string
+  extract_make: function(to: string): boolean, string
   JOBS_ENV: string
   RULES_ZIP: string
   project_mk: function(proj: Project, cosmic: string): string
@@ -277,6 +321,8 @@ end
 
 local M: GraphModule = {
   MAKE_ENV = MAKE_ENV,
+  MAKE_ZIP = MAKE_ZIP,
+  extract_make = extract_make,
   JOBS_ENV = JOBS_ENV,
   RULES_ZIP = RULES_ZIP,
   project_mk = project_mk,
