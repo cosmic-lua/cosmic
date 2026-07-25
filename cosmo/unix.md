@@ -3962,6 +3962,53 @@ function sethostname(name: string): boolean | nil, string, Errno
 - string
 - Errno
 
+### openpty
+
+```teal
+function openpty(): integer | nil, integer, string, string, Errno
+```
+
+ Opens a new pseudoteletypewriter.
+ Returns the controlling (manager) fd, the subordinate fd, and the
+ subordinate's filesystem path. Both fds are the caller's to close.
+ This is the only way to obtain a terminal from Lua, so it is what
+ makes terminal code testable where no tty exists — a CI container,
+ or any process whose stdio is a pipe. Pair it with `login_tty` in a
+ forked child to give that child a controlling terminal.
+ Not supported on Windows or bare metal, where it returns `ENOSYS`.
+
+**Returns:**
+
+- integer | nil
+- integer
+- string
+- string
+- Errno
+
+### login_tty
+
+```teal
+function login_tty(fd: integer): boolean | nil, string, Errno
+```
+
+ Makes `fd` the controlling terminal of the calling process.
+ Creates a new session, makes `fd` its controlling terminal, and dups
+ it onto stdin, stdout and stderr; `fd` itself is closed afterwards
+ unless it is already one of those three. Intended for the child of a
+ fork, between `openpty` and exec.
+ Requires `fd` to be a terminal (`ENOTTY` otherwise). Linux and the
+ BSDs only; returns `ENOSYS` elsewhere.
+
+**Parameters:**
+
+- `fd` (integer)
+
+**Returns:**
+
+- boolean | nil
+- string
+- Errno
+
 ### listen
 
 ```teal

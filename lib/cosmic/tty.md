@@ -16,6 +16,18 @@ local record WinSize
 end
 ```
 
+### Pty
+
+ An open pseudoterminal pair (see openpty).
+
+```teal
+local record Pty
+  manager: integer
+  subordinate: integer
+  name: string
+end
+```
+
 ### RawOptions
 
  Options for raw()/make_raw().
@@ -62,10 +74,50 @@ local record TtyModule
   noecho: function(fd: integer): Termios | nil, string
   restore: function(fd: integer, termios: Termios, action?: integer): boolean, string
   getpass: function(prompt: string): string | nil, string
+  openpty: function(): Pty | nil, string
+  login_tty: function(fd: integer): boolean, string
 end
 ```
 
 ## Functions
+
+### openpty
+
+```teal
+function openpty(): TtyModule.Pty | nil, string
+```
+
+ Opens a new pseudoterminal pair.
+ The subordinate fd IS a terminal: isatty, getattr, raw, noecho and
+ the rest operate on it. That is what makes terminal code testable
+ where no terminal exists -- a CI container, or any process whose
+ stdio is a pipe. Both descriptors belong to the caller; close them.
+
+**Returns:**
+
+- TtyModule.Pty - | nil The open pair
+- string? - Error message on failure
+
+### login_tty
+
+```teal
+function login_tty(fd: integer): boolean, string
+```
+
+ Makes fd the controlling terminal of this process.
+ Creates a new session, attaches fd as its controlling terminal, and
+ dups it onto stdin/stdout/stderr. Intended for the child of a fork,
+ between openpty() and exec -- it replaces this process's session, so
+ never call it in a process you want to keep.
+
+**Parameters:**
+
+- `fd` (integer) - A terminal descriptor (ENOTTY otherwise)
+
+**Returns:**
+
+- boolean - True on success
+- string? - Error message on failure
 
 ### isatty
 
