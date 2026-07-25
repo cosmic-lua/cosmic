@@ -538,6 +538,7 @@ local record unix Constants
   --  @type integer System-imposed limit on the number of threads was encountered.
   --  Raised by connect, listen, recv.
   ECONNREFUSED: integer
+  --  @type integer Connection reset by client. Raised by `send`.
   ECONNRESET: integer
   --  @type integer Resource deadlock avoided.
   --  Raised by `fcntl`.
@@ -587,6 +588,7 @@ local record unix Constants
   --  `mbind`, `pciconfig_read`, `ptrace`, `read`, `readlink`, `sendfile`, `statfs`,
   --  `symlink`, `sync_file_range`, `truncate`, `unlink`, `write`.
   EIO: integer
+  --  @type integer Socket is connected. Raised by `connect`, `send`.
   EISCONN: integer
   --  @type integer Is a directory.
   --  Raised by `copy_file_range`, `execve`, `open`, `read`, `rename`, `truncate`,
