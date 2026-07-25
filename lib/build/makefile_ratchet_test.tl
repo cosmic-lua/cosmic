@@ -68,7 +68,6 @@ local real_shell_allowed: {string} = {
   "env-probe", -- shows the env a recipe shell sees
   "env-probe-clamped", -- .ENV canary probe (#756 item 5)
   "o/bin/ape", -- APE loader extraction IS the stub flow
-  "o/bootstrap/compile-flag", -- pre-driver strict-compile probe
   "o/ci-selftest-launder-summary.txt", -- deliberately laundering fixture
   "o/cosmic/version.lua", -- git describe interpolation
   "o/lib/build/make/ci-launder.out", -- nested-make fixture
@@ -270,8 +269,9 @@ end
 test_sandboxed_ratchet()
 
 -- Static no-shell gate (#756 cleanup): the poisoned SHELL only trips
--- when a rule RUNS, and cold rules can sit broken unnoticed (stage1
--- after the #759 flip, found days later in #760). Scan every recipe in
+-- when a rule RUNS, and cold rules can sit broken unnoticed (the
+-- since-retired stage1 broke at the #759 flip and was found days later
+-- in #760 — exactly the class this catches). Scan every recipe in
 -- the database dump: a rule not on the shell-exception allowlist must
 -- carry no shell syntax in its recipe text. The dump is UNEXPANDED, so
 -- a $(var) hiding metacharacters still needs the runtime poison — this

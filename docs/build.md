@@ -35,12 +35,19 @@ the top-level Makefile aggregates all modules and derives:
 
 ### Compilation
 
-Teal files compile to Lua via the bootstrap cosmic binary:
+Teal files compile to Lua through the pinned bootstrap's own shell-free
+recipe surface (`cosmic --build`, #732/#756 item 3) — no redirect, no host
+`cat`/`cmp`/`mv`:
 
 ```makefile
-$(o)/%.lua: %.tl $(types_files) $(tl_files) $(bootstrap_files)
-    @$(bootstrap_cosmic) --compile $< > $@
+$(o)/%.lua: %.tl $(types_files) $(bootstrap_files) $(compile_flag_stamp)
+    @$(bootstrap_cosmic) --build compile $(compile_flag_stamp) $(bootstrap_cosmic) $< $@ $(include_dir_flags)
 ```
+
+compiles are strict (`--compile-strict`: type check, then generate from
+that same checked AST) with `LUA_PATH=";;"`, which is what makes the
+output independent of parallel build order (#733). the flag is pinned in
+`cook.mk`, not probed (#776).
 
 ### Versioned Dependencies (3p/)
 
@@ -59,16 +66,22 @@ symlinks connect `o/<module>/.staged` to the extracted directory.
 ### Test Execution
 
 ```makefile
-$(o)/%.tl.test.got: $(o)/%.lua ...
-    @TEST_TMPDIR=$$(mktemp -d) $< > $(basename $@).out 2> $(basename $@).err
-    @echo $$? > $@
+$(o)/%.tl.test.got: $(o)/%.lua $(cosmic_bin) $(ape_loader)
+    @$(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 ```
 
-each test:
+`cosmic --test` owns the capture — the recipe is a single argv line with
+no shell, no `mktemp`, and no redirects. each test:
 - runs as a standalone script (compiled `.lua` with shebang)
-- gets its own `TEST_TMPDIR`
+- gets its own `TEST_TMPDIR`, created and cleaned up by the runner
 - captures stdout to `.out`, stderr to `.err`, exit code to `.got`
-- `reporter.tl` aggregates `.got` files into a summary
+- is aggregated into a summary: `cosmic --report` for the test, coverage,
+  and enforce lanes; `lib/build/reporter.tl --out` for teal, format,
+  lint, example, and benchmark
+
+type and format checks follow the same shape but read the **source**
+directly (`$(o)/%.teal.got: %`), as lint always has — there is no copy of
+the tree under `o/` (#775).
 
 ### Sandboxing
 
@@ -146,14 +159,21 @@ the result is a single executable with all modules accessible at `/zip/.lua/`.
 
 ## CI Pipeline
 
-`make ci` runs four stages with `--keep-going`:
+`make ci` runs six stages with `--keep-going`:
 
 1. **format**: check all files with `cosmic --check-format`
 2. **teal**: type check all files with `cosmic --check-types`
 3. **test**: run all `*_test.tl` files
 4. **example**: run all `Example_*` functions in `*_example.tl` files
+5. **lint**: file length, cast justifications, and shared style checks on
+   every tracked file
+6. **coverage**: the tests again in a separate output tree with collection
+   on, ratcheted against `lib/cosmic/coverage/baseline.txt`
 
-failures in any stage are collected and reported at the end.
+each stage gets a `ci-ok-<stage>` exit marker, made only after its entire
+subtree succeeded. grading reads the marker as well as the summary text,
+so a recipe that fails *after* writing a clean summary still fails the
+stage (#714). the run ends with a `ci: PASS` / `ci: FAIL (stages)` line.
 
 ## Filtering
 
@@ -169,12 +189,18 @@ bin/make files only=cosmic    # only build cosmic files
 
 the bootstrap avoids circular dependency (need cosmic to compile cosmic):
 
-1. a pre-built `cosmic` binary is downloaded to `o/bootstrap/cosmic`
-2. it compiles all `.tl` → `.lua` and builds the new cosmic binary
-3. `make stage1` copies the new binary over the bootstrap
-4. `make stage2` (alias for `make ci`) re-checks everything with the refreshed bootstrap
+1. `bin/make` downloads a pre-built `cosmic` to `o/bootstrap/cosmic`,
+   verifies it against the sha in `cook.mk`, and assimilates it to a
+   native ELF. it is the *sole* provisioner — the Makefile's rule only
+   errors, and a pin bump re-downloads via the `.pin` stamp.
+2. it compiles all `.tl` → `.lua` and builds the new cosmic binary.
 
-the bootstrap URL is pinned in `cook.mk`.
+the bootstrap URL and sha are pinned in `cook.mk` and bumped **by hand**;
+no workflow refreshes them, and nothing verifies that the tree can rebuild
+itself under a binary it just produced. `make stage1`/`stage2` used to
+gesture at that check but no lane ever ran them, so they were removed
+(#774) rather than left as a gate that never fires. if the self-host
+property is worth guaranteeing, it wants a CI lane, not a manual target.
 
 the build's trust root — what `bin/make` fetches, what stays outside
 the root, and the settled decision that pinned make is permanent — is

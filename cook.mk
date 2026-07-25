@@ -60,9 +60,11 @@ pledge_test := $(pledge_build) fattr inet dns unix tty id flock
 # build job has it, the canary proves it). Requires the assimilated
 # bootstrap below: a raw APE exec falls back to extracting a loader into
 # $HOME/.ape-*, which no grant covers. Pattern variables attach by
-# target NAME, so every *.lua target under $(o) is enforced — including
-# the `$(o)/%: %` copies (their `cp -p` needs the fattr promise) and
-# the doc index. version.lua opts back out where it is defined: its
+# target NAME, so every *.lua target under $(o) is enforced — the
+# compiles and the doc index. (Before #775 this also swept up whichever
+# `$(o)/%: %` source copies happened to end in .lua — two of 308 — and
+# left the rest unenforced; retiring that rule made the family's
+# membership deliberate.) version.lua opts back out where it is defined: its
 # recipe needs git + .git, and its `|| echo unknown` fallback would
 # otherwise silently mint an artifact with no version.
 $(o)/%.lua: .SANDBOXED := 1
@@ -225,26 +227,28 @@ $(bootstrap_cosmic): o/bootstrap/cosmic
 	@ln -sf cosmic $(@D)/lua
 endif
 
-# Strict-compile capability probe: newer bootstraps ship --compile-strict
-# (strict type check, then generate from that same checked AST, so nothing
-# ships that did not typecheck); the pinned bootstrap may predate the flag.
-# Probe once and use the best flag it supports — after a bootstrap pin bump
-# (or CI's stage1 refresh) in-tree compiles become strict automatically.
-# Shell exception (#732): the probe is pre-driver trust machinery — the
-# driver's own compile READS this stamp, so probing through the driver
-# would cycle. It stays shell, grouped with the bootstrap download.
+# In-tree compiles are strict, always (#776). --compile-strict type checks
+# and then generates from that same checked AST, so nothing ships that did
+# not typecheck; LUA_PATH=";;" for those compiles is also a #733
+# reproducibility requirement, since the non-strict tree-LUA_PATH path made
+# output depend on parallel build order.
+#
+# This used to PROBE the pinned bootstrap for the flag and fall back to
+# plain --compile when it was absent — bridging a bootstrap that predated
+# it. Every pin since ships the flag, and the fallback was the one place
+# in this build where a stale input degraded SILENTLY (into exactly the
+# non-reproducible compile #733 exists to prevent) instead of failing.
+# The flag is pinned here instead: a bootstrap that cannot honor it now
+# fails at the first compile with the compiler's own error.
+#
+# The stamp file stays because the recipe steps run the PINNED bootstrap's
+# embedded --build surface, whose do_compile reads it (and validates the
+# contents) — dropping the argument needs a release first. Writing it
+# through `--build list` is shell-free and write-if-changed, so the rule's
+# old shell exception is retired.
 compile_flag_stamp := $(o)/bootstrap/compile-flag
-$(compile_flag_stamp): private SHELL := /bin/bash
-$(compile_flag_stamp): private .SHELLFLAGS := -o pipefail -c
 $(compile_flag_stamp): $(bootstrap_files)
-	@mkdir -p $(@D)
-	@printf 'print("probe")\n' > $@.probe.tl
-	@if LUA_PATH=";;" $(bootstrap_cosmic) --compile-strict $@.probe.tl >/dev/null 2>&1; then \
-		echo --compile-strict > $@; \
-	else \
-		echo --compile > $@; \
-	fi
-	@rm -f $@.probe.tl
+	@$(bootstrap_cosmic) --build list $@ --compile-strict
 
 # Type definition regeneration.
 # The generated .d.tl files are a pure function of (lib/types/gentype*.tl, the

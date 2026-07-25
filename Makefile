@@ -60,16 +60,13 @@ help: $(build_files) | $(bootstrap_cosmic)
 ## Filter targets by substring (make test only=teal; also narrows fetch/stage)
 filter-only = $(if $(only),$(foreach f,$1,$(if $(findstring $(only),$(f)),$(f))),$1)
 
-# Copies and compiles are the pinned bootstrap's --build steps (#732,
-# #756 item 3): no shell, no host mkdir/cp/cat/cmp/mv (LUA_PATH pins
-# live in cook.mk with the family's other pattern vars). .exists orders
-# cold-tree copies after o/ exists (unveil skips missing paths).
-$(o)/%: % | $(o)/.exists $(bootstrap_cosmic)
-	@$(bootstrap_cosmic) --build copy $< $@
-$(o)/.exists: | $(bootstrap_cosmic)
-	@$(bootstrap_cosmic) --build list $@
-
-$(o)/%.lua: %.tl $(types_files) $(tl_files) $(bootstrap_files) $(compile_flag_stamp)
+# Compiles are the pinned bootstrap's --build steps (#732, #756 item 3):
+# no shell, no host mkdir/cat/cmp/mv (LUA_PATH pins live in cook.mk with
+# the family's other pattern vars). The `$(o)/%: %` source-copy rule that
+# used to sit here is retired (#775): teal/format read sources directly
+# now, as lint always has. tl resolves through $(bootstrap_files)'s
+# embedded copy; the old $(tl_files) prereq was never defined, ever empty.
+$(o)/%.lua: %.tl $(types_files) $(bootstrap_files) $(compile_flag_stamp)
 	@$(bootstrap_cosmic) --build compile $(compile_flag_stamp) $(bootstrap_cosmic) $< $@ $(include_dir_flags)
 
 # tl files: modules declare _tl, derive compiled .lua outputs
@@ -91,8 +88,6 @@ $(foreach m,$(filter-out $(default_deps),$(modules)),\
     $(eval $($(m)_files): $($(d)_files))\
     $(if $($(d)_staged),\
       $(eval $($(m)_files): $($(d)_staged)))))
-
-all_versions := $(call filter-only,$(foreach x,$(modules),$($(x)_version)))
 
 # versioned modules: o/module/.versioned -> version.lua
 $(foreach m,$(modules),$(if $($(m)_version),\
@@ -118,8 +113,8 @@ fetched: $(all_fetched)
 stdlib_lua := $(patsubst %.tl,$(o)/%.lua,$(filter lib/cosmic/%,$(foreach x,$(modules),$($(x)_tl))))
 # The fetch/stage trees must EXIST before their sandboxed rules launch
 # (unveil silently skips missing paths — the same trap the target-dir
-# derivation closed upstream, one level up); the driver's list mode
-# mints them like $(o)/.exists.
+# derivation closed upstream, one level up); the driver's list mode mints
+# them as a stamp.
 $(FETCH_O)/.exists $(STAGE_O)/.exists: | $(bootstrap_cosmic)
 	@$(bootstrap_cosmic) --build list $@
 $(o)/%/.fetched: export SSL_USE_SYSTEM_CERTS = 1
@@ -285,13 +280,13 @@ all_source_files := $(call filter-only,$(foreach x,$(modules),$($(x)_tests)))
 all_source_files += $(call filter-only,$(filter-out ,$(foreach x,$(modules),$($(x)_version))))
 all_source_files += $(call filter-only,$(foreach x,$(modules),$($(x)_srcs)))
 all_source_files += $(all_tl)
-all_checkable_files := $(addprefix $(o)/,$(all_source_files))
 
 .PHONY: files
 ## Build all module files
 files: $(all_built_files)
 
-all_teals := $(patsubst %,%.teal.got,$(all_checkable_files))
+# .got NAMES are $(o)-prefixed; the PREREQUISITE is the source (#775).
+all_teals := $(patsubst %,$(o)/%.teal.got,$(all_source_files))
 
 .PHONY: check
 ## Run Teal type checking
@@ -303,10 +298,10 @@ teal: $(o)/teal-summary.txt
 $(o)/teal-summary.txt: $(all_teals) | $(build_reporter)
 	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $^
 
-$(o)/%.teal.got: $(o)/% $(cosmic_check_bin) | $(bootstrap_files)
+$(o)/%.teal.got: % $(cosmic_check_bin) | $(bootstrap_files)
 	@$(cosmic_check_bin) --test $(basename $@) $(cosmic_check_bin) $(include_dir_flags) --check-types $<
 
-all_formats := $(patsubst %,%.format.got,$(all_checkable_files))
+all_formats := $(patsubst %,$(o)/%.format.got,$(all_source_files))
 
 ## Check formatting on all files
 format: $(o)/format-summary.txt
@@ -314,7 +309,7 @@ format: $(o)/format-summary.txt
 $(o)/format-summary.txt: $(all_formats) | $(build_reporter)
 	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $^
 
-$(o)/%.format.got: $(o)/% $(cosmic_check_bin) | $(bootstrap_files)
+$(o)/%.format.got: % $(cosmic_check_bin) | $(bootstrap_files)
 	@$(cosmic_check_bin) --test $(basename $@) $(cosmic_check_bin) --check-format $<
 
 # Lint every tracked file (#719). git ls-files fails SILENTLY outside
@@ -358,16 +353,6 @@ bootstrap: $(bootstrap_files)
 .PHONY: build
 ## Build cosmic binary
 build: cosmic
-
-.PHONY: stage1
-## CI stage 1: build cosmic and refresh bootstrap with updated bundled types
-stage1: $(cosmic_bin)
-	@cp $(cosmic_bin) $(bootstrap_cosmic)
-	@echo Bootstrap refreshed from $(cosmic_bin)
-
-.PHONY: stage2
-## CI stage 2: type check and test with refreshed bootstrap (alias for ci)
-stage2: ci
 
 # Example testing - run Example_* functions in _example.tl files
 all_example_srcs := $(call filter-only,$(foreach m,$(modules),$($(m)_examples)))
@@ -478,7 +463,7 @@ $(o)/ci-ok-%: %
 	@$(bootstrap_cosmic) --build list $@
 
 .PHONY: ci
-## Run CI checks (format, teal, test, example, lint) in parallel
+## Run the full gate in parallel (format, teal, test, example, lint, coverage)
 # De-hosted (#732): the grading loop lives in the driver's verdict mode
 # (same #714 semantics — summary text AND exit marker — gated by the
 # ci-launder fixture); `-` on the sub-make replaces `|| true`.
