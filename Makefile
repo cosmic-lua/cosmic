@@ -354,21 +354,6 @@ bootstrap: $(bootstrap_files)
 ## Build cosmic binary
 build: cosmic
 
-# MANUAL two-stage self-host check — no workflow runs these (#774); run
-# them before a bootstrap pin bump to prove the tree rebuilds and re-checks
-# itself under the binary it produced. stage1 overwrites the binary without
-# touching the .pin stamp bin/make compares, so it leaves the tree on an
-# UNPINNED bootstrap until `rm -rf o/bootstrap` restores the pinned one.
-.PHONY: stage1
-## Manual self-host step 1: build cosmic and overwrite the local bootstrap
-stage1: $(cosmic_bin)
-	@cp $(cosmic_bin) $(bootstrap_cosmic)
-	@echo Bootstrap refreshed from $(cosmic_bin)
-
-.PHONY: stage2
-## Manual self-host step 2: re-run the full gate under it (alias for ci)
-stage2: ci
-
 # Example testing - run Example_* functions in _example.tl files
 all_example_srcs := $(call filter-only,$(foreach m,$(modules),$($(m)_examples)))
 all_examples := $(patsubst %.tl,$(o)/%.tl.example.got,$(all_example_srcs))

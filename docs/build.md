@@ -196,11 +196,11 @@ the bootstrap avoids circular dependency (need cosmic to compile cosmic):
 2. it compiles all `.tl` → `.lua` and builds the new cosmic binary.
 
 the bootstrap URL and sha are pinned in `cook.mk` and bumped **by hand**;
-no workflow refreshes them. `make stage1` (overwrite the local bootstrap
-with the binary you just built) and `make stage2` (re-run the gate under
-it) are manual self-host checks worth running before a pin bump — nothing
-in CI runs them, and `stage1` deliberately leaves the tree on an unpinned
-bootstrap until you delete `o/bootstrap`.
+no workflow refreshes them, and nothing verifies that the tree can rebuild
+itself under a binary it just produced. `make stage1`/`stage2` used to
+gesture at that check but no lane ever ran them, so they were removed
+(#774) rather than left as a gate that never fires. if the self-host
+property is worth guaranteeing, it wants a CI lane, not a manual target.
 
 the build's trust root — what `bin/make` fetches, what stays outside
 the root, and the settled decision that pinned make is permanent — is

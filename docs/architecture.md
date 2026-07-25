@@ -32,7 +32,7 @@ users import `cosmic.*` modules. `cosmo.*` bindings are available but undocument
 .tl source → cosmic --compile → .lua → zip into binary
 ```
 
-the bootstrap problem: compiling `.tl` requires a working cosmic binary. this is solved by a pre-built bootstrap binary, pinned by url + sha256 in `cook.mk` and fetched by `bin/make`. the pin is bumped **by hand**; no workflow refreshes it (`make stage1`/`stage2` are manual self-host checks — see [build.md](build.md)).
+the bootstrap problem: compiling `.tl` requires a working cosmic binary. this is solved by a pre-built bootstrap binary, pinned by url + sha256 in `cook.mk` and fetched by `bin/make`. the pin is bumped **by hand**; no workflow refreshes it, and no lane verifies the self-host property (see [build.md](build.md)).
 
 dependency chain:
 ```
