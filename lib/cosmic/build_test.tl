@@ -305,3 +305,79 @@ local function test_recipe_blank_is_a_noop()
   assert(code == 0, "a blank recipe line succeeds")
 end
 test_recipe_blank_is_a_noop()
+
+-- exec: the one door out of the vocabulary, and it opens only onto
+-- bytes already under the build root.
+local function run_recipe_env(line: string, root: string): integer, string, string
+  local envlist: {string} = {}
+  for _, entry in ipairs(env.list()) do
+    if not entry:match("^COSMIC_EXEC_ROOT=") then
+      envlist[#envlist + 1] = entry
+    end
+  end
+  envlist[#envlist + 1] = "COSMIC_EXEC_ROOT=" .. root
+  local result, serr = child.run({test_bin, "-c", line}, {env = envlist})
+  if not result then
+    return 1, "", tostring(serr)
+  end
+  local r = result as child.Result -- cast: record union after guard
+  local code = 1
+  if r.code ~= nil then
+    code = r.code
+  end
+  return code, r.stdout, r.stderr
+end
+
+-- The program's arguments travel through the same whitespace split as
+-- the verb, so they cannot carry shell characters either: `-e print(42)`
+-- is refused for its parentheses. Scripts keep this test's own argv to
+-- paths and flags, which is what a real recipe passes.
+local function write_script(name: string, body: string): string
+  local path = fs.join(tmpdir, name)
+  assert(fs.write(path, body))
+  return path
+end
+
+local function test_exec_runs_bytes_under_the_root()
+  local root = fs.dirname(fs.abspath(test_bin))
+  local script = write_script("exec-print.lua", "print('42')\n")
+  local code, out, err = run_recipe_env(
+    "exec " .. test_bin .. " " .. script, root)
+  assert(code == 0, "exec under the root failed (" .. tostring(code) .. "): " .. err)
+  assert(out:match("42"), "expected the program's own output, got: " .. out)
+end
+test_exec_runs_bytes_under_the_root()
+
+local function test_exec_refuses_outside_the_root()
+  -- /bin/sh exists and is executable; being outside the root is the
+  -- only reason it must not run.
+  local code, _out, err = run_recipe_env("exec /bin/sh -c true", tmpdir)
+  assert(code ~= 0, "a program outside the build root must be refused")
+  assert(err:match("not under the build root"), "expected the root named, got: " .. err)
+end
+test_exec_refuses_outside_the_root()
+
+local function test_exec_never_searches_path()
+  -- `sh` resolves through PATH for a shell; for exec it is just a
+  -- relative path that is not under the root, so it cannot run.
+  local code, _out, err = run_recipe_env("exec sh -c true", tmpdir)
+  assert(code ~= 0, "a bare program name must not be found on PATH")
+  assert(err:match("not under the build root"), "expected the root named, got: " .. err)
+end
+test_exec_never_searches_path()
+
+local function test_exec_reports_a_missing_program()
+  local code, _out, err = run_recipe_env(
+    "exec " .. fs.join(tmpdir, "absent") .. " x", tmpdir)
+  assert(code ~= 0, "a missing program must fail")
+  assert(err:match("no such file"), "expected a missing-file message, got: " .. err)
+end
+test_exec_reports_a_missing_program()
+
+local function test_exec_passes_through_the_exit_code()
+  local root = fs.dirname(fs.abspath(test_bin))
+  local script = write_script("exec-exit.lua", "os.exit(3)\n")
+  local code = run_recipe_env("exec " .. test_bin .. " " .. script, root)
+  assert(code == 3, "expected the program's own exit code, got " .. tostring(code))
+end
+test_exec_passes_through_the_exit_code()

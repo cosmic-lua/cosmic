@@ -308,6 +308,22 @@ path), which is the D14 mechanism and remains open — but the sentinel
 needs no release, so the upstream knob is an ergonomic cleanup rather
 than a dependency.
 
+**`exec` opens onto pinned bytes only.** It resolves against the build
+root (`$COSMIC_EXEC_ROOT`, else `o/`) and refuses anything outside it,
+so a bare `exec cc` resolves to `<cwd>/cc`, is not under the root, and
+is refused rather than silently picking up the host's compiler. Pins
+declare bytes, `fetch` obtains them, `exec` runs them; nothing else
+runs at all.
+
+Known limitation, recorded rather than papered over: a program's
+*arguments* travel through the same whitespace split, so they cannot
+carry shell characters either. A pinned compiler invoked with
+`-DFOO(x)=y` is refused. Nothing in this repo's rules needs it, and the
+out-of-band channel that would fix it (paths and args in target-specific
+variables rather than in the line) was considered and rejected for
+costing the legibility of `o/cosmic.mk`. If a real project hits it, that
+tradeoff is the thing to revisit.
+
 `--build` and `-c` are the same dispatcher; `-c` wins. The ordering is a
 constraint, not a preference: **`-c` must ship in a release before this
 repo can set `SHELL := cosmic`**, because recipes run the pinned older

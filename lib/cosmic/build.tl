@@ -301,10 +301,59 @@ local function do_link(args: {string}): integer
   return 0
 end
 
+--- The one door out of the vocabulary: `exec <program> [args...]`.
+---
+--- It resolves ONLY to bytes already under the build root — a pinned
+--- dependency staged into `o/`, a binary this build produced — and
+--- never to a PATH lookup. A bare `exec cc` becomes `<cwd>/cc`, which
+--- is not under the root, so it is refused rather than silently
+--- picking up whatever the host has installed. That is what makes the
+--- build's external surface enumerable: pins declare the bytes, fetch
+--- obtains them, exec runs them, and nothing else runs at all.
+---
+--- The root is `$COSMIC_EXEC_ROOT`, else `o` beneath the current
+--- directory (make runs recipes at the project root).
+--- @param args {string} Program path, then its arguments
+--- @return integer The program's exit code, or 1 on refusal
+local function do_exec(args: {string}): integer
+  local program = args[1]
+  if not program then
+    return fail("usage: exec <program> [args...]")
+  end
+  local root = fs.abspath(env.get("COSMIC_EXEC_ROOT", "o"))
+  local abs = fs.abspath(program)
+  -- Prefix match on a separator boundary, so a sibling `o-other/` next
+  -- to `o/` cannot pass for being inside it.
+  if abs ~= root and abs:sub(1, #root + 1) ~= root .. "/" then
+    return fail("exec " .. program .. ": not under the build root " .. root
+      .. "; a recipe may only exec pinned or built bytes, never PATH")
+  end
+  if not fs.isfile(abs) then
+    return fail("exec " .. program .. ": no such file (" .. abs .. ")")
+  end
+  local argv: {string} = {abs}
+  for i = 2, #args do
+    argv[#argv + 1] = args[i]
+  end
+  -- "inherit" so the program streams as it runs, like every other
+  -- recipe step (#797).
+  local h, serr = child.spawn(argv, {stdout = "inherit", stderr = "inherit"})
+  if not (h is child.Handle) then
+    return fail("exec " .. program .. ": " .. (serr or "unknown error"))
+  end
+  -- cast: Teal's narrowing does not survive the early-exit guard above
+  local res, werr = (h as child.Handle):wait()
+  if not (res is child.Result) then
+    return fail("exec " .. program .. ": " .. (werr or "unknown error"))
+  end
+  return res.code or 1
+end
+
 local modes: {string: function({string}): integer} = {
   capture = do_capture,
   compile = do_compile,
   copy = do_copy,
+  exec = do_exec,
   link = do_link,
   list = do_list,
   remove = do_remove,
