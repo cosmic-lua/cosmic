@@ -182,3 +182,71 @@ local function test_reporter_note()
   assert(written:match("gone%.tl"), "expected note in summary file")
 end
 test_reporter_note()
+
+-- The ci verdict (cosmic.build's do_verdict) grades a stage by matching
+-- this pattern against whatever summary the stage produced — and the build
+-- has TWO producers: this reporter, for the teal/format/lint/example/
+-- benchmark stages, and `cosmic --report` (cosmic.testrun) for the
+-- test/coverage/enforce lanes. They format differently ON PURPOSE (the
+-- reporter always prints "0 failed"; testrun omits the clause at zero), so
+-- the shared contract is narrow but load-bearing: a summary WITH failures
+-- must carry a matching clause, one WITHOUT must not. Pin it for both, or
+-- a format tweak on either side silently makes ci grade a red stage green
+-- — the #714 laundering class, one layer up (#779).
+local VERDICT_PATTERN <const> = "[1-9]%d* failed"
+
+local function run_report(...: string): integer, string
+  local child = require("cosmic.child")
+  local args: {string} = {fs.join(os.getenv("TEST_BIN") or "", "cosmic"), "--report"}
+  for _, a in ipairs({...}) do
+    table.insert(args, a)
+  end
+  local result, serr = child.run(args)
+  assert(result, "spawn cosmic --report failed: " .. tostring(serr))
+  local r = result as child.Result -- cast: record union after guard
+  return (r.code or 1), r.stdout
+end
+
+local function test_verdict_pattern_agrees_across_both_reporters()
+  local dir = fs.join(tmpdir, "verdict")
+  fs.makedirs(dir)
+  write_test_result(fs.join(dir, "red.test"), 1, "", "boom\n")
+  write_test_result(fs.join(dir, "green.test"), 0, "ok\n", "")
+
+  -- lib/build/reporter: the check stages
+  local rc, rout = run_reporter("--dir", dir, fs.join(dir, "red.test.got"))
+  assert(rc ~= 0, "reporter must exit nonzero on a failure")
+  assert(rout:match(VERDICT_PATTERN),
+    "reporter failure summary must carry the clause ci grades on:\n" .. rout)
+  local _, rpass = run_reporter("--dir", dir, fs.join(dir, "green.test.got"))
+  assert(not rpass:match(VERDICT_PATTERN),
+    "reporter all-pass summary must NOT match the failure clause:\n" .. rpass)
+
+  -- cosmic --report (cosmic.testrun): the test lanes
+  local tc, tout = run_report(fs.join(dir, "red.test.got"))
+  assert(tc ~= 0, "cosmic --report must exit nonzero on a failure")
+  assert(tout:match(VERDICT_PATTERN),
+    "testrun failure summary must carry the clause ci grades on:\n" .. tout)
+  local _, tpass = run_report(fs.join(dir, "green.test.got"))
+  assert(not tpass:match(VERDICT_PATTERN),
+    "testrun all-pass summary must NOT match the failure clause:\n" .. tpass)
+end
+test_verdict_pattern_agrees_across_both_reporters()
+
+-- test: both reporters read the exit-code contract from one place (#779)
+local function test_status_contract_is_shared()
+  local testrun = require("cosmic.testrun")
+  assert(testrun.status_of(0) == "pass", "0 is a pass")
+  assert(testrun.status_of(2) == "skip", "2 is a skip")
+  assert(testrun.status_of(1) == "fail", "1 is a failure")
+  assert(testrun.status_of(127) == "fail", "127 is a failure")
+
+  -- and the reporter classifies through it: a .got of 2 reports as a skip
+  local dir = fs.join(tmpdir, "skipstatus")
+  fs.makedirs(dir)
+  write_test_result(fs.join(dir, "s.test"), 2, "", "")
+  local code, out = run_reporter("--dir", dir, fs.join(dir, "s.test.got"))
+  assert(code == 0, "a skip must not fail the stage, got: " .. tostring(code))
+  assert(out:match("1 skipped"), "reporter should count exit 2 as a skip:\n" .. out)
+end
+test_status_contract_is_shared()

@@ -136,6 +136,12 @@ $(reporter_summaries): .UNVEIL := $(unveil_dev)
 # REPORTER_NOTE: the lint summary's deleted-files note rides the env
 $(reporter_summaries): .ENV := LUA_PATH REPORTER_NOTE LC_ALL TZ NO_COLOR
 $(reporter_summaries): export LUA_PATH = $(tree_lua_path)
+# reporter.tl reads the .got status contract from cosmic.testrun (#779).
+# Declare the compiled module: tree_lua_path ends in `;;`, so without this
+# a lane that has not built the stdlib yet (bin/make lint on a cold tree)
+# would silently resolve it from the bootstrap's embedded, older copy —
+# the #666/#608 stale-stdlib class.
+$(reporter_summaries): $(o)/lib/cosmic/testrun.lua
 
 # Third ENFORCED family (#729): the teal/format check rules, which exec
 # the assimilated $(cosmic_check_bin) duplicate (see lib/cosmic/cook.mk)
