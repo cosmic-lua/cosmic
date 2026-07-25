@@ -28,6 +28,8 @@ Cosmic options:
                                 e.g. cosmic --coverage-report o/coverage lib
   --build <mode> <args>...      run a shell-free build recipe step
                                 (copy, link, list, capture, tee, compile, ...)
+  -c <line>                     run one recipe line as argv, not shell
+                                (for make: SHELL := cosmic)
   --make [dir] [target]         generate Makefile, pipe to make -f -
   --skill <dir>                 write agent skill file (SKILL.md) to directory
   --welcome                     show welcome message

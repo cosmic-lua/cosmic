@@ -285,6 +285,29 @@ cosmic verb or `exec`.
   GNU make) and cosmic self-restricts. `.PLEDGE`/`.UNVEIL` attributes
   become optional rather than load-bearing.
 
+**The trailing `;` is load-bearing.** Setting `SHELL` is not enough:
+make does not use `SHELL` for a line it judges shell-free — job.c
+builds argv and execs directly whenever the line contains none of
+`` #;"*?[]&|<>(){}$`^ `` and does not start with a shell builtin. Lines
+in this vocabulary are shell-free *by construction*, so the naive
+`SHELL := cosmic` intercepts nothing at all: measured on the fork, a
+recipe of `rm -rf a.txt` under `SHELL := cosmic` deleted the file, and
+`copy a.txt out.txt` failed with `copy: No such file or directory`
+because make tried to exec `copy` as a program. `.ONESHELL` does not
+change it.
+
+So generated recipe lines end in `;`, which forces the `SHELL` path,
+and `-c` strips exactly one trailing sentinel before dispatch. A `;`
+anywhere else is still refused, so `copy a b ; touch evil` does not
+become two commands. `;` is the cheapest sentinel that behaves
+identically under a real shell — a leading `:` also forces the path,
+but `sh` would discard the line's arguments entirely.
+
+The alternative is a fork change (a special target that forces the slow
+path), which is the D14 mechanism and remains open — but the sentinel
+needs no release, so the upstream knob is an ergonomic cleanup rather
+than a dependency.
+
 `--build` and `-c` are the same dispatcher; `-c` wins. The ordering is a
 constraint, not a preference: **`-c` must ship in a release before this
 repo can set `SHELL := cosmic`**, because recipes run the pinned older
@@ -299,10 +322,18 @@ cosmic owning the shell. A no-op step doesn't touch its output, so
 non-changes stop propagating.
 
 **Everything is parallel** (`-j$(nproc)`, honoring an inherited
-jobserver and an explicit `--jobs`). Cosmic is spawned once per recipe
-line; that is a **budget to hold, not a reason to serialize** — phase 1
-reports the number and optimizes startup if it isn't small.
-Parallel-by-default is defensible only because isolation is structural.
+jobserver and an explicit `--jobs`). Parallel-by-default is defensible
+only because isolation is structural.
+
+Spawn cost, measured (phase 1's deliverable, 200 runs of a no-op verb):
+**10.4 ms** per line for the fat APE, **6.4 ms** for the assimilated ELF
+the sandboxed rules already exec, against **1.5 ms** for `/bin/sh -c
+true`. The comparison that matters is not against a shell, though: this
+repo's recipes *already* spawn cosmic per line (`$(bootstrap_cosmic)
+--build …`), so routing through `SHELL` costs the same one spawn — the
+shell it replaces was never free either. At 6 ms, a 1000-node graph
+carries ~6 s of startup serially, under a second at `-j8`. That is the
+budget; it argues for chunky verbs and, eventually, the action cache.
 
 An action cache keyed on `(argv + input hashes)` is deferred until
 profiling justifies it.

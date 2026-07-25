@@ -5,7 +5,10 @@ local getopt = require("cosmic.getopt")
 
 --- Short options string for getopt (e.g. "e:l:ivEWh").
 --- Options followed by ':' require an argument.
-local shortopts = "e:l:ivEWh"
+--- `-c` is make's shell contract: `$(SHELL) $(.SHELLFLAGS) '<line>'`
+--- with `.SHELLFLAGS` defaulting to `-c`, so `SHELL := cosmic` works
+--- with no further configuration.
+local shortopts = "c:e:l:ivEWh"
 
 --- Long options table for getopt.
 local longopts: {getopt.LongOpt} = {

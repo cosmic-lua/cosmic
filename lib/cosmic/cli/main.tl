@@ -48,6 +48,7 @@ local record Options
   coverage_report_paths: {string}
   build_mode: string
   build_argv: {string}
+  recipe: string
   make: string
   skill: string
   write_if_changed: boolean
@@ -209,7 +210,10 @@ local function parse_args(): Options
     local opt = o.opt
     local optarg = o.arg
 
-    if opt == "e" then
+    if opt == "c" then
+      opts.recipe = optarg
+      return opts
+    elseif opt == "e" then
       opts.execute[#opts.execute + 1] = optarg
     elseif opt == "l" then
       opts.load[#opts.load + 1] = optarg
@@ -389,19 +393,14 @@ local function main(): integer, string
     return require("cosmic.coverage").report(opts.coverage_report_paths)
   end
 
+  -- `SHELL := cosmic`: make hands one recipe line to `-c`, which runs
+  -- it as argv through the same closed vocabulary `--build` dispatches.
+  if opts.recipe ~= nil then
+    return require("cosmic.cli.driver").recipe(opts.recipe)
+  end
+
   if opts.build_mode then
-    -- Arm line coverage like the script path below does: --build runs
-    -- in the coverage lane must still report cosmic.build's lines.
-    local cov_dump: function() = nil
-    if os.getenv("COSMIC_COVERAGE") then
-      cov_dump = require("cosmic.coverage").enable_from_env()
-    end
-    local build = require("cosmic.build")
-    local code = build.main(opts.build_mode, table.unpack(opts.build_argv))
-    if cov_dump then
-      cov_dump()
-    end
-    return code
+    return require("cosmic.cli.driver").build(opts.build_mode, opts.build_argv)
   end
 
   if opts.make ~= nil then

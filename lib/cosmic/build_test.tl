@@ -231,3 +231,77 @@ local function test_verdict()
   assert(stdout:match("ghost: no summary produced"), "missing summary named")
 end
 test_verdict()
+
+-- `-c` is the SHELL half of the same driver (`SHELL := cosmic`, make's
+-- default `.SHELLFLAGS` already `-c`): one line, split on whitespace,
+-- run as argv through the modes table above.
+local function run_recipe(line: string): integer, string, string
+  local result, serr = child.run({test_bin, "-c", line})
+  if not result then
+    return 1, "", tostring(serr)
+  end
+  local r = result as child.Result -- cast: record union after guard
+  local code = 1
+  if r.code ~= nil then
+    code = r.code
+  end
+  return code, r.stdout, r.stderr
+end
+
+local function test_recipe_dispatches()
+  local src = fs.join(tmpdir, "recipe-src.txt")
+  local dst = fs.join(tmpdir, "recipe/out.txt")
+  assert(fs.write(src, "hello\n"))
+  local code, _out, err = run_recipe("copy " .. src .. " " .. dst)
+  assert(code == 0, "recipe copy failed (" .. tostring(code) .. "): " .. err)
+  assert(fs.read(dst) == "hello\n", "recipe reaches the same modes table")
+end
+test_recipe_dispatches()
+
+local function test_recipe_strips_the_sentinel()
+  -- Generated recipes end in `;` so make routes them through SHELL at
+  -- all: without it make execs the line itself and cosmic never sees
+  -- it. The `;` is make's, not the verb's, so it must not reach argv.
+  local src = fs.join(tmpdir, "sentinel-src.txt")
+  local dst = fs.join(tmpdir, "sentinel/out.txt")
+  assert(fs.write(src, "sentinel\n"))
+  local code, _out, err = run_recipe("copy " .. src .. " " .. dst .. " ;")
+  assert(code == 0, "a sentinel line must run (" .. tostring(code) .. "): " .. err)
+  assert(fs.read(dst) == "sentinel\n", "sentinel stripped before dispatch")
+end
+test_recipe_strips_the_sentinel()
+
+local function test_recipe_refuses_shell()
+  -- A shell would treat these as a redirect and a command separator. As
+  -- argv they would be inert literals, so the failure this prevents is
+  -- silent: the line does something other than it looks like.
+  local marker = fs.join(tmpdir, "recipe-pwned")
+  local code, _out, err = run_recipe("copy a b ; touch " .. marker)
+  assert(code ~= 0, "a shell metacharacter must fail the line")
+  assert(err:match("argv, not shell"), "expected the argv/shell message, got: " .. err)
+  assert(not fs.stat(marker), "nothing after ';' may run")
+
+  code, _out, err = run_recipe("list " .. fs.join(tmpdir, "r.txt") .. " > x")
+  assert(code ~= 0, "a redirect must fail the line")
+  assert(err:match("argv, not shell"), "expected the argv/shell message, got: " .. err)
+end
+test_recipe_refuses_shell()
+
+local function test_recipe_unknown_verb()
+  local code, _out, err = run_recipe("rm -rf " .. tmpdir)
+  assert(code ~= 0, "a verb outside the vocabulary must fail")
+  assert(err:match("unknown verb 'rm'"), "expected the verb named, got: " .. err)
+  -- the whole vocabulary is one line, so the message can carry it
+  assert(err:match("copy") and err:match("verdict"),
+    "expected the vocabulary listed, got: " .. err)
+  assert(fs.stat(tmpdir), "an unknown verb runs nothing at all")
+end
+test_recipe_unknown_verb()
+
+local function test_recipe_blank_is_a_noop()
+  -- make hands us no blank lines, but a variable that expanded to
+  -- nothing looks like one; a shell would do nothing, so do nothing.
+  local code = run_recipe("   ")
+  assert(code == 0, "a blank recipe line succeeds")
+end
+test_recipe_blank_is_a_noop()

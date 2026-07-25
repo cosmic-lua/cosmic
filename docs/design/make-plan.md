@@ -167,5 +167,11 @@ the first-fetch shell in `bin/cosmic`.
    binding. the stripped-artifact lane is the gate; anything that comes
    back comes back with a test naming it.
 3. **ports** remain unfenced; `TEST_PORT_BASE` or a `net` helper later.
-4. **spawn cost** under `-j` is unmeasured — a phase 1 deliverable, and
-   the one number that could force a redesign of the recipe granularity.
+4. **an upstream fork knob** — a special target forcing make's slow path
+   would let generated recipes drop the trailing `;` sentinel. Pure
+   ergonomics now that the sentinel works, and the D14 mechanism if it
+   is ever worth a release cycle.
+
+Spawn cost is no longer open: measured at 6.4 ms per recipe line for the
+assimilated ELF, the same one spawn per line this repo's recipes already
+pay. See [make.md](make.md).

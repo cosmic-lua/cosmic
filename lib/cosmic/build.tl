@@ -314,6 +314,92 @@ local modes: {string: function({string}): integer} = {
   verdict = do_verdict,
 }
 
+--- The modes above, sorted, for error messages: a recipe's whole
+--- vocabulary fits in one line, which is the point of it being closed.
+--- @return string Comma-separated mode names
+local function mode_names(): string
+  local names: {string} = {}
+  for name in pairs(modes) do
+    names[#names + 1] = name
+  end
+  table.sort(names)
+  return table.concat(names, ", ")
+end
+
+local function recipe_fail(msg: string): integer
+  io.stderr:write("cosmic -c: " .. msg .. "\n")
+  return 1
+end
+
+--- Characters that mean something only to a shell. A recipe line is
+--- split on whitespace and run as argv, so these would travel through
+--- as literal argument bytes — a pipeline, a redirect, or a quoted
+--- path would silently do something other than what it looks like.
+--- Refusing them states the model at the first attempt rather than at
+--- the first mysterious result.
+local SHELL_CHARS < const > = ";|&<>`$(){}\\\"'\n"
+
+--- @param line string A recipe line
+--- @return string | nil The first shell character present, if any
+local function shell_char(line: string): string | nil
+  for i = 1, #SHELL_CHARS do
+    local c = SHELL_CHARS:sub(i, i)
+    if line:find(c, 1, true) then
+      return c
+    end
+  end
+  return nil
+end
+
+--- Run one recipe line: `cosmic -c '<line>'`.
+---
+--- This is the SHELL half of the driver (`SHELL := cosmic`, and make's
+--- default `.SHELLFLAGS` is already `-c`). A line is whitespace-split
+--- argv whose first word must name one of the modes above — no
+--- quoting, no expansion, no pipes, no redirects. Two properties come
+--- out of that: a recipe cannot be malformed by the data it carries,
+--- and a build's whole capability surface is the modes table.
+---
+--- The trailing `;`: make does NOT use SHELL for a recipe line it
+--- considers shell-free — it builds argv and execs directly (job.c's
+--- fast path, taken whenever the line holds none of `#;"*?[]&|<>(){}$`^`
+--- and does not start with a shell builtin). Lines in this vocabulary
+--- are shell-free by construction, so without a metacharacter make
+--- would exec them itself and cosmic would never see them: `rm -rf x`
+--- in a generated rule would simply run. Generated recipes therefore
+--- end in `;`, which forces the SHELL path, and this strips it. It is
+--- the cheapest available sentinel and the only one that behaves
+--- identically under a real shell — a leading `:` also forces the
+--- path, but `sh` would discard the whole line.
+--- @param line string The recipe line make passed
+--- @return integer Exit code
+local function recipe(line: string): integer
+  -- Strip ONE trailing sentinel. A `;` anywhere else is still refused
+  -- below, so `copy a b ; touch evil` does not become two commands.
+  line = line:gsub("%s*;%s*$", "")
+  local bad = shell_char(line)
+  if bad ~= nil then
+    return recipe_fail("recipe lines are argv, not shell; found "
+      .. string.format("%q", bad) .. " in: " .. line)
+  end
+  local argv: {string} = {}
+  for word in line:gmatch("%S+") do
+    argv[#argv + 1] = word
+  end
+  -- make does not hand us blank lines, but a variable that expanded to
+  -- nothing looks like one; doing nothing is what a shell would do.
+  if #argv == 0 then
+    return 0
+  end
+  local verb = table.remove(argv, 1)
+  local run_verb = modes[verb]
+  if not run_verb then
+    return recipe_fail("unknown verb '" .. verb .. "'; a recipe may run: "
+      .. mode_names())
+  end
+  return run_verb(argv)
+end
+
 local function main(...: string): integer
   local args = {...}
   local mode = table.remove(args, 1)
@@ -328,4 +414,4 @@ if proc.is_main() then
   os.exit(main(...))
 end
 
-return {main = main}
+return {main = main, recipe = recipe}
