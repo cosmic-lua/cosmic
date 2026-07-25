@@ -216,20 +216,34 @@ local function test_a_satisfied_pin_does_not_fetch()
 end
 test_a_satisfied_pin_does_not_fetch()
 
--- The posture, asserted rather than assumed: `build` never opens a
--- socket. The pin below points at a dead port, so a build that tried to
--- resolve it would fail; it succeeds because building is not fetching.
-local function test_build_never_fetches()
-  local root = pinned("nonetwork", "http://127.0.0.1:1/blob.bin",
-    hash.sha256_hex("never fetched\n"))
-  cenv.set("COSMIC_MAKE", fs.abspath(os.getenv("COSMIC_MAKE") or "bin/cosmo-make"))
-  local code = run(root, "build")
-  cenv.unset("COSMIC_MAKE")
-  assert(code == 0, "a build must not resolve pins, and must not fail on one")
-  assert(not fs.exists(fs.join(root, "3p/blob.bin")),
-    "build must not have fetched anything")
+-- The posture, asserted structurally: `fetch` is the only part of
+-- --make that can open a socket at all. This is a stronger claim than
+-- "one build did not fetch" -- it covers every verb, including the ones
+-- later slices add -- and it needs neither a network nor a build. The
+-- end-to-end half (a project whose pin points at a dead port still
+-- builds) lives in build_test.tl, which already drives a real make.
+--
+-- Tests are excluded: the claim is about the modules. A test may
+-- legitimately reach the network to prove something about fetching,
+-- and this file is the proof of that.
+local function test_only_fetch_can_open_a_socket()
+  local networked: {string} = {}
+  local found, cerr = fs.collect("lib/cosmic/make", "*.tl")
+  assert(found, "cannot scan lib/cosmic/make: " .. tostring(cerr))
+  for _, path in ipairs(found as {string}) do -- cast: record union after the guard
+    if not path:find("_test%.tl$") then
+      local src = check.must(fs.read(path))
+      if src:find('require("cosmic.fetch")', 1, true) then
+        networked[#networked + 1] = fs.basename(path)
+      end
+    end
+  end
+  table.sort(networked)
+  assert(table.concat(networked, ",") == "fetch.tl",
+    "only the fetch verb may reach the network, but these do: " ..
+    table.concat(networked, ", "))
 end
-test_build_never_fetches()
+test_only_fetch_can_open_a_socket()
 
 -- A pin that is not a pin fails the verb rather than being skipped.
 local function test_a_broken_pin_fails_fetch()

@@ -222,6 +222,26 @@ local function test_validation_gates_the_graph()
 end
 test_validation_gates_the_graph()
 
+-- The no-network posture, end to end: a project whose pin points at a
+-- dead port still builds. Building is not fetching, and a pin that has
+-- never been resolved is not a build error. (The structural half --
+-- that fetch.tl is the only module that can open a socket at all --
+-- is asserted in pin_test.tl, which needs no engine for it.)
+local function test_build_never_resolves_a_pin()
+  local root = app("pinned")
+  assert(fs.makedirs(fs.join(root, "3p")))
+  assert(fs.write(fs.join(root, "3p/blob.pin.tl"),
+      'return {\n  url = "http://127.0.0.1:1/blob.bin",\n' ..
+      '  sha256 = "e0997b6447e07ef18b6304a2b88ded9b24106e5bd67b40fab' ..
+      'b73e7c1fff37d22",\n}\n'))
+  local r = make(root, "build")
+  assert(r.code == 0, "a build must not resolve pins, got " ..
+    r.code .. ": " .. r.err)
+  assert(not fs.exists(fs.join(root, "3p/blob.bin")),
+    "build must not have fetched anything")
+end
+test_build_never_resolves_a_pin()
+
 -- clean removes o/ in process: driving it through a graph whose rules
 -- live in o/ is a knot with no payoff.
 local function test_clean_removes_the_build_directory()
