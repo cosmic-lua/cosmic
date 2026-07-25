@@ -66,10 +66,12 @@ end
 --- your end when you are done with it (see Example_run_pipe). Raw integer
 --- fds are not part of this surface (api-review-2, #602); wrap one with
 --- fd.wrap() if it comes from outside the fd module.
+--- stdout/stderr also accept "inherit" (#797): the child writes to THIS
+--- process's fd 1/2 so output streams as it runs; Result then stays "".
 local record Options
   stdin: string | cfd.Handle -- string piped to stdin, or Handle -> fd 0
-  stdout: cfd.Handle -- child's fd 1
-  stderr: cfd.Handle -- child's fd 2
+  stdout: cfd.Handle | childio.StdioMode -- child's fd 1, or "inherit"
+  stderr: cfd.Handle | childio.StdioMode -- child's fd 2, or "inherit"
   env: {string}
   cwd: string
 end
