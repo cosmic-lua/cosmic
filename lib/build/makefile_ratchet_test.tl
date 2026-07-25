@@ -222,6 +222,7 @@ local sandboxed_exempt: {string} = {
   "o/enforce/lib/cosmic/landlock_test.tl.test.got", -- self-sandboxing lane
   "o/enforce/lib/cosmic/pledge_test.tl.test.got", -- self-sandboxing lane
   "o/enforce/lib/cosmic/unveil_test.tl.test.got", -- self-sandboxing lane
+  "o/enforce/lib/cosmic/cli/fence_test.tl.test.got", -- self-sandboxing lane
   "o/lib/cosmic/quicksand/box/run_test.tl.test.got", -- unshare: no promise
   "o/lib/cosmic/quicksand/netns_example.tl.example.got",
   "o/lib/cosmic/quicksand/netns_test.tl.test.got",

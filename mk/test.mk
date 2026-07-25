@@ -91,7 +91,8 @@ coverage-baseline: $(coverage_got) | $(cosmic_bin)
 enforce_srcs := \
   lib/cosmic/pledge_test.tl \
   lib/cosmic/landlock_test.tl \
-  lib/cosmic/unveil_test.tl
+  lib/cosmic/unveil_test.tl \
+  lib/cosmic/cli/fence_test.tl
 enforce_got := $(patsubst %,$(o)/enforce/%.test.got,$(enforce_srcs))
 
 .PHONY: enforce
