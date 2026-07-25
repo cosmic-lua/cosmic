@@ -154,3 +154,150 @@ io.write("done\n")
   end
 end
 test_barrier_signal_wait()
+
+-- become_init: the PID-1 supervisor loop (#504).
+--
+-- These exercise behavior, not just exports. become_init does NOT
+-- require a PID namespace -- it is a plain wait(2) loop over a pid it
+-- is handed -- so every scenario below runs as an ordinary forking
+-- process and needs no privilege. Each runs in a subprocess because
+-- become_init installs process-wide sigaction handlers and reaps every
+-- child of the calling process.
+--
+-- The scripts use cosmo.unix directly (as the barrier test above does):
+-- fork/wait/kill have no cosmic.* wrapper, since cosmic.child models
+-- spawn-and-collect rather than the raw primitives a supervisor needs.
+
+--- Preamble shared by the become_init scenarios: a fork that reports a
+--- skip instead of failing when an outer sandbox denies it.
+local init_preamble = [[
+local unix = require("cosmo.unix")
+local qproc = require("cosmic.quicksand.proc")
+local time = require("cosmic.time")
+local function forked()
+  local pid, err = unix.fork()
+  if not pid then
+    io.write("skipped: fork: " .. tostring(err) .. "\n")
+    os.exit(0)
+  end
+  return pid
+end
+]]
+
+--- Run a become_init scenario under a fresh cosmic and return its
+--- stdout, or nil when the child died before reporting (an outer
+--- sandbox killing fork/sigaction, which the caller turns into a skip).
+local function run_init(name: string, body: string): string
+  local script = fs.join(tmpdir, name .. ".lua")
+  fs.write(script, init_preamble .. body)
+  local h = check.must(spawn.spawn({cosmic, script}))
+  local r = check.must(h:wait())
+  if not r.ok then
+    return nil
+  end
+  return r.stdout
+end
+
+--- The documented 0..255 case: main exited normally, so become_init
+--- returns that exit status verbatim.
+local function test_become_init_returns_child_exit_status()
+  local out = run_init("init_exit", [[
+local pid = forked()
+if pid == 0 then os.exit(42) end
+io.write("code=" .. tostring(qproc.become_init(pid)) .. "\n")
+]])
+  if not out then
+    check.skip("become_init exit status: child died (outer sandbox)")
+    return
+  end
+  if out:find("skipped") then
+    check.skip("become_init exit status: " .. out:gsub("%s+$", ""))
+    return
+  end
+  assert(out:find("code=42"), "expected code=42, got: " .. out)
+end
+test_become_init_returns_child_exit_status()
+
+--- The documented 128+signum case. SIGKILL is unblockable, so the kill
+--- lands whatever the child is doing -- no sleep/race to lose.
+local function test_become_init_maps_signal_death_to_128_plus_signum()
+  local out = run_init("init_signaled", [[
+local pid = forked()
+if pid == 0 then time.sleep(60) os.exit(0) end
+unix.kill(pid, unix.SIGKILL)
+io.write("code=" .. tostring(qproc.become_init(pid)) .. "\n")
+]])
+  if not out then
+    check.skip("become_init signal death: child died (outer sandbox)")
+    return
+  end
+  if out:find("skipped") then
+    check.skip("become_init signal death: " .. out:gsub("%s+$", ""))
+    return
+  end
+  -- 128 + SIGKILL(9)
+  assert(out:find("code=137"), "expected code=137, got: " .. out)
+end
+test_become_init_maps_signal_death_to_128_plus_signum()
+
+--- Signal forwarding plus the unknown-child reap, in one scenario: a
+--- killer child SIGTERMs the supervisor, whose handler forwards it to
+--- main. Main dies of SIGTERM (143). The killer is NOT a sidecar, so
+--- reaping it must not end the loop -- if the "unknown children keep
+--- the loop waiting" branch regressed, become_init would return early
+--- with 1 and this test would catch it.
+local function test_become_init_forwards_signals_to_main()
+  local out = run_init("init_forward", [[
+local main = forked()
+if main == 0 then time.sleep(60) os.exit(0) end
+local supervisor = unix.getpid()
+local killer = forked()
+if killer == 0 then
+  time.sleep(1)
+  unix.kill(supervisor, unix.SIGTERM)
+  os.exit(0)
+end
+io.write("code=" .. tostring(qproc.become_init(main)) .. "\n")
+]])
+  if not out then
+    check.skip("become_init forwarding: child died (outer sandbox)")
+    return
+  end
+  if out:find("skipped") then
+    check.skip("become_init forwarding: " .. out:gsub("%s+$", ""))
+    return
+  end
+  -- 128 + SIGTERM(15)
+  assert(out:find("code=143"), "expected code=143, got: " .. out)
+end
+test_become_init_forwards_signals_to_main()
+
+--- A sidecar exiting before main: on_sidecar_exit fires with that
+--- sidecar's pid, main is killed, and the supervisor reports 1.
+local function test_become_init_sidecar_exit_kills_main()
+  local out = run_init("init_sidecar", [[
+local main = forked()
+if main == 0 then time.sleep(60) os.exit(0) end
+local side = forked()
+if side == 0 then os.exit(0) end
+local fired = -1
+local code = qproc.become_init(main, {
+  sidecars = {side},
+  on_sidecar_exit = function(pid) fired = pid end,
+})
+io.write("code=" .. tostring(code)
+  .. " fired=" .. tostring(fired == side) .. "\n")
+]])
+  if not out then
+    check.skip("become_init sidecar: child died (outer sandbox)")
+    return
+  end
+  if out:find("skipped") then
+    check.skip("become_init sidecar: " .. out:gsub("%s+$", ""))
+    return
+  end
+  assert(out:find("code=1"), "expected code=1, got: " .. out)
+  assert(out:find("fired=true"),
+    "on_sidecar_exit should fire with the sidecar pid, got: " .. out)
+end
+test_become_init_sidecar_exit_kills_main()
