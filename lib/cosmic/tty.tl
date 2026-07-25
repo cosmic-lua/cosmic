@@ -17,6 +17,13 @@ local record TtyModule
   --- Terminal I/O settings.
   type Termios = Termios
 
+  --- An open pseudoterminal pair (see openpty).
+  record Pty
+    manager: integer -- controlling side; write here to feed the terminal
+    subordinate: integer -- the terminal itself, what a program's stdio sees
+    name: string -- filesystem path of the subordinate, e.g. /dev/pts/3
+  end
+
   --- Options for raw()/make_raw().
   record RawOptions
     --- Keep ISIG set so Ctrl-C/Ctrl-Z still generate signals.
@@ -56,6 +63,41 @@ local record TtyModule
   noecho: function(fd: integer): Termios | nil, string
   restore: function(fd: integer, termios: Termios, action?: integer): boolean, string
   getpass: function(prompt: string): string | nil, string
+  openpty: function(): Pty | nil, string
+  login_tty: function(fd: integer): boolean, string
+end
+
+--- Opens a new pseudoterminal pair.
+--- The subordinate fd IS a terminal: isatty, getattr, raw, noecho and
+--- the rest operate on it. That is what makes terminal code testable
+--- where no terminal exists -- a CI container, or any process whose
+--- stdio is a pipe. Both descriptors belong to the caller; close them.
+--- @return TtyModule.Pty | nil The open pair
+--- @return string? Error message on failure
+local function openpty(): TtyModule.Pty | nil, string
+  local mfd, sfd, name = unix.openpty()
+  if not mfd then
+    -- on failure the binding returns (nil, err, errno), so the second
+    -- slot carries the error string rather than a descriptor
+    return nil, errstr(sfd, "openpty")
+  end
+  return {manager = mfd, subordinate = sfd, name = name}
+end
+
+--- Makes fd the controlling terminal of this process.
+--- Creates a new session, attaches fd as its controlling terminal, and
+--- dups it onto stdin/stdout/stderr. Intended for the child of a fork,
+--- between openpty() and exec -- it replaces this process's session, so
+--- never call it in a process you want to keep.
+--- @param fd integer A terminal descriptor (ENOTTY otherwise)
+--- @return boolean True on success
+--- @return string? Error message on failure
+local function login_tty(fd: integer): boolean, string
+  local ok, err = unix.login_tty(fd)
+  if not ok then
+    return false, errstr(err, "login_tty")
+  end
+  return true
 end
 
 --- Checks if a file descriptor refers to a terminal.
@@ -278,6 +320,8 @@ local M: TtyModule = {
   noecho = noecho,
   restore = restore,
   getpass = getpass,
+  openpty = openpty,
+  login_tty = login_tty,
 
   -- Constants
   NOW = unix.TCSANOW,

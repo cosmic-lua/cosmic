@@ -139,7 +139,8 @@ cosmic-debug: $(cosmic_debug_bin)
 
 # tty_test opens pty pairs; the pty multiplexer and slave directory are
 # outside the shared test unveil set (#729 test family)
-cosmic_tty_test_got := $(call test_got,lib/cosmic/tty_test.tl)
+cosmic_tty_test_got := $(call test_got,\
+  lib/cosmic/tty_test.tl lib/cosmic/tty_pty_test.tl)
 $(cosmic_tty_test_got): .UNVEIL := $(unveil_test) rw:/dev/ptmx rw:/dev/pts
 
 # Namespace-exercising examples opt out of the enforced example family

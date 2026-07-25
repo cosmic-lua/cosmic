@@ -2510,6 +2510,23 @@ local record unix
   --- Requires CAP_SYS_ADMIN on Linux (or root on BSDs); returns `EPERM`
   --- otherwise. Not supported on Windows, where it returns `ENOSYS`.
   sethostname: function(name: string): boolean | nil, string, Errno
+  --- Opens a new pseudoteletypewriter.
+  --- Returns the controlling (manager) fd, the subordinate fd, and the
+  --- subordinate's filesystem path. Both fds are the caller's to close.
+  --- This is the only way to obtain a terminal from Lua, so it is what
+  --- makes terminal code testable where no tty exists — a CI container,
+  --- or any process whose stdio is a pipe. Pair it with `login_tty` in a
+  --- forked child to give that child a controlling terminal.
+  --- Not supported on Windows or bare metal, where it returns `ENOSYS`.
+  openpty: function(): integer | nil, integer, string, string, Errno
+  --- Makes `fd` the controlling terminal of the calling process.
+  --- Creates a new session, makes `fd` its controlling terminal, and dups
+  --- it onto stdin, stdout and stderr; `fd` itself is closed afterwards
+  --- unless it is already one of those three. Intended for the child of a
+  --- fork, between `openpty` and exec.
+  --- Requires `fd` to be a terminal (`ENOTTY` otherwise). Linux and the
+  --- BSDs only; returns `ENOSYS` elsewhere.
+  login_tty: function(fd: integer): boolean | nil, string, Errno
   --- Begins listening for incoming connections on a socket.
   listen: function(fd: integer, backlog?: integer): boolean | nil, string, Errno
   --- Accepts new client socket descriptor for a listening tcp socket.
