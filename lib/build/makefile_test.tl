@@ -43,34 +43,57 @@ local function test_print_database()
 end
 test_print_database()
 
--- test: only= filters test targets but never artifact source lists (#608).
--- A filter matching nothing must leave the doc-index inputs complete —
--- a filtered doc_index_srcs regenerates o/docs/.index.lua from a subset
--- and the broken index gets embedded in the binary.
+-- test: only= filters check TARGETS but never artifact source lists
+-- (#608, #777). A filter matching nothing must leave every input to a
+-- shipped artifact complete: a filtered doc_index_srcs regenerates
+-- o/docs/.index.lua from a subset and the broken index gets embedded,
+-- and a filtered cosmic_lua/cosmic_tl packs a TRUNCATED STDLIB into the
+-- binary — silently, since a subset build still succeeds.
+--
+-- Since #777 the filter is applied inside the target-list derivations
+-- rather than to the source lists, so completeness holds by
+-- construction. These assertions are what makes that falsifiable: they
+-- fail if a filter-only call migrates back up into a source list.
+local function assert_complete(out: string, var: string, needle: string)
+  local value = out:match("\n" .. var .. " := ([^\n]*)")
+  assert(value, "expected " .. var .. " in filtered database output")
+  assert(value:find(needle, 1, true),
+    var .. " must stay complete under only= (missing " .. needle ..
+    "), got: " .. value:sub(1, 200))
+end
+
 local function test_only_filter_exempts_artifact_sources()
-  local result = read_make_output("only-database.out")
-  local out = result.output
+  local out = read_make_output("only-database.out").output
 
-  local doc_srcs = out:match("\ndoc_index_srcs := ([^\n]*)")
-  assert(doc_srcs, "expected doc_index_srcs in filtered database output")
-  assert(doc_srcs:find("lib/cosmic/json.tl", 1, true),
-    "doc_index_srcs should keep module sources under only=")
-  assert(doc_srcs:find("lib/cosmic/env_example.tl", 1, true),
-    "doc_index_srcs should keep example sources under only=")
-  assert(doc_srcs:find("lib/types/cosmo/unix.d.tl", 1, true),
-    "doc_index_srcs should keep .d.tl sources under only=")
+  -- doc index inputs (#608, the original break)
+  assert_complete(out, "doc_index_srcs", "lib/cosmic/json.tl")
+  assert_complete(out, "doc_index_srcs", "lib/cosmic/env_example.tl")
+  assert_complete(out, "doc_index_srcs", "lib/types/cosmo/unix.d.tl")
+  assert_complete(out, "doc_index_lua", "json.lua")
 
-  local module_srcs = out:match("\nall_module_srcs := ([^\n]*)")
-  assert(module_srcs, "expected all_module_srcs in filtered database output")
-  assert(module_srcs:find("lib/cosmic/json.tl", 1, true),
-    "all_module_srcs (docs inputs) should be exempt from only=")
+  -- published docs inputs
+  assert_complete(out, "all_tl", "lib/cosmic/json.tl")
 
-  -- the filter itself must still work: test lists empty out
-  local tests = out:match("\nall_tests := ([^\n]*)")
-  assert(tests, "expected all_tests in filtered database output")
-  assert(not tests:find("_test.tl", 1, true),
-    "all_tests should be empty under a non-matching only=, got: " ..
-    tests:sub(1, 200))
+  -- THE BINARY'S PACK INPUTS (#777): the gap the #608 fix left open.
+  -- pack_copies is recursive, so it renders unexpanded; these are the
+  -- two lists it expands, and they are what decides the embedded stdlib.
+  assert_complete(out, "cosmic_tl", "lib/cosmic/json.tl")
+  assert_complete(out, "cosmic_lua", "json.lua")
+
+  -- fetch/stage inputs: a cold parallel build that loses these falls
+  -- back to the bootstrap's embedded stdlib (the #666/#608 axis)
+  assert_complete(out, "stdlib_lua", "json.lua")
+
+  -- and the filter itself must still work: the check TARGET lists empty
+  -- out even though their source lists stayed whole
+  local tested = out:match("\nall_tested := ([^\n]*)")
+  assert(tested, "expected all_tested in filtered database output")
+  assert(not tested:find("_test.tl", 1, true),
+    "all_tested should be empty under a non-matching only=, got: " ..
+    tested:sub(1, 200))
+  local sources = out:match("\nall_tests := ([^\n]*)")
+  assert(sources and sources:find("_test.tl", 1, true),
+    "all_tests (the SOURCE list) should stay complete under only=")
 end
 test_only_filter_exempts_artifact_sources()
 
