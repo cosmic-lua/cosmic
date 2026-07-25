@@ -13,13 +13,11 @@ local check = require("cosmic.check")
 local child = require("cosmic.child")
 local cfd = require("cosmic.fd")
 local fs = require("cosmic.fs")
--- O_* flags for the capture file; no cosmic wrapper exposes them.
-local unix = require("cosmo.unix")
 
 local lua_bin = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
-local WRONLY_CREAT_TRUNC = unix.O_WRONLY | unix.O_CREAT | unix.O_TRUNC
+local WRONLY_CREAT_TRUNC = cfd.O_WRONLY | cfd.O_CREAT | cfd.O_TRUNC
 
 --- Run `script` under a fresh cosmic with its stdout redirected to
 --- `outfile`, and return (result, file contents). The script receives
@@ -28,7 +26,7 @@ local function run_capturing(name: string, src: string): child.Result, string
   local script = fs.join(TEST_TMPDIR, name .. ".lua")
   fs.write(script, src)
   local outfile = fs.join(TEST_TMPDIR, name .. ".out")
-  local out_h = check.must(cfd.open(outfile, WRONLY_CREAT_TRUNC, 0x1a4))
+  local out_h = check.must(cfd.open(outfile, WRONLY_CREAT_TRUNC, tonumber("644", 8)))
   local h = check.must(child.spawn({lua_bin, script, lua_bin},
       {stdout = out_h}))
   local r = check.must(h:wait())
