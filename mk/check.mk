@@ -76,6 +76,16 @@ lint_deleted := $(filter-out $(lint_present),$(lint_files))
 all_linted := $(patsubst %,$(o)/%.lint.got,$(lint_present))
 
 lint_list_stamp := $(o)/lint-files.stamp
+# The makefile fixtures snapshot this very list (makefile_test's #800
+# ratchet compares lint_files against all_source_files), but they
+# otherwise depend only on the makefiles -- so adding a .tl WITHOUT the
+# cook.mk edit, which is exactly the mistake the ratchet exists to
+# catch, would leave the fixture stale and the ratchet green. The stamp
+# is write-if-changed, so this rebuilds the fixture when the file set
+# moves and never otherwise. build_make_out comes from lib/build/cook.mk,
+# included well before this file.
+$(build_make_out)/database.out: $(lint_list_stamp)
+
 $(lint_list_stamp): .FORCE
 	@$(bootstrap_cosmic) --build list $@ $(lint_present)
 

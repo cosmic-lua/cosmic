@@ -265,3 +265,47 @@ local function test_check_gates_terminate_the_outer_parse()
   end
 end
 test_check_gates_terminate_the_outer_parse()
+
+-- Every .tl the build knows about must be reachable by the check gates
+-- (#800). teal/format enumerate through per-directory $(wildcard ...)
+-- lists hand-written in each cook.mk, and make has no recursive glob --
+-- $(wildcard lib/**/*.tl) returns a fraction of the tree -- so a
+-- directory nobody remembers to declare is silently unchecked,
+-- unformatted and untested. Not just locally: CI runs the same
+-- wildcards, so nothing anywhere catches it.
+--
+-- Both sides come from the make database, so this needs no git call and
+-- no extra sandbox grant: lint_files is git's view (#799) and
+-- all_source_files is what the gates enumerate.
+--
+-- .d.tl is the one deliberate exclusion: those are generated
+-- declarations that gentype_test asserts byte-for-byte against
+-- generator output, so formatting them would fight the generator.
+local function db_tl_set(db: string, name: string): {string: boolean}
+  local line = db:match("\n" .. name .. " :=([^\n]*)")
+  assert(line, "expected " .. name .. " in the make database")
+  local set: {string: boolean} = {}
+  for word in line:gmatch("%S+") do
+    if word:match("%.tl$") then
+      set[word] = true
+    end
+  end
+  return set
+end
+
+local function test_every_tl_is_reachable_by_the_check_gates()
+  local db = read_make_output("database.out").output
+  local declared = db_tl_set(db, "all_source_files")
+  local missing: {string} = {}
+  for path in pairs(db_tl_set(db, "lint_files")) do
+    if not path:match("%.d%.tl$") and not declared[path] then
+      missing[#missing + 1] = path
+    end
+  end
+  table.sort(missing)
+  assert(#missing == 0,
+    "these .tl files are in the tree but no cook.mk declares them, so "
+    .. "teal/format/test never see them -- add the directory to the "
+    .. "module's _srcs:\n  " .. table.concat(missing, "\n  "))
+end
+test_every_tl_is_reachable_by_the_check_gates()

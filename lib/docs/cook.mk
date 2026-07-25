@@ -2,6 +2,11 @@ modules += docs
 # no docs_tl - avoid inclusion in all_example_srcs (these are build tools, not library code)
 docs_publish := $(o)/lib/docs/publish.lua
 docs_files := $(docs_publish)
+# _srcs, not _tl: _tl would pull these build tools into the pipelines
+# the comment above rules out, while _srcs only adds them to the type
+# and format gates (#800).
+docs_srcs := $(wildcard lib/docs/*.tl)
+
 docs_tests := lib/docs/publish_test.tl
 docs_deps := cosmic
 
