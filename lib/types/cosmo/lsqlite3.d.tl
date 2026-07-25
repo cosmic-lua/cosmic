@@ -343,7 +343,7 @@ local record VM
   bind_blob: function(self: VM, index: integer, value: string): integer
   bind_names: function(self: VM, names: {string}): integer
   bind_parameter_count: function(self: VM): integer
-  bind_parameter_name: function(self: VM, index: number): string
+  bind_parameter_name: function(self: VM, index: integer): string | nil
   bind_values: function(self: VM, ...: string | number | nil): integer
   columns: function(self: VM): integer
   finalize: function(self: VM): integer
