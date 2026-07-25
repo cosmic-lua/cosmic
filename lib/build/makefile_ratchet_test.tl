@@ -228,7 +228,7 @@ local sandboxed_exempt: {string} = {
 --- @param label string What the value means, for the failure message
 --- @param problems {string} Accumulator for failures
 local function diff_owners(actual: {string: boolean}, allowed: {string},
-                           label: string, problems: {string})
+    label: string, problems: {string})
   local declared: {string: boolean} = {}
   for _, owner in ipairs(allowed) do
     declared[owner] = true

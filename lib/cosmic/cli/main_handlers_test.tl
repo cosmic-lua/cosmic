@@ -189,3 +189,35 @@ local function test_make_target_never_reaches_a_shell()
     "the injected command must never run, stdout was: " .. r.out)
 end
 test_make_target_never_reaches_a_shell()
+
+-- The check gates run `cosmic --test <out> -- cosmic --check-format F`.
+-- That `--` is load-bearing: without it the OUTER getopt consumes the
+-- child's --check-format, the child runs argument-less, drops into the
+-- REPL, reads EOF and exits 0 -- so --test faithfully records a pass
+-- for a check that never ran, and every teal/format .got was a 0
+-- regardless of the file (#801).
+--
+-- This pins the propagation in both directions, so a gate that cannot
+-- fail is caught here rather than by noticing, months later, that
+-- nothing has ever gone red.
+local function test_test_wrapper_propagates_child_exit_code()
+  local bad = fs.join(tmpdir, "wrap_bad.tl")
+  fs.write(bad, 'local function f()\n        return 1\nend\nprint(f())\n')
+  local good = fs.join(tmpdir, "wrap_good.tl")
+  fs.write(good, 'local x = 1\nprint(x)\n')
+
+  local base_bad = fs.join(tmpdir, "wrap_bad.fmt")
+  cli("--test", base_bad, "--", cosmic, "--check-format", bad)
+  local got_bad = check.must(fs.read(base_bad .. ".got"),
+    "--test should record an exit code for the failing check")
+  assert(got_bad:gsub("%s+$", "") ~= "0",
+    "a failing check must be recorded as non-zero, got: " .. got_bad)
+
+  local base_good = fs.join(tmpdir, "wrap_good.fmt")
+  cli("--test", base_good, "--", cosmic, "--check-format", good)
+  local got_good = check.must(fs.read(base_good .. ".got"),
+    "--test should record an exit code for the passing check")
+  assert(got_good:gsub("%s+$", "") == "0",
+    "a passing check must be recorded as 0, got: " .. got_good)
+end
+test_test_wrapper_propagates_child_exit_code()

@@ -29,8 +29,8 @@ end
 
 local function paths(prefix: string): string, string, string
   return fs.join(tmpdir, prefix .. "-base.json"),
-    fs.join(tmpdir, prefix .. "-cur.json"),
-    fs.join(tmpdir, prefix .. "-selfb.json")
+  fs.join(tmpdir, prefix .. "-cur.json"),
+  fs.join(tmpdir, prefix .. "-selfb.json")
 end
 
 local function test_clean_compare_measures_nothing()
