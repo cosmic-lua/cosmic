@@ -7,7 +7,7 @@
 --- stripping). This script owns HOW: stage, clamp, pack.
 ---
 --- Pack policy (moved from the pack-cosmic define): the boot-critical
---- Lua — .lua/cosmic/* modules, main.lua and .args — is inflate()d on
+--- Lua — cosmic/* modules, main.lua and .args — is inflate()d on
 --- EVERY invocation (29 inflate() calls at boot; whilp/cosmic#487), so
 --- store it uncompressed to skip the decompress. The rest (tl.lua,
 --- type declarations, docs, .tl source, skills) is large or lazy-loaded
@@ -116,7 +116,14 @@ local function zip_add(zip_bin: string, built: string, out: string,
   if r.stderr and r.stderr ~= "" then
     io.stderr:write(r.stderr)
   end
-  if not r.ok then
+  -- Exit 12 is zip's "nothing to do": every name in this group was
+  -- absent from the staging tree. That is a legitimate outcome for a
+  -- group, not a failure — a project that ships no skills/ and no
+  -- docs index still packs. Treating it as an error made the pack
+  -- depend on THIS tree happening to contain one of every name, which
+  -- 3d discovered by moving two of them out of a group.
+  local NOTHING_TO_DO < const > = 12
+  if not r.ok and r.code ~= NOTHING_TO_DO then
     return false, "zip " .. flags .. " failed (exit " .. tostring(r.code) .. ")"
   end
   return true
@@ -187,15 +194,21 @@ local function main(...: string): integer
   if zip_bin:sub(1, 1) ~= "/" then
     zip_bin = fs.join(cwd, zip_bin)
   end
-  ok, err = zip_add(zip_bin, built, abs_out, "-qr0X", {".lua/cosmic"})
+  ok, err = zip_add(zip_bin, built, abs_out, "-qr0X", {"cosmic"})
   if not ok then return fail(err) end
   -- cosmic.mk and the embedded make ride with the deflated group rather
   -- than the stored one: both are read once, when `--make` drives a
   -- build, not on every start. make is ~1.6 MB raw and compresses to
   -- roughly half that, which is the whole cost of 2e.
+  -- Every top-level name in the staging tree must appear in one of
+  -- these three groups or it is silently not packed: zip is given names,
+  -- not a directory to sweep. Before 3d `tl.lua` and the type tree rode
+  -- along inside `.lua/`, so moving them to the module root took them
+  -- out of the archive entirely — and the binary still built, still ran,
+  -- and only failed when something first required `tl`.
   ok, err = zip_add(zip_bin, built, abs_out, "-qrX",
-    {".lua", ".tl", ".docs", "sys", "skills", "cosmic.mk", "make",
-      "-x", ".lua/cosmic/*"})
+    {".tl", ".docs", "sys", "skills", "cosmic.mk", "make", "tl.lua",
+      ".types", "-x", "cosmic/*"})
   if not ok then return fail(err) end
   ok, err = zip_add(zip_bin, built, abs_out, "-q0X", {"main.lua", ".args"})
   if not ok then return fail(err) end

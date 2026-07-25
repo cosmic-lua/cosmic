@@ -46,7 +46,7 @@ cosmic_mk := cosmic/_make/cosmic.mk
 # build without a host toolchain is not one.
 cosmic_make_bin = $(cosmos_dir)/make
 cosmic_skills := $(wildcard skills/cosmic/*.md)
-# _types is copied wholesale into the binary (.lua/types); without this
+# _types is copied wholesale into the binary (/zip/.types); without this
 # dependency, editing the type generator or a .d.tl leaves a stale binary.
 cosmic_types := $(wildcard _types/*.tl) $(wildcard _types/*.d.tl) $(wildcard _types/cosmo/*.d.tl)
 
@@ -74,18 +74,18 @@ SOURCE_DATE_EPOCH := $(SOURCE_DATE_EPOCH)
 # the pinned cosmos binary, not a host tool. Recursive (=): expanded at
 # recipe time, after the includes define tl_dir/doc_index.
 pack_copies = \
-  $(foreach f,$(cosmic_lua),--copy $(f) .lua/cosmic/$(patsubst $(o)/cosmic/%,%,$(f))) \
+  $(foreach f,$(cosmic_lua),--copy $(f) cosmic/$(patsubst $(o)/cosmic/%,%,$(f))) \
   $(foreach f,$(cosmic_tl),--copy $(f) .tl/cosmic/$(patsubst cosmic/%,%,$(f))) \
   $(foreach f,$(cosmic_sys),--copy $(f) sys/$(notdir $(f))) \
   $(foreach f,$(cosmic_skills),--copy $(f) skills/cosmic/$(notdir $(f))) \
-  --copy $(cosmic_version_lua) .lua/cosmic/_version.lua \
-  --copy $(tl_dir)/tl.lua .lua/tl.lua \
+  --copy $(cosmic_version_lua) cosmic/_version.lua \
+  --copy $(tl_dir)/tl.lua tl.lua \
   --copy $(doc_index) .docs/index.lua \
   --copy $(cosmic_main) main.lua \
   --copy $(cosmic_args) .args \
   --copy $(cosmic_mk) cosmic.mk \
   --copy $(cosmic_make_bin) make \
-  --copytree _types .lua/types
+  --copytree _types .types
 pack = $(bootstrap_cosmic) -- $(build_pack) --built $(cosmic_built) \
   --epoch $(SOURCE_DATE_EPOCH) --zip $(cosmos_zip_bin) $(pack_copies)
 

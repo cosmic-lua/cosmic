@@ -197,20 +197,16 @@ the first-fetch shell in `bin/cosmic`.
      manifest is current. Marked **in place, not hoisted to the root** —
      the hoist is 3d's, since the embed wrapper in every artifact
      requires the searcher and the floor is `cosmic/**`.
-   - **3d — the pack, the entry, and the hoist.**
-     `/zip/.lua/cosmic/*` → `/zip/cosmic/*`,
-     `/zip/.lua/tl.lua` → `/zip/tl.lua`, so the zip root is the module
-     root inside the artifact too. Touches the searcher's include dirs,
-     the floor's prefixes, `.args`, and `pack_copies`. It is also what
-     makes 3a's provider rule load-bearing rather than theoretical:
-     until the move a project's `cosmic/` and the base's `.lua/cosmic/`
-     do not collide in the zip namespace at all — the project's simply
-     wins on `package.path` and the base's rides along. It also carries
-     what 3c deferred: `cmd/cosmic/main.tl` as the entry, and with it
-     the hoist of `cosmic/_cli/` and `cosmic/_make/` to root `_cli/` and
-     `_make/` — root-level is what an entry *outside* `cosmic/` needs,
-     and it is the same change that decides where the searcher lives,
-     since the wrapper's `require` must resolve inside the floor.
+   - **3d — the pack. Landed.** `/zip/.lua/cosmic/*` → `/zip/cosmic/*`
+     and `/zip/.lua/tl.lua` → `/zip/tl.lua`, so the zip root is the
+     module root inside the artifact too. Touches the searcher's
+     include dirs, the floor's prefixes, the pack's three zip groups,
+     and `package.path` itself — cosmopolitan's default is
+     `/zip/.lua/`-rooted, so the entry has to insert the zip root ahead
+     of it. That is what makes 3a's provider rule load-bearing rather
+     than theoretical: before the move a project's `cosmic/` and the
+     base's `.lua/cosmic/` did not collide at all. **The entry and the
+     hoist moved out**, to 3h.
    - **3e — compiles behind `-include cosmic.mk`.** the first family to
      move: `$(o)/%.lua: %.tl` becomes cosmic.mk's rule driven by
      `o/project.mk`'s facts. The bridge direction is the point — the
@@ -224,7 +220,16 @@ the first-fetch shell in `bin/cosmic`.
      `*.gen.tl` units. This is where "nothing generated is committed"
      bites: `_types/*.d.tl` stop being committed files, which the
      design names as its own sharpest edge.
-   - **3h — `bin/make` becomes `bin/cosmic`.** `mk/`, `cook.mk` and the
+   - **3h — the entry and the hoist.** `cmd/cosmic/main.tl` becomes the
+     binary's entry, and `cosmic/_cli/` and `cosmic/_make/` hoist to
+     root `_cli/` and `_make/`. The two are one change: root-level is
+     what an entry *outside* `cosmic/` needs, and both are what
+     `--make build` needs before it can build this repo. It is also the
+     change that decides where the searcher lives — the embed wrapper
+     requires it in every artifact and the strip floor is `cosmic/**`,
+     so hoisting `_cli/` out of `cosmic/` makes `cosmic/searcher.tl`
+     public, the same way 3c made `cosmic/style.tl` public.
+   - **3i — `bin/make` becomes `bin/cosmic`.** `mk/`, `cook.mk` and the
      ratchets the closed vocabulary makes moot go with it. Last by
      construction: it removes the bridge.
 4. **Policy verbs.** `ci`, `coverage`, `enforce`, `reproducible`,

@@ -72,7 +72,7 @@ end
 --- The environment is named, not inherited, and that is load-bearing:
 --- this repo's own test lanes export a LUA_PATH pointing at
 --- `lib/` and `o/lib/`, which the artifact's package.path then searches
---- BEFORE `/zip/.lua/`. Inheriting it meant every "does the artifact
+--- BEFORE the zip's own. Inheriting it meant every "does the artifact
 --- carry X" assertion here could be answered by the checkout instead of
 --- by the binary — `require('cosmic.json')` resolving to
 --- `o/cosmic/json.lua` rather than to the floor. An artifact test
@@ -236,10 +236,10 @@ local function test_stripped_to_the_floor()
     bytes[top] = (bytes[top] or 0) + e.size
   end
   reader:close()
-  assert((bytes[".lua/cosmic"] or 0) > 0, "the compiled stdlib is the floor")
+  assert((bytes["cosmic"] or 0) > 0, "the compiled stdlib is the floor")
   assert((bytes["usr"] or 0) > 0, "TLS roots and zoneinfo are the floor")
-  for _, gone in ipairs({".tl", ".docs", "skills", "sys", ".lua/tl.lua",
-      ".lua/types", ".lua/definitions.lua", "cosmic.mk"}) do
+  for _, gone in ipairs({".tl", ".docs", "skills", "sys", "tl.lua",
+      ".types", ".lua/definitions.lua", "cosmic.mk", "make"}) do
     assert((bytes[gone] or 0) == 0,
       gone .. " must not survive stripping, got " .. tostring(bytes[gone]))
   end
@@ -271,20 +271,25 @@ local function test_provided_namespace_supersedes_the_floor()
   assert(code == 0, "a project may provide cosmic/**: " .. out)
   local bin = fs.join(root, "o/bin/artifact-provides")
 
+  -- Since 3d the two live in ONE namespace -- `cosmic/` in the zip for
+  -- the project and for the base alike -- so "did the base's copy go"
+  -- cannot be asked by prefix. It is asked by naming a module only the
+  -- BASE has: cosmic/json.lua is present in every unstripped artifact
+  -- and must be absent here, while the project's own entry stays.
   local reader = check.must(zip.reader(bin))
-  local base_bytes, own = 0, false
+  local own, base_leftover = false, false
   for _, e in ipairs(reader:list()) do
-    if e.name:sub(1, 12) == ".lua/cosmic/" then
-      base_bytes = base_bytes + e.size
-    end
     if e.name == "cosmic/mine.lua" then
       own = true
+    end
+    if e.name == "cosmic/json.lua" or e.name == "cosmic/fs/init.lua" then
+      base_leftover = true
     end
   end
   reader:close()
   assert(own, "the project's own cosmic/** ships")
-  assert(base_bytes == 0,
-    "the base's stdlib must not ride along, got " .. base_bytes .. " bytes")
+  assert(not base_leftover,
+    "the base's stdlib must not ride along under the same names")
 
   local rc, ran = run_artifact(bin)
   assert(rc == 0, "the artifact should run: " .. ran)

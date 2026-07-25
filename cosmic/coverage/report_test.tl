@@ -48,7 +48,7 @@ test_normalize_strips_cwd_prefix()
 
 local function test_normalize_skips_non_files_and_foreign_paths()
   assert(report.normalize("=stdin", "") == nil, "non-file chunk must skip")
-  assert(report.normalize("@/zip/.lua/cosmic/fs.lua", "") == nil,
+  assert(report.normalize("@/zip/cosmic/fs.lua", "") == nil,
     "embedded binary module must skip")
   assert(report.normalize("@o/cosmic/codec_test.lua", "") == nil,
     "test files must skip")

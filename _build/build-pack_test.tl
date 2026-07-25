@@ -49,7 +49,7 @@ local function test_pack_end_to_end()
   local code, err = run_pack(
     "--out", out, "--built", built, "--epoch", "1700000000", "--zip", zip_bin,
     "--base", base,
-    "--copy", fs.join(src, "mod.lua"), ".lua/cosmic/mod.lua",
+    "--copy", fs.join(src, "mod.lua"), "cosmic/mod.lua",
     "--copy", fs.join(src, "main.lua"), "main.lua")
   assert(code == 0, "pack failed (" .. tostring(code) .. "): " .. err)
 
@@ -57,7 +57,7 @@ local function test_pack_end_to_end()
   -- plus the staged payload
   local r = check.must(zip.reader(out))
   assert(r:read("stub.txt") == "preexisting\n", "base entry survives")
-  assert(r:read(".lua/cosmic/mod.lua") == "return {}\n", "module packed")
+  assert(r:read("cosmic/mod.lua") == "return {}\n", "module packed")
   assert(r:read("main.lua") == "print('hi')\n", "main packed")
   r:close()
   local st = fs.stat(out)

@@ -16,7 +16,7 @@ local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local visibility = require("cosmic.doc.visibility")
 
-local EMBEDDED = "/zip/.lua/cosmic"
+local EMBEDDED = "/zip/cosmic"
 
 --- Enumerate top-level module names embedded in the running binary:
 --- foo.lua files and directory modules (their init.lua is the module).

@@ -206,7 +206,7 @@ the cosmic binary is assembled in `cosmic/cook.mk`:
 4. append the staging area as a zip archive
 5. append `main.lua` and `.args` to the zip
 
-the result is a single executable with all modules accessible at `/zip/.lua/`.
+the result is a single executable with all modules accessible at the zip root: `/zip/cosmic/fs.lua` is `require("cosmic.fs")`.
 
 ## CI Pipeline
 

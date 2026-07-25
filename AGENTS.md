@@ -270,9 +270,11 @@ handcrafted exception is `_types/make-help.d.tl`.
 ## cosmic Binary
 
 the cosmic binary is an executable zip. it embeds:
-- compiled `.lua` modules in `.lua/cosmic/`
-- Teal compiler in `.lua/tl.lua`
-- type definitions in `.lua/types/`
+- compiled `.lua` modules in `cosmic/` — the zip root IS the module
+  root, so `require("cosmic.fs")` resolves to `/zip/cosmic/fs.lua`
+- Teal compiler in `tl.lua`
+- type definitions in `.types/` (include-path payload, not modules —
+  dot-prefixed names stay out of the module root)
 - doc index in `.docs/index.lua`
 - entry point: `/zip/main.lua` (compiled from `cosmic/_cli/main.tl`)
 

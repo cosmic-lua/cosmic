@@ -66,7 +66,7 @@ local MAKEFILE_INCLUDE_DIRS < const >: {string} = {"."}
 local function get_default_include_dirs(): {string}
   return {
     "_types", -- Local cosmic types (development, takes precedence)
-    "/zip/.lua/types", -- Bundled cosmic types (in binary)
+    "/zip/.types", -- Bundled cosmic types (in binary)
     "/zip/.tl", -- Bundled cosmic .tl source (for type checking)
     "/zip", -- The app's own zip root: embedded modules beside main.lua (#690)
   }

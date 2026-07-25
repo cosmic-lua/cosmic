@@ -1,7 +1,15 @@
--- cosmic-lua dispatcher
--- entry point for cosmic binary that handles special args and dispatches to features
+-- cosmic-lua dispatcher: entry point for the cosmic binary, which
+-- handles special args and dispatches to features.
 
 global warn: function(...: any)
+
+-- The zip root IS the module root (3d): the payload sits at /zip/cosmic/**
+-- while cosmopolitan's default path is /zip/.lua/-rooted. Inserted ahead of
+-- that default but BEHIND anything LUA_PATH set -- prepending outright would
+-- shadow an in-tree build with the binary's own copy, which is #666's shape.
+local at = package.path:find("/zip/.lua/", 1, true) or 1
+package.path = package.path:sub(1, at - 1) ..
+"/zip/?.lua;/zip/?/init.lua;" .. package.path:sub(at)
 
 -- cosmic-owned runtime .tl searcher (#669): resolves and compiles .tl
 -- modules through cosmic.teal, fails the require() on compile errors,
@@ -479,10 +487,6 @@ local function main(): integer, string
   -- Interactive mode or REPL
   if opts.interactive or (#opts.execute == 0 and #opts.load == 0 and #arg == 0) then
     handlers.run_repl()
-    return 0
-  end
-
-  if #opts.execute > 0 or #opts.load > 0 then
     return 0
   end
 

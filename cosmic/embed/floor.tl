@@ -20,7 +20,7 @@ local DOS_EPOCH < const > = 315532800
 --- grows a new directory must not silently start shipping it in every
 --- artifact anyone builds.
 local FLOOR < const >: {string} = {
-  ".lua/cosmic/", -- the standard library, compiled
+  "cosmic/", -- the standard library, compiled
   "usr/", -- TLS roots and zoneinfo
   ".args", -- default argv
   ".cosmo", -- cosmopolitan's own marker
@@ -36,7 +36,7 @@ local FLOOR < const >: {string} = {
 --- a stripped artifact never keeps the base's copy of it, so claiming
 --- `tl` has nothing to subtract.
 local SUPERSEDABLE < const >: {string: string} = {
-  cosmic = ".lua/cosmic/",
+  cosmic = "cosmic/",
 }
 
 --- Resolve the reproducible-build epoch.

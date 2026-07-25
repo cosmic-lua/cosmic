@@ -189,3 +189,50 @@ What it settled:
   the perf metadata path had already been exercised by an earlier build
   in the same tree. Every slice of this phase moves output paths, so
   `bin/make clean && bin/make ci` is the gate, not `bin/make ci`.
+
+## 3d — the pack
+
+`/zip/.lua/cosmic/*` → `/zip/cosmic/*` and `/zip/.lua/tl.lua` →
+`/zip/tl.lua`. The zip root is the module root inside the binary, so
+"path relative to the root = import path" holds in the artifact the same
+way it holds in the tree.
+
+What it settled:
+
+- **`package.path` is part of the layout.** Cosmopolitan's default is
+  `/zip/.lua/?.lua;/zip/.lua/?/init.lua;./?.lua;./?/init.lua` — rooted
+  at `.lua/`, which is exactly why the payload lived there. Moving it
+  means the entry has to put `/zip/?.lua` on the path before its first
+  `require`, which is what the generated embed wrapper has always done
+  for artifacts. Cosmic's own binary now does the same thing for itself,
+  which is the design's "no exception" clause made real.
+- **where it inserts is the whole question.** Prepending outright made
+  every test load the *binary's* embedded copy instead of the tree's
+  compiled output, and coverage collapsed to 0% across thirty files —
+  the collector records `@/zip/...` chunk names, which are not tree
+  paths, so nothing was attributed. That is #666's stale-stdlib shape
+  with a fresh binary instead of a pinned one. The insert goes ahead of
+  the `.lua/`-rooted default but *behind* anything `LUA_PATH` set, so an
+  in-tree build still wins and a stray `./cosmic/fs.lua` in the cwd
+  still does not.
+- **the bundled type tree is not a module namespace.** Copied to
+  `/zip/_types`, it became reachable as `require("_types.gentype")`
+  through the searcher's `/zip` include dir — resolving the *source
+  inside the binary* in preference to the tree's compiled output, and
+  quietly re-running the whole generator from a different file. It is
+  include-path payload, not modules, so it goes to `/zip/.types`
+  alongside `.tl/` and `.docs/`: dot-prefixed is precisely the
+  convention for "not part of the module root".
+- **the pack packs names, not a directory.** zip is invoked three times
+  over explicit top-level name lists (stored / deflated / stored), and
+  `tl.lua` and the type tree were in none of them once they left
+  `.lua/`. The binary built, ran, and passed a sanity check; it failed
+  only when something first required `tl`. A name absent from every
+  group is silently not packed — worth knowing before 3h moves more
+  names around.
+- **and one group matching nothing was a hard failure.** zip exits 12
+  for "nothing to do", which the pack treated as an error, so a staging
+  tree without (say) `skills/` failed the whole build. Only this repo
+  happening to contain one of every name hid it; the pack fixture, which
+  contains two files, found it immediately. Exit 12 is now a legitimate
+  outcome for a group.
