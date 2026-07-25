@@ -1,8 +1,9 @@
 modules += build
-# Two entries: $(o) resolves `_build.x` (the tree's own module
-# path since 3b), $(o)/_build resolves the bare `make-help`
-# the Makefile's help target and its test both require.
-build_lua_dirs := $(o) $(o)/_build
+# One entry: the tree's own module path. The extra $(o)/_build that
+# resolved a bare `require("make-help")` is gone with the bare name --
+# 3f's derived closures cannot see a require that does not match its
+# position, so the name was made to match instead.
+build_lua_dirs := $(o)
 build_fetch := $(o)/_build/build-fetch.lua
 build_stage := $(o)/_build/build-stage.lua
 build_untar := $(o)/_build/build-untar.lua
@@ -51,11 +52,12 @@ build_tests := $(wildcard _build/*_test.tl)
 # delegation runs THIS tree's style code, not the bootstrap's embedded copy.
 lint_style_lua := $(o)/cosmic/style.lua
 
-# build tests exercise the compiled build tools (reporter, lint,
-# make-help, ...) at runtime via LUA_PATH=$(o)/_build, so they need
-# them built and fresh (#715)
+# Import edges are derived now (3f): the test rule takes
+# $$(deps_$$*) from o/project.mk, so the blanket
+# `$(build_test_got): $(build_files)` this used to carry is gone —
+# each test names the build tools it actually imports, and one that
+# imports none waits for none.
 build_test_got := $(call test_got,$(build_tests))
-$(build_test_got): $(build_files)
 
 # make-help snapshot: generate actual help output (driver capture, #732)
 $(o)/_build/make-help.snap: export LUA_PATH := ;;

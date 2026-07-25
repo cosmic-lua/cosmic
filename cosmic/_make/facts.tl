@@ -12,8 +12,16 @@
 --- the verb calls, out of the TREE, so there is one generator and not
 --- two.
 ---
+--- It lives HERE, not in `_build/` where the rest of this repo's build
+--- tooling sits, because that is where its inputs are: `cosmic/_make/`
+--- is internal to `cosmic/`, so a script outside it cannot import the
+--- model — `--make check` said so, in as many words, the moment the
+--- script existed. Put it where its inputs are is the design's own
+--- rule, and it applies to the bridge too.
+---
 --- Deliberately temporary: when the Makefile's own targets retire (3i)
---- the bridge becomes `-include o/cosmic.mk` and this file goes.
+--- the bridge becomes `-include o/cosmic.mk` and this file goes — or
+--- becomes the `facts` verb, which is what it already is minus a name.
 
 local fs = require("cosmic.fs")
 local graph = require("cosmic._make.graph")

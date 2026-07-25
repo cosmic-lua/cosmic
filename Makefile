@@ -192,7 +192,7 @@ include mk/facts.mk
 include mk/docs.mk
 
 # CI stages
-ci_stages := format teal test example lint coverage
+ci_stages := format teal model test example lint coverage
 ci_summaries := $(foreach s,$(ci_stages),$(o)/$(s)-summary.txt)
 ci_marks := $(foreach s,$(ci_stages),$(o)/ci-ok-$(s))
 

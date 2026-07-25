@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
 -- Test the Makefile help system
 
-local help = require("make-help")
+local help = require("_build.make-help")
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 

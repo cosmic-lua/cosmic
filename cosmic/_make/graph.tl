@@ -137,7 +137,13 @@ local function project_mk(proj: Project, cosmic: string): string
       dep_lines[#dep_lines + 1] = assign("srcdeps_" .. stem,
         deps.source_paths(deps.closure(proj, f, by_import)))
     end
-    if f.kind == "test" then
+    -- Examples get the same closure as tests, and for the same reason:
+    -- an example is a target that RUNS against the compiled tree, so
+    -- what it imports must be built before it and is exactly what its
+    -- fence may read. The project model already says so — `*_example.tl`
+    -- carries a test's grants — and a rule cannot ask for a closure
+    -- nobody emitted.
+    if f.kind == "test" or f.kind == "example" then
       dep_lines[#dep_lines + 1] = assign("deps_" .. stem,
         deps.built_paths(deps.closure(proj, f, by_import)))
     end

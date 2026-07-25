@@ -8,9 +8,9 @@ perf_deps := cosmic
 perf_lua := $(patsubst %.tl,$(o)/%.lua,$(perf_tl))
 
 # perf tests load the compiled perf.* modules at runtime (see
-# perf_lua_dirs above), so they need them built and fresh (#715)
+# perf_lua_dirs above); which ones is now derived per test (3f), not
+# the whole $(perf_lua) set.
 perf_test_got := $(call test_got,$(perf_tests))
-$(perf_test_got): $(perf_lua)
 
 perf_bench_srcs := $(wildcard _perf/bench/*_bench.tl)
 perf_bench_mods := $(subst /,.,$(patsubst %.tl,%,$(perf_bench_srcs)))

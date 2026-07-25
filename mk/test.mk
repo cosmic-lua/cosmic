@@ -26,17 +26,21 @@ $(quicksand_sandbox_tests): .SANDBOXED := 0
 $(quicksand_sandbox_tests): .PLEDGE =
 $(quicksand_sandbox_tests): .UNVEIL =
 
-$(o)/%.tl.test.got: $(o)/%.lua $(cosmic_bin) $(ape_loader)
+# $$(deps_$$*) is the test's transitive import closure as BUILT paths
+# (3f), from o/project.mk. It replaces the per-module test dependencies
+# each cook.mk used to declare by hand, and it closes a gate that was
+# open: a test resolves an import it has no prerequisite for through the
+# runtime .tl searcher, which compiles LAX, so a module that fails its
+# STRICT compile could still have a passing test. Reproduced before the
+# change: put an unused local in _types/gentl.tl and `make
+# o/_types/gentl.lua` fails while `make o/_types/gentl_test.tl.test.got`
+# exits 0. Now the compile is a prerequisite of the test.
+$(o)/%.tl.test.got: $(o)/%.lua $$(deps_$$*) $(cosmic_bin) $(ape_loader)
 	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
-# Test deps beyond the pattern rule (own compiled .lua + $(cosmic_bin))
-# live in each module's cook.mk: perf tests attach $(perf_lua), build
-# tests $(build_files), docs tests $(docs_files), cosmos/tl tests their
-# staged tree + TEST_DIR, cosmic_debug_test the debug binary. Everything
-# else rides on $(cosmic_bin), which already depends on the whole
-# embedded stdlib, the staged 3p trees, and the type declarations — the
-# old per-module foreach/eval expansion here (and its write-only
-# TEST_DEPS accumulator) duplicated that transitive closure (#715).
+# What each cook.mk still declares is what a closure cannot see: the
+# cosmos/tl staged trees and TEST_DIR, the debug binary, and grants.
+# Import edges are no longer among them.
 
 # Coverage lane: the same tests in a separate output tree, run with
 # collection enabled, so `bin/make coverage` never invalidates the plain
@@ -52,7 +56,7 @@ coverage: $(o)/coverage-summary.txt
 $(o)/coverage/%.tl.test.got: .PLEDGE := $(pledge_test)
 $(o)/coverage/%.tl.test.got: .UNVEIL := $(unveil_test)
 $(o)/coverage/%.tl.test.got: export COSMIC_COVERAGE := 1
-$(o)/coverage/%.tl.test.got: $(o)/%.lua $(cosmic_bin) $(ape_loader)
+$(o)/coverage/%.tl.test.got: $(o)/%.lua $$(deps_$$*) $(cosmic_bin) $(ape_loader)
 	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
 # Coverage ratchet: the committed baseline records covered/total per

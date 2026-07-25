@@ -1,0 +1,87 @@
+#!/usr/bin/env cosmic
+-- Tests for the runtime .tl searcher (cosmic._cli.searcher, #669).
+--
+-- This is the last searcher in package.searchers: the path a
+-- `require("mod")` takes when no compiled `mod.lua` exists anywhere, so
+-- it is how every user script's .tl imports resolve. It had no direct
+-- test until 3f, which is when it stopped being covered incidentally --
+-- the repo's own tests used to reach it by compiling `.tl` modules at
+-- run time, and giving each test its import closure as a prerequisite
+-- means they load the compiled `.lua` instead. Incidental coverage of a
+-- module that answers every require() was never the right arrangement;
+-- these assert the three guarantees it makes over tl's own loader.
+
+local check = require("cosmic.check")
+local fs = require("cosmic.fs")
+local searcher = require("cosmic._cli.searcher")
+
+local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
+
+--- Put a .tl module in a directory the searcher will consult, and
+--- return the module name. TL_PATH takes precedence over everything in
+--- cosmic.teal's assembled path, which is what makes the fixture
+--- reachable without disturbing the real tree.
+local function fixture(name: string, source: string): string
+  local dir = fs.join(tmpdir, "searcher")
+  assert(fs.makedirs(dir))
+  assert(fs.write(fs.join(dir, name .. ".tl"), source))
+  local env = require("cosmic.env")
+  assert(env.set("TL_PATH", fs.join(dir, "?.tl")))
+  return name
+end
+
+-- Resolve, compile, load: the whole path, and the value the module
+-- returns must survive it.
+local function test_resolves_and_loads_a_tl_module()
+  local name = fixture("searcher_ok",
+    "local record M\n  answer: integer\nend\n" ..
+    "local m: M = {answer = 42}\nreturn m\n")
+  local loader = searcher.searcher(name)
+  assert(type(loader) == "function",
+    "expected a loader, got: " .. tostring(loader))
+  local mod = (loader as function(string): {string: integer})(name) -- cast: loader is any
+  assert(mod.answer == 42, "the module's own value must come back")
+end
+test_resolves_and_loads_a_tl_module()
+
+-- A miss returns a STRING, which is what package.searchers expects of a
+-- searcher that declines: require() then reports its own "module not
+-- found" rather than this one erroring out of the whole chain.
+local function test_a_miss_declines_rather_than_throws()
+  local why = searcher.searcher("cosmic_searcher_no_such_module_here")
+  assert(type(why) == "string", "a miss must decline with a message")
+  assert((why as string):find("no .tl source found", 1, true), -- cast: type checked above
+    "…and the message must say why, got: " .. tostring(why))
+end
+test_a_miss_declines_rather_than_throws()
+
+-- Loud failures are the point of owning the searcher (#669): tl's own
+-- loader ran tl.check and generated code without ever looking at the
+-- type errors, so a broken module loaded and failed later, somewhere
+-- else. This one fails the require() with the issues.
+local function test_a_compile_error_fails_the_require()
+  local name = fixture("searcher_broken", "local x: integer = \"nope\"\nreturn x\n")
+  local ok, err = pcall(searcher.searcher, name)
+  assert(not ok, "a module that does not compile must not load")
+  assert(tostring(err):find(name, 1, true),
+    "the failure must name the module, got: " .. tostring(err))
+end
+test_a_compile_error_fails_the_require()
+
+-- install() is idempotent: the embed wrapper installs it before an app
+-- entry that may itself be the dispatcher, which installs it too.
+local function test_install_is_idempotent()
+  local before = #(package.searchers as {any}) -- cast: package.searchers is untyped
+  searcher.install()
+  searcher.install()
+  local after = #(package.searchers as {any}) -- cast: package.searchers is untyped
+  assert(after <= before + 1,
+    "install() must add at most one searcher, went " .. before .. " -> " .. after)
+end
+test_install_is_idempotent()
+
+local env = require("cosmic.env")
+env.unset("TL_PATH")
+local _ = check
+
+print("all searcher tests passed")

@@ -217,7 +217,7 @@ bin/make build          # build cosmic binary
 bin/make test           # run all tests (incremental)
 bin/make teal           # type check all files
 bin/make format         # check formatting
-bin/make ci             # full CI: format + teal + test + example + lint + coverage
+bin/make ci             # full CI: format + teal + model + test + example + lint + coverage
 bin/make docs           # generate markdown docs from source
 bin/make clean          # remove build artifacts
 ```
@@ -228,13 +228,18 @@ key concepts:
 - **bootstrap**: a pre-built cosmic binary bootstraps compilation of `.tl` → `.lua`; `bin/make` is its sole provisioner (sha-pinned, re-fetched on pin bumps)
 - **no-shell default**: `SHELL` is poisoned globally — recipes are single argv lines, the real shell is a per-rule exception, and the makefile ratchet tests enumerate the exceptions, the host-exec grants, and statically scan recipe text (#756 item 2)
 - **sandboxing**: per-rule `.PLEDGE`/`.UNVEIL` annotations are ENFORCED, not intent — every rule family CI exercises sets `.SANDBOXED := 1` (#729: compile, fetch/stage/lint/reporter, teal/format, tests, examples), so an undeclared read or write in one of their recipes fails on a Landlock host. Most grants are derived from the declared graph (prereqs readable, target directory writable, global base), so a rule declares only genuinely-extra paths; the `.SANDBOXED` and hostx ratchets in `_build/makefile_ratchet_test.tl` pin both sets. Deliberately unenforced, each with its reason at the rule: version.lua, the quicksand namespace tests/examples, and the benchmark family (no CI lane runs it). `unveil()` no-ops without Landlock — the `sandbox-canary` proves the mechanism is live on a host. `.ENV` clamps a rule's child environment to the named variables (#756 item 5) — the driver-exec families declare theirs in cook.mk, gated by the env-clamp fixture's canary probe
-- **generated facts** (3e): `o/project.mk` is written by `_build/facts.tl`
+- **generated facts** (3e): `o/project.mk` is written by `cosmic/_make/facts.tl`
   from the same `cosmic._make` model `cosmic --make` uses, and the
   Makefile `-include`s it. It carries `srcdeps_<stem>` — each source's
   transitive import closure — which the compile rule takes as
   prerequisites, so a module whose contract changed recompiles its
   importers. Without it an incremental build can keep output a clean
   build rejects. Regenerate with `bin/make facts`; never commit it
+- **the model gate**: `bin/make model` runs `cosmic --make check` over
+  this repo — the project model `--make` builds by (import paths, the
+  `_` internal rule, reserved namespaces). It is a CI stage, so a change
+  that makes the tree stop describing itself fails here rather than
+  whenever someone next runs the verb by hand
 - **output directory**: all build artifacts go to `o/`
 
 ## Type Generation
@@ -271,8 +276,10 @@ validating against a cosmopolitan checkout before a release is cut.
 
 `_types/tl.d.tl` (Teal compiler API) is generated too — by
 `_types/gentl.tl` from the staged tl source (`bin/make regen-tl-types`
-after a tl version bump; `gentl_test.tl` fails on drift). The one
-handcrafted exception is `_types/make-help.d.tl`.
+after a tl version bump; `gentl_test.tl` fails on drift). There is no handcrafted
+exception left: `_types/make-help.d.tl` existed to give types to a bare
+`require("make-help")`, and once the name matched its position
+(`_build.make-help`, 3f) the checker resolved the source directly.
 
 ## cosmic Binary
 
@@ -418,6 +425,6 @@ work, whilp/cosmopolitan for the C layer); find work with
 
 ## CI
 
-- **pr.yml**: runs `make ci` (format + teal + test + example + lint + coverage ratchet) on push/PR to main, plus macOS/Windows smoke jobs that run the built binary (`-e`, `--docs`, portable test files) on real runners
+- **pr.yml**: runs `make ci` (format + teal + model + test + example + lint + coverage ratchet) on push/PR to main, plus macOS/Windows smoke jobs that run the built binary (`-e`, `--docs`, portable test files) on real runners
 - **docs.yml**: publishes generated docs to `docs` branch on push to main
 - **release.yml**: daily release build producing `cosmic-lua` and `cosmic-lua-debug`

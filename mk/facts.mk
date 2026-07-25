@@ -4,7 +4,7 @@
 # anything else and re-execs once it changes. Everything about this rule
 # is about that first pass, when the file does not exist yet:
 #
-#   - the generator is a TREE script (o/_build/facts.lua), not a verb on
+#   - the generator is a TREE script (o/cosmic/_make/facts.lua), not a verb on
 #     the pinned bootstrap. The bootstrap predates cosmic._make entirely,
 #     so the modules have to come from this checkout; the bootstrap is
 #     just the interpreter, exactly as it is for every other recipe.
@@ -18,7 +18,7 @@
 # appear or vanish in any of them. That is a big prerequisite list for a
 # small file; it is also exactly what `--make` rescans on every run.
 
-facts_tool := $(o)/_build/facts.lua
+facts_tool := $(o)/cosmic/_make/facts.lua
 facts_srcs := $(all_tl) $(all_tests) $(all_example_srcs)
 
 # Not sandboxed and not env-clamped: the scan walks the whole tree

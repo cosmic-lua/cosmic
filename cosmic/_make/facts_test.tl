@@ -9,7 +9,7 @@
 -- remade, so an unconditional write would restart every build forever).
 
 local check = require("cosmic.check")
-local facts = require("_build.facts")
+local facts = require("cosmic._make.facts")
 local fs = require("cosmic.fs")
 local fs_types = require("cosmic.fs.types")
 

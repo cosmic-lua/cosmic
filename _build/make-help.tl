@@ -4,15 +4,30 @@
 local proc = require("cosmic.proc")
 local fs = require("cosmic.fs")
 
-local record Item
-  type: string
-  name: string
-  description: string
+-- The module record is declared UP HERE so `Item` is a type a caller
+-- can name (`help.Item`). _types/make-help.d.tl used to publish that
+-- shape while the source kept Item as a bare local; deleting the
+-- declaration (3f, once the bare `require("make-help")` became
+-- `_build.make-help`) meant the source had to actually expose what the
+-- declaration had been promising.
+local record MakeHelp
+  record Item
+    type: string
+    name: string
+    description: string
+  end
+
+  record FormatOptions
+    width: number
+  end
+
+  parse_makefile: function(content: string): {Item}
+  format_help: function(items: {Item}, options?: FormatOptions): string
+  parse_phony_targets: function(content: string): {string: boolean}
 end
 
-local record FormatOptions
-  width: number
-end
+local type Item = MakeHelp.Item
+local type FormatOptions = MakeHelp.FormatOptions
 
 -- Parse a makefile and extract documented targets and options
 -- Supports: ## description (line before target or variable)
@@ -162,12 +177,6 @@ local function parse_phony_targets(content: string): {string: boolean}
     end
   end
   return targets
-end
-
-local record MakeHelp
-  parse_makefile: function(content: string): {Item}
-  format_help: function(items: {Item}, options?: FormatOptions): string
-  parse_phony_targets: function(content: string): {string: boolean}
 end
 
 local M: MakeHelp = {

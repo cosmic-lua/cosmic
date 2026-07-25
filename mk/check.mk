@@ -100,3 +100,26 @@ $(o)/lint-summary.txt: $(all_linted) $(lint_list_stamp) | $(build_reporter)
 
 $(o)/%.lint.got: % $(build_lint) $(lint_style_lua) | $(bootstrap_cosmic)
 	@$(bootstrap_cosmic) --test $(basename $@) $(bootstrap_cosmic) -- $(build_lint) $<
+
+# The model gate (3f): does this repo still conform to the project model
+# `cosmic --make` builds by? Every slice of phase 3 has been checking it
+# by hand, and 3e regressed it unnoticed for exactly that reason — a
+# bridge script imported `cosmic._make.*` from outside `cosmic/`, which
+# the `_` rule forbids, and `bin/make ci` had nothing to say about it.
+# A design whose central bet is "the tree describes itself" needs the
+# claim gated, not remembered.
+#
+# It runs the FRESHLY BUILT binary, not the bootstrap: the model is the
+# one in this checkout, including any change the same commit makes to
+# the validator. Recorded through --test so the stage reports like the
+# others -- the reporter names a check by the `.<kind>.got` suffix,
+# so the target is `repo.model.got` and the stage reads as `model`.
+$(o)/repo.model.got: $(cosmic_bin) $(all_source_files)
+	@$(cosmic_bin) --test $(basename $@) -- $(cosmic_bin) --make check
+
+.PHONY: model
+## Check this repo against the `cosmic --make` project model
+model: $(o)/model-summary.txt
+
+$(o)/model-summary.txt: $(o)/repo.model.got | $(build_reporter)
+	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $^

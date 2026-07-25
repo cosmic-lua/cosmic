@@ -11,6 +11,6 @@ docs_tests := _docs/publish_test.tl
 docs_deps := cosmic
 
 # publish_test loads the publisher from the tree at runtime; the
-# compiled copy keeps the test rerunning when publish.tl changes (#715)
+# closure in o/project.mk names it, so the rule needs no hand-declared
+# dependency (3f).
 docs_test_got := $(call test_got,$(docs_tests))
-$(docs_test_got): $(docs_files)

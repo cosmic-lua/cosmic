@@ -291,3 +291,71 @@ What it settled:
   survives a second run for that reason, alongside the two properties
   the compile rule actually rides on: the closure is transitive, and an
   unrelated module is not in it.
+
+## 3f — tests and examples take their closures
+
+The test and example rules take `$$(deps_$$*)` — the transitive import
+closure as *built* paths — and the per-module test dependencies each
+`cook.mk` declared by hand retire.
+
+**The gate it closes, reproduced first.** A test resolves an import it
+has no prerequisite for through the runtime `.tl` searcher, which
+compiles **lax**. So a module that fails its **strict** compile could
+still have a passing test:
+
+```
+$ make o/_types/gentl.lua                     # warning: unused variable … (exit 2)
+$ make o/_types/gentl_test.tl.test.got        # (exit 0)
+```
+
+The module does not compile; its test passes. `o/_types/gentl.lua` was
+not merely stale — it had never been built at all, by any target, and
+nothing noticed because the searcher compiles the source at run time.
+With the closure as a prerequisite the test target now fails, which is
+the same answer a clean build gives.
+
+What it settled:
+
+- **the hand-declared test dependencies were the drift class, and they
+  are gone.** `$(build_test_got): $(build_files)`, `$(docs_test_got):
+  $(docs_files)`, `$(perf_test_got): $(perf_lua)` — three blanket
+  edges, each a hand-maintained approximation of "what these tests
+  import". They are replaced by per-test closures, so a test that
+  imports one build tool waits for one, and a test that imports a module
+  nobody declared (`_types/gentl_test.tl` did exactly that) waits for it
+  too.
+- **a require that does not match its position is invisible to the
+  derived graph.** `_build/help_test.tl` required the bare name
+  `make-help`, which is not an import path in the project model, so the
+  closure omitted it and the test broke the moment the blanket edge went
+  away. 3b had recorded the bare name as a known oddity; the fix is the
+  convention itself — the module is `_build.make-help` now, and the
+  extra `$(o)/_build` entry that existed to resolve the bare name is
+  gone with it.
+- **the handcrafted `.d.tl` went with it, and that was the tell.**
+  `_types/make-help.d.tl` existed to give types to a bare require, and
+  it published a *different shape* than the source: `Item` as a member
+  of the module record, where the source kept it a bare local. Once the
+  name matched its position the checker resolved the source directly,
+  and the source had to actually expose what the declaration had been
+  promising. A hand-written declaration beside a Teal implementation is
+  free to be wrong in exactly this way; deleting it is what discovered
+  it was.
+- **incidental coverage is not coverage.** `cosmic/_cli/searcher.tl` sat
+  at 17/26 because the repo's own tests reached it by compiling `.tl`
+  modules at run time — the very thing this slice stops. Its coverage
+  dropped to 4/26, which read as a regression and was really a
+  measurement of how the module had been exercised: never on purpose.
+  It has a direct test now (the three guarantees it makes over tl's own
+  loader) and sits at 20/27, above where it started.
+
+**And the slice found that nothing was watching.** `cosmic --make check`
+had never been part of `bin/make ci`, so every slice of this phase was
+checking the repo against its own model *by hand* — which meant 3e
+regressed it and nobody noticed: the bridge script imported
+`cosmic._make.*` from outside `cosmic/`, exactly what the `_` rule
+forbids, and CI was green. A design whose central bet is "the tree
+describes itself" cannot leave that claim ungated, so `ci` now runs a
+`model` stage, and the fix for the violation was the design's own rule
+applied to the bridge: the script moved to `cosmic/_make/facts.tl`,
+where its inputs are.

@@ -219,9 +219,15 @@ the first-fetch shell in `bin/cosmic`.
      reproduced here first (delete an exported function and
      `make o/_build/lint.lua` says "up to date" and exits 0, while the
      same target from scratch fails the type check).
-   - **3f — tests and examples.** the `test` verb against the staged
-     tree, with the fence. This repo's ratchet tests read the live tree,
-     so they move to the root — the consequence make.md already records.
+   - **3f — tests and examples take their closures. Landed.** the same
+     shape as 3e, one lane over: the test and example rules take
+     `$$(deps_$$*)` — the *built* closure — and the per-module test
+     dependencies each `cook.mk` declared by hand retire. It closes a
+     gate that was open: a test resolves an unlisted import through the
+     runtime `.tl` searcher, which compiles **lax**, so a module failing
+     its **strict** compile could still have a passing test. The `test`
+     verb itself, the fence, and moving the ratchet tests to the root
+     wait for the rules half of the bridge (3i) — same blocker as 3e.
    - **3g — pins and generators.** `3p/*/version.lua` → `*.pin.tl`;
      `gentype`, `gentl`, the doc index and the version stamp become
      `*.gen.tl` units. This is where "nothing generated is committed"
