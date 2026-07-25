@@ -33,6 +33,14 @@ INCLUDE_DIRS ?= lib
 
 include_dir_flags := $(foreach d,$(INCLUDE_DIRS),--include-dir $(d))
 
+# Test lanes (#778): the plain and coverage lanes run the SAME tests in
+# separate output trees, so a per-test exception (grant, prerequisite,
+# TEST_DIR) applies to both — modules name the source once. NOTE the lane
+# patterns NEST, so a grant on the plain pattern reaches all three lanes;
+# docs/build.md has the details and why enforce must EMPTY its grants.
+test_lane_dirs := $(o) $(o)/coverage
+test_got = $(foreach d,$(test_lane_dirs),$(patsubst %,$(d)/%.test.got,$1))
+
 include cook.mk
 include lib/cook.mk
 include 3p/cosmos/cook.mk
@@ -174,8 +182,7 @@ $(o)/%.tl.test.got: .PLEDGE := $(pledge_test)
 $(o)/%.tl.test.got: .UNVEIL := $(unveil_test)
 
 # teal_config_test reads tlconfig.lua and the Makefile (outside the test unveil)
-tlconfig_tests := $(o)/lib/cosmic/teal_config_test.tl.test.got \
-  $(o)/coverage/lib/cosmic/teal_config_test.tl.test.got
+tlconfig_tests := $(call test_got,lib/cosmic/teal_config_test.tl)
 $(tlconfig_tests): .UNVEIL := $(unveil_test) r:tlconfig.lua r:Makefile
 
 # Namespace-exercising tests need to call unshare(CLONE_NEWUSER|NEWNET|...)
@@ -183,13 +190,10 @@ $(tlconfig_tests): .UNVEIL := $(unveil_test) r:tlconfig.lua r:Makefile
 # and /proc/self needs write access for the id-map bootstrap, so drop
 # pledge and broaden unveil for these specific tests. Everything else
 # keeps the tight default above.
-quicksand_sandbox_tests := \
-  $(o)/lib/cosmic/quicksand/netns_test.tl.test.got \
-  $(o)/lib/cosmic/quicksand/proxy_test.tl.test.got \
-  $(o)/lib/cosmic/quicksand/box/run_test.tl.test.got \
-  $(o)/coverage/lib/cosmic/quicksand/netns_test.tl.test.got \
-  $(o)/coverage/lib/cosmic/quicksand/proxy_test.tl.test.got \
-  $(o)/coverage/lib/cosmic/quicksand/box/run_test.tl.test.got
+quicksand_sandbox_tests := $(call test_got,\
+  lib/cosmic/quicksand/netns_test.tl \
+  lib/cosmic/quicksand/proxy_test.tl \
+  lib/cosmic/quicksand/box/run_test.tl)
 $(quicksand_sandbox_tests): .SANDBOXED := 0
 $(quicksand_sandbox_tests): .PLEDGE =
 $(quicksand_sandbox_tests): .UNVEIL =

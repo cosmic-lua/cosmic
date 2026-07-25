@@ -83,6 +83,37 @@ type and format checks follow the same shape but read the **source**
 directly (`$(o)/%.teal.got: %`), as lint always has — there is no copy of
 the tree under `o/` (#775).
 
+#### test lanes
+
+the same tests run in three lanes, each in its own output tree so one
+never invalidates another:
+
+| lane | targets | what it adds |
+|------|---------|--------------|
+| plain | `o/<src>.test.got` | — |
+| coverage | `o/coverage/<src>.test.got` | `COSMIC_COVERAGE=1`, ratcheted against the committed baseline |
+| enforce | `o/enforce/<src>.test.got` | `COSMIC_ENFORCE=1`, no outer sandbox; a fixed three-file list |
+
+a per-test exception applies to every lane, so modules declare the test
+source once and expand it with `$(call test_got,<src>...)` (#778):
+
+```makefile
+$(call test_got,lib/build/help_test.tl): .UNVEIL := $(unveil_test) r:Makefile
+```
+
+**the lane patterns nest.** `o/coverage/x.tl.test.got` and
+`o/enforce/x.tl.test.got` both match the plain `$(o)/%.tl.test.got`
+pattern (with stems `coverage/x` and `enforce/x`), so they **inherit**
+its pattern-specific variables — more specific patterns win per-variable,
+but anything the plain pattern sets and they do not reaches them. two
+consequences:
+
+- the `enforce` lane must **explicitly empty** `.PLEDGE`/`.UNVEIL` and set
+  `.SANDBOXED := 0`; simply omitting them would inherit the plain lane's
+  sandbox, which is precisely what that lane exists to run without.
+- widening a grant on the plain pattern silently widens all three lanes.
+  add it to the specific lane, or to the specific test via `test_got`.
+
 ### Sandboxing
 
 with landlock-make (`bin/make`), each rule declares security constraints:

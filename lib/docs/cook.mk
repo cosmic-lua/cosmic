@@ -7,7 +7,5 @@ docs_deps := cosmic
 
 # publish_test loads the publisher from the tree at runtime; the
 # compiled copy keeps the test rerunning when publish.tl changes (#715)
-docs_test_got := \
-  $(patsubst %,$(o)/%.test.got,$(docs_tests)) \
-  $(patsubst %,$(o)/coverage/%.test.got,$(docs_tests))
+docs_test_got := $(call test_got,$(docs_tests))
 $(docs_test_got): $(docs_files)

@@ -18,9 +18,7 @@ cosmic_lua := $(patsubst %.tl,$(o)/%.lua,$(cosmic_tl))
 # cosmic_debug_test runs o/bin/cosmic-debug; every other test needs only
 # $(cosmic_bin) (a pattern-rule prerequisite), so the debug binary is
 # attached to just this test instead of all cosmic tests (#715)
-cosmic_debug_test_got := \
-  $(o)/lib/cosmic/cosmic_debug_test.tl.test.got \
-  $(o)/coverage/lib/cosmic/cosmic_debug_test.tl.test.got
+cosmic_debug_test_got := $(call test_got,lib/cosmic/cosmic_debug_test.tl)
 $(cosmic_debug_test_got): $(cosmic_debug_bin)
 
 cosmic_built := $(o)/cosmic/.built
@@ -141,9 +139,7 @@ cosmic-debug: $(cosmic_debug_bin)
 
 # tty_test opens pty pairs; the pty multiplexer and slave directory are
 # outside the shared test unveil set (#729 test family)
-cosmic_tty_test_got := \
-  $(o)/lib/cosmic/tty_test.tl.test.got \
-  $(o)/coverage/lib/cosmic/tty_test.tl.test.got
+cosmic_tty_test_got := $(call test_got,lib/cosmic/tty_test.tl)
 $(cosmic_tty_test_got): .UNVEIL := $(unveil_test) rw:/dev/ptmx rw:/dev/pts
 
 # Namespace-exercising examples opt out of the enforced example family

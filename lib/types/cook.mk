@@ -9,7 +9,7 @@ types_tests := lib/types/gentype_test.tl lib/types/gentype_alias_test.tl lib/typ
 
 # gentl_test reads the staged tl source through the o/tl/.staged symlink
 # (tl_staged is defined after includes, hence the secondary expansion).
-$(o)/lib/types/gentl_test.tl.test.got $(o)/coverage/lib/types/gentl_test.tl.test.got: $$(tl_staged)
+$(call test_got,lib/types/gentl_test.tl): $$(tl_staged)
 
 .PHONY: regen-tl-types
 ## Regenerate lib/types/tl.d.tl from the staged tl source
