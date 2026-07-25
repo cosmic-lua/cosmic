@@ -217,8 +217,17 @@ local function run(dir?: string, target?: string): boolean, string
     return false, "failed to start make"
   end
   p:write(content)
-  local ok = p:close()
-  return ok ~= nil, cmd
+  -- close() on a popen'd file reports (true|fail, "exit"|"signal", n).
+  -- Branch on truthiness, not on `ok ~= nil`: Lua 5.4's `fail` is nil
+  -- today, but the manual only says it "is currently nil" -- a `false`
+  -- would make a `~= nil` test read a FAILED make as success, which is
+  -- the one shape of bug this build works hardest to avoid.
+  local ok, how, code = p:close()
+  if ok then
+    return true, cmd
+  end
+  return false, string.format("%s failed: %s %s", cmd,
+    how or "unknown", tostring(code))
 end
 
 local record MakeModule
