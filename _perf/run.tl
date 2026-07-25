@@ -128,8 +128,8 @@ local function collect_meta(samples: integer, min_secs: number): pt.Meta
   }
   -- cast: from any
   meta.bin = os.getenv("PERF_BIN") or rawget(arg, -1) as string or "unknown"
-  -- Resolved dynamically: cosmic.version only exists inside a built binary.
-  local version_module = "cosmic.version"
+  -- Resolved dynamically: cosmic._version only exists inside a built binary.
+  local version_module = "cosmic._version"
   local vok, version = pcall(require, version_module)
   if vok then
     local v = version as {string: string} -- cast: from any

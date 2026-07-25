@@ -26,10 +26,10 @@ mk/modules.mk         aggregates the source trees below
 cosmic/               standard library modules (*.tl) — the PUBLIC API
   cook.mk              builds the cosmic binary
   init.tl              entry point: cosmic.main()
-  public.tl            PUBLIC manifest: public vs internal modules
-  cli/                 CLI internals (main.tl dispatcher, help, style, ...)
+  _cli/                CLI internals (main.tl dispatcher, help, run, ...)
+  _make/               `cosmic --make`: project model, validator, root, verbs
+  _build/              the shell-free recipe steps behind `--build`
   fs/                  fs directory module (init, path, ops, file, walk, types)
-  make/                `cosmic --make`: project model, validator, root, verbs
   *.tl                 library modules
   *_test.tl            tests
   *_example.tl         runnable examples
@@ -56,7 +56,10 @@ a source's path relative to the root *is* its import path, so
 `_perf/harness.tl` is `require("_perf.harness")`. there is no `lib/`
 between the two anymore. a leading `_` marks a tree as internal — it is
 repo tooling, not the published API — which is why `_docs/` and the
-markdown `docs/` can coexist.
+markdown `docs/` can coexist. **position is the manifest**: a module is
+public API exactly when it is `cosmic.<name>` with no `_` — there is no
+list to maintain (`cosmic/public.tl` is gone) and none to go stale. the
+rule lives in `cosmic/doc/visibility.tl`.
 
 ## Language and Conventions
 
@@ -271,7 +274,7 @@ the cosmic binary is an executable zip. it embeds:
 - Teal compiler in `.lua/tl.lua`
 - type definitions in `.lua/types/`
 - doc index in `.docs/index.lua`
-- entry point: `/zip/main.lua` (compiled from `cosmic/cli/main.tl`)
+- entry point: `/zip/main.lua` (compiled from `cosmic/_cli/main.tl`)
 
 CLI features:
 ```
@@ -335,6 +338,7 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | sqlite | SQLite with ergonomic query/exec/transaction API |
 | sse | Server-Sent Events parser |
 | string | trim, split, capitalize, starts_with, etc. |
+| style | the style checks behind `--check-style`: file length, column width, ordering |
 | sys | OS/architecture detection, sysconf (nproc, page size), uname |
 | syslog | system logging |
 | table | deep copy/merge/equality and map/filter/reduce for tables |

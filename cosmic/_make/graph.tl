@@ -1,0 +1,366 @@
+--- Driving make from the project model.
+---
+--- Two files land in `o/` and make reads both. `o/cosmic.mk` is
+--- CONSTANT — it ships in the binary and is byte-identical for every
+--- project, so this module copies it out rather than composing it.
+--- `o/project.mk` is generated and holds **only variable assignments**:
+--- discovery and validation stay in Teal, where an error can name a
+--- path, and codegen shrinks to "emit a list of variables". No rule is
+--- ever generated, which is also why this repo's makefile ratchets can
+--- collapse from "scan generated recipe text" to "one file that does
+--- not change".
+---
+--- Both are written only when their bytes change, so re-running a verb
+--- does not invalidate the graph it just built.
+
+local child = require("cosmic.child")
+local fs = require("cosmic.fs")
+local sys = require("cosmic.sys")
+local deps = require("cosmic._make.deps")
+local project = require("cosmic._make.project")
+local types = require("cosmic._make.types")
+
+local type File = types.File
+local type Project = types.Project
+
+--- Where the constant rules live inside the binary.
+local RULES_ZIP < const > = "/zip/cosmic.mk"
+
+--- Where the graph engine lives inside the binary. Amends D13: make
+--- ships in the release, because a user with one binary in a bare
+--- sandbox has nothing to find and nothing to fetch with.
+local MAKE_ZIP < const > = "/zip/make"
+
+--- Environment override naming the make binary.
+local MAKE_ENV < const > = "COSMIC_MAKE"
+
+--- Environment override for the job count.
+local JOBS_ENV < const > = "COSMIC_JOBS"
+
+--- Kinds whose `.tl` sources compile into `$(O)`.
+local compiled_kinds: {string: boolean} = {
+  module = true,
+  entry = true,
+  test = true,
+  example = true,
+  gen = true,
+}
+
+--- Write `path` only when the bytes differ, so a no-op run does not
+--- touch an mtime the graph schedules on.
+--- @param path string Destination
+--- @param content string Desired contents
+--- @return boolean, string Success, or false plus the error
+local function write_if_changed(path: string, content: string): boolean, string
+  if fs.read(path) == content then
+    return true
+  end
+  local ok, err = fs.makedirs(fs.dirname(path))
+  if not ok then
+    return false, "make: cannot create " .. fs.dirname(path) .. ": " ..
+    (err or "unknown error")
+  end
+  local wok, werr = fs.write(path, content)
+  if not wok then
+    return false, "make: cannot write " .. path .. ": " ..
+    (werr or "unknown error")
+  end
+  return true
+end
+
+--- Render one `name := a b c` line, sorted so the file is a function of
+--- the tree and nothing else.
+--- @param name string Variable name
+--- @param values {string} Values
+--- @return string The assignment line
+local function assign(name: string, values: {string}): string
+  local sorted: {string} = {}
+  for _, v in ipairs(values) do
+    sorted[#sorted + 1] = v
+  end
+  table.sort(sorted)
+  return name .. " := " .. table.concat(sorted, " ")
+end
+
+--- The facts file: what the walk found, as make variables.
+---
+--- Nothing here is a rule, and nothing here is a path cosmic invented —
+--- every value is a file that exists, spelled relative to the root.
+--- @param proj Project The scanned project
+--- @param cosmic string Absolute path to the cosmic binary
+--- @return string The contents of o/project.mk
+local function project_mk(proj: Project, cosmic: string): string
+  local tl_sources: {string} = {}
+  local lua_sources: {string} = {}
+  local fmt_sources: {string} = {}
+  local tests: {string} = {}
+  local examples: {string} = {}
+  local assets: {string} = {}
+
+  for _, f in ipairs(proj.files) do
+    local is_tl = f.path:sub(-3) == ".tl"
+    if is_tl then
+      fmt_sources[#fmt_sources + 1] = f.path
+    end
+    if compiled_kinds[f.kind] then
+      if is_tl then
+        tl_sources[#tl_sources + 1] = f.path
+      else
+        lua_sources[#lua_sources + 1] = f.path
+      end
+    end
+    if f.kind == "test" then
+      tests[#tests + 1] = f.path
+    elseif f.kind == "example" then
+      examples[#examples + 1] = f.path
+    elseif f.kind == "asset" then
+      assets[#assets + 1] = f.path
+    end
+  end
+
+  -- Import closures, per file. This is the whole reason the facts are
+  -- computed in Teal — a makefile cannot follow a require() edge — and
+  -- each closure serves the graph and the fence with one answer.
+  --
+  -- Two flavours, and the distinction is not cosmetic. A COMPILE needs
+  -- SOURCE paths, because a strict compile type-checks against the
+  -- modules it imports and the checker resolves those to `.tl` through
+  -- the include path: without them, changing a module's contract left
+  -- its importers un-recompiled and the incremental build shipped code
+  -- a clean build rejects. A TEST needs BUILT paths, because it runs
+  -- against compiled Lua.
+  local dep_lines: {string} = {}
+  local by_import = deps.index(proj)
+  for _, f in ipairs(proj.files) do
+    local stem = f.path:gsub("%.tl$", "")
+    if compiled_kinds[f.kind] and f.path:sub(-3) == ".tl" then
+      dep_lines[#dep_lines + 1] = assign("srcdeps_" .. stem,
+        deps.source_paths(deps.closure(proj, f, by_import)))
+    end
+    if f.kind == "test" then
+      dep_lines[#dep_lines + 1] = assign("deps_" .. stem,
+        deps.built_paths(deps.closure(proj, f, by_import)))
+    end
+  end
+  table.sort(dep_lines)
+
+  local lines: {string} = {
+    "# Generated by cosmic --make. Variables only — the rules are the",
+    "# constant o/cosmic.mk. Do not edit; do not commit (o/ is output).",
+    "COSMIC := " .. cosmic,
+    "O := " .. project.BUILD_DIR,
+    "project := " .. fs.basename(proj.root),
+    assign("tl_sources", tl_sources),
+    assign("lua_sources", lua_sources),
+    assign("fmt_sources", fmt_sources),
+    assign("tests", tests),
+    assign("examples", examples),
+    assign("assets", assets),
+  }
+  for _, l in ipairs(dep_lines) do
+    lines[#lines + 1] = l
+  end
+  return table.concat(lines, "\n") .. "\n"
+end
+
+--- Materialize both makefiles under `o/`.
+--- @param proj Project The scanned project
+--- @param cosmic string Absolute path to the cosmic binary
+--- @return string|nil Path to the rules file, or nil on failure
+--- @return string The error message when materializing failed
+local function materialize(proj: Project, cosmic: string): string | nil, string
+  local rules = fs.read(RULES_ZIP)
+  if not rules then
+    return nil, "make: the rules file is missing from this binary (" ..
+    RULES_ZIP .. ")"
+  end
+  local out = fs.join(project.BUILD_DIR, "cosmic.mk")
+  local ok, err = write_if_changed(out, rules)
+  if not ok then
+    return nil, err
+  end
+  ok, err = write_if_changed(fs.join(project.BUILD_DIR, "project.mk"),
+    project_mk(proj, cosmic))
+  if not ok then
+    return nil, err
+  end
+  return out
+end
+
+--- Extract the embedded make to `o/make`.
+---
+--- The engine ships inside the binary (2e), so a project needs nothing
+--- installed: extraction is a copy out of this executable's own zip,
+--- and it happens once. Written through a temp file and renamed, so a
+--- concurrent build cannot exec a half-written engine.
+--- @param to string Destination path
+--- @return boolean, string Success, or false plus the reason
+local function extract_make(to: string): boolean, string
+  local bytes = fs.read(MAKE_ZIP)
+  if not bytes then
+    return false, "make: this cosmic carries no engine at " .. MAKE_ZIP
+  end
+  local ok, merr = fs.makedirs(fs.dirname(to))
+  if not ok then
+    return false, "make: cannot create " .. fs.dirname(to) .. ": " ..
+    (merr or "unknown error")
+  end
+  local tmp = to .. ".tmp"
+  local wok, werr = fs.write(tmp, bytes, tonumber("755", 8) as integer) -- cast: octal is integral
+  if not wok then
+    return false, "make: cannot write " .. tmp .. ": " .. (werr or "unknown error")
+  end
+  -- write's mode only applies on create, so set it unconditionally: an
+  -- engine that is not executable is the one failure mode that reads as
+  -- "no make binary" rather than as a permissions problem.
+  fs.chmod(tmp, tonumber("755", 8) as integer) -- cast: octal is integral
+  local rok, rerr = fs.rename(tmp, to)
+  if not rok then
+    fs.unlink(tmp)
+    return false, "make: cannot install " .. to .. ": " .. (rerr or "unknown error")
+  end
+  return true
+end
+
+--- Find the make binary.
+---
+--- `COSMIC_MAKE` names it; otherwise the copy under `o/`, extracted from
+--- this binary on first use. PATH is never searched: a build that picks
+--- up whatever make the host happens to have is a build whose engine is
+--- not pinned, and with the engine embedded there is nothing to find.
+--- @return string|nil The make binary, or nil with the refusal
+--- @return string The error message
+local function find_make(): string | nil, string
+  local named = os.getenv(MAKE_ENV)
+  if named and named ~= "" then
+    local abs = fs.abspath(named)
+    if not fs.isfile(abs) then
+      return nil, "make: " .. MAKE_ENV .. " names no such file: " .. named
+    end
+    return abs
+  end
+  local extracted = fs.abspath(fs.join(project.BUILD_DIR, "make"))
+  if fs.isfile(extracted) then
+    return extracted
+  end
+  local ok, err = extract_make(extracted)
+  if not ok then
+    return nil, (err or "make: no engine") ..
+    "\nmake: name one instead: " .. MAKE_ENV .. "=/path/to/make" ..
+    " cosmic --make build"
+  end
+  return extracted
+end
+
+--- How many jobs to run. Everything is parallel by default, which is
+--- defensible only because isolation is structural rather than
+--- conventional.
+--- @return string The `-j<n>` flag
+local function jobs_flag(): string
+  local named = os.getenv(JOBS_ENV)
+  if named and named:match("^%d+$") then
+    return "-j" .. named
+  end
+  local n = sys.nproc()
+  return "-j" .. tostring(n or 4)
+end
+
+--- Build the graph for one target.
+---
+--- Returns make's own exit code. Output streams as it runs (`inherit`),
+--- so a long build reports progress instead of arriving all at once.
+--- Selection travels as command-line variable assignments, which beat
+--- the ones in `o/project.mk`. Everything downstream is derived from
+--- those lists, so narrowing a run needs no rules of its own — and the
+--- rules file stays constant, which is the property the whole design
+--- rests on.
+--- The cosmic path is passed in, never derived here: `--make` has
+--- already chdir'd to the project root by this point, so resolving a
+--- relative `arg[-1]` now would produce a path inside the project. The
+--- downstream layout the design recommends is `./cosmic --make ci` from
+--- a committed binary, which is exactly the case that would break.
+--- @param proj Project The scanned project
+--- @param target string The make target to build
+--- @param overrides {string} `name=value` assignments, one argv each
+--- @param cosmic string Absolute path to the cosmic binary
+--- @return integer Exit code
+--- @return string An error message when make could not be started
+local function run(proj: Project, target: string, overrides: {string},
+    cosmic: string): integer, string
+  local rules, merr = materialize(proj, cosmic)
+  if not rules then
+    return 1, merr or "make: could not write the build files"
+  end
+  local mk, ferr = find_make()
+  if not mk then
+    return 1, ferr or "make: no make binary"
+  end
+  -- No builtin rules or variables: the vocabulary is closed, and a
+  -- builtin pattern firing on a .lua or .tl would run a step nobody
+  -- wrote.
+  local argv: {string} = {
+    mk as string, -- cast: scalar narrowing after the guard
+    "--no-builtin-rules",
+    "--no-builtin-variables",
+    "-f", rules as string, -- cast: scalar narrowing after the guard
+    jobs_flag(),
+  }
+  for _, o in ipairs(overrides or {}) do
+    argv[#argv + 1] = o
+  end
+  argv[#argv + 1] = target
+  local h, serr = child.spawn(argv,
+    {cwd = proj.root, stdout = "inherit", stderr = "inherit"})
+  if not (h is child.Handle) then
+    return 1, "make: cannot start " .. (mk as string) .. ": " .. -- cast: scalar narrowing after the guard
+    (serr or "unknown error")
+  end
+  -- cast: Teal's narrowing does not survive the early-exit guard above
+  local res, werr = (h as child.Handle):wait()
+  if not (res is child.Result) then
+    return 1, "make: " .. (werr or "unknown error")
+  end
+  if res.signal then
+    return 1, "make: killed by signal " .. tostring(res.signal)
+  end
+  return res.code or 1
+end
+
+--- Files of the given kinds, for a verb that wants to count what it
+--- built without re-deriving the rules' patsubst.
+--- @param proj Project The scanned project
+--- @param kinds {types.Kind} Kinds to count
+--- @return {File} The matching files
+local function inputs(proj: Project, kinds: {types.Kind}): {File}
+  return project.of_kind(proj, kinds)
+end
+
+local record GraphModule
+  MAKE_ENV: string
+  MAKE_ZIP: string
+  extract_make: function(to: string): boolean, string
+  JOBS_ENV: string
+  RULES_ZIP: string
+  project_mk: function(proj: Project, cosmic: string): string
+  materialize: function(proj: Project, cosmic: string): string | nil, string
+  find_make: function(): string | nil, string
+  jobs_flag: function(): string
+  run: function(proj: Project, target: string, overrides: {string}, cosmic: string): integer, string
+  inputs: function(proj: Project, kinds: {types.Kind}): {File}
+end
+
+local M: GraphModule = {
+  MAKE_ENV = MAKE_ENV,
+  MAKE_ZIP = MAKE_ZIP,
+  extract_make = extract_make,
+  JOBS_ENV = JOBS_ENV,
+  RULES_ZIP = RULES_ZIP,
+  project_mk = project_mk,
+  materialize = materialize,
+  find_make = find_make,
+  jobs_flag = jobs_flag,
+  run = run,
+  inputs = inputs,
+}
+
+return M

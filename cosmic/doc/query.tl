@@ -131,8 +131,8 @@ local function is_cosmo_module(name: string): boolean
   return name:match("^cosmo%.") ~= nil
 end
 
---- List all available documentation topics. Internal modules (per the
---- cosmic.public manifest) are excluded: they are not API. They remain
+--- List all available documentation topics. Internal modules (per
+--- the `_` rule) are excluded: they are not API. They remain
 --- searchable and directly addressable by name.
 --- @param include_cosmo boolean Include low-level cosmo.* modules (default: false)
 --- @return {{string, string}} List of {name, description} pairs, sorted by name

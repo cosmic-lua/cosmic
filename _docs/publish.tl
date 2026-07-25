@@ -68,51 +68,32 @@ local function scan_docs(docs_dir: string): {DocInfo}
   return docs
 end
 
--- The docs surface follows the cosmic.public manifest (issue #556):
--- the published site carries public module pages and the cosmo.* C
--- binding docs only. The manifest is loaded with a non-literal require
--- because this script also runs under the pinned bootstrap binary,
--- whose embedded stdlib may predate cosmic.public; without a manifest
--- everything stays published rather than the site going dark.
-local function load_public_set(): {string: boolean}
-  local manifest_mod = "cosmic.public"
-  local ok, manifest = pcall(require, manifest_mod)
-  if not ok then
-    return nil
-  end
-  local set: {string: boolean} = {}
-  for _, name in ipairs((manifest as {string: {string}}).public) do -- cast: from any
-    set[name] = true
-  end
-  return set
-end
+-- The docs surface follows the `_` rule (phase 3c, issue #556): the
+-- published site carries public module pages and the cosmo.* C binding
+-- docs only. Public is a page named for one `cosmic.<name>` segment
+-- that does not start with `_`; there is no manifest to load and none
+-- to go stale, so this no longer has to survive a pinned bootstrap
+-- whose stdlib predates it.
 
 -- Decide whether a doc page (path relative to the docs root) is part
 -- of the public surface: cosmo.* binding docs, a public module's page,
 -- or a public directory module's init page.
-local function is_public_page(rel_path: string, public_set: {string: boolean}): boolean
-  if not public_set then
-    return true
-  end
+local function is_public_page(rel_path: string): boolean
   if rel_path:match("^cosmo/") then
     return true
   end
   local name = rel_path:match("^cosmic/([^/]+)%.md$")
   or rel_path:match("^cosmic/([^/]+)/init%.md$")
-  return name ~= nil and public_set[name] == true
+  return name ~= nil and name:sub(1, 1) ~= "_"
 end
 
 -- Remove internal doc pages from a generated docs tree in place.
 local function prune_internal(docs_dir: string)
-  local public_set = load_public_set()
-  if not public_set then
-    return
-  end
   local internal: {string} = {}
   fs.walk(docs_dir, function(path: string, name: string, st: fs_types.Stat, acc: {string})
       if not st:is_dir() and name:match("%.md$") then
         local rel_path = path:sub(#docs_dir + 2)
-        if rel_path ~= "README.md" and not is_public_page(rel_path, public_set) then
+        if rel_path ~= "README.md" and not is_public_page(rel_path) then
           table.insert(acc, path)
         end
       end

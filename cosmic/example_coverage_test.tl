@@ -15,8 +15,27 @@
 --- merges each X_example.tl into module X (and shard examples like
 --- quicksand/netns_example.tl into cosmic.<name>.<shard>).
 local check = require("cosmic.check")
-local manifest = require("cosmic.public")
 local doc = require("cosmic.doc")
+local visibility = require("cosmic.doc.visibility")
+
+-- The public surface, derived rather than declared (phase 3c): the
+-- names the docs index carries that the `_` rule calls public, without
+-- their `cosmic.` prefix, since the allowlist below is written in bare
+-- module names.
+local function public_names(): {string}
+  local idx = check.must(doc.embedded_index())
+  local dotted: {string} = {}
+  for name in pairs(idx.modules) do
+    dotted[#dotted + 1] = name
+  end
+  local out: {string} = {}
+  for _, name in ipairs(visibility.public_of(dotted)) do
+    out[#out + 1] = name:sub(#"cosmic." + 1)
+  end
+  return out
+end
+
+local PUBLIC = public_names()
 
 -- Shrink only. Never add an entry; delete each one as #509 lands its
 -- example. (31 of 46 public modules at ratchet birth.)
@@ -78,7 +97,7 @@ end
 
 local function test_every_public_module_has_example_or_waiver()
   local missing: {string} = {}
-  for _, name in ipairs(manifest.public) do
+  for _, name in ipairs(PUBLIC) do
     if not allowed[name] and not has_example(name) then
       missing[#missing + 1] = name
     end
@@ -106,7 +125,7 @@ test_allowlist_only_shrinks()
 
 local function test_allowlist_entries_are_public()
   local public_set: {string: boolean} = {}
-  for _, name in ipairs(manifest.public) do
+  for _, name in ipairs(PUBLIC) do
     public_set[name] = true
   end
   local gone: {string} = {}

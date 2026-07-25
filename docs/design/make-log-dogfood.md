@@ -52,7 +52,7 @@ What it settled:
   the base's copy of it, so claiming `tl` has nothing to give back.
 - **claiming `cosmic` is all-or-nothing at runtime, not just at the
   validator.** The generated entry wrapper itself runs
-  `require("cosmic.cli.searcher").install()` before the project's
+  `require("cosmic._cli.searcher").install()` before the project's
   `main.tl`, so a project that takes the namespace inherits the
   obligation to answer that require. Cosmic's own tree meets it by being
   the real thing; the fixture meets it with a stub, which is what made
@@ -99,7 +99,7 @@ What it settled:
   small trees, because those are the ones whose *name* changed. Which
   meant the risk was never in the file count.
 - **`_cli/` and `_make/` are not part of the flatten.** The plan listed
-  them here, and they came out: moving `cosmic/cli/` to `_cli/` does not
+  them here, and they came out: moving `cosmic/_cli/` to `_cli/` does not
   relocate a directory, it changes what the published API *is*. That is
   3c's question — the one that deletes `public.tl` — and doing it here
   would have mixed a mechanical move with a surface decision, which is
@@ -133,3 +133,59 @@ What it settled:
   (now the root itself, via `getcwd`); `help_test` required a bare
   module name that resolved through a directory-specific path entry.
   None was wrong — each was reading the layout as it was.
+
+## 3c — `_` replaces `public.tl`
+
+`cosmic/cli/` → `cosmic/_cli/`, `cosmic/make/` → `cosmic/_make/`,
+`cosmic/build/` → `cosmic/_build/`, `require.tl` → `_require.tl`, and
+the generated version stamp to `cosmic/_version.lua`. `public.tl` — a
+hand-maintained list of every top-level module, split into public and
+internal — is deleted. Public is now `cosmic.<name>` with no `_`, a rule
+that fits in one function (`cosmic/doc/visibility.tl`).
+
+What it settled:
+
+- **the manifest's two ratchets disappear rather than move.** It had a
+  test asserting every embedded module appeared on one of its lists, and
+  another asserting no list entry had lost its module. Both bugs are
+  gone with the list: a module is public because of where it sits, so
+  there is nothing to forget and nothing to leave behind. What survives
+  in `surface_test.tl` is what the manifest was a *means to* — the
+  public modules load, they are documented, and a directory module
+  answers to its own name — plus one new test that the rule actually
+  partitions, since a rule calling everything internal would satisfy
+  every other assertion while saying nothing.
+- **`cosmic.style` is public, and the validator is what said so.**
+  `--make check` refused `_build/lint.tl` for importing
+  `cosmic._cli.style` from outside `cosmic/`. The module's own header
+  had been admitting this for as long as it existed: it said it lived
+  "under the cosmic.* namespace so require() works" — a module
+  explaining why it is reachable from a place the manifest said it was
+  not. A manifest can hold that contradiction indefinitely; position
+  cannot. So `cosmic/style.tl`, with the example a public module owes
+  (the waiver list is closed to new entries, deliberately).
+- **the same shape as 3a's searcher, from the other direction.** Who
+  requires a module decides whether it is internal. 3a found the embed
+  wrapper requiring `cosmic.cli.searcher` in every artifact ever built;
+  3c found `_build/lint.tl` requiring the style checks. Both are callers
+  the manifest never had to account for, because a manifest lists
+  modules rather than edges.
+- **the hoist to root `_cli/`/`_make/` is not this slice's.** The plan
+  put it here. It belongs with 3d, and the reason is mechanical: the
+  generated entry wrapper runs `require("cosmic._cli.searcher")` before
+  the project's `main.tl`, and the strip floor is `.lua/cosmic/**`. At
+  root, `_cli/` is off the floor and every stripped artifact fails to
+  boot. Hoisting is therefore the same change as moving the payload to
+  the module root — which is 3d.
+- **the coverage ratchet caught a silent behaviour loss.** Renaming the
+  version module missed `_perf/run.tl`, whose `pcall(require,
+  "cosmic.version")` then failed quietly and left the perf metadata
+  without its version stamp — no test asserts that field, so nothing
+  failed. Three lines went uncovered and the ratchet reported a 51.1% →
+  49.5% decline in a file the change had no business touching. A
+  coverage floor is usually read as a quality nag; here it was the only
+  thing watching.
+- **it only showed up on a clean build.** The incremental run passed:
+  the perf metadata path had already been exercised by an earlier build
+  in the same tree. Every slice of this phase moves output paths, so
+  `bin/make clean && bin/make ci` is the gate, not `bin/make ci`.

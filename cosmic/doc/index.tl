@@ -29,28 +29,23 @@ local function normalize_init(modules: {string: any})
   end
 end
 
---- Mark each module's visibility from the cosmic.public manifest:
---- public is exactly cosmic.<name> for names on the manifest's public
---- list; every other cosmic.* entry and all repo tooling (perf.*, ...)
---- is internal. cosmo.* C binding docs keep their own include_cosmo
---- handling and are never marked. The manifest is loaded with a
---- non-literal require (the handle_version pattern) because this
---- script also runs under the pinned bootstrap binary, whose embedded
---- stdlib may predate cosmic.public; without a manifest every module
---- stays public rather than the index going dark.
+--- Mark each module's visibility by position (phase 3c): public is
+--- exactly cosmic.<name> for a name that does not start with `_`;
+--- every other cosmic.* entry and all repo tooling (_perf.*, ...) is
+--- internal. cosmo.* C binding docs keep their own include_cosmo
+--- handling and are never marked.
+---
+--- The rule is applied inline rather than through cosmic.doc.visibility
+--- because this script also runs under the PINNED bootstrap binary,
+--- whose embedded stdlib predates that module — the same reason the old
+--- manifest was loaded with a non-literal require. The two must agree;
+--- visibility_test.tl asserts they do.
 local function mark_visibility(modules: {string: any})
-  local manifest_mod = "cosmic.public"
-  local ok, manifest = pcall(require, manifest_mod)
-  if not ok then
-    return
-  end
-  local public: {string: boolean} = {}
-  for _, name in ipairs((manifest as {string: {string}}).public) do -- cast: from any
-    public["cosmic." .. name] = true
-  end
   for name, module_doc in pairs(modules) do
     local is_cosmo = name == "cosmo" or name:match("^cosmo%.") ~= nil
-    if not is_cosmo and not public[name] then
+    local leaf = name:match("^cosmic%.([%w_]+)$")
+    local public = leaf ~= nil and leaf:sub(1, 1) ~= "_"
+    if not is_cosmo and not public then
       (module_doc as {string: any}).internal = true -- cast: from any
     end
   end

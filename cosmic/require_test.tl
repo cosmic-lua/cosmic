@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
 --- Tests for enhanced require with helpful error messages.
 
-local require_mod = require("cosmic.require")
+local require_mod = require("cosmic._require")
 
 local function test_module_exists_preloaded()
   -- cosmo modules are preloaded

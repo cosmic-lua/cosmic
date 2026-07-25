@@ -30,11 +30,11 @@ local function main(fn: function(args: {string}, env: Env): number, string)
 end
 
 --- The build-injected version string, or "unknown" outside a packed
---- binary (cosmic.version is generated at build time and embedded).
+--- binary (cosmic._version is generated at build time and embedded).
 local function version(): string
-  -- Non-literal module name: cosmic.version is generated at build time,
+  -- Non-literal module name: cosmic._version is generated at build time,
   -- so there is no type information for it in the tree.
-  local mod = "cosmic.version"
+  local mod = "cosmic._version"
   local ok, info = pcall(require, mod)
   if ok and (info as VersionInfo).cosmic then -- cast: from any
     return (info as VersionInfo).cosmic -- cast: from any

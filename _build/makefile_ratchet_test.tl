@@ -74,7 +74,7 @@ local real_shell_allowed: {string} = {
   "env-probe-clamped", -- .ENV canary probe (#756 item 5)
   "o/bin/ape", -- APE loader extraction IS the stub flow
   "o/ci-selftest-launder-summary.txt", -- deliberately laundering fixture
-  "o/cosmic/version.lua", -- git describe interpolation
+  "o/cosmic/_version.lua", -- git describe interpolation
   "o/_build/make/ci-launder.out", -- nested-make fixture
   "o/_build/make/database.out", -- nested-make fixture
   "o/_build/make/dry-run.out", -- nested-make fixture
@@ -133,15 +133,15 @@ local hostx_allowed: {string} = {
   "o/coverage/%.tl.test.got", -- unveil_test lane
   "o/coverage/_build/help_test.tl.test.got", -- unveil_test + Makefile
   "o/coverage/_build/makefile_test.tl.test.got", -- unveil_test + mk
-  "o/coverage/cosmic/make/artifact_test.tl.test.got", -- unveil_test + bin/cosmo-make
-  "o/coverage/cosmic/make/build_test.tl.test.got", -- unveil_test + bin/cosmo-make
+  "o/coverage/cosmic/_make/artifact_test.tl.test.got", -- unveil_test + bin/cosmo-make
+  "o/coverage/cosmic/_make/build_test.tl.test.got", -- unveil_test + bin/cosmo-make
   "o/coverage/cosmic/teal_config_test.tl.test.got", -- unveil_test + tlconfig
   "o/coverage/cosmic/tty_pty_test.tl.test.got", -- unveil_test + pty devs
   "o/coverage/cosmic/tty_test.tl.test.got", -- unveil_test + pty devs
   "o/_build/help_test.tl.test.got", -- unveil_test + Makefile
   "o/_build/makefile_test.tl.test.got", -- unveil_test + mk
-  "o/cosmic/make/artifact_test.tl.test.got", -- unveil_test + bin/cosmo-make
-  "o/cosmic/make/build_test.tl.test.got", -- unveil_test + bin/cosmo-make
+  "o/cosmic/_make/artifact_test.tl.test.got", -- unveil_test + bin/cosmo-make
+  "o/cosmic/_make/build_test.tl.test.got", -- unveil_test + bin/cosmo-make
   "o/cosmic/teal_config_test.tl.test.got", -- unveil_test + tlconfig
   "o/cosmic/tty_pty_test.tl.test.got", -- unveil_test + pty devs
   "o/cosmic/tty_test.tl.test.got", -- unveil_test + pty devs
@@ -219,14 +219,14 @@ local sandboxed_enforced: {string} = {
 -- and enforcing grants nothing exercises is not a falsifiable gate. It
 -- flips when a lane runs it.
 local sandboxed_exempt: {string} = {
-  "o/cosmic/version.lua", -- reads .git; silent-fallback hazard
+  "o/cosmic/_version.lua", -- reads .git; silent-fallback hazard
   "o/coverage/cosmic/quicksand/box/run_test.tl.test.got",
   "o/coverage/cosmic/quicksand/netns_test.tl.test.got",
   "o/coverage/cosmic/quicksand/proxy_test.tl.test.got",
   "o/enforce/cosmic/landlock_test.tl.test.got", -- self-sandboxing lane
   "o/enforce/cosmic/pledge_test.tl.test.got", -- self-sandboxing lane
   "o/enforce/cosmic/unveil_test.tl.test.got", -- self-sandboxing lane
-  "o/enforce/cosmic/cli/fence_test.tl.test.got", -- self-sandboxing lane
+  "o/enforce/cosmic/_cli/fence_test.tl.test.got", -- self-sandboxing lane
   "o/cosmic/quicksand/box/run_test.tl.test.got", -- unshare: no promise
   "o/cosmic/quicksand/netns_example.tl.example.got",
   "o/cosmic/quicksand/netns_test.tl.test.got",

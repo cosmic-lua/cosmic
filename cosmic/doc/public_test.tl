@@ -1,12 +1,16 @@
 #!/usr/bin/env lua
---- The docs surface must follow the PUBLIC manifest (issue #556):
+--- The docs surface must follow the `_` rule (issue #556, phase 3c):
 --- `--docs` lists public modules only, internal modules stay searchable
 --- but badged, and their doc pages carry an internal-module header.
+---
+--- The expected set comes from cosmic.doc.visibility rather than from
+--- the index's own `internal` flags, so this checks that the listing's
+--- filter agrees with the RULE and not merely with itself.
 
 local check = require("cosmic.check")
 local docs = require("cosmic.doc")
 local doc_types = require("cosmic.doc.types")
-local manifest = require("cosmic.public")
+local visibility = require("cosmic.doc.visibility")
 
 -- These tests are about the embedded index; they must run in the built
 -- binary, where the index is always present.
@@ -15,7 +19,7 @@ local idx = check.must(docs.embedded_index(),
 
 local INTERNAL_SAMPLES = {
   "cosmic.child.io",
-  "cosmic.cli.args",
+  "cosmic._cli.args",
   "cosmic.sqlite.bind",
   "cosmic.fs.walk",
   "_perf.harness",
@@ -39,20 +43,24 @@ local function test_listing_hides_internal_modules()
 end
 test_listing_hides_internal_modules()
 
-local function test_listing_is_exactly_the_public_manifest()
+local function test_listing_is_exactly_the_public_surface()
   local names = topic_names()
+  local indexed: {string} = {}
+  for name in pairs(idx.modules) do
+    indexed[#indexed + 1] = name
+  end
+  local expected = visibility.public_of(indexed)
   local count = 0
   for _ in pairs(names) do count = count + 1 end
-  assert(count == #manifest.public, string.format(
-      "--docs lists %d modules, want #manifest.public = %d",
-      count, #manifest.public))
-  for _, name in ipairs(manifest.public) do
-    assert(names["cosmic." .. name],
-      "public module missing from --docs listing: cosmic." .. name)
+  assert(count == #expected, string.format(
+      "--docs lists %d modules, the `_` rule says %d are public",
+      count, #expected))
+  for _, name in ipairs(expected) do
+    assert(names[name], "public module missing from --docs listing: " .. name)
   end
-  print("test_listing_is_exactly_the_public_manifest: PASS")
+  print("test_listing_is_exactly_the_public_surface: PASS")
 end
-test_listing_is_exactly_the_public_manifest()
+test_listing_is_exactly_the_public_surface()
 
 local function test_directory_modules_indexed_under_their_name()
   assert(idx.modules["cosmic.fs"],

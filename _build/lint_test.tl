@@ -291,21 +291,21 @@ end
 test_cosmo_require_honors_allowlist()
 
 -- The shared checks are ONE implementation now: lint.tl delegates to
--- cosmic.cli.style (#661), so `bin/make lint` and `cosmic --check-style`
+-- cosmic.style (#661), so `bin/make lint` and `cosmic --check-style`
 -- literally share function objects — asserted below. The corpus that
 -- used to compare the twins now pins expected diagnostics for every
 -- construct that has fooled a depth tracker before (audit §5.2, #658).
-local style = require("cosmic.cli.style")
+local style = require("cosmic.style")
 
 local function test_shared_checks_are_delegated()
   assert(lint.check_file_length == style.check_file_length,
-    "lint must delegate check_file_length to cosmic.cli.style")
+    "lint must delegate check_file_length to cosmic.style")
   assert(lint.check_column_length == style.check_column_length,
-    "lint must delegate check_column_length to cosmic.cli.style")
+    "lint must delegate check_column_length to cosmic.style")
   assert(lint.check_call_after_define == style.check_call_after_define,
-    "lint must delegate check_call_after_define to cosmic.cli.style")
+    "lint must delegate check_call_after_define to cosmic.style")
   assert(lint.lint_file == style.lint_file,
-    "lint must delegate lint_file to cosmic.cli.style")
+    "lint must delegate lint_file to cosmic.style")
 end
 test_shared_checks_are_delegated()
 

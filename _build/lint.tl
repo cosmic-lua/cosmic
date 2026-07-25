@@ -1,7 +1,7 @@
 #!/usr/bin/env lua
 
 -- The shared checks (file-length, column-length, call-after-define,
--- lint_file) live in cosmic.cli.style — ONE implementation for both
+-- lint_file) live in cosmic.style — ONE implementation for both
 -- `bin/make lint` and `cosmic --check-style`. The build invokes this
 -- linter under the pinned bootstrap binary with LUA_PATH pointing at
 -- this tree's freshly compiled modules (the doc/index.tl pattern), so
@@ -9,7 +9,7 @@
 -- bootstrap's embedded copy. This file adds only the build-side
 -- checks: cast justification and the cosmo-require rule.
 local proc = require("cosmic.proc")
-local style = require("cosmic.cli.style")
+local style = require("cosmic.style")
 local tl = require("tl")
 
 local type Diagnostic = style.Diagnostic
@@ -163,7 +163,7 @@ local function main(...: string): integer
     -- The standalone lint binary enforces file-length (run on all tracked
     -- files), cast justification (.tl files), and cosmo-require
     -- (tests/examples). Column-length and assert-order are enforced via
-    -- --check-style on .tl files (same cosmic.cli.style implementation).
+    -- --check-style on .tl files (same cosmic.style implementation).
     if not is_exempt(file) then
       local n = count_lines(file)
       local diags = style.check_file_length(file, n, style.DEFAULT_FILE_LINES)

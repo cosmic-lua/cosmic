@@ -70,7 +70,7 @@ The phase that **answers the original ask**, and the one that was almost
 entirely user-facing: `--make` does not run in this repo's own recipes,
 so unlike phase 1 a bug here could not take the build down with it, and
 nothing needed a release until phase 3. Code lives in
-`lib/cosmic/make/` (a directory module replacing the old `make.tl`),
+`lib/cosmic/_make/` (a directory module replacing the old `make.tl`),
 moving to `_make/` when the tree flattens — no reason to hold the split
 hostage to the rename.
 
@@ -300,7 +300,7 @@ Also settled here:
   construction, while the case the guard breaks (an internal artifact
   mirror) is exactly what pinning is for.
 - **the posture is structural, not aspirational.** `fetch.tl` is the
-  only module under `cosmic.make` that requires `cosmic.fetch`, so "can
+  only module under `cosmic._make` that requires `cosmic.fetch`, so "can
   a build phone home" is answered by grepping seven files. The test
   asserts it from outside too: a project whose pin points at a dead port
   still builds.

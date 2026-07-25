@@ -178,7 +178,7 @@ the first-fetch shell in `bin/cosmic`.
      `_perf/`, `lib/docs/` → `_docs/`, `lib/cook.mk` → `mk/modules.mk`.
      `_` arrives *with* the move rather than after it, because
      `lib/docs/` cannot pass through `docs/` — the markdown tree is
-     already there. **`cosmic/cli/` → `_cli/` and `cosmic/make/` →
+     already there. **`cosmic/_cli/` → `_cli/` and `cosmic/_make/` →
      `_make/` are deliberately not here**, and move to 3c: those two are
      not position changes but *surface* changes — they are how the `_`
      prefix replaces `public.tl`'s internal list — so they belong with
@@ -186,22 +186,31 @@ the first-fetch shell in `bin/cosmic`.
      --make check` at the root **PASS (349 files)** — the phase's
      milestone, and the first time the model has described the repo it
      was written for.
-   - **3c — `_` replaces `public.tl`,** and moves `cosmic/cli/` →
-     `_cli/` and `cosmic/make/` → `_make/` with it. position becomes the
-     manifest:
-     the public surface, what the docs generator documents, and the
-     artifact floor all derive from "not under a `_` directory".
-     `public.tl` and its test are deleted. Deliberately after 3b —
-     before the flatten every module is under `lib/` and the `_` rule
-     has nothing to say.
-   - **3d — the pack.** `/zip/.lua/cosmic/*` → `/zip/cosmic/*`,
+   - **3c — `_` replaces `public.tl`. Landed.** position becomes the
+     manifest: the public surface and what the docs generator documents
+     both derive from "public is `cosmic.<name>` with no `_`".
+     `cosmic/cli/` → `cosmic/_cli/`, `cosmic/make/` → `cosmic/_make/`,
+     `cosmic/build/` → `cosmic/_build/`, `require.tl` → `_require.tl`,
+     and the generated version stamp to `cosmic/_version.lua`.
+     `public.tl` is deleted; its lint becomes `surface_test.tl`, which
+     asks what the manifest was a *means to* rather than whether the
+     manifest is current. Marked **in place, not hoisted to the root** —
+     the hoist is 3d's, since the embed wrapper in every artifact
+     requires the searcher and the floor is `cosmic/**`.
+   - **3d — the pack, the entry, and the hoist.**
+     `/zip/.lua/cosmic/*` → `/zip/cosmic/*`,
      `/zip/.lua/tl.lua` → `/zip/tl.lua`, so the zip root is the module
      root inside the artifact too. Touches the searcher's include dirs,
      the floor's prefixes, `.args`, and `pack_copies`. It is also what
      makes 3a's provider rule load-bearing rather than theoretical:
      until the move a project's `cosmic/` and the base's `.lua/cosmic/`
      do not collide in the zip namespace at all — the project's simply
-     wins on `package.path` and the base's rides along.
+     wins on `package.path` and the base's rides along. It also carries
+     what 3c deferred: `cmd/cosmic/main.tl` as the entry, and with it
+     the hoist of `cosmic/_cli/` and `cosmic/_make/` to root `_cli/` and
+     `_make/` — root-level is what an entry *outside* `cosmic/` needs,
+     and it is the same change that decides where the searcher lives,
+     since the wrapper's `require` must resolve inside the floor.
    - **3e — compiles behind `-include cosmic.mk`.** the first family to
      move: `$(o)/%.lua: %.tl` becomes cosmic.mk's rule driven by
      `o/project.mk`'s facts. The bridge direction is the point — the

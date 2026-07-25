@@ -3,7 +3,7 @@
 local child = require("cosmic.child")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
-local instrument = require("cosmic.cli.instrument")
+local instrument = require("cosmic._cli.instrument")
 
 --- Display icons for a `.got` status.
 local STATUS_ICONS: {string: string} = {
@@ -17,7 +17,7 @@ local STATUS_ICONS: {string: string} = {
 ---
 --- ONE definition of the contract (#779). The build has two reporters —
 --- this module covers the test/coverage/enforce lanes, _build/reporter
---- covers teal/format/lint/example/benchmark — and cosmic.build's
+--- covers teal/format/lint/example/benchmark — and cosmic._build's
 --- `--build verdict` grades whichever of them wrote a stage's summary. A
 --- silent disagreement about what exit 2 means would mis-grade `ci`, the
 --- same failure class as #714 one layer up, so both read it from here.

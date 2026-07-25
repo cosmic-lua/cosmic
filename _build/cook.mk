@@ -33,7 +33,7 @@ build_fetch_files := $(build_fetch) $(build_portable)
 build_stage_files := $(build_stage) $(build_untar) $(build_portable)
 
 # The recipe steps (copy/compile/capture/tee/...) are the pinned
-# bootstrap's own `--build` surface (#756 item 3): cosmic.build ships
+# bootstrap's own `--build` surface (#756 item 3): cosmic._build ships
 # EMBEDDED in the bootstrap, so the bootstrap sha covers the driver's
 # entire runtime and no tree .lua is required first. The old compiled
 # driver — and the self-bootstrap shell exception rule that built it,
@@ -46,10 +46,10 @@ build_srcs := $(wildcard _build/*.tl)
 
 build_tests := $(wildcard _build/*_test.tl)
 
-# lint.lua delegates its shared checks to cosmic.cli.style; LUA_PATH points
+# lint.lua delegates its shared checks to cosmic.style; LUA_PATH points
 # at this tree's freshly compiled modules (the doc/index.tl pattern) so the
 # delegation runs THIS tree's style code, not the bootstrap's embedded copy.
-lint_style_lua := $(o)/cosmic/cli/style.lua
+lint_style_lua := $(o)/cosmic/style.lua
 
 # build tests exercise the compiled build tools (reporter, lint,
 # make-help, ...) at runtime via LUA_PATH=$(o)/_build, so they need

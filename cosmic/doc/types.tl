@@ -50,8 +50,8 @@ local record doc_types
     functions: {FunctionDoc}
     records: {RecordDoc}
     examples: {ExampleDoc}
-    --- True for modules outside the cosmic.public manifest's public
-    --- list: implementation shards, CLI internals, repo tooling. They
+    --- True for modules the `_` rule calls internal: implementation
+    --- shards, CLI internals, repo tooling. They
     --- are hidden from listings, badged in search, and their doc pages
     --- carry an internal-module header.
     internal: boolean

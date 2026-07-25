@@ -63,7 +63,7 @@ test_version_single_line()
 
 --- cosmic.version module should be requireable
 local function test_require_version_module()
-  local r = check.must(spawn.run({cosmic, "-e", "local v = require('cosmic.version'); print(v.cosmic); print(v.cosmos)"}))
+  local r = check.must(spawn.run({cosmic, "-e", "local v = require('cosmic._version'); print(v.cosmic); print(v.cosmos)"}))
   if r.ok then
     -- both fields should be non-empty strings
     local cosmic_ver, cosmos_ver = r.stdout:match("^(%S+)\n(%S+)")

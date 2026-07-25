@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- Tests for cosmic.build (#732, #756 item 3): the shell-free recipe
+-- Tests for cosmic._build (#732, #756 item 3): the shell-free recipe
 -- steps behind `--build`, spawned the way make spawns them, with the
 -- test cosmic binary standing in as the pinned bootstrap for compile
 -- mode.
