@@ -276,9 +276,15 @@ Same rule as generators: **inputs = grants = your staged subtree.**
 - **reads:** the staged subtree rooted at the test's own directory, plus
   the staged module tree it imports. Everything else — other packages'
   sources, `$HOME`, the live tree — is denied.
-- **one shared stage** per run, read-only, so reads are of an immutable
-  snapshot. That removes the read-a-file-another-test-is-writing class
-  outright and costs one stage, not one per test.
+- **one shared stage** per run, so reads are of an immutable snapshot.
+  That removes the read-a-file-another-test-is-writing class outright
+  and costs one stage, not one per test. Immutability is enforced twice:
+  Landlock restrictions are inherited across `exec`, so a test's
+  children are fenced too; and the stage is chmodded read-only on disk
+  (`0444` files, `0555` directories) so the guarantee survives on hosts
+  without Landlock, where the in-process gate covers a test's own IO but
+  **not** processes it spawns. Defeating both takes a deliberate
+  `chmod`, not an accident.
 - fixtures need no `testdata/` convention: anything in the test's own
   subtree is readable.
 - ambient environment is redirected into the test's directory
@@ -372,7 +378,11 @@ deliberate host dependency) and the first-fetch shell in `bin/make`.
 - sandbox canary under cosmic-as-`SHELL`, on a Landlock host **and**
   with the in-process gate, proving both produce the same denial
 - fence tests: a generator reading outside its subtree, a test writing
-  outside `TEST_TMPDIR` — both denied, with the message asserted
+  outside `TEST_TMPDIR`, and a test's spawned child attempting the same
+  — all denied, with the message asserted
+- stage immutability: the read-only mode survives a run; optionally a
+  CI-only before/after hash of the stage, to name the culprit if
+  corruption ever appears despite both fences
 - verb-vocabulary ratchet: the closed recipe verb set cannot grow
   silently
 - pin extraction: a `*.pin.tl` containing anything but a literal is
