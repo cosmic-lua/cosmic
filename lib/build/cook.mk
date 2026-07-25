@@ -35,6 +35,12 @@ build_stage_files := $(build_stage) $(build_untar) $(build_portable)
 # entire runtime and no tree .lua is required first. The old compiled
 # driver — and the self-bootstrap shell exception rule that built it,
 # the last real-shell + host-grant build rule — is gone.
+# _srcs (not _tl) so these are type- and format-checked without also
+# entering the docs/benchmark pipelines, which key off _tl (#800). They
+# were previously checked only incidentally, by --compile-strict when
+# build_files were compiled -- which never covered formatting at all.
+build_srcs := $(wildcard lib/build/*.tl)
+
 build_tests := $(wildcard lib/build/*_test.tl)
 
 # lint.lua delegates its shared checks to cosmic.cli.style; LUA_PATH points

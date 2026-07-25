@@ -3,6 +3,12 @@ modules += types
 # binary via cosmos) and the committed lib/types/cosmo/*.d.tl, so it runs as a
 # normal test under $(cosmic_bin). It guards the generator against drift, e.g.
 # the errno-return contract in unix.d.tl (see test_errno_drift_unix).
+# The generators are checked; the generated .d.tl declarations are not.
+# gentype_test asserts those byte-for-byte against generator output, so
+# formatting them would fight the generator rather than the source
+# (#800). Same _srcs-not-_tl reasoning as the other build-tool modules.
+types_srcs := $(filter-out %.d.tl,$(wildcard lib/types/*.tl))
+
 types_tests := lib/types/gentype_test.tl lib/types/gentype_alias_test.tl lib/types/gentype_return_test.tl lib/types/gentl_test.tl lib/types/tl_conformance_test.tl
 # types_deps is intentionally not set - types_files are source files (.d.tl),
 # not built outputs. The regen-types target uses bootstrap_cosmic directly.
