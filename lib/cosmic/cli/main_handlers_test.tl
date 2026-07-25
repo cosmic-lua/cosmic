@@ -13,7 +13,9 @@ local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
 
-local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
+-- Absolute: TEST_BIN is relative to the repo root under `make test`,
+-- and the --make test below runs a child with a different cwd.
+local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR")
 
 local record Run
@@ -153,9 +155,13 @@ local function test_make_builds_a_scanned_directory()
   local dir = fs.join(tmpdir, "mk-src")
   fs.makedirs(dir)
   fs.write(fs.join(dir, "a.tl"), "local x = 1\nprint(x)\n")
+  -- cwd is the scanned directory so the generated BUILD_DIR (o/) lands
+  -- under it; without this the recipes run with the repo as cwd and
+  -- write their artifacts into the repo's own o/.
   local argv = {cosmic, "--make", dir}
   local h = check.must(spawn.spawn(argv, {
         env = {"PATH=" .. os.getenv("PATH"), "COSMIC=" .. cosmic},
+        cwd = dir,
       }))
   local r = check.must(h:wait())
   assert(r.code == 0,
