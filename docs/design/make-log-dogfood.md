@@ -236,3 +236,58 @@ What it settled:
   happening to contain one of every name hid it; the pack fixture, which
   contains two files, found it immediately. Exit 12 is now a legitimate
   outcome for a group.
+
+## 3e — the compiles take the generated closures
+
+The Makefile `-include`s `o/project.mk` — the facts file `cosmic --make`
+generates — and the compile rule takes `$$(srcdeps_$$*)`, the per-file
+import closure, as prerequisites.
+
+**The bug it fixes, reproduced in this repo before writing anything.**
+Delete an exported function from `cosmic/style.tl` and ask for its
+importer:
+
+```
+$ make o/_build/lint.lua      # 'o/_build/lint.lua' is up to date.   (exit 0)
+$ rm o/_build/lint.lua && make o/_build/lint.lua
+_build/lint.tl:220:35: error: invalid key 'check_call_after_define' …
+```
+
+Same target, same tree, opposite answers. The compile rule was
+`$(o)/%.lua: %.tl $(types_files) $(bootstrap_files)` — a module's output
+depended on its own source and nothing it imports — so a strict compile
+type-checked against modules that had since changed, and the incremental
+build kept output a clean build rejects. This is 2b's finding, arriving
+in the repo that has been building this way all along.
+
+What it settled:
+
+- **the bridge has two halves and only one can land now.** The plan said
+  the compile family "becomes cosmic.mk's rule". It cannot yet:
+  `o/cosmic.mk` defines `all`, `build`, `compile`, `fmt`, `test` and
+  `$(O)/test-summary.txt`, and the Makefile defines four of those. An
+  `-include` would not error — it would take the *last* recipe, silently
+  redefining what `make test` does. So the facts land first and the
+  rules wait for 3i, when the Makefile's own targets retire. Recorded
+  because "include the generated rules" reads like one step and is two.
+- **the generator is a tree script, not a verb.** `--make` computes
+  these facts internally, but the recipes here run the *pinned
+  bootstrap*, which predates `cosmic._make` entirely — using the verb
+  would need a release and a pin bump first, which is the same
+  sequencing constraint phase 1 hit with `-c`. So `_build/facts.tl`
+  calls the same `cosmic._make` modules out of the tree, with the
+  bootstrap as nothing but the interpreter. One generator, no new
+  public verb, and it retires with the bridge.
+- **make's makefile-remaking does the bootstrapping for free.** The
+  first pass has no `o/project.mk`, so every `srcdeps_*` expands empty
+  and the compile rule is exactly what it always was — which is how
+  `o/_build/facts.lua` gets compiled at all. make then remakes the
+  include and re-execs itself with the facts in hand. The circularity
+  resolves because the generator's own compile does not need the
+  generator's output.
+- **write-if-changed is load-bearing here, not tidy.** make re-execs
+  whenever an included makefile is remade, so a generator that always
+  writes turns every build into two. `facts_test.tl` asserts the mtime
+  survives a second run for that reason, alongside the two properties
+  the compile rule actually rides on: the closure is transitive, and an
+  unrelated module is not in it.

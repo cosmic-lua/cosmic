@@ -220,6 +220,10 @@ local sandboxed_enforced: {string} = {
 -- flips when a lane runs it.
 local sandboxed_exempt: {string} = {
   "o/cosmic/_version.lua", -- reads .git; silent-fallback hazard
+  -- The 3e bridge: the facts generator walks the WHOLE tree to classify
+  -- it, which no derived grant can express, and needs the tree LUA_PATH
+  -- to resolve cosmic._make out of o/. Retires with the bridge (3i).
+  "o/project.mk",
   "o/coverage/cosmic/quicksand/box/run_test.tl.test.got",
   "o/coverage/cosmic/quicksand/netns_test.tl.test.got",
   "o/coverage/cosmic/quicksand/proxy_test.tl.test.got",

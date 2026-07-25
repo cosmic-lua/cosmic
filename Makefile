@@ -46,6 +46,21 @@ include mk/modules.mk
 include 3p/cosmos/cook.mk
 include 3p/tl/cook.mk
 
+# The migration bridge (3e). o/project.mk is GENERATED — variable
+# assignments only, produced by the same cosmic._make model `--make`
+# uses — and carries the per-file import closures the compile rule
+# below takes as prerequisites. `-include` because a cold tree has no
+# such file yet: make builds it from the rule in mk/facts.mk, then
+# re-execs itself with the facts in hand, which is the standard
+# remaking-makefiles path and the reason the first pass must work with
+# every srcdeps_* undefined (they expand empty, and the rule is the one
+# it has always been).
+#
+# The rules half of the bridge (`-include o/cosmic.mk`) is NOT here:
+# that file's own build/test/fmt targets collide with the ones below,
+# so it waits until those retire (3i).
+-include $(o)/project.mk
+
 
 # landlock-make sandbox annotations. These are ENFORCED, not intent
 # (#729): every rule family CI exercises sets .SANDBOXED := 1 in
@@ -82,7 +97,17 @@ filter-only = $(if $(only),$(foreach f,$1,$(if $(findstring $(only),$(f)),$(f)))
 # used to sit here is retired (#775): teal/format read sources directly
 # now, as lint always has. tl resolves through $(bootstrap_files)'s
 # embedded copy; the old $(tl_files) prereq was never defined, ever empty.
-$(o)/%.lua: %.tl $(types_files) $(bootstrap_files)
+#
+# $$(srcdeps_$$*) is the migration bridge (3e): the per-file import
+# closure `cosmic --make` computes, adopted here through o/project.mk.
+# It is a CORRECTNESS prerequisite, not a speed one — a strict compile
+# type-checks against the modules it imports, so a module whose contract
+# changed must recompile its importers. Without it, reproduced in this
+# tree: delete an exported function and `make o/_build/lint.lua` says
+# "up to date" and exits 0, while the same target built from scratch
+# fails the type check. The incremental build was keeping output a clean
+# build rejects. Resolves on the second expansion, once the stem exists.
+$(o)/%.lua: %.tl $$(srcdeps_$$*) $(types_files) $(bootstrap_files)
 	@$(bootstrap_cosmic) --build compile $(bootstrap_cosmic) $< $@ $(include_dir_flags)
 
 # tl files: modules declare _tl, derive compiled .lua outputs
@@ -158,6 +183,11 @@ bootstrap: $(bootstrap_files)
 build: cosmic
 
 include mk/run.mk
+
+# The bridge's generator rule. Included HERE, not with the -include
+# above, because its prerequisite list is every source in the tree and
+# those variables are not assembled until run.mk has run.
+include mk/facts.mk
 
 include mk/docs.mk
 

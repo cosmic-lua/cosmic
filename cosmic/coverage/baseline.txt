@@ -4,6 +4,7 @@ _build/build-fetch.tl 23 95
 _build/build-pack.tl 97 132
 _build/build-stage.tl 45 251
 _build/build-untar.tl 121 130
+_build/facts.tl 19 29
 _build/lint.tl 97 132
 _build/make-boot.tl 51 86
 _build/make-help.tl 79 97

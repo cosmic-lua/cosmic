@@ -207,11 +207,18 @@ the first-fetch shell in `bin/cosmic`.
      than theoretical: before the move a project's `cosmic/` and the
      base's `.lua/cosmic/` did not collide at all. **The entry and the
      hoist moved out**, to 3h.
-   - **3e — compiles behind `-include cosmic.mk`.** the first family to
-     move: `$(o)/%.lua: %.tl` becomes cosmic.mk's rule driven by
-     `o/project.mk`'s facts. The bridge direction is the point — the
-     Makefile includes the generated rules, so a family that has not
-     moved still builds the old way.
+   - **3e — the compiles take the generated closures. Landed.** the
+     bridge turns out to have two halves, and only the first can land
+     now: the Makefile `-include`s the generated **facts**
+     (`o/project.mk`) and keeps its own rules. The **rules** half
+     (`-include o/cosmic.mk`) waits for 3i, because that file's
+     `build`/`test`/`fmt` targets collide with the ones the Makefile
+     still defines — including it would silently redefine `test`.
+     Adopting the facts is not a consolation prize: `$$(srcdeps_$$*)`
+     fixes in this repo the exact correctness bug 2b found for `--make`,
+     reproduced here first (delete an exported function and
+     `make o/_build/lint.lua` says "up to date" and exits 0, while the
+     same target from scratch fails the type check).
    - **3f — tests and examples.** the `test` verb against the staged
      tree, with the fence. This repo's ratchet tests read the live tree,
      so they move to the root — the consequence make.md already records.

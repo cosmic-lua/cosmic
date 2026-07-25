@@ -228,6 +228,13 @@ key concepts:
 - **bootstrap**: a pre-built cosmic binary bootstraps compilation of `.tl` → `.lua`; `bin/make` is its sole provisioner (sha-pinned, re-fetched on pin bumps)
 - **no-shell default**: `SHELL` is poisoned globally — recipes are single argv lines, the real shell is a per-rule exception, and the makefile ratchet tests enumerate the exceptions, the host-exec grants, and statically scan recipe text (#756 item 2)
 - **sandboxing**: per-rule `.PLEDGE`/`.UNVEIL` annotations are ENFORCED, not intent — every rule family CI exercises sets `.SANDBOXED := 1` (#729: compile, fetch/stage/lint/reporter, teal/format, tests, examples), so an undeclared read or write in one of their recipes fails on a Landlock host. Most grants are derived from the declared graph (prereqs readable, target directory writable, global base), so a rule declares only genuinely-extra paths; the `.SANDBOXED` and hostx ratchets in `_build/makefile_ratchet_test.tl` pin both sets. Deliberately unenforced, each with its reason at the rule: version.lua, the quicksand namespace tests/examples, and the benchmark family (no CI lane runs it). `unveil()` no-ops without Landlock — the `sandbox-canary` proves the mechanism is live on a host. `.ENV` clamps a rule's child environment to the named variables (#756 item 5) — the driver-exec families declare theirs in cook.mk, gated by the env-clamp fixture's canary probe
+- **generated facts** (3e): `o/project.mk` is written by `_build/facts.tl`
+  from the same `cosmic._make` model `cosmic --make` uses, and the
+  Makefile `-include`s it. It carries `srcdeps_<stem>` — each source's
+  transitive import closure — which the compile rule takes as
+  prerequisites, so a module whose contract changed recompiles its
+  importers. Without it an incremental build can keep output a clean
+  build rejects. Regenerate with `bin/make facts`; never commit it
 - **output directory**: all build artifacts go to `o/`
 
 ## Type Generation
