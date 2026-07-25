@@ -363,16 +363,20 @@ local modes: {string: function({string}): integer} = {
   verdict = do_verdict,
 }
 
---- The modes above, sorted, for error messages: a recipe's whole
---- vocabulary fits in one line, which is the point of it being closed.
---- @return string Comma-separated mode names
-local function mode_names(): string
+--- @return {string} Every verb name, sorted — the whole vocabulary.
+local function verbs(): {string}
   local names: {string} = {}
   for name in pairs(modes) do
     names[#names + 1] = name
   end
   table.sort(names)
-  return table.concat(names, ", ")
+  return names
+end
+
+--- The vocabulary as one line, which is the point of it being closed.
+--- @return string Comma-separated verb names
+local function mode_names(): string
+  return table.concat(verbs(), ", ")
 end
 
 local function recipe_fail(msg: string): integer
@@ -422,14 +426,20 @@ end
 --- path, but `sh` would discard the whole line.
 --- @param line string The recipe line make passed
 --- @return integer Exit code
-local function recipe(line: string): integer
+--- Split and validate a recipe line without running it, so the caller
+--- can fence the step (cosmic.cli.driver) before anything executes.
+--- @param line string The recipe line make passed
+--- @return string|nil The verb, nil when the line is blank or invalid
+--- @return {string} The verb's arguments
+--- @return string|nil Error message when the line is invalid
+local function parse(line: string): string | nil, {string}, string | nil
   -- Strip ONE trailing sentinel. A `;` anywhere else is still refused
   -- below, so `copy a b ; touch evil` does not become two commands.
   line = line:gsub("%s*;%s*$", "")
   local bad = shell_char(line)
   if bad ~= nil then
-    return recipe_fail("recipe lines are argv, not shell; found "
-      .. string.format("%q", bad) .. " in: " .. line)
+    return nil, {}, "recipe lines are argv, not shell; found "
+    .. string.format("%q", bad) .. " in: " .. line
   end
   local argv: {string} = {}
   for word in line:gmatch("%S+") do
@@ -438,15 +448,26 @@ local function recipe(line: string): integer
   -- make does not hand us blank lines, but a variable that expanded to
   -- nothing looks like one; doing nothing is what a shell would do.
   if #argv == 0 then
-    return 0
+    return nil, {}, nil
   end
   local verb = table.remove(argv, 1)
+  if not modes[verb] then
+    return nil, {}, "unknown verb '" .. verb .. "'; a recipe may run: "
+    .. mode_names()
+  end
+  return verb, argv, nil
+end
+
+--- Run an already-parsed verb.
+--- @param verb string A name from the modes table
+--- @param args {string} The verb's arguments
+--- @return integer Exit code
+local function dispatch(verb: string, args: {string}): integer
   local run_verb = modes[verb]
   if not run_verb then
-    return recipe_fail("unknown verb '" .. verb .. "'; a recipe may run: "
-      .. mode_names())
+    return recipe_fail("unknown verb '" .. verb .. "'")
   end
-  return run_verb(argv)
+  return run_verb(args)
 end
 
 local function main(...: string): integer
@@ -463,4 +484,9 @@ if proc.is_main() then
   os.exit(main(...))
 end
 
-return {main = main, recipe = recipe}
+return {
+  main = main,
+  parse = parse,
+  dispatch = dispatch,
+  verbs = verbs,
+}

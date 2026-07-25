@@ -94,6 +94,7 @@ Two sentences carry most of the design:
 | generated outputs | never committed; everything generated lives in `o/` |
 | generator units | directory-scoped; one directory per generated asset |
 | generator inputs | its containing subtree = its grants. reads outside are **denied**, not stale |
+| grants | **derived** from each verb's signature; no declaration channel |
 | enforcement | Landlock where available **plus** portable in-process gating |
 | project root | cwd, with a loud guard if an ancestor also looks like a project |
 | module root | the project root |
@@ -280,10 +281,29 @@ cosmic verb or `exec`.
 
 - **the capability surface is enumerable**; the metacharacter-scanning
   ratchet becomes unnecessary.
-- **sandboxing stops depending on fork-specific syntax.** grants ride in
-  target- and pattern-specific variables (`COSMIC_UNVEIL = $^`, plain
-  GNU make) and cosmic self-restricts. `.PLEDGE`/`.UNVEIL` attributes
-  become optional rather than load-bearing.
+- **sandboxing stops depending on fork-specific syntax, and on any
+  declaration at all.** grants are *derived from the verb's signature*:
+  `copy <src> <dst>` reads src and writes dst, `compile <bootstrap>
+  <src> <out>` execs the first, reads the second, writes the third.
+  cosmic self-restricts from that before dispatching, so
+  `.PLEDGE`/`.UNVEIL` attributes become optional rather than
+  load-bearing — and a rule cannot over-declare its way out of the
+  fence, because a rule declares nothing.
+
+  An earlier version of this design carried grants in target-specific
+  make variables (`COSMIC_UNVEIL = $^`). Closing the vocabulary made
+  that channel redundant: the argument positions *are* the declaration.
+  Two mechanical details the kernel forces, recorded because getting
+  them wrong disables the fence rather than tightening it — a write
+  grants the parent **directory** (creating and unlinking are rights on
+  the directory, and the output does not exist yet), and a read naming
+  a path that does not exist is **dropped**, since landlock opens every
+  rule and one missing input would fail the whole restrict.
+
+  `exec` is the one verb whose reads are not derivable — a pinned
+  compiler reads headers nobody listed — so it is fenced to the unit's
+  subtree instead of its argv, per the same rule generators and tests
+  use.
 
 **The trailing `;` is load-bearing.** Setting `SHELL` is not enough:
 make does not use `SHELL` for a line it judges shell-free — job.c
