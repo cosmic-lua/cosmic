@@ -26,10 +26,34 @@ end
 local record TestrunModule
   run: function(argv: {string}, output_base: string): integer
   report: function(paths: {string}): integer
+  status_of: function(exit_code: integer): string
+  STATUS_ICONS: {string: string}
 end
 ```
 
 ## Functions
+
+### status_of
+
+```teal
+function status_of(exit_code: integer): string
+```
+
+ Classify the exit code recorded in a `.got` file.
+ ONE definition of the contract (#779). The build has two reporters —
+ this module covers the test/coverage/enforce lanes, lib/build/reporter
+ covers teal/format/lint/example/benchmark — and cosmic.build's
+ `--build verdict` grades whichever of them wrote a stage's summary. A
+ silent disagreement about what exit 2 means would mis-grade `ci`, the
+ same failure class as #714 one layer up, so both read it from here.
+
+**Parameters:**
+
+- `exit_code` (integer) - Exit code from the .got file
+
+**Returns:**
+
+- string - "pass" (0), "skip" (2), or "fail" (anything else)
 
 ### run
 
