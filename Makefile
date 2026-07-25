@@ -39,14 +39,23 @@ include 3p/cosmos/cook.mk
 include 3p/tl/cook.mk
 
 
-# landlock-make sandbox annotations. IMPORTANT (#716): landlock-make
-# only enforces .PLEDGE/.UNVEIL for rules that set .SANDBOXED = 1 —
-# nothing here sets it except the sandbox-canary probe, so these
-# annotations are documented intent, not active enforcement (and
-# cosmopolitan's unveil() no-ops without Landlock). The canary proves
-# the mechanism works; see it before flipping enforcement on. NOTE:
-# make hands .UNVEIL values to unveil UNEXPANDED — assign with := and
-# compose from the shared grant sets in cook.mk (#718).
+# landlock-make sandbox annotations. These are ENFORCED, not intent
+# (#729): every rule family CI exercises sets .SANDBOXED := 1 in
+# cook.mk — compile (#739), fetch/stage/lint/reporter (#740),
+# teal/format (#742), tests (#743), examples (#745) — so an undeclared
+# read or write in one of their recipes fails on a Landlock host. The
+# .SANDBOXED ratchet in lib/build/makefile_ratchet_test.tl pins that
+# set both ways, because losing enforcement is otherwise silent: grants
+# are supersets, so a dropped flip breaks nothing and CI stays green.
+# Deliberately NOT enforced, each with its reason at the rule:
+# version.lua (reads .git), the quicksand namespace tests/examples
+# (unshare has no pledge promise; the enforce lane covers them), and
+# the benchmark family (annotations only until a CI lane runs it).
+# cosmopolitan's unveil() still no-ops where Landlock is unavailable —
+# the sandbox-canary (#716/#724) is what proves the mechanism is live
+# on a given host. NOTE: make hands .UNVEIL values to unveil
+# UNEXPANDED — assign with := and compose from the shared grant sets in
+# cook.mk (#718).
 # global defaults: read-only access, no network, basic stdio
 .PLEDGE := stdio rpath
 .UNVEIL := $(unveil_base)
