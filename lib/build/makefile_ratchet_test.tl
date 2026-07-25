@@ -68,7 +68,6 @@ local real_shell_allowed: {string} = {
   "env-probe", -- shows the env a recipe shell sees
   "env-probe-clamped", -- .ENV canary probe (#756 item 5)
   "o/bin/ape", -- APE loader extraction IS the stub flow
-  "o/bootstrap/compile-flag", -- pre-driver strict-compile probe
   "o/ci-selftest-launder-summary.txt", -- deliberately laundering fixture
   "o/cosmic/version.lua", -- git describe interpolation
   "o/lib/build/make/ci-launder.out", -- nested-make fixture
