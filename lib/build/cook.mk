@@ -211,6 +211,15 @@ build_makefile_test_got := $(call test_got,\
 $(build_makefile_test_got): $(build_make_outputs)
 $(build_makefile_test_got): TEST_DIR := $(build_make_out)
 
+# The lint-file-list ratchet in makefile_test reads mk/check.mk SOURCE,
+# which the test unveil set does not cover. It cannot use the database
+# fixture like its neighbours: lint_files is :=, so the database records
+# the expanded file list rather than the git flags being guarded. Only
+# makefile_test needs this, not the ratchet test beside it, so the grant
+# stays as narrow as the allowlist entries it costs.
+build_makefile_src_test_got := $(call test_got,lib/build/makefile_test.tl)
+$(build_makefile_src_test_got): .UNVEIL := $(unveil_test) r:mk
+
 # help_test parses the real Makefile, which the test unveil set does
 # not cover (#729 test family)
 build_help_test_got := $(call test_got,lib/build/help_test.tl)

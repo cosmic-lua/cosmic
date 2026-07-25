@@ -127,9 +127,11 @@ local hostx_allowed: {string} = {
   "o/%.tl.test.got", -- unveil_test lane
   "o/coverage/%.tl.test.got", -- unveil_test lane
   "o/coverage/lib/build/help_test.tl.test.got", -- unveil_test + Makefile
+  "o/coverage/lib/build/makefile_test.tl.test.got", -- unveil_test + mk
   "o/coverage/lib/cosmic/teal_config_test.tl.test.got", -- unveil_test + tlconfig
   "o/coverage/lib/cosmic/tty_test.tl.test.got", -- unveil_test + pty devs
   "o/lib/build/help_test.tl.test.got", -- unveil_test + Makefile
+  "o/lib/build/makefile_test.tl.test.got", -- unveil_test + mk
   "o/lib/cosmic/teal_config_test.tl.test.got", -- unveil_test + tlconfig
   "o/lib/cosmic/tty_test.tl.test.got", -- unveil_test + pty devs
   "o/sandbox-canary/probe.got", -- canary needs its shell
