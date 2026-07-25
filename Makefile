@@ -188,11 +188,19 @@ ci: | $(bootstrap_cosmic)
 
 # No-shell DEFAULT (#756 item 2, inverting #732's per-family opt-in).
 # Set LAST so the parse-time $(shell) queries above ran under the real
-# shell; recipes read SHELL's FINAL value, so the poison reaches every
-# rule. A recipe is a shell-free argv line (make's direct-exec fast
-# path spawns no shell); one that regresses to shell syntax fails
-# loudly on every host, Landlock or not. Rules that genuinely need a
-# shell override SHELL/.SHELLFLAGS per rule with `private` (the grant
-# must not leak to prerequisites); makefile_test ratchets that list.
-SHELL := /dev/null/enoshell
+# shell; recipes read SHELL's FINAL value, so this reaches every rule.
+# A recipe is a shell-free argv line (make's direct-exec fast path
+# spawns no shell); one that regresses to shell syntax fails loudly on
+# every host, Landlock or not. Rules that genuinely need a shell
+# override SHELL/.SHELLFLAGS per rule with `private` (the grant must
+# not leak to prerequisites); makefile_test ratchets that list.
+#
+# cosmic, not the old /dev/null/enoshell poison: the fail-closed
+# property is identical -- neither can run shell syntax -- but a line
+# that regresses now reports WHICH character it was and that recipes
+# are argv, instead of "not a directory". It also makes the SHELL slot
+# the same one a generated cosmic.mk uses, so a recipe can eventually
+# be a bare verb (`copy $< $@ ;`) rather than an explicit exec of the
+# driver. .SHELLFLAGS stays `-c`: that is cosmic's recipe flag too.
+SHELL := $(bootstrap_cosmic)
 .SHELLFLAGS := -c

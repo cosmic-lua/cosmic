@@ -56,7 +56,12 @@ local function parse_var_overrides(db: string, var: string): VarOverrides
   return {global = global_value, owners = owners}
 end
 
-local poison_shell < const > = "/dev/null/enoshell"
+-- The global SHELL is the pinned bootstrap cosmic (#795): make hands
+-- it any recipe line it judges to need a shell, and `-c` refuses shell
+-- syntax by name instead of the old /dev/null/enoshell poison's "not a
+-- directory". Fail-closed either way; the difference is the message,
+-- and that this is the slot a generated cosmic.mk drives.
+local driver_shell < const > = "o/bootstrap/cosmic"
 local real_shell < const > = "/bin/bash"
 
 -- The complete set of rules allowed a real shell. Growing this list is
@@ -87,15 +92,15 @@ local real_shell_allowed: {string} = {
 local function test_no_shell_default_ratchet()
   local db = read_database()
   local sh = parse_var_overrides(db, "SHELL")
-  assert(sh.global == poison_shell,
-    "global SHELL must be the poison, got: " .. tostring(sh.global))
+  assert(sh.global == driver_shell,
+    "global SHELL must be the driver, got: " .. tostring(sh.global))
   local allowed: {string: boolean} = {}
   for _, owner in ipairs(real_shell_allowed) do
     allowed[owner] = true
   end
   local problems: {string} = {}
   for owner, value in pairs(sh.owners) do
-    if value ~= poison_shell then
+    if value ~= driver_shell then
       if not allowed[owner] then
         problems[#problems + 1] = owner .. " overrides SHELL to " .. value ..
         " but is not on the exception allowlist"
@@ -106,7 +111,7 @@ local function test_no_shell_default_ratchet()
   end
   for _, owner in ipairs(real_shell_allowed) do
     local value = sh.owners[owner]
-    if not value or value == poison_shell then
+    if not value or value == driver_shell then
       problems[#problems + 1] = owner ..
       " is allowlisted but carries no real-shell override (stale entry)"
     end

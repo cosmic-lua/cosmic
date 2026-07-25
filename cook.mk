@@ -199,7 +199,7 @@ type_modules := cosmo unix path getopt lsqlite3 re argon2 zip repl
 modules += bootstrap
 bootstrap_cosmic := $(o)/bootstrap/cosmic
 bootstrap_files := $(bootstrap_cosmic)
-bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-25-9ea0750/cosmic-lua
+bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-25-d51de5b/cosmic-lua
 # SHA-256 of the bootstrap cosmic binary. It compiles the entire project, so
 # verify it before executing. Update this when bumping bootstrap_url.
 # This pin ships --build (#756 item 3), so every recipe step — compile,
@@ -210,11 +210,16 @@ bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-25-9e
 # LUA_PATH=";;" and cannot depend on parallel build order (#733). This
 # pin and the compile recipe below moved together — the previous pin's
 # driver reads argv[1] as a flag stamp and would misread the new recipe.
+# This pin also ships `-c`, which is what lets the global SHELL be
+# cosmic itself: make runs `$(bootstrap_cosmic) -c '<line>'` for any
+# recipe it judges to need a shell, and cosmic refuses it by name.
+# The ordering is forced — recipes run the PINNED bootstrap, so `-c`
+# had to be in a release before the Makefile could point SHELL at it.
 # LUA_PATH governs runtime require; the TYPE-resolution axis
 # (tl.search_module) is pinned separately to the tree via TL_PATH in the
 # compile/check recipes, so a compile can never type-check against the
 # bootstrap's stale embedded source (#744 — see tree_tl_path).
-bootstrap_sha256 := dfcba77e4fed2c30008e2d0bc3e9ee0bb879108f0a39cad8f7771561bff34bfd
+bootstrap_sha256 := e577332c6b70d0ab5ca22eb2153fa81d84742adbd818de6b88e77ce9b043a31f
 
 # bin/make is the SOLE provisioner of the bootstrap (#756 cleanup): it
 # runs before every make invocation, parses the pin above via sed,
