@@ -2,6 +2,7 @@
 -- Test the Makefile help system
 
 local help = require("make-help")
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 
 local function test_parse_multiline_comment()
@@ -119,9 +120,22 @@ build:
 end
 test_parse_phony_targets()
 
+-- Scans EVERY makefile, not just the top-level one: #786 moved most rule
+-- families into mk/*.mk, and a check that read only "Makefile" would have
+-- silently stopped covering the targets that moved.
 local function test_all_phony_targets_documented()
-  local content = fs.read("Makefile")
-  assert(content, "failed to read Makefile")
+  -- bind first: check.must forwards extra returns, which a table
+  -- constructor would expand into the array
+  local top = check.must(fs.read("Makefile"), "failed to read Makefile")
+  local parts: {string} = {top}
+  -- fs.files yields PATHS ("mk/check.mk"), not bare names
+  for path in check.must(fs.files("mk")) do
+    if path:match("%.mk$") then
+      parts[#parts + 1] = check.must(fs.read(path), "failed to read " .. path)
+    end
+  end
+  assert(#parts > 1, "expected mk/*.mk to exist and be readable")
+  local content = table.concat(parts, "\n")
 
   local phony = help.parse_phony_targets(content)
   local items = help.parse_makefile(content)
