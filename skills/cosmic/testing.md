@@ -100,7 +100,7 @@ test_write_file()
 what that means for a test author:
 
 - **filesystem**: read `lib/` and `3p/`, write only under `o/` and `TEST_TMPDIR`. writes anywhere else fail.
-- **loopback TCP works** — despite no `inet` promise in the pledge list. binding and connecting on `127.0.0.1` is fine; the precedent is `lib/cosmic/net/connect_test.tl:247` (`net.listen_tcp("127.0.0.1", 0)`), which the whole `net`/`serve` test surface leans on. bind port 0 and use the assigned port; never hardcode ports.
+- **loopback TCP works** — despite no `inet` promise in the pledge list. binding and connecting on `127.0.0.1` is fine; the precedent is `cosmic/net/connect_test.tl:247` (`net.listen_tcp("127.0.0.1", 0)`), which the whole `net`/`serve` test surface leans on. bind port 0 and use the assigned port; never hardcode ports.
 - **DNS and egress do NOT work**. a lookup or outbound connect fails or the child is killed. only write such a call if the test expects the failure (e.g. asserting that a dial to a non-allowed host errors).
 - **process control works**: fork/exec are granted (`proc exec`), so `cosmic.child` spawns are fine — but the child inherits the same sandbox.
 

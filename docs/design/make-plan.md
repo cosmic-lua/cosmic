@@ -1,9 +1,10 @@
 # Design — `cosmic --make`: delivery plan
 
 the design is in [make.md](make.md); this is how it lands. what each
-landed slice *settled* is in [make-log.md](make-log.md) — the record was
-split out when this file hit the 500-line cap, the same way the design
-itself was split off in the first place.
+landed slice *settled* is in [make-log.md](make-log.md) (phases 1–2)
+and [make-log-dogfood.md](make-log-dogfood.md) (phase 3) — one file per
+phase, since the 500-line cap applies to every tracked file and a
+record only grows.
 
 ## Provisioning and the trust root
 
@@ -133,7 +134,7 @@ the first-fetch shell in `bin/cosmic`.
 - `o/`-only check: no generated file lands in the tree
 - the `lint` verb sees **tracked plus untracked-not-ignored** files
   (#799) and applies the 500-line cap to every file, not only `.tl` —
-  which is why this design is three documents
+  which is why this design is four documents and counting
 - validator messages asserted: reserved import path,
   `cmd/foo`→`cmd/bar`, `foo.tl`+`foo.lua`, missing entry, space in
   filename, ambiguous root, internal import
@@ -172,17 +173,22 @@ the first-fetch shell in `bin/cosmic`.
      Partial provision stays refused — that is the shadow the rule was
      written for. The artifact half (a claimed namespace drops the
      base's floor copy) is what keeps the validator half honest.
-   - **3b — the flatten.** `lib/cosmic/` → `cosmic/`, `lib/build/` →
-     `_build/`, `lib/types/` → `_types/`, `lib/perf/` → `_perf/`,
-     `lib/docs/` → `_docs/`, `lib/cosmic/cli/` → `_cli/`,
-     `lib/cosmic/make/` → `_make/`. Mechanical, and large: 371 tracked
-     files plus every `require` site. `_` arrives *with* the move rather
-     than after it, because `lib/docs/` cannot pass through `docs/` —
-     the markdown tree is already there. The build does not change:
-     `INCLUDE_DIRS`, the `cook.mk` wildcards and the pack's paths follow
-     the rename and nothing else does. Gate: `bin/make ci` green, and
-     `--make check` clean at the root.
-   - **3c — `_` replaces `public.tl`.** position becomes the manifest:
+   - **3b — the flatten. Landed.** `lib/cosmic/` → `cosmic/`,
+     `lib/build/` → `_build/`, `lib/types/` → `_types/`, `lib/perf/` →
+     `_perf/`, `lib/docs/` → `_docs/`, `lib/cook.mk` → `mk/modules.mk`.
+     `_` arrives *with* the move rather than after it, because
+     `lib/docs/` cannot pass through `docs/` — the markdown tree is
+     already there. **`cosmic/cli/` → `_cli/` and `cosmic/make/` →
+     `_make/` are deliberately not here**, and move to 3c: those two are
+     not position changes but *surface* changes — they are how the `_`
+     prefix replaces `public.tl`'s internal list — so they belong with
+     the slice that deletes it. Gates: `bin/make ci` green, and `cosmic
+     --make check` at the root **PASS (349 files)** — the phase's
+     milestone, and the first time the model has described the repo it
+     was written for.
+   - **3c — `_` replaces `public.tl`,** and moves `cosmic/cli/` →
+     `_cli/` and `cosmic/make/` → `_make/` with it. position becomes the
+     manifest:
      the public surface, what the docs generator documents, and the
      artifact floor all derive from "not under a `_` directory".
      `public.tl` and its test are deleted. Deliberately after 3b —
@@ -207,7 +213,7 @@ the first-fetch shell in `bin/cosmic`.
    - **3g — pins and generators.** `3p/*/version.lua` → `*.pin.tl`;
      `gentype`, `gentl`, the doc index and the version stamp become
      `*.gen.tl` units. This is where "nothing generated is committed"
-     bites: `lib/types/*.d.tl` stop being committed files, which the
+     bites: `_types/*.d.tl` stop being committed files, which the
      design names as its own sharpest edge.
    - **3h — `bin/make` becomes `bin/cosmic`.** `mk/`, `cook.mk` and the
      ratchets the closed vocabulary makes moot go with it. Last by

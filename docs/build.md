@@ -78,7 +78,7 @@ no shell, no `mktemp`, and no redirects. each test:
 - gets its own `TEST_TMPDIR`, created and cleaned up by the runner
 - captures stdout to `.out`, stderr to `.err`, exit code to `.got`
 - is aggregated into a summary: `cosmic --report` for the test, coverage,
-  and enforce lanes; `lib/build/reporter.tl --out` for teal, format,
+  and enforce lanes; `_build/reporter.tl --out` for teal, format,
   lint, example, and benchmark
 
 type and format checks follow the same shape but read the **source**
@@ -100,7 +100,7 @@ a per-test exception applies to every lane, so modules declare the test
 source once and expand it with `$(call test_got,<src>...)` (#778):
 
 ```makefile
-$(call test_got,lib/build/help_test.tl): .UNVEIL := $(unveil_test) r:Makefile
+$(call test_got,_build/help_test.tl): .UNVEIL := $(unveil_test) r:Makefile
 ```
 
 **the lane patterns nest.** `o/coverage/x.tl.test.got` and
@@ -151,7 +151,7 @@ flips when a lane runs it.
 losing enforcement is silent — drop a `.SANDBOXED := 1` and every grant
 set is still a superset of what the recipe needs, so nothing fails and
 CI stays green. the `.SANDBOXED` ratchet in
-`lib/build/makefile_ratchet_test.tl` enumerates the enforced set and
+`_build/makefile_ratchet_test.tl` enumerates the enforced set and
 the exceptions and fails in both directions, which is the only thing
 that notices.
 
@@ -198,7 +198,7 @@ instead of silently widening the build's best-confined rules.
 
 ### Building the cosmic Binary
 
-the cosmic binary is assembled in `lib/cosmic/cook.mk`:
+the cosmic binary is assembled in `cosmic/cook.mk`:
 
 1. compile all `cosmic.*` modules to `.lua`
 2. copy modules, tl.lua, type definitions, and doc index into a staging area
@@ -219,7 +219,7 @@ the result is a single executable with all modules accessible at `/zip/.lua/`.
 5. **lint**: file length, cast justifications, and shared style checks on
    every tracked file
 6. **coverage**: the tests again in a separate output tree with collection
-   on, ratcheted against `lib/cosmic/coverage/baseline.txt`
+   on, ratcheted against `cosmic/coverage/baseline.txt`
 
 each stage gets a `ci-ok-<stage>` exit marker, made only after its entire
 subtree succeeded. grading reads the marker as well as the summary text,

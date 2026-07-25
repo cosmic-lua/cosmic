@@ -81,7 +81,7 @@ local result = json.decode(input) as {string: any}
 local count = value as integer
 ```
 
-per-file `as` counts are pinned by the cast ratchet (`lib/build/casts.txt`,
+per-file `as` counts are pinned by the cast ratchet (`_build/casts.txt`,
 enforced by `bin/make lint`). a new cast means raising the pin deliberately;
 removing casts means `bin/make casts-baseline` to lock the improvement in.
 

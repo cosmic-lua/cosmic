@@ -37,7 +37,7 @@ self-reports alone were not trusted.
    "helpful module-not-found suggestions" (`COSMIC_NO_REQUIRE_HINTS`), but
    `require("json")` in a script yields only
    `error: module not found: 'json'`. The hint machinery in
-   `lib/cosmic/require.tl:166` matches Lua's `module 'x' not found` format,
+   `cosmic/require.tl:166` matches Lua's `module 'x' not found` format,
    while the Teal loader emits `module not found: 'x'` — so the hints are
    dead on the primary code path. (The hints *do* work in `--examples`
    lookup, where `--examples child` correctly suggests `cosmic.child`.)
@@ -52,7 +52,7 @@ self-reports alone were not trusted.
 3. **Doc renderer garbles multi-line function types in records.**
    `--docs cosmic.poll` renders a stray dangling line
    `fd: number, events: Events)` inside the `Poller` record, making the
-   module look broken (source: `lib/cosmic/poll.tl:41-46`).
+   module look broken (source: `cosmic/poll.tl:41-46`).
 
 4. **`fs.walk` visitor docs are actively misleading.** The signature names
    the first parameter `dir`, but it receives the entry's *full path*.

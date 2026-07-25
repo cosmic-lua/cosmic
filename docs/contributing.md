@@ -9,12 +9,12 @@ bin/make build    # downloads bootstrap, fetches deps, builds cosmic
 bin/make test     # run tests
 ```
 
-`bin/make` is a shell script that, on first run, downloads the sha-pinned bootstrap cosmic and uses it to extract `make` from the sha-pinned cosmos.zip (`lib/build/make-boot.tl`). all build artifacts go to `o/`.
+`bin/make` is a shell script that, on first run, downloads the sha-pinned bootstrap cosmic and uses it to extract `make` from the sha-pinned cosmos.zip (`_build/make-boot.tl`). all build artifacts go to `o/`.
 
 ## Workflow
 
 1. create a branch from `main`
-2. make changes to `.tl` files in `lib/cosmic/`
+2. make changes to `.tl` files in `cosmic/`
 3. run checks:
    ```bash
    bin/make format        # check formatting
@@ -27,7 +27,7 @@ CI runs `make ci` which includes format + teal + test + example checks.
 
 ## Writing a Module
 
-create `lib/cosmic/mymod.tl`:
+create `cosmic/mymod.tl`:
 
 ```teal
 --- Brief module description.
@@ -58,7 +58,7 @@ local M: MyModule = {
 return M
 ```
 
-create `lib/cosmic/mymod_test.tl`:
+create `cosmic/mymod_test.tl`:
 
 ```teal
 #!/usr/bin/env cosmic
@@ -76,7 +76,7 @@ the test file must have a shebang line and call test functions directly.
 
 ## Writing Examples
 
-create `lib/cosmic/mymod_example.tl`:
+create `cosmic/mymod_example.tl`:
 
 ```teal
 local function Example_basic()
@@ -116,7 +116,7 @@ run `cosmic --format file.tl` to see the formatted output. the check compares or
 cosmic uses Teal's strict mode for type checking:
 
 ```bash
-cosmic --check-types lib/cosmic/mymod.tl
+cosmic --check-types cosmic/mymod.tl
 ```
 
 all type errors must be resolved. warnings are reported but don't fail the build.
@@ -132,7 +132,7 @@ all type errors must be resolved. warnings are reported but don't fail the build
    }
    ```
 
-2. create `3p/mylib/cook.mk`:
+2. create `3p/mymk/modules.mk`:
    ```makefile
    modules += mylib
    mylib_version := 3p/mylib/version.lua
@@ -140,7 +140,7 @@ all type errors must be resolved. warnings are reported but don't fail the build
 
 3. include in `Makefile`:
    ```makefile
-   include 3p/mylib/cook.mk
+   include 3p/mymk/modules.mk
    ```
 
 4. declare dependency from your module:

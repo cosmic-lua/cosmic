@@ -82,7 +82,7 @@ lint_list_stamp := $(o)/lint-files.stamp
 # cook.mk edit, which is exactly the mistake the ratchet exists to
 # catch, would leave the fixture stale and the ratchet green. The stamp
 # is write-if-changed, so this rebuilds the fixture when the file set
-# moves and never otherwise. build_make_out comes from lib/build/cook.mk,
+# moves and never otherwise. build_make_out comes from _build/cook.mk,
 # included well before this file.
 $(build_make_out)/database.out: $(lint_list_stamp)
 

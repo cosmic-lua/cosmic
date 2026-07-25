@@ -3,7 +3,7 @@
 status: proposal, for review. three review rounds are folded in; the
 decision tables are the record. delivery is in
 [make-plan.md](make-plan.md); what each landed slice settled is in
-[make-log.md](make-log.md).
+make-log.md and make-log-dogfood.md.
 
 `--make` is **cosmic's build system**, not a wrapper around `--embed`.
 This repo is meant to build with it.

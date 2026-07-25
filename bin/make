@@ -6,7 +6,7 @@ set -e
 # POSIX sh + curl + sha256sum + sed/od it obtains ONE pinned artifact —
 # the bootstrap cosmic (url + sha in cook.mk) — and everything after runs
 # under that pin: the bootstrap extracts `make` from the sha-pinned
-# cosmos.zip (pin in 3p/cosmos/version.lua) via lib/build/make-boot.tl,
+# cosmos.zip (pin in 3p/cosmos/version.lua) via _build/make-boot.tl,
 # so no separate landlock-make release asset and no host unzip exist in
 # the chain. The Makefile's $(bootstrap_cosmic) rule only errors — it
 # never downloads. Trust root: kernel -> this script -> two pinned
@@ -106,7 +106,7 @@ if [ ! -f "${MAKE_BIN}" ] || [ "${ROOT}/3p/cosmos/version.lua" -nt "${MAKE_BIN}"
     # pin is the trust root, TLS is transport. LUA_PATH=";;" pins
     # make-boot's requires to the bootstrap's embedded stdlib.
     SSL_USE_SYSTEM_CERTS=1 LUA_PATH=";;" "${BOOTSTRAP}" \
-        "${ROOT}/lib/build/make-boot.tl" \
+        "${ROOT}/_build/make-boot.tl" \
         "${ROOT}/3p/cosmos/version.lua" make "${MAKE_BIN}"
 fi
 

@@ -21,7 +21,7 @@ fetched: $(all_fetched)
 # the global no-shell default — no $(unveil_hostx): ONLY the pinned
 # bootstrap executes under these grants, with .ENV/.SANDBOXED/LUA_PATH
 # for the family living in cook.mk.
-stdlib_lua := $(patsubst %.tl,$(o)/%.lua,$(filter lib/cosmic/%,$(all_tl)))
+stdlib_lua := $(patsubst %.tl,$(o)/%.lua,$(filter cosmic/%,$(all_tl)))
 # The fetch/stage trees must EXIST before their sandboxed rules launch
 # (unveil silently skips missing paths — the same trap the target-dir
 # derivation closed upstream, one level up); the driver's list mode mints

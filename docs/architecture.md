@@ -14,13 +14,13 @@ the cosmic binary is an executable zip — a native ELF/Mach-O/PE binary with a 
 - embedding arbitrary files alongside Lua modules
 - custom executables via `cosmic --embed`
 
-the entry point is `/zip/main.lua` (compiled from `lib/cosmic/main.tl`). the `.args` file provides default command-line arguments.
+the entry point is `/zip/main.lua` (compiled from `cosmic/main.tl`). the `.args` file provides default command-line arguments.
 
 ### Two-Layer Type System
 
 the codebase has two layers of bindings:
 
-1. **`cosmo.*`** — raw C bindings exposed by Cosmopolitan Libc. these are low-level and untyped from Teal's perspective. type definitions live in `lib/types/cosmo/*.d.tl`.
+1. **`cosmo.*`** — raw C bindings exposed by Cosmopolitan Libc. these are low-level and untyped from Teal's perspective. type definitions live in `_types/cosmo/*.d.tl`.
 
 2. **`cosmic.*`** — ergonomic Teal wrappers that add type safety, error handling, and resource management. these are the public API.
 
@@ -61,7 +61,7 @@ grants, and fail when either set grows (#756 item 2).
 
 ## Directory Structure
 
-### `lib/cosmic/` — Standard Library
+### `cosmic/` — Standard Library
 
 each module follows a consistent pattern:
 
@@ -91,11 +91,11 @@ local M: Module = { do_thing = do_thing }
 return M
 ```
 
-### `lib/types/` — Type Definitions
+### `_types/` — Type Definitions
 
-`.d.tl` files declare types for `cosmo.*` modules. these are generated from Cosmopolitan's `definitions.lua` by `lib/types/gentype.tl` and checked into the repo.
+`.d.tl` files declare types for `cosmo.*` modules. these are generated from Cosmopolitan's `definitions.lua` by `_types/gentype.tl` and checked into the repo.
 
-### `lib/build/` — Build Infrastructure
+### `_build/` — Build Infrastructure
 
 - `build-fetch.tl`: download versioned dependencies from GitHub releases
 - `build-stage.tl`: extract and prepare fetched archives

@@ -10,7 +10,7 @@ $(o)/%.tl.test.got: .PLEDGE := $(pledge_test)
 $(o)/%.tl.test.got: .UNVEIL := $(unveil_test)
 
 # teal_config_test reads tlconfig.lua and the Makefile (outside the test unveil)
-tlconfig_tests := $(call test_got,lib/cosmic/teal_config_test.tl)
+tlconfig_tests := $(call test_got,cosmic/teal_config_test.tl)
 $(tlconfig_tests): .UNVEIL := $(unveil_test) r:tlconfig.lua r:Makefile
 
 # Namespace-exercising tests need to call unshare(CLONE_NEWUSER|NEWNET|...)
@@ -19,9 +19,9 @@ $(tlconfig_tests): .UNVEIL := $(unveil_test) r:tlconfig.lua r:Makefile
 # pledge and broaden unveil for these specific tests. Everything else
 # keeps the tight default above.
 quicksand_sandbox_tests := $(call test_got,\
-  lib/cosmic/quicksand/netns_test.tl \
-  lib/cosmic/quicksand/proxy_test.tl \
-  lib/cosmic/quicksand/box/run_test.tl)
+  cosmic/quicksand/netns_test.tl \
+  cosmic/quicksand/proxy_test.tl \
+  cosmic/quicksand/box/run_test.tl)
 $(quicksand_sandbox_tests): .SANDBOXED := 0
 $(quicksand_sandbox_tests): .PLEDGE =
 $(quicksand_sandbox_tests): .UNVEIL =
@@ -58,8 +58,8 @@ $(o)/coverage/%.tl.test.got: $(o)/%.lua $(cosmic_bin) $(ape_loader)
 # Coverage ratchet: the committed baseline records covered/total per
 # file; the check fails when coverage declines or the file set drifts.
 # Skipped under only= (partial data would read as a huge decline).
-coverage_baseline := lib/cosmic/coverage/baseline.txt
-coverage_baseline_tool := $(o)/lib/cosmic/coverage/baseline.lua
+coverage_baseline := cosmic/coverage/baseline.txt
+coverage_baseline_tool := $(o)/cosmic/coverage/baseline.lua
 
 # De-shelled (#756 item 1): the skip/check branching lives in the
 # baseline tool's gate mode; --only=$(only) stays one argv token even
@@ -68,15 +68,15 @@ $(o)/coverage-summary.txt: .PLEDGE := $(pledge_build)
 $(o)/coverage-summary.txt: .UNVEIL := $(unveil_base) rwcx:$(o)
 $(o)/coverage-summary.txt: $(coverage_got) | $(cosmic_bin)
 	@$(bootstrap_cosmic) --build capture $(cosmic_bin) $(o)/coverage-tests.txt --report $(coverage_got)
-	@$(bootstrap_cosmic) --build tee $@ $(cosmic_bin) --coverage-report $(o)/coverage lib
-	@$(cosmic_bin) $(coverage_baseline_tool) gate $(coverage_baseline) --only=$(only) $(o)/coverage lib
+	@$(bootstrap_cosmic) --build tee $@ $(cosmic_bin) --coverage-report $(o)/coverage $(src_dirs)
+	@$(cosmic_bin) $(coverage_baseline_tool) gate $(coverage_baseline) --only=$(only) $(o)/coverage $(src_dirs)
 
 .PHONY: coverage-baseline
 ## Rewrite the committed coverage ratchet baseline from the last coverage run
 coverage-baseline: .PLEDGE := $(pledge_build)
-coverage-baseline: .UNVEIL := $(unveil_base) rwcx:$(o) rwc:lib/cosmic/coverage
+coverage-baseline: .UNVEIL := $(unveil_base) rwcx:$(o) rwc:cosmic/coverage
 coverage-baseline: $(coverage_got) | $(cosmic_bin)
-	@$(bootstrap_cosmic) --build capture $(cosmic_bin) $(coverage_baseline) $(coverage_baseline_tool) write $(o)/coverage lib
+	@$(bootstrap_cosmic) --build capture $(cosmic_bin) $(coverage_baseline) $(coverage_baseline_tool) write $(o)/coverage $(src_dirs)
 	@echo wrote $(coverage_baseline)
 
 # Privileged enforcement lane (Phase 1 step 8 prerequisite, audit §5.1).
@@ -89,10 +89,10 @@ coverage-baseline: $(coverage_got) | $(cosmic_bin)
 # lane if *nothing* enforced (the "unexpectedly-everything-skipped" alarm), which
 # would mean the lane is not actually unsandboxed and is silently a no-op.
 enforce_srcs := \
-  lib/cosmic/pledge_test.tl \
-  lib/cosmic/landlock_test.tl \
-  lib/cosmic/unveil_test.tl \
-  lib/cosmic/cli/fence_test.tl
+  cosmic/pledge_test.tl \
+  cosmic/landlock_test.tl \
+  cosmic/unveil_test.tl \
+  cosmic/cli/fence_test.tl
 enforce_got := $(patsubst %,$(o)/enforce/%.test.got,$(enforce_srcs))
 
 .PHONY: enforce

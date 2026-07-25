@@ -5,6 +5,11 @@ the design is in [make.md](make.md); the plan is in
 slice taught — kept out of the plan so the plan stays about what is
 next, and out of the design so the design stays about what is true.
 
+phases 1 and 2 are here; **phase 3 is in
+[make-log-dogfood.md](make-log-dogfood.md)**. one file per phase,
+because the 500-line cap applies to every tracked file and a record
+only grows.
+
 Read it when a decision looks arbitrary. Most of them were arbitrary
 once and stopped being so because something failed.
 
@@ -21,7 +26,7 @@ Three fixes that landed the week the design was written are the evidence
 for its central bet, that a hand-maintained description of a project
 drifts from the project:
 
-- **#800** — `lib/build`, `lib/docs`, and `lib/types` were not
+- **#800** — `_build`, `_docs`, and `_types` were not
   type-checked or format-checked at all, because no `cook.mk` declared
   their sources. Three directories, silently outside the gates.
 - **#802** — the teal and format gates "never ran the check they
@@ -366,76 +371,3 @@ Three things phase 1 paid for, carried forward rather than relearned:
   `testing.md`, `sys/help.md` and `AGENTS.md` — plus
   `doc/guide_test.tl`, which asserted `guide.makefile` resolves. All of
   it landed in 2a with the drop, as predicted.
-
-## Phase 3 — dogfood
-
-### 3a — the provider exemption
-
-Measured before slicing the phase, since its whole premise is that
-`--make` can describe this repo: `COSMIC_MAKE_ROOT=$PWD/lib cosmic
---make check` reported **290 errors, every one the same class** —
-`reserved import path 'cosmic.…'`. Nothing else in the model objected
-to this tree, which is the phase's good news as much as its first
-blocker: the flatten ahead is a rename, not a redesign.
-
-What it settled:
-
-- **the reserved list was one rule doing two jobs.** `cosmo` is a native
-  binding and `main.user` is the wrapper's generated slot: nothing in a
-  zip can supply either, so a file landing there is a shadow by
-  definition. `cosmic` and `tl` are ordinary Lua trees that happen to
-  ship in the base, and the design already requires both to be
-  providable — "its own tree provides them", and "any user wanting Teal
-  at runtime vendors it the same way". Splitting the list is what lets
-  the same rule refuse the first pair unconditionally and ask a question
-  about the second.
-- **the question is whether the project claims the namespace's root.**
-  `cosmic/init.tl` claims `cosmic`; `tl.lua` or `tl/init.tl` claims
-  `tl`. Claiming takes the whole namespace. Providing a *piece* without
-  the root stays refused, and that is the case the original rule was
-  written for: with `cosmic/fs.tl` and no `cosmic/init.tl`,
-  `require("cosmic.fs")` resolves to the project while
-  `require("cosmic.json")` falls through to the base, so one binary runs
-  two standard libraries. The refusal now names the root module to add,
-  because "you are halfway" is more useful than "no".
-- **the artifact half is what keeps the validator half honest.** A
-  claimed namespace drops the base's floor copy, so exactly one
-  definition ships instead of the project's winning on `package.path`
-  and the base's riding along as dead weight. Without it the exemption
-  would be a validator opinion the artifact contradicts — and the
-  contradiction would be invisible, since both copies load fine.
-- **the floor stays a positive keep-list; claims subtract from it.**
-  `embed.run` takes the claimed namespaces and `in_floor` consults
-  them, rather than the artifact assembling a bespoke floor. A base that
-  grows a directory still cannot silently start shipping it, which is
-  the property the keep-list exists for. Only `cosmic` has a floor entry
-  to subtract — `tl` is providable but a stripped artifact never keeps
-  the base's copy of it, so claiming `tl` has nothing to give back.
-- **claiming `cosmic` is all-or-nothing at runtime, not just at the
-  validator.** The generated entry wrapper itself runs
-  `require("cosmic.cli.searcher").install()` before the project's
-  `main.tl`, so a project that takes the namespace inherits the
-  obligation to answer that require. Cosmic's own tree meets it by being
-  the real thing; the fixture meets it with a stub, which is what made
-  the test possible to write at all. Worth knowing before 3d moves the
-  base's payload to the same names.
-- **the artifact tests were reading the checkout, not the artifact.**
-  Found by this slice's own test failing in a way the hand-run did not
-  reproduce: `run_artifact` inherited the test lane's `LUA_PATH`, which
-  names `lib/` and `o/lib/`, and the artifact's `package.path` searches
-  those *before* `/zip/.lua/`. So `require('cosmic.json')` inside a
-  freshly stripped artifact resolved to `o/lib/cosmic/json.lua` and
-  reported the stdlib present. The existing floor assertions were
-  passing partly on that. `run_artifact` now names its environment
-  instead of inheriting it, which is what the older tests meant all
-  along — an artifact test that can read the tree that built it is not
-  testing the artifact.
-
-**Measured after, the same way as before.** `COSMIC_MAKE_ROOT=$PWD/lib
-cosmic --make check`: 0 validation errors, down from 290, and the verb
-now gets far enough to type-check — 347 files, 1 failure. That failure
-is the flatten showing through rather than a new problem:
-`lib/docs/publish_test.tl` imports `lib.docs.publish`, a path that only
-resolves when the root is the *repo* root while everything around it
-assumes `lib/`. It is 3b's to fix, and it is the first concrete piece of
-evidence that the tree really does have two module roots today.

@@ -29,7 +29,7 @@ export TMPDIR := $(TMP)
 platform := $(shell uname -s | tr '[:upper:]' '[:lower:]')-$(shell uname -m)
 
 ## INCLUDE_DIRS: directories to search for type definitions (repeatable)
-INCLUDE_DIRS ?= lib
+INCLUDE_DIRS ?= .
 
 include_dir_flags := $(foreach d,$(INCLUDE_DIRS),--include-dir $(d))
 
@@ -42,7 +42,7 @@ test_lane_dirs := $(o) $(o)/coverage
 test_got = $(foreach d,$(test_lane_dirs),$(patsubst %,$(d)/%.test.got,$1))
 
 include cook.mk
-include lib/cook.mk
+include mk/modules.mk
 include 3p/cosmos/cook.mk
 include 3p/tl/cook.mk
 
@@ -51,7 +51,7 @@ include 3p/tl/cook.mk
 # (#729): every rule family CI exercises sets .SANDBOXED := 1 in
 # cook.mk, so an undeclared read or write in one of their recipes fails
 # on a Landlock host. The .SANDBOXED ratchet in
-# lib/build/makefile_ratchet_test.tl pins the enforced set and the
+# _build/makefile_ratchet_test.tl pins the enforced set and the
 # exceptions both ways; losing a flip is otherwise silent. Details in
 # docs/build.md. NOTE: make hands .UNVEIL values to unveil UNEXPANDED —
 # assign with := and compose from the grant sets in cook.mk (#718).
@@ -138,7 +138,7 @@ lua_path_dirs := $(foreach m,$(modules),$($(m)_lua_dirs))
 tree_lua_path := $(subst $(space),;,$(foreach d,$(lua_path_dirs),$(CURDIR)/$(d)/?.lua $(CURDIR)/$(d)/?/init.lua));;
 export NO_COLOR := 1
 # Tree-only absolute type-resolution path — TL_PATH pins tl.search_module to the tree, never the bootstrap's stale /zip copy (#744; see cook.mk, makefile_test).
-tree_tl_path := $(subst $(space),;,$(foreach d,$(CURDIR) $(foreach e,$(INCLUDE_DIRS),$(CURDIR)/$(e)) $(CURDIR)/lib/types,$(d)/?.lua $(d)/?/init.lua))
+tree_tl_path := $(subst $(space),;,$(foreach d,$(CURDIR) $(foreach e,$(INCLUDE_DIRS),$(CURDIR)/$(e)) $(CURDIR)/_types,$(d)/?.lua $(d)/?/init.lua))
 
 include mk/test.mk
 

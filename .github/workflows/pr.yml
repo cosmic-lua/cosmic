@@ -271,11 +271,11 @@ jobs:
           echo "::endgroup::"
 
           for t in \
-            lib/cosmic/string_test.tl \
-            lib/cosmic/json_test.tl \
-            lib/cosmic/fs/path_test.tl \
-            lib/cosmic/fs/path_normalize_test.tl \
-            lib/cosmic/fs/path_windows_test.tl; do
+            cosmic/string_test.tl \
+            cosmic/json_test.tl \
+            cosmic/fs/path_test.tl \
+            cosmic/fs/path_normalize_test.tl \
+            cosmic/fs/path_windows_test.tl; do
             echo "::group::$t"
             ./cosmic.exe "$t"
             echo "::endgroup::"

@@ -11,8 +11,8 @@
 all_docs := $(patsubst %.tl,$(o)/docs/%.md,$(all_tl))
 
 # Documentation from .d.tl type definition files (cosmo modules)
-dtl_files := $(wildcard lib/types/cosmo/*.d.tl)
-dtl_docs := $(patsubst lib/types/cosmo/%.d.tl,$(o)/docs/cosmo/%.md,$(dtl_files))
+dtl_files := $(wildcard _types/cosmo/*.d.tl)
+dtl_docs := $(patsubst _types/cosmo/%.d.tl,$(o)/docs/cosmo/%.md,$(dtl_files))
 all_docs += $(dtl_docs)
 
 .PHONY: docs
@@ -22,10 +22,10 @@ docs: $(all_docs)
 # De-shelled (#756 item 2): the driver's capture mode owns the output
 # file (and its parent directory) — no mkdir, no redirect.
 $(o)/docs/%.md: %.tl $(cosmic_bin) | $(bootstrap_files)
-	@$(bootstrap_cosmic) --build capture $(cosmic_bin) $@ lib/cosmic/doc/gendoc.tl $<
+	@$(bootstrap_cosmic) --build capture $(cosmic_bin) $@ cosmic/doc/gendoc.tl $<
 
-$(o)/docs/cosmo/%.md: lib/types/cosmo/%.d.tl $(cosmic_bin) | $(bootstrap_files)
-	@$(bootstrap_cosmic) --build capture $(cosmic_bin) $@ lib/cosmic/doc/gendoc.tl $<
+$(o)/docs/cosmo/%.md: _types/cosmo/%.d.tl $(cosmic_bin) | $(bootstrap_files)
+	@$(bootstrap_cosmic) --build capture $(cosmic_bin) $@ cosmic/doc/gendoc.tl $<
 
 # Generate serialized doc index for embedding (uses bootstrap cosmic to avoid circular dep)
 # Include both module sources and example files for the index
@@ -36,7 +36,7 @@ $(o)/docs/cosmo/%.md: lib/types/cosmo/%.d.tl $(cosmic_bin) | $(bootstrap_files)
 doc_index_srcs := $(all_tl) $(all_example_srcs) $(dtl_files)
 doc_index_lua := $(patsubst %.tl,$(o)/%.lua,$(all_tl))
 doc_index := $(o)/docs/.index.lua
-doc_index_script := lib/cosmic/doc/index.tl
+doc_index_script := cosmic/doc/index.tl
 
 # $(MAKEFILE_LIST) — the Makefile and every included cook.mk — is a
 # prerequisite so trees whose index was poisoned by a filtered rebuild
@@ -45,7 +45,7 @@ doc_index_script := lib/cosmic/doc/index.tl
 # any future build-logic change — arrives; a bare Makefile prereq missed
 # cook.mk edits (#717). The write-if-changed dance below keeps the
 # binary from re-embedding when the regenerated content is identical
-$(doc_index): export TREE_LUA_PATH = $(o)/lib/?.lua;$(o)/lib/?/init.lua;;
+$(doc_index): export TREE_LUA_PATH = $(o)/?.lua;$(o)/?/init.lua;;
 $(doc_index): $(doc_index_srcs) $(doc_index_lua) $(doc_index_script) $(MAKEFILE_LIST) | $(bootstrap_cosmic)
 	@$(bootstrap_cosmic) --build capture $(bootstrap_cosmic) $@ $(doc_index_script) $(doc_index_srcs)
 

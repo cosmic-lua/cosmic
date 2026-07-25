@@ -58,7 +58,7 @@ local obj = json.decode(input) as {string: any}
 local tags = obj["tags"] as {string}
 ```
 
-new casts count against the cast ratchet (`lib/build/casts.txt`); prefer
+new casts count against the cast ratchet (`_build/casts.txt`); prefer
 the `is` form where the code branches anyway.
 
 ## 3. `arg` elements are `string | nil`

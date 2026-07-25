@@ -7,7 +7,7 @@
 # — o/bootstrap, o/bin (staged tools), then a small, visible host-tool
 # surface (#732 shrinks it; HOST_PATH= overrides for unusual hosts).
 # Entries are CURDIR-anchored: a relative entry breaks for any recipe
-# that cd's (#721). Gate: the env-clamp fixture in lib/build/cook.mk.
+# that cd's (#721). Gate: the env-clamp fixture in _build/cook.mk.
 export LC_ALL := C
 export TZ := UTC
 HOST_PATH ?= /usr/bin:/bin
@@ -18,9 +18,19 @@ export PATH := $(CURDIR)/$(o)/bootstrap:$(CURDIR)/$(o)/bin:$(HOST_PATH)
 # wall of near-identical 90-column strings. Defined here (before the
 # lib/3p cook.mk includes) so their rules can use them too. Rules MUST
 # assign .PLEDGE/.UNVEIL with := — landlock-make hands the values to
-# enforcement unexpanded (see the sandbox-canary note in lib/build).
+# enforcement unexpanded (see the sandbox-canary note in _build).
 pledge_build := stdio rpath wpath cpath proc exec
-unveil_base := rx:$(o)/bootstrap r:lib r:3p
+# The source trees, named once. This was a single directory (`lib`)
+# until the root became the module root (3b), and it is a list rather
+# than `.` because `.` is now the whole repository: `o/`, `3p/` and
+# `.git` included. Two consumers, and they must agree — the sandbox
+# grant below, and the coverage scan in mk/test.mk, which walks these
+# to find source files with no coverage at all. Handing either one `.`
+# is not a wider version of the same thing: it is a different set.
+# Phase 3h replaces both with grants derived from each verb's argv.
+src_dirs := cosmic _build _docs _perf _types
+unveil_srcs := $(foreach d,$(src_dirs),r:$(d))
+unveil_base := rx:$(o)/bootstrap $(unveil_srcs) r:3p
 # Device nodes the cosmic runtime itself touches — not host tools, so
 # de-hosted rules (#732) grant these without the toolchain surface.
 # /dev/null must be writable (recipes redirect to it). mbedtls3's
@@ -76,7 +86,7 @@ $(o)/%.lua: .UNVEIL := r:tlconfig.lua $(unveil_dev)
 # .ENV (#756 item 5): the compile child sees ONLY the declared set —
 # the two path axes below plus the pinned locale/tz and NO_COLOR
 # (deterministic output). A hostile caller variable cannot reach it;
-# gate: the env-clamp fixture's clamped probe in lib/build/cook.mk.
+# gate: the env-clamp fixture's clamped probe in _build/cook.mk.
 $(o)/%.lua: .ENV := LUA_PATH TL_PATH LC_ALL TZ NO_COLOR
 # LUA_PATH=;; pins the --build dispatcher to the bootstrap's embedded
 # stdlib (a caller's LUA_PATH must not redirect its requires); the
@@ -123,7 +133,7 @@ $(o)/%.lint.got: .SANDBOXED := 1
 $(o)/%.lint.got: .PLEDGE := $(pledge_build)
 $(o)/%.lint.got: .UNVEIL := rwc:$(TMP) $(unveil_dev)
 $(o)/%.lint.got: .ENV := LUA_PATH TMPDIR LC_ALL TZ NO_COLOR
-$(o)/%.lint.got: export LUA_PATH = $(o)/lib/?.lua;$(o)/lib/?/init.lua;;
+$(o)/%.lint.got: export LUA_PATH = $(o)/?.lua;$(o)/?/init.lua;;
 # Reporter summaries (bootstrap + tee). test/coverage/enforce summaries
 # exec $(cosmic_bin) and stay unsandboxed with the test lanes.
 reporter_summaries := $(o)/teal-summary.txt $(o)/format-summary.txt \
@@ -142,10 +152,10 @@ $(reporter_summaries): export LUA_PATH = $(tree_lua_path)
 # a lane that has not built the stdlib yet (bin/make lint on a cold tree)
 # would silently resolve it from the bootstrap's embedded, older copy —
 # the #666/#608 stale-stdlib class.
-$(reporter_summaries): $(o)/lib/cosmic/testrun.lua
+$(reporter_summaries): $(o)/cosmic/testrun.lua
 
 # Third ENFORCED family (#729): the teal/format check rules, which exec
-# the assimilated $(cosmic_check_bin) duplicate (see lib/cosmic/cook.mk)
+# the assimilated $(cosmic_check_bin) duplicate (see cosmic/cook.mk)
 # instead of the fat-APE artifact. Failures inside the sandbox surface
 # as check failures in the summaries — loud, not silent.
 # De-hosted (#732): the checks run through `--test` capture on the
@@ -165,14 +175,14 @@ $(o)/%.format.got: .ENV := TMPDIR LC_ALL TZ NO_COLOR
 # lanes — examples exercise the same modules (sockets, tty, chmod) and
 # embed/deploy examples exec what they build under TEST_TMPDIR. The
 # quicksand namespace examples opt out like their tests (no pledge
-# promise covers unshare); see lib/cosmic/cook.mk.
+# promise covers unshare); see cosmic/cook.mk.
 $(o)/%.tl.example.got: .SANDBOXED := 1
 $(o)/%.tl.example.got: .PLEDGE := $(pledge_test)
 $(o)/%.tl.example.got: .UNVEIL := $(unveil_test)
 
 # Fourth ENFORCED family (#729): the plain and coverage test lanes,
 # running the real fat-APE $(cosmic_bin) via the staged o/bin/ape
-# loader (see lib/cosmic/cook.mk) — the APE stub prefers a loader
+# loader (see cosmic/cook.mk) — the APE stub prefers a loader
 # named ape on PATH over extracting one into unveil-able-nowhere
 # ~/.ape-*. The quicksand namespace tests and the privileged enforce
 # lane opt back out where their empty grant overrides live in the
@@ -191,8 +201,8 @@ $(o)/enforce/%.tl.test.got: export LUA_PATH = $(tree_lua_path)
 $(o)/%.tl.benchmark.got: export LUA_PATH = $(tree_lua_path)
 
 # Type definition generation (define early so it's available to all modules).
-# Must match MODULES in lib/types/gentype.tl: "cosmo" renders the top-level
-# cosmo record (lib/types/cosmo.d.tl); the rest render lib/types/cosmo/<m>.d.tl.
+# Must match MODULES in _types/gentype.tl: "cosmo" renders the top-level
+# cosmo record (_types/cosmo.d.tl); the rest render _types/cosmo/<m>.d.tl.
 type_modules := cosmo unix path getopt lsqlite3 re argon2 zip repl
 
 # Bootstrap module: setup cosmic-lua for build process
@@ -248,7 +258,7 @@ $(bootstrap_cosmic): o/bootstrap/cosmic
 endif
 
 # Type definition regeneration.
-# The generated .d.tl files are a pure function of (lib/types/gentype*.tl, the
+# The generated .d.tl files are a pure function of (_types/gentype*.tl, the
 # definitions.lua embedded in the pinned cosmos release). This target runs the
 # CURRENT generator against the CURRENT pin, so regen is reproducible: bump
 # 3p/cosmos/version.lua, run `bin/make regen-types`, commit. The gentype drift
@@ -271,12 +281,12 @@ endif
 # this target exists to avoid. On a cold tree, run `bin/make staged`
 # once first.
 gentype_closure_tl := \
-  $(wildcard lib/types/gentype*.tl) \
-  lib/cosmic/init.tl lib/cosmic/proc.tl lib/cosmic/errno.tl \
-  lib/cosmic/fd.tl lib/cosmic/stream.tl \
-  lib/cosmic/fs/init.tl lib/cosmic/fs/file.tl lib/cosmic/fs/ops.tl \
-  lib/cosmic/fs/path.tl lib/cosmic/fs/tree.tl lib/cosmic/fs/types.tl \
-  lib/cosmic/fs/walk.tl
+  $(wildcard _types/gentype*.tl) \
+  cosmic/init.tl cosmic/proc.tl cosmic/errno.tl \
+  cosmic/fd.tl cosmic/stream.tl \
+  cosmic/fs/init.tl cosmic/fs/file.tl cosmic/fs/ops.tl \
+  cosmic/fs/path.tl cosmic/fs/tree.tl cosmic/fs/types.tl \
+  cosmic/fs/walk.tl
 gentype_closure_lua := $(patsubst %.tl,$(o)/%.lua,$(gentype_closure_tl))
 
 .PHONY: regen-types
@@ -291,10 +301,10 @@ regen-types: $(gentype_closure_lua)
 	@echo "Regenerating type definitions from the pinned cosmos definitions.lua..."
 	@for mod in $(type_modules); do \
 		case $$mod in \
-			cosmo) out=lib/types/cosmo.d.tl ;; \
-			*) out=lib/types/cosmo/$$mod.d.tl ;; \
+			cosmo) out=_types/cosmo.d.tl ;; \
+			*) out=_types/cosmo/$$mod.d.tl ;; \
 		esac; \
 		echo "  $$out"; \
-		LUA_PATH="$(o)/lib/?.lua;$(o)/lib/?/init.lua;$(tl_dir)/?.lua;;" $(cosmos_lua_bin) -e "local r = require('types.gentype').run('$$mod'); assert(r.success, r.error); io.write(r.output)" > $$out.tmp && mv $$out.tmp $$out || { rm -f $$out.tmp; exit 1; }; \
+		LUA_PATH="$(o)/?.lua;$(o)/?/init.lua;$(tl_dir)/?.lua;;" $(cosmos_lua_bin) -e "local r = require('_types.gentype').run('$$mod'); assert(r.success, r.error); io.write(r.output)" > $$out.tmp && mv $$out.tmp $$out || { rm -f $$out.tmp; exit 1; }; \
 	done
 	@echo "Type definitions regenerated. Verify with: bin/make test only=gentype"

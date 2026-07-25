@@ -21,23 +21,22 @@ relitigated in passing.
 
 ```
 Makefile              top-level build orchestration
-cook.mk               module definitions (bootstrap, type gen)
-lib/
-  cook.mk              aggregates lib/* modules
-  cosmic/              standard library modules (*.tl)
-    cook.mk            builds the cosmic binary
-    init.tl            entry point: cosmic.main()
-    public.tl          PUBLIC manifest: public vs internal modules
-    cli/               CLI internals (main.tl dispatcher, help, style, ...)
-    fs/                fs directory module (init, path, ops, file, walk, types)
-    make/              `cosmic --make`: project model, validator, root, verbs
-    *.tl               library modules
-    *_test.tl          tests
-    *_example.tl       runnable examples
-  build/               build infrastructure (fetch, stage, reporter)
-  docs/                doc publishing
-  perf/                performance benchmark harness (see lib/perf/OPTIMIZE.md)
-  types/               cosmo.* type declarations (generated) + gentype generator
+cook.mk               shared grants, module definitions (bootstrap, type gen)
+mk/modules.mk         aggregates the source trees below
+cosmic/               standard library modules (*.tl) — the PUBLIC API
+  cook.mk              builds the cosmic binary
+  init.tl              entry point: cosmic.main()
+  public.tl            PUBLIC manifest: public vs internal modules
+  cli/                 CLI internals (main.tl dispatcher, help, style, ...)
+  fs/                  fs directory module (init, path, ops, file, walk, types)
+  make/                `cosmic --make`: project model, validator, root, verbs
+  *.tl                 library modules
+  *_test.tl            tests
+  *_example.tl         runnable examples
+_build/               build infrastructure (fetch, stage, reporter)
+_docs/                doc publishing
+_perf/                performance benchmark harness (see _perf/OPTIMIZE.md)
+_types/               cosmo.* type declarations (generated) + gentype generator
 3p/
   cosmos/              Cosmopolitan Lua binary + zip tool
   tl/                  Teal compiler
@@ -50,6 +49,14 @@ bin/
   docs.yml             publish docs on push to main
   release.yml          daily release build
 ```
+
+**the repo root is the module root** (phase 3b of the `--make` design):
+a source's path relative to the root *is* its import path, so
+`cosmic/fs/path.tl` is `require("cosmic.fs.path")` and
+`_perf/harness.tl` is `require("_perf.harness")`. there is no `lib/`
+between the two anymore. a leading `_` marks a tree as internal — it is
+repo tooling, not the published API — which is why `_docs/` and the
+markdown `docs/` can coexist.
 
 ## Language and Conventions
 
@@ -68,7 +75,7 @@ bin/
 
 `cosmo` and `cosmo.*` (e.g. `cosmo.unix`, `cosmo.path`) are low-level C bindings from Cosmopolitan Libc. `cosmic.*` modules are the typed Teal wrappers with error handling and docs.
 
-- **library internals** (`lib/cosmic/*.tl`): use `cosmo.*` to implement wrappers. this is the one place `require("cosmo")` is expected.
+- **library internals** (`cosmic/*.tl`): use `cosmo.*` to implement wrappers. this is the one place `require("cosmo")` is expected.
 - **examples, tests, scripts** (`*_example.tl`, `*_test.tl`, user scripts): always use `cosmic.*`. never call `cosmo.*` directly.
 
 common mappings:
@@ -217,21 +224,21 @@ key concepts:
 - **versioned deps**: 3p modules use `version.lua` → fetch → stage pipeline
 - **bootstrap**: a pre-built cosmic binary bootstraps compilation of `.tl` → `.lua`; `bin/make` is its sole provisioner (sha-pinned, re-fetched on pin bumps)
 - **no-shell default**: `SHELL` is poisoned globally — recipes are single argv lines, the real shell is a per-rule exception, and the makefile ratchet tests enumerate the exceptions, the host-exec grants, and statically scan recipe text (#756 item 2)
-- **sandboxing**: per-rule `.PLEDGE`/`.UNVEIL` annotations are ENFORCED, not intent — every rule family CI exercises sets `.SANDBOXED := 1` (#729: compile, fetch/stage/lint/reporter, teal/format, tests, examples), so an undeclared read or write in one of their recipes fails on a Landlock host. Most grants are derived from the declared graph (prereqs readable, target directory writable, global base), so a rule declares only genuinely-extra paths; the `.SANDBOXED` and hostx ratchets in `lib/build/makefile_ratchet_test.tl` pin both sets. Deliberately unenforced, each with its reason at the rule: version.lua, the quicksand namespace tests/examples, and the benchmark family (no CI lane runs it). `unveil()` no-ops without Landlock — the `sandbox-canary` proves the mechanism is live on a host. `.ENV` clamps a rule's child environment to the named variables (#756 item 5) — the driver-exec families declare theirs in cook.mk, gated by the env-clamp fixture's canary probe
+- **sandboxing**: per-rule `.PLEDGE`/`.UNVEIL` annotations are ENFORCED, not intent — every rule family CI exercises sets `.SANDBOXED := 1` (#729: compile, fetch/stage/lint/reporter, teal/format, tests, examples), so an undeclared read or write in one of their recipes fails on a Landlock host. Most grants are derived from the declared graph (prereqs readable, target directory writable, global base), so a rule declares only genuinely-extra paths; the `.SANDBOXED` and hostx ratchets in `_build/makefile_ratchet_test.tl` pin both sets. Deliberately unenforced, each with its reason at the rule: version.lua, the quicksand namespace tests/examples, and the benchmark family (no CI lane runs it). `unveil()` no-ops without Landlock — the `sandbox-canary` proves the mechanism is live on a host. `.ENV` clamps a rule's child environment to the named variables (#756 item 5) — the driver-exec families declare theirs in cook.mk, gated by the env-clamp fixture's canary probe
 - **output directory**: all build artifacts go to `o/`
 
 ## Type Generation
 
 the `cosmo.*` type declarations are GENERATED — never edit them by hand:
 
-- `lib/types/cosmo.d.tl` — the top-level `require("cosmo")` surface
-- `lib/types/cosmo/*.d.tl` — submodules (unix, path, getopt, lsqlite3, re, argon2, zip, repl)
+- `_types/cosmo.d.tl` — the top-level `require("cosmo")` surface
+- `_types/cosmo/*.d.tl` — submodules (unix, path, getopt, lsqlite3, re, argon2, zip, repl)
 
 the single source of truth is `tool/net/definitions.lua` in whilp/cosmopolitan,
 embedded in the pinned cosmos release binary at `/zip/.lua/definitions.lua`.
 upstream, per-module annotation-coverage ratchet tests guarantee every C
-binding is annotated; here, `lib/types/gentype.tl` parses those annotations
-into Teal records, and `lib/types/gentype_test.tl` fails if the committed
+binding is annotated; here, `_types/gentype.tl` parses those annotations
+into Teal records, and `_types/gentype_test.tl` fails if the committed
 files differ byte-for-byte from generator output.
 
 update procedure (after a cosmos bump or generator change):
@@ -240,7 +247,7 @@ update procedure (after a cosmos bump or generator change):
 # 1. bump 3p/cosmos/version.lua (url version + sha)
 bin/make regen-types      # regenerate all .d.tl from the new pin
 bin/make test only=gentype
-# 2. fix any lib/cosmic wrappers the new types break; commit everything together
+# 2. fix any cosmic wrappers the new types break; commit everything together
 ```
 
 `regen-types` runs the generator under the staged cosmos binary with only
@@ -252,10 +259,10 @@ once first.
 `GENTYPE_DEFS=/path/to/definitions.lua` overrides the definitions source for
 validating against a cosmopolitan checkout before a release is cut.
 
-`lib/types/tl.d.tl` (Teal compiler API) is generated too — by
-`lib/types/gentl.tl` from the staged tl source (`bin/make regen-tl-types`
+`_types/tl.d.tl` (Teal compiler API) is generated too — by
+`_types/gentl.tl` from the staged tl source (`bin/make regen-tl-types`
 after a tl version bump; `gentl_test.tl` fails on drift). The one
-handcrafted exception is `lib/types/make-help.d.tl`.
+handcrafted exception is `_types/make-help.d.tl`.
 
 ## cosmic Binary
 
@@ -264,7 +271,7 @@ the cosmic binary is an executable zip. it embeds:
 - Teal compiler in `.lua/tl.lua`
 - type definitions in `.lua/types/`
 - doc index in `.docs/index.lua`
-- entry point: `/zip/main.lua` (compiled from `lib/cosmic/cli/main.tl`)
+- entry point: `/zip/main.lua` (compiled from `cosmic/cli/main.tl`)
 
 CLI features:
 ```
@@ -287,7 +294,7 @@ cosmic -i                     interactive REPL
 
 ## Standard Library Modules
 
-all modules are under `lib/cosmic/` and imported as `cosmic.*`:
+all modules are under `cosmic/` and imported as `cosmic.*`:
 
 | module | description |
 |--------|-------------|
@@ -350,7 +357,7 @@ line, which survives any truncation.
 
 ```bash
 bin/make test                 # all tests
-bin/make coverage             # tests with line coverage + ratchet vs lib/cosmic/coverage/baseline.txt
+bin/make coverage             # tests with line coverage + ratchet vs cosmic/coverage/baseline.txt
 bin/make coverage-baseline    # rewrite the committed coverage ratchet floor
 bin/make test only=sqlite     # filter by substring (also narrows fetch/stage)
 bin/make example              # run Example_* functions
@@ -370,7 +377,7 @@ each test gets its own temp directory via `TEST_TMPDIR`.
 
 ## Performance
 
-`lib/perf` holds the benchmark harness: end-to-end scenarios (JSON, SQLite,
+`_perf` holds the benchmark harness: end-to-end scenarios (JSON, SQLite,
 HTTP, fs, crypto/codecs, binary startup) with per-scenario functional
 checks, a JSON results format, and a noise-aware baseline comparison gate.
 
@@ -382,16 +389,16 @@ bin/make perf-selfcheck       # A/A control: same binary vs itself = noise floor
 bin/make perf-bin COSMO_LUA=… # wrap a local cosmopolitan lua for PERF_BIN
 ```
 
-all performance work follows the loop in `lib/perf/OPTIMIZE.md`: baseline →
+all performance work follows the loop in `_perf/OPTIMIZE.md`: baseline →
 hypothesis → change → `bin/make ci` (correctness/style gate) →
 `bin/make perf-compare` (regression gate) → keep or revert. never weaken a
 scenario or its check to make numbers pass; never commit `o/perf/*.json`.
 
 the manual is split so no chapter fights the 500-line cap:
-`lib/perf/optimize/finding.md` (spotting cosmic-layer wins),
-`lib/perf/optimize/cosmopolitan.md` (optimizing the C layer against a
+`_perf/optimize/finding.md` (spotting cosmic-layer wins),
+`_perf/optimize/cosmopolitan.md` (optimizing the C layer against a
 local whilp/cosmopolitan build — no release needed to measure), and
-`lib/perf/optimize/measurement.md` (noise discipline). the hypothesis
+`_perf/optimize/measurement.md` (noise discipline). the hypothesis
 backlog is GitHub issues labeled `perf` (whilp/cosmic for cosmic-layer
 work, whilp/cosmopolitan for the C layer); find work with
 `gh issue list --label perf --state open`.
