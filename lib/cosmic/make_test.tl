@@ -3,6 +3,8 @@
 
 local make = require("cosmic.make")
 local fs = require("cosmic.fs")
+local env = require("cosmic.env")
+local check = require("cosmic.check")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
@@ -184,6 +186,45 @@ test_generate_custom_config()
 -- interpolated into a shell command, so a value like "; rm -rf ~" must be
 -- refused rather than executed.
 local function test_run_rejects_unsafe_target()
+
+-- run() pipes the generated makefile through io.popen, which inherits
+-- THIS process's cwd -- so the generated BUILD_DIR would otherwise
+-- resolve against the repo root and write build output into it. Both
+-- tests below chdir into the scanned directory and restore afterwards.
+
+-- Test run reports a failing make as a failure, with the exit status.
+-- The generated makefile compiles sources with $(COSMIC), so pointing
+-- that at a nonexistent binary fails the build deterministically --
+-- without depending on whether a real `cosmic` is on PATH.
+local function test_run_reports_make_failure()
+  local test_dir = setup()
+  touch(fs.join(test_dir, "a.tl"), "local x = 1\nprint(x)\n")
+  local prev = check.must(fs.getcwd())
+  assert(fs.chdir(test_dir))
+  env.set("COSMIC", fs.join(test_dir, "no-such-cosmic"))
+  local ok, err = make.run(test_dir)
+  env.unset("COSMIC")
+  assert(fs.chdir(prev))
+  assert(not ok, "a failing make must be reported as a failure")
+  assert(err:match("exit"),
+    "the failure should name how make ended, got: " .. tostring(err))
+  teardown(test_dir)
+end
+test_run_reports_make_failure()
+
+-- Test run reports a clean make as success. An empty project generates
+-- rules with nothing to do, which is enough to exercise the success
+-- branch without needing a working compiler on PATH.
+local function test_run_reports_make_success()
+  local test_dir = setup()
+  local prev = check.must(fs.getcwd())
+  assert(fs.chdir(test_dir))
+  local ok, err = make.run(test_dir)
+  assert(fs.chdir(prev))
+  assert(ok, "an empty project should build cleanly, got: " .. tostring(err))
+  teardown(test_dir)
+end
+test_run_reports_make_success()
   local test_dir = setup()
   local ok, err = make.run(test_dir, "all; touch /tmp/pwned")
   assert(not ok, "run should reject unsafe target")
