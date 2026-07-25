@@ -221,3 +221,30 @@ local function test_test_wrapper_propagates_child_exit_code()
     "a passing check must be recorded as 0, got: " .. got_good)
 end
 test_test_wrapper_propagates_child_exit_code()
+
+--- The same, WITHOUT the `--`. That separator used to be mandatory in
+--- practice and nothing said so: omitting it silently ran no check
+--- (#801). --test now slices its command vector off before the option
+--- parse, the way --build always has, so the child keeps its own flags
+--- either way and the trap is gone rather than merely documented.
+local function test_test_wrapper_needs_no_separator()
+  local bad = fs.join(tmpdir, "nosep_bad.tl")
+  fs.write(bad, 'local function f()\n        return 1\nend\nprint(f())\n')
+  local good = fs.join(tmpdir, "nosep_good.tl")
+  fs.write(good, 'local x = 1\nprint(x)\n')
+
+  local base_bad = fs.join(tmpdir, "nosep_bad.fmt")
+  cli("--test", base_bad, cosmic, "--check-format", bad)
+  local got_bad = check.must(fs.read(base_bad .. ".got"),
+    "--test without `--` should still record an exit code")
+  assert(got_bad:gsub("%s+$", "") ~= "0",
+    "without `--` a failing check must still be non-zero, got: " .. got_bad)
+
+  local base_good = fs.join(tmpdir, "nosep_good.fmt")
+  cli("--test", base_good, cosmic, "--check-format", good)
+  local got_good = check.must(fs.read(base_good .. ".got"),
+    "--test without `--` should still record an exit code")
+  assert(got_good:gsub("%s+$", "") == "0",
+    "without `--` a passing check must be 0, got: " .. got_good)
+end
+test_test_wrapper_needs_no_separator()
