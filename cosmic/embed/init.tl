@@ -211,7 +211,7 @@ local WRAP_SENTINEL < const > = "-- cosmic-embed searcher wrapper (#687); app en
 --- install the cosmic searcher, then run the byte-identical entry.
 local WRAP_MAIN < const > = WRAP_SENTINEL .. "\n" .. [[
 package.path = "/zip/?.lua;/zip/?/init.lua;" .. package.path
-require("cosmic._cli.searcher").install()
+require("cosmic.searcher").install()
 local chunk = assert(loadfile("/zip/main.user.lua"))
 return chunk(...)
 ]]

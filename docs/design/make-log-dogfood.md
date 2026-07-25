@@ -52,7 +52,7 @@ What it settled:
   the base's copy of it, so claiming `tl` has nothing to give back.
 - **claiming `cosmic` is all-or-nothing at runtime, not just at the
   validator.** The generated entry wrapper itself runs
-  `require("cosmic._cli.searcher").install()` before the project's
+  `require("cosmic.searcher").install()` before the project's
   `main.tl`, so a project that takes the namespace inherits the
   obligation to answer that require. Cosmic's own tree meets it by being
   the real thing; the fixture meets it with a stub, which is what made
@@ -172,7 +172,7 @@ What it settled:
   modules rather than edges.
 - **the hoist to root `_cli/`/`_make/` is not this slice's.** The plan
   put it here. It belongs with 3d, and the reason is mechanical: the
-  generated entry wrapper runs `require("cosmic._cli.searcher")` before
+  generated entry wrapper runs `require("cosmic.searcher")` before
   the project's `main.tl`, and the strip floor is `.lua/cosmic/**`. At
   root, `_cli/` is off the floor and every stripped artifact fails to
   boot. Hoisting is therefore the same change as moving the payload to
@@ -341,7 +341,7 @@ What it settled:
   promising. A hand-written declaration beside a Teal implementation is
   free to be wrong in exactly this way; deleting it is what discovered
   it was.
-- **incidental coverage is not coverage.** `cosmic/_cli/searcher.tl` sat
+- **incidental coverage is not coverage.** `cosmic/searcher.tl` sat
   at 17/26 because the repo's own tests reached it by compiling `.tl`
   modules at run time — the very thing this slice stops. Its coverage
   dropped to 4/26, which read as a regression and was really a

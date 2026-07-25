@@ -44,7 +44,6 @@ cosmic/_cli/main.tl 0 276
 cosmic/_cli/main_handlers.tl 16 224
 cosmic/_cli/run.tl 4 31
 cosmic/_cli/script_cache.tl 26 29
-cosmic/_cli/searcher.tl 20 27
 cosmic/_cli/welcome.tl 0 25
 cosmic/_make/artifact.tl 73 83
 cosmic/_make/check.tl 54 55
@@ -132,6 +131,7 @@ cosmic/quicksand/types.tl 3 3
 cosmic/rand.tl 66 73
 cosmic/re.tl 115 125
 cosmic/sandbox.tl 85 108
+cosmic/searcher.tl 20 27
 cosmic/shm.tl 117 128
 cosmic/signal.tl 101 109
 cosmic/sqlite/bind.tl 15 15

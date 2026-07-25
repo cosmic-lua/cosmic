@@ -13,8 +13,8 @@ package.path = package.path:sub(1, at - 1) ..
 
 -- cosmic-owned runtime .tl searcher (#669): resolves and compiles .tl
 -- modules through cosmic.teal, fails the require() on compile errors,
--- and caches compiled output. See cosmic._cli.searcher for the details.
-require("cosmic._cli.searcher").install()
+-- and caches compiled output. See cosmic.searcher for the details.
+require("cosmic.searcher").install()
 if not os.getenv("COSMIC_NO_REQUIRE_HINTS") then
   require("cosmic._require").install()
 end

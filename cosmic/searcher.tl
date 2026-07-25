@@ -1,5 +1,15 @@
 --- cosmic-owned runtime .tl package searcher (#669), replacing
---- tl.loader(). Three guarantees tl's own loader did not make:
+--- tl.loader().
+---
+--- Public, and the caller set is what settled it (3g): the generated
+--- embed wrapper runs `require("cosmic.searcher").install()` before the
+--- entry of EVERY artifact anyone builds, which makes this the module
+--- with the widest reach in the tree. It sat under `_cli/` — marked
+--- internal — for as long as that was true. Same rule as `cosmic.style`
+--- in 3c: who requires a module decides whether it is internal, and a
+--- manifest can hold that contradiction where position cannot.
+---
+--- Three guarantees tl's own loader did not make:
 ---
 --- 1. Modules resolve through cosmic.teal's include dirs, so required
 ---    .d.tl markers always resolve and `is` narrowing never silently

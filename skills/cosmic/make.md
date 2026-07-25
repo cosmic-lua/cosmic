@@ -279,7 +279,7 @@ project may **provide** either outright by defining the namespace's root
 module — `cosmic/init.tl`, or `tl.lua`. claim it and the whole namespace
 is yours: the artifact drops the base's copy, so one definition ships
 instead of two. claiming `cosmic` means answering everything the runtime
-requires of it, including `cosmic._cli.searcher`, which the entry wrapper
+requires of it, including `cosmic.searcher`, which the entry wrapper
 loads before your `main.tl` runs. `cosmo` (a native binding) and
 `main.user` (the wrapper's slot) cannot be claimed at all.
 

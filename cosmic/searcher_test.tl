@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- Tests for the runtime .tl searcher (cosmic._cli.searcher, #669).
+-- Tests for the runtime .tl searcher (cosmic.searcher, #669).
 --
 -- This is the last searcher in package.searchers: the path a
 -- `require("mod")` takes when no compiled `mod.lua` exists anywhere, so
@@ -13,7 +13,7 @@
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local searcher = require("cosmic._cli.searcher")
+local searcher = require("cosmic.searcher")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 

@@ -228,11 +228,12 @@ the first-fetch shell in `bin/cosmic`.
      its **strict** compile could still have a passing test. The `test`
      verb itself, the fence, and moving the ratchet tests to the root
      wait for the rules half of the bridge (3i) — same blocker as 3e.
-   - **3g — pins and generators.** `3p/*/version.lua` → `*.pin.tl`;
-     `gentype`, `gentl`, the doc index and the version stamp become
-     `*.gen.tl` units. This is where "nothing generated is committed"
-     bites: `_types/*.d.tl` stop being committed files, which the
-     design names as its own sharpest edge.
+   - **3g — the searcher is public.** the precondition for the hoist,
+     and true on its own terms: the generated embed wrapper requires it
+     in every artifact ever built, so the module with the widest caller
+     set in the tree cannot be the one marked internal. Third instance
+     of the same rule (`cosmic.style` in 3c, the searcher noted in 3a):
+     who requires a module decides whether it is internal.
    - **3h — the entry and the hoist.** `cmd/cosmic/main.tl` becomes the
      binary's entry, and `cosmic/_cli/` and `cosmic/_make/` hoist to
      root `_cli/` and `_make/`. The two are one change: root-level is
@@ -242,9 +243,23 @@ the first-fetch shell in `bin/cosmic`.
      requires it in every artifact and the strip floor is `cosmic/**`,
      so hoisting `_cli/` out of `cosmic/` makes `cosmic/searcher.tl`
      public, the same way 3c made `cosmic/style.tl` public.
-   - **3i — `bin/make` becomes `bin/cosmic`.** `mk/`, `cook.mk` and the
-     ratchets the closed vocabulary makes moot go with it. Last by
-     construction: it removes the bridge.
+   - **3i — the verbs take over, and the bridge goes.** `-include
+     o/cosmic.mk` once the Makefile's own `build`/`test`/`fmt` targets
+     retire; `--make fetch` replaces `_build/build-fetch.tl`, which is
+     what lets `3p/*/version.lua` become `*.pin.tl`; `regen` runs the
+     generation units, which is what lets `_types/*.d.tl` stop being
+     committed. Then `bin/make` → `bin/cosmic`, and `mk/`, `cook.mk`
+     and the ratchets the closed vocabulary makes moot go with it.
+
+     **Pins and generators moved here from 3g, on evidence.** Both
+     looked independent and are not: converting the pins means
+     something must read them, and the only reader is
+     `cosmic._make.pin` — which `_build/build-fetch.tl` cannot import,
+     because it sits outside `cosmic/` and the `_` rule forbids it (the
+     model gate says so out loud since 3f). The same holds for the
+     generators and `regen`. Neither is blocked on difficulty; both are
+     blocked on the verb replacing this repo's own tooling, which is
+     what removing the bridge *is*.
 4. **Policy verbs.** `ci`, `coverage`, `enforce`, `reproducible`,
    `offline`; retire the ratchets the closed vocabulary makes moot.
 5. **Deferred, on evidence.** action cache; port isolation; `--make

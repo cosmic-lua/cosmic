@@ -253,7 +253,7 @@ test_stripped_to_the_floor()
 -- package.path deciding which one each require() gets, silently,
 -- because both load fine.
 --
--- The fixture has to supply cosmic._cli.searcher because the embed
+-- The fixture has to supply cosmic.searcher because the embed
 -- wrapper itself requires it -- claiming the namespace is all-or-
 -- nothing at runtime too, which is the obligation cosmic's own tree
 -- meets by being the real thing.
@@ -264,7 +264,7 @@ local function test_provided_namespace_supersedes_the_floor()
       ["cosmic/init.tl"] = "return {}\n",
       ["cosmic/mine.tl"] = "local record M\n  tag: string\nend\n" ..
       "local m: M = {tag = 'ours'}\nreturn m\n",
-      ["cosmic/_cli/searcher.tl"] = "local record S\n  install: function()\nend\n" ..
+      ["cosmic/searcher.tl"] = "local record S\n  install: function()\nend\n" ..
       "local s: S = {install = function() end}\nreturn s\n",
     })
   local code, out = make(root, "build")
