@@ -63,35 +63,28 @@ local function child_tree_lua_path(): string
   return tree
 end
 
---- compile <flag_stamp> <bootstrap> <src> <out> [compiler flags...]
---- Reads the probed flag and sets the child's LUA_PATH (";;" for
---- strict compiles, $TREE_LUA_PATH otherwise; TL_PATH passes through
---- from the rule's export).
+--- compile <bootstrap> <src> <out> [compiler flags...]
+--- Always a STRICT compile (#776): --compile-strict type checks and then
+--- generates from that same checked AST, so nothing ships that did not
+--- typecheck, under LUA_PATH=";;" so output cannot depend on parallel
+--- build order (#733). TL_PATH passes through from the rule's export.
+---
+--- The pre-#776 driver took a flag-stamp path as its first argument and
+--- read a probed flag out of it, falling back to a non-strict,
+--- order-dependent compile when the pinned bootstrap predated the flag.
+--- That fallback was the one place a stale input degraded silently; the
+--- flag was pinned in #776 and the stamp is retired here.
 local function do_compile(args: {string}): integer
-  local stamp, bootstrap, src, out = args[1], args[2], args[3], args[4]
+  local bootstrap, src, out = args[1], args[2], args[3]
   if not out then
-    return fail("usage: compile <flag_stamp> <bootstrap> <src> <out> [flags...]")
+    return fail("usage: compile <bootstrap> <src> <out> [flags...]")
   end
-  -- cast: or fallback does not narrow
-  local flag = ((fs.read(stamp) or "") as string):match("%S+")
-  if flag ~= "--compile-strict" and flag ~= "--compile" then
-    return fail("bad compile flag in " .. stamp .. ": " .. tostring(flag))
-  end
-  if flag == "--compile-strict" then
-    env.set("LUA_PATH", ";;")
-  else
-    local tree = child_tree_lua_path()
-    if not tree then
-      return fail("TREE_LUA_PATH required for non-strict compiles")
-    end
-    env.set("LUA_PATH", tree)
-  end
-
+  env.set("LUA_PATH", ";;")
   local argv: {string} = {bootstrap}
-  for i = 5, #args do
+  for i = 4, #args do
     table.insert(argv, args[i])
   end
-  table.insert(argv, flag)
+  table.insert(argv, "--compile-strict")
   table.insert(argv, src)
   return run_into(argv, out)
 end

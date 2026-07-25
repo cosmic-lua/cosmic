@@ -55,21 +55,21 @@ local function test_link_replaces()
 end
 test_link_replaces()
 
-local function compile_fixture(name: string, content: string): string, string, string
+-- #776 retired the flag-stamp argument: compiles are unconditionally
+-- strict, so the fixture is just a source and an output path.
+local function compile_fixture(name: string, content: string): string, string
   local dir = fs.join(tmpdir, name)
   fs.makedirs(dir)
-  local stamp = fs.join(dir, "compile-flag")
   local src = fs.join(dir, "mod.tl")
   local out = fs.join(dir, "mod.lua")
-  assert(fs.write(stamp, "--compile\n"))
   assert(fs.write(src, content))
-  return stamp, src, out
+  return src, out
 end
 
 local function test_compile_writes_output()
-  local stamp, src, out = compile_fixture("c-ok", "local x: number = 1\nprint(x)\n")
+  local src, out = compile_fixture("c-ok", "local x: number = 1\nprint(x)\n")
   env.set("TREE_LUA_PATH", ";;")
-  local code, _out, err = run_driver("compile", stamp, test_bin, src, out)
+  local code, _out, err = run_driver("compile", test_bin, src, out)
   assert(code == 0, "compile failed (" .. tostring(code) .. "): " .. err)
   -- cast: or fallback does not narrow
   local lua = (fs.read(out) or "") as string
@@ -78,16 +78,16 @@ end
 test_compile_writes_output()
 
 local function test_compile_unchanged_keeps_mtime()
-  local stamp, src, out = compile_fixture("c-mtime", "print(1)\n")
+  local src, out = compile_fixture("c-mtime", "print(1)\n")
   env.set("TREE_LUA_PATH", ";;")
-  local code = run_driver("compile", stamp, test_bin, src, out)
+  local code = run_driver("compile", test_bin, src, out)
   assert(code == 0, "first compile failed")
   local st1 = fs.stat(out)
   assert(st1, "output should exist")
   local s1, n1 = (st1 as fs_types.Stat):mtim() -- cast: mixed-representation Stat
   -- second run with identical content must not rewrite the output
   fs.chmod(out, tonumber("444", 8) as integer) -- cast: octal is integral
-  code = run_driver("compile", stamp, test_bin, src, out)
+  code = run_driver("compile", test_bin, src, out)
   assert(code == 0, "second compile failed")
   local st2 = fs.stat(out)
   local s2, n2 = (st2 as fs_types.Stat):mtim() -- cast: mixed-representation Stat
@@ -95,24 +95,25 @@ local function test_compile_unchanged_keeps_mtime()
 end
 test_compile_unchanged_keeps_mtime()
 
+-- strictness (#776): a type error must fail AND leave no output, so a
+-- file that did not typecheck can never be packed into the binary
 local function test_compile_failure_no_output()
-  local stamp, src, out = compile_fixture("c-bad", "local x: number = \"not a number\"\n")
+  local src, out = compile_fixture("c-bad", "local x: number = \"not a number\"\n")
   env.set("TREE_LUA_PATH", ";;")
-  local code, _out, err = run_driver("compile", stamp, test_bin, src, out)
+  local code, _out, err = run_driver("compile", test_bin, src, out)
   assert(code ~= 0, "type error must fail the compile")
   assert(err ~= "", "compiler stderr must pass through")
   assert(not fs.stat(out), "failed compile must not write output")
 end
 test_compile_failure_no_output()
 
-local function test_compile_rejects_bad_stamp()
-  local stamp, src, out = compile_fixture("c-stamp", "print(1)\n")
-  assert(fs.write(stamp, "--rm -rf\n"))
-  local code, _out, err = run_driver("compile", stamp, test_bin, src, out)
-  assert(code ~= 0, "bad stamp must fail")
-  assert(err:match("bad compile flag"), "expected stamp error, got: " .. err)
+local function test_compile_requires_all_paths()
+  local src, _out = compile_fixture("c-usage", "print(1)\n")
+  local code, _stdout, err = run_driver("compile", test_bin, src)
+  assert(code ~= 0, "a missing output path must fail")
+  assert(err:match("usage: compile"), "expected a usage error, got: " .. err)
 end
-test_compile_rejects_bad_stamp()
+test_compile_requires_all_paths()
 
 local function test_unknown_mode()
   local code, _out, err = run_driver("explode")
