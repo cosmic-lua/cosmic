@@ -59,6 +59,14 @@ help: $(build_files) | $(bootstrap_cosmic)
 
 ## Filter targets by substring (make test only=teal; also narrows fetch/stage)
 filter-only = $(if $(only),$(foreach f,$1,$(if $(findstring $(only),$(f)),$(f))),$1)
+# INVARIANT (#608, #777): only= narrows which CHECKS RUN — never what an
+# ARTIFACT CONTAINS. Every $(call filter-only,...) below sits INSIDE a
+# target-list derivation, so the source lists stay complete by
+# construction. Before #777 the filter was applied to the source lists
+# and each artifact input needed an unfiltered twin (all_module_srcs vs
+# all_tl, doc_index_example_srcs vs all_example_srcs) plus a comment
+# saying which to reach for; forgetting shipped a truncated binary.
+# Keep new filter calls at the target-list level and the class stays shut.
 
 # Compiles are the pinned bootstrap's --build steps (#732, #756 item 3):
 # no shell, no host mkdir/cat/cmp/mv (LUA_PATH pins live in cook.mk with
@@ -70,7 +78,7 @@ $(o)/%.lua: %.tl $(types_files) $(bootstrap_files) $(compile_flag_stamp)
 	@$(bootstrap_cosmic) --build compile $(compile_flag_stamp) $(bootstrap_cosmic) $< $@ $(include_dir_flags)
 
 # tl files: modules declare _tl, derive compiled .lua outputs
-all_tl := $(call filter-only,$(foreach x,$(modules),$($(x)_tl)))
+all_tl := $(foreach x,$(modules),$($(x)_tl))
 all_lua := $(patsubst %.tl,$(o)/%.lua,$(all_tl))
 
 # define *_staged, *_dir for versioned modules (must be before dep expansion)
@@ -92,11 +100,11 @@ $(foreach m,$(filter-out $(default_deps),$(modules)),\
 # versioned modules: o/module/.versioned -> version.lua
 $(foreach m,$(modules),$(if $($(m)_version),\
   $(eval $(o)/$(m)/.versioned: $($(m)_version) | $(bootstrap_cosmic) ; @$(bootstrap_cosmic) --build link $(CURDIR)/$$< $$@)))
-all_versioned := $(call filter-only,$(foreach m,$(modules),$(if $($(m)_version),$(o)/$(m)/.versioned)))
+all_versioned := $(foreach m,$(modules),$(if $($(m)_version),$(o)/$(m)/.versioned))
 
 # versions get fetched: o/module/.fetched -> o/fetched/module/<ver>-<sha>/<archive>
 .PHONY: fetched
-all_fetched := $(patsubst %/.versioned,%/.fetched,$(all_versioned))
+all_fetched := $(patsubst %/.versioned,%/.fetched,$(call filter-only,$(all_versioned)))
 ## Fetch all dependencies only
 fetched: $(all_fetched)
 # Downloads are integrity-checked against the sha256 pinned in each
@@ -110,7 +118,7 @@ fetched: $(all_fetched)
 # the global no-shell default — no $(unveil_hostx): ONLY the pinned
 # bootstrap executes under these grants, with .ENV/.SANDBOXED/LUA_PATH
 # for the family living in cook.mk.
-stdlib_lua := $(patsubst %.tl,$(o)/%.lua,$(filter lib/cosmic/%,$(foreach x,$(modules),$($(x)_tl))))
+stdlib_lua := $(patsubst %.tl,$(o)/%.lua,$(filter lib/cosmic/%,$(all_tl)))
 # The fetch/stage trees must EXIST before their sandboxed rules launch
 # (unveil silently skips missing paths — the same trap the target-dir
 # derivation closed upstream, one level up); the driver's list mode mints
@@ -133,8 +141,8 @@ $(o)/%/.staged: .UNVEIL := $(unveil_stage) $(unveil_dev)
 $(o)/%/.staged: $(o)/%/.fetched $(build_files) $(stdlib_lua) | $(STAGE_O)/.exists
 	@$(bootstrap_cosmic) -- $(build_stage) $(o)/$*/.versioned $(platform) $< $@
 
-all_tests := $(call filter-only,$(foreach x,$(modules),$($(x)_tests)))
-all_tested := $(patsubst %,$(o)/%.test.got,$(all_tests))
+all_tests := $(foreach x,$(modules),$($(x)_tests))
+all_tested := $(patsubst %,$(o)/%.test.got,$(call filter-only,$(all_tests)))
 
 ## Run all tests (incremental)
 test: $(o)/test-summary.txt
@@ -203,7 +211,7 @@ $(o)/%.tl.test.got: $(o)/%.lua $(cosmic_bin) $(ape_loader)
 # `make test` results (and stays incremental itself). Each test leaves
 # .cov files in <got>.cov.d; the summary merges them and folds in lib/
 # so entirely untested modules still appear.
-coverage_got := $(patsubst %,$(o)/coverage/%.test.got,$(all_tests))
+coverage_got := $(patsubst %,$(o)/coverage/%.test.got,$(call filter-only,$(all_tests)))
 
 .PHONY: coverage
 ## Run all tests with line coverage and report per-file totals
@@ -274,19 +282,19 @@ $(o)/enforce-summary.txt: $(enforce_got) | $(cosmic_bin)
 	@$(bootstrap_cosmic) --build tee $@ $(cosmic_bin) --report $^
 	@$(bootstrap_cosmic) --build require-marker enforce-ran: $(o)/enforce
 
-all_built_files := $(call filter-only,$(foreach x,$(modules),$($(x)_files)))
+all_built_files := $(foreach x,$(modules),$($(x)_files))
 all_built_files += $(all_lua)
-all_source_files := $(call filter-only,$(foreach x,$(modules),$($(x)_tests)))
-all_source_files += $(call filter-only,$(filter-out ,$(foreach x,$(modules),$($(x)_version))))
-all_source_files += $(call filter-only,$(foreach x,$(modules),$($(x)_srcs)))
+all_source_files := $(all_tests)
+all_source_files += $(filter-out ,$(foreach x,$(modules),$($(x)_version)))
+all_source_files += $(foreach x,$(modules),$($(x)_srcs))
 all_source_files += $(all_tl)
 
 .PHONY: files
 ## Build all module files
-files: $(all_built_files)
+files: $(call filter-only,$(all_built_files))
 
 # .got NAMES are $(o)-prefixed; the PREREQUISITE is the source (#775).
-all_teals := $(patsubst %,$(o)/%.teal.got,$(all_source_files))
+all_teals := $(patsubst %,$(o)/%.teal.got,$(call filter-only,$(all_source_files)))
 
 .PHONY: check
 ## Run Teal type checking
@@ -301,7 +309,7 @@ $(o)/teal-summary.txt: $(all_teals) | $(build_reporter)
 $(o)/%.teal.got: % $(cosmic_check_bin) | $(bootstrap_files)
 	@$(cosmic_check_bin) --test $(basename $@) $(cosmic_check_bin) $(include_dir_flags) --check-types $<
 
-all_formats := $(patsubst %,$(o)/%.format.got,$(all_source_files))
+all_formats := $(patsubst %,$(o)/%.format.got,$(call filter-only,$(all_source_files)))
 
 ## Check formatting on all files
 format: $(o)/format-summary.txt
@@ -355,8 +363,8 @@ bootstrap: $(bootstrap_files)
 build: cosmic
 
 # Example testing - run Example_* functions in _example.tl files
-all_example_srcs := $(call filter-only,$(foreach m,$(modules),$($(m)_examples)))
-all_examples := $(patsubst %.tl,$(o)/%.tl.example.got,$(all_example_srcs))
+all_example_srcs := $(foreach m,$(modules),$($(m)_examples))
+all_examples := $(patsubst %.tl,$(o)/%.tl.example.got,$(call filter-only,$(all_example_srcs)))
 
 .PHONY: example
 ## Run all example tests
@@ -369,8 +377,8 @@ $(o)/%.tl.example.got: %.tl $(cosmic_bin) $(ape_loader) | $(bootstrap_files)
 	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) --check-examples $<
 
 # Benchmark testing - run Benchmark_* functions in .tl files (exclude test files)
-all_benchmark_srcs := $(call filter-only,$(foreach m,$(modules),$(filter-out $($(m)_tests),$($(m)_tl))))
-all_benchmarks := $(patsubst %.tl,$(o)/%.tl.benchmark.got,$(all_benchmark_srcs))
+all_benchmark_srcs := $(foreach m,$(modules),$(filter-out $($(m)_tests),$($(m)_tl)))
+all_benchmarks := $(patsubst %.tl,$(o)/%.tl.benchmark.got,$(call filter-only,$(all_benchmark_srcs)))
 
 .PHONY: benchmark
 ## Run all benchmarks
@@ -384,13 +392,10 @@ $(o)/%.tl.benchmark.got: .UNVEIL := $(unveil_run)
 $(o)/%.tl.benchmark.got: %.tl $(cosmic_bin) | $(bootstrap_files)
 	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) --benchmark $<
 
-# Documentation generation - render .tl files as markdown
-# Module sources for docs: all _tl files (excludes tests and examples).
-# Deliberately NOT filter-only'd: these feed artifacts (published docs and
-# the doc index embedded in the binary). only= filters which tests and
-# checks run; it must never change what artifacts contain (#608).
-all_module_srcs := $(foreach m,$(modules),$($(m)_tl))
-all_docs := $(patsubst %.tl,$(o)/docs/%.md,$(all_module_srcs))
+# Documentation generation - render .tl files as markdown. $(all_tl) is
+# complete by construction (#777), so docs and the embedded index read it
+# directly — the unfiltered all_module_srcs twin this used to need is gone.
+all_docs := $(patsubst %.tl,$(o)/docs/%.md,$(all_tl))
 
 # Documentation from .d.tl type definition files (cosmo modules)
 dtl_files := $(wildcard lib/types/cosmo/*.d.tl)
@@ -412,13 +417,11 @@ $(o)/docs/cosmo/%.md: lib/types/cosmo/%.d.tl $(cosmic_bin) | $(bootstrap_files)
 # Generate serialized doc index for embedding (uses bootstrap cosmic to avoid circular dep)
 # Include both module sources and example files for the index
 # LUA_PATH points at the freshly compiled modules so the index generator uses
-# this tree's cosmic.doc code, not the bootstrap's embedded (older) copy
-# Example sources for the index are expanded unfiltered here (unlike
-# all_example_srcs, which only= legitimately filters as test targets):
-# the embedded index must always describe every module (#608)
-doc_index_example_srcs := $(foreach m,$(modules),$($(m)_examples))
-doc_index_srcs := $(all_module_srcs) $(doc_index_example_srcs) $(dtl_files)
-doc_index_lua := $(patsubst %.tl,$(o)/%.lua,$(all_module_srcs))
+# this tree's cosmic.doc code, not the bootstrap's embedded (older) copy.
+# Both source lists are complete by construction (#777) — the embedded
+# index must always describe every module (#608).
+doc_index_srcs := $(all_tl) $(all_example_srcs) $(dtl_files)
+doc_index_lua := $(patsubst %.tl,$(o)/%.lua,$(all_tl))
 doc_index := $(o)/docs/.index.lua
 doc_index_script := lib/cosmic/doc/index.tl
 
