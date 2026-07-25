@@ -81,7 +81,6 @@ local function parse_args(): Options
   -- Options that consume all remaining arguments (no script after them)
   local long_greedy: {string: boolean} = {
     ["report"] = true,
-    ["test"] = true,
     ["coverage-report"] = true,
   }
 
@@ -90,12 +89,13 @@ local function parse_args(): Options
 
   -- Find first non-option argument (script name) to know where to stop parsing
   local script_idx: integer = nil
-  -- --build's payload after the mode is a FOREIGN argv — the recipe
-  -- child's own flags (`--build tee out cosmic --report ...`). getopt
-  -- permutes, so it would consume those flags as cosmic options; slice
-  -- the payload off here and parse only up to the mode argument.
-  local build_payload: {string} = nil
-  local build_parse_end: integer = nil
+  -- --build and --test are followed by a FOREIGN argv — the child's own
+  -- flags. getopt permutes, so it would eat those as cosmic options;
+  -- slice the payload off and parse only to the option's own argument.
+  -- --test lacked this (#801): its child ran bare, hit the REPL and
+  -- exited 0, so teal and format reported passes without ever running.
+  local payload: {string} = nil
+  local payload_parse_end: integer = nil
   local i = 1
   while i <= #arg do
     local a = arg[i]
@@ -104,12 +104,14 @@ local function parse_args(): Options
       break
     elseif a:sub(1, 2) == "--" then
       local opt_name = a:sub(3)
-      if opt_name == "build" then
-        build_payload = {}
-        for k = i + 2, #arg do
-          build_payload[#build_payload + 1] = arg[k]
+      if opt_name == "build" or opt_name == "test" then
+        payload = {}
+        -- a `--` here defends against that same bug; step over it
+        local from = arg[i + 2] == "--" and i + 3 or i + 2
+        for k = from, #arg do
+          payload[#payload + 1] = arg[k]
         end
-        build_parse_end = i + 1
+        payload_parse_end = i + 1
         script_idx = nil
         break
       elseif long_greedy[opt_name] then
@@ -142,8 +144,8 @@ local function parse_args(): Options
         cosmic_args[#cosmic_args + 1] = arg[k]
       end
     end
-  elseif build_parse_end then
-    for k = 1, math.min(build_parse_end, #arg) do
+  elseif payload_parse_end then
+    for k = 1, math.min(payload_parse_end, #arg) do
       cosmic_args[#cosmic_args + 1] = arg[k]
     end
   else
@@ -266,7 +268,7 @@ local function parse_args(): Options
       opts.welcome = true
     elseif opt == "test" then
       opts.test_output = optarg
-      opts.test_argv = r.args
+      opts.test_argv = payload or {}
       return opts
     elseif opt == "report" then
       opts.report_paths = r.args
@@ -276,7 +278,7 @@ local function parse_args(): Options
       return opts
     elseif opt == "build" then
       opts.build_mode = optarg
-      opts.build_argv = build_payload or {}
+      opts.build_argv = payload or {}
       return opts
     elseif opt == "make" then
       opts.make = optarg or ""
