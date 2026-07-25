@@ -209,3 +209,30 @@ local function test_compile_pins_tree_only_tl_path()
   end
 end
 test_compile_pins_tree_only_tl_path()
+
+-- The lint file list must include untracked-but-not-ignored files.
+--
+-- lint is the only gate whose file list comes from git rather than from
+-- a wildcard: teal/format/test enumerate via $(wildcard ...) in each
+-- cook.mk and so see a file the moment it exists, but lint asks git.
+-- With a bare `git ls-files` that meant a brand-new file was linted
+-- ZERO times locally -- `bin/make lint` reported green on a file it had
+-- never opened -- and first failed in CI, where the checkout has it
+-- tracked. --others is what closes that; --exclude-standard is what
+-- keeps o/ and other ignored build output out of the list.
+--
+-- Asserted against the makefile source because both flags vanish from
+-- make's database: lint_files is `:=`, so the database records the
+-- expanded file list, not the command that produced it.
+local function test_lint_lists_untracked_files()
+  local src = check.must(fs.read("mk/check.mk"), "failed to read mk/check.mk")
+  local cmd = src:match("lint_files%s*:=[^\n]*\n?[^\n]*")
+  assert(cmd, "mk/check.mk should define lint_files from git ls-files")
+  assert(cmd:find("ls%-files"), "lint_files should come from git ls-files")
+  assert(cmd:find("%-%-others"),
+    "lint_files must pass --others or new files go unlinted until staged")
+  assert(cmd:find("%-%-exclude%-standard"),
+    "lint_files must pass --exclude-standard so ignored build output "
+    .. "stays out of the lint set")
+end
+test_lint_lists_untracked_files()

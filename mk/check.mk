@@ -43,17 +43,28 @@ $(o)/format-summary.txt: $(all_formats) | $(build_reporter)
 $(o)/%.format.got: % $(cosmic_check_bin) | $(bootstrap_files)
 	@$(cosmic_check_bin) --test $(basename $@) $(cosmic_check_bin) --check-format $<
 
-# Lint every tracked file (#719). git ls-files fails SILENTLY outside
-# a git checkout — an empty list would lint nothing and report green,
-# so the summary recipe fails loudly instead. Tracked-but-deleted files
-# appear in ls-files but cannot be made: lint what exists, surface the
-# skips in the summary, fail if the filter collapses the list. The
-# stamp records the linted set so a deletion (which only SHRINKS the
-# prerequisite list) still rebuilds the summary instead of staying
-# stale-green "up to date".
-lint_tracked := $(shell git ls-files 2>/dev/null)
-lint_present := $(wildcard $(lint_tracked))
-lint_deleted := $(filter-out $(lint_present),$(lint_tracked))
+# Lint every file that will land (#719): tracked, PLUS untracked ones
+# git does not ignore. --others is what makes a brand-new file linted
+# before it is staged; without it `git ls-files` alone reported green on
+# a file it had never opened, so a new module or test got no lint at all
+# locally and first failed in CI, where the checkout has it tracked.
+# (teal/format/test never had that gap — their lists come from wildcards
+# in each cook.mk, which see a file the moment it exists.)
+# --exclude-standard keeps .gitignore honoured, so o/ and other build
+# output stay out; a build leaves nothing untracked outside it.
+#
+# git ls-files fails SILENTLY outside a git checkout — an empty list
+# would lint nothing and report green, so the summary recipe fails
+# loudly instead. Tracked-but-deleted files appear in ls-files but
+# cannot be made: lint what exists, surface the skips in the summary,
+# fail if the filter collapses the list. The stamp records the linted
+# set so a deletion (which only SHRINKS the prerequisite list) still
+# rebuilds the summary instead of staying stale-green "up to date".
+# sort dedupes, since --cached and --others are assembled separately.
+lint_files := $(sort $(shell git ls-files --cached --others \
+  --exclude-standard 2>/dev/null))
+lint_present := $(wildcard $(lint_files))
+lint_deleted := $(filter-out $(lint_present),$(lint_files))
 all_linted := $(patsubst %,$(o)/%.lint.got,$(lint_present))
 
 lint_list_stamp := $(o)/lint-files.stamp
@@ -65,7 +76,7 @@ lint: $(o)/lint-summary.txt
 
 $(o)/lint-summary.txt: export REPORTER_NOTE = $(if $(lint_deleted),lint: skipped deleted tracked file(s): $(lint_deleted))
 $(o)/lint-summary.txt: $(all_linted) $(lint_list_stamp) | $(build_reporter)
-	$(if $(strip $(lint_tracked)),,$(error lint: git ls-files found nothing — not a git checkout?))
+	$(if $(strip $(lint_files)),,$(error lint: git ls-files found nothing — not a git checkout?))
 	$(if $(strip $(lint_present)),,$(error lint: no tracked file exists on disk — filter collapsed the list?))
 	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $(all_linted)
 
