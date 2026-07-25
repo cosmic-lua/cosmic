@@ -85,6 +85,30 @@ $(o)/%.lua: .ENV := LUA_PATH TREE_LUA_PATH TL_PATH LC_ALL TZ NO_COLOR
 - `.ENV` clamps the child environment to the named variables (#756 item
   5); the env-clamp fixture's canary probe gates it
 
+these are **enforced, not documented intent** (#729). every rule family
+CI exercises sets `.SANDBOXED := 1` — compile (#739),
+fetch/stage/lint/reporter (#740), teal/format (#742), tests (#743),
+examples (#745) — so an undeclared read or write in one of those
+recipes fails on a Landlock host. `unveil()` no-ops where Landlock is
+unavailable, which is what the `sandbox-canary` probe (#716/#724)
+exists to detect.
+
+three families deliberately opt out, each with its reason recorded at
+the rule: `version.lua` (reads `.git`, and its fallback would silently
+mint an unversioned artifact), the quicksand namespace tests and
+examples (`unshare` has no pledge promise — the `enforce` lane covers
+them instead), and the benchmark family, which keeps its annotations
+without enforcement because no CI lane runs benchmarks. enforcing
+grants that nothing exercises is not a falsifiable gate; that family
+flips when a lane runs it.
+
+losing enforcement is silent — drop a `.SANDBOXED := 1` and every grant
+set is still a superset of what the recipe needs, so nothing fails and
+CI stays green. the `.SANDBOXED` ratchet in
+`lib/build/makefile_ratchet_test.tl` enumerates the enforced set and
+the exceptions and fails in both directions, which is the only thing
+that notices.
+
 recipes are shell-free by default (#756 item 2): the global `SHELL` is
 poisoned, recipes are single argv lines run via make's direct-exec
 path, and the real shell is a per-rule `private` exception. The
