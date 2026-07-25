@@ -10,6 +10,7 @@ cosmic --make check              # strict type-check the whole project
 cosmic --make build              # compile every source into o/
 cosmic --make test               # run *_test.tl against the compiled tree
 cosmic --make fmt                # gate formatting
+cosmic --make fetch              # resolve *.pin.tl (the only networked verb)
 cosmic --make clean              # remove o/
 cosmic --make build db/          # …or narrow any of them to a subtree
 ```
@@ -28,9 +29,9 @@ replaced it outright.
 | `test` | build, then run `*_test.tl` and report | ✅ |
 | `fmt` | `--check-format` over every `.tl` | ✅ |
 | `clean` | remove `o/` | ✅ |
+| `fetch` | resolve `*.pin.tl` — the only verb with a network | ✅ |
 | `run` | build, then exec the artifact | planned |
 | `regen` | run generation units | planned |
-| `fetch` | resolve `*.pin.tl` — the only verb with network | planned |
 | `ci` `coverage` `enforce` `reproducible` `offline` | policy lanes over the graph | planned |
 
 every verb ends in a machine-readable verdict line and an exit code:
@@ -86,6 +87,42 @@ byte-identical.
 
 a build narrowed with paths compiles only what you selected and stops
 there — half a tree cannot make a whole artifact.
+
+## Pins
+
+a `*.pin.tl` declares an external asset. it is **data, not code**:
+
+```teal
+-- 3p/lpeg/lpeg.pin.tl
+return {
+  url = "https://example.test/lpeg-{version}.tar.gz",
+  version = "1.0.2",
+  sha256 = "9b0f0a...",
+}
+```
+
+`cosmic --make fetch` resolves it; nothing else does. the file is
+lexed and matched against a literal grammar — never loaded, never
+compiled, never called — so a call, a concatenation, a bare variable, a
+statement before the `return`, or anything after the table is refused
+by name:
+
+```
+make: 3p/lpeg/lpeg.pin.tl:2: a pin holds literals only; found 'os' (no variables, calls or concatenation)
+```
+
+`url` and `sha256` are both required: a pin without a digest is a
+download. bytes that do not hash to the pin are **never written**, so a
+build either runs on the bytes you named or does not run. `{version}`
+substitution is the one templating the grammar allows, which makes a
+bump a one-line diff. the fetched asset lands beside its pin, named by
+the url (`3p/lpeg/lpeg-1.0.2.tar.gz`).
+
+`fetch` is the only verb with a network, and that is structural: it is
+the only part of `--make` that can open a socket at all. a project
+whose pin points at an unreachable host still builds — building is not
+fetching. re-running `fetch` when the bytes are already there and
+already hash correctly touches no network at all.
 
 ## The engine
 

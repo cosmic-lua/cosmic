@@ -7,22 +7,16 @@ decision tables are the record. delivery is in
 `--make` is **cosmic's build system**, not a wrapper around `--embed`.
 This repo is meant to build with it.
 
-## What exists today
+## What this replaced
 
-`--make [dir] [target]` scans for `*.tl`, classifies by suffix, emits a
-Makefile, and runs make on it. As of #796 that is a clean argv spawn —
-`child.spawn` with `cwd` set to the scanned directory and the generated
-file on stdin — so the old `io.popen` shell, its `^[%w._/-]+$` target
-guard, and the cwd bug that wrote another project's output into this
-repo's `o/` are all gone.
-
-What remains, and what this design addresses:
-
-- **it needs a host make.** the generated file is useless without one,
-  which contradicts promise 3 for exactly the user cosmic is for.
-- **it produces build files, not builds.** no rule makes an executable.
-- **the project model is a flat scan** — no packages, no entry point, no
-  artifact, no notion of what ships.
+`--make [dir] [target]` scanned for `*.tl`, classified by suffix, emitted
+a Makefile and ran make on it. Three things were wrong with that, and
+they are what this design addresses: it **needed a host make** (the
+generated file is useless without one, contradicting promise 3 for
+exactly the user cosmic is for); it **produced build files, not builds**
+(no rule made an executable); and its **project model was a flat scan** —
+no packages, no entry point, no artifact, no notion of what ships. It was
+dropped whole in 2a.
 
 Three fixes that landed this week are also evidence for the design's
 central bet, that a hand-maintained description of a project drifts from
@@ -173,7 +167,7 @@ path** derived from its position. Nothing else varies.
 | test | `X_test.tl` | staged subtree at its directory + staged modules | `o/X.tl.test.{got,out,err}` |
 | generator | `*.gen.tl` in `D` | `D`'s subtree | `o/D/**` |
 | binary | `main.tl`, `cmd/<n>/main.tl` | root packages + its own `cmd/<n>/**` | `o/bin/<n>` |
-| pin | `*.pin.tl` in `D` | the pin literal, plus a socket under `fetch` | `o/D/<asset>` |
+| pin | `*.pin.tl` in `D` | the pin literal, plus a socket under `fetch` | `D/<name from the url>` ⚠ |
 
 Read down the scope column and the design's two load-bearing sentences
 are the same sentence: *inputs = grants = your staged subtree*, and
@@ -191,9 +185,18 @@ read grant all ask; and a new unit kind costs a table row.
 What it does *not* buy, and why this is a recorded observation rather
 than a refactor: the rows differ in the one place that matters — how
 the scope is computed — so a `Unit` record is a bag holding five
-unrelated functions until at least three exist. 2c writes the binary's
-scope in that shape; 2d adds the pin's. If the third lands without
-wanting to be different, the abstraction has evidence behind it.
+unrelated functions until at least three exist.
+
+**How to investigate it, and what came back.** Not by staring at the
+table — by writing the next scope *without* consulting the last one and
+seeing what it wants. Three predictions were recorded before 2d, and
+2d's pin falsified one of them: an output path is **not** always
+derivable from position (a pin's is named by the url inside it, hence
+the ⚠ above). The `Unit` record is therefore not earned; what the
+evidence supports is the smaller `unit_dir(path)` the fence wants,
+while "scope as a file list" turns out to be a question only the
+artifact and the test stage ask. The predictions, the method and the
+findings are in [make-plan.md](make-plan.md) under 2d.
 
 ### Generators
 

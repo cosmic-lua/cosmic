@@ -19,6 +19,7 @@ local project = require("cosmic.make.project")
 local validate = require("cosmic.make.validate")
 local artifact = require("cosmic.make.artifact")
 local check = require("cosmic.make.check")
+local fetch = require("cosmic.make.fetch")
 local graph = require("cosmic.make.graph")
 local types = require("cosmic.make.types")
 
@@ -29,14 +30,14 @@ local type Project = types.Project
 
 --- Verbs that run today.
 local IMPLEMENTED < const >: {string} = {
-  "build", "check", "clean", "fmt", "test",
+  "build", "check", "clean", "fetch", "fmt", "test",
 }
 
 --- Verbs the design defines and later slices land, in the order they
 --- appear in the design's own tables. Naming them costs one line each
 --- and turns a typo-shaped failure into a schedule answer.
 local PLANNED < const >: {string} = {
-  "run", "regen", "fetch",
+  "run", "regen",
   "ci", "coverage", "enforce", "reproducible", "offline",
 }
 
@@ -253,7 +254,8 @@ local function run(argv: {string}): integer
   -- at a path inside the project that does not exist.
   local self = fs.abspath(arg[-1] or "cosmic")
 
-  if verb ~= "check" and verb ~= "clean" and TARGETS[verb] == nil then
+  if verb ~= "check" and verb ~= "clean" and verb ~= "fetch"
+  and TARGETS[verb] == nil then
     if is_planned(verb) then
       io.stderr:write("make: '" .. verb ..
         "' is planned but not implemented yet\nmake: verbs: " ..
@@ -276,6 +278,11 @@ local function run(argv: {string}): integer
   end
   if verb == "clean" then
     return run_clean()
+  end
+  -- The one verb with a network. It needs no compiled tree and no make
+  -- binary: a pin's scope is the pin file itself.
+  if verb == "fetch" then
+    return fetch.run(p, paths)
   end
   return run_graph(verb, p, paths, self)
 end

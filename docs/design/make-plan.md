@@ -281,8 +281,61 @@ the first-fetch shell in `bin/cosmic`.
        with it. Markers are zero bytes and are never removed now. This
        cost one debugging cycle and is the kind of thing that reads as
        "the stdlib vanished" rather than "the strip was too wide".
-   - **2d — pins and `fetch`.** `*.pin.tl` static extraction and the
-     network-only-under-`fetch` posture.
+   - **2d — pins and `fetch`. Landed.** `*.pin.tl` static extraction and
+     the network-only-under-`fetch` posture.
+
+     **The Units investigation ran here, and falsified one of its three
+     predictions.** The pin's scope was written without consulting the
+     artifact's, which was the whole method:
+
+     - **P1 (every scope is `filter(files, predicate)`) — holds, but
+       vacuously.** A pin's scope is the pin file itself. Expressed as
+       a filter it is a filter returning one element, which is not an
+       instance of a shared computation, it is the shape being satisfied
+       by having nothing to say.
+     - **P2 (the fence wants a directory, the stage wants a file list)
+       — holds, and sharpens.** The pin needs one thing no path
+       abstraction can express: a socket. So the fence's question is
+       (directory, capability set), not a directory.
+     - **P3 (an output path is derivable from position) — FALSE.** A
+       pin's output is named by the URL *inside* it: `3p/lpeg/lpeg.pin.tl`
+       with a url ending `lpeg-1.0.tar.gz` produces
+       `3p/lpeg/lpeg-1.0.tar.gz`, because the extension matters to
+       whatever reads it next. The Units table asserted this of all five
+       rows; it is true of four. The table now carries the correction.
+
+     **Verdict: the `Unit` record is not earned, and now there is a
+     reason rather than a hunch.** What the evidence supports is
+     smaller — `unit_dir(path)`, which is what `exec`'s fence actually
+     wants — while "scope as a file list" is a question only the
+     artifact and the test stage ask. Two of five rows is not an
+     abstraction. This is what a third instance was supposed to settle,
+     and it settled it the other way.
+
+     Also settled here:
+
+     - **a pin is data, and the grammar enforces it.** `return { … }` of
+       literals, lexed and matched, never loaded and never called. A
+       call, a concatenation, a variable, a statement before the return,
+       anything after the table — each refused by name. "This file
+       cannot do anything" is the property; the tests are adversarial
+       for that reason.
+     - **a pin without a digest is a download.** `url` and `sha256` are
+       both required, and mismatched bytes are never written — not
+       written-then-checked. A build runs on the bytes you named or does
+       not run.
+     - **`fetch` opts out of the SSRF guard, deliberately.** That guard
+       exists because an attacker-controlled url can aim a fetch at an
+       internal service. A pin's url is a literal in a committed file
+       the extractor has already refused to let compute itself, and the
+       bytes are digest-verified before they land — so the threat is
+       absent by construction, while the case the guard breaks (an
+       internal artifact mirror) is exactly what pinning is for.
+     - **the posture is structural, not aspirational.** `fetch.tl` is
+       the only module under `cosmic.make` that requires
+       `cosmic.fetch`, so "can a build phone home" is answered by
+       grepping seven files. The test asserts it from outside too: a
+       project whose pin points at a dead port still builds.
    - **2e — embedded make.** packing it into the release, which user
      projects need and this repo does not (it has `bin/cosmo-make`).
      Carries the D13 amendment, so it is the one slice with release

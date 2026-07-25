@@ -279,7 +279,7 @@ cosmic --test <out> <cmd>     run test, capture output
 cosmic --report <paths>       report test results
 cosmic --build <mode> <args>  run a shell-free build recipe step
 cosmic --make <verb> [paths]  build a project by convention
-                              (check, build, test, fmt, clean)
+                              (check, build, test, fmt, fetch, clean)
 cosmic --embed <path>         embed files into executable
 cosmic --benchmark file.tl    run benchmarks
 cosmic -i                     interactive REPL
