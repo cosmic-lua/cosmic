@@ -4,6 +4,7 @@
 -- test cosmic binary standing in as the pinned bootstrap for compile
 -- mode.
 
+local check = require("cosmic.check")
 local child = require("cosmic.child")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
@@ -381,3 +382,54 @@ local function test_exec_passes_through_the_exit_code()
   assert(code == 3, "expected the program's own exit code, got " .. tostring(code))
 end
 test_exec_passes_through_the_exit_code()
+
+-- The canary: proof the derived fence actually denies, on a host that
+-- can enforce it. Skips (exit 2) where landlock is absent -- unveil()
+-- no-ops there, so asserting a denial would assert nothing.
+--
+-- A/B against the same script, so a failure cannot be mistaken for the
+-- write being impossible anyway: unfenced it must succeed, fenced it
+-- must not. The fence granted to `exec` is TMPDIR plus the exec root,
+-- both pointed inside <tmp>/root here, which leaves <tmp>/outside.txt
+-- reachable to the unfenced run and outside the fence for the other.
+local function test_the_fence_denies_an_undeclared_write()
+  local sandbox = require("cosmic.sandbox")
+  if not sandbox.available().fs then
+    -- Returning rather than exiting 2: `--test` propagates the child's
+    -- exit code to make, so a test file that exits 2 fails its rule
+    -- instead of being graded "skip" by the reporter. The status exists
+    -- in testrun.status_of but a test file cannot reach it.
+    io.stderr:write("skip: no landlock on this host; the fence cannot bite\n")
+    return
+  end
+  local root = fs.join(tmpdir, "root")
+  assert(fs.makedirs(root))
+  local target = fs.join(tmpdir, "outside.txt")
+  local script = fs.join(root, "write-outside.lua")
+  assert(fs.write(script,
+      "local f = io.open('" .. target .. "', 'w')\n" ..
+      "if not f then os.exit(9) end\n" ..
+      "f:write('x')\n f:close()\n"))
+
+  local envlist: {string} = {}
+  for _, entry in ipairs(env.list()) do
+    if not entry:match("^TMPDIR=") and not entry:match("^COSMIC_EXEC_ROOT=") then
+      envlist[#envlist + 1] = entry
+    end
+  end
+  envlist[#envlist + 1] = "TMPDIR=" .. root
+  envlist[#envlist + 1] = "COSMIC_EXEC_ROOT=" .. fs.dirname(fs.abspath(test_bin))
+
+  -- A: unfenced, the write lands.
+  local direct = check.must(child.run({test_bin, script}, {env = envlist}))
+  assert(direct.ok, "the script must succeed unfenced: " .. direct.stderr)
+  assert(fs.isfile(target), "unfenced, the write must land")
+  assert(fs.unlink(target))
+
+  -- B: the same script under exec's fence, which does not reach it.
+  local fenced = check.must(child.run(
+      {test_bin, "-c", "exec " .. test_bin .. " " .. script}, {env = envlist}))
+  assert(not fenced.ok, "the fenced write must fail")
+  assert(not fs.isfile(target), "fenced, the write must NOT land")
+end
+test_the_fence_denies_an_undeclared_write()
