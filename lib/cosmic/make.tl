@@ -5,7 +5,6 @@
 
 local fs = require("cosmic.fs")
 local child = require("cosmic.child")
-local fd = require("cosmic.fd")
 
 --- Configuration for Makefile generation.
 local record Config
@@ -223,16 +222,11 @@ local function run(dir?: string, target?: string): boolean, string
   end
   local cmd = table.concat(argv, " ")
 
-  -- Hand make our own stdout/stderr so a build streams to the terminal
-  -- as it runs, the way it did under io.popen. spawn would otherwise
-  -- pipe both and hold them until exit. Wrapping fds 1 and 2 is safe
-  -- here specifically because spawn never closes caller-supplied
-  -- stdio (child/init.tl:317,445 keep them out of the pump state and
-  -- close only fds it opened), and Handle has no __gc -- only __close,
-  -- which needs a <close> variable.
-  local out, errout = fd.wrap(1), fd.wrap(2)
+  -- "inherit" so a build streams to the terminal as it runs, the way it
+  -- did under io.popen; spawn's default would pipe both streams and
+  -- hold them until exit (#797).
   local h, serr = child.spawn(argv,
-    {stdin = content, cwd = dir, stdout = out, stderr = errout})
+    {stdin = content, cwd = dir, stdout = "inherit", stderr = "inherit"})
   if not (h is child.Handle) then
     return false, "failed to start make: " .. (serr or "unknown error")
   end

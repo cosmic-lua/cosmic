@@ -45,17 +45,29 @@ local record Stdio
   stderr_fd: integer
 end
 
+--- Non-Handle stdio dispositions (#797). "inherit" hands the child this
+--- process's own fd 1 / 2, so its output streams straight to wherever
+--- ours goes instead of being captured and withheld until exit.
+---
+--- It resolves to the same "caller supplied this descriptor" path a
+--- Handle takes, which spawn never closes -- so callers no longer have
+--- to reach for fd.wrap(1), which cosmic.fd explicitly does not model.
+local enum StdioMode
+  "inherit"
+end
+
 --- Resolve the caller's stdio options to raw descriptors, once, at the
 --- boundary. A string stdin passes through as pump data; a Handle
 --- contributes its descriptor. A closed Handle is a caller bug surfaced
 --- here, not a confusing EBADF from deep inside the spawn plumbing.
 --- @param stdin string | cfd.Handle | nil string to pipe, or the child's fd 0
---- @param stdout cfd.Handle | nil the child's fd 1
---- @param stderr cfd.Handle | nil the child's fd 2
+--- @param stdout cfd.Handle | StdioMode | nil the child's fd 1
+--- @param stderr cfd.Handle | StdioMode | nil the child's fd 2
 --- @return Stdio | nil resolved descriptors
 --- @return string error message on a closed Handle
-local function resolve_stdio(stdin?: string | cfd.Handle, stdout?: cfd.Handle,
-    stderr?: cfd.Handle): Stdio | nil, string
+local function resolve_stdio(stdin?: string | cfd.Handle,
+    stdout?: cfd.Handle | StdioMode,
+    stderr?: cfd.Handle | StdioMode): Stdio | nil, string
   local s: Stdio = {}
   if stdin is string then
     s.stdin_data = stdin
@@ -63,11 +75,18 @@ local function resolve_stdio(stdin?: string | cfd.Handle, stdout?: cfd.Handle,
     s.stdin_fd = (stdin):fd()
     if s.stdin_fd < 0 then return nil, "spawn: stdin handle is closed" end
   end
-  if stdout then
+  -- "inherit" resolves to our own descriptor, which then travels the
+  -- identical path a caller-supplied Handle does: spawn dups it onto
+  -- the child's fd and never closes our end (#797).
+  if stdout is StdioMode then
+    s.stdout_fd = 1
+  elseif stdout ~= nil then
     s.stdout_fd = stdout:fd()
     if s.stdout_fd < 0 then return nil, "spawn: stdout handle is closed" end
   end
-  if stderr then
+  if stderr is StdioMode then
+    s.stderr_fd = 2
+  elseif stderr ~= nil then
     s.stderr_fd = stderr:fd()
     if s.stderr_fd < 0 then return nil, "spawn: stderr handle is closed" end
   end
@@ -222,14 +241,16 @@ local function pump(state: PumpState, deadline_ms: number): boolean
 end
 
 local record ChildIoModule
+  StdioMode: StdioMode
   PumpState: PumpState
   Stdio: Stdio
   pump: function(state: PumpState, deadline_ms: number): boolean
   now_ms: function(): number
   read_retry: function(fd: integer, bufsiz: integer): string | nil, string | nil
   wait_retry: function(pid: integer): integer | nil, integer
-  resolve_stdio: function(stdin?: string | cfd.Handle, stdout?: cfd.Handle,
-  stderr?: cfd.Handle): Stdio | nil, string
+  resolve_stdio: function(stdin?: string | cfd.Handle,
+  stdout?: cfd.Handle | StdioMode,
+  stderr?: cfd.Handle | StdioMode): Stdio | nil, string
 end
 
 local M: ChildIoModule = {
