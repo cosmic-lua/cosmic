@@ -42,12 +42,11 @@ local cenv = require("cosmic.env")
 
 local type BoxOptions = types.BoxOptions
 
--- The CLONE_* constants are declared `number` in the binding types.
-local NEWUSER < const > = unix.CLONE_NEWUSER as integer -- cast: bitop needs integer
-local NEWNET < const > = unix.CLONE_NEWNET as integer -- cast: bitop needs integer
-local NEWNS < const > = unix.CLONE_NEWNS as integer -- cast: bitop needs integer
-local NEWUTS < const > = unix.CLONE_NEWUTS as integer -- cast: bitop needs integer
-local NEWPID < const > = unix.CLONE_NEWPID as integer -- cast: bitop needs integer
+local NEWUSER < const > = unix.CLONE_NEWUSER
+local NEWNET < const > = unix.CLONE_NEWNET
+local NEWNS < const > = unix.CLONE_NEWNS
+local NEWUTS < const > = unix.CLONE_NEWUTS
+local NEWPID < const > = unix.CLONE_NEWPID
 
 local record CapsModule
   capabilities: function(): types.Capabilities
