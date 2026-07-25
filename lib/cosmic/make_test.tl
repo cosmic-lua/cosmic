@@ -4,7 +4,6 @@
 local make = require("cosmic.make")
 local fs = require("cosmic.fs")
 local env = require("cosmic.env")
-local check = require("cosmic.check")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
@@ -182,15 +181,24 @@ local function test_generate_custom_config()
 end
 test_generate_custom_config()
 
--- Test run rejects shell metacharacters in the target name. The target is
--- interpolated into a shell command, so a value like "; rm -rf ~" must be
--- refused rather than executed.
-local function test_run_rejects_unsafe_target()
-
--- run() pipes the generated makefile through io.popen, which inherits
--- THIS process's cwd -- so the generated BUILD_DIR would otherwise
--- resolve against the repo root and write build output into it. Both
--- tests below chdir into the scanned directory and restore afterwards.
+-- Test a target carrying shell metacharacters is inert. run() passes
+-- the target as one argv element instead of interpolating it into a
+-- shell command (#795), so "; touch <marker>" is just a target make
+-- cannot find: the build fails and the side effect never happens. The
+-- old `^[%w._/-]+$` guard that used to reject this is gone with the
+-- shell it existed for.
+local function test_run_does_not_let_a_target_reach_a_shell()
+  local test_dir = setup()
+  local marker = fs.join(test_dir, "pwned")
+  local ok, err = make.run(test_dir, "all; touch " .. marker)
+  assert(not ok, "an unfindable target should fail the build")
+  assert(not fs.isfile(marker),
+    "the target must never reach a shell, but " .. marker .. " appeared")
+  assert(err:match("exit"),
+    "expected make's own failure, got: " .. tostring(err))
+  teardown(test_dir)
+end
+test_run_does_not_let_a_target_reach_a_shell()
 
 -- Test run reports a failing make as a failure, with the exit status.
 -- The generated makefile compiles sources with $(COSMIC), so pointing
@@ -199,12 +207,9 @@ local function test_run_rejects_unsafe_target()
 local function test_run_reports_make_failure()
   local test_dir = setup()
   touch(fs.join(test_dir, "a.tl"), "local x = 1\nprint(x)\n")
-  local prev = check.must(fs.getcwd())
-  assert(fs.chdir(test_dir))
   env.set("COSMIC", fs.join(test_dir, "no-such-cosmic"))
   local ok, err = make.run(test_dir)
   env.unset("COSMIC")
-  assert(fs.chdir(prev))
   assert(not ok, "a failing make must be reported as a failure")
   assert(err:match("exit"),
     "the failure should name how make ended, got: " .. tostring(err))
@@ -217,21 +222,11 @@ test_run_reports_make_failure()
 -- branch without needing a working compiler on PATH.
 local function test_run_reports_make_success()
   local test_dir = setup()
-  local prev = check.must(fs.getcwd())
-  assert(fs.chdir(test_dir))
   local ok, err = make.run(test_dir)
-  assert(fs.chdir(prev))
   assert(ok, "an empty project should build cleanly, got: " .. tostring(err))
   teardown(test_dir)
 end
 test_run_reports_make_success()
-  local test_dir = setup()
-  local ok, err = make.run(test_dir, "all; touch /tmp/pwned")
-  assert(not ok, "run should reject unsafe target")
-  assert(err:match("invalid make target"), "expected invalid target error, got: " .. tostring(err))
-  teardown(test_dir)
-end
-test_run_rejects_unsafe_target()
 
 -- Test generate includes cosmic.mk
 local function test_generate_includes_cosmic_mk()
