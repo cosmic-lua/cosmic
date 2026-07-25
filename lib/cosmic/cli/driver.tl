@@ -44,9 +44,9 @@ local shapes: {string: Shape} = {
   -- points TMP inside that directory, so a test's TEST_TMPDIR lands
   -- there too and needs no grant of its own.
   --
-  -- Reads are the compiled tree, added below: a test imports the
-  -- modules it was written against, and naming only its own compiled
-  -- file would deny it every import on the first fenced run.
+  -- Reads are positions 3..n: the test's own compiled file, then the
+  -- transitive import closure the graph put there. A test may read what
+  -- it imports and nothing else.
   test = {rw = {1}, exec = {2}, rest_ro = 3},
   -- list <out> [items...] — items are text written into out, not read
   list = {rw = {1}},
@@ -64,9 +64,8 @@ local shapes: {string: Shape} = {
   verdict = {ro = {1}},
   -- exec <program> [args...]: a foreign program's reads are not
   -- derivable — a compiler reads headers nobody listed — so it gets the
-  -- unit's subtree rather than its argv. In phase 1 there are no units
-  -- yet, so the stand-in is the working tree (read) plus the build root
-  -- (write); phase 2 tightens it to the generator or test unit.
+  -- UNITS its argv touches rather than those arguments, plus the build
+  -- root to write into. See the exec block in plan().
   exec = {exec = {1}, ro = {}, rw = {}, rest_ro = 2},
 }
 
@@ -185,16 +184,20 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil
     rw[#rw + 1] = nearest_existing(p)
   end
   if verb == "test" then
-    -- A test reads the tree it imports. The staged module tree is the
-    -- build root, and the test's own source directory carries its
-    -- `testdata/` — fixtures need no special grant because they are in
-    -- the subtree, which is the design's rule stated as two paths.
+    -- A test reads what it imports, and the graph has already put that
+    -- in the line: positions 3..n are its own compiled file followed by
+    -- its transitive closure, each granted by `rest_ro` above. Nothing
+    -- broader — an earlier draft granted the whole build root, which is
+    -- every other module's output.
+    --
+    -- Its own SOURCE directory is the one path argv does not name, and
+    -- it is where `testdata/` lives. Derived rather than declared: the
+    -- first read position is the test's built file, so stripping the
+    -- build root off it gives the directory the fixtures are in.
     local root = os.getenv("COSMIC_EXEC_ROOT") or "o"
-    if fs.isdir(root) then
-      ro[#ro + 1] = root
-    end
-    for i = 3, #args do
-      local src = unit_dir(args[i])
+    local built = args[3]
+    if built and built:sub(1, #root + 1) == root .. "/" then
+      local src = fs.dirname(built:sub(#root + 2))
       if fs.isdir(src) then
         ro[#ro + 1] = src
       end

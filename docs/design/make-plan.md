@@ -222,6 +222,32 @@ the first-fetch shell in `bin/cosmic`.
      - **selection travels as a make variable override**, which beats
        `o/project.mk`'s assignment. No rule knows selection exists,
        which is exactly what keeps the rules file constant.
+     - **per-test dependency closures — added after 2e, fixing a flaw
+       2b shipped.** The rule was `$(test_got): $(compiled)`: every test
+       depended on every compiled file, so changing any module re-ran
+       the whole suite. Write-if-changed absorbed a bare `touch`, which
+       hid it — it only bit on real content changes, which is exactly
+       when you are iterating.
+
+       The facts generator now follows `require()` edges (the same
+       literal scan the validator uses) and emits one `deps_<stem>` per
+       test: its transitive closure, as built paths. The rule takes them
+       as prerequisites through `.SECONDEXPANSION`, which is what lets a
+       CONSTANT rule name a per-target variable.
+
+       The same list goes into the recipe line, so the **fence** grants
+       a test read access to what it imports and nothing else — where
+       an earlier draft granted the whole build root, i.e. every other
+       module's output. One answer, two consumers, and the design's own
+       rule for how it travels: *the argument positions are the
+       declaration*. Measured on a fixture: editing a module no test
+       imports re-runs nothing; editing one that a single test imports
+       re-runs that test alone.
+
+       Known limit, inherited deliberately: a computed `require` is
+       invisible, exactly as it is to the validator. The consequence is
+       now a denied read as well as a missing edge, which is a sharper
+       failure than a stale result.
      - **`check` and `clean` stay out of the graph.** `check` in
        process means the one verb that says whether a project is
        coherent needs no engine at all — which matters most right now,

@@ -269,6 +269,44 @@ local function test_builds_with_no_engine_named()
 end
 test_builds_with_no_engine_named()
 
+-- Per-test incrementality: a test re-runs when something it IMPORTS
+-- changes, and not when anything else does. Before the import closure
+-- landed, every test depended on every compiled file, so editing any
+-- module re-ran the whole suite -- which is exactly when you are
+-- iterating and least want it.
+local function test_a_test_reruns_only_for_what_it_imports()
+  local root = fixture("incremental-deps", {
+      ["main.tl"] = "print('x')\n",
+      ["db/init.tl"] = "local record D\n  n: function(): integer\nend\n" ..
+      "local M: D = {n = function(): integer return 1 end}\nreturn M\n",
+      ["db/a_test.tl"] = "local d = require('db')\nassert(d.n() == 1)\n",
+      ["db/b_test.tl"] = "assert(true)\n",
+    })
+  assert(make(root, "test").code == 0, "first run")
+
+  -- main.tl is imported by neither test.
+  assert(fs.write(fs.join(root, "main.tl"), "print('changed')\n"))
+  local unrelated = make(root, "test")
+  assert(unrelated.code == 0, "second run: " .. unrelated.err)
+  assert(not unrelated.out:find("test o/db/", 1, true),
+    "no test imports main.tl, so none should re-run: " .. unrelated.out)
+
+  -- db/init.tl is imported by a_test only.
+  assert(fs.write(fs.join(root, "db/init.tl"),
+      "local record D\n  n: function(): integer\nend\n" ..
+      "local M: D = {n = function(): integer return 1 end}\n-- edit\nreturn M\n"))
+  local related = make(root, "test")
+  assert(related.code == 0, "third run: " .. related.err)
+  assert(related.out:find("test o/db/a_test", 1, true),
+    "the importer must re-run: " .. related.out)
+  assert(not related.out:find("test o/db/b_test", 1, true),
+    "a test that does not import it must NOT re-run: " .. related.out)
+  -- And the closure travels in the line, which is what the fence grants.
+  assert(related.out:find("o/db/a_test.lua o/db/init.lua", 1, true),
+    "the recipe must carry the closure: " .. related.out)
+end
+test_a_test_reruns_only_for_what_it_imports()
+
 -- The test fence, portable half: a test's temp directory lands inside
 -- its own step, not in a shared /tmp. This is what stops tests
 -- colliding through the temp directory at all, and unlike the kernel

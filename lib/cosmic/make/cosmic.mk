@@ -72,12 +72,19 @@ test_got := $(patsubst %,$(O)/%.test.got,$(tests))
 ## Run every *_test.tl against the compiled tree
 test: $(O)/test-summary.txt
 
-# A test imports the project the way the artifact will, so the whole
-# compiled tree is its prerequisite, not just its own module.
-$(test_got): $(compiled) $(staged)
+# A test's prerequisites are exactly what it imports, transitively:
+# o/project.mk carries one `deps_<stem>` per test, computed by following
+# require() edges (which a makefile cannot do). Secondary expansion is
+# what lets a CONSTANT rule name a per-target variable -- $$* is the
+# stem, resolved on the second pass.
+#
+# The same list goes into the recipe line, so the derived fence grants
+# the test read access to what it imports and nothing else. One answer,
+# two consumers: the argument positions are the declaration.
+.SECONDEXPANSION:
 
-$(O)/%.tl.test.got: $(O)/%.lua
-	test $(basename $@) $(COSMIC) $< ;
+$(O)/%.tl.test.got: $(O)/%.lua $$(deps_$$*)
+	test $(basename $@) $(COSMIC) $< $(deps_$*) ;
 
 $(O)/test-summary.txt: $(test_got)
 	tee $@ $(COSMIC) --report $(test_got) ;

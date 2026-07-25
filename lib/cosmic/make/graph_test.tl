@@ -62,7 +62,10 @@ local function test_project_mk_is_assignments_only()
   for line in string.gmatch(text, "[^\n]+") do
     if line:sub(1, 1) ~= "#" then
       n = n + 1
-      assert(line:match("^[%w_]+ :=") ~= nil,
+      -- A make variable name may hold anything but whitespace, `:`,
+      -- `=` and `#`, and the per-test dependency variables use the
+      -- test's path as their name (`deps_db/a_test`).
+      assert(line:match("^[^%s:=#]+ :=") ~= nil,
         "not an assignment: " .. line)
     end
     assert(not line:find("\t", 1, true),
@@ -98,6 +101,34 @@ local function test_project_mk_facts()
     "testdata must not reach the graph: " .. text)
 end
 test_project_mk_facts()
+
+-- One dependency closure per test, so a test re-runs for what it
+-- imports and nothing else -- and the fence grants the same set. This
+-- is the whole reason the facts are computed in Teal: a makefile cannot
+-- follow a require() edge.
+local function test_project_mk_carries_per_test_closures()
+  local proj = fixture("closures", {
+      ["db/init.tl"] = "local u = require('util')\nreturn u\n",
+      ["util.tl"] = "return {}\n",
+      ["lonely.tl"] = "return {}\n",
+      ["db/a_test.tl"] = "local d = require('db')\nreturn d\n",
+      ["b_test.tl"] = "assert(true)\n",
+    })
+  local text = graph.project_mk(proj, "/bin/cosmic")
+  assert(text:find("deps_db/a_test := o/db/init.lua o/util.lua", 1, true),
+    "the closure is transitive: " .. text)
+  assert(text:match("deps_b_test :=%s*\n"),
+    "a test importing nothing gets an empty closure: " .. text)
+  -- lonely.tl is a source, so it appears in the source lists; what it
+  -- must never appear in is a closure.
+  for line in string.gmatch(text, "[^\n]+") do
+    if line:sub(1, 5) == "deps_" then
+      assert(not line:find("lonely", 1, true),
+        "a module nobody imports is in no closure: " .. line)
+    end
+  end
+end
+test_project_mk_carries_per_test_closures()
 
 -- Deterministic: same tree, same bytes. Sorting is what makes the file
 -- a function of the project rather than of directory order.

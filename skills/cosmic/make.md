@@ -91,8 +91,20 @@ there — half a tree cannot make a whole artifact.
 ## Test isolation
 
 each test gets its own scratch directory *inside its own build step* —
-`TEST_TMPDIR` points at `o/<test>.test.tmp.d`, not at a shared `/tmp`.
-tests cannot collide through the temp directory, on any platform.
+`TEST_TMPDIR` points at a fresh `mkdtemp` under `o/<test>.test.tmp.d`,
+not at a shared `/tmp`. tests cannot collide through the temp
+directory, on any platform.
+
+a test also re-runs only when something it **imports** changes. cosmic
+follows `require()` edges to compute each test's transitive closure, so
+editing a module no test imports re-runs nothing:
+
+```bash
+$ cosmic --make test          # edit a module only db/a_test.tl imports
+test o/db/a_test.tl.test cosmic o/db/a_test.lua o/db/init.lua ;
+```
+
+the closure in that line is also exactly what the fence grants.
 
 with `COSMIC_FENCE=1` on a Landlock host that becomes enforced rather
 than merely arranged: a test may write only its own step's directory,
