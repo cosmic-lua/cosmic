@@ -51,8 +51,8 @@ unveil_run := $(unveil_base) rwc:$(o) rwc:$(TMP) $(unveil_hostx)
 pledge_test := $(pledge_build) fattr inet dns unix tty id flock
 
 # First ENFORCED rule family (#729): the .tl compile rule. landlock-make
-# auto-grants rx on every prerequisite (source, types, bootstrap, flag
-# stamp) and on the recipe shell, merges the global .PLEDGE/.UNVEIL in,
+# auto-grants rx on every prerequisite (source, types, bootstrap) and on
+# the recipe shell, merges the global .PLEDGE/.UNVEIL in,
 # and always adds the "prot_exec exec" promises — so the target grants
 # only add what the defaults lack: write access to the output tree,
 # tlconfig.lua (read by strict compiles), and the executable host dirs.
@@ -69,21 +69,22 @@ pledge_test := $(pledge_build) fattr inet dns unix tty id flock
 # otherwise silently mint an artifact with no version.
 $(o)/%.lua: .SANDBOXED := 1
 $(o)/%.lua: .PLEDGE := $(pledge_build) fattr
-# De-hosted (#732): compiles and the $(o)/%: % copies run through the
-# pinned bootstrap's own --build recipe steps (#756 item 3) — direct
-# bootstrap execs under the global no-shell default.
+# De-hosted (#732): compiles run through the pinned bootstrap's own
+# --build recipe steps (#756 item 3) — direct bootstrap execs under the
+# global no-shell default.
 $(o)/%.lua: .UNVEIL := r:tlconfig.lua $(unveil_dev)
 # .ENV (#756 item 5): the compile child sees ONLY the declared set —
-# the three path axes below plus the pinned locale/tz and NO_COLOR
+# the two path axes below plus the pinned locale/tz and NO_COLOR
 # (deterministic output). A hostile caller variable cannot reach it;
 # gate: the env-clamp fixture's clamped probe in lib/build/cook.mk.
-$(o)/%.lua: .ENV := LUA_PATH TREE_LUA_PATH TL_PATH LC_ALL TZ NO_COLOR
+$(o)/%.lua: .ENV := LUA_PATH TL_PATH LC_ALL TZ NO_COLOR
 # LUA_PATH=;; pins the --build dispatcher to the bootstrap's embedded
 # stdlib (a caller's LUA_PATH must not redirect its requires); the
-# compile child gets ";;" (strict) or TREE_LUA_PATH — the #666 axis,
-# one layer down.
+# compile child gets ";;" too — the #666 axis, one layer down. The
+# TREE_LUA_PATH export is gone with the non-strict branch (#776);
+# --build capture still reads it, so the doc-index and help-snapshot
+# rules keep theirs.
 $(o)/%.lua: export LUA_PATH := ;;
-$(o)/%.lua: export TREE_LUA_PATH = $(tree_lua_path)
 $(o)/%.lua: export TL_PATH = $(tree_tl_path)
 
 # Second ENFORCED family (#729): every remaining rule that execs the
@@ -198,21 +199,22 @@ type_modules := cosmo unix path getopt lsqlite3 re argon2 zip repl
 modules += bootstrap
 bootstrap_cosmic := $(o)/bootstrap/cosmic
 bootstrap_files := $(bootstrap_cosmic)
-bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-24-45acffa/cosmic-lua
+bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-25-9ea0750/cosmic-lua
 # SHA-256 of the bootstrap cosmic binary. It compiles the entire project, so
 # verify it before executing. Update this when bumping bootstrap_url.
 # This pin ships --build (#756 item 3), so every recipe step — compile,
 # copy, link, capture, tee, list, remove, require-*, verdict — is the
-# bootstrap's own surface and the compiled driver is gone. It also ships
-# --compile-strict, so the probe selects hermetic LUA_PATH=";;" compiles
-# — a reproducibility requirement (#733): the pre-strict tree-LUA_PATH
-# path made compiled output depend on parallel build order (bootstrap's
-# embedded stdlib vs the tree's, whichever existed first). LUA_PATH
-# governs runtime require; the TYPE-resolution axis (tl.search_module)
-# is pinned separately to the tree via TL_PATH in the compile/check
-# recipes, so a compile can never type-check against the bootstrap's
-# stale embedded source (#744 — see tree_tl_path).
-bootstrap_sha256 := 2469fb2f5a9197d8bacdeefd6b99366f318b813a2de48578b047e43c5954158e
+# bootstrap's own surface. Its do_compile takes <bootstrap> <src> <out>
+# and is ALWAYS strict (#776): the flag stamp and the non-strict
+# tree-LUA_PATH fallback are both gone, so compiles are hermetic under
+# LUA_PATH=";;" and cannot depend on parallel build order (#733). This
+# pin and the compile recipe below moved together — the previous pin's
+# driver reads argv[1] as a flag stamp and would misread the new recipe.
+# LUA_PATH governs runtime require; the TYPE-resolution axis
+# (tl.search_module) is pinned separately to the tree via TL_PATH in the
+# compile/check recipes, so a compile can never type-check against the
+# bootstrap's stale embedded source (#744 — see tree_tl_path).
+bootstrap_sha256 := dfcba77e4fed2c30008e2d0bc3e9ee0bb879108f0a39cad8f7771561bff34bfd
 
 # bin/make is the SOLE provisioner of the bootstrap (#756 cleanup): it
 # runs before every make invocation, parses the pin above via sed,
@@ -232,29 +234,6 @@ $(bootstrap_cosmic): o/bootstrap/cosmic
 	@cp -p o/bootstrap/cosmic $@
 	@ln -sf cosmic $(@D)/lua
 endif
-
-# In-tree compiles are strict, always (#776). --compile-strict type checks
-# and then generates from that same checked AST, so nothing ships that did
-# not typecheck; LUA_PATH=";;" for those compiles is also a #733
-# reproducibility requirement, since the non-strict tree-LUA_PATH path made
-# output depend on parallel build order.
-#
-# This used to PROBE the pinned bootstrap for the flag and fall back to
-# plain --compile when it was absent — bridging a bootstrap that predated
-# it. Every pin since ships the flag, and the fallback was the one place
-# in this build where a stale input degraded SILENTLY (into exactly the
-# non-reproducible compile #733 exists to prevent) instead of failing.
-# The flag is pinned here instead: a bootstrap that cannot honor it now
-# fails at the first compile with the compiler's own error.
-#
-# The stamp file stays because the recipe steps run the PINNED bootstrap's
-# embedded --build surface, whose do_compile reads it (and validates the
-# contents) — dropping the argument needs a release first. Writing it
-# through `--build list` is shell-free and write-if-changed, so the rule's
-# old shell exception is retired.
-compile_flag_stamp := $(o)/bootstrap/compile-flag
-$(compile_flag_stamp): $(bootstrap_files)
-	@$(bootstrap_cosmic) --build list $@ --compile-strict
 
 # Type definition regeneration.
 # The generated .d.tl files are a pure function of (lib/types/gentype*.tl, the

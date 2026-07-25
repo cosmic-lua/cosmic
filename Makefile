@@ -82,8 +82,8 @@ filter-only = $(if $(only),$(foreach f,$1,$(if $(findstring $(only),$(f)),$(f)))
 # used to sit here is retired (#775): teal/format read sources directly
 # now, as lint always has. tl resolves through $(bootstrap_files)'s
 # embedded copy; the old $(tl_files) prereq was never defined, ever empty.
-$(o)/%.lua: %.tl $(types_files) $(bootstrap_files) $(compile_flag_stamp)
-	@$(bootstrap_cosmic) --build compile $(compile_flag_stamp) $(bootstrap_cosmic) $< $@ $(include_dir_flags)
+$(o)/%.lua: %.tl $(types_files) $(bootstrap_files)
+	@$(bootstrap_cosmic) --build compile $(bootstrap_cosmic) $< $@ $(include_dir_flags)
 
 # tl files: modules declare _tl, derive compiled .lua outputs
 all_tl := $(foreach x,$(modules),$($(x)_tl))
