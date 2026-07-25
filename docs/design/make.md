@@ -1,254 +1,300 @@
 # Design — `cosmic --make`
 
-status: proposal, for review. supersedes the first draft on this branch
-(a `go build` lookalike for user projects). the decisions below came out
-of a review pass and change the center of gravity: `--make` is not a
-wrapper around `--embed`, it is **cosmic's build system**, and this repo
-is meant to build with it.
+status: proposal, for review. two review passes are folded in; the
+decision tables below are the record.
+
+`--make` is **cosmic's build system**, not a wrapper around `--embed`.
+This repo is meant to build with it.
 
 ## The shape
 
-Four moving parts:
-
 1. **conventions** — a project is a directory tree. filenames and
-   directory positions declare intent; there is no spec file, no
-   `rules.tl`, no `cook.mk`.
+   directory positions declare intent. no spec file, no `rules.tl`, no
+   `cook.mk`.
 2. **a constant rules file plus generated facts** — `o/cosmic.mk` ships
-   inside the binary and is byte-identical for every project.
-   `o/project.mk` is generated and contains *only variable assignments*
-   (package dirs, binary names, generator units, 3p pins). no rule is
-   ever generated.
+   inside the binary, byte-identical for every project. `o/project.mk`
+   is generated and holds *only variable assignments*. no rule is ever
+   generated.
 3. **cosmic as `SHELL`** — make invokes `cosmic -c '<line>'` for every
    recipe line. lines are whitespace-split argv whose `argv[0]` must be
-   a cosmic verb (or the explicit `exec`). cosmic reads the rule's
-   grants from target-specific variables and self-restricts before doing
-   the work.
-4. **the pinned make, embedded** — `make` from the pinned `cosmos.zip`
-   ships inside the cosmic binary, extracted to a cache dir on first
+   a cosmic verb or the explicit `exec`. cosmic reads the rule's grants
+   from target-specific variables and self-restricts before working.
+4. **the pinned make, embedded** — extracted to a cache dir on first
    use. one binary, offline, no host toolchain.
 
 ```
 $ cosmic --make build          # strict check, compile, stage, embed → ./myapp
-$ cosmic --make test           # tests, against the staged tree
-$ cosmic --make check          # type-check only
+$ cosmic --make test           # tests, fenced, against the staged tree
+$ cosmic --make fetch          # the only verb that touches the network
 $ cosmic --make coverage       # policy verb, not a graph rule
 ```
 
-## What was decided, and why
+One rule runs through the whole design: **inputs = grants = your staged
+subtree.** It defines what a generator may read, what a test may read,
+and what the sandbox permits — the same sentence in all three places.
+"Put it where its inputs are" is the corollary, and position is
+therefore load-bearing for generators and tests alike.
+
+## Decisions
 
 | question | decision |
 |---|---|
 | primary pain | multi-file projects; tests over the code that ships. then rebuild cost/determinism, then discoverability |
-| `build` semantics | go semantics: strict type-check + compile + stage + embed. `test` is a separate verb |
+| `build` semantics | strict type-check + compile + stage + embed. `test` is a separate verb |
 | what tests import | the **staged tree** — the exact compiled `.lua` the artifact embeds |
 | binaries per project | root `main.tl`, plus `cmd/<name>/main.tl` per artifact |
 | artifact contents | root packages + its own `cmd/<name>/**`. `cmd/foo` cannot import `cmd/bar` |
-| CLI | `cosmic --make <verb> [path]`, verb first. `--build` stays the recipe driver |
-| make's job | sandboxed steps first (bazel-spirit), then staleness, then parallelism |
-| rules source | conventions only. no `rules.tl`. cosmic reshapes itself to fit the conventions |
+| CLI | `cosmic --make <verb> [path]`, verb first |
+| make's job | sandboxed steps first, then staleness, then parallelism |
+| rules source | conventions only. no `rules.tl`. cosmic reshapes itself to fit |
 | policy lanes | cosmic **verbs**, not graph rules |
-| built-in opinions | none. neutral engine: no automatic version stamp, no automatic doc index |
-| generator scope | directory-scoped: a generator's directory is its unit |
-| generated outputs | never committed. everything generated lives in `o/` |
-| recipe lines | whitespace-split argv, `argv[0]` restricted to cosmic verbs ∪ `exec` |
+| built-in opinions | none. no automatic version stamp, no automatic doc index |
+| generated outputs | never committed; everything generated lives in `o/` |
+| generator units | directory-scoped; one directory per generated asset |
+| generator inputs | its containing subtree = its grants. reads outside are **denied**, not stale |
+| enforcement | Landlock where available **plus** portable in-process gating |
+| project root | cwd, with a loud guard if an ancestor also looks like a project |
+| module root | the project root. cosmic's own tree flattens (`lib/cosmic/` → `cosmic/`) |
+| artifact layout | unified *down*: `/zip/<import path>.lua`, assets at `/zip/<rel>` |
+| paths | filenames with spaces or shell metacharacters are a validator error |
+| network | only under `--make fetch`. **no project code ever runs with a socket** |
+| pins | `*.pin.tl` — Teal, statically extracted from a literal, never executed |
+| recipe lines | whitespace-split argv; `argv[0]` ∈ closed verb set ∪ `exec` |
+| `-c` vs `--build` | `-c` wins; `--build` retired across two release cycles |
 | make's bytes | embedded in the cosmic release. amends D13 |
-| artifact base | stripped by default to a positive keep set. no opt-out for now |
-| the floor | compiled cosmic stdlib + certs + zoneinfo + `.args`. everything else stripped, verified by test |
-| generated file | written to `o/`, documented, readable |
-| generality | constant rules file + generated facts (variables only) |
-| staleness | mtime schedules, content decides (write-if-changed at every verb) |
+| artifact base | stripped to a positive floor. no opt-out |
+| the floor | compiled stdlib + certs + zoneinfo + `.args`; verified by test |
+| generated makefile | written to `o/`, documented, readable |
+| generality | constant rules + generated facts (variables only) |
+| staleness | mtime schedules, content decides (write-if-changed everywhere) |
+| parallelism | everything parallel; spawn cost is a budget, not an excuse |
+| test isolation | writes `TEST_TMPDIR` only; reads = staged subtree + staged modules |
 
 ## Project model
 
-The convention vocabulary, in full:
-
-| marker | declares | grants derived |
+| marker | declares | grants |
 |---|---|---|
 | `<dir>/*.tl`, `<dir>/*.lua` | a package: compile, check, format | sources readable, `o/<dir>` writable |
-| `*_test.tl` | a test target | staged tree + its own `TEST_TMPDIR` |
+| `*_test.tl` | a test target | staged subtree readable, `TEST_TMPDIR` writable |
 | `*_example.tl` | an example target | same |
-| `*.d.tl` | type-only; on the include path, never embedded | — |
+| `*.d.tl` | type-only; include path, never embedded | — |
 | `main.tl` at root | the project's binary | staged tree readable, output dir writable |
 | `cmd/<name>/main.tl` | one binary per subdirectory | same |
-| `<dir>/version.lua` | a pinned 3p dep: fetch → verify sha → extract → stage | network, `o/3p/<dir>` writable |
-| `<dir>/` containing a generator | a generation unit (see below) | subtree readable, `o/<dir>` writable |
+| `<dir>/*.pin.tl` | a pinned external asset | network **only** under `fetch`; `o/<dir>` writable |
+| `<dir>/*.gen.tl` | a generation unit | its subtree readable, `o/<dir>` writable |
 | `.cosmicignore` | exclusions | — |
 | everything else | an asset, embedded at its relative path | — |
 
-Rules:
-
 - **import path = path relative to root, `/`→`.`, extension dropped.**
   `pkg/db.tl` → `require("pkg.db")`; `pkg/init.tl` → `require("pkg")`.
-  one rule, identical from source and from inside the artifact.
-- **`.lua` sources are first-class** and pass through uncompiled. a
-  `foo.tl` beside a `foo.lua` is an error, not a precedence rule.
-- **reserved import paths are refused**: `cosmic`, `cosmo`, `tl`,
-  `main.user`. the artifact's module path puts the project first, so
-  these would shadow the runtime — refused at scan time, with the
-  offending file named.
-- **`cmd/foo` cannot import `cmd/bar`.** stated by the validator, not
-  discovered at runtime.
+- **the project root is the module root.** cosmic's own tree therefore
+  flattens: `lib/cosmic/` → `cosmic/`, `lib/types/` → `types/`, and so
+  on. rejected alternative: a conventional `lib/`/`src/` source root —
+  one extra clause, and rearranging is cheap.
+- **root discovery: cwd.** an explicit path argument overrides. if an
+  ancestor directory also looks like a project (has `.tl` files or a
+  `cmd/`), `--make` **refuses**, naming the likely intended root and the
+  exact command. every invocation prints `make: root=<path>`, so the
+  answer is never inferred.
+- **`.lua` sources are first-class**; `foo.tl` beside `foo.lua` is an
+  error, not a precedence rule.
+- **reserved import paths refused**: `cosmic`, `cosmo`, `tl`,
+  `main.user`.
+- **`cmd/foo` cannot import `cmd/bar`** — stated by the validator.
+- **filenames with spaces or shell metacharacters are refused.** recipe
+  lines are whitespace-split argv, so this keeps the split total and
+  quoting from ever existing. the cost is real and accepted: a
+  legitimate `my notes.tl` is rejected with an error naming the file.
 
 ### Generators
 
-A generation unit is a directory; its inputs are that subtree plus
-standing grants (staged `o/3p/**`, the toolchain), and its outputs go to
-`o/<dir>/`. Nothing generated is ever committed.
+A generation unit is a directory holding a `*.gen.tl`; one directory per
+generated asset. Its **inputs are its containing subtree, and its grants
+are exactly that set** — so a generator that reads outside its scope
+gets a denied read, not a silently stale output. Outputs go to
+`o/<dir>/`; nothing generated is ever committed.
 
-Two consequences, both accepted:
+Enforcement is doubled deliberately, because `unveil()` no-ops off
+Landlock: kernel enforcement where available, plus **in-process gating**
+of `cosmic.fs`/`io` for the generator's duration, so the rule holds on
+macOS and Windows too and the developer meets it on the machine where
+they wrote it. Same error message from both paths.
 
-- **two generators in one directory must be split.** `lib/types/` holds
-  both `gentype` (cosmo bindings) and `gentl` (Teal compiler API); they
-  become `lib/types/cosmo/` and `lib/types/tl/`.
-- **invalidation is coarse** — any edit in the subtree reruns the unit.
-  for a root-placed doc-index generator, "any source edit" is the
-  correct dependency anyway.
+Because generated output is never committed, the drift class disappears:
+there is no committed copy to drift from. Accepted cost: **you can no
+longer read `cosmo.*` types from a fresh clone without building**, and
+editors need `o/` on the include path. This is the sharpest edge in the
+design and it pulls against the bare-sandbox story.
 
-Because generated output is never committed, the drift class disappears
-entirely: there is no committed copy to drift from, and `gentype_test`'s
-byte-comparison ratchet is replaced by "the build produced it." The cost,
-recorded as an accepted trade: **you can no longer read `cosmo.*` types
-from a fresh clone without building**, and the editor/LSP needs `o/` on
-its include path. That pulls against the bare-sandbox story and is the
-sharpest edge in this design.
+### External assets
+
+Fetching is **not** a generator. A `*.pin.tl` is Teal data — a single
+`return { … }` literal, type-checked like everything else, **statically
+extracted from the AST and never executed**. `--make fetch` downloads
+and verifies the sha; `build` never opens a socket.
+
+Two properties this buys, both stated as one sentence each:
+
+- **a cosmic build never runs your code with a socket.** building an
+  untrusted repo cannot phone home, because no project code is ever
+  granted network — not even a pin.
+- **a project's entire external surface is greppable.** pins are data,
+  so auditing, mechanical bumping, and the `offline` verb all work
+  without evaluating anything.
+
+Accepted cost: sources cosmic doesn't implement (git, a private index)
+are unsupported until cosmic implements them.
 
 ## Artifact model
 
 ### Layout
 
-The artifact is assembled from the **effective tree** — sources overlaid
-with `o/` outputs — through one rule:
+Assembled from the **effective tree** — sources overlaid with `o/`
+outputs — through one rule, unified *downward*:
 
 ```
-package module, import path P   →  /zip/.lua/P.lua
-asset at relative path R        →  /zip/R
-entry (main.tl | cmd/<n>/main)  →  /zip/main.user.lua behind the wrapper
+package module, import path P  →  /zip/P.lua
+asset at relative path R       →  /zip/R
+entry                          →  /zip/main.user.lua behind the wrapper
 ```
 
-That single rule reproduces cosmic's own current layout: compiled stdlib
-at `.lua/cosmic/`, `sys/help.md` at `sys/`, skills at `skills/`, the
-staged `tl.lua` (a 3p-provided module) at `.lua/tl.lua`, the generated
-doc index and types at their `o/`-mirrored positions. **`pack_copies`
-disappears** — the layout stops being enumerated and becomes derived.
+The zip root *is* the module root, so "path relative to root = import
+path" is literally true inside the artifact too. `pack_copies`
+disappears; the layout stops being enumerated and becomes derived.
 
-Open item: this moves user artifacts from `/zip/?.lua` to
-`/zip/.lua/?.lua`, changing the `#687/#690` wrapper's `package.path`. A
-deliberate break, cheap now, and it buys one layout rule for every
-artifact including cosmic's own.
+Consequence: cosmic's own payload moves (`/zip/.lua/cosmic/*` →
+`/zip/cosmic/*`, `.lua/tl.lua` → `tl.lua`, `.lua/types/` → `types/`),
+touching the searcher's include dirs and anything with a hardcoded
+`/zip/.lua/`. Contained, and it lands in phase 3 when the pack rule is
+rewritten anyway.
 
 ### Stripping
 
 The base is **always stripped to a positive keep set**; anything above
-the floor is the project's own files. There is no `--keep` flag.
+the floor is the project's own files. There is no `--keep`.
 
-**Floor:** compiled cosmic stdlib (`.lua/cosmic/**`), TLS roots
-(`usr/share/ssl/root/*.pem`), zoneinfo, `.args`.
+**Floor:** compiled cosmic stdlib, TLS roots, zoneinfo, `.args`.
+**Stripped:** the embedded make, `tl.lua`, types, teal-types, cosmic's
+`.tl` sources, docs index, skills, `sys/`, `definitions.lua`,
+`.lua/cosmo/**`.
 
-**Stripped:** the embedded make, `.lua/tl.lua`, `.lua/types/**`,
-`.lua/teal-types/**`, `.tl/**`, `.docs/**`, `skills/**`, `sys/**`,
-`.lua/definitions.lua`, `.lua/cosmo/**`.
+This is what lets cosmic build itself with no exception: its artifact
+carries `tl.lua`, types, docs, and make because **its own tree provides
+them** — from its pins and generators — not because the base kept them.
+Any user wanting Teal at runtime vendors it the same way; it is no
+longer free.
 
-This is what makes cosmic buildable by `--make` without an exception:
-cosmic's artifact carries `tl.lua`, its types, its docs index, and its
-embedded make because **its own tree provides them** — from its `3p`
-pins and its own generators — not because the base kept them. Any user
-wanting Teal at runtime vendors it the same way. It is no longer free.
-
-Measured sizes (from the current 6.48 MB `cosmic-lua` release, whose
-entire zip payload is 0.66 MB compressed — the other ~5.8 MB is
-two-architecture native code):
+Measured, against the 6.48 MB `cosmic-lua` release whose entire zip
+payload is 0.66 MB compressed (the rest is two-arch native code):
 
 | item | compressed |
 |---|---|
 | embedded make (new) | ~760 KB |
 | `.tl/` cosmic sources | 104 KB |
-| `.lua/definitions.lua` | 94 KB |
-| `.docs/` index | 89 KB |
-| `.lua/tl.lua` | 76 KB |
+| `definitions.lua` | 94 KB |
+| docs index | 89 KB |
+| `tl.lua` | 76 KB |
 | types + teal-types | ~110 KB |
-| **floor** (stdlib + certs + zoneinfo) | ~160 KB |
+| **floor** | ~160 KB |
 
-Stripping recovers ~1.2 MB, which pays for the embedded make and lands a
-hello-world artifact slightly under today's binary. **Stripping is not a
-size win beyond that** — the mass is native code, and the only lever
-with real weight is single-arch output, a separate feature that costs
-the fat-binary promise.
+Stripping recovers ~1.2 MB — it pays for the embedded make and lands a
+hello-world slightly under today's binary. **It is not a size win beyond
+that**; the mass is native code, and the only lever with real weight is
+single-arch output, which costs the fat-binary promise.
 
-The risk this creates is a `cosmo.*` binding that lazily requires a
-stripped `.lua/cosmo/**` helper. Mitigation is a gate, not a guess: a
-**stripped-artifact test lane** that runs the stdlib's own tests inside a
-stripped artifact.
+Risk: a `cosmo.*` binding that lazily requires a stripped
+`.lua/cosmo/**` helper. The gate is a **stripped-artifact test lane**
+running the stdlib's own tests inside a stripped artifact.
 
 ### Reproducibility
 
-Two builds of the same tree, in different directories, at different
-times, produce byte-identical artifacts. Entries carry a fixed mtime
-(`SOURCE_DATE_EPOCH`, else the DOS floor 315532800) rather than the
-staging file's; `AddOptions.mtime` already exists in the binding and is
-simply not plumbed through `embed.run` today. Gate: build the same
-fixture twice into different paths, compare sha256.
+Entries carry a fixed mtime (`SOURCE_DATE_EPOCH`, else the DOS floor
+315532800) rather than the staging file's; `AddOptions.mtime` exists in
+the binding and is simply not plumbed through `embed.run` today. Gate:
+build the same fixture twice into different paths, compare sha256.
 
 ## Engine
 
 ### Constant rules, generated facts
 
-`o/cosmic.mk` ships in the binary, byte-identical everywhere. Discovery
-inside it uses `$(wildcard)` and the `rwildcard` foreach-recursion idiom
-— builtins only, no `$(shell)`. `o/project.mk` is generated by cosmic
-and contains only variable assignments.
+`o/cosmic.mk` ships in the binary, byte-identical everywhere; discovery
+inside it uses `$(wildcard)` and `rwildcard` foreach-recursion —
+builtins only, no `$(shell)`. `o/project.mk` is generated and contains
+only variable assignments.
 
-The codegen surface therefore shrinks to "emit a list of variables," and
-cosmic keeps discovery *and validation* in Teal, where errors can be good.
-This repo's makefile ratchets collapse from "statically scan generated
-recipe text" to "one file that does not change."
-
-Cost: a stale `o/project.mk` if someone runs `make -f o/cosmic.mk`
-directly. `cosmic --make` is the entry point and regenerating facts is
-one tree walk with write-if-changed.
+Codegen shrinks to "emit a list of variables"; discovery and validation
+stay in Teal, where errors can be good. This repo's makefile ratchets
+collapse from "scan generated recipe text" to "one file that does not
+change." Cost: a stale `o/project.mk` if someone runs
+`make -f o/cosmic.mk` directly.
 
 ### Cosmic as `SHELL`
 
-`SHELL := cosmic`. Cosmic grows `-c '<line>'`, which means make's default
-`.SHELLFLAGS` works unchanged. A line is:
+`SHELL := cosmic`; cosmic grows `-c '<line>'`, so make's default
+`.SHELLFLAGS` works unchanged. A line is whitespace-split argv — no
+quoting, no expansion, no pipes, no redirects — whose `argv[0]` must be
+a cosmic verb or the explicit, greppable `exec`.
 
-- whitespace-split into argv — no quoting, no expansion, no pipes, no
-  redirects (this is already the repo's no-shell discipline, made
-  official rather than enforced by a ratchet);
-- `argv[0]` must be a **cosmic verb** (`copy`, `link`, `compile`,
-  `capture`, `tee`, `list`, `remove`, `require-*`, `verdict`, …) or the
-  explicit `exec`, which is a visible, greppable act.
-
-Two properties fall out:
-
-- **the build's entire capability surface is enumerable.** the recipe
-  vocabulary is a closed, documented set; the ratchet that scans recipe
-  text for shell metacharacters becomes unnecessary.
+- **the build's capability surface is enumerable.** the recipe
+  vocabulary is closed and documented; the metacharacter-scanning
+  ratchet becomes unnecessary.
 - **sandboxing stops depending on fork-specific syntax.** grants ride in
-  target- and pattern-specific variables (`COSMIC_UNVEIL = $^`,
-  `COSMIC_PLEDGE = …`, plain GNU make), and *cosmic* self-restricts
-  before doing the work. `.PLEDGE`/`.UNVEIL` rule attributes become
-  optional rather than load-bearing.
+  target- and pattern-specific variables (`COSMIC_UNVEIL = $^`, plain
+  GNU make) and cosmic self-restricts. `.PLEDGE`/`.UNVEIL` attributes
+  become optional rather than load-bearing.
 
-Grants are derived, not written: prerequisites readable, target directory
-writable, plus the standing base. A rule declares nothing.
+`--build` and `-c` are the same dispatcher; `-c` wins. Retirement is
+release-bounded and the ordering is a constraint, not a preference:
+`-c` must ship in a release **before** this repo can set
+`SHELL := cosmic`, because recipes run the pinned older bootstrap.
+Sequence: add `-c` → release → bump the pin → switch `SHELL` and migrate
+recipes → remove `--build` the following release.
 
-Cost to watch: cosmic is spawned once per recipe line. That is already
-true of this repo's recipes (each execs the pinned bootstrap), so it is
-not a regression — but under `-j` on a large graph it is the thing that
-shows up in wall-clock, which argues for keeping per-line work small and
-the startup path fast.
+### Staleness and parallelism
 
-### Staleness
+Mtime schedules; content decides. Every verb writes its output only when
+the bytes change — the existing `run_into` contract, generalized to
+every step by cosmic owning the shell. A no-op step doesn't touch its
+output, so non-changes stop propagating.
 
-Mtime schedules; content decides. Make picks candidates by mtime, and
-every verb writes its output **only when the bytes change** — the
-existing `run_into` cmp/mv contract, generalized to every step by virtue
-of cosmic being the shell. A no-op step does not touch its output, so
-the non-change propagates and downstream stays fresh.
+**Everything is parallel** (`-j$(nproc)`, honoring an inherited
+jobserver and an explicit `--jobs`). Cosmic is spawned once per recipe
+line; that cost is treated as a **budget to hold, not a reason to
+serialize** — phase 1 reports the number and optimizes the startup path
+if it isn't small. Parallel-by-default is only defensible because
+isolation is structural (below), not advisory.
 
-An action cache keyed on `(argv + input hashes)` is the natural next step
-and is deliberately deferred until profiling shows spawn-and-check
-dominating.
+An action cache keyed on `(argv + input hashes)` is the natural next
+step, deliberately deferred until profiling justifies it.
+
+## Tests
+
+Same rule as generators: **inputs = grants = your staged subtree.**
+
+- **writes:** `TEST_TMPDIR` only. A write anywhere else is a denial, on
+  the author's machine, at the moment it happens.
+- **reads:** the staged subtree rooted at the test's own directory, plus
+  the staged module tree it imports. Everything else — other packages'
+  sources, `$HOME`, the live tree — is denied.
+- **one shared stage** per run, read-only, so reads are of an immutable
+  snapshot. That removes the read-a-file-another-test-is-writing class
+  outright and costs one stage, not one per test.
+- fixtures need no `testdata/` convention: anything in the test's own
+  subtree is readable.
+- ambient environment is redirected into the test's directory
+  (`TMPDIR`, `HOME`, `XDG_*`, cwd), with `TEST_SRCDIR` pointing at the
+  staged subtree.
+- `testrun`'s `.got`/`.out`/`.err` contract and `status_of` (0 pass /
+  2 skip / other fail) are unchanged.
+
+**Ports are a known, documented gap** — fencing can't see them.
+`TEST_PORT_BASE` or a `net` helper, later.
+
+Consequence for this repo, and the reason position matters: ratchet
+tests that read the live tree (`makefile_ratchet_test.tl`, the cast and
+coverage ratchets) must **move to where their inputs are** — the project
+root, whose subtree is the whole staged tree. Rearranging to fit the
+convention is preferred over adding a clause for them.
 
 ## Verbs
 
@@ -256,130 +302,118 @@ dominating.
 
 ```
 build [path]    strict check → compile → stage → embed
-test  [path]    build the stage, run *_test.tl against it, verdict line
+test  [path]    build the stage, run *_test.tl fenced against it
 check [path]    strict type-check only
 fmt   [path]    --check-format (--fix to rewrite)
 run   [path]    build, then exec the artifact with remaining argv
 regen [path]    run generation units
+fetch [path]    resolve *.pin.tl — the only verb with network
 clean           remove o/
 ```
 
-**Policy verbs** — orchestration over the graph, never graph rules
-(this is what keeps them from needing an escape hatch):
+**Policy verbs** — orchestration over the graph, never graph rules:
 
 ```
 ci              format + check + test + example + lint + coverage
 coverage        tests with line coverage + ratchet
 enforce         sandbox-enforced lane
 reproducible    double-build + compare
-offline         no-network lane
+offline         no-network lane, asserted against the pins
 ```
 
-Every verb ends in a machine-readable verdict line and an exit code,
-per the existing "never launder a gate through a pipe" rule. `test`
-keeps `testrun`'s `.got`/`.out`/`.err` contract and `status_of`
-(0 pass / 2 skip / other fail) unchanged.
+Every verb ends in a machine-readable verdict line and an exit code.
 
-## Trust root: amending D13 and D14
+## Trust root: amending D13, completing D14
 
-**D13** currently rejects "shipping make inside the cosmic release
-binary (entangles the two release cycles for no reduction in what must
-be trusted — one fetcher, two pins is the achievable minimum)." That
-reasoning is sound *for this repo's build*, where both pins are already
-in hand. It does not survive the user case: someone holding one cosmic
-binary in a bare sandbox cannot build anything unless make is inside it,
-and for them embedding collapses two pins to one.
-
+**D13** rejects "shipping make inside the cosmic release binary… no
+reduction in what must be trusted." Sound for *this repo's* build, where
+both pins are in hand. It does not survive the user case: someone
+holding one cosmic binary in a bare sandbox cannot build anything unless
+make is inside it, and for them embedding collapses two pins to one.
 Amended chain: **kernel → committed fetcher → one pin → everything.**
-`bin/make` becomes a fetcher for a single artifact. The cost D13 names —
-entangled release cycles — is real and bounded: cosmic already pins
-`cosmos.zip` for its base binary, so it already moves when cosmopolitan
-moves.
+The cost D13 names — entangled release cycles — is real and bounded;
+cosmic already pins `cosmos.zip` for its base binary.
 
-**D14** ("no self-hosting: pinned make is permanent") is *not*
-contradicted — it is completed. D14 rejects a cosmic-native **graph
-executor** and says the endgame "shrinks what make means — a job
-execution system and dependency graph, nothing else." That is exactly
-this: make keeps the graph, the jobserver, and staleness scheduling;
-cosmic supplies the graph's content, every recipe's semantics, and the
-sandbox. D14's rejection of "driving the build from a cosmic script that
-shells out to make as a library" does need revisiting, since `cosmic
---make` drives make — the distinction being that make is still the
-execution engine, not a subroutine.
+**D14** is completed, not contradicted. It rejects a cosmic-native
+*graph executor* and says the endgame "shrinks what make means — a job
+execution system and dependency graph, nothing else." Exactly this: make
+keeps the graph, jobserver, and scheduling; cosmic supplies the graph's
+content, every recipe's semantics, and the sandbox. Its rejection of
+"driving the build from a cosmic script that shells out to make" needs
+revisiting — make remains the execution engine, not a subroutine.
 
 ## What this repo looks like afterward
 
-`cook.mk` and `mk/*.mk` disappear, replaced by conventions:
-
 | today | becomes |
 |---|---|
+| `cook.mk`, `mk/*.mk` | conventions |
+| `lib/cosmic/`, `lib/types/`, … | `cosmic/`, `types/`, … (root = module root) |
 | `cosmic_srcs`/`_tl`/`_tests` wildcards | package convention |
 | `pack_copies` enumeration | the artifact layout rule |
-| `$(cosmos_staged)`, `$(tl_staged)` | `version.lua` convention (already exists) |
-| `gentype`/`gentl` rules | generation units, split into two directories |
-| doc index rule | a generation unit at the root |
-| version stamp rule | a generation unit (its `.git` read stays an opt-out) |
-| `.PLEDGE`/`.UNVEIL`/`.ENV` annotations | derived grants, enforced by cosmic-as-SHELL |
+| `3p/*/version.lua` | `*.pin.tl`, statically extracted |
+| `gentype`/`gentl` rules | generation units, one directory each |
+| doc index, version stamp | generation units, placed where their inputs are |
+| `.PLEDGE`/`.UNVEIL`/`.ENV` | derived grants, enforced by cosmic-as-`SHELL` |
 | `.SANDBOXED`, hostx, recipe-scan ratchets | mostly unnecessary; the vocabulary is closed |
+| ratchet tests reading the tree | moved to the root, where their inputs are |
 | coverage/enforce/reproducible/offline lanes | policy verbs |
 
-`-include cosmic.mk` is the migration bridge: families move onto
-conventions one at a time while the rest stay in make syntax. The bridge
-is not part of the end state.
-
-What stays bespoke, honestly: the `git describe` version stamp (a
-deliberate host dependency with its own sandbox opt-out), and the
-first-fetch shell in `bin/make`.
+`-include cosmic.mk` is the migration bridge only; it is not part of the
+end state. What stays bespoke: the `git describe` version stamp (a
+deliberate host dependency) and the first-fetch shell in `bin/make`.
 
 ## Gates for the change itself
 
-- fixture projects: single-binary, `cmd/`-multi-binary, `.lua`-only,
-  mixed, assets, `.cosmicignore` — each built and *run*, asserting output
+- fixture projects — single-binary, `cmd/` multi-binary, `.lua`-only,
+  mixed, assets, `.cosmicignore` — each built and *run*
 - reproducibility: double-build into different paths, compare sha256
-- stripped-artifact lane: the stdlib's own tests, run inside a stripped
-  artifact (this is what makes the floor safe to shrink)
-- sandbox canary under cosmic-as-`SHELL`, proving derived grants are
-  enforced on a Landlock host, and denied-access failures are loud
-- verb-vocabulary ratchet: the closed set of recipe verbs is enumerated
-  and cannot grow silently
+- stripped-artifact lane: the stdlib's own tests inside a stripped
+  artifact (what makes the floor safe to shrink)
+- sandbox canary under cosmic-as-`SHELL`, on a Landlock host **and**
+  with the in-process gate, proving both produce the same denial
+- fence tests: a generator reading outside its subtree, a test writing
+  outside `TEST_TMPDIR` — both denied, with the message asserted
+- verb-vocabulary ratchet: the closed recipe verb set cannot grow
+  silently
+- pin extraction: a `*.pin.tl` containing anything but a literal is
+  rejected; a pin is never executed (asserted, not assumed)
 - `o/`-only check: no generated file lands in the tree
-- validator errors: reserved import path, `cmd/foo`→`cmd/bar` import,
-  `foo.tl`+`foo.lua` collision, missing entry — each with the message
-  asserted, since these are the errors a fresh agent will hit first
+- validator messages: reserved import path, `cmd/foo`→`cmd/bar`,
+  `foo.tl`+`foo.lua`, missing entry, space in filename, ambiguous root —
+  each asserted, since these are what a fresh agent hits first
+- spawn-cost budget: `cosmic -c` under `-j`, reported in phase 1
 
 ## Phasing
 
-1. **`-c` shell mode.** cosmic gains `-c`, the closed verb vocabulary,
-   and grant self-restriction from target-specific variables. this repo
-   switches `SHELL := cosmic` with `cook.mk` otherwise untouched. gate:
-   the existing suite, plus the sandbox canary.
-2. **User-facing `--make`.** constant rules file + facts generator;
-   `build`/`test`/`check`/`fmt`/`run`/`clean` over the conventions;
-   artifact stripping, embedded make, reproducibility. **this is the
-   phase that answers the original ask** — a tree of `.tl`/`.lua` plus
-   tests becomes an artifact — and it ships independently of anything
-   below.
-3. **Dogfood.** migrate this repo's families onto conventions behind
-   `-include cosmic.mk`, one at a time: packages, tests/examples, 3p,
-   generators (split `lib/types`, move outputs to `o/`), the pack.
+1. **`-c` shell mode.** the closed verb vocabulary, grant
+   self-restriction from target-specific variables, the portable
+   in-process gate. this repo keeps `cook.mk` and switches `SHELL`
+   *after* the release that ships `-c`. reports the spawn-cost number.
+2. **User-facing `--make`.** constant rules + facts generator;
+   `build`/`test`/`check`/`fmt`/`run`/`fetch`/`clean` over the
+   conventions; fenced tests; artifact stripping; embedded make;
+   reproducibility. **this phase answers the original ask** and ships
+   independently of everything below.
+3. **Dogfood.** flatten the tree to root=module-root; migrate families
+   behind `-include cosmic.mk`: packages, tests/examples, pins,
+   generators, the pack.
 4. **Policy verbs.** `ci`, `coverage`, `enforce`, `reproducible`,
    `offline`; retire the ratchets the closed vocabulary makes moot.
-5. **Deferred, on evidence.** action cache; `--make explain`; single-arch
-   artifacts.
+5. **Deferred, on evidence.** action cache; port isolation; `--make
+   explain`; single-arch artifacts.
 
 ## Open items
 
-1. **artifact module path** moves to `/zip/.lua/?.lua` (above). needs a
-   yes/no — it is the one deliberate break to the existing `--embed`
-   contract.
-2. **generator granularity** is recorded as directory-scoped. file-scoped
-   (`x.gen.tl` owns `x.lua` or `x/`) remains a live alternative that
-   avoids splitting `lib/types`; say if you want it.
-3. **`cosmic -c` spawn cost** under `-j` on a large graph is unmeasured.
-   phase 1 should report a number before phase 3 commits this repo to it.
-4. **stripped-floor risk**: `.lua/cosmo/**` may back a lazily-required
-   binding. the stripped-artifact lane is the gate; if something needs to
-   come back, it comes back with a test naming it.
-5. **`--make` as a flag name** survives even though nothing makes a
-   Makefile anymore. `--build` is taken by the recipe driver. no better
-   name proposed.
+1. **confirm the flattening** (`lib/cosmic/` → `cosmic/`). it follows
+   from root = module root, but it is a large mechanical change and I
+   inferred it rather than asking.
+2. **stripped-floor risk**: `.lua/cosmo/**` may back a lazily-required
+   binding. the stripped-artifact lane is the gate; anything that comes
+   back comes back with a test naming it.
+3. **`--make` as a name** survives even though nothing makes a Makefile.
+   `--build` is taken until phase 1 retires it — after which `--build`
+   is free and `--make` could be renamed. worth deciding when it is.
+4. **`ci` composition for user projects**: which verbs it runs, and
+   whether a project can influence that without a spec file.
+5. **test filtering** (`only=`-style) has no convention yet.
+6. **ports** remain unfenced.
