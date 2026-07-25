@@ -2,7 +2,8 @@
 
 status: proposal, for review. three review rounds are folded in; the
 decision tables are the record. delivery is in
-[make-plan.md](make-plan.md).
+[make-plan.md](make-plan.md); what each landed slice settled is in
+[make-log.md](make-log.md).
 
 `--make` is **cosmic's build system**, not a wrapper around `--embed`.
 This repo is meant to build with it.
@@ -10,34 +11,14 @@ This repo is meant to build with it.
 ## What this replaced
 
 `--make [dir] [target]` scanned for `*.tl`, classified by suffix, emitted
-a Makefile and ran make on it. Three things were wrong with that, and
-they are what this design addresses: it **needed a host make** (the
-generated file is useless without one, contradicting promise 3 for
-exactly the user cosmic is for); it **produced build files, not builds**
-(no rule made an executable); and its **project model was a flat scan** —
-no packages, no entry point, no artifact, no notion of what ships. It was
-dropped whole in 2a.
-
-Three fixes that landed this week are also evidence for the design's
-central bet, that a hand-maintained description of a project drifts from
-the project:
-
-- **#800** — `lib/build`, `lib/docs`, and `lib/types` were not
-  type-checked or format-checked at all, because no `cook.mk` declared
-  their sources. Three directories, silently outside the gates.
-- **#802** — the teal and format gates "never ran the check they
-  report": an argv-ambiguity bug meant they passed everything.
-- **#799** — lint only saw *tracked* files, so a new file got no lint
-  locally and first failed in CI.
-
-Under conventions, the first cannot happen (a package is a directory
-with sources in it, discovered, never declared), and the closed recipe
-vocabulary removes the argv ambiguity behind the second. The third is a
-policy the `lint` verb inherits: **tracked plus untracked-not-ignored**.
-
-Two primitives this design needs also already exist: `child.spawn`'s
-`"inherit"` stdio mode (#798), which is how a recipe step streams while
-it runs, and `--test`'s argv slicing (#804), which the `test` verb keeps.
+a Makefile and ran make on it. Three things were wrong with it, and they
+are what this design addresses: it **needed a host make**, it **produced
+build files, not builds**, and its **project model was a flat scan** — no
+packages, no entry point, no artifact, no notion of what ships. Dropped
+whole in 2a; the fuller account, with the three bugs that are the
+evidence for this design's central bet — that a hand-maintained
+description of a project drifts from the project — is in
+[make-log.md](make-log.md).
 
 ## The shape
 
