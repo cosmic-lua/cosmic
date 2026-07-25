@@ -169,7 +169,7 @@ local function test_allowlist_does_not_bypass_the_ssrf_guard()
   local sock = check.must(net.connect_tcp("127.0.0.1", srv.port()),
     "client connect failed")
   assert(sock:send("GET http://127.0.0.1:" .. port .. "/hi HTTP/1.1\r\n"
-    .. "Host: 127.0.0.1:" .. port .. "\r\n\r\n"))
+      .. "Host: 127.0.0.1:" .. port .. "\r\n\r\n"))
   local cfd = check.must(srv.accept(), "proxy accept failed")
 
   local worker = proc.fork()

@@ -193,7 +193,7 @@ test_reporter_note()
 -- must carry a matching clause, one WITHOUT must not. Pin it for both, or
 -- a format tweak on either side silently makes ci grade a red stage green
 -- — the #714 laundering class, one layer up (#779).
-local VERDICT_PATTERN <const> = "[1-9]%d* failed"
+local VERDICT_PATTERN < const > = "[1-9]%d* failed"
 
 local function run_report(...: string): integer, string
   local child = require("cosmic.child")

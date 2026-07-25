@@ -29,8 +29,13 @@ teal: $(o)/teal-summary.txt
 $(o)/teal-summary.txt: $(all_teals) | $(build_reporter)
 	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $^
 
+# The `--` is load-bearing (#801): without it the outer getopt consumes
+# the child's --check-types, the child runs argument-less, drops into
+# the REPL, reads EOF and exits 0 -- so --test faithfully records a pass
+# for a check that never ran. lint gets this right at :84; test/mk has
+# no inner flags to lose.
 $(o)/%.teal.got: % $(cosmic_check_bin) | $(bootstrap_files)
-	@$(cosmic_check_bin) --test $(basename $@) $(cosmic_check_bin) $(include_dir_flags) --check-types $<
+	@$(cosmic_check_bin) --test $(basename $@) -- $(cosmic_check_bin) $(include_dir_flags) --check-types $<
 
 all_formats := $(patsubst %,$(o)/%.format.got,$(call filter-only,$(all_source_files)))
 
@@ -40,8 +45,11 @@ format: $(o)/format-summary.txt
 $(o)/format-summary.txt: $(all_formats) | $(build_reporter)
 	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $^
 
+# `--` for the same reason as the teal rule above (#801). This gate had
+# no second line of defence -- teal's work is redone by --compile-strict,
+# but nothing else checks formatting -- so it silently passed everything.
 $(o)/%.format.got: % $(cosmic_check_bin) | $(bootstrap_files)
-	@$(cosmic_check_bin) --test $(basename $@) $(cosmic_check_bin) --check-format $<
+	@$(cosmic_check_bin) --test $(basename $@) -- $(cosmic_check_bin) --check-format $<
 
 # Lint every file that will land (#719): tracked, PLUS untracked ones
 # git does not ignore. --others is what makes a brand-new file linted

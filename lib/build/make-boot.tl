@@ -34,7 +34,7 @@ end
 --- @return string? Error message if loading failed
 local function load_spec(path: string): VersionSpec | nil, string
   -- cast: pcall returns any
-  local ok, spec = pcall(dofile, path) as (boolean, VersionSpec)
+  local ok, spec = pcall(dofile, path) as(boolean, VersionSpec)
   if not ok then
     return nil, "failed to load " .. path .. ": " .. tostring(spec)
   end

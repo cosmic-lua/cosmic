@@ -239,7 +239,7 @@ local function render_returns(returns: {Return}, fallible: boolean, error_type: 
   for i = 2, #ret_types do
     local n = ret_names[i]
     if (n == "error" or n == "err" or n == "errno")
-      and ret_types[i]:sub(-6) == " | nil" then
+    and ret_types[i]:sub(-6) == " | nil" then
       ret_types[i] = ret_types[i]:sub(1, -7)
     end
   end
