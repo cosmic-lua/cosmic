@@ -199,7 +199,7 @@ type_modules := cosmo unix path getopt lsqlite3 re argon2 zip repl
 modules += bootstrap
 bootstrap_cosmic := $(o)/bootstrap/cosmic
 bootstrap_files := $(bootstrap_cosmic)
-bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-25-9ea0750/cosmic-lua
+bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-25-ded1d3f/cosmic-lua
 # SHA-256 of the bootstrap cosmic binary. It compiles the entire project, so
 # verify it before executing. Update this when bumping bootstrap_url.
 # This pin ships --build (#756 item 3), so every recipe step — compile,
@@ -210,23 +210,23 @@ bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-25-9e
 # LUA_PATH=";;" and cannot depend on parallel build order (#733). This
 # pin and the compile recipe below moved together — the previous pin's
 # driver reads argv[1] as a flag stamp and would misread the new recipe.
-# The global SHELL is this binary (#795). This pin PREDATES `-c`, so a
-# recipe make judges to need a shell dies on "unknown option '-c'"
-# rather than cosmic's "recipe lines are argv, not shell" — fail-closed
-# either way, which is what the SHELL slot is for; the better message
-# arrives with the next pin bump.
+# The global SHELL is this binary (#795), and this pin ships `-c`: a
+# recipe make judges to need a shell is refused by name ("recipe lines
+# are argv, not shell", "unknown verb 'rm'; a recipe may run: ...")
+# instead of dying on a poisoned path.
 #
-# Rolled back from 2026-07-25-d51de5b deliberately. That release ships
-# `-c` AND an always-on derived fence with no runtime floor, and since
-# recipes run the PINNED bootstrap, pinning it fenced every recipe step
-# in this repo with a policy that grants no APE loader and no /dev —
-# enforce, build, and offline all died on `ENOEXEC`. The fence is
-# opt-in in the tree now; re-pin once a release carries that.
+# It also carries the derived per-step fence OPT-IN (COSMIC_FENCE=1),
+# which is the whole reason this pin is safe where 2026-07-25-d51de5b
+# was not: that release fenced every recipe step by default with a
+# policy granting no APE loader and no /dev, and since recipes run the
+# PINNED bootstrap, pinning it killed enforce, build, and offline on
+# ENOEXEC. Verified before pinning: a verb runs with the fence off AND
+# on, and a non-verb is refused by name.
 # LUA_PATH governs runtime require; the TYPE-resolution axis
 # (tl.search_module) is pinned separately to the tree via TL_PATH in the
 # compile/check recipes, so a compile can never type-check against the
 # bootstrap's stale embedded source (#744 — see tree_tl_path).
-bootstrap_sha256 := dfcba77e4fed2c30008e2d0bc3e9ee0bb879108f0a39cad8f7771561bff34bfd
+bootstrap_sha256 := 06dc6bf5ca75cafd30637b54dcdcdc262a04b6a8a4cc69e41bd16f5312876b33
 
 # bin/make is the SOLE provisioner of the bootstrap (#756 cleanup): it
 # runs before every make invocation, parses the pin above via sed,

@@ -138,13 +138,25 @@ the first-fetch shell in `bin/cosmic`.
 
 ## Phasing
 
-1. **`-c` shell mode.** the closed verb vocabulary, `exec`'s
-   pinned-only resolution, grant self-restriction from target-specific
-   variables, the portable in-process gate. recipe output streams via
-   `child.spawn`'s `"inherit"` mode, which already shipped (#798), so
-   phase 1 adds no new stdio machinery. this repo keeps `cook.mk`
-   and switches `SHELL` only *after* the release that ships `-c`.
-   reports the spawn-cost number.
+1. **`-c` shell mode — landed, except the fence default.** the closed
+   verb vocabulary, the trailing-`;` sentinel that makes `SHELL`
+   interception real at all, `exec`'s pinned-only resolution, grants
+   derived per verb, and `SHELL := $(bootstrap_cosmic)`. recipe output
+   streams via `child.spawn`'s `"inherit"` mode (#798), so no new stdio
+   machinery. spawn cost measured at 6.4 ms per line (assimilated ELF),
+   the same one spawn the recipes already paid.
+
+   Two things this phase learned the hard way, both recorded above: a
+   derived fence still needs a runtime floor, and **a pin bump ships
+   every change in that release into this repo's own build** — pinning
+   a release for `-c` also pinned an unproven always-on fence, which
+   turned three lanes red until the pin was rolled back. The fence is
+   therefore opt-in (`COSMIC_FENCE=1`) with a canary asserting it
+   denies; making it the default is its own change, gated on that
+   canary passing on a Landlock host.
+
+   Still open here: the portable in-process gate, which only matters
+   once generator and test units exist (phase 2).
 2. **User-facing `--make`.** constant rules + facts generator;
    `build`/`test`/`check`/`fmt`/`run`/`fetch`/`clean` over the
    conventions; fenced tests; artifact stripping; embedded make;
