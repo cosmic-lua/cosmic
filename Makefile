@@ -39,14 +39,14 @@ include 3p/cosmos/cook.mk
 include 3p/tl/cook.mk
 
 
-# landlock-make sandbox annotations. IMPORTANT (#716): landlock-make
-# only enforces .PLEDGE/.UNVEIL for rules that set .SANDBOXED = 1 —
-# nothing here sets it except the sandbox-canary probe, so these
-# annotations are documented intent, not active enforcement (and
-# cosmopolitan's unveil() no-ops without Landlock). The canary proves
-# the mechanism works; see it before flipping enforcement on. NOTE:
-# make hands .UNVEIL values to unveil UNEXPANDED — assign with := and
-# compose from the shared grant sets in cook.mk (#718).
+# landlock-make sandbox annotations. These are ENFORCED, not intent
+# (#729): every rule family CI exercises sets .SANDBOXED := 1 in
+# cook.mk, so an undeclared read or write in one of their recipes fails
+# on a Landlock host. The .SANDBOXED ratchet in
+# lib/build/makefile_ratchet_test.tl pins the enforced set and the
+# exceptions both ways; losing a flip is otherwise silent. Details in
+# docs/build.md. NOTE: make hands .UNVEIL values to unveil UNEXPANDED —
+# assign with := and compose from the grant sets in cook.mk (#718).
 # global defaults: read-only access, no network, basic stdio
 .PLEDGE := stdio rpath
 .UNVEIL := $(unveil_base)

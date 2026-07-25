@@ -173,6 +173,102 @@ local function test_hostx_ratchet()
 end
 test_hostx_ratchet()
 
+-- The complete set of rule families enforced under real Landlock, and
+-- the rules that deliberately opt out (#729, whose family-by-family
+-- flip landed in #739/#740/#742/#743/#745).
+--
+-- Losing enforcement is SILENT: drop a `.SANDBOXED := 1` and every
+-- grant set is still a superset of what the recipe needs, so nothing
+-- fails and CI stays green — the build just stops enforcing. Nothing
+-- else in the tree notices, which is what makes this a ratchet rather
+-- than documentation. The canary (#716/#724) proves the MECHANISM
+-- works; this proves it is still switched on where it was switched on.
+local sandboxed_enforced: {string} = {
+  "o/%.format.got", -- format checks (#742)
+  "o/%.lint.got", -- lint (#740)
+  "o/%.lua", -- compile family (#739)
+  "o/%.teal.got", -- type checks (#742)
+  "o/%.tl.example.got", -- examples (#745)
+  "o/%.tl.test.got", -- test lane (#743)
+  "o/%/.fetched", -- fetch (#740)
+  "o/%/.staged", -- stage (#740)
+  "o/benchmark-summary.txt", -- reporter summary (#740)
+  "o/coverage/%.tl.test.got", -- coverage test lane (#743)
+  "o/example-summary.txt", -- reporter summary (#740)
+  "o/format-summary.txt", -- reporter summary (#740)
+  "o/lint-summary.txt", -- reporter summary (#740)
+  "o/sandbox-canary/probe.got", -- the canary itself (#716/#724)
+  "o/teal-summary.txt", -- reporter summary (#740)
+}
+
+-- Opting out is a design decision with a reason recorded at the rule.
+-- The benchmark family is deliberately absent from BOTH lists: it keeps
+-- annotations without enforcement because no CI lane runs benchmarks,
+-- and enforcing grants nothing exercises is not a falsifiable gate. It
+-- flips when a lane runs it.
+local sandboxed_exempt: {string} = {
+  "audit-unveil", -- apparatus: execs nested makes, deletes targets
+  "o/cosmic/version.lua", -- reads .git; silent-fallback hazard
+  "o/coverage/lib/cosmic/quicksand/box/run_test.tl.test.got",
+  "o/coverage/lib/cosmic/quicksand/netns_test.tl.test.got",
+  "o/coverage/lib/cosmic/quicksand/proxy_test.tl.test.got",
+  "o/enforce/lib/cosmic/landlock_test.tl.test.got", -- self-sandboxing lane
+  "o/enforce/lib/cosmic/pledge_test.tl.test.got", -- self-sandboxing lane
+  "o/enforce/lib/cosmic/unveil_test.tl.test.got", -- self-sandboxing lane
+  "o/lib/cosmic/quicksand/box/run_test.tl.test.got", -- unshare: no promise
+  "o/lib/cosmic/quicksand/netns_example.tl.example.got",
+  "o/lib/cosmic/quicksand/netns_test.tl.test.got",
+  "o/lib/cosmic/quicksand/proxy_example.tl.example.got",
+  "o/lib/cosmic/quicksand/proxy_test.tl.test.got",
+}
+
+--- Compare a set of owners against an allowlist in both directions.
+--- @param actual {string: boolean} Owners observed in the database
+--- @param allowed {string} The declared allowlist
+--- @param label string What the value means, for the failure message
+--- @param problems {string} Accumulator for failures
+local function diff_owners(actual: {string: boolean}, allowed: {string},
+                           label: string, problems: {string})
+  local declared: {string: boolean} = {}
+  for _, owner in ipairs(allowed) do
+    declared[owner] = true
+  end
+  for owner in pairs(actual) do
+    if not declared[owner] then
+      problems[#problems + 1] = owner .. " is " .. label ..
+      " but is not on the list"
+    end
+  end
+  for _, owner in ipairs(allowed) do
+    if not actual[owner] then
+      problems[#problems + 1] = owner .. " is listed as " .. label ..
+      " but no longer is (stale entry, or enforcement was lost)"
+    end
+  end
+end
+
+-- test: the enforced and exempt sets are exactly the lists above.
+local function test_sandboxed_ratchet()
+  local db = read_database()
+  local sb = parse_var_overrides(db, "%.SANDBOXED")
+  local ones: {string: boolean} = {}
+  local zeros: {string: boolean} = {}
+  for owner, value in pairs(sb.owners) do
+    if value == "1" then
+      ones[owner] = true
+    elseif value == "0" then
+      zeros[owner] = true
+    end
+  end
+  assert(next(ones) ~= nil, "expected some enforced rules in the database")
+  local problems: {string} = {}
+  diff_owners(ones, sandboxed_enforced, "sandbox-enforced", problems)
+  diff_owners(zeros, sandboxed_exempt, "sandbox-exempt", problems)
+  assert(#problems == 0,
+    ".SANDBOXED ratchet:\n  " .. table.concat(problems, "\n  "))
+end
+test_sandboxed_ratchet()
+
 -- Static no-shell gate (#756 cleanup): the poisoned SHELL only trips
 -- when a rule RUNS, and cold rules can sit broken unnoticed (stage1
 -- after the #759 flip, found days later in #760). Scan every recipe in
