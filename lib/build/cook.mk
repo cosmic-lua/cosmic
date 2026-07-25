@@ -46,9 +46,7 @@ lint_style_lua := $(o)/lib/cosmic/cli/style.lua
 # build tests exercise the compiled build tools (reporter, lint,
 # make-help, ...) at runtime via LUA_PATH=$(o)/lib/build, so they need
 # them built and fresh (#715)
-build_test_got := \
-  $(patsubst %,$(o)/%.test.got,$(build_tests)) \
-  $(patsubst %,$(o)/coverage/%.test.got,$(build_tests))
+build_test_got := $(call test_got,$(build_tests))
 $(build_test_got): $(build_files)
 
 # make-help snapshot: generate actual help output (driver capture, #732)
@@ -209,19 +207,14 @@ $(build_make_outputs): private SHELL := /bin/bash
 $(build_make_outputs): private .SHELLFLAGS := -o pipefail -c
 
 # makefile_test consumes the fixtures in both test lanes
-build_makefile_test_got := \
-  $(o)/lib/build/makefile_test.tl.test.got \
-  $(o)/coverage/lib/build/makefile_test.tl.test.got \
-  $(o)/lib/build/makefile_ratchet_test.tl.test.got \
-  $(o)/coverage/lib/build/makefile_ratchet_test.tl.test.got
+build_makefile_test_got := $(call test_got,\
+  lib/build/makefile_test.tl lib/build/makefile_ratchet_test.tl)
 $(build_makefile_test_got): $(build_make_outputs)
 $(build_makefile_test_got): TEST_DIR := $(build_make_out)
 
 # help_test parses the real Makefile, which the test unveil set does
 # not cover (#729 test family)
-build_help_test_got := \
-  $(o)/lib/build/help_test.tl.test.got \
-  $(o)/coverage/lib/build/help_test.tl.test.got
+build_help_test_got := $(call test_got,lib/build/help_test.tl)
 $(build_help_test_got): .UNVEIL := $(unveil_test) r:Makefile
 
 # Unused-grant audit (whilp/cosmopolitan#210 item 3, #756 item 4).
