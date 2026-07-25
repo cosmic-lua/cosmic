@@ -17,8 +17,13 @@
 
 local check = require("cosmic.check")
 local fd = require("cosmic.fd")
+local fs = require("cosmic.fs")
 local poll = require("cosmic.poll")
+local proc = require("cosmic.proc")
+local time = require("cosmic.time")
 local tty = require("cosmic.tty")
+
+local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
 --- Open a pty, or skip the whole file where one cannot be had (no
 --- Landlock-free /dev/pts, a sandbox without it, a non-POSIX host).
@@ -191,3 +196,122 @@ local function test_raw_stops_echo_and_restore_revives_it()
   close_pty(pty)
 end
 test_raw_stops_echo_and_restore_revives_it()
+
+-- getpass, the last path #504 listed. It reads fd 0 specifically and
+-- only suppresses echo when fd 0 is a terminal, so covering it needs a
+-- process whose stdin IS a pty -- login_tty in a forked child, which
+-- replaces that child's session. Hence the fork: it must not happen in
+-- the test process.
+--
+-- The child reports through a file rather than stdout, because after
+-- login_tty its stdout IS the terminal under observation; mixing the
+-- two would make "what did the terminal echo?" unanswerable.
+
+--- Wait until getpass has actually turned echo off.
+---
+--- getpass writes its prompt BEFORE calling noecho, so a parent that
+--- writes as soon as it sees the prompt can have its input echoed by a
+--- still-cooked terminal. That is a race, and it would show up as a
+--- flaky failure rather than a wrong answer. The ECHO bit is the real
+--- readiness signal, and the parent's copy of the subordinate fd
+--- reports the same terminal state the child is changing.
+local function await_echo_off(pty: tty.Pty): boolean
+  for _ = 1, 500 do
+    local t = tty.getattr(pty.subordinate)
+    if t is tty.Termios and t.lflag & tty.ECHO == 0 then
+      return true
+    end
+    time.sleep_ms(10)
+  end
+  return false
+end
+
+local function test_getpass_reads_without_echoing()
+  local pty = with_pty()
+  if not pty then return end
+  local result = fs.join(TEST_TMPDIR, "getpass.out")
+
+  local pid = proc.fork()
+  if pid == 0 then
+    -- Child: adopt the pty as our controlling terminal, so fd 0 is a
+    -- tty and getpass takes the echo-suppressing branch.
+    local ok, lerr = tty.login_tty(pty.subordinate)
+    if not ok then
+      fs.write(result, "LOGIN_TTY_FAILED:" .. tostring(lerr))
+      os.exit(0)
+    end
+    local pw, err = tty.getpass("Password: ")
+    fs.write(result, pw or ("ERR:" .. tostring(err)))
+    os.exit(0)
+  end
+
+  local mgr = fd.wrap(pty.manager)
+  if not await_echo_off(pty) then
+    proc.kill(pid, 9)
+    proc.wait(pid)
+    close_pty(pty)
+    check.skip("getpass never disabled echo; cannot test without racing")
+    return
+  end
+  assert(mgr:write("hunter2\n"))
+  proc.wait(pid)
+
+  -- Everything the terminal sent back while the child was reading.
+  local seen = ""
+  local set = poll.new()
+  set:add(pty.manager, poll.POLLIN)
+  while true do
+    local n = set:poll(300)
+    if not n or n == 0 then break end
+    local chunk = mgr:read(4096)
+    if not chunk or #chunk == 0 then break end
+    seen = seen .. chunk
+  end
+  close_pty(pty)
+
+  local got = check.must(fs.read(result))
+  assert(got == "hunter2",
+    "getpass should return the typed line, got: " .. got)
+  assert(seen:find("Password: ", 1, true),
+    "getpass should write its prompt to the terminal, saw: " .. seen)
+  -- The whole point of getpass: the secret must not come back.
+  assert(not seen:find("hunter2", 1, true),
+    "getpass must not echo what was typed, but the terminal returned: "
+    .. seen)
+end
+test_getpass_reads_without_echoing()
+
+--- getpass restores the terminal when it is done, so a caller that
+--- prompts for a password does not leave the user's terminal mute.
+local function test_getpass_restores_echo_afterwards()
+  local pty = with_pty()
+  if not pty then return end
+  local result = fs.join(TEST_TMPDIR, "getpass_restore.out")
+
+  local pid = proc.fork()
+  if pid == 0 then
+    if not tty.login_tty(pty.subordinate) then os.exit(1) end
+    local pw = tty.getpass("pw: ")
+    fs.write(result, pw or "")
+    os.exit(0)
+  end
+
+  local mgr = fd.wrap(pty.manager)
+  if not await_echo_off(pty) then
+    proc.kill(pid, 9)
+    proc.wait(pid)
+    close_pty(pty)
+    check.skip("getpass never disabled echo; cannot test without racing")
+    return
+  end
+  assert(mgr:write("secret\n"))
+  proc.wait(pid)
+
+  local after = check.must(tty.getattr(pty.subordinate))
+  assert(after.lflag & tty.ECHO ~= 0,
+    "getpass must restore echo before returning")
+  assert(after.lflag & tty.ICANON ~= 0,
+    "getpass must leave canonical mode as it found it")
+  close_pty(pty)
+end
+test_getpass_restores_echo_afterwards()
