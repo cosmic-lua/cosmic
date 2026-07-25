@@ -1,5 +1,5 @@
 modules += cosmic
-cosmic_srcs := $(wildcard lib/cosmic/*.tl) $(wildcard lib/cosmic/cli/*.tl) $(wildcard lib/cosmic/coverage/*.tl) $(wildcard lib/cosmic/fs/*.tl) $(wildcard lib/cosmic/build/*.tl) $(wildcard lib/cosmic/child/*.tl) $(wildcard lib/cosmic/doc/*.tl) $(wildcard lib/cosmic/fetch/*.tl) $(wildcard lib/cosmic/format/*.tl) $(wildcard lib/cosmic/make/*.tl) $(wildcard lib/cosmic/net/*.tl) $(wildcard lib/cosmic/sqlite/*.tl) $(wildcard lib/cosmic/quicksand/*.tl) $(wildcard lib/cosmic/quicksand/box/*.tl) $(wildcard lib/cosmic/quicksand/proxy/*.tl)
+cosmic_srcs := $(wildcard lib/cosmic/*.tl) $(wildcard lib/cosmic/cli/*.tl) $(wildcard lib/cosmic/coverage/*.tl) $(wildcard lib/cosmic/fs/*.tl) $(wildcard lib/cosmic/build/*.tl) $(wildcard lib/cosmic/child/*.tl) $(wildcard lib/cosmic/doc/*.tl) $(wildcard lib/cosmic/embed/*.tl) $(wildcard lib/cosmic/fetch/*.tl) $(wildcard lib/cosmic/format/*.tl) $(wildcard lib/cosmic/make/*.tl) $(wildcard lib/cosmic/net/*.tl) $(wildcard lib/cosmic/sqlite/*.tl) $(wildcard lib/cosmic/quicksand/*.tl) $(wildcard lib/cosmic/quicksand/box/*.tl) $(wildcard lib/cosmic/quicksand/proxy/*.tl)
 cosmic_tests := $(filter %_test.tl,$(cosmic_srcs))
 cosmic_examples := $(filter %_example.tl,$(cosmic_srcs))
 cosmic_tl := $(filter-out $(cosmic_tests) $(cosmic_examples) lib/cosmic/cli/main.tl,$(cosmic_srcs))
@@ -21,11 +21,12 @@ cosmic_lua := $(patsubst %.tl,$(o)/%.lua,$(cosmic_tl))
 cosmic_debug_test_got := $(call test_got,lib/cosmic/cosmic_debug_test.tl)
 $(cosmic_debug_test_got): $(cosmic_debug_bin)
 
-# The --make graph test drives a REAL make over fixture projects, so it
-# execs the extracted engine at bin/cosmo-make — the one path outside
-# the standard test grant it needs. Everything that make then runs is
-# $(o)/bin/cosmic and fixture trees under $(TMP), both already granted.
-make_graph_tests := $(call test_got,lib/cosmic/make/build_test.tl)
+# The --make graph tests drive a REAL make over fixture projects, so
+# they exec the extracted engine at bin/cosmo-make — the one path
+# outside the standard test grant they need. Everything that make then
+# runs is $(o)/bin/cosmic and fixture trees under $(TMP), both granted.
+make_graph_tests := $(call test_got,lib/cosmic/make/build_test.tl \
+  lib/cosmic/make/artifact_test.tl)
 $(make_graph_tests): .UNVEIL := $(unveil_test) rx:bin
 
 cosmic_built := $(o)/cosmic/.built

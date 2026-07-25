@@ -242,10 +242,45 @@ the first-fetch shell in `bin/cosmic`.
      - **make's recipe echo stays on.** For a build system whose whole
        capability surface is a closed verb list, watching that list
        scroll past is the feature, not noise.
-   - **2c — the artifact.** compile → stage → embed → `o/bin/<name>`,
-     stripping to the floor, reproducibility (the `AddOptions.mtime`
-     plumbing), `cmd/` multi-binary. This is the slice where a tree of
-     `.tl`/`.lua` plus tests becomes an executable.
+   - **2c — the artifact. Landed.** compile → stage → embed →
+     `o/bin/<name>`, stripping to the floor, reproducibility (the
+     `AddOptions.mtime` plumbing), `cmd/` multi-binary. This is the
+     slice where a tree of `.tl`/`.lua` plus tests becomes an
+     executable.
+
+     What it settled, and one thing it did not:
+
+     - **a `cmd/<name>/` directory is a generator**, which is the
+       observation that produced the *Units* section in
+       [make.md](make.md). Every output under `o/` comes from a unit:
+       a directory that declares it, a scope of inputs that is also its
+       grant set, and an output path derived from its position. The
+       artifact's `scope_of` is written in that shape; 2d's pin makes
+       the third instance, which is when the abstraction earns itself.
+     - **the stripped-floor risk did not materialize.** The design
+       flagged `.lua/cosmo/**` as possibly backing a lazily-required
+       binding. This base carries no such directory at all, so there is
+       nothing to strip and nothing to break. The lane that would have
+       caught it is now the stripped-artifact test, which boots a
+       stripped binary and asserts the stdlib loads while `tl` does not.
+     - **stripping is semantic, not yet a size win — recorded, not
+       papered over.** `Appender:remove` unlinks an entry from the
+       central directory and leaves its bytes as dead space, so a
+       stripped artifact is ~14 KB smaller than its base rather than
+       the ~1.2 MB the design's table projects. Everything the strip
+       *promises* holds: the toolchain is unloadable and unextractable,
+       and the floor is a positive list so a future base cannot
+       silently start shipping a new directory. What is missing is
+       compaction, which needs a zip rewrite the binding does not
+       expose — an upstream whilp/cosmopolitan change, and exactly the
+       kind of thing the fork exists for. Until then the size table in
+       make.md is a projection, not a measurement.
+     - **removing a directory marker removes its subtree.**
+       `Appender:remove` treats a trailing `/` as a prefix, so stripping
+       the bare `.lua/` marker takes `.lua/cosmic/**` — the floor —
+       with it. Markers are zero bytes and are never removed now. This
+       cost one debugging cycle and is the kind of thing that reads as
+       "the stdlib vanished" rather than "the strip was too wide".
    - **2d — pins and `fetch`.** `*.pin.tl` static extraction and the
      network-only-under-`fetch` posture.
    - **2e — embedded make.** packing it into the release, which user

@@ -17,6 +17,7 @@ local fs = require("cosmic.fs")
 local root = require("cosmic.make.root")
 local project = require("cosmic.make.project")
 local validate = require("cosmic.make.validate")
+local artifact = require("cosmic.make.artifact")
 local check = require("cosmic.make.check")
 local graph = require("cosmic.make.graph")
 local types = require("cosmic.make.types")
@@ -190,7 +191,29 @@ local function run_graph(verb: string, proj: Project, paths: {string},
     return verdict(verb, false, "make")
   end
   local noun = #files == 1 and " file" or " files"
-  return verdict(verb, code == 0, #files .. noun)
+  local detail = #files .. noun
+
+  -- The artifacts, once the tree they are assembled from exists. A
+  -- SELECTED build compiles part of the tree, so it cannot produce a
+  -- whole artifact — it stops at the compile, which is what the
+  -- verdict then reports.
+  if verb == "build" and code == 0 and #paths == 0 then
+    local built = 0
+    for _, b in ipairs(proj.binaries) do
+      local out, aerr = artifact.build(proj, b, cosmic)
+      if not out then
+        io.stderr:write((aerr or "make: cannot build the artifact") .. "\n")
+        return verdict(verb, false, detail .. ", " .. b.name .. " failed")
+      end
+      io.write("make: " .. (out as string) .. "\n") -- cast: scalar narrowing after the guard
+      built = built + 1
+    end
+    if built > 0 then
+      detail = detail .. ", " .. built ..
+      (built == 1 and " binary" or " binaries")
+    end
+  end
+  return verdict(verb, code == 0, detail)
 end
 
 --- `clean` — remove the build directory, in process. Driving this

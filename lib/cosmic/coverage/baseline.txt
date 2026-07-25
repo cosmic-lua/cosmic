@@ -42,7 +42,9 @@ lib/cosmic/doc/query.tl 237 303
 lib/cosmic/doc/render.tl 117 234
 lib/cosmic/doc/show.tl 285 337
 lib/cosmic/doc/types.tl 2 2
-lib/cosmic/embed.tl 150 215
+lib/cosmic/embed/extract.tl 30 58
+lib/cosmic/embed/floor.tl 22 27
+lib/cosmic/embed/init.tl 149 187
 lib/cosmic/env.tl 24 34
 lib/cosmic/envd.tl 95 101
 lib/cosmic/errno.tl 17 25
@@ -70,9 +72,10 @@ lib/cosmic/ip.tl 116 116
 lib/cosmic/json.tl 23 24
 lib/cosmic/landlock.tl 58 101
 lib/cosmic/log.tl 72 74
+lib/cosmic/make/artifact.tl 73 83
 lib/cosmic/make/check.tl 54 55
 lib/cosmic/make/graph.tl 126 141
-lib/cosmic/make/init.tl 119 129
+lib/cosmic/make/init.tl 132 144
 lib/cosmic/make/project.tl 180 188
 lib/cosmic/make/root.tl 46 50
 lib/cosmic/make/types.tl 2 2

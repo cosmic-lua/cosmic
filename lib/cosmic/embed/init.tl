@@ -44,18 +44,31 @@ local fs = require("cosmic.fs")
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").str
 local Stat = require("cosmic.fs.types").Stat
+local floor = require("cosmic.embed.floor")
+local extract_mod = require("cosmic.embed.extract")
 
---- Result returned from embed and extract operations.
-local record EmbedResult
-  ok: boolean
-  message: string
-  file_count: integer
+--- Options for run().
+local record Options
+  --- Strip the base executable down to the floor (cosmic.embed.floor)
+  --- before adding the caller's files. Everything the base carried
+  --- that is not on the floor is a tool for BUILDING programs, not a
+  --- runtime an artifact needs.
+  strip: boolean
+  --- Fixed modification time for every added entry, so two builds of
+  --- one tree agree byte-for-byte.
+  mtime: integer
 end
+
+--- Result returned from embed and extract operations. The extraction
+--- half declares the same shape; this is the one the module surface
+--- publishes.
+local type EmbedResult = extract_mod.EmbedResult
 
 --- Options for adding files to a ZIP archive.
 local record AddOptions
   mode: integer
   method: string
+  mtime: integer
 end
 
 --- Appender interface for modifying a ZIP archive in-place.
@@ -198,6 +211,23 @@ local chunk = assert(loadfile("/zip/main.user.lua"))
 return chunk(...)
 ]]
 
+--- Every entry name the base executable carries.
+--- @param exe_path string The base executable
+--- @return {string} Entry names, or empty when it carries no zip
+local function base_entries(exe_path: string): {string}
+  local names: {string} = {}
+  local rd = czip.reader(exe_path)
+  if rd == nil then
+    return names
+  end
+  local reader = rd as czip.Reader -- cast: record union after guard
+  for _, e in ipairs(reader:list()) do
+    names[#names + 1] = e.name
+  end
+  reader:close()
+  return names
+end
+
 --- Wrap a user-supplied main.lua behind the searcher-installing entry.
 --- Mutates files_to_embed in place: the user entry moves to
 --- main.user.lua and the generated wrapper becomes main.lua. Skipped
@@ -252,10 +282,13 @@ end
 --- @param paths {string} List of file or directory paths to embed
 --- @param output string Output path for the new executable (defaults to "cosmic")
 --- @param exe_path string Path to the source executable (defaults to arg[-1])
+--- @param opts Options Stripping and reproducibility (both off by default)
 --- @return EmbedResult Result with ok status, message, and file count
-local function run(paths: {string}, output?: string, exe_path?: string): EmbedResult
+local function run(paths: {string}, output?: string, exe_path?: string,
+    opts?: Options): EmbedResult
   output = output or "cosmic"
   exe_path = exe_path or arg[-1]
+  opts = opts or {}
 
   if not exe_path then
     return {ok = false, message = "error: could not determine executable path", file_count = 0}
@@ -343,6 +376,22 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
   end
   local appender = appender_result as ZipAppender -- cast: from any
 
+  -- Strip first, so an entry the caller supplies is never removed after
+  -- being added. The floor is positive: everything the base carried
+  -- that is not on it goes, including entries this build has never
+  -- heard of.
+  if opts.strip then
+    for _, name in ipairs(base_entries(exe_path)) do
+      -- A trailing slash makes remove() a PREFIX removal, so removing
+      -- the bare `.lua/` marker takes `.lua/cosmic/**` — the floor —
+      -- with it. Directory markers are zero bytes and are therefore
+      -- never removed; the entries beneath them are removed by name.
+      if name:sub(-1) ~= "/" and not floor.in_floor(name) then
+        appender:remove(name)
+      end
+    end
+  end
+
   -- Remove existing entries that conflict, then add new ones.
   -- Store .lua uncompressed; deflate everything else. The produced
   -- executable loads its embedded Lua at boot, so a deflated .lua costs an
@@ -352,8 +401,12 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
   for _, file_info in ipairs(files_to_embed) do
     appender:remove(file_info.stored_name)
     local is_lua = file_info.stored_name:sub(-4) == ".lua"
-    local opts: AddOptions = {mode = file_info.mode, method = is_lua and "store" or "deflate"}
-    local add_ok, add_err = appender:add(file_info.stored_name, file_info.content, opts)
+    local add: AddOptions = {
+      mode = file_info.mode,
+      method = is_lua and "store" or "deflate",
+      mtime = opts.mtime,
+    }
+    local add_ok, add_err = appender:add(file_info.stored_name, file_info.content, add)
     if not add_ok then
       appender:close()
       fs.unlink(tmp_path)
@@ -378,123 +431,20 @@ local function run(paths: {string}, output?: string, exe_path?: string): EmbedRe
   }
 end
 
---- Report whether a zip entry name would escape the extraction root
---- (zip-slip). Rejects absolute paths — POSIX (`/x`), Windows/UNC
---- (`\x`, `\\server\share`), and drive-letter (`C:\x`, `C:/x`, `C:x`) —
---- and any `..` traversal component. Both `/` and `\` are treated as
---- separators, since cosmic executables also extract on Windows where a
---- `..\evil` entry would otherwise slip past a POSIX-only guard.
---- @param name string Archive entry name
---- @return boolean true if the entry is unsafe to extract
-local function unsafe_entry(name: string): boolean
-  -- Absolute roots escape output_dir.
-  if name:sub(1, 1) == "/" or name:sub(1, 1) == "\\" then return true end
-  if name:match("^%a:") then return true end
-  -- Normalize backslashes so ".." traversal is caught on either
-  -- separator ("..\evil" like "../evil").
-  local slashed = name:gsub("\\", "/")
-  if slashed == ".." or slashed:match("^%.%./") or slashed:match("/%.%./")
-  or slashed:match("/%.%.$") then
-    return true
-  end
-  return false
-end
-
---- Extract the zip contents of a cosmic executable to a directory.
---- Creates the output directory if needed. Existing files are overwritten.
---- @param output_dir string Directory to extract into
---- @param exe_path string Path to the executable to extract (defaults to arg[-1])
---- @return EmbedResult Result with ok status, message, and file count
-local function extract(output_dir: string, exe_path?: string): EmbedResult
-  exe_path = exe_path or arg[-1]
-
-  if not exe_path then
-    return {ok = false, message = "error: could not determine executable path", file_count = 0}
-  end
-
-  local exe_data = fs.read(exe_path)
-  if not exe_data then
-    return {ok = false, message = "error: cannot read executable '" .. exe_path .. "'", file_count = 0}
-  end
-
-  local reader_maybe = czip.from(exe_data)
-  if not reader_maybe then
-    return {ok = false, message = "error: no zip archive found in '" .. exe_path .. "'", file_count = 0}
-  end
-  local reader = reader_maybe as ZipReader -- cast: record union after guard
-
-  local entries = reader:list()
-  local count = 0
-  -- Archive entries are frequently many files under the same directory
-  -- (e.g. a whole embedded tree); memoize which output directories have
-  -- already been created so each one gets exactly one makedirs(2) walk
-  -- instead of one per file.
-  local made_dirs: {string: boolean} = {}
-
-  for _, entry in ipairs(entries) do
-    local name = entry.name
-    -- Guard against zip-slip: an entry with an absolute path or a ".."
-    -- component could otherwise be written outside output_dir.
-    if unsafe_entry(name) then
-      reader:close()
-      return {ok = false, message = "error: unsafe path in archive: " .. name, file_count = count}
-    end
-    -- Skip directory entries (trailing /)
-    if name:sub(-1) == "/" then
-      local dir_path = fs.join(output_dir, name)
-      if not made_dirs[dir_path] then
-        fs.makedirs(dir_path)
-        made_dirs[dir_path] = true
-      end
-    else
-      local content, read_err = reader:read(name)
-      if not content then
-        reader:close()
-        return {ok = false, message = "error: cannot read '" .. name .. "' from archive: " .. (read_err or "unknown error"), file_count = count}
-      end
-
-      local filepath = fs.join(output_dir, name)
-      local dir = fs.dirname(filepath)
-      if not made_dirs[dir] then
-        fs.makedirs(dir)
-        made_dirs[dir] = true
-      end
-
-      -- Sane-masked mode from the archive entry: permission bits only.
-      local file_mode = tonumber("644", 8)
-      local mode = entry.mode & tonumber("777", 8)
-      if mode > 0 then
-        file_mode = mode
-      end
-
-      local write_ok = fs.write(filepath, content, file_mode)
-      if not write_ok then
-        reader:close()
-        return {ok = false, message = "error: cannot write '" .. filepath .. "'", file_count = count}
-      end
-      count = count + 1
-    end
-  end
-
-  reader:close()
-
-  return {
-    ok = true,
-    message = "extracted " .. count .. " file(s) to " .. output_dir,
-    file_count = count,
-  }
-end
-
 local record EmbedModule
-  run: function(paths: {string}, output?: string, exe_path?: string): EmbedResult
+  EPOCH: integer
+  FLOOR: {string}
+  run: function(paths: {string}, output?: string, exe_path?: string, opts?: Options): EmbedResult
   extract: function(output_dir: string, exe_path?: string): EmbedResult
   unsafe_entry: function(name: string): boolean
 end
 
 local M: EmbedModule = {
+  EPOCH = floor.epoch(),
+  FLOOR = floor.FLOOR,
   run = run,
-  extract = extract,
-  unsafe_entry = unsafe_entry,
+  extract = extract_mod.extract,
+  unsafe_entry = extract_mod.unsafe_entry,
 }
 
 return M

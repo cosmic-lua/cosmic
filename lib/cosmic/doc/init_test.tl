@@ -206,16 +206,17 @@ test_example_title()
 -- Test that actual library files have proper documentation
 -- These tests verify that our source files have doc comments
 local function test_embed_has_module_doc()
-  local ok, md = doc.render_file("lib/cosmic/embed.tl")
-  assert(ok, "should read embed.tl")
+  local ok, md = doc.render_file("lib/cosmic/embed/init.tl")
+  assert(ok, "should read embed/init.tl")
   -- Module should have a description after the header
-  assert(md:find("# embed\n\n[^#]"), "embed.tl should have module description")
+  assert(md:find("# embed\n\n[^#]"), "embed/init.tl should have module description")
 end
 test_embed_has_module_doc()
 
 local function test_embed_has_type_descriptions()
-  local ok, md = doc.render_file("lib/cosmic/embed.tl")
-  assert(ok, "should read embed.tl")
+  -- EmbedResult is declared in the extraction half; init.tl aliases it.
+  local ok, md = doc.render_file("lib/cosmic/embed/extract.tl")
+  assert(ok, "should read embed/extract.tl")
   -- EmbedResult should have a description, not just a bare header
   assert(md:find("### EmbedResult\n\n[^#]"), "EmbedResult should have description")
 end

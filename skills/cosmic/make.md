@@ -24,7 +24,7 @@ replaced it outright.
 | verb | what it does | today |
 |---|---|---|
 | `check` | strict type-check (warnings are errors), in process | ✅ |
-| `build` | compile every source into `o/` | ✅ |
+| `build` | compile the tree, then stage + embed → `o/bin/<name>` | ✅ |
 | `test` | build, then run `*_test.tl` and report | ✅ |
 | `fmt` | `--check-format` over every `.tl` | ✅ |
 | `clean` | remove `o/` | ✅ |
@@ -33,17 +33,59 @@ replaced it outright.
 | `fetch` | resolve `*.pin.tl` — the only verb with network | planned |
 | `ci` `coverage` `enforce` `reproducible` `offline` | policy lanes over the graph | planned |
 
-`build` does not produce `o/bin/<name>` yet — the artifact (stage,
-embed, stripping to the floor) is the next slice. what it does today is
-compile the whole tree, strictly: nothing lands in `o/` that the type
-checker rejected.
-
 every verb ends in a machine-readable verdict line and an exit code:
 
 ```
 make: root=/home/you/myapp
 check: PASS (12 files)
 ```
+
+## The artifact
+
+`cosmic --make build` produces `o/bin/<name>` — a fat binary that runs
+on Linux, macOS, Windows, and the BSDs, with your project inside it.
+the name is the project directory's, or the `cmd/<name>/` directory's:
+
+```
+myapp/
+  main.tl                   → o/bin/myapp
+  cmd/fetchit/main.tl       → o/bin/fetchit
+  cmd/servit/main.tl        → o/bin/servit
+```
+
+layout is derived, never enumerated. one rule:
+
+```
+package module, import path P  →  /zip/P.lua
+asset at relative path R       →  /zip/R
+entry                          →  /zip/main.user.lua behind the wrapper
+```
+
+the zip root **is** the module root, so "path relative to the root =
+import path" holds inside the artifact too — `require("db.query")`
+resolves the same way at build time and at run time.
+
+each `cmd/<name>` artifact carries the root packages plus its own
+subtree, and nothing from a sibling `cmd/` — the same boundary the
+validator refuses imports across. `testdata/` is never embedded; that
+is its only job. tests and `.d.tl` declarations do not ship either.
+
+**the base is stripped to a positive floor, and there is no opt-out.**
+what survives is cosmic's compiled standard library, the TLS roots and
+zoneinfo, and `.args`. what goes is the toolchain: the Teal compiler,
+the type declarations, cosmic's own `.tl` sources, the docs index, the
+skills, the build rules. so `require("cosmic.json")` works in your
+artifact and `require("tl")` does not — an artifact is a program, not a
+copy of the thing that built it. a project that wants Teal at runtime
+vendors it, and it ships because the project's own tree provides it.
+
+builds are reproducible: entries carry a fixed mtime
+(`SOURCE_DATE_EPOCH`, else the 1980 DOS floor) rather than the staging
+file's, so two builds of one tree in two different directories are
+byte-identical.
+
+a build narrowed with paths compiles only what you selected and stops
+there — half a tree cannot make a whole artifact.
 
 ## The engine
 

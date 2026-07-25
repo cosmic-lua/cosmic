@@ -159,6 +159,42 @@ Two sentences carry most of the design:
 - **`.lua` sources are first-class**; `foo.tl` beside `foo.lua` is an
   error, not a precedence rule.
 
+### Units
+
+**A `cmd/<name>/` directory is a generator.** Noticed while building
+2c, and it is not a coincidence: every output under `o/` is produced by
+a *unit*, and a unit is three things — a **directory** that declares
+it, a **scope** of inputs that is also its grant set, and an **output
+path** derived from its position. Nothing else varies.
+
+| unit | declared by | scope = grants | output |
+|---|---|---|---|
+| module | `X.tl` | the file + the include path | `o/X.lua` |
+| test | `X_test.tl` | staged subtree at its directory + staged modules | `o/X.tl.test.{got,out,err}` |
+| generator | `*.gen.tl` in `D` | `D`'s subtree | `o/D/**` |
+| binary | `main.tl`, `cmd/<n>/main.tl` | root packages + its own `cmd/<n>/**` | `o/bin/<n>` |
+| pin | `*.pin.tl` in `D` | the pin literal, plus a socket under `fetch` | `o/D/<asset>` |
+
+Read down the scope column and the design's two load-bearing sentences
+are the same sentence: *inputs = grants = your staged subtree*, and
+*put it where its inputs are*. `cmd/foo` cannot import `cmd/bar` is not
+a special artifact rule — it is that unit's scope, stated as a
+validator error instead of as a denied read, because it can be caught
+statically.
+
+What this buys: `exec`'s fence gets a referent (it is the one verb
+whose reads argv cannot derive, and the design already promises it is
+"fenced to the unit's subtree"); staging becomes one question,
+`scope_of(unit)`, that the artifact, the test stage and a generator's
+read grant all ask; and a new unit kind costs a table row.
+
+What it does *not* buy, and why this is a recorded observation rather
+than a refactor: the rows differ in the one place that matters — how
+the scope is computed — so a `Unit` record is a bag holding five
+unrelated functions until at least three exist. 2c writes the binary's
+scope in that shape; 2d adds the pin's. If the third lands without
+wanting to be different, the abstraction has evidence behind it.
+
 ### Generators
 
 A generation unit is a directory holding a `*.gen.tl`; one directory per
