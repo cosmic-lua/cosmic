@@ -51,8 +51,8 @@ $(build_test_got): $(build_files)
 # make-help snapshot: generate actual help output (driver capture, #732)
 $(o)/lib/build/make-help.snap: export LUA_PATH := ;;
 $(o)/lib/build/make-help.snap: export TREE_LUA_PATH = $(tree_lua_path)
-$(o)/lib/build/make-help.snap: Makefile $(build_help) | $(bootstrap_cosmic)
-	@$(bootstrap_cosmic) --build capture $(bootstrap_cosmic) $@ $(build_help) Makefile
+$(o)/lib/build/make-help.snap: $(MAKEFILE_LIST) $(build_help) | $(bootstrap_cosmic)
+	@$(bootstrap_cosmic) --build capture $(bootstrap_cosmic) $@ $(build_help) $(MAKEFILE_LIST)
 
 # makefile validation outputs
 build_make_out := $(o)/lib/build/make
@@ -214,4 +214,4 @@ $(build_makefile_test_got): TEST_DIR := $(build_make_out)
 # help_test parses the real Makefile, which the test unveil set does
 # not cover (#729 test family)
 build_help_test_got := $(call test_got,lib/build/help_test.tl)
-$(build_help_test_got): .UNVEIL := $(unveil_test) r:Makefile
+$(build_help_test_got): .UNVEIL := $(unveil_test) r:Makefile r:mk
