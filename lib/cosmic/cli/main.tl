@@ -49,7 +49,8 @@ local record Options
   build_mode: string
   build_argv: {string}
   recipe: string
-  make: string
+  make_verb: string
+  make_argv: {string}
   skill: string
   write_if_changed: boolean
   include_dirs: {string}
@@ -105,7 +106,10 @@ local function parse_args(): Options
       break
     elseif a:sub(1, 2) == "--" then
       local opt_name = a:sub(3)
-      if opt_name == "build" or opt_name == "test" then
+      -- --make joins them (#2a): `--make <verb> [paths…]` is a verb plus
+      -- a path list, and a path is a positional getopt would permute
+      -- into its own option parse.
+      if opt_name == "build" or opt_name == "test" or opt_name == "make" then
         payload = {}
         -- a `--` here defends against that same bug; step over it
         local from = arg[i + 2] == "--" and i + 3 or i + 2
@@ -180,6 +184,8 @@ local function parse_args(): Options
       opts.error = "cosmic-lua: --test requires: --test <output> <cmd>...\nSee: cosmic-lua --help"
     elseif m == "build" then
       opts.error = "cosmic-lua: --build requires: --build <mode> <args>...\nSee: cosmic-lua --help"
+    elseif m == "make" then
+      opts.error = "cosmic-lua: --make requires: --make <verb> [paths...]\nSee: cosmic-lua --help"
     elseif m == "embed" then
       opts.error = "cosmic-lua: --embed requires: --embed <path>\nSee: cosmic-lua --help"
     elseif m == "output" then
@@ -285,7 +291,8 @@ local function parse_args(): Options
       opts.build_argv = payload or {}
       return opts
     elseif opt == "make" then
-      opts.make = optarg or ""
+      opts.make_verb = optarg
+      opts.make_argv = payload or {}
       return opts
     elseif opt == "skill" then
       opts.skill = optarg
@@ -403,21 +410,12 @@ local function main(): integer, string
     return require("cosmic.cli.driver").build(opts.build_mode, opts.build_argv)
   end
 
-  if opts.make ~= nil then
-    local make_dir = cli_args.resolve_optional_arg("--make", opts.make)
-    local make_target: string = nil
-    if make_dir ~= "" then
-      for i = 1, #arg do
-        if arg[i] == "--make" then
-          if i + 1 < #arg and arg[i + 1] == make_dir and
-          i + 2 <= #arg and not arg[i + 2]:match("^%-") then
-            make_target = arg[i + 2]
-          end
-          break
-        end
-      end
+  if opts.make_verb then
+    local make_argv: {string} = {opts.make_verb}
+    for _, p in ipairs(opts.make_argv or {}) do
+      make_argv[#make_argv + 1] = p
     end
-    return handlers.handle_make(make_dir, make_target)
+    return handlers.handle_make(make_argv)
   end
 
   if opts.skill then return handlers.handle_skill(opts.skill) end

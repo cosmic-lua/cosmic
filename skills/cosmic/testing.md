@@ -203,7 +203,6 @@ run examples with:
 
 ```bash
 cosmic --check-examples file.tl       # run examples in one file
-cosmic --make . test                  # examples are included in test target
 ```
 
 ## Benchmarks

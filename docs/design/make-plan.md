@@ -165,16 +165,47 @@ the first-fetch shell in `bin/cosmic`.
    replacing today's `make.tl`), moving to `_make/` when the tree
    flattens — no reason to hold the split hostage to the rename.
 
-   - **2a — project model and `check`.** the walk and the
+   - **2a — project model and `check`. Landed.** the walk and the
      classification (package, `_test`, `_example`, `.d.tl`, `*.pin.tl`,
      `*.gen.tl`, `testdata/`, asset, ignore), the validator (reserved
-     import paths, `foo.tl`+`foo.lua`, `cmd/foo`→`cmd/bar`, spaces and
-     metacharacters), root discovery with the ancestor guard and the
-     `make: root=` banner, and `--make check` running in-process. The
-     old `--make [dir] [target]` Makefile generator is **dropped here**,
-     not carried: two grammars for one flag is worse than one rewrite
-     of the guides. Gates: fixture trees, and every validator message
-     asserted — those are what a fresh agent hits first.
+     import paths, `foo.tl`+`foo.lua`, `cmd/foo`→`cmd/bar`, internal
+     imports, missing `cmd/` entry, spaces and metacharacters), root
+     discovery with the ancestor guard and the `make: root=` banner,
+     and `--make check` running in-process. The old `--make [dir]
+     [target]` Makefile generator is **dropped**, not carried: two
+     grammars for one flag is worse than one rewrite of the guides.
+     Gates: fixture trees, and every validator message asserted — those
+     are what a fresh agent hits first.
+
+     Six things it settled, each because the design left room for two
+     readings:
+
+     - **`[paths…]` is selection, never the root.** the design says
+       "root discovery: cwd, an explicit path overrides", which read
+       two ways once paths also select files. The root override is
+       `COSMIC_MAKE_ROOT`, and it **suppresses the ancestor guard** —
+       the guard exists to catch a root nobody thought about, and
+       naming one is thinking about it. Without that, the refusal
+       would have no escape hatch at all.
+     - **planned verbs are named, not hidden.** an unimplemented verb
+       answers "planned but not implemented yet" and an unknown one
+       lists the vocabulary. A typo and a schedule question fail
+       differently, which is the whole value.
+     - **`guide.makefile` is retired, not rewritten.** every section of
+       it described the generator. One flag, one guide; the test now
+       asserts the topic *misses* and that the miss lists what exists.
+     - **`.d.tl` beside `.lua` is not a duplicate.** declaring types for
+       a Lua implementation is what `.d.tl` is for. Only files carrying
+       an import path's *code* collide.
+     - **the reserved names are namespaces**, so `cosmic/fs.tl` is
+       refused, not just `cosmic.tl` — shadowing `cosmic.fs` inside an
+       artifact is the hazard the rule exists for. Consequence for
+       phase 3, recorded now: this repo's own `cosmic/` tree needs an
+       exemption, since it *provides* those modules rather than
+       shadowing them.
+     - **dot-prefixed entries and non-regular files are invisible.**
+       otherwise `.github/workflows/*.yml` is an asset embedded at its
+       relative path, which is nobody's intent.
    - **2b — the graph.** constant `o/cosmic.mk` plus the `o/project.mk`
      facts generator, driving make with the sentinel;
      `build`/`test`/`fmt`/`clean` lowered onto it; parallelism.
@@ -201,9 +232,11 @@ the first-fetch shell in `bin/cosmic`.
      to make, so a test file that means to skip fails its rule instead
      of being graded. The `test` verb has to define this deliberately.
    - **doc churn is work, not a footnote.** retiring the Makefile
-     generator means rewriting `skills/cosmic/make.md` and
-     `makefile.md`, and `doc/guide_test.tl` asserts `guide.makefile`
-     resolves — it is test-visible, and it lands in 2a with the drop.
+     generator meant rewriting `skills/cosmic/make.md`, deleting
+     `makefile.md`, and rewriting the `--make` lines in `checking.md`,
+     `formatting.md`, `testing.md`, `sys/help.md` and `AGENTS.md` — plus
+     `doc/guide_test.tl`, which asserted `guide.makefile` resolves. All
+     of it landed in 2a with the drop, as predicted.
 3. **Dogfood.** flatten to root = module root, introduce `_` internals,
    migrate families behind `-include cosmic.mk`: packages,
    tests/examples, pins, generators, the pack. `bin/make` → `bin/cosmic`.

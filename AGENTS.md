@@ -30,6 +30,7 @@ lib/
     public.tl          PUBLIC manifest: public vs internal modules
     cli/               CLI internals (main.tl dispatcher, help, style, ...)
     fs/                fs directory module (init, path, ops, file, walk, types)
+    make/              `cosmic --make`: project model, validator, root, verbs
     *.tl               library modules
     *_test.tl          tests
     *_example.tl       runnable examples
@@ -277,6 +278,7 @@ cosmic --examples [module]    browse examples
 cosmic --test <out> <cmd>     run test, capture output
 cosmic --report <paths>       report test results
 cosmic --build <mode> <args>  run a shell-free build recipe step
+cosmic --make <verb> [paths]  build a project by convention (verbs: check)
 cosmic --embed <path>         embed files into executable
 cosmic --benchmark file.tl    run benchmarks
 cosmic -i                     interactive REPL

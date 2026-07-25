@@ -6,24 +6,26 @@ cosmic uses Teal's strict mode for type checking. all type errors must be resolv
 
 ```bash
 cosmic --check-types file.tl    # check a single file
-cosmic --make . check           # generate Makefile and type-check all files
-make check                      # if you have a saved Makefile
+cosmic --make check             # type-check the whole project
+cosmic --make check db/         # …or one subtree
 ```
 
 `--check-types` runs Teal in strict mode. it reports errors and warnings on stderr. exit code 0 means the file passes. warnings are treated as errors: an unused local, shadowed variable, or unreachable branch fails the check. mark a deliberately-unused value with a leading underscore (`local _out`, `_self: Poller`) to suppress the unused warning.
 
-### Makefile Rules for Type Checking
+### Checking a Whole Project
 
-`cosmic --make` generates this check rule (see `cosmic --docs guide.make` for the full Makefile):
+`cosmic --make check` runs the same strict check over every `.tl` source
+a project has, in process — no Makefile, no host toolchain, one binary.
+it validates the project's shape first (import paths, filenames) and
+ends in a verdict line:
 
-```makefile
-## Type-check all source and test files
-check: $(sources) $(tests) $(examples)
-	@for f in $^; do \
-	  echo "check $$f"; \
-	  $(COSMIC) --check-types $$f || exit 1; \
-	done
 ```
+make: root=/home/you/myapp
+check: PASS (12 files)
+```
+
+see `cosmic --docs guide.make` for the project model and the validator's
+messages.
 
 ## Type Annotations
 

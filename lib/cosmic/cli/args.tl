@@ -34,7 +34,7 @@ local longopts: {getopt.LongOpt} = {
   {name = "report", has_arg = "none"},
   {name = "coverage-report", has_arg = "none"},
   {name = "build", has_arg = "required"},
-  {name = "make", has_arg = "optional"},
+  {name = "make", has_arg = "required"},
   {name = "skill", has_arg = "required"},
   {name = "write-if-changed", has_arg = "none"},
   {name = "include-dir", has_arg = "required"},
@@ -65,7 +65,7 @@ for _, opt in ipairs(longopts) do
 end
 
 --- Resolve optional arg value that may be space-separated.
---- For flags like --docs, --examples, --make where getopt returns ""
+--- For flags like --docs and --examples where getopt returns ""
 --- but the value may be the next positional arg.
 local function resolve_optional_arg(flag: string, value: string): string
   if value ~= "" then return value end

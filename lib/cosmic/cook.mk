@@ -1,5 +1,5 @@
 modules += cosmic
-cosmic_srcs := $(wildcard lib/cosmic/*.tl) $(wildcard lib/cosmic/cli/*.tl) $(wildcard lib/cosmic/coverage/*.tl) $(wildcard lib/cosmic/fs/*.tl) $(wildcard lib/cosmic/child/*.tl) $(wildcard lib/cosmic/doc/*.tl) $(wildcard lib/cosmic/fetch/*.tl) $(wildcard lib/cosmic/format/*.tl) $(wildcard lib/cosmic/net/*.tl) $(wildcard lib/cosmic/sqlite/*.tl) $(wildcard lib/cosmic/quicksand/*.tl) $(wildcard lib/cosmic/quicksand/box/*.tl) $(wildcard lib/cosmic/quicksand/proxy/*.tl)
+cosmic_srcs := $(wildcard lib/cosmic/*.tl) $(wildcard lib/cosmic/cli/*.tl) $(wildcard lib/cosmic/coverage/*.tl) $(wildcard lib/cosmic/fs/*.tl) $(wildcard lib/cosmic/child/*.tl) $(wildcard lib/cosmic/doc/*.tl) $(wildcard lib/cosmic/fetch/*.tl) $(wildcard lib/cosmic/format/*.tl) $(wildcard lib/cosmic/make/*.tl) $(wildcard lib/cosmic/net/*.tl) $(wildcard lib/cosmic/sqlite/*.tl) $(wildcard lib/cosmic/quicksand/*.tl) $(wildcard lib/cosmic/quicksand/box/*.tl) $(wildcard lib/cosmic/quicksand/proxy/*.tl)
 cosmic_tests := $(filter %_test.tl,$(cosmic_srcs))
 cosmic_examples := $(filter %_example.tl,$(cosmic_srcs))
 cosmic_tl := $(filter-out $(cosmic_tests) $(cosmic_examples) lib/cosmic/cli/main.tl,$(cosmic_srcs))

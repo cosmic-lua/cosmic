@@ -57,15 +57,21 @@ local function test_guide_formatting()
 end
 test_guide_formatting()
 
-local function test_guide_makefile()
-  local __r5 = check.must(check.must(spawn.spawn({cosmic, "--docs", "guide.makefile"}, {env = clean_env()})):wait())
-  local ok, out = __r5.ok, __r5.stdout
-  assert(ok, "cosmic --docs guide.makefile should succeed")
-  local s = out
-  assert(s:find("Makefile", 1, true), "makefile guide should contain Makefile header")
-  assert(s:find("cosmic %-%-make", 1, false), "makefile guide should mention cosmic --make")
+-- guide.makefile is retired along with the Makefile generator it
+-- documented: one flag, one guide. A topic that no longer exists must
+-- fail like any other unknown one -- a stale guide still resolving is
+-- how a retired feature keeps getting used.
+local function test_guide_makefile_is_retired()
+  local r = check.must(spawn.run(
+      {cosmic, "--docs", "guide.makefile"}, {env = clean_env()}))
+  assert(not r.ok, "guide.makefile should no longer resolve")
+  local said = (r.stdout or "") .. (r.stderr or "")
+  assert(said:find("unknown guide 'makefile'", 1, true),
+    "the miss should name the topic, got: " .. said)
+  assert(said:find("\n  make\n", 1, true),
+    "the miss should list the guides that do exist, got: " .. said)
 end
-test_guide_makefile()
+test_guide_makefile_is_retired()
 
 local function test_guide_modules()
   local __r6 = check.must(check.must(spawn.spawn({cosmic, "--docs", "guide.modules"}, {env = clean_env()})):wait())
@@ -91,8 +97,9 @@ local function test_guide_make()
   local ok, out = __r8.ok, __r8.stdout
   assert(ok, "cosmic --docs guide.make should succeed")
   local s = out
-  assert(s:find("Makefile", 1, true), "make guide should contain Makefile header")
   assert(s:find("cosmic %-%-make", 1, false), "make guide should mention cosmic --make")
+  assert(s:find("--make check", 1, true), "make guide should document the check verb")
+  assert(s:find("import path", 1, true), "make guide should document the project model")
 end
 test_guide_make()
 

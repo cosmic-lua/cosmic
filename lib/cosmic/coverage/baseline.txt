@@ -69,7 +69,12 @@ lib/cosmic/ip.tl 116 116
 lib/cosmic/json.tl 23 24
 lib/cosmic/landlock.tl 58 101
 lib/cosmic/log.tl 72 74
-lib/cosmic/make.tl 122 133
+lib/cosmic/make/check.tl 79 82
+lib/cosmic/make/init.tl 58 64
+lib/cosmic/make/project.tl 145 151
+lib/cosmic/make/root.tl 46 50
+lib/cosmic/make/types.tl 2 2
+lib/cosmic/make/validate.tl 155 158
 lib/cosmic/net/init.tl 180 213
 lib/cosmic/net/socket.tl 225 252
 lib/cosmic/pledge.tl 28 39

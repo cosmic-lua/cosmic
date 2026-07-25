@@ -367,16 +367,11 @@ local function handle_check_style(file: string): integer
   return 1
 end
 
---- Handle --make flag.
-local function handle_make(dir: string, target: string): integer
-  local mk = require("cosmic.make")
-  local ok, result = mk.run(dir ~= "" and dir or nil, target)
-  if ok then
-    return 0
-  else
-    io.stderr:write((result or "make execution failed") .. "\n")
-    return 1
-  end
+--- Handle --make flag: `--make <verb> [paths…]`. The verb owns its own
+--- output and exit code (every verb ends in a verdict line), so this is
+--- a straight delegation.
+local function handle_make(argv: {string}): integer
+  return require("cosmic.make").run(argv)
 end
 
 --- Generate the SKILL.md content for --skill.
@@ -468,7 +463,7 @@ local record HandlersModule
   handle_examples: function(module_name: string): integer
   handle_benchmark: function(spec: string): integer
   handle_docs: function(query: string): integer
-  handle_make: function(dir: string, target: string): integer
+  handle_make: function(argv: {string}): integer
   handle_skill: function(dir: string): integer
 end
 
