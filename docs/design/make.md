@@ -127,7 +127,14 @@ Two sentences carry most of the design:
   position instead of a manifest: the public API surface, what the docs
   generator documents, and the artifact floor. `public.tl` is deleted.
 - **reserved import paths refused**: `cosmic`, `cosmo`, `tl`,
-  `main.user`.
+  `main.user` — but `cosmic` and `tl` are *providable*. A project that
+  defines the namespace's root module (`cosmic/init.tl`, `tl.lua`)
+  claims the whole namespace, and the artifact drops the base's copy so
+  one definition ships. Providing a *piece* stays refused: that is the
+  case the rule exists for, where `require("cosmic.fs")` finds the
+  project and `require("cosmic.json")` finds the base. `cosmo` is a
+  native binding and `main.user` is the wrapper's own slot, so neither
+  can be claimed at all. This is what lets cosmic build itself.
 - **`cmd/foo` cannot import `cmd/bar`.**
 - **filenames with spaces or shell metacharacters are refused**, so
   recipe splitting is total and quoting never exists. Accepted cost: a

@@ -260,7 +260,7 @@ these run before anything else, and all of them run — a project with
 three problems reports three:
 
 ```
-make: cosmic/fs.tl: reserved import path 'cosmic.fs'; cosmic, cosmo, tl and main.user name the standard library inside every artifact
+make: cosmic/fs.tl: reserved import path 'cosmic.fs'; 'cosmic' is the standard library every artifact is built on. define cosmic/init.tl to provide the whole namespace, or rename this file
 make: pkg/a.tl: duplicate import path 'pkg.a'; also defined by pkg/a.lua
 make: cmd/servit/main.tl: imports 'cmd.fetchit.main'; cmd/fetchit is private to its own binary
 make: other.tl: imports 'pkg._priv.x', which is internal to 'pkg/'
@@ -272,6 +272,16 @@ make: weird&name.tl: path contains a shell metacharacter: &
 the last two are worth stating plainly: recipe lines are whitespace-split
 argv with no quoting anywhere, so a space in a filename is refused rather
 than escaped. a legitimate `my notes.tl` is rejected, by name.
+
+the first one has an escape hatch, and it is deliberate. `cosmic` and
+`tl` are ordinary Lua trees that happen to ship in the base, so a
+project may **provide** either outright by defining the namespace's root
+module — `cosmic/init.tl`, or `tl.lua`. claim it and the whole namespace
+is yours: the artifact drops the base's copy, so one definition ships
+instead of two. claiming `cosmic` means answering everything the runtime
+requires of it, including `cosmic.cli.searcher`, which the entry wrapper
+loads before your `main.tl` runs. `cosmo` (a native binding) and
+`main.user` (the wrapper's slot) cannot be claimed at all.
 
 ## Selection
 

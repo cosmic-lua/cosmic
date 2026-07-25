@@ -54,6 +54,11 @@ local record Options
   --- that is not on the floor is a tool for BUILDING programs, not a
   --- runtime an artifact needs.
   strip: boolean
+  --- Module namespaces these files supply themselves (`cosmic`, ...).
+  --- A supplied namespace leaves the strip floor, so the artifact ships
+  --- one definition of it instead of the project's winning on
+  --- `package.path` while the base's rides along underneath.
+  provides: {string: boolean}
   --- Fixed modification time for every added entry, so two builds of
   --- one tree agree byte-for-byte.
   mtime: integer
@@ -386,7 +391,7 @@ local function run(paths: {string}, output?: string, exe_path?: string,
       -- the bare `.lua/` marker takes `.lua/cosmic/**` — the floor —
       -- with it. Directory markers are zero bytes and are therefore
       -- never removed; the entries beneath them are removed by name.
-      if name:sub(-1) ~= "/" and not floor.in_floor(name) then
+      if name:sub(-1) ~= "/" and not floor.in_floor(name, opts.provides) then
         appender:remove(name)
       end
     end

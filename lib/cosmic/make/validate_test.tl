@@ -61,11 +61,57 @@ end
 local function test_reserved_import_path()
   only("reserved", {["cosmic/fs.tl"] = "return {}\n"},
     {"cosmic/fs.tl", "reserved import path 'cosmic.fs'"})
-  only("reserved-exact", {["tl.tl"] = "return {}\n"},
-    {"reserved import path 'tl'"})
+  only("reserved-exact", {["cosmo.tl"] = "return {}\n"},
+    {"reserved import path 'cosmo'"})
   clean("reserved-ok", {["cosmicish/fs.tl"] = "return {}\n"})
 end
 test_reserved_import_path()
+
+-- The provider exemption. `cosmo` and `main.user` are a native binding
+-- and the wrapper's own slot, so nothing can claim them; `cosmic` and
+-- `tl` are Lua trees a project may supply outright, which is how cosmic
+-- builds itself and how anyone vendors Teal for runtime use.
+local function test_provider_exemption()
+  -- Claiming the root takes the whole namespace.
+  clean("provides-cosmic", {
+      ["cosmic/init.tl"] = "return {}\n",
+      ["cosmic/fs.tl"] = "return {}\n",
+      ["cosmic/net/init.tl"] = "return {}\n",
+    })
+  clean("provides-tl", {["tl.lua"] = "return {}\n", ["tl/parse.tl"] = "return {}\n"})
+  -- Half a namespace is the hazard the rule was written for: one
+  -- binary running two standard libraries, chosen per require().
+  only("provides-partial", {["cosmic/fs.tl"] = "return {}\n"},
+    {"reserved import path 'cosmic.fs'", "define cosmic/init.tl"})
+  -- Unprovidable names are refused even when the root is defined,
+  -- because defining it supplies nothing.
+  local issues = issues_of("provides-cosmo", {
+      ["cosmo/init.tl"] = "return {}\n",
+      ["cosmo/unix.tl"] = "return {}\n",
+    })
+  assert(#issues == 2, "cosmo: expected both files refused, got " .. #issues)
+  only("provides-main-user", {["main/user.tl"] = "return {}\n"},
+    {"reserved import path 'main.user'", "no project file can provide"})
+end
+test_provider_exemption()
+
+-- claims() is the fact the artifact half reads: a claimed namespace
+-- drops the base's copy from the strip floor, so exactly one definition
+-- ships. It must agree with what the validator let through.
+local function test_claims()
+  local claimed = validate.claims(fixture("claims", {
+        ["cosmic/init.tl"] = "return {}\n",
+        ["other/init.tl"] = "return {}\n",
+      }))
+  assert(claimed.cosmic, "cosmic/init.tl must claim 'cosmic'")
+  assert(not claimed.tl, "nothing defines tl here")
+  assert(not claimed.other, "only reserved namespaces are claimable")
+  local none = validate.claims(fixture("claims-none", {
+        ["cosmic/fs.tl"] = "return {}\n",
+      }))
+  assert(not none.cosmic, "a piece of the namespace claims nothing")
+end
+test_claims()
 
 -- foo.tl beside foo.lua: two files claiming one import path. An error,
 -- not a precedence rule -- a precedence rule is a coin flip nobody

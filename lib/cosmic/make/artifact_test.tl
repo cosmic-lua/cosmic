@@ -68,8 +68,22 @@ local function make(dir: string, ...: string): integer, string
 end
 
 --- Run a built artifact and return its exit code and combined output.
+---
+--- The environment is named, not inherited, and that is load-bearing:
+--- this repo's own test lanes export a LUA_PATH pointing at
+--- `lib/` and `o/lib/`, which the artifact's package.path then searches
+--- BEFORE `/zip/.lua/`. Inheriting it meant every "does the artifact
+--- carry X" assertion here could be answered by the checkout instead of
+--- by the binary — `require('cosmic.json')` resolving to
+--- `o/lib/cosmic/json.lua` rather than to the floor. An artifact test
+--- that reads the tree that built it is not testing the artifact.
 local function run_artifact(path: string): integer, string
-  local h = check.must(spawn.spawn({fs.abspath(path)}))
+  local env: {string} = {
+    "PATH=" .. (os.getenv("PATH") or ""),
+    "NO_COLOR=1",
+    "COSMIC_NO_WELCOME=1",
+  }
+  local h = check.must(spawn.spawn({fs.abspath(path)}, {env = env}))
   local r = check.must(h:wait())
   return r.code or 128, (r.stdout or "") .. (r.stderr or "")
 end
@@ -231,6 +245,54 @@ local function test_stripped_to_the_floor()
   end
 end
 test_stripped_to_the_floor()
+
+-- The provider exemption, end to end. A project that defines the whole
+-- `cosmic` namespace SUPERSEDES the base's rather than shadowing it:
+-- the validator lets the files exist, and the strip drops the base's
+-- copy so exactly one standard library ships. Keeping both would leave
+-- package.path deciding which one each require() gets, silently,
+-- because both load fine.
+--
+-- The fixture has to supply cosmic.cli.searcher because the embed
+-- wrapper itself requires it -- claiming the namespace is all-or-
+-- nothing at runtime too, which is the obligation cosmic's own tree
+-- meets by being the real thing.
+local function test_provided_namespace_supersedes_the_floor()
+  local root = fixture("provides", {
+      ["main.tl"] = "print('mine:', require('cosmic.mine').tag)\n" ..
+      "print('json:', (pcall(require, 'cosmic.json')))\n",
+      ["cosmic/init.tl"] = "return {}\n",
+      ["cosmic/mine.tl"] = "local record M\n  tag: string\nend\n" ..
+      "local m: M = {tag = 'ours'}\nreturn m\n",
+      ["cosmic/cli/searcher.tl"] = "local record S\n  install: function()\nend\n" ..
+      "local s: S = {install = function() end}\nreturn s\n",
+    })
+  local code, out = make(root, "build")
+  assert(code == 0, "a project may provide cosmic/**: " .. out)
+  local bin = fs.join(root, "o/bin/artifact-provides")
+
+  local reader = check.must(zip.reader(bin))
+  local base_bytes, own = 0, false
+  for _, e in ipairs(reader:list()) do
+    if e.name:sub(1, 12) == ".lua/cosmic/" then
+      base_bytes = base_bytes + e.size
+    end
+    if e.name == "cosmic/mine.lua" then
+      own = true
+    end
+  end
+  reader:close()
+  assert(own, "the project's own cosmic/** ships")
+  assert(base_bytes == 0,
+    "the base's stdlib must not ride along, got " .. base_bytes .. " bytes")
+
+  local rc, ran = run_artifact(bin)
+  assert(rc == 0, "the artifact should run: " .. ran)
+  assert(ran:find("mine:\tours", 1, true), "its own module answers: " .. ran)
+  assert(ran:find("json:\tfalse", 1, true),
+    "…and the superseded base library is really gone: " .. ran)
+end
+test_provided_namespace_supersedes_the_floor()
 
 -- Two builds of one tree, in different directories, agree byte for
 -- byte. Zip entries otherwise carry the staging file's mtime -- build

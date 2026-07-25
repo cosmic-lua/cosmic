@@ -23,6 +23,7 @@ local embed = require("cosmic.embed")
 local fs = require("cosmic.fs")
 local project = require("cosmic.make.project")
 local types = require("cosmic.make.types")
+local validate = require("cosmic.make.validate")
 
 local type Binary = types.Binary
 local type File = types.File
@@ -188,8 +189,13 @@ local function build(proj: Project, binary: Binary, cosmic: string): string | ni
     return nil, "make: cannot create " .. fs.dirname(out) .. ": " ..
     (merr or "unknown error")
   end
+  -- The other half of the provider exemption: the validator lets a
+  -- project define `cosmic/**` when it defines the whole namespace, and
+  -- this is what makes that true of the artifact too. Keeping the
+  -- base's copy as well would ship two standard libraries, with the
+  -- project's winning on package.path and the base's riding along.
   local result = embed.run({dir as string}, out, cosmic, -- cast: scalar narrowing after the guard
-    {strip = true, mtime = embed.EPOCH})
+    {strip = true, provides = validate.claims(proj), mtime = embed.EPOCH})
   if not result.ok then
     return nil, "make: " .. binary.name .. ": " .. result.message
   end

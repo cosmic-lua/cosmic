@@ -18,11 +18,34 @@ local types = require("cosmic.make.types")
 local type Issue = types.Issue
 local type Project = types.Project
 
---- Import paths (and namespaces) a project may not define: cosmic's own
---- floor lives at these names inside every artifact, so a project file
---- resolving there would shadow the standard library it is built on.
---- `main.user` is the wrapper's slot for the entry.
+--- Import paths (and namespaces) the base already answers to. A project
+--- file resolving at one of these would shadow what the artifact is
+--- built on, so each is refused — but for two different reasons, and
+--- only one of them is absolute.
 local RESERVED < const >: {string} = {"cosmic", "cosmo", "tl", "main.user"}
+
+--- Reserved namespaces a project MAY supply, by defining the
+--- namespace's root module (`cosmic/init.tl`, `tl.lua`, ...). These are
+--- ordinary Lua trees that happen to ship in the base, and the design
+--- requires both to be providable: cosmic builds itself out of its own
+--- `cosmic/`, and a project wanting Teal at runtime vendors `tl` the
+--- same way.
+---
+--- Claiming takes the WHOLE namespace. Providing a piece without the
+--- root stays refused, because that is the hazard the rule was written
+--- for: with `cosmic/fs.tl` and no `cosmic/init.tl`,
+--- `require("cosmic.fs")` resolves to the project while
+--- `require("cosmic.json")` falls through to the base, and one binary
+--- runs two standard libraries.
+local PROVIDABLE < const >: {string: boolean} = {cosmic = true, tl = true}
+
+--- Why the rest cannot be claimed at all. Nothing in a zip supplies
+--- either, so a file landing there is a shadow by definition with
+--- nothing to take over.
+local UNPROVIDABLE < const >: {string: string} = {
+  cosmo = "a native binding compiled into the interpreter",
+  ["main.user"] = "the entry wrapper's slot for the project's own entry",
+}
 
 --- Characters a path may not contain. Recipe lines are whitespace-split
 --- argv with no quoting anywhere, so a space is not an escaping problem
@@ -85,16 +108,43 @@ local function check_names(proj: Project, issues: {Issue})
   end
 end
 
---- Refuse import paths that shadow the floor.
+--- The providable namespaces this project claims, by defining each
+--- one's root module. The artifact half of the rule reads this: a
+--- claimed namespace drops the base's copy, so exactly one definition
+--- ships. Without that the exemption would be a validator opinion the
+--- artifact contradicts — invisibly, since both copies load fine.
+--- @param proj Project The scanned project
+--- @return {string: boolean} The claimed namespaces
+local function claims(proj: Project): {string: boolean}
+  local out: {string: boolean} = {}
+  for _, f in ipairs(proj.files) do
+    if f.import and claims_source[f.kind] and PROVIDABLE[f.import] then
+      out[f.import] = true
+    end
+  end
+  return out
+end
+
+--- Refuse import paths that shadow the floor, unless the project has
+--- claimed the namespace outright.
 local function check_reserved(proj: Project, issues: {Issue})
+  local claimed = claims(proj)
   for _, f in ipairs(proj.files) do
     local ip = f.import
     if ip then
       for _, r in ipairs(RESERVED) do
         if ip == r or ip:sub(1, #r + 1) == r .. "." then
-          add(issues, f.path, "reserved import path '" .. ip ..
-            "'; cosmic, cosmo, tl and main.user name the standard " ..
-            "library inside every artifact")
+          local why = UNPROVIDABLE[r]
+          if why then
+            add(issues, f.path, "reserved import path '" .. ip ..
+              "'; '" .. r .. "' is " .. why ..
+              ", which no project file can provide")
+          elseif not claimed[r] then
+            add(issues, f.path, "reserved import path '" .. ip ..
+              "'; '" .. r .. "' is the standard library every artifact " ..
+              "is built on. define " .. r .. "/init.tl to provide the " ..
+              "whole namespace, or rename this file")
+          end
           break
         end
       end
@@ -270,7 +320,9 @@ end
 
 local record ValidateModule
   RESERVED: {string}
+  PROVIDABLE: {string: boolean}
   METACHARACTERS: string
+  claims: function(proj: Project): {string: boolean}
   validate: function(proj: Project): {Issue}
   format_issues: function(issues: {Issue}): string
   imports_of: function(path: string): {string}
@@ -278,7 +330,9 @@ end
 
 local M: ValidateModule = {
   RESERVED = RESERVED,
+  PROVIDABLE = PROVIDABLE,
   METACHARACTERS = METACHARACTERS,
+  claims = claims,
   validate = validate,
   format_issues = format_issues,
   imports_of = imports_of,

@@ -163,19 +163,15 @@ the first-fetch shell in `bin/cosmic`.
    stays green through every step. The last slice is the one that
    removes the bridge.
 
-   - **3a — the provider exemption.** measured before slicing, since the
-     phase's whole premise is that `--make` can describe this repo:
-     `COSMIC_MAKE_ROOT=$PWD/lib cosmic --make check` reports **290
-     errors, every one the same class** — `reserved import path
-     'cosmic.…'`, exactly as 2a predicted. Nothing else in the model
-     objects to this tree, which is the phase's good news as much as its
-     first blocker: the flatten ahead is a rename, not a redesign. The
-     rule has to split — `cosmo` and `main.user` are native and
-     generated, so nothing can provide them, while `cosmic` and `tl` are
-     Lua trees the design already requires a project to be able to
-     supply. The open question is what "provides" means precisely, and
-     what the artifact must then do so the answer is not just a
-     validator opinion.
+   - **3a — the provider exemption. Landed.** `--make check` refused
+     this repo's own stdlib 290 times over one rule, exactly as 2a
+     predicted. `cosmo` and `main.user` are native and generated, so
+     nothing can provide them and they stay unconditionally reserved;
+     `cosmic` and `tl` are Lua trees a project may claim by defining the
+     namespace's root module, which the design already requires of both.
+     Partial provision stays refused — that is the shadow the rule was
+     written for. The artifact half (a claimed namespace drops the
+     base's floor copy) is what keeps the validator half honest.
    - **3b — the flatten.** `lib/cosmic/` → `cosmic/`, `lib/build/` →
      `_build/`, `lib/types/` → `_types/`, `lib/perf/` → `_perf/`,
      `lib/docs/` → `_docs/`, `lib/cosmic/cli/` → `_cli/`,

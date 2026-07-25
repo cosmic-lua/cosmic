@@ -26,6 +26,19 @@ local FLOOR < const >: {string} = {
   ".cosmo", -- cosmopolitan's own marker
 }
 
+--- Floor entries a project can supersede by providing the module
+--- namespace itself, keyed by that namespace's import path.
+---
+--- The keep-list stays positive and stays the default: a claim
+--- *subtracts* from it rather than replacing it, so a base that grows a
+--- directory still cannot silently start shipping it. Only namespaces
+--- the floor actually carries appear here — `tl` is providable too, but
+--- a stripped artifact never keeps the base's copy of it, so claiming
+--- `tl` has nothing to subtract.
+local SUPERSEDABLE < const >: {string: string} = {
+  cosmic = ".lua/cosmic/",
+}
+
 --- Resolve the reproducible-build epoch.
 --- @return integer SOURCE_DATE_EPOCH if set and numeric, else the DOS floor
 local function epoch(): integer
@@ -40,9 +53,24 @@ local function epoch(): integer
 end
 
 --- Is this base entry on the floor?
+---
+--- `provides` names module namespaces the artifact supplies itself. A
+--- supplied namespace leaves the floor: keeping the base's copy beside
+--- the project's would ship two standard libraries in one binary, with
+--- `package.path` silently deciding which one every require() gets.
 --- @param name string A zip entry name
+--- @param provides {string: boolean} Namespaces the artifact provides
 --- @return boolean True when a stripped artifact keeps it
-local function in_floor(name: string): boolean
+local function in_floor(name: string, provides?: {string: boolean}): boolean
+  if provides then
+    for ns, prefix in pairs(SUPERSEDABLE) do
+      if provides[ns] and
+      (name == prefix or name:sub(1, #prefix) == prefix or
+        name == prefix:sub(1, -2)) then
+        return false
+      end
+    end
+  end
   for _, prefix in ipairs(FLOOR) do
     if name == prefix or name:sub(1, #prefix) == prefix then
       return true
@@ -58,13 +86,15 @@ end
 local record FloorModule
   DOS_EPOCH: integer
   FLOOR: {string}
+  SUPERSEDABLE: {string: string}
   epoch: function(): integer
-  in_floor: function(name: string): boolean
+  in_floor: function(name: string, provides?: {string: boolean}): boolean
 end
 
 local M: FloorModule = {
   DOS_EPOCH = DOS_EPOCH,
   FLOOR = FLOOR,
+  SUPERSEDABLE = SUPERSEDABLE,
   epoch = epoch,
   in_floor = in_floor,
 }
