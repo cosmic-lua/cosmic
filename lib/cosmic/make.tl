@@ -4,6 +4,8 @@
 --- format-check, test, and report.
 
 local fs = require("cosmic.fs")
+local child = require("cosmic.child")
+local fd = require("cosmic.fd")
 
 --- Configuration for Makefile generation.
 local record Config
@@ -202,32 +204,50 @@ local function run(dir?: string, target?: string): boolean, string
     return true, "stdout"
   end
 
-  -- pipe to make. The target name is interpolated into a shell command, so
-  -- reject anything that isn't a plain make target to avoid shell injection
-  -- (e.g. a target of `; rm -rf ~` would otherwise run arbitrary commands).
-  local cmd = "make -f -"
+  -- Feed the generated file to make on stdin, as argv rather than
+  -- through a shell (#795). Two consequences worth stating:
+  --
+  -- cwd is the scanned directory, so the generated `BUILD_DIR ?= o`
+  -- resolves against the project being built. Under io.popen it
+  -- resolved against whatever cwd the CALLER happened to have, so
+  -- building /tmp/x from a checkout wrote into the checkout's own o/.
+  --
+  -- The target reaches make as one argv element, so it is no longer
+  -- interpolated into a shell command. That is what retired the old
+  -- `^[%w._/-]+$` guard here: it existed only because `; rm -rf ~`
+  -- could once be split by a shell, and it also rejected legitimate
+  -- make arguments (`CFLAGS=-g`, `dir/sub:all`).
+  local argv = {"make", "-f", "-"}
   if target then
-    if not target:match("^[%w._/-]+$") then
-      return false, "invalid make target: " .. target
-    end
-    cmd = cmd .. " " .. target
+    argv[#argv + 1] = target
   end
-  local p = io.popen(cmd, "w")
-  if not p then
-    return false, "failed to start make"
+  local cmd = table.concat(argv, " ")
+
+  -- Hand make our own stdout/stderr so a build streams to the terminal
+  -- as it runs, the way it did under io.popen. spawn would otherwise
+  -- pipe both and hold them until exit. Wrapping fds 1 and 2 is safe
+  -- here specifically because spawn never closes caller-supplied
+  -- stdio (child/init.tl:317,445 keep them out of the pump state and
+  -- close only fds it opened), and Handle has no __gc -- only __close,
+  -- which needs a <close> variable.
+  local out, errout = fd.wrap(1), fd.wrap(2)
+  local h, serr = child.spawn(argv,
+    {stdin = content, cwd = dir, stdout = out, stderr = errout})
+  if not (h is child.Handle) then
+    return false, "failed to start make: " .. (serr or "unknown error")
   end
-  p:write(content)
-  -- close() on a popen'd file reports (true|fail, "exit"|"signal", n).
-  -- Branch on truthiness, not on `ok ~= nil`: Lua 5.4's `fail` is nil
-  -- today, but the manual only says it "is currently nil" -- a `false`
-  -- would make a `~= nil` test read a FAILED make as success, which is
-  -- the one shape of bug this build works hardest to avoid.
-  local ok, how, code = p:close()
-  if ok then
+  -- cast: Teal's narrowing does not survive the early-exit guard above
+  local res, werr = (h as child.Handle):wait()
+  if not (res is child.Result) then
+    return false, cmd .. " failed: " .. (werr or "unknown error")
+  end
+  if res.ok then
     return true, cmd
   end
-  return false, string.format("%s failed: %s %s", cmd,
-    how or "unknown", tostring(code))
+  if res.signal then
+    return false, string.format("%s failed: signal %d", cmd, res.signal)
+  end
+  return false, string.format("%s failed: exit %d", cmd, res.code or -1)
 end
 
 local record MakeModule

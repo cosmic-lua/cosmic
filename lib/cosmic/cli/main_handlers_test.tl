@@ -155,13 +155,12 @@ local function test_make_builds_a_scanned_directory()
   local dir = fs.join(tmpdir, "mk-src")
   fs.makedirs(dir)
   fs.write(fs.join(dir, "a.tl"), "local x = 1\nprint(x)\n")
-  -- cwd is the scanned directory so the generated BUILD_DIR (o/) lands
-  -- under it; without this the recipes run with the repo as cwd and
-  -- write their artifacts into the repo's own o/.
+  -- No cwd needed here: make.run now runs make in the scanned
+  -- directory itself (#795), so the generated BUILD_DIR lands under
+  -- `dir` regardless of where this process happens to be.
   local argv = {cosmic, "--make", dir}
   local h = check.must(spawn.spawn(argv, {
         env = {"PATH=" .. os.getenv("PATH"), "COSMIC=" .. cosmic},
-        cwd = dir,
       }))
   local r = check.must(h:wait())
   assert(r.code == 0,
@@ -170,21 +169,23 @@ local function test_make_builds_a_scanned_directory()
 end
 test_make_builds_a_scanned_directory()
 
---- The target name is interpolated into a shell command, so make.run
---- rejects anything that is not a plain make target. This is a
---- security boundary: without it, `--make DIR '; rm -rf ~'` would run
---- arbitrary commands.
-local function test_make_rejects_shell_metacharacters_in_target()
+--- End-to-end proof that a target never reaches a shell. make.run
+--- passes it as one argv element (#795), so make receives the whole
+--- string as a single target name and fails to find it -- rather than
+--- a shell splitting it into a second command to run.
+local function test_make_target_never_reaches_a_shell()
   local dir = fs.join(tmpdir, "mk-inject")
   fs.makedirs(dir)
   local r = cli("--make", dir, "; echo pwned")
-  assert(r.code ~= 0, "an injected target must not exit 0")
-  assert(r.err:find("invalid make target", 1, true),
-    "expected the guard's rejection on stderr, got: " .. r.err)
-  -- The rejection message quotes the offending target, so "pwned"
-  -- legitimately appears on stderr. What must NOT appear is the
-  -- *output* of running it, which `echo` would put on stdout.
+  assert(r.code ~= 0, "an unfindable target must not exit 0")
+  -- make quoting the ENTIRE string as one target is the observable
+  -- that distinguishes "passed as argv" from "split by a shell".
+  assert(r.err:find("No rule to make target '; echo pwned'", 1, true),
+    "make should report the whole string as one target, got: " .. r.err)
+  -- make's diagnostic quotes the target, so "pwned" legitimately
+  -- appears on stderr. What must NOT appear is the *output* of running
+  -- it, which `echo` would put on stdout.
   assert(not r.out:find("pwned", 1, true),
     "the injected command must never run, stdout was: " .. r.out)
 end
-test_make_rejects_shell_metacharacters_in_target()
+test_make_target_never_reaches_a_shell()
