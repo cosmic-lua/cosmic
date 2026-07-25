@@ -68,12 +68,14 @@ end
  your end when you are done with it (see Example_run_pipe). Raw integer
  fds are not part of this surface (api-review-2, #602); wrap one with
  fd.wrap() if it comes from outside the fd module.
+ stdout/stderr also accept "inherit" (#797): the child writes to THIS
+ process's fd 1/2 so output streams as it runs; Result then stays "".
 
 ```teal
 local record Options
   stdin: string | cfd.Handle
-  stdout: cfd.Handle
-  stderr: cfd.Handle
+  stdout: cfd.Handle | childio.StdioMode
+  stderr: cfd.Handle | childio.StdioMode
   env: {string}
   cwd: string
 end
