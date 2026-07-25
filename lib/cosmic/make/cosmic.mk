@@ -21,6 +21,12 @@ include o/project.mk
 
 SHELL := $(COSMIC)
 
+# Secondary expansion, declared before the first rule that needs it: a
+# prerequisite written `$$(srcdeps_$$*)` resolves on the second pass,
+# once the stem is known. It is what lets rules that never change name a
+# per-target variable the facts file computed.
+.SECONDEXPANSION:
+
 # Content decides, mtime only schedules: every verb writes its output
 # only when the bytes change, so a no-op step leaves its target's
 # mtime alone and non-changes stop propagating.
@@ -43,8 +49,16 @@ compile: $(compiled) $(staged)
 # checked AST, so nothing lands in $(O) that the checker rejected.
 # `--include-dir .` is what makes the project root the module root —
 # require("pkg.db") resolves to pkg/db.tl and nowhere else.
-$(O)/%.lua: %.tl
-	compile $(COSMIC) $< $@ --include-dir . ;
+#
+# srcdeps is what makes "strict" mean anything incrementally. A strict
+# compile checks against the SOURCES it imports, so a module whose
+# contract changed must recompile its importers; without these
+# prerequisites the incremental build happily kept output a clean build
+# rejects. They are also passed in the line, so the fence grants the
+# compiler its own source plus what it imports -- and not the `.`
+# include path, which is where it SEARCHES, not what it reads.
+$(O)/%.lua: %.tl $$(srcdeps_$$*)
+	compile $(COSMIC) $< $@ --include-dir . --deps $(srcdeps_$*) ;
 
 # .lua sources are first-class. They are copied, not compiled; the
 # validator has already refused foo.tl beside foo.lua, so these two
@@ -72,19 +86,13 @@ test_got := $(patsubst %,$(O)/%.test.got,$(tests))
 ## Run every *_test.tl against the compiled tree
 test: $(O)/test-summary.txt
 
-# A test's prerequisites are exactly what it imports, transitively:
-# o/project.mk carries one `deps_<stem>` per test, computed by following
-# require() edges (which a makefile cannot do). Secondary expansion is
-# what lets a CONSTANT rule name a per-target variable -- $$* is the
-# stem, resolved on the second pass.
-#
-# The same list goes into the recipe line, so the derived fence grants
-# the test read access to what it imports and nothing else. One answer,
-# two consumers: the argument positions are the declaration.
-.SECONDEXPANSION:
-
+# A test's prerequisites are exactly what it imports, transitively --
+# as BUILT paths, since a test runs against compiled Lua. The same list
+# goes into the recipe line, so the derived fence grants the test read
+# access to what it imports and nothing else. One answer, two
+# consumers: the argument positions are the declaration.
 $(O)/%.tl.test.got: $(O)/%.lua $$(deps_$$*)
-	test $(basename $@) $(COSMIC) $< $(deps_$*) ;
+	test $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
 
 $(O)/test-summary.txt: $(test_got)
 	tee $@ $(COSMIC) --report $(test_got) ;

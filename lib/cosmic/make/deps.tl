@@ -75,29 +75,57 @@ local function direct(root: string, file: File, by_import: {string: File}): {Fil
   return out
 end
 
---- Every file `file` transitively imports, as BUILT paths, sorted.
+--- Every file `file` transitively imports.
 ---
---- The file itself is excluded: a rule already names its own compiled
---- output, and repeating it would only make the recipe line longer.
---- Cycles terminate — the walk is over a visited set, and a cyclic
---- import is the project's problem rather than this function's.
+--- The file itself is excluded: a rule already names its own source and
+--- its own output, and repeating them would only make the recipe line
+--- longer. Cycles terminate — the walk is over a visited set, and a
+--- cyclic import is the project's problem rather than this function's.
 --- @param proj Project The scanned project
 --- @param file File The file whose closure is wanted
 --- @param by_import {string: File} Index from index()
---- @return {string} Built paths, sorted
-local function closure(proj: Project, file: File, by_import: {string: File}): {string}
+--- @return {File} Dependencies, transitively
+local function closure(proj: Project, file: File, by_import: {string: File}): {File}
   local seen: {string: boolean} = {[file.path] = true}
   local queue: {File} = {file}
-  local out: {string} = {}
+  local out: {File} = {}
   while #queue > 0 do
     local cur = table.remove(queue)
     for _, dep in ipairs(direct(proj.root, cur, by_import)) do
       if not seen[dep.path] then
         seen[dep.path] = true
         queue[#queue + 1] = dep
-        out[#out + 1] = built_path(dep.path, project.BUILD_DIR)
+        out[#out + 1] = dep
       end
     end
+  end
+  return out
+end
+
+--- A closure as BUILT paths — what a test needs, because a test runs
+--- against compiled Lua.
+--- @param files {File} A closure
+--- @return {string} Built paths, sorted
+local function built_paths(files: {File}): {string}
+  local out: {string} = {}
+  for _, f in ipairs(files) do
+    out[#out + 1] = built_path(f.path, project.BUILD_DIR)
+  end
+  table.sort(out)
+  return out
+end
+
+--- A closure as SOURCE paths — what a compile needs, because the type
+--- checker resolves `require("util")` to `util.tl` through the include
+--- path, not to its compiled output. Getting this backwards is the
+--- difference between an incremental build that catches a broken
+--- contract and one that ships past it.
+--- @param files {File} A closure
+--- @return {string} Source paths, sorted
+local function source_paths(files: {File}): {string}
+  local out: {string} = {}
+  for _, f in ipairs(files) do
+    out[#out + 1] = f.path
   end
   table.sort(out)
   return out
@@ -107,7 +135,9 @@ local record DepsModule
   built_path: function(rel: string, build_dir: string): string
   index: function(proj: Project): {string: File}
   direct: function(root: string, file: File, by_import: {string: File}): {File}
-  closure: function(proj: Project, file: File, by_import: {string: File}): {string}
+  closure: function(proj: Project, file: File, by_import: {string: File}): {File}
+  built_paths: function(files: {File}): {string}
+  source_paths: function(files: {File}): {string}
 end
 
 local M: DepsModule = {
@@ -115,6 +145,8 @@ local M: DepsModule = {
   index = index,
   direct = direct,
   closure = closure,
+  built_paths = built_paths,
+  source_paths = source_paths,
 }
 
 return M

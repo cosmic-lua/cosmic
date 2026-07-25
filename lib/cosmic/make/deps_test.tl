@@ -42,10 +42,18 @@ local function file_at(proj: Project, rel: string): File
   error("no file at " .. rel)
 end
 
---- The closure of rel, as one comparable string.
+--- The closure of rel as BUILT paths, in one comparable string.
 local function closure_of(proj: Project, rel: string): string
   local by_import = deps.index(proj)
-  return table.concat(deps.closure(proj, file_at(proj, rel), by_import), " ")
+  local files = deps.closure(proj, file_at(proj, rel), by_import)
+  return table.concat(deps.built_paths(files), " ")
+end
+
+--- The same closure as SOURCE paths.
+local function sources_of(proj: Project, rel: string): string
+  local by_import = deps.index(proj)
+  local files = deps.closure(proj, file_at(proj, rel), by_import)
+  return table.concat(deps.source_paths(files), " ")
 end
 
 -- Transitivity, and the exclusions that matter. `a_test` imports `db`,
@@ -100,6 +108,23 @@ local function test_a_cycle_terminates()
     "got: " .. closure_of(proj, "c_test.tl"))
 end
 test_a_cycle_terminates()
+
+-- The two flavours are not interchangeable, and getting them backwards
+-- is the difference between an incremental build that catches a broken
+-- contract and one that ships past it: a COMPILE checks against the
+-- sources it imports (the type checker resolves require() to `.tl`),
+-- while a TEST runs against compiled Lua.
+local function test_source_and_built_flavours()
+  local proj = fixture("flavours", {
+      ["util.tl"] = "return {}\n",
+      ["main.tl"] = "local u = require('util')\nreturn u\n",
+    })
+  assert(sources_of(proj, "main.tl") == "util.tl",
+    "a compile depends on SOURCES: " .. sources_of(proj, "main.tl"))
+  assert(closure_of(proj, "main.tl") == "o/util.lua",
+    "a test depends on BUILT output: " .. closure_of(proj, "main.tl"))
+end
+test_source_and_built_flavours()
 
 -- Built paths: .tl compiles, .lua is copied.
 local function test_built_path()

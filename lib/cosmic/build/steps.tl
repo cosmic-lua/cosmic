@@ -68,11 +68,23 @@ end
 local function do_compile(args: {string}): integer
   local bootstrap, src, out = args[1], args[2], args[3]
   if not out then
-    return fail("usage: compile <bootstrap> <src> <out> [flags...]")
+    return fail("usage: compile <bootstrap> <src> <out> [flags...]"
+      .. " [--deps <path>...]")
   end
   env.set("LUA_PATH", ";;")
   local argv: {string} = {bootstrap}
   for i = 4, #args do
+    -- Everything after --deps is an INPUT, named so the derived fence
+    -- can grant it, and never forwarded to the child. Forwarding was a
+    -- silent disaster the first time it was written: a bare path lands
+    -- as the child's first positional, getopt stops parsing there, and
+    -- `cosmic --include-dir . util.tl --compile-strict main.tl` RUNS
+    -- util.tl as a script and writes its empty stdout as main.lua. The
+    -- compile "passes" having checked nothing -- the #801/#802 shape,
+    -- where an argv ambiguity makes a gate report a pass it never ran.
+    if args[i] == "--deps" then
+      break
+    end
     table.insert(argv, args[i])
   end
   table.insert(argv, "--compile-strict")
@@ -179,6 +191,12 @@ local function do_test(args: {string}): integer
   end
   local argv: {string} = {}
   for i = 2, #args do
+    -- Same contract as compile: --deps names inputs for the fence and
+    -- is never handed to the child. A test that read arg[1] would
+    -- otherwise find its own dependency list there.
+    if args[i] == "--deps" then
+      break
+    end
     argv[#argv + 1] = args[i]
   end
   -- The test fence, behavioural half: point TMP at a scratch directory

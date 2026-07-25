@@ -12,7 +12,7 @@ lib/build/reporter.tl 145 159
 lib/cosmic/ansi.tl 86 86
 lib/cosmic/benchmark.tl 180 212
 lib/cosmic/build/init.tl 55 60
-lib/cosmic/build/steps.tl 176 223
+lib/cosmic/build/steps.tl 177 230
 lib/cosmic/check.tl 80 82
 lib/cosmic/child/fast.tl 40 52
 lib/cosmic/child/init.tl 214 247

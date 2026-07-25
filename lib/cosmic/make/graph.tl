@@ -118,19 +118,28 @@ local function project_mk(proj: Project, cosmic: string): string
     end
   end
 
-  -- One `deps_<stem> := …` per test: its transitive import closure, as
-  -- built paths. This is the whole reason the facts are computed in
-  -- Teal — a makefile cannot follow a require() edge — and it serves
-  -- the graph and the fence with one answer. Without it every test
-  -- depends on every compiled file, so changing any module re-runs the
-  -- whole suite and a fenced test may read the whole tree.
+  -- Import closures, per file. This is the whole reason the facts are
+  -- computed in Teal — a makefile cannot follow a require() edge — and
+  -- each closure serves the graph and the fence with one answer.
+  --
+  -- Two flavours, and the distinction is not cosmetic. A COMPILE needs
+  -- SOURCE paths, because a strict compile type-checks against the
+  -- modules it imports and the checker resolves those to `.tl` through
+  -- the include path: without them, changing a module's contract left
+  -- its importers un-recompiled and the incremental build shipped code
+  -- a clean build rejects. A TEST needs BUILT paths, because it runs
+  -- against compiled Lua.
   local dep_lines: {string} = {}
   local by_import = deps.index(proj)
   for _, f in ipairs(proj.files) do
+    local stem = f.path:gsub("%.tl$", "")
+    if compiled_kinds[f.kind] and f.path:sub(-3) == ".tl" then
+      dep_lines[#dep_lines + 1] = assign("srcdeps_" .. stem,
+        deps.source_paths(deps.closure(proj, f, by_import)))
+    end
     if f.kind == "test" then
-      local stem = f.path:gsub("%.tl$", "")
-      dep_lines[#dep_lines + 1] =
-      assign("deps_" .. stem, deps.closure(proj, f, by_import))
+      dep_lines[#dep_lines + 1] = assign("deps_" .. stem,
+        deps.built_paths(deps.closure(proj, f, by_import)))
     end
   end
   table.sort(dep_lines)

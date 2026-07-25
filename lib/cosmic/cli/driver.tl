@@ -75,10 +75,15 @@ local shapes: {string: Shape} = {
 --- @return {string} readable paths
 --- @return {string} writable paths
 --- @return {string} executable paths
-local function paths_of(shape: Shape, args: {string}): {string}, {string}, {string}
+--- @return {string} readable paths named by position
+--- @return {string} writable paths
+--- @return {string} executable paths
+--- @return {string} readable paths from the variadic tail
+local function paths_of(shape: Shape, args: {string}): {string}, {string}, {string}, {string}
   local ro: {string} = {}
   local rw: {string} = {}
   local ex: {string} = {}
+  local ro_rest: {string} = {}
   local function take(into: {string}, positions: {integer})
     for _, i in ipairs(positions or {}) do
       if args[i] ~= nil then
@@ -91,7 +96,7 @@ local function paths_of(shape: Shape, args: {string}): {string}, {string}, {stri
   take(ex, shape.exec)
   if shape.rest_ro ~= nil then
     for i = shape.rest_ro, #args do
-      ro[#ro + 1] = args[i]
+      ro_rest[#ro_rest + 1] = args[i]
     end
   end
   if shape.rest_rw ~= nil then
@@ -99,7 +104,7 @@ local function paths_of(shape: Shape, args: {string}): {string}, {string}, {stri
       rw[#rw + 1] = args[i]
     end
   end
-  return ro, rw, ex
+  return ro, rw, ex, ro_rest
 end
 
 --- The nearest ancestor of `path` that exists, "." if none does.
@@ -172,10 +177,22 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil
   if not shape then
     return nil
   end
-  local ro_raw, rw_raw, ex = paths_of(shape, args)
+  local ro_raw, rw_raw, ex, ro_rest = paths_of(shape, args)
   local ro: {string} = {}
   for _, p in ipairs(ro_raw) do
     if fs.exists(p) then
+      ro[#ro + 1] = p
+    end
+  end
+  -- A variadic tail is a list of INPUTS, so a directory in one is not
+  -- an input — it is a search path the verb hands its child, like
+  -- `compile`'s `--include-dir .`. Granting it read would hand over the
+  -- whole tree and undo everything the closure just bought. A named
+  -- position may still be a directory the verb genuinely walks
+  -- (`verdict <o_dir>`, `require-marker <marker> <dir>`), which is why
+  -- the two are separated rather than filtered together.
+  for _, p in ipairs(ro_rest) do
+    if fs.isfile(p) then
       ro[#ro + 1] = p
     end
   end

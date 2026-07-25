@@ -95,16 +95,22 @@ each test gets its own scratch directory *inside its own build step* —
 not at a shared `/tmp`. tests cannot collide through the temp
 directory, on any platform.
 
-a test also re-runs only when something it **imports** changes. cosmic
-follows `require()` edges to compute each test's transitive closure, so
-editing a module no test imports re-runs nothing:
+this applies to compiles too, and there it is about correctness rather
+than speed: a strict compile type-checks against the modules it
+imports, so changing a module's contract recompiles its importers. an
+incremental build catches a broken contract exactly like a clean one.
+
+a test likewise re-runs only when something it **imports** changes.
+cosmic follows `require()` edges to compute each closure, so editing a
+module no test imports re-runs nothing:
 
 ```bash
 $ cosmic --make test          # edit a module only db/a_test.tl imports
-test o/db/a_test.tl.test cosmic o/db/a_test.lua o/db/init.lua ;
+test o/db/a_test.tl.test cosmic o/db/a_test.lua --deps o/db/init.lua ;
 ```
 
-the closure in that line is also exactly what the fence grants.
+the closure after `--deps` is exactly what the fence grants. it is
+named there for that purpose and never handed to the child.
 
 with `COSMIC_FENCE=1` on a Landlock host that becomes enforced rather
 than merely arranged: a test may write only its own step's directory,

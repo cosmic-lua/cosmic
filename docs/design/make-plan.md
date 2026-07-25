@@ -248,6 +248,38 @@ the first-fetch shell in `bin/cosmic`.
        invisible, exactly as it is to the validator. The consequence is
        now a denied read as well as a missing edge, which is a sharper
        failure than a stale result.
+     - **the same closure for compiles, which turned out to be a
+       correctness bug rather than a tidiness one.** The compile rule
+       was `$(O)/%.lua: %.tl` — a module's output depended only on its
+       own source. But a *strict* compile type-checks against the
+       modules it imports, so changing a module's contract left its
+       importers un-recompiled and the incremental build kept output a
+       clean build rejects. Reproduced exactly: `util.n()` changed from
+       `integer` to `string` while `main.tl` assigns it to an
+       `integer` — clean build FAILS, incremental build PASSED.
+
+       Compiles take the **source** closure, tests the **built** one,
+       and the distinction is load-bearing: the type checker resolves
+       `require("util")` to `util.tl` through the include path, while a
+       test runs against compiled Lua. Getting them backwards is the
+       difference between catching a broken contract and shipping past
+       it.
+     - **the fence's variadic tail grants files, not directories.** A
+       tail is a list of inputs; a directory in one is a search path the
+       verb hands its child — `compile`'s `--include-dir .` — and
+       granting it read would hand over the whole tree and undo the
+       closure entirely. Named positions may still be directories the
+       verb genuinely walks (`verdict <o_dir>`), which is why the two
+       are now separated rather than filtered together.
+     - **`--deps` is a separator the verb strips and never forwards,**
+       and the reason is a bug caught in the act. Passing the closure as
+       plain trailing arguments meant `do_compile` forwarded them to the
+       child as *compiler flags*: `cosmic --include-dir . util.tl
+       --compile-strict main.tl`. getopt stops at the first positional,
+       so the child RAN `util.tl` as a script and wrote its empty stdout
+       as `o/main.lua` — a compile reporting a pass for a check it never
+       performed. That is the #801/#802 shape exactly, and it was found
+       only because the fixture asserted the type error still fires.
      - **`check` and `clean` stay out of the graph.** `check` in
        process means the one verb that says whether a project is
        coherent needs no engine at all — which matters most right now,

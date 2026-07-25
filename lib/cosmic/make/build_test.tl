@@ -269,6 +269,48 @@ local function test_builds_with_no_engine_named()
 end
 test_builds_with_no_engine_named()
 
+-- A strict compile checks against the SOURCES it imports, so changing a
+-- module's contract must recompile its importers. Before srcdeps landed
+-- this was a stale-build bug of the worst kind: a clean build FAILED and
+-- the incremental build PASSED, so `o/` kept output the checker rejects.
+local function test_a_changed_contract_recompiles_its_importers()
+  local root = fixture("contract", {
+      ["util.tl"] = "local record U\n  n: function(): integer\nend\n" ..
+      "local M: U = {n = function(): integer return 1 end}\nreturn M\n",
+      ["main.tl"] = "local u = require('util')\n" ..
+      "local x: integer = u.n()\nprint(x)\n",
+    })
+  assert(make(root, "build").code == 0, "the contract holds at first")
+
+  -- util now returns a string; main still assigns it to an integer.
+  assert(fs.write(fs.join(root, "util.tl"),
+      "local record U\n  n: function(): string\nend\n" ..
+      "local M: U = {n = function(): string return 'one' end}\nreturn M\n"))
+  local r = make(root, "build")
+  assert(r.code == 1,
+    "a broken contract must fail the incremental build: " .. r.out .. r.err)
+  assert(r.err:find("expected integer", 1, true),
+    "and it must be the importer's type error: " .. r.err)
+end
+test_a_changed_contract_recompiles_its_importers()
+
+-- The dependency list is named for the fence, never handed to the
+-- child. Forwarding it was a silent disaster: a bare path lands as the
+-- child's first positional, getopt stops parsing there, and the compile
+-- runs the DEPENDENCY as a script -- writing its stdout as the output
+-- and reporting a pass for a check that never ran. Same shape as #801.
+local function test_dependencies_never_reach_the_child()
+  local root = fixture("depsarg", {
+      ["util.tl"] = "return {}\n",
+      ["main.tl"] = "local u = require('util')\nprint('main ran', u)\n",
+    })
+  assert(make(root, "build").code == 0, "build")
+  local out = check.must(fs.read(fs.join(root, "o/main.lua")))
+  assert(out:find("main ran", 1, true),
+    "o/main.lua must be COMPILED main.tl, not some child's stdout: " .. out)
+end
+test_dependencies_never_reach_the_child()
+
 -- Per-test incrementality: a test re-runs when something it IMPORTS
 -- changes, and not when anything else does. Before the import closure
 -- landed, every test depended on every compiled file, so editing any
@@ -302,8 +344,9 @@ local function test_a_test_reruns_only_for_what_it_imports()
   assert(not related.out:find("test o/db/b_test", 1, true),
     "a test that does not import it must NOT re-run: " .. related.out)
   -- And the closure travels in the line, which is what the fence grants.
-  assert(related.out:find("o/db/a_test.lua o/db/init.lua", 1, true),
-    "the recipe must carry the closure: " .. related.out)
+  assert(related.out:find("o/db/a_test.lua --deps o/db/init.lua", 1, true),
+    "the recipe must carry the closure, after the --deps separator " ..
+    "that keeps it out of the child's argv: " .. related.out)
 end
 test_a_test_reruns_only_for_what_it_imports()
 
