@@ -37,6 +37,14 @@ local shapes: {string: Shape} = {
   capture = {exec = {1}, rw = {2}, ro = {3}, rest_ro = 4},
   -- tee <out> <cmd> [args...]
   tee = {rw = {1}, exec = {2}, rest_ro = 3},
+  -- test <out> <cmd> [args...] — same shape as tee. The out position
+  -- is a BASE name (`<out>.got`, `.out`, `.err`), and a write grants
+  -- the parent directory anyway, so naming the base is exact. What
+  -- this shape does NOT yet carry is the test's own fence — writes
+  -- confined to TEST_TMPDIR, reads to the staged subtree — because
+  -- there is no stage before 2c; the child here runs with whatever
+  -- the recipe inherited.
+  test = {rw = {1}, exec = {2}, rest_ro = 3},
   -- list <out> [items...] — items are text written into out, not read
   list = {rw = {1}},
   -- copy <src> <dst>

@@ -11,8 +11,8 @@
 --- collide or whose filenames cannot survive a recipe line has problems
 --- the type checker would report as a confusing cascade, or not at all.
 
-local fs = require("cosmic.fs")
 local teal = require("cosmic.teal")
+local project = require("cosmic.make.project")
 local validate = require("cosmic.make.validate")
 local types = require("cosmic.make.types")
 
@@ -33,22 +33,8 @@ local checkable: {string: boolean} = {
 }
 
 --- Does this path select that file? A selection entry is either the
---- file itself or a directory containing it, both relative to the root.
---- @param sel string A selection path, relative to the root
---- @param path string A project file path, relative to the root
---- @return boolean True when sel covers path
-local function covers(sel: string, path: string): boolean
-  if sel == "" or sel == "." then
-    return true
-  end
-  return path == sel or path:sub(1, #sel + 1) == sel .. "/"
-end
-
---- Narrow the project's files to the caller's selection.
----
---- Selection changes which files are checked, never what the project
---- IS: the model is always scanned whole, so a partial run resolves
---- imports exactly the way a full one does.
+--- file itself or a directory containing it. Selection itself lives in
+--- the model, where every verb shares it.
 --- @param proj Project The scanned project
 --- @param paths {string} Selection paths, relative to the root or absolute
 --- @return {File}|nil The selected checkable files
@@ -60,35 +46,7 @@ local function select_files(proj: Project, paths: {string}): {File} | nil, strin
       all[#all + 1] = f
     end
   end
-  if #paths == 0 then
-    return all
-  end
-  local picked: {File} = {}
-  local seen: {string: boolean} = {}
-  for _, raw in ipairs(paths) do
-    local rel = raw
-    if fs.is_absolute(rel) then
-      rel = fs.relpath(fs.abspath(rel), proj.root)
-    end
-    rel = rel:gsub("^%./", ""):gsub("/+$", "")
-    local hit = false
-    for _, f in ipairs(all) do
-      if covers(rel, f.path) then
-        hit = true
-        if not seen[f.path] then
-          seen[f.path] = true
-          picked[#picked + 1] = f
-        end
-      end
-    end
-    if not hit then
-      return nil, "make: nothing to check under: " .. raw
-    end
-  end
-  table.sort(picked, function(a: File, b: File): boolean
-      return a.path < b.path
-    end)
-  return picked
+  return project.select(all, paths, proj.root)
 end
 
 --- Type-check the selected files, writing issues to stderr as they are

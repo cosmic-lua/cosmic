@@ -189,8 +189,11 @@ local function main(...: string): integer
   end
   ok, err = zip_add(zip_bin, built, abs_out, "-qr0X", {".lua/cosmic"})
   if not ok then return fail(err) end
+  -- cosmic.mk rides with the deflated group rather than the stored one:
+  -- it is read once, when `--make` drives a build, not on every start.
   ok, err = zip_add(zip_bin, built, abs_out, "-qrX",
-    {".lua", ".tl", ".docs", "sys", "skills", "-x", ".lua/cosmic/*"})
+    {".lua", ".tl", ".docs", "sys", "skills", "cosmic.mk",
+      "-x", ".lua/cosmic/*"})
   if not ok then return fail(err) end
   ok, err = zip_add(zip_bin, built, abs_out, "-q0X", {"main.lua", ".args"})
   if not ok then return fail(err) end

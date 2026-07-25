@@ -30,8 +30,8 @@ Cosmic options:
                                 (copy, link, list, capture, tee, compile, ...)
   -c <line>                     run one recipe line as argv, not shell
                                 (for make: SHELL := cosmic)
-  --make <verb> [paths]...      build this project (verbs: check)
-                                e.g. cosmic --make check db/
+  --make <verb> [paths]...      build this project
+                                (check, build, test, fmt, clean)
   --skill <dir>                 write agent skill file (SKILL.md) to directory
   --welcome                     show welcome message
   -h, --help                    show this help message

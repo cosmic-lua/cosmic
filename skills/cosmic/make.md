@@ -7,8 +7,11 @@ tree it describes.
 
 ```bash
 cosmic --make check              # strict type-check the whole project
-cosmic --make check db/          # …or just one subtree
-cosmic --make check db/query.tl main.tl
+cosmic --make build              # compile every source into o/
+cosmic --make test               # run *_test.tl against the compiled tree
+cosmic --make fmt                # gate formatting
+cosmic --make clean              # remove o/
+cosmic --make build db/          # …or narrow any of them to a subtree
 ```
 
 `--make` used to scan a directory and print a Makefile. it doesn't
@@ -18,20 +21,22 @@ replaced it outright.
 
 ## Verbs
 
-`check` runs today. the rest are named here because they are defined
-and land in later slices — asking for one tells you where it stands:
+| verb | what it does | today |
+|---|---|---|
+| `check` | strict type-check (warnings are errors), in process | ✅ |
+| `build` | compile every source into `o/` | ✅ |
+| `test` | build, then run `*_test.tl` and report | ✅ |
+| `fmt` | `--check-format` over every `.tl` | ✅ |
+| `clean` | remove `o/` | ✅ |
+| `run` | build, then exec the artifact | planned |
+| `regen` | run generation units | planned |
+| `fetch` | resolve `*.pin.tl` — the only verb with network | planned |
+| `ci` `coverage` `enforce` `reproducible` `offline` | policy lanes over the graph | planned |
 
-| verb | what it does |
-|---|---|
-| `check` | strict type-check (warnings are errors) |
-| `build` | check → compile → stage → embed → `o/bin/<name>` |
-| `test` | build the stage, run `*_test.tl` against it |
-| `fmt` | `--check-format` over the project (`--fix` to rewrite) |
-| `run` | build, then exec the artifact |
-| `regen` | run generation units |
-| `fetch` | resolve `*.pin.tl` — the only verb with network |
-| `clean` | remove `o/` |
-| `ci` `coverage` `enforce` `reproducible` `offline` | policy lanes over the graph |
+`build` does not produce `o/bin/<name>` yet — the artifact (stage,
+embed, stripping to the floor) is the next slice. what it does today is
+compile the whole tree, strictly: nothing lands in `o/` that the type
+checker rejected.
 
 every verb ends in a machine-readable verdict line and an exit code:
 
@@ -39,6 +44,36 @@ every verb ends in a machine-readable verdict line and an exit code:
 make: root=/home/you/myapp
 check: PASS (12 files)
 ```
+
+## The engine
+
+`check` and `clean` run in process. `build`, `test` and `fmt` run on a
+dependency graph, so they are incremental and parallel — and that needs
+a make binary. cosmic does not carry one yet, so name it:
+
+```bash
+COSMIC_MAKE=/path/to/make cosmic --make build
+```
+
+PATH is deliberately not searched. a build whose engine came from
+whatever the host had installed is a build nobody can reproduce; the
+engine is named or (once cosmic embeds one) pinned, never guessed.
+`COSMIC_JOBS` overrides the job count, which otherwise follows `nproc`.
+
+two files land in `o/` and make reads both:
+
+- **`o/cosmic.mk`** — the rules. constant, byte-identical for every
+  project, shipped inside the cosmic binary. no rule is ever generated.
+- **`o/project.mk`** — the facts, generated: **only variable
+  assignments**, the file lists the walk produced.
+
+every recipe line is whitespace-split argv whose first word is a cosmic
+verb (`compile`, `copy`, `test`, `tee`, …), run through `cosmic -c`. no
+quoting, no expansion, no pipes, no redirects — the build's whole
+capability surface is that vocabulary, and make echoes each line as it
+runs it. the trailing `;` you will see is load-bearing: make execs a
+line it judges shell-free itself, without consulting `SHELL`, so
+without it cosmic would never see the line at all.
 
 ## The project model
 
@@ -132,10 +167,14 @@ your own shell:
 
 ```bash
 cosmic --make check db/
-cosmic --make check 'pkg/*/db_test.tl'   # your shell expands it
+cosmic --make test pkg/*/db_test.tl      # your shell expands it
 ```
 
 selection changes which files run, never what the project is: the model
 is always scanned whole, so a partial run resolves imports exactly the
 way a full one does. a selection matching nothing is an error, not a
 zero-file pass.
+
+on the graph verbs, a selection travels as a make variable override, so
+no rule knows about it — which is what lets the rules file stay
+constant.

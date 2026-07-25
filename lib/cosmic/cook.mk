@@ -1,5 +1,5 @@
 modules += cosmic
-cosmic_srcs := $(wildcard lib/cosmic/*.tl) $(wildcard lib/cosmic/cli/*.tl) $(wildcard lib/cosmic/coverage/*.tl) $(wildcard lib/cosmic/fs/*.tl) $(wildcard lib/cosmic/child/*.tl) $(wildcard lib/cosmic/doc/*.tl) $(wildcard lib/cosmic/fetch/*.tl) $(wildcard lib/cosmic/format/*.tl) $(wildcard lib/cosmic/make/*.tl) $(wildcard lib/cosmic/net/*.tl) $(wildcard lib/cosmic/sqlite/*.tl) $(wildcard lib/cosmic/quicksand/*.tl) $(wildcard lib/cosmic/quicksand/box/*.tl) $(wildcard lib/cosmic/quicksand/proxy/*.tl)
+cosmic_srcs := $(wildcard lib/cosmic/*.tl) $(wildcard lib/cosmic/cli/*.tl) $(wildcard lib/cosmic/coverage/*.tl) $(wildcard lib/cosmic/fs/*.tl) $(wildcard lib/cosmic/build/*.tl) $(wildcard lib/cosmic/child/*.tl) $(wildcard lib/cosmic/doc/*.tl) $(wildcard lib/cosmic/fetch/*.tl) $(wildcard lib/cosmic/format/*.tl) $(wildcard lib/cosmic/make/*.tl) $(wildcard lib/cosmic/net/*.tl) $(wildcard lib/cosmic/sqlite/*.tl) $(wildcard lib/cosmic/quicksand/*.tl) $(wildcard lib/cosmic/quicksand/box/*.tl) $(wildcard lib/cosmic/quicksand/proxy/*.tl)
 cosmic_tests := $(filter %_test.tl,$(cosmic_srcs))
 cosmic_examples := $(filter %_example.tl,$(cosmic_srcs))
 cosmic_tl := $(filter-out $(cosmic_tests) $(cosmic_examples) lib/cosmic/cli/main.tl,$(cosmic_srcs))
@@ -21,8 +21,19 @@ cosmic_lua := $(patsubst %.tl,$(o)/%.lua,$(cosmic_tl))
 cosmic_debug_test_got := $(call test_got,lib/cosmic/cosmic_debug_test.tl)
 $(cosmic_debug_test_got): $(cosmic_debug_bin)
 
+# The --make graph test drives a REAL make over fixture projects, so it
+# execs the extracted engine at bin/cosmo-make — the one path outside
+# the standard test grant it needs. Everything that make then runs is
+# $(o)/bin/cosmic and fixture trees under $(TMP), both already granted.
+make_graph_tests := $(call test_got,lib/cosmic/make/build_test.tl)
+$(make_graph_tests): .UNVEIL := $(unveil_test) rx:bin
+
 cosmic_built := $(o)/cosmic/.built
 cosmic_sys := sys/help.md
+# The constant rules file `cosmic --make` drives make with. It ships in
+# the binary at /zip/cosmic.mk and is byte-identical for every project;
+# graph.tl copies it out to o/cosmic.mk. A source file, not generated.
+cosmic_mk := lib/cosmic/make/cosmic.mk
 cosmic_skills := $(wildcard skills/cosmic/*.md)
 # lib/types is copied wholesale into the binary (.lua/types); without this
 # dependency, editing the type generator or a .d.tl leaves a stale binary.
@@ -61,6 +72,7 @@ pack_copies = \
   --copy $(doc_index) .docs/index.lua \
   --copy $(cosmic_main) main.lua \
   --copy $(cosmic_args) .args \
+  --copy $(cosmic_mk) cosmic.mk \
   --copytree lib/types .lua/types
 pack = $(bootstrap_cosmic) -- $(build_pack) --built $(cosmic_built) \
   --epoch $(SOURCE_DATE_EPOCH) --zip $(cosmos_zip_bin) $(pack_copies)
@@ -83,7 +95,7 @@ $(cosmic_version_lua): .FORCE | $$(cosmos_staged)
 .PHONY: .FORCE
 
 $(cosmic_bin) $(cosmic_debug_bin): export LUA_PATH = $(tree_lua_path)
-$(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(doc_index) $(cosmic_version_lua) $(cosmic_sys) $(cosmic_skills) $(cosmic_types) $(build_pack) | $(bootstrap_cosmic)
+$(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(doc_index) $(cosmic_version_lua) $(cosmic_sys) $(cosmic_skills) $(cosmic_mk) $(cosmic_types) $(build_pack) | $(bootstrap_cosmic)
 	@$(pack) --out $@ --base $(cosmos_lua_bin)
 
 $(cosmic_debug_bin): $(cosmic_bin) $(build_pack)

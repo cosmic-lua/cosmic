@@ -206,9 +206,42 @@ the first-fetch shell in `bin/cosmic`.
      - **dot-prefixed entries and non-regular files are invisible.**
        otherwise `.github/workflows/*.yml` is an asset embedded at its
        relative path, which is nobody's intent.
-   - **2b — the graph.** constant `o/cosmic.mk` plus the `o/project.mk`
-     facts generator, driving make with the sentinel;
+   - **2b — the graph. Landed.** constant `o/cosmic.mk` plus the
+     `o/project.mk` facts generator, driving make with the sentinel;
      `build`/`test`/`fmt`/`clean` lowered onto it; parallelism.
+
+     What it settled:
+
+     - **the `test` verb never propagates its child's code.** It writes
+       the `.got`/`.out`/`.err` contract and returns 0; the report
+       grades. That is the deliberate answer phase 1 asked for: `--test`
+       propagates exit 2, so a rule shaped that way reads a skip as a
+       broken rule *and* stops every other test at the first failure.
+       Recording and grading are different jobs, and only the second
+       one is make's business.
+     - **selection travels as a make variable override**, which beats
+       `o/project.mk`'s assignment. No rule knows selection exists,
+       which is exactly what keeps the rules file constant.
+     - **`check` and `clean` stay out of the graph.** `check` in
+       process means the one verb that says whether a project is
+       coherent needs no engine at all — which matters most right now,
+       because there is no engine to find. `clean` through a graph
+       whose rules live in the directory being deleted is a knot with
+       no payoff.
+     - **the engine is named or pinned, never guessed.** `COSMIC_MAKE`
+       names it; PATH is not searched. Until 2e embeds one, a graph
+       verb refuses with the command to run. That is the honest interim
+       — a build whose engine came from whatever the host installed is
+       a build nobody can reproduce.
+     - **the design doc has one internal tension, resolved.** It says
+       both "discovery uses `$(wildcard)` and rwildcard" and "discovery
+       and validation stay in Teal, where errors can be good". The
+       second wins: the walk, the classification, and the validator are
+       Teal, and `o/project.mk` is the list of variables they produce.
+       A makefile cannot say "`my notes.tl` cannot be a filename here".
+     - **make's recipe echo stays on.** For a build system whose whole
+       capability surface is a closed verb list, watching that list
+       scroll past is the feature, not noise.
    - **2c — the artifact.** compile → stage → embed → `o/bin/<name>`,
      stripping to the floor, reproducibility (the `AddOptions.mtime`
      plumbing), `cmd/` multi-binary. This is the slice where a tree of

@@ -18,20 +18,62 @@ local root = require("cosmic.make.root")
 local project = require("cosmic.make.project")
 local validate = require("cosmic.make.validate")
 local check = require("cosmic.make.check")
+local graph = require("cosmic.make.graph")
 local types = require("cosmic.make.types")
 
+local type File = types.File
 local type Issue = types.Issue
+local type Kind = types.Kind
 local type Project = types.Project
 
 --- Verbs that run today.
-local IMPLEMENTED < const >: {string} = {"check"}
+local IMPLEMENTED < const >: {string} = {
+  "build", "check", "clean", "fmt", "test",
+}
 
 --- Verbs the design defines and later slices land, in the order they
 --- appear in the design's own tables. Naming them costs one line each
 --- and turns a typo-shaped failure into a schedule answer.
 local PLANNED < const >: {string} = {
-  "build", "test", "fmt", "run", "regen", "fetch", "clean",
+  "run", "regen", "fetch",
   "ci", "coverage", "enforce", "reproducible", "offline",
+}
+
+--- Verbs lowered onto the graph, and the make target each builds.
+---
+--- `check` is deliberately absent: it runs in process, so the one verb
+--- that tells you whether a project is even coherent needs no make
+--- binary at all. `clean` is absent for the opposite reason — removing
+--- `o/` through a graph whose rules live in `o/` is a knot with no
+--- payoff.
+local TARGETS < const >: {string: string} = {
+  build = "build",
+  fmt = "fmt",
+  test = "test",
+}
+
+--- Which files each graph verb acts on, and the make variable a
+--- selection overrides. A command-line assignment beats the one in
+--- `o/project.mk`, so selection needs no rules of its own: everything
+--- downstream is derived from these lists.
+local record Selection
+  kinds: {Kind}
+  suffix: string
+  variable: string
+end
+
+local SELECTS < const >: {string: Selection} = {
+  build = {
+    kinds = {"module", "entry", "test", "example", "gen"},
+    suffix = ".tl",
+    variable = "tl_sources",
+  },
+  fmt = {
+    kinds = {"module", "entry", "test", "example", "gen", "pin", "types"},
+    suffix = ".tl",
+    variable = "fmt_sources",
+  },
+  test = {kinds = {"test"}, suffix = ".tl", variable = "tests"},
 }
 
 --- Usage, printed for a bare `--make` and after an unknown verb.
@@ -82,6 +124,92 @@ local function open_project(verb: string): Project | nil, string
   return proj
 end
 
+--- Print a verb's verdict line. Every verb ends in one, so a caller
+--- that only reads the last line still knows what happened.
+--- @param verb string The verb
+--- @param ok boolean Whether it succeeded
+--- @param detail string Parenthetical detail
+--- @return integer The matching exit code
+local function verdict(verb: string, ok: boolean, detail: string): integer
+  io.write(verb .. (ok and ": PASS" or ": FAIL") ..
+    (detail ~= "" and " (" .. detail .. ")" or "") .. "\n")
+  return ok and 0 or 1
+end
+
+--- The files a graph verb acts on, before selection.
+--- @param proj Project The scanned project
+--- @param sel Selection The verb's selection rule
+--- @return {File} Candidate files
+local function candidates(proj: Project, sel: Selection): {File}
+  local out: {File} = {}
+  for _, f in ipairs(project.of_kind(proj, sel.kinds)) do
+    if f.path:sub(-#sel.suffix) == sel.suffix then
+      out[#out + 1] = f
+    end
+  end
+  return out
+end
+
+--- Run a verb that is lowered onto the graph.
+---
+--- Validation runs first here too, and not only for symmetry with
+--- `check`: a filename carrying whitespace would be split across two
+--- arguments of a recipe line, so a project the validator rejects is
+--- one whose paths must not reach make at all.
+--- @param verb string A key of TARGETS
+--- @param proj Project The scanned project
+--- @param paths {string} Selection paths
+--- @param cosmic string Absolute path to this binary, resolved before chdir
+--- @return integer Exit code
+local function run_graph(verb: string, proj: Project, paths: {string},
+    cosmic: string): integer
+  local issues = validate.validate(proj)
+  if #issues > 0 then
+    io.stderr:write(validate.format_issues(issues) .. "\n")
+    return verdict(verb, false, #issues .. " validation " ..
+      (#issues == 1 and "error" or "errors"))
+  end
+
+  local sel = SELECTS[verb]
+  local picked, serr = project.select(candidates(proj, sel), paths, proj.root)
+  if not picked then
+    io.stderr:write((serr or "make: no such selection") .. "\n")
+    return verdict(verb, false, "bad selection")
+  end
+  local files = picked as {File} -- cast: record union after the guard
+
+  local overrides: {string} = {}
+  if #paths > 0 then
+    overrides[1] = sel.variable .. "=" ..
+    table.concat(project.paths_of(files), " ")
+  end
+
+  local code, gerr = graph.run(proj, TARGETS[verb], overrides, cosmic)
+  if gerr and gerr ~= "" then
+    io.stderr:write(gerr .. "\n")
+    return verdict(verb, false, "make")
+  end
+  local noun = #files == 1 and " file" or " files"
+  return verdict(verb, code == 0, #files .. noun)
+end
+
+--- `clean` — remove the build directory, in process. Driving this
+--- through the graph would mean reading rules out of the directory
+--- being deleted.
+--- @return integer Exit code
+local function run_clean(): integer
+  if not fs.exists(project.BUILD_DIR) then
+    return verdict("clean", true, "nothing to remove")
+  end
+  local ok, err = fs.rmrf(project.BUILD_DIR)
+  if not ok then
+    io.stderr:write("make: cannot remove " .. project.BUILD_DIR .. ": " ..
+      (err or "unknown error") .. "\n")
+    return verdict("clean", false, "")
+  end
+  return verdict("clean", true, project.BUILD_DIR)
+end
+
 --- Run one `--make` invocation.
 --- @param argv {string} The verb followed by selection paths
 --- @return integer Exit code
@@ -97,7 +225,12 @@ local function run(argv: {string}): integer
     paths[#paths + 1] = argv[i]
   end
 
-  if verb ~= "check" then
+  -- Resolve this binary BEFORE anything chdirs: `--make` enters the
+  -- project root, and a relative `./cosmic` resolved after that points
+  -- at a path inside the project that does not exist.
+  local self = fs.abspath(arg[-1] or "cosmic")
+
+  if verb ~= "check" and verb ~= "clean" and TARGETS[verb] == nil then
     if is_planned(verb) then
       io.stderr:write("make: '" .. verb ..
         "' is planned but not implemented yet\nmake: verbs: " ..
@@ -112,10 +245,16 @@ local function run(argv: {string}): integer
   local proj, err = open_project(verb)
   if not proj then
     io.stderr:write((err or "make: failed") .. "\n")
-    io.write("check: FAIL (no project)\n")
-    return 1
+    return verdict(verb, false, "no project")
   end
-  return check.run(proj as Project, paths) -- cast: record union after the guard
+  local p = proj as Project -- cast: record union after the guard
+  if verb == "check" then
+    return check.run(p, paths)
+  end
+  if verb == "clean" then
+    return run_clean()
+  end
+  return run_graph(verb, p, paths, self)
 end
 
 local record MakeModule

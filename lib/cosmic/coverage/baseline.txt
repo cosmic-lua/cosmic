@@ -11,7 +11,8 @@ lib/build/portable.tl 16 18
 lib/build/reporter.tl 145 159
 lib/cosmic/ansi.tl 86 86
 lib/cosmic/benchmark.tl 180 212
-lib/cosmic/build.tl 172 206
+lib/cosmic/build/init.tl 55 60
+lib/cosmic/build/steps.tl 176 223
 lib/cosmic/check.tl 80 82
 lib/cosmic/child/fast.tl 40 52
 lib/cosmic/child/init.tl 214 247
@@ -69,9 +70,10 @@ lib/cosmic/ip.tl 116 116
 lib/cosmic/json.tl 23 24
 lib/cosmic/landlock.tl 58 101
 lib/cosmic/log.tl 72 74
-lib/cosmic/make/check.tl 79 82
-lib/cosmic/make/init.tl 58 64
-lib/cosmic/make/project.tl 145 151
+lib/cosmic/make/check.tl 54 55
+lib/cosmic/make/graph.tl 126 141
+lib/cosmic/make/init.tl 119 129
+lib/cosmic/make/project.tl 180 188
 lib/cosmic/make/root.tl 46 50
 lib/cosmic/make/types.tl 2 2
 lib/cosmic/make/validate.tl 155 158

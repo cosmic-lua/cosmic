@@ -284,6 +284,73 @@ local function of_kind(project: Project, kinds: {Kind}): {File}
   return out
 end
 
+--- Does a selection path cover this file? An entry is either the file
+--- itself or a directory containing it, both relative to the root.
+--- @param sel string A selection path, relative to the root
+--- @param path string A project file path, relative to the root
+--- @return boolean True when sel covers path
+local function covers(sel: string, path: string): boolean
+  if sel == "" or sel == "." then
+    return true
+  end
+  return path == sel or path:sub(1, #sel + 1) == sel .. "/"
+end
+
+--- Narrow a file list to the caller's selection.
+---
+--- Selection changes which files a verb acts on, never what the project
+--- IS: the model is always scanned whole, so a partial run resolves
+--- imports exactly the way a full one does. A path matching nothing is
+--- an error rather than a silent empty set — "0 files, PASS" is how a
+--- typo becomes a green build.
+--- @param files {File} The candidate files for this verb
+--- @param paths {string} Selection paths, relative to the root or absolute
+--- @param root string Absolute project root, for resolving absolute paths
+--- @return {File}|nil The selected files, in path order
+--- @return string An error naming a selection path that matched nothing
+local function select_files(files: {File}, paths: {string}, root: string): {File} | nil, string
+  if #paths == 0 then
+    return files
+  end
+  local picked: {File} = {}
+  local seen: {string: boolean} = {}
+  for _, raw in ipairs(paths) do
+    local rel = raw
+    if fs.is_absolute(rel) then
+      rel = fs.relpath(fs.abspath(rel), root)
+    end
+    rel = rel:gsub("^%./", ""):gsub("/+$", "")
+    local hit = false
+    for _, f in ipairs(files) do
+      if covers(rel, f.path) then
+        hit = true
+        if not seen[f.path] then
+          seen[f.path] = true
+          picked[#picked + 1] = f
+        end
+      end
+    end
+    if not hit then
+      return nil, "make: nothing to do under: " .. raw
+    end
+  end
+  table.sort(picked, function(a: File, b: File): boolean
+      return a.path < b.path
+    end)
+  return picked
+end
+
+--- The paths of a file list, for handing to make or a message.
+--- @param files {File} The files
+--- @return {string} Their paths, in order
+local function paths_of(files: {File}): {string}
+  local out: {string} = {}
+  for _, f in ipairs(files) do
+    out[#out + 1] = f.path
+  end
+  return out
+end
+
 local record ProjectModule
   IGNORE_FILE: string
   BUILD_DIR: string
@@ -292,6 +359,8 @@ local record ProjectModule
   import_path: function(rel: string): string | nil
   of_kind: function(project: Project, kinds: {Kind}): {File}
   segments: function(rel: string): {string}
+  select: function(files: {File}, paths: {string}, root: string): {File} | nil, string
+  paths_of: function(files: {File}): {string}
 end
 
 local M: ProjectModule = {
@@ -302,6 +371,8 @@ local M: ProjectModule = {
   import_path = import_path,
   of_kind = of_kind,
   segments = segments,
+  select = select_files,
+  paths_of = paths_of,
 }
 
 return M
