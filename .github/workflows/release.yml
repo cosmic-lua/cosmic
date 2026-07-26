@@ -15,15 +15,12 @@ env:
   PRERELEASE: true
 
 jobs:
-  # The release build runs in the same digest-pinned container as the CI
-  # lanes (#734, see pr.yml for the full rationale): the shipped binaries
-  # are built by the same make machinery the gate checks, and the
-  # reproducible step only proves determinism WITHIN one environment —
-  # pinning here keeps the artifact's build environment a deliberate,
-  # reviewable input. The container-compat of the build is proven by
-  # pr.yml's lanes in the identical image. The `release` job stays on the
-  # bare runner: it runs no build machinery, only artifact download +
-  # `gh release create` (gh is not in the image).
+  # The same digest-pinned container as the gate lanes (see pr.yml): the
+  # shipped binaries are built by the machinery the gate checks, and
+  # reproducibility holds WITHIN an environment, so the environment is
+  # part of what a release pins. The `release` job below stays on the
+  # bare runner — it runs no build machinery, only artifact download and
+  # `gh release create`, and gh is not in the image.
   build:
     runs-on: ubuntu-latest
     container:
@@ -40,14 +37,10 @@ jobs:
           chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
           git config --system --add safe.directory "$GITHUB_WORKSPACE"
 
-      # Just the two artifacts, named. This lane used to run
-      # `teal test build`, which re-ran a gate pr.yml had already run over
-      # the same commit — every main commit arrives by push, and push
-      # triggers the gate — and which built `o/bin/cosmic-debug` only as a
-      # SIDE EFFECT of the test stage (cosmic_debug_test runs it). An
-      # upload that depends on a gate stage's side effect breaks silently
-      # the day that test moves; naming both binaries says what a release
-      # is made of.
+      # The two binaries a release is made of, named. The gate has
+      # already run over this commit — every commit on main arrives by
+      # push, and push triggers it — so this lane builds and nothing
+      # else.
       - name: build the release binaries
         shell: bash
         run: |
@@ -81,12 +74,10 @@ jobs:
           PRERELEASE_FLAG: ${{ (github.event.inputs.prerelease == 'true' || (github.event.inputs.prerelease == '' && env.PRERELEASE == 'true')) && '--prerelease' || '' }}
         run: |
           mkdir -p release
-          # upload-artifact >= v7 ships the artifact as a zip (archive: true
-          # by default) and download-artifact >= v8 does not extract it, while
-          # older versions delivered the files directly -- the v4 -> v7/v8
-          # bump silently broke every release after 2026-03-24. Handle both
-          # layouts and fail loudly (with a listing) if the binaries are
-          # missing, instead of trusting a hard-coded path.
+          # upload-artifact ships a zip that download-artifact does not
+          # extract. Handle both that and the delivered-directly layout,
+          # and fail loudly with a listing if the binaries are missing
+          # rather than trusting a hard-coded path.
           find artifacts -type f -name '*.zip' -execdir unzip -o {} \;
           cosmic_src=$(find artifacts -type f -name cosmic | head -1)
           debug_src=$(find artifacts -type f -name cosmic-debug | head -1)

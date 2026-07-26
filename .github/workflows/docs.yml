@@ -16,14 +16,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Same container block and non-root builder as every Linux lane in
-  # pr.yml. This job runs real build machinery — `bin/make doc-publish`
-  # compiles the tree and generates docs from it — and it used to run it
-  # on whatever `ubuntu-latest` served that month, which is the exact
-  # unpinned-environment leak #734 pinned the other lanes against. The
-  # `image:` line is ratcheted identical across every workflow by
-  # `_build/workflows_test.tl`, so a digest bump that misses a site
-  # fails in CI instead of leaving lanes on skewed environments.
+  # Same pinned container and non-root builder as every Linux lane (see
+  # pr.yml): this job compiles the tree to generate docs from it, so its
+  # environment is a build input like any other. `_build/workflows_test.tl`
+  # ratchets the `image:` line identical across every workflow.
   #
   # The PUSH to the docs branch stays a workflow concern: it needs
   # credentials and a network, which is not something a build verb will
@@ -36,9 +32,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      # fetch-depth: 0 so the Makefile path's `git describe` version
-      # stamp can see tags. It retires when this path reads `.version`
-      # too (D16), which lands with the bridge.
+      # fetch-depth: 0 so the version stamp's `git describe` can see
+      # tags.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0

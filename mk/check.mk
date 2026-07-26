@@ -102,12 +102,12 @@ $(o)/lint-summary.txt: $(all_linted) $(lint_list_stamp) | $(build_reporter)
 # point `--make lint` uses: one implementation of the style gate, so the
 # two lanes cannot disagree about what it is.
 #
-# $(ape_loader) is a prerequisite because $(cosmic_bin) is a fat APE:
-# without the loader extracted, exec of it fails with 127 on a host that
-# has never run one. Every other rule that execs the built binary
-# carries the same prerequisite.
-$(o)/%.lint.got: % $(cosmic_bin) $(ape_loader) | $(bootstrap_cosmic)
-	@$(bootstrap_cosmic) --test $(basename $@) -- $(cosmic_bin) --check-style $<
+# The ASSIMILATED copy, like the teal and format rules above. A sandboxed
+# recipe cannot exec a fat APE: the loader search falls back to `~/.ape-*`
+# and no grant covers it, so the exec fails with 127 — for every file,
+# with no summary to say why.
+$(o)/%.lint.got: % $(cosmic_check_bin) | $(bootstrap_files)
+	@$(cosmic_check_bin) --test $(basename $@) -- $(cosmic_check_bin) --check-style $<
 
 # The model gate (3f): does this repo still conform to the project model
 # `cosmic --make` builds by? Every slice of phase 3 has been checking it

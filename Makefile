@@ -192,7 +192,13 @@ include mk/facts.mk
 include mk/docs.mk
 
 # CI stages
-ci_stages := format teal model test example lint coverage
+# `enforce` is a stage, not a separate CI lane: it runs the sandbox
+# primitives' tests with no outer sandbox and COSMIC_ENFORCE=1, so a
+# test that cannot exercise real enforcement fails instead of skipping.
+# Every host that can run the gate can run it, and a lane of its own
+# meant the one check that proves the sandbox works ran nowhere a
+# developer would see it.
+ci_stages := format teal model test example lint coverage enforce
 ci_summaries := $(foreach s,$(ci_stages),$(o)/$(s)-summary.txt)
 ci_marks := $(foreach s,$(ci_stages),$(o)/ci-ok-$(s))
 
