@@ -189,6 +189,27 @@ local function test_parse_pax()
 end
 test_parse_pax()
 
+-- Falling off the end without the two zero blocks was accepted as
+-- success, so a truncation landing on a 512-byte boundary after
+-- decompression was a silent partial extraction: every entry so far
+-- written, `true` returned, nothing to say the archive was cut.
+local function test_truncated_archive_is_refused()
+  local dest = fs.join(tmpdir, "untar-noterm")
+  local path = fs.join(tmpdir, "noterm.tar.gz")
+  -- make_targz appends the terminator; this writes the same entries
+  -- without one, which is what a boundary-aligned truncation leaves.
+  local body = tar_entry("a.txt", "one\n", oct("644"), "0", "") ..
+  tar_entry("b.txt", "two\n", oct("644"), "0", "")
+  assert(fs.write(path, compress.compress(body, {format = "gzip"})))
+
+  fs.rmrf(dest)
+  local ok, err = untar.extract(path, dest)
+  assert(not ok, "an unterminated archive must be refused")
+  assert(err and err:match("no end%-of%-archive"),
+    "the message names the reason, got: " .. tostring(err))
+end
+test_truncated_archive_is_refused()
+
 local function test_unsafe_path()
   assert(untar.unsafe_path(""), "empty")
   assert(untar.unsafe_path("/abs"), "absolute")

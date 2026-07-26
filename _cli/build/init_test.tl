@@ -357,6 +357,43 @@ local function test_exec_refuses_outside_the_root()
 end
 test_exec_refuses_outside_the_root()
 
+-- The root check has to resolve SYMLINKS, not just normalize `..`.
+-- abspath refuses a path that climbs out lexically, but the kernel
+-- follows links at spawn -- so `o/tool -> /bin/echo` had an abspath
+-- under the root, passed the prefix test, and ran the host binary. That
+-- made "exec resolves only to pinned bytes under o/, never PATH" a
+-- stronger claim than the check enforced.
+local function test_exec_refuses_a_symlink_out_of_the_root()
+  local root = fs.join(tmpdir, "exec-root")
+  fs.rmrf(root)
+  assert(fs.makedirs(root))
+  local link = fs.join(root, "escape")
+  assert(fs.symlink("/bin/sh", link))
+  local code, _out, err = run_recipe_env("exec " .. link .. " -c true", root)
+  assert(code ~= 0, "a symlink out of the root must be refused")
+  assert(err:match("not under the build root"),
+    "expected the root named, got: " .. err)
+  assert(err:match("resolves to"),
+    "and where it actually resolved to, got: " .. err)
+end
+test_exec_refuses_a_symlink_out_of_the_root()
+
+-- The other direction, because refusing everything would also pass the
+-- test above: a link INSIDE the root still runs. bin/make creates
+-- exactly one (`o/bootstrap/lua -> cosmic`), so this is not hypothetical.
+local function test_exec_allows_a_symlink_inside_the_root()
+  local root = fs.dirname(fs.abspath(test_bin))
+  local script = write_script("exec-linked.lua", "print('linked')\n")
+  local link = fs.join(root, "exec-alias")
+  fs.rmrf(link)
+  assert(fs.symlink(fs.basename(test_bin), link))
+  local code, out, err = run_recipe_env("exec " .. link .. " " .. script, root)
+  fs.rmrf(link)
+  assert(code == 0, "a link inside the root must still run: " .. err)
+  assert(out:match("linked"), "expected the program's output, got: " .. out)
+end
+test_exec_allows_a_symlink_inside_the_root()
+
 local function test_exec_never_searches_path()
   -- `sh` resolves through PATH for a shell; for exec it is just a
   -- relative path that is not under the root, so it cannot run.

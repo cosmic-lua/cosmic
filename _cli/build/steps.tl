@@ -373,12 +373,34 @@ local function do_exec(args: {string}): integer
   if not program then
     return fail("usage: exec <program> [args...]")
   end
-  local root = fs.abspath(env.get("COSMIC_EXEC_ROOT", "o"))
-  local abs = fs.abspath(program)
+  -- REALPATH, not abspath, on both sides. abspath normalizes `..` and
+  -- so refuses a path that climbs out lexically, but it does not follow
+  -- symlinks -- and the kernel does, at spawn. So `o/tool -> /bin/sh`
+  -- had an abspath under the root, passed the prefix test, and ran the
+  -- host binary: the design's "exec resolves only to pinned bytes under
+  -- o/, never PATH" was a stronger claim than the check enforced.
+  -- Verified before the fix with `ln -sf /bin/echo o/tool`.
+  --
+  -- Resolving the ROOT too matters when the build directory is itself
+  -- reached through a link (a worktree under a symlinked home), or the
+  -- prefix comparison comes out false for two spellings of one path.
+  -- The relative `o/bootstrap/lua -> cosmic` link bin/make creates
+  -- still resolves inside the root, so it keeps working.
+  local root_named = fs.abspath(env.get("COSMIC_EXEC_ROOT", "o"))
+  local root = (fs.realpath(root_named) or root_named) as string -- cast: scalar fallback
+  local named = fs.abspath(program)
+  -- Falling back to the lexical path when realpath fails keeps the
+  -- ROOT check first, so a bare `sh` still reports "never PATH" rather
+  -- than "no such file" -- the more useful answer for the mistake it
+  -- actually is. Nothing escapes through the fallback: realpath only
+  -- fails for a path that does not resolve, and `isfile` below rejects
+  -- those (a dangling link included).
+  local abs = (fs.realpath(named) or named) as string -- cast: scalar fallback
   -- Prefix match on a separator boundary, so a sibling `o-other/` next
   -- to `o/` cannot pass for being inside it.
   if abs ~= root and abs:sub(1, #root + 1) ~= root .. "/" then
-    return fail("exec " .. program .. ": not under the build root " .. root
+    return fail("exec " .. program .. ": resolves to " .. abs ..
+      ", which is not under the build root " .. root
       .. "; a recipe may only exec pinned or built bytes, never PATH")
   end
   if not fs.isfile(abs) then
