@@ -28,9 +28,8 @@ local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
 local make_bin = fs.abspath(os.getenv("COSMIC_MAKE") or "o/cosmo-make")
-if not fs.isfile(make_bin) then
-  print("skip: no make binary at " .. make_bin)
-  return
+if not check.needs("the make engine at " .. make_bin, fs.isfile(make_bin)) then
+  os.exit(2)
 end
 
 --- Build a fixture tree, returning its absolute root.
@@ -78,6 +77,61 @@ local function make(dir: string, ...: string): integer, string
   local h = check.must(spawn.spawn(argv, {cwd = dir, env = env}))
   local r = check.must(h:wait())
   return r.code or 128, (r.stdout or "") .. (r.stderr or "")
+end
+
+--- Where the Makefile pipeline staged a dependency, if it has.
+--- @param repo string The project root
+--- @param dep string The dependency directory under o/staged
+--- @param name string The file to find inside the staged version dir
+--- @return string|nil The staged path
+local function staged_at(repo: string, dep: string, name: string): string | nil
+  local base = fs.join(repo, "o/staged", dep)
+  if not fs.isdir(base) then
+    return nil
+  end
+  local found: string = nil
+  fs.walk(base, function(path: string, entry: string): fs.WalkAction
+      if entry == name and not found then
+        found = path
+      end
+      return nil
+    end)
+  return found
+end
+
+--- Ensure `o/3p/**` holds what `--make fetch` would have landed there,
+--- copying from the Makefile pipeline's staged tree when it has not.
+--- @param repo string The project root
+--- @return boolean True when every pinned input is in place
+local function seed_pins(repo: string): boolean
+  local want: {{string, string, string}} = {
+    {"tl", "tl.lua", "o/3p/tl/tl.lua"},
+    {"cosmos", "make", "o/3p/cosmos/make"},
+    -- The base runtime too: the generator names all three, and seeding
+    -- two of them just moved the failure one line later.
+    {"cosmos", "lua", "o/3p/cosmos/lua"},
+  }
+  for _, w in ipairs(want) do
+    local dest = fs.join(repo, w[3])
+    if not fs.isfile(dest) then
+      local from = staged_at(repo, w[1], w[2])
+      if not from then
+        return false
+      end
+      -- cast: scalar narrowing after the guard
+      local body = fs.read(from as string)
+      if not body then
+        return false
+      end
+      if not fs.makedirs(fs.dirname(dest)) then
+        return false
+      end
+      if not fs.write(dest, body as string) then -- cast: scalar narrowing
+        return false
+      end
+    end
+  end
+  return true
 end
 
 -- A generator whose output a binary embeds is IN that binary's build
@@ -259,15 +313,19 @@ test_stored_path_collisions_are_refused()
 local function test_the_real_payload_generator()
   local repo = fs.abspath(".")
   local gen = fs.join(repo, "cmd/cosmic/embed.gen.tl")
-  if not fs.isfile(gen) then
-    print("skip: not run from the cosmic tree")
+  if not check.needs("the cosmic tree (cmd/cosmic/embed.gen.tl)",
+    fs.isfile(gen)) then
     return
   end
-  -- The generator copies the pins' unpacked products, so it needs a
-  -- fetched tree. Mirrors the graph tests' engine guard.
-  if not fs.isfile(fs.join(repo, "o/3p/tl/tl.lua"))
-  or not fs.isfile(fs.join(repo, "o/3p/cosmos/make")) then
-    print("skip: pins not fetched (o/3p/**)")
+  -- The generator reads its pinned inputs from `o/3p/**`, which only
+  -- `--make fetch` writes -- and CI provisions the same bytes through
+  -- the Makefile pipeline into `o/staged/**` instead. Guarding on
+  -- `o/3p` alone meant this test SKIPPED in every CI run and passed
+  -- green, so audit 027's gate only ever ran on a developer machine
+  -- that had run fetch by hand. Found by check.needs on its first CI
+  -- run, which is the whole argument for it. Seed across instead:
+  -- same bytes, no network, runs everywhere.
+  if not check.needs("staged or fetched pins", seed_pins(repo)) then
     return
   end
   local out = fs.join(tmpdir, "real-payload")

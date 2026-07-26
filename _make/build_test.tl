@@ -23,8 +23,11 @@ local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
 local make_bin = fs.abspath(os.getenv("COSMIC_MAKE") or "o/cosmo-make")
-if not fs.isfile(make_bin) then
-  print("skip: no make binary at " .. make_bin)
+-- Skip locally, FAIL in CI. A cold checkout should not fail for lacking
+-- a build; CI always provisions the engine, so its absence there means
+-- provisioning broke -- and the whole `--make` graph-test surface
+-- silently becoming green skips is the failure this guards (029).
+if not check.needs("the make engine at " .. make_bin, fs.isfile(make_bin)) then
   os.exit(2)
 end
 
