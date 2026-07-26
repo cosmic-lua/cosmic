@@ -18,6 +18,9 @@ local record make_types
   ---   pin       *.pin.tl — a pinned external asset, data not code
   ---   gen       *.gen.tl — a generation unit
   ---   testdata  anything under a testdata/ directory — never embedded
+  ---   payload   anything under embed/ — embedded at its path INSIDE
+  ---             embed/, which is how a project puts a file somewhere
+  ---             the one layout rule would not
   ---   asset     everything else — embedded at its relative path
   enum Kind
     "module"
@@ -28,6 +31,7 @@ local record make_types
     "pin"
     "gen"
     "testdata"
+    "payload"
     "asset"
   end
 

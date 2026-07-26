@@ -38,7 +38,19 @@ local ships: {string: boolean} = {
   module = true,
   entry = true,
   asset = true,
+  payload = true,
 }
+
+--- The payload directory: its CONTENTS map to the artifact root.
+---
+--- The one layout rule (path = import path = zip path) cannot say "this
+--- lands at that", and some files must: a type checker looks for its
+--- declarations at a fixed path, an engine reads its rules file, a
+--- runtime finds its compiler beside the modules. `embed/` is where a
+--- project says so, positionally, without the engine growing an opinion
+--- about what belongs in an artifact. A project without one ships
+--- nothing extra.
+local PAYLOAD_DIR < const > = "embed"
 
 --- One staged file: where it comes from, and where it lands in the zip.
 local record Staged
@@ -102,6 +114,9 @@ local function stage_entry(f: File, binary: Binary): Staged | nil
   if f.path == binary.entry then
     return {source = fs.join(project.BUILD_DIR, (f.path:gsub("%.tl$", ".lua"))),
       stored = "main.lua"}
+  end
+  if f.kind == "payload" then
+    return {source = f.path, stored = f.path:sub(#PAYLOAD_DIR + 2)}
   end
   if f.kind == "asset" then
     return {source = f.path, stored = f.path}

@@ -358,3 +358,28 @@ end
 test_in_process_build()
 
 print("all artifact tests passed")
+
+-- `embed/` is how a project puts a file where the one layout rule
+-- cannot: its CONTENTS map to the artifact root, so the checker's
+-- declarations, an engine's rules file, or a compiler shipped beside
+-- the modules all land where the code that reads them looks.
+local function test_payload_maps_to_the_artifact_root()
+  local root = fixture("payload", {
+      ["main.tl"] = "print('x')\n",
+      ["embed/tl.lua"] = "return {}\n",
+      ["embed/.types/cosmo.d.tl"] = "local record c end\nreturn c\n",
+      ["embed/.tl/cosmic/fs.tl"] = "return {}\n",
+      ["embed/cosmic.mk"] = "all:\n",
+    })
+  local proj = scan(root)
+  local stored = stored_paths(proj, binary_of(proj, "artifact-payload"))
+
+  assert(stored["tl.lua"], "payload lands at its path inside embed/, not under embed/")
+  assert(not stored["embed/tl.lua"], "and never at its tree path")
+  assert(stored[".types/cosmo.d.tl"], "a dot-directory of payload keeps its shape")
+  assert(stored[".tl/cosmic/fs.tl"],
+    "a .tl under embed/ ships as a file; it is not compiled to .lua")
+  assert(not stored["embed/cosmic.lua"], "nor treated as a module")
+  assert(stored["cosmic.mk"], "an engine's rules file lands where the engine reads it")
+end
+test_payload_maps_to_the_artifact_root()

@@ -31,6 +31,10 @@ local IGNORE_FILE < const > = ".cosmicignore"
 --- generated is ever an input, so the walk prunes it at the root.
 local BUILD_DIR < const > = "o"
 
+--- The payload directory: its contents map to the artifact root, which
+--- is how a project ships a file the one layout rule cannot place.
+local PAYLOAD_DIR < const > = "embed"
+
 --- Convert a glob (`*` any run, `?` one char) to an anchored Lua
 --- pattern. Every other character, including Lua-pattern magic, is
 --- literal — a `.cosmicignore` line is a glob, never a Lua pattern.
@@ -128,7 +132,10 @@ end
 
 --- Classify one file from its relative path. Order matters: testdata
 --- wins over everything (it is positional, and its only job is staying
---- out of artifacts), then the suffix markers, then position.
+--- out of artifacts), then payload (also positional, and for the same
+--- reason in reverse — `embed/.tl/x.tl` is a file to ship, not a module
+--- to compile, and `embed/x.gen.tl` is a file to ship, not a generator
+--- to run), then the suffix markers, then position.
 --- @param rel string Path relative to the root
 --- @return Kind The kind this file declares
 local function classify(rel: string): Kind
@@ -137,6 +144,9 @@ local function classify(rel: string): Kind
     if segs[i] == "testdata" then
       return "testdata"
     end
+  end
+  if segs[1] == PAYLOAD_DIR and #segs > 1 then
+    return "payload"
   end
   if rel:sub(-5) == ".d.tl" then
     return "types"
@@ -198,7 +208,12 @@ end
 --- rest.
 local function visit(path: string, name: string, st: WalkStat, ctx: Scan): WalkAction
   local rel = path:sub(#ctx.root + 2)
-  if name:sub(1, 1) == "." then
+  -- Dotfiles are invisible to the model — except under `embed/`, where
+  -- the point is a verbatim mapping and the dot is doing work: a
+  -- payload path is dot-prefixed precisely to stay OUT of the module
+  -- root (`.tl/`, `.types/`, `.docs/`), so pruning it would prune the
+  -- only files that need the directory to exist.
+  if name:sub(1, 1) == "." and segments(rel)[1] ~= PAYLOAD_DIR then
     return "skip"
   end
   if is_ignored(ctx.patterns, rel, name) then

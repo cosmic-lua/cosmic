@@ -212,3 +212,23 @@ end
 test_of_kind()
 
 print("all project tests passed")
+
+-- `embed/` is positional like `testdata/`, and for the mirror-image
+-- reason: testdata exists to stay OUT of artifacts, payload exists to
+-- go IN at a path the one layout rule cannot express. Both win over
+-- the suffix markers, so a file under either is what its position says
+-- and never what its name would otherwise make it.
+local function test_embed_is_payload_whatever_it_is_named()
+  assert(project.classify("embed/tl.lua") == "payload", "a payload file")
+  assert(project.classify("embed/.tl/cosmic/fs.tl") == "payload",
+    "a .tl under embed/ ships; it is not a module to compile")
+  assert(project.classify("embed/x.gen.tl") == "payload",
+    "a .gen.tl under embed/ ships; it is not a generator to run")
+  assert(project.classify("embed/.types/cosmo.d.tl") == "payload",
+    "a .d.tl under embed/ ships; it is not type-only")
+  -- The directory itself is not payload, and neither is a module that
+  -- merely starts with the same letters.
+  assert(project.classify("embedded.tl") == "module",
+    "a module whose name starts with 'embed' is still a module")
+end
+test_embed_is_payload_whatever_it_is_named()
