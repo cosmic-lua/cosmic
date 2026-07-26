@@ -56,9 +56,11 @@ local function test_convert_type()
   assert(gentype.convert_type("(true | string)") == "boolean | string", "(true | string) union")
   assert(gentype.convert_type("(integer | string)?") == "integer | string | nil", "optional paren union")
 
-  -- Variadic types keep the ellipsis with a converted base.
-  assert(gentype.convert_type("string...") == "string...", "string... passthrough")
-  assert(gentype.convert_type("integer...") == "integer...", "integer... passthrough")
+  -- Variadic types keep the ellipsis with a converted base, spelled the
+  -- way the formatter spells it: these files are format-gated AND pinned
+  -- byte-for-byte against this generator, so the two have to agree.
+  assert(gentype.convert_type("string...") == "string ...", "string... converts")
+  assert(gentype.convert_type("integer...") == "integer ...", "integer... converts")
 
   -- Function types convert their argument and return types. A function type
   -- with a return is parenthesized so a following `, next` in a type list
@@ -201,8 +203,8 @@ re = {}
 function re.search(regex, text) end
 ]==]
   local dtl = gentype.generate_dtl(gentype.parse_module(source, "re"))
-  assert(dtl:match("search: function%(regex: string, text: string%): string | nil, string%.%.%."),
-    "vararg return should render as `string | nil, string...`:\n" .. dtl)
+  assert(dtl:match("search: function%(regex: string, text: string%): string | nil, string %.%.%."),
+    "vararg return should render as `string | nil, string ...`:\n" .. dtl)
   assert(not dtl:match("search[^\n]*followed"),
     "return description must not leak into the type list:\n" .. dtl)
   assert(not dtl:match("search[^\n]*%.%.%., Errno"),

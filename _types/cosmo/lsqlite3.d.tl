@@ -295,8 +295,8 @@ local record Statement
   get_types: function(self: Statement): {string}
   --- Alias for `lsqlite3.Statement:get_types()`.
   itypes: function(self: Statement): {string}
-  get_unames: function(self: Statement): string...
-  get_utypes: function(self: Statement): string...
+  get_unames: function(self: Statement): string ...
+  get_utypes: function(self: Statement): string ...
   get_uvalues: function(self: Statement): string | number | nil
   get_value: function(self: Statement, n: integer): string | number | nil
   get_values: function(self: Statement): {string | number | nil}
@@ -333,7 +333,7 @@ local record Statement
   step: function(self: Statement): ResultCode
   --- Each iteration returns the values for the current row. This is the prepared
   --- statement equivalent of `db:urows()`.
-  urows: function(self: Statement): function(self: VM): any...
+  urows: function(self: Statement): function(self: VM): any ...
   last_insert_rowid: function(self: Statement): integer
 end
 
@@ -361,8 +361,8 @@ local record VM
   get_types: function(self: VM): {string}
   --- Alias for `lsqlite3.VM:get_types()`.
   itypes: function(self: VM): {string}
-  get_unames: function(self: VM): string...
-  get_utypes: function(self: VM): string...
+  get_unames: function(self: VM): string ...
+  get_utypes: function(self: VM): string ...
   get_uvalues: function(self: VM): string | number | nil
   get_value: function(self: VM, index: integer): string | number | nil
   get_values: function(self: VM): {string | number | nil}
@@ -377,7 +377,7 @@ local record VM
   reset: function(self: VM): ResultCode
   rows: function(self: VM, sql: string): function(self: VM): {string | number | nil}
   step: function(self: VM): ResultCode
-  urows: function(self: VM, sql: string): function(self: VM): any...
+  urows: function(self: VM, sql: string): function(self: VM): any ...
 end
 
 --- SQLite result/status code (the OK/ERROR/BUSY/DONE/ROW/... family

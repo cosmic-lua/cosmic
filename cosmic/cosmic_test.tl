@@ -1,10 +1,14 @@
 #!/usr/bin/env cosmic
 
-local function test_env_vars()
-  assert(os.getenv("TEST_O") ~= nil, "TEST_O should be set")
-  assert(os.getenv("TEST_PLATFORM") ~= nil, "TEST_PLATFORM should be set")
+-- The harness contract, asserted once so an unwired harness fails here
+-- and names itself, rather than as a dozen `command not found: cosmic`
+-- further down. TEST_BIN is the whole contract: the directory holding
+-- the binaries under test, which is also first on PATH.
+local function test_harness_names_the_binary_under_test()
+  local bin = os.getenv("TEST_BIN")
+  assert(bin ~= nil and bin ~= "", "TEST_BIN should name the binary directory")
 end
-test_env_vars()
+test_harness_names_the_binary_under_test()
 
 local function test_require_cosmic()
   local cosmic = require("cosmic")

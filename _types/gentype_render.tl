@@ -49,10 +49,13 @@ local function convert_type(t: string): string
   local grouped = t:match("^%((.+)%)$")
   if grouped then return convert_type(grouped) end
   -- Variadic type (`string...`): convert the base, keep the ellipsis. A bare
-  -- or union-typed vararg (`...` / `...: string|nil`) degrades to `any...`.
-  if t:match("^%.%.%.") then return "any..." end
+  -- or union-typed vararg (`...` / `...: string|nil`) degrades to `any ...`.
+  -- The space is the formatter's spelling, and these files are gated on
+  -- being formatted, so emitting the glued form would commit a file the
+  -- format check rejects and the byte-identity check pins in place.
+  if t:match("^%.%.%.") then return "any ..." end
   local va_base = t:match("^(.+)%.%.%.$")
-  if va_base then return convert_type(va_base) .. "..." end
+  if va_base then return convert_type(va_base) .. " ..." end
   -- A string-literal type (`"MD5"`) has no Teal inline equivalent.
   if t:match('^".*"$') or t:match("^'.*'$") then return "string" end
   -- LuaLS map/array table types have direct Teal equivalents.

@@ -220,6 +220,61 @@ local function is_function_block_opener(line_items: {Item}, func_idx: integer): 
   return true
 end
 
+--- Mark every item belonging to the function TYPE starting at `idx`,
+--- so the second pass counts none of them as opening a block.
+---
+--- The return type is the half that matters. It is a LIST, and its
+--- members can be unions: `function(a: A): T | nil, U | nil`. Marking
+--- only a parenthesized return leaves `function` inside such a list
+--- unmarked, and a backward scan from there hits the `,` and reads it
+--- as a definition — so the rest of the file indents into a body that
+--- no `end` ever closes. `_types/cosmo/lsqlite3.d.tl` is a real file
+--- that does this (`config`, returning `function | nil`).
+--- @param line_items {Item} The line's items
+--- @param idx integer Index of the `function` keyword
+--- @param type_ctx {integer: boolean} Marks, updated in place
+local function mark_function_type(line_items: {Item}, idx: integer,
+    type_ctx: {integer: boolean})
+  type_ctx[idx] = true
+  local depth = 0
+  local j = idx + 1
+  while j <= #line_items do
+    type_ctx[j] = true
+    if line_items[j].tk == "(" then
+      depth = depth + 1
+    elseif line_items[j].tk == ")" then
+      depth = depth - 1
+      if depth == 0 then
+        j = j + 1
+        break
+      end
+    end
+    j = j + 1
+  end
+  if j > #line_items or line_items[j].tk ~= ":" then
+    return
+  end
+  -- The return list runs to the end of the line, stopping at `=` (a
+  -- value follows, and it may legitimately open a block) or at a
+  -- closer belonging to an enclosing bracket, as in `{function(): T}`.
+  type_ctx[j] = true
+  depth = 0
+  for k = j + 1, #line_items do
+    local tk = line_items[k].tk
+    if tk == "(" or tk == "[" or tk == "{" then
+      depth = depth + 1
+    elseif tk == ")" or tk == "]" or tk == "}" then
+      if depth == 0 then
+        return
+      end
+      depth = depth - 1
+    elseif depth == 0 and (tk == "=" or tk == ";") then
+      return
+    end
+    type_ctx[k] = true
+  end
+end
+
 --- Compute the net indent change for all items on a line.
 --- Returns (pre_change, post_change).
 local function compute_indent_change(line_items: {Item}): integer, integer
@@ -228,44 +283,9 @@ local function compute_indent_change(line_items: {Item}): integer, integer
 
   local type_ctx: {integer: boolean} = {}
   for idx, item in ipairs(line_items) do
-    if item.kind == "keyword" and item.tk == "function" and not type_ctx[idx] then
-      if not is_function_block_opener(line_items, idx) then
-        type_ctx[idx] = true
-        local depth = 0
-        local j = idx + 1
-        while j <= #line_items do
-          type_ctx[j] = true
-          if line_items[j].tk == "(" then
-            depth = depth + 1
-          elseif line_items[j].tk == ")" then
-            depth = depth - 1
-            if depth == 0 then
-              j = j + 1
-              break
-            end
-          end
-          j = j + 1
-        end
-        if j <= #line_items and line_items[j].tk == ":" then
-          type_ctx[j] = true
-          j = j + 1
-          if j <= #line_items and line_items[j].tk == "(" then
-            depth = 0
-            while j <= #line_items do
-              type_ctx[j] = true
-              if line_items[j].tk == "(" then
-                depth = depth + 1
-              elseif line_items[j].tk == ")" then
-                depth = depth - 1
-                if depth == 0 then
-                  break
-                end
-              end
-              j = j + 1
-            end
-          end
-        end
-      end
+    if item.kind == "keyword" and item.tk == "function" and not type_ctx[idx]
+    and not is_function_block_opener(line_items, idx) then
+      mark_function_type(line_items, idx, type_ctx)
     end
   end
 
