@@ -224,10 +224,11 @@ bin/make clean          # remove build artifacts
 
 key concepts:
 - **modules**: each directory declares a module via `cook.mk` with `_tl`, `_tests`, `_files`, `_deps`
-- **versioned deps**: 3p modules use `version.lua` → fetch → stage pipeline
+- **versioned deps**: 3p modules declare a `*.pin.tl` — literal data, read
+  by `cosmic.literal` and never executed — then fetch → stage
 - **bootstrap**: a pre-built cosmic binary bootstraps compilation of `.tl` → `.lua`; `bin/make` is its sole provisioner (sha-pinned, re-fetched on pin bumps)
 - **no-shell default**: `SHELL` is poisoned globally — recipes are single argv lines, the real shell is a per-rule exception, and the makefile ratchet tests enumerate the exceptions, the host-exec grants, and statically scan recipe text (#756 item 2)
-- **sandboxing**: per-rule `.PLEDGE`/`.UNVEIL` annotations are ENFORCED, not intent — every rule family CI exercises sets `.SANDBOXED := 1` (#729: compile, fetch/stage/lint/reporter, teal/format, tests, examples), so an undeclared read or write in one of their recipes fails on a Landlock host. Most grants are derived from the declared graph (prereqs readable, target directory writable, global base), so a rule declares only genuinely-extra paths; the `.SANDBOXED` and hostx ratchets in `_build/makefile_ratchet_test.tl` pin both sets. Deliberately unenforced, each with its reason at the rule: version.lua, the quicksand namespace tests/examples, and the benchmark family (no CI lane runs it). `unveil()` no-ops without Landlock — the `sandbox-canary` proves the mechanism is live on a host. `.ENV` clamps a rule's child environment to the named variables (#756 item 5) — the driver-exec families declare theirs in cook.mk, gated by the env-clamp fixture's canary probe
+- **sandboxing**: per-rule `.PLEDGE`/`.UNVEIL` annotations are ENFORCED, not intent — every rule family CI exercises sets `.SANDBOXED := 1` (#729: compile, fetch/stage/lint/reporter, teal/format, tests, examples), so an undeclared read or write in one of their recipes fails on a Landlock host. Most grants are derived from the declared graph (prereqs readable, target directory writable, global base), so a rule declares only genuinely-extra paths; the `.SANDBOXED` and hostx ratchets in `_build/makefile_ratchet_test.tl` pin both sets. Deliberately unenforced, each with its reason at the rule: the version stamp, the quicksand namespace tests/examples, and the benchmark family (no CI lane runs it). `unveil()` no-ops without Landlock — the `sandbox-canary` proves the mechanism is live on a host. `.ENV` clamps a rule's child environment to the named variables (#756 item 5) — the driver-exec families declare theirs in cook.mk, gated by the env-clamp fixture's canary probe
 - **generated facts** (3e): `o/project.mk` is written by `cosmic/_make/facts.tl`
   from the same `cosmic._make` model `cosmic --make` uses, and the
   Makefile `-include`s it. It carries `srcdeps_<stem>` — each source's
@@ -259,7 +260,7 @@ files differ byte-for-byte from generator output.
 update procedure (after a cosmos bump or generator change):
 
 ```bash
-# 1. bump 3p/cosmos/version.lua (url version + sha)
+# 1. bump 3p/cosmos/cosmos.pin.tl (url version + sha)
 bin/make regen-types      # regenerate all .d.tl from the new pin
 bin/make test only=gentype
 # 2. fix any cosmic wrappers the new types break; commit everything together
@@ -349,6 +350,7 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | pledge | restrict system calls (OpenBSD, Linux) |
 | unveil | restrict filesystem visibility (OpenBSD, or Linux via landlock) |
 | landlock | Linux >=5.13 self-restricting filesystem sandbox |
+| literal | read a Teal/Lua file as data: `return { … }` of literals, never executed |
 | quicksand | Linux namespace + allowlist proxy box primitives and declarative `Box` builder |
 | shm | shared memory with atomic ops and futexes |
 | signal | signal handling, timers, sigsets |

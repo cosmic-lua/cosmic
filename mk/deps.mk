@@ -11,7 +11,7 @@ all_fetched := $(patsubst %/.versioned,%/.fetched,$(call filter-only,$(all_versi
 ## Fetch all dependencies only
 fetched: $(all_fetched)
 # Downloads are integrity-checked against the sha256 pinned in each
-# module's version.lua — TLS is transport, not the trust root — via the
+# module's *.pin.tl — TLS is transport, not the trust root — via the
 # host CA store (bootstrap CAs are too narrow for github.com; an
 # operator SSL_CERT_FILE bundle is unveiled). The scripts run under the
 # pinned bootstrap against THIS tree's cosmic.* APIs — the compiled

@@ -100,7 +100,7 @@ the other's `cmd` directory.
 | `lib/cosmic/`, `lib/build/`, … | `cosmic/`, `_build/`, … (root = module root) |
 | `public.tl` | the `_` prefix; the tree is the manifest |
 | `pack_copies` enumeration | the artifact layout rule |
-| `3p/*/version.lua` | `*.pin.tl`, statically extracted |
+| `3p/*/version.lua` | `*.pin.tl`, statically extracted (done, 3g) |
 | `gentype`/`gentl` rules | generation units, one directory each |
 | doc index, version stamp | a generation unit; committed data + env |
 | `.PLEDGE`/`.UNVEIL`/`.ENV` | derived grants, enforced by cosmic-as-`SHELL` |
@@ -228,7 +228,8 @@ the first-fetch shell in `bin/cosmic`.
      its **strict** compile could still have a passing test. The `test`
      verb itself, the fence, and moving the ratchet tests to the root
      wait for the rules half of the bridge (3i) — same blocker as 3e.
-   - **3g — the searcher is public.** the precondition for the hoist,
+   - **3g — the searcher is public, and the pins are data. Landed.**
+     the searcher move is the precondition for the hoist,
      and true on its own terms: the generated embed wrapper requires it
      in every artifact ever built, so the module with the widest caller
      set in the tree cannot be the one marked internal. Third instance
@@ -245,21 +246,22 @@ the first-fetch shell in `bin/cosmic`.
      public, the same way 3c made `cosmic/style.tl` public.
    - **3i — the verbs take over, and the bridge goes.** `-include
      o/cosmic.mk` once the Makefile's own `build`/`test`/`fmt` targets
-     retire; `--make fetch` replaces `_build/build-fetch.tl`, which is
-     what lets `3p/*/version.lua` become `*.pin.tl`; `regen` runs the
+     retire; `--make fetch` replaces `_build/build-fetch.tl` (the
+     pins themselves are already `*.pin.tl`, done in 3g); `regen` runs the
      generation units, which is what lets `_types/*.d.tl` stop being
      committed. Then `bin/make` → `bin/cosmic`, and `mk/`, `cook.mk`
      and the ratchets the closed vocabulary makes moot go with it.
 
-     **Pins and generators moved here from 3g, on evidence.** Both
-     looked independent and are not: converting the pins means
-     something must read them, and the only reader is
-     `cosmic._make.pin` — which `_build/build-fetch.tl` cannot import,
-     because it sits outside `cosmic/` and the `_` rule forbids it (the
-     model gate says so out loud since 3f). The same holds for the
-     generators and `regen`. Neither is blocked on difficulty; both are
-     blocked on the verb replacing this repo's own tooling, which is
-     what removing the bridge *is*.
+     **Generators moved here from 3g; the pins did not.** The pins
+     looked blocked for the same reason: converting them means
+     something must read them, and the only reader was
+     `cosmic._make.pin`, which `_build/build-fetch.tl` cannot import
+     from outside `cosmic/`. That reasoning was one step short — what
+     the repo needed was not the *verb* but the *reader*, and promoting
+     it (`cosmic.literal`) unblocked the conversion in 3g without
+     waiting for anything. The generators are genuinely blocked, and on
+     something more specific than "a verb": `regen` does not exist yet,
+     and un-committing `_types/*.d.tl` needs it to.
 4. **Policy verbs.** `ci`, `coverage`, `enforce`, `reproducible`,
    `offline`; retire the ratchets the closed vocabulary makes moot.
 5. **Deferred, on evidence.** action cache; port isolation; `--make

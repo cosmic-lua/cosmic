@@ -74,7 +74,7 @@ pledge_test := $(pledge_build) fattr inet dns unix tty id flock
 # compiles and the doc index. (Before #775 this also swept up whichever
 # `$(o)/%: %` source copies happened to end in .lua — two of 308 — and
 # left the rest unenforced; retiring that rule made the family's
-# membership deliberate.) version.lua opts back out where it is defined: its
+# membership deliberate.) the version stamp opts back out where it is defined: its
 # recipe needs git + .git, and its `|| echo unknown` fallback would
 # otherwise silently mint an artifact with no version.
 $(o)/%.lua: .SANDBOXED := 1
@@ -261,7 +261,7 @@ endif
 # The generated .d.tl files are a pure function of (_types/gentype*.tl, the
 # definitions.lua embedded in the pinned cosmos release). This target runs the
 # CURRENT generator against the CURRENT pin, so regen is reproducible: bump
-# 3p/cosmos/version.lua, run `bin/make regen-types`, commit. The gentype drift
+# 3p/cosmos/cosmos.pin.tl, run `bin/make regen-types`, commit. The gentype drift
 # test fails until you do. Module list ($(type_modules)) defined above.
 #
 # gentype runs under the STAGED cosmos lua binary — whose embedded

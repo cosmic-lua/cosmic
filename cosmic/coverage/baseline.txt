@@ -52,7 +52,7 @@ cosmic/_make/facts.tl 19 29
 cosmic/_make/fetch.tl 67 70
 cosmic/_make/graph.tl 152 174
 cosmic/_make/init.tl 132 144
-cosmic/_make/pin.tl 102 108
+cosmic/_make/pin.tl 37 38
 cosmic/_make/project.tl 180 188
 cosmic/_make/root.tl 46 50
 cosmic/_make/types.tl 2 2
@@ -108,6 +108,7 @@ cosmic/init.tl 14 19
 cosmic/ip.tl 116 116
 cosmic/json.tl 23 24
 cosmic/landlock.tl 58 101
+cosmic/literal.tl 75 84
 cosmic/log.tl 72 74
 cosmic/net/init.tl 180 213
 cosmic/net/socket.tl 225 252

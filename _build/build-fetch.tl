@@ -1,6 +1,7 @@
 #!/usr/bin/env lua
 -- ast-grep ignore: builds relative symlink paths
 local fs = require("cosmic.fs")
+local literal = require("cosmic.literal")
 local hash = require("cosmic.hash")
 local portable = require("_build.portable")
 local proc = require("cosmic.proc")
@@ -88,18 +89,23 @@ local function main(version_file: string, platform: string, output: string): boo
     return nil, "FETCH_O env var required"
   end
 
-  -- the make rule passes o/<module>/.versioned, a symlink to the module's
-  -- version.lua; resolve it here so error messages name the real file and
-  -- the recipe needs no host readlink (#732)
+  -- the make rule passes o/<module>/.versioned, a symlink to the
+  -- module's *.pin.tl; resolve it here so error messages name the real
+  -- file and the recipe needs no host readlink (#732)
   local resolved = fs.readlink(version_file)
   if resolved then
     version_file = resolved
   end
 
-  -- cast: pcall returns any
-  local ok, spec = pcall(dofile, version_file) as(boolean, VersionSpec)
-  if not ok then
-    return nil, "failed to load " .. version_file .. ": " .. tostring(spec)
+  -- READ, not run (3g): a pin is data. This was `dofile`, which made
+  -- every fetch and every stage execute the file that says what to
+  -- fetch — the one thing a pin exists to make unnecessary. Same reader
+  -- `cosmic --make fetch` uses, so the grammar is enforced identically
+  -- from both sides.
+  -- cast: the reader returns a plain table; the spec shape is this file's
+  local spec, perr = literal.of_file(version_file, "pin") as(VersionSpec, string)
+  if not spec then
+    return nil, "failed to read " .. version_file .. ": " .. tostring(perr)
   end
 
   local plat = spec.platforms[platform] or spec.platforms["*"]

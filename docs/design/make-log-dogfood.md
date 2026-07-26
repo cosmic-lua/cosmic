@@ -359,3 +359,57 @@ describes itself" cannot leave that claim ungated, so `ci` now runs a
 `model` stage, and the fix for the violation was the design's own rule
 applied to the bridge: the script moved to `cosmic/_make/facts.tl`,
 where its inputs are.
+
+## 3g — the searcher is public, and the pins are data
+
+Two things, and the second is the one that mattered.
+
+**The searcher.** `cosmic/_cli/searcher.tl` → `cosmic/searcher.tl`. The
+generated embed wrapper runs `require("cosmic.searcher").install()`
+before the entry of every artifact anyone builds, so the module with the
+widest caller set in the tree was the one marked internal. Third
+instance of the rule, found the same way each time: who requires a
+module decides whether it is internal. It is also the precondition for
+hoisting `_cli/` to the root (3h) — at root the searcher sits outside
+the `cosmic/**` strip floor, and every stripped artifact fails to boot.
+
+**The pins, and a plan correction.** `3p/cosmos/version.lua` and
+`3p/tl/version.lua` are now `3p/cosmos/cosmos.pin.tl` and
+`3p/tl/tl.pin.tl`, read by the same literal grammar `--make fetch` uses.
+Before: `pcall(dofile, version_file)` in `build-fetch.tl`, the same in
+`build-stage.tl`, and `dofile('3p/cosmos/version.lua')` inside the
+version-stamp recipe — the build **executing** the files that say what
+it pinned, three times per run. Proven in this repo's own build after
+the change:
+
+```
+$ make o/tl/.fetched      # after adding os.getenv() to the pin
+error: failed to read 3p/tl/tl.pin.tl:
+  3p/tl/tl.pin.tl:2: a pin holds literals only; found 'os'
+```
+
+`dofile` would have run it.
+
+What it settled:
+
+- **the plan had the pins blocked, and the plan was one step short.**
+  The reasoning was: converting the pins means something must read
+  them, the only reader is `cosmic._make.pin`, and `_build/` cannot
+  import it from outside `cosmic/` — so wait for the fetch verb to
+  replace `_build/build-fetch.tl` entirely. All true except the
+  conclusion. What the repo needed was not the verb but the **reader**,
+  and a reader with callers outside `cosmic/` is by the rule this phase
+  has now applied four times not an internal module. `cosmic.literal`
+  is public, `cosmic._make.pin` keeps what is specific to a pin (url,
+  sha256, `{version}`, output path), and the conversion needed nothing
+  from 3i.
+- **the grammar is one implementation, enforced identically from both
+  sides.** `pin.extract` is a four-line delegation now, passing the noun
+  `"pin"` so its complaints still say "a pin holds literals only" rather
+  than something generic — the author was writing a pin, and the message
+  should know that. pin_test's message assertions pass verbatim, which
+  is what made the move safe to do at all.
+- **"a config file that cannot do anything" outgrew `--make`.** That
+  sentence was written in 2d about pins. It describes something any
+  project wants, and this repo turned out to be the first consumer
+  outside the verb that coined it.

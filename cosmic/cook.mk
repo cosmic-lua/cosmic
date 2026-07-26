@@ -55,7 +55,7 @@ cosmic_version_lua := $(o)/cosmic/_version.lua
 # Reproducible pack (#733): zip entries carry the staged files' mtimes —
 # build time, not source state — so two builds of the same tree differed
 # byte-for-byte. Clamp the whole staging tree to SOURCE_DATE_EPOCH (the
-# source commit date: deliberate input, like version.lua's git describe)
+# source commit date: deliberate input, like the version stamp's git describe)
 # before packing. main.lua and .args are staged into the tree first so
 # the clamp reaches them (the old -j0 add from o/ paths could not be
 # clamped without touching build intermediates make still tracks).
@@ -99,9 +99,17 @@ $(cosmic_version_lua): .SANDBOXED := 0
 # opt-out above.
 $(cosmic_version_lua): private SHELL := /bin/bash
 $(cosmic_version_lua): private .SHELLFLAGS := -o pipefail -c
-$(cosmic_version_lua): .FORCE | $$(cosmos_staged)
+# The cosmos version is READ, not run (3g). This recipe used to
+# `dofile('3p/cosmos/version.lua')` — the build executing its own
+# dependency pin to find out what it pinned. cosmic.literal lexes the
+# file and matches it against the literal grammar instead, which is the
+# same reader `--make fetch` uses on a `*.pin.tl` and the reason that
+# file can now BE one. The tree LUA_PATH is what resolves the reader
+# out of o/; `tl` comes from the bootstrap's embedded copy.
+$(cosmic_version_lua): export LUA_PATH = $(tree_lua_path)
+$(cosmic_version_lua): .FORCE $(o)/cosmic/literal.lua | $$(cosmos_staged)
 	@mkdir -p $(@D)
-	@echo "return { cosmic = \"$$(git describe --tags --always --dirty 2>/dev/null || echo unknown)\", cosmos = \"$$($(cosmos_lua_bin) -e "print(dofile('3p/cosmos/version.lua').version)")\" }" > $@.tmp
+	@echo "return { cosmic = \"$$(git describe --tags --always --dirty 2>/dev/null || echo unknown)\", cosmos = \"$$($(bootstrap_cosmic) -e "print(require('cosmic.literal').of_file('3p/cosmos/cosmos.pin.tl').version)")\" }" > $@.tmp
 	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 
 .PHONY: .FORCE

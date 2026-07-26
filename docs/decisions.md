@@ -223,7 +223,7 @@ old one.
   → two sha-pinned artifacts → everything else.** `bin/make` is POSIX
   sh with one job — obtain the pinned bootstrap cosmic (release pinned
   in `cook.mk`), which then extracts the pinned landlock-make from
-  `cosmos.zip` (release pinned in `3p/cosmos/version.lua`); it is the
+  `cosmos.zip` (release pinned in `3p/cosmos/cosmos.pin.tl`); it is the
   sole provisioner of both, and re-provisions on pin bumps. everything
   downstream — staged 3p, compiled tree, the cosmic binary, every gate —
   runs under those two artifacts. deliberately **outside** the root,

@@ -12,9 +12,16 @@
 --- are hard, but because "this file cannot do anything" is the property
 --- worth having. A pin that wants to compute its URL is a pin that
 --- wants to be code, and the answer is no.
+---
+--- The grammar itself now lives in `cosmic.literal`, which is public:
+--- it turned out to have callers outside `cosmic/` (this repo reads its
+--- own dependency pins with it), and "a config file that cannot do
+--- anything" is worth more than one caller. What stays here is what is
+--- specific to a PIN: url, sha256, `{version}` substitution, and where
+--- the fetched bytes land.
 
 local fs = require("cosmic.fs")
-local tl = require("tl")
+local literal = require("cosmic.literal")
 
 --- A resolved pin.
 local record Pin
@@ -30,117 +37,17 @@ local record Pin
   version: string
 end
 
---- Token kinds the literal grammar admits, beyond punctuation.
-local scalar: {string: boolean} = {
-  string = true,
-  number = true,
-  integer = true,
-}
-
---- Parse a literal table from a token stream, starting at `{`.
---- Returns the value and the index just past the closing `}`.
---- @param toks {tl.Token} The lexed tokens
---- @param i integer Index of the opening brace
---- @param where string File name, for messages
---- @return {string: any}|nil The table, or nil on a grammar violation
---- @return integer|string Next index, or the error message
-local function parse_table(toks: {tl.Token}, i: integer, where: string): {string: any} | nil, integer | string
-  local out: {string: any} = {}
-  local n = #toks
-  i = i + 1 -- step over `{`
-  while i <= n do
-    local t = toks[i]
-    if t.tk == "}" then
-      return out, i + 1
-    end
-    -- key: `name =` or `["name"] =`
-    local key: string = nil
-    if t.kind == "identifier" and toks[i + 1] and toks[i + 1].tk == "=" then
-      key = t.tk
-      i = i + 2
-    elseif t.tk == "[" and toks[i + 1] and toks[i + 1].kind == "string"
-    and toks[i + 2] and toks[i + 2].tk == "]"
-    and toks[i + 3] and toks[i + 3].tk == "=" then
-      key = toks[i + 1].tk:sub(2, -2)
-      i = i + 4
-    else
-      return nil, where .. ":" .. tostring(t.y) ..
-      ": a pin is a table of `name = <literal>` entries; found '" ..
-      t.tk .. "'"
-    end
-    -- value: a scalar, a keyword literal, or a nested table
-    local v = toks[i]
-    if not v then
-      return nil, where .. ": unexpected end of pin"
-    end
-    if v.tk == "{" then
-      local sub, nexti = parse_table(toks, i, where)
-      if not sub then
-        return nil, nexti as string -- cast: the failure branch returns a message
-      end
-      out[key] = sub
-      i = nexti as integer -- cast: the success branch returns an index
-    elseif v.kind == "string" then
-      out[key] = v.tk:sub(2, -2)
-      i = i + 1
-    elseif scalar[v.kind] then
-      out[key] = tonumber(v.tk)
-      i = i + 1
-    elseif v.tk == "true" or v.tk == "false" then
-      out[key] = v.tk == "true"
-      i = i + 1
-    else
-      return nil, where .. ":" .. tostring(v.y) ..
-      ": a pin holds literals only; found '" .. v.tk ..
-      "' (no variables, calls or concatenation)"
-    end
-    -- A value is followed by a separator or the closing brace, and
-    -- nothing else. Without this an operator after a literal (`"a" ..
-    -- "b"`) would be read as the next key, and the complaint would be
-    -- about a missing name rather than about the concatenation.
-    local sep = toks[i]
-    if sep and (sep.tk == "," or sep.tk == ";") then
-      i = i + 1
-    elseif not sep or sep.tk ~= "}" then
-      return nil, where .. ":" .. tostring(v.y) ..
-      ": a pin holds literals only; found '" .. (sep and sep.tk or "<eof>") ..
-      "' after a value (no variables, calls or concatenation)"
-    end
-  end
-  return nil, where .. ": unterminated table in pin"
-end
-
 --- Extract the literal a pin file returns, without running it.
+---
+--- The grammar lives in `cosmic.literal`; the `"pin"` noun is what
+--- makes its complaints say "a pin holds literals only" rather than
+--- something generic, since a pin is what the author was writing.
 --- @param source string The file's contents
 --- @param where string File name, for messages
 --- @return {string: any}|nil The declared table
 --- @return string The error message when the file is not a literal pin
 local function extract(source: string, where: string): {string: any} | nil, string
-  local toks, lex_errs = tl.lex(source, where)
-  if lex_errs and #lex_errs > 0 then
-    local e = lex_errs[1]
-    return nil, where .. ":" .. tostring(e.y) .. ": " .. tostring(e.msg)
-  end
-  local i = 1
-  -- The lexer emits an `$EOF$` sentinel; everything before the `return`
-  -- must be nothing at all.
-  if not toks[i] or toks[i].tk ~= "return" then
-    return nil, where .. ": a pin must be exactly `return { … }`"
-  end
-  i = i + 1
-  if not toks[i] or toks[i].tk ~= "{" then
-    return nil, where .. ": a pin must return a table literal"
-  end
-  local value, nexti = parse_table(toks, i, where)
-  if not value then
-    return nil, nexti as string -- cast: the failure branch returns a message
-  end
-  local after = toks[nexti as integer] -- cast: the success branch returns an index
-  if after and after.tk ~= "$EOF$" then
-    return nil, where .. ":" .. tostring(after.y) ..
-    ": a pin ends after its table; found '" .. after.tk .. "'"
-  end
-  return value
+  return literal.of_source(source, where, "pin")
 end
 
 --- Read and validate one pin file.
