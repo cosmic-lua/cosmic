@@ -25,6 +25,7 @@ local generate = require("_make.generate")
 local graph = require("_make.graph")
 local types = require("_make.types")
 
+local type Binary = types.Binary
 local type File = types.File
 local type Issue = types.Issue
 local type Kind = types.Kind
@@ -65,7 +66,7 @@ end
 
 local SELECTS < const >: {string: Selection} = {
   build = {
-    kinds = {"module", "entry", "test", "example", "gen"},
+    kinds = {"module", "entry", "test", "example", "gen", "payload-gen"},
     suffix = ".tl",
     variable = "tl_sources",
   },
@@ -222,23 +223,70 @@ end
 --- needs the registry to find its own row.
 local by_name: function(name: string): Verb | nil
 
---- `build` — compile the tree, then assemble the artifacts.
+--- The binaries a selection names, or every binary when it names none.
+---
+--- Selection names targets of the verb's OWN KIND and never changes
+--- what a target means -- the same rule `test` states as "selection
+--- changes which tests run, never what gets staged". `build`'s targets
+--- are binaries, so a path here names one: `cmd/foo`, `foo`, or the
+--- entry itself. It used to name SOURCES, which made a selected build
+--- categorically different from a full one -- it compiled some files
+--- and stopped before any artifact, so `--make build cmd/foo`, whose
+--- natural reading is "build the foo binary", type-checked a few files,
+--- produced no `o/bin/foo`, and reported PASS. The user asking for one
+--- binary of a multi-binary project had no spelling for it at all.
+--- @param proj Project The scanned project
+--- @param paths {string} Selection paths
+--- @return {Binary}|nil The selected binaries, or nil when one names none
+--- @return string The complaint
+local function select_binaries(proj: Project, paths: {string}): {Binary} | nil, string
+  if #paths == 0 then
+    return proj.binaries
+  end
+  local out: {Binary} = {}
+  local seen: {string: boolean} = {}
+  for _, sel in ipairs(paths) do
+    local hit = false
+    for _, b in ipairs(proj.binaries) do
+      if sel == b.name or project.covers(sel, b.entry) then
+        hit = true
+        if not seen[b.name] then
+          seen[b.name] = true
+          out[#out + 1] = b
+        end
+      end
+    end
+    if not hit then
+      return nil, "make: no binary named by: " .. sel ..
+      "\nmake: build takes binaries; to type-check sources, use `check`"
+    end
+  end
+  return out
+end
+
+--- `build` — compile the tree, then assemble the selected artifacts.
 ---
 --- The step after the graph is genuinely build's own, so it lives in
 --- build's runner rather than as a condition inside the shared graph
---- path. A SELECTED build compiles part of the tree, so it cannot
---- produce a whole artifact: it stops at the compile, which is what the
---- verdict then reports.
+--- path. The whole tree compiles either way: a selected build must
+--- stage exactly what a full one would, so narrowing the compile is the
+--- one thing selection may not do here.
 --- @param proj Project The scanned project
---- @param paths {string} Selection paths
+--- @param paths {string} Selection paths naming binaries
 --- @param cosmic string Absolute path to this binary
 --- @return integer Exit code
 local function run_build(proj: Project, paths: {string},
     cosmic: string): integer
+  local wanted, werr = select_binaries(proj, paths)
+  if not wanted then
+    io.stderr:write(werr .. "\n")
+    return verdict("build", false, "bad selection")
+  end
+  local binaries = wanted as {Binary} -- cast: record union after the guard
   local v = by_name("build") as Verb -- cast: the registry defines it
-  local ok, detail = graph_stage(v, proj, paths, cosmic)
-  if not ok or #paths > 0 then
-    return verdict("build", ok, detail)
+  local ok, detail = graph_stage(v, proj, {}, cosmic)
+  if not ok then
+    return verdict("build", false, detail)
   end
   -- Generation is a phase over the project, before any staging: the
   -- ROOT payload is staged into every binary, so its generator must
@@ -249,7 +297,7 @@ local function run_build(proj: Project, paths: {string},
     return verdict("build", false, detail .. ", generate failed")
   end
   local built = 0
-  for _, b in ipairs(proj.binaries) do
+  for _, b in ipairs(binaries) do
     local out, aerr = artifact.build(proj, b, cosmic)
     if not out then
       io.stderr:write((aerr or "make: cannot build the artifact") .. "\n")
@@ -314,6 +362,18 @@ local VERBS < const >: {Verb} = {
   {name = "test", target = "test", select = SELECTS.test},
   {name = "run", planned = true},
   {name = "regen", planned = true},
+  -- `example` is `test`'s sibling everywhere else in the model -- a
+  -- first-class kind with the same scope semantics, a gate this repo
+  -- runs today -- and the verb set was the one place the symmetry
+  -- broke. `lint` is the other half of that gate (the 500-line cap,
+  -- the cast ratchet, both already public in `cosmic.style`), and it
+  -- gets a verb rather than folding into `check` because its file set
+  -- is the whole tree, not the compiled closure. Naming them is what
+  -- lets `ci` below be a list of verb names: its documented pipeline is
+  -- format -> check -> test -> example -> lint -> coverage, and two of
+  -- those six used to resolve to nothing at all.
+  {name = "example", planned = true},
+  {name = "lint", planned = true},
   {name = "ci", planned = true},
   {name = "coverage", planned = true},
   {name = "enforce", planned = true},

@@ -110,10 +110,12 @@ local function stored_paths(proj: Project, b: Binary): {string: boolean}
   return out
 end
 
--- The layout rule, whole: a module lands at its import path, an asset
--- at its relative path, the entry at main.lua (which embed then moves
+-- The layout rule, whole: a module lands at its import path, payload at
+-- its path INSIDE embed/, the entry at main.lua (which embed then moves
 -- behind its wrapper). The zip root IS the module root, so "path
 -- relative to the root = import path" holds inside the artifact too.
+-- And shipping is opt-in, so a file that is merely in the repo is not
+-- in the binary.
 local function test_layout_is_derived()
   local root = fixture("layout", {
       ["main.tl"] = "print('x')\n",
@@ -121,8 +123,9 @@ local function test_layout_is_derived()
       ["db/init.tl"] = "return {}\n",
       ["db/query.tl"] = "return {}\n",
       ["_internal/util.tl"] = "return {}\n",
-      ["schema.sql"] = "x\n",
-      ["assets/logo.txt"] = "x\n",
+      ["notes.md"] = "x\n",
+      ["embed/schema.sql"] = "x\n",
+      ["embed/assets/logo.txt"] = "x\n",
       ["db/query_test.tl"] = "return {}\n",
       ["db/testdata/fixture.json"] = "{}\n",
       ["types/lpeg.d.tl"] = "local record l end\nreturn l\n",
@@ -135,10 +138,14 @@ local function test_layout_is_derived()
   assert(stored["db.lua"], "db/init.tl is the module `db`, so db.lua")
   assert(stored["db/query.lua"], "/ in the import path stays a directory")
   assert(stored["_internal/util.lua"], "internal modules ship; they are private to imports, not to the artifact")
-  assert(stored["schema.sql"], "an asset lands at its relative path")
+  assert(stored["schema.sql"], "payload lands at its path inside embed/")
   assert(stored["assets/logo.txt"], "…including a nested one")
 
   -- What must NOT be there, each for its own reason.
+  assert(not stored["embed/schema.sql"],
+    "payload lands INSIDE embed/, so the prefix is not part of the path")
+  assert(not stored["notes.md"],
+    "a file that is merely in the repo is not in the artifact: shipping is opt-in")
   assert(not stored["db/query_test.lua"], "tests are not shipped")
   assert(not stored["db/testdata/fixture.json"],
     "testdata exists solely to stay out of artifacts")
@@ -344,22 +351,32 @@ local function test_reproducible()
 end
 test_reproducible()
 
--- A selected build compiles part of the tree, so it stops at the
--- compile: half a tree cannot make a whole artifact, and quietly
--- producing one from stale objects is the failure this avoids.
-local function test_selection_does_not_produce_an_artifact()
+-- Build's targets are BINARIES, so a source path names none of them.
+-- It used to compile part of the tree and report PASS, which is a
+-- success verdict for something the user did not ask for -- and left
+-- the user who wanted exactly one binary of a multi-binary project with
+-- no spelling for it. Refusing says so, and points at the verb whose
+-- targets ARE sources.
+local function test_build_takes_binaries_not_sources()
   local root = fixture("selected", {
       ["main.tl"] = "print('x')\n",
       ["pkg/a.tl"] = "return {}\n",
     })
   local code, out = make(root, "build", "pkg")
-  assert(code == 0, "a selected build should succeed: " .. out)
-  assert(not out:find("binary", 1, true),
-    "a selected build must not claim an artifact, got: " .. out)
+  assert(code == 1, "a source path must not select a binary: " .. out)
+  assert(out:find("no binary named by: pkg", 1, true), "got: " .. out)
+  assert(out:find("use `check`", 1, true),
+    "the refusal names the verb that does take sources: " .. out)
   assert(not fs.exists(fs.join(root, "o/bin/artifact-selected")),
-    "…and must not produce one")
+    "and nothing is produced")
+
+  -- Selecting the binary builds it, whole.
+  local bcode, bout = make(root, "build", "artifact-selected")
+  assert(bcode == 0, "selecting the binary should build it: " .. bout)
+  assert(fs.isfile(fs.join(root, "o/bin/artifact-selected")),
+    "a selected build produces its artifact: " .. bout)
 end
-test_selection_does_not_produce_an_artifact()
+test_build_takes_binaries_not_sources()
 
 -- In process, for coverage and because it is the other calling
 -- convention: the same build through the module API.

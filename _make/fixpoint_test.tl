@@ -138,10 +138,12 @@ local function build_with(bin: string, dir: string): integer, string
     "TMPDIR=" .. tmpdir,
     "NO_COLOR=1",
     "COSMIC_NO_WELCOME=1",
-    -- A fixed stamp: the version is an input, and two generations that
-    -- disagree about it would differ for a reason that is not a
-    -- regression.
-    "COSMIC_VERSION=fixpoint",
+    -- No `COSMIC_VERSION`, deliberately: the stamp is declared by the
+    -- tree (`.version`, written by `generation`), which is what makes
+    -- this a fixpoint over COMMITTED inputs rather than one that also
+    -- depends on two builds being handed the same environment. That
+    -- precondition used to be real and unrecorded -- it held only
+    -- because both generations happened to be stamped the same way.
   }
   local h = check.must(spawn.spawn({bin, "--make", "build"},
       {cwd = dir, env = env}))
@@ -174,6 +176,10 @@ local function generation(label: string, with: string): string
   local dir = fs.join(tmpdir, "fixpoint-" .. label)
   fs.rmrf(dir)
   copy_tree(dir)
+  -- The version as a tree input. `copy_tree` skips dotfiles, so this is
+  -- the copy's own declaration and never the developer's.
+  assert(fs.write(fs.join(dir, ".version"),
+      'return { cosmic = "fixpoint" }\n'))
   assert(seed_pins(dir), "seeding should succeed once the guard has passed")
   local code, out = build_with(with, dir)
   assert(code == 0, label .. ": --make build should succeed:\n" .. out)
@@ -220,7 +226,8 @@ local function test_the_product_is_a_cosmic()
 
   code, out = run(gen2, "--version")
   assert(code == 0 and out:find("fixpoint", 1, true),
-    "gen2 must carry the version stamp: " .. out)
+    "gen2 must carry the version the TREE declared, with no " ..
+    "COSMIC_VERSION in its build environment: " .. out)
 end
 test_the_product_is_a_cosmic()
 

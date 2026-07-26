@@ -1,5 +1,5 @@
---- The artifact: a tree of `.tl`/`.lua` plus assets becomes an
---- executable at `o/bin/<name>`.
+--- The artifact: a tree of `.tl`/`.lua` plus its `embed/` payload
+--- becomes an executable at `o/bin/<name>`.
 ---
 --- Every output under `o/` is produced by a unit — a directory that
 --- declares it, a scope of inputs that is also its grant set, and an
@@ -13,7 +13,7 @@
 --- Layout is derived, never enumerated. One rule:
 ---
 ---   package module, import path P  ->  /zip/P.lua
----   asset at relative path R       ->  /zip/R
+---   payload at embed/R             ->  /zip/R
 ---   entry                          ->  /zip/main.user.lua behind the wrapper
 ---
 --- so "path relative to the root = import path" holds inside the
@@ -34,15 +34,26 @@ local type Binary = types.Binary
 local type File = types.File
 local type Project = types.Project
 
---- Kinds that travel into an artifact. Everything absent is absent on
---- purpose: `testdata` exists solely to stay out (that is its only
---- job), `.d.tl` is type-only, a pin is data for `fetch`, and a
---- generator is run rather than shipped — its *output* is an asset by
---- the time staging sees it.
+--- Kinds a binary carries. Its MODULES plus `embed/**`, and nothing
+--- else -- shipping is a thing a project DOES, not the default a file
+--- falls into.
+---
+--- `asset` is deliberately absent, and it used to be here. Every other
+--- kind in the model is declared by position or marker (a test is
+--- `*_test.*`, a pin is `*.pin.tl`, payload is `embed/**`, internal is
+--- `_`), and "everything else ships at its relative path" was the one
+--- row that inverted that: a repo is full of files that are ABOUT a
+--- project rather than OF its artifact, and all of them shipped. It
+--- cost cosmic's own artifact 1.5 MB of `docs/`, `mk/`, `Makefile` and
+--- `_perf/`, and it is why "not shipped" and "not seen" were about to
+--- become two separate knobs. With shipping opt-in there is nothing to
+--- un-ship: `testdata/`'s exclusion and `.d.tl`'s never-embedded rule
+--- stop being exceptions carved out of a default, and the artifact's
+--- contents are greppable from the tree (`ls embed/` plus the module
+--- set) the way its network and exec surfaces already are.
 local ships: {string: boolean} = {
   module = true,
   entry = true,
-  asset = true,
   payload = true,
 }
 
@@ -139,10 +150,10 @@ end
 ---
 --- The entry becomes `main.lua`; `cosmic.embed` moves it to
 --- `main.user.lua` and puts its own searcher-installing wrapper in
---- front. Modules land at their import path, assets at their relative
---- path, and a `cmd/<name>/` module keeps its full import path — a
---- binary's own `cmd` directory is still part of the module tree it was
---- written against.
+--- front. Modules land at their import path, payload at its path
+--- inside `embed/`, and a `cmd/<name>/` module keeps its full import
+--- path — a binary's own `cmd` directory is still part of the module
+--- tree it was written against.
 --- @param f File The file being staged
 --- @param binary Binary The artifact being staged
 --- @return Staged|nil Its staging entry, or nil when it does not ship
@@ -153,9 +164,6 @@ local function stage_entry(f: File, binary: Binary): Staged | nil
   end
   if f.kind == "payload" then
     return {source = f.path, stored = payload_stored(f.path)}
-  end
-  if f.kind == "asset" then
-    return {source = f.path, stored = f.path}
   end
   if not f.import then
     return nil

@@ -16,12 +16,17 @@ local record make_types
   ---   example   *_example.tl
   ---   types     *.d.tl — type-only; on the include path, never embedded
   ---   pin       *.pin.tl — a pinned external asset, data not code
-  ---   gen       *.gen.tl — a generation unit
+  ---   gen       *.gen.tl — a generation unit, scoped to its own
+  ---             directory's subtree, run by `regen`
+  ---   payload-gen  embed.gen.tl — a BINARY's payload generator: scoped
+  ---             to the binary, run by `build`, writes `o/<unit>/`
   ---   testdata  anything under a testdata/ directory — never embedded
   ---   payload   anything under embed/ — embedded at its path INSIDE
   ---             embed/, which is how a project puts a file somewhere
   ---             the one layout rule would not
-  ---   asset     everything else — embedded at its relative path
+  ---   asset     everything else — part of the project, NOT of its
+  ---             artifacts. Shipping is opt-in: `embed/**` is where a
+  ---             non-module file says it belongs in the binary
   enum Kind
     "module"
     "entry"
@@ -30,6 +35,7 @@ local record make_types
     "types"
     "pin"
     "gen"
+    "payload-gen"
     "testdata"
     "payload"
     "asset"
@@ -95,6 +101,7 @@ make_types.fmt_kinds = {
   test = true,
   example = true,
   gen = true,
+  ["payload-gen"] = true,
   pin = true,
   types = true,
 }

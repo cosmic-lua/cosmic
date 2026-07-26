@@ -188,30 +188,6 @@ local function test_fmt_gates_formatting()
 end
 test_fmt_gates_formatting()
 
--- Selection travels as a command-line variable override, which beats
--- the assignment in o/project.mk. No rule knows about selection, which
--- is what lets the rules file stay constant.
-local function test_selection_narrows_the_graph()
-  local root = app("selection")
-  local r = make(root, "build", "db")
-  assert(r.code == 0, "selected build should succeed: " .. r.err)
-  assert(r.out:find("build: PASS (2 files)", 1, true),
-    "db/ holds two sources, got: " .. r.out)
-  assert(fs.isfile(fs.join(root, "o/db/init.lua")), "db/ was built")
-  assert(not fs.exists(fs.join(root, "o/main.lua")),
-    "main.tl was not selected, so it must not be built")
-end
-test_selection_narrows_the_graph()
-
--- A selection matching nothing is an error before make is ever started.
-local function test_empty_selection_fails()
-  local root = app("badselection")
-  local r = make(root, "build", "nope")
-  assert(r.code == 1, "an empty selection must fail")
-  assert(r.err:find("nothing to do under: nope", 1, true), "got: " .. r.err)
-end
-test_empty_selection_fails()
-
 -- Validation gates the graph too, and for a sharper reason than it
 -- gates check: a filename carrying whitespace would be split across two
 -- arguments of a recipe line, so it must never reach make.
@@ -450,8 +426,13 @@ local function test_in_process_graph_verbs()
   assert(in_process(root, "build") == 0, "build in process")
   assert(in_process(root, "test") == 0, "test in process")
   assert(in_process(root, "fmt") == 0, "fmt in process")
-  assert(in_process(root, "build", "db") == 0, "selection in process")
-  assert(in_process(root, "build", "nope") == 1, "a bad selection fails")
+  assert(in_process(root, "fmt", "db") == 0, "selection in process")
+  assert(in_process(root, "fmt", "nope") == 1, "a bad selection fails")
+  -- Build's selection is over binaries, and both answers matter: the
+  -- name resolves, a source path does not.
+  assert(in_process(root, "build", "build-inproc") == 0, "a binary by name")
+  assert(in_process(root, "build", "main.tl") == 0, "…or by its entry")
+  assert(in_process(root, "build", "db") == 1, "a source path is not a binary")
   assert(in_process(root, "clean") == 0, "clean in process")
 
   local broken = fixture("inproc-invalid", {["my notes.tl"] = "return {}\n"})

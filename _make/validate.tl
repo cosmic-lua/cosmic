@@ -223,6 +223,7 @@ local function check_binaries(proj: Project, issues: {Issue})
     end
   end
   local seen: {string: string} = {}
+  local units: {string: boolean} = {}
   for _, b in ipairs(proj.binaries) do
     local first = seen[b.name]
     if first then
@@ -230,6 +231,31 @@ local function check_binaries(proj: Project, issues: {Issue})
         "' is already declared by " .. first)
     else
       seen[b.name] = b.entry
+    end
+    units[b.dir] = true
+    -- The ROOT payload is staged into EVERY binary, the way a root
+    -- package is, so a root `embed.gen.tl` is legitimate whenever the
+    -- project builds anything at all -- including a project whose only
+    -- binaries live under `cmd/`.
+    units[project.ROOT] = true
+  end
+  -- A payload generator belongs to a BINARY: `build` runs it with that
+  -- unit's output directory and stages what it wrote. In a directory
+  -- with no binary there is nothing to run it and nothing to stage, so
+  -- it is a file that looks load-bearing and is dead -- and it is
+  -- reserved, so it cannot be read as an ordinary generation unit
+  -- either. Refusing by name is cheaper than either silence.
+  for _, f in ipairs(proj.files) do
+    if f.kind == "payload-gen" then
+      local dir = fs.dirname(f.path)
+      if dir == "." then
+        dir = project.ROOT
+      end
+      if not units[dir] then
+        add(issues, f.path, "a payload generator belongs to a binary, and " ..
+          (dir == project.ROOT and "the project root" or "'" .. dir .. "'") ..
+          " declares none; a generation unit is named <something>.gen.tl")
+      end
     end
   end
 end
