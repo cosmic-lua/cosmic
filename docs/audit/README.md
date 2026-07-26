@@ -43,6 +43,17 @@ scenario, and a suggested fix. ids are stable; resolved entries are deleted
 | [043](043-root-sentinel-strings.md) | low | `""` as the root-unit sentinel recurs unnamed across artifact.tl |
 | [044](044-cast-clusters-mark-loose-types.md) | low | cast clusters mark types looser than the code they describe |
 
+### feature design (implementation-independent)
+
+| id | severity | issue |
+|---|---|---|
+| [045](045-implicit-asset-default.md) | medium | assets ship by default; every other kind is opt-in by marker |
+| [046](046-gen-marker-two-meanings.md) | medium | `.gen.tl` marks two different unit kinds, split by basename prose |
+| [047](047-selection-means-different-things.md) | medium | selection narrows targets for `test`/`fmt`, truncates the pipeline for `build` |
+| [048](048-ci-stages-without-verbs.md) | low | `ci`'s documented pipeline contains stages no verb covers |
+| [049](049-pin-grammar-coherence.md) | low | pin grammar: url-derived output naming and the dual sha spelling |
+| [050](050-version-stamp-implicit-input.md) | low | `COSMIC_VERSION` is the one build input not enumerable from the tree |
+
 ### tests and ci
 
 | id | issue |
