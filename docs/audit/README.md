@@ -1,137 +1,112 @@
 # audit — `cosmic --make` branch review
 
-findings from a review of branch `claude/cosmic-make-embedded-artifact-qpfsgr`,
-originally at `180b0d3` ("close the fixpoint"), re-reviewed at `4a15b92`
-("fix 18 findings"), `1ca5fd1` (six fix commits: fixpoint gate, cache
-security, exec realpath, tar terminator, `.d.tl` closures, doc sweeps), and
-`a44fe32` (skip-hardening: `check.needs`, payload-gate seeding, bootstrap
-bump to a branch-built release).
-every file here is one open issue with location, failure scenario, and a
-suggested fix. ids are stable; resolved entries are deleted (their text lives
-in git history) and listed below.
+Findings from a review of branch
+`claude/cosmic-make-embedded-artifact-qpfsgr`, originally at `180b0d3`
+("close the fixpoint") and re-reviewed at `4a15b92`, `1ca5fd1` and
+`a44fe32`. Every file here was one open issue with location, failure
+scenario and a suggested fix; ids are stable, and a resolved entry is
+deleted (its text lives in git history) and recorded below.
 
 ## open
 
-### bugs
+**None.** All 60 are closed. Round 5 took the last 27 — the entries
+below say how, because "closed" without a disposition is how a review
+becomes decoration.
 
-| id | severity | issue |
-|---|---|---|
-| [038](038-literal-u-escape-drops-chars.md) | **high — oldest open item** | `cosmic.literal` `\u{}` escape swallows the next two characters (regression in 4a15b92) |
-| [039](039-import-scanners-disagree.md) | low | the two import scanners disagree; long comments still refuse |
+Two dispositions are worth naming up front, since they are the ones
+where "closed" does not mean "the work is done":
 
-### security
+- **The bridge-removal items became a plan, not a patch.** 051–056 plus
+  058–060 were never defects; they are the sequencing of phase 3i, and
+  each carried exit criteria rather than a fix. They now live as one
+  ordered plan with a mechanism, a deletion order and a disposition
+  table: [docs/design/make-3i.md](../design/make-3i.md). A review file
+  per gap could not say what has to happen *before* what, which was the
+  whole content of 056.
+- **The design decisions went where decisions live.** 045 and 050 are
+  recorded as D15 and D16 in
+  [docs/decisions.md](../decisions.md), because a decision that lives
+  only in a review file gets relitigated by the next person who does
+  not read review files.
 
-| id | issue |
+## how each was closed
+
+### round 5 — the last 27
+
+**bugs**
+
+| id | what happened |
 |---|---|
-| [014](014-fence-unexercised.md) | derived fence is unexercised in production and its floor is incomplete |
+| 038 | the `\u{}` off-by-two. One line: a position capture is absolute. The reason it survived three fix passes was the test — every escape was written at the END of its string, the one position where an overshoot is invisible. Every form now has trailing text, so the tests pin each branch's resume index and not only its decoded value |
+| 039 | one scanner (`_make/imports.tl`) replaces three. It walks strings and comments as UNITS, which answers by construction the three shapes a regex got wrong — a require inside `--[[ ]]`, a `--` inside a string, and `myrequire(...)` |
 
-### stripped artifacts
+**security**
 
-| id | issue |
+| id | what happened |
 |---|---|
-| [036](036-literal-unloadable-stripped.md) | `cosmic.literal` fails to load in every stripped artifact |
-| [037](037-searcher-stripped-error-shape.md) | the searcher turns every require miss into a `tl` error when stripped |
+| 014 | the fence floor covers what a compile actually reads (`tlconfig.lua` and the include dirs, derived from `cosmic.teal` so they cannot drift). Gated from both sides: the enforce lane now asserts a real compile SUCCEEDS under the fence, because a denial test alone cannot tell a correct fence from one that denies everything; and what the plan CONTAINS is asserted in `driver_test`, where it runs without a kernel on every commit |
 
-### design / durability
+**stripped artifacts**
 
-| id | severity | issue |
-|---|---|---|
-| [040](040-artifact-file-near-cap.md) | medium | `_make/artifact.tl` at 464/500 lines; split on its seams before the cap forces one |
-| [041](041-verb-registry-fragmented.md) | medium | adding a verb touches five structures plus two if-chains; phase 4 adds seven verbs |
-| [042](042-unpack-manifest-implicit-format.md) | low | `.unpacked` manifest is a line format over names nothing validates |
-| [043](043-root-sentinel-strings.md) | low | `""` as the root-unit sentinel recurs unnamed across artifact.tl |
-| [044](044-cast-clusters-mark-loose-types.md) | low | cast clusters mark types looser than the code they describe |
-
-### feature design (implementation-independent)
-
-| id | severity | issue |
-|---|---|---|
-| [045](045-implicit-asset-default.md) | medium | assets ship by default; every other kind is opt-in by marker |
-| [046](046-gen-marker-two-meanings.md) | medium | `.gen.tl` marks two different unit kinds, split by basename prose |
-| [047](047-selection-means-different-things.md) | medium | selection narrows targets for `test`/`fmt`, truncates the pipeline for `build` |
-| [048](048-ci-stages-without-verbs.md) | low | `ci`'s pipeline names stages no verb covers (doc half closed in 944a352) |
-| [049](049-pin-grammar-coherence.md) | low | pin grammar: url-derived output naming and the dual sha spelling |
-| [050](050-version-stamp-implicit-input.md) | low | `COSMIC_VERSION` is the one build input not enumerable from the tree |
-
-### 3i readiness — removing the Makefile bridge
-
-056 is the mechanism; it names the dependency order the others land in.
-
-| id | issue |
+| id | what happened |
 |---|---|
-| [051](051-bridge-gate-verb-parity.md) | the ci gate has no `--make` equivalent yet (ci, example, lint, coverage) |
-| [052](052-bridge-enforcement-parity.md) | deleting the .mk files deletes today's only real sandbox (sequencing with 014) |
-| [053](053-bridge-release-parity.md) | the release artifact still comes from the Makefile (debug variant, weight, parity gate) |
-| [054](054-bridge-generation-workflows.md) | regen, type generation, and docs publishing have no `--make` home |
-| [055](055-bridge-trust-root-swap.md) | the one-pin trust root (`bin/cosmic`) does not exist yet |
-| [056](056-bridge-transition-mechanism.md) | the transition needs a dual gate and a target disposition table |
+| 036 | `cosmic.literal` lexes for itself. Its only dependency is `cosmic.fs`, so the module the floor carries is a module the floor can load — option 2 of the two the entry offered, chosen because "a config file that cannot do anything" is pitched at exactly the projects that ship stripped |
+| 037 | the searcher acquires the compiler through `pcall` and returns a MISS when there is none, which is what `package.searchers` asks of a searcher that cannot help. A typo'd module name reports its own name again |
+| both | asserted from inside a real stripped artifact, in `_make/artifact_test.tl` — the floor is now tested for USABILITY, not only for presence |
 
-### tests and ci
+**design / durability**
 
-| id | issue |
+| id | what happened |
 |---|---|
-| [028](028-make-fetch-ungated-in-ci.md) | `--make fetch` never runs in ci against the real pins (now a 056 prerequisite) |
+| 040 | `_make/artifact.tl` split on its runtime seam: generation (once per project) → `_make/generate.tl`, staging (once per binary) stays. `_make/build_test.tl` crossed the cap during this work and split the same way, on selection |
+| 041 | one registry row per verb; `usage`, dispatch and the planned-verb stub all derive from it, and `build`'s post-step became build's own runner instead of a condition in the shared path |
+| 042 | control characters refused in archive-controlled names, in tar and zip alike — closing the class at the guard rather than hardening each format that carries a name onward |
+| 043 | `ROOT`, `out_dir` and `unit_label` name the sentinel that recurred five times ("the build and the build" was one symptom); `Selection.suffix` admits nil, which deletes the `sub(-0)` footgun comment |
+| 044 | `parse_table` returns index and message separately (six casts gone); `fmt_kinds` is `{Kind: boolean}`, so every LOOKUP is typed. One cast survives at `pairs()`, which erases an enum key type in Teal 0.24.8 — a language boundary rather than a loose type |
 
-### ci convergence — the workflow files themselves
+**feature design**
 
-| id | severity | issue |
-|---|---|---|
-| [057](057-ci-setup-six-copies.md) | medium | the CI environment block is copied six times, and docs.yml has none |
-| [058](058-ci-lanes-are-verbs.md) | medium | lane logic lives in YAML bash; the policy verbs are its destination |
-| [059](059-ci-git-dependencies.md) | low | the gate's git dependencies retire with the verbs; assert the git-free gate |
-| [060](060-coverage-environment-sensitivity.md) | low | the coverage ratchet's environment-sensitivity is the root of CI's pinning complexity |
-
-### refactor / cleanup
-
-| id | issue |
+| id | what happened |
 |---|---|
-| [030](030-dual-pin-fetch-pipelines.md) | two live pin-fetch pipelines; 4a15b92 copied behavior across, widening the duplication |
-| [031](031-build-flag-retirement.md) | `--build` retirement clock has no in-tree tracking |
-| [032](032-import-scan-memoization.md) | import scans re-read and re-regex every source per consumer |
-| [033](033-minor-cleanups.md) | one leftover: `tar.parse_pax` exported for tests only |
+| 045 | **D15**: shipping is opt-in. An artifact carries its modules plus `embed/**`. Cosmic's own binary declares the two non-module trees it ships |
+| 046 | `embed.gen.tl` is its own kind (`payload-gen`) out of `classify`, with a validator rule for one where no binary lives |
+| 047 | selection names targets of the verb's own kind: `build cmd/foo` builds foo, whole; a source path is refused, pointing at `check` |
+| 048 | `example` and `lint` join the planned verbs, which is what lets `ci` be a list of verb names |
+| 049 | folded into the 3i plan — neither fray can move while two pipelines read the same files, and after that phase only one does |
+| 050 | **D16**: the version is read from a committed `.version`; `COSMIC_VERSION` becomes an override. The fixpoint test now passes none at all, which is what makes it a fixpoint over committed inputs |
 
-## resolved
+**tests, ci and cleanup**
 
-### round 4 — through `a44fe32`
-
-| ids | what was fixed |
+| id | what happened |
 |---|---|
-| 029 | `check.needs`: missing preconditions skip locally, hard-fail under `CI` — applied to all five graph tests, tested both directions. its first CI run caught the 027 payload gate silently skipping in every prior run (11343a6), which it then fixed by seeding `o/3p/**` from the staged tree, with a cannot-silently-skip-again verification. the bootstrap pin moved to a branch-built release (2026-07-26-1ca5fd1), verified against SHA256SUMS and spot-checked for the 004/012 fixes before pinning |
+| 028 | resolution gated offline on every commit for EVERY declared platform key (not only this machine's row), plus a real networked `--make fetch` in the lane that already has one, asserting the unpack products and that a second run is a no-op |
+| 030 | one pin reader. `_build/build-fetch.tl` calls `_make.pin` and keeps only its landing convention; verified end to end against the network |
+| 031 | the retirement clock is written on `driver.build` with the deletion list, plus a `--help` note. Deliberately not stderr: `--build` is the build's inner loop |
+| 032 | the shared scanner is memoized for one model build; facts output is identical but for `deps` no longer importing `validate` |
+| 033 | `tar.parse_pax` left the public surface |
+| 057 | `_build/workflows_test.tl` ratchets one container digest across every workflow, and every build job inside it. docs.yml had neither pin; it does now |
+| 058–060 | the CI-convergence half of the 3i plan. 060's cheap option is done rather than planned: [`cosmic/coverage/SENSITIVITY.md`](../../cosmic/coverage/SENSITIVITY.md) is the inventory of environment-sensitive tests, so the next floor churn is diagnosable instead of rediscovered |
+| 051–056 | the plan, above |
 
-### round 3 — the six commits through `1ca5fd1`, verified against their diffs
+One measurement came out of 056 and is worth repeating here, since it
+was an assumption for the whole phase: **`cosmic --make test` finds
+exactly the same 173 targets `bin/make test` does.** Discovery parity is
+exact. Its 46 failures are the test EXECUTION ENVIRONMENT — 25 of them
+one missing thing, no binary under test on the path — not the graph.
 
-| ids | what was fixed |
-|---|---|
-| 007 | `.d.tl` files are source-closure deps (list per import path; declarations never built targets); the test that encoded the bug replaced |
-| 012 | compile cache per-user (`$XDG_CACHE_HOME/cosmic/tl` else uid-suffixed tmp), 0700 at creation, load/store refuse un-owned or group/world-writable dirs; both directions tested against a planted trojan |
-| 013 | `exec` resolves program AND root through realpath, refusal names the resolved path, prefix matches on a separator boundary (closing an `o-other/` sibling case beyond the audit's ask); in-root links still run |
-| 024 | unterminated archives refused; partial-extraction documented as the contract (staging is the caller's job — recorded reasoning accepted) |
-| 026 | fixpoint gated as `_make/fixpoint_test.tl` in existing lanes: gen2 capability smokes + gen2/gen3 byte compare, both halves falsified before commit |
-| 034 | user docs rewritten around `*.pin.tl`; grep-verified no instruction-shaped `version.lua` hits remain |
-| 035 | all seven design-doc items: units table, mtime claim, verb statuses `[now]`/`[planned]`, provisioning marked target-state, script_cache publicness, selfbuild close-out, skill landing path |
-| 033 (most) | see the entry's resolved list; `appender:remove()` closed as won't-fix with the reason at the site |
+### rounds 1–4
 
-### round 2 — fixed by `4a15b92`
+Fixed by `4a15b92` (001–027, less the residuals re-filed as 038/039),
+`1ca5fd1` (007, 012, 013, 024, 026, 034, 035, most of 033) and
+`a44fe32` (029, and the 027 payload gate its `check.needs` caught
+silently skipping in every prior run). Their entries are in git history.
 
-001 (fetch unpack manifest + repair), 002 (generation phase), 003 (one
-`fmt_kinds`), 004 (escape decoding — but see 038), 005 (depth cap),
-006 (http status/retries/cap), 008 (make metacharacters), 009
-(stored-path collisions refused), 010 (extension-agnostic test markers),
-011 (`--embed` epoch mtime), 015 (root `init.tl` refused), 016
-(`COSMIC_MAKE` absolutized), 017 (per-pid temp), 018 (anchored import
-scan — residuals in 039), 019 (64-hex sha, name validation), 020
-(duplicate binary names refused), 021 (symlinked archives refused),
-022 (`lint_file` honest nil), 023 (drive-letter guard), 025 (mismatch
-test asserts the real path), 027 (embed.gen tested against the real
-tree).
+## what this directory is for now
 
-## note for the next fix pass
-
-**038 is the item to take first, and it has now survived THREE fix
-passes**: high severity, one line (`literal.tl:75` — return `after`
-unmodified; a position capture is already absolute), introduced by
-round 2's fix for 004. round 4's bootstrap-bump verification even
-spot-checked 004 (`"a\nb"` decodes to three characters) — the escape
-branch beside the broken one — so the pinned bootstrap now *ships* the
-`\u{}` bug. every fix pass so far has worked from an older snapshot of
-this directory; whatever list the next one uses, start here.
+Nothing is open, so nothing is here but this record. If a future review
+files findings the same way, the two rules that made this one work are
+worth keeping: **one file per finding, with a failure scenario** — a
+finding you cannot state as "this input produces that wrong output" is
+usually an opinion — and **delete on resolution, recording the
+disposition**, so the list cannot quietly become a list of things
+nobody did.
