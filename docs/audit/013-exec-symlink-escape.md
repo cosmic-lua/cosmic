@@ -20,24 +20,26 @@ than the check enforces.
 - `_cli/build/steps.tl:376-386` — the prefix check on `fs.abspath`.
 - mitigations that keep in-repo exploitability low: `o/` symlinks are
   build-controlled (the `link` verb; `bin/make`'s `ln -sf cosmic
-  o/bootstrap/lua`), and fetched trees carry no symlinks at all —
-  `_make/extract.tl:37-39` copies only regular files out of staging.
+  o/bootstrap/lua`), and fetched trees carry no symlinks — since
+  4a15b92 `_make/extract.tl` *refuses* an archive containing one,
+  loudly, with a comment naming this check as the reason. (that closed
+  audit 021 and upgraded this mitigation from accident to policy.)
 
 ## failure scenario
 
 anything that can create a symlink under `o/` (a hostile recipe using the
-`link` verb, a compromised generator, or a pin format that later preserves
-symlinks — see 021, which proposes exactly that) can point `exec` at any
-host binary, defeating the pinned-bytes-only property that is one of the
+`link` verb, or a compromised generator) can point `exec` at any host
+binary, defeating the pinned-bytes-only property that is one of the
 design's two load-bearing security claims.
 
 ## suggested fix
 
 resolve the program with realpath (follow symlinks) before the prefix check,
 and check the *resolved* path against the resolved root. cosmopolitan
-exposes realpath; if a wrapper is missing in `cosmic.fs`, add one. note the
-interaction with 021: if `strip_into` starts preserving symlinks, this fix
-becomes a prerequisite, not an option.
+exposes realpath; if a wrapper is missing in `cosmic.fs`, add one. this fix
+is also what would unblock ever *carrying* symlinks in fetched trees —
+extract's refusal exists to keep this check honest, so the two should move
+together.
 
 ## test to add
 

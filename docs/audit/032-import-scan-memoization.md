@@ -14,8 +14,9 @@ three consumers each scan sources for `require` edges independently:
   O(files × edges) `fs.read` + gmatch per facts generation.
 
 beyond the wasted io on large projects, the duplication means the scanners
-can *disagree* (018's false-positive pattern lives in the validator only),
-and the planned fence work needs the same edge map a fourth time.
+can *disagree* — and since 4a15b92 they do: the validator's scanner got
+comment-stripping and a frontier anchor, `deps.direct` did not (see 039).
+the planned fence work needs the same edge map a fourth time.
 
 ## where
 

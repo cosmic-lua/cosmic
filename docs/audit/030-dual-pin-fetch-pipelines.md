@@ -11,19 +11,25 @@ the new `--make fetch` (`_make/pin.tl` + `_make/fetch.tl`) and the old
 Makefile path (`_build/build-fetch.tl`, wired via `mk/deps.mk:34-35`).
 commit 180b0d3 says outright they "read the SAME committed files" — which
 is why pins grew dual `sha`/`platforms` spellings, so one file can satisfy
-both readers. drift already observed beyond the spellings:
+both readers.
+
+4a15b92 narrowed the observable drift by *copying* behaviors across
+rather than sharing code: `_make` now checks http status, caps responses,
+retries, and validates the url-derived name — each a second
+implementation beside `_build`'s. what remains different:
 
 | behavior | `_make` | `_build` |
 |---|---|---|
-| http status | any status hashed (see 006) | `status ~= 200` refused |
-| response cap | none | 100 MB `maxresponse` |
-| retry | none | `max_attempts = 8` |
 | interpolation | `{version}`, `{platform}` only | any scalar field `{key}` |
-| archive-name validation | none (see 019) | `validate_archive_name` |
+| name validation | `^[%w._%-]+$` in `pin.read` | `validate_archive_name` |
+| unpack manifest / repair | `.unpacked` manifest, re-unpack | none |
 
 the interpolation drift is the sharp one: a pin using any other placeholder
 works on one side and produces a garbage url on the other. today's two
-committed pins use only `{version}`, so it is latent.
+committed pins use only `{version}`, so it is latent. and the copied
+behaviors re-diverge the moment either side changes — duplication is now
+larger than before the fix pass, which strengthens rather than weakens
+the case below.
 
 ## plan context
 
