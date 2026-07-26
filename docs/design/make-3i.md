@@ -153,18 +153,33 @@ What has to land first:
      nothing — so the whole policy failed to construct with `EBADFD`.
      A fence that cannot be built is worse than one that is too wide:
      it fails on correct input.
-   - A fenced child must be an **assimilated ELF**, never a fat APE: a
-     raw APE exec falls back to loader paths (`~/.ape-*`) that no grant
-     covers. The repo already knew this — it is why `o/bin/cosmic-check`
-     exists and why `bin/make` assimilates the bootstrap — but the
-     canary passed the APE, because nothing had ever forced the
-     question.
+   - A fenced child today must be an **assimilated ELF**, not a fat
+     APE: exec'ing an APE needs a loader, and the search falls back to
+     `~/.ape-*`, which no grant covers. The repo already relies on this
+     — it is why `o/bin/cosmic-check` exists and why `bin/make`
+     assimilates the bootstrap — but the canary passed the APE, because
+     nothing had ever forced the question.
 
    Both were invisible until a test required a fenced child to
    **succeed**: the two pre-existing fence tests pass whether or not
    their child runs at all (one expects a denial, the other's verb
    records rather than grades). A mechanism exercised only in its
    failing direction is one nobody has checked.
+
+   **The better answer is the loader, and it is already in `o/`.**
+   `o/bin/ape` is a plain ELF the build stages, and
+   `o/bin/ape <fat APE> …` runs — so a fenced recipe could exec any
+   pinned APE with two grants and no duplicate binary. What blocks it is
+   the recipe vocabulary, not the fence: a verb line names one program,
+   and there is no way to say "run THIS through THAT loader". Putting
+   the loader on `PATH` is not a substitute — it was tried, and the
+   fenced exec still failed, because the stub's search is not what a
+   direct shell-free exec goes through. So the choice is between
+   assimilating a duplicate (what happens now, at the cost of a second
+   copy of the binary on disk) and teaching `exec`/`compile` to prefix
+   the staged loader when the program is an APE. The second is the one
+   that scales to a project pinning its own tools, and it wants doing
+   before the fence becomes the default.
 3. The fence becomes the default for `-c`, as its own change, with the
    same denial produced by the portable in-process gate on
    non-Landlock hosts.

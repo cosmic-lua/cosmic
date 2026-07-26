@@ -151,13 +151,18 @@ local function test_the_fence_permits_a_real_compile()
       "local g = require('pkg.greet')\nprint(g.hi())\n"))
   local built = fs.join(dir, "o", "main.lua")
 
-  -- The compile's bootstrap must be the ASSIMILATED cosmic, not the fat
-  -- APE. A raw APE exec falls back to loader paths (`~/.ape-*`) that no
-  -- grant covers, so under a fence it dies with ENOEXEC -- which is
-  -- exactly why `o/bin/cosmic-check` exists and why `bin/make`
-  -- assimilates the bootstrap. Every fenced recipe in this repo already
-  -- passes an ELF; a canary that passed the APE was testing a shape the
-  -- build never uses.
+  -- The compile's bootstrap is the ASSIMILATED cosmic, not the fat APE:
+  -- exec'ing an APE needs a loader, and the search falls back to
+  -- `~/.ape-*`, which no grant covers, so under a fence it dies with
+  -- ENOEXEC. That is why `o/bin/cosmic-check` exists and why `bin/make`
+  -- assimilates the bootstrap -- every fenced recipe here already
+  -- passes an ELF, so a canary passing the APE tested a shape the build
+  -- never uses.
+  --
+  -- Worth knowing: the staged `o/bin/ape` IS a plain ELF, and
+  -- `o/bin/ape <fat APE>` runs. A fenced recipe could exec any pinned
+  -- APE that way with no duplicate binary; what is missing is a way for
+  -- a verb line to name a program AND its loader. See make-3i.md.
   local self = fs.abspath(cosmic)
   local boot = fs.join(fs.dirname(self), "cosmic-check")
   if not fs.isfile(boot) then
