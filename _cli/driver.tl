@@ -30,6 +30,19 @@ end
 
 --- One entry per verb in _cli.build's modes table; the ratchet in
 --- driver_test.tl fails if the two ever drift apart.
+--- Verbs whose child runs the Teal type checker, and therefore reads
+--- the checker's own inputs rather than only the paths in its argv.
+--- `capture` and `tee` are here because a captured script may compile
+--- (the type-check and format gates run that way).
+local compiles: {string: boolean} = {
+  compile = true,
+  capture = true,
+  tee = true,
+}
+
+--- The checker's configuration file, read from the project root.
+local TLCONFIG < const > = "tlconfig.lua"
+
 local shapes: {string: Shape} = {
   -- compile <bootstrap> <src> <out> [flags...]
   compile = {exec = {1}, ro = {2}, rw = {3}, rest_ro = 4},
@@ -249,6 +262,28 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil
       rw[#rw + 1] = root
     end
   end
+  -- A step that runs the type checker reads two things its argv does
+  -- not name: `tlconfig.lua` and the include directories modules
+  -- resolve through. Derived from the same place the compile step finds
+  -- them -- `cosmic.teal` -- rather than listed here, so a change to
+  -- the include path cannot leave the fence behind. Without these the
+  -- fence denies every real compile, which is the concrete reason it
+  -- could not become the default (audit 014).
+  if compiles[verb] then
+    if fs.isfile(TLCONFIG) then
+      ro[#ro + 1] = TLCONFIG
+    end
+    -- Required HERE rather than at the top of the module: acquiring
+    -- cosmic.teal loads the ~15k-line compiler, and EVERY recipe step
+    -- goes through this file. `plan` runs only behind the fence gate,
+    -- so inside this branch the cost is paid by a fenced compile alone.
+    local teal = require("cosmic.teal")
+    for _, dir in ipairs(teal.get_default_include_dirs()) do
+      if fs.isdir(dir) then
+        ro[#ro + 1] = dir
+      end
+    end
+  end
   -- The runtime floor. A derived fence still needs what ANY cosmic
   -- process touches regardless of its arguments, which the make rules
   -- spell as unveil_base/unveil_dev: without it the first step to open
@@ -348,6 +383,23 @@ local function with_coverage(run: function(): integer): integer
 end
 
 --- `--build <mode> <args>...`: one recipe step, named directly.
+---
+--- DEPRECATED, with a clock, and this is where the clock is written
+--- down. `-c` won (make.md) and has shipped in a release, so the flag
+--- retires across two release cycles. It cannot go yet: the top-level
+--- Makefile drives EVERY recipe through it, because recipes run the
+--- pinned bootstrap, which predates `SHELL := cosmic -c`. So the
+--- deprecation is stated in `--help` and here rather than on stderr —
+--- this is the build's inner loop, and a line per invocation is a line
+--- per compiled file.
+---
+--- The deletion, in order (make-plan.md 3i has the surrounding
+--- sequence): the Makefile migrates to the generated rules, then the
+--- `--build` longopt in `_cli/args.tl`, its two parse branches in
+--- `cmd/cosmic/main.tl`, and this function become dead. `_cli/build/`
+--- — the closed verb vocabulary — STAYS: `-c` and `--build` share it,
+--- and only the flag surface goes. A scheduled retirement with no
+--- tracker is how a permanent resident is made.
 --- @param mode string The mode name
 --- @param argv {string} The mode's arguments
 --- @return integer Exit code

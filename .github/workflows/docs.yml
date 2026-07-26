@@ -9,14 +9,44 @@ env:
   SOURCE_SHA: ${{ github.sha }}
 
 jobs:
+  # Same container block and non-root builder as every Linux lane in
+  # pr.yml. This job runs real build machinery — `bin/make doc-publish`
+  # compiles the tree and generates docs from it — and it used to run it
+  # on whatever `ubuntu-latest` served that month, which is the exact
+  # unpinned-environment leak #734 pinned the other lanes against. The
+  # `image:` line is ratcheted identical across every workflow by
+  # `_build/workflows_test.tl`, so a digest bump that misses a site
+  # fails in CI instead of leaving lanes on skewed environments.
+  #
+  # The PUSH to the docs branch stays a workflow concern: it needs
+  # credentials and a network, which is not something a build verb will
+  # ever have.
   docs:
     runs-on: ubuntu-latest
+    container:
+      image: buildpack-deps@sha256:cfb30ff3856780c63b00ec3ad2e4aed77ae6afce5975ebb8ad9525ec45354e2e # noble (Ubuntu 24.04)
+      options: --privileged
     permissions:
       contents: write
     steps:
+      # fetch-depth: 0 so the Makefile path's `git describe` version
+      # stamp can see tags. It retires when this path reads `.version`
+      # too (D16), which lands with the bridge.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
 
-      - shell: bash -x {0}
-        run: bin/make -j doc-publish
+      - name: prepare non-root builder
+        shell: bash
+        run: |
+          set -eux
+          useradd -m -s /bin/bash builder
+          chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
+          git config --system --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: publish docs
+        shell: bash
+        run: |
+          set -eux
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            SOURCE_SHA="$SOURCE_SHA" bin/make -j doc-publish

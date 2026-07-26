@@ -1,48 +1,25 @@
 #!/usr/bin/env lua
 -- ast-grep ignore: builds relative symlink paths
+-- Pin RESOLUTION is `_make.pin`, shared with `cosmic --make fetch`.
+--
+-- The two pipelines read the SAME committed `*.pin.tl` files, and while
+-- each resolved them for itself they drifted: this one interpolated any
+-- scalar field as `{key}`, the other only `{version}` and `{platform}`,
+-- so a pin using any other placeholder worked on one side and produced
+-- a garbage url on the other. Latent, because today's two pins use only
+-- `{version}` — and latent is how that class of bug waits. One reader
+-- now; what stays here is this pipeline's own LANDING convention
+-- (`$FETCH_O/<module>/<version>-<sha>/<archive>` plus the symlink),
+-- which is the only part that was ever genuinely different.
+--
+-- This file retires with the Makefile bridge (3i); the reader it now
+-- calls is what survives.
 local fs = require("cosmic.fs")
-local literal = require("cosmic.literal")
 local hash = require("cosmic.hash")
+local pin = require("_make.pin")
 local portable = require("_build.portable")
 local proc = require("cosmic.proc")
 local fetch = require("cosmic.fetch")
-
-local record PlatformSpec
-  sha: string
-  format: string
-end
-
-local record VersionSpec
-  version: string
-  url: string
-  format: string
-  platforms: {string: PlatformSpec}
-end
-
-local function interpolate(template: string, vars: {string: string}): string
-  return (template:gsub("{([%w_]+)}", function(key: string): string
-        return vars[key] or ""
-      end))
-end
-
-local function build_url(spec: VersionSpec, platform: string): string, string
-  local plat = spec.platforms[platform] or spec.platforms["*"]
-  if not plat then
-    return nil, "unknown platform: " .. platform
-  end
-
-  local vars: {string: string} = {platform = platform}
-  for k, v in pairs(spec as {string: any}) do -- cast: iterate record fields
-    if type(v) ~= "table" then
-      vars[k] = tostring(v)
-    end
-  end
-  for k, v in pairs(plat as {string: any}) do -- cast: iterate record fields
-    vars[k] = tostring(v)
-  end
-
-  return interpolate(spec.url, vars)
-end
 
 local function download(url: string): string, string
   local result = fetch.fetch(url, {
@@ -60,22 +37,6 @@ local function verify_sha256(content: string, expected: string): boolean, string
   local actual = hash.sha256_hex(content)
   if actual == expected:lower() then return true end
   return nil, string.format("sha256 mismatch: expected %s, got %s", expected, actual)
-end
-
---- Validate an archive filename extracted from a URL.
---- Rejects empty names, "." and "..", and names with characters outside
---- the safe set [A-Za-z0-9._-].
-local function validate_archive_name(name: string): boolean, string
-  if not name or name == "" then
-    return nil, "archive name must not be empty"
-  end
-  if name == "." or name == ".." then
-    return nil, "archive name must not be '.' or '..': " .. name
-  end
-  if not name:match("^[%w._%-]+$") then
-    return nil, "archive name contains unsafe characters: " .. name
-  end
-  return true
 end
 
 local function main(version_file: string, platform: string, output: string): boolean, string
@@ -99,32 +60,20 @@ local function main(version_file: string, platform: string, output: string): boo
 
   -- READ, not run (3g): a pin is data. This was `dofile`, which made
   -- every fetch and every stage execute the file that says what to
-  -- fetch — the one thing a pin exists to make unnecessary. Same reader
-  -- `cosmic --make fetch` uses, so the grammar is enforced identically
-  -- from both sides.
-  -- cast: the reader returns a plain table; the spec shape is this file's
-  local spec, perr = literal.of_file(version_file, "pin") as(VersionSpec, string)
-  if not spec then
+  -- fetch — the one thing a pin exists to make unnecessary.
+  local resolved_pin, perr = pin.read(version_file, platform)
+  if not resolved_pin then
     return nil, "failed to read " .. version_file .. ": " .. tostring(perr)
   end
+  local spec = resolved_pin as pin.Pin -- cast: record union after the guard
 
-  local plat = spec.platforms[platform] or spec.platforms["*"]
-  if not plat then
-    return nil, "unknown platform: " .. platform
-  end
-
-  local url, url_err = build_url(spec, platform)
-  if not url then
-    return nil, url_err
-  end
-
-  local body, err = download(url)
+  local body, err = download(spec.url)
   if not body then
     return nil, err
   end
 
   local verify_ok: boolean
-  verify_ok, err = verify_sha256(body, plat.sha)
+  verify_ok, err = verify_sha256(body, spec.sha256)
   if not verify_ok then
     return nil, err
   end
@@ -134,22 +83,20 @@ local function main(version_file: string, platform: string, output: string): boo
 
   -- build archive path: $FETCH_O/<module>/<version>-<sha>/<archive>
   -- for binary/gz format, use fixed name "binary" so staging knows what to look for
-  local format = spec.format or plat.format or "tar.gz"
-  local archive_name: string
+  -- The shared reader already refused a url whose tail is not a usable
+  -- file name, so what is left here is this pipeline's naming: an
+  -- unpacked archive keeps its own name, raw bytes land as `binary` so
+  -- staging knows what to look for without consulting the pin.
+  local format = spec.format or "tar.gz"
+  local archive_name = fs.basename(spec.output)
   if format == "binary" or format == "gz" then
     archive_name = "binary"
-  else
-    archive_name = url:match("([^/]+)$")
-    local name_ok, name_err = validate_archive_name(archive_name)
-    if not name_ok then
-      return nil, "unsafe archive name from URL: " .. (name_err or "unknown")
-    end
   end
-  local version_sha = spec.version .. "-" .. plat.sha
+  local version_sha = (spec.version or "0") .. "-" .. spec.sha256
   local archive_dir = fs.join(fetch_o, module_name, version_sha)
   local archive_path = fs.join(archive_dir, archive_name)
 
-  io.stderr:write(string.format("↓ FETCH  %s\n", url))
+  io.stderr:write(string.format("↓ FETCH  %s\n", spec.url))
 
   fs.makedirs(archive_dir)
 
@@ -179,7 +126,8 @@ if proc.is_main() then
   end
 end
 
-return {
-  build_url = build_url,
-  validate_archive_name = validate_archive_name,
-}
+-- Nothing to export: url building and archive-name validation moved to
+-- the shared reader (`_make.pin`), where both pipelines get them, and
+-- `_make/pins_test.tl` gates them against the REAL committed pins
+-- rather than against strings.
+return {}

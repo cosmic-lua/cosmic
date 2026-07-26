@@ -71,14 +71,14 @@ end
 --- `os-arch` tag. Either way the resolved Pin has exactly one digest,
 --- so nothing downstream has to know which shape it came from.
 --- @param fields {string: any} The pin's declared table
+--- @param host string The platform tag to resolve for
 --- @return {string: any}|nil The matching platform row, or nil
 --- @return string The platform key it matched
-local function platform_row(fields: {string: any}): {string: any} | nil, string
+local function platform_row(fields: {string: any}, host: string): {string: any} | nil, string
   local platforms = fields.platforms
   if not (platforms is {string: any}) then
     return nil, ""
   end
-  local host = sys.platform()
   local row = platforms[host]
   if row is {string: any} then
     return row, host
@@ -102,10 +102,16 @@ end
 --- the URL, and the resolved platform tag into `{platform}` — the only
 --- templating this grammar allows, and the reason a bump is a one-line
 --- diff.
+--- `host` names the platform tag to resolve for, defaulting to this
+--- machine's. It is a parameter rather than a lookup so the resolution
+--- a release depends on — every declared row, not only the row this
+--- machine happens to match — is reachable from a test without a
+--- network and without that machine.
 --- @param path string Path to the `*.pin.tl`, relative to the root
+--- @param host string|nil The platform tag (default: this machine's)
 --- @return Pin|nil The resolved pin
 --- @return string The error message
-local function read(path: string): Pin | nil, string
+local function read(path: string, host?: string): Pin | nil, string
   local source, rerr = fs.read(path)
   if not source then
     return nil, "make: cannot read " .. path .. ": " .. (rerr or "unknown error")
@@ -115,7 +121,7 @@ local function read(path: string): Pin | nil, string
     return nil, "make: " .. (eerr or "not a pin")
   end
   local fields = data as {string: any} -- cast: record union after the guard
-  local row, platform = platform_row(fields)
+  local row, platform = platform_row(fields, host or sys.platform())
   local plat: {string: any} = {}
   if row is {string: any} then
     plat = row
@@ -197,7 +203,7 @@ end
 local record PinModule
   type Pin = Pin
   extract: function(source: string, where: string): {string: any} | nil, string
-  read: function(path: string): Pin | nil, string
+  read: function(path: string, host?: string): Pin | nil, string
 end
 
 local M: PinModule = {

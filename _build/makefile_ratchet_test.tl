@@ -135,7 +135,9 @@ local hostx_allowed: {string} = {
   "o/coverage/_build/makefile_test.tl.test.got", -- unveil_test + mk
   "o/coverage/_make/fixpoint_test.tl.test.got", -- unveil_test + whole tree
   "o/coverage/_make/generate_test.tl.test.got", -- unveil_test + whole tree
+  "o/coverage/_build/workflows_test.tl.test.got", -- unveil_test + .github
   "o/coverage/_make/graph_test.tl.test.got", -- unveil_test + embed payload
+  "o/coverage/_make/pins_test.tl.test.got", -- unveil_test + committed pins
   "o/coverage/cosmic/teal_config_test.tl.test.got", -- unveil_test + tlconfig
   "o/coverage/cosmic/tty_pty_test.tl.test.got", -- unveil_test + pty devs
   "o/coverage/cosmic/tty_test.tl.test.got", -- unveil_test + pty devs
@@ -143,7 +145,9 @@ local hostx_allowed: {string} = {
   "o/_build/makefile_test.tl.test.got", -- unveil_test + mk
   "o/_make/fixpoint_test.tl.test.got", -- unveil_test + whole tree
   "o/_make/generate_test.tl.test.got", -- unveil_test + whole tree
+  "o/_build/workflows_test.tl.test.got", -- unveil_test + .github
   "o/_make/graph_test.tl.test.got", -- unveil_test + embed payload
+  "o/_make/pins_test.tl.test.got", -- unveil_test + committed pins
   "o/cosmic/teal_config_test.tl.test.got", -- unveil_test + tlconfig
   "o/cosmic/tty_pty_test.tl.test.got", -- unveil_test + pty devs
   "o/cosmic/tty_test.tl.test.got", -- unveil_test + pty devs
@@ -287,6 +291,12 @@ local function test_sandboxed_ratchet()
 end
 test_sandboxed_ratchet()
 
+-- SCHEDULED TO DIE with the file it guards. make.md calls this ratchet
+-- unnecessary under the closed verb vocabulary, and it is — for the
+-- rules `cosmic -c` drives. It still guards the hand-written Makefile's
+-- real recipes, which is why it stays until that Makefile goes (3i);
+-- the retirement order in make-plan.md puts it last, with the file.
+--
 -- Static no-shell gate (#756 cleanup): the poisoned SHELL only trips
 -- when a rule RUNS, and cold rules can sit broken unnoticed (the
 -- since-retired stage1 broke at the #759 flip and was found days later

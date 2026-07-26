@@ -21,6 +21,12 @@ $(tlconfig_tests): .UNVEIL := $(unveil_test) r:tlconfig.lua r:Makefile
 graph_tests := $(call test_got,_make/graph_test.tl)
 $(graph_tests): .UNVEIL := $(unveil_test) r:embed
 
+# pins_test resolves the REAL committed pins. `3p/` holds them and is
+# not a source dir either -- it is what the build fetches INTO, so the
+# shared test grant does not cover it. Same shape as the two above.
+pins_tests := $(call test_got,_make/pins_test.tl)
+$(pins_tests): .UNVEIL := $(unveil_test) r:3p
+
 # Tests that drive a BUILD OF THIS PROJECT read the whole repository --
 # Makefile, docs/, embed/, mk/, skills/, sys/, tlconfig.lua and the rest
 # -- not just $(src_dirs). `r:.` is the honest grant for "everything a

@@ -1,6 +1,6 @@
 # coverage ratchet baseline: `bin/make coverage-baseline` rewrites this file.
 # columns: path covered-lines total-lines
-_build/build-fetch.tl 23 95
+_build/build-fetch.tl 11 62
 _build/build-pack.tl 97 132
 _build/build-stage.tl 45 251
 _build/lint.tl 97 132
