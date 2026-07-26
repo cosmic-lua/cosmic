@@ -1,9 +1,9 @@
 # Design — `cosmic --make`: what phase 3 settled (self-build)
 
 phase 3's second half, where `--make` stops describing this repo and
-starts building it. the design is in [make.md](make.md), the plan in
-[make-plan.md](make-plan.md), phases 1–2 in [make-log.md](make-log.md),
-and slices 3a–3g in [make-log-dogfood.md](make-log-dogfood.md).
+starts building it. the design is in [../README.md](../README.md), the plan in
+[../plan.md](../plan.md), phases 1–2 in [phase1-2.md](phase1-2.md),
+and slices 3a–3g in [phase3-dogfood.md](phase3-dogfood.md).
 
 split from that file for the same reason it was split from the one
 before: the 500-line cap applies to every tracked file, and a record
@@ -13,7 +13,7 @@ only grows.
 
 `cmd/cosmic/main.tl` is the binary's entry, and `cosmic/_cli/` and
 `cosmic/_make/` are now root `_cli/` and `_make/`. Both halves are gaps
-1 and 2 of make-plan.md's table — the only two standing between `build:
+1 and 2 of ../remaining.md's table — the only two standing between `build:
 PASS (356 files)` and an `o/bin/cosmic`.
 
 What it settled:

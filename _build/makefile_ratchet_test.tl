@@ -295,7 +295,8 @@ test_sandboxed_ratchet()
 -- unnecessary under the closed verb vocabulary, and it is — for the
 -- rules `cosmic -c` drives. It still guards the hand-written Makefile's
 -- real recipes, which is why it stays until that Makefile goes (3i);
--- the retirement order in make-plan.md puts it last, with the file.
+-- the retirement order in docs/design/make/bridge.md puts it last,
+-- with the file.
 --
 -- Static no-shell gate (#756 cleanup): the poisoned SHELL only trips
 -- when a rule RUNS, and cold rules can sit broken unnoticed (the

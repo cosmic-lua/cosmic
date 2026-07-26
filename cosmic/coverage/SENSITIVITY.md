@@ -13,7 +13,7 @@ Both treatments are correct. The shape worth noticing is that an
 environment-sensitive metric forced CI to pin the environment twice, and
 each newly discovered sensitivity adds another pin. The structural fixes
 (skip-aware coverage; flooring on the cross-lane intersection) are
-recorded in [make-3i.md](../../docs/design/make-3i.md). This file is the
+recorded in [bridge.md](../../docs/design/make/bridge.md). This file is the
 cheap half that is worth having regardless: **an inventory, so the next
 floor churn is diagnosable in minutes instead of rediscovered.**
 

@@ -405,15 +405,15 @@ end
 --- `--build <mode> <args>...`: one recipe step, named directly.
 ---
 --- DEPRECATED, with a clock, and this is where the clock is written
---- down. `-c` won (make.md) and has shipped in a release, so the flag
---- retires across two release cycles. It cannot go yet: the top-level
+--- down. `-c` won (docs/design/make/) and has shipped in a release, so
+--- the flag retires across two release cycles. It cannot go yet: the top-level
 --- Makefile drives EVERY recipe through it, because recipes run the
 --- pinned bootstrap, which predates `SHELL := cosmic -c`. So the
 --- deprecation is stated in `--help` and here rather than on stderr —
 --- this is the build's inner loop, and a line per invocation is a line
 --- per compiled file.
 ---
---- The deletion, in order (make-plan.md 3i has the surrounding
+--- The deletion, in order (docs/design/make/bridge.md has the surrounding
 --- sequence): the Makefile migrates to the generated rules, then the
 --- `--build` longopt in `_cli/args.tl`, its two parse branches in
 --- `cmd/cosmic/main.tl`, and this function become dead. `_cli/build/`

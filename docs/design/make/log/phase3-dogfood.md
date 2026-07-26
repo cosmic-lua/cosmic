@@ -1,12 +1,12 @@
 # Design — `cosmic --make`: what phase 3 settled
 
 phase 3 is **dogfood** — building this repo with `--make`. the design
-is in [make.md](make.md), the plan in [make-plan.md](make-plan.md), and
-phases 1 and 2 of this record in [make-log.md](make-log.md).
+is in [../README.md](../README.md), the plan in [../plan.md](../plan.md), and
+phases 1 and 2 of this record in [phase1-2.md](phase1-2.md).
 
 this file holds **3a–3g**, the slices that made the repo describable.
 from **3h** on — the entry, the hoist, and the verbs taking over — the
-record continues in [make-log-selfbuild.md](make-log-selfbuild.md).
+record continues in [phase3-selfbuild.md](phase3-selfbuild.md).
 
 the phase inverts phase 2's risk profile: nothing here is user-facing
 and every slice can take the build down, so each lands behind the
@@ -489,5 +489,5 @@ produces no binary only because nothing declares an entry. The distance
 left to "one command produces cosmic" is therefore not the compiling; it
 is the payload a cosmic binary carries beyond its own modules (tl, the
 type tree, the docs index, the engine) and where each of those comes
-from. That list is now a table in make-plan.md with the evidence for
+from. That list is now a table in ../remaining.md with the evidence for
 each row, rather than a phase name.

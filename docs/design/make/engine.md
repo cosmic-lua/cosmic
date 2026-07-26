@@ -1,9 +1,9 @@
 # `cosmic --make`: the engine
 
-The execution half of the [`--make` design](make.md): how a project
+The execution half of the [`--make` design](README.md): how a project
 model becomes make input, how cosmic runs the recipes, and what a
 recipe is allowed to do. The model half — units, kinds, artifacts,
-verbs — stays in make.md.
+verbs — stays in README.md.
 
 ## Constant rules, generated facts
 

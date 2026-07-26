@@ -162,7 +162,8 @@ local function test_the_fence_permits_a_real_compile()
   -- Worth knowing: the staged `o/bin/ape` IS a plain ELF, and
   -- `o/bin/ape <fat APE>` runs. A fenced recipe could exec any pinned
   -- APE that way with no duplicate binary; what is missing is a way for
-  -- a verb line to name a program AND its loader. See make-3i.md.
+  -- a verb line to name a program AND its loader. See
+  -- docs/design/make/bridge.md.
   local self = fs.abspath(cosmic)
   local boot = fs.join(fs.dirname(self), "cosmic-check")
   if not fs.isfile(boot) then

@@ -1,12 +1,12 @@
 # Design — `cosmic --make`: what the landed slices settled
 
-the design is in [make.md](make.md); the plan is in
-[make-plan.md](make-plan.md). this is the record of what *landing* each
+the design is in [../README.md](../README.md); the plan is in
+[../plan.md](../plan.md) and [../phasing.md](../phasing.md). this is the record of what *landing* each
 slice taught — kept out of the plan so the plan stays about what is
 next, and out of the design so the design stays about what is true.
 
 phases 1 and 2 are here; **phase 3 is in
-[make-log-dogfood.md](make-log-dogfood.md)**. one file per phase,
+[phase3-dogfood.md](phase3-dogfood.md)**. one file per phase,
 because the 500-line cap applies to every tracked file and a record
 only grows.
 
@@ -219,7 +219,7 @@ executable.
 What it settled, and one thing it did not:
 
 - **a `cmd/<name>/` directory is a generator**, which is the observation
-  that produced the *Units* section in [make.md](make.md). Every output
+  that produced the *Units* section in [../model.md](../model.md). Every output
   under `o/` comes from a unit: a directory that declares it, a scope of
   inputs that is also its grant set, and an output path derived from its
   position. The artifact's `scope_of` is written in that shape; 2d's pin
@@ -240,7 +240,7 @@ What it settled, and one thing it did not:
   future base cannot silently start shipping a new directory. What is
   missing is compaction, which needs a zip rewrite the binding does not
   expose — an upstream whilp/cosmopolitan change, and exactly the kind
-  of thing the fork exists for. Until then the size table in make.md is
+  of thing the fork exists for. Until then the size table in ../remaining.md is
   a projection, not a measurement.
 - **removing a directory marker removes its subtree.**
   `Appender:remove` treats a trailing `/` as a prefix, so stripping the
@@ -324,7 +324,7 @@ for it, and 2c found it does not: the strip leaves dead space, so it
 recovers ~14 KB, not ~1.2 MB. So this is an uncompensated 10% and was
 accepted as one — deliberately, on the grounds that a build system which
 cannot build without a host toolchain is not a build system. The size
-table in make.md is a projection; the compaction that would make it true
+table in ../remaining.md is a projection; the compaction that would make it true
 is filed upstream and is not a blocker.
 
 One thing worth knowing about the extracted engine: it is a fat APE, so
