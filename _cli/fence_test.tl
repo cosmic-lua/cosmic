@@ -151,30 +151,33 @@ local function test_the_fence_permits_a_real_compile()
       "local g = require('pkg.greet')\nprint(g.hi())\n"))
   local built = fs.join(dir, "o", "main.lua")
 
-  -- The loader's directory goes on PATH explicitly. A fat APE needs a
-  -- loader to exec, and the stub prefers one named `ape` on PATH over
-  -- extracting into `~/.ape-*` — which under the fence is denied,
-  -- because the floor grants TMPDIR and not HOME. Every other lane gets
-  -- this from the recipe env's `o/bin` prefix; a test that builds its
-  -- own child environment has to say so.
+  -- The compile's bootstrap must be the ASSIMILATED cosmic, not the fat
+  -- APE. A raw APE exec falls back to loader paths (`~/.ape-*`) that no
+  -- grant covers, so under a fence it dies with ENOEXEC -- which is
+  -- exactly why `o/bin/cosmic-check` exists and why `bin/make`
+  -- assimilates the bootstrap. Every fenced recipe in this repo already
+  -- passes an ELF; a canary that passed the APE was testing a shape the
+  -- build never uses.
   local self = fs.abspath(cosmic)
-  local bindir = fs.dirname(self)
+  local boot = fs.join(fs.dirname(self), "cosmic-check")
+  if not fs.isfile(boot) then
+    check.skip("no assimilated cosmic at " .. boot)
+    return
+  end
   local permitted: {string} = {}
   for _, entry in ipairs(env.list()) do
-    if not entry:match("^COSMIC_FENCE=") and not entry:match("^PATH=") then
+    if not entry:match("^COSMIC_FENCE=") then
       permitted[#permitted + 1] = entry
     end
   end
   permitted[#permitted + 1] = "COSMIC_FENCE=1"
-  permitted[#permitted + 1] = "PATH=" .. bindir .. ":" ..
-  (os.getenv("PATH") or "")
 
   -- The real recipe's shape, which is the point: a compile's import
   -- closure travels as `--deps`, named so the fence can grant it and
   -- never forwarded to the child. Passing only `--include-dir` would
   -- leave `pkg/greet.tl` ungranted — a search path is not an input.
   local r = check.must(child.run({self, "-c",
-        "compile " .. self .. " " .. source .. " " .. built ..
+        "compile " .. boot .. " " .. source .. " " .. built ..
         " --include-dir " .. dir ..
         " --deps " .. fs.join(dir, "pkg", "greet.tl")}, {env = permitted}))
   assert(r.ok, "a real compile must SUCCEED under the fence; a fence " ..

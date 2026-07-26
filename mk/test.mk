@@ -143,14 +143,16 @@ $(enforce_got): .PLEDGE =
 $(enforce_got): .UNVEIL =
 
 $(o)/enforce/%.tl.test.got: export COSMIC_ENFORCE := 1
-# $(ape_loader) for the same reason the plain and coverage lanes take it:
-# the fat APE prefers a loader named `ape` on PATH over extracting one
-# into ~/.ape-*, which nothing can unveil. It was missing here and
-# nothing noticed, because until the fence canary asserted that a fenced
-# child SUCCEEDS, every test in this lane passed whether or not its
-# child could exec at all -- one expects a denial, the other's verb
-# records rather than grades. Symptom: ENOEXEC, in CI only.
-$(o)/enforce/%.tl.test.got: $(o)/%.lua $(cosmic_bin) $(ape_loader)
+# $(cosmic_check_bin) — the ASSIMILATED duplicate — because the fence
+# canary execs a cosmic under a real fence, and a raw APE exec falls
+# back to loader paths (~/.ape-*) that no grant covers. That is the same
+# reason this binary exists at all (cosmic/cook.mk) and the same reason
+# `bin/make` assimilates the bootstrap; the fenced recipes have always
+# used an ELF. Nothing noticed the lane lacked it because until the
+# canary asserted that a fenced child SUCCEEDS, every test here passed
+# whether or not its child could exec -- one expects a denial, the
+# other's verb records rather than grades.
+$(o)/enforce/%.tl.test.got: $(o)/%.lua $(cosmic_bin) $(cosmic_check_bin)
 	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
 # The require-marker line is the tripwire: it fails the lane when no

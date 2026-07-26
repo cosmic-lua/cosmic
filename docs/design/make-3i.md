@@ -145,16 +145,26 @@ What has to land first:
    fence that denies everything is not enforcement, and a denial test
    alone cannot tell the two apart.
 
-   Adding the second direction found two things immediately, which is
-   the argument for it. The floor handed Landlock `/zip/.types` — a
-   path inside the executable, where `fs.isdir` says yes and the kernel
-   knows nothing — and the whole policy failed to construct. And the
-   enforce lane did not build the APE loader, so the fenced child could
-   not exec at all: **both pre-existing fence tests pass whether or not
-   their child runs** (one expects a denial, the other's verb records
-   rather than grades), so nothing had ever required a fenced child to
-   succeed. A mechanism only exercised in its failing direction is one
-   nobody has checked.
+   Adding the second direction found two real things, which is the
+   argument for it:
+
+   - The floor handed Landlock `/zip/.types` — a path *inside the
+     executable*, where `fs.isdir` says yes and the kernel knows
+     nothing — so the whole policy failed to construct with `EBADFD`.
+     A fence that cannot be built is worse than one that is too wide:
+     it fails on correct input.
+   - A fenced child must be an **assimilated ELF**, never a fat APE: a
+     raw APE exec falls back to loader paths (`~/.ape-*`) that no grant
+     covers. The repo already knew this — it is why `o/bin/cosmic-check`
+     exists and why `bin/make` assimilates the bootstrap — but the
+     canary passed the APE, because nothing had ever forced the
+     question.
+
+   Both were invisible until a test required a fenced child to
+   **succeed**: the two pre-existing fence tests pass whether or not
+   their child runs at all (one expects a denial, the other's verb
+   records rather than grades). A mechanism exercised only in its
+   failing direction is one nobody has checked.
 3. The fence becomes the default for `-c`, as its own change, with the
    same denial produced by the portable in-process gate on
    non-Landlock hosts.
