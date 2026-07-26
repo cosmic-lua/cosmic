@@ -37,7 +37,7 @@ self-reports alone were not trusted.
    "helpful module-not-found suggestions" (`COSMIC_NO_REQUIRE_HINTS`), but
    `require("json")` in a script yields only
    `error: module not found: 'json'`. The hint machinery in
-   `cosmic/_require.tl:166` matches Lua's `module 'x' not found` format,
+   `_cli/require_hints.tl:166` matches Lua's `module 'x' not found` format,
    while the Teal loader emits `module not found: 'x'` — so the hints are
    dead on the primary code path. (The hints *do* work in `--examples`
    lookup, where `--examples child` correctly suggests `cosmic.child`.)

@@ -104,7 +104,7 @@ $(o)/%.lint.got: % $(build_lint) $(lint_style_lua) | $(bootstrap_cosmic)
 # The model gate (3f): does this repo still conform to the project model
 # `cosmic --make` builds by? Every slice of phase 3 has been checking it
 # by hand, and 3e regressed it unnoticed for exactly that reason — a
-# bridge script imported `cosmic._make.*` from outside `cosmic/`, which
+# bridge script imported `_make.*` from outside `cosmic/`, which
 # the `_` rule forbids, and `bin/make ci` had nothing to say about it.
 # A design whose central bet is "the tree describes itself" needs the
 # claim gated, not remembered.

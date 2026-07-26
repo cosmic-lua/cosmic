@@ -4,8 +4,8 @@
 # anything else and re-execs once it changes. Everything about this rule
 # is about that first pass, when the file does not exist yet:
 #
-#   - the generator is a TREE script (o/cosmic/_make/facts.lua), not a verb on
-#     the pinned bootstrap. The bootstrap predates cosmic._make entirely,
+#   - the generator is a TREE script (o/_make/facts.lua), not a verb on
+#     the pinned bootstrap. The bootstrap predates _make entirely,
 #     so the modules have to come from this checkout; the bootstrap is
 #     just the interpreter, exactly as it is for every other recipe.
 #   - which means facts.lua must compile FIRST, and it does: the compile
@@ -18,12 +18,12 @@
 # appear or vanish in any of them. That is a big prerequisite list for a
 # small file; it is also exactly what `--make` rescans on every run.
 
-facts_tool := $(o)/cosmic/_make/facts.lua
+facts_tool := $(o)/_make/facts.lua
 facts_srcs := $(all_tl) $(all_tests) $(all_example_srcs)
 
 # Not sandboxed and not env-clamped: the scan walks the whole tree
 # (every directory, to classify what is in it) and the recipe needs the
-# tree LUA_PATH to resolve cosmic._make out of o/. 3i retires this file
+# tree LUA_PATH to resolve _make out of o/. 3i retires this file
 # along with the rest of the bridge.
 $(o)/project.mk: .SANDBOXED := 0
 $(o)/project.mk: export LUA_PATH = $(tree_lua_path)

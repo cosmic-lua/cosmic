@@ -34,7 +34,7 @@ build_fetch_files := $(build_fetch) $(build_portable)
 build_stage_files := $(build_stage) $(build_untar) $(build_portable)
 
 # The recipe steps (copy/compile/capture/tee/...) are the pinned
-# bootstrap's own `--build` surface (#756 item 3): cosmic._build ships
+# bootstrap's own `--build` surface (#756 item 3): _cli.build ships
 # EMBEDDED in the bootstrap, so the bootstrap sha covers the driver's
 # entire runtime and no tree .lua is required first. The old compiled
 # driver — and the self-bootstrap shell exception rule that built it,

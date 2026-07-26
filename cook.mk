@@ -28,7 +28,7 @@ pledge_build := stdio rpath wpath cpath proc exec
 # to find source files with no coverage at all. Handing either one `.`
 # is not a wider version of the same thing: it is a different set.
 # Phase 3h replaces both with grants derived from each verb's argv.
-src_dirs := cosmic _build _docs _perf _types
+src_dirs := cosmic _cli _make cmd _build _docs _perf _types
 unveil_srcs := $(foreach d,$(src_dirs),r:$(d))
 unveil_base := rx:$(o)/bootstrap $(unveil_srcs) r:3p
 # Device nodes the cosmic runtime itself touches — not host tools, so

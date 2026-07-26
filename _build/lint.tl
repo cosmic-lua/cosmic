@@ -98,7 +98,7 @@ local COSMO_REQUIRE_ALLOWLIST < const >: {string: boolean} = {
   -- payload that raises SIGKILL on itself
   ["cosmic/child/io_test.tl"] = true,
   -- exercises the require machinery itself, including raw cosmo modules
-  ["cosmic/require_test.tl"] = true,
+  ["_cli/require_hints_test.tl"] = true,
   -- raw-fd fixtures: sets up open file descriptors without going through
   -- the fs module under test
   ["cosmic/fs/init_test.tl"] = true,

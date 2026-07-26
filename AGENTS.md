@@ -23,16 +23,17 @@ relitigated in passing.
 Makefile              top-level build orchestration
 cook.mk               shared grants, module definitions (bootstrap, type gen)
 mk/modules.mk         aggregates the source trees below
+cmd/cosmic/main.tl    the binary's entry → o/bin/cosmic
 cosmic/               standard library modules (*.tl) — the PUBLIC API
   cook.mk              builds the cosmic binary
-  init.tl              entry point: cosmic.main()
-  _cli/                CLI internals (main.tl dispatcher, help, run, ...)
-  _make/               `cosmic --make`: project model, validator, root, verbs
-  _build/              the shell-free recipe steps behind `--build`
+  init.tl              entry point helper: cosmic.main()
   fs/                  fs directory module (init, path, ops, file, walk, types)
   *.tl                 library modules
   *_test.tl            tests
   *_example.tl         runnable examples
+_cli/                 the dispatcher behind every flag (args, help, run, ...)
+  build/               the shell-free recipe steps behind `--build`
+_make/                `cosmic --make`: project model, validator, root, verbs
 _build/               build infrastructure (fetch, stage, reporter)
 _docs/                doc publishing
 _perf/                performance benchmark harness (see _perf/OPTIMIZE.md)
@@ -60,6 +61,17 @@ markdown `docs/` can coexist. **position is the manifest**: a module is
 public API exactly when it is `cosmic.<name>` with no `_` — there is no
 list to maintain (`cosmic/public.tl` is gone) and none to go stale. the
 rule lives in `cosmic/doc/visibility.tl`.
+
+**`cosmic/` is the published API and nothing else** (phase 3h): the
+dispatcher (`_cli/`) and the build system (`_make/`) sit at the root, and
+the binary's entry is `cmd/cosmic/main.tl` — the same `cmd/<name>/`
+position `--make` builds every binary from, so cosmic is an ordinary
+project under its own rules. the consequence to know when moving code:
+a module under `cosmic/` may not be required from outside `cosmic/`
+unless it is public, and the strip floor is `cosmic/**`, so anything a
+STRIPPED artifact must still boot with has to live there. `cosmic
+--make build` at the root produces `o/bin/cosmic` today; what it does
+not yet carry is in [docs/design/make-plan.md](docs/design/make-plan.md).
 
 ## Language and Conventions
 
@@ -229,8 +241,8 @@ key concepts:
 - **bootstrap**: a pre-built cosmic binary bootstraps compilation of `.tl` → `.lua`; `bin/make` is its sole provisioner (sha-pinned, re-fetched on pin bumps)
 - **no-shell default**: `SHELL` is poisoned globally — recipes are single argv lines, the real shell is a per-rule exception, and the makefile ratchet tests enumerate the exceptions, the host-exec grants, and statically scan recipe text (#756 item 2)
 - **sandboxing**: per-rule `.PLEDGE`/`.UNVEIL` annotations are ENFORCED, not intent — every rule family CI exercises sets `.SANDBOXED := 1` (#729: compile, fetch/stage/lint/reporter, teal/format, tests, examples), so an undeclared read or write in one of their recipes fails on a Landlock host. Most grants are derived from the declared graph (prereqs readable, target directory writable, global base), so a rule declares only genuinely-extra paths; the `.SANDBOXED` and hostx ratchets in `_build/makefile_ratchet_test.tl` pin both sets. Deliberately unenforced, each with its reason at the rule: the version stamp, the quicksand namespace tests/examples, and the benchmark family (no CI lane runs it). `unveil()` no-ops without Landlock — the `sandbox-canary` proves the mechanism is live on a host. `.ENV` clamps a rule's child environment to the named variables (#756 item 5) — the driver-exec families declare theirs in cook.mk, gated by the env-clamp fixture's canary probe
-- **generated facts** (3e): `o/project.mk` is written by `cosmic/_make/facts.tl`
-  from the same `cosmic._make` model `cosmic --make` uses, and the
+- **generated facts** (3e): `o/project.mk` is written by `_make/facts.tl`
+  from the same `_make` model `cosmic --make` uses, and the
   Makefile `-include`s it. It carries `srcdeps_<stem>` — each source's
   transitive import closure — which the compile rule takes as
   prerequisites, so a module whose contract changed recompiles its
@@ -291,7 +303,7 @@ the cosmic binary is an executable zip. it embeds:
 - type definitions in `.types/` (include-path payload, not modules —
   dot-prefixed names stay out of the module root)
 - doc index in `.docs/index.lua`
-- entry point: `/zip/main.lua` (compiled from `cosmic/_cli/main.tl`)
+- entry point: `/zip/main.lua` (compiled from `cmd/cosmic/main.tl`)
 
 CLI features:
 ```
@@ -336,6 +348,7 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | getopt | command-line option parsing (short + long opts) |
 | hash | SHA-256 digest and Argon2 password hashing |
 | html | HTML escaping |
+| instrument | timing/resource spans: emit `key=value` lines, and parse them back |
 | fd | file descriptor I/O: open/wrap handles, pipes |
 | ip | IP address parsing, formatting, classification |
 | json | JSON encode/decode |
@@ -346,6 +359,7 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | rand | cryptographic random bytes |
 | re | POSIX extended regular expressions |
 | sandbox | one-call fail-closed facade over pledge/unveil/landlock (fs + sys policy) |
+| script_cache | compiled `.tl` output, keyed by path + content + build id |
 | searcher | the runtime `.tl` package searcher every artifact installs at boot |
 | pledge | restrict system calls (OpenBSD, Linux) |
 | unveil | restrict filesystem visibility (OpenBSD, or Linux via landlock) |
@@ -372,15 +386,15 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 
 ## `--make` fixtures
 
-`cosmic/_make/testdata/**` holds hello-world-sized projects — one per
+`_make/testdata/**` holds hello-world-sized projects — one per
 behaviour (`hello`, `pkg`, `multi`, `luaonly`, `assets`) — that
-`cosmic/_make/fixtures_test.tl` checks, builds and runs. They are real
+`_make/fixtures_test.tl` checks, builds and runs. They are real
 projects with their own roots, so this repo's model does not see them
 (that is what `testdata/` is for), and they are the fastest way to try a
 `--make` change by hand:
 
 ```bash
-cp -r cosmic/_make/testdata/hello /tmp/h && cd /tmp/h
+cp -r _make/testdata/hello /tmp/h && cd /tmp/h
 COSMIC_MAKE=$OLDPWD/bin/cosmo-make $OLDPWD/o/bin/cosmic --make build && ./o/bin/hello
 ```
 

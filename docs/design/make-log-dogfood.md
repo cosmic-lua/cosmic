@@ -4,6 +4,10 @@ phase 3 is **dogfood** — building this repo with `--make`. the design
 is in [make.md](make.md), the plan in [make-plan.md](make-plan.md), and
 phases 1 and 2 of this record in [make-log.md](make-log.md).
 
+this file holds **3a–3g**, the slices that made the repo describable.
+from **3h** on — the entry, the hoist, and the verbs taking over — the
+record continues in [make-log-selfbuild.md](make-log-selfbuild.md).
+
 the phase inverts phase 2's risk profile: nothing here is user-facing
 and every slice can take the build down, so each lands behind the
 existing build and `bin/make ci` stays green through every step.
@@ -454,7 +458,8 @@ had just learned to run.
 
 ## Fixtures, and what running `--make build` on the repo showed
 
-Committed hello-world projects under `cosmic/_make/testdata/**`, one per
+Committed hello-world projects under `_make/testdata/**` (then
+`cosmic/_make/testdata/**`; 3h hoisted the tree), one per
 behaviour, each checked/built/run by `fixtures_test.tl`. Written because
 the inline fixtures elsewhere answer "does this rule fire", and these
 answer a different question: does a project someone would actually write

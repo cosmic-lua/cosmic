@@ -45,7 +45,14 @@ local public = visibility.public_of(embedded_modules())
 
 --- The surface is not empty and not everything: a rule that classified
 --- every module the same way would pass every test below while saying
---- nothing. `_cli` and `_require` are the internals it must exclude.
+--- nothing.
+---
+--- The live exclusion in the embedded set is `cosmic._version`, the
+--- generated stamp — since 3h it is the ONLY `cosmic/_*` there is, the
+--- dispatcher and the build system having moved to root `_cli/` and
+--- `_make/`. Those two are asserted below as well, because "not public"
+--- has to hold for a name outside `cosmic.` entirely, not only for an
+--- underscore inside it.
 local function test_the_rule_actually_partitions()
   assert(#public > 20,
     "expected a substantial public surface, got " .. #public)
@@ -53,10 +60,12 @@ local function test_the_rule_actually_partitions()
     assert(name:match("^cosmic%.[%w]") and not name:match("^cosmic%._"),
       "public_of returned an underscore module: " .. name)
   end
-  assert(not visibility.is_public("cosmic._cli"), "_cli is internal")
-  assert(not visibility.is_public("cosmic._require"), "_require is internal")
   assert(not visibility.is_public("cosmic._version"),
     "the generated version stamp is internal")
+  assert(not visibility.is_public("_cli.args"),
+    "the dispatcher is internal, and is not under cosmic. at all")
+  assert(not visibility.is_public("_make.project"),
+    "the build system is internal, and is not under cosmic. at all")
   assert(not visibility.is_public("cosmic.fs.walk"),
     "a shard of a directory module is not itself public")
   assert(visibility.is_public("cosmic.fs"), "…but its entry point is")

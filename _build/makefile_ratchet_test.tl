@@ -133,17 +133,17 @@ local hostx_allowed: {string} = {
   "o/coverage/%.tl.test.got", -- unveil_test lane
   "o/coverage/_build/help_test.tl.test.got", -- unveil_test + Makefile
   "o/coverage/_build/makefile_test.tl.test.got", -- unveil_test + mk
-  "o/coverage/cosmic/_make/artifact_test.tl.test.got", -- unveil_test + bin/cosmo-make
-  "o/coverage/cosmic/_make/build_test.tl.test.got", -- unveil_test + bin/cosmo-make
-  "o/coverage/cosmic/_make/fixtures_test.tl.test.got", -- unveil_test + bin/cosmo-make
+  "o/coverage/_make/artifact_test.tl.test.got", -- unveil_test + bin/cosmo-make
+  "o/coverage/_make/build_test.tl.test.got", -- unveil_test + bin/cosmo-make
+  "o/coverage/_make/fixtures_test.tl.test.got", -- unveil_test + bin/cosmo-make
   "o/coverage/cosmic/teal_config_test.tl.test.got", -- unveil_test + tlconfig
   "o/coverage/cosmic/tty_pty_test.tl.test.got", -- unveil_test + pty devs
   "o/coverage/cosmic/tty_test.tl.test.got", -- unveil_test + pty devs
   "o/_build/help_test.tl.test.got", -- unveil_test + Makefile
   "o/_build/makefile_test.tl.test.got", -- unveil_test + mk
-  "o/cosmic/_make/artifact_test.tl.test.got",
-  "o/cosmic/_make/fixtures_test.tl.test.got", -- unveil_test + bin/cosmo-make
-  "o/cosmic/_make/build_test.tl.test.got", -- unveil_test + bin/cosmo-make
+  "o/_make/artifact_test.tl.test.got",
+  "o/_make/fixtures_test.tl.test.got", -- unveil_test + bin/cosmo-make
+  "o/_make/build_test.tl.test.got", -- unveil_test + bin/cosmo-make
   "o/cosmic/teal_config_test.tl.test.got", -- unveil_test + tlconfig
   "o/cosmic/tty_pty_test.tl.test.got", -- unveil_test + pty devs
   "o/cosmic/tty_test.tl.test.got", -- unveil_test + pty devs
@@ -224,7 +224,7 @@ local sandboxed_exempt: {string} = {
   "o/cosmic/_version.lua", -- reads .git; silent-fallback hazard
   -- The 3e bridge: the facts generator walks the WHOLE tree to classify
   -- it, which no derived grant can express, and needs the tree LUA_PATH
-  -- to resolve cosmic._make out of o/. Retires with the bridge (3i).
+  -- to resolve _make out of o/. Retires with the bridge (3i).
   "o/project.mk",
   "o/coverage/cosmic/quicksand/box/run_test.tl.test.got",
   "o/coverage/cosmic/quicksand/netns_test.tl.test.got",
@@ -232,7 +232,7 @@ local sandboxed_exempt: {string} = {
   "o/enforce/cosmic/landlock_test.tl.test.got", -- self-sandboxing lane
   "o/enforce/cosmic/pledge_test.tl.test.got", -- self-sandboxing lane
   "o/enforce/cosmic/unveil_test.tl.test.got", -- self-sandboxing lane
-  "o/enforce/cosmic/_cli/fence_test.tl.test.got", -- self-sandboxing lane
+  "o/enforce/_cli/fence_test.tl.test.got", -- self-sandboxing lane
   "o/cosmic/quicksand/box/run_test.tl.test.got", -- unshare: no promise
   "o/cosmic/quicksand/netns_example.tl.example.got",
   "o/cosmic/quicksand/netns_test.tl.test.got",

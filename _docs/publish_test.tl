@@ -25,7 +25,7 @@ local function make_mock_docs(name: string): string
   write_doc(docs_dir, "cosmo/unix.md", "unix", "System call bindings.")
   -- internal: directory-module shards, CLI helper, repo tooling
   write_doc(docs_dir, "cosmic/child/io.md", "io", "Low-level child-process I/O.")
-  write_doc(docs_dir, "cosmic/_cli/args.md", "args", "CLI option definitions.")
+  write_doc(docs_dir, "_cli/args.md", "args", "CLI option definitions.")
   write_doc(docs_dir, "cosmic/fs/walk.md", "walk", "Directory walking utilities.")
   write_doc(docs_dir, "_perf/harness.md", "harness", "Benchmark harness.")
   return docs_dir
@@ -72,7 +72,7 @@ local function test_prune_internal_keeps_public_surface_only()
 
   local pruned = {
     "cosmic/child/io.md",
-    "cosmic/_cli/args.md",
+    "_cli/args.md",
     "cosmic/fs/walk.md",
     "_perf/harness.md",
   }

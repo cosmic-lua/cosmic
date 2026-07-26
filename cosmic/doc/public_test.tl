@@ -19,7 +19,7 @@ local idx = check.must(docs.embedded_index(),
 
 local INTERNAL_SAMPLES = {
   "cosmic.child.io",
-  "cosmic._cli.args",
+  "_cli.args",
   "cosmic.sqlite.bind",
   "cosmic.fs.walk",
   "_perf.harness",

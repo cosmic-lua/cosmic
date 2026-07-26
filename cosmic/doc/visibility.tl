@@ -10,7 +10,7 @@
 ---
 --- Position decides instead (`--make`'s `_` rule, phase 3c): a
 --- directory or file whose name starts with `_` is internal to its
---- container, so `cosmic/_cli/` and `cosmic/_require.tl` are not the
+--- container, so `_cli/` and `_cli/require_hints.tl` are not the
 --- API and say so in their own names. Nothing to keep in sync, and a
 --- module's visibility is visible in `ls`.
 
@@ -20,7 +20,7 @@
 --- start with `_`. Everything else is internal, and each for its own
 --- reason: a deeper path is a shard of a directory module
 --- (`cosmic.fs.walk` — the entry point is `cosmic.fs`), an underscore
---- segment is marked internal by position (`cosmic._cli.args`,
+--- segment is marked internal by position (`_cli.args`,
 --- `_perf.harness`), and bare `cosmic` is the package initializer
 --- rather than a module anyone requires by name.
 --- @param name string A dotted module name

@@ -183,7 +183,7 @@ local function test_reporter_note()
 end
 test_reporter_note()
 
--- The ci verdict (cosmic._build's do_verdict) grades a stage by matching
+-- The ci verdict (_cli.build's do_verdict) grades a stage by matching
 -- this pattern against whatever summary the stage produced — and the build
 -- has TWO producers: this reporter, for the teal/format/lint/example/
 -- benchmark stages, and `cosmic --report` (cosmic.testrun) for the

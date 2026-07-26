@@ -129,6 +129,49 @@ local function zip_add(zip_bin: string, built: string, out: string,
   return true
 end
 
+--- Boot-critical top-level names, stored rather than deflated: the
+--- modules every start inflates before it can do anything. `cosmic/`
+--- is the standard library, `_cli/` the dispatcher that requires half
+--- of it, and main.lua/.args the entry itself. `_make/` is deliberately
+--- absent — it loads only when `--make` drives a build.
+local STORED < const >: {string: boolean} = {
+  cosmic = true, _cli = true, ["main.lua"] = true, [".args"] = true,
+}
+
+--- Every top-level name in the staging tree, sorted.
+---
+--- The three zip groups used to be three hand-written name lists, and
+--- the comment on them said what that costs: a name in none of them is
+--- SILENTLY not packed. 3d hit it (tl.lua and the types left `.lua/`
+--- and fell out of the archive; the binary built, ran, and failed only
+--- when something first required `tl`), 3h hit it again (`_cli/` and
+--- `_make/` arrived at the root and shipped no compiled modules at
+--- all). So the tree decides now: everything found is packed, and the
+--- only list left is which names are boot-critical enough to store
+--- uncompressed. A new name ships deflated by default, which is the
+--- failure that leaves evidence rather than the one that does not.
+--- @param built string The staging directory
+--- @return {string}|nil The top-level entry names, or nil on failure
+--- @return string The error message
+local function top_level(built: string): {string} | nil, string
+  local dir0, derr = fs.opendir(built)
+  if not dir0 then
+    return nil, "opendir " .. built .. " failed: " .. (derr or "unknown error")
+  end
+  local dh = dir0 as fs_types.Dir -- cast: record union after guard
+  local names: {string} = {}
+  while true do
+    local name = dh:read()
+    if not name then break end
+    if name ~= "." and name ~= ".." then
+      names[#names + 1] = name
+    end
+  end
+  dh:close()
+  table.sort(names)
+  return names
+end
+
 --- pack --out BIN --built DIR --epoch N --zip ZIP --base SRCBIN
 ---      [--copy SRC DST]... [--copytree SRC DST]...
 local function main(...: string): integer
@@ -194,23 +237,22 @@ local function main(...: string): integer
   if zip_bin:sub(1, 1) ~= "/" then
     zip_bin = fs.join(cwd, zip_bin)
   end
-  ok, err = zip_add(zip_bin, built, abs_out, "-qr0X", {"cosmic"})
+  -- Two groups, both derived from the staging tree: what boots, stored;
+  -- everything else, deflated. cosmic.mk and the embedded make land in
+  -- the second — both are read once, when `--make` drives a build, not
+  -- on every start. make is ~1.6 MB raw and compresses to roughly half
+  -- that, which is the whole cost of 2e.
+  local names, terr = top_level(built)
+  if not names then return fail(terr) end
+  local stored: {string} = {}
+  local deflated: {string} = {}
+  for _, name in ipairs(names as {string}) do -- cast: nil ruled out above
+    local group = STORED[name] and stored or deflated
+    group[#group + 1] = name
+  end
+  ok, err = zip_add(zip_bin, built, abs_out, "-qr0X", stored)
   if not ok then return fail(err) end
-  -- cosmic.mk and the embedded make ride with the deflated group rather
-  -- than the stored one: both are read once, when `--make` drives a
-  -- build, not on every start. make is ~1.6 MB raw and compresses to
-  -- roughly half that, which is the whole cost of 2e.
-  -- Every top-level name in the staging tree must appear in one of
-  -- these three groups or it is silently not packed: zip is given names,
-  -- not a directory to sweep. Before 3d `tl.lua` and the type tree rode
-  -- along inside `.lua/`, so moving them to the module root took them
-  -- out of the archive entirely — and the binary still built, still ran,
-  -- and only failed when something first required `tl`.
-  ok, err = zip_add(zip_bin, built, abs_out, "-qrX",
-    {".tl", ".docs", "sys", "skills", "cosmic.mk", "make", "tl.lua",
-      ".types", "-x", "cosmic/*"})
-  if not ok then return fail(err) end
-  ok, err = zip_add(zip_bin, built, abs_out, "-q0X", {"main.lua", ".args"})
+  ok, err = zip_add(zip_bin, built, abs_out, "-qrX", deflated)
   if not ok then return fail(err) end
   return 0
 end

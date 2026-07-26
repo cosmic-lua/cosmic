@@ -96,7 +96,7 @@ enforce_srcs := \
   cosmic/pledge_test.tl \
   cosmic/landlock_test.tl \
   cosmic/unveil_test.tl \
-  cosmic/_cli/fence_test.tl
+  _cli/fence_test.tl
 enforce_got := $(patsubst %,$(o)/enforce/%.test.got,$(enforce_srcs))
 
 .PHONY: enforce

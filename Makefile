@@ -47,7 +47,7 @@ include 3p/cosmos/cook.mk
 include 3p/tl/cook.mk
 
 # The migration bridge (3e). o/project.mk is GENERATED — variable
-# assignments only, produced by the same cosmic._make model `--make`
+# assignments only, produced by the same _make model `--make`
 # uses — and carries the per-file import closures the compile rule
 # below takes as prerequisites. `-include` because a cold tree has no
 # such file yet: make builds it from the rule in mk/facts.mk, then

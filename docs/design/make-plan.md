@@ -1,10 +1,11 @@
 # Design — `cosmic --make`: delivery plan
 
 the design is in [make.md](make.md); this is how it lands. what each
-landed slice *settled* is in [make-log.md](make-log.md) (phases 1–2)
-and [make-log-dogfood.md](make-log-dogfood.md) (phase 3) — one file per
-phase, since the 500-line cap applies to every tracked file and a
-record only grows.
+landed slice *settled* is in [make-log.md](make-log.md) (phases 1–2),
+[make-log-dogfood.md](make-log-dogfood.md) (3a–3g) and
+[make-log-selfbuild.md](make-log-selfbuild.md) (3h onward) — a new file
+whenever one fills, since the 500-line cap applies to every tracked
+file and a record only grows.
 
 ## Provisioning and the trust root
 
@@ -41,7 +42,7 @@ cosmic/                     PUBLIC API — this directory is the interface
   fs/init.tl  fs/path.tl  fs/fs_test.tl
   json.tl  json_test.tl  json_example.tl
   net/  sqlite/  fetch/  …
-_cli/  main.tl  help.tl  searcher.tl  version.tl
+_cli/  args.tl  help.tl  run.tl  build/   the dispatcher, internal
 _build/  _make/  _perf/
 _types/cosmo/cosmo.gen.tl   → o/_types/cosmo/*.d.tl
 _types/tl/tl.gen.tl         → o/_types/tl/tl.d.tl
@@ -143,38 +144,42 @@ the first-fetch shell in `bin/cosmic`.
 ## What remains before `--make` builds cosmic
 
 The phase's endpoint is one command producing this repo's binary, with
-the checks along the way. Measured rather than guessed — `cosmic --make
-build` at the root today:
+the checks along the way. **The command produces a binary now** (3h):
 
 ```
 $ cosmic --make build
-compile … cosmic/zip.tl o/cosmic/zip.lua --include-dir . --deps … ;
-copy tlconfig.lua o/tlconfig.lua ;
-build: PASS (356 files)
+make: o/bin/cosmic
+build: PASS (359 files, 1 binary)
+$ o/bin/cosmic --help | head -1
+cosmic-lua: cosmopolitan lua with bundled libraries
 ```
 
-**It already compiles the whole repo**, strictly, with per-file import
-closures. It produces no binary for one reason: nothing declares an
-entry. That is the first item below, and it is smaller than the list
-that follows it.
+What remains is not the building but the *payload* — what a cosmic
+carries beyond its own modules, and where each piece comes from.
+Measured against the binary above rather than guessed:
 
 | # | gap | why it blocks | evidence |
 |---|---|---|---|
-| 1 | no entry | `proj.binaries` is empty, so `build` stops after compiling | `build: PASS (356 files)` with no `o/bin/…` line |
-| 2 | `_cli`/`_make` are inside `cosmic/` | an entry at `cmd/cosmic/` cannot import them (`_` rule) | the model gate refuses exactly this shape |
-| 3 | `tl.lua` is not in the tree | the artifact ships what the tree provides; tl arrives as a *tarball* beside its pin | `fetch` downloads; it does not extract |
-| 4 | the type tree's location | assets ship at their relative path (`/zip/_types/**`), but 3d put the payload at `/zip/.types/` to keep it out of the module root | both are true; the layout rule has no exception yet |
-| 5 | the docs index | a generation unit, and `regen` is not implemented | `--make` lists it as planned |
-| 6 | `cosmic.mk` and `make` | the code reads them at `/zip/cosmic.mk` and `/zip/make`; as assets they would land at `/zip/cosmic/_make/cosmic.mk` | `RULES_ZIP`/`MAKE_ZIP` in graph.tl |
-| 7 | the version stamp | still minted by a shell recipe reading `git describe` | design says committed data + env |
+| ~~1~~ | ~~no entry~~ | **closed in 3h** — `cmd/cosmic/main.tl` | `build: PASS (359 files, 1 binary)` |
+| ~~2~~ | ~~`_cli`/`_make` inside `cosmic/`~~ | **closed in 3h** — both at the root | `check: PASS (359 files)` |
+| 3 | `tl.lua` is not in the tree | the artifact ships what the tree provides; tl arrives as a *tarball* beside its pin | no `tl.lua` in the built artifact; `fetch` downloads, it does not extract |
+| 4 | the type tree's location | assets ship at their relative path (`/zip/_types/**`), but 3d put the payload at `/zip/.types/` to keep it out of the module root | no `.types/` in the built artifact |
+| 5 | the docs index | a generation unit, and `regen` is not implemented | no `.docs/index.lua` in the built artifact |
+| 6 | `cosmic.mk` and `make` | the code reads them at `/zip/cosmic.mk` and `/zip/make`; as assets they would land at `/zip/_make/cosmic.mk` | `RULES_ZIP`/`MAKE_ZIP` in graph.tl; neither path exists in the built artifact |
+| 7 | the version stamp | still minted by a shell recipe reading `git describe` | the built artifact's `--version` prints `Lua 5.4` |
 | 8 | the base is not selectable | `artifact.build` always passes the running cosmic | `embed.run(dir, out, cosmic, …)` |
+| 9 | **the artifact ships the repo** | every non-source file is an asset at its relative path, and `bin/cosmo-make` is a 1.59 MB build engine extracted *outside* `o/` | asset weight by top-level name: `bin` 1.59 MB, `docs` 159 KB, `_perf` 91 KB, `mk` 23 KB |
 
-Items 1–2 are 3h. Items 3–7 are what 3i means by "the verbs take over":
-each is a capability `--make` has to *have*, not a migration. Item 8 is
-the one genuinely open design question — cosmic building cosmic bases on
-a cosmic, strips to the floor, and re-adds its own `cosmic/**` (which 3a
+Items 3–7 and 9 are what 3i means by "the verbs take over": each is a
+capability `--make` has to *have*, not a migration. Item 8 is the one
+genuinely open design question — cosmic building cosmic bases on a
+cosmic, strips to the floor, and re-adds its own `cosmic/**` (which 3a
 makes legal); whether that is right, or whether a project should be able
-to name its base, is undecided.
+to name its base, is undecided. Item 9 carries a second one: a
+`.cosmicignore` entry removes a path from the **model**, not only from
+the artifact, so ignoring `bin/` also hides it from `check`, `lint` and
+the coverage scan — whether "not shipped" and "not seen" should be one
+knob is undecided too.
 
 Testing along the way is in better shape than building: `--make test`
 runs today, and the repo's own tests already take their closures from
@@ -184,7 +189,7 @@ design puts in phase 4 as verbs.
 
 ## Fixtures
 
-`cosmic/_make/testdata/**` holds hello-world-sized projects, one per
+`_make/testdata/**` holds hello-world-sized projects, one per
 behaviour, each checked, built and *run* by `fixtures_test.tl`:
 
 | fixture | what it pins down |
@@ -317,14 +322,33 @@ coverage scan skip it.
      root, not fetch, not stage, not the version stamp. The bump was
      verified the way phase 1's lesson says to, from nothing:
      `rm -rf o bin/cosmo-make && bin/make build && bin/make ci`.
-   - **3h — the entry and the hoist.** `cmd/cosmic/main.tl` becomes the
-     binary's entry, and `cosmic/_cli/` and `cosmic/_make/` hoist to
-     root `_cli/` and `_make/`. The two are one change: root-level is
-     what an entry *outside* `cosmic/` needs, and both are what
-     `--make build` needs before it can build this repo — it is gaps 1
-     and 2 of the table above, and the only two that stand between
-     `build: PASS (356 files)` and an `o/bin/cosmic`. The searcher
-     question the hoist forces was settled ahead of it in 3g.
+   - **3h — the entry and the hoist. Landed.** `cmd/cosmic/main.tl` is
+     the binary's entry and `cosmic/_cli/`, `cosmic/_make/` are root
+     `_cli/`, `_make/` — gaps 1 and 2, and with them `cosmic --make
+     build` produces a running `o/bin/cosmic`. The two were one change:
+     root-level is what an entry *outside* `cosmic/` needs.
+
+     What the hoist cost, and it is the substance of the slice: with
+     two trees out of `cosmic/`, the validator refused **seven imports
+     across four modules**, each a module marked internal to `cosmic/`
+     with a caller outside it. Two left (`cosmic._build` →
+     `_cli/build/`, `cosmic._require` → `_cli/require_hints.tl`; no
+     in-`cosmic/` caller, and both leave the strip floor, so no user
+     artifact carries the `--build` vocabulary any more). Two could
+     not, because `cosmic.testrun` and `cosmic.searcher` are public and
+     require them — inside `cosmic/` and not internal to it leaves one
+     position, so `cosmic.instrument` and `cosmic.script_cache` are
+     **public**, each with the example the closed coverage ratchet
+     demands. Fifth application of "who requires a module decides
+     whether it is internal", and the first where a position change
+     asked the question instead of a person noticing.
+
+     Also here because the hoist broke it: the pack **derives** its zip
+     groups from the staging tree now. It enumerated top-level names,
+     its own comment named the hazard, and this was the second time
+     that silently dropped files — 3d lost `tl.lua` and the type tree,
+     3h lost every compiled `_cli/**` and `_make/**` module and still
+     produced a binary that booted.
    - **3i — the verbs take over, and the bridge goes.** `-include
      o/cosmic.mk` once the Makefile's own `build`/`test`/`fmt` targets
      retire; `--make fetch` replaces `_build/build-fetch.tl` (the

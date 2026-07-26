@@ -1,9 +1,16 @@
 modules += cosmic
-cosmic_srcs := $(wildcard cosmic/*.tl) $(wildcard cosmic/_cli/*.tl) $(wildcard cosmic/coverage/*.tl) $(wildcard cosmic/fs/*.tl) $(wildcard cosmic/_build/*.tl) $(wildcard cosmic/child/*.tl) $(wildcard cosmic/doc/*.tl) $(wildcard cosmic/embed/*.tl) $(wildcard cosmic/fetch/*.tl) $(wildcard cosmic/format/*.tl) $(wildcard cosmic/_make/*.tl) $(wildcard cosmic/net/*.tl) $(wildcard cosmic/sqlite/*.tl) $(wildcard cosmic/quicksand/*.tl) $(wildcard cosmic/quicksand/box/*.tl) $(wildcard cosmic/quicksand/proxy/*.tl)
+# The sources the cosmic binary is made of. Three of these roots sit
+# OUTSIDE `cosmic/` since 3h: `cosmic/` is the published API and nothing
+# else, so the dispatcher (`_cli/`) and the build system (`_make/`) are
+# root-internal trees, and the entry is `cmd/cosmic/main.tl` — the same
+# `cmd/<name>/` position `--make` builds every other binary from. This
+# variable is "what goes into the binary", which is exactly that union.
+cosmic_srcs := $(wildcard cosmic/*.tl) $(wildcard _cli/*.tl) $(wildcard cosmic/coverage/*.tl) $(wildcard cosmic/fs/*.tl) $(wildcard _cli/build/*.tl) $(wildcard cosmic/child/*.tl) $(wildcard cosmic/doc/*.tl) $(wildcard cosmic/embed/*.tl) $(wildcard cosmic/fetch/*.tl) $(wildcard cosmic/format/*.tl) $(wildcard _make/*.tl) $(wildcard cosmic/net/*.tl) $(wildcard cosmic/sqlite/*.tl) $(wildcard cosmic/quicksand/*.tl) $(wildcard cosmic/quicksand/box/*.tl) $(wildcard cosmic/quicksand/proxy/*.tl) $(wildcard cmd/cosmic/*.tl)
 cosmic_tests := $(filter %_test.tl,$(cosmic_srcs))
 cosmic_examples := $(filter %_example.tl,$(cosmic_srcs))
-cosmic_tl := $(filter-out $(cosmic_tests) $(cosmic_examples) cosmic/_cli/main.tl,$(cosmic_srcs))
-cosmic_main := $(o)/cosmic/_cli/main.lua
+cosmic_entry := cmd/cosmic/main.tl
+cosmic_tl := $(filter-out $(cosmic_tests) $(cosmic_examples) $(cosmic_entry),$(cosmic_srcs))
+cosmic_main := $(o)/cmd/cosmic/main.lua
 cosmic_args := cosmic/.args
 cosmic_bin := $(o)/bin/cosmic
 cosmic_debug_bin := $(o)/bin/cosmic-debug
@@ -25,8 +32,8 @@ $(cosmic_debug_test_got): $(cosmic_debug_bin)
 # they exec the extracted engine at bin/cosmo-make — the one path
 # outside the standard test grant they need. Everything that make then
 # runs is $(o)/bin/cosmic and fixture trees under $(TMP), both granted.
-make_graph_tests := $(call test_got,cosmic/_make/build_test.tl \
-  cosmic/_make/artifact_test.tl cosmic/_make/fixtures_test.tl)
+make_graph_tests := $(call test_got,_make/build_test.tl \
+  _make/artifact_test.tl _make/fixtures_test.tl)
 $(make_graph_tests): .UNVEIL := $(unveil_test) rx:bin
 
 cosmic_built := $(o)/cosmic/.built
@@ -34,7 +41,7 @@ cosmic_sys := sys/help.md
 # The constant rules file `cosmic --make` drives make with. It ships in
 # the binary at /zip/cosmic.mk and is byte-identical for every project;
 # graph.tl copies it out to o/cosmic.mk. A source file, not generated.
-cosmic_mk := cosmic/_make/cosmic.mk
+cosmic_mk := _make/cosmic.mk
 # The graph engine itself (2e, amending D13): the pinned make from the
 # sha-pinned cosmos.zip, shipped at /zip/make and extracted to o/make on
 # first use. D13 rejected embedding it, but reasoned from THIS repo,
@@ -73,9 +80,14 @@ SOURCE_DATE_EPOCH := $(SOURCE_DATE_EPOCH)
 # every file is an explicit --copy SRC DST pair below; the zip tool is
 # the pinned cosmos binary, not a host tool. Recursive (=): expanded at
 # recipe time, after the includes define tl_dir/doc_index.
+# The two source mappings are now the identity (3h): a module's path
+# relative to the root IS its path inside the zip, because the zip root
+# is the module root (3d) and the repo root is the module root (3b).
+# They used to re-root `cosmic/` explicitly, which silently assumed every
+# packed module lived under it — `_cli/` and `_make/` do not.
 pack_copies = \
-  $(foreach f,$(cosmic_lua),--copy $(f) cosmic/$(patsubst $(o)/cosmic/%,%,$(f))) \
-  $(foreach f,$(cosmic_tl),--copy $(f) .tl/cosmic/$(patsubst cosmic/%,%,$(f))) \
+  $(foreach f,$(cosmic_lua),--copy $(f) $(patsubst $(o)/%,%,$(f))) \
+  $(foreach f,$(cosmic_tl),--copy $(f) .tl/$(f)) \
   $(foreach f,$(cosmic_sys),--copy $(f) sys/$(notdir $(f))) \
   $(foreach f,$(cosmic_skills),--copy $(f) skills/cosmic/$(notdir $(f))) \
   --copy $(cosmic_version_lua) cosmic/_version.lua \

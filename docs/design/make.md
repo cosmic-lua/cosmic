@@ -3,7 +3,7 @@
 status: proposal, for review. three review rounds are folded in; the
 decision tables are the record. delivery is in
 [make-plan.md](make-plan.md); what each landed slice settled is in
-make-log.md and make-log-dogfood.md.
+make-log.md, make-log-dogfood.md and make-log-selfbuild.md.
 
 `--make` is **cosmic's build system**, not a wrapper around `--embed`.
 This repo is meant to build with it.
@@ -75,7 +75,7 @@ Two sentences carry most of the design:
 | project root | cwd, with a loud guard if an ancestor also looks like a project |
 | module root | the project root |
 | public vs private | `_`-prefixed directory = importable only from within its container |
-| this repo's layout | `cosmic/` is the public API; `_cli/`, `_build/`, `_make/`, `_types/`, `_perf/`, `_docs/` at root; `cmd/`; `3p/` |
+| this repo's layout | `cosmic/` is the public API; `_cli/`, `_build/`, `_make/`, `_types/`, `_perf/`, `_docs/` at root; `cmd/`; `3p/` — **landed, 3h**; `cosmic --make build` produces `o/bin/cosmic` |
 | artifact layout | `/zip/<import path>.lua`, assets at `/zip/<rel>` |
 | `testdata/` | excluded from artifacts (that is its only job) |
 | paths | filenames with spaces or shell metacharacters are a validator error |

@@ -4,7 +4,7 @@ local getopt = require("cosmic.getopt")
 local proc = require("cosmic.proc")
 local fs = require("cosmic.fs")
 -- The .got exit-code contract and its icons live in cosmic.testrun (#779):
--- both reporters feed cosmic._build's ci verdict, so they must agree on what
+-- both reporters feed _cli.build's ci verdict, so they must agree on what
 -- an exit code means. See status_of there.
 local testrun = require("cosmic.testrun")
 

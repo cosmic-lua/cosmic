@@ -43,7 +43,7 @@ local function cosmic_tl_searcher(module_name: string): any, any
   if not found then
     return "no .tl source found for module '" .. module_name .. "'"
   end
-  local cache = require("cosmic._cli.script_cache")
+  local cache = require("cosmic.script_cache")
   local code = cache.load(found)
   if not code then
     local result = teal.compile(found)
