@@ -275,6 +275,33 @@ test_builds_with_no_engine_named()
 -- this was a stale-build bug of the worst kind: a clean build FAILED and
 -- the incremental build PASSED, so `o/` kept output the checker rejects.
 local function test_a_changed_contract_recompiles_its_importers()
+
+  -- The same property for a DECLARATION. The checker resolves
+  -- `require("ffi")` to `ffi.d.tl` when one sits beside `ffi.lua` -- the
+  -- pattern the validator explicitly protects -- but `.d.tl` was excluded
+  -- from the closure, so editing the declaration moved no listed
+  -- prerequisite's mtime and importers were never re-checked. Reproduced
+  -- before the fix: incremental PASS, clean FAIL, on one tree.
+  local function test_a_changed_declaration_recompiles_its_importers()
+    local root = fixture("declaration", {
+        ["ffi.lua"] = 'return { greet = function(n) return "hi " .. n end }\n',
+        ["ffi.d.tl"] = "local record ffi\n" ..
+        "  greet: function(name: string): string\nend\nreturn ffi\n",
+        ["main.tl"] = "local ffi = require('ffi')\nprint(ffi.greet('world'))\n",
+      })
+    assert(make(root, "build").code == 0, "the declaration holds at first")
+
+    -- greet is gone from the contract; main still calls it.
+    assert(fs.write(fs.join(root, "ffi.d.tl"),
+        "local record ffi\n  other: function(name: string): string\n" ..
+        "end\nreturn ffi\n"))
+    local r = make(root, "build")
+    assert(r.code == 1,
+      "a broken declaration must fail the incremental build: " .. r.out .. r.err)
+    assert(r.err:find("greet", 1, true),
+      "and it must be the importer's error about the missing key: " .. r.err)
+  end
+  test_a_changed_declaration_recompiles_its_importers()
   local root = fixture("contract", {
       ["util.tl"] = "local record U\n  n: function(): integer\nend\n" ..
       "local M: U = {n = function(): integer return 1 end}\nreturn M\n",

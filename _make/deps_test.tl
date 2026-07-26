@@ -133,9 +133,14 @@ local function test_built_path()
 end
 test_built_path()
 
--- The index resolves import paths to files, and only for kinds a
--- require can land on: an asset or a `.d.tl` is not a module.
-local function test_index_covers_only_resolvable_kinds()
+-- The index resolves import paths to files, for every kind a require
+-- can land on. A `.d.tl` is one of them -- the checker resolves
+-- `require("x")` to `x.d.tl` -- which this test used to deny. That
+-- denial WAS the bug: excluded from the closure, a declaration could
+-- change its contract without any listed prerequisite's mtime moving,
+-- so importers were never re-checked and an incremental build kept
+-- output a clean build rejects. An asset is still not a module.
+local function test_index_covers_resolvable_kinds()
   local proj = fixture("index", {
       ["db/init.tl"] = "return {}\n",
       ["types/x.d.tl"] = "local record x end\nreturn x\n",
@@ -143,9 +148,34 @@ local function test_index_covers_only_resolvable_kinds()
     })
   local by_import = deps.index(proj)
   assert(by_import["db"], "a module is resolvable")
-  assert(not by_import["types.x"], "a declaration is not a module")
-  assert(not by_import["data"], "an asset is not a module")
+  assert(by_import["types.x"], "and so is a declaration")
+  assert(not by_import["data"], "an asset is not")
 end
-test_index_covers_only_resolvable_kinds()
+test_index_covers_resolvable_kinds()
+
+-- A declaration is a SOURCE dependency and nothing else: it compiles
+-- to no file, so naming `o/…/x.lua` for it would name a target nothing
+-- builds. Both halves of one name are carried when both exist.
+local function test_a_declaration_is_a_source_dependency_only()
+  local proj = fixture("dtl-closure", {
+      ["ffi.lua"] = "return {}\n",
+      ["ffi.d.tl"] = "local record ffi end\nreturn ffi\n",
+      ["main.tl"] = "local ffi = require('ffi')\nprint(ffi)\n",
+    })
+  local by_import = deps.index(proj)
+  local files = deps.closure(proj, file_at(proj, "main.tl"), by_import)
+  local srcs = table.concat(deps.source_paths(files), " ")
+  assert(srcs:find("ffi.d.tl", 1, true),
+    "the declaration is a source dependency: " .. srcs)
+  assert(srcs:find("ffi.lua", 1, true),
+    "and so is the implementation beside it: " .. srcs)
+
+  local built = table.concat(deps.built_paths(files), " ")
+  assert(not built:find("ffi.d", 1, true),
+    "but a declaration builds to nothing: " .. built)
+  assert(built:find("o/ffi.lua", 1, true),
+    "while the implementation still does: " .. built)
+end
+test_a_declaration_is_a_source_dependency_only()
 
 print("all deps tests passed")
