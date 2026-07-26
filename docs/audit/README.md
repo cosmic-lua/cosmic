@@ -71,6 +71,15 @@ in git history) and listed below.
 | [028](028-make-fetch-ungated-in-ci.md) | `--make fetch` never runs in ci against the real pins (now a 056 prerequisite) |
 | [029](029-graph-tests-skip-silently.md) | `--make` graph tests degrade to green skips without the engine |
 
+### ci convergence — the workflow files themselves
+
+| id | severity | issue |
+|---|---|---|
+| [057](057-ci-setup-six-copies.md) | medium | the CI environment block is copied six times, and docs.yml has none |
+| [058](058-ci-lanes-are-verbs.md) | medium | lane logic lives in YAML bash; the policy verbs are its destination |
+| [059](059-ci-git-dependencies.md) | low | the gate's git dependencies retire with the verbs; assert the git-free gate |
+| [060](060-coverage-environment-sensitivity.md) | low | the coverage ratchet's environment-sensitivity is the root of CI's pinning complexity |
+
 ### refactor / cleanup
 
 | id | issue |
