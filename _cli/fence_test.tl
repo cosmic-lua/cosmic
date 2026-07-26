@@ -133,12 +133,12 @@ test_the_fence_confines_a_test_to_its_own_step()
 -- stayed `COSMIC_FENCE=1` while the docs presented it as the
 -- enforcement story, and this is the assertion that has to pass before
 -- the default can flip.
+--- Note the shape: the compile runs on EVERY host, and only the
+--- enforcement bookkeeping is conditional. Gating the whole test on
+--- Landlock is what let its first version reach CI broken — it passed a
+--- `cwd`, which made the relative program path unresolvable, and no
+--- host that could run it existed until CI did.
 local function test_the_fence_permits_a_real_compile()
-  if not sandbox.available().fs then
-    check.skip("no landlock on this host; the fence cannot bite")
-    return
-  end
-
   local dir = fs.join(tmpdir, "compilefence")
   assert(fs.makedirs(fs.join(dir, "pkg")))
   -- Two files, so the compile resolves an import through the include
@@ -159,12 +159,23 @@ local function test_the_fence_permits_a_real_compile()
   end
   permitted[#permitted + 1] = "COSMIC_FENCE=1"
 
-  local r = check.must(child.run({cosmic, "-c",
-        "compile " .. cosmic .. " " .. source .. " " .. built ..
-        " --include-dir " .. dir}, {cwd = dir, env = permitted}))
+  -- The real recipe's shape, which is the point: a compile's import
+  -- closure travels as `--deps`, named so the fence can grant it and
+  -- never forwarded to the child. Passing only `--include-dir` would
+  -- leave `pkg/greet.tl` ungranted — a search path is not an input.
+  local self = fs.abspath(cosmic)
+  local r = check.must(child.run({self, "-c",
+        "compile " .. self .. " " .. source .. " " .. built ..
+        " --include-dir " .. dir ..
+        " --deps " .. fs.join(dir, "pkg", "greet.tl")}, {env = permitted}))
   assert(r.ok, "a real compile must SUCCEED under the fence; a fence " ..
     "that denies everything is not enforcement: " .. r.stderr)
   assert(fs.isfile(built), "…and produce its output")
-  check.enforced("recipe fence permits a compile")
+  if sandbox.available().fs then
+    check.enforced("recipe fence permits a compile")
+  else
+    check.skip("no landlock: the compile ran unfenced, so this proves " ..
+      "the recipe's shape but not the grant")
+  end
 end
 test_the_fence_permits_a_real_compile()

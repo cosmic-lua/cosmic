@@ -113,6 +113,19 @@ local function test_a_compile_may_read_the_checkers_own_inputs()
   assert(q is sandbox.Fs, "copy must plan a policy")
   assert(not has(q.ro, "tlconfig.lua"),
     "a verb that does not compile gets no compiler grants")
+
+  -- The other half of what a compile reads: its import closure, which
+  -- travels in the variadic tail as `--deps <files...>`. A search path
+  -- (`--include-dir <dir>`) is NOT an input and must not be granted —
+  -- granting it would hand over the whole tree and undo the closure.
+  local dep = touch("fence-cfg-dep.tl")
+  local withdeps = driver.plan("compile",
+    {boot, src, fs.join(tmpdir, "c3.lua"), "--include-dir", tmpdir,
+      "--deps", dep})
+  assert(withdeps is sandbox.Fs, "compile must plan a policy")
+  assert(has(withdeps.ro, dep), "a named dependency is readable")
+  assert(not has(withdeps.ro, tmpdir),
+    "…but the search path beside it is not")
 end
 test_a_compile_may_read_the_checkers_own_inputs()
 
