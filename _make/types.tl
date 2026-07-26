@@ -86,7 +86,7 @@ local record make_types
   --- fixtures and `embed/` payload that a selected `fmt` skipped,
   --- which are exactly the two kinds whose job is to stay out of the
   --- model. One definition, both readers.
-  fmt_kinds: {string: boolean}
+  fmt_kinds: {Kind: boolean}
 end
 
 make_types.fmt_kinds = {

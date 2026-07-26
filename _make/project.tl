@@ -15,6 +15,7 @@
 
 local fs = require("cosmic.fs")
 local fstypes = require("cosmic.fs.types")
+local imports = require("_make.imports")
 local types = require("_make.types")
 
 local type WalkStat = fstypes.WalkStat
@@ -30,6 +31,41 @@ local IGNORE_FILE < const > = ".cosmicignore"
 --- The build directory. Everything generated lives here, and nothing
 --- generated is ever an input, so the walk prunes it at the root.
 local BUILD_DIR < const > = "o"
+
+--- The reserved basename of a unit's PAYLOAD generator: the one
+--- `*.gen.tl` that is scoped to a binary rather than to its own
+--- subtree, and that `build` runs every time rather than `regen`.
+--- Named here because the model, the artifact staging, and the
+--- validator all have to agree about it.
+local PAYLOAD_GEN < const > = "embed.gen.tl"
+
+--- The root unit: the project itself, rather than a `cmd/<name>/`
+--- subtree. It is spelled as the empty string because a unit IS a
+--- directory relative to the root, and the root's own relative path is
+--- empty -- but the empty string is not self-describing at a call site,
+--- and every place that read it re-derived the same consequences
+--- inline. Named once, with `out_dir` for the derivation that recurred.
+local ROOT < const > = ""
+
+--- A unit's output directory, relative to the project root.
+--- @param unit string The unit's directory, ROOT for the project itself
+--- @return string The output directory, relative to the root
+local function out_dir(unit: string): string
+  if unit == ROOT then
+    return BUILD_DIR
+  end
+  return BUILD_DIR .. "/" .. unit
+end
+
+--- How to name a unit in a message meant for a person.
+--- @param unit string The unit's directory, ROOT for the project itself
+--- @return string The unit's name, or "the build" for the root
+local function unit_label(unit: string): string
+  if unit == ROOT then
+    return "the build"
+  end
+  return unit
+end
 
 --- The payload directory: its contents map to the artifact root, which
 --- is how a project ships a file the one layout rule cannot place.
@@ -280,6 +316,11 @@ local function scan(root: string): Project | nil, string
   if not fs.isdir(abs) then
     return nil, "make: not a directory: " .. root
   end
+  -- A scan is the start of a model build, and the import memo's
+  -- lifetime is exactly one of those: within a build the tree is a
+  -- snapshot, so re-reading a source can only cost time; across builds
+  -- it may have changed, so re-reading is the point.
+  imports.forget()
   local ctx: Scan = {root = abs, patterns = read_ignore(abs), files = {}}
   local got, err = fs.walk(abs, visit, ctx)
   if not got then
@@ -397,6 +438,10 @@ end
 local record ProjectModule
   IGNORE_FILE: string
   BUILD_DIR: string
+  ROOT: string
+  PAYLOAD_GEN: string
+  out_dir: function(unit: string): string
+  unit_label: function(unit: string): string
   scan: function(root: string): Project | nil, string
   classify: function(rel: string): Kind
   payload_depth: function(segs: {string}): integer | nil
@@ -410,6 +455,10 @@ end
 local M: ProjectModule = {
   IGNORE_FILE = IGNORE_FILE,
   BUILD_DIR = BUILD_DIR,
+  ROOT = ROOT,
+  PAYLOAD_GEN = PAYLOAD_GEN,
+  out_dir = out_dir,
+  unit_label = unit_label,
   scan = scan,
   classify = classify,
   payload_depth = payload_depth,

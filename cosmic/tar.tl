@@ -114,11 +114,21 @@ local function parse_pax(data: string): {string: string}
 end
 
 --- Reject entry names that would escape the extraction root: empty,
---- absolute, backslashed, or containing a ".." component.
+--- absolute, backslashed, containing a ".." component, or carrying a
+--- control character.
 local function unsafe_path(p: string): boolean
   if not p or p == "" then return true end
   if p:sub(1, 1) == "/" then return true end
   if p:find("\\", 1, true) then return true end
+  -- A control character in an ARCHIVE-CONTROLLED name has no legitimate
+  -- use, and every consumer of an extracted name is a place a newline
+  -- can lie: `--make fetch` records unpack products one per line, so a
+  -- member called `a\nb.txt` extracts fine, is recorded as two names
+  -- neither of which exists, and makes every later fetch decide the pin
+  -- needs repair -- forever, silently. Refusing by name at the guard
+  -- closes the class for every consumer at once rather than hardening
+  -- each format that carries a name onward.
+  if p:find("%c") then return true end
   -- A drive-letter prefix, which `cosmic.embed`'s sibling guard already
   -- rejects for the same class of input. Harmless on POSIX (a literal
   -- `C:` directory), but on Windows a colon component invites
@@ -132,10 +142,12 @@ local function unsafe_path(p: string): boolean
   return false
 end
 
---- Symlink targets must stay inside the tree: relative, no "..".
+--- Symlink targets must stay inside the tree: relative, no "..", no
+--- control characters (same reasoning as `unsafe_path`).
 local function unsafe_link_target(target: string): boolean
   if not target or target == "" then return true end
   if target:sub(1, 1) == "/" then return true end
+  if target:find("%c") then return true end
   for component in (target .. "/"):gmatch("([^/]*)/") do
     if component == ".." then return true end
   end
@@ -244,6 +256,10 @@ end
 
 return {
   extract = extract,
-  parse_pax = parse_pax,
+  -- `unsafe_path` stays public because `cosmic.embed` and `--make
+  -- fetch` guard archive-controlled names with the same rule, and one
+  -- shared predicate is what keeps the two from disagreeing.
+  -- `parse_pax` was public only so a test could call it; pax paths are
+  -- covered through extraction now, and an export is a contract.
   unsafe_path = unsafe_path,
 }

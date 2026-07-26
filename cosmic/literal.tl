@@ -17,7 +17,22 @@
 ---     local cfg = literal.of_file("config.tl")
 
 local fs = require("cosmic.fs")
-local tl = require("tl")
+
+--- One lexical token: its raw text, what it is, and the line it began on.
+---
+--- This module lexes for itself. It used to borrow `tl.lex`, which made
+--- the safe-config reader depend on the ~15k-line Teal COMPILER --- and
+--- a stripped artifact keeps `cosmic/**` while dropping `tl.lua`, so
+--- `require("cosmic.literal")` threw `module 'tl' not found` in exactly
+--- the artifacts whose authors want a config file that cannot do
+--- anything. The literal grammar needs identifiers, strings, numbers
+--- and punctuation; that is the lexer below, and it costs this module
+--- its last dependency beyond `cosmic.fs`.
+local record Token
+  tk: string
+  kind: string
+  y: integer
+end
 
 --- Token kinds the literal grammar admits, beyond punctuation.
 local scalar: {string: boolean} = {
@@ -25,6 +40,138 @@ local scalar: {string: boolean} = {
   number = true,
   integer = true,
 }
+
+--- Lua's reserved words. They lex as `keyword`, never `identifier`, so
+--- `return { end = 1 }` is refused as a grammar violation rather than
+--- read as a key.
+local KEYWORDS: {string: boolean} = {
+  ["and"] = true, ["break"] = true, ["do"] = true, ["else"] = true,
+  ["elseif"] = true, ["end"] = true, ["false"] = true, ["for"] = true,
+  ["function"] = true, ["goto"] = true, ["if"] = true, ["in"] = true,
+  ["local"] = true, ["nil"] = true, ["not"] = true, ["or"] = true,
+  ["repeat"] = true, ["return"] = true, ["then"] = true, ["true"] = true,
+  ["until"] = true, ["while"] = true,
+}
+
+--- Index just past the long bracket opening at `i`, or nil if it never
+--- closes. The caller has already established that one opens there.
+--- @param s string The source
+--- @param i integer Index of the opening `[`
+--- @return integer|nil The index just past the closing bracket
+local function long_bracket_end(s: string, i: integer): integer | nil
+  local eq = s:match("^%[(=*)%[", i)
+  if not eq then
+    return nil
+  end
+  local close = "]" .. eq .. "]"
+  local at = s:find(close, i + #eq + 2, true)
+  if not at then
+    return nil
+  end
+  return at + #close
+end
+
+--- The Lua numeral starting at `i`, or nil when none does.
+--- @param s string The source
+--- @param i integer Index of the first character
+--- @return string|nil The numeral's text
+local function numeral_at(s: string, i: integer): string | nil
+  local hex = s:match("^0[xX]%x*%.?%x*", i)
+  if hex and #hex > 2 then
+    return hex .. (s:match("^[pP][%+%-]?%d+", i + #hex) or "")
+  end
+  local dec = s:match("^%d*%.?%d*", i)
+  if not dec or dec == "" or dec == "." then
+    return nil
+  end
+  return dec .. (s:match("^[eE][%+%-]?%d+", i + #dec) or "")
+end
+
+--- Split source into tokens, ending with an `$EOF$` sentinel.
+---
+--- Deliberately permissive about what a token IS: anything unrecognized
+--- becomes a one-character token, and the parser refuses it by name with
+--- its line. Only genuinely unfinishable input (an unterminated string,
+--- long string, or long comment) fails here, because those have no next
+--- token to complain about.
+--- @param src string The file's contents
+--- @param where string File name, for messages
+--- @return {Token}|nil The tokens
+--- @return string The error message when the source cannot be lexed
+local function lex(src: string, where: string): {Token} | nil, string
+  local toks: {Token} = {}
+  local n = #src
+  local i = 1
+  local y = 1
+  -- Lua skips a first-line `#!`; so did the borrowed lexer.
+  if src:sub(1, 2) == "#!" then
+    i = (src:find("\n", 1, true) or n + 1)
+  end
+  while i <= n do
+    local c = src:sub(i, i)
+    if c == "\n" then
+      y = y + 1
+      i = i + 1
+    elseif c:match("%s") then
+      i = i + 1
+    elseif src:sub(i, i + 1) == "--" then
+      if src:match("^%[=*%[", i + 2) then
+        local e = long_bracket_end(src, i + 2)
+        if not e then
+          return nil, where .. ":" .. tostring(y) .. ": unterminated long comment"
+        end
+        local _, breaks = src:sub(i, e - 1):gsub("\n", "")
+        y = y + breaks
+        i = e
+      else
+        i = src:find("\n", i, true) or n + 1
+      end
+    elseif c == "[" and src:match("^%[=*%[", i) then
+      local e = long_bracket_end(src, i)
+      if not e then
+        return nil, where .. ":" .. tostring(y) .. ": unterminated long string"
+      end
+      toks[#toks + 1] = {tk = src:sub(i, e - 1), kind = "string", y = y}
+      local _, breaks = src:sub(i, e - 1):gsub("\n", "")
+      y = y + breaks
+      i = e
+    elseif c == '"' or c == "'" then
+      local j = i + 1
+      while j <= n and src:sub(j, j) ~= c do
+        local d = src:sub(j, j)
+        if d == "\n" then
+          return nil, where .. ":" .. tostring(y) .. ": unterminated string"
+        end
+        j = j + (d == "\\" and 2 or 1)
+      end
+      if j > n then
+        return nil, where .. ":" .. tostring(y) .. ": unterminated string"
+      end
+      toks[#toks + 1] = {tk = src:sub(i, j), kind = "string", y = y}
+      i = j + 1
+    elseif c:match("%d") or (c == "." and src:sub(i + 1, i + 1):match("%d")) then
+      local num = numeral_at(src, i)
+      if not num then
+        return nil, where .. ":" .. tostring(y) .. ": malformed number"
+      end
+      toks[#toks + 1] = {tk = num, kind = "number", y = y}
+      i = i + #num
+    elseif c:match("[%a_]") then
+      local word = src:match("^[%a_][%w_]*", i)
+      toks[#toks + 1] = {
+        tk = word,
+        kind = KEYWORDS[word] and "keyword" or "identifier",
+        y = y,
+      }
+      i = i + #word
+    else
+      toks[#toks + 1] = {tk = c, kind = "op", y = y}
+      i = i + 1
+    end
+  end
+  toks[#toks + 1] = {tk = "$EOF$", kind = "eof", y = y}
+  return toks
+end
 
 --- How deep a literal may nest.
 ---
@@ -68,11 +215,16 @@ local function escape_at(s: string, i: integer): string | nil, integer
     return "", rest
   end
   if c == "u" then
+    -- A position capture is ABSOLUTE: `after` already indexes just past
+    -- the closing `}`, whatever `init` was. Adding to it resumed the
+    -- decode two characters late, so every `\u{…}` silently swallowed
+    -- the two characters behind it -- invisible only when the escape
+    -- ended the string, which was the one shape the test covered.
     local hex, after = s:match("^{(%x+)}()", i + 2)
     if not hex then
       return nil, i
     end
-    return utf8.char(tonumber(hex, 16) as integer), (after as integer) + 2 -- cast: hex digits are integral
+    return utf8.char(tonumber(hex, 16) as integer), after as integer -- cast: hex digits are integral
   end
   local digits = s:match("^%d%d?%d?", i + 1)
   if digits then
@@ -136,17 +288,23 @@ end
 
 --- Parse a literal table from a token stream, starting at `{`.
 --- Returns the value and the index just past the closing `}`.
---- @param toks {tl.Token} The lexed tokens
+--- The second return is the index on success and the third is the
+--- message on failure, rather than one value meaning both: an
+--- `integer|string` here made every caller -- the recursive one
+--- included -- cast twice to say which branch it was on, six casts
+--- annotating one loose union.
+--- @param toks {Token} The lexed tokens
 --- @param i integer Index of the opening brace
 --- @param where string File name, for messages
 --- @param noun string What to call the file in errors
 --- @param depth integer How many tables enclose this one
 --- @return {string: any}|nil The table, or nil on a grammar violation
---- @return integer|string Next index, or the error message
-local function parse_table(toks: {tl.Token}, i: integer, where: string,
-    noun: string, depth: integer): {string: any} | nil, integer | string
+--- @return integer The index just past the closing brace
+--- @return string The error message when the table is not a literal
+local function parse_table(toks: {Token}, i: integer, where: string,
+    noun: string, depth: integer): {string: any} | nil, integer, string
   if depth > MAX_DEPTH then
-    return nil, where .. ":" .. tostring(toks[i] and toks[i].y or 0) ..
+    return nil, 0, where .. ":" .. tostring(toks[i] and toks[i].y or 0) ..
     ": a " .. noun .. " nests deeper than " .. MAX_DEPTH .. " tables"
   end
   local out: {string: any} = {}
@@ -155,7 +313,7 @@ local function parse_table(toks: {tl.Token}, i: integer, where: string,
   while i <= n do
     local t = toks[i]
     if t.tk == "}" then
-      return out, i + 1
+      return out, i + 1, ""
     end
     -- key: `name =` or `["name"] =`
     local key: string = nil
@@ -167,31 +325,31 @@ local function parse_table(toks: {tl.Token}, i: integer, where: string,
     and toks[i + 3] and toks[i + 3].tk == "=" then
       key = string_value(toks[i + 1].tk)
       if not key then
-        return nil, where .. ":" .. tostring(toks[i + 1].y) ..
+        return nil, 0, where .. ":" .. tostring(toks[i + 1].y) ..
         ": a " .. noun .. " has a malformed string key"
       end
       i = i + 4
     else
-      return nil, where .. ":" .. tostring(t.y) ..
+      return nil, 0, where .. ":" .. tostring(t.y) ..
       ": a " .. noun .. " is a table of `name = <literal>` entries; found '" ..
       t.tk .. "'"
     end
     -- value: a scalar, a keyword literal, or a nested table
     local v = toks[i]
     if not v then
-      return nil, where .. ": unexpected end of " .. noun
+      return nil, 0, where .. ": unexpected end of " .. noun
     end
     if v.tk == "{" then
-      local sub, nexti = parse_table(toks, i, where, noun, depth + 1)
+      local sub, nexti, serr = parse_table(toks, i, where, noun, depth + 1)
       if not sub then
-        return nil, nexti as string -- cast: the failure branch returns a message
+        return nil, 0, serr
       end
       out[key] = sub
-      i = nexti as integer -- cast: the success branch returns an index
+      i = nexti
     elseif v.kind == "string" then
       local decoded = string_value(v.tk)
       if not decoded then
-        return nil, where .. ":" .. tostring(v.y) ..
+        return nil, 0, where .. ":" .. tostring(v.y) ..
         ": a " .. noun .. " has a malformed string value for '" .. key .. "'"
       end
       out[key] = decoded
@@ -210,7 +368,7 @@ local function parse_table(toks: {tl.Token}, i: integer, where: string,
       out[key] = v.tk == "true"
       i = i + 1
     else
-      return nil, where .. ":" .. tostring(v.y) ..
+      return nil, 0, where .. ":" .. tostring(v.y) ..
       ": a " .. noun .. " holds literals only; found '" .. v.tk ..
       "' (no variables, calls or concatenation)"
     end
@@ -222,12 +380,12 @@ local function parse_table(toks: {tl.Token}, i: integer, where: string,
     if sep and (sep.tk == "," or sep.tk == ";") then
       i = i + 1
     elseif not sep or sep.tk ~= "}" then
-      return nil, where .. ":" .. tostring(v.y) ..
+      return nil, 0, where .. ":" .. tostring(v.y) ..
       ": a " .. noun .. " holds literals only; found '" .. (sep and sep.tk or "<eof>") ..
       "' after a value (no variables, calls or concatenation)"
     end
   end
-  return nil, where .. ": unterminated table in " .. noun
+  return nil, 0, where .. ": unterminated table in " .. noun
 end
 
 --- Read the literal a file returns, without running it.
@@ -238,11 +396,11 @@ end
 --- @return string The error message when the file is not a literal
 local function of_source(source: string, where: string, noun?: string): {string: any} | nil, string
   local what = noun or "literal"
-  local toks, lex_errs = tl.lex(source, where)
-  if lex_errs and #lex_errs > 0 then
-    local e = lex_errs[1]
-    return nil, where .. ":" .. tostring(e.y) .. ": " .. tostring(e.msg)
+  local lexed, lex_err = lex(source, where)
+  if not lexed then
+    return nil, lex_err
   end
+  local toks = lexed as {Token} -- cast: nil ruled out by the guard above
   local i = 1
   -- The lexer emits an `$EOF$` sentinel; everything before the `return`
   -- must be nothing at all.
@@ -253,11 +411,11 @@ local function of_source(source: string, where: string, noun?: string): {string:
   if not toks[i] or toks[i].tk ~= "{" then
     return nil, where .. ": a " .. what .. " must return a table literal"
   end
-  local value, nexti = parse_table(toks, i, where, what, 1)
+  local value, nexti, perr = parse_table(toks, i, where, what, 1)
   if not value then
-    return nil, nexti as string -- cast: the failure branch returns a message
+    return nil, perr
   end
-  local after = toks[nexti as integer] -- cast: the success branch returns an index
+  local after = toks[nexti]
   if after and after.tk ~= "$EOF$" then
     return nil, where .. ":" .. tostring(after.y) ..
     ": a " .. what .. " ends after its table; found '" .. after.tk .. "'"

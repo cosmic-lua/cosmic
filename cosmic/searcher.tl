@@ -34,13 +34,43 @@
 --- lazily on the first require() the default searchers cannot
 --- resolve, so runs that never touch a .tl file never load the
 --- ~15k-line Teal compiler.
+---
+--- And in a STRIPPED artifact there is no compiler to load at all --
+--- the floor keeps `cosmic/**` (this module included) and drops
+--- `tl.lua`. Acquiring it is therefore fallible, and a failure is a
+--- MISS, not an error: see `acquire_teal`.
 
---- The searcher: resolve, compile (or hit the cache), load.
+--- The two entry points this searcher needs from cosmic.teal.
+---
+--- Named here because the compiler is acquired through pcall (see
+--- `acquire_teal`), which erases the module's own type.
+local record TealSearch
+  search_module: function(module_name: string): string | nil
+  compile_cached: function(input_path: string): string | nil, string
+end
+
+--- cosmic.teal, or nil in an artifact that carries no Teal compiler.
+---
+--- A stripped artifact carries this searcher (the floor keeps
+--- `cosmic/**`) but not `tl.lua`, and `cosmic.teal` requires `tl` at
+--- its top level -- so a plain require here THREW in every stripped
+--- artifact, turning each ordinary miss into "module 'tl' not found",
+--- an error about a compiler the artifact omits on purpose.
+--- @return TealSearch|nil The compiler surface, or nil when absent
+local function acquire_teal(): TealSearch | nil
+  local ok, mod = pcall(require, "cosmic.teal")
+  if not ok then
+    return nil
+  end
+  return mod as TealSearch -- cast: from any (pcall erases the module type)
+end
+
+--- Resolve, compile (or hit the cache), load -- with a compiler in hand.
+--- @param teal TealSearch The acquired cosmic.teal surface
 --- @param module_name string Module name as passed to require()
 --- @return any A loader function, or a string describing the miss
 --- @return any The found filename (loader data)
-local function cosmic_tl_searcher(module_name: string): any, any
-  local teal = require("cosmic.teal")
+local function search_with(teal: TealSearch, module_name: string): any, any
   local found = teal.search_module(module_name)
   if not found then
     return "no .tl source found for module '" .. module_name .. "'"
@@ -62,6 +92,23 @@ local function cosmic_tl_searcher(module_name: string): any, any
     error("error loading module '" .. module_name .. "': " .. tostring(lerr), 0)
   end
   return chunk, found
+end
+
+--- The searcher installed into package.searchers.
+---
+--- A searcher that cannot help is contractually supposed to RETURN a
+--- string, so require can aggregate every searcher's message into one
+--- report; throwing aborts that aggregate and names the wrong missing
+--- thing. Without a compiler this returns its miss like any other.
+--- @param module_name string Module name as passed to require()
+--- @return any A loader function, or a string describing the miss
+--- @return any The found filename (loader data)
+local function cosmic_tl_searcher(module_name: string): any, any
+  local teal = acquire_teal()
+  if teal is TealSearch then
+    return search_with(teal, module_name)
+  end
+  return "no .tl searcher in this artifact (it carries no Teal compiler)"
 end
 
 local installed = false
