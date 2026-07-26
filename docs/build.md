@@ -264,4 +264,4 @@ property is worth guaranteeing, it wants a CI lane, not a manual target.
 
 the build's trust root — what `bin/make` fetches, what stays outside
 the root, and the settled decision that pinned make is permanent — is
-recorded in [decisions.md](decisions.md) (D13, D14).
+recorded in [decisions/](decisions/) (D13, D14).
