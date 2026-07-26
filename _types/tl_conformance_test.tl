@@ -23,6 +23,22 @@ local teal = require("cosmic.teal")
 
 local tmpdir = os.getenv("TEST_TMPDIR")
 
+--- Where the pinned tl source tree landed.
+---
+--- `cosmic --make fetch` unpacks a pin beside the pin, so tl's tarball
+--- lands whole in `o/3p/tl/`. The Makefile's fetch pipeline instead
+--- stages to a version-stamped directory and symlinks `o/tl/.staged` at
+--- it; both are live while the bridge is, so this asks which one is
+--- there rather than being told. The second arm goes with the Makefile.
+--- @return string The directory holding `tl.tl`
+local function staged_tl_dir(): string
+  local fetched = fs.join("o", "3p", "tl")
+  if fs.isfile(fs.join(fetched, "tl.tl")) then
+    return fetched
+  end
+  return fs.join("o", "tl", ".staged")
+end
+
 -- The probe is only ever TYPE-CHECKED, never executed, so calls with
 -- side effects (loader, path writes) are safe to state here.
 local PROBE < const > = [[
@@ -105,9 +121,9 @@ test_probe_passes_against_shim()
 -- werror=false: tl's own 15k-line source need not satisfy cosmic's
 -- warnings-as-errors policy; type ERRORS are the conformance signal.
 local function test_probe_passes_against_staged_tl()
-  local staged = fs.join(os.getenv("TEST_O") or "o", "tl/.staged")
+  local staged = staged_tl_dir()
   assert(fs.isfile(fs.join(staged, "tl.tl")),
-    "staged tl source missing at " .. staged .. " (build 3p/tl first)")
+    "staged tl source missing at " .. staged .. " (run `cosmic --make fetch`)")
   local r = teal.check(probe_path, {include_dirs = {staged}, werror = false})
   assert(#r.errors == 0,
     "probe must type-check against the staged tl.tl — a failure here "

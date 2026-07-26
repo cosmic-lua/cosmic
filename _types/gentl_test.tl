@@ -8,7 +8,14 @@
 local fs = require("cosmic.fs")
 local gentl = require("_types.gentl")
 
-local staged_tl = fs.join("o/tl/.staged", "tl.tl")
+-- `cosmic --make fetch` unpacks a pin beside the pin, so tl's tarball
+-- lands whole in `o/3p/tl/`. The Makefile's fetch pipeline stages to a
+-- version-stamped directory and symlinks `o/tl/.staged` at it; both are
+-- live while the bridge is, so ask which one is there. The fallback
+-- goes with the Makefile.
+local fetched_tl = fs.join("o", "3p", "tl", "tl.tl")
+local staged_tl = fs.isfile(fetched_tl) and fetched_tl
+or fs.join("o", "tl", ".staged", "tl.tl")
 
 local function test_generated_matches_committed()
   local source, rerr = fs.read(staged_tl)
