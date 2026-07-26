@@ -23,7 +23,7 @@ _make/check.tl 54 55
 _make/deps.tl 50 50
 _make/extract.tl 48 66
 _make/facts.tl 19 29
-_make/fetch.tl 67 70
+_make/fetch.tl 107 117
 _make/graph.tl 152 174
 _make/init.tl 132 144
 _make/pin.tl 74 75

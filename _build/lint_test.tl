@@ -1,5 +1,6 @@
 #!/usr/bin/env cosmic
 
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local lint = require("_build.lint")
 
@@ -57,7 +58,7 @@ local function test_lint_file_under_default()
   end
   fs.write(path, table.concat(lines, "\n") .. "\n")
 
-  local diagnostics = lint.lint_file(path)
+  local diagnostics = check.must(lint.lint_file(path))
   assert(#diagnostics == 0, "expected no diagnostics for short file, got: " .. tostring(#diagnostics))
 end
 test_lint_file_under_default()
@@ -70,7 +71,7 @@ local function test_lint_file_over_default()
   end
   fs.write(path, table.concat(lines, "\n") .. "\n")
 
-  local diagnostics = lint.lint_file(path)
+  local diagnostics = check.must(lint.lint_file(path))
   assert(#diagnostics == 1, "expected 1 diagnostic for long file, got: " .. tostring(#diagnostics))
   assert(diagnostics[1].rule == "file-length", "expected file-length rule")
 end
@@ -85,7 +86,7 @@ local function test_lint_file_skips_dtl()
   end
   fs.write(path, table.concat(lines, "\n") .. "\n")
 
-  local diagnostics = lint.lint_file(path)
+  local diagnostics = check.must(lint.lint_file(path))
   assert(#diagnostics == 0, "expected no diagnostics for .d.tl file, got: " .. tostring(#diagnostics))
 end
 test_lint_file_skips_dtl()

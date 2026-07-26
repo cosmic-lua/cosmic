@@ -129,7 +129,7 @@ local function check_call_after_define(file: string, lines: {string}): {Diagnost
   return diagnostics
 end
 
-local function lint_file(path: string): {Diagnostic}
+local function lint_file(path: string): {Diagnostic} | nil, string
   -- Skip .d.tl type declaration files — they describe C binding interfaces
   -- and cannot be split due to Teal's record system.
   if path:match("%.d%.tl$") then
@@ -138,13 +138,21 @@ local function lint_file(path: string): {Diagnostic}
 
   local diagnostics: {Diagnostic} = {}
 
-  local f = io.open(path, "r")
+  -- An honest failure channel. Returning `{}` for a file that could not
+  -- be opened is indistinguishable from "clean", so a lint sweep over a
+  -- tree with an unreadable file passed while never checking it -- a
+  -- fail-open in a gate whose job is "every file obeys the caps". An
+  -- empty findings list now always means "read, and clean".
+  local f, oerr = io.open(path, "r")
   if not f then
-    return diagnostics
+    return nil, oerr or ("cannot open " .. path)
   end
   local content = f:read("*a")
   f:close()
-  if not content or content == "" then
+  if not content then
+    return nil, "cannot read " .. path
+  end
+  if content == "" then
     return diagnostics
   end
 

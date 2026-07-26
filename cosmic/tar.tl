@@ -110,6 +110,13 @@ local function unsafe_path(p: string): boolean
   if not p or p == "" then return true end
   if p:sub(1, 1) == "/" then return true end
   if p:find("\\", 1, true) then return true end
+  -- A drive-letter prefix, which `cosmic.embed`'s sibling guard already
+  -- rejects for the same class of input. Harmless on POSIX (a literal
+  -- `C:` directory), but on Windows a colon component invites
+  -- drive-relative and NTFS alternate-data-stream path semantics. The
+  -- two guards protect the same operation -- writing archive-controlled
+  -- names under a dest -- so they should not disagree.
+  if p:match("^%a:") then return true end
   for component in (p .. "/"):gmatch("([^/]*)/") do
     if component == ".." then return true end
   end

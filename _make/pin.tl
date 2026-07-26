@@ -136,9 +136,18 @@ local function read(path: string): Pin | nil, string
   if not (url is string) or url == "" then
     return nil, "make: " .. path .. ": a pin needs a url"
   end
-  if not (sha is string) or not sha:match("^%x%x%x%x%x%x%x%x+$") then
+  if not (sha is string) then
     return nil, "make: " .. path ..
     ": a pin needs a sha256 (hex); without one it is a download, not a pin"
+  end
+  -- Exactly 64, not "8 or more": a truncated digest is a common
+  -- copy-paste slip, and the old pattern accepted it. Every fetch then
+  -- failed with `sha256 mismatch`, which is a correct refusal wearing
+  -- the wrong diagnosis -- it sends the reader to check the url when
+  -- the pin's own digest is what is malformed.
+  if not sha:match("^%x+$") or #sha ~= 64 then
+    return nil, "make: " .. path .. ": sha256 must be 64 hex characters, got " ..
+    #sha .. "; a truncated digest fails later as a mismatch"
   end
   local format_field = fields.format
   if not (format_field is string) then
@@ -162,8 +171,17 @@ local function read(path: string): Pin | nil, string
   end
   -- The output name comes from the URL, not the pin's position: a pin
   -- fetches a named artifact and its extension matters to whatever
-  -- reads it next.
-  local name = resolved:match("([^/]+)$") or "asset"
+  -- reads it next. It is url-derived, so it is checked before it
+  -- reaches `fs.join`: a query string, a `..`, or a backslash in the
+  -- tail would otherwise survive into the landing path and break the
+  -- "mirrors the pin's position" contract the build relies on. The
+  -- older `_build` fetcher validates the same derivation.
+  local name = resolved:match("([^/]+)$") or ""
+  if name == "" or name == "." or name == ".."
+  or not name:match("^[%w._%-]+$") then
+    return nil, "make: " .. path .. ": the url's last segment is not a usable " ..
+    "file name: '" .. name .. "'"
+  end
   return {
     source = path,
     output = fs.join(fs.dirname(path), name),

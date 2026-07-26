@@ -52,7 +52,7 @@ local UNPROVIDABLE < const >: {string: string} = {
 --- to solve but a filename to refuse — and the shell metacharacters go
 --- with it, since the same paths reach a real shell in any project that
 --- still has one. Accepted cost, by name: a legitimate `my notes.tl`.
-local METACHARACTERS < const > = "#;\"'*?[]&|<>(){}$`^\\!~"
+local METACHARACTERS < const > = "#;\"'*?[]&|<>(){}$`^\\!~%:=,"
 
 --- Kinds whose sources are scanned for import edges.
 local scanned: {string: boolean} = {
@@ -197,6 +197,42 @@ local function check_entries(proj: Project, issues: {Issue})
   end
 end
 
+--- Refuse the two shapes that build cleanly and then go missing.
+---
+--- A root `init.tl` has no import path -- dropping the trailing `init`
+--- leaves nothing for the project root to be named -- yet it still
+--- classifies as a module, so it type-checks, compiles to `o/init.lua`,
+--- and is then silently absent from every artifact. Nothing in the
+--- design gives the root a module name to claim, so it is refused
+--- rather than given one.
+---
+--- Two binaries with the same name share `o/stage/<name>` and
+--- `o/bin/<name>`: the second overwrites the first, and which is
+--- "second" follows iteration order. A project mid-refactor from
+--- single- to multi-binary (`myapp/main.tl` plus `cmd/myapp/main.tl`)
+--- reports success and ships whichever won.
+--- @param proj Project The scanned project
+--- @param issues {Issue} Issues to append to
+local function check_binaries(proj: Project, issues: {Issue})
+  for _, f in ipairs(proj.files) do
+    if f.path == "init.tl" then
+      add(issues, f.path,
+        "a root init.tl has no import path, so it can never ship; " ..
+        "did you mean main.tl?")
+    end
+  end
+  local seen: {string: string} = {}
+  for _, b in ipairs(proj.binaries) do
+    local first = seen[b.name]
+    if first then
+      add(issues, b.entry, "binary '" .. b.name ..
+        "' is already declared by " .. first)
+    else
+      seen[b.name] = b.entry
+    end
+  end
+end
+
 --- Collect the literal `require("…")` targets in a source.
 --- @param path string Absolute path to the source
 --- @return {string} Imported module names, in file order
@@ -206,7 +242,18 @@ local function imports_of(path: string): {string}
   if not content then
     return out
   end
-  for name in string.gmatch(content, "require%s*%(?%s*[\"']([%w_%.%-]+)[\"']") do
+  -- Line comments first: `check_imports` ERRORS on what this finds, so
+  -- a commented-out `require("cmd.other.main")` -- the shape a
+  -- developer leaves behind while debugging -- refused the whole
+  -- project for code that never runs. The docstring admitted false
+  -- negatives (computed requires); these were false POSITIVES, which
+  -- are the expensive kind in a gate.
+  -- cast: scalar narrowing after the guard above
+  local stripped = (content as string):gsub("%-%-[^\n]*", "")
+  -- `\f` (any position, %f is a frontier pattern) anchors the match so
+  -- `myrequire("x")` is not a require. Lua patterns have no \b, and
+  -- the frontier is how you spell one.
+  for name in stripped:gmatch("%f[%w_]require%s*%(?%s*[\"']([%w_%.%-]+)[\"']") do
     out[#out + 1] = name
   end
   return out
@@ -297,6 +344,7 @@ local function validate(proj: Project): {Issue}
   check_reserved(proj, issues)
   check_duplicates(proj, issues)
   check_entries(proj, issues)
+  check_binaries(proj, issues)
   check_imports(proj, issues, defined)
   table.sort(issues, function(a: Issue, b: Issue): boolean
       if a.path == b.path then

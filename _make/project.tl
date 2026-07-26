@@ -150,6 +150,13 @@ local function import_path(rel: string): string | nil
   return (trimmed:gsub("/", "."))
 end
 
+--- The marker suffixes apply to `.lua` as well as `.tl`, because
+--- `.lua` sources are first-class here. They did not, and the silence
+--- was the problem: in a Lua-only project `db_test.lua` classified as
+--- a MODULE, so `--make test` reported the project had no tests and
+--- `--make build` embedded the test file into the released binary.
+--- Neither half announced itself.
+---
 --- Classify one file from its relative path. Order matters: testdata
 --- wins over everything (it is positional, and its only job is staying
 --- out of artifacts), then payload (also positional, and for the same
@@ -174,9 +181,10 @@ local function classify(rel: string): Kind
     return "pin"
   elseif rel:sub(-7) == ".gen.tl" then
     return "gen"
-  elseif rel:sub(-8) == "_test.tl" then
+  elseif rel:sub(-8) == "_test.tl" or rel:sub(-9) == "_test.lua" then
     return "test"
-  elseif rel:sub(-11) == "_example.tl" then
+  elseif rel:sub(-11) == "_example.tl"
+  or rel:sub(-12) == "_example.lua" then
     return "example"
   end
   local _, is_source = stem(rel)

@@ -211,32 +211,19 @@ end
 --- built it.
 local BASE_NAME < const > = "base"
 
---- Run a binary's generator, if it has one.
----
---- Folded into `build` rather than left to a separate verb, because a
---- generator whose output a binary embeds is IN that binary's build
---- closure: building without running it would embed the last run's
---- payload, which is the stale-output failure the whole model exists to
---- prevent. Positional, like everything else — `cmd/<name>/embed.gen.tl`
---- belongs to `cmd/<name>`, and the root's belongs to every binary.
----
---- It runs in the artifact phase rather than as a make rule because the
---- artifact itself does: the graph compiles, and staging plus embedding
---- happen here afterwards. The generator is handed its unit's output
---- directory and owns the layout inside it — which is why `base` can
---- exist at all without `build` growing a second hook.
+--- Run one unit's generator, if it has one.
 --- @param proj Project The scanned project
---- @param binary Binary The artifact being built
+--- @param unit string The unit's directory, "" for the root
 --- @param cosmic string Absolute path to the cosmic binary
 --- @return boolean, string Success, or false plus the reason
-local function generate_payload(proj: Project, binary: Binary,
+local function generate_unit(proj: Project, unit: string,
     cosmic: string): boolean, string
-  local gen = fs.join(binary.dir, "embed.gen.tl")
+  local gen = unit == "" and "embed.gen.tl" or fs.join(unit, "embed.gen.tl")
   if not fs.isfile(fs.join(proj.root, gen)) then
     return true
   end
-  local dest = binary.dir == "" and project.BUILD_DIR or
-  fs.join(project.BUILD_DIR, binary.dir)
+  local dest = unit == "" and project.BUILD_DIR or
+  fs.join(project.BUILD_DIR, unit)
   local mok, merr = fs.makedirs(fs.join(proj.root, dest))
   if not mok then
     return false, "make: cannot create " .. dest .. ": " ..
@@ -253,6 +240,69 @@ local function generate_payload(proj: Project, binary: Binary,
     return false, "make: " .. gen .. " failed"
   end
   return true
+end
+
+--- Run every generator in the project, once each.
+---
+--- A phase over the project rather than a step inside `build`, and the
+--- distinction is load-bearing: the ROOT payload is staged into every
+--- binary (root `embed/` is shared the way a root package is), so the
+--- root generator has to run before any binary stages — once, not once
+--- per binary. Hung off `build`, it ran only while the root binary was
+--- being built, so a project with only `cmd/` binaries never ran it at
+--- all, and a project with both staged whatever the previous run had
+--- left depending on which binary name sorted first.
+---
+--- Generation stays inside the build verb rather than becoming a verb
+--- of its own, because a generator whose output a binary embeds is in
+--- that binary's build closure: building without running it embeds the
+--- last run's payload, the stale-output failure the model exists to
+--- prevent. It runs in the artifact phase rather than as a make rule
+--- because the artifact does: the graph compiles, then staging and
+--- embedding happen here.
+--- @param proj Project The scanned project
+--- @param cosmic string Absolute path to the cosmic binary
+--- @return boolean, string Success, or false plus the reason
+local function generate(proj: Project, cosmic: string): boolean, string
+  local ok, err = generate_unit(proj, "", cosmic)
+  if not ok then
+    return false, err
+  end
+  for _, b in ipairs(proj.binaries) do
+    if b.dir ~= "" then
+      local bok, berr = generate_unit(proj, b.dir, cosmic)
+      if not bok then
+        return false, berr
+      end
+    end
+  end
+  return true
+end
+
+--- The first stored-path collision in a sorted plan, if there is one.
+---
+--- Distinct kinds can map to one path inside the artifact: payload
+--- `embed/pkg/db.lua` and module `pkg/db.tl` both store `pkg/db.lua`;
+--- committed `embed/x` and generated `o/<unit>/embed/x` both store `x`.
+--- `stage` writes every entry, so a collision resolved as last-writer-
+--- wins, and the sort is not stable for equal keys -- which bytes ship
+--- could vary run to run. That is a heisenbug at the artifact level,
+--- and the honest answer is to refuse: if a deliberate override order
+--- is ever wanted it should be written down, not inherited from
+--- `table.sort`.
+--- @param out {Staged} The sorted plan
+--- @return string|nil The complaint, or nil when every path is distinct
+local function collision(out: {Staged}): string | nil
+  for i = 2, #out do
+    if out[i].stored == out[i - 1].stored then
+      local a = out[i - 1].source
+      local b = out[i].source
+      return "make: " .. out[i].stored .. ": staged by both " ..
+      (a == "" and "the build" or a) .. " and " ..
+      (b == "" and "the build" or b)
+    end
+  end
+  return nil
 end
 
 --- The full staging plan for one binary.
@@ -309,7 +359,12 @@ local function stage(proj: Project, binary: Binary): string | nil, string
       return nil, "make: cannot clear " .. dir .. ": " .. (rerr or "unknown error")
     end
   end
-  for _, s in ipairs(plan(proj, binary)) do
+  local entries = plan(proj, binary)
+  local clash = collision(entries)
+  if clash then
+    return nil, clash
+  end
+  for _, s in ipairs(entries) do
     local content = s.content
     if not content then
       local body, err = fs.read(s.source)
@@ -364,10 +419,6 @@ end
 --- @return string|nil The artifact path, or nil on failure
 --- @return string The error message
 local function build(proj: Project, binary: Binary, cosmic: string): string | nil, string
-  local gok, gerr = generate_payload(proj, binary, cosmic)
-  if not gok then
-    return nil, gerr or "make: payload generation failed"
-  end
   local dir, serr = stage(proj, binary)
   if not dir then
     return nil, serr or "make: staging failed"
@@ -394,6 +445,7 @@ end
 
 local record ArtifactModule
   base_of: function(proj: Project, binary: Binary, cosmic: string): string
+  generate: function(proj: Project, cosmic: string): boolean, string
   scope_of: function(proj: Project, binary: Binary): {File}
   plan: function(proj: Project, binary: Binary): {Staged}
   stage: function(proj: Project, binary: Binary): string | nil, string
@@ -402,6 +454,7 @@ end
 
 local M: ArtifactModule = {
   base_of = base_of,
+  generate = generate,
   scope_of = scope_of,
   plan = plan,
   stage = stage,

@@ -30,12 +30,31 @@ local zip = require("cosmic.zip")
 --- @param from string Directory holding the extracted archive
 --- @param to string Directory to populate
 --- @param strip integer Leading segments to drop
+--- @param out {string} Collects each file's path relative to `to`
 --- @return boolean, string Success, or false plus the reason
-local function strip_into(from: string, to: string, strip: integer): boolean, string
+local function strip_into(from: string, to: string, strip: integer,
+    out: {string}): boolean, string
   local prefix = string.rep("[^/]+/", strip)
   local failure: string = nil
   local ok, werr = fs.walk(from, function(path: string, _name: string,
         st: fs_types.WalkStat): fs.WalkAction
+      if st:is_link() then
+        -- Loudly, not silently. `cosmic.tar` deliberately preserves
+        -- archive-internal symlinks (relative, no `..`), and this walk
+        -- copied only regular files -- so a pinned tarball using the
+        -- ordinary `lib/libfoo.so -> libfoo.so.1` shape unpacked,
+        -- reported satisfied, and left the links missing. The failure
+        -- then surfaced far from fetch, as an absence.
+        --
+        -- Refusing rather than re-creating them is deliberate: fetched
+        -- trees being symlink-free is currently what keeps `exec`'s
+        -- lexical root check honest (a symlink under `o/` would pass a
+        -- prefix test and be followed at spawn). Carrying them needs
+        -- that check resolved through realpath first.
+        failure = path:sub(#from + 2) ..
+        ": the archive contains a symlink, which a pinned tree does not carry"
+        return "stop"
+      end
       if not st:is_file() then
         return nil
       end
@@ -46,6 +65,7 @@ local function strip_into(from: string, to: string, strip: integer): boolean, st
         return nil
       end
       local dest = fs.join(to, stripped)
+      out[#out + 1] = stripped
       local mok, merr = fs.makedirs(fs.dirname(dest))
       if not mok then
         failure = "cannot create " .. fs.dirname(dest) .. ": " ..
@@ -85,14 +105,15 @@ end
 --- @param dest string Directory to unpack into
 --- @param format string "zip" or "tar.gz"
 --- @param strip integer Leading path segments to drop
---- @return boolean, string Success, or false plus the reason
+--- @return {string}|nil The unpacked paths, relative to `dest`
+--- @return string The error message
 local function unpack(archive: string, dest: string, format: string,
-    strip: integer): boolean, string
+    strip: integer): {string} | nil, string
   local staging = fs.join(dest, ".unpack")
   fs.rmrf(staging)
   local mok, merr = fs.makedirs(staging)
   if not mok then
-    return false, "make: cannot create " .. staging .. ": " ..
+    return nil, "make: cannot create " .. staging .. ": " ..
     (merr or "unknown error")
   end
   local ok: boolean = false
@@ -101,7 +122,7 @@ local function unpack(archive: string, dest: string, format: string,
     local reader, oerr = zip.reader(archive)
     if not (reader is zip.Reader) then
       fs.rmrf(staging)
-      return false, "make: cannot open " .. archive .. ": " ..
+      return nil, "make: cannot open " .. archive .. ": " ..
       (oerr or "unknown error")
     end
     -- cast: narrowing does not survive the early-exit guard above
@@ -112,22 +133,26 @@ local function unpack(archive: string, dest: string, format: string,
     ok, err = untar.extract(archive, staging)
   else
     fs.rmrf(staging)
-    return false, "make: " .. archive .. ": unknown format '" .. format ..
+    return nil, "make: " .. archive .. ": unknown format '" .. format ..
     "'; a pin unpacks as zip or tar.gz"
   end
   if not ok then
     fs.rmrf(staging)
-    return false, "make: cannot unpack " .. archive .. ": " ..
+    return nil, "make: cannot unpack " .. archive .. ": " ..
     (err or "unknown error")
   end
-  local sok, serr = strip_into(staging, dest, strip)
+  local produced: {string} = {}
+  local sok, serr = strip_into(staging, dest, strip, produced)
   fs.rmrf(staging)
-  return sok, serr
+  if not sok then
+    return nil, serr
+  end
+  return produced
 end
 
 local record ExtractModule
   unpack: function(archive: string, dest: string, format: string,
-  strip: integer): boolean, string
+  strip: integer): {string} | nil, string
 end
 
 local M: ExtractModule = {
