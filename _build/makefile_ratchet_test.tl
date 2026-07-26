@@ -135,12 +135,14 @@ local hostx_allowed: {string} = {
   "o/coverage/_build/makefile_test.tl.test.got", -- unveil_test + mk
   "o/coverage/cosmic/_make/artifact_test.tl.test.got", -- unveil_test + bin/cosmo-make
   "o/coverage/cosmic/_make/build_test.tl.test.got", -- unveil_test + bin/cosmo-make
+  "o/coverage/cosmic/_make/fixtures_test.tl.test.got", -- unveil_test + bin/cosmo-make
   "o/coverage/cosmic/teal_config_test.tl.test.got", -- unveil_test + tlconfig
   "o/coverage/cosmic/tty_pty_test.tl.test.got", -- unveil_test + pty devs
   "o/coverage/cosmic/tty_test.tl.test.got", -- unveil_test + pty devs
   "o/_build/help_test.tl.test.got", -- unveil_test + Makefile
   "o/_build/makefile_test.tl.test.got", -- unveil_test + mk
-  "o/cosmic/_make/artifact_test.tl.test.got", -- unveil_test + bin/cosmo-make
+  "o/cosmic/_make/artifact_test.tl.test.got",
+  "o/cosmic/_make/fixtures_test.tl.test.got", -- unveil_test + bin/cosmo-make
   "o/cosmic/_make/build_test.tl.test.got", -- unveil_test + bin/cosmo-make
   "o/cosmic/teal_config_test.tl.test.got", -- unveil_test + tlconfig
   "o/cosmic/tty_pty_test.tl.test.got", -- unveil_test + pty devs

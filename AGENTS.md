@@ -370,6 +370,20 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | uuid | UUIDv4 and UUIDv7 generation |
 | zip | ZIP archive reading and writing |
 
+## `--make` fixtures
+
+`cosmic/_make/testdata/**` holds hello-world-sized projects — one per
+behaviour (`hello`, `pkg`, `multi`, `luaonly`, `assets`) — that
+`cosmic/_make/fixtures_test.tl` checks, builds and runs. They are real
+projects with their own roots, so this repo's model does not see them
+(that is what `testdata/` is for), and they are the fastest way to try a
+`--make` change by hand:
+
+```bash
+cp -r cosmic/_make/testdata/hello /tmp/h && cd /tmp/h
+COSMIC_MAKE=$OLDPWD/bin/cosmo-make $OLDPWD/o/bin/cosmic --make build && ./o/bin/hello
+```
+
 ## Testing
 
 **Reading gate results**: `bin/make ci` (and each stage) signals via exit

@@ -26,10 +26,16 @@ end
 
 --- Check whether a path is excluded from coverage reporting.
 --- Tests and examples measure themselves by running; type declaration
---- files carry no executable code.
+--- files carry no executable code; and `testdata/` is not this
+--- project's code at all — it holds fixtures, which for `cosmic --make`
+--- are whole little projects with their own roots. Measuring their
+--- coverage would report on a program this repo does not ship.
 --- @param path string A source path
 --- @return boolean
 local function is_excluded(path: string): boolean
+  if path:find("/testdata/", 1, true) or path:sub(1, 9) == "testdata/" then
+    return true
+  end
   if path:match("_test%.tl$") or path:match("_test%.lua$") then
     return true
   end

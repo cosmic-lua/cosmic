@@ -140,6 +140,68 @@ the first-fetch shell in `bin/cosmic`.
   filename, ambiguous root, internal import
 - spawn-cost budget: `cosmic -c` under `-j`, reported in phase 1
 
+## What remains before `--make` builds cosmic
+
+The phase's endpoint is one command producing this repo's binary, with
+the checks along the way. Measured rather than guessed — `cosmic --make
+build` at the root today:
+
+```
+$ cosmic --make build
+compile … cosmic/zip.tl o/cosmic/zip.lua --include-dir . --deps … ;
+copy tlconfig.lua o/tlconfig.lua ;
+build: PASS (356 files)
+```
+
+**It already compiles the whole repo**, strictly, with per-file import
+closures. It produces no binary for one reason: nothing declares an
+entry. That is the first item below, and it is smaller than the list
+that follows it.
+
+| # | gap | why it blocks | evidence |
+|---|---|---|---|
+| 1 | no entry | `proj.binaries` is empty, so `build` stops after compiling | `build: PASS (356 files)` with no `o/bin/…` line |
+| 2 | `_cli`/`_make` are inside `cosmic/` | an entry at `cmd/cosmic/` cannot import them (`_` rule) | the model gate refuses exactly this shape |
+| 3 | `tl.lua` is not in the tree | the artifact ships what the tree provides; tl arrives as a *tarball* beside its pin | `fetch` downloads; it does not extract |
+| 4 | the type tree's location | assets ship at their relative path (`/zip/_types/**`), but 3d put the payload at `/zip/.types/` to keep it out of the module root | both are true; the layout rule has no exception yet |
+| 5 | the docs index | a generation unit, and `regen` is not implemented | `--make` lists it as planned |
+| 6 | `cosmic.mk` and `make` | the code reads them at `/zip/cosmic.mk` and `/zip/make`; as assets they would land at `/zip/cosmic/_make/cosmic.mk` | `RULES_ZIP`/`MAKE_ZIP` in graph.tl |
+| 7 | the version stamp | still minted by a shell recipe reading `git describe` | design says committed data + env |
+| 8 | the base is not selectable | `artifact.build` always passes the running cosmic | `embed.run(dir, out, cosmic, …)` |
+
+Items 1–2 are 3h. Items 3–7 are what 3i means by "the verbs take over":
+each is a capability `--make` has to *have*, not a migration. Item 8 is
+the one genuinely open design question — cosmic building cosmic bases on
+a cosmic, strips to the floor, and re-adds its own `cosmic/**` (which 3a
+makes legal); whether that is right, or whether a project should be able
+to name its base, is undecided.
+
+Testing along the way is in better shape than building: `--make test`
+runs today, and the repo's own tests already take their closures from
+the same model (3f). What `bin/make ci` still owns beyond it are the
+policy lanes — coverage, enforce, reproducible, offline — which the
+design puts in phase 4 as verbs.
+
+## Fixtures
+
+`cosmic/_make/testdata/**` holds hello-world-sized projects, one per
+behaviour, each checked, built and *run* by `fixtures_test.tl`:
+
+| fixture | what it pins down |
+|---|---|
+| `hello/` | the smallest project that is one: entry → `o/bin/hello` |
+| `pkg/` | import path is position (`greet/init.tl` is `greet`) |
+| `multi/` | two `cmd/` binaries, shared root packages, no cross-imports |
+| `luaonly/` | `.lua` sources are first-class |
+| `assets/` | an asset ships at its relative path; `testdata/` never ships |
+
+They are committed rather than written inline by the test because they
+double as the examples a person reads, and they are built with the same
+two commands a user would type. Being real projects under `testdata/`,
+they are invisible to this repo's own model — which is what `testdata/`
+is for, and is now also why the source-reachability ratchet and the
+coverage scan skip it.
+
 ## Phasing
 
 1. **`-c` shell mode — landed, except the fence default.** the closed

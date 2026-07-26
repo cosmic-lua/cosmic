@@ -282,9 +282,15 @@ test_check_gates_terminate_the_outer_parse()
 -- no extra sandbox grant: lint_files is git's view (#799) and
 -- all_source_files is what the gates enumerate.
 --
--- .d.tl is the one deliberate exclusion: those are generated
--- declarations that gentype_test asserts byte-for-byte against
--- generator output, so formatting them would fight the generator.
+-- Two deliberate exclusions. `.d.tl` are generated declarations that
+-- gentype_test asserts byte-for-byte against generator output, so
+-- formatting them would fight the generator. `testdata/` holds the
+-- `--make` fixture projects — whole little projects belonging to a
+-- DIFFERENT root, and checking them with this repo's gates would be
+-- checking them as if they were part of this project, which is exactly
+-- what they are not. They are not unchecked: fixtures_test.tl runs
+-- `cosmic --make check` on each one, in its own root, which is the
+-- gate that applies to them.
 local function db_tl_set(db: string, name: string): {string: boolean}
   local line = db:match("\n" .. name .. " :=([^\n]*)")
   assert(line, "expected " .. name .. " in the make database")
@@ -302,7 +308,8 @@ local function test_every_tl_is_reachable_by_the_check_gates()
   local declared = db_tl_set(db, "all_source_files")
   local missing: {string} = {}
   for path in pairs(db_tl_set(db, "lint_files")) do
-    if not path:match("%.d%.tl$") and not declared[path] then
+    if not path:match("%.d%.tl$") and not path:match("/testdata/")
+    and not declared[path] then
       missing[#missing + 1] = path
     end
   end

@@ -26,7 +26,7 @@ $(cosmic_debug_test_got): $(cosmic_debug_bin)
 # outside the standard test grant they need. Everything that make then
 # runs is $(o)/bin/cosmic and fixture trees under $(TMP), both granted.
 make_graph_tests := $(call test_got,cosmic/_make/build_test.tl \
-  cosmic/_make/artifact_test.tl)
+  cosmic/_make/artifact_test.tl cosmic/_make/fixtures_test.tl)
 $(make_graph_tests): .UNVEIL := $(unveil_test) rx:bin
 
 cosmic_built := $(o)/cosmic/.built

@@ -450,3 +450,37 @@ fetch, not stage, not the version stamp. Worth noting what made the
 bump safe rather than a repeat of phase 1's: it was verified from
 nothing (`rm -rf o bin/cosmo-make`), which is the gate the 3g follow-up
 had just learned to run.
+
+## Fixtures, and what running `--make build` on the repo showed
+
+Committed hello-world projects under `cosmic/_make/testdata/**`, one per
+behaviour, each checked/built/run by `fixtures_test.tl`. Written because
+the inline fixtures elsewhere answer "does this rule fire", and these
+answer a different question: does a project someone would actually write
+go from source to a running binary.
+
+- **the artifact is named after its directory**, which the staging path
+  quietly decided: copying `hello/` to `fixture-hello/` built
+  `o/bin/fixture-hello` and the test asserted on a binary that was not
+  the one on disk. Fixtures stage under a parent now, keeping their own
+  names.
+- **one fixture failed its own type check**, which is the fixtures
+  working: `fs.read()` returns `string | nil` and the fixture indexed it.
+  A hello-world example that does not type-check is a bad example, and
+  `--make check` said so before anyone read it.
+- **`testdata/` needed telling twice more.** The source-reachability
+  ratchet (#800's, "every `.tl` must be declared by some cook.mk") and
+  the coverage scan both swept the fixtures in. Neither is wrong in
+  general; both were missing that `testdata/` holds whole projects with
+  their own roots, which this repo neither compiles nor ships. They skip
+  it now, for that reason rather than by name.
+
+**And the measurement the fixtures were the excuse to take.** `cosmic
+--make build` at the repo root: `build: PASS (356 files)`. It already
+compiles the entire tree, strictly, with per-file closures — and
+produces no binary only because nothing declares an entry. The distance
+left to "one command produces cosmic" is therefore not the compiling; it
+is the payload a cosmic binary carries beyond its own modules (tl, the
+type tree, the docs index, the engine) and where each of those comes
+from. That list is now a table in make-plan.md with the evidence for
+each row, rather than a phase name.

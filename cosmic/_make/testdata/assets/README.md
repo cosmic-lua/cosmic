@@ -1,0 +1,2 @@
+-- An asset ships at its relative path; testdata/ never ships.
+-- That is the only job testdata/ has.
