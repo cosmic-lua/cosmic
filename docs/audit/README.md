@@ -2,8 +2,10 @@
 
 findings from a review of branch `claude/cosmic-make-embedded-artifact-qpfsgr`,
 originally at `180b0d3` ("close the fixpoint"), re-reviewed at `4a15b92`
-("fix 18 findings") and again at `1ca5fd1` (six fix commits: fixpoint gate,
-cache security, exec realpath, tar terminator, `.d.tl` closures, doc sweeps).
+("fix 18 findings"), `1ca5fd1` (six fix commits: fixpoint gate, cache
+security, exec realpath, tar terminator, `.d.tl` closures, doc sweeps), and
+`a44fe32` (skip-hardening: `check.needs`, payload-gate seeding, bootstrap
+bump to a branch-built release).
 every file here is one open issue with location, failure scenario, and a
 suggested fix. ids are stable; resolved entries are deleted (their text lives
 in git history) and listed below.
@@ -69,7 +71,6 @@ in git history) and listed below.
 | id | issue |
 |---|---|
 | [028](028-make-fetch-ungated-in-ci.md) | `--make fetch` never runs in ci against the real pins (now a 056 prerequisite) |
-| [029](029-graph-tests-skip-silently.md) | `--make` graph tests degrade to green skips without the engine |
 
 ### ci convergence — the workflow files themselves
 
@@ -90,6 +91,12 @@ in git history) and listed below.
 | [033](033-minor-cleanups.md) | one leftover: `tar.parse_pax` exported for tests only |
 
 ## resolved
+
+### round 4 — through `a44fe32`
+
+| ids | what was fixed |
+|---|---|
+| 029 | `check.needs`: missing preconditions skip locally, hard-fail under `CI` — applied to all five graph tests, tested both directions. its first CI run caught the 027 payload gate silently skipping in every prior run (11343a6), which it then fixed by seeding `o/3p/**` from the staged tree, with a cannot-silently-skip-again verification. the bootstrap pin moved to a branch-built release (2026-07-26-1ca5fd1), verified against SHA256SUMS and spot-checked for the 004/012 fixes before pinning |
 
 ### round 3 — the six commits through `1ca5fd1`, verified against their diffs
 
@@ -120,10 +127,11 @@ tree).
 
 ## note for the next fix pass
 
-**038 is the item to take first**: it is high severity, one line
-(`literal.tl:75` — return `after` unmodified; a position capture is
-already absolute), it was introduced by round 2's fix for 004, and it
-has now survived two fix passes — likely because those passes worked
-from the round-1 list. the round-3 commits were verified sound on
-re-review; the exec fix and the cache fix are both better than the
-audit asked for.
+**038 is the item to take first, and it has now survived THREE fix
+passes**: high severity, one line (`literal.tl:75` — return `after`
+unmodified; a position capture is already absolute), introduced by
+round 2's fix for 004. round 4's bootstrap-bump verification even
+spot-checked 004 (`"a\nb"` decodes to three characters) — the escape
+branch beside the broken one — so the pinned bootstrap now *ships* the
+`\u{}` bug. every fix pass so far has worked from an older snapshot of
+this directory; whatever list the next one uses, start here.

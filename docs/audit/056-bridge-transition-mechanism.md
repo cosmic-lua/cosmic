@@ -4,7 +4,7 @@ severity: blocker for 3i (the mechanism the other five run inside)
 type: process / verification
 area: Makefile, mk/*.mk, cook.mk, pr.yml, `_build/makefile_ratchet_test.tl`
 
-## two unverified assumptions to retire first
+## one unverified assumption to retire first
 
 1. **nobody has shown `--make test` passes this repo's full suite.**
    the plan says it "runs today" and 3f wired the closures, but no CI
@@ -13,10 +13,13 @@ area: Makefile, mk/*.mk, cook.mk, pr.yml, `_build/makefile_ratchet_test.tl`
    what differs — test *discovery* parity (same test set as
    `bin/make test`, including `.lua` tests since 4a15b92) is as
    important as pass/fail parity.
-2. **the graph tests currently skip without the engine** (audit 029) —
-   during a transition that reshuffles provisioning, silent skips are
-   how a broken `--make` looks green. make the skip a hard fail in CI
-   lanes first.
+
+(the second assumption — graph tests skipping silently without the
+engine, audit 029 — is retired: 629a117's `check.needs` hard-fails in
+CI, and its very first CI run caught the 027 payload gate skipping in
+every prior run, 11343a6. that is the empirical case for this file's
+dual-gate discipline: gates that cannot report their own absence go
+quietly decorative.)
 
 ## progress since filed
 
