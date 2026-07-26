@@ -20,14 +20,14 @@ local fs = require("cosmic.fs")
 
 --- One lexical token: its raw text, what it is, and the line it began on.
 ---
---- This module lexes for itself. It used to borrow `tl.lex`, which made
---- the safe-config reader depend on the ~15k-line Teal COMPILER --- and
---- a stripped artifact keeps `cosmic/**` while dropping `tl.lua`, so
---- `require("cosmic.literal")` threw `module 'tl' not found` in exactly
---- the artifacts whose authors want a config file that cannot do
---- anything. The literal grammar needs identifiers, strings, numbers
---- and punctuation; that is the lexer below, and it costs this module
---- its last dependency beyond `cosmic.fs`.
+--- This module lexes for itself rather than borrowing `tl.lex`, so a
+--- safe-config reader does not drag in the ~15k-line Teal compiler. A
+--- stripped artifact keeps `cosmic/**` and drops `tl.lua`, so a shared
+--- lexer would make `require("cosmic.literal")` throw `module 'tl' not
+--- found` in exactly the artifacts whose authors want a config file
+--- that cannot do anything. The literal grammar needs identifiers,
+--- strings, numbers and punctuation; that is the lexer below, and it
+--- leaves this module with no dependency beyond `cosmic.fs`.
 local record Token
   tk: string
   kind: string
@@ -175,14 +175,14 @@ end
 
 --- How deep a literal may nest.
 ---
---- The parser is recursive descent, so nesting depth is stack depth: a
---- crafted `{a={a={a=…}}}` blew the Lua stack and THREW `stack
---- overflow`, in the one module whose entire promise is that reading a
---- file cannot do anything. A library that throws is a library that
---- takes the process down with it, and every caller here is
---- unprotected. 32 is far past any real pin — the deepest in this repo
---- is 2 — so the limit costs nothing a caller would notice and turns a
---- crash into the same polite refusal every other malformed pin gets.
+--- The parser is recursive descent, so nesting depth is stack depth:
+--- without a cap, a crafted `{a={a={a=…}}}` overflows the Lua stack and
+--- THROWS, in the one module whose entire promise is that reading a
+--- file cannot do anything. A library that throws takes the process
+--- down with it, and no caller here is protected. 32 is far past any
+--- real pin — the deepest in this repo is 2 — so the cap costs nothing
+--- a caller would notice and makes a crafted file get the same polite
+--- refusal every other malformed pin gets.
 local MAX_DEPTH < const > = 32
 
 --- Lua's single-character escapes, by the character that follows `\`.
@@ -239,12 +239,12 @@ end
 
 --- The value a string token denotes.
 ---
---- `sub(2, -2)` was wrong twice over: it left `\n` as two characters
---- rather than a newline, and it stripped one character per side from a
---- long bracket, so `[==[x]==]` read as `==[x]==`. Both returned
---- silently wrong data from a module whose contract is "equal to what
---- executing the file would return" — the failure mode a reader like
---- this exists to make impossible.
+--- Delimiters vary and escapes must be decoded: a short string may
+--- carry `\n`, `\x41` or `\u{...}`, while a long bracket carries none
+--- and its delimiter is as many `=` as were written. Both matter
+--- because the module's contract is "equal to what executing the file
+--- would return", and a reader that quietly returns different data is
+--- the failure this exists to make impossible.
 --- @param tk string The raw string token, delimiters included
 --- @return string|nil The value, or nil when the token is malformed
 local function string_value(tk: string): string | nil

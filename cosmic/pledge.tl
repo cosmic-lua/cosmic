@@ -8,8 +8,8 @@
 --- The API is fail-closed: on hosts where the libc cannot enforce a
 --- pledge (anything other than Linux or OpenBSD), `apply` returns
 --- `false, "pledge unsupported on this host"` instead of reporting a
---- sandbox that does not exist. Callers that prefer the old fail-open
---- behavior opt in explicitly with `best_effort = true`, or branch on
+--- sandbox that does not exist. Callers that want fail-open behavior
+--- opt in explicitly with `best_effort = true`, or branch on
 --- `available()` themselves.
 ---
 --- Common promise groups:

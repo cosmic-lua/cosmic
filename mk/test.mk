@@ -1,7 +1,6 @@
-# Included from the top-level Makefile at the position this block used to
-# occupy, so parse order — and therefore every pattern-specific variable
-# and its nesting — is unchanged. The Makefile keeps aggregation
-# and the shared path variables; each mk/*.mk holds one rule family.
+# One rule family per mk/*.mk; the Makefile keeps aggregation and the
+# shared path variables. Include order is load-bearing: pattern-specific
+# variables and their nesting depend on where this is included.
 #
 # the three test lanes (plain, coverage, enforce) and the coverage ratchet.
 
@@ -35,10 +34,10 @@ $(pins_tests): .UNVEIL := $(unveil_test) r:3p
 #
 # The tell is spawning `--make` or a generator with the repo as cwd: the
 # child walks the project root, and the walk is what the default grant
-# denies. That is not visible on a host without Landlock (`bin/make
-# sandbox-canary` says so), so it surfaces only in CI -- it has now cost
-# three round trips on this branch. If you add a test that builds this
-# project, add it here at the same time.
+# denies. A host without Landlock cannot see this (`bin/make
+# sandbox-canary` reports whether it can), so it surfaces only in CI. If
+# you add a test that builds this project, add it here at the same
+# time.
 #
 #   fixpoint_test  copies the tree and builds cosmic from the copy, twice
 #   generate_test  runs cmd/cosmic/embed_gen.tl against the real tree
@@ -61,20 +60,16 @@ $(quicksand_sandbox_tests): .PLEDGE =
 $(quicksand_sandbox_tests): .UNVEIL =
 
 # $$(deps_$$*) is the test's transitive import closure as BUILT paths,
-# from o/project.mk. It replaces the per-module test dependencies
-# each cook.mk used to declare by hand, and it closes a gate that was
-# open: a test resolves an import it has no prerequisite for through the
-# runtime .tl searcher, which compiles LAX, so a module that fails its
-# STRICT compile could still have a passing test. Reproduced before the
-# change: put an unused local in _types/gentl.tl and `make
-# o/_types/gentl.lua` fails while `make o/_types/gentl_test.tl.test.got`
-# exits 0. Now the compile is a prerequisite of the test.
+# from o/project.mk. It makes each test depend on the compile of what it
+# imports, which is what keeps the strict compile honest: a test can
+# resolve an unlisted import through the runtime .tl searcher, which
+# compiles LAX, so without this a module that fails its STRICT compile
+# could still have a passing test.
 $(o)/%.tl.test.got: $(o)/%.lua $$(deps_$$*) $(cosmic_bin) $(ape_loader)
 	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
-# What each cook.mk still declares is what a closure cannot see: the
+# What each cook.mk declares is what a closure cannot see: the
 # cosmos/tl staged trees and TEST_DIR, the debug binary, and grants.
-# Import edges are no longer among them.
 
 # Coverage lane: the same tests in a separate output tree, run with
 # collection enabled, so `bin/make coverage` never invalidates the plain
@@ -119,15 +114,14 @@ coverage-baseline: $(coverage_got) | $(cosmic_bin)
 	@$(bootstrap_cosmic) --build capture $(cosmic_bin) $(coverage_baseline) $(coverage_baseline_tool) write $(o)/coverage $(src_dirs)
 	@echo wrote $(coverage_baseline)
 
-# Privileged enforcement lane (Phase 1 step 8 prerequisite, audit §5.1).
-# The sandbox tests carry "outer sandbox blocked this -> skip" escape hatches,
+# Privileged enforcement lane. The sandbox tests carry "outer sandbox blocked this -> skip" escape hatches,
 # so under CI's own landlock-make sandbox their enforcement assertions silently
 # degrade to no-ops and nothing alarms when everything skips. This lane runs the
 # sandbox-primitive tests with NO outer sandbox (empty .PLEDGE/.UNVEIL, like the
 # quicksand namespace tests) and COSMIC_ENFORCE=1, so a test that cannot exercise
 # real enforcement fails loudly instead of skipping. The tripwire then fails the
-# lane if *nothing* enforced (the "unexpectedly-everything-skipped" alarm), which
-# would mean the lane is not actually unsandboxed and is silently a no-op.
+# lane if *nothing* enforced, which would mean the lane is not actually
+# unsandboxed and is silently a no-op.
 enforce_srcs := \
   cosmic/pledge_test.tl \
   cosmic/landlock_test.tl \

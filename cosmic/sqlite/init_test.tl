@@ -481,7 +481,7 @@ local function test_query_one_close_after_hit()
   db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
   db:exec("INSERT INTO t (name) VALUES ('alice')")
 
-  -- query_one that returns a row — previously leaked the iterator/statement
+  -- query_one that returns a row must not leak the iterator/statement
   local row = check.must(db:query_one("SELECT * FROM t WHERE name = ?", "alice"))
   assert(row.name == "alice", "row.name should be 'alice'")
 

@@ -227,7 +227,7 @@ test_extract_preserves_file_modes()
 -- The APE loader mmaps code pages from the executable via MAP_PRIVATE.
 -- If embed wrote directly to the output path, the running process would
 -- get corrupted pages and crash (SIGSEGV). Atomic rename via mkstemp
--- ensures the old inode stays valid for the running process.
+-- keeps the original inode valid for the running process.
 local function test_embed_does_not_corrupt_running_process()
   -- Create a program that sleeps, then exercises code pages
   local appdir = fs.join(tmpdir, "running-app")

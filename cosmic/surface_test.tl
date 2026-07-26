@@ -1,16 +1,10 @@
 #!/usr/bin/env cosmic
 --- The public surface, derived from position rather than declared.
 ---
---- `cosmic.public` used to be a hand-maintained list, and this file used
---- to be its lint: every embedded module had to appear on one of its two
---- lists, and neither list could go stale. Both of those tests are gone
---- because both classes of bug are gone with the manifest — a module is
---- public because of where it sits, so there is nothing to forget and
---- nothing to leave behind.
----
---- What survives is everything the manifest was a means to: the public
---- modules load, they are documented, and a directory module still
---- answers to its own name.
+--- A module is public because of where it sits, so there is no manifest
+--- to keep in sync and no lint for one. What this asserts is what such
+--- a manifest would have been a means to: the public modules load, they
+--- are documented, and a directory module answers to its own name.
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
@@ -48,10 +42,10 @@ local public = visibility.public_of(embedded_modules())
 --- nothing.
 ---
 --- The live exclusion in the embedded set is `cosmic._version`, the
---- generated stamp — since 3h it is the ONLY `cosmic/_*` there is, the
---- dispatcher and the build system having moved to root `_cli/` and
---- `_make/`. Those two are asserted below as well, because "not public"
---- has to hold for a name outside `cosmic.` entirely, not only for an
+--- generated stamp, and it is the ONLY `cosmic/_*` there is: the
+--- dispatcher and the build system live at root `_cli/` and `_make/`.
+--- Those two are asserted below as well, because "not public" has to
+--- hold for a name outside `cosmic.` entirely, not only for an
 --- underscore inside it.
 local function test_the_rule_actually_partitions()
   assert(#public > 20,
@@ -127,10 +121,10 @@ end
 test_public_modules_are_documented()
 
 --- The index generator applies the same rule inline, because it also
---- runs under the pinned bootstrap whose stdlib predates this module.
---- Two copies of one rule is a drift risk, so it is asserted: every
---- module the index carries must agree with visibility.is_public about
---- whether it is internal.
+--- runs under the pinned bootstrap, whose stdlib may not carry this
+--- module. Two copies of one rule is a drift risk, so it is asserted:
+--- every module the index carries must agree with visibility.is_public
+--- about whether it is internal.
 local function test_index_visibility_agrees_with_the_rule()
   local docs = require("cosmic.doc")
   local idx = check.must(docs.embedded_index())

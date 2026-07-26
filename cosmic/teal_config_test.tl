@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
 -- tlconfig.lua (editor/LSP tooling) and the Makefile's INCLUDE_DIRS both
--- mirror the checker options compiled into cosmic.teal; this test replaces
--- the old "keep the two in sync by hand" comment with enforcement. The
+-- mirror the checker options compiled into cosmic.teal, and this test is
+-- what keeps the three in sync instead of a comment asking politely. The
 -- test's Makefile target grants r:tlconfig.lua and r:Makefile — the repo
 -- root is outside the default test unveil.
 

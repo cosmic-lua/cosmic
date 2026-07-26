@@ -5,10 +5,10 @@ local proc = require("cosmic.proc")
 local fs = require("cosmic.fs")
 
 -- The module record is declared UP HERE so `Item` is a type a caller
--- can name (`help.Item`). _types/make-help.d.tl used to publish that
--- shape while the source kept Item as a bare local; deleting the
--- declaration (once the bare `require("make-help")` became
--- `_build.make-help`) meant the source had to actually expose what the
+-- can name (`help.Item`). A hand-written `.d.tl` could publish that
+-- shape while the source kept Item as a bare local, but then the
+-- declaration and the source are two descriptions of one thing; the
+-- source exposes what the
 -- declaration had been promising.
 local record MakeHelp
   record Item

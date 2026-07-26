@@ -43,10 +43,9 @@ unveil_dev := rw:/dev/null r:/dev/random r:/dev/urandom
 # Host set proven under real enforcement by the sandbox-canary
 # and the enforced families' CI runs: shell + coreutils + loaders.
 unveil_hostx := rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc $(unveil_dev)
-# Grants derived from the graph:
-# landlock-make auto-grants rx on prerequisites and rwc on the target's
-# directory, so sandboxed families no longer hand-grant the whole
-# output tree — only genuinely-extra paths. fetch writes the archive
+# Grants derived from the graph: landlock-make auto-grants rx on
+# prerequisites and rwc on the target's directory, so a rule declares
+# only genuinely-extra paths. fetch writes the archive
 # cache; stage reads it and writes the staged tree (their stamps and
 # symlinks live in the target's own directory, covered by the
 # auto-grant).
@@ -60,7 +59,7 @@ unveil_run := $(unveil_base) rwc:$(o) rwc:$(TMP) $(unveil_hostx)
 # beyond pledge_build discovered empirically under local seccomp.
 pledge_test := $(pledge_build) fattr inet dns unix tty id flock
 
-# First ENFORCED rule family: the .tl compile rule. landlock-make
+# The .tl compile rule is sandbox-enforced. landlock-make
 # auto-grants rx on every prerequisite (source, types, bootstrap) and on
 # the recipe shell, merges the global .PLEDGE/.UNVEIL in,
 # and always adds the "prot_exec exec" promises — so the target grants
@@ -71,10 +70,7 @@ pledge_test := $(pledge_build) fattr inet dns unix tty id flock
 # bootstrap below: a raw APE exec falls back to extracting a loader into
 # $HOME/.ape-*, which no grant covers. Pattern variables attach by
 # target NAME, so every *.lua target under $(o) is enforced — the
-# compiles and the doc index. (Before this also swept up whichever
-# `$(o)/%: %` source copies happened to end in .lua — two of 308 — and
-# left the rest unenforced; retiring that rule made the family's
-# membership deliberate.) the version stamp opts back out where it is defined: its
+# compiles and the doc index. The version stamp opts back out where it is defined: its
 # recipe needs git + .git, and its `|| echo unknown` fallback would
 # otherwise silently mint an artifact with no version.
 $(o)/%.lua: .SANDBOXED := 1
@@ -124,11 +120,10 @@ $(o)/%/.fetched: .ENV := LUA_PATH FETCH_O SSL_USE_SYSTEM_CERTS SSL_CERT_FILE \
   LC_ALL TZ NO_COLOR TMPDIR
 $(o)/%/.staged: .ENV := LUA_PATH STAGE_O FETCH_O LC_ALL TZ NO_COLOR TMPDIR
 $(o)/%/.fetched $(o)/%/.staged: export LUA_PATH = $(tree_lua_path)
-# De-hosted: lint runs through the pinned bootstrap's --test
-# capture (which mkdtemps under $(TMP)); the .ok alias file is retired —
-# the .got IS the target. LUA_PATH points the lint child at this tree's
-# compiled style code (the doc/index.tl pattern); the --test wrapper
-# sees it too, as the old shell prefix already had it.
+# Lint runs through the pinned bootstrap's --test capture, which
+# mkdtemps under $(TMP); the .got file IS the target. LUA_PATH points
+# the lint child at this tree's compiled style code, and the --test
+# wrapper inherits it.
 $(o)/%.lint.got: .SANDBOXED := 1
 $(o)/%.lint.got: .PLEDGE := $(pledge_build)
 $(o)/%.lint.got: .UNVEIL := rwc:$(TMP) $(unveil_dev)
@@ -238,11 +233,11 @@ bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-26-1c
 # bootstrap's stale embedded source (— see tree_tl_path).
 bootstrap_sha256 := 55f6c6b6af153739b14c49f41b112163a0abb9651c1bcb738d4d3fc04630b4a0
 
-# bin/make is the SOLE provisioner of the bootstrap (cleanup): it
-# runs before every make invocation, parses the pin above via sed,
+# bin/make is the SOLE provisioner of the bootstrap: it runs before
+# every make invocation, parses the pin above via sed,
 # downloads/verifies/assimilates, and re-downloads when the pin moves
 # (the .pin stamp beside the binary). Neither rule below downloads, so
-# the curl/sha256sum/cmp shell exception this rule carried is retired.
+# neither needs a shell.
 ifeq ($(o),o)
 # Canonical tree: only a bypassed bin/make can get here — trip loudly.
 $(bootstrap_cosmic):
@@ -267,7 +262,7 @@ endif
 # gentype runs under the STAGED cosmos lua binary — whose embedded
 # /zip/.lua/definitions.lua IS the pinned source of truth — with LUA_PATH
 # limited to gentype's compiled require closure. Depending on $(cosmic_bin)
-# here would compile the WHOLE tree against the old committed .d.tl,
+# here would compile the WHOLE tree against the committed .d.tl,
 # deadlocking any pin bump that lands together with code already using the
 # new bindings. The closure below is the transitive requires of
 # types.gentype; if it drifts, the recipe fails loudly with "module not

@@ -1,8 +1,8 @@
 --- Internal helper for cosmic.sqlite: the row iterator for db:query's hot
---- path. Collapses what used to be a full Statement object (~10 method
---- closures) + Statement:rows() + a close-on-drain wrapper into a single
---- iterator that steps the raw statement directly, resolves column names
---- once on the first row, and releases the statement when iteration drains.
+--- path. One iterator that steps the raw statement directly, resolves
+--- column names once on the first row, and releases the statement when
+--- iteration drains -- instead of a full Statement object (~10 method
+--- closures) plus Statement:rows() plus a close-on-drain wrapper.
 --- Lives in its own file so cosmic/sqlite.tl stays under the 500-line cap.
 
 local bind_mod = require("cosmic.sqlite.bind")

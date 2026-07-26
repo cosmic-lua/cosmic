@@ -96,9 +96,9 @@ end
 --- callers hold different bytes at different moments: the reader has
 --- just read the file it is about to compile, and the writer must key
 --- on the bytes it actually COMPILED. Re-reading at store time binds
---- the old code to the new key whenever the file changed in between —
---- a narrow window, and a silent one: every later run then executes
---- code the source no longer says.
+--- the compiled code to the NEW key whenever the file changed in
+--- between — a narrow window, and a silent one: every later run then
+--- executes code the source does not contain.
 --- @param script_path string Path to the .tl script
 --- @param content string The script's bytes
 --- @return string Cache file path

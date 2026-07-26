@@ -402,9 +402,9 @@ print("All format tests passed!")
 
 -- `?` marks an optional record field as a SUFFIX (`name?: string`) and
 -- an optional argument type as a PREFIX inside a function type. The
--- second is what generated `.d.tl` declarations are full of, and the
--- formatter used to rewrite every one of them to `,? string` -- which
--- is why `--make fmt` failed on a file `bin/make format` never checked.
+-- second is what generated `.d.tl` declarations are full of, and
+-- rewriting those to `,? string` corrupts them -- a formatter bug that
+-- only shows up where a `.d.tl` is actually format-checked.
 local function test_optional_argument_types_keep_their_space()
   local src = "local record R\n" ..
   "  init_env: function(? boolean, ? string, ? {string}): any, string\n" ..

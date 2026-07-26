@@ -6,11 +6,10 @@
 -- These three are one story. A binary's output directory holds
 -- `embed/` (what the artifact carries) beside `base` (what it carries
 -- it on), and the generator owns both. Without `base` the only runtime
--- available is the cosmic running the build, and stripping it leaves
--- its bytes behind — so cosmic-built-by-cosmic grew every generation
--- instead of converging. Without the derived `.args`, swapping to a
--- bare `lua` base produced an artifact that booted as the Lua
--- interpreter.
+-- available is the cosmic running the build, and stripping that leaves
+-- its bytes behind — so cosmic-built-by-cosmic grows every generation
+-- instead of converging. Without the derived `.args`, a bare `lua`
+-- base yields an artifact that boots as the Lua interpreter.
 
 local artifact = require("_make.artifact")
 local cenv = require("cosmic.env")
@@ -324,11 +323,10 @@ local function test_the_real_payload_generator()
   -- The generator reads its pinned inputs from `o/3p/**`, which only
   -- `--make fetch` writes -- and CI provisions the same bytes through
   -- the Makefile pipeline into `o/staged/**` instead. Guarding on
-  -- `o/3p` alone meant this test SKIPPED in every CI run and passed
-  -- green, so audit 027's gate only ever ran on a developer machine
-  -- that had run fetch by hand. Found by check.needs on its first CI
-  -- run, which is the whole argument for it. Seed across instead:
-  -- same bytes, no network, runs everywhere.
+  -- `o/3p` alone makes this test SKIP in every CI run and pass green,
+  -- so it would only ever run on a developer machine that had run fetch
+  -- by hand. Seed across instead: same bytes, no network, runs
+  -- everywhere.
   if not check.needs("staged or fetched pins", seed_pins(repo)) then
     return
   end

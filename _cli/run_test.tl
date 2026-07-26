@@ -1,8 +1,8 @@
 #!/usr/bin/env cosmic
 --- Tests for _cli.run -- the two user-facing error-presentation
---- helpers the CLI wraps every script in (previously zero
---- coverage). Both are pure string transforms, so they are tested
---- directly rather than through a spawned binary.
+--- helpers the CLI wraps every script in. Both are pure string
+--- transforms, so they are tested directly rather than through a
+--- spawned binary.
 
 local run = require("_cli.run")
 local env = require("cosmic.env")

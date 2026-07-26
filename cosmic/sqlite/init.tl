@@ -464,9 +464,9 @@ local record sqlite
   type Blob = bind_mod.Blob
   type OpenOptions = OpenOptions
   --- Exported so callers can name the handles open() and its methods
-  --- return; these are type aliases, not runtime values (the old
-  --- `Database: Database` field spelling declared phantom fields that
-  --- were nil at runtime).
+  --- return; these are type aliases, not runtime values. A
+  --- `Database: Database` field spelling would declare phantom fields
+  --- that are nil at runtime.
   type Database = Database
   type Statement = Statement
   type Rows = Rows

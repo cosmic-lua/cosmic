@@ -176,11 +176,11 @@ local function one(p: Pin): boolean, string
     return false, "make: " .. p.source .. ": " .. p.url .. ": " ..
     (result.error or ("status " .. tostring(result.status)))
   end
-  -- `Result.ok` is transport-level: a 404 error page arrives "ok" and
-  -- used to flow straight into the digest check, so the most common
-  -- failure there is (a typo'd version in the url) reported itself as
-  -- a sha256 mismatch against the hash of an HTML page -- pointing the
-  -- reader at the digest, which was fine, instead of at the url.
+  -- `Result.ok` is transport-level: a 404 error page arrives "ok", so
+  -- the status is checked before hashing. Without that, the commonest
+  -- failure -- a typo'd version in the url -- reports itself as a
+  -- sha256 mismatch against the hash of an HTML page, pointing at the
+  -- digest, which is fine, instead of at the url.
   if result.status < 200 or result.status >= 300 then
     return false, "make: " .. p.source .. ": " .. p.url .. ": HTTP " ..
     tostring(result.status)

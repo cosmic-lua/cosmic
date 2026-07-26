@@ -97,10 +97,10 @@ ensure_bootstrap() {
 # and bootstrap pin bumps (the stamp mismatch re-downloads).
 ensure_bootstrap
 
-# The engine lands in o/ like everything else generated. It used to
-# live at bin/cosmo-make, and that cost a real bug: `bin/make clean`
-# removes o/, so a stale engine OUTSIDE it survived the clean and made
-# the guard below take neither branch — a missing-file failure looked
+# The engine lands in o/ like everything else generated, and that
+# placement is load-bearing: `bin/make clean` removes o/, so an engine
+# kept OUTSIDE it survives the clean and makes the guard below take
+# neither branch — a missing-file failure looks
 # like a working build. It also meant `--make` saw 1.59 MB of build
 # engine sitting in the source tree and shipped it as an asset.
 #

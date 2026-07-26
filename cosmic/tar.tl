@@ -30,7 +30,7 @@
 --- override), and GNU longnames. Anything else fails loudly. Modes are
 --- masked to 0777; mtimes and ownership are deliberately not restored
 --- (the stage rule's pledge does not promise utimensat/chown — the same
---- policy the old `-m --no-same-owner` tar flags encoded).
+--- policy `-m --no-same-owner` encodes for tar(1)).
 
 local compress = require("cosmic.compress")
 local fs = require("cosmic.fs")

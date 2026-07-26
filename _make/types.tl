@@ -104,12 +104,12 @@ local record make_types
   --- One verb: everything the dispatcher, the usage text and the
   --- planned-verb stub need to know about it, in one row.
   ---
-  --- Adding a verb used to mean editing two lists, up to two maps and
-  --- an if-chain in `run`, with which mechanism a verb belonged to
-  --- discoverable only by reading the dispatch. Most of the remaining
-  --- verbs are POLICY verbs (orchestration, not graph targets), so on
-  --- that shape each would have become another branch. The registry is
-  --- also the data structure `ci` needs: a fixed order of stages is a
+  --- One row per verb, rather than two lists, up to two maps and an
+  --- if-chain in `run` -- where which mechanism a verb belongs to is
+  --- discoverable only by reading the dispatch, and each new POLICY
+  --- verb (orchestration, not a graph target) is another branch. The
+  --- registry is also the data structure `ci` needs: a fixed order of
+  --- stages is a
   --- list of verb names only if verbs are values.
   record Verb
     --- The name typed on the command line.
@@ -131,11 +131,11 @@ local record make_types
   ---
   --- Two consumers ask this question -- the facts writer, which emits
   --- `fmt_sources` for the whole project, and the `fmt` verb's
-  --- selection table -- and they used to answer it differently: one by
-  --- kind, the other by suffix. A full `fmt` then gated `testdata/`
-  --- fixtures and `embed/` payload that a selected `fmt` skipped,
-  --- which are exactly the two kinds whose job is to stay out of the
-  --- model. One definition, both readers.
+  --- selection table. One definition, so they cannot answer it
+  --- differently: answering by suffix on one side and by kind on the
+  --- other makes a full `fmt` gate `testdata/` fixtures and `embed/`
+  --- payload that a selected `fmt` skips, which are exactly the two
+  --- kinds whose job is to stay out of the model.
   fmt_kinds: {Kind: boolean}
 
   --- Kinds `lint` reads.

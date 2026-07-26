@@ -39,9 +39,9 @@ local function move_contents(source_dir: string, dest_dir: string): boolean, str
     if name ~= "." and name ~= ".." then
       local src = fs.join(source_dir, name)
       local dst = fs.join(dest_dir, name)
-      -- rename() cannot replace a non-empty directory, so a restage over a
-      -- stale destination (e.g. after the build tooling itself changed and
-      -- invalidated .staged) must clear the old entry first.
+      -- rename() cannot replace a non-empty directory, so a restage over
+      -- a stale destination (e.g. after a change to the build tooling
+      -- invalidated .staged) must clear the existing entry first.
       fs.rmrf(dst)
       local ok, err = fs.rename(src, dst)
       if not ok then

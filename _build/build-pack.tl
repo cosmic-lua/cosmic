@@ -140,10 +140,9 @@ local STORED < const >: {string: boolean} = {
 
 --- Every top-level name in the staging tree, sorted.
 ---
---- The three zip groups used to be three hand-written name lists, and
---- the comment on them said what that costs: a name in none of them is
---- SILENTLY not packed. Twice: once when tl.lua and the types left `.lua/`
---- and fell out of the archive; the binary built, ran, and failed only
+--- Derived rather than three hand-written name lists, because a name in
+--- none of those lists is SILENTLY not packed -- the binary builds,
+--- runs, and fails only
 --- and nothing noticed until something required `tl`, and again when `_cli/` and
 --- `_make/` arrived at the root and shipped no compiled modules at
 --- all). So the tree decides now: everything found is packed, and the

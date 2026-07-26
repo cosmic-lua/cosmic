@@ -198,8 +198,7 @@ local function test_compile_pins_tree_only_tl_path()
   local tl_path = out:match("\ntree_tl_path := ([^\n]*)")
   assert(tl_path, "expected tree_tl_path definition in database output")
   -- The tree's module root IS the repo root, so "absolute and
-  -- tree-anchored" is now asserted against CURDIR itself rather than
-  -- against the `lib/` directory that used to sit under it.
+  -- tree-anchored" is asserted against CURDIR itself.
   local root = check.must(fs.getcwd())
   assert(tl_path:find(root .. "/?.lua", 1, true),
     "tree_tl_path should search the tree root absolutely, got: " .. tl_path)

@@ -130,7 +130,7 @@ end
 test_parse_query_multiple_params()
 
 local function test_parse_query_repeated_key_keeps_all_values()
-  -- The old parse() silently dropped every value but the last.
+  -- Repeated keys must all survive, not collapse to the last value.
   local result = url.parse_query("tag=a&tag=b&tag=c")
   assert(#result.tag == 3, "expected 3 values, got " .. #result.tag)
   assert(result.tag[1] == "a" and result.tag[2] == "b" and result.tag[3] == "c",
@@ -189,8 +189,8 @@ end
 test_parse_full()
 
 local function test_parse_is_a_url_parser_not_a_query_parser()
-  -- The old url.parse treated its input as a query string, so a full URL
-  -- came back as {["http://example.com/path?a"] = "1"}. It must parse as
+  -- url.parse takes a full URL, not a bare query string: treating the
+  -- input as a query yields {["http://example.com/path?a"] = "1"}. It must parse as
   -- a URL now.
   local u = check.must(url.parse("http://example.com/path?a=1"))
   assert(u.scheme == "http", "expected scheme 'http', got '" .. tostring(u.scheme) .. "'")
@@ -320,7 +320,7 @@ end
 test_parse_host_ipv6_without_port()
 
 local function test_parse_host_unbracketed_ipv6_rejected()
-  -- The old parser returned host ":" port 1 for "::1".
+  -- A bare IPv6 address is all host: no port to split off.
   local host, _, err = url.parse_host("::1")
   assert(host == nil, "unbracketed IPv6 must be rejected, got '" .. tostring(host) .. "'")
   assert(err ~= nil and err:find("bracket") ~= nil,
@@ -329,7 +329,7 @@ end
 test_parse_host_unbracketed_ipv6_rejected()
 
 local function test_parse_host_port_out_of_range()
-  -- The old parser accepted port 99999.
+  -- Ports above 65535 are not ports.
   local host, _, err = url.parse_host("example.com:99999")
   assert(host == nil, "port 99999 must be rejected")
   assert(err ~= nil and err:find("invalid port") ~= nil,

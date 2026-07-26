@@ -58,7 +58,7 @@ end
 
 -- The global SHELL is the pinned bootstrap cosmic: make hands
 -- it any recipe line it judges to need a shell, and `-c` refuses shell
--- syntax by name instead of the old /dev/null/enoshell poison's "not a
+-- syntax by name, rather than a /dev/null-style poison's "not a
 -- directory". Fail-closed either way; the difference is the message,
 -- and that this is the slot a generated cosmic.mk drives.
 local driver_shell < const > = "o/bootstrap/cosmic"
@@ -87,8 +87,8 @@ local real_shell_allowed: {string} = {
 }
 
 -- test: the global SHELL is poisoned, every real-shell override is on
--- the allowlist above, and every allowlist entry still exists (a stale
--- entry means the exception was retired — remove it here too).
+-- the allowlist above, and every allowlist entry still exists (an entry
+-- with no override left is stale — remove it here too).
 local function test_no_shell_default_ratchet()
   local db = read_database()
   local sh = parse_var_overrides(db, "SHELL")
@@ -298,10 +298,9 @@ test_sandboxed_ratchet()
 -- the retirement order in docs/design/make/bridge.md puts it last,
 -- with the file.
 --
--- Static no-shell gate (cleanup): the poisoned SHELL only trips
--- when a rule RUNS, and cold rules can sit broken unnoticed (the
--- since-retired stage1 broke at the flip and was found days later
--- in — exactly the class this catches). Scan every recipe in
+-- Static no-shell gate: the poisoned SHELL only trips when a rule
+-- RUNS, so a cold rule can sit broken for days without anyone
+-- noticing. Scan every recipe in
 -- the database dump: a rule not on the shell-exception allowlist must
 -- carry no shell syntax in its recipe text. The dump is UNEXPANDED, so
 -- a $(var) hiding metacharacters still needs the runtime poison — this

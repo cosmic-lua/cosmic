@@ -205,9 +205,9 @@ local function test_call_after_define_ignores_keywords_in_strings()
 end
 test_call_after_define_ignores_keywords_in_strings()
 
--- Blocks inside the body still close correctly: this is what the old
--- corpus of depth-tracker cases was for, and the token scan answers all
--- of them the same way.
+-- Blocks inside the body still close correctly -- the case a
+-- depth-tracking implementation needs a corpus of examples for, and
+-- the token scan answers uniformly.
 local function test_call_after_define_handles_nested_blocks()
   local src = "local function test_a()\n  for i = 1, 2 do\n" ..
   "    if i > 1 then\n      local x = i\n    end\n  end\n" ..

@@ -20,8 +20,8 @@ local function fail(msg: string): integer
 end
 
 --- Run argv, pass stderr through, and write stdout to out only when
---- the content changed — preserving the old cmp/mv contract that an
---- unchanged result does not touch the output's mtime.
+--- the content changed, so an unchanged result does not touch the
+--- output's mtime.
 local function run_into(argv: {string}, out: string): integer
   local result, serr = child.run(argv)
   if not result then
@@ -60,11 +60,10 @@ end
 --- typecheck, under LUA_PATH=";;" so output cannot depend on parallel
 --- build order. TL_PATH passes through from the rule's export.
 ---
---- The pre-#776 driver took a flag-stamp path as its first argument and
---- read a probed flag out of it, falling back to a non-strict,
---- order-dependent compile when the pinned bootstrap predated the flag.
---- That fallback was the one place a stale input degraded silently; the
---- flag was pinned in and the stamp is retired here.
+--- Compiles are unconditionally strict, with no flag-stamp argument to
+--- probe: a driver that falls back to a non-strict, order-dependent
+--- compile when the stamp says the flag is unavailable is a place where
+--- a stale input degrades silently.
 local function do_compile(args: {string}): integer
   local bootstrap, src, out = args[1], args[2], args[3]
   if not out then

@@ -55,8 +55,8 @@ local function test_fetch_repeated_headers_normalized()
     "names must be lowercase: content-type, got " .. tostring(result.headers["content-type"]))
   assert(result.headers["Content-Type"] == nil,
     "original-case names must not leak through")
-  -- calling a string method on a header value must not crash (the old
-  -- nested-table representation made this throw for repeated headers)
+  -- calling a string method on a header value must not crash: a
+  -- nested-table representation throws here for repeated headers
   assert(result.headers.vary:lower() == "accept, origin", "string methods must work")
 
   -- raw_headers: lowercase keys, every value in arrival order

@@ -1,18 +1,17 @@
 --- Which modules are the published API — answered from the name alone.
 ---
---- This replaces `cosmic.public`, a hand-maintained list of every
---- top-level module split into public and internal. The list was the
---- last hand-maintained description of the tree in this repo, and it
---- had the drift problem every such description has: a new module was
---- public or internal depending on whether someone remembered to say
---- so, and a deleted one left an entry behind. A ratchet test existed
---- solely to catch both.
+--- Position decides, following `--make`'s `_` rule: a directory or file
+--- whose name starts with `_` is internal to its container, so `_cli/`
+--- and `_cli/require_hints.tl` are not the API and say so in their own
+--- names.
 ---
---- Position decides instead (`--make`'s `_` rule, phase 3c): a
---- directory or file whose name starts with `_` is internal to its
---- container, so `_cli/` and `_cli/require_hints.tl` are not the
---- API and say so in their own names. Nothing to keep in sync, and a
---- module's visibility is visible in `ls`.
+--- The alternative is a hand-maintained list of public and internal
+--- modules, which has the drift problem every hand-maintained
+--- description of a tree has: a new module is public or internal
+--- depending on whether someone remembered to add it, a deleted one
+--- leaves an entry behind, and a ratchet test is needed to catch both.
+--- Deriving it from the name leaves nothing to keep in sync, and makes
+--- a module's visibility visible in `ls`.
 
 --- Is this module name part of the published API?
 ---

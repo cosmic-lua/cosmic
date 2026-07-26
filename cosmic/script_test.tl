@@ -283,8 +283,8 @@ test_cache_refuses_a_shared_directory()
 
 -- The cache key is the bytes that were COMPILED, not the bytes present
 -- when the entry is written. A source edited between those two moments
--- would otherwise bind the old code to the new content's key, and every
--- later run of the edited file would execute code it no longer holds.
+-- would otherwise bind the compiled code to the NEW content's key, and
+-- every later run of that file would execute code it does not hold.
 local function test_cache_never_binds_stale_code_to_new_content()
   local cache = require("cosmic._script_cache")
   local path = fs.join(os.getenv("TEST_TMPDIR") or "/tmp", "keyed.tl")

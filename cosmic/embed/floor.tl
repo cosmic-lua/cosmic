@@ -72,11 +72,11 @@ local function in_floor(name: string, provides?: {string: boolean}): boolean
     end
   end
   for _, prefix in ipairs(FLOOR) do
-    -- An exact match, or a match under a DIRECTORY prefix. The prefix
-    -- test used to run for every entry, separator or not, so a
-    -- file-shaped entry like `.args` also matched `.argsX` -- and a
-    -- keep list that keeps more than it names is one that silently
-    -- ships whatever a base grows next to a kept file. Harmless today
+    -- An exact match, or a match under a DIRECTORY prefix. Testing the
+    -- prefix for every entry regardless of separator lets a
+    -- file-shaped entry like `.args` also match `.argsX` -- and a
+    -- keep list that keeps more than it names silently ships whatever
+    -- a base grows next to a kept file. Harmless today
     -- (nothing in a base is named that way); wrong in the direction
     -- this list exists to be right in.
     if name == prefix then

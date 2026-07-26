@@ -15,9 +15,9 @@ cosmic_args := cosmic/.args
 cosmic_bin := $(o)/bin/cosmic
 cosmic_debug_bin := $(o)/bin/cosmic-debug
 # cosmic_files deliberately carries only the binaries: the compiled
-# stdlib below reaches everything through $(cosmic_bin)'s own prereqs
-# (the old trailing $(cosmic_lua) here always expanded empty — it was
-# not defined until after the includes)
+# stdlib below reaches everything through $(cosmic_bin)'s own prereqs.
+# Naming $(cosmic_lua) here would expand empty -- it is not defined
+# until after the includes.
 cosmic_files := $(cosmic_bin) $(cosmic_debug_bin)
 cosmic_deps := cosmos tl
 cosmic_lua := $(patsubst %.tl,$(o)/%.lua,$(cosmic_tl))
@@ -62,8 +62,9 @@ cosmic_version_lua := $(o)/cosmic/_version.lua
 # byte-for-byte. Clamp the whole staging tree to SOURCE_DATE_EPOCH (the
 # source commit date: deliberate input, like the version stamp's git describe)
 # before packing. main.lua and .args are staged into the tree first so
-# the clamp reaches them (the old -j0 add from o/ paths could not be
-# clamped without touching build intermediates make still tracks).
+# the clamp reaches them; adding them straight from o/ would put them
+# outside it, and clamping there would touch build intermediates make
+# still tracks.
 # Gate: the reproducible CI job double-builds and cmps.
 SOURCE_DATE_EPOCH ?= $(shell git log -1 --format=%ct 2>/dev/null || echo 0)
 # flatten NOW (parse time, real shell): a recursive value would expand
@@ -81,8 +82,8 @@ SOURCE_DATE_EPOCH := $(SOURCE_DATE_EPOCH)
 # The two source mappings are now the identity: a module's path
 # relative to the root IS its path inside the zip, because the zip root
 # is the module root and the repo root is the module root.
-# They used to re-root `cosmic/` explicitly, which silently assumed every
-# packed module lived under it — `_cli/` and `_make/` do not.
+# Re-rooting `cosmic/` explicitly would silently assume every packed
+# module lives under it — `_cli/` and `_make/` do not.
 pack_copies = \
   $(foreach f,$(cosmic_lua),--copy $(f) $(patsubst $(o)/%,%,$(f))) \
   $(foreach f,$(cosmic_tl),--copy $(f) .tl/$(f)) \
@@ -109,10 +110,10 @@ $(cosmic_version_lua): .SANDBOXED := 0
 # opt-out above.
 $(cosmic_version_lua): private SHELL := /bin/bash
 $(cosmic_version_lua): private .SHELLFLAGS := -o pipefail -c
-# The cosmos version is READ, not run. This recipe used to
-# `dofile('3p/cosmos/version.lua')` — the build executing its own
-# dependency pin to find out what it pinned. cosmic.literal lexes the
-# file and matches it against the literal grammar instead, which is the
+# The cosmos version is READ, not run: `dofile`ing the pin would have
+# the build execute its own dependency declaration to find out what it
+# pinned. cosmic.literal lexes the file and matches it against the
+# literal grammar instead, which is the
 # same reader `--make fetch` uses on a `*_pin.tl` and the reason that
 # file can now BE one. The tree LUA_PATH is what resolves the reader
 # out of o/; `tl` comes from the bootstrap's embedded copy.

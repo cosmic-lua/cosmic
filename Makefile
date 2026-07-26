@@ -85,8 +85,8 @@ filter-only = $(if $(only),$(foreach f,$1,$(if $(findstring $(only),$(f)),$(f)))
 # INVARIANT: only= narrows which CHECKS RUN — never what an
 # ARTIFACT CONTAINS. Every $(call filter-only,...) below sits INSIDE a
 # target-list derivation, so the source lists stay complete by
-# construction. Previously the filter was applied to the source lists
-# and each artifact input needed an unfiltered twin (all_module_srcs vs
+# construction. Filtering the SOURCE lists instead would make every
+# artifact input need an unfiltered twin (all_module_srcs vs
 # all_tl, doc_index_example_srcs vs all_example_srcs) plus a comment
 # saying which to reach for; forgetting shipped a truncated binary.
 # Keep new filter calls at the target-list level and the class stays shut.
@@ -230,10 +230,10 @@ ci: | $(bootstrap_cosmic)
 # override SHELL/.SHELLFLAGS per rule with `private` (the grant must
 # not leak to prerequisites); makefile_test ratchets that list.
 #
-# cosmic, not the old /dev/null/enoshell poison: the fail-closed
-# property is identical -- neither can run shell syntax -- but a line
-# that regresses now reports WHICH character it was and that recipes
-# are argv, instead of "not a directory". It also makes the SHELL slot
+# cosmic, rather than a /dev/null-style poison: the fail-closed
+# property is the same -- neither can run shell syntax -- but a line
+# that regresses reports WHICH character it was and that recipes are
+# argv, instead of "not a directory". It also makes the SHELL slot
 # the same one a generated cosmic.mk uses, so a recipe can eventually
 # be a bare verb (`copy $< $@ ;`) rather than an explicit exec of the
 # driver. .SHELLFLAGS stays `-c`: that is cosmic's recipe flag too.

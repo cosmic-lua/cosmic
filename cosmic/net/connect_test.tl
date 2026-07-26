@@ -146,9 +146,8 @@ local function test_nb_connect_loopback()
   ok, err = server:listen()
   assert(ok, "listen failed: " .. tostring(err))
 
-  -- A plain blocking socket: nb_connect switches it to non-blocking
-  -- itself via Socket:set_nonblocking (it used to silently block when
-  -- handed a blocking socket).
+  -- A plain blocking socket: nb_connect must switch it to non-blocking
+  -- itself via Socket:set_nonblocking, rather than silently blocking.
   local client = check.must(net.socket())
 
   -- nb_connect to the listening server, by dotted-quad string

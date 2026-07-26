@@ -331,8 +331,8 @@ local function test_unix_proxy_dot_segment()
 end
 test_unix_proxy_dot_segment()
 
--- The delegated fs.normalize check also catches what the old dot
--- patterns missed: redundant and trailing slashes.
+-- Delegating to fs.normalize also catches what per-shape dot patterns
+-- miss: redundant and trailing slashes.
 local function test_unix_proxy_redundant_slash()
   local url, err = fetch.unix_proxy("/tmp//proxy.sock")
   assert(url == nil, "expected nil for path with redundant slash")
@@ -347,8 +347,8 @@ local function test_unix_proxy_trailing_slash()
 end
 test_unix_proxy_trailing_slash()
 
--- Trailing ".." with no slash after it — a shape the old hand-rolled
--- patterns had to cover with a dedicated case each.
+-- Trailing ".." with no slash after it — one of the shapes hand-rolled
+-- patterns need a dedicated case for.
 local function test_unix_proxy_trailing_dotdot()
   local url, err = fetch.unix_proxy("/tmp/..")
   assert(url == nil, "expected nil for path ending in ..")

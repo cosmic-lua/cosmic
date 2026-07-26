@@ -135,10 +135,10 @@ test_built_path()
 
 -- The index resolves import paths to files, for every kind a require
 -- can land on. A `.d.tl` is one of them -- the checker resolves
--- `require("x")` to `x.d.tl` -- which this test used to deny. That
--- denial WAS the bug: excluded from the closure, a declaration could
--- change its contract without any listed prerequisite's mtime moving,
--- so importers were never re-checked and an incremental build kept
+-- `require("x")` to `x.d.tl` -- and excluding it from the closure is a
+-- real gap: a declaration can then change its contract without any
+-- listed prerequisite's mtime moving, so importers are never
+-- re-checked and an incremental build keeps
 -- output a clean build rejects. An asset is still not a module.
 local function test_index_covers_resolvable_kinds()
   local proj = fixture("index", {

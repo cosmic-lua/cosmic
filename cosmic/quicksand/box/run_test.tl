@@ -64,10 +64,10 @@ end
 test_run_true_in_subprocess()
 
 -- Setup failures must come back on the error channel as nil + message,
--- not masquerade as a workload exit code (they used to surface as
--- 126, nil with the reason only on stderr). A bogus pledge promise
--- fails workload_setup after the fork; run() must return nil and an
--- error naming the pledge step.
+-- not masquerade as a workload exit code (a 126 with the reason only on
+-- stderr is indistinguishable from the workload itself failing). A
+-- bogus pledge promise fails workload_setup after the fork; run() must
+-- return nil and an error naming the pledge step.
 local function test_setup_failure_returns_error_not_exit_code()
   local c = quicksand.capabilities()
   if not (c.linux and c.user_ns and c.net_ns and c.pledge) then

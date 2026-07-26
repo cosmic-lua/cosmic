@@ -81,10 +81,11 @@ local function resolve_optional_arg(flag: string, value: string): string
   return ""
 end
 
---- The four flags that named one kind of check each, and the kind each
---- one is now spelled with. A script written against the old spelling
---- is told the new one rather than dropping into the REPL, and this is
---- checked before getopt, which would prefix-match them onto `--check`.
+--- Flags that once named one kind of check each, mapped to the kind
+--- each is spelled with now. A script written against the retired
+--- spelling is told the current one rather than dropping into the
+--- REPL, and this is checked before getopt, which would prefix-match
+--- them onto `--check`.
 local RENAMED_CHECKS < const >: {string: string} = {
   ["--check-types"] = "types",
   ["--check-format"] = "format",

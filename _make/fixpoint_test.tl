@@ -2,20 +2,18 @@
 -- The fixpoint: a `--make`-built cosmic builds cosmic again, and the
 -- second generation equals the third byte for byte.
 --
--- This is the branch's headline claim, and until now it was verified
--- only by hand -- so a regression to the artifact pipeline, the payload
--- generator, or the base selection would have shipped silently and the
--- property that names the branch would have rotted first. Both historic
--- silent-payload losses (a pack that dropped tl.lua and the type tree, and one that
--- dropped every compiled `_cli/**` and `_make/**` module) had exactly
--- this shape: the binary built, booted, and failed only when something
--- first required the missing piece.
+-- Gated here because nothing else notices it break: a regression in
+-- the artifact pipeline, the payload generator, or the base selection
+-- ships silently otherwise. A dropped payload has a characteristic
+-- shape -- lose `tl.lua` and the type tree, or every compiled `_cli/**`
+-- and `_make/**` module, and the binary still builds and still boots,
+-- failing only when something first requires the missing piece.
 --
--- Why gen2 AND gen3. gen2 proves the product WORKS. gen3 proves the
--- process CONVERGES, which is a different claim and the one that
--- actually broke: embedding onto the running cosmic left the stripped
--- base's bytes behind as dead space, so each generation grew ~3.5 MB
--- (12.2 -> 15.8 -> 19.3, measured). Every generation booted fine. Only
+-- Why gen2 AND gen3. gen2 proves the product WORKS; gen3 proves the
+-- process CONVERGES, which is a separate claim and the easier one to
+-- lose. Embedding onto the running cosmic leaves the stripped base's
+-- bytes behind as dead space, so each generation grows ~3.5 MB (12.2 ->
+-- 15.8 -> 19.3, measured) while every generation boots fine. Only
 -- comparing two of them says so.
 
 local check = require("cosmic.check")
@@ -141,9 +139,9 @@ local function build_with(bin: string, dir: string): integer, string
     -- No `COSMIC_VERSION`, deliberately: the stamp is declared by the
     -- tree (`.version`, written by `generation`), which is what makes
     -- this a fixpoint over COMMITTED inputs rather than one that also
-    -- depends on two builds being handed the same environment. That
-    -- precondition used to be real and unrecorded -- it held only
-    -- because both generations happened to be stamped the same way.
+    -- depends on two builds being handed the same environment -- an
+    -- unrecorded precondition that holds only while both generations
+    -- happen to be stamped the same way.
   }
   local h = check.must(spawn.spawn({bin, "--make", "build"},
       {cwd = dir, env = env}))

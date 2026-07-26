@@ -88,7 +88,7 @@ local function test_encode_invalid_value()
 end
 test_encode_invalid_value()
 
--- Encode options (issue options used to be silently ignored)
+-- Encode options must reach the encoder, not be silently ignored
 
 local function test_encode_pretty()
   local result = check.must(json.encode({a = 1, b = 2}, {pretty = true}),

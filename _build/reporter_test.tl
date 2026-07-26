@@ -139,7 +139,7 @@ local function test_message_from_stderr()
 end
 test_message_from_stderr()
 
--- --out writes the same report the recipes used to `| tee`
+-- --out writes the report to a file, so a recipe needs no `| tee`
 local function test_out_writes_file()
   local test_dir = fs.join(tmpdir, "out-file")
   fs.makedirs(test_dir)

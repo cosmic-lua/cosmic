@@ -1,12 +1,11 @@
 #!/usr/bin/env cosmic
 --- Terminal-mode tests against a REAL terminal.
 ---
---- tty_test.tl covers the not-a-terminal paths and the module surface;
---- everything that needs an actual tty used to be asserted as
---- `tty.raw ~= nil`, because a CI container has no controlling terminal
---- and there was no way to make one. tty.openpty() (whilp/cosmopolitan#216)
---- supplies one, so the mode changes can now be checked where they
---- actually take effect.
+--- tty_test.tl covers the not-a-terminal paths and the module surface.
+--- This file covers what needs a real tty: a CI container has no
+--- controlling terminal, so tty.openpty() supplies one and the mode
+--- changes are checked where they actually take effect, rather than
+--- asserted as `tty.raw ~= nil`.
 ---
 --- Two levels of evidence here, and the second is the point:
 ---   * settings are read back with getattr, so the assertion is that the

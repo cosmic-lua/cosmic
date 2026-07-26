@@ -115,7 +115,7 @@ f({})
 end
 test_hint_index_any()
 
--- The lax/strict contract, previously asserted only by docstring:
+-- The lax/strict contract, asserted rather than only documented:
 -- --compile (default) is the permissive gradual-typing on-ramp; strict
 -- compile refuses everything --check types refuses (type errors AND
 -- warnings) and generates from the checked AST.

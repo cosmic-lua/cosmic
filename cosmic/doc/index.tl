@@ -37,9 +37,8 @@ end
 ---
 --- The rule is applied inline rather than through cosmic.doc.visibility
 --- because this script also runs under the PINNED bootstrap binary,
---- whose embedded stdlib predates that module — the same reason the old
---- manifest was loaded with a non-literal require. The two must agree;
---- visibility_test.tl asserts they do.
+--- whose embedded stdlib may not carry that module. The two copies must
+--- agree; visibility_test.tl asserts they do.
 local function mark_visibility(modules: {string: any})
   for name, module_doc in pairs(modules) do
     local is_cosmo = name == "cosmo" or name:match("^cosmo%.") ~= nil

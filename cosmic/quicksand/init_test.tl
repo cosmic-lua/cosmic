@@ -33,10 +33,10 @@ local function test_capabilities_cached()
 end
 test_capabilities_cached()
 
--- capabilities().user_ns is computed by a scratch-child unshare probe
--- (not the compile-time CLONE_NEWUSER constant, which is defined even on
--- hosts that forbid unprivileged user namespaces and used to report a
--- capability that then failed with EPERM mid-setup). Assert the cached
+-- capabilities().user_ns comes from a scratch-child unshare probe, not
+-- the compile-time CLONE_NEWUSER constant: that constant is defined even
+-- on hosts that forbid unprivileged user namespaces, so it reports a
+-- capability that then fails with EPERM mid-setup. Assert the cached
 -- report agrees with a fresh probe, and that the probe is exported and
 -- deterministic.
 local function test_user_ns_agrees_with_scratch_probe()
@@ -79,10 +79,10 @@ end
 -- The probe reports a binding available when a no-op call succeeds or
 -- fails with anything other than ENOSYS, and unavailable when the binding
 -- is absent (nil) or the call fails with a numeric ENOSYS in its third
--- return slot. This is the classification that was fail-open before the
--- Phase 0 errno-return fix: the error used to be swallowed,
--- so the ENOSYS branch was dead and every probe reported available. These
--- cases fail if that regresses.
+-- return slot. The ENOSYS branch depends on the binding actually
+-- reporting its errno: swallow that and the branch is dead, every probe
+-- reports available, and the classification is fail-open. These cases
+-- fail if that regresses.
 local function test_probe_nil_binding_is_unavailable()
   check.eq(quicksand.probe(nil), false, "a nil binding must probe as unavailable")
 end
@@ -126,8 +126,9 @@ test_probe_string_only_failure_is_available()
 -- Re-verify against the real host: on Linux both pledge (seccomp) and,
 -- when the kernel advertises landlock, unveil are genuinely present, so the
 -- probe must report them. The enforce lane (bin/make enforce) separately
--- proves both mechanisms actually restrict on ubuntu-latest; this pins the
--- probe's report to that reality instead of the old vacuous always-true.
+-- proves both mechanisms actually restrict on ubuntu-latest; this pins
+-- the probe's report to that reality rather than to a vacuous
+-- always-true.
 local function test_real_pledge_unveil_probe()
   local c = quicksand.capabilities()
   if not c.linux then

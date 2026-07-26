@@ -101,8 +101,8 @@ end
 test_empty_selection_fails()
 
 -- Selection names targets of the verb's OWN KIND. `build`'s targets are
--- binaries, so `build cmd/foo` builds foo -- it used to compile a few
--- files, produce no artifact at all, and report PASS for it. And a
+-- binaries, so `build cmd/foo` builds foo, rather than compiling a few
+-- files, producing no artifact at all, and reporting PASS for it. And a
 -- selected build stages what a full one would, so the compile is never
 -- narrowed: that is the same invariant `test` states as "selection
 -- changes which tests run, never what gets staged".

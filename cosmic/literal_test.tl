@@ -24,10 +24,10 @@ local function refused(src: string): string
   return err
 end
 
--- Short strings carry escapes, and the reader must decode them. The
--- old `sub(2, -2)` returned the raw bytes between the quotes, so
--- `"a\nb"` read as four characters instead of three -- silently wrong
--- data from a module whose whole promise is fidelity.
+-- Short strings carry escapes, and the reader must decode them.
+-- Returning the raw bytes between the quotes reads `"a\nb"` as four
+-- characters instead of three -- silently wrong data from a module
+-- whose whole promise is fidelity.
 local function test_escapes_decode()
   assert(read([[return { s = "a\nb" }]]).s == "a\nb", "\\n")
   assert(read([[return { s = "a\tb" }]]).s == "a\tb", "\\t")
@@ -40,13 +40,13 @@ local function test_escapes_decode()
 end
 test_escapes_decode()
 
--- Every escape above was written at the END of its string, which is the
--- one position where a wrong resume index is invisible: overshooting
--- past `#body` just ends the loop. `\u{}` did overshoot -- by two, from
--- treating an absolute position capture as relative -- so it silently
--- ate the two characters behind every unicode escape, and the test
--- above passed anyway. Each form is followed by text here, which pins
--- the resume arithmetic of each branch rather than only its value.
+-- Every escape above sits at the END of its string, which is the one
+-- position where a wrong resume index is invisible: overshooting past
+-- `#body` just ends the loop, and the assertion still passes. An
+-- off-by-two in `\u{}` (treating an absolute position capture as
+-- relative) eats the two characters behind every unicode escape and
+-- shows up nowhere. Each form is followed by text here, which pins the
+-- resume arithmetic of each branch rather than only its value.
 local function test_escapes_resume_at_the_right_index()
   assert(read([[return { s = "\u{41}BC" }]]).s == "ABC", "\\u{} then text")
   assert(read([[return { s = "\u{41}BCDE" }]]).s == "ABCDE", "\\u{} then more")
@@ -55,14 +55,14 @@ local function test_escapes_resume_at_the_right_index()
   assert(read([[return { s = "\65BC" }]]).s == "ABC", "decimal then text")
   assert(read([[return { s = "a\nbc" }]]).s == "a\nbc", "simple then text")
   assert(read("return { s = \"\\z   BC\" }").s == "BC", "\\z then text")
-  -- A bracketed key is the same decoder, so it had the same bug.
+  -- A bracketed key runs the same decoder, so it needs the same pin.
   assert(read([[return { ["\u{41}k"] = "v" }]]).Ak == "v", "\\u{} in a key")
 end
 test_escapes_resume_at_the_right_index()
 
--- The lexer is this module's own (it used to borrow tl's, which made a
--- config reader depend on the Teal COMPILER -- see the module header).
--- These are the shapes a hand-written lexer gets wrong.
+-- The lexer is this module's own rather than tl's, so a config reader
+-- does not depend on the Teal compiler (see the module header). These
+-- are the shapes a hand-written lexer gets wrong.
 local function test_lexing()
   assert(read("-- a comment\nreturn { a = 1 }").a == 1, "line comment before")
   assert(read("return { a = 1 } -- trailing").a == 1, "line comment after")
@@ -95,8 +95,8 @@ end
 test_unfinishable_input_is_refused()
 
 -- Long brackets take no escapes and drop one leading newline, and the
--- delimiter is as many `=` as were written. Stripping one character
--- per side turned `[==[x]==]` into `==[x]==`.
+-- delimiter is as many `=` as were written -- so stripping a fixed one
+-- character per side reads `[==[x]==]` as `==[x]==`.
 local function test_long_brackets()
   assert(read("return { s = [[hi]] }").s == "hi", "level 0")
   assert(read("return { s = [=[hi]=] }").s == "hi", "level 1")
@@ -116,9 +116,9 @@ local function test_bracketed_keys()
 end
 test_bracketed_keys()
 
--- The lexer emits `-` as its own token, so a negative number looked
--- like an operator and was refused. Nothing about -1 asks the file to
--- compute anything.
+-- The lexer emits `-` as its own token, so a negative number arrives
+-- as two tokens and is easy to mistake for an operator. Nothing about
+-- -1 asks the file to compute anything, so it must read.
 local function test_negative_numbers()
   assert(read("return { n = -1 }").n == -1, "negative integer")
   assert(read("return { n = -1.5 }").n == -1.5, "negative float")
@@ -126,8 +126,8 @@ local function test_negative_numbers()
 end
 test_negative_numbers()
 
--- Depth is stack depth in a recursive-descent parser, so a crafted
--- literal used to THROW `stack overflow` out of a library that
+-- Depth is stack depth in a recursive-descent parser, so without a cap
+-- a crafted literal THROWS `stack overflow` out of a library that
 -- promises never to throw. It must refuse like any other bad pin.
 local function test_deep_nesting_is_refused_not_thrown()
   local n = 100000

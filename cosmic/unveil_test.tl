@@ -26,7 +26,7 @@ test_available_returns_boolean()
 -- instead of pretending a sandbox exists — the raw libc call succeeds
 -- there while enforcing nothing. The unsupported branch never reaches
 -- the syscall, so this is safe in-process. best_effort is the explicit
--- opt-in back to the old fail-open behavior.
+-- opt-in to fail-open behavior.
 local function test_fail_closed_when_unavailable()
   if unveil.available() then
     check.skip("unveil available on this host; fail-closed path not exercisable")

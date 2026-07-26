@@ -96,9 +96,9 @@ local function test_collect_pattern_is_always_glob()
   write_file(fs.join(dir, "x.txt"), "x")
   write_file(fs.join(dir, "%.txt$"), "literal")
 
-  -- Under the old heuristic "%.txt$" had no * or ?, so it silently ran as
-  -- a Lua pattern and matched x.txt. As a glob it matches only the file
-  -- literally named "%.txt$".
+  -- "%.txt$" has no * or ?, so a heuristic that guesses "glob or Lua
+  -- pattern" reads it as a pattern and matches x.txt. It is a glob, and
+  -- matches only the file literally named "%.txt$".
   local hits = check.must(fs.collect(dir, "%.txt$"))
   assert(#hits == 1, "glob should match exactly the literal file, got " .. #hits)
   assert(fs.basename(hits[1]) == "%.txt$", "literal-name match")

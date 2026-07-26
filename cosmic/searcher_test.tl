@@ -3,12 +3,11 @@
 --
 -- This is the last searcher in package.searchers: the path a
 -- `require("mod")` takes when no compiled `mod.lua` exists anywhere, so
--- it is how every user script's .tl imports resolve. It had no direct
--- test until 3f, which is when it stopped being covered incidentally --
--- the repo's own tests used to reach it by compiling `.tl` modules at
--- run time, and giving each test its import closure as a prerequisite
--- means they load the compiled `.lua` instead. Incidental coverage of a
--- module that answers every require() was never the right arrangement;
+-- it is how every user script's .tl imports resolve. It needs direct
+-- tests: the repo's own suite loads compiled `.lua` (each test takes
+-- its import closure as a prerequisite), so nothing here exercises the
+-- searcher incidentally. Incidental coverage of a module that answers
+-- every require() would not be the right arrangement anyway;
 -- these assert the three guarantees it makes over tl's own loader.
 
 local check = require("cosmic.check")

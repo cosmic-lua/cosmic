@@ -119,10 +119,10 @@ local function err(value: any, e: string, label?: string)
 end
 
 --- Assert a fallible return and narrow away nil.
---- The one sanctioned narrowing hole for tests and examples: tl 0.24.8 does
---- not flow-narrow record unions through `assert`, so fallible calls used to
---- need `assert(x) as T` at every site. `must` centralizes that unsoundness
---- behind a runtime nil check. Lua passes multiple returns through, so
+--- The one sanctioned narrowing hole for tests and examples: tl 0.24.8
+--- does not flow-narrow record unions through `assert`, so without this
+--- every fallible call site needs its own `assert(x) as T`. `must`
+--- centralizes that unsoundness behind a runtime nil check. Lua passes multiple returns through, so
 --- `must(fs.read(path))` fails with fs.read's own error string.
 --- Like `assert`, must forwards extra returns past the second, so
 --- `for p in check.must(fs.files(d)) do` keeps the 4th return — the

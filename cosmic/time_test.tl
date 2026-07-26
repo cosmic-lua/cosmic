@@ -69,8 +69,8 @@ end
 test_sleep_zero()
 
 -- Honest sleep signature: 0,0 on an uninterrupted sleep;
--- nil, nil, err naming EINVAL on invalid input (the error used to
--- surface as a string in the nanos slot with no declared error return).
+-- nil, nil, err naming EINVAL on invalid input, rather than a string in
+-- the nanos slot with no declared error return.
 local function test_sleep_success_returns_zero_remainder()
   local secs, nanos, err = time.sleep(0, 1000)
   assert(secs == 0, "expected 0 remaining seconds, got " .. tostring(secs))

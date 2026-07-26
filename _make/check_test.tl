@@ -210,9 +210,8 @@ local function test_verb_vocabulary()
 end
 test_verb_vocabulary()
 
--- `--make` with no verb is a usage error, not a default action: the
--- flag used to mean "print a Makefile" with no arguments, and silently
--- doing something is the worse half of that.
+-- `--make` with no verb is a usage error, not a default action:
+-- silently doing something with no verb is worse than saying so.
 local function test_bare_make_is_a_usage_error()
   local root = app("bare")
   local h = check.must(spawn.spawn({cosmic, "--make"}, {cwd = root}))

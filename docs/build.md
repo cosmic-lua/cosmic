@@ -46,10 +46,9 @@ $(o)/%.lua: %.tl $(types_files) $(bootstrap_files)
 
 compiles are **always** strict (`--compile-strict`: type check, then
 generate from that same checked AST) with `LUA_PATH=";;"`, which is what
-makes the output independent of parallel build order (#733). there is no
-flag to select: #776 retired both the probe and the stamp file the driver
-used to read, along with the non-strict fallback that could degrade
-silently.
+makes the output independent of parallel build order. there is no flag
+to select: strict is the only mode, so there is no probe, no stamp file
+and no non-strict fallback that could degrade silently.
 
 ### Versioned Dependencies (3p/)
 

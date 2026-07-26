@@ -154,9 +154,8 @@ local function test_make_dispatches_verb_and_paths()
 end
 test_make_dispatches_verb_and_paths()
 
---- --make with no verb is a usage error. The flag used to print a
---- generated Makefile when called bare; that generator is gone, and a
---- flag with no argument now says so rather than doing something.
+--- --make with no verb is a usage error: a flag with no argument says
+--- so rather than quietly picking a default action.
 local function test_make_requires_a_verb()
   local r = cli("--make")
   assert(r.code ~= 0, "bare --make must not exit 0")
@@ -197,9 +196,9 @@ local function test_test_wrapper_propagates_child_exit_code()
 end
 test_test_wrapper_propagates_child_exit_code()
 
---- The same, WITHOUT the `--`. That separator used to be mandatory in
---- practice and nothing said so: omitting it silently ran no check
----. --test now slices its command vector off before the option
+--- The same, WITHOUT the `--`. Requiring that separator without saying
+--- so means omitting it silently runs no check; --test slices its
+--- command vector off before the option
 --- parse, the way --build always has, so the child keeps its own flags
 --- either way and the trap is gone rather than merely documented.
 local function test_test_wrapper_needs_no_separator()

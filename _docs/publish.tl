@@ -72,8 +72,8 @@ end
 -- published site carries public module pages and the cosmo.* C binding
 -- docs only. Public is a page named for one `cosmic.<name>` segment
 -- that does not start with `_`; there is no manifest to load and none
--- to go stale, so this no longer has to survive a pinned bootstrap
--- whose stdlib predates it.
+-- to go stale, so this does not depend on the running binary's stdlib
+-- carrying any particular module.
 
 -- Decide whether a doc page (path relative to the docs root) is part
 -- of the public surface: cosmo.* binding docs, a public module's page,

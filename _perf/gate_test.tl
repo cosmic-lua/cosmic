@@ -1,8 +1,9 @@
 #!/usr/bin/env cosmic
 --- Tests for the perf gate orchestration: the retry and A/A triage
---- flows that used to be untestable ||-chains in make recipes. The
---- measure function is injected, so each path is exercised with
---- fabricated results files and no real benchmarks.
+--- flows, which are testable precisely because they are Teal rather
+--- than ||-chains in a make recipe. The measure function is injected,
+--- so each path is exercised with fabricated results files and no real
+--- benchmarks.
 
 local fs = require("cosmic.fs")
 local gate = require("_perf.gate")

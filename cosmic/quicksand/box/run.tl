@@ -208,7 +208,7 @@ local function supervisor(
     proxy_port = handle.port
   end
 
-  -- Supervisor no longer needs the outer netns fd: the proxy child
+  -- The supervisor does not need the outer netns fd: the proxy child
   -- forked by proxy.start() inherited its own copy.
   if parent_netns_fd then
     unix.close(parent_netns_fd)

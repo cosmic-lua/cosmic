@@ -55,8 +55,8 @@ local function test_link_replaces()
 end
 test_link_replaces()
 
--- retired the flag-stamp argument: compiles are unconditionally
--- strict, so the fixture is just a source and an output path.
+-- No flag-stamp argument: compiles are unconditionally strict, so the
+-- fixture is just a source and an output path.
 local function compile_fixture(name: string, content: string): string, string
   local dir = fs.join(tmpdir, name)
   fs.makedirs(dir)

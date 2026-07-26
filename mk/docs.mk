@@ -1,13 +1,12 @@
-# Included from the top-level Makefile at the position this block used to
-# occupy, so parse order — and therefore every pattern-specific variable
-# and its nesting — is unchanged. The Makefile keeps aggregation
-# and the shared path variables; each mk/*.mk holds one rule family.
+# One rule family per mk/*.mk; the Makefile keeps aggregation and the
+# shared path variables. Include order is load-bearing: pattern-specific
+# variables and their nesting depend on where this is included.
 #
 # documentation: rendered markdown, the embedded index, and publishing.
 
 # Documentation generation - render .tl files as markdown. $(all_tl) is
 # complete by construction, so docs and the embedded index read it
-# directly — the unfiltered all_module_srcs twin this used to need is gone.
+# directly, with no unfiltered twin list to keep beside it.
 all_docs := $(patsubst %.tl,$(o)/docs/%.md,$(all_tl))
 
 # Documentation from .d.tl type definition files (cosmo modules)

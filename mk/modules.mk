@@ -1,6 +1,6 @@
-# The root IS the module root now: a source at cosmic/fs.tl
-# is require("cosmic.fs"), and nothing sits between the two. The old
-# `lib` module existed only to name that middle directory.
+# The root IS the module root: a source at cosmic/fs.tl is
+# require("cosmic.fs"), with nothing between the two and so no module
+# needed to name a middle directory.
 modules += root
 root_lua_dirs := .
 

@@ -163,10 +163,9 @@ test_list_does_not_read_its_items()
 
 -- A foreign program's reads are not derivable from its arguments -- a
 -- compiler reads headers nobody listed -- so exec is fenced to the
--- UNITS its argv touches rather than to those arguments. Phase 1 stood
--- this in as "." (the whole working tree) for want of a notion of a
--- unit; the Units investigation supplied one, and it is the single
--- abstraction that investigation earned: a fence wants a directory
+-- UNITS its argv touches rather than to those arguments. The
+-- alternative is "." -- the whole working tree -- which is no fence at
+-- all: a fence wants a directory
 -- where a stage wants a file list.
 local function test_exec_gets_its_units_not_the_whole_tree()
   local prog = touch("fence-tool")

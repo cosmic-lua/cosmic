@@ -111,8 +111,8 @@ local function test_version_substitution()
       'return {\n  url = "https://x.test/{version}/a.tar.gz",\n' ..
       '  version = "9.9",\n  sha256 = "abababababababababababababababababababababababababababababababab",\n}\n'))
   assert(p.url == "https://x.test/9.9/a.tar.gz", "got: " .. p.url)
-  -- P3 in the design's Units investigation: the output name comes from
-  -- the URL, NOT from the pin's position in the tree.
+  -- The output name comes from the URL, NOT from the pin's position in
+  -- the tree.
   assert(p.output:find("a.tar.gz", 1, true),
     "the output is named by the asset, got: " .. p.output)
 end
@@ -181,8 +181,8 @@ end
 --- Run a verb, returning its exit code and what it wrote to stderr.
 ---
 --- Diagnostics are the assertion for some of these -- "which failure
---- was this" is the whole point of 006 -- and `mk.run` reports only a
---- code. Swapping the handle is the pattern envd_test already uses.
+--- was this" is the whole point -- and `mk.run` reports only a code.
+--- Swapping the handle is the pattern envd_test already uses.
 local function run_out(root: string, ...: string): integer, string
   local path = fs.join(tmpdir, "pin-stderr.txt")
   local real = io.stderr
@@ -416,9 +416,9 @@ local function test_a_missing_unpack_is_redone()
 end
 test_a_missing_unpack_is_redone()
 
--- `Result.ok` is transport-level, so a 404 error page used to reach the
--- digest check and fail as a sha256 mismatch -- the wrong diagnosis for
--- the most common cause, a typo'd version in the url.
+-- `Result.ok` is transport-level, so an unchecked 404 error page
+-- reaches the digest check and fails as a sha256 mismatch -- the wrong
+-- diagnosis for the commonest cause, a typo'd version in the url.
 local function test_a_non_2xx_names_the_status()
   local port, pid = serve("<html>not found</html>\n", 404)
   local root = pinned("status", "http://127.0.0.1:" .. port .. "/blob.bin",
@@ -433,9 +433,9 @@ local function test_a_non_2xx_names_the_status()
 end
 test_a_non_2xx_names_the_status()
 
--- A truncated digest is a copy-paste slip, and the old pattern (eight
--- or more hex characters) accepted it -- so it failed at fetch time as
--- a mismatch, pointing the reader at the url instead of the pin.
+-- A truncated digest is a copy-paste slip. Accepting one (any run of
+-- eight or more hex characters) defers it to fetch time as a mismatch,
+-- pointing the reader at the url instead of the pin.
 local function test_a_short_digest_is_refused()
   local short, err = read_pin("shortsha",
     'return { url = "https://x.test/a", sha256 = "abcd1234" }\n')

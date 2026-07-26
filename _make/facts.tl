@@ -4,9 +4,9 @@
 ---
 --- `cosmic --make` generates the same file internally and then drives
 --- make with it. This repo cannot use that path yet, for two reasons
---- worth stating: the pinned bootstrap that runs every recipe predates
---- the generator, and `o/cosmic.mk`'s own `build`/`test`/`fmt` targets
---- collide with the ones the Makefile still defines. So the Makefile
+--- worth stating: the pinned bootstrap that runs every recipe need not
+--- carry the generator, and `o/cosmic.mk`'s own `build`/`test`/`fmt`
+--- targets collide with the ones the Makefile defines. So the Makefile
 --- adopts the FACTS first and keeps its rules, and this script is how
 --- the facts get written — by calling the same `_make` modules
 --- the verb calls, out of the TREE, so there is one generator and not

@@ -252,8 +252,8 @@ local function test_stripped_to_the_floor()
   assert(ran:find("tl:\tfalse", 1, true), "the Teal compiler must be gone: " .. ran)
   assert(ran:find("teal:\tfalse", 1, true), "…and its wrapper: " .. ran)
   assert(ran:find("json:\ttrue", 1, true), "the stdlib must survive: " .. ran)
-  -- Usable, not merely present: literal loads and decodes (its `\u{}`
-  -- escape also used to swallow the two characters behind it), and a
+  -- Usable, not merely present: literal loads and decodes (`\u{}` is
+  -- the escape whose resume arithmetic is easiest to get wrong), and a
   -- require miss names the module the caller asked for.
   assert(ran:find("literal:\tABC", 1, true),
     "cosmic.literal must work without a compiler: " .. ran)
@@ -356,9 +356,9 @@ end
 test_reproducible()
 
 -- Build's targets are BINARIES, so a source path names none of them.
--- It used to compile part of the tree and report PASS, which is a
--- success verdict for something the user did not ask for -- and left
--- the user who wanted exactly one binary of a multi-binary project with
+-- Compiling part of the tree and reporting PASS would be a success
+-- verdict for something the user did not ask for, and would leave
+-- someone who wants exactly one binary of a multi-binary project with
 -- no spelling for it. Refusing says so, and points at the verb whose
 -- targets ARE sources.
 local function test_build_takes_binaries_not_sources()

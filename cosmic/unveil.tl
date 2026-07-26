@@ -9,8 +9,8 @@
 --- and on Linux kernels with Landlock (the libc's backing mechanism).
 --- Anywhere else `allow`/`commit` return `false, "unveil unsupported on
 --- this host"` instead of reporting a sandbox that does not exist.
---- Callers that prefer the old fail-open behavior opt in explicitly
---- with `best_effort = true`, or branch on `available()` themselves.
+--- Callers that want fail-open behavior opt in explicitly with
+--- `best_effort = true`, or branch on `available()` themselves.
 ---
 --- Unveil pairs naturally with `cosmic.pledge`: pledge narrows which
 --- system calls are allowed; unveil narrows which files those calls can
@@ -134,9 +134,9 @@ local function commit(opts?: UnveilOptions): boolean, string
   return true
 end
 
---- DEPRECATED compatibility shim for the pre-stable API: delegates to
---- `allow(path, permissions)`, or to `commit()` when both arguments are
---- nil (the old commit spelling). New code should call allow/commit.
+--- DEPRECATED compatibility shim: delegates to `allow(path,
+--- permissions)`, or to `commit()` when both arguments are nil. New
+--- code should call allow/commit directly.
 ---
 --- @param path string|nil Path to unveil (nil to commit)
 --- @param permissions string|nil Permission string (nil to commit)

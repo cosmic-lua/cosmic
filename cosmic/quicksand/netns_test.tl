@@ -102,9 +102,9 @@ local function test_get_flags_bad_interface()
 end
 test_get_flags_bad_interface()
 
--- A flag with the 0x8000 bit set must pass through cleanly (the old
--- Teal ifreq packing once overflowed signed 16-bit here, cosmic#431;
--- the C binding stores it as uint16_t). The interface is nonexistent so
+-- A flag with the 0x8000 bit set must pass through cleanly: the C
+-- binding stores flags as uint16_t, and packing them as signed 16-bit
+-- overflows exactly here. The interface is nonexistent so
 -- SIOCSIFFLAGS can never mutate a real device, regardless of privilege.
 local function test_set_flags_high_bit_no_overflow()
   local ok, err = netns.set_flags("nope0", 0x8000)

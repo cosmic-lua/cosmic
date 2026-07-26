@@ -91,7 +91,7 @@ test_scan()
 -- of_file is the memoized front door, and the memo's lifetime is one
 -- model build: a re-read within a build can only cost time. `forget`
 -- is what a new build calls, and without it a rebuilt project in the
--- same process would see the old tree.
+-- same process sees the tree as it was at first read.
 local function test_of_file_memoizes_until_forgotten()
   local path = fs.join(tmpdir, "imports-memo.tl")
   check.must(fs.write(path, "local a = require('pkg.a')\n"))

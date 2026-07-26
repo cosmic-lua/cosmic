@@ -57,10 +57,10 @@ local function test_guide_formatting()
 end
 test_guide_formatting()
 
--- guide.makefile is retired along with the Makefile generator it
--- documented: one flag, one guide. A topic that no longer exists must
--- fail like any other unknown one -- a stale guide still resolving is
--- how a retired feature keeps getting used.
+-- There is no guide.makefile: one flag, one guide, and the Makefile
+-- generator it would document does not exist. A topic with nothing
+-- behind it must fail like any other unknown one -- a guide that still
+-- resolves is how a feature nobody ships keeps getting used.
 local function test_guide_makefile_is_retired()
   local r = check.must(spawn.run(
       {cosmic, "--docs", "guide.makefile"}, {env = clean_env()}))

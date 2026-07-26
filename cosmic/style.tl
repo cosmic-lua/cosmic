@@ -13,12 +13,11 @@
 --- never called it. A rule a gate does not enforce reads as enforced,
 --- which is worse than no rule; enforcing this one is its own change.
 ---
---- Public rather than internal, and the `_` rule is what settled it
----: this module has a caller OUTSIDE `cosmic/`, so it cannot
---- be internal to it. That was always true — the old header said it
---- lived "under the cosmic.* namespace so require() works", which is a
---- module explaining why it is reachable from a place its own manifest
---- entry said it was not. Position does not allow that gap.
+--- Public rather than internal, by the `_` rule: this module has a
+--- caller OUTSIDE `cosmic/`, so it cannot be internal to it. Deriving
+--- visibility from position closes the gap a hand-written manifest
+--- leaves open, where a module can be reachable from somewhere its
+--- entry says it is not.
 
 local record Diagnostic
   file: string

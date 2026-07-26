@@ -33,15 +33,12 @@ build_fetch_files := $(build_fetch) $(build_portable)
 build_stage_files := $(build_stage) $(build_untar) $(build_portable)
 
 # The recipe steps (copy/compile/capture/tee/...) are the pinned
-# bootstrap's own `--build` surface: _cli.build ships
-# EMBEDDED in the bootstrap, so the bootstrap sha covers the driver's
-# entire runtime and no tree .lua is required first. The old compiled
-# driver — and the self-bootstrap shell exception rule that built it,
-# the last real-shell + host-grant build rule — is gone.
+# bootstrap's own `--build` surface: _cli.build ships EMBEDDED in the
+# bootstrap, so the bootstrap sha covers the driver's entire runtime and
+# no tree .lua has to be built first.
+#
 # _srcs (not _tl) so these are type- and format-checked without also
-# entering the docs/benchmark pipelines, which key off _tl. They
-# were previously checked only incidentally, by --compile-strict when
-# build_files were compiled -- which never covered formatting at all.
+# entering the docs/benchmark pipelines, which key off _tl.
 build_srcs := $(wildcard _build/*.tl)
 
 build_tests := $(wildcard _build/*_test.tl)
@@ -50,11 +47,10 @@ build_tests := $(wildcard _build/*_test.tl)
 # at this tree's freshly compiled modules (the doc/index.tl pattern) so the
 # delegation runs THIS tree's style code, not the bootstrap's embedded copy.
 
-# Import edges are derived now: the test rule takes
-# $$(deps_$$*) from o/project.mk, so the blanket
-# `$(build_test_got): $(build_files)` this used to carry is gone —
-# each test names the build tools it actually imports, and one that
-# imports none waits for none.
+# Import edges are derived: the test rule takes $$(deps_$$*) from
+# o/project.mk, so each test names the build tools it actually imports
+# and one that imports none waits for none -- rather than a blanket
+# `$(build_test_got): $(build_files)`.
 build_test_got := $(call test_got,$(build_tests))
 
 # make-help snapshot: generate actual help output (driver capture)
@@ -165,8 +161,8 @@ $(o)/ci-selftest-launder-summary.txt:
 # steps exec it, so the fixture hands in the parent's by absolute path
 # — and marks it -o (old-file: use, never remake): without that,
 # a parent-tree bootstrap refresh makes it look stale INSIDE the nested
-# run, racing the outer make. The old compiled-driver handoff (and its
-# cold-tree ENOENT ordering hazard) is gone with the driver itself:
+# run, racing the outer make. There is no compiled-driver handoff to
+# order against, and so no cold-tree ENOENT hazard:
 # bin/make provisions the bootstrap before any rule
 # runs, so it always exists.
 $(build_make_out)/ci-launder.out: $(build_make_srcs) | $(bootstrap_cosmic)

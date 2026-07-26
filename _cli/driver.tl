@@ -406,9 +406,9 @@ end
 ---
 --- DEPRECATED, with a clock, and this is where the clock is written
 --- down. `-c` won (docs/design/make/) and has shipped in a release, so
---- the flag retires across two release cycles. It cannot go yet: the top-level
---- Makefile drives EVERY recipe through it, because recipes run the
---- pinned bootstrap, which predates `SHELL := cosmic -c`. So the
+--- the flag retires across two release cycles. It cannot go while the
+--- top-level Makefile drives EVERY recipe through it, which it must
+--- while recipes run a pinned bootstrap that may not have `-c`. So the
 --- deprecation is stated in `--help` and here rather than on stderr —
 --- this is the build's inner loop, and a line per invocation is a line
 --- per compiled file.

@@ -5,9 +5,9 @@
 # is about that first pass, when the file does not exist yet:
 #
 #   - the generator is a TREE script (o/_make/facts.lua), not a verb on
-#     the pinned bootstrap. The bootstrap predates _make entirely,
-#     so the modules have to come from this checkout; the bootstrap is
-#     just the interpreter, exactly as it is for every other recipe.
+#     the pinned bootstrap, which need not carry _make at all -- so the
+#     modules come from this checkout and the bootstrap is just the
+#     interpreter, exactly as it is for every other recipe.
 #   - which means facts.lua must compile FIRST, and it does: the compile
 #     rule's srcdeps_* are undefined on that pass and expand empty, so
 #     the rule is the one it has always been.

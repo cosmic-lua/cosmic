@@ -107,7 +107,7 @@ local function scenarios(): {pt.Scenario}, string
   end
   server_pid = pid
   -- allow_private opts out of the SSRF guard so the loopback server is
-  -- reachable directly, without the old point-a-proxy-at-it workaround.
+  -- reachable directly, with no proxy to point at it.
   local url = "http://127.0.0.1:" .. port .. "/"
 
   return {

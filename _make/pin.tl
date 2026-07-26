@@ -13,9 +13,9 @@
 --- worth having. A pin that wants to compute its URL is a pin that
 --- wants to be code, and the answer is no.
 ---
---- The grammar itself now lives in `cosmic.literal`, which is public:
---- it turned out to have callers outside `cosmic/` (this repo reads its
---- own dependency pins with it), and "a config file that cannot do
+--- The grammar itself lives in `cosmic.literal`, which is public
+--- because it has callers outside `cosmic/` -- this repo reads its own
+--- dependency pins with it, and "a config file that cannot do
 --- anything" is worth more than one caller. What stays here is what is
 --- specific to a PIN: url, sha256, `{version}` substitution, and where
 --- the fetched bytes land.
@@ -147,10 +147,10 @@ local function read(path: string, host?: string): Pin | nil, string
     ": a pin needs a sha256 (hex); without one it is a download, not a pin"
   end
   -- Exactly 64, not "8 or more": a truncated digest is a common
-  -- copy-paste slip, and the old pattern accepted it. Every fetch then
-  -- failed with `sha256 mismatch`, which is a correct refusal wearing
-  -- the wrong diagnosis -- it sends the reader to check the url when
-  -- the pin's own digest is what is malformed.
+  -- copy-paste slip, and accepting one defers the failure to every
+  -- fetch as `sha256 mismatch` -- a correct refusal wearing the wrong
+  -- diagnosis, sending the reader to check the url when the pin's own
+  -- digest is what is malformed.
   if not sha:match("^%x+$") or #sha ~= 64 then
     return nil, "make: " .. path .. ": sha256 must be 64 hex characters, got " ..
     #sha .. "; a truncated digest fails later as a mismatch"

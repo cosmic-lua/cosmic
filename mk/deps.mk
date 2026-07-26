@@ -1,7 +1,6 @@
-# Included from the top-level Makefile at the position this block used to
-# occupy, so parse order — and therefore every pattern-specific variable
-# and its nesting — is unchanged. The Makefile keeps aggregation
-# and the shared path variables; each mk/*.mk holds one rule family.
+# One rule family per mk/*.mk; the Makefile keeps aggregation and the
+# shared path variables. Include order is load-bearing: pattern-specific
+# variables and their nesting depend on where this is included.
 #
 # the versioned-dependency pipeline: .versioned -> .fetched -> .staged.
 

@@ -143,9 +143,9 @@ end
 test_welcome_skipped_with_v_flag()
 
 -- step 10: showing the welcome must NOT modify the executable.
--- The old marker was zip-appended to the running binary, which broke
--- release checksum verification (and loops forever on Windows, where
--- the running exe is locked).
+-- Zip-appending a marker to the running binary breaks release checksum
+-- verification, and loops forever on Windows, where the running exe is
+-- locked.
 local function test_welcome_does_not_modify_binary()
   local bin = copy_binary("immutable")
   local before = assert(fs.read(bin))

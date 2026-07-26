@@ -221,11 +221,11 @@ local function classify(rel: string): Kind
     -- the BINARY (root packages plus its own `cmd/<name>/**`), is run
     -- by `build` every time, and writes `o/<unit>/{embed,base}`, while
     -- a generation unit is scoped to its own subtree and will be run by
-    -- `regen`. Both used to classify as `gen`, with the distinction
-    -- living in prose plus a basename match inside the generator
-    -- runner -- so `cmd/foo/data_gen.tl` was a file that neither
-    -- mechanism would run, and a generation unit that happened to be
-    -- named `embed_gen.tl` silently acquired binary semantics.
+    -- `regen`. They are separate KINDS so the distinction is not a
+    -- basename match inside the generator runner: with one kind,
+    -- `cmd/foo/data_gen.tl` is a file neither mechanism runs, and a
+    -- generation unit that happens to be named `embed_gen.tl` silently
+    -- acquires binary semantics.
     if segs[#segs] == PAYLOAD_GEN then
       return "payload-gen"
     end

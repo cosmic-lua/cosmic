@@ -64,8 +64,8 @@ end
 local function test_default_policy_retries_transport_error()
   -- first connection is accepted then closed without a response (a
   -- transport error, kind "connect"); the second attempt gets a 200.
-  -- The retry loop used to consult should_retry only when
-  -- result.ok was true, so this could never succeed.
+  -- A retry loop that consults should_retry only when result.ok is
+  -- true can never recover from this.
   local port, pid = serve({"", body_response("200 OK", "recovered")})
   local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
     {allow_private = true, max_attempts = 2, base_delay = 0.01})
@@ -113,8 +113,8 @@ end
 test_default_policy_does_not_retry_404()
 
 local function test_custom_should_retry_sees_failures()
-  -- a custom predicate is consulted for failed attempts too (the old
-  -- loop returned transport errors immediately, without asking)
+  -- a custom predicate is consulted for failed attempts too, rather
+  -- than transport errors returning immediately without asking
   local seen: {boolean} = {}
   local port, pid = serve({"", body_response("200 OK", "again")})
   local result = fetch.fetch("http://127.0.0.1:" .. port .. "/", {

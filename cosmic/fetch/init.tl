@@ -147,9 +147,8 @@ local result_mt = {
 
 --- Project the transport-relevant Options fields onto a fresh typed
 --- cosmo.FetchOptions, shallow-copying headers so no attempt can observe
---- another attempt's table (the C layer no longer mutates its options,
---- but the copy keeps that a C-layer detail). Retry-loop fields stay
---- wrapper-side.
+--- another attempt's table — whether the C layer mutates its options
+--- stays a C-layer detail. Retry-loop fields stay wrapper-side.
 --- @param opts Options? wrapper options, or nil
 --- @return cosmo.FetchOptions? options for cosmo.Fetch/FetchStream, or nil
 local function to_fetch_options(opts?: Options): cosmo.FetchOptions
@@ -476,8 +475,8 @@ local made = fetch_extras.make(
       stream: function(url: string, opts?: Options): StreamResult
       unix_proxy: function(path: string): string | nil, string
       type ErrorKind = ErrorKind
-      --- Type aliases, not runtime values — the old `Result: Result`
-      --- field spelling declared phantom fields that were nil at runtime.
+      --- Type aliases, not runtime values: a `Result: Result` field
+      --- spelling would declare phantom fields that are nil at runtime.
       type Options = Options
       type Part = Part
       type Result = Result

@@ -4,13 +4,12 @@
 --- binary (an older runtime) while the modules it requires are compiled
 --- from the current tree, which targets the current cosmos pin. Anything
 --- on this path must therefore survive BOTH runtimes. `cosmo.Barf`'s third
---- argument changed from a positional mode to an options table across the
---- 2026.07 error-convention release, which made `cosmic.io.barf` (now `cosmic.fs.write`) crash the
---- fetch step under the old bootstrap; writing through signature-stable
---- `cosmo.unix` primitives instead keeps the pipeline working no matter
---- which side of a binding change the hosting binary is on. Errors are
---- stringified with tostring, which renders both the old `unix.Errno`
---- userdata and the new error strings.
+--- argument can change shape across releases -- a positional mode
+--- becoming an options table crashes the fetch step when the hosting
+--- binary is on the other side of the change. Writing through
+--- signature-stable `cosmo.unix` primitives keeps the pipeline working
+--- whichever side that is. Errors are stringified with tostring, which
+--- renders both `unix.Errno` userdata and plain error strings.
 local unix = require("cosmo.unix")
 
 --- Write data to a file (create or truncate), bootstrap-portably.

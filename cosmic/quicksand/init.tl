@@ -50,13 +50,12 @@ end
 --- (not exported on this host) reports unavailable.
 ---
 --- This classification is only correct because a failed `unix.*` call
---- reports its error (the Phase 0 annotation fix gave it an error slot;
---- the binding now returns `nil, err (string), errno (number)`): before
---- that fix the error was swallowed and every probe reported available
---- (fail-open, audit §2.3). The numeric errno in the third return slot
---- is what classifies ENOSYS. Exported so the classifier is
---- unit-testable against synthetic ENOSYS / policy-error / success
---- returns.
+--- reports its error: the binding returns `nil, err (string), errno
+--- (number)`, and the numeric errno in that third slot is what
+--- classifies ENOSYS. Without it the error is swallowed, the ENOSYS
+--- branch is unreachable, and every probe reports available — fail-open,
+--- in a capability check. Exported so the classifier is unit-testable
+--- against synthetic ENOSYS / policy-error / success returns.
 ---
 --- @param fn any the binding to probe (e.g. `unix.pledge`), or nil
 --- @return boolean true when the syscall is wired up on this host

@@ -19,11 +19,11 @@
 ---   skills/cosmic/** the guides `--docs` reads
 ---
 --- and beside them, `base`: the bare `lua` from the pinned cosmos zip.
---- Naming it is what makes the fixpoint converge. `build` will
---- otherwise embed onto the cosmic that is running it, and stripping a
---- base drops its zip entries without reclaiming their bytes — so a
---- cosmic built by a cosmic built by a cosmic grew by ~3.5 MB a
---- generation, measured, before this line existed.
+--- Naming it is what makes the fixpoint converge. Without it `build`
+--- embeds onto the cosmic that is running it, and stripping a base
+--- drops its zip entries without reclaiming their bytes — so a cosmic
+--- built by a cosmic built by a cosmic grows by ~3.5 MB a generation,
+--- measured.
 ---
 --- `cosmic.mk` is deliberately absent: it is a committed file at
 --- `embed/cosmic.mk`, which is the other half of the same convention.
@@ -69,11 +69,11 @@ local PINNED: {{string, string}} = {
 --- Committed files this binary ships that are not modules, as
 --- directory prefixes: everything under each, at the same path.
 ---
---- Enumerated here because shipping is opt-in. These used to arrive as
---- implicit assets -- "everything else, embedded at its relative path"
---- -- which shipped `docs/`, `mk/`, `Makefile` and `_perf/` along with
---- them and made the artifact 1.5 MB heavier than the Makefile's. What
---- a binary carries is now a thing its unit SAYS, and this is cosmic
+--- Enumerated here because shipping is opt-in. Taking them as implicit
+--- assets instead -- "everything else, embedded at its relative path"
+--- -- also ships `docs/`, `mk/`, `Makefile` and `_perf/`, which is 1.5
+--- MB of artifact nobody asked for. What a binary carries is a thing
+--- its unit SAYS, and this is cosmic
 --- saying it. Both are read from `/zip` at run time: `_cli.help` reads
 --- `sys/help.md`, and `--docs` reads the guides under `skills/cosmic`.
 local TREES: {string} = {

@@ -1,7 +1,6 @@
-# Included from the top-level Makefile at the position this block used to
-# occupy, so parse order — and therefore every pattern-specific variable
-# and its nesting — is unchanged. The Makefile keeps aggregation
-# and the shared path variables; each mk/*.mk holds one rule family.
+# One rule family per mk/*.mk; the Makefile keeps aggregation and the
+# shared path variables. Include order is load-bearing: pattern-specific
+# variables and their nesting depend on where this is included.
 #
 # the check lanes: files, teal, format, lint.
 
@@ -110,10 +109,9 @@ $(o)/%.lint.got: % $(cosmic_check_bin) | $(bootstrap_files)
 	@$(cosmic_check_bin) --test $(basename $@) -- $(cosmic_check_bin) --check style $<
 
 # The model gate: does this repo still conform to the project model
-# `cosmic --make` builds by? Every slice of phase 3 has been checking it
-# by hand, and 3e regressed it unnoticed for exactly that reason — a
-# bridge script imported `_make.*` from outside `cosmic/`, which
-# the `_` rule forbids, and `bin/make ci` had nothing to say about it.
+# `cosmic --make` builds by? Checking it by hand is how it regresses
+# unnoticed — an import of `_make.*` from outside `cosmic/`, which the
+# `_` rule forbids, is invisible to every other gate.
 # A design whose central bet is "the tree describes itself" needs the
 # claim gated, not remembered.
 #
