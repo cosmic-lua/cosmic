@@ -120,4 +120,19 @@ local function test_style_missing_file()
 end
 test_style_missing_file()
 
+-- An empty findings list must mean "read, and clean" -- never "could
+-- not open". Returning `{}` for a file it could not open made a lint
+-- sweep pass over a file it never checked, which is a fail-open in a
+-- gate whose job is "every file obeys the caps". The module is public
+-- API, so every downstream caller inherited the trap.
+local function test_lint_file_reports_what_it_cannot_read()
+  local style = require("cosmic.style")
+  local missing = fs.join(os.getenv("TEST_TMPDIR") or "/tmp", "not-here.tl")
+  fs.rmrf(missing)
+  local diagnostics, err = style.lint_file(missing)
+  assert(not diagnostics, "an unreadable path must not report clean")
+  assert(err and #err > 0, "and must say why, got: " .. tostring(err))
+end
+test_lint_file_reports_what_it_cannot_read()
+
 print("All style tests passed!")

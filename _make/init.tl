@@ -13,6 +13,7 @@
 --- that asks for one gets told where it stands instead of "unknown
 --- option".
 
+local cenv = require("cosmic.env")
 local fs = require("cosmic.fs")
 local root = require("_make.root")
 local project = require("_make.project")
@@ -64,18 +65,36 @@ local record Selection
   variable: string
 end
 
+--- The formattable kinds, as the sorted list a Selection wants.
+--- @return {Kind} The kinds, in a stable order
+local function fmt_kinds(): {Kind}
+  local out: {Kind} = {}
+  for k in pairs(types.fmt_kinds) do
+    out[#out + 1] = k as Kind -- cast: the table is keyed by Kind
+  end
+  table.sort(out)
+  return out
+end
+
 local SELECTS < const >: {string: Selection} = {
   build = {
     kinds = {"module", "entry", "test", "example", "gen"},
     suffix = ".tl",
     variable = "tl_sources",
   },
+  -- Derived from the one definition in types, so a selected `fmt` and
+  -- the facts writer's `fmt_sources` cannot disagree about what is
+  -- formattable (they did: full fmt gated testdata and payload).
   fmt = {
-    kinds = {"module", "entry", "test", "example", "gen", "pin", "types"},
+    kinds = fmt_kinds(),
     suffix = ".tl",
     variable = "fmt_sources",
   },
-  test = {kinds = {"test"}, suffix = ".tl", variable = "tests"},
+  -- No suffix filter: the `test` KIND already means "a test file",
+  -- and a `.lua` test is one. Filtering on `.tl` here would list a Lua
+  -- project's tests in the facts and then quietly drop them from a
+  -- selected run.
+  test = {kinds = {"test"}, suffix = "", variable = "tests"},
 }
 
 --- Usage, printed for a bare `--make` and after an unknown verb.
@@ -145,7 +164,10 @@ end
 local function candidates(proj: Project, sel: Selection): {File}
   local out: {File} = {}
   for _, f in ipairs(project.of_kind(proj, sel.kinds)) do
-    if f.path:sub(-#sel.suffix) == sel.suffix then
+    -- An empty suffix means "no suffix filter". Guarding it explicitly
+    -- because `("x"):sub(-0)` is `sub(0)` -- the whole string, not the
+    -- empty tail -- so the comparison would silently match nothing.
+    if sel.suffix == "" or f.path:sub(-#sel.suffix) == sel.suffix then
       out[#out + 1] = f
     end
   end
@@ -199,6 +221,14 @@ local function run_graph(verb: string, proj: Project, paths: {string},
   -- whole artifact — it stops at the compile, which is what the
   -- verdict then reports.
   if verb == "build" and code == 0 and #paths == 0 then
+    -- Generation is a phase over the project, before any staging: the
+    -- ROOT payload is staged into every binary, so its generator must
+    -- run once and before the first of them.
+    local gok, generr = artifact.generate(proj, cosmic)
+    if not gok then
+      io.stderr:write((generr or "make: payload generation failed") .. "\n")
+      return verdict(verb, false, detail .. ", generate failed")
+    end
     local built = 0
     for _, b in ipairs(proj.binaries) do
       local out, aerr = artifact.build(proj, b, cosmic)
@@ -253,6 +283,15 @@ local function run(argv: {string}): integer
   -- project root, and a relative `./cosmic` resolved after that points
   -- at a path inside the project that does not exist.
   local self = fs.abspath(arg[-1] or "cosmic")
+  -- Same rule, same place: `COSMIC_MAKE` is resolved by find_make,
+  -- which runs after `open_project` has chdir'd, so a relative value
+  -- resolved against the PROJECT ROOT rather than the directory the
+  -- user typed it in. It worked only when the two happened to be the
+  -- same, which is why every test passing absolute paths missed it.
+  local named = os.getenv(graph.MAKE_ENV)
+  if named and named ~= "" then
+    cenv.set(graph.MAKE_ENV, fs.abspath(named), true)
+  end
 
   if verb ~= "check" and verb ~= "clean" and verb ~= "fetch"
   and TARGETS[verb] == nil then

@@ -22,6 +22,13 @@ local type File = types.File
 local type Pin = pin.Pin
 local type Project = types.Project
 
+--- Transport limits, matching the older `_build` fetcher so the two
+--- readers of the same committed pins behave the same way: a transient
+--- blip retries instead of failing the verb, and an unexpectedly huge
+--- response is refused rather than buffered whole.
+local ATTEMPTS < const > = 8
+local MAX_BODY < const > = 100 * 1024 * 1024
+
 --- Where a pin's bytes land: under the build directory, mirroring the
 --- pin's position in the tree.
 ---
@@ -33,6 +40,44 @@ local type Project = types.Project
 --- @return string The output path, relative to the project root
 local function landing(p: Pin): string
   return fs.join(project.BUILD_DIR, p.output)
+end
+
+--- The manifest written after a format pin's archive is unpacked: one
+--- unpacked path per line, relative to the archive's directory.
+---
+--- A pin that unpacks has two outputs, and only one of them is
+--- content-addressed. Hashing the archive alone answered "did the
+--- bytes arrive", never "did they come out" — so an unpack that failed
+--- once (ENOSPC, a kill, a bad member), or products deleted later
+--- while the archive survived, left a state where every `fetch` hashed
+--- the archive, said PASS, and never unpacked again. The tree stayed
+--- missing and nothing pointed back at fetch.
+---
+--- It records the paths rather than a bare "done" flag because the two
+--- failure shapes need different evidence: a flag answers "did unpack
+--- finish", and only the list answers "is what it produced still
+--- there".
+--- @param archive string The verified archive's path
+--- @return string The manifest path
+local function manifest_of(archive: string): string
+  return archive .. ".unpacked"
+end
+
+--- Are all of an unpack's products still on disk?
+--- @param archive string The verified archive's path
+--- @return boolean True when the manifest exists and every path does
+local function products_present(archive: string): boolean
+  local listed = fs.read(manifest_of(archive))
+  if not listed then
+    return false
+  end
+  local dir = fs.dirname(archive)
+  for line in (listed as string):gmatch("([^\n]+)") do -- cast: scalar narrowing
+    if not fs.exists(fs.join(dir, line)) then
+      return false
+    end
+  end
+  return true
 end
 
 --- Unpack a pin that declares a format, beside the archive.
@@ -47,21 +92,42 @@ local function unpacked(p: Pin, archive: string): boolean, string
   if not p.format then
     return true
   end
-  return extract.unpack(archive, fs.dirname(archive), p.format,
+  -- Clear any previous run's manifest first, so a re-unpack that fails
+  -- cannot leave the old claim standing over a tree it did not produce.
+  fs.rmrf(manifest_of(archive))
+  local produced, err = extract.unpack(archive, fs.dirname(archive), p.format,
     p.strip_components)
+  if not produced then
+    return false, err
+  end
+  local wok, werr = fs.write(manifest_of(archive),
+    table.concat(produced as {string}, "\n") .. "\n") -- cast: record union after the guard
+  if not wok then
+    return false, "make: cannot write " .. manifest_of(archive) .. ": " ..
+    (werr or "unknown error")
+  end
+  return true
 end
 
 --- Is this pin already satisfied? A pin is content-addressed, so the
 --- question is about bytes, never about mtimes: an output that hashes
---- correctly is the output, whenever it was written.
+--- correctly is the output, whenever it was written. For a pin that
+--- unpacks, its products must also still be there — see `manifest_of`.
 --- @param p Pin The resolved pin
 --- @return boolean True when the output is present and verified
 local function satisfied(p: Pin): boolean
-  local have = fs.read(landing(p))
+  local out = landing(p)
+  local have = fs.read(out)
   if not have then
     return false
   end
-  return hash.sha256_hex(have) == p.sha256
+  if hash.sha256_hex(have) ~= p.sha256 then
+    return false
+  end
+  if p.format and not products_present(out) then
+    return false
+  end
+  return true
 end
 
 --- Fetch one pin, verifying before it lands.
@@ -72,6 +138,15 @@ local function one(p: Pin): boolean, string
     return true
   end
   local out = landing(p)
+  -- Not satisfied can still mean "the archive is right, the products
+  -- are not" -- a failed or half-deleted unpack. Re-unpacking is the
+  -- whole repair, so do that rather than re-downloading bytes the
+  -- digest already vouched for.
+  local have = fs.read(out)
+  if have and hash.sha256_hex(have) == p.sha256 then
+    io.write("unpack " .. p.output .. "\n")
+    return unpacked(p, out)
+  end
   local ok, merr = fs.makedirs(fs.dirname(out))
   if not ok then
     return false, "make: cannot create " .. fs.dirname(out) .. ": " ..
@@ -87,10 +162,20 @@ local function one(p: Pin): boolean, string
   -- pinning is for, and the guard would block it. The threat the guard
   -- addresses is absent here by construction; the case it breaks is
   -- real.
-  local result = cfetch.fetch(p.url, {allow_private = true})
+  local result = cfetch.fetch(p.url,
+    {allow_private = true, max_attempts = ATTEMPTS, maxresponse = MAX_BODY})
   if not result.ok then
     return false, "make: " .. p.source .. ": " .. p.url .. ": " ..
     (result.error or ("status " .. tostring(result.status)))
+  end
+  -- `Result.ok` is transport-level: a 404 error page arrives "ok" and
+  -- used to flow straight into the digest check, so the most common
+  -- failure there is (a typo'd version in the url) reported itself as
+  -- a sha256 mismatch against the hash of an HTML page -- pointing the
+  -- reader at the digest, which was fine, instead of at the url.
+  if result.status < 200 or result.status >= 300 then
+    return false, "make: " .. p.source .. ": " .. p.url .. ": HTTP " ..
+    tostring(result.status)
   end
   local got = hash.sha256_hex(result.body)
   if got ~= p.sha256 then

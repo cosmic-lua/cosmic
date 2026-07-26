@@ -163,6 +163,41 @@ local function test_default_argv_is_derived()
 end
 test_default_argv_is_derived()
 
+-- The ROOT generator is every binary's, the way root `embed/` is: its
+-- output is staged into all of them. Hung off each binary's own build
+-- it ran only while the ROOT binary was being built, so a project with
+-- only `cmd/` binaries never ran it at all -- and one with both staged
+-- whatever the last run left, depending on which name sorted first.
+local function test_the_root_generator_runs_for_cmd_binaries()
+  local root = fixture("rootgen", {
+      ["embed.gen.tl"] = [[
+local fs = require("cosmic.fs")
+local out = arg[1]
+assert(fs.makedirs(fs.join(out, "embed")))
+assert(fs.write(fs.join(out, "embed/shared.txt"), "from the root generator\n"))
+]],
+      -- Only cmd binaries: no root main.tl at all, which is the shape
+      -- that never ran the generator.
+      ["cmd/alpha/main.tl"] = "print('alpha')\n",
+      ["cmd/zeta/main.tl"] = "print('zeta')\n",
+    })
+  local code, out = make(root, "build")
+  assert(code == 0, "build should succeed: " .. out)
+  assert(fs.isfile(fs.join(root, "o/embed/shared.txt")),
+    "the root generator ran even with no root binary: " .. out)
+
+  local proj = scan(root)
+  for _, name in ipairs({"alpha", "zeta"}) do
+    local staged: {string: boolean} = {}
+    for _, s in ipairs(artifact.plan(proj, binary_of(proj, name))) do
+      staged[s.stored] = true
+    end
+    assert(staged["shared.txt"],
+      name .. " stages the root generator's output")
+  end
+end
+test_the_root_generator_runs_for_cmd_binaries()
+
 -- The same thing through the module API, which is the other calling
 -- convention and the only one this process can see: a build spawned as
 -- a subprocess exercises the generator hook without the coverage lane
@@ -193,5 +228,72 @@ assert(fs.write(fs.join(out, "embed/note.txt"), "from the generator\n"))
     "a sibling with no generator builds unchanged")
 end
 test_in_process_build_runs_the_generator()
+
+-- Two kinds can name one path inside the artifact, and `stage` writes
+-- both -- so which bytes shipped came down to `table.sort`'s behaviour
+-- on equal keys. Refusing names both origins instead.
+local function test_stored_path_collisions_are_refused()
+  local root = fixture("collide", {
+      ["main.tl"] = "print('x')\n",
+      ["pkg/db.tl"] = "return {}\n",
+      ["embed/pkg/db.lua"] = "return {}\n",
+    })
+  local proj = scan(root)
+  local out, err = artifact.build(proj,
+    binary_of(proj, "generate-collide"), cosmic)
+  assert(not out, "a colliding plan must not build")
+  assert((err as string):find("pkg/db.lua", 1, true), -- cast: scalar narrowing
+    "the message names the stored path, got: " .. tostring(err))
+  assert((err as string):find("embed/pkg/db.lua", 1, true), -- cast: scalar narrowing
+    "and both origins, got: " .. tostring(err))
+end
+test_stored_path_collisions_are_refused()
+
+-- The real payload generator, against the real tree. The synthetic
+-- fixtures above exercise the MECHANISM; this asserts the contract
+-- cosmic's own binary depends on -- which is the hazard that bit twice
+-- in this branch's history (3d lost tl.lua and the type tree, 3h lost
+-- every compiled _cli/** and _make/** module; both times the binary
+-- built, booted, and failed only when something first required the
+-- missing piece).
+local function test_the_real_payload_generator()
+  local repo = fs.abspath(".")
+  local gen = fs.join(repo, "cmd/cosmic/embed.gen.tl")
+  if not fs.isfile(gen) then
+    print("skip: not run from the cosmic tree")
+    return
+  end
+  -- The generator copies the pins' unpacked products, so it needs a
+  -- fetched tree. Mirrors the graph tests' engine guard.
+  if not fs.isfile(fs.join(repo, "o/3p/tl/tl.lua"))
+  or not fs.isfile(fs.join(repo, "o/3p/cosmos/make")) then
+    print("skip: pins not fetched (o/3p/**)")
+    return
+  end
+  local out = fs.join(tmpdir, "real-payload")
+  fs.rmrf(out)
+  assert(fs.makedirs(out))
+  local h = check.must(spawn.spawn({cosmic, gen, out},
+      {cwd = repo, env = {"PATH=" .. (os.getenv("PATH") or ""), "NO_COLOR=1"}}))
+  local r = check.must(h:wait())
+  assert(r.code == 0, "the generator should succeed: " ..
+    (r.stderr or "") .. (r.stdout or ""))
+
+  -- Every entry of the contract, named. An addition is loud because it
+  -- has to be added here too.
+  for _, want in ipairs({
+      "base",
+      "embed/tl.lua",
+      "embed/make",
+      "embed/.types/cosmo.d.tl",
+      "embed/.docs/index.lua",
+      "embed/cosmic/_version.lua",
+      "embed/.tl/cosmic/fs/init.tl",
+      "embed/.tl/_make/artifact.tl",
+    }) do
+    assert(fs.isfile(fs.join(out, want)), "payload is missing " .. want)
+  end
+end
+test_the_real_payload_generator()
 
 print("all generate tests passed")

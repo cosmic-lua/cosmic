@@ -15,6 +15,7 @@
 
 local child = require("cosmic.child")
 local fs = require("cosmic.fs")
+local proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
 local deps = require("_make.deps")
 local project = require("_make.project")
@@ -99,7 +100,13 @@ local function project_mk(proj: Project, cosmic: string): string
 
   for _, f in ipairs(proj.files) do
     local is_tl = f.path:sub(-3) == ".tl"
-    if is_tl then
+    -- By KIND, not by suffix. Taking every `.tl` swept in the two kinds
+    -- whose whole job is to stay out of the model: a `testdata/`
+    -- fixture (deliberately broken source is the point) and `embed/`
+    -- payload (verbatim vendored sources -- cosmic ships its own that
+    -- way). Full `fmt` then gated files a selected `fmt` did not,
+    -- because selection consults kinds and this did not.
+    if is_tl and types.fmt_kinds[f.kind] then
       fmt_sources[#fmt_sources + 1] = f.path
     end
     if compiled_kinds[f.kind] then
@@ -211,7 +218,12 @@ local function extract_make(to: string): boolean, string
     return false, "make: cannot create " .. fs.dirname(to) .. ": " ..
     (merr or "unknown error")
   end
-  local tmp = to .. ".tmp"
+  -- Per-process temp name. A fixed one defeats the whole point of
+  -- temp+rename: two concurrent `--make` runs in a fresh tree both
+  -- extract, and one can rename while the other is mid-write, briefly
+  -- installing a truncated engine that then fails every later build
+  -- with no pointer back at the race.
+  local tmp = to .. ".tmp." .. tostring(proc.getpid())
   local wok, werr = fs.write(tmp, bytes, tonumber("755", 8) as integer) -- cast: octal is integral
   if not wok then
     return false, "make: cannot write " .. tmp .. ": " .. (werr or "unknown error")
@@ -223,6 +235,11 @@ local function extract_make(to: string): boolean, string
   local rok, rerr = fs.rename(tmp, to)
   if not rok then
     fs.unlink(tmp)
+    -- Losing the race is not a failure: the winner installed the same
+    -- embedded bytes this process was about to.
+    if fs.isfile(to) then
+      return true
+    end
     return false, "make: cannot install " .. to .. ": " .. (rerr or "unknown error")
   end
   return true

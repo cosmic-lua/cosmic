@@ -252,4 +252,62 @@ local function test_imports_of()
 end
 test_imports_of()
 
+-- Make's own significant characters are as dangerous as the shell's
+-- here, because `o/project.mk` and the rules file ARE make input: a
+-- `=` left of a rule colon parses as an assignment, a `:` splits a
+-- prerequisite list, a `%` interacts with pattern-rule stems. All
+-- silent-misbuild shapes, where the design's posture is refusal by
+-- name.
+local function test_make_significant_characters_are_refused()
+  for _, bad in ipairs({"a=b.tl", "a:b.tl", "a%b.tl", "a,b.tl"}) do
+    local _, text = issues_of("mkchars", {
+        ["main.tl"] = "print('x')\n",
+        [bad] = "return {}\n",
+      })
+    assert(text:find("metacharacter", 1, true),
+      bad .. " should be refused, got: " .. text)
+  end
+end
+test_make_significant_characters_are_refused()
+
+-- A root init.tl compiles and then silently never ships: dropping the
+-- trailing `init` leaves the project root with no name to be required
+-- by, so `stage_entry` produces nothing for it.
+local function test_root_init_is_refused()
+  local _, text = issues_of("rootinit", {
+      ["main.tl"] = "print('x')\n",
+      ["init.tl"] = "return {}\n",
+    })
+  assert(text:find("no import path", 1, true), "got: " .. text)
+  assert(text:find("main.tl", 1, true),
+    "and points at the thing they probably meant, got: " .. text)
+end
+test_root_init_is_refused()
+
+-- Two binaries with one name share o/bin/<name>: the second overwrites
+-- the first, and which is second follows iteration order.
+local function test_duplicate_binary_names_are_refused()
+  local _, text = issues_of("dupbin", {
+      ["main.tl"] = "print('root')\n",
+      ["cmd/validate-dupbin/main.tl"] = "print('cmd')\n",
+    })
+  assert(text:find("already declared by", 1, true), "got: " .. text)
+end
+test_duplicate_binary_names_are_refused()
+
+-- The import scan ERRORS on what it finds, so a false positive refuses
+-- a project for code that never runs.
+local function test_import_scan_ignores_comments_and_suffixes()
+  local path = fs.join(tmpdir, "imports-noise.tl")
+  assert(fs.write(path,
+      "-- local x = require('cmd.other.main')\n" ..
+      "local ok = myrequire('cmd.other.main')\n" ..
+      "local real = require('pkg.a')\n" ..
+      "return {ok, real}\n"))
+  local got = validate.imports_of(path)
+  assert(table.concat(got, ",") == "pkg.a",
+    "only the real require counts, got: " .. table.concat(got, ","))
+end
+test_import_scan_ignores_comments_and_suffixes()
+
 print("all validate tests passed")

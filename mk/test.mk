@@ -13,6 +13,14 @@ $(o)/%.tl.test.got: .UNVEIL := $(unveil_test)
 tlconfig_tests := $(call test_got,cosmic/teal_config_test.tl)
 $(tlconfig_tests): .UNVEIL := $(unveil_test) r:tlconfig.lua r:Makefile
 
+# graph_test asserts the rules file packed at /zip/cosmic.mk is the one
+# in the tree, byte for byte -- so it reads embed/cosmic.mk. That is
+# PAYLOAD, not source: the shared test grant covers $(src_dirs), and
+# `embed/` is deliberately not one of them (it is what the artifact
+# carries, not what it is compiled from). Same shape as tlconfig above.
+graph_tests := $(call test_got,_make/graph_test.tl)
+$(graph_tests): .UNVEIL := $(unveil_test) r:embed
+
 # Namespace-exercising tests need to call unshare(CLONE_NEWUSER|NEWNET|...)
 # and write /proc/self/{uid,gid}_map. No pledge promise covers unshare,
 # and /proc/self needs write access for the id-map bootstrap, so drop

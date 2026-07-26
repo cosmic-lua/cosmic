@@ -94,5 +94,12 @@ test: $(O)/test-summary.txt
 $(O)/%.tl.test.got: $(O)/%.lua $$(deps_$$*)
 	test $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
 
+# A `.lua` test is a test. The marker suffixes are extension-agnostic
+# in the model, so the rules have to be too -- otherwise a Lua-only
+# project's tests are listed and never run, which is worse than not
+# supporting them.
+$(O)/%.lua.test.got: $(O)/%.lua $$(deps_$$*)
+	test $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
+
 $(O)/test-summary.txt: $(test_got)
 	tee $@ $(COSMIC) --report $(test_got) ;

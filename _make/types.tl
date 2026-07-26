@@ -76,6 +76,27 @@ local record make_types
     path: string
     message: string
   end
+
+  --- Kinds a `.tl` file must be to reach the format gate.
+  ---
+  --- Two consumers ask this question -- the facts writer, which emits
+  --- `fmt_sources` for the whole project, and the `fmt` verb's
+  --- selection table -- and they used to answer it differently: one by
+  --- kind, the other by suffix. A full `fmt` then gated `testdata/`
+  --- fixtures and `embed/` payload that a selected `fmt` skipped,
+  --- which are exactly the two kinds whose job is to stay out of the
+  --- model. One definition, both readers.
+  fmt_kinds: {string: boolean}
 end
+
+make_types.fmt_kinds = {
+  module = true,
+  entry = true,
+  test = true,
+  example = true,
+  gen = true,
+  pin = true,
+  types = true,
+}
 
 return make_types

@@ -348,7 +348,14 @@ local function handle_check_style(file: string): integer
   end
   f:close()
   local lint = require("cosmic.style")
-  local diagnostics = lint.lint_file(file)
+  local style_types = lint
+  local found, lerr = lint.lint_file(file)
+  if not found then
+    io.stderr:write(file .. ": " .. (lerr or "cannot lint") .. "\n")
+    instrument.finish(span, 1)
+    return 1
+  end
+  local diagnostics = found as {style_types.Diagnostic} -- cast: record union after the guard
   if #diagnostics == 0 then
     io.write("Style check passed\n")
     instrument.finish(span, 0)

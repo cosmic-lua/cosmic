@@ -100,7 +100,28 @@ fixture("pkg", {pkg = "hi pkg"})
 fixture("multi", {one = "one: shared", two = "two: shared plus"})
 
 -- `.lua` sources are first-class: this project has no `.tl` at all.
-fixture("luaonly", {luaonly = "hello from lua only"})
+local luaonly_root = fixture("luaonly", {luaonly = "hello from lua only"})
+
+-- First-class means the MARKERS work too. `main_test.lua` classified
+-- as a module, so `--make test` saw a project with no tests and
+-- `--make build` embedded the test file into the binary -- both
+-- silently.
+local function test_lua_markers_are_first_class()
+  local code, out = make(luaonly_root, "test")
+  assert(code == 0, "a .lua test should run: " .. out)
+  assert(out:find("1 file", 1, true) or out:find("1 test", 1, true),
+    "and be counted, got: " .. out)
+
+  local zip = require("cosmic.zip")
+  local reader = check.must(zip.reader(fs.join(luaonly_root, "o/bin/luaonly")))
+  local shipped = false
+  for _, e in ipairs(reader:list()) do
+    if e.name:find("main_test", 1, true) then shipped = true end
+  end
+  reader:close()
+  assert(not shipped, "a test file must never be embedded in the artifact")
+end
+test_lua_markers_are_first_class()
 
 -- An asset ships at its relative path and testdata/ does not ship at
 -- all — asserted from inside the artifact, which is the only place the

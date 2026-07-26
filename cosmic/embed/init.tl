@@ -409,7 +409,14 @@ local function run(paths: {string}, output?: string, exe_path?: string,
     local add: AddOptions = {
       mode = file_info.mode,
       method = is_lua and "store" or "deflate",
-      mtime = opts.mtime,
+      -- Default the epoch rather than letting the binding fall back to
+      -- `time(NULL)`. The `--make` path passed one and got byte-identical
+      -- rebuilds; the `--embed` CLI passed no options at all, so two runs
+      -- of the same inputs seconds apart produced different binaries --
+      -- breaking content-addressed caching and "same inputs, same
+      -- artifact" for every caller outside `--make`. A caller wanting
+      -- live mtimes now has to ask for them.
+      mtime = opts.mtime or floor.epoch(),
     }
     local add_ok, add_err = appender:add(file_info.stored_name, file_info.content, add)
     if not add_ok then

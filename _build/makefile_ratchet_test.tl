@@ -133,11 +133,13 @@ local hostx_allowed: {string} = {
   "o/coverage/%.tl.test.got", -- unveil_test lane
   "o/coverage/_build/help_test.tl.test.got", -- unveil_test + Makefile
   "o/coverage/_build/makefile_test.tl.test.got", -- unveil_test + mk
+  "o/coverage/_make/graph_test.tl.test.got", -- unveil_test + embed payload
   "o/coverage/cosmic/teal_config_test.tl.test.got", -- unveil_test + tlconfig
   "o/coverage/cosmic/tty_pty_test.tl.test.got", -- unveil_test + pty devs
   "o/coverage/cosmic/tty_test.tl.test.got", -- unveil_test + pty devs
   "o/_build/help_test.tl.test.got", -- unveil_test + Makefile
   "o/_build/makefile_test.tl.test.got", -- unveil_test + mk
+  "o/_make/graph_test.tl.test.got", -- unveil_test + embed payload
   "o/cosmic/teal_config_test.tl.test.got", -- unveil_test + tlconfig
   "o/cosmic/tty_pty_test.tl.test.got", -- unveil_test + pty devs
   "o/cosmic/tty_test.tl.test.got", -- unveil_test + pty devs

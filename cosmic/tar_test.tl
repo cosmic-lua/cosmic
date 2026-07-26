@@ -194,6 +194,14 @@ local function test_unsafe_path()
   assert(untar.unsafe_path("/abs"), "absolute")
   assert(untar.unsafe_path("a/../b"), "dotdot")
   assert(untar.unsafe_path("a\\b"), "backslash")
+  -- The sibling guard in cosmic.embed rejects drive letters, and these
+  -- two protect the same operation: writing archive-controlled names
+  -- under a dest. On POSIX `C:/evil.txt` is a literal `C:` directory;
+  -- on Windows a colon component invites drive-relative and NTFS
+  -- alternate-data-stream semantics.
+  assert(untar.unsafe_path("C:/evil.txt"), "drive letter")
+  assert(untar.unsafe_path("c:evil.txt"), "drive letter, no slash")
   assert(not untar.unsafe_path("a/b.txt"), "plain path is safe")
+  assert(not untar.unsafe_path("ab:c.txt"), "a colon that is not a drive is fine")
 end
 test_unsafe_path()
