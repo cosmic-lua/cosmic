@@ -74,8 +74,15 @@ local function test_extract_modify_embed()
   local ok, out = __r4.ok, __r4.stdout
   assert(ok, "extract should succeed: " .. (out or ""))
 
-  -- Modify main.lua
-  fs.write(fs.join(extractdir, "main.lua"), 'io.write("modified\\n")\n')
+  -- Modify the entry — which is `main.user.lua` on an artifact whose
+  -- `main.lua` is the embed wrapper, and `main.lua` otherwise.
+  -- Overwriting a wrapper would destroy the boot the artifact needs, and
+  -- embed refuses that combination rather than silently accepting it.
+  local entry = fs.join(extractdir, "main.user.lua")
+  if not fs.isfile(entry) then
+    entry = fs.join(extractdir, "main.lua")
+  end
+  fs.write(entry, 'io.write("modified\\n")\n')
 
   -- Re-embed
   local output = fs.join(tmpdir, "modified-cosmic")

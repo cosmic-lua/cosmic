@@ -239,11 +239,14 @@ print("All script tests passed!")
 local function plant(dir: string, script: string, code: string)
   local hash = require("cosmic.hash")
   local content = check.must(fs.read(script))
-  -- Non-literal module name: cosmic._version is generated at build
-  -- time, so there is no type information for it in the tree.
-  local mod = "cosmic._version"
-  local ok, ver = pcall(require, mod)
-  local id = ok and tostring((ver as {string: string}).cosmic) or "unknown" -- cast: from any
+  -- The build id in the key belongs to the binary UNDER TEST, which is
+  -- not always the one running this file: ask it. Reading this process's
+  -- own `cosmic._version` keys the plant to the runner, and then the
+  -- attack silently fails to reproduce — a security test passing because
+  -- it planted the wrong file is worse than one that fails.
+  local h = check.must(spawn.spawn({cosmic, "--version"}))
+  local r = check.must(h:wait())
+  local id = check.must((r.stdout or ""):match("^cosmic%-lua (%S+)"))
   local key = hash.sha256_hex(script .. "\0" .. content .. "\0" .. id)
   assert(fs.write(fs.join(dir, key .. ".lua"), code))
 end
