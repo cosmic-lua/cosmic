@@ -20,10 +20,12 @@
 ---    require() with the formatted issues. tl's loader ran tl.check
 ---    and generated code without ever looking at the type errors.
 ---
---- Compiled output is cached content-hashed via script_cache, so a
---- script's .tl require tree compiles once per content+build, not once
---- per run. Compilation is lax — the same gradual-typing on-ramp as
---- running a script directly; --check-types remains the strict gate.
+--- Compiled output is cached content-hashed, so a script's .tl require
+--- tree compiles once per content+build, not once per run — through
+--- `cosmic.teal.compile_cached`, which is the same call the script
+--- runner makes, so the two paths cannot drift. Compilation is lax —
+--- the same gradual-typing on-ramp as running a script directly;
+--- --check-types remains the strict gate.
 ---
 --- install() appends the searcher at the END of package.searchers so
 --- the default Lua file searcher finds pre-compiled .lua modules
@@ -43,21 +45,15 @@ local function cosmic_tl_searcher(module_name: string): any, any
   if not found then
     return "no .tl source found for module '" .. module_name .. "'"
   end
-  local cache = require("cosmic.script_cache")
-  local code = cache.load(found)
+  local code, cerr = teal.compile_cached(found)
   if not code then
-    local result = teal.compile(found)
-    if not result.ok then
-      error("error loading module '" .. module_name .. "' from '"
-        .. found .. "':\n" .. teal.format_issues(result.errors), 0)
-    end
-    code = result.code
-    cache.store(found, code)
+    error("error loading module '" .. module_name .. "' from '"
+      .. found .. "':\n" .. cerr, 0)
   end
   -- compile() preserves shebangs for CLI output, but load() on a
   -- string does not skip them (only luaL_loadfile does); blank the
   -- shebang line, keeping line numbers intact.
-  local lua_code = code as string -- cast: nil ruled out by branches above
+  local lua_code = code as string -- cast: nil ruled out by the guard above
   if lua_code:sub(1, 2) == "#!" then
     lua_code = "--" .. lua_code:sub(3)
   end

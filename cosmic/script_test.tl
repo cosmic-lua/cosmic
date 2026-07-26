@@ -187,7 +187,7 @@ print("shebang=" .. x)
 end
 test_teal_with_shebang()
 
--- Test that running a .tl script twice reuses cosmic.script_cache's
+-- Test that running a .tl script twice reuses cosmic._script_cache's
 -- compiled output (a cache hit), and that changing the script's content
 -- (and so its mtime) invalidates the cache and picks up the new output.
 local function test_script_cache_reuse_and_invalidation()

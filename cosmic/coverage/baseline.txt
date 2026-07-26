@@ -14,7 +14,7 @@ _cli/build/init.tl 55 60
 _cli/build/steps.tl 177 230
 _cli/driver.tl 6 12
 _cli/help.tl 46 48
-_cli/main_handlers.tl 16 224
+_cli/main_handlers.tl 11 214
 _cli/require_hints.tl 93 124
 _cli/run.tl 4 31
 _cli/welcome.tl 0 25
@@ -56,6 +56,7 @@ _types/gentype_parse.tl 267 288
 _types/gentype_render.tl 309 312
 _types/gentype_types.tl 2 2
 cmd/cosmic/main.tl 0 276
+cosmic/_script_cache.tl 26 29
 cosmic/ansi.tl 86 86
 cosmic/benchmark.tl 180 212
 cosmic/check.tl 80 82
@@ -131,7 +132,6 @@ cosmic/quicksand/types.tl 3 3
 cosmic/rand.tl 66 73
 cosmic/re.tl 115 125
 cosmic/sandbox.tl 85 108
-cosmic/script_cache.tl 26 29
 cosmic/searcher.tl 20 27
 cosmic/shm.tl 117 128
 cosmic/signal.tl 101 109

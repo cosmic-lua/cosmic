@@ -442,11 +442,39 @@ local function format_issues_with_hints(issues: {Issue}): string
   return table.concat(lines, "\n")
 end
 
+--- Compile a Teal file, reusing cached output when the source has not
+--- changed. Lax, like `compile`; `check` remains the strict gate.
+---
+--- Both callers — the runtime `.tl` searcher and the script runner
+--- behind `cosmic script.tl` — spelled this load/compile/store loop out
+--- for themselves and differed only in what they do with a failure (one
+--- raises, one returns). The loop is here; the policy stays theirs.
+--- Nothing reports a cache problem because the cache is best-effort by
+--- contract: a miss and a broken cache both mean "compile".
+--- @param input_path string Path to the Teal file to compile
+--- @return string|nil The generated Lua code, or nil when compilation failed
+--- @return string The formatted issues when compilation failed
+local function compile_cached(input_path: string): string | nil, string
+  local cache = require("cosmic._script_cache")
+  local code = cache.load(input_path)
+  if code then
+    return code
+  end
+  local result = compile(input_path, {})
+  if not result.ok then
+    return nil, format_issues(result.errors)
+  end
+  local generated = result.code as string -- cast: set whenever ok
+  cache.store(input_path, generated)
+  return generated
+end
+
 local record TealModule
   DEFAULT_GEN_TARGET: string
   DEFAULT_GEN_COMPAT: string
   MAKEFILE_INCLUDE_DIRS: {string}
   compile: function(input_path: string, opts?: CompileOptions): CompileResult
+  compile_cached: function(input_path: string): string | nil, string
   check: function(input_path: string, opts?: CheckOptions): CheckResult
   search_module: function(module_name: string, include_dirs?: {string}): string | nil
   format_issues: function(issues: {Issue}): string
@@ -460,6 +488,7 @@ local M: TealModule = {
   DEFAULT_GEN_COMPAT = DEFAULT_GEN_COMPAT,
   MAKEFILE_INCLUDE_DIRS = MAKEFILE_INCLUDE_DIRS,
   compile = compile,
+  compile_cached = compile_cached,
   check = check,
   search_module = search_module,
   format_issues = format_issues,

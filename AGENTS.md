@@ -358,7 +358,6 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | rand | cryptographic random bytes |
 | re | POSIX extended regular expressions |
 | sandbox | one-call fail-closed facade over pledge/unveil/landlock (fs + sys policy) |
-| script_cache | compiled `.tl` output, keyed by path + content + build id |
 | searcher | the runtime `.tl` package searcher every artifact installs at boot |
 | pledge | restrict system calls (OpenBSD, Linux) |
 | unveil | restrict filesystem visibility (OpenBSD, or Linux via landlock) |

@@ -1,8 +1,12 @@
 --- Caches compiled Lua output for `.tl` sources, keyed by path +
 --- content + cosmic build version, so a repeat compile of an unchanged
---- source skips Teal entirely. Two callers: running a script directly
---- (`cosmic script.tl`) and `cosmic.searcher`, which resolves every
---- `require()` of a `.tl` module.
+--- source skips Teal entirely.
+---
+--- One caller: `cosmic.teal.compile_cached`, which is what the runtime
+--- `.tl` searcher and the script runner both go through. That is why
+--- this is internal to `cosmic/` again — 3h briefly made it public
+--- because the script runner reached past `cosmic.teal` to it, and the
+--- right fix was to stop reaching rather than to publish the reach.
 ---
 --- Hashing the content rather than trusting an mtime is deliberate: it
 --- costs one read next to a full Teal compile, and it cannot produce a
@@ -13,10 +17,6 @@
 --- directory, no write permission, a race with another process) is a
 --- miss or a no-op, never an error. Compiling must still work with no
 --- cache at all, so nothing here returns one.
----
---- Public since 3h, for the same reason `cosmic.instrument` is: the CLI
---- that compiles scripts lives outside `cosmic/` now, and a module
---- marked internal to `cosmic/` cannot answer a caller outside it.
 local fs = require("cosmic.fs")
 local hash = require("cosmic.hash")
 

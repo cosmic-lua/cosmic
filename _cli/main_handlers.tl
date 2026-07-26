@@ -44,18 +44,12 @@ end
 local function load_script_file(script_path: string): function(...: any): any ... | nil, string
   if script_path:match("%.tl$") then
     package.path = package.path .. ";/zip/.tl/?.tl" -- so teal can find cosmic modules
-    local script_cache = require("cosmic.script_cache")
-    local code = script_cache.load(script_path)
+    local teal = require("cosmic.teal")
+    local code, cerr = teal.compile_cached(script_path)
     if not code then
-      local teal = require("cosmic.teal")
-      local result = teal.compile(script_path)
-      if not result.ok then
-        return nil, teal.format_issues(result.errors)
-      end
-      code = result.code
-      script_cache.store(script_path, code)
+      return nil, cerr
     end
-    local src = code as string -- cast: set on both branches
+    local src = code as string -- cast: nil ruled out by the guard above
     if src:sub(1, 2) == "#!" then
       src = src:sub((src:find("\n") or 0) + 1)
     end
