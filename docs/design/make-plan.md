@@ -168,7 +168,7 @@ Measured against the binary above rather than guessed:
 | 6 | `cosmic.mk` and `make` | the code reads them at `/zip/cosmic.mk` and `/zip/make`; as assets they would land at `/zip/_make/cosmic.mk` | `RULES_ZIP`/`MAKE_ZIP` in graph.tl; neither path exists in the built artifact |
 | 7 | the version stamp | still minted by a shell recipe reading `git describe` | the built artifact's `--version` prints `Lua 5.4` |
 | 8 | the base is not selectable | `artifact.build` always passes the running cosmic | `embed.run(dir, out, cosmic, …)` |
-| 9 | **the artifact ships the repo** | every non-source file is an asset at its relative path, and `bin/cosmo-make` is a 1.59 MB build engine extracted *outside* `o/` | asset weight by top-level name: `bin` 1.59 MB, `docs` 159 KB, `_perf` 91 KB, `mk` 23 KB |
+| 9 | **the artifact ships the repo** | every non-source file is an asset at its relative path, so the repo's own build files ride along. The big one is closed: the make engine moved from `bin/cosmo-make` into `o/`, where nothing generated is ever an input (−751 KB) | remaining asset weight: `docs` 169 KB, `_perf` 91 KB, `_build` 60 KB, `mk` 23 KB |
 
 Items 3–7 and 9 are what 3i means by "the verbs take over": each is a
 capability `--make` has to *have*, not a migration. Item 8 is the one

@@ -94,7 +94,7 @@ jobs:
 
   # No-network gate (#730). By design only three things touch the
   # network — the bootstrap download and the cosmos.zip download that
-  # yields bin/cosmo-make (both via bin/make, #756 item 6), and the
+  # yields o/cosmo-make (both via bin/make, #756 item 6), and the
   # fetch rule — each integrity-checked against a committed sha256,
   # so the pins are the trust root and TLS is transport. This job makes
   # the property falsifiable: fetch with network allowed, then run the

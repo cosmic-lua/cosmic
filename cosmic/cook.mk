@@ -28,13 +28,11 @@ cosmic_lua := $(patsubst %.tl,$(o)/%.lua,$(cosmic_tl))
 cosmic_debug_test_got := $(call test_got,cosmic/cosmic_debug_test.tl)
 $(cosmic_debug_test_got): $(cosmic_debug_bin)
 
-# The --make graph tests drive a REAL make over fixture projects, so
-# they exec the extracted engine at bin/cosmo-make — the one path
-# outside the standard test grant they need. Everything that make then
-# runs is $(o)/bin/cosmic and fixture trees under $(TMP), both granted.
-make_graph_tests := $(call test_got,_make/build_test.tl \
-  _make/artifact_test.tl _make/fixtures_test.tl)
-$(make_graph_tests): .UNVEIL := $(unveil_test) rx:bin
+# The --make graph tests drive a REAL make over fixture projects, and
+# needed `rx:bin` for it until the engine moved into $(o) (3i) — which
+# `unveil_test` already grants `rwcx`. One fewer hand-written grant, and
+# the grant that is left is the derived one. Everything else those tests
+# exec is $(o)/bin/cosmic and fixture trees under $(TMP), also granted.
 
 cosmic_built := $(o)/cosmic/.built
 cosmic_sys := sys/help.md

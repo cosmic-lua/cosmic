@@ -143,12 +143,40 @@ extracts from `cosmos.zip` **into the source tree** rather than into
 `o/`, so the model sees an ordinary untracked file and ships it. The
 design's rule — "nothing generated is committed; it all lives in `o/`"
 — has a corollary it never stated: *nothing generated may live outside
-`o/` at all*, or an artifact will carry it. Which is a `--cosmicignore`
-away from fixed, and a genuine question for 3i: an ignore entry removes
-a path from the **model**, not just from the artifact, so ignoring
-`bin/` also removes it from `check`, `lint` and the coverage scan.
-Whether "not shipped" and "not seen" should be the same knob is
-undecided.
+`o/` at all*, or an artifact will carry it.
+
+## The engine moves into `o/` — a 3h follow-up
+
+`bin/cosmo-make` → `o/cosmo-make`. The corollary above, applied at the
+cause rather than papered over with an ignore entry. **−751 KB from the
+artifact**, and the remaining asset weight is small enough to stop being
+the headline: `docs` 169 KB, `_perf` 91 KB, `_build` 60 KB, `mk` 23 KB.
+
+What made it worth doing beyond the bytes: `bin/cosmo-make` is where 3g
+lost half a day. `bin/make clean` removes `o/`, the engine lived
+*outside* it, and the trust root's guard —
+
+```sh
+if [ ! -f "${MAKE_BIN}" ] || [ "${pin}" -nt "${MAKE_BIN}" ]; then
+```
+
+— took neither branch: the file existed, and `-nt` against a path that
+no longer existed was false. So a rename that broke the bootstrap passed
+every local gate and failed all five CI jobs. The log's conclusion then
+was "the real cold-start gate is `rm -rf o bin/cosmo-make`". That was
+the right workaround and the wrong fix: **`clean` should be able to
+clean.** It can now, and the cold-start gate is `rm -rf o` again.
+
+Two grants went with it. `$(make_graph_tests): .UNVEIL := $(unveil_test)
+rx:bin` is gone — the test lane already grants `rwcx:$(o)` — and with it
+three entries from the hostx ratchet's allowlist. A hand-written grant
+that becomes a derived one is the direction phase 4 is headed anyway.
+
+What is left of item 9 is the open design question, unchanged: an
+ignore entry removes a path from the **model**, not just from the
+artifact, so ignoring `docs/` would also hide it from `check`, `lint`
+and the coverage scan. Whether "not shipped" and "not seen" should be
+the same knob is undecided, and is 3i's to settle.
 
 ### Not fixed here, and named so it is not lost
 

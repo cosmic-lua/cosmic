@@ -44,7 +44,6 @@ _types/               cosmo.* type declarations (generated) + gentype generator
 bin/
   make                 trust-root script: fetches the pinned bootstrap cosmic,
                        which extracts make from the pinned cosmos.zip
-  cosmo-make           landlock-make binary (gitignored, extracted from cosmos.zip)
 .github/workflows/
   pr.yml               CI on push/PR (make ci)
   docs.yml             publish docs on push to main
@@ -395,7 +394,7 @@ projects with their own roots, so this repo's model does not see them
 
 ```bash
 cp -r _make/testdata/hello /tmp/h && cd /tmp/h
-COSMIC_MAKE=$OLDPWD/bin/cosmo-make $OLDPWD/o/bin/cosmic --make build && ./o/bin/hello
+COSMIC_MAKE=$OLDPWD/o/cosmo-make $OLDPWD/o/bin/cosmic --make build && ./o/bin/hello
 ```
 
 ## Testing

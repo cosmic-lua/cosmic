@@ -433,7 +433,8 @@ So "clean" was not clean. The real cold-start gate is
 `rm -rf o bin/cosmo-make`, and it is what should have run before a
 commit that renames a file the trust root names by path. Worth knowing
 generally: a stale artifact outside `o/` makes a missing-file bug look
-like a working build.
+like a working build. (Fixed at the cause after 3h: the engine lives at
+`o/cosmo-make` now, so `clean` cleans it and the gate is `rm -rf o`.)
 
 That left exactly one `dofile` of a pin, in `make-boot.tl`, which could
 not go while `cosmic.literal` was newer than any release: it runs

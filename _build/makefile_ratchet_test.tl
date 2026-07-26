@@ -133,17 +133,11 @@ local hostx_allowed: {string} = {
   "o/coverage/%.tl.test.got", -- unveil_test lane
   "o/coverage/_build/help_test.tl.test.got", -- unveil_test + Makefile
   "o/coverage/_build/makefile_test.tl.test.got", -- unveil_test + mk
-  "o/coverage/_make/artifact_test.tl.test.got", -- unveil_test + bin/cosmo-make
-  "o/coverage/_make/build_test.tl.test.got", -- unveil_test + bin/cosmo-make
-  "o/coverage/_make/fixtures_test.tl.test.got", -- unveil_test + bin/cosmo-make
   "o/coverage/cosmic/teal_config_test.tl.test.got", -- unveil_test + tlconfig
   "o/coverage/cosmic/tty_pty_test.tl.test.got", -- unveil_test + pty devs
   "o/coverage/cosmic/tty_test.tl.test.got", -- unveil_test + pty devs
   "o/_build/help_test.tl.test.got", -- unveil_test + Makefile
   "o/_build/makefile_test.tl.test.got", -- unveil_test + mk
-  "o/_make/artifact_test.tl.test.got",
-  "o/_make/fixtures_test.tl.test.got", -- unveil_test + bin/cosmo-make
-  "o/_make/build_test.tl.test.got", -- unveil_test + bin/cosmo-make
   "o/cosmic/teal_config_test.tl.test.got", -- unveil_test + tlconfig
   "o/cosmic/tty_pty_test.tl.test.got", -- unveil_test + pty devs
   "o/cosmic/tty_test.tl.test.got", -- unveil_test + pty devs

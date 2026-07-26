@@ -24,7 +24,7 @@ local type Project = types.Project
 local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
-local make_bin = fs.abspath(os.getenv("COSMIC_MAKE") or "bin/cosmo-make")
+local make_bin = fs.abspath(os.getenv("COSMIC_MAKE") or "o/cosmo-make")
 if not fs.isfile(make_bin) then
   print("skip: no make binary at " .. make_bin)
   os.exit(2)

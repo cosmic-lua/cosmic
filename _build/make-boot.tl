@@ -1,7 +1,7 @@
 #!/usr/bin/env lua
 -- Trust-root make extractor (#756 item 6). bin/make runs this under the
 -- sha-pinned bootstrap cosmic BEFORE any make binary exists, to produce
--- bin/cosmo-make from the sha-pinned cosmos.zip — no host unzip, and no
+-- o/cosmo-make from the sha-pinned cosmos.zip — no host unzip, and no
 -- separate landlock-make release asset. Nothing else can be assumed at
 -- that point: the tree is not compiled, so requires are limited to the
 -- bootstrap's EMBEDDED cosmic.* stdlib (never build.* — bin/make invokes

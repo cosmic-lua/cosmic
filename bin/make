@@ -14,7 +14,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-MAKE_BIN="${SCRIPT_DIR}/cosmo-make"
+MAKE_BIN="${ROOT}/o/cosmo-make"
 BOOTSTRAP="${ROOT}/o/bootstrap/cosmic"
 
 verify_sha256() {
@@ -97,6 +97,13 @@ ensure_bootstrap() {
 # and bootstrap pin bumps (the stamp mismatch re-downloads).
 ensure_bootstrap
 
+# The engine lands in o/ like everything else generated (3i). It used to
+# live at bin/cosmo-make, and that cost a real bug: `bin/make clean`
+# removes o/, so a stale engine OUTSIDE it survived the clean and made
+# the guard below take neither branch — a missing-file failure looked
+# like a working build (3g). It also meant `--make` saw 1.59 MB of build
+# engine sitting in the source tree and shipped it as an asset.
+#
 # Re-extract when the cosmos pin moved (-nt: the pin newer than the
 # extracted make), not only when the binary is missing — a pin bump must
 # refresh local trees' make, or they keep running the previous release's.
