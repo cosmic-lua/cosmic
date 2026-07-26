@@ -1,6 +1,6 @@
 # coverage ratchet baseline: `bin/make coverage-baseline` rewrites this file.
 # columns: path covered-lines total-lines
-_build/build-fetch.tl 11 62
+_build/build-fetch.tl 0 59
 _build/build-pack.tl 117 155
 _build/build-stage.tl 46 252
 _build/make-boot.tl 52 87
@@ -31,7 +31,7 @@ _make/init.tl 167 196
 _make/pin.tl 80 81
 _make/policy.tl 46 75
 _make/project.tl 207 218
-_make/root.tl 51 55
+_make/root.tl 54 58
 _make/stage.tl 85 89
 _make/types.tl 24 24
 _make/validate.tl 193 197
@@ -61,7 +61,7 @@ _types/gentype_render.tl 309 312
 _types/gentype_types.tl 2 2
 cmd/cosmic/embed.gen.tl 0 150
 cmd/cosmic/main.tl 0 290
-cosmic/_script_cache.tl 49 56
+cosmic/_script_cache.tl 64 70
 cosmic/ansi.tl 86 86
 cosmic/benchmark.tl 180 212
 cosmic/check.tl 90 92
@@ -126,8 +126,8 @@ cosmic/quicksand/box/merge.tl 66 67
 cosmic/quicksand/box/run.tl 0 157
 cosmic/quicksand/caps.tl 59 77
 cosmic/quicksand/init.tl 66 75
-cosmic/quicksand/netns.tl 47 55
-cosmic/quicksand/proc.tl 88 124
+cosmic/quicksand/netns.tl 37 55
+cosmic/quicksand/proc.tl 84 124
 cosmic/quicksand/proxy.tl 48 84
 cosmic/quicksand/proxy/dial.tl 22 33
 cosmic/quicksand/proxy/http.tl 133 164
@@ -150,12 +150,12 @@ cosmic/sqlite/stmt_cache.tl 57 67
 cosmic/sse.tl 98 103
 cosmic/stream.tl 0 2
 cosmic/string.tl 180 183
-cosmic/style.tl 127 128
+cosmic/style.tl 30 32
 cosmic/sys.tl 14 22
 cosmic/syslog.tl 46 46
 cosmic/table.tl 75 75
 cosmic/tar.tl 123 131
-cosmic/teal.tl 194 202
+cosmic/teal.tl 185 193
 cosmic/testrun.tl 155 201
 cosmic/time.tl 142 155
 cosmic/tty.tl 54 92
@@ -165,4 +165,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 80 93
 tlconfig.lua 7 7
-total 13860 17775
+total 13765 17684
