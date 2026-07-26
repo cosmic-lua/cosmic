@@ -54,6 +54,21 @@ scenario, and a suggested fix. ids are stable; resolved entries are deleted
 | [049](049-pin-grammar-coherence.md) | low | pin grammar: url-derived output naming and the dual sha spelling |
 | [050](050-version-stamp-implicit-input.md) | low | `COSMIC_VERSION` is the one build input not enumerable from the tree |
 
+### 3i readiness — removing the Makefile bridge
+
+what stands between today and `bin/cosmic --make ci` being the only build
+system. 056 is the mechanism; it names the dependency order the others
+land in.
+
+| id | issue |
+|---|---|
+| [051](051-bridge-gate-verb-parity.md) | the ci gate has no `--make` equivalent yet (ci, example, lint, coverage) |
+| [052](052-bridge-enforcement-parity.md) | deleting the .mk files deletes today's only real sandbox (sequencing with 014) |
+| [053](053-bridge-release-parity.md) | the release artifact still comes from the Makefile (debug variant, weight, parity gate) |
+| [054](054-bridge-generation-workflows.md) | regen, type generation, and docs publishing have no `--make` home |
+| [055](055-bridge-trust-root-swap.md) | the one-pin trust root (`bin/cosmic`) does not exist yet |
+| [056](056-bridge-transition-mechanism.md) | the transition needs a dual gate and a target disposition table |
+
 ### tests and ci
 
 | id | issue |
