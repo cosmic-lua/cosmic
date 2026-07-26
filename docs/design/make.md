@@ -238,10 +238,14 @@ entry                          →  /zip/main.user.lua behind the wrapper
 
 The zip root *is* the module root, so "path relative to root = import
 path" holds inside the artifact too. `pack_copies` disappears; the
-layout is derived, not enumerated. Cosmic's own payload moves with it
-(`/zip/.lua/cosmic/*` → `/zip/cosmic/*`, `.lua/tl.lua` → `tl.lua`),
-touching the searcher's include dirs — contained, and it lands in phase
-3 when the pack rule is rewritten anyway.
+layout is derived, not enumerated. Cosmic's own payload moved with it in
+3d (`/zip/.lua/cosmic/*` → `/zip/cosmic/*`, `.lua/tl.lua` → `tl.lua`),
+which turned out to touch more than the searcher's include dirs:
+cosmopolitan's default `package.path` is `/zip/.lua/`-rooted, so the
+entry has to insert the zip root ahead of it — behind anything
+`LUA_PATH` set, or the binary's own copy shadows an in-tree build.
+Payload that is *not* modules (the type tree, `.tl` sources, the docs
+index) stays dot-prefixed, outside the module root.
 
 ### Stripping
 

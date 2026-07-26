@@ -117,8 +117,9 @@ What it settled:
   modules sit on the module path twice — once as `$(o)` so `_build.x`
   resolves, and once as `$(o)/_build` so the bare `make-help` that the
   Makefile's help target and its test both require still does. Recorded
-  rather than fixed: renaming that module is 3g's business, when the
-  generators move.
+  rather than fixed: renaming that module was expected to wait for the
+  generators. It came sooner — 3f's derived closures cannot see a bare
+  require, so the name had to match its position there.
 - **path rewrites damage prose that describes paths.** A tree-wide
   `lib/cosmic` → `cosmic` rewrite turned the plan's own "`lib/cosmic/` →
   `cosmic/`" into "`cosmic/` → `cosmic/`", and the make-log's account of

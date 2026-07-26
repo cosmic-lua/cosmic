@@ -240,11 +240,11 @@ coverage scan skip it.
      `_perf/`, `lib/docs/` → `_docs/`, `lib/cook.mk` → `mk/modules.mk`.
      `_` arrives *with* the move rather than after it, because
      `lib/docs/` cannot pass through `docs/` — the markdown tree is
-     already there. **`cosmic/_cli/` → `_cli/` and `cosmic/_make/` →
-     `_make/` are deliberately not here**, and move to 3c: those two are
-     not position changes but *surface* changes — they are how the `_`
-     prefix replaces `public.tl`'s internal list — so they belong with
-     the slice that deletes it. Gates: `bin/make ci` green, and `cosmic
+     already there. **Hoisting `cosmic/cli/` and `cosmic/make/` to root `_cli/`
+     and `_make/` is deliberately not here.** Those two are not position
+     changes but *surface* changes, so 3c marked them internal in place;
+     the hoist itself needs an entry outside `cosmic/` to justify it and
+     lands in 3h. Gates: `bin/make ci` green, and `cosmic
      --make check` at the root **PASS (349 files)** — the phase's
      milestone, and the first time the model has described the repo it
      was written for.
@@ -257,8 +257,8 @@ coverage scan skip it.
      `public.tl` is deleted; its lint becomes `surface_test.tl`, which
      asks what the manifest was a *means to* rather than whether the
      manifest is current. Marked **in place, not hoisted to the root** —
-     the hoist is 3d's, since the embed wrapper in every artifact
-     requires the searcher and the floor is `cosmic/**`.
+     the hoist waits for an entry outside `cosmic/` to need it (3h), and
+     for the searcher question the embed wrapper forces (settled in 3g).
    - **3d — the pack. Landed.** `/zip/.lua/cosmic/*` → `/zip/cosmic/*`
      and `/zip/.lua/tl.lua` → `/zip/tl.lua`, so the zip root is the
      module root inside the artifact too. Touches the searcher's
@@ -291,21 +291,40 @@ coverage scan skip it.
      verb itself, the fence, and moving the ratchet tests to the root
      wait for the rules half of the bridge (3i) — same blocker as 3e.
    - **3g — the searcher is public, and the pins are data. Landed.**
-     the searcher move is the precondition for the hoist,
-     and true on its own terms: the generated embed wrapper requires it
-     in every artifact ever built, so the module with the widest caller
-     set in the tree cannot be the one marked internal. Third instance
-     of the same rule (`cosmic.style` in 3c, the searcher noted in 3a):
-     who requires a module decides whether it is internal.
+     Two things. **The searcher** (`cosmic/_cli/searcher.tl` →
+     `cosmic/searcher.tl`): the generated embed wrapper requires it in
+     every artifact ever built, so the module with the widest caller set
+     in the tree was the one marked internal. Third instance of one rule
+     (`cosmic.style` in 3c, the searcher noted in 3a) — who requires a
+     module decides whether it is internal — and the precondition for
+     the hoist, since at root it would sit outside the `cosmic/**` strip
+     floor and every stripped artifact would fail to boot.
+
+     **The pins**, which an earlier pass of this plan had moved to 3i as
+     "blocked on the fetch verb" and which were not: `3p/*/version.lua`
+     → `3p/cosmos/cosmos.pin.tl` and `3p/tl/tl.pin.tl`, read by the same
+     grammar `--make fetch` uses. What the repo needed was not the verb
+     but a *reader* both sides can call — the fourth instance of the
+     rule above, so `cosmic.literal` is public and `cosmic._make.pin`
+     keeps only what is specific to a pin.
+
+     Closed out by a **bootstrap bump to a release cut from this
+     branch** (`2026-07-26-5de5474`), which put that reader in the
+     stdlib the trust root runs against. `_build/make-boot.tl` — the
+     last place that executed a pin, and unconvertible until then
+     because it runs with `LUA_PATH=";;"` before the tree exists — reads
+     one now. **Nothing in the build executes a pin:** not the trust
+     root, not fetch, not stage, not the version stamp. The bump was
+     verified the way phase 1's lesson says to, from nothing:
+     `rm -rf o bin/cosmo-make && bin/make build && bin/make ci`.
    - **3h — the entry and the hoist.** `cmd/cosmic/main.tl` becomes the
      binary's entry, and `cosmic/_cli/` and `cosmic/_make/` hoist to
      root `_cli/` and `_make/`. The two are one change: root-level is
      what an entry *outside* `cosmic/` needs, and both are what
-     `--make build` needs before it can build this repo. It is also the
-     change that decides where the searcher lives — the embed wrapper
-     requires it in every artifact and the strip floor is `cosmic/**`,
-     so hoisting `_cli/` out of `cosmic/` makes `cosmic/searcher.tl`
-     public, the same way 3c made `cosmic/style.tl` public.
+     `--make build` needs before it can build this repo — it is gaps 1
+     and 2 of the table above, and the only two that stand between
+     `build: PASS (356 files)` and an `o/bin/cosmic`. The searcher
+     question the hoist forces was settled ahead of it in 3g.
    - **3i — the verbs take over, and the bridge goes.** `-include
      o/cosmic.mk` once the Makefile's own `build`/`test`/`fmt` targets
      retire; `--make fetch` replaces `_build/build-fetch.tl` (the
