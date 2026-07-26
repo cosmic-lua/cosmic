@@ -72,12 +72,24 @@ local function in_floor(name: string, provides?: {string: boolean}): boolean
     end
   end
   for _, prefix in ipairs(FLOOR) do
-    if name == prefix or name:sub(1, #prefix) == prefix then
+    -- An exact match, or a match under a DIRECTORY prefix. The prefix
+    -- test used to run for every entry, separator or not, so a
+    -- file-shaped entry like `.args` also matched `.argsX` -- and a
+    -- keep list that keeps more than it names is one that silently
+    -- ships whatever a base grows next to a kept file. Harmless today
+    -- (nothing in a base is named that way); wrong in the direction
+    -- this list exists to be right in.
+    if name == prefix then
       return true
     end
-    -- The directory marker for a kept prefix ("usr/" keeps "usr").
-    if prefix:sub(-1) == "/" and name == prefix:sub(1, -2) then
-      return true
+    if prefix:sub(-1) == "/" then
+      if name:sub(1, #prefix) == prefix then
+        return true
+      end
+      -- The directory marker itself ("usr/" keeps "usr").
+      if name == prefix:sub(1, -2) then
+        return true
+      end
     end
   end
   return false

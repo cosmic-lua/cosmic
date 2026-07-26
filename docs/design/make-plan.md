@@ -9,10 +9,15 @@ file and a record only grows.
 
 ## Provisioning and the trust root
 
-**This repo:** `bin/cosmic` — POSIX sh, one job: fetch the pinned cosmic
-(pin in `bootstrap/cosmic.pin.tl`) and exec it. `bin/cosmic --make ci`.
-Since make is embedded, the chain is **kernel → committed fetcher → one
-pin → everything**, down from two pins.
+**This repo, target state:** `bin/cosmic` — POSIX sh, one job: fetch the
+pinned cosmic (pin in `bootstrap/cosmic.pin.tl`) and exec it.
+`bin/cosmic --make ci`. Since make is embedded, the chain would be
+**kernel → committed fetcher → one pin → everything**, down from two.
+
+**Today it is still two pins.** The trust root is `bin/make`, with the
+bootstrap url and sha in `cook.mk` and the cosmos pin beside it; there
+is no `bin/cosmic` and no `bootstrap/cosmic.pin.tl`. The one-pin chain
+arrives with the Makefile's retirement (3i), not before it.
 
 **Downstream projects: commit the binary.** A fat APE in the repo means
 `./cosmic --make ci` works from a fresh clone with **zero network and no
@@ -385,7 +390,7 @@ coverage scan skip it.
      artifact carries the `--build` vocabulary any more). Two could
      not, because `cosmic.testrun` and `cosmic.searcher` are public and
      require them — inside `cosmic/` and not internal to it leaves one
-     position, so `cosmic.instrument` and `cosmic.script_cache` are
+     position, so `cosmic.instrument` is
      **public**, each with the example the closed coverage ratchet
      demands. Fifth application of "who requires a module decides
      whether it is internal", and the first where a position change
