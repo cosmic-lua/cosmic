@@ -41,16 +41,29 @@ local ships: {string: boolean} = {
   payload = true,
 }
 
---- The payload directory: its CONTENTS map to the artifact root.
+--- Where a payload file lands: at its path INSIDE its unit's `embed/`.
 ---
 --- The one layout rule (path = import path = zip path) cannot say "this
 --- lands at that", and some files must: a type checker looks for its
 --- declarations at a fixed path, an engine reads its rules file, a
 --- runtime finds its compiler beside the modules. `embed/` is where a
 --- project says so, positionally, without the engine growing an opinion
---- about what belongs in an artifact. A project without one ships
---- nothing extra.
-local PAYLOAD_DIR < const > = "embed"
+--- about what belongs in an artifact.
+---
+--- Which `embed/` is the unit's own: `cmd/<name>/embed/tl.lua` ships as
+--- `tl.lua` in that binary and is invisible to its siblings, because
+--- `scope_of` already excludes another binary's `cmd/` subtree. Root
+--- `embed/` is shared, like a root package. So one binary carries a
+--- toolchain and the next one stays lean, with no rule but the one that
+--- was already there.
+--- @param rel string The payload file's path, relative to the root
+--- @return string Its path inside the artifact
+local function payload_stored(rel: string): string
+  -- Drop the payload root's leading segments. `or 0` leaves a
+  -- non-payload path unchanged, which classify never sends here anyway.
+  local depth = project.payload_depth(project.segments(rel)) or 0
+  return (rel:gsub("^" .. string.rep("[^/]+/", depth), ""))
+end
 
 --- One staged file: where it comes from, and where it lands in the zip.
 local record Staged
@@ -116,7 +129,7 @@ local function stage_entry(f: File, binary: Binary): Staged | nil
       stored = "main.lua"}
   end
   if f.kind == "payload" then
-    return {source = f.path, stored = f.path:sub(#PAYLOAD_DIR + 2)}
+    return {source = f.path, stored = payload_stored(f.path)}
   end
   if f.kind == "asset" then
     return {source = f.path, stored = f.path}

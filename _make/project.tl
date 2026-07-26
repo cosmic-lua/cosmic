@@ -33,7 +33,27 @@ local BUILD_DIR < const > = "o"
 
 --- The payload directory: its contents map to the artifact root, which
 --- is how a project ships a file the one layout rule cannot place.
+---
+--- It is scoped to a unit, not to the project: `embed/` at the root is
+--- every binary's payload the way a root package is every binary's
+--- module, and `cmd/<name>/embed/` is that binary's alone. Nothing new
+--- enforces that — it is the scope rule the artifact already applies to
+--- `cmd/<name>/**`, which is why one binary can carry a toolchain while
+--- its sibling stays lean.
 local PAYLOAD_DIR < const > = "embed"
+
+--- Is this path inside some unit's payload directory?
+--- @param segs {string} The path's segments
+--- @return integer|nil How many leading segments the payload root spans
+local function payload_depth(segs: {string}): integer | nil
+  if segs[1] == PAYLOAD_DIR and #segs > 1 then
+    return 1
+  end
+  if #segs > 3 and segs[1] == "cmd" and segs[3] == PAYLOAD_DIR then
+    return 3
+  end
+  return nil
+end
 
 --- Convert a glob (`*` any run, `?` one char) to an anchored Lua
 --- pattern. Every other character, including Lua-pattern magic, is
@@ -145,7 +165,7 @@ local function classify(rel: string): Kind
       return "testdata"
     end
   end
-  if segs[1] == PAYLOAD_DIR and #segs > 1 then
+  if payload_depth(segs) then
     return "payload"
   end
   if rel:sub(-5) == ".d.tl" then
@@ -213,7 +233,7 @@ local function visit(path: string, name: string, st: WalkStat, ctx: Scan): WalkA
   -- payload path is dot-prefixed precisely to stay OUT of the module
   -- root (`.tl/`, `.types/`, `.docs/`), so pruning it would prune the
   -- only files that need the directory to exist.
-  if name:sub(1, 1) == "." and segments(rel)[1] ~= PAYLOAD_DIR then
+  if name:sub(1, 1) == "." and not payload_depth(segments(rel)) then
     return "skip"
   end
   if is_ignored(ctx.patterns, rel, name) then
@@ -371,6 +391,7 @@ local record ProjectModule
   BUILD_DIR: string
   scan: function(root: string): Project | nil, string
   classify: function(rel: string): Kind
+  payload_depth: function(segs: {string}): integer | nil
   import_path: function(rel: string): string | nil
   of_kind: function(project: Project, kinds: {Kind}): {File}
   segments: function(rel: string): {string}
@@ -383,6 +404,7 @@ local M: ProjectModule = {
   BUILD_DIR = BUILD_DIR,
   scan = scan,
   classify = classify,
+  payload_depth = payload_depth,
   import_path = import_path,
   of_kind = of_kind,
   segments = segments,

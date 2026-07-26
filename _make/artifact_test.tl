@@ -383,3 +383,28 @@ local function test_payload_maps_to_the_artifact_root()
   assert(stored["cosmic.mk"], "an engine's rules file lands where the engine reads it")
 end
 test_payload_maps_to_the_artifact_root()
+
+-- Payload is scoped to its unit, which is the same rule the artifact
+-- already applies to `cmd/<name>/**`: one binary carries a toolchain
+-- and its sibling stays lean, with nothing new enforcing it.
+local function test_payload_is_scoped_to_its_binary()
+  local root = fixture("payload-scope", {
+      ["cmd/tool/main.tl"] = "print('tool')\n",
+      ["cmd/tool/embed/tl.lua"] = "return {}\n",
+      ["cmd/tool/embed/.types/cosmo.d.tl"] = "local record c end\nreturn c\n",
+      ["cmd/lean/main.tl"] = "print('lean')\n",
+      ["embed/shared.txt"] = "x\n",
+    })
+  local proj = scan(root)
+
+  local tool = stored_paths(proj, binary_of(proj, "tool"))
+  assert(tool["tl.lua"], "a binary's own payload lands at the artifact root")
+  assert(tool[".types/cosmo.d.tl"], "including its dot-directories")
+  assert(tool["shared.txt"], "root payload is shared, like a root package")
+
+  local lean = stored_paths(proj, binary_of(proj, "lean"))
+  assert(not lean["tl.lua"], "a sibling's payload is invisible")
+  assert(not lean[".types/cosmo.d.tl"], "all of it")
+  assert(lean["shared.txt"], "but root payload still reaches every binary")
+end
+test_payload_is_scoped_to_its_binary()
