@@ -10,6 +10,7 @@
 --- on the bytes you named or does not run.
 
 local cfetch = require("cosmic.fetch")
+local env = require("cosmic.env")
 local extract = require("_make.extract")
 local fs = require("cosmic.fs")
 local hash = require("cosmic.hash")
@@ -124,6 +125,19 @@ local function resolve(files: {File}): {Pin} | nil, string
   return pins
 end
 
+--- Use the host's CA store unless the caller said otherwise.
+---
+--- Cosmopolitan ships a deliberately narrow set of roots, too narrow
+--- for the hosts real pins live on (github.com among them), so a
+--- default `--make fetch` failed certificate verification on every
+--- pin. TLS is transport here, not the trust root — the digest is —
+--- so widening to the system store costs nothing the pin was relying
+--- on. `overwrite = false`: an operator who set it to 0 deliberately
+--- keeps that.
+local function use_system_certs()
+  env.set("SSL_USE_SYSTEM_CERTS", "1", false)
+end
+
 --- Run `fetch` over the selected pins.
 --- @param proj Project The scanned project
 --- @param paths {string} Selection paths (empty for every pin)
@@ -145,6 +159,7 @@ local function run(proj: Project, paths: {string}): integer
     return 1
   end
 
+  use_system_certs()
   local failed = 0
   for _, p in ipairs(pins as {Pin}) do -- cast: record union after the guard
     local ok, err = one(p)

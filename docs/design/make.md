@@ -1,23 +1,19 @@
 # Design — `cosmic --make`
 
-status: proposal, for review. three review rounds are folded in; the
-decision tables are the record. delivery is in
-[make-plan.md](make-plan.md); what each landed slice settled is in
-make-log.md, make-log-dogfood.md and make-log-selfbuild.md.
-
-`--make` is **cosmic's build system**, not a wrapper around `--embed`.
-This repo is meant to build with it.
+status: three review rounds folded in; the decision tables are the
+record. delivery is in [make-plan.md](make-plan.md); what each landed
+slice settled is in make-log.md, make-log-dogfood.md and
+make-log-selfbuild.md. `--make` is **cosmic's build system**, not a
+wrapper around `--embed`, and this repo builds with it.
 
 ## What this replaced
 
-`--make [dir] [target]` scanned for `*.tl`, classified by suffix, emitted
-a Makefile and ran make on it. Three things were wrong with it, and they
-are what this design addresses: it **needed a host make**, it **produced
-build files, not builds**, and its **project model was a flat scan** — no
-packages, no entry point, no artifact, no notion of what ships. Dropped
-whole in 2a; the fuller account, with the three bugs that are the
-evidence for this design's central bet — that a hand-maintained
-description of a project drifts from the project — is in
+`--make [dir] [target]` scanned for `*.tl`, classified by suffix,
+emitted a Makefile and ran make on it. Three things were wrong with it,
+and they are what this design addresses: it **needed a host make**, it
+**produced build files, not builds**, and its **project model was a
+flat scan** — no packages, no entry point, no artifact, no notion of
+what ships. Dropped whole in 2a; the fuller account is in
 [make-log.md](make-log.md).
 
 ## The shape
@@ -45,13 +41,13 @@ $ cosmic --make ci             # fixed order, stages gated by what the project h
 
 Two sentences carry most of the design:
 
-- **inputs = grants = your staged subtree.** it defines what a generator
-  may read, what a test may read, and what the sandbox permits.
-  corollary: *put it where its inputs are.*
+- **inputs = grants = your staged subtree** — what a generator may
+  read, what a test may read, what the sandbox permits. corollary:
+  *put it where its inputs are.*
 - **a build runs only bytes you pinned, and only your code without a
   socket.** pins are data, `fetch` is the only networked verb, `exec`
-  resolves only to pinned artifacts. the entire external surface —
-  endpoints and executables — is enumerable from committed files.
+  resolves only to pinned artifacts — so the external surface is
+  enumerable from committed files.
 
 ## Decisions
 
@@ -68,7 +64,7 @@ Two sentences carry most of the design:
 | policy lanes | cosmic **verbs**, not graph rules |
 | built-in opinions | none. no automatic version stamp, no automatic doc index |
 | generated outputs | never committed; everything generated lives in `o/` |
-| generator units | directory-scoped; one directory per generated asset |
+| generator units | directory-scoped; one per generated asset. a binary's `embed.gen.tl` fills `o/<unit>/{embed/,base}` |
 | generator inputs | its containing subtree = its grants. reads outside are **denied**, not stale |
 | grants | **derived** from each verb's signature; no declaration channel |
 | enforcement | Landlock where available **plus** portable in-process gating |
@@ -76,18 +72,18 @@ Two sentences carry most of the design:
 | module root | the project root |
 | public vs private | `_`-prefixed directory = importable only from within its container |
 | this repo's layout | `cosmic/` is the public API; `_cli/`, `_build/`, `_make/`, `_types/`, `_perf/`, `_docs/` at root; `cmd/`; `3p/` — **landed, 3h**; `cosmic --make build` produces `o/bin/cosmic` |
-| artifact layout | `/zip/<import path>.lua`, assets at `/zip/<rel>` |
+| artifact layout | `/zip/<import path>.lua`, assets at `/zip/<rel>`, `embed/**` at the root |
 | `testdata/` | excluded from artifacts (that is its only job) |
 | paths | filenames with spaces or shell metacharacters are a validator error |
 | network | only under `--make fetch`. **no project code ever runs with a socket** |
 | pins | `*.pin.tl` — Teal, statically extracted from a literal, never executed |
 | `exec` | resolves only to pinned/staged bytes under `o/`. never `PATH` |
-| version stamp | committed data (`version.tl`) plus an environment override |
+| version stamp | generated from the pin plus `COSMIC_VERSION`; no host tool |
 | recipe lines | whitespace-split argv; `argv[0]` ∈ closed verb set ∪ `exec` |
 | `-c` vs `--build` | `-c` wins; `--build` retired across two release cycles |
 | make's bytes | embedded in the cosmic release. amends D13 |
 | provisioning | `bin/cosmic` fetches one pin here; **downstream projects commit their cosmic** |
-| artifact base | stripped to a positive floor. no opt-out |
+| artifact base | `o/<unit>/base` if the unit names one, else the running cosmic, stripped to a positive floor |
 | the floor | compiled `cosmic/**` + certs + zoneinfo + `.args`; verified by test |
 | generated makefile | written to `o/`, documented, readable |
 | generality | constant rules + generated facts (variables only) |
@@ -177,15 +173,13 @@ the scope is computed — so a `Unit` record is a bag holding five
 unrelated functions until at least three exist.
 
 **How to investigate it, and what came back.** Not by staring at the
-table — by writing the next scope *without* consulting the last one and
-seeing what it wants. Three predictions were recorded before 2d, and
-2d's pin falsified one of them: an output path is **not** always
-derivable from position (a pin's is named by the url inside it, hence
-the ⚠ above). The `Unit` record is therefore not earned; what the
-evidence supports is the smaller `unit_dir(path)` the fence wants,
-while "scope as a file list" turns out to be a question only the
-artifact and the test stage ask. The predictions, the method and the
-findings are in [make-plan.md](make-plan.md) under 2d.
+table — by writing the next scope *without* consulting the last one.
+Two rows have since falsified a prediction: a pin's output path is
+named by the url inside it, not by position (hence the ⚠), and a
+binary's payload generator reads the *binary's* scope rather than its
+own subtree. The `Unit` record is therefore not earned; what the
+evidence supports is the smaller `unit_dir(path)` the fence wants.
+Method and findings: [make-plan.md](make-plan.md), 2d.
 
 ### Generators
 
@@ -204,12 +198,41 @@ there is no committed copy to drift from. Accepted cost: **`cosmo.*`
 types can no longer be read from a fresh clone without building**, and
 editors need `o/` on the include path. This is the sharpest edge here.
 
+### A binary's own generator
+
+`<unit>/embed.gen.tl` is the one generator `build` runs itself, and it
+is not a generation unit: its scope is the *binary's* scope, because
+what it produces is the binary's payload. It is handed its unit's
+output directory and owns two names inside it:
+
+```
+o/<unit>/embed/**   what the artifact carries — staged at the zip root
+o/<unit>/base       what it carries it on — the runtime to embed onto
+```
+
+`embed/` is the generated half of the committed `embed/` convention;
+both land at the same place and nothing downstream can tell which was
+which. `base` exists because the alternative is embedding onto the
+cosmic running the build, and stripping a base drops its zip entries
+without reclaiming their bytes — so cosmic-built-by-cosmic grew by its
+own payload every generation. A project that pins a runtime names it
+here; one that pins nothing keeps the running cosmic. Running the
+generator from `build` is the usual staleness argument: its output is
+in the binary's build closure.
+
+`.args` — the APE's default argv — is **derived**: the entry is always
+`/zip/main.lua` here, so what argv names is a fact about the layout,
+not a choice. A payload `.args` overrides it.
+
 ### External assets and execution
 
 Fetching is **not** a generator. A `*.pin.tl` is Teal data — a single
 `return { … }` literal, type-checked, **statically extracted from the
-AST and never executed**. `--make fetch` downloads and verifies; `build`
-never opens a socket.
+AST and never executed**. `--make fetch` downloads, verifies, and lands
+the bytes under `o/`; `build` never opens a socket. A pin that declares
+a `format` is unpacked beside its archive, *after* the digest matched:
+an archive is a program for a decompressor, and running one on
+unverified bytes is what pinning exists to prevent.
 
 `exec` resolves only to pinned or staged bytes under `o/` — never a
 `PATH` lookup. A project may run a tool it pinned; it cannot run
@@ -218,10 +241,11 @@ whatever happens to be installed.
 Together: *building an untrusted repo cannot phone home, and cannot run
 a host binary.* Both halves of the external surface are greppable.
 
-Corollary, and the reason the version stamp is data: `git describe` is
-not available to a build. `version.tl` is committed and bumped by
-release automation, with an environment override for CI, and a `dev`
-fallback. No host tool, no `.git` read.
+Corollary, and the reason the version stamp is generated rather than
+shelled out for: `git describe` is not available to a build. The
+generator reads the cosmos half from the pin and takes the project half
+from `COSMIC_VERSION`, defaulting to `unknown`. No host tool, no `.git`
+read.
 
 ## Artifact model
 
@@ -233,19 +257,19 @@ outputs — through one rule:
 ```
 package module, import path P  →  /zip/P.lua
 asset at relative path R       →  /zip/R
+payload under `embed/`         →  /zip/<path inside embed/>
 entry                          →  /zip/main.user.lua behind the wrapper
 ```
 
 The zip root *is* the module root, so "path relative to root = import
 path" holds inside the artifact too. `pack_copies` disappears; the
-layout is derived, not enumerated. Cosmic's own payload moved with it in
-3d (`/zip/.lua/cosmic/*` → `/zip/cosmic/*`, `.lua/tl.lua` → `tl.lua`),
-which turned out to touch more than the searcher's include dirs:
-cosmopolitan's default `package.path` is `/zip/.lua/`-rooted, so the
-entry has to insert the zip root ahead of it — behind anything
-`LUA_PATH` set, or the binary's own copy shadows an in-tree build.
-Payload that is *not* modules (the type tree, `.tl` sources, the docs
-index) stays dot-prefixed, outside the module root.
+layout is derived, not enumerated. Cosmic's own payload moved with it
+in 3d (`/zip/.lua/cosmic/*` → `/zip/cosmic/*`): cosmopolitan's default
+`package.path` is `/zip/.lua/`-rooted, so the entry inserts the zip
+root ahead of it — behind anything `LUA_PATH` set, or the binary's own
+copy shadows an in-tree build. Payload that is *not* modules (the type
+tree, `.tl` sources, the docs index) stays dot-prefixed, outside the
+module root.
 
 ### Stripping
 
@@ -263,23 +287,13 @@ carries `tl.lua`, types, docs, and make because **its own tree provides
 them** — from its pins and generators — not because the base kept them.
 Any user wanting Teal at runtime vendors it the same way.
 
-Measured against the 6.48 MB release, whose entire zip payload is
-0.66 MB compressed (the rest is two-arch native code):
-
-| item | compressed |
-|---|---|
-| embedded make (new) | ~760 KB |
-| `.tl/` cosmic sources | 104 KB |
-| `definitions.lua` | 94 KB |
-| docs index | 89 KB |
-| `tl.lua` | 76 KB |
-| types + teal-types | ~110 KB |
-| **floor** | ~160 KB |
-
-Stripping recovers ~1.2 MB: it pays for the embedded make and lands a
-hello-world slightly under today's binary. **Not a size win beyond
-that** — the mass is native code, and the only lever with real weight is
-single-arch output, which costs the fat-binary promise.
+A unit that names its own `base` sidesteps this: there is nothing to
+strip off a bare runtime. That is the preferred shape for a project
+that pins one, and the only shape in which repeated self-builds
+converge — `remove` drops zip entries without reclaiming their bytes,
+so stripping a cosmic to rebuild a cosmic leaves the old payload behind
+as dead space. Sizes and the per-generation growth measured before
+`base` existed are in [make-plan.md](make-plan.md).
 
 Risk: a `cosmo.*` binding lazily requiring a stripped `.lua/cosmo/**`
 helper. Gate: a **stripped-artifact test lane** running the stdlib's own
@@ -389,11 +403,10 @@ variables rather than in the line) was considered and rejected for
 costing the legibility of `o/cosmic.mk`. If a real project hits it, that
 tradeoff is the thing to revisit.
 
-`--build` and `-c` are the same dispatcher; `-c` wins. The ordering is a
-constraint, not a preference: **`-c` must ship in a release before this
-repo can set `SHELL := cosmic`**, because recipes run the pinned older
-bootstrap. Sequence: add `-c` → release → bump the pin → switch `SHELL`
-and migrate recipes → remove `--build` the following release.
+`--build` and `-c` are the same dispatcher; `-c` wins. Ordering was a
+constraint, not a preference — `-c` had to ship in a release before
+this repo could set `SHELL := cosmic`, since recipes run the pinned
+older bootstrap. Done; `--build` retires a release later.
 
 ### Staleness and parallelism
 
@@ -406,18 +419,14 @@ non-changes stop propagating.
 jobserver and an explicit `--jobs`). Parallel-by-default is defensible
 only because isolation is structural.
 
-Spawn cost, measured (phase 1's deliverable, 200 runs of a no-op verb):
-**10.4 ms** per line for the fat APE, **6.4 ms** for the assimilated ELF
-the sandboxed rules already exec, against **1.5 ms** for `/bin/sh -c
-true`. The comparison that matters is not against a shell, though: this
-repo's recipes *already* spawn cosmic per line (`$(bootstrap_cosmic)
---build …`), so routing through `SHELL` costs the same one spawn — the
-shell it replaces was never free either. At 6 ms, a 1000-node graph
-carries ~6 s of startup serially, under a second at `-j8`. That is the
-budget; it argues for chunky verbs and, eventually, the action cache.
-
-An action cache keyed on `(argv + input hashes)` is deferred until
-profiling justifies it.
+Spawn cost, measured (200 runs of a no-op verb): **10.4 ms** per line
+for the fat APE, **6.4 ms** for the assimilated ELF, against **1.5 ms**
+for `/bin/sh -c true`. The comparison that matters is not against a
+shell: this repo's recipes *already* spawn cosmic per line, so routing
+through `SHELL` costs the same one spawn. At 6 ms a 1000-node graph
+carries ~6 s of startup serially, under a second at `-j8` — a budget
+that argues for chunky verbs and, eventually, an action cache keyed on
+`(argv + input hashes)`, deferred until profiling justifies it.
 
 ## Tests
 
@@ -461,7 +470,7 @@ staged tree.
 **Graph verbs:**
 
 ```
-build [paths…]  strict check → compile → stage → embed → o/bin/<name>
+build [paths…]  compile → generate → stage → embed → o/bin/<name>
 test  [paths…]  build the stage, run *_test.tl fenced against it
 check [paths…]  strict type-check only
 fmt   [paths…]  --check-format (--fix to rewrite)
@@ -484,9 +493,8 @@ offline         no-network lane, asserted against the pins
 `ci` is a fixed order with **each stage gated by whether the project has
 material for it** — no tests, no test stage; no committed coverage
 baseline, no ratchet. Zero configuration, and a fresh project doesn't
-fail on a stage that had nothing to do. (A coverage baseline is *input*
-data, so it stays committed; only generated things are banned from the
-tree.)
+fail on a stage that had nothing to do. (A baseline is *input* data, so
+it stays committed; only generated things are banned from the tree.)
 
 Every verb ends in a machine-readable verdict line and an exit code.
 

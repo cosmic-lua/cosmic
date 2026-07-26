@@ -18,7 +18,7 @@ _cli/require_hints.tl 93 124
 _cli/run.tl 4 31
 _cli/welcome.tl 0 25
 _docs/publish.tl 116 176
-_make/artifact.tl 73 83
+_make/artifact.tl 131 149
 _make/check.tl 54 55
 _make/deps.tl 50 50
 _make/extract.tl 48 66
@@ -26,7 +26,7 @@ _make/facts.tl 19 29
 _make/fetch.tl 67 70
 _make/graph.tl 152 174
 _make/init.tl 132 144
-_make/pin.tl 37 38
+_make/pin.tl 74 75
 _make/project.tl 180 188
 _make/root.tl 46 50
 _make/types.tl 2 2
@@ -55,6 +55,7 @@ _types/gentype_extract.tl 54 54
 _types/gentype_parse.tl 267 288
 _types/gentype_render.tl 309 312
 _types/gentype_types.tl 2 2
+cmd/cosmic/embed.gen.tl 0 126
 cmd/cosmic/main.tl 0 276
 cosmic/_script_cache.tl 26 29
 cosmic/ansi.tl 86 86

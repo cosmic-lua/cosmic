@@ -22,6 +22,7 @@
 
 local fs = require("cosmic.fs")
 local literal = require("cosmic.literal")
+local sys = require("cosmic.sys")
 
 --- A resolved pin.
 local record Pin
@@ -40,6 +41,10 @@ local record Pin
   --- Optional archive format ("zip" or "tar.gz"). A pin that declares
   --- one is unpacked after it is verified; a pin without one is bytes.
   format: string
+  --- The platform key this pin resolved through: the host's tag, `*`
+  --- for a pin that is the same everywhere, or "" for one that names
+  --- its digest at the top level.
+  platform: string
   --- Leading path segments to drop when unpacking, for archives that
   --- wrap their contents in a directory named for the release.
   strip_components: integer
@@ -58,13 +63,45 @@ local function extract(source: string, where: string): {string: any} | nil, stri
   return literal.of_source(source, where, "pin")
 end
 
+--- One platform's half of a pin: the fields that may differ per host.
+---
+--- A pin whose bytes are the same everywhere (a fat binary, a source
+--- tarball) says so with `platforms = {["*"] = …}` or by naming
+--- `sha256` at the top level; one whose bytes differ carries a row per
+--- `os-arch` tag. Either way the resolved Pin has exactly one digest,
+--- so nothing downstream has to know which shape it came from.
+--- @param fields {string: any} The pin's declared table
+--- @return {string: any}|nil The matching platform row, or nil
+--- @return string The platform key it matched
+local function platform_row(fields: {string: any}): {string: any} | nil, string
+  local platforms = fields.platforms
+  if not (platforms is {string: any}) then
+    return nil, ""
+  end
+  local host = sys.platform()
+  local row = platforms[host]
+  if row is {string: any} then
+    return row, host
+  end
+  local any = platforms["*"]
+  if any is {string: any} then
+    return any, "*"
+  end
+  return nil, host
+end
+
 --- Read and validate one pin file.
 ---
---- `url` and `sha256` are required — a pin without a digest is a
---- download, and the point of a pin is that the bytes are named. An
---- optional `version` is substituted into `{version}` in the URL, which
---- is the one templating this grammar allows and the reason a bump is a
---- one-line diff.
+--- `url` and a digest are required — a pin without one is a download,
+--- and the point of a pin is that the bytes are named. The digest is
+--- either `sha256` at the top level or `sha` on the matching
+--- `platforms` row; the two spellings exist because this reader and
+--- the older `_build` fetcher read the same committed files, and a pin
+--- that had to be written twice would be a pin that can disagree with
+--- itself. An optional `version` is substituted into `{version}` in
+--- the URL, and the resolved platform tag into `{platform}` — the only
+--- templating this grammar allows, and the reason a bump is a one-line
+--- diff.
 --- @param path string Path to the `*.pin.tl`, relative to the root
 --- @return Pin|nil The resolved pin
 --- @return string The error message
@@ -78,8 +115,19 @@ local function read(path: string): Pin | nil, string
     return nil, "make: " .. (eerr or "not a pin")
   end
   local fields = data as {string: any} -- cast: record union after the guard
+  local row, platform = platform_row(fields)
+  local plat: {string: any} = {}
+  if row is {string: any} then
+    plat = row
+  elseif fields.platforms ~= nil then
+    return nil, "make: " .. path .. ": no platform row for " .. platform ..
+    " and no '*'"
+  end
   local url = fields.url
   local sha = fields.sha256
+  if not (sha is string) then
+    sha = plat.sha
+  end
   local version_field = fields.version
   local version: string = nil
   if version_field is string then
@@ -93,6 +141,9 @@ local function read(path: string): Pin | nil, string
     ": a pin needs a sha256 (hex); without one it is a download, not a pin"
   end
   local format_field = fields.format
+  if not (format_field is string) then
+    format_field = plat.format
+  end
   local format: string = nil
   if format_field is string then
     format = format_field
@@ -106,6 +157,9 @@ local function read(path: string): Pin | nil, string
   if version then
     resolved = (url:gsub("{version}", version))
   end
+  if platform ~= "" then
+    resolved = (resolved:gsub("{platform}", platform))
+  end
   -- The output name comes from the URL, not the pin's position: a pin
   -- fetches a named artifact and its extension matters to whatever
   -- reads it next.
@@ -117,6 +171,7 @@ local function read(path: string): Pin | nil, string
     sha256 = sha:lower(),
     version = version,
     format = format,
+    platform = platform,
     strip_components = strip,
   }
 end

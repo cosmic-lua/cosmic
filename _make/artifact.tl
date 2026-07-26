@@ -19,6 +19,7 @@
 --- so "path relative to the root = import path" holds inside the
 --- artifact too, because the zip root IS the module root.
 
+local child = require("cosmic.child")
 local embed = require("cosmic.embed")
 local fs = require("cosmic.fs")
 local fs_types = require("cosmic.fs.types")
@@ -72,11 +73,26 @@ end
 --- One staged file: where it comes from, and where it lands in the zip.
 local record Staged
   --- Source path, relative to the project root (or under `o/` for
-  --- compiled output).
+  --- compiled output). Empty when `content` carries the bytes.
   source: string
   --- Path inside the artifact, relative to the zip root.
   stored: string
+  --- Literal bytes, for an entry the build derives rather than copies.
+  content: string
 end
+
+--- The default argv an APE reads at startup: run `/zip/main.lua`, then
+--- pass everything else through.
+---
+--- Derived, not declared. The artifact's entry is always `/zip/main.lua`
+--- — `stage_entry` puts it there — so what argv names is a fact about
+--- this layout, not a project's choice. It has to be stated because a
+--- base can be a bare `lua`, which has no `.args` of its own; embedding
+--- onto a cosmic used to supply one by accident, and "the artifact boots
+--- as the Lua interpreter" is what that accident looked like when it
+--- stopped happening.
+local ARGS_STORED < const > = ".args"
+local ARGS_CONTENT < const > = "/zip/main.lua\n...\n"
 
 --- Does this file belong to some `cmd/<name>/` directory?
 --- @param path string Path relative to the root
@@ -177,6 +193,68 @@ local function generated_payload(root: string, unit: string, out: {Staged})
     end)
 end
 
+--- The name a unit's output directory gives the runtime its artifact is
+--- built ON, as opposed to what it carries.
+---
+--- Two names in one directory, and the whole convention:
+---
+---   o/<unit>/embed/**   what the artifact carries
+---   o/<unit>/base       what it carries it on
+---
+--- Without the second one, `build` has exactly one base available —
+--- the cosmic that is running it — and that is wrong in the case this
+--- build system most has to get right. Stripping a base removes its
+--- zip entries but not their bytes, so a cosmic built on a cosmic
+--- built on a cosmic grows by its own payload every generation: the
+--- fixpoint would converge on nothing. A project that pins a runtime
+--- can now say so, and its artifact is the same size whichever binary
+--- built it.
+local BASE_NAME < const > = "base"
+
+--- Run a binary's generator, if it has one.
+---
+--- Folded into `build` rather than left to a separate verb, because a
+--- generator whose output a binary embeds is IN that binary's build
+--- closure: building without running it would embed the last run's
+--- payload, which is the stale-output failure the whole model exists to
+--- prevent. Positional, like everything else — `cmd/<name>/embed.gen.tl`
+--- belongs to `cmd/<name>`, and the root's belongs to every binary.
+---
+--- It runs in the artifact phase rather than as a make rule because the
+--- artifact itself does: the graph compiles, and staging plus embedding
+--- happen here afterwards. The generator is handed its unit's output
+--- directory and owns the layout inside it — which is why `base` can
+--- exist at all without `build` growing a second hook.
+--- @param proj Project The scanned project
+--- @param binary Binary The artifact being built
+--- @param cosmic string Absolute path to the cosmic binary
+--- @return boolean, string Success, or false plus the reason
+local function generate_payload(proj: Project, binary: Binary,
+    cosmic: string): boolean, string
+  local gen = fs.join(binary.dir, "embed.gen.tl")
+  if not fs.isfile(fs.join(proj.root, gen)) then
+    return true
+  end
+  local dest = binary.dir == "" and project.BUILD_DIR or
+  fs.join(project.BUILD_DIR, binary.dir)
+  local mok, merr = fs.makedirs(fs.join(proj.root, dest))
+  if not mok then
+    return false, "make: cannot create " .. dest .. ": " ..
+    (merr or "unknown error")
+  end
+  io.write("generate " .. gen .. "\n")
+  local r, rerr = child.run({cosmic, gen, dest},
+    {stdout = "inherit", stderr = "inherit"})
+  if not (r is child.Result) then
+    return false, "make: " .. gen .. ": " .. (rerr or "unknown error")
+  end
+  -- cast: narrowing does not survive the early-exit guard above
+  if not (r as child.Result).ok then
+    return false, "make: " .. gen .. " failed"
+  end
+  return true
+end
+
 --- The full staging plan for one binary.
 --- @param proj Project The scanned project
 --- @param binary Binary The artifact being staged
@@ -193,6 +271,17 @@ local function plan(proj: Project, binary: Binary): {Staged}
   generated_payload(proj.root, "", out)
   if binary.dir ~= "" then
     generated_payload(proj.root, binary.dir, out)
+  end
+  -- Last, and only if the project did not put one there itself: a
+  -- payload `.args` is a deliberate override and outranks the default.
+  local has_args = false
+  for _, s in ipairs(out) do
+    if s.stored == ARGS_STORED then
+      has_args = true
+    end
+  end
+  if not has_args then
+    out[#out + 1] = {source = "", stored = ARGS_STORED, content = ARGS_CONTENT}
   end
   table.sort(out, function(a: Staged, b: Staged): boolean
       return a.stored < b.stored
@@ -221,10 +310,14 @@ local function stage(proj: Project, binary: Binary): string | nil, string
     end
   end
   for _, s in ipairs(plan(proj, binary)) do
-    local content, err = fs.read(s.source)
+    local content = s.content
     if not content then
-      return nil, "make: cannot read " .. s.source .. ": " ..
-      (err or "unknown error") .. " (run build first)"
+      local body, err = fs.read(s.source)
+      if not body then
+        return nil, "make: cannot read " .. s.source .. ": " ..
+        (err or "unknown error") .. " (run build first)"
+      end
+      content = body
     end
     local dst = fs.join(dir, s.stored)
     local mok, merr = fs.makedirs(fs.dirname(dst))
@@ -241,13 +334,40 @@ local function stage(proj: Project, binary: Binary): string | nil, string
   return dir
 end
 
+--- The runtime this artifact is built on.
+---
+--- A unit that produced `o/<unit>/base` names its own — cosmic's own
+--- generator copies the `lua` out of the pinned cosmos zip, so a
+--- cosmic built by any cosmic is built on the runtime the project
+--- pinned rather than on whichever binary happened to run the build.
+--- Everything else falls back to the running cosmic, which is the
+--- right answer for a project that pins nothing: their artifact is a
+--- cosmic with their code in it.
+--- @param proj Project The scanned project
+--- @param binary Binary The artifact being built
+--- @param cosmic string Absolute path to the running cosmic
+--- @return string The base to embed onto
+local function base_of(proj: Project, binary: Binary, cosmic: string): string
+  local dir = binary.dir == "" and project.BUILD_DIR or
+  fs.join(project.BUILD_DIR, binary.dir)
+  local declared = fs.join(dir, BASE_NAME)
+  if fs.isfile(fs.join(proj.root, declared)) then
+    return declared
+  end
+  return cosmic
+end
+
 --- Build one artifact from an already-compiled tree.
 --- @param proj Project The scanned project
 --- @param binary Binary The artifact to build
---- @param cosmic string Absolute path to the cosmic binary (the base)
+--- @param cosmic string Absolute path to the running cosmic binary
 --- @return string|nil The artifact path, or nil on failure
 --- @return string The error message
 local function build(proj: Project, binary: Binary, cosmic: string): string | nil, string
+  local gok, gerr = generate_payload(proj, binary, cosmic)
+  if not gok then
+    return nil, gerr or "make: payload generation failed"
+  end
   local dir, serr = stage(proj, binary)
   if not dir then
     return nil, serr or "make: staging failed"
@@ -263,7 +383,8 @@ local function build(proj: Project, binary: Binary, cosmic: string): string | ni
   -- this is what makes that true of the artifact too. Keeping the
   -- base's copy as well would ship two standard libraries, with the
   -- project's winning on package.path and the base's riding along.
-  local result = embed.run({dir as string}, out, cosmic, -- cast: scalar narrowing after the guard
+  local result = embed.run({dir as string}, out, -- cast: scalar narrowing after the guard
+    base_of(proj, binary, cosmic),
     {strip = true, provides = validate.claims(proj), mtime = embed.EPOCH})
   if not result.ok then
     return nil, "make: " .. binary.name .. ": " .. result.message
@@ -272,6 +393,7 @@ local function build(proj: Project, binary: Binary, cosmic: string): string | ni
 end
 
 local record ArtifactModule
+  base_of: function(proj: Project, binary: Binary, cosmic: string): string
   scope_of: function(proj: Project, binary: Binary): {File}
   plan: function(proj: Project, binary: Binary): {Staged}
   stage: function(proj: Project, binary: Binary): string | nil, string
@@ -279,6 +401,7 @@ local record ArtifactModule
 end
 
 local M: ArtifactModule = {
+  base_of = base_of,
   scope_of = scope_of,
   plan = plan,
   stage = stage,

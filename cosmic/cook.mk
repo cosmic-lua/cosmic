@@ -39,7 +39,7 @@ cosmic_sys := sys/help.md
 # The constant rules file `cosmic --make` drives make with. It ships in
 # the binary at /zip/cosmic.mk and is byte-identical for every project;
 # graph.tl copies it out to o/cosmic.mk. A source file, not generated.
-cosmic_mk := _make/cosmic.mk
+cosmic_mk := embed/cosmic.mk
 # The graph engine itself (2e, amending D13): the pinned make from the
 # sha-pinned cosmos.zip, shipped at /zip/make and extracted to o/make on
 # first use. D13 rejected embedding it, but reasoned from THIS repo,

@@ -20,6 +20,7 @@ local net = require("cosmic.net")
 local pin = require("_make.pin")
 local proc = require("cosmic.proc")
 local project = require("_make.project")
+local sys = require("cosmic.sys")
 local signal = require("cosmic.signal")
 local cenv = require("cosmic.env")
 
@@ -321,3 +322,38 @@ local function test_a_declared_format_is_unpacked()
     "and the staging directory does not survive")
 end
 test_a_declared_format_is_unpacked()
+
+-- A pin may name its digest per platform, because some artifacts
+-- differ per host. Both spellings exist because this reader and the
+-- older `_build` fetcher read the same committed files, and a pin that
+-- had to be written twice is a pin that can disagree with itself.
+local function test_a_pin_may_name_its_digest_per_platform()
+  local sha = string.rep("ab", 16)
+  local shared = check.must(read_pin("anyplat",
+      'return {\n  url = "https://x.test/a-{version}.zip",\n' ..
+      '  version = "1.0",\n  format = "zip",\n' ..
+      '  platforms = {["*"] = {sha = "' .. sha .. '"}},\n}\n'))
+  assert(shared.sha256 == sha, "the '*' row answers for every host")
+  assert(shared.platform == "*", "and says so")
+  assert(shared.format == "zip", "a top-level format still applies")
+  assert(shared.url == "https://x.test/a-1.0.zip", "{version} still substitutes")
+
+  local host = sys.platform()
+  local exact = check.must(read_pin("hostplat",
+      'return {\n  url = "https://x.test/{platform}/a.bin",\n' ..
+      '  platforms = {\n' ..
+      '    ["' .. host .. '"] = {sha = "' .. sha .. '", format = "gz"},\n' ..
+      '    ["*"] = {sha = "' .. string.rep("cd", 16) .. '"},\n  },\n}\n'))
+  assert(exact.sha256 == sha, "the host's own row wins over '*'")
+  assert(exact.platform == host, "and names the tag it matched")
+  assert(exact.format == "gz", "a row may carry the format too")
+  assert(exact.url == "https://x.test/" .. host .. "/a.bin",
+    "{platform} substitutes the tag that matched")
+
+  local none, nerr = read_pin("noplat",
+    'return {\n  url = "https://x.test/a",\n' ..
+    '  platforms = {["nosuch-arch"] = {sha = "' .. sha .. '"}},\n}\n')
+  assert(not none, "a platforms table with no matching row is refused")
+  assert(nerr:find("no platform row", 1, true), "got: " .. tostring(nerr))
+end
+test_a_pin_may_name_its_digest_per_platform()

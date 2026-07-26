@@ -162,24 +162,72 @@ Measured against the binary above rather than guessed:
 |---|---|---|---|
 | ~~1~~ | ~~no entry~~ | **closed in 3h** — `cmd/cosmic/main.tl` | `build: PASS (359 files, 1 binary)` |
 | ~~2~~ | ~~`_cli`/`_make` inside `cosmic/`~~ | **closed in 3h** — both at the root | `check: PASS (359 files)` |
-| 3 | `tl.lua` is not in the tree | the artifact ships what the tree provides; tl arrives as a *tarball* beside its pin | no `tl.lua` in the built artifact; `fetch` downloads, it does not extract |
-| 4 | the type tree's location | assets ship at their relative path (`/zip/_types/**`), but 3d put the payload at `/zip/.types/` to keep it out of the module root | no `.types/` in the built artifact |
-| 5 | the docs index | a generation unit, and `regen` is not implemented | no `.docs/index.lua` in the built artifact |
-| 6 | `cosmic.mk` and `make` | the code reads them at `/zip/cosmic.mk` and `/zip/make`; as assets they would land at `/zip/_make/cosmic.mk` | `RULES_ZIP`/`MAKE_ZIP` in graph.tl; neither path exists in the built artifact |
-| 7 | the version stamp | still minted by a shell recipe reading `git describe` | the built artifact's `--version` prints `Lua 5.4` |
-| 8 | the base is not selectable | `artifact.build` always passes the running cosmic | `embed.run(dir, out, cosmic, …)` |
-| 9 | **the artifact ships the repo** | every non-source file is an asset at its relative path, so the repo's own build files ride along. The big one is closed: the make engine moved from `bin/cosmo-make` into `o/`, where nothing generated is ever an input (−751 KB) | remaining asset weight: `docs` 169 KB, `_perf` 91 KB, `_build` 60 KB, `mk` 23 KB |
+| ~~3~~ | ~~`tl.lua` is not in the tree~~ | **closed** — a pin declares `format`/`strip_components` and `fetch` unpacks after verifying; the generator copies `o/3p/tl/tl.lua` into the payload | `.tl` scripts run under the built artifact |
+| ~~4~~ | ~~the type tree's location~~ | **closed** — the generator maps `_types/**.d.tl` to `.types/**` | `--check-types` passes under the built artifact |
+| ~~5~~ | ~~the docs index~~ | **closed** — the generator calls `cosmic.doc.index` in process; no `regen` verb needed | `--docs fs` answers under the built artifact |
+| ~~6~~ | ~~`cosmic.mk` and `make`~~ | **closed** — `cosmic.mk` moved to `embed/cosmic.mk` (committed payload), `make` is copied from the unpacked cosmos zip | the built artifact runs `--make build` |
+| ~~7~~ | ~~the version stamp~~ | **closed** — the generator reads the cosmos pin with `cosmic.literal` and takes the cosmic half from `COSMIC_VERSION`; no shell, no `git` | `--version` prints the stamp |
+| ~~8~~ | ~~the base is not selectable~~ | **closed, and it was a bug, not a preference** — see below | g2 and g3 are byte-identical |
+| 9 | **the artifact ships the repo** | every non-source file is an asset at its relative path, so the repo's own build files ride along. The big one is closed: the make engine moved from `bin/cosmo-make` into `o/`, where nothing generated is ever an input (−751 KB) | remaining asset weight: `docs` 196 KB, `_perf` 152 KB, `_build` 76 KB, `mk` 40 KB |
 
-Items 3–7 and 9 are what 3i means by "the verbs take over": each is a
-capability `--make` has to *have*, not a migration. Item 8 is the one
-genuinely open design question — cosmic building cosmic bases on a
-cosmic, strips to the floor, and re-adds its own `cosmic/**` (which 3a
-makes legal); whether that is right, or whether a project should be able
-to name its base, is undecided. Item 9 carries a second one: a
-`.cosmicignore` entry removes a path from the **model**, not only from
-the artifact, so ignoring `bin/` also hides it from `check`, `lint` and
-the coverage scan — whether "not shipped" and "not seen" should be one
-knob is undecided too.
+Items 3–7 were what 3i meant by "the verbs take over", and one
+convention closed all five: **a unit's output directory holds `embed/`
+beside `base`** — what the artifact carries, and what it carries it on.
+A `cmd/<name>/embed.gen.tl` is handed that directory and owns the
+layout inside it, so cosmic's payload is described once, in the unit
+that ships it, instead of as a pack list in a makefile.
+
+Item 8 turned out not to be the open design question it was recorded
+as. Basing on the running cosmic is not merely inelegant: `embed`'s
+strip removes a base's zip *entries* without reclaiming their bytes, so
+each generation carried the previous one's stripped payload as dead
+space and the artifact grew ~3.5 MB per generation — 12.2 → 15.8 →
+19.3 MB, measured. A fixpoint that grows is not a fixpoint. With
+`base` naming the pinned `lua`, generation 2 and generation 3 are
+byte-identical.
+
+Item 9 remains, and carries the open question: a `.cosmicignore` entry
+removes a path from the **model**, not only from the artifact, so
+ignoring `bin/` also hides it from `check`, `lint` and the coverage
+scan — whether "not shipped" and "not seen" should be one knob is
+undecided.
+
+### What the payload weighs
+
+Measured against the 6.48 MB release, whose entire zip payload is
+0.66 MB compressed (the rest is two-arch native code):
+
+| item | compressed |
+|---|---|
+| embedded make | ~760 KB |
+| `.tl/` cosmic sources | 104 KB |
+| `definitions.lua` | 94 KB |
+| docs index | 89 KB |
+| `tl.lua` | 76 KB |
+| types + teal-types | ~110 KB |
+| **floor** | ~160 KB |
+
+Stripping recovers ~1.2 MB: it pays for the embedded make and lands a
+hello-world slightly under today's binary. **Not a size win beyond
+that** — the mass is native code, and the only lever with real weight
+is single-arch output, which costs the fat-binary promise. A unit that
+names its own `base` strips nothing, because there is nothing on a bare
+runtime to strip.
+
+### The fixpoint
+
+```
+$ cosmic --make fetch                       # the Makefile-built cosmic
+$ COSMIC_VERSION=stamp cosmic --make build   # …builds gen 2
+$ cd <fresh tree> && gen2 --make fetch && gen2 --make build
+build: PASS (361 files, 1 binary)
+$ cmp gen2 gen3 && echo identical
+identical
+```
+
+gen2 type-checks, runs `.tl` scripts, answers `--docs`, prints its
+version, and runs `--make check` — on a tree it did not build, with
+nothing on the host but itself.
 
 Testing along the way is in better shape than building: `--make test`
 runs today, and the repo's own tests already take their closures from

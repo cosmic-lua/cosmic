@@ -157,7 +157,7 @@ local function test_rules_are_constant()
   assert(first == second, "the rules file must not vary by project")
   local packed = check.must(fs.read(graph.RULES_ZIP))
   assert(first == packed, "o/cosmic.mk must be the packed copy verbatim")
-  local source = check.must(fs.read("_make/cosmic.mk"))
+  local source = check.must(fs.read("embed/cosmic.mk"))
   assert(packed == source,
     "the packed rules must be the file in the tree, not a stale copy")
 end
