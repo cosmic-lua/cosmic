@@ -43,6 +43,18 @@ local compiles: {string: boolean} = {
 --- The checker's configuration file, read from the project root.
 local TLCONFIG < const > = "tlconfig.lua"
 
+--- The APE's embedded filesystem root. Paths under it are inside the
+--- running executable, not on the host's.
+local ZIP_ROOT < const > = "/zip"
+
+--- Is this path inside the executable's own zip rather than on the
+--- filesystem the kernel enforces against?
+--- @param path string The path to test
+--- @return boolean True when it is zip-internal
+local function in_zip(path: string): boolean
+  return path == ZIP_ROOT or path:sub(1, #ZIP_ROOT + 1) == ZIP_ROOT .. "/"
+end
+
 local shapes: {string: Shape} = {
   -- compile <bootstrap> <src> <out> [flags...]
   compile = {exec = {1}, ro = {2}, rw = {3}, rest_ro = 4},
@@ -279,7 +291,15 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil
     -- so inside this branch the cost is paid by a fenced compile alone.
     local teal = require("cosmic.teal")
     for _, dir in ipairs(teal.get_default_include_dirs()) do
-      if fs.isdir(dir) then
+      -- Real host paths only. Two of the include dirs live INSIDE the
+      -- executable's own zip (`/zip/.types`, `/zip/.tl`), where
+      -- `fs.isdir` answers yes -- cosmic's own syscall shims see them
+      -- -- and the kernel knows nothing at all. Handing one to Landlock
+      -- fails the whole policy with EBADFD, which took the fenced
+      -- compile down entirely rather than denying anything. They need
+      -- no grant either way: they are bytes in a file the exec grant
+      -- already covers.
+      if not in_zip(dir) and fs.isdir(dir) then
         ro[#ro + 1] = dir
       end
     end

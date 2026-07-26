@@ -108,6 +108,16 @@ local function test_a_compile_may_read_the_checkers_own_inputs()
     "a compile must be allowed to read the include dirs modules resolve " ..
     "through; derived from cosmic.teal so the two cannot drift")
 
+  -- REAL host paths only. Two include dirs live inside the executable's
+  -- own zip, where `fs.isdir` answers yes and the kernel knows nothing:
+  -- handing one to Landlock fails the whole policy with EBADFD, so the
+  -- fenced compile died instead of denying anything. They need no grant
+  -- — they are bytes in a file the exec grant already covers.
+  for _, dir in ipairs(p.ro) do
+    assert(dir:sub(1, 5) ~= "/zip/" and dir ~= "/zip",
+      "a zip-internal path must never reach the sandbox: " .. dir)
+  end
+
   -- And only for the verbs that run the checker: `copy` moves bytes.
   local q = driver.plan("copy", {src, fs.join(tmpdir, "c2.tl")})
   assert(q is sandbox.Fs, "copy must plan a policy")
