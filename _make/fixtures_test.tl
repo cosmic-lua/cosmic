@@ -126,23 +126,28 @@ local function test_lua_markers_are_first_class()
 end
 test_lua_markers_are_first_class()
 
--- An asset ships at its relative path and testdata/ does not ship at
--- all — asserted from inside the artifact, which is the only place the
--- distinction is observable.
-local assets_root = fixture("assets", {assets = "asset: shipped"})
+-- Shipping is opt-in: `embed/**` ships, and a file that merely sits in
+-- the repo does not — asserted from inside the artifact, which is the
+-- only place the distinction is observable, and from the running
+-- binary, which is where a user meets it.
+local assets_root = fixture("assets",
+  {assets = "asset: shipped\n\nreadme: absent\n"})
 
-local function test_testdata_never_ships()
+local function test_only_declared_payload_ships()
   local zip = require("cosmic.zip")
   local reader = check.must(zip.reader(fs.join(assets_root, "o/bin/assets")))
-  local saw_asset, saw_testdata = false, false
+  local saw: {string: boolean} = {}
   for _, e in ipairs(reader:list()) do
-    if e.name == "data/note.txt" then saw_asset = true end
-    if e.name:find("testdata", 1, true) then saw_testdata = true end
+    saw[e.name] = true
+    assert(not e.name:find("testdata", 1, true),
+      "testdata/ must never reach an artifact: " .. e.name)
   end
   reader:close()
-  assert(saw_asset, "an asset ships at its relative path")
-  assert(not saw_testdata, "testdata/ must never reach an artifact")
+  assert(saw["data/note.txt"],
+    "payload ships at its path inside embed/")
+  assert(not saw["README.md"],
+    "a file that is merely IN the repo is not IN the artifact")
 end
-test_testdata_never_ships()
+test_only_declared_payload_ships()
 
 print("all fixture tests passed")

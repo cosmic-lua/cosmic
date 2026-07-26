@@ -15,6 +15,8 @@
 ---   tl.lua           the Teal compiler, from the pinned tarball
 ---   make             the graph engine, from the pinned cosmos zip
 ---   cosmic/_version.lua  the stamp `--version` prints
+---   sys/**           the static `--help` text
+---   skills/cosmic/** the guides `--docs` reads
 ---
 --- and beside them, `base`: the bare `lua` from the pinned cosmos zip.
 --- Naming it is what makes the fixpoint converge. `build` will
@@ -64,25 +66,20 @@ local PINNED: {{string, string}} = {
   {"make", "o/3p/cosmos/make"},
 }
 
---- The runtime the artifact is built onto, and the name `build` looks
---- for it under in this unit's output directory.
-local BASE_FROM < const > = "o/3p/cosmos/lua"
-local BASE_NAME < const > = "base"
-
---- The payload directory, inside the unit's output directory. `build`
---- stages everything under it at the artifact root.
-local PAYLOAD_DIR < const > = "embed"
-
---- Where the `cosmo.*` type declarations live in the tree, and the
---- artifact directory `cosmic.teal` puts on the include path.
-local TYPES_DIR < const > = "_types"
-local TYPES_STORED < const > = ".types"
-
---- The cosmos pin the version stamp names, and the artifact path the
---- stamp lands at — inside the module root, since `--version` reaches
---- it with `require("cosmic._version")`.
-local COSMOS_PIN < const > = "3p/cosmos/cosmos.pin.tl"
-local VERSION_STORED < const > = "cosmic/_version.lua"
+--- Committed files this binary ships that are not modules, as
+--- directory prefixes: everything under each, at the same path.
+---
+--- Enumerated here because shipping is opt-in. These used to arrive as
+--- implicit assets -- "everything else, embedded at its relative path"
+--- -- which shipped `docs/`, `mk/`, `Makefile` and `_perf/` along with
+--- them and made the artifact 1.5 MB heavier than the Makefile's. What
+--- a binary carries is now a thing its unit SAYS, and this is cosmic
+--- saying it. Both are read from `/zip` at run time: `_cli.help` reads
+--- `sys/help.md`, and `--docs` reads the guides under `skills/cosmic`.
+local TREES: {string} = {
+  "sys",
+  "skills/cosmic",
+}
 
 --- Copy one file into the payload.
 --- @param from string Source path, relative to the project root
@@ -105,6 +102,63 @@ local function put(from: string, to: string, dest: string): boolean, string
   end
   return true
 end
+
+--- Copy a committed directory into the payload, at the same paths.
+---
+--- Sorted, because the payload is compared byte for byte between
+--- generations and a directory walk has no order of its own.
+--- @param dir string Directory path, relative to the project root
+--- @param dest string The payload directory
+--- @return boolean, string Success, or false plus the reason
+local function put_tree(dir: string, dest: string): boolean, string
+  local found, lerr = fs.collect(dir, "*")
+  if not found then
+    return false, dir .. ": " .. (lerr or "cannot list")
+  end
+  local paths = found as {string} -- cast: nil ruled out by the guard above
+  table.sort(paths)
+  for _, from in ipairs(paths) do
+    local ok, err = put(from, from, dest)
+    if not ok then
+      return false, err
+    end
+  end
+  return true
+end
+
+--- The runtime the artifact is built onto, and the name `build` looks
+--- for it under in this unit's output directory.
+local BASE_FROM < const > = "o/3p/cosmos/lua"
+local BASE_NAME < const > = "base"
+
+--- The payload directory, inside the unit's output directory. `build`
+--- stages everything under it at the artifact root.
+local PAYLOAD_DIR < const > = "embed"
+
+--- Where the `cosmo.*` type declarations live in the tree, and the
+--- artifact directory `cosmic.teal` puts on the include path.
+local TYPES_DIR < const > = "_types"
+local TYPES_STORED < const > = ".types"
+
+--- The cosmos pin the version stamp names, and the artifact path the
+--- stamp lands at — inside the module root, since `--version` reaches
+--- it with `require("cosmic._version")`.
+local COSMOS_PIN < const > = "3p/cosmos/cosmos.pin.tl"
+local VERSION_STORED < const > = "cosmic/_version.lua"
+
+--- Where a release records the version it is building, read with the
+--- same literal reader as every pin. A root dotfile, and an ASSET --
+--- part of the project, not of its artifacts, so it does not ship.
+---
+--- `COSMIC_VERSION` alone made the version the one build input not
+--- enumerable from the tree: two builds of the same commit differed by
+--- ambient environment, and the reproducibility claim silently
+--- acquired a precondition no committed file recorded. Nothing in the
+--- graph could see an env change either, which is the exact staleness
+--- shape `write_if_changed` and the facts closures exist to prevent.
+--- A committed file is an ordinary input; the environment variable
+--- stays as a documented OVERRIDE for a build nobody tagged.
+local VERSION_PIN < const > = ".version"
 
 --- The binary this generator belongs to.
 --- @param proj Project The scanned project
@@ -190,15 +244,40 @@ local function write_index(proj: Project, dest: string): boolean, string
   return true
 end
 
+--- The version this build stamps: the tree's, else the environment's,
+--- else unknown.
+--- @return string The version string
+local function declared_version(): string
+  if fs.isfile(VERSION_PIN) then
+    local declared, derr = literal.of_file(VERSION_PIN, "version")
+    if not declared then
+      io.stderr:write("embed.gen: " .. VERSION_PIN .. ": " ..
+        (derr or "cannot read") .. "; falling back to the environment\n")
+    else
+      -- cast: the literal reader returns a plain table
+      local named = (declared as {string: any}).cosmic
+      if named is string then
+        return named
+      end
+    end
+  end
+  return env.get("COSMIC_VERSION", "unknown")
+end
+
 --- Write the version stamp `--version` prints.
 ---
---- The cosmos half is READ from the pin, with the same literal reader
---- `--make fetch` uses — the build never executes the file that says
---- what it pinned. The cosmic half comes from `COSMIC_VERSION`,
---- because the only other source is `git describe`, and a build that
---- shells out to git is one that cannot run in the sandbox this build
---- system is for. Unset means "unknown", which is the truth for a
---- build nobody stamped.
+--- Both halves are READ, with the same literal reader `--make fetch`
+--- uses — the build never executes a file that says what it pinned.
+--- The cosmos half comes from its pin. The cosmic half comes from
+--- `embed/.version` when the tree carries one, else `COSMIC_VERSION`,
+--- else "unknown", which is the truth for a build nobody stamped.
+---
+--- Committed file first, environment second: a bare `--make build` of
+--- a clean tree is then bit-reproducible with no environment
+--- coordination at all, and the override is still there for a build
+--- that wants to stamp without committing. `git describe` is not a
+--- third option — a build that shells out to git is one that cannot
+--- run in the sandbox this build system is for.
 --- @param dest string The payload directory
 --- @return boolean, string Success, or false plus the reason
 local function write_version(dest: string): boolean, string
@@ -212,7 +291,7 @@ local function write_version(dest: string): boolean, string
   -- is `load`ed by a reader that supplies the keyword itself, and a
   -- module cannot be.
   local stamp = "return " .. codec.encode_lua({
-      cosmic = env.get("COSMIC_VERSION", "unknown"),
+      cosmic = declared_version(),
       cosmos = cosmos is string and cosmos or "unknown",
     }) .. "\n"
   local out = fs.join(dest, VERSION_STORED)
@@ -272,6 +351,12 @@ local function generate(out: string): string
   end
   for _, pair in ipairs(declarations(p)) do
     local ok, err = put(pair[1], pair[2], dest)
+    if not ok then
+      return err
+    end
+  end
+  for _, dir in ipairs(TREES) do
+    local ok, err = put_tree(dir, dest)
     if not ok then
       return err
     end

@@ -63,6 +63,7 @@ Two sentences carry most of the design:
 | rules source | conventions only. no `rules.tl`. cosmic reshapes itself to fit |
 | policy lanes | cosmic **verbs**, not graph rules |
 | built-in opinions | none. no automatic version stamp, no automatic doc index |
+| build inputs | enumerable from committed files — pins, `exec` targets, and the version stamp alike |
 | generated outputs | never committed; everything generated lives in `o/` |
 | generator units | directory-scoped; one per generated asset. a binary's `embed.gen.tl` fills `o/<unit>/{embed/,base}` |
 | generator inputs | its containing subtree = its grants. reads outside are **denied**, not stale |
@@ -72,13 +73,14 @@ Two sentences carry most of the design:
 | module root | the project root |
 | public vs private | `_`-prefixed directory = importable only from within its container |
 | this repo's layout | `cosmic/` is the public API; `_cli/`, `_build/`, `_make/`, `_types/`, `_perf/`, `_docs/` at root; `cmd/`; `3p/` — **landed, 3h**; `cosmic --make build` produces `o/bin/cosmic` |
-| artifact layout | `/zip/<import path>.lua`, assets at `/zip/<rel>`, `embed/**` at the root |
-| `testdata/` | excluded from artifacts (that is its only job) |
+| artifact layout | `/zip/<import path>.lua`, `embed/**` at the root |
+| artifact contents rule | **shipping is opt-in**: modules plus `embed/**`, nothing implicit |
+| `testdata/` | fixtures; not a module and not payload, so it never ships |
 | paths | filenames with spaces or shell metacharacters are a validator error |
 | network | only under `--make fetch`. **no project code ever runs with a socket** |
 | pins | `*.pin.tl` — Teal, statically extracted from a literal, never executed |
 | `exec` | resolves only to pinned/staged bytes under `o/`. never `PATH` |
-| version stamp | generated from the pin plus `COSMIC_VERSION`; no host tool |
+| version stamp | read from the cosmos pin plus a committed `.version` (`COSMIC_VERSION` overrides); no host tool |
 | recipe lines | whitespace-split argv; `argv[0]` ∈ closed verb set ∪ `exec` |
 | `-c` vs `--build` | `-c` wins; `--build` retired across two release cycles |
 | make's bytes | embedded in the cosmic release. amends D13 |
@@ -107,8 +109,10 @@ Two sentences carry most of the design:
 | `cmd/<name>/main.tl` | one binary per subdirectory | same |
 | `<dir>/*.pin.tl` | a pinned external asset | network **only** under `fetch` |
 | `<dir>/*.gen.tl` | a generation unit | its subtree readable, `o/<dir>` writable |
+| `<unit>/embed.gen.tl` | a **binary's payload generator** (reserved basename, its own kind) | the binary's scope readable, `o/<unit>` writable |
+| `embed/**` | payload, embedded at its path inside `embed/` | — |
 | `.cosmicignore` | exclusions | — |
-| everything else | an asset, embedded at its relative path | — |
+| everything else | an asset: part of the project, **not** of its artifacts | — |
 
 - **import path = path relative to root**, `/`→`.`, extension dropped.
   `pkg/db.tl` → `require("pkg.db")`; `pkg/init.tl` → `require("pkg")`.
@@ -151,6 +155,7 @@ path** derived from its position. Nothing else varies.
 | module | `X.tl` | the file + the include path | `o/X.lua` |
 | test | `X_test.tl` | staged subtree at its directory + staged modules | `o/X.tl.test.{got,out,err}` |
 | generator | `*.gen.tl` in `D` | `D`'s subtree | `o/D/**` |
+| payload generator | `embed.gen.tl` in unit `U` | `U`'s binary scope | `o/U/{embed/,base}` |
 | binary | `main.tl`, `cmd/<n>/main.tl` | root packages + its own `cmd/<n>/**` | `o/bin/<n>` |
 | pin | `*.pin.tl` in `D` | the pin literal, plus a socket under `fetch` | `o/D/<name from the url>` ⚠ |
 
@@ -168,11 +173,17 @@ how the scope is computed — so a `Unit` record is a bag of five
 unrelated functions until at least three exist.
 
 **How to investigate it.** Not by staring at the table — by writing the
-next scope *without* consulting the last one. Two rows have since
-falsified a prediction: a pin's output path is named by the url inside
-it, not by position (hence the ⚠), and a binary's payload generator
-reads the *binary's* scope rather than its own subtree. The `Unit`
-record is not earned; the smaller `unit_dir(path)` the fence wants is.
+next scope *without* consulting the last one. Two rows falsified a
+prediction; one is now closed. A binary's payload generator reads the
+*binary's* scope rather than its own subtree — that is a distinct row
+above and a distinct **kind** (`payload-gen`) out of `classify`, with a
+validator rule for a stray `embed.gen.tl` where no binary lives; it used
+to be one kind split by prose plus a basename match inside the runner,
+which left `cmd/foo/data.gen.tl` a file neither mechanism would run. A
+pin's output path is still named by the url inside it (hence the ⚠),
+and retires with the second pin reader — see the pin grammar below.
+The `Unit` record is not earned; the smaller `unit_dir(path)` the fence
+wants is.
 Method and findings: [make-plan.md](make-plan.md), 2d.
 
 ### Generators
@@ -232,14 +243,25 @@ unverified bytes is what pinning exists to prevent.
 `PATH` lookup. A project may run a tool it pinned; it cannot run
 whatever happens to be installed.
 
+Two frays in the pin grammar are **scheduled, not settled** — the
+url-derived landing name (the ⚠ above) and the dual `sha`/`platforms`
+spelling that exists so one file can satisfy both pin readers. Both
+retire with the second reader; see [make-plan.md](make-plan.md), 3i.
+
 Together: *building an untrusted repo cannot phone home, and cannot run
 a host binary.* Both halves of the external surface are greppable.
 
 Corollary, and the reason the version stamp is generated rather than
-shelled out for: `git describe` is not available to a build. The
-generator reads the cosmos half from the pin and takes the project half
-from `COSMIC_VERSION`, defaulting to `unknown`. No host tool, no `.git`
-read.
+shelled out for: `git describe` is not available to a build. Both
+halves are **read** — the cosmos half from its pin, the project half
+from a committed `.version` (the same literal grammar, so it is data
+the build never executes), falling back to `COSMIC_VERSION` and then to
+`unknown`. No host tool, no `.git` read.
+
+The committed file is what keeps the enumerable-inputs property whole
+(D16): `COSMIC_VERSION` alone made two builds of one commit differ by
+ambient environment, and made the gen2 = gen3 fixpoint depend on a
+precondition no committed file recorded.
 
 ## Artifact model
 
@@ -250,14 +272,21 @@ outputs — through one rule:
 
 ```
 package module, import path P  →  /zip/P.lua
-asset at relative path R       →  /zip/R
 payload under `embed/`         →  /zip/<path inside embed/>
 entry                          →  /zip/main.user.lua behind the wrapper
 ```
 
 The zip root *is* the module root, so "path relative to root = import
 path" holds inside the artifact too. `pack_copies` disappears; the
-layout is derived, not enumerated. Cosmic's own payload moved with it
+layout is derived, not enumerated.
+
+**Shipping is opt-in** (D15): an artifact carries its modules plus
+`embed/**` and nothing else. Every other kind is something you *did*,
+and "everything else, embedded at its relative path" was the one row
+that inverted it. With shipping opt-in there is nothing to un-ship, so
+`.cosmicignore` stays a purely model-scoped knob and `testdata/`'s
+exclusion stops being an exception carved out of a default. Cost: a
+`schema.sql` an artifact needs becomes `embed/schema.sql`. Cosmic's own payload moved with it
 in 3d (`/zip/.lua/cosmic/*` → `/zip/cosmic/*`): cosmopolitan's default
 `package.path` is `/zip/.lua/`-rooted, so the entry inserts the zip
 root ahead of it — behind anything `LUA_PATH` set, or the binary's own
@@ -303,125 +332,11 @@ the same fixture twice into different paths, compare sha256.
 
 ## Engine
 
-### Constant rules, generated facts
-
-`o/cosmic.mk` ships in the binary, byte-identical everywhere; discovery
-uses `$(wildcard)` and `rwildcard` foreach-recursion — builtins only, no
-`$(shell)`. `o/project.mk` is generated and contains only variable
-assignments, so codegen shrinks to "emit a list of variables" while
-discovery and validation stay in Teal where errors can be good. This
-repo's makefile ratchets collapse from "scan generated recipe text" to
-"one file that does not change."
-
-### Cosmic as `SHELL`
-
-`SHELL := cosmic`; cosmic grows `-c '<line>'`, so make's default
-`.SHELLFLAGS` works unchanged. A line is whitespace-split argv — no
-quoting, no expansion, no pipes, no redirects — whose `argv[0]` is a
-cosmic verb or `exec`.
-
-- **the capability surface is enumerable**; the metacharacter-scanning
-  ratchet becomes unnecessary.
-- **sandboxing stops depending on fork-specific syntax, and on any
-  declaration at all.** grants are *derived from the verb's signature*:
-  `copy <src> <dst>` reads src and writes dst, `compile <bootstrap>
-  <src> <out>` execs the first, reads the second, writes the third.
-  cosmic self-restricts from that before dispatching, so
-  `.PLEDGE`/`.UNVEIL` attributes become optional rather than
-  load-bearing — and a rule cannot over-declare its way out of the
-  fence, because a rule declares nothing.
-
-  An earlier version of this design carried grants in target-specific
-  make variables (`COSMIC_UNVEIL = $^`). Closing the vocabulary made
-  that channel redundant: the argument positions *are* the declaration.
-  Two mechanical details the kernel forces, recorded because getting
-  them wrong disables the fence rather than tightening it — a write
-  grants the parent **directory** (creating and unlinking are rights on
-  the directory, and the output does not exist yet), and a read naming
-  a path that does not exist is **dropped**, since landlock opens every
-  rule and one missing input would fail the whole restrict.
-
-  `exec` is the one verb whose reads are not derivable — a pinned
-  compiler reads headers nobody listed — so it is fenced to the unit's
-  subtree instead of its argv, per the same rule generators and tests
-  use. Landed after 2d, which is what supplied `unit_dir`: until there
-  were units this was a promise with nothing behind it.
-
-  **A derived fence still needs a floor.** Shipping the derivation with
-  nothing else turned three CI lanes red at once: argv says nothing
-  about the APE loader beside a binary (a fat APE that cannot reach it
-  fails `ENOEXEC`, which reads like a corrupt file rather than a denied
-  path), nor about `/dev/urandom`, nor about the paths a *child's* own
-  argv names — `tee <out> cosmic --report <got…>` hands those to a
-  process that inherits the fence. The make rules already spell this
-  floor as `unveil_base`/`unveil_dev`; the derived fence needs its own.
-  It is therefore **opt-in (`COSMIC_FENCE=1`) until the canary proves
-  it on a Landlock host** — no machine available while writing it could
-  enforce anything, so every local run was a silent no-op.
-
-**The trailing `;` is load-bearing.** Setting `SHELL` is not enough:
-make does not use `SHELL` for a line it judges shell-free — job.c
-builds argv and execs directly whenever the line contains none of
-`` #;"*?[]&|<>(){}$`^ `` and does not start with a shell builtin. Lines
-in this vocabulary are shell-free *by construction*, so the naive
-`SHELL := cosmic` intercepts nothing at all: measured on the fork, a
-recipe of `rm -rf a.txt` under `SHELL := cosmic` deleted the file, and
-`copy a.txt out.txt` failed with `copy: No such file or directory`
-because make tried to exec `copy` as a program. `.ONESHELL` does not
-change it.
-
-So generated recipe lines end in `;`, which forces the `SHELL` path,
-and `-c` strips exactly one trailing sentinel before dispatch. A `;`
-anywhere else is still refused, so `copy a b ; touch evil` does not
-become two commands. `;` is the cheapest sentinel that behaves
-identically under a real shell — a leading `:` also forces the path,
-but `sh` would discard the line's arguments entirely.
-
-The alternative is a fork change (a special target that forces the slow
-path), which is the D14 mechanism and remains open — but the sentinel
-needs no release, so the upstream knob is an ergonomic cleanup rather
-than a dependency.
-
-**`exec` opens onto pinned bytes only.** It resolves against the build
-root (`$COSMIC_EXEC_ROOT`, else `o/`) and refuses anything outside it,
-so a bare `exec cc` resolves to `<cwd>/cc`, is not under the root, and
-is refused rather than silently picking up the host's compiler. Pins
-declare bytes, `fetch` obtains them, `exec` runs them; nothing else
-runs at all.
-
-Known limitation, recorded rather than papered over: a program's
-*arguments* travel through the same whitespace split, so they cannot
-carry shell characters either. A pinned compiler invoked with
-`-DFOO(x)=y` is refused. Nothing in this repo's rules needs it, and the
-out-of-band channel that would fix it (paths and args in target-specific
-variables rather than in the line) was considered and rejected for
-costing the legibility of `o/cosmic.mk`. If a real project hits it, that
-tradeoff is the thing to revisit.
-
-`--build` and `-c` are the same dispatcher; `-c` wins. Ordering was a
-constraint, not a preference — `-c` had to ship in a release before
-this repo could set `SHELL := cosmic`, since recipes run the pinned
-older bootstrap. Done; `--build` retires a release later.
-
-### Staleness and parallelism
-
-Mtime schedules; content decides. Every verb writes its output only when
-the bytes change — the existing `run_into` contract, generalized by
-cosmic owning the shell. A no-op step doesn't touch its output, so
-non-changes stop propagating.
-
-**Everything is parallel** (`-j$(nproc)`, honoring an inherited
-jobserver and an explicit `--jobs`). Parallel-by-default is defensible
-only because isolation is structural.
-
-Spawn cost, measured (200 runs of a no-op verb): **10.4 ms** per line
-for the fat APE, **6.4 ms** for the assimilated ELF, against **1.5 ms**
-for `/bin/sh -c true`. The comparison that matters is not against a
-shell: this repo's recipes *already* spawn cosmic per line, so routing
-through `SHELL` costs the same one spawn. At 6 ms a 1000-node graph
-carries ~6 s of startup serially, under a second at `-j8` — a budget
-that argues for chunky verbs and, eventually, an action cache keyed on
-`(argv + input hashes)`, deferred until profiling justifies it.
+The engine chapter — constant rules and generated facts, cosmic as
+`SHELL`, the closed verb vocabulary and its grants, staleness and
+parallelism — is [make-engine.md](make-engine.md). It moved out when
+this file hit the 500-line cap; the split is by chapter, the way
+`_perf/optimize/` is split, so no chapter has to fight the cap.
 
 ## Tests
 
@@ -465,15 +380,24 @@ staged tree.
 **Graph verbs:**
 
 ```
-build [paths…]  compile → generate → stage → embed → o/bin/<name>   [now]
+build [binaries…] compile → generate → stage → embed → o/bin/<name> [now]
 test  [paths…]  build the stage, run *_test.tl fenced against it     [now]
 check [paths…]  strict type-check only                               [now]
 fmt   [paths…]  --check-format (--fix to rewrite)                    [now]
 fetch [paths…]  resolve *.pin.tl — the only verb with network        [now]
 clean           remove o/                                            [now]
-run   [path]    build, then exec the artifact with remaining argv    [planned]
+run   [binary]  build, then exec the artifact with remaining argv    [planned]
 regen [paths…]  run generation units                                 [planned]
+example [paths…] run Example_* against the staged tree               [planned]
+lint  [paths…]  style gate: file length, column width, cast ratchet  [planned]
 ```
+
+**Selection names targets of the verb's own kind, and never changes
+what a target means** — `test` states it as "selection changes which
+tests run, never what gets staged". `build`'s targets are BINARIES, so
+`build cmd/foo` (or `build foo`) builds foo: the full pipeline, staging
+what a full build would, and never a narrowed compile. A source path is
+refused, pointing at `check`, whose targets *are* sources.
 
 **Policy verbs** — orchestration over the graph, never graph rules.
 All planned; `bin/make` owns these lanes today:
@@ -486,8 +410,12 @@ reproducible    double-build + compare
 offline         no-network lane, asserted against the pins
 ```
 
-The `ci` ordering above names `example` and `lint` stages that are not
-verbs at all yet; they are what the lane must cover, not what it calls.
+`example` and `lint` are verbs in their own right (planned, above), so
+`ci` is a list of verb names rather than a lane reimplementing two of
+its six stages. `example` is `test`'s sibling — same staging, same
+fence, `Example_*` instead of the test contract — which is what the
+model already says everywhere else. `lint` stays out of `check`: its
+file set is the whole tree, not the compiled closure.
 
 `ci` is a fixed order with **each stage gated by whether the project has
 material for it** — no tests, no test stage; no committed coverage

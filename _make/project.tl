@@ -216,6 +216,19 @@ local function classify(rel: string): Kind
   elseif rel:sub(-7) == ".pin.tl" then
     return "pin"
   elseif rel:sub(-7) == ".gen.tl" then
+    -- A unit's PAYLOAD generator is a different kind from a generation
+    -- unit, and the difference is not cosmetic: this one is scoped to
+    -- the BINARY (root packages plus its own `cmd/<name>/**`), is run
+    -- by `build` every time, and writes `o/<unit>/{embed,base}`, while
+    -- a generation unit is scoped to its own subtree and will be run by
+    -- `regen`. Both used to classify as `gen`, with the distinction
+    -- living in prose plus a basename match inside the generator
+    -- runner -- so `cmd/foo/data.gen.tl` was a file that neither
+    -- mechanism would run, and a generation unit that happened to be
+    -- named `embed.gen.tl` silently acquired binary semantics.
+    if segs[#segs] == PAYLOAD_GEN then
+      return "payload-gen"
+    end
     return "gen"
   elseif rel:sub(-8) == "_test.tl" or rel:sub(-9) == "_test.lua" then
     return "test"
@@ -448,6 +461,7 @@ local record ProjectModule
   import_path: function(rel: string): string | nil
   of_kind: function(project: Project, kinds: {Kind}): {File}
   segments: function(rel: string): {string}
+  covers: function(sel: string, path: string): boolean
   select: function(files: {File}, paths: {string}, root: string): {File} | nil, string
   paths_of: function(files: {File}): {string}
 end
@@ -465,6 +479,7 @@ local M: ProjectModule = {
   import_path = import_path,
   of_kind = of_kind,
   segments = segments,
+  covers = covers,
   select = select_files,
   paths_of = paths_of,
 }

@@ -1,2 +1,2 @@
--- An asset ships at its relative path; testdata/ never ships.
--- That is the only job testdata/ has.
+-- Payload under embed/ ships; this file does not, and testdata/ never
+-- did. Shipping is opt-in, so "not shipped" needs no second knob.

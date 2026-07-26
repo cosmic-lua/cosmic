@@ -68,6 +68,9 @@ local function test_every_marker_classifies()
       ["schema.sql"] = "CREATE TABLE t(x);\n",
       ["cmd/servit/main.tl"] = "print('s')\n",
       ["cmd/servit/routes.tl"] = "return {}\n",
+      ["cmd/servit/embed.gen.tl"] = "return {}\n",
+      ["cmd/servit/data.gen.tl"] = "return {}\n",
+      ["embed.gen.tl"] = "return {}\n",
     })
 
   kind_of(proj, "main.tl", "entry")
@@ -79,6 +82,12 @@ local function test_every_marker_classifies()
   kind_of(proj, "types/lpeg.d.tl", "types")
   kind_of(proj, "3p/lpeg/lpeg.pin.tl", "pin")
   kind_of(proj, "docs/index.gen.tl", "gen")
+  -- The reserved basename is its own kind: a BINARY's payload
+  -- generator, scoped to the binary and run by `build`, not a
+  -- subtree-scoped generation unit run by `regen`.
+  kind_of(proj, "cmd/servit/embed.gen.tl", "payload-gen")
+  kind_of(proj, "embed.gen.tl", "payload-gen")
+  kind_of(proj, "cmd/servit/data.gen.tl", "gen")
   kind_of(proj, "schema.sql", "asset")
   kind_of(proj, "cmd/servit/main.tl", "entry")
   kind_of(proj, "cmd/servit/routes.tl", "module")
