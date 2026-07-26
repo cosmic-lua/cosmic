@@ -56,6 +56,13 @@ claims for this repo. several are traps for the downstream user-project case
 | [023](023-tar-drive-letter-paths.md) | tar path guard misses drive-letter names embed's guard rejects |
 | [024](024-tar-partial-extraction.md) | tar failure semantics: partial extraction, missing terminator accepted |
 
+### stripped artifacts
+
+| id | issue |
+|---|---|
+| [036](036-literal-unloadable-stripped.md) | `cosmic.literal` fails to load in every stripped artifact |
+| [037](037-searcher-stripped-error-shape.md) | the searcher turns every require miss into a `tl` error when stripped |
+
 ### tests and ci
 
 | id | issue |
