@@ -1,6 +1,6 @@
 #!/usr/bin/env cosmic
 --- Tests for cosmic.sqlite data-layer contracts: blob binding affinity,
---- default busy timeout, and open() options (issue #531).
+--- default busy timeout, and open() options.
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
@@ -132,7 +132,7 @@ local function test_read_only_missing_file_fails()
 end
 test_read_only_missing_file_fails()
 
--- constraint violations (issue #505): exec must return false plus the
+-- constraint violations: exec must return false plus the
 -- constraint's own message, never throw or silently succeed.
 
 local function test_unique_constraint_violation()
@@ -160,7 +160,7 @@ local function test_not_null_constraint_violation()
 end
 test_not_null_constraint_violation()
 
--- SQLITE_BUSY (issue #505): real lock contention between two connections
+-- SQLITE_BUSY: real lock contention between two connections
 -- to the same file, not just the busy_timeout PRAGMA readback above.
 
 local function test_busy_second_connection_write_blocked()

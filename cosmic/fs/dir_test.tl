@@ -181,7 +181,7 @@ end
 test_statfs_nonexistent()
 
 local function test_fstatfs()
-  -- open the test dir, not "/": the sandboxed test lane (#729) unveils
+  -- open the test dir, not "/": the sandboxed test lane unveils
   -- only the build tree and TEST_TMPDIR, and any granted dir works here
   local fd = unix.open(TEST_TMPDIR, unix.O_RDONLY | unix.O_DIRECTORY)
   assert(fd, "open should succeed")

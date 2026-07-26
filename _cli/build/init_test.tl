@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- Tests for _cli.build (#732, #756 item 3): the shell-free recipe
+-- Tests for _cli.build: the shell-free recipe
 -- steps behind `--build`, spawned the way make spawns them, with the
 -- test cosmic binary standing in as the pinned bootstrap for compile
 -- mode.
@@ -55,7 +55,7 @@ local function test_link_replaces()
 end
 test_link_replaces()
 
--- #776 retired the flag-stamp argument: compiles are unconditionally
+-- retired the flag-stamp argument: compiles are unconditionally
 -- strict, so the fixture is just a source and an output path.
 local function compile_fixture(name: string, content: string): string, string
   local dir = fs.join(tmpdir, name)
@@ -95,7 +95,7 @@ local function test_compile_unchanged_keeps_mtime()
 end
 test_compile_unchanged_keeps_mtime()
 
--- strictness (#776): a type error must fail AND leave no output, so a
+-- strictness: a type error must fail AND leave no output, so a
 -- file that did not typecheck can never be packed into the binary
 local function test_compile_failure_no_output()
   local src, out = compile_fixture("c-bad", "local x: number = \"not a number\"\n")
@@ -225,7 +225,7 @@ local function test_verdict()
   code, stdout = run_driver("verdict", o_dir, "good", "launder", "bad", "ghost")
   assert(code ~= 0, "failures must fail the verdict")
   assert(stdout:match("::group::good"), "stage groups printed")
-  -- the #714 grading: text-clean summary without an exit marker fails
+  -- the grading: text-clean summary without an exit marker fails
   assert(stdout:match("ci: FAIL %(launder %(exit%) bad ghost%)"),
     "expected marker/summary/missing grading, got: " .. stdout)
   assert(stdout:match("ghost: no summary produced"), "missing summary named")

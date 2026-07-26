@@ -242,7 +242,7 @@ local function test_read_nonexistent()
 end
 test_read_nonexistent()
 
--- Errors carry the errno name and enough context to act on (issue #529):
+-- Errors carry the errno name and enough context to act on:
 -- a failed read names ENOENT, a failed open names both the path and the
 -- errno, and fd-level failures surface the binding's errno string instead
 -- of a fabricated message.

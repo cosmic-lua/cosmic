@@ -339,7 +339,7 @@ local function make_reader(raw_reader: cosmo.StreamReader): Reader
     -- Scan-position index into buffer: `pos` is the first unread byte.
     -- Advancing it instead of slicing off each returned line, and dropping
     -- the consumed prefix only when we must read more, keeps the whole loop
-    -- linear in the byte count (audit §7.2 P1).
+    -- linear in the byte count.
     local buffer = ""
     local pos = 1
     local done = false

@@ -120,7 +120,7 @@ build:
 end
 test_parse_phony_targets()
 
--- Scans EVERY makefile, not just the top-level one: #786 moved most rule
+-- Scans EVERY makefile, not just the top-level one: moved most rule
 -- families into mk/*.mk, and a check that read only "Makefile" would have
 -- silently stopped covering the targets that moved.
 local function test_all_phony_targets_documented()

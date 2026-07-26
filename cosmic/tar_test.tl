@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- Tests for the in-process tar extractor (#732). Archives are built
+-- Tests for the in-process tar extractor. Archives are built
 -- in-process — no host tar — so the tests exercise exactly the ustar/pax
 -- shapes the extractor claims to handle, plus its rejection paths.
 

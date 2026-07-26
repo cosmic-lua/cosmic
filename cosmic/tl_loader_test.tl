@@ -1,6 +1,6 @@
 #!/usr/bin/env cosmic
 -- test that tl_package_loader is not at position 2 in package.searchers
--- (issue #377: tl_package_loader recompiles .tl sources when TL_PATH is set)
+-- (issue tl_package_loader recompiles .tl sources when TL_PATH is set)
 
 local check = require("cosmic.check")
 local spawn = require("cosmic.child")
@@ -122,7 +122,7 @@ test_tl_loader_still_available()
 
 --- A required .tl module that fails to compile must fail the require()
 --- with the compile issues — tl's old loader type-checked and then
---- generated code anyway, silently running broken modules (#669).
+--- generated code anyway, silently running broken modules.
 local function test_require_fails_on_compile_error()
   local baddir = fs.join(tmpdir, "tlbad")
   fs.makedirs(baddir)

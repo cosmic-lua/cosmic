@@ -245,7 +245,7 @@ end
 
 --- Extract the embedded make to `o/make`.
 ---
---- The engine ships inside the binary (2e), so a project needs nothing
+--- The engine ships inside the binary, so a project needs nothing
 --- installed: extraction is a copy out of this executable's own zip,
 --- and it happens once. Written through a temp file and renamed, so a
 --- concurrent build cannot exec a half-written engine.

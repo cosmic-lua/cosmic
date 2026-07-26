@@ -56,7 +56,7 @@ local function test_rand64()
 end
 test_rand64()
 
--- Crypto-grade bounded integers (issue #531)
+-- Crypto-grade bounded integers
 
 local function test_int_bounds()
   for _ = 1, 500 do
@@ -111,7 +111,7 @@ local function test_int_invalid_args()
 end
 test_int_invalid_args()
 
--- float (#501)
+-- float
 
 local function test_float_range()
   for _ = 1, 200 do
@@ -129,7 +129,7 @@ local function test_float_varies()
 end
 test_float_varies()
 
--- choice (#501)
+-- choice
 
 local function test_choice_picks_member()
   local list = {"a", "b", "c"}
@@ -156,7 +156,7 @@ local function test_choice_single_and_empty()
 end
 test_choice_single_and_empty()
 
--- shuffle (#501)
+-- shuffle
 
 local function test_shuffle_permutes()
   local list = {1, 2, 3, 4, 5, 6, 7, 8}
@@ -203,7 +203,7 @@ local function test_shuffle_small()
 end
 test_shuffle_small()
 
--- token (#501)
+-- token
 
 local function test_token_default()
   local t = check.must(rand.token())

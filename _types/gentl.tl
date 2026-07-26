@@ -3,7 +3,7 @@
 --- tl.d.tl is the narrowed public tl surface cosmic ships (embedded in
 --- the binary as the types user scripts see for require("tl")). It used
 --- to be handcrafted, and its function signatures drifted from tl's
---- real API three times before anyone noticed (#660/#662/#664). The
+--- real API three times before anyone noticed  The
 --- self-hosted tl.tl staged by the 3p pin is the ground truth, so this
 --- generator extracts the allowlisted signatures from it and erases
 --- internal types by rule; gentl_test.tl fails when the committed file

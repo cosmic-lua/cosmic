@@ -300,7 +300,7 @@ end
 test_transaction_commits_on_no_return()
 
 local function test_nested_transaction_fails_inner_only()
-  -- BEGIN does not nest in SQLite (issue #505): an inner db:transaction
+  -- BEGIN does not nest in SQLite: an inner db:transaction
   -- must fail with SQLite's own message, while the outer transaction and
   -- its writes survive. Nesting is what savepoint() is for.
   local db = check.must(sqlite.open(":memory:"))

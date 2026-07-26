@@ -3,7 +3,7 @@
 --- The root is the current directory. There is no search upward for a
 --- marker file, because "which project am I in" answered by a search is
 --- the bug that makes a build write into the wrong tree — the shape
---- #795 hit here when a scan of one directory produced output in
+--- hit here when a scan of one directory produced output in
 --- another.
 ---
 --- What the search upward IS for is refusing: if an ancestor also looks

@@ -240,7 +240,7 @@ local function test_poll_hangup()
 end
 test_poll_hangup()
 
--- Error fidelity (issue #529): add(nil) raises instead of silently
+-- Error fidelity: add(nil) raises instead of silently
 -- doing nothing, and wait() surfaces a hard poll error instead of
 -- returning an indistinguishable empty iterator.
 

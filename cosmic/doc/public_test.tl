@@ -1,5 +1,5 @@
 #!/usr/bin/env lua
---- The docs surface must follow the `_` rule (issue #556, phase 3c):
+--- The docs surface must follow the `_` rule:
 --- `--docs` lists public modules only, internal modules stay searchable
 --- but badged, and their doc pages carry an internal-module header.
 ---

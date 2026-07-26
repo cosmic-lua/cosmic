@@ -351,7 +351,7 @@ test_load_dir_crlf_file()
 
 -- FIX 3b: COSMIC_DEBUG='' (empty string) must NOT enable debug mode.
 -- Only a non-empty COSMIC_DEBUG value should enable debug output.
--- Rewritten for issue #505: capture the debug channel (envd writes via
+-- Rewritten for issue capture the debug channel (envd writes via
 -- io.stderr) instead of asserting a count that passes either way.
 local function load_dir_capturing_stderr(dir: string): envd.LoadResult, string
   local capture_path = fs.join(tmpdir, "envd_debug_capture")
@@ -395,7 +395,7 @@ local function test_cosmic_debug_nonempty_emits_debug()
 end
 test_cosmic_debug_nonempty_emits_debug()
 
--- LoadResult.errors (issue #529, review item 39): per-file read failures
+-- LoadResult.errors (issue, review item 39): per-file read failures
 -- are collected instead of being visible only under COSMIC_DEBUG.
 
 local function test_errors_empty_on_clean_load()

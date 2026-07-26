@@ -139,7 +139,7 @@ local function test_message_from_stderr()
 end
 test_message_from_stderr()
 
--- --out writes the same report the recipes used to `| tee` (#732)
+-- --out writes the same report the recipes used to `| tee`
 local function test_out_writes_file()
   local test_dir = fs.join(tmpdir, "out-file")
   fs.makedirs(test_dir)
@@ -159,7 +159,7 @@ end
 test_out_writes_file()
 
 -- REPORTER_NOTE appends a line to report and file: note text carries
--- spaces, which a shell-free recipe argv cannot pass as a flag (#732)
+-- spaces, which a shell-free recipe argv cannot pass as a flag
 local function test_reporter_note()
   local test_dir = fs.join(tmpdir, "note")
   fs.makedirs(test_dir)
@@ -192,7 +192,7 @@ test_reporter_note()
 -- the shared contract is narrow but load-bearing: a summary WITH failures
 -- must carry a matching clause, one WITHOUT must not. Pin it for both, or
 -- a format tweak on either side silently makes ci grade a red stage green
--- — the #714 laundering class, one layer up (#779).
+-- — the laundering class, one layer up.
 local VERDICT_PATTERN < const > = "[1-9]%d* failed"
 
 local function run_report(...: string): integer, string
@@ -233,7 +233,7 @@ local function test_verdict_pattern_agrees_across_both_reporters()
 end
 test_verdict_pattern_agrees_across_both_reporters()
 
--- test: both reporters read the exit-code contract from one place (#779)
+-- test: both reporters read the exit-code contract from one place
 local function test_status_contract_is_shared()
   local testrun = require("cosmic.testrun")
   assert(testrun.status_of(0) == "pass", "0 is a pass")

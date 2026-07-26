@@ -1,19 +1,19 @@
 # cosmic repository module definitions
 # This file aggregates all modules for the build system
 
-# Environment clamp (#731): recipes otherwise inherit the caller's full
+# Environment clamp: recipes otherwise inherit the caller's full
 # environment, so hermeticity would depend on the invoking shell being
 # unremarkable. Pin locale and timezone, and construct PATH deliberately
 # — o/bootstrap, o/bin (staged tools), then a small, visible host-tool
-# surface (#732 shrinks it; HOST_PATH= overrides for unusual hosts).
+# surface (shrinks it; HOST_PATH= overrides for unusual hosts).
 # Entries are CURDIR-anchored: a relative entry breaks for any recipe
-# that cd's (#721). Gate: the env-clamp fixture in _build/cook.mk.
+# that cd's. Gate: the env-clamp fixture in _build/cook.mk.
 export LC_ALL := C
 export TZ := UTC
 HOST_PATH ?= /usr/bin:/bin
 export PATH := $(CURDIR)/$(o)/bootstrap:$(CURDIR)/$(o)/bin:$(HOST_PATH)
 
-# Shared sandbox grant sets (#718): compose per rule, so a deliberate
+# Shared sandbox grant sets: compose per rule, so a deliberate
 # deviation reads as `$(unveil_test) r:extra` at the rule instead of a
 # wall of near-identical 90-column strings. Defined here (before the
 # lib/3p cook.mk includes) so their rules can use them too. Rules MUST
@@ -21,18 +21,18 @@ export PATH := $(CURDIR)/$(o)/bootstrap:$(CURDIR)/$(o)/bin:$(HOST_PATH)
 # enforcement unexpanded (see the sandbox-canary note in _build).
 pledge_build := stdio rpath wpath cpath proc exec
 # The source trees, named once. This was a single directory (`lib`)
-# until the root became the module root (3b), and it is a list rather
+# until the root became the module root, and it is a list rather
 # than `.` because `.` is now the whole repository: `o/`, `3p/` and
 # `.git` included. Two consumers, and they must agree — the sandbox
 # grant below, and the coverage scan in mk/test.mk, which walks these
 # to find source files with no coverage at all. Handing either one `.`
 # is not a wider version of the same thing: it is a different set.
-# Phase 3h replaces both with grants derived from each verb's argv.
+# Grants derived from each verb's argv replace both.
 src_dirs := cosmic _cli _make cmd _build _docs _perf _types
 unveil_srcs := $(foreach d,$(src_dirs),r:$(d))
 unveil_base := rx:$(o)/bootstrap $(unveil_srcs) r:3p
 # Device nodes the cosmic runtime itself touches — not host tools, so
-# de-hosted rules (#732) grant these without the toolchain surface.
+# de-hosted rules grant these without the toolchain surface.
 # /dev/null must be writable (recipes redirect to it). mbedtls3's
 # non-glibc build cannot use the getrandom syscall, so TLS entropy
 # fopens MBEDTLS_PLATFORM_DEV_RANDOM — which defaults to /dev/random,
@@ -40,10 +40,10 @@ unveil_base := rx:$(o)/bootstrap $(unveil_srcs) r:3p
 # without it; grant both devices. ENOENT entries are skipped, so the
 # generous list is safe across hosts.
 unveil_dev := rw:/dev/null r:/dev/random r:/dev/urandom
-# Host set proven under real enforcement by the sandbox-canary (#724)
+# Host set proven under real enforcement by the sandbox-canary
 # and the enforced families' CI runs: shell + coreutils + loaders.
 unveil_hostx := rx:/usr rx:/bin rx:/lib rx:/lib64 rx:/proc r:/etc $(unveil_dev)
-# Grants derived from the graph (#756 item 4, whilp/cosmopolitan#211):
+# Grants derived from the graph:
 # landlock-make auto-grants rx on prerequisites and rwc on the target's
 # directory, so sandboxed families no longer hand-grant the whole
 # output tree — only genuinely-extra paths. fetch writes the archive
@@ -60,7 +60,7 @@ unveil_run := $(unveil_base) rwc:$(o) rwc:$(TMP) $(unveil_hostx)
 # beyond pledge_build discovered empirically under local seccomp.
 pledge_test := $(pledge_build) fattr inet dns unix tty id flock
 
-# First ENFORCED rule family (#729): the .tl compile rule. landlock-make
+# First ENFORCED rule family: the .tl compile rule. landlock-make
 # auto-grants rx on every prerequisite (source, types, bootstrap) and on
 # the recipe shell, merges the global .PLEDGE/.UNVEIL in,
 # and always adds the "prot_exec exec" promises — so the target grants
@@ -71,7 +71,7 @@ pledge_test := $(pledge_build) fattr inet dns unix tty id flock
 # bootstrap below: a raw APE exec falls back to extracting a loader into
 # $HOME/.ape-*, which no grant covers. Pattern variables attach by
 # target NAME, so every *.lua target under $(o) is enforced — the
-# compiles and the doc index. (Before #775 this also swept up whichever
+# compiles and the doc index. (Before this also swept up whichever
 # `$(o)/%: %` source copies happened to end in .lua — two of 308 — and
 # left the rest unenforced; retiring that rule made the family's
 # membership deliberate.) the version stamp opts back out where it is defined: its
@@ -79,25 +79,25 @@ pledge_test := $(pledge_build) fattr inet dns unix tty id flock
 # otherwise silently mint an artifact with no version.
 $(o)/%.lua: .SANDBOXED := 1
 $(o)/%.lua: .PLEDGE := $(pledge_build) fattr
-# De-hosted (#732): compiles run through the pinned bootstrap's own
-# --build recipe steps (#756 item 3) — direct bootstrap execs under the
+# De-hosted: compiles run through the pinned bootstrap's own
+# --build recipe steps — direct bootstrap execs under the
 # global no-shell default.
 $(o)/%.lua: .UNVEIL := r:tlconfig.lua $(unveil_dev)
-# .ENV (#756 item 5): the compile child sees ONLY the declared set —
+# .ENV: the compile child sees ONLY the declared set —
 # the two path axes below plus the pinned locale/tz and NO_COLOR
 # (deterministic output). A hostile caller variable cannot reach it;
 # gate: the env-clamp fixture's clamped probe in _build/cook.mk.
 $(o)/%.lua: .ENV := LUA_PATH TL_PATH LC_ALL TZ NO_COLOR
 # LUA_PATH=;; pins the --build dispatcher to the bootstrap's embedded
 # stdlib (a caller's LUA_PATH must not redirect its requires); the
-# compile child gets ";;" too — the #666 axis, one layer down. The
-# TREE_LUA_PATH export is gone with the non-strict branch (#776);
+# compile child gets ";;" too — the axis, one layer down. The
+# TREE_LUA_PATH export is gone with the non-strict branch;
 # --build capture still reads it, so the doc-index and help-snapshot
 # rules keep theirs.
 $(o)/%.lua: export LUA_PATH := ;;
 $(o)/%.lua: export TL_PATH = $(tree_tl_path)
 
-# Second ENFORCED family (#729): every remaining rule that execs the
+# Second ENFORCED family: every remaining rule that execs the
 # assimilated bootstrap — fetch, stage, lint, and the reporter
 # summaries. (The check/test rules exec $(cosmic_bin), which must stay
 # a fat APE; enforcing them needs an answer for the APE loader first,
@@ -106,16 +106,16 @@ $(o)/%.lua: export TL_PATH = $(tree_tl_path)
 # the grant sets.
 $(o)/%/.fetched: .SANDBOXED := 1
 $(o)/%/.staged: .SANDBOXED := 1
-# De-hosted (#732): these recipes are metacharacter-free argv, so
+# De-hosted: these recipes are metacharacter-free argv, so
 # make's direct-exec fast path runs them with no shell at all; the
-# GLOBAL poisoned SHELL (#756 item 2, set at the bottom of the
+# GLOBAL poisoned SHELL (set at the bottom of the
 # Makefile) is the tripwire that fails loudly if any recipe regresses
 # to shell syntax. The LUA_PATH export is deliberately NOT private: a
 # private export never reaches the recipe env (witnessed: bootstrap
 # fell back to its embedded stdlib); inheritance is benign because
 # every compile recipe sets LUA_PATH explicitly. Recursive (=):
-# tree_lua_path is computed after the includes (#720).
-# .ENV (#756 item 5): fetch declares the network extras — operator
+# tree_lua_path is computed after the includes.
+# .ENV: fetch declares the network extras — operator
 # proxy/CA variables (both cases; this is exactly the "per-rule
 # declared extras" shape) — stage only the tree paths. SSL_USE_
 # SYSTEM_CERTS rides the fetch rule's own export in the Makefile.
@@ -124,7 +124,7 @@ $(o)/%/.fetched: .ENV := LUA_PATH FETCH_O SSL_USE_SYSTEM_CERTS SSL_CERT_FILE \
   LC_ALL TZ NO_COLOR TMPDIR
 $(o)/%/.staged: .ENV := LUA_PATH STAGE_O FETCH_O LC_ALL TZ NO_COLOR TMPDIR
 $(o)/%/.fetched $(o)/%/.staged: export LUA_PATH = $(tree_lua_path)
-# De-hosted (#732): lint runs through the pinned bootstrap's --test
+# De-hosted: lint runs through the pinned bootstrap's --test
 # capture (which mkdtemps under $(TMP)); the .ok alias file is retired —
 # the .got IS the target. LUA_PATH points the lint child at this tree's
 # compiled style code (the doc/index.tl pattern); the --test wrapper
@@ -140,25 +140,25 @@ reporter_summaries := $(o)/teal-summary.txt $(o)/format-summary.txt \
   $(o)/lint-summary.txt $(o)/example-summary.txt $(o)/benchmark-summary.txt
 $(reporter_summaries): .SANDBOXED := 1
 $(reporter_summaries): .PLEDGE := $(pledge_build)
-# De-hosted (#732): the reporter writes its own summary (--out replaces
+# De-hosted: the reporter writes its own summary (--out replaces
 # `| tee`), so these recipes are direct bootstrap execs — same no-shell
 # fast path + tripwire as fetch/stage above.
 $(reporter_summaries): .UNVEIL := $(unveil_dev)
 # REPORTER_NOTE: the lint summary's deleted-files note rides the env
 $(reporter_summaries): .ENV := LUA_PATH REPORTER_NOTE LC_ALL TZ NO_COLOR
 $(reporter_summaries): export LUA_PATH = $(tree_lua_path)
-# reporter.tl reads the .got status contract from cosmic.testrun (#779).
+# reporter.tl reads the .got status contract from cosmic.testrun.
 # Declare the compiled module: tree_lua_path ends in `;;`, so without this
 # a lane that has not built the stdlib yet (bin/make lint on a cold tree)
 # would silently resolve it from the bootstrap's embedded, older copy —
-# the #666/#608 stale-stdlib class.
+# the stale-stdlib class.
 $(reporter_summaries): $(o)/cosmic/testrun.lua
 
-# Third ENFORCED family (#729): the teal/format check rules, which exec
+# Third ENFORCED family: the teal/format check rules, which exec
 # the assimilated $(cosmic_check_bin) duplicate (see cosmic/cook.mk)
 # instead of the fat-APE artifact. Failures inside the sandbox surface
 # as check failures in the summaries — loud, not silent.
-# De-hosted (#732): the checks run through `--test` capture on the
+# De-hosted: the checks run through `--test` capture on the
 # assimilated check binary — no shell, no redirect plumbing, no host
 # grants. testrun mkdtemps the per-check TEST_TMPDIR under $(TMP).
 $(o)/%.teal.got: .SANDBOXED := 1
@@ -171,7 +171,7 @@ $(o)/%.format.got: .PLEDGE := $(pledge_build)
 $(o)/%.format.got: .UNVEIL := r:tlconfig.lua rwc:$(TMP) $(unveil_dev)
 $(o)/%.format.got: .ENV := TMPDIR LC_ALL TZ NO_COLOR
 
-# Fifth ENFORCED family (#729): examples. Same grant sets as the test
+# Fifth ENFORCED family: examples. Same grant sets as the test
 # lanes — examples exercise the same modules (sockets, tty, chmod) and
 # embed/deploy examples exec what they build under TEST_TMPDIR. The
 # quicksand namespace examples opt out like their tests (no pledge
@@ -180,7 +180,7 @@ $(o)/%.tl.example.got: .SANDBOXED := 1
 $(o)/%.tl.example.got: .PLEDGE := $(pledge_test)
 $(o)/%.tl.example.got: .UNVEIL := $(unveil_test)
 
-# Fourth ENFORCED family (#729): the plain and coverage test lanes,
+# Fourth ENFORCED family: the plain and coverage test lanes,
 # running the real fat-APE $(cosmic_bin) via the staged o/bin/ape
 # loader (see cosmic/cook.mk) — the APE stub prefers a loader
 # named ape on PATH over extracting one into unveil-able-nowhere
@@ -188,10 +188,10 @@ $(o)/%.tl.example.got: .UNVEIL := $(unveil_test)
 # lane opt back out where their empty grant overrides live in the
 # Makefile: they exercise unshare and real self-sandboxing, which no
 # outer sandbox can permit.
-# The test/coverage/enforce recipes are shell-free too (#732): the env
+# The test/coverage/enforce recipes are shell-free too: the env
 # prefixes became target-scoped exports (TEST_DIR is exported globally
 # in the Makefile so per-module target values reach recipe envs; the
-# PATH prefix was redundant since the #731 clamp already puts o/bin on
+# PATH prefix was redundant since the clamp already puts o/bin on
 # PATH). Their grants are unchanged — tests legitimately exec host
 # tools (sh, etc.) under $(unveil_test).
 $(o)/%.tl.test.got: .SANDBOXED := 1
@@ -212,15 +212,15 @@ bootstrap_files := $(bootstrap_cosmic)
 bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-26-1ca5fd1/cosmic-lua
 # SHA-256 of the bootstrap cosmic binary. It compiles the entire project, so
 # verify it before executing. Update this when bumping bootstrap_url.
-# This pin ships --build (#756 item 3), so every recipe step — compile,
+# This pin ships --build, so every recipe step — compile,
 # copy, link, capture, tee, list, remove, require-*, verdict — is the
 # bootstrap's own surface. Its do_compile takes <bootstrap> <src> <out>
-# and is ALWAYS strict (#776): the flag stamp and the non-strict
+# and is ALWAYS strict: the flag stamp and the non-strict
 # tree-LUA_PATH fallback are both gone, so compiles are hermetic under
-# LUA_PATH=";;" and cannot depend on parallel build order (#733). This
+# LUA_PATH=";;" and cannot depend on parallel build order. This
 # pin and the compile recipe below moved together — the previous pin's
 # driver reads argv[1] as a flag stamp and would misread the new recipe.
-# The global SHELL is this binary (#795), and this pin ships `-c`: a
+# The global SHELL is this binary, and this pin ships `-c`: a
 # recipe make judges to need a shell is refused by name ("recipe lines
 # are argv, not shell", "unknown verb 'rm'; a recipe may run: ...")
 # instead of dying on a poisoned path.
@@ -235,10 +235,10 @@ bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-26-1c
 # LUA_PATH governs runtime require; the TYPE-resolution axis
 # (tl.search_module) is pinned separately to the tree via TL_PATH in the
 # compile/check recipes, so a compile can never type-check against the
-# bootstrap's stale embedded source (#744 — see tree_tl_path).
+# bootstrap's stale embedded source (— see tree_tl_path).
 bootstrap_sha256 := 55f6c6b6af153739b14c49f41b112163a0abb9651c1bcb738d4d3fc04630b4a0
 
-# bin/make is the SOLE provisioner of the bootstrap (#756 cleanup): it
+# bin/make is the SOLE provisioner of the bootstrap (cleanup): it
 # runs before every make invocation, parses the pin above via sed,
 # downloads/verifies/assimilates, and re-downloads when the pin moves
 # (the .pin stamp beside the binary). Neither rule below downloads, so
@@ -269,7 +269,7 @@ endif
 # limited to gentype's compiled require closure. Depending on $(cosmic_bin)
 # here would compile the WHOLE tree against the old committed .d.tl,
 # deadlocking any pin bump that lands together with code already using the
-# new bindings (#711). The closure below is the transitive requires of
+# new bindings. The closure below is the transitive requires of
 # types.gentype; if it drifts, the recipe fails loudly with "module not
 # found" — extend the list, and do NOT swap in $(stdlib_lua) (that
 # re-creates the deadlock).
@@ -291,7 +291,7 @@ gentype_closure_lua := $(patsubst %.tl,$(o)/%.lua,$(gentype_closure_tl))
 
 .PHONY: regen-types
 ## Regenerate .d.tl type definitions from the pinned cosmos definitions.lua
-# Shell exception (#756 item 2): dev-facing regen loop (for/case/redirect);
+# Shell exception: dev-facing regen loop (for/case/redirect);
 # the gentype drift test gates its output, not this recipe.
 regen-types: private SHELL := /bin/bash
 regen-types: private .SHELLFLAGS := -o pipefail -c

@@ -6,7 +6,7 @@
 -- only by hand -- so a regression to the artifact pipeline, the payload
 -- generator, or the base selection would have shipped silently and the
 -- property that names the branch would have rotted first. Both historic
--- silent-payload losses (3d dropped tl.lua and the type tree, 3h
+-- silent-payload losses (a pack that dropped tl.lua and the type tree, and one that
 -- dropped every compiled `_cli/**` and `_make/**` module) had exactly
 -- this shape: the binary built, booted, and failed only when something
 -- first required the missing piece.
@@ -35,7 +35,7 @@ local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN") or "o/bin", "cosmic"))
 --- older Makefile path into `o/staged/<dep>/<ver>-<sha>/`. Seeding
 --- across keeps this lane OFFLINE -- it runs unchanged in the
 --- no-network job -- and the coupling is deliberate: while both
---- pipelines are live (audit 030), something has to know they carry the
+--- pipelines are live, something has to know they carry the
 --- same bytes, and a test that fails loudly is the right thing to be
 --- holding that knowledge.
 --- @param dep string The dependency directory under o/staged

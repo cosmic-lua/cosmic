@@ -82,7 +82,7 @@ local function test_public_modules_load()
 end
 test_public_modules_load()
 
---- Require-compat per converted family (issue #557): the public entry
+--- Require-compat per converted family: the public entry
 --- point of each directory module still loads under its old top-level
 --- name and exposes its documented surface.
 local function test_directory_module_entry_points()
@@ -100,7 +100,7 @@ local function test_directory_module_entry_points()
     assert(type(mod[fn]) == "function",
       "cosmic." .. name .. " must expose " .. fn .. "()")
   end
-  -- doc carries both halves of the converged family (#557): extraction
+  -- doc carries both halves of the converged family: extraction
   -- (parse_file, checked above) and the embedded-index query surface.
   local doc = require("cosmic.doc") as {string: any} -- cast: from any
   assert(type(doc["run"]) == "function", "cosmic.doc must expose run()")
@@ -108,7 +108,7 @@ local function test_directory_module_entry_points()
 end
 test_directory_module_entry_points()
 
---- Documented <=> public (issue #556): every public module must have an
+--- Documented <=> public: every public module must have an
 --- entry in the embedded docs index. doc/public_test.tl checks the
 --- other direction (the listing shows public modules only).
 local function test_public_modules_are_documented()

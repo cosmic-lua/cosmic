@@ -155,7 +155,7 @@ local function test_appender()
 end
 test_appender()
 
--- Appender:remove (issue #505): previously wholly untested.
+-- Appender:remove: previously wholly untested.
 
 local function test_appender_remove()
   local p = zip_path("remove_test.zip")

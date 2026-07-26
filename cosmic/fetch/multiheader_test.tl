@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
---- Header normalization tests (issue #530 part 1): repeated response
+--- Header normalization tests: repeated response
 --- headers must surface as a joined string in result.headers and as an
 --- ordered list in result.raw_headers, with lowercase names in both.
 local check = require("cosmic.check")

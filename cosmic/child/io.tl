@@ -36,7 +36,7 @@ local record PumpState
 end
 
 --- Raw descriptors resolved from the public spawn Options. The public
---- surface speaks fd.Handle (api-review-2, #602); everything below this
+--- surface speaks fd.Handle (api-review-2); everything below this
 --- boundary speaks raw descriptors.
 local record Stdio
   stdin_data: string
@@ -45,7 +45,7 @@ local record Stdio
   stderr_fd: integer
 end
 
---- Non-Handle stdio dispositions (#797). "inherit" hands the child this
+--- Non-Handle stdio dispositions. "inherit" hands the child this
 --- process's own fd 1 / 2, so its output streams straight to wherever
 --- ours goes instead of being captured and withheld until exit.
 ---
@@ -77,7 +77,7 @@ local function resolve_stdio(stdin?: string | cfd.Handle,
   end
   -- "inherit" resolves to our own descriptor, which then travels the
   -- identical path a caller-supplied Handle does: spawn dups it onto
-  -- the child's fd and never closes our end (#797).
+  -- the child's fd and never closes our end.
   if stdout is StdioMode then
     s.stdout_fd = 1
   elseif stdout ~= nil then
@@ -101,7 +101,7 @@ local function now_ms(): number
 end
 
 --- Read up to bufsiz bytes from fd, retrying when a signal interrupts the
---- read (the signal-safety wave, #595). Returns unix.read's (data, err).
+--- read (the signal-safety wave). Returns unix.read's (data, err).
 local function read_retry(fd: integer, bufsiz: integer): string | nil, string | nil
   local data, err, eno = unix.read(fd, bufsiz)
   while data == nil and errno.is(eno, "EINTR") do
@@ -111,7 +111,7 @@ local function read_retry(fd: integer, bufsiz: integer): string | nil, string | 
 end
 
 --- Reap pid with a blocking wait, retrying when a signal interrupts it
---- (the signal-safety wave, #595). Returns (pid, status); on a hard wait
+--- (the signal-safety wave). Returns (pid, status); on a hard wait
 --- failure pid is nil and the error string sits in the status slot.
 local function wait_retry(pid: integer): integer | nil, integer
   local wpid, status, weno = unix.wait(pid)
@@ -173,7 +173,7 @@ local function pump(state: PumpState, deadline_ms: number): boolean
       local chunk, rerr, reno = unix.read(fd, CHUNK)
       if chunk == nil then
         -- Interrupted by a signal: leave the fd registered; the next poll
-        -- round retries (the signal-safety wave, #595).
+        -- round retries (the signal-safety wave).
         if errno.is(reno, "EINTR") then return end
         state.io_err = state.io_err or errno.str(rerr, "read")
         p:remove(fd); unix.close(fd)

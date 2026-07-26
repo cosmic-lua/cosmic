@@ -113,7 +113,7 @@ local function test_embed_overwrites_cleanly()
   local ok, out = __r7.ok, __r7.stdout
   assert(ok, "embed should succeed: " .. (out or ""))
 
-  -- The custom entry is wrapped (#687): main.lua is the generated
+  -- The custom entry is wrapped: main.lua is the generated
   -- searcher wrapper; the user content lives at main.user.lua.
   local new_data = fs.read(output)
   local new_reader = check.must(zip.from(new_data))
@@ -348,7 +348,7 @@ end
 test_embed_symlink_to_outside_file_skipped()
 
 -- --exe operates on an existing app instead of the running executable
--- (#690 F1): extract a produced app (restoring file modes), and layer
+-- (F1): extract a produced app (restoring file modes), and layer
 -- new files onto it, all without extract/re-embed gymnastics. Flag
 -- order is free: --exe is collected before early-returning options.
 local function test_exe_flag_extract_and_layer()

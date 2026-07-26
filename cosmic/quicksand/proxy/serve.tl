@@ -242,7 +242,7 @@ local function new(opts: ServeModule.ProxyOptions): Server | nil, string
     -- Content-Length is a 400; an over-cap one is refused with 413
     -- before a single body byte is read, so a client inside the box
     -- cannot make this worker buffer an attacker-chosen amount of
-    -- memory (#497).
+    -- memory.
     local clen = http.content_length(parsed)
     if not clen then
       logger.warn("bad_content_length",

@@ -47,7 +47,7 @@ local function test_join_basic()
 end
 test_join_basic()
 
--- join semantics (issue #505): pin the documented edge cases so a change
+-- join semantics: pin the documented edge cases so a change
 -- in the underlying C binding surfaces as a failure, not silent drift.
 
 local function test_join_absolute_later_arg_resets()

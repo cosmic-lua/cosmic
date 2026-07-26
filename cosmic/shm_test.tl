@@ -154,7 +154,7 @@ local function test_memory_wake_no_waiters()
 end
 test_memory_wake_no_waiters()
 
--- Real wrapper with error slots (issue #529, review item 25): invalid
+-- Real wrapper with error slots (issue, review item 25): invalid
 -- sizes and out-of-range accesses return nil, err instead of throwing.
 
 local function test_mapshared_size_not_multiple_of_word()
@@ -220,7 +220,7 @@ local function test_memory_wait_wrong_expect_returns_eagain()
 end
 test_memory_wait_wrong_expect_returns_eagain()
 
--- #595 signal-safety wave: a futex wait interrupted by a signal is retried
+-- signal-safety wave: a futex wait interrupted by a signal is retried
 -- automatically — the absolute deadline keeps the timeout exact across
 -- retries, so the wait ends in ETIMEDOUT, never EINTR.
 local function test_memory_wait_retries_eintr_until_deadline()
@@ -261,7 +261,7 @@ local function test_memory_wait_retries_eintr_until_deadline()
 end
 test_memory_wait_retries_eintr_until_deadline()
 
--- #493: unmap releases the mapping deterministically instead of waiting
+-- unmap releases the mapping deterministically instead of waiting
 -- for the garbage collector. Idempotent and observable; afterwards every
 -- fallible method returns an error instead of touching freed memory, and
 -- wake wakes nothing.

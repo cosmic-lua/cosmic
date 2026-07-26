@@ -107,7 +107,7 @@ local record SignalModule
   --- interpreter regains control — ordinary VM context, so any Lua code
   --- is safe inside it (no async-signal-safety constraints). A signal
   --- arriving during a blocking call surfaces there as EINTR first; the
-  --- ergonomic wrappers run the handler and retry (cosmic.stream, #595).
+  --- ergonomic wrappers run the handler and retry (cosmic.stream).
   --- An error raised inside a handler is logged, not propagated.
   --- Returns the previous handler, flags, and mask; on failure returns
   --- nil, nil, nil plus an error message.
@@ -123,7 +123,7 @@ local record SignalModule
   --- Always returns nil plus an error message: EINTR once a signal
   --- was delivered and handled, or another errno on failure.
   --- A deliberate exception to the automatic EINTR retry policy
-  --- (cosmic.stream, #595): waiting for the interruption is the call's
+  --- (cosmic.stream): waiting for the interruption is the call's
   --- entire purpose.
   sigsuspend: function(mask?: Sigset): nil, string
 

@@ -43,14 +43,14 @@ local function test_print_database()
 end
 test_print_database()
 
--- test: only= filters check TARGETS but never artifact source lists
--- (#608, #777). A filter matching nothing must leave every input to a
+-- test: only= filters check TARGETS but never artifact source lists.
+-- A filter matching nothing must leave every input to a
 -- shipped artifact complete: a filtered doc_index_srcs regenerates
 -- o/docs/.index.lua from a subset and the broken index gets embedded,
 -- and a filtered cosmic_lua/cosmic_tl packs a TRUNCATED STDLIB into the
 -- binary — silently, since a subset build still succeeds.
 --
--- Since #777 the filter is applied inside the target-list derivations
+-- Since the filter is applied inside the target-list derivations
 -- rather than to the source lists, so completeness holds by
 -- construction. These assertions are what makes that falsifiable: they
 -- fail if a filter-only call migrates back up into a source list.
@@ -65,7 +65,7 @@ end
 local function test_only_filter_exempts_artifact_sources()
   local out = read_make_output("only-database.out").output
 
-  -- doc index inputs (#608, the original break)
+  -- doc index inputs (the original break)
   assert_complete(out, "doc_index_srcs", "cosmic/json.tl")
   assert_complete(out, "doc_index_srcs", "cosmic/env_example.tl")
   assert_complete(out, "doc_index_srcs", "_types/cosmo/unix.d.tl")
@@ -74,14 +74,14 @@ local function test_only_filter_exempts_artifact_sources()
   -- published docs inputs
   assert_complete(out, "all_tl", "cosmic/json.tl")
 
-  -- THE BINARY'S PACK INPUTS (#777): the gap the #608 fix left open.
+  -- THE BINARY'S PACK INPUTS: the gap the fix left open.
   -- pack_copies is recursive, so it renders unexpanded; these are the
   -- two lists it expands, and they are what decides the embedded stdlib.
   assert_complete(out, "cosmic_tl", "cosmic/json.tl")
   assert_complete(out, "cosmic_lua", "json.lua")
 
   -- fetch/stage inputs: a cold parallel build that loses these falls
-  -- back to the bootstrap's embedded stdlib (the #666/#608 axis)
+  -- back to the bootstrap's embedded stdlib (the axis)
   assert_complete(out, "stdlib_lua", "json.lua")
 
   -- and the filter itself must still work: the check TARGET lists empty
@@ -98,7 +98,7 @@ end
 test_only_filter_exempts_artifact_sources()
 
 -- test: ci grading catches a stage that fails after writing a clean
--- summary (#714). The ci-launder.out fixture runs the ci harness over
+-- summary. The ci-launder.out fixture runs the ci harness over
 -- ci-selftest-launder, whose recipe tees a passing summary and then
 -- exits 1 — the per-stage exit marker, not the summary text, must
 -- decide the verdict.
@@ -115,7 +115,7 @@ local function test_ci_grading_catches_exit_after_clean_summary()
 end
 test_ci_grading_catches_exit_after_clean_summary()
 
--- test: the environment clamp holds under a hostile caller env (#731).
+-- test: the environment clamp holds under a hostile caller env.
 -- The env-clamp.out fixture runs a nested make with a non-C locale, a
 -- non-UTC timezone, and a poisoned PATH head; the probe recipe echoes
 -- what it actually sees. Recipes must get the pinned values and the
@@ -138,7 +138,7 @@ local function test_env_clamp_holds_under_hostile_env()
 end
 test_env_clamp_holds_under_hostile_env()
 
--- test: .ENV strips undeclared variables (#756 item 5). The same
+-- test: .ENV strips undeclared variables. The same
 -- fixture sends CANARY=evil through the nested make; the clamped probe
 -- must never see it, while its declared LC_ALL still flows through.
 local function test_env_allowlist_strips_canary()
@@ -155,8 +155,8 @@ local function test_env_allowlist_strips_canary()
 end
 test_env_allowlist_strips_canary()
 
--- test: the lint stage is guarded against a silently-empty file list
--- (#719). Outside a git checkout `git ls-files` fails silently and
+-- test: the lint stage is guarded against a silently-empty file list.
+-- Outside a git checkout `git ls-files` fails silently and
 -- lint would green-light zero checks; the summary recipe must carry
 -- the loud guard, and the tracked-file machinery must exist. The
 -- database dump includes both variable definitions and recipe text.
@@ -173,7 +173,7 @@ end
 test_lint_guard_present()
 
 -- test: in-tree compiles pin type resolution to an absolute, tree-only
--- search path (#744). tl.search_module walks its path with io.open and
+-- search path. tl.search_module walks its path with io.open and
 -- treats any failure — ENOENT, but also a transient EMFILE/ENFILE under
 -- the offline lane's parallel sandbox — as "file absent", falling through
 -- to the next entry. Its default path also carries the bootstrap's OWN
@@ -197,7 +197,7 @@ local function test_compile_pins_tree_only_tl_path()
   -- and the resolved value must be absolute, tree-only, no /zip fallback
   local tl_path = out:match("\ntree_tl_path := ([^\n]*)")
   assert(tl_path, "expected tree_tl_path definition in database output")
-  -- The tree's module root is the repo root since 3b, so "absolute and
+  -- The tree's module root IS the repo root, so "absolute and
   -- tree-anchored" is now asserted against CURDIR itself rather than
   -- against the `lib/` directory that used to sit under it.
   local root = check.must(fs.getcwd())
@@ -242,7 +242,7 @@ end
 test_lint_lists_untracked_files()
 
 -- Both check gates must terminate the outer option parse with `--`
--- before the child command (#801).
+-- before the child command.
 --
 -- `cosmic --test <out> <cmd...>` hands <cmd...> to a child, but the
 -- OUTER getopt parses the whole argv first, so a child command that
@@ -269,8 +269,8 @@ local function test_check_gates_terminate_the_outer_parse()
 end
 test_check_gates_terminate_the_outer_parse()
 
--- Every .tl the build knows about must be reachable by the check gates
--- (#800). teal/format enumerate through per-directory $(wildcard ...)
+-- Every .tl the build knows about must be reachable by the check gates.
+-- teal/format enumerate through per-directory $(wildcard ...)
 -- lists hand-written in each cook.mk, and make has no recursive glob --
 -- $(wildcard lib/**/*.tl) returns a fraction of the tree -- so a
 -- directory nobody remembers to declare is silently unchecked,
@@ -278,7 +278,7 @@ test_check_gates_terminate_the_outer_parse()
 -- wildcards, so nothing anywhere catches it.
 --
 -- Both sides come from the make database, so this needs no git call and
--- no extra sandbox grant: lint_files is git's view (#799) and
+-- no extra sandbox grant: lint_files is git's view and
 -- all_source_files is what the gates enumerate.
 --
 -- Two deliberate exclusions. `.d.tl` are generated declarations that

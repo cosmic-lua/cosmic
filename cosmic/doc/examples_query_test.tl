@@ -1,7 +1,7 @@
 #!/usr/bin/env lua
 --- Tests for docs.show_module_examples: module rendering, the
 --- module.function filter (deterministic pick + the module/function
---- name-collision fallback from #578), bare names, and no-match errors.
+--- name-collision fallback from), bare names, and no-match errors.
 --- Split from query_test.tl to stay under the 500-line cap.
 
 local docs = require("cosmic.doc")
@@ -20,7 +20,7 @@ local function test_show_module_examples_function_filter()
 
   -- Find a module with examples and functions. Iterate sorted so the pick
   -- is the same on every run — pairs() order varies per process, and a
-  -- random pick made this test a coin flip (#578).
+  -- random pick made this test a coin flip.
   local mod_names: {string} = {}
   for mod_name in pairs(idx.modules) do
     table.insert(mod_names, mod_name)
@@ -135,7 +135,7 @@ local function test_show_module_examples_bare_name()
 end
 test_show_module_examples_bare_name()
 
--- Regression for #578: a query that names BOTH a module with no examples
+-- Regression for a query that names BOTH a module with no examples
 -- (cosmic.quicksand.box.run, from box/run.tl) and a function of the parent
 -- module (box's run(), matched by Example_run_return_shape) must fall back
 -- to the function-filter reading instead of failing with "No examples".

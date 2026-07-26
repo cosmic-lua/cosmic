@@ -1,8 +1,8 @@
 #!/bin/sh
 set -e
 
-# Trust root (#756 item 6). This script is the only host-shell step in the
-# build and the ONLY provisioner of the trust root (#756 cleanup): with
+# Trust root. This script is the only host-shell step in the
+# build and the ONLY provisioner of the trust root (cleanup): with
 # POSIX sh + curl + sha256sum + sed/od it obtains ONE pinned artifact —
 # the bootstrap cosmic (url + sha in cook.mk) — and everything after runs
 # under that pin: the bootstrap extracts `make` from the sha-pinned
@@ -55,7 +55,7 @@ download() {
 }
 
 ensure_bootstrap() {
-    # Sole provisioner of the bootstrap (#756 cleanup; the Makefile's
+    # Sole provisioner of the bootstrap (cleanup; the Makefile's
     # rule only errors): download, verify against the cook.mk pin,
     # assimilate to a native ELF (sandboxed rules cannot grant the APE
     # loader's ~/.ape-* extraction), check. The stamp beside the binary
@@ -97,11 +97,11 @@ ensure_bootstrap() {
 # and bootstrap pin bumps (the stamp mismatch re-downloads).
 ensure_bootstrap
 
-# The engine lands in o/ like everything else generated (3i). It used to
+# The engine lands in o/ like everything else generated. It used to
 # live at bin/cosmo-make, and that cost a real bug: `bin/make clean`
 # removes o/, so a stale engine OUTSIDE it survived the clean and made
 # the guard below take neither branch — a missing-file failure looked
-# like a working build (3g). It also meant `--make` saw 1.59 MB of build
+# like a working build. It also meant `--make` saw 1.59 MB of build
 # engine sitting in the source tree and shipped it as an asset.
 #
 # Re-extract when the cosmos pin moved (-nt: the pin newer than the

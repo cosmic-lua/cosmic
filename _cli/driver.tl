@@ -245,7 +245,7 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil
   if verb == "exec" then
     -- Tightened from the phase-1 stand-in, which granted "." — the
     -- whole working tree — because there was no notion of a unit yet.
-    -- There is now: 2d's Units investigation found that the one
+    -- There is now: the Units investigation found that the one
     -- abstraction the evidence earns is `unit_dir(path)`, precisely
     -- because a fence wants a DIRECTORY where a stage wants a file
     -- list. So exec reads the units its argv touches, and nothing else.
@@ -280,7 +280,7 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil
   -- them -- `cosmic.teal` -- rather than listed here, so a change to
   -- the include path cannot leave the fence behind. Without these the
   -- fence denies every real compile, which is the concrete reason it
-  -- could not become the default (audit 014).
+  -- could not become the default.
   if compiles[verb] then
     if fs.isfile(TLCONFIG) then
       ro[#ro + 1] = TLCONFIG

@@ -1,6 +1,6 @@
 # Included from the top-level Makefile at the position this block used to
 # occupy, so parse order — and therefore every pattern-specific variable
-# and its nesting — is unchanged (#786). The Makefile keeps aggregation
+# and its nesting — is unchanged. The Makefile keeps aggregation
 # and the shared path variables; each mk/*.mk holds one rule family.
 #
 # the run lanes: examples and benchmarks.
@@ -16,7 +16,7 @@ example: $(o)/example-summary.txt
 $(o)/example-summary.txt: $(all_examples) | $(build_reporter)
 	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $^
 
-# Examples take their import closure too (3f): an example RUNS, so what
+# Examples take their import closure too: an example RUNS, so what
 # it imports must compile first — the same gate the test rule gained.
 $(o)/%.tl.example.got: %.tl $$(deps_$$*) $(cosmic_bin) $(ape_loader) | $(bootstrap_files)
 	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) --check examples $<

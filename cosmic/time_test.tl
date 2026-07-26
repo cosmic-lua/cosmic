@@ -68,7 +68,7 @@ local function test_sleep_zero()
 end
 test_sleep_zero()
 
--- Honest sleep signature (issue #529): 0,0 on an uninterrupted sleep;
+-- Honest sleep signature: 0,0 on an uninterrupted sleep;
 -- nil, nil, err naming EINVAL on invalid input (the error used to
 -- surface as a string in the nanos slot with no declared error return).
 local function test_sleep_success_returns_zero_remainder()
@@ -95,12 +95,12 @@ local function test_sleep_ms_invalid_names_errno()
 end
 test_sleep_ms_invalid_names_errno()
 
--- #562: sleep_ms's remainder is a single milliseconds number -- no more
+-- sleep_ms's remainder is a single milliseconds number -- no more
 -- (secs, nanos) two-integer arithmetic in retry loops. Reached via casts
 -- so this file typechecks before and after the signature change.
 
 local function test_sleep_ms_uninterrupted_returns_zero_ms()
-  -- cast: signature transition (#562)
+  -- cast: signature transition
   local sleep_ms = (time as {string: any}).sleep_ms as function(number): number, string
   local rem, err = sleep_ms(1)
   assert(rem == 0, "uninterrupted sleep_ms returns 0 ms, got " .. tostring(rem))
@@ -110,7 +110,7 @@ test_sleep_ms_uninterrupted_returns_zero_ms()
 
 local function test_sleep_ms_interrupted_returns_ms_remainder()
   local signal = require("cosmic.signal")
-  -- cast: signature transition (#562)
+  -- cast: signature transition
   local sleep_ms = (time as {string: any}).sleep_ms as function(number): number, string
 
   local old_handler = signal.sigaction(signal.SIGALRM, function(_: number) end)
@@ -426,7 +426,7 @@ local function test_gmtime_isdst_boolean()
 end
 test_gmtime_isdst_boolean()
 
--- is_leap_year / days_in_month (exported in #593)
+-- is_leap_year / days_in_month (exported in)
 
 local function test_is_leap_year()
   assert(time.is_leap_year(2024) == true, "2024 is a leap year")

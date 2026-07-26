@@ -22,7 +22,7 @@
 --- Embedding a main.lua overrides the default entry point. A custom
 --- entry is stored byte-identical at /zip/main.user.lua behind a
 --- generated /zip/main.lua that puts the zip root on the module path
---- and installs the cosmic runtime .tl searcher (#687/#690): modules
+--- and installs the cosmic runtime .tl searcher : modules
 --- embedded beside main.lua resolve with the same guarantees as
 --- `cosmic script.tl`, no loader boilerplate. An unmodified
 --- dispatcher main.lua (extract/re-embed roundtrip) and an
@@ -207,7 +207,7 @@ end
 local WRAP_SENTINEL < const > = "-- cosmic-embed searcher wrapper (#687); app entry: /zip/main.user.lua"
 
 --- The generated /zip/main.lua: put the app's zip root on the module
---- path (embedded mod.lua / mod.tl beside main.lua resolve; #690),
+--- path (embedded mod.lua / mod.tl beside main.lua resolve;),
 --- install the cosmic searcher, then run the byte-identical entry.
 local WRAP_MAIN < const > = WRAP_SENTINEL .. "\n" .. [[
 package.path = "/zip/?.lua;/zip/?/init.lua;" .. package.path

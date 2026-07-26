@@ -159,7 +159,7 @@ local function test_embed_directory()
   local data = fs.read(output)
   local reader = check.must(zip.from(data), "failed to open zip from data")
 
-  -- A custom entry is wrapped (#687): main.lua is the generated
+  -- A custom entry is wrapped: main.lua is the generated
   -- searcher-installing wrapper; the user entry is byte-identical at
   -- main.user.lua.
   local c1 = reader:read("main.lua")
@@ -247,9 +247,9 @@ end
 test_embed_directory_executable()
 
 -- An app can require its own embedded modules beside main.lua with no
--- configuration (#690): .lua via the wrapper's package.path prepend,
+-- configuration: .lua via the wrapper's package.path prepend,
 -- .tl via the searcher's /zip include dir. A broken embedded .tl fails
--- the require with the compile issue (the #681 guarantee, in-app).
+-- the require with the compile issue (the guarantee, in-app).
 local function test_embed_app_local_requires()
   local appdir = fs.join(tmpdir, "localmods")
   fs.makedirs(appdir)

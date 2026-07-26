@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
---- Tests for the #560 fd contract: read() EOF/EAGAIN shape, sync placement.
+--- Tests for the fd contract: read() EOF/EAGAIN shape, sync placement.
 local cfd = require("cosmic.fd")
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
@@ -64,7 +64,7 @@ local function test_nonblocking_pipe_read_names_eagain()
 end
 test_nonblocking_pipe_read_names_eagain()
 
--- #595 signal-safety wave: a blocking read interrupted by a signal is
+-- signal-safety wave: a blocking read interrupted by a signal is
 -- retried automatically instead of surfacing EINTR. Pending Lua signal
 -- handlers run between retries — this handler supplies the payload the
 -- retried read then returns.

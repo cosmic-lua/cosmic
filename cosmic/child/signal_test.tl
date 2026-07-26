@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
---- Tests for the #595 signal-safety wave: blocking child I/O interrupted
+--- Tests for the signal-safety wave: blocking child I/O interrupted
 --- by a signal is retried automatically instead of surfacing EINTR.
 local check = require("cosmic.check")
 local child = require("cosmic.child")

@@ -51,7 +51,7 @@ local function test_readme_has_doc_table()
 end
 test_readme_has_doc_table()
 
--- The published site carries the public surface only (issue #556):
+-- The published site carries the public surface only:
 -- prune_internal removes internal module pages, keeps public module
 -- pages (including directory-module init pages) and cosmo.* docs.
 local function test_prune_internal_keeps_public_surface_only()

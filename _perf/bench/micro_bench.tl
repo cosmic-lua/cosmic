@@ -133,7 +133,7 @@ local function scenarios(): {pt.Scenario}, string
       -- A small input, unlike compress_roundtrip_64k: isolates the
       -- per-call wrapper overhead from the zlib compute itself, which
       -- barely registers on this little data. Replaces
-      -- compress_deflate_roundtrip_small when #590 deleted the
+      -- compress_deflate_roundtrip_small when deleted the
       -- size-prefixed deflate format.
       name = "compress_raw_roundtrip_small",
       fn = function(_: any): any

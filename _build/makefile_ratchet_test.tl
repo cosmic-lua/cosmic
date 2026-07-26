@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- The no-shell and host-grant ratchets (#756 items 1/2), split from
+-- The no-shell and host-grant ratchets, split from
 -- makefile_test so neither file fights the 500-line cap. Consumes the
 -- same pre-generated make fixtures via TEST_DIR.
 
@@ -14,7 +14,7 @@ local function read_database(): string
   return (text:gsub("exit:%d+%s*$", ""))
 end
 
--- #756 item 2: the no-shell default and its two ratchets. The database
+-- item 2: the no-shell default and its two ratchets. The database
 -- fixture renders target-specific variables as "<owner>: VAR := value"
 -- lines and pattern-specific ones as a "<pattern> :" header followed by
 -- "# VAR := value" comment lines (blank line ends the block); the
@@ -56,7 +56,7 @@ local function parse_var_overrides(db: string, var: string): VarOverrides
   return {global = global_value, owners = owners}
 end
 
--- The global SHELL is the pinned bootstrap cosmic (#795): make hands
+-- The global SHELL is the pinned bootstrap cosmic: make hands
 -- it any recipe line it judges to need a shell, and `-c` refuses shell
 -- syntax by name instead of the old /dev/null/enoshell poison's "not a
 -- directory". Fail-closed either way; the difference is the message,
@@ -65,7 +65,7 @@ local driver_shell < const > = "o/bootstrap/cosmic"
 local real_shell < const > = "/bin/bash"
 
 -- The complete set of rules allowed a real shell. Growing this list is
--- a design decision (#756 item 2): a new entry needs a "Shell
+-- a design decision: a new entry needs a "Shell
 -- exception" comment at the rule stating why the recipe cannot be a
 -- shell-free argv line (or a driver/CLI conversion instead).
 local real_shell_allowed: {string} = {
@@ -123,7 +123,7 @@ test_no_shell_default_ratchet()
 
 -- The complete set of rules whose .UNVEIL carries the host-exec grant
 -- set ($(unveil_hostx), marker rx:/usr). Same ratchet contract: a new
--- carrier is a design decision, not a default (#756 items 2/4).
+-- carrier is a design decision, not a default.
 local hostx_marker < const > = "rx:/usr"
 local hostx_allowed: {string} = {
   "doc-publish", -- unveil_run (git, network)
@@ -192,14 +192,14 @@ end
 test_hostx_ratchet()
 
 -- The complete set of rule families enforced under real Landlock, and
--- the rules that deliberately opt out (#729, whose family-by-family
--- flip landed in #739/#740/#742/#743/#745).
+-- the rules that deliberately opt out (whose family-by-family
+-- flip landed in.
 --
 -- Losing enforcement is SILENT: drop a `.SANDBOXED := 1` and every
 -- grant set is still a superset of what the recipe needs, so nothing
 -- fails and CI stays green — the build just stops enforcing. Nothing
 -- else in the tree notices, which is what makes this a ratchet rather
--- than documentation. The canary (#716/#724) proves the MECHANISM
+-- than documentation. The canary  proves the MECHANISM
 -- works; this proves it is still switched on where it was switched on.
 local sandboxed_enforced: {string} = {
   "o/%.format.got", -- format checks (#742)
@@ -226,9 +226,9 @@ local sandboxed_enforced: {string} = {
 -- flips when a lane runs it.
 local sandboxed_exempt: {string} = {
   "o/cosmic/_version.lua", -- reads .git; silent-fallback hazard
-  -- The 3e bridge: the facts generator walks the WHOLE tree to classify
+  -- The bridge: the facts generator walks the WHOLE tree to classify
   -- it, which no derived grant can express, and needs the tree LUA_PATH
-  -- to resolve _make out of o/. Retires with the bridge (3i).
+  -- to resolve _make out of o/. Retires with the bridge.
   "o/project.mk",
   "o/coverage/cosmic/quicksand/box/run_test.tl.test.got",
   "o/coverage/cosmic/quicksand/netns_test.tl.test.got",
@@ -294,14 +294,14 @@ test_sandboxed_ratchet()
 -- SCHEDULED TO DIE with the file it guards. make.md calls this ratchet
 -- unnecessary under the closed verb vocabulary, and it is — for the
 -- rules `cosmic -c` drives. It still guards the hand-written Makefile's
--- real recipes, which is why it stays until that Makefile goes (3i);
+-- real recipes, which is why it stays until that Makefile goes;
 -- the retirement order in docs/design/make/bridge.md puts it last,
 -- with the file.
 --
--- Static no-shell gate (#756 cleanup): the poisoned SHELL only trips
+-- Static no-shell gate (cleanup): the poisoned SHELL only trips
 -- when a rule RUNS, and cold rules can sit broken unnoticed (the
--- since-retired stage1 broke at the #759 flip and was found days later
--- in #760 — exactly the class this catches). Scan every recipe in
+-- since-retired stage1 broke at the flip and was found days later
+-- in — exactly the class this catches). Scan every recipe in
 -- the database dump: a rule not on the shell-exception allowlist must
 -- carry no shell syntax in its recipe text. The dump is UNEXPANDED, so
 -- a $(var) hiding metacharacters still needs the runtime poison — this

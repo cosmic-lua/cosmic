@@ -25,7 +25,7 @@ end
 
 --- Validate a fetch URL with the same parser the HTTP client uses
 --- (cosmo.ParseUrl) rather than a hand-rolled scheme pattern that could
---- disagree with it (audit §1.6). ParseUrl preserves scheme case, so
+--- disagree with it. ParseUrl preserves scheme case, so
 --- the http/https comparison still lowercases; a scheme-only URL like
 --- "http://" parses but carries no host, which fetch cannot use.
 --- @param url string The URL to validate
@@ -58,7 +58,7 @@ end
 --- Reject header names or values that carry a CR, LF, or NUL. HTTP headers
 --- are CRLF-delimited, so an embedded CR/LF in a name or value smuggles
 --- additional header lines (or a body) past cosmo.Fetch — a request-splitting
---- / header-injection vector (audit §2.3). The error names the offending
+--- / header-injection vector. The error names the offending
 --- header but never echoes the raw control bytes back.
 --- @param headers {string: string} request headers, or nil
 --- @return string? error message, or nil when every header is safe
@@ -92,7 +92,7 @@ local function unix_proxy(path: string): string | nil, string
     return nil, "socket path must be absolute"
   end
   -- Delegate segment logic to fs.normalize instead of hand-rolled dot
-  -- patterns (audit §1.6): a path that is not already normal carries a
+  -- patterns: a path that is not already normal carries a
   -- "." or ".." segment or a redundant slash, and is rejected rather
   -- than silently rewritten.
   if fs.normalize(path) ~= path then

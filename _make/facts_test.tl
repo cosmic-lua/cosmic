@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- Tests for the 3e bridge's facts generator.
+-- Tests for the bridge's facts generator.
 --
 -- The compile rule takes `srcdeps_<stem>` as prerequisites, so what this
 -- file writes IS the build's dependency graph. Two properties matter and

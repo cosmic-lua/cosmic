@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
---- Retry policy tests (issue #530 part 2): transport errors retry under
+--- Retry policy tests: transport errors retry under
 --- the default policy, retryable statuses retry for idempotent methods,
 --- and custom should_retry sees failures too. All against forked
 --- loopback servers; base_delay is tiny so backoff never slows the suite.
@@ -21,7 +21,7 @@ end
 --- deterministically sees a connection reset (error kind "connect").
 --- Closing before the request arrives would send a clean FIN instead,
 --- which classifies as an EOF-before-headers "protocol" error — not
---- retried — leaving this child blocked in accept() forever (#574).
+--- retried — leaving this child blocked in accept() forever.
 --- The child also arms a lifetime alarm: if the client stops early for
 --- any other reason, SIGALRM's default action kills the child so
 --- proc.wait() can never hang the suite.
@@ -64,7 +64,7 @@ end
 local function test_default_policy_retries_transport_error()
   -- first connection is accepted then closed without a response (a
   -- transport error, kind "connect"); the second attempt gets a 200.
-  -- Before #530 the retry loop only consulted should_retry when
+  -- The retry loop used to consult should_retry only when
   -- result.ok was true, so this could never succeed.
   local port, pid = serve({"", body_response("200 OK", "recovered")})
   local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",

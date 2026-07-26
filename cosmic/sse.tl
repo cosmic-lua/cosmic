@@ -61,7 +61,7 @@ end
 --- read error the buffered partial line is truncated data and is
 --- discarded — the iterator yields nil plus the error once, then plain
 --- nil forever. Private to sse until the post-stable buffered-reader
---- battery generalizes it (#501).
+--- battery generalizes it.
 local function line_iter(reader: stream.Reader): function(): string | nil, string
   -- Scan-position index into buffer: `pos` is the first unread byte
   -- (same linear-time scheme as fetch.Reader:lines()).

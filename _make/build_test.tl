@@ -87,7 +87,7 @@ local function app(name: string): string
 end
 
 -- build: every source lands in o/ as compiled Lua, and the .lua source
--- is copied rather than compiled. The artifact itself is 2c; what this
+-- is copied rather than compiled. What this
 -- slice owns is the tree being built at all.
 local function test_build_compiles_the_tree()
   local root = app("compile")
@@ -98,7 +98,7 @@ local function test_build_compiles_the_tree()
       "o/legacy.lua", "o/cosmic.mk", "o/project.mk"}) do
     assert(fs.isfile(fs.join(root, rel)), "expected " .. rel)
   end
-  -- schema.sql is an asset: the artifact embeds it (2c), the graph does
+  -- schema.sql is an asset: the artifact embeds it, the graph does
   -- not compile it.
   assert(not fs.exists(fs.join(root, "o/schema.lua")), "assets are not compiled")
 end
@@ -226,7 +226,7 @@ local function test_build_never_resolves_a_pin()
 end
 test_build_never_resolves_a_pin()
 
--- 2e, end to end: no engine named, nothing installed, and the build
+-- End to end: no engine named, nothing installed, and the build
 -- still runs. This is the promise the whole design is for -- one
 -- binary, offline, no host toolchain -- and it is the only test here
 -- that deliberately does NOT set COSMIC_MAKE.
@@ -309,7 +309,7 @@ test_a_changed_contract_recompiles_its_importers()
 -- child. Forwarding it was a silent disaster: a bare path lands as the
 -- child's first positional, getopt stops parsing there, and the compile
 -- runs the DEPENDENCY as a script -- writing its stdout as the output
--- and reporting a pass for a check that never ran. Same shape as #801.
+-- and reporting a pass for a check that never ran. Same shape as.
 local function test_dependencies_never_reach_the_child()
   local root = fixture("depsarg", {
       ["util.tl"] = "return {}\n",

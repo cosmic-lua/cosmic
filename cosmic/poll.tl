@@ -1,7 +1,7 @@
 --- Typed interface for polling file descriptors.
 --- Provides an ergonomic wrapper around unix.poll().
 ---
---- Descriptor conventions (#493, deliberate): poll is the lowest layer
+--- Descriptor conventions (deliberate): poll is the lowest layer
 --- and speaks raw integer fds. net.Socket exposes a public `fd` field
 --- (sockets hand their descriptor around by design); fd.Handle exposes
 --- :fd() as a method because the Handle owns its descriptor and

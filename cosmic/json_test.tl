@@ -88,7 +88,7 @@ local function test_encode_invalid_value()
 end
 test_encode_invalid_value()
 
--- Encode options (issue #531: options used to be silently ignored)
+-- Encode options (issue options used to be silently ignored)
 
 local function test_encode_pretty()
   local result = check.must(json.encode({a = 1, b = 2}, {pretty = true}),
@@ -157,7 +157,7 @@ local function test_nan_inf_encoding()
 end
 test_nan_inf_encoding()
 
--- Precision, nesting, \uXXXX escapes, and NUL bytes (issue #505).
+-- Precision, nesting, \uXXXX escapes, and NUL bytes.
 
 local function test_integer_precision_roundtrip()
   -- 2^53 + 1 is not representable as a double; it survives only if the

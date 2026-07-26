@@ -51,7 +51,7 @@ local record ShmModule
     --- CLOCK_REALTIME time — whole seconds in `abs_deadline` plus
     --- nanoseconds in `nanos` (e.g. from time.now()); omit both to wait
     --- forever. A wait interrupted by a signal is retried automatically
-    --- (#595); the absolute deadline keeps the timeout exact across
+    ---; the absolute deadline keeps the timeout exact across
     --- retries.
     wait: function(self: Memory, word_index: integer, expect: integer, abs_deadline?: integer, nanos?: integer): integer | nil, string
     --- Wake processes waiting on a word; returns how many woke.
@@ -60,7 +60,7 @@ local record ShmModule
     --- Release the mapping now instead of waiting for the garbage
     --- collector. Idempotent: true when this call released the mapping,
     --- false when it was already unmapped. Afterwards every fallible
-    --- method returns an error naming the unmapped state (#493).
+    --- method returns an error naming the unmapped state.
     unmap: function(self: Memory): boolean
     --- The mapped region size in bytes.
     size: function(self: Memory): integer
@@ -206,7 +206,7 @@ local function wrap(raw: unix.Memory, size: integer): Memory
     -- The binding returns (nil, err, errno) for EAGAIN/ETIMEDOUT and
     -- throws for a futex word with nonzero high bits; keep both as
     -- error returns. A wait interrupted by a signal is retried (the
-    -- signal-safety wave, #595): the deadline is absolute, so retrying
+    -- signal-safety wave): the deadline is absolute, so retrying
     -- keeps the timeout exact, and a word that changed meanwhile
     -- surfaces honestly as EAGAIN on the retry.
     local ok, rc, err, weno = pcall(raw.wait, raw, word_index, expect, abs_deadline, nanos)

@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- Windows-absolute path handling (#510 step 12). These are pure string
+-- Windows-absolute path handling (step 12). These are pure string
 -- operations, so they run — and must pass — on every OS: cosmic ships
 -- one binary, and a path pasted from a Windows shell must not turn into
 -- garbage on the machine that happens to process it.

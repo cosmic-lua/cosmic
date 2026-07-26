@@ -2,7 +2,7 @@
 -- Ratchets over the workflow files themselves.
 --
 -- CI's environment is a build input, pinned twice over: a digest-pinned
--- container (#734, because an OS image roll moved the coverage floor)
+-- container (because an OS image roll moved the coverage floor)
 -- and a non-root builder (because tests skip differently as root). Both
 -- pins are per-JOB — container config is job-level in GitHub Actions,
 -- there is no anchor and no shared block — so the pin is written once

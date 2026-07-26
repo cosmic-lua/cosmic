@@ -14,7 +14,7 @@
 --- which is worse than no rule; enforcing this one is its own change.
 ---
 --- Public rather than internal, and the `_` rule is what settled it
---- (phase 3c): this module has a caller OUTSIDE `cosmic/`, so it cannot
+---: this module has a caller OUTSIDE `cosmic/`, so it cannot
 --- be internal to it. That was always true — the old header said it
 --- lived "under the cosmic.* namespace so require() works", which is a
 --- module explaining why it is reachable from a place its own manifest

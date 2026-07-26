@@ -1,6 +1,6 @@
 #!/usr/bin/env cosmic
 --- Write `o/project.mk` for this repo's own Makefile — the migration
---- bridge (phase 3e).
+--- bridge.
 ---
 --- `cosmic --make` generates the same file internally and then drives
 --- make with it. This repo cannot use that path yet, for two reasons
@@ -19,7 +19,7 @@
 --- script existed. Put it where its inputs are is the design's own
 --- rule, and it applies to the bridge too.
 ---
---- Deliberately temporary: when the Makefile's own targets retire (3i)
+--- Deliberately temporary: when the Makefile's own targets retire
 --- the bridge becomes `-include o/cosmic.mk` and this file goes — or
 --- becomes the `facts` verb, which is what it already is minus a name.
 

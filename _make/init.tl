@@ -1,11 +1,8 @@
 --- `cosmic --make <verb> [paths…]` — cosmic's build system.
 ---
---- Not a wrapper around `--embed`, and no longer a Makefile generator:
---- the flag used to scan a directory and emit a Makefile that was
---- useless without a host make, produced build files rather than
---- builds, and modelled a project as a flat list of `.tl` files. That
---- generator is gone. Two grammars for one flag would have been worse
---- than one rewrite of the guides.
+--- `--make` builds a project. It is not a wrapper around `--embed` and
+--- it does not emit a Makefile for someone else to run: it drives the
+--- build itself, with the engine it ships.
 ---
 --- This file is the registry: what verbs there are, and what each one
 --- does around the graph. The model is project.tl, the validator
@@ -78,12 +75,11 @@ local baseline_wanted = false
 --- what a target means -- the same rule `test` states as "selection
 --- changes which tests run, never what gets staged". `build`'s targets
 --- are binaries, so a path here names one: `cmd/foo`, `foo`, or the
---- entry itself. It used to name SOURCES, which made a selected build
---- categorically different from a full one -- it compiled some files
---- and stopped before any artifact, so `--make build cmd/foo`, whose
---- natural reading is "build the foo binary", type-checked a few files,
---- produced no `o/bin/foo`, and reported PASS. The user asking for one
---- binary of a multi-binary project had no spelling for it at all.
+--- entry itself. A path here names a BINARY, never a source: a
+--- selection that narrowed the compile instead would make
+--- `--make build cmd/foo` type-check a few files, produce no
+--- `o/bin/foo`, and report PASS -- and leave the user who wants one
+--- binary of a multi-binary project without a spelling for it.
 --- @param proj Project The scanned project
 --- @param paths {string} Selection paths
 --- @return {Binary}|nil The selected binaries, or nil when one names none
@@ -276,9 +272,9 @@ local VERBS < const >: {Verb} = {
   -- the cast ratchet, both already public in `cosmic.style`), and it
   -- gets a verb rather than folding into `check` because its file set
   -- is the whole tree, not the compiled closure. Naming them is what
-  -- lets `ci` below be a list of verb names: its documented pipeline is
-  -- format -> check -> test -> example -> lint -> coverage, and two of
-  -- those six used to resolve to nothing at all.
+  -- lets `ci` below be a list of verb names: its pipeline is
+  -- fmt -> check -> test -> example -> lint -> coverage, and every one
+  -- of those six is a verb in this registry.
   {name = "example", target = "example", select = stage.SELECTS.example,
     run = function(proj: Project, paths: {string}, cosmic: string): integer
       -- cast: the registry defines it

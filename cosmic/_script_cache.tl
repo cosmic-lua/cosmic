@@ -4,7 +4,7 @@
 ---
 --- One caller: `cosmic.teal.compile_cached`, which is what the runtime
 --- `.tl` searcher and the script runner both go through. That is why
---- this is internal to `cosmic/` again — 3h briefly made it public
+--- this is internal to `cosmic/`
 --- because the script runner reached past `cosmic.teal` to it, and the
 --- right fix was to stop reaching rather than to publish the reach.
 ---

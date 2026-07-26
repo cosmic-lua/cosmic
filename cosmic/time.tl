@@ -1,7 +1,7 @@
 --- Time and clock utilities.
 --- Wraps cosmo.unix time functions for timestamps, sleeping, and time breakdown.
 ---
---- Recorded decision (api-review-2, #593): the formatting surface stays the
+--- Recorded decision (api-review-2): the formatting surface stays the
 --- curated trio — format_http/parse_http (RFC 7231), format_date/parse_date
 --- (YYYY-MM-DD), format_iso8601/parse_iso8601 — plus timegm. A general
 --- strftime passthrough (time.format(fmt, ts)) is deferred to post-stable
@@ -77,7 +77,7 @@ end
 --- error string naming EINTR. Invalid input (e.g. a negative duration)
 --- returns nil, nil, and an error naming EINVAL.
 --- sleep is a deliberate exception to the automatic EINTR retry policy
---- (cosmic.stream, #595): the interruption IS the result, and the
+--- (cosmic.stream): the interruption IS the result, and the
 --- remainder lets callers resume or bail as they choose.
 --- @param seconds integer Seconds to sleep
 --- @param nanos integer? Additional nanoseconds to sleep (default: 0)

@@ -49,13 +49,13 @@ local function main(version_file: string, platform: string, output: string): boo
 
   -- the make rule passes o/<module>/.versioned, a symlink to the
   -- module's *_pin.tl; resolve it here so error messages name the real
-  -- file and the recipe needs no host readlink (#732)
+  -- file and the recipe needs no host readlink
   local resolved = fs.readlink(version_file)
   if resolved then
     version_file = resolved
   end
 
-  -- READ, not run (3g): a pin is data. This was `dofile`, which made
+  -- READ, not run: a pin is data. This was `dofile`, which made
   -- every fetch and every stage execute the file that says what to
   -- fetch — the one thing a pin exists to make unnecessary.
   local resolved_pin, perr = pin.read(version_file, platform)

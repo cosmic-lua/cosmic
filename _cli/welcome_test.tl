@@ -94,7 +94,7 @@ if not pty_available() then
   return
 end
 
--- The "welcome shown" marker lives in $XDG_CONFIG_HOME/cosmic (#510 step
+-- The "welcome shown" marker lives in $XDG_CONFIG_HOME/cosmic (step
 -- 10), so each test isolates first-run state with its own config dir.
 local function fresh_confdir(name: string): string
   local dir = fs.join(tmpdir, "conf-" .. name)
@@ -142,7 +142,7 @@ local function test_welcome_skipped_with_v_flag()
 end
 test_welcome_skipped_with_v_flag()
 
--- #510 step 10: showing the welcome must NOT modify the executable.
+-- step 10: showing the welcome must NOT modify the executable.
 -- The old marker was zip-appended to the running binary, which broke
 -- release checksum verification (and loops forever on Windows, where
 -- the running exe is locked).
@@ -160,7 +160,7 @@ local function test_welcome_does_not_modify_binary()
 end
 test_welcome_does_not_modify_binary()
 
--- #510 step 10: the shown marker is written under $XDG_CONFIG_HOME.
+-- step 10: the shown marker is written under $XDG_CONFIG_HOME.
 local function test_marker_written_to_config_dir()
   local confdir = fresh_confdir("marker")
   local ok, out = run_with_pty(copy_binary("marker"), {"-e", "print(1)"}, confdir)

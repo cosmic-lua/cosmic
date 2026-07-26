@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
---- Tests for the #559 fs batch: copytree, tmpfile, glob-only patterns,
+--- Tests for the fs batch: copytree, tmpfile, glob-only patterns,
 --- Dir:read d_type, access default. New/changed surfaces are reached via
 --- casts so this file typechecks red (pre-change) and green alike.
 local check = require("cosmic.check")

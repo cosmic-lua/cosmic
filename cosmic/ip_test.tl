@@ -7,7 +7,7 @@ local function p(s: string): ip.Addr
   return (check.must(ip.parse(s)))
 end
 
--- parse tests: parse returns a typed Addr (api-review-2, #588)
+-- parse tests: parse returns a typed Addr (api-review-2)
 
 local function test_parse_ipv4_basic()
   local a = p("192.168.1.1")
@@ -229,7 +229,7 @@ local function test_lookup_returns_addr_with_methods()
 end
 test_lookup_returns_addr_with_methods()
 
--- CIDR tests (#501)
+-- CIDR tests
 
 local function test_cidr_parse()
   local c = check.must(ip.cidr("192.168.0.0/16"))

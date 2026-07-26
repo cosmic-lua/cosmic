@@ -2,7 +2,7 @@
 --- In-process `.tar.gz` extraction: unpack a gzipped tarball without a
 --- host `tar`.
 ---
---- It began as the stage pipeline's replacement for `tar -xzmf` (#732)
+--- It began as the stage pipeline's replacement for `tar -xzmf`
 --- and moved here when `--make` needed it too: `_make` unpacks pinned
 --- archives at runtime, the artifact floor is `cosmic/**`, and a module
 --- a built binary requires has to be inside it. Making it public is the

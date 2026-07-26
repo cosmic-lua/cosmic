@@ -11,7 +11,7 @@
 --- fs.write(path, data), fs.truncate(path).
 ---
 --- EINTR posture: Handle read/write retry automatically when a signal
---- interrupts the call (the signal-safety wave, #595). A pending Lua
+--- interrupts the call (the signal-safety wave). A pending Lua
 --- signal handler runs between the interrupted call and its retry, so
 --- handlers never starve; to break out of a blocking call instead, use
 --- O_NONBLOCK plus poll, or close the descriptor from the handler.

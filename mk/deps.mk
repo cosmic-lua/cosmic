@@ -1,6 +1,6 @@
 # Included from the top-level Makefile at the position this block used to
 # occupy, so parse order — and therefore every pattern-specific variable
-# and its nesting — is unchanged (#786). The Makefile keeps aggregation
+# and its nesting — is unchanged. The Makefile keeps aggregation
 # and the shared path variables; each mk/*.mk holds one rule family.
 #
 # the versioned-dependency pipeline: .versioned -> .fetched -> .staged.
@@ -17,7 +17,7 @@ fetched: $(all_fetched)
 # pinned bootstrap against THIS tree's cosmic.* APIs — the compiled
 # stdlib is a prerequisite (a cold parallel build once fell back to the
 # bootstrap's embedded stdlib; only= must not shrink it). Extraction is
-# in-process (#732) and each recipe is a direct bootstrap exec under
+# in-process and each recipe is a direct bootstrap exec under
 # the global no-shell default — no $(unveil_hostx): ONLY the pinned
 # bootstrap executes under these grants, with .ENV/.SANDBOXED/LUA_PATH
 # for the family living in cook.mk.

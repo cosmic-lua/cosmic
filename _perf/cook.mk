@@ -8,7 +8,7 @@ perf_deps := cosmic
 perf_lua := $(patsubst %.tl,$(o)/%.lua,$(perf_tl))
 
 # perf tests load the compiled perf.* modules at runtime (see
-# perf_lua_dirs above); which ones is now derived per test (3f), not
+# perf_lua_dirs above); which ones is now derived per test, not
 # the whole $(perf_lua) set.
 perf_test_got := $(call test_got,$(perf_tests))
 
@@ -32,7 +32,7 @@ PERF_ONLY ?=
 PERF_THRESHOLD ?= 10
 
 perf_only_flag = $(if $(PERF_ONLY),--only $(PERF_ONLY))
-# De-shelled (#756 item 1): PERF_BIN/LUA_PATH reach the children as
+# De-shelled: PERF_BIN/LUA_PATH reach the children as
 # target exports on the perf lanes below, not shell env prefixes, so
 # perf and perf-baseline are plain argv recipes.
 perf_cmd = $(PERF_BIN) -- $(perf_run) \
@@ -51,10 +51,10 @@ perf-bin: .PLEDGE := $(pledge_build)
 perf-bin: .UNVEIL := $(unveil_test) $(if $(COSMO_LUA),r:$(COSMO_LUA))
 
 ## Build o/perf/cosmic-local: the cosmic payload on a local cosmopolitan lua (COSMO_LUA=...)
-# The payload rides build-pack like the shipped binaries (#755 moved the
+# The payload rides build-pack like the shipped binaries (moved the
 # pack there but left a call to the deleted pack-cosmic define here, so
 # perf-bin silently produced a payload-less binary).
-# Shell exception (#756 item 2): the COSMO_LUA guard.
+# Shell exception: the COSMO_LUA guard.
 perf-bin: private SHELL := /bin/bash
 perf-bin: private .SHELLFLAGS := -o pipefail -c
 perf-bin: $(cosmic_bin) $(build_pack)
@@ -82,7 +82,7 @@ perf-baseline: $$(perf_lua) $(cosmic_bin)
 perf-compare: .PLEDGE := $(pledge_build)
 perf-compare: .UNVEIL := $(unveil_test)
 
-# De-shelled (#756 cleanup): the retry and A/A-triage orchestration
+# De-shelled (cleanup): the retry and A/A-triage orchestration
 # lives in perf.gate (tested with injected measurements); the recipe is
 # one argv line. After the positional results paths, everything but
 # --threshold is handed to perf.run per re-measurement pass (no `--`

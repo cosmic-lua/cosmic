@@ -1,6 +1,6 @@
 --- Socket implementation for the networking module.
 --- Contains the Socket constructor and all Socket method implementations.
---- Addresses are typed (api-review-2, #588): methods accept a dotted-quad
+--- Addresses are typed (api-review-2): methods accept a dotted-quad
 --- string or an ip.Addr, and return ip.Addr — bare integers are not part
 --- of the public surface (wrap C-boundary integers with ip.addr()).
 local unix = require("cosmo.unix")
@@ -30,7 +30,7 @@ end
 --- Socket handle for network I/O.
 --- Sockets are BLOCKING by default: recv and accept wait until data or a
 --- connection arrives. Blocking calls interrupted by a signal are retried
---- automatically (the signal-safety wave, #595; policy in cosmic.stream)
+--- automatically (the signal-safety wave; policy in cosmic.stream)
 --- — except connect, see its doc. Use set_timeout or poll for
 --- interruptible waits. Supports Lua 5.4's to-be-closed via __close.
 local stream = require("cosmic.stream")
@@ -218,7 +218,7 @@ local function make_socket(fd: integer): Socket
   end
 
   -- The stream.Reader/Writer contract is exactly recv/send's: recv
-  -- returns bare nil at end of stream (api-review-2, #589) and send
+  -- returns bare nil at end of stream (api-review-2) and send
   -- returns bytes written. Alias rather than wrap.
   sock.read = sock.recv
   sock.write = sock.send

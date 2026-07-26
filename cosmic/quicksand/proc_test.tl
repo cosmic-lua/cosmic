@@ -155,7 +155,7 @@ io.write("done\n")
 end
 test_barrier_signal_wait()
 
--- become_init: the PID-1 supervisor loop (#504).
+-- become_init: the PID-1 supervisor loop.
 --
 -- These exercise behavior, not just exports. become_init does NOT
 -- require a PID namespace -- it is a plain wait(2) loop over a pid it

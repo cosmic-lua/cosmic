@@ -298,7 +298,7 @@ end
 test_utf8_data()
 
 local function test_read_error_propagates()
-  -- issue #530 part 3 TDD: a reader whose read() errors after one chunk
+  -- TDD: a reader whose read() errors after one chunk
   -- must surface nil, "connection reset" — not a clean nil
   local events_list, err = collect("data: one\n\n", "connection reset")
   assert(#events_list == 1, "the complete event still arrives")
@@ -341,7 +341,7 @@ end
 test_error_discards_partial_event()
 
 local function test_events_from_socket_backed_reader()
-  -- The stream contract (#589): sse consumes ANY stream.Reader, not just
+  -- The stream contract: sse consumes ANY stream.Reader, not just
   -- fetch.Reader — here a socket wrapped as an fd Handle.
   local net = require("cosmic.net")
   local fd = require("cosmic.fd")

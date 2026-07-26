@@ -6,9 +6,8 @@
 --- verbs take a project and the flag takes a file, so a rule can check
 --- one file without re-scanning the tree for every one of them.
 ---
---- Four flags used to spell these, one per kind. One flag and a kind
---- reads the same way `--make <verb>` does, and it leaves one place to
---- add the next check.
+--- One flag and a kind reads the way `--make <verb>` does, and leaves
+--- one place for the next check to be added.
 
 local handlers = require("_cli.main_handlers")
 

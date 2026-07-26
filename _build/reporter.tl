@@ -3,7 +3,7 @@
 local getopt = require("cosmic.getopt")
 local proc = require("cosmic.proc")
 local fs = require("cosmic.fs")
--- The .got exit-code contract and its icons live in cosmic.testrun (#779):
+-- The .got exit-code contract and its icons live in cosmic.testrun:
 -- both reporters feed _cli.build's ci verdict, so they must agree on what
 -- an exit code means. See status_of there.
 local testrun = require("cosmic.testrun")
@@ -241,7 +241,7 @@ local function main(...: string): integer, string
 
   -- REPORTER_NOTE: an extra line from the make rule (e.g. lint's
   -- skipped-deleted-files notice). An env var, not a flag: note text
-  -- carries spaces, which a shell-free recipe argv cannot (#732).
+  -- carries spaces, which a shell-free recipe argv cannot.
   local note = os.getenv("REPORTER_NOTE")
   if note and note ~= "" then
     table.insert(parts, note)
@@ -249,7 +249,7 @@ local function main(...: string): integer, string
 
   local report = table.concat(parts, "\n")
   print(report)
-  -- --out replaces the recipes' `| tee $@` (#732): the reporter writes
+  -- --out replaces the recipes' `| tee $@`: the reporter writes
   -- its own summary file, so the rule needs no shell and no host tee.
   if out then
     local ok, werr = fs.write(out, report .. "\n")

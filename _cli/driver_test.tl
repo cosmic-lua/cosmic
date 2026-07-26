@@ -165,7 +165,7 @@ test_list_does_not_read_its_items()
 -- compiler reads headers nobody listed -- so exec is fenced to the
 -- UNITS its argv touches rather than to those arguments. Phase 1 stood
 -- this in as "." (the whole working tree) for want of a notion of a
--- unit; 2d's Units investigation supplied one, and it is the single
+-- unit; the Units investigation supplied one, and it is the single
 -- abstraction that investigation earned: a fence wants a directory
 -- where a stage wants a file list.
 local function test_exec_gets_its_units_not_the_whole_tree()

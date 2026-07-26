@@ -17,7 +17,7 @@ local current_module: string = nil
 local TYPE_ALIASES: {string: string} = {
   -- Teal (targeting 5.4) has a real integer type; erasing upstream
   -- integer annotations to number forced math.tointeger shims and
-  -- "got number, expected integer" casts on every consumer (#674).
+  -- "got number, expected integer" casts on every consumer.
   ["integer"] = "integer",
   ["number"] = "number",
   ["string"] = "string",

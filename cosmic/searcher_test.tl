@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- Tests for the runtime .tl searcher (cosmic.searcher, #669).
+-- Tests for the runtime .tl searcher (cosmic.searcher).
 --
 -- This is the last searcher in package.searchers: the path a
 -- `require("mod")` takes when no compiled `mod.lua` exists anywhere, so
@@ -55,7 +55,7 @@ local function test_a_miss_declines_rather_than_throws()
 end
 test_a_miss_declines_rather_than_throws()
 
--- Loud failures are the point of owning the searcher (#669): tl's own
+-- Loud failures are the point of owning the searcher: tl's own
 -- loader ran tl.check and generated code without ever looking at the
 -- type errors, so a broken module loaded and failed later, somewhere
 -- else. This one fails the require() with the issues.

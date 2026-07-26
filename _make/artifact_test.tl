@@ -306,7 +306,7 @@ local function test_provided_namespace_supersedes_the_floor()
   assert(code == 0, "a project may provide cosmic/**: " .. out)
   local bin = fs.join(root, "o/bin/artifact-provides")
 
-  -- Since 3d the two live in ONE namespace -- `cosmic/` in the zip for
+  -- The two live in ONE namespace -- `cosmic/` in the zip for
   -- the project and for the base alike -- so "did the base's copy go"
   -- cannot be asked by prefix. It is asked by naming a module only the
   -- BASE has: cosmic/json.lua is present in every unstripped artifact

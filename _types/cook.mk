@@ -5,8 +5,8 @@ modules += types
 # the errno-return contract in unix.d.tl (see test_errno_drift_unix).
 # The generators are checked; the generated .d.tl declarations are not.
 # gentype_test asserts those byte-for-byte against generator output, so
-# formatting them would fight the generator rather than the source
-# (#800). Same _srcs-not-_tl reasoning as the other build-tool modules.
+# formatting them would fight the generator rather than the source.
+# Same _srcs-not-_tl reasoning as the other build-tool modules.
 types_srcs := $(filter-out %.d.tl,$(wildcard _types/*.tl))
 
 types_tests := _types/gentype_test.tl _types/gentype_alias_test.tl _types/gentype_return_test.tl _types/gentl_test.tl _types/tl_conformance_test.tl
@@ -19,7 +19,7 @@ $(call test_got,_types/gentl_test.tl): $$(tl_staged)
 
 .PHONY: regen-tl-types
 ## Regenerate _types/tl.d.tl from the staged tl source
-# De-shelled (#756 item 1): the driver's capture mode owns the output —
+# De-shelled: the driver's capture mode owns the output —
 # write-if-changed, nothing written when the generator fails.
 regen-tl-types: .PLEDGE := $(pledge_build)
 regen-tl-types: .UNVEIL := $(unveil_base) rwcx:$(o) rwc:_types

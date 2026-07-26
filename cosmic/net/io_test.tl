@@ -227,7 +227,7 @@ local function test_socket_is_stream()
 end
 test_socket_is_stream()
 
--- #595 signal-safety wave: a blocking recv interrupted by a signal is
+-- signal-safety wave: a blocking recv interrupted by a signal is
 -- retried automatically instead of surfacing EINTR. The handler supplies
 -- the payload via the peer socket.
 local function test_recv_retries_eintr()
@@ -267,7 +267,7 @@ local function test_recv_retries_eintr()
 end
 test_recv_retries_eintr()
 
--- #493: send exposes the binding's offset parameter — a partial-send
+-- send exposes the binding's offset parameter — a partial-send
 -- loop can window the buffer without copying via data:sub.
 local function test_send_offset()
   local a, b = pair()

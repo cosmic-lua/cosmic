@@ -54,7 +54,7 @@ local function Example_extract_update_embed()
 
   -- 3. re-embed with a main.lua that loads env.d and prints the var name
   -- No loader prelude: --embed wraps a custom entry with the cosmic
-  -- runtime searcher (#687), so require() just works.
+  -- runtime searcher, so require() just works.
   fs.write(fs.join(extractdir, "main.lua"), [[
 local envd = require("cosmic.envd")
 local env = require("cosmic.env")

@@ -3,15 +3,15 @@
 
 global warn: function(...: any)
 
--- The zip root IS the module root (3d): the payload sits at /zip/cosmic/**
+-- The zip root IS the module root: the payload sits at /zip/cosmic/**
 -- while cosmopolitan's default path is /zip/.lua/-rooted. Inserted ahead of
 -- that default but BEHIND anything LUA_PATH set -- prepending outright would
--- shadow an in-tree build with the binary's own copy, which is #666's shape.
+-- shadow an in-tree build with the binary's own copy, which is's shape.
 local at = package.path:find("/zip/.lua/", 1, true) or 1
 package.path = package.path:sub(1, at - 1) ..
 "/zip/?.lua;/zip/?/init.lua;" .. package.path:sub(at)
 
--- cosmic-owned runtime .tl searcher (#669): resolves and compiles .tl
+-- cosmic-owned runtime .tl searcher: resolves and compiles .tl
 -- modules through cosmic.teal, fails the require() on compile errors,
 -- and caches compiled output. See cosmic.searcher for the details.
 require("cosmic.searcher").install()
@@ -105,7 +105,7 @@ local function parse_args(): Options
   -- --build and --test are followed by a FOREIGN argv — the child's own
   -- flags. getopt permutes, so it would eat those as cosmic options;
   -- slice the payload off and parse only to the option's own argument.
-  -- --test lacked this (#801): its child ran bare, hit the REPL and
+  -- --test lacked this: its child ran bare, hit the REPL and
   -- exited 0, so teal and format reported passes without ever running.
   local payload: {string} = nil
   local payload_parse_end: integer = nil
@@ -117,7 +117,7 @@ local function parse_args(): Options
       break
     elseif a:sub(1, 2) == "--" then
       local opt_name = a:sub(3)
-      -- --make joins them (#2a): `--make <verb> [paths…]` is a verb plus
+      -- --make joins them (a): `--make <verb> [paths…]` is a verb plus
       -- a path list, and a path is a positional getopt would permute
       -- into its own option parse.
       if opt_name == "build" or opt_name == "test" or opt_name == "make" then

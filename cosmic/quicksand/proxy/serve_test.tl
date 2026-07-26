@@ -1,12 +1,12 @@
 #!/usr/bin/env cosmic
---- End-to-end tests for the proxy's request-body limits (#497): a
+--- End-to-end tests for the proxy's request-body limits: a
 --- Content-Length over max_body_bytes is refused with 413 and a
 --- malformed one with 400, in both cases before a single body byte is
 --- read or buffered. Those requests are all refused before the
 --- upstream dial, so they need only loopback sockets, no DNS or
 --- egress.
 ---
---- The last test reaches further (#504): it is the one request the
+--- The last test reaches further: it is the one request the
 --- rule engine ALLOWS, so it runs on past the allowlist into the
 --- upstream dial. It stops there by design -- see the note above it
 --- for why a relayed response is not reachable hermetically.
@@ -112,7 +112,7 @@ local function test_deny_precedes_body_checks()
 end
 test_deny_precedes_body_checks()
 
--- The allowlist does not override the SSRF guard (#504).
+-- The allowlist does not override the SSRF guard.
 --
 -- This is as far as the allow path can be driven hermetically. dial()
 -- refuses every non-public IP unconditionally -- loopback included,

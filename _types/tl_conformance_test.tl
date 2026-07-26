@@ -1,9 +1,9 @@
 #!/usr/bin/env cosmic
--- Conformance probe for the generated tl.d.tl shim (#665, redesign 3/3).
+-- Conformance probe for the generated tl.d.tl shim (redesign 3/3).
 --
 -- tl.d.tl is the narrowed public tl surface cosmic ships; three of its
 -- signatures drifted from tl's real API before gentl started generating
--- it (#660/#662/#664). gentl verifies arity and record fields, but the
+-- it  gentl verifies arity and record fields, but the
 -- ERASED types (any, string) could still disagree with upstream in ways
 -- extraction cannot see. This probe closes that gap with the checker
 -- itself as the comparator: one probe file exercising every call shape

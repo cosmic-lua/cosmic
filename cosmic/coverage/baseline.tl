@@ -183,7 +183,7 @@ local function check(baseline_path: string, paths: {string}): integer
   return 0
 end
 
---- Gate mode for the coverage-summary recipe (shell-free, #756 item 1):
+--- Gate mode for the coverage-summary recipe (shell-free item 1):
 --- skip under a test filter (partial data would read as a huge decline)
 --- or when no baseline is committed; otherwise run the ratchet check.
 --- @param baseline_path string Path to the committed baseline

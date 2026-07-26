@@ -72,7 +72,7 @@ test_hex_roundtrip()
 
 -- Lua encoding tests
 
--- encode_lua keeps the binding's error channel (issue #529, item 39):
+-- encode_lua keeps the binding's error channel (issue, item 39):
 -- the contract is string | nil, string, and success carries no error.
 local function test_encode_lua_error_channel()
   local result, err = codec.encode_lua({nested = {1, 2, 3}})
@@ -346,7 +346,7 @@ local function test_latin1_roundtrip()
 end
 test_latin1_roundtrip()
 
--- CRC-32 checksum tests (issue #601)
+-- CRC-32 checksum tests
 
 local function test_crc32_check_vector()
   -- The standard CRC-32 check value: crc32("123456789") = 0xCBF43926
@@ -388,7 +388,7 @@ local function test_crc32_unsigned_range()
 end
 test_crc32_unsigned_range()
 
--- base64url tests (#501)
+-- base64url tests
 
 local function test_base64url_roundtrip()
   local cases = {"", "f", "fo", "foo", "foob", "fooba", "foobar", "hello world"}

@@ -177,8 +177,8 @@ end
 --- @return string Error message if failed
 local function opendir(path: string): Dir | nil, string
   -- `is` is safe here since every cosmic-installed loader (dispatcher
-  -- searcher #681, embed wrapper #688) resolves the unix.Dir userdata
-  -- marker; explicit tl.loader() installs are unsupported (#687).
+  -- searcher, embed wrapper) resolves the unix.Dir userdata
+  -- marker; explicit tl.loader() installs are unsupported.
   local raw, err = unix.opendir(path)
   if raw is unix.Dir then
     return make_dir(raw)

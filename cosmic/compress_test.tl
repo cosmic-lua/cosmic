@@ -161,7 +161,7 @@ local function test_max_output_bound_per_format()
 end
 test_max_output_bound_per_format()
 
--- Contract test: the bespoke prefixed-deflate surface is gone (#590).
+-- Contract test: the bespoke prefixed-deflate surface is gone.
 
 local function test_prefixed_deflate_surface_removed()
   local m = compress as {string: any} -- cast: probe removed surface

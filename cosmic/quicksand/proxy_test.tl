@@ -5,7 +5,7 @@ local check = require("cosmic.check")
 local net = require("cosmic.net")
 
 -- quicksand's bind_ip option is a raw integer (C-boundary internals);
--- the cosmic.net surface takes dotted-quad strings or ip.Addr (#588).
+-- the cosmic.net surface takes dotted-quad strings or ip.Addr.
 local LOOPBACK < const > = 0x7f000001
 local LOOPBACK_STR < const > = "127.0.0.1"
 

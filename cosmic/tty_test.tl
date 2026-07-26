@@ -16,7 +16,7 @@ local function test_module_exports()
 end
 test_module_exports()
 
--- isatty (issue #505): assert real verdicts on fds whose tty-ness is
+-- isatty: assert real verdicts on fds whose tty-ness is
 -- known, instead of only checking the return type.
 
 local function test_isatty_regular_file_is_false()
@@ -165,7 +165,7 @@ local function test_noecho_non_tty()
 end
 test_noecho_non_tty()
 
--- getpass (issue #505): exercised end-to-end in a subprocess with a
+-- getpass: exercised end-to-end in a subprocess with a
 -- piped (non-tty) stdin, instead of only checking the export exists.
 
 local getpass_script = fs.join(check.must(os.getenv("TEST_TMPDIR")), "getpass_child.lua")
@@ -203,7 +203,7 @@ end
 test_getpass_non_tty_eof()
 
 -- make_raw: pure raw-mode computation, unit-testable without a tty
--- (issue #529, review item 35).
+-- (issue, review item 35).
 
 local function fixture_termios(): tty.Termios
   local cc: {integer} = {}
@@ -275,7 +275,7 @@ local function test_winsize_error_names_errno()
 end
 test_winsize_error_names_errno()
 
--- #493: restore accepts a tcsetattr action (NOW default, DRAIN, FLUSH)
+-- restore accepts a tcsetattr action (NOW default, DRAIN, FLUSH)
 -- instead of hard-coding TCSANOW. No pty here, so exercise the
 -- signature and the error path on a non-tty fd.
 local function test_restore_accepts_action()

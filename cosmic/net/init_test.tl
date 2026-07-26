@@ -222,7 +222,7 @@ local function test_socket_options()
   assert(ok, "setsockopt TCP_NODELAY failed: " .. tostring(setopt_err))
 
   -- Get TCP_NODELAY. Pledge's getsockopt allowlist omits TCP_NODELAY
-  -- (setsockopt allows it), so the sandboxed test lane (#729) skips
+  -- (setsockopt allows it), so the sandboxed test lane skips
   -- this readback on denial; the enforce lane runs it for real.
   local val, getopt_err = sock:getsockopt(net.SOL_TCP, net.TCP_NODELAY)
   if val == nil and tostring(getopt_err):find("EPERM") then

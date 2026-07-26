@@ -68,7 +68,7 @@ local function scan_docs(docs_dir: string): {DocInfo}
   return docs
 end
 
--- The docs surface follows the `_` rule (phase 3c, issue #556): the
+-- The docs surface follows the `_` rule: the
 -- published site carries public module pages and the cosmo.* C binding
 -- docs only. Public is a page named for one `cosmic.<name>` segment
 -- that does not start with `_`; there is no manifest to load and none

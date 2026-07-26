@@ -1,6 +1,6 @@
 # Included from the top-level Makefile at the position this block used to
 # occupy, so parse order — and therefore every pattern-specific variable
-# and its nesting — is unchanged (#786). The Makefile keeps aggregation
+# and its nesting — is unchanged. The Makefile keeps aggregation
 # and the shared path variables; each mk/*.mk holds one rule family.
 #
 # the three test lanes (plain, coverage, enforce) and the coverage ratchet.
@@ -60,8 +60,8 @@ $(quicksand_sandbox_tests): .SANDBOXED := 0
 $(quicksand_sandbox_tests): .PLEDGE =
 $(quicksand_sandbox_tests): .UNVEIL =
 
-# $$(deps_$$*) is the test's transitive import closure as BUILT paths
-# (3f), from o/project.mk. It replaces the per-module test dependencies
+# $$(deps_$$*) is the test's transitive import closure as BUILT paths,
+# from o/project.mk. It replaces the per-module test dependencies
 # each cook.mk used to declare by hand, and it closes a gate that was
 # open: a test resolves an import it has no prerequisite for through the
 # runtime .tl searcher, which compiles LAX, so a module that fails its
@@ -99,7 +99,7 @@ $(o)/coverage/%.tl.test.got: $(o)/%.lua $$(deps_$$*) $(cosmic_bin) $(ape_loader)
 coverage_baseline := .coverage
 coverage_baseline_tool := $(o)/cosmic/coverage/baseline.lua
 
-# De-shelled (#756 item 1): the skip/check branching lives in the
+# De-shelled: the skip/check branching lives in the
 # baseline tool's gate mode; --only=$(only) stays one argv token even
 # when the filter is empty, so no quoting and no shell.
 $(o)/coverage-summary.txt: .PLEDGE := $(pledge_build)

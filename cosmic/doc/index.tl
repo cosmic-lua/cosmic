@@ -29,7 +29,7 @@ local function normalize_init(modules: {string: any})
   end
 end
 
---- Mark each module's visibility by position (phase 3c): public is
+--- Mark each module's visibility by position: public is
 --- exactly cosmic.<name> for a name that does not start with `_`;
 --- every other cosmic.* entry and all repo tooling (_perf.*, ...) is
 --- internal. cosmo.* C binding docs keep their own include_cosmo
@@ -78,7 +78,7 @@ local function generate(files: {string}): string | nil, string
 
     -- Derive module name from file path
     local name = file_path:gsub("%.d%.tl$", ""):gsub("%.tl$", "")
-    -- Path relative to the root IS the import path (3b), so the only
+    -- Path relative to the root IS the import path, so the only
     -- rewrite left is the generated type tree: a `.d.tl` under _types/
     -- documents the binding it declares (`cosmo.unix`), not its own
     -- position. Everything else -- cosmic/**, _build/**, _perf/** --

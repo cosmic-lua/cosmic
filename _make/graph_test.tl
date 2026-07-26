@@ -234,7 +234,7 @@ local function test_find_make_honors_the_override()
 end
 test_find_make_honors_the_override()
 
--- 2e: the engine ships in the binary, so a project needs nothing
+-- The engine ships in the binary, so a project needs nothing
 -- installed. Amends D13, whose rejection reasoned from THIS repo --
 -- where both pins are already in hand -- and does not survive the user
 -- case, where one binary in a bare sandbox has nothing to find.

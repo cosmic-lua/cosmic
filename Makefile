@@ -3,7 +3,7 @@
 # Parse-time shell: $(shell) queries here and in the includes (nproc,
 # uname, git) read this value DURING parsing — poisoning it here empties
 # them silently (witnessed: an empty SOURCE_DATE_EPOCH in the pack).
-# Recipes get the no-shell default at the BOTTOM of this file (#756).
+# Recipes get the no-shell default at the BOTTOM of this file.
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 .DEFAULT_GOAL := help
@@ -17,7 +17,7 @@ MAKEFLAGS += -j$(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || ech
 modules :=
 o := o
 
-# PATH, LC_ALL, TZ are clamped in cook.mk (#731) — deliberate, not inherited
+# PATH, LC_ALL, TZ are clamped in cook.mk — deliberate, not inherited
 export STAGE_O := $(CURDIR)/$(o)/staged
 export FETCH_O := $(CURDIR)/$(o)/fetched
 
@@ -25,7 +25,7 @@ export FETCH_O := $(CURDIR)/$(o)/fetched
 TMP ?= /tmp
 export TMPDIR := $(TMP)
 
-# Platform tag (fetch/stage matching, TEST_PLATFORM); derived, not hardcoded (#721)
+# Platform tag (fetch/stage matching, TEST_PLATFORM); derived, not hardcoded
 platform := $(shell uname -s | tr '[:upper:]' '[:lower:]')-$(shell uname -m)
 
 ## INCLUDE_DIRS: directories to search for type definitions (repeatable)
@@ -33,7 +33,7 @@ INCLUDE_DIRS ?= .
 
 include_dir_flags := $(foreach d,$(INCLUDE_DIRS),--include-dir $(d))
 
-# Test lanes (#778): the plain and coverage lanes run the SAME tests in
+# Test lanes: the plain and coverage lanes run the SAME tests in
 # separate output trees, so a per-test exception (grant, prerequisite,
 # TEST_DIR) applies to both — modules name the source once. NOTE the lane
 # patterns NEST, so a grant on the plain pattern reaches all three lanes;
@@ -46,7 +46,7 @@ include mk/modules.mk
 include 3p/cosmos/cook.mk
 include 3p/tl/cook.mk
 
-# The migration bridge (3e). o/project.mk is GENERATED — variable
+# The migration bridge. o/project.mk is GENERATED — variable
 # assignments only, produced by the same _make model `--make`
 # uses — and carries the per-file import closures the compile rule
 # below takes as prerequisites. `-include` because a cold tree has no
@@ -58,18 +58,18 @@ include 3p/tl/cook.mk
 #
 # The rules half of the bridge (`-include o/cosmic.mk`) is NOT here:
 # that file's own build/test/fmt targets collide with the ones below,
-# so it waits until those retire (3i).
+# so it waits until those retire.
 -include $(o)/project.mk
 
 
-# landlock-make sandbox annotations. These are ENFORCED, not intent
-# (#729): every rule family CI exercises sets .SANDBOXED := 1 in
+# landlock-make sandbox annotations. These are ENFORCED, not intent:
+# every rule family CI exercises sets .SANDBOXED := 1 in
 # cook.mk, so an undeclared read or write in one of their recipes fails
 # on a Landlock host. The .SANDBOXED ratchet in
 # _build/makefile_ratchet_test.tl pins the enforced set and the
 # exceptions both ways; losing a flip is otherwise silent. Details in
 # docs/build.md. NOTE: make hands .UNVEIL values to unveil UNEXPANDED —
-# assign with := and compose from the grant sets in cook.mk (#718).
+# assign with := and compose from the grant sets in cook.mk.
 # global defaults: read-only access, no network, basic stdio
 .PLEDGE := stdio rpath
 .UNVEIL := $(unveil_base)
@@ -82,23 +82,22 @@ help: $(build_help) | $(bootstrap_cosmic)
 
 ## Filter targets by substring (make test only=teal; also narrows fetch/stage)
 filter-only = $(if $(only),$(foreach f,$1,$(if $(findstring $(only),$(f)),$(f))),$1)
-# INVARIANT (#608, #777): only= narrows which CHECKS RUN — never what an
+# INVARIANT: only= narrows which CHECKS RUN — never what an
 # ARTIFACT CONTAINS. Every $(call filter-only,...) below sits INSIDE a
 # target-list derivation, so the source lists stay complete by
-# construction. Before #777 the filter was applied to the source lists
+# construction. Previously the filter was applied to the source lists
 # and each artifact input needed an unfiltered twin (all_module_srcs vs
 # all_tl, doc_index_example_srcs vs all_example_srcs) plus a comment
 # saying which to reach for; forgetting shipped a truncated binary.
 # Keep new filter calls at the target-list level and the class stays shut.
 
-# Compiles are the pinned bootstrap's --build steps (#732, #756 item 3):
+# Compiles are the pinned bootstrap's --build steps:
 # no shell, no host mkdir/cat/cmp/mv (LUA_PATH pins live in cook.mk with
-# the family's other pattern vars). The `$(o)/%: %` source-copy rule that
-# used to sit here is retired (#775): teal/format read sources directly
-# now, as lint always has. tl resolves through $(bootstrap_files)'s
-# embedded copy; the old $(tl_files) prereq was never defined, ever empty.
+# the family's other pattern vars). There is no copy of the tree under
+# $(o): teal, format and lint all read sources where they are, and tl
+# resolves through $(bootstrap_files)'s embedded copy.
 #
-# $$(srcdeps_$$*) is the migration bridge (3e): the per-file import
+# $$(srcdeps_$$*) is the migration bridge: the per-file import
 # closure `cosmic --make` computes, adopted here through o/project.mk.
 # It is a CORRECTNESS prerequisite, not a speed one — a strict compile
 # type-checks against the modules it imports, so a module whose contract
@@ -154,15 +153,15 @@ export TEST_DIR
 export TEST_BIN := $(o)/bin
 # TEST_TMPDIR is set per-test by cosmic --test command
 # tree_lua_path aggregates _lua_dirs from modules. Deliberately NOT
-# exported (#720): the ambient export was the root of the stale-stdlib
-# bug class (#666, #608) — recipes opt in via LUA_PATH="$(tree_lua_path)";
+# exported: the ambient export was the root of the stale-stdlib
+# bug class — recipes opt in via LUA_PATH="$(tree_lua_path)";
 # everything else runs against the binary's embedded copy.
 empty :=
 space := $(empty) $(empty)
 lua_path_dirs := $(foreach m,$(modules),$($(m)_lua_dirs))
 tree_lua_path := $(subst $(space),;,$(foreach d,$(lua_path_dirs),$(CURDIR)/$(d)/?.lua $(CURDIR)/$(d)/?/init.lua));;
 export NO_COLOR := 1
-# Tree-only absolute type-resolution path — TL_PATH pins tl.search_module to the tree, never the bootstrap's stale /zip copy (#744; see cook.mk, makefile_test).
+# Tree-only absolute type-resolution path — TL_PATH pins tl.search_module to the tree, never the bootstrap's stale /zip copy (see cook.mk, makefile_test).
 tree_tl_path := $(subst $(space),;,$(foreach d,$(CURDIR) $(foreach e,$(INCLUDE_DIRS),$(CURDIR)/$(e)) $(CURDIR)/_types,$(d)/?.lua $(d)/?/init.lua))
 
 include mk/test.mk
@@ -204,7 +203,7 @@ ci_marks := $(foreach s,$(ci_stages),$(o)/ci-ok-$(s))
 
 # Per-stage exit marker: made only after the stage's entire subtree
 # succeeded. Grading below reads it so a recipe that fails AFTER writing
-# a clean summary still fails the stage (#714: the coverage ratchet
+# a clean summary still fails the stage (: the coverage ratchet
 # laundered its exit status through the already-tee'd summary). All
 # markers build in ONE sub-make, so stages keep sharing the target graph
 # and run in parallel without racing on common prerequisites.
@@ -213,8 +212,8 @@ $(o)/ci-ok-%: %
 
 .PHONY: ci
 ## Run the full gate in parallel (format, teal, test, example, lint, coverage)
-# De-hosted (#732): the grading loop lives in the driver's verdict mode
-# (same #714 semantics — summary text AND exit marker — gated by the
+# De-hosted: the grading loop lives in the driver's verdict mode
+# (same semantics — summary text AND exit marker — gated by the
 # ci-launder fixture); `-` on the sub-make replaces `|| true`.
 ci: export LUA_PATH := ;;
 ci: | $(bootstrap_cosmic)
@@ -222,7 +221,7 @@ ci: | $(bootstrap_cosmic)
 	-@$(MAKE) --keep-going $(ci_marks)
 	@$(bootstrap_cosmic) --build verdict $(o) $(ci_stages)
 
-# No-shell DEFAULT (#756 item 2, inverting #732's per-family opt-in).
+# No-shell DEFAULT, inverting the earlier per-family opt-in.
 # Set LAST so the parse-time $(shell) queries above ran under the real
 # shell; recipes read SHELL's FINAL value, so this reaches every rule.
 # A recipe is a shell-free argv line (make's direct-exec fast path

@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- Header CRLF / injection validation (audit §2.3). HTTP headers are
+-- Header CRLF / injection validation. HTTP headers are
 -- CRLF-delimited, so a CR or LF embedded in a header name or value smuggles
 -- additional header lines (or a body) past cosmo.Fetch. fetch rejects such
 -- headers before the request is issued. These tests need no network: the

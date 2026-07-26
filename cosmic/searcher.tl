@@ -1,7 +1,7 @@
---- cosmic-owned runtime .tl package searcher (#669), replacing
+--- cosmic-owned runtime .tl package searcher, replacing
 --- tl.loader().
 ---
---- Public, and the caller set is what settled it (3g): the generated
+--- Public, and the caller set is what settled it: the generated
 --- embed wrapper runs `require("cosmic.searcher").install()` before the
 --- entry of EVERY artifact anyone builds, which makes this the module
 --- with the widest reach in the tree. It sat under `_cli/` — marked
@@ -30,7 +30,7 @@
 --- install() appends the searcher at the END of package.searchers so
 --- the default Lua file searcher finds pre-compiled .lua modules
 --- first; without this, setting TL_PATH costs ~330ms per run
---- recompiling cosmic's own modules (#377). Everything here loads
+--- recompiling cosmic's own modules. Everything here loads
 --- lazily on the first require() the default searchers cannot
 --- resolve, so runs that never touch a .tl file never load the
 --- ~15k-line Teal compiler.

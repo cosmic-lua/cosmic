@@ -55,16 +55,16 @@ local function child_tree_lua_path(): string
 end
 
 --- compile <bootstrap> <src> <out> [compiler flags...]
---- Always a STRICT compile (#776): --compile-strict type checks and then
+--- Always a STRICT compile: --compile-strict type checks and then
 --- generates from that same checked AST, so nothing ships that did not
 --- typecheck, under LUA_PATH=";;" so output cannot depend on parallel
---- build order (#733). TL_PATH passes through from the rule's export.
+--- build order. TL_PATH passes through from the rule's export.
 ---
 --- The pre-#776 driver took a flag-stamp path as its first argument and
 --- read a probed flag out of it, falling back to a non-strict,
 --- order-dependent compile when the pinned bootstrap predated the flag.
 --- That fallback was the one place a stale input degraded silently; the
---- flag was pinned in #776 and the stamp is retired here.
+--- flag was pinned in and the stamp is retired here.
 local function do_compile(args: {string}): integer
   local bootstrap, src, out = args[1], args[2], args[3]
   if not out then
@@ -80,7 +80,7 @@ local function do_compile(args: {string}): integer
     -- as the child's first positional, getopt stops parsing there, and
     -- `cosmic --include-dir . util.tl --compile-strict main.tl` RUNS
     -- util.tl as a script and writes its empty stdout as main.lua. The
-    -- compile "passes" having checked nothing -- the #801/#802 shape,
+    -- compile "passes" having checked nothing -- the shape,
     -- where an argv ambiguity makes a gate report a pass it never ran.
     if args[i] == "--deps" then
       break
@@ -286,7 +286,7 @@ local function do_remove(args: {string}): integer
   return 0
 end
 
---- verdict <o_dir> <stages...> — the ci grading loop (#714): print each
+--- verdict <o_dir> <stages...> — the ci grading loop: print each
 --- stage's summary in a log group, grade it by summary text AND the
 --- per-stage ci-ok exit marker (a stage failing after writing a clean
 --- summary must still fail), and end with the verdict line.
@@ -419,7 +419,7 @@ local function do_exec(args: {string}): integer
     argv[#argv + 1] = args[i]
   end
   -- "inherit" so the program streams as it runs, like every other
-  -- recipe step (#797).
+  -- recipe step.
   local h, serr = child.spawn(argv, {stdout = "inherit", stderr = "inherit"})
   if not (h is child.Handle) then
     return fail("exec " .. program .. ": " .. (serr or "unknown error"))

@@ -310,7 +310,7 @@ test_stored_path_collisions_are_refused()
 -- The real payload generator, against the real tree. The synthetic
 -- fixtures above exercise the MECHANISM; this asserts the contract
 -- cosmic's own binary depends on -- which is the hazard that bit twice
--- in this branch's history (3d lost tl.lua and the type tree, 3h lost
+-- twice already (a pack that lost tl.lua and the type tree, and one that lost
 -- every compiled _cli/** and _make/** module; both times the binary
 -- built, booted, and failed only when something first required the
 -- missing piece).

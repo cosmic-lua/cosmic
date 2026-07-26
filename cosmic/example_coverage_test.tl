@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
---- Example-per-public-module ratchet (issue #566): every public module
+--- Example-per-public-module ratchet: every public module
 --- ships a runnable *_example.tl. Modules that predate the ratchet live
---- on the shrink-only allowlist below; #509 tracks burning it down.
+--- on the shrink-only allowlist below; tracks burning it down.
 ---
 --- The ratchet has three teeth:
 --- - a public module neither exampled nor allowlisted fails (a NEW
@@ -18,7 +18,7 @@ local check = require("cosmic.check")
 local doc = require("cosmic.doc")
 local visibility = require("cosmic.doc.visibility")
 
--- The public surface, derived rather than declared (phase 3c): the
+-- The public surface, derived rather than declared: the
 -- names the docs index carries that the `_` rule calls public, without
 -- their `cosmic.` prefix, since the allowlist below is written in bare
 -- module names.
@@ -37,7 +37,7 @@ end
 
 local PUBLIC = public_names()
 
--- Shrink only. Never add an entry; delete each one as #509 lands its
+-- Shrink only. Never add an entry; delete each one as lands its
 -- example. (31 of 46 public modules at ratchet birth.)
 local MISSING_ALLOWED: {string} = {
   "benchmark",

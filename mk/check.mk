@@ -1,6 +1,6 @@
 # Included from the top-level Makefile at the position this block used to
 # occupy, so parse order — and therefore every pattern-specific variable
-# and its nesting — is unchanged (#786). The Makefile keeps aggregation
+# and its nesting — is unchanged. The Makefile keeps aggregation
 # and the shared path variables; each mk/*.mk holds one rule family.
 #
 # the check lanes: files, teal, format, lint.
@@ -16,7 +16,7 @@ all_source_files += $(all_tl)
 ## Build all module files
 files: $(call filter-only,$(all_built_files))
 
-# .got NAMES are $(o)-prefixed; the PREREQUISITE is the source (#775).
+# .got NAMES are $(o)-prefixed; the PREREQUISITE is the source.
 all_teals := $(patsubst %,$(o)/%.teal.got,$(call filter-only,$(all_source_files)))
 
 .PHONY: check
@@ -29,7 +29,7 @@ teal: $(o)/teal-summary.txt
 $(o)/teal-summary.txt: $(all_teals) | $(build_reporter)
 	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $^
 
-# The `--` is load-bearing (#801): without it the outer getopt consumes
+# The `--` is load-bearing: without it the outer getopt consumes
 # the child's --check types, the child runs argument-less, drops into
 # the REPL, reads EOF and exits 0 -- so --test faithfully records a pass
 # for a check that never ran. lint gets this right at :84; test/mk has
@@ -45,13 +45,13 @@ format: $(o)/format-summary.txt
 $(o)/format-summary.txt: $(all_formats) | $(build_reporter)
 	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $^
 
-# `--` for the same reason as the teal rule above (#801). This gate had
+# `--` for the same reason as the teal rule above. This gate had
 # no second line of defence -- teal's work is redone by --compile-strict,
 # but nothing else checks formatting -- so it silently passed everything.
 $(o)/%.format.got: % $(cosmic_check_bin) | $(bootstrap_files)
 	@$(cosmic_check_bin) --test $(basename $@) -- $(cosmic_check_bin) --check format $<
 
-# Lint every file that will land (#719): tracked, PLUS untracked ones
+# Lint every file that will land: tracked, PLUS untracked ones
 # git does not ignore. --others is what makes a brand-new file linted
 # before it is staged; without it `git ls-files` alone reported green on
 # a file it had never opened, so a new module or test got no lint at all
@@ -76,7 +76,7 @@ lint_deleted := $(filter-out $(lint_present),$(lint_files))
 all_linted := $(patsubst %,$(o)/%.lint.got,$(lint_present))
 
 lint_list_stamp := $(o)/lint-files.stamp
-# The makefile fixtures snapshot this very list (makefile_test's #800
+# The makefile fixtures snapshot this very list (makefile_test's
 # ratchet compares lint_files against all_source_files), but they
 # otherwise depend only on the makefiles -- so adding a .tl WITHOUT the
 # cook.mk edit, which is exactly the mistake the ratchet exists to
@@ -109,7 +109,7 @@ $(o)/lint-summary.txt: $(all_linted) $(lint_list_stamp) | $(build_reporter)
 $(o)/%.lint.got: % $(cosmic_check_bin) | $(bootstrap_files)
 	@$(cosmic_check_bin) --test $(basename $@) -- $(cosmic_check_bin) --check style $<
 
-# The model gate (3f): does this repo still conform to the project model
+# The model gate: does this repo still conform to the project model
 # `cosmic --make` builds by? Every slice of phase 3 has been checking it
 # by hand, and 3e regressed it unnoticed for exactly that reason — a
 # bridge script imported `_make.*` from outside `cosmic/`, which

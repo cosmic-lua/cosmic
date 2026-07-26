@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- Tests for the shell-free binary packer (#732): stage a tiny payload,
+-- Tests for the shell-free binary packer: stage a tiny payload,
 -- pack it with the PINNED cosmos zip onto a base file, and assert the
 -- contract pieces — base prefix preserved, exec bit, mtime clamp.
 
@@ -65,7 +65,7 @@ local function test_pack_end_to_end()
   local mode = (st as fs_types.Stat):mode() % 512 -- cast: mixed-representation Stat
   assert(mode % 2 == 1, "packed binary keeps the exec bit")
 
-  -- the staged copy's mtime is clamped to the epoch (#733)
+  -- the staged copy's mtime is clamped to the epoch
   local staged = fs.stat(fs.join(built, "main.lua"))
   assert(staged, "staged main.lua should exist")
   local secs = (staged as fs_types.Stat):mtim() -- cast: mixed-representation Stat

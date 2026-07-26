@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
---- Stream-contract conformance suite (api-review-2, #589): every byte
+--- Stream-contract conformance suite (api-review-2): every byte
 --- producer honors the one EOF convention — read returns a chunk, bare
 --- nil (no error) at end of stream, and keeps returning bare nil after
 --- EOF; failures return nil plus an error message. Run against

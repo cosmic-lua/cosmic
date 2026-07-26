@@ -8,7 +8,7 @@ local check = require("cosmic.check")
 
 local function test_interfaces()
   -- SIOCGIFCONF has no pledge promise (inet allows only SIOCATMARK), so
-  -- the sandboxed test lane (#729) cannot exercise it; skip on denial
+  -- the sandboxed test lane cannot exercise it; skip on denial
   -- like the netns tests. The enforce lane still runs it for real.
   local probe, ierr = net.interfaces()
   if not probe then
@@ -275,7 +275,7 @@ test_connect_error_message()
 
 print("All net tests passed")
 
--- Error fidelity (issue #529): bind errors carry the errno name.
+-- Error fidelity: bind errors carry the errno name.
 local function test_bind_error_names_errno()
   -- Binding a second socket to an in-use address must name EADDRINUSE.
   local first = check.must(net.socket(net.AF_INET, net.SOCK_STREAM))
@@ -292,7 +292,7 @@ end
 test_bind_error_names_errno()
 
 local function test_dial()
-  -- dial is the stable name-and-shape entry point (#588, from #501):
+  -- dial is the stable name-and-shape entry point (from):
   -- resolution happens inside, for literals and DNS names alike.
   local srv, port, serr = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv, "listen_tcp failed: " .. tostring(serr))
@@ -315,7 +315,7 @@ local function test_dial()
 end
 test_dial()
 
--- #493: listen_tcp socket options are configurable — SO_REUSEADDR stays
+-- listen_tcp socket options are configurable — SO_REUSEADDR stays
 -- the default but can be opted out, and SO_REUSEPORT can be opted in.
 local function test_listen_tcp_socket_options()
   local s1, port, derr = net.listen_tcp("127.0.0.1", 0)

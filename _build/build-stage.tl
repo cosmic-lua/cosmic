@@ -88,7 +88,7 @@ local function strip_components(source_dir: string, dest_dir: string, strip: num
   end
 end
 
--- Extraction is in-process (#732): cosmic.zip / build.tar /
+-- Extraction is in-process: cosmic.zip / build.tar /
 -- cosmic.compress instead of spawning host unzip/tar/gunzip, so the
 -- stage rule's unveil set carries no host-toolchain grants.
 local function extract_zip(archive: string, dest_dir: string, strip: number): boolean, string
@@ -309,13 +309,13 @@ local function main(version_file: string, platform: string, input: string, outpu
 
   -- the make rule passes o/<module>/.versioned, a symlink to the
   -- module's *_pin.tl; resolve it here so error messages name the real
-  -- file and the recipe needs no host readlink (#732)
+  -- file and the recipe needs no host readlink
   local resolved = fs.readlink(version_file)
   if resolved then
     version_file = resolved
   end
 
-  -- READ, not run (3g): a pin is data. This was `dofile`, which made
+  -- READ, not run: a pin is data. This was `dofile`, which made
   -- every fetch and every stage execute the file that says what to
   -- fetch — the one thing a pin exists to make unnecessary. Same reader
   -- `cosmic --make fetch` uses, so the grammar is enforced identically

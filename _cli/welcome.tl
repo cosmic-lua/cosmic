@@ -1,7 +1,7 @@
 -- Welcome message state tracking for first-run experience.
 --
 -- The "shown" marker lives in the user's per-user config directory,
--- never inside the executable (#510 step 10): zip-appending it to the
+-- never inside the executable (step 10): zip-appending it to the
 -- running binary made released binaries fail SHA256SUMS verification,
 -- and on Windows — where the running exe is locked — the banner
 -- reprinted forever. An embedded /zip marker still counts as shown, so

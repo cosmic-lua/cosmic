@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
---- Tests for spawn's "inherit" stdio disposition (#797).
+--- Tests for spawn's "inherit" stdio disposition.
 ---
 --- Proving inherit works needs a vantage point OUTSIDE this process,
 --- because this process's own stdout is the thing under test. Every

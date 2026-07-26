@@ -1,11 +1,11 @@
 #!/usr/bin/env cosmic
---- Tests for the _cli.main_handlers surfaces #504 flagged as
+--- Tests for the _cli.main_handlers surfaces flagged as
 --- zero-coverage: the format gate, --docs lookup (including its
 --- not-found UX), the --examples chain, and --make.
 ---
 --- These spawn the built binary rather than calling the handlers
 --- in-process, for two reasons: the handlers write to stdout/stderr
---- (which would corrupt this test's own output), and #504 asks for the
+--- (which would corrupt this test's own output), and asks for the
 --- *chain* -- argument parsing, dispatch, and handler together -- not
 --- just the leaf function.
 
@@ -82,7 +82,7 @@ local function test_check_format_rejects_unparseable_source()
 end
 test_check_format_rejects_unparseable_source()
 
--- --docs: the lookup path and, per #504, its not-found UX.
+-- --docs: the lookup path and, per, its not-found UX.
 
 local function test_docs_finds_a_real_module()
   local r = cli("--docs", "cosmic.fs")
@@ -92,7 +92,7 @@ end
 test_docs_finds_a_real_module()
 
 --- The not-found path must fail loudly and say something useful -- the
---- specific UX complaint in #504. A miss that exited 0, or exited 1
+--- specific UX complaint in. A miss that exited 0, or exited 1
 --- with an empty message, both regress it.
 local function test_docs_miss_fails_with_a_message()
   local r = cli("--docs", "zzz-no-such-symbol-anywhere")
@@ -105,7 +105,7 @@ local function test_docs_miss_fails_with_a_message()
 end
 test_docs_miss_fails_with_a_message()
 
--- --examples: the chain #504 lists as zero-coverage.
+-- --examples: the chain lists as zero-coverage.
 
 local function test_examples_lists_without_argument()
   local r = cli("--examples")
@@ -170,7 +170,7 @@ test_make_requires_a_verb()
 -- child's --check format, the child runs argument-less, drops into the
 -- REPL, reads EOF and exits 0 -- so --test faithfully records a pass
 -- for a check that never ran, and every teal/format .got was a 0
--- regardless of the file (#801).
+-- regardless of the file.
 --
 -- This pins the propagation in both directions, so a gate that cannot
 -- fail is caught here rather than by noticing, months later, that
@@ -199,7 +199,7 @@ test_test_wrapper_propagates_child_exit_code()
 
 --- The same, WITHOUT the `--`. That separator used to be mandatory in
 --- practice and nothing said so: omitting it silently ran no check
---- (#801). --test now slices its command vector off before the option
+---. --test now slices its command vector off before the option
 --- parse, the way --build always has, so the child keeps its own flags
 --- either way and the trap is gone rather than merely documented.
 local function test_test_wrapper_needs_no_separator()

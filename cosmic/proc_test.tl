@@ -371,7 +371,7 @@ local function test_wait_option_constants_defined()
 end
 test_wait_option_constants_defined()
 
--- Error fidelity (issue #529): failed session/group/priority/rlimit/exec
+-- Error fidelity: failed session/group/priority/rlimit/exec
 -- calls must surface the binding's errno string, not truncate it.
 
 local function test_setpgid_error_names_errno()

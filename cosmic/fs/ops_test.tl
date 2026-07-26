@@ -172,7 +172,7 @@ local function test_tmpfile_success_contract()
 end
 test_tmpfile_success_contract()
 
--- utimensat/futimens (issue #505): exact timestamp semantics, not just
+-- utimensat/futimens: exact timestamp semantics, not just
 -- "touch moved mtime forward".
 
 local function test_utimensat_sets_exact_times()
@@ -233,7 +233,7 @@ local function test_futimens_bad_fd()
 end
 test_futimens_bad_fd()
 
--- rmrf failure path (issue #505): a path whose parent component is a
+-- rmrf failure path: a path whose parent component is a
 -- regular file fails with ENOTDIR regardless of privileges.
 
 local function test_rmrf_failure_reports_error()

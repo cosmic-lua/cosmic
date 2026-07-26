@@ -15,7 +15,7 @@ local unix = require("cosmo.unix")
 local lua_bin = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
--- === Issue #527 TDD cases (a)-(e) ===
+-- === Issue TDD cases (a)-(e) ===
 
 -- (a) kill a long-running child; wait() reports the terminating signal.
 local function test_kill_reports_signal()
@@ -317,7 +317,7 @@ local function test_spawn_zip_embedded_binary()
   ]]}))
   -- Spawning a /zip member needs memfd_create (cosmo's fd_to_mem_fd),
   -- which pledge's base filter forces to ENOSYS with no fallback — so
-  -- the sandboxed test lane (#729) cannot exercise it; skip on that
+  -- the sandboxed test lane cannot exercise it; skip on that
   -- specific failure. The enforce lane runs it for real.
   if not r.ok and tostring(r.stderr):find("spawn /zip/.bin/echo failed") then
     check.skip("zip spawn needs memfd_create; pledge forces ENOSYS")
@@ -357,7 +357,7 @@ local function test_spawn_many_captures_correct()
 end
 test_spawn_many_captures_correct()
 
--- === spawn hygiene (#526 item 5 / #539) ===
+-- === spawn hygiene ===
 
 local function test_spawn_does_not_mutate_argv()
   local argv = {"echo", "x"}
@@ -391,7 +391,7 @@ local function test_spawn_overlap_no_stdin_leak()
 end
 test_spawn_overlap_no_stdin_leak()
 
--- === honest option types: fd.Handle in Options (#602 / api-review-2 B5) ===
+-- === honest option types: fd.Handle in Options (/ api-review-2 B5) ===
 
 -- stdout as a Handle: the child writes into a pipe we own; run()'s own
 -- capture is then empty for that stream.

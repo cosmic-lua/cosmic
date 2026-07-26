@@ -1,6 +1,6 @@
 modules += cosmic
 # The sources the cosmic binary is made of. Three of these roots sit
-# OUTSIDE `cosmic/` since 3h: `cosmic/` is the published API and nothing
+# OUTSIDE `cosmic/`: that directory is the published API and nothing
 # else, so the dispatcher (`_cli/`) and the build system (`_make/`) are
 # root-internal trees, and the entry is `cmd/cosmic/main.tl` — the same
 # `cmd/<name>/` position `--make` builds every other binary from. This
@@ -24,12 +24,12 @@ cosmic_lua := $(patsubst %.tl,$(o)/%.lua,$(cosmic_tl))
 
 # cosmic_debug_test runs o/bin/cosmic-debug; every other test needs only
 # $(cosmic_bin) (a pattern-rule prerequisite), so the debug binary is
-# attached to just this test instead of all cosmic tests (#715)
+# attached to just this test instead of all cosmic tests
 cosmic_debug_test_got := $(call test_got,cosmic/cosmic_debug_test.tl)
 $(cosmic_debug_test_got): $(cosmic_debug_bin)
 
 # The --make graph tests drive a REAL make over fixture projects, and
-# needed `rx:bin` for it until the engine moved into $(o) (3i) — which
+# needed `rx:bin` for it until the engine moved into $(o) — which
 # `unveil_test` already grants `rwcx`. One fewer hand-written grant, and
 # the grant that is left is the derived one. Everything else those tests
 # exec is $(o)/bin/cosmic and fixture trees under $(TMP), also granted.
@@ -57,7 +57,7 @@ cosmic_types := $(wildcard _types/*.tl) $(wildcard _types/*.d.tl) $(wildcard _ty
 
 cosmic_version_lua := $(o)/cosmic/_version.lua
 
-# Reproducible pack (#733): zip entries carry the staged files' mtimes —
+# Reproducible pack: zip entries carry the staged files' mtimes —
 # build time, not source state — so two builds of the same tree differed
 # byte-for-byte. Clamp the whole staging tree to SOURCE_DATE_EPOCH (the
 # source commit date: deliberate input, like the version stamp's git describe)
@@ -68,19 +68,19 @@ cosmic_version_lua := $(o)/cosmic/_version.lua
 SOURCE_DATE_EPOCH ?= $(shell git log -1 --format=%ct 2>/dev/null || echo 0)
 # flatten NOW (parse time, real shell): a recursive value would expand
 # inside pack recipes, where $(shell) runs under the poisoned no-shell
-# SHELL and silently yields an empty epoch (#732)
+# SHELL and silently yields an empty epoch
 SOURCE_DATE_EPOCH := $(SOURCE_DATE_EPOCH)
 
-# De-hosted pack (#732): staging, the SOURCE_DATE_EPOCH mtime clamp,
+# De-hosted pack: staging, the SOURCE_DATE_EPOCH mtime clamp,
 # and the zip pipeline live in build-pack.tl (which owns the pack
-# policy: store boot-critical Lua, deflate the rest, -X for #733
+# policy: store boot-critical Lua, deflate the rest, -X for
 # reproducibility). Make stays the source of truth for WHAT ships —
 # every file is an explicit --copy SRC DST pair below; the zip tool is
 # the pinned cosmos binary, not a host tool. Recursive (=): expanded at
 # recipe time, after the includes define tl_dir/doc_index.
-# The two source mappings are now the identity (3h): a module's path
+# The two source mappings are now the identity: a module's path
 # relative to the root IS its path inside the zip, because the zip root
-# is the module root (3d) and the repo root is the module root (3b).
+# is the module root and the repo root is the module root.
 # They used to re-root `cosmic/` explicitly, which silently assumed every
 # packed module lived under it — `_cli/` and `_make/` do not.
 pack_copies = \
@@ -99,17 +99,17 @@ pack_copies = \
 pack = $(bootstrap_cosmic) -- $(build_pack) --built $(cosmic_built) \
   --epoch $(SOURCE_DATE_EPOCH) --zip $(cosmos_zip_bin) $(pack_copies)
 
-# Opt out of the enforced *.lua pattern family (#729): git describe
+# Opt out of the enforced *.lua pattern family: git describe
 # reads .git (never unveiled), and this recipe's `|| echo unknown`
 # fallback would swallow the denial into a silently version-less
 # artifact. Target-specific wins over pattern-specific.
 $(cosmic_version_lua): .SANDBOXED := 0
-# Shell exception (#732/#756 item 2): git describe + cosmos version
+# Shell exception item 2): git describe + cosmos version
 # interpolation; a deliberate host dependency, alongside its sandbox
 # opt-out above.
 $(cosmic_version_lua): private SHELL := /bin/bash
 $(cosmic_version_lua): private .SHELLFLAGS := -o pipefail -c
-# The cosmos version is READ, not run (3g). This recipe used to
+# The cosmos version is READ, not run. This recipe used to
 # `dofile('3p/cosmos/version.lua')` — the build executing its own
 # dependency pin to find out what it pinned. cosmic.literal lexes the
 # file and matches it against the literal grammar instead, which is the
@@ -131,7 +131,7 @@ $(cosmic_bin): $$(cosmic_lua) $(cosmic_main) $(cosmic_args) $$(tl_staged) $$(doc
 $(cosmic_debug_bin): $(cosmic_bin) $(build_pack)
 	@$(pack) --out $@ --base $(cosmos_lua_debug_bin)
 
-# Assimilated duplicate for sandboxed build-time exec (#729, third
+# Assimilated duplicate for sandboxed build-time exec (third
 # family): the teal/format check rules exec cosmic hundreds of times,
 # and a raw APE exec falls back to loader paths (~/.ape-*) no grant
 # covers. Same bytes as the artifact, converted in place to a native
@@ -140,7 +140,7 @@ $(cosmic_debug_bin): $(cosmic_bin) $(build_pack)
 cosmic_check_bin := $(o)/bin/cosmic-check
 # --assimilate is handled by the APE shell stub, which a direct (no
 # shell) exec bypasses — the pinned cosmos assimilate tool converts in
-# place instead, keeping this recipe shell-free (#732).
+# place instead, keeping this recipe shell-free.
 # remove the previous run's backup first: assimilate writes $@.bak and
 # refuses to overwrite one, so a rebuild over yesterday's assimilation
 # failed with "File exists" (witnessed after a bootstrap refresh).
@@ -150,7 +150,7 @@ $(cosmic_check_bin): $(cosmic_bin) | $$(cosmos_staged)
 	@$(cosmos_dir)/assimilate $@
 	@$(bootstrap_cosmic) --build require-elf $@
 
-# The APE loader, staged where the clamped PATH can see it (#729 test
+# The APE loader, staged where the clamped PATH can see it (test
 # family): the APE shell stub prefers `exec ape "$o" "$@"` for any
 # loader named ape on PATH, before falling back to extracting one into
 # ${TMPDIR:-$HOME}/.ape-<version> — a path no sandbox grant covers.
@@ -162,7 +162,7 @@ $(cosmic_check_bin): $(cosmic_bin) | $$(cosmos_staged)
 # (the exact flow every pre-#742 runner exec used), then move the cache
 # file the stub writes into place. A relative TMPDIR segfaulted on the
 # runner.
-# Shell exception (#732): extraction IS the APE shell-stub flow — a
+# Shell exception: extraction IS the APE shell-stub flow — a
 # direct cosmopolitan exec maps the binary and never writes the .ape-*
 # cache (witnessed), so this recipe must go through a real shell.
 ape_loader := $(o)/bin/ape
@@ -180,13 +180,13 @@ cosmic-debug: $(cosmic_debug_bin)
 .PHONY: cosmic cosmic-debug
 
 # tty_test opens pty pairs; the pty multiplexer and slave directory are
-# outside the shared test unveil set (#729 test family)
+# outside the shared test unveil set (test family)
 cosmic_tty_test_got := $(call test_got,\
   cosmic/tty_test.tl cosmic/tty_pty_test.tl)
 $(cosmic_tty_test_got): .UNVEIL := $(unveil_test) rw:/dev/ptmx rw:/dev/pts
 
 # Namespace-exercising examples opt out of the enforced example family
-# like the quicksand tests: unshare has no pledge promise (#729)
+# like the quicksand tests: unshare has no pledge promise
 quicksand_sandbox_examples := \
   $(o)/cosmic/quicksand/netns_example.tl.example.got \
   $(o)/cosmic/quicksand/proxy_example.tl.example.got

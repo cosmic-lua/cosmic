@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
---- Terminal-mode tests against a REAL terminal (#504).
+--- Terminal-mode tests against a REAL terminal.
 ---
 --- tty_test.tl covers the not-a-terminal paths and the module surface;
 --- everything that needs an actual tty used to be asserted as
@@ -167,7 +167,7 @@ local function echo_observed(pty: tty.Pty): boolean
   return false
 end
 
---- The assertion that actually matters, and the one #504 was after:
+--- The assertion that actually matters, and the one was after:
 --- echo stops HAPPENING, not merely a bit changes. Flag arithmetic that
 --- clears the wrong bit, or writes attrs the kernel quietly rejects,
 --- passes every check above and fails this one.
@@ -197,7 +197,7 @@ local function test_raw_stops_echo_and_restore_revives_it()
 end
 test_raw_stops_echo_and_restore_revives_it()
 
--- getpass, the last path #504 listed. It reads fd 0 specifically and
+-- getpass, the last path listed. It reads fd 0 specifically and
 -- only suppresses echo when fd 0 is a terminal, so covering it needs a
 -- process whose stdin IS a pty -- login_tty in a forked child, which
 -- replaces that child's session. Hence the fork: it must not happen in

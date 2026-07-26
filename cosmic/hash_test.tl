@@ -31,7 +31,7 @@ local function test_sha256_empty_string()
 end
 test_sha256_empty_string()
 
--- NIST FIPS 180-4 vectors (issue #505): the canonical empty and "abc"
+-- NIST FIPS 180-4 vectors: the canonical empty and "abc"
 -- inputs, asserted byte-for-byte, not just by length.
 
 local function test_sha256_nist_empty_vector()
@@ -135,7 +135,7 @@ local function test_password_unicode()
 end
 test_password_unicode()
 
--- argon2i / argon2d variants (issue #505): happy-path round trips, not
+-- argon2i / argon2d variants: happy-path round trips, not
 -- just the invalid-variant guard below.
 
 local function test_password_argon2i_roundtrip()
@@ -197,7 +197,7 @@ local function test_password_default_mcost_is_19456()
 end
 test_password_default_mcost_is_19456()
 
--- HMAC-SHA256 (issue #531): RFC 4231 test vectors
+-- HMAC-SHA256: RFC 4231 test vectors
 
 local function test_hmac_sha256_rfc4231_case1()
   local key = string.rep("\x0b", 20)
@@ -216,7 +216,7 @@ local function test_hmac_sha256_rfc4231_case2()
 end
 test_hmac_sha256_rfc4231_case2()
 
--- digest (issue #601): NIST FIPS 180 / RFC 1321 / RFC 7693 "abc" vectors
+-- digest: NIST FIPS 180 / RFC 1321 / RFC 7693 "abc" vectors
 
 local function test_digest_known_answers()
   local vectors: {hash.Algo: string} = {
@@ -266,7 +266,7 @@ local function test_digest_unknown_algo()
 end
 test_digest_unknown_algo()
 
--- hmac (issue #601): RFC 4231 test vectors
+-- hmac: RFC 4231 test vectors
 
 local function test_hmac_rfc4231_case2_sha256()
   local tag, err = hash.hmac("sha256", "Jefe", "what do ya want for nothing?")

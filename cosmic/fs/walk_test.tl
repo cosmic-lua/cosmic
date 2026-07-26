@@ -160,7 +160,7 @@ end
 test_files_missing_root_errors()
 
 -- Error propagation: an unreadable subdirectory does not stop the walk,
--- but the error is surfaced alongside the context (issue #505) — a
+-- but the error is surfaced alongside the context — a
 -- partial walk must never be mistaken for a complete one.
 
 local function test_walk_permission_denied_subdir_reports_error()

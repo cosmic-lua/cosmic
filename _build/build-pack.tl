@@ -1,5 +1,5 @@
 #!/usr/bin/env lua
---- Shell-free binary packing (#732): replaces the cosmic_bin recipe's
+--- Shell-free binary packing: replaces the cosmic_bin recipe's
 --- staging for-loops (mkdir/cp), the mtime clamp (find -exec touch),
 --- and the cd + zip pipeline. Make remains the source of truth for
 --- WHAT ships: it passes every file as an explicit --copy SRC DST pair
@@ -13,7 +13,7 @@
 --- type declarations, docs, .tl source, skills) is large or lazy-loaded
 --- and stays deflated. -X strips Unix extra fields (atime/mtime/uid/
 --- gid): zip reading a staged file bumps its atime to pack time, which
---- leaked into local headers even with mtimes clamped (#733). Entry
+--- leaked into local headers even with mtimes clamped. Entry
 --- mtimes stay as clamped DOS timestamps; mode bits live in the
 --- central attrs and survive -X.
 
@@ -121,7 +121,7 @@ local function zip_add(zip_bin: string, built: string, out: string,
   -- group, not a failure — a project that ships no skills/ and no
   -- docs index still packs. Treating it as an error made the pack
   -- depend on THIS tree happening to contain one of every name, which
-  -- 3d discovered by moving two of them out of a group.
+  -- Discovered by moving two of them out of a group.
   local NOTHING_TO_DO < const > = 12
   if not r.ok and r.code ~= NOTHING_TO_DO then
     return false, "zip " .. flags .. " failed (exit " .. tostring(r.code) .. ")"
@@ -142,9 +142,9 @@ local STORED < const >: {string: boolean} = {
 ---
 --- The three zip groups used to be three hand-written name lists, and
 --- the comment on them said what that costs: a name in none of them is
---- SILENTLY not packed. 3d hit it (tl.lua and the types left `.lua/`
+--- SILENTLY not packed. Twice: once when tl.lua and the types left `.lua/`
 --- and fell out of the archive; the binary built, ran, and failed only
---- when something first required `tl`), 3h hit it again (`_cli/` and
+--- and nothing noticed until something required `tl`, and again when `_cli/` and
 --- `_make/` arrived at the root and shipped no compiled modules at
 --- all). So the tree decides now: everything found is packed, and the
 --- only list left is which names are boot-critical enough to store
@@ -241,7 +241,7 @@ local function main(...: string): integer
   -- everything else, deflated. cosmic.mk and the embedded make land in
   -- the second — both are read once, when `--make` drives a build, not
   -- on every start. make is ~1.6 MB raw and compresses to roughly half
-  -- that, which is the whole cost of 2e.
+  -- that, which is what shipping the engine costs.
   local names, terr = top_level(built)
   if not names then return fail(terr) end
   local stored: {string} = {}

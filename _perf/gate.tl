@@ -1,5 +1,5 @@
 #!/usr/bin/env lua
---- Perf gate orchestration (#756 cleanup): the compare retry and the
+--- Perf gate orchestration (cleanup): the compare retry and the
 --- A/A triage that used to live as ||-chains in the perf-compare and
 --- perf-selfcheck recipes. A flagged regression re-measures once (noise
 --- must strike twice in the same direction); if it persists, an A/A

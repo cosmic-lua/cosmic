@@ -64,9 +64,9 @@ end
 --- corresponding Result field is then ""). spawn does not take ownership
 --- of a Handle: the child gets its own copy of the descriptor, so close
 --- your end when you are done with it (see Example_run_pipe). Raw integer
---- fds are not part of this surface (api-review-2, #602); wrap one with
+--- fds are not part of this surface (api-review-2); wrap one with
 --- fd.wrap() if it comes from outside the fd module.
---- stdout/stderr also accept "inherit" (#797): the child writes to THIS
+--- stdout/stderr also accept "inherit": the child writes to THIS
 --- process's fd 1/2 so output streams as it runs; Result then stays "".
 local record Options
   stdin: string | cfd.Handle -- string piped to stdin, or Handle -> fd 0

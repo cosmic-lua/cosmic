@@ -1,10 +1,10 @@
---- Shell-free recipe steps for the build's make rules (#732): `compile`
+--- Shell-free recipe steps for the build's make rules: `compile`
 --- replaces the cat/if/redirect/cmp/mv dance, `copy` replaces mkdir+cp,
 --- `link` replaces mkdir+ln -sfn, `capture` and `tee` replace redirects
 --- with cmp/mv or tee, plus list/remove/require-*/verdict.
 ---
 --- Embedded in the cosmic binary behind the greedy `--build <mode>
---- <args>...` CLI flag (#756 item 3). The build's make recipes exec the
+--- <args>...` CLI flag. The build's make recipes exec the
 --- PINNED bootstrap's copy (`$(bootstrap_cosmic) --build ...`), so
 --- changes here reach the recipes only through a release + bootstrap
 --- pin bump — an edit to this file cannot affect the build that

@@ -38,7 +38,7 @@ local type Project = types.Project
 --- else -- shipping is a thing a project DOES, not the default a file
 --- falls into.
 ---
---- `asset` is deliberately absent, and it used to be here. Every other
+--- `asset` is deliberately absent. Every other
 --- kind in the model is declared by position or marker (a test is
 --- `*_test.*`, a pin is `*_pin.tl`, payload is `embed/**`, internal is
 --- `_`), and "everything else ships at its relative path" was the one
@@ -102,7 +102,7 @@ end
 --- — `stage_entry` puts it there — so what argv names is a fact about
 --- this layout, not a project's choice. It has to be stated because a
 --- base can be a bare `lua`, which has no `.args` of its own; embedding
---- onto a cosmic used to supply one by accident, and "the artifact boots
+--- onto a cosmic supplies one by accident, and "the artifact boots
 --- as the Lua interpreter" is what that accident looked like when it
 --- stopped happening.
 local ARGS_STORED < const > = ".args"

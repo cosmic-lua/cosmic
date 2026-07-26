@@ -184,7 +184,7 @@ local function test_setitimer()
 end
 test_setitimer()
 
--- Error fidelity (issue #529): failures surface the binding's errno
+-- Error fidelity: failures surface the binding's errno
 -- string instead of being fabricated or discarded.
 
 local function test_raise_error_names_errno()

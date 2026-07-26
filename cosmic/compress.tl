@@ -2,7 +2,7 @@
 --- Wraps DEFLATE in the three standard framings — zlib (default), gzip,
 --- and raw (headerless, as used inside ZIP files) — so output
 --- interoperates with standard tooling for each format (api-review-2,
---- #590). Raw callers who need the original length carry it themselves
+---). Raw callers who need the original length carry it themselves
 --- and should checksum the output separately.
 local cosmo = require("cosmo")
 

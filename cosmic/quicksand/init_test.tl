@@ -53,7 +53,7 @@ local function test_user_ns_agrees_with_scratch_probe()
 end
 test_user_ns_agrees_with_scratch_probe()
 
--- is_supported (issue #505): pinned to the capability report it is
+-- is_supported: pinned to the capability report it is
 -- derived from (which the shape test above proves is all booleans),
 -- and stable across calls — not just "returns a boolean".
 local function test_is_supported_matches_capabilities()
@@ -80,7 +80,7 @@ end
 -- fails with anything other than ENOSYS, and unavailable when the binding
 -- is absent (nil) or the call fails with a numeric ENOSYS in its third
 -- return slot. This is the classification that was fail-open before the
--- Phase 0 errno-return fix (audit §2.3): the error used to be swallowed,
+-- Phase 0 errno-return fix: the error used to be swallowed,
 -- so the ENOSYS branch was dead and every probe reported available. These
 -- cases fail if that regresses.
 local function test_probe_nil_binding_is_unavailable()

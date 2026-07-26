@@ -1,6 +1,6 @@
 --- Networking and socket utilities.
 --- Wraps cosmo.unix socket functions for TCP/UDP and Unix domain sockets.
---- Addresses are typed (api-review-2, #588): every public signature
+--- Addresses are typed (api-review-2): every public signature
 --- takes a dotted-quad string or an ip.Addr and returns ip.Addr — bare
 --- integers are not addresses. IPv4 only: IPv6 strings are rejected
 --- with an explicit "IPv6 not supported" error, and lands later as a
@@ -118,7 +118,7 @@ local function connect_tcp(addr: Address, port: integer): Socket | nil, string
 end
 
 --- Open a TCP connection to host:port. This name and shape are the
---- stable dial contract (api-review-2, #588; reserved from #501): host
+--- stable dial contract (api-review-2; reserved from): host
 --- is a dotted-quad literal or a DNS name — resolution happens inside —
 --- and the result is a connected Socket. Future address families and
 --- richer endpoint forms extend the values dial accepts, never the
@@ -142,7 +142,7 @@ local function dial(host: string, port: integer): Socket | nil, string
   return connect_tcp(a, port)
 end
 
---- Socket options for listen_tcp (#493: the hidden SO_REUSEADDR is now
+--- Socket options for listen_tcp (: the hidden SO_REUSEADDR is now
 --- an opt-out, and SO_REUSEPORT an opt-in).
 local record ListenOptions
   --- Set SO_REUSEADDR on the listener (default true: rebinding a
@@ -165,7 +165,7 @@ end
 ---   -- port is now the OS-assigned port, e.g. 54321
 ---   local client = net.connect_tcp("127.0.0.1", port)
 ---
---- Recorded decision (api-review-2, #593): the (Socket, port, err) return
+--- Recorded decision (api-review-2): the (Socket, port, err) return
 --- order — the bound port between the value and the error slot — is
 --- deliberate port-0 ergonomics, kept as-is rather than reshuffled to the
 --- usual value-then-error order.

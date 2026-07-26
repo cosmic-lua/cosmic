@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- Tests for the trust-root make extractor (#756 item 6): pin parsing and
+-- Tests for the trust-root make extractor: pin parsing and
 -- url interpolation, member extraction from a real zip, and the
 -- executable install. The network path (download) is deliberately not
 -- exercised here — the sha pin it enforces is proven by every cold

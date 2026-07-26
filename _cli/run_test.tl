@@ -1,6 +1,6 @@
 #!/usr/bin/env cosmic
 --- Tests for _cli.run -- the two user-facing error-presentation
---- helpers the CLI wraps every script in (#504, previously zero
+--- helpers the CLI wraps every script in (previously zero
 --- coverage). Both are pure string transforms, so they are tested
 --- directly rather than through a spawned binary.
 

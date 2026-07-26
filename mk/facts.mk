@@ -1,4 +1,4 @@
-# mk/facts.mk — remaking o/project.mk, the generated facts (3e).
+# mk/facts.mk — remaking o/project.mk, the generated facts.
 #
 # The Makefile `-include`s o/project.mk, so make remakes it before doing
 # anything else and re-execs once it changes. Everything about this rule
