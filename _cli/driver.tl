@@ -72,9 +72,6 @@ local shapes: {string: Shape} = {
 --- Collect the paths a shape names, by role.
 --- @param shape Shape The verb's argument shape
 --- @param args {string} The verb's arguments
---- @return {string} readable paths
---- @return {string} writable paths
---- @return {string} executable paths
 --- @return {string} readable paths named by position
 --- @return {string} writable paths
 --- @return {string} executable paths

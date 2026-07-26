@@ -8,9 +8,10 @@
 -- variable override, and incrementality. None of that is observable
 -- from the Teal side.
 --
--- The engine is named through COSMIC_MAKE, since cosmic does not carry
--- one yet. When there is none to name, the file skips rather than
--- fails: it is testing the graph, not the availability of a make.
+-- The engine is named through COSMIC_MAKE so the test drives a known
+-- binary rather than whatever `/zip/make` this build embeds. When there
+-- is none to name, the file skips rather than fails: it is testing the
+-- graph, not the availability of a make.
 
 local check = require("cosmic.check")
 local cenv = require("cosmic.env")

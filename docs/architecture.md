@@ -105,7 +105,8 @@ return M
 ### `3p/` — Third-Party Dependencies
 
 each 3p module has:
-- `version.lua`: declares version, SHA, and download URLs
+- `*.pin.tl`: a pin — one `return { … }` of literals declaring the
+  version, digest and url, read as data and never executed
 - `cook.mk`: declares module variables for the build system
 
 the fetch/stage pipeline handles downloading, verifying, and extracting.

@@ -36,7 +36,7 @@ what ships. Dropped whole in 2a; the fuller account is in
 $ cosmic --make build          # strict check, compile, stage, embed → o/bin/myapp
 $ cosmic --make test           # tests, fenced, against the staged tree
 $ cosmic --make fetch          # the only verb that touches the network
-$ cosmic --make ci             # fixed order, stages gated by what the project has
+$ cosmic --make ci             # PLANNED: fixed order, stages gated by material
 ```
 
 Two sentences carry most of the design:
@@ -152,33 +152,27 @@ path** derived from its position. Nothing else varies.
 | test | `X_test.tl` | staged subtree at its directory + staged modules | `o/X.tl.test.{got,out,err}` |
 | generator | `*.gen.tl` in `D` | `D`'s subtree | `o/D/**` |
 | binary | `main.tl`, `cmd/<n>/main.tl` | root packages + its own `cmd/<n>/**` | `o/bin/<n>` |
-| pin | `*.pin.tl` in `D` | the pin literal, plus a socket under `fetch` | `D/<name from the url>` ⚠ |
+| pin | `*.pin.tl` in `D` | the pin literal, plus a socket under `fetch` | `o/D/<name from the url>` ⚠ |
 
 Read down the scope column and the design's two load-bearing sentences
-are the same sentence: *inputs = grants = your staged subtree*, and
-*put it where its inputs are*. `cmd/foo` cannot import `cmd/bar` is not
-a special artifact rule — it is that unit's scope, stated as a
-validator error instead of as a denied read, because it can be caught
-statically.
+are one: *inputs = grants = your staged subtree*, and *put it where its
+inputs are*. `cmd/foo` cannot import `cmd/bar` is not a special
+artifact rule — it is that unit's scope, stated as a validator error
+rather than a denied read because it can be caught statically.
 
-What this buys: `exec`'s fence gets a referent (it is the one verb
-whose reads argv cannot derive, and the design already promises it is
-"fenced to the unit's subtree"); staging becomes one question,
-`scope_of(unit)`, that the artifact, the test stage and a generator's
-read grant all ask; and a new unit kind costs a table row.
-
-What it does *not* buy, and why this is a recorded observation rather
-than a refactor: the rows differ in the one place that matters — how
-the scope is computed — so a `Unit` record is a bag holding five
+What this buys: `exec`'s fence gets a referent; staging becomes one
+question, `scope_of(unit)`, that the artifact, the test stage and a
+generator's read grant all ask; and a new unit kind costs a table row.
+What it does *not* buy: the rows differ in the one place that matters —
+how the scope is computed — so a `Unit` record is a bag of five
 unrelated functions until at least three exist.
 
-**How to investigate it, and what came back.** Not by staring at the
-table — by writing the next scope *without* consulting the last one.
-Two rows have since falsified a prediction: a pin's output path is
-named by the url inside it, not by position (hence the ⚠), and a
-binary's payload generator reads the *binary's* scope rather than its
-own subtree. The `Unit` record is therefore not earned; what the
-evidence supports is the smaller `unit_dir(path)` the fence wants.
+**How to investigate it.** Not by staring at the table — by writing the
+next scope *without* consulting the last one. Two rows have since
+falsified a prediction: a pin's output path is named by the url inside
+it, not by position (hence the ⚠), and a binary's payload generator
+reads the *binary's* scope rather than its own subtree. The `Unit`
+record is not earned; the smaller `unit_dir(path)` the fence wants is.
 Method and findings: [make-plan.md](make-plan.md), 2d.
 
 ### Generators
@@ -302,8 +296,9 @@ tests inside a stripped artifact.
 ### Reproducibility
 
 Entries carry a fixed mtime (`SOURCE_DATE_EPOCH`, else the DOS floor
-315532800) rather than the staging file's; `AddOptions.mtime` exists in
-the binding and is not plumbed through `embed.run` today. Gate: build
+315532800) rather than the staging file's. Plumbed through `embed.run`
+and DEFAULTED there, so `--embed` is reproducible too and not only the
+`--make` path that passes one explicitly. Gate: build
 the same fixture twice into different paths, compare sha256.
 
 ## Engine
@@ -470,17 +465,18 @@ staged tree.
 **Graph verbs:**
 
 ```
-build [paths…]  compile → generate → stage → embed → o/bin/<name>
-test  [paths…]  build the stage, run *_test.tl fenced against it
-check [paths…]  strict type-check only
-fmt   [paths…]  --check-format (--fix to rewrite)
-run   [path]    build, then exec the artifact with remaining argv
-regen [paths…]  run generation units
-fetch [paths…]  resolve *.pin.tl — the only verb with network
-clean           remove o/
+build [paths…]  compile → generate → stage → embed → o/bin/<name>   [now]
+test  [paths…]  build the stage, run *_test.tl fenced against it     [now]
+check [paths…]  strict type-check only                               [now]
+fmt   [paths…]  --check-format (--fix to rewrite)                    [now]
+fetch [paths…]  resolve *.pin.tl — the only verb with network        [now]
+clean           remove o/                                            [now]
+run   [path]    build, then exec the artifact with remaining argv    [planned]
+regen [paths…]  run generation units                                 [planned]
 ```
 
-**Policy verbs** — orchestration over the graph, never graph rules:
+**Policy verbs** — orchestration over the graph, never graph rules.
+All planned; `bin/make` owns these lanes today:
 
 ```
 ci              format → check → test → example → lint → coverage
@@ -489,6 +485,9 @@ enforce         sandbox-enforced lane
 reproducible    double-build + compare
 offline         no-network lane, asserted against the pins
 ```
+
+The `ci` ordering above names `example` and `lint` stages that are not
+verbs at all yet; they are what the lane must cover, not what it calls.
 
 `ci` is a fixed order with **each stage gated by whether the project has
 material for it** — no tests, no test stage; no committed coverage

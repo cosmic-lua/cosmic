@@ -146,8 +146,12 @@ make: 3p/lpeg/lpeg.pin.tl:2: a pin holds literals only; found 'os' (no variables
 download. bytes that do not hash to the pin are **never written**, so a
 build either runs on the bytes you named or does not run. `{version}`
 substitution is the one templating the grammar allows, which makes a
-bump a one-line diff. the fetched asset lands beside its pin, named by
-the url (`3p/lpeg/lpeg-1.0.2.tar.gz`).
+bump a one-line diff. the fetched asset lands under `o/`, mirroring the
+pin's position and named by the url
+(`3p/lpeg/lpeg.pin.tl` → `o/3p/lpeg/lpeg-1.0.2.tar.gz`) — nothing
+generated belongs in the tree. a pin may also declare a `format`
+(`zip` or `tar.gz`) with `strip_components`, and is then unpacked
+beside its archive *after* the digest matches.
 
 `fetch` is the only verb with a network, and that is structural: it is
 the only part of `--make` that can open a socket at all. a project
