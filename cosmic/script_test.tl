@@ -223,3 +223,60 @@ end
 test_script_cache_reuse_and_invalidation()
 
 print("All script tests passed!")
+
+-- The compile cache holds CODE THAT WILL BE EXECUTED, and its key --
+-- sha256(path .. content .. build id) -- is computable by anyone who
+-- can see the script. In a world-writable directory that means another
+-- local user can plant `<key>.lua` and choose what this process runs,
+-- with no compile and no error. The reach is every `.tl` module every
+-- embedded artifact requires at boot, since cosmic.searcher goes
+-- through the same cache.
+--
+-- Both directions are asserted, because only the pair is evidence: the
+-- SAME planted file must execute from a directory we own privately
+-- (proving the key is right and the attack is real) and must be
+-- ignored from a group/world-writable one.
+local function plant(dir: string, script: string, code: string)
+  local hash = require("cosmic.hash")
+  local content = check.must(fs.read(script))
+  -- Non-literal module name: cosmic._version is generated at build
+  -- time, so there is no type information for it in the tree.
+  local mod = "cosmic._version"
+  local ok, ver = pcall(require, mod)
+  local id = ok and tostring((ver as {string: string}).cosmic) or "unknown" -- cast: from any
+  local key = hash.sha256_hex(script .. "\0" .. content .. "\0" .. id)
+  assert(fs.write(fs.join(dir, key .. ".lua"), code))
+end
+
+--- Run `script` with the cache pointed at `dir`, returning stdout.
+local function run_cached(dir: string, script: string): string
+  local env: {string} = {
+    "PATH=" .. (os.getenv("PATH") or ""),
+    "COSMIC_TL_CACHE_DIR=" .. dir,
+    "NO_COLOR=1",
+    "COSMIC_NO_WELCOME=1",
+  }
+  local h = check.must(spawn.spawn({cosmic, script}, {env = env}))
+  local r = check.must(h:wait())
+  return (r.stdout or "") .. (r.stderr or "")
+end
+
+local function test_cache_refuses_a_shared_directory()
+  local script = write_temp("cached.tl", 'print("compiled fresh")\n')
+  local dir = fs.join(test_subdir, "cache")
+  assert(fs.makedirs(dir))
+  plant(dir, script, 'print("PLANTED")\n')
+
+  assert(fs.chmod(dir, tonumber("700", 8) as integer)) -- cast: octal is integral
+  local owned = run_cached(dir, script)
+  assert(owned:find("PLANTED", 1, true),
+    "a private cache is used, so the planted key is the right one: " .. owned)
+
+  assert(fs.chmod(dir, tonumber("777", 8) as integer)) -- cast: octal is integral
+  local shared = run_cached(dir, script)
+  assert(shared:find("compiled fresh", 1, true),
+    "a world-writable cache must be bypassed, not trusted: " .. shared)
+  assert(not shared:find("PLANTED", 1, true),
+    "and must never execute what it holds: " .. shared)
+end
+test_cache_refuses_a_shared_directory()
