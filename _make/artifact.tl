@@ -352,6 +352,45 @@ local function base_of(proj: Project, binary: Binary, cosmic: string): string
   return cosmic
 end
 
+--- Every runtime this unit ships its payload on.
+---
+--- A unit that writes `base-<variant>` beside `base` gets a second
+--- artifact, `o/bin/<name>-<variant>`, carrying the SAME payload on a
+--- different runtime. That is what a debug build is — cosmic ships
+--- `cosmic` and `cosmic-debug` off one payload and two cosmos runtimes —
+--- and expressing it as another file in the directory the convention
+--- already reads keeps it out of the model: no variant field, no second
+--- `cmd/` unit whose generator has to be kept in step with the first.
+---
+--- The plain `base` comes first, so the unnamed artifact is the one a
+--- project without variants gets and the one every other verb means.
+--- @param proj Project The scanned project
+--- @param binary Binary The artifact being built
+--- @param cosmic string Absolute path to the running cosmic
+--- @return {{string, string}} Output suffix paired with base path
+local function bases_of(proj: Project, binary: Binary,
+    cosmic: string): {{string, string}}
+  local dir = project.out_dir(binary.dir)
+  local base = fs.join(dir, BASE_NAME)
+  if not fs.isfile(fs.join(proj.root, base)) then
+    return {{"", cosmic}}
+  end
+  local out: {{string, string}} = {{"", base}}
+  -- One level, not a walk: `embed/` is right there and is the payload.
+  local found = fs.glob(fs.join(proj.root, dir), BASE_NAME .. "-*")
+  local names: {string} = {}
+  if found is {string} then
+    for _, variant_path in ipairs(found) do
+      names[#names + 1] = fs.basename(variant_path)
+    end
+  end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    out[#out + 1] = {name:sub(#BASE_NAME + 1), fs.join(dir, name)}
+  end
+  return out
+end
+
 --- Build one artifact from an already-compiled tree.
 --- @param proj Project The scanned project
 --- @param binary Binary The artifact to build
@@ -363,24 +402,30 @@ local function build(proj: Project, binary: Binary, cosmic: string): string | ni
   if not dir then
     return nil, serr or "make: staging failed"
   end
-  local out = fs.join(project.BUILD_DIR, "bin", binary.name)
-  local mok, merr = fs.makedirs(fs.dirname(out))
+  local bindir = fs.join(project.BUILD_DIR, "bin")
+  local mok, merr = fs.makedirs(bindir)
   if not mok then
-    return nil, "make: cannot create " .. fs.dirname(out) .. ": " ..
+    return nil, "make: cannot create " .. bindir .. ": " ..
     (merr or "unknown error")
   end
-  -- The other half of the provider exemption: the validator lets a
-  -- project define `cosmic/**` when it defines the whole namespace, and
-  -- this is what makes that true of the artifact too. Keeping the
-  -- base's copy as well would ship two standard libraries, with the
-  -- project's winning on package.path and the base's riding along.
-  local result = embed.run({dir as string}, out, -- cast: scalar narrowing after the guard
-    base_of(proj, binary, cosmic),
-    {strip = true, provides = validate.claims(proj), mtime = embed.EPOCH})
-  if not result.ok then
-    return nil, "make: " .. binary.name .. ": " .. result.message
+  local first: string = nil
+  -- One staged payload, embedded onto each declared runtime. Staging
+  -- again per variant would only invite the two to differ.
+  for _, pair in ipairs(bases_of(proj, binary, cosmic)) do
+    local out = fs.join(bindir, binary.name .. pair[1])
+    -- The other half of the provider exemption: the validator lets a
+    -- project define `cosmic/**` when it defines the whole namespace, and
+    -- this is what makes that true of the artifact too. Keeping the
+    -- base's copy as well would ship two standard libraries, with the
+    -- project's winning on package.path and the base's riding along.
+    local result = embed.run({dir as string}, out, pair[2], -- cast: scalar narrowing after the guard
+      {strip = true, provides = validate.claims(proj), mtime = embed.EPOCH})
+    if not result.ok then
+      return nil, "make: " .. binary.name .. pair[1] .. ": " .. result.message
+    end
+    first = first or out
   end
-  return out
+  return first
 end
 
 local record ArtifactModule

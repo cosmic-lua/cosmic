@@ -110,9 +110,10 @@ local function seed_pins(repo: string): boolean
   local want: {{string, string, string}} = {
     {"tl", "tl.lua", "o/3p/tl/tl.lua"},
     {"cosmos", "make", "o/3p/cosmos/make"},
-    -- The base runtime too: the generator names all three, and seeding
-    -- two of them just moved the failure one line later.
+    -- Every base the generator names, not just the default one: seeding
+    -- a subset only moves the failure to the next missing line.
     {"cosmos", "lua", "o/3p/cosmos/lua"},
+    {"cosmos", "lua-debug", "o/3p/cosmos/lua-debug"},
   }
   for _, w in ipairs(want) do
     local dest = fs.join(repo, w[3])

@@ -425,6 +425,34 @@ local function in_process(root: string, ...: string): integer
   return code
 end
 
+-- A unit that writes `base-<variant>` beside `base` ships the SAME
+-- payload on both runtimes, as `o/bin/<name>` and
+-- `o/bin/<name>-<variant>`. That is how a release gets `cosmic` and
+-- `cosmic-debug` out of one payload, without a second `cmd/` unit whose
+-- generator would have to be kept in step with the first. Both must
+-- RUN: embedding onto the wrong base still produces a file, and only
+-- running it says so.
+local function test_a_variant_base_ships_the_payload_twice()
+  local root = fixture("variant", {["main.tl"] = "print('ran')\n"})
+  local runtime = check.must(fs.read(cosmic))
+  assert(fs.makedirs(fs.join(root, "o")))
+  for _, name in ipairs({"base", "base-debug"}) do
+    local path = fs.join(root, "o", name)
+    assert(fs.write(path, runtime))
+    assert(fs.chmod(path, tonumber("755", 8) as integer)) -- cast: octal is integral
+  end
+
+  assert(in_process(root, "build") == 0, "build should succeed")
+  for _, rel in ipairs({"o/bin/build-variant", "o/bin/build-variant-debug"}) do
+    local path = fs.join(root, rel)
+    assert(fs.isfile(path), rel .. " should be built")
+    local done = check.must(check.must(spawn.spawn({path})):wait())
+    assert(done.ok and (done.stdout or ""):find("ran", 1, true),
+      rel .. " should run its payload, got: " .. tostring(done.stdout))
+  end
+end
+test_a_variant_base_ships_the_payload_twice()
+
 local function test_in_process_graph_verbs()
   local root = app("inproc")
   assert(in_process(root, "build") == 0, "build in process")

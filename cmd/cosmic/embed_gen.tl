@@ -126,10 +126,15 @@ local function put_tree(dir: string, dest: string): boolean, string
   return true
 end
 
---- The runtime the artifact is built onto, and the name `build` looks
---- for it under in this unit's output directory.
-local BASE_FROM < const > = "o/3p/cosmos/lua"
-local BASE_NAME < const > = "base"
+--- The runtimes the artifact is built onto, and the names `build` looks
+--- for them under in this unit's output directory. `base` is the
+--- artifact; a `base-<variant>` beside it gets the same payload on that
+--- runtime, as `o/bin/cosmic-<variant>`. A release is both: `cosmic` and
+--- `cosmic-debug` are one payload on the pinned `lua` and `lua-debug`.
+local BASES: {{string, string}} = {
+  {"base", "o/3p/cosmos/lua"},
+  {"base-debug", "o/3p/cosmos/lua-debug"},
+}
 
 --- The payload directory, inside the unit's output directory. `build`
 --- stages everything under it at the artifact root.
@@ -335,12 +340,14 @@ local function generate(out: string): string
   if not mok then
     return dest .. ": " .. (merr or "cannot create")
   end
-  if not fs.isfile(BASE_FROM) then
-    return BASE_FROM .. ": missing; run `cosmic --make fetch` first"
-  end
-  local bok, berr = put(BASE_FROM, BASE_NAME, out)
-  if not bok then
-    return berr
+  for _, pair in ipairs(BASES) do
+    if not fs.isfile(pair[2]) then
+      return pair[2] .. ": missing; run `cosmic --make fetch` first"
+    end
+    local bok, berr = put(pair[2], pair[1], out)
+    if not bok then
+      return berr
+    end
   end
 
   for _, path in ipairs(sources(p, binary)) do

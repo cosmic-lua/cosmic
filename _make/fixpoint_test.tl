@@ -106,7 +106,10 @@ local function seed_pins(dest: string): boolean
   local want: {{string, string, string}} = {
     {"tl", "tl.lua", "o/3p/tl/tl.lua"},
     {"cosmos", "make", "o/3p/cosmos/make"},
+    -- Every base the generator names, not just the default one: seeding
+    -- a subset only moves the failure to the next missing line.
     {"cosmos", "lua", "o/3p/cosmos/lua"},
+    {"cosmos", "lua-debug", "o/3p/cosmos/lua-debug"},
   }
   for _, w in ipairs(want) do
     -- Prefer this tree's own `o/3p` when a developer has run
