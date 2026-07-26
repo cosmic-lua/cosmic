@@ -18,6 +18,16 @@ area: Makefile, mk/*.mk, cook.mk, pr.yml, `_build/makefile_ratchet_test.tl`
    how a broken `--make` looks green. make the skip a hard fail in CI
    lanes first.
 
+## progress since filed
+
+3e94a02 gated the fixpoint (audit 026) as a *test* in the existing
+lanes — the right mechanism, and it retires the worst of the "looks
+green while broken" risk for `build`. one transition detail it adds:
+the test seeds `o/3p/**` from what the **Makefile pipeline** staged,
+deliberately, to stay offline. when the bridge goes, that seeding must
+switch to `--make fetch` — which makes 028 a prerequisite of the final
+deletion, not just a nice-to-have.
+
 ## the dual gate
 
 add a pr.yml lane running `cosmic --make ci` (as its stages land, 051)

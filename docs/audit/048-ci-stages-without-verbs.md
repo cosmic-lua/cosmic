@@ -20,7 +20,9 @@ them no runner. `lint` is the other half of today's gate
 home named anywhere.
 
 phase 4 cannot deliver `ci` as specified while two of its six stages
-have no verb to invoke.
+have no verb to invoke. (944a352 acknowledged this in make.md itself —
+verbs are now marked `[now]`/`[planned]` and the ci-ordering caveat is
+stated — so the *doc* half is closed; the feature gap is what remains.)
 
 ## proposal
 

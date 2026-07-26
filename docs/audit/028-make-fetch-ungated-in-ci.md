@@ -20,6 +20,16 @@ and surface only when someone runs the fixpoint by hand.
 - `_make/fetch.tl` — cert default, landing paths.
 - pr.yml — no lane invokes `--make fetch`.
 
+## status after 3e94a02
+
+the fixpoint test (audit 026's fix) is **offline by construction** — it
+deliberately seeds `o/3p/**` from what the Makefile pipeline staged
+rather than fetching. so this gap stands unchanged: pin *resolution*
+(the `platforms` table, `{platform}` substitution, the
+`SSL_USE_SYSTEM_CERTS` default) still never executes in any lane. and
+when the bridge goes (056), the fixpoint test's seeding has to switch
+to `--make fetch` — at which point this item is its prerequisite.
+
 ## suggested fix
 
 cheapest first:

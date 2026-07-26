@@ -1,11 +1,12 @@
 # audit — `cosmic --make` branch review
 
 findings from a review of branch `claude/cosmic-make-embedded-artifact-qpfsgr`,
-originally at commit `180b0d3` ("make: close the fixpoint"), re-reviewed at
-`4a15b92` ("make: fix 18 findings from the branch audit"). every file here is
-one open issue, with enough detail to find and fix it: location, failure
-scenario, and a suggested fix. ids are stable; resolved entries are deleted
-(their text lives in this directory's git history) and listed below.
+originally at `180b0d3` ("close the fixpoint"), re-reviewed at `4a15b92`
+("fix 18 findings") and again at `1ca5fd1` (six fix commits: fixpoint gate,
+cache security, exec realpath, tar terminator, `.d.tl` closures, doc sweeps).
+every file here is one open issue with location, failure scenario, and a
+suggested fix. ids are stable; resolved entries are deleted (their text lives
+in git history) and listed below.
 
 ## open
 
@@ -13,17 +14,13 @@ scenario, and a suggested fix. ids are stable; resolved entries are deleted
 
 | id | severity | issue |
 |---|---|---|
-| [038](038-literal-u-escape-drops-chars.md) | high | `cosmic.literal` `\u{}` escape swallows the next two characters (regression in 4a15b92) |
-| [007](007-dtl-no-recompile.md) | medium | `.d.tl` contract changes never recompile importers |
-| [024](024-tar-partial-extraction.md) | low | tar failure semantics: partial extraction, missing terminator accepted |
-| [039](039-import-scanners-disagree.md) | low | the two import scanners disagree again; long comments still refuse |
+| [038](038-literal-u-escape-drops-chars.md) | **high — oldest open item** | `cosmic.literal` `\u{}` escape swallows the next two characters (regression in 4a15b92) |
+| [039](039-import-scanners-disagree.md) | low | the two import scanners disagree; long comments still refuse |
 
 ### security
 
 | id | issue |
 |---|---|
-| [012](012-script-cache-poisoning.md) | script cache in shared `/tmp` executes unverified planted code |
-| [013](013-exec-symlink-escape.md) | `exec` root check is lexical; a symlink under `o/` escapes it |
 | [014](014-fence-unexercised.md) | derived fence is unexercised in production and its floor is incomplete |
 
 ### stripped artifacts
@@ -50,15 +47,13 @@ scenario, and a suggested fix. ids are stable; resolved entries are deleted
 | [045](045-implicit-asset-default.md) | medium | assets ship by default; every other kind is opt-in by marker |
 | [046](046-gen-marker-two-meanings.md) | medium | `.gen.tl` marks two different unit kinds, split by basename prose |
 | [047](047-selection-means-different-things.md) | medium | selection narrows targets for `test`/`fmt`, truncates the pipeline for `build` |
-| [048](048-ci-stages-without-verbs.md) | low | `ci`'s documented pipeline contains stages no verb covers |
+| [048](048-ci-stages-without-verbs.md) | low | `ci`'s pipeline names stages no verb covers (doc half closed in 944a352) |
 | [049](049-pin-grammar-coherence.md) | low | pin grammar: url-derived output naming and the dual sha spelling |
 | [050](050-version-stamp-implicit-input.md) | low | `COSMIC_VERSION` is the one build input not enumerable from the tree |
 
 ### 3i readiness — removing the Makefile bridge
 
-what stands between today and `bin/cosmic --make ci` being the only build
-system. 056 is the mechanism; it names the dependency order the others
-land in.
+056 is the mechanism; it names the dependency order the others land in.
 
 | id | issue |
 |---|---|
@@ -73,8 +68,7 @@ land in.
 
 | id | issue |
 |---|---|
-| [026](026-fixpoint-not-in-ci.md) | the self-build fixpoint is not gated by any ci lane |
-| [028](028-make-fetch-ungated-in-ci.md) | `--make fetch` never runs in ci against the real pins |
+| [028](028-make-fetch-ungated-in-ci.md) | `--make fetch` never runs in ci against the real pins (now a 056 prerequisite) |
 | [029](029-graph-tests-skip-silently.md) | `--make` graph tests degrade to green skips without the engine |
 
 ### refactor / cleanup
@@ -84,46 +78,43 @@ land in.
 | [030](030-dual-pin-fetch-pipelines.md) | two live pin-fetch pipelines; 4a15b92 copied behavior across, widening the duplication |
 | [031](031-build-flag-retirement.md) | `--build` retirement clock has no in-tree tracking |
 | [032](032-import-scan-memoization.md) | import scans re-read and re-regex every source per consumer |
-| [033](033-minor-cleanups.md) | minor cleanups: stale comments, stray export, duplicated helper |
-
-### docs
-
-| id | issue |
-|---|---|
-| [034](034-user-docs-pin-mechanism.md) | user-facing docs still document `3p/*/version.lua` pins |
-| [035](035-design-doc-staleness.md) | design docs behind (or ahead of) their own code |
+| [033](033-minor-cleanups.md) | one leftover: `tar.parse_pax` exported for tests only |
 
 ## resolved
 
-fixed by `4a15b92` and verified against its diff (several empirically):
+### round 3 — the six commits through `1ca5fd1`, verified against their diffs
 
 | ids | what was fixed |
 |---|---|
-| 001 | fetch `satisfied` requires unpack products (`.unpacked` manifest); repair re-unpacks |
-| 002 | generation is a phase over the project; root generator runs once, before staging |
-| 003 | `fmt` file set derives from one `types.fmt_kinds` for both facts and selection |
-| 004 | literal decodes escapes and long brackets, accepts negatives — but see 038 |
-| 005 | literal depth-capped at 32; polite refusal instead of a thrown stack overflow |
-| 006 | non-2xx refused by status; retries and a 100 MB cap match `_build`'s fetcher |
-| 008 | `%`, `:`, `=`, `,` added to the filename gate |
-| 009 | stored-path collisions refused, naming both origins |
-| 010 | `_test`/`_example` markers extension-agnostic; `.lua` tests run and don't ship |
-| 011 | `--embed` defaults mtime to the floor epoch; rebuilds byte-identical |
-| 015 | root `init.tl` refused by the validator ("did you mean main.tl?") |
-| 016 | `COSMIC_MAKE` absolutized before the chdir, beside the `arg[-1]` handling |
-| 017 | `extract_make` temp name is per-pid; losing the rename race is success |
-| 018 | validator's import scan frontier-anchored, line comments stripped — residuals in 039 |
-| 019 | pin sha must be exactly 64 hex; url-derived names validated before `fs.join` |
-| 020 | duplicate binary names refused by `check_binaries` |
-| 021 | archives containing symlinks refused loudly (kept honest for 013) |
-| 022 | `style.lint_file` returns `nil, err` on unreadable files; callers updated |
-| 023 | tar path guard rejects drive-letter prefixes, matching embed's guard |
-| 025 | mismatch test asserts the real `o/` landing path; unpack-repair tests added |
-| 027 | `cmd/cosmic/embed.gen.tl` tested against the real tree, contract entries named |
+| 007 | `.d.tl` files are source-closure deps (list per import path; declarations never built targets); the test that encoded the bug replaced |
+| 012 | compile cache per-user (`$XDG_CACHE_HOME/cosmic/tl` else uid-suffixed tmp), 0700 at creation, load/store refuse un-owned or group/world-writable dirs; both directions tested against a planted trojan |
+| 013 | `exec` resolves program AND root through realpath, refusal names the resolved path, prefix matches on a separator boundary (closing an `o-other/` sibling case beyond the audit's ask); in-root links still run |
+| 024 | unterminated archives refused; partial-extraction documented as the contract (staging is the caller's job — recorded reasoning accepted) |
+| 026 | fixpoint gated as `_make/fixpoint_test.tl` in existing lanes: gen2 capability smokes + gen2/gen3 byte compare, both halves falsified before commit |
+| 034 | user docs rewritten around `*.pin.tl`; grep-verified no instruction-shaped `version.lua` hits remain |
+| 035 | all seven design-doc items: units table, mtime claim, verb statuses `[now]`/`[planned]`, provisioning marked target-state, script_cache publicness, selfbuild close-out, skill landing path |
+| 033 (most) | see the entry's resolved list; `appender:remove()` closed as won't-fix with the reason at the site |
 
-review notes on the fix pass itself: the quality is high — single-definition
-kind sets (003), refusals over silent guesses (009, 015, 020, 021), comments
-that record the why. two things came out of re-reviewing it: the `\u{}`
-off-by-two (038, invisible to its own test because the only `\u` case sits at
-end-of-string), and the validator/deps scanner asymmetry (039). the copied
-fetch behaviors also widen 030's duplication.
+### round 2 — fixed by `4a15b92`
+
+001 (fetch unpack manifest + repair), 002 (generation phase), 003 (one
+`fmt_kinds`), 004 (escape decoding — but see 038), 005 (depth cap),
+006 (http status/retries/cap), 008 (make metacharacters), 009
+(stored-path collisions refused), 010 (extension-agnostic test markers),
+011 (`--embed` epoch mtime), 015 (root `init.tl` refused), 016
+(`COSMIC_MAKE` absolutized), 017 (per-pid temp), 018 (anchored import
+scan — residuals in 039), 019 (64-hex sha, name validation), 020
+(duplicate binary names refused), 021 (symlinked archives refused),
+022 (`lint_file` honest nil), 023 (drive-letter guard), 025 (mismatch
+test asserts the real path), 027 (embed.gen tested against the real
+tree).
+
+## note for the next fix pass
+
+**038 is the item to take first**: it is high severity, one line
+(`literal.tl:75` — return `after` unmodified; a position capture is
+already absolute), it was introduced by round 2's fix for 004, and it
+has now survived two fix passes — likely because those passes worked
+from the round-1 list. the round-3 commits were verified sound on
+re-review; the exec fix and the cache fix are both better than the
+audit asked for.
