@@ -280,3 +280,19 @@ local function test_cache_refuses_a_shared_directory()
     "and must never execute what it holds: " .. shared)
 end
 test_cache_refuses_a_shared_directory()
+
+-- The cache key is the bytes that were COMPILED, not the bytes present
+-- when the entry is written. A source edited between those two moments
+-- would otherwise bind the old code to the new content's key, and every
+-- later run of the edited file would execute code it no longer holds.
+local function test_cache_never_binds_stale_code_to_new_content()
+  local cache = require("cosmic._script_cache")
+  local path = fs.join(os.getenv("TEST_TMPDIR") or "/tmp", "keyed.tl")
+  assert(fs.write(path, "return 1\n"))
+  cache.store(path, "return 1\n", "-- compiled from v1\n")
+  assert(cache.load(path, "return 1\n") == "-- compiled from v1\n",
+    "the entry is found by the bytes it was compiled from")
+  assert(not cache.load(path, "return 2\n"),
+    "and different bytes are a miss, whatever is on disk now")
+end
+test_cache_never_binds_stale_code_to_new_content()

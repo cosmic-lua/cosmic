@@ -22,8 +22,8 @@ local project = require("_make.project")
 
 --- The pins this repo commits, which are the ones a release resolves.
 local PINS < const >: {string} = {
-  "3p/cosmos/cosmos.pin.tl",
-  "3p/tl/tl.pin.tl",
+  "3p/cosmos/cosmos_pin.tl",
+  "3p/tl/tl_pin.tl",
 }
 
 --- Every platform key a pin declares, in sorted order. A pin with no

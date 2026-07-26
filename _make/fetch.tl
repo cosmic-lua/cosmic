@@ -1,4 +1,4 @@
---- The `fetch` verb: resolve `*.pin.tl` into bytes under `o/`.
+--- The `fetch` verb: resolve `*_pin.tl` into bytes under `o/`.
 ---
 --- The only verb with a network. That is the whole posture, and it is
 --- structural rather than aspirational: this is the one module in

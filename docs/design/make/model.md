@@ -14,7 +14,7 @@ go stale.
 | `*.d.tl` | type-only; include path, never embedded | — |
 | `main.tl` at root | the project's binary | staged tree readable, `o/bin` writable |
 | `cmd/<name>/main.tl` | one binary per subdirectory | same |
-| `<dir>/*.pin.tl` | a pinned external asset | network **only** under `fetch` |
+| `<dir>/*_pin.tl` | a pinned external asset | network **only** under `fetch` |
 | `<dir>/*.gen.tl` | a generation unit | its subtree readable, `o/<dir>` writable |
 | `<unit>/embed.gen.tl` | a **binary's payload generator** (reserved basename, its own kind) | the binary's scope readable, `o/<unit>` writable |
 | `embed/**` | payload, embedded at its path inside `embed/` | — |
@@ -64,7 +64,7 @@ path** derived from its position. Nothing else varies.
 | generator | `*.gen.tl` in `D` | `D`'s subtree | `o/D/**` |
 | payload generator | `embed.gen.tl` in unit `U` | `U`'s binary scope | `o/U/{embed/,base}` |
 | binary | `main.tl`, `cmd/<n>/main.tl` | root packages + its own `cmd/<n>/**` | `o/bin/<n>` |
-| pin | `*.pin.tl` in `D` | the pin literal, plus a socket under `fetch` | `o/D/<name from the url>` ⚠ |
+| pin | `*_pin.tl` in `D` | the pin literal, plus a socket under `fetch` | `o/D/<name from the url>` ⚠ |
 
 Read down the scope column and the design's two load-bearing sentences
 are one: *inputs = grants = your staged subtree*, and *put it where its
@@ -138,7 +138,7 @@ not a choice. A payload `.args` overrides it.
 
 ## External assets and execution
 
-Fetching is **not** a generator. A `*.pin.tl` is Teal data — a single
+Fetching is **not** a generator. A `*_pin.tl` is Teal data — a single
 `return { … }` literal, type-checked, **statically extracted from the
 AST and never executed**. `--make fetch` downloads, verifies, and lands
 the bytes under `o/`; `build` never opens a socket. A pin that declares

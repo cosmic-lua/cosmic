@@ -28,7 +28,7 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
 --- Extract a pin from source text, for the grammar tests.
 local function ext(source: string): {string: any} | nil, string
-  return pin.extract(source, "p.pin.tl")
+  return pin.extract(source, "p_pin.tl")
 end
 
 -- The shape a pin is allowed to have: one `return` of a table of
@@ -85,7 +85,7 @@ test_a_pin_cannot_be_code()
 local function read_pin(name: string, body: string): pin.Pin | nil, string
   local dir = fs.join(tmpdir, "pin-" .. name)
   assert(fs.makedirs(dir))
-  local path = fs.join(dir, name .. ".pin.tl")
+  local path = fs.join(dir, name .. "_pin.tl")
   assert(fs.write(path, body))
   return pin.read(path)
 end
@@ -159,7 +159,7 @@ local function pinned(name: string, url: string, sha: string): string
   fs.rmrf(root)
   assert(fs.makedirs(fs.join(root, "3p")))
   assert(fs.write(fs.join(root, "main.tl"), "print('x')\n"))
-  assert(fs.write(fs.join(root, "3p/blob.pin.tl"),
+  assert(fs.write(fs.join(root, "3p/blob_pin.tl"),
       'return {\n  url = "' .. url .. '",\n  sha256 = "' .. sha .. '",\n}\n'))
   return root
 end
@@ -281,7 +281,7 @@ test_only_fetch_can_open_a_socket()
 -- A pin that is not a pin fails the verb rather than being skipped.
 local function test_a_broken_pin_fails_fetch()
   local root = pinned("broken", "http://127.0.0.1:1/x", "abababababababababababababababababababababababababababababababab")
-  assert(fs.write(fs.join(root, "3p/blob.pin.tl"),
+  assert(fs.write(fs.join(root, "3p/blob_pin.tl"),
       'return { url = os.getenv("X") }\n'))
   assert(run(root, "fetch") == 1, "a pin that is code must fail the verb")
 end
@@ -329,7 +329,7 @@ local function test_a_declared_format_is_unpacked()
   local root = pinned("unpacked", "http://127.0.0.1:" .. port .. "/payload.zip",
     hash.sha256_hex(body))
   -- Rewrite the pin with a format and a wrapper to strip.
-  assert(fs.write(fs.join(root, "3p/blob.pin.tl"),
+  assert(fs.write(fs.join(root, "3p/blob_pin.tl"),
       'return {\n  url = "http://127.0.0.1:' .. port .. '/payload.zip",\n' ..
       '  sha256 = "' .. hash.sha256_hex(body) .. '",\n' ..
       '  format = "zip",\n  strip_components = 1,\n}\n'))
@@ -398,7 +398,7 @@ local function test_a_missing_unpack_is_redone()
   local port, pid = serve(body)
   local root = pinned("redo", "http://127.0.0.1:" .. port .. "/redo.zip",
     hash.sha256_hex(body))
-  assert(fs.write(fs.join(root, "3p/blob.pin.tl"),
+  assert(fs.write(fs.join(root, "3p/blob_pin.tl"),
       'return {\n  url = "http://127.0.0.1:' .. port .. '/redo.zip",\n' ..
       '  sha256 = "' .. hash.sha256_hex(body) .. '",\n  format = "zip",\n}\n'))
   assert(run(root, "fetch") == 0, "the first fetch should unpack")

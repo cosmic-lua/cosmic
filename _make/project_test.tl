@@ -63,7 +63,7 @@ local function test_every_marker_classifies()
       ["db/query_example.tl"] = "return {}\n",
       ["db/testdata/fixture.json"] = "{}\n",
       ["types/lpeg.d.tl"] = "local record lpeg end\nreturn lpeg\n",
-      ["3p/lpeg/lpeg.pin.tl"] = "return {url = 'x'}\n",
+      ["3p/lpeg/lpeg_pin.tl"] = "return {url = 'x'}\n",
       ["docs/index.gen.tl"] = "return {}\n",
       ["schema.sql"] = "CREATE TABLE t(x);\n",
       ["cmd/servit/main.tl"] = "print('s')\n",
@@ -80,7 +80,7 @@ local function test_every_marker_classifies()
   kind_of(proj, "db/query_example.tl", "example")
   kind_of(proj, "db/testdata/fixture.json", "testdata")
   kind_of(proj, "types/lpeg.d.tl", "types")
-  kind_of(proj, "3p/lpeg/lpeg.pin.tl", "pin")
+  kind_of(proj, "3p/lpeg/lpeg_pin.tl", "pin")
   kind_of(proj, "docs/index.gen.tl", "gen")
   -- The reserved basename is its own kind: a BINARY's payload
   -- generator, scoped to the binary and run by `build`, not a

@@ -445,28 +445,13 @@ end
 --- Compile a Teal file, reusing cached output when the source has not
 --- changed. Lax, like `compile`; `check` remains the strict gate.
 ---
---- Both callers — the runtime `.tl` searcher and the script runner
---- behind `cosmic script.tl` — spelled this load/compile/store loop out
---- for themselves and differed only in what they do with a failure (one
---- raises, one returns). The loop is here; the policy stays theirs.
---- Nothing reports a cache problem because the cache is best-effort by
---- contract: a miss and a broken cache both mean "compile".
+--- The loop itself lives with the cache it drives (`cosmic._script_cache`);
+--- this is the name its two callers know it by.
 --- @param input_path string Path to the Teal file to compile
 --- @return string|nil The generated Lua code, or nil when compilation failed
 --- @return string The formatted issues when compilation failed
 local function compile_cached(input_path: string): string | nil, string
-  local cache = require("cosmic._script_cache")
-  local code = cache.load(input_path)
-  if code then
-    return code
-  end
-  local result = compile(input_path, {})
-  if not result.ok then
-    return nil, format_issues(result.errors)
-  end
-  local generated = result.code as string -- cast: set whenever ok
-  cache.store(input_path, generated)
-  return generated
+  return require("cosmic._script_cache").compile_cached(input_path)
 end
 
 local record TealModule

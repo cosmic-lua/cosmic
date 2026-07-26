@@ -98,12 +98,15 @@ $(o)/lint-summary.txt: $(all_linted) $(lint_list_stamp) | $(build_reporter)
 	$(if $(strip $(lint_present)),,$(error lint: no tracked file exists on disk — filter collapsed the list?))
 	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $(all_linted)
 
-# `--check-style` on the FRESHLY BUILT binary, which is the same entry
-# point `--make lint` uses: one implementation, so the two lanes cannot
-# disagree about what the style gate is. It replaced a separate
-# `_build/lint.tl` that ran a different (smaller) set of checks than the
-# flag of the same name.
-$(o)/%.lint.got: % $(cosmic_bin) | $(bootstrap_cosmic)
+# `--check-style` on the freshly built binary, which is the same entry
+# point `--make lint` uses: one implementation of the style gate, so the
+# two lanes cannot disagree about what it is.
+#
+# $(ape_loader) is a prerequisite because $(cosmic_bin) is a fat APE:
+# without the loader extracted, exec of it fails with 127 on a host that
+# has never run one. Every other rule that execs the built binary
+# carries the same prerequisite.
+$(o)/%.lint.got: % $(cosmic_bin) $(ape_loader) | $(bootstrap_cosmic)
 	@$(bootstrap_cosmic) --test $(basename $@) -- $(cosmic_bin) --check-style $<
 
 # The model gate (3f): does this repo still conform to the project model

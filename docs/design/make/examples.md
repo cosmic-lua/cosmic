@@ -18,8 +18,8 @@ _types/cosmo/cosmo.gen.tl   → o/_types/cosmo/*.d.tl
 _types/tl/tl.gen.tl         → o/_types/tl/tl.d.tl
 _docs/index/index.lua.gen.tl → o/_docs/index/index.lua
 cmd/cosmic/main.tl          the binary → o/bin/cosmic
-3p/tl/tl.pin.tl  3p/cosmos/cosmos.pin.tl
-bootstrap/cosmic.pin.tl
+3p/tl/tl_pin.tl  3p/cosmos/cosmos_pin.tl
+bootstrap/cosmic_pin.tl
 sys/  skills/  docs/  .github/
 o/                          everything generated
 ```
@@ -35,7 +35,7 @@ myapp/
   db/testdata/fixture.json  readable by the test, never embedded
   _internal/util.tl         require("_internal.util"), private
   schema.sql                asset
-  3p/lpeg/lpeg.pin.tl       cosmic --make fetch
+  3p/lpeg/lpeg_pin.tl       cosmic --make fetch
 ```
 
 ```
@@ -71,7 +71,7 @@ the other's `cmd` directory.
 | `lib/cosmic/`, `lib/build/`, … | `cosmic/`, `_build/`, … (root = module root) |
 | `public.tl` | the `_` prefix; the tree is the manifest |
 | `pack_copies` enumeration | the artifact layout rule |
-| `3p/*/version.lua` | `*.pin.tl`, statically extracted (done, 3g) |
+| `3p/*/version.lua` | `*_pin.tl`, statically extracted (done, 3g) |
 | `gentype`/`gentl` rules | generation units, one directory each |
 | doc index, version stamp | a generation unit; committed data + env |
 | `.PLEDGE`/`.UNVEIL`/`.ENV` | derived grants, enforced by cosmic-as-`SHELL` |

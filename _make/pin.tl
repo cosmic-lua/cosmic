@@ -1,4 +1,4 @@
---- Pins: `*.pin.tl` is Teal **data**, not Teal code.
+--- Pins: `*_pin.tl` is Teal **data**, not Teal code.
 ---
 --- A pin declares an external asset — a URL and the sha256 of the bytes
 --- it must produce. Fetching is deliberately NOT a generator: a
@@ -26,7 +26,7 @@ local sys = require("cosmic.sys")
 
 --- A resolved pin.
 local record Pin
-  --- Path to the `*.pin.tl`, relative to the project root.
+  --- Path to the `*_pin.tl`, relative to the project root.
   source: string
   --- The asset's name and position, relative to the project root.
   --- Where the bytes actually LAND is the build's business, not the
@@ -107,7 +107,7 @@ end
 --- a release depends on — every declared row, not only the row this
 --- machine happens to match — is reachable from a test without a
 --- network and without that machine.
---- @param path string Path to the `*.pin.tl`, relative to the root
+--- @param path string Path to the `*_pin.tl`, relative to the root
 --- @param host string|nil The platform tag (default: this machine's)
 --- @return Pin|nil The resolved pin
 --- @return string The error message

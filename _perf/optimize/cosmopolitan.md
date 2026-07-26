@@ -103,7 +103,7 @@ two-repo dance — but only AFTER the local loop already proved the win:
    own conventions). quote the local `perf-compare` numbers in the PR.
 2. once merged, the release workflow publishes a new cosmos release
    tagged `YYYY.MM.DD-<sha>` with a `cosmos.zip` + SHA256SUMS.
-3. in cosmic: bump `3p/cosmos/cosmos.pin.tl` (version + sha256), then
+3. in cosmic: bump `3p/cosmos/cosmos_pin.tl` (version + sha256), then
    `bin/make regen-types`, fix any wrapper breakage, `bin/make ci`, and
    `bin/make perf-compare` against a baseline taken on the OLD pin —
    this final compare is the end-to-end confirmation, quoted in the

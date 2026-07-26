@@ -10,7 +10,7 @@ cosmic --make check              # strict type-check the whole project
 cosmic --make build              # compile every source into o/
 cosmic --make test               # run *_test.tl against the compiled tree
 cosmic --make fmt                # gate formatting
-cosmic --make fetch              # resolve *.pin.tl (the only networked verb)
+cosmic --make fetch              # resolve *_pin.tl (the only networked verb)
 cosmic --make clean              # remove o/
 cosmic --make build db/          # …or narrow any of them to a subtree
 ```
@@ -29,7 +29,7 @@ replaced it outright.
 | `test` | build, then run `*_test.tl` and report | ✅ |
 | `fmt` | `--check-format` over every `.tl` | ✅ |
 | `clean` | remove `o/` | ✅ |
-| `fetch` | resolve `*.pin.tl` — the only verb with a network | ✅ |
+| `fetch` | resolve `*_pin.tl` — the only verb with a network | ✅ |
 | `run` | build, then exec the artifact | planned |
 | `regen` | run generation units | planned |
 | `ci` `coverage` `enforce` `reproducible` `offline` | policy lanes over the graph | planned |
@@ -121,10 +121,10 @@ real kernel.
 
 ## Pins
 
-a `*.pin.tl` declares an external asset. it is **data, not code**:
+a `*_pin.tl` declares an external asset. it is **data, not code**:
 
 ```teal
--- 3p/lpeg/lpeg.pin.tl
+-- 3p/lpeg/lpeg_pin.tl
 return {
   url = "https://example.test/lpeg-{version}.tar.gz",
   version = "1.0.2",
@@ -139,7 +139,7 @@ statement before the `return`, or anything after the table is refused
 by name:
 
 ```
-make: 3p/lpeg/lpeg.pin.tl:2: a pin holds literals only; found 'os' (no variables, calls or concatenation)
+make: 3p/lpeg/lpeg_pin.tl:2: a pin holds literals only; found 'os' (no variables, calls or concatenation)
 ```
 
 `url` and `sha256` are both required: a pin without a digest is a
@@ -148,7 +148,7 @@ build either runs on the bytes you named or does not run. `{version}`
 substitution is the one templating the grammar allows, which makes a
 bump a one-line diff. the fetched asset lands under `o/`, mirroring the
 pin's position and named by the url
-(`3p/lpeg/lpeg.pin.tl` → `o/3p/lpeg/lpeg-1.0.2.tar.gz`) — nothing
+(`3p/lpeg/lpeg_pin.tl` → `o/3p/lpeg/lpeg-1.0.2.tar.gz`) — nothing
 generated belongs in the tree. a pin may also declare a `format`
 (`zip` or `tar.gz`) with `strip_components`, and is then unpacked
 beside its archive *after* the digest matches.
@@ -202,7 +202,7 @@ without it cosmic would never see the line at all.
 | `*_test.tl` | a test |
 | `*_example.tl` | an example |
 | `*.d.tl` | type-only; on the include path, never embedded |
-| `*.pin.tl` | a pinned external asset |
+| `*_pin.tl` | a pinned external asset |
 | `*.gen.tl` | a generation unit |
 | `testdata/` | test fixtures; never embedded |
 | `_<dir>/` | internal: importable only from within its container |
@@ -231,7 +231,7 @@ myapp/
   db/testdata/fixture.json  readable by the test, never embedded
   _internal/util.tl         require("_internal.util"), private
   schema.sql                asset
-  3p/lpeg/lpeg.pin.tl       cosmic --make fetch
+  3p/lpeg/lpeg_pin.tl       cosmic --make fetch
 ```
 
 ## The root

@@ -56,10 +56,10 @@ silently.
 third-party modules use a three-stage pipeline:
 
 ```
-*.pin.tl → .versioned → .fetched → .staged
+*_pin.tl → .versioned → .fetched → .staged
 ```
 
-1. **`*.pin.tl`**: a pin — one `return { … }` of literals declaring the
+1. **`*_pin.tl`**: a pin — one `return { … }` of literals declaring the
    version, digest and url. It is READ as data by `cosmic.literal`,
    never executed, so the file that says what to fetch cannot do
    anything itself. Same reader `cosmic --make fetch` uses, so the
@@ -69,7 +69,7 @@ third-party modules use a three-stage pipeline:
 
 `cosmic --make fetch` resolves the same pins through its own path,
 landing bytes under `o/` mirroring the pin's position
-(`3p/tl/tl.pin.tl` → `o/3p/tl/…`). Until the Makefile retires, both
+(`3p/tl/tl_pin.tl` → `o/3p/tl/…`). Until the Makefile retires, both
 readers are live over the same committed files.
 
 symlinks connect `o/<module>/.staged` to the extracted directory.

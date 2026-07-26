@@ -113,13 +113,13 @@ $(cosmic_version_lua): private .SHELLFLAGS := -o pipefail -c
 # `dofile('3p/cosmos/version.lua')` — the build executing its own
 # dependency pin to find out what it pinned. cosmic.literal lexes the
 # file and matches it against the literal grammar instead, which is the
-# same reader `--make fetch` uses on a `*.pin.tl` and the reason that
+# same reader `--make fetch` uses on a `*_pin.tl` and the reason that
 # file can now BE one. The tree LUA_PATH is what resolves the reader
 # out of o/; `tl` comes from the bootstrap's embedded copy.
 $(cosmic_version_lua): export LUA_PATH = $(tree_lua_path)
 $(cosmic_version_lua): .FORCE $(o)/cosmic/literal.lua | $$(cosmos_staged)
 	@mkdir -p $(@D)
-	@echo "return { cosmic = \"$$(git describe --tags --always --dirty 2>/dev/null || echo unknown)\", cosmos = \"$$($(bootstrap_cosmic) -e "print(require('cosmic.literal').of_file('3p/cosmos/cosmos.pin.tl').version)")\" }" > $@.tmp
+	@echo "return { cosmic = \"$$(git describe --tags --always --dirty 2>/dev/null || echo unknown)\", cosmos = \"$$($(bootstrap_cosmic) -e "print(require('cosmic.literal').of_file('3p/cosmos/cosmos_pin.tl').version)")\" }" > $@.tmp
 	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 
 .PHONY: .FORCE

@@ -261,7 +261,7 @@ endif
 # The generated .d.tl files are a pure function of (_types/gentype*.tl, the
 # definitions.lua embedded in the pinned cosmos release). This target runs the
 # CURRENT generator against the CURRENT pin, so regen is reproducible: bump
-# 3p/cosmos/cosmos.pin.tl, run `bin/make regen-types`, commit. The gentype drift
+# 3p/cosmos/cosmos_pin.tl, run `bin/make regen-types`, commit. The gentype drift
 # test fails until you do. Module list ($(type_modules)) defined above.
 #
 # gentype runs under the STAGED cosmos lua binary — whose embedded

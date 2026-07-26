@@ -10,7 +10,7 @@ _build/reporter.tl 149 164
 _cli/args.tl 0 23
 _cli/build/init.tl 55 60
 _cli/build/steps.tl 182 234
-_cli/driver.tl 169 190
+_cli/driver.tl 163 190
 _cli/help.tl 46 48
 _cli/lint.tl 130 152
 _cli/main_handlers.tl 11 220

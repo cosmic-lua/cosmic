@@ -19,6 +19,7 @@
 --- about it.
 
 local fs = require("cosmic.fs")
+local project = require("_make.project")
 
 --- Environment override for the project root.
 local ROOT_ENV < const > = "COSMIC_MAKE_ROOT"
@@ -71,6 +72,13 @@ local function is_root(dir: string): boolean
 end
 
 --- The nearest strict ancestor of `dir` that looks like a project root.
+---
+--- The walk stops at an output directory. Anything under `<root>/o/` is
+--- something a build PUT there — a staged tree, a generator's output, a
+--- test's scratch directory — and a project inside it is deliberate,
+--- not the accident the guard exists to catch. Without this, every
+--- nested `--make` run inside a test's own scratch directory refused
+--- with "ambiguous root", naming the repo whose build put it there.
 --- @param dir string Absolute directory
 --- @return string|nil The ancestor's path, or nil when there is none
 local function ancestor_root(dir: string): string | nil
@@ -78,6 +86,9 @@ local function ancestor_root(dir: string): string | nil
   while true do
     local parent = fs.dirname(cur)
     if parent == cur or parent == "" then
+      return nil
+    end
+    if fs.basename(parent) == project.BUILD_DIR then
       return nil
     end
     if is_root(parent) then

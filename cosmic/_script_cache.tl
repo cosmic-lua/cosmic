@@ -90,27 +90,34 @@ local function build_id(): string
   return "unknown"
 end
 
+--- The cache path for a script, keyed by its CONTENT.
+---
+--- `content` is passed in rather than read here, because the two
+--- callers hold different bytes at different moments: the reader has
+--- just read the file it is about to compile, and the writer must key
+--- on the bytes it actually COMPILED. Re-reading at store time binds
+--- the old code to the new key whenever the file changed in between —
+--- a narrow window, and a silent one: every later run then executes
+--- code the source no longer says.
 --- @param script_path string Path to the .tl script
---- @return string Cache file path, or nil if the script can't be read
-local function cache_file(script_path: string): string | nil
-  local content = fs.read(script_path)
-  if not content then
-    return nil
-  end
+--- @param content string The script's bytes
+--- @return string Cache file path
+local function cache_file(script_path: string, content: string): string
   local key = hash.sha256_hex(script_path .. "\0" .. content .. "\0" .. build_id())
   return fs.join(cache_dir(), key .. ".lua")
 end
 
---- Load cached compiled Lua code for a .tl script, if present and fresh.
+--- Load cached compiled Lua code for a .tl script, if present.
 --- @param script_path string Path to the .tl script
+--- @param content string The script's bytes, as read by the caller
 --- @return string | nil Cached Lua code, or nil on any cache miss
-local function load_cached(script_path: string): string | nil
+local function load_cached(script_path: string, content: string): string | nil
   local dir = cache_dir()
   if not trusted(dir) then
     return nil
   end
-  local path = cache_file(script_path)
-  if not path or not fs.isfile(path) then
+  local path = cache_file(script_path, content)
+  if not fs.isfile(path) then
     return nil
   end
   return (fs.read(path))
@@ -118,12 +125,10 @@ end
 
 --- Store compiled Lua code for a .tl script in the cache.
 --- @param script_path string Path to the .tl script
+--- @param content string The bytes that were compiled
 --- @param code string Compiled Lua code to cache
-local function store(script_path: string, code: string)
-  local path = cache_file(script_path)
-  if not path then
-    return
-  end
+local function store(script_path: string, content: string, code: string)
+  local path = cache_file(script_path, content)
   local dir = cache_dir()
   if not fs.exists(dir) then
     -- 0700 at creation, not chmod after: a window in which the
@@ -139,4 +144,43 @@ local function store(script_path: string, code: string)
   fs.write(path, code, OWNER_FILE)
 end
 
-return {load = load_cached, store = store}
+--- Compile a Teal file, reusing cached output when the source has not
+--- changed.
+---
+--- The load/compile/store loop for both callers — the runtime `.tl`
+--- searcher and the script runner — while what to do with a failure
+--- stays theirs (one raises, one returns). Nothing reports a cache
+--- problem: the cache is best-effort by contract, so a miss and a
+--- broken cache both mean "compile".
+---
+--- One read, keying both halves: re-reading the source at store time
+--- would cache this code under the NEXT edit's key, and every run after
+--- that edit would execute code the file no longer contains.
+--- @param input_path string Path to the Teal file to compile
+--- @return string|nil The generated Lua code, or nil when compilation failed
+--- @return string The formatted issues when compilation failed
+local function compile_cached(input_path: string): string | nil, string
+  local content = fs.read(input_path)
+  if not content then
+    return nil, "cannot read " .. input_path
+  end
+  local source = content as string -- cast: scalar narrowing after the guard
+  local code = load_cached(input_path, source)
+  if code then
+    return code
+  end
+  local teal = require("cosmic.teal")
+  local result = teal.compile(input_path, {})
+  if not result.ok then
+    return nil, teal.format_issues(result.errors)
+  end
+  local generated = result.code as string -- cast: set whenever ok
+  store(input_path, source, generated)
+  return generated
+end
+
+return {
+  load = load_cached,
+  store = store,
+  compile_cached = compile_cached,
+}

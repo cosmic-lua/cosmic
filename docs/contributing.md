@@ -123,7 +123,7 @@ all type errors must be resolved. warnings are reported but don't fail the build
 
 ## Adding a 3p Dependency
 
-1. create `3p/mylib/mylib.pin.tl` — a **pin**: one `return { … }` of
+1. create `3p/mylib/mylib_pin.tl` — a **pin**: one `return { … }` of
    literals, read as data by `cosmic.literal` and never executed, so a
    file that declares a dependency cannot also do anything:
    ```lua
@@ -149,7 +149,7 @@ all type errors must be resolved. warnings are reported but don't fail the build
 2. create `3p/mymk/modules.mk`:
    ```makefile
    modules += mylib
-   mylib_version := 3p/mylib/mylib.pin.tl
+   mylib_version := 3p/mylib/mylib_pin.tl
    ```
 
 3. include in `Makefile`:

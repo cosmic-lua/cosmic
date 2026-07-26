@@ -165,3 +165,23 @@ end
 test_no_ambiguity_under_a_build_directory()
 
 print("all root tests passed")
+
+-- Anything under `<root>/o/` is something a build PUT there — a staged
+-- tree, a generator's output, a test's own scratch directory — so a
+-- project inside it is deliberate rather than the accident the guard
+-- exists to catch. Without this, every nested `--make` run from a test's
+-- scratch directory refused with "ambiguous root", naming the repo whose
+-- build had put the directory there.
+local function test_the_walk_stops_at_an_output_directory()
+  local proj = tree("output-walk", {
+      ["main.tl"] = "print('x')\n",
+      ["o/some_test.tl.test.tmp.d/run/main.tl"] = "print('y')\n",
+    })
+  local inner = fs.join(proj, "o/some_test.tl.test.tmp.d/run")
+  assert(not root.ancestor_root(inner),
+    "a directory under the build output has no ambiguous ancestor")
+  -- And the guard still fires for an ordinary subdirectory.
+  assert(root.ancestor_root(fs.join(proj, "pkg")) == proj,
+    "a source subdirectory is still inside its project")
+end
+test_the_walk_stops_at_an_output_directory()

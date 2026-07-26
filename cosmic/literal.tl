@@ -1,7 +1,7 @@
 --- Teal source read as **data**: one `return { … }` of literals, lexed
 --- and matched, never loaded and never called.
 ---
---- This is the reader behind `*.pin.tl` (`cosmic --make fetch`), and it
+--- This is the reader behind `*_pin.tl` (`cosmic --make fetch`), and it
 --- is public because it has callers outside `cosmic/` — this repo's own
 --- build tooling reads its dependency pins with it, and any project
 --- that wants a config file which *cannot do anything* wants exactly

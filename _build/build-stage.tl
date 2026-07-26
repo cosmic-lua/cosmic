@@ -308,7 +308,7 @@ local function main(version_file: string, platform: string, input: string, outpu
   end
 
   -- the make rule passes o/<module>/.versioned, a symlink to the
-  -- module's *.pin.tl; resolve it here so error messages name the real
+  -- module's *_pin.tl; resolve it here so error messages name the real
   -- file and the recipe needs no host readlink (#732)
   local resolved = fs.readlink(version_file)
   if resolved then

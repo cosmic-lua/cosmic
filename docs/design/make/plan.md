@@ -8,13 +8,13 @@ itself, and what is still open. The phase-by-phase sequence is
 ## Provisioning and the trust root
 
 **This repo, target state:** `bin/cosmic` — POSIX sh, one job: fetch the
-pinned cosmic (pin in `bootstrap/cosmic.pin.tl`) and exec it.
+pinned cosmic (pin in `bootstrap/cosmic_pin.tl`) and exec it.
 `bin/cosmic --make ci`. Since make is embedded, the chain would be
 **kernel → committed fetcher → one pin → everything**, down from two.
 
 **Today it is still two pins.** The trust root is `bin/make`, with the
 bootstrap url and sha in `cook.mk` and the cosmos pin beside it; there
-is no `bin/cosmic` and no `bootstrap/cosmic.pin.tl`. The one-pin chain
+is no `bin/cosmic` and no `bootstrap/cosmic_pin.tl`. The one-pin chain
 arrives with the Makefile's retirement (3i), not before it.
 
 **Downstream projects: commit the binary.** A fat APE in the repo means
@@ -49,7 +49,7 @@ needs revisiting — make remains the engine, not a subroutine.
   before/after hash to name a culprit
 - `exec` refuses an unpinned binary; `fetch` is the only verb that can
   open a socket (asserted, not assumed)
-- pin extraction: a `*.pin.tl` that is not a literal is rejected, and a
+- pin extraction: a `*_pin.tl` that is not a literal is rejected, and a
   pin is never executed
 - `testdata/` never appears in an artifact
 - `_` enforcement: importing `_x` from outside its container fails

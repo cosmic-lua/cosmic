@@ -2,7 +2,7 @@
 
 - **date:** 2026-07
 - **context:** the `--make` project model declares intent by position or
-  marker — a test is `*_test.*`, a pin is `*.pin.tl`, payload is
+  marker — a test is `*_test.*`, a pin is `*_pin.tl`, payload is
   `embed/**`, internal is `_`. One row inverted that: "everything else
   is an asset, embedded at its relative path". Shipping was the
   default, not a declaration, and the design's open problems clustered

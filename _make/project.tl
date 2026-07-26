@@ -213,7 +213,7 @@ local function classify(rel: string): Kind
   end
   if rel:sub(-5) == ".d.tl" then
     return "types"
-  elseif rel:sub(-7) == ".pin.tl" then
+  elseif rel:sub(-7) == "_pin.tl" then
     return "pin"
   elseif rel:sub(-7) == ".gen.tl" then
     -- A unit's PAYLOAD generator is a different kind from a generation

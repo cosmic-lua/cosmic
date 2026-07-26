@@ -24,7 +24,11 @@ local type Project = types.Project
 local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
-local make_bin = fs.abspath(os.getenv("COSMIC_MAKE") or "o/cosmo-make")
+-- The engine, by the same rule the code uses: COSMIC_MAKE names it,
+-- else the copy `--make` extracts from its own binary. `o/cosmo-make`
+-- is the BRIDGE's copy, which only exists under `bin/make`.
+local make_bin = fs.abspath(os.getenv("COSMIC_MAKE")
+  or (fs.isfile("o/make") and "o/make" or "o/cosmo-make"))
 -- Skip locally, FAIL in CI. A cold checkout should not fail for lacking
 -- a build; CI always provisions the engine, so its absence there means
 -- provisioning broke -- and the whole `--make` graph-test surface

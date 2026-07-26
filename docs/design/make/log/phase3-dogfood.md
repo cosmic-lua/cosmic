@@ -379,8 +379,8 @@ hoisting `_cli/` to the root (3h) — at root the searcher sits outside
 the `cosmic/**` strip floor, and every stripped artifact fails to boot.
 
 **The pins, and a plan correction.** `3p/cosmos/version.lua` and
-`3p/tl/version.lua` are now `3p/cosmos/cosmos.pin.tl` and
-`3p/tl/tl.pin.tl`, read by the same literal grammar `--make fetch` uses.
+`3p/tl/version.lua` are now `3p/cosmos/cosmos_pin.tl` and
+`3p/tl/tl_pin.tl`, read by the same literal grammar `--make fetch` uses.
 Before: `pcall(dofile, version_file)` in `build-fetch.tl`, the same in
 `build-stage.tl`, and `dofile('3p/cosmos/version.lua')` inside the
 version-stamp recipe — the build **executing** the files that say what
@@ -389,8 +389,8 @@ the change:
 
 ```
 $ make o/tl/.fetched      # after adding os.getenv() to the pin
-error: failed to read 3p/tl/tl.pin.tl:
-  3p/tl/tl.pin.tl:2: a pin holds literals only; found 'os'
+error: failed to read 3p/tl/tl_pin.tl:
+  3p/tl/tl_pin.tl:2: a pin holds literals only; found 'os'
 ```
 
 `dofile` would have run it.
@@ -447,8 +447,8 @@ now reads the file that names what to download instead of running it:
 ```
 $ rm -rf o bin/cosmo-make && bin/make build   # after adding os.getenv() to the pin
 Downloading bootstrap cosmic...
-error: failed to read 3p/cosmos/cosmos.pin.tl:
-  3p/cosmos/cosmos.pin.tl:6: a pin holds literals only; found 'os'
+error: failed to read 3p/cosmos/cosmos_pin.tl:
+  3p/cosmos/cosmos_pin.tl:6: a pin holds literals only; found 'os'
 ```
 
 Nothing in the build executes a pin now — not the trust root, not

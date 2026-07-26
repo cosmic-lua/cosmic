@@ -77,7 +77,7 @@ hostage to the rename.
 ### 2a — project model and `check`
 
 The walk and the classification (package, `_test`, `_example`, `.d.tl`,
-`*.pin.tl`, `*.gen.tl`, `testdata/`, asset, ignore), the validator
+`*_pin.tl`, `*.gen.tl`, `testdata/`, asset, ignore), the validator
 (reserved import paths, `foo.tl`+`foo.lua`, `cmd/foo`→`cmd/bar`,
 internal imports, missing `cmd/` entry, spaces and metacharacters), root
 discovery with the ancestor guard and the `make: root=` banner, and
@@ -251,7 +251,7 @@ What it settled, and one thing it did not:
 
 ### 2d — pins and `fetch`
 
-`*.pin.tl` static extraction and the network-only-under-`fetch`
+`*_pin.tl` static extraction and the network-only-under-`fetch`
 posture.
 
 **The Units investigation ran here, and falsified one of its three
@@ -268,7 +268,7 @@ artifact's, which was the whole method:
   express: a socket. So the fence's question is (directory, capability
   set), not a directory.
 - **P3 (an output path is derivable from position) — FALSE.** A pin's
-  output is named by the URL *inside* it: `3p/lpeg/lpeg.pin.tl` with a
+  output is named by the URL *inside* it: `3p/lpeg/lpeg_pin.tl` with a
   url ending `lpeg-1.0.tar.gz` produces `3p/lpeg/lpeg-1.0.tar.gz`,
   because the extension matters to whatever reads it next. The Units
   table asserted this of all five rows; it is true of four. The table

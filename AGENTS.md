@@ -247,7 +247,7 @@ bin/make clean          # remove build artifacts
 
 key concepts:
 - **modules**: each directory declares a module via `cook.mk` with `_tl`, `_tests`, `_files`, `_deps`
-- **versioned deps**: 3p modules declare a `*.pin.tl` — literal data, read
+- **versioned deps**: 3p modules declare a `*_pin.tl` — literal data, read
   by `cosmic.literal` and never executed — then fetch → stage
 - **bootstrap**: a pre-built cosmic binary bootstraps compilation of `.tl` → `.lua`; `bin/make` is its sole provisioner (sha-pinned, re-fetched on pin bumps)
 - **no-shell default**: `SHELL` is poisoned globally — recipes are single argv lines, the real shell is a per-rule exception, and the makefile ratchet tests enumerate the exceptions, the host-exec grants, and statically scan recipe text (#756 item 2)
@@ -283,7 +283,7 @@ files differ byte-for-byte from generator output.
 update procedure (after a cosmos bump or generator change):
 
 ```bash
-# 1. bump 3p/cosmos/cosmos.pin.tl (url version + sha)
+# 1. bump 3p/cosmos/cosmos_pin.tl (url version + sha)
 bin/make regen-types      # regenerate all .d.tl from the new pin
 bin/make test only=gentype
 # 2. fix any cosmic wrappers the new types break; commit everything together

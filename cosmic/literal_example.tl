@@ -41,10 +41,10 @@ end
 -- how `cosmic --make` makes the same grammar complain about "a pin".
 local function Example_noun()
   local literal = require("cosmic.literal")
-  local _, err = literal.of_source("return 1\n", "dep.pin.tl", "pin")
+  local _, err = literal.of_source("return 1\n", "dep_pin.tl", "pin")
   print(err)
   -- Output:
-  -- dep.pin.tl: a pin must return a table literal
+  -- dep_pin.tl: a pin must return a table literal
 end
 
 -- Suppress unused warnings for examples

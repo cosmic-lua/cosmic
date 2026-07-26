@@ -22,7 +22,11 @@ local spawn = require("cosmic.child")
 local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
-local make_bin = fs.abspath(os.getenv("COSMIC_MAKE") or "o/cosmo-make")
+-- The engine, by the same rule the code uses: COSMIC_MAKE names it,
+-- else the copy `--make` extracts from its own binary. `o/cosmo-make`
+-- is the BRIDGE's copy, which only exists under `bin/make`.
+local make_bin = fs.abspath(os.getenv("COSMIC_MAKE")
+  or (fs.isfile("o/make") and "o/make" or "o/cosmo-make"))
 -- Skip locally, FAIL in CI. A cold checkout should not fail for lacking
 -- a build; CI always provisions the engine, so its absence there means
 -- provisioning broke -- and the whole `--make` graph-test surface
@@ -210,7 +214,7 @@ test_validation_gates_the_graph()
 local function test_build_never_resolves_a_pin()
   local root = app("pinned")
   assert(fs.makedirs(fs.join(root, "3p")))
-  assert(fs.write(fs.join(root, "3p/blob.pin.tl"),
+  assert(fs.write(fs.join(root, "3p/blob_pin.tl"),
       'return {\n  url = "http://127.0.0.1:1/blob.bin",\n' ..
       '  sha256 = "e0997b6447e07ef18b6304a2b88ded9b24106e5bd67b40fab' ..
       'b73e7c1fff37d22",\n}\n'))

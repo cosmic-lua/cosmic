@@ -22,13 +22,13 @@ local record VersionSpec
   platforms: {string: PlatformSpec}
 end
 
---- URL and pinned sha256 resolved from a `*.pin.tl` spec.
+--- URL and pinned sha256 resolved from a `*_pin.tl` spec.
 local record Pin
   url: string
   sha: string
 end
 
---- Read a 3p `*.pin.tl`.
+--- Read a 3p `*_pin.tl`.
 ---
 --- This runs at BOOTSTRAP time — before the tree is compiled, with
 --- `LUA_PATH=";;"` pinning its requires to the freshly-fetched
@@ -40,7 +40,7 @@ end
 --- Now nothing in the build executes a pin. The trust root reads the
 --- file that names what to download, the same way fetch, stage and the
 --- version stamp do, and by the same grammar.
---- @param path string Path to the `*.pin.tl`
+--- @param path string Path to the `*_pin.tl`
 --- @return VersionSpec | nil The parsed spec, or nil on error
 --- @return string? Error message if reading failed
 local function load_spec(path: string): VersionSpec | nil, string
@@ -138,7 +138,7 @@ local function write_executable(path: string, data: string): boolean, string
   return true
 end
 
---- Fetch the pinned archive named by a `*.pin.tl`, verify its sha256,
+--- Fetch the pinned archive named by a `*_pin.tl`, verify its sha256,
 --- and install one member of it as an executable.
 --- @param version_file string Path to the version.lua pin
 --- @param member string Zip member to extract (e.g. "make")

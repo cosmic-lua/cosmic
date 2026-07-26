@@ -102,7 +102,7 @@ predicted and what actually happened — is in [log/](log/).
 
      **The pins**, which an earlier pass of this plan had moved to 3i as
      "blocked on the fetch verb" and which were not: `3p/*/version.lua`
-     → `3p/cosmos/cosmos.pin.tl` and `3p/tl/tl.pin.tl`, read by the same
+     → `3p/cosmos/cosmos_pin.tl` and `3p/tl/tl_pin.tl`, read by the same
      grammar `--make fetch` uses. What the repo needed was not the verb
      but a *reader* both sides can call — the fourth instance of the
      rule above, so `cosmic.literal` is public and `cosmic._make.pin`
@@ -147,7 +147,7 @@ predicted and what actually happened — is in [log/](log/).
    - **3i — the verbs take over, and the bridge goes.** `-include
      o/cosmic.mk` once the Makefile's own `build`/`test`/`fmt` targets
      retire; `--make fetch` replaces `_build/build-fetch.tl` (the
-     pins themselves are already `*.pin.tl`, done in 3g, and the two
+     pins themselves are already `*_pin.tl`, done in 3g, and the two
      pipelines now share one READER); `regen` runs the generation
      units, which is what lets `_types/*.d.tl` stop being committed.
      Then `bin/make` → `bin/cosmic`, and `mk/`, `cook.mk` and the

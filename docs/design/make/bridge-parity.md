@@ -174,7 +174,7 @@ artifacts — the bootstrap cosmic and the make engine from cosmos.zip.
 The engine half is already obsolete: cosmic extracts its embedded make
 to `o/make` itself.
 
-The work: `bootstrap/cosmic.pin.tl` in the same grammar as every pin;
+The work: `bootstrap/cosmic_pin.tl` in the same grammar as every pin;
 `bin/cosmic` to fetch, verify, cache and exec with argv passed through;
 and the cold-start gate moves to `rm -rf o && bin/cosmic --make ci` —
 verify the swap from a clean tree, not an incremental one, which is 3g's
@@ -204,7 +204,7 @@ this phase only one does.
 - **The landing name comes from the url's tail** (the ⚠ in [model.md](model.md)'s
   units table), which is why url-name validation has to exist at all and
   why an on-disk name is coupled to a remote server's path layout.
-  Retire it positionally: `3p/tl/tl.pin.tl` + `tar.gz` →
+  Retire it positionally: `3p/tl/tl_pin.tl` + `tar.gz` →
   `o/3p/tl/tl.tar.gz`, with an optional `output` field for archives
   whose inner layout makes the name matter. The url becomes purely
   *where the bytes come from*, and the guard's reason to exist

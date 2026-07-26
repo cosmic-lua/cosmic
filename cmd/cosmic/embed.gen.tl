@@ -143,7 +143,7 @@ local TYPES_STORED < const > = ".types"
 --- The cosmos pin the version stamp names, and the artifact path the
 --- stamp lands at — inside the module root, since `--version` reaches
 --- it with `require("cosmic._version")`.
-local COSMOS_PIN < const > = "3p/cosmos/cosmos.pin.tl"
+local COSMOS_PIN < const > = "3p/cosmos/cosmos_pin.tl"
 local VERSION_STORED < const > = "cosmic/_version.lua"
 
 --- Where a release records the version it is building, read with the

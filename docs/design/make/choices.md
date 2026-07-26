@@ -33,7 +33,7 @@ tradeoffs live in [docs/decisions](../../decisions/) instead — these are
 | `testdata/` | fixtures; not a module and not payload, so it never ships |
 | paths | filenames with spaces or shell metacharacters are a validator error |
 | network | only under `--make fetch`. **no project code ever runs with a socket** |
-| pins | `*.pin.tl` — Teal, statically extracted from a literal, never executed |
+| pins | `*_pin.tl` — Teal, statically extracted from a literal, never executed |
 | `exec` | resolves only to pinned/staged bytes under `o/`. never `PATH` |
 | version stamp | read from the cosmos pin plus a committed `.version` (`COSMIC_VERSION` overrides); no host tool |
 | recipe lines | whitespace-split argv; `argv[0]` ∈ closed verb set ∪ `exec` |

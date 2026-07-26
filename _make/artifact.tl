@@ -40,7 +40,7 @@ local type Project = types.Project
 ---
 --- `asset` is deliberately absent, and it used to be here. Every other
 --- kind in the model is declared by position or marker (a test is
---- `*_test.*`, a pin is `*.pin.tl`, payload is `embed/**`, internal is
+--- `*_test.*`, a pin is `*_pin.tl`, payload is `embed/**`, internal is
 --- `_`), and "everything else ships at its relative path" was the one
 --- row that inverted that: a repo is full of files that are ABOUT a
 --- project rather than OF its artifact, and all of them shipped. It

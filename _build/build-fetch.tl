@@ -1,19 +1,16 @@
 #!/usr/bin/env lua
 -- ast-grep ignore: builds relative symlink paths
--- Pin RESOLUTION is `_make.pin`, shared with `cosmic --make fetch`.
+-- The Makefile path's fetcher: download a pin's archive, verify it,
+-- land it under `$FETCH_O/<module>/<version>-<sha>/<archive>`, and
+-- point a `<module>/current` symlink at it.
 --
--- The two pipelines read the SAME committed `*.pin.tl` files, and while
--- each resolved them for itself they drifted: this one interpolated any
--- scalar field as `{key}`, the other only `{version}` and `{platform}`,
--- so a pin using any other placeholder worked on one side and produced
--- a garbage url on the other. Latent, because today's two pins use only
--- `{version}` — and latent is how that class of bug waits. One reader
--- now; what stays here is this pipeline's own LANDING convention
--- (`$FETCH_O/<module>/<version>-<sha>/<archive>` plus the symlink),
--- which is the only part that was ever genuinely different.
---
--- This file retires with the Makefile bridge (3i); the reader it now
--- calls is what survives.
+-- Pin RESOLUTION is not here: `_make.pin` reads the committed
+-- `*_pin.tl` files for both this pipeline and `cosmic --make fetch`, so
+-- there is one interpretation of a pin's url template and one place a
+-- placeholder can mean something. What stays here is this pipeline's
+-- own landing convention, which `--make fetch` does not share: it lands
+-- a pin's products beside the pin instead.
+
 local fs = require("cosmic.fs")
 local hash = require("cosmic.hash")
 local pin = require("_make.pin")
@@ -51,7 +48,7 @@ local function main(version_file: string, platform: string, output: string): boo
   end
 
   -- the make rule passes o/<module>/.versioned, a symlink to the
-  -- module's *.pin.tl; resolve it here so error messages name the real
+  -- module's *_pin.tl; resolve it here so error messages name the real
   -- file and the recipe needs no host readlink (#732)
   local resolved = fs.readlink(version_file)
   if resolved then
