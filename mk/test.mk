@@ -21,14 +21,25 @@ $(tlconfig_tests): .UNVEIL := $(unveil_test) r:tlconfig.lua r:Makefile
 graph_tests := $(call test_got,_make/graph_test.tl)
 $(graph_tests): .UNVEIL := $(unveil_test) r:embed
 
-# fixpoint_test copies the working tree and builds cosmic from the copy,
-# twice. Its read set is therefore the whole repository -- Makefile,
-# docs/, embed/, mk/, skills/, sys/, tlconfig.lua and the rest -- not
-# just $(src_dirs). `r:.` is the honest grant for "everything a build
-# of this project reads", and it stays read-only: the test writes only
-# under $(TMP), which the shared grant already covers.
-fixpoint_tests := $(call test_got,_make/fixpoint_test.tl)
-$(fixpoint_tests): .UNVEIL := $(unveil_test) r:.
+# Tests that drive a BUILD OF THIS PROJECT read the whole repository --
+# Makefile, docs/, embed/, mk/, skills/, sys/, tlconfig.lua and the rest
+# -- not just $(src_dirs). `r:.` is the honest grant for "everything a
+# build of this project reads", and it stays read-only: these write only
+# under $(TMP) and $(o), which the shared grant already covers.
+#
+# The tell is spawning `--make` or a generator with the repo as cwd: the
+# child walks the project root, and the walk is what the default grant
+# denies. That is not visible on a host without Landlock (`bin/make
+# sandbox-canary` says so), so it surfaces only in CI -- it has now cost
+# three round trips on this branch. If you add a test that builds this
+# project, add it here at the same time.
+#
+#   fixpoint_test  copies the tree and builds cosmic from the copy, twice
+#   generate_test  runs cmd/cosmic/embed.gen.tl against the real tree
+selfbuild_tests := $(call test_got,\
+  _make/fixpoint_test.tl \
+  _make/generate_test.tl)
+$(selfbuild_tests): .UNVEIL := $(unveil_test) r:.
 
 # Namespace-exercising tests need to call unshare(CLONE_NEWUSER|NEWNET|...)
 # and write /proc/self/{uid,gid}_map. No pledge promise covers unshare,

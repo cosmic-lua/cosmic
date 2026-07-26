@@ -134,6 +134,7 @@ local hostx_allowed: {string} = {
   "o/coverage/_build/help_test.tl.test.got", -- unveil_test + Makefile
   "o/coverage/_build/makefile_test.tl.test.got", -- unveil_test + mk
   "o/coverage/_make/fixpoint_test.tl.test.got", -- unveil_test + whole tree
+  "o/coverage/_make/generate_test.tl.test.got", -- unveil_test + whole tree
   "o/coverage/_make/graph_test.tl.test.got", -- unveil_test + embed payload
   "o/coverage/cosmic/teal_config_test.tl.test.got", -- unveil_test + tlconfig
   "o/coverage/cosmic/tty_pty_test.tl.test.got", -- unveil_test + pty devs
@@ -141,6 +142,7 @@ local hostx_allowed: {string} = {
   "o/_build/help_test.tl.test.got", -- unveil_test + Makefile
   "o/_build/makefile_test.tl.test.got", -- unveil_test + mk
   "o/_make/fixpoint_test.tl.test.got", -- unveil_test + whole tree
+  "o/_make/generate_test.tl.test.got", -- unveil_test + whole tree
   "o/_make/graph_test.tl.test.got", -- unveil_test + embed payload
   "o/cosmic/teal_config_test.tl.test.got", -- unveil_test + tlconfig
   "o/cosmic/tty_pty_test.tl.test.got", -- unveil_test + pty devs
