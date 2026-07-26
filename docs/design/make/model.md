@@ -15,8 +15,8 @@ go stale.
 | `main.tl` at root | the project's binary | staged tree readable, `o/bin` writable |
 | `cmd/<name>/main.tl` | one binary per subdirectory | same |
 | `<dir>/*_pin.tl` | a pinned external asset | network **only** under `fetch` |
-| `<dir>/*.gen.tl` | a generation unit | its subtree readable, `o/<dir>` writable |
-| `<unit>/embed.gen.tl` | a **binary's payload generator** (reserved basename, its own kind) | the binary's scope readable, `o/<unit>` writable |
+| `<dir>/*_gen.tl` | a generation unit | its subtree readable, `o/<dir>` writable |
+| `<unit>/embed_gen.tl` | a **binary's payload generator** (reserved basename, its own kind) | the binary's scope readable, `o/<unit>` writable |
 | `embed/**` | payload, embedded at its path inside `embed/` | — |
 | `.cosmicignore` | exclusions | — |
 | everything else | an asset: part of the project, **not** of its artifacts | — |
@@ -61,8 +61,8 @@ path** derived from its position. Nothing else varies.
 |---|---|---|---|
 | module | `X.tl` | the file + the include path | `o/X.lua` |
 | test | `X_test.tl` | staged subtree at its directory + staged modules | `o/X.tl.test.{got,out,err}` |
-| generator | `*.gen.tl` in `D` | `D`'s subtree | `o/D/**` |
-| payload generator | `embed.gen.tl` in unit `U` | `U`'s binary scope | `o/U/{embed/,base}` |
+| generator | `*_gen.tl` in `D` | `D`'s subtree | `o/D/**` |
+| payload generator | `embed_gen.tl` in unit `U` | `U`'s binary scope | `o/U/{embed/,base}` |
 | binary | `main.tl`, `cmd/<n>/main.tl` | root packages + its own `cmd/<n>/**` | `o/bin/<n>` |
 | pin | `*_pin.tl` in `D` | the pin literal, plus a socket under `fetch` | `o/D/<name from the url>` ⚠ |
 
@@ -84,9 +84,9 @@ next scope *without* consulting the last one. Two rows falsified a
 prediction; one is now closed. A binary's payload generator reads the
 *binary's* scope rather than its own subtree — that is a distinct row
 above and a distinct **kind** (`payload-gen`) out of `classify`, with a
-validator rule for a stray `embed.gen.tl` where no binary lives; it used
+validator rule for a stray `embed_gen.tl` where no binary lives; it used
 to be one kind split by prose plus a basename match inside the runner,
-which left `cmd/foo/data.gen.tl` a file neither mechanism would run. A
+which left `cmd/foo/data_gen.tl` a file neither mechanism would run. A
 pin's output path is still named by the url inside it (hence the ⚠),
 and retires with the second pin reader — see the pin grammar below.
 The `Unit` record is not earned; the smaller `unit_dir(path)` the fence
@@ -95,7 +95,7 @@ Method and findings: [log/phase1-2.md](log/phase1-2.md), 2d.
 
 ## Generators
 
-A generation unit is a directory holding a `*.gen.tl`; one directory per
+A generation unit is a directory holding a `*_gen.tl`; one directory per
 generated asset. **Inputs are its containing subtree, and its grants are
 exactly that set** — so a generator reading outside its scope gets a
 denied read, not a silently stale output. Outputs go to `o/<dir>/`.
@@ -112,7 +112,7 @@ editors need `o/` on the include path. This is the sharpest edge here.
 
 ## A binary's own generator
 
-`<unit>/embed.gen.tl` is the one generator `build` runs itself, and it
+`<unit>/embed_gen.tl` is the one generator `build` runs itself, and it
 is not a generation unit: its scope is the *binary's* scope, because
 what it produces is the binary's payload. It is handed its unit's
 output directory and owns two names inside it:

@@ -256,14 +256,13 @@ test_lint_lists_untracked_files()
 -- they are the ones pinned here.
 local function test_check_gates_terminate_the_outer_parse()
   local src = check.must(fs.read("mk/check.mk"), "failed to read mk/check.mk")
-  for _, gate in ipairs({"check%-types", "check%-format"}) do
+  for _, gate in ipairs({"check types", "check format", "check style"}) do
     local recipe = src:match("[^\n]*%-%-test[^\n]*" .. gate .. "[^\n]*")
-    assert(recipe,
-      "expected a --test recipe invoking --" .. gate:gsub("%%", ""))
+    assert(recipe, "expected a --test recipe invoking --" .. gate)
     -- non-greedy to a standalone `--`: the out path is $(basename $@),
     -- which itself contains a space, so a %S+ span does not reach it
     assert(recipe:match("%-%-test.-%s%-%-%s"),
-      "the " .. gate:gsub("%%", "") .. " recipe must pass `--` after the "
+      "the " .. gate .. " recipe must pass `--` after the "
       .. "out path, or the child loses its flags and the gate always "
       .. "passes; got: " .. recipe)
   end

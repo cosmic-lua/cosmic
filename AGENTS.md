@@ -78,14 +78,14 @@ not yet carry is in [docs/design/make/](docs/design/make/).
 - **error handling**: return `value, string` (nil + error message on failure). never throw from library code.
 - **doc comments**: `---` prefix with `@param` and `@return` tags
 - **naming**: `snake_case` for functions and variables. `PascalCase` for record types and record constructors (e.g. `signal.Sigset()`); options records are named `Options` (or `<Thing>Options` when a module has several).
-- **formatting**: 2-space indent, LF line endings, enforced by `cosmic --check-format`
+- **formatting**: 2-space indent, LF line endings, enforced by `cosmic --check format`
 - **column width**: 90 columns is house style, and the one style rule
   that is NOT a gate — the tree has 858 lines over it and the gate never
   checked (`cosmic.style.check_column_length` is exported and unused by
-  `--check-style`). Write to 90; do not expect a failure if you do not.
-- **warnings are errors**: `--check-types` fails on any Teal warning (unused, shadowing, unreachable branch). mark deliberately-unused values with a leading underscore (`local _out`, `_self: Poller`).
+  `--check style`). Write to 90; do not expect a failure if you do not.
+- **warnings are errors**: `--check types` fails on any Teal warning (unused, shadowing, unreachable branch). mark deliberately-unused values with a leading underscore (`local _out`, `_self: Poller`).
 - **file length**: all files must be ≤500 lines. no exceptions. enforced
-  by `cosmic --check-style`, which is what both `bin/make lint` and
+  by `cosmic --check style`, which is what both `bin/make lint` and
   `cosmic --make lint` run. `.d.tl` type declaration files are exempt
   (they describe C binding interfaces and cannot be split due to Teal's
   record system).
@@ -320,8 +320,8 @@ CLI features:
 ```
 cosmic script.tl              run a Teal script
 cosmic --compile file.tl      compile to Lua (stdout)
-cosmic --check-types file.tl  type check (strict)
-cosmic --check-format file    check formatting
+cosmic --check types file.tl  type check (strict)
+cosmic --check format file    check formatting
 cosmic --format file          format file (stdout)
 cosmic --docs <query>         search documentation
 cosmic --examples [module]    browse examples
@@ -381,7 +381,7 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | sqlite | SQLite with ergonomic query/exec/transaction API |
 | sse | Server-Sent Events parser |
 | string | trim, split, capitalize, starts_with, etc. |
-| style | the style checks behind `--check-style`: file length, column width, ordering |
+| style | the style checks behind `--check style`: file length, column width, ordering |
 | sys | OS/architecture detection, sysconf (nproc, page size), uname |
 | syslog | system logging |
 | table | deep copy/merge/equality and map/filter/reduce for tables |

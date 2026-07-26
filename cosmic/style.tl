@@ -5,7 +5,7 @@
 --- STRIPPED artifact must still boot and there is no Teal compiler to
 --- require. The checks that need the LEXER — cast justification, the
 --- cosmo-require rule, call-after-define — are in `_cli.lint`, which
---- composes these with those and is what `--check-style` runs.
+--- composes these with those and is what `--check style` runs.
 ---
 --- Column length is exported and not run by that composition: this tree
 --- does not satisfy it (~840 lines over 90 columns, most of them prose

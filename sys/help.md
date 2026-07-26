@@ -5,14 +5,16 @@ Usage: cosmic-lua [options] [script [args]]
 Cosmic options:
   --compile <file.tl>           compile Teal file to Lua, lax mode (stdout)
   --compile-strict <file.tl>    compile with strict type check first; warnings fail
-  --include-dir <dir>           add search path for --compile/--check-types (repeatable)
+  --include-dir <dir>           add search path for --compile/--check types (repeatable)
   --format <file>               format Teal or Lua file (stdout)
   --fix <file>                  format Teal or Lua file in place
   --write-if-changed            with --compile/--format and --output: skip write if unchanged
-  --check-format <file>         check file formatting (diff on stderr)
-  --check-types <file.tl>       type-check a Teal file, strict mode
-  --check-style <file.tl>       check style: line length, column width, assert order
-  --check-examples <file.tl>    run Example_* functions, check output
+  --check <kind> <file>         run one gate check on one file. kinds:
+                                  types     type-check, strict
+                                  format    formatting (diff on stderr)
+                                  style     file length, casts, test order
+                                  examples  run Example_* and check output
+                                the whole project is `--make check|fmt|lint|example`
   --examples [module]           browse examples (list all, or show module)
   --embed <path>                embed file or directory into executable
   --output <file>               output file for --embed (default: cosmic)

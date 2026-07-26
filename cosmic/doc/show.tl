@@ -335,7 +335,7 @@ local function render_examples_list(examples: {ExampleEntry}): string
     table.insert(lines, line)
   end
   table.insert(lines, "")
-  table.insert(lines, "Run examples with: cosmic --check-examples <file.tl>")
+  table.insert(lines, "Run examples with: cosmic --check examples <file.tl>")
   table.insert(lines, "View module docs with: cosmic --docs <module>")
   return table.concat(lines, "\n")
 end

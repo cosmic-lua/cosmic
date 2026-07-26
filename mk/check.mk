@@ -30,12 +30,12 @@ $(o)/teal-summary.txt: $(all_teals) | $(build_reporter)
 	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $^
 
 # The `--` is load-bearing (#801): without it the outer getopt consumes
-# the child's --check-types, the child runs argument-less, drops into
+# the child's --check types, the child runs argument-less, drops into
 # the REPL, reads EOF and exits 0 -- so --test faithfully records a pass
 # for a check that never ran. lint gets this right at :84; test/mk has
 # no inner flags to lose.
 $(o)/%.teal.got: % $(cosmic_check_bin) | $(bootstrap_files)
-	@$(cosmic_check_bin) --test $(basename $@) -- $(cosmic_check_bin) $(include_dir_flags) --check-types $<
+	@$(cosmic_check_bin) --test $(basename $@) -- $(cosmic_check_bin) $(include_dir_flags) --check types $<
 
 all_formats := $(patsubst %,$(o)/%.format.got,$(call filter-only,$(all_source_files)))
 
@@ -49,7 +49,7 @@ $(o)/format-summary.txt: $(all_formats) | $(build_reporter)
 # no second line of defence -- teal's work is redone by --compile-strict,
 # but nothing else checks formatting -- so it silently passed everything.
 $(o)/%.format.got: % $(cosmic_check_bin) | $(bootstrap_files)
-	@$(cosmic_check_bin) --test $(basename $@) -- $(cosmic_check_bin) --check-format $<
+	@$(cosmic_check_bin) --test $(basename $@) -- $(cosmic_check_bin) --check format $<
 
 # Lint every file that will land (#719): tracked, PLUS untracked ones
 # git does not ignore. --others is what makes a brand-new file linted
@@ -98,7 +98,7 @@ $(o)/lint-summary.txt: $(all_linted) $(lint_list_stamp) | $(build_reporter)
 	$(if $(strip $(lint_present)),,$(error lint: no tracked file exists on disk — filter collapsed the list?))
 	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $(all_linted)
 
-# `--check-style` on the freshly built binary, which is the same entry
+# `--check style` on the freshly built binary, which is the same entry
 # point `--make lint` uses: one implementation of the style gate, so the
 # two lanes cannot disagree about what it is.
 #
@@ -107,7 +107,7 @@ $(o)/lint-summary.txt: $(all_linted) $(lint_list_stamp) | $(build_reporter)
 # and no grant covers it, so the exec fails with 127 — for every file,
 # with no summary to say why.
 $(o)/%.lint.got: % $(cosmic_check_bin) | $(bootstrap_files)
-	@$(cosmic_check_bin) --test $(basename $@) -- $(cosmic_check_bin) --check-style $<
+	@$(cosmic_check_bin) --test $(basename $@) -- $(cosmic_check_bin) --check style $<
 
 # The model gate (3f): does this repo still conform to the project model
 # `cosmic --make` builds by? Every slice of phase 3 has been checking it

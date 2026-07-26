@@ -63,7 +63,7 @@ $ ./cosmic-lua hello.tl
 {"hello":"world"}
 ```
 
-scripts are type checked as they run; `./cosmic-lua --check-types
+scripts are type checked as they run; `./cosmic-lua --check types
 hello.tl` checks without running. `./cosmic-lua -i` starts a REPL, and
 `./cosmic-lua --docs fs` searches the embedded documentation.
 

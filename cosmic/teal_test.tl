@@ -117,7 +117,7 @@ test_hint_index_any()
 
 -- The lax/strict contract, previously asserted only by docstring:
 -- --compile (default) is the permissive gradual-typing on-ramp; strict
--- compile refuses everything --check-types refuses (type errors AND
+-- compile refuses everything --check types refuses (type errors AND
 -- warnings) and generates from the checked AST.
 local function test_compile_lax_strict_contract()
   -- Lax forgives UNKNOWNS (the plain-Lua on-ramp), not explicit

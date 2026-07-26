@@ -1,5 +1,5 @@
 -- Editor/LSP tooling config only (teal-language-server, tl CLI). cosmic's own
--- build and --check-types do NOT read this file: checker options are set in
+-- build and --check types do NOT read this file: checker options are set in
 -- cosmic/teal.tl (process_file/compile). teal_config_test.tl fails if
 -- this mirror drifts from cosmic.teal's compiled-in defaults or from the
 -- Makefile's INCLUDE_DIRS, so the editor resolves cosmic.* and cosmo.*

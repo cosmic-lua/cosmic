@@ -174,7 +174,7 @@ local function render_whitespace(s: string): string
   return result
 end
 
---- Handle --check-format flag.
+--- Handle --check format flag.
 local function handle_check_format(file: string): integer
   local span = instrument.begin("check-format", file)
   local fmt = require("cosmic.format")
@@ -235,7 +235,7 @@ local function handle_check_format(file: string): integer
   return 1
 end
 
---- Handle --check-types flag.
+--- Handle --check types flag.
 local function handle_check_types(file: string, include_dirs?: {string}): integer
   local span = instrument.begin("check-types", file)
   local teal = require("cosmic.teal")
@@ -274,7 +274,7 @@ local function handle_extract(dir: string, exe?: string): integer
   return result.ok and 0 or 1
 end
 
---- Handle --check-examples flag.
+--- Handle --check examples flag.
 local function handle_check_examples(file: string): integer
   local span = instrument.begin("check-examples", file)
   local example = require("cosmic.example")
@@ -337,7 +337,7 @@ local function handle_docs(query: string): integer
   end
 end
 
---- Handle --check-style flag.
+--- Handle --check style flag.
 local function handle_check_style(file: string): integer
   local span = instrument.begin("check-style", file)
   local f = io.open(file, "r")
@@ -347,12 +347,9 @@ local function handle_check_style(file: string): integer
     return 1
   end
   f:close()
-  -- `_cli.lint`, not `cosmic.style`: the checks that need the LEXER
-  -- (cast justification, the cosmo-require rule, call-after-define)
-  -- cannot live in the strip floor, and this flag is the dispatcher's,
-  -- which a stripped artifact does not carry either. One entry point,
-  -- so `--check-style` and `--make lint` cannot disagree about what the
-  -- style gate is.
+  -- `_cli.lint`, not `cosmic.style`: the lexer-based checks cannot live
+  -- in the strip floor. One entry point, so `--check style` and
+  -- `--make lint` cannot disagree about what the style gate is.
   local lint = require("_cli.lint")
   local style_types = require("cosmic.style")
   local found, lerr = lint.lint_file(file)

@@ -41,7 +41,7 @@ $(pins_tests): .UNVEIL := $(unveil_test) r:3p
 # project, add it here at the same time.
 #
 #   fixpoint_test  copies the tree and builds cosmic from the copy, twice
-#   generate_test  runs cmd/cosmic/embed.gen.tl against the real tree
+#   generate_test  runs cmd/cosmic/embed_gen.tl against the real tree
 selfbuild_tests := $(call test_got,\
   _make/fixpoint_test.tl \
   _make/generate_test.tl)

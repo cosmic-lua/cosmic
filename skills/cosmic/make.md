@@ -27,7 +27,7 @@ replaced it outright.
 | `check` | strict type-check (warnings are errors), in process | ✅ |
 | `build` | compile the tree, then stage + embed → `o/bin/<name>` | ✅ |
 | `test` | build, then run `*_test.tl` and report | ✅ |
-| `fmt` | `--check-format` over every `.tl` | ✅ |
+| `fmt` | `--check format` over every `.tl` | ✅ |
 | `clean` | remove `o/` | ✅ |
 | `fetch` | resolve `*_pin.tl` — the only verb with a network | ✅ |
 | `run` | build, then exec the artifact | planned |
@@ -203,7 +203,7 @@ without it cosmic would never see the line at all.
 | `*_example.tl` | an example |
 | `*.d.tl` | type-only; on the include path, never embedded |
 | `*_pin.tl` | a pinned external asset |
-| `*.gen.tl` | a generation unit |
+| `*_gen.tl` | a generation unit |
 | `testdata/` | test fixtures; never embedded |
 | `_<dir>/` | internal: importable only from within its container |
 | everything else | an asset, embedded at its relative path |

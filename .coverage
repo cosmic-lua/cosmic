@@ -7,9 +7,10 @@ _build/make-boot.tl 52 87
 _build/make-help.tl 79 97
 _build/portable.tl 16 18
 _build/reporter.tl 149 164
-_cli/args.tl 0 23
+_cli/args.tl 0 31
 _cli/build/init.tl 55 60
 _cli/build/steps.tl 182 234
+_cli/check.tl 24 31
 _cli/driver.tl 163 190
 _cli/help.tl 46 48
 _cli/lint.tl 130 152
@@ -59,8 +60,8 @@ _types/gentype_extract.tl 54 54
 _types/gentype_parse.tl 267 288
 _types/gentype_render.tl 309 312
 _types/gentype_types.tl 2 2
-cmd/cosmic/embed.gen.tl 0 150
-cmd/cosmic/main.tl 0 290
+cmd/cosmic/embed_gen.tl 0 150
+cmd/cosmic/main.tl 0 277
 cosmic/_script_cache.tl 64 70
 cosmic/ansi.tl 86 86
 cosmic/benchmark.tl 180 212
@@ -165,4 +166,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 80 93
 tlconfig.lua 7 7
-total 13765 17684
+total 13789 17710

@@ -7,7 +7,7 @@
 --- units, which is why `scope_of` below is a plain function over the
 --- model rather than a special case bolted onto the pack rule: a
 --- `cmd/<name>/` directory generates `o/bin/<name>` from (root packages
---- + its own subtree) the same way a `*.gen.tl` directory generates
+--- + its own subtree) the same way a `*_gen.tl` directory generates
 --- `o/<dir>/**` from its subtree.
 ---
 --- Layout is derived, never enumerated. One rule:
@@ -176,7 +176,7 @@ end
 ---
 --- The tree half of `embed/` is committed files; this is the other
 --- half, and it is why generated payload works at all: everything
---- generated lives in `o/`, so a `cmd/<name>/embed.gen.tl` writes into
+--- generated lives in `o/`, so a `cmd/<name>/embed_gen.tl` writes into
 --- `o/cmd/<name>/embed/**` and the artifact stages it exactly as if it
 --- had been committed. Both halves land at the same place inside the
 --- artifact, so a project can generate `tl.lua` and commit `notes.txt`

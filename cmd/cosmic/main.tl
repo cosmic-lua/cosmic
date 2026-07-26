@@ -38,14 +38,13 @@ local record Options
   compile_strict: string
   format: string
   fix: string
-  check_format: string
-  check_types: string
-  check_style: string
+  --- The kind named by `--check <kind>`, and the file it applies to.
+  check_kind: string
+  check_file: string
   embed: {string}
   output: string
   extract: string
   exe: string
-  check_examples: string
   examples: string
   benchmark: string
   docs: string
@@ -94,8 +93,12 @@ local function parse_args(): Options
     ["coverage-report"] = true,
   }
 
-  -- Options that take required arg + one additional positional arg
-  local long_extra_arg: {string: boolean} = {}
+  -- Options that take their own argument AND one positional after it:
+  -- `--check <kind> <file>`. Without this the file reads as a script
+  -- name and parsing stops before it.
+  local long_extra_arg: {string: boolean} = {
+    ["check"] = true,
+  }
 
   -- Find first non-option argument (script name) to know where to stop parsing
   local script_idx: integer = nil
@@ -165,15 +168,10 @@ local function parse_args(): Options
     cosmic_args = arg
   end
 
-  -- Check for removed flags before getopt (to avoid prefix matching)
-  for _, a in ipairs(cosmic_args) do
-    if a == "--check" or a:match("^%-%-check=") then
-      opts.error = "cosmic-lua: --check was renamed to --check-types"
-      return opts
-    elseif a == "--example" or a:match("^%-%-example=") then
-      opts.error = "cosmic-lua: --example was renamed to --check-examples"
-      return opts
-    end
+  local rename_err = cli_args.renamed_check(cosmic_args)
+  if rename_err then
+    opts.error = rename_err
+    return opts
   end
 
   local r0, perr = getopt.parse(cosmic_args, shortopts, longopts)
@@ -254,14 +252,11 @@ local function parse_args(): Options
     elseif opt == "fix" then
       opts.fix = optarg
       return opts
-    elseif opt == "check-format" then
-      opts.check_format = optarg
-      return opts
-    elseif opt == "check-types" then
-      opts.check_types = optarg
-      return opts
-    elseif opt == "check-style" then
-      opts.check_style = optarg
+    elseif opt == "check" then
+      -- The kind is the flag's argument; the file is the next
+      -- positional, which getopt has left in `r.args`.
+      opts.check_kind = optarg
+      opts.check_file = r.args[1]
       return opts
     elseif opt == "embed" then
       opts.embed[#opts.embed + 1] = optarg
@@ -269,9 +264,6 @@ local function parse_args(): Options
       opts.output = optarg
     elseif opt == "extract" then
       opts.extract = optarg
-      return opts
-    elseif opt == "check-examples" then
-      opts.check_examples = optarg
       return opts
     elseif opt == "examples" then
       opts.examples = optarg or ""
@@ -372,12 +364,12 @@ local function main(): integer, string
   if opts.compile_strict then return handlers.handle_compile(opts.compile_strict, opts.output, opts.write_if_changed, opts.include_dirs, true) end
   if opts.format then return handlers.handle_format(opts.format, opts.output, opts.write_if_changed) end
   if opts.fix then return handlers.handle_format(opts.fix, opts.fix, true) end
-  if opts.check_format then return handlers.handle_check_format(opts.check_format) end
-  if opts.check_types then return handlers.handle_check_types(opts.check_types, opts.include_dirs) end
-  if opts.check_style then return handlers.handle_check_style(opts.check_style) end
+  if opts.check_kind then
+    return require("_cli.check").run(opts.check_kind, opts.check_file,
+      opts.include_dirs)
+  end
   if #opts.embed > 0 then return handlers.handle_embed(opts.embed, opts.output, opts.exe) end
   if opts.extract then return handlers.handle_extract(opts.extract, opts.exe) end
-  if opts.check_examples then return handlers.handle_check_examples(opts.check_examples) end
 
   if opts.examples ~= nil then
     local module_name = cli_args.resolve_optional_arg("--examples", opts.examples)

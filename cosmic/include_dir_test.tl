@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- test --include-dir flag for --compile and --check-types
+-- test --include-dir flag for --compile and --check types
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
@@ -48,7 +48,7 @@ print(s)
 end
 test_compile_include_dir()
 
--- Test --include-dir with --check-types
+-- Test --include-dir with --check types
 local function test_check_types_include_dir()
   local typedir, _ = setup_custom_types()
 
@@ -59,13 +59,13 @@ print(s)
 ]])
 
   -- Without --include-dir, check should fail (strict mode, module not found)
-  local h2 = check.must(spawn.spawn({cosmic, "--check-types", input}))
+  local h2 = check.must(spawn.spawn({cosmic, "--check", "types", input}))
   local __r2 = check.must(h2:wait())
   local ok_without, _ = __r2.ok, __r2.stdout
   assert(not ok_without, "check should fail without --include-dir for custom module")
 
   -- With --include-dir, check should succeed
-  local h3 = check.must(spawn.spawn({cosmic, "--include-dir", typedir, "--check-types", input}))
+  local h3 = check.must(spawn.spawn({cosmic, "--include-dir", typedir, "--check", "types", input}))
   local __r3 = check.must(h3:wait())
   local ok_with, out = __r3.ok, __r3.stdout
   assert(ok_with, "check with --include-dir should succeed: " .. tostring(out))
@@ -102,7 +102,7 @@ print(mod_a.hello() .. mod_b.world())
         cosmic,
         "--include-dir", typedir1,
         "--include-dir", typedir2,
-        "--check-types", input,
+        "--check", "types", input,
       }))
   local __r4 = check.must(h:wait())
   local ok, out = __r4.ok, __r4.stdout
@@ -150,7 +150,7 @@ local p: string = fs.join("a", "b")
 print(s, p)
 ]])
 
-  local h4 = check.must(spawn.spawn({cosmic, "--include-dir", typedir, "--check-types", input}))
+  local h4 = check.must(spawn.spawn({cosmic, "--include-dir", typedir, "--check", "types", input}))
   local __r6 = check.must(h4:wait())
   local ok, out = __r6.ok, __r6.stdout
   assert(ok, "check with --include-dir should still find built-in types: " .. tostring(out))

@@ -150,7 +150,7 @@ core invariants; the C layer runs under sanitizers in CI.
 ### G6 — competitive on the defining paths
 
 perf is a stated goal only where it defines the product experience:
-binary startup, `--check-types` latency on a reference project, and the
+binary startup, `--check types` latency on a reference project, and the
 embed build cycle — with bars set relative to peers (starts faster than
 CPython; typechecks faster than comparable checkers on comparable
 code). everything else stays non-regression, enforced by the existing

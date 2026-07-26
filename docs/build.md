@@ -221,8 +221,8 @@ the result is a single executable with all modules accessible at the zip root: `
 
 `make ci` runs six stages with `--keep-going`:
 
-1. **format**: check all files with `cosmic --check-format`
-2. **teal**: type check all files with `cosmic --check-types`
+1. **format**: check all files with `cosmic --check format`
+2. **teal**: type check all files with `cosmic --check types`
 3. **test**: run all `*_test.tl` files
 4. **example**: run all `Example_*` functions in `*_example.tl` files
 5. **lint**: file length, cast justifications, and shared style checks on

@@ -23,7 +23,7 @@ Measured against the binary above rather than guessed:
 | ~~1~~ | ~~no entry~~ | **closed in 3h** — `cmd/cosmic/main.tl` | `build: PASS (359 files, 1 binary)` |
 | ~~2~~ | ~~`_cli`/`_make` inside `cosmic/`~~ | **closed in 3h** — both at the root | `check: PASS (359 files)` |
 | ~~3~~ | ~~`tl.lua` is not in the tree~~ | **closed** — a pin declares `format`/`strip_components` and `fetch` unpacks after verifying; the generator copies `o/3p/tl/tl.lua` into the payload | `.tl` scripts run under the built artifact |
-| ~~4~~ | ~~the type tree's location~~ | **closed** — the generator maps `_types/**.d.tl` to `.types/**` | `--check-types` passes under the built artifact |
+| ~~4~~ | ~~the type tree's location~~ | **closed** — the generator maps `_types/**.d.tl` to `.types/**` | `--check types` passes under the built artifact |
 | ~~5~~ | ~~the docs index~~ | **closed** — the generator calls `cosmic.doc.index` in process; no `regen` verb needed | `--docs fs` answers under the built artifact |
 | ~~6~~ | ~~`cosmic.mk` and `make`~~ | **closed** — `cosmic.mk` moved to `embed/cosmic.mk` (committed payload), `make` is copied from the unpacked cosmos zip | the built artifact runs `--make build` |
 | ~~7~~ | ~~the version stamp~~ | **closed** — the generator reads the cosmos pin with `cosmic.literal` and takes the cosmic half from `COSMIC_VERSION`; no shell, no `git` | `--version` prints the stamp |
@@ -33,7 +33,7 @@ Measured against the binary above rather than guessed:
 Items 3–7 were what 3i meant by "the verbs take over", and one
 convention closed all five: **a unit's output directory holds `embed/`
 beside `base`** — what the artifact carries, and what it carries it on.
-A `cmd/<name>/embed.gen.tl` is handed that directory and owns the
+A `cmd/<name>/embed_gen.tl` is handed that directory and owns the
 layout inside it, so cosmic's payload is described once, in the unit
 that ships it, instead of as a pack list in a makefile.
 

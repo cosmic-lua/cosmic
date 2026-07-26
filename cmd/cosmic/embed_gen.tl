@@ -1,14 +1,14 @@
 --- The cosmic binary's payload — what this artifact carries besides
 --- its own modules, and what it carries it on.
 ---
---- `cosmic --make build` runs `cmd/<name>/embed.gen.tl` with its
+--- `cosmic --make build` runs `cmd/<name>/embed_gen.tl` with its
 --- unit's output directory, then reads two names out of it: `embed/`
 --- is staged at the artifact root, and `base` is the runtime the
 --- artifact is built onto. So this file is cosmic's own answer to
 --- "what is in a cosmic binary", written once, in the unit that ships
 --- it:
 ---
----   .tl/**           cosmic's sources, so `--check-types` in a user's
+---   .tl/**           cosmic's sources, so `--check types` in a user's
 ---                    project can resolve `require("cosmic.fs")`
 ---   .types/**        the generated `cosmo.*` declarations, same reason
 ---   .docs/index.lua  the index `--docs` searches
@@ -31,7 +31,7 @@
 --- to be produced is generated. Both land at the same place, and
 --- nothing downstream can tell which was which.
 ---
---- Scope, stated because it is wider than a `*.gen.tl` generation
+--- Scope, stated because it is wider than a `*_gen.tl` generation
 --- unit's subtree: a BINARY's payload generator reads the binary's own
 --- scope — `.tl/**` is literally that set — plus the pinned bytes
 --- `--make fetch` left under `o/`. It writes only into the directory
@@ -251,7 +251,7 @@ local function declared_version(): string
   if fs.isfile(VERSION_PIN) then
     local declared, derr = literal.of_file(VERSION_PIN, "version")
     if not declared then
-      io.stderr:write("embed.gen: " .. VERSION_PIN .. ": " ..
+      io.stderr:write("embed_gen: " .. VERSION_PIN .. ": " ..
         (derr or "cannot read") .. "; falling back to the environment\n")
     else
       -- cast: the literal reader returns a plain table
@@ -386,12 +386,12 @@ end
 local function main(args: {string}): integer
   local out = args[1]
   if not out or out == "" then
-    io.stderr:write("embed.gen: usage: embed.gen.tl <outdir>\n")
+    io.stderr:write("embed_gen: usage: embed_gen.tl <outdir>\n")
     return 2
   end
   local err = generate(out)
   if err then
-    io.stderr:write("embed.gen: " .. err .. "\n")
+    io.stderr:write("embed_gen: " .. err .. "\n")
     return 1
   end
   return 0
@@ -407,9 +407,9 @@ local M: EmbedGenModule = {
   main = main,
 }
 
--- A generator is run, not imported; the guard keeps `--check-types`
+-- A generator is run, not imported; the guard keeps `--check types`
 -- and the compile step from executing it.
-if arg and arg[0] and arg[0]:match("embed%.gen%.tl$") then
+if arg and arg[0] and arg[0]:match("embed_gen%.tl$") then
   os.exit(main(arg))
 end
 

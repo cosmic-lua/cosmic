@@ -202,7 +202,7 @@ end
 
 -- gen2: the product works. Every check here is a capability the binary
 -- only has if its payload arrived -- running a `.tl` needs tl.lua,
--- `--check-types` needs the type tree AND the `.tl` sources,
+-- `--check types` needs the type tree AND the `.tl` sources,
 -- `--docs` needs the index, `--version` needs the stamp, and `--make`
 -- needs both the rules file and the embedded engine.
 local gen2 = generation("gen2", cosmic)
@@ -216,7 +216,7 @@ local function test_the_product_is_a_cosmic()
   assert(code == 0 and out:find("ok", 1, true),
     "gen2 must run a .tl script (needs tl.lua): " .. out)
 
-  code, out = run(gen2, "--check-types", script)
+  code, out = run(gen2, "--check", "types", script)
   assert(code == 0,
     "gen2 must type-check (needs .types/** and .tl/**): " .. out)
 

@@ -42,7 +42,7 @@ local function cli(...: string): Run
   }
 end
 
--- --check-format: the gate that keeps the tree formatted. Exercised in
+-- --check format: the gate that keeps the tree formatted. Exercised in
 -- both directions so a gate that accepted everything would fail here.
 
 local formatted = fs.join(tmpdir, "formatted.tl")
@@ -52,14 +52,14 @@ local misformatted = fs.join(tmpdir, "misformatted.tl")
 fs.write(misformatted, 'local function f()\n        return 1\nend\nprint(f())\n')
 
 local function test_check_format_accepts_formatted_source()
-  local r = cli("--check-format", formatted)
+  local r = cli("--check", "format", formatted)
   assert(r.code == 0,
     "well-formatted file should pass, got " .. r.code .. ": " .. r.err)
 end
 test_check_format_accepts_formatted_source()
 
 local function test_check_format_rejects_misformatted_source()
-  local r = cli("--check-format", misformatted)
+  local r = cli("--check", "format", misformatted)
   assert(r.code ~= 0, "misformatted file must be rejected, got exit 0")
   assert((r.out .. r.err):find("misformatted", 1, true),
     "the diagnostic should name the file, got: " .. r.out .. r.err)
@@ -67,7 +67,7 @@ end
 test_check_format_rejects_misformatted_source()
 
 local function test_check_format_reports_missing_file()
-  local r = cli("--check-format", fs.join(tmpdir, "nope-does-not-exist.tl"))
+  local r = cli("--check", "format", fs.join(tmpdir, "nope-does-not-exist.tl"))
   assert(r.code ~= 0, "a missing file must not pass the gate")
   assert(#(r.out .. r.err) > 0,
     "a missing file should produce a diagnostic, not silence")
@@ -77,7 +77,7 @@ test_check_format_reports_missing_file()
 local function test_check_format_rejects_unparseable_source()
   local broken = fs.join(tmpdir, "broken.tl")
   fs.write(broken, 'local function f(\n')
-  local r = cli("--check-format", broken)
+  local r = cli("--check", "format", broken)
   assert(r.code ~= 0, "unparseable source must be rejected, got exit 0")
 end
 test_check_format_rejects_unparseable_source()
@@ -165,9 +165,9 @@ local function test_make_requires_a_verb()
 end
 test_make_requires_a_verb()
 
--- The check gates run `cosmic --test <out> -- cosmic --check-format F`.
+-- The check gates run `cosmic --test <out> -- cosmic --check format F`.
 -- That `--` is load-bearing: without it the OUTER getopt consumes the
--- child's --check-format, the child runs argument-less, drops into the
+-- child's --check format, the child runs argument-less, drops into the
 -- REPL, reads EOF and exits 0 -- so --test faithfully records a pass
 -- for a check that never ran, and every teal/format .got was a 0
 -- regardless of the file (#801).
@@ -182,14 +182,14 @@ local function test_test_wrapper_propagates_child_exit_code()
   fs.write(good, 'local x = 1\nprint(x)\n')
 
   local base_bad = fs.join(tmpdir, "wrap_bad.fmt")
-  cli("--test", base_bad, "--", cosmic, "--check-format", bad)
+  cli("--test", base_bad, "--", cosmic, "--check", "format", bad)
   local got_bad = check.must(fs.read(base_bad .. ".got"),
     "--test should record an exit code for the failing check")
   assert(got_bad:gsub("%s+$", "") ~= "0",
     "a failing check must be recorded as non-zero, got: " .. got_bad)
 
   local base_good = fs.join(tmpdir, "wrap_good.fmt")
-  cli("--test", base_good, "--", cosmic, "--check-format", good)
+  cli("--test", base_good, "--", cosmic, "--check", "format", good)
   local got_good = check.must(fs.read(base_good .. ".got"),
     "--test should record an exit code for the passing check")
   assert(got_good:gsub("%s+$", "") == "0",
@@ -209,14 +209,14 @@ local function test_test_wrapper_needs_no_separator()
   fs.write(good, 'local x = 1\nprint(x)\n')
 
   local base_bad = fs.join(tmpdir, "nosep_bad.fmt")
-  cli("--test", base_bad, cosmic, "--check-format", bad)
+  cli("--test", base_bad, cosmic, "--check", "format", bad)
   local got_bad = check.must(fs.read(base_bad .. ".got"),
     "--test without `--` should still record an exit code")
   assert(got_bad:gsub("%s+$", "") ~= "0",
     "without `--` a failing check must still be non-zero, got: " .. got_bad)
 
   local base_good = fs.join(tmpdir, "nosep_good.fmt")
-  cli("--test", base_good, cosmic, "--check-format", good)
+  cli("--test", base_good, cosmic, "--check", "format", good)
   local got_good = check.must(fs.read(base_good .. ".got"),
     "--test without `--` should still record an exit code")
   assert(got_good:gsub("%s+$", "") == "0",

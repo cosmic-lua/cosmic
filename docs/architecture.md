@@ -134,7 +134,7 @@ tests are `*_test.tl` files that run as standalone scripts. the Makefile:
 
 each test gets an isolated `TEST_TMPDIR`. test dependencies are resolved automatically from module declarations.
 
-examples (`*_example.tl`) contain `Example_*` functions with expected output in comments. `cosmic --check-examples` runs them and validates output.
+examples (`*_example.tl`) contain `Example_*` functions with expected output in comments. `cosmic --check examples` runs them and validates output.
 
 benchmarks use `Benchmark_*` functions with iteration-based timing.
 

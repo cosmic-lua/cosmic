@@ -20,7 +20,7 @@ tradeoffs live in [docs/decisions](../../decisions/) instead — these are
 | built-in opinions | none. no automatic version stamp, no automatic doc index |
 | build inputs | enumerable from committed files — pins, `exec` targets, and the version stamp alike |
 | generated outputs | never committed; everything generated lives in `o/` |
-| generator units | directory-scoped; one per generated asset. a binary's `embed.gen.tl` fills `o/<unit>/{embed/,base}` |
+| generator units | directory-scoped; one per generated asset. a binary's `embed_gen.tl` fills `o/<unit>/{embed/,base}` |
 | generator inputs | its containing subtree = its grants. reads outside are **denied**, not stale |
 | grants | **derived** from each verb's signature; no declaration channel |
 | enforcement | Landlock where available **plus** portable in-process gating |

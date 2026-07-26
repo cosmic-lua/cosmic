@@ -145,7 +145,7 @@ end
 local function test_build_runs_the_units_generator()
   local root = fixture("runs", {
       ["cmd/tool/main.tl"] = "print('tool')\n",
-      ["cmd/tool/embed.gen.tl"] = [[
+      ["cmd/tool/embed_gen.tl"] = [[
 local fs = require("cosmic.fs")
 local out = arg[1]
 assert(fs.makedirs(fs.join(out, "embed")))
@@ -154,7 +154,7 @@ assert(fs.write(fs.join(out, "embed/generated.txt"), "made by the generator\n"))
     })
   local code, out = make(root, "build")
   assert(code == 0, "build should succeed: " .. out)
-  assert(out:find("generate cmd/tool/embed.gen.tl", 1, true),
+  assert(out:find("generate cmd/tool/embed_gen.tl", 1, true),
     "build announces the generator it ran: " .. out)
 
   local produced = fs.join(root, "o/cmd/tool/embed/generated.txt")
@@ -228,7 +228,7 @@ test_default_argv_is_derived()
 -- whatever the last run left, depending on which name sorted first.
 local function test_the_root_generator_runs_for_cmd_binaries()
   local root = fixture("rootgen", {
-      ["embed.gen.tl"] = [[
+      ["embed_gen.tl"] = [[
 local fs = require("cosmic.fs")
 local out = arg[1]
 assert(fs.makedirs(fs.join(out, "embed")))
@@ -263,7 +263,7 @@ test_the_root_generator_runs_for_cmd_binaries()
 local function test_in_process_build_runs_the_generator()
   local root = fixture("inproc", {
       ["cmd/tool/main.tl"] = "print('tool')\n",
-      ["cmd/tool/embed.gen.tl"] = [[
+      ["cmd/tool/embed_gen.tl"] = [[
 local fs = require("cosmic.fs")
 local out = arg[1]
 assert(fs.makedirs(fs.join(out, "embed")))
@@ -316,8 +316,8 @@ test_stored_path_collisions_are_refused()
 -- missing piece).
 local function test_the_real_payload_generator()
   local repo = fs.abspath(".")
-  local gen = fs.join(repo, "cmd/cosmic/embed.gen.tl")
-  if not check.needs("the cosmic tree (cmd/cosmic/embed.gen.tl)",
+  local gen = fs.join(repo, "cmd/cosmic/embed_gen.tl")
+  if not check.needs("the cosmic tree (cmd/cosmic/embed_gen.tl)",
     fs.isfile(gen)) then
     return
   end

@@ -90,7 +90,7 @@ end
 local _ = Example_basic
 ```
 
-functions named `Example_*` are discovered and run by `cosmic --check-examples`. the `-- Output:` comment block is compared against actual stdout.
+functions named `Example_*` are discovered and run by `cosmic --check examples`. the `-- Output:` comment block is compared against actual stdout.
 
 ## Error Handling Rules
 
@@ -103,7 +103,7 @@ see `AGENTS.md` for the complete guide. key rules:
 
 ## Formatting
 
-cosmic enforces formatting via `cosmic --check-format`:
+cosmic enforces formatting via `cosmic --check format`:
 
 - 2-space indent
 - LF line endings
@@ -116,7 +116,7 @@ run `cosmic --format file.tl` to see the formatted output. the check compares or
 cosmic uses Teal's strict mode for type checking:
 
 ```bash
-cosmic --check-types cosmic/mymod.tl
+cosmic --check types cosmic/mymod.tl
 ```
 
 all type errors must be resolved. warnings are reported but don't fail the build.

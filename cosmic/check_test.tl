@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- test cosmic --check-types option
+-- test cosmic --check types option
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
@@ -32,8 +32,8 @@ local y: string = "hello"
 print(x, y)
 ]])
 
-  local ok, _out = check_run({cosmic, "--check-types", input})
-  assert(ok, "cosmic --check-types should succeed on valid file")
+  local ok, _out = check_run({cosmic, "--check", "types", input})
+  assert(ok, "cosmic --check types should succeed on valid file")
 end
 test_check_valid()
 
@@ -43,8 +43,8 @@ local function test_check_type_error()
 local x: number = "not a number"
 ]])
 
-  local ok, _out = check_run({cosmic, "--check-types", input})
-  assert(not ok, "cosmic --check-types should fail on type error")
+  local ok, _out = check_run({cosmic, "--check", "types", input})
+  assert(not ok, "cosmic --check types should fail on type error")
 end
 test_check_type_error()
 
@@ -54,8 +54,8 @@ local function test_check_undefined_variable()
 local x: number = undefined_var
 ]])
 
-  local ok, _out = check_run({cosmic, "--check-types", input})
-  assert(not ok, "cosmic --check-types should fail on undefined variable")
+  local ok, _out = check_run({cosmic, "--check", "types", input})
+  assert(not ok, "cosmic --check types should fail on undefined variable")
 end
 test_check_undefined_variable()
 
@@ -66,8 +66,8 @@ local x: number = 42
 -- x is unused: warnings are errors, so this must fail
 ]])
 
-  local ok, _out = check_run({cosmic, "--check-types", input})
-  assert(not ok, "cosmic --check-types must fail on warnings")
+  local ok, _out = check_run({cosmic, "--check", "types", input})
+  assert(not ok, "cosmic --check types must fail on warnings")
 end
 test_check_warnings_fail()
 
@@ -78,15 +78,15 @@ local function test_check_underscore_suppresses_unused()
 local _x: number = 42
 ]])
 
-  local ok, out = check_run({cosmic, "--check-types", input})
+  local ok, out = check_run({cosmic, "--check", "types", input})
   assert(ok, "leading-underscore locals must not warn: " .. tostring(out))
 end
 test_check_underscore_suppresses_unused()
 
 -- Test check on missing file
 local function test_check_missing_file()
-  local ok, _out = check_run({cosmic, "--check-types", "/nonexistent/file.tl"})
-  assert(not ok, "cosmic --check-types should fail on missing file")
+  local ok, _out = check_run({cosmic, "--check", "types", "/nonexistent/file.tl"})
+  assert(not ok, "cosmic --check types should fail on missing file")
 end
 test_check_missing_file()
 
@@ -98,7 +98,7 @@ local result: string = fs.join("a", "b")
 print(result)
 ]])
 
-  local ok, _out = check_run({cosmic, "--check-types", input})
+  local ok, _out = check_run({cosmic, "--check", "types", input})
   assert(ok, "check with cosmic types should succeed")
 end
 test_check_with_cosmic_types()
@@ -115,9 +115,9 @@ local fs = require("cosmic.fs")
 local st = fs.stat("/nonexistent")
 print(st.size)
 ]])
-  local ok_unsafe, _ = check_run({cosmic, "--check-types", unsafe})
+  local ok_unsafe, _ = check_run({cosmic, "--check", "types", unsafe})
   assert(not ok_unsafe,
-    "unnarrowed fs.stat().size must fail --check-types now that fs.stat is Stat | nil")
+    "unnarrowed fs.stat().size must fail --check types now that fs.stat is Stat | nil")
 
   -- The escape hatch: an explicit cast (after a nil check) type-checks, since
   -- records cannot be flow-narrowed in this Teal version.
@@ -131,7 +131,7 @@ else
   print((st as types.Stat).size)
 end
 ]])
-  local ok_safe, out_safe = check_run({cosmic, "--check-types", safe})
+  local ok_safe, out_safe = check_run({cosmic, "--check", "types", safe})
   assert(ok_safe, "narrowed fs.stat usage should type-check, got: " .. tostring(out_safe))
 end
 test_check_honest_nil_forces_narrowing()
@@ -145,12 +145,12 @@ local function foo()
 end
 ]])
 
-  local ok, _ = check_run({cosmic, "--check-types", input})
+  local ok, _ = check_run({cosmic, "--check", "types", input})
   assert(not ok, "check should fail in strict mode with unknown variables")
 end
 test_check_strict_mode()
 
--- Test that TL_PATH env var is picked up by --check-types
+-- Test that TL_PATH env var is picked up by --check types
 local function test_check_with_tl_path()
   -- Write a type definition file in a custom directory
   local typedir = fs.join(tmpdir, "mytypes")
@@ -171,7 +171,7 @@ print(s)
 ]])
 
   -- Without TL_PATH the type check should fail (module not found in default dirs)
-  local ok_without, _ = check_run({cosmic, "--check-types", input})
+  local ok_without, _ = check_run({cosmic, "--check", "types", input})
   assert(not ok_without, "check should fail without TL_PATH set for custom module")
 
   -- With TL_PATH pointing at the custom type dir it should succeed
@@ -183,7 +183,7 @@ print(s)
     end
   end
   env_with[#env_with + 1] = "TL_PATH=" .. typedir .. "/?.d.tl;" .. typedir .. "/?/init.d.tl"
-  local ok_with, _ = check_run({cosmic, "--check-types", input}, {env = env_with})
+  local ok_with, _ = check_run({cosmic, "--check", "types", input}, {env = env_with})
   assert(ok_with, "check should succeed with TL_PATH set for custom module")
 end
 test_check_with_tl_path()
@@ -218,7 +218,7 @@ print(s)
   end
   -- ;; expands to existing package.path, so both custom module and built-ins resolve
   env_with[#env_with + 1] = "TL_PATH=" .. typedir .. "/?.d.tl;;" .. typedir .. "/?/init.d.tl"
-  local ok_with, _ = check_run({cosmic, "--check-types", input}, {env = env_with})
+  local ok_with, _ = check_run({cosmic, "--check", "types", input}, {env = env_with})
   assert(ok_with, "check should succeed with ;; in TL_PATH")
 end
 test_check_with_tl_path_double_semicolon()
@@ -234,7 +234,7 @@ local n: number = 3.14
 local c = s:sub(n, n)
 print(c)
 ]])
-  local ok, out = check_run({cosmic, "--check-types", input})
+  local ok, out = check_run({cosmic, "--check", "types", input})
   assert(not ok, "should fail with type error")
   assert(out:find("hint:"), "should include a hint, got: " .. out)
   assert(out:find("math%.tointeger"), "hint should mention math.tointeger, got: " .. out)
@@ -252,7 +252,7 @@ for i, v in ipairs(arr) do
   print(i, v)
 end
 ]])
-  local ok, out = check_run({cosmic, "--check-types", input})
+  local ok, out = check_run({cosmic, "--check", "types", input})
   assert(not ok, "should fail with type error")
   assert(out:find("hint:"), "should include a hint, got: " .. out)
   assert(out:find("as {any}"), "hint should mention casting to array, got: " .. out)
@@ -267,7 +267,7 @@ local function f(): string
 end
 f()
 ]])
-  local ok, out = check_run({cosmic, "--check-types", input})
+  local ok, out = check_run({cosmic, "--check", "types", input})
   assert(not ok, "should fail with type error")
   assert(out:find("hint:"), "should include a hint, got: " .. out)
   assert(out:find("local v, err"), "hint should mention capturing multiple returns, got: " .. out)
@@ -284,7 +284,7 @@ local v = get()
 local s = v .. " world"
 print(s)
 ]])
-  local ok, out = check_run({cosmic, "--check-types", input})
+  local ok, out = check_run({cosmic, "--check", "types", input})
   assert(not ok, "should fail with type error")
   assert(out:find("hint:"), "should include a hint, got: " .. out)
   assert(out:find("cast first"), "hint should suggest casting, got: " .. out)
@@ -300,7 +300,7 @@ end
 local obj = get()
 print(obj.name)
 ]])
-  local ok, out = check_run({cosmic, "--check-types", input})
+  local ok, out = check_run({cosmic, "--check", "types", input})
   assert(not ok, "should fail with type error")
   assert(out:find("hint:"), "should include a hint, got: " .. out)
   assert(out:find("cast first"), "hint should suggest casting, got: " .. out)
@@ -315,7 +315,7 @@ local n: number = 3.14
 local c = s:sub(n, n)
 print(c)
 ]])
-  local ok, out = check_run({cosmic, "--check-types", input})
+  local ok, out = check_run({cosmic, "--check", "types", input})
   assert(not ok, "should fail with type error")
   -- Count occurrences of "hint:"
   local count = 0

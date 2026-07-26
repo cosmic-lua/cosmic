@@ -234,7 +234,7 @@ local function check_binaries(proj: Project, issues: {Issue})
     end
     units[b.dir] = true
     -- The ROOT payload is staged into EVERY binary, the way a root
-    -- package is, so a root `embed.gen.tl` is legitimate whenever the
+    -- package is, so a root `embed_gen.tl` is legitimate whenever the
     -- project builds anything at all -- including a project whose only
     -- binaries live under `cmd/`.
     units[project.ROOT] = true
@@ -254,7 +254,7 @@ local function check_binaries(proj: Project, issues: {Issue})
       if not units[dir] then
         add(issues, f.path, "a payload generator belongs to a binary, and " ..
           (dir == project.ROOT and "the project root" or "'" .. dir .. "'") ..
-          " declares none; a generation unit is named <something>.gen.tl")
+          " declares none; a generation unit is named <something>_gen.tl")
       end
     end
   end

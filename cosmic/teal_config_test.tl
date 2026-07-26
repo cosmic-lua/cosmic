@@ -26,7 +26,7 @@ local function test_tlconfig_matches_teal_defaults()
 
   -- Every editor include dir must be one the compiled-in checker also
   -- searches (defaults or the Makefile's extra dirs), so the LSP and
-  -- cosmic --check-types resolve the same types.
+  -- cosmic --check types resolve the same types.
   local cfg_dirs = cfg.include_dir as {string} -- cast: from any
   local blessed: {string: boolean} = {}
   for _, d in ipairs(teal.get_default_include_dirs()) do
@@ -44,7 +44,7 @@ local function test_tlconfig_matches_teal_defaults()
   -- And the editor must cover everything the checker sees locally: every
   -- repo-relative dir the build/checker searches (Makefile extras plus
   -- non-/zip defaults) must appear in tlconfig, or the LSP resolves less
-  -- than --check-types does.
+  -- than --check types does.
   local editor: {string: boolean} = {}
   for _, d in ipairs(cfg_dirs) do
     editor[d] = true
@@ -65,7 +65,7 @@ test_tlconfig_matches_teal_defaults()
 
 -- The Makefile's INCLUDE_DIRS default must equal the mirror compiled into
 -- cosmic.teal — the build and the library must agree on what extra dirs
--- the checker searches, or --check-types behaves differently under
+-- the checker searches, or --check types behaves differently under
 -- bin/make than standalone.
 local function test_makefile_include_dirs_match_mirror()
   local content = check.must(fs.read("Makefile"), "Makefile should be readable")

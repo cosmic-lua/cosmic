@@ -33,11 +33,11 @@ local IGNORE_FILE < const > = ".cosmicignore"
 local BUILD_DIR < const > = "o"
 
 --- The reserved basename of a unit's PAYLOAD generator: the one
---- `*.gen.tl` that is scoped to a binary rather than to its own
+--- `*_gen.tl` that is scoped to a binary rather than to its own
 --- subtree, and that `build` runs every time rather than `regen`.
 --- Named here because the model, the artifact staging, and the
 --- validator all have to agree about it.
-local PAYLOAD_GEN < const > = "embed.gen.tl"
+local PAYLOAD_GEN < const > = "embed_gen.tl"
 
 --- The root unit: the project itself, rather than a `cmd/<name>/`
 --- subtree. It is spelled as the empty string because a unit IS a
@@ -197,7 +197,7 @@ end
 --- wins over everything (it is positional, and its only job is staying
 --- out of artifacts), then payload (also positional, and for the same
 --- reason in reverse — `embed/.tl/x.tl` is a file to ship, not a module
---- to compile, and `embed/x.gen.tl` is a file to ship, not a generator
+--- to compile, and `embed/x_gen.tl` is a file to ship, not a generator
 --- to run), then the suffix markers, then position.
 --- @param rel string Path relative to the root
 --- @return Kind The kind this file declares
@@ -215,7 +215,7 @@ local function classify(rel: string): Kind
     return "types"
   elseif rel:sub(-7) == "_pin.tl" then
     return "pin"
-  elseif rel:sub(-7) == ".gen.tl" then
+  elseif rel:sub(-7) == "_gen.tl" then
     -- A unit's PAYLOAD generator is a different kind from a generation
     -- unit, and the difference is not cosmetic: this one is scoped to
     -- the BINARY (root packages plus its own `cmd/<name>/**`), is run
@@ -223,9 +223,9 @@ local function classify(rel: string): Kind
     -- a generation unit is scoped to its own subtree and will be run by
     -- `regen`. Both used to classify as `gen`, with the distinction
     -- living in prose plus a basename match inside the generator
-    -- runner -- so `cmd/foo/data.gen.tl` was a file that neither
+    -- runner -- so `cmd/foo/data_gen.tl` was a file that neither
     -- mechanism would run, and a generation unit that happened to be
-    -- named `embed.gen.tl` silently acquired binary semantics.
+    -- named `embed_gen.tl` silently acquired binary semantics.
     if segs[#segs] == PAYLOAD_GEN then
       return "payload-gen"
     end

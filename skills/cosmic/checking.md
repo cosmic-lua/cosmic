@@ -5,12 +5,12 @@ cosmic uses Teal's strict mode for type checking. all type errors must be resolv
 ## Running Type Checks
 
 ```bash
-cosmic --check-types file.tl    # check a single file
+cosmic --check types file.tl    # check a single file
 cosmic --make check             # type-check the whole project
 cosmic --make check db/         # …or one subtree
 ```
 
-`--check-types` runs Teal in strict mode. it reports errors and warnings on stderr. exit code 0 means the file passes. warnings are treated as errors: an unused local, shadowed variable, or unreachable branch fails the check. mark a deliberately-unused value with a leading underscore (`local _out`, `_self: Poller`) to suppress the unused warning.
+`--check types` runs Teal in strict mode. it reports errors and warnings on stderr. exit code 0 means the file passes. warnings are treated as errors: an unused local, shadowed variable, or unreachable branch fails the check. mark a deliberately-unused value with a leading underscore (`local _out`, `_self: Poller`) to suppress the unused warning.
 
 ### Checking a Whole Project
 
@@ -169,4 +169,4 @@ print(#data)
 
 ## Include Directories
 
-`cosmic --check-types` searches for type definitions in the binary's bundled paths. if your project has its own `.d.tl` type definitions, place them in a `types/` directory and they will be found automatically.
+`cosmic --check types` searches for type definitions in the binary's bundled paths. if your project has its own `.d.tl` type definitions, place them in a `types/` directory and they will be found automatically.

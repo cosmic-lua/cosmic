@@ -18,14 +18,15 @@ local longopts: {getopt.LongOpt} = {
   {name = "compile-strict", has_arg = "required"},
   {name = "format", has_arg = "required"},
   {name = "fix", has_arg = "required"},
-  {name = "check-format", has_arg = "required"},
-  {name = "check-types", has_arg = "required"},
-  {name = "check-style", has_arg = "required"},
+  -- One flag, a KIND, then the file: `--check types foo.tl`. It
+  -- mirrors `--make <verb> [paths]` — a word, then what to apply it to
+  -- — so the per-file spelling and the project-wide one are one
+  -- vocabulary instead of four flags beside four verbs.
+  {name = "check", has_arg = "required"},
   {name = "embed", has_arg = "required"},
   {name = "output", has_arg = "required"},
   {name = "extract", has_arg = "required"},
   {name = "exe", has_arg = "required"},
-  {name = "check-examples", has_arg = "required"},
   {name = "examples", has_arg = "optional"},
   {name = "benchmark", has_arg = "required"},
   {name = "docs", has_arg = "optional"},
@@ -80,7 +81,43 @@ local function resolve_optional_arg(flag: string, value: string): string
   return ""
 end
 
+--- The four flags that named one kind of check each, and the kind each
+--- one is now spelled with. A script written against the old spelling
+--- is told the new one rather than dropping into the REPL, and this is
+--- checked before getopt, which would prefix-match them onto `--check`.
+local RENAMED_CHECKS < const >: {string: string} = {
+  ["--check-types"] = "types",
+  ["--check-format"] = "format",
+  ["--check-style"] = "style",
+  ["--check-examples"] = "examples",
+}
+
+--- The project-wide verb each kind belongs to, for the message.
+local CHECK_VERB < const >: {string: string} = {
+  types = "check",
+  format = "fmt",
+  style = "lint",
+  examples = "example",
+}
+
+--- Complain about a retired check flag, if the argv holds one.
+--- @param argv {string} The arguments cosmic will parse
+--- @return string|nil The error message, or nil when there is none
+local function renamed_check(argv: {string}): string | nil
+  for _, a in ipairs(argv) do
+    local base = a:match("^([^=]+)=") or a
+    local kind = RENAMED_CHECKS[base]
+    if kind then
+      return "cosmic-lua: " .. base .. " is now `--check " .. kind ..
+      " <file>` (the project-wide spelling is `cosmic --make " ..
+      CHECK_VERB[kind] .. "`)"
+    end
+  end
+  return nil
+end
+
 return {
+  renamed_check = renamed_check,
   shortopts = shortopts,
   longopts = longopts,
   short_needs_arg = short_needs_arg,

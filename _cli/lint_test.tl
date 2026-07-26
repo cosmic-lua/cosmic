@@ -152,7 +152,7 @@ test_cosmo_require_honors_allowlist()
 -- One implementation, split by what each half may require: the pure
 -- checks stay in `cosmic.style` (inside the strip floor, where there is
 -- no Teal compiler to require) and the lexer-based ones are here. The
--- assertion that matters is that `--check-style` and `--make lint` run
+-- assertion that matters is that `--check style` and `--make lint` run
 -- THIS composition -- there is no second lint any more.
 local function test_the_pure_checks_come_from_style()
   assert(style.check_file_length and style.check_column_length,
@@ -229,3 +229,15 @@ end
 test_call_after_define_is_scoped_to_tests()
 
 print("all lint tests passed")
+
+-- `--check <kind>` refuses an unknown kind by naming the ones it has,
+-- and refuses a missing file by naming the project-wide verb — the two
+-- ways a caller gets the grammar wrong.
+local function test_check_kinds_are_named_when_wrong()
+  local chk = require("_cli.check")
+  assert(chk.KINDS.types == "check" and chk.KINDS.style == "lint",
+    "each kind names the verb that runs it over a project")
+  assert(chk.run("bogus", "x.tl", {}) == 1, "an unknown kind fails")
+  assert(chk.run("types", "", {}) == 1, "a missing file fails")
+end
+test_check_kinds_are_named_when_wrong()

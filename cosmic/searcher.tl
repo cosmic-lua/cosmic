@@ -25,7 +25,7 @@
 --- `cosmic.teal.compile_cached`, which is the same call the script
 --- runner makes, so the two paths cannot drift. Compilation is lax —
 --- the same gradual-typing on-ramp as running a script directly;
---- --check-types remains the strict gate.
+--- --check types remains the strict gate.
 ---
 --- install() appends the searcher at the END of package.searchers so
 --- the default Lua file searcher finds pre-compiled .lua modules

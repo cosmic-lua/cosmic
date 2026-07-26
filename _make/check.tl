@@ -1,7 +1,7 @@
 --- The `check` verb: strict type-check, in process.
 ---
 --- In process is the point. The old generator emitted a Makefile whose
---- check rule shelled out to `cosmic --check-types` once per file — a
+--- check rule shelled out to `cosmic --check types` once per file — a
 --- host make, a shell loop, and one process start per source, to do
 --- work this binary already contains. `check` runs the checker directly
 --- against the project model, so it needs nothing installed and reports

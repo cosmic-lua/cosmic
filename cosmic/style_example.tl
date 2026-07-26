@@ -1,5 +1,5 @@
 --- Examples for the cosmic.style module.
---- The style checks behind `cosmic --check-style`: file length, column
+--- The style checks behind `cosmic --check style`: file length, column
 --- width, and definition-before-use ordering. Each check returns a list
 --- of Diagnostic records rather than printing or throwing, so a caller
 --- decides how to report them — which is how `bin/make lint` reuses the

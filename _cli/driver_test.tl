@@ -194,7 +194,7 @@ end
 test_exec_reads_the_units_its_arguments_name()
 
 -- A generation unit spans its whole subtree, so a path inside one
--- resolves to the directory holding the *.gen.tl -- not to the path's
+-- resolves to the directory holding the *_gen.tl -- not to the path's
 -- own directory. That is the one case where a unit is bigger than a
 -- package.
 local function test_a_generation_unit_is_the_whole_subtree()
@@ -202,7 +202,7 @@ local function test_a_generation_unit_is_the_whole_subtree()
   local unit = fs.join(tmpdir, "gen-unit")
   local deep = fs.join(unit, "sub")
   assert(fs.makedirs(deep))
-  assert(fs.write(fs.join(unit, "index.gen.tl"), "return {}\n"))
+  assert(fs.write(fs.join(unit, "index_gen.tl"), "return {}\n"))
   local src = fs.join(deep, "input.txt")
   assert(fs.write(src, "x\n"))
   local p = driver.plan("exec", {prog, src})

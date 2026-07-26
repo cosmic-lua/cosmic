@@ -77,7 +77,7 @@ hostage to the rename.
 ### 2a — project model and `check`
 
 The walk and the classification (package, `_test`, `_example`, `.d.tl`,
-`*_pin.tl`, `*.gen.tl`, `testdata/`, asset, ignore), the validator
+`*_pin.tl`, `*_gen.tl`, `testdata/`, asset, ignore), the validator
 (reserved import paths, `foo.tl`+`foo.lua`, `cmd/foo`→`cmd/bar`,
 internal imports, missing `cmd/` entry, spaces and metacharacters), root
 discovery with the ancestor guard and the `make: root=` banner, and
@@ -341,7 +341,7 @@ that investigation earned — a fence wants a directory where a stage
 wants a file list. `exec` now reads the units its argv touches (the
 program's own always included, so a step with no path arguments is not
 fenced to nothing), and a generation unit resolves to the directory
-holding its `*.gen.tl` rather than to the leaf.
+holding its `*_gen.tl` rather than to the leaf.
 
 Three things phase 1 paid for, carried forward rather than relearned:
 

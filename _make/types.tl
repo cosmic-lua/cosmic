@@ -16,9 +16,9 @@ local record make_types
   ---   example   *_example.tl
   ---   types     *.d.tl — type-only; on the include path, never embedded
   ---   pin       *_pin.tl — a pinned external asset, data not code
-  ---   gen       *.gen.tl — a generation unit, scoped to its own
+  ---   gen       *_gen.tl — a generation unit, scoped to its own
   ---             directory's subtree, run by `regen`
-  ---   payload-gen  embed.gen.tl — a BINARY's payload generator: scoped
+  ---   payload-gen  embed_gen.tl — a BINARY's payload generator: scoped
   ---             to the binary, run by `build`, writes `o/<unit>/`
   ---   testdata  anything under a testdata/ directory — never embedded
   ---   payload   anything under embed/ — embedded at its path INSIDE

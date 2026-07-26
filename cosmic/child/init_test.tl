@@ -465,7 +465,7 @@ local function test_options_reject_raw_int_fd()
 local child = require("cosmic.child")
 child.run({"echo", "x"}, {stdout = 5})
 ]])
-  local r = check.must(child.run({lua_bin, "--check-types", script}))
+  local r = check.must(child.run({lua_bin, "--check", "types", script}))
   assert(not r.ok, "a raw integer fd in Options must fail the type check")
   local diag = r.stdout .. r.stderr
   assert(diag:find("stdout", 1, true),

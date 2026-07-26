@@ -157,7 +157,7 @@ end
 --- it, a scope of inputs that is also its grant set, and an output path
 --- derived from its position (see the Units section of the design). A
 --- *generation* unit is the one kind that spans a whole subtree, so a
---- path inside one belongs to the directory holding the `*.gen.tl`.
+--- path inside one belongs to the directory holding the `*_gen.tl`.
 --- Everything else belongs to its own directory, which is not a
 --- fallback but the rule: a package IS a directory with sources in it.
 --- @param path string A path, relative or absolute
@@ -169,7 +169,7 @@ local function unit_dir(path: string): string
     if at == "" or at == "." or at == "/" then
       break
     end
-    local gen = fs.glob(at, "*.gen.tl")
+    local gen = fs.glob(at, "*_gen.tl")
     if gen ~= nil and #(gen as {string}) > 0 then -- cast: record union after the guard
       return at
     end

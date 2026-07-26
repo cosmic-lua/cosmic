@@ -19,7 +19,7 @@ $(o)/example-summary.txt: $(all_examples) | $(build_reporter)
 # Examples take their import closure too (3f): an example RUNS, so what
 # it imports must compile first — the same gate the test rule gained.
 $(o)/%.tl.example.got: %.tl $$(deps_$$*) $(cosmic_bin) $(ape_loader) | $(bootstrap_files)
-	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) --check-examples $<
+	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) --check examples $<
 
 # Benchmark testing - run Benchmark_* functions in .tl files (exclude test files)
 all_benchmark_srcs := $(foreach m,$(modules),$(filter-out $($(m)_tests),$($(m)_tl)))

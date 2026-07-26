@@ -1,9 +1,9 @@
 --- Teal compilation and type-checking.
 --- --compile uses lax mode for permissive compilation (the gradual-typing
 --- on-ramp for plain-Lua scripts); --compile-strict type-checks strictly
---- (warnings fail, matching --check-types) and generates from the same
+--- (warnings fail, matching --check types) and generates from the same
 --- checked AST — the build uses it for in-tree sources so nothing ships
---- that did not typecheck. --check-types uses strict mode.
+--- that did not typecheck. --check types uses strict mode.
 
 local tl = require("tl")
 
@@ -286,7 +286,7 @@ end
 --- Find the source file for a module name using the same search path
 --- the compiler uses (TL_PATH, include dirs, package.path). Used by the
 --- runtime .tl searcher so require() resolves modules exactly like
---- --compile/--check-types do.
+--- --compile/--check types do.
 --- @param module_name string Module name as passed to require()
 --- @param include_dirs? {string} Extra include dirs (defaults merged in)
 --- @return string|nil Path to the found source, or nil

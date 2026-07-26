@@ -138,7 +138,7 @@ local function run(argv: {string}, output_base: string): integer
 
   -- Best-effort: record the test_* functions defined in the test file so
   -- report() can show how many a passing file contains (files follow the
-  -- define-then-call-immediately convention enforced by --check-style).
+  -- define-then-call-immediately convention enforced by --check style).
   local test_names: {string} = {}
   for _, a in ipairs(argv) do
     if a:match("_test%.tl$") then

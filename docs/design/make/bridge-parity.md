@@ -143,7 +143,7 @@ different base — plus SHA256SUMS.
 1. **No debug-variant concept.** A `--make` binary unit has one output
    and one `base`; nothing in the model expresses "this unit, twice, on
    two runtimes". Options: a second entry (`cmd/cosmic-debug/` with a
-   two-line `embed.gen.tl` reusing cosmic's payload — works today,
+   two-line `embed_gen.tl` reusing cosmic's payload — works today,
    duplicates the unit), or a variant concept (an output directory
    holding `base` and `base-debug`, producing `o/bin/<name>` and
    `o/bin/<name>-debug`). Decide deliberately: the release shape is a

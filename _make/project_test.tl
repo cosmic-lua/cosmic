@@ -64,13 +64,13 @@ local function test_every_marker_classifies()
       ["db/testdata/fixture.json"] = "{}\n",
       ["types/lpeg.d.tl"] = "local record lpeg end\nreturn lpeg\n",
       ["3p/lpeg/lpeg_pin.tl"] = "return {url = 'x'}\n",
-      ["docs/index.gen.tl"] = "return {}\n",
+      ["docs/index_gen.tl"] = "return {}\n",
       ["schema.sql"] = "CREATE TABLE t(x);\n",
       ["cmd/servit/main.tl"] = "print('s')\n",
       ["cmd/servit/routes.tl"] = "return {}\n",
-      ["cmd/servit/embed.gen.tl"] = "return {}\n",
-      ["cmd/servit/data.gen.tl"] = "return {}\n",
-      ["embed.gen.tl"] = "return {}\n",
+      ["cmd/servit/embed_gen.tl"] = "return {}\n",
+      ["cmd/servit/data_gen.tl"] = "return {}\n",
+      ["embed_gen.tl"] = "return {}\n",
     })
 
   kind_of(proj, "main.tl", "entry")
@@ -81,13 +81,13 @@ local function test_every_marker_classifies()
   kind_of(proj, "db/testdata/fixture.json", "testdata")
   kind_of(proj, "types/lpeg.d.tl", "types")
   kind_of(proj, "3p/lpeg/lpeg_pin.tl", "pin")
-  kind_of(proj, "docs/index.gen.tl", "gen")
+  kind_of(proj, "docs/index_gen.tl", "gen")
   -- The reserved basename is its own kind: a BINARY's payload
   -- generator, scoped to the binary and run by `build`, not a
   -- subtree-scoped generation unit run by `regen`.
-  kind_of(proj, "cmd/servit/embed.gen.tl", "payload-gen")
-  kind_of(proj, "embed.gen.tl", "payload-gen")
-  kind_of(proj, "cmd/servit/data.gen.tl", "gen")
+  kind_of(proj, "cmd/servit/embed_gen.tl", "payload-gen")
+  kind_of(proj, "embed_gen.tl", "payload-gen")
+  kind_of(proj, "cmd/servit/data_gen.tl", "gen")
   kind_of(proj, "schema.sql", "asset")
   kind_of(proj, "cmd/servit/main.tl", "entry")
   kind_of(proj, "cmd/servit/routes.tl", "module")
@@ -231,8 +231,8 @@ local function test_embed_is_payload_whatever_it_is_named()
   assert(project.classify("embed/tl.lua") == "payload", "a payload file")
   assert(project.classify("embed/.tl/cosmic/fs.tl") == "payload",
     "a .tl under embed/ ships; it is not a module to compile")
-  assert(project.classify("embed/x.gen.tl") == "payload",
-    "a .gen.tl under embed/ ships; it is not a generator to run")
+  assert(project.classify("embed/x_gen.tl") == "payload",
+    "a _gen.tl under embed/ ships; it is not a generator to run")
   assert(project.classify("embed/.types/cosmo.d.tl") == "payload",
     "a .d.tl under embed/ ships; it is not type-only")
   -- The directory itself is not payload, and neither is a module that

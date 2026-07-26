@@ -9,7 +9,7 @@ that orchestrate them.
 build [binaries…] compile → generate → stage → embed → o/bin/<name> [now]
 test  [paths…]  build the stage, run *_test.tl fenced against it     [now]
 check [paths…]  strict type-check only                               [now]
-fmt   [paths…]  --check-format (--fix to rewrite)                    [now]
+fmt   [paths…]  --check format (--fix to rewrite)                    [now]
 fetch [paths…]  resolve *_pin.tl — the only verb with network        [now]
 clean           remove o/                                            [now]
 run   [binary]  build, then exec the artifact with remaining argv    [planned]

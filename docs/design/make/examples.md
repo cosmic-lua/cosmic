@@ -14,9 +14,9 @@ cosmic/                     PUBLIC API — this directory is the interface
   net/  sqlite/  fetch/  …
 _cli/  args.tl  help.tl  run.tl  build/   the dispatcher, internal
 _build/  _make/  _perf/
-_types/cosmo/cosmo.gen.tl   → o/_types/cosmo/*.d.tl
-_types/tl/tl.gen.tl         → o/_types/tl/tl.d.tl
-_docs/index/index.lua.gen.tl → o/_docs/index/index.lua
+_types/cosmo/cosmo_gen.tl   → o/_types/cosmo/*.d.tl
+_types/tl/tl_gen.tl         → o/_types/tl/tl.d.tl
+_docs/index/index.lua_gen.tl → o/_docs/index/index.lua
 cmd/cosmic/main.tl          the binary → o/bin/cosmic
 3p/tl/tl_pin.tl  3p/cosmos/cosmos_pin.tl
 bootstrap/cosmic_pin.tl
