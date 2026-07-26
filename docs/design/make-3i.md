@@ -144,6 +144,17 @@ What has to land first:
    directions — a denial, and that a real compile still succeeds. A
    fence that denies everything is not enforcement, and a denial test
    alone cannot tell the two apart.
+
+   Adding the second direction found two things immediately, which is
+   the argument for it. The floor handed Landlock `/zip/.types` — a
+   path inside the executable, where `fs.isdir` says yes and the kernel
+   knows nothing — and the whole policy failed to construct. And the
+   enforce lane did not build the APE loader, so the fenced child could
+   not exec at all: **both pre-existing fence tests pass whether or not
+   their child runs** (one expects a denial, the other's verb records
+   rather than grades), so nothing had ever required a fenced child to
+   succeed. A mechanism only exercised in its failing direction is one
+   nobody has checked.
 3. The fence becomes the default for `-c`, as its own change, with the
    same denial produced by the portable in-process gate on
    non-Landlock hosts.

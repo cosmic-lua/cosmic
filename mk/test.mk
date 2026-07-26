@@ -143,7 +143,14 @@ $(enforce_got): .PLEDGE =
 $(enforce_got): .UNVEIL =
 
 $(o)/enforce/%.tl.test.got: export COSMIC_ENFORCE := 1
-$(o)/enforce/%.tl.test.got: $(o)/%.lua $(cosmic_bin)
+# $(ape_loader) for the same reason the plain and coverage lanes take it:
+# the fat APE prefers a loader named `ape` on PATH over extracting one
+# into ~/.ape-*, which nothing can unveil. It was missing here and
+# nothing noticed, because until the fence canary asserted that a fenced
+# child SUCCEEDS, every test in this lane passed whether or not its
+# child could exec at all -- one expects a denial, the other's verb
+# records rather than grades. Symptom: ENOEXEC, in CI only.
+$(o)/enforce/%.tl.test.got: $(o)/%.lua $(cosmic_bin) $(ape_loader)
 	@$(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
 
 # The require-marker line is the tripwire: it fails the lane when no
