@@ -139,6 +139,16 @@ local function needs_space(prev_prev: Item, prev: Item, cur: Item, next_item: It
       return false
     end
   end
+  -- `?` has two jobs in Teal, and the spacing rule differs. As a
+  -- SUFFIX it marks an optional record field or parameter name
+  -- (`name?: string`) and binds tight. As a PREFIX it marks an optional
+  -- argument TYPE inside a function type
+  -- (`function(? boolean, ? string)`), where it opens an item and takes
+  -- the space any item gets after a separator. Without this, the
+  -- formatter rewrote every generated `.d.tl` signature to `,? string`.
+  if cur.tk == "?" and (prev.tk == "," or prev.tk == "(") then
+    return prev.tk == ","
+  end
   if no_space_before[cur.tk] then
     return false
   end

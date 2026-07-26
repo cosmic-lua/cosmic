@@ -74,6 +74,7 @@ local function test_convert_type()
 
   print("test_convert_type: PASS")
 end
+test_convert_type()
 
 -- Test module parsing against the real definitions.lua
 local function test_parse_path_module()
@@ -92,6 +93,7 @@ local function test_parse_path_module()
 
   print("test_parse_path_module: PASS")
 end
+test_parse_path_module()
 
 -- Test unix module parsing (more complex with constants)
 local function test_parse_unix_module()
@@ -110,6 +112,7 @@ local function test_parse_unix_module()
 
   print("test_parse_unix_module: PASS")
 end
+test_parse_unix_module()
 
 -- A fallible unix.* function expresses its failure return upstream as an
 -- `@overload fun(...): nil, <error> unix.Errno`. The generator folds that into
@@ -162,6 +165,7 @@ function unix.dup(fd) end
 
   print("test_errno_overload_render: PASS")
 end
+test_errno_overload_render()
 
 -- Parenthesized union types (LuaLS groups unions this way, e.g. `ioctl`'s
 -- `(integer | string)?` param and `(true | string)` return) must parse into
@@ -181,6 +185,7 @@ function unix.ioctl(fd, request, arg) end
     "parenthesized union types should render unions with a nil success:\n" .. dtl)
   print("test_paren_union_types: PASS")
 end
+test_paren_union_types()
 
 -- A variadic return (`@return string match, string ... captures`) renders as
 -- a Teal vararg return type. Nothing can follow a vararg, so the Errno fold
@@ -204,6 +209,7 @@ function re.search(regex, text) end
     "no Errno fold after a vararg return:\n" .. dtl)
   print("test_vararg_return: PASS")
 end
+test_vararg_return()
 
 -- LuaLS function-level generics (`---@generic T`) render as real Teal
 -- generic type parameters (`function<T>(...)`), with the generic name
@@ -222,6 +228,7 @@ function lsqlite3.busy_handler(func, udata) end
     "generics should render type parameters:\n" .. dtl)
   print("test_generics_emitted: PASS")
 end
+test_generics_emitted()
 
 -- Constants inside the module table are indented, and so are their doc
 -- comments; both must survive into the rendered record. A stray `}` inside a
@@ -242,6 +249,7 @@ re = {
     "constants after a stray `}` in a comment must still parse:\n" .. dtl)
   print("test_constant_docs_and_comment_braces: PASS")
 end
+test_constant_docs_and_comment_braces()
 
 -- A standalone data class (`---@class mod.Name` + `---@field ...`) renders as
 -- a record even when empty (opaque userdata handles), and every class type is
@@ -282,6 +290,7 @@ function argon2.hash_encoded(pass, config) end
   assert(dtl:match("m_cost: integer"), "Config fields should render:\n" .. dtl)
   print("test_data_class_and_type_export: PASS")
 end
+test_data_class_and_type_export()
 
 -- Module-qualified class methods (`function mod.Class:method()`) attach to
 -- their class wherever they appear in the file.
@@ -309,6 +318,7 @@ function lsqlite3.open(filename) end
     "module function should reference the class type:\n" .. dtl)
   print("test_qualified_class_methods: PASS")
 end
+test_qualified_class_methods()
 
 -- A malformed upstream annotation (the real-world `---@return nil,|nil ...`
 -- left by a definitions.lua rewrite) must fail loudly at generation time,
@@ -339,6 +349,7 @@ function unix.execve(prog, args, env) end
     "error must point at the upstream fix location: " .. err)
   print("test_malformed_annotation_fails_loudly: PASS")
 end
+test_malformed_annotation_fails_loudly()
 
 -- Valid annotations of every supported grammar shape (unions, optionals,
 -- arrays, fun types, table types, inline maps, grouped unions, literals,
@@ -372,6 +383,7 @@ function unix.grab(fd) end
   assert(output:match("frob: function%("), "frob should render:\n" .. output)
   print("test_valid_types_pass_validation: PASS")
 end
+test_valid_types_pass_validation()
 
 -- Drift: generator output must match the committed .d.tl byte-for-byte for
 -- every module. Fails after a cosmos bump or generator change until
@@ -400,6 +412,7 @@ local function test_drift_all_modules()
   end
   print("test_drift_all_modules: PASS (" .. #gentype.get_modules() .. " modules)")
 end
+test_drift_all_modules()
 
 -- Every committed .d.tl must itself be valid, type-checkable Teal. The drift
 -- test guarantees the committed files equal generator output, so this doubles
@@ -416,6 +429,7 @@ local function test_generated_valid_teal()
   end
   print("test_generated_valid_teal: PASS (" .. #gentype.get_modules() .. " modules)")
 end
+test_generated_valid_teal()
 
 -- MODULES must cover definitions.lua: every module section upstream is either
 -- generated or explicitly skipped, and nothing in MODULES is missing upstream.
@@ -468,26 +482,7 @@ local function test_module_list_completeness()
 
   print("test_module_list_completeness: PASS (found: " .. table.concat(found_modules, ", ") .. ")")
 end
+test_module_list_completeness()
 
 -- Run all tests
-local function run_tests()
-  test_convert_type()
-  test_parse_path_module()
-  test_parse_unix_module()
-  test_errno_overload_render()
-  test_paren_union_types()
-  test_vararg_return()
-  test_generics_emitted()
-  test_constant_docs_and_comment_braces()
-  test_data_class_and_type_export()
-  test_qualified_class_methods()
-  test_malformed_annotation_fails_loudly()
-  test_valid_types_pass_validation()
-  test_module_list_completeness()
-  test_drift_all_modules()
-  test_generated_valid_teal()
-
-  print("\nAll tests passed!")
-end
-
-run_tests()
+print("\nAll gentype tests passed!")

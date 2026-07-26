@@ -228,7 +228,7 @@ the result is a single executable with all modules accessible at the zip root: `
 5. **lint**: file length, cast justifications, and shared style checks on
    every tracked file
 6. **coverage**: the tests again in a separate output tree with collection
-   on, ratcheted against `cosmic/coverage/baseline.txt`
+   on, ratcheted against `.coverage`
 
 each stage gets a `ci-ok-<stage>` exit marker, made only after its entire
 subtree succeeded. grading reads the marker as well as the summary text,

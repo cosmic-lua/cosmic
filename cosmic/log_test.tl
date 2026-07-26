@@ -23,6 +23,7 @@ local function test_default_threshold_suppresses_debug()
   assert(#captured == 1, "expected 1 line, got " .. tostring(#captured))
   assert(captured[1]:find("visible", 1, true), "got: " .. captured[1])
 end
+test_default_threshold_suppresses_debug()
 
 local function test_line_format()
   reset("info")
@@ -31,6 +32,7 @@ local function test_line_format()
   assert(line:match(iso_pattern), "no ISO timestamp: " .. line)
   assert(line:find("INFO  server started", 1, true), "got: " .. line)
 end
+test_line_format()
 
 local function test_level_tags()
   reset("debug")
@@ -44,6 +46,7 @@ local function test_level_tags()
   assert(captured[3]:find("WARN  w", 1, true), "got: " .. captured[3])
   assert(captured[4]:find("ERROR e", 1, true), "got: " .. captured[4])
 end
+test_level_tags()
 
 local function test_error_threshold_suppresses_warn()
   reset("error")
@@ -54,6 +57,7 @@ local function test_error_threshold_suppresses_warn()
   assert(#captured == 1, "expected 1 line, got " .. tostring(#captured))
   assert(captured[1]:find("ERROR visible", 1, true), "got: " .. captured[1])
 end
+test_error_threshold_suppresses_warn()
 
 local function test_fields_sorted_by_key()
   reset("info")
@@ -61,6 +65,7 @@ local function test_fields_sorted_by_key()
   local line = captured[1]
   assert(line:find("req alpha=ok middle=true zebra=1", 1, true), "got: " .. line)
 end
+test_fields_sorted_by_key()
 
 local function test_field_values_quoted_when_ambiguous()
   reset("info")
@@ -78,6 +83,7 @@ local function test_field_values_quoted_when_ambiguous()
   assert(line:find("n=42", 1, true), "got: " .. line)
   assert(line:find("b=false", 1, true), "got: " .. line)
 end
+test_field_values_quoted_when_ambiguous()
 
 local function test_generic_log_function()
   reset("info")
@@ -85,6 +91,7 @@ local function test_generic_log_function()
   assert(#captured == 1, "expected 1 line, got " .. tostring(#captured))
   assert(captured[1]:find("WARN  generic code=7", 1, true), "got: " .. captured[1])
 end
+test_generic_log_function()
 
 local function test_level_getter_tracks_set_level()
   reset("info")
@@ -92,6 +99,7 @@ local function test_level_getter_tracks_set_level()
   assert(log.set_level("warn"))
   assert(log.level() == "warn", "got: " .. log.level())
 end
+test_level_getter_tracks_set_level()
 
 local function test_set_level_rejects_runtime_garbage()
   reset("info")
@@ -101,6 +109,7 @@ local function test_set_level_rejects_runtime_garbage()
     "got: " .. tostring(err))
   assert(log.level() == "info", "threshold corrupted: " .. log.level())
 end
+test_set_level_rejects_runtime_garbage()
 
 local function test_format_does_not_emit()
   reset("info")
@@ -109,6 +118,7 @@ local function test_format_does_not_emit()
   assert(line:match(iso_pattern), "no ISO timestamp: " .. line)
   assert(line:find("ERROR standalone id=3", 1, true), "got: " .. line)
 end
+test_format_does_not_emit()
 
 local function test_set_output_restores_stderr_default()
   reset("info")
@@ -123,15 +133,4 @@ local function test_set_output_restores_stderr_default()
   log.info("captured again")
   assert(#captured == 1, "expected 1 line, got " .. tostring(#captured))
 end
-
-test_default_threshold_suppresses_debug()
-test_line_format()
-test_level_tags()
-test_error_threshold_suppresses_warn()
-test_fields_sorted_by_key()
-test_field_values_quoted_when_ambiguous()
-test_generic_log_function()
-test_level_getter_tracks_set_level()
-test_set_level_rejects_runtime_garbage()
-test_format_does_not_emit()
 test_set_output_restores_stderr_default()

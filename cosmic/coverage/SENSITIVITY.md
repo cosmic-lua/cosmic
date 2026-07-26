@@ -1,6 +1,6 @@
 # Coverage's environment-sensitive tests
 
-The ratchet floors in `baseline.txt` encode **which lines execute**, and
+The ratchet floors in `.coverage` encode **which lines execute**, and
 that depends on the machine. Two of CI's heaviest complications exist to
 hold those inputs still:
 

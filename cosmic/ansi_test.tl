@@ -9,17 +9,20 @@ local function test_color_wraps_with_fg_close()
     "got: " .. ansi.red("x"):gsub(ESC, "\\e"))
   assert(ansi.color("x", "bright_cyan") == ESC .. "[96mx" .. ESC .. "[39m")
 end
+test_color_wraps_with_fg_close()
 
 local function test_bg_wraps_with_bg_close()
   assert(ansi.bg("x", "red") == ESC .. "[41mx" .. ESC .. "[49m")
   assert(ansi.bg("x", "bright_white") == ESC .. "[107mx" .. ESC .. "[49m")
 end
+test_bg_wraps_with_bg_close()
 
 local function test_attr_uses_specific_off_codes()
   assert(ansi.bold("x") == ESC .. "[1mx" .. ESC .. "[22m")
   assert(ansi.underline("x") == ESC .. "[4mx" .. ESC .. "[24m")
   assert(ansi.attr("x", "strikethrough") == ESC .. "[9mx" .. ESC .. "[29m")
 end
+test_attr_uses_specific_off_codes()
 
 local function test_styles_compose_when_nested()
   -- The inner color close (39) must not end the outer bold, so the
@@ -29,6 +32,7 @@ local function test_styles_compose_when_nested()
     .. " detail" .. ESC .. "[22m",
     "got: " .. nested:gsub(ESC, "\\e"))
 end
+test_styles_compose_when_nested()
 
 local function test_convenience_functions_match_generic_forms()
   assert(ansi.green("x") == ansi.color("x", "green"))
@@ -38,6 +42,7 @@ local function test_convenience_functions_match_generic_forms()
   assert(ansi.cyan("x") == ansi.color("x", "cyan"))
   assert(ansi.dim("x") == ansi.attr("x", "dim"))
 end
+test_convenience_functions_match_generic_forms()
 
 local function test_strip_removes_all_sgr()
   local styled = ansi.bold(ansi.bg(ansi.red("a"), "blue") .. "b") .. "c"
@@ -47,15 +52,18 @@ local function test_strip_removes_all_sgr()
   -- multi-parameter sequences are SGR too
   assert(ansi.strip(ESC .. "[1;31mx" .. ESC .. "[0m") == "x")
 end
+test_strip_removes_all_sgr()
 
 local function test_strip_leaves_non_sgr_escapes()
   local cursor_up = ESC .. "[2A"
   assert(ansi.strip(cursor_up .. "x") == cursor_up .. "x")
 end
+test_strip_leaves_non_sgr_escapes()
 
 local function test_reset_constant()
   assert(ansi.reset == ESC .. "[0m")
 end
+test_reset_constant()
 
 local function test_enabled_honors_no_color()
   local saved = env.get("NO_COLOR")
@@ -68,6 +76,7 @@ local function test_enabled_honors_no_color()
     env.unset("NO_COLOR")
   end
 end
+test_enabled_honors_no_color()
 
 local function test_enabled_honors_dumb_term()
   local saved_no_color = env.get("NO_COLOR")
@@ -84,6 +93,7 @@ local function test_enabled_honors_dumb_term()
     env.set("NO_COLOR", saved_no_color)
   end
 end
+test_enabled_honors_dumb_term()
 
 local function test_enabled_requires_a_tty()
   -- Under the test runner stdout is a pipe, so with the env vetoes
@@ -100,15 +110,4 @@ local function test_enabled_requires_a_tty()
     env.set("NO_COLOR", saved_no_color)
   end
 end
-
-test_color_wraps_with_fg_close()
-test_bg_wraps_with_bg_close()
-test_attr_uses_specific_off_codes()
-test_styles_compose_when_nested()
-test_convenience_functions_match_generic_forms()
-test_strip_removes_all_sgr()
-test_strip_leaves_non_sgr_escapes()
-test_reset_constant()
-test_enabled_honors_no_color()
-test_enabled_honors_dumb_term()
 test_enabled_requires_a_tty()

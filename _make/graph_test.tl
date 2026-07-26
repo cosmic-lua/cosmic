@@ -298,4 +298,26 @@ local function test_jobs_flag()
 end
 test_jobs_flag()
 
+-- The directories a coverage report scans for files no test loaded.
+-- Compiled kinds only: a `testdata/` fixture or an `embed/` payload
+-- directory holding a .tl is not a source directory, and scanning one
+-- would report a deliberately-broken fixture as 0% covered.
+local function test_source_dirs_are_the_compiled_ones()
+  local proj: types.Project = {
+    root = "/p",
+    binaries = {},
+    files = {
+      {path = "main.tl", kind = "entry"} as types.File, -- cast: partial record fixture
+      {path = "pkg/a.tl", kind = "module"} as types.File, -- cast: partial record fixture
+      {path = "pkg/a_test.tl", kind = "test"} as types.File, -- cast: partial record fixture
+      {path = "pkg/testdata/broken.tl", kind = "testdata"} as types.File, -- cast: partial record fixture
+      {path = "embed/vendor.tl", kind = "payload"} as types.File, -- cast: partial record fixture
+      {path = "README.md", kind = "asset"} as types.File, -- cast: partial record fixture
+    },
+  }
+  local got = table.concat(graph.source_dirs(proj), " ")
+  assert(got == ". pkg", "got: " .. got)
+end
+test_source_dirs_are_the_compiled_ones()
+
 print("all graph tests passed")

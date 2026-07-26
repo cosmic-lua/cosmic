@@ -98,8 +98,13 @@ $(o)/lint-summary.txt: $(all_linted) $(lint_list_stamp) | $(build_reporter)
 	$(if $(strip $(lint_present)),,$(error lint: no tracked file exists on disk — filter collapsed the list?))
 	@$(bootstrap_cosmic) -- $(build_reporter) --dir $(o) --out $@ $(all_linted)
 
-$(o)/%.lint.got: % $(build_lint) $(lint_style_lua) | $(bootstrap_cosmic)
-	@$(bootstrap_cosmic) --test $(basename $@) $(bootstrap_cosmic) -- $(build_lint) $<
+# `--check-style` on the FRESHLY BUILT binary, which is the same entry
+# point `--make lint` uses: one implementation, so the two lanes cannot
+# disagree about what the style gate is. It replaced a separate
+# `_build/lint.tl` that ran a different (smaller) set of checks than the
+# flag of the same name.
+$(o)/%.lint.got: % $(cosmic_bin) | $(bootstrap_cosmic)
+	@$(bootstrap_cosmic) --test $(basename $@) -- $(cosmic_bin) --check-style $<
 
 # The model gate (3f): does this repo still conform to the project model
 # `cosmic --make` builds by? Every slice of phase 3 has been checking it

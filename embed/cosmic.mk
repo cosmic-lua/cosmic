@@ -32,7 +32,7 @@ SHELL := $(COSMIC)
 # mtime alone and non-changes stop propagating.
 .DELETE_ON_ERROR:
 
-.PHONY: all build compile fmt test
+.PHONY: all build compile fmt test example lint coverage
 
 all: build
 
@@ -103,3 +103,67 @@ $(O)/%.lua.test.got: $(O)/%.lua $$(deps_$$*)
 
 $(O)/test-summary.txt: $(test_got)
 	tee $@ $(COSMIC) --report $(test_got) ;
+
+# -------------------------------------------------------------- example
+
+example_got := $(patsubst %,$(O)/%.example.got,$(examples))
+
+## Run every *_example.tl against the compiled tree
+example: $(O)/example-summary.txt
+
+# An example is a test with a different contract: same staging, same
+# closure, same fence, `Example_*` instead of `test_*`. That is what the
+# model says everywhere else, so the rules say it too — the only
+# difference from the test rules above is the flag.
+$(O)/%.tl.example.got: $(O)/%.lua $$(deps_$$*)
+	test $(basename $@) $(COSMIC) --check-examples $< --deps $(deps_$*) ;
+
+$(O)/%.lua.example.got: $(O)/%.lua $$(deps_$$*)
+	test $(basename $@) $(COSMIC) --check-examples $< --deps $(deps_$*) ;
+
+$(O)/example-summary.txt: $(example_got)
+	tee $@ $(COSMIC) --report $(example_got) ;
+
+# ----------------------------------------------------------------- lint
+
+lint_got := $(patsubst %,$(O)/%.lint.got,$(lint_sources))
+
+## Style-check every file in the project
+lint: $(O)/lint-summary.txt
+
+# The file set is the MODEL's, not git's. `lint_sources` is every file
+# the walk found — sources, payload, assets, this makefile's own
+# committed twin — which is the tracked-shaped set already, minus `o/`
+# and minus what `.cosmicignore` excludes, with no `git ls-files` and so
+# no git in the gate at all. A brand-new file is linted the moment it
+# exists rather than the moment it is staged.
+#
+# No compile prerequisite: lint reads the file as bytes. That is why it
+# sees a `.md`, a `.mk` and a `.yml`, and why it is a verb of its own
+# rather than a stage of `check`.
+$(O)/%.lint.got: %
+	test $(basename $@) $(COSMIC) --check-style $< ;
+
+$(O)/lint-summary.txt: $(lint_got)
+	tee $@ $(COSMIC) --report $(lint_got) ;
+
+# ------------------------------------------------------------- coverage
+
+coverage_got := $(patsubst %,$(O)/coverage/%.test.got,$(tests))
+
+## Run every test again with line coverage collected
+coverage: $(O)/coverage-summary.txt
+
+# A SECOND output tree, so a coverage run never invalidates the plain
+# test results and stays incremental itself. Same recipe as the test
+# rules; the environment is the whole difference.
+$(O)/coverage/%.test.got: export COSMIC_COVERAGE := 1
+
+$(O)/coverage/%.tl.test.got: $(O)/%.lua $$(deps_$$*)
+	test $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
+
+$(O)/coverage/%.lua.test.got: $(O)/%.lua $$(deps_$$*)
+	test $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
+
+$(O)/coverage-summary.txt: $(coverage_got)
+	tee $@ $(COSMIC) --report $(coverage_got) ;

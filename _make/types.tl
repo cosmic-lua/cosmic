@@ -137,7 +137,37 @@ local record make_types
   --- which are exactly the two kinds whose job is to stay out of the
   --- model. One definition, both readers.
   fmt_kinds: {Kind: boolean}
+
+  --- Kinds `lint` reads.
+  ---
+  --- Beside fmt_kinds and for the same reason: two consumers ask (the
+  --- facts writer, which emits `lint_sources` for the whole project,
+  --- and the `lint` verb's selection table), and a set they answer
+  --- differently is a file a full run gates and a selected run skips.
+  ---
+  --- Nearly everything, because lint reads BYTES: a `.md`, a `.mk` and
+  --- a `.yml` are all in scope, and payload is too -- it ships, so it
+  --- is held to the same standard, and a project vendoring something it
+  --- does not want judged has `.cosmicignore`. `testdata` is the one
+  --- exception, for its own reason rather than by inheritance: a
+  --- fixture is often deliberately wrong (that is what makes it a
+  --- fixture), so linting one gates the build on a file whose job is to
+  --- be unacceptable.
+  lint_kinds: {Kind: boolean}
 end
+
+make_types.lint_kinds = {
+  module = true,
+  entry = true,
+  test = true,
+  example = true,
+  types = true,
+  pin = true,
+  gen = true,
+  ["payload-gen"] = true,
+  payload = true,
+  asset = true,
+}
 
 make_types.fmt_kinds = {
   module = true,

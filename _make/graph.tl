@@ -22,6 +22,7 @@ local project = require("_make.project")
 local types = require("_make.types")
 
 local type File = types.File
+local type Kind = types.Kind
 local type Project = types.Project
 
 --- Where the constant rules live inside the binary.
@@ -39,13 +40,44 @@ local MAKE_ENV < const > = "COSMIC_MAKE"
 local JOBS_ENV < const > = "COSMIC_JOBS"
 
 --- Kinds whose `.tl` sources compile into `$(O)`.
-local compiled_kinds: {string: boolean} = {
+--- The kinds whose files are compiled into `o/`.
+---
+--- Two callers ask: the facts writer below (which lists them for the
+--- compile rules) and `source_dirs` (which a coverage report scans for
+--- files no test ever loaded).
+local compiled_kinds < const >: {Kind: boolean} = {
   module = true,
   entry = true,
   test = true,
   example = true,
   gen = true,
 }
+
+--- The distinct directories holding compiled sources, sorted.
+---
+--- What a coverage report needs to see a module NO test loaded: the
+--- collected data names only files that ran, so a module with no test
+--- at all is invisible without a directory to scan.
+--- @param proj Project The scanned project
+--- @return {string} Directory paths relative to the root
+local function source_dirs(proj: Project): {string}
+  local seen: {string: boolean} = {}
+  local out: {string} = {}
+  for _, f in ipairs(proj.files) do
+    if compiled_kinds[f.kind] then
+      local dir = fs.dirname(f.path)
+      if dir == "" then
+        dir = "."
+      end
+      if not seen[dir] then
+        seen[dir] = true
+        out[#out + 1] = dir
+      end
+    end
+  end
+  table.sort(out)
+  return out
+end
 
 --- Write `path` only when the bytes differ, so a no-op run does not
 --- touch an mtime the graph schedules on.
@@ -97,8 +129,17 @@ local function project_mk(proj: Project, cosmic: string): string
   local tests: {string} = {}
   local examples: {string} = {}
   local assets: {string} = {}
+  -- `lint`'s set: the widest one here, because lint reads bytes -- a
+  -- `.md`, a `.mk` and a `.yml` are all in scope -- and the model has
+  -- already excluded `o/` and whatever `.cosmicignore` names. Not
+  -- `testdata`, whose files are deliberately wrong on purpose; the
+  -- kinds are enumerated once, in stage.tl's selection table.
+  local lint_sources: {string} = {}
 
   for _, f in ipairs(proj.files) do
+    if types.lint_kinds[f.kind] then
+      lint_sources[#lint_sources + 1] = f.path
+    end
     local is_tl = f.path:sub(-3) == ".tl"
     -- By KIND, not by suffix. Taking every `.tl` swept in the two kinds
     -- whose whole job is to stay out of the model: a `testdata/`
@@ -169,6 +210,8 @@ local function project_mk(proj: Project, cosmic: string): string
     assign("tests", tests),
     assign("examples", examples),
     assign("assets", assets),
+    assign("lint_sources", lint_sources),
+    assign("coverage_dirs", source_dirs(proj)),
   }
   for _, l in ipairs(dep_lines) do
     lines[#lines + 1] = l
@@ -352,9 +395,9 @@ end
 --- Files of the given kinds, for a verb that wants to count what it
 --- built without re-deriving the rules' patsubst.
 --- @param proj Project The scanned project
---- @param kinds {types.Kind} Kinds to count
+--- @param kinds {Kind} Kinds to count
 --- @return {File} The matching files
-local function inputs(proj: Project, kinds: {types.Kind}): {File}
+local function inputs(proj: Project, kinds: {Kind}): {File}
   return project.of_kind(proj, kinds)
 end
 
@@ -369,7 +412,8 @@ local record GraphModule
   find_make: function(): string | nil, string
   jobs_flag: function(): string
   run: function(proj: Project, target: string, overrides: {string}, cosmic: string): integer, string
-  inputs: function(proj: Project, kinds: {types.Kind}): {File}
+  inputs: function(proj: Project, kinds: {Kind}): {File}
+  source_dirs: function(proj: Project): {string}
 end
 
 local M: GraphModule = {
@@ -384,6 +428,7 @@ local M: GraphModule = {
   jobs_flag = jobs_flag,
   run = run,
   inputs = inputs,
+  source_dirs = source_dirs,
 }
 
 return M

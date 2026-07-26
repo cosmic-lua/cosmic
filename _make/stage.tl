@@ -23,11 +23,12 @@ local type Project = types.Project
 local type Selection = types.Selection
 local type Verb = types.Verb
 
---- The formattable kinds, as the sorted list a Selection wants.
+--- A kind set from types, as the sorted list a Selection wants.
+--- @param set {Kind: boolean} The set to flatten
 --- @return {Kind} The kinds, in a stable order
-local function fmt_kinds(): {Kind}
+local function kinds_of(set: {Kind: boolean}): {Kind}
   local out: {Kind} = {}
-  for k in pairs(types.fmt_kinds) do
+  for k in pairs(set) do
     -- The table is DECLARED `{Kind: boolean}`, so every lookup is
     -- typed and a bare string key is refused at the call site. Teal
     -- 0.24.8 still hands `pairs` the key as `string`, so the one cast
@@ -49,7 +50,7 @@ local SELECTS < const >: {string: Selection} = {
   -- the facts writer's `fmt_sources` cannot disagree about what is
   -- formattable (they did: full fmt gated testdata and payload).
   fmt = {
-    kinds = fmt_kinds(),
+    kinds = kinds_of(types.fmt_kinds),
     suffix = ".tl",
     variable = "fmt_sources",
   },
@@ -61,6 +62,13 @@ local SELECTS < const >: {string: Selection} = {
   -- `example` is `test`'s sibling everywhere else in the model, so it
   -- is one here too: same shape, same reason for no suffix filter.
   example = {kinds = {"example"}, variable = "examples"},
+  -- Derived from the one definition in types, exactly as `fmt` is: see
+  -- there for what lint reads and why `testdata` is the one kind it
+  -- does not.
+  lint = {kinds = kinds_of(types.lint_kinds), variable = "lint_sources"},
+  -- Coverage runs the same tests in a second output tree, so it selects
+  -- the same files by the same rule.
+  coverage = {kinds = {"test"}, variable = "tests"},
 }
 
 --- Print a verb's verdict line. Every verb ends in one, so a caller

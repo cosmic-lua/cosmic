@@ -79,8 +79,20 @@ not yet carry is in [docs/design/make/](docs/design/make/).
 - **doc comments**: `---` prefix with `@param` and `@return` tags
 - **naming**: `snake_case` for functions and variables. `PascalCase` for record types and record constructors (e.g. `signal.Sigset()`); options records are named `Options` (or `<Thing>Options` when a module has several).
 - **formatting**: 2-space indent, LF line endings, enforced by `cosmic --check-format`
+- **column width**: 90 columns is house style, and the one style rule
+  that is NOT a gate — the tree has 858 lines over it and the gate never
+  checked (`cosmic.style.check_column_length` is exported and unused by
+  `--check-style`). Write to 90; do not expect a failure if you do not.
 - **warnings are errors**: `--check-types` fails on any Teal warning (unused, shadowing, unreachable branch). mark deliberately-unused values with a leading underscore (`local _out`, `_self: Poller`).
-- **file length**: all `.tl` files must be ≤500 lines. no exceptions. enforced by `bin/make lint`. `.d.tl` type declaration files are exempt (they describe C binding interfaces and cannot be split due to Teal's record system).
+- **file length**: all files must be ≤500 lines. no exceptions. enforced
+  by `cosmic --check-style`, which is what both `bin/make lint` and
+  `cosmic --make lint` run. `.d.tl` type declaration files are exempt
+  (they describe C binding interfaces and cannot be split due to Teal's
+  record system).
+- **test files call each test where they define it**: a `test_*` function
+  in a `_test.tl` is called on the line after its `end`, so a failing run
+  names the function. Helpers are exempt (they are called from the tests),
+  and `Example_*` functions are called by the example runner.
 - **imports**: prefer `cosmic.*` modules over raw `cosmo.*` C bindings. `cosmo.*` is only for library internals implementing wrappers.
 - **tests**: `*_test.tl` files alongside source, run via `make test`
 - **examples**: `*_example.tl` files with `Example_*` functions, run via `make example`
@@ -407,7 +419,7 @@ line, which survives any truncation.
 
 ```bash
 bin/make test                 # all tests
-bin/make coverage             # tests with line coverage + ratchet vs cosmic/coverage/baseline.txt
+bin/make coverage             # tests with line coverage + ratchet vs .coverage
 bin/make coverage-baseline    # rewrite the committed coverage ratchet floor
 bin/make test only=sqlite     # filter by substring (also narrows fetch/stage)
 bin/make example              # run Example_* functions

@@ -12,6 +12,7 @@ local function test_deep_copy_is_independent()
   assert(tbl.deep_eq((orig.nested as {string: any}).b, {2, 3}), -- cast: from any
     "mutating the copy leaked into the original")
 end
+test_deep_copy_is_independent()
 
 local function test_deep_copy_passes_scalars_through()
   assert(tbl.deep_copy(42) == 42)
@@ -19,6 +20,7 @@ local function test_deep_copy_passes_scalars_through()
   assert(tbl.deep_copy(nil) == nil)
   assert(tbl.deep_copy(true) == true)
 end
+test_deep_copy_passes_scalars_through()
 
 local function test_deep_copy_preserves_cycles()
   local orig: {string: any} = {name = "root"}
@@ -28,6 +30,7 @@ local function test_deep_copy_preserves_cycles()
   assert(copy ~= orig, "copy is the original")
   assert(copy.name == "root")
 end
+test_deep_copy_preserves_cycles()
 
 local function test_deep_copy_preserves_shared_references()
   local shared: {number} = {1}
@@ -36,6 +39,7 @@ local function test_deep_copy_preserves_shared_references()
   assert(copy.x == copy.y, "shared reference duplicated")
   assert(copy.x ~= shared, "shared table not copied")
 end
+test_deep_copy_preserves_shared_references()
 
 local function test_deep_copy_copies_table_keys()
   local key: {string: string} = {id = "k"}
@@ -50,6 +54,7 @@ local function test_deep_copy_copies_table_keys()
   end
   assert(found, "copied table is empty")
 end
+test_deep_copy_copies_table_keys()
 
 -- deep_eq
 
@@ -57,12 +62,14 @@ local function test_deep_eq_nested()
   assert(tbl.deep_eq({a = {1, {2}}, b = "x"}, {a = {1, {2}}, b = "x"}))
   assert(not tbl.deep_eq({a = {1, {2}}}, {a = {1, {3}}}))
 end
+test_deep_eq_nested()
 
 local function test_deep_eq_key_sets_must_match()
   assert(not tbl.deep_eq({a = 1}, {a = 1, b = 2}), "extra key in b")
   assert(not tbl.deep_eq({a = 1, b = 2}, {a = 1}), "extra key in a")
   assert(tbl.deep_eq({}, {}), "empty tables differ")
 end
+test_deep_eq_key_sets_must_match()
 
 local function test_deep_eq_scalars_and_mixed()
   assert(tbl.deep_eq(1, 1))
@@ -70,6 +77,7 @@ local function test_deep_eq_scalars_and_mixed()
   assert(not tbl.deep_eq({1}, 1))
   assert(not tbl.deep_eq(nil, {}))
 end
+test_deep_eq_scalars_and_mixed()
 
 local function test_deep_eq_handles_cycles()
   local a: {string: any} = {v = 1}
@@ -81,6 +89,7 @@ local function test_deep_eq_handles_cycles()
   c.self = c
   assert(not tbl.deep_eq(a, c), "unequal cyclic tables compared equal")
 end
+test_deep_eq_handles_cycles()
 
 -- deep_merge
 
@@ -100,6 +109,7 @@ local function test_deep_merge_recurses_and_overrides()
         debug = true,
       }), "unexpected merge result")
 end
+test_deep_merge_recurses_and_overrides()
 
 local function test_deep_merge_override_wins_on_type_conflict()
   local merged = tbl.deep_merge({a = {nested = true}}, {a = "flat"})
@@ -107,6 +117,7 @@ local function test_deep_merge_override_wins_on_type_conflict()
   local merged2 = tbl.deep_merge({a = "flat"}, {a = {nested = true}})
   assert(tbl.deep_eq(merged2, {a = {nested = true}}))
 end
+test_deep_merge_override_wins_on_type_conflict()
 
 local function test_deep_merge_mutates_neither_input()
   local base: {string: any} = {limits = {mem = 64}}
@@ -119,12 +130,14 @@ local function test_deep_merge_mutates_neither_input()
   assert((base.limits as {string: any}).mem == 64, -- cast: from any
     "merge result shares tables with base")
 end
+test_deep_merge_mutates_neither_input()
 
 local function test_deep_merge_arrays_merge_by_index()
   local merged = tbl.deep_merge({list = {1, 2, 3}}, {list = {9}})
   assert(tbl.deep_eq(merged, {list = {9, 2, 3}}),
     "documented by-index array semantics changed")
 end
+test_deep_merge_arrays_merge_by_index()
 
 -- map / filter / reduce
 
@@ -138,6 +151,7 @@ local function test_map()
     end)
   assert(tbl.deep_eq(strs, {"#1", "#2"}))
 end
+test_map()
 
 local function test_filter()
   local out = tbl.filter({1, 2, 3, 4, 5}, function(n: number): boolean
@@ -145,6 +159,7 @@ local function test_filter()
     end)
   assert(tbl.deep_eq(out, {2, 4}))
 end
+test_filter()
 
 local function test_reduce()
   local sum = tbl.reduce({1, 2, 3, 4}, function(acc: number, n: number): number
@@ -156,6 +171,7 @@ local function test_reduce()
     end, "")
   assert(joined == "ab", "got: " .. joined)
 end
+test_reduce()
 
 local function test_map_filter_reduce_empty_list()
   assert(tbl.deep_eq(tbl.map({}, function(n: number): number return n end), {}))
@@ -163,6 +179,7 @@ local function test_map_filter_reduce_empty_list()
   local acc = tbl.reduce({}, function(a: number, n: number): number return a + n end, 7)
   assert(acc == 7, "reduce of empty list changed init")
 end
+test_map_filter_reduce_empty_list()
 
 local function test_inputs_not_mutated_by_list_transforms()
   local input = {3, 1, 2}
@@ -171,22 +188,4 @@ local function test_inputs_not_mutated_by_list_transforms()
   tbl.reduce(input, function(a: number, n: number): number return a + n end, 0)
   assert(tbl.deep_eq(input, {3, 1, 2}), "a transform mutated its input")
 end
-
-test_deep_copy_is_independent()
-test_deep_copy_passes_scalars_through()
-test_deep_copy_preserves_cycles()
-test_deep_copy_preserves_shared_references()
-test_deep_copy_copies_table_keys()
-test_deep_eq_nested()
-test_deep_eq_key_sets_must_match()
-test_deep_eq_scalars_and_mixed()
-test_deep_eq_handles_cycles()
-test_deep_merge_recurses_and_overrides()
-test_deep_merge_override_wins_on_type_conflict()
-test_deep_merge_mutates_neither_input()
-test_deep_merge_arrays_merge_by_index()
-test_map()
-test_filter()
-test_reduce()
-test_map_filter_reduce_empty_list()
 test_inputs_not_mutated_by_list_transforms()

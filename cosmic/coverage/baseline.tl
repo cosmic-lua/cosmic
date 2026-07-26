@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
 --- Coverage ratchet: compare a coverage run against a committed baseline.
 ---
---- The baseline (cosmic/coverage/baseline.txt) records covered/total
+--- The baseline (`.coverage` at the project root) records covered/total
 --- line counts per file plus a total row. The check fails when any
 --- file's percentage drops more than a small tolerance below its
 --- baseline, when the total percentage declines, or when the file set
@@ -203,16 +203,32 @@ local function gate(baseline_path: string, only: string, paths: {string}): integ
   return check(baseline_path, paths)
 end
 
+--- A fresh baseline for the given report inputs, as text.
+---
+--- Split from `write` below when the `coverage` verb needed the bytes
+--- rather than a stream: the verb owns the file it writes (the build
+--- has no redirect), while the recipe path captures stdout.
+--- @param paths {string} Report inputs (see report.compute)
+--- @return string|nil The baseline text, or nil on failure
+--- @return string The error message
+local function text_for(paths: {string}): string | nil, string
+  local reports, cerr = rep.compute(paths)
+  if not reports then
+    return nil, cerr or "coverage: no data"
+  end
+  return render(reports as {FileReport}) -- cast: record union after guard
+end
+
 --- Write a fresh baseline for the given report inputs to stdout.
 --- @param paths {string} Report inputs (see report.compute)
 --- @return integer Exit code: 0 on success
 local function write(paths: {string}): integer
-  local reports, cerr = rep.compute(paths)
-  if not reports then
-    io.stderr:write((cerr or "coverage: no data") .. "\n")
+  local out, err = text_for(paths)
+  if not out then
+    io.stderr:write((err or "coverage: no data") .. "\n")
     return 1
   end
-  io.write(render(reports as {FileReport})) -- cast: record union after guard
+  io.write(out as string) -- cast: scalar narrowing after the guard
   return 0
 end
 
@@ -259,6 +275,7 @@ local record BaselineModule
   compare: function(reports: {FileReport}, entries: {string: Entry}, total: Entry): {string}
   check: function(baseline_path: string, paths: {string}): integer
   gate: function(baseline_path: string, only: string, paths: {string}): integer
+  text_for: function(paths: {string}): string | nil, string
   write: function(paths: {string}): integer
 end
 
@@ -268,6 +285,7 @@ local M: BaselineModule = {
   compare = compare,
   check = check,
   gate = gate,
+  text_for = text_for,
   write = write,
 }
 

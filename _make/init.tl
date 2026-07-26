@@ -23,6 +23,7 @@ local check = require("_make.check")
 local fetch = require("_make.fetch")
 local generate = require("_make.generate")
 local graph = require("_make.graph")
+local policy = require("_make.policy")
 local stage = require("_make.stage")
 local types = require("_make.types")
 local validate = require("_make.validate")
@@ -63,6 +64,13 @@ end
 --- Forward declaration: `build`'s row needs its runner, and its runner
 --- needs the registry to find its own row.
 local by_name: function(name: string): Verb | nil
+
+--- Whether `coverage` should rewrite the committed floor rather than
+--- gate against it. Set by the argv scan in `run` below, read by the
+--- registry row: a verb's runner takes the project and its paths, and
+--- threading one flag through every signature to reach one row is the
+--- worse trade.
+local baseline_wanted = false
 
 --- The binaries a selection names, or every binary when it names none.
 ---
@@ -178,7 +186,8 @@ local function run_build(proj: Project, paths: {string},
   return stage.verdict("build", true, detail)
 end
 
---- `test` — the binaries first, then the tests that run against them.
+--- `test` and `example` — the binaries first, then the targets that
+--- run against them.
 ---
 --- Assembling before testing is not `test` doing `build`'s job: it is
 --- the staging step the design already assigns to `test` ("build the
@@ -190,7 +199,7 @@ end
 --- @param paths {string} Selection paths naming tests
 --- @param cosmic string Absolute path to this binary
 --- @return integer Exit code
-local function run_test(v: Verb, proj: Project, paths: {string},
+local function run_against_stage(v: Verb, proj: Project, paths: {string},
     cosmic: string): integer
   if #proj.binaries > 0 then
     local b = by_name("build") as Verb -- cast: the registry defines it
@@ -255,7 +264,8 @@ local VERBS < const >: {Verb} = {
   {name = "fmt", target = "fmt", select = stage.SELECTS.fmt},
   {name = "test", target = "test", select = stage.SELECTS.test,
     run = function(proj: Project, paths: {string}, cosmic: string): integer
-      return run_test(by_name("test") as Verb, proj, paths, cosmic) -- cast: the registry defines it
+      -- cast: the registry defines it
+      return run_against_stage(by_name("test") as Verb, proj, paths, cosmic)
     end},
   {name = "run", planned = true},
   {name = "regen", planned = true},
@@ -269,10 +279,28 @@ local VERBS < const >: {Verb} = {
   -- lets `ci` below be a list of verb names: its documented pipeline is
   -- format -> check -> test -> example -> lint -> coverage, and two of
   -- those six used to resolve to nothing at all.
-  {name = "example", planned = true},
-  {name = "lint", planned = true},
-  {name = "ci", planned = true},
-  {name = "coverage", planned = true},
+  {name = "example", target = "example", select = stage.SELECTS.example,
+    run = function(proj: Project, paths: {string}, cosmic: string): integer
+      -- cast: the registry defines it
+      return run_against_stage(by_name("example") as Verb, proj, paths, cosmic)
+    end},
+  {name = "lint", target = "lint", select = stage.SELECTS.lint},
+  {name = "ci", run = function(proj: Project, paths: {string},
+        cosmic: string): integer
+      return policy.run_ci(by_name, proj, paths, cosmic)
+    end},
+  {name = "coverage", target = "coverage", select = stage.SELECTS.coverage,
+    run = function(proj: Project, paths: {string}, cosmic: string): integer
+      local v = by_name("coverage") as Verb -- cast: the registry defines it
+      if baseline_wanted then
+        local code = run_against_stage(v, proj, paths, cosmic)
+        if code ~= 0 then
+          return code
+        end
+        return policy.write_baseline(proj)
+      end
+      return policy.run_coverage(v, proj, paths, cosmic)
+    end},
   {name = "enforce", planned = true},
   {name = "reproducible", planned = true},
   {name = "offline", planned = true},
@@ -318,9 +346,22 @@ local function run(argv: {string}): integer
     return 1
   end
 
+  -- One flag, on one verb. `--baseline` is not a selection and not a
+  -- verb of its own: rewriting the floor needs the run that produced
+  -- the data, so it is the same verb saying what to do with the result.
   local paths: {string} = {}
+  baseline_wanted = false
   for i = 2, #argv do
-    paths[#paths + 1] = argv[i]
+    if argv[i] == "--baseline" then
+      baseline_wanted = true
+    else
+      paths[#paths + 1] = argv[i]
+    end
+  end
+  if baseline_wanted and name ~= "coverage" then
+    io.stderr:write("make: --baseline belongs to `coverage`, not '" ..
+      name .. "'\n")
+    return 1
   end
 
   -- Resolve this binary BEFORE anything chdirs: `--make` enters the

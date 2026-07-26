@@ -27,6 +27,7 @@ local function test_short_and_long_forms()
   assert(#p.args == 2 and p.args[1] == "alice" and p.args[2] == "bob")
   assert(p.help == false and p.version == false)
 end
+test_short_and_long_forms()
 
 local function test_defaults_and_absent_flags()
   local p = must(spec, {"--count", "1"})
@@ -34,11 +35,13 @@ local function test_defaults_and_absent_flags()
   assert(p.flags["verbose"] == false, "absent flag should be false, not nil")
   assert(#p.args == 0)
 end
+test_defaults_and_absent_flags()
 
 local function test_repeated_valued_option_keeps_last()
   local p = must(spec, {"--count", "1", "-o", "a", "-o", "b"})
   assert(p.values["output"] == "b", "got: " .. p.values["output"])
 end
+test_repeated_valued_option_keeps_last()
 
 local function test_missing_required_option()
   local p, err = flags.parse(spec, {"-v"})
@@ -46,6 +49,7 @@ local function test_missing_required_option()
   assert(err and err:find("greet: missing required option: --count", 1, true),
     "got: " .. tostring(err))
 end
+test_missing_required_option()
 
 local function test_unknown_option()
   local p, err = flags.parse(spec, {"--count", "1", "--nope"})
@@ -53,6 +57,7 @@ local function test_unknown_option()
   assert(err and err:find("greet: unknown option: --nope", 1, true),
     "got: " .. tostring(err))
 end
+test_unknown_option()
 
 local function test_missing_value()
   local p, err = flags.parse(spec, {"--output"})
@@ -60,6 +65,7 @@ local function test_missing_value()
   assert(err and err:find("greet: option requires a value: --output", 1, true),
     "got: " .. tostring(err))
 end
+test_missing_value()
 
 local function test_auto_help()
   -- --help must work even though the required --count is absent.
@@ -68,6 +74,7 @@ local function test_auto_help()
   local p2 = must(spec, {"-h"})
   assert(p2.help == true)
 end
+test_auto_help()
 
 local function test_auto_version()
   local p = must(spec, {"--version"})
@@ -77,6 +84,7 @@ local function test_auto_version()
   assert(not p2, "expected --version to be unknown without spec.version")
   assert(err and err:find("unknown option", 1, true), "got: " .. tostring(err))
 end
+test_auto_version()
 
 local function test_spec_claims_help_name()
   local custom: flags.Spec = {
@@ -87,6 +95,7 @@ local function test_spec_claims_help_name()
   assert(p.values["help"] == "parsing")
   assert(p.help == false, "user-claimed valued --help must not read as a help request")
 end
+test_spec_claims_help_name()
 
 local function test_invalid_specs()
   local cases: {{flags.Spec, string}} = {
@@ -106,6 +115,7 @@ local function test_invalid_specs()
       "case " .. tostring(i) .. " got: " .. tostring(err))
   end
 end
+test_invalid_specs()
 
 local function test_help_rendering()
   local text = flags.help(spec)
@@ -120,6 +130,7 @@ local function test_help_rendering()
   assert(text:find("--version", 1, true), text)
   assert(not text:find("\n$"), "trailing newline")
 end
+test_help_rendering()
 
 local function test_help_rows_align()
   local text = flags.help(spec)
@@ -136,16 +147,4 @@ local function test_help_rows_align()
   assert(verbose_col and output_col, "option rows missing from help output")
   assert(verbose_col == output_col, "descriptions are not column-aligned")
 end
-
-test_short_and_long_forms()
-test_defaults_and_absent_flags()
-test_repeated_valued_option_keeps_last()
-test_missing_required_option()
-test_unknown_option()
-test_missing_value()
-test_auto_help()
-test_auto_version()
-test_spec_claims_help_name()
-test_invalid_specs()
-test_help_rendering()
 test_help_rows_align()

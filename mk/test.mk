@@ -96,14 +96,16 @@ $(o)/coverage/%.tl.test.got: $(o)/%.lua $$(deps_$$*) $(cosmic_bin) $(ape_loader)
 # Coverage ratchet: the committed baseline records covered/total per
 # file; the check fails when coverage declines or the file set drifts.
 # Skipped under only= (partial data would read as a huge decline).
-coverage_baseline := cosmic/coverage/baseline.txt
+coverage_baseline := .coverage
 coverage_baseline_tool := $(o)/cosmic/coverage/baseline.lua
 
 # De-shelled (#756 item 1): the skip/check branching lives in the
 # baseline tool's gate mode; --only=$(only) stays one argv token even
 # when the filter is empty, so no quoting and no shell.
 $(o)/coverage-summary.txt: .PLEDGE := $(pledge_build)
-$(o)/coverage-summary.txt: .UNVEIL := $(unveil_base) rwcx:$(o)
+# `.coverage` is at the ROOT now (the `--make` convention), which the
+# source-dir grants do not cover: name it.
+$(o)/coverage-summary.txt: .UNVEIL := $(unveil_base) rwcx:$(o) r:$(coverage_baseline)
 $(o)/coverage-summary.txt: $(coverage_got) | $(cosmic_bin)
 	@$(bootstrap_cosmic) --build capture $(cosmic_bin) $(o)/coverage-tests.txt --report $(coverage_got)
 	@$(bootstrap_cosmic) --build tee $@ $(cosmic_bin) --coverage-report $(o)/coverage $(src_dirs)
@@ -112,7 +114,7 @@ $(o)/coverage-summary.txt: $(coverage_got) | $(cosmic_bin)
 .PHONY: coverage-baseline
 ## Rewrite the committed coverage ratchet baseline from the last coverage run
 coverage-baseline: .PLEDGE := $(pledge_build)
-coverage-baseline: .UNVEIL := $(unveil_base) rwcx:$(o) rwc:cosmic/coverage
+coverage-baseline: .UNVEIL := $(unveil_base) rwcx:$(o) rwc:$(coverage_baseline)
 coverage-baseline: $(coverage_got) | $(cosmic_bin)
 	@$(bootstrap_cosmic) --build capture $(cosmic_bin) $(coverage_baseline) $(coverage_baseline_tool) write $(o)/coverage $(src_dirs)
 	@echo wrote $(coverage_baseline)

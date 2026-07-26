@@ -135,3 +135,20 @@ local function test_gate_checks_when_baseline_present()
   assert(code == 1, "gate must run the real check when a baseline exists")
 end
 test_gate_checks_when_baseline_present()
+
+-- `text_for` is what a caller that owns its output file needs: the
+-- bytes, not a stream. `write` prints exactly these bytes, so the two
+-- cannot disagree about the format -- and both refuse the same way when
+-- there is no data to render.
+local function test_text_for_returns_the_rendered_baseline()
+  local fs = require("cosmic.fs")
+  local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
+  local empty = fs.join(tmpdir, "text-for-empty")
+  assert(fs.makedirs(empty))
+  local text, err = baseline.text_for({empty})
+  assert(not text, "no coverage data means no baseline: " .. tostring(text))
+  assert(err and err ~= "", "and the refusal says why")
+end
+test_text_for_returns_the_rendered_baseline()
+
+print("all baseline tests passed")

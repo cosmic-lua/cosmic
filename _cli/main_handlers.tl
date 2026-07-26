@@ -347,8 +347,14 @@ local function handle_check_style(file: string): integer
     return 1
   end
   f:close()
-  local lint = require("cosmic.style")
-  local style_types = lint
+  -- `_cli.lint`, not `cosmic.style`: the checks that need the LEXER
+  -- (cast justification, the cosmo-require rule, call-after-define)
+  -- cannot live in the strip floor, and this flag is the dispatcher's,
+  -- which a stripped artifact does not carry either. One entry point,
+  -- so `--check-style` and `--make lint` cannot disagree about what the
+  -- style gate is.
+  local lint = require("_cli.lint")
+  local style_types = require("cosmic.style")
   local found, lerr = lint.lint_file(file)
   if not found then
     io.stderr:write(file .. ": " .. (lerr or "cannot lint") .. "\n")

@@ -1,5 +1,17 @@
---- The style checks behind `cosmic --check-style`, and the shared
---- implementation `bin/make lint` runs through `_build/lint.tl`.
+--- The PURE style checks: file length and column width.
+---
+--- Pure means "needs nothing but the file's lines", which is what lets
+--- this module sit inside the strip floor (`cosmic/**`), where a
+--- STRIPPED artifact must still boot and there is no Teal compiler to
+--- require. The checks that need the LEXER — cast justification, the
+--- cosmo-require rule, call-after-define — are in `_cli.lint`, which
+--- composes these with those and is what `--check-style` runs.
+---
+--- Column length is exported and not run by that composition: this tree
+--- does not satisfy it (~840 lines over 90 columns, most of them prose
+--- in doc comments) and never did, because the gate ran a linter that
+--- never called it. A rule a gate does not enforce reads as enforced,
+--- which is worse than no rule; enforcing this one is its own change.
 ---
 --- Public rather than internal, and the `_` rule is what settled it
 --- (phase 3c): this module has a caller OUTSIDE `cosmic/`, so it cannot
@@ -48,152 +60,10 @@ local function check_column_length(file: string, lines: {string}, limit: integer
   return diagnostics
 end
 
---- Check that top-level `local function NAME(` is immediately called as `NAME()` on
---- the next non-blank line after its closing `end`. Heuristic: track depth of
---- `function`/`end` keywords; when depth returns to 0, check the next line.
---- This enforces the test/example file convention of calling each test_* function
---- right after defining it, so failures point to the right function.
-local function check_call_after_define(file: string, lines: {string}): {Diagnostic}
-  local diagnostics: {Diagnostic} = {}
-  local i = 1
-  while i <= #lines do
-    local line = lines[i]
-    -- Match top-level local function definition
-    local fname = line:match("^local function%s+([%w_]+)%s*%(")
-    if fname then
-      local def_line = i
-      -- Track end depth to find the closing end
-      local depth = 1
-      i = i + 1
-      while i <= #lines and depth > 0 do
-        local l = lines[i]
-        -- Count keywords that open a new block scope
-        for _ in l:gmatch("%f[%w_]function%f[^%w_]") do
-          depth = depth + 1
-        end
-        for _ in l:gmatch("%f[%w_]if%f[^%w_]") do
-          depth = depth + 1
-        end
-        for _ in l:gmatch("%f[%w_]for%f[^%w_]") do
-          depth = depth + 1
-        end
-        for _ in l:gmatch("%f[%w_]while%f[^%w_]") do
-          depth = depth + 1
-        end
-        for _ in l:gmatch("%f[%w_]repeat%f[^%w_]") do
-          depth = depth + 1
-        end
-        -- Count standalone `do` (not the `do` terminating a for/while header,
-        -- which is already counted above via for/while). A `do` is standalone
-        -- when the same line contains no `for` or `while` keyword.
-        if l:match("%f[%w_]do%f[^%w_]") and
-        not l:match("%f[%w_]for%f[^%w_]") and
-        not l:match("%f[%w_]while%f[^%w_]") then
-          depth = depth + 1
-        end
-        -- `until` closes a repeat block without an `end`
-        for _ in l:gmatch("%f[%w_]until%f[^%w_]") do
-          depth = depth - 1
-        end
-        -- Count end keywords
-        for _ in l:gmatch("%f[%w_]end%f[^%w_]") do
-          depth = depth - 1
-        end
-        i = i + 1
-      end
-      -- i is now one past the closing end line; skip blank lines
-      while i <= #lines and lines[i]:match("^%s*$") do
-        i = i + 1
-      end
-      if i <= #lines then
-        local call_line = lines[i]
-        -- Accept NAME() or NAME(...) as a valid call
-        if not call_line:match("^" .. fname .. "%s*%(") then
-          table.insert(diagnostics, {
-              file = file,
-              line = def_line,
-              col = 1,
-              rule = "call-after-define",
-              message = string.format(
-                "function '%s' must be called immediately after its definition "
-                .. "(test/example files call each test_* function right after defining it)",
-                fname
-              ),
-            })
-        end
-      end
-    else
-      i = i + 1
-    end
-  end
-  return diagnostics
-end
-
-local function lint_file(path: string): {Diagnostic} | nil, string
-  -- Skip .d.tl type declaration files — they describe C binding interfaces
-  -- and cannot be split due to Teal's record system.
-  if path:match("%.d%.tl$") then
-    return {}
-  end
-
-  local diagnostics: {Diagnostic} = {}
-
-  -- An honest failure channel. Returning `{}` for a file that could not
-  -- be opened is indistinguishable from "clean", so a lint sweep over a
-  -- tree with an unreadable file passed while never checking it -- a
-  -- fail-open in a gate whose job is "every file obeys the caps". An
-  -- empty findings list now always means "read, and clean".
-  local f, oerr = io.open(path, "r")
-  if not f then
-    return nil, oerr or ("cannot open " .. path)
-  end
-  local content = f:read("*a")
-  f:close()
-  if not content then
-    return nil, "cannot read " .. path
-  end
-  if content == "" then
-    return diagnostics
-  end
-
-  local lines: {string} = {}
-  for line in (content .. "\n"):gmatch("([^\n]*)\n") do
-    lines[#lines + 1] = line
-  end
-
-  local n = #lines
-  -- A trailing newline produces an empty last element; adjust count
-  if n > 0 and lines[n] == "" then
-    n = n - 1
-  end
-
-  local file_diags = check_file_length(path, n, DEFAULT_FILE_LINES)
-  for _, d in ipairs(file_diags) do
-    table.insert(diagnostics, d)
-  end
-
-  -- Column-length and assert-order checks apply to Teal source files only
-  if path:match("%.tl$") then
-    local col_diags = check_column_length(path, lines, DEFAULT_COLUMN_WIDTH)
-    for _, d in ipairs(col_diags) do
-      table.insert(diagnostics, d)
-    end
-
-    local order_diags = check_call_after_define(path, lines)
-    for _, d in ipairs(order_diags) do
-      table.insert(diagnostics, d)
-    end
-  end
-
-  return diagnostics
-end
-
 return {
   Diagnostic = Diagnostic,
   DEFAULT_FILE_LINES = DEFAULT_FILE_LINES,
   DEFAULT_COLUMN_WIDTH = DEFAULT_COLUMN_WIDTH,
   check_file_length = check_file_length,
   check_column_length = check_column_length,
-  check_call_after_define = check_call_after_define,
-  lint_file = lint_file,
 }

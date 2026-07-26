@@ -3,7 +3,6 @@
 _build/build-fetch.tl 11 62
 _build/build-pack.tl 117 155
 _build/build-stage.tl 46 252
-_build/lint.tl 97 132
 _build/make-boot.tl 52 87
 _build/make-help.tl 79 97
 _build/portable.tl 16 18
@@ -13,6 +12,7 @@ _cli/build/init.tl 55 60
 _cli/build/steps.tl 182 234
 _cli/driver.tl 169 190
 _cli/help.tl 46 48
+_cli/lint.tl 130 152
 _cli/main_handlers.tl 11 220
 _cli/require_hints.tl 104 124
 _cli/run.tl 29 33
@@ -25,14 +25,15 @@ _make/extract.tl 52 73
 _make/facts.tl 19 29
 _make/fetch.tl 107 117
 _make/generate.tl 30 35
-_make/graph.tl 156 180
+_make/graph.tl 175 200
 _make/imports.tl 60 63
-_make/init.tl 159 176
+_make/init.tl 167 196
 _make/pin.tl 80 81
+_make/policy.tl 46 75
 _make/project.tl 207 218
 _make/root.tl 51 55
-_make/stage.tl 83 87
-_make/types.tl 12 12
+_make/stage.tl 85 89
+_make/types.tl 24 24
 _make/validate.tl 193 197
 _perf/bench/child_bench.tl 0 11
 _perf/bench/embed_bench.tl 0 88
@@ -69,7 +70,7 @@ cosmic/child/init.tl 214 247
 cosmic/child/io.tl 97 112
 cosmic/codec.tl 52 57
 cosmic/compress.tl 17 18
-cosmic/coverage/baseline.tl 105 148
+cosmic/coverage/baseline.tl 110 154
 cosmic/coverage/init.tl 54 117
 cosmic/coverage/lines.tl 65 71
 cosmic/coverage/report.tl 176 197
@@ -95,7 +96,7 @@ cosmic/fetch/headers.tl 23 23
 cosmic/fetch/init.tl 208 214
 cosmic/flags.tl 140 142
 cosmic/format/init.tl 182 219
-cosmic/format/rules.tl 188 199
+cosmic/format/rules.tl 190 201
 cosmic/fs/file.tl 30 46
 cosmic/fs/init.tl 61 81
 cosmic/fs/ops.tl 93 134
@@ -149,7 +150,7 @@ cosmic/sqlite/stmt_cache.tl 57 67
 cosmic/sse.tl 98 103
 cosmic/stream.tl 0 2
 cosmic/string.tl 180 183
-cosmic/style.tl 117 124
+cosmic/style.tl 127 128
 cosmic/sys.tl 14 22
 cosmic/syslog.tl 46 46
 cosmic/table.tl 75 75
@@ -164,4 +165,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 80 93
 tlconfig.lua 7 7
-total 13723 17614
+total 13860 17775

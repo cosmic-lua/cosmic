@@ -10,7 +10,6 @@ build_untar := $(o)/cosmic/tar.lua # public: cosmic.tar
 build_portable := $(o)/_build/portable.lua
 build_reporter := $(o)/_build/reporter.lua
 build_help := $(o)/_build/make-help.lua
-build_lint := $(o)/_build/lint.lua
 build_pack := $(o)/_build/build-pack.lua
 # make-boot runs from SOURCE under the bootstrap (bin/make invokes it
 # before any make exists); the compiled copy is built so it gets the
@@ -18,7 +17,7 @@ build_pack := $(o)/_build/build-pack.lua
 build_makeboot := $(o)/_build/make-boot.lua
 # The module's _files: everything under _build compiled, which is what
 # `make files` builds and what the build tests exercise at runtime.
-build_files := $(build_fetch) $(build_stage) $(build_untar) $(build_pack) $(build_portable) $(build_reporter) $(build_help) $(build_lint) $(build_makeboot)
+build_files := $(build_fetch) $(build_stage) $(build_untar) $(build_pack) $(build_portable) $(build_reporter) $(build_help) $(build_makeboot)
 
 # Per-consumer runtime closures (#780). build_files conflates "what a
 # recipe execs" with "everything here, compiled so it gets the strict
@@ -50,7 +49,6 @@ build_tests := $(wildcard _build/*_test.tl)
 # lint.lua delegates its shared checks to cosmic.style; LUA_PATH points
 # at this tree's freshly compiled modules (the doc/index.tl pattern) so the
 # delegation runs THIS tree's style code, not the bootstrap's embedded copy.
-lint_style_lua := $(o)/cosmic/style.lua
 
 # Import edges are derived now (3f): the test rule takes
 # $$(deps_$$*) from o/project.mk, so the blanket
