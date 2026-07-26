@@ -82,6 +82,40 @@ local function test_compile_execs_the_bootstrap()
 end
 test_compile_execs_the_bootstrap()
 
+-- The floor a COMPILE needs beyond its argv. The type checker reads
+-- `tlconfig.lua` and resolves modules through the include directories,
+-- and argv names neither -- so a fence derived from argv alone denied
+-- every real compile, which is the concrete reason it could not become
+-- the default. The DENIAL half of that canary needs a kernel
+-- (`_cli/fence_test.tl`, enforce lane); what the plan CONTAINS is
+-- checkable anywhere, so it is checked here, where it runs on every
+-- commit.
+local function test_a_compile_may_read_the_checkers_own_inputs()
+  local boot = touch("fence-cfg-boot")
+  local src = touch("fence-cfg.tl")
+  local p = driver.plan("compile", {boot, src, fs.join(tmpdir, "c.lua")})
+  assert(p is sandbox.Fs, "compile must plan a policy")
+  assert(has(p.ro, "tlconfig.lua"),
+    "a compile must be allowed to read tlconfig.lua")
+  local teal = require("cosmic.teal")
+  local granted = false
+  for _, dir in ipairs(teal.get_default_include_dirs()) do
+    if has(p.ro, dir) then
+      granted = true
+    end
+  end
+  assert(granted,
+    "a compile must be allowed to read the include dirs modules resolve " ..
+    "through; derived from cosmic.teal so the two cannot drift")
+
+  -- And only for the verbs that run the checker: `copy` moves bytes.
+  local q = driver.plan("copy", {src, fs.join(tmpdir, "c2.tl")})
+  assert(q is sandbox.Fs, "copy must plan a policy")
+  assert(not has(q.ro, "tlconfig.lua"),
+    "a verb that does not compile gets no compiler grants")
+end
+test_a_compile_may_read_the_checkers_own_inputs()
+
 local function test_remove_takes_a_variadic_tail()
   -- unlink is a right on the parent directory, so every path in the
   -- tail contributes its parent.

@@ -121,3 +121,50 @@ local function test_the_fence_confines_a_test_to_its_own_step()
   check.enforced("test fence")
 end
 test_the_fence_confines_a_test_to_its_own_step()
+
+-- The other half of the canary, and the half that decides when the
+-- fence can stop being opt-in: it must PERMIT a real compile.
+--
+-- A denial test alone cannot tell a correct fence from one that denies
+-- everything. The derived grants come from argv, and a type check reads
+-- two things argv never names -- `tlconfig.lua` and the include
+-- directories modules resolve through -- so without them the fence
+-- denied every compile in the tree. That is the concrete reason it
+-- stayed `COSMIC_FENCE=1` while the docs presented it as the
+-- enforcement story, and this is the assertion that has to pass before
+-- the default can flip.
+local function test_the_fence_permits_a_real_compile()
+  if not sandbox.available().fs then
+    check.skip("no landlock on this host; the fence cannot bite")
+    return
+  end
+
+  local dir = fs.join(tmpdir, "compilefence")
+  assert(fs.makedirs(fs.join(dir, "pkg")))
+  -- Two files, so the compile resolves an import through the include
+  -- path rather than only reading the file it was handed.
+  assert(fs.write(fs.join(dir, "pkg", "greet.tl"),
+      "local record G\n  hi: function(): string\nend\n" ..
+      "local M: G = {hi = function(): string return 'hi' end}\nreturn M\n"))
+  local source = fs.join(dir, "main.tl")
+  assert(fs.write(source,
+      "local g = require('pkg.greet')\nprint(g.hi())\n"))
+  local built = fs.join(dir, "o", "main.lua")
+
+  local permitted: {string} = {}
+  for _, entry in ipairs(env.list()) do
+    if not entry:match("^COSMIC_FENCE=") then
+      permitted[#permitted + 1] = entry
+    end
+  end
+  permitted[#permitted + 1] = "COSMIC_FENCE=1"
+
+  local r = check.must(child.run({cosmic, "-c",
+        "compile " .. cosmic .. " " .. source .. " " .. built ..
+        " --include-dir " .. dir}, {cwd = dir, env = permitted}))
+  assert(r.ok, "a real compile must SUCCEED under the fence; a fence " ..
+    "that denies everything is not enforcement: " .. r.stderr)
+  assert(fs.isfile(built), "…and produce its output")
+  check.enforced("recipe fence permits a compile")
+end
+test_the_fence_permits_a_real_compile()

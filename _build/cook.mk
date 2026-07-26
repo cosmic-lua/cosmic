@@ -235,3 +235,9 @@ $(build_makefile_src_test_got): .UNVEIL := $(unveil_test) r:mk
 # not cover (#729 test family)
 build_help_test_got := $(call test_got,_build/help_test.tl)
 $(build_help_test_got): .UNVEIL := $(unveil_test) r:Makefile r:mk
+
+# workflows_test ratchets the CI environment pins across the workflow
+# files. Dot-prefixed directories are outside the project model (the
+# walk never sees them), so this grant is the only way it reads them.
+build_workflows_test_got := $(call test_got,_build/workflows_test.tl)
+$(build_workflows_test_got): .UNVEIL := $(unveil_test) r:.github

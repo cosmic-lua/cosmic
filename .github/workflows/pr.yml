@@ -207,6 +207,35 @@ jobs:
           set -eux
           runuser -u builder -- env HOME="$HOME" PATH="$PATH" bin/make -j build
 
+      # `--make fetch` against the REAL pins, in the one lane that
+      # already has a network. Pin RESOLUTION is gated offline by
+      # _make/pins_test.tl on every commit; what only a network can
+      # answer is whether the resolved urls, digests and unpack
+      # products are right — and none of that ran anywhere until now,
+      # so a regression in platform resolution or cert handling would
+      # have shipped and surfaced when someone next ran the fixpoint by
+      # hand. It also becomes the fixpoint lane's own seeding once the
+      # Makefile bridge goes (audit 056).
+      - name: make fetch against the real pins
+        shell: bash
+        run: |
+          set -eux
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            o/bin/cosmic --make fetch
+          test -f o/3p/tl/tl.lua
+          test -x o/3p/cosmos/make
+          test -x o/3p/cosmos/lua
+          # A satisfied pin re-fetches nothing and re-unpacks nothing.
+          # The manifest that makes that decision records one unpack
+          # product per LINE, so this also gates the no-repair-loop
+          # property a member name could otherwise break (audit 042).
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            o/bin/cosmic --make fetch 2>&1 | tee second.log
+          if grep -q '^fetch https' second.log; then
+            echo "a satisfied pin fetched again" >&2
+            exit 1
+          fi
+
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: cosmic-smoke
