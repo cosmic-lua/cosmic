@@ -21,6 +21,15 @@ $(tlconfig_tests): .UNVEIL := $(unveil_test) r:tlconfig.lua r:Makefile
 graph_tests := $(call test_got,_make/graph_test.tl)
 $(graph_tests): .UNVEIL := $(unveil_test) r:embed
 
+# fixpoint_test copies the working tree and builds cosmic from the copy,
+# twice. Its read set is therefore the whole repository -- Makefile,
+# docs/, embed/, mk/, skills/, sys/, tlconfig.lua and the rest -- not
+# just $(src_dirs). `r:.` is the honest grant for "everything a build
+# of this project reads", and it stays read-only: the test writes only
+# under $(TMP), which the shared grant already covers.
+fixpoint_tests := $(call test_got,_make/fixpoint_test.tl)
+$(fixpoint_tests): .UNVEIL := $(unveil_test) r:.
+
 # Namespace-exercising tests need to call unshare(CLONE_NEWUSER|NEWNET|...)
 # and write /proc/self/{uid,gid}_map. No pledge promise covers unshare,
 # and /proc/self needs write access for the id-map bootstrap, so drop
