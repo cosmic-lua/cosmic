@@ -408,3 +408,32 @@ local function test_payload_is_scoped_to_its_binary()
   assert(lean["shared.txt"], "but root payload still reaches every binary")
 end
 test_payload_is_scoped_to_its_binary()
+
+-- Generated payload is the other half of `embed/`: everything
+-- generated lives under o/, so a generator writes into
+-- `o/<unit>/embed/**` and the artifact stages it exactly as if it had
+-- been committed. Both halves land at the same place, so a project can
+-- generate one payload file and commit another beside it.
+local function test_generated_payload_stages_like_committed()
+  local root = fixture("payload-generated", {
+      ["cmd/tool/main.tl"] = "print('tool')\n",
+      ["cmd/tool/embed/committed.txt"] = "in the tree\n",
+    })
+  -- What a generator would have produced, in the place it produces it.
+  assert(fs.makedirs(fs.join(root, "o/cmd/tool/embed/.types")))
+  assert(fs.write(fs.join(root, "o/cmd/tool/embed/tl.lua"), "return 'teal'\n"))
+  assert(fs.write(fs.join(root, "o/cmd/tool/embed/.types/cosmo.d.tl"),
+      "local record c end\nreturn c\n"))
+  assert(fs.makedirs(fs.join(root, "o/embed")))
+  assert(fs.write(fs.join(root, "o/embed/shared.lua"), "return {}\n"))
+
+  local proj = scan(root)
+  local stored = stored_paths(proj, binary_of(proj, "tool"))
+
+  assert(stored["committed.txt"], "the committed half still stages")
+  assert(stored["tl.lua"], "and the generated half stages beside it")
+  assert(stored[".types/cosmo.d.tl"], "including its dot-directories")
+  assert(stored["shared.lua"], "root generated payload reaches every binary")
+  assert(not stored["o/cmd/tool/embed/tl.lua"], "never at its path under o/")
+end
+test_generated_payload_stages_like_committed()

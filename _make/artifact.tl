@@ -21,6 +21,7 @@
 
 local embed = require("cosmic.embed")
 local fs = require("cosmic.fs")
+local fs_types = require("cosmic.fs.types")
 local project = require("_make.project")
 local types = require("_make.types")
 local validate = require("_make.validate")
@@ -40,6 +41,9 @@ local ships: {string: boolean} = {
   asset = true,
   payload = true,
 }
+
+--- The payload directory's name, shared by the tree and `o/` halves.
+local PAYLOAD_DIR < const > = "embed"
 
 --- Where a payload file lands: at its path INSIDE its unit's `embed/`.
 ---
@@ -141,6 +145,38 @@ local function stage_entry(f: File, binary: Binary): Staged | nil
     stored = f.import:gsub("%.", "/") .. ".lua"}
 end
 
+--- Payload a generator produced, under `o/`.
+---
+--- The tree half of `embed/` is committed files; this is the other
+--- half, and it is why generated payload works at all: everything
+--- generated lives in `o/`, so a `cmd/<name>/embed.gen.tl` writes into
+--- `o/cmd/<name>/embed/**` and the artifact stages it exactly as if it
+--- had been committed. Both halves land at the same place inside the
+--- artifact, so a project can generate `tl.lua` and commit `notes.txt`
+--- beside each other without knowing which is which.
+--- @param root string Absolute project root
+--- @param unit string The unit's directory, "" for the root
+--- @param out {Staged} Plan to append to
+local function generated_payload(root: string, unit: string, out: {Staged})
+  -- The staged `source` stays relative, like every other entry, because
+  -- the pack step runs from the root. The WALK has to be absolute: a
+  -- plan can be computed from anywhere, and a relative path would
+  -- resolve against the caller's directory instead of the project's.
+  local rel = fs.join(project.BUILD_DIR, fs.join(unit, PAYLOAD_DIR))
+  local dir = fs.join(root, rel)
+  if not fs.isdir(dir) then
+    return
+  end
+  fs.walk(dir, function(path: string, _name: string,
+        st: fs_types.WalkStat): fs.WalkAction
+      if st:is_file() then
+        local inside = path:sub(#dir + 2)
+        out[#out + 1] = {source = fs.join(rel, inside), stored = inside}
+      end
+      return nil
+    end)
+end
+
 --- The full staging plan for one binary.
 --- @param proj Project The scanned project
 --- @param binary Binary The artifact being staged
@@ -152,6 +188,11 @@ local function plan(proj: Project, binary: Binary): {Staged}
     if s then
       out[#out + 1] = s
     end
+  end
+  -- The root's payload reaches every binary; a cmd unit's is its own.
+  generated_payload(proj.root, "", out)
+  if binary.dir ~= "" then
+    generated_payload(proj.root, binary.dir, out)
   end
   table.sort(out, function(a: Staged, b: Staged): boolean
       return a.stored < b.stored
