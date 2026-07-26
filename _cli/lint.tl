@@ -243,6 +243,105 @@ local function check_call_after_define(file: string, content: string,
   return diagnostics
 end
 
+--- Calls of `find` whose needle is a VARIABLE and which never say
+--- whether they meant a pattern.
+---
+--- `s:find(x)` treats x as a Lua pattern, so a `-`, `.`, `(` or `%` in
+--- it silently changes what matches. When x is a path, a name, or a
+--- filter the author almost always meant a substring, and the failure is
+--- invisible: the assertion still runs, it just compares the wrong
+--- thing. A test that plants a file under `/tmp/a-b/` and greps for it
+--- passes everywhere except where the path has a dash.
+---
+--- Literal needles are exempt — `s:find("%d+")` is a pattern on purpose
+--- and reads as one. The rule is only for needles the reader cannot see.
+--- @param content string The file's bytes
+--- @param file string Path, for the lexer's error messages
+--- @return {integer} 1-based line numbers, each at most once
+local function unguarded_find_lines(content: string, file: string): {integer}
+  local tokens = tl.lex(content, file)
+  if not tokens then
+    return {}
+  end
+  local seen: {integer: boolean} = {}
+  local out: {integer} = {}
+  for i, t in ipairs(tokens) do
+    local prev = i > 1 and tokens[i - 1] or nil
+    local open = tokens[i + 1]
+    -- Method form takes the subject as the receiver, so its needle is
+    -- first and plain is third; `string.find(s, needle, init, plain)`
+    -- passes the subject too, shifting both by one. A `.` on anything
+    -- but `string` is some other function that happens to be named
+    -- find, and is none of this rule's business.
+    local needle_at = 0
+    local plain_at = 0
+    if t.tk == "find" and open and open.tk == "(" and prev then
+      if prev.tk == ":" then
+        needle_at = 1
+        plain_at = 3
+      elseif prev.tk == "." and i > 2 and tokens[i - 2].tk == "string" then
+        needle_at = 2
+        plain_at = 4
+      end
+    end
+    if plain_at > 0 and not seen[t.y] then
+      local depth = 1
+      local argno = 1
+      local literal_needle = true
+      local empty = true
+      local j = i + 2
+      while j <= #tokens and depth > 0 do
+        local tk = tokens[j].tk
+        local separator = tk == "," and depth == 1
+        if tk == "(" or tk == "[" or tk == "{" then
+          depth = depth + 1
+        elseif tk == ")" or tk == "]" or tk == "}" then
+          depth = depth - 1
+        elseif separator then
+          argno = argno + 1
+        end
+        -- The separator belongs to no argument: counting it as one made
+        -- every `string.find(s, "literal")` look non-literal, because
+        -- the comma before the needle is not a string token.
+        if depth > 0 and not separator then
+          empty = false
+          if argno == needle_at and tokens[j].kind ~= "string" and tk ~= ".." then
+            literal_needle = false
+          end
+        end
+        j = j + 1
+      end
+      if not empty and not literal_needle and argno < plain_at then
+        seen[t.y] = true
+        out[#out + 1] = t.y
+      end
+    end
+  end
+  return out
+end
+
+--- Report each `find` that leaves pattern-vs-substring unsaid.
+--- @param file string Path, for the diagnostic
+--- @param content string The file's bytes
+--- @return {Diagnostic} One per unguarded call
+local function check_find_needle(file: string, content: string): {Diagnostic}
+  local diagnostics: {Diagnostic} = {}
+  for _, y in ipairs(unguarded_find_lines(content, file)) do
+    diagnostics[#diagnostics + 1] = {
+      file = file,
+      line = y,
+      col = 1,
+      rule = "find-needle",
+      message = string.format(
+        "%s:%d: `find` with a non-literal needle is a PATTERN, so a `-`,"
+        .. " `.` or `%%` in it silently changes the match: pass `, 1, true`"
+        .. " for a substring, or `, 1, false` to mean the pattern",
+        file, y),
+    }
+  end
+  return diagnostics
+end
+
 --- Every style check, for one file.
 ---
 --- `.d.tl` declarations are exempt: they describe C binding interfaces
@@ -295,6 +394,9 @@ local function lint_file(path: string): {Diagnostic} | nil, string
     for _, d in ipairs(check_call_after_define(path, content, lines)) do
       diagnostics[#diagnostics + 1] = d
     end
+    for _, d in ipairs(check_find_needle(path, content)) do
+      diagnostics[#diagnostics + 1] = d
+    end
   end
   return diagnostics
 end
@@ -303,6 +405,7 @@ local record LintModule
   check_cast_justification: function(file: string, content: string, lines: {string}): {Diagnostic}
   check_cosmo_require: function(file: string, lines: {string}): {Diagnostic}
   check_call_after_define: function(file: string, content: string, lines: {string}): {Diagnostic}
+  check_find_needle: function(file: string, content: string): {Diagnostic}
   lint_file: function(path: string): {Diagnostic} | nil, string
 end
 
@@ -310,6 +413,7 @@ local M: LintModule = {
   check_cast_justification = check_cast_justification,
   check_cosmo_require = check_cosmo_require,
   check_call_after_define = check_call_after_define,
+  check_find_needle = check_find_needle,
   lint_file = lint_file,
 }
 

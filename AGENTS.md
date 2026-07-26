@@ -224,6 +224,17 @@ won't fit it. Write the actual reason (`from any`, `userdata boundary`,
 `tuple element`, `mixed-representation Stat`, ...) — a cast you cannot
 justify is one to remove, via `is`, `check.must`, or a precise type.
 
+**`find` says whether it means a pattern.** `s:find(x)` treats x as a Lua
+pattern, so a `-`, `.`, `(` or `%` in it silently changes what matches —
+and the failure is invisible, because the call still returns, just about
+the wrong thing. A test that writes under `/tmp/a-b/` and greps for that
+path passes everywhere except where the path has a dash. When the needle
+is not a string literal the linter (`find-needle`) asks which you meant:
+`, 1, true` for a substring, `, 1, false` for a real pattern. Literals
+are exempt — `s:find("%d+")` reads as a pattern already. There is no
+`plain` flag on `match`/`gmatch`/`gsub`, so a variable needle there is a
+pattern by construction; escape it if it isn't one.
+
 rules:
 - never throw from library code
 - never silently discard errors

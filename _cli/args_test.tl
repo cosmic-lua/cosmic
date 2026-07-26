@@ -46,7 +46,7 @@ end
   local ok, out = __r2.ok, __r2.stdout
   assert(ok, "cosmic should succeed")
   assert(out:find("arg_count=2"), "should have 2 args")
-  assert(out:find("arg%[0%]=" .. script:gsub("[%-%.]", "%%%1")), "arg[0] should be script path")
+  assert(out:find("arg[0]=" .. script, 1, true), "arg[0] should be script path")
   assert(out:find("arg%[1%]=alpha"), "arg[1] should be alpha")
   assert(out:find("arg%[2%]=beta"), "arg[2] should be beta")
 end
@@ -403,13 +403,13 @@ local function test_help_includes_all_options()
   -- Check that every short option appears in help text
   for _, opt in ipairs(short_options) do
     local pattern = opt:gsub("%-", "%%-")
-    assert(help_text:find(pattern), "help text missing short option: " .. opt)
+    assert(help_text:find(pattern, 1, false), "help text missing short option: " .. opt)
   end
 
   -- Check that every long option appears in help text
   for _, opt in ipairs(long_options) do
     local pattern = opt:gsub("%-", "%%-")
-    assert(help_text:find(pattern), "help text missing long option: " .. opt)
+    assert(help_text:find(pattern, 1, false), "help text missing long option: " .. opt)
   end
 end
 test_help_includes_all_options()

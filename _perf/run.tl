@@ -178,7 +178,7 @@ local function run_benches(a: Args): integer
       failed = true
     else
       for _, s in ipairs(scenarios) do
-        if a.only == nil or s.name:find(a.only) then
+        if a.only == nil or s.name:find(a.only, 1, true) then
           local m = harness.run_scenario(s, opts)
           print(harness.format_line(m))
           table.insert(all, m)

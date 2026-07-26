@@ -138,7 +138,7 @@ test_probe_passes_against_staged_tl()
 local function test_probe_covers_every_shim_member()
   local shim = check.must(fs.read("_types/tl.d.tl"))
   for name in shim:gmatch("\n  ([%w_]+): function") do
-    assert(PROBE:find("tl%." .. name .. "%f[^%w_]"),
+    assert(PROBE:find("tl%." .. name .. "%f[^%w_]", 1, false),
       "shim member 'tl." .. name .. "' is not exercised by the probe")
   end
 end

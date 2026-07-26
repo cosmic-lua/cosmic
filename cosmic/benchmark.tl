@@ -290,7 +290,7 @@ local function run(file_path: string, filter?: string): RunResult
   local benchmarks: {Benchmark} = {}
   if filter then
     for _, benchmark in ipairs(all_benchmarks) do
-      if benchmark.name:find(filter) then
+      if benchmark.name:find(filter, 1, true) then
         table.insert(benchmarks, benchmark)
       end
     end

@@ -23,7 +23,7 @@ local function test_generate_contains_all_longopts()
 
   for _, opt in ipairs(cli_args.longopts) do
     local pattern = "%-%-" .. opt.name:gsub("%-", "%%-")
-    assert(result:find(pattern), "help text missing long option: --" .. opt.name)
+    assert(result:find(pattern, 1, false), "help text missing long option: --" .. opt.name)
   end
 end
 test_generate_contains_all_longopts()
@@ -36,7 +36,7 @@ local function test_generate_contains_all_shortopts()
   -- parse shortopts string, skipping ':' modifiers
   for c in cli_args.shortopts:gmatch("[^:]") do
     local pattern = "%-" .. c
-    assert(result:find(pattern), "help text missing short option: -" .. c)
+    assert(result:find(pattern, 1, false), "help text missing short option: -" .. c)
   end
 end
 test_generate_contains_all_shortopts()
@@ -51,7 +51,7 @@ local function test_generate_contains_env_vars()
   }
 
   for _, var in ipairs(env_vars) do
-    assert(result:find(var), "help text missing environment variable: " .. var)
+    assert(result:find(var, 1, true), "help text missing environment variable: " .. var)
   end
 end
 test_generate_contains_env_vars()

@@ -228,6 +228,36 @@ local function test_call_after_define_is_scoped_to_tests()
 end
 test_call_after_define_is_scoped_to_tests()
 
+-- `find` with a variable needle is a pattern, and the bug it causes is
+-- silent: a path with a `-` in it stops matching itself. The rule asks
+-- the author to say which they meant, and exempts literals, which read
+-- as patterns already.
+local function test_find_needle_wants_the_intent_stated()
+  local bare = 'local x = s:find(needle)\n'
+  assert(#lint.check_find_needle("m.tl", bare) == 1, "a bare needle is flagged")
+
+  for _, guarded in ipairs({
+      'local x = s:find(needle, 1, true)\n',
+      'local x = s:find(needle, 1, false)\n',
+      'local x = s:find("lit%d+")\n',
+      'local x = s:find("a" .. "b")\n',
+      'local x = string.find(s, "literal")\n',
+    }) do
+    assert(#lint.check_find_needle("m.tl", guarded) == 0,
+      "should pass: " .. guarded)
+  end
+
+  -- string.find passes the subject too, so its needle is the SECOND
+  -- argument; counting from the first flags every literal call.
+  assert(#lint.check_find_needle("m.tl", 'local x = string.find(s, n)\n') == 1,
+    "the dot form is checked at its own needle position")
+
+  -- Some other table's `find` is a different function entirely.
+  assert(#lint.check_find_needle("m.tl", 'local x = list.find(t, v)\n') == 0,
+    "only string.find is string.find")
+end
+test_find_needle_wants_the_intent_stated()
+
 print("all lint tests passed")
 
 -- `--check <kind>` refuses an unknown kind by naming the ones it has,
