@@ -6,10 +6,10 @@
 -- and a non-root builder (because tests skip differently as root). Both
 -- pins are per-JOB — container config is job-level in GitHub Actions,
 -- there is no anchor and no shared block — so the pin is written once
--- per lane and copies drift. Six copies of a digest achieve the
--- opposite of a visible, reviewable edit: a bump that misses one site
--- leaves lanes running DIFFERENT environments, silently, which is the
--- leak the pin exists to prevent.
+-- per lane and copies drift. Copies of a digest achieve the opposite of
+-- a visible, reviewable edit: a bump that misses one site leaves lanes
+-- running DIFFERENT environments, silently, which is the leak the pin
+-- exists to prevent.
 --
 -- So the copies stay and a test makes them agree.
 
@@ -141,7 +141,10 @@ local function test_every_build_job_is_containerised()
       end
     end
   end
-  assert(jobs >= 6, "expected the workflow jobs to be found, saw " .. jobs)
+  -- Not a job-count ratchet — lanes merge and split deliberately. This
+  -- catches the scanner finding nothing, which would make the loop above
+  -- vacuously green.
+  assert(jobs >= 4, "expected the workflow jobs to be found, saw " .. jobs)
 end
 test_every_build_job_is_containerised()
 

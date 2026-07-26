@@ -18,12 +18,12 @@ jobs:
   # The release build runs in the same digest-pinned container as the CI
   # lanes (#734, see pr.yml for the full rationale): the shipped binaries
   # are built by the same make machinery the gate checks, and the
-  # reproducible lane only proves determinism WITHIN one environment —
+  # reproducible step only proves determinism WITHIN one environment —
   # pinning here keeps the artifact's build environment a deliberate,
-  # reviewable input. The container-compat of every target below (teal,
-  # test, build) is proven by pr.yml's lanes in the identical image. The
-  # `release` job stays on the bare runner: it runs no build machinery,
-  # only artifact download + `gh release create` (gh is not in the image).
+  # reviewable input. The container-compat of the build is proven by
+  # pr.yml's lanes in the identical image. The `release` job stays on the
+  # bare runner: it runs no build machinery, only artifact download +
+  # `gh release create` (gh is not in the image).
   build:
     runs-on: ubuntu-latest
     container:
@@ -40,11 +40,20 @@ jobs:
           chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
           git config --system --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: make teal test build
+      # Just the two artifacts, named. This lane used to run
+      # `teal test build`, which re-ran a gate pr.yml had already run over
+      # the same commit — every main commit arrives by push, and push
+      # triggers the gate — and which built `o/bin/cosmic-debug` only as a
+      # SIDE EFFECT of the test stage (cosmic_debug_test runs it). An
+      # upload that depends on a gate stage's side effect breaks silently
+      # the day that test moves; naming both binaries says what a release
+      # is made of.
+      - name: build the release binaries
         shell: bash
         run: |
           set -eux
-          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bin/make -j teal test build
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            bin/make -j cosmic cosmic-debug
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:

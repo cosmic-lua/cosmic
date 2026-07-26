@@ -13,8 +13,8 @@ the primary artifact is `cosmic-lua` — a single executable containing:
 
 the project's mission, ranked promises, and measurable goals live in
 [docs/goals.md](docs/goals.md); the tradeoffs behind them are recorded
-ADR-style in [docs/decisions.md](docs/decisions.md). consult both before
-proposing directional changes — settled decisions are amended there, not
+ADR-style in [docs/decisions/](docs/decisions/), one file per record.
+consult both before proposing directional changes — settled decisions are amended there, not
 relitigated in passing.
 
 ## Repository Layout
@@ -70,7 +70,7 @@ a module under `cosmic/` may not be required from outside `cosmic/`
 unless it is public, and the strip floor is `cosmic/**`, so anything a
 STRIPPED artifact must still boot with has to live there. `cosmic
 --make build` at the root produces `o/bin/cosmic` today; what it does
-not yet carry is in [docs/design/make-plan.md](docs/design/make-plan.md).
+not yet carry is in [docs/design/make/](docs/design/make/).
 
 ## Language and Conventions
 
@@ -455,6 +455,13 @@ work, whilp/cosmopolitan for the C layer); find work with
 
 ## CI
 
-- **pr.yml**: runs `make ci` (format + teal + model + test + example + lint + coverage ratchet) on push/PR to main, plus macOS/Windows smoke jobs that run the built binary (`-e`, `--docs`, portable test files) on real runners
+- **pr.yml**: three lanes on push/PR to main. `ci` runs the whole gate
+  (format + teal + model + test + example + lint + coverage ratchet)
+  inside a loopback-only network namespace, so a stray download fails
+  loudly. `build` does everything that needs a built binary, a real
+  network, or a real kernel: double-build reproducibility, `--make fetch`
+  against the real pins, and the sandbox-enforcement lane. `smoke` runs
+  the built binary on real macOS/Windows runners (`-e`, `--docs`,
+  portable test files)
 - **docs.yml**: publishes generated docs to `docs` branch on push to main
 - **release.yml**: daily release build producing `cosmic-lua` and `cosmic-lua-debug`

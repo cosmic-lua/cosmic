@@ -8,6 +8,13 @@ on:
 env:
   SOURCE_SHA: ${{ github.sha }}
 
+# Two pushes to main in quick succession would otherwise race on the
+# `docs` branch and one publish would be rejected. Queue instead of
+# cancel: every commit's docs get published, in order.
+concurrency:
+  group: docs-publish
+  cancel-in-progress: false
+
 jobs:
   # Same container block and non-root builder as every Linux lane in
   # pr.yml. This job runs real build machinery — `bin/make doc-publish`
