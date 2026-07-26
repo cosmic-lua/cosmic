@@ -33,6 +33,16 @@ scenario, and a suggested fix. ids are stable; resolved entries are deleted
 | [036](036-literal-unloadable-stripped.md) | `cosmic.literal` fails to load in every stripped artifact |
 | [037](037-searcher-stripped-error-shape.md) | the searcher turns every require miss into a `tl` error when stripped |
 
+### design / durability
+
+| id | severity | issue |
+|---|---|---|
+| [040](040-artifact-file-near-cap.md) | medium | `_make/artifact.tl` at 464/500 lines; split on its seams before the cap forces one |
+| [041](041-verb-registry-fragmented.md) | medium | adding a verb touches five structures plus two if-chains; phase 4 adds seven verbs |
+| [042](042-unpack-manifest-implicit-format.md) | low | `.unpacked` manifest is a line format over names nothing validates |
+| [043](043-root-sentinel-strings.md) | low | `""` as the root-unit sentinel recurs unnamed across artifact.tl |
+| [044](044-cast-clusters-mark-loose-types.md) | low | cast clusters mark types looser than the code they describe |
+
 ### tests and ci
 
 | id | issue |
