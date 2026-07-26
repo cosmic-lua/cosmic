@@ -22,14 +22,22 @@ local record VersionSpec
   platforms: {string: PlatformSpec}
 end
 
---- URL and pinned sha256 resolved from a version.lua spec.
+--- URL and pinned sha256 resolved from a `*.pin.tl` spec.
 local record Pin
   url: string
   sha: string
 end
 
---- Load a 3p version.lua pin file.
---- @param path string Path to the version.lua file
+--- Load a 3p `*.pin.tl`.
+---
+--- The one place left that `dofile`s a pin, and it cannot be otherwise
+--- yet: this runs at BOOTSTRAP time, before the tree is compiled and
+--- with `LUA_PATH=";;"` pinning its requires to the freshly-fetched
+--- bootstrap's embedded stdlib — which is a released binary, and
+--- `cosmic.literal` is newer than any release. It converts when the
+--- bootstrap pin next moves. Everything downstream of here (fetch,
+--- stage, the version stamp) reads its pins instead of running them.
+--- @param path string Path to the `*.pin.tl`
 --- @return VersionSpec | nil The parsed spec, or nil on error
 --- @return string? Error message if loading failed
 local function load_spec(path: string): VersionSpec | nil, string
@@ -44,7 +52,7 @@ end
 --- Resolve the archive URL and pinned sha from a version spec. Only the
 --- "*" platform is supported: cosmos.zip is a fat archive, so its pin is
 --- platform-independent.
---- @param spec VersionSpec The parsed version.lua spec
+--- @param spec VersionSpec The parsed pin spec
 --- @return Pin | nil The resolved url + sha, or nil on error
 --- @return string? Error message if the spec is incomplete
 local function resolve_pin(spec: VersionSpec): Pin | nil, string
@@ -126,7 +134,7 @@ local function write_executable(path: string, data: string): boolean, string
   return true
 end
 
---- Fetch the pinned archive named by a version.lua, verify its sha256,
+--- Fetch the pinned archive named by a `*.pin.tl`, verify its sha256,
 --- and install one member of it as an executable.
 --- @param version_file string Path to the version.lua pin
 --- @param member string Zip member to extract (e.g. "make")

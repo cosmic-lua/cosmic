@@ -413,3 +413,25 @@ What it settled:
   sentence was written in 2d about pins. It describes something any
   project wants, and this repo turned out to be the first consumer
   outside the verb that coined it.
+
+**And the gate that missed it.** The pin rename broke `bin/make` and
+`_build/make-boot.tl`, which name the cosmos pin to bootstrap the build
+— and every local gate passed anyway. `bin/make clean` removes `o/`,
+but the extracted engine lives at `bin/cosmo-make`, *outside* it, so
+the guard `[ ! -f "${MAKE_BIN}" ] || [ <pin> -nt "${MAKE_BIN}" ]` took
+neither branch: the file existed, and the `-nt` test against a path
+that no longer exists is false. The bootstrap path was simply never
+entered. CI has no `bin/cosmo-make`, took the branch, and `dofile`d a
+file that was not there — in all five jobs.
+
+So "clean" was not clean. The real cold-start gate is
+`rm -rf o bin/cosmo-make`, and it is what should have run before a
+commit that renames a file the trust root names by path. Worth knowing
+generally: a stale artifact outside `o/` makes a missing-file bug look
+like a working build.
+
+That leaves exactly one `dofile` of a pin, in `make-boot.tl`, and it
+cannot go yet: it runs before the tree is compiled, with `LUA_PATH=";;"`
+pinning its requires to the freshly-fetched bootstrap's embedded
+stdlib — a released binary, and `cosmic.literal` is newer than any
+release. It converts when the bootstrap pin next moves.

@@ -6,7 +6,7 @@ set -e
 # POSIX sh + curl + sha256sum + sed/od it obtains ONE pinned artifact —
 # the bootstrap cosmic (url + sha in cook.mk) — and everything after runs
 # under that pin: the bootstrap extracts `make` from the sha-pinned
-# cosmos.zip (pin in 3p/cosmos/version.lua) via _build/make-boot.tl,
+# cosmos.zip (pin in 3p/cosmos/cosmos.pin.tl) via _build/make-boot.tl,
 # so no separate landlock-make release asset and no host unzip exist in
 # the chain. The Makefile's $(bootstrap_cosmic) rule only errors — it
 # never downloads. Trust root: kernel -> this script -> two pinned
@@ -97,17 +97,17 @@ ensure_bootstrap() {
 # and bootstrap pin bumps (the stamp mismatch re-downloads).
 ensure_bootstrap
 
-# Re-extract when the cosmos pin moved (-nt: version.lua newer than the
+# Re-extract when the cosmos pin moved (-nt: the pin newer than the
 # extracted make), not only when the binary is missing — a pin bump must
 # refresh local trees' make, or they keep running the previous release's.
-if [ ! -f "${MAKE_BIN}" ] || [ "${ROOT}/3p/cosmos/version.lua" -nt "${MAKE_BIN}" ]; then
+if [ ! -f "${MAKE_BIN}" ] || [ "${ROOT}/3p/cosmos/cosmos.pin.tl" -nt "${MAKE_BIN}" ]; then
     # SSL_USE_SYSTEM_CERTS: the bootstrap's embedded CAs are too narrow
     # for github.com (same knob as the Makefile's fetch rule); the sha
     # pin is the trust root, TLS is transport. LUA_PATH=";;" pins
     # make-boot's requires to the bootstrap's embedded stdlib.
     SSL_USE_SYSTEM_CERTS=1 LUA_PATH=";;" "${BOOTSTRAP}" \
         "${ROOT}/_build/make-boot.tl" \
-        "${ROOT}/3p/cosmos/version.lua" make "${MAKE_BIN}"
+        "${ROOT}/3p/cosmos/cosmos.pin.tl" make "${MAKE_BIN}"
 fi
 
 # Execute make with all arguments
