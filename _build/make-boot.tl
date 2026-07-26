@@ -28,23 +28,27 @@ local record Pin
   sha: string
 end
 
---- Load a 3p `*.pin.tl`.
+--- Read a 3p `*.pin.tl`.
 ---
---- The one place left that `dofile`s a pin, and it cannot be otherwise
---- yet: this runs at BOOTSTRAP time, before the tree is compiled and
---- with `LUA_PATH=";;"` pinning its requires to the freshly-fetched
---- bootstrap's embedded stdlib — which is a released binary, and
---- `cosmic.literal` is newer than any release. It converts when the
---- bootstrap pin next moves. Everything downstream of here (fetch,
---- stage, the version stamp) reads its pins instead of running them.
+--- This runs at BOOTSTRAP time — before the tree is compiled, with
+--- `LUA_PATH=";;"` pinning its requires to the freshly-fetched
+--- bootstrap's own embedded stdlib. So it can only use what that
+--- RELEASE already carries, which is why it was the last `dofile` of a
+--- pin standing: `cosmic.literal` was newer than any release until the
+--- bootstrap moved to one cut from this branch.
+---
+--- Now nothing in the build executes a pin. The trust root reads the
+--- file that names what to download, the same way fetch, stage and the
+--- version stamp do, and by the same grammar.
 --- @param path string Path to the `*.pin.tl`
 --- @return VersionSpec | nil The parsed spec, or nil on error
---- @return string? Error message if loading failed
+--- @return string? Error message if reading failed
 local function load_spec(path: string): VersionSpec | nil, string
-  -- cast: pcall returns any
-  local ok, spec = pcall(dofile, path) as(boolean, VersionSpec)
-  if not ok then
-    return nil, "failed to load " .. path .. ": " .. tostring(spec)
+  local literal = require("cosmic.literal")
+  -- cast: the reader returns a plain table; the spec shape is this file's
+  local spec, err = literal.of_file(path, "pin") as(VersionSpec, string)
+  if not spec then
+    return nil, "failed to read " .. path .. ": " .. tostring(err)
   end
   return spec
 end

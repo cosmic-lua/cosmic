@@ -430,8 +430,23 @@ commit that renames a file the trust root names by path. Worth knowing
 generally: a stale artifact outside `o/` makes a missing-file bug look
 like a working build.
 
-That leaves exactly one `dofile` of a pin, in `make-boot.tl`, and it
-cannot go yet: it runs before the tree is compiled, with `LUA_PATH=";;"`
-pinning its requires to the freshly-fetched bootstrap's embedded
-stdlib — a released binary, and `cosmic.literal` is newer than any
-release. It converts when the bootstrap pin next moves.
+That left exactly one `dofile` of a pin, in `make-boot.tl`, which could
+not go while `cosmic.literal` was newer than any release: it runs
+before the tree is compiled, with `LUA_PATH=";;"` pinning its requires
+to the freshly-fetched bootstrap's own embedded stdlib. **A release cut
+from this branch closed it.** The bootstrap pin moved to
+`2026-07-26-5de5474`, that stdlib gained the reader, and the trust root
+now reads the file that names what to download instead of running it:
+
+```
+$ rm -rf o bin/cosmo-make && bin/make build   # after adding os.getenv() to the pin
+Downloading bootstrap cosmic...
+error: failed to read 3p/cosmos/cosmos.pin.tl:
+  3p/cosmos/cosmos.pin.tl:6: a pin holds literals only; found 'os'
+```
+
+Nothing in the build executes a pin now — not the trust root, not
+fetch, not stage, not the version stamp. Worth noting what made the
+bump safe rather than a repeat of phase 1's: it was verified from
+nothing (`rm -rf o bin/cosmo-make`), which is the gate the 3g follow-up
+had just learned to run.
