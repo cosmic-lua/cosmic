@@ -182,8 +182,13 @@ local function test_fetch_verifies_and_writes()
   local code = run(root, "fetch")
   proc.wait(pid)
   assert(code == 0, "a matching digest should succeed")
-  local got = check.must(fs.read(fs.join(root, "3p/blob.bin")))
-  assert(got == body, "the fetched bytes should land at the pin's output")
+  -- Under the build directory, mirroring the pin's position: a fetched
+  -- archive is generated content, and beside its pin it would be a file
+  -- `check` sees, `lint` scans, and a clean checkout does not have.
+  local got = check.must(fs.read(fs.join(root, "o/3p/blob.bin")))
+  assert(got == body, "the fetched bytes should land under o/")
+  assert(not fs.exists(fs.join(root, "3p/blob.bin")),
+    "and never beside the pin, in the tree")
 end
 test_fetch_verifies_and_writes()
 
@@ -209,7 +214,8 @@ local function test_a_satisfied_pin_does_not_fetch()
   local body = "already here\n"
   local root = pinned("satisfied", "http://127.0.0.1:1/blob.bin",
     hash.sha256_hex(body))
-  assert(fs.write(fs.join(root, "3p/blob.bin"), body))
+  assert(fs.makedirs(fs.join(root, "o/3p")))
+  assert(fs.write(fs.join(root, "o/3p/blob.bin"), body))
   local code = run(root, "fetch")
   assert(code == 0,
     "a pin whose output already hashes correctly must not need the network")

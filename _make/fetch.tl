@@ -20,13 +20,26 @@ local type File = types.File
 local type Pin = pin.Pin
 local type Project = types.Project
 
+--- Where a pin's bytes land: under the build directory, mirroring the
+--- pin's position in the tree.
+---
+--- A fetched archive is generated content, and nothing generated
+--- belongs in the tree — beside its pin it would be a file `check`
+--- sees, `lint` scans, and a clean checkout does not have. The pin
+--- names the asset; the build says where it goes.
+--- @param p Pin The resolved pin
+--- @return string The output path, relative to the project root
+local function landing(p: Pin): string
+  return fs.join(project.BUILD_DIR, p.output)
+end
+
 --- Is this pin already satisfied? A pin is content-addressed, so the
 --- question is about bytes, never about mtimes: an output that hashes
 --- correctly is the output, whenever it was written.
 --- @param p Pin The resolved pin
 --- @return boolean True when the output is present and verified
 local function satisfied(p: Pin): boolean
-  local have = fs.read(p.output)
+  local have = fs.read(landing(p))
   if not have then
     return false
   end
@@ -40,9 +53,10 @@ local function one(p: Pin): boolean, string
   if satisfied(p) then
     return true
   end
-  local ok, merr = fs.makedirs(fs.dirname(p.output))
+  local out = landing(p)
+  local ok, merr = fs.makedirs(fs.dirname(out))
   if not ok then
-    return false, "make: cannot create " .. fs.dirname(p.output) .. ": " ..
+    return false, "make: cannot create " .. fs.dirname(out) .. ": " ..
     (merr or "unknown error")
   end
   io.write("fetch " .. p.url .. "\n")
@@ -65,9 +79,9 @@ local function one(p: Pin): boolean, string
     return false, "make: " .. p.source .. ": sha256 mismatch for " .. p.url ..
     "\n  want " .. p.sha256 .. "\n  got  " .. got
   end
-  local wok, werr = fs.write(p.output, result.body)
+  local wok, werr = fs.write(out, result.body)
   if not wok then
-    return false, "make: cannot write " .. p.output .. ": " ..
+    return false, "make: cannot write " .. out .. ": " ..
     (werr or "unknown error")
   end
   return true

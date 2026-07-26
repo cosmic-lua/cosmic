@@ -27,7 +27,9 @@ local literal = require("cosmic.literal")
 local record Pin
   --- Path to the `*.pin.tl`, relative to the project root.
   source: string
-  --- Where the fetched bytes land, relative to the project root.
+  --- The asset's name and position, relative to the project root.
+  --- Where the bytes actually LAND is the build's business, not the
+  --- pin's: `fetch` puts them under the build directory.
   output: string
   --- The URL to fetch, after `{version}` substitution.
   url: string
