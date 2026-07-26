@@ -240,7 +240,7 @@ What it settled, and one thing it did not:
   future base cannot silently start shipping a new directory. What is
   missing is compaction, which needs a zip rewrite the binding does not
   expose — an upstream whilp/cosmopolitan change, and exactly the kind
-  of thing the fork exists for. Until then the size table in ../remaining.md is
+  of thing the fork exists for. Until then the size table in ../payload.md is
   a projection, not a measurement.
 - **removing a directory marker removes its subtree.**
   `Appender:remove` treats a trailing `/` as a prefix, so stripping the
@@ -324,7 +324,7 @@ for it, and 2c found it does not: the strip leaves dead space, so it
 recovers ~14 KB, not ~1.2 MB. So this is an uncompensated 10% and was
 accepted as one — deliberately, on the grounds that a build system which
 cannot build without a host toolchain is not a build system. The size
-table in ../remaining.md is a projection; the compaction that would make it true
+table in ../payload.md is a projection; the compaction that would make it true
 is filed upstream and is not a blocker.
 
 One thing worth knowing about the extracted engine: it is a fat APE, so

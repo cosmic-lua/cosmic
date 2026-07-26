@@ -489,5 +489,5 @@ produces no binary only because nothing declares an entry. The distance
 left to "one command produces cosmic" is therefore not the compiling; it
 is the payload a cosmic binary carries beyond its own modules (tl, the
 type tree, the docs index, the engine) and where each of those comes
-from. That list is now a table in ../remaining.md with the evidence for
-each row, rather than a phase name.
+from. That list is what ../payload.md answers, piece by piece with the
+evidence for each, rather than a phase name.

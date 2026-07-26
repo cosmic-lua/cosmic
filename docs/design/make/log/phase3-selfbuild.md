@@ -13,8 +13,8 @@ only grows.
 
 `cmd/cosmic/main.tl` is the binary's entry, and `cosmic/_cli/` and
 `cosmic/_make/` are now root `_cli/` and `_make/`. Both halves are gaps
-1 and 2 of ../remaining.md's table — the only two standing between `build:
-PASS (356 files)` and an `o/bin/cosmic`.
+the last two standing between `build: PASS (356 files)` and an
+`o/bin/cosmic`.
 
 What it settled:
 

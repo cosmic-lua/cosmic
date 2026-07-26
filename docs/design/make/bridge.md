@@ -49,7 +49,7 @@ causes, and every one of them is the harness the Makefile provides and
 
 | n | cause | what it means |
 |---|---|---|
-| 25 | `command not found: cosmic` (incl. `cosmic-debug`) | a test spawns the binary under test. `bin/make` puts it on the lane's `TEST_BIN`/`PATH`; `--make test` passes no such thing. **This is the single change that moves the number most** — the test verb needs a defined answer for "which binary is under test". |
+| ~~25~~ | ~~`command not found: cosmic` (incl. `cosmic-debug`)~~ | **closed** — a test spawns the binary under test, and the verb now has a defined answer for which one: `test` assembles the project's binaries and `stage.binaries_on_path` puts `o/bin` on the child `PATH`. It was the single change that moved the number most, as predicted. |
 | 4 | staged 3p trees (`TEST_DIR`, `o/tl/.staged`) | fixtures the Makefile's stage rules produce, not `fetch`'s landing layout |
 | 3 | Makefile-only fixtures (`database.out`, `dry-run.out`, reporter PASS) | these tests test the MAKEFILE; they retire with it |
 | 2 | `exec failed: EACCES` | the exec fence's resolution differs from the Makefile lane's |
@@ -60,6 +60,15 @@ So the honest status is: the graph and the discovery are right, and the
 than "the suite does not pass", and it is a prerequisite for the dual
 gate rather than a blocker for the phase — the lane can start at
 `check` + `build` and add `test` when the environment is defined.
+
+The counts above are as of that run, and the tree has moved since: it
+is 174 targets now, and in a *developed* tree — one whose `o/` the
+Makefile has also populated — `cosmic --make test` runs all 174 green.
+That is a weaker claim than the one above, because the Makefile's stage
+rules have already produced the 3p fixtures that rows 2 and 3 are
+about. Re-running the clean-`git archive` measurement is what would
+retire this table, and it is worth doing once the remaining rows have
+owners rather than after each one.
 
 **A disposition table.** Every `##`-documented target gets a recorded
 fate *before* deletion — the inventory is the Makefile, `mk/*.mk`,

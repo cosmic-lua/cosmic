@@ -16,8 +16,12 @@ so no chapter has to fight the length cap:
 | [engine.md](engine.md) | constant rules and generated facts, cosmic as `SHELL`, staleness |
 | [testing.md](testing.md) | what a test may read and write |
 | [verbs.md](verbs.md) | the command surface, graph verbs and policy verbs |
-| [plan.md](plan.md) | delivery: provisioning, gates, phasing, open items |
-| [bridge.md](bridge.md) | phase 3i — removing the Makefile bridge |
+| [examples.md](examples.md) | what a project written to these conventions looks like |
+| [payload.md](payload.md) | what cosmic's own artifact carries, and what it weighs |
+| [plan.md](plan.md) | delivery: provisioning, gates, open items |
+| [phasing.md](phasing.md) | the order the work lands in, and why that order |
+| [bridge.md](bridge.md) | removing the Makefile bridge |
+| [bridge-parity.md](bridge-parity.md) | gap-by-gap: what `bin/make` still does that `--make` does not |
 | [log/](log/) | what each landed slice *taught*; the reasoning behind anything that looks arbitrary |
 
 ## What this replaced

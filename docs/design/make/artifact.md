@@ -54,7 +54,7 @@ that pins one, and the only shape in which repeated self-builds
 converge — `remove` drops zip entries without reclaiming their bytes,
 so stripping a cosmic to rebuild a cosmic leaves the old payload behind
 as dead space. Sizes and the per-generation growth measured before
-`base` existed are in [remaining.md](remaining.md).
+`base` existed are in [payload.md](payload.md).
 
 Risk: a `cosmo.*` binding lazily requiring a stripped `.lua/cosmo/**`
 helper. Gate: a **stripped-artifact test lane** running the stdlib's own

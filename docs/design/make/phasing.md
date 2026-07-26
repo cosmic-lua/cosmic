@@ -158,10 +158,11 @@ predicted and what actually happened — is in [log/](log/).
      behind the existing build, because the existing build is what
      goes, so it is written down before it is attempted. It also
      records the measurement that used to be an assumption:
-     `--make test` over this whole tree finds exactly the same 173
-     targets `bin/make test` does, and its 46 failures are the test
-     EXECUTION ENVIRONMENT (25 of them one missing thing — no binary
-     under test on the path), not the graph.
+     `--make test` over this whole tree finds exactly the same targets
+     `bin/make test` does, and its failures were the test EXECUTION
+     ENVIRONMENT — over half of them one missing thing, no binary under
+     test on the path — not the graph. That one is closed; the rest are
+     a table in [bridge.md](bridge.md).
 
      **Generators moved here from 3g; the pins did not.** The pins
      looked blocked for the same reason: converting them means
