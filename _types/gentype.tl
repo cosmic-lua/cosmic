@@ -3,7 +3,7 @@
 --- Parses LuaLS annotations and produces Teal-compatible type declarations.
 
 local cosmic = require("cosmic")
-local fs = require("cosmic.fs")
+local defs = require("_types.gentype_defs")
 local tl = require("tl")
 local gt = require("_types.gentype_types")
 local Param = gt.Param
@@ -34,14 +34,6 @@ local parse_annotations = parse.parse_annotations
 -- Modules to generate (in order). "cosmo" is the top-level cosmo record
 -- (kCosmoFuncs surface); the rest are require("cosmo.<name>") submodules.
 local MODULES = {"cosmo", "unix", "path", "getopt", "lsqlite3", "re", "argon2", "zip", "repl"}
-
--- Default definitions.lua source: the copy embedded in the running binary,
--- which is always the one the pinned cosmos release was built with. The
--- GENTYPE_DEFS env var overrides it for pre-release validation against a
--- cosmopolitan checkout.
-local function defs_path(): string
-  return os.getenv("GENTYPE_DEFS") or "/zip/.lua/definitions.lua"
-end
 
 --- Helper to process a class annotation block.
 local function process_class_block(anno_lines: {string}, module_name: string, classes: {ClassDecl})
@@ -422,9 +414,9 @@ end
 
 --- Run the generator for a specific module or all modules.
 local function run(module_name: string): Result
-  local source = fs.read(defs_path())
+  local source, derr = defs.read()
   if not source then
-    return {success = false, error = "Failed to read " .. defs_path()}
+    return {success = false, error = derr}
   end
 
   if module_name then

@@ -55,7 +55,8 @@ _perf/perf_types.tl 2 2
 _perf/run.tl 93 182
 _perf/stats.tl 67 67
 _types/gentl.tl 131 155
-_types/gentype.tl 277 319
+_types/gentype.tl 275 317
+_types/gentype_defs.tl 19 26
 _types/gentype_extract.tl 54 54
 _types/gentype_parse.tl 267 288
 _types/gentype_render.tl 309 312

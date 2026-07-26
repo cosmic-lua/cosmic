@@ -146,7 +146,7 @@ print("arg2=" .. (arg[2] or "nil"))
   local __r8 = check.must(h8:wait())
   local ok, out = __r8.ok, __r8.stdout
   assert(ok, "cosmic should execute .tl file with args")
-  assert(out:find("arg0=" .. script), "arg[0] should be script path")
+  assert(out:find("arg0=" .. script, 1, true), "arg[0] should be script path")
   assert(out:find("arg1=first"), "arg[1] should be first argument")
   assert(out:find("arg2=second"), "arg[2] should be second argument")
 end
@@ -163,7 +163,7 @@ print("arg1=" .. (arg[1] or "nil"))
   local __r9 = check.must(h9:wait())
   local ok, out = __r9.ok, __r9.stdout
   assert(ok, "cosmic should execute .lua file with args")
-  assert(out:find("arg0=" .. script), "arg[0] should be script path")
+  assert(out:find("arg0=" .. script, 1, true), "arg[0] should be script path")
   assert(out:find("arg1=test"), "arg[1] should be argument")
 end
 test_lua_script_args()

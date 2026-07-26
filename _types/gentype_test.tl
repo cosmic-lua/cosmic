@@ -3,19 +3,22 @@
 ---
 --- The drift tests compare generator output byte-for-byte against the
 --- committed .d.tl files, so any change to the generator or to the pinned
---- cosmos definitions.lua fails here until `bin/make regen-types` is run and
---- the regenerated files are committed. GENTYPE_DEFS overrides the
---- definitions.lua source (default: the copy embedded in this binary) for
---- validating against a cosmopolitan checkout before a release is cut.
+--- cosmos definitions.lua fails here until `regen-types` is run and the
+--- regenerated files are committed. GENTYPE_DEFS overrides the source,
+--- for validating against a cosmopolitan checkout before a release.
 
+local check = require("cosmic.check")
+local defs = require("_types.gentype_defs")
 local fs = require("cosmic.fs")
 local gentype = require("_types.gentype")
 local teal = require("cosmic.teal")
 
+--- The same annotations the generator itself reads, so the drift tests
+--- compare against the generator's real input rather than a second
+--- resolution of it that can disagree.
+--- @return string The definitions.lua source
 local function defs_source(): string
-  local path = os.getenv("GENTYPE_DEFS") or "/zip/.lua/definitions.lua"
-  local source = fs.read(path)
-  assert(source, "Failed to read definitions.lua from " .. path)
+  local source = check.must(defs.read())
   return source
 end
 

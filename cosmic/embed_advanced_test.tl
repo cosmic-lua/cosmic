@@ -19,14 +19,16 @@ local function test_extract()
   local ok, out = __r1.ok, __r1.stdout
   assert(ok, "extract should succeed: " .. (out or ""))
 
-  -- main.lua should be extracted
+  -- The entry and its argv, which every cosmic artifact carries.
   assert(fs.isfile(fs.join(extractdir, "main.lua")), "main.lua should be extracted")
-
-  -- .args should be extracted
   assert(fs.isfile(fs.join(extractdir, ".args")), ".args should be extracted")
 
-  -- bundled libraries should be extracted
-  assert(fs.isdir(fs.join(extractdir, ".lua")), ".lua directory should be extracted")
+  -- A directory, so extraction is shown to rebuild the tree and not
+  -- just the root. `cosmic/` is the artifact's own modules; the base's
+  -- `.lua/` is NOT the thing to assert here, because what a base
+  -- contributes is the strip floor's business and a cosmic built on a
+  -- bare runtime drops it.
+  assert(fs.isdir(fs.join(extractdir, "cosmic")), "cosmic/ should be extracted")
 end
 test_extract()
 
