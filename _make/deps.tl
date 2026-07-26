@@ -20,12 +20,24 @@ local types = require("_make.types")
 local type File = types.File
 local type Project = types.Project
 
---- Kinds that carry code a require can resolve to.
+--- Kinds a require can resolve to.
+---
+--- `types` is here because the type checker resolves `require("ffi")`
+--- to `ffi.d.tl` when one exists -- the sanctioned `.d.tl`-beside-`.lua`
+--- pattern the validator protects. Leaving it out meant a declaration's
+--- contract could change with no listed prerequisite's mtime moving, so
+--- importers were never re-checked: incremental build PASS, clean build
+--- FAIL, on the same tree. Reproduced before the fix.
+---
+--- A `.d.tl` is a SOURCE dependency only. It compiles to nothing, so
+--- `built_paths` skips it -- listing `o/ffi.lua` for a declaration that
+--- has no implementation would name a target nothing builds.
 local resolvable: {string: boolean} = {
   module = true,
   entry = true,
   test = true,
   example = true,
+  types = true,
 }
 
 --- Where a source lands once built: `.tl` compiles to `.lua` under the
@@ -41,13 +53,23 @@ local function built_path(rel: string, build_dir: string): string
 end
 
 --- Index the project by import path, so an edge can be resolved.
+---
+--- A LIST per name, not one file: `ffi.lua` and `ffi.d.tl` both claim
+--- `ffi`, and both are inputs -- the implementation is what runs, the
+--- declaration is what the checker reads. Keeping one would drop
+--- whichever the walk happened to see last.
 --- @param proj Project The scanned project
---- @return {string: File} Import path to the file defining it
-local function index(proj: Project): {string: File}
-  local by_import: {string: File} = {}
+--- @return {string: {File}} Import path to the files defining it
+local function index(proj: Project): {string: {File}}
+  local by_import: {string: {File}} = {}
   for _, f in ipairs(proj.files) do
     if resolvable[f.kind] and f.import then
-      by_import[f.import] = f
+      local at = by_import[f.import]
+      if not at then
+        at = {}
+        by_import[f.import] = at
+      end
+      at[#at + 1] = f
     end
   end
   return by_import
@@ -61,15 +83,17 @@ end
 --- @param file File The importer
 --- @param by_import {string: File} Index from index()
 --- @return {File} Direct project dependencies
-local function direct(root: string, file: File, by_import: {string: File}): {File}
+local function direct(root: string, file: File,
+    by_import: {string: {File}}): {File}
   local out: {File} = {}
   local seen: {string: boolean} = {}
   local path = root ~= "" and (root .. "/" .. file.path) or file.path
   for _, name in ipairs(validate.imports_of(path)) do
-    local dep = by_import[name]
-    if dep and dep.path ~= file.path and not seen[dep.path] then
-      seen[dep.path] = true
-      out[#out + 1] = dep
+    for _, dep in ipairs(by_import[name] or {}) do
+      if dep.path ~= file.path and not seen[dep.path] then
+        seen[dep.path] = true
+        out[#out + 1] = dep
+      end
     end
   end
   return out
@@ -85,7 +109,8 @@ end
 --- @param file File The file whose closure is wanted
 --- @param by_import {string: File} Index from index()
 --- @return {File} Dependencies, transitively
-local function closure(proj: Project, file: File, by_import: {string: File}): {File}
+local function closure(proj: Project, file: File,
+    by_import: {string: {File}}): {File}
   local seen: {string: boolean} = {[file.path] = true}
   local queue: {File} = {file}
   local out: {File} = {}
@@ -109,7 +134,11 @@ end
 local function built_paths(files: {File}): {string}
   local out: {string} = {}
   for _, f in ipairs(files) do
-    out[#out + 1] = built_path(f.path, project.BUILD_DIR)
+    -- A `.d.tl` builds to nothing: it is on the include path, never
+    -- compiled. It stays in the SOURCE closure, where it belongs.
+    if f.kind ~= "types" then
+      out[#out + 1] = built_path(f.path, project.BUILD_DIR)
+    end
   end
   table.sort(out)
   return out
@@ -133,11 +162,13 @@ end
 
 local record DepsModule
   built_path: function(rel: string, build_dir: string): string
-  index: function(proj: Project): {string: File}
-  direct: function(root: string, file: File, by_import: {string: File}): {File}
-  closure: function(proj: Project, file: File, by_import: {string: File}): {File}
-  built_paths: function(files: {File}): {string}
-  source_paths: function(files: {File}): {string}
+  index: function(proj: Project): {string: {File}}
+  direct: function(root: string, file: File,
+  by_import: {string: {File}}): {File}
+closure: function(proj: Project, file: File,
+by_import: {string: {File}}): {File}
+built_paths: function(files: {File}): {string}
+source_paths: function(files: {File}): {string}
 end
 
 local M: DepsModule = {

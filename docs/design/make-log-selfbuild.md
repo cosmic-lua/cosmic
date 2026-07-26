@@ -178,7 +178,7 @@ artifact, so ignoring `docs/` would also hide it from `check`, `lint`
 and the coverage scan. Whether "not shipped" and "not seen" should be
 the same knob is undecided, and is 3i's to settle.
 
-### Not fixed here, and named so it is not lost
+### Not fixed here, and named so it is not lost — since closed
 
 `cosmic.searcher` and `_cli/main_handlers.tl` run the same
 compile-with-cache loop over `cosmic.script_cache` — the searcher for a
@@ -188,3 +188,10 @@ the line, keeping line numbers, vs strip it), which is why they are two
 loops and not one. A `cosmic.teal.compile_cached` would hold the shared
 half, and it is the kind of change that belongs in its own commit
 rather than inside a slice that moves files.
+
+**Closed in 18c94c6.** `cosmic.teal.compile_cached` holds the shared
+half, both callers were converted, and the cache went back to being
+internal (`cosmic/_script_cache.tl`) — the public surface is
+`compile_cached`, not the cache. The later security fix to that cache
+(a per-user directory, refusing a shared one) landed in one place
+because of this, rather than two.

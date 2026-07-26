@@ -16,6 +16,15 @@
 --- cannot depend on `_build` at all. The stage pipeline keeps its own
 --- shim for the paths that still run under the pinned binary.
 ---
+--- FAILURE CONTRACT: extraction is not atomic. Entries are written as
+--- they are read, so a failure partway through leaves `destdir` holding
+--- everything up to the refused entry. Extract into a fresh directory
+--- you own and treat it as scratch on failure -- the pin pipeline does
+--- exactly that, unpacking into a staging directory it removes. Making
+--- this atomic would mean staging and moving a whole tree, which is a
+--- larger change than the guarantee is worth while every caller already
+--- stages.
+---
 --- Covers what pinned release tarballs actually contain — the ustar/pax layouts git archive and GNU tar emit:
 --- regular files, directories, symlinks, pax extended headers (path
 --- override), and GNU longnames. Anything else fails loudly. Modes are
@@ -223,7 +232,14 @@ local function extract(archive: string, destdir: string): boolean, string
       end
     end
   end
-  return true -- archive ended without zero blocks: accept, all entries written
+  -- Falling off the end without a terminator is a TRUNCATED archive,
+  -- and accepting it was a silent partial success: a truncation landing
+  -- on a 512-byte boundary after decompression leaves the loop with no
+  -- entry to complain about and every entry so far written. gzip
+  -- integrity and an upstream digest cover the accidental case, which
+  -- is why nothing has tripped it -- but a public extractor should not
+  -- report success over an archive it did not reach the end of.
+  return false, "truncated archive: no end-of-archive marker in " .. archive
 end
 
 return {

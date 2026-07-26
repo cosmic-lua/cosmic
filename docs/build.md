@@ -56,12 +56,21 @@ silently.
 third-party modules use a three-stage pipeline:
 
 ```
-version.lua → .versioned → .fetched → .staged
+*.pin.tl → .versioned → .fetched → .staged
 ```
 
-1. **version.lua**: declares version string, SHA256, and download URLs
+1. **`*.pin.tl`**: a pin — one `return { … }` of literals declaring the
+   version, digest and url. It is READ as data by `cosmic.literal`,
+   never executed, so the file that says what to fetch cannot do
+   anything itself. Same reader `cosmic --make fetch` uses, so the
+   grammar is enforced identically from both sides.
 2. **fetch**: `build-fetch.lua` downloads the archive, verifies the hash
 3. **stage**: `build-stage.lua` extracts to `o/staged/<module>/<ver>-<sha>/`
+
+`cosmic --make fetch` resolves the same pins through its own path,
+landing bytes under `o/` mirroring the pin's position
+(`3p/tl/tl.pin.tl` → `o/3p/tl/…`). Until the Makefile retires, both
+readers are live over the same committed files.
 
 symlinks connect `o/<module>/.staged` to the extracted directory.
 
@@ -140,7 +149,7 @@ unavailable, which is what the `sandbox-canary` probe (#716/#724)
 exists to detect.
 
 three families deliberately opt out, each with its reason recorded at
-the rule: `version.lua` (reads `.git`, and its fallback would silently
+the rule: the version stamp (reads `.git`, and its fallback would silently
 mint an unversioned artifact), the quicksand namespace tests and
 examples (`unshare` has no pledge promise — the `enforce` lane covers
 them instead), and the benchmark family, which keeps its annotations

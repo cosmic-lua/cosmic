@@ -123,19 +123,33 @@ all type errors must be resolved. warnings are reported but don't fail the build
 
 ## Adding a 3p Dependency
 
-1. create `3p/mylib/version.lua`:
+1. create `3p/mylib/mylib.pin.tl` — a **pin**: one `return { … }` of
+   literals, read as data by `cosmic.literal` and never executed, so a
+   file that declares a dependency cannot also do anything:
    ```lua
    return {
      version = "1.0.0",
-     sha256 = "...",
-     url = "https://github.com/org/repo/releases/download/v1.0.0/archive.tar.gz",
+     format = "tar.gz",
+     strip_components = 1,
+     url = "https://github.com/org/repo/releases/download/v{version}/archive.tar.gz",
+     platforms = {
+       ["*"] = { sha = "..." },
+     },
    }
    ```
+
+   `url` and a digest are required — a pin without one is a download.
+   `{version}` (and `{platform}`) substitution is the only templating
+   the grammar allows, which is what makes a bump a one-line diff. A
+   digest that is the same everywhere goes under `platforms["*"]`; one
+   that differs per host gets a row per `os-arch` tag. `format` (with
+   `strip_components`) unpacks the archive after the digest matches —
+   never before, since an archive is a program for a decompressor.
 
 2. create `3p/mymk/modules.mk`:
    ```makefile
    modules += mylib
-   mylib_version := 3p/mylib/version.lua
+   mylib_version := 3p/mylib/mylib.pin.tl
    ```
 
 3. include in `Makefile`:

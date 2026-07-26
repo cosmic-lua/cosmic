@@ -361,3 +361,19 @@ local function test_extract_rejects_zip_slip()
   end
 end
 test_extract_rejects_zip_slip()
+
+-- The floor is a KEEP list, and a keep list that keeps more than it
+-- names is one that silently ships whatever a base grows next to a
+-- kept file. `.args` is file-shaped, so matching it as a prefix also
+-- matched `.argsX`; only directory entries may match by prefix.
+local function test_floor_matches_files_exactly()
+  local floor = require("cosmic.embed.floor")
+  assert(floor.in_floor(".args"), "a named file is kept")
+  assert(not floor.in_floor(".argsX"),
+    "but not something merely starting with its name")
+  assert(floor.in_floor("cosmic/fs.lua"), "a directory prefix keeps what is under it")
+  assert(floor.in_floor("cosmic"), "and its own marker")
+  assert(not floor.in_floor("cosmicX/fs.lua"),
+    "but not a sibling whose name starts the same way")
+end
+test_floor_matches_files_exactly()

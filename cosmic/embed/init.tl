@@ -388,9 +388,10 @@ local function run(paths: {string}, output?: string, exe_path?: string,
   if opts.strip then
     for _, name in ipairs(base_entries(exe_path)) do
       -- A trailing slash makes remove() a PREFIX removal, so removing
-      -- the bare `.lua/` marker takes `.lua/cosmic/**` — the floor —
-      -- with it. Directory markers are zero bytes and are therefore
-      -- never removed; the entries beneath them are removed by name.
+      -- a bare directory marker would take everything beneath it —
+      -- including the floor, which is `cosmic/**` since 3d. Directory
+      -- markers are zero bytes and are therefore never removed; the
+      -- entries beneath them are removed by name.
       if name:sub(-1) ~= "/" and not floor.in_floor(name, opts.provides) then
         appender:remove(name)
       end
@@ -404,6 +405,14 @@ local function run(paths: {string}, output?: string, exe_path?: string,
   -- cosmic's own payload). Bulk assets, which the entry point does not
   -- necessarily read at startup, stay compressed to hold the size down.
   for _, file_info in ipairs(files_to_embed) do
+    -- The error is deliberately discarded, and this is the reason:
+    -- "entry not found" is the NORMAL result for a name not already in
+    -- the base, and the binding reports it through the same channel as
+    -- a real failure. Propagating it broke every fresh embed
+    -- (`failed to replace 'main.user.lua': entry not found`).
+    -- Distinguishing the two needs an exists() on the appender that
+    -- the binding does not offer; until it does, a genuinely failed
+    -- removal would surface as the duplicate entry it creates.
     appender:remove(file_info.stored_name)
     local is_lua = file_info.stored_name:sub(-4) == ".lua"
     local add: AddOptions = {

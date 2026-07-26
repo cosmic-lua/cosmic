@@ -16,7 +16,7 @@ jobs:
   # so it is an unpinned build input — the coverage-floor churn in #722 was
   # exactly this leak (the ratchet's floors encode the environment, and the
   # environment drifted). The image below is bumped deliberately, like any
-  # 3p/*/version.lua pin: change the digest, re-check the floors, commit.
+  # 3p/*/*.pin.tl pin: change the digest, re-check the floors, commit.
   #
   # buildpack-deps:noble is Ubuntu 24.04 — the same release ubuntu-latest
   # currently serves — and its base tag ships git, curl, ca-certificates,

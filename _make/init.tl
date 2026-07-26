@@ -293,6 +293,10 @@ local function run(argv: {string}): integer
     cenv.set(graph.MAKE_ENV, fs.abspath(named), true)
   end
 
+  -- `fetch` is the one verb that skips validation below, and can:
+  -- it reads pins and nothing else, so a project whose sources do not
+  -- yet type-check can still resolve its dependencies -- which is the
+  -- order a cold checkout needs.
   if verb ~= "check" and verb ~= "clean" and verb ~= "fetch"
   and TARGETS[verb] == nil then
     if is_planned(verb) then
