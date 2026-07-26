@@ -37,6 +37,12 @@ local record Pin
   sha256: string
   --- Optional version, substituted into `{version}` in the URL.
   version: string
+  --- Optional archive format ("zip" or "tar.gz"). A pin that declares
+  --- one is unpacked after it is verified; a pin without one is bytes.
+  format: string
+  --- Leading path segments to drop when unpacking, for archives that
+  --- wrap their contents in a directory named for the release.
+  strip_components: integer
 end
 
 --- Extract the literal a pin file returns, without running it.
@@ -86,6 +92,16 @@ local function read(path: string): Pin | nil, string
     return nil, "make: " .. path ..
     ": a pin needs a sha256 (hex); without one it is a download, not a pin"
   end
+  local format_field = fields.format
+  local format: string = nil
+  if format_field is string then
+    format = format_field
+  end
+  local strip_field = fields.strip_components
+  local strip = 0
+  if strip_field is number then
+    strip = math.tointeger(strip_field) or 0
+  end
   local resolved = url
   if version then
     resolved = (url:gsub("{version}", version))
@@ -100,6 +116,8 @@ local function read(path: string): Pin | nil, string
     url = resolved,
     sha256 = sha:lower(),
     version = version,
+    format = format,
+    strip_components = strip,
   }
 end
 

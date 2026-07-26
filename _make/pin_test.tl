@@ -11,6 +11,7 @@
 -- real without reaching the network.
 
 local check = require("cosmic.check")
+local czip = require("cosmic.zip")
 local fs = require("cosmic.fs")
 local hash = require("cosmic.hash")
 local mfetch = require("_make.fetch")
@@ -282,3 +283,41 @@ end
 test_resolve_reads_only_the_pin()
 
 print("all pin tests passed")
+
+-- A pin that declares a format is unpacked beside the archive it
+-- verified. That ordering is the property, not an implementation
+-- detail: an archive is a program for a decompressor, so it is only
+-- ever run on bytes whose digest already matched.
+local function test_a_declared_format_is_unpacked()
+  -- A zip built here, so the test needs no fixture on disk: one file
+  -- under a wrapper directory, which is what strip_components exists
+  -- for (a release tarball names its wrapper after the tag).
+  local archive = fs.join(tmpdir, "payload.zip")
+  local w = check.must(czip.writer(archive))
+  assert(w:add("wrapper-1.0/tl.lua", "return 'teal'\n"))
+  assert(w:add("wrapper-1.0/deep/other.txt", "x\n"))
+  w:close()
+  local body = check.must(fs.read(archive))
+
+  local port, pid = serve(body)
+  local root = pinned("unpacked", "http://127.0.0.1:" .. port .. "/payload.zip",
+    hash.sha256_hex(body))
+  -- Rewrite the pin with a format and a wrapper to strip.
+  assert(fs.write(fs.join(root, "3p/blob.pin.tl"),
+      'return {\n  url = "http://127.0.0.1:' .. port .. '/payload.zip",\n' ..
+      '  sha256 = "' .. hash.sha256_hex(body) .. '",\n' ..
+      '  format = "zip",\n  strip_components = 1,\n}\n'))
+  local code = run(root, "fetch")
+  proc.wait(pid)
+  assert(code == 0, "a pin with a format should fetch and unpack")
+
+  local got = check.must(fs.read(fs.join(root, "o/3p/tl.lua")))
+  assert(got == "return 'teal'\n", "the wrapper directory is stripped away")
+  assert(fs.isfile(fs.join(root, "o/3p/deep/other.txt")),
+    "and the rest of the tree keeps its shape")
+  assert(fs.isfile(fs.join(root, "o/3p/payload.zip")),
+    "the verified archive stays beside what came out of it")
+  assert(not fs.exists(fs.join(root, "o/3p/.unpack")),
+    "and the staging directory does not survive")
+end
+test_a_declared_format_is_unpacked()

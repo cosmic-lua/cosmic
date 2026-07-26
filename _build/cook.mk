@@ -6,7 +6,7 @@ modules += build
 build_lua_dirs := $(o)
 build_fetch := $(o)/_build/build-fetch.lua
 build_stage := $(o)/_build/build-stage.lua
-build_untar := $(o)/_build/build-untar.lua
+build_untar := $(o)/cosmic/tar.lua # public: cosmic.tar
 build_portable := $(o)/_build/portable.lua
 build_reporter := $(o)/_build/reporter.lua
 build_help := $(o)/_build/make-help.lua
@@ -27,7 +27,7 @@ build_files := $(build_fetch) $(build_stage) $(build_untar) $(build_pack) $(buil
 # are the actual require closures (build.* only; the cosmic.* halves ride
 # $(stdlib_lua), already a prerequisite of both rules):
 #   build-fetch -> build.portable
-#   build-stage -> build.portable, build.build-untar
+#   build-stage -> build.portable, build.tar
 # make-boot is deliberately in NEITHER: bin/make runs it from SOURCE
 # before any make exists, so its compiled copy exists only for the gate.
 build_fetch_files := $(build_fetch) $(build_portable)

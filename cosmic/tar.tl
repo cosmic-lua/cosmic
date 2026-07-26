@@ -1,7 +1,22 @@
 #!/usr/bin/env lua
---- In-process .tar.gz extraction for the stage pipeline (#732), replacing
---- the host `tar -xzmf` spawn. Covers what pinned release tarballs
---- actually contain — the ustar/pax layouts git archive and GNU tar emit:
+--- In-process `.tar.gz` extraction: unpack a gzipped tarball without a
+--- host `tar`.
+---
+--- It began as the stage pipeline's replacement for `tar -xzmf` (#732)
+--- and moved here when `--make` needed it too: `_make` unpacks pinned
+--- archives at runtime, the artifact floor is `cosmic/**`, and a module
+--- a built binary requires has to be inside it. Making it public is the
+--- honest consequence — position is the manifest — and "unpack a
+--- tarball" is a battery beside `cosmic.zip` and `cosmic.compress`
+--- rather than something peculiar to this repo's build.
+---
+--- Writes through `cosmic.fs` rather than `_build`'s bootstrap-portable
+--- shim: that shim exists for a bootstrap predating the 2026.07
+--- error-convention release, and a module the artifact floor carries
+--- cannot depend on `_build` at all. The stage pipeline keeps its own
+--- shim for the paths that still run under the pinned binary.
+---
+--- Covers what pinned release tarballs actually contain — the ustar/pax layouts git archive and GNU tar emit:
 --- regular files, directories, symlinks, pax extended headers (path
 --- override), and GNU longnames. Anything else fails loudly. Modes are
 --- masked to 0777; mtimes and ownership are deliberately not restored
@@ -10,7 +25,6 @@
 
 local compress = require("cosmic.compress")
 local fs = require("cosmic.fs")
-local portable = require("_build.portable")
 
 local BLOCK = 512
 --- Decompression cap: input integrity comes from the fetch rule's sha256
@@ -128,7 +142,7 @@ local function write_entry(hdr: Header, name: string, payload: string,
     fs.makedirs(fs.dirname(dest))
     local mode = hdr.mode % 512 -- permission bits only (0777 mask)
     if mode == 0 then mode = tonumber("644", 8) as integer end -- cast: octal is integral
-    local ok, err = portable.write_file(dest, payload, mode)
+    local ok, err = fs.write(dest, payload, mode)
     if not ok then
       return false, "write " .. dest .. " failed: " .. (err or "unknown error")
     end

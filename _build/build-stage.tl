@@ -8,7 +8,7 @@ local literal = require("cosmic.literal")
 local fs_types = require("cosmic.fs.types")
 local portable = require("_build.portable")
 local proc = require("cosmic.proc")
-local untar = require("_build.build-untar")
+local untar = require("cosmic.tar")
 local zip = require("cosmic.zip")
 
 local record PlatformSpec
@@ -88,7 +88,7 @@ local function strip_components(source_dir: string, dest_dir: string, strip: num
   end
 end
 
--- Extraction is in-process (#732): cosmic.zip / build.build-untar /
+-- Extraction is in-process (#732): cosmic.zip / build.tar /
 -- cosmic.compress instead of spawning host unzip/tar/gunzip, so the
 -- stage rule's unveil set carries no host-toolchain grants.
 local function extract_zip(archive: string, dest_dir: string, strip: number): boolean, string

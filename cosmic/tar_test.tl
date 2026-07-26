@@ -6,7 +6,7 @@
 local compress = require("cosmic.compress")
 local fs = require("cosmic.fs")
 local fs_types = require("cosmic.fs.types")
-local untar = require("_build.build-untar")
+local untar = require("cosmic.tar")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 local BLOCK = 512

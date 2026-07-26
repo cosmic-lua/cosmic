@@ -10,6 +10,7 @@
 --- on the bytes you named or does not run.
 
 local cfetch = require("cosmic.fetch")
+local extract = require("_make.extract")
 local fs = require("cosmic.fs")
 local hash = require("cosmic.hash")
 local pin = require("_make.pin")
@@ -31,6 +32,22 @@ local type Project = types.Project
 --- @return string The output path, relative to the project root
 local function landing(p: Pin): string
   return fs.join(project.BUILD_DIR, p.output)
+end
+
+--- Unpack a pin that declares a format, beside the archive.
+---
+--- Only after the digest matched: an archive is a program for a
+--- decompressor, and running one on unverified bytes is what pinning
+--- exists to prevent.
+--- @param p Pin The resolved pin
+--- @param archive string The verified archive's path
+--- @return boolean, string Success, or false plus the reason
+local function unpacked(p: Pin, archive: string): boolean, string
+  if not p.format then
+    return true
+  end
+  return extract.unpack(archive, fs.dirname(archive), p.format,
+    p.strip_components)
 end
 
 --- Is this pin already satisfied? A pin is content-addressed, so the
@@ -84,7 +101,7 @@ local function one(p: Pin): boolean, string
     return false, "make: cannot write " .. out .. ": " ..
     (werr or "unknown error")
   end
-  return true
+  return unpacked(p, out)
 end
 
 --- Every pin in the project, resolved.
