@@ -86,9 +86,10 @@ jobs:
           set -eux
           runuser -u builder -- env HOME="$HOME" PATH="$PATH" bin/make -j staged
 
-      # The namespace needs root to create and `lo` needs bringing up
-      # inside it, which the pinned bootstrap does itself rather than
-      # asking the host for iproute2. The gate then drops to the builder.
+      # The namespace needs root to create, and so does bringing `lo` up
+      # inside it — the pinned bootstrap does that itself rather than
+      # asking the host for iproute2. Only then does the gate drop to the
+      # builder, which is the identity every other lane runs as.
       #
       # timeout: a recipe child dying mid-test can leave forked test
       # parents blocked on accept/wait, wedging make. Convert a hang into
@@ -101,9 +102,9 @@ jobs:
             assert(require("cosmic.quicksand.netns").bring_up("lo"))
         run: |
           set -eux
-          unshare --net -- runuser -u builder -- \
-            env HOME="$HOME" PATH="$PATH" bash -euxc '
-              o/bootstrap/cosmic -e "$NETNS"
+          unshare --net -- bash -euxc '
+            o/bootstrap/cosmic -e "$NETNS"
+            exec runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
               bin/make -j ci'
 
       - name: dump failing test output
