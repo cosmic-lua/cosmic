@@ -83,6 +83,50 @@ local record make_types
     message: string
   end
 
+  --- Which files a graph verb acts on, and the make variable a
+  --- selection overrides. A command-line assignment beats the one in
+  --- `o/project.mk`, so selection needs no rules of its own:
+  --- everything downstream is derived from these lists.
+  record Selection
+    kinds: {Kind}
+    --- Suffix a candidate's path must end with, or nil for no filter.
+    ---
+    --- nil rather than "": the empty string spelled "unfiltered" only
+    --- by convention, and the natural comparison for it --
+    --- `path:sub(-#"")` -- is `sub(-0)`, which is `sub(0)`, which is
+    --- the WHOLE string. So the obvious code silently matched nothing
+    --- and the guard against it lived in a comment. The type says it
+    --- now.
+    suffix: string | nil
+    variable: string
+  end
+
+  --- One verb: everything the dispatcher, the usage text and the
+  --- planned-verb stub need to know about it, in one row.
+  ---
+  --- Adding a verb used to mean editing two lists, up to two maps and
+  --- an if-chain in `run`, with which mechanism a verb belonged to
+  --- discoverable only by reading the dispatch. Most of the remaining
+  --- verbs are POLICY verbs (orchestration, not graph targets), so on
+  --- that shape each would have become another branch. The registry is
+  --- also the data structure `ci` needs: a fixed order of stages is a
+  --- list of verb names only if verbs are values.
+  record Verb
+    --- The name typed on the command line.
+    name: string
+    --- Defined by the design, not shipped yet.
+    planned: boolean
+    --- The make target this verb lowers onto, when it is a graph verb.
+    target: string | nil
+    --- What paths select, for a graph verb.
+    select: Selection | nil
+    --- The in-process implementation. A verb with no `target` is
+    --- entirely this; a verb with both lowers onto the graph *and* has
+    --- work of its own around it (`build` assembles after, `test`
+    --- assembles before), and its runner is what orders the two.
+    run: function(proj: Project, paths: {string}, cosmic: string): integer
+  end
+
   --- Kinds a `.tl` file must be to reach the format gate.
   ---
   --- Two consumers ask this question -- the facts writer, which emits

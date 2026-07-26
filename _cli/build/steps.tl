@@ -208,8 +208,16 @@ local function do_test(args: {string}): integer
   -- kernel is enforcing anything; and the derived fence's write grant
   -- (this step's output directory) already covers it, so the kernel
   -- half needs no extra rule.
-  env.set("TMP", out .. ".tmp.d")
-  fs.makedirs(out .. ".tmp.d")
+  --
+  -- ABSOLUTE, because `out` is a path relative to the project root and
+  -- TEST_TMPDIR outlives the cwd it was written against: a test that
+  -- chdirs — or that spawns a child with `cwd = TEST_TMPDIR` and
+  -- compares the result to it — resolves a relative one against
+  -- somewhere else and gets a different directory, or a mismatch it
+  -- reports as its own bug.
+  local scratch = fs.abspath(out .. ".tmp.d")
+  env.set("TMP", scratch)
+  fs.makedirs(scratch)
   local testrun = require("cosmic.testrun")
   testrun.run(argv, out)
   if not fs.isfile(out .. ".got") then

@@ -23,6 +23,25 @@ local fs = require("cosmic.fs")
 --- Environment override for the project root.
 local ROOT_ENV < const > = "COSMIC_MAKE_ROOT"
 
+--- Whether a directory is some project's build output.
+---
+--- It has to be asked, because a build directory is a MIRROR of the
+--- project that produced it: `o/cmd/foo/main.lua` exists precisely
+--- because `cmd/foo/main.tl` compiled, so every marker `is_root` looks
+--- for is on both sides and the two are indistinguishable by shape.
+--- What distinguishes them is authorship — `--make` writes its own two
+--- makefiles into the directory it builds into, and nothing else does.
+---
+--- Without this, anything running under `o/` (which is where a test's
+--- scratch directory lives) finds `o/` above it, and `--make` refuses
+--- with "ambiguous root" naming the build directory as the project.
+--- @param dir string Absolute directory to test
+--- @return boolean True when dir is a `--make` output tree
+local function is_build_dir(dir: string): boolean
+  return fs.isfile(fs.join(dir, "cosmic.mk")) and
+  fs.isfile(fs.join(dir, "project.mk"))
+end
+
 --- Files and directories a project declares itself with. A stray `.tl`
 --- is deliberately NOT one of them: a directory of Teal files is a
 --- package inside some project, and treating it as a root is what makes
@@ -30,6 +49,9 @@ local ROOT_ENV < const > = "COSMIC_MAKE_ROOT"
 --- @param dir string Absolute directory to test
 --- @return boolean True when dir looks like a project root
 local function is_root(dir: string): boolean
+  if is_build_dir(dir) then
+    return false
+  end
   if fs.isfile(fs.join(dir, ".cosmicignore")) then
     return true
   end

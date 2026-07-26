@@ -114,4 +114,54 @@ local function test_override_must_exist()
 end
 test_override_must_exist()
 
+-- A build directory is a MIRROR of the project that produced it, so
+-- every marker is on both sides and shape cannot tell them apart. The
+-- two makefiles `--make` writes can: without this, a test whose scratch
+-- directory lives under `o/` finds `o/` above it and every `--make` run
+-- from there refuses with "ambiguous root".
+local function test_a_build_directory_is_not_a_root()
+  local dir = tree("build-output", {
+      ["cosmic.mk"] = "# rules\n",
+      ["project.mk"] = "# facts\n",
+      ["main.lua"] = "return 0\n",
+      ["cmd/tool/main.lua"] = "return 0\n",
+    })
+  assert(not root.is_root(dir),
+    dir .. " has both makefiles: it is output, not a project")
+end
+test_a_build_directory_is_not_a_root()
+
+-- Only both together. One of the two is an ordinary file a project may
+-- well have -- this repo committed a `cosmic.mk` of its own for the
+-- whole bridge -- and treating either alone as "output" would make a
+-- real root undiscoverable.
+local function test_one_makefile_alone_is_not_output()
+  local rules = tree("rules-only", {
+      ["cosmic.mk"] = "# rules\n",
+      ["main.tl"] = "return 0\n",
+    })
+  assert(root.is_root(rules), "a project may commit a cosmic.mk")
+  local facts = tree("facts-only", {
+      ["project.mk"] = "# facts\n",
+      ["main.tl"] = "return 0\n",
+    })
+  assert(root.is_root(facts), "a project may commit a project.mk")
+end
+test_one_makefile_alone_is_not_output()
+
+-- And the consequence the fix exists for: the guard stays quiet for a
+-- directory whose only ancestor-shaped thing is a build tree.
+local function test_no_ambiguity_under_a_build_directory()
+  local out = tree("under-output", {
+      ["cosmic.mk"] = "# rules\n",
+      ["project.mk"] = "# facts\n",
+      ["cmd/tool/main.lua"] = "return 0\n",
+    })
+  local scratch = fs.join(out, "some_test.tl.test.tmp.d")
+  assert(fs.makedirs(scratch))
+  assert(not root.ancestor_root(scratch),
+    "a build directory must not be reported as the ancestor project")
+end
+test_no_ambiguity_under_a_build_directory()
+
 print("all root tests passed")
