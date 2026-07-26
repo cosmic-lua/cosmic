@@ -209,7 +209,7 @@ type_modules := cosmo unix path getopt lsqlite3 re argon2 zip repl
 modules += bootstrap
 bootstrap_cosmic := $(o)/bootstrap/cosmic
 bootstrap_files := $(bootstrap_cosmic)
-bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-25-ded1d3f/cosmic-lua
+bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-26-5de5474/cosmic-lua
 # SHA-256 of the bootstrap cosmic binary. It compiles the entire project, so
 # verify it before executing. Update this when bumping bootstrap_url.
 # This pin ships --build (#756 item 3), so every recipe step — compile,
@@ -236,7 +236,7 @@ bootstrap_url := https://github.com/whilp/cosmic/releases/download/2026-07-25-de
 # (tl.search_module) is pinned separately to the tree via TL_PATH in the
 # compile/check recipes, so a compile can never type-check against the
 # bootstrap's stale embedded source (#744 — see tree_tl_path).
-bootstrap_sha256 := 06dc6bf5ca75cafd30637b54dcdcdc262a04b6a8a4cc69e41bd16f5312876b33
+bootstrap_sha256 := 324a856dea4e94d7c0eaedd34a39efa69254db1b25b386aa31b65fa9446aaff4
 
 # bin/make is the SOLE provisioner of the bootstrap (#756 cleanup): it
 # runs before every make invocation, parses the pin above via sed,
