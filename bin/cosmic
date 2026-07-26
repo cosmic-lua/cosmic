@@ -1,0 +1,105 @@
+#!/bin/sh
+set -e
+
+# The trust root, and the only host-shell step in the build.
+#
+# One job: obtain the ONE pinned artifact named in bin/cosmic.pin — a
+# cosmic release — verify it, and exec it with whatever arguments it was
+# given. Everything after that runs under that pin: `cosmic --make`
+# extracts its own build engine from its own zip and resolves the rest of
+# the tree's pins itself. So the chain is
+#
+#     kernel -> this script -> one pin -> everything else
+#
+# with POSIX sh, curl, sha256sum and od the whole host surface.
+#
+#     bin/cosmic --make ci        run the gate
+#     bin/cosmic --make build     build the binaries
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PIN="${SCRIPT_DIR}/cosmic.pin"
+BOOTSTRAP="${ROOT}/o/bootstrap/cosmic"
+
+verify_sha256() {
+    # Usage: verify_sha256 <file> <expected-hex>. Returns non-zero on mismatch.
+    file="$1"
+    expected="$2"
+    if command -v sha256sum >/dev/null 2>&1; then
+        actual="$(sha256sum "${file}" | cut -d' ' -f1)"
+    elif command -v shasum >/dev/null 2>&1; then
+        actual="$(shasum -a 256 "${file}" | cut -d' ' -f1)"
+    else
+        echo "no sha256 tool available to verify ${file}" >&2
+        return 1
+    fi
+    [ "${actual}" = "${expected}" ]
+}
+
+download() {
+    # Usage: download <url> <dest>. Atomic, with retries on transient CDN
+    # errors (e.g. 504 Gateway Timeout) that occasionally hit
+    # unauthenticated GitHub release downloads.
+    url="$1"
+    dest="$2"
+    dest_tmp="${dest}.tmp.$$"
+    attempt=0
+    until curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors \
+        -o "${dest_tmp}" "${url}"; do
+        attempt=$((attempt + 1))
+        if [ "${attempt}" -ge 3 ]; then
+            echo "Failed to download ${url} after ${attempt} attempts" >&2
+            rm -f "${dest_tmp}"
+            return 1
+        fi
+        echo "Retrying download of ${url} (attempt ${attempt})..." >&2
+        sleep $((attempt * 5))
+    done
+    mv -f "${dest_tmp}" "${dest}"
+}
+
+ensure_bootstrap() {
+    # Download, verify against the pin, assimilate to a native ELF, and
+    # stamp which pin produced it.
+    #
+    # Assimilation is not cosmetic: sandboxed rules cannot grant the APE
+    # loader's ~/.ape-* extraction, so an un-assimilated bootstrap fails
+    # inside the very build it is provisioning. The stamp beside the
+    # binary is a string compare on the hot path rather than a hash, and
+    # it is what makes a pin bump re-download instead of leaving local
+    # trees running the previous release.
+    url="$(sed -n 's/^url *= *//p' "${PIN}")"
+    sha256="$(sed -n 's/^sha256 *= *//p' "${PIN}")"
+    if [ -z "${url}" ] || [ -z "${sha256}" ]; then
+        echo "could not read url/sha256 from ${PIN}" >&2
+        exit 1
+    fi
+    if [ -x "${BOOTSTRAP}" ] &&
+        [ "$(cat "${BOOTSTRAP}.pin" 2>/dev/null)" = "${sha256}" ]; then
+        return 0
+    fi
+    echo "Downloading pinned cosmic..." >&2
+    mkdir -p "${ROOT}/o/bootstrap"
+    boot_tmp="${BOOTSTRAP}.boot.$$"
+    download "${url}" "${boot_tmp}" || exit 1
+    if ! verify_sha256 "${boot_tmp}" "${sha256}"; then
+        echo "pinned cosmic checksum verification failed; refusing to run" >&2
+        rm -f "${boot_tmp}"
+        exit 1
+    fi
+    chmod +x "${boot_tmp}"
+    "${boot_tmp}" --assimilate
+    if [ "$(head -c 4 "${boot_tmp}" | od -An -tx1 | tr -d ' \n')" != "7f454c46" ]; then
+        echo "assimilation failed: still an APE — sandboxed rules need a native ELF (no loader grants)" >&2
+        rm -f "${boot_tmp}"
+        exit 1
+    fi
+    mv -f "${boot_tmp}" "${BOOTSTRAP}"
+    printf '%s\n' "${sha256}" > "${BOOTSTRAP}.pin"
+}
+
+# Always, so a cleaned o/ and a bumped pin are both just this path.
+ensure_bootstrap
+
+cd "${ROOT}"
+exec "${BOOTSTRAP}" "$@"

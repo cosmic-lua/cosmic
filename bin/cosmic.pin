@@ -1,0 +1,8 @@
+# The trust root's one pin: the cosmic that builds this cosmic.
+#
+# Read by bin/cosmic with sed, so it stays two plain lines rather than a
+# `*_pin.tl` — those are resolved by `cosmic --make fetch`, which needs a
+# cosmic to run, which is the thing this pin provides. Bump both fields
+# together; the sha is what is verified before anything is executed.
+url = https://github.com/whilp/cosmic/releases/download/2026-07-26-a44fe32/cosmic-lua
+sha256 = c2effd396a92d1e6b7c490bb868012990c4b0d2512dbd882f96b7f38de5a25d2
