@@ -182,12 +182,28 @@ local function test_rejects_unknown_entry_type()
 end
 test_rejects_unknown_entry_type()
 
-local function test_parse_pax()
-  local rec = "22 path=some/file.txt\n"
-  local fields = untar.parse_pax(rec)
-  assert(fields["path"] == "some/file.txt", "pax path parse, got: " .. tostring(fields["path"]))
+-- A control character in an archive-controlled name has no legitimate
+-- use, and a newline in one poisons every downstream format that
+-- carries the name as a line (`--make fetch`'s unpack manifest is one).
+local function test_rejects_control_characters_in_names()
+  local dest = fs.join(tmpdir, "untar-ctrl")
+  local ar = fs.join(tmpdir, "ctrl.tar.gz")
+  make_targz(ar, {
+      tar_entry("a\nb.txt", "x", oct("644"), "0", ""),
+    })
+  local ok, err = untar.extract(ar, dest)
+  assert(not ok, "a newline in a member name must be refused")
+  assert(err and err:match("unsafe"), "expected an unsafe-path error, got: " .. tostring(err))
+
+  local link = fs.join(tmpdir, "ctrl-link.tar.gz")
+  make_targz(link, {
+      tar_entry("l", "", oct("777"), "2", "tar\ngeted"),
+    })
+  local lok, lerr = untar.extract(link, fs.join(tmpdir, "untar-ctrl-link"))
+  assert(not lok, "a newline in a link target must be refused")
+  assert(lerr and lerr:match("unsafe"), "expected an unsafe error, got: " .. tostring(lerr))
 end
-test_parse_pax()
+test_rejects_control_characters_in_names()
 
 -- Falling off the end without the two zero blocks was accepted as
 -- success, so a truncation landing on a 512-byte boundary after

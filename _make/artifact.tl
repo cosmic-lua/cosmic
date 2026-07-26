@@ -18,8 +18,11 @@
 ---
 --- so "path relative to the root = import path" holds inside the
 --- artifact too, because the zip root IS the module root.
+---
+--- This file is the STAGING half — everything that runs once per
+--- binary. The generation phase, which runs once per project before
+--- any binary stages, is `_make.generate`.
 
-local child = require("cosmic.child")
 local embed = require("cosmic.embed")
 local fs = require("cosmic.fs")
 local fs_types = require("cosmic.fs.types")
@@ -211,74 +214,6 @@ end
 --- built it.
 local BASE_NAME < const > = "base"
 
---- Run one unit's generator, if it has one.
---- @param proj Project The scanned project
---- @param unit string The unit's directory, "" for the root
---- @param cosmic string Absolute path to the cosmic binary
---- @return boolean, string Success, or false plus the reason
-local function generate_unit(proj: Project, unit: string,
-    cosmic: string): boolean, string
-  local gen = unit == "" and "embed.gen.tl" or fs.join(unit, "embed.gen.tl")
-  if not fs.isfile(fs.join(proj.root, gen)) then
-    return true
-  end
-  local dest = unit == "" and project.BUILD_DIR or
-  fs.join(project.BUILD_DIR, unit)
-  local mok, merr = fs.makedirs(fs.join(proj.root, dest))
-  if not mok then
-    return false, "make: cannot create " .. dest .. ": " ..
-    (merr or "unknown error")
-  end
-  io.write("generate " .. gen .. "\n")
-  local r, rerr = child.run({cosmic, gen, dest},
-    {stdout = "inherit", stderr = "inherit"})
-  if not (r is child.Result) then
-    return false, "make: " .. gen .. ": " .. (rerr or "unknown error")
-  end
-  -- cast: narrowing does not survive the early-exit guard above
-  if not (r as child.Result).ok then
-    return false, "make: " .. gen .. " failed"
-  end
-  return true
-end
-
---- Run every generator in the project, once each.
----
---- A phase over the project rather than a step inside `build`, and the
---- distinction is load-bearing: the ROOT payload is staged into every
---- binary (root `embed/` is shared the way a root package is), so the
---- root generator has to run before any binary stages — once, not once
---- per binary. Hung off `build`, it ran only while the root binary was
---- being built, so a project with only `cmd/` binaries never ran it at
---- all, and a project with both staged whatever the previous run had
---- left depending on which binary name sorted first.
----
---- Generation stays inside the build verb rather than becoming a verb
---- of its own, because a generator whose output a binary embeds is in
---- that binary's build closure: building without running it embeds the
---- last run's payload, the stale-output failure the model exists to
---- prevent. It runs in the artifact phase rather than as a make rule
---- because the artifact does: the graph compiles, then staging and
---- embedding happen here.
---- @param proj Project The scanned project
---- @param cosmic string Absolute path to the cosmic binary
---- @return boolean, string Success, or false plus the reason
-local function generate(proj: Project, cosmic: string): boolean, string
-  local ok, err = generate_unit(proj, "", cosmic)
-  if not ok then
-    return false, err
-  end
-  for _, b in ipairs(proj.binaries) do
-    if b.dir ~= "" then
-      local bok, berr = generate_unit(proj, b.dir, cosmic)
-      if not bok then
-        return false, berr
-      end
-    end
-  end
-  return true
-end
-
 --- The first stored-path collision in a sorted plan, if there is one.
 ---
 --- Distinct kinds can map to one path inside the artifact: payload
@@ -298,8 +233,7 @@ local function collision(out: {Staged}): string | nil
       local a = out[i - 1].source
       local b = out[i].source
       return "make: " .. out[i].stored .. ": staged by both " ..
-      (a == "" and "the build" or a) .. " and " ..
-      (b == "" and "the build" or b)
+      project.unit_label(a) .. " and " .. project.unit_label(b)
     end
   end
   return nil
@@ -403,9 +337,7 @@ end
 --- @param cosmic string Absolute path to the running cosmic
 --- @return string The base to embed onto
 local function base_of(proj: Project, binary: Binary, cosmic: string): string
-  local dir = binary.dir == "" and project.BUILD_DIR or
-  fs.join(project.BUILD_DIR, binary.dir)
-  local declared = fs.join(dir, BASE_NAME)
+  local declared = fs.join(project.out_dir(binary.dir), BASE_NAME)
   if fs.isfile(fs.join(proj.root, declared)) then
     return declared
   end
@@ -445,7 +377,6 @@ end
 
 local record ArtifactModule
   base_of: function(proj: Project, binary: Binary, cosmic: string): string
-  generate: function(proj: Project, cosmic: string): boolean, string
   scope_of: function(proj: Project, binary: Binary): {File}
   plan: function(proj: Project, binary: Binary): {Staged}
   stage: function(proj: Project, binary: Binary): string | nil, string
@@ -454,7 +385,6 @@ end
 
 local M: ArtifactModule = {
   base_of = base_of,
-  generate = generate,
   scope_of = scope_of,
   plan = plan,
   stage = stage,

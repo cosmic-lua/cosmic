@@ -349,6 +349,14 @@ local function test_extract_rejects_zip_slip()
     "C:\\evil", -- drive-letter absolute
     "C:/evil", -- drive-letter, forward slash
     "c:evil", -- drive-letter, no separator
+    -- Control characters cannot escape the root, but an
+    -- archive-controlled name travels into formats that read one as
+    -- structure -- `--make fetch`'s unpack manifest is a line per
+    -- product, so a newline here becomes two names that do not exist
+    -- and an unpack that repeats on every run, silently, forever.
+    "a\nb.txt", -- newline: the manifest delimiter
+    "a\0b.txt", -- NUL
+    "tab\there", -- any other control character
   }
   for _, name in ipairs(unsafe) do
     assert(embed.unsafe_entry(name), "should reject unsafe entry: " .. name)

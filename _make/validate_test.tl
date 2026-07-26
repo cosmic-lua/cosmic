@@ -241,17 +241,6 @@ local function test_format_issues()
 end
 test_format_issues()
 
--- The import scan reads literal require() calls, in file order.
-local function test_imports_of()
-  local path = fs.join(tmpdir, "imports-of.tl")
-  assert(fs.write(path, "local a = require('pkg.a')\n" ..
-      'local b = require("pkg.b")\nlocal c = require "pkg.c"\nreturn {a, b, c}\n'))
-  local got = validate.imports_of(path)
-  assert(table.concat(got, ",") == "pkg.a,pkg.b,pkg.c",
-    "got: " .. table.concat(got, ","))
-end
-test_imports_of()
-
 -- Make's own significant characters are as dangerous as the shell's
 -- here, because `o/project.mk` and the rules file ARE make input: a
 -- `=` left of a rule colon parses as an assignment, a `:` splits a
@@ -294,20 +283,5 @@ local function test_duplicate_binary_names_are_refused()
   assert(text:find("already declared by", 1, true), "got: " .. text)
 end
 test_duplicate_binary_names_are_refused()
-
--- The import scan ERRORS on what it finds, so a false positive refuses
--- a project for code that never runs.
-local function test_import_scan_ignores_comments_and_suffixes()
-  local path = fs.join(tmpdir, "imports-noise.tl")
-  assert(fs.write(path,
-      "-- local x = require('cmd.other.main')\n" ..
-      "local ok = myrequire('cmd.other.main')\n" ..
-      "local real = require('pkg.a')\n" ..
-      "return {ok, real}\n"))
-  local got = validate.imports_of(path)
-  assert(table.concat(got, ",") == "pkg.a",
-    "only the real require counts, got: " .. table.concat(got, ","))
-end
-test_import_scan_ignores_comments_and_suffixes()
 
 print("all validate tests passed")

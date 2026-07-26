@@ -40,6 +40,60 @@ local function test_escapes_decode()
 end
 test_escapes_decode()
 
+-- Every escape above was written at the END of its string, which is the
+-- one position where a wrong resume index is invisible: overshooting
+-- past `#body` just ends the loop. `\u{}` did overshoot -- by two, from
+-- treating an absolute position capture as relative -- so it silently
+-- ate the two characters behind every unicode escape, and the test
+-- above passed anyway. Each form is followed by text here, which pins
+-- the resume arithmetic of each branch rather than only its value.
+local function test_escapes_resume_at_the_right_index()
+  assert(read([[return { s = "\u{41}BC" }]]).s == "ABC", "\\u{} then text")
+  assert(read([[return { s = "\u{41}BCDE" }]]).s == "ABCDE", "\\u{} then more")
+  assert(read([[return { s = "x\u{263A}y" }]]).s == "x\u{263A}y", "\\u{} surrounded")
+  assert(read([[return { s = "\x41BC" }]]).s == "ABC", "\\x then text")
+  assert(read([[return { s = "\65BC" }]]).s == "ABC", "decimal then text")
+  assert(read([[return { s = "a\nbc" }]]).s == "a\nbc", "simple then text")
+  assert(read("return { s = \"\\z   BC\" }").s == "BC", "\\z then text")
+  -- A bracketed key is the same decoder, so it had the same bug.
+  assert(read([[return { ["\u{41}k"] = "v" }]]).Ak == "v", "\\u{} in a key")
+end
+test_escapes_resume_at_the_right_index()
+
+-- The lexer is this module's own (it used to borrow tl's, which made a
+-- config reader depend on the Teal COMPILER -- see the module header).
+-- These are the shapes a hand-written lexer gets wrong.
+local function test_lexing()
+  assert(read("-- a comment\nreturn { a = 1 }").a == 1, "line comment before")
+  assert(read("return { a = 1 } -- trailing").a == 1, "line comment after")
+  assert(read("--[[ two\nlines ]]\nreturn { a = 1 }").a == 1, "long comment")
+  assert(read("--[==[ x ]==] return { a = 1 }").a == 1, "long comment, level 2")
+  assert(read("#!/usr/bin/env cosmic\nreturn { a = 1 }").a == 1, "shebang skipped")
+  -- `--` inside a string is not a comment.
+  assert(read("return { s = 'a -- b' }").s == "a -- b", "dashes in a string")
+  assert(read("return { a = 0x10 }").a == 16, "hex integer")
+  assert(read("return { a = 1e3 }").a == 1000.0, "exponent")
+  assert(read("return { a = 0x1p4 }").a == 16.0, "hex float")
+  assert(read("return { a = 1, }").a == 1, "trailing comma")
+  assert(read("return { a = 1; b = 2 }").b == 2, "semicolon separator")
+  -- A reserved word lexes as a keyword, so it can never be read as a key.
+  assert(refused("return { end = 1 }"):find("<literal>", 1, true),
+    "a keyword is not an identifier")
+end
+test_lexing()
+
+-- Input that cannot be finished has no next token to complain about, so
+-- the lexer refuses it itself -- with the line, like every other refusal.
+local function test_unfinishable_input_is_refused()
+  assert(refused('return { a = "oops }'):find("unterminated string", 1, true),
+    "unterminated short string")
+  assert(refused("return { a = [[oops }"):find("unterminated long string", 1, true),
+    "unterminated long string")
+  assert(refused("--[[ oops\nreturn { a = 1 }"):find("unterminated long comment", 1, true),
+    "unterminated long comment")
+end
+test_unfinishable_input_is_refused()
+
 -- Long brackets take no escapes and drop one leading newline, and the
 -- delimiter is as many `=` as were written. Stripping one character
 -- per side turned `[==[x]==]` into `==[x]==`.

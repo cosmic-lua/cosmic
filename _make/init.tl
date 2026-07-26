@@ -21,6 +21,7 @@ local validate = require("_make.validate")
 local artifact = require("_make.artifact")
 local check = require("_make.check")
 local fetch = require("_make.fetch")
+local generate = require("_make.generate")
 local graph = require("_make.graph")
 local types = require("_make.types")
 
@@ -29,39 +30,20 @@ local type Issue = types.Issue
 local type Kind = types.Kind
 local type Project = types.Project
 
---- Verbs that run today.
-local IMPLEMENTED < const >: {string} = {
-  "build", "check", "clean", "fetch", "fmt", "test",
-}
-
---- Verbs the design defines and later slices land, in the order they
---- appear in the design's own tables. Naming them costs one line each
---- and turns a typo-shaped failure into a schedule answer.
-local PLANNED < const >: {string} = {
-  "run", "regen",
-  "ci", "coverage", "enforce", "reproducible", "offline",
-}
-
---- Verbs lowered onto the graph, and the make target each builds.
----
---- `check` is deliberately absent: it runs in process, so the one verb
---- that tells you whether a project is even coherent needs no make
---- binary at all. `clean` is absent for the opposite reason — removing
---- `o/` through a graph whose rules live in `o/` is a knot with no
---- payoff.
-local TARGETS < const >: {string: string} = {
-  build = "build",
-  fmt = "fmt",
-  test = "test",
-}
-
---- Which files each graph verb acts on, and the make variable a
+--- Which files a graph verb acts on, and the make variable a
 --- selection overrides. A command-line assignment beats the one in
 --- `o/project.mk`, so selection needs no rules of its own: everything
 --- downstream is derived from these lists.
 local record Selection
   kinds: {Kind}
-  suffix: string
+  --- Suffix a candidate's path must end with, or nil for no filter.
+  ---
+  --- nil rather than "": the empty string spelled "unfiltered" only by
+  --- convention, and the natural comparison for it -- `path:sub(-#"")`
+  --- -- is `sub(-0)`, which is `sub(0)`, which is the WHOLE string. So
+  --- the obvious code silently matched nothing and the guard against it
+  --- lived in a comment. The type says it now.
+  suffix: string | nil
   variable: string
 end
 
@@ -70,7 +52,12 @@ end
 local function fmt_kinds(): {Kind}
   local out: {Kind} = {}
   for k in pairs(types.fmt_kinds) do
-    out[#out + 1] = k as Kind -- cast: the table is keyed by Kind
+    -- The table is DECLARED `{Kind: boolean}`, so every lookup is
+    -- typed and a bare string key is refused at the call site. Teal
+    -- 0.24.8 still hands `pairs` the key as `string`, so the one cast
+    -- left is at that language boundary rather than standing in for a
+    -- loose type.
+    out[#out + 1] = k as Kind -- cast: pairs() erases an enum key type
   end
   table.sort(out)
   return out
@@ -94,27 +81,31 @@ local SELECTS < const >: {string: Selection} = {
   -- and a `.lua` test is one. Filtering on `.tl` here would list a Lua
   -- project's tests in the facts and then quietly drop them from a
   -- selected run.
-  test = {kinds = {"test"}, suffix = "", variable = "tests"},
+  test = {kinds = {"test"}, variable = "tests"},
 }
 
---- Usage, printed for a bare `--make` and after an unknown verb.
---- @return string The usage text, without a trailing newline
-local function usage(): string
-  return "usage: cosmic --make <verb> [paths…]\n" ..
-  "make: verbs: " .. table.concat(IMPLEMENTED, ", ") .. "\n" ..
-  "make: planned: " .. table.concat(PLANNED, ", ")
-end
-
---- Is this verb one the design defines but this slice does not ship?
---- @param verb string The verb requested
---- @return boolean True when the verb is planned
-local function is_planned(verb: string): boolean
-  for _, v in ipairs(PLANNED) do
-    if v == verb then
-      return true
-    end
-  end
-  return false
+--- One verb: everything the dispatcher, the usage text and the
+--- planned-verb stub need to know about it, in one row.
+---
+--- Adding a verb used to mean editing two lists, up to two maps and an
+--- if-chain in `run`, with which mechanism a verb belonged to
+--- discoverable only by reading the dispatch. Seven more verbs are
+--- planned and most are POLICY verbs (orchestration, not graph
+--- targets), so on that shape each would have become another branch.
+--- The registry is also the data structure `ci` needs: a fixed order of
+--- stages is a list of verb names only if verbs are values.
+local record Verb
+  --- The name typed on the command line.
+  name: string
+  --- Defined by the design, not shipped by this slice.
+  planned: boolean
+  --- The make target this verb lowers onto, when it is a graph verb.
+  target: string | nil
+  --- What paths select, for a graph verb.
+  select: Selection | nil
+  --- The in-process implementation, for a verb that is not lowered
+  --- onto the graph. Exactly one of `target` and `run` is set.
+  run: function(proj: Project, paths: {string}, cosmic: string): integer
 end
 
 --- Discover the root, announce it, and scan the project.
@@ -164,41 +155,38 @@ end
 local function candidates(proj: Project, sel: Selection): {File}
   local out: {File} = {}
   for _, f in ipairs(project.of_kind(proj, sel.kinds)) do
-    -- An empty suffix means "no suffix filter". Guarding it explicitly
-    -- because `("x"):sub(-0)` is `sub(0)` -- the whole string, not the
-    -- empty tail -- so the comparison would silently match nothing.
-    if sel.suffix == "" or f.path:sub(-#sel.suffix) == sel.suffix then
+    local want = sel.suffix
+    if not want or f.path:sub(-#want) == want then
       out[#out + 1] = f
     end
   end
   return out
-end
-
---- Run a verb that is lowered onto the graph.
+end --- Lower a verb onto the graph and report what it did.
 ---
 --- Validation runs first here too, and not only for symmetry with
 --- `check`: a filename carrying whitespace would be split across two
 --- arguments of a recipe line, so a project the validator rejects is
 --- one whose paths must not reach make at all.
---- @param verb string A key of TARGETS
+--- @param v Verb A verb with a target
 --- @param proj Project The scanned project
 --- @param paths {string} Selection paths
 --- @param cosmic string Absolute path to this binary, resolved before chdir
---- @return integer Exit code
-local function run_graph(verb: string, proj: Project, paths: {string},
-    cosmic: string): integer
+--- @return boolean Whether the graph run succeeded
+--- @return string The detail for the verdict line
+local function graph_stage(v: Verb, proj: Project, paths: {string},
+    cosmic: string): boolean, string
   local issues = validate.validate(proj)
   if #issues > 0 then
     io.stderr:write(validate.format_issues(issues) .. "\n")
-    return verdict(verb, false, #issues .. " validation " ..
-      (#issues == 1 and "error" or "errors"))
+    return false, #issues .. " validation " ..
+    (#issues == 1 and "error" or "errors")
   end
 
-  local sel = SELECTS[verb]
+  local sel = v.select as Selection -- cast: a graph verb always has one
   local picked, serr = project.select(candidates(proj, sel), paths, proj.root)
   if not picked then
     io.stderr:write((serr or "make: no such selection") .. "\n")
-    return verdict(verb, false, "bad selection")
+    return false, "bad selection"
   end
   local files = picked as {File} -- cast: record union after the guard
 
@@ -208,50 +196,84 @@ local function run_graph(verb: string, proj: Project, paths: {string},
     table.concat(project.paths_of(files), " ")
   end
 
-  local code, gerr = graph.run(proj, TARGETS[verb], overrides, cosmic)
+  -- cast: a graph verb always has a target (see the registry)
+  local code, gerr = graph.run(proj, v.target as string, overrides, cosmic)
   if gerr and gerr ~= "" then
     io.stderr:write(gerr .. "\n")
-    return verdict(verb, false, "make")
+    return false, "make"
   end
   local noun = #files == 1 and " file" or " files"
-  local detail = #files .. noun
+  return code == 0, #files .. noun
+end
 
-  -- The artifacts, once the tree they are assembled from exists. A
-  -- SELECTED build compiles part of the tree, so it cannot produce a
-  -- whole artifact — it stops at the compile, which is what the
-  -- verdict then reports.
-  if verb == "build" and code == 0 and #paths == 0 then
-    -- Generation is a phase over the project, before any staging: the
-    -- ROOT payload is staged into every binary, so its generator must
-    -- run once and before the first of them.
-    local gok, generr = artifact.generate(proj, cosmic)
-    if not gok then
-      io.stderr:write((generr or "make: payload generation failed") .. "\n")
-      return verdict(verb, false, detail .. ", generate failed")
-    end
-    local built = 0
-    for _, b in ipairs(proj.binaries) do
-      local out, aerr = artifact.build(proj, b, cosmic)
-      if not out then
-        io.stderr:write((aerr or "make: cannot build the artifact") .. "\n")
-        return verdict(verb, false, detail .. ", " .. b.name .. " failed")
-      end
-      io.write("make: " .. (out as string) .. "\n") -- cast: scalar narrowing after the guard
-      built = built + 1
-    end
-    if built > 0 then
-      detail = detail .. ", " .. built ..
-      (built == 1 and " binary" or " binaries")
-    end
+--- A graph verb with nothing to do after the graph: `fmt` and `test`.
+--- @param v Verb The verb being run
+--- @param proj Project The scanned project
+--- @param paths {string} Selection paths
+--- @param cosmic string Absolute path to this binary
+--- @return integer Exit code
+local function run_graph(v: Verb, proj: Project, paths: {string},
+    cosmic: string): integer
+  local ok, detail = graph_stage(v, proj, paths, cosmic)
+  return verdict(v.name, ok, detail)
+end
+
+--- Forward declaration: `build`'s row needs its runner, and its runner
+--- needs the registry to find its own row.
+local by_name: function(name: string): Verb | nil
+
+--- `build` — compile the tree, then assemble the artifacts.
+---
+--- The step after the graph is genuinely build's own, so it lives in
+--- build's runner rather than as a condition inside the shared graph
+--- path. A SELECTED build compiles part of the tree, so it cannot
+--- produce a whole artifact: it stops at the compile, which is what the
+--- verdict then reports.
+--- @param proj Project The scanned project
+--- @param paths {string} Selection paths
+--- @param cosmic string Absolute path to this binary
+--- @return integer Exit code
+local function run_build(proj: Project, paths: {string},
+    cosmic: string): integer
+  local v = by_name("build") as Verb -- cast: the registry defines it
+  local ok, detail = graph_stage(v, proj, paths, cosmic)
+  if not ok or #paths > 0 then
+    return verdict("build", ok, detail)
   end
-  return verdict(verb, code == 0, detail)
+  -- Generation is a phase over the project, before any staging: the
+  -- ROOT payload is staged into every binary, so its generator must
+  -- run once and before the first of them.
+  local gok, generr = generate.generate(proj, cosmic)
+  if not gok then
+    io.stderr:write((generr or "make: payload generation failed") .. "\n")
+    return verdict("build", false, detail .. ", generate failed")
+  end
+  local built = 0
+  for _, b in ipairs(proj.binaries) do
+    local out, aerr = artifact.build(proj, b, cosmic)
+    if not out then
+      io.stderr:write((aerr or "make: cannot build the artifact") .. "\n")
+      return verdict("build", false, detail .. ", " .. b.name .. " failed")
+    end
+    io.write("make: " .. (out as string) .. "\n") -- cast: scalar narrowing after the guard
+    built = built + 1
+  end
+  if built > 0 then
+    detail = detail .. ", " .. built ..
+    (built == 1 and " binary" or " binaries")
+  end
+  return verdict("build", true, detail)
 end
 
 --- `clean` — remove the build directory, in process. Driving this
 --- through the graph would mean reading rules out of the directory
 --- being deleted.
+--- @param _proj Project Unused: clean is about the output, not the model
+--- @param _paths {string} Unused: clean takes no selection
+--- @param _cosmic string Unused: clean needs no make binary
 --- @return integer Exit code
-local function run_clean(): integer
+local function run_clean(_proj: Project, _paths: {string},
+    _cosmic: string): integer
   if not fs.exists(project.BUILD_DIR) then
     return verdict("clean", true, "nothing to remove")
   end
@@ -264,12 +286,77 @@ local function run_clean(): integer
   return verdict("clean", true, project.BUILD_DIR)
 end
 
+--- Every verb, in the order the design's own tables list them.
+---
+--- `check` has a `run` rather than a target deliberately: it works in
+--- process, so the one verb that tells you whether a project is even
+--- coherent needs no make binary at all. `clean` is in process for the
+--- opposite reason -- removing `o/` through a graph whose rules live in
+--- `o/` is a knot with no payoff. And `fetch` is the one verb that
+--- skips validation, which it can: it reads pins and nothing else, so a
+--- project whose sources do not yet type-check can still resolve its
+--- dependencies, which is the order a cold checkout needs.
+---
+--- A planned row costs one line and turns a typo-shaped failure into a
+--- schedule answer.
+local VERBS < const >: {Verb} = {
+  {name = "build", target = "build", select = SELECTS.build, run = run_build},
+  {name = "check", run = function(proj: Project, paths: {string},
+        _cosmic: string): integer
+      return check.run(proj, paths)
+    end},
+  {name = "clean", run = run_clean},
+  {name = "fetch", run = function(proj: Project, paths: {string},
+        _cosmic: string): integer
+      return fetch.run(proj, paths)
+    end},
+  {name = "fmt", target = "fmt", select = SELECTS.fmt},
+  {name = "test", target = "test", select = SELECTS.test},
+  {name = "run", planned = true},
+  {name = "regen", planned = true},
+  {name = "ci", planned = true},
+  {name = "coverage", planned = true},
+  {name = "enforce", planned = true},
+  {name = "reproducible", planned = true},
+  {name = "offline", planned = true},
+}
+
+local INDEX < const >: {string: Verb} = {}
+for _, v in ipairs(VERBS) do
+  INDEX[v.name] = v
+end
+
+by_name = function(name: string): Verb | nil
+  return INDEX[name]
+end
+
+--- The verb names of one disposition, in registry order.
+--- @param planned boolean Whether to list the planned verbs
+--- @return {string} The names
+local function names(planned: boolean): {string}
+  local out: {string} = {}
+  for _, v in ipairs(VERBS) do
+    if (v.planned or false) == planned then
+      out[#out + 1] = v.name
+    end
+  end
+  return out
+end
+
+--- Usage, printed for a bare `--make` and after an unknown verb.
+--- @return string The usage text, without a trailing newline
+local function usage(): string
+  return "usage: cosmic --make <verb> [paths…]\n" ..
+  "make: verbs: " .. table.concat(names(false), ", ") .. "\n" ..
+  "make: planned: " .. table.concat(names(true), ", ")
+end
+
 --- Run one `--make` invocation.
 --- @param argv {string} The verb followed by selection paths
 --- @return integer Exit code
 local function run(argv: {string}): integer
-  local verb = argv[1]
-  if not verb or verb == "" then
+  local name = argv[1]
+  if not name or name == "" then
     io.stderr:write(usage() .. "\n")
     return 1
   end
@@ -293,41 +380,28 @@ local function run(argv: {string}): integer
     cenv.set(graph.MAKE_ENV, fs.abspath(named), true)
   end
 
-  -- `fetch` is the one verb that skips validation below, and can:
-  -- it reads pins and nothing else, so a project whose sources do not
-  -- yet type-check can still resolve its dependencies -- which is the
-  -- order a cold checkout needs.
-  if verb ~= "check" and verb ~= "clean" and verb ~= "fetch"
-  and TARGETS[verb] == nil then
-    if is_planned(verb) then
-      io.stderr:write("make: '" .. verb ..
-        "' is planned but not implemented yet\nmake: verbs: " ..
-        table.concat(IMPLEMENTED, ", ") .. "\n")
-    else
-      io.stderr:write("make: unknown verb '" .. verb .. "'\n" ..
-        usage() .. "\n")
-    end
+  local v = by_name(name)
+  if not (v is Verb) then
+    io.stderr:write("make: unknown verb '" .. name .. "'\n" .. usage() .. "\n")
+    return 1
+  end
+  if v.planned then
+    io.stderr:write("make: '" .. name ..
+      "' is planned but not implemented yet\nmake: verbs: " ..
+      table.concat(names(false), ", ") .. "\n")
     return 1
   end
 
-  local proj, err = open_project(verb)
+  local proj, err = open_project(name)
   if not proj then
     io.stderr:write((err or "make: failed") .. "\n")
-    return verdict(verb, false, "no project")
+    return verdict(name, false, "no project")
   end
   local p = proj as Project -- cast: record union after the guard
-  if verb == "check" then
-    return check.run(p, paths)
+  if v.run then
+    return v.run(p, paths, self)
   end
-  if verb == "clean" then
-    return run_clean()
-  end
-  -- The one verb with a network. It needs no compiled tree and no make
-  -- binary: a pin's scope is the pin file itself.
-  if verb == "fetch" then
-    return fetch.run(p, paths)
-  end
-  return run_graph(verb, p, paths, self)
+  return run_graph(v, p, paths, self)
 end
 
 local record MakeModule
@@ -340,8 +414,8 @@ local record MakeModule
 end
 
 local M: MakeModule = {
-  IMPLEMENTED = IMPLEMENTED,
-  PLANNED = PLANNED,
+  IMPLEMENTED = names(false),
+  PLANNED = names(true),
   usage = usage,
   run = run,
   scan = project.scan,

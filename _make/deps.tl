@@ -8,13 +8,14 @@
 --- Computing it once and putting it in the recipe line serves both:
 --- the argument positions are the declaration.
 ---
---- Edges come from the same literal `require("…")` scan the validator
---- uses. A computed require is invisible here, exactly as it is there —
---- a project that computes its module names has left the shape, and the
---- consequence is now a denied read rather than only a missing rule.
+--- Edges come from `_make.imports`, the one scanner the validator, the
+--- facts writer and the fence also use — so what refuses a project and
+--- what schedules it can never disagree. A computed require is
+--- invisible there, and the consequence is a denied read rather than
+--- only a missing rule.
 
+local imports = require("_make.imports")
 local project = require("_make.project")
-local validate = require("_make.validate")
 local types = require("_make.types")
 
 local type File = types.File
@@ -88,7 +89,7 @@ local function direct(root: string, file: File,
   local out: {File} = {}
   local seen: {string: boolean} = {}
   local path = root ~= "" and (root .. "/" .. file.path) or file.path
-  for _, name in ipairs(validate.imports_of(path)) do
+  for _, name in ipairs(imports.of_file(path)) do
     for _, dep in ipairs(by_import[name] or {}) do
       if dep.path ~= file.path and not seen[dep.path] then
         seen[dep.path] = true

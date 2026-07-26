@@ -24,7 +24,9 @@ _make/deps.tl 50 50
 _make/extract.tl 48 66
 _make/facts.tl 19 29
 _make/fetch.tl 107 117
+_make/generate.tl 30 35
 _make/graph.tl 152 174
+_make/imports.tl 60 63
 _make/init.tl 132 144
 _make/pin.tl 74 75
 _make/project.tl 180 188

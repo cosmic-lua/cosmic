@@ -218,7 +218,19 @@ local function test_stripped_to_the_floor()
   local root = fixture("stripped", {
       ["main.tl"] = "print('tl:', (pcall(require, 'tl')))\n" ..
       "print('teal:', (pcall(require, 'cosmic.teal')))\n" ..
-      "print('json:', (pcall(require, 'cosmic.json')))\n",
+      "print('json:', (pcall(require, 'cosmic.json')))\n" ..
+      -- The floor keeps `cosmic/**`, so it must keep it USABLE. literal
+      -- required the Teal compiler for its lexer and searcher required
+      -- it before every module search, so in a stripped artifact the
+      -- one module pitched at config-as-data threw at load, and every
+      -- require miss reported a missing `tl` instead of itself.
+      "local lit = require('cosmic.literal')\n" ..
+      "local cfg = lit.of_source([[return { s = \"\\u{41}BC\" }]], 'c')\n" ..
+      "print('literal:', (cfg as {string:string}).s)\n" ..
+      -- Non-literal, so the checker cannot resolve it at build time and
+      -- the miss happens at runtime, where the searcher answers it.
+      "local absent = 'definitely.missing'\n" ..
+      "print('miss:', (select(2, pcall(require, absent))))\n",
     })
   local code, out = make(root, "build")
   assert(code == 0, "build should succeed: " .. out)
@@ -229,6 +241,15 @@ local function test_stripped_to_the_floor()
   assert(ran:find("tl:\tfalse", 1, true), "the Teal compiler must be gone: " .. ran)
   assert(ran:find("teal:\tfalse", 1, true), "…and its wrapper: " .. ran)
   assert(ran:find("json:\ttrue", 1, true), "the stdlib must survive: " .. ran)
+  -- Usable, not merely present: literal loads and decodes (its `\u{}`
+  -- escape also used to swallow the two characters behind it), and a
+  -- require miss names the module the caller asked for.
+  assert(ran:find("literal:\tABC", 1, true),
+    "cosmic.literal must work without a compiler: " .. ran)
+  assert(ran:find("definitely.missing", 1, true),
+    "a miss must name the missing module: " .. ran)
+  assert(not ran:match("miss:[^\n]*module 'tl' not found"),
+    "…and must not blame the absent Teal compiler: " .. ran)
 
   -- And it is gone from the archive, not merely unreachable: nothing
   -- outside the floor is extractable either.

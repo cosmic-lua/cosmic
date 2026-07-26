@@ -33,13 +33,19 @@ end
 --- (`\x`, `\\server\share`), and drive-letter (`C:\x`, `C:/x`, `C:x`) —
 --- and any `..` traversal component. Both `/` and `\` are treated as
 --- separators, since cosmic executables also extract on Windows where a
---- `..\evil` entry would otherwise slip past a POSIX-only guard.
+--- `..\evil` entry would otherwise slip past a POSIX-only guard. A
+--- control character is refused too: it cannot escape the root, but an
+--- archive-controlled name travels into formats that treat one as
+--- structure (`--make fetch` records unpack products one per line), and
+--- refusing at the guard closes that class for every consumer at once.
+--- Matches `cosmic.tar.unsafe_path` — the two guard the same operation.
 --- @param name string Archive entry name
 --- @return boolean true if the entry is unsafe to extract
 local function unsafe_entry(name: string): boolean
   -- Absolute roots escape output_dir.
   if name:sub(1, 1) == "/" or name:sub(1, 1) == "\\" then return true end
   if name:match("^%a:") then return true end
+  if name:find("%c") then return true end
   -- Normalize backslashes so ".." traversal is caught on either
   -- separator ("..\evil" like "../evil").
   local slashed = name:gsub("\\", "/")

@@ -57,6 +57,14 @@ end
 --- failure shapes need different evidence: a flag answers "did unpack
 --- finish", and only the list answers "is what it produced still
 --- there".
+---
+--- The line delimiter is safe because the extractors refuse control
+--- characters in member names (`cosmic.tar.unsafe_path`,
+--- `cosmic.embed.extract.unsafe_entry`) — archive members are
+--- attacker-shaped input, and a member called `a\nb.txt` would be
+--- recorded as two names, neither of which exists, so every later fetch
+--- would decide the pin needs repair. Forever, silently. That guard is
+--- what this format rests on; weakening it re-opens this.
 --- @param archive string The verified archive's path
 --- @return string The manifest path
 local function manifest_of(archive: string): string

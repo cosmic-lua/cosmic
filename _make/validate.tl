@@ -12,6 +12,7 @@
 --- computes its module names has already left that shape.
 
 local fs = require("cosmic.fs")
+local imports = require("_make.imports")
 local project = require("_make.project")
 local types = require("_make.types")
 
@@ -233,32 +234,6 @@ local function check_binaries(proj: Project, issues: {Issue})
   end
 end
 
---- Collect the literal `require("…")` targets in a source.
---- @param path string Absolute path to the source
---- @return {string} Imported module names, in file order
-local function imports_of(path: string): {string}
-  local out: {string} = {}
-  local content = fs.read(path)
-  if not content then
-    return out
-  end
-  -- Line comments first: `check_imports` ERRORS on what this finds, so
-  -- a commented-out `require("cmd.other.main")` -- the shape a
-  -- developer leaves behind while debugging -- refused the whole
-  -- project for code that never runs. The docstring admitted false
-  -- negatives (computed requires); these were false POSITIVES, which
-  -- are the expensive kind in a gate.
-  -- cast: scalar narrowing after the guard above
-  local stripped = (content as string):gsub("%-%-[^\n]*", "")
-  -- `\f` (any position, %f is a frontier pattern) anchors the match so
-  -- `myrequire("x")` is not a require. Lua patterns have no \b, and
-  -- the frontier is how you spell one.
-  for name in stripped:gmatch("%f[%w_]require%s*%(?%s*[\"']([%w_%.%-]+)[\"']") do
-    out[#out + 1] = name
-  end
-  return out
-end
-
 --- The container a `_`-prefixed import is private to: the directory
 --- holding the innermost `_` segment. Root `_cli/` is project-wide
 --- internal; `cosmic/_x/` is internal to `cosmic/`.
@@ -303,7 +278,7 @@ local function check_imports(proj: Project, issues: {Issue}, defined: {string: b
       if dir == "." then
         dir = ""
       end
-      for _, name in ipairs(imports_of(fs.join(proj.root, f.path))) do
+      for _, name in ipairs(imports.of_file(fs.join(proj.root, f.path))) do
         if defined[name] then
           local container = internal_container(name)
           if container and not within(f.path, container) then
@@ -373,7 +348,6 @@ local record ValidateModule
   claims: function(proj: Project): {string: boolean}
   validate: function(proj: Project): {Issue}
   format_issues: function(issues: {Issue}): string
-  imports_of: function(path: string): {string}
 end
 
 local M: ValidateModule = {
@@ -383,7 +357,6 @@ local M: ValidateModule = {
   claims = claims,
   validate = validate,
   format_issues = format_issues,
-  imports_of = imports_of,
 }
 
 return M
