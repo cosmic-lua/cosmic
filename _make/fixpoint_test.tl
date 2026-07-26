@@ -185,13 +185,13 @@ end
 -- Both halves need the pinned inputs. Skipping when they are absent
 -- keeps a cold checkout usable; in CI they are always there, because
 -- the lane runs after the ordinary build.
-if not fs.isfile(cosmic) then
-  print("skip: no cosmic at " .. cosmic)
-  return
+if not check.needs("a built cosmic at " .. cosmic, fs.isfile(cosmic)) then
+  os.exit(2)
 end
-if not staged("tl", "tl.lua") and not fs.isfile(fs.join(repo, "o/3p/tl/tl.lua")) then
-  print("skip: no staged or fetched pins to seed from")
-  return
+if not check.needs("staged or fetched pins to seed from",
+  staged("tl", "tl.lua") ~= nil or
+  fs.isfile(fs.join(repo, "o/3p/tl/tl.lua"))) then
+  os.exit(2)
 end
 
 -- gen2: the product works. Every check here is a capability the binary

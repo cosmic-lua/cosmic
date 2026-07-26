@@ -28,9 +28,8 @@ local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
 local make_bin = fs.abspath(os.getenv("COSMIC_MAKE") or "o/cosmo-make")
-if not fs.isfile(make_bin) then
-  print("skip: no make binary at " .. make_bin)
-  return
+if not check.needs("the make engine at " .. make_bin, fs.isfile(make_bin)) then
+  os.exit(2)
 end
 
 --- Build a fixture tree, returning its absolute root.
@@ -259,15 +258,15 @@ test_stored_path_collisions_are_refused()
 local function test_the_real_payload_generator()
   local repo = fs.abspath(".")
   local gen = fs.join(repo, "cmd/cosmic/embed.gen.tl")
-  if not fs.isfile(gen) then
-    print("skip: not run from the cosmic tree")
+  if not check.needs("the cosmic tree (cmd/cosmic/embed.gen.tl)",
+    fs.isfile(gen)) then
     return
   end
   -- The generator copies the pins' unpacked products, so it needs a
-  -- fetched tree. Mirrors the graph tests' engine guard.
-  if not fs.isfile(fs.join(repo, "o/3p/tl/tl.lua"))
-  or not fs.isfile(fs.join(repo, "o/3p/cosmos/make")) then
-    print("skip: pins not fetched (o/3p/**)")
+  -- fetched tree.
+  if not check.needs("fetched pins under o/3p",
+    fs.isfile(fs.join(repo, "o/3p/tl/tl.lua")) and
+    fs.isfile(fs.join(repo, "o/3p/cosmos/make"))) then
     return
   end
   local out = fs.join(tmpdir, "real-payload")

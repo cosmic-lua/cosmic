@@ -176,6 +176,38 @@ local function skip(reason: string, strict?: boolean)
   end
 end
 
+--- Declare a precondition a test needs, and say what to do without it.
+---
+--- The trap this closes: a test that prints "skip: …" and returns exits
+--- 0, and the runner counts 0 as a PASS -- `status_of` reserves exit 2
+--- for skip. So a suite whose fixtures went missing reports green while
+--- testing nothing, which is how a gate quietly becomes decorative.
+---
+--- Locally the skip stands: a cold checkout should not fail for lacking
+--- a build. In CI it is a hard failure, because there the precondition
+--- is always provisioned and its absence means the provisioning broke,
+--- not that the developer is mid-setup.
+---
+---     if not check.needs("the make engine", fs.isfile(make_bin)) then
+---       return
+---     end
+---
+--- @param what string What is missing, named for the message
+--- @param ok boolean Whether the precondition holds
+--- @return boolean True when the test may proceed
+local function needs(what: string, present: boolean): boolean
+  if present then
+    return true
+  end
+  if os.getenv("CI") then
+    error("precondition missing in CI: " .. what ..
+      " -- provisioning is broken, or this test should not be gated on it", 2)
+  end
+  io.stderr:write("→ skip: " .. what .. " is missing\n")
+  print("skip: " .. what .. " is missing")
+  return false
+end
+
 --- Record that a sandbox test actually exercised real enforcement.
 --- Writes a marker the enforce-lane tripwire counts to confirm the lane is
 --- not a silent no-op (every test skipping would otherwise look green).
@@ -192,6 +224,7 @@ local record CheckModule
   err: function(value: any, e: string, label?: string)
   enforcing: function(): boolean
   skip: function(reason: string, strict?: boolean)
+  needs: function(what: string, present: boolean): boolean
   enforced: function(label: string)
 end
 
@@ -203,6 +236,7 @@ local M: CheckModule = {
   err = err,
   enforcing = enforcing,
   skip = skip,
+  needs = needs,
   enforced = enforced,
 }
 

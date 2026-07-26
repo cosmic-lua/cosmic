@@ -326,4 +326,34 @@ print(c)
 end
 test_check_hint_no_duplicates()
 
+-- `needs` closes a trap in the runner's own accounting: a test that
+-- prints "skip" and returns exits 0, and 0 is counted as a PASS (only
+-- exit 2 is a skip). So a suite whose fixtures went missing reports
+-- green while testing nothing. Locally the skip stands -- a cold
+-- checkout should not fail for lacking a build -- but in CI the
+-- precondition is always provisioned, so its absence is a broken lane.
+local function test_needs_skips_locally_and_fails_in_ci()
+  local had = os.getenv("CI")
+  env.unset("CI")
+
+  assert(check.needs("a satisfied precondition", true),
+    "a met precondition lets the test proceed")
+  assert(not check.needs("an absent fixture", false),
+    "an unmet one returns false so the caller can skip")
+
+  env.set("CI", "true", true)
+  local ok, err = pcall(check.needs, "an absent fixture", false)
+  assert(not ok, "under CI an unmet precondition must fail, not skip")
+  assert(tostring(err):find("precondition missing in CI", 1, true),
+    "and say so plainly, got: " .. tostring(err))
+  assert(check.needs("a satisfied precondition", true),
+    "a met precondition is still fine under CI")
+
+  env.unset("CI")
+  if had then
+    env.set("CI", had, true)
+  end
+end
+test_needs_skips_locally_and_fails_in_ci()
+
 print("All check tests passed!")
