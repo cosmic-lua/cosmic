@@ -405,10 +405,21 @@ coverage scan skip it.
    - **3i — the verbs take over, and the bridge goes.** `-include
      o/cosmic.mk` once the Makefile's own `build`/`test`/`fmt` targets
      retire; `--make fetch` replaces `_build/build-fetch.tl` (the
-     pins themselves are already `*.pin.tl`, done in 3g); `regen` runs the
-     generation units, which is what lets `_types/*.d.tl` stop being
-     committed. Then `bin/make` → `bin/cosmic`, and `mk/`, `cook.mk`
-     and the ratchets the closed vocabulary makes moot go with it.
+     pins themselves are already `*.pin.tl`, done in 3g, and the two
+     pipelines now share one READER); `regen` runs the generation
+     units, which is what lets `_types/*.d.tl` stop being committed.
+     Then `bin/make` → `bin/cosmic`, and `mk/`, `cook.mk` and the
+     ratchets the closed vocabulary makes moot go with it.
+
+     **The sequence, the gaps and the exit criteria are
+     [make-3i.md](make-3i.md)** — it is the one phase that cannot land
+     behind the existing build, because the existing build is what
+     goes, so it is written down before it is attempted. It also
+     records the measurement that used to be an assumption:
+     `--make test` over this whole tree finds exactly the same 173
+     targets `bin/make test` does, and its 46 failures are the test
+     EXECUTION ENVIRONMENT (25 of them one missing thing — no binary
+     under test on the path), not the graph.
 
      **Generators moved here from 3g; the pins did not.** The pins
      looked blocked for the same reason: converting them means
