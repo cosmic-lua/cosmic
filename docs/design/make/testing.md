@@ -33,7 +33,7 @@ Same rule as generators: **inputs = grants = your staged subtree.**
 
 **Ports remain a known, documented gap** — fencing can't see them.
 
-Consequence here: ratchet tests that read the live tree
-(`makefile_ratchet_test.tl`, the cast and coverage ratchets) **move to
-where their inputs are** — the project root, whose subtree is the whole
+Consequence here: ratchet tests that read the live tree (the workflow,
+cast and coverage ratchets — the makefile ratchets went with the
+Makefile) **move to where their inputs are** — the project root, whose subtree is the whole
 staged tree.

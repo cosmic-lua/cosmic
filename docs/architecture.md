@@ -14,7 +14,7 @@ the cosmic binary is an executable zip — a native ELF/Mach-O/PE binary with a 
 - embedding arbitrary files alongside Lua modules
 - custom executables via `cosmic --embed`
 
-the entry point is `/zip/main.lua` (compiled from `cosmic/main.tl`). the `.args` file provides default command-line arguments.
+the entry point is `/zip/main.lua` (compiled from `cmd/cosmic/main.tl`, the same `cmd/<name>/` position `--make` builds every binary from). the `.args` file provides default command-line arguments.
 
 ### Two-Layer Type System
 
