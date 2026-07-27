@@ -57,18 +57,18 @@ cosmic verb or `exec`.
   argv names — `tee <out> cosmic --report <got…>` hands those to a
   process that inherits the fence. The make rules already spell this
   floor as `unveil_base`/`unveil_dev`; the derived fence needs its own.
-  It is therefore **opt-in (`COSMIC_FENCE=1`) until the canary proves
-  it on a Landlock host** — no machine available while writing it could
-  enforce anything, so every local run was a silent no-op.
+  It shipped **opt-in** for a while, which was the wrong shape: a fence
+  nobody turns on is a fence, and off-by-default cannot be tested
+  honestly, because the only runs that exercise it are the ones that
+  ask for it. It is **ON**, and `COSMIC_FENCE=0` opts out.
 
-  **Making it the default is its own change**, and it is the last step
-  of the enforcement swap rather than the first. The order matters
-  because the Makefile's per-rule `.PLEDGE`/`.UNVEIL` are already gone:
-  the project sits between "an undeclared read fails CI on a Landlock
-  host" and "nothing is enforced anywhere", and only a defaulted fence
-  closes that. What is left: the fence becomes the default for `-c`,
-  with the same denial produced by the portable in-process gate on
-  non-Landlock hosts.
+  Costless where it cannot work — `unveil()` no-ops without Landlock,
+  so a host that cannot enforce is unaffected. The loud case is a host
+  that CAN enforce and fails to apply the policy: that is a fence that
+  silently is not there.
+
+  What is still open: the portable in-process gate producing the same
+  denial on non-Landlock hosts.
 
   Two things a CI lane that requires a fenced child to **succeed**
   found, and they are the argument for testing enforcement in both

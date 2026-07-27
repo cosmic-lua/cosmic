@@ -220,6 +220,19 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil
   end
   local rw: {string} = {}
   for _, p in ipairs(rw_raw) do
+    -- Create the output's directory before asking which one it is.
+    -- Landlock rules are OPENED, so a grant naming a path that does not
+    -- exist fails the whole restrict -- and walking up from a
+    -- not-yet-created output bottomed out at ".", handing the verb the
+    -- entire project tree. On a cold build that was every step: the
+    -- fence was widest exactly when the tree was emptiest. The verbs
+    -- all `makedirs` their own outputs anyway, so this is the same
+    -- directory a moment earlier, and now it is the one that is
+    -- granted.
+    local dir = fs.dirname(p)
+    if dir ~= "" and dir ~= "." then
+      fs.makedirs(dir)
+    end
     rw[#rw + 1] = nearest_existing(p)
   end
   if verb == "test" then
@@ -330,15 +343,39 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil
   if arg[-1] ~= nil and fs.exists(arg[-1]) then
     ex[#ex + 1] = arg[-1]
   end
-  -- The APE loader, beside every binary this build execs (the repo
-  -- stages o/bin/ape for exactly this): a fat APE that cannot reach its
-  -- loader fails with ENOEXEC, which reads like a corrupt binary rather
-  -- than a denied path.
+  -- The APE loader. A fat APE that cannot reach it fails with ENOEXEC,
+  -- which reads like a corrupt binary rather than a denied path, and
+  -- since the gate now runs under the tree's own `o/bin/cosmic` -- a
+  -- fat APE, because that is what ships -- every recipe execs one.
+  --
+  -- Three places it can be, all granted because which one applies is a
+  -- property of the host rather than of the line: a sibling `ape` the
+  -- build staged, the per-user extraction the stub makes
+  -- (`~/.ape-<version>`), and TMPDIR, which the stub falls back to and
+  -- which is already writable above.
   local loaders: {string} = {}
   for _, prog in ipairs(ex) do
     local sibling = fs.join(fs.dirname(prog), "ape")
     if fs.exists(sibling) then
       loaders[#loaders + 1] = sibling
+    end
+  end
+  local home = os.getenv("HOME")
+  if home and home ~= "" then
+    local found = fs.glob(home, ".ape-*")
+    local extracted = found is {string} and #found > 0
+    if found is {string} then
+      for _, l in ipairs(found) do
+        loaders[#loaders + 1] = l
+      end
+    end
+    -- The stub EXTRACTS the loader when it is missing, so the first
+    -- fenced exec on a fresh home needs to be able to write one. Only
+    -- then: once it exists, the grant narrows to the loader itself
+    -- rather than the whole home directory, which is the steady state
+    -- and the one that matters.
+    if not extracted and fs.isdir(home) then
+      rw[#rw + 1] = home
     end
   end
   for _, l in ipairs(loaders) do
@@ -355,18 +392,27 @@ end
 --- is live where it counts. A host that CAN enforce but fails to is a
 --- different thing entirely — that is a fence that silently is not
 --- there, so it fails the step loudly instead.
---- OFF until a Landlock host proves it. Shipping it on turned the
---- enforce, build, and offline lanes red at once: the derivation was
---- right about the arguments and silent about everything else a
---- process needs — the APE loader, `/dev/urandom`, the paths a child's
---- own argv names — and no host available while writing it could
---- enforce anything (`sandbox.available().fs` is false without
---- Landlock, so every local run was a no-op). `COSMIC_FENCE=1` turns
---- it on; the canary in build_test asserts it denies. Flipping the
---- default is its own change, gated on that canary passing in CI.
+--- ON. `COSMIC_FENCE=0` turns it off.
+---
+--- It shipped off, because the first attempt turned three lanes red at
+--- once: the derivation was right about the arguments and silent about
+--- everything else a process needs — the APE loader, `/dev/urandom`,
+--- the paths a child's own argv names. Those are the floor, and the
+--- floor is here now.
+---
+--- Default-on is the whole point of the design. The Makefile's
+--- per-rule `.PLEDGE`/`.UNVEIL` are gone; between that and this the
+--- project had a build nothing sandboxed, and a fence nobody turns on
+--- is a fence. Off-by-default also cannot be tested honestly: the only
+--- runs that exercised it were the ones that asked for it.
+---
+--- Costless where it cannot work: `unveil()` no-ops without Landlock,
+--- so on a host that cannot enforce this changes nothing. A host that
+--- CAN enforce and fails to apply the policy is the loud case — that
+--- is a fence that silently is not there.
 --- @return boolean
 local function fence_enabled(): boolean
-  return os.getenv("COSMIC_FENCE") == "1"
+  return os.getenv("COSMIC_FENCE") ~= "0"
 end
 
 --- @param verb string The verb name

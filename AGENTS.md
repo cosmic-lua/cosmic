@@ -489,9 +489,10 @@ discipline). the backlog is GitHub issues labeled `perf`.
   (two tree paths) and `--make fetch` against the real pins. Both Linux
   lanes are privileged and non-root: `_cli/fence_test.tl` asserts a real
   Landlock denial, the quicksand tests unshare and mount. `smoke` runs
-  the built binary on real macOS/Windows runners. **Not** covered: the
-  fence applied to real recipes — the `enforce` verb is planned, so the
-  build itself is not sandboxed in CI
+  the built binary on real macOS/Windows runners. The fence is ON by
+  default (`COSMIC_FENCE=0` opts out); the build lane asserts the host
+  can enforce and that a real build passes fenced — the direction a
+  denial test cannot prove
 - **docs.yml**: `--make docs` then `_docs/publish.tl`, to the `docs`
   branch on push to main
 - **release.yml**: daily release. Builds twice — the pinned cosmic builds

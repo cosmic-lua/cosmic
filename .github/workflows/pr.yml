@@ -181,6 +181,32 @@ jobs:
             cmp "$OLDPWD/cosmic-first" o/bin/cosmic
             echo "reproducible: PASS — double build is byte-identical"'
 
+      # The fence is ON by default, so every recipe above already ran
+      # under it. This asserts the direction the denial tests cannot:
+      # that a REAL build still succeeds when the kernel is holding the
+      # policy. A fence that denies everything is not enforcement, and a
+      # denial test alone cannot tell the two apart -- which is how a
+      # floor that failed to construct (`/zip/.types`, a path inside the
+      # executable, handed to Landlock) went unnoticed.
+      #
+      # It also proves the fence is LIVE here rather than a silent
+      # no-op: without Landlock `unveil()` returns success having done
+      # nothing, so the check that matters is that the host can enforce
+      # at all.
+      - name: the fence is live, and a real build passes under it
+        shell: bash
+        run: |
+          set -eux
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            o/bin/cosmic -e 'local s = require("cosmic.sandbox")
+              assert(s.available().fs, "this host cannot enforce; the lane proves nothing")'
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            o/bin/cosmic --make clean
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            bin/cosmic --make fetch
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            bin/cosmic --make build
+
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: cosmic-smoke
