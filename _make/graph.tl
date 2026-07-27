@@ -54,6 +54,15 @@ local compiled_kinds < const >: {Kind: boolean} = {
   gen = true,
 }
 
+--- Kinds whose targets RUN against the compiled tree, so each needs the
+--- BUILT closure of what it imports: built before it, and the whole of
+--- what its fence may read.
+local runs_against_the_stage < const >: {Kind: boolean} = {
+  test = true,
+  example = true,
+  benchmark = true,
+}
+
 --- The distinct directories holding compiled sources, sorted.
 ---
 --- What a coverage report needs to see a module NO test loaded: the
@@ -184,18 +193,24 @@ local function project_mk(proj: Project, cosmic: string): string
   local dep_lines: {string} = {}
   local by_import = deps.index(proj)
   for _, f in ipairs(proj.files) do
-    local stem = f.path:gsub("%.tl$", "")
+    -- The make-variable stem is the path with its EXTENSION removed,
+    -- because that is the stem the pattern rules produce: a target
+    -- `o/x_test.lua.test.got` matching `$(O)/%.lua.test.got` has stem
+    -- `x_test`. Stripping only `.tl` named the `.lua` twin's variable
+    -- `deps_x_test.lua`, which no rule ever expands -- so a `.lua` test
+    -- got an EMPTY closure: never rebuilt when an import changed, and
+    -- fenced away from the modules it requires.
+    local stem = (f.path:gsub("%.tl$", ""):gsub("%.lua$", ""))
     if compiled_kinds[f.kind] and f.path:sub(-3) == ".tl" then
       dep_lines[#dep_lines + 1] = assign("srcdeps_" .. stem,
         deps.source_paths(deps.closure(proj, f, by_import)))
     end
-    -- Examples get the same closure as tests, and for the same reason:
-    -- an example is a target that RUNS against the compiled tree, so
-    -- what it imports must be built before it and is exactly what its
-    -- fence may read. The project model already says so — `*_example.tl`
-    -- carries a test's grants — and a rule cannot ask for a closure
-    -- nobody emitted.
-    if f.kind == "test" or f.kind == "example" then
+    -- Examples and benchmarks get the same closure as tests, and for
+    -- the same reason: each RUNS against the compiled tree, so what it
+    -- imports must be built before it and is exactly what its fence may
+    -- read. The model already says so — a rule cannot ask for a closure
+    -- nobody emitted, and `cosmic.mk` asks for all three.
+    if runs_against_the_stage[f.kind] then
       dep_lines[#dep_lines + 1] = assign("deps_" .. stem,
         deps.built_paths(deps.closure(proj, f, by_import)))
     end

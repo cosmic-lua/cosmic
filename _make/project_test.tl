@@ -71,6 +71,8 @@ local function test_every_marker_classifies()
       ["cmd/servit/embed_gen.tl"] = "return {}\n",
       ["cmd/servit/data_gen.tl"] = "return {}\n",
       ["embed_gen.tl"] = "return {}\n",
+      ["embed/testdata/golden.json"] = "{}\n",
+      ["db/testdata/app/embed/x.txt"] = "x\n",
     })
 
   kind_of(proj, "main.tl", "entry")
@@ -79,6 +81,12 @@ local function test_every_marker_classifies()
   kind_of(proj, "db/query_test.tl", "test")
   kind_of(proj, "db/query_example.tl", "example")
   kind_of(proj, "db/testdata/fixture.json", "testdata")
+  -- `embed/**` ships VERBATIM, so a `testdata` segment INSIDE it is a
+  -- file to ship, not a fixture to drop. The two markers cannot fight
+  -- over a file: payload is anchored at the root or `cmd/<name>/`, so a
+  -- fixture's own embed/ is still testdata.
+  kind_of(proj, "embed/testdata/golden.json", "payload")
+  kind_of(proj, "db/testdata/app/embed/x.txt", "testdata")
   kind_of(proj, "types/lpeg.d.tl", "types")
   kind_of(proj, "3p/lpeg/lpeg_pin.tl", "pin")
   kind_of(proj, "docs/index_gen.tl", "gen")

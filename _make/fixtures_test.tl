@@ -153,4 +153,34 @@ local function test_only_declared_payload_ships()
 end
 test_only_declared_payload_ships()
 
+-- The closure a `.lua` target gets is what makes it re-run when an
+-- import changes and what its fence grants it a read of. The variable
+-- is named after the make STEM -- the path without its extension -- so
+-- emitting `deps_main_test.lua` left every `.lua` test with an empty
+-- one, silently: never rebuilt, never granted, still green.
+local function test_lua_targets_get_their_import_closure()
+  local mk = check.must(fs.read(fs.join(luaonly_root, "o/project.mk")))
+  assert(mk:find("\ndeps_main_test :=", 1, true),
+    "a .lua test's closure is named for its extensionless stem, got:\n" .. mk)
+  assert(mk:find("deps_main_test := o/greet.lua", 1, true),
+    "and holds what it imports, got:\n" .. mk)
+end
+test_lua_targets_get_their_import_closure()
+
+-- `--make benchmark` end to end, from a cold tree: a benchmark is
+-- `test`'s third sibling, so it gets the same closure -- which is what
+-- builds the modules it requires before it runs. With no closure
+-- emitted at all, this fixture's `require("greet")` had nothing to
+-- resolve.
+local function test_benchmark_runs_against_the_stage()
+  local root = staged("pkg")
+  local code, out = make(root, "benchmark")
+  assert(code == 0, "--make benchmark should succeed: " .. out)
+  assert(out:find("benchmark: PASS", 1, true), "got: " .. out)
+  local mk = check.must(fs.read(fs.join(root, "o/project.mk")))
+  assert(mk:find("deps_greet/greet_benchmark := o/greet/init.lua", 1, true),
+    "a benchmark gets the built closure of what it imports, got:\n" .. mk)
+end
+test_benchmark_runs_against_the_stage()
+
 print("all fixture tests passed")

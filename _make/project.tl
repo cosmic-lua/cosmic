@@ -193,23 +193,29 @@ end
 --- `--make build` embedded the test file into the released binary.
 --- Neither half announced itself.
 ---
---- Classify one file from its relative path. Order matters: testdata
---- wins over everything (it is positional, and its only job is staying
---- out of artifacts), then payload (also positional, and for the same
---- reason in reverse — `embed/.tl/x.tl` is a file to ship, not a module
---- to compile, and `embed/x_gen.tl` is a file to ship, not a generator
---- to run), then the suffix markers, then position.
+--- Classify one file from its relative path. Order matters: payload
+--- wins over everything, then testdata, then the suffix markers, then
+--- position.
+---
+--- Payload first because `embed/**` ships VERBATIM — that is the whole
+--- contract, and it is what makes `embed/.tl/x.tl` a file to ship
+--- rather than a module to compile, `embed/x_gen.tl` a file to ship
+--- rather than a generator to run, and `embed/testdata/x` a file to
+--- ship rather than a fixture to drop. The two markers cannot fight
+--- over a file: `payload_depth` anchors at the root or at
+--- `cmd/<name>/`, so a fixture's own `embed/` (`pkg/testdata/app/embed/x`)
+--- is not payload and still classifies as testdata.
 --- @param rel string Path relative to the root
 --- @return Kind The kind this file declares
 local function classify(rel: string): Kind
   local segs = segments(rel)
+  if payload_depth(segs) then
+    return "payload"
+  end
   for i = 1, #segs - 1 do
     if segs[i] == "testdata" then
       return "testdata"
     end
-  end
-  if payload_depth(segs) then
-    return "payload"
   end
   if rel:sub(-5) == ".d.tl" then
     return "types"

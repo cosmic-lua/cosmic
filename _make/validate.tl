@@ -56,12 +56,21 @@ local UNPROVIDABLE < const >: {string: string} = {
 local METACHARACTERS < const > = "#;\"'*?[]&|<>(){}$`^\\!~%:=,"
 
 --- Kinds whose sources are scanned for import edges.
+---
+--- Every kind whose file is COMPILED, because `deps.tl` follows the
+--- edge for all of them: a kind the scanner skips but the graph
+--- resolves is a module that can reach into another binary's tree or a
+--- foreign `_dir` with nothing to say so -- the scanner/consumer drift
+--- `imports.tl`'s header disclaims, arriving through the one kind
+--- nobody added here.
 local scanned: {string: boolean} = {
   module = true,
   entry = true,
   test = true,
   example = true,
+  benchmark = true,
   gen = true,
+  ["payload-gen"] = true,
 }
 
 --- Kinds that define an import path other files can resolve to.
@@ -81,6 +90,13 @@ local claims_source: {string: boolean} = {
   entry = true,
   test = true,
   example = true,
+}
+
+--- Kinds that compile into `o/` without carrying an import path, so
+--- two spellings of one collide over their OUTPUT rather than a name.
+local compiles_without_import: {string: boolean} = {
+  benchmark = true,
+  gen = true,
 }
 
 --- Append an issue.
@@ -170,6 +186,26 @@ local function check_duplicates(proj: Project, issues: {Issue})
       end
     end
   end
+  -- A benchmark and a generator compile but carry no import path, so
+  -- the pass above cannot see `foo_benchmark.tl` beside
+  -- `foo_benchmark.lua`. Both land on one `o/foo_benchmark.lua`, both
+  -- pattern rules match it, and make picks one -- the coin flip this
+  -- check exists to refuse, arriving through the kinds that have no
+  -- name to collide on. The OUTPUT path is what they actually collide
+  -- over, so that is what this asks about.
+  local outputs: {string: string} = {}
+  for _, f in ipairs(proj.files) do
+    if compiles_without_import[f.kind] then
+      local out = (f.path:gsub("%.tl$", ""):gsub("%.lua$", "")) .. ".lua"
+      local first = outputs[out]
+      if first then
+        add(issues, f.path, "duplicate build output '" .. out ..
+          "'; also produced by " .. first)
+      else
+        outputs[out] = f.path
+      end
+    end
+  end
 end
 
 --- Every `cmd/<name>/` directory builds one binary, so one without an
@@ -216,10 +252,13 @@ end
 --- @param issues {Issue} Issues to append to
 local function check_binaries(proj: Project, issues: {Issue})
   for _, f in ipairs(proj.files) do
-    if f.path == "init.tl" then
+    -- Both spellings: `.lua` sources are first-class, so a root
+    -- `init.lua` fails the same way -- it compiles, copies to
+    -- `o/init.lua`, and silently never ships.
+    if f.path == "init.tl" or f.path == "init.lua" then
       add(issues, f.path,
-        "a root init.tl has no import path, so it can never ship; " ..
-        "did you mean main.tl?")
+        "a root " .. f.path .. " has no import path, so it can never " ..
+        "ship; did you mean main.tl?")
     end
   end
   local seen: {string: string} = {}

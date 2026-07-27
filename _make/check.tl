@@ -23,12 +23,20 @@ local type Project = types.Project
 --- declaration file is an input to the checker, resolved through the
 --- include path by the sources that require it. `.lua` sources are
 --- absent too — Lua is not type-checked, by definition.
+---
+--- Everything else that compiles is here, including the two kinds that
+--- are easy to forget: `build` strict-compiles a `benchmark`, so a
+--- table without it lets `check` pass a tree `build` rejects; and a
+--- binary's `payload-gen` is the file that decides what SHIPS, which
+--- makes it the last one that should be gated by fmt and lint alone.
 local checkable: {string: boolean} = {
   module = true,
   entry = true,
   test = true,
   example = true,
+  benchmark = true,
   gen = true,
+  ["payload-gen"] = true,
   pin = true,
 }
 

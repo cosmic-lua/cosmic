@@ -270,6 +270,27 @@ local function test_root_init_is_refused()
   assert(text:find("no import path", 1, true), "got: " .. text)
   assert(text:find("main.tl", 1, true),
     "and points at the thing they probably meant, got: " .. text)
+
+  -- Both spellings. `.lua` sources are first-class, so the refusal has
+  -- to be too -- it was `.tl`-only, and a root init.lua walked past it
+  -- into the exact failure this check names.
+  local _, lua_text = issues_of("rootinitlua", {
+      ["main.tl"] = "print('x')\n",
+      ["init.lua"] = "return {}\n",
+    })
+  assert(lua_text:find("no import path", 1, true), "got: " .. lua_text)
+  assert(lua_text:find("init.lua", 1, true),
+    "and names the file it is about, got: " .. lua_text)
+
+  -- A benchmark and a generator carry no import path, so the duplicate
+  -- check cannot see them by name -- they collide over their OUTPUT.
+  local _, dup = issues_of("dupbench", {
+      ["main.tl"] = "print('x')\n",
+      ["a_benchmark.tl"] = "return {}\n",
+      ["a_benchmark.lua"] = "return {}\n",
+    })
+  assert(dup:find("duplicate build output", 1, true), "got: " .. dup)
+  assert(dup:find("a_benchmark.lua", 1, true), "got: " .. dup)
 end
 test_root_init_is_refused()
 

@@ -269,8 +269,19 @@ end
 --- schedule answer.
 local VERBS < const >: {Verb} = {
   {name = "build", target = "build", select = stage.SELECTS.build, run = run_build},
+  -- `check` generates first, like every other verb that touches the
+  -- graph -- it just does not lower onto make, so it has to say so
+  -- itself. The checker resolves `cosmo.*` through what
+  -- `_types/types_gen.tl` writes: without this, `--make check` on a
+  -- cold tree fails on unresolvable `cosmo.*`, and after a pin bump it
+  -- checks against the types the last run left.
   {name = "check", run = function(proj: Project, paths: {string},
-        _cosmic: string): integer
+        cosmic: string): integer
+      local ok, err = generate.sources(proj, cosmic)
+      if not ok then
+        io.stderr:write((err or "make: source generation failed") .. "\n")
+        return stage.verdict("check", false, "generate failed")
+      end
       return check.run(proj, paths)
     end},
   {name = "clean", run = run_clean},
