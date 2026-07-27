@@ -373,9 +373,22 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil
   if fs.isdir(tmp) then
     rw[#rw + 1] = tmp
   end
+  -- Coverage output, created before it is granted for the same reason
+  -- the write grants above are: a landlock rule is an open, so a
+  -- directory that does not exist yet gets no rule -- and a step whose
+  -- coverage directory it creates ITSELF therefore always missed.
+  --
+  -- The failure is quiet in the worst way. Nothing errors: the step
+  -- runs, the tests pass, and the `.cov` dump is simply denied at exit,
+  -- so what shows up is the RATCHET, three recipe-path files at once
+  -- (`_cli/build/steps.tl` 182/237 -> 33/230) reading like a code
+  -- change that deleted the tests.
   local cov = os.getenv("COSMIC_COVERAGE")
-  if cov ~= nil and fs.isdir(cov) then
-    rw[#rw + 1] = cov
+  if cov ~= nil and cov ~= "" then
+    fs.makedirs(cov)
+    if fs.isdir(cov) then
+      rw[#rw + 1] = cov
+    end
   end
   for _, dev in ipairs({"/dev/null"}) do
     if fs.exists(dev) then

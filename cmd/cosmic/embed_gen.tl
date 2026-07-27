@@ -72,11 +72,11 @@ local PINNED: {{string, string}} = {
 ---
 --- Enumerated here because shipping is opt-in. Taking them as implicit
 --- assets instead -- "everything else, embedded at its relative path"
---- -- also ships `docs/`, `mk/`, `Makefile` and `_perf/`, which is 1.5
---- MB of artifact nobody asked for. What a binary carries is a thing
---- its unit SAYS, and this is cosmic
---- saying it. Both are read from `/zip` at run time: `_cli.help` reads
---- `sys/help.md`, and `--docs` reads the guides under `skills/cosmic`.
+--- -- also ships `docs/`, `_perf/` and `_make/testdata/`, which is
+--- megabytes of artifact nobody asked for. What a binary carries is a
+--- thing its unit SAYS, and this is cosmic saying it. Both are read
+--- from `/zip` at run time: `_cli.help` reads `sys/help.md`, and
+--- `--docs` reads the guides under `skills/cosmic`.
 local TREES: {string} = {
   "sys",
   "skills/cosmic",

@@ -289,6 +289,27 @@ local function test_a_program_that_is_not_there_is_not_a_rule()
 end
 test_a_program_that_is_not_there_is_not_a_rule()
 
+local function test_the_coverage_directory_is_granted_before_it_exists()
+  -- The step CREATES this directory, so asking `isdir` first always
+  -- said no and the grant was never added. Nothing errors when that
+  -- happens — the step runs, the tests pass, and only the `.cov` dump
+  -- at exit is denied — so it surfaced as three recipe-path files
+  -- losing most of their coverage at once.
+  local cov = fs.join(tmpdir, "cov-not-yet", "deeper")
+  fs.rmrf(fs.dirname(cov))
+  local prev = env.get("COSMIC_COVERAGE")
+  env.set("COSMIC_COVERAGE", cov, true)
+  local p = grants.plan("list", {fs.join(tmpdir, "out.txt")})
+  if prev then
+    env.set("COSMIC_COVERAGE", prev, true)
+  else
+    env.unset("COSMIC_COVERAGE")
+  end
+  assert(p is sandbox.Fs, "list must plan a policy")
+  assert(has(p.rw, cov), "the coverage directory must be writable")
+end
+test_the_coverage_directory_is_granted_before_it_exists()
+
 local function test_the_runtime_floor_is_granted()
   -- Derived-from-argv says nothing about what every process needs.
   local p = grants.plan("list", {fs.join(tmpdir, "out.txt")})

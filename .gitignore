@@ -1,6 +1,5 @@
 # Build outputs
 o/
-o2/
 cosmic-first
 dist/
 results/
@@ -15,7 +14,6 @@ results/
 bin/*
 !bin/cosmic
 !bin/cosmic.pin
-!bin/make
 
 # ah agent harness
 .ah/

@@ -14,8 +14,12 @@ local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local fs_types = require("cosmic.fs.types")
 
+--- The one prefix a recipe step's failure wears, matching its siblings
+--- in `_cli/build/init.tl` and `_cli/driver.tl`. It used to say
+--- `--build:` after the flag of that name was retired, so make printed
+--- a failure attributed to a flag cosmic no longer has.
 local function fail(msg: string): integer
-  io.stderr:write("--build: " .. msg .. "\n")
+  io.stderr:write("cosmic -c: " .. msg .. "\n")
   return 1
 end
 

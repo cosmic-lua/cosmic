@@ -26,34 +26,6 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 local repo = fs.abspath(".")
 local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN") or "o/bin", "cosmic"))
 
---- Where the legacy pipeline stages a dependency, if it has.
----
---- The generator reads its pinned inputs from `o/3p/**`, which is where
---- `--make fetch` puts them; CI provisions the same bytes through the
---- older Makefile path into `o/staged/<dep>/<ver>-<sha>/`. Seeding
---- across keeps this lane OFFLINE -- it runs unchanged in the
---- no-network job -- and the coupling is deliberate: while both
---- pipelines are live, something has to know they carry the
---- same bytes, and a test that fails loudly is the right thing to be
---- holding that knowledge.
---- @param dep string The dependency directory under o/staged
---- @param name string The file to find inside the staged version dir
---- @return string|nil The staged path
-local function staged(dep: string, name: string): string | nil
-  local base = fs.join(repo, "o/staged", dep)
-  if not fs.isdir(base) then
-    return nil
-  end
-  local found: string = nil
-  fs.walk(base, function(path: string, entry: string): fs.WalkAction
-      if entry == name and not found then
-        found = path
-      end
-      return nil
-    end)
-  return found
-end
-
 --- Copy one file, creating the destination's directory.
 local function copy(from: string, to: string)
   local body = check.must(fs.read(from))
@@ -116,14 +88,16 @@ local function seed_pins(dest: string): boolean
     {"cosmos", "lua-debug", "o/3p/cosmos/lua-debug"},
   }
   for _, w in ipairs(want) do
-    -- Prefer this tree's own `o/3p`, where `--make fetch` unpacks a
-    -- pin; fall back to a staged layout for a tree that predates it.
-    local direct = fs.join(repo, w[3])
-    local from = fs.isfile(direct) and direct or staged(w[1], w[2])
-    if not from then
+    -- `o/3p` is where `--make fetch` unpacks a pin, and now the only
+    -- place: this used to fall back to `o/staged/<dep>/<ver>-<sha>/`,
+    -- which the Makefile pipeline wrote and nothing writes any more.
+    -- A fallback to a directory no code produces is not a fallback,
+    -- it is a branch that can only ever return nil.
+    local from = fs.join(repo, w[3])
+    if not fs.isfile(from) then
       return false
     end
-    copy(from as string, fs.join(dest, w[3])) -- cast: scalar narrowing after the guard
+    copy(from, fs.join(dest, w[3]))
   end
   return true
 end
@@ -199,8 +173,7 @@ end
 if not check.needs("a built cosmic at " .. cosmic, fs.isfile(cosmic)) then
   os.exit(2)
 end
-if not check.needs("staged or fetched pins to seed from",
-  staged("tl", "tl.lua") ~= nil or
+if not check.needs("fetched pins to seed from",
   fs.isfile(fs.join(repo, "o/3p/tl/tl.lua"))) then
   os.exit(2)
 end

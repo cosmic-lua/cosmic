@@ -89,28 +89,12 @@ local function make(dir: string, ...: string): integer, string
   return r.code or 128, (r.stdout or "") .. (r.stderr or "")
 end
 
---- Where the Makefile pipeline staged a dependency, if it has.
---- @param repo string The project root
---- @param dep string The dependency directory under o/staged
---- @param name string The file to find inside the staged version dir
---- @return string|nil The staged path
-local function staged_at(repo: string, dep: string, name: string): string | nil
-  local base = fs.join(repo, "o/staged", dep)
-  if not fs.isdir(base) then
-    return nil
-  end
-  local found: string = nil
-  fs.walk(base, function(path: string, entry: string): fs.WalkAction
-      if entry == name and not found then
-        found = path
-      end
-      return nil
-    end)
-  return found
-end
-
---- Ensure `o/3p/**` holds what `--make fetch` would have landed there,
---- copying from the Makefile pipeline's staged tree when it has not.
+--- Whether `o/3p/**` holds everything the generator reads.
+---
+--- It used to also COPY, from an `o/staged/**` tree the Makefile
+--- pipeline wrote. Nothing writes that tree now, so the copy could
+--- only ever be skipped, and what is left is the question it was
+--- guarding: has this tree fetched?
 --- @param repo string The project root
 --- @return boolean True when every pinned input is in place
 local function seed_pins(repo: string): boolean
@@ -123,23 +107,8 @@ local function seed_pins(repo: string): boolean
     {"cosmos", "lua-debug", "o/3p/cosmos/lua-debug"},
   }
   for _, w in ipairs(want) do
-    local dest = fs.join(repo, w[3])
-    if not fs.isfile(dest) then
-      local from = staged_at(repo, w[1], w[2])
-      if not from then
-        return false
-      end
-      -- cast: scalar narrowing after the guard
-      local body = fs.read(from as string)
-      if not body then
-        return false
-      end
-      if not fs.makedirs(fs.dirname(dest)) then
-        return false
-      end
-      if not fs.write(dest, body as string) then -- cast: scalar narrowing
-        return false
-      end
+    if not fs.isfile(fs.join(repo, w[3])) then
+      return false
     end
   end
   return true
@@ -332,13 +301,9 @@ local function test_the_real_payload_generator()
     return
   end
   -- The generator reads its pinned inputs from `o/3p/**`, which only
-  -- `--make fetch` writes -- and CI provisions the same bytes through
-  -- the Makefile pipeline into `o/staged/**` instead. Guarding on
-  -- `o/3p` alone makes this test SKIP in every CI run and pass green,
-  -- so it would only ever run on a developer machine that had run fetch
-  -- by hand. Seed across instead: same bytes, no network, runs
-  -- everywhere.
-  if not check.needs("staged or fetched pins", seed_pins(repo)) then
+  -- `--make fetch` writes. CI fetches before it gates, so this runs
+  -- there; a cold checkout skips rather than failing.
+  if not check.needs("fetched pins", seed_pins(repo)) then
     return
   end
   local out = fs.join(tmpdir, "real-payload")

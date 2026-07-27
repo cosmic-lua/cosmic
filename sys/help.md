@@ -28,11 +28,11 @@ Cosmic options:
                                 e.g. cosmic --report o/foo.got
   --coverage-report <paths>...  merge .cov data, print per-file line coverage
                                 e.g. cosmic --coverage-report o/coverage lib
-                                (deprecated: use -c; retires after the
-                                 Makefile stops driving recipes with it)
-                                (copy, link, list, capture, tee, compile, ...)
   -c <line>                     run one recipe line as argv, not shell
-                                (for make: SHELL := cosmic)
+                                (for make: SHELL := cosmic. the closed
+                                 vocabulary: capture, compile, copy, exec,
+                                 link, list, remove, require-elf,
+                                 require-marker, tee, test, verdict)
   --make <verb> [paths]...      build this project
                                 (build, check, test, fmt, lint, example,
                                  benchmark, docs, coverage, ci, fetch,
