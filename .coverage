@@ -15,14 +15,16 @@ _docs/publish.tl 116 176
 _make/artifact.tl 163 180
 _make/binaries.tl 24 24
 _make/check.tl 56 57
+_make/converge.tl 34 62
 _make/deps.tl 73 73
 _make/docs.tl 14 30
 _make/extract.tl 52 73
 _make/fetch.tl 107 117
 _make/generate.tl 37 46
 _make/graph.tl 184 210
+_make/help.tl 20 20
 _make/imports.tl 60 63
-_make/init.tl 168 220
+_make/init.tl 173 227
 _make/pin.tl 80 81
 _make/policy.tl 49 107
 _make/project.tl 210 221
@@ -163,4 +165,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 80 93
 tlconfig.lua 7 7
-total 12849 17031
+total 12908 17120

@@ -15,6 +15,13 @@ set -e
 #
 #     bin/cosmic --make ci        run the gate
 #     bin/cosmic --make build     build the binaries
+#
+# It prefers the tree's OWN cosmic when one exists, and reaches for the
+# pin only on a cold start. Staleness is not this script's problem: the
+# engine compares its own identity against what a rebuild produces and
+# re-execs itself when the tree changed it (see _make/converge.tl), so
+# the convergence logic lives in Teal where it can be tested and this
+# stays dumb and auditable.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -98,8 +105,27 @@ ensure_bootstrap() {
     printf '%s\n' "${sha256}" > "${BOOTSTRAP}.pin"
 }
 
-# Always, so a cleaned o/ and a bumped pin are both just this path.
-ensure_bootstrap
-
 cd "${ROOT}"
+
+# The tree's own binary, always, when the tree can produce one. Every
+# gate has to run under it -- a gate's result is a statement about a
+# toolchain, and this project builds the toolchain -- and it converges
+# further by itself once running (_make/converge.tl).
+#
+# So: build it with the pin when it is missing and the pins are in
+# hand, then hand over. The failure path is deliberate rather than
+# checked -- the one verb that runs before any pin exists is `fetch`,
+# and it falls through to the pin below, which is where it belongs.
+BUILT="${ROOT}/o/bin/cosmic"
+if [ ! -x "${BUILT}" ] && [ -d "${ROOT}/o/3p" ]; then
+    ensure_bootstrap
+    "${BOOTSTRAP}" --make build || true
+fi
+if [ -x "${BUILT}" ]; then
+    exec "${BUILT}" "$@"
+fi
+
+# Cold start. Always, so a cleaned o/ and a bumped pin are both just
+# this path.
+ensure_bootstrap
 exec "${BOOTSTRAP}" "$@"

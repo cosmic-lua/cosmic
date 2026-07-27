@@ -246,21 +246,21 @@ the project, and a file's position and name say what it is.
 
 ```bash
 bin/cosmic --make fetch     # resolve *_pin.tl — the only verb with a network
-bin/cosmic --make build     # produced BY the pin
-o/bin/cosmic --make build   # produced by the tree: the fixpoint that ships
-o/bin/cosmic --make ci      # fmt, check, test, example, lint, coverage
-o/bin/cosmic --make test    # …or one stage; add paths to narrow it
-o/bin/cosmic --make clean   # remove o/
+bin/cosmic --make ci        # fmt, check, test, example, lint, coverage
+bin/cosmic --make test      # …or one stage; add paths to narrow it
+bin/cosmic --make build     # just the binaries
+bin/cosmic --make clean     # remove o/
 ```
 
-**Gate under the binary you built, not the one you pinned, and build it
-twice.** `bin/cosmic` execs the PINNED release, and modules resolve from
-that artifact before the tree — so `bin/cosmic --make ci` checks the
-pin's code, not yours; it will run the released formatter over a
-formatter fix and pass. The second build is the same point one level
-down: the first artifact was ASSEMBLED by the pin, so anything the tree
-changed about what a binary carries is still the pin's answer until a
-build produced by the tree makes it the tree's.
+**One command, always correct** — `bin/cosmic --make ci` — because a
+gate verb in this project CONVERGES before it runs. A gate's result is
+a statement about a toolchain, and this project builds the toolchain:
+run `fmt` under the pinned release and it formats with the release's
+formatter, so a formatter fix passes its own gate. So the tool builds
+first and re-execs into what it built, capped at two generations, with
+a loud `not a fixpoint` if a third would be needed
+(`_make/converge.tl`). `bin/cosmic` prefers `o/bin/cosmic` when one
+exists and reaches for the pin only on a cold start.
 
 key concepts:
 - **conventions, not declarations**: `*_test.tl` is a test, `*_example.tl`

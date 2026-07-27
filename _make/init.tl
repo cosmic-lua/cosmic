@@ -15,6 +15,8 @@ local cenv = require("cosmic.env")
 local fs = require("cosmic.fs")
 local root = require("_make.root")
 local binsel = require("_make.binaries")
+local converge = require("_make.converge")
+local help = require("_make.help")
 local project = require("_make.project")
 local artifact = require("_make.artifact")
 local check = require("_make.check")
@@ -233,6 +235,24 @@ end
 ---
 --- A planned row costs one line and turns a typo-shaped failure into a
 --- schedule answer.
+--- Verbs whose ANSWER depends on the toolchain, so a project that
+--- builds its own gates under what it built.
+---
+--- Everything that reads or judges the tree. Not `build` (it is how
+--- you get the toolchain), not `clean` (it removes it), not `fetch`
+--- (it provisions), not `help`.
+local GATES < const >: {string: boolean} = {
+  fmt = true,
+  check = true,
+  test = true,
+  example = true,
+  benchmark = true,
+  lint = true,
+  coverage = true,
+  docs = true,
+  ci = true,
+}
+
 local VERBS < const >: {Verb} = {
   {name = "build", target = "build", select = stage.SELECTS.build, run = run_build},
   -- `check` generates first, like every other verb that touches the
@@ -330,6 +350,8 @@ local VERBS < const >: {Verb} = {
 }
 
 local INDEX < const >: {string: Verb} = {}
+help.bind(VERBS)
+
 for _, v in ipairs(VERBS) do
   INDEX[v.name] = v
 end
@@ -338,39 +360,13 @@ by_name = function(name: string): Verb | nil
   return INDEX[name]
 end
 
---- The verb names of one disposition, in registry order.
---- @param planned boolean Whether to list the planned verbs
---- @return {string} The names
-local function names(planned: boolean): {string}
-  local out: {string} = {}
-  for _, v in ipairs(VERBS) do
-    if (v.planned or false) == planned then
-      out[#out + 1] = v.name
-    end
-  end
-  return out
-end
-
---- Usage: what `help` prints, and what a bare `--make` or an unknown
---- verb prints to explain itself.
----
---- `help` is named here rather than in `VERBS` because every registered
---- verb is dispatched against an open project, and the one question a
---- reader asks from outside a project root is what the verbs are.
---- @return string The usage text, without a trailing newline
-local function usage(): string
-  return "usage: cosmic --make <verb> [paths…]\n" ..
-  "make: verbs: " .. table.concat(names(false), ", ") .. ", help\n" ..
-  "make: planned: " .. table.concat(names(true), ", ")
-end
-
 --- Run one `--make` invocation.
 --- @param argv {string} The verb followed by selection paths
 --- @return integer Exit code
 local function run(argv: {string}): integer
   local name = argv[1]
   if not name or name == "" then
-    io.stderr:write(usage() .. "\n")
+    io.stderr:write(help.usage() .. "\n")
     return 1
   end
 
@@ -381,7 +377,7 @@ local function run(argv: {string}): integer
   -- open_project, because "what are the verbs" is the question you have
   -- when you are not yet standing in a project.
   if name == "help" then
-    io.write(usage() .. "\n")
+    io.write(help.usage() .. "\n")
     return 0
   end
 
@@ -447,13 +443,13 @@ local function run(argv: {string}): integer
 
   local v = by_name(name)
   if not (v is Verb) then
-    io.stderr:write("make: unknown verb '" .. name .. "'\n" .. usage() .. "\n")
+    io.stderr:write("make: unknown verb '" .. name .. "'\n" .. help.usage() .. "\n")
     return 1
   end
   if v.planned then
     io.stderr:write("make: '" .. name ..
       "' is planned but not implemented yet\nmake: verbs: " ..
-      table.concat(names(false), ", ") .. "\n")
+      table.concat(help.names(false), ", ") .. "\n")
     return 1
   end
 
@@ -463,6 +459,20 @@ local function run(argv: {string}): integer
     return stage.verdict(name, false, "no project")
   end
   local p = proj as Project -- cast: record union after the guard
+
+  -- A gate's result is a statement about the toolchain that produced
+  -- it, so in a project that BUILDS the toolchain the gate builds it
+  -- first and re-execs into what it built. `build` and `clean` are
+  -- excluded because they are how you get there; `fetch` because it is
+  -- the only verb with a network and nothing about it is a gate.
+  if GATES[name] then
+    local ok, cerr = converge.to_the_tree(p, argv, self)
+    if not ok then
+      io.stderr:write((cerr or "make: cannot converge") .. "\n")
+      return stage.verdict(name, false, "not a fixpoint")
+    end
+  end
+
   if v.run then
     return v.run(p, paths, self)
   end
@@ -479,9 +489,9 @@ local record MakeModule
 end
 
 local M: MakeModule = {
-  IMPLEMENTED = names(false),
-  PLANNED = names(true),
-  usage = usage,
+  IMPLEMENTED = help.names(false),
+  PLANNED = help.names(true),
+  usage = help.usage,
   run = run,
   scan = project.scan,
   validate = validate.validate,

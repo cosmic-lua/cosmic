@@ -95,18 +95,11 @@ jobs:
       # timeout: a recipe child dying mid-test can leave forked test
       # parents blocked on accept/wait, wedging make. Convert a hang into
       # a failure so the dump step below fires.
-      # The gate runs under the binary this tree BUILDS, not the one the
-      # pin names. Modules resolve from the artifact first, so a gate run
-      # under the pinned cosmic measures the PIN: a stage would report on
-      # the released code and pass while the change under test is broken.
-      # Building here rather than in the build lane keeps it fenced.
-      #
-      # TWICE, for the same reason one level down: the first build is
-      # produced BY the pin, so anything the tree changed about how an
-      # artifact is assembled -- what its payload generator ships, how
-      # its doc index is named -- is still the pin's answer. The second
-      # build is produced by the first, and that is the fixpoint the
-      # release ships and the gate has to judge.
+      # One command, because the gate converges on its own: `--make ci`
+      # in a project that builds its own toolchain builds first and
+      # re-execs into what it built, until the artifact stops changing
+      # (_make/converge.tl). Building here rather than in the build lane
+      # keeps it fenced.
       - name: the gate, with network denied
         timeout-minutes: 20
         shell: bash
@@ -117,10 +110,8 @@ jobs:
           set -eux
           unshare --net -- bash -euxc '
             o/bootstrap/cosmic -e "$NETNS"
-            exec runuser -u builder -- env HOME="$HOME" PATH="$PATH" bash -ec "
-              bin/cosmic --make build
-              o/bin/cosmic --make build
-              o/bin/cosmic --make ci"'
+            exec runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+              bin/cosmic --make ci'
 
       - name: dump failing test output
         if: failure()
