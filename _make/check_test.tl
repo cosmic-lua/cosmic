@@ -210,6 +210,29 @@ local function test_verb_vocabulary()
 end
 test_verb_vocabulary()
 
+-- `help` is a verb you asked for, so it succeeds on stdout. It used to
+-- reach the reader only as the unknown-verb error's incidental output --
+-- the right text, on stderr, under exit 1 -- while docs/build.md told
+-- people to run it. It also answers outside a project root, which is
+-- where "what are the verbs" gets asked.
+local function test_help_is_a_verb()
+  local root = app("help")
+  local h = make(root, "help")
+  assert(h.code == 0, "help must succeed, got " .. h.code .. ": " .. h.err)
+  assert(h.out:find("make: verbs:", 1, true), "got: " .. h.out)
+  assert(h.out:find("help", 1, true), "help must name itself: " .. h.out)
+  assert(h.out:find("ci", 1, true), "got: " .. h.out)
+  assert(h.out:find("make: planned:", 1, true), "got: " .. h.out)
+
+  local bare = fixture("help-no-project", {})
+  local outside = make(bare, "help")
+  assert(outside.code == 0,
+    "help must answer outside a project root, got " .. outside.code ..
+    ": " .. outside.err)
+  assert(outside.out:find("make: verbs:", 1, true), "got: " .. outside.out)
+end
+test_help_is_a_verb()
+
 -- `--make` with no verb is a usage error, not a default action:
 -- silently doing something with no verb is worse than saying so.
 local function test_bare_make_is_a_usage_error()

@@ -34,7 +34,9 @@ Cosmic options:
   -c <line>                     run one recipe line as argv, not shell
                                 (for make: SHELL := cosmic)
   --make <verb> [paths]...      build this project
-                                (check, build, test, fmt, fetch, clean)
+                                (build, check, test, fmt, lint, example,
+                                 benchmark, docs, coverage, ci, fetch,
+                                 clean; `--make help` lists them)
   --skill <dir>                 write agent skill file (SKILL.md) to directory
   --welcome                     show welcome message
   -h, --help                    show this help message

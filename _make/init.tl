@@ -367,11 +367,16 @@ local function names(planned: boolean): {string}
   return out
 end
 
---- Usage, printed for a bare `--make` and after an unknown verb.
+--- Usage: what `help` prints, and what a bare `--make` or an unknown
+--- verb prints to explain itself.
+---
+--- `help` is named here rather than in `VERBS` because every registered
+--- verb is dispatched against an open project, and the one question a
+--- reader asks from outside a project root is what the verbs are.
 --- @return string The usage text, without a trailing newline
 local function usage(): string
   return "usage: cosmic --make <verb> [paths…]\n" ..
-  "make: verbs: " .. table.concat(names(false), ", ") .. "\n" ..
+  "make: verbs: " .. table.concat(names(false), ", ") .. ", help\n" ..
   "make: planned: " .. table.concat(names(true), ", ")
 end
 
@@ -383,6 +388,17 @@ local function run(argv: {string}): integer
   if not name or name == "" then
     io.stderr:write(usage() .. "\n")
     return 1
+  end
+
+  -- Asked for, so it answers on stdout and succeeds. It is documented
+  -- in two places as the way to list the verbs, and it reached the
+  -- reader only as the unknown-verb error's incidental output: the
+  -- right text, on stderr, under exit 1. It also answers before
+  -- open_project, because "what are the verbs" is the question you have
+  -- when you are not yet standing in a project.
+  if name == "help" then
+    io.write(usage() .. "\n")
+    return 0
   end
 
   -- One flag, on one verb. `--baseline` is not a selection and not a
