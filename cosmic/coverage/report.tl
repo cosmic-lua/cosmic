@@ -332,6 +332,16 @@ local function compute(paths: {string}): {FileReport} | nil, string
   if #cov_files == 0 then
     return nil, "coverage: no .cov files found"
   end
+  -- How many dumps this run actually read, said out loud.
+  --
+  -- A coverage number has two ways of being low and they need opposite
+  -- fixes: the code did not run, or it ran and its dump did not land.
+  -- Nothing distinguished them, so a collapse (`_cli/build/steps.tl`
+  -- 182/237 -> 33/230, from processes a test spawns) reads as a code
+  -- regression either way and costs a CI cycle per guess. The count is
+  -- the discriminator: dumps steady with coverage down is the first,
+  -- dumps missing is the second.
+  io.stderr:write(string.format("coverage: read %d .cov files\n", #cov_files))
 
   local cwd = fs.getcwd() or ""
   local entries: {string: FileEntry} = {}
