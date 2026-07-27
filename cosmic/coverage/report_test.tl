@@ -48,14 +48,25 @@ test_normalize_strips_cwd_prefix()
 
 local function test_normalize_skips_non_files_and_foreign_paths()
   assert(report.normalize("=stdin", "") == nil, "non-file chunk must skip")
-  assert(report.normalize("@/zip/cosmic/fs.lua", "") == nil,
-    "embedded binary module must skip")
+  assert(report.normalize("@/zip/cosmic/no_such_module.lua", "") == nil,
+    "an embedded module with no source in this tree must skip")
   assert(report.normalize("@o/cosmic/codec_test.lua", "") == nil,
     "test files must skip")
   assert(report.normalize("@o/cosmic/no_such_module.lua", "") == nil,
     "artifact without a .tl source must skip")
 end
 test_normalize_skips_non_files_and_foreign_paths()
+
+-- The artifact flattens a directory module: `require("cosmic.fs")`
+-- executes `/zip/cosmic/fs.lua`, whose source is `cosmic/fs/init.tl`.
+-- Mapping only the leaf spelling attributed nothing to any of them.
+local function test_normalize_maps_embedded_directory_modules()
+  assert(report.normalize("@/zip/cosmic/url.lua", "") == "cosmic/url.tl",
+    "a leaf module maps to its own source")
+  assert(report.normalize("@/zip/cosmic/fs.lua", "") == "cosmic/fs/init.tl",
+    "a directory module maps to its init.tl")
+end
+test_normalize_maps_embedded_directory_modules()
 
 local function test_normalize_accepts_existing_tl_script()
   -- a directly-run script records a cwd-relative source; absolute

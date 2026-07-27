@@ -90,9 +90,17 @@ local function normalize(src: string, cwd: string): string | nil, string
   -- as uncovered and the ratchet held nothing.
   local zipped = p:match("^/zip/(.+)%.lua$")
   if zipped then
-    local source = zipped .. ".tl"
-    if not is_excluded(source) and fs.isfile(source) then
-      return source, p
+    -- Two spellings, because the artifact FLATTENS directory modules:
+    -- `require("cosmic.fs")` executes `/zip/cosmic/fs.lua`, compiled
+    -- from `cosmic/fs/init.tl` -- there is no `cosmic/fs.tl` to find.
+    -- Trying only the leaf spelling dropped every directory module in
+    -- the tree, so each read as entirely uncovered and its floor went
+    -- in at zero: the same "ratchet holds nothing" failure the mapping
+    -- above exists to fix, for 14 of this repo's own modules.
+    for _, source in ipairs({zipped .. ".tl", zipped .. "/init.tl"}) do
+      if not is_excluded(source) and fs.isfile(source) then
+        return source, p
+      end
     end
     return nil
   end
