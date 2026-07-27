@@ -160,6 +160,15 @@ jobs:
               o/bin/cosmic --coverage-report o/.coverage 2>/dev/null \
               | grep -F "$f "
           done
+          # Dumps per test, for the tests whose coverage comes from
+          # processes they SPAWN. A global count cannot tell "the code
+          # did not run" from "this test's children did not dump"; this
+          # can, and it is the difference between the two remaining
+          # explanations.
+          echo "===== dumps per test (spawning tests) ====="
+          for d in o/.coverage/_cli/build/*.cov.d o/.coverage/_cli/*.cov.d; do
+            [ -d "$d" ] && echo "$(find "$d" -name '*.cov' | wc -l)  $d"
+          done
           exit 0
 
   # What needs a built binary and a real network — the two things the
