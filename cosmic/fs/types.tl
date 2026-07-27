@@ -112,7 +112,7 @@ end
 --- metatable every cosmo.unix Stat carries. After installation wrap()
 --- returns the userdata unchanged — no per-call allocation, which
 --- matters on walk-heavy paths where every visited entry is wrapped
---- (measured at ~+13-17% on fs_walk_tree/fs_stat_tree, issue).
+--- (measured at ~+13-17% on fs_walk_tree/fs_stat_tree).
 local raw_predicates: {string: any} = {
   is_dir = function(self: unix.Stat): boolean return unix.S_ISDIR(self:mode()) end,
   is_file = function(self: unix.Stat): boolean return unix.S_ISREG(self:mode()) end,

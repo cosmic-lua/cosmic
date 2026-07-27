@@ -50,9 +50,9 @@ local record ShmModule
     --- or ETIMEDOUT (deadline expired). The deadline is an ABSOLUTE
     --- CLOCK_REALTIME time — whole seconds in `abs_deadline` plus
     --- nanoseconds in `nanos` (e.g. from time.now()); omit both to wait
-    --- forever. A wait interrupted by a signal is retried automatically
-    ---; the absolute deadline keeps the timeout exact across
-    --- retries.
+    --- forever. A wait interrupted by a signal is retried
+    --- automatically; the absolute deadline keeps the timeout exact
+    --- across retries.
     wait: function(self: Memory, word_index: integer, expect: integer, abs_deadline?: integer, nanos?: integer): integer | nil, string
     --- Wake processes waiting on a word; returns how many woke.
     --- Wakes nothing once the region has been unmapped.

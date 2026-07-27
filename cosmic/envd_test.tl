@@ -395,7 +395,7 @@ local function test_cosmic_debug_nonempty_emits_debug()
 end
 test_cosmic_debug_nonempty_emits_debug()
 
--- LoadResult.errors (issue, review item 39): per-file read failures
+-- LoadResult.errors (review item 39): per-file read failures
 -- are collected instead of being visible only under COSMIC_DEBUG.
 
 local function test_errors_empty_on_clean_load()

@@ -72,7 +72,7 @@ test_hex_roundtrip()
 
 -- Lua encoding tests
 
--- encode_lua keeps the binding's error channel (issue, item 39):
+-- encode_lua keeps the binding's error channel (item 39):
 -- the contract is string | nil, string, and success carries no error.
 local function test_encode_lua_error_channel()
   local result, err = codec.encode_lua({nested = {1, 2, 3}})

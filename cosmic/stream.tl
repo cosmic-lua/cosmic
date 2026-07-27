@@ -16,8 +16,8 @@
 --- (recv returns nil on peer close); wrap a socket's descriptor with
 --- fd.wrap(sock.fd) to use it where a Reader or Writer is expected.
 ---
---- EINTR posture (the signal-safety wave; pre-stable decision in
----): blocking calls on the ergonomic wrappers retry automatically
+--- EINTR posture (the signal-safety wave; a pre-stable decision):
+--- blocking calls on the ergonomic wrappers retry automatically
 --- when a signal interrupts them — EINTR never surfaces from
 --- fd.Handle read/write, socket send/recv/accept, child wait/read,
 --- poll, or shm futex waits. Pending Lua signal handlers still run:

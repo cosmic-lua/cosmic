@@ -34,7 +34,7 @@ replaced it outright.
 | `coverage` | tests + line coverage, ratcheted against `.cosmic-coverage` | ✅ |
 | `docs` | extract the doc index | ✅ |
 | `ci` | fmt, check, test, example, lint, coverage — the gate | ✅ |
-| `clean` | remove `o/` | ✅ |
+| `clean` | remove `o/`, sparing `o/bootstrap` | ✅ |
 | `fetch` | resolve `*_pin.tl` — the only verb with a network | ✅ |
 | `help` | list the verbs, and which are still planned | ✅ |
 | `run` | build, then exec the artifact | planned |
@@ -50,6 +50,44 @@ every verb ends in a machine-readable verdict line and an exit code:
 make: root=/home/you/myapp
 check: PASS (12 files)
 ```
+
+`clean` spares `o/bootstrap` on purpose: that is the verified copy
+`bin/cosmic` fetched from the pin, and removing it makes the next
+command reach for the network. cleaning a build should not have network
+consequences.
+
+## Converge
+
+a gate verb's result is a statement **about a toolchain**, and a
+project that defines the `cosmic` namespace builds its own. run `fmt`
+under the pinned release and it formats with the release's formatter —
+so a formatter fix would pass its own gate while shipping broken.
+
+so a gate verb (`fmt`, `check`, `lint`, `test`, `example`, `coverage`,
+`ci`) **builds first**, and if what it built is not the binary
+currently running, re-execs into it with the original argv. you will
+see the build scroll past before the stage does. this is the one
+behavior you will actually observe that no other build tool does:
+
+```
+$ cosmic --make ci
+make: root=/home/you/cosmic
+build: PASS (377 files, 1 binary)
+make: root=/home/you/cosmic        # ← the re-exec, now under the new binary
+fmt: PASS (377 files)
+...
+ci: PASS (6 stages)
+```
+
+it terminates because the build is content-addressed — `o/bin/<name>`
+is replaced only when its bytes change, so "did that change anything"
+is a question the filesystem answers. **two generations is the cap**; a
+third would mean the build is not a fixpoint, and that is a loud
+`not a fixpoint` failure rather than a spin.
+
+none of this happens in an ordinary project: your artifact is not the
+tool that gates it, so there is nothing to converge to and the
+machinery does nothing at all.
 
 ## The artifact
 
@@ -117,11 +155,14 @@ module no test imports re-runs nothing:
 
 ```bash
 $ cosmic --make test          # edit a module only db/a_test.tl imports
-record o/db/a_test.tl.test cosmic o/db/a_test.lua --deps o/db/init.lua ;
+record o/db/a_test.tl.test
 ```
 
-the closure after `--deps` is exactly what the fence grants. it is
-named there for that purpose and never handed to the child.
+that one line is the whole output: make runs with `-s`, so it echoes
+nothing, and each step announces itself as its verb plus the path it
+writes. the recipe behind it still names the import closure after
+`--deps` — that closure is exactly what the fence grants, named there
+for that purpose and never handed to the child.
 
 the fence is **ON by default**; `COSMIC_FENCE=0` opts out. on a
 Landlock host it is enforced by the kernel rather than merely arranged:
@@ -389,15 +430,23 @@ part of the contract:
 | `COSMIC_NO_WELCOME`, `COSMIC_NO_REQUIRE_HINTS`, `COSMIC_FULL_TRACEBACK` | output knobs |
 | `NO_COLOR`, `TERM`, `TMPDIR`, `HOME`, `PATH`, `XDG_*`, `SOURCE_DATE_EPOCH`, `CI` | third-party conventions cosmic honours rather than invents |
 
+three more are set by hand, but by a person doing a specific job rather
+than by anyone configuring a build: `COSMIC_ENFORCE=1` turns a sandbox
+test that cannot enforce from a skip into a failure (CI's enforce lane
+sets it), `GENTYPE_DEFS` points type generation at a cosmopolitan
+checkout's `definitions.lua` to validate before a release is cut, and
+`PERF_BIN` names which binary `_perf` measures.
+
 **internal** — the build sets these for its own children. Setting one
 by hand is a way to confuse a build, not to configure it:
-`COSMIC_MAKE` (which engine), `COSMIC_EXEC_ROOT` (what `exec` may
-reach), `COSMIC_MAKE_GEN` (the converge budget), `TREE_LUA_PATH` (the
-path `capture` swaps in), `TEST_BIN` / `TEST_TMPDIR` / `TEST_DIR` (set
-per test by the runner), `TMP` (pointed at a step's scratch directory),
-`COSMIC_TL_CACHE_DIR`, `COSMIC_ENFORCE`, `GENTYPE_DEFS` (validate
-against a cosmopolitan checkout before a release), `PERF_BIN` (which
-binary `_perf` measures).
+`COSMIC_EXEC_ROOT` (what `exec` may reach), `COSMIC_MAKE_GEN` (the
+converge budget), `TREE_LUA_PATH` (the path `capture` swaps in),
+`TEST_BIN` / `TEST_TMPDIR` / `TEST_DIR` (set per test by the runner),
+`TMP` (pointed at a step's scratch directory), `COSMIC_TL_CACHE_DIR`.
+
+`COSMIC_MAKE` is the one that is both: the build passes it down, and
+you may set it to name a make engine (see above). everything else
+`COSMIC_`-prefixed and not in these tables is internal.
 
 **`COSMIC_COVERAGE` carries two protocols under one name**, and this is
 a wart, not a design: `1`/`true` means "collection is armed" (what the

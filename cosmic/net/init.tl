@@ -118,7 +118,7 @@ local function connect_tcp(addr: Address, port: integer): Socket | nil, string
 end
 
 --- Open a TCP connection to host:port. This name and shape are the
---- stable dial contract (api-review-2; reserved from): host
+--- stable dial contract (api-review-2, and reserved since): host
 --- is a dotted-quad literal or a DNS name — resolution happens inside —
 --- and the result is a connected Socket. Future address families and
 --- richer endpoint forms extend the values dial accepts, never the
@@ -142,8 +142,8 @@ local function dial(host: string, port: integer): Socket | nil, string
   return connect_tcp(a, port)
 end
 
---- Socket options for listen_tcp (: the hidden SO_REUSEADDR is now
---- an opt-out, and SO_REUSEPORT an opt-in).
+--- Socket options for listen_tcp: the hidden SO_REUSEADDR is now an
+--- opt-out, and SO_REUSEPORT an opt-in.
 local record ListenOptions
   --- Set SO_REUSEADDR on the listener (default true: rebinding a
   --- just-closed address must not fail with EADDRINUSE).

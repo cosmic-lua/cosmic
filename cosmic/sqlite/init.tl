@@ -447,8 +447,8 @@ local function open(filename: string, opts?: OpenOptions): Database | nil, strin
     raw_db, errcode, errmsg = sqlite3.open(filename)
   end
   -- `is` narrows in the positive branch (early-exit guards don't);
-  -- safe at this cosmo.* boundary since made the cosmic
-  -- searcher the only loader cosmic installs.
+  -- safe at this cosmo.* boundary because the cosmic searcher is the
+  -- only loader cosmic installs.
   if raw_db is lsqlite3.Database then
     local ok, derr = defaults_mod.apply(raw_db, opts)
     if not ok then

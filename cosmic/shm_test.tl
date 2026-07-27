@@ -154,7 +154,7 @@ local function test_memory_wake_no_waiters()
 end
 test_memory_wake_no_waiters()
 
--- Real wrapper with error slots (issue, review item 25): invalid
+-- Real wrapper with error slots (review item 25): invalid
 -- sizes and out-of-range accesses return nil, err instead of throwing.
 
 local function test_mapshared_size_not_multiple_of_word()

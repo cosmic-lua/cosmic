@@ -1,6 +1,6 @@
 #!/usr/bin/env cosmic
 -- test that tl_package_loader is not at position 2 in package.searchers
--- (issue tl_package_loader recompiles .tl sources when TL_PATH is set)
+-- (it recompiles .tl sources when TL_PATH is set)
 
 local check = require("cosmic.check")
 local spawn = require("cosmic.child")

@@ -203,7 +203,7 @@ end
 test_getpass_non_tty_eof()
 
 -- make_raw: pure raw-mode computation, unit-testable without a tty
--- (issue, review item 35).
+-- (review item 35).
 
 local function fixture_termios(): tty.Termios
   local cc: {integer} = {}

@@ -410,9 +410,9 @@ local function load_index(source: string): DocIndex | nil, string
   return result as DocIndex, nil -- cast: from any
 end
 
--- The query half of the module (issue `doc` and `docs` converged
--- into one family): lookup and search over the index embedded in the
--- binary, behind the `--docs` CLI.
+-- The query half of the module (`doc` and `docs` converged into one
+-- family): lookup and search over the index embedded in the binary,
+-- behind the `--docs` CLI.
 local query = require("cosmic.doc.query")
 local DocsResult = types.DocsResult
 local SearchResult = types.SearchResult

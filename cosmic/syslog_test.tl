@@ -2,7 +2,7 @@
 local syslog = require("cosmic.syslog")
 
 -- Priority constants are the wire protocol: RFC 5424 fixes their numeric
--- values (issue — pinned exactly, not just "defined and ordered").
+-- values — pinned exactly, not just "defined and ordered".
 local function test_constants_rfc5424_values()
   assert(syslog.LOG_EMERG == 0, "LOG_EMERG must be 0, got " .. tostring(syslog.LOG_EMERG))
   assert(syslog.LOG_ALERT == 1, "LOG_ALERT must be 1, got " .. tostring(syslog.LOG_ALERT))

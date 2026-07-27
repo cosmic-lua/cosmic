@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
---- Streaming fetch tests (issue parts 2-3) against forked loopback
+--- Streaming fetch tests (parts 2-3) against forked loopback
 --- servers: chunk reads, line iteration, bodyless-response EOF, and
 --- mid-body failure propagation through read() and lines().
 local fetch = require("cosmic.fetch")
