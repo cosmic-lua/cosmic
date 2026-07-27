@@ -1,4 +1,4 @@
---- The style gate behind `--check style`, and so behind `--make lint`.
+--- The style gate behind `--check lint`, and so behind `--make lint`.
 ---
 --- Two layers, split by what they may require. `cosmic.style` holds the
 --- pure checks — file length, column width — because it is inside the

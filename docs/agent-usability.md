@@ -26,7 +26,7 @@ self-reports alone were not trusted.
   list, doc entry points, and the `proc.is_main()` pattern.
 - `--check types` prints `Type check passed` on success — positive
   confirmation matters to agents.
-- `--check format` shows an actionable diff; `--report` failure output
+- `--check fmt` shows an actionable diff; `--report` failure output
   includes captured stderr and traceback.
 - `--skill` generating SKILL.md is exactly the right idea.
 - `--docs` keyword search surfaces functions *and* examples.
@@ -117,7 +117,7 @@ self-reports alone were not trusted.
     `assert-order`, which reads as being about `assert()`; agent A could not
     tell what rule fired or whether it mattered.
 
-13. **`--check format` mismatch output can look like identical lines**
+13. **`--check fmt` mismatch output can look like identical lines**
     (invisible whitespace). Append a hint: "run `cosmic --format <file>` to
     fix", and consider an in-place `--format --output <same file>` shortcut
     in the docs.
@@ -163,7 +163,7 @@ tasks, clean sandboxes containing only the rebuilt binary (`e13e92d`).
 
 Fixes observed working in the wild (not just in unit tests):
 
-- The `--check format` hint's in-place command was used successfully by
+- The `--check fmt` hint's in-place command was used successfully by
   three of four agents on their first formatting failure.
 - The `got number, expected integer` fix-hint appeared verbatim in agent
   B's transcript and was resolved in a single edit (round 1: a full
@@ -224,7 +224,7 @@ clean-room run.
 2. **`arg` layout documented** in `cosmic.proc` docs and `guide.gotchas`
    entry 7 (`arg[-1]` = interpreter path, `arg[0]` = `/zip/main.lua`,
    `rawget(arg, -1) as string` for strict mode).
-3. **`--fix <file>` formats in place**; the `--check format` hint now says
+3. **`--fix <file>` formats in place**; the `--check fmt` hint now says
    `run 'cosmic --fix <file>' to fix in place`. The formatting guide's
    previous in-place recipe documented a flag order that did not work; it
    is replaced.
@@ -300,5 +300,5 @@ in the wild:
 5. **A `guide.recipes` cookbook** for common module compositions
    (walk+hash+sqlite indexing; a CLI script skeleton: args → slurp →
    decode → transform → encode → print with error exits).
-6. **`--check format` could show context lines** around the mismatch;
+6. **`--check fmt` could show context lines** around the mismatch;
    `--help` could carry one-line argument shapes for `--test`/`--report`.

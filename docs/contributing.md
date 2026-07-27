@@ -93,7 +93,7 @@ end
 local _ = Example_basic
 ```
 
-functions named `Example_*` are discovered and run by `cosmic --check examples`. the `-- Output:` comment block is compared against actual stdout.
+functions named `Example_*` are discovered and run by `cosmic --check example`. the `-- Output:` comment block is compared against actual stdout.
 
 ## Error Handling Rules
 
@@ -106,7 +106,7 @@ see `AGENTS.md` for the complete guide. key rules:
 
 ## Formatting
 
-cosmic enforces formatting via `cosmic --check format`:
+cosmic enforces formatting via `cosmic --check fmt`:
 
 - 2-space indent
 - LF line endings

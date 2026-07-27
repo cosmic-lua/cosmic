@@ -14,7 +14,7 @@ source files use the `.tl` extension. formatting is 2-space indent, LF line endi
 ```bash
 cosmic script.tl              # run a Teal script
 cosmic --check types file.tl  # type check (strict)
-cosmic --check format file.tl # check formatting
+cosmic --check fmt file.tl # check formatting
 cosmic --format file.tl       # format to stdout
 cosmic --test <out> <cmd>     # run test, capture output
 cosmic --docs [query]         # search documentation
@@ -60,7 +60,7 @@ run `cosmic --docs guide.<topic>` or see the files below for deeper coverage:
 - [recipes](recipes.md) — end-to-end patterns (CLI skeleton, walk+hash+sqlite, self-spawn, TCP echo)
 - [testing](testing.md) — writing and running tests (`cosmic --test`, assert patterns)
 - [checking](checking.md) — type checking with `cosmic --check types`
-- [formatting](formatting.md) — code formatting with `cosmic --format` / `--check format`
+- [formatting](formatting.md) — code formatting with `cosmic --format` / `--check fmt`
 - [make](make.md) — building a project with `cosmic --make`
 - [modules](modules.md) — the standard library (`cosmic.*` modules)
 - [docs](docs.md) — accessing documentation and getting help

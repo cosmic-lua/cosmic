@@ -123,7 +123,7 @@ local function test_run_missing_file()
 end
 test_run_missing_file()
 
--- Test cosmic --check examples command passing
+-- Test cosmic --check example command passing
 local function test_cosmic_example_pass()
   local input = write_temp("cmd_pass.tl", [[
 local function Example_cmd()
@@ -132,15 +132,15 @@ local function Example_cmd()
   -- works
 end
 ]])
-  local h = check.must(spawn.spawn({cosmic, "--check", "examples", input}))
+  local h = check.must(spawn.spawn({cosmic, "--check", "example", input}))
   local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout
-  assert(ok, "cosmic --check examples should succeed")
+  assert(ok, "cosmic --check example should succeed")
   assert(out:find("PASS"), "output should show PASS")
 end
 test_cosmic_example_pass()
 
--- Test cosmic --check examples command failing
+-- Test cosmic --check example command failing
 local function test_cosmic_example_fail()
   local input = write_temp("cmd_fail.tl", [[
 local function Example_cmd()
@@ -149,20 +149,20 @@ local function Example_cmd()
   -- expected
 end
 ]])
-  local h = check.must(spawn.spawn({cosmic, "--check", "examples", input}))
+  local h = check.must(spawn.spawn({cosmic, "--check", "example", input}))
   local __r2 = check.must(h:wait())
   local ok, out = __r2.ok, __r2.stdout
-  assert(not ok, "cosmic --check examples should fail")
+  assert(not ok, "cosmic --check example should fail")
   assert(out:find("FAIL"), "output should show FAIL")
 end
 test_cosmic_example_fail()
 
--- Test cosmic --check examples with skip
+-- Test cosmic --check example with skip
 local function test_cosmic_example_skip()
   local input = write_temp("cmd_skip.tl", [[
 local x = 1
 ]])
-  local r = check.must(spawn.run({cosmic, "--check", "examples", input}))
+  local r = check.must(spawn.run({cosmic, "--check", "example", input}))
   assert(r.code == 2, "should return skip code 2")
   assert(r.stdout:find("SKIP"), "output should show SKIP")
 end

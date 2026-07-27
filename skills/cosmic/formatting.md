@@ -1,6 +1,6 @@
 # Formatting
 
-cosmic enforces consistent code formatting via `cosmic --format` and `cosmic --check format`.
+cosmic enforces consistent code formatting via `cosmic --format` and `cosmic --check fmt`.
 
 ## Rules
 
@@ -41,10 +41,10 @@ formatter is the source of truth for these rules.
 ```bash
 cosmic --format file.tl           # print formatted output to stdout
 cosmic --fix file.tl              # format the file in place
-cosmic --check format file.tl     # check if file matches formatted output
+cosmic --check fmt file.tl     # check if file matches formatted output
 ```
 
-`--check format` compares the original file against the formatted output. if they differ, it reports the first mismatched line on stderr and exits nonzero:
+`--check fmt` compares the original file against the formatted output. if they differ, it reports the first mismatched line on stderr and exits nonzero:
 
 ```
 file.tl:42: format mismatch
@@ -55,7 +55,7 @@ file.tl:42: format mismatch
 ## Build Integration
 
 a project-wide `fmt` verb is part of `cosmic --make` (see
-`cosmic --docs guide.make`); today it is `--check format` per file,
+`cosmic --docs guide.make`); today it is `--check fmt` per file,
 driven by whatever runs your build.
 
 ## Style Conventions

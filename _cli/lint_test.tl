@@ -152,7 +152,7 @@ test_cosmo_require_honors_allowlist()
 -- One implementation, split by what each half may require: the pure
 -- checks stay in `cosmic.style` (inside the strip floor, where there is
 -- no Teal compiler to require) and the lexer-based ones are here. The
--- assertion that matters is that `--check style` and `--make lint` run
+-- assertion that matters is that `--check lint` and `--make lint` run
 -- THIS composition -- there is no second lint any more.
 local function test_the_pure_checks_come_from_style()
   assert(style.check_file_length and style.check_column_length,
@@ -261,12 +261,26 @@ test_find_needle_wants_the_intent_stated()
 print("all lint tests passed")
 
 -- `--check <kind>` refuses an unknown kind by naming the ones it has,
--- and refuses a missing file by naming the project-wide verb — the two
--- ways a caller gets the grammar wrong.
+-- refuses a retired one by naming what replaced it, and refuses a
+-- missing file by naming the project-wide verb — the three ways a
+-- caller gets the grammar wrong.
 local function test_check_kinds_are_named_when_wrong()
   local chk = require("_cli.check")
-  assert(chk.KINDS.types == "check" and chk.KINDS.style == "lint",
-    "each kind names the verb that runs it over a project")
+  -- The kind IS the verb, with `types` the one exception, because the
+  -- identity would be `--check check`.
+  for kind, verb in pairs(chk.KINDS) do
+    assert(kind == verb or kind == "types",
+      kind .. " should be spelled the same as its verb, got " .. verb)
+  end
+  assert(chk.KINDS.types == "check", "except types, which runs --make check")
+  -- And every retired spelling names its replacement, which must be a
+  -- kind that exists — the check that stops this becoming a map to
+  -- nowhere the next time something is renamed.
+  for old, now in pairs(chk.RETIRED) do
+    assert(chk.KINDS[now], old .. " points at " .. now .. ", which is not a kind")
+    assert(not chk.KINDS[old], old .. " must not still be a kind")
+    assert(chk.run(old, "x.tl", {}) == 1, old .. " must be refused")
+  end
   assert(chk.run("bogus", "x.tl", {}) == 1, "an unknown kind fails")
   assert(chk.run("types", "", {}) == 1, "a missing file fails")
 end

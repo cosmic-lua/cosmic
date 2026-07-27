@@ -87,17 +87,9 @@ end
 --- them onto `--check`.
 local RENAMED_CHECKS < const >: {string: string} = {
   ["--check-types"] = "types",
-  ["--check-format"] = "format",
-  ["--check-style"] = "style",
-  ["--check-examples"] = "examples",
-}
-
---- The project-wide verb each kind belongs to, for the message.
-local CHECK_VERB < const >: {string: string} = {
-  types = "check",
-  format = "fmt",
-  style = "lint",
-  examples = "example",
+  ["--check-format"] = "fmt",
+  ["--check-style"] = "lint",
+  ["--check-examples"] = "example",
 }
 
 --- Complain about a retired check flag, if the argv holds one.
@@ -108,9 +100,14 @@ local function renamed_check(argv: {string}): string | nil
     local base = a:match("^([^=]+)=") or a
     local kind = RENAMED_CHECKS[base]
     if kind then
+      -- The verb comes from `_cli.check`, which owns the mapping.
+      -- A second copy here is how the two vocabularies drifted in the
+      -- first place. Required inside the branch so the argument parser
+      -- does not pull the check machinery in on every run.
+      local kinds = require("_cli.check").KINDS
       return "cosmic-lua: " .. base .. " is now `--check " .. kind ..
       " <file>` (the project-wide spelling is `cosmic --make " ..
-      CHECK_VERB[kind] .. "`)"
+      kinds[kind] .. "`)"
     end
   end
   return nil

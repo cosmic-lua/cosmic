@@ -1,5 +1,5 @@
 #!/usr/bin/env cosmic
--- test cosmic --check style option
+-- test cosmic --check lint option
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
@@ -24,17 +24,17 @@ end
 add(1, 2)
 ]])
 
-  local h = check.must(spawn.spawn({cosmic, "--check", "style", input}))
+  local h = check.must(spawn.spawn({cosmic, "--check", "lint", input}))
   local __r1 = check.must(h:wait())
   local ok, _ = __r1.ok, __r1.stdout
-  assert(ok, "cosmic --check style should succeed on valid file")
+  assert(ok, "cosmic --check lint should succeed on valid file")
 end
 test_style_valid()
 
 -- A long line is REPORTED by the check and is not a gate failure. The
 -- 90-column limit is house style: this tree has 858 lines over it in
 -- 184 files, and the gate never ran the check (it ran a second linter
--- that did not call it), so making `--check style` fail on one would
+-- that did not call it), so making `--check lint` fail on one would
 -- fail the gate on the tree that documents the rule. The check stays
 -- exported for a project that wants it, and enforcing it here is its
 -- own change with its own 858-line diff.
@@ -42,7 +42,7 @@ local function test_style_long_line_is_reported_not_enforced()
   local long_line = string.rep("x", 91)
   local input = write_temp("style_long.tl", long_line .. "\n")
 
-  local h = check.must(spawn.spawn({cosmic, "--check", "style", input}))
+  local h = check.must(spawn.spawn({cosmic, "--check", "lint", input}))
   local __r2 = check.must(h:wait())
   local ok, _ = __r2.ok, __r2.stdout
   assert(ok, "a long line must not fail the style gate")

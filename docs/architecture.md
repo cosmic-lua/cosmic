@@ -139,7 +139,7 @@ tests are `*_test.tl` files that run as standalone scripts. `--make test`:
 each test gets an isolated `TEST_TMPDIR`. a test's dependencies are its
 own import closure, taken from the model — nothing is declared.
 
-examples (`*_example.tl`) contain `Example_*` functions with expected output in comments. `cosmic --check examples` runs them and validates output.
+examples (`*_example.tl`) contain `Example_*` functions with expected output in comments. `cosmic --check example` runs them and validates output.
 
 benchmarks use `Benchmark_*` functions with iteration-based timing.
 

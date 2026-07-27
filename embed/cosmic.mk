@@ -83,7 +83,7 @@ fmt_got := $(patsubst %,$(O)/%.fmt.got,$(fmt_sources))
 fmt: $(O)/fmt-summary.txt
 
 $(O)/%.fmt.got: % $(COSMIC_DEP)
-	test $(basename $@) $(COSMIC) --check format $< ;
+	test $(basename $@) $(COSMIC) --check fmt $< ;
 
 $(O)/fmt-summary.txt: $(fmt_got)
 	tee $@ $(COSMIC) --report $(fmt_got) ;
@@ -125,10 +125,10 @@ example: $(O)/example-summary.txt
 # model says everywhere else, so the rules say it too — the only
 # difference from the test rules above is the flag.
 $(O)/%.tl.example.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
-	test $(basename $@) $(COSMIC) --check examples $< --deps $(deps_$*) ;
+	test $(basename $@) $(COSMIC) --check example $< --deps $(deps_$*) ;
 
 $(O)/%.lua.example.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
-	test $(basename $@) $(COSMIC) --check examples $< --deps $(deps_$*) ;
+	test $(basename $@) $(COSMIC) --check example $< --deps $(deps_$*) ;
 
 $(O)/example-summary.txt: $(example_got)
 	tee $@ $(COSMIC) --report $(example_got) ;
@@ -172,7 +172,7 @@ lint: $(O)/lint-summary.txt
 # sees a `.md`, a `.mk` and a `.yml`, and why it is a verb of its own
 # rather than a stage of `check`.
 $(O)/%.lint.got: % $(COSMIC_DEP)
-	test $(basename $@) $(COSMIC) --check style $< ;
+	test $(basename $@) $(COSMIC) --check lint $< ;
 
 $(O)/lint-summary.txt: $(lint_got)
 	tee $@ $(COSMIC) --report $(lint_got) ;

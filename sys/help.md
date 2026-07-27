@@ -11,10 +11,11 @@ Cosmic options:
   --write-if-changed            with --compile/--format and --output: skip write if unchanged
   --check <kind> <file>         run one gate check on one file. kinds:
                                   types     type-check, strict
-                                  format    formatting (diff on stderr)
-                                  style     file length, casts, test order
-                                  examples  run Example_* and check output
-                                the whole project is `--make check|fmt|lint|example`
+                                  fmt       formatting (diff on stderr)
+                                  lint      file length, casts, test order
+                                  example   run Example_* and check output
+                                a kind IS its verb: the whole project is
+                                `--make check|fmt|lint|example`
   --examples [module]           browse examples (list all, or show module)
   --embed <path>                embed file or directory into executable
   --output <file>               output file for --embed (default: cosmic)

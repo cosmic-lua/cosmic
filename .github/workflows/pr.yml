@@ -113,6 +113,20 @@ jobs:
             exec runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
               bin/cosmic --make ci'
 
+      # A coverage failure names every row that moved, and those lines
+      # scroll off the top of a 166-test run. Re-asking is nearly free —
+      # the `.got` files are up to date, so make re-runs the summary
+      # rule and nothing else — and it puts the answer at the END of the
+      # log, where a failure is actually read from.
+      - name: which coverage rows moved
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            o/bin/cosmic --make coverage 2>&1 | grep -E 'coverage ratchet|declined' | tail -40
+          exit 0
+
       - name: dump failing test output
         if: failure()
         shell: bash

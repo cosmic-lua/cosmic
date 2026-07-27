@@ -213,7 +213,7 @@ return {}
 run examples with:
 
 ```bash
-cosmic --check examples file.tl       # run examples in one file
+cosmic --check example file.tl       # run examples in one file
 ```
 
 ## Benchmarks

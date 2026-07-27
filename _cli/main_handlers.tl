@@ -174,7 +174,7 @@ local function render_whitespace(s: string): string
   return result
 end
 
---- Handle --check format flag.
+--- Handle --check fmt flag.
 local function handle_check_format(file: string): integer
   local span = instrument.begin("check-format", file)
   local fmt = require("cosmic.format")
@@ -274,7 +274,7 @@ local function handle_extract(dir: string, exe?: string): integer
   return result.ok and 0 or 1
 end
 
---- Handle --check examples flag.
+--- Handle --check example flag.
 local function handle_check_examples(file: string): integer
   local span = instrument.begin("check-examples", file)
   local example = require("cosmic.example")
@@ -337,7 +337,7 @@ local function handle_docs(query: string): integer
   end
 end
 
---- Handle --check style flag.
+--- Handle --check lint flag.
 local function handle_check_style(file: string): integer
   local span = instrument.begin("check-style", file)
   local f = io.open(file, "r")
@@ -348,7 +348,7 @@ local function handle_check_style(file: string): integer
   end
   f:close()
   -- `_cli.lint`, not `cosmic.style`: the lexer-based checks cannot live
-  -- in the strip floor. One entry point, so `--check style` and
+  -- in the strip floor. One entry point, so `--check lint` and
   -- `--make lint` cannot disagree about what the style gate is.
   local lint = require("_cli.lint")
   local style_types = require("cosmic.style")
