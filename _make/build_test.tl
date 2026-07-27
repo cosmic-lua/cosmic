@@ -348,7 +348,7 @@ local function test_a_test_reruns_only_for_what_it_imports()
   assert(fs.write(fs.join(root, "main.tl"), "print('changed')\n"))
   local unrelated = make(root, "test")
   assert(unrelated.code == 0, "second run: " .. unrelated.err)
-  assert(not unrelated.out:find("test o/db/", 1, true),
+  assert(not unrelated.out:find("record o/db/", 1, true),
     "no test imports main.tl, so none should re-run: " .. unrelated.out)
 
   -- db/init.tl is imported by a_test only.
@@ -357,9 +357,9 @@ local function test_a_test_reruns_only_for_what_it_imports()
       "local M: D = {n = function(): integer return 1 end}\n-- edit\nreturn M\n"))
   local related = make(root, "test")
   assert(related.code == 0, "third run: " .. related.err)
-  assert(related.out:find("test o/db/a_test", 1, true),
+  assert(related.out:find("record o/db/a_test", 1, true),
     "the importer must re-run: " .. related.out)
-  assert(not related.out:find("test o/db/b_test", 1, true),
+  assert(not related.out:find("record o/db/b_test", 1, true),
     "a test that does not import it must NOT re-run: " .. related.out)
   -- And the closure travels in the line, which is what the fence grants.
   assert(related.out:find("o/db/a_test.lua --deps o/db/init.lua", 1, true),

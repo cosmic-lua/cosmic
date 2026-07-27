@@ -83,7 +83,7 @@ fmt_got := $(patsubst %,$(O)/%.fmt.got,$(fmt_sources))
 fmt: $(O)/fmt-summary.txt
 
 $(O)/%.fmt.got: % $(COSMIC_DEP)
-	test $(basename $@) $(COSMIC) --check fmt $< ;
+	record $(basename $@) $(COSMIC) --check fmt $< ;
 
 $(O)/fmt-summary.txt: $(fmt_got)
 	tee $@ $(COSMIC) --report $(fmt_got) ;
@@ -101,14 +101,14 @@ test: $(O)/test-summary.txt
 # access to what it imports and nothing else. One answer, two
 # consumers: the argument positions are the declaration.
 $(O)/%.tl.test.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
-	test $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
+	record $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
 
 # A `.lua` test is a test. The marker suffixes are extension-agnostic
 # in the model, so the rules have to be too -- otherwise a Lua-only
 # project's tests are listed and never run, which is worse than not
 # supporting them.
 $(O)/%.lua.test.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
-	test $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
+	record $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
 
 $(O)/test-summary.txt: $(test_got)
 	tee $@ $(COSMIC) --report $(test_got) ;
@@ -125,10 +125,10 @@ example: $(O)/example-summary.txt
 # model says everywhere else, so the rules say it too — the only
 # difference from the test rules above is the flag.
 $(O)/%.tl.example.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
-	test $(basename $@) $(COSMIC) --check example $< --deps $(deps_$*) ;
+	record $(basename $@) $(COSMIC) --check example $< --deps $(deps_$*) ;
 
 $(O)/%.lua.example.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
-	test $(basename $@) $(COSMIC) --check example $< --deps $(deps_$*) ;
+	record $(basename $@) $(COSMIC) --check example $< --deps $(deps_$*) ;
 
 $(O)/example-summary.txt: $(example_got)
 	tee $@ $(COSMIC) --report $(example_got) ;
@@ -146,10 +146,10 @@ benchmark: $(O)/benchmark-summary.txt
 # sources and stale when they change, while a measurement is of one
 # binary on one machine at one moment and is never stale, just old.
 $(O)/%.tl.benchmark.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
-	test $(basename $@) $(COSMIC) --benchmark $< --deps $(deps_$*) ;
+	record $(basename $@) $(COSMIC) --benchmark $< --deps $(deps_$*) ;
 
 $(O)/%.lua.benchmark.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
-	test $(basename $@) $(COSMIC) --benchmark $< --deps $(deps_$*) ;
+	record $(basename $@) $(COSMIC) --benchmark $< --deps $(deps_$*) ;
 
 $(O)/benchmark-summary.txt: $(benchmark_got)
 	tee $@ $(COSMIC) --report $(benchmark_got) ;
@@ -172,7 +172,7 @@ lint: $(O)/lint-summary.txt
 # sees a `.md`, a `.mk` and a `.yml`, and why it is a verb of its own
 # rather than a stage of `check`.
 $(O)/%.lint.got: % $(COSMIC_DEP)
-	test $(basename $@) $(COSMIC) --check lint $< ;
+	record $(basename $@) $(COSMIC) --check lint $< ;
 
 $(O)/lint-summary.txt: $(lint_got)
 	tee $@ $(COSMIC) --report $(lint_got) ;
@@ -197,10 +197,10 @@ coverage: $(O)/coverage-summary.txt
 $(O)/.coverage/%.test.got: export COSMIC_COVERAGE := 1
 
 $(O)/.coverage/%.tl.test.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
-	test $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
+	record $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
 
 $(O)/.coverage/%.lua.test.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
-	test $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
+	record $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
 
 $(O)/coverage-summary.txt: $(coverage_got)
 	tee $@ $(COSMIC) --report $(coverage_got) ;

@@ -31,9 +31,9 @@ Cosmic options:
                                 e.g. cosmic --coverage-report o/coverage lib
   -c <line>                     run one recipe line as argv, not shell
                                 (for make: SHELL := cosmic. the closed
-                                 vocabulary: capture, compile, copy, exec,
-                                 link, list, remove, require-elf,
-                                 require-marker, tee, test, verdict)
+                                 vocabulary: assert-elf, assert-marker,
+                                 capture, compile, copy, exec, link,
+                                 record, remove, tee, verdict, write-list)
   --make <verb> [paths]...      build this project
                                 (build, check, test, fmt, lint, example,
                                  benchmark, docs, coverage, ci, fetch,

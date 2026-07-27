@@ -151,12 +151,12 @@ end
 test_remove_takes_a_variadic_tail()
 
 local function test_list_does_not_read_its_items()
-  -- `list <out> [items...]`: the items are text written INTO out, not
+  -- `write-list <out> [items...]`: the items are text written INTO out, not
   -- paths the step opens, so granting them would widen the fence for
   -- nothing.
   local item = touch("fence-item.tl")
-  local p = grants.plan("list", {fs.join(tmpdir, "files.txt"), item})
-  assert(p is sandbox.Fs, "list must plan a policy")
+  local p = grants.plan("write-list", {fs.join(tmpdir, "files.txt"), item})
+  assert(p is sandbox.Fs, "write-list must plan a policy")
   assert(has(p.rw, tmpdir), "the output's parent must be writable")
   assert(not has(p.ro, item), "items are content, not reads")
 end
@@ -299,18 +299,18 @@ local function test_the_coverage_directory_is_granted_before_it_exists()
   fs.rmrf(fs.dirname(cov))
   local prev = env.get("COSMIC_COVERAGE")
   env.set("COSMIC_COVERAGE", cov, true)
-  local p = grants.plan("list", {fs.join(tmpdir, "out.txt")})
+  local p = grants.plan("write-list", {fs.join(tmpdir, "out.txt")})
   -- `1` is the OTHER meaning of the variable — collect, but name no
   -- directory — which is what the coverage make rules set. Taken as a
   -- path it creates `./1` in the project root.
   env.set("COSMIC_COVERAGE", "1", true)
-  local flagged = grants.plan("list", {fs.join(tmpdir, "out.txt")})
+  local flagged = grants.plan("write-list", {fs.join(tmpdir, "out.txt")})
   if prev then
     env.set("COSMIC_COVERAGE", prev, true)
   else
     env.unset("COSMIC_COVERAGE")
   end
-  assert(p is sandbox.Fs, "list must plan a policy")
+  assert(p is sandbox.Fs, "write-list must plan a policy")
   assert(has(p.rw, cov), "the coverage directory must be writable")
   assert(flagged is sandbox.Fs, "and still plan one for the flag form")
   assert(not has(flagged.rw, "1"), "`1` is a flag, not a directory")
@@ -319,8 +319,8 @@ test_the_coverage_directory_is_granted_before_it_exists()
 
 local function test_the_runtime_floor_is_granted()
   -- Derived-from-argv says nothing about what every process needs.
-  local p = grants.plan("list", {fs.join(tmpdir, "out.txt")})
-  assert(p is sandbox.Fs, "list must plan a policy")
+  local p = grants.plan("write-list", {fs.join(tmpdir, "out.txt")})
+  assert(p is sandbox.Fs, "write-list must plan a policy")
   assert(has(p.rw, "/dev/null"), "/dev/null must be writable")
   assert(has(p.ro, "/dev/urandom"), "/dev/urandom must be readable")
 end

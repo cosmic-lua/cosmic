@@ -165,12 +165,12 @@ local function do_tee(args: {string}): integer
   return 0
 end
 
---- list <out> <items...> — write items one per line, only if changed
+--- write-list <out> <items...> — write items one per line, only if changed
 --- (the lint file-list stamp's printf + cmp/mv shape).
-local function do_list(args: {string}): integer
+local function do_write_list(args: {string}): integer
   local out = args[1]
   if not out then
-    return fail("usage: list <out> [items...]")
+    return fail("usage: write-list <out> [items...]")
   end
   local parts: {string} = {}
   for i = 2, #args do
@@ -189,7 +189,7 @@ local function do_list(args: {string}): integer
   return 0
 end
 
---- test <out> <cmd> [args...] — run one test file, writing the
+--- record <out> <cmd> [args...] — run one test file, writing the
 --- `<out>.got`/`.out`/`.err` contract testrun already owns, and then
 --- **always succeed**.
 ---
@@ -205,10 +205,10 @@ end
 ---
 --- A step that could not record a result at all (unwritable output) is
 --- still a failure: that is the graph breaking, not a test failing.
-local function do_test(args: {string}): integer
+local function do_record(args: {string}): integer
   local out = args[1]
   if not out or not args[2] then
-    return fail("usage: test <out> <cmd> [args...]")
+    return fail("usage: record <out> <cmd> [args...]")
   end
   local argv: {string} = {}
   for i = 2, #args do
@@ -242,18 +242,18 @@ local function do_test(args: {string}): integer
   local testrun = require("cosmic.testrun")
   testrun.run(argv, out)
   if not fs.isfile(out .. ".got") then
-    return fail("test " .. out .. ": no result recorded")
+    return fail("record " .. out .. ": no result recorded")
   end
   return 0
 end
 
---- require-marker <marker> <dir> — fail unless some file under dir
+--- assert-marker <marker> <dir> — fail unless some file under dir
 --- contains marker as a plain substring (the enforce lane's tripwire:
 --- grep -rqs replacement).
-local function do_require_marker(args: {string}): integer
+local function do_assert_marker(args: {string}): integer
   local marker, dir = args[1], args[2]
   if not dir then
-    return fail("usage: require-marker <marker> <dir>")
+    return fail("usage: assert-marker <marker> <dir>")
   end
   local function scan(d: string): boolean
     local dir0 = fs.opendir(d)
@@ -283,13 +283,13 @@ local function do_require_marker(args: {string}): integer
   return fail("no file under " .. dir .. " contains '" .. marker .. "'")
 end
 
---- require-elf <file> — fail unless file starts with the ELF magic
+--- assert-elf <file> — fail unless file starts with the ELF magic
 --- (the assimilation checks' `printf '\177ELF' | cmp` process
 --- substitution).
-local function do_require_elf(args: {string}): integer
+local function do_assert_elf(args: {string}): integer
   local path = args[1]
   if not path then
-    return fail("usage: require-elf <file>")
+    return fail("usage: assert-elf <file>")
   end
   local content = fs.read(path)
   if not content or string.sub(content, 1, 4) ~= "\127ELF" then
@@ -453,19 +453,33 @@ local function do_exec(args: {string}): integer
   return res.code or 1
 end
 
+--- The closed vocabulary, and every name says what the step DOES.
+---
+--- Three were renamed together, because each was borrowing a word that
+--- already means something else here:
+---
+---   test        -> record       it records a result and always exits
+---                               0; grading is `--report`'s job, and
+---                               `--make test` is the verb that grades.
+---                               A step called `test` that cannot fail
+---                               a test is the worst of the three.
+---   list        -> write-list   it WRITES its arguments to a file; it
+---                               does not list anything.
+---   require-*   -> assert-*     `require` is Lua's module loader, and
+---                               these load nothing. They assert.
 local modes: {string: function({string}): integer} = {
+  ["assert-elf"] = do_assert_elf,
+  ["assert-marker"] = do_assert_marker,
   capture = do_capture,
   compile = do_compile,
   copy = do_copy,
   exec = do_exec,
   link = do_link,
-  list = do_list,
-  remove = do_remove,
-  ["require-elf"] = do_require_elf,
-  ["require-marker"] = do_require_marker,
-  tee = do_tee,
-  test = do_test,
-  verdict = do_verdict,
-}
+  record = do_record,
+    remove = do_remove,
+    tee = do_tee,
+    verdict = do_verdict,
+    ["write-list"] = do_write_list,
+  }
 
-return modes
+  return modes
