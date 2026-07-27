@@ -58,7 +58,43 @@ local function test_type_continued_after_a_colon()
 end
 test_type_continued_after_a_colon()
 
-print("All format tests passed!")
+-- A wrap longer than two lines, which is where carrying a BIT instead
+-- of a depth failed: the middle line opens and closes nothing, so a
+-- per-line bracket count reads 0 and drops the carry. The `)` line then
+-- dedents as if it closed a code bracket and takes `n: integer` with it
+-- -- idempotently, so `--make fmt` blesses the damage on every run.
+--
+-- `n: integer` after the wrap is the whole point of the case. Without a
+-- field there, the `math.max(0, ...)` indent clamp lands `end` at 0 by
+-- coincidence and the file formats correctly while the bug is live;
+-- `cosmic/child/io.tl` shipped exactly that way.
+local function test_a_type_wrapped_over_three_lines()
+  local src = "local record R\n" ..
+  "  f: function(a: string,\n" ..
+  "  b: string,\n" ..
+  "  c: string): integer\n" ..
+  "  n: integer\n" ..
+  "end\n" ..
+  "return R\n"
+  assert_format(src, src, "a function type wrapped over three lines", "test.tl")
+end
+test_a_type_wrapped_over_three_lines()
+
+-- The depth is a count, not a flag: four lines, a nested `{string:
+-- {string}}` inside the wrap, and a comment on a middle line (which
+-- decides nothing and must pass both carried facts through untouched).
+local function test_a_deeper_wrap_keeps_its_depth()
+  local src = "local record R\n" ..
+  "  f: function(a: {string: {string}},\n" ..
+  "  -- the middle line neither opens nor closes\n" ..
+  "  b: string,\n" ..
+  "  c: string): integer\n" ..
+  "  n: integer\n" ..
+  "end\n" ..
+  "return R\n"
+  assert_format(src, src, "a four-line wrap with a nested map", "test.tl")
+end
+test_a_deeper_wrap_keeps_its_depth()
 
 -- `?` marks an optional record field as a SUFFIX (`name?: string`) and
 -- an optional argument type as a PREFIX inside a function type. The

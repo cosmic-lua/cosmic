@@ -307,11 +307,15 @@ end
 --- file it meant to replace.
 local function do_remove(args: {string}): integer
   for _, p in ipairs(args) do
-    if fs.exists(p) then
-      local ok, uerr = fs.unlink(p)
-      if not ok and fs.exists(p) then
-        return fail("remove " .. p .. ": " .. (uerr or "unknown error"))
-      end
+    -- Attempt the unlink, and only ask what went wrong when it fails.
+    -- Guarding it with `fs.exists` skipped DANGLING symlinks: exists
+    -- follows the link, so one whose target is gone reads as "already
+    -- gone" and was never unlinked -- and `link` makes symlinks, so a
+    -- rule clearing a stale one silently kept it. `islink` is the second
+    -- question because exists cannot see it either.
+    local ok, uerr = fs.unlink(p)
+    if not ok and (fs.exists(p) or fs.islink(p)) then
+      return fail("remove " .. p .. ": " .. (uerr or "unknown error"))
     end
   end
   return 0

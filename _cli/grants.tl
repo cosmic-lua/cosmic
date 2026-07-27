@@ -202,8 +202,13 @@ local function unit_dir(path: string): string
   return dir
 end
 
---- Derive the filesystem policy for one step. Returns nil when the
---- verb has no shape, which the ratchet test makes impossible.
+--- Derive the filesystem policy for one step.
+---
+--- **Two different nils, and the caller must tell them apart.** Bare
+--- nil is "no shape" -- nothing to fence, which the ratchet test makes
+--- impossible for a real verb. Nil WITH an error is "could not be
+--- derived", a failure: read the two the same way and the step runs
+--- unfenced exactly when something is already wrong.
 ---
 --- Writes grant the parent DIRECTORY, never the file: creating and
 --- unlinking are rights on the directory, so a grant on the file
@@ -214,7 +219,8 @@ end
 --- @param verb string The verb name
 --- @param args {string} Its arguments
 --- @return sandbox.Fs | nil The derived policy
-local function plan(verb: string, args: {string}): sandbox.Fs | nil
+--- @return string | nil Why derivation failed, when it did
+local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | nil
   local shape = shapes[verb]
   if not shape then
     return nil
@@ -273,13 +279,15 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil
     -- the error path hands the whole tree away exactly when something
     -- is already wrong. Refuse the plan instead -- a fence that cannot
     -- be derived is not a fence to widen.
+    -- Refuse means FAIL, and the error is what says so: a bare nil here
+    -- reads as "no shape", turning the wide fence this avoids into no
+    -- fence at all.
     local dir = fs.dirname(p)
     if dir ~= "" and dir ~= "." then
       local ok, merr = fs.makedirs(dir)
       if not ok then
-        io.stderr:write("cosmic -c: cannot create " .. dir .. ": " ..
-          (merr or "unknown error") .. "\n")
-        return nil
+        return nil, "cannot create " .. dir .. ": "
+        .. (merr or "unknown error")
       end
     end
     rw[#rw + 1] = nearest_existing(p)
@@ -481,7 +489,7 @@ end
 
 local record GrantsModule
   shapes: {string: Shape}
-  plan: function(verb: string, args: {string}): sandbox.Fs | nil
+  plan: function(verb: string, args: {string}): sandbox.Fs | nil, string | nil
 end
 
 local M: GrantsModule = {

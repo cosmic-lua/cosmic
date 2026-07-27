@@ -276,7 +276,8 @@ local record FormatRulesModule
   needs_space: function(prev_prev: Item, prev: Item, cur: Item, next_item: Item): boolean
   compute_indent_change: function(line_items: {Item},
   continues_type?: boolean): integer, integer
-  opens_type_position: function(line_items: {Item}, continues_type?: boolean): boolean
+  opens_type_position: function(line_items: {Item}, continues_type?: boolean,
+  carry_depth?: integer): boolean, integer
 end
 
 local M: FormatRulesModule = {}

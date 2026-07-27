@@ -56,7 +56,16 @@ local function fence(verb: string, args: {string}): string | nil
   if not fence_enabled() then
     return nil
   end
-  local fs_policy = grants.plan(verb, args)
+  -- A policy that could not be DERIVED is an error, not an absence.
+  -- Only the shapeless verb (no policy, no error) legitimately runs
+  -- without a fence; anything else that came back empty failed on the
+  -- way, and dispatching it here would be the one thing this gate
+  -- exists to prevent -- a step running with no Landlock at all,
+  -- announced as if it were fenced.
+  local fs_policy, perr = grants.plan(verb, args)
+  if perr ~= nil then
+    return "fence for '" .. verb .. "' could not be derived: " .. perr
+  end
   if fs_policy == nil then
     return nil
   end

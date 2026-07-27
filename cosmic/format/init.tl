@@ -244,8 +244,12 @@ local function format(input: string, filename: string): FormatResult
   end
 
   -- Whether the previous line left this one in type position (`as` or
-  -- `:` last), which is the only cross-line fact the indent rules need.
+  -- `:` last, or a type bracket still open), and how many of those
+  -- brackets are open -- the cross-line facts the indent rules need.
+  -- The depth is what carries a wrapped type across a middle line that
+  -- opens and closes nothing.
   local continues_type = false
+  local type_depth = 0
 
   for _, line in ipairs(lines) do
     local gap = line.y - prev_y
@@ -255,7 +259,8 @@ local function format(input: string, filename: string): FormatResult
 
     local pre_change, post_change =
     rules.compute_indent_change(line.items, continues_type)
-    continues_type = rules.opens_type_position(line.items, continues_type)
+    continues_type, type_depth =
+    rules.opens_type_position(line.items, continues_type, type_depth)
 
     indent = math.max(0, indent + pre_change)
 

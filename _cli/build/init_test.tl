@@ -220,12 +220,21 @@ local function test_require_elf()
 end
 test_require_elf()
 
+-- Three cases of one contract: a file goes, a missing path is ignored,
+-- and a DANGLING symlink goes -- which `fs.exists` misreads as gone.
 local function test_remove()
   local a = fs.join(tmpdir, "rm-a")
+  local target = fs.join(tmpdir, "rm-link-target")
+  local link = fs.join(tmpdir, "rm-dangling")
   assert(fs.write(a, "x"))
-  local code = run_driver("remove", a, fs.join(tmpdir, "rm-missing"))
+  assert(fs.write(target, "x"))
+  assert(fs.symlink(target, link))
+  assert(fs.unlink(target), "target goes first, leaving the link dangling")
+  assert(fs.islink(link) and not fs.exists(link), "precondition: dangling")
+  local code = run_driver("remove", a, fs.join(tmpdir, "rm-missing"), link)
   assert(code == 0, "remove must succeed, missing files ignored")
   assert(not fs.stat(a), "existing file removed")
+  assert(not fs.islink(link), "dangling symlink removed")
 end
 test_remove()
 
@@ -279,6 +288,20 @@ local function test_recipe_dispatches()
   assert(fs.read(dst) == "hello\n", "recipe reaches the same modes table")
 end
 test_recipe_dispatches()
+
+-- A fence that cannot be DERIVED fails the step rather than waving it
+-- through: dispatching would run the step with no Landlock at all. The
+-- blocker is a regular file, so the derivation's makedirs hits ENOTDIR.
+local function test_recipe_refuses_a_step_whose_fence_cannot_be_derived()
+  local blocker = fs.join(tmpdir, "fence-blocker.txt")
+  assert(fs.write(blocker, "not a directory\n"))
+  local doomed = fs.join(blocker, "nope", "out.txt")
+  local code, out, err = run_recipe("write-list " .. doomed .. " item")
+  assert(code ~= 0, "a step with no derivable fence must fail, got 0")
+  assert(err:find("cannot create", 1, true), "expected it named: " .. err)
+  assert(not out:find("write-list", 1, true), "not announced: " .. out)
+end
+test_recipe_refuses_a_step_whose_fence_cannot_be_derived()
 
 local function test_recipe_strips_the_sentinel()
   -- Generated recipes end in `;` so make routes them through SHELL at
@@ -427,9 +450,7 @@ end
 test_exec_refuses_a_symlink_out_of_the_root()
 
 -- The other direction, because refusing everything would also pass the
--- test above: a link INSIDE the root still runs. The build stages such
--- a link itself (`o/bootstrap/lua -> cosmic`), so this is not
--- hypothetical.
+-- test above: a link INSIDE the root still runs.
 --
 -- The root is BUILT here, not borrowed from the repo. It used to point
 -- at the real `o/bin/` and drop a symlink beside the binary under test,

@@ -325,3 +325,29 @@ local function test_the_runtime_floor_is_granted()
   assert(has(p.ro, "/dev/urandom"), "/dev/urandom must be readable")
 end
 test_the_runtime_floor_is_granted()
+
+-- The two nils are different answers and the caller acts on the
+-- difference. A shapeless verb has nothing to fence; a plan that could
+-- not create its output directory FAILED, and returning that as a bare
+-- nil would read as "nothing to fence" -- dispatching the step with no
+-- Landlock at all, which is the opposite of the refusal intended.
+local function test_a_underivable_plan_is_an_error_not_an_absence()
+  -- A regular file cannot be a parent directory, so the verb's own
+  -- makedirs on `<file>/nope` fails the way a real ENOTDIR would.
+  local blocker = touch("fence-blocker")
+  local doomed = fs.join(blocker, "nope", "out.txt")
+  local p, err = grants.plan("write-list", {doomed})
+  assert(p == nil, "a plan that cannot create its output must not be returned")
+  assert(err ~= nil, "and it must say why, or it reads as `no shape`")
+  -- `string | nil` is a declared union, which `or` does not narrow;
+  -- the assert above is what guarantees this is the real message.
+  local msg = tostring(err)
+  assert(msg:find("cannot create", 1, true),
+    "expected the makedirs failure named, got: " .. msg)
+
+  -- The other nil, for contrast: no shape, no error.
+  local q, qerr = grants.plan("no-such-verb", {"a"})
+  assert(q == nil, "an unknown verb plans nothing")
+  assert(qerr == nil, "and says nothing -- that is what makes it distinct")
+end
+test_a_underivable_plan_is_an_error_not_an_absence()

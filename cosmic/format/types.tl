@@ -221,11 +221,30 @@ end
 --- set is what the next line inherits, and dropping it there put a
 --- phantom body's worth of indent under any comment that happened to
 --- fall between `as` and its type.
+---
+--- **The open bracket is a DEPTH, not a bit, so it is carried as one.**
+--- Counting only this line's brackets works for a two-line wrap and
+--- fails for every longer one: the middle line of
+---
+---     f: function(a: A,
+---       b: B,
+---       c: C): D
+---
+--- neither opens nor closes anything, so a per-line count reads 0,
+--- drops the carry, and the `)` line then dedents as if it closed a
+--- code bracket -- taking the next field with it. That is the same
+--- damage the carry exists to prevent, one line deeper, and it is
+--- idempotent, so the gate blesses it. Adding this line's marked
+--- brackets to what the previous lines left open is what makes the
+--- carry survive an arbitrary wrap.
 --- @param line_items {Item} The line's items
 --- @param continues_type boolean What this line itself inherited
+--- @param carry_depth integer Type brackets the previous lines left open
 --- @return boolean Whether the next line opens in type position
+--- @return integer The bracket depth to carry into it
 local function opens_type_position(line_items: {Item},
-    continues_type?: boolean): boolean
+    continues_type?: boolean, carry_depth?: integer): boolean, integer
+  local depth = carry_depth or 0
   local last: Item = nil
   for i = #line_items, 1, -1 do
     if line_items[i].kind ~= "comment" then
@@ -234,15 +253,11 @@ local function opens_type_position(line_items: {Item},
     end
   end
   if last == nil then
-    return continues_type or false
-  end
-  if last.tk == "as" or last.tk == ":" then
-    return true
+    return continues_type or false, depth
   end
   -- Still inside a type: count the brackets the marks call type, and
   -- see whether one is still open when the line runs out.
   local type_ctx = type_marks(line_items, continues_type)
-  local depth = 0
   for idx, item in ipairs(line_items) do
     if type_ctx[idx] then
       if item.tk == "(" or item.tk == "[" or item.tk == "{" then
@@ -252,14 +267,26 @@ local function opens_type_position(line_items: {Item},
       end
     end
   end
-  return depth > 0
+  -- Never below zero: an unmatched close would otherwise bank negative
+  -- depth and swallow the next real open.
+  if depth < 0 then
+    depth = 0
+  end
+  if depth > 0 then
+    return true, depth
+  end
+  if last.tk == "as" or last.tk == ":" then
+    return true, depth
+  end
+  return false, depth
 end
 
 local record FormatTypesModule
   type Item = Item
   is_function_block_opener: function(line_items: {Item}, func_idx: integer, continues_type?: boolean): boolean
   type_marks: function(line_items: {Item}, continues_type?: boolean): {integer: boolean}
-  opens_type_position: function(line_items: {Item}, continues_type?: boolean): boolean
+  opens_type_position: function(line_items: {Item}, continues_type?: boolean,
+  carry_depth?: integer): boolean, integer
 end
 
 local M: FormatTypesModule = {}
