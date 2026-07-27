@@ -228,7 +228,12 @@ jobs:
       - name: make fetch against the real pins
         shell: bash
         run: |
-          set -eux
+          # pipefail, because the second fetch below ends in a `tee` and
+          # a pipeline's status is its LAST command's. Without it a
+          # re-fetch that failed outright reported tee's clean exit, and
+          # the grep that follows would find no `fetch https` in the
+          # error output and call that idempotence.
+          set -euxo pipefail
           runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
             o/bin/cosmic --make fetch
           test -f o/3p/tl/tl.lua

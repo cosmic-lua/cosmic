@@ -55,10 +55,7 @@ jobs:
           echo "tag=$(date -u +%Y-%m-%d)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       # Both release binaries come out of one build: the unit declares
-      # `base` and `base-debug`, so `build` embeds one payload twice. The gate has
-      # already run over this commit — every commit on main arrives by
-      # push, and push triggers it — so this lane builds and nothing
-      # else.
+      # `base` and `base-debug`, so `build` embeds one payload twice.
       # Two generations, deliberately: the pinned cosmic builds one from
       # this tree, and THAT one builds what ships. A release should be
       # produced by the code it contains, not by whatever the pin happens
@@ -77,8 +74,29 @@ jobs:
       - name: the binary says what it is
         shell: bash
         run: |
-          set -eux
+          set -euxo pipefail
           o/bin/cosmic --version | grep -F "${{ steps.tag.outputs.tag }}"
+
+      # The gate, run BY the artifact being released.
+      #
+      # "The gate already ran over this commit" was the previous answer,
+      # and it is true of the commit and not of the release: a push whose
+      # gate went red still sits on main, and the next scheduled run
+      # publishes it. A daily job that ships without asking is a job that
+      # will eventually ship a known-broken tree.
+      #
+      # Running it here is also a stronger claim than re-running pr.yml
+      # would be, and free given the build above: `--make ci` in a
+      # project that builds its own toolchain gates under what it built
+      # (_make/converge.tl), so this is the exact binary in the release
+      # answering for itself.
+      - name: the gate, under the binary being released
+        timeout-minutes: 30
+        shell: bash
+        run: |
+          set -eux
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            o/bin/cosmic --make ci
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
