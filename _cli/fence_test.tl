@@ -23,11 +23,37 @@
 -- point inside <tmp>/root, which leaves <tmp>/outside.txt reachable to
 -- the unfenced run and outside the fence for the other.
 
+local build = require("_cli.build")
 local check = require("cosmic.check")
 local child = require("cosmic.child")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local sandbox = require("cosmic.sandbox")
+
+--- The recipe verbs this file drives, checked against the vocabulary
+--- HERE -- at load, unconditionally, before any host capability is
+--- consulted.
+---
+--- Every case below is gated on a kernel that can enforce, so on a host
+--- without Landlock this whole file skips. That made it invisible to a
+--- rename: `test` became `record`, every local gate skipped it, and the
+--- first thing to notice was CI, which reported it as an unrelated
+--- coverage failure two commits later.
+---
+--- A test that only RUNS somewhere still gets to CHECK its assumptions
+--- everywhere. This costs one loop and turns that class of breakage
+--- into a load-time failure on any machine.
+local DRIVES: {string} = {"record", "compile"}
+do
+  local known: {string: boolean} = {}
+  for _, v in ipairs(build.verbs()) do
+    known[v] = true
+  end
+  for _, v in ipairs(DRIVES) do
+    assert(known[v], "fence_test drives '" .. v ..
+      "', which is not a recipe verb: " .. table.concat(build.verbs(), " "))
+  end
+end
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 local cosmic = fs.join(os.getenv("TEST_BIN") or "", "cosmic")
@@ -116,18 +142,19 @@ local function test_the_fence_confines_a_test_to_its_own_step()
   assert(fs.isfile(target), "unfenced, the write must land")
   assert(fs.unlink(target))
 
-  -- B: through the test verb, whose fence grants only the step's own
-  -- output directory. The verb always exits 0 (it records rather than
-  -- grades), so the assertion is on the file, not the status.
+  -- B: through the `record` verb, whose fence grants only the step's
+  -- own output directory. The verb always exits 0 -- it records a
+  -- result rather than grading it, which is what the name says -- so
+  -- the assertion is on the file, not the status.
   local out = fs.join(root, "step", "escape")
   local fenced = check.must(child.run(
-      {cosmic, "-c", "test " .. out .. " " .. cosmic .. " " .. script},
+      {cosmic, "-c", "record " .. out .. " " .. cosmic .. " " .. script},
       {env = envlist}))
-  assert(fenced.ok, "the test verb records rather than grades: " ..
+  assert(fenced.ok, "the record verb records rather than grades: " ..
     fenced.stderr)
   assert(not fs.isfile(target),
     "fenced, a test must NOT write outside its own step")
-  check.enforced("test fence")
+  check.enforced("record fence")
 end
 test_the_fence_confines_a_test_to_its_own_step()
 
