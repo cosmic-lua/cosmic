@@ -151,4 +151,78 @@ local function test_text_for_returns_the_rendered_baseline()
 end
 test_text_for_returns_the_rendered_baseline()
 
+-- A rewrite that LOWERS a row is the one thing the ratchet cannot
+-- object to, so `--baseline` says it out loud. Percentage, not raw
+-- counts: a file that grew lines and covered more of them has not
+-- lowered anything.
+local function test_lowered_names_only_real_declines()
+  local before = "# h\n# c\n" ..
+  "a.tl 8 10\n" ..
+  "b.tl 5 10\n" ..
+  "c.tl 10 10\n" ..
+  "total 23 30\n"
+  local after = "# h\n# c\n" ..
+  "a.tl 8 10\n" .. -- unchanged
+  "b.tl 3 10\n" .. -- lowered
+  "c.tl 12 12\n" .. -- grew, still 100%
+  "total 23 32\n" -- lowered as a percentage
+  local rows = baseline.lowered(before, after)
+  assert(#rows == 2, "want b.tl and total, got " .. #rows ..
+    ": " .. table.concat(rows, "; "))
+  assert(rows[1]:find("b.tl", 1, true), "got: " .. rows[1])
+  assert(rows[1]:find("50.0% -> 30.0%", 1, true), "got: " .. rows[1])
+  assert(rows[2]:find("total", 1, true), "got: " .. rows[2])
+end
+test_lowered_names_only_real_declines()
+
+-- A file the rewrite does not mention cannot have been lowered by it,
+-- and a malformed baseline is not a decline report -- both answer with
+-- nothing rather than guessing.
+local function test_lowered_is_silent_when_it_cannot_tell()
+  local before = "# h\n# c\ngone.tl 9 10\ntotal 9 10\n"
+  local after = "# h\n# c\ntotal 9 10\n"
+  assert(#baseline.lowered(before, after) == 0,
+    "a row the rewrite dropped is not a lowered row")
+  assert(#baseline.lowered("nonsense", after) == 0,
+    "an unparseable baseline reports nothing")
+end
+test_lowered_is_silent_when_it_cannot_tell()
+
+-- The rewrite is ONE-WAY. `.coverage` is a floor, and several rows were
+-- set to what the strictest environment measures; a rebaseline from a
+-- machine that measures more must not raise them, or CI fails on a row
+-- nobody edited.
+local function test_render_never_raises_a_committed_floor()
+  -- Bound before must(): parse returns three values, and handing a
+  -- multi-return call to must() as its only argument spreads them into
+  -- must's own parameters.
+  local parsed = baseline.parse(
+    "# h\n# c\nkept.tl 4 10\nworse.tl 9 10\ngrown.tl 8 10\n")
+  local floor = check.must(parsed)
+  local text = baseline.render(reports({
+        -- measures better than its floor: the floor is kept verbatim
+        {"kept.tl", 9, 10},
+        -- measures worse: that is what a rebaseline is for
+        {"worse.tl", 5, 10},
+        -- more lines AND a better ratio: still not a reason to raise
+        {"grown.tl", 11, 12},
+        -- absent from the floor: recorded as measured
+        {"new.tl", 3, 4},
+      }), floor)
+  assert(text:find("\nkept.tl 4 10\n", 1, true), "got:\n" .. text)
+  assert(text:find("\nworse.tl 5 10\n", 1, true), "got:\n" .. text)
+  assert(text:find("\ngrown.tl 8 10\n", 1, true), "got:\n" .. text)
+  assert(text:find("\nnew.tl 3 4\n", 1, true), "got:\n" .. text)
+  -- the total sums the rows actually written, not the measurements
+  assert(text:find("\ntotal 20 34\n", 1, true), "got:\n" .. text)
+end
+test_render_never_raises_a_committed_floor()
+
+-- With no floor to compare against, render records what it measured.
+local function test_render_without_a_floor_records_the_run()
+  local text = baseline.render(reports({{"a.tl", 9, 10}}))
+  assert(text:find("\na.tl 9 10\n", 1, true), "got:\n" .. text)
+end
+test_render_without_a_floor_records_the_run()
+
 print("all baseline tests passed")

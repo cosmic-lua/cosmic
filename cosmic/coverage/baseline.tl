@@ -50,9 +50,24 @@ end
 
 --- Render reports as baseline text: one "path covered total" row per
 --- file plus a final "total" row, sorted, diff-friendly.
+---
+--- `floor` is the baseline being replaced, and it makes the rewrite
+--- **one-way: a row is only ever lowered.** A file this run measures
+--- BETTER than its floor keeps the floor's numbers, untouched.
+---
+--- Because the file is a floor, not a snapshot. Several rows were set
+--- by hand to the number the strictest environment produces -- the
+--- non-root CI builder, a host without Landlock or namespaces -- and
+--- only that environment can measure them. A rewrite from whatever
+--- machine is at hand raises them to what THIS machine reaches, the
+--- ratchet cannot object (raising a floor is not a decline), and CI
+--- fails on a row nobody edited. Ratcheting a floor UP stays a
+--- deliberate edit; `--baseline` exists to record that coverage got
+--- worse, and it now does only that.
 --- @param reports {FileReport} Sorted results from report.compute
+--- @param floor {string: Entry} The baseline being replaced, if any
 --- @return string
-local function render(reports: {FileReport}): string
+local function render(reports: {FileReport}, floor?: {string: Entry}): string
   local out: {string} = {
     "# coverage ratchet baseline: `cosmic --make coverage --baseline` rewrites this file.",
     "# columns: path covered-lines total-lines",
@@ -60,9 +75,14 @@ local function render(reports: {FileReport}): string
   local covered_sum = 0
   local total_sum = 0
   for _, r in ipairs(reports) do
-    covered_sum = covered_sum + r.covered
-    total_sum = total_sum + r.total
-    out[#out + 1] = string.format("%s %d %d", r.display, r.covered, r.total)
+    local covered, total = r.covered, r.total
+    local was = floor and floor[r.display]
+    if was and pct(covered, total) > pct(was.covered, was.total) then
+      covered, total = was.covered, was.total
+    end
+    covered_sum = covered_sum + covered
+    total_sum = total_sum + total
+    out[#out + 1] = string.format("%s %d %d", r.display, covered, total)
   end
   out[#out + 1] = string.format("total %d %d", covered_sum, total_sum)
   return table.concat(out, "\n") .. "\n"
@@ -209,14 +229,64 @@ end
 --- rather than a stream: the verb owns the file it writes (the build
 --- has no redirect), while the recipe path captures stdout.
 --- @param paths {string} Report inputs (see report.compute)
+--- @param previous string The baseline being replaced, for the floor rule
 --- @return string|nil The baseline text, or nil on failure
 --- @return string The error message
-local function text_for(paths: {string}): string | nil, string
+local function text_for(paths: {string},
+    previous?: string): string | nil, string
   local reports, cerr = rep.compute(paths)
   if not reports then
     return nil, cerr or "coverage: no data"
   end
-  return render(reports as {FileReport}) -- cast: record union after guard
+  local floor = previous and parse(previous)
+  -- cast: record union after guard
+  return render(reports as {FileReport}, floor)
+end
+
+--- Which rows a rewrite would LOWER, and by how much.
+---
+--- A rewrite is not a refresh: `.coverage` is a floor, and several
+--- files' floors were measured on a machine that is not this one. The
+--- ratchet is silent about it -- lowering a row is exactly what
+--- `--baseline` is for -- so the only thing standing between an
+--- environment-sensitive floor and being quietly re-baselined onto the
+--- nearest laptop is that somebody reads the diff. This names the rows
+--- so the reading happens whether or not the diff is opened.
+--- @param before string The existing baseline text
+--- @param after string The text about to replace it
+--- @return {string} One message per lowered row, in path order
+local function lowered(before: string, after: string): {string}
+  local old_rows, old_total = parse(before)
+  local new_rows, new_total = parse(after)
+  if not old_rows or not new_rows then
+    return {}
+  end
+  local olds = old_rows as {string: Entry} -- cast: nil ruled out above
+  local news = new_rows as {string: Entry} -- cast: nil ruled out above
+  local paths: {string} = {}
+  for path in pairs(olds) do
+    paths[#paths + 1] = path
+  end
+  table.sort(paths)
+  local out: {string} = {}
+  local function note(path: string, was: Entry, now: Entry)
+    local before_pct = pct(was.covered, was.total)
+    local after_pct = pct(now.covered, now.total)
+    if after_pct < before_pct then
+      out[#out + 1] = string.format("%s %.1f%% -> %.1f%% (%d/%d -> %d/%d)",
+        path, before_pct, after_pct, was.covered, was.total,
+        now.covered, now.total)
+    end
+  end
+  for _, path in ipairs(paths) do
+    if news[path] then
+      note(path, olds[path], news[path])
+    end
+  end
+  if old_total and new_total then
+    note("total", old_total, new_total)
+  end
+  return out
 end
 
 --- Write a fresh baseline for the given report inputs to stdout.
@@ -270,12 +340,13 @@ end
 
 local record BaselineModule
   type Entry = Entry
-  render: function(reports: {FileReport}): string
+  render: function(reports: {FileReport}, floor?: {string: Entry}): string
   parse: function(text: string): {string: Entry} | nil, Entry, string
   compare: function(reports: {FileReport}, entries: {string: Entry}, total: Entry): {string}
   check: function(baseline_path: string, paths: {string}): integer
   gate: function(baseline_path: string, only: string, paths: {string}): integer
-  text_for: function(paths: {string}): string | nil, string
+  text_for: function(paths: {string}, previous?: string): string | nil, string
+  lowered: function(before: string, after: string): {string}
   write: function(paths: {string}): integer
 end
 
@@ -286,6 +357,7 @@ local M: BaselineModule = {
   check = check,
   gate = gate,
   text_for = text_for,
+  lowered = lowered,
   write = write,
 }
 

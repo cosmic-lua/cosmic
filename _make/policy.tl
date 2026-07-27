@@ -83,18 +83,32 @@ local function write_baseline(proj: Project): integer
   for _, dir in ipairs(graph.source_dirs(proj)) do
     report[#report + 1] = dir
   end
-  local text, err = baseline.text_for(report)
+  -- The baseline being replaced is an INPUT to its own rewrite: a row
+  -- this run measures better keeps the floor it already had, so a
+  -- rebaseline on any machine can only ever lower one.
+  local previous = fs.read(BASELINE)
+  local floor = previous is string and previous or nil
+  local text, err = baseline.text_for(report, floor)
   if not text then
     io.stderr:write((err or "coverage: no data") .. "\n")
     return stage.verdict("coverage", false, "no data")
   end
-  -- cast: scalar narrowing after the guard
-  local wok, werr = fs.write(BASELINE, text as string)
+  local fresh = text as string -- cast: scalar narrowing after the guard
+  local moved = 0
+  if floor then
+    for _, row in ipairs(baseline.lowered(floor, fresh)) do
+      io.write("coverage: baseline LOWERS " .. row .. "\n")
+      moved = moved + 1
+    end
+  end
+  local wok, werr = fs.write(BASELINE, fresh)
   if not wok then
     io.stderr:write((werr or "cannot write " .. BASELINE) .. "\n")
     return stage.verdict("coverage", false, BASELINE)
   end
-  io.write("coverage: wrote " .. BASELINE .. "\n")
+  io.write("coverage: wrote " .. BASELINE .. " (" .. moved
+    .. " row(s) lowered; a floor only moves up by hand — see "
+    .. "cosmic/coverage/SENSITIVITY.md)\n")
   return stage.verdict("coverage", true, BASELINE)
 end
 
