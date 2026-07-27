@@ -32,24 +32,29 @@ users import `cosmic.*` modules. `cosmo.*` bindings are available but undocument
 .tl source → cosmic --compile → .lua → zip into binary
 ```
 
-the bootstrap problem: compiling `.tl` requires a working cosmic binary. this is solved by a pre-built bootstrap binary, pinned by url + sha256 in `cook.mk` and fetched by `bin/make`. the pin is bumped **by hand**; no workflow refreshes it, and no lane verifies the self-host property (see [build.md](build.md)).
+the bootstrap problem: compiling `.tl` requires a working cosmic binary.
+a pre-built one is pinned by url + sha256 in `bin/cosmic.pin` and fetched
+by `bin/cosmic`. the pin is bumped by hand; a release is built in two
+generations so what ships is produced by the code it contains (see
+[build.md](build.md)).
 
 dependency chain:
 ```
-bootstrap cosmic (pinned url + sha256, fetched by bin/make)
-  → compiles build scripts (build-fetch.lua, build-stage.lua)
-  → fetches/stages 3p deps (cosmos, tl)
-  → compiles cosmic modules (.tl → .lua)
-  → builds cosmic binary (link lua + zip modules)
+pinned cosmic (url + sha256 in bin/cosmic.pin, fetched by bin/cosmic)
+  → resolves *_pin.tl (cosmos, tl) into o/3p/
+  → runs the payload generator, compiles .tl → .lua
+  → embeds the payload onto the pinned runtime → o/bin/cosmic
 ```
 
 ### Sandboxed Build
 
-`bin/make` is the trust root: it fetches the sha-pinned bootstrap cosmic,
-which extracts `make` from the sha-pinned cosmos.zip — two pinned
-artifacts, one committed fetcher, no other host downloads (#756).
+`bin/cosmic` is the trust root: it fetches ONE sha-pinned cosmic and
+execs it, and cosmic extracts its own build engine from its own zip — one
+pin, one committed fetcher, no other host downloads.
 
-under landlock-make, each build rule declares its access:
+each build rule's access is DERIVED from its recipe line rather than
+declared, because the verb vocabulary is closed and every verb's
+signature already says what it touches:
 - **pledge**: restricts available system calls (e.g., `stdio rpath`)
 - **unveil**: restricts filesystem visibility (e.g., `r:lib rwc:o/`)
 - **.ENV**: clamps the child environment to named variables
@@ -97,19 +102,16 @@ return M
 
 ### `_build/` — Build Infrastructure
 
-- `build-fetch.tl`: download versioned dependencies from GitHub releases
-- `build-stage.tl`: extract and prepare fetched archives
-- `reporter.tl`: aggregate test/check results into summaries
-- `make-help.tl`: parse Makefile comments for `make help`
+- `workflows_test.tl`: ratchets over the GitHub workflow definitions
 
 ### `3p/` — Third-Party Dependencies
 
-each 3p module has:
+each 3p module is one file:
 - `*_pin.tl`: a pin — one `return { … }` of literals declaring the
   version, digest and url, read as data and never executed
-- `cook.mk`: declares module variables for the build system
 
-the fetch/stage pipeline handles downloading, verifying, and extracting.
+`--make fetch` downloads it, verifies the digest, and unpacks beside the
+pin. the marker is the whole registration; nothing else declares it.
 
 ## Error Handling
 
@@ -126,13 +128,16 @@ consistency within a module matters more than which pattern is chosen.
 
 ## Testing Architecture
 
-tests are `*_test.tl` files that run as standalone scripts. the Makefile:
+tests are `*_test.tl` files that run as standalone scripts. `--make test`:
 
-1. compiles each `_test.tl` to `.lua`
-2. runs it, capturing stdout/stderr/exit-code to `.out`/`.err`/`.got`
-3. aggregates results via `reporter.tl` into a summary
+1. builds the project's binaries and puts them on the child `PATH`, so a
+   test can spawn the binary under test (`TEST_BIN` names its directory)
+2. compiles each `_test.tl` to `.lua`
+3. runs it, capturing stdout/stderr/exit-code to `.out`/`.err`/`.got`
+4. aggregates the results into a summary
 
-each test gets an isolated `TEST_TMPDIR`. test dependencies are resolved automatically from module declarations.
+each test gets an isolated `TEST_TMPDIR`. a test's dependencies are its
+own import closure, taken from the model — nothing is declared.
 
 examples (`*_example.tl`) contain `Example_*` functions with expected output in comments. `cosmic --check examples` runs them and validates output.
 

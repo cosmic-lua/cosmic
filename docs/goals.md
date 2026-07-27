@@ -112,7 +112,7 @@ every type is checked, none asserted: drive Teal's narrowing and
 soundness gaps closed upstream-first (fork-if-blocked, the Cosmopolitan
 precedent) until the stdlib needs no `as` casts and no workaround
 doctrine. mechanisms that police the gap in the meantime — today, the
-per-site `-- cast: <reason>` justification enforced by `bin/make lint`
+per-site `-- cast: <reason>` justification enforced by `--make lint`
 — are scaffolding, not goals: each retires when the gap it polices
 closes.
 

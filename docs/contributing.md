@@ -5,25 +5,28 @@
 ```bash
 git clone https://github.com/whilp/cosmic
 cd cosmic
-bin/make build    # downloads bootstrap, fetches deps, builds cosmic
-bin/make test     # run tests
+bin/cosmic --make fetch   # resolve the pins (the only networked verb)
+bin/cosmic --make build   # build cosmic
+o/bin/cosmic --make test  # run tests, under the binary you just built
 ```
 
-`bin/make` is a shell script that, on first run, downloads the sha-pinned bootstrap cosmic and uses it to extract `make` from the sha-pinned cosmos.zip (`_build/make-boot.tl`). all build artifacts go to `o/`.
+`bin/cosmic` is a POSIX-sh script that, on first run, downloads the one
+sha-pinned cosmic named in `bin/cosmic.pin`, verifies it, and execs it.
+Everything after runs under that pin. All build artifacts go to `o/`.
 
 ## Workflow
 
 1. create a branch from `main`
 2. make changes to `.tl` files in `cosmic/`
-3. run checks:
+3. run the gate — under the binary your change builds, not the pinned
+   one, or the checks report on the release instead of your work:
    ```bash
-   bin/make format        # check formatting
-   bin/make teal          # type check
-   bin/make test          # run tests
+   bin/cosmic --make build && o/bin/cosmic --make ci
    ```
+   Or one stage at a time: `--make fmt`, `--make check`, `--make test`.
 4. open a PR against `main`
 
-CI runs `make ci` which includes format + teal + test + example checks.
+CI runs the same `--make ci`: fmt, check, test, example, lint, coverage.
 
 ## Writing a Module
 
@@ -146,18 +149,8 @@ all type errors must be resolved. warnings are reported but don't fail the build
    `strip_components`) unpacks the archive after the digest matches —
    never before, since an archive is a program for a decompressor.
 
-2. create `3p/mymk/modules.mk`:
-   ```makefile
-   modules += mylib
-   mylib_version := 3p/mylib/mylib_pin.tl
-   ```
-
-3. include in `Makefile`:
-   ```makefile
-   include 3p/mymk/modules.mk
-   ```
-
-4. declare dependency from your module:
-   ```makefile
-   mymod_deps := mylib
-   ```
+2. that is the whole registration. `*_pin.tl` is the marker, so
+   `--make fetch` resolves it and lands the bytes beside it, in
+   `o/3p/mylib/`. Nothing includes it and nothing declares a dependency
+   on it — a module that requires the result gets the edge from its own
+   `require`.
