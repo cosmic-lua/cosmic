@@ -19,12 +19,12 @@ _make/docs.tl 14 30
 _make/extract.tl 52 73
 _make/fetch.tl 107 117
 _make/generate.tl 37 46
-_make/graph.tl 248 271
+_make/graph.tl 184 210
 _make/imports.tl 60 63
 _make/init.tl 178 221
 _make/pin.tl 80 81
 _make/policy.tl 46 83
-_make/project.tl 251 260
+_make/project.tl 210 221
 _make/root.tl 53 58
 _make/stage.tl 90 96
 _make/types.tl 29 29

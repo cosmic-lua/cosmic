@@ -31,7 +31,8 @@ belongs here the day it is written.
 | **a real tty** | `cosmic/tty_test.tl`, `cosmic/tty_pty_test.tl` | `cosmic/tty.tl`. Neither stdin nor stdout is a tty under make, so the interactive branches never run in any lane |
 | **the network / a free port** | `cosmic/net/connect_test.tl`, `cosmic/net/init_test.tl`, `cosmic/quicksand/proxy/serve_test.tl` | `cosmic/net/**`. The offline lane deliberately runs with only loopback |
 | **fork available** | `cosmic/quicksand/proxy/serve_test.tl`, `cosmic/child/init_test.tl` | the child/proxy paths that need a second process |
-| **the make engine present** (`check.needs`, audit 029) | every `_make` graph test | all of `_make/**`. Unlike the rows above this one HARD-FAILS in CI rather than skipping — a graph-test surface that silently becomes green skips is the failure 029 closed |
+| **the make engine present** (`check.needs`) | every `_make` graph test | all of `_make/**`. Unlike the rows above this one HARD-FAILS in CI rather than skipping — a graph-test surface that silently becomes green skips is the failure that closed |
+| **which compiler built the artifact** | any module a test loads out of the binary under test (`/zip/**`) | its `total` line count, not just its covered count. Coverage attributes an embedded chunk to its tree source but counts executable lines in the *compiled* copy that ran — and CI's binary is built by the PIN's compiler while a developer's is built by its own. `_make/graph.tl` measures 271 executable lines here and 210 there. Floors for these rows come from CI |
 
 ## Reading a floor that moved
 
