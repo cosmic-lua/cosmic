@@ -17,7 +17,6 @@
 --- The bootstrap sha therefore covers the driver's entire runtime; a
 --- bootstrap bump that breaks an embedded API fails the build loudly.
 
-local proc = require("cosmic.proc")
 local modes = require("_cli.build.steps")
 
 local function verbs(): {string}
@@ -126,24 +125,12 @@ local function dispatch(verb: string, args: {string}): integer
   return run_verb(args)
 end
 
-local function main(...: string): integer
-  local args = {...}
-  local mode = table.remove(args, 1)
-  local run_mode = mode and modes[mode]
-  if not run_mode then
-    io.stderr:write("--build: usage: --build <mode> ... (a mode from: " ..
-      mode_names() .. ")\n")
-    return 1
-  end
-  return run_mode(args)
-end
-
-if proc.is_main() then
-  os.exit(main(...))
-end
+-- No `main`, and no script mode. Both belonged to `--build <mode>`, a
+-- flag that went with the Makefile: a recipe reaches this vocabulary
+-- through `cosmic -c '<line>'` and nothing else, which is what lets the
+-- fence derive its grants from the line it is about to run.
 
 return {
-  main = main,
   parse = parse,
   dispatch = dispatch,
   verbs = verbs,

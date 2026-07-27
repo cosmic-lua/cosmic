@@ -1,7 +1,7 @@
 # coverage ratchet baseline: `cosmic --make coverage --baseline` rewrites this file.
 # columns: path covered-lines total-lines
 _cli/args.tl 0 31
-_cli/build/init.tl 0 43
+_cli/build/init.tl 0 33
 _cli/build/steps.tl 180 234
 _cli/check.tl 24 31
 _cli/driver.tl 157 181
@@ -12,7 +12,7 @@ _cli/require_hints.tl 104 124
 _cli/run.tl 28 33
 _cli/welcome.tl 0 25
 _docs/publish.tl 116 176
-_make/artifact.tl 151 163
+_make/artifact.tl 164 181
 _make/check.tl 54 55
 _make/deps.tl 73 73
 _make/docs.tl 14 30
@@ -21,7 +21,7 @@ _make/fetch.tl 107 117
 _make/generate.tl 37 46
 _make/graph.tl 179 205
 _make/imports.tl 60 63
-_make/init.tl 0 162
+_make/init.tl 0 165
 _make/pin.tl 80 81
 _make/policy.tl 46 83
 _make/project.tl 233 245
@@ -92,7 +92,7 @@ cosmic/fetch/headers.tl 23 23
 cosmic/fetch/init.tl 0 139
 cosmic/flags.tl 140 142
 cosmic/format/init.tl 0 163
-cosmic/format/rules.tl 209 221
+cosmic/format/rules.tl 208 220
 cosmic/fs/file.tl 30 46
 cosmic/fs/init.tl 0 74
 cosmic/fs/ops.tl 93 134
@@ -151,7 +151,7 @@ cosmic/sys.tl 14 22
 cosmic/syslog.tl 46 46
 cosmic/table.tl 75 75
 cosmic/tar.tl 123 131
-cosmic/teal.tl 236 245
+cosmic/teal.tl 185 193
 cosmic/testrun.tl 155 201
 cosmic/time.tl 142 155
 cosmic/tty.tl 128 135
@@ -161,4 +161,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 80 93
 tlconfig.lua 7 7
-total 11650 16708
+total 11611 16666

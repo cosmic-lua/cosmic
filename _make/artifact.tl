@@ -414,6 +414,30 @@ local function bases_of(proj: Project, binary: Binary,
   return out
 end
 
+--- Move `staged` onto `out`, or drop it when the bytes already match.
+--- Every graph rule depends on the cosmic that runs it -- a result is
+--- only as fresh as the tool that produced it -- so rewriting an
+--- identical binary would invalidate the whole tree on every build.
+--- @param staged string The freshly written artifact
+--- @param out string Where it belongs
+--- @return string|nil The error message, nil on success
+local function replace_if_changed(staged: string, out: string): string | nil
+  local fresh, ferr = fs.read(staged)
+  if not (fresh is string) then
+    return staged .. ": " .. (ferr or "cannot read")
+  end
+  if fs.read(out) == fresh then
+    fs.unlink(staged)
+    return nil
+  end
+  local ok, merr = fs.rename(staged, out)
+  if not ok then
+    fs.unlink(staged)
+    return out .. ": " .. (merr or "cannot replace")
+  end
+  return nil
+end
+
 --- Build one artifact from an already-compiled tree.
 --- @param proj Project The scanned project
 --- @param binary Binary The artifact to build
@@ -441,10 +465,16 @@ local function build(proj: Project, binary: Binary, cosmic: string): string | ni
     -- this is what makes that true of the artifact too. Keeping the
     -- base's copy as well would ship two standard libraries, with the
     -- project's winning on package.path and the base's riding along.
-    local result = embed.run({dir as string}, out, pair[2], -- cast: scalar narrowing after the guard
+    local staged_out = out .. ".new"
+    local result = embed.run({dir as string}, staged_out, pair[2], -- cast: scalar narrowing after the guard
       {strip = true, provides = validate.claims(proj), mtime = embed.EPOCH})
     if not result.ok then
+      fs.unlink(staged_out)
       return nil, "make: " .. binary.name .. pair[1] .. ": " .. result.message
+    end
+    local rerr = replace_if_changed(staged_out, out)
+    if rerr then
+      return nil, "make: " .. rerr
     end
     first = first or out
   end

@@ -10,7 +10,6 @@ local cosmo = require("cosmo")
 
 local record DocIndexModule
   generate: function(files: {string}, names?: {string: string}): string | nil, string
-  main: function(args: {string}): integer
 end
 
 --- Normalize directory-module init shards to the module name users
@@ -126,24 +125,15 @@ local function generate(files: {string},
   return codec.encode_lua({modules = modules})
 end
 
-local function main(args: {string}): integer
-  local result, err = generate(args)
-  if not result then
-    io.stderr:write("error: " .. err .. "\n")
-    return 1
-  end
-  io.write(result)
-  return 0
-end
+-- No script mode: the index is written by `cmd/cosmic/embed_gen.tl`,
+-- which calls `generate` in process. The argv entry point existed
+-- because a make recipe could only reach this file by running it, and
+-- it recognised itself by matching `arg[0]` against its own filename --
+-- true of any project with a `doc/index.tl`, which is a way to be
+-- surprising rather than a way to be reachable.
 
 local M: DocIndexModule = {
   generate = generate,
-  main = main,
 }
-
--- When run as a script, execute main
-if arg and arg[0] and arg[0]:match("doc[/\\]index%.tl$") then
-  os.exit(main(arg))
-end
 
 return M

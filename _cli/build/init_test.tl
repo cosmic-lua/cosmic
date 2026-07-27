@@ -78,7 +78,12 @@ local function test_compile_writes_output()
 end
 test_compile_writes_output()
 
-local function test_compile_unchanged_keeps_mtime()
+-- An unchanged compile does not REWRITE its output -- the file is
+-- read-only for the second run, so a write would fail -- but it does
+-- advance the mtime. Make only runs the recipe when the target is out
+-- of date, and a target that cannot become up to date is one make
+-- re-runs on every future invocation.
+local function test_compile_unchanged_restamps_without_rewriting()
   local src, out = compile_fixture("c-mtime", "print(1)\n")
   env.set("TREE_LUA_PATH", ";;")
   local code = run_driver("compile", test_bin, src, out)
@@ -86,15 +91,18 @@ local function test_compile_unchanged_keeps_mtime()
   local st1 = fs.stat(out)
   assert(st1, "output should exist")
   local s1, n1 = (st1 as fs_types.Stat):mtim() -- cast: mixed-representation Stat
-  -- second run with identical content must not rewrite the output
+  local body = fs.read(out)
+  -- read-only: the second run must not write, only restamp
   fs.chmod(out, tonumber("444", 8) as integer) -- cast: octal is integral
   code = run_driver("compile", test_bin, src, out)
   assert(code == 0, "second compile failed")
   local st2 = fs.stat(out)
   local s2, n2 = (st2 as fs_types.Stat):mtim() -- cast: mixed-representation Stat
-  assert(s1 == s2 and n1 == n2, "unchanged compile must not touch the output")
+  assert(s2 > s1 or (s2 == s1 and n2 >= n1),
+    "unchanged compile must bring the output up to date")
+  assert(fs.read(out) == body, "and must not rewrite its contents")
 end
-test_compile_unchanged_keeps_mtime()
+test_compile_unchanged_restamps_without_rewriting()
 
 -- strictness: a type error must fail AND leave no output, so a
 -- file that did not typecheck can never be packed into the binary

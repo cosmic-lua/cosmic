@@ -13,7 +13,6 @@
 ---   cosmic .../baseline.lua write <report paths...>   > baseline.txt
 ---   cosmic .../baseline.lua check <baseline.txt> <report paths...>
 local fs = require("cosmic.fs")
-local proc = require("cosmic.proc")
 local rep = require("cosmic.coverage.report")
 
 local type FileReport = rep.FileReport
@@ -289,76 +288,29 @@ local function lowered(before: string, after: string): {string}
   return out
 end
 
---- Write a fresh baseline for the given report inputs to stdout.
---- @param paths {string} Report inputs (see report.compute)
---- @return integer Exit code: 0 on success
-local function write(paths: {string}): integer
-  local out, err = text_for(paths)
-  if not out then
-    io.stderr:write((err or "coverage: no data") .. "\n")
-    return 1
-  end
-  io.write(out as string) -- cast: scalar narrowing after the guard
-  return 0
-end
-
-local function main(argv: {string}): integer
-  local mode = argv[1]
-  if mode == "write" and argv[2] then
-    local paths: {string} = {}
-    for i = 2, #argv do
-      paths[#paths + 1] = argv[i]
-    end
-    return write(paths)
-  elseif mode == "check" and argv[2] and argv[3] then
-    local paths: {string} = {}
-    for i = 3, #argv do
-      paths[#paths + 1] = argv[i]
-    end
-    return check(argv[2], paths)
-  elseif mode == "gate" and argv[2] and argv[3] and argv[4] then
-    -- --only=<str> stays one argv token even when the filter is empty,
-    -- so the no-shell recipe needs no quoting
-    local only = argv[3]:match("^%-%-only=(.*)$")
-    if only then
-      local paths: {string} = {}
-      for i = 4, #argv do
-        paths[#paths + 1] = argv[i]
-      end
-      return gate(argv[2], only, paths)
-    end
-  end
-  io.stderr:write("usage: baseline.lua write <paths...>" ..
-    " | check <baseline> <paths...>" ..
-    " | gate <baseline> --only=<str> <paths...>\n")
-  return 2
-end
-
-if proc.is_main() then
-  os.exit(main(arg))
-end
+-- The `write`/`check`/`gate` argv dispatcher that used to live here
+-- went with the Makefile. It existed because a make recipe could only
+-- reach this file by running it as a script; the `coverage` verb calls
+-- `gate` and `text_for` in process, and a second entry point with its
+-- own argument grammar is a second contract to keep true.
 
 local record BaselineModule
   type Entry = Entry
   render: function(reports: {FileReport}, floor?: {string: Entry}): string
   parse: function(text: string): {string: Entry} | nil, Entry, string
   compare: function(reports: {FileReport}, entries: {string: Entry}, total: Entry): {string}
-  check: function(baseline_path: string, paths: {string}): integer
   gate: function(baseline_path: string, only: string, paths: {string}): integer
   text_for: function(paths: {string}, previous?: string): string | nil, string
   lowered: function(before: string, after: string): {string}
-  write: function(paths: {string}): integer
 end
 
 local M: BaselineModule = {
   render = render,
   parse = parse,
   compare = compare,
-  check = check,
   gate = gate,
   text_for = text_for,
   lowered = lowered,
-  write = write,
 }
 
 return M

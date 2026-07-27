@@ -36,6 +36,16 @@ local function run_into(argv: {string}, out: string): integer
   end
   local existing = fs.read(out)
   if existing == r.stdout then
+    -- Same bytes, new schedule. Make ran this recipe because the target
+    -- was out of date against something -- a source, or the driver
+    -- itself -- and a target whose mtime never advances stays out of
+    -- date FOREVER: every later run re-runs the step, and with the
+    -- driver as a prerequisite that is the whole tree, every build.
+    -- Content still decides what the file IS; the timestamp only
+    -- records that it has been brought up to date against the inputs
+    -- make just compared. The cost, paid knowingly: an edit that
+    -- compiles to identical bytes now re-runs the tests that import it.
+    fs.touch(out)
     return 0
   end
   fs.makedirs(fs.dirname(out))

@@ -119,21 +119,32 @@ end
 
 --- Update a file's access and modification times to now, creating the
 --- file (mode 0644 by default) if it does not exist.
+---
+--- Stamping first and creating only on ENOENT, rather than opening for
+--- write unconditionally: utimensat asks for ownership, open asks for
+--- write permission, and the second is the stricter question. Opening
+--- first made `touch` fail on a read-only file its own caller owns --
+--- which `touch(1)` does not.
 --- @param path string Path to the file
 --- @param mode integer Permission bits when creating (default 0644)
 --- @return boolean True on success
 --- @return string Error message if failed
 local function touch(path: string, mode?: integer): boolean, string
+  local rc, terr = unix.utimensat(path,
+    0, unix.UTIME_NOW, 0, unix.UTIME_NOW)
+  if rc == 0 then
+    return true
+  end
   local fd, oerr = unix.open(path,
     unix.O_WRONLY | unix.O_CREAT, mode or tonumber("644", 8))
   if not fd then
-    return false, errstr(oerr, "touch: " .. path)
+    return false, errstr(oerr or terr, "touch: " .. path)
   end
   unix.close(fd)
-  local rc, terr = unix.utimensat(path,
+  local again, aerr = unix.utimensat(path,
     0, unix.UTIME_NOW, 0, unix.UTIME_NOW)
-  if rc ~= 0 then
-    return false, errstr(terr, "touch: " .. path)
+  if again ~= 0 then
+    return false, errstr(aerr, "touch: " .. path)
   end
   return true
 end
