@@ -23,6 +23,8 @@ jobs:
   # `gh release create`, and gh is not in the image.
   build:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     container:
       image: buildpack-deps@sha256:cfb30ff3856780c63b00ec3ad2e4aed77ae6afce5975ebb8ad9525ec45354e2e # noble (Ubuntu 24.04)
       options: --privileged
@@ -36,6 +38,21 @@ jobs:
           useradd -m -s /bin/bash builder
           chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
           git config --system --add safe.directory "$GITHUB_WORKSPACE"
+
+      # The tag is computed HERE, once, and stamped into the binary as
+      # COSMIC_VERSION before it is passed to the release job. Computing
+      # it in both places lets a run that straddles midnight UTC ship a
+      # binary whose `--version` disagrees with the tag it is published
+      # under; and leaving it unset ships "unknown", which is what the
+      # first `--make`-built release did.
+      - name: name the release
+        id: tag
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -eux
+          echo "tag=$(date -u +%Y-%m-%d)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       # Both release binaries come out of one build: the unit declares
       # `base` and `base-debug`, so `build` embeds one payload twice. The gate has
@@ -51,10 +68,17 @@ jobs:
         shell: bash
         run: |
           set -eux
-          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bash -ec '
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            COSMIC_VERSION="${{ steps.tag.outputs.tag }}" bash -ec '
             bin/cosmic --make fetch
             bin/cosmic --make build
             o/bin/cosmic --make build'
+
+      - name: the binary says what it is
+        shell: bash
+        run: |
+          set -eux
+          o/bin/cosmic --version | grep -F "${{ steps.tag.outputs.tag }}"
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
@@ -78,7 +102,7 @@ jobs:
       - name: create release
         env:
           GH_TOKEN: ${{ github.token }}
-          GITHUB_SHA: ${{ github.sha }}
+          TAG: ${{ needs.build.outputs.tag }}
           PRERELEASE_FLAG: ${{ (github.event.inputs.prerelease == 'true' || (github.event.inputs.prerelease == '' && env.PRERELEASE == 'true')) && '--prerelease' || '' }}
         run: |
           mkdir -p release
@@ -97,7 +121,7 @@ jobs:
           cp "$cosmic_src" release/cosmic-lua
           cp "$debug_src" release/cosmic-lua-debug
           chmod +x release/cosmic-lua release/cosmic-lua-debug
-          tag="$(date -u +%Y-%m-%d)-${GITHUB_SHA::7}"
+          tag="$TAG"
           (cd release && sha256sum cosmic-lua cosmic-lua-debug > SHA256SUMS && cat SHA256SUMS)
           gh release create "$tag" \
             ${PRERELEASE_FLAG:+"$PRERELEASE_FLAG"} \
