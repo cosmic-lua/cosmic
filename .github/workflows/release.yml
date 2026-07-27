@@ -37,7 +37,8 @@ jobs:
           chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
           git config --system --add safe.directory "$GITHUB_WORKSPACE"
 
-      # The two binaries a release is made of, named. The gate has
+      # Both release binaries come out of one build: the unit declares
+      # `base` and `base-debug`, so `build` embeds one payload twice. The gate has
       # already run over this commit — every commit on main arrives by
       # push, and push triggers it — so this lane builds and nothing
       # else.
@@ -46,7 +47,7 @@ jobs:
         run: |
           set -eux
           runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
-            bin/make -j cosmic cosmic-debug
+            bin/cosmic --make build
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:

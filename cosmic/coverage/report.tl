@@ -45,6 +45,20 @@ local function is_excluded(path: string): boolean
   if path:match("%.d%.tl$") then
     return true
   end
+  -- A `.tl` under the build directory is a STAGED COPY of a source, not
+  -- a source: `o/stage/<unit>/.tl/**` is payload on its way into an
+  -- artifact. Counting it reports every module twice, under a path the
+  -- ratchet has never seen. The `.lua` outputs under `o/` are a
+  -- different thing and stay — `normalize` maps each back to the `.tl`
+  -- it was compiled from, which is how coverage is attributed at all.
+  if path:sub(1, 2) == "o/" and path:match("%.tl$") then
+    return true
+  end
+  -- A pin is literal data, read and never executed, so it has no
+  -- executable lines to cover and would sit at 0% forever.
+  if path:match("_pin%.tl$") then
+    return true
+  end
   return false
 end
 
@@ -66,6 +80,21 @@ local function normalize(src: string, cwd: string): string | nil, string
   end
   while p:sub(1, 2) == "./" do
     p = p:sub(3)
+  end
+  -- A module the test loaded out of the binary under test. The zip root
+  -- IS the module root, so `/zip/cosmic/url.lua` is this tree's
+  -- `cosmic/url.tl` — and the binary was built from this tree in the
+  -- same run, which is what makes the mapping sound. Without it a test
+  -- that requires a library module attributes nothing: the artifact's
+  -- copy is what actually executed, so every line of every module read
+  -- as uncovered and the ratchet held nothing.
+  local zipped = p:match("^/zip/(.+)%.lua$")
+  if zipped then
+    local source = zipped .. ".tl"
+    if not is_excluded(source) and fs.isfile(source) then
+      return source, p
+    end
+    return nil
   end
   if p:sub(1, 1) == "/" then
     return nil
@@ -96,6 +125,14 @@ local function scan_dir(dir: string, cov_files: {string}, src_files: {string})
   fs.walk(dir, function(path: string, _name: string, st: types.WalkStat, _ctx: {boolean})
       if st:is_dir() then
         return
+      end
+      -- Scanning `.` yields `./x.tl`, scanning `o` yields `o/x.tl`, and
+      -- a display path has to be the same either way: it is the key the
+      -- committed ratchet is looked up by, so a `./` makes every file
+      -- read as new and the floor silently stops holding anything.
+      -- `normalize` already strips it off the collector's side.
+      while path:sub(1, 2) == "./" do
+        path = path:sub(3)
       end
       if path:match("%.cov$") then
         cov_files[#cov_files + 1] = path

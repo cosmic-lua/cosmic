@@ -53,8 +53,6 @@ local record Options
   test_output: string
   report_paths: {string}
   coverage_report_paths: {string}
-  build_mode: string
-  build_argv: {string}
   recipe: string
   make_verb: string
   make_argv: {string}
@@ -102,11 +100,11 @@ local function parse_args(): Options
 
   -- Find first non-option argument (script name) to know where to stop parsing
   local script_idx: integer = nil
-  -- --build and --test are followed by a FOREIGN argv — the child's own
-  -- flags. getopt permutes, so it would eat those as cosmic options;
-  -- slice the payload off and parse only to the option's own argument.
-  -- --test lacked this: its child ran bare, hit the REPL and
-  -- exited 0, so teal and format reported passes without ever running.
+  -- --test and --make are followed by a FOREIGN argv — the child's own
+  -- flags, or a path list. getopt permutes, so it would eat those as
+  -- cosmic options; slice the payload off and parse only to the option's
+  -- own argument. Without it a --test child runs bare, hits the REPL and
+  -- exits 0, so a stage reports a pass without ever running.
   local payload: {string} = nil
   local payload_parse_end: integer = nil
   local i = 1
@@ -120,7 +118,7 @@ local function parse_args(): Options
       -- --make joins them (a): `--make <verb> [paths…]` is a verb plus
       -- a path list, and a path is a positional getopt would permute
       -- into its own option parse.
-      if opt_name == "build" or opt_name == "test" or opt_name == "make" then
+      if opt_name == "test" or opt_name == "make" then
         payload = {}
         -- a `--` here defends against that same bug; step over it
         local from = arg[i + 2] == "--" and i + 3 or i + 2
@@ -188,8 +186,6 @@ local function parse_args(): Options
     local m = r.missing[1]
     if m == "test" then
       opts.error = "cosmic-lua: --test requires: --test <output> <cmd>...\nSee: cosmic-lua --help"
-    elseif m == "build" then
-      opts.error = "cosmic-lua: --build requires: --build <mode> <args>...\nSee: cosmic-lua --help"
     elseif m == "make" then
       opts.error = "cosmic-lua: --make requires: --make <verb> [paths...]\nSee: cosmic-lua --help"
     elseif m == "embed" then
@@ -285,10 +281,6 @@ local function parse_args(): Options
       return opts
     elseif opt == "coverage-report" then
       opts.coverage_report_paths = r.args
-      return opts
-    elseif opt == "build" then
-      opts.build_mode = optarg
-      opts.build_argv = payload or {}
       return opts
     elseif opt == "make" then
       opts.make_verb = optarg
@@ -401,13 +393,9 @@ local function main(): integer, string
   end
 
   -- `SHELL := cosmic`: make hands one recipe line to `-c`, which runs
-  -- it as argv through the same closed vocabulary `--build` dispatches.
+  -- it as argv through a closed vocabulary of build verbs.
   if opts.recipe ~= nil then
     return require("_cli.driver").recipe(opts.recipe)
-  end
-
-  if opts.build_mode then
-    return require("_cli.driver").build(opts.build_mode, opts.build_argv)
   end
 
   if opts.make_verb then

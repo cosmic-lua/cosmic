@@ -15,12 +15,11 @@ local STATUS_ICONS: {string: string} = {
 
 --- Classify the exit code recorded in a `.got` file.
 ---
---- ONE definition of the contract. The build has two reporters —
---- this module covers the test/coverage/enforce lanes, _build/reporter
---- covers teal/format/lint/example/benchmark — and _cli.build's
---- `--build verdict` grades whichever of them wrote a stage's summary. A
---- silent disagreement about what exit 2 means would mis-grade `ci`, the
---- same failure class as one layer up, so both read it from here.
+--- ONE definition of the contract. Every stage reports through this
+--- module, and `ci` grades the summaries it writes, so a silent
+--- disagreement about what exit 2 means would mis-grade the gate —
+--- a skip counted as a pass is a stage that stopped checking and said
+--- nothing.
 --- @param exit_code integer Exit code from the .got file
 --- @return string "pass" (0), "skip" (2), or "fail" (anything else)
 local function status_of(exit_code: integer): string

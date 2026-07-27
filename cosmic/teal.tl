@@ -54,11 +54,11 @@ end
 local DEFAULT_GEN_TARGET < const > = "5.4"
 local DEFAULT_GEN_COMPAT < const > = "off"
 
---- Extra include dirs the repo build passes via --include-dir
---- (Makefile INCLUDE_DIRS). The Makefile default and tlconfig.lua both
---- mirror this list; teal_config_test.tl fails if either drifts, so the
---- build, the checker, and the editor resolve types identically.
-local MAKEFILE_INCLUDE_DIRS < const >: {string} = {"."}
+--- Extra include dirs the build passes via `--include-dir`.
+--- `embed/cosmic.mk`'s compile rule and tlconfig.lua both mirror this
+--- list; teal_config_test.tl fails if either drifts, so the build, the
+--- checker, and the editor resolve types identically.
+local BUILD_INCLUDE_DIRS < const >: {string} = {"."}
 
 --- Get default include directories for cosmic type definitions.
 --- Returns paths to bundled and local type definition directories.
@@ -457,7 +457,7 @@ end
 local record TealModule
   DEFAULT_GEN_TARGET: string
   DEFAULT_GEN_COMPAT: string
-  MAKEFILE_INCLUDE_DIRS: {string}
+  BUILD_INCLUDE_DIRS: {string}
   compile: function(input_path: string, opts?: CompileOptions): CompileResult
   compile_cached: function(input_path: string): string | nil, string
   check: function(input_path: string, opts?: CheckOptions): CheckResult
@@ -471,7 +471,7 @@ end
 local M: TealModule = {
   DEFAULT_GEN_TARGET = DEFAULT_GEN_TARGET,
   DEFAULT_GEN_COMPAT = DEFAULT_GEN_COMPAT,
-  MAKEFILE_INCLUDE_DIRS = MAKEFILE_INCLUDE_DIRS,
+  BUILD_INCLUDE_DIRS = BUILD_INCLUDE_DIRS,
   compile = compile,
   compile_cached = compile_cached,
   check = check,

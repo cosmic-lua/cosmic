@@ -50,5 +50,6 @@ jobs:
         shell: bash
         run: |
           set -eux
-          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
-            SOURCE_SHA="$SOURCE_SHA" bin/make -j doc-publish
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bash -ec '
+            bin/cosmic --make docs
+            bin/cosmic _docs/publish.tl "'"$SOURCE_SHA"'" o/docs docs'

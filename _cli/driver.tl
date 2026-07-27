@@ -1,4 +1,4 @@
---- Build-driver entry points, shared by `--build <mode>` and `-c`:
+--- The build-driver entry point behind `-c`:
 --- fence the step, then run it.
 ---
 --- The fence is DERIVED, never declared. Because the recipe vocabulary
@@ -11,9 +11,9 @@
 --- target-specific make variables, `COSMIC_UNVEIL = $^`; the closed
 --- vocabulary made that channel redundant.)
 ---
---- Both entries also arm line coverage the way the script path does: a
---- driver run in the coverage lane must still report _cli.build's
---- lines, or every recipe step it executes reads as dead code.
+--- It also arms line coverage the way the script path does: a driver
+--- run in the coverage lane must still report _cli.build's lines, or
+--- every recipe step it executes reads as dead code.
 
 local fs = require("cosmic.fs")
 local sandbox = require("cosmic.sandbox")
@@ -402,39 +402,6 @@ local function with_coverage(run: function(): integer): integer
   return code
 end
 
---- `--build <mode> <args>...`: one recipe step, named directly.
----
---- DEPRECATED, with a clock, and this is where the clock is written
---- down. `-c` won (docs/design/make/) and has shipped in a release, so
---- the flag retires across two release cycles. It cannot go while the
---- top-level Makefile drives EVERY recipe through it, which it must
---- while recipes run a pinned bootstrap that may not have `-c`. So the
---- deprecation is stated in `--help` and here rather than on stderr —
---- this is the build's inner loop, and a line per invocation is a line
---- per compiled file.
----
---- The deletion, in order (docs/design/make/bridge.md has the surrounding
---- sequence): the Makefile migrates to the generated rules, then the
---- `--build` longopt in `_cli/args.tl`, its two parse branches in
---- `cmd/cosmic/main.tl`, and this function become dead. `_cli/build/`
---- — the closed verb vocabulary — STAYS: `-c` and `--build` share it,
---- and only the flag surface goes. A scheduled retirement with no
---- tracker is how a permanent resident is made.
---- @param mode string The mode name
---- @param argv {string} The mode's arguments
---- @return integer Exit code
-local function build(mode: string, argv: {string}): integer
-  return with_coverage(function(): integer
-      local b = require("_cli.build")
-      local ferr = fence(mode, argv)
-      if ferr ~= nil then
-        io.stderr:write("cosmic --build: " .. ferr .. "\n")
-        return 1
-      end
-      return b.main(mode, table.unpack(argv))
-    end)
-end
-
 --- `-c '<line>'`: one recipe line from make, run as argv (`SHELL :=
 --- cosmic`). Parsed first, fenced from the parse, then dispatched.
 --- @param line string The recipe line
@@ -460,14 +427,12 @@ local function recipe(line: string): integer
 end
 
 local record DriverModule
-  build: function(mode: string, argv: {string}): integer
   recipe: function(line: string): integer
   plan: function(verb: string, args: {string}): sandbox.Fs | nil
   shapes: {string: Shape}
 end
 
 local M: DriverModule = {
-  build = build,
   recipe = recipe,
   plan = plan,
   shapes = shapes,

@@ -17,6 +17,7 @@ local root = require("_make.root")
 local project = require("_make.project")
 local artifact = require("_make.artifact")
 local check = require("_make.check")
+local docs = require("_make.docs")
 local fetch = require("_make.fetch")
 local generate = require("_make.generate")
 local graph = require("_make.graph")
@@ -195,19 +196,39 @@ end
 --- @param paths {string} Selection paths naming tests
 --- @param cosmic string Absolute path to this binary
 --- @return integer Exit code
+--- Put the project's binaries where a test can find them.
+---
+--- Every lane that RUNS the project's own code needs this, not just
+--- `test`: a test spawning the binary under test fails identically in
+--- the coverage lane, and failing there only is the worst shape — the
+--- gate reports a stage red for a reason that has nothing to do with
+--- what the stage measures.
+--- @param proj Project The scanned project
+--- @param cosmic string Absolute path to this binary
+--- @return boolean True when the stage is ready
+--- @return string The error message
+local function prepare_stage(proj: Project, cosmic: string): boolean, string
+  if #proj.binaries == 0 then
+    return true, ""
+  end
+  local b = by_name("build") as Verb -- cast: the registry defines it
+  local ok, detail = stage.graph_stage(b, proj, {}, cosmic)
+  if not ok then
+    return false, detail
+  end
+  local aok, adetail = assemble(proj, proj.binaries, cosmic, false)
+  if not aok then
+    return false, adetail
+  end
+  stage.binaries_on_path(proj)
+  return true, ""
+end
+
 local function run_against_stage(v: Verb, proj: Project, paths: {string},
     cosmic: string): integer
-  if #proj.binaries > 0 then
-    local b = by_name("build") as Verb -- cast: the registry defines it
-    local ok, detail = stage.graph_stage(b, proj, {}, cosmic)
-    if not ok then
-      return stage.verdict(v.name, false, detail)
-    end
-    local aok, adetail = assemble(proj, proj.binaries, cosmic, false)
-    if not aok then
-      return stage.verdict(v.name, false, adetail)
-    end
-    stage.binaries_on_path(proj)
+  local ok, detail = prepare_stage(proj, cosmic)
+  if not ok then
+    return stage.verdict(v.name, false, detail)
   end
   return stage.run_graph(v, proj, paths, cosmic)
 end
@@ -265,6 +286,17 @@ local VERBS < const >: {Verb} = {
     end},
   {name = "run", planned = true},
   {name = "regen", planned = true},
+  -- `docs` renders the API to markdown. Its file set comes from the
+  -- model, so a directory added to the project is documented without
+  -- anyone remembering to say so.
+  {name = "docs", run = function(proj: Project, _paths: {string},
+        _cosmic: string): integer
+      local n, err = docs.render(proj)
+      if err ~= "" then
+        return stage.verdict("docs", false, err)
+      end
+      return stage.verdict("docs", true, n .. " pages")
+    end},
   -- `example` is `test`'s sibling everywhere else in the model -- a
   -- first-class kind with the same scope semantics, a gate this repo
   -- runs today -- and the verb set was the one place the symmetry
@@ -288,6 +320,10 @@ local VERBS < const >: {Verb} = {
   {name = "coverage", target = "coverage", select = stage.SELECTS.coverage,
     run = function(proj: Project, paths: {string}, cosmic: string): integer
       local v = by_name("coverage") as Verb -- cast: the registry defines it
+      local ready, perr = prepare_stage(proj, cosmic)
+      if not ready then
+        return stage.verdict("coverage", false, perr)
+      end
       if baseline_wanted then
         local code = run_against_stage(v, proj, paths, cosmic)
         if code ~= 0 then

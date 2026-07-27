@@ -1,6 +1,6 @@
 #!/usr/bin/env cosmic
--- Tests for _cli.build: the shell-free recipe
--- steps behind `--build`, spawned the way make spawns them, with the
+-- Tests for _cli.build: the closed verb vocabulary behind `-c`, spawned
+-- the way make spawns it — one whitespace-split recipe line — with the
 -- test cosmic binary standing in as the pinned bootstrap for compile
 -- mode.
 
@@ -12,12 +12,13 @@ local fs_types = require("cosmic.fs.types")
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 local test_bin = fs.join(os.getenv("TEST_BIN") or "", "cosmic")
 
+--- Run one recipe line, the way `SHELL := cosmic` delivers it.
 local function run_driver(...: string): integer, string, string
-  local args: {string} = {test_bin, "--build"}
+  local parts: {string} = {}
   for _, a in ipairs({...}) do
-    table.insert(args, a)
+    parts[#parts + 1] = a
   end
-  local result, serr = child.run(args)
+  local result, serr = child.run({test_bin, "-c", table.concat(parts, " ")})
   if not result then
     return 1, "", tostring(serr)
   end
@@ -115,16 +116,26 @@ local function test_compile_requires_all_paths()
 end
 test_compile_requires_all_paths()
 
-local function test_unknown_mode()
+-- The vocabulary is CLOSED, so an unknown verb is refused rather than
+-- passed through, and the refusal names what a recipe may run.
+local function test_unknown_verb_is_refused_by_name()
   local code, _out, err = run_driver("explode")
-  assert(code ~= 0, "unknown mode must fail")
-  assert(err:match("usage"), "expected usage error, got: " .. err)
+  assert(code ~= 0, "an unknown verb must fail")
+  assert(err:find("unknown verb 'explode'", 1, true),
+    "the refusal should name the verb, got: " .. err)
+  assert(err:find("copy", 1, true),
+    "…and list the ones it has, got: " .. err)
 end
-test_unknown_mode()
+test_unknown_verb_is_refused_by_name()
 
 local function test_tee_prints_and_writes()
   local out = fs.join(tmpdir, "tee/summary.txt")
-  local code, stdout, err = run_driver("tee", out, test_bin, "-e", "print('report line')")
+  -- The child is a script rather than `-e '...'`: a recipe line is argv,
+  -- not shell, so `-c` refuses the parens inline Lua would need. That
+  -- refusal is the feature, and a test cannot ask to be exempt from it.
+  local script = fs.join(tmpdir, "tee-child.lua")
+  assert(fs.write(script, 'print("report line")\n'))
+  local code, stdout, err = run_driver("tee", out, test_bin, script)
   assert(code == 0, "tee failed (" .. tostring(code) .. "): " .. err)
   assert(stdout:match("report line"), "tee must print to stdout")
   -- cast: or fallback does not narrow
@@ -147,7 +158,10 @@ test_child_flags_not_consumed()
 
 local function test_tee_propagates_failure_after_writing()
   local out = fs.join(tmpdir, "tee/fail.txt")
-  local code = run_driver("tee", out, test_bin, "-e", "print('partial') os.exit(3)")
+  -- A script, for the same reason as above: argv, not shell.
+  local script = fs.join(tmpdir, "tee-fail.lua")
+  assert(fs.write(script, 'print("partial")\nos.exit(3)\n'))
+  local code = run_driver("tee", out, test_bin, script)
   assert(code == 3, "tee must propagate the child's exit code, got: " .. tostring(code))
   -- cast: or fallback does not narrow
   local written = (fs.read(out) or "") as string

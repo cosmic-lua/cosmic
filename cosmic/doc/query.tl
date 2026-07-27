@@ -127,8 +127,11 @@ local function show_guide(topic: string): DocsResult
 end
 
 --- Check if a module name is a low-level cosmo module.
+-- Bare `cosmo` counts: it is the top-level binding surface, the same
+-- kind of thing as `cosmo.unix`. Matching only the dotted form listed it
+-- as if it were a `cosmic.*` module.
 local function is_cosmo_module(name: string): boolean
-  return name:match("^cosmo%.") ~= nil
+  return name == "cosmo" or name:match("^cosmo%.") ~= nil
 end
 
 --- List all available documentation topics. Internal modules (per

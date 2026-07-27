@@ -32,7 +32,7 @@ cosmic/               standard library modules (*.tl) — the PUBLIC API
   *_test.tl            tests
   *_example.tl         runnable examples
 _cli/                 the dispatcher behind every flag (args, help, run, ...)
-  build/               the shell-free recipe steps behind `--build`
+  build/               the closed verb vocabulary behind `-c`
 _make/                `cosmic --make`: project model, validator, root, verbs
 _build/               build infrastructure (fetch, stage, reporter)
 _docs/                doc publishing
@@ -338,7 +338,6 @@ cosmic --docs <query>         search documentation
 cosmic --examples [module]    browse examples
 cosmic --test <out> <cmd>     run test, capture output
 cosmic --report <paths>       report test results
-cosmic --build <mode> <args>  run a shell-free build recipe step
 cosmic --make <verb> [paths]  build a project by convention
                               (check, build, test, fmt, fetch, clean)
 cosmic --embed <path>         embed files into executable

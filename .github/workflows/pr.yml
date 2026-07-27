@@ -30,7 +30,7 @@ jobs:
   # loudly instead of working silently.
   #
   # There is no network-allowed copy of this lane. It would run the same
-  # `bin/make ci` over the same tree and differ only in what it is
+  # `cosmic --make ci` over the same tree and differ only in what it is
   # permitted to do, so a green fenced run implies a green unfenced one.
   #
   # The container is pinned by DIGEST because an OS image is a build
@@ -80,11 +80,11 @@ jobs:
 
       # Pins resolve here, where there is a network. Everything after
       # this step — compiles, checks, tests, summaries — runs denied.
-      - name: fetch and stage with network allowed
+      - name: fetch with network allowed
         shell: bash
         run: |
           set -eux
-          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bin/make -j staged
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bin/cosmic --make fetch
 
       # The namespace needs root to create, and so does bringing `lo` up
       # inside it — the pinned bootstrap does that itself rather than
@@ -94,7 +94,7 @@ jobs:
       # timeout: a recipe child dying mid-test can leave forked test
       # parents blocked on accept/wait, wedging make. Convert a hang into
       # a failure so the dump step below fires.
-      - name: make ci with network denied
+      - name: the gate, with network denied
         timeout-minutes: 20
         shell: bash
         env:
@@ -105,7 +105,7 @@ jobs:
           unshare --net -- bash -euxc '
             o/bootstrap/cosmic -e "$NETNS"
             exec runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
-              bin/make -j ci'
+              bin/cosmic --make ci'
 
       - name: dump failing test output
         if: failure()
@@ -155,10 +155,14 @@ jobs:
         run: |
           set -eux
           runuser -u builder -- env HOME="$HOME" PATH="$PATH" bash -ec '
-            bin/make -j build
+            bin/cosmic --make build
             cp o/bin/cosmic cosmic-first
-            bin/make -j o=o2 build
-            cmp cosmic-first o2/bin/cosmic
+            # A different tree PATH, not just a different output dir: an
+            # absolute path leaking into the artifact only shows up when
+            # the root moves.
+            cp -a . "$HOME/repro"
+            cd "$HOME/repro" && bin/cosmic --make clean && bin/cosmic --make build
+            cmp "$OLDPWD/cosmic-first" o/bin/cosmic
             echo "reproducible: PASS — double build is byte-identical"'
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
