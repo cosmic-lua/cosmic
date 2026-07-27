@@ -100,16 +100,6 @@ local function test_ci_runs_every_stage_and_names_each_failure()
 end
 test_ci_runs_every_stage_and_names_each_failure()
 
--- `ci` is the whole gate, so a path is a mistake worth naming rather
--- than a narrowing to guess at.
-local function test_ci_refuses_a_selection()
-  local stub = registry({})
-  local code = policy.run_ci(stub.lookup, project_of({"module"}), {"cosmic"}, "c")
-  assert(code == 1, "a selection must be refused")
-  assert(#stub.ran == 0, "and nothing must run")
-end
-test_ci_refuses_a_selection()
-
 -- The material test itself, since every stage's gating rests on it.
 local function test_has_material()
   local proj = project_of({"module", "test"})

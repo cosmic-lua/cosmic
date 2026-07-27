@@ -147,4 +147,49 @@ local function test_build_refuses_a_source_path()
 end
 test_build_refuses_a_source_path()
 
+-- Every verb answers about paths. A verb that takes a selection
+-- restricts to it; a verb that cannot says so. Ignoring one is the
+-- third behaviour, and the only one that teaches a spelling which does
+-- something else.
+local function test_docs_restricts_to_its_selection()
+  local root = app("docssel")
+  local r = make(root, "docs", "db")
+  assert(r.code == 0, "selected docs should succeed: " .. r.err)
+  assert(fs.isfile(fs.join(root, "o/docs/db/init.md")),
+    "the selected page is written: " .. r.out)
+  assert(not fs.exists(fs.join(root, "o/docs/main.md")),
+    "and the unselected one is not: " .. r.out)
+end
+test_docs_restricts_to_its_selection()
+
+-- `clean` removes the build directory and `ci` is the whole gate:
+-- neither has an S-restriction, so both refuse a path and name why.
+local function test_whole_project_verbs_refuse_paths()
+  local root = app("wholeverbs")
+  local c = make(root, "clean", "db")
+  assert(c.code == 1, "clean must refuse a selection, not ignore it")
+  assert(c.err:find("clean takes no paths", 1, true), "got: " .. c.err)
+  assert(c.err:find("removes the build directory", 1, true),
+    "the refusal says why: " .. c.err)
+
+  local ci = make(root, "ci", "db")
+  assert(ci.code == 1, "ci must refuse a selection")
+  assert(ci.err:find("ci takes no paths", 1, true), "got: " .. ci.err)
+end
+test_whole_project_verbs_refuse_paths()
+
+-- The refusal comes BEFORE the build. In a project whose own binary is
+-- the toolchain the gate converges into, a typo used to cost a full
+-- rebuild before the two-line complaint; the model already knows the
+-- answer, so the answer is given from the model.
+local function test_a_bad_selection_refuses_before_building()
+  local root = app("earlyrefusal")
+  local r = make(root, "test", "nope")
+  assert(r.code == 1, "an empty selection must fail")
+  assert(r.err:find("nothing to do under: nope", 1, true), "got: " .. r.err)
+  assert(not fs.exists(fs.join(root, "o/bin")),
+    "nothing is built to answer a question the model settles: " .. r.out)
+end
+test_a_bad_selection_refuses_before_building()
+
 print("all selection tests passed")

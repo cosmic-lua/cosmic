@@ -95,8 +95,9 @@ builds are reproducible: entries carry a fixed mtime
 file's, so two builds of one tree in two different directories are
 byte-identical.
 
-a build narrowed with paths compiles only what you selected and stops
-there — half a tree cannot make a whole artifact.
+a build narrowed with paths names BINARIES, not sources: the whole
+tree still compiles, because a selected build must stage exactly what a
+full one would. half a tree cannot make a whole artifact.
 
 ## Test isolation
 
@@ -314,6 +315,17 @@ selection changes which files run, never what the project is: the model
 is always scanned whole, so a partial run resolves imports exactly the
 way a full one does. a selection matching nothing is an error, not a
 zero-file pass.
+
+every verb answers about paths. most restrict: `V S` is the
+`S`-restriction of a full `V`. two cannot, and say so instead of
+accepting a path and ignoring it — `clean` removes the build directory
+and `ci` is a verdict over the whole gate, so both refuse with the
+reason. `coverage --baseline` refuses for the same reason one layer in:
+a floor rewritten from partial data craters every row you did not
+select.
+
+paths are resolved against the model BEFORE anything is built, so a
+typo costs a directory walk rather than a full rebuild.
 
 on the graph verbs, a selection travels as a make variable override, so
 no rule knows about it — which is what lets the rules file stay

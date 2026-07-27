@@ -25,12 +25,21 @@ tests run, never what gets staged". `build`'s targets are BINARIES, so
 what a full build would, and never a narrowed compile. A source path is
 refused, pointing at `check`, whose targets *are* sources.
 
+**Every verb answers about paths, and answers first.** `V S` is the
+`S`-restriction of a full `V`; a verb with no such restriction —
+`clean` removes the build directory, `ci` is a verdict over the whole
+gate — refuses a path and names why, rather than accepting one and
+ignoring it. That third behaviour is the one that teaches a spelling
+which does something else. `_make/law.tl` is where this lives, and it
+runs against the scanned model BEFORE the gate converges, so a typo
+costs a walk instead of a rebuild.
+
 **Policy verbs** — orchestration over the graph, never graph rules.
 
 ```
 ci              fmt → check → test → example → lint → coverage        [now]
 coverage        tests with line coverage + ratchet                    [now]
-docs            render the model's file set to o/docs                 [now]
+docs  [paths…]  render the model's file set to o/docs                 [now]
 enforce         sandbox-enforced lane                             [planned]
 reproducible    double-build + compare                            [planned]
 offline         no-network lane, asserted against the pins        [planned]

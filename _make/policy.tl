@@ -185,15 +185,11 @@ local STAGES < const >: {Stage} = {
 --- the stages are independent by construction.
 --- @param by_name function Registry lookup, passed in to avoid a cycle
 --- @param proj Project The scanned project
---- @param paths {string} Ignored: ci takes no selection
+--- @param _paths {string} Unused: `_make.law` refuses a selection here
 --- @param cosmic string Absolute path to this binary
 --- @return integer Exit code
 local function run_ci(by_name: function(string): Verb | nil, proj: Project,
-    paths: {string}, cosmic: string): integer
-  if #paths > 0 then
-    io.stderr:write("make: ci takes no paths; it is the whole gate\n")
-    return stage.verdict("ci", false, "bad selection")
-  end
+    _paths: {string}, cosmic: string): integer
   local failed: {string} = {}
   local ran = 0
   for _, s in ipairs(STAGES) do
@@ -228,7 +224,7 @@ local record PolicyModule
   run_coverage: function(v: Verb, proj: Project, paths: {string}, cosmic: string): integer
   fix: function(proj: Project, paths: {string}): integer
   write_baseline: function(proj: Project): integer
-  run_ci: function(by_name: function(string): Verb | nil, proj: Project, paths: {string}, cosmic: string): integer
+  run_ci: function(by_name: function(string): Verb | nil, proj: Project, _paths: {string}, cosmic: string): integer
 end
 
 local M: PolicyModule = {

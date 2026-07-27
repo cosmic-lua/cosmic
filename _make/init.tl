@@ -17,6 +17,7 @@ local root = require("_make.root")
 local binsel = require("_make.binaries")
 local converge = require("_make.converge")
 local help = require("_make.help")
+local law = require("_make.law")
 local project = require("_make.project")
 local artifact = require("_make.artifact")
 local check = require("_make.check")
@@ -205,7 +206,7 @@ end
 --- through the graph would mean reading rules out of the directory
 --- being deleted.
 --- @param _proj Project Unused: clean is about the output, not the model
---- @param _paths {string} Unused: clean takes no selection
+--- @param _paths {string} Unused: `_make.law` refuses a selection here
 --- @param _cosmic string Unused: clean needs no make binary
 --- @return integer Exit code
 local function run_clean(_proj: Project, _paths: {string},
@@ -274,9 +275,9 @@ local VERBS < const >: {Verb} = {
   -- `docs` renders the API to markdown. Its file set comes from the
   -- model, so a directory added to the project is documented without
   -- anyone remembering to say so.
-  {name = "docs", run = function(proj: Project, _paths: {string},
+  {name = "docs", run = function(proj: Project, paths: {string},
         _cosmic: string): integer
-      local n, err = docs.render(proj)
+      local n, err = docs.render(proj, paths)
       if err ~= "" then
         return stage.verdict("docs", false, err)
       end
@@ -441,6 +442,16 @@ local function run(argv: {string}): integer
     return stage.verdict(name, false, "no project")
   end
   local p = proj as Project -- cast: record union after the guard
+
+  -- The selection, resolved against the model BEFORE anything is built.
+  -- `_make.law` states it for every verb at once; running it here is
+  -- what makes a typo cost a walk instead of a rebuild, because
+  -- converge is the next line.
+  local sok, serr = law.resolve(v, p, paths)
+  if not sok then
+    io.stderr:write(serr .. "\n")
+    return stage.verdict(name, false, "bad selection")
+  end
 
   -- A gate's result is a statement about the toolchain that produced
   -- it, so in a project that BUILDS the toolchain the gate builds it
