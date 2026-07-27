@@ -114,13 +114,22 @@ editors need `o/` on the include path. This is the sharpest edge here.
 
 `<unit>/embed_gen.tl` is the one generator `build` runs itself, and it
 is not a generation unit: its scope is the *binary's* scope, because
-what it produces is the binary's payload. It is handed its unit's
-output directory and owns two names inside it:
+what it produces is the binary's payload. Like every generator it is
+handed `o/<its own path minus extension>/`, and owns two names inside
+it:
 
 ```
-o/<unit>/embed/**   what the artifact carries — staged at the zip root
-o/<unit>/base       what it carries it on — the runtime to embed onto
+o/<unit>/embed_gen/embed/**   what the artifact carries — at the zip root
+o/<unit>/embed_gen/base       what it carries it on — the runtime
 ```
+
+The generator's name in the middle is what makes the directory
+clearable. The engine empties it before each run, so a name the
+generator stops writing stops shipping — the ordinary stale-output
+rule, which generated payload was exempt from for as long as its output
+sat in `o/<unit>/` beside the build's own per-file bookkeeping. That
+sharing also cost a "does a generator live here" gate to tell payload
+from build notes; a directory of its own retires it.
 
 `embed/` is the generated half of the committed `embed/` convention;
 both land at the same place and nothing downstream can tell which was

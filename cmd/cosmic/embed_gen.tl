@@ -387,17 +387,14 @@ local function generate(out: string): string
       return "types: " .. gerr
     end
   end
+  -- The directory handed over is this generator's own —
+  -- `o/cmd/cosmic/embed_gen` — cleared and created by the engine
+  -- before the call, so a name this generator stops writing stops
+  -- shipping without anything here to remember it. That used to be
+  -- this file's job, and it could only ever be this file's job while
+  -- the directory was the unit's output, shared with the compiled
+  -- entry the build puts there.
   local dest = fs.join(out, PAYLOAD_DIR)
-  -- Clear the payload — and only the payload: the compiled entry sits
-  -- in this same output directory, and staging reads it next. A source
-  -- that left the project must not survive in the artifact because its
-  -- copy is still sitting in `o/`.
-  if fs.exists(dest) then
-    local rok, rerr = fs.rmrf(dest)
-    if not rok then
-      return dest .. ": " .. (rerr or "cannot clear")
-    end
-  end
   local mok, merr = fs.makedirs(dest)
   if not mok then
     return dest .. ": " .. (merr or "cannot create")

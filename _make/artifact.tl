@@ -172,44 +172,42 @@ local function stage_entry(f: File, binary: Binary): Staged | nil
     stored = f.import:gsub("%.", "/") .. ".lua"}
 end
 
---- Payload a generator produced, under `o/`.
+--- The directory a unit's payload generator owns, under `o/`.
 ---
---- The tree half of `embed/` is committed files; this is the other
---- half, and it is why generated payload works at all: everything
---- generated lives in `o/`, so a `cmd/<name>/embed_gen.tl` writes into
---- `o/cmd/<name>/embed/**` and the artifact stages it exactly as if it
---- had been committed. Both halves land at the same place inside the
---- artifact, so a project can generate `tl.lua` and commit `notes.txt`
---- beside each other without knowing which is which.
---- @param root string Absolute project root
+--- One rule rather than a special case: **a generator owns `o/<its own
+--- path minus extension>/`**, which is already how `_types/types_gen.tl`
+--- gets `o/_types/types_gen/`. Nothing else writes there, so the engine
+--- clears it before each run and a name the generator stops emitting
+--- stops shipping. Why it is not `o/<unit>/`, where it used to be — the
+--- build's own bookkeeping lives there — is in
+--- docs/design/make/model.md.
 --- @param unit string The unit's directory, "" for the root
---- Whether a unit has a generator that writes payload.
----
---- The gate matters because `o/<unit>/embed/` is ALSO where the build
---- puts its own bookkeeping about sources under `<unit>/embed/` — for
---- the root unit that is `o/embed/`, and a `.lint.got` about
---- `embed/cosmic.mk` sat right next to what a generator would have
---- written. Without a generator there is nothing generated to collect,
---- and collecting anyway shipped the build's notes inside the binary.
---- @param proj Project The scanned project
---- @param unit string The unit directory ("" for the root)
---- @return boolean True when a payload generator lives there
-local function has_payload_gen(proj: Project, unit: string): boolean
-  for _, f in ipairs(proj.files) do
-    if f.kind == "payload-gen" and fs.dirname(f.path) == (unit == "" and "." or unit) then
-      return true
-    end
+--- @return string `o/<unit>/embed_gen`, relative to the project root
+local function gen_dir(unit: string): string
+  if unit == project.ROOT then
+    return project.out_dir(project.PAYLOAD_GEN)
   end
-  return false
+  return project.out_dir(unit .. "/" .. project.PAYLOAD_GEN)
 end
 
+--- Payload a generator produced, under `o/`.
+---
+--- The tree half of `embed/` is committed files; this is the other half,
+--- and it is why generated payload works at all: a
+--- `cmd/<name>/embed_gen.tl` writes into
+--- `o/cmd/<name>/embed_gen/embed/**` and the artifact stages it exactly
+--- as if it had been committed. Both halves land at the same place, so a
+--- project can generate `tl.lua` and commit `notes.txt` beside each
+--- other without knowing which is which.
+--- @param root string Absolute project root
+--- @param unit string The unit's directory, "" for the root
 --- @param out {Staged} Plan to append to
 local function generated_payload(root: string, unit: string, out: {Staged})
   -- The staged `source` stays relative, like every other entry, because
   -- the pack step runs from the root. The WALK has to be absolute: a
   -- plan can be computed from anywhere, and a relative path would
   -- resolve against the caller's directory instead of the project's.
-  local rel = fs.join(project.BUILD_DIR, fs.join(unit, PAYLOAD_DIR))
+  local rel = fs.join(gen_dir(unit), PAYLOAD_DIR)
   local dir = fs.join(root, rel)
   if not fs.isdir(dir) then
     return
@@ -229,29 +227,32 @@ end
 ---
 --- Two names in one directory, and the whole convention:
 ---
----   o/<unit>/embed/**   what the artifact carries
----   o/<unit>/base       what it carries it on
+---   o/<unit>/embed_gen/embed/**   what the artifact carries
+---   o/<unit>/embed_gen/base       what it carries it on
+---
+--- The directory is the generator's, not the unit's, so the engine
+--- clears it whole between runs (see `gen_dir`) — which is what stops a
+--- base outliving the payload it matched.
 ---
 --- Without the second one, `build` has exactly one base available —
 --- the cosmic that is running it — and that is wrong in the case this
---- build system most has to get right. Stripping a base removes its
---- zip entries but not their bytes, so a cosmic built on a cosmic
---- built on a cosmic grows by its own payload every generation: the
---- fixpoint would converge on nothing. A project that pins a runtime
---- can now say so, and its artifact is the same size whichever binary
---- built it.
+--- build system most has to get right. Stripping a base removes its zip
+--- entries but not their bytes, so a cosmic built on a cosmic built on a
+--- cosmic grows by its own payload every generation and the fixpoint
+--- converges on nothing. A project that pins a runtime can say so, and
+--- its artifact is the same size whichever binary built it.
 local BASE_NAME < const > = "base"
 
 --- The first stored-path collision in a sorted plan, if there is one.
 ---
 --- Distinct kinds can map to one path inside the artifact: payload
 --- `embed/pkg/db.lua` and module `pkg/db.tl` both store `pkg/db.lua`;
---- committed `embed/x` and generated `o/<unit>/embed/x` both store `x`.
---- `stage` writes every entry, so a collision resolved as last-writer-
---- wins, and the sort is not stable for equal keys -- which bytes ship
---- could vary run to run. That is a heisenbug at the artifact level,
---- and the honest answer is to refuse: if a deliberate override order
---- is ever wanted it should be written down, not inherited from
+--- committed `embed/x` and generated `o/<unit>/embed_gen/embed/x` both
+--- store `x`. `stage` writes every entry, so a collision resolved as
+--- last-writer-wins over a sort that is not stable for equal keys --
+--- which bytes ship could vary run to run. That is a heisenbug at the
+--- artifact level, and the honest answer is to refuse: a deliberate
+--- override order should be written down, not inherited from
 --- `table.sort`.
 --- @param out {Staged} The sorted plan
 --- @return string|nil The complaint, or nil when every path is distinct
@@ -280,11 +281,10 @@ local function plan(proj: Project, binary: Binary): {Staged}
     end
   end
   -- The root's generated payload reaches every binary; a cmd unit's is
-  -- its own. Only where a generator actually is: see has_payload_gen.
-  if has_payload_gen(proj, "") then
-    generated_payload(proj.root, "", out)
-  end
-  if binary.dir ~= "" and has_payload_gen(proj, binary.dir) then
+  -- its own. No gate on "does a generator live here": the directory is
+  -- the generator's own, so it exists exactly when one ran.
+  generated_payload(proj.root, "", out)
+  if binary.dir ~= "" then
     generated_payload(proj.root, binary.dir, out)
   end
   -- Last, and only if the project did not put one there itself: a
@@ -356,7 +356,7 @@ end
 
 --- The runtime this artifact is built on.
 ---
---- A unit that produced `o/<unit>/base` names its own — cosmic's own
+--- A unit that produced `o/<unit>/embed_gen/base` names its own — cosmic's own
 --- generator copies the `lua` out of the pinned cosmos zip, so a
 --- cosmic built by any cosmic is built on the runtime the project
 --- pinned rather than on whichever binary happened to run the build.
@@ -368,7 +368,7 @@ end
 --- @param cosmic string Absolute path to the running cosmic
 --- @return string The base to embed onto
 local function base_of(proj: Project, binary: Binary, cosmic: string): string
-  local declared = fs.join(project.out_dir(binary.dir), BASE_NAME)
+  local declared = fs.join(gen_dir(binary.dir), BASE_NAME)
   if fs.isfile(fs.join(proj.root, declared)) then
     return declared
   end
@@ -393,7 +393,7 @@ end
 --- @return {{string, string}} Output suffix paired with base path
 local function bases_of(proj: Project, binary: Binary,
     cosmic: string): {{string, string}}
-  local dir = project.out_dir(binary.dir)
+  local dir = gen_dir(binary.dir)
   local base = fs.join(dir, BASE_NAME)
   if not fs.isfile(fs.join(proj.root, base)) then
     return {{"", cosmic}}

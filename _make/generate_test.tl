@@ -164,8 +164,10 @@ assert(fs.write(fs.join(out, "embed/generated.txt"), "made by the generator\n"))
   assert(out:find("generate cmd/tool/embed_gen.tl", 1, true),
     "build announces the generator it ran: " .. out)
 
-  local produced = fs.join(root, "o/cmd/tool/embed/generated.txt")
-  assert(fs.isfile(produced), "the generator wrote into its unit's output dir")
+  local produced = fs.join(root,
+    "o/cmd/tool/embed_gen/embed/generated.txt")
+  assert(fs.isfile(produced),
+    "the generator wrote into the directory it owns")
 
   local proj = scan(root)
   local staged: {string: boolean} = {}
@@ -177,20 +179,21 @@ assert(fs.write(fs.join(out, "embed/generated.txt"), "made by the generator\n"))
 end
 test_build_runs_the_units_generator()
 
--- A unit that produced `o/<unit>/base` names the runtime its artifact
--- is built on. Everything else falls back to the cosmic running the
--- build, which is the right answer for a project that pins nothing.
+-- A unit that produced `o/<unit>/embed_gen/base` names the runtime
+-- its artifact is built on. Everything else falls back to the cosmic
+-- running the build, which is right for a project that pins nothing.
 local function test_base_is_the_units_own_when_it_declares_one()
   local root = fixture("base", {
       ["cmd/tool/main.tl"] = "print('tool')\n",
       ["cmd/lean/main.tl"] = "print('lean')\n",
     })
-  assert(fs.makedirs(fs.join(root, "o/cmd/tool")))
-  assert(fs.write(fs.join(root, "o/cmd/tool/base"), "not really a runtime\n"))
+  assert(fs.makedirs(fs.join(root, "o/cmd/tool/embed_gen")))
+  assert(fs.write(fs.join(root, "o/cmd/tool/embed_gen/base"),
+      "not really a runtime\n"))
 
   local proj = scan(root)
   assert(artifact.base_of(proj, binary_of(proj, "tool"), cosmic) ==
-    "o/cmd/tool/base",
+    "o/cmd/tool/embed_gen/base",
     "a declared base wins, so the artifact does not depend on its builder")
   assert(artifact.base_of(proj, binary_of(proj, "lean"), cosmic) == cosmic,
     "and a unit that declares none is built on the running cosmic")
@@ -248,7 +251,7 @@ assert(fs.write(fs.join(out, "embed/shared.txt"), "from the root generator\n"))
     })
   local code, out = make(root, "build")
   assert(code == 0, "build should succeed: " .. out)
-  assert(fs.isfile(fs.join(root, "o/embed/shared.txt")),
+  assert(fs.isfile(fs.join(root, "o/embed_gen/embed/shared.txt")),
     "the root generator ran even with no root binary: " .. out)
 
   local proj = scan(root)
@@ -286,7 +289,7 @@ assert(fs.write(fs.join(out, "embed/note.txt"), "from the generator\n"))
   cenv.unset("COSMIC_MAKE")
   assert(fs.chdir(cwd))
   assert(code == 0, "in-process build should succeed")
-  assert(fs.isfile(fs.join(root, "o/cmd/tool/embed/note.txt")),
+  assert(fs.isfile(fs.join(root, "o/cmd/tool/embed_gen/embed/note.txt")),
     "build ran the unit's generator")
   assert(fs.isfile(fs.join(root, "o/bin/tool")), "and still produced the binary")
   assert(fs.isfile(fs.join(root, "o/bin/lean")),

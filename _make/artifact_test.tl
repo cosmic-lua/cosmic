@@ -460,16 +460,11 @@ local function test_payload_is_scoped_to_its_binary()
 end
 test_payload_is_scoped_to_its_binary()
 
--- Generated payload is the other half of `embed/`: everything
--- generated lives under o/, so a generator writes into
--- `o/<unit>/embed/**` and the artifact stages it exactly as if it had
--- been committed. Both halves land at the same place, so a project can
--- generate one payload file and commit another beside it.
+-- Generated payload is the other half of `embed/`: a generator writes
+-- into `o/<unit>/embed_gen/embed/**` and the artifact stages it exactly
+-- as if it had been committed. Both halves land at the same place, so a
+-- project can generate one payload file and commit another beside it.
 local function test_generated_payload_stages_like_committed()
-  -- The generators are DECLARED, because that is what says `o/<unit>/embed`
-  -- holds payload: the build also writes its own per-file bookkeeping
-  -- under `o/<unit>/`, so without a generator there is nothing generated
-  -- there and collecting anyway ships the build's notes.
   local gen = "local M = {}\nfunction M.generate() end\nreturn M\n"
   local root = fixture("payload-generated", {
       ["cmd/tool/main.tl"] = "print('tool')\n",
@@ -477,13 +472,18 @@ local function test_generated_payload_stages_like_committed()
       ["cmd/tool/embed_gen.tl"] = gen,
       ["embed_gen.tl"] = gen,
     })
-  -- What a generator would have produced, in the place it produces it.
-  assert(fs.makedirs(fs.join(root, "o/cmd/tool/embed/.types")))
-  assert(fs.write(fs.join(root, "o/cmd/tool/embed/tl.lua"), "return 'teal'\n"))
-  assert(fs.write(fs.join(root, "o/cmd/tool/embed/.types/cosmo.d.tl"),
-      "local record c end\nreturn c\n"))
-  assert(fs.makedirs(fs.join(root, "o/embed")))
-  assert(fs.write(fs.join(root, "o/embed/shared.lua"), "return {}\n"))
+  -- What a generator would have produced, where it produces it: under
+  -- the GENERATOR's directory, because `o/cmd/tool/` is the build's.
+  local unit = "o/cmd/tool/embed_gen/embed"
+  assert(fs.makedirs(fs.join(root, unit .. "/.types")))
+  assert(fs.write(fs.join(root, unit .. "/tl.lua"), "return 'teal'\n"))
+  assert(fs.write(fs.join(root, unit .. "/.types/cosmo.d.tl"), "return {}\n"))
+  assert(fs.makedirs(fs.join(root, "o/embed_gen/embed")))
+  assert(fs.write(fs.join(root, "o/embed_gen/embed/shared.lua"), "return {}\n"))
+  -- The build's own notes sit where the payload used to, and must not
+  -- ship: the collision that made the move worth making.
+  assert(fs.makedirs(fs.join(root, "o/cmd/tool/embed")))
+  assert(fs.write(fs.join(root, "o/cmd/tool/embed/committed.txt.lint.got"), "0"))
 
   local proj = scan(root)
   local stored = stored_paths(proj, binary_of(proj, "tool"))
@@ -492,6 +492,9 @@ local function test_generated_payload_stages_like_committed()
   assert(stored["tl.lua"], "and the generated half stages beside it")
   assert(stored[".types/cosmo.d.tl"], "including its dot-directories")
   assert(stored["shared.lua"], "root generated payload reaches every binary")
-  assert(not stored["o/cmd/tool/embed/tl.lua"], "never at its path under o/")
+  assert(not stored["o/cmd/tool/embed_gen/embed/tl.lua"],
+    "never at its path under o/")
+  assert(not stored["committed.txt.lint.got"],
+    "the build's own bookkeeping is not payload")
 end
 test_generated_payload_stages_like_committed()

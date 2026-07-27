@@ -32,6 +32,20 @@ local function stem_of(path: string): string
 end
 
 --- Run one generator, handing it the output directory it owns.
+---
+--- CLEARED first, not merged into, and the engine does it rather than
+--- the generator. A generator's output is a function of its inputs, so
+--- an input that goes away has to take its output with it: a renamed
+--- module leaving the old name behind means the artifact ships a file
+--- no source produces, and the next `--make build` embeds it again.
+--- Cosmic's own generator happened to clear its directory itself,
+--- which made the whole class look handled; a project whose generator
+--- does not would have shipped stale payload with no way to notice
+--- short of `--make clean`.
+---
+--- Safe only because the directory is the GENERATOR's -- `o/<its path
+--- minus extension>/` -- and holds nothing else. Handing a generator
+--- `o/<unit>/` and clearing that would delete the build.
 --- @param proj Project The scanned project
 --- @param gen string The generator's path, relative to the root
 --- @param dest string The output directory it owns, relative to the root
@@ -39,7 +53,15 @@ end
 --- @return boolean, string Success, or false plus the reason
 local function run_generator(proj: Project, gen: string, dest: string,
     cosmic: string): boolean, string
-  local mok, merr = fs.makedirs(fs.join(proj.root, dest))
+  local at = fs.join(proj.root, dest)
+  if fs.exists(at) then
+    local rok, rerr = fs.rmrf(at)
+    if not rok then
+      return false, "make: cannot clear " .. dest .. ": " ..
+      (rerr or "unknown error")
+    end
+  end
+  local mok, merr = fs.makedirs(at)
   if not mok then
     return false, "make: cannot create " .. dest .. ": " ..
     (merr or "unknown error")
@@ -108,7 +130,11 @@ local function generate_unit(proj: Project, unit: string,
     local name = project.PAYLOAD_GEN .. ext
     local gen = unit == project.ROOT and name or fs.join(unit, name)
     if fs.isfile(fs.join(proj.root, gen)) then
-      return run_generator(proj, gen, project.out_dir(unit), cosmic)
+      -- `o/<unit>/embed_gen`, which is `o/<gen path minus extension>`:
+      -- the same rule the source generators get, so every generator
+      -- owns one directory and the engine may clear it. NOT
+      -- `o/<unit>/`, which is the build's.
+      return run_generator(proj, gen, project.out_dir(stem_of(gen)), cosmic)
     end
   end
   return true

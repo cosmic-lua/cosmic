@@ -42,7 +42,7 @@ tradeoffs live in [docs/decisions](../../decisions/) instead — these are
 | `-c` vs `--build` | `-c` wins; `--build` retired across two release cycles |
 | make's bytes | embedded in the cosmic release. amends D13 |
 | provisioning | `bin/cosmic` fetches one pin here; **downstream projects commit their cosmic** |
-| artifact base | `o/<unit>/base` if the unit names one, else the running cosmic, stripped to a positive floor |
+| artifact base | `o/<unit>/embed_gen/base` if the unit names one, else the running cosmic, stripped to a positive floor |
 | the floor | compiled `cosmic/**` + certs + zoneinfo + `.args`; verified by test |
 | generated makefile | written to `o/`, documented, readable |
 | generality | constant rules + generated facts (variables only) |

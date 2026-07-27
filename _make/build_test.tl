@@ -442,9 +442,9 @@ end
 local function test_a_variant_base_ships_the_payload_twice()
   local root = fixture("variant", {["main.tl"] = "print('ran')\n"})
   local runtime = check.must(fs.read(cosmic))
-  assert(fs.makedirs(fs.join(root, "o")))
+  assert(fs.makedirs(fs.join(root, "o/embed_gen")))
   for _, name in ipairs({"base", "base-debug"}) do
-    local path = fs.join(root, "o", name)
+    local path = fs.join(root, "o/embed_gen", name)
     assert(fs.write(path, runtime))
     assert(fs.chmod(path, tonumber("755", 8) as integer)) -- cast: octal is integral
   end
