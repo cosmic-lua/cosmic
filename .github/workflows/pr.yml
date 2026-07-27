@@ -45,11 +45,12 @@ jobs:
   #
   # Two knobs keep parity with a bare runner:
   #   - `--privileged`, so the container's capability profile matches the
-  #     host. The gate enforces per-rule sandboxing through real Landlock
-  #     and the quicksand tests call unshare(CLONE_NEWUSER|NEWNET) +
-  #     mount; Docker's default seccomp and AppArmor profiles would strip
-  #     both, turning enforcement into a no-op and dropping coverage
-  #     below the committed floor.
+  #     host. `_cli/fence_test.tl` asserts a real Landlock DENIAL, and
+  #     the quicksand tests call unshare(CLONE_NEWUSER|NEWNET) + mount;
+  #     Docker's default seccomp and AppArmor profiles would strip both,
+  #     turning those assertions into no-ops and dropping coverage below
+  #     the committed floor. An assertion that cannot bite is one nobody
+  #     has checked.
   #   - a non-root builder (below), because the gate is
   #     identity-sensitive: fs/walk_test skips its EACCES path under
   #     geteuid()==0, which moves coverage.
