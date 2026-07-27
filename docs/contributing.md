@@ -122,7 +122,10 @@ cosmic uses Teal's strict mode for type checking:
 cosmic --check types cosmic/mymod.tl
 ```
 
-all type errors must be resolved. warnings are reported but don't fail the build.
+all type errors must be resolved, and so must warnings: `--check
+types` is strict, so an unused local, a shadowed name or an
+unreachable branch fails the gate. mark a deliberately-unused value
+with a leading underscore.
 
 ## Adding a 3p Dependency
 

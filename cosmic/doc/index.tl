@@ -37,7 +37,8 @@ end
 --- The rule is applied inline rather than through cosmic.doc.visibility
 --- because this script also runs under the PINNED bootstrap binary,
 --- whose embedded stdlib may not carry that module. The two copies must
---- agree; visibility_test.tl asserts they do.
+--- agree; `cosmic/doc/public_test.tl` asserts they do, against
+--- `cosmic.doc.visibility` rather than against a second hand-kept list.
 local function mark_visibility(modules: {string: any})
   for name, module_doc in pairs(modules) do
     local is_cosmo = name == "cosmo" or name:match("^cosmo%.") ~= nil

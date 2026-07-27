@@ -55,14 +55,21 @@ pin, one committed fetcher, no other host downloads.
 each build rule's access is DERIVED from its recipe line rather than
 declared, because the verb vocabulary is closed and every verb's
 signature already says what it touches:
-- **pledge**: restricts available system calls (e.g., `stdio rpath`)
-- **unveil**: restricts filesystem visibility (e.g., `r:lib rwc:o/`)
-- **.ENV**: clamps the child environment to named variables
+- **reads**: the paths the verb's signature names as inputs — for a
+  test, its own compiled file plus the transitive import closure the
+  graph computed
+- **writes**: the one output the verb names, and nothing else
+- **exec**: only bytes already under the build root; a bare `cc` is
+  refused rather than resolved through `PATH`
 
-recipes are shell-free by default: `SHELL` is poisoned globally and a
-recipe is a single argv line, with the real shell a per-rule exception.
-makefile ratchet tests enumerate the exceptions and the host-exec
-grants, and fail when either set grows (#756 item 2).
+The fence is ON by default and `COSMIC_FENCE=0` opts out. On Linux it
+is Landlock; elsewhere the grants are computed and cannot be enforced,
+which is why CI asserts a real denial rather than trusting that the
+mechanism ran.
+
+There is no per-rule shell exception to enumerate: `SHELL` is cosmic,
+a recipe line is argv from a closed verb vocabulary, and a
+metacharacter is refused rather than interpreted.
 
 ## Directory Structure
 
@@ -98,7 +105,12 @@ return M
 
 ### `_types/` — Type Definitions
 
-`.d.tl` files declare types for `cosmo.*` modules. these are generated from Cosmopolitan's `definitions.lua` by `_types/gentype.tl` and checked into the repo.
+`.d.tl` files declare types for `cosmo.*` modules. they are generated
+from Cosmopolitan's `definitions.lua` by `_types/gentype.tl` into
+`o/_types/types_gen/`, and are **not committed** — the build produces
+them, so a `cosmo.*` change shows up as the pin bump that caused it.
+The cost: a fresh clone cannot resolve `cosmo.*` until it has fetched
+and built once, and an editor needs that directory on its include path.
 
 ### `_build/` — Build Infrastructure
 

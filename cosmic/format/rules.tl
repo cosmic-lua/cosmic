@@ -1,15 +1,18 @@
 --- Formatting rules and classification functions for the code formatter.
 --- Contains lookup tables, token classifiers, and indent computation.
+---
+--- Whether a token belongs to a TYPE rather than to code lives next
+--- door in `format/types.tl`: that question depends on what the
+--- previous line left open, and everything here is decidable from the
+--- tokens in front of it.
 
--- An item in the output stream: either a token or a comment.
--- An interface so the formatter's richer Item record (which caches
--- newline counts) subtypes it and the rule functions stay fully typed.
-local interface Item
-  y: integer
-  x: integer
-  tk: string
-  kind: string
-end
+local ftypes = require("cosmic.format.types")
+
+-- The token-stream contract, defined once next door and imported here.
+-- Two declarations of the same shape are two NOMINAL types to Teal, so
+-- a line's items could not be passed across the seam -- and `types.tl`
+-- is where it lives because it is the module underneath this one.
+local type Item = ftypes.Item
 
 -- Block-opening keywords: indent after these.
 local block_openers: {string: boolean} = {
@@ -208,142 +211,6 @@ local function needs_space(prev_prev: Item, prev: Item, cur: Item, next_item: It
   return true
 end
 
---- Determine if a `function` keyword is a block-opening function definition
---- vs a function TYPE annotation.
----
---- `continues_type` carries the one fact a per-line scan cannot see: the
---- PREVIOUS line ended in `as` or `:`, so this line opens in type
---- position and a leading `function` is the type it was waiting for.
---- Without it, `local f = g as\n  function(x: T): U` reads as a
---- definition and indents the rest of the file into a body no `end`
---- closes -- the same failure the return-list marking below exists to
---- prevent, one line-break further along.
-local function is_function_block_opener(line_items: {Item}, func_idx: integer,
-    continues_type?: boolean): boolean
-  if continues_type then
-    local first: Item = nil
-    for _, item in ipairs(line_items) do
-      if item.kind ~= "comment" then
-        first = item
-        break
-      end
-    end
-    if first and first == line_items[func_idx] then
-      return false
-    end
-  end
-  -- `type X = function(...)` (optionally local/global-prefixed) declares a
-  -- function TYPE alias: no body follows, so it never opens a block.
-  -- Without this, everything after such an alias is indented into a
-  -- phantom function body that no `end` ever closes.
-  local first = line_items[1]
-  local second = line_items[2]
-  if first and (first.tk == "type"
-    or ((first.tk == "local" or first.tk == "global")
-      and second and second.tk == "type")) then
-    return false
-  end
-  local paren_depth = 0
-  for i = func_idx - 1, 1, -1 do
-    local item = line_items[i]
-    if item.kind == "comment" then
-      -- skip
-    elseif item.tk == ")" then
-      paren_depth = paren_depth + 1
-    elseif item.tk == "(" then
-      if paren_depth > 0 then
-        paren_depth = paren_depth - 1
-      else
-        return true
-      end
-    elseif paren_depth > 0 then
-      -- Inside balanced parens; skip
-    elseif item.tk == ":" or item.tk == "as" then
-      return false
-    elseif item.tk == "=" or item.tk == "," then
-      return true
-    elseif item.kind == "keyword" and (item.tk == "local" or item.tk == "return") then
-      return true
-    else
-      -- Keep scanning
-    end
-  end
-  return true
-end
-
---- Mark every item belonging to the function TYPE starting at `idx`,
---- so the second pass counts none of them as opening a block.
----
---- The return type is the half that matters. It is a LIST, and its
---- members can be unions: `function(a: A): T | nil, U | nil`. Marking
---- only a parenthesized return leaves `function` inside such a list
---- unmarked, and a backward scan from there hits the `,` and reads it
---- as a definition — so the rest of the file indents into a body that
---- no `end` ever closes. `_types/cosmo/lsqlite3.d.tl` is a real file
---- that does this (`config`, returning `function | nil`).
---- @param line_items {Item} The line's items
---- @param idx integer Index of the `function` keyword
---- @param type_ctx {integer: boolean} Marks, updated in place
-local function mark_function_type(line_items: {Item}, idx: integer,
-    type_ctx: {integer: boolean})
-  type_ctx[idx] = true
-  local depth = 0
-  local j = idx + 1
-  while j <= #line_items do
-    type_ctx[j] = true
-    if line_items[j].tk == "(" then
-      depth = depth + 1
-    elseif line_items[j].tk == ")" then
-      depth = depth - 1
-      if depth == 0 then
-        j = j + 1
-        break
-      end
-    end
-    j = j + 1
-  end
-  if j > #line_items or line_items[j].tk ~= ":" then
-    return
-  end
-  -- The return list runs to the end of the line, stopping at `=` (a
-  -- value follows, and it may legitimately open a block) or at a
-  -- closer belonging to an enclosing bracket, as in `{function(): T}`.
-  type_ctx[j] = true
-  depth = 0
-  for k = j + 1, #line_items do
-    local tk = line_items[k].tk
-    if tk == "(" or tk == "[" or tk == "{" then
-      depth = depth + 1
-    elseif tk == ")" or tk == "]" or tk == "}" then
-      if depth == 0 then
-        return
-      end
-      depth = depth - 1
-    elseif depth == 0 and (tk == "=" or tk == ";") then
-      return
-    end
-    type_ctx[k] = true
-  end
-end
-
---- Does this line leave the next one in TYPE position?
----
---- True when its last code token is `as` or `:`, both of which are
---- followed by a type. The formatter carries this one bit across the
---- line break so `compute_indent_change` can tell a continued type from
---- a definition.
---- @param line_items {Item} The line's items
---- @return boolean Whether the next line opens in type position
-local function opens_type_position(line_items: {Item}): boolean
-  for i = #line_items, 1, -1 do
-    local item = line_items[i]
-    if item.kind ~= "comment" then
-      return item.tk == "as" or item.tk == ":"
-    end
-  end
-  return false
-end
-
 --- Compute the net indent change for all items on a line.
 --- Returns (pre_change, post_change).
 local function compute_indent_change(line_items: {Item},
@@ -351,13 +218,7 @@ local function compute_indent_change(line_items: {Item},
   local pre_change = 0
   local post_change = 0
 
-  local type_ctx: {integer: boolean} = {}
-  for idx, item in ipairs(line_items) do
-    if item.kind == "keyword" and item.tk == "function" and not type_ctx[idx]
-    and not is_function_block_opener(line_items, idx, continues_type) then
-      mark_function_type(line_items, idx, type_ctx)
-    end
-  end
+  local type_ctx = ftypes.type_marks(line_items, continues_type)
 
   local first_code: Item = nil
   for _, item in ipairs(line_items) do
@@ -388,7 +249,7 @@ local function compute_indent_change(line_items: {Item},
       elseif item.tk == "{" or item.tk == "(" then
         post_change = post_change + 1
       elseif item.kind == "keyword" and item.tk == "function" then
-        if is_function_block_opener(line_items, idx, continues_type) then
+        if ftypes.is_function_block_opener(line_items, idx, continues_type) then
           post_change = post_change + 1
         end
       end
@@ -415,12 +276,14 @@ local record FormatRulesModule
   needs_space: function(prev_prev: Item, prev: Item, cur: Item, next_item: Item): boolean
   compute_indent_change: function(line_items: {Item},
   continues_type?: boolean): integer, integer
-opens_type_position: function(line_items: {Item}): boolean
+  opens_type_position: function(line_items: {Item}, continues_type?: boolean): boolean
 end
 
 local M: FormatRulesModule = {}
 M.is_long_comment = is_long_comment
-M.opens_type_position = opens_type_position
+-- Re-exported: `format/init.tl` drives the line loop and needs this
+-- one fact from next door; one import for the rules it applies.
+M.opens_type_position = ftypes.opens_type_position
 M.needs_space = needs_space
 M.compute_indent_change = compute_indent_change
 

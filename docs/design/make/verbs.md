@@ -15,7 +15,7 @@ clean           remove o/                                            [now]
 run   [binary]  build, then exec the artifact with remaining argv    [planned]
 benchmark [paths…]  run every *_benchmark.tl against the stage       [now]
 example [paths…] run Example_* against the staged tree               [now]
-lint  [paths…]  style gate: file length, column width, cast ratchet  [now]
+lint  [paths…]  style gate: file length, cast ratchet, test order  [now]
 ```
 
 **Selection names targets of the verb's own kind, and never changes

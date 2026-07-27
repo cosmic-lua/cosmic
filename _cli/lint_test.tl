@@ -258,8 +258,6 @@ local function test_find_needle_wants_the_intent_stated()
 end
 test_find_needle_wants_the_intent_stated()
 
-print("all lint tests passed")
-
 -- `--check <kind>` refuses an unknown kind by naming the ones it has,
 -- refuses a retired one by naming what replaced it, and refuses a
 -- missing file by naming the project-wide verb — the three ways a
@@ -285,3 +283,5 @@ local function test_check_kinds_are_named_when_wrong()
   assert(chk.run("types", "", {}) == 1, "a missing file fails")
 end
 test_check_kinds_are_named_when_wrong()
+
+print("all lint tests passed")

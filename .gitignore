@@ -4,10 +4,6 @@ cosmic-first
 dist/
 results/
 
-# Third-party build artifacts
-3p/*/digest
-3p/*/fetch
-
 # Generated binaries (allow specific scripts). `bin/*`, not `bin/`: git
 # cannot re-include a path inside an excluded DIRECTORY, so `bin/` plus
 # `!bin/cosmic` silently ignores the trust root instead of tracking it.

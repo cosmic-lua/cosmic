@@ -167,10 +167,10 @@ local record DepsModule
   index: function(proj: Project): {string: {File}}
   direct: function(root: string, file: File,
   by_import: {string: {File}}): {File}
-closure: function(proj: Project, file: File,
-by_import: {string: {File}}): {File}
-built_paths: function(files: {File}): {string}
-source_paths: function(files: {File}): {string}
+  closure: function(proj: Project, file: File,
+  by_import: {string: {File}}): {File}
+  built_paths: function(files: {File}): {string}
+  source_paths: function(files: {File}): {string}
 end
 
 local M: DepsModule = {

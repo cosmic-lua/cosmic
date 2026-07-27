@@ -255,7 +255,7 @@ local function format(input: string, filename: string): FormatResult
 
     local pre_change, post_change =
     rules.compute_indent_change(line.items, continues_type)
-    continues_type = rules.opens_type_position(line.items)
+    continues_type = rules.opens_type_position(line.items, continues_type)
 
     indent = math.max(0, indent + pre_change)
 

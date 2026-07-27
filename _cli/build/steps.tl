@@ -300,10 +300,20 @@ local function do_assert_elf(args: {string}): integer
   return 0
 end
 
---- remove <paths...> — rm -f: delete files, ignoring missing ones.
+--- remove <paths...> — rm -f: delete files, ignoring MISSING ones.
+---
+--- Only missing ones. Swallowing every error made "cannot unlink"
+--- indistinguishable from "already gone", so a rule that could not
+--- clear its output reported success and the next step ran against the
+--- file it meant to replace.
 local function do_remove(args: {string}): integer
   for _, p in ipairs(args) do
-    fs.unlink(p)
+    if fs.exists(p) then
+      local ok, uerr = fs.unlink(p)
+      if not ok and fs.exists(p) then
+        return fail("remove " .. p .. ": " .. (uerr or "unknown error"))
+      end
+    end
   end
   return 0
 end
@@ -313,18 +323,15 @@ end
 --- AND the per-stage ci-ok exit marker (a stage failing after writing a
 --- clean summary must still fail), and end with the verdict line.
 ---
---- The counts come from `cosmic.records`, which is the module that
---- OWNS the summary's grammar. This used to prose-match
---- `"[1-9]%d* failed"` against the text -- a second reader of a format
---- with one writer, which is the drift `records` exists to prevent:
---- change how a summary counts and this verb keeps grading yesterday's
---- wording, silently and in the direction of PASS.
+--- The counts come from `cosmic.records`, which OWNS the summary's
+--- grammar: prose-matching `"[1-9]%d* failed"` made this a second
+--- reader of a format with one writer, and it would have kept grading
+--- yesterday's wording -- silently, in the direction of PASS.
 ---
---- The verb stays rather than being retired with its in-tree consumer.
---- `SHELL := cosmic` is advertised as a general contract, and grading a
---- set of stages is what an external makefile's `ci` target needs;
---- cosmic's own `ci` is a `--make` verb because it also decides WHICH
---- stages to run, which a recipe cannot.
+--- The verb stays rather than retiring with its in-tree consumer:
+--- `SHELL := cosmic` is a general contract, and grading a set of
+--- stages is what an external makefile's `ci` needs. Cosmic's own `ci`
+--- is a `--make` verb because it also decides WHICH stages run.
 local function do_verdict(args: {string}): integer
   local o_dir = args[1]
   if not o_dir or not args[2] then
@@ -413,19 +420,13 @@ local function do_exec(args: {string}): integer
   if not program then
     return fail("usage: exec <program> [args...]")
   end
-  -- REALPATH, not abspath, on both sides. abspath normalizes `..` and
-  -- so refuses a path that climbs out lexically, but it does not follow
-  -- symlinks -- and the kernel does, at spawn. So `o/tool -> /bin/sh`
-  -- had an abspath under the root, passed the prefix test, and ran the
-  -- host binary: the design's "exec resolves only to pinned bytes under
-  -- o/, never PATH" was a stronger claim than the check enforced.
-  -- Verified before the fix with `ln -sf /bin/echo o/tool`.
-  --
-  -- Resolving the ROOT too matters when the build directory is itself
-  -- reached through a link (a worktree under a symlinked home), or the
-  -- prefix comparison comes out false for two spellings of one path.
-  -- The relative `o/bootstrap/lua -> cosmic` link bin/make creates
-  -- still resolves inside the root, so it keeps working.
+  -- REALPATH, not abspath, on both sides: abspath normalizes `..` but
+  -- does not follow symlinks, and the kernel does at spawn. So
+  -- `o/tool -> /bin/sh` had an abspath under the root, passed the
+  -- prefix test, and ran the host binary. Resolving the ROOT too
+  -- matters when the build directory is itself reached through a link.
+  -- A relative symlink inside `o/` still resolves inside it, so the
+  -- staging links a build makes keep working.
   local root_named = fs.abspath(env.get("COSMIC_EXEC_ROOT", "o"))
   local root = (fs.realpath(root_named) or root_named) as string -- cast: scalar fallback
   local named = fs.abspath(program)

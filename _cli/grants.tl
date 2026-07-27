@@ -267,9 +267,20 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil
     -- all `makedirs` their own outputs anyway, so this is the same
     -- directory a moment earlier, and now it is the one that is
     -- granted.
+    --
+    -- A makedirs that FAILS must not fall through to the walk-up: the
+    -- walk-up is the wide grant this exists to avoid, so taking it on
+    -- the error path hands the whole tree away exactly when something
+    -- is already wrong. Refuse the plan instead -- a fence that cannot
+    -- be derived is not a fence to widen.
     local dir = fs.dirname(p)
     if dir ~= "" and dir ~= "." then
-      fs.makedirs(dir)
+      local ok, merr = fs.makedirs(dir)
+      if not ok then
+        io.stderr:write("cosmic -c: cannot create " .. dir .. ": " ..
+          (merr or "unknown error") .. "\n")
+        return nil
+      end
     end
     rw[#rw + 1] = nearest_existing(p)
   end

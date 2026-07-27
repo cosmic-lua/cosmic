@@ -2,10 +2,10 @@
 # columns: path covered-lines total-lines
 _cli/args.tl 0 31
 _cli/build/init.tl 43 47
-_cli/build/steps.tl 181 236
+_cli/build/steps.tl 183 239
 _cli/check.tl 24 31
 _cli/driver.tl 21 34
-_cli/grants.tl 159 167
+_cli/grants.tl 158 168
 _cli/help.tl 46 48
 _cli/lint.tl 190 215
 _cli/main_handlers.tl 11 220
@@ -100,6 +100,7 @@ cosmic/fetch/init.tl 0 139
 cosmic/flags.tl 140 142
 cosmic/format/init.tl 184 222
 cosmic/format/rules.tl 208 220
+cosmic/format/types.tl 98 113
 cosmic/fs/file.tl 30 46
 cosmic/fs/init.tl 61 81
 cosmic/fs/ops.tl 97 138
@@ -169,4 +170,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 80 93
 tlconfig.lua 7 7
-total 13073 17306
+total 13172 17423

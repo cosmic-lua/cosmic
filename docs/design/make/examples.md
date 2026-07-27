@@ -32,7 +32,9 @@ myapp/
   db/query_test.tl          reads staged db/**, writes TEST_TMPDIR
   db/testdata/fixture.json  readable by the test, never embedded
   _internal/util.tl         require("_internal.util"), private
-  schema.sql                asset
+  schema.sql                an asset: part of the project, not of the
+                            artifact — it does NOT ship (D15)
+  embed/schema.sql          …move it here and it does, at /zip/schema.sql
   3p/lpeg/lpeg_pin.tl       cosmic --make fetch
 ```
 
@@ -42,7 +44,7 @@ o/bin/myapp  →  /zip/main.lua          generated wrapper
                 /zip/config.lua
                 /zip/db/init.lua  /zip/db/query.lua
                 /zip/_internal/util.lua
-                /zip/schema.sql
+                /zip/schema.sql        because it is under embed/
                 /zip/cosmic/**         the floor
                 /zip/usr/share/ssl/**  the floor
 ```
@@ -91,7 +93,7 @@ behaviour, each checked, built and *run* by `fixtures_test.tl`:
 | `pkg/` | import path is position (`greet/init.tl` is `greet`) |
 | `multi/` | two `cmd/` binaries, shared root packages, no cross-imports |
 | `luaonly/` | `.lua` sources are first-class |
-| `assets/` | an asset ships at its relative path; `testdata/` never ships |
+| `assets/` | `embed/**` ships at its path under `embed/`; a bare asset and `testdata/` never ship |
 
 They are committed rather than written inline by the test because they
 double as the examples a person reads, and they are built with the same

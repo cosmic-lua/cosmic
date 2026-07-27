@@ -93,8 +93,8 @@ not yet carry is in [docs/design/make/](docs/design/make/).
   names the function. Helpers are exempt (they are called from the tests),
   and `Example_*` functions are called by the example runner.
 - **imports**: prefer `cosmic.*` modules over raw `cosmo.*` C bindings. `cosmo.*` is only for library internals implementing wrappers.
-- **tests**: `*_test.tl` files alongside source, run via `make test`
-- **examples**: `*_example.tl` files with `Example_*` functions, run via `make example`
+- **tests**: `*_test.tl` files alongside source, run via `cosmic --make test`
+- **examples**: `*_example.tl` files with `Example_*` functions, run via `cosmic --make example`
 
 ### cosmo vs cosmic
 
@@ -313,10 +313,9 @@ lsqlite3, re, argon2, zip, repl) and `tl.d.tl` (the narrowed public
 Teal compiler API).
 
 Nothing to regenerate and no drift to check: the build produces them,
-and a `cosmo.*` change shows up as the pin bump that caused it. The cost, stated: **a fresh clone cannot resolve `cosmo.*`
-until it has fetched and built once**, and an editor needs
-`o/_types/types_gen` on
-its include path.
+and a `cosmo.*` change shows up as the pin bump that caused it. The cost,
+stated: **a fresh clone cannot resolve `cosmo.*` until it has fetched and
+built once**, and an editor needs `o/_types/types_gen` on its include path.
 
 the single source of truth for `cosmo.*` is `tool/net/definitions.lua` in
 whilp/cosmopolitan, embedded in the pinned cosmos release binary at
@@ -387,6 +386,7 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | proc | current process: pid, exec, resource usage |
 | rand | cryptographic random bytes |
 | re | POSIX extended regular expressions |
+| records | a build's machine-readable records: row, summary, verdict, exit codes |
 | sandbox | one-call fail-closed facade over pledge/unveil/landlock (fs + sys policy) |
 | searcher | the runtime `.tl` package searcher every artifact installs at boot |
 | pledge | restrict system calls (OpenBSD, Linux) |
