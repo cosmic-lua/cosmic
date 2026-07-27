@@ -117,9 +117,9 @@ what that means for a test author:
 two escalation paths exist; prefer the tight default whenever the test can live with it:
 
 - **namespace tests** (anything calling `unshare(2)` or writing `/proc/self/*_map` — the quicksand netns/proxy/box suites): no pledge promise covers unshare, so these run unfenced.
-- **enforcement tests** (pledge/unveil/landlock primitives asserting that restriction *actually* blocks): under an outer sandbox their assertions degrade to visible skips. a privileged lane reruns them unsandboxed with `COSMIC_ENFORCE=1`, where a skip becomes a loud failure, plus a tripwire that fails the lane if nothing enforced at all. `enforce` is a named, planned verb.
+- **enforcement tests** (pledge/unveil/landlock primitives asserting that restriction *actually* blocks): under an outer sandbox their assertions degrade to visible skips. `COSMIC_ENFORCE=1` turns such a skip into a loud failure, for a privileged lane that reruns them unsandboxed. no lane sets it yet — `enforce` is a named, planned verb, and until it lands those skips are tolerated everywhere.
 
-the fence itself is opt-in (`COSMIC_FENCE=1`) until its default flip lands.
+the fence itself is ON by default; `COSMIC_FENCE=0` opts out.
 
 ## Running Tests
 

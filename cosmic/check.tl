@@ -149,10 +149,16 @@ local function must<T>(v: T | nil, e?: string, ...: any): T, string, any ...
 end
 
 --- Report whether the enforcement lane is active.
---- True when COSMIC_ENFORCE=1, which the privileged, unsandboxed CI lane
---- (`--make enforce`) sets. In that mode a sandbox test that cannot
+--- True when COSMIC_ENFORCE=1. In that mode a sandbox test that cannot
 --- exercise real enforcement must fail loudly rather than skip silently,
 --- since there is no outer sandbox left to blame.
+---
+--- NOTHING SETS IT YET. `--make enforce` — a privileged, unsandboxed
+--- lane — is a named, planned verb, and this is the mechanism waiting
+--- for it, exercised by `check_assertions_test.tl` and by hand. Said
+--- plainly because a switch that reads as live and is not is worse
+--- than no switch: the skips it would escalate are silently tolerated
+--- in every lane that runs today.
 --- @return boolean True when strict enforcement is required
 local function enforcing(): boolean
   return os.getenv("COSMIC_ENFORCE") == "1"

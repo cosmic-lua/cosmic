@@ -62,3 +62,20 @@ chapter of `_perf/OPTIMIZE.md` — read that first.
 - a win must be explainable. if you can't say WHY the number moved
   (fewer syscalls, fewer allocations, one scan instead of two), treat
   it as noise until you can.
+- **know which binary you measured.** `$BIN` is a path, and two things
+  now move what sits at that path without you asking. `bin/cosmic`
+  prefers `o/bin/cosmic` when one exists and reaches for the pin only
+  on a cold start; and a gate verb CONVERGES, building the tree and
+  re-execing into the result (`_make/converge.tl`), so a stray
+  `--make ci` between baseline and current silently replaces the thing
+  under test. Both are right for correctness and both are measurement
+  hazards, because a benchmark's subject has to hold still.
+
+  So: baseline and compare against paths you built deliberately, in one
+  sitting, and re-run `--make build` before each measurement rather
+  than assuming the binary is what it was. If a result is surprising,
+  check `$BIN --version` on both sides before you believe it. This is
+  the same class as the coverage floors' sensitivity to which compiler
+  built the artifact (`cosmic/coverage/SENSITIVITY.md`): a metric
+  measured through an artifact inherits that artifact's identity as a
+  hidden input.

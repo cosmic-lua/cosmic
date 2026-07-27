@@ -204,3 +204,21 @@ local function test_a_bare_directory_is_not_a_project()
     "and names the way to mean it anyway, got: " .. err)
 end
 test_a_bare_directory_is_not_a_project()
+
+-- A root make cannot NAME is refused up front. Prerequisites are
+-- whitespace-separated with no escape that survives, and `o/project.mk`
+-- assigns the cosmic path into one -- so a checkout under `My
+-- Projects/` produced "no rule to make target `/Users/me/My'", which
+-- says nothing about the space being the problem.
+local function test_a_root_with_whitespace_is_refused()
+  local dir = tree("has space", {["main.tl"] = "print('x')\n"})
+  -- Through the override, because that path skips the declaration
+  -- guard: naming a root must not be a way around this one.
+  env.set(root.ROOT_ENV, dir, true)
+  local found, err = root.discover("build")
+  env.unset(root.ROOT_ENV)
+  assert(not found, "a root make cannot express is not a root")
+  assert(err:find("whitespace", 1, true), "and says why, got: " .. err)
+  assert(err:find(dir, 1, true), "naming the path, got: " .. err)
+end
+test_a_root_with_whitespace_is_refused()

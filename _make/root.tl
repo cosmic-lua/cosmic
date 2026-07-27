@@ -98,6 +98,33 @@ local function ancestor_root(dir: string): string | nil
   end
 end
 
+--- Refuse a root make cannot name.
+---
+--- A makefile's prerequisite list is whitespace-separated and there is
+--- no escape that survives it, so a root with a space in its path
+--- cannot be expressed at all: `o/project.mk` assigns `COSMIC` and
+--- `COSMIC_DEP` to that path, every graph rule takes `$(COSMIC_DEP)` as
+--- a prerequisite, and make would read one path as two. The recipe side
+--- agrees — a line is argv, whitespace-split, by design.
+---
+--- Said up front, because the alternative is what it did before: make
+--- reports a missing prerequisite named after the first word of your
+--- home directory, which explains nothing about the path being the
+--- problem. `/Users/me/My Projects/thing` is an ordinary place to keep
+--- a checkout, and "cosmic does not support this" is a fine answer;
+--- "no rule to make target `/Users/me/My'" is not.
+--- @param root string The absolute root
+--- @return string|nil The refusal, or nil when the path is expressible
+local function unnameable(root: string): string | nil
+  if not root:find("%s") then
+    return nil
+  end
+  return "make: unusable project root: " .. root ..
+  "\nmake: the path contains whitespace, and make prerequisites are" ..
+  " whitespace-separated with no escape that survives" ..
+  "\nmake: move or link the checkout to a path without spaces"
+end
+
 --- Resolve the project root for this run.
 ---
 --- Returns the absolute root, or nil plus the refusal. The refusal is
@@ -112,6 +139,10 @@ local function discover(verb: string): string | nil, string
     if not fs.isdir(named) then
       return nil, "make: not a directory: " .. override
     end
+    local bad = unnameable(named)
+    if bad then
+      return nil, bad
+    end
     return named
   end
   local cwd, err = fs.getcwd()
@@ -120,6 +151,10 @@ local function discover(verb: string): string | nil, string
     (err or "unknown error")
   end
   local abs = fs.abspath(cwd)
+  local bad = unnameable(abs)
+  if bad then
+    return nil, bad
+  end
   local ancestor = ancestor_root(abs)
   if ancestor then
     return nil, "make: ambiguous root: " .. abs ..
