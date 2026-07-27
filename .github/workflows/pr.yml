@@ -94,6 +94,11 @@ jobs:
       # timeout: a recipe child dying mid-test can leave forked test
       # parents blocked on accept/wait, wedging make. Convert a hang into
       # a failure so the dump step below fires.
+      # The gate runs under the binary this tree BUILDS, not the one the
+      # pin names. Modules resolve from the artifact first, so a gate run
+      # under the pinned cosmic measures the PIN: a stage would report on
+      # the released code and pass while the change under test is broken.
+      # Building here rather than in the build lane keeps it fenced.
       - name: the gate, with network denied
         timeout-minutes: 20
         shell: bash
@@ -104,8 +109,9 @@ jobs:
           set -eux
           unshare --net -- bash -euxc '
             o/bootstrap/cosmic -e "$NETNS"
-            exec runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
-              bin/cosmic --make ci'
+            exec runuser -u builder -- env HOME="$HOME" PATH="$PATH" bash -ec "
+              bin/cosmic --make build
+              o/bin/cosmic --make ci"'
 
       - name: dump failing test output
         if: failure()
@@ -155,13 +161,21 @@ jobs:
         run: |
           set -eux
           runuser -u builder -- env HOME="$HOME" PATH="$PATH" bash -ec '
+            # `fetch` is the only verb with a network, so it is also the
+            # only one that provisions: `build` will not reach for a pin
+            # it is missing, it refuses.
+            bin/cosmic --make fetch
             bin/cosmic --make build
             cp o/bin/cosmic cosmic-first
             # A different tree PATH, not just a different output dir: an
             # absolute path leaking into the artifact only shows up when
-            # the root moves.
+            # the root moves. clean removes o/, pins included, so the
+            # copy fetches again.
             cp -a . "$HOME/repro"
-            cd "$HOME/repro" && bin/cosmic --make clean && bin/cosmic --make build
+            cd "$HOME/repro"
+            bin/cosmic --make clean
+            bin/cosmic --make fetch
+            bin/cosmic --make build
             cmp "$OLDPWD/cosmic-first" o/bin/cosmic
             echo "reproducible: PASS — double build is byte-identical"'
 

@@ -460,9 +460,16 @@ test_payload_is_scoped_to_its_binary()
 -- been committed. Both halves land at the same place, so a project can
 -- generate one payload file and commit another beside it.
 local function test_generated_payload_stages_like_committed()
+  -- The generators are DECLARED, because that is what says `o/<unit>/embed`
+  -- holds payload: the build also writes its own per-file bookkeeping
+  -- under `o/<unit>/`, so without a generator there is nothing generated
+  -- there and collecting anyway ships the build's notes.
+  local gen = "local M = {}\nfunction M.generate() end\nreturn M\n"
   local root = fixture("payload-generated", {
       ["cmd/tool/main.tl"] = "print('tool')\n",
       ["cmd/tool/embed/committed.txt"] = "in the tree\n",
+      ["cmd/tool/embed_gen.tl"] = gen,
+      ["embed_gen.tl"] = gen,
     })
   -- What a generator would have produced, in the place it produces it.
   assert(fs.makedirs(fs.join(root, "o/cmd/tool/embed/.types")))

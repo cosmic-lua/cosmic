@@ -42,12 +42,19 @@ jobs:
       # already run over this commit — every commit on main arrives by
       # push, and push triggers it — so this lane builds and nothing
       # else.
+      # Two generations, deliberately: the pinned cosmic builds one from
+      # this tree, and THAT one builds what ships. A release should be
+      # produced by the code it contains, not by whatever the pin happens
+      # to be — and a pin older than a build-system change would
+      # otherwise ship an artifact built by rules the tree no longer has.
       - name: build the release binaries
         shell: bash
         run: |
           set -eux
-          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bash -ec '
+            bin/cosmic --make fetch
             bin/cosmic --make build
+            o/bin/cosmic --make build'
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:

@@ -183,6 +183,26 @@ end
 --- beside each other without knowing which is which.
 --- @param root string Absolute project root
 --- @param unit string The unit's directory, "" for the root
+--- Whether a unit has a generator that writes payload.
+---
+--- The gate matters because `o/<unit>/embed/` is ALSO where the build
+--- puts its own bookkeeping about sources under `<unit>/embed/` — for
+--- the root unit that is `o/embed/`, and a `.lint.got` about
+--- `embed/cosmic.mk` sat right next to what a generator would have
+--- written. Without a generator there is nothing generated to collect,
+--- and collecting anyway shipped the build's notes inside the binary.
+--- @param proj Project The scanned project
+--- @param unit string The unit directory ("" for the root)
+--- @return boolean True when a payload generator lives there
+local function has_payload_gen(proj: Project, unit: string): boolean
+  for _, f in ipairs(proj.files) do
+    if f.kind == "payload-gen" and fs.dirname(f.path) == (unit == "" and "." or unit) then
+      return true
+    end
+  end
+  return false
+end
+
 --- @param out {Staged} Plan to append to
 local function generated_payload(root: string, unit: string, out: {Staged})
   -- The staged `source` stays relative, like every other entry, because
@@ -259,9 +279,12 @@ local function plan(proj: Project, binary: Binary): {Staged}
       out[#out + 1] = s
     end
   end
-  -- The root's payload reaches every binary; a cmd unit's is its own.
-  generated_payload(proj.root, "", out)
-  if binary.dir ~= "" then
+  -- The root's generated payload reaches every binary; a cmd unit's is
+  -- its own. Only where a generator actually is: see has_payload_gen.
+  if has_payload_gen(proj, "") then
+    generated_payload(proj.root, "", out)
+  end
+  if binary.dir ~= "" and has_payload_gen(proj, binary.dir) then
     generated_payload(proj.root, binary.dir, out)
   end
   -- Last, and only if the project did not put one there itself: a
