@@ -185,6 +185,10 @@ end
 --- refusal every other malformed pin gets.
 local MAX_DEPTH < const > = 32
 
+--- The largest code point `\u{...}` may name, which is what `utf8.char`
+--- accepts and what the Lua manual specifies for the escape: 2^31 - 1.
+local MAX_CODEPOINT < const > = 0x7FFFFFFF
+
 --- Lua's single-character escapes, by the character that follows `\`.
 local ESCAPES: {string: string} = {
   a = "\a", b = "\b", f = "\f", n = "\n", r = "\r", t = "\t",
@@ -224,7 +228,18 @@ local function escape_at(s: string, i: integer): string | nil, integer
     if not hex then
       return nil, i
     end
-    return utf8.char(tonumber(hex, 16) as integer), after as integer -- cast: hex digits are integral
+    -- BOUNDED, because `%x+` has no length limit and this file is
+    -- attacker-shaped: it is what reads a pin. `\u{FFFFFFFFFF}` parses
+    -- fine, exceeds what `utf8.char` accepts, and threw out of a module
+    -- whose whole contract is that it returns errors -- so a malformed
+    -- pin crashed `--make fetch` with a traceback instead of naming the
+    -- file. Above 2^31 `tonumber` also stops being integral, which the
+    -- cast below would have quietly asserted otherwise.
+    local cp = tonumber(hex, 16)
+    if cp == nil or cp ~= math.floor(cp) or cp < 0 or cp > MAX_CODEPOINT then
+      return nil, i
+    end
+    return utf8.char(cp as integer), after as integer -- cast: bounded above
   end
   local digits = s:match("^%d%d?%d?", i + 1)
   if digits then
@@ -355,14 +370,29 @@ local function parse_table(toks: {Token}, i: integer, where: string,
       out[key] = decoded
       i = i + 1
     elseif scalar[v.kind] then
-      out[key] = tonumber(v.tk)
+      -- The lexer's "number" is a SHAPE, not a value: it accepts `0x.`
+      -- and `1e`, which `tonumber` reads as nil. Stored unchecked that
+      -- silently dropped the key -- a pin whose `sha256` went missing
+      -- rather than being refused -- and negated below it threw
+      -- arithmetic-on-nil straight out of a module that must not throw.
+      local num = tonumber(v.tk)
+      if num == nil then
+        return nil, 0, where .. ":" .. tostring(v.y) ..
+        ": a " .. noun .. " has a malformed number value for '" .. key .. "'"
+      end
+      out[key] = num
       i = i + 1
     elseif v.tk == "-" and toks[i + 1] and scalar[toks[i + 1].kind]
     and toks[i + 1].kind ~= "string" then
       -- The lexer emits `-` as its own token, so a negative number
       -- looked like an operator and was refused. A config that wants
       -- -1 is not asking the file to compute anything.
-      out[key] = -(tonumber(toks[i + 1].tk) as number) -- cast: a number token is numeric
+      local neg = tonumber(toks[i + 1].tk)
+      if neg == nil then
+        return nil, 0, where .. ":" .. tostring(v.y) ..
+        ": a " .. noun .. " has a malformed number value for '" .. key .. "'"
+      end
+      out[key] = -neg
       i = i + 2
     elseif v.tk == "true" or v.tk == "false" then
       out[key] = v.tk == "true"

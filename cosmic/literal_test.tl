@@ -147,6 +147,40 @@ local function test_deep_nesting_is_refused_not_thrown()
 end
 test_deep_nesting_is_refused_not_thrown()
 
+-- Nesting was the first way a crafted file could throw out of this
+-- module; these are the other two, and they are the same bug wearing
+-- different clothes. A token that LEXES is not a value that EXISTS.
+--
+-- Both are reachable from a pin, so both used to crash `--make fetch`
+-- with a traceback where a named refusal belongs.
+local function test_a_crafted_value_is_refused_not_thrown()
+  -- `%x+` has no length limit, so the escape parses and the code point
+  -- is past what utf8.char takes.
+  local ok, v, err = pcall(literal.of_source,
+    'return { x = "\\u{FFFFFFFFFF}" }', "t", "pin")
+  assert(ok, "an out-of-range code point must not throw: " .. tostring(v))
+  assert(not v and (err as string):find("malformed string", 1, true), -- cast: pcall result
+    "it is refused by name, got: " .. tostring(err))
+
+  -- `0x.` matches the lexer's numeral shape and `tonumber` reads it as
+  -- nil: negated that threw, and stored bare it silently DROPPED the
+  -- key -- a pin whose sha256 goes missing rather than being refused.
+  for _, src in ipairs({"return { x = -0x. }", "return { x = 0x. }"}) do
+    local nok, nv, nerr = pcall(literal.of_source, src, "t", "pin")
+    assert(nok, src .. " must not throw: " .. tostring(nv))
+    assert(not nv, src .. " must be refused, not silently dropped")
+    assert((nerr as string):find("malformed number", 1, true), -- cast: pcall result
+      "named by reason, got: " .. tostring(nerr))
+  end
+
+  -- And the values either side of the boundary still read.
+  assert(read('return { x = "\\u{48}\\u{49}" }').x == "HI",
+    "an ordinary code point still decodes")
+  assert(read("return { x = -1, y = 2.5, z = 0x10 }").z == 16,
+    "ordinary numbers still read")
+end
+test_a_crafted_value_is_refused_not_thrown()
+
 -- The grammar itself: a file read this way cannot do anything.
 local function test_a_literal_cannot_be_code()
   assert(refused('return { a = "x" .. "y" }'):find("concatenation", 1, true),
