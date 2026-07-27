@@ -60,7 +60,18 @@ local function fence(verb: string, args: {string}): string | nil
   if fs_policy == nil then
     return nil
   end
-  local ok, err = sandbox.apply({fs = fs_policy, best_effort = true})
+  -- `keep_coverage`, because this policy GRANTS the coverage directory
+  -- (`_cli/grants.tl` creates it and adds it to `rw`). Without saying
+  -- so the mechanism seals coverage before restricting — the right
+  -- default when nobody knows whether the dump will still work — and
+  -- every fenced recipe then reports only the lines it ran before the
+  -- fence landed. The dumps are all there and all nearly empty, which
+  -- is why it read as a code regression rather than a lost measurement.
+  local ok, err = sandbox.apply({
+      fs = fs_policy,
+      best_effort = true,
+      keep_coverage = true,
+    })
   if not ok then
     return "fence for '" .. verb .. "' failed: " .. (err or "unknown error")
   end

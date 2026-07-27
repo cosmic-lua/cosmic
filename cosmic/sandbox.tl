@@ -58,6 +58,12 @@ local record Policy
   fs: Fs
   sys: Sys
   best_effort: boolean
+  --- The caller asserts this policy still permits the line-coverage
+  --- dump, because `fs` grants that directory. Without it the
+  --- mechanism seals coverage before restricting — the safe answer
+  --- when nobody knows — and the process reports only what it did
+  --- before the sandbox landed.
+  keep_coverage: boolean
 end
 
 --- What this host can enforce: `fs` (landlock on Linux, unveil on
@@ -138,8 +144,9 @@ end
 --- empty rules list, which denies everything when applied.
 ---
 --- @param fs Fs nil treated as empty (deny-all)
+--- @param keep_coverage boolean? Skip the pre-restrict coverage seal
 --- @return RestrictOptions options for cosmic.landlock.restrict
-local function plan_landlock(fs: Fs): RestrictOptions
+local function plan_landlock(fs: Fs, keep_coverage?: boolean): RestrictOptions
   local rules: {Rule} = {}
   local seen: {string: integer} = {}
   add_rules(rules, seen, fs and fs.ro or nil, landlock.READ | landlock.EXEC)
@@ -149,12 +156,13 @@ local function plan_landlock(fs: Fs): RestrictOptions
     handled = landlock.ALL,
     rules = rules,
     no_new_privs = true,
+    keep_coverage = keep_coverage or false,
   }
 end
 
 -- The unveil equivalents of the landlock group masks: ro/exec expose
 -- read + execute, rw exposes read + write + create/remove.
-local function apply_fs_unveil(fs: Fs): boolean, string
+local function apply_fs_unveil(fs: Fs, keep_coverage?: boolean): boolean, string
   local groups: {{{string}, unveil.Perm}} = {
     {fs.ro, "rx"},
     {fs.rw, "rwc"},
@@ -166,14 +174,14 @@ local function apply_fs_unveil(fs: Fs): boolean, string
       if not ok then return false, err end
     end
   end
-  return unveil.commit()
+  return unveil.commit({keep_coverage = keep_coverage or false})
 end
 
-local function apply_fs(fs: Fs): boolean, string
+local function apply_fs(fs: Fs, keep_coverage?: boolean): boolean, string
   if cosmo.GetHostOs() == "LINUX" then
-    return landlock.restrict(plan_landlock(fs))
+    return landlock.restrict(plan_landlock(fs, keep_coverage))
   end
-  return apply_fs_unveil(fs)
+  return apply_fs_unveil(fs, keep_coverage)
 end
 
 -- Structural validation, all before any enforcement. Returns nil when
@@ -260,7 +268,7 @@ local function apply(policy: Policy): boolean, string
     do_sys = false
   end
   if do_fs then
-    local ok, err = apply_fs(policy.fs)
+    local ok, err = apply_fs(policy.fs, policy.keep_coverage)
     if not ok then return false, "sandbox: fs: " .. tostring(err) end
   end
   if do_sys then

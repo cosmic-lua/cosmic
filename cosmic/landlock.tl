@@ -86,6 +86,11 @@ local record RestrictOptions
   handled: integer
   rules: {Rule}
   no_new_privs: boolean
+  --- Set when the caller KNOWS this policy still permits the coverage
+  --- dump — because it granted that directory itself. Skips the seal
+  --- below, so the process reports what it does after restricting
+  --- rather than only what it did before.
+  keep_coverage: boolean
 end
 
 local record LandlockModule
@@ -202,13 +207,25 @@ local function restrict(opts: RestrictOptions): boolean, string
     local ok, err = unix.prctl(unix.PR_SET_NO_NEW_PRIVS, 1)
     if not ok then return fail("PR_SET_NO_NEW_PRIVS: " .. tostring(err)) end
   end
-  -- flush line-coverage data before rights drop: once the ruleset
-  -- lands, the coverage directory may no longer be writable
-  local cov = package.loaded["cosmic.coverage"]
-  if cov ~= nil then
-    -- cast: from any; function shape
-    local seal = (cov as {string: any})["seal"] as function()
-    seal()
+  -- Flush line-coverage data before rights drop: once the ruleset
+  -- lands, the coverage directory MAY no longer be writable, and
+  -- sealing is the only safe answer to "may".
+  --
+  -- `keep_coverage` is a caller that has removed the doubt. The recipe
+  -- fence grants its own coverage directory (see `_cli/grants.tl`), so
+  -- for it the dump at exit works and sealing here is pure loss: it
+  -- reports what the process did BEFORE restricting and discards
+  -- everything it was actually restricted to do. That is not a small
+  -- loss — it read as `_cli/build/steps.tl` at 14%, and as a code
+  -- regression, because the dumps were all present and all nearly
+  -- empty.
+  if not opts.keep_coverage then
+    local cov = package.loaded["cosmic.coverage"]
+    if cov ~= nil then
+      -- cast: from any; function shape
+      local seal = (cov as {string: any})["seal"] as function()
+      seal()
+    end
   end
   local ok, rerr = unix.landlock_restrict_self(rsfd, 0)
   unix.close(rsfd)

@@ -63,6 +63,10 @@ end
 --- fail-open escape hatch.
 local record UnveilOptions
   best_effort: boolean
+  --- The caller asserts the policy still permits the coverage dump,
+  --- because it unveiled that directory itself. See the same field on
+  --- `cosmic.landlock.RestrictOptions`.
+  keep_coverage: boolean
 end
 
 local avail: boolean = nil
@@ -126,7 +130,9 @@ local function commit(opts?: UnveilOptions): boolean, string
     if opts and opts.best_effort then return true end
     return false, unsupported
   end
-  seal_coverage()
+  if not (opts and opts.keep_coverage) then
+    seal_coverage()
+  end
   local ok, err = unix.unveil(nil, nil)
   if not ok then
     return false, errstr(err, "unveil commit")
