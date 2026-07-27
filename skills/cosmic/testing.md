@@ -176,7 +176,7 @@ test targets are derived from `*_test.tl` files — nothing registers them:
 
 ```bash
 o/bin/cosmic --make test                       # run all tests
-o/bin/cosmic --make test cosmic/sqlite_test.tl # narrow by path
+o/bin/cosmic --make test cosmic/string_test.tl # narrow by path
 ```
 
 run them under the binary your change builds (`--make build` first), or

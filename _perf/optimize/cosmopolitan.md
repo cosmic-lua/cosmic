@@ -45,11 +45,27 @@ COSMO=~/cosmopolitan   # your checkout
    toolchain and commit drift. A/B two local builds that differ only by
    your change:
 
+   The wrapping is one copy, and there is no verb for it because it
+   needs none: a cosmic is its payload embedded onto a RUNTIME, and the
+   runtime a build uses is whatever sits at `o/3p/cosmos/lua` — the
+   place `--make fetch` unpacks the pinned one. Put your build there
+   and the next `--make build` embeds onto it.
+
    ```bash
-   # wrap the local lua as a measurable cosmic, then baseline it
-   BIN=o/perf/cosmic-local
+   # keep the pinned runtime, then stand yours in its place
+   cp o/3p/cosmos/lua o/3p/cosmos/lua.pinned
+   cp $COSMO/o/tool/lua/lua o/3p/cosmos/lua
+   bin/cosmic --make build          # o/bin/cosmic now runs on YOUR lua
+
+   BIN=o/bin/cosmic
    $BIN -- o/_perf/run.lua --out o/perf/baseline.json $BENCH
    ```
+
+   `cp o/3p/cosmos/lua.pinned o/3p/cosmos/lua && bin/cosmic --make
+   build` puts it back; so does `--make clean && --make fetch`. Check
+   which one you are holding before you trust a number — that is the
+   measurement-identity trap in `measurement.md`, and this procedure
+   walks straight into it.
 
 3. **hypothesis, then the smallest C diff that tests it** — one
    hypothesis per commit, exactly like the cosmic layer. pick from the
@@ -68,13 +84,15 @@ COSMO=~/cosmopolitan   # your checkout
    scenario `check()`s are the second correctness net: a C change that
    breaks output fails `perf` itself in step 5. for anything touching a
    binding's behavior, also smoke the affected cosmic module directly:
-   `o/perf/cosmic-local -e '...'`.
+   `o/bin/cosmic -e '...'`.
 
 5. **gate 2 — performance:**
 
    ```bash
    make -C $COSMO -j$(nproc) o//tool/lua/lua
-   # rewrap with the new lua, measure, compare
+   # re-embed onto the new lua, measure, compare
+   cp $COSMO/o/tool/lua/lua o/3p/cosmos/lua
+   bin/cosmic --make build
    $BIN -- o/_perf/run.lua --out o/perf/current.json $BENCH
    $BIN -- o/_perf/run.lua --compare o/perf/baseline.json o/perf/current.json
    ```
@@ -124,7 +142,7 @@ two-repo dance — but only AFTER the local loop already proved the win:
   boots the same runtime without cosmic's ~6MB zip payload; the gap
   between it and `startup_run_lua` splits payload cost from boot floor.
 - **trace, don't guess.** default-mode cosmopolitan binaries have
-  built-in tracing: `o/perf/cosmic-local --strace script.lua` logs
+  built-in tracing: `o/bin/cosmic --strace script.lua` logs
   every syscall, `--ftrace` logs every C function call — both are
   cheap ways to see where a scenario's non-CPU time goes or spot
   redundant syscalls. for CPU profiles, `$COSMO/o/tool/lua/lua.dbg`
@@ -166,10 +184,11 @@ two-repo dance — but only AFTER the local loop already proved the win:
 - keep the fork mergeable: whilp/cosmopolitan tracks upstream
   jart/cosmopolitan. prefer surgical diffs in the files listed above;
   don't reformat or restructure around them.
-- measure both binaries in the same tree state. `perf-bin` rebuilds
-  `o/perf/cosmic-local` from the CURRENT cosmic payload — if you edit
-  cosmic-side `.tl` files between baseline and compare, you're no
-  longer measuring your C change alone.
+- measure both binaries in the same tree state. `--make build`
+  re-embeds the CURRENT cosmic payload — so if you edit cosmic-side
+  `.tl` files between baseline and compare, you are no longer measuring
+  your C change alone. Only the runtime under `o/3p/cosmos/lua` should
+  differ between the two.
 - default build mode (`MODE=` empty) is what releases ship (-O2 with
   ftrace hooks and SYSDEBUG, same as the pin), so relative comparisons
   between two default-mode local builds are representative. don't

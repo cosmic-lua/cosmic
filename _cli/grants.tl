@@ -383,8 +383,15 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil
   -- so what shows up is the RATCHET, three recipe-path files at once
   -- (`_cli/build/steps.tl` 182/237 -> 33/230) reading like a code
   -- change that deleted the tests.
-  local cov = os.getenv("COSMIC_COVERAGE")
-  if cov ~= nil and cov ~= "" then
+  --
+  -- Asked through `cosmic.coverage`, not by reading the variable here.
+  -- `COSMIC_COVERAGE` is overloaded: `1` means "collect" and names no
+  -- directory (that is what the make rules set on a coverage step),
+  -- while any other value IS the directory. Reading it raw and calling
+  -- `makedirs` on it creates a directory literally named `1` in the
+  -- project root. One definition of that rule, and it is over there.
+  local cov = require("cosmic.coverage").dir_from_env()
+  if cov ~= nil then
     fs.makedirs(cov)
     if fs.isdir(cov) then
       rw[#rw + 1] = cov

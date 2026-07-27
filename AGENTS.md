@@ -306,16 +306,16 @@ aggregates across them. This repo's performance work is the latter.
 
 the `cosmo.*` and `tl` type declarations are GENERATED and **not
 committed**. `_types/types_gen.tl` is a generation unit; every verb that
-touches the graph runs it first, into `o/_types/`:
+touches the graph runs it first, into `o/_types/types_gen/` — the
+directory that generator owns. Inside it: `cosmo.d.tl` (the top-level
+`require("cosmo")` surface), `cosmo/*.d.tl` (unix, path, getopt,
+lsqlite3, re, argon2, zip, repl) and `tl.d.tl` (the narrowed public
+Teal compiler API).
 
-- `o/_types/cosmo.d.tl` — the top-level `require("cosmo")` surface
-- `o/_types/cosmo/*.d.tl` — submodules (unix, path, getopt, lsqlite3, re, argon2, zip, repl)
-- `o/_types/tl.d.tl` — the narrowed public Teal compiler API
-
-There is nothing to regenerate and nothing to check for drift: the build
-produces them, and a `cosmo.*` change shows up as the pin bump that
-caused it. The cost, stated: **a fresh clone cannot resolve `cosmo.*`
-until it has fetched and built once**, and an editor needs `o/_types` on
+Nothing to regenerate and no drift to check: the build produces them,
+and a `cosmo.*` change shows up as the pin bump that caused it. The cost, stated: **a fresh clone cannot resolve `cosmo.*`
+until it has fetched and built once**, and an editor needs
+`o/_types/types_gen` on
 its include path.
 
 the single source of truth for `cosmo.*` is `tool/net/definitions.lua` in
@@ -438,7 +438,7 @@ truncation.
 o/bin/cosmic --make test                # all tests
 o/bin/cosmic --make coverage            # tests + line coverage, ratcheted vs .coverage
 o/bin/cosmic --make coverage --baseline # rewrite the committed floor
-o/bin/cosmic --make test cosmic/sqlite_test.tl   # narrow by path
+o/bin/cosmic --make test cosmic/string_test.tl   # narrow by path
 o/bin/cosmic --make example             # run Example_* functions
 o/bin/cosmic --make benchmark           # run every *_benchmark.tl
 ```

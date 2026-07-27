@@ -300,6 +300,11 @@ local function test_the_coverage_directory_is_granted_before_it_exists()
   local prev = env.get("COSMIC_COVERAGE")
   env.set("COSMIC_COVERAGE", cov, true)
   local p = grants.plan("list", {fs.join(tmpdir, "out.txt")})
+  -- `1` is the OTHER meaning of the variable — collect, but name no
+  -- directory — which is what the coverage make rules set. Taken as a
+  -- path it creates `./1` in the project root.
+  env.set("COSMIC_COVERAGE", "1", true)
+  local flagged = grants.plan("list", {fs.join(tmpdir, "out.txt")})
   if prev then
     env.set("COSMIC_COVERAGE", prev, true)
   else
@@ -307,6 +312,8 @@ local function test_the_coverage_directory_is_granted_before_it_exists()
   end
   assert(p is sandbox.Fs, "list must plan a policy")
   assert(has(p.rw, cov), "the coverage directory must be writable")
+  assert(flagged is sandbox.Fs, "and still plan one for the flag form")
+  assert(not has(flagged.rw, "1"), "`1` is a flag, not a directory")
 end
 test_the_coverage_directory_is_granted_before_it_exists()
 

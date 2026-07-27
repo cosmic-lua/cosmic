@@ -118,7 +118,7 @@ Every graph verb takes paths, and selection names targets **of that
 verb's own kind**:
 
 ```bash
-o/bin/cosmic --make test cosmic/sqlite_test.tl   # one test
+o/bin/cosmic --make test cosmic/string_test.tl   # one test
 o/bin/cosmic --make build cmd/cosmic             # one binary
 ```
 

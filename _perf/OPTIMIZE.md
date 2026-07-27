@@ -55,15 +55,16 @@ and auto-triages against that A/A self-check — a fixed-overhead
 microbench (`hash_sha256_small`, `startup_run_*`, `net_ip_*`) that swung
 on frequency scaling, a noisy neighbor, or code-layout shift is reported
 as `noise` and does not fail the gate, while a regression the binary
-reproduces against itself still fails. `perf-selfcheck` runs that same
+reproduces against itself still fails. `gate.tl selfcheck` runs that same
 A/A control standalone, for interactive use or to profile the machine's
 noise floor before you start. `_perf/optimize/measurement.md` has the
 full playbook.
 
 knobs: `PERF_SAMPLES` (default 5), `PERF_MIN_SECS` (default 0.15),
 `PERF_THRESHOLD` (regression bar in percent, default 10), `PERF_BIN`
-(which cosmic binary to measure), `COSMO_LUA` (for `perf-bin`; see the
-cosmopolitan chapter).
+(which cosmic binary to measure). Measuring a local Cosmopolitan build
+takes no knob — you stand it in at `o/3p/cosmos/lua` and rebuild; see
+the cosmopolitan chapter.
 
 report columns, per scenario:
 

@@ -26,7 +26,7 @@ Same rule as generators: **inputs = grants = your staged subtree.**
 - `testrun`'s `.got`/`.out`/`.err` contract and `status_of` (0 pass /
   2 skip / other fail) are unchanged.
 - **selection is by path**, several accepted, globbed by the caller's
-  shell (`cosmic --make test cosmic/*/db_test.tl`). No filter flag —
+  shell (`cosmic --make test cosmic/sqlite/*_test.tl`). No filter flag —
   the shell already does that better. Selection changes which tests
   run, never what gets staged: a partial stage would resolve differently
   than a full one.

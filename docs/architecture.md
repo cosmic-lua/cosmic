@@ -20,7 +20,7 @@ the entry point is `/zip/main.lua` (compiled from `cosmic/main.tl`). the `.args`
 
 the codebase has two layers of bindings:
 
-1. **`cosmo.*`** — raw C bindings exposed by Cosmopolitan Libc. these are low-level and untyped from Teal's perspective. type definitions are generated into `o/_types/cosmo/*.d.tl` by `_types/types_gen.tl`.
+1. **`cosmo.*`** — raw C bindings exposed by Cosmopolitan Libc. these are low-level and untyped from Teal's perspective. type definitions are generated into `o/_types/types_gen/cosmo/*.d.tl` by `_types/types_gen.tl`.
 
 2. **`cosmic.*`** — ergonomic Teal wrappers that add type safety, error handling, and resource management. these are the public API.
 

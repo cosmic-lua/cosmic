@@ -1,6 +1,6 @@
 #!/usr/bin/env lua
 --- Perf gate orchestration: the compare retry and the A/A triage behind
---- the perf-compare and perf-selfcheck recipes, in Teal rather than as
+--- the compare and selfcheck gates, in Teal rather than as
 --- shell ||-chains. A flagged regression re-measures once (noise
 --- must strike twice in the same direction); if it persists, an A/A
 --- self-check reclassifies swings the current binary shows against
