@@ -166,7 +166,7 @@ jobs:
           # can, and it is the difference between the two remaining
           # explanations.
           echo "===== dumps per test (spawning tests) ====="
-          for d in o/.coverage/_cli/build/*.cov.d o/.coverage/_cli/*.cov.d; do
+          for d in o/.coverage/_cli/*.cov.d o/.coverage/_cli/build/*.cov.d; do
             [ -d "$d" ] && echo "$(find "$d" -name '*.cov' | wc -l)  $d"
           done
           exit 0
