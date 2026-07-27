@@ -113,6 +113,38 @@ local function test_touch_creates_and_updates()
 end
 test_touch_creates_and_updates()
 
+-- `touch` stamps first and creates only when that fails, which is what
+-- `touch(1)` does and what opening for write cannot: utimensat asks for
+-- OWNERSHIP where open asks for WRITE PERMISSION. Both cases the old
+-- order refused.
+local function test_touch_stamps_what_it_cannot_open_for_write()
+  local test_dir = setup()
+
+  local ro = fs.join(test_dir, "readonly")
+  assert(fs.write(ro, "x"))
+  assert(fs.chmod(ro, tonumber("444", 8) as integer)) -- cast: octal
+  assert(fs.utimensat(ro, 1000, 0, 1000, 0))
+  local before = check.must(fs.stat(ro), "stat should succeed")
+  local ok, err = fs.touch(ro)
+  assert(ok, "touch must stamp a read-only file its caller owns: " ..
+    (err or ""))
+  local after = check.must(fs.stat(ro), "stat should succeed")
+  assert(after:mtim() > before:mtim(), "and move its mtime")
+
+  local dir = fs.join(test_dir, "adir")
+  assert(fs.makedirs(dir))
+  assert(fs.utimensat(dir, 1000, 0, 1000, 0))
+  local dbefore = check.must(fs.stat(dir), "stat should succeed")
+  local dok, derr = fs.touch(dir)
+  assert(dok, "touch must stamp a directory, not fail EISDIR: " ..
+    (derr or ""))
+  local dafter = check.must(fs.stat(dir), "stat should succeed")
+  assert(dafter:mtim() > dbefore:mtim(), "and move its mtime")
+
+  teardown(test_dir)
+end
+test_touch_stamps_what_it_cannot_open_for_write()
+
 local function test_write_atomic_roundtrip()
   local test_dir = setup()
   local p = fs.join(test_dir, "config.json")

@@ -37,6 +37,24 @@ local validate = require("_make.validate")
 local type Binary = types.Binary
 local type Project = types.Project
 
+--- Verbs whose ANSWER depends on the toolchain, so a project that
+--- builds its own gates under what it built.
+---
+--- Everything that reads or judges the tree. Not `build` (it is how
+--- you get the toolchain), not `clean` (it removes it), not `fetch`
+--- (it provisions), not `help`.
+local GATES < const >: {string: boolean} = {
+  fmt = true,
+  check = true,
+  test = true,
+  example = true,
+  benchmark = true,
+  lint = true,
+  coverage = true,
+  docs = true,
+  ci = true,
+}
+
 --- The generation counter, carried across the re-exec.
 local GEN_ENV < const > = "COSMIC_MAKE_GEN"
 
@@ -89,6 +107,11 @@ end
 --- the build change anything" -- and `--make build` replaces it only
 --- when the bytes differ, which makes size and mtime exactly that
 --- question.
+---
+--- NANOSECONDS included, both returns of `mtim()`. Whole seconds would
+--- read a rebuild that changed bytes without changing size, inside one
+--- second, as a fixpoint -- and then the gate runs stale, which is the
+--- precise failure this exists to close.
 --- @param path string The artifact
 --- @return string A stamp that moves when the file does
 local function stamp_of(path: string): string
@@ -97,8 +120,27 @@ local function stamp_of(path: string): string
     return ""
   end
   local st = info as fs_types.Stat -- cast: mixed-representation Stat
-  local secs = st:mtim()
-  return tostring(st:size()) .. "-" .. tostring(secs)
+  local secs, nsecs = st:mtim()
+  return tostring(st:size()) .. "-" .. tostring(secs) .. "." ..
+  tostring(nsecs)
+end
+
+--- Can this artifact drive a build? Asked, not assumed.
+---
+--- The name and the namespace are what a project DECLARES; this is
+--- what the binary can DO. A user project may innocently define
+--- `cosmic/init.tl` and build a `cmd/cosmic/main.tl` -- and then every
+--- gate re-exec'd into their own binary, which knows nothing about
+--- `--make`, and died with a raw traceback. All gates, permanently
+--- broken, for a project that did nothing wrong.
+---
+--- `--make help` is the probe because it is the one verb that answers
+--- before a project is opened: no build, no chdir, no side effect.
+--- @param path string The candidate artifact
+--- @return boolean Whether it answers as a cosmic engine
+local function drives_a_build(path: string): boolean
+  local r = child.run({path, "--make", "help"})
+  return r is child.Result and (r as child.Result).ok -- cast: after guard
 end
 
 --- Build, then re-exec into the result when it is not what is running.
@@ -111,8 +153,9 @@ end
 --- @param self string Absolute path to the running binary
 --- @return boolean Whether to continue in this process
 --- @return string The refusal, when it is false
+--- @return string A short verdict detail naming WHICH refusal
 local function to_the_tree(proj: Project, argv: {string},
-    self: string): boolean, string
+    self: string): boolean, string, string
   local tool = toolchain_of(proj)
   if not (tool is Binary) then
     return true
@@ -120,30 +163,42 @@ local function to_the_tree(proj: Project, argv: {string},
   local built = fs.join(project.BUILD_DIR, "bin",
     (tool as Binary).name) -- cast: record union after the guard
   local gen = math.tointeger(tonumber(env.get(GEN_ENV, "0")) or 0) or 0
-  if gen >= MAX_GEN then
-    return false, "make: build is not a fixpoint: " .. built ..
-    " still changed after " .. MAX_GEN .. " generations"
-  end
 
   local was_us = fs.isfile(built) and same_file(built, self)
   local before = stamp_of(built)
   local r, rerr = child.run({self, "--make", "build"},
     {stdout = "inherit", stderr = "inherit"})
   if not (r is child.Result) then
-    return false, "make: " .. (rerr or "the converging build failed")
+    return false, "make: " .. (rerr or "the converging build failed"),
+    "build failed"
   end
   -- cast: narrowing does not survive the early-exit guard above
   if not (r as child.Result).ok then
-    return false, "make: the converging build failed"
+    return false, "make: the converging build failed", "build failed"
   end
   if not fs.isfile(built) then
-    return false, "make: " .. built .. ": the build produced no artifact"
+    return false, "make: " .. built .. ": the build produced no artifact",
+    "no artifact"
   end
   -- Running the artifact, and the build left it alone: this IS the
   -- fixpoint. `--make build` replaces it only when the bytes change,
-  -- so an unmoved stamp is the convergence test, free.
+  -- so an unmoved stamp is the convergence test, free. Checked BEFORE
+  -- the generation cap: already being the answer is not a failure to
+  -- reach it.
   if was_us and stamp_of(built) == before then
+    env.unset(GEN_ENV)
     return true
+  end
+  if gen >= MAX_GEN then
+    return false, "make: build is not a fixpoint: " .. built ..
+    " still changed after " .. MAX_GEN .. " generations", "not a fixpoint"
+  end
+  -- What the project DECLARES made this look like a toolchain; this is
+  -- what the binary can DO. Continue in this process rather than
+  -- re-exec into something that cannot answer.
+  if not drives_a_build(built) then
+    return false, "make: " .. built .. " is not a cosmic engine (it does " ..
+    "not answer `--make help`); not converging", "not an engine"
   end
 
   local replay: {string} = {fs.abspath(built), "--make"}
@@ -154,18 +209,20 @@ local function to_the_tree(proj: Project, argv: {string},
   io.write("make: gating under " .. built .. "\n")
   local _, eerr = proc.execvp(replay[1], replay)
   return false, "make: cannot re-exec " .. replay[1] .. ": " ..
-  (eerr or "unknown error")
+  (eerr or "unknown error"), "re-exec failed"
 end
 
 local record ConvergeModule
+  GATES: {string: boolean}
   GEN_ENV: string
   MAX_GEN: integer
   toolchain_of: function(proj: Project): Binary | nil
   to_the_tree: function(proj: Project, argv: {string},
-  self: string): boolean, string
+  self: string): boolean, string, string
 end
 
 local M: ConvergeModule = {
+  GATES = GATES,
   GEN_ENV = GEN_ENV,
   MAX_GEN = MAX_GEN,
   toolchain_of = toolchain_of,

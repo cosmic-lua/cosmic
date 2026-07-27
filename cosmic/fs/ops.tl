@@ -117,14 +117,15 @@ local function move(oldpath: string, newpath: string): boolean, string
   return true
 end
 
---- Update a file's access and modification times to now, creating the
---- file (mode 0644 by default) if it does not exist.
+--- Update a path's access and modification times to now, creating a
+--- file (mode 0644 by default) if nothing is there.
 ---
---- Stamping first and creating only on ENOENT, rather than opening for
---- write unconditionally: utimensat asks for ownership, open asks for
---- write permission, and the second is the stricter question. Opening
---- first made `touch` fail on a read-only file its own caller owns --
---- which `touch(1)` does not.
+--- Stamping first and creating only when that fails, rather than
+--- opening for write unconditionally: utimensat asks for OWNERSHIP,
+--- open asks for WRITE PERMISSION, and the second is the stricter
+--- question. Opening first made `touch` fail on a read-only file its
+--- own caller owns, and on a directory (EISDIR) -- neither of which
+--- `touch(1)` refuses.
 --- @param path string Path to the file
 --- @param mode integer Permission bits when creating (default 0644)
 --- @return boolean True on success

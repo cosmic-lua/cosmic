@@ -32,11 +32,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      # fetch-depth: 0 so the version stamp's `git describe` can see
-      # tags.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          fetch-depth: 0
 
       - name: prepare non-root builder
         shell: bash
@@ -45,6 +41,20 @@ jobs:
           useradd -m -s /bin/bash builder
           chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
           git config --system --add safe.directory "$GITHUB_WORKSPACE"
+
+      # `docs` is a gate verb, so it converges: it builds the tree and
+      # renders under what it built, rather than under the pin. Which
+      # means this lane needs the pins, exactly like every other lane
+      # that builds -- `build` will not reach for a pin it is missing,
+      # it refuses. Without this the workflow renders under the pin
+      # today and fails outright the moment the pin knows how to
+      # converge.
+      - name: fetch the pins
+        shell: bash
+        run: |
+          set -eux
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            bin/cosmic --make fetch
 
       - name: publish docs
         shell: bash

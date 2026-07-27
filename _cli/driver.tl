@@ -236,24 +236,27 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil
     rw[#rw + 1] = nearest_existing(p)
   end
   if verb == "test" then
-    -- A test reads what it imports, and the graph has already put that
-    -- in the line: positions 3..n are its own compiled file followed by
-    -- its transitive closure, each granted by `rest_ro` above. Nothing
-    -- broader — an earlier draft granted the whole build root, which is
-    -- every other module's output.
+    -- **A test may READ the project it belongs to, and WRITE only its
+    -- own outputs.** That is the line, and it is narrower than it
+    -- sounds: the write grant is the `.got` base alone (which the
+    -- shape names), exec is the floor, and there is no network.
     --
-    -- Its own SOURCE directory is the one path argv does not name, and
-    -- it is where `testdata/` lives. Derived rather than declared: the
-    -- first read position is the test's built file, so stripping the
-    -- build root off it gives the directory the fixtures are in.
-    local root = os.getenv("COSMIC_EXEC_ROOT") or "o"
-    local built = args[3]
-    if built and built:sub(1, #root + 1) == root .. "/" then
-      local src = fs.dirname(built:sub(#root + 2))
-      if fs.isdir(src) then
-        ro[#ro + 1] = src
-      end
-    end
+    -- The read half was once "what it imports and nothing else",
+    -- derived from the closure the graph already put in the line. It
+    -- does not survive contact with real tests, and the two that broke
+    -- say why: `_types/gentl_test.tl` reads the pinned `tl.tl` -- a
+    -- project input, verified by digest, that no import names -- and
+    -- `_build/workflows_test.tl` reads `.github/workflows`, which the
+    -- model prunes as a dotfile and which is the whole SUBJECT of that
+    -- ratchet. Neither is expressible as an import, and a fence that
+    -- forces a ratchet test to stop reading the thing it ratchets is
+    -- not protecting anything.
+    --
+    -- Narrowing this again needs a channel for "I read this file"
+    -- that is not `require`, which the design deliberately does not
+    -- have yet (docs/design/make/engine.md). Until then the honest
+    -- boundary is the one above, stated rather than implied.
+    ro[#ro + 1] = "."
   end
   if verb == "exec" then
     -- Tightened from the phase-1 stand-in, which granted "." — the

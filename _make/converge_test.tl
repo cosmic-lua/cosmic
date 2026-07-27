@@ -61,17 +61,19 @@ local function test_only_a_cosmic_converges()
 end
 test_only_a_cosmic_converges()
 
--- The cap is what makes non-convergence a failure rather than a spin.
-local function test_the_generation_cap_refuses()
-  local tool = scan("cap", {
+-- Every refusal names ITSELF. The verdict line is the record that
+-- survives a truncated log, so "not a fixpoint" -- which means the
+-- build oscillates -- must not be what an ordinary type error reports.
+local function test_refusals_name_which_one_they_are()
+  local tool = scan("why", {
       ["cmd/cosmic/main.tl"] = "print('x')\n",
       ["cosmic/init.tl"] = "return {}\n",
     })
-  local cenv = require("cosmic.env")
-  cenv.set(converge.GEN_ENV, tostring(converge.MAX_GEN))
-  local ok, err = converge.to_the_tree(tool, {"check"}, "/nonexistent/cosmic")
-  cenv.unset(converge.GEN_ENV)
-  assert(not ok, "the cap must refuse rather than build again")
-  assert(err:find("not a fixpoint", 1, true), "got: " .. err)
+  local ok, err, why = converge.to_the_tree(tool, {"check"},
+    "/nonexistent/cosmic")
+  assert(not ok, "a build that cannot run must refuse")
+  assert(why == "build failed",
+    "an unrunnable build is not an oscillation, got: " .. tostring(why))
+  assert(err ~= "", "and says so")
 end
-test_the_generation_cap_refuses()
+test_refusals_name_which_one_they_are()

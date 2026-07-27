@@ -92,11 +92,20 @@ local claims_source: {string: boolean} = {
   example = true,
 }
 
---- Kinds that compile into `o/` without carrying an import path, so
---- two spellings of one collide over their OUTPUT rather than a name.
+--- Kinds with no import path, so two spellings of one collide over
+--- their POSITION rather than over a name.
+---
+--- All four, because the collision is the same one every time and only
+--- the thing collided over differs: a benchmark and a generation unit
+--- land on one compiled output, a payload generator is the one file a
+--- unit is allowed to have, and a pin unpacks to one place. Whichever
+--- spelling the runner happens to look for first wins, silently --
+--- which is the coin flip this whole check exists to refuse.
 local compiles_without_import: {string: boolean} = {
   benchmark = true,
   gen = true,
+  ["payload-gen"] = true,
+  pin = true,
 }
 
 --- Append an issue.
@@ -186,23 +195,24 @@ local function check_duplicates(proj: Project, issues: {Issue})
       end
     end
   end
-  -- A benchmark and a generator compile but carry no import path, so
-  -- the pass above cannot see `foo_benchmark.tl` beside
-  -- `foo_benchmark.lua`. Both land on one `o/foo_benchmark.lua`, both
-  -- pattern rules match it, and make picks one -- the coin flip this
-  -- check exists to refuse, arriving through the kinds that have no
-  -- name to collide on. The OUTPUT path is what they actually collide
-  -- over, so that is what this asks about.
-  local outputs: {string: string} = {}
+  -- The kinds with no import path, which the pass above cannot see:
+  -- `foo_benchmark.tl` beside `foo_benchmark.lua` lands on one
+  -- `o/foo_benchmark.lua` and make picks one; `embed_gen.tl` beside
+  -- `embed_gen.lua` is two answers to "what does this binary carry"
+  -- and the runner takes the first it finds; `x_pin.tl` beside
+  -- `x_pin.lua` both fetch, to one place. Keying on the extensionless
+  -- path is what they all actually collide over.
+  local stems: {string: string} = {}
   for _, f in ipairs(proj.files) do
     if compiles_without_import[f.kind] then
-      local out = (f.path:gsub("%.tl$", ""):gsub("%.lua$", "")) .. ".lua"
-      local first = outputs[out]
+      local stem = (f.path:gsub("%.tl$", ""):gsub("%.lua$", ""))
+      local first = stems[stem]
       if first then
-        add(issues, f.path, "duplicate build output '" .. out ..
-          "'; also produced by " .. first)
+        add(issues, f.path, "duplicate " .. f.kind .. " '" .. stem ..
+          "'; also declared by " .. first ..
+          " — a marker is a name, so one spelling of it, not two")
       else
-        outputs[out] = f.path
+        stems[stem] = f.path
       end
     end
   end

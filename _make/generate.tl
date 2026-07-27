@@ -17,6 +17,20 @@ local types = require("_make.types")
 
 local type Project = types.Project
 
+--- A path with its extension removed.
+---
+--- Both spellings, because a marker is a name: stripping a fixed three
+--- characters turned `foo_gen.lua` into the output directory
+--- `o/foo_gen.` -- a trailing dot, which makedirs refused with EILSEQ
+--- and which is an invalid filename on Windows, a platform cosmic
+--- targets. The classifier had just been taught that `.lua` generators
+--- are real; this is the runner catching up.
+--- @param path string A path with a `.tl` or `.lua` extension
+--- @return string The path without it
+local function stem_of(path: string): string
+  return (path:gsub("%.tl$", ""):gsub("%.lua$", ""))
+end
+
 --- Run one generator, handing it the output directory it owns.
 --- @param proj Project The scanned project
 --- @param gen string The generator's path, relative to the root
@@ -70,7 +84,7 @@ end
 local function sources(proj: Project, cosmic: string): boolean, string
   for _, f in ipairs(proj.files) do
     if f.kind == "gen" then
-      local dest = project.out_dir(f.path:sub(1, -#".tl" - 1))
+      local dest = project.out_dir(stem_of(f.path))
       local ok, err = run_generator(proj, f.path, dest, cosmic)
       if not ok then
         return false, err
@@ -88,7 +102,8 @@ end
 local function generate_unit(proj: Project, unit: string,
     cosmic: string): boolean, string
   -- Both spellings, because a marker is a name and `.lua` sources are
-  -- first-class. The validator refuses a unit that carries both.
+  -- first-class. `.tl` first, and the validator refuses a unit that
+  -- carries both -- so the order is a tiebreak that never happens.
   for _, ext in ipairs({".tl", ".lua"}) do
     local name = project.PAYLOAD_GEN .. ext
     local gen = unit == project.ROOT and name or fs.join(unit, name)

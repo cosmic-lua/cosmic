@@ -12,6 +12,11 @@
 -- because a fence that denies everything is not enforcement and a
 -- denial test alone cannot tell the two apart.
 --
+-- What is fenced for a TEST is its writes: the `.got` base it was
+-- given, and TMPDIR. Reads are the project it belongs to, which is
+-- wider than the closure and is written down in engine.md with the two
+-- tests that made it so.
+--
 -- What it asserts is a denial, A/B on one script so a failure cannot be
 -- mistaken for the write being impossible anyway: unfenced the script
 -- writes its file, fenced it must not. TMPDIR and the exec root both

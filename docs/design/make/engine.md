@@ -67,8 +67,25 @@ cosmic verb or `exec`.
   that CAN enforce and fails to apply the policy: that is a fence that
   silently is not there.
 
-  What is still open: the portable in-process gate producing the same
-  denial on non-Landlock hosts.
+  What is still open, and stated because the code now says it out
+  loud: **a test may READ the project it belongs to.** The narrower
+  rule -- reads confined to the import closure the graph already
+  computes -- does not survive real tests, and the two that broke under
+  it say why. `_types/gentl_test.tl` reads the pinned `tl.tl`, a
+  project input verified by digest that no `require` names;
+  `_build/workflows_test.tl` reads `.github/workflows`, which the model
+  prunes as a dotfile and which is the entire subject of that ratchet.
+  A fence that forces a ratchet test to stop reading the thing it
+  ratchets is not protecting anything.
+
+  Narrowing it again wants a channel for "I read this file" that is not
+  `require` -- the one declaration channel this design deliberately does
+  not have. Writes are unaffected: a test's write grant is its own
+  `.got` base and TMPDIR, which is where the confinement that matters
+  lives.
+
+  Also open: the portable in-process gate producing the same denial on
+  non-Landlock hosts.
 
   Two things a CI lane that requires a fenced child to **succeed**
   found, and they are the argument for testing enforcement in both

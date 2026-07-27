@@ -45,7 +45,15 @@ local function run_into(argv: {string}, out: string): integer
     -- records that it has been brought up to date against the inputs
     -- make just compared. The cost, paid knowingly: an edit that
     -- compiles to identical bytes now re-runs the tests that import it.
-    fs.touch(out)
+    local ok, terr = fs.touch(out)
+    if not ok then
+      -- Never silent: a target that cannot be restamped stays out of
+      -- date forever, and make re-runs this step on every future
+      -- invocation. That is the non-convergence this line exists to
+      -- fix, reinstated as a failure nobody sees.
+      io.stderr:write("restamp " .. out .. " failed: " ..
+        (terr or "unknown error") .. "\n")
+    end
     return 0
   end
   fs.makedirs(fs.dirname(out))

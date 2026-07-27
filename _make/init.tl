@@ -235,24 +235,6 @@ end
 ---
 --- A planned row costs one line and turns a typo-shaped failure into a
 --- schedule answer.
---- Verbs whose ANSWER depends on the toolchain, so a project that
---- builds its own gates under what it built.
----
---- Everything that reads or judges the tree. Not `build` (it is how
---- you get the toolchain), not `clean` (it removes it), not `fetch`
---- (it provisions), not `help`.
-local GATES < const >: {string: boolean} = {
-  fmt = true,
-  check = true,
-  test = true,
-  example = true,
-  benchmark = true,
-  lint = true,
-  coverage = true,
-  docs = true,
-  ci = true,
-}
-
 local VERBS < const >: {Verb} = {
   {name = "build", target = "build", select = stage.SELECTS.build, run = run_build},
   -- `check` generates first, like every other verb that touches the
@@ -465,11 +447,15 @@ local function run(argv: {string}): integer
   -- first and re-execs into what it built. `build` and `clean` are
   -- excluded because they are how you get there; `fetch` because it is
   -- the only verb with a network and nothing about it is a gate.
-  if GATES[name] then
-    local ok, cerr = converge.to_the_tree(p, argv, self)
+  if converge.GATES[name] then
+    local ok, cerr, why = converge.to_the_tree(p, argv, self)
     if not ok then
       io.stderr:write((cerr or "make: cannot converge") .. "\n")
-      return stage.verdict(name, false, "not a fixpoint")
+      -- The DETAIL names which refusal, because the verdict line is the
+      -- record that survives a truncated log: "not a fixpoint" means
+      -- the build oscillates, and reporting it for an ordinary type
+      -- error records a diagnosis nobody made.
+      return stage.verdict(name, false, why or "converge failed")
     end
   end
 

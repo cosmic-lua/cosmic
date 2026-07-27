@@ -289,8 +289,8 @@ local function test_root_init_is_refused()
       ["a_benchmark.tl"] = "return {}\n",
       ["a_benchmark.lua"] = "return {}\n",
     })
-  assert(dup:find("duplicate build output", 1, true), "got: " .. dup)
-  assert(dup:find("a_benchmark.lua", 1, true), "got: " .. dup)
+  assert(dup:find("duplicate benchmark", 1, true), "got: " .. dup)
+  assert(dup:find("a marker is a name", 1, true), "got: " .. dup)
 end
 test_root_init_is_refused()
 
