@@ -276,6 +276,19 @@ local function test_every_step_can_extract_and_run_the_ape_loader()
 end
 test_every_step_can_extract_and_run_the_ape_loader()
 
+local function test_a_program_that_is_not_there_is_not_a_rule()
+  -- A landlock rule is an OPEN, so naming a path that does not exist
+  -- fails the whole policy — and a fence that cannot be constructed
+  -- reports a sandbox error where the verb's own refusal belongs.
+  -- `exec sh -c true` is the shape: `exec` exists to refuse a program
+  -- outside the build root, and a bare `sh` resolves to nothing.
+  local p = grants.plan("exec", {"sh", "-c", "true"})
+  assert(p is sandbox.Fs, "exec must still plan a policy")
+  assert(not has(p.exec, "sh"),
+    "a program that is not there must not become a rule")
+end
+test_a_program_that_is_not_there_is_not_a_rule()
+
 local function test_the_runtime_floor_is_granted()
   -- Derived-from-argv says nothing about what every process needs.
   local p = grants.plan("list", {fs.join(tmpdir, "out.txt")})

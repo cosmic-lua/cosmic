@@ -269,7 +269,7 @@ end
 --- Run all benchmarks in a file, optionally filtered by pattern.
 --- Parses and executes Benchmark_* functions, returning aggregated results.
 --- @param file_path string Path to the Teal file containing benchmarks
---- @param filter string Optional Lua pattern to filter benchmark names (e.g., "concat" matches Benchmark_string_concat)
+--- @param filter string Optional SUBSTRING of the benchmark name, matched plainly (e.g. "concat" matches Benchmark_string_concat)
 --- @return RunResult Result with exit code (0=pass, 1=fail, 2=skip), results, and errors
 local function run(file_path: string, filter?: string): RunResult
   local f, err = io.open(file_path, "r")
@@ -286,7 +286,9 @@ local function run(file_path: string, filter?: string): RunResult
 
   local all_benchmarks = parse_benchmarks(source)
 
-  -- Filter benchmarks by pattern if provided
+  -- Filter by plain SUBSTRING, not by pattern: a benchmark name is
+  -- `Benchmark_string_concat`, and a filter a user types is not a
+  -- regex they were asked to write.
   local benchmarks: {Benchmark} = {}
   if filter then
     for _, benchmark in ipairs(all_benchmarks) do

@@ -4,6 +4,7 @@ local child = require("cosmic.child")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local instrument = require("cosmic.instrument")
+local time = require("cosmic.time")
 
 --- Display icons for a `.got` status.
 local STATUS_ICONS: {string: string} = {
@@ -88,7 +89,22 @@ local function run(argv: {string}, output_base: string): integer
   end
 
   -- Run the process to completion, capturing both streams without deadlock.
+  --
+  -- Timed HERE, around the child, and written to `<out>.time` below.
+  -- The span opened at the top of this function is a different thing:
+  -- it measures this process, reports to THIS process's stderr, and
+  -- goes quiet unless instrumentation is switched on. `report()` reads
+  -- `<out>.err` — the CHILD's stderr — so it never saw those lines, and
+  -- what it did see was any test that printed `key=value` timing of its
+  -- own. The suite summary was therefore the sum over whichever tests
+  -- happened to instrument themselves: 166 checks, "wall: 1ms".
+  --
+  -- A duration is a fact about the run, so it is recorded like every
+  -- other one (`.got`, `.out`, `.err`, `.tests`) instead of scraped
+  -- back out of prose.
+  local started_ms = time.monotonic_ms()
   local result, err = child.run(argv, {env = child_env})
+  local wall_ms = time.monotonic_ms() - started_ms
   local stdout_content = ""
   local stderr_content = ""
   local exit_code: integer = 1
@@ -135,6 +151,13 @@ local function run(argv: {string}, output_base: string): integer
     return 1
   end
 
+  -- Best-effort, like `.tests` below: a lost duration costs a column in
+  -- the report, and is not worth failing a test run that passed.
+  local wok, werr = fs.write(output_base .. ".time", tostring(wall_ms) .. "\n")
+  if not wok then
+    io.stderr:write("testrun: " .. (werr or "failed to write .time") .. "\n")
+  end
+
   -- Best-effort: record the test_* functions defined in the test file so
   -- report() can show how many a passing file contains (files follow the
   -- define-then-call-immediately convention enforced by --check style).
@@ -171,6 +194,7 @@ local record TestResult
   stderr: string
   status: string -- "pass", "fail", "skip"
   test_count: integer -- test_* functions in the file (0 when unknown)
+  wall_ms: integer -- how long the test took, -1 when not recorded
 end
 
 --- Normalize a path to a .got file base path.
@@ -208,6 +232,7 @@ local function report(paths: {string}): integer
           stderr = "cannot read .got file",
           status = "fail",
           test_count = 0,
+          wall_ms = -1,
         })
     else
       -- cast: number to integer
@@ -216,6 +241,13 @@ local function report(paths: {string}): integer
       -- Read stdout and stderr
       local stdout_content = fs.read(base .. ".out") or ""
       local stderr_content = fs.read(base .. ".err") or ""
+
+      -- What the run recorded about itself. -1 is "not recorded",
+      -- distinct from 0: a `.time` written by an older run of the
+      -- graph is absent rather than instant, and the summary line has
+      -- to be able to tell those apart or it reports a suite that took
+      -- no time.
+      local wall_ms = (tonumber(fs.read(base .. ".time") or "") or -1) as integer -- cast: number to integer
 
       -- Read recorded test_* function names, when present
       local test_count = 0
@@ -242,6 +274,7 @@ local function report(paths: {string}): integer
           stderr = stderr_content,
           status = status,
           test_count = test_count,
+          wall_ms = wall_ms,
         })
     end
   end
@@ -253,18 +286,13 @@ local function report(paths: {string}): integer
 
   for _, result in ipairs(results) do
     local icon = STATUS_ICONS[result.status] or STATUS_ICONS.fail
-    -- extract timing from stderr instrumentation lines
     local timing = ""
-    if result.stderr ~= "" then
-      local data = instrument.parse_lines(result.stderr)
-      if #data > 0 then
-        local d = data[#data]
-        timing = string.format("  %dms", d.wall_ms)
-        total_wall_ms = total_wall_ms + d.wall_ms
-        if d.wall_ms > slowest_ms then
-          slowest_ms = d.wall_ms
-          slowest_name = result.name
-        end
+    if result.wall_ms >= 0 then
+      timing = string.format("  %dms", result.wall_ms)
+      total_wall_ms = total_wall_ms + result.wall_ms
+      if result.wall_ms > slowest_ms then
+        slowest_ms = result.wall_ms
+        slowest_name = result.name
       end
     end
     local count_note = ""

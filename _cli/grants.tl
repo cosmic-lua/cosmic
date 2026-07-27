@@ -202,7 +202,25 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil
   if not shape then
     return nil
   end
-  local ro_raw, rw_raw, ex, ro_rest = paths_of(shape, args)
+  local ro_raw, rw_raw, ex_raw, ro_rest = paths_of(shape, args)
+  -- The same rule the reads below follow, and for the same reason:
+  -- landlock rules are OPENED, so naming a path that is not there fails
+  -- the WHOLE restrict -- and a fence that fails to construct is not a
+  -- fence, it is an error where the verb's own refusal belongs. `exec
+  -- sh -c true` is the case in hand: the verb exists to refuse a
+  -- program outside the build root, and `sh` is a bare name that
+  -- resolves to nothing, so the policy died on it and the test that
+  -- asserts the refusal saw a sandbox error instead.
+  --
+  -- Dropping the rule costs nothing: the program is not there, so
+  -- granting exec on it protects no one, and whatever the verb does
+  -- next it does with an honest error of its own.
+  local ex: {string} = {}
+  for _, p in ipairs(ex_raw) do
+    if fs.exists(p) then
+      ex[#ex + 1] = p
+    end
+  end
   local ro: {string} = {}
   for _, p in ipairs(ro_raw) do
     if fs.exists(p) then

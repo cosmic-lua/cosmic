@@ -3,7 +3,7 @@
 ---
 --- Run mode (writes JSON results and prints one line per scenario):
 ---   cosmic -- o/_perf/run.lua [--out FILE] [--samples N] [--min-secs S]
----     [--only PATTERN] MODULE...
+---     [--only SUBSTRING] MODULE...
 --- where MODULE is a bench module name such as perf.bench.json_bench
 --- (resolved via LUA_PATH).
 ---
@@ -38,7 +38,7 @@ local record Args
 end
 
 local USAGE = [[
-usage: run.lua [--out FILE] [--samples N] [--min-secs S] [--only PAT] MODULE...
+usage: run.lua [--out FILE] [--samples N] [--min-secs S] [--only SUB] MODULE...
        run.lua --compare BASE.json CUR.json [--threshold PCT]
          [--selfcheck-a AA.json --selfcheck-b AB.json]
 ]]
@@ -178,6 +178,12 @@ local function run_benches(a: Args): integer
       failed = true
     else
       for _, s in ipairs(scenarios) do
+        -- SUBSTRING, plainly. A scenario name is `hash_sha256_small`,
+        -- `startup_run_*`, `net_ip_*` -- full of characters a Lua
+        -- pattern reads as syntax, so `--only startup_run_*` as a
+        -- pattern silently means "startup_ru" followed by any number of
+        -- `n`, and matches things the user did not ask for while
+        -- looking like it worked.
         if a.only == nil or s.name:find(a.only, 1, true) then
           local m = harness.run_scenario(s, opts)
           print(harness.format_line(m))
