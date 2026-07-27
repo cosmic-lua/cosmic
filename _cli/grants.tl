@@ -372,46 +372,43 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil
   if arg[-1] ~= nil and fs.exists(arg[-1]) then
     ex[#ex + 1] = arg[-1]
   end
-  -- The APE loader. A fat APE that cannot reach it fails with ENOEXEC,
-  -- which reads like a corrupt binary rather than a denied path, and
-  -- since the gate now runs under the tree's own `o/bin/cosmic` -- a
-  -- fat APE, because that is what ships -- every recipe execs one.
+  -- The APE loader needs somewhere to put itself, and then to RUN from
+  -- there. Every recipe execs a fat APE -- the gate runs under the
+  -- tree's own `o/bin/cosmic`, which is what ships -- and a fat APE is
+  -- a shell prologue the kernel will not load, so the prologue
+  -- extracts a small loader and execs that. Deny either half and the
+  -- parent reports ENOEXEC, which reads like a corrupt binary rather
+  -- than a denied path.
   --
-  -- Three places it can be, all granted because which one applies is a
-  -- property of the host rather than of the line: a sibling `ape` the
-  -- build staged, the per-user extraction the stub makes
-  -- (`~/.ape-<version>`), and TMPDIR, which the stub falls back to and
-  -- which is already writable above.
-  local loaders: {string} = {}
-  for _, prog in ipairs(ex) do
-    local sibling = fs.join(fs.dirname(prog), "ape")
-    if fs.exists(sibling) then
-      loaders[#loaders + 1] = sibling
-    end
+  -- Where it goes is not a guess; the prologue is right there in the
+  -- binary and says:
+  --
+  --     t="${TMPDIR:-${HOME:-.}}/.ape-1.10"
+  --     [ -x "$t" ] && exec "$t" "$o" "$@"
+  --     ... dd >"$t.$$"; chmod 755 "$t.$$"; mv -f "$t.$$" "$t"
+  --     exec "$t" "$o" "$@"
+  --
+  -- so the same expression is what gets granted, rather than a list of
+  -- places it might be. TMPDIR outranks HOME, which matters here more
+  -- than anywhere: every step already gets its own scratch TMPDIR, so
+  -- `-x "$t"` is false EVERY time and the extract-and-exec path is the
+  -- only path. Granting the loaders that happened to exist elsewhere
+  -- was answering a question the prologue never asks.
+  --
+  -- The DIRECTORY, and executable, for the same reason: `mv -f` over
+  -- an existing loader makes a new inode, and a landlock rule names
+  -- the inode it was opened on. A grant on the file is a grant on the
+  -- copy that was replaced.
+  local ape_dir = os.getenv("TMPDIR")
+  if ape_dir == nil or ape_dir == "" then
+    ape_dir = os.getenv("HOME")
   end
-  local home = os.getenv("HOME")
-  if home and home ~= "" then
-    local found = fs.glob(home, ".ape-*")
-    if found is {string} then
-      for _, l in ipairs(found) do
-        loaders[#loaders + 1] = l
-      end
-    end
-    -- HOME is WRITABLE, not just the loader readable, and not only on
-    -- a fresh home. The stub re-extracts to a temp beside the loader
-    -- and renames -- observed writing `.ape-1.10.<pid>` with
-    -- `.ape-1.10` already sitting there -- so granting the existing
-    -- file and nothing else fails the exec with ENOEXEC, which reads
-    -- like a corrupt binary. Landlock cannot say "create only names
-    -- matching this", so the directory is the grant. It is the same
-    -- class as TMPDIR above: somewhere the runtime must be able to put
-    -- itself before it can run at all.
-    if fs.isdir(home) then
-      rw[#rw + 1] = home
-    end
+  if ape_dir == nil or ape_dir == "" then
+    ape_dir = "."
   end
-  for _, l in ipairs(loaders) do
-    ex[#ex + 1] = l
+  if fs.isdir(ape_dir) then
+    rw[#rw + 1] = ape_dir
+    ex[#ex + 1] = ape_dir
   end
   return {ro = ro, rw = rw, exec = ex}
 end

@@ -9,6 +9,7 @@
 
 local build = require("_cli.build")
 local grants = require("_cli.grants")
+local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local sandbox = require("cosmic.sandbox")
 
@@ -252,23 +253,28 @@ local function test_a_childs_own_paths_are_readable()
 end
 test_a_childs_own_paths_are_readable()
 
-local function test_exec_grants_the_ape_loader()
-  -- A fat APE reaches its loader beside itself (the repo stages
-  -- o/bin/ape for this). Without the grant the exec fails ENOEXEC,
-  -- which reads like a corrupt binary rather than a denied path -- the
-  -- exact failure that turned three CI lanes red.
+local function test_every_step_can_extract_and_run_the_ape_loader()
+  -- A fat APE is a shell prologue the kernel will not load, so it
+  -- extracts a small loader and execs that. The prologue picks
+  -- `${TMPDIR:-${HOME:-.}}/.ape-<version>`, and every step gets a
+  -- FRESH scratch TMPDIR, so it is always the extract-and-exec path:
+  -- write the loader, then run it. Granting write alone leaves the
+  -- exec denied, and the parent reports ENOEXEC -- which reads like a
+  -- corrupt binary rather than a denied path, and is the exact failure
+  -- that turned the gate red once the fence became the default.
   local dir = fs.join(tmpdir, "apedir")
   assert(fs.makedirs(dir))
-  local prog = fs.join(dir, "tool")
-  local loader = fs.join(dir, "ape")
-  assert(fs.write(prog, "x"))
-  assert(fs.write(loader, "x"))
-  local p = grants.plan("exec", {prog})
+  local prev = env.get("TMPDIR")
+  env.set("TMPDIR", dir, true)
+  local p = grants.plan("exec", {fs.join(dir, "tool")})
+  if prev then env.set("TMPDIR", prev, true) else env.unset("TMPDIR") end
   assert(p is sandbox.Fs, "exec must plan a policy")
-  assert(has(p.exec, prog), "the program must be executable")
-  assert(has(p.exec, loader), "the APE loader beside it must be executable")
+  assert(has(p.rw, dir), "the loader needs somewhere to be extracted")
+  assert(has(p.exec, dir),
+    "and the DIRECTORY must be executable: `mv -f` over an existing " ..
+    "loader makes a new inode, and a rule names the inode it opened")
 end
-test_exec_grants_the_ape_loader()
+test_every_step_can_extract_and_run_the_ape_loader()
 
 local function test_the_runtime_floor_is_granted()
   -- Derived-from-argv says nothing about what every process needs.
