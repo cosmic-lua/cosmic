@@ -3,8 +3,8 @@
 chapter of `_perf/OPTIMIZE.md` — read that first. this file makes
 C-layer optimization as mechanical as the cosmic-layer loop: you edit C
 in a whilp/cosmopolitan checkout, rebuild a `lua` binary locally in
-seconds, wrap it in the cosmic payload with one make target, and judge
-it with the same scenarios and the same `perf-compare` gate. no release,
+seconds, stand it in as the runtime a cosmic build embeds onto, and
+judge it with the same scenarios and the same compare gate. no release,
 no pin bump, no CI round-trip until the change has already proven itself.
 
 ## what lives in this layer
@@ -31,6 +31,7 @@ thin") is measuring almost nothing else.
 
 ```bash
 COSMO=~/cosmopolitan   # your checkout
+BENCH=$(ls _perf/bench/*_bench.tl | sed 's|/|.|g;s|\.tl$||')
 ```
 
 1. **build the UNMODIFIED local binary** (cold: a few minutes; warm

@@ -28,7 +28,7 @@ Cosmic options:
   --report <paths>...           report on .got files written by --test
                                 e.g. cosmic --report o/foo.got
   --coverage-report <paths>...  merge .cov data, print per-file line coverage
-                                e.g. cosmic --coverage-report o/coverage lib
+                                e.g. cosmic --coverage-report o/coverage cosmic
   -c <line>                     run one recipe line as argv, not shell
                                 (for make: SHELL := cosmic. the closed
                                  vocabulary: assert-elf, assert-marker,
