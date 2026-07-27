@@ -1,6 +1,6 @@
 --- Examples for deploying cosmic scripts.
---- Demonstrates shebang usage, the cosmic.main() pattern for structured
---- scripts, installing scripts to PATH, and building portable executables.
+--- Demonstrates shebang usage, reading argv in a structured script,
+--- installing scripts to PATH, and building portable executables.
 ---
 --- cosmic-lua is a fat binary built on Cosmopolitan Libc, so a single
 --- executable runs on Linux, macOS, Windows, FreeBSD, OpenBSD, and NetBSD.
