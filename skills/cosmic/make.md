@@ -106,7 +106,7 @@ layout is derived, never enumerated. one rule:
 
 ```
 package module, import path P  →  /zip/P.lua
-asset at relative path R       →  /zip/R
+payload at embed/R             →  /zip/R
 entry                          →  /zip/main.user.lua behind the wrapper
 ```
 
@@ -116,8 +116,18 @@ resolves the same way at build time and at run time.
 
 each `cmd/<name>` artifact carries the root packages plus its own
 subtree, and nothing from a sibling `cmd/` — the same boundary the
-validator refuses imports across. `testdata/` is never embedded; that
-is its only job. tests and `.d.tl` declarations do not ship either.
+validator refuses imports across.
+
+**shipping is opt-in.** an artifact carries its modules and `embed/**`,
+and nothing else — a file that is merely IN the repo is not IN the
+binary. so `docs/`, a `Makefile`, a stray `notes.md` and `testdata/`
+all stay behind without anyone excluding them, and a `schema.sql` your
+program needs becomes `embed/schema.sql`: one `git mv`, and the move
+IS the declaration. tests and `.d.tl` declarations do not ship either.
+
+there is no un-ship knob because there is nothing to un-ship. what an
+artifact contains is greppable from the tree — `ls embed/` plus the
+module set — the same way its network and exec surfaces already are.
 
 **the base is stripped to a positive floor, and there is no opt-out.**
 what survives is cosmic's compiled standard library, the TLS roots and
@@ -264,7 +274,7 @@ without it cosmic would never see the line at all.
 | `embed/**` | payload, staged at the artifact root |
 | `testdata/` | test fixtures; never embedded |
 | `_<dir>/` | internal: importable only from within its container |
-| everything else | an asset, embedded at its relative path |
+| everything else | an ordinary part of the project; never embedded |
 
 **import path = path relative to the root**, `/` → `.`, extension
 dropped. `pkg/db.tl` is `require("pkg.db")`; `pkg/init.tl` is
@@ -288,7 +298,7 @@ myapp/
   db/query_test.tl
   db/testdata/fixture.json  readable by the test, never embedded
   _internal/util.tl         require("_internal.util"), private
-  schema.sql                asset
+  embed/schema.sql          → /zip/schema.sql; in embed/ BECAUSE it ships
   3p/lpeg/lpeg_pin.tl       cosmic --make fetch
 ```
 

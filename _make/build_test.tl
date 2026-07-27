@@ -105,9 +105,11 @@ local function test_build_compiles_the_tree()
       "o/legacy.lua", "o/cosmic.mk", "o/project.mk"}) do
     assert(fs.isfile(fs.join(root, rel)), "expected " .. rel)
   end
-  -- schema.sql is an asset: the artifact embeds it, the graph does
-  -- not compile it.
-  assert(not fs.exists(fs.join(root, "o/schema.lua")), "assets are not compiled")
+  -- schema.sql is not a module, so the graph does not compile it -- and
+  -- it is not under `embed/`, so it does not ship either. Shipping is
+  -- opt-in (D15); being in the repo buys a file nothing.
+  assert(not fs.exists(fs.join(root, "o/schema.lua")),
+    "a non-module is not compiled")
 end
 test_build_compiles_the_tree()
 

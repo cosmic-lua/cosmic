@@ -263,14 +263,16 @@ local function opens_type_position(line_items: {Item},
       if item.tk == "(" or item.tk == "[" or item.tk == "{" then
         depth = depth + 1
       elseif item.tk == ")" or item.tk == "]" or item.tk == "}" then
-        depth = depth - 1
+        -- Clamped per BRACKET, not once per line. A close with nothing
+        -- open is not a type bracket at all, and letting it bank -1
+        -- would make the next real open on the SAME line read as
+        -- balanced -- so `) function(a: A,` would end the line at depth
+        -- 0 and drop a carry it should have kept.
+        if depth > 0 then
+          depth = depth - 1
+        end
       end
     end
-  end
-  -- Never below zero: an unmatched close would otherwise bank negative
-  -- depth and swallow the next real open.
-  if depth < 0 then
-    depth = 0
   end
   if depth > 0 then
     return true, depth
