@@ -222,8 +222,6 @@ print("value=" .. x)
 end
 test_script_cache_reuse_and_invalidation()
 
-print("All script tests passed!")
-
 -- The compile cache holds CODE THAT WILL BE EXECUTED, and its key --
 -- sha256(path .. content .. build id) -- is computable by anyone who
 -- can see the script. In a world-writable directory that means another
@@ -302,3 +300,5 @@ local function test_cache_never_binds_stale_code_to_new_content()
     "and different bytes are a miss, whatever is on disk now")
 end
 test_cache_never_binds_stale_code_to_new_content()
+
+print("all script tests passed")
