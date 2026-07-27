@@ -41,24 +41,29 @@ SHELL := $(COSMIC)
 # be empty when the running binary is not a file make can stat.
 .DELETE_ON_ERROR:
 
-# ...except the summaries. `.DELETE_ON_ERROR` exists so a half-written
-# target cannot pass for a finished one, and it is right for every
-# target here but these: a summary's recipe exits nonzero BECAUSE the
-# stage failed, and the file it just wrote is the record of which
-# targets failed. Deleting it removed the one artifact a consumer --
-# a CI step, `ci` grading its own stages, a person reading `o/` after
-# the fact -- would open next. `.PRECIOUS` exempts a target from that
-# deletion (make's `delete_target` returns early for a precious file),
-# and nothing else about these targets changes: content still decides,
-# and the stage still fails.
+# ...except the summaries, which are PHONY instead.
 #
-# Named one by one, not as `$(O)/%-summary.txt`: the pattern form of
-# .PRECIOUS only marks targets built by a PATTERN RULE, and every
-# summary here has an explicit rule. The pattern spelling looks right,
-# passes a pattern-rule experiment, and protects nothing in this file.
-.PRECIOUS: $(O)/fmt-summary.txt $(O)/test-summary.txt \
-           $(O)/example-summary.txt $(O)/benchmark-summary.txt \
-           $(O)/lint-summary.txt $(O)/coverage-summary.txt
+# A summary's recipe exits nonzero BECAUSE its stage failed, so
+# `.DELETE_ON_ERROR` deleted exactly the artifact a consumer opens
+# next -- a CI step, `ci` grading its own stages, a person reading `o/`
+# after the fact.
+#
+# `.PRECIOUS` looks like the fix and is a worse bug: make's
+# `delete_target` does return early for a precious file, so the summary
+# survives -- with a mtime NEWER than the `.got` files it reports on.
+# make then calls it up to date and never runs `--report` again, so the
+# stage's failure is never re-reported and the verdict reads a stale
+# summary forever. Verified both ways against real make.
+#
+# Phony gets both properties from one word: `delete_target` returns
+# early for a phony file too, and a phony target's recipe always runs.
+# A summary is a REPORT over targets that already exist -- reading a
+# handful of `.got` files -- so always-fresh is what it should have
+# been. Content still decides what lands: `tee` writes only on change,
+# so an unchanged summary keeps its mtime and stops propagating.
+.PHONY: $(O)/fmt-summary.txt $(O)/test-summary.txt \
+        $(O)/example-summary.txt $(O)/benchmark-summary.txt \
+        $(O)/lint-summary.txt $(O)/coverage-summary.txt
 
 .PHONY: all build compile fmt test example benchmark lint coverage
 

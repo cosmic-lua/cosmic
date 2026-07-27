@@ -32,7 +32,7 @@ local make_bin = fs.abspath(os.getenv("COSMIC_MAKE") or "o/make")
 -- provisioning broke -- and the whole `--make` graph-test surface
 -- silently becoming green skips is the failure this guards (029).
 if not check.needs("the make engine at " .. make_bin, fs.isfile(make_bin)) then
-  os.exit(2)
+  os.exit(check.EXIT_SKIP)
 end
 
 --- Build a fixture tree, returning its absolute root.

@@ -13,6 +13,7 @@ local child = require("cosmic.child")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local fs_types = require("cosmic.fs.types")
+local records = require("cosmic.records")
 
 --- The one prefix a recipe step's failure wears, matching its siblings
 --- in `_cli/build/init.tl` and `_cli/driver.tl`. It used to say
@@ -308,9 +309,22 @@ local function do_remove(args: {string}): integer
 end
 
 --- verdict <o_dir> <stages...> — the ci grading loop: print each
---- stage's summary in a log group, grade it by summary text AND the
---- per-stage ci-ok exit marker (a stage failing after writing a clean
---- summary must still fail), and end with the verdict line.
+--- stage's summary in a log group, grade it by the summary's own counts
+--- AND the per-stage ci-ok exit marker (a stage failing after writing a
+--- clean summary must still fail), and end with the verdict line.
+---
+--- The counts come from `cosmic.records`, which is the module that
+--- OWNS the summary's grammar. This used to prose-match
+--- `"[1-9]%d* failed"` against the text -- a second reader of a format
+--- with one writer, which is the drift `records` exists to prevent:
+--- change how a summary counts and this verb keeps grading yesterday's
+--- wording, silently and in the direction of PASS.
+---
+--- The verb stays rather than being retired with its in-tree consumer.
+--- `SHELL := cosmic` is advertised as a general contract, and grading a
+--- set of stages is what an external makefile's `ci` target needs;
+--- cosmic's own `ci` is a `--make` verb because it also decides WHICH
+--- stages to run, which a recipe cannot.
 local function do_verdict(args: {string}): integer
   local o_dir = args[1]
   if not o_dir or not args[2] then
@@ -323,7 +337,8 @@ local function do_verdict(args: {string}): integer
     local summary = fs.read(fs.join(o_dir, s .. "-summary.txt"))
     if summary then
       io.write(summary)
-      if string.match(summary, "[1-9]%d* failed") then
+      local seen, bad = records.parse_counts(summary as string) -- cast: guarded
+      if seen >= 0 and bad > 0 then
         table.insert(failed, s)
       elseif not fs.stat(fs.join(o_dir, "ci-ok-" .. s)) then
         table.insert(failed, s .. " (exit)")
@@ -334,12 +349,8 @@ local function do_verdict(args: {string}): integer
     end
     io.write("::endgroup::\n")
   end
-  if #failed > 0 then
-    io.write("ci: FAIL (" .. table.concat(failed, " ") .. ")\n")
-    return 1
-  end
-  io.write("ci: PASS\n")
-  return 0
+  return records.verdict("ci", #failed == 0,
+    #failed > 0 and table.concat(failed, " ") or "")
 end
 
 --- copy <src> <dst> — mkdir -p + cp, preserving the permission bits.
@@ -476,10 +487,10 @@ local modes: {string: function({string}): integer} = {
   exec = do_exec,
   link = do_link,
   record = do_record,
-    remove = do_remove,
-    tee = do_tee,
-    verdict = do_verdict,
-    ["write-list"] = do_write_list,
-  }
+  remove = do_remove,
+  tee = do_tee,
+  verdict = do_verdict,
+  ["write-list"] = do_write_list,
+}
 
-  return modes
+return modes

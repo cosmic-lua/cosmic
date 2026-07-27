@@ -93,6 +93,36 @@ local function with_coverage(run: function(): integer): integer
   return code
 end
 
+--- Say what this step is doing, in one short line.
+---
+--- The build runs make with `-s`, so make echoes nothing and the tool
+--- owns its own progress voice. What it replaces: make's default echo
+--- of the recipe line, which for a compile is the driver's absolute
+--- path, the source, the output, `--include-dir`, the whole transitive
+--- import closure, and the trailing `;` sentinel that only exists to
+--- route the line through SHELL -- 400 characters per step, ~370 steps,
+--- and the one thing a reader wants (which file) buried in the middle
+--- of each.
+---
+--- Derived, not declared: the shape table the fence already uses says
+--- which argument a verb WRITES, so the line is that verb and that
+--- path. A verb the table does not know prints its name alone rather
+--- than guessing.
+--- @param verb string The recipe verb
+--- @param args {string} Its arguments
+local function announce(verb: string, args: {string})
+  local shape = grants.shapes[verb]
+  local where = ""
+  if shape ~= nil then
+    local at = (shape.rw and shape.rw[1]) or shape.rest_rw
+    or (shape.ro and shape.ro[1])
+    if at ~= nil and args[at] ~= nil then
+      where = " " .. args[at]
+    end
+  end
+  io.write(verb .. where .. "\n")
+end
+
 --- `-c '<line>'`: one recipe line from make, run as argv (`SHELL :=
 --- cosmic`). Parsed first, fenced from the parse, then dispatched.
 --- @param line string The recipe line
@@ -113,6 +143,7 @@ local function recipe(line: string): integer
         io.stderr:write("cosmic -c: " .. ferr .. "\n")
         return 1
       end
+      announce(verb, args)
       return b.dispatch(verb, args)
     end)
 end

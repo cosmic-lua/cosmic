@@ -31,7 +31,7 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 local make_bin = fs.abspath(os.getenv("COSMIC_MAKE")
   or "o/make")
 if not check.needs("the make engine at " .. make_bin, fs.isfile(make_bin)) then
-  os.exit(2)
+  os.exit(check.EXIT_SKIP)
 end
 
 --- Build a fixture tree, returning its absolute root.

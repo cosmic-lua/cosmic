@@ -77,3 +77,41 @@ local function test_refusals_name_which_one_they_are()
   assert(err ~= "", "and says so")
 end
 test_refusals_name_which_one_they_are()
+
+-- The probe grades the ANSWER, not the exit status.
+--
+-- Exiting 0 on argv you do not recognise is an ordinary CLI shape --
+-- print usage, succeed -- and the `print('x')` main above is exactly
+-- it. Accept exit 0 and such a binary gets re-exec'd with the whole
+-- gate argv, prints something, exits 0, and the gate reports success
+-- having run nothing. That is worse than a traceback, because a
+-- traceback is visible.
+local function test_the_probe_reads_the_answer()
+  local engine = fs.join(os.getenv("TEST_BIN") or "", "cosmic")
+  if not check.needs("a built cosmic at " .. engine, fs.isfile(engine)) then
+    os.exit(check.EXIT_SKIP)
+  end
+  assert(converge.drives_a_build(engine),
+    "the real engine answers `--make help`")
+
+  -- A look-alike: succeeds, says nothing an engine says.
+  local dir = fs.join(tmpdir, "converge-probe")
+  fs.rmrf(dir)
+  assert(fs.makedirs(dir))
+  local fake = fs.join(dir, "lookalike")
+  assert(fs.write(fake, "#!/bin/sh\necho 'usage: lookalike [options]'\nexit 0\n"))
+  assert(fs.chmod(fake, tonumber("755", 8) as integer)) -- cast: octal literal
+  assert(not converge.drives_a_build(fake),
+    "a binary that exits 0 without answering is not an engine")
+
+  -- And one that never answers at all does not hang the gate.
+  local reader = fs.join(dir, "reader")
+  assert(fs.write(reader, "#!/bin/sh\ncat > /dev/null\nexit 0\n"))
+  assert(fs.chmod(reader, tonumber("755", 8) as integer)) -- cast: octal literal
+  assert(not converge.drives_a_build(reader),
+    "a binary that reads stdin gets EOF and still fails the probe")
+
+  assert(not converge.drives_a_build(fs.join(dir, "nothing-here")),
+    "and a path that is not a program is not an engine")
+end
+test_the_probe_reads_the_answer()

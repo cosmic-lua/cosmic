@@ -70,7 +70,7 @@ local function test_unix_domain_socket_bind_connect()
   if pid == 0 then
     local client = check.must(net.socket(net.AF_UNIX, net.SOCK_STREAM, 0))
     local connect_ok = client:connect_unix(path)
-    if not connect_ok then os.exit(2) end
+    if not connect_ok then os.exit(check.EXIT_SKIP) end
     local sent = client:send("hello from unix client")
     if not sent then os.exit(3) end
     client:close()
@@ -105,7 +105,7 @@ local function test_listen_unix_connect_unix()
   if pid == 0 then
     local client = check.must(net.connect_unix(path))
     local sent = client:send("hello from connect_unix")
-    if not sent then os.exit(2) end
+    if not sent then os.exit(check.EXIT_SKIP) end
     client:close()
     os.exit(0)
   end
@@ -205,7 +205,7 @@ local function test_connect_tcp()
   if pid == 0 then
     local client = check.must(net.connect_tcp("127.0.0.1", server_port))
     local sent = client:send("hello from connect_tcp")
-    if not sent then os.exit(2) end
+    if not sent then os.exit(check.EXIT_SKIP) end
     client:close()
     os.exit(0)
   end

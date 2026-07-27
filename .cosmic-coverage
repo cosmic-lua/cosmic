@@ -2,7 +2,7 @@
 # columns: path covered-lines total-lines
 _cli/args.tl 0 31
 _cli/build/init.tl 43 47
-_cli/build/steps.tl 182 237
+_cli/build/steps.tl 181 236
 _cli/check.tl 24 31
 _cli/driver.tl 21 34
 _cli/grants.tl 159 167
@@ -16,6 +16,7 @@ _docs/publish.tl 116 176
 _make/artifact.tl 163 180
 _make/binaries.tl 24 24
 _make/check.tl 56 57
+_make/clean.tl 28 38
 _make/converge.tl 34 62
 _make/deps.tl 73 73
 _make/docs.tl 13 31
@@ -168,4 +169,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 80 93
 tlconfig.lua 7 7
-total 13046 17269
+total 13073 17306

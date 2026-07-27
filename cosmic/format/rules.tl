@@ -90,12 +90,42 @@ local unary_minus_after_kw: {string: boolean} = {
   ["in"] = true,
 }
 
+--- Teal's type-declaration keywords. They are IDENTIFIERS to the lexer
+--- (Teal keeps them usable as names), so the scanner has to decide from
+--- context whether one opens a block.
+local type_decl_kw: {string: boolean} = {
+  ["record"] = true,
+  ["enum"] = true,
+  ["interface"] = true,
+}
+
 --- Check if an item is a block-opening keyword.
-local function is_block_opener(item: Item): boolean
+---
+--- `next_item` is what disambiguates the type-declaration words, and it
+--- is not optional politeness. `record` is a perfectly ordinary table
+--- key, and `record = {…},` inside a table constructor is a KEY
+--- followed by `=` -- not a declaration opening a block that never
+--- closes. Read as an opener it indents every following line one level
+--- deeper, forever, and because the result is idempotent the format
+--- gate passes on its own damage: the `-c` vocabulary's `test` verb was
+--- renamed to `record`, and two files silently acquired an extra level
+--- from that line down with `--make fmt` reporting PASS.
+---
+--- The same shape reaches `enum` and `interface`, which are equally
+--- legal keys.
+--- @param item Item The token to test
+--- @param next_item Item The token after it, nil at end of line
+--- @return boolean Whether it opens a block
+local function is_block_opener(item: Item, next_item: Item): boolean
   if item.kind == "keyword" and block_openers[item.tk] then
     return true
   end
-  if item.kind == "identifier" and (item.tk == "record" or item.tk == "enum" or item.tk == "interface") then
+  if item.kind == "identifier" and type_decl_kw[item.tk] then
+    -- `record =` and `record:` are a table key and a field name.
+    -- A declaration is `record Name` or `record` alone on the line.
+    if next_item ~= nil and (next_item.tk == "=" or next_item.tk == ":") then
+      return false
+    end
     return true
   end
   return false
@@ -353,7 +383,7 @@ local function compute_indent_change(line_items: {Item},
     elseif type_ctx[idx] then
       is_first_code = false
     else
-      if is_block_opener(item) then
+      if is_block_opener(item, line_items[idx + 1]) then
         post_change = post_change + 1
       elseif item.tk == "{" or item.tk == "(" then
         post_change = post_change + 1

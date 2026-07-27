@@ -10,14 +10,15 @@ go stale.
 | `_<dir>/` | internal: importable only from within its container | — |
 | `*_test.tl` | a test target | staged subtree readable, `TEST_TMPDIR` writable |
 | `*_example.tl` | an example target | same |
+| `*_benchmark.tl` | a benchmark target | same |
 | `testdata/` | test fixtures; **never embedded** | readable (it is in the subtree) |
 | `*.d.tl` | type-only; include path, never embedded | — |
 | `main.tl` at root | the project's binary | staged tree readable, `o/bin` writable |
 | `cmd/<name>/main.tl` | one binary per subdirectory | same |
 | `<dir>/*_pin.tl` | a pinned external asset | network **only** under `fetch` |
-| `<dir>/*_gen.tl` | a generation unit | its subtree readable, `o/<dir>` writable |
-| `<unit>/embed_gen.tl` | a **binary's payload generator** (reserved basename, its own kind) | the binary's scope readable, `o/<unit>` writable |
-| `embed/**` | payload, embedded at its path inside `embed/` | — |
+| `<dir>/*_gen.tl` | a generation unit | its subtree readable, `o/<its own path minus extension>` writable |
+| `<unit>/embed_gen.tl` | a **binary's payload generator** (reserved basename, its own kind) | the binary's scope readable, `o/<unit>/embed_gen` writable |
+| `embed/**` | payload, embedded at its path inside `embed/` — at the ROOT or under `cmd/<name>/` only; anywhere else is a validation error | — |
 | `.cosmicignore` | exclusions | — |
 | everything else | an asset: part of the project, **not** of its artifacts | — |
 
@@ -61,8 +62,9 @@ path** derived from its position. Nothing else varies.
 |---|---|---|---|
 | module | `X.tl` | the file + the include path | `o/X.lua` |
 | test | `X_test.tl` | staged subtree at its directory + staged modules | `o/X.tl.test.{got,out,err}` |
-| generator | `*_gen.tl` in `D` | `D`'s subtree | `o/D/**` |
-| payload generator | `embed_gen.tl` in unit `U` | `U`'s binary scope | `o/U/{embed/,base}` |
+| benchmark | `X_benchmark.tl` | same as a test | `o/X.tl.benchmark.{got,out,err}` |
+| generator | `G_gen.tl` in `D` | `D`'s subtree | `o/D/G_gen/**` |
+| payload generator | `embed_gen.tl` in unit `U` | `U`'s binary scope | `o/U/embed_gen/{embed/,base}` |
 | binary | `main.tl`, `cmd/<n>/main.tl` | root packages + its own `cmd/<n>/**` | `o/bin/<n>` |
 | pin | `*_pin.tl` in `D` | the pin literal, plus a socket under `fetch` | `o/D/<name from the url>` ⚠ |
 
@@ -98,7 +100,7 @@ Method and findings: [log/phase1-2.md](log/phase1-2.md), 2d.
 A generation unit is a directory holding a `*_gen.tl`; one directory per
 generated asset. **Inputs are its containing subtree, and its grants are
 exactly that set** — so a generator reading outside its scope gets a
-denied read, not a silently stale output. Outputs go to `o/<dir>/`.
+denied read, not a silently stale output. Outputs go to `o/<path minus extension>/`.
 
 Enforcement is doubled because `unveil()` no-ops off Landlock: kernel
 enforcement where available, plus in-process gating of `cosmic.fs`/`io`

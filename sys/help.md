@@ -51,10 +51,24 @@ Standard lua options:
   -W                          turn warnings into errors
 
 Environment variables:
+  COSMIC_FENCE               0 opts out of the derived build sandbox (on by default)
+  COSMIC_JOBS                build parallelism (default: one job per cpu)
+  COSMIC_MAKE_ROOT           name the project root instead of using the cwd
+  COSMIC_VERSION             the --version stamp, when no .version is committed
   COSMIC_COVERAGE            directory to dump line-coverage .cov files into
+  COSMIC_INSTRUMENTATION     1 emits timing spans to stderr
+  COSMIC_LOG_LEVEL           cosmic.log's threshold
   COSMIC_NO_REQUIRE_HINTS    disable helpful module-not-found suggestions
   COSMIC_NO_WELCOME          suppress welcome message on first run
   COSMIC_FULL_TRACEBACK      show full stack traceback including internal frames
+
+  Every other COSMIC_-prefixed variable is INTERNAL: the build sets it
+  for its own children (which engine, what a step may exec, the
+  converge budget, a test's scratch directory). Setting one by hand
+  confuses a build rather than configuring it.
+
+  NO_COLOR, TERM, TMPDIR, HOME, PATH, XDG_*, SOURCE_DATE_EPOCH and CI
+  are third-party conventions cosmic honours rather than invents.
 
 Documentation:
   cosmic --docs [query]      look up docs from the command line

@@ -21,6 +21,7 @@ local law = require("_make.law")
 local project = require("_make.project")
 local artifact = require("_make.artifact")
 local check = require("_make.check")
+local clean = require("_make.clean")
 local docs = require("_make.docs")
 local fetch = require("_make.fetch")
 local generate = require("_make.generate")
@@ -202,27 +203,6 @@ local function run_against_stage(v: Verb, proj: Project, paths: {string},
   return stage.run_graph(v, proj, paths, cosmic)
 end
 
---- `clean` — remove the build directory, in process. Driving this
---- through the graph would mean reading rules out of the directory
---- being deleted.
---- @param _proj Project Unused: clean is about the output, not the model
---- @param _paths {string} Unused: `_make.law` refuses a selection here
---- @param _cosmic string Unused: clean needs no make binary
---- @return integer Exit code
-local function run_clean(_proj: Project, _paths: {string},
-    _cosmic: string): integer
-  if not fs.exists(project.BUILD_DIR) then
-    return stage.verdict("clean", true, "nothing to remove")
-  end
-  local ok, err = fs.rmrf(project.BUILD_DIR)
-  if not ok then
-    io.stderr:write("make: cannot remove " .. project.BUILD_DIR .. ": " ..
-      (err or "unknown error") .. "\n")
-    return stage.verdict("clean", false, "")
-  end
-  return stage.verdict("clean", true, project.BUILD_DIR)
-end
-
 --- Every verb, in the order the design's own tables list them.
 ---
 --- `check` has a `run` rather than a target deliberately: it works in
@@ -253,7 +233,7 @@ local VERBS < const >: {Verb} = {
       end
       return check.run(proj, paths)
     end},
-  {name = "clean", run = run_clean},
+  {name = "clean", run = clean.run},
   {name = "fetch", run = function(proj: Project, paths: {string},
         _cosmic: string): integer
       return fetch.run(proj, paths)
@@ -424,16 +404,21 @@ local function run(argv: {string}): integer
     cenv.set(graph.MAKE_ENV, fs.abspath(named), true)
   end
 
+  -- Both refusals end in a verdict, like every other outcome. The
+  -- verdict line is documented as the record that survives a truncated
+  -- log, and "survives truncation" is worth least when the run did
+  -- something surprising: a bare exit 1 with the explanation scrolled
+  -- away is the case a last line is for.
   local v = by_name(name)
   if not (v is Verb) then
     io.stderr:write("make: unknown verb '" .. name .. "'\n" .. help.usage() .. "\n")
-    return 1
+    return stage.verdict(name, false, "unknown verb")
   end
   if v.planned then
     io.stderr:write("make: '" .. name ..
       "' is planned but not implemented yet\nmake: verbs: " ..
       table.concat(help.names(false), ", ") .. "\n")
-    return 1
+    return stage.verdict(name, false, "planned, not implemented")
   end
 
   local proj, err = open_project(name)

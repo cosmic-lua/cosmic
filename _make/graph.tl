@@ -411,10 +411,15 @@ local function run(proj: Project, target: string, overrides: {string},
   -- No builtin rules or variables: the vocabulary is closed, and a
   -- builtin pattern firing on a .lua or .tl would run a step nobody
   -- wrote.
+  -- `-s` because the TOOL owns the progress voice: a recipe line here
+  -- is argv, ~400 characters of driver path, sources, include dir and
+  -- import closure, with the one fact a reader wants buried mid-line.
+  -- The driver prints `<verb> <what it writes>` instead.
   local argv: {string} = {
     mk as string, -- cast: scalar narrowing after the guard
     "--no-builtin-rules",
     "--no-builtin-variables",
+    "-s",
     "-f", rules as string, -- cast: scalar narrowing after the guard
     jobs_flag(),
   }

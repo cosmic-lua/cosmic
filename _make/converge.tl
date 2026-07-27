@@ -69,6 +69,14 @@ local MAX_GEN < const > = 2
 --- The namespace a project must define to be a cosmic.
 local TOOLCHAIN < const > = "cosmic"
 
+--- The line `--make help` prints that nothing else does. Content, not
+--- exit status, is what tells an engine from a look-alike.
+local PROBE_MARK < const > = "make: verbs: "
+
+--- How long the probe waits for that answer. The candidate is an
+--- arbitrary user binary, so the probe is bounded rather than trusting.
+local PROBE_MS < const > = 10000
+
 --- The binary this project builds that would replace the running tool,
 --- or nil when it builds none.
 ---
@@ -136,11 +144,38 @@ end
 ---
 --- `--make help` is the probe because it is the one verb that answers
 --- before a project is opened: no build, no chdir, no side effect.
+---
+--- The answer is graded on CONTENT, not on exit status. Exiting 0 on
+--- unrecognised argv is an ordinary CLI shape -- printing usage and
+--- succeeding is what many mains do, and the fixture in this file's own
+--- tests is a `print(...)` main that does exactly that. Accept exit 0
+--- and such a binary gets re-exec'd with the whole gate argv, prints
+--- something, exits 0, and the gate REPORTS SUCCESS having run nothing:
+--- strictly worse than the traceback this replaced, because a traceback
+--- is at least visible. So the probe requires the line only this
+--- engine's usage emits.
+---
+--- And it is bounded. A candidate is an arbitrary user binary; one that
+--- reads stdin would hang every gate verb forever, after a single
+--- `make: root=…` line and no other sign. An empty `stdin` so a reader
+--- gets EOF rather than the terminal, and a wait timeout so one that
+--- ignores EOF still loses. Output is captured (the default), because a
+--- look-alike's usage text is not this run's output.
 --- @param path string The candidate artifact
 --- @return boolean Whether it answers as a cosmic engine
 local function drives_a_build(path: string): boolean
-  local r = child.run({path, "--make", "help"})
-  return r is child.Result and (r as child.Result).ok -- cast: after guard
+  local h, serr = child.spawn({path, "--make", "help"}, {stdin = ""})
+  if not (h is child.Handle) then
+    local _ = serr
+    return false
+  end
+  local r = (h as child.Handle):wait(PROBE_MS) -- cast: after guard
+  if not (r is child.Result) then
+    (h as child.Handle):kill() -- cast: after guard
+    return false
+  end
+  local res = r as child.Result -- cast: after guard
+  return res.ok and (res.stdout or ""):find(PROBE_MARK, 1, true) ~= nil
 end
 
 --- Build, then re-exec into the result when it is not what is running.
@@ -194,11 +229,24 @@ local function to_the_tree(proj: Project, argv: {string},
     " still changed after " .. MAX_GEN .. " generations", "not a fixpoint"
   end
   -- What the project DECLARES made this look like a toolchain; this is
-  -- what the binary can DO. Continue in this process rather than
-  -- re-exec into something that cannot answer.
+  -- what the binary can DO. They disagree for a project that innocently
+  -- defines `cosmic/init.tl` and builds a `cmd/cosmic/main.tl` -- and
+  -- the right answer for that project is to CARRY ON, not to refuse.
+  --
+  -- Refusing was the bug wearing a better name: every gate verb paid a
+  -- full build and then failed, permanently, for a project whose only
+  -- mistake was two ordinary names. There is nothing to converge to
+  -- here, which is the same situation as any non-toolchain project --
+  -- and there the gate simply runs. The running engine is a perfectly
+  -- good judge of a project that is not a toolchain.
+  --
+  -- Said once, on stderr, because it explains a `--make build` the user
+  -- did not ask for.
   if not drives_a_build(built) then
-    return false, "make: " .. built .. " is not a cosmic engine (it does " ..
-    "not answer `--make help`); not converging", "not an engine"
+    io.stderr:write("make: " .. built .. " is not a cosmic engine " ..
+      "(it does not answer `--make help`); gating under this one\n")
+    env.unset(GEN_ENV)
+    return true
   end
 
   local replay: {string} = {fs.abspath(built), "--make"}
@@ -217,12 +265,14 @@ local record ConvergeModule
   GEN_ENV: string
   MAX_GEN: integer
   toolchain_of: function(proj: Project): Binary | nil
+  drives_a_build: function(path: string): boolean
   to_the_tree: function(proj: Project, argv: {string},
   self: string): boolean, string, string
 end
 
 local M: ConvergeModule = {
   GATES = GATES,
+  drives_a_build = drives_a_build,
   GEN_ENV = GEN_ENV,
   MAX_GEN = MAX_GEN,
   toolchain_of = toolchain_of,

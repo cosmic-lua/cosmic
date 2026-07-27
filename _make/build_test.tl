@@ -31,7 +31,7 @@ local make_bin = fs.abspath(os.getenv("COSMIC_MAKE")
 -- provisioning broke -- and the whole `--make` graph-test surface
 -- silently becoming green skips is the failure this guards (029).
 if not check.needs("the make engine at " .. make_bin, fs.isfile(make_bin)) then
-  os.exit(2)
+  os.exit(check.EXIT_SKIP)
 end
 
 local record Run
@@ -113,14 +113,23 @@ test_build_compiles_the_tree()
 
 -- Incrementality is the reason there is a graph at all: a second build
 -- with nothing changed must do no work.
+--
+-- Asserted on the STEPS, not on make's phrasing. The driver prints one
+-- short line per step it runs, so "no work" is "no step lines" -- the
+-- claim worth making, and it survives make running silently (`-s`
+-- suppresses "Nothing to be done" along with the recipe echo).
 local function test_build_is_incremental()
   local root = app("incremental")
-  assert(make(root, "build").code == 0, "first build")
+  local first = make(root, "build")
+  assert(first.code == 0, "first build")
+  assert(first.out:find("compile ", 1, true),
+    "the first build compiles something, got: " .. first.out)
   local again = make(root, "build")
   assert(again.code == 0, "second build")
-  assert(again.out:find("Nothing to be done", 1, true) or
-    again.err:find("Nothing to be done", 1, true),
-    "a second build must do nothing, got: " .. again.out .. again.err)
+  assert(not again.out:find("compile ", 1, true),
+    "a second build must run no steps, got: " .. again.out .. again.err)
+  assert(not again.out:find("copy ", 1, true),
+    "not even a copy, got: " .. again.out .. again.err)
 end
 test_build_is_incremental()
 
@@ -175,6 +184,10 @@ test_a_failing_test_does_not_stop_the_run()
 -- a skip.
 local function test_a_skipping_test_is_a_skip_not_a_failure()
   local root = app("skipping")
+  -- A fixture's source, not this file's: the generated project does
+  -- not require cosmic.check. 2 IS the contract
+  -- (`cosmic.records.EXIT_SKIP`), and naming the number a foreign
+  -- program must exit with is exactly when a literal is right.
   assert(fs.write(fs.join(root, "db/skip_test.tl"), "os.exit(2)\n"))
   local r = make(root, "test")
   assert(r.code == 0, "a skip must not fail the run, got " ..
@@ -361,10 +374,18 @@ local function test_a_test_reruns_only_for_what_it_imports()
     "the importer must re-run: " .. related.out)
   assert(not related.out:find("record o/db/b_test", 1, true),
     "a test that does not import it must NOT re-run: " .. related.out)
-  -- And the closure travels in the line, which is what the fence grants.
-  assert(related.out:find("o/db/a_test.lua --deps o/db/init.lua", 1, true),
-    "the recipe must carry the closure, after the --deps separator " ..
-    "that keeps it out of the child's argv: " .. related.out)
+  -- And the closure travels in the line, which is what the fence
+  -- grants. Asserted against the FACTS rather than a recipe echo:
+  -- `o/project.mk` is where the closure is computed and the rule reads
+  -- it as `--deps $(deps_$*)`. make runs silently now, so the echo is
+  -- no longer a place this claim can be read -- and the facts file
+  -- always was the better one.
+  local facts = check.must(fs.read(fs.join(root, "o/project.mk")))
+  assert(facts:find("deps_db/a_test := o/db/init.lua", 1, true),
+    "a_test's closure is its import, computed into the facts: " .. facts)
+  assert(facts:find("deps_db/b_test :=", 1, true)
+    and not facts:find("deps_db/b_test := o/", 1, true),
+    "b_test imports nothing, so its closure names no module: " .. facts)
 end
 test_a_test_reruns_only_for_what_it_imports()
 
@@ -389,21 +410,6 @@ local function test_a_test_gets_its_own_scratch_directory()
     "a test's scratch must live inside its own step, got: " .. where)
 end
 test_a_test_gets_its_own_scratch_directory()
-
--- clean removes o/ in process: driving it through a graph whose rules
--- live in o/ is a knot with no payoff.
-local function test_clean_removes_the_build_directory()
-  local root = app("clean")
-  assert(make(root, "build").code == 0, "build first")
-  assert(fs.isdir(fs.join(root, "o")), "o/ should exist")
-  local r = make(root, "clean")
-  assert(r.code == 0, "clean should succeed: " .. r.err)
-  assert(not fs.exists(fs.join(root, "o")), "o/ should be gone")
-  local again = make(root, "clean")
-  assert(again.code == 0, "cleaning a clean tree is not an error")
-  assert(again.out:find("nothing to remove", 1, true), "got: " .. again.out)
-end
-test_clean_removes_the_build_directory()
 
 -- The same verbs in process, against a named root. A spawned child's
 -- lines are attributed to the binary's embedded copy and vanish from

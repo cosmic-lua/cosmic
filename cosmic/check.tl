@@ -2,6 +2,7 @@
 --- Functions in this module throw on failure (level 2) so the error points
 --- at the caller's line, not inside this module.
 local codec = require("cosmic.codec")
+local records = require("cosmic.records")
 
 --- Render any Lua value as a readable string using the Lua serializer.
 --- @param v any The value to render
@@ -194,8 +195,13 @@ end
 --- is always provisioned and its absence means the provisioning broke,
 --- not that the developer is mid-setup.
 ---
+--- Say so by EXITING, not by returning. A `return` at file scope ends
+--- the chunk with status 0, and 0 is `pass` -- so the trap described
+--- above closes for the printed line and reopens for the grade. The
+--- exit code is the only thing the runner reads:
+---
 ---     if not check.needs("the make engine", fs.isfile(make_bin)) then
----       return
+---       os.exit(check.EXIT_SKIP)
 ---     end
 ---
 --- @param what string What is missing, named for the message
@@ -223,6 +229,7 @@ local function enforced(label: string)
 end
 
 local record CheckModule
+  EXIT_SKIP: integer
   eq: function<T>(actual: T, expected: T, label?: string)
   ne: function<T>(actual: T, expected: T, label?: string)
   ok: function(value: any, label?: string)
@@ -235,6 +242,10 @@ local record CheckModule
 end
 
 local M: CheckModule = {
+  -- The one definition of what a skip's exit code IS lives in
+  -- `cosmic.records`, beside the runner that grades it. Re-exported
+  -- here so a test names the contract instead of writing `2`.
+  EXIT_SKIP = records.EXIT_SKIP,
   eq = eq,
   ne = ne,
   ok = ok,

@@ -445,3 +445,40 @@ local function test_optional_argument_types_keep_their_space()
     "test.tl")
 end
 test_optional_argument_types_keep_their_space()
+
+-- `record` is a legal table KEY, and reading it as a type declaration
+-- opens a block that never closes -- so every following line indents
+-- one level deeper, to the end of the file. The damage is idempotent,
+-- which is why the gate passed on it: the `-c` vocabulary's `test` verb
+-- was renamed to `record`, and two files silently acquired an extra
+-- level from that line down while `--make fmt` reported PASS.
+--
+-- `enum` and `interface` are the same shape. A real declaration
+-- (`record Name`, or the word alone) still opens its block.
+local function test_type_keywords_as_table_keys_do_not_open_blocks()
+  for _, kw in ipairs({"record", "enum", "interface"}) do
+    local src = "local t = {\n" ..
+    "  " .. kw .. " = {a = 1},\n" ..
+    "  after = 2,\n" ..
+    "}\n" ..
+    "return t\n"
+    assert_format(src, src, kw .. " as a table key is a key", "test.tl")
+
+    local colon = "local record R\n" ..
+    "  " .. kw .. ": integer\n" ..
+    "  after: integer\n" ..
+    "end\n" ..
+    "return R\n"
+    assert_format(colon, colon, kw .. " as a field name is a name", "test.tl")
+  end
+
+  -- And the declaration it could be confused with still opens a block.
+  local decl = "local record Outer\n" ..
+  "  record Inner\n" ..
+  "    a: integer\n" ..
+  "  end\n" ..
+  "end\n" ..
+  "return Outer\n"
+  assert_format(decl, decl, "a real declaration still indents", "test.tl")
+end
+test_type_keywords_as_table_keys_do_not_open_blocks()

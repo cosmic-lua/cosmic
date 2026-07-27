@@ -99,7 +99,7 @@ local function test_listen_accept_connect()
     -- Connect to localhost
     local connect_ok = client:connect("127.0.0.1", server_port) -- 127.0.0.1
     if not connect_ok then
-      os.exit(2)
+      os.exit(check.EXIT_SKIP)
     end
     local sent = client:send("hello from client")
     if not sent then
@@ -378,7 +378,7 @@ local function test_accept_socket_has_close_metamethod()
     if not raw_client then os.exit(1) end
     local client = check.must(raw_client)
     local connect_ok = client:connect("127.0.0.1", server_port)
-    if not connect_ok then os.exit(2) end
+    if not connect_ok then os.exit(check.EXIT_SKIP) end
     client:send("test")
     client:close()
     os.exit(0)

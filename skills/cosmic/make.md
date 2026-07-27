@@ -117,18 +117,20 @@ module no test imports re-runs nothing:
 
 ```bash
 $ cosmic --make test          # edit a module only db/a_test.tl imports
-test o/db/a_test.tl.test cosmic o/db/a_test.lua --deps o/db/init.lua ;
+record o/db/a_test.tl.test cosmic o/db/a_test.lua --deps o/db/init.lua ;
 ```
 
 the closure after `--deps` is exactly what the fence grants. it is
 named there for that purpose and never handed to the child.
 
-with `COSMIC_FENCE=1` on a Landlock host that becomes enforced rather
-than merely arranged: a test may write only its own step's directory,
-and reads are the compiled tree plus its own source directory (which is
-where `testdata/` lives, so fixtures need no special grant). the flag is
-opt-in until the canary in the enforce lane has proven the denial on a
-real kernel.
+the fence is **ON by default**; `COSMIC_FENCE=0` opts out. on a
+Landlock host it is enforced by the kernel rather than merely arranged:
+a test may write only its own step's directory, and reads are the
+compiled tree plus its own source directory (which is where `testdata/`
+lives, so fixtures need no special grant). on a host without Landlock
+the grants are computed and cannot be enforced, so the step runs
+unfenced — which is why CI asserts a real denial rather than trusting
+that the mechanism ran.
 
 ## Pins
 
@@ -196,10 +198,11 @@ two files land in `o/` and make reads both:
   assignments**, the file lists the walk produced.
 
 every recipe line is whitespace-split argv whose first word is a cosmic
-verb (`compile`, `copy`, `test`, `tee`, …), run through `cosmic -c`. no
-quoting, no expansion, no pipes, no redirects — the build's whole
-capability surface is that vocabulary, and make echoes each line as it
-runs it. the trailing `;` you will see is load-bearing: make execs a
+verb (`compile`, `copy`, `record`, `tee`, …), run through `cosmic -c`.
+no quoting, no expansion, no pipes, no redirects — the build's whole
+capability surface is that vocabulary. make runs silently (`-s`) and
+the driver prints one short line per step instead. the trailing `;` in
+the rules is load-bearing: make execs a
 line it judges shell-free itself, without consulting `SHELL`, so
 without it cosmic would never see the line at all.
 
@@ -368,3 +371,38 @@ line.
 the coverage floor is `.cosmic-coverage`, namespaced because a bare
 `.coverage` is coverage.py's binary data file and cosmic targets
 polyglot repos.
+
+## Environment variables
+
+**public** — a user or a CI step may set these, and their meaning is
+part of the contract:
+
+| variable | meaning |
+|---|---|
+| `COSMIC_FENCE` | `0` opts out of the derived sandbox. On by default |
+| `COSMIC_JOBS` | build parallelism (default: nproc) |
+| `COSMIC_MAKE_ROOT` | name the project root instead of using the cwd |
+| `COSMIC_COVERAGE` | a DIRECTORY to dump `.cov` files into |
+| `COSMIC_VERSION` | the `--version` stamp, when no `.version` is committed |
+| `COSMIC_INSTRUMENTATION` | `1`/`true` emits timing spans to stderr |
+| `COSMIC_LOG_LEVEL` | `cosmic.log`'s threshold |
+| `COSMIC_NO_WELCOME`, `COSMIC_NO_REQUIRE_HINTS`, `COSMIC_FULL_TRACEBACK` | output knobs |
+| `NO_COLOR`, `TERM`, `TMPDIR`, `HOME`, `PATH`, `XDG_*`, `SOURCE_DATE_EPOCH`, `CI` | third-party conventions cosmic honours rather than invents |
+
+**internal** — the build sets these for its own children. Setting one
+by hand is a way to confuse a build, not to configure it:
+`COSMIC_MAKE` (which engine), `COSMIC_EXEC_ROOT` (what `exec` may
+reach), `COSMIC_MAKE_GEN` (the converge budget), `TREE_LUA_PATH` (the
+path `capture` swaps in), `TEST_BIN` / `TEST_TMPDIR` / `TEST_DIR` (set
+per test by the runner), `TMP` (pointed at a step's scratch directory),
+`COSMIC_TL_CACHE_DIR`, `COSMIC_ENFORCE`, `GENTYPE_DEFS` (validate
+against a cosmopolitan checkout before a release), `PERF_BIN` (which
+binary `_perf` measures).
+
+**`COSMIC_COVERAGE` carries two protocols under one name**, and this is
+a wart, not a design: `1`/`true` means "collection is armed" (what the
+coverage rules export), while any other value is the directory to dump
+into (what `--test` sets per test). `cosmic.coverage.dir_from_env`
+is the one reader that knows the difference, and anything treating the
+variable as a path must go through it — reading it directly is how a
+build came to create a directory named `1`.
