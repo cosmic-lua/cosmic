@@ -13,42 +13,63 @@ the primary artifact is `cosmic-lua` — a single executable containing:
 
 the project's mission, ranked promises, and measurable goals live in
 [docs/goals.md](docs/goals.md); the tradeoffs behind them are recorded
-ADR-style in [docs/decisions.md](docs/decisions.md). consult both before
-proposing directional changes — settled decisions are amended there, not
+ADR-style in [docs/decisions/](docs/decisions/), one file per record.
+consult both before proposing directional changes — settled decisions are amended there, not
 relitigated in passing.
 
 ## Repository Layout
 
 ```
-Makefile              top-level build orchestration
-cook.mk               module definitions (bootstrap, type gen)
-lib/
-  cook.mk              aggregates lib/* modules
-  cosmic/              standard library modules (*.tl)
-    cook.mk            builds the cosmic binary
-    init.tl            entry point: cosmic.main()
-    public.tl          PUBLIC manifest: public vs internal modules
-    cli/               CLI internals (main.tl dispatcher, help, style, ...)
-    fs/                fs directory module (init, path, ops, file, walk, types)
-    *.tl               library modules
-    *_test.tl          tests
-    *_example.tl       runnable examples
-  build/               build infrastructure (fetch, stage, reporter)
-  docs/                doc publishing
-  perf/                performance benchmark harness (see lib/perf/OPTIMIZE.md)
-  types/               cosmo.* type declarations (generated) + gentype generator
+cmd/cosmic/main.tl    the binary's entry → o/bin/cosmic
+cmd/cosmic/embed_gen.tl  its payload generator: what the artifact carries
+embed/cosmic.mk       the rules `--make` feeds to make, shipped at /zip/cosmic.mk
+cosmic/               standard library modules (*.tl) — the PUBLIC API
+  init.tl              entry point helper: cosmic.main()
+  fs/                  fs directory module (init, path, ops, file, walk, types)
+  *.tl                 library modules
+  *_test.tl            tests
+  *_example.tl         runnable examples
+_cli/                 the dispatcher behind every flag (args, help, run, ...)
+  build/               the closed verb vocabulary behind `-c`
+_make/                `cosmic --make`: project model, validator, root, verbs
+_build/               workflow ratchet tests
+_docs/                doc publishing
+_perf/                performance benchmark harness (see _perf/OPTIMIZE.md)
+_types/               cosmo.* type declarations (generated) + gentype generator
 3p/
   cosmos/              Cosmopolitan Lua binary + zip tool
   tl/                  Teal compiler
 bin/
-  make                 trust-root script: fetches the pinned bootstrap cosmic,
-                       which extracts make from the pinned cosmos.zip
-  cosmo-make           landlock-make binary (gitignored, extracted from cosmos.zip)
+  cosmic               trust root: POSIX sh, fetches the one pinned cosmic
+                       (bin/cosmic.pin) and execs it
+  cosmic.pin           that pin — url + sha256, two plain lines
 .github/workflows/
-  pr.yml               CI on push/PR (make ci)
+  pr.yml               CI on push/PR (--make ci)
   docs.yml             publish docs on push to main
   release.yml          daily release build
 ```
+
+**the repo root is the module root**:
+a source's path relative to the root *is* its import path, so
+`cosmic/fs/path.tl` is `require("cosmic.fs.path")` and
+`_perf/harness.tl` is `require("_perf.harness")`. there is no `lib/`
+between the two anymore. a leading `_` marks a tree as internal — it is
+repo tooling, not the published API — which is why `_docs/` and the
+markdown `docs/` can coexist. **position is the manifest**: a module is
+public API exactly when it is `cosmic.<name>` with no `_` — there is no
+list to maintain (`cosmic/public.tl` is gone) and none to go stale. the
+rule lives in `cosmic/doc/visibility.tl`.
+
+**`cosmic/` is the published API and nothing else**: the
+dispatcher (`_cli/`) and the build system (`_make/`) sit at the root, and
+the binary's entry is `cmd/cosmic/main.tl` — the same `cmd/<name>/`
+position `--make` builds every binary from, so cosmic is an ordinary
+project under its own rules. the consequence to know when moving code:
+a module under `cosmic/` may not be required from outside `cosmic/`
+unless it is public, and the strip floor is `cosmic/**`, so anything a
+STRIPPED artifact must still boot with has to live there. `cosmic
+--make build` at the root produces `o/bin/cosmic` today; what it does
+not yet carry is in [docs/design/make/](docs/design/make/).
 
 ## Language and Conventions
 
@@ -56,18 +77,30 @@ bin/
 - **error handling**: return `value, string` (nil + error message on failure). never throw from library code.
 - **doc comments**: `---` prefix with `@param` and `@return` tags
 - **naming**: `snake_case` for functions and variables. `PascalCase` for record types and record constructors (e.g. `signal.Sigset()`); options records are named `Options` (or `<Thing>Options` when a module has several).
-- **formatting**: 2-space indent, LF line endings, enforced by `cosmic --check-format`
-- **warnings are errors**: `--check-types` fails on any Teal warning (unused, shadowing, unreachable branch). mark deliberately-unused values with a leading underscore (`local _out`, `_self: Poller`).
-- **file length**: all `.tl` files must be ≤500 lines. no exceptions. enforced by `bin/make lint`. `.d.tl` type declaration files are exempt (they describe C binding interfaces and cannot be split due to Teal's record system).
+- **formatting**: 2-space indent, LF line endings, enforced by `cosmic --check fmt`
+- **column width**: 90 columns is house style, and the one style rule
+  that is NOT a gate — the tree has 858 lines over it and the gate never
+  checked (`cosmic.style.check_column_length` is exported and unused by
+  `--check lint`). Write to 90; do not expect a failure if you do not.
+- **warnings are errors**: `--check types` fails on any Teal warning (unused, shadowing, unreachable branch). mark deliberately-unused values with a leading underscore (`local _out`, `_self: Poller`).
+- **file length**: all files must be ≤500 lines. no exceptions. enforced
+  by `cosmic --check lint`, which is what both `--make lint` and
+  `cosmic --make lint` run. `.d.tl` type declaration files are exempt
+  (they describe C binding interfaces and cannot be split due to Teal's
+  record system).
+- **test files call each test where they define it**: a `test_*` function
+  in a `_test.tl` is called on the line after its `end`, so a failing run
+  names the function. Helpers are exempt (they are called from the tests),
+  and `Example_*` functions are called by the example runner.
 - **imports**: prefer `cosmic.*` modules over raw `cosmo.*` C bindings. `cosmo.*` is only for library internals implementing wrappers.
-- **tests**: `*_test.tl` files alongside source, run via `make test`
-- **examples**: `*_example.tl` files with `Example_*` functions, run via `make example`
+- **tests**: `*_test.tl` files alongside source, run via `cosmic --make test`
+- **examples**: `*_example.tl` files with `Example_*` functions, run via `cosmic --make example`
 
 ### cosmo vs cosmic
 
 `cosmo` and `cosmo.*` (e.g. `cosmo.unix`, `cosmo.path`) are low-level C bindings from Cosmopolitan Libc. `cosmic.*` modules are the typed Teal wrappers with error handling and docs.
 
-- **library internals** (`lib/cosmic/*.tl`): use `cosmo.*` to implement wrappers. this is the one place `require("cosmo")` is expected.
+- **library internals** (`cosmic/*.tl`): use `cosmo.*` to implement wrappers. this is the one place `require("cosmo")` is expected.
 - **examples, tests, scripts** (`*_example.tl`, `*_test.tl`, user scripts): always use `cosmic.*`. never call `cosmo.*` directly.
 
 common mappings:
@@ -171,24 +204,33 @@ or map unions through truthiness (`if not x`). Three sanctioned tools:
   then return end` does not narrow below); and `is` is WRONG for
   mixed-representation records — `fs.Stat` is usually the raw stat
   userdata but falls back to a plain wrapper table, so neither marker
-  fits; it stays on casts. (The old ban on `is` with REQUIRED
-  `cosmo.*` classes is LIFTED: the cosmic searcher is the only loader
-  cosmic installs — the dispatcher (#669/#681) and the embed entry
-  wrapper (#687/#688) both resolve .d.tl markers, so `is` cannot
-  silently degrade. The one unsupported path is user code explicitly
-  calling `require("tl").loader()`, which shadows the cosmic searcher
-  with tl's silent one.)
+  fits; it stays on casts. `is` works with required `cosmo.*` classes
+  too — the cosmic searcher is the only loader cosmic installs, and it
+  resolves `.d.tl` markers. The one unsupported path is user code
+  calling `require("tl").loader()`, which shadows it with tl's silent
+  one.
 - **Cast in linear code and at userdata boundaries**: after an assert or
   early-exit guard, `(x as Rec).field`, `(x as {K:V})[k]`. Scalars
   (`string | nil`) narrow normally, except method-call syntax: use
   `string.sub(x, …)` not `x:sub(…)` on a narrowed value.
 
-Every `as` cast must carry a justification (enforced by `bin/make lint`):
+Every `as` cast must carry a justification (enforced by `--make lint`):
 a line containing a cast needs `-- cast: <reason>` trailing on the line,
 or as a comment on the line directly above when the 90-column width
 won't fit it. Write the actual reason (`from any`, `userdata boundary`,
 `tuple element`, `mixed-representation Stat`, ...) — a cast you cannot
 justify is one to remove, via `is`, `check.must`, or a precise type.
+
+**`find` says whether it means a pattern.** `s:find(x)` treats x as a Lua
+pattern, so a `-`, `.`, `(` or `%` in it silently changes what matches —
+and the failure is invisible, because the call still returns, just about
+the wrong thing. A test that writes under `/tmp/a-b/` and greps for that
+path passes everywhere except where the path has a dash. When the needle
+is not a string literal the linter (`find-needle`) asks which you meant:
+`, 1, true` for a substring, `, 1, false` for a real pattern. Literals
+are exempt — `s:find("%d+")` reads as a pattern already. There is no
+`plain` flag on `match`/`gmatch`/`gsub`, so a variable needle there is a
+pattern by construction; escape it if it isn't one.
 
 rules:
 - never throw from library code
@@ -198,98 +240,126 @@ rules:
 
 ## Build System
 
-the build uses GNU Make with a module system defined in `cook.mk` files.
+`cosmic --make` builds this repo, by the same conventions it builds any
+project. There is no Makefile, no `cook.mk`, no build spec: the tree is
+the project, and a file's position and name say what it is.
 
 ```bash
-bin/make help           # show all targets
-bin/make build          # build cosmic binary
-bin/make test           # run all tests (incremental)
-bin/make teal           # type check all files
-bin/make format         # check formatting
-bin/make ci             # full CI: format + teal + test + example + lint + coverage
-bin/make docs           # generate markdown docs from source
-bin/make clean          # remove build artifacts
+bin/cosmic --make fetch     # resolve *_pin.tl — the only verb with a network
+bin/cosmic --make ci        # fmt, check, test, example, lint, coverage
+bin/cosmic --make test      # …or one stage; add paths to narrow it
+bin/cosmic --make build     # just the binaries
+bin/cosmic --make clean     # remove o/
 ```
 
+**One command, always correct** — `bin/cosmic --make ci` — because a
+gate verb in this project CONVERGES before it runs. A gate's result is
+a statement about a toolchain, and this project builds the toolchain:
+run `fmt` under the pinned release and it formats with the release's
+formatter, so a formatter fix passes its own gate. So the tool builds
+first and re-execs into what it built, capped at two generations, with
+a loud `not a fixpoint` if a third would be needed
+(`_make/converge.tl`). `bin/cosmic` prefers `o/bin/cosmic` when one
+exists and reaches for the pin only on a cold start.
+
 key concepts:
-- **modules**: each directory declares a module via `cook.mk` with `_tl`, `_tests`, `_files`, `_deps`
-- **versioned deps**: 3p modules use `version.lua` → fetch → stage pipeline
-- **bootstrap**: a pre-built cosmic binary bootstraps compilation of `.tl` → `.lua`; `bin/make` is its sole provisioner (sha-pinned, re-fetched on pin bumps)
-- **no-shell default**: `SHELL` is poisoned globally — recipes are single argv lines, the real shell is a per-rule exception, and the makefile ratchet tests enumerate the exceptions, the host-exec grants, and statically scan recipe text (#756 item 2)
-- **sandboxing**: per-rule `.PLEDGE`/`.UNVEIL` annotations are ENFORCED, not intent — every rule family CI exercises sets `.SANDBOXED := 1` (#729: compile, fetch/stage/lint/reporter, teal/format, tests, examples), so an undeclared read or write in one of their recipes fails on a Landlock host. Most grants are derived from the declared graph (prereqs readable, target directory writable, global base), so a rule declares only genuinely-extra paths; the `.SANDBOXED` and hostx ratchets in `lib/build/makefile_ratchet_test.tl` pin both sets. Deliberately unenforced, each with its reason at the rule: version.lua, the quicksand namespace tests/examples, and the benchmark family (no CI lane runs it). `unveil()` no-ops without Landlock — the `sandbox-canary` proves the mechanism is live on a host. `.ENV` clamps a rule's child environment to the named variables (#756 item 5) — the driver-exec families declare theirs in cook.mk, gated by the env-clamp fixture's canary probe
+- **conventions, not declarations**: `*_test.tl` is a test, `*_example.tl`
+  an example, `*_benchmark.tl` a benchmark, `*_pin.tl` a pin, `*_gen.tl`
+  a generator, `cmd/<name>/embed_gen.tl` a binary's payload generator,
+  `embed/**` payload, `cmd/<name>/main.tl` a binary, a leading `_`
+  internal, `testdata/` never embedded. Nothing lists these; position
+  declares them
+- **generators run before the graph**: a `*_gen.tl` writes an INPUT — the
+  checker, compiler, formatter and linter all read what `_types/types_gen.tl`
+  produces — so every verb that touches the graph runs the generators
+  first. A binary's `embed_gen.tl` is the other way round: it packs what
+  the graph produced, so it runs last
+- **versioned deps**: 3p modules declare a `*_pin.tl` — literal data, read
+  by `cosmic.literal` and never executed. `fetch` unpacks a pin beside
+  the pin, so cosmos lands in `o/3p/cosmos/` and tl in `o/3p/tl/`
+- **trust root**: `bin/cosmic` is POSIX sh and obtains exactly one pinned
+  artifact (`bin/cosmic.pin`), verifies its sha256 and execs it. Cosmic
+  extracts its own build engine from its own zip, so the chain is
+  kernel → script → one pin → everything else
+- **constant rules, generated facts**: `embed/cosmic.mk` is committed,
+  ships at `/zip/cosmic.mk`, and is byte-identical for every project. No
+  rule is ever generated. `o/project.mk` holds only variable assignments —
+  `srcdeps_<stem>`, each source's transitive import closure — so a module
+  whose contract changed recompiles its importers. Never commit it
+- **cosmic as `SHELL`**: make runs `cosmic -c '<line>'`. A recipe line is
+  argv, not shell — whitespace-split, `argv[0]` a verb from a closed
+  vocabulary (`_cli/build/`), metacharacters refused rather than
+  interpreted — and cosmic derives its sandbox grants from it
+- **a variant is a base beside a base**: a unit's output directory holds
+  `embed/` (what the artifact carries) next to `base` (what it carries it
+  on). A `base-<variant>` ships the SAME staged payload on that runtime
+  as `o/bin/<name>-<variant>`, which is how one build makes both release
+  binaries
 - **output directory**: all build artifacts go to `o/`
+
+**`_perf` is not `--make benchmark`.** `*_benchmark.tl` holds
+`Benchmark_*` functions the runner extracts and times one at a time;
+`_perf/bench/*_bench.tl` are scenario MODULES for a harness that
+aggregates across them. This repo's performance work is the latter.
 
 ## Type Generation
 
-the `cosmo.*` type declarations are GENERATED — never edit them by hand:
+the `cosmo.*` and `tl` type declarations are GENERATED and **not
+committed**. `_types/types_gen.tl` is a generation unit; every verb that
+touches the graph runs it first, into `o/_types/types_gen/` — the
+directory that generator owns. Inside it: `cosmo.d.tl` (the top-level
+`require("cosmo")` surface), `cosmo/*.d.tl` (unix, path, getopt,
+lsqlite3, re, argon2, zip, repl) and `tl.d.tl` (the narrowed public
+Teal compiler API).
 
-- `lib/types/cosmo.d.tl` — the top-level `require("cosmo")` surface
-- `lib/types/cosmo/*.d.tl` — submodules (unix, path, getopt, lsqlite3, re, argon2, zip, repl)
+Nothing to regenerate and no drift to check: the build produces them,
+and a `cosmo.*` change shows up as the pin bump that caused it. The cost,
+stated: **a fresh clone cannot resolve `cosmo.*` until it has fetched and
+built once**, and an editor needs `o/_types/types_gen` on its include path.
 
-the single source of truth is `tool/net/definitions.lua` in whilp/cosmopolitan,
-embedded in the pinned cosmos release binary at `/zip/.lua/definitions.lua`.
-upstream, per-module annotation-coverage ratchet tests guarantee every C
-binding is annotated; here, `lib/types/gentype.tl` parses those annotations
-into Teal records, and `lib/types/gentype_test.tl` fails if the committed
-files differ byte-for-byte from generator output.
+the single source of truth for `cosmo.*` is `tool/net/definitions.lua` in
+whilp/cosmopolitan, embedded in the pinned cosmos release binary at
+`/zip/.lua/definitions.lua`. upstream, per-module annotation-coverage
+ratchet tests guarantee every C binding is annotated; here,
+`_types/gentype.tl` parses those annotations into Teal records. `tl.d.tl`
+is extracted from the pinned tl source by `_types/gentl.tl`, with
+internal types erased by rule and records curated to verified field
+subsets.
 
-update procedure (after a cosmos bump or generator change):
+update procedure (after a cosmos or tl pin bump):
 
 ```bash
-# 1. bump 3p/cosmos/version.lua (url version + sha)
-bin/make regen-types      # regenerate all .d.tl from the new pin
-bin/make test only=gentype
-# 2. fix any lib/cosmic wrappers the new types break; commit everything together
+bin/cosmic --make fetch     # land the new pin
+bin/cosmic --make build     # regenerates o/_types/types_gen from it
+o/bin/cosmic --make ci      # fix whatever the new types break
 ```
 
-`regen-types` runs the generator under the staged cosmos binary with only
-gentype's require closure compiled, so it works even when the rest of the
-tree does not compile yet — e.g. wrapper code staged ahead of the pin bump
-that introduces its bindings (#711). On a cold tree, run `bin/make staged`
-once first.
-
-`GENTYPE_DEFS=/path/to/definitions.lua` overrides the definitions source for
-validating against a cosmopolitan checkout before a release is cut.
-
-`lib/types/tl.d.tl` (Teal compiler API) is generated too — by
-`lib/types/gentl.tl` from the staged tl source (`bin/make regen-tl-types`
-after a tl version bump; `gentl_test.tl` fails on drift). The one
-handcrafted exception is `lib/types/make-help.d.tl`.
+`GENTYPE_DEFS=/path/to/definitions.lua` overrides the definitions source
+for validating against a cosmopolitan checkout before a release is cut.
 
 ## cosmic Binary
 
 the cosmic binary is an executable zip. it embeds:
-- compiled `.lua` modules in `.lua/cosmic/`
-- Teal compiler in `.lua/tl.lua`
-- type definitions in `.lua/types/`
+- compiled `.lua` modules in `cosmic/` — the zip root IS the module
+  root, so `require("cosmic.fs")` resolves to `/zip/cosmic/fs.lua`
+- Teal compiler in `tl.lua`
+- type definitions in `.types/` (include-path payload, not modules —
+  dot-prefixed names stay out of the module root)
 - doc index in `.docs/index.lua`
-- entry point: `/zip/main.lua` (compiled from `lib/cosmic/cli/main.tl`)
+- entry point: `/zip/main.lua` (compiled from `cmd/cosmic/main.tl`)
 
-CLI features:
-```
-cosmic script.tl              run a Teal script
-cosmic --compile file.tl      compile to Lua (stdout)
-cosmic --check-types file.tl  type check (strict)
-cosmic --check-format file    check formatting
-cosmic --format file          format file (stdout)
-cosmic --docs <query>         search documentation
-cosmic --examples [module]    browse examples
-cosmic --test <out> <cmd>     run test, capture output
-cosmic --report <paths>       report test results
-cosmic --build <mode> <args>  run a shell-free build recipe step
-cosmic --embed <path>         embed files into executable
-cosmic --benchmark file.tl    run benchmarks
-cosmic -i                     interactive REPL
-```
+the CLI surface is `sys/help.md`, which is what `--help` prints.
+`cosmic --make help` lists the verbs, and which of them are still
+planned.
 
 ## Standard Library Modules
 
-all modules are under `lib/cosmic/` and imported as `cosmic.*`:
+all modules are under `cosmic/` and imported as `cosmic.*`:
 
 | module | description |
 |--------|-------------|
 | ansi | ANSI terminal styling: colors, attributes, strip, NO_COLOR-aware gating |
-| benchmark | benchmark runner with `Benchmark_*` functions |
+| benchmark | benchmark runner with `Benchmark_*` functions (`--make benchmark`) |
 | child | child process spawning with I/O control |
 | codec | hex encoding/decoding, Lua serialization |
 | compress | zlib compression/decompression |
@@ -306,6 +376,7 @@ all modules are under `lib/cosmic/` and imported as `cosmic.*`:
 | getopt | command-line option parsing (short + long opts) |
 | hash | SHA-256 digest and Argon2 password hashing |
 | html | HTML escaping |
+| instrument | timing/resource spans: emit `key=value` lines, and parse them back |
 | fd | file descriptor I/O: open/wrap handles, pipes |
 | ip | IP address parsing, formatting, classification |
 | json | JSON encode/decode |
@@ -315,19 +386,24 @@ all modules are under `lib/cosmic/` and imported as `cosmic.*`:
 | proc | current process: pid, exec, resource usage |
 | rand | cryptographic random bytes |
 | re | POSIX extended regular expressions |
+| records | a build's machine-readable records: row, summary, verdict, exit codes |
 | sandbox | one-call fail-closed facade over pledge/unveil/landlock (fs + sys policy) |
+| searcher | the runtime `.tl` package searcher every artifact installs at boot |
 | pledge | restrict system calls (OpenBSD, Linux) |
 | unveil | restrict filesystem visibility (OpenBSD, or Linux via landlock) |
 | landlock | Linux >=5.13 self-restricting filesystem sandbox |
+| literal | read a Teal/Lua file as data: `return { … }` of literals, never executed |
 | quicksand | Linux namespace + allowlist proxy box primitives and declarative `Box` builder |
 | shm | shared memory with atomic ops and futexes |
 | signal | signal handling, timers, sigsets |
 | sqlite | SQLite with ergonomic query/exec/transaction API |
 | sse | Server-Sent Events parser |
 | string | trim, split, capitalize, starts_with, etc. |
+| style | the style checks behind `--check lint`: file length, column width, ordering |
 | sys | OS/architecture detection, sysconf (nproc, page size), uname |
 | syslog | system logging |
 | table | deep copy/merge/equality and map/filter/reduce for tables |
+| tar | extract a gzipped tarball, in process |
 | teal | Teal compilation and type checking |
 | testrun | test execution and reporting |
 | time | timestamps, sleep, clock, datetime |
@@ -337,21 +413,34 @@ all modules are under `lib/cosmic/` and imported as `cosmic.*`:
 | uuid | UUIDv4 and UUIDv7 generation |
 | zip | ZIP archive reading and writing |
 
-## Testing
+## `--make` fixtures
 
-**Reading gate results**: `bin/make ci` (and each stage) signals via exit
-code AND ends with a `ci: PASS` / `ci: FAIL (stages)` verdict line. Never
-launder a gate's exit status through a pipe (`bin/make ci | tail` returns
-tail's status, not make's) — use `set -o pipefail`, or read the verdict
-line, which survives any truncation.
+`_make/testdata/**` holds hello-world-sized projects — one per behaviour
+(`hello`, `pkg`, `multi`, `luaonly`, `assets`) — that
+`_make/fixtures_test.tl` checks, builds and runs. They have their own
+roots, so this repo's model does not see them, and they are the fastest
+way to try a `--make` change by hand:
 
 ```bash
-bin/make test                 # all tests
-bin/make coverage             # tests with line coverage + ratchet vs lib/cosmic/coverage/baseline.txt
-bin/make coverage-baseline    # rewrite the committed coverage ratchet floor
-bin/make test only=sqlite     # filter by substring (also narrows fetch/stage)
-bin/make example              # run Example_* functions
-bin/make benchmark            # run Benchmark_* functions
+cp -r _make/testdata/hello /tmp/h && cd /tmp/h
+$OLDPWD/o/bin/cosmic --make build && ./o/bin/hello
+```
+
+## Testing
+
+**Reading gate results**: `--make ci` signals via exit code AND ends with
+a `ci: PASS` / `ci: FAIL (stages)` verdict line. Never launder a gate's
+exit status through a pipe (`--make ci | tail` returns tail's status) —
+use `set -o pipefail`, or read the verdict line, which survives any
+truncation.
+
+```bash
+o/bin/cosmic --make test                # all tests
+o/bin/cosmic --make coverage            # tests + line coverage, ratcheted vs .cosmic-coverage
+o/bin/cosmic --make coverage --baseline # rewrite the committed floor
+o/bin/cosmic --make test cosmic/string_test.tl   # narrow by path
+o/bin/cosmic --make example             # run Example_* functions
+o/bin/cosmic --make benchmark           # run every *_benchmark.tl
 ```
 
 test files use a simple assertion pattern:
@@ -367,34 +456,45 @@ each test gets its own temp directory via `TEST_TMPDIR`.
 
 ## Performance
 
-`lib/perf` holds the benchmark harness: end-to-end scenarios (JSON, SQLite,
+`_perf` holds the scenario harness: end-to-end scenarios (JSON, SQLite,
 HTTP, fs, crypto/codecs, binary startup) with per-scenario functional
-checks, a JSON results format, and a noise-aware baseline comparison gate.
+checks, a JSON results format, and a noise-aware comparison gate.
 
 ```bash
-bin/make perf                 # run scenarios, write o/perf/current.json
-bin/make perf-baseline        # snapshot baseline before optimizing
-bin/make perf-compare         # re-run and fail on regression vs baseline
-bin/make perf-selfcheck       # A/A control: same binary vs itself = noise floor
-bin/make perf-bin COSMO_LUA=… # wrap a local cosmopolitan lua for PERF_BIN
+# The harness is scripts, not verbs — `benchmark` is named and planned.
+bin/cosmic _perf/run.tl --out o/perf/current.json <modules...>
+bin/cosmic _perf/run.tl --compare o/perf/base.json o/perf/current.json
+bin/cosmic _perf/gate.tl compare BASE.json CUR.json SELFB.json
+bin/cosmic _perf/gate.tl selfcheck A.json B.json   # A/A control: the noise floor
 ```
 
-all performance work follows the loop in `lib/perf/OPTIMIZE.md`: baseline →
-hypothesis → change → `bin/make ci` (correctness/style gate) →
-`bin/make perf-compare` (regression gate) → keep or revert. never weaken a
+all performance work follows the loop in `_perf/OPTIMIZE.md`: baseline →
+hypothesis → change → `--make ci` (correctness/style gate) →
+the compare gate (regression) → keep or revert. never weaken a
 scenario or its check to make numbers pass; never commit `o/perf/*.json`.
 
-the manual is split so no chapter fights the 500-line cap:
-`lib/perf/optimize/finding.md` (spotting cosmic-layer wins),
-`lib/perf/optimize/cosmopolitan.md` (optimizing the C layer against a
-local whilp/cosmopolitan build — no release needed to measure), and
-`lib/perf/optimize/measurement.md` (noise discipline). the hypothesis
-backlog is GitHub issues labeled `perf` (whilp/cosmic for cosmic-layer
-work, whilp/cosmopolitan for the C layer); find work with
-`gh issue list --label perf --state open`.
+the manual is split by chapter: `_perf/optimize/finding.md` (spotting
+cosmic-layer wins), `_perf/optimize/cosmopolitan.md` (the C layer against
+a local whilp/cosmopolitan build), `_perf/optimize/measurement.md` (noise
+discipline). the backlog is GitHub issues labeled `perf`.
 
 ## CI
 
-- **pr.yml**: runs `make ci` (format + teal + test + example + lint + coverage ratchet) on push/PR to main, plus macOS/Windows smoke jobs that run the built binary (`-e`, `--docs`, portable test files) on real runners
-- **docs.yml**: publishes generated docs to `docs` branch on push to main
-- **release.yml**: daily release build producing `cosmic-lua` and `cosmic-lua-debug`
+- **pr.yml**: three lanes on push/PR to main. `ci` fetches with a network,
+  then builds and runs the whole gate (fmt, check, test, example, lint,
+  coverage) inside a loopback-only network namespace, so a stray download
+  fails loudly. It builds first and gates with the RESULT, or the six
+  stages would report on the pinned release instead of the change.
+  `build` does what needs a real network: double-build reproducibility
+  (two tree paths) and `--make fetch` against the real pins. Both Linux
+  lanes are privileged and non-root: `_cli/fence_test.tl` asserts a real
+  Landlock denial, the quicksand tests unshare and mount. `smoke` runs
+  the built binary on real macOS/Windows runners. The fence is ON by
+  default (`COSMIC_FENCE=0` opts out); the build lane asserts the host
+  can enforce and that a real build passes fenced — the direction a
+  denial test cannot prove
+- **docs.yml**: `--make docs` then `_docs/publish.tl`, to the `docs`
+  branch on push to main
+- **release.yml**: daily release. Builds twice — the pinned cosmic builds
+  one from the tree, and THAT one builds what ships, so a release is
+  produced by the code it contains rather than by whatever the pin is

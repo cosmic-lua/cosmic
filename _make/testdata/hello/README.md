@@ -1,0 +1,2 @@
+-- the smallest project that is a project: one entry, nothing else.
+-- Exercises: entry -> o/bin/<dir name>, and an artifact that runs.

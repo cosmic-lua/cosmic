@@ -1,0 +1,167 @@
+--- The build-driver entry point behind `-c`:
+--- fence the step, then run it.
+---
+--- The fence is DERIVED, never declared. Because the recipe vocabulary
+--- is closed, every verb's signature already says what it touches —
+--- `copy <src> <dst>` reads src and writes dst, `compile <bootstrap>
+--- <src> <out>` execs the first, reads the second, writes the third.
+--- The shapes table below is that knowledge, and it is the whole
+--- grant: a rule cannot over-declare its way out of the fence, because
+--- a rule declares nothing. (An earlier design carried grants in
+--- target-specific make variables, `COSMIC_UNVEIL = $^`; the closed
+--- vocabulary made that channel redundant.)
+---
+--- It also arms line coverage the way the script path does: a driver
+--- run in the coverage lane must still report _cli.build's lines, or
+--- every recipe step it executes reads as dead code.
+
+local grants = require("_cli.grants")
+local sandbox = require("cosmic.sandbox")
+
+--- Apply the derived fence.
+---
+--- best_effort, because `unveil()` no-ops without Landlock: a host that
+--- cannot enforce runs unfenced rather than refusing to build, the same
+--- posture the make rules take, with CI's enforce lane as the proof it
+--- is live where it counts. A host that CAN enforce but fails to is a
+--- different thing entirely — that is a fence that silently is not
+--- there, so it fails the step loudly instead.
+--- ON. `COSMIC_FENCE=0` turns it off.
+---
+--- It shipped off, because the first attempt turned three lanes red at
+--- once: the derivation was right about the arguments and silent about
+--- everything else a process needs — the APE loader, `/dev/urandom`,
+--- the paths a child's own argv names. Those are the floor, and the
+--- floor is here now.
+---
+--- Default-on is the whole point of the design. The Makefile's
+--- per-rule `.PLEDGE`/`.UNVEIL` are gone; between that and this the
+--- project had a build nothing sandboxed, and a fence nobody turns on
+--- is a fence. Off-by-default also cannot be tested honestly: the only
+--- runs that exercised it were the ones that asked for it.
+---
+--- Costless where it cannot work: `unveil()` no-ops without Landlock,
+--- so on a host that cannot enforce this changes nothing. A host that
+--- CAN enforce and fails to apply the policy is the loud case — that
+--- is a fence that silently is not there.
+--- @return boolean
+local function fence_enabled(): boolean
+  return os.getenv("COSMIC_FENCE") ~= "0"
+end
+
+--- @param verb string The verb name
+--- @param args {string} Its arguments
+--- @return string|nil Error message when an enforceable fence failed
+local function fence(verb: string, args: {string}): string | nil
+  if not fence_enabled() then
+    return nil
+  end
+  -- A policy that could not be DERIVED is an error, not an absence.
+  -- Only the shapeless verb (no policy, no error) legitimately runs
+  -- without a fence; anything else that came back empty failed on the
+  -- way, and dispatching it here would be the one thing this gate
+  -- exists to prevent -- a step running with no Landlock at all,
+  -- announced as if it were fenced.
+  local fs_policy, perr = grants.plan(verb, args)
+  if perr ~= nil then
+    return "fence for '" .. verb .. "' could not be derived: " .. perr
+  end
+  if fs_policy == nil then
+    return nil
+  end
+  -- `keep_coverage`, because this policy GRANTS the coverage directory
+  -- (`_cli/grants.tl` creates it and adds it to `rw`). Without saying
+  -- so the mechanism seals coverage before restricting — the right
+  -- default when nobody knows whether the dump will still work — and
+  -- every fenced recipe then reports only the lines it ran before the
+  -- fence landed. The dumps are all there and all nearly empty, which
+  -- is why it read as a code regression rather than a lost measurement.
+  local ok, err = sandbox.apply({
+      fs = fs_policy,
+      best_effort = true,
+      keep_coverage = true,
+    })
+  if not ok then
+    return "fence for '" .. verb .. "' failed: " .. (err or "unknown error")
+  end
+  return nil
+end
+
+--- Run one driver entry with line coverage armed.
+--- @param run function(): integer The entry to run
+--- @return integer Exit code from the entry
+local function with_coverage(run: function(): integer): integer
+  local cov_dump: function() = nil
+  if os.getenv("COSMIC_COVERAGE") then
+    cov_dump = require("cosmic.coverage").enable_from_env()
+  end
+  local code = run()
+  if cov_dump then
+    cov_dump()
+  end
+  return code
+end
+
+--- Say what this step is doing, in one short line.
+---
+--- The build runs make with `-s`, so make echoes nothing and the tool
+--- owns its own progress voice. Echoing the recipe line instead costs
+--- ~400 characters a step over ~370 steps -- the driver's absolute
+--- path, the source, the output, `--include-dir`, the whole transitive
+--- import closure, and the trailing `;` sentinel that exists only to
+--- route the line through SHELL -- with the one fact a reader wants,
+--- which file, buried mid-line.
+---
+--- Derived, not declared: the shape table the fence already uses says
+--- which argument a verb WRITES, so the line is that verb and that
+--- path. A verb the table does not know prints its name alone rather
+--- than guessing.
+--- @param verb string The recipe verb
+--- @param args {string} Its arguments
+local function announce(verb: string, args: {string})
+  local shape = grants.shapes[verb]
+  local where = ""
+  if shape ~= nil then
+    local at = (shape.rw and shape.rw[1]) or shape.rest_rw
+    or (shape.ro and shape.ro[1])
+    if at ~= nil and args[at] ~= nil then
+      where = " " .. args[at]
+    end
+  end
+  io.write(verb .. where .. "\n")
+end
+
+--- `-c '<line>'`: one recipe line from make, run as argv (`SHELL :=
+--- cosmic`). Parsed first, fenced from the parse, then dispatched.
+--- @param line string The recipe line
+--- @return integer Exit code
+local function recipe(line: string): integer
+  return with_coverage(function(): integer
+      local b = require("_cli.build")
+      local verb, args, err = b.parse(line)
+      if err ~= nil then
+        io.stderr:write("cosmic -c: " .. err .. "\n")
+        return 1
+      end
+      if verb == nil then
+        return 0
+      end
+      local ferr = fence(verb, args)
+      if ferr ~= nil then
+        io.stderr:write("cosmic -c: " .. ferr .. "\n")
+        return 1
+      end
+      announce(verb, args)
+      return b.dispatch(verb, args)
+    end)
+end
+
+local record DriverModule
+  recipe: function(line: string): integer
+end
+
+local M: DriverModule = {
+  recipe = recipe,
+}
+
+return M

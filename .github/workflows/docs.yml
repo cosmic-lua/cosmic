@@ -8,15 +8,58 @@ on:
 env:
   SOURCE_SHA: ${{ github.sha }}
 
+# Two pushes to main in quick succession would otherwise race on the
+# `docs` branch and one publish would be rejected. Queue instead of
+# cancel: every commit's docs get published, in order.
+concurrency:
+  group: docs-publish
+  cancel-in-progress: false
+
 jobs:
+  # Same pinned container and non-root builder as every Linux lane (see
+  # pr.yml): this job compiles the tree to generate docs from it, so its
+  # environment is a build input like any other. `_build/workflows_test.tl`
+  # ratchets the `image:` line identical across every workflow.
+  #
+  # The PUSH to the docs branch stays a workflow concern: it needs
+  # credentials and a network, which is not something a build verb will
+  # ever have.
   docs:
     runs-on: ubuntu-latest
+    container:
+      image: buildpack-deps@sha256:cfb30ff3856780c63b00ec3ad2e4aed77ae6afce5975ebb8ad9525ec45354e2e # noble (Ubuntu 24.04)
+      options: --privileged
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          fetch-depth: 0
 
-      - shell: bash -x {0}
-        run: bin/make -j doc-publish
+      - name: prepare non-root builder
+        shell: bash
+        run: |
+          set -eux
+          useradd -m -s /bin/bash builder
+          chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
+          git config --system --add safe.directory "$GITHUB_WORKSPACE"
+
+      # `docs` is a gate verb, so it converges: it builds the tree and
+      # renders under what it built, rather than under the pin. Which
+      # means this lane needs the pins, exactly like every other lane
+      # that builds -- `build` will not reach for a pin it is missing,
+      # it refuses. Without this the workflow renders under the pin
+      # today and fails outright the moment the pin knows how to
+      # converge.
+      - name: fetch the pins
+        shell: bash
+        run: |
+          set -eux
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            bin/cosmic --make fetch
+
+      - name: publish docs
+        shell: bash
+        run: |
+          set -eux
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bash -ec '
+            bin/cosmic --make docs
+            bin/cosmic _docs/publish.tl "'"$SOURCE_SHA"'" o/docs docs'

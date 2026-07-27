@@ -3,256 +3,144 @@
 ## Quick Reference
 
 ```bash
-bin/make help           # list all targets with descriptions
-bin/make build          # build cosmic binary → o/bin/cosmic
-bin/make test           # run all tests (incremental)
-bin/make teal           # type check all files
-bin/make format         # check formatting
-bin/make ci             # full CI pipeline
-bin/make clean          # remove o/
+bin/cosmic --make fetch     # resolve *_pin.tl — the only verb with a network
+bin/cosmic --make build     # o/bin/cosmic and o/bin/cosmic-debug
+bin/cosmic --make ci        # fmt, check, test, example, lint, coverage
+bin/cosmic --make clean     # remove o/
+bin/cosmic --make help      # every verb, and which are still planned
 ```
+
+**Gate under the binary you built:**
+
+```bash
+bin/cosmic --make build && o/bin/cosmic --make ci
+```
+
+`bin/cosmic` execs the *pinned* release, and modules resolve from that
+artifact before the tree — so `bin/cosmic --make ci` checks the pin's
+code, not yours. It will run the released formatter over a formatter fix
+and pass. CI builds first and gates with the result.
 
 ## How It Works
 
-the build uses GNU Make with a module system. each directory provides a `cook.mk` that declares its module.
+`cosmic --make` builds a project **by convention**. There is no build
+spec: the tree is the project, and a file's position and name declare
+what it is.
 
-### Module Declarations
+| marker | declares |
+|---|---|
+| `<dir>/*.tl`, `<dir>/*.lua` | a package: compile, check, format |
+| `_<dir>/` | internal — importable only from within its container |
+| `*_test.tl`, `*_example.tl` | a test / example target |
+| `testdata/` | fixtures; never embedded |
+| `*.d.tl` | type-only; include path, never embedded |
+| `cmd/<name>/main.tl` | a binary → `o/bin/<name>` |
+| `<dir>/*_pin.tl` | a pinned external asset |
+| `<dir>/*_gen.tl` | a generation unit: runs BEFORE the graph, owns `o/<its path minus .tl>/` |
+| `cmd/<name>/embed_gen.tl` | that binary's payload generator: runs after |
+| `embed/**` | payload, embedded at its path inside `embed/` |
+| everything else | an asset: part of the project, not of its artifacts |
 
-a module declares these variables:
+**Import path = path relative to the root**, `/`→`.`, extension dropped.
+The repo root is the module root, and so is the zip root, so that holds
+inside the artifact too.
 
-```makefile
-modules += mymod                          # register module
-mymod_tl := $(wildcard lib/mymod/*.tl)    # source files
-mymod_tests := $(filter %_test.tl,...)    # test files
-mymod_files := $(o)/bin/mymod             # build outputs
-mymod_deps := cosmos tl                   # module dependencies
-```
+Nothing lists any of this. A directory added to the tree is built,
+checked, tested and documented without anyone registering it.
 
-the top-level Makefile aggregates all modules and derives:
-- `all_tl` / `all_lua`: all Teal sources and their compiled Lua
-- `all_tests` / `all_tested`: test files and their results
-- dependency edges: a module's files depend on its deps' files/staged outputs
+### Constant rules, generated facts
 
-### Compilation
+`embed/cosmic.mk` is a committed file, shipped inside the binary at
+`/zip/cosmic.mk`, and byte-identical for every project. **No rule is ever
+generated.** `o/project.mk` holds only variable assignments —
+`srcdeps_<stem>`, each source's transitive import closure — which the
+compile rule takes as prerequisites, so a module whose contract changed
+recompiles its importers. It is output; never commit it.
 
-Teal files compile to Lua through the pinned bootstrap's own shell-free
-recipe surface (`cosmic --build`, #732/#756 item 3) — no redirect, no host
-`cat`/`cmp`/`mv`:
+### Cosmic as `SHELL`
 
-```makefile
-$(o)/%.lua: %.tl $(types_files) $(bootstrap_files)
-    @$(bootstrap_cosmic) --build compile $(bootstrap_cosmic) $< $@ $(include_dir_flags)
-```
+Make runs `cosmic -c '<line>'` for every recipe line. A line is **argv,
+not shell**: whitespace-split, `argv[0]` a verb from a closed vocabulary
+(`_cli/build/`), and shell metacharacters are refused rather than
+interpreted. Cosmic derives its sandbox grants from the line's own shape
+— `copy <src> <dst>` reads the first and writes the second — and
+self-restricts before doing the work. A rule cannot over-declare its way
+out of the fence, because a rule declares nothing.
 
-compiles are **always** strict (`--compile-strict`: type check, then
-generate from that same checked AST) with `LUA_PATH=";;"`, which is what
-makes the output independent of parallel build order (#733). there is no
-flag to select: #776 retired both the probe and the stamp file the driver
-used to read, along with the non-strict fallback that could degrade
+Compiles are **always** strict (type check, then generate from that same
+checked AST), which is what makes output independent of parallel build
+order. There is no flag to select it.
+
+### Versioned dependencies (3p/)
+
+A `*_pin.tl` is Teal **data** — a `return { … }` of literals, read by
+`cosmic.literal` and never executed. It names a url and the sha256 of the
+bytes it must produce; `fetch` verifies before unpacking, because an
+archive is a program for a decompressor and running one on unverified
+bytes is what pinning exists to prevent.
+
+`fetch` unpacks a pin **beside the pin**, so `3p/cosmos/cosmos_pin.tl`
+lands in `o/3p/cosmos/` and `3p/tl/tl_pin.tl` in `o/3p/tl/`.
+
+### Artifacts
+
+A unit's output directory holds `embed/` — what the artifact carries —
+next to `base`, what it carries it on. A `base-<variant>` written beside
+`base` ships the **same staged payload** on that runtime as
+`o/bin/<name>-<variant>`; staging happens once, so the two cannot drift.
+That is how one build produces both release binaries.
+
+**Shipping is opt-in**: an artifact carries its modules plus `embed/**`
+and nothing else. The base is stripped to a positive floor — compiled
+`cosmic/**`, TLS roots, zoneinfo, `.args` — a keep-list rather than a
+strip-list, so a base that grows a directory cannot start shipping it
 silently.
 
-### Versioned Dependencies (3p/)
+Zip entries carry a fixed mtime rather than the staging file's, so two
+builds of one tree are byte-identical. CI proves it by building twice
+into different tree *paths* and comparing.
 
-third-party modules use a three-stage pipeline:
+## CI
 
-```
-version.lua → .versioned → .fetched → .staged
-```
+Three lanes in `.github/workflows/pr.yml`:
 
-1. **version.lua**: declares version string, SHA256, and download URLs
-2. **fetch**: `build-fetch.lua` downloads the archive, verifies the hash
-3. **stage**: `build-stage.lua` extracts to `o/staged/<module>/<ver>-<sha>/`
+- **`ci`** — fetch with a network, then build and run the whole gate
+  inside a loopback-only network namespace, so a stray download fails
+  loudly.
+- **`build`** — everything needing a real network or a real kernel:
+  double-build reproducibility, `--make fetch` against the real pins, and
+  the sandbox-enforcement lane.
+- **`smoke`** — the built binary on real macOS and Windows runners.
 
-symlinks connect `o/<module>/.staged` to the extracted directory.
+## Selection
 
-### Test Execution
-
-```makefile
-$(o)/%.tl.test.got: $(o)/%.lua $(cosmic_bin) $(ape_loader)
-    @$(cosmic_bin) --test $(basename $@) $(cosmic_bin) $<
-```
-
-`cosmic --test` owns the capture — the recipe is a single argv line with
-no shell, no `mktemp`, and no redirects. each test:
-- runs as a standalone script (compiled `.lua` with shebang)
-- gets its own `TEST_TMPDIR`, created and cleaned up by the runner
-- captures stdout to `.out`, stderr to `.err`, exit code to `.got`
-- is aggregated into a summary: `cosmic --report` for the test, coverage,
-  and enforce lanes; `lib/build/reporter.tl --out` for teal, format,
-  lint, example, and benchmark
-
-type and format checks follow the same shape but read the **source**
-directly (`$(o)/%.teal.got: %`), as lint always has — there is no copy of
-the tree under `o/` (#775).
-
-#### test lanes
-
-the same tests run in three lanes, each in its own output tree so one
-never invalidates another:
-
-| lane | targets | what it adds |
-|------|---------|--------------|
-| plain | `o/<src>.test.got` | — |
-| coverage | `o/coverage/<src>.test.got` | `COSMIC_COVERAGE=1`, ratcheted against the committed baseline |
-| enforce | `o/enforce/<src>.test.got` | `COSMIC_ENFORCE=1`, no outer sandbox; a fixed three-file list |
-
-a per-test exception applies to every lane, so modules declare the test
-source once and expand it with `$(call test_got,<src>...)` (#778):
-
-```makefile
-$(call test_got,lib/build/help_test.tl): .UNVEIL := $(unveil_test) r:Makefile
-```
-
-**the lane patterns nest.** `o/coverage/x.tl.test.got` and
-`o/enforce/x.tl.test.got` both match the plain `$(o)/%.tl.test.got`
-pattern (with stems `coverage/x` and `enforce/x`), so they **inherit**
-its pattern-specific variables — more specific patterns win per-variable,
-but anything the plain pattern sets and they do not reaches them. two
-consequences:
-
-- the `enforce` lane must **explicitly empty** `.PLEDGE`/`.UNVEIL` and set
-  `.SANDBOXED := 0`; simply omitting them would inherit the plain lane's
-  sandbox, which is precisely what that lane exists to run without.
-- widening a grant on the plain pattern silently widens all three lanes.
-  add it to the specific lane, or to the specific test via `test_got`.
-
-### Sandboxing
-
-with landlock-make (`bin/make`), each rule declares security constraints:
-
-```makefile
-$(o)/%.tl.test.got: .PLEDGE := stdio rpath wpath cpath proc exec
-$(o)/%.tl.test.got: .UNVEIL := rx:$(o)/bootstrap r:lib rwc:$(o) rwc:$(TMP)
-$(o)/%.lua: .ENV := LUA_PATH TL_PATH LC_ALL TZ NO_COLOR
-```
-
-- `.PLEDGE` restricts system calls (OpenBSD pledge semantics)
-- `.UNVEIL` restricts filesystem paths and permissions
-- `.ENV` clamps the child environment to the named variables (#756 item
-  5); the env-clamp fixture's canary probe gates it
-
-these are **enforced, not documented intent** (#729). every rule family
-CI exercises sets `.SANDBOXED := 1` — compile (#739),
-fetch/stage/lint/reporter (#740), teal/format (#742), tests (#743),
-examples (#745) — so an undeclared read or write in one of those
-recipes fails on a Landlock host. `unveil()` no-ops where Landlock is
-unavailable, which is what the `sandbox-canary` probe (#716/#724)
-exists to detect.
-
-three families deliberately opt out, each with its reason recorded at
-the rule: `version.lua` (reads `.git`, and its fallback would silently
-mint an unversioned artifact), the quicksand namespace tests and
-examples (`unshare` has no pledge promise — the `enforce` lane covers
-them instead), and the benchmark family, which keeps its annotations
-without enforcement because no CI lane runs benchmarks. enforcing
-grants that nothing exercises is not a falsifiable gate; that family
-flips when a lane runs it.
-
-losing enforcement is silent — drop a `.SANDBOXED := 1` and every grant
-set is still a superset of what the recipe needs, so nothing fails and
-CI stays green. the `.SANDBOXED` ratchet in
-`lib/build/makefile_ratchet_test.tl` enumerates the enforced set and
-the exceptions and fails in both directions, which is the only thing
-that notices.
-
-recipes are shell-free by default (#756 item 2): the global `SHELL` is
-poisoned, recipes are single argv lines run via make's direct-exec
-path, and the real shell is a per-rule `private` exception. The
-makefile ratchet tests enumerate the exception set, the
-`$(unveil_hostx)` carriers, and statically scan recipe text for shell
-syntax — all three fail when a set grows without a declared reason.
-
-most grants are not written by hand at all: landlock-make derives them
-from the declared graph (prerequisites readable, the target's directory
-writable, plus the global base), so a rule declares only genuinely-extra
-paths. that derivation is gated upstream in
-`test/tool/build/make_sandbox_test.sh` (whilp/cosmopolitan#210).
-
-#### what each family's sandbox actually buys
-
-"enforced" does not mean "equally confined" — the grant sets differ by
-an order of magnitude, and it is worth knowing which guarantee you are
-relying on (#781):
-
-| family | grants beyond the base | what is actually denied |
-|---|---|---|
-| compile (`%.lua`) | `r:tlconfig.lua` + device nodes | everything else: no host exec, no network, no writes outside the target's directory |
-| teal / format | `r:tlconfig.lua`, `rwc:$(TMP)`, devices | same — **no** `$(unveil_hostx)` |
-| lint | `rwc:$(TMP)`, devices | same |
-| fetch | archive cache, resolv/hosts/ssl, `inet dns` | writes outside the fetch cache; the only family with network |
-| stage | fetch cache read, staged tree write | network, host exec |
-| test / example / benchmark | `rwcx:$(o)`, `rwcx:$(TMP)`, **`$(unveil_hostx)`** | writes outside `o/` and `$(TMP)` — notably the source tree (`lib`, `3p` are `r:`) and `$HOME` |
-
-the first five are genuinely tight: an undeclared read fails. the test
-lanes are not — `$(unveil_hostx)` is `rx:` over `/usr`, `/bin`, `/lib`,
-`/lib64`, `/proc` plus `r:/etc`, because tests legitimately exec host
-tools. what the test-lane sandbox buys is narrower and still worth
-having: **a test cannot write outside `o/` and `$(TMP)`**, so it cannot
-scribble on the source tree or your home directory. read "tests are
-sandboxed" as that, not as the compile family's guarantee.
-
-this is why the `$(unveil_hostx)` ratchet earns its keep. its value is
-not in cataloguing the loose lanes — it is that `rx:/usr` appearing on
-a *tight* family (a compile, a fetch, a lint) fails the ratchet loudly
-instead of silently widening the build's best-confined rules.
-
-### Building the cosmic Binary
-
-the cosmic binary is assembled in `lib/cosmic/cook.mk`:
-
-1. compile all `cosmic.*` modules to `.lua`
-2. copy modules, tl.lua, type definitions, and doc index into a staging area
-3. copy the cosmos lua binary as the base executable
-4. append the staging area as a zip archive
-5. append `main.lua` and `.args` to the zip
-
-the result is a single executable with all modules accessible at `/zip/.lua/`.
-
-## CI Pipeline
-
-`make ci` runs six stages with `--keep-going`:
-
-1. **format**: check all files with `cosmic --check-format`
-2. **teal**: type check all files with `cosmic --check-types`
-3. **test**: run all `*_test.tl` files
-4. **example**: run all `Example_*` functions in `*_example.tl` files
-5. **lint**: file length, cast justifications, and shared style checks on
-   every tracked file
-6. **coverage**: the tests again in a separate output tree with collection
-   on, ratcheted against `lib/cosmic/coverage/baseline.txt`
-
-each stage gets a `ci-ok-<stage>` exit marker, made only after its entire
-subtree succeeded. grading reads the marker as well as the summary text,
-so a recipe that fails *after* writing a clean summary still fails the
-stage (#714). the run ends with a `ci: PASS` / `ci: FAIL (stages)` line.
-
-## Filtering
-
-use `only=` to filter by pattern:
+Every graph verb takes paths, and selection names targets **of that
+verb's own kind**:
 
 ```bash
-bin/make test only=sqlite     # only sqlite tests
-bin/make teal only=cosmic     # only cosmic module type checks
-bin/make files only=cosmic    # only build cosmic files
+o/bin/cosmic --make test cosmic/string_test.tl   # one test
+o/bin/cosmic --make build cmd/cosmic             # one binary
 ```
 
-## Bootstrap Cycle
+`build`'s targets are binaries, so a source path is refused — pointing at
+`check`, whose targets *are* sources. Selection never changes what a
+target means: `build cmd/foo` runs the full pipeline, staging exactly
+what a full build stages.
 
-the bootstrap avoids circular dependency (need cosmic to compile cosmic):
+## Bootstrap
 
-1. `bin/make` downloads a pre-built `cosmic` to `o/bootstrap/cosmic`,
-   verifies it against the sha in `cook.mk`, and assimilates it to a
-   native ELF. it is the *sole* provisioner — the Makefile's rule only
-   errors, and a pin bump re-downloads via the `.pin` stamp.
-2. it compiles all `.tl` → `.lua` and builds the new cosmic binary.
+Building cosmic needs a cosmic. `bin/cosmic` is the trust root: POSIX sh
+that obtains **one** pinned artifact named in `bin/cosmic.pin`, verifies
+its sha256, assimilates it to a native ELF (sandboxed rules cannot grant
+the APE loader's extraction), and execs it. Everything after runs under
+that pin — cosmic extracts its own build engine from its own zip.
 
-the bootstrap URL and sha are pinned in `cook.mk` and bumped **by hand**;
-no workflow refreshes them, and nothing verifies that the tree can rebuild
-itself under a binary it just produced. `make stage1`/`stage2` used to
-gesture at that check but no lane ever ran them, so they were removed
-(#774) rather than left as a gate that never fires. if the self-host
-property is worth guaranteeing, it wants a CI lane, not a manual target.
+    kernel → bin/cosmic → one pin → everything else
 
-the build's trust root — what `bin/make` fetches, what stays outside
-the root, and the settled decision that pinned make is permanent — is
-recorded in [decisions.md](decisions.md) (D13, D14).
+The pin is bumped by hand. A release is built in two generations — the
+pinned cosmic builds one from the tree, and *that* one builds what ships
+— so a release is produced by the code it contains rather than by
+whatever the pin happens to be.
+
+The trust root's shape, and the settled decision that a pinned make is
+permanent, are recorded in [decisions/](decisions/) (D13, D14).

@@ -1,0 +1,2 @@
+-- Import path IS position: greet/init.tl is require("greet"), and
+-- greet/loud.tl is require("greet.loud"). No manifest says so.

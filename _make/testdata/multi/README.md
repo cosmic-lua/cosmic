@@ -1,0 +1,2 @@
+-- Two binaries from one tree. Each cmd/<name>/ ships the root
+-- packages plus its OWN subtree; neither can import the other.

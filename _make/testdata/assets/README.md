@@ -1,0 +1,2 @@
+-- Payload under embed/ ships; this file does not, and testdata/ never
+-- did. Shipping is opt-in, so "not shipped" needs no second knob.

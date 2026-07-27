@@ -5,29 +5,32 @@
 ```bash
 git clone https://github.com/whilp/cosmic
 cd cosmic
-bin/make build    # downloads bootstrap, fetches deps, builds cosmic
-bin/make test     # run tests
+bin/cosmic --make fetch   # resolve the pins (the only networked verb)
+bin/cosmic --make build   # build cosmic
+o/bin/cosmic --make test  # run tests, under the binary you just built
 ```
 
-`bin/make` is a shell script that, on first run, downloads the sha-pinned bootstrap cosmic and uses it to extract `make` from the sha-pinned cosmos.zip (`lib/build/make-boot.tl`). all build artifacts go to `o/`.
+`bin/cosmic` is a POSIX-sh script that, on first run, downloads the one
+sha-pinned cosmic named in `bin/cosmic.pin`, verifies it, and execs it.
+Everything after runs under that pin. All build artifacts go to `o/`.
 
 ## Workflow
 
 1. create a branch from `main`
-2. make changes to `.tl` files in `lib/cosmic/`
-3. run checks:
+2. make changes to `.tl` files in `cosmic/`
+3. run the gate — under the binary your change builds, not the pinned
+   one, or the checks report on the release instead of your work:
    ```bash
-   bin/make format        # check formatting
-   bin/make teal          # type check
-   bin/make test          # run tests
+   bin/cosmic --make build && o/bin/cosmic --make ci
    ```
+   Or one stage at a time: `--make fmt`, `--make check`, `--make test`.
 4. open a PR against `main`
 
-CI runs `make ci` which includes format + teal + test + example checks.
+CI runs the same `--make ci`: fmt, check, test, example, lint, coverage.
 
 ## Writing a Module
 
-create `lib/cosmic/mymod.tl`:
+create `cosmic/mymod.tl`:
 
 ```teal
 --- Brief module description.
@@ -58,7 +61,7 @@ local M: MyModule = {
 return M
 ```
 
-create `lib/cosmic/mymod_test.tl`:
+create `cosmic/mymod_test.tl`:
 
 ```teal
 #!/usr/bin/env cosmic
@@ -76,7 +79,7 @@ the test file must have a shebang line and call test functions directly.
 
 ## Writing Examples
 
-create `lib/cosmic/mymod_example.tl`:
+create `cosmic/mymod_example.tl`:
 
 ```teal
 local function Example_basic()
@@ -90,7 +93,7 @@ end
 local _ = Example_basic
 ```
 
-functions named `Example_*` are discovered and run by `cosmic --check-examples`. the `-- Output:` comment block is compared against actual stdout.
+functions named `Example_*` are discovered and run by `cosmic --check example`. the `-- Output:` comment block is compared against actual stdout.
 
 ## Error Handling Rules
 
@@ -103,7 +106,7 @@ see `AGENTS.md` for the complete guide. key rules:
 
 ## Formatting
 
-cosmic enforces formatting via `cosmic --check-format`:
+cosmic enforces formatting via `cosmic --check fmt`:
 
 - 2-space indent
 - LF line endings
@@ -116,34 +119,41 @@ run `cosmic --format file.tl` to see the formatted output. the check compares or
 cosmic uses Teal's strict mode for type checking:
 
 ```bash
-cosmic --check-types lib/cosmic/mymod.tl
+cosmic --check types cosmic/mymod.tl
 ```
 
-all type errors must be resolved. warnings are reported but don't fail the build.
+all type errors must be resolved, and so must warnings: `--check
+types` is strict, so an unused local, a shadowed name or an
+unreachable branch fails the gate. mark a deliberately-unused value
+with a leading underscore.
 
 ## Adding a 3p Dependency
 
-1. create `3p/mylib/version.lua`:
+1. create `3p/mylib/mylib_pin.tl` — a **pin**: one `return { … }` of
+   literals, read as data by `cosmic.literal` and never executed, so a
+   file that declares a dependency cannot also do anything:
    ```lua
    return {
      version = "1.0.0",
-     sha256 = "...",
-     url = "https://github.com/org/repo/releases/download/v1.0.0/archive.tar.gz",
+     format = "tar.gz",
+     strip_components = 1,
+     url = "https://github.com/org/repo/releases/download/v{version}/archive.tar.gz",
+     platforms = {
+       ["*"] = { sha = "..." },
+     },
    }
    ```
 
-2. create `3p/mylib/cook.mk`:
-   ```makefile
-   modules += mylib
-   mylib_version := 3p/mylib/version.lua
-   ```
+   `url` and a digest are required — a pin without one is a download.
+   `{version}` (and `{platform}`) substitution is the only templating
+   the grammar allows, which is what makes a bump a one-line diff. A
+   digest that is the same everywhere goes under `platforms["*"]`; one
+   that differs per host gets a row per `os-arch` tag. `format` (with
+   `strip_components`) unpacks the archive after the digest matches —
+   never before, since an archive is a program for a decompressor.
 
-3. include in `Makefile`:
-   ```makefile
-   include 3p/mylib/cook.mk
-   ```
-
-4. declare dependency from your module:
-   ```makefile
-   mymod_deps := mylib
-   ```
+2. that is the whole registration. `*_pin.tl` is the marker, so
+   `--make fetch` resolves it and lands the bytes beside it, in
+   `o/3p/mylib/`. Nothing includes it and nothing declares a dependency
+   on it — a module that requires the result gets the edge from its own
+   `require`.

@@ -10,40 +10,56 @@ on:
 permissions:
   contents: read
 
+# A superseded PR run answers a question nobody is asking any more.
+# Pushes to main are never cancelled: each commit on main gets its own
+# verdict, and that verdict is the record.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  # The make-ci gate runs in a DIGEST-pinned container (#734). On plain
-  # `ubuntu-latest` the OS image rolls monthly (e.g. ubuntu24/20260714.240),
-  # so it is an unpinned build input — the coverage-floor churn in #722 was
-  # exactly this leak (the ratchet's floors encode the environment, and the
-  # environment drifted). The image below is bumped deliberately, like any
-  # 3p/*/version.lua pin: change the digest, re-check the floors, commit.
+  # The gate, run with no network.
   #
-  # buildpack-deps:noble is Ubuntu 24.04 — the same release ubuntu-latest
-  # currently serves — and its base tag ships git, curl, ca-certificates,
-  # and coreutils (archive extraction is in-process since #732 — no host
-  # unzip/tar in the build), so the gate needs no apt-get and nothing
-  # re-introduces an unpinned package fetch. The digest is the
-  # multi-arch index for the `noble` tag; GitHub pulls its linux/amd64
-  # child on the x86-64 runner.
+  # Three things may touch the network: the bootstrap download, the
+  # cosmos.zip download behind it, and the fetch rule — each verified
+  # against a committed sha256, so the pins are the trust root and TLS is
+  # only transport. This lane makes that falsifiable: fetch with the
+  # network allowed, then run the ENTIRE gate inside a network namespace
+  # whose only interface is loopback (up for the localhost socket tests).
+  # A download anywhere else — a recipe, a build script, a test — fails
+  # loudly instead of working silently.
   #
-  # Parity with the bare runner is load-bearing and comes from two knobs:
-  #   - options: --privileged so the container's capability profile matches
-  #     the host. make ci enforces .SANDBOXED via real Landlock (#729) and
+  # There is no network-allowed copy of this lane. It would run the same
+  # `cosmic --make ci` over the same tree and differ only in what it is
+  # permitted to do, so a green fenced run implies a green unfenced one.
+  #
+  # The container is pinned by DIGEST because an OS image is a build
+  # input: `ubuntu-latest` rolls monthly, and the coverage floors encode
+  # the environment they were measured in. Bump it deliberately, like any
+  # pin: change the digest, re-check the floors, commit.
+  #
+  # buildpack-deps:noble ships git, curl, ca-certificates and coreutils,
+  # and archive extraction is in-process, so the gate needs no apt-get
+  # and nothing re-introduces an unpinned package fetch. The digest is
+  # the multi-arch index; GitHub pulls the linux/amd64 child.
+  #
+  # Two knobs keep parity with a bare runner:
+  #   - `--privileged`, so the container's capability profile matches the
+  #     host. `_cli/fence_test.tl` asserts a real Landlock DENIAL, and
   #     the quicksand tests call unshare(CLONE_NEWUSER|NEWNET) + mount;
-  #     Docker's default seccomp/AppArmor would silently strip those,
-  #     degrading enforcement to a no-op and dropping coverage below the
-  #     committed baseline.
-  #   - a non-root builder user (below): GHA container jobs run as root, but
-  #     the gate is identity-sensitive — fs/walk_test skips its EACCES path
-  #     under geteuid()==0 — so running as root would move coverage. This
-  #     mirrors the offline lane's `sudo -u runner`.
-  # Every Linux lane shares this container block, repeated per job (#734)
-  # so each pin stays a visible, reviewable edit. All run their make step
-  # as the non-root builder; offline and enforce use the container's root
-  # (privileged) for the netns bring-up / real-Landlock work first, then
-  # drop to builder. The cross-OS `smoke` matrix stays on native
-  # macOS/Windows runners — it cannot run in a Linux container by design.
-  build:
+  #     Docker's default seccomp and AppArmor profiles would strip both,
+  #     turning those assertions into no-ops and dropping coverage below
+  #     the committed floor. An assertion that cannot bite is one nobody
+  #     has checked.
+  #   - a non-root builder (below), because the gate is
+  #     identity-sensitive: fs/walk_test skips its EACCES path under
+  #     geteuid()==0, which moves coverage.
+  #
+  # Both Linux lanes repeat this container block — GitHub Actions has no
+  # anchor for it — and `_build/workflows_test.tl` ratchets every copy
+  # identical, so a bump that misses one fails here rather than leaving
+  # lanes on different environments.
+  ci:
     runs-on: ubuntu-latest
     container:
       image: buildpack-deps@sha256:cfb30ff3856780c63b00ec3ad2e4aed77ae6afce5975ebb8ad9525ec45354e2e # noble (Ubuntu 24.04)
@@ -51,11 +67,10 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      # Hand the checkout and HOME to a non-root user so `bin/make -j ci`
-      # runs with geteuid()!=0 (coverage parity, see the job comment). The
-      # system-wide safe.directory keeps git usable for every user — the
-      # gate shells out to `git ls-files` (lint) and `git describe`
-      # (version stamp) from inside the sandboxed recipes.
+      # The gate runs as a non-root user: see the identity note above.
+      # The system-wide safe.directory keeps git usable for that user,
+      # since lint discovers files with `git ls-files` and the version
+      # stamp reads `git describe`.
       - name: prepare non-root builder
         shell: bash
         run: |
@@ -64,15 +79,46 @@ jobs:
           chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
           git config --system --add safe.directory "$GITHUB_WORKSPACE"
 
-      # timeout: a recipe child dying mid-test can leave forked test
-      # parents blocked on accept/wait, wedging make — convert a hang
-      # into a failure so the dump step below fires
-      - name: make ci
-        timeout-minutes: 20
+      # Pins resolve here, where there is a network. Everything after
+      # this step — compiles, checks, tests, summaries — runs denied.
+      - name: fetch with network allowed
         shell: bash
         run: |
           set -eux
-          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bin/make -j ci
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bin/cosmic --make fetch
+
+      # The namespace needs root to create, and so does bringing `lo` up
+      # inside it — the pinned bootstrap does that itself rather than
+      # asking the host for iproute2. Only then does the gate drop to the
+      # builder, which is the identity every other lane runs as.
+      #
+      # timeout: a recipe child dying mid-test can leave forked test
+      # parents blocked on accept/wait, wedging make. Convert a hang into
+      # a failure so the dump step below fires.
+      # One command, because the gate converges on its own: `--make ci`
+      # in a project that builds its own toolchain builds first and
+      # re-execs into what it built, until the artifact stops changing
+      # (_make/converge.tl). Building here rather than in the build lane
+      # keeps it fenced.
+      - name: the gate, with network denied
+        timeout-minutes: 20
+        shell: bash
+        env:
+          NETNS: |
+            assert(require("cosmic.quicksand.netns").bring_up("lo"))
+        run: |
+          # Captured, so a failure can be READ. The gate's verdict line
+          # and the coverage ratchet's row list are the last things it
+          # prints, and they end up hundreds of lines back once the
+          # failure steps and the runner's own cleanup follow them —
+          # which cost several CI cycles here, each one a full re-run to
+          # ask a question the first run had already answered.
+          # pipefail, or tee's clean exit would hide the gate's.
+          set -euxo pipefail
+          unshare --net -- bash -euxo pipefail -c '
+            o/bootstrap/cosmic -e "$NETNS"
+            runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+              bin/cosmic --make ci 2>&1 | tee o/gate.log'
 
       - name: dump failing test output
         if: failure()
@@ -92,23 +138,36 @@ jobs:
             fi
           done
 
-  # No-network gate (#730). By design only three things touch the
-  # network — the bootstrap download and the cosmos.zip download that
-  # yields bin/cosmo-make (both via bin/make, #756 item 6), and the
-  # fetch rule — each integrity-checked against a committed sha256,
-  # so the pins are the trust root and TLS is transport. This job makes
-  # the property falsifiable: fetch with network allowed, then run the
-  # ENTIRE gate inside a network namespace whose only interface is
-  # loopback (brought up for the localhost socket tests). A stray
-  # download anywhere in a recipe, build script, or test fails loudly
-  # instead of working silently. In the privileged container we already
-  # hold root, so no sudo: unshare the net namespace, bring lo up as root
-  # with the pinned bootstrap's own quicksand.netns (not host iproute2,
-  # #732), then drop to the builder for `make ci` — the same non-root
-  # identity as every other lane, so coverage stays consistent.
-  offline:
+      # LAST, so the gate's own ending is the log's own ending: the
+      # stage verdicts, and — when coverage is what failed — the one
+      # line naming every row that moved. Re-running the gate to ask
+      # again was the previous attempt at this; it answered a question
+      # about a second run rather than about the one that failed.
+      - name: the gate's own tail
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          echo "===== last 20 lines of the gate ====="
+          tail -20 o/gate.log
+          # Which LINES ran, for every row the ratchet named. A percentage
+          # says a file got worse; the missing-line list says which branch
+          # stopped running, which is the difference between reading the
+          # diff and guessing at it across CI cycles.
+          echo "===== coverage detail for the declining rows ====="
+          for f in $(grep -oP '(?<=coverage ratchet: declined: ).*' o/gate.log | tail -1); do
+            runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+              o/bin/cosmic --coverage-report o/.coverage 2>/dev/null \
+              | grep -F "$f "
+          done
+          exit 0
+
+  # What needs a built binary and a real network — the two things the
+  # gate lane deliberately lacks. Both steps start from the same build,
+  # so they share one container rather than one each.
+  build:
     runs-on: ubuntu-latest
-    # Pinned CI container (#734) — same block as build; see there for rationale.
+    # Pinned container, identical to the gate lane's; see there.
     container:
       image: buildpack-deps@sha256:cfb30ff3856780c63b00ec3ad2e4aed77ae6afce5975ebb8ad9525ec45354e2e # noble (Ubuntu 24.04)
       options: --privileged
@@ -123,97 +182,108 @@ jobs:
           chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
           git config --system --add safe.directory "$GITHUB_WORKSPACE"
 
-      # fetch and stage online (as builder); everything else — compiles,
-      # checks, tests, summaries — runs network-denied. (This split was
-      # briefly relaxed to build online while landlock-make corrupted
-      # sandbox state across vfork children under parallel bursts; fixed
-      # in whilp/cosmopolitan#201, pinned via bin/make.)
-      - name: fetch and stage with network allowed
-        shell: bash
-        run: |
-          set -eux
-          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bin/make -j staged
-
-      - name: make ci with network denied
-        shell: bash
-        run: |
-          set -eux
-          H="$HOME"; P="$PATH"
-          unshare --net -- bash -ec "
-            o/bootstrap/cosmic -e 'assert(require(\"cosmic.quicksand.netns\").bring_up(\"lo\"))'
-            exec runuser -u builder -- env HOME=$H PATH=$P bin/make -j ci"
-
-  # Reproducibility gate (#733): build the binary twice from the same
-  # tree — the second time into a fresh output tree so the whole
-  # pipeline (compile, doc index, version stamp, pack) reruns — and
-  # cmp. Green proves the artifact is a pure function of the source
-  # tree; any future nondeterminism (timestamps, ordering, embedded
-  # strings) fails loudly instead of shipping. Same checkout, so the
-  # deliberate git-describe input stays constant.
-  reproducible:
-    runs-on: ubuntu-latest
-    # Pinned CI container (#734) — same block as build; see there for rationale.
-    container:
-      image: buildpack-deps@sha256:cfb30ff3856780c63b00ec3ad2e4aed77ae6afce5975ebb8ad9525ec45354e2e # noble (Ubuntu 24.04)
-      options: --privileged
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: prepare non-root builder
-        shell: bash
-        run: |
-          set -eux
-          useradd -m -s /bin/bash builder
-          chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
-          git config --system --add safe.directory "$GITHUB_WORKSPACE"
-
+      # The artifact is a pure function of the source tree: build twice,
+      # the second time into a different output tree so the whole
+      # pipeline reruns, and compare. Any nondeterminism — a timestamp,
+      # an iteration order, an embedded path — fails here instead of
+      # shipping.
       - name: build twice and compare
         shell: bash
         run: |
           set -eux
           runuser -u builder -- env HOME="$HOME" PATH="$PATH" bash -ec '
-            bin/make -j build
+            # `fetch` is the only verb with a network, so it is also the
+            # only one that provisions: `build` will not reach for a pin
+            # it is missing, it refuses.
+            bin/cosmic --make fetch
+            bin/cosmic --make build
+            o/bin/cosmic --make build
             cp o/bin/cosmic cosmic-first
-            bin/make -j o=o2 build
-            cmp cosmic-first o2/bin/cosmic
+            # A different tree PATH, not just a different output dir: an
+            # absolute path leaking into the artifact only shows up when
+            # the root moves. clean removes o/, pins included, so the
+            # copy fetches again.
+            cp -a . "$HOME/repro"
+            cd "$HOME/repro"
+            bin/cosmic --make clean
+            bin/cosmic --make fetch
+            bin/cosmic --make build
+            o/bin/cosmic --make build
+            cmp "$OLDPWD/cosmic-first" o/bin/cosmic
             echo "reproducible: PASS — double build is byte-identical"'
 
-  # Cross-OS smoke lane (#510 step 11). The full gate is Linux-only
-  # (landlock-make), but the artifact is a fat APE binary shipped for six
-  # OSes — of which releases previously exercised zero beyond Linux. Build
-  # once on Linux, then prove on real macOS and Windows runners that the
-  # binary starts, serves embedded docs, and passes the portable test
-  # files (string, json, fs paths — including the Windows-path suite).
-  smoke-build:
-    runs-on: ubuntu-latest
-    # Pinned CI container (#734) — same block as build; see there for rationale.
-    container:
-      image: buildpack-deps@sha256:cfb30ff3856780c63b00ec3ad2e4aed77ae6afce5975ebb8ad9525ec45354e2e # noble (Ubuntu 24.04)
-      options: --privileged
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: prepare non-root builder
+      # The fence is ON by default, so every recipe above already ran
+      # under it. This asserts the direction the denial tests cannot:
+      # that a REAL build still succeeds when the kernel is holding the
+      # policy. A fence that denies everything is not enforcement, and a
+      # denial test alone cannot tell the two apart -- which is how a
+      # floor that failed to construct (`/zip/.types`, a path inside the
+      # executable, handed to Landlock) went unnoticed.
+      #
+      # It also proves the fence is LIVE here rather than a silent
+      # no-op: without Landlock `unveil()` returns success having done
+      # nothing, so the check that matters is that the host can enforce
+      # at all.
+      - name: the fence is live, and a real build passes under it
         shell: bash
         run: |
           set -eux
-          useradd -m -s /bin/bash builder
-          chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
-          git config --system --add safe.directory "$GITHUB_WORKSPACE"
-
-      - name: build cosmic
-        shell: bash
-        run: |
-          set -eux
-          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bin/make -j build
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            o/bin/cosmic -e 'local s = require("cosmic.sandbox")
+              assert(s.available().fs, "this host cannot enforce; the lane proves nothing")'
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            o/bin/cosmic --make clean
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            bin/cosmic --make fetch
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            bin/cosmic --make build
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: cosmic-smoke
           path: o/bin/cosmic
 
+      # Pin RESOLUTION is checked offline on every commit by
+      # _make/pins_test.tl. What only a network can answer is whether the
+      # resolved urls, digests and unpack products are right, so this
+      # fetches the real pins and names the three products the build
+      # depends on: the Teal compiler, the make engine, and the runtime a
+      # binary is built onto. A pin that resolved and unpacked to
+      # something else would otherwise surface as a build failure whose
+      # cause is two layers away.
+      #
+      # Then again, to prove a satisfied pin re-fetches nothing: the
+      # manifest that decides records one unpack product per line, so a
+      # product whose name contains a newline would send every later
+      # build into a repair loop.
+      - name: make fetch against the real pins
+        shell: bash
+        run: |
+          # pipefail, because the second fetch below ends in a `tee` and
+          # a pipeline's status is its LAST command's. Without it a
+          # re-fetch that failed outright reported tee's clean exit, and
+          # the grep that follows would find no `fetch https` in the
+          # error output and call that idempotence.
+          set -euxo pipefail
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            o/bin/cosmic --make fetch
+          test -f o/3p/tl/tl.lua
+          test -x o/3p/cosmos/make
+          test -x o/3p/cosmos/lua
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            o/bin/cosmic --make fetch 2>&1 | tee second.log
+          if grep -q '^fetch https' second.log; then
+            echo "a satisfied pin fetched again" >&2
+            exit 1
+          fi
+
+  # The artifact is a fat APE shipped for six operating systems, and the
+  # gate is Linux-only. This runs the built binary on real macOS and
+  # Windows runners: it starts, answers from its embedded docs, and
+  # passes the portable part of the test suite — named as a selection,
+  # which is what `--make test` takes.
   smoke:
-    needs: smoke-build
+    needs: build
     strategy:
       fail-fast: false
       matrix:
@@ -231,10 +301,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # upload-artifact >= v7 delivers a zip that download-artifact >= v8
-          # does not extract (same trap release.yml documents); unzip via
-          # python's zipfile so the step works in git-bash too, and handle
-          # the delivered-directly layout as well.
+          # upload-artifact delivers a zip that download-artifact does not
+          # extract. Unzip through python's zipfile so the step works in
+          # git-bash too, and handle the delivered-directly layout.
           PY=$(command -v python3 || command -v python)
           for z in $(find dl -type f -name '*.zip'); do
             "$PY" -m zipfile -e "$z" dl/
@@ -245,15 +314,15 @@ jobs:
             find dl >&2
             exit 1
           fi
-          # The .exe suffix is required for Windows to execute the APE
-          # (a valid PE); it is inert elsewhere.
+          # Windows executes an APE only with the .exe suffix (it is a
+          # valid PE); the suffix is inert everywhere else.
           cp "$src" cosmic.exe
           chmod +x cosmic.exe
 
           tmp="$RUNNER_TEMP/cosmic-smoke"
           mkdir -p "$tmp"
           # cosmic is a native binary: hand it a native (mixed-form)
-          # Windows path, not git-bash's /d/... POSIX rendering.
+          # Windows path, not git-bash's /d/... rendering.
           if command -v cygpath >/dev/null 2>&1; then tmp=$(cygpath -m "$tmp"); fi
           export TEST_TMPDIR="$tmp"
 
@@ -270,65 +339,20 @@ jobs:
           grep -qi "read" docs-fs.txt
           echo "::endgroup::"
 
+          # A selection of tests, run by the binary itself. These are the
+          # ones whose subject is portability — string handling, JSON, and
+          # every path rule including the Windows-specific suite — so a
+          # platform difference shows up as a named test rather than as a
+          # mystery in a downstream project.
+          echo "::group::portable tests"
           for t in \
-            lib/cosmic/string_test.tl \
-            lib/cosmic/json_test.tl \
-            lib/cosmic/fs/path_test.tl \
-            lib/cosmic/fs/path_normalize_test.tl \
-            lib/cosmic/fs/path_windows_test.tl; do
-            echo "::group::$t"
+            cosmic/string_test.tl \
+            cosmic/json_test.tl \
+            cosmic/fs/path_test.tl \
+            cosmic/fs/path_normalize_test.tl \
+            cosmic/fs/path_windows_test.tl; do
+            echo "--- $t"
             ./cosmic.exe "$t"
-            echo "::endgroup::"
           done
+          echo "::endgroup::"
           echo "smoke: PASS"
-
-  # Privileged, unsandboxed lane that actually exercises the sandbox
-  # primitives (audit §5.1). `make ci` runs under landlock-make, where the
-  # sandbox tests skip their enforcement assertions; this lane runs them with
-  # no outer sandbox and COSMIC_ENFORCE=1 so a silent skip becomes a failure,
-  # and a tripwire fails the lane if nothing enforced at all.
-  enforce:
-    runs-on: ubuntu-latest
-    # Pinned CI container (#734) — same block as build; see there for rationale.
-    # --privileged keeps Landlock real inside the container, so this lane
-    # still proves enforcement on the host kernel.
-    container:
-      image: buildpack-deps@sha256:cfb30ff3856780c63b00ec3ad2e4aed77ae6afce5975ebb8ad9525ec45354e2e # noble (Ubuntu 24.04)
-      options: --privileged
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: prepare non-root builder
-        shell: bash
-        run: |
-          set -eux
-          useradd -m -s /bin/bash builder
-          chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
-          git config --system --add safe.directory "$GITHUB_WORKSPACE"
-
-      - name: make enforce
-        shell: bash
-        run: |
-          set -eux
-          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bin/make -j enforce
-
-      # Build-sandbox canary (#716): proves landlock-make's .SANDBOXED
-      # enforcement mechanism blocks an out-of-grant write on a
-      # Landlock-capable host. Runs here (not in `make ci`) because it
-      # needs the real kernel facility the privileged container exposes.
-      - name: make sandbox-canary
-        shell: bash
-        run: |
-          set -eux
-          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bin/make sandbox-canary
-
-      - name: dump enforcement output
-        if: always()
-        shell: bash
-        run: |
-          set +e
-          for f in $(find o/enforce -name '*.out' -o -name '*.err' 2>/dev/null); do
-            echo "===== $f ====="
-            cat "$f" 2>/dev/null || true
-            echo
-          done

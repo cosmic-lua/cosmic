@@ -63,14 +63,14 @@ $ ./cosmic-lua hello.tl
 {"hello":"world"}
 ```
 
-scripts are type checked as they run; `./cosmic-lua --check-types
+scripts are type checked as they run; `./cosmic-lua --check types
 hello.tl` checks without running. `./cosmic-lua -i` starts a REPL, and
 `./cosmic-lua --docs fs` searches the embedded documentation.
 
 ## learn more
 
 - [docs/goals.md](docs/goals.md) and
-  [docs/decisions.md](docs/decisions.md) — why cosmic exists, what it
+  [docs/decisions/](docs/decisions/) — why cosmic exists, what it
   promises, and the tradeoffs behind it
 - [docs/stdlib.md](docs/stdlib.md) — standard library tour and error
   handling conventions

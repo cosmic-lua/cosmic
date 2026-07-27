@@ -15,17 +15,16 @@ env:
   PRERELEASE: true
 
 jobs:
-  # The release build runs in the same digest-pinned container as the CI
-  # lanes (#734, see pr.yml for the full rationale): the shipped binaries
-  # are built by the same make machinery the gate checks, and the
-  # reproducible lane only proves determinism WITHIN one environment —
-  # pinning here keeps the artifact's build environment a deliberate,
-  # reviewable input. The container-compat of every target below (teal,
-  # test, build) is proven by pr.yml's lanes in the identical image. The
-  # `release` job stays on the bare runner: it runs no build machinery,
-  # only artifact download + `gh release create` (gh is not in the image).
+  # The same digest-pinned container as the gate lanes (see pr.yml): the
+  # shipped binaries are built by the machinery the gate checks, and
+  # reproducibility holds WITHIN an environment, so the environment is
+  # part of what a release pins. The `release` job below stays on the
+  # bare runner — it runs no build machinery, only artifact download and
+  # `gh release create`, and gh is not in the image.
   build:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     container:
       image: buildpack-deps@sha256:cfb30ff3856780c63b00ec3ad2e4aed77ae6afce5975ebb8ad9525ec45354e2e # noble (Ubuntu 24.04)
       options: --privileged
@@ -40,11 +39,64 @@ jobs:
           chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
           git config --system --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: make teal test build
+      # The tag is computed HERE, once, and stamped into the binary as
+      # COSMIC_VERSION before it is passed to the release job. Computing
+      # it in both places lets a run that straddles midnight UTC ship a
+      # binary whose `--version` disagrees with the tag it is published
+      # under; and leaving it unset ships "unknown", which is what the
+      # first `--make`-built release did.
+      - name: name the release
+        id: tag
+        env:
+          GITHUB_SHA: ${{ github.sha }}
         shell: bash
         run: |
           set -eux
-          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bin/make -j teal test build
+          echo "tag=$(date -u +%Y-%m-%d)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      # Both release binaries come out of one build: the unit declares
+      # `base` and `base-debug`, so `build` embeds one payload twice.
+      # Two generations, deliberately: the pinned cosmic builds one from
+      # this tree, and THAT one builds what ships. A release should be
+      # produced by the code it contains, not by whatever the pin happens
+      # to be — and a pin older than a build-system change would
+      # otherwise ship an artifact built by rules the tree no longer has.
+      - name: build the release binaries
+        shell: bash
+        run: |
+          set -eux
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            COSMIC_VERSION="${{ steps.tag.outputs.tag }}" bash -ec '
+            bin/cosmic --make fetch
+            bin/cosmic --make build
+            o/bin/cosmic --make build'
+
+      - name: the binary says what it is
+        shell: bash
+        run: |
+          set -euxo pipefail
+          o/bin/cosmic --version | grep -F "${{ steps.tag.outputs.tag }}"
+
+      # The gate, run BY the artifact being released.
+      #
+      # "The gate already ran over this commit" was the previous answer,
+      # and it is true of the commit and not of the release: a push whose
+      # gate went red still sits on main, and the next scheduled run
+      # publishes it. A daily job that ships without asking is a job that
+      # will eventually ship a known-broken tree.
+      #
+      # Running it here is also a stronger claim than re-running pr.yml
+      # would be, and free given the build above: `--make ci` in a
+      # project that builds its own toolchain gates under what it built
+      # (_make/converge.tl), so this is the exact binary in the release
+      # answering for itself.
+      - name: the gate, under the binary being released
+        timeout-minutes: 30
+        shell: bash
+        run: |
+          set -eux
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            o/bin/cosmic --make ci
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
@@ -68,16 +120,14 @@ jobs:
       - name: create release
         env:
           GH_TOKEN: ${{ github.token }}
-          GITHUB_SHA: ${{ github.sha }}
+          TAG: ${{ needs.build.outputs.tag }}
           PRERELEASE_FLAG: ${{ (github.event.inputs.prerelease == 'true' || (github.event.inputs.prerelease == '' && env.PRERELEASE == 'true')) && '--prerelease' || '' }}
         run: |
           mkdir -p release
-          # upload-artifact >= v7 ships the artifact as a zip (archive: true
-          # by default) and download-artifact >= v8 does not extract it, while
-          # older versions delivered the files directly -- the v4 -> v7/v8
-          # bump silently broke every release after 2026-03-24. Handle both
-          # layouts and fail loudly (with a listing) if the binaries are
-          # missing, instead of trusting a hard-coded path.
+          # upload-artifact ships a zip that download-artifact does not
+          # extract. Handle both that and the delivered-directly layout,
+          # and fail loudly with a listing if the binaries are missing
+          # rather than trusting a hard-coded path.
           find artifacts -type f -name '*.zip' -execdir unzip -o {} \;
           cosmic_src=$(find artifacts -type f -name cosmic | head -1)
           debug_src=$(find artifacts -type f -name cosmic-debug | head -1)
@@ -89,7 +139,7 @@ jobs:
           cp "$cosmic_src" release/cosmic-lua
           cp "$debug_src" release/cosmic-lua-debug
           chmod +x release/cosmic-lua release/cosmic-lua-debug
-          tag="$(date -u +%Y-%m-%d)-${GITHUB_SHA::7}"
+          tag="$TAG"
           (cd release && sha256sum cosmic-lua cosmic-lua-debug > SHA256SUMS && cat SHA256SUMS)
           gh release create "$tag" \
             ${PRERELEASE_FLAG:+"$PRERELEASE_FLAG"} \

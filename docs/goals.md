@@ -2,7 +2,7 @@
 
 this document says why cosmic exists, what "good" means here, and how each
 goal is measured. the tradeoffs behind these goals are recorded as
-decisions in [decisions.md](decisions.md) — read that before relitigating
+decisions in [decisions/](decisions/) — read that before relitigating
 one.
 
 ## Mission
@@ -44,7 +44,7 @@ the anchor promise, at full depth:
 
 - **types never lie.** every stdlib signature admits failure honestly
   (`T | nil, string`); `any` boundaries shrink; the `as` cast count
-  trends to zero (see [decisions.md D5](decisions.md)).
+  trends to zero (see [D5](decisions/d05-upstream-first-teal.md)).
 - **documented behavior is verified behavior.** every documented claim is
   executable — examples run as tests, coverage ratchets, gates end in
   machine-readable verdicts. a doc statement that is not CI-verified is
@@ -112,7 +112,7 @@ every type is checked, none asserted: drive Teal's narrowing and
 soundness gaps closed upstream-first (fork-if-blocked, the Cosmopolitan
 precedent) until the stdlib needs no `as` casts and no workaround
 doctrine. mechanisms that police the gap in the meantime — today, the
-per-site `-- cast: <reason>` justification enforced by `bin/make lint`
+per-site `-- cast: <reason>` justification enforced by `--make lint`
 — are scaffolding, not goals: each retires when the gap it polices
 closes.
 
@@ -150,7 +150,7 @@ core invariants; the C layer runs under sanitizers in CI.
 ### G6 — competitive on the defining paths
 
 perf is a stated goal only where it defines the product experience:
-binary startup, `--check-types` latency on a reference project, and the
+binary startup, `--check types` latency on a reference project, and the
 embed build cycle — with bars set relative to peers (starts faster than
 CPython; typechecks faster than comparable checkers on comparable
 code). everything else stays non-regression, enforced by the existing
@@ -177,8 +177,8 @@ model, since single-file portable services are a natural payoff of
 - **API stability.** cosmic keeps a perpetual right to break. releases
   are date-versioned; changelogs note breakage; users pin a release
   binary they trust. honest types make breakage loud, which is the
-  point ([decisions.md D10](decisions.md)).
+  point ([D10](decisions/d10-right-to-break.md)).
 - **cross-OS verification.** portability across six OSes and two arches
   is Cosmopolitan's promise, inherited and trusted; cosmic verifies its
   own layer on Linux and treats cross-OS breakage as an upstream bug
-  ([decisions.md D4](decisions.md)).
+  ([D4](decisions/d04-portability-via-cosmopolitan.md)).
