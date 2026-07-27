@@ -51,12 +51,29 @@ end
 --- system. Enumerated rather than "/" so the grant is a list somebody
 --- chose, and so a write still needs naming.
 local RUNTIME_RO: {string} = {
-  "/etc", "/proc", "/sys", "/usr", "/bin", "/sbin", "/lib", "/lib64",
+  "/etc", "/sys", "/usr", "/bin", "/sbin", "/lib", "/lib64",
 }
 
---- And the two device nodes a pty needs. `/dev/pts` is where the slave
---- appears, so it is a write.
-local RUNTIME_RW: {string} = {"/dev/ptmx", "/dev/pts", "/dev/shm"}
+--- What a test may WRITE outside its own outputs, which is the shorter
+--- and more interesting list.
+---
+--- `/dev/ptmx` and `/dev/pts` are a pty — the slave appears under
+--- `/dev/pts`, so that one is a write. `/dev/shm` is shared memory.
+---
+--- `/proc` is here rather than in the read-only list above because
+--- configuring your own user namespace means writing your own
+--- `/proc/<pid>/uid_map`, `setgroups` and `gid_map`. Read-only, the
+--- open fails and `cosmic/quicksand` reports what a kernel without
+--- namespace support reports — so the tests SKIPPED, stayed green, and
+--- the sandbox suite quietly stopped testing the sandbox. Three lines
+--- of `write_file` going cold in the ratchet is all that showed.
+---
+--- Not `/proc/self`: a landlock rule binds the inode it opened, and
+--- `/proc/self` resolves to `/proc/<pid>` for whoever opens it, so a
+--- rule made by the parent covers nothing a child writes.
+local RUNTIME_RW: {string} = {
+  "/proc", "/dev/ptmx", "/dev/pts", "/dev/shm",
+}
 
 local shapes: {string: Shape} = {
   -- compile <bootstrap> <src> <out> [flags...]
