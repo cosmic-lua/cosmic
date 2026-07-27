@@ -13,7 +13,7 @@ Both treatments are correct. The shape worth noticing is that an
 environment-sensitive metric forced CI to pin the environment twice, and
 each newly discovered sensitivity adds another pin. The structural fixes
 (skip-aware coverage; flooring on the cross-lane intersection) are
-recorded in [bridge.md](../../docs/design/make/bridge.md). This file is the
+recorded below. This file is the
 cheap half that is worth having regardless: **an inventory, so the next
 floor churn is diagnosable in minutes instead of rediscovered.**
 
@@ -48,3 +48,30 @@ a full lane achieves, because the file is a floor and not a snapshot.
 Do not "refresh" it wholesale to make one row pass: rewriting it from
 whatever machine is at hand bakes that machine's environment into every
 row, which is the failure this whole file is about.
+
+## Why this file exists
+
+Coverage's environment-sensitivity is the root of CI's pinning. Two
+of CI's heaviest complications exist to hold the coverage ratchet's
+inputs still: the digest-pinned container (an OS image roll moved the
+floor) and the non-root builder in every lane (tests skip differently as
+root). Both treatments are correct given the ratchet's design. The shape
+to notice is that an environment-sensitive metric forced CI to pin the
+environment *twice*, and each newly discovered sensitivity adds another
+pin.
+
+Options, none free:
+
+1. **Skip-aware coverage** — exclude lines inside a test that reported
+   skip (status 2) from the denominator, so a skipped path moves no
+   floor. Requires the collector to know test boundaries; it may
+   already, via the per-test `.got` contract. This is the structural
+   fix if the data supports it.
+2. **Floor on the intersection** — ratchet against lines covered in
+   *every* lane, so environment-variable lines fall out by
+   construction. Costs cross-lane aggregation.
+3. **Accept and document** — keep the pins and add the missing half: a
+   recorded inventory of known environment-sensitive tests, so the next
+   floor churn is diagnosable in minutes instead of rediscovered. Cheap,
+   and worth doing regardless of 1 and 2. The inventory lives in
+   this file.

@@ -312,6 +312,14 @@ local VERBS < const >: {Verb} = {
       -- cast: the registry defines it
       return run_against_stage(by_name("example") as Verb, proj, paths, cosmic)
     end},
+  -- `test`'s third sibling. It runs against the stage for the same
+  -- reason `test` and `example` do: a benchmark measures the project's
+  -- own code, and often the binary the project builds.
+  {name = "benchmark", target = "benchmark", select = stage.SELECTS.benchmark,
+    run = function(proj: Project, paths: {string}, cosmic: string): integer
+      -- cast: the registry defines it
+      return run_against_stage(by_name("benchmark") as Verb, proj, paths, cosmic)
+    end},
   {name = "lint", target = "lint", select = stage.SELECTS.lint},
   {name = "ci", run = function(proj: Project, paths: {string},
         cosmic: string): integer

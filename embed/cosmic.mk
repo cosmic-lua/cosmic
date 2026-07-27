@@ -32,7 +32,7 @@ SHELL := $(COSMIC)
 # mtime alone and non-changes stop propagating.
 .DELETE_ON_ERROR:
 
-.PHONY: all build compile fmt test example lint coverage
+.PHONY: all build compile fmt test example benchmark lint coverage
 
 all: build
 
@@ -123,6 +123,27 @@ $(O)/%.lua.example.got: $(O)/%.lua $$(deps_$$*)
 
 $(O)/example-summary.txt: $(example_got)
 	tee $@ $(COSMIC) --report $(example_got) ;
+
+# ------------------------------------------------------------ benchmark
+
+benchmark_got := $(patsubst %,$(O)/%.benchmark.got,$(benchmarks))
+
+## Run every *_benchmark.tl against the compiled tree
+benchmark: $(O)/benchmark-summary.txt
+
+# `test`'s third sibling: same staging, same closure, same fence,
+# `Benchmark_*` instead of `test_*`. A benchmark is deliberately NOT a
+# generation unit — a generator's output is a build INPUT, derived from
+# sources and stale when they change, while a measurement is of one
+# binary on one machine at one moment and is never stale, just old.
+$(O)/%.tl.benchmark.got: $(O)/%.lua $$(deps_$$*)
+	test $(basename $@) $(COSMIC) --benchmark $< --deps $(deps_$*) ;
+
+$(O)/%.lua.benchmark.got: $(O)/%.lua $$(deps_$$*)
+	test $(basename $@) $(COSMIC) --benchmark $< --deps $(deps_$*) ;
+
+$(O)/benchmark-summary.txt: $(benchmark_got)
+	tee $@ $(COSMIC) --report $(benchmark_got) ;
 
 # ----------------------------------------------------------------- lint
 

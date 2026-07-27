@@ -17,7 +17,6 @@ _make/check.tl 54 55
 _make/deps.tl 72 72
 _make/docs.tl 14 30
 _make/extract.tl 52 73
-_make/facts.tl 19 29
 _make/fetch.tl 107 117
 _make/generate.tl 30 35
 _make/graph.tl 175 200

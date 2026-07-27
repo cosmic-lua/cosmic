@@ -38,6 +38,7 @@ local resolvable: {string: boolean} = {
   entry = true,
   test = true,
   example = true,
+  benchmark = true,
   types = true,
 }
 

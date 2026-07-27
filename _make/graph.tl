@@ -50,6 +50,7 @@ local compiled_kinds < const >: {Kind: boolean} = {
   entry = true,
   test = true,
   example = true,
+  benchmark = true,
   gen = true,
 }
 
@@ -128,6 +129,7 @@ local function project_mk(proj: Project, cosmic: string): string
   local fmt_sources: {string} = {}
   local tests: {string} = {}
   local examples: {string} = {}
+  local benchmarks: {string} = {}
   local assets: {string} = {}
   -- `lint`'s set: the widest one here, because lint reads bytes -- a
   -- `.md`, a `.mk` and a `.yml` are all in scope -- and the model has
@@ -161,6 +163,8 @@ local function project_mk(proj: Project, cosmic: string): string
       tests[#tests + 1] = f.path
     elseif f.kind == "example" then
       examples[#examples + 1] = f.path
+    elseif f.kind == "benchmark" then
+      benchmarks[#benchmarks + 1] = f.path
     elseif f.kind == "asset" then
       assets[#assets + 1] = f.path
     end
@@ -209,6 +213,7 @@ local function project_mk(proj: Project, cosmic: string): string
     assign("fmt_sources", fmt_sources),
     assign("tests", tests),
     assign("examples", examples),
+    assign("benchmarks", benchmarks),
     assign("assets", assets),
     assign("lint_sources", lint_sources),
     assign("coverage_dirs", source_dirs(proj)),

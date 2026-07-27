@@ -287,14 +287,17 @@ key concepts:
   binaries
 - **output directory**: all build artifacts go to `o/`
 
-what has no verb yet runs as a script — `regen` and `benchmark` are named
-and planned:
+what has no verb yet runs as a script — `regen` is named and planned:
 
 ```bash
 bin/cosmic _types/gentype.tl              # regenerate _types/cosmo*.d.tl
 bin/cosmic _types/gentl.tl o/3p/tl/tl.tl  # regenerate _types/tl.d.tl
-bin/cosmic _perf/run.tl                   # the benchmark harness
 ```
+
+**`_perf` is not `--make benchmark`.** `*_benchmark.tl` holds
+`Benchmark_*` functions the runner extracts and times one at a time;
+`_perf/bench/*_bench.tl` are scenario MODULES for a harness that
+aggregates across them. This repo's performance work is the latter.
 
 ## Type Generation
 
@@ -361,7 +364,7 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | module | description |
 |--------|-------------|
 | ansi | ANSI terminal styling: colors, attributes, strip, NO_COLOR-aware gating |
-| benchmark | benchmark runner with `Benchmark_*` functions |
+| benchmark | benchmark runner with `Benchmark_*` functions (`--make benchmark`) |
 | child | child process spawning with I/O control |
 | codec | hex encoding/decoding, Lua serialization |
 | compress | zlib compression/decompression |
@@ -441,7 +444,7 @@ o/bin/cosmic --make coverage            # tests + line coverage, ratcheted vs .c
 o/bin/cosmic --make coverage --baseline # rewrite the committed floor
 o/bin/cosmic --make test cosmic/sqlite_test.tl   # narrow by path
 o/bin/cosmic --make example             # run Example_* functions
-o/bin/cosmic --benchmark <file>.tl      # run one file's Benchmark_* functions
+o/bin/cosmic --make benchmark           # run every *_benchmark.tl
 ```
 
 test files use a simple assertion pattern:
@@ -457,9 +460,9 @@ each test gets its own temp directory via `TEST_TMPDIR`.
 
 ## Performance
 
-`_perf` holds the benchmark harness: end-to-end scenarios (JSON, SQLite,
+`_perf` holds the scenario harness: end-to-end scenarios (JSON, SQLite,
 HTTP, fs, crypto/codecs, binary startup) with per-scenario functional
-checks, a JSON results format, and a noise-aware baseline comparison gate.
+checks, a JSON results format, and a noise-aware comparison gate.
 
 ```bash
 # The harness is scripts, not verbs — `benchmark` is named and planned.

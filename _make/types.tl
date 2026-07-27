@@ -32,6 +32,7 @@ local record make_types
     "entry"
     "test"
     "example"
+    "benchmark"
     "types"
     "pin"
     "gen"
@@ -161,6 +162,7 @@ make_types.lint_kinds = {
   entry = true,
   test = true,
   example = true,
+  benchmark = true,
   types = true,
   pin = true,
   gen = true,
@@ -174,6 +176,7 @@ make_types.fmt_kinds = {
   entry = true,
   test = true,
   example = true,
+  benchmark = true,
   gen = true,
   ["payload-gen"] = true,
   pin = true,

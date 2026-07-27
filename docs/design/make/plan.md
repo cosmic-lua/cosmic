@@ -79,3 +79,24 @@ needs revisiting — make remains the engine, not a subroutine.
 Spawn cost is no longer open: measured at 6.4 ms per recipe line for the
 assimilated ELF, the same one spawn per line this repo's recipes already
 pay. See [engine.md](engine.md).
+
+## The gate needs no git
+
+CI carries git plumbing because two recipes
+shell out to git from inside the sandboxed build: `git ls-files` (lint's
+file discovery, hence `safe.directory` in every lane) and `git describe`
+(the Makefile-path version stamp, hence `fetch-depth: 0` in docs.yml).
+Both are already scheduled to dissolve — the `--make` stamp reads a
+committed `.version` (D16), and a `lint` verb discovers files from the
+**model**, which computes exactly the tracked-shaped set minus `o/`.
+What must *not* dissolve is docs.yml's push, which is a real git
+operation and stays a workflow step.
+
+This is a meaningful property, not tidiness: each git exec is host
+surface inside a sandboxed recipe and a hostx grant the ratchets must
+enumerate, and a git-free gate runs in a barer container, on a tarball
+checkout, and under the derived fence without a git-shaped hole in its
+floor. It is also easy to lose by accident — one new recipe that shells
+to git re-acquires the whole apparatus. **Exit criterion for the gate:**
+`bin/cosmic --make ci` passes in a container with no git installed, and
+the fence refuses `git` as a recipe child.

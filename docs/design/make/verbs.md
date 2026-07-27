@@ -13,6 +13,7 @@ fmt   [paths…]  --check format (--fix to rewrite)                    [now]
 fetch [paths…]  resolve *_pin.tl — the only verb with network        [now]
 clean           remove o/                                            [now]
 run   [binary]  build, then exec the artifact with remaining argv    [planned]
+benchmark [paths…]  run every *_benchmark.tl against the stage
 regen [paths…]  run generation units                                 [planned]
 example [paths…] run Example_* against the staged tree               [planned]
 lint  [paths…]  style gate: file length, column width, cast ratchet  [planned]
@@ -50,4 +51,23 @@ fail on a stage that had nothing to do. (A baseline is *input* data, so
 it stays committed; only generated things are banned from the tree.)
 
 Every verb ends in a machine-readable verdict line and an exit code.
+
+## The lanes converge on the verbs
+
+Each pr.yml lane carries real logic as YAML-embedded bash, which is
+exactly the orchestration the design assigns to policy verbs. Logic in
+YAML is unrunnable locally, unversioned by the verbs' tests, and
+per-forge. The convergence target is that every job is checkout + setup
++ **one verb**:
+
+| YAML today | destination |
+|---|---|
+| the netns bring-up around the gate | the `offline` verb — the bring-up is already cosmic code |
+| build, copy, clean, rebuild elsewhere, `cmp` | the `reproducible` verb |
+| the enforce lane plus its canary | the `enforce` verb, printing its own evidence |
+| `--make fetch` twice, asserting the second fetches nothing | `fetch`'s own idempotence check |
+| "dump failing test output" (find + cat over `.got`/`.out`/`.err`) | **the reporter.** A failing gate should print the failing tests' captured output itself; the dump step exists because the summary does not, and every other consumer of the gate — a laptop, a downstream repo — lacks it too |
+
+Do the reporter piece first: it is verb-independent, it shrinks every
+lane, and it improves the local experience today.
 

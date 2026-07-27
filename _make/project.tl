@@ -235,6 +235,9 @@ local function classify(rel: string): Kind
   elseif rel:sub(-11) == "_example.tl"
   or rel:sub(-12) == "_example.lua" then
     return "example"
+  elseif rel:sub(-13) == "_benchmark.tl"
+  or rel:sub(-14) == "_benchmark.lua" then
+    return "benchmark"
   end
   local _, is_source = stem(rel)
   if not is_source then

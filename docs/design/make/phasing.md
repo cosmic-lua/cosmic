@@ -152,7 +152,7 @@ predicted and what actually happened — is in [log/](log/).
      fetch`, `--make build`, then gates with the binary it just built.
      `bin/cosmic` is the trust root and carries the one pin.
 
-     What it taught, beyond the sequence in [bridge.md](bridge.md):
+     What it taught:
 
      - **The gate has to run under the binary the tree BUILDS.** Modules
        resolve from the artifact before the tree, so a gate run under

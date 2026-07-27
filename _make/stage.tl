@@ -42,7 +42,8 @@ end
 
 local SELECTS < const >: {string: Selection} = {
   build = {
-    kinds = {"module", "entry", "test", "example", "gen", "payload-gen"},
+    kinds = {"module", "entry", "test", "example", "benchmark", "gen",
+      "payload-gen"},
     suffix = ".tl",
     variable = "tl_sources",
   },
@@ -62,6 +63,9 @@ local SELECTS < const >: {string: Selection} = {
   -- `example` is `test`'s sibling everywhere else in the model, so it
   -- is one here too: same shape, same reason for no suffix filter.
   example = {kinds = {"example"}, variable = "examples"},
+  -- `test`'s other sibling. No suffix filter, same reason: the KIND
+  -- already means "a benchmark file", and a `.lua` one is one.
+  benchmark = {kinds = {"benchmark"}, variable = "benchmarks"},
   -- Derived from the one definition in types, exactly as `fmt` is: see
   -- there for what lint reads and why `testdata` is the one kind it
   -- does not.

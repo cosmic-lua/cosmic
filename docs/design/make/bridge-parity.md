@@ -1,8 +1,8 @@
 # Phase 3i: parity, gap by gap
 
 What each Makefile lane did that a verb did not, and what closing it
-took. The sequence is [bridge.md](bridge.md); the Makefile is gone, so
-what follows is the record plus the rows still open.
+took. The Makefile is gone, so what follows is the record plus the rows
+still open; what the removal TAUGHT is 3i in [phasing.md](phasing.md).
 
 ## Verb parity — closed
 
