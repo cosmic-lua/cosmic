@@ -24,3 +24,27 @@
   reviewed boundary, held small by the no-shell default and the
   ratchets.
 
+- **amended 2026-07:** the decision stands — make remains the graph
+  executor and cosmic does not re-implement staleness, parallelism or
+  the jobserver — but two of the sentences above stopped being true.
+
+  **It is not a second pinned binary.** D13's amendment put the engine
+  inside the cosmic release, so cosmic extracts its own make from its
+  own zip. The consequence "the build keeps a second pinned binary
+  forever" is retired: there is one pin, and make arrives with it.
+
+  **Sandbox enforcement is no longer make's.** The context above lists
+  `.PLEDGE`/`.UNVEIL`/`.ENV`/`.SANDBOXED` among make's remaining roles;
+  none of them appear in `embed/cosmic.mk`, which sets `SHELL` and
+  nothing else. A recipe line is argv run by cosmic — a closed verb
+  vocabulary, metacharacters refused rather than interpreted — and its
+  grants are DERIVED from the shape of that argv rather than declared
+  beside the rule. That is strictly stronger than the directives it
+  replaced, because a rule cannot over-declare its way out of a fence
+  it never writes; and it moves the boundary from make syntax, which
+  D13 called a reviewed boundary held small by ratchets, into typed
+  code with tests.
+
+  What make means here is now exactly the first half of the endgame
+  sentence: a job-execution system and a dependency graph. Nothing
+  else.

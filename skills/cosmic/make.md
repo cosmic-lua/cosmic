@@ -24,15 +24,25 @@ replaced it outright.
 
 | verb | what it does | today |
 |---|---|---|
-| `check` | strict type-check (warnings are errors), in process | ✅ |
 | `build` | compile the tree, then stage + embed → `o/bin/<name>` | ✅ |
-| `test` | build, then run `*_test.tl` and report | ✅ |
-| `fmt` | `--check format` over every `.tl` | ✅ |
+| `check` | strict type-check (warnings are errors), in process | ✅ |
+| `fmt` | formatting over every `.tl`; `--fix` rewrites | ✅ |
+| `lint` | style: file length, cast justifications, test order | ✅ |
+| `test` | run `*_test.tl` and report | ✅ |
+| `example` | run `Example_*` functions and check their output | ✅ |
+| `benchmark` | run every `*_benchmark.tl` | ✅ |
+| `coverage` | tests + line coverage, ratcheted against `.coverage` | ✅ |
+| `docs` | extract the doc index | ✅ |
+| `ci` | fmt, check, test, example, lint, coverage — the gate | ✅ |
 | `clean` | remove `o/` | ✅ |
 | `fetch` | resolve `*_pin.tl` — the only verb with a network | ✅ |
+| `help` | list the verbs, and which are still planned | ✅ |
 | `run` | build, then exec the artifact | planned |
-| `regen` | run generation units | planned |
-| `ci` `coverage` `enforce` `reproducible` `offline` | policy lanes over the graph | planned |
+| `enforce` | rerun the sandbox tests unsandboxed, where a skip fails | planned |
+| `reproducible` `offline` | policy lanes over the graph | planned |
+
+`cosmic --make help` prints this list, split the same way; it is the
+one that cannot go stale.
 
 every verb ends in a machine-readable verdict line and an exit code:
 
@@ -203,7 +213,10 @@ without it cosmic would never see the line at all.
 | `*_example.tl` | an example |
 | `*.d.tl` | type-only; on the include path, never embedded |
 | `*_pin.tl` | a pinned external asset |
-| `*_gen.tl` | a generation unit |
+| `*_benchmark.tl` | a benchmark |
+| `*_gen.tl` | a generation unit — runs BEFORE the graph, writes inputs |
+| `cmd/<name>/embed_gen.tl` | a binary's payload generator — runs AFTER |
+| `embed/**` | payload, staged at the artifact root |
 | `testdata/` | test fixtures; never embedded |
 | `_<dir>/` | internal: importable only from within its container |
 | everything else | an asset, embedded at its relative path |
