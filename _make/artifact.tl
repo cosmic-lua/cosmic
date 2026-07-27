@@ -43,10 +43,10 @@ local type Project = types.Project
 --- `*_test.*`, a pin is `*_pin.tl`, payload is `embed/**`, internal is
 --- `_`), and "everything else ships at its relative path" was the one
 --- row that inverted that: a repo is full of files that are ABOUT a
---- project rather than OF its artifact, and all of them shipped. It
---- cost cosmic's own artifact 1.5 MB of `docs/`, `mk/`, `Makefile` and
---- `_perf/`, and it is why "not shipped" and "not seen" were about to
---- become two separate knobs. With shipping opt-in there is nothing to
+--- project rather than OF its artifact, and all of them shipped -- 1.5
+--- MB of `docs/` and `_perf/` inside cosmic's own binary, and a second
+--- knob on the way to distinguish "not shipped" from "not seen".
+--- With shipping opt-in there is nothing to
 --- un-ship: `testdata/`'s exclusion and `.d.tl`'s never-embedded rule
 --- stop being exceptions carved out of a default, and the artifact's
 --- contents are greppable from the tree (`ls embed/` plus the module

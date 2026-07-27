@@ -125,10 +125,9 @@ local function dispatch(verb: string, args: {string}): integer
   return run_verb(args)
 end
 
--- No `main`, and no script mode. Both belonged to `--build <mode>`, a
--- flag that went with the Makefile: a recipe reaches this vocabulary
--- through `cosmic -c '<line>'` and nothing else, which is what lets the
--- fence derive its grants from the line it is about to run.
+-- A recipe reaches this vocabulary through `cosmic -c '<line>'` and
+-- nothing else, which is what lets the fence derive its grants from the
+-- line it is about to run.
 
 return {
   parse = parse,

@@ -288,12 +288,6 @@ local function lowered(before: string, after: string): {string}
   return out
 end
 
--- The `write`/`check`/`gate` argv dispatcher that used to live here
--- went with the Makefile. It existed because a make recipe could only
--- reach this file by running it as a script; the `coverage` verb calls
--- `gate` and `text_for` in process, and a second entry point with its
--- own argument grammar is a second contract to keep true.
-
 local record BaselineModule
   type Entry = Entry
   render: function(reports: {FileReport}, floor?: {string: Entry}): string

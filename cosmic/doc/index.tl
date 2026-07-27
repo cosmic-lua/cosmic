@@ -125,13 +125,6 @@ local function generate(files: {string},
   return codec.encode_lua({modules = modules})
 end
 
--- No script mode: the index is written by `cmd/cosmic/embed_gen.tl`,
--- which calls `generate` in process. The argv entry point existed
--- because a make recipe could only reach this file by running it, and
--- it recognised itself by matching `arg[0]` against its own filename --
--- true of any project with a `doc/index.tl`, which is a way to be
--- surprising rather than a way to be reachable.
-
 local M: DocIndexModule = {
   generate = generate,
 }

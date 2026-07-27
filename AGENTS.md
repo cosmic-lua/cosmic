@@ -49,7 +49,7 @@ bin/
   release.yml          daily release build
 ```
 
-**the repo root is the module root** (phase 3b of the `--make` design):
+**the repo root is the module root**:
 a source's path relative to the root *is* its import path, so
 `cosmic/fs/path.tl` is `require("cosmic.fs.path")` and
 `_perf/harness.tl` is `require("_perf.harness")`. there is no `lib/`
@@ -60,7 +60,7 @@ public API exactly when it is `cosmic.<name>` with no `_` — there is no
 list to maintain (`cosmic/public.tl` is gone) and none to go stale. the
 rule lives in `cosmic/doc/visibility.tl`.
 
-**`cosmic/` is the published API and nothing else** (phase 3h): the
+**`cosmic/` is the published API and nothing else**: the
 dispatcher (`_cli/`) and the build system (`_make/`) sit at the root, and
 the binary's entry is `cmd/cosmic/main.tl` — the same `cmd/<name>/`
 position `--make` builds every binary from, so cosmic is an ordinary

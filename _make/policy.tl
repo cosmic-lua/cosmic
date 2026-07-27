@@ -64,8 +64,9 @@ local function run_coverage(v: Verb, proj: Project, paths: {string},
     return stage.verdict(v.name, true, detail)
   end
   -- A narrowed run is partial data, and partial data reads as a huge
-  -- decline: the gate skips rather than fails, which is what `only=`
-  -- bought in the Makefile lane and what selection has to keep.
+  -- decline against a whole-project floor. The gate skips rather than
+  -- fails, so selecting a few tests cannot report a regression it did
+  -- not measure.
   local only = #paths > 0 and "selection" or ""
   local report: {string} = {fs.join(project.BUILD_DIR, COVERAGE_DIR)}
   for _, dir in ipairs(graph.source_dirs(proj)) do
@@ -123,8 +124,9 @@ end
 ---
 --- A list of verb NAMES, which is the point of the registry being data:
 --- `ci` reimplements nothing, so a stage cannot drift from the verb it
---- claims to run. `check` covers what the Makefile lane called `model`
---- — running `--make check` from `--make ci` is just a stage.
+--- claims to run. There is no separate model stage: validating the
+--- project is what `check` opens with, so `ci` gets it by listing
+--- `check`.
 local STAGES < const >: {Stage} = {
   {verb = "fmt", needs = {}},
   {verb = "check", needs = {}},

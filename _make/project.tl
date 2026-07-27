@@ -3,9 +3,9 @@
 ---
 --- There is no spec file. A project is a directory tree, and a file's
 --- name and position declare what it is — so a directory with sources
---- in it is a package by existing, never by being listed somewhere
---- (the failure mode `#800` recorded here: three directories silently
---- outside the gates because no `cook.mk` declared them).
+--- in it is a package by existing, never by being listed somewhere. A
+--- list is a thing that goes stale silently: the gates it feeds keep
+--- passing over a directory nobody added to it (`#800`).
 ---
 --- What the walk never sees: dot-prefixed entries (`.git`, `.github`,
 --- `.cosmicignore` itself), the build directory `o/` at the root, and
