@@ -107,11 +107,18 @@ jobs:
           NETNS: |
             assert(require("cosmic.quicksand.netns").bring_up("lo"))
         run: |
-          set -eux
-          unshare --net -- bash -euxc '
+          # Captured, so a failure can be READ. The gate's verdict line
+          # and the coverage ratchet's row list are the last things it
+          # prints, and they end up hundreds of lines back once the
+          # failure steps and the runner's own cleanup follow them —
+          # which cost several CI cycles here, each one a full re-run to
+          # ask a question the first run had already answered.
+          # pipefail, or tee's clean exit would hide the gate's.
+          set -euxo pipefail
+          unshare --net -- bash -euxo pipefail -c '
             o/bootstrap/cosmic -e "$NETNS"
-            exec runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
-              bin/cosmic --make ci'
+            runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+              bin/cosmic --make ci 2>&1 | tee o/gate.log'
 
       - name: dump failing test output
         if: failure()
@@ -131,18 +138,18 @@ jobs:
             fi
           done
 
-      # A coverage failure names every row that moved, and those lines
-      # scroll off the top of a 166-test run. Re-asking is nearly free —
-      # the `.got` files are up to date, so make re-runs the summary
-      # rule and nothing else — and it puts the answer at the END of the
-      # log, where a failure is actually read from.
-      - name: which coverage rows moved
+      # LAST, so the gate's own ending is the log's own ending: the
+      # stage verdicts, and — when coverage is what failed — the one
+      # line naming every row that moved. Re-running the gate to ask
+      # again was the previous attempt at this; it answered a question
+      # about a second run rather than about the one that failed.
+      - name: the gate's own tail
         if: failure()
         shell: bash
         run: |
           set +e
-          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
-            o/bin/cosmic --make coverage 2>&1 | grep -E 'coverage ratchet|declined' | tail -40
+          echo "===== last 40 lines of the gate ====="
+          tail -40 o/gate.log
           exit 0
 
   # What needs a built binary and a real network — the two things the
