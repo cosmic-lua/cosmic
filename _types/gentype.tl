@@ -2,7 +2,6 @@
 --- Generate Teal .d.tl type definitions from cosmo-lua definitions.lua.
 --- Parses LuaLS annotations and produces Teal-compatible type declarations.
 
-local cosmic = require("cosmic")
 local defs = require("_types.gentype_defs")
 local tl = require("tl")
 local gt = require("_types.gentype_types")
@@ -476,16 +475,5 @@ local M: GenTypeModule = {
   get_modules = get_modules,
   MODULES = MODULES,
 }
-
-cosmic.main(function(args: {string}): number, string
-    local module_name = args[1]
-    local result = run(module_name)
-    if result.success then
-      print(result.output)
-      return 0
-    else
-      return 1, result.error
-    end
-  end)
 
 return M

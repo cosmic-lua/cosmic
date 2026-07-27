@@ -7,7 +7,7 @@
 --- environment variable names a directory: the hook starts before the
 --- script loads and a .cov file is written there when the script
 --- finishes (including via os.exit). `cosmic --test` rewrites the
---- variable to a per-test directory, so `bin/make coverage` gets one
+--- variable to a per-test directory, so `cosmic --make coverage` gets one
 --- .cov file per process, safe under parallel make.
 ---
 --- start/stop nest: a script that exercises coverage itself while

@@ -14,7 +14,7 @@ below. the closed-as-completed issues are worked examples of each.
   `codec_base64_roundtrip_64k` ran ~2.1ms on the same input. cause:
   `codec.decode_hex` was a pure-Lua `gsub` with a per-byte-pair callback
   plus two validation scans, while a `cosmo.DecodeHex` C binding existed
-  (`_types/cosmo.d.tl`) unused. preserving the documented error
+  (`o/_types/cosmo.d.tl`) unused. preserving the documented error
   returns while delegating the hot path is the archetypal cosmic-layer
   win (backlog entries 1, 10, 11, 13).
 - **wrappers redoing work the C binding already did** — dead

@@ -36,8 +36,8 @@ what it is.
 | `*.d.tl` | type-only; include path, never embedded |
 | `cmd/<name>/main.tl` | a binary → `o/bin/<name>` |
 | `<dir>/*_pin.tl` | a pinned external asset |
-| `<dir>/*_gen.tl` | a generation unit |
-| `cmd/<name>/embed_gen.tl` | that binary's payload generator |
+| `<dir>/*_gen.tl` | a generation unit: runs BEFORE the graph, owns `o/<its path minus .tl>/` |
+| `cmd/<name>/embed_gen.tl` | that binary's payload generator: runs after |
 | `embed/**` | payload, embedded at its path inside `embed/` |
 | everything else | an asset: part of the project, not of its artifacts |
 

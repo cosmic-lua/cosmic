@@ -285,7 +285,6 @@ local VERBS < const >: {Verb} = {
       return run_against_stage(by_name("test") as Verb, proj, paths, cosmic)
     end},
   {name = "run", planned = true},
-  {name = "regen", planned = true},
   -- `docs` renders the API to markdown. Its file set comes from the
   -- model, so a directory added to the project is documented without
   -- anyone remembering to say so.

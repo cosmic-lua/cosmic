@@ -203,7 +203,7 @@ local function test_verb_vocabulary()
     unknown.err:find("check", 1, true),
     "an unknown verb must list the verbs that exist, got: " .. unknown.err)
 
-  local planned = make(root, "regen")
+  local planned = make(root, "run")
   assert(planned.code == 1, "an unimplemented verb must fail")
   assert(planned.err:find("planned but not implemented yet", 1, true),
     "got: " .. planned.err)
@@ -262,7 +262,7 @@ local function test_in_process_dispatch()
   assert(in_process(root, "check") == 0, "a clean project must pass in process")
   assert(in_process(root, "check", "db") == 0, "selection works in process")
   assert(in_process(root, "check", "nope") == 1, "a bad selection fails")
-  assert(in_process(root, "regen") == 1, "a planned verb fails")
+  assert(in_process(root, "run") == 1, "a planned verb fails")
   assert(in_process(root, "frobnicate") == 1, "an unknown verb fails")
   assert(in_process(root) == 1, "no verb at all fails")
 

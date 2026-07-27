@@ -243,13 +243,19 @@ local function format(input: string, filename: string): FormatResult
     prev_y = items[1].y
   end
 
+  -- Whether the previous line left this one in type position (`as` or
+  -- `:` last), which is the only cross-line fact the indent rules need.
+  local continues_type = false
+
   for _, line in ipairs(lines) do
     local gap = line.y - prev_y
     if prev_y > 0 and gap > 1 then
       out[#out + 1] = "\n"
     end
 
-    local pre_change, post_change = rules.compute_indent_change(line.items)
+    local pre_change, post_change =
+    rules.compute_indent_change(line.items, continues_type)
+    continues_type = rules.opens_type_position(line.items)
 
     indent = math.max(0, indent + pre_change)
 

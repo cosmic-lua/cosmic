@@ -17,19 +17,14 @@ local types = require("_make.types")
 
 local type Project = types.Project
 
---- Run one unit's generator, if it has one.
+--- Run one generator, handing it the output directory it owns.
 --- @param proj Project The scanned project
---- @param unit string The unit's directory, ROOT for the project itself
+--- @param gen string The generator's path, relative to the root
+--- @param dest string The output directory it owns, relative to the root
 --- @param cosmic string Absolute path to the cosmic binary
 --- @return boolean, string Success, or false plus the reason
-local function generate_unit(proj: Project, unit: string,
+local function run_generator(proj: Project, gen: string, dest: string,
     cosmic: string): boolean, string
-  local gen = unit == project.ROOT and project.PAYLOAD_GEN
-  or fs.join(unit, project.PAYLOAD_GEN)
-  if not fs.isfile(fs.join(proj.root, gen)) then
-    return true
-  end
-  local dest = project.out_dir(unit)
   local mok, merr = fs.makedirs(fs.join(proj.root, dest))
   if not mok then
     return false, "make: cannot create " .. dest .. ": " ..
@@ -48,7 +43,59 @@ local function generate_unit(proj: Project, unit: string,
   return true
 end
 
---- Run every generator in the project, once each.
+--- Run every `*_gen.tl` in the project: the SOURCE generators.
+---
+--- These run before the graph does, not after it, and that is the whole
+--- difference between the two generator kinds. A payload generator
+--- produces what an artifact CARRIES, so it runs once the tree is
+--- compiled. A `*_gen.tl` produces INPUTS — `_types/*.d.tl` is the
+--- case in hand — which the compiler, the checker, the formatter and
+--- the linter all read. Running it after the graph would type-check
+--- against whatever the last run left, which is the stale-output
+--- failure the model exists to prevent.
+---
+--- Each owns `o/<its own path minus .tl>/` -- `_types/types_gen.tl`
+--- fills `o/_types/types_gen/` -- so the output is reachable from the
+--- generator's own position, and the directory holds NOTHING else.
+---
+--- Not `o/<its directory>`: that is where the graph's own per-file
+--- bookkeeping for the generator's siblings lands (`o/_types/gentl.lua`,
+--- `o/_types/gentl.tl.fmt.got`), so anything reading the generated set
+--- by walking the directory would pick up build droppings. The artifact
+--- ships this directory verbatim; it has to contain only what the
+--- generator wrote.
+--- @param proj Project The scanned project
+--- @param cosmic string Absolute path to the cosmic binary
+--- @return boolean, string Success, or false plus the reason
+local function sources(proj: Project, cosmic: string): boolean, string
+  for _, f in ipairs(proj.files) do
+    if f.kind == "gen" then
+      local dest = project.out_dir(f.path:sub(1, -#".tl" - 1))
+      local ok, err = run_generator(proj, f.path, dest, cosmic)
+      if not ok then
+        return false, err
+      end
+    end
+  end
+  return true
+end
+
+--- Run one unit's generator, if it has one.
+--- @param proj Project The scanned project
+--- @param unit string The unit's directory, ROOT for the project itself
+--- @param cosmic string Absolute path to the cosmic binary
+--- @return boolean, string Success, or false plus the reason
+local function generate_unit(proj: Project, unit: string,
+    cosmic: string): boolean, string
+  local gen = unit == project.ROOT and project.PAYLOAD_GEN
+  or fs.join(unit, project.PAYLOAD_GEN)
+  if not fs.isfile(fs.join(proj.root, gen)) then
+    return true
+  end
+  return run_generator(proj, gen, project.out_dir(unit), cosmic)
+end
+
+--- Run every payload generator in the project, once each.
 ---
 --- A phase over the project rather than a step inside `build`, and the
 --- distinction is load-bearing: the ROOT payload is staged into every
@@ -87,10 +134,12 @@ end
 
 local record GenerateModule
   generate: function(proj: Project, cosmic: string): boolean, string
+  sources: function(proj: Project, cosmic: string): boolean, string
 end
 
 local M: GenerateModule = {
   generate = generate,
+  sources = sources,
 }
 
 return M

@@ -48,6 +48,7 @@ local index = require("cosmic.doc.index")
 local literal = require("cosmic.literal")
 local project = require("_make.project")
 local types = require("_make.types")
+local types_gen = require("_types.types_gen")
 
 local type Binary = types.Binary
 local type Project = types.Project
@@ -140,9 +141,11 @@ local BASES: {{string, string}} = {
 --- stages everything under it at the artifact root.
 local PAYLOAD_DIR < const > = "embed"
 
---- Where the `cosmo.*` type declarations live in the tree, and the
---- artifact directory `cosmic.teal` puts on the include path.
-local TYPES_DIR < const > = "_types"
+--- Where the `cosmo.*` and `tl` declarations are GENERATED --
+--- `_types/types_gen.tl` owns this directory, and the graph runs it
+--- before anything reads it -- and the artifact directory
+--- `cosmic.teal` puts on the include path.
+local TYPES_DIR < const > = "o/_types/types_gen"
 local TYPES_STORED < const > = ".types"
 
 --- The cosmos pin the version stamp names, and the artifact path the
@@ -196,15 +199,33 @@ local function sources(proj: Project, binary: Binary): {string}
   return out
 end
 
---- Every `.d.tl` under `_types/`, with its path inside that directory.
---- @param proj Project The scanned project
+--- Every generated declaration, in path order.
+---
+--- Read from the FILESYSTEM rather than from the model, because the
+--- model prunes `o/` -- generated files are not project files, which is
+--- the rule that lets the tree describe itself without describing its
+--- own output. Walking a directory only works because a generation unit
+--- owns its output directory exclusively; if build bookkeeping shared
+--- it, this would ship it.
+--- @return {string} Paths under TYPES_DIR, sorted
+local function generated_types(): {string}
+  local found = fs.collect(TYPES_DIR, "*")
+  if not found then
+    return {}
+  end
+  local paths = found as {string} -- cast: nil ruled out by the guard
+  table.sort(paths)
+  return paths
+end
+
+--- Every generated `.d.tl`, with its path inside the artifact.
 --- @return {{string, string}} Pairs of source path and stored path
-local function declarations(proj: Project): {{string, string}}
+local function declarations(): {{string, string}}
   local out: {{string, string}} = {}
   local prefix = TYPES_DIR .. "/"
-  for _, f in ipairs(project.of_kind(proj, {"types"})) do
-    if f.path:sub(1, #prefix) == prefix then
-      out[#out + 1] = {f.path, fs.join(TYPES_STORED, f.path:sub(#prefix + 1))}
+  for _, path in ipairs(generated_types()) do
+    if path:sub(-5) == ".d.tl" and path:sub(1, #prefix) == prefix then
+      out[#out + 1] = {path, fs.join(TYPES_STORED, path:sub(#prefix + 1))}
     end
   end
   return out
@@ -224,6 +245,22 @@ local function documented(proj: Project): {string}
       out[#out + 1] = f.path
     end
   end
+  for _, pair in ipairs(declarations()) do
+    out[#out + 1] = pair[1]
+  end
+  return out
+end
+
+--- What each generated declaration documents: the binding it declares,
+--- not the `o/` path the build wrote it to.
+--- @return {string: string} Source path -> import path
+local function declared_names(): {string: string}
+  local out: {string: string} = {}
+  local prefix = TYPES_DIR .. "/"
+  for _, pair in ipairs(declarations()) do
+    local rel = pair[1]:sub(#prefix + 1):gsub("%.d%.tl$", ""):gsub("/", ".")
+    out[pair[1]] = rel
+  end
   return out
 end
 
@@ -232,7 +269,16 @@ end
 --- @param dest string The payload directory
 --- @return boolean, string Success, or false plus the reason
 local function write_index(proj: Project, dest: string): boolean, string
-  local body, err = index.generate(documented(proj))
+  -- The `cosmic.doc.index` that resolves here is the RUNNING cosmic's,
+  -- not this tree's: a build produced by the pin sees the pin's
+  -- signature, the way `cosmo.Slurp` above is chosen to survive both.
+  -- The names argument is newer than some pins, and an older one
+  -- ignores it and falls back to naming by path — which is why the
+  -- release, and the gate, build twice.
+  -- cast: the running artifact's signature may predate the names argument
+  local generate_index = index.generate as
+  function(files: {string}, names: {string: string}): string | nil, string
+  local body, err = generate_index(documented(proj), declared_names())
   if not body then
     return false, "doc index: " .. (err or "unknown error")
   end
@@ -325,6 +371,19 @@ local function generate(out: string): string
   if not (binary is Binary) then
     return "no binary at " .. UNIT .. "; this generator has nothing to fill"
   end
+  -- Bootstrap, before anything reads the declarations: a `--make` older
+  -- than source generation never ran the generation unit, and the graph
+  -- is what normally fills this directory. Shipping an artifact with no
+  -- `.types/` is a silent degradation rather than a failure -- and the
+  -- doc index reads them too, so this has to happen first. A payload
+  -- generator answering for its own payload is the model's rule, not an
+  -- exception to it.
+  if #declarations() == 0 then
+    local gerr = types_gen.generate(TYPES_DIR)
+    if gerr then
+      return "types: " .. gerr
+    end
+  end
   local dest = fs.join(out, PAYLOAD_DIR)
   -- Clear the payload — and only the payload: the compiled entry sits
   -- in this same output directory, and staging reads it next. A source
@@ -356,7 +415,7 @@ local function generate(out: string): string
       return err
     end
   end
-  for _, pair in ipairs(declarations(p)) do
+  for _, pair in ipairs(declarations()) do
     local ok, err = put(pair[1], pair[2], dest)
     if not ok then
       return err

@@ -105,6 +105,10 @@ end
 local function seed_pins(dest: string): boolean
   local want: {{string, string, string}} = {
     {"tl", "tl.lua", "o/3p/tl/tl.lua"},
+    -- The Teal SOURCE too: `_types/types_gen.tl` extracts the `tl` shim
+    -- from it, and a generation unit runs before the graph, so a copy
+    -- without it fails before the first compile.
+    {"tl", "tl.tl", "o/3p/tl/tl.tl"},
     {"cosmos", "make", "o/3p/cosmos/make"},
     -- Every base the generator names, not just the default one: seeding
     -- a subset only moves the failure to the next missing line.
@@ -112,8 +116,8 @@ local function seed_pins(dest: string): boolean
     {"cosmos", "lua-debug", "o/3p/cosmos/lua-debug"},
   }
   for _, w in ipairs(want) do
-    -- Prefer this tree's own `o/3p` when a developer has run
-    -- `--make fetch`; fall back to what the Makefile staged.
+    -- Prefer this tree's own `o/3p`, where `--make fetch` unpacks a
+    -- pin; fall back to a staged layout for a tree that predates it.
     local direct = fs.join(repo, w[3])
     local from = fs.isfile(direct) and direct or staged(w[1], w[2])
     if not from then

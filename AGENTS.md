@@ -246,24 +246,34 @@ the project, and a file's position and name say what it is.
 
 ```bash
 bin/cosmic --make fetch     # resolve *_pin.tl — the only verb with a network
-bin/cosmic --make build     # o/bin/cosmic and o/bin/cosmic-debug
-bin/cosmic --make ci        # fmt, check, test, example, lint, coverage
-bin/cosmic --make test      # …or one stage; add paths to narrow it
-bin/cosmic --make clean     # remove o/
+bin/cosmic --make build     # produced BY the pin
+o/bin/cosmic --make build   # produced by the tree: the fixpoint that ships
+o/bin/cosmic --make ci      # fmt, check, test, example, lint, coverage
+o/bin/cosmic --make test    # …or one stage; add paths to narrow it
+o/bin/cosmic --make clean   # remove o/
 ```
 
-**Gate under the binary you built, not the one you pinned**, with
-`bin/cosmic --make build && o/bin/cosmic --make ci`. `bin/cosmic` execs
-the PINNED release, and modules resolve from that artifact before the
-tree — so `bin/cosmic --make ci` checks the pin's code, not yours. It
-will run the released formatter over a formatter fix and pass.
+**Gate under the binary you built, not the one you pinned, and build it
+twice.** `bin/cosmic` execs the PINNED release, and modules resolve from
+that artifact before the tree — so `bin/cosmic --make ci` checks the
+pin's code, not yours; it will run the released formatter over a
+formatter fix and pass. The second build is the same point one level
+down: the first artifact was ASSEMBLED by the pin, so anything the tree
+changed about what a binary carries is still the pin's answer until a
+build produced by the tree makes it the tree's.
 
 key concepts:
 - **conventions, not declarations**: `*_test.tl` is a test, `*_example.tl`
-  an example, `*_pin.tl` a pin, `*_gen.tl` a generator,
-  `cmd/<name>/embed_gen.tl` a binary's payload generator, `embed/**`
-  payload, `cmd/<name>/main.tl` a binary, a leading `_` internal,
-  `testdata/` never embedded. Nothing lists these; position declares them
+  an example, `*_benchmark.tl` a benchmark, `*_pin.tl` a pin, `*_gen.tl`
+  a generator, `cmd/<name>/embed_gen.tl` a binary's payload generator,
+  `embed/**` payload, `cmd/<name>/main.tl` a binary, a leading `_`
+  internal, `testdata/` never embedded. Nothing lists these; position
+  declares them
+- **generators run before the graph**: a `*_gen.tl` writes an INPUT — the
+  checker, compiler, formatter and linter all read what `_types/types_gen.tl`
+  produces — so every verb that touches the graph runs the generators
+  first. A binary's `embed_gen.tl` is the other way round: it packs what
+  the graph produced, so it runs last
 - **versioned deps**: 3p modules declare a `*_pin.tl` — literal data, read
   by `cosmic.literal` and never executed. `fetch` unpacks a pin beside
   the pin, so cosmos lands in `o/3p/cosmos/` and tl in `o/3p/tl/`
@@ -287,13 +297,6 @@ key concepts:
   binaries
 - **output directory**: all build artifacts go to `o/`
 
-what has no verb yet runs as a script — `regen` is named and planned:
-
-```bash
-bin/cosmic _types/gentype.tl              # regenerate _types/cosmo*.d.tl
-bin/cosmic _types/gentl.tl o/3p/tl/tl.tl  # regenerate _types/tl.d.tl
-```
-
 **`_perf` is not `--make benchmark`.** `*_benchmark.tl` holds
 `Benchmark_*` functions the runner extracts and times one at a time;
 `_perf/bench/*_bench.tl` are scenario MODULES for a harness that
@@ -301,46 +304,39 @@ aggregates across them. This repo's performance work is the latter.
 
 ## Type Generation
 
-the `cosmo.*` type declarations are GENERATED — never edit them by hand:
+the `cosmo.*` and `tl` type declarations are GENERATED and **not
+committed**. `_types/types_gen.tl` is a generation unit; every verb that
+touches the graph runs it first, into `o/_types/`:
 
-- `_types/cosmo.d.tl` — the top-level `require("cosmo")` surface
-- `_types/cosmo/*.d.tl` — submodules (unix, path, getopt, lsqlite3, re, argon2, zip, repl)
+- `o/_types/cosmo.d.tl` — the top-level `require("cosmo")` surface
+- `o/_types/cosmo/*.d.tl` — submodules (unix, path, getopt, lsqlite3, re, argon2, zip, repl)
+- `o/_types/tl.d.tl` — the narrowed public Teal compiler API
 
-the single source of truth is `tool/net/definitions.lua` in whilp/cosmopolitan,
-embedded in the pinned cosmos release binary at `/zip/.lua/definitions.lua`.
-upstream, per-module annotation-coverage ratchet tests guarantee every C
-binding is annotated; here, `_types/gentype.tl` parses those annotations
-into Teal records, and `_types/gentype_test.tl` fails if the committed
-files differ byte-for-byte from generator output.
+There is nothing to regenerate and nothing to check for drift: the build
+produces them, and a `cosmo.*` change shows up as the pin bump that
+caused it. The cost, stated: **a fresh clone cannot resolve `cosmo.*`
+until it has fetched and built once**, and an editor needs `o/_types` on
+its include path.
 
-update procedure (after a cosmos bump or generator change):
+the single source of truth for `cosmo.*` is `tool/net/definitions.lua` in
+whilp/cosmopolitan, embedded in the pinned cosmos release binary at
+`/zip/.lua/definitions.lua`. upstream, per-module annotation-coverage
+ratchet tests guarantee every C binding is annotated; here,
+`_types/gentype.tl` parses those annotations into Teal records. `tl.d.tl`
+is extracted from the pinned tl source by `_types/gentl.tl`, with
+internal types erased by rule and records curated to verified field
+subsets.
+
+update procedure (after a cosmos or tl pin bump):
 
 ```bash
-# 1. bump 3p/cosmos/cosmos_pin.tl (url version + sha)
-bin/cosmic --make fetch                # land the new pin
-bin/cosmic _types/gentype.tl           # regenerate all .d.tl from it
-bin/cosmic --make test _types          # the drift test
-# 2. fix any cosmic wrappers the new types break; commit everything together
+bin/cosmic --make fetch     # land the new pin
+bin/cosmic --make build     # regenerates o/_types/types_gen from it
+o/bin/cosmic --make ci      # fix whatever the new types break
 ```
 
-`regen-types` runs the generator under the staged cosmos binary with only
-gentype's require closure compiled, so it works even when the rest of the
-tree does not compile yet — e.g. wrapper code staged ahead of the pin bump
-that introduces its bindings. The generator reads `definitions.lua` out
-of the PINNED cosmos runtime, so `--make fetch` is the only prerequisite;
-GENTYPE_DEFS overrides it for validating against a cosmopolitan checkout
-before a release is cut.
-
-`GENTYPE_DEFS=/path/to/definitions.lua` overrides the definitions source for
-validating against a cosmopolitan checkout before a release is cut.
-
-`_types/tl.d.tl` (Teal compiler API) is generated too — by
-`_types/gentl.tl` from the pinned tl source (`bin/cosmic _types/gentl.tl
-o/3p/tl/tl.tl > _types/tl.d.tl` after a tl version bump; `gentl_test.tl`
-fails on drift). There is no handcrafted
-exception left: `_types/make-help.d.tl` existed to give types to a bare
-`require("make-help")`, and once the name matched its position
-(`_build.make-help`, 3f) the checker resolved the source directly.
+`GENTYPE_DEFS=/path/to/definitions.lua` overrides the definitions source
+for validating against a cosmopolitan checkout before a release is cut.
 
 ## cosmic Binary
 

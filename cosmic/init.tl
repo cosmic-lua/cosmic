@@ -1,8 +1,6 @@
 --- cosmic: a batteries-included Lua/Teal distribution built on
 --- Cosmopolitan Libc. Main entry point helper for cosmic programs.
 
-local proc = require("cosmic.proc")
-
 --- Environment with standard output and error streams.
 local record Env
   stdout: FILE
@@ -16,13 +14,24 @@ local record VersionInfo
 end
 
 --- Run a main function and exit with its return code.
---- Calls the provided function only if running as main script. The
---- function receives the command-line arguments and an environment with
---- stdout/stderr, and returns an exit code plus an optional error
+---
+--- The function receives the command-line arguments and an environment
+--- with stdout/stderr, and returns an exit code plus an optional error
 --- message, which is written to stderr.
+---
+--- It does NOT check `is_main` itself, and cannot: `cosmo.is_main()`
+--- answers for the chunk that CALLS it, and this chunk is always
+--- `cosmic/init.tl`, never your script. The guard it used to carry was
+--- therefore false every time, so every caller silently did nothing —
+--- and the test that covered it asserted the function existed rather
+--- than that it ran. A file that is both a module and a script asks in
+--- its OWN chunk, where the answer is about that file:
+---
+---     if proc.is_main() then
+---       cosmic.main(function(args: {string}): number, string … end)
+---     end
 --- @param fn function The main function to execute
 local function main(fn: function(args: {string}, env: Env): number, string)
-  if not proc.is_main() then return end
   local env: Env = {stderr = io.stderr, stdout = io.stdout}
   local code, err = fn(arg, env)
   if err then env.stderr:write(err .. "\n") end

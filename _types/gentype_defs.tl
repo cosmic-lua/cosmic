@@ -10,19 +10,14 @@ local zip = require("cosmic.zip")
 
 --- The pinned cosmos runtime, which carries `definitions.lua`.
 ---
---- `cosmic --make fetch` lands it in its unit's output directory; the
---- Makefile's fetch pipeline symlinks `o/cosmos/.staged` at a
---- version-stamped copy. The second arm goes with the Makefile.
+--- `cosmic --make fetch` unpacks a pin beside the pin, so it lands in
+--- `o/3p/cosmos/`.
 --- @return string Path to the pinned `lua`
 local function runtime_path(): string
-  local fetched = fs.join("o", "3p", "cosmos", "lua")
-  if fs.isfile(fetched) then
-    return fetched
-  end
-  return fs.join("o", "cosmos", ".staged", "lua")
+  return fs.join("o", "3p", "cosmos", "lua")
 end
 
---- Read the annotations the committed `.d.tl` files describe.
+--- Read the annotations the generated `.d.tl` files are rendered from.
 ---
 --- Out of the PINNED runtime, which is the release those types were
 --- generated against. The RUNNING binary's copy

@@ -6,8 +6,8 @@
 --- file's percentage drops more than a small tolerance below its
 --- baseline, when the total percentage declines, or when the file set
 --- drifts (a new file missing from the baseline, or a stale baseline
---- entry) — the ratchet only moves up. `bin/make coverage` runs the
---- check; `bin/make coverage-baseline` rewrites the baseline.
+--- entry) — the ratchet only moves up. `cosmic --make coverage` runs the
+--- check; `cosmic --make coverage --baseline` rewrites the baseline.
 ---
 --- Dual use: `require`d for the API, or run as a script:
 ---   cosmic .../baseline.lua write <report paths...>   > baseline.txt
@@ -54,7 +54,7 @@ end
 --- @return string
 local function render(reports: {FileReport}): string
   local out: {string} = {
-    "# coverage ratchet baseline: `bin/make coverage-baseline` rewrites this file.",
+    "# coverage ratchet baseline: `cosmic --make coverage --baseline` rewrites this file.",
     "# columns: path covered-lines total-lines",
   }
   local covered_sum = 0
@@ -115,7 +115,7 @@ local function compare(reports: {FileReport}, entries: {string: Entry}, total: E
     local base = entries[r.display]
     if not base then
       problems[#problems + 1] = string.format(
-        "%s: not in baseline (new file? run 'bin/make coverage-baseline' and commit)",
+        "%s: not in baseline (new file? run 'cosmic --make coverage --baseline' and commit)",
         r.display)
     else
       local have = pct(r.covered, r.total)
@@ -131,7 +131,7 @@ local function compare(reports: {FileReport}, entries: {string: Entry}, total: E
   for path in pairs(entries) do
     if not seen[path] then
       problems[#problems + 1] = string.format(
-        "%s: stale baseline entry (file removed? run 'bin/make coverage-baseline' and commit)",
+        "%s: stale baseline entry (file removed? run 'cosmic --make coverage --baseline' and commit)",
         path)
     end
   end
@@ -175,7 +175,7 @@ local function check(baseline_path: string, paths: {string}): integer
       io.stderr:write("coverage ratchet: " .. p .. "\n")
     end
     io.stderr:write(string.format(
-        "coverage ratchet: %d problem(s); if the decline is intended, run 'bin/make coverage-baseline' and commit the result\n",
+        "coverage ratchet: %d problem(s); if the decline is intended, run 'cosmic --make coverage --baseline' and commit the result\n",
         #problems))
     return 1
   end
@@ -197,7 +197,7 @@ local function gate(baseline_path: string, only: string, paths: {string}): integ
   end
   if not fs.isfile(baseline_path) then
     io.write("coverage ratchet skipped: no " .. baseline_path ..
-      "; run 'bin/make coverage-baseline' to start it\n")
+      "; run 'cosmic --make coverage --baseline' to start it\n")
     return 0
   end
   return check(baseline_path, paths)

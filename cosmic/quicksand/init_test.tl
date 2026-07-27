@@ -125,7 +125,7 @@ test_probe_string_only_failure_is_available()
 
 -- Re-verify against the real host: on Linux both pledge (seccomp) and,
 -- when the kernel advertises landlock, unveil are genuinely present, so the
--- probe must report them. The enforce lane (bin/make enforce) separately
+-- probe must report them. The enforce lane (`--make enforce`) separately
 -- proves both mechanisms actually restrict on ubuntu-latest; this pins
 -- the probe's report to that reality rather than to a vacuous
 -- always-true.

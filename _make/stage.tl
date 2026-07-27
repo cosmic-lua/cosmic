@@ -12,6 +12,7 @@
 local cenv = require("cosmic.env")
 local fs = require("cosmic.fs")
 local sys = require("cosmic.sys")
+local generate = require("_make.generate")
 local graph = require("_make.graph")
 local project = require("_make.project")
 local types = require("_make.types")
@@ -116,6 +117,15 @@ end
 --- @return string The detail for the verdict line
 local function graph_stage(v: Verb, proj: Project, paths: {string},
     cosmic: string): boolean, string
+  -- Generated INPUTS first, for every graph verb and not just `build`:
+  -- the compiler, the checker, the formatter and the linter all read
+  -- `_types/*.d.tl`, so a verb that ran before the generator would work
+  -- against whatever the last run left behind.
+  local gok, generr = generate.sources(proj, cosmic)
+  if not gok then
+    io.stderr:write((generr or "make: source generation failed") .. "\n")
+    return false, "generate failed"
+  end
   local issues = validate.validate(proj)
   if #issues > 0 then
     io.stderr:write(validate.format_issues(issues) .. "\n")

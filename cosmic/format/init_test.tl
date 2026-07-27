@@ -398,6 +398,37 @@ assert_format(
   "as function cast with nested function types"
 )
 
+-- A cast whose function TYPE lands on the next line: the `as` is the
+-- last token of one line and `function(` opens the next. A per-line
+-- scan sees only a bare `function` at line start and reads it as a
+-- definition, indenting the rest of the file into a body no `end`
+-- closes -- so the rules carry one bit across the break.
+local function test_type_continued_after_a_line_break()
+  local src = "local function f(): integer\n" ..
+  "  local g = print as\n" ..
+  "  function(files: {string}, names: {string: string}): string | nil\n" ..
+  "  local body = g({\"a\"}, {})\n" ..
+  "  return #body\n" ..
+  "end\n" ..
+  "return f\n"
+  assert_format(src, src, "a function type continued after `as`", "test.tl")
+end
+test_type_continued_after_a_line_break()
+
+-- The same break after a `:` -- a record field or a return type whose
+-- function type wraps. Same one bit, the other token that opens type
+-- position.
+local function test_type_continued_after_a_colon()
+  local src = "local record R\n" ..
+  "  run:\n" ..
+  "  function(a: string): integer\n" ..
+  "  n: integer\n" ..
+  "end\n" ..
+  "return R\n"
+  assert_format(src, src, "a function type continued after `:`", "test.tl")
+end
+test_type_continued_after_a_colon()
+
 print("All format tests passed!")
 
 -- `?` marks an optional record field as a SUFFIX (`name?: string`) and

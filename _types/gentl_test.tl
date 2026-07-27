@@ -1,33 +1,27 @@
 #!/usr/bin/env cosmic
--- The committed _types/tl.d.tl must equal gentl.tl's output from the
--- staged tl source byte-for-byte (the gentype pattern): the shim cannot
--- drift from tl's real API without this test failing. The staged source
--- is reached through the o/tl/.staged symlink; the Makefile makes this
--- test depend on tl staging.
+-- tl.d.tl is GENERATED into o/_types/types_gen/ and not committed, so there is no
+-- drift to test for. What is tested is the extractor: the erasure rules
+-- below are the load-bearing part, and tl_conformance_test.tl checks the
+-- result against tl's own source.
 
 local fs = require("cosmic.fs")
 local gentl = require("_types.gentl")
 
 -- `cosmic --make fetch` unpacks a pin beside the pin, so tl's tarball
--- lands whole in `o/3p/tl/`. The Makefile's fetch pipeline stages to a
--- version-stamped directory and symlinks `o/tl/.staged` at it; both are
--- live while the bridge is, so ask which one is there. The fallback
--- goes with the Makefile.
-local fetched_tl = fs.join("o", "3p", "tl", "tl.tl")
-local staged_tl = fs.isfile(fetched_tl) and fetched_tl
-or fs.join("o", "tl", ".staged", "tl.tl")
+-- lands whole in `o/3p/tl/`.
+local staged_tl = fs.join("o", "3p", "tl", "tl.tl")
 
-local function test_generated_matches_committed()
+-- Extraction has to survive the real tl source, not just the erasure
+-- cases below: a shim that fails to generate is a tree that cannot
+-- type check.
+local function test_generates_from_staged_source()
   local source, rerr = fs.read(staged_tl)
   assert(source, "staged tl.tl should be readable: " .. tostring(rerr))
   local generated, gerr = gentl.generate(source)
   assert(generated, "generation should succeed: " .. tostring(gerr))
-  local committed = assert(fs.read("_types/tl.d.tl"))
-  assert(generated == committed,
-    "_types/tl.d.tl differs from generated output; "
-    .. "run `bin/make regen-tl-types` and commit the result")
+  assert(#generated > 0, "generated shim should not be empty")
 end
-test_generated_matches_committed()
+test_generates_from_staged_source()
 
 -- The erasure rules are the load-bearing part of extraction; pin them.
 local function test_erasure_rules()

@@ -21,6 +21,8 @@ tradeoffs live in [docs/decisions](../../decisions/) instead — these are
 | build inputs | enumerable from committed files — pins, `exec` targets, and the version stamp alike |
 | generated outputs | never committed; everything generated lives in `o/` |
 | generator units | directory-scoped; one per generated asset. a binary's `embed_gen.tl` fills `o/<unit>/{embed/,base}` |
+| when generators run | a `*_gen.tl` runs **before** the graph — what it writes is an input to it. a binary's `embed_gen.tl` runs after |
+| the `cosmo.*`/`tl` types | generated into `o/_types/` by `_types/types_gen.tl`, **not committed** — the rule above applied to this repo rather than excepted from. Cost, paid knowingly: a fresh clone cannot resolve `cosmo.*` until it has fetched and built once, and an editor needs `o/_types` on its include path. Bought: no drift test, no regen command, no `regen` verb, and no diff where output and intent look alike |
 | generator inputs | its containing subtree = its grants. reads outside are **denied**, not stale |
 | grants | **derived** from each verb's signature; no declaration channel |
 | enforcement | Landlock where available **plus** portable in-process gating |

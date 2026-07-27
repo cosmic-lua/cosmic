@@ -150,7 +150,7 @@ end
 
 --- Report whether the enforcement lane is active.
 --- True when COSMIC_ENFORCE=1, which the privileged, unsandboxed CI lane
---- (`bin/make enforce`) sets. In that mode a sandbox test that cannot
+--- (`--make enforce`) sets. In that mode a sandbox test that cannot
 --- exercise real enforcement must fail loudly rather than skip silently,
 --- since there is no outer sandbox left to blame.
 --- @return boolean True when strict enforcement is required

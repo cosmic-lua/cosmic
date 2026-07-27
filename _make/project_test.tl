@@ -83,8 +83,8 @@ local function test_every_marker_classifies()
   kind_of(proj, "3p/lpeg/lpeg_pin.tl", "pin")
   kind_of(proj, "docs/index_gen.tl", "gen")
   -- The reserved basename is its own kind: a BINARY's payload
-  -- generator, scoped to the binary and run by `build`, not a
-  -- subtree-scoped generation unit run by `regen`.
+  -- generator, scoped to the binary and run after the graph, not a
+  -- subtree-scoped generation unit run before it.
   kind_of(proj, "cmd/servit/embed_gen.tl", "payload-gen")
   kind_of(proj, "embed_gen.tl", "payload-gen")
   kind_of(proj, "cmd/servit/data_gen.tl", "gen")

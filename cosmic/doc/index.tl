@@ -9,7 +9,7 @@ local codec = require("cosmic.codec")
 local cosmo = require("cosmo")
 
 local record DocIndexModule
-  generate: function(files: {string}): string | nil, string
+  generate: function(files: {string}, names?: {string: string}): string | nil, string
   main: function(args: {string}): integer
 end
 
@@ -53,9 +53,16 @@ end
 --- Generate serialized documentation index from source files.
 --- Merges examples from _example.tl files into their corresponding modules.
 --- @param files List of .tl or .d.tl file paths to process
+--- @param names Import path per file, for the files whose position is
+---              not their import path — GENERATED declarations, which
+---              live wherever the build wrote them and document the
+---              binding they declare. The caller that generated them is
+---              the only thing that knows both, so it says so here
+---              rather than this deriving it from a path shape.
 --- @return Encoded Lua source for the index, or nil on error
 --- @return Error message if generation failed
-local function generate(files: {string}): string | nil, string
+local function generate(files: {string},
+    names?: {string: string}): string | nil, string
   local modules: {string: any} = {}
   local example_files: {string: any} = {} -- Store example docs separately
 
@@ -75,14 +82,12 @@ local function generate(files: {string}): string | nil, string
       module_doc = doc.parse(source, file_path)
     end
 
-    -- Derive module name from file path
-    local name = file_path:gsub("%.d%.tl$", ""):gsub("%.tl$", "")
-    -- Path relative to the root IS the import path, so the only
-    -- rewrite left is the generated type tree: a `.d.tl` under _types/
-    -- documents the binding it declares (`cosmo.unix`), not its own
-    -- position. Everything else -- cosmic/**, _build/**, _perf/** --
-    -- already names itself.
-    name = name:gsub("^_types/", ""):gsub("/", ".")
+    -- Derive module name from file path: relative position IS the
+    -- import path, except where the caller says otherwise.
+    local name = names and names[file_path]
+    if not name then
+      name = file_path:gsub("%.d%.tl$", ""):gsub("%.tl$", ""):gsub("/", ".")
+    end
 
     -- Check if this is an _example file
     if name:match("_example$") then

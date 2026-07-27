@@ -1,4 +1,4 @@
-# coverage ratchet baseline: `bin/make coverage-baseline` rewrites this file.
+# coverage ratchet baseline: `cosmic --make coverage --baseline` rewrites this file.
 # columns: path covered-lines total-lines
 _cli/args.tl 0 31
 _cli/build/init.tl 0 43
@@ -12,22 +12,22 @@ _cli/require_hints.tl 104 124
 _cli/run.tl 28 33
 _cli/welcome.tl 0 25
 _docs/publish.tl 116 176
-_make/artifact.tl 145 156
+_make/artifact.tl 151 163
 _make/check.tl 54 55
-_make/deps.tl 72 72
+_make/deps.tl 73 73
 _make/docs.tl 14 30
 _make/extract.tl 52 73
 _make/fetch.tl 107 117
-_make/generate.tl 30 35
-_make/graph.tl 175 200
+_make/generate.tl 37 46
+_make/graph.tl 179 205
 _make/imports.tl 60 63
-_make/init.tl 0 161
+_make/init.tl 0 162
 _make/pin.tl 80 81
 _make/policy.tl 46 75
-_make/project.tl 207 218
+_make/project.tl 233 245
 _make/root.tl 53 58
-_make/stage.tl 85 89
-_make/types.tl 24 24
+_make/stage.tl 90 96
+_make/types.tl 29 29
 _make/validate.tl 193 197
 _perf/bench/child_bench.tl 0 11
 _perf/bench/embed_bench.tl 0 88
@@ -48,13 +48,14 @@ _perf/perf_types.tl 2 2
 _perf/run.tl 93 182
 _perf/stats.tl 67 67
 _types/gentl.tl 131 155
-_types/gentype.tl 275 317
+_types/gentype.tl 250 305
 _types/gentype_defs.tl 19 26
 _types/gentype_extract.tl 54 54
-_types/gentype_parse.tl 267 288
-_types/gentype_render.tl 309 312
+_types/gentype_parse.tl 255 288
+_types/gentype_render.tl 295 311
 _types/gentype_types.tl 2 2
-cmd/cosmic/embed_gen.tl 0 150
+_types/types_gen.tl 0 44
+cmd/cosmic/embed_gen.tl 0 170
 cmd/cosmic/main.tl 0 269
 cosmic/_script_cache.tl 64 70
 cosmic/ansi.tl 86 86
@@ -70,7 +71,7 @@ cosmic/coverage/init.tl 0 108
 cosmic/coverage/lines.tl 65 71
 cosmic/coverage/report.tl 183 209
 cosmic/doc/gendoc.tl 0 11
-cosmic/doc/index.tl 57 69
+cosmic/doc/index.tl 58 70
 cosmic/doc/init.tl 0 256
 cosmic/doc/lookup.tl 44 69
 cosmic/doc/query.tl 237 303
@@ -90,8 +91,8 @@ cosmic/fetch/extras.tl 198 222
 cosmic/fetch/headers.tl 23 23
 cosmic/fetch/init.tl 0 139
 cosmic/flags.tl 140 142
-cosmic/format/init.tl 0 161
-cosmic/format/rules.tl 192 204
+cosmic/format/init.tl 0 163
+cosmic/format/rules.tl 209 221
 cosmic/fs/file.tl 30 46
 cosmic/fs/init.tl 0 74
 cosmic/fs/ops.tl 93 134
@@ -103,7 +104,7 @@ cosmic/fuzzy.tl 48 50
 cosmic/getopt.tl 36 56
 cosmic/hash.tl 71 74
 cosmic/html.tl 6 6
-cosmic/init.tl 0 13
+cosmic/init.tl 0 11
 cosmic/instrument.tl 69 74
 cosmic/ip.tl 116 116
 cosmic/json.tl 23 24
@@ -121,7 +122,7 @@ cosmic/quicksand/box/merge.tl 66 67
 cosmic/quicksand/box/run.tl 0 157
 cosmic/quicksand/caps.tl 59 77
 cosmic/quicksand/init.tl 0 49
-cosmic/quicksand/netns.tl 37 55
+cosmic/quicksand/netns.tl 47 55
 cosmic/quicksand/proc.tl 87 122
 cosmic/quicksand/proxy.tl 48 84
 cosmic/quicksand/proxy/dial.tl 22 33
@@ -131,7 +132,7 @@ cosmic/quicksand/proxy/serve.tl 124 233
 cosmic/quicksand/types.tl 3 3
 cosmic/rand.tl 66 73
 cosmic/re.tl 115 125
-cosmic/sandbox.tl 85 107
+cosmic/sandbox.tl 88 108
 cosmic/searcher.tl 20 29
 cosmic/shm.tl 117 128
 cosmic/signal.tl 101 109
@@ -150,7 +151,7 @@ cosmic/sys.tl 14 22
 cosmic/syslog.tl 46 46
 cosmic/table.tl 75 75
 cosmic/tar.tl 123 131
-cosmic/teal.tl 185 193
+cosmic/teal.tl 236 245
 cosmic/testrun.tl 155 201
 cosmic/time.tl 142 155
 cosmic/tty.tl 128 135
@@ -160,4 +161,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 80 93
 tlconfig.lua 7 7
-total 11610 16545
+total 11663 16701

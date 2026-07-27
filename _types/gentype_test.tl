@@ -1,11 +1,12 @@
 #!/usr/bin/env cosmic
 --- Tests for gentype.tl type definition generator.
 ---
---- The drift tests compare generator output byte-for-byte against the
---- committed .d.tl files, so any change to the generator or to the pinned
---- cosmos definitions.lua fails here until `regen-types` is run and the
---- regenerated files are committed. GENTYPE_DEFS overrides the source,
---- for validating against a cosmopolitan checkout before a release.
+--- The declarations are GENERATED, into `o/_types/types_gen/`, and not committed —
+--- so there is no drift to test for. What is tested is the generator:
+--- that it parses the pinned definitions.lua, renders the shapes the
+--- bindings actually have, and emits valid Teal. GENTYPE_DEFS overrides
+--- the source, for validating against a cosmopolitan checkout before a
+--- release.
 
 local check = require("cosmic.check")
 local defs = require("_types.gentype_defs")
@@ -13,21 +14,23 @@ local fs = require("cosmic.fs")
 local gentype = require("_types.gentype")
 local teal = require("cosmic.teal")
 
---- The same annotations the generator itself reads, so the drift tests
---- compare against the generator's real input rather than a second
---- resolution of it that can disagree.
+--- The same annotations the generator itself reads, so these tests
+--- exercise the generator's real input rather than a second resolution
+--- of it that can disagree.
 --- @return string The definitions.lua source
 local function defs_source(): string
   local source = check.must(defs.read())
   return source
 end
 
---- Committed location for a generated module's type declarations.
-local function committed_path(module_name: string): string
+--- Where the generator writes a module's declarations. They are not
+--- committed: `_types/types_gen.tl` produces them into the unit's output
+--- directory before any graph verb runs.
+local function generated_path(module_name: string): string
   if module_name == "cosmo" then
-    return "_types/cosmo.d.tl"
+    return "o/_types/types_gen/cosmo.d.tl"
   end
-  return "_types/cosmo/" .. module_name .. ".d.tl"
+  return "o/_types/types_gen/cosmo/" .. module_name .. ".d.tl"
 end
 
 -- Test type conversion from LuaLS to Teal
@@ -59,9 +62,8 @@ local function test_convert_type()
   assert(gentype.convert_type("(true | string)") == "boolean | string", "(true | string) union")
   assert(gentype.convert_type("(integer | string)?") == "integer | string | nil", "optional paren union")
 
-  -- Variadic types keep the ellipsis with a converted base, spelled the
-  -- way the formatter spells it: these files are format-gated AND pinned
-  -- byte-for-byte against this generator, so the two have to agree.
+  -- Variadic types keep the ellipsis with a converted base, spelled with
+  -- the space the formatter would put there.
   assert(gentype.convert_type("string...") == "string ...", "string... converts")
   assert(gentype.convert_type("integer...") == "integer ...", "integer... converts")
 
@@ -390,44 +392,18 @@ function unix.grab(fd) end
 end
 test_valid_types_pass_validation()
 
--- Drift: generator output must match the committed .d.tl byte-for-byte for
--- every module. Fails after a cosmos bump or generator change until
--- `bin/make regen-types` is run and the result committed.
-local function test_drift_all_modules()
-  for _, m in ipairs(gentype.get_modules()) do
-    local result = gentype.run(m)
-    assert(result.success, "generator failed for " .. m .. ": " .. (result.error or ""))
-    local path = committed_path(m)
-    local committed = fs.read(path)
-    assert(committed, "missing committed type file " .. path
-      .. " -- run `bin/make regen-types` and commit the result")
-    if committed ~= result.output then
-      -- Locate the first differing line for a readable failure.
-      local cl: {string} = {}
-      for line in (committed .. "\n"):gmatch("([^\n]*)\n") do table.insert(cl, line) end
-      local gl: {string} = {}
-      for line in (result.output .. "\n"):gmatch("([^\n]*)\n") do table.insert(gl, line) end
-      local at = 1
-      while cl[at] == gl[at] and at <= math.max(#cl, #gl) do at = at + 1 end
-      error(path .. " drifted from generator output at line " .. at
-        .. "\n  committed: " .. tostring(cl[at])
-        .. "\n  generated: " .. tostring(gl[at])
-        .. "\nRun `bin/make regen-types` and commit the result.")
-    end
-  end
-  print("test_drift_all_modules: PASS (" .. #gentype.get_modules() .. " modules)")
-end
-test_drift_all_modules()
-
--- Every committed .d.tl must itself be valid, type-checkable Teal. The drift
--- test guarantees the committed files equal generator output, so this doubles
--- as a permanent tripwire: a renderer change that emits malformed Teal (a bad
--- union, an unbalanced paren, a dangling return) is caught here even after the
--- broken output is regenerated and committed.
+-- Every generated .d.tl must itself be valid, type-checkable Teal: a
+-- renderer change that emits a bad union, an unbalanced paren or a
+-- dangling return is caught here rather than as a confusing failure in
+-- whatever first tries to resolve `cosmo.*`. There is no drift test any
+-- more — nothing is committed to drift from — so this is the renderer's
+-- only tripwire, and it reads what the build just produced.
 local function test_generated_valid_teal()
   for _, m in ipairs(gentype.get_modules()) do
-    local path = committed_path(m)
-    local result = teal.check(path, {include_dirs = {"_types"}})
+    local path = generated_path(m)
+    assert(fs.isfile(path), path .. " was not generated — the graph runs "
+      .. "_types/types_gen.tl before anything reads cosmo.*")
+    local result = teal.check(path, {include_dirs = {"o/_types/types_gen"}})
     assert(result.ok, "generated " .. path .. " is not valid Teal:\n"
       .. teal.format_issues(result.errors)
       .. "\nFix the renderer in _types/gentype_render.tl.")
@@ -478,7 +454,7 @@ local function test_module_list_completeness()
 
   if #missing > 0 then
     error("Missing modules in gentype.tl MODULES list: " .. table.concat(missing, ", ")
-      .. "\nUpdate _types/gentype.tl MODULES and cook.mk type_modules")
+      .. "\nUpdate the MODULES list in _types/gentype.tl")
   end
   if #extra > 0 then
     error("Extra modules in gentype.tl MODULES list (no section in definitions.lua): "

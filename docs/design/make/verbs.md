@@ -13,10 +13,9 @@ fmt   [paths…]  --check format (--fix to rewrite)                    [now]
 fetch [paths…]  resolve *_pin.tl — the only verb with network        [now]
 clean           remove o/                                            [now]
 run   [binary]  build, then exec the artifact with remaining argv    [planned]
-benchmark [paths…]  run every *_benchmark.tl against the stage
-regen [paths…]  run generation units                                 [planned]
-example [paths…] run Example_* against the staged tree               [planned]
-lint  [paths…]  style gate: file length, column width, cast ratchet  [planned]
+benchmark [paths…]  run every *_benchmark.tl against the stage       [now]
+example [paths…] run Example_* against the staged tree               [now]
+lint  [paths…]  style gate: file length, column width, cast ratchet  [now]
 ```
 
 **Selection names targets of the verb's own kind, and never changes
@@ -27,17 +26,17 @@ what a full build would, and never a narrowed compile. A source path is
 refused, pointing at `check`, whose targets *are* sources.
 
 **Policy verbs** — orchestration over the graph, never graph rules.
-Planned; these lanes are workflow steps today:
 
 ```
-ci              format → check → test → example → lint → coverage
-coverage        tests with line coverage + ratchet
-enforce         sandbox-enforced lane
-reproducible    double-build + compare
-offline         no-network lane, asserted against the pins
+ci              fmt → check → test → example → lint → coverage        [now]
+coverage        tests with line coverage + ratchet                    [now]
+docs            render the model's file set to o/docs                 [now]
+enforce         sandbox-enforced lane                             [planned]
+reproducible    double-build + compare                            [planned]
+offline         no-network lane, asserted against the pins        [planned]
 ```
 
-`example` and `lint` are verbs in their own right (planned, above), so
+`example` and `lint` are verbs in their own right (above), so
 `ci` is a list of verb names rather than a lane reimplementing two of
 its six stages. `example` is `test`'s sibling — same staging, same
 fence, `Example_*` instead of the test contract — which is what the

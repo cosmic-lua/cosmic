@@ -333,7 +333,7 @@ local function generate_dtl(module: ModuleDecl): string
     table.insert(out, "-- type declarations for cosmo." .. module.name)
   end
   table.insert(out, "-- GENERATED from cosmopolitan's definitions.lua by _types/gentype.tl.")
-  table.insert(out, "-- Do not edit by hand. Regenerate with: bin/make regen-types")
+  table.insert(out, "-- Written into o/_types/types_gen/ on every build; not committed.")
   table.insert(out, "")
 
   -- Foreign class references resolve through the exporting module's record.

@@ -34,7 +34,7 @@ local BUILD_DIR < const > = "o"
 
 --- The reserved basename of a unit's PAYLOAD generator: the one
 --- `*_gen.tl` that is scoped to a binary rather than to its own
---- subtree, and that `build` runs every time rather than `regen`.
+--- subtree, and that runs at the END of a build rather than before it.
 --- Named here because the model, the artifact staging, and the
 --- validator all have to agree about it.
 local PAYLOAD_GEN < const > = "embed_gen.tl"
@@ -218,10 +218,11 @@ local function classify(rel: string): Kind
   elseif rel:sub(-7) == "_gen.tl" then
     -- A unit's PAYLOAD generator is a different kind from a generation
     -- unit, and the difference is not cosmetic: this one is scoped to
-    -- the BINARY (root packages plus its own `cmd/<name>/**`), is run
-    -- by `build` every time, and writes `o/<unit>/{embed,base}`, while
-    -- a generation unit is scoped to its own subtree and will be run by
-    -- `regen`. They are separate KINDS so the distinction is not a
+    -- the BINARY (root packages plus its own `cmd/<name>/**`), runs
+    -- AFTER the graph, and writes `o/<unit>/{embed,base}`, while a
+    -- generation unit is scoped to its own subtree and runs BEFORE the
+    -- graph, because what it writes is an input to it.
+    -- They are separate KINDS so the distinction is not a
     -- basename match inside the generator runner: with one kind,
     -- `cmd/foo/data_gen.tl` is a file neither mechanism runs, and a
     -- generation unit that happens to be named `embed_gen.tl` silently

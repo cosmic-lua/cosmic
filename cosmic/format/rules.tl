@@ -180,7 +180,28 @@ end
 
 --- Determine if a `function` keyword is a block-opening function definition
 --- vs a function TYPE annotation.
-local function is_function_block_opener(line_items: {Item}, func_idx: integer): boolean
+---
+--- `continues_type` carries the one fact a per-line scan cannot see: the
+--- PREVIOUS line ended in `as` or `:`, so this line opens in type
+--- position and a leading `function` is the type it was waiting for.
+--- Without it, `local f = g as\n  function(x: T): U` reads as a
+--- definition and indents the rest of the file into a body no `end`
+--- closes -- the same failure the return-list marking below exists to
+--- prevent, one line-break further along.
+local function is_function_block_opener(line_items: {Item}, func_idx: integer,
+    continues_type?: boolean): boolean
+  if continues_type then
+    local first: Item = nil
+    for _, item in ipairs(line_items) do
+      if item.kind ~= "comment" then
+        first = item
+        break
+      end
+    end
+    if first and first == line_items[func_idx] then
+      return false
+    end
+  end
   -- `type X = function(...)` (optionally local/global-prefixed) declares a
   -- function TYPE alias: no body follows, so it never opens a block.
   -- Without this, everything after such an alias is indented into a
@@ -275,16 +296,35 @@ local function mark_function_type(line_items: {Item}, idx: integer,
   end
 end
 
+--- Does this line leave the next one in TYPE position?
+---
+--- True when its last code token is `as` or `:`, both of which are
+--- followed by a type. The formatter carries this one bit across the
+--- line break so `compute_indent_change` can tell a continued type from
+--- a definition.
+--- @param line_items {Item} The line's items
+--- @return boolean Whether the next line opens in type position
+local function opens_type_position(line_items: {Item}): boolean
+  for i = #line_items, 1, -1 do
+    local item = line_items[i]
+    if item.kind ~= "comment" then
+      return item.tk == "as" or item.tk == ":"
+    end
+  end
+  return false
+end
+
 --- Compute the net indent change for all items on a line.
 --- Returns (pre_change, post_change).
-local function compute_indent_change(line_items: {Item}): integer, integer
+local function compute_indent_change(line_items: {Item},
+    continues_type?: boolean): integer, integer
   local pre_change = 0
   local post_change = 0
 
   local type_ctx: {integer: boolean} = {}
   for idx, item in ipairs(line_items) do
     if item.kind == "keyword" and item.tk == "function" and not type_ctx[idx]
-    and not is_function_block_opener(line_items, idx) then
+    and not is_function_block_opener(line_items, idx, continues_type) then
       mark_function_type(line_items, idx, type_ctx)
     end
   end
@@ -318,7 +358,7 @@ local function compute_indent_change(line_items: {Item}): integer, integer
       elseif item.tk == "{" or item.tk == "(" then
         post_change = post_change + 1
       elseif item.kind == "keyword" and item.tk == "function" then
-        if is_function_block_opener(line_items, idx) then
+        if is_function_block_opener(line_items, idx, continues_type) then
           post_change = post_change + 1
         end
       end
@@ -343,11 +383,14 @@ local record FormatRulesModule
   type Item = Item
   is_long_comment: function(tk: string): boolean
   needs_space: function(prev_prev: Item, prev: Item, cur: Item, next_item: Item): boolean
-  compute_indent_change: function(line_items: {Item}): integer, integer
+  compute_indent_change: function(line_items: {Item},
+  continues_type?: boolean): integer, integer
+opens_type_position: function(line_items: {Item}): boolean
 end
 
 local M: FormatRulesModule = {}
 M.is_long_comment = is_long_comment
+M.opens_type_position = opens_type_position
 M.needs_space = needs_space
 M.compute_indent_change = compute_indent_change
 

@@ -65,7 +65,10 @@ local BUILD_INCLUDE_DIRS < const >: {string} = {"."}
 --- @return {string} List of default include directory paths
 local function get_default_include_dirs(): {string}
   return {
-    "_types", -- Local cosmic types (development, takes precedence)
+    -- Generated, not committed: `_types/types_gen.tl` writes them here
+    -- before any graph verb runs -- a generation unit owns
+    -- `o/<its path minus .tl>/`. Development copy takes precedence.
+    "o/_types/types_gen",
     "/zip/.types", -- Bundled cosmic types (in binary)
     "/zip/.tl", -- Bundled cosmic .tl source (for type checking)
     "/zip", -- The app's own zip root: embedded modules beside main.lua (#690)

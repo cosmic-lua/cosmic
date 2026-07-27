@@ -9,8 +9,8 @@
 -- itself as the comparator: one probe file exercising every call shape
 -- the shim declares is type-checked twice —
 --
---   1. against _types/tl.d.tl (the shim), strict, and
---   2. against the staged tl source (o/tl/.staged/tl.tl), the ground
+--   1. against the generated shim (o/_types/types_gen/tl.d.tl), strict, and
+--   2. against the pinned tl source (o/3p/tl/tl.tl), the ground
 --      truth for the pinned tl version —
 --
 -- and both must accept it. A shim signature upstream's own types
@@ -26,17 +26,10 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 --- Where the pinned tl source tree landed.
 ---
 --- `cosmic --make fetch` unpacks a pin beside the pin, so tl's tarball
---- lands whole in `o/3p/tl/`. The Makefile's fetch pipeline instead
---- stages to a version-stamped directory and symlinks `o/tl/.staged` at
---- it; both are live while the bridge is, so this asks which one is
---- there rather than being told. The second arm goes with the Makefile.
+--- lands whole in `o/3p/tl/`.
 --- @return string The directory holding `tl.tl`
 local function staged_tl_dir(): string
-  local fetched = fs.join("o", "3p", "tl")
-  if fs.isfile(fs.join(fetched, "tl.tl")) then
-    return fetched
-  end
-  return fs.join("o", "tl", ".staged")
+  return fs.join("o", "3p", "tl")
 end
 
 -- The probe is only ever TYPE-CHECKED, never executed, so calls with
@@ -106,7 +99,7 @@ print(wk ~= nil, ast ~= nil, _found, _fd, #_tried, _e1, _e2, _e3, _e4)
 local probe_path = fs.join(tmpdir, "tl_probe.tl")
 assert(fs.write(probe_path, PROBE))
 
--- Check 1: the shim. Default include dirs put _types first, so
+-- Check 1: the shim. Default include dirs put the generated dir first,
 -- require("tl") resolves to the generated tl.d.tl. Strict; warnings
 -- fail, so every probe value must be used or underscore-marked.
 local function test_probe_passes_against_shim()
@@ -136,7 +129,7 @@ test_probe_passes_against_staged_tl()
 -- in the probe, so a member added to gentl's surface cannot ship
 -- unprobed.
 local function test_probe_covers_every_shim_member()
-  local shim = check.must(fs.read("_types/tl.d.tl"))
+  local shim = check.must(fs.read("o/_types/types_gen/tl.d.tl"))
   for name in shim:gmatch("\n  ([%w_]+): function") do
     assert(PROBE:find("tl%." .. name .. "%f[^%w_]", 1, false),
       "shim member 'tl." .. name .. "' is not exercised by the probe")

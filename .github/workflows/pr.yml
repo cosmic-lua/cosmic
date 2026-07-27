@@ -99,6 +99,13 @@ jobs:
       # under the pinned cosmic measures the PIN: a stage would report on
       # the released code and pass while the change under test is broken.
       # Building here rather than in the build lane keeps it fenced.
+      #
+      # TWICE, for the same reason one level down: the first build is
+      # produced BY the pin, so anything the tree changed about how an
+      # artifact is assembled -- what its payload generator ships, how
+      # its doc index is named -- is still the pin's answer. The second
+      # build is produced by the first, and that is the fixpoint the
+      # release ships and the gate has to judge.
       - name: the gate, with network denied
         timeout-minutes: 20
         shell: bash
@@ -111,6 +118,7 @@ jobs:
             o/bootstrap/cosmic -e "$NETNS"
             exec runuser -u builder -- env HOME="$HOME" PATH="$PATH" bash -ec "
               bin/cosmic --make build
+              o/bin/cosmic --make build
               o/bin/cosmic --make ci"'
 
       - name: dump failing test output
@@ -166,6 +174,7 @@ jobs:
             # it is missing, it refuses.
             bin/cosmic --make fetch
             bin/cosmic --make build
+            o/bin/cosmic --make build
             cp o/bin/cosmic cosmic-first
             # A different tree PATH, not just a different output dir: an
             # absolute path leaking into the artifact only shows up when
@@ -176,6 +185,7 @@ jobs:
             bin/cosmic --make clean
             bin/cosmic --make fetch
             bin/cosmic --make build
+            o/bin/cosmic --make build
             cmp "$OLDPWD/cosmic-first" o/bin/cosmic
             echo "reproducible: PASS — double build is byte-identical"'
 

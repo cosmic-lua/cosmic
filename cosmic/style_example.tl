@@ -2,7 +2,7 @@
 --- The style checks behind `cosmic --check style`: file length, column
 --- width, and definition-before-use ordering. Each check returns a list
 --- of Diagnostic records rather than printing or throwing, so a caller
---- decides how to report them — which is how `bin/make lint` reuses the
+--- decides how to report them — which is how `--make lint` reuses the
 --- same functions the CLI runs.
 
 -- Example_check_file_length demonstrates the file-length rule.

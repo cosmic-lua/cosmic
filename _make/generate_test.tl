@@ -27,10 +27,9 @@ local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
 -- The engine, by the same rule the code uses: COSMIC_MAKE names it,
--- else the copy `--make` extracts from its own binary. `o/cosmo-make`
--- is the BRIDGE's copy, which only exists under `bin/make`.
+-- else the copy `--make` extracts from its own binary.
 local make_bin = fs.abspath(os.getenv("COSMIC_MAKE")
-  or (fs.isfile("o/make") and "o/make" or "o/cosmo-make"))
+  or "o/make")
 if not check.needs("the make engine at " .. make_bin, fs.isfile(make_bin)) then
   os.exit(2)
 end

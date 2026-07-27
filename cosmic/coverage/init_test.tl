@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
 --- Tests for the coverage collector.
 --- These run correctly both standalone and under an outer coverage run
---- (`bin/make coverage`): start/stop nest, and enable() never re-targets
+--- (`cosmic --make coverage`): start/stop nest, and enable() never re-targets
 --- an outer collection's dump directory.
 local check = require("cosmic.check")
 local child = require("cosmic.child")
