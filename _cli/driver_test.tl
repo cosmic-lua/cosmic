@@ -8,7 +8,7 @@
 -- that the plan says the right thing, and that it exists for every verb.
 
 local build = require("_cli.build")
-local driver = require("_cli.driver")
+local grants = require("_cli.grants")
 local fs = require("cosmic.fs")
 local sandbox = require("cosmic.sandbox")
 
@@ -36,7 +36,7 @@ end
 local function test_every_verb_has_a_shape()
   local missing: {string} = {}
   for _, verb in ipairs(build.verbs()) do
-    if driver.plan(verb, {"a", "b", "c"}) == nil then
+    if grants.plan(verb, {"a", "b", "c"}) == nil then
       missing[#missing + 1] = verb
     end
   end
@@ -48,7 +48,7 @@ test_every_verb_has_a_shape()
 local function test_copy_reads_src_and_writes_dst_parent()
   local src = touch("fence-src.txt")
   local dst = fs.join(tmpdir, "fence-out.txt")
-  local p = driver.plan("copy", {src, dst})
+  local p = grants.plan("copy", {src, dst})
   assert(p is sandbox.Fs, "copy must plan a policy")
   assert(has(p.ro, src), "src must be readable")
   -- The DIRECTORY, not the file: creating dst is a right on its parent,
@@ -64,7 +64,7 @@ local function test_missing_reads_are_dropped()
   -- restrict, and a fence that fails is a fence that is not there. The
   -- verb still reports its own "cannot open" error.
   local absent = fs.join(tmpdir, "fence-absent.txt")
-  local p = driver.plan("copy", {absent, fs.join(tmpdir, "o.txt")})
+  local p = grants.plan("copy", {absent, fs.join(tmpdir, "o.txt")})
   assert(p is sandbox.Fs, "copy must still plan")
   assert(not has(p.ro, absent), "a missing input must not become a rule")
 end
@@ -73,7 +73,7 @@ test_missing_reads_are_dropped()
 local function test_compile_execs_the_bootstrap()
   local boot = touch("fence-boot")
   local src = touch("fence-a.tl")
-  local p = driver.plan("compile", {boot, src, fs.join(tmpdir, "a.lua")})
+  local p = grants.plan("compile", {boot, src, fs.join(tmpdir, "a.lua")})
   assert(p is sandbox.Fs, "compile must plan a policy")
   assert(has(p.exec, boot), "the bootstrap must be executable")
   assert(has(p.ro, src), "the source must be readable")
@@ -93,7 +93,7 @@ test_compile_execs_the_bootstrap()
 local function test_a_compile_may_read_the_checkers_own_inputs()
   local boot = touch("fence-cfg-boot")
   local src = touch("fence-cfg.tl")
-  local p = driver.plan("compile", {boot, src, fs.join(tmpdir, "c.lua")})
+  local p = grants.plan("compile", {boot, src, fs.join(tmpdir, "c.lua")})
   assert(p is sandbox.Fs, "compile must plan a policy")
   assert(has(p.ro, "tlconfig.lua"),
     "a compile must be allowed to read tlconfig.lua")
@@ -119,7 +119,7 @@ local function test_a_compile_may_read_the_checkers_own_inputs()
   end
 
   -- And only for the verbs that run the checker: `copy` moves bytes.
-  local q = driver.plan("copy", {src, fs.join(tmpdir, "c2.tl")})
+  local q = grants.plan("copy", {src, fs.join(tmpdir, "c2.tl")})
   assert(q is sandbox.Fs, "copy must plan a policy")
   assert(not has(q.ro, "tlconfig.lua"),
     "a verb that does not compile gets no compiler grants")
@@ -129,7 +129,7 @@ local function test_a_compile_may_read_the_checkers_own_inputs()
   -- (`--include-dir <dir>`) is NOT an input and must not be granted —
   -- granting it would hand over the whole tree and undo the closure.
   local dep = touch("fence-cfg-dep.tl")
-  local withdeps = driver.plan("compile",
+  local withdeps = grants.plan("compile",
     {boot, src, fs.join(tmpdir, "c3.lua"), "--include-dir", tmpdir,
       "--deps", dep})
   assert(withdeps is sandbox.Fs, "compile must plan a policy")
@@ -143,7 +143,7 @@ local function test_remove_takes_a_variadic_tail()
   -- unlink is a right on the parent directory, so every path in the
   -- tail contributes its parent.
   local a, b = touch("fence-rm-a"), touch("fence-rm-b")
-  local p = driver.plan("remove", {a, b})
+  local p = grants.plan("remove", {a, b})
   assert(p is sandbox.Fs, "remove must plan a policy")
   assert(has(p.rw, tmpdir), "the parent must be writable to unlink")
 end
@@ -154,7 +154,7 @@ local function test_list_does_not_read_its_items()
   -- paths the step opens, so granting them would widen the fence for
   -- nothing.
   local item = touch("fence-item.tl")
-  local p = driver.plan("list", {fs.join(tmpdir, "files.txt"), item})
+  local p = grants.plan("list", {fs.join(tmpdir, "files.txt"), item})
   assert(p is sandbox.Fs, "list must plan a policy")
   assert(has(p.rw, tmpdir), "the output's parent must be writable")
   assert(not has(p.ro, item), "items are content, not reads")
@@ -169,7 +169,7 @@ test_list_does_not_read_its_items()
 -- where a stage wants a file list.
 local function test_exec_gets_its_units_not_the_whole_tree()
   local prog = touch("fence-tool")
-  local p = driver.plan("exec", {prog, "--flag"})
+  local p = grants.plan("exec", {prog, "--flag"})
   assert(p is sandbox.Fs, "exec must plan a policy")
   assert(has(p.exec, prog), "the program must be executable")
   assert(has(p.ro, tmpdir), "the program's own unit must be readable")
@@ -186,7 +186,7 @@ local function test_exec_reads_the_units_its_arguments_name()
   assert(fs.makedirs(input))
   local src = fs.join(input, "a.txt")
   assert(fs.write(src, "x\n"))
-  local p = driver.plan("exec", {prog, src})
+  local p = grants.plan("exec", {prog, src})
   assert(p is sandbox.Fs, "exec must plan a policy")
   assert(has(p.ro, input), "the argument's unit must be readable")
 end
@@ -204,7 +204,7 @@ local function test_a_generation_unit_is_the_whole_subtree()
   assert(fs.write(fs.join(unit, "index_gen.tl"), "return {}\n"))
   local src = fs.join(deep, "input.txt")
   assert(fs.write(src, "x\n"))
-  local p = driver.plan("exec", {prog, src})
+  local p = grants.plan("exec", {prog, src})
   assert(p is sandbox.Fs, "exec must plan a policy")
   assert(has(p.ro, unit),
     "the generation unit's root must be readable, got: " ..
@@ -219,7 +219,7 @@ local function test_an_argumentless_verb_still_plans()
   -- usage error; the fence must not throw on the way there. The
   -- runtime floor is still granted -- what must be absent is any grant
   -- derived from arguments that were not given.
-  local p = driver.plan("copy", {})
+  local p = grants.plan("copy", {})
   assert(p is sandbox.Fs, "an argument-less copy must still plan")
   for _, path in ipairs(p.ro) do
     assert(path:sub(1, 5) == "/dev/",
@@ -231,7 +231,7 @@ test_an_argumentless_verb_still_plans()
 local function test_the_running_binary_stays_executable()
   -- compile and capture re-exec cosmic; a fence that revoked that would
   -- deny the step its own driver.
-  local p = driver.plan("copy", {touch("fence-x"), fs.join(tmpdir, "y")})
+  local p = grants.plan("copy", {touch("fence-x"), fs.join(tmpdir, "y")})
   assert(p is sandbox.Fs, "copy must plan a policy")
   if arg[-1] ~= nil then
     assert(has(p.exec, arg[-1]), "the running binary must stay executable")
@@ -245,7 +245,7 @@ local function test_a_childs_own_paths_are_readable()
   -- fence is inherited across the spawn, so the parent must grant
   -- them. Flags are not paths and drop out by not existing.
   local got = touch("fence-report.got")
-  local p = driver.plan("tee", {fs.join(tmpdir, "sum.txt"), "cosmic", "--report", got})
+  local p = grants.plan("tee", {fs.join(tmpdir, "sum.txt"), "cosmic", "--report", got})
   assert(p is sandbox.Fs, "tee must plan a policy")
   assert(has(p.ro, got), "the child's input must be readable")
   assert(not has(p.ro, "--report"), "a flag is not a path")
@@ -263,7 +263,7 @@ local function test_exec_grants_the_ape_loader()
   local loader = fs.join(dir, "ape")
   assert(fs.write(prog, "x"))
   assert(fs.write(loader, "x"))
-  local p = driver.plan("exec", {prog})
+  local p = grants.plan("exec", {prog})
   assert(p is sandbox.Fs, "exec must plan a policy")
   assert(has(p.exec, prog), "the program must be executable")
   assert(has(p.exec, loader), "the APE loader beside it must be executable")
@@ -272,7 +272,7 @@ test_exec_grants_the_ape_loader()
 
 local function test_the_runtime_floor_is_granted()
   -- Derived-from-argv says nothing about what every process needs.
-  local p = driver.plan("list", {fs.join(tmpdir, "out.txt")})
+  local p = grants.plan("list", {fs.join(tmpdir, "out.txt")})
   assert(p is sandbox.Fs, "list must plan a policy")
   assert(has(p.rw, "/dev/null"), "/dev/null must be writable")
   assert(has(p.ro, "/dev/urandom"), "/dev/urandom must be readable")

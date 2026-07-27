@@ -4,7 +4,8 @@ _cli/args.tl 0 31
 _cli/build/init.tl 43 47
 _cli/build/steps.tl 182 237
 _cli/check.tl 24 31
-_cli/driver.tl 157 181
+_cli/driver.tl 21 34
+_cli/grants.tl 159 167
 _cli/help.tl 46 48
 _cli/lint.tl 190 215
 _cli/main_handlers.tl 11 220
@@ -165,4 +166,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 80 93
 tlconfig.lua 7 7
-total 12902 17116
+total 12925 17136

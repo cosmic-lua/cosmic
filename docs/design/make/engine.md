@@ -67,22 +67,30 @@ cosmic verb or `exec`.
   that CAN enforce and fails to apply the policy: that is a fence that
   silently is not there.
 
-  What is still open, and stated because the code now says it out
-  loud: **a test may READ the project it belongs to.** The narrower
-  rule -- reads confined to the import closure the graph already
-  computes -- does not survive real tests, and the two that broke under
-  it say why. `_types/gentl_test.tl` reads the pinned `tl.tl`, a
-  project input verified by digest that no `require` names;
-  `_build/workflows_test.tl` reads `.github/workflows`, which the model
-  prunes as a dotfile and which is the entire subject of that ratchet.
-  A fence that forces a ratchet test to stop reading the thing it
-  ratchets is not protecting anything.
+  **A build step and a test are fenced differently, and the difference
+  is not a compromise.** A build step's inputs are its argv -- that is
+  the whole design, and its grants are exactly that. A TEST is
+  arbitrary code whose argv says only *run this compiled file*: this
+  repo's own tests allocate ptys, count their file descriptors through
+  `/proc/self/fd`, resolve names, and exec helpers. No derivation sees
+  any of it.
 
-  Narrowing it again wants a channel for "I read this file" that is not
-  `require` -- the one declaration channel this design deliberately does
-  not have. Writes are unaffected: a test's write grant is its own
-  `.got` base and TMPDIR, which is where the confinement that matters
-  lives.
+  So a test is fenced from WRITING: its `.got` base and TMPDIR, which
+  the shape names, and nothing else. It may read the project it belongs
+  to, and read and exec the operating system, from an enumerated list
+  rather than `/`.
+
+  Two failures made the read half explicit before the runtime half did:
+  `_types/gentl_test.tl` reads the pinned `tl.tl`, which no `require`
+  names, and `_build/workflows_test.tl` reads `.github/workflows`,
+  which the model prunes as a dotfile and which is the entire subject
+  of that ratchet. A fence that stops a ratchet test reading the thing
+  it ratchets protects nothing; a fence that fails honest tests is one
+  that gets turned off.
+
+  Narrowing the read half again wants a channel for "I read this file"
+  that is not `require` -- the one declaration channel this design
+  deliberately does not have.
 
   Also open: the portable in-process gate producing the same denial on
   non-Landlock hosts.
