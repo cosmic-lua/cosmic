@@ -148,8 +148,8 @@ jobs:
         shell: bash
         run: |
           set +e
-          echo "===== last 40 lines of the gate ====="
-          tail -40 o/gate.log
+          echo "===== last 20 lines of the gate ====="
+          tail -20 o/gate.log
           # Which LINES ran, for every row the ratchet named. A percentage
           # says a file got worse; the missing-line list says which branch
           # stopped running, which is the difference between reading the
@@ -159,15 +159,6 @@ jobs:
             runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
               o/bin/cosmic --coverage-report o/.coverage 2>/dev/null \
               | grep -F "$f "
-          done
-          # Dumps per test, for the tests whose coverage comes from
-          # processes they SPAWN. A global count cannot tell "the code
-          # did not run" from "this test's children did not dump"; this
-          # can, and it is the difference between the two remaining
-          # explanations.
-          echo "===== dumps per test (spawning tests) ====="
-          for d in o/.coverage/_cli/*.cov.d o/.coverage/_cli/build/*.cov.d; do
-            [ -d "$d" ] && echo "$(find "$d" -name '*.cov' | wc -l)  $d"
           done
           exit 0
 
