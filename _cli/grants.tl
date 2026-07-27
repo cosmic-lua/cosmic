@@ -392,18 +392,21 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil
   local home = os.getenv("HOME")
   if home and home ~= "" then
     local found = fs.glob(home, ".ape-*")
-    local extracted = found is {string} and #found > 0
     if found is {string} then
       for _, l in ipairs(found) do
         loaders[#loaders + 1] = l
       end
     end
-    -- The stub EXTRACTS the loader when it is missing, so the first
-    -- fenced exec on a fresh home needs to be able to write one. Only
-    -- then: once it exists, the grant narrows to the loader itself
-    -- rather than the whole home directory, which is the steady state
-    -- and the one that matters.
-    if not extracted and fs.isdir(home) then
+    -- HOME is WRITABLE, not just the loader readable, and not only on
+    -- a fresh home. The stub re-extracts to a temp beside the loader
+    -- and renames -- observed writing `.ape-1.10.<pid>` with
+    -- `.ape-1.10` already sitting there -- so granting the existing
+    -- file and nothing else fails the exec with ENOEXEC, which reads
+    -- like a corrupt binary. Landlock cannot say "create only names
+    -- matching this", so the directory is the grant. It is the same
+    -- class as TMPDIR above: somewhere the runtime must be able to put
+    -- itself before it can run at all.
+    if fs.isdir(home) then
       rw[#rw + 1] = home
     end
   end
