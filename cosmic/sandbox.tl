@@ -168,13 +168,14 @@ local function apply_fs_unveil(fs: Fs, keep_coverage?: boolean): boolean, string
     {fs.rw, "rwc"},
     {fs.exec, "rx"},
   }
+  local uopts: unveil.UnveilOptions = {keep_coverage = keep_coverage or false}
   for _, g in ipairs(groups) do
     for _, p in ipairs(g[1] or {}) do
-      local ok, err = unveil.allow(p, g[2])
+      local ok, err = unveil.allow(p, g[2], uopts)
       if not ok then return false, err end
     end
   end
-  return unveil.commit({keep_coverage = keep_coverage or false})
+  return unveil.commit(uopts)
 end
 
 local function apply_fs(fs: Fs, keep_coverage?: boolean): boolean, string

@@ -28,7 +28,13 @@ local errstr = require("cosmic.errno").str
 
 --- Flush line-coverage data before rights drop: once visibility
 --- narrows, the coverage directory may no longer be writable.
-local function seal_coverage()
+--- @param keep boolean? The caller granted the coverage directory, so
+--- the dump still works after this policy lands and sealing would
+--- throw away everything done under it.
+local function seal_coverage(keep?: boolean)
+  if keep then
+    return
+  end
   local cov = package.loaded["cosmic.coverage"]
   if cov ~= nil then
     local seal = (cov as {string: any})["seal"] as function() -- cast: from any
@@ -112,7 +118,7 @@ local function allow(path: string, permissions: Perm, opts?: UnveilOptions): boo
     if opts and opts.best_effort then return true end
     return false, unsupported
   end
-  seal_coverage()
+  seal_coverage(opts and opts.keep_coverage)
   local ok, err = unix.unveil(path, permissions)
   if not ok then
     return false, errstr(err, "unveil")
@@ -130,9 +136,7 @@ local function commit(opts?: UnveilOptions): boolean, string
     if opts and opts.best_effort then return true end
     return false, unsupported
   end
-  if not (opts and opts.keep_coverage) then
-    seal_coverage()
-  end
+  seal_coverage(opts and opts.keep_coverage)
   local ok, err = unix.unveil(nil, nil)
   if not ok then
     return false, errstr(err, "unveil commit")
