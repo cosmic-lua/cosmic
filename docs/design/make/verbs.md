@@ -26,7 +26,7 @@ what a full build would, and never a narrowed compile. A source path is
 refused, pointing at `check`, whose targets *are* sources.
 
 **Policy verbs** — orchestration over the graph, never graph rules.
-All planned; `bin/make` owns these lanes today:
+Planned; these lanes are workflow steps today:
 
 ```
 ci              format → check → test → example → lint → coverage

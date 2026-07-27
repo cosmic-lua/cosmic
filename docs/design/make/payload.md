@@ -71,6 +71,6 @@ version, and runs `--make check` — on a tree it did not build, with
 nothing on the host but itself. `_make/fixpoint_test.tl` gates both
 halves in CI.
 
-What `bin/make ci` still owns beyond `--make test` are the policy lanes
-— coverage, enforce, reproducible, offline — which the design puts in
-phase 4 as verbs.
+`--make ci` owns the gate now: fmt, check, test, example, lint,
+coverage. What is still a workflow step rather than a verb — enforce,
+reproducible, offline — the design puts in phase 4.

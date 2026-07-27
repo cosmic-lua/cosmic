@@ -12,7 +12,7 @@ pinned cosmic (pin in `bootstrap/cosmic_pin.tl`) and exec it.
 `bin/cosmic --make ci`. Since make is embedded, the chain would be
 **kernel → committed fetcher → one pin → everything**, down from two.
 
-**Today it is still two pins.** The trust root is `bin/make`, with the
+**It was two pins.** The trust root was `bin/make`, with the
 bootstrap url and sha in `cook.mk` and the cosmos pin beside it; there
 is no `bin/cosmic` and no `bootstrap/cosmic_pin.tl`. The one-pin chain
 arrives with the Makefile's retirement (3i), not before it.

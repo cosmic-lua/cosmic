@@ -5,7 +5,7 @@
 ---   cosmic -- o/_perf/run.lua [--out FILE] [--samples N] [--min-secs S]
 ---     [--only PATTERN] MODULE...
 --- where MODULE is a bench module name such as perf.bench.json_bench
---- (resolved via LUA_PATH; `bin/make perf` sets this up).
+--- (resolved via LUA_PATH).
 ---
 --- Compare mode (exits nonzero on regression/error/missing):
 ---   cosmic -- o/_perf/run.lua --compare BASE.json CUR.json

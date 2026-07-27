@@ -6,7 +6,7 @@ layer see `cosmopolitan.md` in this directory.
 
 check the hypothesis backlog first (GitHub issues labeled `perf` in
 whilp/cosmic) — it holds vetted, evidence-backed starting points. to
-find new ones, read `bin/make perf` output and look for the shapes
+find new ones, read the harness output and look for the shapes
 below. the closed-as-completed issues are worked examples of each.
 
 - **implementation mismatches between siblings.** example found during
@@ -34,7 +34,7 @@ below. the closed-as-completed issues are worked examples of each.
   `http_tcp_roundtrip` isolates the fetch-wrapper overhead from raw
   socket cost; `startup_run_teal` vs `startup_run_lua` isolates the Teal
   loader from runtime boot.
-- **profile a single scenario** by bisection: `bin/make perf
+- **profile a single scenario** by bisection: `run.lua
   PERF_ONLY=<name>` is cheap; temporarily splitting a scenario's fn into
   narrower scenarios in a scratch bench file localizes the cost. delete
   scratch scenarios before committing.

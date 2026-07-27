@@ -82,8 +82,9 @@ local count = value as integer
 ```
 
 per-file `as` counts are pinned by the cast ratchet (`_build/casts.txt`,
-enforced by `bin/make lint`). a new cast means raising the pin deliberately;
-removing casts means `bin/make casts-baseline` to lock the improvement in.
+enforced by `--make lint`). every cast carries its own `-- cast: <reason>`
+on the line or the line above, so there is no baseline to raise: a cast
+you cannot justify is one to remove.
 
 ### Record Types
 

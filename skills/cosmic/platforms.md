@@ -77,4 +77,4 @@ forward slashes are accepted by Windows and by cosmopolitan everywhere, so norma
 
 ## CI Coverage
 
-Linux runs the full gate (`bin/make ci`). macOS and Windows run smoke jobs on every PR: the freshly built binary executes `-e`, `--docs guide.platforms`, and the string/json/fs-path test files. the remaining BSDs are release-tested via cosmopolitan upstream; platform-specific bugs there are tracked as issues.
+Linux runs the full gate (`--make ci`). macOS and Windows run smoke jobs on every PR: the freshly built binary executes `-e`, `--docs guide.platforms`, and the string/json/fs-path test files. the remaining BSDs are release-tested via cosmopolitan upstream; platform-specific bugs there are tracked as issues.

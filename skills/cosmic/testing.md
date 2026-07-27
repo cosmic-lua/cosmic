@@ -92,14 +92,22 @@ test_write_file()
 
 ## The Test Sandbox
 
-`bin/make test` runs every test under a landlock-make sandbox. the default grants (the `$(o)/%.tl.test.got` pledge/unveil lines in the Makefile; the coverage lane is identical) are:
+`--make test` runs every test under a sandbox whose grants are
+**derived, never declared**. the recipe vocabulary is closed, so the
+verb's own signature says what it touches: `test <out> <cmd> [args...]`
+grants write on `<out>` (the base name of `.got`/`.out`/`.err` and the
+step's scratch directory), exec on the command, and read on positions
+3..n — the test's compiled file plus the transitive import closure the
+graph put there.
 
-- `.PLEDGE = stdio rpath wpath cpath proc exec`
-- `.UNVEIL = rx:o/bootstrap r:lib r:3p rwcx:o rwc:$TMP rx:/usr rx:/proc r:/etc r:/dev/null`
+there is no per-rule grant to edit, and no way for a rule to
+over-declare: a rule declares nothing.
 
 what that means for a test author:
 
-- **filesystem**: read `lib/` and `3p/`, write only under `o/` and `TEST_TMPDIR`. writes anywhere else fail.
+- **filesystem**: read what you import, write only under `o/` and
+  `TEST_TMPDIR` (the verb points `TMP` inside its own scratch directory,
+  so it needs no grant of its own). writes anywhere else fail.
 - **loopback TCP works** — despite no `inet` promise in the pledge list. binding and connecting on `127.0.0.1` is fine; the precedent is `cosmic/net/connect_test.tl:247` (`net.listen_tcp("127.0.0.1", 0)`), which the whole `net`/`serve` test surface leans on. bind port 0 and use the assigned port; never hardcode ports.
 - **DNS and egress do NOT work**. a lookup or outbound connect fails or the child is killed. only write such a call if the test expects the failure (e.g. asserting that a dial to a non-allowed host errors).
 - **process control works**: fork/exec are granted (`proc exec`), so `cosmic.child` spawns are fine — but the child inherits the same sandbox.
@@ -108,10 +116,10 @@ what that means for a test author:
 
 two escalation paths exist; prefer the tight default whenever the test can live with it:
 
-- **namespace tests** (anything calling `unshare(2)` or writing `/proc/self/*_map` — the quicksand netns/proxy/box suites): no pledge promise covers unshare, so these tests are listed in `quicksand_sandbox_tests` in the Makefile, which sets empty `.PLEDGE`/`.UNVEIL` for exactly those `.got` targets. to add one, append its plain and `coverage/` target paths to that list.
-- **enforcement tests** (pledge/unveil/landlock primitives asserting that restriction *actually* blocks): under the outer sandbox their assertions degrade to visible skips. the separate privileged `enforce` lane (`bin/make enforce`) reruns them unsandboxed with `COSMIC_ENFORCE=1`, where a skip becomes a loud failure, plus a tripwire that fails the lane if nothing enforced at all.
+- **namespace tests** (anything calling `unshare(2)` or writing `/proc/self/*_map` — the quicksand netns/proxy/box suites): no pledge promise covers unshare, so these run unfenced.
+- **enforcement tests** (pledge/unveil/landlock primitives asserting that restriction *actually* blocks): under an outer sandbox their assertions degrade to visible skips. a privileged lane reruns them unsandboxed with `COSMIC_ENFORCE=1`, where a skip becomes a loud failure, plus a tripwire that fails the lane if nothing enforced at all. `enforce` is a named, planned verb.
 
-a per-rule override (custom `.PLEDGE`/`.UNVEIL` for one `.got` target) is possible but rare; reach for it only when a test needs one extra grant (say, an additional read path) and neither list above fits.
+the fence itself is opt-in (`COSMIC_FENCE=1`) until its default flip lands.
 
 ## Running Tests
 
@@ -164,12 +172,15 @@ cosmic --report o/foo.got
 cosmic --report o/*.tl.test.got
 ```
 
-with `bin/make`, test targets are generated automatically from `*_test.tl` files:
+test targets are derived from `*_test.tl` files — nothing registers them:
 
 ```bash
-bin/make test              # run all tests
-bin/make test only=sqlite  # filter by pattern
+o/bin/cosmic --make test                       # run all tests
+o/bin/cosmic --make test cosmic/sqlite_test.tl # narrow by path
 ```
+
+run them under the binary your change builds (`--make build` first), or
+the tests exercise the pinned release instead.
 
 ## Writing Examples
 

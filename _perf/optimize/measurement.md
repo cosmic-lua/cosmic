@@ -35,11 +35,11 @@ chapter of `_perf/OPTIMIZE.md` — read that first.
   reproduce that scenario's timing against itself. a real regression in
   a stable scenario (json, sqlite, codec) has a quiet A/A and stays
   `regression` — the gate still catches it.
-- `bin/make perf-selfcheck` runs the same A/A control on demand, for
+- `gate.lua selfcheck` runs the same A/A control on demand, for
   interactive use or to profile the machine's noise floor before you
-  start. `PERF_ONLY=<name> bin/make perf-selfcheck` narrows it to one
+  start. `--only <name>` narrows it to one
   scenario. for a still-suspect scenario, re-measuring it in isolation
-  on both builds back to back (`PERF_ONLY=<name> bin/make perf` on A,
+  on both builds back to back (`run.lua --only <name>` on A,
   then on B) also removes the thermal/cache wake left by the ~20
   scenarios that precede it in a full suite.
 - prefer default `PERF_SAMPLES`/`PERF_MIN_SECS` for accept/reject

@@ -25,15 +25,31 @@ subprocess spawn). every scenario validates its own output with a
 `check()` function, so a change that makes a workload faster but wrong
 FAILS the benchmark.
 
+The harness is scripts, driven by whichever binary you are measuring.
+`benchmark` is a named, planned verb; until it lands these are the
+commands, and `$BIN` is the cosmic under test (`o/bin/cosmic`, or a
+wrapper around a locally built cosmopolitan lua — see
+`optimize/cosmopolitan.md`).
+
 ```bash
-bin/make perf                 # run all scenarios, write o/perf/current.json
-bin/make perf-baseline        # snapshot results to o/perf/baseline.json
-bin/make perf-compare         # re-run and fail on regression vs baseline
-bin/make perf-selfcheck       # A/A control: same binary vs itself = noise floor
-bin/make perf PERF_ONLY=json  # filter scenarios by Lua pattern
+BENCH=$(ls _perf/bench/*_bench.tl | sed 's|/|.|g;s|\.tl$||')
+
+# run all scenarios into a results file
+$BIN -- o/_perf/run.lua --out o/perf/current.json $BENCH
+# …the same, filtered to one scenario group
+$BIN -- o/_perf/run.lua --only json --out o/perf/current.json $BENCH
+
+# compare two runs with the noise-aware bar
+$BIN -- o/_perf/run.lua --compare o/perf/baseline.json o/perf/current.json
+
+# A/A control: the same binary against itself is the noise floor
+$BIN -- o/_perf/gate.lua selfcheck o/perf/a.json o/perf/b.json $BENCH
 ```
 
-`perf-compare` already handles the false alarm for you: when a
+A baseline is just a results file you keep: run the unmodified build
+into `o/perf/baseline.json` before changing anything.
+
+`--compare` already handles the false alarm for you: when a
 regression survives its retry, it runs one more pass of the same binary
 and auto-triages against that A/A self-check — a fixed-overhead
 microbench (`hash_sha256_small`, `startup_run_*`, `net_ip_*`) that swung
@@ -74,7 +90,7 @@ an optimization can land in either:
 - **cosmopolitan layer** — the C bindings themselves, the Lua runtime,
   the APE loader and zip filesystem (`startup_*` scenarios). fixed in a
   whilp/cosmopolitan checkout and measured against a locally built
-  binary via `bin/make perf-bin` — you do NOT need to cut a release to
+  binary by hand — you do NOT need to cut a release to
   measure a C change. see `optimize/cosmopolitan.md`.
 
 after ~20 rounds the cheap cosmic-layer wins are thinning out; check the
@@ -86,8 +102,8 @@ increasingly toward the cosmopolitan layer.
 
 work ONE scenario (or one closely related group) at a time.
 
-1. **baseline** on a quiet machine, from a clean tree:
-   `git status` must be clean, then `bin/make perf-baseline`.
+1. **baseline** on a quiet machine, from a clean tree: `git status` must
+   be clean, then run the harness into `o/perf/baseline.json`.
    (for cosmopolitan-layer work, baseline the unmodified LOCAL build
    instead — `optimize/cosmopolitan.md` has the exact commands.)
 2. **pick a target** (see `optimize/finding.md` and the backlog). state
@@ -97,12 +113,12 @@ work ONE scenario (or one closely related group) at a time.
    every repo convention (AGENTS.md): Teal, 2-space indent, ≤500-line
    files, `value, string` error returns, wrappers keep their documented
    behavior and error messages.
-4. **gate 1 — correctness and style:** `bin/make ci` must pass
-   (format + type check + tests + examples). the perf smoke test
+4. **gate 1 — correctness and style:** `--make ci` must pass, run under
+   the binary your change builds. the perf smoke test
    (`_perf/perf_test.tl`) runs every scenario end to end in CI, so a
    broken scenario check fails here too.
-5. **gate 2 — performance:** `bin/make perf-compare`. it re-measures,
-   compares against your baseline with a noise-aware bar
+5. **gate 2 — performance:** re-measure and `--compare` against your
+   baseline. it uses a noise-aware bar
    (max of `PERF_THRESHOLD`, baseline spread, current spread), retries
    once on failure to filter machine noise, and exits nonzero if any
    scenario regressed, errored, or disappeared. if a regression survives
@@ -119,8 +135,8 @@ work ONE scenario (or one closely related group) at a time.
      checkout` the change and record the failed hypothesis. a surviving
      regression already reproduced against the binary itself, so it is
      real; do not re-litigate it as noise.
-   - want to see the machine's noise floor yourself → `bin/make
-     perf-selfcheck` runs the same A/A control on demand. see
+   - want to see the machine's noise floor yourself → `gate.lua
+     selfcheck` runs the same A/A control on demand. see
      `optimize/measurement.md`.
 7. **commit**, quoting before/after numbers for the affected scenarios in
    the commit message (copy the `perf-compare` lines), and update the
@@ -138,9 +154,9 @@ work ONE scenario (or one closely related group) at a time.
   only in your working `o/` directory.
 - a wrapper's observable behavior (return values, error strings, edge
   cases like empty input) is part of its contract. optimizations that
-  change behavior are rejected by `bin/make ci` / scenario checks — fix
+  change behavior are rejected by `--make ci` / scenario checks — fix
   the approach, not the test.
-- one hypothesis per commit. if `bin/make ci` fails, you are done with
+- one hypothesis per commit. if `--make ci` fails, you are done with
   that hypothesis until it passes; never trade correctness for speed.
 - benchmarks live under `_perf/bench/` and use `cosmic.*` modules only
   (never raw `cosmo.*`) — they measure what users experience.
@@ -152,7 +168,7 @@ optimization: gather evidence, write new `open` entries, change no
 product code. the workflow that has worked (entries 22-27 came out of
 one such pass):
 
-1. `bin/make perf` on current main; read every line of the report.
+1. run the harness on current main; read every line of the report.
 2. rank suspects by the signal shapes in `optimize/finding.md`
    (alloc-per-op sanity math, sibling mismatches, cpu/wall surprises).
 3. for each suspect, spend a few minutes reading the wrapper source —

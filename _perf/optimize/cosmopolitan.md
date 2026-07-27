@@ -46,8 +46,9 @@ COSMO=~/cosmopolitan   # your checkout
    your change:
 
    ```bash
-   COSMO_LUA=$COSMO/o/tool/lua/lua bin/make perf-bin
-   PERF_BIN=o/perf/cosmic-local bin/make perf-baseline
+   # wrap the local lua as a measurable cosmic, then baseline it
+   BIN=o/perf/cosmic-local
+   $BIN -- o/_perf/run.lua --out o/perf/baseline.json $BENCH
    ```
 
 3. **hypothesis, then the smallest C diff that tests it** — one
@@ -73,8 +74,9 @@ COSMO=~/cosmopolitan   # your checkout
 
    ```bash
    make -C $COSMO -j$(nproc) o//tool/lua/lua
-   COSMO_LUA=$COSMO/o/tool/lua/lua bin/make perf-bin
-   PERF_BIN=o/perf/cosmic-local bin/make perf-compare
+   # rewrap with the new lua, measure, compare
+   $BIN -- o/_perf/run.lua --out o/perf/current.json $BENCH
+   $BIN -- o/_perf/run.lua --compare o/perf/baseline.json o/perf/current.json
    ```
 
 6. **decide** with the same rules as the main loop: target scenario
@@ -85,8 +87,8 @@ COSMO=~/cosmopolitan   # your checkout
    (`hash_sha256_small`, `startup_run_*`, `net_ip_*`) routinely trip the
    regression bar on layout noise alone — this is the single most common
    false alarm at this layer. Do NOT revert a real JSON/sqlite/etc. win
-   over it. Confirm with `PERF_BIN=o/perf/cosmic-local bin/make
-   perf-selfcheck` (A/A control): if the flagged scenario swings as much
+   over it. Confirm with `gate.lua selfcheck` on the same binary (an A/A
+   control): if the flagged scenario swings as much
    comparing the modified binary to itself, it is noise, not your change
    (entry 21 hit exactly this). `optimize/measurement.md` has the
    playbook.
@@ -104,8 +106,8 @@ two-repo dance — but only AFTER the local loop already proved the win:
 2. once merged, the release workflow publishes a new cosmos release
    tagged `YYYY.MM.DD-<sha>` with a `cosmos.zip` + SHA256SUMS.
 3. in cosmic: bump `3p/cosmos/cosmos_pin.tl` (version + sha256), then
-   `bin/make regen-types`, fix any wrapper breakage, `bin/make ci`, and
-   `bin/make perf-compare` against a baseline taken on the OLD pin —
+   `cosmic _types/gentype.tl`, fix any wrapper breakage, `--make ci`, and
+   a `--compare` against a baseline taken on the OLD pin —
    this final compare is the end-to-end confirmation, quoted in the
    bump commit.
 

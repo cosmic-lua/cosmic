@@ -1,4 +1,4 @@
-# D13 — the build's trust root is two pinned artifacts behind one committed fetcher
+# D13 — the build's trust root is one pinned artifact behind one committed fetcher
 
 - **date:** 2026-07
 - **context:** the #756 arc converged the build on "make as the pinned
@@ -37,4 +37,23 @@
   binaries enter the build only through pin bumps; the ratchets keep
   the exception sets from regrowing silently. supply-chain review
   reduces to: read `bin/make`, audit two shas, trust the kernel.
+- **amended 2026-07:** the chain is now **kernel → committed
+  `bin/cosmic` → ONE sha-pinned artifact → everything else**, and the
+  rejected option above — shipping make inside the cosmic release
+  binary — is what happened. It was rejected for "no reduction in what
+  must be trusted", and that reasoning was wrong on its own terms: a
+  cosmic that carries its own build engine removes a pin, a fetch and a
+  bootstrap step from the chain, and the entangled release cycles never
+  materialised because the engine ships in the artifact that was already
+  being released. `bin/cosmic` obtains the release named in
+  `bin/cosmic.pin`, verifies its sha256, and execs it; cosmic extracts
+  its own make from its own zip.
 
+  Two gates named above went with the Makefile rather than being
+  replaced: the makefile ratchet tests (they guarded real-shell
+  exceptions and host-exec grants in a file that no longer exists — the
+  recipe vocabulary is closed and its grants are DERIVED, so there is no
+  exception set left to regrow) and the `.ENV` clamp fixture. The
+  offline, reproducible, enforce and canary gates stand. Supply-chain
+  review now reduces to: read `bin/cosmic`, audit one sha, trust the
+  kernel.

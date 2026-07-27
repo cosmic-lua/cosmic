@@ -144,36 +144,41 @@ predicted and what actually happened — is in [log/](log/).
      that silently dropped files — 3d lost `tl.lua` and the type tree,
      3h lost every compiled `_cli/**` and `_make/**` module and still
      produced a binary that booted.
-   - **3i — the verbs take over, and the bridge goes.** `-include
-     o/cosmic.mk` once the Makefile's own `build`/`test`/`fmt` targets
-     retire; `--make fetch` replaces `_build/build-fetch.tl` (the
-     pins themselves are already `*_pin.tl`, done in 3g, and the two
-     pipelines now share one READER); `regen` runs the generation
-     units, which is what lets `_types/*.d.tl` stop being committed.
-     Then `bin/make` → `bin/cosmic`, and `mk/`, `cook.mk` and the
-     ratchets the closed vocabulary makes moot go with it.
+   - **3i — the verbs took over, and the bridge went. Landed.** The
+     Makefile, `cook.mk`, `mk/**`, the seven module `cook.mk`s,
+     `bin/make`, the Makefile's fetch/stage/pack pipeline and its
+     reporter, the tests that tested the Makefile, and the `--build`
+     flag are all deleted. A cold checkout runs `bin/cosmic --make
+     fetch`, `--make build`, then gates with the binary it just built.
+     `bin/cosmic` is the trust root and carries the one pin.
 
-     **The sequence, the gaps and the exit criteria are
-     [bridge.md](bridge.md)** — it is the one phase that cannot land
-     behind the existing build, because the existing build is what
-     goes, so it is written down before it is attempted. It also
-     records the measurement that used to be an assumption:
-     `--make test` over this whole tree finds exactly the same targets
-     `bin/make test` does, and its failures were the test EXECUTION
-     ENVIRONMENT — over half of them one missing thing, no binary under
-     test on the path — not the graph. That one is closed; the rest are
-     a table in [bridge.md](bridge.md).
+     What it taught, beyond the sequence in [bridge.md](bridge.md):
 
-     **Generators moved here from 3g; the pins did not.** The pins
-     looked blocked for the same reason: converting them means
-     something must read them, and the only reader was
-     `cosmic._make.pin`, which `_build/build-fetch.tl` cannot import
-     from outside `cosmic/`. That reasoning was one step short — what
-     the repo needed was not the *verb* but the *reader*, and promoting
-     it (`cosmic.literal`) unblocked the conversion in 3g without
-     waiting for anything. The generators are genuinely blocked, and on
-     something more specific than "a verb": `regen` does not exist yet,
-     and un-committing `_types/*.d.tl` needs it to.
+     - **The gate has to run under the binary the tree BUILDS.** Modules
+       resolve from the artifact before the tree, so a gate run under
+       the pinned cosmic measures the PIN — it ran the released
+       formatter over a formatter fix and passed. Six checks reporting
+       on code that was not under test.
+     - **The Makefile had been covering real defects**, all in coverage.
+       It measured almost nothing under `--make` (chunks arrived as
+       `/zip/...` and were dropped as absolute paths, so the ratchet
+       held a floor over data it never collected); the coverage lane
+       never put binaries on PATH, so every test that spawns the binary
+       under test failed there and only there; `.tl` under `o/` are
+       staged COPIES and were counted as sources; and a `./` prefix made
+       every file read as new.
+     - **Varying the tree PATH in the reproducibility check** — not just
+       the output directory, as `o=o2` did — immediately caught a real
+       one: `o/embed/` is both the root unit's generated-payload
+       directory and where the build writes its bookkeeping about
+       `embed/**`, so a lint run before a build shipped
+       `cosmic.mk.lint.got` inside the binary.
+     - **A pin older than a build-system change cannot build the tree.**
+       The pin predated the `*_pin.tl`/`*_gen.tl` rename, so it read the
+       tree as having no pins and no generator and produced a bare Lua
+       interpreter. The deletion had to wait for one release in between,
+       and a release is built in two generations for the same reason.
+
 4. **Policy verbs.** `ci`, `coverage`, `enforce`, `reproducible`,
    `offline`; retire the ratchets the closed vocabulary makes moot.
 5. **Deferred, on evidence.** action cache; port isolation; `--make
