@@ -16,6 +16,7 @@ local fs = require("cosmic.fs")
 local hash = require("cosmic.hash")
 local pin = require("_make.pin")
 local project = require("_make.project")
+local selection = require("_make.select")
 local types = require("_make.types")
 
 local type File = types.File
@@ -237,7 +238,7 @@ end
 --- @return integer Exit code
 local function run(proj: Project, paths: {string}): integer
   local candidates = project.of_kind(proj, {"pin"})
-  local picked, serr = project.select(candidates, paths, proj.root)
+  local picked, serr = selection.files(candidates, paths, proj.root)
   if not picked then
     io.stderr:write((serr or "make: no such selection") .. "\n")
     io.write("fetch: FAIL (bad selection)\n")

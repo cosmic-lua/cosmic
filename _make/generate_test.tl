@@ -44,6 +44,14 @@ local function fixture(name: string, files: {string: string}): string
     assert(fs.makedirs(fs.dirname(path)))
     assert(fs.write(path, content))
   end
+  -- A directory is not a project until it says so. Fixtures that
+  -- declare a root themselves keep theirs; the rest get the marker
+  -- that means "yes, this one" so the fixture tests what it is about.
+  if not fs.isfile(fs.join(root, "main.tl"))
+  and not fs.isfile(fs.join(root, "main.lua"))
+  and not fs.isfile(fs.join(root, ".cosmicignore")) then
+    assert(fs.write(fs.join(root, ".cosmicignore"), ""))
+  end
   return root
 end
 

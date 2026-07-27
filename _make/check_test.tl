@@ -37,6 +37,14 @@ local function fixture(name: string, files: {string: string}): string
     assert(fs.makedirs(fs.dirname(path)))
     assert(fs.write(path, content))
   end
+  -- A directory is not a project until it says so. Fixtures that
+  -- declare a root themselves keep theirs; the rest get the marker
+  -- that means "yes, this one" so the fixture tests what it is about.
+  if not fs.isfile(fs.join(root, "main.tl"))
+  and not fs.isfile(fs.join(root, "main.lua"))
+  and not fs.isfile(fs.join(root, ".cosmicignore")) then
+    assert(fs.write(fs.join(root, ".cosmicignore"), ""))
+  end
   return root
 end
 
@@ -209,6 +217,53 @@ local function test_verb_vocabulary()
     "got: " .. planned.err)
 end
 test_verb_vocabulary()
+
+-- Selection space had no bottom: every `-`-prefixed token fell through
+-- into it and died as a path, so `--make fmt --fix` -- a spelling the
+-- design's own verb table promises -- reported `nothing to do under:
+-- --fix`. Reserving the namespace is the same durability move the
+-- planned-verb rows make for verbs.
+local function test_flags_are_a_namespace()
+  local root = app("flags")
+  local unknown = make(root, "check", "--nope")
+  assert(unknown.code == 1, "an unknown flag must fail")
+  assert(unknown.err:find("unknown flag '--nope' for check", 1, true),
+    "got: " .. unknown.err)
+
+  local misplaced = make(root, "check", "--baseline")
+  assert(misplaced.code == 1, "a flag on the wrong verb must fail")
+  assert(misplaced.err:find("belongs to `coverage`", 1, true),
+    "got: " .. misplaced.err)
+
+  -- A rewrite from a narrowed run is a floor built from partial data:
+  -- every unselected file measures zero and its row craters.
+  local narrowed = make(root, "coverage", "--baseline", "db")
+  assert(narrowed.code == 1, "--baseline must refuse a selection")
+  assert(narrowed.err:find("takes no paths", 1, true),
+    "got: " .. narrowed.err)
+end
+test_flags_are_a_namespace()
+
+-- `fmt --fix` rewrites rather than reports, in process: a `.fmt.got`
+-- records a verdict ABOUT a file, and rewriting the file makes that
+-- verdict about something that no longer exists.
+local function test_fmt_fix_rewrites()
+  local root = fixture("fmtfix", {
+      ["main.tl"] = "print('x')\n",
+      ["ugly.tl"] = "local  x =1\nprint(x)\n",
+    })
+  local r = make(root, "fmt", "--fix")
+  assert(r.code == 0, "fmt --fix should succeed: " .. r.err)
+  assert(r.out:find("rewrote ugly.tl", 1, true), "got: " .. r.out)
+  local body = check.must(fs.read(fs.join(root, "ugly.tl")))
+  assert(body == "local x = 1\nprint(x)\n", "got: " .. body)
+
+  -- and says nothing about a file that was already formatted
+  local again = make(root, "fmt", "--fix")
+  assert(again.code == 0, "a second run should succeed: " .. again.err)
+  assert(again.out:find("0 rewritten", 1, true), "got: " .. again.out)
+end
+test_fmt_fix_rewrites()
 
 -- `help` is a verb you asked for, so it succeeds on stdout. It used to
 -- reach the reader only as the unknown-verb error's incidental output --

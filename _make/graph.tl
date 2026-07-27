@@ -14,6 +14,7 @@
 --- does not invalidate the graph it just built.
 
 local child = require("cosmic.child")
+local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 local sys = require("cosmic.sys")
@@ -379,6 +380,24 @@ end
 --- @param cosmic string Absolute path to the cosmic binary
 --- @return integer Exit code
 --- @return string An error message when make could not be started
+--- This process's environment with make's own variables removed.
+--- @return {string} The environment, as NAME=VALUE entries
+local function clean_env(): {string}
+  local drop: {string: boolean} = {
+    MAKEFLAGS = true, MAKELEVEL = true, MFLAGS = true,
+    MAKE_TERMOUT = true, MAKE_TERMERR = true,
+  }
+  local out: {string} = {}
+  for _, entry in ipairs(env.list()) do
+    local eq = entry:find("=", 1, true)
+    local name = eq and entry:sub(1, eq - 1) or entry
+    if not drop[name] then
+      out[#out + 1] = entry
+    end
+  end
+  return out
+end
+
 local function run(proj: Project, target: string, overrides: {string},
     cosmic: string): integer, string
   local rules, merr = materialize(proj, cosmic)
@@ -403,8 +422,19 @@ local function run(proj: Project, target: string, overrides: {string},
     argv[#argv + 1] = o
   end
   argv[#argv + 1] = target
-  local h, serr = child.spawn(argv,
-    {cwd = proj.root, stdout = "inherit", stderr = "inherit"})
+  -- MAKEFLAGS is cleared, and MAKELEVEL with it. A selection is passed
+  -- as a command-line variable assignment, and GNU make propagates
+  -- those to sub-makes -- so a `--make test <one-test>` whose test runs
+  -- `--make test` in a fixture handed the inner make the OUTER run's
+  -- target list, and it stopped with "no rule to make target" naming a
+  -- file in a project it had never heard of. A nested `--make` is a
+  -- different project's build, not a recursive step of this one.
+  local h, serr = child.spawn(argv, {
+      cwd = proj.root,
+      stdout = "inherit",
+      stderr = "inherit",
+      env = clean_env(),
+    })
   if not (h is child.Handle) then
     return 1, "make: cannot start " .. (mk as string) .. ": " .. -- cast: scalar narrowing after the guard
     (serr or "unknown error")

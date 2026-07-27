@@ -12,7 +12,7 @@
 --- the type checker would report as a confusing cascade, or not at all.
 
 local teal = require("cosmic.teal")
-local project = require("_make.project")
+local selection = require("_make.select")
 local validate = require("_make.validate")
 local types = require("_make.types")
 
@@ -54,7 +54,7 @@ local function select_files(proj: Project, paths: {string}): {File} | nil, strin
       all[#all + 1] = f
     end
   end
-  return project.select(all, paths, proj.root)
+  return selection.files(all, paths, proj.root)
 end
 
 --- Type-check the selected files, writing issues to stderr as they are

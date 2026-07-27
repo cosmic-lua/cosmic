@@ -139,6 +139,9 @@ test_examples_miss_fails()
 local function test_make_dispatches_verb_and_paths()
   local dir = fs.join(tmpdir, "mk-src")
   fs.makedirs(dir)
+  -- A directory declares itself a project; an ordinary directory of
+  -- Teal files is a package inside one, and `--make` refuses it.
+  fs.write(fs.join(dir, ".cosmicignore"), "")
   fs.write(fs.join(dir, "a.tl"), "local x: integer = 1\nprint(x)\n")
   fs.write(fs.join(dir, "b.tl"), "return {}\n")
   local h = check.must(spawn.spawn({cosmic, "--make", "check", "a.tl"},

@@ -14,6 +14,7 @@
 local cenv = require("cosmic.env")
 local fs = require("cosmic.fs")
 local root = require("_make.root")
+local binsel = require("_make.binaries")
 local project = require("_make.project")
 local artifact = require("_make.artifact")
 local check = require("_make.check")
@@ -70,45 +71,10 @@ local by_name: function(name: string): Verb | nil
 --- worse trade.
 local baseline_wanted = false
 
---- The binaries a selection names, or every binary when it names none.
----
---- Selection names targets of the verb's OWN KIND and never changes
---- what a target means -- the same rule `test` states as "selection
---- changes which tests run, never what gets staged". `build`'s targets
---- are binaries, so a path here names one: `cmd/foo`, `foo`, or the
---- entry itself. A path here names a BINARY, never a source: a
---- selection that narrowed the compile instead would make
---- `--make build cmd/foo` type-check a few files, produce no
---- `o/bin/foo`, and report PASS -- and leave the user who wants one
---- binary of a multi-binary project without a spelling for it.
---- @param proj Project The scanned project
---- @param paths {string} Selection paths
---- @return {Binary}|nil The selected binaries, or nil when one names none
---- @return string The complaint
-local function select_binaries(proj: Project, paths: {string}): {Binary} | nil, string
-  if #paths == 0 then
-    return proj.binaries
-  end
-  local out: {Binary} = {}
-  local seen: {string: boolean} = {}
-  for _, sel in ipairs(paths) do
-    local hit = false
-    for _, b in ipairs(proj.binaries) do
-      if sel == b.name or project.covers(sel, b.entry) then
-        hit = true
-        if not seen[b.name] then
-          seen[b.name] = true
-          out[#out + 1] = b
-        end
-      end
-    end
-    if not hit then
-      return nil, "make: no binary named by: " .. sel ..
-      "\nmake: build takes binaries; to type-check sources, use `check`"
-    end
-  end
-  return out
-end
+--- Whether `fmt` should REWRITE rather than report. Same shape as
+--- `--baseline` above and the same reason: it is not a selection and
+--- not a verb of its own, it is what to do with what the verb finds.
+local fix_wanted = false
 
 --- Generate the payloads and pack the named binaries.
 ---
@@ -162,7 +128,7 @@ end
 --- @return integer Exit code
 local function run_build(proj: Project, paths: {string},
     cosmic: string): integer
-  local wanted, werr = select_binaries(proj, paths)
+  local wanted, werr = binsel.select(proj, paths)
   if not wanted then
     io.stderr:write(werr .. "\n")
     return stage.verdict("build", false, "bad selection")
@@ -289,7 +255,14 @@ local VERBS < const >: {Verb} = {
         _cosmic: string): integer
       return fetch.run(proj, paths)
     end},
-  {name = "fmt", target = "fmt", select = stage.SELECTS.fmt},
+  {name = "fmt", target = "fmt", select = stage.SELECTS.fmt,
+    run = function(proj: Project, paths: {string}, cosmic: string): integer
+      if fix_wanted then
+        return policy.fix(proj, paths)
+      end
+      -- cast: the registry defines it
+      return stage.run_graph(by_name("fmt") as Verb, proj, paths, cosmic)
+    end},
   {name = "test", target = "test", select = stage.SELECTS.test,
     run = function(proj: Project, paths: {string}, cosmic: string): integer
       -- cast: the registry defines it
@@ -415,19 +388,47 @@ local function run(argv: {string}): integer
   -- One flag, on one verb. `--baseline` is not a selection and not a
   -- verb of its own: rewriting the floor needs the run that produced
   -- the data, so it is the same verb saying what to do with the result.
+  --
+  -- Everything else beginning with `-` is REFUSED rather than treated
+  -- as a path. Selection space had no bottom: `--make fmt --fix` (a
+  -- spelling the design's own verb table promises) died as
+  -- `nothing to do under: --fix`, and so did `--help`, `--only=x`, and
+  -- every flag a later version might add. Reserving the namespace now
+  -- is the same durability move the planned-verb rows already make for
+  -- the verb namespace.
   local paths: {string} = {}
   baseline_wanted = false
+  fix_wanted = false
   for i = 2, #argv do
     if argv[i] == "--baseline" then
       baseline_wanted = true
+    elseif argv[i] == "--fix" then
+      fix_wanted = true
+    elseif argv[i]:sub(1, 1) == "-" and argv[i] ~= "-" then
+      io.stderr:write("make: unknown flag '" .. argv[i] .. "' for " ..
+        name .. "\n")
+      return stage.verdict(name, false, "unknown flag")
     else
       paths[#paths + 1] = argv[i]
     end
   end
+  if fix_wanted and name ~= "fmt" then
+    io.stderr:write("make: --fix belongs to `fmt`, not '" .. name .. "'\n")
+    return stage.verdict(name, false, "--fix")
+  end
   if baseline_wanted and name ~= "coverage" then
     io.stderr:write("make: --baseline belongs to `coverage`, not '" ..
       name .. "'\n")
-    return 1
+    return stage.verdict(name, false, "--baseline")
+  end
+  -- A rewrite from a narrowed run is a floor built from partial data:
+  -- every unselected file measures zero and its row craters. The gate
+  -- path already skips a narrowed run rather than failing it, for the
+  -- same reason; this is the writing half of that decision.
+  if baseline_wanted and #paths > 0 then
+    io.stderr:write("make: --baseline rewrites the whole floor; " ..
+      "it takes no paths\n")
+    return stage.verdict(name, false, "--baseline takes no paths")
   end
 
   -- Resolve this binary BEFORE anything chdirs: `--make` enters the

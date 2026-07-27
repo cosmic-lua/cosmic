@@ -179,7 +179,7 @@ $(O)/lint-summary.txt: $(lint_got)
 
 # ------------------------------------------------------------- coverage
 
-coverage_got := $(patsubst %,$(O)/coverage/%.test.got,$(tests))
+coverage_got := $(patsubst %,$(O)/.coverage/%.test.got,$(tests))
 
 ## Run every test again with line coverage collected
 coverage: $(O)/coverage-summary.txt
@@ -187,12 +187,19 @@ coverage: $(O)/coverage-summary.txt
 # A SECOND output tree, so a coverage run never invalidates the plain
 # test results and stays incremental itself. Same recipe as the test
 # rules; the environment is the whole difference.
-$(O)/coverage/%.test.got: export COSMIC_COVERAGE := 1
+#
+# Dot-prefixed, because the layout is a MIRROR: `o/<path>` means the
+# output for the source at `<path>`, so an engine-owned directory
+# `o/coverage/` and a project's own `coverage/` collide -- one path
+# claimed by two rules under two environments. The walk never treats a
+# dot entry as a project file, so a dot name is one the mirror cannot
+# reach, and the reserved set is a rule rather than a word list.
+$(O)/.coverage/%.test.got: export COSMIC_COVERAGE := 1
 
-$(O)/coverage/%.tl.test.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
+$(O)/.coverage/%.tl.test.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
 	test $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
 
-$(O)/coverage/%.lua.test.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
+$(O)/.coverage/%.lua.test.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
 	test $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
 
 $(O)/coverage-summary.txt: $(coverage_got)

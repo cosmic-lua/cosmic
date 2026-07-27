@@ -164,8 +164,6 @@ local function test_no_ambiguity_under_a_build_directory()
 end
 test_no_ambiguity_under_a_build_directory()
 
-print("all root tests passed")
-
 -- Anything under `<root>/o/` is something a build PUT there — a staged
 -- tree, a generator's output, a test's own scratch directory — so a
 -- project inside it is deliberate rather than the accident the guard
@@ -185,3 +183,24 @@ local function test_the_walk_stops_at_an_output_directory()
     "a source subdirectory is still inside its project")
 end
 test_the_walk_stops_at_an_output_directory()
+
+-- A directory is not a project until it declares itself. Without this
+-- refusal EVERY directory was one: `--make build` in an empty one
+-- reported PASS over nothing, and `--make test` wrote `o/` plus a
+-- 1.5 MB extracted engine into whatever directory you were standing
+-- in. It is the twin of the ambiguous-root refusal above -- that one
+-- asks about ancestors, this one asks about the cwd.
+local function test_a_bare_directory_is_not_a_project()
+  local dir = tree("bare-dir", {["notes.tl"] = "return {}\n"})
+  local saved = fs.getcwd() as string -- cast: cwd exists in a test
+  assert(fs.chdir(dir))
+  local found, err = root.discover("build")
+  assert(fs.chdir(saved))
+  assert(not found, "a directory of Teal files is not a root")
+  assert(err:find("not a project", 1, true), "got: " .. err)
+  assert(err:find("main.tl", 1, true) and err:find(".cosmicignore", 1, true),
+    "and names how to declare one, got: " .. err)
+  assert(err:find("COSMIC_MAKE_ROOT", 1, true),
+    "and names the way to mean it anyway, got: " .. err)
+end
+test_a_bare_directory_is_not_a_project()

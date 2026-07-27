@@ -13,9 +13,11 @@ local baseline = require("cosmic.coverage.baseline")
 local fs = require("cosmic.fs")
 local graph = require("_make.graph")
 local project = require("_make.project")
+local selection = require("_make.select")
 local stage = require("_make.stage")
 local types = require("_make.types")
 
+local type File = types.File
 local type Kind = types.Kind
 local type Project = types.Project
 local type Verb = types.Verb
@@ -29,7 +31,7 @@ local type Verb = types.Verb
 local BASELINE < const > = ".coverage"
 
 --- Where a coverage run's data lands.
-local COVERAGE_DIR < const > = "coverage"
+local COVERAGE_DIR < const > = ".coverage"
 
 --- Whether a project has any file of the given kinds — the "material"
 --- test every stage of `ci` is gated by.
@@ -113,6 +115,46 @@ local function write_baseline(proj: Project): integer
   return stage.verdict("coverage", true, BASELINE)
 end
 
+--- `fmt --fix` — rewrite every selected source that is not already
+--- formatted, in process.
+---
+--- Not through the graph: a `.fmt.got` records a VERDICT about a file,
+--- and rewriting the file makes that verdict about something that no
+--- longer exists. The formatter is in this binary, the file set is the
+--- model's, and the answer is the same one `--fix` gives for one file.
+--- @param proj Project The scanned project
+--- @param paths {string} Selection paths
+--- @return integer Exit code
+local function fix(proj: Project, paths: {string}): integer
+  local picked, serr = selection.files(
+    stage.candidates(proj, stage.SELECTS.fmt), paths, proj.root)
+  if not picked then
+    io.stderr:write((serr or "make: nothing to do under") .. "\n")
+    return stage.verdict("fmt", false, "selection")
+  end
+  local files = picked as {File} -- cast: nil ruled out by the guard
+  local fmt = require("cosmic.format")
+  local fixed = 0
+  for _, f in ipairs(files) do
+    local result = fmt.format_file(f.path)
+    if not result.ok then
+      io.stderr:write(fmt.format_issues(result.errors) .. "\n")
+      return stage.verdict("fmt", false, f.path)
+    end
+    local code = result.code as string -- cast: set whenever ok
+    if fs.read(f.path) ~= code then
+      local ok, werr = fs.write(f.path, code)
+      if not ok then
+        io.stderr:write((werr or "cannot write " .. f.path) .. "\n")
+        return stage.verdict("fmt", false, f.path)
+      end
+      io.write("fmt: rewrote " .. f.path .. "\n")
+      fixed = fixed + 1
+    end
+  end
+  return stage.verdict("fmt", true, fixed .. " rewritten")
+end
+
 --- One stage of `ci`: a verb name, and the material that earns it.
 local record Stage
   verb: string
@@ -184,6 +226,7 @@ local record PolicyModule
   STAGES: {Stage}
   has: function(proj: Project, kinds: {Kind}): boolean
   run_coverage: function(v: Verb, proj: Project, paths: {string}, cosmic: string): integer
+  fix: function(proj: Project, paths: {string}): integer
   write_baseline: function(proj: Project): integer
   run_ci: function(by_name: function(string): Verb | nil, proj: Project, paths: {string}, cosmic: string): integer
 end
@@ -194,6 +237,7 @@ local M: PolicyModule = {
   STAGES = STAGES,
   has = has,
   run_coverage = run_coverage,
+  fix = fix,
   write_baseline = write_baseline,
   run_ci = run_ci,
 }

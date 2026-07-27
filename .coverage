@@ -13,6 +13,7 @@ _cli/run.tl 28 33
 _cli/welcome.tl 0 25
 _docs/publish.tl 116 176
 _make/artifact.tl 163 180
+_make/binaries.tl 24 24
 _make/check.tl 56 57
 _make/deps.tl 73 73
 _make/docs.tl 14 30
@@ -21,13 +22,14 @@ _make/fetch.tl 107 117
 _make/generate.tl 37 46
 _make/graph.tl 184 210
 _make/imports.tl 60 63
-_make/init.tl 178 221
+_make/init.tl 168 220
 _make/pin.tl 80 81
-_make/policy.tl 46 83
+_make/policy.tl 49 107
 _make/project.tl 210 221
 _make/root.tl 53 58
+_make/select.tl 33 35
 _make/stage.tl 90 96
-_make/types.tl 29 29
+_make/types.tl 26 26
 _make/validate.tl 208 212
 _perf/bench/child_bench.tl 0 11
 _perf/bench/embed_bench.tl 0 88
@@ -57,7 +59,7 @@ _types/gentype_types.tl 2 2
 _types/types_gen.tl 0 44
 cmd/cosmic/embed_gen.tl 0 170
 cmd/cosmic/main.tl 0 269
-cosmic/_script_cache.tl 64 70
+cosmic/_script_cache.tl 72 79
 cosmic/ansi.tl 86 86
 cosmic/benchmark.tl 180 212
 cosmic/check.tl 90 92
@@ -95,7 +97,7 @@ cosmic/format/init.tl 184 222
 cosmic/format/rules.tl 208 220
 cosmic/fs/file.tl 30 46
 cosmic/fs/init.tl 61 81
-cosmic/fs/ops.tl 98 139
+cosmic/fs/ops.tl 97 138
 cosmic/fs/path.tl 151 162
 cosmic/fs/tree.tl 32 54
 cosmic/fs/types.tl 16 51
@@ -123,7 +125,7 @@ cosmic/quicksand/box/run.tl 0 157
 cosmic/quicksand/caps.tl 59 77
 cosmic/quicksand/init.tl 0 49
 cosmic/quicksand/netns.tl 37 55
-cosmic/quicksand/proc.tl 87 122
+cosmic/quicksand/proc.tl 88 124
 cosmic/quicksand/proxy.tl 48 84
 cosmic/quicksand/proxy/dial.tl 22 33
 cosmic/quicksand/proxy/http.tl 133 164
@@ -161,4 +163,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 80 93
 tlconfig.lua 7 7
-total 12899 17042
+total 12849 17031

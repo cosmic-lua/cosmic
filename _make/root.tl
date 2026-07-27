@@ -129,6 +129,25 @@ local function discover(verb: string): string | nil, string
     "\nmake: or name this one: " .. ROOT_ENV .. "=" .. abs ..
     " cosmic --make " .. verb
   end
+  -- The twin of the refusal above, and the one that was missing: the
+  -- cwd itself was never asked whether it is a project, so EVERY
+  -- directory was one. `--make build` in an empty directory reported
+  -- PASS over nothing, and `--make test` wrote `o/` plus a 1.5 MB
+  -- extracted engine into whatever directory you were standing in --
+  -- your home directory, if that is where you typed it. A typo that
+  -- becomes a green build is the failure selection already refuses;
+  -- this is that failure applied to the largest selection of all.
+  --
+  -- `COSMIC_MAKE_ROOT` is the escape hatch and returns above, which is
+  -- what makes it usable here: naming a root is how you say you meant
+  -- a directory that does not declare itself.
+  if not is_root(abs) then
+    return nil, "make: not a project: " .. abs ..
+    "\nmake: a project declares itself with main.tl, cmd/<name>/main.tl," ..
+    " or .cosmicignore" ..
+    "\nmake: to build this directory anyway: " .. ROOT_ENV .. "=" .. abs ..
+    " cosmic --make " .. verb
+  end
   return abs
 end
 

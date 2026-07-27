@@ -294,6 +294,39 @@ local function test_root_init_is_refused()
 end
 test_root_init_is_refused()
 
+-- The two cells the model left silent. `embed/**` is payload only at
+-- the root or under `cmd/<name>/`; anywhere else it fell through to
+-- `asset` and shipped nothing, while the far rarer stray
+-- `foo/embed_gen.tl` got an exemplary refusal. And `.d.lua` is a type
+-- declaration in a language with no types -- it classified as a module
+-- named `foo.d`.
+local function test_silent_positions_are_refused()
+  local _, stray = issues_of("strayembed", {
+      ["main.tl"] = "print('x')\n",
+      ["lib/mod.tl"] = "return {}\n",
+      ["lib/embed/data.txt"] = "x\n",
+    })
+  assert(stray:find("only the project root or a cmd/", 1, true),
+    "got: " .. stray)
+
+  -- `embed` is also an ordinary package name, and this repo has one.
+  local ok_embed = issues_of("moduleembed", {
+      ["main.tl"] = "print('x')\n",
+      ["lib/embed/init.tl"] = "return {}\n",
+    })
+  assert(#ok_embed == 0,
+    "a directory of modules called embed is a module called embed")
+
+  local _, dlua = issues_of("dlua", {
+      ["main.tl"] = "print('x')\n",
+      ["types/lpeg.d.lua"] = "return {}\n",
+    })
+  assert(dlua:find("a type declaration is Teal", 1, true), "got: " .. dlua)
+  assert(dlua:find("types/lpeg.d.tl", 1, true),
+    "and spells the name it wants, got: " .. dlua)
+end
+test_silent_positions_are_refused()
+
 -- Two binaries with one name share o/bin/<name>: the second overwrites
 -- the first, and which is second follows iteration order.
 local function test_duplicate_binary_names_are_refused()

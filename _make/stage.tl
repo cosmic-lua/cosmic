@@ -15,6 +15,7 @@ local sys = require("cosmic.sys")
 local generate = require("_make.generate")
 local graph = require("_make.graph")
 local project = require("_make.project")
+local selection = require("_make.select")
 local types = require("_make.types")
 local validate = require("_make.validate")
 
@@ -134,7 +135,7 @@ local function graph_stage(v: Verb, proj: Project, paths: {string},
   end
 
   local sel = v.select as Selection -- cast: a graph verb always has one
-  local picked, serr = project.select(candidates(proj, sel), paths, proj.root)
+  local picked, serr = selection.files(candidates(proj, sel), paths, proj.root)
   if not picked then
     io.stderr:write((serr or "make: no such selection") .. "\n")
     return false, "bad selection"

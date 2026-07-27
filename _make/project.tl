@@ -32,12 +32,13 @@ local IGNORE_FILE < const > = ".cosmicignore"
 --- generated is ever an input, so the walk prunes it at the root.
 local BUILD_DIR < const > = "o"
 
---- The reserved basename of a unit's PAYLOAD generator: the one
---- `*_gen.tl` that is scoped to a binary rather than to its own
---- subtree, and that runs at the END of a build rather than before it.
+--- The reserved STEM of a unit's PAYLOAD generator: the one `*_gen`
+--- that is scoped to a binary rather than to its own subtree, and that
+--- runs at the END of a build rather than before it. Both spellings,
+--- like every other marker.
 --- Named here because the model, the artifact staging, and the
 --- validator all have to agree about it.
-local PAYLOAD_GEN < const > = "embed_gen.tl"
+local PAYLOAD_GEN < const > = "embed_gen"
 
 --- The root unit: the project itself, rather than a `cmd/<name>/`
 --- subtree. It is spelled as the empty string because a unit IS a
@@ -193,6 +194,25 @@ end
 --- `--make build` embedded the test file into the released binary.
 --- Neither half announced itself.
 ---
+--- Does this path carry `marker` as its suffix, in either spelling?
+---
+--- A marker is a NAME, not a name plus an extension. Recognising
+--- `_test` in both and `_pin` in only one made the grammar split by
+--- extension, and every unrecognised cell was a file that silently
+--- classified as a module: a `dep_pin.lua` was never fetched and
+--- shipped its url and sha inside the artifact instead. A `.lua`
+--- project is a full commitment or it is a trap, and the cell that
+--- does not exist -- `.d.lua`, a type declaration in a language with
+--- no types -- is refused by the validator rather than left to fall
+--- through here.
+--- @param rel string Path relative to the root
+--- @param marker string The marker, without extension
+--- @return boolean Whether the path carries it
+local function marked(rel: string, marker: string): boolean
+  return rel:sub(-#marker - 3) == marker .. ".tl"
+  or rel:sub(-#marker - 4) == marker .. ".lua"
+end
+
 --- Classify one file from its relative path. Order matters: payload
 --- wins over everything, then testdata, then the suffix markers, then
 --- position.
@@ -219,9 +239,9 @@ local function classify(rel: string): Kind
   end
   if rel:sub(-5) == ".d.tl" then
     return "types"
-  elseif rel:sub(-7) == "_pin.tl" then
+  elseif marked(rel, "_pin") then
     return "pin"
-  elseif rel:sub(-7) == "_gen.tl" then
+  elseif marked(rel, "_gen") then
     -- A unit's PAYLOAD generator is a different kind from a generation
     -- unit, and the difference is not cosmetic: this one is scoped to
     -- the BINARY (root packages plus its own `cmd/<name>/**`), runs
@@ -233,17 +253,16 @@ local function classify(rel: string): Kind
     -- `cmd/foo/data_gen.tl` is a file neither mechanism runs, and a
     -- generation unit that happens to be named `embed_gen.tl` silently
     -- acquires binary semantics.
-    if segs[#segs] == PAYLOAD_GEN then
+    if segs[#segs] == PAYLOAD_GEN .. ".tl"
+    or segs[#segs] == PAYLOAD_GEN .. ".lua" then
       return "payload-gen"
     end
     return "gen"
-  elseif rel:sub(-8) == "_test.tl" or rel:sub(-9) == "_test.lua" then
+  elseif marked(rel, "_test") then
     return "test"
-  elseif rel:sub(-11) == "_example.tl"
-  or rel:sub(-12) == "_example.lua" then
+  elseif marked(rel, "_example") then
     return "example"
-  elseif rel:sub(-13) == "_benchmark.tl"
-  or rel:sub(-14) == "_benchmark.lua" then
+  elseif marked(rel, "_benchmark") then
     return "benchmark"
   end
   local _, is_source = stem(rel)
@@ -391,65 +410,6 @@ local function of_kind(project: Project, kinds: {Kind}): {File}
   return out
 end
 
---- Does a selection path cover this file? An entry is either the file
---- itself or a directory containing it, both relative to the root.
---- @param sel string A selection path, relative to the root
---- @param path string A project file path, relative to the root
---- @return boolean True when sel covers path
-local function covers(sel: string, path: string): boolean
-  if sel == "" or sel == "." then
-    return true
-  end
-  return path == sel or path:sub(1, #sel + 1) == sel .. "/"
-end
-
---- Narrow a file list to the caller's selection.
----
---- Selection changes which files a verb acts on, never what the project
---- IS: the model is always scanned whole, so a partial run resolves
---- imports exactly the way a full one does. A path matching nothing is
---- an error rather than a silent empty set — "0 files, PASS" is how a
---- typo becomes a green build.
---- @param files {File} The candidate files for this verb
---- @param paths {string} Selection paths, relative to the root or absolute
---- @param root string Absolute project root, for resolving absolute paths
---- @return {File}|nil The selected files, in path order
---- @return string An error naming a selection path that matched nothing
-local function select_files(files: {File}, paths: {string}, root: string): {File} | nil, string
-  if #paths == 0 then
-    return files
-  end
-  local picked: {File} = {}
-  local seen: {string: boolean} = {}
-  for _, raw in ipairs(paths) do
-    local rel = raw
-    if fs.is_absolute(rel) then
-      rel = fs.relpath(fs.abspath(rel), root)
-    end
-    rel = rel:gsub("^%./", ""):gsub("/+$", "")
-    local hit = false
-    for _, f in ipairs(files) do
-      if covers(rel, f.path) then
-        hit = true
-        if not seen[f.path] then
-          seen[f.path] = true
-          picked[#picked + 1] = f
-        end
-      end
-    end
-    if not hit then
-      return nil, "make: nothing to do under: " .. raw
-    end
-  end
-  table.sort(picked, function(a: File, b: File): boolean
-      return a.path < b.path
-    end)
-  return picked
-end
-
---- The paths of a file list, for handing to make or a message.
---- @param files {File} The files
---- @return {string} Their paths, in order
 local function paths_of(files: {File}): {string}
   local out: {string} = {}
   for _, f in ipairs(files) do
@@ -462,6 +422,7 @@ local record ProjectModule
   IGNORE_FILE: string
   BUILD_DIR: string
   ROOT: string
+  PAYLOAD_DIR: string
   PAYLOAD_GEN: string
   out_dir: function(unit: string): string
   unit_label: function(unit: string): string
@@ -471,8 +432,6 @@ local record ProjectModule
   import_path: function(rel: string): string | nil
   of_kind: function(project: Project, kinds: {Kind}): {File}
   segments: function(rel: string): {string}
-  covers: function(sel: string, path: string): boolean
-  select: function(files: {File}, paths: {string}, root: string): {File} | nil, string
   paths_of: function(files: {File}): {string}
 end
 
@@ -480,6 +439,7 @@ local M: ProjectModule = {
   IGNORE_FILE = IGNORE_FILE,
   BUILD_DIR = BUILD_DIR,
   ROOT = ROOT,
+  PAYLOAD_DIR = PAYLOAD_DIR,
   PAYLOAD_GEN = PAYLOAD_GEN,
   out_dir = out_dir,
   unit_label = unit_label,
@@ -489,8 +449,6 @@ local M: ProjectModule = {
   import_path = import_path,
   of_kind = of_kind,
   segments = segments,
-  covers = covers,
-  select = select_files,
   paths_of = paths_of,
 }
 

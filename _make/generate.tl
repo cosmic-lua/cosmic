@@ -87,12 +87,16 @@ end
 --- @return boolean, string Success, or false plus the reason
 local function generate_unit(proj: Project, unit: string,
     cosmic: string): boolean, string
-  local gen = unit == project.ROOT and project.PAYLOAD_GEN
-  or fs.join(unit, project.PAYLOAD_GEN)
-  if not fs.isfile(fs.join(proj.root, gen)) then
-    return true
+  -- Both spellings, because a marker is a name and `.lua` sources are
+  -- first-class. The validator refuses a unit that carries both.
+  for _, ext in ipairs({".tl", ".lua"}) do
+    local name = project.PAYLOAD_GEN .. ext
+    local gen = unit == project.ROOT and name or fs.join(unit, name)
+    if fs.isfile(fs.join(proj.root, gen)) then
+      return run_generator(proj, gen, project.out_dir(unit), cosmic)
+    end
   end
-  return run_generator(proj, gen, project.out_dir(unit), cosmic)
+  return true
 end
 
 --- Run every payload generator in the project, once each.

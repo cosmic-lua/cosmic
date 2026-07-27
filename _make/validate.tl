@@ -299,6 +299,67 @@ local function check_binaries(proj: Project, issues: {Issue})
   end
 end
 
+--- Refuse a `.d.lua`, and an `embed/` that means payload in a position
+--- where payload is not a thing.
+---
+--- Two silent cells in an otherwise refusing model.
+---
+--- `embed/**` is payload only at the root or under `cmd/<name>/`. A
+--- misplaced one -- `lib/embed/data.txt` -- fell through to `asset`,
+--- checked clean, built clean, and shipped nothing, while the far
+--- rarer stray `foo/embed_gen.tl` got an exemplary refusal. The likely
+--- mistake was the silent one.
+---
+--- It is refused only when the directory holds NO sources, because
+--- `embed` is also an ordinary package name and this repo has one
+--- (`cosmic/embed/init.tl`). A directory of assets called `embed` in a
+--- position that has no payload is someone expecting it to ship; a
+--- directory of modules called `embed` is a module called embed.
+---
+--- `.d.lua` is the one marker x extension cell that should not exist:
+--- a declaration file declares TYPES, and `.lua` has none. Left to
+--- fall through it classified as a module named `foo.d`.
+--- @param proj Project The scanned project
+--- @param issues {Issue} Issues to append to
+local function check_positions(proj: Project, issues: {Issue})
+  local sourced: {string: boolean} = {}
+  local strays: {string: boolean} = {}
+  local order: {string} = {}
+  for _, f in ipairs(proj.files) do
+    if f.path:sub(-6) == ".d.lua" then
+      add(issues, f.path, "a type declaration is Teal; spell it " ..
+        f.path:sub(1, -7) .. ".d.tl")
+    end
+    -- `testdata/` is out of scope: a fixture is a project of its own,
+    -- and its layout is its business, not this project's.
+    if f.kind ~= "payload" and f.kind ~= "testdata" then
+      local segs: {string} = {}
+      for seg in f.path:gmatch("[^/]+") do
+        segs[#segs + 1] = seg
+      end
+      for i = 1, #segs - 1 do
+        if segs[i] == project.PAYLOAD_DIR then
+          local dir = table.concat(segs, "/", 1, i)
+          if f.import then
+            sourced[dir] = true
+          elseif not strays[dir] then
+            strays[dir] = true
+            order[#order + 1] = dir
+          end
+          break
+        end
+      end
+    end
+  end
+  for _, dir in ipairs(order) do
+    if not sourced[dir] then
+      add(issues, dir, "an embed/ directory is a unit's payload, and " ..
+        "only the project root or a cmd/<name>/ has one; nothing under " ..
+        "here ships")
+    end
+  end
+end
+
 --- The container a `_`-prefixed import is private to: the directory
 --- holding the innermost `_` segment. Root `_cli/` is project-wide
 --- internal; `cosmic/_x/` is internal to `cosmic/`.
@@ -385,6 +446,7 @@ local function validate(proj: Project): {Issue}
   check_duplicates(proj, issues)
   check_entries(proj, issues)
   check_binaries(proj, issues)
+  check_positions(proj, issues)
   check_imports(proj, issues, defined)
   table.sort(issues, function(a: Issue, b: Issue): boolean
       if a.path == b.path then
