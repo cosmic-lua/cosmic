@@ -7,15 +7,15 @@ itself, and what is still open. The phase-by-phase sequence is
 
 ## Provisioning and the trust root
 
-**This repo, target state:** `bin/cosmic` — POSIX sh, one job: fetch the
-pinned cosmic (pin in `bootstrap/cosmic_pin.tl`) and exec it.
-`bin/cosmic --make ci`. Since make is embedded, the chain would be
+**This repo, landed:** `bin/cosmic` — POSIX sh, one job: fetch the
+pinned cosmic (`bin/cosmic.pin`, two plain lines it reads with `sed`),
+verify its sha256, exec it. Since make is embedded, the chain is
 **kernel → committed fetcher → one pin → everything**, down from two.
 
-**It was two pins.** The trust root was `bin/make`, with the
-bootstrap url and sha in `cook.mk` and the cosmos pin beside it; there
-is no `bin/cosmic` and no `bootstrap/cosmic_pin.tl`. The one-pin chain
-arrives with the Makefile's retirement (3i), not before it.
+**It was two pins.** The trust root was `bin/make`, with the bootstrap
+url and sha in `cook.mk` and the cosmos pin beside it. The pin is not
+a `*_pin.tl`, because a `*_pin.tl` is resolved by `--make fetch` —
+which needs the cosmic this pin provides.
 
 **Downstream projects: commit the binary.** A fat APE in the repo means
 `./cosmic --make ci` works from a fresh clone with **zero network and no

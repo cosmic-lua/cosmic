@@ -27,5 +27,5 @@
   now declares the version in the tree it copies and passes **no**
   `COSMIC_VERSION` at all, which is what makes it a fixpoint over
   committed inputs. `COSMIC_VERSION` remains as a documented override
-  for a build nobody tagged. The Makefile path still uses `git
-  describe` and retires with the bridge (see the 3i plan).
+  for a build nobody tagged. The `git describe` stamp went with the
+  Makefile.

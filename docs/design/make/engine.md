@@ -61,6 +61,43 @@ cosmic verb or `exec`.
   it on a Landlock host** — no machine available while writing it could
   enforce anything, so every local run was a silent no-op.
 
+  **Making it the default is its own change**, and it is the last step
+  of the enforcement swap rather than the first. The order matters
+  because the Makefile's per-rule `.PLEDGE`/`.UNVEIL` are already gone:
+  the project sits between "an undeclared read fails CI on a Landlock
+  host" and "nothing is enforced anywhere", and only a defaulted fence
+  closes that. What is left: the fence becomes the default for `-c`,
+  with the same denial produced by the portable in-process gate on
+  non-Landlock hosts.
+
+  Two things a CI lane that requires a fenced child to **succeed**
+  found, and they are the argument for testing enforcement in both
+  directions — a mechanism exercised only in its failing direction is
+  one nobody has checked:
+
+  - The floor handed Landlock `/zip/.types`, a path *inside the
+    executable*, where `fs.isdir` says yes and the kernel knows
+    nothing — so the whole policy failed to construct with `EBADFD`. A
+    fence that cannot be built is worse than one that is too wide: it
+    fails on correct input.
+  - A fenced child today must be an **assimilated ELF**, not a fat APE:
+    exec'ing an APE needs a loader, and the search falls back to
+    `~/.ape-*`, which no grant covers.
+
+  **The better answer to the second is the loader, and it is already in
+  `o/`.** `o/bin/ape` is a plain ELF the build stages, and `o/bin/ape
+  <fat APE> …` runs — so a fenced recipe could exec any pinned APE with
+  two grants and no duplicate binary. What blocks it is the recipe
+  vocabulary, not the fence: a verb line names one program, and there is
+  no way to say "run THIS through THAT loader". Putting the loader on
+  `PATH` is not a substitute — it was tried, and the fenced exec still
+  failed, because the stub's search is not what a direct shell-free exec
+  goes through. So the choice is between assimilating a duplicate (what
+  happens now, at the cost of a second copy on disk) and teaching
+  `exec`/`compile` to prefix the staged loader when the program is an
+  APE. The second is the one that scales to a project pinning its own
+  tools, and it wants doing before the fence becomes the default.
+
 **The trailing `;` is load-bearing.** Setting `SHELL` is not enough:
 make does not use `SHELL` for a line it judges shell-free — job.c
 builds argv and execs directly whenever the line contains none of

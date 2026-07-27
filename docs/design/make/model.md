@@ -150,10 +150,24 @@ unverified bytes is what pinning exists to prevent.
 `PATH` lookup. A project may run a tool it pinned; it cannot run
 whatever happens to be installed.
 
-Two frays in the pin grammar are **scheduled, not settled** — the
-url-derived landing name (the ⚠ above) and the dual `sha`/`platforms`
-spelling that exists so one file can satisfy both pin readers. Both
-retire with the second reader; see [bridge-parity.md](bridge-parity.md).
+Two frays in the pin grammar are **open, and now unblocked** — they
+could not move while two build pipelines read the same committed pins,
+and only one does now. The reader is already shared (`_make.pin`), so
+each is a grammar change with one implementation to change.
+
+- **The landing name comes from the url's tail** (the ⚠ above), which
+  is why url-name validation has to exist at all, and why an on-disk
+  name is coupled to a remote server's path layout. Retire it
+  positionally: `3p/tl/tl_pin.tl` + `tar.gz` → `o/3p/tl/tl.tar.gz`,
+  with an optional `output` field for archives whose inner layout makes
+  the name matter. The url becomes purely *where the bytes come from*,
+  and the guard's reason to exist disappears rather than being
+  hardened. Close the ⚠ in the same change.
+- **Integrity has two spellings**, flat `sha` and the `platforms`
+  table, so one committed file could satisfy both readers. A pin that
+  must be written twice can disagree with itself. Keep `platforms`
+  (with `*` as the single-platform case), refuse the other with a
+  pointer.
 
 Together: *building an untrusted repo cannot phone home, and cannot run
 a host binary.* Both halves of the external surface are greppable.

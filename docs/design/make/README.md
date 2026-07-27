@@ -20,7 +20,6 @@ so no chapter has to fight the length cap:
 | [payload.md](payload.md) | what cosmic's own artifact carries, and what it weighs |
 | [plan.md](plan.md) | delivery: provisioning, gates, open items |
 | [phasing.md](phasing.md) | the order the work lands in, and why that order |
-| [bridge-parity.md](bridge-parity.md) | removing the Makefile: what each lane needed, and what is left |
 | [log/](log/) | what each landed slice *taught*; the reasoning behind anything that looks arbitrary |
 
 ## What this replaced
