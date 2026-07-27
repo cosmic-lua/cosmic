@@ -22,6 +22,24 @@ set -e
 # re-execs itself when the tree changed it (see _make/converge.tl), so
 # the convergence logic lives in Teal where it can be tested and this
 # stays dumb and auditable.
+#
+# WHICH BINARY RUNS YOUR SCRIPT, stated because it is not obvious and
+# it matters most where nobody is looking for it:
+#
+#   bin/cosmic <script>   runs under o/bin/cosmic when one exists,
+#                         else under the pin.
+#
+# For a gate verb that is the point -- a gate's answer is a statement
+# about a toolchain, and converge makes sure it is the tree's. For a
+# SCRIPT there is no convergence: it runs under whatever `o/` happens
+# to hold, which may be several commits old.
+#
+# The sharp end is measurement. `bin/cosmic _perf/run.tl ...` measures
+# the binary in `o/`, not the one your working tree describes, and a
+# benchmark cannot tell you it read the wrong subject. Name the binary
+# when the identity is the experiment: `o/bin/cosmic _perf/run.tl`
+# after a build you just did, or the pinned release explicitly. See
+# _perf/optimize/measurement.md.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"

@@ -96,13 +96,12 @@ end
 --- Say what this step is doing, in one short line.
 ---
 --- The build runs make with `-s`, so make echoes nothing and the tool
---- owns its own progress voice. What it replaces: make's default echo
---- of the recipe line, which for a compile is the driver's absolute
+--- owns its own progress voice. Echoing the recipe line instead costs
+--- ~400 characters a step over ~370 steps -- the driver's absolute
 --- path, the source, the output, `--include-dir`, the whole transitive
---- import closure, and the trailing `;` sentinel that only exists to
---- route the line through SHELL -- 400 characters per step, ~370 steps,
---- and the one thing a reader wants (which file) buried in the middle
---- of each.
+--- import closure, and the trailing `;` sentinel that exists only to
+--- route the line through SHELL -- with the one fact a reader wants,
+--- which file, buried mid-line.
 ---
 --- Derived, not declared: the shape table the fence already uses says
 --- which argument a verb WRITES, so the line is that verb and that

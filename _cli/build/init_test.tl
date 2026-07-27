@@ -309,6 +309,32 @@ local function test_recipe_refuses_shell()
 end
 test_recipe_refuses_shell()
 
+-- Globs were the louder omission, because they are exactly what makes
+-- make hand a line to SHELL: a recipe carrying one DOES reach cosmic,
+-- and was taken as a literal argv word. `remove o/*.tmp` exited 0
+-- having deleted nothing -- `remove` is rm -f, and a file literally
+-- named `*.tmp` is already missing. A line that reports success having
+-- done nothing is the failure the refusal exists to close.
+--
+-- Nothing legitimate is refused: the validator already bars every one
+-- of these characters from a PATH, so a glob in a recipe word cannot
+-- be a filename this build system would build.
+local function test_recipe_refuses_globs()
+  local victim = fs.join(tmpdir, "glob-victim.tmp")
+  assert(fs.write(victim, "still here\n"))
+  local code, _out, err = run_recipe("remove " .. fs.join(tmpdir, "*.tmp"))
+  assert(code ~= 0, "a glob must fail the line, not match nothing")
+  assert(err:match("argv, not shell"),
+    "expected the argv/shell message, got: " .. err)
+  assert(fs.isfile(victim), "and nothing may be deleted on the way")
+
+  for _, ch in ipairs({"?", "[", "]", "~", "^", "!", "#"}) do
+    local c = select(1, run_recipe("copy a" .. ch .. " b"))
+    assert(c ~= 0, "a line carrying '" .. ch .. "' must be refused")
+  end
+end
+test_recipe_refuses_globs()
+
 local function test_recipe_unknown_verb()
   local code, _out, err = run_recipe("rm -rf " .. tmpdir)
   assert(code ~= 0, "a verb outside the vocabulary must fail")

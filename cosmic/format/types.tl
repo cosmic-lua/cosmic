@@ -157,15 +157,15 @@ end
 --- Mark a type the PREVIOUS line left open.
 ---
 --- A function type that wraps leaves its `(` unclosed, and the matching
---- `)` lands at the start of the next line. That `)` was nobody's:
---- `mark_function_type` never saw it (different line) and the second
---- pass counted it as an ordinary closer, so the line DEDENTED with no
---- matching indent -- and every line after it sat one level too
---- shallow, to the end of the file.
+--- `)` lands at the start of the next line, where no single-line scan
+--- can claim it: the `(` is on the line before. Without this the second
+--- pass reads it as an ordinary closer, the line DEDENTS with no
+--- matching indent, and every line after it sits one level too shallow
+--- to the end of the file.
 ---
---- `format/rules.tl`'s own `FormatRulesModule` is the file that did
---- this, which is the whole problem with a formatter bug: the output is
---- idempotent, so the gate re-blesses the damage on every run.
+--- Nothing catches that but a test. A formatter's output is
+--- idempotent, so the damage is a fixpoint and the gate passes on it
+--- every run.
 ---
 --- A `)` at depth 0 here is the carried one; deeper brackets are this
 --- line's own and balance normally.

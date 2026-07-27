@@ -45,7 +45,20 @@ end
 --- path would silently do something other than what it looks like.
 --- Refusing them states the model at the first attempt rather than at
 --- the first mysterious result.
-local SHELL_CHARS < const > = ";|&<>`$(){}\\\"'\n"
+---
+--- The GLOB characters are here for the same reason and were the
+--- louder omission: `* ? [ ] ~ ^ ! #` are exactly what makes make hand
+--- a line to SHELL, so a recipe carrying one DOES reach cosmic, where
+--- as argv it is a literal word: `remove o/*.tmp` deletes nothing and
+--- exits 0, since `remove` is rm -f and a file named `*.tmp` is
+--- already missing. That is exactly the "line does something other
+--- than what it looks like" failure this refusal exists to close.
+---
+--- Nothing legitimate is lost: `_make/validate.tl`'s METACHARACTERS
+--- already refuses every one of these IN A PATH, so a glob character
+--- in a recipe word cannot be a filename this build system would build.
+--- It can only be a glob nobody is going to expand.
+local SHELL_CHARS < const > = ";|&<>`$(){}\\\"'\n*?[]~^!#"
 
 --- @param line string A recipe line
 --- @return string | nil The first shell character present, if any

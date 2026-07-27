@@ -16,9 +16,8 @@ local fs_types = require("cosmic.fs.types")
 local records = require("cosmic.records")
 
 --- The one prefix a recipe step's failure wears, matching its siblings
---- in `_cli/build/init.tl` and `_cli/driver.tl`. It used to say
---- `--build:` after the flag of that name was retired, so make printed
---- a failure attributed to a flag cosmic no longer has.
+--- in `_cli/build/init.tl` and `_cli/driver.tl`, so a failed step is
+--- attributed to the surface that ran it rather than to a flag.
 local function fail(msg: string): integer
   io.stderr:write("cosmic -c: " .. msg .. "\n")
   return 1
@@ -55,7 +54,7 @@ local function run_into(argv: {string}, out: string): integer
       -- Never silent: a target that cannot be restamped stays out of
       -- date forever, and make re-runs this step on every future
       -- invocation. That is the non-convergence this line exists to
-      -- fix, reinstated as a failure nobody sees.
+      -- close, arriving instead as a failure nobody sees.
       io.stderr:write("restamp " .. out .. " failed: " ..
         (terr or "unknown error") .. "\n")
     end

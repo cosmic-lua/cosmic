@@ -137,10 +137,10 @@ end
 ---
 --- The inverse of `counts`, and the reason the two live together. A
 --- verb's verdict is a claim about the stage that just ran, and the
---- only thing that counted that stage is the summary it wrote -- so
---- the verdict reads it rather than guessing from the size of the file
---- list, which is how `test: FAIL (7 files)` came to mean "one of two
---- tests failed, and 7 is how many files were selected".
+--- only thing that counted that stage is the summary it wrote.
+--- Guessing from the size of the file list instead makes
+--- `test: FAIL (7 files)` mean "seven files were selected" while
+--- reading as "seven failed".
 --- @param text string A summary file's contents
 --- @return integer Passed, -1 when the text carries no counts line
 --- @return integer Failed

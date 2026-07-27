@@ -28,8 +28,18 @@ FAILS the benchmark.
 The harness is scripts, driven by whichever binary you are measuring.
 `benchmark` is a named, planned verb; until it lands these are the
 commands, and `$BIN` is the cosmic under test (`o/bin/cosmic`, or a
-wrapper around a locally built cosmopolitan lua — see
+build standing on a locally built cosmopolitan lua — see
 `optimize/cosmopolitan.md`).
+
+**Name `$BIN` explicitly. Never measure through `bin/cosmic`.** The
+trust root prefers `o/bin/cosmic` when one exists and falls back to the
+pin when it does not, and for a script it does not converge — so
+`bin/cosmic _perf/run.tl …` measures whatever `o/` happens to hold,
+which may be several commits old or may be the pinned release. A
+benchmark cannot tell you it read the wrong subject: it returns a
+number either way, and the number is about a binary you did not choose.
+This is the measurement-identity trap in `optimize/measurement.md`,
+reachable without touching a single knob.
 
 ```bash
 BENCH=$(ls _perf/bench/*_bench.tl | sed 's|/|.|g;s|\.tl$||')
