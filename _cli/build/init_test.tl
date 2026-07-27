@@ -401,16 +401,27 @@ end
 test_exec_refuses_a_symlink_out_of_the_root()
 
 -- The other direction, because refusing everything would also pass the
--- test above: a link INSIDE the root still runs. bin/make creates
--- exactly one (`o/bootstrap/lua -> cosmic`), so this is not hypothetical.
+-- test above: a link INSIDE the root still runs. The build stages such
+-- a link itself (`o/bootstrap/lua -> cosmic`), so this is not
+-- hypothetical.
+--
+-- The root is BUILT here, not borrowed from the repo. It used to point
+-- at the real `o/bin/` and drop a symlink beside the binary under test,
+-- which is a test writing into the tree's build output -- fine while
+-- nothing stopped it, and denied the moment the fence became the
+-- default. A test may write its own scratch and nothing else, so the
+-- program is a copy and the link is beside the copy.
 local function test_exec_allows_a_symlink_inside_the_root()
-  local root = fs.dirname(fs.abspath(test_bin))
+  local root = fs.join(tmpdir, "exec-linked-root")
+  fs.rmrf(root)
+  assert(fs.makedirs(root))
+  local prog = fs.join(root, "prog")
+  assert(fs.copy(test_bin, prog))
+  assert(fs.chmod(prog, tonumber("755", 8) as integer)) -- cast: octal is integral
   local script = write_script("exec-linked.lua", "print('linked')\n")
   local link = fs.join(root, "exec-alias")
-  fs.rmrf(link)
-  assert(fs.symlink(fs.basename(test_bin), link))
+  assert(fs.symlink("prog", link))
   local code, out, err = run_recipe_env("exec " .. link .. " " .. script, root)
-  fs.rmrf(link)
   assert(code == 0, "a link inside the root must still run: " .. err)
   assert(out:match("linked"), "expected the program's output, got: " .. out)
 end
