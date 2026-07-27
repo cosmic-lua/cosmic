@@ -240,13 +240,16 @@ local function plant(dir: string, script: string, code: string)
   local hash = require("cosmic.hash")
   local content = check.must(fs.read(script))
   -- The build id in the key belongs to the binary UNDER TEST, which is
-  -- not always the one running this file: ask it. Reading this process's
-  -- own `cosmic._version` keys the plant to the runner, and then the
-  -- attack silently fails to reproduce — a security test passing because
-  -- it planted the wrong file is worse than one that fails.
-  local h = check.must(spawn.spawn({cosmic, "--version"}))
+  -- not always the one running this file: ask it, and ask it for the id
+  -- rather than the version -- a dev build stamps "unknown" for every
+  -- binary anyone builds, so the id is derived elsewhere. Deriving it
+  -- here from this process keys the plant to the runner, and then the
+  -- attack silently fails to reproduce — a security test passing
+  -- because it planted the wrong file is worse than one that fails.
+  local h = check.must(spawn.spawn({cosmic, "-e",
+        'io.write(require("cosmic._script_cache").build_id())'}))
   local r = check.must(h:wait())
-  local id = check.must((r.stdout or ""):match("^cosmic%-lua (%S+)"))
+  local id = check.must(r.stdout)
   local key = hash.sha256_hex(script .. "\0" .. content .. "\0" .. id)
   assert(fs.write(fs.join(dir, key .. ".lua"), code))
 end

@@ -29,3 +29,13 @@
   committed inputs. `COSMIC_VERSION` remains as a documented override
   for a build nobody tagged. The `git describe` stamp went with the
   Makefile.
+- **the exception, stated:** cosmic's own releases take the env path,
+  and cosmic's own tree commits no `.version`. A release tag names the
+  commit it is tagging (`YYYY.MM.DD-<short-sha>`), which is not a fact a
+  file inside that commit can hold. So for a TAGGED build the stamp is
+  the one input not enumerable from committed files; release.yml
+  computes it once and asserts `--version` reports it before upload.
+  Every other build -- a developer's, CI's, the reproducibility lane's
+  -- stamps `unknown` deterministically, which is what keeps the
+  byte-compare honest. `.version` is for a project that versions itself
+  independently of its commits; this one does not.

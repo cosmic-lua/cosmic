@@ -319,9 +319,12 @@ end
 ---
 --- Both halves are READ, with the same literal reader `--make fetch`
 --- uses — the build never executes a file that says what it pinned.
---- The cosmos half comes from its pin. The cosmic half comes from
---- `embed/.version` when the tree carries one, else `COSMIC_VERSION`,
---- else "unknown", which is the truth for a build nobody stamped.
+--- The cosmos half comes from its pin. The cosmic half comes from a
+--- root `.version` when the tree carries one, else `COSMIC_VERSION`,
+--- else "unknown", which is the truth for a build nobody stamped -- and
+--- what every build of this tree stamps, because this tree commits no
+--- `.version`: a release names itself by the commit it is tagging, and
+--- that is not a fact a file in that commit can hold.
 ---
 --- Committed file first, environment second: a bare `--make build` of
 --- a clean tree is then bit-reproducible with no environment

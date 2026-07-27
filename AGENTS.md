@@ -485,10 +485,13 @@ discipline). the backlog is GitHub issues labeled `perf`.
   coverage) inside a loopback-only network namespace, so a stray download
   fails loudly. It builds first and gates with the RESULT, or the six
   stages would report on the pinned release instead of the change.
-  `build` does everything that needs a real network or a real kernel:
-  double-build reproducibility, `--make fetch` against the real pins, and
-  the sandbox-enforcement lane. `smoke` runs the built binary on real
-  macOS/Windows runners (`-e`, `--docs`, portable test files)
+  `build` does what needs a real network: double-build reproducibility
+  (two tree paths) and `--make fetch` against the real pins. Both Linux
+  lanes are privileged and non-root: `_cli/fence_test.tl` asserts a real
+  Landlock denial, the quicksand tests unshare and mount. `smoke` runs
+  the built binary on real macOS/Windows runners. **Not** covered: the
+  fence applied to real recipes — the `enforce` verb is planned, so the
+  build itself is not sandboxed in CI
 - **docs.yml**: `--make docs` then `_docs/publish.tl`, to the `docs`
   branch on push to main
 - **release.yml**: daily release. Builds twice — the pinned cosmic builds

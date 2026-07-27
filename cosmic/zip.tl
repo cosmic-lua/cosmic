@@ -133,8 +133,18 @@ end
 --- and any `..` traversal component. Both `/` and `\` are treated as
 --- separators, since cosmic executables also run on Windows where a
 --- `..\evil` entry would otherwise slip past a POSIX-only guard.
+---
+--- Control characters too, which is not about escaping the root: a name
+--- travels onward into line-oriented records, and `_make/fetch.tl`'s
+--- unpack manifest is one line per product. A member called `a\nb.txt`
+--- extracts fine, records as two names neither of which exists, and
+--- makes every later fetch decide the pin needs repair — forever,
+--- silently. `cosmic.tar` and `cosmic.embed` refuse the same class at
+--- the same point; the three guards protect one operation, so they do
+--- not get to disagree.
 local function unsafe_entry(name: string): boolean
   if name == "" then return true end
+  if name:find("%c") then return true end
   -- Absolute roots escape the destination directory.
   if name:sub(1, 1) == "/" or name:sub(1, 1) == "\\" then return true end
   if name:match("^%a:") then return true end

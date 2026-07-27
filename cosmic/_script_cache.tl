@@ -78,14 +78,33 @@ end
 
 --- Build identifier included in the cache key, so a different cosmic
 --- binary (embedded Teal compiler may differ) never reuses another
---- build's cached output. Falls back to a constant when unavailable
---- (e.g. a dev build without the generated version module).
+--- build's cached output.
+---
+--- The version stamp answers for a RELEASE. It does not answer for a
+--- dev build, where it is "unknown" for every binary anyone builds --
+--- so two locally built cosmics with different embedded compilers
+--- shared one key, which is the collision this id exists to prevent.
+--- The binary's own size and mtime answer there: `--make build`
+--- replaces the artifact only when its bytes change, so the stamp moves
+--- exactly when the compiler might have.
 --- @return string
 local function build_id(): string
   local mod = "cosmic._version"
   local ok, ver = pcall(require, mod)
   if ok then
-    return tostring((ver as {string: string}).cosmic) -- cast: from any
+    local stamp = (ver as {string: string}).cosmic -- cast: from any
+    if stamp and stamp ~= "" and stamp ~= "unknown" then
+      return stamp
+    end
+  end
+  local self = arg and arg[-1]
+  local info = self and fs.stat(self)
+  if info then
+    local st = info as fs_types.Stat -- cast: mixed-representation Stat
+    -- Bound, not inlined: mtim returns seconds AND nanoseconds, and a
+    -- multi-return call spreads into the argument list it sits in.
+    local secs = st:mtim()
+    return "dev-" .. tostring(st:size()) .. "-" .. tostring(secs)
   end
   return "unknown"
 end
@@ -180,6 +199,7 @@ local function compile_cached(input_path: string): string | nil, string
 end
 
 return {
+  build_id = build_id,
   load = load_cached,
   store = store,
   compile_cached = compile_cached,

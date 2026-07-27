@@ -1,12 +1,16 @@
 #!/usr/bin/env cosmic
 -- The recipe fence, proven against a real kernel.
 --
--- Lives in the enforce lane (bin/make enforce) rather than the ordinary
--- test lane for the reason that lane exists: under CI's own
--- landlock-make sandbox an enforcement assertion degrades to a no-op
--- and everything looks green. Here the outer sandbox is dropped,
--- COSMIC_ENFORCE=1 is set, and the tripwire counts the enforce-ran
--- marker, so "the fence never actually ran" cannot pass for success.
+-- It sets COSMIC_FENCE=1 itself, per case, because the fence is opt-in:
+-- these are the only runs in the gate where it is on. Both Linux CI
+-- lanes run privileged for this -- under Docker's default seccomp and
+-- AppArmor profiles Landlock cannot construct a policy, an enforcement
+-- assertion degrades to a no-op, and everything looks green.
+--
+-- What is NOT here, and is not anywhere: the fence applied to the real
+-- build. These cases prove the mechanism denies; the `enforce` verb
+-- that would apply it to every recipe is planned (docs/design/make/
+-- engine.md). Until it lands, the build is not sandboxed.
 --
 -- What it asserts is a denial, A/B on one script so a failure cannot be
 -- mistaken for the write being impossible anyway: unfenced the script

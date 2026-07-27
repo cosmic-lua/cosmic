@@ -383,6 +383,26 @@ local function test_extract_rejects_backslash_traversal()
 end
 test_extract_rejects_backslash_traversal()
 
+-- A control character in a member name does not escape the destination,
+-- and is refused anyway: the name travels onward into line-oriented
+-- records -- `--make fetch`'s unpack manifest is one line per product --
+-- where an embedded newline records one file as two names that do not
+-- exist, so every later fetch decides the pin needs repair. Forever,
+-- silently. `cosmic.tar` and `cosmic.embed` refuse the same class at
+-- the same point; the three guards protect one operation.
+local function test_extract_rejects_control_characters()
+  local data = crafted_archive("\nX/escaped.txt")
+  local r = check.must(zip.from(data))
+  local dest = zip_path("control_out")
+  local ok, err = zip.extract(r, dest)
+  r:close()
+
+  assert(not ok, "extract should reject a name with a control character")
+  assert(err and err:match("unsafe path"),
+    "expected unsafe path error, got: " .. tostring(err))
+end
+test_extract_rejects_control_characters()
+
 local function test_extract_max_file_size()
   local p = zip_path("extract_size.zip")
   local w = check.must(zip.writer(p))
