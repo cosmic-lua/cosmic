@@ -150,6 +150,16 @@ jobs:
           set +e
           echo "===== last 40 lines of the gate ====="
           tail -40 o/gate.log
+          # Which LINES ran, for every row the ratchet named. A percentage
+          # says a file got worse; the missing-line list says which branch
+          # stopped running, which is the difference between reading the
+          # diff and guessing at it across CI cycles.
+          echo "===== coverage detail for the declining rows ====="
+          for f in $(grep -oP '(?<=coverage ratchet: declined: ).*' o/gate.log | tail -1); do
+            runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+              o/bin/cosmic --coverage-report o/.coverage 2>/dev/null \
+              | grep -F "$f "
+          done
           exit 0
 
   # What needs a built binary and a real network — the two things the
