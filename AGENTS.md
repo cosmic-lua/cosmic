@@ -436,7 +436,7 @@ truncation.
 
 ```bash
 o/bin/cosmic --make test                # all tests
-o/bin/cosmic --make coverage            # tests + line coverage, ratcheted vs .coverage
+o/bin/cosmic --make coverage            # tests + line coverage, ratcheted vs .cosmic-coverage
 o/bin/cosmic --make coverage --baseline # rewrite the committed floor
 o/bin/cosmic --make test cosmic/string_test.tl   # narrow by path
 o/bin/cosmic --make example             # run Example_* functions

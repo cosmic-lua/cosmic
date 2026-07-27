@@ -4,33 +4,16 @@ local child = require("cosmic.child")
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local instrument = require("cosmic.instrument")
+local records = require("cosmic.records")
 local time = require("cosmic.time")
 
---- Display icons for a `.got` status.
-local STATUS_ICONS: {string: string} = {
-  pass = "✓",
-  fail = "✗",
-  skip = "→",
-  ignore = "○",
-}
-
---- Classify the exit code recorded in a `.got` file.
----
---- ONE definition of the contract. Every stage reports through this
---- module, and `ci` grades the summaries it writes, so a silent
---- disagreement about what exit 2 means would mis-grade the gate —
---- a skip counted as a pass is a stage that stopped checking and said
---- nothing.
---- @param exit_code integer Exit code from the .got file
---- @return string "pass" (0), "skip" (2), or "fail" (anything else)
-local function status_of(exit_code: integer): string
-  if exit_code == 0 then
-    return "pass"
-  elseif exit_code == 2 then
-    return "skip"
-  end
-  return "fail"
-end
+--- The output grammar lives in `cosmic.records`, which is where every
+--- printer and every asserting test reads it from. These two are
+--- re-exported because they were this module's public surface before
+--- the grammar had a home; they are the same definitions, not a second
+--- one.
+local STATUS_ICONS < const >: {string: string} = records.ICONS
+local status_of = records.status_of
 
 --- Run a test executable and capture output.
 --- Creates a temporary directory (TEST_TMPDIR) for the test and cleans up after.
@@ -158,19 +141,27 @@ local function run(argv: {string}, output_base: string): integer
     io.stderr:write("testrun: " .. (werr or "failed to write .time") .. "\n")
   end
 
-  -- Best-effort: record the test_* functions defined in the test file so
-  -- report() can show how many a passing file contains (files follow the
-  -- define-then-call-immediately convention enforced by --check lint).
+  -- Best-effort: record the test_* functions defined in the file this
+  -- target is ABOUT, so report() can show how many a passing test file
+  -- contains (files follow the define-then-call-immediately convention
+  -- enforced by --check lint).
+  --
+  -- From the OUTPUT BASE, not from argv. Scanning argv for a `_test.tl`
+  -- suffix answered a different question than the one asked: a `fmt`
+  -- recipe names the source directly, so fmt and lint rows were
+  -- annotated with a test-function count for work that formatted a
+  -- file; a `test` recipe names the COMPILED `o/…_test.lua`, so the
+  -- rows that actually ran those functions were the ones that never
+  -- said how many. The base says both which source and which stage.
   local test_names: {string} = {}
-  for _, a in ipairs(argv) do
-    if a:match("_test%.tl$") then
-      local src = fs.read(a)
-      if src then
-        for line in string.gmatch(src, "[^\n]+") do
-          local tname = line:match("^local function (test_[%w_]+)")
-          if tname then
-            test_names[#test_names + 1] = tname
-          end
+  local stage = records.stage_of(output_base)
+  if stage == "test" or stage == "coverage" then
+    local src = fs.read(records.display(output_base))
+    if src then
+      for line in string.gmatch(src, "[^\n]+") do
+        local tname = line:match("^local function (test_[%w_]+)")
+        if tname then
+          test_names[#test_names + 1] = tname
         end
       end
     end
@@ -218,7 +209,7 @@ local function report(paths: {string}): integer
 
   for _, path in ipairs(paths) do
     local base = normalize_path(path)
-    local name = fs.basename(base)
+    local name = records.display(base)
 
     -- Read exit code from .got file
     local got_content, err = fs.read(base .. ".got")
@@ -285,32 +276,19 @@ local function report(paths: {string}): integer
   local slowest_ms = 0
 
   for _, result in ipairs(results) do
-    local icon = STATUS_ICONS[result.status] or STATUS_ICONS.fail
-    local timing = ""
     if result.wall_ms >= 0 then
-      timing = string.format("  %dms", result.wall_ms)
       total_wall_ms = total_wall_ms + result.wall_ms
       if result.wall_ms > slowest_ms then
         slowest_ms = result.wall_ms
         slowest_name = result.name
       end
     end
-    local count_note = ""
-    if result.status == "pass" and result.test_count > 0 then
-      count_note = string.format(" (%d test functions)", result.test_count)
-    end
-    io.write(icon .. " " .. result.name .. count_note .. timing .. "\n")
+    io.write(records.row(result.status, result.name, result.test_count,
+        "test functions", result.wall_ms) .. "\n")
   end
 
   -- Print summary
-  local total = passed + failed + skipped
-  io.write("\n" .. total .. " checks: " .. passed .. " passed")
-  if failed > 0 then
-    io.write(", " .. failed .. " failed")
-  end
-  if skipped > 0 then
-    io.write(", " .. skipped .. " skipped")
-  end
+  io.write("\n" .. records.counts(passed, failed, skipped))
   if total_wall_ms > 0 then
     io.write(string.format(
         "\nwall: %dms  slowest: %s (%dms)",

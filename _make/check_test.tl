@@ -15,6 +15,8 @@
 local check = require("cosmic.check")
 local cenv = require("cosmic.env")
 local fs = require("cosmic.fs")
+local mcheck = require("_make.check")
+local mfetch = require("_make.fetch")
 local mk = require("_make")
 local spawn = require("cosmic.child")
 
@@ -366,5 +368,23 @@ local function test_usage_lists_the_vocabulary()
   end
 end
 test_usage_lists_the_vocabulary()
+
+-- `check.run` and `fetch.run` are module functions, and each refuses a
+-- selection naming nothing on its own. The `--make` pre-flight now
+-- refuses first, so these branches are unreachable from the CLI -- but
+-- a module function may not assume its caller pre-flighted, so the
+-- guard stays and is tested where it is still reachable: here.
+local function test_the_verbs_refuse_a_bad_selection_on_their_own()
+  local root = fixture("ownrefusal", {
+      ["main.tl"] = "print('hi')\n",
+      ["db/init.tl"] = "return {}\n",
+    })
+  local proj = check.must(mk.scan(root))
+  assert(mcheck.run(proj, {"nope"}) == 1,
+    "check.run must refuse a path that names nothing")
+  assert(mfetch.run(proj, {"nope"}) == 1,
+    "fetch.run must refuse a path that names nothing")
+end
+test_the_verbs_refuse_a_bad_selection_on_their_own()
 
 print("all make check tests passed")

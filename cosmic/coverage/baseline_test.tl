@@ -188,7 +188,7 @@ local function test_lowered_is_silent_when_it_cannot_tell()
 end
 test_lowered_is_silent_when_it_cannot_tell()
 
--- The rewrite is ONE-WAY. `.coverage` is a floor, and several rows were
+-- The rewrite is ONE-WAY. `.cosmic-coverage` is a floor, and several rows were
 -- set to what the strictest environment measures; a rebaseline from a
 -- machine that measures more must not raise them, or CI fails on a row
 -- nobody edited.

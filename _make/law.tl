@@ -16,6 +16,14 @@
 --- refuses in two lines instead of after a full rebuild. That ordering
 --- is only available here: a verb's own runner is downstream of the
 --- build it triggered.
+---
+--- The verbs still resolve their own selections, because they need the
+--- FILES where this needs only the answer. That leaves each verb's own
+--- refusal branch unreachable from the CLI -- the pre-flight has
+--- spoken by then -- and it stays anyway: `check.run` and `fetch.run`
+--- are module functions, and a module function may not assume its
+--- caller pre-flighted. `_make/check_test.tl` calls them directly, so
+--- the guard is tested at the level where it can still fire.
 
 local binaries = require("_make.binaries")
 local check = require("_make.check")

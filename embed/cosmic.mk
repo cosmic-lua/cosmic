@@ -41,6 +41,25 @@ SHELL := $(COSMIC)
 # be empty when the running binary is not a file make can stat.
 .DELETE_ON_ERROR:
 
+# ...except the summaries. `.DELETE_ON_ERROR` exists so a half-written
+# target cannot pass for a finished one, and it is right for every
+# target here but these: a summary's recipe exits nonzero BECAUSE the
+# stage failed, and the file it just wrote is the record of which
+# targets failed. Deleting it removed the one artifact a consumer --
+# a CI step, `ci` grading its own stages, a person reading `o/` after
+# the fact -- would open next. `.PRECIOUS` exempts a target from that
+# deletion (make's `delete_target` returns early for a precious file),
+# and nothing else about these targets changes: content still decides,
+# and the stage still fails.
+#
+# Named one by one, not as `$(O)/%-summary.txt`: the pattern form of
+# .PRECIOUS only marks targets built by a PATTERN RULE, and every
+# summary here has an explicit rule. The pattern spelling looks right,
+# passes a pattern-rule experiment, and protects nothing in this file.
+.PRECIOUS: $(O)/fmt-summary.txt $(O)/test-summary.txt \
+           $(O)/example-summary.txt $(O)/benchmark-summary.txt \
+           $(O)/lint-summary.txt $(O)/coverage-summary.txt
+
 .PHONY: all build compile fmt test example benchmark lint coverage
 
 all: build

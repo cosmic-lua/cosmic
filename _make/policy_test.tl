@@ -113,7 +113,7 @@ test_has_material()
 -- still runs and still passes -- the absence IS the answer to "should
 -- there be a ratchet", so nothing has to be configured either way.
 local function test_the_baseline_is_a_convention()
-  assert(policy.BASELINE == ".coverage",
+  assert(policy.BASELINE == ".cosmic-coverage",
     "the floor is a dot-file at the root, got: " .. policy.BASELINE)
   local dir = fs.join(tmpdir, "policy-nobaseline")
   check.must(fs.makedirs(dir))

@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
 --- Coverage ratchet: compare a coverage run against a committed baseline.
 ---
---- The baseline (`.coverage` at the project root) records covered/total
+--- The baseline (`.cosmic-coverage` at the project root) records covered/total
 --- line counts per file plus a total row. The check fails when any
 --- file's percentage drops more than a small tolerance below its
 --- baseline, when the total percentage declines, or when the file set
@@ -259,7 +259,7 @@ end
 
 --- Which rows a rewrite would LOWER, and by how much.
 ---
---- A rewrite is not a refresh: `.coverage` is a floor, and several
+--- A rewrite is not a refresh: `.cosmic-coverage` is a floor, and several
 --- files' floors were measured on a machine that is not this one. The
 --- ratchet is silent about it -- lowering a row is exactly what
 --- `--baseline` is for -- so the only thing standing between an

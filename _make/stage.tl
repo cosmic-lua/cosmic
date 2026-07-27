@@ -11,6 +11,7 @@
 
 local cenv = require("cosmic.env")
 local fs = require("cosmic.fs")
+local records = require("cosmic.records")
 local sys = require("cosmic.sys")
 local generate = require("_make.generate")
 local graph = require("_make.graph")
@@ -77,17 +78,8 @@ local SELECTS < const >: {string: Selection} = {
   coverage = {kinds = {"test"}, variable = "tests"},
 }
 
---- Print a verb's verdict line. Every verb ends in one, so a caller
---- that only reads the last line still knows what happened.
---- @param verb string The verb
---- @param ok boolean Whether it succeeded
---- @param detail string Parenthetical detail
---- @return integer The matching exit code
-local function verdict(verb: string, ok: boolean, detail: string): integer
-  io.write(verb .. (ok and ": PASS" or ": FAIL") ..
-    (detail ~= "" and " (" .. detail .. ")" or "") .. "\n")
-  return ok and 0 or 1
-end
+--- Print a verb's verdict line; the grammar lives in `cosmic.records`.
+local verdict = records.verdict
 
 --- The files a graph verb acts on, before selection.
 --- @param proj Project The scanned project
@@ -154,8 +146,14 @@ local function graph_stage(v: Verb, proj: Project, paths: {string},
     io.stderr:write(gerr .. "\n")
     return false, "make"
   end
-  local noun = #files == 1 and " file" or " files"
-  return code == 0, #files .. noun
+  -- The detail comes from the summary the stage just wrote, not from
+  -- the size of the file list. Those are different numbers, and the
+  -- verdict line is the one that survives a truncated log: `test: FAIL
+  -- (7 files)` read as "seven files failed" when it meant "one of two
+  -- tests failed, and seven files were selected".
+  local summary = fs.join(project.BUILD_DIR,
+    (v.target as string) .. "-summary.txt") -- cast: a graph verb has one
+  return code == 0, records.stage_detail(summary, #files, "file")
 end
 
 --- A graph verb with nothing to do around the graph: `fmt`.

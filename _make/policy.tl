@@ -28,7 +28,14 @@ local type Verb = types.Verb
 --- data the build reads, never a module, never shipped. Its absence is
 --- the answer to "should there be a ratchet", so a project opts in by
 --- committing one and nothing has to be configured either way.
-local BASELINE < const > = ".coverage"
+---
+--- Namespaced, because a bare `.coverage` at a project root is already
+--- taken: coverage.py writes its binary data file there, and cosmic
+--- targets polyglot repos. Two tools with one filename means one of
+--- them silently overwrites a floor with a SQLite database, and the
+--- ratchet's failure mode for an unreadable floor is to report every
+--- row as new.
+local BASELINE < const > = ".cosmic-coverage"
 
 --- Where a coverage run's data lands.
 local COVERAGE_DIR < const > = ".coverage"

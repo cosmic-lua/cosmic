@@ -31,7 +31,7 @@ replaced it outright.
 | `test` | run `*_test.tl` and report | ✅ |
 | `example` | run `Example_*` functions and check their output | ✅ |
 | `benchmark` | run every `*_benchmark.tl` | ✅ |
-| `coverage` | tests + line coverage, ratcheted against `.coverage` | ✅ |
+| `coverage` | tests + line coverage, ratcheted against `.cosmic-coverage` | ✅ |
 | `docs` | extract the doc index | ✅ |
 | `ci` | fmt, check, test, example, lint, coverage — the gate | ✅ |
 | `clean` | remove `o/` | ✅ |
@@ -330,3 +330,41 @@ typo costs a directory walk rather than a full rebuild.
 on the graph verbs, a selection travels as a make variable override, so
 no rule knows about it — which is what lets the rules file stay
 constant.
+
+## Machine-readable output
+
+four things leave a run for something other than a person to read, and
+they are one grammar, owned by `cosmic.records`:
+
+```
+✓ cosmic/fs/init_test.tl (7 test functions)  12ms   row
+19 checks: 18 passed, 1 failed                      summary
+wall: 73148ms  slowest: _make/fixpoint_test.tl (…)  summary
+test: FAIL (1 of 19 files)                          verdict
+```
+
+- **row** — one per target. the name is the SOURCE path, not a
+  basename: eleven files in this tree are called `init_test.tl`, and a
+  failing row you cannot resolve to a file costs a grep with eleven
+  hits. the `(N …)` annotation counts what the target actually ran, so
+  it appears on passing rows of the stages that run things and nowhere
+  else.
+- **summary** — the counts, in `o/<verb>-summary.txt`. it SURVIVES a
+  failing stage (`.PRECIOUS`): the summary of a stage that failed is
+  the one a consumer opens next, and `.DELETE_ON_ERROR` was deleting
+  exactly that.
+- **verdict** — the last line, and the one that survives truncation.
+  `N unit` when everything passed, `M of N unit` when it did not, read
+  from the summary the stage wrote rather than from the size of the
+  file list.
+- **exit codes** — `0` pass, `2` skip, anything else fail, everywhere.
+  a skip is NOT a pass: a stage that stopped checking and said nothing
+  is what the third code exists to make visible.
+
+never launder a gate's status through a pipe (`--make ci | tail`
+returns tail's status) — use `set -o pipefail`, or read the verdict
+line.
+
+the coverage floor is `.cosmic-coverage`, namespaced because a bare
+`.coverage` is coverage.py's binary data file and cosmic targets
+polyglot repos.
