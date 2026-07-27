@@ -225,4 +225,54 @@ local function test_render_without_a_floor_records_the_run()
 end
 test_render_without_a_floor_records_the_run()
 
+-- What a failing ratchet SAYS, which is the half nobody was testing:
+-- `gate` returning 1 was asserted, the report it prints on the way was
+-- not. That report is the whole value of the gate — a floor that moved
+-- and will not say which row is a gate you have to re-run to read.
+--
+-- The last line matters most and is the reason it exists. A failing
+-- `--make ci` ends with 166 test results and a stage verdict, so the
+-- per-file lines are hundreds back and fall out of any truncated view;
+-- one line naming every declining file, printed last, survives that.
+local function test_a_failing_ratchet_names_the_rows_that_moved()
+  local fs = require("cosmic.fs")
+  local spawn = require("cosmic.child")
+  local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
+  local root = fs.join(tmpdir, "ratchet-says")
+  fs.rmrf(root)
+  assert(fs.makedirs(fs.join(root, "lib")))
+  local src = fs.join(root, "lib/a.tl")
+  assert(fs.write(src, "local x = 1\nlocal y = 2\nreturn x + y\n"))
+  -- One real `.cov`, because compute refuses a run with none; the
+  -- source scan is what supplies the zero-coverage row that declines.
+  assert(fs.write(fs.join(root, "one.cov"),
+      '{version=1,hits={["' .. src .. '"]={[1]=1}}}'))
+  local floor = fs.join(root, "floor")
+  assert(fs.write(floor, src .. " 3 3\n"))
+
+  -- A child, because the report goes to this process's stderr.
+  local cosmic = fs.join(os.getenv("TEST_BIN") or "", "cosmic")
+  if not check.needs("a built cosmic at " .. cosmic, fs.isfile(cosmic)) then
+    return
+  end
+  -- A SCRIPT file, not `-e`: only the script path arms line coverage,
+  -- so a `-e` child runs the code under test and reports none of it.
+  local script = fs.join(root, "run.lua")
+  assert(fs.write(script,
+      'os.exit(require("cosmic.coverage.baseline").gate(' ..
+      string.format("%q", floor) .. ', "", {' ..
+      string.format("%q", root) .. '}))\n'))
+  local r = check.must(spawn.run({cosmic, script}))
+  local err = r.stderr or ""
+  assert(r.code == 1, "a declining floor must fail, got " .. tostring(r.code))
+  assert(err:find("coverage declined 100.0% -> 0.0%", 1, true),
+    "the per-file line names what moved, got: " .. err)
+  local last = err:match("([^\n]+)\n?$") or ""
+  assert(last:find("coverage ratchet: declined: ", 1, true),
+    "the one-line summary must be LAST, got: " .. last)
+  assert(last:find(src, 1, true),
+    "and must name every declining file, got: " .. last)
+end
+test_a_failing_ratchet_names_the_rows_that_moved()
+
 print("all baseline tests passed")

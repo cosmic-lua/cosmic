@@ -190,12 +190,27 @@ local function check(baseline_path: string, paths: {string}): integer
   -- cast: record union after guard
   local problems = compare(reports as {FileReport}, entries as {string: Entry}, total)
   if #problems > 0 then
+    local names: {string} = {}
     for _, p in ipairs(problems) do
       io.stderr:write("coverage ratchet: " .. p .. "\n")
+      names[#names + 1] = (p:match("^([^:]+):")) or p
     end
     io.stderr:write(string.format(
         "coverage ratchet: %d problem(s); if the decline is intended, run 'cosmic --make coverage --baseline' and commit the result\n",
         #problems))
+    -- And once more in ONE line, naming every file, LAST.
+    --
+    -- The per-file lines above are the useful form and the one nobody
+    -- can read: a failing gate ends with 166 test results, a stage
+    -- verdict, and whatever the CI runner prints after that, so the
+    -- lines saying WHICH rows moved are hundreds back and fall out of
+    -- any truncated view. Three CI cycles here ended with a verdict and
+    -- no visible cause, each costing a full run to re-ask.
+    --
+    -- Same principle the gate verdict already follows: the record that
+    -- has to survive truncation goes last and fits on one line.
+    io.stderr:write("coverage ratchet: declined: " ..
+      table.concat(names, " ") .. "\n")
     return 1
   end
   io.write("coverage ratchet ok\n")
