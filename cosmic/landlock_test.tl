@@ -29,6 +29,13 @@ local function test_access_mask_composition()
     "RW should include READ")
   assert((landlock.ALL & landlock.RW) == landlock.RW,
     "ALL should include RW")
+  -- Every right `ALL` HANDLES and a write needs, `RW` must GRANT.
+  -- Truncate is the one that got away: it became a separate right in
+  -- ABI 3, `ALL` picked it up as handled, and `RW` did not -- so a
+  -- granted directory could create a file and never rewrite one.
+  -- Rewriting is what a build does on its second run.
+  assert((landlock.RW & landlock.TRUNCATE) == landlock.TRUNCATE,
+    "RW must include TRUNCATE, or rw means write-once")
   -- RW is read + write only: it must NOT silently grant execute, or a
   -- box's rw path (e.g. /tmp) would become write+exec (a sandbox
   -- weakening the caller never asked for).

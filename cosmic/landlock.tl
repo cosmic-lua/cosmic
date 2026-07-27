@@ -51,7 +51,15 @@ local EXEC < const > = EXECUTE
 --- file rules down to these — mirroring what the libc unveil path does
 --- after fstat.
 local FILE_BITS < const > = READ_FILE | WRITE_FILE | EXECUTE | TRUNCATE
-local WRITE < const > = WRITE_FILE | REMOVE_FILE | REMOVE_DIR
+--- TRUNCATE is part of WRITE, not an extra. It is a SEPARATE right
+--- from ABI 3 on, and `ALL` -- the handled set -- includes it, so
+--- leaving it out of the grant made "read-write" mean "create, but
+--- never rewrite": `open(O_TRUNC)` on a file that already exists was
+--- denied inside a directory the policy had just granted rw. It hid
+--- behind write-if-changed, which usually creates rather than rewrites,
+--- and surfaced as the one recipe that always rewrites (`copy`) failing
+--- with EACCES on its second build. `abi_mask` strips it below ABI 3.
+local WRITE < const > = WRITE_FILE | TRUNCATE | REMOVE_FILE | REMOVE_DIR
 | MAKE_REG | MAKE_DIR | MAKE_SYM
 | MAKE_SOCK | MAKE_FIFO | MAKE_CHAR | MAKE_BLOCK
 local RW < const > = READ | WRITE
