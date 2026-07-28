@@ -10,24 +10,30 @@ local record make_types
   --- What a discovered file declares, derived from its name and
   --- position. One file has exactly one kind.
   ---
-  ---   module    a package source (.tl/.lua) — compiled and embedded
-  ---   entry     main.tl at the root, or cmd/<name>/main.tl — a binary
-  ---   test      *_test.tl
-  ---   example   *_example.tl
-  ---   types     *.d.tl — type-only; on the include path, never embedded
-  ---   pin       *_pin.tl — a pinned external asset, data not code
-  ---   gen       *_gen.tl — a generation unit, scoped to its own
-  ---             directory's subtree, run BEFORE the graph because
-  ---             what it writes is an input to it
-  ---   payload-gen  embed_gen.tl — a BINARY's payload generator: scoped
-  ---             to the binary, run AFTER the graph, writes `o/<unit>/`
-  ---   testdata  anything under a testdata/ directory — never embedded
-  ---   payload   anything under embed/ — embedded at its path INSIDE
-  ---             embed/, which is how a project puts a file somewhere
-  ---             the one layout rule would not
+  ---   module    a package source — compiled, checked, embedded
+  ---   entry     a binary: `main.tl` at the root, or `cmd/<name>/main.tl`
+  ---   test      a test
+  ---   example   a runnable example, checked against its own output
+  ---   benchmark a timed benchmark
+  ---   types     type-only declarations; on the include path
+  ---   pin       a pinned external asset — data, not code
+  ---   gen       a generation unit, scoped to its own directory's
+  ---             subtree, run BEFORE the graph because what it writes
+  ---             is an input to it
+  ---   payload-gen  a BINARY's payload generator: scoped to the binary,
+  ---             run AFTER the graph, writes `o/<unit>/`
+  ---   testdata  test fixtures — never embedded
+  ---   payload   embedded at its path INSIDE `embed/`, which is how a
+  ---             project puts a file somewhere the one layout rule
+  ---             would not
   ---   asset     everything else — part of the project, NOT of its
   ---             artifacts. Shipping is opt-in: `embed/**` is where a
   ---             non-module file says it belongs in the binary
+  ---
+  --- Which NAME declares which kind is `project.classify`, and the
+  --- table of it is generated: `cosmic --docs guide.model`. Repeating
+  --- the markers here would be the same copy, in the same file as the
+  --- thing it copies.
   enum Kind
     "module"
     "entry"
@@ -116,6 +122,11 @@ local record make_types
   record Verb
     --- The name typed on the command line.
     name: string
+    --- What the verb does, one line, for a reader. Declared here with
+    --- the verb so a new one cannot be added without saying what it is
+    --- for: `_make.model` renders the verb table from this field, and
+    --- reports a verb that has none.
+    doc: string
     --- Defined by the design, not shipped yet.
     planned: boolean
     --- The make target this verb lowers onto, when it is a graph verb.

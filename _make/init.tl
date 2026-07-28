@@ -217,14 +217,14 @@ end
 --- A planned row costs one line and turns a typo-shaped failure into a
 --- schedule answer.
 local VERBS < const >: {Verb} = {
-  {name = "build", target = "build", select = stage.SELECTS.build, run = run_build},
+  {name = "build", doc = "compile the tree, then stage + embed → `o/bin/<name>`", target = "build", select = stage.SELECTS.build, run = run_build},
   -- `check` generates first, like every other verb that touches the
   -- graph -- it just does not lower onto make, so it has to say so
   -- itself. The checker resolves `cosmo.*` through what
   -- `_types/types_gen.tl` writes: without this, `--make check` on a
   -- cold tree fails on unresolvable `cosmo.*`, and after a pin bump it
   -- checks against the types the last run left.
-  {name = "check", run = function(proj: Project, paths: {string},
+  {name = "check", doc = "strict type-check (warnings are errors), in process", run = function(proj: Project, paths: {string},
         cosmic: string): integer
       local ok, err = generate.sources(proj, cosmic)
       if not ok then
@@ -233,12 +233,12 @@ local VERBS < const >: {Verb} = {
       end
       return check.run(proj, paths)
     end},
-  {name = "clean", run = clean.run},
-  {name = "fetch", run = function(proj: Project, paths: {string},
+  {name = "clean", doc = "remove `o/`", run = clean.run},
+  {name = "fetch", doc = "resolve `*_pin.tl` — the only verb with a network", run = function(proj: Project, paths: {string},
         _cosmic: string): integer
       return fetch.run(proj, paths)
     end},
-  {name = "fmt", target = "fmt", select = stage.SELECTS.fmt,
+  {name = "fmt", doc = "formatting over every `.tl`; `--fix` rewrites", target = "fmt", select = stage.SELECTS.fmt,
     run = function(proj: Project, paths: {string}, cosmic: string): integer
       if fix_wanted then
         return policy.fix(proj, paths)
@@ -246,16 +246,16 @@ local VERBS < const >: {Verb} = {
       -- cast: the registry defines it
       return stage.run_graph(by_name("fmt") as Verb, proj, paths, cosmic)
     end},
-  {name = "test", target = "test", select = stage.SELECTS.test,
+  {name = "test", doc = "run `*_test.tl` and report", target = "test", select = stage.SELECTS.test,
     run = function(proj: Project, paths: {string}, cosmic: string): integer
       -- cast: the registry defines it
       return run_against_stage(by_name("test") as Verb, proj, paths, cosmic)
     end},
-  {name = "run", planned = true},
+  {name = "run", doc = "build, then exec the artifact", planned = true},
   -- `docs` renders the API to markdown. Its file set comes from the
   -- model, so a directory added to the project is documented without
   -- anyone remembering to say so.
-  {name = "docs", run = function(proj: Project, paths: {string},
+  {name = "docs", doc = "extract the doc index", run = function(proj: Project, paths: {string},
         _cosmic: string): integer
       local n, err = docs.render(proj, paths)
       if err ~= "" then
@@ -273,7 +273,7 @@ local VERBS < const >: {Verb} = {
   -- lets `ci` below be a list of verb names: its pipeline is
   -- fmt -> check -> test -> example -> lint -> coverage, and every one
   -- of those six is a verb in this registry.
-  {name = "example", target = "example", select = stage.SELECTS.example,
+  {name = "example", doc = "run `Example_*` functions and check their output", target = "example", select = stage.SELECTS.example,
     run = function(proj: Project, paths: {string}, cosmic: string): integer
       -- cast: the registry defines it
       return run_against_stage(by_name("example") as Verb, proj, paths, cosmic)
@@ -281,17 +281,17 @@ local VERBS < const >: {Verb} = {
   -- `test`'s third sibling. It runs against the stage for the same
   -- reason `test` and `example` do: a benchmark measures the project's
   -- own code, and often the binary the project builds.
-  {name = "benchmark", target = "benchmark", select = stage.SELECTS.benchmark,
+  {name = "benchmark", doc = "run every `*_benchmark.tl`", target = "benchmark", select = stage.SELECTS.benchmark,
     run = function(proj: Project, paths: {string}, cosmic: string): integer
       -- cast: the registry defines it
       return run_against_stage(by_name("benchmark") as Verb, proj, paths, cosmic)
     end},
-  {name = "lint", target = "lint", select = stage.SELECTS.lint},
-  {name = "ci", run = function(proj: Project, paths: {string},
+  {name = "lint", doc = "style: file length, cast justifications, test order", target = "lint", select = stage.SELECTS.lint},
+  {name = "ci", doc = "fmt, check, test, example, lint, coverage — the gate", run = function(proj: Project, paths: {string},
         cosmic: string): integer
       return policy.run_ci(by_name, proj, paths, cosmic)
     end},
-  {name = "coverage", target = "coverage", select = stage.SELECTS.coverage,
+  {name = "coverage", doc = "tests + line coverage, ratcheted against `.cosmic-coverage`", target = "coverage", select = stage.SELECTS.coverage,
     run = function(proj: Project, paths: {string}, cosmic: string): integer
       local v = by_name("coverage") as Verb -- cast: the registry defines it
       local ready, perr = prepare_stage(proj, cosmic)
@@ -307,9 +307,9 @@ local VERBS < const >: {Verb} = {
       end
       return policy.run_coverage(v, proj, paths, cosmic)
     end},
-  {name = "enforce", planned = true},
-  {name = "reproducible", planned = true},
-  {name = "offline", planned = true},
+  {name = "enforce", doc = "rerun the sandbox tests unsandboxed, where a skip fails", planned = true},
+  {name = "reproducible", doc = "a policy lane over the graph", planned = true},
+  {name = "offline", doc = "a policy lane over the graph", planned = true},
 }
 
 local INDEX < const >: {string: Verb} = {}

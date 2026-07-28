@@ -437,8 +437,10 @@ local function generate(out: string): string
       return err
     end
   end
-  -- The model guide, from the TREE's `_make.model`: compiled rather
-  -- than required, for the reason that module's header gives.
+  -- The model guide, from the TREE's `_make.model`. Compiled rather
+  -- than required, and written out rather than using that module's own
+  -- `from_tree`: this IS the bootstrap -- the primitive has to be
+  -- loaded by something, and the pin carries no `_make.model`.
   local mcode = require("cosmic.teal").compile_cached("_make/model.tl")
   local mchunk = mcode and load(mcode, "@_make/model.tl")
   if not mchunk then

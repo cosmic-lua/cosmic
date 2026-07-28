@@ -75,47 +75,6 @@ local MARKERS < const >: {{string, string}} = {
   {"anything that is not a source", "notes.md"},
 }
 
---- What each kind IS, in a reader's words.
----
---- Hand-written, and keyed by KIND rather than by marker, so a kind the
---- vocabulary gains is named in the warning instead of quietly missing
---- a row.
-local GLOSS < const >: {string: string} = {
-  ["module"] = "a package — compiled, checked, formatted",
-  ["entry"] = "the project's binary",
-  ["test"] = "a test",
-  ["example"] = "an example",
-  ["benchmark"] = "a benchmark",
-  ["types"] = "type-only; on the include path",
-  ["pin"] = "a pinned external asset — data, never executed",
-  ["gen"] = "a generation unit — runs BEFORE the graph, writes inputs",
-  ["payload-gen"] = "a binary's payload generator — runs AFTER it",
-  ["payload"] = "payload, staged at the artifact root",
-  ["testdata"] = "test fixtures",
-  ["asset"] = "an ordinary part of the project",
-}
-
---- What each verb DOES. The registry knows every verb's name and
---- whether it is planned, and nothing about what it is for.
-local VERB_GLOSS < const >: {string: string} = {
-  ["build"] = "compile the tree, then stage + embed → `o/bin/<name>`",
-  ["check"] = "strict type-check (warnings are errors), in process",
-  ["fmt"] = "formatting over every `.tl`; `--fix` rewrites",
-  ["lint"] = "style: file length, cast justifications, test order",
-  ["test"] = "run `*_test.tl` and report",
-  ["example"] = "run `Example_*` functions and check their output",
-  ["benchmark"] = "run every `*_benchmark.tl`",
-  ["coverage"] = "tests + line coverage, ratcheted against `.cosmic-coverage`",
-  ["docs"] = "extract the doc index",
-  ["ci"] = "fmt, check, test, example, lint, coverage — the gate",
-  ["clean"] = "remove `o/`",
-  ["fetch"] = "resolve `*_pin.tl` — the only verb with a network",
-  ["run"] = "build, then exec the artifact",
-  ["enforce"] = "rerun the sandbox tests unsandboxed, where a skip fails",
-  ["reproducible"] = "a policy lane over the graph",
-  ["offline"] = "a policy lane over the graph",
-}
-
 --- One of the tree's sources, read as text.
 --- @param path string Path relative to the project root
 --- @return string The bytes, or "" when unreadable
@@ -123,34 +82,90 @@ local function source(path: string): string
   return fs.read(path) or ""
 end
 
---- The tree's `classify`, compiled from the tree and loaded.
+--- Load a module from the TREE, whatever the engine carries.
 ---
---- `TL_PATH` first, so the compile resolves `_make.types` to the TREE's
---- enum: without it the pin's enum is consulted and the compile fails
---- on the kinds the pin does not have. `;;` keeps the engine's own path
---- after it, for everything the tree does not define.
+--- The invariant this exists to keep: **a derived document is a pure
+--- function of the tree.** A plain `require` is not -- `package.path`
+--- puts `/zip` first, so it answers with the running binary's embedded
+--- copy, and on a cold clone that binary is the pinned release.
+---
+--- Both halves are needed and both were learned by being wrong:
+---
+--- - **compile, not require**, because the module may be newer than any
+---   release. `_make.model` itself is: the pin has no such module.
+--- - **`TL_PATH` first**, because the module's own imports resolve at
+---   COMPILE time against the engine otherwise. Compiling the tree's
+---   `project.tl` against the pin's `_make.types` fails outright:
+---   `string "benchmark" is not a member of Kind`. `;;` keeps the
+---   engine's path after the tree's, for everything the tree does not
+---   define.
+---
+--- Scoped to one compile rather than set process-wide, deliberately: a
+--- tree-first `TL_PATH` left standing would change resolution for every
+--- later `.tl` require in the process, including the engine's own.
+--- @param path string A source path, relative to the project root
+--- @return table | nil The loaded module, or nil when unavailable
+--- @return string The reason
+local function from_tree(path: string): table, string
+  local env = require("cosmic.env")
+  local before = os.getenv("TL_PATH")
+  env.set("TL_PATH", "./?.tl;./?/init.tl;;", true)
+  local code, cerr = teal.compile_cached(path)
+  if before then
+    env.set("TL_PATH", before, true)
+  else
+    env.unset("TL_PATH")
+  end
+  local chunk = code and load(code, "@" .. path)
+  if not chunk then
+    return nil, path .. ": " .. (cerr or "cannot compile or load")
+  end
+  return chunk() as table -- cast: from any
+end
+
+--- The tree's `classify`.
 --- @return function(string): string The classifier, or nil when unavailable
 local function tree_classify(): function(string): string
-  local before = os.getenv("TL_PATH")
-  require("cosmic.env").set("TL_PATH", "./?.tl;./?/init.tl;;", true)
-  local code, cerr = teal.compile_cached("_make/project.tl")
-  if before then
-    require("cosmic.env").set("TL_PATH", before, true)
-  else
-    require("cosmic.env").unset("TL_PATH")
-  end
-  if not code then
-    warn_gap("cannot compile the tree's _make/project.tl: " ..
-      (cerr or "unknown error"))
+  local mod, err = from_tree("_make/project.tl")
+  if not mod then
+    warn_gap(err)
     return nil
   end
-  local chunk = load(code, "@_make/project.tl")
-  if not chunk then
-    warn_gap("cannot load the compiled _make/project.tl")
-    return nil
+  -- cast: from any, through the tree-loaded module
+  return (mod as {string: function(string): string}).classify
+end
+
+--- What each kind means, from the block that declares the enum.
+---
+--- `_make/types.tl` documents every kind directly above `enum Kind`,
+--- one indented `---   name  text` entry each, continued on deeper
+--- indents. Reading THAT is the point: a description written beside the
+--- declaration cannot be added without the thing it describes being
+--- visible, and cannot be forgotten when the thing is removed. A copy
+--- of it here would be the restatement this module exists to delete --
+--- and it was: `benchmark` was in the enum and absent from the block,
+--- which no reader of either would have noticed.
+--- @return {string: string} Kind to its one-line description
+local function kind_docs(): {string: string}
+  local block = string.match(source("_make/types.tl"),
+    "(.-)\n%s*enum Kind\n") or ""
+  local out: {string: string} = {}
+  local current = ""
+  for line in string.gmatch(block, "[^\n]+") do
+    local name, rest = string.match(line, "^%s*%-%-%-   ([%w%-]+)%s+(.+)$")
+    if name then
+      current = name
+      out[current] = rest
+    elseif current ~= "" then
+      local more = string.match(line, "^%s*%-%-%-%s+(.+)$")
+      if more then
+        out[current] = out[current] .. " " .. more
+      else
+        current = ""
+      end
+    end
   end
-  local mod = chunk() as {string: function(string): string} -- cast: from any
-  return mod.classify
+  return out
 end
 
 --- Every kind the model declares, from the enum's source.
@@ -190,15 +205,22 @@ local function ships(): {string: boolean}
 end
 
 --- The verbs, from the registry the dispatcher is built from.
---- @return {{string, boolean}} Name and whether it is planned, in order
-local function verb_rows(): {{string, boolean}}
+---
+--- Name, description and status all come off the same row, because the
+--- `Verb` record carries `doc` -- so a verb cannot enter the registry
+--- without saying what it is for, and the table below cannot describe a
+--- verb the dispatcher does not have.
+--- @return {{string, string, boolean}} Name, doc and whether planned
+local function verb_rows(): {{string, string, boolean}}
   local block = string.match(source("_make/init.tl"),
     "local VERBS < const >: {Verb} = {(.-)\n}") or ""
-  local rows: {{string, boolean}} = {}
+  local rows: {{string, string, boolean}} = {}
   for line in string.gmatch(block, "[^\n]+") do
     local name = string.match(line, '{name = "([%w%-_]+)"')
     if name then
-      rows[#rows + 1] = {name, string.find(line, "planned = true", 1, true) ~= nil}
+      local doc = string.match(line, 'doc = "(.-)"') or ""
+      rows[#rows + 1] = {name, doc,
+        string.find(line, "planned = true", 1, true) ~= nil}
     end
   end
   if #rows == 0 then
@@ -212,13 +234,14 @@ end
 --- @return string The rendered rows
 local function marker_table(classify: function(string): string): string
   local carried = ships()
+  local docs = kind_docs()
   local out: {string} = {
     "| marker | declares | ships |",
     "|---|---|---|",
   }
   for _, row in ipairs(MARKERS) do
     local kind = classify and classify(row[2]) or ""
-    local gloss = GLOSS[kind] or MISSING
+    local gloss = docs[kind] or MISSING
     out[#out + 1] = "| " .. row[1] .. " | " .. gloss .. " | " ..
     (carried[kind] and "yes" or "no") .. " |"
   end
@@ -231,8 +254,8 @@ local function verb_table(): string
   local out: {string} = {"| verb | what it does | today |", "|---|---|---|"}
   local function emit(planned: boolean, today: string)
     for _, row in ipairs(verb_rows()) do
-      if row[2] == planned then
-        local what = VERB_GLOSS[row[1]] or MISSING
+      if row[3] == planned then
+        local what = row[2] ~= "" and row[2] or MISSING
         out[#out + 1] = "| `" .. row[1] .. "` | " .. what ..
         " | " .. today .. " |"
       end
@@ -258,12 +281,14 @@ local function gaps(): {string}
     return out
   end
   local seen: {string: boolean} = {}
+  local docs = kind_docs()
   for _, row in ipairs(MARKERS) do
     local kind = classify(row[2])
     seen[kind] = true
-    if not GLOSS[kind] then
-      out[#out + 1] = "no gloss for kind '" .. kind .. "' (" .. row[2] ..
-      "): add one to GLOSS in _make/model.tl"
+    if not docs[kind] then
+      out[#out + 1] = "kind '" .. kind .. "' has no description: add a " ..
+      "`---   " .. kind .. "  …` line to the block above `enum Kind` in " ..
+      "_make/types.tl"
     end
   end
   for _, kind in ipairs(vocabulary()) do
@@ -273,9 +298,9 @@ local function gaps(): {string}
     end
   end
   for _, row in ipairs(verb_rows()) do
-    if not VERB_GLOSS[row[1]] then
-      out[#out + 1] = "no description for verb '" .. row[1] ..
-      "': add one to VERB_GLOSS in _make/model.tl"
+    if row[2] == "" then
+      out[#out + 1] = "verb '" .. row[1] .. "' has no description: add " ..
+      "`doc = \"…\"` to its row in the VERBS table in _make/init.tl"
     end
   end
   return out
@@ -351,16 +376,18 @@ end
 local record ModelModule
   MISSING: string
   STORED: string
+  from_tree: function(path: string): table, string
   render: function(): string
   write: function(dest: string): boolean, string
   gaps: function(): {string}
   vocabulary: function(): {string}
-  verb_rows: function(): {{string, boolean}}
+  verb_rows: function(): {{string, string, boolean}}
 end
 
 local M: ModelModule = {
   MISSING = MISSING,
   STORED = STORED,
+  from_tree = from_tree,
   render = render,
   write = write,
   gaps = gaps,
