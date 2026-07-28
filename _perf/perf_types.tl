@@ -48,6 +48,11 @@ local record perf_types
   record Meta
     timestamp: number
     bin: string
+    --- The measured binary's sha256, hex. The identity, where `bin` is
+    --- only a name: two runs forty commits apart both say
+    --- `o/bin/cosmic`. Absent when the binary could not be read, which
+    --- is a results file that cannot name its subject.
+    bin_sha: string
     cosmic_version: string
     cosmos_version: string
     os: string

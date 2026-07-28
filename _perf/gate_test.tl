@@ -11,9 +11,9 @@ local json = require("cosmic.json")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
-local function write_results(path: string, wall_ns: number)
+local function write_results(path: string, wall_ns: number, bin_sha?: string)
   local payload = {
-    meta = {},
+    meta = {bin_sha = bin_sha},
     results = {
       {
         name = "scenario",
@@ -172,3 +172,76 @@ local function test_main_parses_positionals_without_separator()
   assert(code == 2, "unknown mode must print usage, got " .. code)
 end
 test_main_parses_positionals_without_separator()
+
+-- The identity rules. `meta.bin` is a NAME -- two runs forty commits
+-- apart both say `o/bin/cosmic` -- so the gate reads `bin_sha`, and
+-- refuses the two pairings that answer confidently about the wrong
+-- thing.
+local function test_compare_refuses_a_binary_against_itself()
+  local base, cur, selfb = paths("same-bin")
+  write_results(base, 1000, "aaaa1111")
+  write_results(cur, 1010, "aaaa1111")
+  local calls = 0
+  local code = gate.gate({
+      baseline = base, current = cur, selfcheck_b = selfb, threshold = 10,
+      measure = function(_out: string): integer
+        calls = calls + 1
+        return 0
+      end,
+    })
+  assert(code == 1, "comparing a binary with itself must refuse, got " .. code)
+  assert(calls == 0, "and refuse before measuring anything, got " .. calls)
+end
+test_compare_refuses_a_binary_against_itself()
+
+-- The same pair naming DIFFERENT binaries is the comparison the gate
+-- exists for, so it runs -- which is what makes the refusal above about
+-- identity rather than about the field being present.
+local function test_compare_runs_when_the_binaries_differ()
+  local base, cur, selfb = paths("diff-bin")
+  write_results(base, 1000, "aaaa1111")
+  write_results(cur, 1010, "bbbb2222")
+  local code = gate.gate({
+      baseline = base, current = cur, selfcheck_b = selfb, threshold = 10,
+      measure = function(_out: string): integer
+        return 0
+      end,
+    })
+  assert(code == 0, "a real comparison must proceed, got " .. code)
+end
+test_compare_runs_when_the_binaries_differ()
+
+-- A noise floor is only a noise floor if the subject is constant.
+-- Measured across two binaries it reports the change as noise and
+-- raises the bar every real regression afterwards has to clear.
+local function test_selfcheck_refuses_two_different_binaries()
+  local a, b = paths("selfcheck-bins")
+  write_results(a, 1000, "aaaa1111")
+  write_results(b, 1010, "bbbb2222")
+  local code = gate.selfcheck({
+      a = a, b = b, threshold = 10,
+      measure = function(_out: string): integer
+        return 0
+      end,
+    })
+  assert(code == 1,
+    "an A/A control across two binaries must refuse, got " .. code)
+end
+test_selfcheck_refuses_two_different_binaries()
+
+-- A file that does not say what it measured cannot be checked either
+-- way. It says so on stderr and the comparison proceeds, so a results
+-- file written before the field existed stays readable.
+local function test_a_file_without_a_sha_is_not_refused()
+  local base, cur, selfb = paths("no-sha")
+  write_results(base, 1000)
+  write_results(cur, 1010)
+  local code = gate.gate({
+      baseline = base, current = cur, selfcheck_b = selfb, threshold = 10,
+      measure = function(_out: string): integer
+        return 0
+      end,
+    })
+  assert(code == 0, "an unidentified pair still compares, got " .. code)
+end
+test_a_file_without_a_sha_is_not_refused()
