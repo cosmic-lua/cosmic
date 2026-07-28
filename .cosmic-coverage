@@ -1,5 +1,6 @@
 # coverage ratchet baseline: `cosmic --make coverage --baseline` rewrites this file.
 # columns: path covered-lines total-lines
+_build/ratchet.tl 36 36
 _cli/args.tl 0 31
 _cli/build/init.tl 43 47
 _cli/build/modules.tl 46 49
@@ -13,8 +14,8 @@ _cli/main_handlers.tl 11 220
 _cli/require_hints.tl 104 124
 _cli/run.tl 28 33
 _cli/welcome.tl 0 25
-_docs/publish.tl 116 176
 _docs/derive.tl 54 81
+_docs/publish.tl 116 176
 _make/artifact.tl 163 180
 _make/binaries.tl 24 24
 _make/check.tl 56 57
@@ -37,7 +38,7 @@ _make/root.tl 53 58
 _make/runverb.tl 64 72
 _make/select.tl 33 35
 _make/stage.tl 88 96
-_make/types.tl 26 26
+_make/types.tl 39 39
 _make/validate.tl 208 212
 _perf/bench/child_bench.tl 0 11
 _perf/bench/embed_bench.tl 0 88
@@ -66,7 +67,7 @@ _types/gentype_render.tl 295 311
 _types/gentype_types.tl 2 2
 _types/types_gen.tl 0 44
 cmd/cosmic/embed_gen.tl 0 166
-cmd/cosmic/main.tl 0 275
+cmd/cosmic/main.tl 0 272
 cosmic/_script_cache.tl 72 79
 cosmic/ansi.tl 86 86
 cosmic/benchmark.tl 180 212
@@ -173,4 +174,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 80 93
 tlconfig.lua 7 7
-total 13286 17558
+total 13389 17685

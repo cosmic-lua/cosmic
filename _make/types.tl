@@ -161,7 +161,38 @@ local record make_types
   --- fixture), so linting one gates the build on a file whose job is to
   --- be unacceptable.
   lint_kinds: {Kind: boolean}
+
+  --- The kind vocabulary, as a value.
+  ---
+  --- `Kind` is a type, and Teal erases types: compile this file and the
+  --- enum leaves nothing behind, so a caller that `require`s this
+  --- module can check a kind but cannot ask what the kinds ARE. The
+  --- skill ratchet needs exactly that, and answered it by regexing this
+  --- file -- a second Teal parser, guarded by a magic minimum, which
+  --- silently under-reports a kind its pattern does not cover.
+  ---
+  --- So the vocabulary gets a runtime form. It is typed `{Kind}`, which
+  --- makes the checker refuse an entry that is not a kind; the other
+  --- direction -- that no kind is missing here -- is the one thing
+  --- about this pair no type can state, and it is what
+  --- `_make/types_test.tl` is for.
+  kinds: {Kind}
 end
+
+make_types.kinds = {
+  "module",
+  "entry",
+  "test",
+  "example",
+  "benchmark",
+  "types",
+  "pin",
+  "gen",
+  "payload-gen",
+  "testdata",
+  "payload",
+  "asset",
+}
 
 make_types.lint_kinds = {
   module = true,
