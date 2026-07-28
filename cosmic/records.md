@@ -36,6 +36,7 @@ local record RecordsModule
   ICONS: {string: string}
   status_of: function(exit_code: integer): string
   display: function(base: string): string
+  source_of: function(base: string): string
   stage_of: function(base: string): string
   row: function(status: string, name: string, count: integer, unit: string, wall_ms: integer): string
   counts: function(passed: integer, failed: integer, skipped: integer): string
@@ -88,6 +89,33 @@ function display(base: string): string
 **Returns:**
 
 - string - The source path, e.g. `cosmic/fs/init_test.tl`
+
+### source_of
+
+```teal
+function source_of(base: string): string
+```
+
+ The path on disk the row is ABOUT, which is not always the name it
+ carries.
+ `display` keeps the coverage lane's `.coverage/` segment on purpose,
+ because the row names which run produced it. That makes it a LABEL,
+ not a path: nothing is at `.coverage/cosmic/sys_test.tl`. A caller
+ that reads the source -- to count what a file defines, say -- needs
+ the segment gone.
+ Two functions rather than one, because a single answer is silently
+ wrong for one caller or the other, and silently is how it went
+ wrong: `fs.read` of a label returns nil like any absent file, so the
+ reader took its "nothing here" branch for all 170 coverage rows and
+ reported a count of zero instead of failing.
+
+**Parameters:**
+
+- `base` (string) - A `.got` base path
+
+**Returns:**
+
+- string - The source path, e.g. `cosmic/sys_test.tl`
 
 ### stage_of
 
