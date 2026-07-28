@@ -32,7 +32,7 @@ cosmic/               standard library modules (*.tl) — the PUBLIC API
 _cli/                 the dispatcher behind every flag (args, help, run, ...)
   build/               the closed verb vocabulary behind `-c`
 _make/                `cosmic --make`: project model, validator, root, verbs
-_build/               workflow ratchet tests
+_build/               ratchets over what the repo ships and derives
 _docs/                doc publishing
 _perf/                performance benchmark harness (see _perf/OPTIMIZE.md)
 _types/               cosmo.* type declarations (generated) + gentype generator

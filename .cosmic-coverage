@@ -13,6 +13,7 @@ _cli/require_hints.tl 104 124
 _cli/run.tl 28 33
 _cli/welcome.tl 0 25
 _docs/publish.tl 116 176
+_docs/derive.tl 54 81
 _make/artifact.tl 163 180
 _make/binaries.tl 24 24
 _make/check.tl 56 57
