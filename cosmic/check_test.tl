@@ -4,6 +4,8 @@
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local env = require("cosmic.env")
+local proc = require("cosmic.proc")
+local signal = require("cosmic.signal")
 local spawn = require("cosmic.child")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -355,5 +357,75 @@ local function test_needs_skips_locally_and_fails_in_ci()
   end
 end
 test_needs_skips_locally_and_fails_in_ci()
+
+-- A forked child can say exactly one thing to its parent, and `reap` is
+-- what listens. Discarding the status makes the fork a hole in the
+-- runner's grading: the runner grades the PARENT, and the parent exits
+-- 0 whatever the child said.
+local function test_reap_grades_the_childs_exit_code()
+  local good = proc.fork()
+  if good == 0 then
+    os.exit(0)
+  end
+  check.reap(good, "a child that succeeded")
+
+  local bad = proc.fork()
+  if bad == 0 then
+    os.exit(3)
+  end
+  -- Through a wrapper that returns, because `reap` returns nothing and
+  -- a bare `pcall` of it declares no slot for the message.
+  local ok, msg = pcall(function(): string
+      check.reap(bad, "a child that failed")
+      return ""
+    end)
+  assert(not ok, "a nonzero child must not pass silently")
+  assert(msg:find("exited 3", 1, true),
+    "and the failure names the child's own code, got: " .. msg)
+
+  -- A child that DIED said nothing about why, so the conventional
+  -- 128+signal stands in for the code it never got to return.
+  local killed = proc.fork()
+  if killed == 0 then
+    signal.raise(signal.SIGKILL)
+    os.exit(0)
+  end
+  local kok, kmsg = pcall(function(): string
+      check.reap(killed, "a child that died")
+      return ""
+    end)
+  assert(not kok, "a signalled child must not pass either")
+  assert(kmsg:find("exited " .. (128 + signal.SIGKILL), 1, true),
+    "and the signal reads as 128+signal, got: " .. kmsg)
+
+  -- A pid that is not ours cannot be reaped, which is a failure of the
+  -- wait rather than a verdict about a child, and says so.
+  local wok, wmsg = pcall(function(): string
+      check.reap(0x7ffffff, "a pid that is not our child")
+      return ""
+    end)
+  assert(not wok, "an unreapable pid is not a pass")
+  assert(wmsg:find("waiting for", 1, true),
+    "and names the wait, not an exit code, got: " .. wmsg)
+
+  -- A skip ends the FILE, so it is observed one level down: a child
+  -- that reaps a SKIPPING grandchild must itself exit EXIT_SKIP.
+  local outer = proc.fork()
+  if outer == 0 then
+    local inner = proc.fork()
+    if inner == 0 then
+      os.exit(check.EXIT_SKIP)
+    end
+    check.reap(inner, "a grandchild that cannot run here")
+    os.exit(0)
+  end
+  local wpid, status = proc.wait(outer)
+  assert(wpid, "the outer child must be reapable")
+  assert(proc.WIFEXITED(status), "it exited rather than died")
+  assert(proc.WEXITSTATUS(status) == check.EXIT_SKIP,
+    "a child's skip becomes its parent's skip, got " ..
+    proc.WEXITSTATUS(status))
+end
+test_reap_grades_the_childs_exit_code()
 
 print("All check tests passed!")

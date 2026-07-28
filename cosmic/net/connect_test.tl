@@ -87,7 +87,7 @@ local function test_unix_domain_socket_bind_connect()
 
   client:close()
   server:close()
-  proc.wait(pid)
+  check.reap(pid, "the unix-socket client")
   os.remove(path)
   os.remove(tmpdir)
 end
@@ -124,7 +124,7 @@ local function test_listen_unix_connect_unix()
 
   client:close()
   server:close()
-  proc.wait(pid)
+  check.reap(pid, "the unix-socket client")
   os.remove(path)
   os.remove(tmpdir)
 end
@@ -220,7 +220,7 @@ local function test_connect_tcp()
 
   client:close()
   server:close()
-  proc.wait(pid)
+  check.reap(pid, "the tcp client")
 end
 test_connect_tcp()
 
