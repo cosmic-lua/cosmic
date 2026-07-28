@@ -1,4 +1,4 @@
-# D14 — no self-hosting: pinned make is permanent
+# D14 — no self-hosting: make stays the graph executor
 
 - **date:** 2026-07
 - **context:** with all build logic in `.tl` under the bootstrap,
@@ -48,3 +48,10 @@
   What make means here is now exactly the first half of the endgame
   sentence: a job-execution system and a dependency graph. Nothing
   else.
+
+  **The title carried the same stale phrase.** "Pinned make is
+  permanent" advertised the separately-pinned binary this amendment
+  retired, and sat in the index directly under D13's "one pinned
+  artifact" saying the opposite — so the record is retitled to the
+  half that is still true: make stays the graph executor. The
+  decision itself is unchanged.
