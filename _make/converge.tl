@@ -197,7 +197,7 @@ local function to_the_tree(proj: Project, argv: {string},
   end
   local built = fs.join(project.BUILD_DIR, "bin",
     (tool as Binary).name) -- cast: record union after the guard
-  local gen = math.tointeger(tonumber(env.get(GEN_ENV, "0")) or 0) or 0
+  local gen = math.tointeger(tonumber(env.get_or(GEN_ENV, "0")) or 0) or 0
 
   local was_us = fs.isfile(built) and same_file(built, self)
   local before = stamp_of(built)

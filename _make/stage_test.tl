@@ -98,10 +98,14 @@ local function test_binaries_go_on_the_path()
   local proj: types.Project = {root = "/p", binaries = {}, files = {}}
   env.set("PATH", "/usr/bin", true)
   stage.binaries_on_path(proj)
-  assert(env.get(stage.BIN_ENV) == fs.join(project.BUILD_DIR, "bin"),
-    "TEST_BIN names the build's bin directory, got: " ..
-    env.get(stage.BIN_ENV))
-  local first = env.get("PATH"):match("^[^:]+")
+  local bin = env.get(stage.BIN_ENV)
+  assert(bin == fs.join(project.BUILD_DIR, "bin"),
+    "TEST_BIN names the build's bin directory, got: " .. tostring(bin))
+  -- `get_or` rather than `get`: this is a read the test cannot survive
+  -- being nil, so it says so instead of indexing whatever came back.
+  -- The honest return type is what surfaced it; before, this line
+  -- type-checked and would have crashed on a PATH-less environment.
+  local first = env.get_or("PATH", ""):match("^[^:]+")
   assert(first == stage.bin_dir(proj),
     "the project's binaries come first, got: " .. tostring(first))
 

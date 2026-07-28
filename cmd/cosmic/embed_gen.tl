@@ -312,7 +312,13 @@ local function declared_version(): string
       end
     end
   end
-  return env.get("COSMIC_VERSION", "unknown")
+  -- `get() or …` rather than `get_or`, and the reason is bootstrap: a
+  -- generator is RUN by whatever cosmic is driving the build, which on
+  -- a cold tree is the pinned release -- and it resolves `cosmic.env`
+  -- from its own zip, where a newly added function does not exist yet.
+  -- Anything here must compile and run against the PIN. `get_or` moves
+  -- in one release later.
+  return env.get("COSMIC_VERSION") or "unknown"
 end
 
 --- Write the version stamp `--version` prints.

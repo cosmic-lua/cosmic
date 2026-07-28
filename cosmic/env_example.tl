@@ -1,7 +1,9 @@
 --- Examples for the cosmic.env module.
 --- Demonstrates reading, setting, and listing environment variables.
 --- For the common case of reading a single variable, env.get() is
---- the simplest approach (it wraps os.getenv() internally).
+--- the simplest approach (it wraps os.getenv() internally). It returns
+--- nil when the variable is not set, so the caller narrows; env.get_or()
+--- takes a fallback and cannot fail.
 
 -- Example_get demonstrates reading a single environment variable.
 -- This is the most common operation. env.get() returns the value
@@ -14,6 +16,15 @@ local function Example_get()
   end
   -- Output:
   -- PATH is set
+end
+
+-- Example_get_or demonstrates the infallible read: a fallback means the
+-- result cannot be nil, so the caller never narrows.
+local function Example_get_or()
+  local env = require("cosmic.env")
+  print(env.get_or("COSMIC_EXAMPLE_UNSET_VAR", "fallback"))
+  -- Output:
+  -- fallback
 end
 
 -- Example_get_missing demonstrates reading a variable that is not set.
@@ -65,4 +76,5 @@ local function Example_all()
 end
 
 -- Suppress unused warnings for examples
-local _ = {Example_get, Example_get_missing, Example_set_and_get, Example_unset, Example_all}
+local _ = {Example_get, Example_get_or, Example_get_missing, Example_set_and_get,
+  Example_unset, Example_all}

@@ -365,7 +365,7 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | compress | zlib compression/decompression |
 | doc | extract docs from source and query the embedded documentation index |
 | embed | create custom executables with embedded files |
-| env | environment variable get/set/unset |
+| env | environment variable get (nil when unset), get_or, set/unset |
 | envd | load environment variables from embedded env.d directory |
 | example | example runner with `Example_*` functions |
 | fetch | HTTP client with retry support |
