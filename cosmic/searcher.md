@@ -53,7 +53,7 @@
 ```teal
 local record TealSearch
   search_module: function(module_name: string): string | nil
-  compile_cached: function(input_path: string): string | nil, string
+  compile_cached: function(input_path: string, strict?: boolean): string | nil, string
 end
 ```
 
@@ -62,7 +62,10 @@ end
 ```teal
 local record SearcherModule
   install: function()
+  install_from_argv: function(argv: {string}): boolean
+  install_tree: function(path: string): boolean
   searcher: function(module_name: string): any, any
+  tree: function(module_name: string): any, any
 end
 ```
 
@@ -77,3 +80,52 @@ function install()
  Append the searcher to package.searchers. Idempotent (the embed
  wrapper installs it before the app entry, which may itself be the
  dispatcher that installs it too); no-op without package.searchers.
+
+### install_tree
+
+```teal
+function install_tree(path: string): boolean
+```
+
+ Read a manifest and install the in-project searcher.
+ The manifest is written by the engine into its own output directory
+ and named on the child's command line. Two line kinds, so a reader
+ never has to infer one from the other:
+     root <absolute project root>
+     build <build directory, relative to the root>
+     mod <import.path> <built file>
+ Inserted at index 2 — after `package.preload`, ahead of the default
+ file searcher — because beating `/zip` is the entire point. Silent
+ when the manifest cannot be read: a child with no manifest is an
+ ordinary cosmic, which is what a hand-run script is.
+
+**Parameters:**
+
+- `path` (string) - Path to the manifest file
+
+**Returns:**
+
+- boolean - Whether a manifest was read and installed
+
+### install_from_argv
+
+```teal
+function install_from_argv(argv: {string}): boolean
+```
+
+ Find `--modules <manifest>` on an argv and install it.
+ The scan STOPS at the first argument that is not a flag, which is
+ where getopt stops parsing too: past that point a `--modules` is the
+ SCRIPT's own, and acting on it would let `cosmic s.tl --modules x`
+ redirect the dispatcher's requires. The engine always attaches its
+ own ahead of everything, so the two never disagree about whose it is.
+ Here rather than in the dispatcher because it is the channel's own
+ rule, and the channel is this module's.
+
+**Parameters:**
+
+- `argv` ({string}) - The process argv, 1-based
+
+**Returns:**
+
+- boolean - Whether a manifest was read and installed

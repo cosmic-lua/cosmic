@@ -29,6 +29,9 @@ end
  Options for compiling Teal to Lua.
  strict type-checks strictly before generating (warnings fail too,
  matching check's default) and emits code from that same checked AST.
+ werror = false keeps the strict type check and lets warnings pass:
+ the runtime in-project searcher wants the checking, not the style
+ gate. See `cosmic.searcher`.
 
 ```teal
 local record CompileOptions
@@ -36,6 +39,7 @@ local record CompileOptions
   gen_target: string
   gen_compat: string
   strict: boolean
+  werror: boolean
 end
 ```
 
@@ -122,7 +126,7 @@ local record TealModule
   DEFAULT_GEN_COMPAT: string
   BUILD_INCLUDE_DIRS: {string}
   compile: function(input_path: string, opts?: CompileOptions): CompileResult
-  compile_cached: function(input_path: string): string | nil, string
+  compile_cached: function(input_path: string, strict?: boolean): string | nil, string
   check: function(input_path: string, opts?: CheckOptions): CheckResult
   search_module: function(module_name: string, include_dirs?: {string}): string | nil
   format_issues: function(issues: {Issue}): string
@@ -267,7 +271,8 @@ function format_issues_with_hints(issues: {Issue}): string
 ### compile_cached
 
 ```teal
-function compile_cached(input_path: string): string | nil, string
+function compile_cached(input_path: string,
+    strict?: boolean): string | nil, string
 ```
 
  Compile a Teal file, reusing cached output when the source has not
@@ -278,6 +283,7 @@ function compile_cached(input_path: string): string | nil, string
 **Parameters:**
 
 - `input_path` (string) - Path to the Teal file to compile
+- `strict?` (boolean) - Type-check strictly (warnings still pass)
 
 **Returns:**
 
