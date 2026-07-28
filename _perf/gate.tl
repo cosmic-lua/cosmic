@@ -65,10 +65,31 @@ local function compare_once(base_path: string, cur_path: string,
   return failures
 end
 
+--- The identity rule of `compare.identity_refusal`, over two paths.
+--- @param a string First results path
+--- @param b string Second results path
+--- @param same boolean Whether the two must name the SAME binary
+--- @return string|nil The refusal, or nil when the pair is sound
+local function identity_refusal(a: string, b: string, same: boolean): string | nil
+  local ra = compare.load_results(a)
+  local rb = compare.load_results(b)
+  if ra == nil or rb == nil then
+    -- A file that will not load is the next call's error to report, in
+    -- its own words.
+    return nil
+  end
+  return compare.identity_refusal(a, ra, b, rb, same)
+end
+
 --- Run the compare gate over an already-measured current file.
 --- @param opts GateOptions Paths, threshold, and the measure function
 --- @return integer Exit code: 0 clean or noise, 1 on a real regression
 local function gate(opts: GateOptions): integer
+  local refusal = identity_refusal(opts.baseline, opts.current, false)
+  if refusal then
+    io.stderr:write(refusal .. "\n")
+    return 1
+  end
   local failures, err = compare_once(opts.baseline, opts.current, opts.threshold)
   if failures < 0 then
     io.stderr:write(tostring(err) .. "\n")
@@ -122,6 +143,11 @@ local function selfcheck(opts: SelfcheckOptions): integer
   rc = opts.measure(opts.b)
   if rc ~= 0 then
     return rc
+  end
+  local refusal = identity_refusal(opts.a, opts.b, true)
+  if refusal then
+    io.stderr:write(refusal .. "\n")
+    return 1
   end
   local failures, err = compare_once(opts.a, opts.b, opts.threshold)
   if failures < 0 then

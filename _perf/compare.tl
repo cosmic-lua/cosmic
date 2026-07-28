@@ -170,9 +170,65 @@ local function format(deltas: {pt.Delta}): string
   return table.concat(lines, "\n")
 end
 
+--- Refuse a pair of results files that cannot answer the question asked
+--- of them.
+---
+--- `meta.bin` is a NAME: two runs forty commits apart both say
+--- `o/bin/cosmic`. `meta.bin_sha` is the identity, and these are the
+--- two ways a comparison can be about something other than what the
+--- operator thinks. Both produce a confident, wrong answer rather than
+--- an error, which is why they refuse rather than warn -- a warning
+--- above a plausible-looking table gets read past:
+---
+--- - **compared against the same binary**, "no regression" is a
+---   statement about a binary and itself. It is the failure that looks
+---   most like success, and a plausible slip: build, forget to
+---   rebuild, re-run, compare.
+--- - **a noise floor measured across two binaries** reports the change
+---   as noise, and raises the bar every real regression afterwards has
+---   to clear. A noise floor is only a noise floor if the subject is
+---   constant.
+---
+--- A file with no `bin_sha` cannot be checked either way, which is said
+--- out loud rather than passed over: an unchecked identity is exactly
+--- the invisible thing this exists to make visible.
+--- @param a_path string First results path, for the message
+--- @param a_res Results The first file
+--- @param b_path string Second results path, for the message
+--- @param b_res Results The second file
+--- @param same boolean Whether the two must name the SAME binary
+--- @return string|nil The refusal, or nil when the pair is sound
+local function identity_refusal(a_path: string, a_res: pt.Results,
+    b_path: string, b_res: pt.Results, same: boolean): string | nil
+  local sa = a_res.meta and a_res.meta.bin_sha
+  local sb = b_res.meta and b_res.meta.bin_sha
+  if not sa or not sb then
+    io.stderr:write("perf: " .. (not sa and a_path or b_path) ..
+      " does not record which binary it measured, so these two runs" ..
+      " cannot be told apart\n")
+    return nil
+  end
+  if same and sa ~= sb then
+    return "perf: " .. a_path .. " and " .. b_path ..
+    " measured DIFFERENT binaries (" .. string.sub(sa, 1, 12) .. " vs " ..
+    string.sub(sb, 1, 12) .. "). A noise floor is only a noise floor if" ..
+    " the subject is constant; across two binaries it reports the" ..
+    " change as noise and raises the bar every real regression has to" ..
+    " clear."
+  end
+  if not same and sa == sb then
+    return "perf: " .. a_path .. " and " .. b_path ..
+    " measured the SAME binary (" .. string.sub(sa, 1, 12) ..
+    "). A binary compared against itself has no regression to find," ..
+    " so a clean result says nothing about your change."
+  end
+  return nil
+end
+
 local record compare
   DEFAULT_THRESHOLD_PCT: number
   load_results: function(path: string): pt.Results, string
+  identity_refusal: function(a_path: string, a_res: pt.Results, b_path: string, b_res: pt.Results, same: boolean): string | nil
   diff: function(base: pt.Results, cur: pt.Results, threshold_pct?: number): {pt.Delta}, integer
   triage: function(base: pt.Results, cur: pt.Results, noise_a: pt.Results, noise_b: pt.Results, threshold_pct?: number): {pt.Delta}, integer
   format_delta: function(d: pt.Delta): string
@@ -182,6 +238,7 @@ end
 local M: compare = {
   DEFAULT_THRESHOLD_PCT = DEFAULT_THRESHOLD_PCT,
   load_results = load_results,
+  identity_refusal = identity_refusal,
   diff = diff,
   triage = triage,
   format_delta = format_delta,

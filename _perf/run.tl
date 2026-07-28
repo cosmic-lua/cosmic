@@ -22,6 +22,7 @@ local harness = require("_perf.harness")
 local compare = require("_perf.compare")
 local pt = require("_perf.perf_types")
 local fs = require("cosmic.fs")
+local hash = require("cosmic.hash")
 
 local record Args
   out: string
@@ -128,6 +129,21 @@ local function collect_meta(samples: integer, min_secs: number): pt.Meta
   }
   -- cast: from any
   meta.bin = os.getenv("PERF_BIN") or rawget(arg, -1) as string or "unknown"
+  -- The name is not the identity: two runs forty commits apart both say
+  -- `o/bin/cosmic`, so a comparison across them cannot tell it read two
+  -- different binaries. The hash is what a gate can check.
+  --
+  -- A file that cannot name its subject is left visibly incomplete --
+  -- no `bin_sha` at all -- rather than filled in with a word like
+  -- `unknown`, which reads as an answer and compares equal to the next
+  -- run that could not name its subject either.
+  local bytes = fs.read(meta.bin)
+  if bytes then
+    meta.bin_sha = hash.sha256_hex(bytes)
+  else
+    io.stderr:write("perf: cannot read " .. meta.bin ..
+      " to hash it; this results file cannot name the binary it measured\n")
+  end
   -- Resolved dynamically: cosmic._version only exists inside a built binary.
   local version_module = "cosmic._version"
   local vok, version = pcall(require, version_module)
@@ -238,6 +254,14 @@ local function run_compare(a: Args): integer
   local cur, cerr = compare.load_results(a.positional[2])
   if cur == nil then
     io.stderr:write(cerr .. "\n")
+    return 1
+  end
+  -- Given files, so this is where the by-hand slip lands: two runs of
+  -- the same binary compared against each other.
+  local refusal = compare.identity_refusal(a.positional[1], base,
+    a.positional[2], cur, false)
+  if refusal then
+    io.stderr:write(refusal .. "\n")
     return 1
   end
   local deltas: {pt.Delta}
