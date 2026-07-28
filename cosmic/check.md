@@ -19,6 +19,7 @@ local record CheckModule
   enforcing: function(): boolean
   skip: function(reason: string, strict?: boolean)
   needs: function(what: string, present: boolean): boolean
+  reap: function(pid: integer, what: string)
   enforced: function(label: string)
 end
 ```
@@ -195,6 +196,31 @@ function needs(what: string, present: boolean): boolean
 **Returns:**
 
 - boolean - True when the test may proceed
+
+### reap
+
+```teal
+function reap(pid: integer, what: string)
+```
+
+ Reap a forked child and grade what its exit code said.
+ An exit code is the ONLY thing a forked child can tell its parent,
+ and a parent that discards it makes the fork a hole in the runner's
+ grading -- the runner grades the PARENT, and the parent exited 0.
+ Both faces of that are silent:
+ - a child exiting `EXIT_SKIP` has announced that its environment
+   cannot run the test, and the run reports a pass instead;
+ - a child exiting nonzero has failed, and what surfaces upstream is
+   whatever the parent trips over next -- an EOF from `recv` names
+   the wrong end of the connection.
+ A skip ends the FILE rather than the test, by the same argument
+ `needs` makes: the parent is asserting on half a conversation, and
+ `records.status_of` reads only the exit code.
+
+**Parameters:**
+
+- `pid` (integer) - The child to reap
+- `what` (string) - What the child was, for the message
 
 ### enforced
 
