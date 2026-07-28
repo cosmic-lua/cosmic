@@ -131,7 +131,7 @@ local function test_listen_accept_connect()
   server:close()
 
   -- Wait for child
-  proc.wait(pid)
+  check.reap(pid, "the tcp client")
 end
 test_listen_accept_connect()
 
@@ -397,7 +397,7 @@ local function test_accept_socket_has_close_metamethod()
 
   client:close()
   server:close()
-  proc.wait(pid)
+  check.reap(pid, "the connecting client")
 end
 test_accept_socket_has_close_metamethod()
 
@@ -438,7 +438,7 @@ local function test_listen_tcp_connect_to_returned_port()
   assert(data == "hi", "expected 'hi', got '" .. tostring(data) .. "'")
   conn:close()
   srv:close()
-  proc.wait(pid)
+  check.reap(pid, "the ephemeral-port client")
 end
 test_listen_tcp_connect_to_returned_port()
 

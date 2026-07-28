@@ -2,6 +2,7 @@
 --- Functions in this module throw on failure (level 2) so the error points
 --- at the caller's line, not inside this module.
 local codec = require("cosmic.codec")
+local proc = require("cosmic.proc")
 local records = require("cosmic.records")
 
 --- Render any Lua value as a readable string using the Lua serializer.
@@ -220,6 +221,50 @@ local function needs(what: string, present: boolean): boolean
   return false
 end
 
+--- Reap a forked child and grade what its exit code said.
+---
+--- An exit code is the ONLY thing a forked child can tell its parent,
+--- and a parent that discards it makes the fork a hole in the runner's
+--- grading -- the runner grades the PARENT, and the parent exited 0.
+--- Both faces of that are silent:
+---
+--- - a child exiting `EXIT_SKIP` has announced that its environment
+---   cannot run the test, and the run reports a pass instead;
+--- - a child exiting nonzero has failed, and what surfaces upstream is
+---   whatever the parent trips over next -- an EOF from `recv` names
+---   the wrong end of the connection.
+---
+--- A skip ends the FILE rather than the test, by the same argument
+--- `needs` makes: the parent is asserting on half a conversation, and
+--- `records.status_of` reads only the exit code.
+--- @param pid integer The child to reap
+--- @param what string What the child was, for the message
+local function reap(pid: integer, what: string)
+  local wpid, status, _rusage, werr = proc.wait(pid)
+  -- `proc.wait` is a raw passthrough, so a signal delivered to this
+  -- process surfaces here as EINTR instead of being retried underneath.
+  while wpid == nil and werr and werr:find("EINTR", 1, true) do
+    wpid, status, _rusage, werr = proc.wait(pid)
+  end
+  if wpid == nil then
+    error("waiting for " .. what .. ": " .. (werr or "wait failed"), 2)
+  end
+  local code = 128
+  if proc.WIFEXITED(status) then
+    code = proc.WEXITSTATUS(status)
+  elseif proc.WIFSIGNALED(status) then
+    code = 128 + proc.WTERMSIG(status)
+  end
+  if code == records.EXIT_SKIP then
+    io.stderr:write("→ skip: " .. what .. " cannot run here\n")
+    print("skip: " .. what .. " cannot run here")
+    os.exit(records.EXIT_SKIP)
+  end
+  if code ~= 0 then
+    error(what .. " exited " .. code, 2)
+  end
+end
+
 --- Record that a sandbox test actually exercised real enforcement.
 --- Writes a marker the enforce-lane tripwire counts to confirm the lane is
 --- not a silent no-op (every test skipping would otherwise look green).
@@ -238,6 +283,7 @@ local record CheckModule
   enforcing: function(): boolean
   skip: function(reason: string, strict?: boolean)
   needs: function(what: string, present: boolean): boolean
+  reap: function(pid: integer, what: string)
   enforced: function(label: string)
 end
 
@@ -254,6 +300,7 @@ local M: CheckModule = {
   enforcing = enforcing,
   skip = skip,
   needs = needs,
+  reap = reap,
   enforced = enforced,
 }
 
