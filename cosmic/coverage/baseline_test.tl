@@ -253,7 +253,7 @@ local function test_a_failing_ratchet_names_the_rows_that_moved()
   -- A child, because the report goes to this process's stderr.
   local cosmic = fs.join(os.getenv("TEST_BIN") or "", "cosmic")
   if not check.needs("a built cosmic at " .. cosmic, fs.isfile(cosmic)) then
-    return
+    os.exit(check.EXIT_SKIP)
   end
   -- A SCRIPT file, not `-e`: only the script path arms line coverage,
   -- so a `-e` child runs the code under test and reports none of it.

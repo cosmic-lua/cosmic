@@ -298,13 +298,13 @@ local function test_the_real_payload_generator()
   local gen = fs.join(repo, "cmd/cosmic/embed_gen.tl")
   if not check.needs("the cosmic tree (cmd/cosmic/embed_gen.tl)",
     fs.isfile(gen)) then
-    return
+    os.exit(check.EXIT_SKIP)
   end
   -- The generator reads its pinned inputs from `o/3p/**`, which only
   -- `--make fetch` writes. CI fetches before it gates, so this runs
   -- there; a cold checkout skips rather than failing.
   if not check.needs("fetched pins", seed_pins(repo)) then
-    return
+    os.exit(check.EXIT_SKIP)
   end
   local out = fs.join(tmpdir, "real-payload")
   fs.rmrf(out)
