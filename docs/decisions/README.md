@@ -25,6 +25,6 @@ than editing the record it replaces.
 | D11 | sequencing: harness first | [→](d11-harness-first.md) |
 | D12 | goals and decisions are separate documents | [→](d12-goals-and-decisions-separate.md) |
 | D13 | the build's trust root is one pinned artifact behind one committed fetcher | [→](d13-trust-root.md) |
-| D14 | no self-hosting: pinned make is permanent | [→](d14-no-self-hosting.md) |
+| D14 | no self-hosting: make stays the graph executor | [→](d14-no-self-hosting.md) |
 | D15 | an artifact carries its modules and `embed/**`; shipping is opt-in | [→](d15-shipping-is-opt-in.md) |
 | D16 | every build input is enumerable from committed files, the version stamp included | [→](d16-enumerable-build-inputs.md) |

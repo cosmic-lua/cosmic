@@ -142,5 +142,5 @@ pinned cosmic builds one from the tree, and *that* one builds what ships
 — so a release is produced by the code it contains rather than by
 whatever the pin happens to be.
 
-The trust root's shape, and the settled decision that a pinned make is
-permanent, are recorded in [decisions/](decisions/) (D13, D14).
+The trust root's shape, and the settled decision that make stays the
+graph executor, are recorded in [decisions/](decisions/) (D13, D14).
