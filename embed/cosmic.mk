@@ -124,14 +124,22 @@ test: $(O)/test-summary.txt
 # goes into the recipe line, so the derived fence grants the test read
 # access to what it imports and nothing else. One answer, two
 # consumers: the argument positions are the declaration.
-$(O)/%.tl.test.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
+#
+# `datadeps` is what a ratchet's SUBJECT is: the committed files a
+# source declared with `@reads`, which no import names. Without them a
+# data-file edit left the test up to date and the stage reported a
+# stale pass -- only a fresh tree ran the check again. It is a
+# prerequisite and NOT part of the line, because the fence already
+# grants a test the project it belongs to: this is scheduling, and
+# scheduling is all it claims to be.
+$(O)/%.tl.test.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*) $$(datadeps_$$*)
 	record $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
 
 # A `.lua` test is a test. The marker suffixes are extension-agnostic
 # in the model, so the rules have to be too -- otherwise a Lua-only
 # project's tests are listed and never run, which is worse than not
 # supporting them.
-$(O)/%.lua.test.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
+$(O)/%.lua.test.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*) $$(datadeps_$$*)
 	record $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
 
 $(O)/test-summary.txt: $(test_got)
@@ -148,10 +156,10 @@ example: $(O)/example-summary.txt
 # closure, same fence, `Example_*` instead of `test_*`. That is what the
 # model says everywhere else, so the rules say it too — the only
 # difference from the test rules above is the flag.
-$(O)/%.tl.example.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
+$(O)/%.tl.example.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*) $$(datadeps_$$*)
 	record $(basename $@) $(COSMIC) --check example $< --deps $(deps_$*) ;
 
-$(O)/%.lua.example.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
+$(O)/%.lua.example.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*) $$(datadeps_$$*)
 	record $(basename $@) $(COSMIC) --check example $< --deps $(deps_$*) ;
 
 $(O)/example-summary.txt: $(example_got)
@@ -169,10 +177,10 @@ benchmark: $(O)/benchmark-summary.txt
 # generation unit — a generator's output is a build INPUT, derived from
 # sources and stale when they change, while a measurement is of one
 # binary on one machine at one moment and is never stale, just old.
-$(O)/%.tl.benchmark.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
+$(O)/%.tl.benchmark.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*) $$(datadeps_$$*)
 	record $(basename $@) $(COSMIC) --benchmark $< --deps $(deps_$*) ;
 
-$(O)/%.lua.benchmark.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
+$(O)/%.lua.benchmark.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*) $$(datadeps_$$*)
 	record $(basename $@) $(COSMIC) --benchmark $< --deps $(deps_$*) ;
 
 $(O)/benchmark-summary.txt: $(benchmark_got)
@@ -220,10 +228,10 @@ coverage: $(O)/coverage-summary.txt
 # reach, and the reserved set is a rule rather than a word list.
 $(O)/.coverage/%.test.got: export COSMIC_COVERAGE := 1
 
-$(O)/.coverage/%.tl.test.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
+$(O)/.coverage/%.tl.test.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*) $$(datadeps_$$*)
 	record $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
 
-$(O)/.coverage/%.lua.test.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
+$(O)/.coverage/%.lua.test.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*) $$(datadeps_$$*)
 	record $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
 
 $(O)/coverage-summary.txt: $(coverage_got)

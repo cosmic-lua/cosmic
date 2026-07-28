@@ -174,6 +174,26 @@ writes. the recipe behind it still names the import closure after
 `--deps` — that closure is exactly what the fence grants, named there
 for that purpose and never handed to the child.
 
+a test that reads a file it does not import says so, because nothing
+else can see that edge:
+
+```teal
+-- @reads .github/workflows/*.yml
+```
+
+a comment line and nothing else, anywhere in the source, naming a path
+or a glob relative to the project **root**. it makes those files
+prerequisites of the test, so an edit — or an addition, or a deletion —
+re-runs it incrementally instead of only in a fresh checkout. the
+declaration is inherited through imports, so it belongs beside the
+`fs.read` that performs it, in the module that reads. one level of
+globbing (`*` and `?` never cross a `/`, no `**`); a declaration that
+matches no file is a validator error, since it would schedule nothing
+while reading as though the hole were closed.
+
+it is **scheduling only**. a test may already read the project it
+belongs to, so the declaration neither widens nor narrows the fence.
+
 the fence is **ON by default**; `COSMIC_FENCE=0` opts out. on a
 Landlock host it is enforced by the kernel rather than merely arranged:
 a test may write only its own step's directory, and reads are the
@@ -339,6 +359,7 @@ make: other.tl: imports 'pkg._priv.x', which is internal to 'pkg/'
 make: cmd/nomain: no entry; expected cmd/nomain/main.tl
 make: my notes.tl: path contains whitespace; recipe lines are whitespace-split argv
 make: weird&name.tl: path contains a shell metacharacter: &
+make: a_test.tl: declares `@reads docs/*.md`, which matches no file; a declaration that names nothing schedules nothing, so the reader would keep passing on a stale result
 ```
 
 the last two are worth stating plainly: recipe lines are whitespace-split

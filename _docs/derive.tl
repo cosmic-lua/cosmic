@@ -23,6 +23,14 @@
 local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 
+-- The records are INPUTS of whatever requires this module, and no
+-- `require` says so -- they are read as bytes. One glob covers the
+-- index too, since it lives among the records it indexes. This is
+-- what puts them in `_build/docs_test.tl`'s prerequisites, so an
+-- edited (or added, or deleted) record re-runs that gate incrementally
+-- instead of only in a fresh tree.
+-- @reads docs/decisions/*.md
+
 local DECISIONS < const > = "docs/decisions"
 local INDEX < const > = DECISIONS .. "/README.md"
 

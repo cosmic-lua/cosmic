@@ -89,8 +89,24 @@ cosmic verb or `exec`.
   that gets turned off.
 
   Narrowing the read half again wants a channel for "I read this file"
-  that is not `require` -- the one declaration channel this design
-  deliberately does not have.
+  that is not `require`. That channel now exists -- `-- @reads <glob>`,
+  scanned by `_make/reads.tl` -- and it is deliberately NOT wired to
+  the fence. It was added for **staleness**: a ratchet's subject is not
+  an import, so nothing scheduled on it, and an incremental `--make
+  test` reported the previous run's pass while `.github/workflows/*.yml`
+  or a decision record changed underneath it. Only a fresh tree caught
+  the drift, which is the shape of a gate that has stopped being one.
+
+  Scheduling can take an incomplete declaration; a grant cannot. A
+  forgotten `@reads` costs one stale target today and would cost a
+  denied read if the fence narrowed onto it -- and nothing can check
+  that the declarations are complete, because the reads happen at
+  runtime through any API a test likes. So the fence keeps its floor
+  ("a test may read the project it belongs to") until something can,
+  and the declarations stay what they claim to be: prerequisites.
+  What the validator CAN check, it does -- a declaration matching no
+  file is refused, since it schedules nothing while reading as though
+  the hole were closed.
 
   Also open: the portable in-process gate producing the same denial on
   non-Landlock hosts.
@@ -173,6 +189,19 @@ Mtime schedules; content decides. Every verb writes its output only when
 the bytes change — the existing `run_into` contract, generalized by
 cosmic owning the shell. A no-op step doesn't touch its output, so
 non-changes stop propagating.
+
+**What a target depends on is what it imports, plus what it says it
+reads.** The import closure is computed from `require` edges and covers
+every module a step loads. It does not cover a file read as bytes,
+which is what a ratchet does to its subject — and the failure was
+quiet in the worst way: the target stayed up to date, the stage
+reported the previous run's pass, and only a fresh tree ran the check
+against the tree it was about. A source closes that with `-- @reads
+<glob>`, scanned by `_make/reads.tl`, expanded against the tree
+(matches **and** their directories, since a deletion moves no surviving
+file's mtime) and emitted as `datadeps_<stem>` beside the closure. A
+declaration that matches nothing is a validation error: it would
+schedule nothing while reading as though it had. Recorded as D17.
 
 **Everything is parallel** (`-j$(nproc)`, honoring an inherited
 jobserver and an explicit `--jobs`). Parallel-by-default is defensible

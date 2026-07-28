@@ -19,6 +19,15 @@
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 
+-- Both subjects are read as bytes, so both are declared: the skill
+-- files this greps, and the model source whose enum they must agree
+-- with (`_make` is internal to its own tree, so requiring it is not
+-- an option either). Without the declarations an edit to a skill --
+-- or to the enum -- left this file up to date and the stage reported
+-- the previous run's pass.
+-- @reads skills/cosmic/*.md
+-- @reads _make/types.tl
+
 local SKILL < const > = "skills/cosmic/make.md"
 local MODEL < const > = "_make/types.tl"
 local SKILLS_DIR < const > = "skills/cosmic"

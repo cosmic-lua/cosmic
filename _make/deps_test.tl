@@ -178,4 +178,54 @@ local function test_a_declaration_is_a_source_dependency_only()
 end
 test_a_declaration_is_a_source_dependency_only()
 
+-- The data channel travels the SAME closure as the imports, because a
+-- ratchet usually reads through a helper: `_build/docs_test.tl`
+-- declares nothing itself and reads every decision record through
+-- `_docs/derive.tl`. Inheriting the declaration through the import
+-- edge is what keeps it next to the `fs.read` it describes.
+local function test_data_paths_are_inherited_through_imports()
+  local proj = fixture("data", {
+      ["docs/a.md"] = "a\n",
+      ["docs/b.md"] = "b\n",
+      ["reader.tl"] = "-- @reads docs/*.md\nreturn {}\n",
+      ["a_test.tl"] = "local r = require('reader')\nreturn r\n",
+      ["b_test.tl"] = "assert(true)\n",
+    })
+  local by_import = deps.index(proj)
+  local got = table.concat(
+    deps.data_paths(proj, file_at(proj, "a_test.tl"), by_import), " ")
+  assert(got == "docs docs/a.md docs/b.md",
+    "an importer inherits its reader's declaration: " .. got)
+  assert(#deps.data_paths(proj, file_at(proj, "b_test.tl"), by_import) == 0,
+    "a test that imports no reader declares nothing")
+end
+test_data_paths_are_inherited_through_imports()
+
+-- The assignments are the facts file's whole per-file half, in one
+-- pass: a source closure for what compiles, a built closure for what
+-- runs, and data only where something declared some -- an empty
+-- `datadeps_` line would bury the ones that say something.
+local function test_assignments_carry_all_three_flavours()
+  local proj = fixture("assignments", {
+      ["docs/a.md"] = "a\n",
+      ["util.tl"] = "-- @reads docs/*.md\nreturn {}\n",
+      ["a_test.tl"] = "local u = require('util')\nreturn u\n",
+      ["b_test.tl"] = "assert(true)\n",
+    })
+  local named: {string: string} = {}
+  for _, a in ipairs(deps.assignments(proj)) do
+    named[a.name] = table.concat(a.values, " ")
+  end
+  assert(named["srcdeps_a_test"] == "util.tl",
+    "a compile depends on sources: " .. tostring(named["srcdeps_a_test"]))
+  assert(named["deps_a_test"] == "o/util.lua",
+    "a test depends on built output: " .. tostring(named["deps_a_test"]))
+  assert(named["datadeps_a_test"] == "docs docs/a.md",
+    "and on the data it declared: " .. tostring(named["datadeps_a_test"]))
+  assert(named["deps_b_test"] == "", "a leaf test has an empty closure")
+  assert(named["datadeps_b_test"] == nil,
+    "and no data line at all: " .. tostring(named["datadeps_b_test"]))
+end
+test_assignments_carry_all_three_flavours()
+
 print("all deps tests passed")

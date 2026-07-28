@@ -16,6 +16,7 @@
 local fs = require("cosmic.fs")
 local fstypes = require("cosmic.fs.types")
 local imports = require("_make.imports")
+local reads = require("_make.reads")
 local types = require("_make.types")
 
 local type WalkStat = fstypes.WalkStat
@@ -358,11 +359,12 @@ local function scan(root: string): Project | nil, string
   if not fs.isdir(abs) then
     return nil, "make: not a directory: " .. root
   end
-  -- A scan is the start of a model build, and the import memo's
-  -- lifetime is exactly one of those: within a build the tree is a
-  -- snapshot, so re-reading a source can only cost time; across builds
-  -- it may have changed, so re-reading is the point.
+  -- A scan is the start of a model build, and the two scanners' memos
+  -- have exactly that lifetime: within a build the tree is a snapshot,
+  -- so re-reading a source can only cost time; across builds it may
+  -- have changed, so re-reading is the point.
   imports.forget()
+  reads.forget()
   local ctx: Scan = {root = abs, patterns = read_ignore(abs), files = {}}
   local got, err = fs.walk(abs, visit, ctx)
   if not got then

@@ -338,4 +338,21 @@ local function test_duplicate_binary_names_are_refused()
 end
 test_duplicate_binary_names_are_refused()
 
+-- The second declaration channel is validated with the first, so a
+-- `@reads` that names nothing is refused where every other broken
+-- declaration is. `_make/reads_test.tl` covers the rule itself; this
+-- asserts it is wired into the one entry point the verbs call.
+local function test_a_dangling_read_declaration_is_refused()
+  only("dangling-read", {
+      ["main.tl"] = "print('x')\n",
+      ["a_test.tl"] = "-- @reads docs/*.md\nassert(true)\n",
+    }, {"a_test.tl", "@reads docs/*.md", "matches no file"})
+  clean("live-read", {
+      ["main.tl"] = "print('x')\n",
+      ["docs/a.md"] = "a\n",
+      ["a_test.tl"] = "-- @reads docs/*.md\nassert(true)\n",
+    })
+end
+test_a_dangling_read_declaration_is_refused()
+
 print("all validate tests passed")

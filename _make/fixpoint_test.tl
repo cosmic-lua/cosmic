@@ -43,6 +43,12 @@ end
 --- test lane grants no host executables. Pruning `o/` and dotfiles gets
 --- the same set for this repo, and a stray untracked file only makes
 --- the copy larger, never the assertion weaker.
+---
+--- `.github` is the exception, because it is the one dot-prefixed
+--- directory holding COMMITTED inputs: `_build/workflows_test.tl`
+--- declares `@reads .github/workflows/*.yml`, so a copy without it is
+--- not a smaller version of this project, it is one whose declaration
+--- names nothing -- which the validator refuses, correctly.
 --- @param dest string Directory to populate
 local function copy_tree(dest: string)
   assert(fs.makedirs(dest))
@@ -50,7 +56,7 @@ local function copy_tree(dest: string)
   fs.walk(repo, function(path: string, entry: string,
         st: fs_types.WalkStat): fs.WalkAction
       local rel = path:sub(#repo + 2)
-      if entry:sub(1, 1) == "." or rel == "o" then
+      if (entry:sub(1, 1) == "." and entry ~= ".github") or rel == "o" then
         return "skip"
       end
       if not st:is_file() then

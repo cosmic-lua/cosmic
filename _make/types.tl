@@ -161,6 +161,36 @@ local record make_types
   --- fixture), so linting one gates the build on a file whose job is to
   --- be unacceptable.
   lint_kinds: {Kind: boolean}
+
+  --- Kinds whose `.tl` sources compile into `$(O)`.
+  ---
+  --- Two consumers ask: the facts writer (which lists them for the
+  --- compile rules and scans their directories for coverage) and the
+  --- dependency closure (which emits a source closure for each, so a
+  --- module whose contract changed recompiles its importers).
+  compiled_kinds: {Kind: boolean}
+
+  --- Kinds whose sources are SCANNED for what they declare: `require`
+  --- edges, and the `@reads` declarations beside them.
+  ---
+  --- Every kind whose file is COMPILED, because `deps.tl` follows the
+  --- edge for all of them: a kind the scanner skips but the graph
+  --- resolves is a module that can reach into another binary's tree or
+  --- a foreign `_dir` with nothing to say so -- the scanner/consumer
+  --- drift `imports.tl`'s header disclaims, arriving through the one
+  --- kind nobody added here. The two channels share the set for the
+  --- same reason: a kind whose imports are checked and whose reads are
+  --- not is half a declaration nobody notices.
+  scanned_kinds: {Kind: boolean}
+
+  --- Kinds whose targets RUN against the compiled tree.
+  ---
+  --- Each needs the BUILT closure of what it imports -- built before
+  --- it, and the whole of what its fence may read -- plus whatever
+  --- data its sources declared with `@reads`. A test, an example and a
+  --- benchmark are the same shape with different contracts, which is
+  --- what this set says once instead of three times.
+  runs_against_the_stage: {Kind: boolean}
 end
 
 make_types.lint_kinds = {
@@ -175,6 +205,31 @@ make_types.lint_kinds = {
   ["payload-gen"] = true,
   payload = true,
   asset = true,
+}
+
+make_types.compiled_kinds = {
+  module = true,
+  entry = true,
+  test = true,
+  example = true,
+  benchmark = true,
+  gen = true,
+}
+
+make_types.scanned_kinds = {
+  module = true,
+  entry = true,
+  test = true,
+  example = true,
+  benchmark = true,
+  gen = true,
+  ["payload-gen"] = true,
+}
+
+make_types.runs_against_the_stage = {
+  test = true,
+  example = true,
+  benchmark = true,
 }
 
 make_types.fmt_kinds = {

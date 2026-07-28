@@ -284,8 +284,8 @@ key concepts:
 - **constant rules, generated facts**: `embed/cosmic.mk` is committed,
   ships at `/zip/cosmic.mk`, and is byte-identical for every project. No
   rule is ever generated. `o/project.mk` holds only variable assignments —
-  `srcdeps_<stem>`, each source's transitive import closure — so a module
-  whose contract changed recompiles its importers. Never commit it
+  `srcdeps_<stem>`, a source's import closure; `datadeps_<stem>`, the files a
+  `-- @reads <glob>` comment declares (D17) — so a change re-runs what depends on it. Never commit it
 - **cosmic as `SHELL`**: make runs `cosmic -c '<line>'`. A recipe line is
   argv, not shell — whitespace-split, `argv[0]` a verb from a closed
   vocabulary (`_cli/build/`), metacharacters refused rather than

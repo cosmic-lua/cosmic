@@ -40,30 +40,6 @@ local MAKE_ENV < const > = "COSMIC_MAKE"
 --- Environment override for the job count.
 local JOBS_ENV < const > = "COSMIC_JOBS"
 
---- Kinds whose `.tl` sources compile into `$(O)`.
---- The kinds whose files are compiled into `o/`.
----
---- Two callers ask: the facts writer below (which lists them for the
---- compile rules) and `source_dirs` (which a coverage report scans for
---- files no test ever loaded).
-local compiled_kinds < const >: {Kind: boolean} = {
-  module = true,
-  entry = true,
-  test = true,
-  example = true,
-  benchmark = true,
-  gen = true,
-}
-
---- Kinds whose targets RUN against the compiled tree, so each needs the
---- BUILT closure of what it imports: built before it, and the whole of
---- what its fence may read.
-local runs_against_the_stage < const >: {Kind: boolean} = {
-  test = true,
-  example = true,
-  benchmark = true,
-}
-
 --- The distinct directories holding compiled sources, sorted.
 ---
 --- What a coverage report needs to see a module NO test loaded: the
@@ -75,7 +51,7 @@ local function source_dirs(proj: Project): {string}
   local seen: {string: boolean} = {}
   local out: {string} = {}
   for _, f in ipairs(proj.files) do
-    if compiled_kinds[f.kind] then
+    if types.compiled_kinds[f.kind] then
       local dir = fs.dirname(f.path)
       if dir == "" then
         dir = "."
@@ -162,7 +138,7 @@ local function project_mk(proj: Project, cosmic: string): string
     if is_tl and types.fmt_kinds[f.kind] then
       fmt_sources[#fmt_sources + 1] = f.path
     end
-    if compiled_kinds[f.kind] then
+    if types.compiled_kinds[f.kind] then
       if is_tl then
         tl_sources[#tl_sources + 1] = f.path
       else
@@ -180,41 +156,15 @@ local function project_mk(proj: Project, cosmic: string): string
     end
   end
 
-  -- Import closures, per file. This is the whole reason the facts are
+  -- Per-file dependency variables, computed by `_make.deps`: the
+  -- import closures a compile and a test each need, and the data a
+  -- ratchet declared it reads. This is the whole reason the facts are
   -- computed in Teal — a makefile cannot follow a require() edge — and
-  -- each closure serves the graph and the fence with one answer.
-  --
-  -- Two flavours, and the distinction is not cosmetic. A COMPILE needs
-  -- SOURCE paths, because a strict compile type-checks against the
-  -- modules it imports and the checker resolves those to `.tl` through
-  -- the include path: without them, changing a module's contract left
-  -- its importers un-recompiled and the incremental build shipped code
-  -- a clean build rejects. A TEST needs BUILT paths, because it runs
-  -- against compiled Lua.
+  -- each answer serves the graph and the fence at once. What belongs
+  -- here is only their SHAPE on the page.
   local dep_lines: {string} = {}
-  local by_import = deps.index(proj)
-  for _, f in ipairs(proj.files) do
-    -- The make-variable stem is the path with its EXTENSION removed,
-    -- because that is the stem the pattern rules produce: a target
-    -- `o/x_test.lua.test.got` matching `$(O)/%.lua.test.got` has stem
-    -- `x_test`. Stripping only `.tl` named the `.lua` twin's variable
-    -- `deps_x_test.lua`, which no rule ever expands -- so a `.lua` test
-    -- got an EMPTY closure: never rebuilt when an import changed, and
-    -- fenced away from the modules it requires.
-    local stem = (f.path:gsub("%.tl$", ""):gsub("%.lua$", ""))
-    if compiled_kinds[f.kind] and f.path:sub(-3) == ".tl" then
-      dep_lines[#dep_lines + 1] = assign("srcdeps_" .. stem,
-        deps.source_paths(deps.closure(proj, f, by_import)))
-    end
-    -- Examples and benchmarks get the same closure as tests, and for
-    -- the same reason: each RUNS against the compiled tree, so what it
-    -- imports must be built before it and is exactly what its fence may
-    -- read. The model already says so — a rule cannot ask for a closure
-    -- nobody emitted, and `cosmic.mk` asks for all three.
-    if runs_against_the_stage[f.kind] then
-      dep_lines[#dep_lines + 1] = assign("deps_" .. stem,
-        deps.built_paths(deps.closure(proj, f, by_import)))
-    end
+  for _, a in ipairs(deps.assignments(proj)) do
+    dep_lines[#dep_lines + 1] = assign(a.name, a.values)
   end
   table.sort(dep_lines)
 

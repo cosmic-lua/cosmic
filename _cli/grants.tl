@@ -309,10 +309,10 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
     -- forces a ratchet test to stop reading the thing it ratchets is
     -- not protecting anything.
     --
-    -- Narrowing this again needs a channel for "I read this file"
-    -- that is not `require`, which the design deliberately does not
-    -- have yet (docs/design/make/engine.md). Until then the honest
-    -- boundary is the one above, stated rather than implied.
+    -- The `@reads` channel (D17) is deliberately not consulted here:
+    -- it SCHEDULES, and scheduling survives an incomplete declaration
+    -- (one stale target) where a grant does not (a denied read, in a
+    -- test that was right). So the boundary stays the one above.
     ro[#ro + 1] = "."
     -- And the RUNTIME, because a test is arbitrary code that uses the
     -- operating system on purpose: this repo's own tests allocate ptys

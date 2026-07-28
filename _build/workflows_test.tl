@@ -24,6 +24,12 @@
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 
+-- The subject of a ratchet is an input of the ratchet, and here no
+-- `require` can say so: the model prunes `.github` as a dotfile and
+-- these are YAML besides. Declared, so a workflow edit re-runs this
+-- file incrementally rather than only in a fresh tree.
+-- @reads .github/workflows/*.yml
+
 local WORKFLOWS < const > = ".github/workflows"
 
 --- Every workflow file, in path order.

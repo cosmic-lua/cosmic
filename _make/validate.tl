@@ -10,10 +10,16 @@
 --- require is invisible here, which is stated rather than papered over:
 --- the rules below are about the shape of a project, and a project that
 --- computes its module names has already left that shape.
+---
+--- The `@reads` declarations are checked the same way and by the same
+--- rule, in `_make.reads`: a declaration is only worth having if it
+--- names a file, so one that names nothing is refused here rather than
+--- discovered as a ratchet that stopped re-running.
 
 local fs = require("cosmic.fs")
 local imports = require("_make.imports")
 local project = require("_make.project")
+local reads = require("_make.reads")
 local types = require("_make.types")
 
 local type Issue = types.Issue
@@ -54,24 +60,6 @@ local UNPROVIDABLE < const >: {string: string} = {
 --- with it, since the same paths reach a real shell in any project that
 --- still has one. Accepted cost, by name: a legitimate `my notes.tl`.
 local METACHARACTERS < const > = "#;\"'*?[]&|<>(){}$`^\\!~%:=,"
-
---- Kinds whose sources are scanned for import edges.
----
---- Every kind whose file is COMPILED, because `deps.tl` follows the
---- edge for all of them: a kind the scanner skips but the graph
---- resolves is a module that can reach into another binary's tree or a
---- foreign `_dir` with nothing to say so -- the scanner/consumer drift
---- `imports.tl`'s header disclaims, arriving through the one kind
---- nobody added here.
-local scanned: {string: boolean} = {
-  module = true,
-  entry = true,
-  test = true,
-  example = true,
-  benchmark = true,
-  gen = true,
-  ["payload-gen"] = true,
-}
 
 --- Kinds that define an import path other files can resolve to.
 local defines_import: {string: boolean} = {
@@ -409,7 +397,7 @@ end
 --- lets the artifact layout be derived instead of enumerated.
 local function check_imports(proj: Project, issues: {Issue}, defined: {string: boolean})
   for _, f in ipairs(proj.files) do
-    if scanned[f.kind] then
+    if types.scanned_kinds[f.kind] then
       local dir = fs.dirname(f.path)
       if dir == "." then
         dir = ""
@@ -458,6 +446,9 @@ local function validate(proj: Project): {Issue}
   check_binaries(proj, issues)
   check_positions(proj, issues)
   check_imports(proj, issues, defined)
+  -- The other declaration channel, checked by the module that owns it:
+  -- a `@reads` naming no file is a prerequisite nobody gets.
+  reads.check(proj, issues)
   table.sort(issues, function(a: Issue, b: Issue): boolean
       if a.path == b.path then
         return a.message < b.message

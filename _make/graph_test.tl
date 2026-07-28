@@ -130,6 +130,26 @@ local function test_project_mk_carries_per_test_closures()
 end
 test_project_mk_carries_per_test_closures()
 
+-- The data a ratchet declared lands beside its import closure, as
+-- SOURCE paths: a committed file is read where it lives, and nothing
+-- stages it into `o/`. Without this variable a data-file edit left the
+-- reader's target up to date, so the stage reported the previous run.
+local function test_project_mk_carries_declared_data()
+  local proj = fixture("declared", {
+      ["docs/a.md"] = "a\n",
+      ["docs/b.md"] = "b\n",
+      ["reader.tl"] = "-- @reads docs/*.md\nreturn {}\n",
+      ["a_test.tl"] = "local r = require('reader')\nreturn r\n",
+      ["b_test.tl"] = "assert(true)\n",
+    })
+  local text = graph.project_mk(proj, "/bin/cosmic")
+  assert(text:find("datadeps_a_test := docs docs/a.md docs/b.md", 1, true),
+    "the declaration reaches the facts, directory included: " .. text)
+  assert(not text:find("datadeps_b_test", 1, true),
+    "a test that declared nothing gets no line: " .. text)
+end
+test_project_mk_carries_declared_data()
+
 -- Deterministic: same tree, same bytes. Sorting is what makes the file
 -- a function of the project rather than of directory order.
 local function test_project_mk_is_deterministic()
