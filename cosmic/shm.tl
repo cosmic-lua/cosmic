@@ -121,7 +121,7 @@ local function wrap(raw: unix.Memory, size: integer): Memory
       .. " + " .. tostring(n) .. " > " .. tostring(size) .. ")"
     end
     -- cast: pcall variadic returns to tuple
-    local ok, err = pcall(raw.write, raw, data, offset, bytes) as(boolean, any)
+    local ok, err = pcall(raw.write, raw, data, offset, bytes) as (boolean, any)
     if not ok then
       return false, thrown("write", err)
     end
@@ -146,7 +146,7 @@ local function wrap(raw: unix.Memory, size: integer): Memory
       return false, range_err
     end
     -- cast: pcall variadic returns to tuple
-    local ok, err = pcall(raw.store, raw, word_index, value) as(boolean, any)
+    local ok, err = pcall(raw.store, raw, word_index, value) as (boolean, any)
     if not ok then
       return false, thrown("store", err)
     end

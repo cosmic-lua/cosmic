@@ -453,47 +453,47 @@ end
 -- Verb helpers/download come from fetch_extras.make; it receives the
 -- result metatable so download's synthesized results answer is_success().
 local made = fetch_extras.make(
-  Fetch as(function(string, any): any), -- cast: function shape
-    stream as(function(string, any): any), -- cast: function shape
-      function(t: any): any
-        return setmetatable(t as {string: any}, result_mt) -- cast: from any
-      end)
+  Fetch as (function(string, any): any), -- cast: function shape
+  stream as (function(string, any): any), -- cast: function shape
+  function(t: any): any
+    return setmetatable(t as {string: any}, result_mt) -- cast: from any
+  end)
 
-    local record FetchModule
-      fetch: function(url: string, opts?: Options): Result
-      --- GET/POST/PUT/DELETE conveniences: fetch with the method forced.
-      get: function(url: string, opts?: Options): Result
-      post: function(url: string, opts?: Options): Result
-      put: function(url: string, opts?: Options): Result
-      delete: function(url: string, opts?: Options): Result
-      --- Stream a URL to a file. The file is written only for a 2xx
-      --- response (created/truncated, then removed again on a mid-stream
-      --- failure); a non-2xx response returns its status with a bounded
-      --- diagnostic body and writes nothing. The result carries body = ""
-      --- on success.
-      download: function(url: string, path: string, opts?: Options): Result
-      stream: function(url: string, opts?: Options): StreamResult
-      unix_proxy: function(path: string): string | nil, string
-      type ErrorKind = ErrorKind
-      --- Type aliases, not runtime values: a `Result: Result` field
-      --- spelling would declare phantom fields that are nil at runtime.
-      type Options = Options
-      type Part = Part
-      type Result = Result
-      type Reader = Reader
-      type StreamResult = StreamResult
-    end
+local record FetchModule
+  fetch: function(url: string, opts?: Options): Result
+  --- GET/POST/PUT/DELETE conveniences: fetch with the method forced.
+  get: function(url: string, opts?: Options): Result
+  post: function(url: string, opts?: Options): Result
+  put: function(url: string, opts?: Options): Result
+  delete: function(url: string, opts?: Options): Result
+  --- Stream a URL to a file. The file is written only for a 2xx
+  --- response (created/truncated, then removed again on a mid-stream
+  --- failure); a non-2xx response returns its status with a bounded
+  --- diagnostic body and writes nothing. The result carries body = ""
+  --- on success.
+  download: function(url: string, path: string, opts?: Options): Result
+  stream: function(url: string, opts?: Options): StreamResult
+  unix_proxy: function(path: string): string | nil, string
+  type ErrorKind = ErrorKind
+  --- Type aliases, not runtime values: a `Result: Result` field
+  --- spelling would declare phantom fields that are nil at runtime.
+  type Options = Options
+  type Part = Part
+  type Result = Result
+  type Reader = Reader
+  type StreamResult = StreamResult
+end
 
-    local M: FetchModule = {
-      fetch = Fetch,
-      get = made.get as(function(string, Options): Result), -- cast: function shape
-        post = made.post as(function(string, Options): Result), -- cast: function shape
-          put = made.put as(function(string, Options): Result), -- cast: function shape
-            delete = made.delete as(function(string, Options): Result), -- cast: function shape
-              -- cast: function shape
-              download = made.download as(function(string, string, Options): Result),
-                stream = stream,
-                unix_proxy = fetch_extras.unix_proxy,
-              }
+local M: FetchModule = {
+  fetch = Fetch,
+  get = made.get as (function(string, Options): Result), -- cast: function shape
+  post = made.post as (function(string, Options): Result), -- cast: function shape
+  put = made.put as (function(string, Options): Result), -- cast: function shape
+  delete = made.delete as (function(string, Options): Result), -- cast: function shape
+  -- cast: function shape
+  download = made.download as (function(string, string, Options): Result),
+  stream = stream,
+  unix_proxy = fetch_extras.unix_proxy,
+}
 
-              return M
+return M
