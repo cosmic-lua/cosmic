@@ -5,7 +5,6 @@
 -- mode.
 
 local child = require("cosmic.child")
-local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local fs_types = require("cosmic.fs.types")
 
@@ -69,7 +68,6 @@ end
 
 local function test_compile_writes_output()
   local src, out = compile_fixture("c-ok", "local x: number = 1\nprint(x)\n")
-  env.set("TREE_LUA_PATH", ";;")
   local code, _out, err = run_driver("compile", test_bin, src, out)
   assert(code == 0, "compile failed (" .. tostring(code) .. "): " .. err)
   -- cast: or fallback does not narrow
@@ -85,7 +83,6 @@ test_compile_writes_output()
 -- re-runs on every future invocation.
 local function test_compile_unchanged_restamps_without_rewriting()
   local src, out = compile_fixture("c-mtime", "print(1)\n")
-  env.set("TREE_LUA_PATH", ";;")
   local code = run_driver("compile", test_bin, src, out)
   assert(code == 0, "first compile failed")
   local st1 = fs.stat(out)
@@ -108,7 +105,6 @@ test_compile_unchanged_restamps_without_rewriting()
 -- file that did not typecheck can never be packed into the binary
 local function test_compile_failure_no_output()
   local src, out = compile_fixture("c-bad", "local x: number = \"not a number\"\n")
-  env.set("TREE_LUA_PATH", ";;")
   local code, _out, err = run_driver("compile", test_bin, src, out)
   assert(code ~= 0, "type error must fail the compile")
   assert(err ~= "", "compiler stderr must pass through")

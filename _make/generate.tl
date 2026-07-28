@@ -11,7 +11,9 @@
 --- boundary already is.
 
 local child = require("cosmic.child")
+local cenv = require("cosmic.env")
 local fs = require("cosmic.fs")
+local fs_types = require("cosmic.fs.types")
 local build = require("_cli.build")
 local modules = require("_cli.build.modules")
 local deps = require("_make.deps")
@@ -35,13 +37,58 @@ local function stem_of(path: string): string
   return (path:gsub("%.tl$", ""):gsub("%.lua$", ""))
 end
 
---- The source a built path came from: the graph's layout rule read
---- backwards, the same inversion `_cli.build.modules` does for imports.
+--- The source a built path came from, and how the graph makes it: the
+--- layout rule read backwards, the same inversion `_cli.build.modules`
+--- does for imports.
+---
+--- BOTH spellings, because `.lua` sources are first-class. `deps` lists
+--- one as `o/<path>.lua` exactly like a compiled module, and assuming
+--- `.tl` skipped it here -- so the mini-graph never produced it, while
+--- the manifest still named it. On a cold tree the generator's require
+--- then hit the closure layer, found nothing at that path, and failed
+--- loudly: a valid project broken on its FIRST build and only its
+--- first, which is the worst shape a bug can take.
+--- @param proj Project The scanned project
 --- @param built string A built path (`o/x/y.lua`)
---- @return string The source path (`x/y.tl`)
-local function source_of(built: string): string
+--- @return string|nil The source path, or nil when there is no source
+--- @return string The verb that makes it: "compile" or "copy"
+local function source_of(proj: Project, built: string): string | nil, string
   local rel = built:sub(#project.BUILD_DIR + 2)
-  return (rel:gsub("%.lua$", ".tl"))
+  local tl = (rel:gsub("%.lua$", ".tl"))
+  if fs.isfile(fs.join(proj.root, tl)) then
+    return tl, "compile"
+  end
+  if fs.isfile(fs.join(proj.root, rel)) then
+    return rel, "copy"
+  end
+  return nil, ""
+end
+
+--- Is `built` at least as new as `src`? Mtime schedules, and this is
+--- the scheduling half the graph gets for free from make and a phase
+--- before the graph has to do for itself. Without it every verb paid
+--- one subprocess compile per closure member per invocation, on a
+--- no-op build too.
+--- @param proj Project The scanned project
+--- @param src string The source path, relative to the root
+--- @param built string The built path, relative to the root
+--- @return boolean True when the output is up to date
+local function fresh(proj: Project, src: string, built: string): boolean
+  local out = fs.stat(fs.join(proj.root, built))
+  if not out then
+    return false
+  end
+  local into = fs.stat(fs.join(proj.root, src))
+  if not into then
+    return false
+  end
+  -- cast: mixed-representation Stat
+  local osec, onsec = (out as fs_types.Stat):mtim()
+  local isec, insec = (into as fs_types.Stat):mtim() -- cast: same
+  if osec ~= isec then
+    return osec > isec
+  end
+  return onsec >= insec
 end
 
 --- Run one generator, handing it the output directory it owns.
@@ -83,7 +130,7 @@ end
 --- @param cosmic string Absolute path to the cosmic binary
 --- @return {string} The `--modules` argv fragment (empty when unavailable)
 local function closure_argv(proj: Project, gen: string, out: string,
-    cosmic: string): {string}
+    cosmic: string): {string}, string
   local self: File | nil = nil
   for _, f in ipairs(proj.files) do
     if f.path == gen then
@@ -99,22 +146,46 @@ local function closure_argv(proj: Project, gen: string, out: string,
   if #built == 0 then
     return {}
   end
+  -- `compile` sets LUA_PATH for the child it spawns. In a recipe step
+  -- that child IS the process, so the mutation dies with it; called in
+  -- process it would outlive the call and be inherited by every later
+  -- child, which is a side effect nothing here asks for.
+  -- `os.getenv` rather than `cenv.get`, which erases the nil into its
+  -- default: an UNSET LUA_PATH and an empty one are different things to
+  -- Lua (default path versus no path), so restoring has to tell them
+  -- apart even though a build environment is unlikely to hold either.
+  local saved: string | nil = os.getenv("LUA_PATH")
+  local function restore()
+    if saved == nil then
+      cenv.unset("LUA_PATH")
+    else
+      cenv.set("LUA_PATH", saved as string) -- cast: nil ruled out above
+    end
+  end
   for _, path in ipairs(built) do
-    local src = source_of(path)
-    if fs.isfile(fs.join(proj.root, src)) then
-      -- The graph's own compile step, called directly rather than
-      -- reimplemented: it is one strict compile with the
-      -- write-only-when-changed contract, so a generator whose closure
-      -- did not move costs a hash and no work. Going through
-      -- `--compile-strict --output` instead would be a SECOND spelling
-      -- of the same step, and that one writes to stdout unless both
-      -- flags are given -- a difference nothing would have caught.
-      if build.dispatch("compile", {cosmic, src, path,
-          "--include-dir", "."}) ~= 0 then
-        return {}
+    local src, verb = source_of(proj, path)
+    if src ~= nil and not fresh(proj, src as string, path) then -- cast: guarded
+      -- The graph's own steps, called directly rather than
+      -- reimplemented: one strict compile (or one copy, for a `.lua`
+      -- source) with the write-only-when-changed contract. Going
+      -- through `--compile-strict --output` instead would be a SECOND
+      -- spelling of the same step, and that one writes to stdout unless
+      -- both flags are given -- a difference nothing would have caught.
+      local args: {string} = verb == "compile"
+      and {cosmic, src as string, path, "--include-dir", "."} -- cast: guarded
+      or {src as string, path} -- cast: guarded
+      if build.dispatch(verb, args) ~= 0 then
+        restore()
+        -- LOUD, not a fall-through. Returning no manifest here would
+        -- run the generator against the RUNNING BINARY's copy of its
+        -- own helpers -- the stale-generation failure this whole
+        -- mechanism exists to close -- and it would do it after
+        -- printing a compile error, so the output looks explained.
+        return {}, "make: " .. gen .. ": cannot build " .. path
       end
     end
   end
+  restore()
   local manifest = modules.write(out, proj.root, built)
   if manifest == nil then
     return {}
@@ -143,8 +214,12 @@ local function run_generator(proj: Project, gen: string, dest: string,
     (merr or "unknown error")
   end
   io.write("generate " .. gen .. "\n")
+  local flag, cerr = closure_argv(proj, gen, at, cosmic)
+  if cerr ~= nil then
+    return false, cerr
+  end
   local argv: {string} = {cosmic}
-  for _, a in ipairs(closure_argv(proj, gen, at, cosmic)) do
+  for _, a in ipairs(flag) do
     argv[#argv + 1] = a
   end
   argv[#argv + 1] = gen

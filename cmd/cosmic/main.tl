@@ -14,21 +14,16 @@ package.path = package.path:sub(1, at - 1) ..
 "/zip/?.lua;/zip/?/init.lua;" .. package.path:sub(at)
 
 -- `--modules <manifest>`: resolve this run's requires against the
--- project the build is standing in, ahead of /zip. Scanned by hand HERE
--- rather than through getopt, because a module already in
--- package.loaded is never searched again: anything required before the
--- install -- the dispatcher's own args, help and handlers -- would be
--- pinned to the binary's copy whatever the manifest said, so a test of
--- `_cli.args` would test /zip's. cosmic.searcher is the one exception
--- and stays the binary's, which is why it reads the manifest with
--- io.open. See docs/design/make/resolution.md.
+-- project the build is standing in, ahead of /zip. Acted on HERE,
+-- before every require but one, because a module already in
+-- package.loaded is never searched again: anything loaded first -- the
+-- dispatcher's own args, help and handlers -- would be pinned to the
+-- binary's copy whatever the manifest said, so a test of `_cli.args`
+-- would test /zip's. cosmic.searcher is that one exception and stays
+-- the binary's, which is why it reads the manifest with io.open. The
+-- scan rule is its own; see docs/design/make/resolution.md.
 local searcher = require("cosmic.searcher")
-for i = 1, #arg - 1 do
-  if arg[i] == "--modules" then
-    searcher.install_tree(arg[i + 1])
-    break
-  end
-end
+searcher.install_from_argv(arg)
 
 -- cosmic-owned runtime .tl searcher: resolves and compiles .tl
 -- modules through cosmic.teal, fails the require() on compile errors,

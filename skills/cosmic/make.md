@@ -450,7 +450,7 @@ checkout's `definitions.lua` to validate before a release is cut, and
 **internal** — the build sets these for its own children. Setting one
 by hand is a way to confuse a build, not to configure it:
 `COSMIC_EXEC_ROOT` (what `exec` may reach), `COSMIC_MAKE_GEN` (the
-converge budget), `TREE_LUA_PATH` (the path `capture` swaps in),
+converge budget),
 `TEST_BIN` / `TEST_TMPDIR` / `TEST_DIR` (set per test by the runner),
 `TMP` (pointed at a step's scratch directory), `COSMIC_TL_CACHE_DIR`.
 

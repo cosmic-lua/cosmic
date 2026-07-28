@@ -332,8 +332,32 @@ local function install_tree(path: string): boolean
   return true
 end
 
+--- Find `--modules <manifest>` on an argv and install it.
+---
+--- The scan STOPS at the first argument that is not a flag, which is
+--- where getopt stops parsing too: past that point a `--modules` is the
+--- SCRIPT's own, and acting on it would let `cosmic s.tl --modules x`
+--- redirect the dispatcher's requires. The engine always attaches its
+--- own ahead of everything, so the two never disagree about whose it is.
+---
+--- Here rather than in the dispatcher because it is the channel's own
+--- rule, and the channel is this module's.
+--- @param argv {string} The process argv, 1-based
+--- @return boolean Whether a manifest was read and installed
+local function install_from_argv(argv: {string}): boolean
+  for i = 1, #argv do
+    if argv[i] == "--modules" then
+      return install_tree(argv[i + 1] or "")
+    elseif argv[i]:sub(1, 1) ~= "-" then
+      return false
+    end
+  end
+  return false
+end
+
 local record SearcherModule
   install: function()
+  install_from_argv: function(argv: {string}): boolean
   install_tree: function(path: string): boolean
   searcher: function(module_name: string): any, any
   tree: function(module_name: string): any, any
@@ -341,6 +365,7 @@ end
 
 local M: SearcherModule = {
   install = install,
+  install_from_argv = install_from_argv,
   install_tree = install_tree,
   searcher = cosmic_tl_searcher,
   tree = tree_searcher,

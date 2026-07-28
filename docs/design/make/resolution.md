@@ -76,11 +76,16 @@ So cosmic's tests test the **binary's** modules and a user's tests test
 **lax-compiled source**; neither tests the strict-compiled bytes that
 ship. `deps_*` schedules and fences a set of files nothing opens.
 
-The cost has a second half: a user project compiles every module twice
-per test run — once strict into `o/`, once lax through the searcher —
-and the lax half is not cached across steps, because the cache
-directory derives from `TMP` and `record` points `TMP` at a fresh
-per-step scratch (`<out>.tmp.d`).
+The cost has a second half: a user project compiles every module
+**twice** — once strict into `o/`, which nothing loads, and once lax
+through the searcher, which is what runs. The lax half is content-hash
+cached and the cache is SHARED (`cosmic/_script_cache.tl`'s `cache_dir`
+reads `COSMIC_TL_CACHE_DIR`, then `XDG_CACHE_HOME`, then `TMPDIR`, and
+`record` sets none of them — so it lands at `/tmp/cosmic-tl-cache-<uid>`
+for every step; measured, 378 entries after one gate). So the waste is
+one compile of the tree per content+build, not one per run — but it is
+still a whole second compilation of every module, in the mode that is
+not the one shipped.
 
 **The perf harness measures the binary, not the tree.** `_perf/harness`
 and every `_perf/bench/*` are embedded, so:
@@ -295,15 +300,27 @@ that asks for it, under a word chosen then.
 
 ## Precedence against the standard library
 
-If a project **claims** a namespace — `validate.claims(proj)`, the test
-the artifact staging and `converge` already share — its own modules win
-over `/zip`'s in its own processes. If it does not claim it, `cosmic.*`
-always comes from the running binary and a project cannot shadow a
-*piece* of the standard library.
+If a project **claims** a namespace — it defines `cosmic/init.tl`
+outright — its own modules win over `/zip`'s in its own processes. If it
+does not, `cosmic.*` always comes from the running binary and a project
+cannot shadow a *piece* of the standard library.
 
-That is `cosmic/embed/floor.tl`'s `SUPERSEDABLE` rule, applied at run
-time instead of at pack time. One rule, already written down, in a
-second place.
+**The searcher does not enforce that, and should not be credited with
+it.** `tree_searcher` has no claims check: layers 1–3 resolve any name
+the tree can spell. The property holds one step earlier — `_make`'s
+`validate.check_reserved` refuses an unclaimed reserved import path
+before anything is spawned, so a validated tree cannot contain a partial
+`cosmic.*` shadow for the searcher to find. Same rule as
+`cosmic/embed/floor.tl`'s `SUPERSEDABLE`, in a second place; the second
+place is the validator's pre-flight, not run time.
+
+The boundary that leaves, stated because it is reachable: `install_tree`
+is public API on `cosmic.searcher`, and a hand-written manifest fed to
+it — or `--modules` pointed at one — shadows any namespace with no
+claims check at all. Fine for the engine, whose manifests only ever name
+a validated project's closure. A footgun for anyone else who finds the
+API, and an argument for either checking claims in `install_tree` or
+saying plainly that the manifest is the engine's to write.
 
 Stated plainly, because it is the sharp edge: in this repo that makes a
 test of `cosmic.fs` run against the tree's `cosmic/fs.lua` rather than

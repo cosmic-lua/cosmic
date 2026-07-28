@@ -108,8 +108,10 @@ end
 
 --- capture <bootstrap> <out> <script+args...> — run a script under the
 --- bootstrap and write its stdout to out if changed (the doc-index
---- rule's shape). The child inherits the recipe's LUA_PATH; resolving
---- against the project tree is `--modules`' job, not this one's.
+--- rule's shape). The child gets NO manifest, deliberately: the one
+--- caller (the doc-index rule) imports nothing from the project it
+--- indexes. Attaching one is the right move the day a captured script
+--- does -- `record` shows the shape.
 local function do_capture(args: {string}): integer
   local bootstrap, out = args[1], args[2]
   if not out or not args[3] then

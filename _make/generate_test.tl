@@ -248,13 +248,20 @@ local function test_in_process_build_runs_the_generator()
       ["note.tl"] = "local record N\n  text: function(): string\nend\n"
       .. 'local n: N = {text = function(): string return "from the generator" end}\n'
       .. "return n\n",
+      -- A `.lua` module in the closure too, with the `.d.tl` beside it
+      -- that lets a `.tl` import it strictly. The graph COPIES this one
+      -- rather than compiling it, so the mini-graph has to as well.
+      ["mark.lua"] = 'return {tag = function() return "!" end}\n',
+      ["mark.d.tl"] = "local record M\n  tag: function(): string\nend\n"
+      .. "return M\n",
       ["cmd/tool/main.tl"] = "print('tool')\n",
       ["cmd/tool/embed_gen.tl"] = [[
 local fs = require("cosmic.fs")
 local note = require("note")
+local mark = require("mark")
 local out = arg[1]
 assert(fs.makedirs(fs.join(out, "embed")))
-assert(fs.write(fs.join(out, "embed/note.txt"), note.text() .. "\n"))
+assert(fs.write(fs.join(out, "embed/note.txt"), note.text() .. mark.tag() .. "\n"))
 ]],
       ["cmd/lean/main.tl"] = "print('lean')\n",
     })
@@ -268,8 +275,20 @@ assert(fs.write(fs.join(out, "embed/note.txt"), note.text() .. "\n"))
   assert(code == 0, "in-process build should succeed")
   local note = fs.join(root, "o/cmd/tool/embed_gen/embed/note.txt")
   assert(fs.isfile(note), "build ran the unit's generator")
-  assert(check.must(fs.read(note)):find("from the generator", 1, true),
-    "and the generator resolved its own import from the tree")
+  assert(check.must(fs.read(note)):find("from the generator!", 1, true),
+    "and the generator resolved BOTH its imports from the tree")
+  assert(fs.isfile(fs.join(root, "o/mark.lua")),
+    "the mini-graph copies a `.lua` closure member rather than skipping it")
+  -- Again, with everything already built: the mini-graph's freshness
+  -- check is what keeps a no-op verb from paying one subprocess compile
+  -- per closure member, so it needs a run where nothing has moved.
+  cenv.set("COSMIC_MAKE_ROOT", root)
+  cenv.set("COSMIC_MAKE", make_bin)
+  local again = mk.run({"build"})
+  cenv.unset("COSMIC_MAKE_ROOT")
+  cenv.unset("COSMIC_MAKE")
+  assert(fs.chdir(cwd))
+  assert(again == 0, "a second in-process build should succeed")
   assert(fs.isfile(fs.join(root, "o/bin/tool")), "and still produced the binary")
   assert(fs.isfile(fs.join(root, "o/bin/lean")),
     "a sibling with no generator builds unchanged")
@@ -384,5 +403,43 @@ local function test_a_generator_reads_its_helpers_from_the_tree()
     "one build must be enough for a generator's helper to take effect")
 end
 test_a_generator_reads_its_helpers_from_the_tree()
+
+-- A `.lua` module in a generator's closure survives a COLD build.
+--
+-- `.lua` sources are first-class and the graph COPIES them; the
+-- mini-graph assumed every closure member compiles from a `.tl`, so it
+-- skipped one -- and then named it in the manifest anyway. On a cold
+-- tree the generator's require hit the closure layer, found nothing at
+-- that path, and failed loudly. A valid project broken on its first
+-- build and only its first.
+--
+-- The generator is `.lua` too, and that is a constraint rather than a
+-- preference: a strict compile of a `.tl` importing an untyped `.lua`
+-- fails with "no type information for required module", which is the
+-- graph's own pre-existing rule and not what this is about.
+local function test_a_lua_module_in_a_generators_closure()
+  local root = fixture("luaclosure", {
+      ["helper.lua"] = 'return {mark = function() return "COPIED" end}\n',
+      ["thing_gen.lua"] = 'local helper = require("helper")\n'
+      .. 'local fs = require("cosmic.fs")\n'
+      .. 'fs.write(fs.join(arg[1], "out.txt"), helper.mark())\n',
+    })
+  -- COLD: nothing built yet, which is the only state that showed it.
+  fs.rmrf(fs.join(root, "o"))
+  local h = check.must(spawn.spawn({cosmic, "--make", "build"},
+      {cwd = root, env = {"PATH=" .. (os.getenv("PATH") or ""),
+          "HOME=" .. root, "TMPDIR=" .. tmpdir, "NO_COLOR=1"}}))
+  local r = check.must(h:wait())
+  assert(r.code == 0, "a .lua module in the closure must build cold: " ..
+    (r.stdout or "") .. (r.stderr or ""))
+  local made = check.must(fs.read(fs.join(root, "o/thing_gen/out.txt")))
+  assert(made == "COPIED", "and the generator must load it, got: " .. made)
+  -- The manifest names it, and the mini-graph produced what it names.
+  local mf = check.must(fs.read(fs.join(root, "o/thing_gen.modules")))
+  assert(mf:find("mod helper ", 1, true), "the manifest names it: " .. mf)
+  assert(fs.isfile(fs.join(root, "o/helper.lua")),
+    "and the mini-graph copied it, rather than naming a file it skipped")
+end
+test_a_lua_module_in_a_generators_closure()
 
 print("all generate tests passed")
