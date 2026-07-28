@@ -67,9 +67,9 @@ local function make(root: string, argv: {string},
 end
 
 -- The failure this exists to kill: a test scheduled and fenced against
--- `o/greet/init.lua` used to load `./greet/init.tl` instead -- the
--- source, lax-compiled -- so the graph's own output was never the thing
--- under test.
+-- `o/greet/init.lua` that loads `./greet/init.tl` instead -- the
+-- source, lax-compiled -- is a test the graph's own output never
+-- reaches.
 local function test_a_test_loads_what_the_graph_built()
   local root = fixture("built")
   assert(fs.write(fs.join(root, "greet", "greet_test.tl"), [[
@@ -126,8 +126,8 @@ os.exit(7)
 end
 test_run_passes_argv_and_exit_code_through()
 
--- A binary NAME is the spelling the design's verb table used to
--- promise, so it gets a sentence rather than "no such selection".
+-- A binary NAME is the rejected `run [binary]` spelling, so it is the
+-- one wrong guess worth a sentence rather than "no such selection".
 local function test_run_refuses_a_binary_name()
   local root = fixture("name")
   assert(fs.write(fs.join(root, "main.tl"), 'io.write("x")\n'))

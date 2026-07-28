@@ -6,12 +6,12 @@
 --- take a project and the flag takes a file, so a rule can check one
 --- file without re-scanning the tree for every one of them.
 ---
---- It used to be four arbitrary pairs — `format`/`fmt`, `style`/`lint`,
---- `examples`/`example` — which cost a translation table in this file
---- and a second copy of it in the argument parser, purely so an error
---- message could tell you the other name for the thing you just typed.
---- Two names for one concept is a tax on every reader; the table below
---- is what is left of it.
+--- The flag names ARE the verb names, not synonyms for them. Arbitrary
+--- pairs — `format`/`fmt`, `style`/`lint`, `examples`/`example` — cost
+--- a translation table in this file and a second copy of it in the
+--- argument parser, purely so an error message can tell you the other
+--- name for the thing you just typed. Two names for one concept is a
+--- tax on every reader.
 ---
 --- `types` is the deliberate exception, because the identity would be
 --- `--check check`, which is not a sentence. One exception you can see

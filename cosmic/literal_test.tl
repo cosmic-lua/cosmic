@@ -151,8 +151,8 @@ test_deep_nesting_is_refused_not_thrown()
 -- module; these are the other two, and they are the same bug wearing
 -- different clothes. A token that LEXES is not a value that EXISTS.
 --
--- Both are reachable from a pin, so both used to crash `--make fetch`
--- with a traceback where a named refusal belongs.
+-- Both are reachable from a pin, where a throw is a `--make fetch`
+-- traceback standing where a named refusal belongs.
 local function test_a_crafted_value_is_refused_not_thrown()
   -- `%x+` has no length limit, so the escape parses and the code point
   -- is past what utf8.char takes.

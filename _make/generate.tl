@@ -98,10 +98,10 @@ end
 --- an input that goes away has to take its output with it: a renamed
 --- module leaving the old name behind means the artifact ships a file
 --- no source produces, and the next `--make build` embeds it again.
---- Cosmic's own generator happened to clear its directory itself,
---- which made the whole class look handled; a project whose generator
---- does not would have shipped stale payload with no way to notice
---- short of `--make clean`.
+--- Cosmic's own generator clears its directory itself, which makes
+--- the whole class LOOK handled; a project whose generator does not
+--- would ship stale payload with no way to notice short of
+--- `--make clean`, so the engine clears for everyone.
 ---
 --- Safe only because the directory is the GENERATOR's -- `o/<its path
 --- minus extension>/` -- and holds nothing else. Handing a generator

@@ -88,11 +88,10 @@ local function seed_pins(dest: string): boolean
     {"cosmos", "lua-debug", "o/3p/cosmos/lua-debug"},
   }
   for _, w in ipairs(want) do
-    -- `o/3p` is where `--make fetch` unpacks a pin, and now the only
-    -- place: this used to fall back to `o/staged/<dep>/<ver>-<sha>/`,
-    -- which the Makefile pipeline wrote and nothing writes any more.
-    -- A fallback to a directory no code produces is not a fallback,
-    -- it is a branch that can only ever return nil.
+    -- `o/3p` is where `--make fetch` unpacks a pin, and the ONLY
+    -- place this looks: a fallback to some second location nothing
+    -- writes (`o/staged/**` is the retired candidate) is not a
+    -- fallback, it is a branch that can only ever return nil.
     local from = fs.join(repo, w[3])
     if not fs.isfile(from) then
       return false

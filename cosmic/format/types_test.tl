@@ -9,8 +9,8 @@
 --
 -- They are regression tests in the strict sense. A formatter's output
 -- is idempotent, so the gate re-blesses its own damage on every run —
--- which is how two files came to ship mis-indented with `--make fmt`
--- reporting PASS. Nothing here is caught by the gate; only by these.
+-- two files shipped mis-indented with `--make fmt` reporting PASS.
+-- Nothing here is caught by the gate; only by these.
 
 local fmt = require("cosmic.format")
 

@@ -396,10 +396,9 @@ local function generate(out: string): string
   -- The directory handed over is this generator's own —
   -- `o/cmd/cosmic/embed_gen` — cleared and created by the engine
   -- before the call, so a name this generator stops writing stops
-  -- shipping without anything here to remember it. That used to be
-  -- this file's job, and it could only ever be this file's job while
-  -- the directory was the unit's output, shared with the compiled
-  -- entry the build puts there.
+  -- shipping without anything here to remember it. Remembering would
+  -- be this file's job only if the directory were the unit's output,
+  -- shared with the compiled entry the build puts there; it is not.
   local dest = fs.join(out, PAYLOAD_DIR)
   local mok, merr = fs.makedirs(dest)
   if not mok then

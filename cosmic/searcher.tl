@@ -145,7 +145,7 @@ end
 --- of this repo's own tests spawn a cosmic against a different project
 --- root, and an inherited path would answer their imports out of THIS
 --- tree while they build something else. That is the ambient-export
---- bug class the old build fought and it is why there is no env var.
+--- bug class, and it is why there is no env var.
 
 --- Absolute project root, or nil when no manifest was installed.
 local tree_root: string | nil = nil

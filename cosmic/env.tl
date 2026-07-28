@@ -10,13 +10,12 @@ local errstr = require("cosmic.errno").str
 --- Get the value of an environment variable, or nil when it is not set.
 ---
 --- **The nil is in the type**, which is the whole point of this
---- function's shape. It used to take an optional default and return a
---- bare `string`, and that was a lie the checker could not see: with no
---- default the body returns the parameter, which is `string` inside the
---- function and nil at the call site. `local v: string = env.get("X")`
---- type-checked strictly and crashed on the next line. A reading that
---- can fail says so, and the caller narrows -- see `get_or` for the
---- half that cannot fail.
+--- function's shape. An optional default with a bare `string` return
+--- is a lie the checker cannot see: with no default the body returns
+--- the parameter, which is `string` inside the function and nil at the
+--- call site, so `local v: string = env.get("X")` type-checks strictly
+--- and crashes on the next line. A reading that can fail says so, and
+--- the caller narrows -- see `get_or` for the half that cannot fail.
 --- @param name string The name of the environment variable
 --- @return string|nil The value, or nil when the variable is not set
 local function get(name: string): string | nil

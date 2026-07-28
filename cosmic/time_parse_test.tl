@@ -136,7 +136,8 @@ end
 test_parse_date_rejects_datetime()
 
 local function test_parse_date_out_of_range()
-  -- structurally well-formed but semantically invalid: no longer swallowed
+  -- Structurally well-formed but semantically invalid: a parse that
+  -- checks only the shape accepts both of these.
   assert(time.parse_date("2025-14-01") == nil, "month 14 should be rejected")
   assert(time.parse_date("2025-01-99") == nil, "day 99 should be rejected")
 end
