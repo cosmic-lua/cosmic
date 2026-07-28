@@ -43,6 +43,11 @@ local STAGES < const >: {string} = {
   "benchmark", "example", "coverage", "test", "fmt", "lint",
 }
 
+--- The coverage lane's second output tree, which its bases are under.
+--- Dot-prefixed so `o/.coverage/` cannot collide with a project's own
+--- `coverage/` directory.
+local COVERAGE_PREFIX < const > = ".coverage/"
+
 --- Classify the exit code recorded in a `.got` file.
 --- @param exit_code integer Exit code from the .got file
 --- @return string "pass" (0), "skip" (2), or "fail" (anything else)
@@ -76,6 +81,30 @@ local function display(base: string): string
     if cut ~= name then
       return cut
     end
+  end
+  return name
+end
+
+--- The path on disk the row is ABOUT, which is not always the name it
+--- carries.
+---
+--- `display` keeps the coverage lane's `.coverage/` segment on purpose,
+--- because the row names which run produced it. That makes it a LABEL,
+--- not a path: nothing is at `.coverage/cosmic/sys_test.tl`. A caller
+--- that reads the source -- to count what a file defines, say -- needs
+--- the segment gone.
+---
+--- Two functions rather than one, because a single answer is silently
+--- wrong for one caller or the other, and silently is how it went
+--- wrong: `fs.read` of a label returns nil like any absent file, so the
+--- reader took its "nothing here" branch for all 170 coverage rows and
+--- reported a count of zero instead of failing.
+--- @param base string A `.got` base path
+--- @return string The source path, e.g. `cosmic/sys_test.tl`
+local function source_of(base: string): string
+  local name = display(base)
+  if name:sub(1, #COVERAGE_PREFIX) == COVERAGE_PREFIX then
+    return name:sub(#COVERAGE_PREFIX + 1)
   end
   return name
 end
@@ -217,6 +246,7 @@ local record RecordsModule
   ICONS: {string: string}
   status_of: function(exit_code: integer): string
   display: function(base: string): string
+  source_of: function(base: string): string
   stage_of: function(base: string): string
   row: function(status: string, name: string, count: integer, unit: string, wall_ms: integer): string
   counts: function(passed: integer, failed: integer, skipped: integer): string
@@ -232,6 +262,7 @@ local M: RecordsModule = {
   ICONS = ICONS,
   status_of = status_of,
   display = display,
+  source_of = source_of,
   stage_of = stage_of,
   row = row,
   counts = counts,
