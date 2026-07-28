@@ -381,7 +381,7 @@ local function make_database(raw_db: lsqlite3.Database): Database
       return false, err or "begin failed"
     end
     -- cast: pcall variadic returns
-    local success, result, result_err = pcall(fn, self) as(boolean, any, any)
+    local success, result, result_err = pcall(fn, self) as (boolean, any, any)
     if not success then
       self:exec("ROLLBACK")
       return false, (result as string) or "transaction failed" -- cast: from any

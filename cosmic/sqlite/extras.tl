@@ -72,7 +72,7 @@ local function attach(db_any: any)
       return false, err or "savepoint failed"
     end
     -- cast: pcall multi-return shape
-    local success, result, result_err = pcall(fn, self) as(boolean, any, any)
+    local success, result, result_err = pcall(fn, self) as (boolean, any, any)
     if not success then
       self:exec("ROLLBACK TO " .. name)
       self:exec("RELEASE " .. name)

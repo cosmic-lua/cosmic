@@ -162,6 +162,13 @@ local function needs_space(prev_prev: Item, prev: Item, cur: Item, next_item: It
     return false
   end
   if cur.tk == "(" then
+    -- `as` is an OPERATOR the lexer hands back as an identifier (Teal
+    -- keeps it usable as a name), so the callee rule below claims it and
+    -- rewrites the parenthesized type `x as (T | nil)` to `x as(T | nil)`
+    -- -- legal, and wrong about what the code is.
+    if prev.tk == "as" then
+      return true
+    end
     if prev.kind == "identifier" or prev.tk == ")" or prev.tk == "]"
     or prev.kind == "string" or (prev.kind == "keyword" and prev.tk == "function") then
       return false

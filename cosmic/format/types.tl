@@ -193,6 +193,45 @@ local function mark_carried_type(line_items: {Item},
   end
 end
 
+--- Mark a PARENTHESIZED type -- `as (T | nil)`, `: (T | nil)` -- from
+--- its `(` through the matching `)`.
+---
+--- The group has to be marked whole, not just the `function` inside it.
+--- Marked items are skipped for indent accounting on both sides, so
+--- marking the keyword alone leaves the `(` counted as an opener while
+--- its `)` is marked away, which banks the same phantom level a false
+--- block opener does. `mark_function_type` cannot reach this shape from
+--- the other end either: it marks from a `function` whose next token is
+--- `(`, and here the `(` comes first.
+---
+--- A `(` in this position is always a type: after `as` there is nothing
+--- else it can be, and a method call puts its `(` after the name
+--- (`obj:m(x)`), never against the `:`.
+--- @param line_items {Item} The line's items
+--- @param type_ctx {integer: boolean} Marks, updated in place
+local function mark_parenthesized_types(line_items: {Item},
+    type_ctx: {integer: boolean})
+  for idx, item in ipairs(line_items) do
+    local next_item = line_items[idx + 1]
+    if (item.tk == "as" or item.tk == ":")
+    and next_item and next_item.tk == "(" and not type_ctx[idx + 1] then
+      local depth = 0
+      for k = idx + 1, #line_items do
+        type_ctx[k] = true
+        local tk = line_items[k].tk
+        if tk == "(" then
+          depth = depth + 1
+        elseif tk == ")" then
+          depth = depth - 1
+          if depth == 0 then
+            break
+          end
+        end
+      end
+    end
+  end
+end
+
 --- Every item on this line that belongs to a type rather than to code.
 --- @param line_items {Item} The line's items
 --- @param continues_type boolean Whether the previous line left a type open
@@ -203,6 +242,7 @@ local function type_marks(line_items: {Item},
   if continues_type then
     mark_carried_type(line_items, type_ctx)
   end
+  mark_parenthesized_types(line_items, type_ctx)
   for idx, item in ipairs(line_items) do
     if item.kind == "keyword" and item.tk == "function" and not type_ctx[idx]
     and not is_function_block_opener(line_items, idx, continues_type) then

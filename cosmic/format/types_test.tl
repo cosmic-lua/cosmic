@@ -210,4 +210,52 @@ local function test_a_comment_carries_type_position_through()
 end
 test_a_comment_carries_type_position_through()
 
+-- A parenthesized union. `mark_function_type` cannot reach this shape:
+-- it marks from a `function` whose NEXT token is `(`, and here the `(`
+-- comes first, so the backward scan hits an unmatched `(` and calls the
+-- `function` a definition -- one phantom level from that line to the
+-- end of the file.
+--
+-- The group is marked whole rather than the keyword alone. Marks are
+-- skipped for indent accounting on both sides, so marking `function`
+-- and leaving its brackets bare banks the same level the false opener
+-- did: the `(` counts as an opener and the marked `)` never pays it
+-- back.
+local function test_a_parenthesized_union_opens_no_block()
+  local src = "local record R\n" ..
+  "  f: function(a: integer): integer\n" ..
+  "end\n" ..
+  "local g = (nil as any) as (function | nil)\n" ..
+  "local h = 1\n" ..
+  "return R, g, h\n"
+  assert_format(src, src, "a parenthesized union after `as`", "test.tl")
+
+  -- The same group in the other type position, and one with its own
+  -- brackets inside, so the scan has to match rather than stop at the
+  -- first `)`.
+  local colon = "local x: (function | nil) = nil\n" ..
+  "local y: (function(a: integer): integer | nil) = nil\n" ..
+  "local z = 1\n" ..
+  "return x, y, z\n"
+  assert_format(colon, colon, "a parenthesized union after `:`", "test.tl")
+end
+test_a_parenthesized_union_opens_no_block()
+
+-- `as` lexes as an identifier -- Teal keeps it usable as a name -- so
+-- the "no space before `(` in a call" rule claimed it and wrote
+-- `x as(T | nil)`. Legal, and wrong about what the code is: `as` is an
+-- operator, and the parens are a type, not an argument list.
+local function test_as_keeps_its_space_before_a_parenthesized_type()
+  local src = "local f = (nil as any) as (function | nil)\n" ..
+  "return f\n"
+  assert_format(src, src, "`as (` is not a call", "test.tl")
+
+  -- The rule it must not have broken: a real call still binds tight.
+  local call = "local n = tostring(1)\n" ..
+  "return n\n"
+  assert_format(call, call, "a call keeps no space before its `(`",
+    "test.tl")
+end
+test_as_keeps_its_space_before_a_parenthesized_type()
+
 print("all format type-position tests passed")
