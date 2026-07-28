@@ -197,7 +197,24 @@ jobs:
             # it is missing, it refuses.
             bin/cosmic --make fetch
             bin/cosmic --make build
+            # THE FIXPOINT. `--make build` in a project that builds its
+            # own toolchain converges by itself -- it re-execs into the
+            # binary it just built when the bytes moved -- so the
+            # explicit second build on the next line must change
+            # nothing. Asserting it costs a copy and a compare over
+            # bytes this lane already produces.
+            #
+            # What it pins: one build is enough. It does NOT prove
+            # generation 1 was right before converging (a cold pin
+            # reaches the same bytes either way, which is why the
+            # obvious hash-gen1-hash-gen2 experiment reports IDENTICAL
+            # even on a tree where generators ran stale -- see
+            # docs/design/make/resolution.md). It fires if convergence
+            # regresses, or if any step stops being idempotent.
+            cp o/bin/cosmic cosmic-converged
             o/bin/cosmic --make build
+            cmp cosmic-converged o/bin/cosmic
+            echo "fixpoint: PASS — a second build changes nothing"
             cp o/bin/cosmic cosmic-first
             # A different tree PATH, not just a different output dir: an
             # absolute path leaking into the artifact only shows up when
