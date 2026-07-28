@@ -2,9 +2,10 @@
 
  Environment variable utilities.
  Provides get, set, unset, clear, and all functions for environment variables.
- For the common case of reading a single variable, use env.get() — it wraps
- os.getenv() internally and is the simplest approach. Use env.all() to get
- all variables as a {string:string} map parsed from unix.environ().
+ For the common case of reading a single variable, use env.get(), which
+ returns nil when the variable is not set, or env.get_or() when you have
+ a fallback. Use env.all() to get all variables as a {string:string} map
+ parsed from unix.environ().
 
 ## Types
 
@@ -12,7 +13,8 @@
 
 ```teal
 local record EnvModule
-  get: function(name: string, default?: string): string
+  get: function(name: string): string | nil
+  get_or: function(name: string, default: string): string
   set: function(name: string, value: string, overwrite?: boolean): boolean, string
   unset: function(name: string): boolean, string
   clear: function(): boolean, string
@@ -26,20 +28,48 @@ end
 ### get
 
 ```teal
-function get(name: string, default?: string): string
+function get(name: string): string | nil
 ```
 
- Get the value of an environment variable.
- Returns the default (nil if not given) when the variable is not set.
+ Get the value of an environment variable, or nil when it is not set.
+ **The nil is in the type**, which is the whole point of this
+ function's shape. It used to take an optional default and return a
+ bare `string`, and that was a lie the checker could not see: with no
+ default the body returns the parameter, which is `string` inside the
+ function and nil at the call site. `local v: string = env.get("X")`
+ type-checked strictly and crashed on the next line. A reading that
+ can fail says so, and the caller narrows -- see `get_or` for the
+ half that cannot fail.
 
 **Parameters:**
 
 - `name` (string) - The name of the environment variable
-- `default` (string?) - Value to return when the variable is not set
 
 **Returns:**
 
-- string? - The value of the environment variable, or the default
+- string|nil - The value, or nil when the variable is not set
+
+### get_or
+
+```teal
+function get_or(name: string, default: string): string
+```
+
+ Get the value of an environment variable, or `default` when unset.
+ The infallible half, and it is a separate function rather than an
+ optional argument because the two have genuinely different types: a
+ read with a fallback CANNOT fail, so making its caller narrow would
+ be noise, and folding both into one signature is what produced a
+ return type that was wrong half the time.
+
+**Parameters:**
+
+- `name` (string) - The name of the environment variable
+- `default` (string) - The value to return when it is not set
+
+**Returns:**
+
+- string - The value, or `default`
 
 ### set
 
