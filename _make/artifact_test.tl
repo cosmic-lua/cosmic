@@ -480,8 +480,8 @@ local function test_generated_payload_stages_like_committed()
   assert(fs.write(fs.join(root, unit .. "/.types/cosmo.d.tl"), "return {}\n"))
   assert(fs.makedirs(fs.join(root, "o/embed_gen/embed")))
   assert(fs.write(fs.join(root, "o/embed_gen/embed/shared.lua"), "return {}\n"))
-  -- The build's own notes sit where the payload used to, and must not
-  -- ship: the collision that made the move worth making.
+  -- The build's own notes share `o/<unit>/`, and must not ship: the
+  -- collision that is why generated payload has its own directory.
   assert(fs.makedirs(fs.join(root, "o/cmd/tool/embed")))
   assert(fs.write(fs.join(root, "o/cmd/tool/embed/committed.txt.lint.got"), "0"))
 

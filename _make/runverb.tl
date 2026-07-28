@@ -1,10 +1,10 @@
 --- `run <path> [args…]` — build, then run that source against the tree.
 ---
---- **Paths, never binary names.** `verbs.md` used to promise `run
---- [binary]`: build, then exec `o/bin/<name>`. That form has no caller,
---- here or anywhere — a built binary is already executable, so the verb
---- bought a rebuild and two saved tokens. The source form is what every
---- caller in this repo needs and none of them can spell today:
+--- **Paths, never binary names.** The rejected form is `run [binary]`
+--- — build, then exec `o/bin/<name>` — and it has no caller, here or
+--- anywhere: a built binary is already executable, so that verb buys a
+--- rebuild for two saved tokens. The source form is what every caller
+--- in this repo needs and none of them can spell otherwise:
 --- `_perf/run.tl` and `_perf/gate.tl` (four documented commands),
 --- `_docs/publish.tl` from `docs.yml`, and `_types/gentype.tl` after a
 --- pin bump. `run cosmic` refuses, naming `o/bin/cosmic`.
@@ -64,8 +64,8 @@ end
 --- a source the model knows.
 ---
 --- A binary name gets its own sentence rather than "no such selection":
---- it is the spelling `verbs.md` used to promise, so it is the one
---- wrong guess worth answering precisely.
+--- it is the rejected `run [binary]` spelling, so it is the one wrong
+--- guess worth answering precisely.
 --- @param proj Project The scanned project
 --- @param paths {string} The selection paths, as typed
 --- @return boolean Whether the selection names something

@@ -283,10 +283,10 @@ local function test_a_changed_contract_recompiles_its_importers()
 
   -- The same property for a DECLARATION. The checker resolves
   -- `require("ffi")` to `ffi.d.tl` when one sits beside `ffi.lua` -- the
-  -- pattern the validator explicitly protects -- but `.d.tl` was excluded
-  -- from the closure, so editing the declaration moved no listed
-  -- prerequisite's mtime and importers were never re-checked. Reproduced
-  -- before the fix: incremental PASS, clean FAIL, on one tree.
+  -- pattern the validator explicitly protects -- so a closure that
+  -- excludes `.d.tl` means editing the declaration moves no listed
+  -- prerequisite's mtime and importers are never re-checked:
+  -- incremental PASS, clean FAIL, on one tree.
   local function test_a_changed_declaration_recompiles_its_importers()
     local root = fixture("declaration", {
         ["ffi.lua"] = 'return { greet = function(n) return "hi " .. n end }\n',
@@ -379,9 +379,9 @@ local function test_a_test_reruns_only_for_what_it_imports()
   -- And the closure travels in the line, which is what the fence
   -- grants. Asserted against the FACTS rather than a recipe echo:
   -- `o/project.mk` is where the closure is computed and the rule reads
-  -- it as `--deps $(deps_$*)`. make runs silently now, so the echo is
-  -- no longer a place this claim can be read -- and the facts file
-  -- always was the better one.
+  -- it as `--deps $(deps_$*)`. make runs silently (`-s`), so a recipe
+  -- echo is not a place this claim can be read -- and the facts file
+  -- is the better one regardless.
   local facts = check.must(fs.read(fs.join(root, "o/project.mk")))
   assert(facts:find("deps_db/a_test := o/db/init.lua", 1, true),
     "a_test's closure is its import, computed into the facts: " .. facts)

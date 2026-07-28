@@ -231,8 +231,8 @@ local function enable_from_env(): function()
   end
   enable(dir)
   return function()
-    -- A dump that FAILS says so. It used to discard `dump`'s status,
-    -- which makes the one failure mode that matters — collection armed,
+    -- A dump that FAILS says so. Discarding `dump`'s status instead
+    -- makes the one failure mode that matters — collection armed,
     -- work done, and the result unwritable — indistinguishable from
     -- code that never ran. The symptom surfaces much later and
     -- somewhere else: a ratchet reporting a file at 14% because the

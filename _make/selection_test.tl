@@ -179,9 +179,9 @@ end
 test_whole_project_verbs_refuse_paths()
 
 -- The refusal comes BEFORE the build. In a project whose own binary is
--- the toolchain the gate converges into, a typo used to cost a full
--- rebuild before the two-line complaint; the model already knows the
--- answer, so the answer is given from the model.
+-- the toolchain the gate converges into, refusing after would price a
+-- typo at a full rebuild before the two-line complaint; the model
+-- already knows the answer, so the answer is given from the model.
 local function test_a_bad_selection_refuses_before_building()
   local root = app("earlyrefusal")
   local r = make(root, "test", "nope")

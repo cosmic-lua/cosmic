@@ -25,10 +25,10 @@ local type Project = types.Project
 ---
 --- `types` is here because the type checker resolves `require("ffi")`
 --- to `ffi.d.tl` when one exists -- the sanctioned `.d.tl`-beside-`.lua`
---- pattern the validator protects. Leaving it out meant a declaration's
---- contract could change with no listed prerequisite's mtime moving, so
---- importers were never re-checked: incremental build PASS, clean build
---- FAIL, on the same tree. Reproduced before the fix.
+--- pattern the validator protects. Leaving it out lets a declaration's
+--- contract change with no listed prerequisite's mtime moving, so
+--- importers are never re-checked: incremental build PASS, clean build
+--- FAIL, on the same tree.
 ---
 --- A `.d.tl` is a SOURCE dependency only. It compiles to nothing, so
 --- `built_paths` skips it -- listing `o/ffi.lua` for a declaration that

@@ -50,8 +50,8 @@ end
 --- ours goes instead of being captured and withheld until exit.
 ---
 --- It resolves to the same "caller supplied this descriptor" path a
---- Handle takes, which spawn never closes -- so callers no longer have
---- to reach for fd.wrap(1), which cosmic.fd explicitly does not model.
+--- Handle takes, which spawn never closes -- so a caller never has to
+--- reach for fd.wrap(1), which cosmic.fd explicitly does not model.
 local enum StdioMode
   "inherit"
 end

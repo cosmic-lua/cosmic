@@ -157,12 +157,12 @@ test_get_default_empty_value_wins()
 
 -- The bug this shape closes, asserted where it lives: in the TYPE.
 --
--- `get` used to take an optional default and declare a bare `string`
--- return. With no default the body returns the parameter -- `string`
--- inside the function, nil at the call site -- so the checker never saw
--- the nil escape and an unguarded use of the result type-checked
--- strictly, then crashed. That is a silent bug of exactly the class the
--- honest-nil rule exists to stop.
+-- A `get` with an optional default and a bare `string` return hides
+-- the failure. With no default the body returns the parameter --
+-- `string` inside the function, nil at the call site -- so the checker
+-- never sees the nil escape, and an unguarded use of the result
+-- type-checks strictly, then crashes. That is a silent bug of exactly
+-- the class the honest-nil rule exists to stop.
 --
 -- What the honest type buys, precisely: Teal 0.24.8 checks nilability at
 -- the USE, not at the assignment. `local v: string = get(x)` is still

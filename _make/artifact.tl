@@ -178,9 +178,9 @@ end
 --- path minus extension>/`**, which is already how `_types/types_gen.tl`
 --- gets `o/_types/types_gen/`. Nothing else writes there, so the engine
 --- clears it before each run and a name the generator stops emitting
---- stops shipping. Why it is not `o/<unit>/`, where it used to be — the
---- build's own bookkeeping lives there — is in
---- docs/design/make/model.md.
+--- stops shipping. Why it is not `o/<unit>/` — the build's own
+--- bookkeeping lives there, and clearing it would take that too — is
+--- in docs/design/make/model.md.
 --- @param unit string The unit's directory, "" for the root
 --- @return string `o/<unit>/embed_gen`, relative to the project root
 local function gen_dir(unit: string): string

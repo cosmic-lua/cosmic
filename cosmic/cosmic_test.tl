@@ -61,14 +61,14 @@ test_cosmic_main_exists()
 -- `cosmic.main(fn)` RUNS fn and exits with its code. It does not ask
 -- whether its caller is the main chunk, and cannot: `cosmo.is_main()`
 -- answers for the chunk that CALLS it, and that chunk is always
--- `cosmic/init.tl`. The guard it used to carry was therefore false
--- every time, so every caller silently did nothing.
+-- `cosmic/init.tl`. A guard there is therefore false every time, and
+-- every caller silently does nothing.
 --
 -- In a child, because the exit IS the contract: asserting it in this
--- process would end the run. The old test called `cosmic.main` inline,
--- so `os.exit(0)` fired inside the call, its assertion never ran, and
--- exit 0 graded as PASS -- a test that could not fail, and one that
--- would have silently swallowed anything appended after it.
+-- process would end the run. Calling `cosmic.main` inline instead
+-- fires `os.exit(0)` inside the call, so the assertion never runs and
+-- exit 0 grades as PASS -- a test that cannot fail, and one that
+-- silently swallows anything appended after it.
 local function test_cosmic_main_runs_fn_and_exits_with_its_code()
   local script = fs.join(tmpdir, "cosmic_main_exit.tl")
   assert(fs.write(script, table.concat({

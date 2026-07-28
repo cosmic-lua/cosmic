@@ -31,8 +31,8 @@ test_display_names_the_source()
 -- The label is not a path. `display` keeps `.coverage/` so the row says
 -- which run produced it, and nothing is on disk at that name -- so a
 -- caller that READS the source needs the segment gone. Reading the
--- label instead is indistinguishable from an absent file, which is how
--- every coverage row came to report zero test functions.
+-- label instead is indistinguishable from an absent file, which reads
+-- back as every coverage row reporting zero test functions.
 local function test_source_of_names_a_readable_path()
   assert(records.source_of("o/.coverage/cosmic/sys_test.tl.test") ==
     "cosmic/sys_test.tl", "the coverage tree is not part of the path")

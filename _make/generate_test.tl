@@ -89,12 +89,11 @@ local function make(dir: string, ...: string): integer, string
   return r.code or 128, (r.stdout or "") .. (r.stderr or "")
 end
 
---- Whether `o/3p/**` holds everything the generator reads.
----
---- It used to also COPY, from an `o/staged/**` tree the Makefile
---- pipeline wrote. Nothing writes that tree now, so the copy could
---- only ever be skipped, and what is left is the question it was
---- guarding: has this tree fetched?
+--- Whether `o/3p/**` holds everything the generator reads — the
+--- question is exactly "has this tree fetched?". A copy step from some
+--- other staging tree does not belong here: a source nothing writes
+--- can only ever be skipped, and a helper that copies sometimes is a
+--- helper whose answer depends on which tree it ran in.
 --- @param repo string The project root
 --- @return boolean True when every pinned input is in place
 local function seed_pins(repo: string): boolean
@@ -242,8 +241,9 @@ test_the_root_generator_runs_for_cmd_binaries()
 local function test_in_process_build_runs_the_generator()
   -- The generator imports a project MODULE, so the in-process path
   -- runs the mini-graph too: compile the closure, write the manifest,
-  -- hand it over. A generator that imports only `cosmic.*` has an empty
-  -- closure and skips all of it, which is what this fixture used to be.
+  -- hand it over. A generator that imports only `cosmic.*` has an
+  -- empty closure and skips all of it — a fixture shaped that way
+  -- would leave this test green while the mini-graph never ran.
   local root = fixture("inproc", {
       ["note.tl"] = "local record N\n  text: function(): string\nend\n"
       .. 'local n: N = {text = function(): string return "from the generator" end}\n'
@@ -364,17 +364,17 @@ test_the_real_payload_generator()
 -- A generator's helpers come from the TREE, even when the BINARY ships
 -- a module by that name.
 --
--- The collision is the whole test. A generator used to resolve its own
--- imports out of the running binary, so a helper the artifact also
--- embedded was a generation behind -- and a fixture module with a name
--- cosmic does not ship can only ever come from the tree, before the fix
--- as much as after. An earlier version of this test used `helper`,
--- which is exactly that shape: it passed against a pre-change binary,
--- so it proved nothing about the thing it was named for.
+-- The collision is the whole test. A generator that resolves its own
+-- imports out of the running binary serves a helper the artifact also
+-- embeds from a generation behind -- while a fixture module with a
+-- name cosmic does not ship can only ever come from the tree, under
+-- either resolution. Naming the fixture `helper` is exactly that
+-- second shape: the test passes against a binary with the bug, so it
+-- proves nothing about the thing it is named for.
 --
 -- `_make/imports` collides with a module the artifact carries. Verified
--- both ways by hand: a pre-change binary answers ZIP here, this one
--- answers TREE.
+-- both ways by hand: a binary resolving zip-first answers ZIP here,
+-- this one answers TREE.
 --
 -- `.lua` on both sides, and that is not incidental. The artifact ships
 -- `.tl/**` beside its compiled modules, so a `.tl` generator importing

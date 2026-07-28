@@ -275,11 +275,12 @@ local function test_fmt_fix_rewrites()
 end
 test_fmt_fix_rewrites()
 
--- `help` is a verb you asked for, so it succeeds on stdout. It used to
--- reach the reader only as the unknown-verb error's incidental output --
--- the right text, on stderr, under exit 1 -- while docs/build.md told
--- people to run it. It also answers outside a project root, which is
--- where "what are the verbs" gets asked.
+-- `help` is a verb you asked for, so it succeeds on stdout. Without
+-- the verb, the text reaches the reader only as the unknown-verb
+-- error's incidental output -- the right text, on stderr, under exit 1
+-- -- while docs/build.md tells people to run it. It also answers
+-- outside a project root, which is where "what are the verbs" gets
+-- asked.
 local function test_help_is_a_verb()
   local root = app("help")
   local h = make(root, "help")

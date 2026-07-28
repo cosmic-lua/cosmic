@@ -80,8 +80,8 @@ local function process_class_block(anno_lines: {string}, module_name: string, cl
   end
 end
 
---- True when an annotation block carries a `---@type` tag (used to surface
---- lowercase module-table fields such as `argon2.variants`).
+--- True when an annotation block carries a `---@type` tag (the tag that
+--- surfaces lowercase module-table fields such as `argon2.variants`).
 local function has_type_annotation(anno_lines: {string}): boolean
   for _, line in ipairs(anno_lines) do
     if line:match("^%s*%-%-%-?%s*@type%s") then

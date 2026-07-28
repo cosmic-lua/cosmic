@@ -233,12 +233,11 @@ test_exec_refuses_a_symlink_out_of_the_root()
 -- The other direction, because refusing everything would also pass the
 -- test above: a link INSIDE the root still runs.
 --
--- The root is BUILT here, not borrowed from the repo. It used to point
--- at the real `o/bin/` and drop a symlink beside the binary under test,
--- which is a test writing into the tree's build output -- fine while
--- nothing stopped it, and denied the moment the fence became the
--- default. A test may write its own scratch and nothing else, so the
--- program is a copy and the link is beside the copy.
+-- The root is BUILT here, not borrowed from the repo. Pointing at the
+-- real `o/bin/` and dropping a symlink beside the binary under test
+-- is a test writing into the tree's build output -- and the fence
+-- denies exactly that. A test may write its own scratch and nothing
+-- else, so the program is a copy and the link is beside the copy.
 local function test_exec_allows_a_symlink_inside_the_root()
   local root = fs.join(tmpdir, "exec-linked-root")
   fs.rmrf(root)

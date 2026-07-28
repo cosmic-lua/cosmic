@@ -21,11 +21,11 @@ end
 ---
 --- It does NOT check `is_main` itself, and cannot: `cosmo.is_main()`
 --- answers for the chunk that CALLS it, and this chunk is always
---- `cosmic/init.tl`, never your script. The guard it used to carry was
---- therefore false every time, so every caller silently did nothing —
---- and the test that covered it asserted the function existed rather
---- than that it ran. A file that is both a module and a script asks in
---- its OWN chunk, where the answer is about that file:
+--- `cosmic/init.tl`, never your script. A guard here is therefore
+--- false every time, and every caller silently does nothing — a
+--- failure a test that asserts the function exists cannot see. A file
+--- that is both a module and a script asks in its OWN chunk, where the
+--- answer is about that file:
 ---
 ---     if proc.is_main() then
 ---       cosmic.main(function(args: {string}): number, string … end)
