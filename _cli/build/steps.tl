@@ -430,7 +430,7 @@ local function do_exec(args: {string}): integer
   -- matters when the build directory is itself reached through a link.
   -- A relative symlink inside `o/` still resolves inside it, so the
   -- staging links a build makes keep working.
-  local root_named = fs.abspath(env.get("COSMIC_EXEC_ROOT", "o"))
+  local root_named = fs.abspath(env.get_or("COSMIC_EXEC_ROOT", "o"))
   local root = (fs.realpath(root_named) or root_named) as string -- cast: scalar fallback
   local named = fs.abspath(program)
   -- Falling back to the lexical path when realpath fails keeps the

@@ -132,7 +132,7 @@ env.unset("COSMIC_TEST_NO_OVERWRITE")
 
 local function test_get_default_when_unset()
   env.unset("COSMIC_TEST_DEFAULT")
-  local value = env.get("COSMIC_TEST_DEFAULT", "fallback")
+  local value = env.get_or("COSMIC_TEST_DEFAULT", "fallback")
   assert(value == "fallback", "expected default, got '" .. tostring(value) .. "'")
   assert(env.get("COSMIC_TEST_DEFAULT") == nil,
     "without a default, unset should still be nil")
@@ -141,7 +141,7 @@ test_get_default_when_unset()
 
 local function test_get_default_ignored_when_set()
   env.set("COSMIC_TEST_DEFAULT", "real")
-  local value = env.get("COSMIC_TEST_DEFAULT", "fallback")
+  local value = env.get_or("COSMIC_TEST_DEFAULT", "fallback")
   assert(value == "real", "set value should win over default, got '" .. tostring(value) .. "'")
   env.unset("COSMIC_TEST_DEFAULT")
 end
@@ -149,8 +149,54 @@ test_get_default_ignored_when_set()
 
 local function test_get_default_empty_value_wins()
   env.set("COSMIC_TEST_DEFAULT", "")
-  local value = env.get("COSMIC_TEST_DEFAULT", "fallback")
+  local value = env.get_or("COSMIC_TEST_DEFAULT", "fallback")
   assert(value == "", "empty string is set, default must not apply")
   env.unset("COSMIC_TEST_DEFAULT")
 end
 test_get_default_empty_value_wins()
+
+-- The bug this shape closes, asserted where it lives: in the TYPE.
+--
+-- `get` used to take an optional default and declare a bare `string`
+-- return. With no default the body returns the parameter -- `string`
+-- inside the function, nil at the call site -- so the checker never saw
+-- the nil escape and an unguarded use of the result type-checked
+-- strictly, then crashed. That is a silent bug of exactly the class the
+-- honest-nil rule exists to stop.
+--
+-- What the honest type buys, precisely: Teal 0.24.8 checks nilability at
+-- the USE, not at the assignment. `local v: string = get(x)` is still
+-- accepted (the declaration is taken at its word); `get(x):match(...)`
+-- is not. The use site is where the crash was, and it is the one this
+-- pins -- `_make/stage_test.tl` had exactly that line, and the honest
+-- return type is what surfaced it.
+--
+-- A runtime assertion cannot pin a type, so this asks the checker.
+local function test_get_admits_nil_in_its_type()
+  local fs = require("cosmic.fs")
+  local teal = require("cosmic.teal")
+  local dir = env.get_or("TEST_TMPDIR", "/tmp")
+  local bad = fs.join(dir, "env_nil_use.tl")
+  assert(fs.write(bad, 'local e = require("cosmic.env")\n'
+      .. 'print(e.get("DEFINITELY_NOT_SET"):upper())\n'))
+  -- `.` first, so `cosmic.env` resolves to THIS tree's copy rather than
+  -- to whatever the running binary embeds.
+  local result = teal.check(bad, {include_dirs = {"."}})
+  assert(not result.ok, "using env.get()'s result unguarded must not check")
+  local named = false
+  for _, e in ipairs(result.errors) do
+    if e.message:find("string | nil", 1, true) then
+      named = true
+    end
+  end
+  assert(named, "and the error must name the nil the type admits")
+
+  -- The narrowed form is accepted, so the type is honest rather than
+  -- merely obstructive.
+  local good = fs.join(dir, "env_nil_ok.tl")
+  assert(fs.write(good, 'local e = require("cosmic.env")\n'
+      .. 'print(e.get_or("DEFINITELY_NOT_SET", "d"):upper())\n'))
+  assert(teal.check(good, {include_dirs = {"."}}).ok,
+    "get_or cannot fail, so its result needs no narrowing")
+end
+test_get_admits_nil_in_its_type()
