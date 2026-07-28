@@ -390,3 +390,15 @@ embedded copies; they are now measured against what the graph built.
 - **Whether the fixpoint shrinks.** The measurement this chapter said to
   take after landing, not before. `converge` and the release loop's
   second `--make build` are both still here.
+- **How deep a fenced build nests.** Found while writing the gates and
+  recorded rather than dropped: a `--make` build run from a test that is
+  itself run by a nested `--make test` — four levels of `record`, each
+  intersecting its parent's Landlock policy — fails in CI with `No rule
+  to make target`, while the same build passes standalone and passes
+  locally where Landlock does not enforce. Three levels is what
+  `_make/fixtures_test.tl` and `_make/build_test.tl` already do and they
+  are green, so the limit sits between. The non-inheritance gate asserts
+  the mechanism at two levels instead — a grandchild inheriting the
+  parent's whole environment still resolves from source, not from the
+  parent's build — which is the property that was actually in question.
+  The depth ceiling is a fence question and wants its own change.

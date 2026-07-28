@@ -42,20 +42,26 @@ end
 --- Run `--make <argv…>` in `root`, returning code and combined output.
 --- @param root string The project root
 --- @param argv {string} The `--make` arguments
+--- @param extra? {string} Extra `NAME=VALUE` environment entries
 --- @return integer Exit code
 --- @return string stdout .. stderr
-local function make(root: string, argv: {string}): integer, string
+local function make(root: string, argv: {string},
+    extra?: {string}): integer, string
   local full: {string} = {cosmic, "--make"}
   for _, a in ipairs(argv) do
     full[#full + 1] = a
   end
-  local h = check.must(spawn.spawn(full, {cwd = root, env = {
-          "PATH=" .. (os.getenv("PATH") or ""),
-          "HOME=" .. root,
-          "TMPDIR=" .. tmp,
-          "NO_COLOR=1",
-          "COSMIC_NO_WELCOME=1",
-        }}))
+  local env: {string} = {
+    "PATH=" .. (os.getenv("PATH") or ""),
+    "HOME=" .. root,
+    "TMPDIR=" .. tmp,
+    "NO_COLOR=1",
+    "COSMIC_NO_WELCOME=1",
+  }
+  for _, e in ipairs(extra or {}) do
+    env[#env + 1] = e
+  end
+  local h = check.must(spawn.spawn(full, {cwd = root, env = env}))
   local r = check.must(h:wait())
   return r.code or 128, (r.stdout or "") .. (r.stderr or "")
 end
@@ -132,54 +138,43 @@ local function test_run_refuses_a_binary_name()
 end
 test_run_refuses_a_binary_name()
 
--- The resolution is per-invocation, in argv. A child that spawns its
--- own cosmic against ANOTHER project must resolve against that one --
--- an inherited path would answer this fixture's imports out of the
--- outer tree, which is the ambient-export bug class the design refuses.
+-- The resolution is per-invocation, in argv, and a GRANDCHILD does not
+-- get it. That is the whole reason the channel is a flag and not an
+-- environment variable: ten `_make/*_test.tl` files spawn a cosmic
+-- against a different project root, and an inherited path would answer
+-- their imports out of THIS tree while they build something else.
+--
+-- Asserted at the mechanism rather than by nesting a second build: the
+-- target runs under `--make run`, so it resolves `greet` from
+-- `o/greet/init.lua`; it then spawns a plain `cosmic` with its OWN
+-- environment entire, and that one must fall back to compiling
+-- `./greet/init.tl` from source. Same import, same environment, two
+-- answers -- which is only possible if nothing was inherited.
 local function test_resolution_does_not_inherit()
-  local outer = fixture("outer")
-  local inner = fixture("inner")
-  -- The inner project's `greet` says something different, so a leak
-  -- shows up as the WRONG ANSWER rather than as an equal one.
-  assert(fs.write(fs.join(inner, "greet", "init.tl"), [[
-local record G
-  hi: function(string): string
-end
-local g: G = {hi = function(who: string): string return "INNER " .. who end}
-return g
-]]))
-  assert(fs.write(fs.join(inner, "main.tl"), [[
+  local root = fixture("inherit")
+  assert(fs.write(fs.join(root, "child.tl"), [[
 local greet = require("greet")
-io.write("SAYS " .. greet.hi("x") .. "\n")
+io.write("CHILD " .. debug.getinfo(greet.hi, "S").source .. "\n")
 ]]))
-  assert(fs.write(fs.join(outer, "greet", "greet_test.tl"), [[
-local check = require("cosmic.check")
+  assert(fs.write(fs.join(root, "main.tl"), [[
+local greet = require("greet")
 local spawn = require("cosmic.child")
-local function test_inner()
-  local h = check.must(spawn.spawn({os.getenv("COSMIC_BIN"), "--make",
-        "run", "main.tl"}, {cwd = os.getenv("INNER")}))
-  local r = check.must(h:wait())
-  io.stderr:write((r.stdout or "") .. (r.stderr or ""))
-end
-test_inner()
+local check = require("cosmic.check")
+io.write("PARENT " .. debug.getinfo(greet.hi, "S").source .. "\n")
+local h = check.must(spawn.spawn({arg[0] and os.getenv("COSMIC_BIN"), "child.tl"}))
+local r = check.must(h:wait())
+io.write(r.stdout or "")
 ]]))
-  local full: {string} = {cosmic, "--make", "test"}
-  local h = check.must(spawn.spawn(full, {cwd = outer, env = {
-          "PATH=" .. (os.getenv("PATH") or ""),
-          "HOME=" .. outer,
-          "TMPDIR=" .. tmp,
-          "INNER=" .. inner,
-          "COSMIC_BIN=" .. cosmic,
-          "NO_COLOR=1",
-          "COSMIC_NO_WELCOME=1",
-        }}))
-  local r = check.must(h:wait())
-  local outer_out = (r.stdout or "") .. (r.stderr or "")
-  assert(r.code == 0, "the outer run must pass: " .. outer_out)
-  local captured = check.must(fs.read(fs.join(outer, "o", "greet",
-        "greet_test.tl.test.err")))
-  assert(captured:find("SAYS INNER x", 1, true),
-    "the inner build must resolve against ITS project: " .. captured)
+  local code, out = make(root, {"run", "main.tl"}, {"COSMIC_BIN=" .. cosmic})
+  assert(code == 0, "the fixture must run: " .. out)
+  local parent = out:match("PARENT @(%S+)")
+  local child = out:match("CHILD @(%S+)")
+  assert(parent and child, "both must report a source: " .. out)
+  assert(parent:find("/o/greet/init.lua", 1, true),
+    "the target resolves against the build, got: " .. parent)
+  assert(child:find("greet/init.tl", 1, true) and
+    not child:find("/o/", 1, true),
+    "a grandchild must NOT inherit the resolution, got: " .. child)
 end
 test_resolution_does_not_inherit()
 
