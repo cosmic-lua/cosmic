@@ -14,6 +14,7 @@ local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local fs_types = require("cosmic.fs.types")
 local records = require("cosmic.records")
+local modules = require("_cli.build.modules")
 
 --- The one prefix a recipe step's failure wears, matching its siblings
 --- in `_cli/build/init.tl` and `_cli/driver.tl`, so a failed step is
@@ -68,14 +69,6 @@ local function run_into(argv: {string}, out: string): integer
   return 0
 end
 
-local function child_tree_lua_path(): string
-  local tree = os.getenv("TREE_LUA_PATH")
-  if not tree or tree == "" then
-    return nil
-  end
-  return tree
-end
-
 --- compile <bootstrap> <src> <out> [compiler flags...]
 --- Always a STRICT compile: --compile-strict type checks and then
 --- generates from that same checked AST, so nothing ships that did not
@@ -115,16 +108,14 @@ end
 
 --- capture <bootstrap> <out> <script+args...> — run a script under the
 --- bootstrap and write its stdout to out if changed (the doc-index
---- rule's shape). The child sees LUA_PATH=$TREE_LUA_PATH when the rule
---- exports one; otherwise it inherits the recipe's ";;" (embedded).
+--- rule's shape). The child gets NO manifest, deliberately: the one
+--- caller (the doc-index rule) imports nothing from the project it
+--- indexes. Attaching one is the right move the day a captured script
+--- does -- `record` shows the shape.
 local function do_capture(args: {string}): integer
   local bootstrap, out = args[1], args[2]
   if not out or not args[3] then
     return fail("usage: capture <bootstrap> <out> <script> [args...]")
-  end
-  local tree = child_tree_lua_path()
-  if tree then
-    env.set("LUA_PATH", tree)
   end
   local argv: {string} = {bootstrap}
   for i = 3, #args do
@@ -211,15 +202,22 @@ local function do_record(args: {string}): integer
     return fail("usage: record <out> <cmd> [args...]")
   end
   local argv: {string} = {}
+  local deps: {string} = {}
+  local in_deps = false
   for i = 2, #args do
     -- Same contract as compile: --deps names inputs for the fence and
-    -- is never handed to the child. A test that read arg[1] would
-    -- otherwise find its own dependency list there.
+    -- never reaches the child as ARGUMENTS -- a test that read arg[1]
+    -- would find its own dependency list there. It is the child's
+    -- RESOLUTION set too, via the manifest below: see _cli.build.modules.
     if args[i] == "--deps" then
-      break
+      in_deps = true
+    elseif in_deps then
+      deps[#deps + 1] = args[i]
+    else
+      argv[#argv + 1] = args[i]
     end
-    argv[#argv + 1] = args[i]
   end
+  modules.attach(argv, out, fs.abspath("."), deps)
   -- The test fence, behavioural half: point TMP at a scratch directory
   -- beside this step's own output, so testrun's mkdtemp lands there and
   -- the test's TEST_TMPDIR is inside its own unit rather than in a

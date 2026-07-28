@@ -461,11 +461,11 @@ HTTP, fs, crypto/codecs, binary startup) with per-scenario functional
 checks, a JSON results format, and a noise-aware comparison gate.
 
 ```bash
-# The harness is scripts, not verbs — `benchmark` is named and planned.
-bin/cosmic _perf/run.tl --out o/perf/current.json <modules...>
-bin/cosmic _perf/run.tl --compare o/perf/base.json o/perf/current.json
-bin/cosmic _perf/gate.tl compare BASE.json CUR.json SELFB.json
-bin/cosmic _perf/gate.tl selfcheck A.json B.json   # A/A control: the noise floor
+# `--make run` builds first and resolves the harness AND the scenarios
+# against the tree; bare scripts load the binary's embedded copies.
+bin/cosmic --make run _perf/run.tl --out o/perf/current.json <modules...>
+bin/cosmic --make run _perf/gate.tl compare BASE.json CUR.json SELFB.json
+bin/cosmic --make run _perf/gate.tl selfcheck A.json B.json  # A/A noise floor
 ```
 
 all performance work follows the loop in `_perf/OPTIMIZE.md`: baseline →

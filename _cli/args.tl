@@ -38,6 +38,11 @@ local longopts: {getopt.LongOpt} = {
   {name = "skill", has_arg = "required"},
   {name = "write-if-changed", has_arg = "none"},
   {name = "include-dir", has_arg = "required"},
+  -- Consumed by hand at the top of the dispatcher, before any other
+  -- require -- see cmd/cosmic/main.tl. It is declared here so getopt
+  -- takes its ARGUMENT rather than leaving a bare path in the
+  -- positionals, where it would become the script to run.
+  {name = "modules", has_arg = "required"},
 }
 
 --- Options requiring an argument, derived from the tables above and

@@ -12,11 +12,18 @@ check [paths…]  strict type-check only                               [now]
 fmt   [paths…]  --check fmt (--fix to rewrite)                    [now]
 fetch [paths…]  resolve *_pin.tl — the only verb with network        [now]
 clean           remove o/                                            [now]
-run   [binary]  build, then exec the artifact with remaining argv    [planned]
+run   <path>    build, then run that source against the tree         [now]
 benchmark [paths…]  run every *_benchmark.tl against the stage       [now]
 example [paths…] run Example_* against the staged tree               [now]
 lint  [paths…]  style gate: file length, cast ratchet, test order  [now]
 ```
+
+`run` takes **paths, never binary names**: a built `o/bin/<name>` is
+already executable, so the binary form bought a rebuild and nothing
+else, while the source form is what every caller in this repo needs
+(`_perf`, `_docs`, `_types`). `run <name>` refuses, naming
+`o/bin/<name>`. See [resolution.md](resolution.md), which is also where
+"against the tree" is defined.
 
 **Selection names targets of the verb's own kind, and never changes
 what a target means** — `test` states it as "selection changes which

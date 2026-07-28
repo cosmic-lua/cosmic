@@ -118,6 +118,11 @@ local record make_types
     name: string
     --- Defined by the design, not shipped yet.
     planned: boolean
+    --- Whether everything after the verb's ONE path belongs to the
+    --- target rather than to the selection. `run` is the only such
+    --- verb: its trailing argv is the program's, flags included, so the
+    --- selection scan must not read a leading `-` as its own.
+    passthrough: boolean
     --- The make target this verb lowers onto, when it is a graph verb.
     target: string | nil
     --- What paths select, for a graph verb.

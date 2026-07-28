@@ -4,17 +4,31 @@
 global warn: function(...: any)
 
 -- The zip root IS the module root: the payload sits at /zip/cosmic/**
--- while cosmopolitan's default path is /zip/.lua/-rooted. Inserted ahead of
--- that default but BEHIND anything LUA_PATH set -- prepending outright would
--- shadow an in-tree build with the binary's own copy, which is's shape.
+-- while cosmopolitan's default path is /zip/.lua/-rooted. Inserted ahead
+-- of that default. It does NOT sit behind LUA_PATH: an artifact answers
+-- for itself, and the generated embed wrapper prepends the same root one
+-- frame earlier anyway. Resolving against a project tree is a separate
+-- mechanism with its own channel -- see --modules below.
 local at = package.path:find("/zip/.lua/", 1, true) or 1
 package.path = package.path:sub(1, at - 1) ..
 "/zip/?.lua;/zip/?/init.lua;" .. package.path:sub(at)
 
+-- `--modules <manifest>`: resolve this run's requires against the
+-- project the build is standing in, ahead of /zip. Acted on HERE,
+-- before every require but one, because a module already in
+-- package.loaded is never searched again: anything loaded first -- the
+-- dispatcher's own args, help and handlers -- would be pinned to the
+-- binary's copy whatever the manifest said, so a test of `_cli.args`
+-- would test /zip's. cosmic.searcher is that one exception and stays
+-- the binary's, which is why it reads the manifest with io.open. The
+-- scan rule is its own; see docs/design/make/resolution.md.
+local searcher = require("cosmic.searcher")
+searcher.install_from_argv(arg)
+
 -- cosmic-owned runtime .tl searcher: resolves and compiles .tl
 -- modules through cosmic.teal, fails the require() on compile errors,
 -- and caches compiled output. See cosmic.searcher for the details.
-require("cosmic.searcher").install()
+searcher.install()
 if not os.getenv("COSMIC_NO_REQUIRE_HINTS") then
   require("_cli.require_hints").install()
 end
@@ -293,6 +307,7 @@ local function parse_args(): Options
       opts.write_if_changed = true
     elseif opt == "include-dir" then
       opts.include_dirs[#opts.include_dirs + 1] = optarg
+    elseif opt == "modules" then -- acted on at the top of this file
     end
   end
 

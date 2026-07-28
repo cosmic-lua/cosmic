@@ -25,35 +25,40 @@ subprocess spawn). every scenario validates its own output with a
 `check()` function, so a change that makes a workload faster but wrong
 FAILS the benchmark.
 
-The harness is scripts, driven by whichever binary you are measuring.
-`benchmark` is a named, planned verb; until it lands these are the
-commands, and `$BIN` is the cosmic under test (`o/bin/cosmic`, or a
+The harness is scripts, driven through `--make run` by whichever binary
+you are measuring. `$BIN` is the cosmic under test (`o/bin/cosmic`, or a
 build standing on a locally built cosmopolitan lua — see
 `optimize/cosmopolitan.md`).
 
-**Name `$BIN` explicitly. Never measure through `bin/cosmic`.** The
-trust root prefers `o/bin/cosmic` when one exists and falls back to the
-pin when it does not, and for a script it does not converge — so
-`bin/cosmic _perf/run.tl …` measures whatever `o/` happens to hold,
-which may be several commits old or may be the pinned release. A
-benchmark cannot tell you it read the wrong subject: it returns a
-number either way, and the number is about a binary you did not choose.
-This is the measurement-identity trap in `optimize/measurement.md`,
+**Go through `--make run`, and name `$BIN` explicitly.** Two different
+identity traps, and both return a number either way:
+
+- **The harness's own identity.** A bare `$BIN _perf/run.tl …` — or
+  `$BIN o/_perf/run.lua …`, which reads like the fix and is not — runs
+  the tree's entry file and then loads `_perf.harness` and every
+  `_perf/bench/*` from the BINARY's embedded copies. Edit a scenario,
+  re-run, and nothing changes. `--make run` builds first and resolves
+  both against the tree (docs/design/make/resolution.md).
+- **The subject's identity.** The trust root prefers `o/bin/cosmic` when
+  one exists and falls back to the pin when it does not, so measuring
+  through `bin/cosmic` measures whatever `o/` happens to hold.
+
+Both are the measurement-identity trap in `optimize/measurement.md`,
 reachable without touching a single knob.
 
 ```bash
 BENCH=$(ls _perf/bench/*_bench.tl | sed 's|/|.|g;s|\.tl$||')
 
 # run all scenarios into a results file
-$BIN -- o/_perf/run.lua --out o/perf/current.json $BENCH
+$BIN --make run _perf/run.tl --out o/perf/current.json $BENCH
 # …the same, filtered to one scenario group
-$BIN -- o/_perf/run.lua --only json --out o/perf/current.json $BENCH
+$BIN --make run _perf/run.tl --only json --out o/perf/current.json $BENCH
 
 # compare two runs with the noise-aware bar
-$BIN -- o/_perf/run.lua --compare o/perf/baseline.json o/perf/current.json
+$BIN --make run _perf/run.tl --compare o/perf/baseline.json o/perf/current.json
 
 # A/A control: the same binary against itself is the noise floor
-$BIN -- o/_perf/gate.lua selfcheck o/perf/a.json o/perf/b.json $BENCH
+$BIN --make run _perf/gate.tl selfcheck o/perf/a.json o/perf/b.json $BENCH
 ```
 
 A baseline is just a results file you keep: run the unmodified build

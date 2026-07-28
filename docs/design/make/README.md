@@ -14,6 +14,7 @@ so no chapter has to fight the length cap:
 | [model.md](model.md) | the project model: markers, units, generators, pins and `exec` |
 | [artifact.md](artifact.md) | the artifact: layout, the strip floor, reproducibility |
 | [engine.md](engine.md) | constant rules and generated facts, cosmic as `SHELL`, staleness |
+| [resolution.md](resolution.md) | which bytes answer `require()` in a spawned child |
 | [testing.md](testing.md) | what a test may read and write |
 | [verbs.md](verbs.md) | the command surface, graph verbs and policy verbs |
 | [examples.md](examples.md) | what a project written to these conventions looks like |

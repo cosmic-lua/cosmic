@@ -20,11 +20,15 @@ end
 --- Options for compiling Teal to Lua.
 --- strict type-checks strictly before generating (warnings fail too,
 --- matching check's default) and emits code from that same checked AST.
+--- werror = false keeps the strict type check and lets warnings pass:
+--- the runtime in-project searcher wants the checking, not the style
+--- gate. See `cosmic.searcher`.
 local record CompileOptions
   include_dirs: {string}
   gen_target: string
   gen_compat: string
   strict: boolean
+  werror: boolean
 end
 
 --- Options for type-checking Teal files.
@@ -324,7 +328,7 @@ local function compile(input_path: string, opts: CompileOptions): CompileResult
   end
 
   local errors = collect_errors(proc.tl_result, input_path)
-  if opts.strict then
+  if opts.strict and opts.werror ~= false then
     for _, w in ipairs(collect_warnings(proc.tl_result, input_path)) do
       table.insert(errors, w)
     end
@@ -451,10 +455,12 @@ end
 --- The loop itself lives with the cache it drives (`cosmic._script_cache`);
 --- this is the name its two callers know it by.
 --- @param input_path string Path to the Teal file to compile
+--- @param strict? boolean Type-check strictly (warnings still pass)
 --- @return string|nil The generated Lua code, or nil when compilation failed
 --- @return string The formatted issues when compilation failed
-local function compile_cached(input_path: string): string | nil, string
-  return require("cosmic._script_cache").compile_cached(input_path)
+local function compile_cached(input_path: string,
+    strict?: boolean): string | nil, string
+  return require("cosmic._script_cache").compile_cached(input_path, strict)
 end
 
 local record TealModule
@@ -462,7 +468,7 @@ local record TealModule
   DEFAULT_GEN_COMPAT: string
   BUILD_INCLUDE_DIRS: {string}
   compile: function(input_path: string, opts?: CompileOptions): CompileResult
-  compile_cached: function(input_path: string): string | nil, string
+  compile_cached: function(input_path: string, strict?: boolean): string | nil, string
   check: function(input_path: string, opts?: CheckOptions): CheckResult
   search_module: function(module_name: string, include_dirs?: {string}): string | nil
   format_issues: function(issues: {Issue}): string
