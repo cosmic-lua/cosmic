@@ -1,17 +1,25 @@
 #!/usr/bin/env cosmic
 -- Ratchets over the workflow files themselves.
 --
--- CI's environment is a build input, pinned twice over: a digest-pinned
--- container (because an OS image roll moved the coverage floor)
--- and a non-root builder (because tests skip differently as root). Both
--- pins are per-JOB — container config is job-level in GitHub Actions,
--- there is no anchor and no shared block — so the pin is written once
--- per lane and copies drift. Copies of a digest achieve the opposite of
--- a visible, reviewable edit: a bump that misses one site leaves lanes
--- running DIFFERENT environments, silently, which is the leak the pin
--- exists to prevent.
+-- CI's environment is a build input, pinned three times over: a
+-- digest-pinned container (because an OS image roll moved the coverage
+-- floor), `--privileged` (because the sandbox tests need a kernel that
+-- will actually enforce), and a non-root builder (because tests skip
+-- differently as root). All three pins are per-JOB — container config is
+-- job-level in GitHub Actions, there is no anchor and no shared block —
+-- so each is written once per lane and copies drift. Copies of a pin
+-- achieve the opposite of a visible, reviewable edit: a bump that misses
+-- one site leaves lanes running DIFFERENT environments, silently, which
+-- is the leak the pin exists to prevent.
 --
 -- So the copies stay and a test makes them agree.
+--
+-- The privilege and identity pins are the ones whose loss is invisible:
+-- an unprivileged lane cannot enforce Landlock, and a root lane skips
+-- what it cannot restrict. Both turn `_cli/fence_test.tl`'s real-denial
+-- assertion and the quicksand tests into no-ops, and a gate reports a
+-- skip it was not told about as a pass. A lane that stops testing what
+-- it was built to test stays green either way.
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
@@ -93,30 +101,86 @@ local UNCONTAINERISED < const >: {string: string} = {
   ["release"] = "no build machinery: artifact download + `gh release create`",
 }
 
---- Whether each job in a workflow declares a container, by job name.
+-- What a lane pins about its environment, per job.
+local record Job
+  name: string
+  where: string
+  containerised: boolean
+  options: string
+  makes_a_builder: boolean
+  drops_to_builder: boolean
+end
+
+--- Every job in a workflow, with the environment pins it declares.
 ---
 --- Scanned line by line rather than matched: a job name may contain `-`
 --- (`smoke-build`), which is a quantifier in a Lua pattern, so building
 --- a pattern out of the name silently matches the wrong block.
 --- @param path string The workflow file
---- @return {string: boolean} Job name to whether it declares a container
-local function job_containers(path: string): {string: boolean}
-  local out: {string: boolean} = {}
+--- @return {string: Job} Job name to what that job pins
+local function jobs_in(path: string): {string: Job}
+  local out: {string: Job} = {}
   local in_jobs = false
-  local current: string = nil
+  local in_container = false
+  local current: Job = nil
+  local n = 0
   for line in check.must(fs.read(path)):gmatch("([^\n]*)\n?") do
+    n = n + 1
     if line:match("^jobs:%s*$") then
       in_jobs = true
     elseif line:match("^%S") then
       in_jobs = false
+      in_container = false
       current = nil
     elseif in_jobs then
       local name = line:match("^  ([%w_%-]+):%s*$")
       if name then
-        current = name
-        out[current] = false
-      elseif current and line:match("^    container:%s*$") then
-        out[current] = true
+        current = {
+          name = name,
+          where = path .. ":" .. n,
+          containerised = false,
+          options = "",
+          makes_a_builder = false,
+          drops_to_builder = false,
+        }
+        out[name] = current
+        in_container = false
+      elseif current then
+        if line:match("^    container:%s*$") then
+          current.containerised = true
+          in_container = true
+        elseif line:match("^    %S") then
+          -- A sibling key at the job's own depth closes the container
+          -- block, so a step's `options:` is never read as the
+          -- container's.
+          in_container = false
+        end
+        if in_container then
+          local options = line:match("^      options:%s*(.-)%s*$")
+          if options then
+            current.options = options
+          end
+        end
+        if line:find("useradd", 1, true) and line:find("builder", 1, true) then
+          current.makes_a_builder = true
+        end
+        if line:find("runuser -u builder", 1, true) then
+          current.drops_to_builder = true
+        end
+      end
+    end
+  end
+  return out
+end
+
+--- The jobs that declare a container, across every workflow.
+--- @return {Job} In no particular order
+local function containerised_jobs(): {Job}
+  local out: {Job} = {}
+  for _, path in ipairs(workflows()) do
+    for _, job in pairs(jobs_in(path)) do
+      if job.containerised then
+        out[#out + 1] = job
       end
     end
   end
@@ -126,14 +190,14 @@ end
 local function test_every_build_job_is_containerised()
   local jobs = 0
   for _, path in ipairs(workflows()) do
-    for name, containerised in pairs(job_containers(path)) do
+    for name, job in pairs(jobs_in(path)) do
       jobs = jobs + 1
       if UNCONTAINERISED[name] then
-        assert(not containerised, path .. ": job '" .. name ..
+        assert(not job.containerised, path .. ": job '" .. name ..
           "' is recorded as uncontainerised (" .. UNCONTAINERISED[name] ..
           ") but declares a container")
       else
-        assert(containerised, path .. ": job '" .. name .. "' runs " ..
+        assert(job.containerised, path .. ": job '" .. name .. "' runs " ..
           "outside the pinned container. Either give it the same " ..
           "container block, or record why it is exempt in " ..
           "UNCONTAINERISED here — an unpinned environment is a build " ..
@@ -147,5 +211,61 @@ local function test_every_build_job_is_containerised()
   assert(jobs >= 4, "expected the workflow jobs to be found, saw " .. jobs)
 end
 test_every_build_job_is_containerised()
+
+-- One distinct `options:` across every containerised lane, by the same
+-- argument as the image: copies are only a per-lane pin if they agree.
+-- Checked as the whole line rather than as a `--privileged` substring,
+-- so a flag added to one lane and not the others fails here too.
+local function test_one_container_options_across_every_workflow()
+  local seen: {string: string} = {}
+  local jobs = containerised_jobs()
+  for _, job in ipairs(jobs) do
+    seen[job.options] = seen[job.options] or (job.where .. " (" .. job.name .. ")")
+  end
+  local distinct: {string} = {}
+  for options, where in pairs(seen) do
+    distinct[#distinct + 1] = where .. "  options: " .. options
+  end
+  table.sort(distinct)
+  assert(#jobs > 1, "expected several containerised lanes, saw " .. #jobs)
+  assert(#distinct == 1,
+    "every containerised lane must declare the SAME container options; " ..
+    "a lane on different options is a lane testing a different " ..
+    "environment. Found " .. #distinct .. ":\n  " ..
+    table.concat(distinct, "\n  "))
+end
+test_one_container_options_across_every_workflow()
+
+-- And those options grant the privilege the sandbox tests need. Without
+-- it Landlock cannot enforce, `_cli/fence_test.tl`'s denial assertion
+-- takes its no-Landlock path, and the quicksand tests cannot unshare or
+-- mount — so the lane goes green having tested nothing it exists for.
+local function test_the_container_is_privileged()
+  for _, job in ipairs(containerised_jobs()) do
+    assert(job.options:find("--privileged", 1, true),
+      job.where .. ": job '" .. job.name .. "' runs unprivileged, so its " ..
+      "sandbox tests degrade to no-ops and report as passes: " ..
+      "options: " .. job.options)
+  end
+end
+test_the_container_is_privileged()
+
+-- Every containerised lane makes a non-root builder AND runs its build
+-- machinery as that user. Both halves, because either alone is the
+-- failure: a lane that creates `builder` and keeps running as root has
+-- a decorative pin, and `runuser` without the user is a lane that does
+-- not start. Root skips what it cannot restrict, and a gate reports an
+-- unannounced skip as a pass.
+local function test_every_containerised_job_drops_to_a_non_root_builder()
+  for _, job in ipairs(containerised_jobs()) do
+    assert(job.makes_a_builder, job.where .. ": job '" .. job.name ..
+      "' declares no non-root builder (`useradd … builder`), so it runs " ..
+      "as root and its enforcement tests skip rather than enforce")
+    assert(job.drops_to_builder, job.where .. ": job '" .. job.name ..
+      "' never drops to the builder (`runuser -u builder`), so the " ..
+      "identity it prepared is not the one the gate runs under")
+  end
+end
+test_every_containerised_job_drops_to_a_non_root_builder()
 
 print("all workflow ratchet tests passed")
