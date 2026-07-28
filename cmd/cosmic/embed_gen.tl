@@ -16,7 +16,8 @@
 ---   make             the graph engine, from the pinned cosmos zip
 ---   cosmic/_version.lua  the stamp `--version` prints
 ---   sys/**           the static `--help` text
----   skills/cosmic/** the guides `--docs` reads
+---   skills/cosmic/** the guides `--docs` reads, plus the generated
+---                    model.md rendered from `_make` itself
 ---
 --- and beside them, `base`: the bare `lua` from the pinned cosmos zip.
 --- Naming it is what makes the fixpoint converge. Without it `build`
@@ -436,6 +437,20 @@ local function generate(out: string): string
       return err
     end
   end
+  -- The model guide, from the TREE's `_make.model`: compiled rather
+  -- than required, for the reason that module's header gives.
+  local mcode = require("cosmic.teal").compile_cached("_make/model.tl")
+  local mchunk = mcode and load(mcode, "@_make/model.tl")
+  if not mchunk then
+    return "_make/model.tl: cannot compile or load"
+  end
+  -- cast: from any
+  local model = mchunk() as {string: function(string): (boolean, string)}
+  local wrote, wrote_err = model.write(dest)
+  if not wrote then
+    return wrote_err
+  end
+
   local vok, verr = write_version(dest)
   if not vok then
     return verr

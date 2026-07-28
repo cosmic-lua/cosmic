@@ -22,27 +22,12 @@ replaced it outright.
 
 ## Verbs
 
-| verb | what it does | today |
-|---|---|---|
-| `build` | compile the tree, then stage + embed → `o/bin/<name>` | ✅ |
-| `check` | strict type-check (warnings are errors), in process | ✅ |
-| `fmt` | formatting over every `.tl`; `--fix` rewrites | ✅ |
-| `lint` | style: file length, cast justifications, test order | ✅ |
-| `test` | run `*_test.tl` and report | ✅ |
-| `example` | run `Example_*` functions and check their output | ✅ |
-| `benchmark` | run every `*_benchmark.tl` | ✅ |
-| `coverage` | tests + line coverage, ratcheted against `.cosmic-coverage` | ✅ |
-| `docs` | extract the doc index | ✅ |
-| `ci` | fmt, check, test, example, lint, coverage — the gate | ✅ |
-| `clean` | remove `o/`, sparing `o/bootstrap` | ✅ |
-| `fetch` | resolve `*_pin.tl` — the only verb with a network | ✅ |
-| `help` | list the verbs, and which are still planned | ✅ |
-| `run` | build, then exec the artifact | planned |
-| `enforce` | rerun the sandbox tests unsandboxed, where a skip fails | planned |
-| `reproducible` `offline` | policy lanes over the graph | planned |
+the verbs, what each does, and which are still planned are GENERATED
+from the registry the dispatcher is built from — read them with
+`cosmic --docs guide.model`. `cosmic --make help` prints the names the
+same way. neither can go stale, because neither is written twice.
 
-`cosmic --make help` prints this list, split the same way; it is the
-one that cannot go stale.
+
 
 every verb ends in a machine-readable verdict line and an exit code:
 
@@ -259,22 +244,15 @@ without it cosmic would never see the line at all.
 
 ## The project model
 
-| marker | declares |
-|---|---|
-| `<dir>/*.tl`, `<dir>/*.lua` | a package — compiled, checked, formatted |
-| `main.tl` at the root | the project's binary |
-| `cmd/<name>/main.tl` | one binary per subdirectory |
-| `*_test.tl` | a test |
-| `*_example.tl` | an example |
-| `*.d.tl` | type-only; on the include path, never embedded |
-| `*_pin.tl` | a pinned external asset |
-| `*_benchmark.tl` | a benchmark |
-| `*_gen.tl` | a generation unit — runs BEFORE the graph, writes inputs |
-| `cmd/<name>/embed_gen.tl` | a binary's payload generator — runs AFTER |
-| `embed/**` | payload, staged at the artifact root |
-| `testdata/` | test fixtures; never embedded |
-| `_<dir>/` | internal: importable only from within its container |
-| everything else | an ordinary part of the project; never embedded |
+what each marker declares, and whether an artifact carries it, is
+GENERATED from `_make` itself: the kind is the tree's own
+`project.classify` answering about a path of that shape, and the ships
+column is the `ships` table the artifact builder reads. read it with
+`cosmic --docs guide.model`.
+
+it is not restated here on purpose. this file taught a row D15 had
+deleted, in four places, for three review rounds — a table nobody
+writes cannot disagree with the build.
 
 **import path = path relative to the root**, `/` → `.`, extension
 dropped. `pkg/db.tl` is `require("pkg.db")`; `pkg/init.tl` is
