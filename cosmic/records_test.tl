@@ -28,6 +28,25 @@ local function test_display_names_the_source()
 end
 test_display_names_the_source()
 
+-- The label is not a path. `display` keeps `.coverage/` so the row says
+-- which run produced it, and nothing is on disk at that name -- so a
+-- caller that READS the source needs the segment gone. Reading the
+-- label instead is indistinguishable from an absent file, which is how
+-- every coverage row came to report zero test functions.
+local function test_source_of_names_a_readable_path()
+  assert(records.source_of("o/.coverage/cosmic/sys_test.tl.test") ==
+    "cosmic/sys_test.tl", "the coverage tree is not part of the path")
+  assert(records.source_of("o/cosmic/sys_test.tl.test") ==
+    "cosmic/sys_test.tl", "and the two lanes name the same source")
+  -- Only a LEADING segment, and only the whole one: a project may have
+  -- its own directory whose name starts the same way.
+  assert(records.source_of("o/.coveragex/a_test.tl.test") ==
+    ".coveragex/a_test.tl", "a different directory keeps its name")
+  assert(records.source_of("o/a/.coverage/b_test.tl.test") ==
+    "a/.coverage/b_test.tl", "and the segment is stripped only at the root")
+end
+test_source_of_names_a_readable_path()
+
 -- `.test` must not strip out of `.benchmark`, which contains no `.test`
 -- but shares its shape closely enough to be worth pinning.
 local function test_stage_of_reads_the_suffix()

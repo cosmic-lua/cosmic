@@ -156,7 +156,7 @@ local function run(argv: {string}, output_base: string): integer
   local test_names: {string} = {}
   local stage = records.stage_of(output_base)
   if stage == "test" or stage == "coverage" then
-    local src = fs.read(records.display(output_base))
+    local src = fs.read(records.source_of(output_base))
     if src then
       for line in string.gmatch(src, "[^\n]+") do
         local tname = line:match("^local function (test_[%w_]+)")
