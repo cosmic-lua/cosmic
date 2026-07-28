@@ -82,7 +82,11 @@ local function is_function_block_opener(line_items: {Item}, func_idx: integer,
       end
     elseif paren_depth > 0 then
       -- Inside balanced parens; skip
-    elseif item.tk == ":" or item.tk == "as" then
+    elseif item.tk == ":" or item.tk == "as" or item.tk == "is" then
+      -- All three put what follows in type position. `is` matters as
+      -- much as `as`: `x is function` is a runtime type test, and
+      -- reading its `function` as a definition indents everything
+      -- after the line into a body no `end` ever closes.
       return false
     elseif item.tk == "=" or item.tk == "," then
       return true
@@ -134,6 +138,17 @@ end
 local function mark_function_type(line_items: {Item}, idx: integer,
     type_ctx: {integer: boolean})
   type_ctx[idx] = true
+  -- A bare `function` type -- `x is function`, `(loader as function)()`
+  -- -- is the whole type by itself. Marking on past it would claim the
+  -- line's own code tokens: the `)` closing the enclosing call gets
+  -- marked away while its `(` was counted as an opener, banking the
+  -- same phantom level a false block opener does. A parameter list
+  -- (`function(`) or a generic prefix (`function<T>(`) is what says
+  -- more of the line belongs to the type.
+  local nxt = line_items[idx + 1]
+  if not (nxt and (nxt.tk == "(" or nxt.tk == "<")) then
+    return
+  end
   local depth = 0
   local j = idx + 1
   while j <= #line_items do

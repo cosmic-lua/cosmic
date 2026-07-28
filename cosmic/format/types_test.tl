@@ -258,4 +258,78 @@ local function test_as_keeps_its_space_before_a_parenthesized_type()
 end
 test_as_keeps_its_space_before_a_parenthesized_type()
 
+-- `function` in type position after the `is` operator. The backward
+-- scan knew `:` and `as` put what follows in type position, but not
+-- `is` -- so `x is function` read as a definition, consumed the real
+-- `end`s, and every construct after it indented one level deeper, to
+-- the end of the file. The damage compounds per occurrence, and the
+-- gate passes on it: the output is idempotent, so `--check fmt`
+-- re-blesses its own block model every run.
+local function test_is_function_is_a_type_not_a_definition()
+  local src = "local function f(): any\n" ..
+  "  return 1\n" ..
+  "end\n" ..
+  "local x = f()\n" ..
+  "assert(x is function, \"a function\")\n" ..
+  "local y = 1\n" ..
+  "print(y)\n" ..
+  "return y\n"
+  assert_format(src, src, "`is function` opens no block", "test.tl")
+
+  -- The cascade is one level PER occurrence, so two adjacent lines
+  -- must leave the level untouched twice.
+  local twice = "local x = 1 as any\n" ..
+  "assert(x is function, \"one\")\n" ..
+  "assert(x is function, \"two\")\n" ..
+  "return x\n"
+  assert_format(twice, twice, "two `is function` lines bank no levels",
+    "test.tl")
+end
+test_is_function_is_a_type_not_a_definition()
+
+-- A bare `function` type is the whole type by itself. Marking past the
+-- keyword claims the enclosing call's own tokens: its `)` is marked
+-- away as type while its `(` was counted as an opener, which banks the
+-- same phantom level a false block opener does.
+local function test_a_bare_function_type_claims_nothing_after_it()
+  local src = "local x = 1 as any\n" ..
+  "assert((x as function) == x, \"still x\")\n" ..
+  "local y = 1\n" ..
+  "return y\n"
+  assert_format(src, src, "`as function` inside a call claims only itself",
+    "test.tl")
+end
+test_a_bare_function_type_claims_nothing_after_it()
+
+-- A GENERIC function type that wraps: `function<T>(a,` puts `<`, not
+-- `(`, after the keyword. Calling that a bare type stops the marking
+-- before the `(`, so the open bracket never joins the carried depth
+-- and the continuation line reads its own `function` as a definition.
+-- `cosmic/fs/walk.tl`'s walk_tree is the shape in the tree.
+local function test_a_generic_function_type_still_carries_its_wrap()
+  local src = "local walk: function<T>(string,\n" ..
+  "function(string, T): boolean, T): boolean\n" ..
+  "local n = 1\n" ..
+  "return walk, n\n"
+  assert_format(src, src, "a wrapped generic function type carries",
+    "test.tl")
+end
+test_a_generic_function_type_still_carries_its_wrap()
+
+-- The workaround shape from the issue this pins: a named
+-- `function(): T` alias, discriminated with `type()` and cast. It must
+-- stay format-clean alongside the direct `is function` it replaced.
+local function test_a_function_type_alias_still_opens_no_block()
+  local src = "local type Loader = function(): any\n" ..
+  "local function loader_of(got: any): Loader | nil\n" ..
+  "  if type(got) ~= \"function\" then\n" ..
+  "    return nil\n" ..
+  "  end\n" ..
+  "  return got as Loader\n" ..
+  "end\n" ..
+  "return loader_of\n"
+  assert_format(src, src, "a `function(): T` alias opens no block", "test.tl")
+end
+test_a_function_type_alias_still_opens_no_block()
+
 print("all format type-position tests passed")
