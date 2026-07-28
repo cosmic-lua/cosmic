@@ -361,46 +361,47 @@ local function test_the_real_payload_generator()
 end
 test_the_real_payload_generator()
 
--- A generator's helpers come from the TREE, in ONE build.
+-- A generator's helpers come from the TREE, even when the BINARY ships
+-- a module by that name.
 --
--- The failure this closes: a generator resolved its own imports out of
--- the running binary, so a helper that the binary also embedded was a
--- generation behind. Editing it took two full builds to take effect and
--- the first one reported PASS. The mini-graph -- compile the
--- generator's closure, hand it a manifest -- is what makes one build
--- enough. See docs/design/make/resolution.md.
+-- The collision is the whole test. A generator used to resolve its own
+-- imports out of the running binary, so a helper the artifact also
+-- embedded was a generation behind -- and a fixture module with a name
+-- cosmic does not ship can only ever come from the tree, before the fix
+-- as much as after. An earlier version of this test used `helper`,
+-- which is exactly that shape: it passed against a pre-change binary,
+-- so it proved nothing about the thing it was named for.
+--
+-- `_make/imports` collides with a module the artifact carries. Verified
+-- both ways by hand: a pre-change binary answers ZIP here, this one
+-- answers TREE.
+--
+-- `.lua` on both sides, and that is not incidental. The artifact ships
+-- `.tl/**` beside its compiled modules, so a `.tl` generator importing
+-- a colliding name resolves the TYPE from the binary too and fails to
+-- compile before it can run. That is the same shadowing one layer up,
+-- and it is why the runtime question needs a file with no types.
 local function test_a_generator_reads_its_helpers_from_the_tree()
-  local root = fixture("closure", {
-      ["helper.tl"] = 'local record H\n  mark: function(): string\nend\n'
-      .. 'local h: H = {mark = function(): string return "FIRST" end}\n'
-      .. 'return h\n',
-      ["thing_gen.tl"] = 'local helper = require("helper")\n'
+  local root = fixture("shadow", {
+      ["_make/imports.lua"] = 'return {mark = function() return "TREE" end}\n',
+      ["thing_gen.lua"] = 'local imports = require("_make.imports")\n'
       .. 'local fs = require("cosmic.fs")\n'
-      .. 'fs.write(fs.join(arg[1], "out.txt"), helper.mark())\n',
+      .. "local ok, mark = pcall(function() return imports.mark() end)\n"
+      .. 'fs.write(fs.join(arg[1], "out.txt"), (ok and mark) or "ZIP")\n',
     })
-  local made = fs.join(root, "o", "thing_gen", "out.txt")
-
-  local function build(): string
-    local h = check.must(spawn.spawn({cosmic, "--make", "build"},
-        {cwd = root, env = {"PATH=" .. (os.getenv("PATH") or ""),
-            "HOME=" .. root, "TMPDIR=" .. tmpdir, "NO_COLOR=1"}}))
-    local r = check.must(h:wait())
-    assert(r.code == 0, "the fixture must build: " ..
-      (r.stdout or "") .. (r.stderr or ""))
-    local text = check.must(fs.read(made))
-    return text
-  end
-
-  assert(build() == "FIRST", "the generator runs its own helper")
-
-  -- One edit, one build. Two would mean the generator ran the previous
-  -- generation's helper, which is exactly the bug.
-  assert(fs.write(fs.join(root, "helper.tl"),
-      "local record H\n  mark: function(): string\nend\n" ..
-      'local h: H = {mark = function(): string return "SECOND" end}\n' ..
-      "return h\n"))
-  assert(build() == "SECOND",
-    "one build must be enough for a generator's helper to take effect")
+  -- A fixture project does not claim the `cosmic` namespace, so it does
+  -- not converge: this is ONE pass, and a second could not hide a stale
+  -- first one.
+  local h = check.must(spawn.spawn({cosmic, "--make", "build"},
+      {cwd = root, env = {"PATH=" .. (os.getenv("PATH") or ""),
+          "HOME=" .. root, "TMPDIR=" .. tmpdir, "NO_COLOR=1"}}))
+  local r = check.must(h:wait())
+  assert(r.code == 0, "the fixture must build: " ..
+    (r.stdout or "") .. (r.stderr or ""))
+  local got = check.must(fs.read(fs.join(root, "o/thing_gen/out.txt")))
+  assert(got == "TREE",
+    "a generator's helper must come from the tree, not the binary; got: "
+    .. got)
 end
 test_a_generator_reads_its_helpers_from_the_tree()
 

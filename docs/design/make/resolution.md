@@ -47,11 +47,14 @@ $ o/bin/cosmic --make build && head -2 o/_types/types_gen/cosmo.d.tl
 -- GENERATED-MARKER-XYZ from cosmopolitan's definitions.lua by …         # second build
 ```
 
-Two full builds for a one-line change to a generator's helper, and the
-first one reports `build: PASS`. This is the fixpoint
-([converge](../../../_make/converge.tl)) and the release loop's second
-`--make build` earning their keep — but they are covering for
-resolution, not for anything intrinsic.
+The first pass produces stale output and reports `build: PASS`. Nobody
+had to type the command twice, and saying so was the imprecise part of
+this analysis before the measurement below: `--make build` in a project
+that builds its own toolchain SELF-converges, so the second pass came
+from [converge](../../../_make/converge.tl) re-execing into the binary
+it had just built. The cost was a wasted pass and a wrong pass-1
+output, not a second command — and converge was silently supplying the
+repair, which is the worst place for a repair to live.
 
 **A test never runs what the graph compiled.** The `deps_*` machinery
 computes each test's transitive closure as *built* paths, makes them
@@ -343,6 +346,42 @@ loop's second `--make build` stays with it. The expectation is that
 generation 2 stops changing bytes in the common case; that is a
 measurement to take after this lands, not a claim to make before.
 
+## The fixpoint, measured
+
+The measurement this chapter deferred, taken after landing. Same
+protocol both sides: warm to a tree-built binary, edit
+`_types/gentype_render.tl` (a generator's helper the artifact embeds),
+then pin **exactly one pass** with `COSMIC_MAKE_GEN=2` so converge
+cannot supply a second.
+
+| tree | output after one pass |
+|---|---|
+| `a6688d7`, before | `-- GENERATED from …` — **stale** |
+| `b39d961`, after | `-- FIXPOINT-PROBE from …` — **current** |
+
+And afterwards, a freely-converging build is one pass that changes
+**zero bytes**. So generation 2 no longer changes the answer.
+
+**Converge stays, and its trigger is unchanged**: re-exec when the built
+artifact differs from the running binary. What changed is its ROLE. It
+was load-bearing for correctness — pass 1 could emit stale payload that
+pass 2 repaired — and it is now confirmation. The release loop's second
+`--make build` is a check rather than a requirement by the same
+argument.
+
+What still needs a second generation is the boundary this chapter
+already drew: code running INSIDE the gating binary before it spawns
+anything. The dispatcher, the artifact packer, and the `compile` step's
+own `cosmic.teal` all load from `/zip`, because a recipe step is a fresh
+cosmic with no manifest. Change one of those and pass 1 builds with the
+old one. That is why the cap is 2 rather than 1, and why it is not 1.
+
+**A note on measuring this.** The obvious experiment — clean build from
+the pin, hash, build again, hash — reports IDENTICAL on both sides and
+proves nothing. From a cold pin both sides converge by re-exec, so the
+end states agree and only the pass COUNT differs. Any future check here
+has to pin the generation.
+
 ## The gates
 
 Each claim above has a test, and each reads a
@@ -354,8 +393,12 @@ bytes ran" without trusting the thing under test to report on itself.
   require inside the project; `run` passes argv and the target's exit
   code through; a build spawned from a test resolves against *its own*
   root, never the outer one.
-- `_make/generate_test.tl` — edit a generator's helper, build **once**,
-  the output reflects it. Two builds would be the bug.
+- `_make/generate_test.tl` — a generator's helper whose import path
+  COLLIDES with one the binary embeds resolves to the tree. The
+  collision is the whole test: a fixture module with a name cosmic does
+  not ship can only ever come from the tree, so a fixture that does not
+  shadow passes before and after and proves nothing. Verified against
+  a pre-change binary, which answers `ZIP` where this answers `TREE`.
 - `cosmic/searcher_tree_test.tl` — the layers one at a time, plus the
   edges an end-to-end test cannot reach: a manifest with no root, a
   missing one, a closure entry naming a file that is not there (loud,
@@ -404,9 +447,7 @@ embedded copies; they are now measured against what the graph built.
   is the one sanctioned place a build reads the running binary's bytes
   instead of the tree's, and a silent sanctioned exception is how the
   rest of this chapter's failures got in.
-- **Whether the fixpoint shrinks.** The measurement this chapter said to
-  take after landing, not before. `converge` and the release loop's
-  second `--make build` are both still here.
+
 - **How deep a fenced build nests.** Found while writing the gates and
   recorded rather than dropped: a `--make` build run from a test that is
   itself run by a nested `--make test` — four levels of `record`, each
