@@ -150,16 +150,17 @@ local function closure_argv(proj: Project, gen: string, out: string,
   -- that child IS the process, so the mutation dies with it; called in
   -- process it would outlive the call and be inherited by every later
   -- child, which is a side effect nothing here asks for.
-  -- `os.getenv` rather than `cenv.get`, which erases the nil into its
-  -- default: an UNSET LUA_PATH and an empty one are different things to
-  -- Lua (default path versus no path), so restoring has to tell them
-  -- apart even though a build environment is unlikely to hold either.
-  local saved: string | nil = os.getenv("LUA_PATH")
+  -- Restoring has to tell an UNSET LUA_PATH from an empty one: to Lua
+  -- they are the default path and no path, which is why this branches on
+  -- nil rather than on "". `cenv.get` says so in its type since #834;
+  -- before that it erased the nil into its default and this line had to
+  -- reach past it to `os.getenv`.
+  local saved = cenv.get("LUA_PATH")
   local function restore()
     if saved == nil then
       cenv.unset("LUA_PATH")
     else
-      cenv.set("LUA_PATH", saved as string) -- cast: nil ruled out above
+      cenv.set("LUA_PATH", saved)
     end
   end
   for _, path in ipairs(built) do
