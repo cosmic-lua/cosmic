@@ -6,6 +6,7 @@
 -- itself is exercised end to end by every gate this repo runs.
 
 local check = require("cosmic.check")
+local cenv = require("cosmic.env")
 local converge = require("_make.converge")
 local fs = require("cosmic.fs")
 local project = require("_make.project")
@@ -115,3 +116,110 @@ local function test_the_probe_reads_the_answer()
     "and a path that is not a program is not an engine")
 end
 test_the_probe_reads_the_answer()
+
+-- The outcomes below are the ones that only happen when something has
+-- already gone wrong, which is why they need arranging rather than
+-- observing: `--make ci` in this repo takes the happy path every time.
+-- Untested, a regression in them is invisible until it strands a user
+-- mid-build -- and `not a fixpoint` is a TERMINATING condition, so its
+-- failure mode is an endless rebuild loop rather than an error.
+
+--- An executable `#!/bin/sh` script at `path`.
+local function script(path: string, body: string): string
+  assert(fs.makedirs(fs.dirname(path)))
+  assert(fs.write(path, "#!/bin/sh\n" .. body))
+  assert(fs.chmod(path, tonumber("755", 8) as integer)) -- cast: octal literal
+  return path
+end
+
+--- A scratch directory that is a project root and a working directory.
+local function scratch(name: string): string
+  local dir = fs.join(tmpdir, "converge-" .. name)
+  fs.rmrf(dir)
+  assert(fs.makedirs(dir))
+  return dir
+end
+
+--- `to_the_tree` with `dir` as the working directory.
+---
+--- The outcome is a fact about a DIRECTORY: `o/bin/<name>` is resolved
+--- against the cwd, and the build runs there. The repo root already
+--- holds a real `o/bin/cosmic` and is the fixpoint, so each branch
+--- below gets a directory arranged for it.
+local function converge_in(dir: string, proj: types.Project,
+    self: string): boolean, string, string
+  local was = check.must(fs.getcwd())
+  assert(fs.chdir(dir))
+  local ok, err, why = converge.to_the_tree(proj, {"check"}, self)
+  assert(fs.chdir(was))
+  return ok, err, why
+end
+
+--- A project that declares a toolchain: `cosmic/` plus a `cosmic`.
+local function toolchain(name: string): types.Project
+  return scan(name, {
+      ["cmd/cosmic/main.tl"] = "print('x')\n",
+      ["cosmic/init.tl"] = "return {}\n",
+    })
+end
+
+-- A build that SUCCEEDS and produces nothing. Distinct from "build
+-- failed": the exit code says everything went fine, so the only
+-- evidence is the missing artifact, and without this branch the next
+-- step runs `same_file` against a path that is not there.
+local function test_a_build_that_makes_no_artifact_refuses()
+  local dir = scratch("no-artifact")
+  local self = script(fs.join(dir, "quiet"), "exit 0\n")
+  assert(not fs.isfile(fs.join(dir, "o/bin/cosmic")),
+    "the fixture must not start with an artifact")
+
+  local ok, err, why = converge_in(dir, toolchain("no-artifact-proj"), self)
+  assert(not ok, "a build that produced nothing must refuse")
+  assert(why == "no artifact",
+    "and name itself, got: " .. tostring(why))
+  assert(err:find("o/bin/cosmic", 1, true),
+    "naming the artifact it looked for, got: " .. err)
+end
+test_a_build_that_makes_no_artifact_refuses()
+
+-- The generation cap. This is the branch whose whole purpose is to fail
+-- loudly instead of spinning: the build keeps producing a DIFFERENT
+-- binary, so every generation re-execs into one that builds another.
+-- Reached by starting at the cap, which is what a third generation
+-- would inherit.
+local function test_a_build_that_never_settles_refuses()
+  local dir = scratch("no-fixpoint")
+  local self = script(fs.join(dir, "quiet"), "exit 0\n")
+  -- An artifact that exists and is not what is running, so the fixpoint
+  -- test below cannot fire and the cap is what answers.
+  assert(fs.makedirs(fs.join(dir, "o/bin")))
+  assert(fs.write(fs.join(dir, "o/bin/cosmic"), "not the running binary\n"))
+
+  cenv.set("COSMIC_MAKE_GEN", "2", true)
+  local ok, err, why = converge_in(dir, toolchain("no-fixpoint-proj"), self)
+  cenv.unset("COSMIC_MAKE_GEN")
+  assert(not ok, "a build that never settles must refuse")
+  assert(why == "not a fixpoint",
+    "and say which refusal it is, got: " .. tostring(why))
+  assert(err:find("still changed after", 1, true),
+    "saying the artifact kept moving, got: " .. err)
+end
+test_a_build_that_never_settles_refuses()
+
+-- And the branch that is NOT a refusal. A project that declares a
+-- toolchain by two ordinary names -- a `cosmic/` package and a `cosmic`
+-- binary -- but whose binary is not an engine carries on under the
+-- running one. Refusing here was the bug wearing a better name: every
+-- gate verb paid a full build and then failed, permanently, for a
+-- project whose only mistake was its naming.
+local function test_a_look_alike_toolchain_carries_on()
+  local dir = scratch("carry-on")
+  local self = script(fs.join(dir, "quiet"), "exit 0\n")
+  script(fs.join(dir, "o/bin/cosmic"),
+    "echo 'usage: mytool [options]'\nexit 0\n")
+
+  cenv.unset("COSMIC_MAKE_GEN")
+  local ok, err = converge_in(dir, toolchain("carry-on-proj"), self)
+  assert(ok, "a look-alike must not fail the gate: " .. tostring(err))
+end
+test_a_look_alike_toolchain_carries_on()
