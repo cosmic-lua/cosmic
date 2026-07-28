@@ -62,4 +62,4 @@ jobs:
           set -eux
           runuser -u builder -- env HOME="$HOME" PATH="$PATH" bash -ec '
             bin/cosmic --make docs
-            bin/cosmic _docs/publish.tl "'"$SOURCE_SHA"'" o/docs docs'
+            bin/cosmic --make run _docs/publish.tl "'"$SOURCE_SHA"'" o/docs docs'

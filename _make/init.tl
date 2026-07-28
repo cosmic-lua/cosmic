@@ -19,6 +19,7 @@ local converge = require("_make.converge")
 local help = require("_make.help")
 local law = require("_make.law")
 local project = require("_make.project")
+local runverb = require("_make.runverb")
 local artifact = require("_make.artifact")
 local check = require("_make.check")
 local clean = require("_make.clean")
@@ -251,7 +252,11 @@ local VERBS < const >: {Verb} = {
       -- cast: the registry defines it
       return run_against_stage(by_name("test") as Verb, proj, paths, cosmic)
     end},
-  {name = "run", planned = true},
+  -- `run` takes a PATH, never a binary name -- see _make.runverb.
+  {name = "run", passthrough = true,
+    run = function(proj: Project, paths: {string}, cosmic: string): integer
+      return runverb.run(proj, paths[1], cosmic, prepare_stage)
+    end},
   -- `docs` renders the API to markdown. Its file set comes from the
   -- model, so a directory added to the project is documented without
   -- anyone remembering to say so.
@@ -358,7 +363,18 @@ local function run(argv: {string}): integer
   local paths: {string} = {}
   baseline_wanted = false
   fix_wanted = false
-  for i = 2, #argv do
+  -- A passthrough verb's argv is its own; the split is its rule, over
+  -- in _make.runverb.
+  local passthrough = (INDEX[name] ~= nil and INDEX[name].passthrough) or false
+  if passthrough then
+    local target, terr = runverb.split(argv, 2)
+    if target == nil then
+      io.stderr:write(terr .. "\n")
+      return stage.verdict(name, false, "no target")
+    end
+    paths[1] = target as string -- cast: nil ruled out by the guard above
+  end
+  for i = 2, (passthrough and 1 or #argv) do
     if argv[i] == "--baseline" then
       baseline_wanted = true
     elseif argv[i] == "--fix" then

@@ -12,9 +12,13 @@
 
 local child = require("cosmic.child")
 local fs = require("cosmic.fs")
+local build = require("_cli.build")
+local modules = require("_cli.build.modules")
+local deps = require("_make.deps")
 local project = require("_make.project")
 local types = require("_make.types")
 
+local type File = types.File
 local type Project = types.Project
 
 --- A path with its extension removed.
@@ -29,6 +33,15 @@ local type Project = types.Project
 --- @return string The path without it
 local function stem_of(path: string): string
   return (path:gsub("%.tl$", ""):gsub("%.lua$", ""))
+end
+
+--- The source a built path came from: the graph's layout rule read
+--- backwards, the same inversion `_cli.build.modules` does for imports.
+--- @param built string A built path (`o/x/y.lua`)
+--- @return string The source path (`x/y.tl`)
+local function source_of(built: string): string
+  local rel = built:sub(#project.BUILD_DIR + 2)
+  return (rel:gsub("%.lua$", ".tl"))
 end
 
 --- Run one generator, handing it the output directory it owns.
@@ -46,6 +59,69 @@ end
 --- Safe only because the directory is the GENERATOR's -- `o/<its path
 --- minus extension>/` -- and holds nothing else. Handing a generator
 --- `o/<unit>/` and clearing that would delete the build.
+--- The mini-graph: compile a generator's import closure before running
+--- it, and hand it a manifest naming what it just built.
+---
+--- A generator runs BEFORE the graph, so it has nothing built to
+--- resolve through -- and until this existed it resolved its own
+--- helpers out of the RUNNING BINARY. `_types/types_gen.tl` is not
+--- embedded so it came from the tree, while `_types/gentype_render.tl`
+--- is, so it came from `/zip`: one generator, two generations of code,
+--- and a one-line edit to a helper took two full builds to take effect
+--- with the first reporting PASS. See docs/design/make/resolution.md.
+---
+--- A graph before the graph, and small: `_types/types_gen.tl`'s closure
+--- is 20 files of this repo's 375. It also does not deadlock on itself
+--- -- strict-compiling a generator that produces the `cosmo.*`
+--- declarations succeeds with `o/_types/types_gen/` absent, because the
+--- include path falls back to the bundled `/zip/.types`. That fallback
+--- is the one place a build reads the running binary's bytes on
+--- purpose.
+--- @param proj Project The scanned project
+--- @param gen string The generator's path, relative to the root
+--- @param out string The generator's own output base for the manifest
+--- @param cosmic string Absolute path to the cosmic binary
+--- @return {string} The `--modules` argv fragment (empty when unavailable)
+local function closure_argv(proj: Project, gen: string, out: string,
+    cosmic: string): {string}
+  local self: File | nil = nil
+  for _, f in ipairs(proj.files) do
+    if f.path == gen then
+      self = f
+    end
+  end
+  if not (self is File) then
+    return {}
+  end
+  -- cast: narrowing does not survive the guard above
+  local files = deps.closure(proj, self as File, deps.index(proj))
+  local built = deps.built_paths(files)
+  if #built == 0 then
+    return {}
+  end
+  for _, path in ipairs(built) do
+    local src = source_of(path)
+    if fs.isfile(fs.join(proj.root, src)) then
+      -- The graph's own compile step, called directly rather than
+      -- reimplemented: it is one strict compile with the
+      -- write-only-when-changed contract, so a generator whose closure
+      -- did not move costs a hash and no work. Going through
+      -- `--compile-strict --output` instead would be a SECOND spelling
+      -- of the same step, and that one writes to stdout unless both
+      -- flags are given -- a difference nothing would have caught.
+      if build.dispatch("compile", {cosmic, src, path,
+          "--include-dir", "."}) ~= 0 then
+        return {}
+      end
+    end
+  end
+  local manifest = modules.write(out, proj.root, built)
+  if manifest == nil then
+    return {}
+  end
+  return {"--modules", manifest as string} -- cast: nil ruled out above
+end
+
 --- @param proj Project The scanned project
 --- @param gen string The generator's path, relative to the root
 --- @param dest string The output directory it owns, relative to the root
@@ -67,7 +143,13 @@ local function run_generator(proj: Project, gen: string, dest: string,
     (merr or "unknown error")
   end
   io.write("generate " .. gen .. "\n")
-  local r, rerr = child.run({cosmic, gen, dest},
+  local argv: {string} = {cosmic}
+  for _, a in ipairs(closure_argv(proj, gen, at, cosmic)) do
+    argv[#argv + 1] = a
+  end
+  argv[#argv + 1] = gen
+  argv[#argv + 1] = dest
+  local r, rerr = child.run(argv,
     {stdout = "inherit", stderr = "inherit"})
   if not (r is child.Result) then
     return false, "make: " .. gen .. ": " .. (rerr or "unknown error")

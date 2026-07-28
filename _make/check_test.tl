@@ -213,7 +213,15 @@ local function test_verb_vocabulary()
     unknown.err:find("check", 1, true),
     "an unknown verb must list the verbs that exist, got: " .. unknown.err)
 
-  local planned = make(root, "run")
+  -- `run` is implemented and takes a PATH. Bare, it must say what it
+  -- wants rather than run the whole project or do nothing: a verb whose
+  -- argument is the thing it acts on has no whole-project reading.
+  local bare = make(root, "run")
+  assert(bare.code == 1, "run with no target must fail")
+  assert(bare.err:find("run needs a path", 1, true), "got: " .. bare.err)
+
+  -- `enforce` carries the planned-verb contract now that `run` does not.
+  local planned = make(root, "enforce")
   assert(planned.code == 1, "an unimplemented verb must fail")
   assert(planned.err:find("planned but not implemented yet", 1, true),
     "got: " .. planned.err)

@@ -29,6 +29,7 @@ local binaries = require("_make.binaries")
 local check = require("_make.check")
 local docs = require("_make.docs")
 local project = require("_make.project")
+local runverb = require("_make.runverb")
 local selection = require("_make.select")
 local stage = require("_make.stage")
 local types = require("_make.types")
@@ -78,6 +79,7 @@ local RESOLVERS < const >: {string: function(Project, {string}): boolean, string
     end
     return true, ""
   end,
+  run = runverb.resolve,
   docs = function(proj: Project, paths: {string}): boolean, string
     local picked, err = selection.files(project.of_kind(proj, docs.KINDS),
       paths, proj.root)

@@ -46,7 +46,7 @@
 --- `acquire_teal`), which erases the module's own type.
 local record TealSearch
   search_module: function(module_name: string): string | nil
-  compile_cached: function(input_path: string): string | nil, string
+  compile_cached: function(input_path: string, strict?: boolean): string | nil, string
 end
 
 --- cosmic.teal, or nil in an artifact that carries no Teal compiler.
@@ -124,14 +124,226 @@ local function install()
   table.insert(package.searchers, cosmic_tl_searcher)
 end
 
+--- ## In-project resolution
+---
+--- Everything above answers "the tree has a `.tl` and nothing else
+--- does". What follows answers a different question, and it is the one
+--- `docs/design/make/resolution.md` is about: **in a project, the tree
+--- answers; outside one, the binary does.**
+---
+--- The searcher above is APPENDED, so `/zip/**` — the running binary's
+--- own payload — wins every import the artifact happens to embed. For
+--- an artifact running as itself that is exactly right. For a child the
+--- build spawned inside a project it is not: a test then tests the
+--- binary's modules rather than the tree's, and a generator runs its own
+--- helpers from the previous generation. The one installed here is
+--- INSERTED ahead of the default file searcher instead, so the tree
+--- outranks the zip.
+---
+--- It activates only when the engine hands it a manifest, and the
+--- manifest travels in argv (`--modules`), never the environment: ten
+--- of this repo's own tests spawn a cosmic against a different project
+--- root, and an inherited path would answer their imports out of THIS
+--- tree while they build something else. That is the ambient-export
+--- bug class the old build fought and it is why there is no env var.
+
+--- Absolute project root, or nil when no manifest was installed.
+local tree_root: string | nil = nil
+
+--- import path -> built file, from the manifest's closure.
+local tree_map: {string: string} = {}
+
+--- The project's build directory, relative to the root.
+local tree_build: string = "o"
+
+--- Re-entrancy guard for the compile path below.
+---
+--- Resolving a module the closure does not name means compiling it, and
+--- compiling means `require("cosmic.teal")`. If THAT require came back
+--- through here it would recurse forever. While the guard is up this
+--- searcher misses, so the compiler is loaded from the closure or from
+--- `/zip` — never through itself.
+local compiling = false
+
+--- Load a file the graph already built.
+--- @param path string The built `.lua` path
+--- @param name string The module name, for the error
+--- @return any A loader function
+--- @return any The filename (loader data)
+local function load_built(path: string, name: string): any, any
+  local chunk, lerr = loadfile(path)
+  if not chunk then
+    error("error loading module '" .. name .. "' from '" .. path
+      .. "': " .. tostring(lerr), 0)
+  end
+  return chunk, path
+end
+
+--- Compile a source in the project tree and load it.
+---
+--- STRICT, and the two halves of what that means are both deliberate.
+--- Type errors fail the require: a module that does not type-check is
+--- not one to run, and this is the layer that keeps a tree-first
+--- resolution from being a downgrade from the binary's checked bytes.
+--- Warnings do NOT fail it: werror is `--check types`'s contract, and
+--- inheriting it here turns a shadowed local into a runtime failure of
+--- whatever happened to require the file first. The gate stays the gate.
+--- @param path string The source path
+--- @param name string The module name, for the error
+--- @return any A loader function
+--- @return any The filename (loader data)
+local function compile_tree(path: string, name: string): any, any
+  compiling = true
+  local teal = acquire_teal()
+  if not (teal is TealSearch) then
+    compiling = false
+    return "no Teal compiler in this artifact for '" .. name .. "'"
+  end
+  local code, cerr = teal.compile_cached(path, true)
+  compiling = false
+  if not code then
+    error("error loading module '" .. name .. "' from '" .. path
+      .. "':\n" .. cerr, 0)
+  end
+  local lua_code = code as string -- cast: nil ruled out by the guard above
+  if lua_code:sub(1, 2) == "#!" then
+    lua_code = "--" .. lua_code:sub(3)
+  end
+  local chunk, lerr = load(lua_code, "@" .. path)
+  if not chunk then
+    error("error loading module '" .. name .. "': " .. tostring(lerr), 0)
+  end
+  return chunk, path
+end
+
+--- Does this path name a readable file? `io.open` rather than
+--- `cosmic.fs`, because this runs before the tree can answer for
+--- `cosmic.fs` itself.
+--- @param path string The path to test
+--- @return boolean
+local function readable(path: string): boolean
+  local f = io.open(path, "r")
+  if not f then
+    return false
+  end
+  f:close()
+  return true
+end
+
+--- The in-project searcher: closure, then the build directory, then
+--- source.
+---
+--- All three are the same answer at different costs, which is what lets
+--- the rule stay one sentence.
+---
+--- 1. **The closure** the manifest names. Exactly what this target
+---    depends on, and make made those files before this process
+---    started, so it is both a cache and a freshness guarantee.
+--- 2. **The build directory.** Every verb that runs the project's own
+---    code compiles the whole tree first (`prepare_stage`), so
+---    `o/<path>.lua` is there and current for imports outside this
+---    target's closure — the dispatcher's own modules, in a child the
+---    build spawned. Without this step they were strict-compiled per
+---    child instead: measured at 2.3 s for one probe test against 5 ms.
+---    The freshness this leans on is the same the closure leans on;
+---    a manifest pointed by hand at a `o/` nobody built is outside it.
+--- 3. **Source**, strict-compiled. What covers a COMPUTED require:
+---    `require(name)` with a runtime string is invisible to the import
+---    scanner, so no closure names it and the graph may not have built
+---    it. `_perf`'s scenario modules load exactly that way.
+--- @param module_name string Module name as passed to require()
+--- @return any A loader function, or a string describing the miss
+--- @return any The found filename (loader data)
+local function tree_searcher(module_name: string): any, any
+  local built = tree_map[module_name]
+  if built ~= nil then
+    return load_built(built, module_name)
+  end
+  if tree_root == nil then
+    return "no project manifest for '" .. module_name .. "'"
+  end
+  local rel = (module_name:gsub("%.", "/"))
+  for _, suffix in ipairs({".lua", "/init.lua"}) do
+    local path = tree_root .. "/" .. tree_build .. "/" .. rel .. suffix
+    if readable(path) then
+      return load_built(path, module_name)
+    end
+  end
+  if compiling then
+    return "compiler bootstrap in progress: '" .. module_name .. "'"
+  end
+  for _, suffix in ipairs({".tl", "/init.tl"}) do
+    local path = tree_root .. "/" .. rel .. suffix
+    if readable(path) then
+      return compile_tree(path, module_name)
+    end
+  end
+  return "no source in the project tree for '" .. module_name .. "'"
+end
+
+--- Read a manifest and install the in-project searcher.
+---
+--- The manifest is written by the engine into its own output directory
+--- and named on the child's command line. Two line kinds, so a reader
+--- never has to infer one from the other:
+---
+---     root <absolute project root>
+---     build <build directory, relative to the root>
+---     mod <import.path> <built file>
+---
+--- Inserted at index 2 — after `package.preload`, ahead of the default
+--- file searcher — because beating `/zip` is the entire point. Silent
+--- when the manifest cannot be read: a child with no manifest is an
+--- ordinary cosmic, which is what a hand-run script is.
+--- @param path string Path to the manifest file
+--- @return boolean Whether a manifest was read and installed
+local function install_tree(path: string): boolean
+  if not package.searchers then
+    return false
+  end
+  local f = io.open(path, "r")
+  if not f then
+    return false
+  end
+  local root: string | nil = nil
+  local build: string | nil = nil
+  local map: {string: string} = {}
+  for line in f:lines() do
+    local kind, rest = line:match("^(%S+)%s+(.*)$")
+    if kind == "root" then
+      root = rest
+    elseif kind == "build" then
+      build = rest
+    elseif kind == "mod" then
+      local name, file = rest:match("^(%S+)%s+(%S+)$")
+      if name then
+        map[name] = file
+      end
+    end
+  end
+  f:close()
+  if root == nil then
+    return false
+  end
+  tree_root = root
+  tree_build = build or tree_build
+  tree_map = map
+  table.insert(package.searchers, 2, tree_searcher)
+  return true
+end
+
 local record SearcherModule
   install: function()
+  install_tree: function(path: string): boolean
   searcher: function(module_name: string): any, any
+  tree: function(module_name: string): any, any
 end
 
 local M: SearcherModule = {
   install = install,
+  install_tree = install_tree,
   searcher = cosmic_tl_searcher,
+  tree = tree_searcher,
 }
 
 return M

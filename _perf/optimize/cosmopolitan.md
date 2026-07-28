@@ -59,7 +59,7 @@ BENCH=$(ls _perf/bench/*_bench.tl | sed 's|/|.|g;s|\.tl$||')
    bin/cosmic --make build          # o/bin/cosmic now runs on YOUR lua
 
    BIN=o/bin/cosmic
-   $BIN -- o/_perf/run.lua --out o/perf/baseline.json $BENCH
+   $BIN --make run _perf/run.tl --out o/perf/baseline.json $BENCH
    ```
 
    `cp o/3p/cosmos/lua.pinned o/3p/cosmos/lua && bin/cosmic --make
@@ -94,8 +94,8 @@ BENCH=$(ls _perf/bench/*_bench.tl | sed 's|/|.|g;s|\.tl$||')
    # re-embed onto the new lua, measure, compare
    cp $COSMO/o/tool/lua/lua o/3p/cosmos/lua
    bin/cosmic --make build
-   $BIN -- o/_perf/run.lua --out o/perf/current.json $BENCH
-   $BIN -- o/_perf/run.lua --compare o/perf/baseline.json o/perf/current.json
+   $BIN --make run _perf/run.tl --out o/perf/current.json $BENCH
+   $BIN --make run _perf/run.tl --compare o/perf/baseline.json o/perf/current.json
    ```
 
 6. **decide** with the same rules as the main loop: target scenario
@@ -125,7 +125,7 @@ two-repo dance — but only AFTER the local loop already proved the win:
 2. once merged, the release workflow publishes a new cosmos release
    tagged `YYYY.MM.DD-<sha>` with a `cosmos.zip` + SHA256SUMS.
 3. in cosmic: bump `3p/cosmos/cosmos_pin.tl` (version + sha256), then
-   `cosmic _types/gentype.tl`, fix any wrapper breakage, `--make ci`, and
+   `cosmic --make run _types/gentype.tl`, fix any wrapper breakage, `--make ci`, and
    a `--compare` against a baseline taken on the OLD pin —
    this final compare is the end-to-end confirmation, quoted in the
    bump commit.

@@ -8,7 +8,7 @@ about run time, and nothing else in the design is either — so what a
 spawned child actually loads is whatever `package.path` happens to say.
 Measured, it is never the thing the build just produced.
 
-## What happens today
+## What happened before this landed
 
 `package.path` inside any cosmic artifact, in order:
 
@@ -97,15 +97,18 @@ and never loaded. `_perf/OPTIMIZE.md` already warns that a benchmark
 "cannot tell you it read the wrong subject"; this is that trap one
 level down, below where naming `$BIN` can reach.
 
-**And there is no escape hatch.** The old Makefile had one —
-`tree_lua_path`, an opt-in `LUA_PATH` per lane — and
-`cmd/cosmic/main.tl` still documents inserting the zip root "BEHIND
-anything `LUA_PATH` set … prepending outright would shadow an in-tree
-build with the binary's own copy". The generated entry wrapper
-(`cosmic/embed/init.tl`, `WRAP_MAIN`) prepends it unconditionally, one
-frame earlier, so `LUA_PATH` cannot reach ahead of `/zip` at all.
-`TREE_LUA_PATH` survives in `_cli/build/steps.tl` with nothing setting
-it.
+**And there was no escape hatch.** The old Makefile had one —
+`tree_lua_path`, an opt-in `LUA_PATH` per lane. `cmd/cosmic/main.tl`
+still documented inserting the zip root "BEHIND anything `LUA_PATH`
+set", but the generated entry wrapper (`cosmic/embed/init.tl`,
+`WRAP_MAIN`) prepends it unconditionally one frame earlier, so
+`LUA_PATH` could not reach ahead of `/zip` at all, and `TREE_LUA_PATH`
+survived in `_cli/build/steps.tl` with nothing setting it.
+
+That wrapper is **correct** and stays: an artifact answers for itself.
+Both pieces of dead intent went with this change — the comment and the
+`TREE_LUA_PATH` branch — because the channel is `--modules`, not the
+environment.
 
 ## The rule
 
@@ -115,23 +118,38 @@ Precedence for a child the engine spawns:
 
 1. the **build closure** — the exact files the graph produced for this
    target
-2. the rest of the **tree**, compiled strictly by `cosmic.searcher`
-3. the running binary's payload (`/zip/**`)
-4. cosmopolitan's own (`/zip/.lua/**`)
+2. the rest of the **build directory** — what the graph built for
+   imports outside this target's closure
+3. the rest of the **tree**, compiled strictly by `cosmic.searcher`
+4. the running binary's payload (`/zip/**`)
+5. cosmopolitan's own (`/zip/.lua/**`)
 
-Layers 1 and 2 are the same answer at different costs: the closure is
-what the graph already built, so it is a cache and a freshness
-guarantee, not a separate semantics. Deleting `o/` changes how long a
-require takes and not what it returns. That is what makes the rule one
-sentence instead of a table.
+Layers 1–3 are the same answer at different costs: 1 and 2 are what the
+graph already built, so they are a cache and a freshness guarantee, not
+a separate semantics. Deleting `o/` changes how long a require takes and
+not what it returns. That is what makes the rule one sentence instead of
+a table.
 
-**Layer 2 is strict**, and that is what earns it its position. A lax
+Layer 2 is not an optimisation anybody guessed at. Without it every
+child strict-compiled the dispatcher's own modules from source, because
+they are outside any single test's closure: **2.3 s for one probe test
+against 5 ms**, measured, and paid per child. Every verb that runs the
+project's own code compiles the whole tree first (`prepare_stage`), so
+the files are there and current; a manifest pointed by hand at an `o/`
+nobody built is outside the freshness the closure already assumes.
+
+**Layer 3 is strict**, and that is what earns it its position. A lax
 compile ahead of the binary's checked bytes would mean position
-deciding which of two compile modes you got; strict makes the two
-layers agree by construction, so "the tree wins" costs nothing but time.
-It also puts generators, tests, scripts and the artifact on one compile
-configuration, which `cosmic.teal`'s own doc comment already names as a
-goal.
+deciding which of two compile modes you got; strict makes the layers
+agree by construction, so "the tree wins" costs nothing but time.
+
+**Strict here means type errors, not warnings.** A module that does not
+type-check is not one to run, so a type error fails the `require` — that
+is the half that keeps tree-first from being a downgrade from the
+binary's already-checked bytes. Warnings pass. `werror` is `--check
+types`'s contract, and inheriting it would turn a shadowed local into a
+runtime failure of whatever happened to require the file first, in a
+project whose gate would have said so plainly. The gate stays the gate.
 
 An artifact running as *itself* keeps today's order exactly. That is
 not a compromise; it is the other half of the same rule. A built binary
@@ -165,6 +183,27 @@ all consequences of the design already in place:
   prerequisites are the map.
 - **already fenced** — the paths *are* the read grants, so resolution
   cannot reach what the fence denies.
+
+**The channel is `--modules <manifest>`.** `--deps` is stripped before
+the child is spawned (a test that read `arg[1]` would otherwise find its
+own dependency list there), so the closure reaches the child as a file
+written beside the step's own output — inside the write grant it already
+has — and named on the command line. Three line kinds:
+
+```
+root  <absolute project root>
+build <build directory, relative to the root>
+mod   <import.path> <built file>
+```
+
+The flag is scanned **by hand at the top of the dispatcher, before its
+first require**. A module already in `package.loaded` is never searched
+again, so anything required before the install would be pinned to the
+binary's copy whatever the manifest said — and a test of `_cli.args`
+would test `/zip`'s. `cosmic.searcher` is the one module that stays the
+binary's, which is why it reads the manifest with `io.open` rather than
+`cosmic.fs`: the pinned surface is exactly one module and nothing under
+it.
 
 **It travels in argv and does not inherit.** Ten `_make/*_test.tl`
 files spawn a cosmic against a *different* project root under `/tmp`.
@@ -201,7 +240,10 @@ closure to resolve through. The answer is a **mini-graph**: compile each
 generator's closure strictly into `o/` first, then run the generator
 against those built paths. Uniform with everything else — nothing the
 build runs is unchecked at the moment it runs — and `_make/generate.tl`
-already spawns these itself, so there is no recipe to change.
+already spawns these itself, so there is no recipe to change. The
+compile goes through the graph's own `compile` step rather than a second
+spelling of it; `--compile-strict --output` is that second spelling, and
+it writes to stdout unless *both* flags are given.
 
 Two measurements say the cost is affordable and the ordering works:
 
@@ -284,22 +326,34 @@ loop's second `--make build` stays with it. The expectation is that
 generation 2 stops changing bytes in the common case; that is a
 measurement to take after this lands, not a claim to make before.
 
-## How we would know it works
+## The gates
 
-- a fixture test asserting a test loads `o/**.lua`, not `./**.tl` —
-  the `debug.getinfo(f, "S").source` probe used throughout above
-- the split-brain ratchet: edit a generator's helper, build **once**,
-  assert the output reflects it
-- the computed-require case: edit `_perf/harness.tl` *and* a
-  `_perf/bench/*_bench.tl`, `--make run` once, assert both took effect —
-  the second is what layer 2 exists for and no closure names it
-- `_make/artifact_test.tl`'s existing shape, unchanged and still
-  passing: a built artifact resolves from its own zip and ignores an
-  ambient `LUA_PATH`
-- an inheritance ratchet: a fixture build spawned from a test resolves
-  against *its own* root, never this one
-- the second compile disappears — a test run stops writing to the
-  script cache
+Each claim above has a test, and each reads a
+`debug.getinfo(f, "S").source` — the only thing that answers "which
+bytes ran" without trusting the thing under test to report on itself.
+
+- `_make/resolution_test.tl` — a fixture project's test loads
+  `o/greet/init.lua`, not `./greet/init.tl`; `run` resolves a computed
+  require inside the project; `run` passes argv and the target's exit
+  code through; a build spawned from a test resolves against *its own*
+  root, never the outer one.
+- `_make/generate_test.tl` — edit a generator's helper, build **once**,
+  the output reflects it. Two builds would be the bug.
+- `cosmic/searcher_tree_test.tl` — the layers one at a time, plus the
+  edges an end-to-end test cannot reach: a manifest with no root, a
+  missing one, a closure entry naming a file that is not there (loud,
+  not a fall-through to `/zip`), a type error failing a require, and a
+  warning not failing one.
+- `_cli/build/modules_test.tl` — the manifest format, and the
+  build-directory constant agreeing with the model's.
+- `_make/artifact_test.tl`, unchanged and still passing: a built
+  artifact resolves from its own zip and ignores an ambient `LUA_PATH`.
+
+Note what moved in `.cosmic-coverage` and why: several files' *total*
+coverable lines changed without their sources changing
+(`_make/project.tl` 221 → 193, `cosmic/check.tl` 92 → 113). That is the
+change working. Those totals were measured against the binary's
+embedded copies; they are now measured against what the graph built.
 
 ## Settled
 
@@ -318,23 +372,21 @@ measurement to take after this lands, not a claim to make before.
 
 ## Open
 
-- **Do warnings fail a require?** Strict mode in `cosmic.teal` means
-  werror ("warnings fail too, matching check's default"), so a shadowed
-  local in a module outside the closure would fail the `require` that
-  loads it rather than the gate that checks it. Type errors should fail
-  it; warnings are the question, and the honest answers are "yes, one
-  standard" or "no, `--check types` stays the only werror gate."
-- **Does strict apply to the entry script itself?** The lax on-ramp for
-  a hand-run `cosmic foo.tl` is a deliberate promise (`cosmic.teal`'s
-  own doc comment, and the skill's gradual-typing story). Strict *inside
-  a project* and lax for a file run from anywhere else is defensible but
-  it is a second rule, and "which project am I in" is exactly the
-  ambiguity `_make/root.tl` refuses to guess about.
+- **Does strict apply to the entry script itself?** It does not, and
+  that fell out rather than being chosen: the searcher only sees
+  REQUIRED modules, so a hand-run `cosmic foo.tl` keeps the lax on-ramp
+  `cosmic.teal`'s own doc comment promises. Worth confirming as intent,
+  because the alternative — strict inside a project, lax outside — is a
+  second rule keyed on "which project am I in", the ambiguity
+  `_make/root.tl` refuses to guess about.
 - **Where the fence draws the line for `run` and the generator
   pre-pass.** A test already reads `.` and the reasons are written down
-  in `_cli/grants.tl`; these two need the same call made deliberately
-  rather than arrived at.
+  in `_cli/grants.tl`. `run` and the mini-graph inherit that today
+  rather than having had the call made for them.
 - **Whether the mini-graph's `/zip/.types` fallback should be loud.** It
   is the one sanctioned place a build reads the running binary's bytes
   instead of the tree's, and a silent sanctioned exception is how the
   rest of this chapter's failures got in.
+- **Whether the fixpoint shrinks.** The measurement this chapter said to
+  take after landing, not before. `converge` and the release loop's
+  second `--make build` are both still here.

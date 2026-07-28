@@ -235,21 +235,24 @@ test_script_cache_reuse_and_invalidation()
 -- (proving the key is right and the attack is real) and must be
 -- ignored from a group/world-writable one.
 local function plant(dir: string, script: string, code: string)
-  local hash = require("cosmic.hash")
   local content = check.must(fs.read(script))
-  -- The build id in the key belongs to the binary UNDER TEST, which is
-  -- not always the one running this file: ask it, and ask it for the id
-  -- rather than the version -- a dev build stamps "unknown" for every
-  -- binary anyone builds, so the id is derived elsewhere. Deriving it
-  -- here from this process keys the plant to the runner, and then the
-  -- attack silently fails to reproduce — a security test passing
-  -- because it planted the wrong file is worse than one that fails.
-  local h = check.must(spawn.spawn({cosmic, "-e",
-        'io.write(require("cosmic._script_cache").build_id())'}))
+  -- Ask the binary UNDER TEST where its cache would put this script,
+  -- rather than rebuilding the key here. The key's shape is private and
+  -- it moves: it carries the build id (a dev build stamps "unknown" for
+  -- every binary anyone builds, so the id is derived elsewhere) and,
+  -- since in-project resolution, the compile configuration. A plant
+  -- keyed by a stale copy of that shape silently stops reproducing the
+  -- attack -- and a security test that passes because it planted the
+  -- wrong file is worse than one that fails.
+  local expr = 'io.write(require("cosmic._script_cache").key(' ..
+  string.format("%q", script) .. ", " .. string.format("%q", content) .. "))"
+  local h = check.must(spawn.spawn({cosmic, "-e", expr}, {env = {
+          "PATH=" .. (os.getenv("PATH") or ""),
+          "COSMIC_TL_CACHE_DIR=" .. dir,
+        }}))
   local r = check.must(h:wait())
-  local id = check.must(r.stdout)
-  local key = hash.sha256_hex(script .. "\0" .. content .. "\0" .. id)
-  assert(fs.write(fs.join(dir, key .. ".lua"), code))
+  local at = check.must(r.stdout)
+  assert(fs.write(at, code))
 end
 
 --- Run `script` with the cache pointed at `dir`, returning stdout.

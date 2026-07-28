@@ -6,6 +6,7 @@ Cosmic options:
   --compile <file.tl>           compile Teal file to Lua, lax mode (stdout)
   --compile-strict <file.tl>    compile with strict type check first; warnings fail
   --include-dir <dir>           add search path for --compile/--check types (repeatable)
+  --modules <manifest>          resolve requires against a project's build closure
   --format <file>               format Teal or Lua file (stdout)
   --fix <file>                  format Teal or Lua file in place
   --write-if-changed            with --compile/--format and --output: skip write if unchanged
