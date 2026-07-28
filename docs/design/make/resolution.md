@@ -109,16 +109,29 @@ it.
 
 ## The rule
 
-> **In a project, the project's own build closure answers first.**
+> **In a project, the tree answers. Outside one, the binary does.**
 
 Precedence for a child the engine spawns:
 
 1. the **build closure** — the exact files the graph produced for this
    target
-2. the running binary's payload (`/zip/**`)
-3. cosmopolitan's own (`/zip/.lua/**`)
-4. source, lax-compiled by `cosmic.searcher` — the gradual-typing
-   on-ramp, unchanged
+2. the rest of the **tree**, compiled strictly by `cosmic.searcher`
+3. the running binary's payload (`/zip/**`)
+4. cosmopolitan's own (`/zip/.lua/**`)
+
+Layers 1 and 2 are the same answer at different costs: the closure is
+what the graph already built, so it is a cache and a freshness
+guarantee, not a separate semantics. Deleting `o/` changes how long a
+require takes and not what it returns. That is what makes the rule one
+sentence instead of a table.
+
+**Layer 2 is strict**, and that is what earns it its position. A lax
+compile ahead of the binary's checked bytes would mean position
+deciding which of two compile modes you got; strict makes the two
+layers agree by construction, so "the tree wins" costs nothing but time.
+It also puts generators, tests, scripts and the artifact on one compile
+configuration, which `cosmic.teal`'s own doc comment already names as a
+goal.
 
 An artifact running as *itself* keeps today's order exactly. That is
 not a compromise; it is the other half of the same rule. A built binary
@@ -141,7 +154,7 @@ paths and installs it as a searcher ahead of everything else. Nothing
 new is declared, nothing is configured, and the argument positions stay
 the declaration.
 
-An explicit map rather than a path prefix, for four reasons that are
+An explicit map rather than a path prefix, for three reasons that are
 all consequences of the design already in place:
 
 - **exact** — a prefix over `o/` also offers `o/x.tl.test.got`,
@@ -151,36 +164,69 @@ all consequences of the design already in place:
   ran. There is no window where a stale `o/` wins, because the
   prerequisites are the map.
 - **already fenced** — the paths *are* the read grants, so resolution
-  cannot reach what the fence denies. Two mechanisms that cannot
-  disagree, because they are one list.
-- **it degrades to today** — a module outside the closure falls through
-  to `/zip`, so a script run by hand, with no closure, behaves exactly
-  as it does now.
+  cannot reach what the fence denies.
+
+**It travels in argv and does not inherit.** Ten `_make/*_test.tl`
+files spawn a cosmic against a *different* project root under `/tmp`.
+Carried in the environment, this repo's `o/` would answer `cosmic.*`
+and `_make.*` while those children built unrelated projects — the
+ambient-export bug class the old Makefile fought (#720, #666, #608),
+which is why `tree_lua_path` was opt-in per lane and never exported.
+`--deps` is per-invocation by construction, so there is nothing to
+scrub. A child that spawns a child and wants the same resolution passes
+it on deliberately.
+
+## What layer 2 costs, and what the fence has to say
+
+Layer 2 fires for imports no closure names, which is exactly the class
+`_make/deps.tl` calls out: "A computed require is invisible there, and
+the consequence is a denied read rather than only a missing rule."
+`_perf/run.tl:163` is that case in this repo — `pcall(require, name)`
+with `name` off argv, which is how every `_perf/bench/*_bench.tl`
+scenario loads. Under layer 3 alone the flagship case comes out
+half-fixed: the harness resolves from the tree and the scenario still
+comes from `/zip`, silently.
+
+So the fence has to grant reads it did not derive. For a **test** it
+already does — `_cli/grants.tl` gives `record` `ro = "."`, the whole
+project, with the reasons written down there. For `run` and for the
+generator pre-pass below, the same call has to be made explicitly
+rather than inherited by accident.
 
 ## Three cases the closure does not cover by itself
 
 **Source generators run before the graph.** A `*_gen.tl` writes build
 *inputs*, so it runs before anything is compiled and has no built
-closure to resolve through. Its imports are still computable —
-`_make/imports.tl` reads them without compiling — so it can be handed a
-**source** closure and let the searcher compile it lax, ahead of
-`/zip`. That closes the split-brain today, with the same list computed
-the same way, and `_make/generate.tl` already spawns these itself so
-there is no recipe to change.
+closure to resolve through. The answer is a **mini-graph**: compile each
+generator's closure strictly into `o/` first, then run the generator
+against those built paths. Uniform with everything else — nothing the
+build runs is unchecked at the moment it runs — and `_make/generate.tl`
+already spawns these itself, so there is no recipe to change.
 
-The end state is stricter: compile a generator's closure first, as a
-mini-graph before the graph, so generation is strict like everything
-else. That is a phase-ordering change and should be its own step.
+Two measurements say the cost is affordable and the ordering works:
+
+- `srcdeps__types/types_gen` is **20 files of 375**. A pre-pass over
+  generator closures is a fraction of the tree, not the graph again.
+- **no circularity.** Removing `o/_types/types_gen/` and strict-compiling
+  `_types/gentype.tl` succeeds: the include path falls back to the
+  binary's bundled `/zip/.types`. So a generator that produces the
+  type declarations can be compiled without them, on a cold tree.
+
+That fallback is itself an instance of the theme this chapter is about —
+a cold build bootstraps its types through the running binary's copy —
+and it is the one place where that is load-bearing rather than
+accidental. It should be stated in `model.md`'s generator section rather
+than left to be discovered.
 
 **Payload generators run after compile**, so `embed_gen.tl` takes a
 built closure like a test. Its closure is the binary's scope, which the
 model already defines.
 
-**A human at a shell has no closure at all.** This is what `run` is
-for, already listed as planned in [verbs.md](verbs.md):
+**A human at a shell has no closure at all.** This is what `run` is for
+— **paths only**:
 
 ```
-cosmic --make run <path> [args…]    # build, then run it against the built tree
+cosmic --make run <path> [args…]    # build, then run this source against the tree
 ```
 
 `test`'s shape with a different contract: build the closure, spawn with
@@ -197,11 +243,13 @@ script, is the other caller: it imports no siblings so nothing is stale
 today, but it is correct only for as long as `bin/cosmic` happens to
 resolve to a current `o/bin/cosmic`.
 
-Open: `run`'s argument grammar. `build` already disambiguates a binary
-name from a path; `run cosmic` (exec `o/bin/cosmic`) and `run
-_perf/run.tl` (run this source against the tree) can use the same rule,
-or `run` can take paths only and leave `o/bin/<name>` to be executed
-directly. The verb table's current entry means the first.
+**This amends [verbs.md](verbs.md)**, whose entry reads `run [binary]
+build, then exec the artifact with remaining argv`. The binary form has
+no caller: `o/bin/<name>` is already executable, so it buys a rebuild
+and two saved tokens, while the source form is what all six broken
+commands in this repo need. `run <name>` becomes a refusal that names
+`o/bin/<name>`; the `go run ./cmd/foo` ergonomic waits for a project
+that asks for it, under a word chosen then.
 
 ## Precedence against the standard library
 
@@ -226,7 +274,7 @@ spawned test sees the tree.
 
 `converge` answers *which binary gates the tree*. This answers *which
 bytes a spawned child requires*. They compose, and the second shrinks
-the first's job: with the closure resolving first, generation 1 already
+the first's job: with the tree resolving first, generation 1 already
 runs the tree's generators, the tree's tests, and the tree's modules.
 
 What still needs a second generation is code running *inside* the
@@ -242,26 +290,51 @@ measurement to take after this lands, not a claim to make before.
   the `debug.getinfo(f, "S").source` probe used throughout above
 - the split-brain ratchet: edit a generator's helper, build **once**,
   assert the output reflects it
+- the computed-require case: edit `_perf/harness.tl` *and* a
+  `_perf/bench/*_bench.tl`, `--make run` once, assert both took effect —
+  the second is what layer 2 exists for and no closure names it
 - `_make/artifact_test.tl`'s existing shape, unchanged and still
   passing: a built artifact resolves from its own zip and ignores an
   ambient `LUA_PATH`
+- an inheritance ratchet: a fixture build spawned from a test resolves
+  against *its own* root, never this one
 - the second compile disappears — a test run stops writing to the
   script cache
 
-## Open questions
+## Settled
 
-1. **`run`'s grammar** — binary name, source path, or both (above).
-2. **Source generators** — source closure now, or compile-first
-   mini-graph? Recommendation: the first now, the second as its own
-   phase.
-3. **Does the map replace `LUA_PATH` entirely?** Recommendation: yes
-   for the engine. `LUA_PATH` stays defeated by `WRAP_MAIN`, which is
-   correct for artifact identity — but then `cmd/cosmic/main.tl`'s
-   "BEHIND anything `LUA_PATH` set" comment and the `TREE_LUA_PATH`
-   branch in `_cli/build/steps.tl` are dead intent and should go with
-   this change.
-4. **Should an unbuilt `.tl` in the tree beat an embedded `.lua`?**
-   Recommendation: no. The closure is the declaration; anything outside
-   it falls through to `/zip`, which is what keeps "the artifact
-   answers for itself" true and keeps the behavior of a hand-run script
-   unchanged.
+1. **`run` takes paths only.** The binary form is dropped; `verbs.md` is
+   amended.
+2. **Source generators get a compile-first mini-graph**, straight away —
+   not a lax source closure.
+3. **The closure travels in argv and does not inherit.** `LUA_PATH` is
+   not the channel and is not restored; `WRAP_MAIN`'s prepend is correct
+   for artifact identity and stays. `cmd/cosmic/main.tl`'s "BEHIND
+   anything `LUA_PATH` set" comment and the `TREE_LUA_PATH` branch in
+   `_cli/build/steps.tl` are dead intent and go with this change.
+4. **The tree outranks the binary, closure or not**, and in-tree
+   compilation is **strict** — which is what makes 4 safe, and what
+   makes the closure a cache rather than a semantics.
+
+## Open
+
+- **Do warnings fail a require?** Strict mode in `cosmic.teal` means
+  werror ("warnings fail too, matching check's default"), so a shadowed
+  local in a module outside the closure would fail the `require` that
+  loads it rather than the gate that checks it. Type errors should fail
+  it; warnings are the question, and the honest answers are "yes, one
+  standard" or "no, `--check types` stays the only werror gate."
+- **Does strict apply to the entry script itself?** The lax on-ramp for
+  a hand-run `cosmic foo.tl` is a deliberate promise (`cosmic.teal`'s
+  own doc comment, and the skill's gradual-typing story). Strict *inside
+  a project* and lax for a file run from anywhere else is defensible but
+  it is a second rule, and "which project am I in" is exactly the
+  ambiguity `_make/root.tl` refuses to guess about.
+- **Where the fence draws the line for `run` and the generator
+  pre-pass.** A test already reads `.` and the reasons are written down
+  in `_cli/grants.tl`; these two need the same call made deliberately
+  rather than arrived at.
+- **Whether the mini-graph's `/zip/.types` fallback should be loud.** It
+  is the one sanctioned place a build reads the running binary's bytes
+  instead of the tree's, and a silent sanctioned exception is how the
+  rest of this chapter's failures got in.
