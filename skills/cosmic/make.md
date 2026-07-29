@@ -37,7 +37,7 @@ replaced it outright.
 | `clean` | remove `o/`, sparing `o/bootstrap` | ✅ |
 | `fetch` | resolve `*_pin.tl` — the only verb with a network | ✅ |
 | `help` | list the verbs, and which are still planned | ✅ |
-| `run` | build, then exec the artifact | planned |
+| `run` | build, then run a source path against the built tree | ✅ |
 | `enforce` | rerun the sandbox tests unsandboxed, where a skip fails | planned |
 | `reproducible` `offline` | policy lanes over the graph | planned |
 
