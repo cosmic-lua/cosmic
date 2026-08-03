@@ -1,4 +1,3 @@
-#!/usr/bin/env cosmic
 --- Coverage ratchet: compare a coverage run against a committed baseline.
 ---
 --- The baseline (`.cosmic-coverage` at the project root) records covered/total
@@ -9,9 +8,9 @@
 --- entry) — the ratchet only moves up. `cosmic --make coverage` runs the
 --- check; `cosmic --make coverage --baseline` rewrites the baseline.
 ---
---- Dual use: `require`d for the API, or run as a script:
----   cosmic .../baseline.lua write <report paths...>   > baseline.txt
----   cosmic .../baseline.lua check <baseline.txt> <report paths...>
+--- A library module: `require`d for its API (`gate`, `text_for`,
+--- `lowered`, ...) by the `coverage` verb. There is no standalone CLI
+--- here.
 local fs = require("cosmic.fs")
 local rep = require("cosmic.coverage.report")
 

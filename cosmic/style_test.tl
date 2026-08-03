@@ -32,12 +32,12 @@ end
 test_style_valid()
 
 -- A long line is REPORTED by the check and is not a gate failure. The
--- 90-column limit is house style: this tree has 858 lines over it in
--- 184 files, and the gate never ran the check (it ran a second linter
--- that did not call it), so making `--check lint` fail on one would
--- fail the gate on the tree that documents the rule. The check stays
--- exported for a project that wants it, and enforcing it here is its
--- own change with its own 858-line diff.
+-- 90-column limit is house style: this tree has roughly 800+ lines
+-- over it across ~180 files, and the gate never ran the check (it ran
+-- a second linter that did not call it), so making `--check lint` fail
+-- on one would fail the gate on the tree that documents the rule. The
+-- check stays exported for a project that wants it, and enforcing it
+-- here is its own change with its own multi-hundred-line diff.
 local function test_style_long_line_is_reported_not_enforced()
   local long_line = string.rep("x", 91)
   local input = write_temp("style_long.tl", long_line .. "\n")

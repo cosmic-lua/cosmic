@@ -446,7 +446,9 @@ than by anyone configuring a build: `COSMIC_ENFORCE=1` turns a sandbox
 test that cannot enforce from a skip into a failure (CI's enforce lane
 sets it), `GENTYPE_DEFS` points type generation at a cosmopolitan
 checkout's `definitions.lua` to validate before a release is cut, and
-`PERF_BIN` names which binary `_perf` measures.
+`PERF_BIN` names which binary the process-spawning `_perf` scenarios
+(`startup_*`, `embed_*`) exec — it does not select the binary the
+harness itself runs under.
 
 **internal** — the build sets these for its own children. Setting one
 by hand is a way to confuse a build, not to configure it:

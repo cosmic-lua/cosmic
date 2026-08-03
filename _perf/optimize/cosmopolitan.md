@@ -95,7 +95,8 @@ BENCH=$(ls _perf/bench/*_bench.tl | sed 's|/|.|g;s|\.tl$||')
    cp $COSMO/o/tool/lua/lua o/3p/cosmos/lua
    bin/cosmic --make build
    $BIN --make run _perf/run.tl --out o/perf/current.json $BENCH
-   $BIN --make run _perf/run.tl --compare o/perf/baseline.json o/perf/current.json
+   $BIN --make run _perf/gate.tl compare o/perf/baseline.json o/perf/current.json \
+     o/perf/selfb.json $BENCH
    ```
 
 6. **decide** with the same rules as the main loop: target scenario
@@ -124,11 +125,15 @@ two-repo dance — but only AFTER the local loop already proved the win:
    own conventions). quote the local `perf-compare` numbers in the PR.
 2. once merged, the release workflow publishes a new cosmos release
    tagged `YYYY.MM.DD-<sha>` with a `cosmos.zip` + SHA256SUMS.
-3. in cosmic: bump `3p/cosmos/cosmos_pin.tl` (version + sha256), then
-   `cosmic --make run _types/gentype.tl`, fix any wrapper breakage, `--make ci`, and
-   a `--compare` against a baseline taken on the OLD pin —
-   this final compare is the end-to-end confirmation, quoted in the
-   bump commit.
+3. in cosmic: bump `3p/cosmos/cosmos_pin.tl` (version + sha256). there is
+   no separate regen step — `_types/gentype.tl` is a pure library with
+   no `is_main` entry, so `--make run` on it is a no-op; every graph
+   verb (`--make build`, `--make ci`, ...) runs `_types/types_gen.tl`
+   first and it regenerates `o/_types/types_gen` from the new pin (see
+   AGENTS.md "Type Generation"). so: `bin/cosmic --make build`, fix any
+   wrapper breakage, `--make ci`, and a `gate.tl compare` against a
+   baseline taken on the OLD pin — this final compare is the end-to-end
+   confirmation, quoted in the bump commit.
 
 ## finding C-layer opportunities
 

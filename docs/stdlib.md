@@ -26,6 +26,8 @@ local sqlite = require("cosmic.sqlite")
 | `cosmic.sys` | OS and architecture detection |
 | `cosmic.time` | timestamps, sleep, clock, datetime breakdown |
 | `cosmic.uuid` | UUIDv4 (random) and UUIDv7 (time-ordered) |
+| `cosmic.table` | deep copy/merge/equality and map/filter/reduce for tables |
+| `cosmic.searcher` | the runtime `.tl` package searcher every artifact installs at boot |
 
 ### Networking
 
@@ -47,6 +49,7 @@ local sqlite = require("cosmic.sqlite")
 | `cosmic.compress` | zlib/gzip/raw compress/decompress |
 | `cosmic.html` | HTML entity escaping |
 | `cosmic.zip` | ZIP archive reading and writing |
+| `cosmic.tar` | extract a gzipped tarball, in process |
 
 ### Security
 
@@ -77,6 +80,9 @@ local sqlite = require("cosmic.sqlite")
 | `cosmic.tty` | terminal detection, window size, termios |
 | `cosmic.syslog` | system logging with priority levels |
 | `cosmic.getopt` | command-line option parsing |
+| `cosmic.flags` | declarative command-line flag parsing built on getopt, with generated `--help` |
+| `cosmic.ansi` | ANSI terminal styling: colors, attributes, strip, NO_COLOR-aware gating |
+| `cosmic.log` | leveled logging to stderr with key=value fields |
 
 ### Text
 
@@ -96,6 +102,11 @@ local sqlite = require("cosmic.sqlite")
 | `cosmic.example` | example runner |
 | `cosmic.benchmark` | benchmark runner |
 | `cosmic.testrun` | test execution and reporting |
+| `cosmic.coverage` | line coverage collection for cosmic programs (`--make coverage`) |
+| `cosmic.instrument` | timing/resource spans: emit key=value lines to stderr, and parse them back |
+| `cosmic.records` | a build's machine-readable records: row, summary, verdict, exit codes |
+| `cosmic.style` | pure style checks (file length, column width) that `_cli.lint` composes into `--check lint` |
+| `cosmic.literal` | read a Teal/Lua file as data: one `return { … }` of literals, never executed |
 
 ## Error Handling Patterns
 

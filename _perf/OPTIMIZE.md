@@ -19,11 +19,11 @@ file so no chapter ever fights the repo's 500-line-per-file cap:
 
 ## the harness in one minute
 
-`_perf` benchmarks ~25 end-to-end scenarios (JSON, SQLite, HTTP client,
-filesystem, hashing/codecs/compression, binary startup, Teal compilation,
-subprocess spawn). every scenario validates its own output with a
-`check()` function, so a change that makes a workload faster but wrong
-FAILS the benchmark.
+`_perf` benchmarks ~36 end-to-end scenarios across 12 bench modules
+(JSON, SQLite, HTTP client, filesystem, hashing/codecs/compression,
+binary startup, Teal compilation, subprocess spawn). every scenario
+validates its own output with a `check()` function, so a change that
+makes a workload faster but wrong FAILS the benchmark.
 
 The harness is scripts, driven through `--make run` by whichever binary
 you are measuring. `$BIN` is the cosmic under test (`o/bin/cosmic`, or a
@@ -54,8 +54,9 @@ $BIN --make run _perf/run.tl --out o/perf/current.json $BENCH
 # …the same, filtered to one scenario group
 $BIN --make run _perf/run.tl --only json --out o/perf/current.json $BENCH
 
-# compare two runs with the noise-aware bar
-$BIN --make run _perf/run.tl --compare o/perf/baseline.json o/perf/current.json
+# compare two runs with the noise-aware bar (retries + A/A auto-triage)
+$BIN --make run _perf/gate.tl compare o/perf/baseline.json o/perf/current.json \
+  o/perf/selfb.json $BENCH
 
 # A/A control: the same binary against itself is the noise floor
 $BIN --make run _perf/gate.tl selfcheck o/perf/a.json o/perf/b.json $BENCH
@@ -64,22 +65,26 @@ $BIN --make run _perf/gate.tl selfcheck o/perf/a.json o/perf/b.json $BENCH
 A baseline is just a results file you keep: run the unmodified build
 into `o/perf/baseline.json` before changing anything.
 
-`--compare` already handles the false alarm for you: when a
+`gate.tl compare` already handles the false alarm for you: when a
 regression survives its retry, it runs one more pass of the same binary
 and auto-triages against that A/A self-check — a fixed-overhead
 microbench (`hash_sha256_small`, `startup_run_*`, `net_ip_*`) that swung
 on frequency scaling, a noisy neighbor, or code-layout shift is reported
 as `noise` and does not fail the gate, while a regression the binary
-reproduces against itself still fails. `gate.tl selfcheck` runs that same
-A/A control standalone, for interactive use or to profile the machine's
-noise floor before you start. `_perf/optimize/measurement.md` has the
-full playbook.
+reproduces against itself still fails. (`_perf/run.tl --compare` is the
+plain, non-retrying diff the gate builds on — it just diffs two files.)
+`gate.tl selfcheck` runs that same A/A control standalone, for
+interactive use or to profile the machine's noise floor before you
+start. `_perf/optimize/measurement.md` has the full playbook.
 
-knobs: `PERF_SAMPLES` (default 5), `PERF_MIN_SECS` (default 0.15),
-`PERF_THRESHOLD` (regression bar in percent, default 10), `PERF_BIN`
-(which cosmic binary to measure). Measuring a local Cosmopolitan build
-takes no knob — you stand it in at `o/3p/cosmos/lua` and rebuild; see
-the cosmopolitan chapter.
+knobs: `--samples` (default 5), `--min-secs` (default 0.15),
+`--threshold` (regression bar in percent, default 10). `PERF_BIN` is not
+a knob on the runner — it is an env var the process-spawning scenarios
+(`startup_*`, `embed_*`) read to pick which binary they exec; `run.tl`
+itself only records it (or falls back to `arg[-1]`) as a metadata label
+in the report. Measuring a local Cosmopolitan build takes no knob — you
+stand it in at `o/3p/cosmos/lua` and rebuild; see the cosmopolitan
+chapter.
 
 report columns, per scenario:
 
@@ -133,9 +138,9 @@ work ONE scenario (or one closely related group) at a time.
    the binary your change builds. the perf smoke test
    (`_perf/perf_test.tl`) runs every scenario end to end in CI, so a
    broken scenario check fails here too.
-5. **gate 2 — performance:** re-measure and `--compare` against your
-   baseline. it uses a noise-aware bar
-   (max of `PERF_THRESHOLD`, baseline spread, current spread), retries
+5. **gate 2 — performance:** re-measure and run `gate.tl compare` against
+   your baseline. it uses a noise-aware bar
+   (max of `--threshold`, baseline spread, current spread), retries
    once on failure to filter machine noise, and exits nonzero if any
    scenario regressed, errored, or disappeared. if a regression survives
    the retry it runs one more pass of the same binary and auto-triages:

@@ -116,8 +116,9 @@ per-site `-- cast: <reason>` justification enforced by `--make lint`
 — are scaffolding, not goals: each retires when the gap it polices
 closes.
 
-- **measured by:** total `as` casts in `lib/`, per release; the size of
-  the narrowing doctrine in AGENTS.md.
+- **measured by:** total `as` casts in the tree (`cosmic/` and the
+  root-level internals), per release; the size of the narrowing
+  doctrine in AGENTS.md.
 - **win condition:** zero casts; the scaffolding deleted; the doctrine
   reduced to a footnote.
 

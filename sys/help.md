@@ -29,7 +29,7 @@ Cosmic options:
   --report <paths>...           report on .got files written by --test
                                 e.g. cosmic --report o/foo.got
   --coverage-report <paths>...  merge .cov data, print per-file line coverage
-                                e.g. cosmic --coverage-report o/coverage cosmic
+                                e.g. cosmic --coverage-report o/.coverage cosmic
   -c <line>                     run one recipe line as argv, not shell
                                 (for make: SHELL := cosmic. the closed
                                  vocabulary: assert-elf, assert-marker,
@@ -37,7 +37,7 @@ Cosmic options:
                                  record, remove, tee, verdict, write-list)
   --make <verb> [paths]...      build this project
                                 (build, check, test, fmt, lint, example,
-                                 benchmark, docs, coverage, ci, fetch,
+                                 benchmark, docs, coverage, run, ci, fetch,
                                  clean; `--make help` lists them)
   --skill <dir>                 write agent skill file (SKILL.md) to directory
   --welcome                     show welcome message

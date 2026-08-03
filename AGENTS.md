@@ -79,7 +79,7 @@ not yet carry is in [docs/design/make/](docs/design/make/).
 - **naming**: `snake_case` for functions and variables. `PascalCase` for record types and record constructors (e.g. `signal.Sigset()`); options records are named `Options` (or `<Thing>Options` when a module has several).
 - **formatting**: 2-space indent, LF line endings, enforced by `cosmic --check fmt`
 - **column width**: 90 columns is house style, and the one style rule
-  that is NOT a gate — the tree has 858 lines over it and the gate never
+  that is NOT a gate — the tree has roughly 800+ lines over it and the gate never
   checked (`cosmic.style.check_column_length` is exported and unused by
   `--check lint`). Write to 90; do not expect a failure if you do not.
 - **warnings are errors**: `--check types` fails on any Teal warning (unused, shadowing, unreachable branch). mark deliberately-unused values with a leading underscore (`local _out`, `_self: Poller`).
@@ -182,33 +182,27 @@ formatted string plus the numeric errno), wrappers add context with
 **Narrowing record/map unions.** Teal (0.24.8) does not flow-narrow record
 or map unions through truthiness (`if not x`). Three sanctioned tools:
 
-- **In tests and examples, use `check.must`** for fallible returns:
-  `local db = check.must(sqlite.open(path))` yields a plain `Database` —
-  no cast, no assert. Lua passes multiple returns through, so a failing
-  call reports the callee's own error string. `must` narrows nil only
-  (`false` passes through), and it throws, so it is for tests/examples,
-  never library code. Like `assert`, must forwards extra returns past
-  the second, so `for p in check.must(fs.files(d)) do` keeps the 4th
-  return (the to-be-closed guard that releases directory handles on
-  early break); a plain `value, err` pair still collapses to the value
-  alone. Never write `assert(x) as T` in a test; that pattern is
-  retired.
-- **Prefer `is` where the code branches, for table-backed records**:
-  `if sock is net.Socket then sock:send(...) end` narrows `Socket | nil`
-  inside the positive branch (compiles to one `type(x) == "table"` check).
-  Also works for dispatch over `any` (`if v is {string: any} then`).
-  A record whose runtime values are userdata needs Teal's `userdata`
-  member in its OWN source (see re.tl's Regex) — then `is` compiles to
-  the correct `type(x) == "userdata"` test everywhere. Caveats:
-  narrowing does NOT survive an early-exit guard (`if not (x is Rec)
-  then return end` does not narrow below); and `is` is WRONG for
-  mixed-representation records — `fs.Stat` is usually the raw stat
-  userdata but falls back to a plain wrapper table, so neither marker
-  fits; it stays on casts. `is` works with required `cosmo.*` classes
-  too — the cosmic searcher is the only loader cosmic installs, and it
-  resolves `.d.tl` markers. The one unsupported path is user code
-  calling `require("tl").loader()`, which shadows it with tl's silent
-  one.
+- **In tests and examples, use `check.must`** for fallible returns: `local db =
+  check.must(sqlite.open(path))` yields a plain `Database` — no cast, no assert. Lua
+  passes multiple returns through, so a failing call reports the callee's own error
+  string. `must` narrows nil only (`false` passes through), and it throws, so it is for
+  tests/examples, never library code. Like `assert`, must forwards extra returns past
+  the second, so `for p in check.must(fs.files(d)) do` keeps the 4th return (the to-be-
+  closed guard that releases directory handles on early break); a plain `value, err`
+  pair still collapses to the value alone. Never write `assert(x) as T` in a test; that
+  pattern is retired.
+- **Prefer `is` where the code branches, for table-backed records**: `if sock is
+  net.Socket then sock:send(...) end` narrows `Socket | nil` inside the positive branch
+  (compiles to one `type(x) == "table"` check). Also works for dispatch over `any` (`if
+  v is {string: any} then`). A record whose runtime values are userdata needs Teal's
+  `userdata` member in its OWN source (see re.tl's Regex) — then `is` compiles to the
+  correct `type(x) == "userdata"` test everywhere. Caveats: narrowing does NOT survive
+  an early-exit guard (`if not (x is Rec) then return end` does not narrow below); and
+  `is` is WRONG for mixed-representation records — `fs.Stat` is usually the raw stat
+  userdata but falls back to a plain wrapper table, so neither marker fits; it stays on
+  casts. `is` works with required `cosmo.*` classes too — the cosmic searcher is the
+  only loader cosmic installs, and it resolves `.d.tl` markers. The one unsupported path
+  is user code calling `require("tl").loader()`, which shadows it with tl's silent one.
 - **Cast in linear code and at userdata boundaries**: after an assert or
   early-exit guard, `(x as Rec).field`, `(x as {K:V})[k]`. Scalars
   (`string | nil`) narrow normally, except method-call syntax: use
@@ -360,13 +354,16 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 |--------|-------------|
 | ansi | ANSI terminal styling: colors, attributes, strip, NO_COLOR-aware gating |
 | benchmark | benchmark runner with `Benchmark_*` functions (`--make benchmark`) |
+| check | assertion helpers for tests/examples (`eq`, `ok`, `must`) plus environment-gating helpers (`skip`, `needs`, `enforcing`) |
 | child | child process spawning with I/O control |
 | codec | hex encoding/decoding, Lua serialization |
 | compress | zlib compression/decompression |
+| coverage | line coverage collection for cosmic programs (`--make coverage`) |
 | doc | extract docs from source and query the embedded documentation index |
 | embed | create custom executables with embedded files |
 | env | environment variable get (nil when unset), get_or, set/unset |
 | envd | load environment variables from embedded env.d directory |
+| errno | canonical errno formatting (`str`) and lookup helpers (`is`, `code`, `constants`) for `cosmo.unix` failures |
 | example | example runner with `Example_*` functions |
 | fetch | HTTP client with retry support |
 | flags | declarative command-line flag parsing with generated --help |
@@ -398,8 +395,9 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | signal | signal handling, timers, sigsets |
 | sqlite | SQLite with ergonomic query/exec/transaction API |
 | sse | Server-Sent Events parser |
+| stream | the byte-stream Reader/Writer contract every producer and consumer composes over |
 | string | trim, split, capitalize, starts_with, etc. |
-| style | the style checks behind `--check lint`: file length, column width, ordering |
+| style | pure style checks — only file length is actually behind `--check lint`; column width is exported but unenforced, and test-call ordering (`call-after-define`) lives in `_cli/lint.tl`, not here |
 | sys | OS/architecture detection, sysconf (nproc, page size), uname |
 | syslog | system logging |
 | table | deep copy/merge/equality and map/filter/reduce for tables |
@@ -480,21 +478,20 @@ discipline). the backlog is GitHub issues labeled `perf`.
 
 ## CI
 
-- **pr.yml**: three lanes on push/PR to main. `ci` fetches with a network,
-  then builds and runs the whole gate (fmt, check, test, example, lint,
-  coverage) inside a loopback-only network namespace, so a stray download
-  fails loudly. It builds first and gates with the RESULT, or the six
-  stages would report on the pinned release instead of the change.
-  `build` does what needs a real network: double-build reproducibility
-  (two tree paths) and `--make fetch` against the real pins. Both Linux
-  lanes are privileged and non-root: `_cli/fence_test.tl` asserts a real
-  Landlock denial, the quicksand tests unshare and mount. `smoke` runs
-  the built binary on real macOS/Windows runners. The fence is ON by
-  default (`COSMIC_FENCE=0` opts out); the build lane asserts the host
-  can enforce and that a real build passes fenced — the direction a
-  denial test cannot prove
+- **pr.yml**: three lanes on push/PR to main. `ci` fetches with a network, then builds
+  and runs the whole gate (fmt, check, test, example, lint, coverage) inside a loopback-
+  only network namespace, so a stray download fails loudly. It builds first and gates
+  with the RESULT, or the six stages would report on the pinned release instead of the
+  change. `build` does what needs a real network: double-build reproducibility (two tree
+  paths) and `--make fetch` against the real pins. Both Linux lanes are privileged and
+  non-root: `_cli/fence_test.tl` asserts a real Landlock denial, the quicksand tests
+  unshare and mount. `smoke` runs the built binary on real macOS/Windows runners. The
+  fence is ON by default (`COSMIC_FENCE=0` opts out); the build lane asserts the host
+  can enforce and that a real build passes fenced — the direction a denial test cannot
+  prove
 - **docs.yml**: `--make docs` then `_docs/publish.tl`, to the `docs`
   branch on push to main
-- **release.yml**: daily release. Builds twice — the pinned cosmic builds
+- **release.yml**: daily release, built twice — the pinned cosmic builds
   one from the tree, and THAT one builds what ships, so a release is
-  produced by the code it contains rather than by whatever the pin is
+  produced by its own code, not the pin. cron runs default to a
+  prerelease; a real one needs `workflow_dispatch` with `prerelease: false`

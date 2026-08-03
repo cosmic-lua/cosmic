@@ -67,9 +67,6 @@ local function select_files(files: {File}, paths: {string}, root: string): {File
   return picked
 end
 
---- The paths of a file list, for handing to make or a message.
---- @param files {File} The files
---- @return {string} Their paths, in order
 local record SelectModule
   covers: function(sel: string, path: string): boolean
   files: function(files: {File}, paths: {string}, root: string): {File} | nil, string
