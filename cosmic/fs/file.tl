@@ -49,7 +49,8 @@ end
 --- same directory, fsync it, then rename over the destination. Readers
 --- see either the old contents or the complete new contents, never a
 --- partial write; on failure the original file is untouched and the
---- temporary file is removed.
+--- temporary file is removed. The write loop retries automatically on
+--- EINTR, matching cosmic.fd's signal-safety posture.
 --- @param path string Destination path
 --- @param data string Data to write
 --- @param mode integer Permission bits for the file (default 0644)
@@ -68,7 +69,10 @@ local function write_atomic(path: string, data: string, mode?: integer): boolean
   end
   local off: integer = 1
   while off <= #data do
-    local n, werr = unix.write(fd, data:sub(off))
+    local n, werr, weno = unix.write(fd, data:sub(off))
+    while n == nil and errno.is(weno, "EINTR") do
+      n, werr, weno = unix.write(fd, data:sub(off))
+    end
     if not n then
       return fail(errstr(werr, "write_atomic: write: " .. tmp))
     end
