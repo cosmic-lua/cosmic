@@ -24,11 +24,14 @@ local type Project = types.Project
 --- include path by the sources that require it. `.lua` sources are
 --- absent too — Lua is not type-checked, by definition.
 ---
---- Everything else that compiles is here, including the two kinds that
---- are easy to forget: `build` strict-compiles a `benchmark`, so a
---- table without it lets `check` pass a tree `build` rejects; and a
+--- Everything else that compiles is here, including the three kinds
+--- that are easy to forget: `build` strict-compiles a `benchmark`, so a
+--- table without it lets `check` pass a tree `build` rejects; a
 --- binary's `payload-gen` is the file that decides what SHIPS, which
---- makes it the last one that should be gated by fmt and lint alone.
+--- makes it the last one that should be gated by fmt and lint alone;
+--- and `pin` -- a `*_pin.tl` is read as data (never executed) but is
+--- still Teal source, so it gets the same strict type-check as
+--- everything else here.
 local checkable: {string: boolean} = {
   module = true,
   entry = true,
