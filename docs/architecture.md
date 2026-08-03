@@ -114,6 +114,13 @@ and built once, and an editor needs that directory on its include path.
 
 ### `_build/` — Build Infrastructure
 
+- `ratchet.tl`: reads a committed document's markdown tables as rows —
+  the shared reader every ratchet below stands on
+- `ratchet_test.tl`: tests that reader
+- `docs_test.tl`: ratchets over the derived regions of committed
+  documents (e.g. the decisions index against the decision records)
+- `skills_test.tl`: ratchets `skills/cosmic/make.md` (the shipped make
+  skill) against `_make/`
 - `workflows_test.tl`: ratchets over the GitHub workflow definitions
 
 ### `3p/` — Third-Party Dependencies
