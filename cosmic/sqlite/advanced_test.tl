@@ -322,6 +322,39 @@ local function test_nested_transaction_fails_inner_only()
 end
 test_nested_transaction_fails_inner_only()
 
+-- A failing COMMIT (e.g. a deferred foreign-key violation, only checked at
+-- COMMIT/RELEASE time) must roll back instead of leaving the connection
+-- inside an open transaction.
+local function test_transaction_commit_failure_rolls_back()
+  local db = check.must(sqlite.open(":memory:"))
+  db:exec("CREATE TABLE parent (id INTEGER PRIMARY KEY)")
+  db:exec([[CREATE TABLE child (
+    id INTEGER PRIMARY KEY,
+    parent_id INTEGER REFERENCES parent(id) DEFERRABLE INITIALLY DEFERRED
+  )]])
+  db:exec("INSERT INTO parent (id) VALUES (1)")
+
+  local ok, err = db:transaction(function(d: sqlite.Database)
+      -- Orphan reference: passes at INSERT time (deferred), fails at COMMIT.
+      assert(d:exec("INSERT INTO child (id, parent_id) VALUES (1, 99)"))
+    end)
+  assert(not ok, "transaction must fail when COMMIT violates a deferred FK")
+  assert(err and err:find("FOREIGN KEY", 1, true),
+    "error should mention the FK violation, got: " .. tostring(err))
+
+  local row = check.must(db:query_one("SELECT COUNT(*) AS c FROM child"))
+  assert(row.c == 0, "orphan row must be rolled back, got: " .. tostring(row.c))
+
+  -- The connection must not be left inside an open transaction: a fresh
+  -- BEGIN must succeed.
+  local begin_ok, begin_err = db:exec("BEGIN IMMEDIATE")
+  assert(begin_ok, "connection must not be stuck inside an open transaction: "
+    .. tostring(begin_err))
+  db:exec("ROLLBACK")
+  db:close()
+end
+test_transaction_commit_failure_rolls_back()
+
 -- Named parameters
 
 local function test_bind_named()

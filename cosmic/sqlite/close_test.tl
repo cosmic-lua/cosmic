@@ -108,3 +108,103 @@ local function test_query_list_close_early()
   db:close()
 end
 test_query_list_close_early()
+
+-- Statement:rows() shares row_iter.tl's iteration body with db:query (see
+-- cosmic.sqlite.row_iter); this exercises it directly (previously only
+-- reached indirectly through query_list/query_named's own wrapper -- see
+-- cosmic.sqlite.params), plus close semantics: close()/__close end
+-- iteration but must NOT finalize the underlying Statement -- unlike
+-- db:query's Rows (which owns a cache slot or a throwaway statement), a
+-- Statement:rows() is a view over a caller-owned Statement that outlives
+-- its iterators and can be reset()+bound again after the Rows is done.
+
+local function test_statement_rows_basic_iteration()
+  local db = check.must(sqlite.open(":memory:"))
+  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+  db:exec("INSERT INTO t (name) VALUES ('Alice'), ('Bob'), ('Carol')")
+
+  local stmt = check.must(db:prepare("SELECT * FROM t ORDER BY id"))
+  local rows = stmt:rows()
+  local names: {string} = {}
+  for row in rows do
+    table.insert(names, row.name as string) -- cast: from any
+  end
+  assert(#names == 3, "should get 3 rows")
+  assert(names[1] == "Alice" and names[2] == "Bob" and names[3] == "Carol",
+    "rows should be in insertion order, got: " .. table.concat(names, ","))
+  assert(rows:err() == nil, "clean iteration should report no step error")
+  stmt:close()
+  db:close()
+end
+test_statement_rows_basic_iteration()
+
+local function test_statement_rows_close_does_not_finalize_statement()
+  local db = check.must(sqlite.open(":memory:"))
+  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+  db:exec("INSERT INTO t (name) VALUES ('a'), ('b'), ('c')")
+
+  local stmt = check.must(db:prepare("SELECT * FROM t ORDER BY id"))
+  local rows = stmt:rows()
+  local first = rows()
+  assert(first and first.name == "a", "should get first row")
+  rows:close()
+  assert(rows() == nil, "closed iterator must yield nil")
+  assert(rows:err() == nil, "close is not a step error")
+
+  -- The Statement must still be usable: rows():close() must not have
+  -- finalized raw_stmt out from under it.
+  stmt:reset()
+  local n = 0
+  local rows2 = stmt:rows()
+  while rows2() ~= nil do
+    n = n + 1
+  end
+  assert(n == 3, "statement must be reusable after rows():close(), got: " .. tostring(n))
+  stmt:close()
+  db:close()
+end
+test_statement_rows_close_does_not_finalize_statement()
+
+local function test_statement_rows_to_be_closed_scope()
+  local db = check.must(sqlite.open(":memory:"))
+  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+  db:exec("INSERT INTO t (name) VALUES ('a'), ('b')")
+
+  local stmt = check.must(db:prepare("SELECT * FROM t ORDER BY id"))
+  local rows = stmt:rows()
+  local first = rows()
+  assert(first and first.name == "a", "should get first row")
+  -- Exercise the __close metamethod directly (see the db:query tests
+  -- above for why this repo's tests don't use `local x <close> = ...`).
+  local mt = getmetatable(rows) as {string: any} -- cast: raw metatable access
+  local close_mm = mt["__close"] as function(any, any) -- cast: from any
+  assert(close_mm, "Statement:rows() must have a __close metamethod")
+  close_mm(rows, nil)
+  assert(rows() == nil, "__close must release the iterator")
+
+  -- Again: the Statement must survive the Rows' __close.
+  stmt:reset()
+  local n = 0
+  local rows2 = stmt:rows()
+  while rows2() ~= nil do
+    n = n + 1
+  end
+  assert(n == 2, "statement must be reusable after rows() <close>, got: " .. tostring(n))
+  stmt:close()
+  db:close()
+end
+test_statement_rows_to_be_closed_scope()
+
+local function test_statement_rows_close_idempotent()
+  local db = check.must(sqlite.open(":memory:"))
+  db:exec("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+  db:exec("INSERT INTO t DEFAULT VALUES")
+
+  local stmt = check.must(db:prepare("SELECT * FROM t"))
+  local rows = stmt:rows()
+  rows:close()
+  rows:close()
+  stmt:close()
+  db:close()
+end
+test_statement_rows_close_idempotent()
