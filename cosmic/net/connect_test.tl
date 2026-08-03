@@ -50,8 +50,14 @@ local function test_interfaces_format()
 end
 test_interfaces_format()
 
+-- Socket dirs come from TMPDIR, not TEST_TMPDIR and not a literal
+-- /tmp: sun_path caps a unix socket path at ~108 bytes, TEST_TMPDIR's
+-- per-test scratch runs right up against that in CI, and the fence
+-- does not grant the system scratch. TMPDIR is the driver's short pin.
+local sock_base = os.getenv("TMPDIR") or "/tmp"
+
 local function test_unix_domain_socket_bind_connect()
-  local tmpdir = assert(fs.mkdtemp("/tmp/cosmic_net_test_XXXXXX"))
+  local tmpdir = assert(fs.mkdtemp(fs.join(sock_base, "cosmic_net_XXXXXX")))
   local path = tmpdir .. "/test.sock"
 
   -- Create server socket
@@ -94,7 +100,7 @@ end
 test_unix_domain_socket_bind_connect()
 
 local function test_listen_unix_connect_unix()
-  local tmpdir = assert(fs.mkdtemp("/tmp/cosmic_net_test_XXXXXX"))
+  local tmpdir = assert(fs.mkdtemp(fs.join(sock_base, "cosmic_net_XXXXXX")))
   local path = tmpdir .. "/test.sock"
 
   -- Use module-level listen_unix helper

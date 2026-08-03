@@ -71,6 +71,11 @@ local RUNTIME_RO: {string} = {
 --- Not `/proc/self`: a landlock rule binds the inode it opened, and
 --- `/proc/self` resolves to `/proc/<pid>` for whoever opens it, so a
 --- rule made by the parent covers nothing a child writes.
+---
+--- NOT `/tmp`: the fence's write boundary is "a test writes only its
+--- own outputs", and the system scratch is an output of nobody's. A
+--- test that wants a temp dir has TEST_TMPDIR, and one that needs a
+--- SHORT path (a unix socket) has TMPDIR, which the driver pins.
 local RUNTIME_RW: {string} = {
   "/proc", "/dev/ptmx", "/dev/pts", "/dev/shm",
 }
@@ -446,43 +451,38 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
   if arg[-1] ~= nil and fs.exists(arg[-1]) then
     ex[#ex + 1] = arg[-1]
   end
-  -- The APE loader needs somewhere to put itself, and then to RUN from
-  -- there. Every recipe execs a fat APE -- the gate runs under the
-  -- tree's own `o/bin/cosmic`, which is what ships -- and a fat APE is
-  -- a shell prologue the kernel will not load, so the prologue
-  -- extracts a small loader and execs that. Deny either half and the
-  -- parent reports ENOEXEC, which reads like a corrupt binary rather
-  -- than a denied path.
+  -- The APE loader. A fat APE is a shell prologue the kernel will not
+  -- load, so every spawn goes through a small loader; cosmo's execve
+  -- (libc/proc/execve-sysv.c) probes /usr/bin/ape, $TMPDIR/.ape-<v>,
+  -- $HOME/.ape-<v>, ./.ape-<v>, then /bin/sh, whose prologue extracts
+  -- a fresh loader into ${TMPDIR:-${HOME:-.}}. Deny every probe and
+  -- the parent reports ENOEXEC, which reads like a corrupt binary.
   --
-  -- Where it goes is not a guess; the prologue is right there in the
-  -- binary and says:
-  --
-  --     t="${TMPDIR:-${HOME:-.}}/.ape-1.10"
-  --     [ -x "$t" ] && exec "$t" "$o" "$@"
-  --     ... dd >"$t.$$"; chmod 755 "$t.$$"; mv -f "$t.$$" "$t"
-  --     exec "$t" "$o" "$@"
-  --
-  -- so the same expression is what gets granted, rather than a list of
-  -- places it might be. TMPDIR outranks HOME, which matters here more
-  -- than anywhere: every step already gets its own scratch TMPDIR, so
-  -- `-x "$t"` is false EVERY time and the extract-and-exec path is the
-  -- only path. Granting the loaders that happened to exist elsewhere
-  -- was answering a question the prologue never asks.
-  --
-  -- The DIRECTORY, and executable, for the same reason: `mv -f` over
-  -- an existing loader makes a new inode, and a landlock rule names
-  -- the inode it was opened on. A grant on the file is a grant on the
-  -- copy that was replaced.
-  local ape_dir = os.getenv("TMPDIR")
-  if ape_dir == nil or ape_dir == "" then
-    ape_dir = os.getenv("HOME")
+  -- Each loader FILE that exists gets exec: a file grant runs the
+  -- loader without opening the directory around it -- granting the
+  -- extraction DIRECTORY handed every step rw+exec on the entire home
+  -- when TMPDIR was unset. The scratch TMPDIR gets exec too (rw
+  -- above): the driver seeds $HOME's loaders into it before fencing
+  -- (see driver.tl), because execve caches TMPDIR/HOME at process
+  -- startup and a NESTED driver cannot read $HOME to find one here.
+  if fs.isdir(tmp) then
+    ex[#ex + 1] = tmp
   end
-  if ape_dir == nil or ape_dir == "" then
-    ape_dir = "."
+  local loaders: {string} = {"/usr/bin/ape"}
+  for _, base in ipairs({tmp, os.getenv("HOME") or "", "."}) do
+    if base ~= "" and fs.isdir(base) then
+      local found = fs.glob(base, ".ape-*")
+      if found ~= nil then
+        for _, f in ipairs(found as {string}) do -- cast: nil-checked above
+          loaders[#loaders + 1] = f
+        end
+      end
+    end
   end
-  if fs.isdir(ape_dir) then
-    rw[#rw + 1] = ape_dir
-    ex[#ex + 1] = ape_dir
+  for _, f in ipairs(loaders) do
+    if fs.isfile(f) then
+      ex[#ex + 1] = f
+    end
   end
   return {ro = ro, rw = rw, exec = ex}
 end
