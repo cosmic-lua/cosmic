@@ -43,7 +43,8 @@ local czip = require("cosmic.zip")
 local fs = require("cosmic.fs")
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").str
-local Stat = require("cosmic.fs.types").Stat
+local fs_types = require("cosmic.fs.types")
+local Stat = fs_types.Stat
 local floor = require("cosmic.embed.floor")
 local extract_mod = require("cosmic.embed.extract")
 
@@ -97,14 +98,7 @@ local record ZipReader
   close: function(self: ZipReader)
 end
 
---- Directory handle whose `read` exposes the dirent d_type (unix.DT_DIR /
---- DT_REG / DT_LNK / ... / DT_UNKNOWN) where the filesystem supports it,
---- letting collect_dir skip a stat(2) call for entries d_type already
---- identifies as neither a directory nor a regular file.
-local record EmbedDirHandle
-  read: function(self): string, integer
-  close: function(self)
-end
+local type EmbedDirHandle = fs_types.DirHandle
 
 -- One directory entry plus its d_type, sorted together for deterministic
 -- embed order without needing two parallel arrays.
