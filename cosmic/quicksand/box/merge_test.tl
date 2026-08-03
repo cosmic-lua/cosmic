@@ -97,3 +97,31 @@ local function test_empty_merge()
   assert(next(out) == nil, "empty merge should return empty table")
 end
 test_empty_merge()
+
+-- Security-policy opt-outs are boolean `false`, and `a and a[k] or nil`
+-- silently collapses that to nil. These three cases pin the fix.
+
+local function test_scalar_false_survives_merge()
+  local out = m.merge({pid_ns = false})
+  assert(out.pid_ns == false, "got: " .. tostring(out.pid_ns))
+end
+test_scalar_false_survives_merge()
+
+local function test_scalar_false_in_b_overrides_true_in_a()
+  local out = m.merge(
+    {net = {proxy_env = true}},
+    {net = {proxy_env = false}})
+  local net = out.net as {string: any} -- cast: from any
+  assert(net.proxy_env == false, "got: " .. tostring(net.proxy_env))
+end
+test_scalar_false_in_b_overrides_true_in_a()
+
+local function test_scalar_false_in_a_survives_absent_b_key()
+  local out = m.merge(
+    {proc = {no_new_privs = false}},
+    {proc = {uid = 1000}})
+  local proc = out.proc as {string: any} -- cast: from any
+  assert(proc.no_new_privs == false, "got: " .. tostring(proc.no_new_privs))
+  assert(proc.uid == 1000, "uid preserved")
+end
+test_scalar_false_in_a_survives_absent_b_key()
