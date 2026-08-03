@@ -133,8 +133,11 @@ end
 --- @param input_path string Path to the Teal file to process
 --- @param include_dirs {string} Directories to search for type definitions
 --- @param lax boolean If true, use lax mode; if false, use strict mode
+--- @param gen_target? string Codegen target ("5.1"|"5.3"|"5.4"), default DEFAULT_GEN_TARGET
+--- @param gen_compat? string Compat shims ("off"|"optional"|"required"), default DEFAULT_GEN_COMPAT
 --- @return ProcessResult Processing result with tl_result or error
-local function process_file(input_path: string, include_dirs: {string}, lax: boolean): ProcessResult
+local function process_file(input_path: string, include_dirs: {string}, lax: boolean,
+    gen_target?: string, gen_compat?: string): ProcessResult
   local f, open_err = io.open(input_path, "r")
   if not f then
     return {
@@ -167,14 +170,26 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
   -- Options-form env construction: feature flags are explicit rather than
   -- inherited from tl's version-dependent defaults. feat_arity stays "on"
   -- (0.24 default) so function-arity mismatches are checked in strict mode.
-  local env = tl.new_env({
+  local env, env_err = tl.new_env({
       defaults = {
         feat_lax = lax and "on" or "off",
         feat_arity = "on",
-        gen_target = DEFAULT_GEN_TARGET,
-        gen_compat = DEFAULT_GEN_COMPAT,
+        gen_target = gen_target or DEFAULT_GEN_TARGET,
+        gen_compat = gen_compat or DEFAULT_GEN_COMPAT,
       },
     })
+  if not env then
+    tl.path = saved_tl_path
+    return {
+      error = {
+        file = input_path,
+        line = 0,
+        column = 0,
+        message = "tl.new_env: " .. (env_err or "unknown error"),
+        severity = "error",
+      },
+    }
+  end
   -- process_string returns exactly one value (a Result); errors land in
   -- its syntax_errors/type_errors fields or arrive here as a throw.
   local ok, result_or_err = pcall(tl.process_string, input, false, env, input_path)
@@ -322,7 +337,7 @@ local function compile(input_path: string, opts: CompileOptions): CompileResult
   opts = opts or {}
 
   local dirs = merge_include_dirs(opts.include_dirs)
-  local proc = process_file(input_path, dirs, not opts.strict)
+  local proc = process_file(input_path, dirs, not opts.strict, opts.gen_target, opts.gen_compat)
   if proc.error then
     return {ok = false, code = nil, errors = {proc.error}}
   end
@@ -340,7 +355,8 @@ local function compile(input_path: string, opts: CompileOptions): CompileResult
   -- tl.generate's second argument is the target STRING; passing an
   -- options table silently fell back to tl's default (non-5.4) target,
   -- which rejects 5.4-only syntax like <close> attributes. gen_compat
-  -- is an env-level default (set in make_env), not a generate option.
+  -- was threaded into the env above (tl.new_env rejects gen_target 5.4
+  -- with a non-"off" gen_compat), so both stay consistent here.
   local lua_code = tl.generate(proc.tl_result.ast, opts.gen_target or DEFAULT_GEN_TARGET)
 
   if proc.shebang then

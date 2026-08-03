@@ -177,6 +177,27 @@ local function test_strict_compile_codegen()
 end
 test_strict_compile_codegen()
 
+-- gen_compat must actually reach tl's codegen: targeting a pre-5.4
+-- runtime with gen_compat="required" inserts a table.pack polyfill;
+-- "off" (the default) must not.
+local function test_compile_gen_compat_wired()
+  local pack_file = fs.join(tmpdir, "c_gen_compat.tl")
+  assert(fs.write(pack_file, "local t = table.pack(1, 2, 3)\nprint(t.n)\n"))
+
+  local off = teal.compile(pack_file, {gen_target = "5.3", gen_compat = "off"})
+  assert(off.ok, "gen_compat=off compile should succeed: "
+    .. (off.ok and "" or teal.format_issues(off.errors)))
+  assert(not off.code:find("_tl_table_pack", 1, true),
+    "gen_compat=off must not add compat shims")
+
+  local required = teal.compile(pack_file, {gen_target = "5.3", gen_compat = "required"})
+  assert(required.ok, "gen_compat=required compile should succeed: "
+    .. (required.ok and "" or teal.format_issues(required.errors)))
+  assert(required.code:find("_tl_table_pack", 1, true),
+    "gen_compat=required must add a table.pack compat shim when targeting 5.3")
+end
+test_compile_gen_compat_wired()
+
 local function test_no_hint_for_plain_errors()
   -- A message outside every known trap must produce no hint at all.
   assert(teal.hint_for_message("unknown variable: x") == nil,
