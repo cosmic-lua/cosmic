@@ -165,6 +165,19 @@ local function test_plan_landlock_mapping()
 end
 test_plan_landlock_mapping()
 
+-- plan_landlock's second parameter (keep_coverage) must be part of its
+-- declared type, not just its implementation: the SandboxModule record
+-- previously omitted it, so a typed caller passing it would fail to
+-- type-check even though the runtime function accepted it.
+local function test_plan_landlock_keep_coverage_param()
+  local opts_default = sandbox.plan_landlock({ro = {"/usr"}})
+  check.eq(opts_default.keep_coverage, false, "keep_coverage defaults false")
+
+  local opts_kept = sandbox.plan_landlock({ro = {"/usr"}}, true)
+  check.eq(opts_kept.keep_coverage, true, "keep_coverage=true must reach RestrictOptions")
+end
+test_plan_landlock_keep_coverage_param()
+
 -- Live enforcement of a combined policy, in a subprocess (applying is
 -- irreversible). Success also evidences the fs-before-sys ordering:
 -- were pledge applied first, its filter would block the landlock
