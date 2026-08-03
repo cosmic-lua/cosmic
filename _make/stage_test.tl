@@ -120,4 +120,21 @@ local function test_binaries_go_on_the_path()
 end
 test_binaries_go_on_the_path()
 
+-- A PATH-less environment must not crash. `get` returns nil, not "",
+-- for an unset variable, so the guard has to admit nil -- the concat in
+-- the "already present?" branch threw on the very setup a stripped-env
+-- CI runner or a minimal container hands the build.
+local function test_binaries_on_path_without_a_path()
+  local env = require("cosmic.env")
+  local saved = env.get("PATH")
+  env.unset("PATH")
+  local proj: types.Project = {root = "/p", binaries = {}, files = {}}
+  stage.binaries_on_path(proj)
+  assert(env.get("PATH") == stage.bin_dir(proj),
+    "an unset PATH becomes the build's bin dir, got: " ..
+    tostring(env.get("PATH")))
+  if saved ~= nil then env.set("PATH", saved, true) end
+end
+test_binaries_on_path_without_a_path()
+
 print("all stage tests passed")

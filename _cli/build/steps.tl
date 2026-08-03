@@ -237,6 +237,7 @@ local function do_record(args: {string}): integer
   local scratch = fs.abspath(out .. ".tmp.d")
   env.set("TMP", scratch)
   fs.makedirs(scratch)
+  fs.unlink(out .. ".got") -- freshness: an early testrun exit writes none
   local testrun = require("cosmic.testrun")
   testrun.run(argv, out)
   if not fs.isfile(out .. ".got") then
