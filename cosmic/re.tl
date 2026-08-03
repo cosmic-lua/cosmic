@@ -104,6 +104,21 @@ end
 --- the pattern anchored to exactly that window, with NOTBOL/NOTEOL
 --- supplying the line-boundary context. The engine's leftmost-match
 --- guarantee makes the first verified candidate the true position.
+---
+--- KNOWN LIMITATION: the verification window is exactly #m characters
+--- (found .. found + #m - 1), so it never includes the character before
+--- or after a candidate. Under the NEWLINE compile flag, `^` and `$`
+--- can be satisfied by an EMBEDDED newline rather than true text
+--- start/end ("regardless of NOTBOL/NOTEOL" per POSIX) -- but that
+--- newline byte falls outside this window, so the re-verification
+--- search can never see it and always fails to confirm. The result
+--- is not a silent undercount: all_matches gives up entirely (its
+--- caller sees nil, "failed to locate ..."/a short match count)
+--- as soon as a NEWLINE-anchored match past the first line is hit.
+--- See findall's doc for the concrete case. A fix needs the
+--- verification window widened to include that neighboring byte,
+--- which reintroduces its own edge case (an off-by-one window can
+--- itself contain another literal occurrence of m); not attempted here.
 local function locate(regex: Regex, text: string, pos: integer, m: string): integer | nil
   local q = pos
   while true do
@@ -172,6 +187,13 @@ end
 
 --- Find every non-overlapping match of pattern in text, leftmost
 --- first. Patterns that can match the empty string are rejected.
+---
+--- KNOWN LIMITATION with the NEWLINE flag: `^`/`$` anchors that only
+--- match via an embedded newline (not the true start/end of text) fail
+--- to be re-confirmed past the first line (see locate's doc), so
+--- findall("^foo", "foo\nfoo", re.NEWLINE) returns nil, "failed to
+--- locate match position for: foo" instead of {"foo", "foo"} -- use
+--- split("\n", text) plus a per-line match instead when this matters.
 --- @param pattern string The regex pattern to match
 --- @param text string The text to search in
 --- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE
@@ -197,6 +219,8 @@ end
 --- are kept verbatim, including empty ones from adjacent or
 --- leading/trailing matches; text with no match yields one field.
 --- Patterns that can match the empty string are rejected.
+--- Shares findall's KNOWN LIMITATION with a NEWLINE-anchored `^`/`$`
+--- past the first line (see findall's doc).
 --- @param pattern string The regex pattern to split on
 --- @param text string The text to split
 --- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE
@@ -228,6 +252,8 @@ local type Repl = string | function(string, {string}): string
 
 --- Replace every non-overlapping match of pattern in text.
 --- Patterns that can match the empty string are rejected.
+--- Shares findall's KNOWN LIMITATION with a NEWLINE-anchored `^`/`$`
+--- past the first line (see findall's doc).
 --- @param pattern string The regex pattern to match
 --- @param text string The text to operate on
 --- @param repl Repl A literal replacement string, or function(match, caps)

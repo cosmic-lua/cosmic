@@ -144,3 +144,40 @@ local function test_parse_lines()
   assert(results[2].exit == 1, "expected exit=1")
 end
 test_parse_lines()
+
+-- A file path with a space must round-trip whole: the line format is
+-- space-delimited key=value pairs and parse_line reads each value back
+-- with a non-space (%S+) pattern, so an unescaped space in a path
+-- would silently truncate it at parse time.
+local function test_file_with_space_round_trips()
+  env.set("COSMIC_INSTRUMENTATION", "1")
+  local span = instrument.begin("test", "cosmic/my file.tl")
+  local line = instrument.finish(span, 0)
+  env.unset("COSMIC_INSTRUMENTATION")
+  assert(line ~= nil, "expected line")
+  local parsed = instrument.parse_line(line)
+  assert(parsed ~= nil, "expected parsed result")
+  assert(parsed.file == "cosmic/my file.tl",
+    "expected the space to survive round-trip, got: " .. tostring(parsed.file))
+  -- The line itself must have no unescaped space inside the file field,
+  -- or the %S+ parse would still see it as two tokens.
+  assert(line:find(" ", 1, true) ~= nil, "sanity: the line has spaces (the delimiters)")
+  assert(not line:find("my file.tl", 1, true),
+    "the raw space must not appear verbatim in the emitted line: " .. line)
+end
+test_file_with_space_round_trips()
+
+-- A literal "%" in a path must also round-trip, and must not be
+-- misinterpreted as an escape sequence introduced by escape_field.
+local function test_file_with_percent_round_trips()
+  env.set("COSMIC_INSTRUMENTATION", "1")
+  local span = instrument.begin("test", "cosmic/100%.tl")
+  local line = instrument.finish(span, 0)
+  env.unset("COSMIC_INSTRUMENTATION")
+  assert(line ~= nil, "expected line")
+  local parsed = instrument.parse_line(line)
+  assert(parsed ~= nil, "expected parsed result")
+  assert(parsed.file == "cosmic/100%.tl",
+    "expected the percent to survive round-trip, got: " .. tostring(parsed.file))
+end
+test_file_with_percent_round_trips()

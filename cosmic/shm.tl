@@ -79,12 +79,6 @@ local function check_word(word_index: integer, size: integer, op: string): strin
   return nil
 end
 
---- Translate a pcall failure (a residual binding throw) into the
---- error-return convention.
-local function thrown(op: string, err: any): string
-  return errstr(err, op)
-end
-
 --- Wrap the raw unix.Memory userdata in a Memory record whose methods
 --- validate bounds in Lua and return nil, err instead of throwing.
 local function wrap(raw: unix.Memory, size: integer): Memory
@@ -105,7 +99,7 @@ local function wrap(raw: unix.Memory, size: integer): Memory
     end
     local ok, res = pcall(raw.read, raw, offset, bytes)
     if not ok then
-      return nil, thrown("read", res)
+      return nil, errstr(res, "read")
     end
     return res
   end
@@ -120,10 +114,27 @@ local function wrap(raw: unix.Memory, size: integer): Memory
       return false, "write: byte range out of range (offset " .. tostring(off)
       .. " + " .. tostring(n) .. " > " .. tostring(size) .. ")"
     end
+    -- Pass the CLAMPED count, not the caller's raw `bytes` -- otherwise
+    -- an over-large `bytes` sails past the check above straight into
+    -- the binding. nil still means "no count" (append NUL), per raw.write.
+    local write_count: integer = nil
+    if bytes ~= nil then
+      write_count = n
+    end
+    -- raw.write's real argument order is (self, offset, data[, bytes]),
+    -- NOT (self, data, offset[, bytes]) as its declared Teal type implies
+    -- (a mismatch in the upstream binding's own annotation): it decides
+    -- offset-vs-data by whether arg 2 is a number, so calling it with
+    -- `data` first makes it silently treat our `offset` as `bytes`
+    -- instead (an offset of 0 masked this: `mem:write(x, 0)` always
+    -- wrote 0 bytes). Passing the definite numeric `off` first is
+    -- unambiguous.
+    -- cast: real C arg order disagrees with raw.write's declared type
+    local raw_write = raw.write as function(unix.Memory, integer, string, integer | nil): nil
     -- cast: pcall variadic returns to tuple
-    local ok, err = pcall(raw.write, raw, data, offset, bytes) as (boolean, any)
+    local ok, err = pcall(raw_write, raw, off, data, write_count) as (boolean, any)
     if not ok then
-      return false, thrown("write", err)
+      return false, errstr(err, "write")
     end
     return true
   end
@@ -135,7 +146,7 @@ local function wrap(raw: unix.Memory, size: integer): Memory
     end
     local ok, res = pcall(raw.load, raw, word_index)
     if not ok then
-      return nil, thrown("load", res)
+      return nil, errstr(res, "load")
     end
     return res
   end
@@ -148,7 +159,7 @@ local function wrap(raw: unix.Memory, size: integer): Memory
     -- cast: pcall variadic returns to tuple
     local ok, err = pcall(raw.store, raw, word_index, value) as (boolean, any)
     if not ok then
-      return false, thrown("store", err)
+      return false, errstr(err, "store")
     end
     return true
   end
@@ -161,7 +172,7 @@ local function wrap(raw: unix.Memory, size: integer): Memory
     end
     local ok, res = pcall(fn, raw, word_index, value)
     if not ok then
-      return nil, thrown(op, res)
+      return nil, errstr(res, op)
     end
     return res
   end
@@ -193,7 +204,7 @@ local function wrap(raw: unix.Memory, size: integer): Memory
     end
     local ok, success, actual = pcall(raw.cmpxchg, raw, word_index, old, new)
     if not ok then
-      return nil, nil, thrown("cmpxchg", success)
+      return nil, nil, errstr(success, "cmpxchg")
     end
     return success, actual
   end
@@ -214,7 +225,7 @@ local function wrap(raw: unix.Memory, size: integer): Memory
       ok, rc, err, weno = pcall(raw.wait, raw, word_index, expect, abs_deadline, nanos)
     end
     if not ok then
-      return nil, thrown("wait", rc)
+      return nil, errstr(rc, "wait")
     end
     if rc == nil then
       return nil, errstr(err, "wait")
@@ -281,7 +292,7 @@ local function mapshared(size: integer): Memory | nil, string
   -- Residual throws (e.g. out of memory, size cap) become nil, err.
   local ok, raw = pcall(unix.mapshared, size)
   if not ok then
-    return nil, thrown("mapshared", raw)
+    return nil, errstr(raw, "mapshared")
   end
   return wrap(raw, size)
 end

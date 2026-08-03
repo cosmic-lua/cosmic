@@ -195,6 +195,16 @@ local function test_empty_data_dispatch_resets_event_type()
 end
 test_empty_data_dispatch_resets_event_type()
 
+local function test_empty_data_dispatch_resets_retry()
+  -- a retry buffered before an empty-data dispatch (which discards the
+  -- whole block, undispatched) must not leak into the next event
+  local events_list = collect("retry: 5000\n\ndata: hi\n\n")
+  assert(#events_list == 1, "should have 1 event")
+  assert(events_list[1].retry == nil,
+    "retry must reset on empty-data dispatch, got: " .. tostring(events_list[1].retry))
+end
+test_empty_data_dispatch_resets_retry()
+
 local function test_unknown_fields_ignored()
   local events_list = collect("unknown: value\ndata: test\ncustom: ignored\n\n")
   assert(#events_list == 1, "should have 1 event")

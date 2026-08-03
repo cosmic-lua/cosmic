@@ -197,6 +197,34 @@ local function test_memory_write_out_of_range()
 end
 test_memory_write_out_of_range()
 
+-- write must honor an explicit offset: raw.write's real C argument
+-- order is (offset, data, bytes), not (data, offset, bytes), so this
+-- once silently discarded the offset (treating it as a bytes count).
+local function test_memory_write_at_explicit_offset()
+  local mem = check.must(shm.mapshared(4096))
+  local ok1, err1 = mem:write("XXXXXXXXXX", 0)
+  assert(ok1, "setup write failed: " .. tostring(err1))
+  local ok2, err2 = mem:write("world", 3)
+  assert(ok2, "write at offset 3 failed: " .. tostring(err2))
+  local data = check.must(mem:read(0, 8))
+  assert(data == "XXXworld",
+    "expected 'XXXworld' at bytes 0-7, got: " .. tostring(data):gsub("%z", "\\0"))
+end
+test_memory_write_at_explicit_offset()
+
+-- write must clamp `bytes` to the actual data length before it reaches
+-- the binding: passing the caller's raw (over-large) count instead of
+-- the validated min(bytes, #data) either wrote nothing (offset 0
+-- collides with "no count") or threw "bytes is more than what's in data".
+local function test_memory_write_clamps_bytes_to_data_length()
+  local mem = check.must(shm.mapshared(4096))
+  local ok, err = mem:write("hi", 0, 100)
+  assert(ok == true, "write with bytes > #data should still succeed: " .. tostring(err))
+  local data = check.must(mem:read(0, 2))
+  assert(data == "hi", "expected 'hi', got: " .. tostring(data))
+end
+test_memory_write_clamps_bytes_to_data_length()
+
 local function test_memory_word_index_out_of_range()
   local mem = check.must(shm.mapshared(64))
   local v, err = mem:load(9999)
