@@ -206,7 +206,7 @@ end
 ---     end
 ---
 --- @param what string What is missing, named for the message
---- @param ok boolean Whether the precondition holds
+--- @param present boolean Whether the precondition holds
 --- @return boolean True when the test may proceed
 local function needs(what: string, present: boolean): boolean
   if present then
