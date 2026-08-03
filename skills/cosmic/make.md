@@ -93,11 +93,12 @@ machinery does nothing at all.
 
 `cosmic --make build` produces `o/bin/<name>` — a fat binary that runs
 on Linux, macOS, Windows, and the BSDs, with your project inside it.
-the name is the project directory's, or the `cmd/<name>/` directory's:
+the name is the `cmd/<name>/` directory's; a root `main.tl` is refused,
+so a binary is never named after the checkout directory:
 
 ```
 myapp/
-  main.tl                   → o/bin/myapp
+  cmd/myapp/main.tl         → o/bin/myapp
   cmd/fetchit/main.tl       → o/bin/fetchit
   cmd/servit/main.tl        → o/bin/servit
 ```
@@ -262,8 +263,8 @@ without it cosmic would never see the line at all.
 | marker | declares |
 |---|---|
 | `<dir>/*.tl`, `<dir>/*.lua` | a package — compiled, checked, formatted |
-| `main.tl` at the root | the project's binary |
-| `cmd/<name>/main.tl` | one binary per subdirectory |
+| `cmd/<name>/main.tl` | one binary per subdirectory, named `<name>` |
+| `main.tl` at the root | classifies as an entry, but is **refused**: a binary is named by its `cmd/<name>/`, never the checkout dir |
 | `*_test.tl` | a test |
 | `*_example.tl` | an example |
 | `*.d.tl` | type-only; on the include path, never embedded |
@@ -292,7 +293,7 @@ all read the way they behave.
 
 ```
 myapp/
-  main.tl                   → o/bin/myapp
+  cmd/myapp/main.tl         → o/bin/myapp
   config.tl                 require("config")
   db/init.tl  db/query.tl   require("db"), require("db.query")
   db/query_test.tl

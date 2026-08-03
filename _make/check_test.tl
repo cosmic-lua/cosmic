@@ -65,7 +65,7 @@ end
 --- the model classifies but the checker must leave alone.
 local function app(name: string): string
   return fixture(name, {
-      ["main.tl"] = "local db = require('db')\nprint(db.name())\n",
+      ["cmd/app/main.tl"] = "local db = require('db')\nprint(db.name())\n",
       ["db/init.tl"] = "local u = require('_internal.util')\n" ..
       "local record Db\n  name: function(): string\nend\n" ..
       "local M: Db = {name = function(): string return u.tag() end}\nreturn M\n",
@@ -162,7 +162,7 @@ local function test_selection_by_path()
   assert(one.out:find("check: PASS (1 file)", 1, true),
     "expected a single-file verdict, got: " .. one.out)
 
-  local both = make(root, "check", "db/query.tl", "main.tl")
+  local both = make(root, "check", "db/query.tl", "cmd/app/main.tl")
   assert(both.out:find("check: PASS (2 files)", 1, true),
     "several paths are accepted, got: " .. both.out)
 end
@@ -259,7 +259,7 @@ test_flags_are_a_namespace()
 -- verdict about something that no longer exists.
 local function test_fmt_fix_rewrites()
   local root = fixture("fmtfix", {
-      ["main.tl"] = "print('x')\n",
+      ["cmd/app/main.tl"] = "print('x')\n",
       ["ugly.tl"] = "local  x =1\nprint(x)\n",
     })
   local r = make(root, "fmt", "--fix")
@@ -385,7 +385,7 @@ test_usage_lists_the_vocabulary()
 -- guard stays and is tested where it is still reachable: here.
 local function test_the_verbs_refuse_a_bad_selection_on_their_own()
   local root = fixture("ownrefusal", {
-      ["main.tl"] = "print('hi')\n",
+      ["cmd/app/main.tl"] = "print('hi')\n",
       ["db/init.tl"] = "return {}\n",
     })
   local proj = check.must(mk.scan(root))

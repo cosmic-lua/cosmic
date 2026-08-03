@@ -78,7 +78,7 @@ end
 --- A project with a package, an entry and a test.
 local function app(name: string): string
   return fixture(name, {
-      ["main.tl"] = "local db = require('db')\nprint(db.name())\n",
+      ["cmd/app/main.tl"] = "local db = require('db')\nprint(db.name())\n",
       ["db/init.tl"] = "local record Db\n  name: function(): string\nend\n" ..
       "local M: Db = {name = function(): string return 'app' end}\nreturn M\n",
       ["db/db_test.tl"] = "local db = require('db')\n" ..
@@ -115,7 +115,7 @@ test_empty_selection_fails()
 -- changes which tests run, never what gets staged".
 local function test_build_selects_binaries()
   local root = fixture("buildsel", {
-      ["main.tl"] = "print('root')\n",
+      ["cmd/buildsel/main.tl"] = "print('root')\n",
       ["lib/x.tl"] = "return {}\n",
       ["cmd/tool/main.tl"] = "print('tool')\n",
     })

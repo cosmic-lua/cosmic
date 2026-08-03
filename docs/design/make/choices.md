@@ -11,7 +11,7 @@ tradeoffs live in [docs/decisions](../../decisions/) instead — these are
 | primary pain | multi-file projects; tests over the code that ships. then rebuild cost/determinism, then discoverability |
 | `build` semantics | strict type-check + compile + stage + embed. `test` is a separate verb |
 | what tests import | the **staged tree** — the exact compiled `.lua` the artifact embeds |
-| binaries per project | root `main.tl`, plus `cmd/<name>/main.tl` per artifact |
+| binaries per project | `cmd/<name>/main.tl` per artifact; a root `main.tl` is refused |
 | artifact contents | root packages + its own `cmd/<name>/**`. `cmd/foo` cannot import `cmd/bar` |
 | artifact output | `o/bin/<name>` |
 | CLI | `cosmic --make <verb> [paths…]`, verb first |

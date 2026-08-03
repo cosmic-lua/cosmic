@@ -39,7 +39,7 @@ _make/runverb.tl 64 72
 _make/select.tl 33 35
 _make/stage.tl 88 96
 _make/types.tl 39 39
-_make/validate.tl 208 212
+_make/validate.tl 244 249
 _perf/bench/child_bench.tl 0 11
 _perf/bench/embed_bench.tl 0 88
 _perf/bench/embed_startup_bench.tl 0 73
@@ -67,7 +67,7 @@ _types/gentype_render.tl 295 311
 _types/gentype_types.tl 2 2
 _types/types_gen.tl 0 44
 cmd/cosmic/embed_gen.tl 0 166
-cmd/cosmic/main.tl 0 272
+cmd/cosmic/main.tl 0 276
 cosmic/_script_cache.tl 72 79
 cosmic/ansi.tl 86 86
 cosmic/benchmark.tl 180 212
@@ -174,4 +174,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 80 93
 tlconfig.lua 7 7
-total 13394 17692
+total 13430 17733

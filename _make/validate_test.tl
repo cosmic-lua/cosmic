@@ -250,7 +250,7 @@ test_format_issues()
 local function test_make_significant_characters_are_refused()
   for _, bad in ipairs({"a=b.tl", "a:b.tl", "a%b.tl", "a,b.tl"}) do
     local _, text = issues_of("mkchars", {
-        ["main.tl"] = "print('x')\n",
+        ["cmd/app/main.tl"] = "print('x')\n",
         [bad] = "return {}\n",
       })
     assert(text:find("metacharacter", 1, true),
@@ -264,7 +264,7 @@ test_make_significant_characters_are_refused()
 -- by, so `stage_entry` produces nothing for it.
 local function test_root_init_is_refused()
   local _, text = issues_of("rootinit", {
-      ["main.tl"] = "print('x')\n",
+      ["cmd/app/main.tl"] = "print('x')\n",
       ["init.tl"] = "return {}\n",
     })
   assert(text:find("no import path", 1, true), "got: " .. text)
@@ -275,7 +275,7 @@ local function test_root_init_is_refused()
   -- to be too -- it was `.tl`-only, and a root init.lua walked past it
   -- into the exact failure this check names.
   local _, lua_text = issues_of("rootinitlua", {
-      ["main.tl"] = "print('x')\n",
+      ["cmd/app/main.tl"] = "print('x')\n",
       ["init.lua"] = "return {}\n",
     })
   assert(lua_text:find("no import path", 1, true), "got: " .. lua_text)
@@ -285,7 +285,7 @@ local function test_root_init_is_refused()
   -- A benchmark and a generator carry no import path, so the duplicate
   -- check cannot see them by name -- they collide over their OUTPUT.
   local _, dup = issues_of("dupbench", {
-      ["main.tl"] = "print('x')\n",
+      ["cmd/app/main.tl"] = "print('x')\n",
       ["a_benchmark.tl"] = "return {}\n",
       ["a_benchmark.lua"] = "return {}\n",
     })
@@ -302,7 +302,7 @@ test_root_init_is_refused()
 -- named `foo.d`.
 local function test_silent_positions_are_refused()
   local _, stray = issues_of("strayembed", {
-      ["main.tl"] = "print('x')\n",
+      ["cmd/app/main.tl"] = "print('x')\n",
       ["lib/mod.tl"] = "return {}\n",
       ["lib/embed/data.txt"] = "x\n",
     })
@@ -311,14 +311,14 @@ local function test_silent_positions_are_refused()
 
   -- `embed` is also an ordinary package name, and this repo has one.
   local ok_embed = issues_of("moduleembed", {
-      ["main.tl"] = "print('x')\n",
+      ["cmd/app/main.tl"] = "print('x')\n",
       ["lib/embed/init.tl"] = "return {}\n",
     })
   assert(#ok_embed == 0,
     "a directory of modules called embed is a module called embed")
 
   local _, dlua = issues_of("dlua", {
-      ["main.tl"] = "print('x')\n",
+      ["cmd/app/main.tl"] = "print('x')\n",
       ["types/lpeg.d.lua"] = "return {}\n",
     })
   assert(dlua:find("a type declaration is Teal", 1, true), "got: " .. dlua)
@@ -327,15 +327,31 @@ local function test_silent_positions_are_refused()
 end
 test_silent_positions_are_refused()
 
--- Two binaries with one name share o/bin/<name>: the second overwrites
--- the first, and which is second follows iteration order.
-local function test_duplicate_binary_names_are_refused()
-  local _, text = issues_of("dupbin", {
+-- A binary is named by its cmd/<name>/ directory, so a root main.tl is
+-- refused: it could only be named after the checkout directory, which
+-- makes the artifact's name depend on what the tree was cloned into.
+-- The message names the file, the fallback name it would have had, and
+-- the cmd/<name> position that fixes it.
+local function test_root_main_is_refused()
+  local _, text = issues_of("rootmain", {
       ["main.tl"] = "print('root')\n",
-      ["cmd/validate-dupbin/main.tl"] = "print('cmd')\n",
     })
-  assert(text:find("already declared by", 1, true), "got: " .. text)
+  assert(text:find("checkout directory", 1, true), "got: " .. text)
+  assert(text:find("cmd/validate-rootmain/main.tl", 1, true),
+    "and points at the cmd/<name> position, got: " .. text)
+
+  -- Both spellings: a root main.lua is first-class and refused the same.
+  local _, lua = issues_of("rootmainlua", {
+      ["main.lua"] = "print('root')\n",
+    })
+  assert(lua:find("checkout directory", 1, true), "got: " .. lua)
 end
-test_duplicate_binary_names_are_refused()
+test_root_main_is_refused()
+
+-- Two binaries with one name share o/bin/<name>: the check that refuses
+-- that is defensive now -- with root entries gone, every binary is a
+-- unique cmd/<name>, so a collision has no way to arise -- but it stays,
+-- because the day a second naming path appears the overwrite it guards
+-- against is silent.
 
 print("all validate tests passed")

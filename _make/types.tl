@@ -11,7 +11,8 @@ local record make_types
   --- position. One file has exactly one kind.
   ---
   ---   module    a package source (.tl/.lua) — compiled and embedded
-  ---   entry     main.tl at the root, or cmd/<name>/main.tl — a binary
+  ---   entry     cmd/<name>/main.tl — a binary (a root main.tl also
+  ---             classifies here, but the validator refuses it)
   ---   test      *_test.tl
   ---   example   *_example.tl
   ---   types     *.d.tl — type-only; on the include path, never embedded
