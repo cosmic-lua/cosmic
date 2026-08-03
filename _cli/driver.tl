@@ -15,6 +15,8 @@
 --- run in the coverage lane must still report _cli.build's lines, or
 --- every recipe step it executes reads as dead code.
 
+local env = require("cosmic.env")
+local fs = require("cosmic.fs")
 local grants = require("_cli.grants")
 local sandbox = require("cosmic.sandbox")
 
@@ -47,6 +49,27 @@ local sandbox = require("cosmic.sandbox")
 --- @return boolean
 local function fence_enabled(): boolean
   return os.getenv("COSMIC_FENCE") ~= "0"
+end
+
+--- Point an unset TMPDIR at a scratch dir under o/, before the fence.
+---
+--- The APE loader extracts to `${TMPDIR:-${HOME:-.}}/.ape-1.10` and then
+--- execs it, and the derived fence grants that directory rw AND exec (a
+--- step execs a fat APE). With TMPDIR unset -- the default -- both land
+--- on $HOME, so a fenced step could write anywhere under it: the "a
+--- test writes only its own outputs" boundary, void on the configuration
+--- nobody sets a variable for. Point it under o/ instead -- inside the
+--- build's own writable tree, narrow, the same for every step. A caller
+--- who set TMPDIR keeps it, so this closes only the unset case.
+local function ensure_build_tmpdir()
+  local t = env.get("TMPDIR")
+  if t ~= nil and t ~= "" then
+    return
+  end
+  local scratch = fs.abspath(fs.join("o", "tmp"))
+  if fs.makedirs(scratch) then
+    env.set("TMPDIR", scratch, true)
+  end
 end
 
 --- @param verb string The verb name
@@ -146,6 +169,7 @@ local function recipe(line: string): integer
       if verb == nil then
         return 0
       end
+      ensure_build_tmpdir()
       local ferr = fence(verb, args)
       if ferr ~= nil then
         io.stderr:write("cosmic -c: " .. ferr .. "\n")
@@ -158,10 +182,12 @@ end
 
 local record DriverModule
   recipe: function(line: string): integer
+  ensure_build_tmpdir: function()
 end
 
 local M: DriverModule = {
   recipe = recipe,
+  ensure_build_tmpdir = ensure_build_tmpdir,
 }
 
 return M

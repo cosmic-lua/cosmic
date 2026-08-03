@@ -463,11 +463,11 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
   --     exec "$t" "$o" "$@"
   --
   -- so the same expression is what gets granted, rather than a list of
-  -- places it might be. TMPDIR outranks HOME, which matters here more
-  -- than anywhere: every step already gets its own scratch TMPDIR, so
-  -- `-x "$t"` is false EVERY time and the extract-and-exec path is the
-  -- only path. Granting the loaders that happened to exist elsewhere
-  -- was answering a question the prologue never asks.
+  -- places it might be. TMPDIR outranks HOME, and the driver PINS an
+  -- unset TMPDIR under o/ before this runs (driver.ensure_build_tmpdir),
+  -- so a step's loader lands in the build's own tree, not $HOME -- the
+  -- HOME fallback below stays only for a caller that reaches plan()
+  -- without the driver, never for a fenced step.
   --
   -- The DIRECTORY, and executable, for the same reason: `mv -f` over
   -- an existing loader makes a new inode, and a landlock rule names

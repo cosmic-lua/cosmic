@@ -276,6 +276,42 @@ local function test_every_step_can_extract_and_run_the_ape_loader()
 end
 test_every_step_can_extract_and_run_the_ape_loader()
 
+-- The claim the ape-loader grant rests on -- "every step gets a scratch
+-- TMPDIR" -- was false: nothing set one, and an unset TMPDIR fell
+-- through to $HOME, so the fence granted rw+exec on the whole home
+-- directory. driver.ensure_build_tmpdir closes it: with TMPDIR unset it
+-- points under o/, and the grant follows there instead of $HOME.
+local function test_an_unset_tmpdir_is_pinned_under_o_not_home()
+  local driver = require("_cli.driver")
+  local home = fs.join(tmpdir, "fakehome")
+  local box = fs.join(tmpdir, "tmpbox")
+  assert(fs.makedirs(home))
+  assert(fs.makedirs(box))
+  local cwd = assert(fs.getcwd())
+  local prev_t, prev_h = env.get("TMPDIR"), env.get("HOME")
+  assert(fs.chdir(box))
+  env.unset("TMPDIR")
+  env.set("HOME", home, true)
+
+  driver.ensure_build_tmpdir()
+  local pinned = env.get("TMPDIR")
+  local p = grants.plan("record", {fs.join(box, "out")})
+
+  assert(fs.chdir(cwd))
+  if prev_t ~= nil then env.set("TMPDIR", prev_t, true) else env.unset("TMPDIR") end
+  if prev_h ~= nil then env.set("HOME", prev_h, true) else env.unset("HOME") end
+
+  assert(pinned ~= nil, "an unset TMPDIR must be pinned, got nil")
+  local pin = pinned as string -- cast: asserted non-nil on the line above
+  assert(pin:find("o/tmp", 1, true),
+    "an unset TMPDIR must be pinned under o/, got: " .. pin)
+  assert(p is sandbox.Fs, "record must plan a policy")
+  assert(has(p.exec, pin), "the o/ scratch is the ape dir, exec-granted")
+  assert(not has(p.rw, home) and not has(p.exec, home),
+    "and $HOME is never granted")
+end
+test_an_unset_tmpdir_is_pinned_under_o_not_home()
+
 local function test_a_program_that_is_not_there_is_not_a_rule()
   -- A landlock rule is an OPEN, so naming a path that does not exist
   -- fails the whole policy — and a fence that cannot be constructed
