@@ -86,6 +86,21 @@ local function test_auto_version()
 end
 test_auto_version()
 
+-- FIX 13: a spec with NO version string that declares its own --version
+-- boolean flag must not have that flag mirrored onto parsed.version too
+-- (the doc says parsed.version is set for "specs with a version only").
+local function test_user_declared_version_flag_not_mirrored()
+  local custom: flags.Spec = {
+    name = "x",
+    options = {{long = "version", help = "print this program's own thing"}},
+  }
+  local p = must(custom, {"--version"})
+  assert(p.flags["version"] == true, "the user's own --version flag should still parse")
+  assert(p.version == false,
+    "parsed.version must stay false: spec.version was never set")
+end
+test_user_declared_version_flag_not_mirrored()
+
 local function test_spec_claims_help_name()
   local custom: flags.Spec = {
     name = "x",

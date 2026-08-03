@@ -162,6 +162,30 @@ local function test_exhausted_attempts_return_last_failure()
 end
 test_exhausted_attempts_return_last_failure()
 
+-- FIX 15: max_attempts <= 0 used to skip the fetch loop entirely and
+-- return a bare nil from Fetch(), which is declared to return a plain
+-- (non-nilable) Result. It is now clamped to 1 real attempt.
+local function test_max_attempts_zero_is_clamped_to_one()
+  local port, pid = serve({body_response("200 OK", "ok")})
+  local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
+    {allow_private = true, max_attempts = 0})
+  proc.wait(pid)
+  assert(result ~= nil, "fetch must never return nil")
+  assert(result.ok == true and result.body == "ok",
+    "max_attempts=0 should still make one real attempt, got: " .. tostring(result.error))
+end
+test_max_attempts_zero_is_clamped_to_one()
+
+local function test_max_attempts_negative_is_clamped_to_one()
+  local port, pid = serve({body_response("200 OK", "ok")})
+  local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
+    {allow_private = true, max_attempts = -5})
+  proc.wait(pid)
+  assert(result ~= nil, "fetch must never return nil")
+  assert(result.ok == true, "max_attempts=-5 should still make one real attempt")
+end
+test_max_attempts_negative_is_clamped_to_one()
+
 local function test_validation_error_has_no_kind_and_default_never_retries()
   -- validation failures carry no error_kind, so the default policy's
   -- retryable-kind check can never match them
