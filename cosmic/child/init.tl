@@ -362,48 +362,49 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
   local pid = unix.fork()
   if pid == 0 then
     unix.close(exec_r)
-
+    -- Resolve sources before dup2 below can clobber one (childio.pin_source).
+    local src0 = childio.pin_source(stdin_is_fd, stdin_fd, stdin_r, 0)
+    local src1 = childio.pin_source(stdout_is_fd, stdout_fd, stdout_w, 1)
+    local src2 = childio.pin_source(stderr_is_fd, stderr_fd, stderr_w, 2)
     -- stdin (fd 0)
     if stdin_is_fd then
       if stdin_fd ~= 0 then
-        unix.dup(stdin_fd, 0)
+        unix.dup(src0, 0)
       end
     else
       if stdin_r ~= 0 then
         unix.close(stdin_w)
-        unix.dup(stdin_r, 0)
+        unix.dup(src0, 0)
         unix.close(stdin_r)
       else
         unix.fcntl(0, unix.F_SETFD, 0)
         unix.close(stdin_w)
       end
     end
-
     -- stdout (fd 1)
     if stdout_is_fd then
       if stdout_fd ~= 1 then
-        unix.dup(stdout_fd, 1)
+        unix.dup(src1, 1)
       end
     else
       if stdout_w ~= 1 then
         unix.close(stdout_r)
-        unix.dup(stdout_w, 1)
+        unix.dup(src1, 1)
         unix.close(stdout_w)
       else
         unix.fcntl(1, unix.F_SETFD, 0)
         unix.close(stdout_r)
       end
     end
-
     -- stderr (fd 2)
     if stderr_is_fd then
       if stderr_fd ~= 2 then
-        unix.dup(stderr_fd, 2)
+        unix.dup(src2, 2)
       end
     else
       if stderr_w ~= 2 then
         unix.close(stderr_r)
-        unix.dup(stderr_w, 2)
+        unix.dup(src2, 2)
         unix.close(stderr_w)
       else
         unix.fcntl(2, unix.F_SETFD, 0)

@@ -67,13 +67,33 @@ local function spawn(prog: string, argv: {string}, envp: {string} | nil,
     end
   end
 
+  -- Resolve each target to a source fd immune to the wiring below. A
+  -- target that names another std fd (0/1/2) about to be overwritten by
+  -- a DIFFERENT wiring step -- a full stdout<->stderr swap, say -- would
+  -- otherwise be read AFTER that step already clobbered it: the wiring
+  -- loop dup2's in fixed 0->1->2 order, and an earlier iteration may
+  -- already have overwritten the very std fd a later one names as its
+  -- source. The save loop above already captured every about-to-be-
+  -- overwritten std fd's PRISTINE value before any dup2 ran, so read
+  -- from that saved copy instead of the live (possibly already
+  -- clobbered) std fd.
+  local sources: {integer} = {}
+  for i = 1, 3 do
+    local t = targets[i]
+    if t >= 0 and t <= 2 and saves[t + 1] and saves[t + 1] ~= CLOSED then
+      sources[i] = saves[t + 1]
+    else
+      sources[i] = t
+    end
+  end
+
   -- Wire the child-side fds onto 0/1/2. dup2 copies are not CLOEXEC, so
   -- the child inherits exactly these three.
   local wired = true
   for i = 1, 3 do
     local std = i - 1
     if targets[i] ~= std then
-      if not unix.dup(targets[i], std) then
+      if not unix.dup(sources[i], std) then
         wired = false
         break
       end

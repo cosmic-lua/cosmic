@@ -74,7 +74,7 @@ cosmic/benchmark.tl 180 212
 cosmic/check.tl 110 113
 cosmic/child/fast.tl 40 52
 cosmic/child/init.tl 0 212
-cosmic/child/io.tl 97 112
+cosmic/child/io.tl 102 119
 cosmic/codec.tl 52 57
 cosmic/compress.tl 17 18
 cosmic/coverage/baseline.tl 136 154
@@ -174,4 +174,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 80 93
 tlconfig.lua 7 7
-total 13389 17685
+total 13394 17692

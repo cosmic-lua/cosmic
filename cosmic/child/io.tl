@@ -240,6 +240,28 @@ local function pump(state: PumpState, deadline_ms: number): boolean
   return false
 end
 
+--- Read from `target`/`alt` (whichever `is_fd` selects) unless it names a
+--- DIFFERENT std fd (0/1/2) than `own` -- a fork child wiring 0/1/2 in
+--- fixed order can otherwise dup2 over a std fd BEFORE a later stream
+--- reads it as its own source (a full stdout<->stderr swap, say), which
+--- silently misroutes that stream. In that case dup the untouched
+--- original to a CLOEXEC copy first, so the result stays readable no
+--- matter what order the caller then wires 0/1/2 in.
+--- @param is_fd boolean whether `target` (not `alt`) is the source
+--- @param target integer caller-supplied fd, used when is_fd
+--- @param alt integer this stream's own pipe fd, used when not is_fd
+--- @param own integer the std fd (0, 1, or 2) this stream will wire onto
+--- @return integer a source fd safe to dup2 from regardless of wiring order
+local function pin_source(is_fd: boolean, target: integer, alt: integer,
+    own: integer): integer
+  local src = is_fd and target or alt
+  if src >= 0 and src <= 2 and src ~= own then
+    local copy = unix.dup(src, nil, unix.O_CLOEXEC, 10)
+    if copy then return copy end
+  end
+  return src
+end
+
 local record ChildIoModule
   StdioMode: StdioMode
   PumpState: PumpState
@@ -251,6 +273,8 @@ local record ChildIoModule
   resolve_stdio: function(stdin?: string | cfd.Handle,
   stdout?: cfd.Handle | StdioMode,
   stderr?: cfd.Handle | StdioMode): Stdio | nil, string
+  pin_source: function(is_fd: boolean, target: integer, alt: integer,
+  own: integer): integer
 end
 
 local M: ChildIoModule = {
@@ -259,6 +283,7 @@ local M: ChildIoModule = {
   read_retry = read_retry,
   wait_retry = wait_retry,
   resolve_stdio = resolve_stdio,
+  pin_source = pin_source,
 }
 
 return M
