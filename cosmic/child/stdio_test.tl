@@ -117,3 +117,63 @@ io.stderr:write("got=[" .. (r.stdout or ""):gsub("%s+$", "") .. "]\n")
     "the default must still capture into Result.stdout, got: " .. r.stderr)
 end
 test_default_still_captures()
+
+--- The dup2-ordering hazard: stdout is captured (the default, a pipe)
+--- while stderr is routed to fd.wrap(1) -- what is CURRENTLY the
+--- grandchild's own real fd 1. Fixed 0->1->2 wiring dup2's the capture
+--- pipe onto fd 1 first; reading fd 1 again for stderr's dup2(1, 2) then
+--- reads the PIPE, not the real fd 1, so a fix that regressed would
+--- route the grandchild's stderr into Result.stdout instead of the real
+--- descriptor. Both halves are asserted: fd.wrap(1) must still reach the
+--- real fd 1, and Result.stdout must hold only the grandchild's stdout.
+local function test_stderr_fd_wrap_does_not_clobber_captured_stdout()
+  local r, written = run_capturing("swap_stderr", [[
+local child = require("cosmic.child")
+local cfd = require("cosmic.fd")
+local h = assert(child.spawn({"sh", "-c", "echo OUT; echo ERR >&2"},
+  {stderr = cfd.wrap(1)}))
+local r = assert(h:wait())
+io.stderr:write("stdout=[" .. (r.stdout or "") .. "]\n")
+]])
+  assert(r.ok, "helper failed: " .. (r.stderr or ""))
+  assert(written:find("ERR", 1, true),
+    "stderr routed via fd.wrap(1) must reach the real fd 1, file was: " .. written)
+  assert(not written:find("OUT", 1, true),
+    "the captured stdout must not also reach the real fd 1, file was: " .. written)
+  assert(r.stderr:find("stdout=[OUT\n]", 1, true),
+    "Result.stdout must hold only the grandchild's stdout, got: " .. r.stderr)
+end
+test_stderr_fd_wrap_does_not_clobber_captured_stdout()
+
+--- The full swap: stdout AND stderr each point at what the OTHER
+--- started as. A fix that only handled the single-alias case above
+--- (stderr = fd.wrap(1)) could still misroute a swap, since both
+--- targets alias a std fd the other's wiring is about to overwrite.
+local function test_full_stdio_swap_routes_each_stream_correctly()
+  local r, written = run_capturing("swap_full", [[
+local child = require("cosmic.child")
+local cfd = require("cosmic.fd")
+local h = assert(child.spawn({"sh", "-c", "echo OUT; echo ERR >&2"},
+  {stdout = cfd.wrap(2), stderr = cfd.wrap(1)}))
+local r = assert(h:wait())
+io.stderr:write("stdout=[" .. (r.stdout or "") .. "] stderr=[" ..
+  (r.stderr or "") .. "]\n")
+]])
+  assert(r.ok, "helper failed: " .. (r.stderr or ""))
+  -- `written` is the file behind the helper's own real fd 1, which
+  -- stderr = fd.wrap(1) targets; the helper's own real fd 2, which
+  -- stdout = fd.wrap(2) targets, is what the OUTER spawn (run_capturing)
+  -- itself captures into r.stderr here.
+  assert(written:find("ERR", 1, true),
+    "stderr = fd.wrap(1) should route the grandchild's stderr onto the " ..
+    "real fd 1, but it is missing from the file: " .. written)
+  assert(not written:find("OUT", 1, true),
+    "stdout must not also reach the real fd 1, file was: " .. written)
+  assert(r.stderr:find("OUT", 1, true),
+    "stdout = fd.wrap(2) should route the grandchild's stdout into our " ..
+    "own captured stderr, got: " .. r.stderr)
+  assert(r.stderr:find("stdout=[] stderr=[]", 1, true),
+    "spawn captured neither stream once both were redirected via " ..
+    "fd.wrap, but got: " .. r.stderr)
+end
+test_full_stdio_swap_routes_each_stream_correctly()
