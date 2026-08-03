@@ -60,6 +60,14 @@ local function test_strip_leaves_non_sgr_escapes()
 end
 test_strip_leaves_non_sgr_escapes()
 
+local function test_strip_requires_csi_bracket()
+  -- ESC without the "[" is not an SGR sequence and must pass through,
+  -- even though the pattern's "[0-9;]*" would trivially match zero times.
+  assert(ansi.strip(ESC .. "m") == ESC .. "m")
+  assert(ansi.strip(ESC .. "0m") == ESC .. "0m")
+end
+test_strip_requires_csi_bracket()
+
 local function test_reset_constant()
   assert(ansi.reset == ESC .. "[0m")
 end

@@ -195,7 +195,7 @@ end
 --- @param text string The possibly-styled text
 --- @return string The text with SGR sequences removed
 local function strip(text: string): string
-  return (text:gsub(CSI .. "[0-9;]*m", ""))
+  return (text:gsub(ESC .. "%[[0-9;]*m", ""))
 end
 
 --- Decide whether styled output is appropriate for a stream, honoring
