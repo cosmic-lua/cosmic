@@ -62,7 +62,8 @@ local record Socket is stream.Reader, stream.Writer
   --- end of stream, matching the stream contract (cosmic.stream). ""
   --- is only ever a zero-byte datagram on message sockets. Returns
   --- nil + error message on failure. bufsiz must be positive when
-  --- given (default 65536).
+  --- given (default 65536): 0 or negative is an honest error, not a
+  --- zero-byte read that would otherwise be misread as peer-closed.
   recv: function(self: Socket, bufsiz?: integer, flags?: integer): string | nil, string
   --- stream.Reader: alias for recv (chunk; bare nil at end of stream;
   --- nil + error on failure).
@@ -199,6 +200,9 @@ local function make_socket(fd: integer): Socket
 
   function sock:recv(bufsiz?: integer, flags?: integer): string | nil, string
     if not self.fd then return nil, "socket closed" end
+    if bufsiz and bufsiz <= 0 then
+      return nil, "recv: bufsiz must be positive, got " .. bufsiz
+    end
     local data, err, eno = unix.recv(self.fd, bufsiz or 65536, flags or 0)
     while data == nil and errno_is(eno, "EINTR") do
       data, err, eno = unix.recv(self.fd, bufsiz or 65536, flags or 0)
@@ -467,10 +471,12 @@ local record NetSocketModule
   type Socket = Socket
   type Address = Address
   make_socket: function(fd: integer): Socket
+  resolve_addr: function(addr: Address): integer | nil, string
 end
 
 local M: NetSocketModule = {
   make_socket = make_socket,
+  resolve_addr = resolve_addr,
 }
 
 return M

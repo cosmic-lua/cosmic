@@ -5,6 +5,7 @@
 -- capture both output streams plus the exit status.
 local check = require("cosmic.check")
 local child = require("cosmic.child")
+local childio = require("cosmic.child.io")
 local fs = require("cosmic.fs")
 local signal = require("cosmic.signal")
 -- cosmo.unix is required directly only to monkey-patch unix.pipe for fault
@@ -93,3 +94,35 @@ local function test_spawn_pipe_failure_cleans_up()
     "expected a 'pipe' error, got: " .. tostring(err))
 end
 test_spawn_pipe_failure_cleans_up()
+
+local function test_spawn_exec_status_read_failure()
+  -- A non-EINTR failure reading the exec-status pipe (childio.read_retry
+  -- returning nil + an error) used to be indistinguishable from EOF —
+  -- misread as "exec succeeded". It must surface as a spawn error instead.
+  -- cwd forces the fork path: only it uses the exec-status pipe.
+  local real_read_retry = childio.read_retry
+  childio.read_retry = function(_fd: integer, _bufsiz: integer): string, string
+    return nil, "read: EIO: Input/output error"
+  end
+  local handle, err = child.spawn({lua_bin, "-e", "print('x')"}, {cwd = "."})
+  childio.read_retry = real_read_retry
+  assert(handle == nil, "expected nil handle when the exec-status read fails")
+  assert(err ~= nil and err:find("EIO", 1, true),
+    "expected the read failure's errno to surface, got: " .. tostring(err))
+end
+test_spawn_exec_status_read_failure()
+
+local function test_wait_reports_io_error()
+  -- state.io_err (set by the pump on a read/write/poll failure) must land
+  -- in Result and force ok=false. There is no portable way to force a
+  -- genuine mid-pump I/O failure, so this injects the (documented
+  -- internal) state directly, the same way test_spawn_pipe_failure_cleans_up
+  -- injects a pipe failure above.
+  local h = check.must(child.spawn({lua_bin, "-e", "os.exit(0)"}))
+  h._st.io_err = "read: EIO: Input/output error"
+  local r = check.must(h:wait())
+  assert(r.ok == false, "a Result with an io_error must not be ok")
+  assert(r.io_error == "read: EIO: Input/output error",
+    "expected io_error to surface, got: " .. tostring(r.io_error))
+end
+test_wait_reports_io_error()

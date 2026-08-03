@@ -183,9 +183,9 @@ local function load_dir(dir: string): LoadResult
         table.insert(result.errors, "envd: set " .. key .. ": " .. (set_err or "failed"))
       else
         result.count = result.count + 1
-      end
-      if debug_on then
-        io.stderr:write("[envd] set " .. key .. " from " .. sources[key] .. "\n")
+        if debug_on then
+          io.stderr:write("[envd] set " .. key .. " from " .. sources[key] .. "\n")
+        end
       end
     end
   end

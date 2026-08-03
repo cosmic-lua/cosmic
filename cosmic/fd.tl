@@ -198,7 +198,7 @@ local record Pipe
   metamethod __close: function(self: Pipe)
   reader: Handle
   writer: Handle
-  close: function(self: Pipe): boolean
+  close: function(self: Pipe): boolean, string
   closed: function(self: Pipe): boolean
 end
 
@@ -208,9 +208,18 @@ local function make_pipe(reader: Handle, writer: Handle): Pipe
     writer = writer,
   }
 
-  function p:close(): boolean
-    self.reader:close()
-    self.writer:close()
+  --- Close both ends. Always closes both, even if the reader's close
+  --- fails; the first error wins (the writer's close still runs, but a
+  --- failure there is only reported if the reader closed cleanly).
+  function p:close(): boolean, string
+    local rok, rerr = self.reader:close()
+    local wok, werr = self.writer:close()
+    if not rok then
+      return false, rerr
+    end
+    if not wok then
+      return false, werr
+    end
     return true
   end
 

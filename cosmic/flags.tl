@@ -227,7 +227,14 @@ local function parse(spec: Spec, argv: {string}): Parsed | nil, string
   end
 
   parsed.help = parsed.flags["help"] or false
-  parsed.version = parsed.flags["version"] or false
+  -- Only the built-in --version (registered by effective_options when
+  -- spec.version is set) sets parsed.version. A user-declared --version
+  -- boolean with no spec.version is an ordinary flag: it stays in
+  -- parsed.flags, not mirrored onto parsed.version (doc: "specs with a
+  -- version only").
+  if spec.version then
+    parsed.version = parsed.flags["version"] or false
+  end
 
   -- A help or version request short-circuits required-option
   -- enforcement: `prog --help` must always work.

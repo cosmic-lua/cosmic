@@ -111,6 +111,15 @@ local function test_set_level_rejects_runtime_garbage()
 end
 test_set_level_rejects_runtime_garbage()
 
+-- FIX 14: log() itself must not throw "compare nil with number" when a
+-- runtime string smuggled in through a cast has no entry in severity[].
+local function test_log_rejects_runtime_garbage_level()
+  reset("info")
+  log.log("verbose" as log.Level, "boom") -- cast: deliberate invalid input
+  assert(#captured == 0, "an unknown level must be suppressed, not emitted")
+end
+test_log_rejects_runtime_garbage_level()
+
 local function test_format_does_not_emit()
   reset("info")
   local line = log.format("error", "standalone", {id = 3})

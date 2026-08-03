@@ -395,6 +395,32 @@ local function test_cosmic_debug_nonempty_emits_debug()
 end
 test_cosmic_debug_nonempty_emits_debug()
 
+-- FIX 12: the "[envd] set" debug line printed even when env.set failed.
+-- Monkey-patch env.set (a plain module table, like childio.read_retry
+-- elsewhere) so it fails, and confirm the debug line is now gated on
+-- success — the failure still lands in result.errors, just silently
+-- under COSMIC_DEBUG.
+local function test_debug_set_not_logged_on_failure()
+  local dir = make_envd("debug_set_fails")
+  fs.write(fs.join(dir, "vars"), "COSMIC_ENVD_DEBUG_FAIL=value\n")
+  env.unset("COSMIC_ENVD_DEBUG_FAIL")
+  env.set("COSMIC_DEBUG", "1")
+
+  local real_set = env.set
+  env.set = function(_name: string, _value: string, _overwrite?: boolean): boolean, string
+    return false, "setenv: EINVAL: simulated failure"
+  end
+  local result, captured = load_dir_capturing_stderr(dir)
+  env.set = real_set
+  env.unset("COSMIC_DEBUG")
+
+  assert(result.count == 0, "expected 0 vars set when env.set fails, got " .. tostring(result.count))
+  assert(#result.errors == 1, "expected 1 error recorded, got " .. tostring(#result.errors))
+  assert(not captured:match("%[envd%] set"),
+    "must not log '[envd] set' when env.set failed, got: " .. captured)
+end
+test_debug_set_not_logged_on_failure()
+
 -- LoadResult.errors (review item 39): per-file read failures
 -- are collected instead of being visible only under COSMIC_DEBUG.
 

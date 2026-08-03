@@ -83,7 +83,8 @@ local record Options
   --- TLS handshake) — NOT a whole-request deadline. 0 or nil keeps the
   --- 60-second default; there is no "infinite" option.
   timeout: number
-  --- Total number of attempts (1 = no retry, default 1).
+  --- Total number of attempts (1 = no retry, default 1). Clamped to >= 1:
+  --- 0 or negative would otherwise skip the fetch loop and return no Result.
   max_attempts: integer
   --- Base backoff delay in seconds (default 0.5). Attempt n waits a
   --- uniformly random ("full jitter") delay in
@@ -264,7 +265,7 @@ local function Fetch(url: string, opts?: Options): Result
   end
   url = purl
   opts = popts
-  local max_attempts = (opts and opts.max_attempts) or 1
+  local max_attempts = (opts and opts.max_attempts) or 1; if max_attempts < 1 then max_attempts = 1 end
   local base_delay = (opts and opts.base_delay) or 0.5
   local max_delay = (opts and opts.max_delay) or 30
   local should_retry = opts and opts.should_retry
