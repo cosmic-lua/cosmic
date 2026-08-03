@@ -272,4 +272,23 @@ local function test_format_write_if_changed()
 end
 test_format_write_if_changed()
 
+-- --output/--write-if-changed are honored even AFTER --compile. The
+-- dispatch used to return at --compile before reaching them, so a
+-- trailing --output silently wrote to stdout instead of the file.
+local function test_output_after_compile_reaches_the_file()
+  local input = write_temp("after.tl", "local x: number = 7\nprint(x)\n")
+  local out_path = fs.join(tmpdir, "after_out.lua")
+  fs.unlink(out_path)
+  local h = check.must(spawn.spawn({cosmic, "--compile", input,
+        "--output", out_path, "--write-if-changed"}))
+  local r = check.must(h:wait())
+  assert(r.ok, "compile with a trailing --output should succeed: " ..
+    (r.stderr or ""))
+  assert(fs.isfile(out_path),
+    "an --output after --compile must reach the file, not stdout")
+  local written = check.must(fs.read(out_path))
+  assert(written:find("local x = 7", 1, true), "got: " .. written)
+end
+test_output_after_compile_reaches_the_file()
+
 print("All compile tests passed!")

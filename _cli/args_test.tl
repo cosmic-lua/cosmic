@@ -413,3 +413,23 @@ local function test_help_includes_all_options()
   end
 end
 test_help_includes_all_options()
+
+-- A `--` among a script's arguments is the SCRIPT's, kept verbatim the
+-- way real `lua s.lua a -- b` keeps it -- a tool that parses its own
+-- flags, or forwards a `--`-separated argv to a child, needs it. The
+-- dispatcher used to strip every `--` after the script name.
+local function test_double_dash_reaches_the_script()
+  local script = fs.join(tmpdir, "dashes.lua")
+  fs.write(script, [[
+print("n=" .. #arg)
+for i = 1, #arg do print("a[" .. i .. "]=" .. arg[i]) end
+]])
+  local h = check.must(spawn.spawn({cosmic, script, "one", "--", "two", "--", "three"}))
+  local r = check.must(h:wait())
+  assert(r.ok, "cosmic should succeed: " .. (r.stderr or ""))
+  local out = r.stdout or ""
+  assert(out:find("n=5", 1, true), "all five args reach the script, got: " .. out)
+  assert(out:find("a[2]=--", 1, true) and out:find("a[4]=--", 1, true),
+    "the `--` separators are kept verbatim, got: " .. out)
+end
+test_double_dash_reaches_the_script()
