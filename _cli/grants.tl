@@ -464,10 +464,10 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
   --
   -- so the same expression is what gets granted, rather than a list of
   -- places it might be. TMPDIR outranks HOME, and the driver PINS an
-  -- unset TMPDIR under o/ before this runs (driver.ensure_build_tmpdir),
-  -- so a step's loader lands in the build's own tree, not $HOME -- the
-  -- HOME fallback below stays only for a caller that reaches plan()
-  -- without the driver, never for a fenced step.
+  -- unset TMPDIR at a narrow subdir of $HOME before this runs
+  -- (driver.ensure_build_tmpdir), so a step's loader lands in one
+  -- grantable directory rather than the whole home. The HOME fallback
+  -- below is only for a caller reaching plan() without the driver.
   --
   -- The DIRECTORY, and executable, for the same reason: `mv -f` over
   -- an existing loader makes a new inode, and a landlock rule names

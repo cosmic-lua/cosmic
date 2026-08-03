@@ -51,22 +51,27 @@ local function fence_enabled(): boolean
   return os.getenv("COSMIC_FENCE") ~= "0"
 end
 
---- Point an unset TMPDIR at a scratch dir under o/, before the fence.
+--- Point an unset TMPDIR at a narrow scratch dir, before the fence.
 ---
 --- The APE loader extracts to `${TMPDIR:-${HOME:-.}}/.ape-1.10` and then
---- execs it, and the derived fence grants that directory rw AND exec (a
+--- EXECS it, and the derived fence grants that directory rw AND exec (a
 --- step execs a fat APE). With TMPDIR unset -- the default -- both land
 --- on $HOME, so a fenced step could write anywhere under it: the "a
 --- test writes only its own outputs" boundary, void on the configuration
---- nobody sets a variable for. Point it under o/ instead -- inside the
---- build's own writable tree, narrow, the same for every step. A caller
---- who set TMPDIR keeps it, so this closes only the unset case.
+--- nobody sets a variable for. Point it at a subdirectory of $HOME
+--- instead -- writable and exec on the same filesystem $HOME already is
+--- (an extract-exec dir under the build's own o/ is denied exec on an
+--- enforcing host, ENOEXEC), but scoped to one directory a test may
+--- scribble in rather than the whole home. A caller who set TMPDIR
+--- keeps it, so only the unset case changes.
 local function ensure_build_tmpdir()
   local t = env.get("TMPDIR")
   if t ~= nil and t ~= "" then
     return
   end
-  local scratch = fs.abspath(fs.join("o", "tmp"))
+  local home = env.get("HOME")
+  local base = (home ~= nil and home ~= "") and home or "."
+  local scratch = fs.abspath(fs.join(base, ".cosmic-tmp"))
   if fs.makedirs(scratch) then
     env.set("TMPDIR", scratch, true)
   end
