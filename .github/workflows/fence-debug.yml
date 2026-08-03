@@ -1,0 +1,115 @@
+name: fence-debug
+
+# TEMPORARY fast-iteration lane for the fence work: the Landlock
+# interactions under test only reproduce on an enforcing host — the
+# sandboxless dev container cannot exercise them — and the full pr gate
+# answers in ~20 minutes what this lane answers in a few. It builds
+# once, runs the fence's own unit tests, then reproduces the exact
+# failing shape (a fenced build with TMPDIR unset, spawning fat APEs
+# from recipe steps) with strace-backed diagnostics on failure.
+# Delete this file when the fence branch lands.
+on:
+  push:
+    branches: [claude/fence-home]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fence:
+    runs-on: ubuntu-latest
+    container:
+      image: buildpack-deps@sha256:cfb30ff3856780c63b00ec3ad2e4aed77ae6afce5975ebb8ad9525ec45354e2e # noble (Ubuntu 24.04)
+      options: --privileged
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: prepare non-root builder
+        shell: bash
+        run: |
+          set -eux
+          useradd -m -s /bin/bash builder
+          chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
+          git config --system --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: fetch and build
+        shell: bash
+        run: |
+          set -eux
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bin/cosmic --make fetch
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bin/cosmic --make build
+
+      - name: the host can enforce
+        shell: bash
+        run: |
+          set -eux
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            o/bin/cosmic -e 'local s = require("cosmic.sandbox")
+              assert(s.available().fs, "this host cannot enforce; the lane proves nothing")'
+
+      - name: fence unit tests
+        shell: bash
+        run: |
+          set -euxo pipefail
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            o/bin/cosmic --make test _cli/driver_test.tl _cli/fence_test.tl 2>&1 | tee o/fence-tests.log
+
+      # The failing shape, isolated: a fenced build in a fresh fixture
+      # project with TMPDIR unset. Every compile step spawns the fat
+      # APE driver, which is exactly the spawn that reported ENOEXEC
+      # when the grant moved off $HOME. Seconds, not minutes.
+      - name: fenced fixture build with TMPDIR unset
+        shell: bash
+        run: |
+          set -eux
+          rm -rf "$HOME/fixt"
+          cp -r _make/testdata/hello "$HOME/fixt"
+          chown -R builder:builder "$HOME/fixt"
+          cd "$HOME/fixt"
+          runuser -u builder -- env -u TMPDIR HOME="$HOME" PATH="$PATH" \
+            "$GITHUB_WORKSPACE/o/bin/cosmic" --make build
+          ./o/bin/hello
+
+      # The enforce lane's exact sequence: clean, fetch, full fenced
+      # self-build. This is what went red on both prior attempts.
+      - name: fenced self-build from clean (the enforce lane's step)
+        shell: bash
+        run: |
+          set -eux
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            o/bin/cosmic --make clean
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+            bin/cosmic --make fetch
+          runuser -u builder -- env -u TMPDIR HOME="$HOME" PATH="$PATH" \
+            bin/cosmic --make build
+
+      # Diagnostics only on failure: what loaders exist where, and an
+      # strace of the fixture build showing every execve probe and its
+      # errno — the question the bare ENOEXEC does not answer.
+      - name: diagnose
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          echo "===== loader candidates ====="
+          ls -la /usr/bin/ape 2>/dev/null
+          ls -la "$HOME"/.ape-* 2>/dev/null
+          ls -la "$GITHUB_WORKSPACE"/o/tmp 2>/dev/null
+          ls -la "$HOME"/fixt/o/tmp 2>/dev/null
+          echo "===== environment ====="
+          echo "HOME=$HOME TMPDIR=${TMPDIR-unset}"
+          echo "===== strace of the fenced fixture build ====="
+          apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq strace >/dev/null 2>&1
+          rm -rf "$HOME/fixt2"
+          cp -r "$GITHUB_WORKSPACE/_make/testdata/hello" "$HOME/fixt2"
+          chown -R builder:builder "$HOME/fixt2"
+          cd "$HOME/fixt2"
+          runuser -u builder -- env -u TMPDIR HOME="$HOME" PATH="$PATH" \
+            strace -f -e trace=execve,execveat -s 200 -o /tmp/fence.strace \
+            "$GITHUB_WORKSPACE/o/bin/cosmic" --make build
+          echo "--- execve probes that failed ---"
+          grep "execve" /tmp/fence.strace | grep -v "= 0$" | tail -60
+          echo "--- last 30 strace lines ---"
+          tail -30 /tmp/fence.strace
+          exit 0

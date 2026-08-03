@@ -255,13 +255,11 @@ test_a_childs_own_paths_are_readable()
 
 local function test_every_step_can_extract_and_run_the_ape_loader()
   -- A fat APE is a shell prologue the kernel will not load, so it
-  -- extracts a small loader and execs that. The prologue picks
-  -- `${TMPDIR:-${HOME:-.}}/.ape-<version>`, and every step gets a
-  -- FRESH scratch TMPDIR, so it is always the extract-and-exec path:
-  -- write the loader, then run it. Granting write alone leaves the
-  -- exec denied, and the parent reports ENOEXEC -- which reads like a
-  -- corrupt binary rather than a denied path, and is the exact failure
-  -- that turned the gate red once the fence became the default.
+  -- extracts a small loader into `${TMPDIR:-${HOME:-.}}` and execs
+  -- that. Granting write alone leaves the exec denied, and the parent
+  -- reports ENOEXEC -- which reads like a corrupt binary rather than a
+  -- denied path, and is the exact failure that turned the gate red
+  -- once the fence became the default.
   local dir = fs.join(tmpdir, "apedir")
   assert(fs.makedirs(dir))
   local prev = env.get("TMPDIR")
@@ -275,6 +273,69 @@ local function test_every_step_can_extract_and_run_the_ape_loader()
     "loader makes a new inode, and a rule names the inode it opened")
 end
 test_every_step_can_extract_and_run_the_ape_loader()
+
+-- The claim the old ape grant rested on -- "every step gets a scratch
+-- TMPDIR" -- was false: nothing set one, an unset TMPDIR fell through
+-- to $HOME, and the fence granted rw+exec on the WHOLE home directory.
+-- driver.ensure_build_tmpdir closes it: with TMPDIR unset it pins a
+-- scratch under o/, and the grant follows there instead of $HOME.
+local function test_an_unset_tmpdir_is_pinned_under_o_not_home()
+  local driver = require("_cli.driver")
+  local home = fs.join(tmpdir, "fakehome")
+  local box = fs.join(tmpdir, "tmpbox")
+  assert(fs.makedirs(home))
+  assert(fs.makedirs(box))
+  local cwd = assert(fs.getcwd())
+  local prev_t, prev_h = env.get("TMPDIR"), env.get("HOME")
+  assert(fs.chdir(box))
+  env.unset("TMPDIR")
+  env.set("HOME", home, true)
+
+  driver.ensure_build_tmpdir()
+  local pinned = env.get("TMPDIR")
+  local p = grants.plan("record", {fs.join(box, "out")})
+
+  assert(fs.chdir(cwd))
+  if prev_t ~= nil then env.set("TMPDIR", prev_t, true) else env.unset("TMPDIR") end
+  if prev_h ~= nil then env.set("HOME", prev_h, true) else env.unset("HOME") end
+
+  assert(pinned ~= nil, "an unset TMPDIR must be pinned, got nil")
+  local pin = pinned as string -- cast: asserted non-nil on the line above
+  assert(pin:find("o/tmp", 1, true),
+    "an unset TMPDIR must be pinned under o/, got: " .. pin)
+  assert(p is sandbox.Fs, "record must plan a policy")
+  assert(has(p.rw, pin) and has(p.exec, pin),
+    "the o/ scratch is the extraction dir: rw AND exec")
+  assert(not has(p.rw, home) and not has(p.exec, home),
+    "and the home directory itself is never granted")
+end
+test_an_unset_tmpdir_is_pinned_under_o_not_home()
+
+-- execve caches TMPDIR and HOME at each process's own startup, so the
+-- driver -- whose TMPDIR the pin set after it started -- still probes
+-- $HOME/.ape-<v>: the loader the unfenced bootstrap already extracted.
+-- That probe needs the FILE, and only the file; the directory around
+-- it is the over-grant the pin exists to remove.
+local function test_an_existing_home_loader_is_granted_as_a_file_only()
+  local home = fs.join(tmpdir, "loaderhome")
+  assert(fs.makedirs(home))
+  local loader = fs.join(home, ".ape-1.10")
+  assert(fs.write(loader, "pretend loader"))
+  local scratch = fs.join(tmpdir, "loader-scratch")
+  assert(fs.makedirs(scratch))
+  local prev_t, prev_h = env.get("TMPDIR"), env.get("HOME")
+  env.set("TMPDIR", scratch, true)
+  env.set("HOME", home, true)
+  local p = grants.plan("copy",
+    {touch("loader-src"), fs.join(tmpdir, "loader-dst")})
+  if prev_t ~= nil then env.set("TMPDIR", prev_t, true) else env.unset("TMPDIR") end
+  if prev_h ~= nil then env.set("HOME", prev_h, true) else env.unset("HOME") end
+  assert(p is sandbox.Fs, "copy must plan a policy")
+  assert(has(p.exec, loader), "the existing home loader file is exec-granted")
+  assert(not has(p.rw, home) and not has(p.exec, home),
+    "the home directory itself is never granted")
+end
+test_an_existing_home_loader_is_granted_as_a_file_only()
 
 local function test_a_program_that_is_not_there_is_not_a_rule()
   -- A landlock rule is an OPEN, so naming a path that does not exist

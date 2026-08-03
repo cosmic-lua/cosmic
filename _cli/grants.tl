@@ -446,43 +446,43 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
   if arg[-1] ~= nil and fs.exists(arg[-1]) then
     ex[#ex + 1] = arg[-1]
   end
-  -- The APE loader needs somewhere to put itself, and then to RUN from
-  -- there. Every recipe execs a fat APE -- the gate runs under the
-  -- tree's own `o/bin/cosmic`, which is what ships -- and a fat APE is
-  -- a shell prologue the kernel will not load, so the prologue
-  -- extracts a small loader and execs that. Deny either half and the
-  -- parent reports ENOEXEC, which reads like a corrupt binary rather
-  -- than a denied path.
+  -- The APE loader. A fat APE is a shell prologue the kernel will not
+  -- load, so every spawn goes through a small loader, and cosmo's own
+  -- execve (libc/proc/execve-sysv.c) probes for one in order:
+  -- /usr/bin/ape, $TMPDIR/.ape-<v>, $HOME/.ape-<v>, ./.ape-<v>, then
+  -- /bin/sh, whose prologue extracts a fresh loader into
+  -- ${TMPDIR:-${HOME:-.}} and execs it. Deny every probe and the
+  -- parent reports ENOEXEC, which reads like a corrupt binary.
   --
-  -- Where it goes is not a guess; the prologue is right there in the
-  -- binary and says:
-  --
-  --     t="${TMPDIR:-${HOME:-.}}/.ape-1.10"
-  --     [ -x "$t" ] && exec "$t" "$o" "$@"
-  --     ... dd >"$t.$$"; chmod 755 "$t.$$"; mv -f "$t.$$" "$t"
-  --     exec "$t" "$o" "$@"
-  --
-  -- so the same expression is what gets granted, rather than a list of
-  -- places it might be. TMPDIR outranks HOME, which matters here more
-  -- than anywhere: every step already gets its own scratch TMPDIR, so
-  -- `-x "$t"` is false EVERY time and the extract-and-exec path is the
-  -- only path. Granting the loaders that happened to exist elsewhere
-  -- was answering a question the prologue never asks.
-  --
-  -- The DIRECTORY, and executable, for the same reason: `mv -f` over
-  -- an existing loader makes a new inode, and a landlock rule names
-  -- the inode it was opened on. A grant on the file is a grant on the
-  -- copy that was replaced.
-  local ape_dir = os.getenv("TMPDIR")
-  if ape_dir == nil or ape_dir == "" then
-    ape_dir = os.getenv("HOME")
+  -- Two grants cover that list. Each loader FILE that already exists
+  -- gets exec: a file grant runs the loader without opening the
+  -- directory around it, and $HOME is the directory in question --
+  -- granting the extraction DIRECTORY handed every step rw+exec on the
+  -- entire home when TMPDIR was unset. And the scratch TMPDIR (pinned
+  -- by the driver when unset, rw above) gets exec, so extraction -- the
+  -- probe left when no loader exists -- lands where a step may both
+  -- write and run. $HOME still matters with TMPDIR pinned: execve
+  -- caches TMPDIR and HOME at each process's OWN startup, so the
+  -- driver -- whose TMPDIR the pin set after it started -- skips the
+  -- $TMPDIR probe and finds the bootstrap's loader at $HOME/.ape-<v>.
+  if fs.isdir(tmp) then
+    ex[#ex + 1] = tmp
   end
-  if ape_dir == nil or ape_dir == "" then
-    ape_dir = "."
+  local loaders: {string} = {"/usr/bin/ape"}
+  for _, base in ipairs({tmp, os.getenv("HOME") or "", "."}) do
+    if base ~= "" and fs.isdir(base) then
+      local found = fs.glob(base, ".ape-*")
+      if found ~= nil then
+        for _, f in ipairs(found as {string}) do -- cast: nil-checked above
+          loaders[#loaders + 1] = f
+        end
+      end
+    end
   end
-  if fs.isdir(ape_dir) then
-    rw[#rw + 1] = ape_dir
-    ex[#ex + 1] = ape_dir
+  for _, f in ipairs(loaders) do
+    if fs.isfile(f) then
+      ex[#ex + 1] = f
+    end
   end
   return {ro = ro, rw = rw, exec = ex}
 end
