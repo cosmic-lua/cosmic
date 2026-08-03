@@ -399,7 +399,7 @@ local function clean_env(): {string}
 end
 
 local function run(proj: Project, target: string, overrides: {string},
-    cosmic: string): integer, string
+    cosmic: string, extra?: {string}): integer, string
   local rules, merr = materialize(proj, cosmic)
   if not rules then
     return 1, merr or "make: could not write the build files"
@@ -427,6 +427,9 @@ local function run(proj: Project, target: string, overrides: {string},
     argv[#argv + 1] = o
   end
   argv[#argv + 1] = target
+  for _, g in ipairs(extra or {}) do -- extra goals build in the same run
+    argv[#argv + 1] = g
+  end
   -- MAKEFLAGS is cleared, and MAKELEVEL with it. A selection is passed
   -- as a command-line variable assignment, and GNU make propagates
   -- those to sub-makes -- so a `--make test <one-test>` whose test runs
@@ -474,7 +477,7 @@ local record GraphModule
   materialize: function(proj: Project, cosmic: string): string | nil, string
   find_make: function(): string | nil, string
   jobs_flag: function(): string
-  run: function(proj: Project, target: string, overrides: {string}, cosmic: string): integer, string
+  run: function(proj: Project, target: string, overrides: {string}, cosmic: string, extra?: {string}): integer, string
   inputs: function(proj: Project, kinds: {Kind}): {File}
   source_dirs: function(proj: Project): {string}
 end
