@@ -5,6 +5,7 @@ local fs = require("cosmic.fs")
 local ip = require("cosmic.ip")
 local proc = require("cosmic.proc")
 local check = require("cosmic.check")
+local time = require("cosmic.time")
 
 local function test_interfaces()
   -- SIOCGIFCONF has no pledge promise (inet allows only SIOCATMARK), so
@@ -189,6 +190,49 @@ local function test_nb_connect_refused()
   client:close()
 end
 test_nb_connect_refused()
+
+-- connect() to the broadcast address fails SYNCHRONOUSLY with ENETUNREACH
+-- (no EINPROGRESS at all — unlike a refused port, which the kernel usually
+-- reports async). nb_connect must return that error immediately rather
+-- than treating the failure as "still connecting" and polling for up to
+-- timeoutms: assert on elapsed time, not just the outcome, so a regression
+-- back to "poll no matter what" is caught even though it would eventually
+-- return the same error, just slowly.
+local function test_nb_connect_synchronous_failure_returns_immediately()
+  local client = check.must(net.socket())
+
+  local t0 = time.monotonic()
+  local ok, err = net.nb_connect(client, "255.255.255.255", 80, 5000)
+  local t1 = time.monotonic()
+
+  assert(not ok, "connect to the broadcast address should fail")
+  assert(err ~= nil and err:match("ENETUNREACH"),
+    "expected ENETUNREACH, got: " .. tostring(err))
+  assert(t1 - t0 < 1, "a synchronous connect failure must not wait out"
+    .. " the poll timeout, took " .. tostring(t1 - t0) .. "s")
+
+  client:close()
+end
+test_nb_connect_synchronous_failure_returns_immediately()
+
+-- Error fidelity: socket()/socketpair()/gethostname() must surface the
+-- binding's real errno, not a generic "X creation failed" string.
+local function test_socket_error_names_errno()
+  local sock, err = net.socket(-1, net.SOCK_STREAM, 0)
+  assert(sock == nil, "socket with an invalid family should fail")
+  assert(err ~= nil and err:match("E%u+"),
+    "socket error should name the errno, got: " .. tostring(err))
+end
+test_socket_error_names_errno()
+
+local function test_socketpair_error_names_errno()
+  -- socketpair() only supports AF_UNIX; AF_INET fails synchronously.
+  local a, _b, err = net.socketpair(net.AF_INET, net.SOCK_STREAM, 0)
+  assert(a == nil, "socketpair with AF_INET should fail")
+  assert(err ~= nil and err:match("E%u+"),
+    "socketpair error should name the errno, got: " .. tostring(err))
+end
+test_socketpair_error_names_errno()
 
 local function test_connect_tcp()
   -- Create a listening socket

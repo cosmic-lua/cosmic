@@ -8,6 +8,8 @@
 local unix = require("cosmo.unix")
 local ip = require("cosmic.ip")
 local net_socket = require("cosmic.net.socket")
+local errstr = require("cosmic.errno").str
+local errno_is = require("cosmic.errno").is
 
 --- Socket handle for network I/O (see cosmic.net.socket for the methods).
 --- Supports Lua 5.4's to-be-closed via __close metamethod.
@@ -29,9 +31,9 @@ local function socket(family?: integer, socktype?: integer, protocol?: integer):
   family = family or unix.AF_INET
   socktype = socktype or unix.SOCK_STREAM
   protocol = protocol or 0
-  local fd = unix.socket(family, socktype, protocol)
+  local fd, err = unix.socket(family, socktype, protocol)
   if not fd then
-    return nil, "socket creation failed"
+    return nil, errstr(err, "socket")
   end
   return make_socket(fd)
 end
@@ -49,7 +51,9 @@ local function socketpair(family?: integer, socktype?: integer, protocol?: integ
   protocol = protocol or 0
   local fd1, fd2 = unix.socketpair(family, socktype, protocol)
   if not fd1 then
-    return nil, nil, "socketpair creation failed"
+    -- On failure the binding returns (nil, err, errno): the error string
+    -- arrives in the second slot, where the second fd would have been.
+    return nil, nil, errstr(fd2, "socketpair")
   end
   return make_socket(fd1), make_socket(fd2)
 end
@@ -229,22 +233,38 @@ end
 --- @return string Error message on failure
 local function nb_connect(s: Socket, addr: Address, port: integer, timeoutms?: integer): boolean, string
   timeoutms = timeoutms or 10000
+  if not s.fd then return false, "socket closed" end
   local nb_ok, nb_err = s:set_nonblocking()
   if not nb_ok then
     return false, nb_err
   end
-  local ok, conn_err = s:connect(addr, port)
+  local raw, aerr = net_socket.resolve_addr(addr)
+  if not raw then
+    return false, aerr
+  end
+  -- Bypass Socket:connect to keep the numeric errno: a nonblocking connect
+  -- that returns EINPROGRESS (or is interrupted, EINTR) is still pending —
+  -- poll for the outcome. Any other errno is a synchronous failure
+  -- (ECONNREFUSED, ENETUNREACH, ...) and must return immediately, not be
+  -- misread as "still connecting".
+  local ok, err, eno = unix.connect(s.fd, raw, port)
   if ok then return true end
+  if not (errno_is(eno, "EINPROGRESS") or errno_is(eno, "EINTR")) then
+    return false, errstr(err, "nb_connect: connect failed")
+  end
   local fds: {integer: integer} = {[s.fd] = unix.POLLOUT}
-  local revents = unix.poll(fds, timeoutms)
+  local revents, perr, peno = unix.poll(fds, timeoutms)
+  while revents == nil and errno_is(peno, "EINTR") do
+    revents, perr, peno = unix.poll(fds, timeoutms)
+  end
   if not revents then
-    return false, "nb_connect: poll failed"
+    return false, errstr(perr, "nb_connect: poll failed")
   end
   local ev = (revents as {integer: integer})[s.fd] or 0 -- cast: record union after guard
   if ev == 0 then return false, "nb_connect: connect timed out" end
   if ev & unix.POLLERR ~= 0 then
     local so_err = s:getsockopt(unix.SOL_SOCKET, unix.SO_ERROR)
-    return false, "nb_connect: connect error: " .. tostring(so_err or conn_err)
+    return false, "nb_connect: connect error: " .. tostring(so_err or err)
   end
   if ev & unix.POLLOUT ~= 0 then
     local so_err = s:getsockopt(unix.SOL_SOCKET, unix.SO_ERROR)
@@ -260,9 +280,9 @@ end
 --- @return string | nil The hostname
 --- @return string Error message on failure
 local function gethostname(): string | nil, string
-  local name = unix.gethostname()
+  local name, err = unix.gethostname()
   if not name then
-    return nil, "gethostname failed"
+    return nil, errstr(err, "gethostname")
   end
   return name
 end
@@ -277,9 +297,9 @@ end
 --- @return {Interface} | nil List of interfaces
 --- @return string Error message on failure
 local function interfaces(): {Interface} | nil, string
-  local raw = unix.siocgifconf()
+  local raw, err = unix.siocgifconf()
   if not raw then
-    return nil, "siocgifconf failed"
+    return nil, errstr(err, "siocgifconf")
   end
   local list: {Interface} = {}
   for i, entry in ipairs(raw as {{string: any}}) do -- cast: from any

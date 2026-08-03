@@ -281,3 +281,28 @@ local function test_send_offset()
   b:close()
 end
 test_send_offset()
+
+-- recv(0) reads "" from the kernel on a stream socket, which is
+-- indistinguishable from "peer closed" (api-review-2, #589) unless
+-- bufsiz is rejected outright: an honest error, not a throw.
+local function test_recv_zero_bufsiz_is_error()
+  local a, b = pair()
+  local data, err = a:recv(0)
+  assert(data == nil, "recv(0) should not return data")
+  assert(err ~= nil and err:match("bufsiz"),
+    "recv(0) should name bufsiz in the error, got: " .. tostring(err))
+  a:close()
+  b:close()
+end
+test_recv_zero_bufsiz_is_error()
+
+local function test_recv_negative_bufsiz_is_error()
+  local a, b = pair()
+  local data, err = a:recv(-1)
+  assert(data == nil, "recv(-1) should not return data")
+  assert(err ~= nil and err:match("bufsiz"),
+    "recv(-1) should name bufsiz in the error, got: " .. tostring(err))
+  a:close()
+  b:close()
+end
+test_recv_negative_bufsiz_is_error()
