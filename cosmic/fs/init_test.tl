@@ -390,9 +390,13 @@ test_chmod()
 
 -- Temporary file operations
 
+-- Template bases come from the test's own scratch, not a literal
+-- /tmp: the fence does not grant the system scratch, on purpose.
+local tmp_base = os.getenv("TEST_TMPDIR") or os.getenv("TMPDIR") or "/tmp"
+
 local function test_mkdtemp()
-  local tmpdir = check.must(fs.mkdtemp("/tmp/fs_test_XXXXXX"))
-  assert(string.match(tmpdir, "^/tmp/fs_test_"), "expected /tmp/fs_test_ prefix")
+  local tmpdir = check.must(fs.mkdtemp(fs.join(tmp_base, "fs_test_XXXXXX")))
+  assert(string.match(tmpdir, "fs_test_"), "expected fs_test_ in path")
 
   local st = check.must(fs.stat(tmpdir), "temp dir should exist")
   assert(st:is_dir(), "expected directory")
@@ -402,11 +406,11 @@ end
 test_mkdtemp()
 
 local function test_tmpfile()
-  local h, result = fs.tmpfile("/tmp/fs_test_XXXXXX")
+  local h, result = fs.tmpfile(fs.join(tmp_base, "fs_test_XXXXXX"))
   local hh = check.must(h, result)
 
   local filepath = result
-  assert(filepath:match("^/tmp/fs_test_"), "expected /tmp/fs_test_ prefix")
+  assert(filepath:match("fs_test_"), "expected fs_test_ in path")
   local st = fs.fstat(hh:fd())
   assert(st, "fstat should succeed")
 

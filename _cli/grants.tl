@@ -72,12 +72,12 @@ local RUNTIME_RO: {string} = {
 --- `/proc/self` resolves to `/proc/<pid>` for whoever opens it, so a
 --- rule made by the parent covers nothing a child writes.
 ---
---- `/tmp` is the system's shared scratch, world-writable by design and
---- named literally by tests (mkdtemp templates, short socket paths).
---- It stopped being granted implicitly when the driver began pinning
---- TMPDIR under o/, so it is granted here on purpose instead.
+--- NOT `/tmp`: the fence's write boundary is "a test writes only its
+--- own outputs", and the system scratch is an output of nobody's. A
+--- test that wants a temp dir has TEST_TMPDIR, and one that needs a
+--- SHORT path (a unix socket) has TMPDIR, which the driver pins.
 local RUNTIME_RW: {string} = {
-  "/proc", "/dev/ptmx", "/dev/pts", "/dev/shm", "/tmp",
+  "/proc", "/dev/ptmx", "/dev/pts", "/dev/shm",
 }
 
 local shapes: {string: Shape} = {
