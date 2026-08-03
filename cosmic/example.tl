@@ -2,6 +2,7 @@
 --- Parses Example_* functions from Teal files, runs them, and verifies output.
 
 local tl = require("tl")
+local scan = require("cosmic.doc.scan")
 
 --- A parsed example function with its expected output.
 local record Example
@@ -39,17 +40,6 @@ local function parse_examples(source: string): {Example}
   local pos = 1
   local line_num = 1
 
-  -- Track line numbers
-  local function count_lines(s: string, start_pos: integer, end_pos: integer): integer
-    local count = 0
-    for i = start_pos, end_pos do
-      if s:sub(i, i) == "\n" then
-        count = count + 1
-      end
-    end
-    return count
-  end
-
   while true do
     -- Find next Example_* function definition
     local func_start, func_end, func_name = source:find("local%s+function%s+(Example[%w_]*)%s*%(%s*%)", pos)
@@ -57,80 +47,12 @@ local function parse_examples(source: string): {Example}
       break
     end
 
-    line_num = line_num + count_lines(source, pos, func_start)
+    line_num = line_num + scan.count_lines(source, pos, func_start)
     local example_line = line_num
 
     -- Find the function body - need to track nested end keywords
     local body_start = func_end + 1
-    local depth = 1
-    local i = body_start
-
-    -- Keywords that increase depth
-    local block_starts: {string: boolean} = {
-      ["function"] = true,
-      ["if"] = true,
-      ["for"] = true,
-      ["while"] = true,
-      ["repeat"] = true,
-    }
-
-    while i <= #source and depth > 0 do
-      -- Skip strings
-      if source:sub(i, i) == '"' or source:sub(i, i) == "'" then
-        local quote = source:sub(i, i)
-        i = i + 1
-        while i <= #source do
-          if source:sub(i, i) == "\\" then
-            i = i + 2
-          elseif source:sub(i, i) == quote then
-            i = i + 1
-            break
-          else
-            i = i + 1
-          end
-        end
-        -- Skip long strings
-      elseif source:sub(i, i + 1) == "[[" then
-        local close = source:find("]]", i + 2, true)
-        i = close and close + 2 or #source + 1
-        -- Skip comments
-      elseif source:sub(i, i + 1) == "--" then
-        if source:sub(i + 2, i + 3) == "[[" then
-          local close = source:find("]]", i + 4, true)
-          i = close and close + 2 or #source + 1
-        else
-          local newline = source:find("\n", i)
-          i = newline and newline + 1 or #source + 1
-        end
-      else
-        -- Check for keywords
-        local word_start, word_end, word = source:find("(%a+)", i)
-        if word_start == i then
-          if block_starts[word] then
-            -- Make sure it's not part of "end" check (e.g., "endif")
-            -- and that "function" is not just a type annotation
-            if word == "function" then
-              -- Check if this is an anonymous function or function type
-              local before = source:sub(math.max(1, i - 1), i - 1)
-              if before ~= ":" and before ~= ">" then
-                depth = depth + 1
-              end
-            else
-              depth = depth + 1
-            end
-          elseif word == "until" then
-            depth = depth - 1
-          elseif word == "end" then
-            depth = depth - 1
-          end
-          i = word_end + 1
-        else
-          i = i + 1
-        end
-      end
-    end
-
-    local body_end = i - 4 -- Before "end"
+    local body_end, i = scan.find_block_end(source, body_start)
     local body = source:sub(body_start, body_end)
 
     -- Extract expected output from -- Output: comment block

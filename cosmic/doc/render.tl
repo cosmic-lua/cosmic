@@ -2,70 +2,12 @@
 --- Contains the markdown renderer and the type declaration file parser.
 
 local types = require("cosmic.doc.types")
-local Param = types.Param
-local Return = types.Return
 local FunctionDoc = types.FunctionDoc
 local ModuleDoc = types.ModuleDoc
 
---- Extract leading doc comment before a position.
-local function extract_doc_comment(source: string, pos: integer, allow_regular_comments?: boolean): string
-  local line_start = pos
-  while line_start > 1 and source:sub(line_start - 1, line_start - 1) ~= "\n" do
-    line_start = line_start - 1
-  end
-  local doc_lines: {string} = {}
-  local check_pos = line_start - 1
-  while check_pos > 0 do
-    local prev_line_start = check_pos
-    while prev_line_start > 1 and source:sub(prev_line_start - 1, prev_line_start - 1) ~= "\n" do
-      prev_line_start = prev_line_start - 1
-    end
-    local line = source:sub(prev_line_start, check_pos - 1)
-    local doc_content = line:match("^%s*%-%-%-(.*)$")
-    if doc_content then
-      table.insert(doc_lines, 1, doc_content)
-      check_pos = prev_line_start - 1
-    elseif allow_regular_comments then
-      local regular_comment = line:match("^%s*%-%-([^%-].*)$")
-      if regular_comment then
-        table.insert(doc_lines, 1, regular_comment)
-        check_pos = prev_line_start - 1
-      elseif line:match("^%s*$") then break
-      else break end
-    elseif line:match("^%s*$") then break
-    else break end
-  end
-  if #doc_lines == 0 then return nil end
-  return table.concat(doc_lines, "\n")
-end
-
---- Parse @param and @return annotations from doc comment.
-local function parse_annotations(doc: string): {Param}, {Return}, string
-  if not doc then return {}, {}, nil end
-  local params: {Param} = {}
-  local returns: {Return} = {}
-  local desc_lines: {string} = {}
-  for line in doc:gmatch("[^\n]+") do
-    local param_name, param_type, param_desc = line:match("^%s*@param%s+(%S+)%s+(%S+)%s*(.*)")
-    if param_name then
-      table.insert(params, {
-          name = param_name, param_type = param_type,
-          description = param_desc ~= "" and param_desc or nil,
-        })
-    else
-      local ret_type, ret_desc = line:match("^%s*@return%s+(%S+)%s*(.*)")
-      if ret_type then
-        table.insert(returns, {
-            return_type = ret_type, description = ret_desc ~= "" and ret_desc or nil,
-          })
-      else
-        table.insert(desc_lines, line)
-      end
-    end
-  end
-  local description = #desc_lines > 0 and table.concat(desc_lines, "\n") or nil
-  return params, returns, description
-end
+local doc_comments = require("cosmic.doc.comments")
+local extract_doc_comment = doc_comments.extract_doc_comment
+local parse_annotations = doc_comments.parse_annotations
 
 --- Render documentation as markdown.
 local function render(doc: ModuleDoc): string

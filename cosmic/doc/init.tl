@@ -2,54 +2,17 @@
 --- Parses doc comments, records, functions, and examples from .tl files.
 
 local types = require("cosmic.doc.types")
-local Param = types.Param
-local Return = types.Return
 local ModuleDoc = types.ModuleDoc
 
 local doc_render = require("cosmic.doc.render")
+local scan = require("cosmic.doc.scan")
+local doc_comments = require("cosmic.doc.comments")
+local extract_doc_comment = doc_comments.extract_doc_comment
+local parse_annotations = doc_comments.parse_annotations
 
 local BYTE_NEWLINE = string.byte("\n")
 local BYTE_LPAREN = string.byte("(")
 local BYTE_RPAREN = string.byte(")")
-local BYTE_DQUOTE = string.byte('"')
-local BYTE_SQUOTE = string.byte("'")
-local BYTE_BACKSLASH = string.byte("\\")
-
---- Extract leading doc comment (--- or -- style) before a position.
---- @param source string The source code to search
---- @param pos integer The position to search backwards from
---- @param allow_regular_comments boolean If true, also extract -- style comments (default: false)
---- @return string The extracted doc comment, or nil if none found
-local function extract_doc_comment(source: string, pos: integer, allow_regular_comments?: boolean): string
-  local line_start = pos
-  while line_start > 1 and source:byte(line_start - 1) ~= BYTE_NEWLINE do
-    line_start = line_start - 1
-  end
-  local doc_lines: {string} = {}
-  local check_pos = line_start - 1
-  while check_pos > 0 do
-    local prev_line_start = check_pos
-    while prev_line_start > 1 and source:byte(prev_line_start - 1) ~= BYTE_NEWLINE do
-      prev_line_start = prev_line_start - 1
-    end
-    local line = source:sub(prev_line_start, check_pos - 1)
-    local doc_content = line:match("^%s*%-%-%-(.*)$")
-    if doc_content then
-      table.insert(doc_lines, 1, doc_content)
-      check_pos = prev_line_start - 1
-    elseif allow_regular_comments then
-      local regular_comment = line:match("^%s*%-%-([^%-].*)$")
-      if regular_comment then
-        table.insert(doc_lines, 1, regular_comment)
-        check_pos = prev_line_start - 1
-      elseif line:match("^%s*$") then break
-      else break end
-    elseif line:match("^%s*$") then break
-    else break end
-  end
-  if #doc_lines == 0 then return nil end
-  return table.concat(doc_lines, "\n")
-end
 
 --- Extract function signature starting from a given position.
 --- @param source string The source code
@@ -78,38 +41,6 @@ local function extract_signature(source: string, start_pos: integer): string
     end
   end
   return source:sub(sig_start, sig_end)
-end
-
---- Parse @param and @return annotations from doc comment.
---- @param doc string The doc comment to parse
---- @return {Param} List of parameters
---- @return {Return} List of return values
---- @return string The description text
-local function parse_annotations(doc: string): {Param}, {Return}, string
-  if not doc then return {}, {}, nil end
-  local params: {Param} = {}
-  local returns: {Return} = {}
-  local desc_lines: {string} = {}
-  for line in doc:gmatch("[^\n]+") do
-    local param_name, param_type, param_desc = line:match("^%s*@param%s+(%S+)%s+(%S+)%s*(.*)")
-    if param_name then
-      table.insert(params, {
-          name = param_name, param_type = param_type,
-          description = param_desc ~= "" and param_desc or nil,
-        })
-    else
-      local ret_type, ret_desc = line:match("^%s*@return%s+(%S+)%s*(.*)")
-      if ret_type then
-        table.insert(returns, {
-            return_type = ret_type, description = ret_desc ~= "" and ret_desc or nil,
-          })
-      else
-        table.insert(desc_lines, line)
-      end
-    end
-  end
-  local description = #desc_lines > 0 and table.concat(desc_lines, "\n") or nil
-  return params, returns, description
 end
 
 --- Parse `name: type` fields from a record body.
@@ -305,31 +236,7 @@ local function parse(source: string, file_path: string): ModuleDoc
     local example_doc = extract_doc_comment(source, func_start, true)
     local _, _, example_description = parse_annotations(example_doc)
     local body_start = source:find("%)", func_start) + 1
-    local depth = 1
-    local i = body_start
-    while i <= #source and depth > 0 do
-      local b = source:byte(i)
-      if b == BYTE_DQUOTE or b == BYTE_SQUOTE then
-        local quote = b
-        i = i + 1
-        while i <= #source do
-          if source:byte(i) == BYTE_BACKSLASH then i = i + 2
-          elseif source:byte(i) == quote then i = i + 1; break
-          else i = i + 1 end
-        end
-      elseif source:sub(i, i + 1) == "--" then
-        local newline = source:find("\n", i)
-        i = newline and newline + 1 or #source + 1
-      else
-        local word_start, word_end, word = source:find("(%a+)", i)
-        if word_start == i then
-          if word == "function" or word == "if" or word == "for" or word == "while" then depth = depth + 1
-          elseif word == "until" or word == "end" then depth = depth - 1 end
-          i = word_end + 1
-        else i = i + 1 end
-      end
-    end
-    local body_end = i - 4
+    local body_end, _i = scan.find_block_end(source, body_start)
     local body = source:sub(body_start, body_end)
     local expected: string = nil
     local output_start = body:find("%-%-%s*Output:")
