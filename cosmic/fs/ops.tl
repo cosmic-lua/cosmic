@@ -39,7 +39,8 @@ end
 --- Copy a file, preserving its permission bits.
 --- Follows symlinks: copying a symlink copies the target's contents.
 --- The destination is created (or truncated) and receives the source's
---- mode bits.
+--- mode bits. Read and write retry automatically on EINTR, matching
+--- cosmic.fd's signal-safety posture.
 --- @param src string Path to the source file
 --- @param dst string Path to the destination file
 --- @return boolean True on success
@@ -62,7 +63,10 @@ local function copy(src: string, dst: string): boolean, string
     return false, errstr(derr, "copy: open: " .. dst)
   end
   while true do
-    local data, rerr = unix.read(srcfd, 65536)
+    local data, rerr, reno = unix.read(srcfd, 65536)
+    while data == nil and errno.is(reno, "EINTR") do
+      data, rerr, reno = unix.read(srcfd, 65536)
+    end
     if data == nil then
       unix.close(srcfd)
       unix.close(dstfd)
@@ -71,7 +75,10 @@ local function copy(src: string, dst: string): boolean, string
     if data == "" then break end
     local off: integer = 1
     while off <= #data do
-      local n, werr = unix.write(dstfd, string.sub(data, off))
+      local n, werr, weno = unix.write(dstfd, string.sub(data, off))
+      while n == nil and errno.is(weno, "EINTR") do
+        n, werr, weno = unix.write(dstfd, string.sub(data, off))
+      end
       if not n then
         unix.close(srcfd)
         unix.close(dstfd)
@@ -254,16 +261,42 @@ end
 
 -- Timestamp operations
 
+--- Resolve one (secs, nsecs) pair to what the raw utimensat/futimens
+--- binding expects, keying "keep current" off secs alone:
+--- - secs is nil: the timestamp is left untouched (UTIME_OMIT in the
+---   nsec slot, which makes the kernel ignore secs entirely — so any
+---   nsecs passed alongside a nil secs is ignored too, not just secs).
+--- - secs is given, nsecs is nil: nsecs is exactly 0, not "now" and not
+---   "omit" — a bare integer secs value always means a literal stamp.
+--- - both given: used exactly as passed (nsecs may itself be
+---   unix.UTIME_NOW/UTIME_OMIT if a caller wants that raw behavior).
+local function resolve_time(secs?: integer, nsecs?: integer): integer, integer
+  if secs == nil then
+    return 0, unix.UTIME_OMIT
+  end
+  return secs, nsecs or 0
+end
+
 --- Change file access and modification times.
+---
+--- Keep-current semantics key off the *_secs argument, not *_nsecs: pass
+--- nil for atime_secs (mtime_secs) to leave that timestamp exactly as it
+--- is, regardless of what atime_nsecs (mtime_nsecs) is. Pass a secs
+--- value with nsecs omitted to set that timestamp's nanoseconds to
+--- literal 0 -- never "now" and never "unchanged". Pass both to set an
+--- exact timestamp.
 --- @param path string Path to the file
---- @param atime_secs number Access time seconds (nil to keep current)
---- @param atime_nsecs number Access time nanoseconds
---- @param mtime_secs number Modification time seconds (nil to keep current)
---- @param mtime_nsecs number Modification time nanoseconds
+--- @param atime_secs integer? Access time seconds (nil to leave atime unchanged)
+--- @param atime_nsecs integer? Access time nanoseconds (nil means 0 when atime_secs is given)
+--- @param mtime_secs integer? Modification time seconds (nil to leave mtime unchanged)
+--- @param mtime_nsecs integer? Modification time nanoseconds (nil means 0 when mtime_secs is given)
 --- @return boolean True on success
 --- @return string Error message if failed
-local function utimensat(path: string, atime_secs: integer, atime_nsecs: integer, mtime_secs: integer, mtime_nsecs: integer): boolean, string
-  local rc, err = unix.utimensat(path, atime_secs or 0, atime_nsecs or unix.UTIME_OMIT, mtime_secs or 0, mtime_nsecs or unix.UTIME_OMIT)
+local function utimensat(path: string, atime_secs?: integer, atime_nsecs?: integer,
+    mtime_secs?: integer, mtime_nsecs?: integer): boolean, string
+  local a_secs, a_nsecs = resolve_time(atime_secs, atime_nsecs)
+  local m_secs, m_nsecs = resolve_time(mtime_secs, mtime_nsecs)
+  local rc, err = unix.utimensat(path, a_secs, a_nsecs, m_secs, m_nsecs)
   if rc ~= 0 then
     return false, errstr(err, "utimensat: " .. path)
   end
@@ -271,15 +304,21 @@ local function utimensat(path: string, atime_secs: integer, atime_nsecs: integer
 end
 
 --- Change file access and modification times on a file descriptor.
+--- Same keep-current semantics as utimensat(): a nil *_secs leaves that
+--- timestamp unchanged regardless of *_nsecs; a given secs with nsecs
+--- omitted means literal 0 nanoseconds.
 --- @param fd integer File descriptor
---- @param atime_secs integer Access time seconds (nil to keep current)
---- @param atime_nsecs number Access time nanoseconds
---- @param mtime_secs number Modification time seconds (nil to keep current)
---- @param mtime_nsecs number Modification time nanoseconds
+--- @param atime_secs integer? Access time seconds (nil to leave atime unchanged)
+--- @param atime_nsecs integer? Access time nanoseconds (nil means 0 when atime_secs is given)
+--- @param mtime_secs integer? Modification time seconds (nil to leave mtime unchanged)
+--- @param mtime_nsecs integer? Modification time nanoseconds (nil means 0 when mtime_secs is given)
 --- @return boolean True on success
 --- @return string Error message if failed
-local function futimens(fd: integer, atime_secs: integer, atime_nsecs: integer, mtime_secs: integer, mtime_nsecs: integer): boolean, string
-  local rc, err = unix.futimens(fd, atime_secs or 0, atime_nsecs or unix.UTIME_OMIT, mtime_secs or 0, mtime_nsecs or unix.UTIME_OMIT)
+local function futimens(fd: integer, atime_secs?: integer, atime_nsecs?: integer,
+    mtime_secs?: integer, mtime_nsecs?: integer): boolean, string
+  local a_secs, a_nsecs = resolve_time(atime_secs, atime_nsecs)
+  local m_secs, m_nsecs = resolve_time(mtime_secs, mtime_nsecs)
+  local rc, err = unix.futimens(fd, a_secs, a_nsecs, m_secs, m_nsecs)
   if rc ~= 0 then
     return false, errstr(err, "futimens")
   end
@@ -394,8 +433,8 @@ local record FsOpsModule
   access: function(path: string, mode?: integer): boolean
   chmod: function(path: string, mode: integer): boolean, string
   chown: function(path: string, uid: integer, gid: integer): boolean, string
-  utimensat: function(path: string, atime_secs: integer, atime_nsecs: integer, mtime_secs: integer, mtime_nsecs: integer): boolean, string
-  futimens: function(fd: integer, atime_secs: integer, atime_nsecs: integer, mtime_secs: integer, mtime_nsecs: integer): boolean, string
+  utimensat: function(path: string, atime_secs?: integer, atime_nsecs?: integer, mtime_secs?: integer, mtime_nsecs?: integer): boolean, string
+  futimens: function(fd: integer, atime_secs?: integer, atime_nsecs?: integer, mtime_secs?: integer, mtime_nsecs?: integer): boolean, string
   mkdtemp: function(template: string): string | nil, string
   tmpfile: function(template?: string): Handle | nil, string, string
   tmpfd: function(): integer | nil, string

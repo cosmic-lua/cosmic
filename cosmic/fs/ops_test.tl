@@ -62,6 +62,109 @@ local function test_copy_missing_source()
 end
 test_copy_missing_source()
 
+-- signal-safety wave: copy()'s read/write loops retry automatically
+-- instead of surfacing EINTR (matching cosmic.fd's posture). A regular
+-- file's read/write essentially never blocks long enough to catch a
+-- real signal mid-call, so both tests give copy() a source or
+-- destination it can genuinely block on: a pipe, reopened by path via
+-- /proc/self/fd (the same trick that lets a plain path-based open()
+-- read or write through an already-open pipe fd) -- exactly like cfd's
+-- own EINTR test, just exercised through fs.copy() instead of cfd
+-- directly.
+local function test_copy_retries_eintr_on_read()
+  if not fs.isdir("/proc/self/fd") then
+    return -- the /proc/self/fd reopen trick needs procfs; skip elsewhere
+  end
+  local signal = require("cosmic.signal")
+  local test_dir = setup()
+  local p = check.must(cfd.pipe())
+  local src = "/proc/self/fd/" .. tostring(p.reader:fd())
+  local dst = fs.join(test_dir, "read_eintr_dst")
+
+  local fired = false
+  local old_handler = signal.sigaction(signal.SIGALRM, function(_: number)
+      if not fired then
+        fired = true
+        p.writer:write("hello")
+        p.writer:close()
+      end
+    end)
+  -- Interval timer: keeps firing until the blocked read observes a
+  -- signal, so the test cannot hang however the timing lands.
+  signal.setitimer({
+      which = signal.ITIMER_REAL,
+      valuesec = 0, valuens = 30000000,
+      intervalsec = 0, intervalns = 30000000,
+    })
+  local ok, err = fs.copy(src, dst)
+  -- Disarm and restore before asserting so a failure can't leave a
+  -- ticking timer behind.
+  signal.setitimer({
+      which = signal.ITIMER_REAL,
+      valuesec = 0, valuens = 0, intervalsec = 0, intervalns = 0,
+    })
+  signal.sigaction(signal.SIGALRM, old_handler)
+
+  assert(ok, "copy should retry a read interrupted by a signal: " .. tostring(err))
+  assert(fs.read(dst) == "hello",
+    "dst should contain the handler's payload, got " .. tostring((fs.read(dst))))
+  p:close()
+  teardown(test_dir)
+end
+test_copy_retries_eintr_on_read()
+
+local function test_copy_retries_eintr_on_write()
+  if not fs.isdir("/proc/self/fd") then
+    return -- the /proc/self/fd reopen trick needs procfs; skip elsewhere
+  end
+  local signal = require("cosmic.signal")
+  local test_dir = setup()
+  local src = fs.join(test_dir, "big_src")
+  -- Several times a default pipe's 64K capacity: the first chunk fills
+  -- the (initially empty) pipe without blocking, so the SECOND chunk's
+  -- write finds a completely full pipe and genuinely blocks until the
+  -- handler below drains it.
+  local chunk = string.rep("x", 65536)
+  assert(fs.write(src, chunk .. chunk .. chunk .. chunk))
+  local p = check.must(cfd.pipe())
+  -- The reader is drained from the signal handler; non-blocking so a
+  -- handler firing before there is anything to drain cannot itself block.
+  assert(p.reader:fcntl(cfd.F_SETFL, cfd.O_NONBLOCK))
+  local dst = "/proc/self/fd/" .. tostring(p.writer:fd())
+
+  local drained: {string} = {}
+  local old_handler = signal.sigaction(signal.SIGALRM, function(_: number)
+      local got = p.reader:read(65536)
+      if got then table.insert(drained, got) end
+    end)
+  signal.setitimer({
+      which = signal.ITIMER_REAL,
+      valuesec = 0, valuens = 20000000,
+      intervalsec = 0, intervalns = 20000000,
+    })
+  local ok, err = fs.copy(src, dst)
+  signal.setitimer({
+      which = signal.ITIMER_REAL,
+      valuesec = 0, valuens = 0, intervalsec = 0, intervalns = 0,
+    })
+  signal.sigaction(signal.SIGALRM, old_handler)
+  p.writer:close()
+
+  -- Drain whatever is left buffered in the pipe once copy() is done.
+  while true do
+    local got = p.reader:read(65536)
+    if not got then break end
+    table.insert(drained, got)
+  end
+
+  assert(ok, "copy should retry a write interrupted by a signal: " .. tostring(err))
+  assert(table.concat(drained) == chunk .. chunk .. chunk .. chunk,
+    "dst should contain exactly the source bytes, unaffected by the retry")
+  p:close()
+  teardown(test_dir)
+end
+test_copy_retries_eintr_on_write()
+
 local function test_move_same_filesystem()
   local test_dir = setup()
   local src = fs.join(test_dir, "a.txt")
@@ -190,6 +293,14 @@ local function test_write_atomic_failure_keeps_original()
 end
 test_write_atomic_failure_keeps_original()
 
+-- write_atomic()'s write loop uses the identical retry construct proven
+-- above for copy() (fs/ops.tl's copy and fs/file.tl's write_atomic share
+-- the same errno.is(_, "EINTR") pattern). It is not independently forced
+-- here: write_atomic's destination is always a real mkstemp()'d path
+-- (mkstemp creates the file itself from a template), so it cannot be
+-- redirected to a pipe the way copy()'s open()-a-given-path can, and
+-- there is no portable way to make a local write() block on demand.
+
 local function test_tmpfile_success_contract()
   local test_dir = setup()
   local h, path, err = fs.tmpfile(fs.join(test_dir, "fs_ops_XXXXXX"))
@@ -227,6 +338,56 @@ local function test_utimensat_sets_exact_times()
 end
 test_utimensat_sets_exact_times()
 
+-- Keep-current semantics key off *_secs, not *_nsecs: a nil secs must
+-- leave that timestamp untouched no matter what nsecs is, and a real
+-- secs value with nsecs omitted must land on literal 0, never epoch
+-- (nil secs) and never "now" (the raw binding's own default).
+local function test_utimensat_nil_secs_keeps_current()
+  local test_dir = setup()
+  local p = fs.join(test_dir, "kept")
+  touch(p, "x")
+  assert(fs.utimensat(p, 1111111111, 111111111, 2222222222, 222222222))
+
+  -- nil atime_secs (with a non-nil atime_nsecs, which must be ignored
+  -- too) leaves atime alone; mtime is set exactly.
+  local ok, err = fs.utimensat(p, nil, 999999999, 3333333333, 0)
+  assert(ok, "utimensat should succeed: " .. (err or ""))
+
+  local st = check.must(fs.stat(p), "stat should succeed")
+  local a_s, a_ns = st:atim()
+  local m_s, m_ns = st:mtim()
+  assert(a_s == 1111111111 and a_ns == 111111111,
+    "atime must be unchanged when secs is nil, got " .. a_s .. "." .. a_ns)
+  assert(m_s == 3333333333 and m_ns == 0,
+    "mtime should be exactly what was set, got " .. m_s .. "." .. m_ns)
+
+  teardown(test_dir)
+end
+test_utimensat_nil_secs_keeps_current()
+
+local function test_utimensat_secs_with_nil_nsecs_is_zero()
+  local test_dir = setup()
+  local p = fs.join(test_dir, "zero_nsecs")
+  touch(p, "x")
+  assert(fs.utimensat(p, 1, 500000000, 1, 500000000))
+
+  -- secs given, nsecs omitted: nsecs must be literal 0, not "now" (the
+  -- raw binding's own default) and not "keep current".
+  local ok, err = fs.utimensat(p, 4444444444, nil, 5555555555, nil)
+  assert(ok, "utimensat should succeed: " .. (err or ""))
+
+  local st = check.must(fs.stat(p), "stat should succeed")
+  local a_s, a_ns = st:atim()
+  local m_s, m_ns = st:mtim()
+  assert(a_s == 4444444444 and a_ns == 0,
+    "atime nsecs should default to 0, got " .. a_s .. "." .. a_ns)
+  assert(m_s == 5555555555 and m_ns == 0,
+    "mtime nsecs should default to 0, got " .. m_s .. "." .. m_ns)
+
+  teardown(test_dir)
+end
+test_utimensat_secs_with_nil_nsecs_is_zero()
+
 local function test_utimensat_missing_path()
   local test_dir = setup()
   local ok, err = fs.utimensat(fs.join(test_dir, "absent"), 1, 0, 1, 0)
@@ -257,6 +418,32 @@ local function test_futimens_sets_exact_times()
   teardown(test_dir)
 end
 test_futimens_sets_exact_times()
+
+local function test_futimens_nil_secs_keeps_current()
+  local test_dir = setup()
+  local p = fs.join(test_dir, "fkept")
+  touch(p, "x")
+
+  local hh = check.must(cfd.open(p, 0))
+  assert(fs.futimens(hh:fd(), 1111111111, 111111111, 2222222222, 222222222))
+
+  -- nil atime_secs (with a non-nil atime_nsecs, ignored along with it)
+  -- leaves atime alone; mtime with nsecs omitted lands on literal 0.
+  local ok, err = fs.futimens(hh:fd(), nil, 999999999, 3333333333, nil)
+  assert(ok, "futimens should succeed: " .. (err or ""))
+
+  local st = check.must(fs.fstat(hh:fd()), "fstat should succeed")
+  local a_s, a_ns = st:atim()
+  local m_s, m_ns = st:mtim()
+  assert(a_s == 1111111111 and a_ns == 111111111,
+    "atime must be unchanged when secs is nil, got " .. a_s .. "." .. a_ns)
+  assert(m_s == 3333333333 and m_ns == 0,
+    "mtime nsecs should default to 0, got " .. m_s .. "." .. m_ns)
+  hh:close()
+
+  teardown(test_dir)
+end
+test_futimens_nil_secs_keeps_current()
 
 local function test_futimens_bad_fd()
   local ok, err = fs.futimens(9999, 1, 0, 1, 0)
