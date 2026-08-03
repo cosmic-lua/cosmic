@@ -191,7 +191,7 @@ function needs(what: string, present: boolean): boolean
 **Parameters:**
 
 - `what` (string) - What is missing, named for the message
-- `ok` (boolean) - Whether the precondition holds
+- `present` (boolean) - Whether the precondition holds
 
 **Returns:**
 

@@ -10,8 +10,8 @@
  composes these with those and is what `--check lint` runs.
 
  Column length is exported and not run by that composition: this tree
- does not satisfy it (~840 lines over 90 columns, most of them prose
- in doc comments) and never did, because the gate ran a linter that
+ does not satisfy it (roughly 800+ lines over 90 columns, most of
+ them prose in doc comments) and never did, because the gate ran a linter that
  never called it. A rule a gate does not enforce reads as enforced,
  which is worse than no rule; enforcing this one is its own change.
 
