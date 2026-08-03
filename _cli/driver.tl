@@ -17,6 +17,7 @@
 
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
+local proc = require("cosmic.proc")
 local grants = require("_cli.grants")
 local sandbox = require("cosmic.sandbox")
 
@@ -51,6 +52,41 @@ local function fence_enabled(): boolean
   return os.getenv("COSMIC_FENCE") ~= "0"
 end
 
+--- Seed the ape loaders $HOME holds into the scratch dir, atomically.
+---
+--- A NESTED driver -- one a fenced test spawns -- cannot read $HOME to
+--- discover a loader there (the outer fence grants no such read), so
+--- its own plan would omit the grant and its spawns would die ENOEXEC.
+--- The outer driver runs this BEFORE it fences, while $HOME is still
+--- readable: with the loader standing in the scratch, every
+--- descendant's $TMPDIR/.ape-<v> probe lands inside a directory the
+--- fence already grants rw+exec. Copy via a unique name and rename, so
+--- a parallel step never execs a half-written loader.
+--- @param scratch string The pinned TMPDIR
+local function seed_ape_loaders(scratch: string)
+  local home = env.get("HOME")
+  if home == nil or home == "" then
+    return
+  end
+  local found = fs.glob(home, ".ape-*")
+  if found == nil then
+    return
+  end
+  for _, src in ipairs(found as {string}) do -- cast: nil-checked above
+    local dst = fs.join(scratch, fs.basename(src))
+    if fs.isfile(src) and not fs.exists(dst) then
+      local bytes = fs.read(src)
+      if bytes ~= nil then
+        local part = dst .. ".part." .. tostring(proc.getpid())
+        -- cast: read's nil checked above; 0x1ED is 0755
+        if fs.write(part, bytes as string) and fs.chmod(part, 0x1ED) then
+          fs.rename(part, dst)
+        end
+      end
+    end
+  end
+end
+
 --- Point an unset TMPDIR at a scratch dir under o/, before the fence.
 ---
 --- With TMPDIR unset -- the default -- the APE extraction dir falls
@@ -68,6 +104,7 @@ local function ensure_build_tmpdir()
   end
   local scratch = fs.abspath(fs.join("o", "tmp"))
   if fs.makedirs(scratch) then
+    seed_ape_loaders(scratch)
     env.set("TMPDIR", scratch, true)
   end
 end

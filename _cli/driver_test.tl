@@ -285,6 +285,10 @@ local function test_an_unset_tmpdir_is_pinned_under_o_not_home()
   local box = fs.join(tmpdir, "tmpbox")
   assert(fs.makedirs(home))
   assert(fs.makedirs(box))
+  -- A loader in $HOME must be SEEDED into the pinned scratch: a nested
+  -- driver (spawned by a fenced test) cannot read $HOME to find it, so
+  -- its $TMPDIR probe is the one that has to hit.
+  assert(fs.write(fs.join(home, ".ape-9.9"), "pretend loader"))
   local cwd = assert(fs.getcwd())
   local prev_t, prev_h = env.get("TMPDIR"), env.get("HOME")
   assert(fs.chdir(box))
@@ -293,6 +297,8 @@ local function test_an_unset_tmpdir_is_pinned_under_o_not_home()
 
   driver.ensure_build_tmpdir()
   local pinned = env.get("TMPDIR")
+  local seeded = pinned ~= nil
+    and fs.isfile(fs.join(pinned as string, ".ape-9.9")) -- cast: guarded
   local p = grants.plan("record", {fs.join(box, "out")})
 
   assert(fs.chdir(cwd))
@@ -303,6 +309,7 @@ local function test_an_unset_tmpdir_is_pinned_under_o_not_home()
   local pin = pinned as string -- cast: asserted non-nil on the line above
   assert(pin:find("o/tmp", 1, true),
     "an unset TMPDIR must be pinned under o/, got: " .. pin)
+  assert(seeded, "the $HOME loader must be seeded into the scratch")
   assert(p is sandbox.Fs, "record must plan a policy")
   assert(has(p.rw, pin) and has(p.exec, pin),
     "the o/ scratch is the extraction dir: rw AND exec")

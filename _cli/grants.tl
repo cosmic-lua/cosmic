@@ -71,8 +71,13 @@ local RUNTIME_RO: {string} = {
 --- Not `/proc/self`: a landlock rule binds the inode it opened, and
 --- `/proc/self` resolves to `/proc/<pid>` for whoever opens it, so a
 --- rule made by the parent covers nothing a child writes.
+---
+--- `/tmp` is the system's shared scratch, world-writable by design and
+--- named literally by tests (mkdtemp templates, short socket paths).
+--- It stopped being granted implicitly when the driver began pinning
+--- TMPDIR under o/, so it is granted here on purpose instead.
 local RUNTIME_RW: {string} = {
-  "/proc", "/dev/ptmx", "/dev/pts", "/dev/shm",
+  "/proc", "/dev/ptmx", "/dev/pts", "/dev/shm", "/tmp",
 }
 
 local shapes: {string: Shape} = {
@@ -447,24 +452,19 @@ local function plan(verb: string, args: {string}): sandbox.Fs | nil, string | ni
     ex[#ex + 1] = arg[-1]
   end
   -- The APE loader. A fat APE is a shell prologue the kernel will not
-  -- load, so every spawn goes through a small loader, and cosmo's own
-  -- execve (libc/proc/execve-sysv.c) probes for one in order:
-  -- /usr/bin/ape, $TMPDIR/.ape-<v>, $HOME/.ape-<v>, ./.ape-<v>, then
-  -- /bin/sh, whose prologue extracts a fresh loader into
-  -- ${TMPDIR:-${HOME:-.}} and execs it. Deny every probe and the
-  -- parent reports ENOEXEC, which reads like a corrupt binary.
+  -- load, so every spawn goes through a small loader; cosmo's execve
+  -- (libc/proc/execve-sysv.c) probes /usr/bin/ape, $TMPDIR/.ape-<v>,
+  -- $HOME/.ape-<v>, ./.ape-<v>, then /bin/sh, whose prologue extracts
+  -- a fresh loader into ${TMPDIR:-${HOME:-.}}. Deny every probe and
+  -- the parent reports ENOEXEC, which reads like a corrupt binary.
   --
-  -- Two grants cover that list. Each loader FILE that already exists
-  -- gets exec: a file grant runs the loader without opening the
-  -- directory around it, and $HOME is the directory in question --
-  -- granting the extraction DIRECTORY handed every step rw+exec on the
-  -- entire home when TMPDIR was unset. And the scratch TMPDIR (pinned
-  -- by the driver when unset, rw above) gets exec, so extraction -- the
-  -- probe left when no loader exists -- lands where a step may both
-  -- write and run. $HOME still matters with TMPDIR pinned: execve
-  -- caches TMPDIR and HOME at each process's OWN startup, so the
-  -- driver -- whose TMPDIR the pin set after it started -- skips the
-  -- $TMPDIR probe and finds the bootstrap's loader at $HOME/.ape-<v>.
+  -- Each loader FILE that exists gets exec: a file grant runs the
+  -- loader without opening the directory around it -- granting the
+  -- extraction DIRECTORY handed every step rw+exec on the entire home
+  -- when TMPDIR was unset. The scratch TMPDIR gets exec too (rw
+  -- above): the driver seeds $HOME's loaders into it before fencing
+  -- (see driver.tl), because execve caches TMPDIR/HOME at process
+  -- startup and a NESTED driver cannot read $HOME to find one here.
   if fs.isdir(tmp) then
     ex[#ex + 1] = tmp
   end
