@@ -360,6 +360,25 @@ local function test_close_metamethod_exists()
 end
 test_close_metamethod_exists()
 
+-- Pipe:close must surface a close failure instead of always returning
+-- true, and it must still close BOTH ends even when one fails.
+local function test_pipe_close_propagates_error_and_closes_both()
+  local p = check.must(cfd.pipe())
+  local dead_fd = p.reader:fd()
+  assert(p.reader:close(), "reader close should succeed the first time")
+  -- The reader's Handle now reports closed, but the OS fd it held is
+  -- really gone. Point a fresh Handle at that same (now-invalid) fd so
+  -- Pipe:close's internal unix.close() call fails with EBADF, while the
+  -- writer must still be closed.
+  p.reader = cfd.wrap(dead_fd)
+
+  local ok, err = p:close()
+  assert(ok == false, "close should report the reader's failure")
+  assert(err ~= nil and err:match("EBADF"), "expected EBADF, got: " .. tostring(err))
+  assert(p.writer:closed(), "writer should still be closed despite the reader failing")
+end
+test_pipe_close_propagates_error_and_closes_both()
+
 local function test_pipe_close_metamethod_exists()
   local p = check.must(cfd.pipe())
   local mt = getmetatable(p)
