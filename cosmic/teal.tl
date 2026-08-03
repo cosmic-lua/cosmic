@@ -128,6 +128,11 @@ local record ProcessResult
   error: Issue
 end
 
+--- Build a ProcessResult carrying a single top-of-file error.
+local function process_error(input_path: string, message: string): ProcessResult
+  return {error = {file = input_path, line = 0, column = 0, message = message, severity = "error"}}
+end
+
 --- Process a Teal file: read, setup paths, run tl.process_string.
 --- Returns ProcessResult with tl_result on success, or error on failure.
 --- @param input_path string Path to the Teal file to process
@@ -140,15 +145,7 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
     gen_target?: string, gen_compat?: string): ProcessResult
   local f, open_err = io.open(input_path, "r")
   if not f then
-    return {
-      error = {
-        file = input_path,
-        line = 0,
-        column = 0,
-        message = "cannot open file: " .. (open_err or "unknown error"),
-        severity = "error",
-      },
-    }
+    return process_error(input_path, "cannot open file: " .. (open_err or "unknown error"))
   end
   local input = f:read("*a")
   f:close()
@@ -180,15 +177,7 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
     })
   if not env then
     tl.path = saved_tl_path
-    return {
-      error = {
-        file = input_path,
-        line = 0,
-        column = 0,
-        message = "tl.new_env: " .. (env_err or "unknown error"),
-        severity = "error",
-      },
-    }
+    return process_error(input_path, "tl.new_env: " .. (env_err or "unknown error"))
   end
   -- process_string returns exactly one value (a Result); errors land in
   -- its syntax_errors/type_errors fields or arrive here as a throw.
@@ -197,28 +186,12 @@ local function process_file(input_path: string, include_dirs: {string}, lax: boo
   tl.path = saved_tl_path
 
   if not ok then
-    return {
-      error = {
-        file = input_path,
-        line = 0,
-        column = 0,
-        message = tostring(result_or_err),
-        severity = "error",
-      },
-    }
+    return process_error(input_path, tostring(result_or_err))
   end
   local result = result_or_err as TlResult -- cast: from any
 
   if not result then
-    return {
-      error = {
-        file = input_path,
-        line = 0,
-        column = 0,
-        message = "processing failed",
-        severity = "error",
-      },
-    }
+    return process_error(input_path, "processing failed")
   end
 
   return {tl_result = result, shebang = shebang}
