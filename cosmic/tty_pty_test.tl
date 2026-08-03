@@ -24,14 +24,21 @@ local tty = require("cosmic.tty")
 
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
 
---- Open a pty, or skip the whole file where one cannot be had (no
+--- Open a pty, or exit the whole file where one cannot be had (no
 --- Landlock-free /dev/pts, a sandbox without it, a non-POSIX host).
 --- Skipping beats failing: the point is to cover the paths where a
---- terminal EXISTS, not to demand one.
+--- terminal EXISTS, not to demand one -- but skipping means EXITING with
+--- `check.EXIT_SKIP`, not returning nil for each test to shrug off. A
+--- `return` at file scope ends the chunk with status 0, which
+--- `records.status_of` grades as PASS, so a host without /dev/pts would
+--- make this whole suite report green while testing nothing. Same
+--- discipline `check.needs` documents and every other gated precondition
+--- in this repo uses (see e.g. `_make/build_test.tl`).
 local function with_pty(): tty.Pty
   local pty, err = tty.openpty()
   if not pty then
-    check.skip("openpty unavailable: " .. tostring(err))
+    check.needs("a real pty (tty.openpty failed: " .. tostring(err) .. ")", false)
+    os.exit(check.EXIT_SKIP)
     return nil
   end
   return pty
@@ -47,7 +54,6 @@ end
 --- still "pass" while proving nothing.
 local function test_openpty_yields_a_real_terminal()
   local pty = with_pty()
-  if not pty then return end
   assert(tty.isatty(pty.subordinate),
     "the subordinate fd must be a terminal")
   assert(tty.isatty(pty.manager), "the manager fd must be a terminal")
@@ -65,7 +71,6 @@ test_openpty_yields_a_real_terminal()
 --- clear, those tests would pass without doing anything.
 local function test_getattr_on_a_terminal_starts_cooked()
   local pty = with_pty()
-  if not pty then return end
   local t = check.must(tty.getattr(pty.subordinate))
   assert(t.lflag & tty.ECHO ~= 0, "a fresh pty should start with ECHO on")
   assert(t.lflag & tty.ICANON ~= 0, "a fresh pty should start canonical")
@@ -78,7 +83,6 @@ test_getattr_on_a_terminal_starts_cooked()
 --- kernel actually hands back.
 local function test_make_raw_is_pure()
   local pty = with_pty()
-  if not pty then return end
   local before = check.must(tty.getattr(pty.subordinate))
   local lflag, oflag = before.lflag, before.oflag
   local vmin = before.cc[tty.VMIN + 1]
@@ -96,7 +100,6 @@ test_make_raw_is_pure()
 --- restore() must then put every one of those fields back.
 local function test_raw_then_restore_round_trips()
   local pty = with_pty()
-  if not pty then return end
   local sfd = pty.subordinate
   local before = check.must(tty.getattr(sfd))
 
@@ -124,7 +127,6 @@ test_raw_then_restore_round_trips()
 --- there was no way to tell it did anything.
 local function test_raw_keep_signals_leaves_isig()
   local pty = with_pty()
-  if not pty then return end
   check.must(tty.raw(pty.subordinate, {keep_signals = true}))
   local now = check.must(tty.getattr(pty.subordinate))
   assert(now.lflag & tty.ISIG ~= 0,
@@ -138,7 +140,6 @@ test_raw_keep_signals_leaves_isig()
 --- noecho is narrower than raw: echo off, line editing untouched.
 local function test_noecho_clears_only_echo()
   local pty = with_pty()
-  if not pty then return end
   local before = check.must(tty.getattr(pty.subordinate))
   check.must(tty.noecho(pty.subordinate))
   local now = check.must(tty.getattr(pty.subordinate))
@@ -172,7 +173,6 @@ end
 --- passes every check above and fails this one.
 local function test_noecho_actually_stops_echo()
   local pty = with_pty()
-  if not pty then return end
   assert(echo_observed(pty),
     "a cooked terminal should echo what is written to it -- if this "
     .. "fails the test below proves nothing")
@@ -187,7 +187,6 @@ test_noecho_actually_stops_echo()
 --- restore() must bring echoing back.
 local function test_raw_stops_echo_and_restore_revives_it()
   local pty = with_pty()
-  if not pty then return end
   local original = check.must(tty.raw(pty.subordinate))
   assert(not echo_observed(pty), "a raw terminal must not echo")
   assert(tty.restore(pty.subordinate, original))
@@ -227,7 +226,6 @@ end
 
 local function test_getpass_reads_without_echoing()
   local pty = with_pty()
-  if not pty then return end
   local result = fs.join(TEST_TMPDIR, "getpass.out")
 
   local pid = proc.fork()
@@ -249,8 +247,11 @@ local function test_getpass_reads_without_echoing()
     proc.kill(pid, 9)
     proc.wait(pid)
     close_pty(pty)
-    check.skip("getpass never disabled echo; cannot test without racing")
-    return
+    -- Same discipline as `with_pty`: a timed-out race is a SKIP, and a
+    -- skip must exit EXIT_SKIP, not `return` and leave the file to exit
+    -- 0 (a PASS by `records.status_of`'s reading).
+    check.needs("getpass disabling echo before the race timeout", false)
+    os.exit(check.EXIT_SKIP)
   end
   assert(mgr:write("hunter2\n"))
   proc.wait(pid)
@@ -284,7 +285,6 @@ test_getpass_reads_without_echoing()
 --- prompts for a password does not leave the user's terminal mute.
 local function test_getpass_restores_echo_afterwards()
   local pty = with_pty()
-  if not pty then return end
   local result = fs.join(TEST_TMPDIR, "getpass_restore.out")
 
   local pid = proc.fork()
@@ -300,8 +300,11 @@ local function test_getpass_restores_echo_afterwards()
     proc.kill(pid, 9)
     proc.wait(pid)
     close_pty(pty)
-    check.skip("getpass never disabled echo; cannot test without racing")
-    return
+    -- Same discipline as `with_pty`: a timed-out race is a SKIP, and a
+    -- skip must exit EXIT_SKIP, not `return` and leave the file to exit
+    -- 0 (a PASS by `records.status_of`'s reading).
+    check.needs("getpass disabling echo before the race timeout", false)
+    os.exit(check.EXIT_SKIP)
   end
   assert(mgr:write("secret\n"))
   proc.wait(pid)

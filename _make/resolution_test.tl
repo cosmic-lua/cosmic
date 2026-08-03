@@ -247,6 +247,20 @@ io.write("TOOL " .. greet.hi("nobin") .. "\n")
 end
 test_run_builds_a_target_with_no_binary()
 
+-- A binary-less target that does not compile fails `run` loudly, rather
+-- than spawning an o/ file the failed build never wrote.
+local function test_run_reports_a_binaryless_build_failure()
+  local root = fs.join(tmp, "res-buildfail")
+  fs.rmrf(root)
+  assert(fs.makedirs(root))
+  assert(fs.write(fs.join(root, ".cosmicignore"), ""))
+  assert(fs.write(fs.join(root, "bad.tl"),
+    "local x: integer = 'nope'\nreturn x\n"))
+  local code, out = make(root, {"run", "bad.tl"})
+  assert(code ~= 0, "a target that fails to compile must fail run: " .. out)
+end
+test_run_reports_a_binaryless_build_failure()
+
 -- `run` is a stdin passthrough: the target reads the caller's real fd 0,
 -- not the literal string "inherit" (which resolve_stdio reads as pipe
 -- DATA). Fed a line, the target must read that line back.
