@@ -50,7 +50,7 @@ local record HashModule
   hmac: function(algo: Algo, key: string, data: string): string | nil, string
   sha256: function(data: string): string
   sha256_hex: function(data: string): string
-  hmac_sha256: function(key: string, data: string): string
+  hmac_sha256: function(key: string, data: string): string | nil, string
   constant_time_equal: function(a: string, b: string): boolean
   password: function(pwd: string, options?: HashOptions): string | nil, string
   verify_password: function(encoded: string, pwd: string): boolean, string
@@ -142,21 +142,24 @@ function hmac(algo: Algo, key: string, data: string): string | nil, string
 ### hmac_sha256
 
 ```teal
-function hmac_sha256(key: string, data: string): string
+function hmac_sha256(key: string, data: string): string | nil, string
 ```
 
  Compute HMAC-SHA256 of data with a secret key (RFC 2104).
  Returns raw bytes (32 bytes); hex-encode with cosmic.codec.encode_hex
- if needed. Compare MACs with constant_time_equal, not ==.
+ if needed. Compare MACs with constant_time_equal, not ==. The key
+ must be non-empty: the C binding treats an empty key as "no key"
+ and would silently compute a plain digest instead of an HMAC.
 
 **Parameters:**
 
-- `key` (string) - The secret key
+- `key` (string) - The secret key (must be non-empty)
 - `data` (string) - The message to authenticate
 
 **Returns:**
 
-- string - The HMAC-SHA256 tag as raw bytes
+- string - | nil The HMAC-SHA256 tag as raw bytes, or nil on error
+- string? - Error message if the key is empty
 
 ### constant_time_equal
 
