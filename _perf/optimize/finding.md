@@ -34,10 +34,10 @@ below. the closed-as-completed issues are worked examples of each.
   `http_tcp_roundtrip` isolates the fetch-wrapper overhead from raw
   socket cost; `startup_run_teal` vs `startup_run_lua` isolates the Teal
   loader from runtime boot.
-- **profile a single scenario** by bisection: `run.lua
-  PERF_ONLY=<name>` is cheap; temporarily splitting a scenario's fn into
-  narrower scenarios in a scratch bench file localizes the cost. delete
-  scratch scenarios before committing.
+- **profile a single scenario** by bisection: `run.lua --only <name>`
+  is cheap; temporarily splitting a scenario's fn into narrower
+  scenarios in a scratch bench file localizes the cost. delete scratch
+  scenarios before committing.
 - **alloc-per-op sanity math.** for each scenario ask "what does one op
   *have* to allocate?" and compare to the `alloc` column — the gap is
   machinery. a single-row sqlite point query has to allocate roughly

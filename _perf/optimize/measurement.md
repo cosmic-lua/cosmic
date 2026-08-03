@@ -42,7 +42,7 @@ chapter of `_perf/OPTIMIZE.md` — read that first.
   on both builds back to back (`run.lua --only <name>` on A,
   then on B) also removes the thermal/cache wake left by the ~20
   scenarios that precede it in a full suite.
-- prefer default `PERF_SAMPLES`/`PERF_MIN_SECS` for accept/reject
+- prefer the default `--samples`/`--min-secs` for accept/reject
   decisions; use lower values only for quick scouting.
 - scenarios must be stationary: an op must not get slower the more often
   it runs (growing tables, leaking fds, write-churn on overlay
