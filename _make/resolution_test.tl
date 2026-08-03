@@ -255,7 +255,7 @@ local function test_run_reports_a_binaryless_build_failure()
   assert(fs.makedirs(root))
   assert(fs.write(fs.join(root, ".cosmicignore"), ""))
   assert(fs.write(fs.join(root, "bad.tl"),
-    "local x: integer = 'nope'\nreturn x\n"))
+      "local x: integer = 'nope'\nreturn x\n"))
   local code, out = make(root, {"run", "bad.tl"})
   assert(code ~= 0, "a target that fails to compile must fail run: " .. out)
 end
