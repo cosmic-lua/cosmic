@@ -1,6 +1,7 @@
 #!/usr/bin/env cosmic
 local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
+local check = require("cosmic.check")
 
 local lua_bin = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local TEST_TMPDIR = os.getenv("TEST_TMPDIR")
@@ -40,8 +41,7 @@ test_getppid_different_from_pid()
 -- commandv tests --
 
 local function test_commandv_finds_ls()
-  local path_to_ls = proc.commandv("ls")
-  assert(path_to_ls ~= nil, "expected to find 'ls' command")
+  local path_to_ls = check.must(proc.commandv("ls"), "expected to find 'ls' command")
   assert(path_to_ls:find("/", 1, true), "expected absolute path, got " .. tostring(path_to_ls))
 end
 test_commandv_finds_ls()
@@ -271,7 +271,7 @@ local time = require("cosmic.time")
 local signal = require("cosmic.signal")
 
 local function test_fork_and_wait()
-  local pid = proc.fork()
+  local pid = check.must(proc.fork())
   if pid == 0 then
     proc.exit(42)
   else
@@ -284,10 +284,21 @@ local function test_fork_and_wait()
 end
 test_fork_and_wait()
 
+local function test_fork_success_has_no_error()
+  local pid, err = proc.fork()
+  if pid == 0 then
+    proc.exit(0)
+  end
+  local live_pid = check.must(pid, "fork should succeed: " .. tostring(err))
+  assert(err == nil, "successful fork should have no error, got: " .. tostring(err))
+  proc.wait(live_pid)
+end
+test_fork_success_has_no_error()
+
 local function test_fork_child_has_different_pid()
   local parent_pid = proc.getpid()
   local marker_file = fs.join(TEST_TMPDIR, "fork_test_" .. tostring(parent_pid))
-  local pid = proc.fork()
+  local pid = check.must(proc.fork())
   if pid == 0 then
     local f = io.open(marker_file, "w")
     if f then
@@ -310,7 +321,7 @@ test_fork_child_has_different_pid()
 
 local function test_wexitstatus_values()
   for _, expected_code in ipairs({0, 1, 42, 127, 255}) do
-    local pid = proc.fork()
+    local pid = check.must(proc.fork())
     if pid == 0 then
       proc.exit(expected_code)
     else
@@ -324,7 +335,7 @@ end
 test_wexitstatus_values()
 
 local function test_wifsignaled_on_kill()
-  local pid = proc.fork()
+  local pid = check.must(proc.fork())
   if pid == 0 then
     time.sleep(10)
     proc.exit(0)
@@ -339,7 +350,7 @@ end
 test_wifsignaled_on_kill()
 
 local function test_wnohang_returns_zero_for_running_process()
-  local pid = proc.fork()
+  local pid = check.must(proc.fork())
   if pid == 0 then
     time.sleep(0, 100000000) -- 100ms
     proc.exit(0)
@@ -356,12 +367,28 @@ test_wnohang_returns_zero_for_running_process()
 local function test_posix_spawn_returns_pid()
   local ls_path = proc.commandv("ls")
   if ls_path then
-    local pid = proc.posix_spawn(ls_path, {"ls"})
+    local pid = check.must(proc.posix_spawn(ls_path, {"ls"}))
     assert(pid > 0, "expected positive pid, got " .. tostring(pid))
     proc.wait(pid)
   end
 end
 test_posix_spawn_returns_pid()
+
+local function test_posix_spawn_nonexistent_names_errno()
+  local pid, err = proc.posix_spawn("/nonexistent/binary/xyz", {"/nonexistent/binary/xyz"})
+  assert(pid == nil, "posix_spawn of a nonexistent program should fail")
+  assert(err ~= nil and err:match("ENOENT"),
+    "posix_spawn error should name ENOENT, got: " .. tostring(err))
+end
+test_posix_spawn_nonexistent_names_errno()
+
+local function test_posix_spawnp_nonexistent_names_errno()
+  local pid, err = proc.posix_spawnp("nonexistent_command_xyz_12345", {"nonexistent_command_xyz_12345"})
+  assert(pid == nil, "posix_spawnp of a nonexistent program should fail")
+  assert(err ~= nil and err:match("E%u+"),
+    "posix_spawnp error should name the errno, got: " .. tostring(err))
+end
+test_posix_spawnp_nonexistent_names_errno()
 
 local function test_wait_option_constants_defined()
   assert(type(proc.WNOHANG) == "number", "WNOHANG should be a number")
@@ -415,3 +442,13 @@ local function test_execve_error_names_errno()
     "execve error should name the program, got: " .. tostring(err))
 end
 test_execve_error_names_errno()
+
+local function test_kill_error_names_errno()
+  -- A pid this large should never be in use: kill(pid, 0) just probes
+  -- for existence and must fail with ESRCH instead of dropping the error.
+  local ok, err = proc.kill(999999999, 0)
+  assert(ok == false, "kill of a nonexistent pid should fail")
+  assert(type(err) == "string" and err:match("ESRCH"),
+    "kill error should name ESRCH, got: " .. tostring(err))
+end
+test_kill_error_names_errno()

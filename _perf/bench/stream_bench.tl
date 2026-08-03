@@ -97,13 +97,13 @@ local function scenarios(): {pt.Scenario}, string
     return nil, "listen_tcp: " .. tostring(lerr)
   end
   listener = srv
-  local pid = proc.fork()
+  local pid, ferr = proc.fork()
   if pid == 0 then
     serve_loop(srv)
     os.exit(0)
   end
   if pid == nil or pid < 0 then
-    return nil, "fork failed"
+    return nil, "fork failed: " .. tostring(ferr)
   end
   server_pid = pid
   -- allow_private opts out of the SSRF guard so the loopback server is

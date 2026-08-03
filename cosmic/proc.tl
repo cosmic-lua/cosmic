@@ -1,18 +1,14 @@
 --- Current process management.
 --- Identity, session/group control, exec, and resource usage.
 ---
---- The global `arg` table layout when running a script:
----   arg[-1]  — path to the cosmic interpreter binary (use this to re-invoke
----              cosmic, e.g. to spawn a child running another script)
----   arg[0]   — script path as the runtime sees it (/zip/main.lua when the
----              script is dispatched by the embedded entry point — NOT the
----              interpreter path)
----   arg[1..] — user arguments
---- `arg` is typed {string}, so negative indices need
+--- The global `arg` table layout when running a script: arg[-1] is the
+--- cosmic interpreter binary's path (re-invoke it to spawn a child); arg[0]
+--- is the script path as the runtime sees it (/zip/main.lua when dispatched
+--- by the embedded entry point — NOT the interpreter path); arg[1..] are
+--- user arguments. `arg` is typed {string}: negative indices need
 --- `rawget(arg, -1) as string` to pass the strict type checker.
 local unix = require("cosmo.unix")
 local cosmo = require("cosmo")
-
 local errstr = require("cosmic.errno").str
 
 --- Process resource usage statistics (the generated unix.Rusage record):
@@ -127,8 +123,8 @@ local exit: function(exitcode?: integer) = unix.exit
 --- Returns the absolute path to the executable if found, nil otherwise.
 --- On Windows, programs should be installed without .exe/.com suffix for discovery.
 --- @param prog string The program name to search for
---- @return string? The absolute path to the executable, or nil if not found
-local function commandv(prog: string): string
+--- @return string | nil The absolute path to the executable, or nil if not found
+local function commandv(prog: string): string | nil
   return (unix.commandv(prog))
 end
 
@@ -178,27 +174,30 @@ end
 -- Process Control (children) --
 
 --- Creates a new process (fork).
---- @return integer The child pid in the parent, 0 in the child
-local function fork(): integer
-  return (unix.fork())
+--- @return integer | nil The child pid in the parent, 0 in the child, or nil + error on failure
+local function fork(): integer | nil, string
+  local pid, err = unix.fork(); if pid == nil then return nil, errstr(err, "fork") end
+  return pid
 end
 
 --- Spawns a program via posix_spawn (no PATH search).
 --- @param prog string Absolute path to the executable
 --- @param argv {string} Argument vector passed to the program
 --- @param envp {string}? Environment (KEY=value); inherits if omitted
---- @return integer The child pid on success
-local function posix_spawn(prog: string, argv: {string}, envp?: {string}): integer
-  return (unix.spawn(prog, argv, envp))
+--- @return integer | nil The child pid on success, or nil + error on failure
+local function posix_spawn(prog: string, argv: {string}, envp?: {string}): integer | nil, string
+  local pid, err = unix.spawn(prog, argv, envp); if pid == nil then return nil, errstr(err, "posix_spawn: " .. prog) end
+  return pid
 end
 
 --- Spawns a program via posix_spawnp (PATH search).
 --- @param prog string Program name to execute
 --- @param argv {string} Argument vector passed to the program
 --- @param envp {string}? Environment (KEY=value); inherits if omitted
---- @return integer The child pid on success
-local function posix_spawnp(prog: string, argv: {string}, envp?: {string}): integer
-  return (unix.spawnp(prog, argv, envp))
+--- @return integer | nil The child pid on success, or nil + error on failure
+local function posix_spawnp(prog: string, argv: {string}, envp?: {string}): integer | nil, string
+  local pid, err = unix.spawnp(prog, argv, envp); if pid == nil then return nil, errstr(err, "posix_spawnp: " .. prog) end
+  return pid
 end
 
 --- Waits for a child process to change state.
@@ -222,9 +221,10 @@ end
 --- Sends a signal to a process.
 --- @param pid integer Process id to signal
 --- @param sig integer Signal number (e.g. SIGTERM, SIGKILL)
---- @return boolean True on success
-local function kill(pid: integer, sig: integer): boolean
-  return (unix.kill(pid, sig))
+--- @return boolean True on success, false + error on failure
+local function kill(pid: integer, sig: integer): boolean, string
+  local ok, err = unix.kill(pid, sig); if not ok then return false, errstr(err, "kill") end
+  return true
 end
 
 --- True if the child exited normally.
@@ -359,18 +359,18 @@ local record ProcModule
   exit: function(exitcode?: integer)
 
   -- Exec
-  commandv: function(prog: string): string
+  commandv: function(prog: string): string | nil
   execve: function(prog: string, args: {string}, env: {string}): nil, string
   execvp: function(prog: string, argv?: {string}): nil, string
   execvpe: function(prog: string, argv: {string}, envp?: {string}): nil, string
   fexecve: function(fd: integer, argv: {string}, envp?: {string}): nil, string
 
   -- Process control (children)
-  fork: function(): integer
-  posix_spawn: function(prog: string, argv: {string}, envp?: {string}): integer
-  posix_spawnp: function(prog: string, argv: {string}, envp?: {string}): integer
+  fork: function(): integer | nil, string
+  posix_spawn: function(prog: string, argv: {string}, envp?: {string}): integer | nil, string
+  posix_spawnp: function(prog: string, argv: {string}, envp?: {string}): integer | nil, string
   wait: function(pid?: integer, options?: integer): integer | nil, integer, Rusage, string
-  kill: function(pid: integer, sig: integer): boolean
+  kill: function(pid: integer, sig: integer): boolean, string
   WIFEXITED: function(status: integer): boolean
   WEXITSTATUS: function(status: integer): integer
   WIFSIGNALED: function(status: integer): boolean

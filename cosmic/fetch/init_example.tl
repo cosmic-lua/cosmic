@@ -14,7 +14,7 @@ local function Example_get()
 
   local srv, port = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv)
-  local pid = proc.fork()
+  local pid = check.must(proc.fork())
   if pid == 0 then
     local conn = check.must((s:accept()))
     conn:recv(4096)
@@ -44,7 +44,7 @@ local function Example_retry()
 
   local srv, port = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv)
-  local pid = proc.fork()
+  local pid = check.must(proc.fork())
   if pid == 0 then
     local responses = {
       "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
@@ -81,7 +81,7 @@ local function Example_stream_lines()
 
   local srv, port = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv)
-  local pid = proc.fork()
+  local pid = check.must(proc.fork())
   if pid == 0 then
     local body = "alpha\nbeta\ngamma\n"
     local conn = check.must((s:accept()))
