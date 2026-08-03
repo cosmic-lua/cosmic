@@ -26,7 +26,7 @@ o/                          everything generated
 
 ```
 myapp/
-  main.tl                   → o/bin/myapp
+  cmd/myapp/main.tl         → o/bin/myapp
   config.tl                 require("config")
   db/init.tl  db/query.tl   require("db"), require("db.query")
   db/query_test.tl          reads staged db/**, writes TEST_TMPDIR

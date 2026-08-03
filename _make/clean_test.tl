@@ -76,7 +76,7 @@ end
 --- asset -- one of everything the rules have a pattern for.
 local function app(name: string): string
   return fixture(name, {
-      ["main.tl"] = "local db = require('db')\nprint(db.name())\n",
+      ["cmd/app/main.tl"] = "local db = require('db')\nprint(db.name())\n",
       ["db/init.tl"] = "local record Db\n  name: function(): string\nend\n" ..
       "local M: Db = {name = function(): string return 'app' end}\nreturn M\n",
       ["db/db_test.tl"] = "local db = require('db')\n" ..

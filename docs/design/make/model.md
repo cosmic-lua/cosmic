@@ -13,8 +13,8 @@ go stale.
 | `*_benchmark.tl` | a benchmark target | same |
 | `testdata/` | test fixtures; **never embedded** | readable (it is in the subtree) |
 | `*.d.tl` | type-only; include path, never embedded | — |
-| `main.tl` at root | the project's binary | staged tree readable, `o/bin` writable |
-| `cmd/<name>/main.tl` | one binary per subdirectory | same |
+| `cmd/<name>/main.tl` | one binary per subdirectory, named `<name>` | staged tree readable, `o/bin` writable |
+| `main.tl` at root | **refused**: a binary is named by its `cmd/<name>/`, never by the checkout directory | — |
 | `<dir>/*_pin.tl` | a pinned external asset | network **only** under `fetch` |
 | `<dir>/*_gen.tl` | a generation unit | its subtree readable, `o/<its own path minus extension>` writable |
 | `<unit>/embed_gen.tl` | a **binary's payload generator** (reserved basename, its own kind) | the binary's scope readable, `o/<unit>/embed_gen` writable |
@@ -65,7 +65,7 @@ path** derived from its position. Nothing else varies.
 | benchmark | `X_benchmark.tl` | same as a test | `o/X.tl.benchmark.{got,out,err}` |
 | generator | `G_gen.tl` in `D` | `D`'s subtree | `o/D/G_gen/**` |
 | payload generator | `embed_gen.tl` in unit `U` | `U`'s binary scope | `o/U/embed_gen/{embed/,base}` |
-| binary | `main.tl`, `cmd/<n>/main.tl` | root packages + its own `cmd/<n>/**` | `o/bin/<n>` |
+| binary | `cmd/<n>/main.tl` | root packages + its own `cmd/<n>/**` | `o/bin/<n>` |
 | pin | `*_pin.tl` in `D` | the pin literal, plus a socket under `fetch` | `o/D/<name from the url>` ⚠ |
 
 Read down the scope column and the design's two load-bearing sentences

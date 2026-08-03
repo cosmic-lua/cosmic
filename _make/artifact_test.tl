@@ -128,7 +128,7 @@ end
 -- in the binary.
 local function test_layout_is_derived()
   local root = fixture("layout", {
-      ["main.tl"] = "print('x')\n",
+      ["cmd/artifact-layout/main.tl"] = "print('x')\n",
       ["config.tl"] = "return {}\n",
       ["db/init.tl"] = "return {}\n",
       ["db/query.tl"] = "return {}\n",
@@ -191,26 +191,11 @@ local function test_cmd_scope_is_its_own_subtree()
 end
 test_cmd_scope_is_its_own_subtree()
 
--- A root binary alongside cmd/ binaries ships the root packages and
--- none of the cmd trees.
-local function test_root_binary_excludes_cmd()
-  local root = fixture("both", {
-      ["main.tl"] = "print('root')\n",
-      ["lib/x.tl"] = "return {}\n",
-      ["cmd/tool/main.tl"] = "print('tool')\n",
-    })
-  local proj = scan(root)
-  local stored = stored_paths(proj, binary_of(proj, "artifact-both"))
-  assert(stored["main.lua"] and stored["lib/x.lua"], "root packages ship")
-  assert(not stored["cmd/tool/main.lua"], "a cmd tree is not the root binary's")
-end
-test_root_binary_excludes_cmd()
-
 -- The artifact runs, and the floor is enough to run ON: the standard
 -- library survives stripping, which is what makes the floor a floor.
 local function test_artifact_runs_on_the_floor()
   local root = fixture("runs", {
-      ["main.tl"] = "local json = require('cosmic.json')\n" ..
+      ["cmd/artifact-runs/main.tl"] = "local json = require('cosmic.json')\n" ..
       "local greet = require('greet')\n" ..
       "print(json.encode({said = greet.hello()}))\n",
       ["greet.tl"] = "local record G\n  hello: function(): string\nend\n" ..
@@ -233,7 +218,7 @@ test_artifact_runs_on_the_floor()
 -- program, not a copy of the thing that built it.
 local function test_stripped_to_the_floor()
   local root = fixture("stripped", {
-      ["main.tl"] = "print('tl:', (pcall(require, 'tl')))\n" ..
+      ["cmd/artifact-stripped/main.tl"] = "print('tl:', (pcall(require, 'tl')))\n" ..
       "print('teal:', (pcall(require, 'cosmic.teal')))\n" ..
       "print('json:', (pcall(require, 'cosmic.json')))\n" ..
       -- The floor keeps `cosmic/**`, so it must keep it USABLE. literal
@@ -300,7 +285,7 @@ test_stripped_to_the_floor()
 -- meets by being the real thing.
 local function test_provided_namespace_supersedes_the_floor()
   local root = fixture("provides", {
-      ["main.tl"] = "print('mine:', require('cosmic.mine').tag)\n" ..
+      ["cmd/artifact-provides/main.tl"] = "print('mine:', require('cosmic.mine').tag)\n" ..
       "print('json:', (pcall(require, 'cosmic.json')))\n",
       ["cosmic/init.tl"] = "return {}\n",
       ["cosmic/mine.tl"] = "local record M\n  tag: string\nend\n" ..
@@ -346,7 +331,7 @@ test_provided_namespace_supersedes_the_floor()
 -- SOURCE_DATE_EPOCH plumbed.
 local function test_reproducible()
   local files: {string: string} = {
-    ["main.tl"] = "print('same')\n",
+    ["cmd/app/main.tl"] = "print('same')\n",
     ["pkg/a.tl"] = "return {}\n",
     ["data.txt"] = "bytes\n",
   }
@@ -369,7 +354,7 @@ test_reproducible()
 -- targets ARE sources.
 local function test_build_takes_binaries_not_sources()
   local root = fixture("selected", {
-      ["main.tl"] = "print('x')\n",
+      ["cmd/artifact-selected/main.tl"] = "print('x')\n",
       ["pkg/a.tl"] = "return {}\n",
     })
   local code, out = make(root, "build", "pkg")
@@ -392,7 +377,7 @@ test_build_takes_binaries_not_sources()
 -- convention: the same build through the module API.
 local function test_in_process_build()
   local root = fixture("inproc", {
-      ["main.tl"] = "print('x')\n",
+      ["cmd/artifact-inproc/main.tl"] = "print('x')\n",
       ["cmd/tool/main.tl"] = "print('tool')\n",
     })
   local cwd = check.must(fs.getcwd())
@@ -403,8 +388,8 @@ local function test_in_process_build()
   cenv.unset("COSMIC_MAKE")
   assert(fs.chdir(cwd))
   assert(code == 0, "in-process build should succeed")
-  assert(fs.isfile(fs.join(root, "o/bin/artifact-inproc")), "root binary")
-  assert(fs.isfile(fs.join(root, "o/bin/tool")), "cmd binary")
+  assert(fs.isfile(fs.join(root, "o/bin/artifact-inproc")), "one binary")
+  assert(fs.isfile(fs.join(root, "o/bin/tool")), "the other binary")
 end
 test_in_process_build()
 
@@ -416,7 +401,7 @@ print("all artifact tests passed")
 -- the modules all land where the code that reads them looks.
 local function test_payload_maps_to_the_artifact_root()
   local root = fixture("payload", {
-      ["main.tl"] = "print('x')\n",
+      ["cmd/artifact-payload/main.tl"] = "print('x')\n",
       ["embed/tl.lua"] = "return {}\n",
       ["embed/.types/cosmo.d.tl"] = "local record c end\nreturn c\n",
       ["embed/.tl/cosmic/fs.tl"] = "return {}\n",

@@ -82,15 +82,19 @@ end
 --- A project with a package, an entry, a test, a .lua source, and an
 --- asset -- one of everything the rules have a pattern for.
 local function app(name: string): string
-  return fixture(name, {
-      ["main.tl"] = "local db = require('db')\nprint(db.name())\n",
-      ["db/init.tl"] = "local record Db\n  name: function(): string\nend\n" ..
-      "local M: Db = {name = function(): string return 'app' end}\nreturn M\n",
-      ["db/db_test.tl"] = "local db = require('db')\n" ..
-      "assert(db.name() == 'app', 'name')\n",
-      ["legacy.lua"] = "return { x = 1 }\n",
-      ["schema.sql"] = "CREATE TABLE t(x);\n",
-    })
+  local files: {string: string} = {
+    ["db/init.tl"] = "local record Db\n  name: function(): string\nend\n" ..
+    "local M: Db = {name = function(): string return 'app' end}\nreturn M\n",
+    ["db/db_test.tl"] = "local db = require('db')\n" ..
+    "assert(db.name() == 'app', 'name')\n",
+    ["legacy.lua"] = "return { x = 1 }\n",
+    ["schema.sql"] = "CREATE TABLE t(x);\n",
+  }
+  -- The binary lives at cmd/<name>/, named for the tree, so the artifact
+  -- is `build-<name>` no matter what the scratch directory is called.
+  files["cmd/build-" .. name .. "/main.tl"] =
+  "local db = require('db')\nprint(db.name())\n"
+  return fixture(name, files)
 end
 
 -- build: every source lands in o/ as compiled Lua, and the .lua source
@@ -101,7 +105,8 @@ local function test_build_compiles_the_tree()
   local r = make(root, "build")
   assert(r.code == 0, "build should succeed, got " .. r.code .. ": " .. r.err)
   assert(r.out:find("build: PASS", 1, true), "got: " .. r.out)
-  for _, rel in ipairs({"o/main.lua", "o/db/init.lua", "o/db/db_test.lua",
+  for _, rel in ipairs({"o/cmd/build-compile/main.lua", "o/db/init.lua",
+      "o/db/db_test.lua",
       "o/legacy.lua", "o/cosmic.mk", "o/project.mk"}) do
     assert(fs.isfile(fs.join(root, rel)), "expected " .. rel)
   end
@@ -292,7 +297,7 @@ local function test_a_changed_contract_recompiles_its_importers()
         ["ffi.lua"] = 'return { greet = function(n) return "hi " .. n end }\n',
         ["ffi.d.tl"] = "local record ffi\n" ..
         "  greet: function(name: string): string\nend\nreturn ffi\n",
-        ["main.tl"] = "local ffi = require('ffi')\nprint(ffi.greet('world'))\n",
+        ["cmd/app/main.tl"] = "local ffi = require('ffi')\nprint(ffi.greet('world'))\n",
       })
     assert(make(root, "build").code == 0, "the declaration holds at first")
 
@@ -310,7 +315,7 @@ local function test_a_changed_contract_recompiles_its_importers()
   local root = fixture("contract", {
       ["util.tl"] = "local record U\n  n: function(): integer\nend\n" ..
       "local M: U = {n = function(): integer return 1 end}\nreturn M\n",
-      ["main.tl"] = "local u = require('util')\n" ..
+      ["cmd/app/main.tl"] = "local u = require('util')\n" ..
       "local x: integer = u.n()\nprint(x)\n",
     })
   assert(make(root, "build").code == 0, "the contract holds at first")
@@ -335,12 +340,12 @@ test_a_changed_contract_recompiles_its_importers()
 local function test_dependencies_never_reach_the_child()
   local root = fixture("depsarg", {
       ["util.tl"] = "return {}\n",
-      ["main.tl"] = "local u = require('util')\nprint('main ran', u)\n",
+      ["cmd/app/main.tl"] = "local u = require('util')\nprint('main ran', u)\n",
     })
   assert(make(root, "build").code == 0, "build")
-  local out = check.must(fs.read(fs.join(root, "o/main.lua")))
+  local out = check.must(fs.read(fs.join(root, "o/cmd/app/main.lua")))
   assert(out:find("main ran", 1, true),
-    "o/main.lua must be COMPILED main.tl, not some child's stdout: " .. out)
+    "o/cmd/app/main.lua must be COMPILED main.tl, not some child's stdout: " .. out)
 end
 test_dependencies_never_reach_the_child()
 
@@ -351,7 +356,7 @@ test_dependencies_never_reach_the_child()
 -- iterating and least want it.
 local function test_a_test_reruns_only_for_what_it_imports()
   local root = fixture("incremental-deps", {
-      ["main.tl"] = "print('x')\n",
+      ["cmd/app/main.tl"] = "print('x')\n",
       ["db/init.tl"] = "local record D\n  n: function(): integer\nend\n" ..
       "local M: D = {n = function(): integer return 1 end}\nreturn M\n",
       ["db/a_test.tl"] = "local d = require('db')\nassert(d.n() == 1)\n",
@@ -360,7 +365,7 @@ local function test_a_test_reruns_only_for_what_it_imports()
   assert(make(root, "test").code == 0, "first run")
 
   -- main.tl is imported by neither test.
-  assert(fs.write(fs.join(root, "main.tl"), "print('changed')\n"))
+  assert(fs.write(fs.join(root, "cmd/app/main.tl"), "print('changed')\n"))
   local unrelated = make(root, "test")
   assert(unrelated.code == 0, "second run: " .. unrelated.err)
   assert(not unrelated.out:find("record o/db/", 1, true),
@@ -448,11 +453,14 @@ end
 -- RUN: embedding onto the wrong base still produces a file, and only
 -- running it says so.
 local function test_a_variant_base_ships_the_payload_twice()
-  local root = fixture("variant", {["main.tl"] = "print('ran')\n"})
+  local root = fixture("variant", {["cmd/build-variant/main.tl"] = "print('ran')\n"})
   local runtime = check.must(fs.read(cosmic))
-  assert(fs.makedirs(fs.join(root, "o/embed_gen")))
+  -- The base lives in the binary's OWN payload-gen dir, which for a
+  -- cmd/<name> unit is o/cmd/<name>/embed_gen, not the root's o/embed_gen.
+  local gendir = fs.join(root, "o/cmd/build-variant/embed_gen")
+  assert(fs.makedirs(gendir))
   for _, name in ipairs({"base", "base-debug"}) do
-    local path = fs.join(root, "o/embed_gen", name)
+    local path = fs.join(gendir, name)
     assert(fs.write(path, runtime))
     assert(fs.chmod(path, tonumber("755", 8) as integer)) -- cast: octal is integral
   end
@@ -478,7 +486,7 @@ local function test_in_process_graph_verbs()
   -- Build's selection is over binaries, and both answers matter: the
   -- name resolves, a source path does not.
   assert(in_process(root, "build", "build-inproc") == 0, "a binary by name")
-  assert(in_process(root, "build", "main.tl") == 0, "…or by its entry")
+  assert(in_process(root, "build", "cmd/build-inproc/main.tl") == 0, "…or by its entry")
   assert(in_process(root, "build", "db") == 1, "a source path is not a binary")
   assert(in_process(root, "clean") == 0, "clean in process")
 

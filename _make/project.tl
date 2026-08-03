@@ -279,8 +279,11 @@ local function classify(rel: string): Kind
   return "module"
 end
 
---- The artifact name an entry builds: the root's own directory name for
---- `main.tl`, the `cmd/` subdirectory's name otherwise.
+--- The artifact name an entry builds: the `cmd/` subdirectory's name.
+--- A root `main.tl` has no subdirectory to name it, so it falls back to
+--- the checkout directory here and is then refused by the validator
+--- (`check_binaries`) -- the fallback exists only to name that refusal,
+--- never to build under it.
 --- @param root string Absolute project root
 --- @param rel string Path to the entry, relative to the root
 --- @return string The artifact name

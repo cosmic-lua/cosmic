@@ -244,27 +244,19 @@ local function check_entries(proj: Project, issues: {Issue})
   end
 end
 
---- Refuse the two shapes that build cleanly and then go missing.
----
---- A root `init.tl` has no import path -- dropping the trailing `init`
---- leaves nothing for the project root to be named -- yet it still
---- classifies as a module, so it type-checks, compiles to `o/init.lua`,
---- and is then silently absent from every artifact. Nothing in the
---- design gives the root a module name to claim, so it is refused
---- rather than given one.
----
---- Two binaries with the same name share `o/stage/<name>` and
---- `o/bin/<name>`: the second overwrites the first, and which is
---- "second" follows iteration order. A project mid-refactor from
---- single- to multi-binary (`myapp/main.tl` plus `cmd/myapp/main.tl`)
---- reports success and ships whichever won.
+--- Refuse the shapes that build cleanly and then go missing or misname.
+--- A root `init.tl` has no import path, so it compiles to `o/init.lua`
+--- and ships from nowhere -- nothing gives the root a module name.
+--- A root `main.tl` builds, but nothing in the tree names its binary,
+--- so it falls back to the checkout directory: `o/bin/myapp` here,
+--- `o/bin/myapp-fork` in a clone. A binary lives at `cmd/<name>/main.tl`,
+--- named by a committed path, not the filesystem. Two binaries with one
+--- name share `o/bin/<name>`; the second wins by iteration order.
 --- @param proj Project The scanned project
 --- @param issues {Issue} Issues to append to
 local function check_binaries(proj: Project, issues: {Issue})
   for _, f in ipairs(proj.files) do
-    -- Both spellings: `.lua` sources are first-class, so a root
-    -- `init.lua` fails the same way -- it compiles, copies to
-    -- `o/init.lua`, and silently never ships.
+    -- Both spellings: a root `init.lua` compiles and never ships too.
     if f.path == "init.tl" or f.path == "init.lua" then
       add(issues, f.path,
         "a root " .. f.path .. " has no import path, so it can never " ..
@@ -274,6 +266,14 @@ local function check_binaries(proj: Project, issues: {Issue})
   local seen: {string: string} = {}
   local units: {string: boolean} = {}
   for _, b in ipairs(proj.binaries) do
+    -- A root entry (empty dir) has no `cmd/<name>/` to name it, so its
+    -- name fell back to the checkout directory. Refuse it.
+    if b.dir == "" then
+      add(issues, b.entry, "a root " .. b.entry ..
+        " builds a binary named after the checkout directory ('" ..
+        b.name .. "'); put the entry at cmd/" .. b.name ..
+        "/main.tl so the binary is named by the tree, not the filesystem")
+    end
     local first = seen[b.name]
     if first then
       add(issues, b.entry, "binary '" .. b.name ..
