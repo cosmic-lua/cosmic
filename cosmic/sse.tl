@@ -158,8 +158,11 @@ local function events(reader: stream.Reader): Stream
         local data = table.concat(current_data, "\n")
         current_data = {}
         if data == "" then
-          -- empty data buffer: reset the event type too, dispatch nothing
+          -- empty data buffer: reset the event type and retry too,
+          -- dispatch nothing. Otherwise a retry: from this discarded
+          -- block would leak into the next dispatched event.
           current_event = nil
+          current_retry = nil
         else
           local ev: Event = {
             data = data,
