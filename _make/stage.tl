@@ -193,7 +193,7 @@ local function binaries_on_path(proj: Project)
   local abs = fs.join(proj.root, rel)
   local sep = sys.host_os() == "windows" and ";" or ":"
   local path = cenv.get("PATH")
-  if path == "" then
+  if path == nil or path == "" then
     cenv.set("PATH", abs, true)
   elseif not (sep .. path .. sep):find(sep .. abs .. sep, 1, true) then
     cenv.set("PATH", abs .. sep .. path, true)
