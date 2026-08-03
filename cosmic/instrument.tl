@@ -39,6 +39,24 @@ local record Span
   start_stime_ns: number
 end
 
+--- Escape a field value for the space-delimited `key=value` line
+--- format: literal "%" first (so the decode below is unambiguous),
+--- then the space delimiter itself. A file path with a space would
+--- otherwise silently truncate at parse time, since fields are read
+--- back with a `%S+` (non-space) pattern.
+--- @param s string Raw field value (op or file)
+--- @return string Value safe to place between spaces on the line
+local function escape_field(s: string): string
+  return (s:gsub("%%", "%%25"):gsub(" ", "%%20"))
+end
+
+--- Reverse escape_field, in the opposite order it applied.
+--- @param s string An escaped field value read off a line
+--- @return string The original value
+local function unescape_field(s: string): string
+  return (s:gsub("%%20", " "):gsub("%%25", "%%"))
+end
+
 --- Check whether instrumentation is enabled.
 --- Returns true when COSMIC_INSTRUMENTATION is "1" or "true".
 --- @return boolean
@@ -112,7 +130,7 @@ local function finish_span(span: Span, exit_code: integer): string
 
   local line = string.format(
     "cosmic: op=%s file=%s exit=%d wall_ms=%d cpu_ms=%d maxrss_kb=%d",
-    span.op, span.file, exit_code, wall_ms, cpu_ms, maxrss)
+    escape_field(span.op), escape_field(span.file), exit_code, wall_ms, cpu_ms, maxrss)
 
   io.stderr:write(line .. "\n")
   return line
@@ -136,8 +154,8 @@ local function parse_line(line: string): InstrumentData
     return nil
   end
   return {
-    op = op,
-    file = file,
+    op = unescape_field(op),
+    file = unescape_field(file),
     exit = (tonumber(exit_str) or 0) as integer, -- cast: number to integer
     wall_ms = (tonumber(wall_str) or 0) as integer, -- cast: number to integer
     cpu_ms = (tonumber(cpu_str) or 0) as integer, -- cast: number to integer
