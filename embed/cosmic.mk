@@ -27,11 +27,17 @@ SHELL := $(COSMIC)
 # per-target variable the facts file computed.
 .SECONDEXPANSION:
 
-# Content decides, mtime only schedules: every verb writes its output
-# only when the bytes change, so a no-op step leaves its target's
-# mtime alone and non-changes stop propagating. `--make build` holds
-# to it for the ARTIFACT too, which is what makes the next line
-# affordable.
+# Not every verb leaves a no-op target's mtime alone -- only three
+# things actually do: `write-list` and the makefiles (`o/project.mk`,
+# via `write_if_changed`) skip the write entirely when the bytes match,
+# and the ARTIFACT itself is swapped in only when it differs
+# (`replace_if_changed`), so an unchanged binary never invalidates the
+# tree that depends on the tool that built it. Most recipe steps
+# (`compile`, `capture`, via `run_into`) instead restamp the target's
+# mtime even when the bytes are unchanged -- deliberately, so a target
+# make judged out of date does not stay out of date forever -- and
+# `tee`/`copy` write unconditionally. Convergence rests on the
+# artifact, not on every intermediate staying untouched.
 #
 # $(COSMIC_DEP) — the driver itself — is a prerequisite of every graph
 # rule, because a result is only as fresh as the tool that produced it.
@@ -59,8 +65,10 @@ SHELL := $(COSMIC)
 # early for a phony file too, and a phony target's recipe always runs.
 # A summary is a REPORT over targets that already exist -- reading a
 # handful of `.got` files -- so always-fresh is what it should have
-# been. Content still decides what lands: `tee` writes only on change,
-# so an unchanged summary keeps its mtime and stops propagating.
+# been. `tee` writes the summary unconditionally every run (it does not
+# compare against the existing file), which is fine precisely because
+# the target is phony: nothing depends on the summary's mtime for
+# freshness, only on the `.got` files it reads.
 .PHONY: $(O)/fmt-summary.txt $(O)/test-summary.txt \
         $(O)/example-summary.txt $(O)/benchmark-summary.txt \
         $(O)/lint-summary.txt $(O)/coverage-summary.txt
@@ -121,9 +129,14 @@ test: $(O)/test-summary.txt
 
 # A test's prerequisites are exactly what it imports, transitively --
 # as BUILT paths, since a test runs against compiled Lua. The same list
-# goes into the recipe line, so the derived fence grants the test read
-# access to what it imports and nothing else. One answer, two
-# consumers: the argument positions are the declaration.
+# goes into the recipe line, feeding the derived fence -- but the fence
+# grants a test read access to the whole project ("."), plus the
+# runtime paths tests legitimately touch (ptys, /proc/self/fd, resolver
+# files), not just what it imports: an import-only read grant did not
+# survive contact with real tests (see `_cli/grants.tl`'s "record"
+# case). What IS narrow is the write grant: only the test's own `.got`
+# base and TMPDIR. One answer, two consumers: the argument positions
+# are the declaration.
 $(O)/%.tl.test.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
 	record $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
 
