@@ -132,14 +132,17 @@ local function parse_args(): Options
       -- --make joins them (a): `--make <verb> [paths…]` is a verb plus
       -- a path list, and a path is a positional getopt would permute
       -- into its own option parse.
-      if opt_name == "test" or opt_name == "make" then
+      if opt_name == "test" or opt_name == "make"
+      or opt_name:find("^test=") or opt_name:find("^make=") then
+        -- `--make=verb` embeds the verb; the space form has it at i+1.
+        local eq = opt_name:find("=", 1, true) ~= nil
+        local vstart = eq and i + 1 or i + 2
         payload = {}
-        -- a `--` here defends against that same bug; step over it
-        local from = arg[i + 2] == "--" and i + 3 or i + 2
+        local from = arg[vstart] == "--" and vstart + 1 or vstart
         for k = from, #arg do
           payload[#payload + 1] = arg[k]
         end
-        payload_parse_end = i + 1
+        payload_parse_end = eq and i or i + 1
         script_idx = nil
         break
       elseif long_greedy[opt_name] then
@@ -220,11 +223,16 @@ local function parse_args(): Options
     return opts
   end
 
-  -- Global modifiers are collected before the dispatch loop so they are
-  -- honored regardless of position (`--extract dir --exe app`).
+  -- Modifiers up front, so a command flag cannot swallow a later --output.
   for _, o in ipairs(r.opts) do
     if o.opt == "exe" then
       opts.exe = o.arg
+    elseif o.opt == "output" then
+      opts.output = o.arg
+    elseif o.opt == "write-if-changed" then
+      opts.write_if_changed = true
+    elseif o.opt == "include-dir" then
+      opts.include_dirs[#opts.include_dirs + 1] = o.arg
     end
   end
 
@@ -270,8 +278,6 @@ local function parse_args(): Options
       return opts
     elseif opt == "embed" then
       opts.embed[#opts.embed + 1] = optarg
-    elseif opt == "output" then
-      opts.output = optarg
     elseif opt == "extract" then
       opts.extract = optarg
       return opts
@@ -303,10 +309,6 @@ local function parse_args(): Options
     elseif opt == "skill" then
       opts.skill = optarg
       return opts
-    elseif opt == "write-if-changed" then
-      opts.write_if_changed = true
-    elseif opt == "include-dir" then
-      opts.include_dirs[#opts.include_dirs + 1] = optarg
     elseif opt == "modules" then -- acted on at the top of this file
     end
   end
@@ -315,12 +317,15 @@ local function parse_args(): Options
   if script_idx then
     opts.script = arg[script_idx]
     opts.script_args[0] = arg[script_idx]
+    -- Drop one leading `--` separator; keep later ones (a script's own).
+    local start = script_idx + 1
+    if arg[start] == "--" then
+      start = start + 1
+    end
     local arg_num = 1
-    for k = script_idx + 1, #arg do
-      if arg[k] ~= "--" then
-        opts.script_args[arg_num] = arg[k]
-        arg_num = arg_num + 1
-      end
+    for k = start, #arg do
+      opts.script_args[arg_num] = arg[k]
+      arg_num = arg_num + 1
     end
     opts.script_args[-1] = arg[-1]
   end

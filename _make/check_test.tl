@@ -396,4 +396,20 @@ local function test_the_verbs_refuse_a_bad_selection_on_their_own()
 end
 test_the_verbs_refuse_a_bad_selection_on_their_own()
 
+-- `--make=verb path` (the GNU `=` spelling) keeps its path selection.
+-- It used to drop it silently -- the pre-scan matched only `--make`,
+-- not `--make=check` -- and run the whole verb. A path that names
+-- nothing must reach the selection and be refused, not ignored.
+local function test_make_equals_form_keeps_its_selection()
+  local root = app("equals")
+  local h = check.must(spawn.spawn({cosmic, "--make=check", "nope.tl"},
+      {cwd = root}))
+  local r = check.must(h:wait())
+  local out = (r.stdout or "") .. (r.stderr or "")
+  assert(r.code ~= 0, "a bad selection via --make= must fail: " .. out)
+  assert(out:find("nothing to do under: nope.tl", 1, true),
+    "the path reached the selection, not dropped: " .. out)
+end
+test_make_equals_form_keeps_its_selection()
+
 print("all make check tests passed")
