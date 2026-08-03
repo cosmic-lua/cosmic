@@ -103,6 +103,15 @@ local function gate(opts: GateOptions): integer
   if rc ~= 0 then
     return rc
   end
+  -- The retry just overwrote current.json under whatever binary is
+  -- running now, which may not be the one the baseline was measured
+  -- against. Re-check identity against that freshly measured file, or a
+  -- real regression can be masked by an identity change mid-retry.
+  refusal = identity_refusal(opts.baseline, opts.current, false)
+  if refusal then
+    io.stderr:write(refusal .. "\n")
+    return 1
+  end
   failures, err = compare_once(opts.baseline, opts.current, opts.threshold)
   if failures < 0 then
     io.stderr:write(tostring(err) .. "\n")
@@ -116,6 +125,14 @@ local function gate(opts: GateOptions): integer
   rc = opts.measure(opts.selfcheck_b)
   if rc ~= 0 then
     return rc
+  end
+  -- The A/A control is only a noise floor if it names the SAME binary
+  -- as current; check that before triage(), which otherwise trusts the
+  -- pair silently.
+  refusal = identity_refusal(opts.current, opts.selfcheck_b, true)
+  if refusal then
+    io.stderr:write(refusal .. "\n")
+    return 1
   end
   failures, err = compare_once(opts.baseline, opts.current, opts.threshold,
     opts.current, opts.selfcheck_b)

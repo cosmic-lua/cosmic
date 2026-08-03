@@ -111,9 +111,18 @@ local function normalize(src: string, cwd: string): string | nil, string
     return nil
   end
   if p:match("^o/") and p:match("%.lua$") then
-    local tl_path = p:sub(3):gsub("%.lua$", ".tl")
-    if fs.isfile(tl_path) then
-      return tl_path, p
+    -- Two spellings, because `.lua` sources are first-class in this
+    -- project (see the `luaonly` fixture): `o/greet.lua` is the staged
+    -- copy of `greet.tl` when that exists, or, when it does not, of
+    -- `greet.lua` itself. Trying only the `.tl` spelling dropped every
+    -- Lua-only source, so a Lua-only project's coverage read as empty
+    -- and its floor went in at zero.
+    local rel = p:sub(3)
+    local tl_path = rel:gsub("%.lua$", ".tl")
+    for _, source in ipairs({tl_path, rel}) do
+      if not is_excluded(source) and fs.isfile(source) then
+        return source, p
+      end
     end
     return nil
   end
