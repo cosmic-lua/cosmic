@@ -77,8 +77,13 @@ merge_section = function(prefix: string, a: {string: any}, b: {string: any}): {s
   if b then for k in pairs(b) do keys[k] = true end end
   for k in pairs(keys) do
     local path = prefix == "" and k or (prefix .. "." .. k)
-    local av = a and a[k] or nil
-    local bv = b and b[k] or nil
+    -- Explicit nil-checked indexing: `a and a[k] or nil` collapses a
+    -- stored `false` to nil, silently re-enabling a security opt-out
+    -- (e.g. net.proxy_env = false, pid_ns = false).
+    local av: any
+    if a then av = a[k] end
+    local bv: any
+    if b then bv = b[k] end
     if schema.lists[path] then
       out[k] = concat_unique(av as {any}, bv as {any}) -- cast: from any
     elseif schema.maps[path] then

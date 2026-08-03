@@ -201,7 +201,7 @@ test_password_default_mcost_is_19456()
 
 local function test_hmac_sha256_rfc4231_case1()
   local key = string.rep("\x0b", 20)
-  local tag = hash.hmac_sha256(key, "Hi There")
+  local tag = check.must(hash.hmac_sha256(key, "Hi There"))
   local hex = codec.encode_hex(tag)
   assert(hex == "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7",
     "RFC 4231 case 1 mismatch: " .. hex)
@@ -209,7 +209,7 @@ end
 test_hmac_sha256_rfc4231_case1()
 
 local function test_hmac_sha256_rfc4231_case2()
-  local tag = hash.hmac_sha256("Jefe", "what do ya want for nothing?")
+  local tag = check.must(hash.hmac_sha256("Jefe", "what do ya want for nothing?"))
   local hex = codec.encode_hex(tag)
   assert(hex == "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
     "RFC 4231 case 2 mismatch: " .. hex)
@@ -298,10 +298,19 @@ test_hmac_rfc2202_case1_sha1()
 
 local function test_hmac_matches_hmac_sha256_convenience()
   local tag = hash.hmac("sha256", "key", "message")
-  assert(tag == hash.hmac_sha256("key", "message"),
+  assert(tag == check.must(hash.hmac_sha256("key", "message")),
     "hmac('sha256') should match hmac_sha256()")
 end
 test_hmac_matches_hmac_sha256_convenience()
+
+local function test_hmac_sha256_empty_key_rejected()
+  -- hmac_sha256 delegates to hmac("sha256", ...), which refuses an
+  -- empty key rather than silently returning a plain digest.
+  local tag, err = hash.hmac_sha256("", "data")
+  assert(tag == nil, "hmac_sha256 should return nil for empty key")
+  assert(err and err:match("key"), "error should mention the key, got: " .. tostring(err))
+end
+test_hmac_sha256_empty_key_rejected()
 
 local function test_hmac_unknown_algo()
   -- cast: deliberate invalid input
