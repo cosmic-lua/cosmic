@@ -340,15 +340,31 @@ local function collect_all(dir: string): {string: FileInfo} | nil, string
   return files, errbox[1]
 end
 
---- Iterator over file paths, as returned by files().
-local type FileIter = function(): string
+--- Iterator over file paths, as returned by files(). The second return
+--- is nil while paths remain; once the tree is exhausted every further
+--- call returns `nil, first_error` (nil when the walk was clean) — the
+--- same (result, first-subtree-error) pairing walk()/collect() return,
+--- just delayed until the iterator itself is spent rather than bundled
+--- with a single return value up front.
+local type FileIter = function(): string, string
 
 --- Iterate over files matching a pattern.
 --- Returns an iterator that yields file paths. The fourth return value
 --- is a to-be-closed guard: a plain `for f in fs.files(dir) do ... end`
 --- loop adopts it as the loop's closing value (Lua 5.4), so directory
 --- handles are closed even when the loop exits early via break/error.
---- If the root directory cannot be opened, returns nil plus the error —
+--- If the root directory cannot be opened, returns nil plus the error.
+--- Failures below the root (an unreadable subdirectory, a vanished
+--- entry) do NOT stop iteration, matching walk()/collect() — the first
+--- such error is captured and, once the iterator is exhausted, returned
+--- as its second value from then on. A plain `for f in fs.files(dir) do`
+--- never sees it (the loop ends on the first nil without inspecting
+--- further returns); call the iterator again after the loop to read it:
+---
+---     local iter = check.must(fs.files(dir))
+---     for f in iter do ... end
+---     local _, suberr = iter() -- first subtree error, if any
+---
 --- in tests/examples iterate the checked value with
 --- `for f in check.must(fs.files(dir)) do` (must, like assert, forwards
 --- all four returns, keeping the closing guard); in library code use
@@ -381,7 +397,24 @@ local function files(dir: string, pattern?: string): FileIter | nil, string, any
   end
   local guard = setmetatable({}, {__close = close_all, __gc = close_all})
 
-  local iter = function(): string
+  -- First error found below the root, same role as walk_entries' errbox.
+  local errbox: {string} = {}
+
+  -- Shared by both places a subdirectory gets opened below (the DT_DIR
+  -- fast path and the stat() fallback for DT_UNKNOWN): push it onto the
+  -- traversal stack, or record the first opendir failure below the
+  -- root, matching walk_entries' error-channel contract.
+  local function push_subdir(path: string)
+    local subhandle, serr = unix.opendir(path)
+    if subhandle then
+      -- cast: userdata boundary
+      table.insert(stack, {path, subhandle as WalkDirHandle})
+    elseif not errbox[1] then
+      errbox[1] = errstr(serr, "opendir: " .. path)
+    end
+  end
+
+  local iter = function(): string, string
     -- anchor the guard as an upvalue: a caller that keeps only the
     -- iterator (dropping the fourth return) must not let the guard's
     -- __gc close these handles while the iterator is still running
@@ -400,11 +433,7 @@ local function files(dir: string, pattern?: string): FileIter | nil, string, any
         if kind == unix.DT_DIR then
           -- d_type never follows symlinks, so this is a real directory
           -- (a symlinked dir reports DT_LNK), and skips a stat(2) call.
-          local subhandle = unix.opendir(full_path)
-          if subhandle then
-            -- cast: userdata boundary
-            table.insert(stack, {full_path, subhandle as WalkDirHandle})
-          end
+          push_subdir(full_path)
         elseif kind ~= unix.DT_UNKNOWN then
           -- Definitely not a directory: files() never needs stat data,
           -- only the path, so just check the pattern without stat(2).
@@ -415,23 +444,21 @@ local function files(dir: string, pattern?: string): FileIter | nil, string, any
           -- Filesystem doesn't expose d_type; fall back to a real stat,
           -- using AT_SYMLINK_NOFOLLOW so a symlinked dir reports
           -- S_ISLNK, not S_ISDIR, preserving the same cycle prevention.
-          local st = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
+          local st, serr = unix.stat(full_path, unix.AT_SYMLINK_NOFOLLOW)
           if st then
             -- cast: record union after guard
             if unix.S_ISDIR((st as unix.Stat):mode()) then
-              local subhandle = unix.opendir(full_path)
-              if subhandle then
-                -- cast: userdata boundary
-                table.insert(stack, {full_path, subhandle as WalkDirHandle})
-              end
+              push_subdir(full_path)
             elseif entry:match(lua_pattern) then
               return full_path
             end
+          elseif not errbox[1] then
+            errbox[1] = errstr(serr, "stat: " .. full_path)
           end
         end
       end
     end
-    return nil
+    return nil, errbox[1]
   end
   return iter, nil, nil, guard
 end

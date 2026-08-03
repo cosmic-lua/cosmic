@@ -190,6 +190,41 @@ local function test_walk_permission_denied_subdir_reports_error()
 end
 test_walk_permission_denied_subdir_reports_error()
 
+-- files() gets the same contract as walk(): an unreadable subdirectory
+-- does not stop iteration, and the first such error is surfaced once
+-- the iterator itself is exhausted (see the doc comment on files()).
+local function test_files_permission_denied_subdir_reports_error()
+  if user.geteuid() == 0 then
+    return -- root bypasses permission checks; nothing to observe
+  end
+  local base = mksubdir("files_denied")
+  local open_dir = fs.join(base, "open")
+  local locked = fs.join(base, "locked")
+  fs.makedirs(open_dir)
+  fs.makedirs(locked)
+  write_file(fs.join(open_dir, "seen.txt"), "x")
+  write_file(fs.join(locked, "hidden.txt"), "x")
+  assert(fs.chmod(locked, 0))
+
+  local iter = check.must(fs_walk.files(base))
+  local seen: {string: boolean} = {}
+  local f = iter()
+  while f do
+    seen[fs.basename(f)] = true
+    f = iter()
+  end
+  assert(fs.chmod(locked, tonumber("755", 8)))
+
+  assert(seen["seen.txt"], "readable entries must still be yielded")
+  -- The loop above already ran the terminating (nil, err) call; the
+  -- iterator stays exhausted, so calling it again just reports the
+  -- same first error rather than resuming anything.
+  local _, suberr = iter()
+  assert(suberr and suberr:match("EACCES"),
+    "files() must surface the denied subdir once exhausted: " .. tostring(suberr))
+end
+test_files_permission_denied_subdir_reports_error()
+
 -- #558b: visitor return protocol — "skip" prunes a subtree, "stop" ends
 -- the walk. Visitors that return nothing keep today's behavior.
 
