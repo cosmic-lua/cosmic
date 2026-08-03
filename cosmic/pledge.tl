@@ -27,16 +27,7 @@
 ---   unveil    permit subsequent unveil calls
 local unix = require("cosmo.unix")
 local errno = require("cosmic.errno")
-
---- Flush line-coverage data before rights drop: a dump attempted after
---- the pledge lands would violate it and kill the process.
-local function seal_coverage()
-  local cov = package.loaded["cosmic.coverage"]
-  if cov ~= nil then
-    local seal = (cov as {string: any})["seal"] as function() -- cast: from any
-    seal()
-  end
-end
+local seal_coverage = require("cosmic._seal_coverage").seal_coverage
 
 --- The promise groups the libc accepts, as a Teal enum so typed callers
 --- get promise names checked at compile time. `apply` still takes the

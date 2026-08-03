@@ -25,22 +25,7 @@
 local cosmo = require("cosmo")
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").str
-
---- Flush line-coverage data before rights drop: once visibility
---- narrows, the coverage directory may no longer be writable.
---- @param keep boolean? The caller granted the coverage directory, so
---- the dump still works after this policy lands and sealing would
---- throw away everything done under it.
-local function seal_coverage(keep?: boolean)
-  if keep then
-    return
-  end
-  local cov = package.loaded["cosmic.coverage"]
-  if cov ~= nil then
-    local seal = (cov as {string: any})["seal"] as function() -- cast: from any
-    seal()
-  end
-end
+local seal_coverage = require("cosmic._seal_coverage").seal_coverage
 
 --- The permission strings `allow` accepts: every combination of r/w/x/c
 --- in canonical rwxc order, as a Teal enum so typos ("rc" vs "cr",
