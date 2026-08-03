@@ -232,6 +232,61 @@ test_selfcheck_refuses_two_different_binaries()
 -- A file that does not say what it measured cannot be checked either
 -- way. It says so on stderr and the comparison proceeds, so a results
 -- file written before the field existed stays readable.
+-- The retry's `opts.measure(opts.current)` overwrites current.json under
+-- whatever binary happens to be running at that moment. If that binary
+-- is the SAME as the baseline's, the retry's own re-compare would read
+-- "no regression" for the wrong reason -- current now equals baseline by
+-- construction, not because the change was clean. The post-measure
+-- identity check must catch that before trusting the re-compare.
+local function test_retry_remeasurement_changing_identity_is_refused()
+  local base, cur, selfb = paths("retry-identity-flip")
+  write_results(base, 1000, "aaaa1111")
+  write_results(cur, 1300, "bbbb2222")
+  local calls = 0
+  local code = gate.gate({
+      baseline = base, current = cur, selfcheck_b = selfb, threshold = 10,
+      measure = function(out: string): integer
+        calls = calls + 1
+        -- comes back quiet, but now names the BASELINE's binary
+        write_results(out, 1010, "aaaa1111")
+        return 0
+      end,
+    })
+  assert(code == 1,
+    "an identity flip on the retried file must refuse, got " .. code)
+  assert(calls == 1,
+    "must refuse right after the retry, before any A/A step, got " .. calls)
+end
+test_retry_remeasurement_changing_identity_is_refused()
+
+-- Before triage() trusts the A/A pair as a noise floor, `current` and
+-- `selfcheck_b` must name the SAME binary -- otherwise the "noise floor"
+-- is really two different binaries, which raises the bar every real
+-- regression afterwards has to clear.
+local function test_aa_control_naming_different_binary_is_refused()
+  local base, cur, selfb = paths("aa-identity-mismatch")
+  write_results(base, 1000, "aaaa1111")
+  write_results(cur, 1300, "bbbb2222")
+  local calls = 0
+  local code = gate.gate({
+      baseline = base, current = cur, selfcheck_b = selfb, threshold = 10,
+      measure = function(out: string): integer
+        calls = calls + 1
+        if calls == 1 then
+          write_results(out, 1300, "bbbb2222") -- persists, same binary as cur
+        else
+          write_results(out, 1310, "cccc3333") -- A/A control: a THIRD binary
+        end
+        return 0
+      end,
+    })
+  assert(code == 1,
+    "an A/A control naming a different binary than current must refuse, got " .. code)
+  assert(calls == 2,
+    "must measure the retry and the A/A control before refusing, got " .. calls)
+end
+test_aa_control_naming_different_binary_is_refused()
+
 local function test_a_file_without_a_sha_is_not_refused()
   local base, cur, selfb = paths("no-sha")
   write_results(base, 1000)

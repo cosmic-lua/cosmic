@@ -68,6 +68,20 @@ local function test_normalize_maps_embedded_directory_modules()
 end
 test_normalize_maps_embedded_directory_modules()
 
+-- `.lua` sources are first-class in this project (see the `luaonly`
+-- fixture and `_make/testdata/luaonly/`): when a staged `o/x.lua` has
+-- no matching `x.tl`, the source IS `x.lua` and must not be dropped.
+local function test_normalize_maps_lua_only_source_with_no_tl()
+  local saved = check.must(fs.getcwd(), "getcwd failed")
+  assert(fs.write(fs.join(tmpdir, "greet.lua"), "print('hi')\n"))
+  assert(fs.chdir(tmpdir))
+  local display, parse = report.normalize("@o/greet.lua", "")
+  fs.chdir(saved)
+  assert(display == "greet.lua", "got: " .. tostring(display))
+  assert(parse == "o/greet.lua", "got: " .. tostring(parse))
+end
+test_normalize_maps_lua_only_source_with_no_tl()
+
 local function test_normalize_accepts_existing_tl_script()
   -- a directly-run script records a cwd-relative source; absolute
   -- sources normalize only when they sit under the given cwd
