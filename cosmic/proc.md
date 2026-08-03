@@ -3,14 +3,11 @@
  Current process management.
  Identity, session/group control, exec, and resource usage.
 
- The global `arg` table layout when running a script:
-   arg[-1]  — path to the cosmic interpreter binary (use this to re-invoke
-              cosmic, e.g. to spawn a child running another script)
-   arg[0]   — script path as the runtime sees it (/zip/main.lua when the
-              script is dispatched by the embedded entry point — NOT the
-              interpreter path)
-   arg[1..] — user arguments
- `arg` is typed {string}, so negative indices need
+ The global `arg` table layout when running a script: arg[-1] is the
+ cosmic interpreter binary's path (re-invoke it to spawn a child); arg[0]
+ is the script path as the runtime sees it (/zip/main.lua when dispatched
+ by the embedded entry point — NOT the interpreter path); arg[1..] are
+ user arguments. `arg` is typed {string}: negative indices need
  `rawget(arg, -1) as string` to pass the strict type checker.
 
 ## Types
@@ -29,16 +26,16 @@ local record ProcModule
   setsid: function(): integer | nil, string
   daemon: function(nochdir?: boolean, noclose?: boolean): boolean, string
   exit: function(exitcode?: integer)
-  commandv: function(prog: string): string
+  commandv: function(prog: string): string | nil
   execve: function(prog: string, args: {string}, env: {string}): nil, string
   execvp: function(prog: string, argv?: {string}): nil, string
   execvpe: function(prog: string, argv: {string}, envp?: {string}): nil, string
   fexecve: function(fd: integer, argv: {string}, envp?: {string}): nil, string
-  fork: function(): integer
-  posix_spawn: function(prog: string, argv: {string}, envp?: {string}): integer
-  posix_spawnp: function(prog: string, argv: {string}, envp?: {string}): integer
+  fork: function(): integer | nil, string
+  posix_spawn: function(prog: string, argv: {string}, envp?: {string}): integer | nil, string
+  posix_spawnp: function(prog: string, argv: {string}, envp?: {string}): integer | nil, string
   wait: function(pid?: integer, options?: integer): integer | nil, integer, Rusage, string
-  kill: function(pid: integer, sig: integer): boolean
+  kill: function(pid: integer, sig: integer): boolean, string
   WIFEXITED: function(status: integer): boolean
   WEXITSTATUS: function(status: integer): integer
   WIFSIGNALED: function(status: integer): boolean
@@ -187,7 +184,7 @@ function daemon(nochdir?: boolean, noclose?: boolean): boolean, string
 ### commandv
 
 ```teal
-function commandv(prog: string): string
+function commandv(prog: string): string | nil
 ```
 
  Performs $PATH lookup of executable.
@@ -200,7 +197,7 @@ function commandv(prog: string): string
 
 **Returns:**
 
-- string? - The absolute path to the executable, or nil if not found
+- string - | nil The absolute path to the executable, or nil if not found
 
 ### execve
 
@@ -280,19 +277,19 @@ function fexecve(fd: integer, argv: {string}, envp?: {string}): nil, string
 ### fork
 
 ```teal
-function fork(): integer
+function fork(): integer | nil, string
 ```
 
  Creates a new process (fork).
 
 **Returns:**
 
-- integer - The child pid in the parent, 0 in the child
+- integer - | nil The child pid in the parent, 0 in the child, or nil + error on failure
 
 ### posix_spawn
 
 ```teal
-function posix_spawn(prog: string, argv: {string}, envp?: {string}): integer
+function posix_spawn(prog: string, argv: {string}, envp?: {string}): integer | nil, string
 ```
 
  Spawns a program via posix_spawn (no PATH search).
@@ -305,12 +302,12 @@ function posix_spawn(prog: string, argv: {string}, envp?: {string}): integer
 
 **Returns:**
 
-- integer - The child pid on success
+- integer - | nil The child pid on success, or nil + error on failure
 
 ### posix_spawnp
 
 ```teal
-function posix_spawnp(prog: string, argv: {string}, envp?: {string}): integer
+function posix_spawnp(prog: string, argv: {string}, envp?: {string}): integer | nil, string
 ```
 
  Spawns a program via posix_spawnp (PATH search).
@@ -323,7 +320,7 @@ function posix_spawnp(prog: string, argv: {string}, envp?: {string}): integer
 
 **Returns:**
 
-- integer - The child pid on success
+- integer - | nil The child pid on success, or nil + error on failure
 
 ### wait
 
@@ -349,7 +346,7 @@ function wait(pid?: integer, options?: integer): integer | nil, integer, Rusage,
 ### kill
 
 ```teal
-function kill(pid: integer, sig: integer): boolean
+function kill(pid: integer, sig: integer): boolean, string
 ```
 
  Sends a signal to a process.
@@ -361,7 +358,7 @@ function kill(pid: integer, sig: integer): boolean
 
 **Returns:**
 
-- boolean - True on success
+- boolean - True on success, false + error on failure
 
 ### getrusage
 

@@ -55,7 +55,7 @@ local record Pipe
   __close: function(self: Pipe)
   reader: Handle
   writer: Handle
-  close: function(self: Pipe): boolean
+  close: function(self: Pipe): boolean, string
   closed: function(self: Pipe): boolean
 end
 ```
@@ -233,8 +233,12 @@ function handle:fcntl(cmd: integer, value?: integer): integer | nil, string
 ### p:close
 
 ```teal
-function p:close(): boolean
+function p:close(): boolean, string
 ```
+
+ Close both ends. Always closes both, even if the reader's close
+ fails; the first error wins (the writer's close still runs, but a
+ failure there is only reported if the reader closed cleanly).
 
 ### p:closed
 

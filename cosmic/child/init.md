@@ -13,7 +13,9 @@
  second `wait` returns the same value instead of failing. An abandoned
  handle is not leaked — its `__gc`/`__close` metamethods SIGKILL and reap an
  un-waited child and close its pipes, so `local h <close> = spawn{...}` (or
- simply dropping the handle) never leaves a zombie.
+ simply dropping the handle) never leaves a zombie. Side effect: requiring
+ cosmic.child.io sets SIGPIPE to SIG_IGN process-wide (a child closing
+ stdin early gets EPIPE on the write, not a dead parent).
 
 ## Types
 
@@ -30,6 +32,7 @@ local record Result
   ok: boolean
   stdout: string
   stderr: string
+  io_error: string
 end
 ```
 
@@ -45,16 +48,13 @@ local record Handle
   _st: childio.PumpState
   _result: Result
   _closed: boolean
-  --  Sends `sig` (default SIGTERM) to the child. Fails once the child has
-  --  been reaped, since its pid may have been recycled.
+  --  Sends `sig` (default SIGTERM). Fails once reaped (pid may be recycled).
   kill: function(self: Handle, sig?: integer): boolean, string
-  --  Non-blocking reap: the cached/final Result if the child has finished,
-  --  `nil, nil` while it is still running, or `nil, err` on a wait error.
+  --  Non-blocking reap: Result if finished, `nil, nil` if running, or `nil, err` on failure.
   try_wait: function(self: Handle): Result | nil, string
   --  Runs the child to completion (feeding stdin, draining stdout+stderr) and
   --  returns its Result. With `timeout_ms`, returns `nil, "timeout"` if the
-  --  child has not finished in time; the handle stays usable (wait again, or
-  --  kill it). Idempotent: repeat calls return the same cached Result.
+  --  child has not finished in time (the handle stays usable). Idempotent.
   wait: function(self: Handle, timeout_ms?: integer): Result | nil, string
 end
 ```
@@ -63,13 +63,12 @@ end
 
  Options for spawning a process.
  stdout/stderr Handles (cosmic.fd) become the child's fd 1/2 (the
- corresponding Result field is then ""). spawn does not take ownership
- of a Handle: the child gets its own copy of the descriptor, so close
- your end when you are done with it (see Example_run_pipe). Raw integer
- fds are not part of this surface (api-review-2); wrap one with
- fd.wrap() if it comes from outside the fd module.
- stdout/stderr also accept "inherit": the child writes to THIS
- process's fd 1/2 so output streams as it runs; Result then stays "".
+ corresponding Result field is then ""). spawn does not take ownership:
+ the child gets its own copy, so close your end when done (see
+ Example_run_pipe). Raw integer fds are not part of this surface
+ (api-review-2); wrap one with fd.wrap() first. stdout/stderr also
+ accept "inherit": the child writes to THIS process's fd 1/2 so output
+ streams as it runs; Result then stays "".
 
 ```teal
 local record Options
@@ -118,10 +117,9 @@ function spawn(argv: {string}, opts?: Options): Handle | nil, string
 
  Spawns a child process with I/O control. Uses fexecve for /zip/ paths.
  Returns a Handle on success. If the program cannot be executed, spawn
- itself fails with `nil, "exec failed: ENOENT: ..."` — the error surfaces
- here, not as a bogus exit code from a later wait().
- To spawn cosmic itself, use `rawget(arg, -1)` — NOT arg[0], which is
- the script path (/zip/main.lua), not the interpreter.
+ itself fails with `nil, "exec failed: ENOENT: ..."`, not a bogus exit
+ code from a later wait(). To spawn cosmic itself, use `rawget(arg, -1)`
+ — NOT arg[0], the script path (/zip/main.lua), not the interpreter.
 
 **Parameters:**
 

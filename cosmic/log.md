@@ -73,7 +73,10 @@ function log(level: Level, message: string, fields?: {string: any})
 ```
 
  Log a message at the given level. Suppressed (at the cost of one
- table lookup) when the level ranks below the current threshold.
+ table lookup) when the level ranks below the current threshold. An
+ unknown level (a runtime string smuggled in through a cast) is also
+ suppressed rather than thrown: severity[level] would be nil, and
+ `nil < number` throws (never throw from library code; mirrors set_level).
 
 **Parameters:**
 

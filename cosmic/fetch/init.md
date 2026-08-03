@@ -70,7 +70,8 @@ local record Options
   --  TLS handshake) — NOT a whole-request deadline. 0 or nil keeps the
   --  60-second default; there is no "infinite" option.
   timeout: number
-  --  Total number of attempts (1 = no retry, default 1).
+  --  Total number of attempts (1 = no retry, default 1). Clamped to >= 1:
+  --  0 or negative would otherwise skip the fetch loop and return no Result.
   max_attempts: integer
   --  Base backoff delay in seconds (default 0.5). Attempt n waits a
   --  uniformly random ("full jitter") delay in
