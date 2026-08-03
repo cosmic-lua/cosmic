@@ -58,8 +58,8 @@ local record FsModule
   access: function(path: string, mode?: integer): boolean
   chmod: function(path: string, mode: integer): boolean, string
   chown: function(path: string, uid: integer, gid: integer): boolean, string
-  utimensat: function(path: string, atime_secs: integer, atime_nsecs: integer, mtime_secs: integer, mtime_nsecs: integer): boolean, string
-  futimens: function(fd: integer, atime_secs: integer, atime_nsecs: integer, mtime_secs: integer, mtime_nsecs: integer): boolean, string
+  utimensat: function(path: string, atime_secs?: integer, atime_nsecs?: integer, mtime_secs?: integer, mtime_nsecs?: integer): boolean, string
+  futimens: function(fd: integer, atime_secs?: integer, atime_nsecs?: integer, mtime_secs?: integer, mtime_nsecs?: integer): boolean, string
   mkdtemp: function(template: string): string | nil, string
   tmpfile: function(template?: string): Handle | nil, string, string
   tmpfd: function(): integer | nil, string
