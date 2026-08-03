@@ -11,7 +11,9 @@
 --- second `wait` returns the same value instead of failing. An abandoned
 --- handle is not leaked — its `__gc`/`__close` metamethods SIGKILL and reap an
 --- un-waited child and close its pipes, so `local h <close> = spawn{...}` (or
---- simply dropping the handle) never leaves a zombie.
+--- simply dropping the handle) never leaves a zombie. Side effect: requiring
+--- cosmic.child.io sets SIGPIPE to SIG_IGN process-wide (a child closing
+--- stdin early gets EPIPE on the write, not a dead parent).
 local unix = require("cosmo.unix")
 local cfd = require("cosmic.fd")
 local childio = require("cosmic.child.io")
@@ -25,9 +27,10 @@ local stream = require("cosmic.stream")
 local record Result
   code: integer -- exit status; nil if signaled
   signal: integer -- terminating signal; nil if exited
-  ok: boolean -- code == 0
+  ok: boolean -- code == 0, and no io_error
   stdout: string
   stderr: string
+  io_error: string -- a read/write/poll failure while pumping I/O; nil if none
 end
 
 --- Handle for a spawned process.
@@ -41,33 +44,28 @@ local record Handle is stream.Reader
   _result: Result
   _closed: boolean
 
-  --- Sends `sig` (default SIGTERM) to the child. Fails once the child has
-  --- been reaped, since its pid may have been recycled.
+  --- Sends `sig` (default SIGTERM). Fails once reaped (pid may be recycled).
   kill: function(self: Handle, sig?: integer): boolean, string
-  --- Non-blocking reap: the cached/final Result if the child has finished,
-  --- `nil, nil` while it is still running, or `nil, err` on a wait error.
+  --- Non-blocking reap: Result if finished, `nil, nil` if running, or `nil, err` on failure.
   try_wait: function(self: Handle): Result | nil, string
   --- Runs the child to completion (feeding stdin, draining stdout+stderr) and
   --- returns its Result. With `timeout_ms`, returns `nil, "timeout"` if the
-  --- child has not finished in time; the handle stays usable (wait again, or
-  --- kill it). Idempotent: repeat calls return the same cached Result.
+  --- child has not finished in time (the handle stays usable). Idempotent.
   wait: function(self: Handle, timeout_ms?: integer): Result | nil, string
   --- Streaming read of up to `size` bytes (default 65536) from the child's
-  --- stdout. Returns bare nil at end of file, matching the stream contract
-  --- (cosmic.stream). For whole-output capture use `wait`/`run`, which
-  --- also collect stderr and cannot deadlock.
+  --- stdout. Returns bare nil at end of file (cosmic.stream contract). For
+  --- whole-output capture use `wait`/`run`, which also collect stderr.
   read: function(self: Handle, size?: integer): string | nil, string
 end
 
 --- Options for spawning a process.
 --- stdout/stderr Handles (cosmic.fd) become the child's fd 1/2 (the
---- corresponding Result field is then ""). spawn does not take ownership
---- of a Handle: the child gets its own copy of the descriptor, so close
---- your end when you are done with it (see Example_run_pipe). Raw integer
---- fds are not part of this surface (api-review-2); wrap one with
---- fd.wrap() if it comes from outside the fd module.
---- stdout/stderr also accept "inherit": the child writes to THIS
---- process's fd 1/2 so output streams as it runs; Result then stays "".
+--- corresponding Result field is then ""). spawn does not take ownership:
+--- the child gets its own copy, so close your end when done (see
+--- Example_run_pipe). Raw integer fds are not part of this surface
+--- (api-review-2); wrap one with fd.wrap() first. stdout/stderr also
+--- accept "inherit": the child writes to THIS process's fd 1/2 so output
+--- streams as it runs; Result then stays "".
 local record Options
   stdin: string | cfd.Handle -- string piped to stdin, or Handle -> fd 0
   stdout: cfd.Handle | childio.StdioMode -- child's fd 1, or "inherit"
@@ -98,9 +96,9 @@ end
 --- @return integer | nil The file descriptor ready for fexecve
 --- @return string Error message on failure
 local function prepare_zip_exec(zip_path: string): integer | nil, string
-  local fd = unix.open(zip_path, unix.O_RDONLY)
+  local fd, err = unix.open(zip_path, unix.O_RDONLY)
   if not fd then
-    return nil, "failed to open zip path: " .. zip_path
+    return nil, errno.str(err, "open zip path: " .. zip_path)
   end
   return fd
 end
@@ -129,6 +127,8 @@ local function finish(self: Handle, status: integer): Result
   else
     r.ok = false
   end
+  -- An I/O pump failure must not report a clean, silently-truncated result.
+  if self._st.io_err then r.io_error = self._st.io_err; r.ok = false end
   self._result = r
   close_fds(self)
   return r
@@ -221,10 +221,9 @@ end
 
 --- Spawns a child process with I/O control. Uses fexecve for /zip/ paths.
 --- Returns a Handle on success. If the program cannot be executed, spawn
---- itself fails with `nil, "exec failed: ENOENT: ..."` — the error surfaces
---- here, not as a bogus exit code from a later wait().
---- To spawn cosmic itself, use `rawget(arg, -1)` — NOT arg[0], which is
---- the script path (/zip/main.lua), not the interpreter.
+--- itself fails with `nil, "exec failed: ENOENT: ..."`, not a bogus exit
+--- code from a later wait(). To spawn cosmic itself, use `rawget(arg, -1)`
+--- — NOT arg[0], the script path (/zip/main.lua), not the interpreter.
 --- @param argv {string} Command and arguments
 --- @param opts Options? Spawn options
 --- @return Handle | nil, string? Process handle or nil + error
@@ -359,7 +358,7 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
   local exec_r, exec_w = new_pipe()
   if not exec_w then return fail("pipe failed (exec)") end
 
-  local pid = unix.fork()
+  local pid, ferr = unix.fork()
   if pid == 0 then
     unix.close(exec_r)
     -- Resolve sources before dup2 below can clobber one (childio.pin_source).
@@ -440,7 +439,7 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
 
   if pid == nil then
     for _, fd in ipairs(opened) do unix.close(fd) end
-    return nil, "fork failed"
+    return nil, errno.str(ferr, "fork")
   end
 
   -- Parent: close the ends the child owns, then wait on the exec handshake.
@@ -449,16 +448,17 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
   if not stderr_is_fd then unix.close(stderr_w) end
   unix.close(exec_w)
 
-  -- A non-empty read means exec failed inside the child: reap it and surface
-  -- the error from spawn itself. EOF (empty read) means exec succeeded — so
-  -- the read must retry EINTR (read_retry), not misreport it as EOF.
-  local exec_msg = childio.read_retry(exec_r, 4096)
+  -- A non-empty read means exec failed in the child; EOF means it succeeded.
+  -- read_retry retries EINTR, so a nil exec_msg here is a genuine read
+  -- failure (exec_rerr set) — a spawn error too, never a silent success.
+  local exec_msg, exec_rerr = childio.read_retry(exec_r, 4096)
   unix.close(exec_r)
-  if exec_msg ~= nil and exec_msg ~= "" then
+  if exec_msg == nil or exec_msg ~= "" then
     childio.wait_retry(pid)
     if not stdin_is_fd then unix.close(stdin_w) end
     if not stdout_is_fd then unix.close(stdout_r) end
     if not stderr_is_fd then unix.close(stderr_r) end
+    if exec_msg == nil then return nil, errno.str(exec_rerr, "exec status read failed") end
     return nil, errno.str(exec_msg, "exec failed")
   end
 

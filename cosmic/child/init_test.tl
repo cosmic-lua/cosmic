@@ -211,13 +211,18 @@ local function test_spawn_fork_failure()
   -- Monkey-patch unix.fork to simulate a fork failure; child.tl calls
   -- unix.fork() via the shared module table, so this affects child.spawn.
   -- cwd forces the fork path (the posix_spawn fast path cannot chdir).
+  -- The fake failure carries a real errno string so the test also proves
+  -- spawn() propagates it instead of a bare "fork failed".
   local real_fork = rawget(unix, "fork")
-  rawset(unix, "fork", function(): number return nil end)
+  rawset(unix, "fork", function(): number, string
+      return nil, "fork: EAGAIN: Resource temporarily unavailable"
+    end)
   local handle, err = child.spawn({lua_bin, "-e", "print('x')"}, {cwd = "."})
   rawset(unix, "fork", real_fork)
   assert(handle == nil, "expected nil handle on fork failure, got: " .. tostring(handle))
   assert(type(err) == "string", "expected error string on fork failure, got: " .. type(err))
-  assert(err:find("fork", 1, true), "expected 'fork' in error message: " .. tostring(err))
+  assert(err:find("EAGAIN", 1, true),
+    "expected the real errno to surface, got: " .. tostring(err))
 end
 test_spawn_fork_failure()
 
@@ -270,6 +275,8 @@ local function test_prepare_zip_exec_nonexistent()
   assert(fd == nil, "should fail for nonexistent zip path")
   assert(err, "should have error message")
   assert(err:find("zip", 1, true), "expected zip-related error: " .. err)
+  assert(err:find("ENOENT", 1, true),
+    "expected the real errno, not a generic message, got: " .. err)
 end
 test_prepare_zip_exec_nonexistent()
 
