@@ -95,10 +95,15 @@ test_the_image_is_pinned_by_digest()
 -- rather than derived because "runs build machinery" is a judgement:
 -- the cross-OS smoke matrix deliberately does NOT (real macOS and
 -- Windows runners are its entire point), and a job added without a
--- decision here is a job whose environment nobody chose.
+-- decision here is a job whose environment nobody chose. Keyed by
+-- `<workflow file>:<job>`, not bare job name — a future job that merely
+-- reuses the name `smoke` in another workflow is a fresh decision, not
+-- an inherited exemption.
 local UNCONTAINERISED < const >: {string: string} = {
-  ["smoke"] = "the cross-OS matrix: native macOS/Windows runners are the point",
-  ["release"] = "no build machinery: artifact download + `gh release create`",
+  ["pr.yml:smoke"] =
+  "the cross-OS matrix: native macOS/Windows runners are the point",
+  ["release.yml:release"] =
+  "no build machinery: artifact download + `gh release create`",
 }
 
 -- What a lane pins about its environment, per job.
@@ -192,9 +197,10 @@ local function test_every_build_job_is_containerised()
   for _, path in ipairs(workflows()) do
     for name, job in pairs(jobs_in(path)) do
       jobs = jobs + 1
-      if UNCONTAINERISED[name] then
+      local key = fs.basename(path) .. ":" .. name
+      if UNCONTAINERISED[key] then
         assert(not job.containerised, path .. ": job '" .. name ..
-          "' is recorded as uncontainerised (" .. UNCONTAINERISED[name] ..
+          "' is recorded as uncontainerised (" .. UNCONTAINERISED[key] ..
           ") but declares a container")
       else
         assert(job.containerised, path .. ": job '" .. name .. "' runs " ..

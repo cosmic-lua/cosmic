@@ -69,8 +69,9 @@ jobs:
 
       # The gate runs as a non-root user: see the identity note above.
       # The system-wide safe.directory keeps git usable for that user,
-      # since lint discovers files with `git ls-files` and the version
-      # stamp reads `git describe`.
+      # since lint discovers files with `git ls-files`. (The version
+      # stamp does NOT read git — it comes from a root `.version` file
+      # or COSMIC_VERSION; see cmd/cosmic/embed_gen.tl.)
       - name: prepare non-root builder
         shell: bash
         run: |
@@ -155,9 +156,15 @@ jobs:
           # stopped running, which is the difference between reading the
           # diff and guessing at it across CI cycles.
           echo "===== coverage detail for the declining rows ====="
+          # Source dirs too, not just the data dir: the report only lists
+          # a ZERO-hit file when it can scan the directory holding it, so
+          # without them the diagnostic goes silent for exactly the file
+          # that lost all its coverage. The gate already wrote the list it
+          # used to o/project.mk (coverage_dirs); reuse it verbatim.
+          dirs=$(sed -n 's/^coverage_dirs := //p' o/project.mk)
           for f in $(grep -oP '(?<=coverage ratchet: declined: ).*' o/gate.log | tail -1); do
             runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
-              o/bin/cosmic --coverage-report o/.coverage 2>/dev/null \
+              o/bin/cosmic --coverage-report o/.coverage $dirs 2>/dev/null \
               | grep -F "$f "
           done
           exit 0

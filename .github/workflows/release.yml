@@ -11,6 +11,20 @@ on:
         type: boolean
         default: true
 
+# The build job runs the whole gate — arbitrary tree code and tests —
+# with the checkout token persisted in .git/config, so the default token
+# must be read-only. The `release` job below elevates itself to
+# `contents: write`, the one permission publishing needs.
+permissions:
+  contents: read
+
+# One release at a time: a schedule fire and a manual dispatch on the
+# same commit race to create the same dated tag, and the loser errors
+# out of `gh release create`. Queue, and never cancel a release mid-run.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 env:
   PRERELEASE: true
 

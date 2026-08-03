@@ -10,7 +10,9 @@ env:
 
 # Two pushes to main in quick succession would otherwise race on the
 # `docs` branch and one publish would be rejected. Queue instead of
-# cancel: every commit's docs get published, in order.
+# cancel — though GitHub keeps at most one PENDING run per group, so a
+# burst of pushes publishes the latest commit's docs (which is what
+# matters) and may skip intermediate ones.
 concurrency:
   group: docs-publish
   cancel-in-progress: false
