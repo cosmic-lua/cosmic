@@ -16,6 +16,7 @@ local COSMIC_EQUIVALENTS: {string: string} = {
 }
 
 local fuzzy = require("cosmic.fuzzy")
+local str = require("cosmic.string")
 
 --- Extract first paragraph from module description.
 --- @param text string Full description text
@@ -253,7 +254,7 @@ local function find_matching_examples(examples: {ExampleDoc}, func_name: string)
   for _, example in ipairs(examples) do
     local example_base = example.name:gsub("^Example_?", "")
     local base_lower = example_base:lower()
-    if base_lower == func_lower or base_lower:match("^" .. func_lower .. "_") then
+    if base_lower == func_lower or str.starts_with(base_lower, func_lower .. "_") then
       table.insert(matches, example)
     end
   end
