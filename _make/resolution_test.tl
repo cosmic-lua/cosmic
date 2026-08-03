@@ -26,8 +26,10 @@ local function fixture(name: string): string
   local root = fs.join(tmp, "res-" .. name)
   fs.rmrf(root)
   assert(fs.makedirs(fs.join(root, "greet")))
-  -- A project declares itself; the ones here that have no `main.tl`
-  -- declare with an empty `.cosmicignore`.
+  -- The run target is a binary at cmd/app/, so `run` builds it before
+  -- executing o/cmd/app/main.lua; a bare root main.tl is refused. Tests
+  -- write the entry's body here.
+  assert(fs.makedirs(fs.join(root, "cmd", "app")))
   assert(fs.write(fs.join(root, ".cosmicignore"), ""))
   assert(fs.write(fs.join(root, "greet", "init.tl"), [[
 local record G
@@ -98,11 +100,11 @@ test_a_test_loads_what_the_graph_built()
 -- searcher has to find it in the project itself.
 local function test_run_resolves_a_computed_require()
   local root = fixture("run")
-  assert(fs.write(fs.join(root, "main.tl"), [[
+  assert(fs.write(fs.join(root, "cmd/app/main.tl"), [[
 local mod = require(arg[1]) as {string: function}
 io.write("FROM " .. debug.getinfo(mod.hi, "S").source .. "\n")
 ]]))
-  local code, out = make(root, {"run", "main.tl", "greet"})
+  local code, out = make(root, {"run", "cmd/app/main.tl", "greet"})
   assert(code == 0, "run must succeed: " .. out)
   local from = out:match("FROM @(%S+)")
   assert(from, "the target must report its import's source: " .. out)
@@ -115,11 +117,11 @@ test_run_resolves_a_computed_require()
 -- exit code is what the caller sees.
 local function test_run_passes_argv_and_exit_code_through()
   local root = fixture("argv")
-  assert(fs.write(fs.join(root, "main.tl"), [[
+  assert(fs.write(fs.join(root, "cmd/app/main.tl"), [[
 io.write("ARGS " .. table.concat(arg, " ") .. "\n")
 os.exit(7)
 ]]))
-  local code, out = make(root, {"run", "main.tl", "--out", "x", "-v"})
+  local code, out = make(root, {"run", "cmd/app/main.tl", "--out", "x", "-v"})
   assert(out:find("ARGS --out x -v", 1, true),
     "the target's own flags must arrive verbatim: " .. out)
   assert(code == 7, "the target's exit code is the verb's, got: " .. code)
@@ -130,8 +132,8 @@ test_run_passes_argv_and_exit_code_through()
 -- one wrong guess worth a sentence rather than "no such selection".
 local function test_run_refuses_a_binary_name()
   local root = fixture("name")
-  assert(fs.write(fs.join(root, "main.tl"), 'io.write("x")\n'))
-  local code, out = make(root, {"run", "res-name"})
+  assert(fs.write(fs.join(root, "cmd/app/main.tl"), 'io.write("x")\n'))
+  local code, out = make(root, {"run", "app"})
   assert(code ~= 0, "a binary name must be refused: " .. out)
   assert(out:find("takes a path, not a binary name", 1, true) or
     out:find("no such source", 1, true), "got: " .. out)
@@ -156,7 +158,7 @@ local function test_resolution_does_not_inherit()
 local greet = require("greet")
 io.write("CHILD " .. debug.getinfo(greet.hi, "S").source .. "\n")
 ]]))
-  assert(fs.write(fs.join(root, "main.tl"), [[
+  assert(fs.write(fs.join(root, "cmd/app/main.tl"), [[
 local greet = require("greet")
 local spawn = require("cosmic.child")
 local check = require("cosmic.check")
@@ -165,7 +167,7 @@ local h = check.must(spawn.spawn({arg[0] and os.getenv("COSMIC_BIN"), "child.tl"
 local r = check.must(h:wait())
 io.write(r.stdout or "")
 ]]))
-  local code, out = make(root, {"run", "main.tl"}, {"COSMIC_BIN=" .. cosmic})
+  local code, out = make(root, {"run", "cmd/app/main.tl"}, {"COSMIC_BIN=" .. cosmic})
   assert(code == 0, "the fixture must run: " .. out)
   local parent = out:match("PARENT @(%S+)")
   local child = out:match("CHILD @(%S+)")
@@ -183,13 +185,13 @@ test_resolution_does_not_inherit()
 -- runs `run` in a subprocess, where the coverage lane never watches it.
 local function test_run_in_process()
   local root = fixture("inproc")
-  assert(fs.write(fs.join(root, "main.tl"), [[
+  assert(fs.write(fs.join(root, "cmd/app/main.tl"), [[
 local greet = require("greet")
 io.write("SAYS " .. greet.hi("x") .. "\n")
 ]]))
   local cwd = check.must(fs.getcwd())
   cenv.set("COSMIC_MAKE_ROOT", root)
-  local code = mk.run({"run", "main.tl"})
+  local code = mk.run({"run", "cmd/app/main.tl"})
   cenv.unset("COSMIC_MAKE_ROOT")
   assert(fs.chdir(cwd))
   assert(code == 0, "an in-process run should succeed")
@@ -200,13 +202,13 @@ test_run_in_process()
 -- anything is built -- so they cost a walk rather than a rebuild.
 local function test_run_refusals_in_process()
   local root = fixture("refuse")
-  assert(fs.write(fs.join(root, "main.tl"), 'io.write("x")\n'))
+  assert(fs.write(fs.join(root, "cmd/app/main.tl"), 'io.write("x")\n'))
   local cwd = check.must(fs.getcwd())
   cenv.set("COSMIC_MAKE_ROOT", root)
   local none = mk.run({"run"})
   local missing = mk.run({"run", "nosuch.tl"})
   local flag_first = mk.run({"run", "--out", "x"})
-  local two = mk.run({"run", "main.tl", "greet/init.tl"})
+  local two = mk.run({"run", "cmd/app/main.tl", "greet/init.tl"})
   cenv.unset("COSMIC_MAKE_ROOT")
   assert(fs.chdir(cwd))
   assert(none ~= 0, "run with no path must fail")

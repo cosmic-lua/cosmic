@@ -34,10 +34,11 @@ end
 
 --- Copy a fixture out of the tree and return its scratch root.
 ---
---- The directory keeps the fixture's own name, under a parent: the
---- artifact is named after the project directory, so staging to
---- `fixture-hello/` would build `o/bin/fixture-hello` and quietly test
---- a different thing than the one on disk.
+--- The directory keeps the fixture's own name only for readability: a
+--- binary is named by its `cmd/<name>/` position, not by the checkout
+--- directory, so `o/bin/hello` is `o/bin/hello` no matter what the
+--- staging parent is called -- which is the property this whole tree
+--- exists to hold.
 local function staged(name: string): string
   local root = fs.join(tmpdir, "fixtures", name)
   fs.rmrf(root)
