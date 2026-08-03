@@ -49,6 +49,14 @@ end
 
  Callable positional-value iterator, the `Statement:values()` counterpart
  to `Rows`. Same `:err()` contract.
+ CAVEAT: a row whose FIRST column is SQL NULL returns `nil` as its first
+ (and, to Lua, only visible) value, which a `for ... in` generic-for loop
+ reads as end-of-iteration — the row is silently dropped, `:err()` stays
+ nil, and remaining rows are never stepped. This is inherent to Lua's
+ generic-for protocol (it stops at a nil first return) and the contract
+ cannot change without breaking `local a, b, c = iter()` positional
+ callers. Use `rows()` (or call the iterator directly, `local a, b, c =
+ iter()`, one row at a time) when column 1 may be NULL.
 
 ```teal
 local record Values
@@ -78,7 +86,9 @@ local record Statement
   --  check `:err()` after the loop for step errors.
   rows: function(self: Statement): Rows
   --  Callable iterator yielding each row's column values positionally;
-  --  same `:err()` contract as rows().
+  --  same `:err()` contract as rows(). CAVEAT: a NULL first column ends a
+  --  `for` loop over this early (see Values above) -- prefer rows() when
+  --  column 1 may be NULL.
   values: function(self: Statement): Values
   --  Step the statement to completion (for INSERT/UPDATE/DDL).
   exec: function(self: Statement): boolean, string
@@ -206,6 +216,8 @@ function db:transaction(fn: function(Database)): boolean, string
  Execute fn within a transaction. BEGIN before fn; COMMIT if fn returns
  cleanly; ROLLBACK if fn raises OR signals failure the library way -- a
  returned `false`, or `nil` plus an error (nothing returned still commits).
+ A failing COMMIT (e.g. a deferred foreign-key violation) also rolls
+ back, so the connection is never left inside an open transaction.
 
 ### db:last_insert_rowid
 
