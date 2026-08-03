@@ -51,6 +51,15 @@ end
 
 --- Callable positional-value iterator, the `Statement:values()` counterpart
 --- to `Rows`. Same `:err()` contract.
+---
+--- CAVEAT: a row whose FIRST column is SQL NULL returns `nil` as its first
+--- (and, to Lua, only visible) value, which a `for ... in` generic-for loop
+--- reads as end-of-iteration — the row is silently dropped, `:err()` stays
+--- nil, and remaining rows are never stepped. This is inherent to Lua's
+--- generic-for protocol (it stops at a nil first return) and the contract
+--- cannot change without breaking `local a, b, c = iter()` positional
+--- callers. Use `rows()` (or call the iterator directly, `local a, b, c =
+--- iter()`, one row at a time) when column 1 may be NULL.
 local record Values
   metamethod __call: function(self: Values): any ...
   --- Step error from iteration, or nil after a clean SQLITE_DONE.
@@ -73,7 +82,9 @@ local record Statement
   --- check `:err()` after the loop for step errors.
   rows: function(self: Statement): Rows
   --- Callable iterator yielding each row's column values positionally;
-  --- same `:err()` contract as rows().
+  --- same `:err()` contract as rows(). CAVEAT: a NULL first column ends a
+  --- `for` loop over this early (see Values above) -- prefer rows() when
+  --- column 1 may be NULL.
   values: function(self: Statement): Values
   --- Step the statement to completion (for INSERT/UPDATE/DDL).
   exec: function(self: Statement): boolean, string
@@ -128,9 +139,18 @@ local record Database
   --- Rows modified by the most recent INSERT/UPDATE/DELETE (0 if closed).
   changes: function(self: Database): integer
   --- Close the database and its cached statements (idempotent); also
-  --- runs on scope exit via to-be-closed.
-  close: function(self: Database)
+  --- runs on scope exit via to-be-closed. Returns false plus sqlite's
+  --- error message if the raw close fails (e.g. SQLITE_BUSY from a
+  --- still-open user-prepared Statement) -- the database is left open
+  --- in that case, so a caller that must know can retry or clean up.
+  close: function(self: Database): boolean, string
 end
+
+-- Statement:rows() release callback: a Statement outlives its iterators
+-- (it may be reused via reset()+bind() after the Rows is done), so
+-- releasing must only end iteration, never finalize the raw statement.
+-- Statement:close() (or its own <close>/__close/gc) owns finalization.
+local function keep_statement_open(_: lsqlite3.Statement) end
 
 local function make_statement(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Database): Statement
   local stmt: Statement = {}
@@ -188,41 +208,17 @@ local function make_statement(raw_stmt: lsqlite3.Statement, raw_db: lsqlite3.Dat
   end
 
   function stmt:rows(): Rows
-    local step_err: string
-    local col_count = raw_stmt:columns()
-    local col_names: {integer: string}
-    local first_call = true
-
-    local iter = setmetatable({} as Rows, { -- cast: empty table into callable record
-        __call = function(_: Rows): {string: any}
-          local rc = raw_stmt:step()
-          if rc == sqlite3.ROW then
-            -- Get column names on first row (requires step to be called first)
-            if first_call then
-              first_call = false
-              col_names = {}
-              for idx = 0, col_count - 1 do
-                col_names[idx + 1] = raw_stmt:get_name(idx)
-              end
-            end
-            local row: {string: any} = {}
-            for idx = 0, col_count - 1 do
-              local name = col_names[idx + 1]
-              row[name] = raw_stmt:get_value(idx)
-            end
-            return row
-          end
-          -- Only SQLITE_DONE is a clean end; surface anything else.
-          if rc ~= sqlite3.DONE then
-            step_err = raw_db:errmsg()
-          end
-          return nil
-        end,
-      })
-    iter.err = function(_: Rows): string return step_err end
-    return iter
+    -- Shares row_iter's iteration body (column-name resolution, step,
+    -- error surfacing) instead of a second copy; on_close ends iteration
+    -- without finalizing, since this Statement may still be reused.
+    local iter = row_iter.make(raw_stmt, raw_db, keep_statement_open, sqlite3.ROW, sqlite3.DONE)
+    return iter as Rows -- cast: row_iter record to public Rows
   end
 
+  -- CAVEAT (see Values above): a `for ... in` loop over this iterator ends
+  -- the moment column 1 comes back NULL, because that's Lua's own signal
+  -- for end-of-iteration. rows() doesn't have this hazard; calling the
+  -- iterator directly one row at a time (`local a, b, c = iter()`) does.
   function stmt:values(): Values
     local step_err: string
     local col_count = raw_stmt:columns()
@@ -375,6 +371,8 @@ local function make_database(raw_db: lsqlite3.Database): Database
   --- Execute fn within a transaction. BEGIN before fn; COMMIT if fn returns
   --- cleanly; ROLLBACK if fn raises OR signals failure the library way -- a
   --- returned `false`, or `nil` plus an error (nothing returned still commits).
+  --- A failing COMMIT (e.g. a deferred foreign-key violation) also rolls
+  --- back, so the connection is never left inside an open transaction.
   function db:transaction(fn: function(Database)): boolean, string
     local ok, err = self:exec("BEGIN IMMEDIATE")
     if not ok then
@@ -390,7 +388,16 @@ local function make_database(raw_db: lsqlite3.Database): Database
       self:exec("ROLLBACK")
       return false, (result_err as string) or "transaction rolled back" -- cast: from any
     end
-    return self:exec("COMMIT")
+    local commit_ok, commit_err = self:exec("COMMIT")
+    if not commit_ok then
+      local rollback_ok, rollback_err = self:exec("ROLLBACK")
+      if not rollback_ok then
+        return false, (commit_err or "commit failed") ..
+        "; rollback also failed: " .. (rollback_err or "unknown error")
+      end
+      return false, commit_err or "commit failed"
+    end
+    return true
   end
 
   function db:last_insert_rowid(): integer
@@ -407,12 +414,17 @@ local function make_database(raw_db: lsqlite3.Database): Database
     return raw_db:changes()
   end
 
-  db.close = function(_: Database)
-    if not closed then
-      closed = true
-      stmt_cache:close_all()
-      local _ = raw_db:close()
+  db.close = function(_: Database): boolean, string
+    if closed then
+      return true
     end
+    closed = true
+    stmt_cache:close_all()
+    local rc = raw_db:close()
+    if rc ~= sqlite3.OK then
+      return false, raw_db:errmsg()
+    end
+    return true
   end
 
   return setmetatable(db, {

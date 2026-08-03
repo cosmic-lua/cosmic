@@ -159,3 +159,35 @@ local function test_savepoint_inside_transaction()
   db:close()
 end
 test_savepoint_inside_transaction()
+
+-- A failing RELEASE (e.g. a deferred foreign-key violation, checked when
+-- the outermost savepoint releases like an implicit COMMIT) must roll back
+-- to the savepoint instead of leaving it open.
+local function test_savepoint_release_failure_rolls_back()
+  local db = check.must(sqlite.open(":memory:"))
+  db:exec("CREATE TABLE parent (id INTEGER PRIMARY KEY)")
+  db:exec([[CREATE TABLE child (
+    id INTEGER PRIMARY KEY,
+    parent_id INTEGER REFERENCES parent(id) DEFERRABLE INITIALLY DEFERRED
+  )]])
+  db:exec("INSERT INTO parent (id) VALUES (1)")
+
+  local ok, err = db:savepoint(function(d: sqlite.Database)
+      -- Orphan reference: passes at INSERT time (deferred), fails at RELEASE.
+      assert(d:exec("INSERT INTO child (id, parent_id) VALUES (1, 99)"))
+    end)
+  assert(not ok, "savepoint must fail when RELEASE violates a deferred FK")
+  assert(err and err:find("FOREIGN KEY", 1, true),
+    "error should mention the FK violation, got: " .. tostring(err))
+
+  local n = db:query_value("SELECT COUNT(*) FROM child")
+  assert(n == 0, "orphan row must be rolled back, got: " .. tostring(n))
+
+  -- The connection must not be left inside an open transaction/savepoint.
+  local begin_ok, begin_err = db:exec("BEGIN IMMEDIATE")
+  assert(begin_ok, "connection must not be stuck inside an open transaction: "
+    .. tostring(begin_err))
+  db:exec("ROLLBACK")
+  db:close()
+end
+test_savepoint_release_failure_rolls_back()

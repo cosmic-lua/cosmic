@@ -44,6 +44,11 @@ local function attach(db_any: any)
       st:close()
       return nil, "bind failed: " .. (bind_err or "unknown error")
     end
+    -- Dodges Values' NULL-first-column/generic-for hazard: this calls the
+    -- iterator directly for exactly one row instead of a `for ... in`
+    -- loop, so a NULL column 1 (the common case here -- query_value IS the
+    -- first column) returns cleanly as v == nil rather than being read as
+    -- end-of-iteration.
     local vals = st:values()
     local v = vals()
     st:close()
@@ -63,7 +68,9 @@ local function attach(db_any: any)
   --- if fn raises or signals failure the library way — a returned `false`,
   --- or `nil` plus an error (nothing returned still releases). Inside a
   --- transaction only the savepoint's own changes are rolled back; at the
-  --- top level a savepoint behaves like its own transaction.
+  --- top level a savepoint behaves like its own transaction. A failing
+  --- RELEASE (e.g. a deferred foreign-key violation) also rolls back to
+  --- the savepoint, so it is never left open.
   function db:savepoint(fn: function(any)): boolean, string
     sp_counter = sp_counter + 1
     local name = "cosmic_sp_" .. sp_counter
@@ -83,7 +90,17 @@ local function attach(db_any: any)
       self:exec("RELEASE " .. name)
       return false, (result_err as string) or "savepoint rolled back" -- cast: from any
     end
-    return self:exec("RELEASE " .. name)
+    local release_ok, release_err = self:exec("RELEASE " .. name)
+    if not release_ok then
+      local rollback_ok, rollback_err = self:exec("ROLLBACK TO " .. name)
+      if not rollback_ok then
+        return false, (release_err or "release failed") ..
+        "; rollback also failed: " .. (rollback_err or "unknown error")
+      end
+      self:exec("RELEASE " .. name)
+      return false, release_err or "release failed"
+    end
+    return true
   end
 end
 
