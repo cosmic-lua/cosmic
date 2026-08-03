@@ -198,6 +198,19 @@ local function test_compile_gen_compat_wired()
 end
 test_compile_gen_compat_wired()
 
+-- tl.new_env itself rejects gen_target="5.4" paired with a non-"off"
+-- gen_compat; compile must surface that as an ordinary ok=false error
+-- (a "tl.new_env:" prefixed message), not a Lua exception.
+local function test_compile_rejects_incompatible_gen_target_and_compat()
+  local clean = fs.join(tmpdir, "c_incompatible.tl")
+  assert(fs.write(clean, "print(1)\n"))
+  local result = teal.compile(clean, {gen_target = "5.4", gen_compat = "required"})
+  assert(not result.ok, "5.4 + gen_compat=required must be rejected")
+  assert(#result.errors > 0 and result.errors[1].message:find("tl.new_env", 1, true),
+    "expected a tl.new_env error, got: " .. teal.format_issues(result.errors))
+end
+test_compile_rejects_incompatible_gen_target_and_compat()
+
 local function test_no_hint_for_plain_errors()
   -- A message outside every known trap must produce no hint at all.
   assert(teal.hint_for_message("unknown variable: x") == nil,
