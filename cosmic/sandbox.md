@@ -99,7 +99,7 @@ end
 local record SandboxModule
   apply: function(policy: Policy): boolean, string
   available: function(): Availability
-  plan_landlock: function(fs: Fs): RestrictOptions
+  plan_landlock: function(fs: Fs, keep_coverage?: boolean): RestrictOptions
 end
 ```
 

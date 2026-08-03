@@ -138,6 +138,12 @@ function findall(pattern: string, text: string, flags?: integer): {string} | nil
 
  Find every non-overlapping match of pattern in text, leftmost
  first. Patterns that can match the empty string are rejected.
+ KNOWN LIMITATION with the NEWLINE flag: `^`/`$` anchors that only
+ match via an embedded newline (not the true start/end of text) fail
+ to be re-confirmed past the first line (see locate's doc), so
+ findall("^foo", "foo\nfoo", re.NEWLINE) returns nil, "failed to
+ locate match position for: foo" instead of {"foo", "foo"} -- use
+ split("\n", text) plus a per-line match instead when this matters.
 
 **Parameters:**
 
@@ -160,6 +166,8 @@ function split(pattern: string, text: string, flags?: integer): {string} | nil, 
  are kept verbatim, including empty ones from adjacent or
  leading/trailing matches; text with no match yields one field.
  Patterns that can match the empty string are rejected.
+ Shares findall's KNOWN LIMITATION with a NEWLINE-anchored `^`/`$`
+ past the first line (see findall's doc).
 
 **Parameters:**
 
@@ -180,6 +188,8 @@ function gsub(pattern: string, text: string, repl: Repl, flags?: integer): strin
 
  Replace every non-overlapping match of pattern in text.
  Patterns that can match the empty string are rejected.
+ Shares findall's KNOWN LIMITATION with a NEWLINE-anchored `^`/`$`
+ past the first line (see findall's doc).
 
 **Parameters:**
 
