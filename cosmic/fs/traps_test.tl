@@ -56,6 +56,62 @@ local function test_copytree_missing_src_errors()
 end
 test_copytree_missing_src_errors()
 
+-- copytree must overwrite an existing symlink at the destination rather
+-- than fail EEXIST, matching the doc ("existing destination files and
+-- symlinks are overwritten") and copy()'s treatment of regular files.
+local function test_copytree_symlink_overwrite()
+  local base = fs.join(TEST_TMPDIR, "ct_link_overwrite")
+  fs.rmrf(base)
+  local src = fs.join(base, "src")
+  assert(fs.makedirs(src))
+  write_file(fs.join(src, "a.txt"), "alpha")
+  assert(fs.symlink("a.txt", fs.join(src, "link")))
+
+  local dst = fs.join(base, "dst")
+  assert(fs.makedirs(dst))
+  -- Pre-existing symlink at the destination, pointing somewhere else —
+  -- without an unlink first, unix.symlink() fails EEXIST here.
+  assert(fs.symlink("nonexistent-old-target", fs.join(dst, "link")))
+
+  -- cast: from any
+  local copytree = fsa.copytree as function(string, string): boolean, string
+  local ok, err = copytree(src, dst)
+  assert(ok, "copytree must overwrite an existing symlink: " .. tostring(err))
+  assert(fs.islink(fs.join(dst, "link")), "destination is still a symlink")
+  assert(fs.readlink(fs.join(dst, "link")) == "a.txt",
+    "symlink target should be replaced, got " .. tostring((fs.readlink(fs.join(dst, "link")))))
+  fs.rmrf(base)
+end
+test_copytree_symlink_overwrite()
+
+-- copytree must apply the source directory's exact permission bits even
+-- when the destination directory already existed (makedirs() is a no-op
+-- then, and mkdir()'s own mode is umask-filtered on creation either way).
+local function test_copytree_dir_mode_exact()
+  local base = fs.join(TEST_TMPDIR, "ct_dir_mode")
+  fs.rmrf(base)
+  local src_mode = tonumber("750", 8)
+  local src = fs.join(base, "src")
+  assert(fs.makedirs(src))
+  assert(fs.chmod(src, src_mode))
+  write_file(fs.join(src, "a.txt"), "alpha")
+
+  local dst = fs.join(base, "dst")
+  assert(fs.makedirs(dst))
+  assert(fs.chmod(dst, tonumber("777", 8)))
+
+  -- cast: from any
+  local copytree = fsa.copytree as function(string, string): boolean, string
+  local ok, err = copytree(src, dst)
+  assert(ok, "copytree failed: " .. tostring(err))
+  local st = check.must(fs.stat(dst))
+  assert((st:mode() & tonumber("777", 8)) == src_mode,
+    "dst dir mode should match src exactly, got "
+    .. string.format("%o", st:mode() & tonumber("777", 8)))
+  fs.rmrf(base)
+end
+test_copytree_dir_mode_exact()
+
 -- 2. tmpfile: Handle + path on the happy path; fs.mkstemp is gone.
 local function test_tmpfile_handle_and_path()
   local tmpfile = fsa.tmpfile as function(string): any, string, string -- cast: from any

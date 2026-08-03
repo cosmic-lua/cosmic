@@ -309,6 +309,19 @@ local function relpath(p: string, base?: string): string
   return table.concat(rel_parts, "/")
 end
 
+--- Rejoin a dirname() result with a (possibly rewritten) basename.
+--- dirname == "." means p had no directory component, so the root is
+--- just root_base with nothing prepended; dirname == "/" means p was
+--- directly under the filesystem root, so join()ing with "/" (rather
+--- than the naive dir .. "/" .. root_base) avoids a doubled leading
+--- slash ("//root_base").
+local function join_dirname(dir: string, root_base: string): string
+  if dir == "." then
+    return root_base
+  end
+  return join(dir, root_base)
+end
+
 --- Split path into root and extension.
 --- Extension includes the dot. Handles multiple extensions by splitting at
 --- the last dot in the basename. Hidden files (starting with .) have no extension.
@@ -339,11 +352,7 @@ local function splitext(p: string): string, string
     if last_dot > 0 then
       local extension = base:sub(last_dot)
       local root_base = base:sub(1, last_dot - 1)
-      if dir == "." then
-        return root_base, extension
-      else
-        return dir .. "/" .. root_base, extension
-      end
+      return join_dirname(dir, root_base), extension
     end
     return p, ""
   end
@@ -365,11 +374,7 @@ local function splitext(p: string): string, string
   local extension = base:sub(last_dot)
   local root_base = base:sub(1, last_dot - 1)
 
-  if dir == "." then
-    return root_base, extension
-  else
-    return dir .. "/" .. root_base, extension
-  end
+  return join_dirname(dir, root_base), extension
 end
 
 --- Return the extension of a path.
