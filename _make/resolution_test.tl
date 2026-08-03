@@ -220,4 +220,67 @@ local function test_run_refusals_in_process()
 end
 test_run_refusals_in_process()
 
+-- A project with NO binary still runs a script: `run` compiles its
+-- target's closure directly, since prepare_stage builds nothing when
+-- there is nothing to stage. Before, run spawned an o/<path>.lua that
+-- was never compiled and died with "cannot open".
+local function test_run_builds_a_target_with_no_binary()
+  local root = fs.join(tmp, "res-nobinary")
+  fs.rmrf(root)
+  assert(fs.makedirs(fs.join(root, "greet")))
+  assert(fs.write(fs.join(root, ".cosmicignore"), ""))
+  assert(fs.write(fs.join(root, "greet", "init.tl"), [[
+local record G
+  hi: function(string): string
+end
+local g: G = {hi = function(who: string): string return "hi " .. who end}
+return g
+]]))
+  assert(fs.write(fs.join(root, "tool.tl"), [[
+local greet = require("greet")
+io.write("TOOL " .. greet.hi("nobin") .. "\n")
+]]))
+  local code, out = make(root, {"run", "tool.tl"})
+  assert(code == 0, "run must build and run a binary-less target: " .. out)
+  assert(out:find("TOOL hi nobin", 1, true),
+    "the target ran against its compiled closure, got: " .. out)
+end
+test_run_builds_a_target_with_no_binary()
+
+-- A binary-less target that does not compile fails `run` loudly, rather
+-- than spawning an o/ file the failed build never wrote.
+local function test_run_reports_a_binaryless_build_failure()
+  local root = fs.join(tmp, "res-buildfail")
+  fs.rmrf(root)
+  assert(fs.makedirs(root))
+  assert(fs.write(fs.join(root, ".cosmicignore"), ""))
+  assert(fs.write(fs.join(root, "bad.tl"),
+      "local x: integer = 'nope'\nreturn x\n"))
+  local code, out = make(root, {"run", "bad.tl"})
+  assert(code ~= 0, "a target that fails to compile must fail run: " .. out)
+end
+test_run_reports_a_binaryless_build_failure()
+
+-- `run` is a stdin passthrough: the target reads the caller's real fd 0,
+-- not the literal string "inherit" (which resolve_stdio reads as pipe
+-- DATA). Fed a line, the target must read that line back.
+local function test_run_passes_stdin_through()
+  local root = fixture("stdin")
+  assert(fs.write(fs.join(root, "cmd/app/main.tl"), [[
+io.write("GOT " .. tostring(io.read("l")) .. "\n")
+]]))
+  local full: {string} = {cosmic, "--make", "run", "cmd/app/main.tl"}
+  local env: {string} = {
+    "PATH=" .. (os.getenv("PATH") or ""),
+    "HOME=" .. root, "TMPDIR=" .. tmp, "NO_COLOR=1", "COSMIC_NO_WELCOME=1",
+  }
+  local h = check.must(spawn.spawn(full,
+      {cwd = root, env = env, stdin = "the-real-stdin"}))
+  local r = check.must(h:wait())
+  local out = (r.stdout or "") .. (r.stderr or "")
+  assert(out:find("GOT the-real-stdin", 1, true),
+    "the target must read the caller's stdin, not \"inherit\": " .. out)
+end
+test_run_passes_stdin_through()
+
 print("all resolution tests passed")

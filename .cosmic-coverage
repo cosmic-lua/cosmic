@@ -35,7 +35,7 @@ _make/pin.tl 80 81
 _make/policy.tl 46 104
 _make/project.tl 183 193
 _make/root.tl 53 58
-_make/runverb.tl 64 72
+_make/runverb.tl 73 90
 _make/select.tl 33 35
 _make/stage.tl 88 96
 _make/types.tl 39 39
@@ -174,4 +174,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 80 93
 tlconfig.lua 7 7
-total 13430 17733
+total 13439 17751

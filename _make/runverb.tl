@@ -16,9 +16,13 @@
 --- fresh. See docs/design/make/resolution.md.
 
 local child = require("cosmic.child")
+local fd = require("cosmic.fd")
 local fs = require("cosmic.fs")
+local unix = require("cosmo.unix")
 local modules = require("_cli.build.modules")
 local deps = require("_make.deps")
+local generate = require("_make.generate")
+local graph = require("_make.graph")
 local project = require("_make.project")
 local stage = require("_make.stage")
 local types = require("_make.types")
@@ -139,16 +143,44 @@ local function run(proj: Project, path: string, cosmic: string,
   end
   local self = file_of(proj, path) as File -- cast: resolve() proved it
   local built = deps.built_paths(deps.closure(proj, self, deps.index(proj)))
-  local child_argv: {string} = {cosmic,
-    deps.built_path(self.path, project.BUILD_DIR)}
+  local target_lua = deps.built_path(self.path, project.BUILD_DIR)
+  -- prepare_stage builds nothing when the project declares no binary,
+  -- so `run` would spawn a target it never compiled. Generate inputs,
+  -- then build the target and its runtime closure directly, so the
+  -- spawn resolves against fresh o/ output the way the with-a-binary
+  -- path (which compiles the whole tree) already does.
+  if #proj.binaries == 0 then
+    local gok, gerr = generate.sources(proj, cosmic)
+    if not gok then
+      return stage.verdict("run", false, gerr or "generate failed")
+    end
+    local code, cerr = graph.run(proj, target_lua, {}, cosmic, built)
+    if code ~= 0 then
+      if cerr and cerr ~= "" then
+        io.stderr:write(cerr .. "\n")
+      end
+      return stage.verdict("run", false, "build")
+    end
+  end
+  local child_argv: {string} = {cosmic, target_lua}
   modules.attach(child_argv, out_base(self.path), proj.root, built)
   for _, a in ipairs(target_argv) do
     child_argv[#child_argv + 1] = a
   end
   -- stdio inherited: `run` is a passthrough, and a harness that prints
-  -- a line per scenario is unreadable buffered to the end.
+  -- a line per scenario is unreadable buffered to the end. stdin is the
+  -- parent's fd 0 handed through a DUP, not the "inherit" string (which
+  -- resolve_stdio reads as literal pipe DATA): the dup lets the child
+  -- read the real terminal, and closing our copy after cannot touch the
+  -- true stdin.
+  local dup0, derr = unix.dup(0)
+  if dup0 == nil then
+    return stage.verdict("run", false, "dup stdin: " .. tostring(derr))
+  end
+  local stdin0 = fd.wrap(dup0)
   local r, rerr = child.run(child_argv,
-    {cwd = proj.root, stdout = "inherit", stderr = "inherit", stdin = "inherit"})
+    {cwd = proj.root, stdout = "inherit", stderr = "inherit", stdin = stdin0})
+  stdin0:close()
   if not (r is child.Result) then
     return stage.verdict("run", false, rerr or "cannot start")
   end
