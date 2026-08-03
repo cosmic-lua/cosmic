@@ -156,6 +156,13 @@ local tree_map: {string: string} = {}
 --- The project's build directory, relative to the root.
 local tree_build: string = "o"
 
+--- Whether the tree searcher has already been inserted into
+--- package.searchers -- guards install_tree the same way `installed`
+--- guards install(): a repeat call still refreshes tree_root/tree_map
+--- from its manifest, but must not insert a second copy of the
+--- searcher into the chain.
+local tree_installed = false
+
 --- Re-entrancy guard for the compile path below.
 ---
 --- Resolving a module the closure does not name means compiling it, and
@@ -199,11 +206,18 @@ local function compile_tree(path: string, name: string): any, any
     compiling = false
     return "no Teal compiler in this artifact for '" .. name .. "'"
   end
-  local code, cerr = teal.compile_cached(path, true)
+  -- pcall'd so a compile_cached throw still clears `compiling`: left up,
+  -- it would fail every later tree resolution with "compiler bootstrap
+  -- in progress" instead of just this one require.
+  local ok, code, cerr = pcall(teal.compile_cached, path, true)
   compiling = false
+  if not ok then
+    error("error loading module '" .. name .. "' from '" .. path
+      .. "': " .. tostring(code), 0)
+  end
   if not code then
     error("error loading module '" .. name .. "' from '" .. path
-      .. "':\n" .. cerr, 0)
+      .. "':\n" .. tostring(cerr), 0)
   end
   local lua_code = code as string -- cast: nil ruled out by the guard above
   if lua_code:sub(1, 2) == "#!" then
@@ -328,7 +342,10 @@ local function install_tree(path: string): boolean
   tree_root = root
   tree_build = build or tree_build
   tree_map = map
-  table.insert(package.searchers, 2, tree_searcher)
+  if not tree_installed then
+    tree_installed = true
+    table.insert(package.searchers, 2, tree_searcher)
+  end
   return true
 end
 

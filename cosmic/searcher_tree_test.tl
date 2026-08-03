@@ -87,14 +87,25 @@ test_the_searcher_misses_without_a_manifest()
 -- searcher, because beating `/zip` is the entire point. Appended, it
 -- would resolve nothing the binary already carries — which is the
 -- failure the whole mechanism exists to fix.
+--
+-- This process may itself already be running under a --modules
+-- manifest (this repo's own build resolving its own tree), so the
+-- delta is checked as "at most one", not "exactly one" -- and
+-- idempotence (the same guarantee install() has) is checked directly
+-- via a second call that must not grow the chain further.
 local function test_install_lands_ahead_of_the_file_searcher()
   local root, path = manifest("install", {"root " .. tmp, "build o"})
   assert(fs.isdir(root))
   local before = #package.searchers
   assert(searcher.install_tree(path), "a well-formed manifest installs")
-  assert(#package.searchers == before + 1, "one searcher is added")
+  assert(#package.searchers - before <= 1, "at most one searcher is added")
   assert(package.searchers[2] == searcher.tree,
     "it must sit at index 2, ahead of the default file searcher")
+
+  local after_first = #package.searchers
+  assert(searcher.install_tree(path), "a repeat install still succeeds")
+  assert(#package.searchers == after_first,
+    "a repeat install_tree must not add a second copy of the searcher")
 end
 test_install_lands_ahead_of_the_file_searcher()
 
@@ -202,6 +213,37 @@ local function test_a_broken_closure_entry_is_loud()
   assert(tostring(err):find("gone", 1, true), "got: " .. tostring(err))
 end
 test_a_broken_closure_entry_is_loud()
+
+-- compile_tree's re-entrancy guard (`compiling`) must clear even when
+-- the compiler itself THROWS instead of returning nil, err: left up,
+-- it sticks true and every later tree resolution fails with "compiler
+-- bootstrap in progress" instead of that one file's own error.
+local function test_compiling_guard_clears_after_a_throw()
+  local root = fs.join(tmp, "st-throw")
+  assert(fs.makedirs(root))
+  assert(fs.write(fs.join(root, "boom.tl"), "return 1\n"))
+  local path = fs.join(root, "m")
+  assert(fs.write(path, "root " .. root .. "\nbuild o\n"))
+  assert(searcher.install_tree(path))
+
+  local teal = require("cosmic.teal")
+  local original = teal.compile_cached
+  teal.compile_cached = function(_input_path: string, _strict?: boolean): string | nil, string
+    error("boom: injected compiler failure", 0)
+  end
+  local ok, err = pcall(searcher.tree, "boom")
+  teal.compile_cached = original
+  assert(not ok, "a throwing compile_cached must still fail the require")
+  assert(tostring(err):find("boom", 1, true), "got: " .. tostring(err))
+
+  -- If the guard stuck, this resolves to "compiler bootstrap in
+  -- progress" instead of the file's own content.
+  assert(fs.write(fs.join(root, "after.tl"), 'return "OK"\n'))
+  local got = searcher.tree("after")
+  local loader = check.must(loader_of(got))
+  assert(loader() == "OK", "resolution after a throw must still work")
+end
+test_compiling_guard_clears_after_a_throw()
 
 -- The argv scan is the channel's other half, and its rule is where the
 -- scan stops: at the first non-flag, which is where getopt stops too.
