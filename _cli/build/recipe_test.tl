@@ -63,6 +63,23 @@ local function test_recipe_dispatches()
 end
 test_recipe_dispatches()
 
+-- record grades a result THIS run wrote, never a stale one. When its
+-- scratch directory cannot be made -- here a plain file sits where the
+-- directory goes -- record must FAIL, not exit 0 on the `.got` a green
+-- previous run left behind. `COSMIC_FENCE=0` so this exercises record's
+-- own guard, not the fence derivation.
+local function test_record_does_not_grade_a_stale_got()
+  local out = fs.join(tmpdir, "rec-stale")
+  assert(fs.write(out .. ".got", "0")) -- a passing result from "before"
+  assert(fs.write(out .. ".tmp.d", "")) -- a file where the scratch dir goes
+  local code, _o, err = run_recipe("record " .. out .. " " .. test_bin,
+    {["COSMIC_FENCE"] = "0"})
+  assert(code ~= 0,
+    "record must fail when it cannot run, not pass on a stale .got: " ..
+    tostring(code) .. " " .. err)
+end
+test_record_does_not_grade_a_stale_got()
+
 -- A fence that cannot be DERIVED fails the step rather than waving it
 -- through: dispatching would run the step with no Landlock at all. The
 -- blocker is a regular file, so the derivation's makedirs hits ENOTDIR.
