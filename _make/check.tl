@@ -7,13 +7,26 @@
 --- loop, and one process start per source, to do work this binary
 --- already contains.
 ---
+--- Incremental against the GRAPH, not against itself: a strict compile
+--- type-checks (warnings fail too), so a file whose compiled output is
+--- up to date against the compile rule's own inputs is a check that
+--- already ran. `check` skips those and checks the rest — everything
+--- on a tree that never built, only pins and payload generators right
+--- after a converged gate. See `proved_by_graph` for the exact
+--- freshness question and why it is sound.
+---
 --- Validation comes first and is fatal: a project whose import paths
 --- collide or whose filenames cannot survive a recipe line has problems
 --- the type checker would report as a confusing cascade, or not at all.
 
+local fs = require("cosmic.fs")
+local fs_types = require("cosmic.fs.types")
 local records = require("cosmic.records")
 local teal = require("cosmic.teal")
+local deps = require("_make.deps")
+local project = require("_make.project")
 local selection = require("_make.select")
+local stamp = require("_make.stamp")
 local validate = require("_make.validate")
 local types = require("_make.types")
 
@@ -43,6 +56,66 @@ local checkable: {string: boolean} = {
   ["payload-gen"] = true,
   pin = true,
 }
+
+--- Kinds the GRAPH strict-compiles. For these, an up-to-date compiled
+--- output IS a passed strict check: `--compile-strict` type-checks
+--- (warnings fail, matching `--check types`) and the compile rule's
+--- prerequisites — the source, its import closure, the compile stamp,
+--- the generated-types stamp — are exactly what a check of the same
+--- file reads. `pin` and `payload-gen` are absent because the graph
+--- never compiles them; they are always checked directly.
+local graph_checked: {string: boolean} = {
+  module = true,
+  entry = true,
+  test = true,
+  example = true,
+  benchmark = true,
+  gen = true,
+}
+
+--- Has the graph already proved this file? True when its compiled
+--- output is at least as new as everything its strict compile read:
+--- the source, every source in its import closure (`.d.tl` included —
+--- the SOURCE closure keeps declarations), the compile tool's stamp,
+--- and the generated-types stamp. Any input missing — a tree that has
+--- never built, a check running before any graph verb — answers
+--- false, and the file is checked directly, which is exactly the old
+--- behavior.
+---
+--- Sound for the same reason the incremental build is: mtime
+--- schedules, and the compile rule restamps its output even when the
+--- bytes did not change, so "output not older than every input" means
+--- "a strict compile of these exact inputs succeeded".
+--- @param proj Project The scanned project
+--- @param f File The candidate file
+--- @param by_import {string: {File}} Index from deps.index()
+--- @return boolean True when the check may be skipped
+local function proved_by_graph(proj: Project, f: File,
+    by_import: {string: {File}}): boolean
+  if not graph_checked[f.kind] then
+    return false
+  end
+  local out = fs.stat(deps.built_path(f.path, project.BUILD_DIR))
+  if not out then
+    return false
+  end
+  local bsec, bnsec = (out as fs_types.Stat):mtim() -- cast: mixed-representation Stat
+  local inputs = deps.source_paths(deps.closure(proj, f, by_import))
+  inputs[#inputs + 1] = f.path
+  inputs[#inputs + 1] = stamp.path_of("compile")
+  inputs[#inputs + 1] = fs.join(project.BUILD_DIR, "_types", "types_gen.stamp")
+  for _, p in ipairs(inputs) do
+    local st = fs.stat(p)
+    if not st then
+      return false
+    end
+    local isec, insec = (st as fs_types.Stat):mtim() -- cast: mixed-representation Stat
+    if isec > bsec or (isec == bsec and insec > bnsec) then
+      return false
+    end
+  end
+  return true
+end
 
 --- Does this path select that file? A selection entry is either the
 --- file itself or a directory containing it. Selection itself lives in
@@ -110,7 +183,28 @@ local function run(proj: Project, paths: {string}): integer
   end
 
   local selected = files as {File} -- cast: record union after the guard
-  local failed = check_files(selected)
+  -- The graph's half first: a file whose strict compile is up to date
+  -- against the same inputs is already checked, so re-deriving the
+  -- answer in process is pure duplication — measured at 2m40s of a
+  -- 2m16s no-op `--make ci` before this skip existed. Gate verbs
+  -- converge before they run, so on a just-built tree this leaves the
+  -- kinds the graph never compiles (pins, payload generators) plus
+  -- whatever actually changed.
+  local by_import = deps.index(proj)
+  local to_check: {File} = {}
+  local proved = 0
+  for _, f in ipairs(selected) do
+    if proved_by_graph(proj, f, by_import) then
+      proved = proved + 1
+    else
+      to_check[#to_check + 1] = f
+    end
+  end
+  if proved > 0 then
+    io.write("check: " .. proved .. " of " .. #selected ..
+      " already proved by their strict compile\n")
+  end
+  local failed = check_files(to_check)
   return records.verdict("check", failed == 0,
     records.detail(failed, #selected, "file"))
 end
@@ -118,11 +212,14 @@ end
 local record CheckModule
   run: function(proj: Project, paths: {string}): integer
   select_files: function(proj: Project, paths: {string}): {File} | nil, string
+  proved_by_graph: function(proj: Project, f: File,
+  by_import: {string: {File}}): boolean
 end
 
 local M: CheckModule = {
   run = run,
   select_files = select_files,
+  proved_by_graph = proved_by_graph,
 }
 
 return M
