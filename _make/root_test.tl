@@ -9,6 +9,7 @@
 
 local env = require("cosmic.env")
 local fs = require("cosmic.fs")
+local proc = require("cosmic.proc")
 local root = require("_make.root")
 
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
@@ -237,3 +238,38 @@ local function test_a_root_with_a_metacharacter_is_refused()
   assert(err:find(dir, 1, true), "naming the path, got: " .. err)
 end
 test_a_root_with_a_metacharacter_is_refused()
+
+-- `resolve_self` is what makes argv[-1] usable as "the running cosmic
+-- binary": a real file at (or under) the cwd wins as-is.
+local function test_resolve_self_resolves_a_real_path()
+  local dir = tree("self-real", {["cosmic"] = "print('x')\n"})
+  local saved = fs.getcwd() as string -- cast: cwd exists in a test
+  assert(fs.chdir(dir))
+  local self = root.resolve_self("cosmic")
+  assert(fs.chdir(saved))
+  assert(self == fs.abspath(fs.join(dir, "cosmic")), "got: " .. tostring(self))
+end
+test_resolve_self_resolves_a_real_path()
+
+-- A bare, PATH-invoked argv0 that names nothing under the cwd falls
+-- back to a real $PATH search instead of `fs.abspath`'s phantom
+-- `<cwd>/name` -- the bug: a build run from a directory that happens
+-- not to contain the binary silently dropped COSMIC_DEP.
+local function test_resolve_self_falls_back_to_path_search()
+  local dir = tree("self-path", {})
+  local saved = fs.getcwd() as string -- cast: cwd exists in a test
+  assert(fs.chdir(dir))
+  local self = root.resolve_self("ls")
+  assert(fs.chdir(saved))
+  assert(self == proc.commandv("ls"), "got: " .. tostring(self))
+  assert(self ~= fs.join(dir, "ls"), "must not be the cwd-relative phantom")
+end
+test_resolve_self_falls_back_to_path_search()
+
+-- Neither the cwd nor $PATH has it: unresolvable stays unresolvable,
+-- rather than a phantom path that later fails somewhere less clear.
+local function test_resolve_self_returns_nil_when_unresolvable()
+  local self = root.resolve_self("cosmic_xyz_does_not_exist_12345")
+  assert(self == nil, "got: " .. tostring(self))
+end
+test_resolve_self_returns_nil_when_unresolvable()

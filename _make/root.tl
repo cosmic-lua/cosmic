@@ -19,6 +19,7 @@
 --- about it.
 
 local fs = require("cosmic.fs")
+local proc = require("cosmic.proc")
 local project = require("_make.project")
 local validate = require("_make.validate")
 
@@ -206,11 +207,34 @@ local function discover(verb: string): string | nil, string
   return abs
 end
 
+--- Resolve the running cosmic binary from `argv0` (`arg[-1]`, as the
+--- kernel saw it) into an absolute, existing path.
+---
+--- A bare PATH-invoked name (`cosmic`, no directory component -- the
+--- ordinary shape of a shebang, or a shell that found it on $PATH) is
+--- not a path to resolve against the cwd: `fs.abspath` alone turns it
+--- into a PHANTOM `<cwd>/cosmic` that happens not to exist wherever cwd
+--- is not the install directory, and everything downstream that
+--- assumes the result names a real file quietly degrades -- `o/project.mk`'s
+--- `COSMIC_DEP` becomes empty, dropping the driver as a prerequisite of
+--- every graph rule, silently. A real $PATH search is what argv0
+--- actually meant in that shape.
+--- @param argv0 string `arg[-1]`, or a fallback name
+--- @return string|nil The absolute path, or nil when unresolvable
+local function resolve_self(argv0: string): string | nil
+  local abs = fs.abspath(argv0)
+  if fs.isfile(abs) then
+    return abs
+  end
+  return proc.commandv(argv0)
+end
+
 local record RootModule
   ROOT_ENV: string
   is_root: function(dir: string): boolean
   ancestor_root: function(dir: string): string | nil
   discover: function(verb: string): string | nil, string
+  resolve_self: function(argv0: string): string | nil
 end
 
 local M: RootModule = {
@@ -218,6 +242,7 @@ local M: RootModule = {
   is_root = is_root,
   ancestor_root = ancestor_root,
   discover = discover,
+  resolve_self = resolve_self,
 }
 
 return M
