@@ -185,7 +185,7 @@ function encode_base32(data: string): string
 ```
 
  Encode binary data as base32.
- Uses lowercase base32 alphabet (0-9a-v excluding i, l, o, u).
+ Uses lowercase base32 alphabet (0-9a-z excluding i, l, o, u).
 
 **Parameters:**
 
