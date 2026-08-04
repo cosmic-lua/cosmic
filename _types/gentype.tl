@@ -32,7 +32,7 @@ local parse_annotations = parse.parse_annotations
 
 -- Modules to generate (in order). "cosmo" is the top-level cosmo record
 -- (kCosmoFuncs surface); the rest are require("cosmo.<name>") submodules.
-local MODULES = {"cosmo", "unix", "path", "getopt", "lsqlite3", "re", "argon2", "zip", "repl"}
+local MODULES = {"cosmo", "unix", "path", "getopt", "lsqlite3", "re", "argon2", "zip", "cov", "repl"}
 
 --- Helper to process a class annotation block.
 local function process_class_block(anno_lines: {string}, module_name: string, classes: {ClassDecl})
