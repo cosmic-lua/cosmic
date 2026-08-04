@@ -53,7 +53,7 @@ what ships. Dropped whole in 2a; the fuller account is in
 $ cosmic --make build          # strict check, compile, stage, embed → o/bin/myapp
 $ cosmic --make test           # tests, fenced, against the staged tree
 $ cosmic --make fetch          # the only verb that touches the network
-$ cosmic --make ci             # fmt → check → test → example → lint → coverage
+$ cosmic --make ci             # fmt → check → example → lint → coverage
 ```
 
 Two sentences carry most of the design:

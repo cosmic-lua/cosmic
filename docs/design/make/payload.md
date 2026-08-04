@@ -71,6 +71,7 @@ version, and runs `--make check` — on a tree it did not build, with
 nothing on the host but itself. `_make/fixpoint_test.tl` gates both
 halves in CI.
 
-`--make ci` owns the gate now: fmt, check, test, example, lint,
-coverage. What is still a workflow step rather than a verb — enforce,
-reproducible, offline — the design puts in phase 4.
+`--make ci` owns the gate now: fmt, check, example, lint, coverage —
+tests run once, instrumented, inside coverage. What is still a workflow
+step rather than a verb — enforce, reproducible, offline — the design
+puts in phase 4.

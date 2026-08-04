@@ -1,13 +1,13 @@
 --- The policy verbs: `coverage` and `ci`.
 ---
 --- Orchestration over the graph, never graph rules. `coverage` runs the
---- test lane a second time with collection on and then gates the result
---- against a committed floor; `ci` is a fixed order of other verbs.
+--- test lane with collection on and then gates the result against a
+--- committed floor; `ci` is a fixed order of other verbs.
 ---
 --- Both are gated by MATERIAL rather than by configuration: a project
---- with no tests has no test stage, one with no committed baseline gets
---- no ratchet, and neither is an error. Zero configuration, and a fresh
---- project does not fail on a stage that had nothing to do.
+--- with no tests has no coverage stage, one with no committed baseline
+--- gets no ratchet, and neither is an error. Zero configuration, and a
+--- fresh project does not fail on a stage that had nothing to do.
 
 local baseline = require("cosmic.coverage.baseline")
 local fs = require("cosmic.fs")
@@ -176,10 +176,19 @@ end
 --- claims to run. There is no separate model stage: validating the
 --- project is what `check` opens with, so `ci` gets it by listing
 --- `check`.
+---
+--- No separate `test` stage: `coverage` runs the identical test recipe
+--- with collection on, and its ratchet summary passes or fails exactly
+--- the way a plain test run would, so a failing test still fails `ci`
+--- through `coverage`. Running the suite twice — once plain, once
+--- instrumented — bought `ci` nothing but wall-clock: measured, 157s
+--- summed for the plain lane against 351s for the instrumented one,
+--- pure duplication inside the gate. `--make test` standalone is
+--- untouched — it is still the fast, uninstrumented developer loop —
+--- this only drops the plain lane's second run inside `ci`.
 local STAGES < const >: {Stage} = {
   {verb = "fmt", needs = {}},
   {verb = "check", needs = {}},
-  {verb = "test", needs = {"test"}},
   {verb = "example", needs = {"example"}},
   {verb = "lint", needs = {}},
   {verb = "coverage", needs = {"test"}},

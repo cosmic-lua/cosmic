@@ -44,7 +44,7 @@ costs a walk instead of a rebuild.
 **Policy verbs** — orchestration over the graph, never graph rules.
 
 ```
-ci              fmt → check → test → example → lint → coverage        [now]
+ci              fmt → check → example → lint → coverage               [now]
 coverage        tests with line coverage + ratchet                    [now]
 docs  [paths…]  render the model's file set to o/docs                 [now]
 enforce         sandbox-enforced lane                             [planned]
@@ -54,13 +54,19 @@ offline         no-network lane, asserted against the pins        [planned]
 
 `example` and `lint` are verbs in their own right (above), so
 `ci` is a list of verb names rather than a lane reimplementing two of
-its six stages. `example` is `test`'s sibling — same staging, same
+its five stages. `example` is `test`'s sibling — same staging, same
 fence, `Example_*` instead of the test contract — which is what the
 model already says everywhere else. `lint` stays out of `check`: its
-file set is the whole tree, not the compiled closure.
+file set is the whole tree, not the compiled closure. There is no
+separate `test` stage in `ci`: `coverage` runs the same test recipe
+with collection on, and its ratchet summary passes or fails a failing
+test the same way a plain run would, so a second, uninstrumented pass
+bought the gate nothing but wall-clock (measured: 157s summed for the
+plain lane against 351s for the instrumented one). `--make test` alone
+is unchanged — it stays the fast, uninstrumented developer loop.
 
 `ci` is a fixed order with **each stage gated by whether the project has
-material for it** — no tests, no test stage; no committed coverage
+material for it** — no tests, no coverage stage; no committed coverage
 baseline, no ratchet. Zero configuration, and a fresh project doesn't
 fail on a stage that had nothing to do. (A baseline is *input* data, so
 it stays committed; only generated things are banned from the tree.)

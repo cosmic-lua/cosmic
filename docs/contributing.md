@@ -26,7 +26,8 @@ Everything after runs under that pin. All build artifacts go to `o/`.
    Or one stage at a time: `--make fmt`, `--make check`, `--make test`.
 4. open a PR against `main`
 
-CI runs the same `--make ci`: fmt, check, test, example, lint, coverage.
+CI runs the same `--make ci`: fmt, check, example, lint, coverage — tests
+run once, instrumented, in the coverage stage.
 
 ## Writing a Module
 

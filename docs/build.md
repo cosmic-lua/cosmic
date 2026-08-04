@@ -5,7 +5,7 @@
 ```bash
 bin/cosmic --make fetch     # resolve *_pin.tl — the only verb with a network
 bin/cosmic --make build     # o/bin/cosmic and o/bin/cosmic-debug
-bin/cosmic --make ci        # fmt, check, test, example, lint, coverage
+bin/cosmic --make ci        # fmt, check, example, lint, coverage
 bin/cosmic --make clean     # remove o/
 bin/cosmic --make help      # every verb, and which are still planned
 ```

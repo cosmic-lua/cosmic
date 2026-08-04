@@ -33,7 +33,7 @@ replaced it outright.
 | `benchmark` | run every `*_benchmark.tl` | ✅ |
 | `coverage` | tests + line coverage, ratcheted against `.cosmic-coverage` | ✅ |
 | `docs` | extract the doc index | ✅ |
-| `ci` | fmt, check, test, example, lint, coverage — the gate | ✅ |
+| `ci` | fmt, check, example, lint, coverage — the gate; tests run once, instrumented, in `coverage` | ✅ |
 | `clean` | remove `o/`, sparing `o/bootstrap` | ✅ |
 | `fetch` | resolve `*_pin.tl` — the only verb with a network | ✅ |
 | `help` | list the verbs, and which are still planned | ✅ |
@@ -76,7 +76,7 @@ build: PASS (377 files, 1 binary)
 make: root=/home/you/cosmic        # ← the re-exec, now under the new binary
 fmt: PASS (377 files)
 ...
-ci: PASS (6 stages)
+ci: PASS (5 stages)
 ```
 
 it terminates because the build is content-addressed — `o/bin/<name>`

@@ -240,7 +240,7 @@ the project, and a file's position and name say what it is.
 
 ```bash
 bin/cosmic --make fetch     # resolve *_pin.tl — the only verb with a network
-bin/cosmic --make ci        # fmt, check, test, example, lint, coverage
+bin/cosmic --make ci        # fmt, check, example, lint, coverage
 bin/cosmic --make test      # …or one stage; add paths to narrow it
 bin/cosmic --make build     # just the binaries
 bin/cosmic --make clean     # remove o/
@@ -482,16 +482,16 @@ discipline). the backlog is GitHub issues labeled `perf`.
 ## CI
 
 - **pr.yml**: three lanes on push/PR to main. `ci` fetches with a network, then builds
-  and runs the whole gate (fmt, check, test, example, lint, coverage) inside a loopback-
-  only network namespace, so a stray download fails loudly. It builds first and gates
-  with the RESULT, or the six stages would report on the pinned release instead of the
-  change. `build` does what needs a real network: double-build reproducibility (two tree
-  paths) and `--make fetch` against the real pins. Both Linux lanes are privileged and
-  non-root: `_cli/fence_test.tl` asserts a real Landlock denial, the quicksand tests
-  unshare and mount. `smoke` runs the built binary on real macOS/Windows runners. The
-  fence is ON by default (`COSMIC_FENCE=0` opts out); the build lane asserts the host
-  can enforce and that a real build passes fenced — the direction a denial test cannot
-  prove
+  and runs the whole gate (fmt, check, example, lint, coverage) inside a loopback-only
+  network namespace, so a stray download fails loudly — tests run once, instrumented, via
+  the coverage stage's ratchet. It builds first and gates with the RESULT, or the five
+  stages would report on the pinned release instead of the change. `build` does what
+  needs a real network: double-build reproducibility (two tree paths) and `--make fetch`
+  against the real pins. Both Linux lanes are privileged and non-root: `_cli/fence_test.tl`
+  asserts a real Landlock denial, the quicksand tests unshare and mount. `smoke` runs the
+  built binary on real macOS/Windows runners. The fence is ON by default
+  (`COSMIC_FENCE=0` opts out); the build lane asserts the host can enforce and that a
+  real build passes fenced — the direction a denial test cannot prove
 - **docs.yml**: `--make docs` then `_docs/publish.tl`, to the `docs`
   branch on push to main
 - **release.yml**: daily release, built twice — the pinned cosmic builds
