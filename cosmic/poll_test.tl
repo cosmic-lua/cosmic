@@ -265,6 +265,11 @@ local function test_wait_surfaces_hard_error()
     return
   end
   assert(perr:match("E%u+"), "poll error should name the errno, got: " .. perr)
+  -- Regression: results must never be left nil after a failed poll --
+  -- events() indexes it unconditionally, so a nil there crashes instead
+  -- of reporting "no events for this fd".
+  local ev = p:events(1)
+  assert(ev == nil, "events() should return nil (not crash) after a failed poll")
   local iter, werr = p:wait(0)
   assert(type(iter) == "function", "wait must still return an iterator on error")
   for _ in iter do

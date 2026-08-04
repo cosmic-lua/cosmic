@@ -49,13 +49,18 @@ local record Poller
   clear: function(Poller)
   --- Poll for events with optional timeout.
   --- Returns an iterator over (fd, events) pairs for ready descriptors.
-  --- EINTR is retried internally. On a hard poll error the iterator is
-  --- empty and the error string is returned as the second value.
+  --- EINTR is retried internally by reissuing the same timeoutms, so the
+  --- deadline is not preserved across retries: repeated signals can make
+  --- the effective wait exceed timeoutms. On a hard poll error the
+  --- iterator is empty and the error string is returned as the second
+  --- value.
   --- @param timeoutms integer Timeout in ms (-1 for infinite, 0 for non-blocking)
   --- @return function Iterator yielding (fd: integer, events: Events)
   --- @return string? Error message when the underlying poll failed
   wait: function(Poller, integer): function(): (integer, Events), string
-  --- Poll and return count of ready descriptors.
+  --- Poll and return count of ready descriptors. EINTR is retried
+  --- internally by reissuing the same timeoutms (the deadline is not
+  --- preserved across retries).
   --- @param timeoutms integer Timeout in ms (-1 for infinite, 0 for non-blocking)
   --- @return integer | nil Count of ready descriptors
   --- @return string Error message on failure
@@ -137,6 +142,9 @@ local function new(): Poller
     -- Retry when a signal interrupts the wait: an unretried EINTR otherwise
     -- surfaces as a poll failure, and a caller that loops on it (e.g. a drain
     -- loop waiting on a child that raised SIGCHLD) spins at 100% CPU.
+    -- Retrying reissues the same timeoutms rather than tracking elapsed
+    -- time, so the effective wait can exceed timeoutms under repeated
+    -- signals (see the doc comment on wait/poll above).
     local res: {integer: integer}
     local err: string
     local eno: integer
@@ -146,10 +154,14 @@ local function new(): Poller
         break
       end
     end
-    results = res
-    if not results then
+    if not res then
+      -- Leave results empty rather than nil: events() indexes results
+      -- unconditionally, so a stale or nil table there would crash the
+      -- next events() call instead of just reporting no events.
+      results = {}
       return nil, errno.str(err, "poll")
     end
+    results = res
     local ready = 0
     for _ in pairs(results) do
       ready = ready + 1
