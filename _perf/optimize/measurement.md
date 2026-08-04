@@ -31,10 +31,14 @@ chapter of `_perf/OPTIMIZE.md` — read that first.
   `json_decode_*` reproduced at ~-30% while `hash`/`startup_*` tripped
   the bar only on variance an A/A control also shows.
 - the reclassification is deliberately conservative: it only ever
-  downgrades a `regression`, and only when the current binary cannot
-  reproduce that scenario's timing against itself. a real regression in
-  a stable scenario (json, sqlite, codec) has a quiet A/A and stays
-  `regression` — the gate still catches it.
+  downgrades a `regression`, only when the current binary cannot
+  reproduce that scenario's timing against itself, AND only when the
+  regression's own size is comparable to that self-check swing (within
+  2x — `TRIAGE_K` in `_perf/compare.tl`). instability alone is not a
+  blank check: a scenario whose A/A wobbles 5% does not excuse a +300%
+  regression, so a real regression in a stable scenario (json, sqlite,
+  codec) — or a huge one in an unstable scenario — has nowhere to hide
+  and stays `regression`.
 - `gate.lua selfcheck` runs the same A/A control on demand, for
   interactive use or to profile the machine's noise floor before you
   start. `--only <name>` narrows it to one

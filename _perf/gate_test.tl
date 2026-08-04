@@ -70,6 +70,12 @@ end
 test_flagged_regression_retries_then_passes()
 
 local function test_persistent_regression_triaged_as_noise_passes()
+  -- The +30% regression and the A/A control's ~+38% swing are
+  -- COMPARABLE magnitudes (30% is well within TRIAGE_K=2 * 38%), which
+  -- is what makes this reclassification legitimate rather than a
+  -- magnitude-blind wave-through -- see
+  -- test_large_regression_survives_unstable_selfcheck_and_fails below
+  -- for the case where the sizes do NOT match and it must still fail.
   local base, cur, selfb = paths("noise")
   write_results(base, 1000)
   write_results(cur, 1300)
@@ -90,6 +96,36 @@ local function test_persistent_regression_triaged_as_noise_passes()
   assert(calls == 2, "expected re-measure + selfcheck-b, got " .. calls)
 end
 test_persistent_regression_triaged_as_noise_passes()
+
+-- Magnitude-blindness was the bug: a scenario's A/A self-check clearing
+-- the bar used to wave through ANY regression there, even one far
+-- larger than the self-check swing itself. A +300% regression must
+-- still fail even though this scenario's A/A control is measurably
+-- unstable (+30%) -- the instability just isn't big enough to explain
+-- the regression.
+local function test_large_regression_survives_unstable_selfcheck_and_fails()
+  local base, cur, selfb = paths("large-unstable")
+  write_results(base, 1000)
+  write_results(cur, 4000) -- +300%
+  local calls = 0
+  local code = gate.gate({
+      baseline = base, current = cur, selfcheck_b = selfb, threshold = 10,
+      measure = function(out: string): integer
+        calls = calls + 1
+        if calls == 1 then
+          write_results(out, 4000) -- regression persists on re-measurement
+        else
+          write_results(out, 5200) -- A/A control swings +30%: unstable, but
+          -- nowhere near +300%
+        end
+        return 0
+      end,
+    })
+  assert(code == 1,
+    "a regression far larger than the self-check swing must still fail, got " .. code)
+  assert(calls == 2, "expected re-measure + selfcheck-b, got " .. calls)
+end
+test_large_regression_survives_unstable_selfcheck_and_fails()
 
 local function test_real_regression_survives_triage_and_fails()
   local base, cur, selfb = paths("real")

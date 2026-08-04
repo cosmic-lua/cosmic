@@ -70,9 +70,14 @@ local record perf_types
 
   --- One row of a baseline-vs-current comparison.
   --- verdict is one of: "ok", "faster", "regression", "noise", "new",
-  --- "missing", "error". "noise" is a regression that an A/A self-check
-  --- reclassified as run-to-run variance (see compare.triage); it does
-  --- not fail the gate. noise_pct is the bar a delta must clear to count
+  --- "missing", "error", "baseline-error", "malformed". "noise" is a
+  --- regression that an A/A self-check reclassified as run-to-run
+  --- variance (see compare.triage); it does not fail the gate.
+  --- "baseline-error" is a scenario whose BASELINE row itself recorded
+  --- an error (unlike "new", which is a scenario absent from the
+  --- baseline entirely) — it fails the gate the same as "missing".
+  --- "malformed" is a row with neither an error nor a wall_ns, which
+  --- cannot be diffed. noise_pct is the bar a delta must clear to count
   --- as real: max(threshold, baseline spread, current spread).
   record Delta
     name: string
