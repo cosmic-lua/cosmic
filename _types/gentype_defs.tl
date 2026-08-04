@@ -31,9 +31,9 @@ end
 local function read(): string | nil, string
   local override = os.getenv("GENTYPE_DEFS")
   if override then
-    local source = fs.read(override)
+    local source, ferr = fs.read(override)
     if not source then
-      return nil, "Failed to read " .. override
+      return nil, "Failed to read " .. override .. ": " .. (ferr or "unknown error")
     end
     return source
   end

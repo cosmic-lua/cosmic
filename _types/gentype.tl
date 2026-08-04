@@ -451,9 +451,12 @@ local function run(module_name: string): Result
     return {success = true, output = output}
   else
     local outputs: {string} = {}
+    local failed: {string} = {}
     for _, m in ipairs(MODULES) do
       local module = parse_module(source, m)
-      if module then
+      if not module then
+        table.insert(failed, m)
+      else
         local output, err = render_module(module)
         if not output then
           return {success = false, error = err}
@@ -461,6 +464,10 @@ local function run(module_name: string): Result
         table.insert(outputs, "-- === " .. m .. " ===")
         table.insert(outputs, output)
       end
+    end
+    if #failed > 0 then
+      return {success = false,
+        error = "Failed to parse module(s): " .. table.concat(failed, ", ")}
     end
     return {success = true, output = table.concat(outputs, "\n")}
   end
