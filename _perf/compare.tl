@@ -161,7 +161,7 @@ local function triage(base: pt.Results, cur: pt.Results, noise_a: pt.Results, no
   for _, d in ipairs(deltas) do
     local sd = self_by_name[d.name]
     if d.verdict == "regression" and sd ~= nil and sd.delta_pct ~= nil
-        and math.abs(d.delta_pct) <= math.max(d.noise_pct, TRIAGE_K * math.abs(sd.delta_pct)) then
+    and math.abs(d.delta_pct) <= math.max(d.noise_pct, TRIAGE_K * math.abs(sd.delta_pct)) then
       d.verdict = "noise"
       failures = failures - 1
     end
