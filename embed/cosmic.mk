@@ -39,12 +39,15 @@ SHELL := $(COSMIC)
 # `tee`/`copy` write unconditionally. Convergence rests on the
 # artifact, not on every intermediate staying untouched.
 #
-# $(COSMIC_DEP) — the driver itself — is a prerequisite of every graph
-# rule, because a result is only as fresh as the tool that produced it.
-# Without it a formatter fix left every `.fmt.got` untouched and a
-# whole tree reported clean against the formatter it replaced. It is a
-# variable from o/project.mk rather than $(COSMIC) directly so it can
-# be empty when the running binary is not a file make can stat.
+# Every graph rule names a TOOL STAMP — `$(O)/.stamp/<tool>`, written
+# by materialize before make runs — because a result is only as fresh
+# as the tool that produced it: a formatter fix must invalidate every
+# `.fmt.got`, or a whole tree reports clean against the formatter it
+# replaced. The stamp is a hash of the embedded bytes that run when
+# the rule's verb runs (see _make/stamp.tl), NOT the binary itself:
+# the binary embeds every module, so naming it invalidated the whole
+# graph on any edit anywhere, and made each build's replaced artifact
+# re-run the world once more to prove nothing changed.
 .DELETE_ON_ERROR:
 
 # ...except the summaries, which are PHONY instead.
@@ -108,13 +111,13 @@ compile: $(compiled) $(staged)
 # content-addressed (`_make.generate`'s stamp_types), so a run that
 # regenerates byte-identical declarations does not move its mtime and
 # a no-op build stays a no-op.
-$(O)/%.lua: %.tl $(COSMIC_DEP) $(O)/_types/types_gen.stamp $$(srcdeps_$$*)
+$(O)/%.lua: %.tl $(O)/.stamp/compile $(O)/_types/types_gen.stamp $$(srcdeps_$$*)
 	compile $(COSMIC) $< $@ --include-dir . --deps $(srcdeps_$*) ;
 
 # .lua sources are first-class. They are copied, not compiled; the
 # validator has already refused foo.tl beside foo.lua, so these two
 # pattern rules can never both apply to one target.
-$(O)/%.lua: %.lua $(COSMIC_DEP)
+$(O)/%.lua: %.lua $(O)/.stamp/driver
 	copy $< $@ ;
 
 # ------------------------------------------------------------------ fmt
@@ -124,7 +127,7 @@ fmt_got := $(patsubst %,$(O)/%.fmt.got,$(fmt_sources))
 ## Check formatting on every .tl source
 fmt: $(O)/fmt-summary.txt
 
-$(O)/%.fmt.got: % $(COSMIC_DEP)
+$(O)/%.fmt.got: % $(O)/.stamp/fmt
 	record $(basename $@) $(COSMIC) --check fmt $< ;
 
 $(O)/fmt-summary.txt: $(fmt_got)
@@ -147,14 +150,14 @@ test: $(O)/test-summary.txt
 # case). What IS narrow is the write grant: only the test's own `.got`
 # base and TMPDIR. One answer, two consumers: the argument positions
 # are the declaration.
-$(O)/%.tl.test.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
+$(O)/%.tl.test.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*)
 	record $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
 
 # A `.lua` test is a test. The marker suffixes are extension-agnostic
 # in the model, so the rules have to be too -- otherwise a Lua-only
 # project's tests are listed and never run, which is worse than not
 # supporting them.
-$(O)/%.lua.test.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
+$(O)/%.lua.test.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*)
 	record $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
 
 $(O)/test-summary.txt: $(test_got)
@@ -171,10 +174,10 @@ example: $(O)/example-summary.txt
 # closure, same fence, `Example_*` instead of `test_*`. That is what the
 # model says everywhere else, so the rules say it too — the only
 # difference from the test rules above is the flag.
-$(O)/%.tl.example.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
+$(O)/%.tl.example.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*)
 	record $(basename $@) $(COSMIC) --check example $< --deps $(deps_$*) ;
 
-$(O)/%.lua.example.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
+$(O)/%.lua.example.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*)
 	record $(basename $@) $(COSMIC) --check example $< --deps $(deps_$*) ;
 
 $(O)/example-summary.txt: $(example_got)
@@ -192,10 +195,10 @@ benchmark: $(O)/benchmark-summary.txt
 # generation unit — a generator's output is a build INPUT, derived from
 # sources and stale when they change, while a measurement is of one
 # binary on one machine at one moment and is never stale, just old.
-$(O)/%.tl.benchmark.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
+$(O)/%.tl.benchmark.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*)
 	record $(basename $@) $(COSMIC) --benchmark $< --deps $(deps_$*) ;
 
-$(O)/%.lua.benchmark.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
+$(O)/%.lua.benchmark.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*)
 	record $(basename $@) $(COSMIC) --benchmark $< --deps $(deps_$*) ;
 
 $(O)/benchmark-summary.txt: $(benchmark_got)
@@ -218,7 +221,7 @@ lint: $(O)/lint-summary.txt
 # No compile prerequisite: lint reads the file as bytes. That is why it
 # sees a `.md`, a `.mk` and a `.yml`, and why it is a verb of its own
 # rather than a stage of `check`.
-$(O)/%.lint.got: % $(COSMIC_DEP)
+$(O)/%.lint.got: % $(O)/.stamp/lint
 	record $(basename $@) $(COSMIC) --check lint $< ;
 
 $(O)/lint-summary.txt: $(lint_got)
@@ -243,10 +246,10 @@ coverage: $(O)/coverage-summary.txt
 # reach, and the reserved set is a rule rather than a word list.
 $(O)/.coverage/%.test.got: export COSMIC_COVERAGE := 1
 
-$(O)/.coverage/%.tl.test.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
+$(O)/.coverage/%.tl.test.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*)
 	record $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
 
-$(O)/.coverage/%.lua.test.got: $(O)/%.lua $(COSMIC_DEP) $$(deps_$$*)
+$(O)/.coverage/%.lua.test.got: $(O)/%.lua $(O)/.stamp/record $$(deps_$$*)
 	record $(basename $@) $(COSMIC) $< --deps $(deps_$*) ;
 
 $(O)/coverage-summary.txt: $(coverage_got)

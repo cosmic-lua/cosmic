@@ -225,7 +225,7 @@ end
 test_a_root_with_whitespace_is_refused()
 
 -- Whitespace is not the only character that corrupts a recipe line or
--- a `COSMIC`/`COSMIC_DEP` variable assignment: `(`, `$`, `:`, `=`, `%`
+-- the `COSMIC` variable assignment: `(`, `$`, `:`, `=`, `%`
 -- all mean something to make. The same `validate.METACHARACTERS` list
 -- a project PATH is refused for applies to the root itself.
 local function test_a_root_with_a_metacharacter_is_refused()
@@ -254,7 +254,7 @@ test_resolve_self_resolves_a_real_path()
 -- A bare, PATH-invoked argv0 that names nothing under the cwd falls
 -- back to a real $PATH search instead of `fs.abspath`'s phantom
 -- `<cwd>/name` -- the bug: a build run from a directory that happens
--- not to contain the binary silently dropped COSMIC_DEP.
+-- not to contain the binary silently degraded the tool stamps.
 local function test_resolve_self_falls_back_to_path_search()
   local dir = tree("self-path", {})
   local saved = fs.getcwd() as string -- cast: cwd exists in a test
