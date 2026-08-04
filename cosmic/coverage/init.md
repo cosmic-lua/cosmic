@@ -1,9 +1,11 @@
 # coverage
 
  Line coverage collection for cosmic programs.
- Installs a Lua line hook that counts executed (source, line) pairs,
- and dumps the counts as a Lua-serialized .cov file for
- `cosmic --coverage-report` to merge and render.
+ Counts executed (source, line) pairs via a line hook and dumps the
+ counts as a Lua-serialized .cov file for `cosmic --coverage-report`
+ to merge and render. When the runtime carries the C collector
+ (cosmo.cov), the hook runs in C at a small fraction of the per-line
+ cost; otherwise a Lua debug hook does the same accounting.
 
  The CLI arms collection automatically when the COSMIC_COVERAGE
  environment variable names a directory: the hook starts before the
@@ -16,6 +18,24 @@
  running under coverage leaves the outer collection running.
 
 ## Types
+
+### CCov
+
+ The runtime's C line-hit collector (require("cosmo.cov")), when
+ this runtime carries one. Same attribution as the Lua hook below —
+ chunks keyed by their debug source, values line -> hit count — at a
+ small fraction of the per-line cost.
+
+```teal
+local record CCov
+  start: function()
+  stop: function()
+  running: function(): boolean
+  arm: function(thread: thread)
+  snapshot: function(): {string: {integer: integer}}
+  reset: function()
+end
+```
 
 ### CoverageModule
 
