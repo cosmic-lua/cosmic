@@ -77,6 +77,20 @@ local record fs_types
   --- Stat passed to walk visitors: the same wrapped Stat.
   type WalkStat = Stat
 
+  --- Minimal read+close view of a raw `unix.Dir`, for internal
+  --- directory-traversal code (cosmic.fs.walk, cosmic.fs.tree,
+  --- cosmic.embed) that casts opendir()'s result across the userdata
+  --- boundary and only ever calls these two methods. `Dir` below is the
+  --- richer, publicly wrapped handle callers of cosmic.fs get back.
+  record DirHandle
+    --- Reads next directory entry. Returns nil when done. The second
+    --- return is the dirent d_type (unix.DT_DIR / DT_REG / DT_LNK / ... /
+    --- DT_UNKNOWN where the filesystem does not expose it).
+    read: function(self): string, integer
+    --- Closes directory handle.
+    close: function(self)
+  end
+
   --- Handle for reading directory entries.
   --- Supports automatic cleanup with `<close>` attribute.
   record Dir

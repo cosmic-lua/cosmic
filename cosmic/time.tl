@@ -131,12 +131,17 @@ local function sleep_ms(ms: number): integer | nil, string
   return math.ceil(rem_s * 1000 + rem_ns / 1000000), err
 end
 
---- Break down a UNIX timestamp into UTC (Zulu) time components.
+--- Shared by gmtime/localtime: they differ only in which cosmo.unix
+--- function does the breakdown (Zulu vs the TZ-aware local one), and
+--- both shape the same 11 values into a DateTime.
+--- @param fn function The cosmo.unix breakdown function to call (gmtime or localtime)
 --- @param unixts integer UNIX timestamp (seconds since epoch)
---- @return DateTime Broken-down time in UTC
-local function gmtime(unixts: integer): DateTime
-  local year, mon, mday, hour, min, sec, gmtoff, wday, yday, isdst, zone =
-  unix.gmtime(unixts)
+--- @return DateTime Broken-down time
+local function breakdown(
+    fn: function(integer): integer | nil, integer, integer, integer, integer, integer, integer, integer, integer, integer, string, string, unix.Errno,
+    unixts: integer
+  ): DateTime
+  local year, mon, mday, hour, min, sec, gmtoff, wday, yday, isdst, zone = fn(unixts)
   return {
     year = year,
     month = mon,
@@ -152,26 +157,19 @@ local function gmtime(unixts: integer): DateTime
   }
 end
 
+--- Break down a UNIX timestamp into UTC (Zulu) time components.
+--- @param unixts integer UNIX timestamp (seconds since epoch)
+--- @return DateTime Broken-down time in UTC
+local function gmtime(unixts: integer): DateTime
+  return breakdown(unix.gmtime, unixts)
+end
+
 --- Break down a UNIX timestamp into local time components.
 --- Respects the TZ environment variable.
 --- @param unixts integer UNIX timestamp (seconds since epoch)
 --- @return DateTime Broken-down time in local timezone
 local function localtime(unixts: integer): DateTime
-  local year, mon, mday, hour, min, sec, gmtoff, wday, yday, isdst, zone =
-  unix.localtime(unixts)
-  return {
-    year = year,
-    month = mon,
-    day = mday,
-    hour = hour,
-    min = min,
-    sec = sec,
-    gmtoff = gmtoff,
-    wday = wday,
-    yday = yday,
-    isdst = isdst > 0,
-    zone = zone,
-  }
+  return breakdown(unix.localtime, unixts)
 end
 
 --- Format a UNIX timestamp as an HTTP date string (RFC 7231).

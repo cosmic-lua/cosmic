@@ -192,6 +192,91 @@ end
 end
 test_filter_no_match()
 
+-- Test that a variable/local named with a keyword prefix (`end_time`)
+-- is not lexed as the keyword `end`: a bare `%a+` word match stops at
+-- the `_`, so the scanner used to close the body right there.
+local function test_end_time_not_truncated()
+  local source = [[
+local function Benchmark_time_tracking()
+  local start_time = 1
+  local end_time = 2
+  local elapsed = end_time - start_time
+end
+]]
+  local benchmarks = benchmark.parse_benchmarks(source)
+  assert(#benchmarks == 1, "should find one benchmark")
+  assert(benchmarks[1].body:find("elapsed", 1, true),
+    "body should include the statement after end_time, not stop early")
+end
+test_end_time_not_truncated()
+
+-- Test that a variable named with a block-opening keyword prefix
+-- (`for_each`) is not lexed as `for`: that would open a phantom nesting
+-- level, needing an extra `end` to close and swallowing whatever
+-- benchmark comes next.
+local function test_for_each_prefix_not_over_extended()
+  local source = [[
+local function Benchmark_for_each()
+  local for_each = function(t) return #t end
+  local n = for_each({1, 2, 3})
+end
+
+local function Benchmark_after_for_each()
+  local x = 1
+end
+]]
+  local benchmarks = benchmark.parse_benchmarks(source)
+  assert(#benchmarks == 2, "should find two separate benchmarks, not merge them")
+  assert(benchmarks[1].name == "Benchmark_for_each", "first benchmark name")
+  assert(benchmarks[2].name == "Benchmark_after_for_each", "second benchmark name")
+  assert(not benchmarks[1].body:find("Benchmark_after_for_each", 1, true),
+    "for_each's body must not swallow the next benchmark")
+end
+test_for_each_prefix_not_over_extended()
+
+-- Test that a bare `do ... end` block (not attached to a for/while)
+-- opens its own nesting level: `do` was missing from the depth-tracking
+-- keyword set, so its `end` was mistaken for the function's own.
+local function test_bare_do_end_block()
+  local source = [[
+local function Benchmark_bare_do()
+  do
+    local x = 1
+  end
+  local y = 2
+end
+
+local function Benchmark_after_do()
+  local z = 3
+end
+]]
+  local benchmarks = benchmark.parse_benchmarks(source)
+  assert(#benchmarks == 2, "should find two benchmarks")
+  assert(benchmarks[1].body:find("y = 2", 1, true),
+    "body should include the statement after the bare do-block")
+  assert(benchmarks[2].name == "Benchmark_after_do", "next benchmark parsed separately")
+end
+test_bare_do_end_block()
+
+-- Test a nested (anonymous) function definition inside the benchmark
+-- body: unaffected by either bug, but a regression guard for the
+-- shared scanner now that all three extractors share it.
+local function test_nested_function_definition()
+  local source = [[
+local function Benchmark_nested_fn()
+  local adder = function(a, b)
+    return a + b
+  end
+  local result = adder(1, 2)
+end
+]]
+  local benchmarks = benchmark.parse_benchmarks(source)
+  assert(#benchmarks == 1, "should find one benchmark")
+  assert(benchmarks[1].body:find("result", 1, true),
+    "body should include the statement after the nested function")
+end
+test_nested_function_definition()
+
 -- Test cosmic --benchmark with filter syntax
 local function test_cosmic_benchmark_filter()
   local input = write_temp("cmd_filter.tl", [[

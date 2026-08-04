@@ -86,6 +86,52 @@ end
 end
 test_parse_example()
 
+-- Test that regular `--` comments (not `---`) directly above an
+-- Example_* function are picked up as its description: doc.parse is
+-- the one caller that passes allow_regular_comments=true to
+-- extract_doc_comment.
+local function test_example_regular_comment_description()
+  local source = [[
+local unrelated = 1
+
+-- part of the example doc
+-- second line
+local function Example_annotated()
+  print("hi")
+end
+]]
+  local result = doc.parse(source, "test.tl")
+  assert(#result.examples == 1, "should find one example")
+  assert(result.examples[1].description, "should have a description")
+  assert(result.examples[1].description:find("part of the example doc", 1, true),
+    "should pick up the regular -- comment: " .. (result.examples[1].description or ""))
+  -- A blank line above the comment block stops the walk without error.
+  assert(not result.examples[1].description:find("unrelated", 1, true),
+    "should not reach past the blank line above the comment block")
+end
+test_example_regular_comment_description()
+
+-- Same, but the comment block is directly preceded by a non-blank,
+-- non-comment line (the other way extract_doc_comment's upward walk
+-- stops when allow_regular_comments is true).
+local function test_example_regular_comment_stops_at_code()
+  local source = [[
+local unrelated = 1
+-- part of the example doc
+local function Example_annotated2()
+  print("hi")
+end
+]]
+  local result = doc.parse(source, "test.tl")
+  assert(#result.examples == 1, "should find one example")
+  assert(result.examples[1].description, "should have a description")
+  assert(result.examples[1].description:find("part of the example doc", 1, true),
+    "should pick up the regular -- comment: " .. (result.examples[1].description or ""))
+  assert(not result.examples[1].description:find("unrelated", 1, true),
+    "should stop at the preceding code line")
+end
+test_example_regular_comment_stops_at_code()
+
 -- Test that Example_* functions are not included in regular functions
 local function test_example_not_in_functions()
   local source = [[
@@ -104,6 +150,92 @@ end
   assert(#result.examples == 1, "should find one example")
 end
 test_example_not_in_functions()
+
+-- Test that a variable/local named with a keyword prefix (`end_time`)
+-- is not lexed as the keyword `end`: a bare `%a+` word match stops at
+-- the `_`, so the scanner used to close the body right there.
+local function test_example_end_time_not_truncated()
+  local source = [[
+local function Example_time_tracking()
+  local start_time = 1
+  local end_time = 2
+  local elapsed = end_time - start_time
+  print(elapsed)
+end
+]]
+  local result = doc.parse(source, "test.tl")
+  assert(#result.examples == 1, "should find one example")
+  assert(result.examples[1].body:find("elapsed", 1, true),
+    "body should include the statement after end_time, not stop early")
+end
+test_example_end_time_not_truncated()
+
+-- Test that a variable named with a block-opening keyword prefix
+-- (`for_each`) is not lexed as `for`: that would open a phantom nesting
+-- level, needing an extra `end` to close and swallowing whatever
+-- example comes next.
+local function test_example_for_each_prefix_not_over_extended()
+  local source = [[
+local function Example_for_each()
+  local for_each = function(t) return #t end
+  print(for_each({1, 2, 3}))
+end
+
+local function Example_after_for_each()
+  print("after")
+end
+]]
+  local result = doc.parse(source, "test.tl")
+  assert(#result.examples == 2, "should find two separate examples, not merge them")
+  assert(result.examples[1].name == "Example_for_each", "first example name")
+  assert(result.examples[2].name == "Example_after_for_each", "second example name")
+  assert(not result.examples[1].body:find("Example_after_for_each", 1, true),
+    "for_each's body must not swallow the next example")
+end
+test_example_for_each_prefix_not_over_extended()
+
+-- Test that a bare `do ... end` block (not attached to a for/while)
+-- opens its own nesting level: `do` was missing from the depth-tracking
+-- keyword set, so its `end` was mistaken for the function's own.
+local function test_example_bare_do_end_block()
+  local source = [[
+local function Example_bare_do()
+  do
+    local x = 1
+  end
+  print(x or "after do")
+end
+
+local function Example_after_do()
+  print("later")
+end
+]]
+  local result = doc.parse(source, "test.tl")
+  assert(#result.examples == 2, "should find two examples")
+  assert(result.examples[1].body:find("after do", 1, true),
+    "body should include the statement after the bare do-block")
+  assert(result.examples[2].name == "Example_after_do", "next example parsed separately")
+end
+test_example_bare_do_end_block()
+
+-- Test a nested (anonymous) function definition inside the example
+-- body: unaffected by either bug, but a regression guard for the
+-- shared scanner now that all three extractors share it.
+local function test_example_nested_function_definition()
+  local source = [[
+local function Example_nested_fn()
+  local adder = function(a, b)
+    return a + b
+  end
+  print(adder(1, 2))
+end
+]]
+  local result = doc.parse(source, "test.tl")
+  assert(#result.examples == 1, "should find one example")
+  assert(result.examples[1].body:find("adder%(1, 2%)"),
+    "body should include the statement after the nested function")
+end
+test_example_nested_function_definition()
 
 -- Test render produces markdown
 local function test_render_markdown()

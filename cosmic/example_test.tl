@@ -70,6 +70,104 @@ end
 end
 test_example_no_output()
 
+-- Test that a variable/local named with a keyword prefix (`end_time`)
+-- is not lexed as the keyword `end`: a bare `%a+` word match stops at
+-- the `_`, so the scanner used to close the body right there.
+local function test_end_time_not_truncated()
+  local source = [[
+local function Example_time_tracking()
+  local start_time = 1
+  local end_time = 2
+  local elapsed = end_time - start_time
+  print(elapsed)
+  -- Output:
+  -- 1
+end
+]]
+  local examples = example.parse_examples(source)
+  assert(#examples == 1, "should find one example")
+  assert(examples[1].body:find("elapsed", 1, true),
+    "body should include the statement after end_time, not stop early")
+end
+test_end_time_not_truncated()
+
+-- Test that a variable named with a block-opening keyword prefix
+-- (`for_each`) is not lexed as `for`: that would open a phantom nesting
+-- level, needing an extra `end` to close and swallowing whatever
+-- example comes next.
+local function test_for_each_prefix_not_over_extended()
+  local source = [[
+local function Example_for_each()
+  local for_each = function(t) return #t end
+  print(for_each({1, 2, 3}))
+  -- Output:
+  -- 3
+end
+
+local function Example_after_for_each()
+  print("after")
+  -- Output:
+  -- after
+end
+]]
+  local examples = example.parse_examples(source)
+  assert(#examples == 2, "should find two separate examples, not merge them")
+  assert(examples[1].name == "Example_for_each", "first example name")
+  assert(examples[2].name == "Example_after_for_each", "second example name")
+  assert(not examples[1].body:find("Example_after_for_each", 1, true),
+    "for_each's body must not swallow the next example")
+end
+test_for_each_prefix_not_over_extended()
+
+-- Test that a bare `do ... end` block (not attached to a for/while)
+-- opens its own nesting level: `do` was missing from the depth-tracking
+-- keyword set, so its `end` was mistaken for the function's own.
+local function test_bare_do_end_block()
+  local source = [[
+local function Example_bare_do()
+  do
+    local x = 1
+  end
+  print(x or "after do")
+  -- Output:
+  -- after do
+end
+
+local function Example_after_do()
+  print("later")
+  -- Output:
+  -- later
+end
+]]
+  local examples = example.parse_examples(source)
+  assert(#examples == 2, "should find two examples")
+  assert(examples[1].body:find("after do", 1, true),
+    "body should include the statement after the bare do-block")
+  assert(examples[2].name == "Example_after_do", "next example parsed separately")
+end
+test_bare_do_end_block()
+
+-- Test a nested (anonymous) function definition inside the example
+-- body: unaffected by either bug, but a regression guard for the
+-- shared scanner now that all three extractors share it.
+local function test_nested_function_definition()
+  local source = [[
+local function Example_nested_fn()
+  local adder = function(a, b)
+    return a + b
+  end
+  print(adder(1, 2))
+  -- Output:
+  -- 3
+end
+]]
+  local examples = example.parse_examples(source)
+  assert(#examples == 1, "should find one example")
+  assert(examples[1].body:find("adder%(1, 2%)"),
+    "body should include the statement after the nested function")
+end
+test_nested_function_definition()
+
 -- Test running passing example
 local function test_run_passing()
   local input = write_temp("pass.tl", [[

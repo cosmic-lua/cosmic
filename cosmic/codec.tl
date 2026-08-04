@@ -71,25 +71,43 @@ local function encode_base64(data: string): string
   return cosmo.EncodeBase64(data)
 end
 
+--- Validate a base64-family string's structure (alphabet characters,
+--- then "=" padding, then end) in one pass. On the happy path this is
+--- the only scan needed; a mismatch means either an invalid character
+--- anywhere or padding not confined to the end, so a second, cheaper
+--- scan runs only then to tell which. Shared by decode_base64 and
+--- decode_base64url, which differ only in alphabet and error label.
+--- @param str string The string to validate
+--- @param content_pattern string Lua pattern for the alphabet, zero or more (e.g. "[A-Za-z0-9+/]*")
+--- @param bad_char_pattern string Lua pattern matching a character outside the alphabet and not "=" (e.g. "[^A-Za-z0-9+/=]")
+--- @param label string Name used in error messages ("base64" or "base64url")
+--- @return string | nil The alphabet characters with any "=" padding stripped, or nil if invalid
+--- @return string? Error message if invalid
+local function validate_base64_family(
+    str: string, content_pattern: string, bad_char_pattern: string, label: string
+  ): string | nil, string
+  local content, padding = str:match("^(" .. content_pattern .. ")(%=*)$")
+  if not content then
+    if str:match(bad_char_pattern) then
+      return nil, "invalid " .. label .. " character"
+    end
+    return nil, "invalid " .. label .. ": padding in middle"
+  end
+  if #padding > 2 then
+    return nil, "invalid " .. label .. " padding"
+  end
+  return content
+end
+
 --- Decode a base64 string to binary data.
 --- Accepts standard base64 encoding with or without padding.
 --- @param str string The base64 string to decode
 --- @return string | nil The decoded binary data, or nil on error
 --- @return string? Error message if decoding failed
 local function decode_base64(str: string): string | nil, string
-  -- Validate structure (content chars, then = padding, then end) in one
-  -- pass. On the happy path this is the only scan needed; a mismatch
-  -- means either an invalid character anywhere or padding not confined
-  -- to the end, so a second, cheaper scan runs only then to tell which.
-  local content, padding = str:match("^([A-Za-z0-9+/]*)(%=*)$")
-  if not content then
-    if str:match("[^A-Za-z0-9+/=]") then
-      return nil, "invalid base64 character"
-    end
-    return nil, "invalid base64: padding in middle"
-  end
-  if #padding > 2 then
-    return nil, "invalid base64 padding"
+  local _, err = validate_base64_family(str, "[A-Za-z0-9+/]*", "[^A-Za-z0-9+/=]", "base64")
+  if err then
+    return nil, err
   end
   return cosmo.DecodeBase64(str)
 end
@@ -114,15 +132,9 @@ end
 --- @return string | nil The decoded binary data, or nil on error
 --- @return string? Error message if decoding failed
 local function decode_base64url(str: string): string | nil, string
-  local content, padding = str:match("^([A-Za-z0-9%-_]*)(%=*)$")
-  if not content then
-    if str:match("[^A-Za-z0-9%-_=]") then
-      return nil, "invalid base64url character"
-    end
-    return nil, "invalid base64url: padding in middle"
-  end
-  if #padding > 2 then
-    return nil, "invalid base64url padding"
+  local content, err = validate_base64_family(str, "[A-Za-z0-9%-_]*", "[^A-Za-z0-9%-_=]", "base64url")
+  if err then
+    return nil, err
   end
   local b64 = string.gsub(content, "%-", "+")
   b64 = string.gsub(b64, "_", "/")
@@ -130,7 +142,7 @@ local function decode_base64url(str: string): string | nil, string
 end
 
 --- Encode binary data as base32.
---- Uses lowercase base32 alphabet (0-9a-v excluding i, l, o, u).
+--- Uses lowercase base32 alphabet (0-9a-z excluding i, l, o, u).
 --- @param data string The binary data to encode
 --- @return string The base32 encoded string
 local function encode_base32(data: string): string

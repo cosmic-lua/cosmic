@@ -7,15 +7,7 @@ local types = require("cosmic.fs.types")
 local errstr = require("cosmic.errno").str
 local type WalkStat = types.WalkStat
 local FileInfo = types.FileInfo
-
---- Handle for reading directory entries (internal).
---- `read`'s second return is the dirent d_type (unix.DT_DIR / DT_REG /
---- DT_LNK / ... / DT_UNKNOWN) where the filesystem supports it, letting
---- callers that only need "is this a directory" skip a stat(2) call.
-local record WalkDirHandle
-  read: function(self): string, number
-  close: function(self)
-end
+local type WalkDirHandle = types.DirHandle
 
 --- Visitor verdict for walk(): returning nothing continues as before,
 --- "skip" does not descend into the entry (dirs only; no-op for files),
