@@ -272,6 +272,15 @@ local function parse_module(source: string, module_name: string): ModuleDecl
       local method_params_str = line:match("%((.-)%)")
       local desc, params, returns, nodiscard, _, _, fallible, error_type, generics = parse_annotations(anno_lines)
       params = reconcile_params(params, method_params_str)
+      -- A method's own iterator returns "the receiver again" as a bare
+      -- `self` token (`fun(...) iterator, self` — the module-function
+      -- variants spell this out as `lsqlite3.VM vm` instead). Resolve it to
+      -- this method's class now, while the class name is in scope.
+      for _, r in ipairs(returns) do
+        if r.return_type == "self" then
+          r.return_type = class_name
+        end
+      end
       local method: FuncDecl = {
         name = method_name, module = module_name, description = desc,
         params = params, returns = returns, is_method = true,
@@ -369,6 +378,11 @@ local function validate_module(module: ModuleDecl): string
       return bad(module.name .. "." .. c.name, "constant", c.const_type)
     end
   end
+  for _, al in ipairs(module.aliases or {}) do
+    if not parse.valid_type(al.alias_type) then
+      return bad(module.name .. "." .. al.name, "alias", al.alias_type)
+    end
+  end
   return nil
 end
 
@@ -437,9 +451,12 @@ local function run(module_name: string): Result
     return {success = true, output = output}
   else
     local outputs: {string} = {}
+    local failed: {string} = {}
     for _, m in ipairs(MODULES) do
       local module = parse_module(source, m)
-      if module then
+      if not module then
+        table.insert(failed, m)
+      else
         local output, err = render_module(module)
         if not output then
           return {success = false, error = err}
@@ -447,6 +464,10 @@ local function run(module_name: string): Result
         table.insert(outputs, "-- === " .. m .. " ===")
         table.insert(outputs, output)
       end
+    end
+    if #failed > 0 then
+      return {success = false,
+        error = "Failed to parse module(s): " .. table.concat(failed, ", ")}
     end
     return {success = true, output = table.concat(outputs, "\n")}
   end

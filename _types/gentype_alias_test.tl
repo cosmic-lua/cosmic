@@ -64,4 +64,27 @@ function zip.open() end
 end
 test_userdata_class_marker()
 
+-- A malformed ---@alias right-hand side must fail validate_module loudly,
+-- the same as a malformed param/return/field/constant type — aliases were
+-- not validated against the type grammar at all before, so a bad RHS
+-- rendered invalid Teal silently.
+local function test_malformed_alias_fails_validation()
+  local source = [==[
+zip = {}
+
+---@alias zip.Bad nil,|nil
+
+--- Opens an archive.
+---@return boolean ok
+function zip.open() end
+]==]
+  local module = gentype.parse_module(source, "zip")
+  local output, err = gentype.render_module(module)
+  assert(not output, "a malformed alias RHS must not render, got:\n" .. tostring(output))
+  assert(err, "expected an error message")
+  assert(err:find("zip.Bad", 1, true), "error must name the offending alias: " .. err)
+  print("test_malformed_alias_fails_validation: PASS")
+end
+test_malformed_alias_fails_validation()
+
 print("\nAll tests passed!")
