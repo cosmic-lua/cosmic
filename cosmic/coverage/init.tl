@@ -1,7 +1,9 @@
 --- Line coverage collection for cosmic programs.
---- Installs a Lua line hook that counts executed (source, line) pairs,
---- and dumps the counts as a Lua-serialized .cov file for
---- `cosmic --coverage-report` to merge and render.
+--- Counts executed (source, line) pairs via a line hook and dumps the
+--- counts as a Lua-serialized .cov file for `cosmic --coverage-report`
+--- to merge and render. When the runtime carries the C collector
+--- (cosmo.cov), the hook runs in C at a small fraction of the per-line
+--- cost; otherwise a Lua debug hook does the same accounting.
 ---
 --- The CLI arms collection automatically when the COSMIC_COVERAGE
 --- environment variable names a directory: the hook starts before the
@@ -18,8 +20,41 @@ local fs = require("cosmic.fs")
 local proc = require("cosmic.proc")
 local time = require("cosmic.time")
 
+--- The runtime's C line-hit collector (require("cosmo.cov")), when
+--- this runtime carries one. Same attribution as the Lua hook below —
+--- chunks keyed by their debug source, values line -> hit count — at a
+--- small fraction of the per-line cost.
+local record CCov
+  start: function()
+  stop: function()
+  running: function(): boolean
+  arm: function(thread: thread)
+  snapshot: function(): {string: {integer: integer}}
+  reset: function()
+end
+
+--- Detected through package.preload, where the interpreter registers
+--- its modules at boot: a runtime without the binding never pays a
+--- searcher walk for it, and the require below then resolves from
+--- preload without touching the filesystem. Dynamic (not
+--- require("cosmo.cov") spelled out) because the generated cosmo.*
+--- types come from the PINNED runtime, which may predate the binding.
+--- @return CCov | nil The C collector, or nil on an older runtime
+local function find_ccov(): CCov
+  local preload = package.preload as {string: any} -- cast: untyped stdlib table
+  if preload["cosmo.cov"] == nil then
+    return nil
+  end
+  local req = require as function(string): any -- cast: bypass static module resolution
+  return req("cosmo.cov") as CCov -- cast: binding newer than the pinned types
+end
+
+local ccov: CCov = find_ccov()
+
 --- Executed line counts, keyed by chunk source (as reported by
---- debug.getinfo, e.g. "@o/cosmic/fs/init.lua").
+--- debug.getinfo, e.g. "@o/cosmic/fs/init.lua"). Used by the Lua
+--- fallback hook; with the C collector the counts live on its side and
+--- this table stays empty.
 local counts: {string: {integer: integer}} = {}
 
 local depth = 0
@@ -59,17 +94,24 @@ local function install_wrappers(do_dump: function())
 
   local co = coroutine as {string: any} -- cast: patch stdlib table
   local raw_create = co["create"] as function(any): any -- cast: from any
+  local function arm(thread: any)
+    if ccov then
+      ccov.arm(thread as thread) -- cast: from any
+    else
+      debug.sethook(thread as thread, on_line, "l") -- cast: from any
+    end
+  end
   co["create"] = function(f: any): any
     local thread = raw_create(f)
     if depth > 0 then
-      debug.sethook(thread as thread, on_line, "l") -- cast: from any
+      arm(thread)
     end
     return thread
   end
   co["wrap"] = function(f: any): any
     local thread = raw_create(f)
     if depth > 0 then
-      debug.sethook(thread as thread, on_line, "l") -- cast: from any
+      arm(thread)
     end
     return function(...: any): any ...
       -- cast: from any
@@ -102,7 +144,11 @@ end
 local function start()
   depth = depth + 1
   if depth == 1 then
-    debug.sethook(on_line, "l")
+    if ccov then
+      ccov.start()
+    else
+      debug.sethook(on_line, "l")
+    end
   end
 end
 
@@ -115,8 +161,12 @@ local function stop()
   end
   depth = depth - 1
   if depth == 0 then
-    local clear_hook = debug.sethook as function() -- cast: function shape
-    clear_hook()
+    if ccov then
+      ccov.stop()
+    else
+      local clear_hook = debug.sethook as function() -- cast: function shape
+      clear_hook()
+    end
   end
 end
 
@@ -125,6 +175,9 @@ end
 --- "@o/cosmic/fs/init.lua"), values map line number to hit count.
 --- @return {string: {integer: integer}}
 local function snapshot(): {string: {integer: integer}}
+  if ccov then
+    return ccov.snapshot()
+  end
   local out: {string: {integer: integer}} = {}
   for src, lines in pairs(counts) do
     local t: {integer: integer} = {}
@@ -138,6 +191,9 @@ end
 
 --- Discard all collected counts.
 local function reset()
+  if ccov then
+    ccov.reset()
+  end
   counts = {}
   cur_src = nil
   cur = nil
@@ -167,7 +223,11 @@ local function dump(dir?: string): boolean, string
     dump_name = string.format("%d-%d%09d.cov",
       math.floor(proc.getpid()), math.floor(secs), math.floor(nanos))
   end
-  local body, enc_err = codec.encode_lua({version = 1, hits = counts})
+  local hits = counts
+  if ccov then
+    hits = ccov.snapshot()
+  end
+  local body, enc_err = codec.encode_lua({version = 1, hits = hits})
   if not body then
     return false, "coverage: " .. (enc_err or "encode failed")
   end

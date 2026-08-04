@@ -81,7 +81,7 @@ cosmic/child/io.tl 102 119
 cosmic/codec.tl 52 57
 cosmic/compress.tl 17 18
 cosmic/coverage/baseline.tl 136 154
-cosmic/coverage/init.tl 54 117
+cosmic/coverage/init.tl 54 138
 cosmic/coverage/lines.tl 65 71
 cosmic/coverage/report.tl 185 210
 cosmic/doc/comments.tl 55 55
@@ -179,4 +179,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 80 93
 tlconfig.lua 7 7
-total 13751 18108
+total 13751 18129
