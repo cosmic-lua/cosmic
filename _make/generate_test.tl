@@ -237,6 +237,31 @@ assert(fs.write(fs.join(out, "embed/shared.txt"), "from the root generator\n"))
 end
 test_the_root_generator_runs_for_cmd_binaries()
 
+-- `generate_unit` asks the MODEL for a unit's payload generator, not
+-- the disk: a `.cosmicignore`d `embed_gen.tl` is invisible to
+-- `proj.files`, and running it anyway would execute code the project
+-- explicitly excluded, against no manifest the model can attribute it
+-- to.
+local function test_a_cosmicignored_generator_does_not_run()
+  local root = fixture("ignored", {
+      [".cosmicignore"] = "cmd/tool/embed_gen.tl\n",
+      ["cmd/tool/main.tl"] = "print('tool')\n",
+      ["cmd/tool/embed_gen.tl"] = [[
+local fs = require("cosmic.fs")
+local out = arg[1]
+assert(fs.makedirs(fs.join(out, "embed")))
+assert(fs.write(fs.join(out, "embed/generated.txt"), "made by the generator\n"))
+]],
+    })
+  local code, out = make(root, "build")
+  assert(code == 0, "build should succeed even with no generator: " .. out)
+  assert(not out:find("generate cmd/tool/embed_gen.tl", 1, true),
+    "an ignored generator must not be announced as run: " .. out)
+  assert(not fs.exists(fs.join(root, "o/cmd/tool/embed_gen")),
+    "and its output directory must not exist")
+end
+test_a_cosmicignored_generator_does_not_run()
+
 -- The same thing through the module API, which is the other calling
 -- convention and the only one this process can see: a build spawned as
 -- a subprocess exercises the generator hook without the coverage lane

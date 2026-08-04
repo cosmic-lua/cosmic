@@ -155,7 +155,13 @@ local function closure_argv(proj: Project, gen: string, out: string,
     end
   end
   if not (self is File) then
-    return {}
+    -- LOUD, not a fall-through: a generator the model does not know
+    -- about (excluded by `.cosmicignore`, or a path that never existed)
+    -- has no closure to compile and no manifest to hand it, so running
+    -- it anyway would be the stale-generation fall-through this whole
+    -- mechanism exists to close -- silently, since nothing else here
+    -- would explain why the manifest is missing.
+    return {}, "make: " .. gen .. ": not a project file"
   end
   -- cast: narrowing does not survive the guard above
   local files = deps.closure(proj, self as File, deps.index(proj))
@@ -295,7 +301,26 @@ local function sources(proj: Project, cosmic: string): boolean, string
   return true
 end
 
+--- Is `f` the payload generator `unit` owns, spelled `name`?
+--- @param unit string The unit's directory, ROOT for the project itself
+--- @param name string The generator's basename (`embed_gen.tl` or `.lua`)
+--- @param f File A candidate file
+--- @return boolean
+local function owns(unit: string, name: string, f: File): boolean
+  if f.kind ~= "payload-gen" or fs.basename(f.path) ~= name then
+    return false
+  end
+  local dir = f.path == name and project.ROOT or fs.dirname(f.path)
+  return dir == unit
+end
+
 --- Run one unit's generator, if it has one.
+---
+--- Asks the MODEL, not the disk: `proj.files` is what `.cosmicignore`
+--- and every other scan rule already filtered, so a payload generator
+--- excluded there stays excluded here too. Probing `fs.isfile` directly
+--- would run a generator the model does not know about -- silently, on
+--- output the engine can't attribute to any project file.
 --- @param proj Project The scanned project
 --- @param unit string The unit's directory, ROOT for the project itself
 --- @param cosmic string Absolute path to the cosmic binary
@@ -307,13 +332,15 @@ local function generate_unit(proj: Project, unit: string,
   -- carries both -- so the order is a tiebreak that never happens.
   for _, ext in ipairs({".tl", ".lua"}) do
     local name = project.PAYLOAD_GEN .. ext
-    local gen = unit == project.ROOT and name or fs.join(unit, name)
-    if fs.isfile(fs.join(proj.root, gen)) then
-      -- `o/<unit>/embed_gen`, which is `o/<gen path minus extension>`:
-      -- the same rule the source generators get, so every generator
-      -- owns one directory and the engine may clear it. NOT
-      -- `o/<unit>/`, which is the build's.
-      return run_generator(proj, gen, project.out_dir(stem_of(gen)), cosmic)
+    for _, f in ipairs(proj.files) do
+      if owns(unit, name, f) then
+        -- `o/<unit>/embed_gen`, which is `o/<gen path minus extension>`:
+        -- the same rule the source generators get, so every generator
+        -- owns one directory and the engine may clear it. NOT
+        -- `o/<unit>/`, which is the build's.
+        return run_generator(proj, f.path, project.out_dir(stem_of(f.path)),
+          cosmic)
+      end
     end
   end
   return true
