@@ -4,6 +4,7 @@
 
 local time = require("cosmic.time")
 local scan = require("cosmic.doc.scan")
+local env = require("cosmic.env")
 
 --- Read the monotonic wall clock in nanoseconds.
 --- Uses CLOCK_MONOTONIC so IO-bound benchmarks (which block rather than
@@ -77,15 +78,50 @@ local function parse_benchmarks(source: string): {Benchmark}
   return benchmarks
 end
 
---- Minimum benchmark duration in seconds (like Go's default 1s)
-local MIN_DURATION = 1.0
+--- Default minimum benchmark duration in seconds (like Go's default 1s).
+local DEFAULT_MIN_SECONDS = 1.0
+
+--- Options for `run`.
+local record Options
+  --- Minimum calibrated duration per benchmark, in seconds. Defaults to
+  --- DEFAULT_MIN_SECONDS (Go's 1s convention) when unset. A real
+  --- timing measurement should leave this at the default; a test of
+  --- the RUNNER itself (discovery, naming, iteration counting,
+  --- formatting, error handling) is the intended user of a small
+  --- value here, since 1s of looping proves nothing a 10ms run
+  --- doesn't.
+  min_seconds: number
+end
+
+--- Resolve the minimum calibration duration for a run: an explicit
+--- `Options.min_seconds` wins; otherwise the COSMIC_BENCHMARK_MIN_SECONDS
+--- environment variable, when it parses as a number, lets a caller with
+--- no Options to pass (the `--benchmark` CLI flag spawns no sub-options,
+--- so this is how its own tests shrink calibration through a spawned
+--- `cosmic --benchmark` child); otherwise DEFAULT_MIN_SECONDS.
+--- @param opts Options? Run options
+--- @return number Minimum duration in seconds
+local function resolve_min_seconds(opts: Options): number
+  if opts and opts.min_seconds then
+    return opts.min_seconds
+  end
+  local from_env = env.get("COSMIC_BENCHMARK_MIN_SECONDS")
+  if from_env then
+    local n = tonumber(from_env)
+    if n then
+      return n
+    end
+  end
+  return DEFAULT_MIN_SECONDS
+end
 
 --- Run a single benchmark and measure timing.
 --- Executes the benchmark code repeatedly, auto-calibrating iterations.
 --- @param benchmark Benchmark The benchmark to run
 --- @param _file_path string Path to the source file (unused, for API consistency)
+--- @param min_seconds number Minimum calibrated duration, in seconds
 --- @return BenchmarkResult Result with timing statistics
-local function run_benchmark(benchmark: Benchmark, _file_path: string): BenchmarkResult
+local function run_benchmark(benchmark: Benchmark, _file_path: string, min_seconds: number): BenchmarkResult
   local result: BenchmarkResult = {
     name = benchmark.name,
     iterations = 0,
@@ -134,11 +170,11 @@ end
     _G.print = function() end
   end
 
-  -- Auto-calibrate: start with N=1 and increase until we reach MIN_DURATION
+  -- Auto-calibrate: start with N=1 and increase until we reach min_seconds
   local n = 1
   local elapsed = 0.0
 
-  while elapsed < MIN_DURATION do
+  while elapsed < min_seconds do
     -- Warm up / calibrate
     local start = monotonic_ns()
     for _ = 1, n do
@@ -159,10 +195,10 @@ end
     end
     elapsed = (monotonic_ns() - start) / 1e9
 
-    if elapsed < MIN_DURATION then
-      -- Estimate iterations needed to reach MIN_DURATION
+    if elapsed < min_seconds then
+      -- Estimate iterations needed to reach min_seconds
       if elapsed > 0 then
-        local estimate = math.ceil(n * MIN_DURATION / elapsed)
+        local estimate = math.ceil(n * min_seconds / elapsed)
         -- Don't grow too fast - cap at 10x
         n = math.min(estimate, n * 10)
       else
@@ -192,8 +228,9 @@ end
 --- Parses and executes Benchmark_* functions, returning aggregated results.
 --- @param file_path string Path to the Teal file containing benchmarks
 --- @param filter string Optional SUBSTRING of the benchmark name, matched plainly (e.g. "concat" matches Benchmark_string_concat)
+--- @param opts Options? Run options; see Options.min_seconds
 --- @return RunResult Result with exit code (0=pass, 1=fail, 2=skip), results, and errors
-local function run(file_path: string, filter?: string): RunResult
+local function run(file_path: string, filter?: string, opts?: Options): RunResult
   local f, err = io.open(file_path, "r")
   if not f then
     return {
@@ -240,9 +277,10 @@ local function run(file_path: string, filter?: string): RunResult
 
   local results: {BenchmarkResult} = {}
   local has_error = false
+  local min_seconds = resolve_min_seconds(opts)
 
   for _, benchmark in ipairs(benchmarks) do
-    local result = run_benchmark(benchmark, file_path)
+    local result = run_benchmark(benchmark, file_path, min_seconds)
     table.insert(results, result)
     if result.error then
       has_error = true
@@ -312,7 +350,9 @@ local function format_results(file_path: string, run_result: RunResult): string
 end
 
 local record BenchmarkModule
-  run: function(file_path: string, filter?: string): RunResult
+  type Options = Options
+
+  run: function(file_path: string, filter?: string, opts?: Options): RunResult
   parse_benchmarks: function(source: string): {Benchmark}
   format_results: function(file_path: string, run_result: RunResult): string
 end
