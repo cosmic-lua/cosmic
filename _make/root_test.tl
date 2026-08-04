@@ -222,3 +222,18 @@ local function test_a_root_with_whitespace_is_refused()
   assert(err:find(dir, 1, true), "naming the path, got: " .. err)
 end
 test_a_root_with_whitespace_is_refused()
+
+-- Whitespace is not the only character that corrupts a recipe line or
+-- a `COSMIC`/`COSMIC_DEP` variable assignment: `(`, `$`, `:`, `=`, `%`
+-- all mean something to make. The same `validate.METACHARACTERS` list
+-- a project PATH is refused for applies to the root itself.
+local function test_a_root_with_a_metacharacter_is_refused()
+  local dir = tree("has(paren)", {["main.tl"] = "print('x')\n"})
+  env.set(root.ROOT_ENV, dir, true)
+  local found, err = root.discover("build")
+  env.unset(root.ROOT_ENV)
+  assert(not found, "a root make cannot express is not a root")
+  assert(err:find("make-significant", 1, true), "and says why, got: " .. err)
+  assert(err:find(dir, 1, true), "naming the path, got: " .. err)
+end
+test_a_root_with_a_metacharacter_is_refused()
