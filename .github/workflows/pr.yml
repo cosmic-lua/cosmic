@@ -219,9 +219,15 @@ jobs:
           done
           exit 0
 
-  # What needs a built binary and a real network — the two things the
-  # gate lane deliberately lacks. Both steps start from the same build,
-  # so they share one container rather than one each.
+  # The first build, and what only it can prove: the fixpoint. The
+  # gate lane deliberately lacks a network after fetch; this lane has
+  # one, builds the artifact every other job consumes, and asserts the
+  # two properties that need exactly one tree: convergence, and that
+  # the host can enforce the fence at all. Reproducibility moved to its
+  # own job (`repro`, below), which doubles as the real-pins fetch
+  # check -- a fresh job IS a cold tree, so nothing has to be cleaned
+  # to prove a cold build works. Splitting also unblocks `smoke` ~2min
+  # earlier: it needs only this job's artifact, not the repro rebuild.
   build:
     runs-on: ubuntu-latest
     # Pinned container, identical to the gate lane's; see there.
@@ -239,12 +245,7 @@ jobs:
           chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
           git config --system --add safe.directory "$GITHUB_WORKSPACE"
 
-      # The artifact is a pure function of the source tree: build twice,
-      # the second time into a different output tree so the whole
-      # pipeline reruns, and compare. Any nondeterminism — a timestamp,
-      # an iteration order, an embedded path — fails here instead of
-      # shipping.
-      - name: build twice and compare
+      - name: build, and the fixpoint
         shell: bash
         run: |
           set -eux
@@ -271,85 +272,112 @@ jobs:
             cp o/bin/cosmic cosmic-converged
             o/bin/cosmic --make build
             cmp cosmic-converged o/bin/cosmic
-            echo "fixpoint: PASS — a second build changes nothing"
-            cp o/bin/cosmic cosmic-first
-            # A different tree PATH, not just a different output dir: an
-            # absolute path leaking into the artifact only shows up when
-            # the root moves. clean removes o/, pins included, so the
-            # copy fetches again.
-            cp -a . "$HOME/repro"
-            cd "$HOME/repro"
-            bin/cosmic --make clean
-            bin/cosmic --make fetch
-            bin/cosmic --make build
-            o/bin/cosmic --make build
-            cmp "$OLDPWD/cosmic-first" o/bin/cosmic
-            echo "reproducible: PASS — double build is byte-identical"'
+            echo "fixpoint: PASS -- a second build changes nothing"'
 
       # The fence is ON by default, so every recipe above already ran
-      # under it. This asserts the direction the denial tests cannot:
-      # that a REAL build still succeeds when the kernel is holding the
-      # policy. A fence that denies everything is not enforcement, and a
-      # denial test alone cannot tell the two apart -- which is how a
-      # floor that failed to construct (`/zip/.types`, a path inside the
-      # executable, handed to Landlock) went unnoticed.
-      #
-      # It also proves the fence is LIVE here rather than a silent
-      # no-op: without Landlock `unveil()` returns success having done
-      # nothing, so the check that matters is that the host can enforce
-      # at all.
-      - name: the fence is live, and a real build passes under it
+      # under it -- and so will every build in the `repro` job. What no
+      # fenced build can prove on its own is that the kernel was
+      # actually holding a policy: without Landlock, `unveil()` returns
+      # success having done nothing, and "the build passed fenced"
+      # becomes vacuously true. So the one assertion that remains here
+      # is that the host CAN enforce. The full clean-and-rebuild this
+      # step used to run re-proved what the builds above had already
+      # proven under the same default-on fence, and retired with the
+      # measurement that it was the workflow's critical path.
+      - name: the fence is live
         shell: bash
         run: |
           set -eux
           runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
             o/bin/cosmic -e 'local s = require("cosmic.sandbox")
-              assert(s.available().fs, "this host cannot enforce; the lane proves nothing")'
-          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
-            o/bin/cosmic --make clean
-          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
-            bin/cosmic --make fetch
-          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
-            bin/cosmic --make build
+              assert(s.available().fs, "this host cannot enforce; the fenced builds above proved nothing")'
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: cosmic-smoke
           path: o/bin/cosmic
 
-      # Pin RESOLUTION is checked offline on every commit by
-      # _make/pins_test.tl. What only a network can answer is whether the
-      # resolved urls, digests and unpack products are right, so this
-      # fetches the real pins and names the three products the build
-      # depends on: the Teal compiler, the make engine, and the runtime a
-      # binary is built onto. A pin that resolved and unpacked to
-      # something else would otherwise surface as a build failure whose
-      # cause is two layers away.
-      #
-      # Then again, to prove a satisfied pin re-fetches nothing: the
-      # manifest that decides records one unpack product per line, so a
-      # product whose name contains a newline would send every later
-      # build into a repair loop.
-      - name: make fetch against the real pins
+  # The artifact is a pure function of the source tree. This job is a
+  # FRESH checkout in a FRESH container -- a cold tree by construction,
+  # so the cold-build claim needs no `clean` to set up -- and it builds
+  # at a different absolute path than the `build` job's artifact
+  # ($HOME/repro), because an absolute path leaking into the artifact
+  # only shows up when the root moves. Byte-compare against the
+  # artifact `build` uploaded: any nondeterminism -- a timestamp, an
+  # iteration order, an embedded path -- fails here instead of
+  # shipping.
+  #
+  # Its fetch doubles as the real-pins check. Pin RESOLUTION is checked
+  # offline on every commit by _make/pins_test.tl; what only a network
+  # can answer is whether the resolved urls, digests and unpack
+  # products are right, so this cold fetch names the three products the
+  # build depends on: the Teal compiler, the make engine, and the
+  # runtime a binary is built onto. A pin that resolved and unpacked to
+  # something else would otherwise surface as a build failure whose
+  # cause is two layers away.
+  repro:
+    needs: build
+    runs-on: ubuntu-latest
+    # Pinned container, identical to the gate lane's; see there.
+    container:
+      image: buildpack-deps@sha256:cfb30ff3856780c63b00ec3ad2e4aed77ae6afce5975ebb8ad9525ec45354e2e # noble (Ubuntu 24.04)
+      options: --privileged
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: cosmic-smoke
+          path: dl/
+
+      - name: prepare non-root builder
         shell: bash
         run: |
-          # pipefail, because the second fetch below ends in a `tee` and
-          # a pipeline's status is its LAST command's. Without it a
-          # re-fetch that failed outright reported tee's clean exit, and
-          # the grep that follows would find no `fetch https` in the
-          # error output and call that idempotence.
+          set -eux
+          useradd -m -s /bin/bash builder
+          chown -R builder:builder "$GITHUB_WORKSPACE" "$HOME"
+          git config --system --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: rebuild cold at another path, and compare
+        shell: bash
+        run: |
+          # pipefail, because the idempotence fetch below ends in a
+          # `tee` and a pipeline's status is its LAST command's. Without
+          # it a re-fetch that failed outright reported tee's clean
+          # exit, and the grep that follows would find no `fetch https`
+          # in the error output and call that idempotence.
           set -euxo pipefail
-          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
-            o/bin/cosmic --make fetch
-          test -f o/3p/tl/tl.lua
-          test -x o/3p/cosmos/make
-          test -x o/3p/cosmos/lua
-          runuser -u builder -- env HOME="$HOME" PATH="$PATH" \
+          # The artifact arrives as upload-artifact packed it; unpack
+          # the same way smoke does, handling both delivered layouts.
+          for z in $(find dl -type f -name '*.zip'); do
+            python3 -m zipfile -e "$z" dl/
+          done
+          first=$(find dl -type f -name cosmic | head -1)
+          test -n "$first"
+          cp "$first" /cosmic-first
+          runuser -u builder -- env HOME="$HOME" PATH="$PATH" bash -ec '
+            # pipefail HERE too: the tee pipeline below runs in THIS
+            # shell, and the outer set cannot reach it.
+            set -o pipefail
+            cp -a . "$HOME/repro"
+            cd "$HOME/repro"
+            bin/cosmic --make fetch
+            test -f o/3p/tl/tl.lua
+            test -x o/3p/cosmos/make
+            test -x o/3p/cosmos/lua
+            bin/cosmic --make build
+            o/bin/cosmic --make build
+            cmp /cosmic-first o/bin/cosmic
+            echo "reproducible: PASS -- double build is byte-identical"
+            # And again, to prove a satisfied pin re-fetches nothing:
+            # the manifest that decides records one unpack product per
+            # line, so a product whose name contains a newline would
+            # send every later build into a repair loop.
             o/bin/cosmic --make fetch 2>&1 | tee second.log
-          if grep -q '^fetch https' second.log; then
-            echo "a satisfied pin fetched again" >&2
-            exit 1
-          fi
+            if grep -q "^fetch https" second.log; then
+              echo "a satisfied pin fetched again" >&2
+              exit 1
+            fi'
 
   # The artifact is a fat APE shipped for six operating systems, and the
   # gate is Linux-only. This runs the built binary on real macOS and
