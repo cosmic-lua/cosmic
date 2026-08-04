@@ -84,8 +84,8 @@ end
 --- @return string | nil The alphabet characters with any "=" padding stripped, or nil if invalid
 --- @return string? Error message if invalid
 local function validate_base64_family(
-  str: string, content_pattern: string, bad_char_pattern: string, label: string
-): string | nil, string
+    str: string, content_pattern: string, bad_char_pattern: string, label: string
+  ): string | nil, string
   local content, padding = str:match("^(" .. content_pattern .. ")(%=*)$")
   if not content then
     if str:match(bad_char_pattern) then

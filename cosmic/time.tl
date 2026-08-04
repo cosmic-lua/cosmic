@@ -138,9 +138,9 @@ end
 --- @param unixts integer UNIX timestamp (seconds since epoch)
 --- @return DateTime Broken-down time
 local function breakdown(
-  fn: function(integer): integer | nil, integer, integer, integer, integer, integer, integer, integer, integer, integer, string, string, unix.Errno,
-  unixts: integer
-): DateTime
+    fn: function(integer): integer | nil, integer, integer, integer, integer, integer, integer, integer, integer, integer, string, string, unix.Errno,
+    unixts: integer
+  ): DateTime
   local year, mon, mday, hour, min, sec, gmtoff, wday, yday, isdst, zone = fn(unixts)
   return {
     year = year,

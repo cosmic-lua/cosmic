@@ -12,8 +12,8 @@ local function test_end_time_identifier_not_truncated()
   local body_end, next_pos = scan.find_block_end(source, 2)
   local body = source:sub(2, body_end)
   assert(body:find("local x = end_time", 1, true), "body: " .. body)
-  assert(source:sub(next_pos - 1, next_pos - 1) == "\n" or next_pos > #source,
-    "next_pos should land right after the real end")
+  assert(next_pos == #source, "next_pos should land right after the real end")
+  assert(source:sub(next_pos, next_pos) == "\n", "next_pos should point at the trailing newline")
 end
 test_end_time_identifier_not_truncated()
 
@@ -23,7 +23,9 @@ local function test_for_prefixed_identifier_does_not_over_nest()
   local body = source:sub(2, body_end)
   assert(body:find("local y = for_each", 1, true), "body: " .. body)
   assert(not body:find("TRAILING", 1, true), "must not consume past the real end")
-  assert(source:sub(next_pos, next_pos + #"TRAILING" - 1) == "TRAILING",
+  -- next_pos lands right after "end"; a newline separates it from
+  -- TRAILING in these fixtures.
+  assert(source:sub(next_pos + 1, next_pos + #"TRAILING") == "TRAILING",
     "next_pos should point right at what follows the real end")
 end
 test_for_prefixed_identifier_does_not_over_nest()
@@ -34,7 +36,9 @@ local function test_bare_do_end_block_own_nesting()
   local body = source:sub(2, body_end)
   assert(body:find("local y = 2", 1, true),
     "bare do-block must not be mistaken for the function's own end: " .. body)
-  assert(source:sub(next_pos, next_pos + #"TRAILING" - 1) == "TRAILING",
+  -- next_pos lands right after "end"; a newline separates it from
+  -- TRAILING in these fixtures.
+  assert(source:sub(next_pos + 1, next_pos + #"TRAILING") == "TRAILING",
     "next_pos should point right at what follows the real end")
 end
 test_bare_do_end_block_own_nesting()
@@ -46,7 +50,9 @@ local function test_for_do_still_counts_once()
   local body_end, next_pos = scan.find_block_end(source, 2)
   local body = source:sub(2, body_end)
   assert(body:find("local y = 2", 1, true), "body: " .. body)
-  assert(source:sub(next_pos, next_pos + #"TRAILING" - 1) == "TRAILING",
+  -- next_pos lands right after "end"; a newline separates it from
+  -- TRAILING in these fixtures.
+  assert(source:sub(next_pos + 1, next_pos + #"TRAILING") == "TRAILING",
     "next_pos should point right at what follows the real end")
 end
 test_for_do_still_counts_once()
@@ -56,7 +62,9 @@ local function test_nested_function_definition()
   local body_end, next_pos = scan.find_block_end(source, 2)
   local body = source:sub(2, body_end)
   assert(body:find("local z = f()", 1, true), "body: " .. body)
-  assert(source:sub(next_pos, next_pos + #"TRAILING" - 1) == "TRAILING",
+  -- next_pos lands right after "end"; a newline separates it from
+  -- TRAILING in these fixtures.
+  assert(source:sub(next_pos + 1, next_pos + #"TRAILING") == "TRAILING",
     "next_pos should point right at what follows the real end")
 end
 test_nested_function_definition()
@@ -73,26 +81,27 @@ TRAILING]]
   local body_end, next_pos = scan.find_block_end(source, 2)
   local body = source:sub(2, body_end)
   assert(body:find("local n = 1", 1, true), "body: " .. body)
-  assert(source:sub(next_pos, next_pos + #"TRAILING" - 1) == "TRAILING",
+  -- next_pos lands right after "end"; a newline separates it from
+  -- TRAILING in these fixtures.
+  assert(source:sub(next_pos + 1, next_pos + #"TRAILING") == "TRAILING",
     "next_pos should point right at what follows the real end")
 end
 test_skips_strings_and_comments()
 
 local function test_skips_long_strings_and_comments()
-  local source = [[
+  local source = [==[
 
-local s = [[==this stays inline==]]
+local s = [[this stays inline]]
 --[[ a long comment with end for while do inside ]]
 local n = 1
 end
-TRAILING]]
-  -- NOTE: written without nested long-bracket levels to keep this test
-  -- file itself valid Teal; scan.find_block_end handles `[[...]]` and
-  -- `--[[...]]` the same way regardless of what they contain.
+TRAILING]==]
   local body_end, next_pos = scan.find_block_end(source, 2)
   local body = source:sub(2, body_end)
   assert(body:find("local n = 1", 1, true), "body: " .. body)
-  assert(source:sub(next_pos, next_pos + #"TRAILING" - 1) == "TRAILING",
+  -- next_pos lands right after "end"; a newline separates it from
+  -- TRAILING in these fixtures.
+  assert(source:sub(next_pos + 1, next_pos + #"TRAILING") == "TRAILING",
     "next_pos should point right at what follows the real end")
 end
 test_skips_long_strings_and_comments()
