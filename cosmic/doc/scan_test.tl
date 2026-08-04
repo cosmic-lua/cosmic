@@ -106,6 +106,35 @@ TRAILING]==]
 end
 test_skips_long_strings_and_comments()
 
+local function test_repeat_until_closes_its_own_level()
+  -- repeat/until pairs its own depth change, distinct from the
+  -- function/if/for/while/do keywords that pair with `end`.
+  local source = "\nrepeat\n  local x = 1\nuntil x > 0\nlocal y = 2\nend\nTRAILING"
+  local body_end, next_pos = scan.find_block_end(source, 2)
+  local body = source:sub(2, body_end)
+  assert(body:find("local y = 2", 1, true), "body: " .. body)
+  assert(source:sub(next_pos + 1, next_pos + #"TRAILING") == "TRAILING",
+    "next_pos should point right at what follows the real end")
+end
+test_repeat_until_closes_its_own_level()
+
+local function test_skips_escaped_quote_in_string()
+  -- A backslash-escaped quote inside a string must not end the string
+  -- scan early (which would then read the rest of the string as code).
+  local source = [[
+
+local s = "a \" end for while do"
+local n = 1
+end
+TRAILING]]
+  local body_end, next_pos = scan.find_block_end(source, 2)
+  local body = source:sub(2, body_end)
+  assert(body:find("local n = 1", 1, true), "body: " .. body)
+  assert(source:sub(next_pos + 1, next_pos + #"TRAILING") == "TRAILING",
+    "next_pos should point right at what follows the real end")
+end
+test_skips_escaped_quote_in_string()
+
 local function test_count_lines()
   local source = "a\nb\nc\nd"
   assert(scan.count_lines(source, 1, #source) == 3, "should count 3 newlines")

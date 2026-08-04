@@ -86,6 +86,52 @@ end
 end
 test_parse_example()
 
+-- Test that regular `--` comments (not `---`) directly above an
+-- Example_* function are picked up as its description: doc.parse is
+-- the one caller that passes allow_regular_comments=true to
+-- extract_doc_comment.
+local function test_example_regular_comment_description()
+  local source = [[
+local unrelated = 1
+
+-- part of the example doc
+-- second line
+local function Example_annotated()
+  print("hi")
+end
+]]
+  local result = doc.parse(source, "test.tl")
+  assert(#result.examples == 1, "should find one example")
+  assert(result.examples[1].description, "should have a description")
+  assert(result.examples[1].description:find("part of the example doc", 1, true),
+    "should pick up the regular -- comment: " .. (result.examples[1].description or ""))
+  -- A blank line above the comment block stops the walk without error.
+  assert(not result.examples[1].description:find("unrelated", 1, true),
+    "should not reach past the blank line above the comment block")
+end
+test_example_regular_comment_description()
+
+-- Same, but the comment block is directly preceded by a non-blank,
+-- non-comment line (the other way extract_doc_comment's upward walk
+-- stops when allow_regular_comments is true).
+local function test_example_regular_comment_stops_at_code()
+  local source = [[
+local unrelated = 1
+-- part of the example doc
+local function Example_annotated2()
+  print("hi")
+end
+]]
+  local result = doc.parse(source, "test.tl")
+  assert(#result.examples == 1, "should find one example")
+  assert(result.examples[1].description, "should have a description")
+  assert(result.examples[1].description:find("part of the example doc", 1, true),
+    "should pick up the regular -- comment: " .. (result.examples[1].description or ""))
+  assert(not result.examples[1].description:find("unrelated", 1, true),
+    "should stop at the preceding code line")
+end
+test_example_regular_comment_stops_at_code()
+
 -- Test that Example_* functions are not included in regular functions
 local function test_example_not_in_functions()
   local source = [[
