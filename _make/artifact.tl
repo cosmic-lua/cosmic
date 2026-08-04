@@ -261,8 +261,11 @@ local function collision(out: {Staged}): string | nil
     if out[i].stored == out[i - 1].stored then
       local a = out[i - 1].source
       local b = out[i].source
+      -- `a` and `b` are staged SOURCE PATHS, not unit directories --
+      -- `project.unit_label` is for the latter ("" -> "the build") and
+      -- passes a path through unrecognized, so name the path itself.
       return "make: " .. out[i].stored .. ": staged by both " ..
-      project.unit_label(a) .. " and " .. project.unit_label(b)
+      a .. " and " .. b
     end
   end
   return nil
