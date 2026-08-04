@@ -30,6 +30,7 @@ local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local fs_types = require("cosmic.fs.types")
 local proc = require("cosmic.proc")
+local help = require("_make.help")
 local project = require("_make.project")
 local types = require("_make.types")
 local validate = require("_make.validate")
@@ -70,8 +71,12 @@ local MAX_GEN < const > = 2
 local TOOLCHAIN < const > = "cosmic"
 
 --- The line `--make help` prints that nothing else does. Content, not
---- exit status, is what tells an engine from a look-alike.
-local PROBE_MARK < const > = "make: verbs: "
+--- exit status, is what tells an engine from a look-alike. Read from
+--- `_make.help`, the one place `usage()` composes it, rather than kept
+--- as a second copy here that could drift from what `--make help`
+--- actually prints (help.tl does not import converge.tl, so this
+--- direction adds no cycle).
+local PROBE_MARK < const > = help.PROBE_MARK
 
 --- How long the probe waits for that answer. The candidate is an
 --- arbitrary user binary, so the probe is bounded rather than trusting.

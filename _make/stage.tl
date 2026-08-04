@@ -147,19 +147,30 @@ local function graph_stage(v: Verb, proj: Project, paths: {string},
     table.concat(project.paths_of(files), " ")
   end
 
+  -- The detail comes from the summary the stage just wrote, not from
+  -- the size of the file list. Those are different numbers, and the
+  -- verdict line is the one that survives a truncated log: `test: FAIL
+  -- (7 files)` read as "seven files failed" when it meant "one of two
+  -- tests failed, and seven files were selected".
+  --
+  -- Removed BEFORE make runs, not read as-is after: the summary recipe
+  -- is one of the last things a stage's own graph does, so make dying
+  -- earlier (a compile error, a killed job) leaves whatever summary the
+  -- PREVIOUS run wrote sitting there with a mtime make never touched.
+  -- Read as-is, that stale file reports the last run's counts under
+  -- THIS run's FAIL -- `test: FAIL (0 of 42 files)` for a run that
+  -- never got past `compile`. Best-effort: a first run has no summary
+  -- to remove, and that is not this stage's failure to report.
+  local summary = fs.join(project.BUILD_DIR,
+    (v.target as string) .. "-summary.txt") -- cast: a graph verb has one
+  fs.unlink(summary)
+
   -- cast: a graph verb always has a target (see the registry)
   local code, gerr = graph.run(proj, v.target as string, overrides, cosmic)
   if gerr and gerr ~= "" then
     io.stderr:write(gerr .. "\n")
     return false, "make"
   end
-  -- The detail comes from the summary the stage just wrote, not from
-  -- the size of the file list. Those are different numbers, and the
-  -- verdict line is the one that survives a truncated log: `test: FAIL
-  -- (7 files)` read as "seven files failed" when it meant "one of two
-  -- tests failed, and seven files were selected".
-  local summary = fs.join(project.BUILD_DIR,
-    (v.target as string) .. "-summary.txt") -- cast: a graph verb has one
   return code == 0, records.stage_detail(summary, #files, "file")
 end
 

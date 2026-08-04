@@ -9,6 +9,7 @@ local check = require("cosmic.check")
 local cenv = require("cosmic.env")
 local converge = require("_make.converge")
 local fs = require("cosmic.fs")
+local help = require("_make.help")
 local project = require("_make.project")
 local types = require("_make.types")
 
@@ -116,6 +117,16 @@ local function test_the_probe_reads_the_answer()
     "and a path that is not a program is not an engine")
 end
 test_the_probe_reads_the_answer()
+
+-- The probe's mark and what `--make help` actually prints are the SAME
+-- constant now (`_make.help`'s PROBE_MARK), not two copies that could
+-- drift apart silently. This is the structural guarantee behind
+-- test_the_probe_reads_the_answer's real-engine assertion above.
+local function test_the_probe_mark_is_help_usages_own_constant()
+  assert(help.usage():find(help.PROBE_MARK, 1, true) ~= nil,
+    "usage() must print the exact mark the probe greps for")
+end
+test_the_probe_mark_is_help_usages_own_constant()
 
 -- The outcomes below are the ones that only happen when something has
 -- already gone wrong, which is why they need arranging rather than

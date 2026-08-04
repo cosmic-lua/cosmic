@@ -14,6 +14,7 @@ local child = require("cosmic.child")
 local cenv = require("cosmic.env")
 local fs = require("cosmic.fs")
 local fs_types = require("cosmic.fs.types")
+local hash = require("cosmic.hash")
 local build = require("_cli.build")
 local modules = require("_cli.build.modules")
 local deps = require("_make.deps")
@@ -155,7 +156,13 @@ local function closure_argv(proj: Project, gen: string, out: string,
     end
   end
   if not (self is File) then
-    return {}
+    -- LOUD, not a fall-through: a generator the model does not know
+    -- about (excluded by `.cosmicignore`, or a path that never existed)
+    -- has no closure to compile and no manifest to hand it, so running
+    -- it anyway would be the stale-generation fall-through this whole
+    -- mechanism exists to close -- silently, since nothing else here
+    -- would explain why the manifest is missing.
+    return {}, "make: " .. gen .. ": not a project file"
   end
   -- cast: narrowing does not survive the guard above
   local files = deps.closure(proj, self as File, deps.index(proj))
@@ -258,6 +265,84 @@ local function run_generator(proj: Project, gen: string, dest: string,
   return true
 end
 
+--- Where the `cosmo.*`/`tl` declarations land: HARDCODED, not derived,
+--- because `cosmic.teal`'s get_default_include_dirs() hardcodes this
+--- same path first on every project's compile include path -- generator
+--- or not, there is nothing per-project to carry as a variable.
+--- teal_config_test.tl guards the tlconfig.lua mirror of that list;
+--- nothing guards this one, so a rename of either has to touch both by
+--- hand.
+local TYPES_GEN_DIR < const > = "o/_types/types_gen"
+
+--- Where its content-addressed stamp lands: BESIDE the directory, not
+--- inside it. `run_generator` clears and rewrites `TYPES_GEN_DIR` on
+--- every call (see its own doc above), so a file placed inside it gets
+--- a fresh mtime on every run whether or not its bytes changed. A
+--- sibling stamp, written only when the digest moves, is what lets a
+--- compile rule depend on "did the generated types change" rather than
+--- "did the generator run" -- the first is what a cosmos pin bump
+--- actually changes, and the second is true on every single build.
+local TYPES_STAMP < const > = TYPES_GEN_DIR .. ".stamp"
+
+--- A deterministic digest of every file under `dir`: sorted relative
+--- path and content, concatenated. Sorted so directory-walk order can
+--- never move the hash, and content-based rather than mtime-based so
+--- the digest is exactly as stable as the generator's OUTPUT bytes,
+--- never as stable as its last run.
+--- @param dir string Absolute path to the directory to digest
+--- @return string Hex digest; a fixed sentinel when the directory has
+--- nothing (absent, or a project with no generator at all)
+local function digest_of(dir: string): string
+  local found = fs.collect_all(dir)
+  if not found then
+    return "empty"
+  end
+  if not next(found) then
+    return "empty"
+  end
+  local names: {string} = {}
+  for rel in pairs(found as {string: fs_types.FileInfo}) do -- cast: narrowing does not survive the guard above
+    names[#names + 1] = rel
+  end
+  table.sort(names)
+  local parts: {string} = {}
+  for _, rel in ipairs(names) do
+    parts[#parts + 1] = rel
+    parts[#parts + 1] = fs.read(fs.join(dir, rel)) or ""
+  end
+  return hash.sha256_hex(table.concat(parts, "\x00"))
+end
+
+--- Refresh the generated-types stamp.
+---
+--- Runs for every project, generator or not: `TYPES_GEN_DIR` sits on
+--- every compile's include path regardless (see above), so a compile
+--- rule that depends on the stamp needs it to always resolve to a real
+--- file -- even a project with no `_types/types_gen.tl` gets one, whose
+--- digest is the "empty" sentinel. Written only when the bytes differ
+--- (graph.tl's own `write_if_changed` contract, kept local here rather
+--- than imported: pulling in `_make.graph` for one four-line helper
+--- would not fit under its own 500-line cap), so a no-op run leaves the
+--- stamp's mtime alone.
+--- @param proj Project The scanned project
+--- @return boolean, string Success, or false plus the reason
+local function stamp_types(proj: Project): boolean, string
+  local path = fs.join(proj.root, TYPES_STAMP)
+  local content = digest_of(fs.join(proj.root, TYPES_GEN_DIR)) .. "\n"
+  if fs.read(path) == content then
+    return true
+  end
+  if not fs.makedirs(fs.dirname(path)) then
+    return false, "make: cannot create " .. fs.dirname(TYPES_STAMP)
+  end
+  local wok, werr = fs.write(path, content)
+  if not wok then
+    return false, "make: cannot write " .. TYPES_STAMP .. ": " ..
+    (werr or "unknown error")
+  end
+  return true
+end
+
 --- Run every `*_gen.tl` in the project: the SOURCE generators.
 ---
 --- These run before the graph does, not after it, and that is the whole
@@ -292,10 +377,33 @@ local function sources(proj: Project, cosmic: string): boolean, string
       end
     end
   end
+  local sok, serr = stamp_types(proj)
+  if not sok then
+    return false, serr
+  end
   return true
 end
 
+--- Is `f` the payload generator `unit` owns, spelled `name`?
+--- @param unit string The unit's directory, ROOT for the project itself
+--- @param name string The generator's basename (`embed_gen.tl` or `.lua`)
+--- @param f File A candidate file
+--- @return boolean
+local function owns(unit: string, name: string, f: File): boolean
+  if f.kind ~= "payload-gen" or fs.basename(f.path) ~= name then
+    return false
+  end
+  local dir = f.path == name and project.ROOT or fs.dirname(f.path)
+  return dir == unit
+end
+
 --- Run one unit's generator, if it has one.
+---
+--- Asks the MODEL, not the disk: `proj.files` is what `.cosmicignore`
+--- and every other scan rule already filtered, so a payload generator
+--- excluded there stays excluded here too. Probing `fs.isfile` directly
+--- would run a generator the model does not know about -- silently, on
+--- output the engine can't attribute to any project file.
 --- @param proj Project The scanned project
 --- @param unit string The unit's directory, ROOT for the project itself
 --- @param cosmic string Absolute path to the cosmic binary
@@ -307,13 +415,15 @@ local function generate_unit(proj: Project, unit: string,
   -- carries both -- so the order is a tiebreak that never happens.
   for _, ext in ipairs({".tl", ".lua"}) do
     local name = project.PAYLOAD_GEN .. ext
-    local gen = unit == project.ROOT and name or fs.join(unit, name)
-    if fs.isfile(fs.join(proj.root, gen)) then
-      -- `o/<unit>/embed_gen`, which is `o/<gen path minus extension>`:
-      -- the same rule the source generators get, so every generator
-      -- owns one directory and the engine may clear it. NOT
-      -- `o/<unit>/`, which is the build's.
-      return run_generator(proj, gen, project.out_dir(stem_of(gen)), cosmic)
+    for _, f in ipairs(proj.files) do
+      if owns(unit, name, f) then
+        -- `o/<unit>/embed_gen`, which is `o/<gen path minus extension>`:
+        -- the same rule the source generators get, so every generator
+        -- owns one directory and the engine may clear it. NOT
+        -- `o/<unit>/`, which is the build's.
+        return run_generator(proj, f.path, project.out_dir(stem_of(f.path)),
+          cosmic)
+      end
     end
   end
   return true

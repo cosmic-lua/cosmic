@@ -19,7 +19,9 @@
 --- about it.
 
 local fs = require("cosmic.fs")
+local proc = require("cosmic.proc")
 local project = require("_make.project")
+local validate = require("_make.validate")
 
 --- Environment override for the project root.
 local ROOT_ENV < const > = "COSMIC_MAKE_ROOT"
@@ -113,16 +115,35 @@ end
 --- problem. `/Users/me/My Projects/thing` is an ordinary place to keep
 --- a checkout, and "cosmic does not support this" is a fine answer;
 --- "no rule to make target `/Users/me/My'" is not.
+---
+--- Whitespace is not the only character make reads specially in that
+--- same `COSMIC`/`COSMIC_DEP` assignment and every recipe line: `$`
+--- starts a make expansion, `(` `)` close one, `:` and `=` can end a
+--- rule or assignment early, and `%` is a pattern wildcard in a target
+--- position. `validate.METACHARACTERS` is the same list a project path
+--- is refused for, reused here rather than kept as a second copy that
+--- could drift from it — a root corrupting the makefile it names is the
+--- same hazard as a source path doing it, one level up.
 --- @param root string The absolute root
 --- @return string|nil The refusal, or nil when the path is expressible
 local function unnameable(root: string): string | nil
-  if not root:find("%s") then
-    return nil
+  if root:find("%s") then
+    return "make: unusable project root: " .. root ..
+    "\nmake: the path contains whitespace, and make prerequisites are" ..
+    " whitespace-separated with no escape that survives" ..
+    "\nmake: move or link the checkout to a path without spaces"
   end
-  return "make: unusable project root: " .. root ..
-  "\nmake: the path contains whitespace, and make prerequisites are" ..
-  " whitespace-separated with no escape that survives" ..
-  "\nmake: move or link the checkout to a path without spaces"
+  for i = 1, #validate.METACHARACTERS do
+    local c = validate.METACHARACTERS:sub(i, i)
+    if root:find(c, 1, true) then
+      return "make: unusable project root: " .. root ..
+      "\nmake: the path contains '" .. c .. "', a make-significant" ..
+      " character with no escape that survives a recipe line or a" ..
+      " variable assignment" ..
+      "\nmake: move or link the checkout to a path without it"
+    end
+  end
+  return nil
 end
 
 --- Resolve the project root for this run.
@@ -186,11 +207,34 @@ local function discover(verb: string): string | nil, string
   return abs
 end
 
+--- Resolve the running cosmic binary from `argv0` (`arg[-1]`, as the
+--- kernel saw it) into an absolute, existing path.
+---
+--- A bare PATH-invoked name (`cosmic`, no directory component -- the
+--- ordinary shape of a shebang, or a shell that found it on $PATH) is
+--- not a path to resolve against the cwd: `fs.abspath` alone turns it
+--- into a PHANTOM `<cwd>/cosmic` that happens not to exist wherever cwd
+--- is not the install directory, and everything downstream that
+--- assumes the result names a real file quietly degrades -- `o/project.mk`'s
+--- `COSMIC_DEP` becomes empty, dropping the driver as a prerequisite of
+--- every graph rule, silently. A real $PATH search is what argv0
+--- actually meant in that shape.
+--- @param argv0 string `arg[-1]`, or a fallback name
+--- @return string|nil The absolute path, or nil when unresolvable
+local function resolve_self(argv0: string): string | nil
+  local abs = fs.abspath(argv0)
+  if fs.isfile(abs) then
+    return abs
+  end
+  return proc.commandv(argv0)
+end
+
 local record RootModule
   ROOT_ENV: string
   is_root: function(dir: string): boolean
   ancestor_root: function(dir: string): string | nil
   discover: function(verb: string): string | nil, string
+  resolve_self: function(argv0: string): string | nil
 end
 
 local M: RootModule = {
@@ -198,6 +242,7 @@ local M: RootModule = {
   is_root = is_root,
   ancestor_root = ancestor_root,
   discover = discover,
+  resolve_self = resolve_self,
 }
 
 return M

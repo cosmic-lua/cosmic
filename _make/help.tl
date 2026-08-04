@@ -9,6 +9,13 @@ local types = require("_make.types")
 
 local type Verb = types.Verb
 
+--- The line that opens the verb list, in `usage()` below. Exported so
+--- `_make.converge`'s fixpoint probe can match on it without carrying a
+--- second copy of the literal: a probe that greps for text `usage()`
+--- also produces has to change WHEN `usage()` does, and two copies is
+--- how that stops happening silently.
+local PROBE_MARK < const > = "make: verbs: "
+
 --- The registry, injected: this module reads the rows, and the
 --- registry file owns them.
 local rows: {Verb} = {}
@@ -41,17 +48,19 @@ end
 --- @return string The usage text, without a trailing newline
 local function usage(): string
   return "usage: cosmic --make <verb> [paths…]\n" ..
-  "make: verbs: " .. table.concat(names(false), ", ") .. ", help\n" ..
+  PROBE_MARK .. table.concat(names(false), ", ") .. ", help\n" ..
   "make: planned: " .. table.concat(names(true), ", ")
 end
 
 local record HelpModule
+  PROBE_MARK: string
   bind: function(verbs: {Verb})
   names: function(planned: boolean): {string}
   usage: function(): string
 end
 
 local M: HelpModule = {
+  PROBE_MARK = PROBE_MARK,
   bind = bind,
   names = names,
   usage = usage,

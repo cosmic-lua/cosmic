@@ -79,6 +79,7 @@ local defines_import: {string: boolean} = {
   entry = true,
   test = true,
   example = true,
+  benchmark = true,
   types = true,
 }
 

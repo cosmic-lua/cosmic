@@ -406,10 +406,11 @@ local function run(argv: {string}): integer
     return stage.verdict(name, false, "--baseline takes no paths")
   end
 
-  -- Resolve this binary BEFORE anything chdirs: `--make` enters the
-  -- project root, and a relative `./cosmic` resolved after that points
-  -- at a path inside the project that does not exist.
-  local self = fs.abspath(arg[-1] or "cosmic")
+  -- Resolve this binary BEFORE anything chdirs: a relative `./cosmic`
+  -- resolved after chdir would point inside the project, not at itself.
+  -- (root.resolve_self also covers a PATH-invoked bare argv0.)
+  local self = root.resolve_self(arg[-1] or "cosmic")
+  if not self then return stage.verdict(name, false, "cannot resolve cosmic") end
   -- Same rule, same place: `COSMIC_MAKE` is resolved by find_make,
   -- which runs after `open_project` has chdir'd, so a relative value
   -- resolved against the PROJECT ROOT rather than the directory the
