@@ -5,9 +5,23 @@ local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local spawn = require("cosmic.child")
 local benchmark = require("cosmic.benchmark")
+local env = require("cosmic.env")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
 local tmpdir = os.getenv("TEST_TMPDIR")
+
+-- This file exercises the RUNNER (discovery, naming, iteration counting,
+-- formatting, error handling, selection) through real Benchmark_* runs,
+-- not the quality of any one timing. Go-style calibration toward
+-- DEFAULT_MIN_SECONDS (~1s) would cost ~1s per real benchmark run below
+-- for no assertion this shrinks: a tiny floor proves the runner works
+-- exactly as well at 10ms as at 1s. Direct benchmark.run() calls get
+-- an explicit Options.min_seconds; the two tests that spawn `cosmic
+-- --benchmark` as a child (which has no Options to pass) instead set
+-- COSMIC_BENCHMARK_MIN_SECONDS here so the child inherits it.
+local TINY_SECONDS = 0.01
+local TINY: benchmark.Options = {min_seconds = TINY_SECONDS}
+check.must(env.set("COSMIC_BENCHMARK_MIN_SECONDS", tostring(TINY_SECONDS)))
 
 local function write_temp(name: string, content: string): string
   local filepath = fs.join(tmpdir, name)
@@ -55,7 +69,7 @@ local function Benchmark_add()
   local x = 1 + 1
 end
 ]])
-  local result = benchmark.run(input)
+  local result = benchmark.run(input, nil, TINY)
   assert(result.exit_code == 0, "should pass")
   assert(#result.results == 1, "should have one result")
   assert(result.results[1].iterations > 0, "should have iterations")
@@ -122,7 +136,7 @@ local function Benchmark_nested()
   end
 end
 ]])
-  local result = benchmark.run(input)
+  local result = benchmark.run(input, nil, TINY)
   assert(result.exit_code == 0, "should handle nested blocks")
   assert(result.results[1].iterations > 0, "should run iterations")
 end
@@ -135,7 +149,7 @@ local function Benchmark_fmt()
   local x = 1
 end
 ]])
-  local result = benchmark.run(input)
+  local result = benchmark.run(input, nil, TINY)
   local formatted = benchmark.format_results(input, result)
   assert(formatted:find("Benchmark_fmt"), "should contain benchmark name")
   assert(formatted:find("PASS"), "should show PASS status")
@@ -149,7 +163,7 @@ local function Benchmark_error()
   error("intentional error")
 end
 ]])
-  local result = benchmark.run(input)
+  local result = benchmark.run(input, nil, TINY)
   assert(result.exit_code == 1, "should fail on runtime error")
   assert(result.results[1].error:find("runtime error"), "should capture error")
 end
@@ -172,7 +186,7 @@ local function Benchmark_math_add()
 end
 ]])
   -- Filter to only run "string" benchmarks
-  local result = benchmark.run(input, "string")
+  local result = benchmark.run(input, "string", TINY)
   assert(result.exit_code == 0, "should pass")
   assert(#result.results == 1, "should run only one benchmark")
   assert(result.results[1].name == "Benchmark_string_concat", "should run matching benchmark")

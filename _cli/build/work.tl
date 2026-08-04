@@ -57,6 +57,7 @@ end
 --- the skip is never less honest than the scheduler above it.
 local ENV_SWITCHES < const >: {string} = {
   "CI", "COSMIC_COVERAGE", "COSMIC_FENCE", "COSMIC_FIXPOINT",
+  "COSMIC_BENCHMARK_MIN_SECONDS",
 }
 
 --- The key over a step's meaning: its stable argv (relative paths and

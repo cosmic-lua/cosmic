@@ -15,7 +15,8 @@
   content key. `compile` and `record` (in `_cli/build/work.tl`) hash
   their stable argv, a fixed set of behavior switches from the
   environment (`CI`, `COSMIC_COVERAGE`, `COSMIC_FENCE`,
-  `COSMIC_FIXPOINT`), and the BYTES of every declared input — the
+  `COSMIC_FIXPOINT`, `COSMIC_BENCHMARK_MIN_SECONDS`), and the BYTES
+  of every declared input — the
   source, the closure the rule already passes after `--deps`, and the
   tool stamps, which the compile line now carries after `--deps` too
   so the fence grants them and the key sees them. The key and the
