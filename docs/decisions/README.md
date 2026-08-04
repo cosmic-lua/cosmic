@@ -28,3 +28,4 @@ than editing the record it replaces.
 | D14 | no self-hosting: make stays the graph executor | [→](d14-no-self-hosting.md) |
 | D15 | an artifact carries its modules and `embed/**`; shipping is opt-in | [→](d15-shipping-is-opt-in.md) |
 | D16 | every build input is enumerable from committed files, the version stamp included | [→](d16-enumerable-build-inputs.md) |
+| D17 | a graph rule's tool prerequisite is a per-tool stamp, not the binary | [→](d17-tool-stamps.md) |

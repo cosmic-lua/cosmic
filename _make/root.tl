@@ -104,10 +104,10 @@ end
 ---
 --- A makefile's prerequisite list is whitespace-separated and there is
 --- no escape that survives it, so a root with a space in its path
---- cannot be expressed at all: `o/project.mk` assigns `COSMIC` and
---- `COSMIC_DEP` to that path, every graph rule takes `$(COSMIC_DEP)` as
---- a prerequisite, and make would read one path as two. The recipe side
---- agrees — a line is argv, whitespace-split, by design.
+--- cannot be expressed at all: `o/project.mk` assigns `COSMIC` to that
+--- path and every recipe line starts with `$(COSMIC)`, so make would
+--- read one path as two. The recipe side agrees — a line is argv,
+--- whitespace-split, by design.
 ---
 --- Said up front, because the alternative is what it did before: make
 --- reports a missing prerequisite named after the first word of your
@@ -117,7 +117,7 @@ end
 --- "no rule to make target `/Users/me/My'" is not.
 ---
 --- Whitespace is not the only character make reads specially in that
---- same `COSMIC`/`COSMIC_DEP` assignment and every recipe line: `$`
+--- same `COSMIC` assignment and every recipe line: `$`
 --- starts a make expansion, `(` `)` close one, `:` and `=` can end a
 --- rule or assignment early, and `%` is a pattern wildcard in a target
 --- position. `validate.METACHARACTERS` is the same list a project path
@@ -215,10 +215,10 @@ end
 --- not a path to resolve against the cwd: `fs.abspath` alone turns it
 --- into a PHANTOM `<cwd>/cosmic` that happens not to exist wherever cwd
 --- is not the install directory, and everything downstream that
---- assumes the result names a real file quietly degrades -- `o/project.mk`'s
---- `COSMIC_DEP` becomes empty, dropping the driver as a prerequisite of
---- every graph rule, silently. A real $PATH search is what argv0
---- actually meant in that shape.
+--- assumes the result names a real file quietly degrades -- a tool
+--- stamp that cannot read its binary falls back to its constant
+--- no-binary form, dropping tool freshness from the graph, silently.
+--- A real $PATH search is what argv0 actually meant in that shape.
 --- @param argv0 string `arg[-1]`, or a fallback name
 --- @return string|nil The absolute path, or nil when unresolvable
 local function resolve_self(argv0: string): string | nil
