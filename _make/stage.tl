@@ -44,11 +44,17 @@ local function kinds_of(set: {Kind: boolean}): {Kind}
 end
 
 local SELECTS < const >: {string: Selection} = {
+  -- No `variable`: a selected build still compiles the whole tree (see
+  -- `run_build`'s own comment), and `run_build` always lowers onto the
+  -- graph with an empty selection, so there is no path list here to
+  -- turn into an override. `--make build <binary>` narrows which
+  -- binaries get STAGED, resolved separately through
+  -- `binaries.select` (`_make/law.tl`'s RESOLVERS), never through this
+  -- table.
   build = {
     kinds = {"module", "entry", "test", "example", "benchmark", "gen",
       "payload-gen"},
     suffix = ".tl",
-    variable = "tl_sources",
   },
   -- Derived from the one definition in types, so a selected `fmt` and
   -- the facts writer's `fmt_sources` cannot disagree about what is
@@ -135,8 +141,9 @@ local function graph_stage(v: Verb, proj: Project, paths: {string},
   local files = picked as {File} -- cast: record union after the guard
 
   local overrides: {string} = {}
-  if #paths > 0 then
-    overrides[1] = sel.variable .. "=" ..
+  local variable = sel.variable
+  if variable and #paths > 0 then
+    overrides[1] = variable .. "=" ..
     table.concat(project.paths_of(files), " ")
   end
 

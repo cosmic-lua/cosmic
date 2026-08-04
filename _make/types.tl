@@ -101,7 +101,12 @@ local record make_types
     --- and the guard against it lived in a comment. The type says it
     --- now.
     suffix: string | nil
-    variable: string
+    --- The make variable a path selection overrides, or nil when the
+    --- verb never lowers a selection onto the graph this way (`build`:
+    --- the whole tree compiles either way, and its own paths narrow
+    --- which BINARIES get staged, resolved through `binaries.select`
+    --- rather than this override).
+    variable: string | nil
   end
 
   --- One verb: everything the dispatcher, the usage text and the

@@ -261,8 +261,11 @@ local function collision(out: {Staged}): string | nil
     if out[i].stored == out[i - 1].stored then
       local a = out[i - 1].source
       local b = out[i].source
+      -- `a` and `b` are staged SOURCE PATHS, not unit directories --
+      -- `project.unit_label` is for the latter ("" -> "the build") and
+      -- passes a path through unrecognized, so name the path itself.
       return "make: " .. out[i].stored .. ": staged by both " ..
-      project.unit_label(a) .. " and " .. project.unit_label(b)
+      a .. " and " .. b
     end
   end
   return nil
@@ -354,39 +357,29 @@ local function stage(proj: Project, binary: Binary): string | nil, string
   return dir
 end
 
---- The runtime this artifact is built on.
----
---- A unit that produced `o/<unit>/embed_gen/base` names its own — cosmic's own
---- generator copies the `lua` out of the pinned cosmos zip, so a
---- cosmic built by any cosmic is built on the runtime the project
---- pinned rather than on whichever binary happened to run the build.
---- Everything else falls back to the running cosmic, which is the
---- right answer for a project that pins nothing: their artifact is a
---- cosmic with their code in it.
---- @param proj Project The scanned project
---- @param binary Binary The artifact being built
---- @param cosmic string Absolute path to the running cosmic
---- @return string The base to embed onto
-local function base_of(proj: Project, binary: Binary, cosmic: string): string
-  local declared = fs.join(gen_dir(binary.dir), BASE_NAME)
-  if fs.isfile(fs.join(proj.root, declared)) then
-    return declared
-  end
-  return cosmic
-end
-
 --- Every runtime this unit ships its payload on.
 ---
---- A unit that writes `base-<variant>` beside `base` gets a second
---- artifact, `o/bin/<name>-<variant>`, carrying the SAME payload on a
---- different runtime. That is what a debug build is — cosmic ships
---- `cosmic` and `cosmic-debug` off one payload and two cosmos runtimes —
---- and expressing it as another file in the directory the convention
---- already reads keeps it out of the model: no variant field, no second
---- `cmd/` unit whose generator has to be kept in step with the first.
+--- A unit that produced `o/<unit>/embed_gen/base` names its own —
+--- cosmic's own generator copies the `lua` out of the pinned cosmos
+--- zip, so a cosmic built by any cosmic is built on the runtime the
+--- project pinned rather than on whichever binary happened to run the
+--- build. Everything else falls back to the running cosmic, which is
+--- the right answer for a project that pins nothing: their artifact is
+--- a cosmic with their code in it.
+---
+--- A unit that also writes `base-<variant>` beside `base` gets a
+--- second artifact, `o/bin/<name>-<variant>`, carrying the SAME
+--- payload on a different runtime. That is what a debug build is —
+--- cosmic ships `cosmic` and `cosmic-debug` off one payload and two
+--- cosmos runtimes — and expressing it as another file in the
+--- directory the convention already reads keeps it out of the model:
+--- no variant field, no second `cmd/` unit whose generator has to be
+--- kept in step with the first.
 ---
 --- The plain `base` comes first, so the unnamed artifact is the one a
---- project without variants gets and the one every other verb means.
+--- project without variants gets and the one every other verb means —
+--- `result[1][2]` is "the" base a unit builds on, with no separate
+--- single-base accessor to drift from it.
 --- @param proj Project The scanned project
 --- @param binary Binary The artifact being built
 --- @param cosmic string Absolute path to the running cosmic
@@ -482,7 +475,7 @@ local function build(proj: Project, binary: Binary, cosmic: string): string | ni
 end
 
 local record ArtifactModule
-  base_of: function(proj: Project, binary: Binary, cosmic: string): string
+  bases_of: function(proj: Project, binary: Binary, cosmic: string): {{string, string}}
   scope_of: function(proj: Project, binary: Binary): {File}
   plan: function(proj: Project, binary: Binary): {Staged}
   stage: function(proj: Project, binary: Binary): string | nil, string
@@ -490,7 +483,7 @@ local record ArtifactModule
 end
 
 local M: ArtifactModule = {
-  base_of = base_of,
+  bases_of = bases_of,
   scope_of = scope_of,
   plan = plan,
   stage = stage,

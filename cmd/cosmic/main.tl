@@ -148,8 +148,8 @@ local function parse_args(): Options
       elseif long_greedy[opt_name] then
         script_idx = nil
         break
-      elseif long_extra_arg[opt_name] then
-        i = i + 3
+      elseif long_extra_arg[opt_name:match("^([^=]+)=") or opt_name] then
+        i = i + (opt_name:find("=", 1, true) and 2 or 3)
       elseif not opt_name:find("=") and long_needs_arg[opt_name] then
         i = i + 2
       else

@@ -58,6 +58,17 @@ local function test_check_format_accepts_formatted_source()
 end
 test_check_format_accepts_formatted_source()
 
+--- The `--check=kind file` equals-form embeds the kind in the option
+--- itself; without matching pre-scan handling the file is misread as
+--- the script to run and --check refuses it for lack of a file.
+local function test_check_format_accepts_eq_form()
+  local r = cli("--check=fmt", formatted)
+  assert(r.code == 0,
+    "well-formatted file should pass via --check=fmt, got " .. r.code ..
+    ": " .. r.err)
+end
+test_check_format_accepts_eq_form()
+
 local function test_check_format_rejects_misformatted_source()
   local r = cli("--check", "fmt", misformatted)
   assert(r.code ~= 0, "misformatted file must be rejected, got exit 0")
