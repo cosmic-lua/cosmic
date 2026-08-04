@@ -182,6 +182,7 @@ local function run_benches(a: Args): integer
   local opts: pt.Options = {samples = a.samples, min_sample_secs = a.min_secs}
   local all: {pt.Measurement} = {}
   local failed = false
+  local matched = 0
   for _, name in ipairs(a.positional) do
     local mod, merr = load_module(name)
     if mod == nil then
@@ -190,29 +191,43 @@ local function run_benches(a: Args): integer
     end
     local scenarios, serr = mod.scenarios()
     if scenarios == nil then
+      -- A module that fails to build its scenario list is exactly as
+      -- unusable as one that fails to require() -- both abort the run
+      -- rather than silently skipping the module and reporting on
+      -- whatever else happened to load.
       io.stderr:write(name .. ": scenarios: " .. tostring(serr) .. "\n")
-      failed = true
-    else
-      for _, s in ipairs(scenarios) do
-        -- SUBSTRING, plainly. A scenario name is `hash_sha256_small`,
-        -- `startup_run_*`, `net_ip_*` -- full of characters a Lua
-        -- pattern reads as syntax, so `--only startup_run_*` as a
-        -- pattern silently means "startup_ru" followed by any number of
-        -- `n`, and matches things the user did not ask for while
-        -- looking like it worked.
-        if a.only == nil or s.name:find(a.only, 1, true) then
-          local m = harness.run_scenario(s, opts)
-          print(harness.format_line(m))
-          table.insert(all, m)
-          if m.error then
-            failed = true
-          end
+      if mod.cleanup then
+        pcall(mod.cleanup)
+      end
+      return 1
+    end
+    for _, s in ipairs(scenarios) do
+      -- SUBSTRING, plainly. A scenario name is `hash_sha256_small`,
+      -- `startup_run_*`, `net_ip_*` -- full of characters a Lua
+      -- pattern reads as syntax, so `--only startup_run_*` as a
+      -- pattern silently means "startup_ru" followed by any number of
+      -- `n`, and matches things the user did not ask for while
+      -- looking like it worked.
+      if a.only == nil or s.name:find(a.only, 1, true) then
+        matched = matched + 1
+        local m = harness.run_scenario(s, opts)
+        print(harness.format_line(m))
+        table.insert(all, m)
+        if m.error then
+          failed = true
         end
       end
     end
     if mod.cleanup then
       pcall(mod.cleanup)
     end
+  end
+  if a.only and matched == 0 then
+    -- A typo'd --only that matches nothing used to exit 0 with an empty
+    -- results file -- a silently-empty comparison later, not an error
+    -- now.
+    io.stderr:write("--only " .. a.only .. " matched nothing\n")
+    return 1
   end
   if a.out then
     local payload: pt.Results = {

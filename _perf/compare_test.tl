@@ -94,15 +94,59 @@ local function test_errored_scenario_fails()
 end
 test_errored_scenario_fails()
 
-local function test_errored_baseline_treated_as_new()
+-- Deliberate pin: a scenario whose BASELINE row errored used to read as
+-- "new" (never gated) until someone happened to refresh the baseline --
+-- a broken scenario could stay broken indefinitely and silently. It is
+-- now a failing verdict, the same way a "missing" scenario is: a fresh,
+-- passing baseline is what clears it, not merely running the gate again.
+local function test_errored_baseline_is_a_failure()
   local bad: pt.Measurement = {name = "flaky", samples_ns = {}, error = "boom"}
   local deltas, failures = compare.diff(
     results({bad}),
     results({m("flaky", 500, 1)}), 10)
-  assert(failures == 0, "recovered scenario is not a failure")
-  assert(find_delta(deltas, "flaky").verdict == "new", "expected new")
+  assert(failures == 1, "a baseline error must fail until the baseline is refreshed")
+  assert(find_delta(deltas, "flaky").verdict == "baseline-error",
+    "expected baseline-error, got " .. find_delta(deltas, "flaky").verdict)
 end
-test_errored_baseline_treated_as_new()
+test_errored_baseline_is_a_failure()
+
+-- A scenario truly absent from the baseline (never measured, not
+-- errored) stays "new" and non-failing -- this is what makes the case
+-- above about the baseline having ERRORED, not merely being incomplete.
+local function test_truly_new_scenario_is_not_a_failure()
+  local deltas, failures = compare.diff(
+    results({}),
+    results({m("brand_new", 500, 1)}), 10)
+  assert(failures == 0, "a scenario absent from the baseline is not a failure")
+  assert(find_delta(deltas, "brand_new").verdict == "new", "expected new")
+end
+test_truly_new_scenario_is_not_a_failure()
+
+-- c.wall_ns nil without c.error used to arithmetic on nil below and
+-- throw; malformed input gets a clean verdict instead.
+local function test_malformed_current_row_does_not_throw()
+  local malformed: pt.Measurement = {name = "odd", samples_ns = {}}
+  local deltas, failures = compare.diff(
+    results({m("odd", 500, 1)}),
+    results({malformed}), 10)
+  assert(failures == 1, "a malformed current row must fail")
+  assert(find_delta(deltas, "odd").verdict == "malformed",
+    "expected malformed, got " .. find_delta(deltas, "odd").verdict)
+end
+test_malformed_current_row_does_not_throw()
+
+-- Symmetric case: a malformed BASELINE row (no error, no wall_ns) is
+-- just as undiffable as a malformed current row.
+local function test_malformed_baseline_row_does_not_throw()
+  local malformed: pt.Measurement = {name = "odd", samples_ns = {}}
+  local deltas, failures = compare.diff(
+    results({malformed}),
+    results({m("odd", 500, 1)}), 10)
+  assert(failures == 1, "a malformed baseline row must fail")
+  assert(find_delta(deltas, "odd").verdict == "malformed",
+    "expected malformed, got " .. find_delta(deltas, "odd").verdict)
+end
+test_malformed_baseline_row_does_not_throw()
 
 local function test_format_summarizes()
   local deltas = compare.diff(
@@ -144,7 +188,8 @@ test_triage_keeps_stable_regression()
 
 local function test_triage_reclassifies_noisy_regression()
   -- Same +30% "regression", but the current binary swings ~-31% against
-  -- itself for "a": indistinguishable from noise, so reclassify.
+  -- itself for "a": COMPARABLE magnitude (30% is well within
+  -- TRIAGE_K=2 * 31%), so it reclassifies to noise.
   local deltas, failures = compare.triage(
     results({m("a", 1000, 2)}), results({m("a", 1300, 2)}),
     results({m("a", 1300, 2)}), results({m("a", 900, 2)}), 10)
@@ -152,6 +197,44 @@ local function test_triage_reclassifies_noisy_regression()
   assert(find_delta(deltas, "a").verdict == "noise", "should reclassify to noise")
 end
 test_triage_reclassifies_noisy_regression()
+
+-- Magnitude-blindness was the bug: previously ANY regression on a
+-- scenario whose A/A self-check cleared the bar was waved through as
+-- noise, even one many times larger than the self-check swing. A 30%
+-- self-check swing does not excuse a +300% regression.
+local function test_triage_large_regression_in_unstable_scenario_still_fails()
+  local deltas, failures = compare.triage(
+    results({m("a", 1000, 2)}), results({m("a", 4000, 2)}), -- +300%
+    results({m("a", 1000, 2)}), results({m("a", 1300, 2)}), -- self: +30%
+    10)
+  assert(failures == 1,
+    "a regression far larger than the self-check swing must still fail, got " .. failures)
+  assert(find_delta(deltas, "a").verdict == "regression",
+    "should stay regression, got " .. find_delta(deltas, "a").verdict)
+end
+test_triage_large_regression_in_unstable_scenario_still_fails()
+
+-- The K=2 boundary itself: |regression| <= max(bar, K * |self delta|).
+-- Here bar=10, self delta=20%, so the cutoff is exactly 40%. 40% must
+-- reclassify; 41% (a hair over) must not.
+local function test_triage_k_factor_boundary()
+  local at_boundary = compare.triage(
+    results({m("a", 1000, 2)}), results({m("a", 1400, 2)}), -- +40%
+    results({m("a", 1000, 2)}), results({m("a", 1200, 2)}), -- self: +20%
+    10)
+  assert(find_delta(at_boundary, "a").verdict == "noise",
+    "40% regression at exactly K*20% must reclassify, got " ..
+    find_delta(at_boundary, "a").verdict)
+
+  local over_boundary = compare.triage(
+    results({m("a", 1000, 2)}), results({m("a", 1410, 2)}), -- +41%
+    results({m("a", 1000, 2)}), results({m("a", 1200, 2)}), -- self: +20%
+    10)
+  assert(find_delta(over_boundary, "a").verdict == "regression",
+    "41% regression just past K*20% must stay regression, got " ..
+    find_delta(over_boundary, "a").verdict)
+end
+test_triage_k_factor_boundary()
 
 local function test_triage_only_touches_regressions()
   -- "a" is a noisy regression -> noise; "b" is ok in the main diff even
