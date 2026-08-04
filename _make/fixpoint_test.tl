@@ -15,6 +15,19 @@
 -- bytes behind as dead space, so each generation grows ~3.5 MB (12.2 ->
 -- 15.8 -> 19.3, measured) while every generation boots fine. Only
 -- comparing two of them says so.
+--
+-- Gated behind COSMIC_FIXPOINT=1: two full `--make build`s cost ~83s,
+-- more than every other test combined, and paying that on each `--make
+-- test` (and twice per `--make ci`, since coverage runs the tests
+-- again) taxed every developer loop for claims CI already asserts per
+-- push on the REAL artifact: pr.yml's build lane cmp's a second build
+-- (convergence, which catches the growth bug above) and a clean-tree
+-- rebuild at another path (cold buildability, reproducibility), and
+-- the converged gate plus the smoke lane exercise the product. What
+-- stays unique here is the one-command version of the whole story --
+-- run it when touching the artifact pipeline (_make/artifact,
+-- embed_gen, base selection):
+-- `COSMIC_FIXPOINT=1 bin/cosmic --make test _make/fixpoint_test.tl`.
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
@@ -164,6 +177,17 @@ local function generation(label: string, with: string): string
   local built = fs.join(dir, "o/bin/cosmic")
   assert(fs.isfile(built), label .. ": no artifact at o/bin/cosmic:\n" .. out)
   return built
+end
+
+-- Opt-in: this test builds the repo twice (~83s), so it stays out of
+-- the default `--make test` / `--make ci` run; the header names the CI
+-- steps that assert the same claims per push. `check.needs` is wrong
+-- here -- it hard-fails when `CI` is set, and the gate lane runs in CI
+-- and must be able to skip this test rather than fail on its absence.
+if os.getenv("COSMIC_FIXPOINT") ~= "1" then
+  print("skip: COSMIC_FIXPOINT=1 not set (this test runs two full " ..
+    "builds; opt in when touching the artifact pipeline)")
+  os.exit(check.EXIT_SKIP)
 end
 
 -- Both halves need the pinned inputs. Skipping when they are absent

@@ -452,6 +452,9 @@ test_something()
 
 each test gets its own temp directory via `TEST_TMPDIR`.
 
+`_make/fixpoint_test.tl` (two full builds) is gated: run it with
+`COSMIC_FIXPOINT=1 bin/cosmic --make test _make/fixpoint_test.tl`.
+
 ## Performance
 
 `_perf` holds the scenario harness: end-to-end scenarios (JSON, SQLite,
