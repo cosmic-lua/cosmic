@@ -5,6 +5,7 @@ _cli/args.tl 0 31
 _cli/build/init.tl 43 47
 _cli/build/modules.tl 46 49
 _cli/build/steps.tl 183 239
+_cli/build/work.tl 145 165
 _cli/check.tl 24 31
 _cli/driver.tl 21 34
 _cli/grants.tl 158 168
@@ -18,7 +19,7 @@ _docs/derive.tl 54 81
 _docs/publish.tl 116 176
 _make/artifact.tl 163 180
 _make/binaries.tl 24 24
-_make/check.tl 51 52
+_make/check.tl 94 96
 _make/clean.tl 28 38
 _make/converge.tl 34 62
 _make/deps.tl 73 73
@@ -178,4 +179,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 80 93
 tlconfig.lua 7 7
-total 13563 17899
+total 13751 18108

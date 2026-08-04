@@ -2,7 +2,10 @@
 ---
 --- Split out of _cli.build when the vocabulary outgrew the 500-line
 --- cap. The dispatcher next door owns the vocabulary (which names
---- exist, how a line is parsed); this file owns what each name does.
+--- exist, how a line is parsed); this file owns what each name does —
+--- except the three that do real work per source (`compile`,
+--- `capture`, `record`), which live in `_cli.build.work` with the
+--- content-keyed skip that lets them not do it.
 ---
 --- Requires the EMBEDDED stdlib only — deliberately no tree modules:
 --- the compile step is what BUILDS the tree's .lua files, so a tree
@@ -14,7 +17,7 @@ local env = require("cosmic.env")
 local fs = require("cosmic.fs")
 local fs_types = require("cosmic.fs.types")
 local records = require("cosmic.records")
-local modules = require("_cli.build.modules")
+local work = require("_cli.build.work")
 
 --- The one prefix a recipe step's failure wears, matching its siblings
 --- in `_cli/build/init.tl` and `_cli/driver.tl`, so a failed step is
@@ -22,106 +25,6 @@ local modules = require("_cli.build.modules")
 local function fail(msg: string): integer
   io.stderr:write("cosmic -c: " .. msg .. "\n")
   return 1
-end
-
---- Run argv, pass stderr through, and write stdout to out only when
---- the content changed, so an unchanged result does not touch the
---- output's mtime.
-local function run_into(argv: {string}, out: string): integer
-  local result, serr = child.run(argv)
-  if not result then
-    return fail("spawn " .. argv[1] .. " failed: " .. tostring(serr))
-  end
-  local r = result as child.Result -- cast: record union after guard
-  if r.stderr and r.stderr ~= "" then
-    io.stderr:write(r.stderr)
-  end
-  if not r.ok then
-    return r.code or 1
-  end
-  local existing = fs.read(out)
-  if existing == r.stdout then
-    -- Same bytes, new schedule. Make ran this recipe because the target
-    -- was out of date against something -- a source, or the driver
-    -- itself -- and a target whose mtime never advances stays out of
-    -- date FOREVER: every later run re-runs the step, and with the
-    -- driver as a prerequisite that is the whole tree, every build.
-    -- Content still decides what the file IS; the timestamp only
-    -- records that it has been brought up to date against the inputs
-    -- make just compared. The cost, paid knowingly: an edit that
-    -- compiles to identical bytes now re-runs the tests that import it.
-    local ok, terr = fs.touch(out)
-    if not ok then
-      -- Never silent: a target that cannot be restamped stays out of
-      -- date forever, and make re-runs this step on every future
-      -- invocation. That is the non-convergence this line exists to
-      -- close, arriving instead as a failure nobody sees.
-      io.stderr:write("restamp " .. out .. " failed: " ..
-        (terr or "unknown error") .. "\n")
-    end
-    return 0
-  end
-  fs.makedirs(fs.dirname(out))
-  local ok, werr = fs.write(out, r.stdout)
-  if not ok then
-    return fail("write " .. out .. " failed: " .. (werr or "unknown error"))
-  end
-  return 0
-end
-
---- compile <bootstrap> <src> <out> [compiler flags...]
---- Always a STRICT compile: --compile-strict type checks and then
---- generates from that same checked AST, so nothing ships that did not
---- typecheck, under LUA_PATH=";;" so output cannot depend on parallel
---- build order. TL_PATH passes through from the rule's export.
----
---- Compiles are unconditionally strict, with no flag-stamp argument to
---- probe: a driver that falls back to a non-strict, order-dependent
---- compile when the stamp says the flag is unavailable is a place where
---- a stale input degrades silently.
-local function do_compile(args: {string}): integer
-  local bootstrap, src, out = args[1], args[2], args[3]
-  if not out then
-    return fail("usage: compile <bootstrap> <src> <out> [flags...]"
-      .. " [--deps <path>...]")
-  end
-  env.set("LUA_PATH", ";;")
-  local argv: {string} = {bootstrap}
-  for i = 4, #args do
-    -- Everything after --deps is an INPUT, named so the derived fence
-    -- can grant it, and never forwarded to the child. Forwarding was a
-    -- silent disaster the first time it was written: a bare path lands
-    -- as the child's first positional, getopt stops parsing there, and
-    -- `cosmic --include-dir . util.tl --compile-strict main.tl` RUNS
-    -- util.tl as a script and writes its empty stdout as main.lua. The
-    -- compile "passes" having checked nothing -- the shape,
-    -- where an argv ambiguity makes a gate report a pass it never ran.
-    if args[i] == "--deps" then
-      break
-    end
-    table.insert(argv, args[i])
-  end
-  table.insert(argv, "--compile-strict")
-  table.insert(argv, src)
-  return run_into(argv, out)
-end
-
---- capture <bootstrap> <out> <script+args...> — run a script under the
---- bootstrap and write its stdout to out if changed (the doc-index
---- rule's shape). The child gets NO manifest, deliberately: the one
---- caller (the doc-index rule) imports nothing from the project it
---- indexes. Attaching one is the right move the day a captured script
---- does -- `record` shows the shape.
-local function do_capture(args: {string}): integer
-  local bootstrap, out = args[1], args[2]
-  if not out or not args[3] then
-    return fail("usage: capture <bootstrap> <out> <script> [args...]")
-  end
-  local argv: {string} = {bootstrap}
-  for i = 3, #args do
-    table.insert(argv, args[i])
-  end
-  return run_into(argv, out)
 end
 
 --- tee <out> <cmd...> — run a command, print its stdout AND write it to
@@ -176,72 +79,6 @@ local function do_write_list(args: {string}): integer
   local ok, werr = fs.write(out, content)
   if not ok then
     return fail("write " .. out .. " failed: " .. (werr or "unknown error"))
-  end
-  return 0
-end
-
---- record <out> <cmd> [args...] — run one test file, writing the
---- `<out>.got`/`.out`/`.err` contract testrun already owns, and then
---- **always succeed**.
----
---- That last part is the whole point, and it is a decision rather than
---- an oversight. `--test` propagates its child's exit code, so a rule
---- shaped `cosmic --test …` fails when the test fails: under `make`
---- that stops the build at the first failing test, and — worse — a
---- test that means to SKIP exits 2, which is indistinguishable from a
---- failure to make. The graph's job is to record what happened; the
---- report step grades it, where 0/2/other already mean pass/skip/fail.
---- So the verb writes the result and returns 0, every test in a run
---- gets to run, and skip semantics survive the trip through make.
----
---- A step that could not record a result at all (unwritable output) is
---- still a failure: that is the graph breaking, not a test failing.
-local function do_record(args: {string}): integer
-  local out = args[1]
-  if not out or not args[2] then
-    return fail("usage: record <out> <cmd> [args...]")
-  end
-  local argv: {string} = {}
-  local deps: {string} = {}
-  local in_deps = false
-  for i = 2, #args do
-    -- Same contract as compile: --deps names inputs for the fence and
-    -- never reaches the child as ARGUMENTS -- a test that read arg[1]
-    -- would find its own dependency list there. It is the child's
-    -- RESOLUTION set too, via the manifest below: see _cli.build.modules.
-    if args[i] == "--deps" then
-      in_deps = true
-    elseif in_deps then
-      deps[#deps + 1] = args[i]
-    else
-      argv[#argv + 1] = args[i]
-    end
-  end
-  modules.attach(argv, out, fs.abspath("."), deps)
-  -- The test fence, behavioural half: point TMP at a scratch directory
-  -- beside this step's own output, so testrun's mkdtemp lands there and
-  -- the test's TEST_TMPDIR is inside its own unit rather than in a
-  -- shared /tmp. Two things follow, and the first matters more than the
-  -- second: tests stop being able to collide with each other through
-  -- the temp directory at all, on every platform, whether or not a
-  -- kernel is enforcing anything; and the derived fence's write grant
-  -- (this step's output directory) already covers it, so the kernel
-  -- half needs no extra rule.
-  --
-  -- ABSOLUTE, because `out` is a path relative to the project root and
-  -- TEST_TMPDIR outlives the cwd it was written against: a test that
-  -- chdirs — or that spawns a child with `cwd = TEST_TMPDIR` and
-  -- compares the result to it — resolves a relative one against
-  -- somewhere else and gets a different directory, or a mismatch it
-  -- reports as its own bug.
-  local scratch = fs.abspath(out .. ".tmp.d")
-  env.set("TMP", scratch)
-  fs.makedirs(scratch)
-  fs.unlink(out .. ".got") -- freshness: an early testrun exit writes none
-  local testrun = require("cosmic.testrun")
-  testrun.run(argv, out)
-  if not fs.isfile(out .. ".got") then
-    return fail("record " .. out .. ": no result recorded")
   end
   return 0
 end
@@ -484,12 +321,12 @@ end
 local modes: {string: function({string}): integer} = {
   ["assert-elf"] = do_assert_elf,
   ["assert-marker"] = do_assert_marker,
-  capture = do_capture,
-  compile = do_compile,
+  capture = work.capture,
+  compile = work.compile,
   copy = do_copy,
   exec = do_exec,
   link = do_link,
-  record = do_record,
+  record = work.record,
   remove = do_remove,
   tee = do_tee,
   verdict = do_verdict,

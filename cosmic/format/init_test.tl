@@ -128,6 +128,28 @@ assert_format(
   "function value does indent"
 )
 
+-- `record` in ACCESS and CALL positions is not a declaration: a field
+-- access (`work.record(...)`), a call's own name (`record(x)`), and a
+-- bare reference in an argument list must not open a block. The `=`/`:`
+-- disambiguation already covers keys; these cover the sites found the
+-- day the `-c` verbs moved behind a module with a `record` field, when
+-- every line after `work.record(args)` acquired one indent forever.
+assert_format(
+  "local a = work.record(x)\nlocal b = 1\n",
+  "local a = work.record(x)\nlocal b = 1\n",
+  "field access named record does not indent"
+)
+assert_format(
+  "record(x)\nlocal b = 1\n",
+  "record(x)\nlocal b = 1\n",
+  "a call named record does not indent"
+)
+assert_format(
+  "f(record, enum)\nlocal b = 1\n",
+  "f(record, enum)\nlocal b = 1\n",
+  "record as an argument does not indent"
+)
+
 -- Bug 1 variant: function definition should still indent
 assert_format(
   "local function foo(x)\nreturn x\nend\n",

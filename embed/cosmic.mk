@@ -111,8 +111,13 @@ compile: $(compiled) $(staged)
 # content-addressed (`_make.generate`'s stamp_types), so a run that
 # regenerates byte-identical declarations does not move its mtime and
 # a no-op build stays a no-op.
+# The two stamps ride in the line as well as the prerequisite list:
+# everything after --deps is an INPUT -- granted by the fence, keyed by
+# the step's content skip (_cli/build/work.tl), never forwarded to the
+# child. A line that declares its inputs is one the step can prove it
+# already ran.
 $(O)/%.lua: %.tl $(O)/.stamp/compile $(O)/_types/types_gen.stamp $$(srcdeps_$$*)
-	compile $(COSMIC) $< $@ --include-dir . --deps $(srcdeps_$*) ;
+	compile $(COSMIC) $< $@ --include-dir . --deps $(srcdeps_$*) $(O)/.stamp/compile $(O)/_types/types_gen.stamp ;
 
 # .lua sources are first-class. They are copied, not compiled; the
 # validator has already refused foo.tl beside foo.lua, so these two
