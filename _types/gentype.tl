@@ -378,6 +378,11 @@ local function validate_module(module: ModuleDecl): string
       return bad(module.name .. "." .. c.name, "constant", c.const_type)
     end
   end
+  for _, al in ipairs(module.aliases or {}) do
+    if not parse.valid_type(al.alias_type) then
+      return bad(module.name .. "." .. al.name, "alias", al.alias_type)
+    end
+  end
   return nil
 end
 
