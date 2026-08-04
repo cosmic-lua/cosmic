@@ -16,8 +16,12 @@ local check = require("cosmic.check")
 local cenv = require("cosmic.env")
 local fs = require("cosmic.fs")
 local mcheck = require("_make.check")
+local mdeps = require("_make.deps")
 local mfetch = require("_make.fetch")
 local mk = require("_make")
+local mtypes = require("_make.types")
+
+local type File = mtypes.File
 local spawn = require("cosmic.child")
 
 local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
@@ -411,5 +415,74 @@ local function test_make_equals_form_keeps_its_selection()
     "the path reached the selection, not dropped: " .. out)
 end
 test_make_equals_form_keeps_its_selection()
+
+-- The graph's proof is honored exactly. A compiled output as new as
+-- the source, its closure, and both tool stamps skips the check; any
+-- input moving past it un-proves it; and a kind the graph never
+-- compiles is never proved. Mtimes are set explicitly -- this is the
+-- freshness QUESTION under test, not the graph that normally answers it.
+local function test_the_graph_proof_and_what_unmakes_it()
+  local root = fixture("proved", {
+      ["db/init.tl"] = "return {}\n",
+      ["3p/dep/dep_pin.tl"] = "return { version = \"1\" }\n",
+    })
+  local proj = check.must(mk.scan(root))
+  local cwd = check.must(fs.getcwd())
+  assert(fs.chdir(root))
+  for _, rel in ipairs({"o/db/init.lua", "o/3p/dep/dep_pin.lua",
+      "o/.stamp/compile", "o/_types/types_gen.stamp"}) do
+    assert(fs.makedirs(fs.dirname(rel)))
+    assert(fs.write(rel, "x\n"))
+    assert(fs.utimensat(rel, 1000, 0, 1000, 0))
+  end
+  assert(fs.utimensat("db/init.tl", 500, 0, 500, 0))
+  local by_import = mdeps.index(proj)
+  local db: File = nil
+  local pin: File = nil
+  for _, f in ipairs(proj.files) do
+    if f.path == "db/init.tl" then db = f end
+    if f.path == "3p/dep/dep_pin.tl" then pin = f end
+  end
+  assert(mcheck.proved_by_graph(proj, db, by_import),
+    "a fresh compile proves the check")
+  assert(not mcheck.proved_by_graph(proj, pin, by_import),
+    "a pin is never graph-proved: the graph never compiles it")
+  assert(fs.utimensat("db/init.tl", 2000, 0, 2000, 0))
+  assert(not mcheck.proved_by_graph(proj, db, by_import),
+    "a source newer than its output un-proves it")
+  assert(fs.utimensat("db/init.tl", 500, 0, 500, 0))
+  assert(fs.utimensat("o/.stamp/compile", 2000, 0, 2000, 0))
+  assert(not mcheck.proved_by_graph(proj, db, by_import),
+    "a moved compile stamp un-proves every file")
+  assert(fs.chdir(cwd))
+end
+test_the_graph_proof_and_what_unmakes_it()
+
+-- End to end: the skip is real. A type-broken source under a CONCOCTED
+-- fresh output passes -- a state the graph cannot produce (its compile
+-- would have failed), constructed to observe the skip -- and the same
+-- tree fails the moment the source's mtime moves past the proof.
+local function test_check_skips_what_the_graph_proved()
+  local root = fixture("skips", {
+      ["bad.tl"] = "local x: integer = 'nope'\nreturn x\n",
+    })
+  local proj = check.must(mk.scan(root))
+  local cwd = check.must(fs.getcwd())
+  assert(fs.chdir(root))
+  for _, rel in ipairs({"o/bad.lua", "o/.stamp/compile",
+      "o/_types/types_gen.stamp"}) do
+    assert(fs.makedirs(fs.dirname(rel)))
+    assert(fs.write(rel, "x\n"))
+    assert(fs.utimensat(rel, 1000, 0, 1000, 0))
+  end
+  assert(fs.utimensat("bad.tl", 500, 0, 500, 0))
+  assert(mcheck.run(proj, {}) == 0,
+    "a graph-proved file must be skipped, not re-checked")
+  assert(fs.utimensat("bad.tl", 2000, 0, 2000, 0))
+  assert(mcheck.run(proj, {}) == 1,
+    "a source newer than its proof must be checked, and fail")
+  assert(fs.chdir(cwd))
+end
+test_check_skips_what_the_graph_proved()
 
 print("all make check tests passed")
