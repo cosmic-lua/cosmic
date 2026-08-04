@@ -1,5 +1,11 @@
 #!/usr/bin/env cosmic
 local http = require("cosmic.quicksand.proxy.http")
+local net = require("cosmic.net")
+local proc = require("cosmic.proc")
+local signal = require("cosmic.signal")
+local pollmod = require("cosmic.poll")
+local time = require("cosmic.time")
+local check = require("cosmic.check")
 
 local function test_parse_request_line()
   local m, t, v = http.parse_request_line("GET http://a.example.com/ HTTP/1.1\r\n")
@@ -127,3 +133,59 @@ local function test_rebuild_request_replaces_client_auth()
     "bodyless request gets content-length 0")
 end
 test_rebuild_request_replaces_client_auth()
+
+-- Regression: pump() used to return (tearing down the CONNECT tunnel)
+-- on ANY unix.poll failure, including EINTR. A one-shot SIGALRM fires
+-- ~50ms into a forked pump's initial (data-less) poll; the parent only
+-- sends its payload ~150ms in, well after the old code would have
+-- already torn the tunnel down. No unshare needed -- pump() is plain
+-- fd plumbing over a plain fork, like proxy/serve_test.tl's worker.
+local function test_pump_relays_data_across_eintr()
+  local raw_c1, c2, cerr = net.socketpair()
+  assert(raw_c1 ~= nil and c2 ~= nil, "socketpair failed: " .. tostring(cerr))
+  local c1 = check.must(raw_c1)
+  local raw_u1, u2, uerr = net.socketpair()
+  assert(raw_u1 ~= nil and u2 ~= nil, "socketpair failed: " .. tostring(uerr))
+  local u1 = check.must(raw_u1)
+
+  local pid = proc.fork()
+  if pid == nil then
+    c1:close()
+    c2:close()
+    u1:close()
+    u2:close()
+    check.skip("pump EINTR: fork unavailable")
+    return
+  end
+  if pid == 0 then
+    c1:close()
+    u1:close()
+    signal.sigaction(signal.SIGALRM, function() end)
+    signal.setitimer({
+        which = signal.ITIMER_REAL,
+        valuesec = 0, valuens = 50000000,
+        intervalsec = 0, intervalns = 0,
+      })
+    http.pump(c2.fd, u2.fd)
+    os.exit(0)
+  end
+
+  c2:close()
+  u2:close()
+  time.sleep(0, 150000000)
+  local payload = "hello-through-pump"
+  local sent = c1:send(payload)
+  assert(sent == #payload, "send failed: " .. tostring(sent))
+
+  local pp = pollmod.new()
+  pp:add(u1.fd, pollmod.POLLIN)
+  local n = check.must(pp:poll(2000))
+  assert(n == 1, "pump should have relayed the payload across the EINTR")
+  local got = u1:recv(64)
+  assert(got == payload, "expected relayed payload, got: " .. tostring(got))
+
+  c1:close()
+  u1:close()
+  proc.wait(pid)
+end
+test_pump_relays_data_across_eintr()
