@@ -66,7 +66,33 @@ BENCH=$(ls _perf/bench/*_bench.tl | sed 's|/|.|g;s|\.tl$||')
    build` puts it back; so does `--make clean && --make fetch`. Check
    which one you are holding before you trust a number — that is the
    measurement-identity trap in `measurement.md`, and this procedure
-   walks straight into it.
+   walks straight into it. Three sharp edges, each found the hard way:
+
+   - **a failed `--make build` leaves the previous `o/bin/cosmic` in
+     place.** the swap itself is reliable — the payload generator
+     re-stages `base` from `o/3p/cosmos/lua` on every build — but a
+     build that fails before assembly (a generate error, a compile
+     error) changes nothing, and the stale binary measures happily.
+     read the `build: PASS` verdict or the exit status directly; a
+     pipe (`--make build | tail`) returns the pipe's status, the same
+     laundering AGENTS.md warns about for `ci`.
+   - **`--version` cannot identify the runtime.** the stamp's cosmos
+     half is read from `3p/cosmos/cosmos_pin.tl` at embed time, so a
+     binary embedded onto your local build still reports the pin's
+     version. hash the binary instead (`sha256sum o/bin/cosmic`) and
+     expect it to differ between baseline and current. every results
+     file records the hash as `meta.bin_sha`, and the compare gate
+     refuses a compare whose two sides hashed the same binary — that
+     refusal is the backstop for this whole class, so treat it as a
+     stale-binary diagnosis, not an obstacle.
+   - **tree and runtime must agree on the `cosmo.*` surface.** the
+     type generator's MODULES list (`_types/gentype.tl`) is ratcheted
+     against the runtime's embedded `definitions.lua` in both
+     directions, so standing in a runtime whose defs lack a module the
+     tree lists (or the reverse) fails the build by design. when your
+     checkout changes the surface itself, validate with
+     `GENTYPE_DEFS=$COSMO/tool/net/definitions.lua` (AGENTS.md "Type
+     Generation") rather than time-traveling the tree.
 
 3. **hypothesis, then the smallest C diff that tests it** — one
    hypothesis per commit, exactly like the cosmic layer. pick from the

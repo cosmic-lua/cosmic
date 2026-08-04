@@ -77,9 +77,16 @@ chapter of `_perf/OPTIMIZE.md` — read that first.
 
   So: baseline and compare against paths you built deliberately, in one
   sitting, and re-run `--make build` before each measurement rather
-  than assuming the binary is what it was. If a result is surprising,
-  check `$BIN --version` on both sides before you believe it. This is
-  the same class as the coverage floors' sensitivity to which compiler
+  than assuming the binary is what it was — and read that build's
+  verdict, because a build that fails before assembly leaves the
+  previous binary in place. If a result is surprising, hash the binary
+  on both sides (`sha256sum o/bin/cosmic`) before you believe it. Not
+  `--version`: its cosmos half is stamped from the pin file at embed
+  time, so it reports the pin even when a local runtime was stood in
+  by hand (`cosmopolitan.md` step 2). Every results file records
+  `meta.bin_sha`, and the compare gate refuses a compare whose two
+  sides hashed the same binary. This is the
+  same class as the coverage floors' sensitivity to which compiler
   built the artifact (`cosmic/coverage/SENSITIVITY.md`): a metric
   measured through an artifact inherits that artifact's identity as a
   hidden input.
