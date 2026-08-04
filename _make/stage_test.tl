@@ -8,12 +8,16 @@
 -- asserted here is the part those cannot see without a make binary:
 -- the tables and the two pure functions.
 
+local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local project = require("_make.project")
+local spawn = require("cosmic.child")
 local stage = require("_make.stage")
 local types = require("_make.types")
 
 local type File = types.File
+
+local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 
 --- A File of the given kind and path, as the walk would produce it.
 local function file(path: string, kind: types.Kind): File
@@ -136,5 +140,60 @@ local function test_binaries_on_path_without_a_path()
   if saved ~= nil then env.set("PATH", saved, true) end
 end
 test_binaries_on_path_without_a_path()
+
+-- A stage's summary must not survive INTO a run that never reached it.
+--
+-- `graph_stage` reads the detail for its verdict from
+-- `o/<target>-summary.txt`, written by one of the LAST recipes in a
+-- stage's own graph. A run whose make dies earlier (a compile error
+-- here) never reaches that recipe, and reading whatever the PREVIOUS
+-- run left there attributes THIS run's failure to THAT run's counts --
+-- named here as "1 of 2", a real prior failure -- rather than saying
+-- nothing ran at all. `--make` engine, so this end-to-end (the same
+-- pattern build_test.tl and generate_test.tl use); skips rather than
+-- fails without one.
+local function test_a_dead_stage_does_not_report_a_stale_summary()
+  local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN") or "", "cosmic"))
+  local make_bin = fs.abspath(os.getenv("COSMIC_MAKE") or "o/make")
+  if not check.needs("the make engine at " .. make_bin, fs.isfile(make_bin)) then
+    os.exit(check.EXIT_SKIP)
+  end
+  local root = fs.join(tmpdir, "stage-stale-summary")
+  fs.rmrf(root)
+  assert(fs.makedirs(root))
+  assert(fs.write(fs.join(root, "mod.tl"), "return {}\n"))
+  assert(fs.write(fs.join(root, "a_test.tl"),
+      "local m = require('mod')\nassert(m ~= nil)\n"))
+  assert(fs.write(fs.join(root, "b_test.tl"),
+      "assert(false, 'a real, prior failure')\n"))
+  assert(fs.write(fs.join(root, ".cosmicignore"), ""))
+
+  local env: {string} = {
+    "PATH=" .. (os.getenv("PATH") or ""), "COSMIC_MAKE=" .. make_bin,
+    "TMPDIR=" .. tmpdir, "NO_COLOR=1", "COSMIC_NO_WELCOME=1",
+  }
+  local h1 = check.must(spawn.spawn({cosmic, "--make", "test"},
+      {cwd = root, env = env}))
+  local r1 = check.must(h1:wait())
+  assert(r1.code ~= 0, "the first run has one genuine failure")
+  assert((r1.stdout or ""):find("1 of 2", 1, true),
+    "and reports it: " .. tostring(r1.stdout))
+
+  -- Now break `mod`, which a_test imports and b_test does not: a
+  -- compile error that blocks a_test's own prerequisite chain, so the
+  -- `test` target can never reach ALL its test_got files and dies
+  -- before test-summary.txt's recipe runs at all -- the earlier
+  -- failure's numbers (from b_test, untouched here) are the only ones
+  -- on disk.
+  assert(fs.write(fs.join(root, "mod.tl"), "local x: string = 5\nreturn {}\n"))
+  local h2 = check.must(spawn.spawn({cosmic, "--make", "test"},
+      {cwd = root, env = env}))
+  local r2 = check.must(h2:wait())
+  assert(r2.code ~= 0, "a broken compile still fails")
+  assert(not (r2.stdout or ""):find("1 of 2", 1, true),
+    "must not report the PREVIOUS run's stale failure count, got: " ..
+    tostring(r2.stdout))
+end
+test_a_dead_stage_does_not_report_a_stale_summary()
 
 print("all stage tests passed")
