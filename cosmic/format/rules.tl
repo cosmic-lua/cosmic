@@ -115,18 +115,31 @@ local type_decl_kw: {string: boolean} = {
 --- from that line down with `--make fmt` reporting PASS.
 ---
 --- The same shape reaches `enum` and `interface`, which are equally
---- legal keys.
+--- legal keys — and it reaches ACCESS and CALL positions too:
+--- `work.record(args)` is a field access followed by a call, found
+--- the day the `-c` verbs moved behind a module named for them, and
+--- read as an opener it cascaded an extra indent per call, forever,
+--- with the gate passing on its own idempotent damage again.
 --- @param item Item The token to test
 --- @param next_item Item The token after it, nil at end of line
+--- @param prev_item Item The token before it, nil at start of line
 --- @return boolean Whether it opens a block
-local function is_block_opener(item: Item, next_item: Item): boolean
+local function is_block_opener(item: Item, next_item: Item,
+    prev_item: Item): boolean
   if item.kind == "keyword" and block_openers[item.tk] then
     return true
   end
   if item.kind == "identifier" and type_decl_kw[item.tk] then
-    -- `record =` and `record:` are a table key and a field name.
-    -- A declaration is `record Name` or `record` alone on the line.
-    if next_item ~= nil and (next_item.tk == "=" or next_item.tk == ":") then
+    -- `record =` and `record:` are a table key and a field name;
+    -- `record(`, `record,`, `record)` are a call and its arguments;
+    -- `x.record` and `x:record` are member access. A declaration is
+    -- `record Name` or `record` alone on the line.
+    if next_item ~= nil and (next_item.tk == "=" or next_item.tk == ":"
+      or next_item.tk == "(" or next_item.tk == ","
+      or next_item.tk == ")") then
+      return false
+    end
+    if prev_item ~= nil and (prev_item.tk == "." or prev_item.tk == ":") then
       return false
     end
     return true
@@ -251,7 +264,7 @@ local function compute_indent_change(line_items: {Item},
     elseif type_ctx[idx] then
       is_first_code = false
     else
-      if is_block_opener(item, line_items[idx + 1]) then
+      if is_block_opener(item, line_items[idx + 1], line_items[idx - 1]) then
         post_change = post_change + 1
       elseif item.tk == "{" or item.tk == "(" then
         post_change = post_change + 1

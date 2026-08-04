@@ -29,3 +29,4 @@ than editing the record it replaces.
 | D15 | an artifact carries its modules and `embed/**`; shipping is opt-in | [→](d15-shipping-is-opt-in.md) |
 | D16 | every build input is enumerable from committed files, the version stamp included | [→](d16-enumerable-build-inputs.md) |
 | D17 | a graph rule's tool prerequisite is a per-tool stamp, not the binary | [→](d17-tool-stamps.md) |
+| D18 | expensive recipe steps skip on input bytes, not just on mtime | [→](d18-step-skip.md) |
