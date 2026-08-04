@@ -98,7 +98,17 @@ compile: $(compiled) $(staged)
 # rejects. They are also passed in the line, so the fence grants the
 # compiler its own source plus what it imports -- and not the `.`
 # include path, which is where it SEARCHES, not what it reads.
-$(O)/%.lua: %.tl $(COSMIC_DEP) $$(srcdeps_$$*)
+#
+# $(O)/_types/types_gen.stamp is the same hazard one layer down: every
+# compile resolves `cosmo.*` (and `tl`) through o/_types/types_gen on
+# its include path, but that directory is generated, not a listed
+# source -- so without this prerequisite a cosmos pin bump left every
+# already-compiled file's mtime alone and an unchanged file kept
+# checking against types the LAST pin left. The stamp is
+# content-addressed (`_make.generate`'s stamp_types), so a run that
+# regenerates byte-identical declarations does not move its mtime and
+# a no-op build stays a no-op.
+$(O)/%.lua: %.tl $(COSMIC_DEP) $(O)/_types/types_gen.stamp $$(srcdeps_$$*)
 	compile $(COSMIC) $< $@ --include-dir . --deps $(srcdeps_$*) ;
 
 # .lua sources are first-class. They are copied, not compiled; the
