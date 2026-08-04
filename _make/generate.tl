@@ -23,6 +23,23 @@ local types = require("_make.types")
 local type File = types.File
 local type Project = types.Project
 
+--- Generators already run this INVOCATION, keyed by the absolute output
+--- directory each one owns.
+---
+--- `graph_stage` runs `sources` before every graph verb, and `test`,
+--- `example`, `coverage` (and `run`) each stage the binaries before
+--- their own graph verb runs -- so one `--make ci` reaches
+--- `run_generator` for the same generator many times over, and every
+--- one of those calls clears and re-runs it. The tree does not move
+--- between them: a graph verb's own stages never edit sources, so
+--- the second call is paying full generator cost to reproduce what
+--- the first already wrote. Memoized for the life of this process
+--- only -- a fresh invocation (and `converge`'s re-exec into a freshly
+--- built binary is exactly that, a new process) starts with this
+--- table empty, which is required: the tree it runs against may not be
+--- the one the last process saw.
+local ran: {string: boolean} = {}
+
 --- A path with its extension removed.
 ---
 --- Both spellings, because a marker is a name: stripping a fixed three
@@ -202,6 +219,9 @@ end
 local function run_generator(proj: Project, gen: string, dest: string,
     cosmic: string): boolean, string
   local at = fs.join(proj.root, dest)
+  if ran[at] then
+    return true
+  end
   if fs.exists(at) then
     local rok, rerr = fs.rmrf(at)
     if not rok then
@@ -234,6 +254,7 @@ local function run_generator(proj: Project, gen: string, dest: string,
   if not (r as child.Result).ok then
     return false, "make: " .. gen .. " failed"
   end
+  ran[at] = true
   return true
 end
 
