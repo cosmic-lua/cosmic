@@ -178,4 +178,21 @@ local function test_a_declaration_is_a_source_dependency_only()
 end
 test_a_declaration_is_a_source_dependency_only()
 
+-- A benchmark is a resolvable kind: something else in the project may
+-- `require` it (a test exercising a `Benchmark_*` helper, say), and
+-- that require must be a real edge -- otherwise editing the benchmark
+-- does not re-run its importer, a stale-artifact bug the graph exists
+-- to prevent.
+local function test_a_benchmark_is_a_dependency()
+  local proj = fixture("benchmark-dep", {
+      ["foo_benchmark.tl"] = "return {}\n",
+      ["main_test.tl"] = "local b = require('foo_benchmark')\nreturn b\n",
+    })
+  local by_import = deps.index(proj)
+  assert(by_import["foo_benchmark"], "a benchmark is resolvable")
+  assert(closure_of(proj, "main_test.tl") == "o/foo_benchmark.lua",
+    "got: " .. closure_of(proj, "main_test.tl"))
+end
+test_a_benchmark_is_a_dependency()
+
 print("all deps tests passed")
