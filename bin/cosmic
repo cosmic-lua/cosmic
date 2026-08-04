@@ -137,7 +137,15 @@ cd "${ROOT}"
 BUILT="${ROOT}/o/bin/cosmic"
 if [ ! -x "${BUILT}" ] && [ -d "${ROOT}/o/3p" ]; then
     ensure_bootstrap
-    "${BOOTSTRAP}" --make build || true
+    # Not checked with `set -e`: a failed tree build must fall through
+    # to the pin below, not abort the script. But falling through
+    # SILENTLY is its own bug for a non-gate verb (a gate's own build
+    # failure is loud on its own terms) -- say so before the pin runs
+    # in its place, so "why did my script run under an old release"
+    # has an answer in this run's own output instead of nothing at all.
+    if ! "${BOOTSTRAP}" --make build; then
+        echo "cosmic: tree build failed; running pinned release $(sed -n 's/^url *= *//p' "${PIN}")" >&2
+    fi
 fi
 if [ -x "${BUILT}" ]; then
     exec "${BUILT}" "$@"
