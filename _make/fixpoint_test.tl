@@ -18,15 +18,15 @@
 --
 -- Gated behind COSMIC_FIXPOINT=1: two full `--make build`s cost ~83s,
 -- more than every other test combined, and paying that on each `--make
--- test` (and twice per `--make ci`, since coverage runs the tests
--- again) taxed every developer loop for claims CI already asserts per
--- push on the REAL artifact: pr.yml's build lane cmp's a second build
--- (convergence, which catches the growth bug above) and a clean-tree
--- rebuild at another path (cold buildability, reproducibility), and
--- the converged gate plus the smoke lane exercise the product. What
--- stays unique here is the one-command version of the whole story --
--- run it when touching the artifact pipeline (_make/artifact,
--- embed_gen, base selection):
+-- test` (and again in `--make ci`'s coverage stage, the one
+-- instrumented test run) taxed every developer loop for claims CI
+-- already asserts per push on the REAL artifact: pr.yml's build lane
+-- cmp's a second build (convergence, which catches the growth bug
+-- above) and a clean-tree rebuild at another path (cold buildability,
+-- reproducibility), and the converged gate plus the smoke lane
+-- exercise the product. What stays unique here is the one-command
+-- version of the whole story -- run it when touching the artifact
+-- pipeline (_make/artifact, embed_gen, base selection):
 -- `COSMIC_FIXPOINT=1 bin/cosmic --make test _make/fixpoint_test.tl`.
 
 local check = require("cosmic.check")

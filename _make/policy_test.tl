@@ -60,7 +60,7 @@ local function test_stage_order_is_the_documented_pipeline()
   for _, s in ipairs(policy.STAGES) do
     names[#names + 1] = s.verb
   end
-  assert(table.concat(names, " ") == "fmt check test example lint coverage",
+  assert(table.concat(names, " ") == "fmt check example lint coverage",
     "got: " .. table.concat(names, " "))
 end
 test_stage_order_is_the_documented_pipeline()
@@ -83,7 +83,7 @@ local function test_material_earns_the_stage()
   local code = policy.run_ci(stub.lookup, project_of({"module", "test", "example"}),
     {}, "cosmic")
   assert(code == 0, "got " .. code)
-  assert(table.concat(stub.ran, " ") == "fmt check test example lint coverage",
+  assert(table.concat(stub.ran, " ") == "fmt check example lint coverage",
     "got: " .. table.concat(stub.ran, " "))
 end
 test_material_earns_the_stage()

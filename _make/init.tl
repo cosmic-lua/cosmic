@@ -276,8 +276,9 @@ local VERBS < const >: {Verb} = {
   -- gets a verb rather than folding into `check` because its file set
   -- is the whole tree, not the compiled closure. Naming them is what
   -- lets `ci` below be a list of verb names: its pipeline is
-  -- fmt -> check -> test -> example -> lint -> coverage, and every one
-  -- of those six is a verb in this registry.
+  -- fmt -> check -> example -> lint -> coverage (tests run once,
+  -- instrumented, inside coverage), and every one of those five is a
+  -- verb in this registry.
   {name = "example", target = "example", select = stage.SELECTS.example,
     run = function(proj: Project, paths: {string}, cosmic: string): integer
       -- cast: the registry defines it
