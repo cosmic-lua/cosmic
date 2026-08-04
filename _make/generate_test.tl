@@ -160,10 +160,13 @@ local function test_base_is_the_units_own_when_it_declares_one()
       "not really a runtime\n"))
 
   local proj = scan(root)
-  assert(artifact.base_of(proj, binary_of(proj, "tool"), cosmic) ==
+  -- The plain base is always the first pair `bases_of` returns (see
+  -- its own doc comment), so that is the single source for "the" base
+  -- a unit builds on -- there is no separate `base_of` to drift from it.
+  assert(artifact.bases_of(proj, binary_of(proj, "tool"), cosmic)[1][2] ==
     "o/cmd/tool/embed_gen/base",
     "a declared base wins, so the artifact does not depend on its builder")
-  assert(artifact.base_of(proj, binary_of(proj, "lean"), cosmic) == cosmic,
+  assert(artifact.bases_of(proj, binary_of(proj, "lean"), cosmic)[1][2] == cosmic,
     "and a unit that declares none is built on the running cosmic")
 end
 test_base_is_the_units_own_when_it_declares_one()

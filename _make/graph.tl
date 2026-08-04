@@ -22,7 +22,6 @@ local deps = require("_make.deps")
 local project = require("_make.project")
 local types = require("_make.types")
 
-local type File = types.File
 local type Kind = types.Kind
 local type Project = types.Project
 
@@ -458,15 +457,6 @@ local function run(proj: Project, target: string, overrides: {string},
   return res.code or 1
 end
 
---- Files of the given kinds, for a verb that wants to count what it
---- built without re-deriving the rules' patsubst.
---- @param proj Project The scanned project
---- @param kinds {Kind} Kinds to count
---- @return {File} The matching files
-local function inputs(proj: Project, kinds: {Kind}): {File}
-  return project.of_kind(proj, kinds)
-end
-
 local record GraphModule
   MAKE_ENV: string
   MAKE_ZIP: string
@@ -478,7 +468,6 @@ local record GraphModule
   find_make: function(): string | nil, string
   jobs_flag: function(): string
   run: function(proj: Project, target: string, overrides: {string}, cosmic: string, extra?: {string}): integer, string
-  inputs: function(proj: Project, kinds: {Kind}): {File}
   source_dirs: function(proj: Project): {string}
 end
 
@@ -493,7 +482,6 @@ local M: GraphModule = {
   find_make = find_make,
   jobs_flag = jobs_flag,
   run = run,
-  inputs = inputs,
   source_dirs = source_dirs,
 }
 
