@@ -65,4 +65,51 @@ local function test_load_module_validates()
 end
 test_load_module_validates()
 
+-- An --only that matches zero scenarios used to exit 0 and write an
+-- empty results file -- a comparison later would silently see nothing
+-- rather than a mistyped filter. It must be an error now.
+local function test_only_matching_nothing_errors()
+  local code = run.main("--samples", "2", "--min-secs", "0.001",
+    "--only", "zzz_no_such_scenario_xyz", "_perf.bench.json_bench")
+  assert(code == 1, "--only matching nothing must error, got " .. code)
+end
+test_only_matching_nothing_errors()
+
+-- The matching case must keep working: this is what confirms the fix
+-- above checks the FILTERED count, not the total scenario count.
+local function test_only_matching_something_still_succeeds()
+  local code = run.main("--samples", "2", "--min-secs", "0.001",
+    "--only", "json", "_perf.bench.json_bench")
+  assert(code == 0, "a matching --only must still succeed, got " .. code)
+end
+test_only_matching_something_still_succeeds()
+
+-- A module whose scenarios() call fails must abort the run exactly like
+-- a module that fails to require() -- not skip past it and report on
+-- whatever other modules happened to load. package.loaded is seeded
+-- directly so this needs no on-disk fixture module.
+local function test_scenarios_failure_aborts_before_later_modules()
+  local later_called = false
+  package.loaded["_perf.testdata.bad_scenarios_fixture"] = {
+    scenarios = function(): {any}, string
+      return nil, "boom"
+    end,
+    cleanup = function() end,
+  }
+  package.loaded["_perf.testdata.later_fixture"] = {
+    scenarios = function(): {any}, string
+      later_called = true
+      return {}
+    end,
+    cleanup = function() end,
+  }
+  local code = run.main("--samples", "2", "--min-secs", "0.001",
+    "_perf.testdata.bad_scenarios_fixture", "_perf.testdata.later_fixture")
+  assert(code == 1, "a scenarios() failure must abort the run, got " .. code)
+  assert(not later_called, "abort must happen before later modules run")
+  package.loaded["_perf.testdata.bad_scenarios_fixture"] = nil
+  package.loaded["_perf.testdata.later_fixture"] = nil
+end
+test_scenarios_failure_aborts_before_later_modules()
+
 print("OK run_test")
