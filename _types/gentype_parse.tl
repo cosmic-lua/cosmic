@@ -254,8 +254,16 @@ local function parse_annotations(raw_lines: {string}): {string}, {Param}, {Retur
   local fallible = false
   local error_type: string = nil
 
+  -- `@type` is the one tag upstream also spells with a space after the
+  -- dashes ("--- @type integer"), so the plain "^%-%-%-@" description guard
+  -- below misses it and the raw line leaks into the generated doc comment
+  -- (visible above every unix.* errno constant). Anchored to exactly three
+  -- dashes: a plain two-dash Lua comment ("-- @type ...") is not a doc tag
+  -- and must not be able to inject a constant type.
+  local TYPE_TAG = "^%-%-%-%s*@type%s+([%w_%.]+)"
+
   for _, line in ipairs(lines) do
-    if not line:match("^%-%-%-@") then
+    if not line:match("^%-%-%-@") and not line:match(TYPE_TAG) then
       local desc_text = line:match("^%-%-%-(.*)$")
       if desc_text then
         if desc_text:sub(1, 1) == " " then
@@ -314,16 +322,19 @@ local function parse_annotations(raw_lines: {string}): {string}, {Param}, {Retur
         end
         if c == "," and in_angle == 0 and in_brace == 0 and in_paren == 0 then
           -- Split into another return only when the comma is followed by a
-          -- genuine type token: a builtin type name or a module-dotted type
-          -- (`unix.Errno`). Prose in a trailing description ("ARIN, APNIC,
-          -- DOD, etc.") must stay in the description. The literal types
-          -- true/false/nil are deliberately NOT continuation tokens: no
-          -- annotation continues a return list with a bare literal, but
-          -- boolean descriptions routinely read "true when ..., false when
-          -- ..." and failure prose "..., nil on failure" — treating those
-          -- words as types grew phantom returns (unix.Memory:unmap,
-          -- whilp/cosmopolitan#198). Literals on their own @return lines
-          -- are unaffected; only this comma decision is narrowed.
+          -- genuine type token: a builtin type name, a module-dotted type
+          -- (`unix.Errno`), or `self` (the VM iterator methods return
+          -- `fun(...) iterator, self` to mean "the receiver again", the same
+          -- role the Database variants spell out as `lsqlite3.VM vm`). Prose
+          -- in a trailing description ("ARIN, APNIC, DOD, etc.") must stay in
+          -- the description. The literal types true/false/nil are
+          -- deliberately NOT continuation tokens: no annotation continues a
+          -- return list with a bare literal, but boolean descriptions
+          -- routinely read "true when ..., false when ..." and failure prose
+          -- "..., nil on failure" — treating those words as types grew
+          -- phantom returns (unix.Memory:unmap, whilp/cosmopolitan#198).
+          -- Literals on their own @return lines are unaffected; only this
+          -- comma decision is narrowed.
           local rest_after_comma = full_return:sub(i + 1)
           local next_word = rest_after_comma:match("^%s*([%w_%.]+)")
           local builtin_types: {string: boolean} = {
@@ -331,7 +342,7 @@ local function parse_annotations(raw_lines: {string}): {string}, {Param}, {Retur
             ["boolean"] = true, ["any"] = true,
             ["table"] = true, ["function"] = true, ["userdata"] = true,
             ["uint32"] = true, ["uint16"] = true, ["int64"] = true,
-            ["fun"] = true,
+            ["fun"] = true, ["self"] = true,
           }
           local is_type_token = false
           if next_word then
@@ -359,22 +370,32 @@ local function parse_annotations(raw_lines: {string}): {string}, {Param}, {Retur
         local part_type: string = nil
         local part_desc: string = nil
         -- A variadic return (`@return string ... desc`) is rendered as a Teal
-        -- vararg return type. Nothing can follow a vararg, so stop here.
-        local va_type = return_part:match("^([%w_%.]+)%s+%.%.%.") or
-        (return_part == "..." and "any" or nil)
+        -- vararg return type. Nothing can follow a vararg, so stop here. The
+        -- type before `...` need not be a bare identifier — a union
+        -- (`@return string|number? ... desc`, `@return any|nil ... desc`)
+        -- carries no internal whitespace either, so scan a whole type token
+        -- (the same balanced-bracket scanner split_type_desc uses) instead of
+        -- matching a single dotted identifier, which silently dropped the
+        -- variadic marker for a union-typed vararg. A `fun(...)` return is
+        -- excluded here: its own trailing `...: <type>` return is already
+        -- handled inside split_type_desc's fun-parsing branch below, and
+        -- scanning it here would stop at the first top-level space inside
+        -- the fun's OWN return clause and misread that as a top-level vararg.
+        local va_type: string = nil
+        if return_part == "..." then
+          va_type = "any"
+        elseif not return_part:match("^fun%(") then
+          local va_candidate, va_rest = scan_token(return_part)
+          if va_rest:match("^%.%.%.") then
+            va_type = va_candidate
+          end
+        end
         if va_type then
           table.insert(returns, {return_type = va_type .. "...", description = ""})
           break
         end
         part_type, part_desc = split_type_desc(return_part)
         if part_type and part_type ~= "" then
-          if part_type == "table" and part_desc then
-            local specific_type = part_desc:match("^([%w_]+)")
-            if specific_type and specific_type:match("^[%l_]") then
-              part_type = specific_type
-              part_desc = part_desc:match("^[%w_]+%s*(.*)") or part_desc
-            end
-          end
           table.insert(returns, {return_type = part_type, description = part_desc or ""})
         end
       end
@@ -410,7 +431,7 @@ local function parse_annotations(raw_lines: {string}): {string}, {Param}, {Retur
       class_annotation = cname
     end
 
-    local ttype = line:match("^%-%-%-?%s*@type%s+([%w_%.]+)")
+    local ttype = line:match(TYPE_TAG)
     if ttype then
       table.insert(returns, {return_type = ttype, description = "type"})
     end
@@ -434,6 +455,20 @@ local function parse_annotations(raw_lines: {string}): {string}, {Param}, {Retur
       generic_list[#generic_list + 1] = g
     end
     table.sort(generic_list)
+  end
+
+  -- A vararg return is only meaningful as the true LAST return — Teal
+  -- forbids anything after one. Upstream occasionally documents a
+  -- variadic return followed by an error/errno pair on separate @return
+  -- lines (unix.fcntl: `@return any|nil ...` then `@return string? error`,
+  -- `@return unix.Errno? errno`), so the vararg there is not actually
+  -- final; demote it back to a plain (non-variadic) type rather than
+  -- render syntax Teal rejects.
+  for idx = 1, #returns - 1 do
+    local r = returns[idx]
+    if r.return_type and r.return_type:match("%.%.%.$") then
+      r.return_type = r.return_type:sub(1, -4)
+    end
   end
 
   return desc, params, returns, nodiscard, class_annotation, fields, fallible, error_type, generic_list

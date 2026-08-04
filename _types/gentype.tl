@@ -272,6 +272,15 @@ local function parse_module(source: string, module_name: string): ModuleDecl
       local method_params_str = line:match("%((.-)%)")
       local desc, params, returns, nodiscard, _, _, fallible, error_type, generics = parse_annotations(anno_lines)
       params = reconcile_params(params, method_params_str)
+      -- A method's own iterator returns "the receiver again" as a bare
+      -- `self` token (`fun(...) iterator, self` — the module-function
+      -- variants spell this out as `lsqlite3.VM vm` instead). Resolve it to
+      -- this method's class now, while the class name is in scope.
+      for _, r in ipairs(returns) do
+        if r.return_type == "self" then
+          r.return_type = class_name
+        end
+      end
       local method: FuncDecl = {
         name = method_name, module = module_name, description = desc,
         params = params, returns = returns, is_method = true,
