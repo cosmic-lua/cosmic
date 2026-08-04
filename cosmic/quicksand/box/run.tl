@@ -30,6 +30,7 @@
 --- instead of masquerading the failure as a workload exit code.
 local unix = require("cosmo.unix")
 local cosmo = require("cosmo")
+local errno = require("cosmic.errno")
 local netns = require("cosmic.quicksand.netns")
 local qproc = require("cosmic.quicksand.proc")
 local qcaps = require("cosmic.quicksand.caps")
@@ -287,7 +288,20 @@ local function run(opts: BoxOptions, argv: {string}): integer | nil, string
     unix.close(parent_fd)
   end
 
-  local _, status = unix.wait(pid)
+  -- EINTR can arrive mid-wait (e.g. a forwarded signal); retry rather
+  -- than treating the errno string as a wait status.
+  local status: integer
+  while true do
+    local wpid, wstatus, weno = unix.wait(pid)
+    if wpid then
+      status = wstatus
+      break
+    end
+    if not errno.is(weno, "EINTR") then
+      unix.close(erfd)
+      return nil, "quicksand: wait: " .. tostring(wstatus)
+    end
+  end
 
   -- Drain the error pipe. Every write end is closed by now — the
   -- supervisor exited, and become_init reaped the workload and sidecars

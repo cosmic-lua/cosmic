@@ -6,6 +6,7 @@
 --- Parsing functions are pure; the I/O helpers operate on raw socket
 --- fds via cosmo.unix and return cosmic's value,string error shape.
 local unix = require("cosmo.unix")
+local errno = require("cosmic.errno")
 
 --- One parsed header: {original_name, lower_name, value}.
 local type Header = {string}
@@ -237,22 +238,27 @@ local function pump(a: integer, b: integer)
     open[fd] = false
   end
   while open[a] or open[b] do
-    local ready = unix.poll(fds)
-    if not ready then return end
-    for fd, ev in pairs(ready as {integer: integer}) do -- cast: record union after guard
-      local peer = (fd == a) and b or a
-      local evi = ev
-      local readable = (evi & (unix.POLLIN)) ~= 0
-      local hup = (evi & hup_mask) ~= 0
-      if readable then
-        local chunk = unix.recv(fd, 16384)
-        if not chunk or chunk == "" then
+    local ready, _perr, peno = unix.poll(fds)
+    if not ready then
+      -- A forwarded signal arriving mid-poll is not a real failure;
+      -- only a non-EINTR error tears down the tunnel.
+      if not errno.is(peno, "EINTR") then return end
+    else
+      for fd, ev in pairs(ready as {integer: integer}) do -- cast: record union after guard
+        local peer = (fd == a) and b or a
+        local evi = ev
+        local readable = (evi & (unix.POLLIN)) ~= 0
+        local hup = (evi & hup_mask) ~= 0
+        if readable then
+          local chunk = unix.recv(fd, 16384)
+          if not chunk or chunk == "" then
+            close_side(fd, peer)
+          elseif not send_all(peer, chunk) then
+            return
+          end
+        elseif hup then
           close_side(fd, peer)
-        elseif not send_all(peer, chunk) then
-          return
         end
-      elseif hup then
-        close_side(fd, peer)
       end
     end
   end

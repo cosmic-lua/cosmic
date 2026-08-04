@@ -63,6 +63,50 @@ io.write("ok exit=0\n")
 end
 test_run_true_in_subprocess()
 
+-- Regression: run() used to call unix.wait(pid) without retrying
+-- EINTR, feeding the errno STRING to WIFEXITED on interrupt (a
+-- type-error throw instead of a clean result). A one-shot SIGALRM
+-- fires ~50ms into a workload that sleeps 300ms, guaranteeing wait(pid)
+-- is interrupted mid-block; run() must still return the workload's
+-- real exit code.
+local function test_run_survives_eintr_during_wait()
+  local c = quicksand.capabilities()
+  if not (c.linux and c.user_ns and c.net_ns) then
+    check.skip("box namespaces unavailable on this host")
+    return
+  end
+
+  local r = run_script("box_run_eintr.lua", [[
+local signal = require("cosmic.signal")
+local qs = require("cosmic.quicksand")
+signal.sigaction(signal.SIGALRM, function() end)
+local sok, serr = signal.setitimer({
+  which = signal.ITIMER_REAL,
+  valuesec = 0,
+  valuens = 50000000,
+  intervalsec = 0,
+  intervalns = 0,
+})
+if not sok then io.stderr:write("setitimer: " .. tostring(serr) .. "\n"); os.exit(1) end
+local j, nerr = qs.Box.new({})
+if not j then io.stderr:write("new: " .. tostring(nerr) .. "\n"); os.exit(1) end
+local code, rerr = j:run({"/bin/sleep", "0.3"})
+if code == nil then
+  io.stderr:write("run nil: " .. tostring(rerr) .. "\n"); os.exit(1)
+end
+if code ~= 0 then
+  io.stderr:write("run exit=" .. tostring(code) .. "\n"); os.exit(1)
+end
+io.write("ok exit=0\n")
+]])
+  if not r then return end
+  assert(r.ok, "box run interrupted by EINTR mid-wait must still succeed: "
+    .. tostring(r.stdout) .. tostring(r.stderr))
+  assert(r.stdout:find("ok exit=0"),
+    "expected ok, got: " .. tostring(r.stdout))
+end
+test_run_survives_eintr_during_wait()
+
 -- Setup failures must come back on the error channel as nil + message,
 -- not masquerade as a workload exit code (a 126 with the reason only on
 -- stderr is indistinguishable from the workload itself failing). A
