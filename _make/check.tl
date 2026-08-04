@@ -11,6 +11,7 @@
 --- collide or whose filenames cannot survive a recipe line has problems
 --- the type checker would report as a confusing cascade, or not at all.
 
+local records = require("cosmic.records")
 local teal = require("cosmic.teal")
 local selection = require("_make.select")
 local validate = require("_make.validate")
@@ -98,27 +99,20 @@ local function run(proj: Project, paths: {string}): integer
   local issues = validate.validate(proj)
   if #issues > 0 then
     io.stderr:write(validate.format_issues(issues) .. "\n")
-    io.write(string.format("check: FAIL (%d validation %s)\n",
-        #issues, #issues == 1 and "error" or "errors"))
-    return 1
+    return records.verdict("check", false,
+      records.detail(0, #issues, "validation error"))
   end
 
   local files, err = select_files(proj, paths)
   if not files then
     io.stderr:write((err or "make: no such selection") .. "\n")
-    io.write("check: FAIL (bad selection)\n")
-    return 1
+    return records.verdict("check", false, "bad selection")
   end
 
   local selected = files as {File} -- cast: record union after the guard
   local failed = check_files(selected)
-  if failed > 0 then
-    io.write(string.format("check: FAIL (%d of %d files)\n", failed, #selected))
-    return 1
-  end
-  io.write(string.format("check: PASS (%d %s)\n",
-      #selected, #selected == 1 and "file" or "files"))
-  return 0
+  return records.verdict("check", failed == 0,
+    records.detail(failed, #selected, "file"))
 end
 
 local record CheckModule
