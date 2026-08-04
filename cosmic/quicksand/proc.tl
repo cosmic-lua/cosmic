@@ -19,7 +19,7 @@ local errno = require("cosmic.errno")
 --- synchronization.
 local record Barrier
   signal: function(self: Barrier)
-  wait: function(self: Barrier)
+  wait: function(self: Barrier): boolean, string
   drop_read: function(self: Barrier)
   drop_write: function(self: Barrier)
 end
@@ -143,8 +143,10 @@ end
 ---     b:wait()
 ---
 --- signal() writes one byte and closes the write end. wait() reads
---- one byte (EOF counts as signaled, which propagates child crashes)
---- and closes the read end. drop_read() / drop_write() are
+--- one byte (EOF counts as signaled, which propagates child crashes),
+--- retrying internally on EINTR so a forwarded signal can never
+--- release the caller before the other side actually signals or
+--- exits, and closes the read end. drop_read() / drop_write() are
 --- idempotent.
 ---
 --- @return Barrier? barrier object on success
@@ -164,11 +166,25 @@ local function barrier(): Barrier | nil, string
       wfd = nil
     end
   end
-  b.wait = function(_: Barrier)
-    if rfd then
-      unix.read(rfd, 1)
-      unix.close(rfd)
-      rfd = nil
+  b.wait = function(_: Barrier): boolean, string
+    if not rfd then return true end
+    while true do
+      -- A byte or EOF both mean "signaled". EINTR (a forwarded
+      -- signal arriving mid-read) must be retried, never treated as
+      -- EOF -- doing so would release the caller before the other
+      -- side actually finished setup, the exact race this barrier
+      -- exists to prevent.
+      local chunk, rerr, reno = unix.read(rfd, 1)
+      if chunk then
+        unix.close(rfd)
+        rfd = nil
+        return true
+      end
+      if not errno.is(reno, "EINTR") then
+        unix.close(rfd)
+        rfd = nil
+        return false, errno.str(rerr, "barrier wait")
+      end
     end
   end
   b.drop_read = function(_: Barrier)

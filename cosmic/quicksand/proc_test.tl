@@ -155,6 +155,72 @@ io.write("done\n")
 end
 test_barrier_signal_wait()
 
+--- Regression for the race Barrier exists to prevent: EINTR arriving
+--- mid-read must be retried, not treated as "signaled". A child sends
+--- an interrupting signal early, then only calls b:signal() well
+--- after; if wait() ever returned at the EINTR point instead of
+--- retrying, the parent would proceed before the child's real setup
+--- finished.
+local function test_barrier_retries_eintr()
+  local c = quicksand.capabilities()
+  if not c.linux then
+    check.skip("barrier EINTR retry: non-Linux host")
+    return
+  end
+  local script = fs.join(tmpdir, "barrier_eintr.lua")
+  fs.write(script, [[
+local unix = require("cosmo.unix")
+local time = require("cosmic.time")
+local proc = require("cosmic.quicksand.proc")
+local b, err = proc.barrier()
+if not b then
+  io.write("skipped: " .. tostring(err) .. "\n")
+  os.exit(0)
+end
+local pid, ferr = unix.fork()
+if not pid then
+  io.write("skipped: fork: " .. tostring(ferr) .. "\n")
+  os.exit(0)
+end
+if pid == 0 then
+  b:drop_read()
+  time.sleep(0, 50000000) -- 50ms: let the parent block in b:wait() first
+  unix.kill(unix.getppid(), unix.SIGUSR1) -- interrupt the parent's read
+  time.sleep(0, 200000000) -- 200ms "still finishing setup"
+  b:signal()
+  os.exit(0)
+end
+b:drop_write()
+unix.sigaction(unix.SIGUSR1, function() end) -- no-op: interrupts read, doesn't kill
+local start = time.monotonic_ms()
+local ok, werr = b:wait()
+local elapsed = time.monotonic_ms() - start
+unix.wait(pid)
+io.write("ok=" .. tostring(ok) .. " err=" .. tostring(werr)
+  .. " elapsed=" .. tostring(elapsed) .. "\n")
+]])
+  local h = check.must(spawn.spawn({cosmic, script}))
+  local r = check.must(h:wait())
+  if not r.ok then
+    check.skip("barrier EINTR retry: child died before reporting (outer sandbox)")
+    return
+  end
+  local s = r.stdout
+  if s:find("skipped") then
+    check.skip("barrier EINTR retry: " .. s:gsub("%s+$", ""))
+    return
+  end
+  assert(s:find("ok=true"), "expected ok=true, got: " .. s)
+  local elapsed = tonumber(s:match("elapsed=(%d+)"))
+  assert(elapsed ~= nil, "no elapsed in output: " .. s)
+  -- EINTR fires at ~50ms; the real signal() doesn't land until ~250ms.
+  -- A regression that treats EINTR as "signaled" would return near
+  -- 50ms instead.
+  assert(elapsed >= 150,
+    "wait() returned too early -- EINTR treated as signaled? " .. s)
+end
+test_barrier_retries_eintr()
+
 -- become_init: the PID-1 supervisor loop.
 --
 -- These exercise behavior, not just exports. become_init does NOT
