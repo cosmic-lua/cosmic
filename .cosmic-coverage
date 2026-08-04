@@ -69,6 +69,7 @@ _types/types_gen.tl 0 44
 cmd/cosmic/embed_gen.tl 0 166
 cmd/cosmic/main.tl 0 276
 cosmic/_script_cache.tl 72 79
+cosmic/_seal_coverage.tl 9 10
 cosmic/ansi.tl 86 86
 cosmic/benchmark.tl 180 212
 cosmic/check.tl 110 113
@@ -81,12 +82,14 @@ cosmic/coverage/baseline.tl 136 154
 cosmic/coverage/init.tl 54 117
 cosmic/coverage/lines.tl 65 71
 cosmic/coverage/report.tl 185 210
+cosmic/doc/comments.tl 55 55
 cosmic/doc/gendoc.tl 0 11
 cosmic/doc/index.tl 55 60
-cosmic/doc/init.tl 276 311
+cosmic/doc/init.tl 210 242
 cosmic/doc/lookup.tl 44 69
 cosmic/doc/query.tl 237 303
 cosmic/doc/render.tl 117 234
+cosmic/doc/scan.tl 67 67
 cosmic/doc/show.tl 285 337
 cosmic/doc/types.tl 2 2
 cosmic/doc/visibility.tl 17 17
@@ -96,7 +99,7 @@ cosmic/embed/init.tl 149 187
 cosmic/env.tl 24 34
 cosmic/envd.tl 95 101
 cosmic/errno.tl 17 25
-cosmic/example.tl 170 208
+cosmic/example.tl 129 158
 cosmic/fd.tl 95 118
 cosmic/fetch/extras.tl 198 222
 cosmic/fetch/headers.tl 23 23
@@ -105,13 +108,13 @@ cosmic/flags.tl 140 142
 cosmic/format/init.tl 185 224
 cosmic/format/rules.tl 208 220
 cosmic/format/types.tl 98 113
-cosmic/fs/file.tl 30 46
+cosmic/fs/file.tl 31 48
 cosmic/fs/init.tl 61 81
 cosmic/fs/ops.tl 97 138
 cosmic/fs/path.tl 151 162
-cosmic/fs/tree.tl 32 54
+cosmic/fs/tree.tl 37 64
 cosmic/fs/types.tl 16 51
-cosmic/fs/walk.tl 143 174
+cosmic/fs/walk.tl 145 178
 cosmic/fuzzy.tl 48 50
 cosmic/getopt.tl 36 56
 cosmic/hash.tl 71 74
@@ -125,7 +128,7 @@ cosmic/literal.tl 222 238
 cosmic/log.tl 72 74
 cosmic/net/init.tl 0 120
 cosmic/net/socket.tl 225 252
-cosmic/pledge.tl 28 39
+cosmic/pledge.tl 24 35
 cosmic/poll.tl 82 96
 cosmic/proc.tl 39 77
 cosmic/quicksand/box/env.tl 27 27
@@ -151,8 +154,8 @@ cosmic/shm.tl 117 128
 cosmic/signal.tl 101 109
 cosmic/sqlite/bind.tl 15 15
 cosmic/sqlite/defaults.tl 15 17
-cosmic/sqlite/extras.tl 34 38
-cosmic/sqlite/init.tl 195 211
+cosmic/sqlite/extras.tl 40 45
+cosmic/sqlite/init.tl 184 201
 cosmic/sqlite/params.tl 65 77
 cosmic/sqlite/row_iter.tl 49 56
 cosmic/sqlite/stmt_cache.tl 57 67
@@ -174,4 +177,4 @@ cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 80 93
 tlconfig.lua 7 7
-total 13439 17751
+total 13462 17773
