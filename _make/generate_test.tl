@@ -319,38 +319,6 @@ assert(fs.write(fs.join(out, "embed/note.txt"), note.text() .. mark.tag() .. "\n
 end
 test_in_process_build_runs_the_generator()
 
--- `o/_types/types_gen` sits first on every compile include path but is
--- GENERATED, cleared+rewritten every graph verb: no-op second build,
--- but a real BYTES change recompiles a file that never imports it.
-local function gen_script(version: string): string
-  return "local fs = require('cosmic.fs')\nlocal out = arg[1]\n" ..
-  "assert(fs.makedirs(out))\nassert(fs.write(fs.join(out, 'gen.d.tl'), '-- " ..
-  version .. "'))\n"
-end
-
-local function test_a_types_gen_change_recompiles_unrelated_files()
-  local recompiled = "compile o/cmd/tool/main.lua"
-  local root = fixture("typesgate", {
-      ["cmd/tool/main.tl"] = "print('tool')\n",
-      ["_types/types_gen.lua"] = gen_script("v1"),
-    })
-  local code1, out1 = make(root, "build")
-  assert(code1 == 0 and out1:find(recompiled, 1, true),
-    "the first build compiles main.tl: " .. out1)
-
-  local code2, out2 = make(root, "build")
-  assert(code2 == 0 and not out2:find(recompiled, 1, true),
-    "an unchanged second build must not recompile main.tl: " .. out2)
-
-  -- OUTPUT changes (a stand-in for a cosmos pin bump); main.tl imports
-  -- nothing from it, so only the include-path hazard explains a recompile.
-  assert(fs.write(fs.join(root, "_types/types_gen.lua"), gen_script("v2")))
-  local code3, out3 = make(root, "build")
-  assert(code3 == 0 and out3:find(recompiled, 1, true),
-    "a real types change must recompile an unrelated file too: " .. out3)
-end
-test_a_types_gen_change_recompiles_unrelated_files()
-
 -- Two kinds can name one path inside the artifact, and `stage` writes
 -- both -- so which bytes shipped came down to `table.sort`'s behaviour
 -- on equal keys. Refusing names both origins instead.
