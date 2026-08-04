@@ -11,10 +11,13 @@ permissions:
   contents: read
 
 # A superseded PR run answers a question nobody is asking any more.
-# Pushes to main are never cancelled: each commit on main gets its own
-# verdict, and that verdict is the record.
+# Pushes to main are never cancelled AND never queued behind each other:
+# the group is keyed by the commit SHA on a push, so every commit on main
+# gets its own group and runs concurrently with the others, each getting
+# its own verdict as the record. PR runs still share a group per ref and
+# supersede each other.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
