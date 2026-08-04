@@ -62,6 +62,15 @@ jobs:
   # anchor for it — and `_build/workflows_test.tl` ratchets every copy
   # identical, so a bump that misses one fails here rather than leaving
   # lanes on different environments.
+  #
+  # This lane restores `o/` from the nearest previous run's cache, before
+  # the gate runs. That is only sound because D18 made the expensive
+  # recipe steps content-keyed rather than mtime-keyed: a restored `o/`
+  # sits under a fresh checkout, every source's mtime is new, and D18's
+  # `<out>.in` records re-verify against the cached bytes instead of
+  # trusting them, so matching work is skipped in milliseconds and
+  # changed work re-runs as if the cache were empty. See the cache step
+  # below for the trust boundary.
   ci:
     runs-on: ubuntu-latest
     container:
@@ -69,6 +78,44 @@ jobs:
       options: --privileged
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      # Restore `o/` before the chown below, so the non-root builder owns
+      # whatever the cache handed back along with the checkout.
+      #
+      # The key is DELIBERATELY never a hit: `github.sha` is unique per
+      # run, so `key` always misses and this run always SAVES its own
+      # `o/` at job end under a key the next run can restore. The
+      # `restore-keys` prefix then finds the nearest earlier save on this
+      # branch (or falls back along GitHub's cache scoping to the base
+      # branch's chain), so the chain of runs keeps handing `o/` forward
+      # rather than any one run reaching back to a specific ancestor.
+      #
+      # Trust: a cache entry stands for a PRIOR RUN'S OWN outputs.
+      # GitHub scopes cache writes to the branch that made them and a PR
+      # run can only read caches from its own branch and its base
+      # branch's chain, so restoring one is restoring your own history,
+      # not a stranger's. And even that trust is bounded, not assumed:
+      # D18's content key re-hashes every declared input's bytes against
+      # what `<out>.in` recorded, so a stale, evicted, or hand-corrupted
+      # cache entry degrades to an ordinary cold build of whatever
+      # doesn't match — never to a wrong result silently accepted.
+      #
+      # The WORKSPACE PATH is part of the key because one artifact class
+      # is path-sensitive: `.cov` hit data records absolute chunk paths,
+      # so a cache restored at a different workspace would make every
+      # SKIPPED test's coverage read as 0% and fail the ratchet red —
+      # loud, but wrong-red. Keying on the path means a moved workspace
+      # (a runner image change) starts cold and green instead.
+      - name: restore o/ from the previous run
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            o
+            !o/gate.log
+            !o/perf
+          key: o-${{ runner.os }}-${{ github.workspace }}-${{ github.sha }}
+          restore-keys: |
+            o-${{ runner.os }}-${{ github.workspace }}-
 
       # The gate runs as a non-root user: see the identity note above.
       # The system-wide safe.directory keeps git usable for that user,
