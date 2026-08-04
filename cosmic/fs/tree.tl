@@ -5,12 +5,8 @@ local cosmo_path = require("cosmo.path")
 local errno = require("cosmic.errno")
 local errstr = errno.str
 local fs_ops = require("cosmic.fs.ops")
-
---- Handle for reading directory entries (internal).
-local record TreeDirHandle
-  read: function(self): string, number
-  close: function(self)
-end
+local fs_types = require("cosmic.fs.types")
+local type TreeDirHandle = fs_types.DirHandle
 
 local copytree_into: function(string, string): boolean, string
 
