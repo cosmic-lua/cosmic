@@ -1,12 +1,12 @@
---- Internal helper for cosmic.sqlite: the query_value and savepoint
---- conveniences attached onto a Database. Lives in its own file so
---- cosmic/sqlite/init.tl stays under the 500-line cap.
+--- Internal helper for cosmic.sqlite: the query_value, transaction and
+--- savepoint conveniences attached onto a Database. Lives in its own
+--- file so cosmic/sqlite/init.tl stays under the 500-line cap.
 
 -- Mirrors of cosmic.sqlite's records (Teal records are nominal, so the
 -- boundary crosses through `any`; same convention as cosmic.sqlite.params).
 local record Values
   metamethod __call: function(self: Values): any ...
-  err: function(self: Values): string
+  err: function(self: Values): string | nil
 end
 
 local record Stmt
@@ -15,11 +15,19 @@ local record Stmt
   close: function(self: Stmt)
 end
 
+-- The transaction/savepoint callback: `false` or `nil, err` rolls
+-- back; `true` or nothing commits/releases. Variadic because Teal
+-- cannot express optional returns — a fixed (boolean, string) type
+-- would reject the no-return commit form outright — so typed callers
+-- can return their verdict (or nothing) without a cast.
+local type TxFn = function(any): any ...
+
 local record Db
   prepare: function(self: Db, sql: string): Stmt | nil, string
   exec: function(self: Db, sql: string, ...: any): boolean, string
   query_value: function(self: Db, sql: string, ...: any): any, string
-  savepoint: function(self: Db, fn: function(any)): boolean, string
+  transaction: function(self: Db, fn: TxFn): boolean, string
+  savepoint: function(self: Db, fn: TxFn): boolean, string
 end
 
 --- Attach query_value and savepoint to a Database under construction.
@@ -59,6 +67,38 @@ local function attach(db_any: any)
     return v
   end
 
+  --- Execute fn within a transaction. BEGIN before fn; COMMIT if fn returns
+  --- cleanly; ROLLBACK if fn raises OR signals failure the library way -- a
+  --- returned `false`, or `nil` plus an error (nothing returned still commits).
+  --- A failing COMMIT (e.g. a deferred foreign-key violation) also rolls
+  --- back, so the connection is never left inside an open transaction.
+  function db:transaction(fn: TxFn): boolean, string
+    local ok, err = self:exec("BEGIN IMMEDIATE")
+    if not ok then
+      return false, err or "begin failed"
+    end
+    -- cast: pcall variadic returns
+    local success, result, result_err = pcall(fn, self) as (boolean, any, any)
+    if not success then
+      self:exec("ROLLBACK")
+      return false, (result as string) or "transaction failed" -- cast: from any
+    end
+    if result == false or (result == nil and result_err ~= nil) then
+      self:exec("ROLLBACK")
+      return false, (result_err as string) or "transaction rolled back" -- cast: from any
+    end
+    local commit_ok, commit_err = self:exec("COMMIT")
+    if not commit_ok then
+      local rollback_ok, rollback_err = self:exec("ROLLBACK")
+      if not rollback_ok then
+        return false, (commit_err or "commit failed") ..
+        "; rollback also failed: " .. (rollback_err or "unknown error")
+      end
+      return false, commit_err or "commit failed"
+    end
+    return true
+  end
+
   -- Savepoint names only have to be unique among currently-active
   -- savepoints; a monotonic counter per database over-satisfies that.
   local sp_counter = 0
@@ -71,7 +111,7 @@ local function attach(db_any: any)
   --- top level a savepoint behaves like its own transaction. A failing
   --- RELEASE (e.g. a deferred foreign-key violation) also rolls back to
   --- the savepoint, so it is never left open.
-  function db:savepoint(fn: function(any)): boolean, string
+  function db:savepoint(fn: TxFn): boolean, string
     sp_counter = sp_counter + 1
     local name = "cosmic_sp_" .. sp_counter
     local ok, err = self:exec("SAVEPOINT " .. name)
