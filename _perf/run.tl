@@ -54,7 +54,7 @@ local function parse_args(argv: {string}): Args
     threshold = compare.DEFAULT_THRESHOLD_PCT,
     positional = {},
   }
-  local parser = getopt.new(argv, "h", {
+  local raw_parser, gerr = getopt.new(argv, "h", {
       {name = "out", has_arg = "required"},
       {name = "samples", has_arg = "required"},
       {name = "min-secs", has_arg = "required"},
@@ -65,6 +65,11 @@ local function parse_args(argv: {string}): Args
       {name = "selfcheck-b", has_arg = "required"},
       {name = "help", has_arg = "none", short = "h"},
     })
+  if raw_parser == nil then
+    a.err = "argument parse failed: " .. tostring(gerr)
+    return a
+  end
+  local parser = raw_parser as getopt.Parser -- cast: record union after guard
   while true do
     local opt, optarg = parser:next()
     if opt == nil then

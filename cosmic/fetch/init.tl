@@ -106,7 +106,10 @@ end
 local record Reader is stream_mod.Reader
   metamethod __close: function(self: Reader)
   read: function(self: Reader): string | nil, string
-  close: function(self: Reader): boolean
+  --- Close the reader. boolean, string like every close in the
+  --- stdlib: today it cannot fail, but the type admits failure for
+  --- the day the underlying transport's close can.
+  close: function(self: Reader): boolean, string
   closed: function(self: Reader): boolean
   lines: function(self: Reader): function(): string | nil, string
 end
@@ -312,9 +315,10 @@ local function make_reader(raw_reader: cosmo.StreamReader): Reader
     return chunk
   end
 
-  --- Close the reader. Idempotent.
+  --- Close the reader. Idempotent; cannot fail today, but the shape
+  --- admits failure like every other close.
   --- @return boolean always true
-  function reader:close(): boolean
+  function reader:close(): boolean, string
     if not is_closed then
       raw_reader:close()
       is_closed = true

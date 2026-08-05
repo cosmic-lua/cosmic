@@ -38,14 +38,22 @@ local function socket(family?: integer, socktype?: integer, protocol?: integer):
   return make_socket(fd)
 end
 
+--- A connected socket pair, as returned by socketpair(). A record
+--- rather than (Socket, Socket, err) returns: the old shape typed slot
+--- 2 as a non-nil Socket while returning nil there on failure, and put
+--- the error in slot 3 where `local a, b = ...` silently lost it.
+local record Pair
+  a: Socket
+  b: Socket
+end
+
 --- Create a pair of connected sockets.
 --- @param family integer Address family (AF_UNIX). Default: AF_UNIX
 --- @param socktype integer Socket type (SOCK_STREAM, SOCK_DGRAM). Default: SOCK_STREAM
 --- @param protocol integer Protocol. Default: 0
---- @return Socket | nil First socket of the pair
---- @return Socket Second socket of the pair
+--- @return Pair | nil Both sockets, on success
 --- @return string Error message on failure
-local function socketpair(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, Socket, string
+local function socketpair(family?: integer, socktype?: integer, protocol?: integer): Pair | nil, string
   family = family or unix.AF_UNIX
   socktype = socktype or unix.SOCK_STREAM
   protocol = protocol or 0
@@ -53,9 +61,9 @@ local function socketpair(family?: integer, socktype?: integer, protocol?: integ
   if not fd1 then
     -- On failure the binding returns (nil, err, errno): the error string
     -- arrives in the second slot, where the second fd would have been.
-    return nil, nil, errstr(fd2, "socketpair")
+    return nil, errstr(fd2, "socketpair")
   end
-  return make_socket(fd1), make_socket(fd2)
+  return {a = make_socket(fd1), b = make_socket(fd2)}
 end
 
 --- Create a Unix domain socket, bind it to a path, and start listening.
@@ -178,46 +186,43 @@ end
 --- @param port integer Local port to bind; use 0 for an OS-assigned ephemeral port
 --- @param backlog integer Maximum pending connections (default 128)
 --- @param opts ListenOptions? Socket options (reuseaddr default true, reuseport default false)
---- @return Socket | nil Listening socket ready to accept
---- @return integer Actual bound port (useful when port 0 was requested)
+--- @return Socket | nil Listening socket ready to accept; when port 0
+--- was requested, read the OS-assigned port with
+--- `s:getsockname().port` (the old (Socket, port, err) triple put the
+--- error in slot 3, where `check.must` and `local s, err = ...` lost it)
 --- @return string Error message on failure
-local function listen_tcp(addr: Address, port: integer, backlog?: integer, opts?: ListenOptions): Socket | nil, integer, string
+local function listen_tcp(addr: Address, port: integer, backlog?: integer, opts?: ListenOptions): Socket | nil, string
   opts = opts or {}
   local sock, serr = socket(unix.AF_INET, unix.SOCK_STREAM, 0)
   if not sock then
-    return nil, nil, serr
+    return nil, serr
   end
   local s = sock as Socket -- cast: record union after guard
   if opts.reuseaddr ~= false then
     local ok, setopt_err = s:setsockopt(unix.SOL_SOCKET, unix.SO_REUSEADDR, true)
     if not ok then
       s:close()
-      return nil, nil, setopt_err
+      return nil, setopt_err
     end
   end
   if opts.reuseport then
     local ok, setopt_err = s:setsockopt(unix.SOL_SOCKET, unix.SO_REUSEPORT, true)
     if not ok then
       s:close()
-      return nil, nil, setopt_err
+      return nil, setopt_err
     end
   end
   local bok, bind_err = s:bind(addr, port)
   if not bok then
     s:close()
-    return nil, nil, bind_err
-  end
-  local _, bound_port, name_err = s:getsockname()
-  if not bound_port then
-    s:close()
-    return nil, nil, name_err
+    return nil, bind_err
   end
   local lok, listen_err = s:listen(backlog)
   if not lok then
     s:close()
-    return nil, nil, listen_err
+    return nil, listen_err
   end
-  return s, bound_port
+  return s
 end
 
 --- Connect with a bounded wait instead of blocking indefinitely.
@@ -316,10 +321,13 @@ local record NetModule
   type Address = Address
   type ListenOptions = ListenOptions
   type Interface = Interface
+  type Endpoint = net_socket.Endpoint
+  type Datagram = net_socket.Datagram
+  type Pair = Pair
   socket: function(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, string
-  socketpair: function(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, Socket, string
+  socketpair: function(family?: integer, socktype?: integer, protocol?: integer): Pair | nil, string
   listen_unix: function(path: string, backlog?: integer): Socket | nil, string
-  listen_tcp: function(addr: Address, port: integer, backlog?: integer, opts?: ListenOptions): Socket | nil, integer, string
+  listen_tcp: function(addr: Address, port: integer, backlog?: integer, opts?: ListenOptions): Socket | nil, string
   connect_unix: function(path: string): Socket | nil, string
   connect_tcp: function(addr: Address, port: integer): Socket | nil, string
   dial: function(host: string, port: integer): Socket | nil, string

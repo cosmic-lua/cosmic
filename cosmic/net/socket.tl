@@ -27,6 +27,22 @@ local function resolve_addr(addr: Address): integer | nil, string
   return (addr):int()
 end
 
+--- A local or peer endpoint, as reported by getsockname/getpeername.
+--- A record rather than (Addr, integer, err) returns, so the error is
+--- always in slot 2 and `check.must` composes.
+local record Endpoint
+  addr: ip.Addr
+  port: integer
+end
+
+--- One received datagram, as returned by recvfrom: the payload plus
+--- the sender's endpoint.
+local record Datagram
+  data: string
+  addr: ip.Addr
+  port: integer
+end
+
 --- Socket handle for network I/O.
 --- Sockets are BLOCKING by default: recv and accept wait until data or a
 --- connection arrives. Blocking calls interrupted by a signal are retried
@@ -39,8 +55,9 @@ local record Socket is stream.Reader, stream.Writer
   metamethod __close: function(self: Socket)
   --- The underlying file descriptor.
   fd: integer
-  --- Close the socket.
-  close: function(self: Socket): boolean
+  --- Close the socket. Idempotent; reports the close(2) error —
+  --- an EIO on a dirty flush or an EBADF double-close is load-bearing.
+  close: function(self: Socket): boolean, string
   --- True when the socket has been closed.
   closed: function(self: Socket): boolean
   --- Shut down reading and/or writing (unix.SHUT_RD/WR/RDWR).
@@ -79,21 +96,25 @@ local record Socket is stream.Reader, stream.Writer
   --- the stream contract. With max set, returns at most max bytes even
   --- if no newline was seen (the rest stays readable), like fgets.
   readline: function(self: Socket, max?: integer): string | nil, string
-  --- Receive a datagram; returns data, sender Addr, sender port.
-  recvfrom: function(self: Socket, bufsiz?: integer, flags?: integer): string | nil, ip.Addr, integer, string
-  --- Local address as (Addr, port); use after bind for the real port.
-  getsockname: function(self: Socket): ip.Addr | nil, integer, string
-  --- Peer address as (Addr, port).
-  getpeername: function(self: Socket): ip.Addr | nil, integer, string
+  --- Receive a datagram: the payload plus sender endpoint, with the
+  --- error in slot 2 where every other fallible value keeps it.
+  recvfrom: function(self: Socket, bufsiz?: integer, flags?: integer): Datagram | nil, string
+  --- Local endpoint; use after bind for the OS-assigned port.
+  getsockname: function(self: Socket): Endpoint | nil, string
+  --- Peer endpoint.
+  getpeername: function(self: Socket): Endpoint | nil, string
   --- Bind to a local addr:port (default all interfaces, OS-assigned port).
   bind: function(self: Socket, addr?: Address, port?: integer): boolean, string
   --- Bind to a unix-domain socket path.
   bind_unix: function(self: Socket, path: string): boolean, string
   --- Start listening for connections.
   listen: function(self: Socket, backlog?: integer): boolean, string
-  --- Accept one connection (blocks until a client connects).
-  --- Returns the connection socket, peer Addr, peer port.
-  accept: function(self: Socket, flags?: integer): Socket | nil, ip.Addr, integer, string
+  --- Accept one connection (blocks until a client connects). Returns
+  --- the connection socket alone — the error in slot 2, so
+  --- `check.must(s:accept())` narrows without dropping the message.
+  --- The peer's address is a getpeername() away when wanted (every
+  --- former in-tree caller discarded the extra returns).
+  accept: function(self: Socket, flags?: integer): Socket | nil, string
   --- Connect to addr:port. The one blocking call NOT retried on EINTR:
   --- POSIX keeps the connection attempt going in the background after a
   --- signal, so a blind retry would fail with EALREADY. On EINTR, poll
@@ -127,11 +148,13 @@ local function make_socket(fd: integer): Socket
     unix.setsockopt(fd, unix.SOL_SOCKET, unix.SO_NOSIGPIPE, true)
   end
 
-  function sock:close(): boolean
+  function sock:close(): boolean, string
     if self.fd then
-      local ok = unix.close(self.fd)
+      local ok, err = unix.close(self.fd)
       self.fd = nil
-      return ok
+      if not ok then
+        return false, errstr(err, "close")
+      end
     end
     return true
   end
@@ -299,8 +322,8 @@ local function make_socket(fd: integer): Socket
     return line
   end
 
-  function sock:recvfrom(bufsiz?: integer, flags?: integer): string | nil, ip.Addr, integer, string
-    if not self.fd then return nil, nil, nil, "socket closed" end
+  function sock:recvfrom(bufsiz?: integer, flags?: integer): Datagram | nil, string
+    if not self.fd then return nil, "socket closed" end
     local data, sender, port = unix.recvfrom(self.fd, bufsiz or 65536, flags or 0)
     while data == nil and errno_is(port, "EINTR") do
       data, sender, port = unix.recvfrom(self.fd, bufsiz or 65536, flags or 0)
@@ -308,31 +331,31 @@ local function make_socket(fd: integer): Socket
     if not data then
       -- On failure the binding returns (nil, err, errno): the error string
       -- arrives in the second slot, where the sender ip would have been.
-      return nil, nil, nil, errstr(sender, "recvfrom")
+      return nil, errstr(sender, "recvfrom")
     end
-    return data, ip.addr(sender), port
+    return {data = data, addr = ip.addr(sender), port = port}
   end
 
-  function sock:getsockname(): ip.Addr | nil, integer, string
-    if not self.fd then return nil, nil, "socket closed" end
+  function sock:getsockname(): Endpoint | nil, string
+    if not self.fd then return nil, "socket closed" end
     local raw, port = unix.getsockname(self.fd)
     if not raw then
       -- On failure the binding returns (nil, err, errno): the error string
       -- arrives in the second slot, where the port would have been.
-      return nil, nil, errstr(port, "getsockname")
+      return nil, errstr(port, "getsockname")
     end
-    return ip.addr(raw), port
+    return {addr = ip.addr(raw), port = port}
   end
 
-  function sock:getpeername(): ip.Addr | nil, integer, string
-    if not self.fd then return nil, nil, "socket closed" end
+  function sock:getpeername(): Endpoint | nil, string
+    if not self.fd then return nil, "socket closed" end
     local raw, port = unix.getpeername(self.fd)
     if not raw then
       -- On failure the binding returns (nil, err, errno): the error string
       -- arrives in the second slot, where the port would have been.
-      return nil, nil, errstr(port, "getpeername")
+      return nil, errstr(port, "getpeername")
     end
-    return ip.addr(raw), port
+    return {addr = ip.addr(raw), port = port}
   end
 
   function sock:bind(addr?: Address, port?: integer): boolean, string
@@ -371,8 +394,8 @@ local function make_socket(fd: integer): Socket
     return true
   end
 
-  function sock:accept(flags?: integer): Socket | nil, ip.Addr, integer, string
-    if not self.fd then return nil, nil, nil, "socket closed" end
+  function sock:accept(flags?: integer): Socket | nil, string
+    if not self.fd then return nil, "socket closed" end
     local clientfd, peer, port = unix.accept(self.fd, flags or 0)
     while clientfd == nil and errno_is(port, "EINTR") do
       clientfd, peer, port = unix.accept(self.fd, flags or 0)
@@ -380,9 +403,9 @@ local function make_socket(fd: integer): Socket
     if not clientfd then
       -- On failure the binding returns (nil, err, errno): the error string
       -- arrives in the second slot, where the peer ip would have been.
-      return nil, nil, nil, errstr(peer, "accept")
+      return nil, errstr(peer, "accept")
     end
-    return make_socket(clientfd), ip.addr(peer), port
+    return make_socket(clientfd)
   end
 
   function sock:connect(addr: Address, port: integer): boolean, string
@@ -470,6 +493,8 @@ end
 local record NetSocketModule
   type Socket = Socket
   type Address = Address
+  type Endpoint = Endpoint
+  type Datagram = Datagram
   make_socket: function(fd: integer): Socket
   resolve_addr: function(addr: Address): integer | nil, string
 end

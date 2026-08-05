@@ -16,9 +16,8 @@ end
 test_socket_creation()
 
 local function test_socketpair()
-  local raw_sock1, sock2, err = net.socketpair()
-  assert(raw_sock1 ~= nil and sock2 ~= nil, "socketpair failed: " .. tostring(err))
-  local sock1 = check.must(raw_sock1)
+  local pair = check.must(net.socketpair())
+  local sock1, sock2 = pair.a, pair.b
 
   -- Test sending data between the pair
   local sent, send_err = sock1:send("hello")
@@ -36,9 +35,8 @@ local function test_send_to_closed_peer_returns_error()
   -- Regression: sending to a peer that has closed must return nil, err --
   -- NOT kill the process with SIGPIPE (which surfaces as exit 141, an
   -- unambiguous red before send() ORed in MSG_NOSIGNAL).
-  local raw_a, b, err = net.socketpair()
-  assert(raw_a ~= nil and b ~= nil, "socketpair failed: " .. tostring(err))
-  local a = check.must(raw_a)
+  local pair = check.must(net.socketpair())
+  local a, b = pair.a, pair.b
   b:close()
 
   -- Loop so a kernel that accepts the first write into the buffer before
@@ -62,10 +60,9 @@ local function test_bind_and_getsockname()
   local ok, bind_err = sock:bind("0.0.0.0", 0)
   assert(ok, "bind failed: " .. tostring(bind_err))
 
-  local addr, port, name_err = sock:getsockname()
-  assert(addr ~= nil, "getsockname failed: " .. tostring(name_err))
-  assert(check.must(addr).family == "inet", "local address must be a typed Addr")
-  assert(port > 0, "expected non-zero port, got " .. tostring(port))
+  local ep = check.must(sock:getsockname())
+  assert(ep.addr.family == "inet", "local address must be a typed Addr")
+  assert(ep.port > 0, "expected non-zero port, got " .. tostring(ep.port))
 
   sock:close()
 end
@@ -81,7 +78,7 @@ local function test_listen_accept_connect()
   ok, err = server:bind("0.0.0.0", 0)
   assert(ok, "bind failed: " .. tostring(err))
 
-  local _, server_port = server:getsockname()
+  local server_port = check.must(server:getsockname()).port
   assert(server_port > 0, "expected non-zero port")
 
   ok, err = server:listen()
@@ -109,23 +106,23 @@ local function test_listen_accept_connect()
     os.exit(0)
   end
 
-  -- Parent: accept connection
-  local raw_client, client_ip, client_port, accept_err = server:accept()
+  -- Parent: accept connection; the peer's endpoint comes from
+  -- getpeername now that accept returns the socket alone.
+  local raw_client, accept_err = server:accept()
   assert(raw_client ~= nil, "accept failed: " .. tostring(accept_err))
-  assert(client_ip ~= nil, "expected raw_client IP")
-  assert(client_ip.family == "inet", "peer address must be a typed Addr")
-  assert(client_ip:is_loopback(), "peer should be loopback, got " .. client_ip:format())
-  assert(client_port ~= nil and client_port > 0, "expected raw_client port")
   local client = check.must(raw_client)
+  local peer = check.must(client:getpeername())
+  assert(peer.addr.family == "inet", "peer address must be a typed Addr")
+  assert(peer.addr:is_loopback(), "peer should be loopback, got " .. peer.addr:format())
+  assert(peer.port > 0, "expected raw_client port")
 
   -- Read data from client
   local data, recv_err = client:recv()
   assert(data == "hello from client", "expected 'hello from client', got '" .. tostring(data) .. "': " .. tostring(recv_err))
 
-  -- Get peer name
-  local peer_ip, peer_port, peer_err = client:getpeername()
-  assert(peer_ip ~= nil, "getpeername failed: " .. tostring(peer_err))
-  assert(peer_port == client_port, "peer port mismatch")
+  -- Get peer name again; it must agree with itself.
+  local peer2 = check.must(client:getpeername())
+  assert(peer2.port == peer.port, "peer port mismatch")
 
   client:close()
   server:close()
@@ -143,9 +140,8 @@ end
 test_gethostname()
 
 local function test_shutdown()
-  local raw_sock1, sock2, err = net.socketpair()
-  assert(raw_sock1 ~= nil and sock2 ~= nil, "socketpair failed: " .. tostring(err))
-  local sock1 = check.must(raw_sock1)
+  local pair = check.must(net.socketpair())
+  local sock1, sock2 = pair.a, pair.b
 
   -- Shutdown write side of sock1
   local ok, shutdown_err = sock1:shutdown(net.SHUT_WR)
@@ -165,9 +161,8 @@ local function test_poll_readiness()
   -- net.poll was a duplicate of cosmic.poll and is gone; sockets compose
   -- with the Poller directly via their fd.
   local poll = require("cosmic.poll")
-  local raw_sock1, sock2, err = net.socketpair()
-  assert(raw_sock1 ~= nil and sock2 ~= nil, "socketpair failed: " .. tostring(err))
-  local sock1 = check.must(raw_sock1)
+  local pair = check.must(net.socketpair())
+  local sock1, sock2 = pair.a, pair.b
 
   -- Send data on sock1
   sock1:send("hello")
@@ -194,20 +189,19 @@ local function test_udp_sendto_recvfrom()
   local ok, bind_err = receiver:bind("127.0.0.1", 0)
   assert(ok, "bind failed: " .. tostring(bind_err))
 
-  local _, recv_port = receiver:getsockname()
+  local recv_port = check.must(receiver:getsockname()).port
   assert(recv_port > 0, "expected non-zero port")
 
   -- Send datagram
   local sent, send_err = sender:sendto("hello udp", "127.0.0.1", recv_port)
   assert(sent == 9, "expected 9 bytes sent, got " .. tostring(sent) .. ": " .. tostring(send_err))
 
-  -- Receive datagram: the sender address arrives as a typed ip.Addr
-  local data, from_ip, from_port, recv_err = receiver:recvfrom(100)
-  assert(data == "hello udp", "expected 'hello udp', got '" .. tostring(data) .. "': " .. tostring(recv_err))
-  assert(from_ip ~= nil, "expected sender IP")
-  assert(from_ip.family == "inet", "sender address must be a typed Addr")
-  assert(from_ip:format() == "127.0.0.1", "expected loopback sender, got " .. from_ip:format())
-  assert(from_port ~= nil and from_port > 0, "expected sender port")
+  -- Receive datagram: one record, the sender endpoint inside it
+  local dg = check.must(receiver:recvfrom(100))
+  assert(dg.data == "hello udp", "expected 'hello udp', got '" .. tostring(dg.data) .. "'")
+  assert(dg.addr.family == "inet", "sender address must be a typed Addr")
+  assert(dg.addr:format() == "127.0.0.1", "expected loopback sender, got " .. dg.addr:format())
+  assert(dg.port > 0, "expected sender port")
 
   sender:close()
   receiver:close()
@@ -304,8 +298,8 @@ local function test_socket_methods_after_close()
   assert(n == nil and serr == "socket closed", "send: " .. tostring(serr))
   local d, rerr = sock:recv()
   assert(d == nil and rerr == "socket closed", "recv: " .. tostring(rerr))
-  local addr, port, gerr = sock:getsockname()
-  assert(addr == nil and port == nil and gerr == "socket closed",
+  local ep, gerr = sock:getsockname()
+  assert(ep == nil and gerr == "socket closed",
     "getsockname: " .. tostring(gerr))
   local bok, berr = sock:bind()
   assert(bok == false and berr == "socket closed", "bind: " .. tostring(berr))
@@ -343,9 +337,8 @@ test_socket_has_close_metamethod()
 
 local function test_socketpair_has_close_metamethod()
   -- Verify socketpair sockets also have __close
-  local raw_sock1, sock2, err = net.socketpair()
-  assert(raw_sock1 ~= nil and sock2 ~= nil, "socketpair failed: " .. tostring(err))
-  local sock1 = check.must(raw_sock1)
+  local pair = check.must(net.socketpair())
+  local sock1, sock2 = pair.a, pair.b
 
   local mt1 = getmetatable(sock1)
   local mt2 = getmetatable(sock2)
@@ -367,7 +360,7 @@ local function test_accept_socket_has_close_metamethod()
   ok, err = server:bind("0.0.0.0", 0)
   assert(ok, "bind failed: " .. tostring(err))
 
-  local _, server_port = server:getsockname()
+  local server_port = check.must(server:getsockname()).port
   ok, err = server:listen()
   assert(ok, "listen failed: " .. tostring(err))
 
@@ -385,7 +378,7 @@ local function test_accept_socket_has_close_metamethod()
   end
 
   -- Accept and verify __close exists on accepted socket
-  local raw_client, _, _, accept_err = server:accept()
+  local raw_client, accept_err = server:accept()
   assert(raw_client ~= nil, "accept failed: " .. tostring(accept_err))
   local client = check.must(raw_client)
 
@@ -402,21 +395,23 @@ end
 test_accept_socket_has_close_metamethod()
 
 local function test_listen_tcp_ephemeral_port()
-  -- listen_tcp with port 0 should return a listening socket and a port > 0
-  local raw_srv, port, err = net.listen_tcp("127.0.0.1", 0)
+  -- listen_tcp with port 0: the OS-assigned port comes from getsockname
+  local raw_srv, err = net.listen_tcp("127.0.0.1", 0)
   assert(raw_srv ~= nil, "listen_tcp failed: " .. tostring(err))
-  assert(port ~= nil and port > 0, "expected non-zero port, got " .. tostring(port))
   local srv = check.must(raw_srv)
+  local port = check.must(srv:getsockname()).port
+  assert(port > 0, "expected non-zero port, got " .. tostring(port))
   srv:close()
 end
 test_listen_tcp_ephemeral_port()
 
 local function test_listen_tcp_connect_to_returned_port()
-  -- bind on 127.0.0.1:0, then connect_tcp to the returned port
-  local raw_srv, port, serr = net.listen_tcp("127.0.0.1", 0)
+  -- bind on 127.0.0.1:0, then connect_tcp to the bound port
+  local raw_srv, serr = net.listen_tcp("127.0.0.1", 0)
   assert(raw_srv ~= nil, "listen_tcp failed: " .. tostring(serr))
-  assert(port > 0, "expected non-zero port")
   local srv = check.must(raw_srv)
+  local port = check.must(srv:getsockname()).port
+  assert(port > 0, "expected non-zero port")
 
   -- Fork: child connects and sends, parent accepts and reads
   local pid = proc.fork()
@@ -431,7 +426,7 @@ local function test_listen_tcp_connect_to_returned_port()
     os.exit(0)
   end
 
-  local raw_conn, _, _, aerr = srv:accept()
+  local raw_conn, aerr = srv:accept()
   assert(raw_conn ~= nil, "accept failed: " .. tostring(aerr))
   local conn = check.must(raw_conn)
   local data = conn:recv()
@@ -445,14 +440,15 @@ test_listen_tcp_connect_to_returned_port()
 local function test_listen_tcp_double_bind_same_port_fails()
   -- Bind a specific port, then try to bind the same port again without
   -- REUSEPORT; the second listen_tcp should fail.
-  local raw_srv, port, serr = net.listen_tcp("127.0.0.1", 0)
+  local raw_srv, serr = net.listen_tcp("127.0.0.1", 0)
   assert(raw_srv ~= nil, "first listen_tcp failed: " .. tostring(serr))
-  assert(port > 0, "expected non-zero port")
   local srv = check.must(raw_srv)
+  local port = check.must(srv:getsockname()).port
+  assert(port > 0, "expected non-zero port")
 
   -- Second bind to the same explicit port should fail (SO_REUSEADDR alone
   -- does not allow two listeners on the same port simultaneously)
-  local srv2, _, serr2 = net.listen_tcp("127.0.0.1", port)
+  local srv2, serr2 = net.listen_tcp("127.0.0.1", port)
   assert(srv2 == nil, "expected second listen_tcp to fail on same port")
   assert(serr2 ~= nil, "expected error message from second listen_tcp")
 
@@ -462,7 +458,7 @@ test_listen_tcp_double_bind_same_port_fails()
 
 local function test_listen_tcp_invalid_ip_bind_fails()
   -- Attempt to bind to a non-local IP should fail
-  local srv, _, serr = net.listen_tcp("1.2.3.4", 0) -- not a local address
+  local srv, serr = net.listen_tcp("1.2.3.4", 0) -- not a local address
   assert(srv == nil, "expected listen_tcp to fail on non-local IP")
   assert(serr ~= nil, "expected error message")
 end

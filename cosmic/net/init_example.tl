@@ -5,14 +5,14 @@
 local function Example_echo()
   local net = require("cosmic.net")
   local check = require("cosmic.check")
-  local raw_srv, port, err = net.listen_tcp("127.0.0.1", 0)
-  local srv = check.must(raw_srv, err)
+  local srv = check.must(net.listen_tcp("127.0.0.1", 0))
+  local port = check.must(srv:getsockname()).port
   assert(port > 0)
 
   local client = check.must(net.connect_tcp("127.0.0.1", port))
 
-  local raw_conn, _, _, aerr = srv:accept()
-  local conn = check.must(raw_conn, aerr)
+  -- accept's error is in slot 2 now, so must() forwards it directly.
+  local conn = check.must(srv:accept())
 
   client:send("hello")
   local msg = check.must(conn:recv())
@@ -32,11 +32,11 @@ end
 local function Example_recv_eof()
   local net = require("cosmic.net")
   local check = require("cosmic.check")
-  local raw_srv, port, err = net.listen_tcp("127.0.0.1", 0)
-  local srv = check.must(raw_srv, err)
+  local srv = check.must(net.listen_tcp("127.0.0.1", 0))
+  local port = check.must(srv:getsockname()).port
 
   local client = check.must(net.connect_tcp("127.0.0.1", port))
-  local conn = check.must((srv:accept()))
+  local conn = check.must(srv:accept())
 
   client:close()
   local data, recv_err = conn:recv()

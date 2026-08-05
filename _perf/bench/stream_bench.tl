@@ -92,11 +92,17 @@ local function serve_loop(srv: net.Socket)
 end
 
 local function scenarios(): {pt.Scenario}, string
-  local srv, port, lerr = net.listen_tcp(LOCALHOST, 0)
+  local srv, lerr = net.listen_tcp(LOCALHOST, 0)
   if srv == nil then
     return nil, "listen_tcp: " .. tostring(lerr)
   end
-  listener = srv
+  local lsock = srv as net.Socket -- cast: record union after guard
+  local ep, eperr = lsock:getsockname()
+  if ep == nil then
+    return nil, "getsockname: " .. tostring(eperr)
+  end
+  local port = (ep as net.Endpoint).port -- cast: record union after guard
+  listener = lsock
   local pid, ferr = proc.fork()
   if pid == 0 then
     serve_loop(srv)

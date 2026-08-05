@@ -3,9 +3,10 @@ local check = require("cosmic.check")
 local net = require("cosmic.net")
 
 local function pair(): net.Socket, net.Socket
-  local a, b, err = net.socketpair()
-  assert(a ~= nil and b ~= nil, "socketpair failed: " .. tostring(err))
-  return (check.must(a)), b
+  -- socketpair's error lives in slot 2 now; the record makes the old
+  -- shape-laundering helper a one-liner.
+  local p = check.must(net.socketpair())
+  return p.a, p.b
 end
 
 -- sendall tests

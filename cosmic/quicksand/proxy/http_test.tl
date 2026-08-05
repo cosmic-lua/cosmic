@@ -141,12 +141,10 @@ test_rebuild_request_replaces_client_auth()
 -- already torn the tunnel down. No unshare needed -- pump() is plain
 -- fd plumbing over a plain fork, like proxy/serve_test.tl's worker.
 local function test_pump_relays_data_across_eintr()
-  local raw_c1, c2, cerr = net.socketpair()
-  assert(raw_c1 ~= nil and c2 ~= nil, "socketpair failed: " .. tostring(cerr))
-  local c1 = check.must(raw_c1)
-  local raw_u1, u2, uerr = net.socketpair()
-  assert(raw_u1 ~= nil and u2 ~= nil, "socketpair failed: " .. tostring(uerr))
-  local u1 = check.must(raw_u1)
+  local cp = check.must(net.socketpair())
+  local c1, c2 = cp.a, cp.b
+  local up = check.must(net.socketpair())
+  local u1, u2 = up.a, up.b
 
   local pid = proc.fork()
   if pid == nil then

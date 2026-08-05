@@ -6,24 +6,29 @@
 --- and should checksum the output separately.
 local cosmo = require("cosmo")
 
---- Compressed stream framing produced by compress().
-local type Format = cosmo.CompressFormat
-
---- Framing accepted by decompress(). "auto" detects zlib or gzip from
---- the stream header; raw streams carry no header and must be named
---- explicitly.
-local type DecompressFormat = cosmo.UncompressFormat
+--- Stream framing, one enum for both directions: "zlib" (default),
+--- "gzip", "raw" (headerless, as inside ZIP files), and "auto" —
+--- decompress-only header detection. One enum instead of the old
+--- compress/decompress pair, so round-tripping your own format value
+--- no longer needs an enum-widening cast; compress() rejects "auto"
+--- at runtime (it names no producible framing).
+local enum Format
+  "zlib"
+  "gzip"
+  "raw"
+  "auto"
+end
 
 --- Options for compress().
 local record CompressOptions
-  --- output framing; defaults to "zlib"
+  --- output framing; defaults to "zlib" ("auto" is rejected)
   format: Format
 end
 
 --- Options for decompress().
 local record DecompressOptions
   --- input framing; defaults to "zlib"
-  format: DecompressFormat
+  format: Format
   --- cap on the decompressed size in bytes (default 64 MiB)
   max_output: integer
 end
@@ -34,14 +39,19 @@ end
 --- DEFLATE, suitable for embedding into formats like ZIP files.
 --- @param data string The data to compress
 --- @param opts CompressOptions? format: "zlib" (default) | "gzip" | "raw"
---- @return string The compressed data
-local function compress(data: string, opts?: CompressOptions): string
+--- @return string | nil The compressed data
+--- @return string? Error message on failure ("auto" format, or a
+--- binding failure — the old infallible signature hid the error()
+--- this used to throw from library code)
+local function compress(data: string, opts?: CompressOptions): string | nil, string
   local format: Format = opts and opts.format or "zlib"
-  local result, err = cosmo.Deflate(data, {format = format})
+  if format == "auto" then
+    return nil, "compress: format \"auto\" is decompress-only; name the framing"
+  end
+  -- cast: one Format enum, narrowed above; the binding's compress enum lacks "auto"
+  local result, err = cosmo.Deflate(data, {format = format as cosmo.CompressFormat})
   if not result then
-    -- Unreachable with valid options; surface a loud failure rather than
-    -- silently breaking the infallible contract.
-    error("compress: " .. tostring(err))
+    return nil, "compress: " .. tostring(err)
   end
   return result
 end
@@ -55,22 +65,23 @@ end
 --- @return string | nil The decompressed data, or nil on error
 --- @return string? Error message if decompression failed
 local function decompress(data: string, opts?: DecompressOptions): string | nil, string
-  local format: DecompressFormat = opts and opts.format or "zlib"
+  local format: Format = opts and opts.format or "zlib"
   local max_output = opts and opts.max_output
   -- The binding reports truncated or corrupt input as nil, err.
-  local result, err = cosmo.Inflate(data, {format = format, maxsize = max_output})
+  -- cast: one Format enum; the binding's decompress enum is the same word set
+  local result, err = cosmo.Inflate(data,
+    {format = format as cosmo.UncompressFormat, maxsize = max_output})
   if not result then
-    return nil, err
+    return nil, "decompress: " .. tostring(err)
   end
   return result
 end
 
 local record CompressModule
   type Format = Format
-  type DecompressFormat = DecompressFormat
   type CompressOptions = CompressOptions
   type DecompressOptions = DecompressOptions
-  compress: function(data: string, opts?: CompressOptions): string
+  compress: function(data: string, opts?: CompressOptions): string | nil, string
   decompress: function(data: string, opts?: DecompressOptions): string | nil, string
 end
 

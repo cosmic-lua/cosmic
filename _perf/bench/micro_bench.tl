@@ -119,7 +119,7 @@ local function scenarios(): {pt.Scenario}, string
     {
       name = "compress_roundtrip_64k",
       fn = function(_: any): any
-        local packed = compress.compress(BLOB)
+        local packed = assert(compress.compress(BLOB))
         return (compress.decompress(packed))
       end,
       check = function(_: any, res: any): boolean, string
@@ -137,7 +137,7 @@ local function scenarios(): {pt.Scenario}, string
       -- size-prefixed deflate format.
       name = "compress_raw_roundtrip_small",
       fn = function(_: any): any
-        local packed = compress.compress(ABC, {format = "raw"})
+        local packed = assert(compress.compress(ABC, {format = "raw"}))
         return (compress.decompress(packed, {format = "raw"}))
       end,
       check = function(_: any, res: any): boolean, string

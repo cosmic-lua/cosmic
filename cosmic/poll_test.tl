@@ -137,8 +137,8 @@ end
 test_poll_timeout()
 
 local function test_poll_with_socket()
-  local raw_sock1, sock2, err = net.socketpair()
-  assert(raw_sock1 ~= nil and sock2 ~= nil, "socketpair failed: " .. tostring(err))
+  local sp = check.must(net.socketpair())
+  local raw_sock1, sock2 = sp.a, sp.b
   local sock1 = check.must(raw_sock1)
 
   -- Send data on sock1
@@ -240,18 +240,22 @@ local function test_poll_hangup()
 end
 test_poll_hangup()
 
--- Error fidelity: add(nil) raises instead of silently
--- doing nothing, and wait() surfaces a hard poll error instead of
--- returning an indistinguishable empty iterator.
+-- Error fidelity: add(nil)/add(-1) return false + err instead of
+-- silently doing nothing (or, before the error-shape wave, throwing
+-- from library code), and wait() surfaces a hard poll error through
+-- err() instead of an indistinguishable empty iterator.
 
-local function test_add_nil_fd_errors()
+local function test_add_bad_fd_errors()
   local p = poll.new()
-  local ok = pcall(function()
-      p:add(nil, poll.POLLIN)
-    end)
-  assert(not ok, "add(nil) should raise, not silently no-op")
+  local ok, err = p:add(nil, poll.POLLIN)
+  assert(not ok, "add(nil) must fail, not silently no-op")
+  assert(err and err:find("nil", 1, true), "error names the problem: " .. tostring(err))
+  local ok2, err2 = p:add(-1, poll.POLLIN)
+  assert(not ok2, "add(-1) must fail: a closed fd.Handle reports -1")
+  assert(err2 and err2:find("-1", 1, true), "error names the fd: " .. tostring(err2))
+  assert(p:empty(), "failed adds register nothing")
 end
-test_add_nil_fd_errors()
+test_add_bad_fd_errors()
 
 local function test_wait_surfaces_hard_error()
   -- Provoke a real poll failure: more fds than RLIMIT_NOFILE is EINVAL.
@@ -270,13 +274,14 @@ local function test_wait_surfaces_hard_error()
   -- of reporting "no events for this fd".
   local ev = p:events(1)
   assert(ev == nil, "events() should return nil (not crash) after a failed poll")
-  local iter, werr = p:wait(0)
+  local iter = p:wait(0)
   assert(type(iter) == "function", "wait must still return an iterator on error")
   for _ in iter do
     assert(false, "the error iterator must be empty")
   end
-  assert(type(werr) == "string" and werr:match("E%u+"),
-    "wait should surface the poll error, got: " .. tostring(werr))
+  local werr = p:err()
+  assert(type(werr) == "string" and string.match(werr, "E%u+"),
+    "err() should surface the poll error, got: " .. tostring(werr))
 end
 test_wait_surfaces_hard_error()
 

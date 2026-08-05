@@ -5,6 +5,7 @@
 
 local compress = require("cosmic.compress")
 local fs = require("cosmic.fs")
+local check = require("cosmic.check")
 local fs_types = require("cosmic.fs.types")
 local untar = require("cosmic.tar")
 
@@ -52,7 +53,7 @@ end
 
 local function make_targz(path: string, parts: {string})
   local archive = table.concat(parts) .. string.rep("\0", 2 * BLOCK)
-  local gz = compress.compress(archive, {format = "gzip"})
+  local gz = check.must(compress.compress(archive, {format = "gzip"}))
   assert(fs.write(path, gz))
 end
 
@@ -162,7 +163,7 @@ local function test_rejects_truncated_archive()
   local ar = fs.join(tmpdir, "trunc.tar.gz")
   local entry = tar_entry("big.txt", string.rep("a", 600), oct("644"), "0", "")
   -- header claims 600 bytes; hand extract() only the header + 100 bytes
-  local gz = compress.compress(entry:sub(1, BLOCK + 100), {format = "gzip"})
+  local gz = check.must(compress.compress(entry:sub(1, BLOCK + 100), {format = "gzip"}))
   assert(fs.write(ar, gz))
   local ok, err = untar.extract(ar, dest)
   assert(not ok, "truncated archive must be rejected")
@@ -216,7 +217,7 @@ local function test_truncated_archive_is_refused()
   -- without one, which is what a boundary-aligned truncation leaves.
   local body = tar_entry("a.txt", "one\n", oct("644"), "0", "") ..
   tar_entry("b.txt", "two\n", oct("644"), "0", "")
-  assert(fs.write(path, compress.compress(body, {format = "gzip"})))
+  assert(fs.write(path, (check.must(compress.compress(body, {format = "gzip"})))))
 
   fs.rmrf(dest)
   local ok, err = untar.extract(path, dest)
