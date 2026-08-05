@@ -235,12 +235,13 @@ local function test_recv_retries_eintr()
   local signal = require("cosmic.signal")
   local a, b = pair()
   local fired = false
-  local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number)
-      if not fired then
-        fired = true
-        a:sendall("ping")
-      end
-    end))
+  local on_alarm = function(_: number)
+    if not fired then
+      fired = true
+      a:sendall("ping")
+    end
+  end
+  local prev = check.must(signal.sigaction(signal.SIGALRM, on_alarm))
   -- Interval timer: keeps firing until the blocked recv observes a signal,
   -- so the test cannot hang however the timing lands.
   signal.setitimer({

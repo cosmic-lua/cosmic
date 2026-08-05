@@ -83,12 +83,12 @@ local function test_copy_retries_eintr_on_read()
 
   local fired = false
   local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number)
-      if not fired then
-        fired = true
-        p.writer:write("hello")
-        p.writer:close()
-      end
-    end))
+        if not fired then
+          fired = true
+          p.writer:write("hello")
+          p.writer:close()
+        end
+      end))
   -- Interval timer: keeps firing until the blocked read observes a
   -- signal, so the test cannot hang however the timing lands.
   signal.setitimer({
@@ -134,9 +134,9 @@ local function test_copy_retries_eintr_on_write()
 
   local drained: {string} = {}
   local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number)
-      local got = p.reader:read(65536)
-      if got then table.insert(drained, got) end
-    end))
+        local got = p.reader:read(65536)
+        if got then table.insert(drained, got) end
+      end))
   signal.setitimer({
       which = signal.ITIMER_REAL,
       valuesec = 0, valuens = 20000000,

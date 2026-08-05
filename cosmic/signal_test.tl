@@ -95,9 +95,10 @@ local function test_sigaction_handler()
   local oldmask = signal.sigprocmask(signal.SIG_BLOCK, blockmask)
 
   -- Install handler
-  local prev = check.must(signal.sigaction(signal.SIGUSR1, function(sig: number)
-      received_signal = sig
-    end))
+  local on_sig = function(sig: number)
+    received_signal = sig
+  end
+  local prev = check.must(signal.sigaction(signal.SIGUSR1, on_sig))
 
   -- Raise the signal (it will be pending since blocked)
   signal.raise(signal.SIGUSR1)
@@ -127,9 +128,10 @@ test_kill()
 local function test_raise()
   -- Set up handler for SIGUSR2
   local received = false
-  local prev = check.must(signal.sigaction(signal.SIGUSR2, function(_: number)
-      received = true
-    end))
+  local on_sig = function(_: number)
+    received = true
+  end
+  local prev = check.must(signal.sigaction(signal.SIGUSR2, on_sig))
 
   signal.raise(signal.SIGUSR2)
 
@@ -152,9 +154,10 @@ local function test_setitimer()
   local oldmask = signal.sigprocmask(signal.SIG_BLOCK, blockmask)
 
   -- Install handler
-  local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number)
-      received = true
-    end))
+  local on_sig = function(_: number)
+    received = true
+  end
+  local prev = check.must(signal.sigaction(signal.SIGALRM, on_sig))
 
   -- Set single-shot timer: fire in 100ms, no repeat
   signal.setitimer({

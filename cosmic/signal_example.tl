@@ -15,9 +15,10 @@ local function Example_handler()
   local blockmask = signal.sigset(signal.SIGUSR1)
   local oldmask = signal.sigprocmask(signal.SIG_BLOCK, blockmask)
 
-  local prev = check.must(signal.sigaction(signal.SIGUSR1, function(sig: number)
-      received = sig
-    end))
+  local on_usr1 = function(sig: number)
+    received = sig
+  end
+  local prev = check.must(signal.sigaction(signal.SIGUSR1, on_usr1))
 
   signal.raise(signal.SIGUSR1) -- pending: SIGUSR1 is blocked
   signal.sigprocmask(signal.SIG_SETMASK, oldmask)

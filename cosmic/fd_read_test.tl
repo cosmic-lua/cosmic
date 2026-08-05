@@ -73,11 +73,11 @@ local function test_blocking_read_retries_eintr()
   local p = check.must(cfd.pipe())
   local fired = false
   local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number)
-      if not fired then
-        fired = true
-        p.writer:write("x")
-      end
-    end))
+        if not fired then
+          fired = true
+          p.writer:write("x")
+        end
+      end))
   -- Interval timer: keeps firing until the blocked read observes a signal,
   -- so the test cannot hang however the timing lands.
   signal.setitimer({
