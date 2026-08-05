@@ -143,6 +143,8 @@ end
 ```teal
 local record EmbedModule
   EPOCH: integer
+  embed: function(paths: {string}, opts?: Options): EmbedResult
+  --  DEPRECATED alias for embed() (api-review-8 transition)
   run: function(paths: {string}, opts?: Options): EmbedResult
   extract: function(output_dir: string, exe_path?: string): EmbedResult
   unsafe_entry: function(name: string): boolean
@@ -151,10 +153,10 @@ end
 
 ## Functions
 
-### run
+### embed
 
 ```teal
-function run(paths: {string}, opts?: Options): EmbedResult
+function embed(paths: {string}, opts?: Options): EmbedResult
 ```
 
  Embed files and directories into a copy of the cosmic executable.

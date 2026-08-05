@@ -184,7 +184,7 @@ function needs(what: string, present: boolean): boolean
  the chunk with status 0, and 0 is `pass` -- so the trap described
  above closes for the printed line and reopens for the grade. The
  exit code is the only thing the runner reads:
-     if not check.needs("the make engine", fs.isfile(make_bin)) then
+     if not check.needs("the make engine", fs.is_file(make_bin)) then
        os.exit(check.EXIT_SKIP)
      end
 

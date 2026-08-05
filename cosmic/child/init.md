@@ -2,7 +2,7 @@
 
  Child process management.
 
- The high-level spawn API. `spawn` starts a process and hands back a
+ The high-level spawn API. `start` starts a process and hands back a
  `Handle` you can `kill`, `wait` on (with an optional timeout), poll with
  `try_wait`, or stream from with `read`. `run` is the one-shot form that
  spawns, waits, and returns a structured `Result`. Low-level syscall
@@ -12,7 +12,7 @@
  A Handle owns the child: `wait`/`run` reap it and cache the `Result`, so a
  second `wait` returns the same value instead of failing. An abandoned
  handle is not leaked — its `__gc`/`__close` metamethods SIGKILL and reap an
- un-waited child and close its pipes, so `local h <close> = spawn{...}` (or
+ un-waited child and close its pipes, so `local h <close> = start{...}` (or
  simply dropping the handle) never leaves a zombie. Side effect: requiring
  cosmic.child.io sets SIGPIPE to SIG_IGN process-wide (a child closing
  stdin early gets EPIPE on the write, not a dead parent).
@@ -89,6 +89,8 @@ end
 
 ```teal
 local record ChildModule
+  start: function(argv: {string}, opts?: Options): Handle | nil, string
+  --  DEPRECATED alias for start() (api-review-8 pin-advance transition)
   spawn: function(argv: {string}, opts?: Options): Handle | nil, string
   run: function(argv: {string}, opts?: Options): Result
 end
@@ -96,10 +98,10 @@ end
 
 ## Functions
 
-### spawn
+### start
 
 ```teal
-function spawn(argv: {string}, opts?: Options): Handle | nil, string
+function start(argv: {string}, opts?: Options): Handle | nil, string
 ```
 
  Spawns a child process with I/O control. Uses fexecve for /zip/ paths.

@@ -63,6 +63,9 @@ end
 
 ```teal
 local record LiteralModule
+  parse: function(source: string, opts?: Options): {string: any} | nil, string
+  parse_file: function(path: string, opts?: Options): {string: any} | nil, string
+  --  DEPRECATED aliases (api-review-8 pin-advance transition)
   of_source: function(source: string, opts?: Options): {string: any} | nil, string
   of_file: function(path: string, opts?: Options): {string: any} | nil, string
 end
@@ -70,10 +73,10 @@ end
 
 ## Functions
 
-### of_source
+### parse
 
 ```teal
-function of_source(source: string, opts?: Options): {string: any} | nil, string
+function parse(source: string, opts?: Options): {string: any} | nil, string
 ```
 
  Read the literal a file returns, without running it.
@@ -88,10 +91,10 @@ function of_source(source: string, opts?: Options): {string: any} | nil, string
 - {string: - any}|nil The declared table
 - string - The error message when the file is not a literal
 
-### of_file
+### parse_file
 
 ```teal
-function of_file(path: string, opts?: Options): {string: any} | nil, string
+function parse_file(path: string, opts?: Options): {string: any} | nil, string
 ```
 
  Read a file as a literal table, without running it.

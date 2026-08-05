@@ -9,7 +9,7 @@
    local digest = hash.sha256_hex("hello")
    local d = hash.digest("sha512", "hello")
    local tag = hash.hmac("sha256", "secret", "message")
-   local encoded = hash.password("password123")
+   local encoded = hash.hash_password("password123")
    local valid = hash.verify_password(encoded, "password123")
 
  Digest and HMAC functions return raw bytes; hex-encode with
@@ -52,7 +52,7 @@ local record HashModule
   sha256_hex: function(data: string): string
   hmac_sha256: function(key: string, data: string): string | nil, string
   constant_time_equal: function(a: string, b: string): boolean
-  password: function(pwd: string, opts?: PasswordOptions): string | nil, string
+  hash_password: function(pwd: string, opts?: PasswordOptions): string | nil, string
   verify_password: function(encoded: string, pwd: string): boolean, string
 end
 ```
@@ -182,10 +182,10 @@ function constant_time_equal(a: string, b: string): boolean
 
 - boolean - True when a and b are equal
 
-### password
+### hash_password
 
 ```teal
-function password(pwd: string, opts?: PasswordOptions): string | nil, string
+function hash_password(pwd: string, opts?: PasswordOptions): string | nil, string
 ```
 
  Hash a password using Argon2.

@@ -85,7 +85,7 @@ function report(paths: {string}): integer
 
 ```teal
   local testrun = require("cosmic.testrun")
-  local tmpdir = fs.mkdtemp("/tmp/testrun_example_XXXXXX")
+  local tmpdir = fs.temp_dir("/tmp/testrun_example_XXXXXX")
   if not tmpdir then return end
 
   -- Run /bin/true and capture output
@@ -95,7 +95,7 @@ function report(paths: {string}): integer
   -- Report on the result
   testrun.report({fs.join(tmpdir, "test1")})
 
-  fs.rmrf(tmpdir)
+  fs.remove_all(tmpdir)
 ```
 
 Output:

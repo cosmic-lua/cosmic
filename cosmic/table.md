@@ -22,7 +22,7 @@
  Deep-operation semantics, frozen here so they never re-open:
  deep_copy copies table keys and values recursively and preserves
  shared references and cycles within the input; metatables are NOT
- copied or attached — the result is plain tables. deep_eq compares
+ copied or attached — the result is plain tables. deep_equal compares
  structurally (same key sets, deep-equal values); table-valued keys
  are matched by identity, not structure. deep_merge recurses where
  both sides hold tables and lets the override win otherwise —
@@ -40,7 +40,7 @@
 ```teal
 local record TableModule
   deep_copy: function(value: any): any
-  deep_eq: function(a: any, b: any): boolean
+  deep_equal: function(a: any, b: any): boolean
   deep_merge: function(base: {any: any}, override: {any: any}): {any: any}
   map: function<T, U>(list: {T}, fn: function(T): U): {U}
   filter: function<T>(list: {T}, fn: function(T): boolean): {T}
@@ -69,10 +69,10 @@ function deep_copy(value: any): any
 
 - any - A copy sharing no tables with the input
 
-### deep_eq
+### deep_equal
 
 ```teal
-function deep_eq(a: any, b: any): boolean
+function deep_equal(a: any, b: any): boolean
 ```
 
  Compare two values for deep structural equality: equal scalars, or

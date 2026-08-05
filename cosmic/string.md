@@ -23,8 +23,8 @@
 local record StringModule
   capitalize: function(s: string): string
   trim: function(s: string): string
-  ltrim: function(s: string): string
-  rtrim: function(s: string): string
+  trim_left: function(s: string): string
+  trim_right: function(s: string): string
   split: function(s: string, sep: string): {string}
   starts_with: function(s: string, prefix: string): boolean
   ends_with: function(s: string, suffix: string): boolean
@@ -78,10 +78,10 @@ function trim(s: string): string
 
 - string - The trimmed string
 
-### ltrim
+### trim_left
 
 ```teal
-function ltrim(s: string): string
+function trim_left(s: string): string
 ```
 
  Trim whitespace from the left side of a string.
@@ -94,10 +94,10 @@ function ltrim(s: string): string
 
 - string - The left-trimmed string
 
-### rtrim
+### trim_right
 
 ```teal
-function rtrim(s: string): string
+function trim_right(s: string): string
 ```
 
  Trim whitespace from the right side of a string.

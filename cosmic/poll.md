@@ -67,7 +67,7 @@ local record Poller
   --  Get events for a specific fd after poll().
   events: function(Poller, integer): Events | nil
   --  Returns true if the poller has no registered fds.
-  empty: function(Poller): boolean
+  is_empty: function(Poller): boolean
   --  Returns the number of registered fds.
   count: function(Poller): integer
 end

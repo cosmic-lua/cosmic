@@ -8,7 +8,7 @@
    local rand = require("cosmic.rand")
    local key, err = rand.bytes(32)     -- cryptographically secure
    local roll = rand.int(1, 6)         -- crypto-grade, unbiased
-   local n = rand.rand64()             -- fast pseudo-random (not secure)
+   local n = rand.insecure64()             -- fast pseudo-random (not secure)
 
 ## Types
 
@@ -22,7 +22,7 @@ local record RandModule
   choice: function(list: {any}): any, string
   shuffle: function(list: {any}): {any} | nil, string
   token: function(len?: integer): string | nil, string
-  rand64: function(): integer
+  insecure64: function(): integer
 end
 ```
 
@@ -45,10 +45,10 @@ function bytes(n: integer): string | nil, string
 - string - | nil Random bytes, or nil on failure
 - string? - Error message on failure
 
-### rand64
+### insecure64
 
 ```teal
-function rand64(): integer
+function insecure64(): integer
 ```
 
  Generate a fast 64-bit pseudo-random integer (non-cryptographic).
