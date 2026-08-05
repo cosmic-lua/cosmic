@@ -115,7 +115,8 @@ end
 ]])
 
   local pid = proc.posix_spawnp(lua_bin, {lua_bin, script_path})
-  local _, status = proc.wait(pid)
+  local wr = check.must(proc.wait(pid))
+  local status = wr.status
   assert(proc.WIFEXITED(status), "expected normal exit")
   local exit_code = proc.WEXITSTATUS(status)
   assert(exit_code == 0, "expected is_main to return true when script is run directly, got exit code " .. tostring(exit_code))
@@ -134,7 +135,8 @@ end
 ]])
 
   local pid = proc.posix_spawnp(lua_bin, {lua_bin, script_path})
-  local _, status = proc.wait(pid)
+  local wr = check.must(proc.wait(pid))
+  local status = wr.status
   assert(proc.WIFEXITED(status), "expected normal exit")
   local exit_code = proc.WEXITSTATUS(status)
   assert(exit_code == 0, "expected proc.is_main to return true when script is run directly, got exit code " .. tostring(exit_code))
@@ -160,7 +162,8 @@ end
 ]], TEST_TMPDIR))
 
   local pid = proc.posix_spawnp(lua_bin, {lua_bin, script_path})
-  local _, status = proc.wait(pid)
+  local wr = check.must(proc.wait(pid))
+  local status = wr.status
   assert(proc.WIFEXITED(status), "expected normal exit")
   local exit_code = proc.WEXITSTATUS(status)
   assert(exit_code == 0, "expected is_main to return false when script is required, got exit code " .. tostring(exit_code))
@@ -190,29 +193,29 @@ end
 test_rlimit_constants_defined()
 
 local function test_getrlimit_returns_numbers()
-  local soft, hard = proc.getrlimit(proc.RLIMIT_NOFILE)
-  assert(type(soft) == "number", "getrlimit soft should return number, got " .. type(soft))
-  assert(type(hard) == "number", "getrlimit hard should return number, got " .. type(hard))
+  local rl = check.must(proc.getrlimit(proc.RLIMIT_NOFILE))
+  assert(type(rl.soft) == "number", "soft should be a number, got " .. type(rl.soft))
+  assert(type(rl.hard) == "number", "hard should be a number, got " .. type(rl.hard))
 end
 test_getrlimit_returns_numbers()
 
 local function test_getrlimit_soft_le_hard()
-  local soft, hard = proc.getrlimit(proc.RLIMIT_NOFILE)
-  assert(soft > 0, "soft limit should be positive")
-  assert(hard > 0, "hard limit should be positive")
-  assert(soft <= hard, "soft limit should not exceed hard limit")
+  local rl = check.must(proc.getrlimit(proc.RLIMIT_NOFILE))
+  assert(rl.soft > 0, "soft limit should be positive")
+  assert(rl.hard > 0, "hard limit should be positive")
+  assert(rl.soft <= rl.hard, "soft limit should not exceed hard limit")
 end
 test_getrlimit_soft_le_hard()
 
 local function test_setrlimit()
-  local soft, hard = proc.getrlimit(proc.RLIMIT_NOFILE)
-  if soft > 64 then
-    local ok, err = proc.setrlimit(proc.RLIMIT_NOFILE, 64, hard)
+  local rl = check.must(proc.getrlimit(proc.RLIMIT_NOFILE))
+  if rl.soft > 64 then
+    local ok, err = proc.setrlimit(proc.RLIMIT_NOFILE, 64, rl.hard)
     assert(ok == true, "setrlimit should succeed when lowering soft limit: " .. tostring(err))
-    local new_soft, new_hard = proc.getrlimit(proc.RLIMIT_NOFILE)
-    assert(new_soft == 64, "soft limit should be updated to 64")
-    assert(new_hard == hard, "hard limit should remain unchanged")
-    proc.setrlimit(proc.RLIMIT_NOFILE, soft, hard)
+    local nrl = check.must(proc.getrlimit(proc.RLIMIT_NOFILE))
+    assert(nrl.soft == 64, "soft limit should be updated to 64")
+    assert(nrl.hard == rl.hard, "hard limit should remain unchanged")
+    proc.setrlimit(proc.RLIMIT_NOFILE, rl.soft, rl.hard)
   end
 end
 test_setrlimit()
@@ -275,10 +278,11 @@ local function test_fork_and_wait()
     proc.exit(42)
   else
     assert(pid > 0, "expected positive child pid in parent, got " .. tostring(pid))
-    local waited_pid, status = proc.wait(pid)
-    assert(waited_pid == pid, "expected to wait for child " .. tostring(pid) .. ", got " .. tostring(waited_pid))
-    assert(proc.WIFEXITED(status), "expected child to exit normally")
-    assert(proc.WEXITSTATUS(status) == 42, "expected exit code 42, got " .. tostring(proc.WEXITSTATUS(status)))
+    local wr = check.must(proc.wait(pid))
+    assert(wr.pid == pid, "expected to wait for child " .. tostring(pid) .. ", got " .. tostring(wr.pid))
+    assert(proc.WIFEXITED(wr.status), "expected child to exit normally")
+    assert(proc.WEXITSTATUS(wr.status) == 42,
+      "expected exit code 42, got " .. tostring(proc.WEXITSTATUS(wr.status)))
   end
 end
 test_fork_and_wait()
@@ -324,7 +328,7 @@ local function test_wexitstatus_values()
     if pid == 0 then
       proc.exit(expected_code)
     else
-      local _, status = proc.wait(pid)
+      local status = check.must(proc.wait(pid)).status
       assert(proc.WIFEXITED(status), "expected WIFEXITED for code " .. tostring(expected_code))
       assert(proc.WEXITSTATUS(status) == expected_code,
         "expected exit code " .. tostring(expected_code) .. ", got " .. tostring(proc.WEXITSTATUS(status)))
@@ -340,7 +344,7 @@ local function test_wifsignaled_on_kill()
     proc.exit(0)
   else
     assert(proc.kill(pid, signal.SIGKILL), "expected kill to succeed")
-    local _, status = proc.wait(pid)
+    local status = check.must(proc.wait(pid)).status
     assert(proc.WIFSIGNALED(status), "expected WIFSIGNALED to be true")
     assert(proc.WTERMSIG(status) == signal.SIGKILL,
       "expected SIGKILL (" .. tostring(signal.SIGKILL) .. "), got " .. tostring(proc.WTERMSIG(status)))
@@ -354,9 +358,9 @@ local function test_wnohang_returns_zero_for_running_process()
     time.sleep(0, 100000000) -- 100ms
     proc.exit(0)
   else
-    local waited_pid = proc.wait(pid, proc.WNOHANG)
-    assert(waited_pid == 0 or waited_pid == pid, "expected 0 or pid, got " .. tostring(waited_pid))
-    if waited_pid == 0 then
+    local wr = check.must(proc.wait(pid, proc.WNOHANG))
+    assert(wr.pid == 0 or wr.pid == pid, "expected 0 or pid, got " .. tostring(wr.pid))
+    if wr.pid == 0 then
       proc.wait(pid)
     end
   end
@@ -426,8 +430,8 @@ end
 test_getpriority_error_names_errno()
 
 local function test_getrlimit_error_names_errno()
-  local soft, hard, err = proc.getrlimit(999999)
-  assert(soft == nil and hard == nil, "getrlimit with bad resource should return nils")
+  local rl, err = proc.getrlimit(999999)
+  assert(rl == nil, "getrlimit with bad resource should return nil")
   assert(type(err) == "string" and err:match("EINVAL"),
     "getrlimit error should name EINVAL, got: " .. tostring(err))
 end

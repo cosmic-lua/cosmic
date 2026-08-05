@@ -1,5 +1,6 @@
 #!/usr/bin/env cosmic
 local signal = require("cosmic.signal")
+local check = require("cosmic.check")
 local proc = require("cosmic.proc")
 local time = require("cosmic.time")
 
@@ -74,14 +75,14 @@ test_sigprocmask()
 
 local function test_sigaction_ignore()
   -- Set up SIGUSR1 to be ignored
-  local old_handler, old_flags, old_mask = signal.sigaction(signal.SIGUSR1, signal.SIG_IGN)
+  local prev = check.must(signal.sigaction(signal.SIGUSR1, signal.SIG_IGN))
 
   -- Raise SIGUSR1 - should not terminate since it's ignored
   local ok, err = signal.raise(signal.SIGUSR1)
   assert(ok, "raise should succeed: " .. (err or ""))
 
   -- Restore old handler
-  signal.sigaction(signal.SIGUSR1, old_handler, old_flags, old_mask)
+  signal.sigaction(signal.SIGUSR1, prev.handler, prev.flags, prev.mask)
 end
 test_sigaction_ignore()
 
@@ -94,9 +95,10 @@ local function test_sigaction_handler()
   local oldmask = signal.sigprocmask(signal.SIG_BLOCK, blockmask)
 
   -- Install handler
-  local old_handler = signal.sigaction(signal.SIGUSR1, function(sig: number)
-      received_signal = sig
-    end)
+  local on_sig = function(sig: number)
+    received_signal = sig
+  end
+  local prev = check.must(signal.sigaction(signal.SIGUSR1, on_sig))
 
   -- Raise the signal (it will be pending since blocked)
   signal.raise(signal.SIGUSR1)
@@ -111,7 +113,7 @@ local function test_sigaction_handler()
     "handler should have received SIGUSR1, got " .. tostring(received_signal))
 
   -- Restore old handler
-  signal.sigaction(signal.SIGUSR1, old_handler)
+  signal.sigaction(signal.SIGUSR1, prev.handler, prev.flags, prev.mask)
 end
 test_sigaction_handler()
 
@@ -126,9 +128,10 @@ test_kill()
 local function test_raise()
   -- Set up handler for SIGUSR2
   local received = false
-  local old_handler = signal.sigaction(signal.SIGUSR2, function(_: number)
-      received = true
-    end)
+  local on_sig = function(_: number)
+    received = true
+  end
+  local prev = check.must(signal.sigaction(signal.SIGUSR2, on_sig))
 
   signal.raise(signal.SIGUSR2)
 
@@ -138,7 +141,7 @@ local function test_raise()
   assert(received, "should have received SIGUSR2")
 
   -- Restore old handler
-  signal.sigaction(signal.SIGUSR2, old_handler)
+  signal.sigaction(signal.SIGUSR2, prev.handler, prev.flags, prev.mask)
 end
 test_raise()
 
@@ -151,9 +154,10 @@ local function test_setitimer()
   local oldmask = signal.sigprocmask(signal.SIG_BLOCK, blockmask)
 
   -- Install handler
-  local old_handler = signal.sigaction(signal.SIGALRM, function(_: number)
-      received = true
-    end)
+  local on_sig = function(_: number)
+    received = true
+  end
+  local prev = check.must(signal.sigaction(signal.SIGALRM, on_sig))
 
   -- Set single-shot timer: fire in 100ms, no repeat
   signal.setitimer({
@@ -180,7 +184,7 @@ local function test_setitimer()
       intervalsec = 0,
       intervalns = 0,
     })
-  signal.sigaction(signal.SIGALRM, old_handler)
+  signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
 end
 test_setitimer()
 
@@ -221,7 +225,7 @@ test_sigprocmask_error_names_errno()
 local function test_sigsuspend_returns_eintr()
   -- sigsuspend never succeeds: it returns nil plus EINTR once a signal
   -- is delivered. Arm a short one-shot timer to provide that signal.
-  local old_handler = signal.sigaction(signal.SIGALRM, function(_: number) end)
+  local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number) end))
   signal.setitimer({
       which = signal.ITIMER_REAL,
       valuesec = 0,
@@ -240,6 +244,6 @@ local function test_sigsuspend_returns_eintr()
       intervalsec = 0,
       intervalns = 0,
     })
-  signal.sigaction(signal.SIGALRM, old_handler)
+  signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
 end
 test_sigsuspend_returns_eintr()

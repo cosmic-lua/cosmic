@@ -285,44 +285,44 @@ test_format_minimal()
 -- parse_host tests
 
 local function test_parse_host_with_port()
-  local host, port = url.parse_host("example.com:8080")
-  assert(host == "example.com", "expected 'example.com', got '" .. tostring(host) .. "'")
-  assert(port == 8080, "expected 8080, got " .. tostring(port))
+  local hp = check.must(url.parse_host("example.com:8080"))
+  assert(hp.host == "example.com", "expected 'example.com', got '" .. tostring(hp.host) .. "'")
+  assert(hp.port == 8080, "expected 8080, got " .. tostring(hp.port))
 end
 test_parse_host_with_port()
 
 local function test_parse_host_without_port()
-  local host, port = url.parse_host("example.com")
-  assert(host == "example.com", "expected 'example.com', got '" .. tostring(host) .. "'")
-  assert(port == nil, "expected nil port, got " .. tostring(port))
+  local hp = check.must(url.parse_host("example.com"))
+  assert(hp.host == "example.com", "expected 'example.com', got '" .. tostring(hp.host) .. "'")
+  assert(hp.port == nil, "expected nil port, got " .. tostring(hp.port))
 end
 test_parse_host_without_port()
 
 local function test_parse_host_ipv4()
-  local host, port = url.parse_host("192.168.1.1:80")
-  assert(host == "192.168.1.1", "expected '192.168.1.1', got '" .. tostring(host) .. "'")
-  assert(port == 80, "expected 80, got " .. tostring(port))
+  local hp = check.must(url.parse_host("192.168.1.1:80"))
+  assert(hp.host == "192.168.1.1", "expected '192.168.1.1', got '" .. tostring(hp.host) .. "'")
+  assert(hp.port == 80, "expected 80, got " .. tostring(hp.port))
 end
 test_parse_host_ipv4()
 
 local function test_parse_host_ipv6_with_port()
-  local host, port = url.parse_host("[::1]:8080")
-  assert(host == "::1", "expected '::1', got '" .. tostring(host) .. "'")
-  assert(port == 8080, "expected 8080, got " .. tostring(port))
+  local hp = check.must(url.parse_host("[::1]:8080"))
+  assert(hp.host == "::1", "expected '::1', got '" .. tostring(hp.host) .. "'")
+  assert(hp.port == 8080, "expected 8080, got " .. tostring(hp.port))
 end
 test_parse_host_ipv6_with_port()
 
 local function test_parse_host_ipv6_without_port()
-  local host, port = url.parse_host("[::1]")
-  assert(host == "::1", "expected '::1', got '" .. tostring(host) .. "'")
-  assert(port == nil, "expected nil port, got " .. tostring(port))
+  local hp = check.must(url.parse_host("[::1]"))
+  assert(hp.host == "::1", "expected '::1', got '" .. tostring(hp.host) .. "'")
+  assert(hp.port == nil, "expected nil port, got " .. tostring(hp.port))
 end
 test_parse_host_ipv6_without_port()
 
 local function test_parse_host_unbracketed_ipv6_rejected()
   -- A bare IPv6 address is all host: no port to split off.
-  local host, _, err = url.parse_host("::1")
-  assert(host == nil, "unbracketed IPv6 must be rejected, got '" .. tostring(host) .. "'")
+  local hp, err = url.parse_host("::1")
+  assert(hp == nil, "unbracketed IPv6 must be rejected")
   assert(err ~= nil and err:find("bracket") ~= nil,
     "error should say brackets are required, got '" .. tostring(err) .. "'")
 end
@@ -330,38 +330,37 @@ test_parse_host_unbracketed_ipv6_rejected()
 
 local function test_parse_host_port_out_of_range()
   -- Ports above 65535 are not ports.
-  local host, _, err = url.parse_host("example.com:99999")
-  assert(host == nil, "port 99999 must be rejected")
+  local hp, err = url.parse_host("example.com:99999")
+  assert(hp == nil, "port 99999 must be rejected")
   assert(err ~= nil and err:find("invalid port") ~= nil,
     "expected invalid-port error, got '" .. tostring(err) .. "'")
 end
 test_parse_host_port_out_of_range()
 
 local function test_parse_host_port_zero_rejected()
-  local host, _, err = url.parse_host("example.com:0")
-  assert(host == nil, "port 0 must be rejected")
+  local hp, err = url.parse_host("example.com:0")
+  assert(hp == nil, "port 0 must be rejected")
   assert(err ~= nil, "expected error for port 0")
 end
 test_parse_host_port_zero_rejected()
 
 local function test_parse_host_trailing_colon_rejected()
-  local host, _, err = url.parse_host("example.com:")
-  assert(host == nil, "trailing colon without digits must be rejected")
+  local hp, err = url.parse_host("example.com:")
+  assert(hp == nil, "trailing colon without digits must be rejected")
   assert(err ~= nil, "expected error message")
 end
 test_parse_host_trailing_colon_rejected()
 
 local function test_parse_host_empty()
-  local host, port, err = url.parse_host("")
-  assert(host == nil, "expected nil host for empty string")
-  assert(port == nil, "expected nil port for empty string")
+  local hp, err = url.parse_host("")
+  assert(hp == nil, "expected nil result for empty string")
   assert(err ~= nil, "expected error for empty string")
 end
 test_parse_host_empty()
 
 local function test_parse_host_empty_host_rejected()
-  local host, _, err = url.parse_host(":8080")
-  assert(host == nil, "empty host must be rejected")
+  local hp, err = url.parse_host(":8080")
+  assert(hp == nil, "empty host must be rejected")
   assert(err ~= nil, "expected error message")
 end
 test_parse_host_empty_host_rejected()

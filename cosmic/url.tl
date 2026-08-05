@@ -141,16 +141,23 @@ local function format(u: Url): string
     })
 end
 
+--- A parsed host:port pair; port is nil when the input carried none.
+--- A record rather than (host, port, err) returns: the error is in
+--- slot 2, where check.must and `local h, err = ...` can see it.
+local record HostPort
+  host: string
+  port: integer
+end
+
 --- Parse a host:port string into its components.
 --- IPv6 hosts must be bracketed ("[::1]" or "[::1]:8080"); a port, when
 --- present, must be an integer in 1..65535.
 --- @param hostport string The host:port string (e.g., "example.com:8080")
---- @return string | nil The host, or nil on error
---- @return integer? The port, or nil if not specified
+--- @return HostPort | nil The parsed host (port nil when absent)
 --- @return string? Error message if parsing failed
-local function parse_host(hostport: string): string | nil, integer, string
+local function parse_host(hostport: string): HostPort | nil, string
   if not hostport or hostport == "" then
-    return nil, nil, "empty host"
+    return nil, "empty host"
   end
 
   local port_str: string = nil
@@ -163,7 +170,7 @@ local function parse_host(hostport: string): string | nil, integer, string
     if r ~= "" then
       port_str = r:match("^:(%d+)$")
       if not port_str then
-        return nil, nil, "invalid host:port: " .. hostport
+        return nil, "invalid host:port: " .. hostport
       end
     end
   else
@@ -174,13 +181,13 @@ local function parse_host(hostport: string): string | nil, integer, string
       host = hostport:sub(1, colon - 1)
       port_str = hostport:sub(colon + 1)
       if port_str:find(":", 1, true) then
-        return nil, nil, "IPv6 host must be bracketed, e.g. [::1]:8080"
+        return nil, "IPv6 host must be bracketed, e.g. [::1]:8080"
       end
       if host == "" then
-        return nil, nil, "empty host in: " .. hostport
+        return nil, "empty host in: " .. hostport
       end
       if not port_str:match("^%d+$") then
-        return nil, nil, "invalid port: " .. port_str
+        return nil, "invalid port: " .. port_str
       end
     end
   end
@@ -188,11 +195,11 @@ local function parse_host(hostport: string): string | nil, integer, string
   if port_str then
     local port = math.tointeger(tonumber(port_str))
     if not port or port < 1 or port > 65535 then
-      return nil, nil, "invalid port: " .. port_str
+      return nil, "invalid port: " .. port_str
     end
-    return host, port
+    return {host = host, port = port}
   end
-  return host, nil
+  return {host = host}
 end
 
 --- Escape a hostname for use in a URL.
@@ -258,13 +265,14 @@ end
 
 local record UrlModule
   type Url = Url
+  type HostPort = HostPort
 
   encode: function(str: string): string
   decode: function(str: string): string | nil, string
   parse: function(url: string): Url | nil, string
   format: function(u: Url): string
   parse_query: function(query: string): {string: {string}}
-  parse_host: function(hostport: string): string | nil, integer, string
+  parse_host: function(hostport: string): HostPort | nil, string
   escape_host: function(str: string): string
   escape_path: function(str: string): string
   escape_segment: function(str: string): string

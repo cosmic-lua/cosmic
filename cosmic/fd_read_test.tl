@@ -72,12 +72,12 @@ local function test_blocking_read_retries_eintr()
   local signal = require("cosmic.signal")
   local p = check.must(cfd.pipe())
   local fired = false
-  local old_handler = signal.sigaction(signal.SIGALRM, function(_: number)
-      if not fired then
-        fired = true
-        p.writer:write("x")
-      end
-    end)
+  local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number)
+        if not fired then
+          fired = true
+          p.writer:write("x")
+        end
+      end))
   -- Interval timer: keeps firing until the blocked read observes a signal,
   -- so the test cannot hang however the timing lands.
   signal.setitimer({
@@ -97,7 +97,7 @@ local function test_blocking_read_retries_eintr()
       intervalsec = 0,
       intervalns = 0,
     })
-  signal.sigaction(signal.SIGALRM, old_handler)
+  signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
   assert(data == "x", "interrupted read should retry and return the handler's"
     .. " payload, got " .. tostring(data) .. " (err: " .. tostring(err) .. ")")
   p:close()

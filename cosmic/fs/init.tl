@@ -227,8 +227,10 @@ local record FsModule
   type Dir = Dir
   type FileInfo = FileInfo
   type WalkStat = WalkStat
-  --- fd.Handle, as returned by tmpfile()/tmpfd().
+  --- fd.Handle, as wrapped by tmpfd() + fd.wrap(); TmpFile is
+  --- tmpfile()'s handle+path record.
   type Handle = Handle
+  type TmpFile = fs_ops.TmpFile
 
   --- Visitor verdict for walk(): nil continues, "skip" prunes, "stop" ends the walk.
   type WalkAction = WalkAction
@@ -301,7 +303,7 @@ local record FsModule
 
   -- Temporary file operations
   mkdtemp: function(template: string): string | nil, string
-  tmpfile: function(template?: string): Handle | nil, string, string
+  tmpfile: function(template?: string): fs_ops.TmpFile | nil, string
   tmpfd: function(): integer | nil, string
 
   -- Filesystem statistics

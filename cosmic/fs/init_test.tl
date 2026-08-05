@@ -406,16 +406,15 @@ end
 test_mkdtemp()
 
 local function test_tmpfile()
-  local h, result = fs.tmpfile(fs.join(tmp_base, "fs_test_XXXXXX"))
-  local hh = check.must(h, result)
+  local tf = check.must(fs.tmpfile(fs.join(tmp_base, "fs_test_XXXXXX")))
+  local hh = tf.handle
 
-  local filepath = result
-  assert(filepath:match("fs_test_"), "expected fs_test_ in path")
+  assert(tf.path:match("fs_test_"), "expected fs_test_ in path")
   local st = fs.fstat(hh:fd())
   assert(st, "fstat should succeed")
 
   hh:close()
-  fs.unlink(filepath)
+  fs.unlink(tf.path)
 end
 test_tmpfile()
 

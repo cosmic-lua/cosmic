@@ -62,9 +62,9 @@ local function render(proj: Project, paths?: {string}): integer, string
   end
   local written = 0
   for _, f in ipairs(picked as {File}) do -- cast: nil ruled out above
-    local ok, output = doc.render_file(f.path)
-    if not ok then
-      return written, "make: " .. f.path .. ": " .. output
+    local output, rerr = doc.render_file(f.path)
+    if output == nil then
+      return written, "make: " .. f.path .. ": " .. tostring(rerr)
     end
     local out = page_of(f.path)
     if not fs.makedirs(fs.dirname(out)) then

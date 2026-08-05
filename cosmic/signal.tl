@@ -43,6 +43,17 @@ end
 
 --- Signal handling module.
 --- Provides signal constants, sigaction, sigprocmask, sigsuspend, and delivery functions.
+--- The disposition sigaction replaced. A record rather than
+--- (handler, flags, mask, err) returns: the old shape put the error in
+--- slot 4, unreachable from `local prev, err = ...`. Restore with
+--- `signal.sigaction(sig, prev.handler, prev.flags, prev.mask)`.
+local record PrevAction
+  --- The previous handler: a Lua function, or SIG_DFL/SIG_IGN.
+  handler: function | integer
+  flags: integer
+  mask: Sigset
+end
+
 local record SignalModule
 
   -- Signal constants
@@ -114,7 +125,8 @@ local record SignalModule
   --- An error raised inside a handler is logged, not propagated.
   --- Returns the previous handler, flags, and mask; on failure returns
   --- nil, nil, nil plus an error message.
-  sigaction: function(sig: integer, handler?: function | integer, flags?: integer, mask?: Sigset): function | integer, integer, Sigset, string
+  type PrevAction = PrevAction
+  sigaction: function(sig: integer, handler?: function | integer, flags?: integer, mask?: Sigset): PrevAction | nil, string
 
   --- Modify the process signal mask.
   --- how: SIG_BLOCK, SIG_UNBLOCK, or SIG_SETMASK
@@ -247,7 +259,7 @@ local raw_sigsuspend = unix.sigsuspend as function(Sigset): (any, any)
 -- handler and the first return are typed any here because the formatter
 -- cannot parse a bare `function | integer` union in a function statement;
 -- the SignalModule record above carries the precise public type.
-local function sigaction(sig: integer, handler?: any, flags?: integer, mask?: Sigset): any, integer, Sigset, string
+local function sigaction(sig: integer, handler?: any, flags?: integer, mask?: Sigset): PrevAction | nil, string
   -- Never pass explicit trailing nils: the binding leaves nil-valued
   -- stack slots 3/4 in place, which shifts the stack index it later uses
   -- to store a Lua handler in its registry table — the handler would be
@@ -265,9 +277,13 @@ local function sigaction(sig: integer, handler?: any, flags?: integer, mask?: Si
   if prev == nil then
     -- On failure the binding returns (nil, err, errno): the error string
     -- arrives in the second slot.
-    return nil, nil, nil, errstr(prev_flags, "sigaction")
+    return nil, errstr(prev_flags, "sigaction")
   end
-  return prev, prev_flags as integer, prev_mask as Sigset -- cast: from any
+  -- The binding returns an untyped triple; type each slot on its way in.
+  local phandler = prev as (function | integer) -- cast: from any
+  local pflags = prev_flags as integer -- cast: from any
+  local pmask = prev_mask as Sigset -- cast: from any
+  return {handler = phandler, flags = pflags, mask = pmask}
 end
 
 --- Modify the process signal mask.

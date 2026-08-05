@@ -76,9 +76,9 @@ test_memory_xchg()
 local function test_memory_cmpxchg_success()
   local mem = check.must(shm.mapshared(4096))
   mem:store(0, 100)
-  local ok, actual = mem:cmpxchg(0, 100, 200)
-  assert(ok == true, "cmpxchg should succeed when old matches")
-  assert(actual == 100, "cmpxchg should return old value 100, got " .. tostring(actual))
+  local r = check.must(mem:cmpxchg(0, 100, 200))
+  assert(r.swapped == true, "cmpxchg should succeed when old matches")
+  assert(r.value == 100, "cmpxchg should return old value 100, got " .. tostring(r.value))
   local current = mem:load(0)
   assert(current == 200, "after successful cmpxchg, value should be 200, got " .. tostring(current))
 end
@@ -87,9 +87,9 @@ test_memory_cmpxchg_success()
 local function test_memory_cmpxchg_failure()
   local mem = check.must(shm.mapshared(4096))
   mem:store(0, 100)
-  local ok, actual = mem:cmpxchg(0, 50, 200)
-  assert(ok == false, "cmpxchg should fail when old doesn't match")
-  assert(actual == 100, "cmpxchg should return actual value 100, got " .. tostring(actual))
+  local r = check.must(mem:cmpxchg(0, 50, 200))
+  assert(r.swapped == false, "cmpxchg should fail when old doesn't match")
+  assert(r.value == 100, "cmpxchg should return actual value 100, got " .. tostring(r.value))
   local current = mem:load(0)
   assert(current == 100, "after failed cmpxchg, value should still be 100, got " .. tostring(current))
 end
@@ -256,7 +256,7 @@ local function test_memory_wait_retries_eintr_until_deadline()
   local time = require("cosmic.time")
   local mem = check.must(shm.mapshared(64))
   mem:store(0, 0)
-  local old_handler = signal.sigaction(signal.SIGALRM, function(_: number) end)
+  local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number) end))
   -- Interval timer: interrupts the wait several times before the deadline.
   signal.setitimer({
       which = signal.ITIMER_REAL,
@@ -281,7 +281,7 @@ local function test_memory_wait_retries_eintr_until_deadline()
       intervalsec = 0,
       intervalns = 0,
     })
-  signal.sigaction(signal.SIGALRM, old_handler)
+  signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
   assert(rc == nil, "wait on an unchanged word should time out")
   assert(type(err) == "string" and err:match("ETIMEDOUT"),
     "interrupted wait should retry to the deadline (ETIMEDOUT), got: "
@@ -306,6 +306,8 @@ local function test_memory_unmap()
   assert(ok == false and type(werr) == "string", "write after unmap should fail")
   local rc, werr2 = mem:wait(0, 0)
   assert(rc == nil and type(werr2) == "string", "wait after unmap should fail")
-  assert(mem:wake(0) == 0, "wake after unmap should wake nothing")
+  local woken, wake_err = mem:wake(0)
+  assert(woken == nil and wake_err and wake_err:find("unmapped", 1, true),
+    "wake after unmap is a caller bug and must say so, got: " .. tostring(wake_err))
 end
 test_memory_unmap()

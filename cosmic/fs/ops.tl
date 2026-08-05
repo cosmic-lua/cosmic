@@ -339,24 +339,29 @@ local function mkdtemp(template: string): string | nil, string
   return path
 end
 
+--- A created temp file: the open Handle plus its path. A record so the
+--- error stays in slot 2 — the old (Handle, path, err) triple put a
+--- SUCCESS value where `local h, err = ...` expected the error.
+local record TmpFile
+  --- Open handle to the created file; the Handle owns the descriptor.
+  handle: Handle
+  --- Path to the created file. NOT unlinked automatically — remove it
+  --- when done. For an anonymous descriptor, use tmpfd() + fd.wrap().
+  path: string
+end
+
 --- Create a temporary file, returning an open fd.Handle plus its path.
---- The Handle owns the descriptor (h:close() releases it); the file is
---- NOT unlinked automatically — remove the path when done. For an
---- anonymous descriptor with no path, use tmpfd() + fd.wrap().
---- The second return is always the path (nil on failure); the error, if
---- any, is always in the third slot.
 --- @param template string Path template ending in XXXXXX (default: $TMPDIR/cosmic_XXXXXX)
---- @return Handle | nil Open handle to the created file, or nil on error
---- @return string Path to the created file, or nil on error
+--- @return TmpFile | nil The handle and path, or nil on error
 --- @return string Error message if failed
-local function tmpfile(template?: string): Handle | nil, string, string
+local function tmpfile(template?: string): TmpFile | nil, string
   template = template or ((os.getenv("TMPDIR") or "/tmp") .. "/cosmic_XXXXXX")
   -- The binding returns (fd, path) on success and (nil, Errno) on failure.
   local fd, path = unix.mkstemp(template)
   if not fd then
-    return nil, nil, errstr(path, "tmpfile: " .. template)
+    return nil, errstr(path, "tmpfile: " .. template)
   end
-  return cfd.wrap(fd), path
+  return {handle = cfd.wrap(fd), path = path}
 end
 
 --- Create a temporary file descriptor.
@@ -436,7 +441,8 @@ local record FsOpsModule
   utimensat: function(path: string, atime_secs?: integer, atime_nsecs?: integer, mtime_secs?: integer, mtime_nsecs?: integer): boolean, string
   futimens: function(fd: integer, atime_secs?: integer, atime_nsecs?: integer, mtime_secs?: integer, mtime_nsecs?: integer): boolean, string
   mkdtemp: function(template: string): string | nil, string
-  tmpfile: function(template?: string): Handle | nil, string, string
+  type TmpFile = TmpFile
+  tmpfile: function(template?: string): TmpFile | nil, string
   tmpfd: function(): integer | nil, string
   statfs: function(path: string): Statfs | nil, string
   fstatfs: function(fd: integer): Statfs | nil, string

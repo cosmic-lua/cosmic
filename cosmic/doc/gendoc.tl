@@ -10,11 +10,10 @@ if not file_path then
   os.exit(1)
 end
 
-local ok, output = doc.render_file(file_path)
-if ok then
+local output, rerr = doc.render_file(file_path)
+if output then
   io.write(output)
   os.exit(0)
-else
-  io.stderr:write(output .. "\n")
-  os.exit(1)
 end
+io.stderr:write(tostring(rerr) .. "\n")
+os.exit(1)

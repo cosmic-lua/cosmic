@@ -419,12 +419,11 @@ local function test_reap_grades_the_childs_exit_code()
     check.reap(inner, "a grandchild that cannot run here")
     os.exit(0)
   end
-  local wpid, status = proc.wait(outer)
-  assert(wpid, "the outer child must be reapable")
-  assert(proc.WIFEXITED(status), "it exited rather than died")
-  assert(proc.WEXITSTATUS(status) == check.EXIT_SKIP,
+  local wr = check.must(proc.wait(outer), "the outer child must be reapable")
+  assert(proc.WIFEXITED(wr.status), "it exited rather than died")
+  assert(proc.WEXITSTATUS(wr.status) == check.EXIT_SKIP,
     "a child's skip becomes its parent's skip, got " ..
-    proc.WEXITSTATUS(status))
+    proc.WEXITSTATUS(wr.status))
 end
 test_reap_grades_the_childs_exit_code()
 

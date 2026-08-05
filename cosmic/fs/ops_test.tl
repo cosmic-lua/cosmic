@@ -82,13 +82,13 @@ local function test_copy_retries_eintr_on_read()
   local dst = fs.join(test_dir, "read_eintr_dst")
 
   local fired = false
-  local old_handler = signal.sigaction(signal.SIGALRM, function(_: number)
-      if not fired then
-        fired = true
-        p.writer:write("hello")
-        p.writer:close()
-      end
-    end)
+  local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number)
+        if not fired then
+          fired = true
+          p.writer:write("hello")
+          p.writer:close()
+        end
+      end))
   -- Interval timer: keeps firing until the blocked read observes a
   -- signal, so the test cannot hang however the timing lands.
   signal.setitimer({
@@ -103,7 +103,7 @@ local function test_copy_retries_eintr_on_read()
       which = signal.ITIMER_REAL,
       valuesec = 0, valuens = 0, intervalsec = 0, intervalns = 0,
     })
-  signal.sigaction(signal.SIGALRM, old_handler)
+  signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
 
   assert(ok, "copy should retry a read interrupted by a signal: " .. tostring(err))
   assert(fs.read(dst) == "hello",
@@ -133,10 +133,10 @@ local function test_copy_retries_eintr_on_write()
   local dst = "/proc/self/fd/" .. tostring(p.writer:fd())
 
   local drained: {string} = {}
-  local old_handler = signal.sigaction(signal.SIGALRM, function(_: number)
-      local got = p.reader:read(65536)
-      if got then table.insert(drained, got) end
-    end)
+  local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number)
+        local got = p.reader:read(65536)
+        if got then table.insert(drained, got) end
+      end))
   signal.setitimer({
       which = signal.ITIMER_REAL,
       valuesec = 0, valuens = 20000000,
@@ -147,7 +147,7 @@ local function test_copy_retries_eintr_on_write()
       which = signal.ITIMER_REAL,
       valuesec = 0, valuens = 0, intervalsec = 0, intervalns = 0,
     })
-  signal.sigaction(signal.SIGALRM, old_handler)
+  signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
   p.writer:close()
 
   -- Drain whatever is left buffered in the pipe once copy() is done.
@@ -303,14 +303,13 @@ test_write_atomic_failure_keeps_original()
 
 local function test_tmpfile_success_contract()
   local test_dir = setup()
-  local h, path, err = fs.tmpfile(fs.join(test_dir, "fs_ops_XXXXXX"))
-  assert(h, "tmpfile should succeed: " .. (err or ""))
-  assert(path and path:match("fs_ops_"), "second return should be the path")
+  local tf, err = fs.tmpfile(fs.join(test_dir, "fs_ops_XXXXXX"))
+  local t = check.must(tf, "tmpfile should succeed: " .. tostring(err))
+  assert(t.path:match("fs_ops_"), "the record carries the path")
   assert(err == nil, "error slot should be nil on success")
-  local hh = check.must(h)
-  local st = fs.fstat(hh:fd())
+  local st = fs.fstat(t.handle:fd())
   assert(st, "fstat on tmpfile fd should succeed")
-  hh:close()
+  t.handle:close()
   teardown(test_dir)
 end
 test_tmpfile_success_contract()
@@ -468,11 +467,9 @@ end
 test_rmrf_failure_reports_error()
 
 local function test_tmpfile_failure_contract()
-  -- The second return is always the path (nil on failure); the error is
-  -- always in the third slot.
-  local h, path, err = fs.tmpfile("/no/such/dir/fs_ops_XXXXXX")
-  assert(h == nil, "tmpfile should fail in a missing directory")
-  assert(path == nil, "path slot must be nil on failure, got " .. tostring(path))
+  -- One record on success; the error in slot 2 on failure.
+  local tf, err = fs.tmpfile("/no/such/dir/fs_ops_XXXXXX")
+  assert(tf == nil, "tmpfile should fail in a missing directory")
   assert(err and err:match("ENOENT"), "error should name ENOENT: " .. (err or ""))
 end
 test_tmpfile_failure_contract()
