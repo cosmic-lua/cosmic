@@ -38,11 +38,13 @@ end
 
 ```teal
 local record UrlModule
-  encode: function(str: string): string
-  decode: function(str: string): string | nil, string
+  escape_param: function(str: string): string
+  unescape_param: function(str: string): string | nil, string
+  unescape: function(str: string): string | nil, string
   parse: function(url: string): Url | nil, string
   format: function(u: Url): string
   parse_query: function(query: string): {string: {string}}
+  format_query: function(params: {string: {string}}): string
   parse_host: function(hostport: string): HostPort | nil, string
   escape_host: function(str: string): string
   escape_path: function(str: string): string
@@ -57,20 +59,23 @@ end
 
 ## Functions
 
-### encode
+### escape_param
 
 ```teal
-function encode(str: string): string
+function escape_param(str: string): string
 ```
 
- Percent-encode a string for use as a URL query parameter value.
- Use this when building query strings manually: `"q=" .. url.encode(search_term)`.
- Spaces become %20, special characters become %XX hex sequences.
+ Percent-encode a string for use as a URL query parameter value
+ (api-review-8: was `encode` — escape/unescape is the syntax-safety
+ verb pair, D20). Spaces become %20, specials become %XX.
+ Use this when building query strings manually:
+ `"q=" .. url.escape_param(term)` — or format_query() for whole maps.
  For other URL components, use the specific escape functions:
  - `escape_path()`: encode a URL path (preserves slashes)
  - `escape_segment()`: encode a single path segment (escapes slashes)
  - `escape_host()`: encode a hostname
  - `escape_fragment()`: encode a URL fragment
+ and `unescape()` as their shared inverse.
 
 **Parameters:**
 
@@ -80,14 +85,35 @@ function encode(str: string): string
 
 - string - The percent-encoded string
 
-### decode
+### unescape_param
 
 ```teal
-function decode(str: string): string | nil, string
+function unescape_param(str: string): string | nil, string
 ```
 
- Decode a percent-encoded string.
- Handles %XX sequences and + as space.
+ Decode a percent-encoded query parameter (api-review-8: was
+ `decode`). Handles %XX sequences and + as space — the param rules.
+ For other components (paths, hosts, fragments), where + is a
+ literal plus, use unescape().
+
+**Parameters:**
+
+- `str` (string) - The percent-encoded string
+
+**Returns:**
+
+- string - | nil The decoded string, or nil on error
+- string? - Error message if decoding failed
+
+### unescape
+
+```teal
+function unescape(str: string): string | nil, string
+```
+
+ Decode %XX sequences with NO plus-as-space conversion: the shared
+ inverse of escape_path/escape_segment/escape_host/escape_fragment,
+ where `+` is an ordinary character.
 
 **Parameters:**
 
@@ -115,6 +141,25 @@ function parse_query(query: string): {string: {string}}
 **Returns:**
 
 - {string:{string}} - Decoded keys, each with all its values in order
+
+### format_query
+
+```teal
+function format_query(params: {string: {string}}): string
+```
+
+ Format a query map back into a query string: the inverse of
+ parse_query. Keys are sorted (deterministic output) and each of a
+ key's values becomes its own k=v pair, in order; both halves are
+ percent-encoded with the param rules (spaces become %20).
+
+**Parameters:**
+
+- `params` ({string:{string}}) - Keys, each with all its values in order
+
+**Returns:**
+
+- string - The query string (no leading ?)
 
 ### parse
 

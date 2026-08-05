@@ -1,10 +1,13 @@
 # re
 
  Regular expression matching using POSIX extended regex syntax.
- Wraps cosmo.re for pattern compilation and searching.
+ Wraps cosmo.re for pattern compilation and matching. Module-level
+ functions are SUBJECT-FIRST (D20): match(text, pattern), like
+ string.match. The compiled Regex keeps the binding's own :search
+ method name — a userdata metatable is the C layer's to name.
 
  For best performance, compile patterns once and reuse them.
- The search() convenience function compiles on each call (O(2^n) complexity).
+ The match() convenience function compiles on each call.
 
 ## Types
 
@@ -45,11 +48,13 @@ end
 ```teal
 local record ReModule
   compile: function(pattern: string, flags?: integer): Regex | nil, string
-  search: function(pattern: string, text: string, flags?: integer): string | nil, {string} | nil, string | nil
-  test: function(pattern: string, text: string, flags?: integer): boolean, string
-  findall: function(pattern: string, text: string, flags?: integer): {string} | nil, string
-  split: function(pattern: string, text: string, flags?: integer): {string} | nil, string
-  gsub: function(pattern: string, text: string, repl: Repl, flags?: integer): string | nil, string
+  match: function(text: string, pattern: string, flags?: integer): string | nil, {string} | nil, string | nil
+  test: function(text: string, pattern: string, flags?: integer): boolean, string
+  find: function(text: string, pattern: string, flags?: integer): Span | nil, string
+  find_all: function(text: string, pattern: string, flags?: integer): {Span} | nil, string
+  gmatch: function(text: string, pattern: string, flags?: integer): MatchIterator, string
+  split: function(text: string, pattern: string, flags?: integer): {string} | nil, string
+  gsub: function(text: string, pattern: string, repl: Repl, flags?: integer): string | nil, string
   BASIC: integer
   ICASE: integer
   NEWLINE: integer
@@ -81,14 +86,14 @@ function compile(pattern: string, flags?: integer): Regex | nil, string
 - Regex? - The compiled regex, or nil on error
 - string? - Error message if compilation failed
 
-### search
+### match
 
 ```teal
-function search(pattern: string, text: string, flags?: integer): string | nil, {string} | nil, string | nil
+function match(text: string, pattern: string, flags?: integer): string | nil, {string} | nil, string | nil
 ```
 
- Search for pattern match in text (convenience function).
- Compiles pattern on each call - use compile() for repeated searches.
+ Match pattern against text (convenience function; subject first).
+ Compiles pattern on each call - use compile() for repeated matching.
  Uses POSIX extended syntax by default.
  On a match, returns the matched substring plus a table of the
  parenthesized capture groups (an empty table when the pattern has no
@@ -98,8 +103,8 @@ function search(pattern: string, text: string, flags?: integer): string | nil, {
 
 **Parameters:**
 
-- `pattern` (string) - The regex pattern to search for
 - `text` (string) - The text to search in
+- `pattern` (string) - The regex pattern to match
 - `flags` (integer?) - Optional compile flags: BASIC, ICASE, NEWLINE, NOSUB
 
 **Returns:**
@@ -111,18 +116,16 @@ function search(pattern: string, text: string, flags?: integer): string | nil, {
 ### test
 
 ```teal
-function test(pattern: string, text: string, flags?: integer): boolean, string
+function test(text: string, pattern: string, flags?: integer): boolean, string
 ```
 
- Check if pattern matches anywhere in text.
- Convenience function that returns boolean instead of matched text.
- Named test (not match) to avoid confusion with Lua's string.match,
- which returns the matched text.
+ Check if pattern matches anywhere in text (subject first).
+ Convenience predicate returning boolean instead of matched text.
 
 **Parameters:**
 
-- `pattern` (string) - The regex pattern to match
 - `text` (string) - The text to search in
+- `pattern` (string) - The regex pattern to match
 - `flags` (integer?) - Optional compile flags: BASIC, ICASE, NEWLINE, NOSUB
 
 **Returns:**
@@ -130,49 +133,94 @@ function test(pattern: string, text: string, flags?: integer): boolean, string
 - boolean - True if pattern matches, false otherwise
 - string? - Error message if compilation or the engine failed
 
-### findall
+### find
 
 ```teal
-function findall(pattern: string, text: string, flags?: integer): {string} | nil, string
+function find(text: string, pattern: string, flags?: integer): Span | nil, string
 ```
 
- Find every non-overlapping match of pattern in text, leftmost
- first. Patterns that can match the empty string are rejected.
- KNOWN LIMITATION with the NEWLINE flag: `^`/`$` anchors that only
- match via an embedded newline (not the true start/end of text) fail
- to be re-confirmed past the first line (see locate's doc), so
- findall("^foo", "foo\nfoo", re.NEWLINE) returns nil, "failed to
- locate match position for: foo" instead of {"foo", "foo"} -- use
- split("\n", text) plus a per-line match instead when this matters.
+ Find the first match of pattern in text, with its position: a Span
+ {s, e, m, caps} (absolute 1-based, inclusive). A no-match returns
+ bare nil; a bad pattern or engine failure returns nil, err.
+ Patterns that can match the empty string are rejected.
 
 **Parameters:**
 
-- `pattern` (string) - The regex pattern to match
 - `text` (string) - The text to search in
+- `pattern` (string) - The regex pattern to match
 - `flags` (integer?) - Optional compile flags: BASIC, ICASE, NEWLINE
 
 **Returns:**
 
-- {string} - | nil The matched substrings (empty when none), or nil on error
+- Span - | nil The first match, or nil when none
+- string? - Error message on a bad pattern or engine failure
+
+### find_all
+
+```teal
+function find_all(text: string, pattern: string, flags?: integer): {Span} | nil, string
+```
+
+ Every non-overlapping match of pattern in text, leftmost first, as
+ Spans. Patterns that can match the empty string are rejected.
+ KNOWN LIMITATION with the NEWLINE flag: `^`/`$` anchors that only
+ match via an embedded newline (not the true start/end of text) fail
+ to be re-confirmed past the first line (see locate's doc), so
+ find_all("foo\nfoo", "^foo", re.NEWLINE) returns nil, "failed to
+ locate match position for: foo" instead of two spans -- use
+ split plus a per-line match instead when this matters.
+
+**Parameters:**
+
+- `text` (string) - The text to search in
+- `pattern` (string) - The regex pattern to match
+- `flags` (integer?) - Optional compile flags: BASIC, ICASE, NEWLINE
+
+**Returns:**
+
+- {Span} - | nil The matches (empty when none), or nil on error
+- string? - Error message on a bad pattern or engine failure
+
+### gmatch
+
+```teal
+function gmatch(text: string, pattern: string, flags?: integer): MatchIterator, string
+```
+
+ Iterate every non-overlapping match, like string.gmatch: each step
+ yields the matched text and its capture table. Matching is done up
+ front (the engine reports no offsets, so lazy stepping buys
+ nothing); a bad pattern or engine failure returns nil, err instead
+ of an iterator. Shares find_all's NEWLINE limitation.
+
+**Parameters:**
+
+- `text` (string) - The text to search in
+- `pattern` (string) - The regex pattern to match
+- `flags` (integer?) - Optional compile flags: BASIC, ICASE, NEWLINE
+
+**Returns:**
+
+- function - | nil Iterator yielding (match, caps), or nil on error
 - string? - Error message on a bad pattern or engine failure
 
 ### split
 
 ```teal
-function split(pattern: string, text: string, flags?: integer): {string} | nil, string
+function split(text: string, pattern: string, flags?: integer): {string} | nil, string
 ```
 
  Split text around every match of pattern. Fields between matches
  are kept verbatim, including empty ones from adjacent or
  leading/trailing matches; text with no match yields one field.
  Patterns that can match the empty string are rejected.
- Shares findall's KNOWN LIMITATION with a NEWLINE-anchored `^`/`$`
- past the first line (see findall's doc).
+ Shares find_all's KNOWN LIMITATION with a NEWLINE-anchored `^`/`$`
+ past the first line (see find_all's doc).
 
 **Parameters:**
 
-- `pattern` (string) - The regex pattern to split on
 - `text` (string) - The text to split
+- `pattern` (string) - The regex pattern to split on
 - `flags` (integer?) - Optional compile flags: BASIC, ICASE, NEWLINE
 
 **Returns:**
@@ -183,18 +231,18 @@ function split(pattern: string, text: string, flags?: integer): {string} | nil, 
 ### gsub
 
 ```teal
-function gsub(pattern: string, text: string, repl: Repl, flags?: integer): string | nil, string
+function gsub(text: string, pattern: string, repl: Repl, flags?: integer): string | nil, string
 ```
 
  Replace every non-overlapping match of pattern in text.
  Patterns that can match the empty string are rejected.
- Shares findall's KNOWN LIMITATION with a NEWLINE-anchored `^`/`$`
- past the first line (see findall's doc).
+ Shares find_all's KNOWN LIMITATION with a NEWLINE-anchored `^`/`$`
+ past the first line (see find_all's doc).
 
 **Parameters:**
 
-- `pattern` (string) - The regex pattern to match
 - `text` (string) - The text to operate on
+- `pattern` (string) - The regex pattern to match
 - `repl` (Repl) - A literal replacement string, or function(match, caps)
 - `flags` (integer?) - Optional compile flags: BASIC, ICASE, NEWLINE
 

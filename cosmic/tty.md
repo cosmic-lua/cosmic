@@ -62,11 +62,12 @@ local record TtyModule
   --  cc indices (C-style; the Lua cc array is 1-based, so cc[VMIN + 1]).
   VMIN: integer
   VTIME: integer
+  is_tty: function(fd?: integer): boolean
   isatty: function(fd: integer): boolean
-  winsize: function(fd: integer): WinSize | nil, string
   stdin_isatty: function(): boolean
   stdout_isatty: function(): boolean
   stderr_isatty: function(): boolean
+  winsize: function(fd: integer): WinSize | nil, string
   getattr: function(fd: integer): Termios | nil, string
   setattr: function(fd: integer, action: integer, termios: Termios): boolean, string
   make_raw: function(termios: Termios, opts?: RawOptions): Termios
@@ -119,17 +120,20 @@ function login_tty(fd: integer): boolean, string
 - boolean - True on success
 - string? - Error message on failure
 
-### isatty
+### is_tty
 
 ```teal
-function isatty(fd: integer): boolean
+function is_tty(fd?: integer): boolean
 ```
 
- Checks if a file descriptor refers to a terminal.
+ Checks if a file descriptor refers to a terminal (api-review-8:
+ one is_tty(fd?) replaces isatty plus the three per-stream wrappers).
+ (the default — "is my output a terminal" is the common question),
+ 2=stderr
 
 **Parameters:**
 
-- `fd` (integer) - File descriptor to check (0=stdin, 1=stdout, 2=stderr)
+- `fd` (integer?) - File descriptor to check: 0=stdin, 1=stdout
 
 **Returns:**
 
@@ -151,42 +155,6 @@ function winsize(fd: integer): TtyModule.WinSize | nil, string
 
 - WinSize|nil - Window size record with rows and cols, or nil on error
 - string|nil - Error message if not a terminal
-
-### stdin_isatty
-
-```teal
-function stdin_isatty(): boolean
-```
-
- Checks if stdin is a terminal.
-
-**Returns:**
-
-- boolean - True if stdin is a terminal
-
-### stdout_isatty
-
-```teal
-function stdout_isatty(): boolean
-```
-
- Checks if stdout is a terminal.
-
-**Returns:**
-
-- boolean - True if stdout is a terminal
-
-### stderr_isatty
-
-```teal
-function stderr_isatty(): boolean
-```
-
- Checks if stderr is a terminal.
-
-**Returns:**
-
-- boolean - True if stderr is a terminal
 
 ### getattr
 

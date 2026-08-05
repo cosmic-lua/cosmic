@@ -41,6 +41,21 @@ local record Pair
 end
 ```
 
+### ConnectOptions
+
+ Options for connect_tcp and dial.
+
+```teal
+local record ConnectOptions
+  --  Bound the connect attempt: fail with an error after this many
+  --  milliseconds instead of waiting on the kernel's own (much longer)
+  --  timeout. The returned socket is BLOCKING either way (api-review-8:
+  --  this option absorbs the old nb_connect, whose manually-managed
+  --  socket + non-blocking aftermath was the module's sharpest edge).
+  timeout_ms: integer
+end
+```
+
 ### ListenOptions
 
  Options for listen_tcp.
@@ -97,9 +112,8 @@ local record NetModule
   listen_unix: function(path: string, backlog?: integer): Socket | nil, string
   listen_tcp: function(addr: Address, port: integer, opts?: ListenOptions): Socket | nil, string
   connect_unix: function(path: string): Socket | nil, string
-  connect_tcp: function(addr: Address, port: integer): Socket | nil, string
-  dial: function(host: string, port: integer): Socket | nil, string
-  nb_connect: function(s: Socket, addr: Address, port: integer, timeout_ms?: integer): boolean, string
+  connect_tcp: function(addr: Address, port: integer, opts?: ConnectOptions): Socket | nil, string
+  dial: function(host: string, port: integer, opts?: ConnectOptions): Socket | nil, string
   gethostname: function(): string | nil, string
   interfaces: function(): {Interface} | nil, string
   AF_INET: integer
@@ -248,7 +262,7 @@ function connect_unix(path: string): Socket | nil, string
 ### connect_tcp
 
 ```teal
-function connect_tcp(addr: Address, port: integer): Socket | nil, string
+function connect_tcp(addr: Address, port: integer, opts?: ConnectOptions): Socket | nil, string
 ```
 
  Create a TCP socket and connect to an address and port.
@@ -259,6 +273,7 @@ function connect_tcp(addr: Address, port: integer): Socket | nil, string
 
 - `addr` (Address) - Remote IPv4 address
 - `port` (integer) - Remote port
+- `opts` (ConnectOptions?) - timeout_ms bounds the attempt
 
 **Returns:**
 
@@ -268,7 +283,7 @@ function connect_tcp(addr: Address, port: integer): Socket | nil, string
 ### dial
 
 ```teal
-function dial(host: string, port: integer): Socket | nil, string
+function dial(host: string, port: integer, opts?: ConnectOptions): Socket | nil, string
 ```
 
  Open a TCP connection to host:port. This name and shape are the
@@ -282,6 +297,7 @@ function dial(host: string, port: integer): Socket | nil, string
 
 - `host` (string) - Host to connect to: dotted-quad literal or DNS name
 - `port` (integer) - Remote TCP port
+- `opts` (ConnectOptions?) - timeout_ms bounds the connect attempt
 
 **Returns:**
 
@@ -321,30 +337,6 @@ function listen_tcp(addr: Address, port: integer, opts?: ListenOptions): Socket 
 **Returns:**
 
 - Socket - | nil Listening socket ready to accept; when port 0
-- string - Error message on failure
-
-### nb_connect
-
-```teal
-function nb_connect(s: Socket, addr: Address, port: integer, timeout_ms?: integer): boolean, string
-```
-
- Connect with a bounded wait instead of blocking indefinitely.
- Switches the socket to non-blocking mode (via Socket:set_nonblocking),
- starts the connect, and polls for completion up to timeout_ms. The
- socket remains in non-blocking mode afterwards; call
- s:set_nonblocking(false) to restore blocking I/O.
-
-**Parameters:**
-
-- `s` (Socket) - The socket to connect
-- `addr` (Address) - Remote IPv4 address
-- `port` (integer) - Remote port
-- `timeout_ms` (integer) - Timeout in milliseconds (default 10000)
-
-**Returns:**
-
-- boolean - True on success
 - string - Error message on failure
 
 ### gethostname
