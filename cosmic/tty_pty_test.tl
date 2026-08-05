@@ -55,9 +55,9 @@ end
 --- still "pass" while proving nothing.
 local function test_openpty_yields_a_real_terminal()
   local pty = with_pty()
-  assert(tty.isatty(pty.subordinate),
+  assert(tty.is_tty(pty.subordinate),
     "the subordinate fd must be a terminal")
-  assert(tty.isatty(pty.manager), "the manager fd must be a terminal")
+  assert(tty.is_tty(pty.manager), "the manager fd must be a terminal")
   assert(pty.name:match("^/dev/"),
     "expected a device path, got: " .. tostring(pty.name))
   local ws = check.must(tty.winsize(pty.subordinate))

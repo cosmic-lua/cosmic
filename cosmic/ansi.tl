@@ -211,7 +211,7 @@ local function enabled(fd?: integer): boolean
   if env.get("TERM") == "dumb" then
     return false
   end
-  return tty.isatty(fd or 1)
+  return tty.is_tty(fd)
 end
 
 local record AnsiModule

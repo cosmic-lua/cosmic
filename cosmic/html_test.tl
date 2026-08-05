@@ -44,3 +44,18 @@ local function test_escape_single_quote()
     "single quote should become &#39; or &apos;, got: " .. result)
 end
 test_escape_single_quote()
+
+local function test_unescape_inverts_escape()
+  local original = [[<a href="x">Tom & Jerry's</a>]]
+  assert(html.unescape(html.escape(original)) == original,
+    "unescape(escape(s)) must round-trip")
+end
+test_unescape_inverts_escape()
+
+local function test_unescape_aliases_and_unknowns()
+  assert(html.unescape("&apos;&#34;") == "'\"", "aliases decode")
+  assert(html.unescape("&unknown;") == "&unknown;", "unknown entities pass through")
+  assert(html.unescape("&amp;lt;") == "&lt;",
+    "decoding must not cascade: &amp;lt; is the TEXT &lt;")
+end
+test_unescape_aliases_and_unknowns()

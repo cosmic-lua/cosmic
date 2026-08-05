@@ -45,7 +45,7 @@ local function build_csv(): string
 end
 
 --- Build a deterministic query-value-like string with a realistic mix of
---- safe characters and ones url.encode must percent-escape, so decode()
+--- safe characters and ones url.escape_param must percent-escape, so
 --- has a real handful of %XX sequences to validate, not zero.
 --- @return string The value
 local function build_query_value(): string
@@ -59,7 +59,7 @@ end
 local BLOB = build_blob()
 local CSV = build_csv()
 local QUERY_VALUE = build_query_value()
-local QUERY_ENCODED = url.encode(QUERY_VALUE)
+local QUERY_ENCODED = url.escape_param(QUERY_VALUE)
 
 local function scenarios(): {pt.Scenario}, string
   return {
@@ -183,7 +183,7 @@ local function scenarios(): {pt.Scenario}, string
       -- rather than short-circuiting on a string with no '%' at all.
       name = "url_decode_query_value",
       fn = function(_: any): any
-        return (url.decode(QUERY_ENCODED))
+        return (url.unescape_param(QUERY_ENCODED))
       end,
       check = function(_: any, res: any): boolean, string
         if res as string ~= QUERY_VALUE then -- cast: from any

@@ -67,7 +67,7 @@ end
 local function pty_available(): boolean
   -- Write a tiny probe script that prints tty detection result to stderr
   local probe = fs.join(tmpdir, "pty_probe.lua")
-  local write_ok, _ = fs.write(probe, "local tty = require('cosmic.tty'); io.stderr:write(tostring(tty.stderr_isatty()))\n")
+  local write_ok, _ = fs.write(probe, "local tty = require('cosmic.tty'); io.stderr:write(tostring(tty.is_tty(2)))\n")
   if not write_ok then
     return false
   end

@@ -51,11 +51,13 @@ local record TtyModule
   VMIN: integer
   VTIME: integer
 
+  is_tty: function(fd?: integer): boolean
+  -- DEPRECATED aliases (api-review-8 pin-advance transition)
   isatty: function(fd: integer): boolean
-  winsize: function(fd: integer): WinSize | nil, string
   stdin_isatty: function(): boolean
   stdout_isatty: function(): boolean
   stderr_isatty: function(): boolean
+  winsize: function(fd: integer): WinSize | nil, string
   getattr: function(fd: integer): Termios | nil, string
   setattr: function(fd: integer, action: integer, termios: Termios): boolean, string
   make_raw: function(termios: Termios, opts?: RawOptions): Termios
@@ -100,11 +102,14 @@ local function login_tty(fd: integer): boolean, string
   return true
 end
 
---- Checks if a file descriptor refers to a terminal.
---- @param fd integer File descriptor to check (0=stdin, 1=stdout, 2=stderr)
+--- Checks if a file descriptor refers to a terminal (api-review-8:
+--- one is_tty(fd?) replaces isatty plus the three per-stream wrappers).
+--- @param fd integer? File descriptor to check: 0=stdin, 1=stdout
+--- (the default — "is my output a terminal" is the common question),
+--- 2=stderr
 --- @return boolean True if fd is a terminal
-local function isatty(fd: integer): boolean
-  return (unix.isatty(fd))
+local function is_tty(fd?: integer): boolean
+  return (unix.isatty(fd or 1))
 end
 
 --- Gets the terminal window size for a file descriptor.
@@ -119,24 +124,6 @@ local function winsize(fd: integer): TtyModule.WinSize | nil, string
     return nil, errstr(cols, "tiocgwinsz")
   end
   return {rows = rows, cols = cols}
-end
-
---- Checks if stdin is a terminal.
---- @return boolean True if stdin is a terminal
-local function stdin_isatty(): boolean
-  return (unix.isatty(0))
-end
-
---- Checks if stdout is a terminal.
---- @return boolean True if stdout is a terminal
-local function stdout_isatty(): boolean
-  return (unix.isatty(1))
-end
-
---- Checks if stderr is a terminal.
---- @return boolean True if stderr is a terminal
-local function stderr_isatty(): boolean
-  return (unix.isatty(2))
 end
 
 --- Gets terminal attributes for a file descriptor.
@@ -308,11 +295,12 @@ local function getpass(prompt: string): string | nil, string
 end
 
 local M: TtyModule = {
-  isatty = isatty,
+  is_tty = is_tty,
+  isatty = is_tty,
+  stdin_isatty = function(): boolean return is_tty(0) end,
+  stdout_isatty = function(): boolean return is_tty(1) end,
+  stderr_isatty = function(): boolean return is_tty(2) end,
   winsize = winsize,
-  stdin_isatty = stdin_isatty,
-  stdout_isatty = stdout_isatty,
-  stderr_isatty = stderr_isatty,
   getattr = getattr,
   setattr = setattr,
   make_raw = make_raw,

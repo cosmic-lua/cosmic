@@ -9,7 +9,6 @@ local unix = require("cosmo.unix")
 local ip = require("cosmic.ip")
 local net_socket = require("cosmic.net.socket")
 local errstr = require("cosmic.errno").wrap
-local errno_is = require("cosmic.errno").is
 
 --- Socket handle for network I/O (see cosmic.net.socket for the methods).
 --- Supports Lua 5.4's to-be-closed via __close metamethod.
@@ -116,19 +115,47 @@ local function connect_unix(path: string): Socket | nil, string
   return s
 end
 
+-- The timeout connect path lives in the connect shard.
+local connect_with_timeout = require("cosmic.net.connect").with_timeout
+
+--- Options for connect_tcp and dial.
+local record ConnectOptions
+  --- Bound the connect attempt: fail with an error after this many
+  --- milliseconds instead of waiting on the kernel's own (much longer)
+  --- timeout. The returned socket is BLOCKING either way (api-review-8:
+  --- this option absorbs the old nb_connect, whose manually-managed
+  --- socket + non-blocking aftermath was the module's sharpest edge).
+  timeout_ms: integer
+end
+
 --- Create a TCP socket and connect to an address and port.
 --- The address may be a dotted-quad string ("127.0.0.1") or an ip.Addr.
 --- IPv6 is not supported. For hostname resolution use dial().
 --- @param addr Address Remote IPv4 address
 --- @param port integer Remote port
+--- @param opts ConnectOptions? timeout_ms bounds the attempt
 --- @return Socket | nil Connected socket
 --- @return string Error message on failure
-local function connect_tcp(addr: Address, port: integer): Socket | nil, string
+local function connect_tcp(addr: Address, port: integer, opts?: ConnectOptions): Socket | nil, string
   local sock, err = socket()
   if not sock then
     return nil, err
   end
   local s = sock as Socket -- cast: record union after guard
+  if opts and opts.timeout_ms then
+    local ok, conn_err = connect_with_timeout(s, addr, port, opts.timeout_ms)
+    if not ok then
+      s:close()
+      return nil, conn_err
+    end
+    -- The timeout path connects non-blocking; hand back a normal socket.
+    local bok, berr = s:set_nonblocking(false)
+    if not bok then
+      s:close()
+      return nil, berr
+    end
+    return s
+  end
   local ok, conn_err = s:connect(addr, port)
   if not ok then
     s:close()
@@ -145,9 +172,10 @@ end
 --- signature.
 --- @param host string Host to connect to: dotted-quad literal or DNS name
 --- @param port integer Remote TCP port
+--- @param opts ConnectOptions? timeout_ms bounds the connect attempt
 --- @return Socket | nil Connected socket
 --- @return string Error message on failure
-local function dial(host: string, port: integer): Socket | nil, string
+local function dial(host: string, port: integer, opts?: ConnectOptions): Socket | nil, string
   local a: ip.Addr
   local parsed = ip.parse(host)
   if parsed then
@@ -159,7 +187,7 @@ local function dial(host: string, port: integer): Socket | nil, string
     end
     a = looked as ip.Addr -- cast: record union after guard
   end
-  return connect_tcp(a, port)
+  return connect_tcp(a, port, opts)
 end
 
 --- Options for listen_tcp.
@@ -235,60 +263,6 @@ local function listen_tcp(addr: Address, port: integer, opts?: ListenOptions): S
 end
 
 --- Connect with a bounded wait instead of blocking indefinitely.
---- Switches the socket to non-blocking mode (via Socket:set_nonblocking),
---- starts the connect, and polls for completion up to timeout_ms. The
---- socket remains in non-blocking mode afterwards; call
---- s:set_nonblocking(false) to restore blocking I/O.
---- @param s Socket The socket to connect
---- @param addr Address Remote IPv4 address
---- @param port integer Remote port
---- @param timeout_ms integer Timeout in milliseconds (default 10000)
---- @return boolean True on success
---- @return string Error message on failure
-local function nb_connect(s: Socket, addr: Address, port: integer, timeout_ms?: integer): boolean, string
-  timeout_ms = timeout_ms or 10000
-  if not s.fd then return false, "socket closed" end
-  local nb_ok, nb_err = s:set_nonblocking()
-  if not nb_ok then
-    return false, nb_err
-  end
-  local raw, aerr = net_socket.resolve_addr(addr)
-  if not raw then
-    return false, aerr
-  end
-  -- Bypass Socket:connect to keep the numeric errno: a nonblocking connect
-  -- that returns EINPROGRESS (or is interrupted, EINTR) is still pending —
-  -- poll for the outcome. Any other errno is a synchronous failure
-  -- (ECONNREFUSED, ENETUNREACH, ...) and must return immediately, not be
-  -- misread as "still connecting".
-  local ok, err, eno = unix.connect(s.fd, raw, port)
-  if ok then return true end
-  if not (errno_is(eno, "EINPROGRESS") or errno_is(eno, "EINTR")) then
-    return false, errstr(err, "nb_connect: connect failed")
-  end
-  local fds: {integer: integer} = {[s.fd] = unix.POLLOUT}
-  local revents, perr, peno = unix.poll(fds, timeout_ms)
-  while revents == nil and errno_is(peno, "EINTR") do
-    revents, perr, peno = unix.poll(fds, timeout_ms)
-  end
-  if not revents then
-    return false, errstr(perr, "nb_connect: poll failed")
-  end
-  local ev = (revents as {integer: integer})[s.fd] or 0 -- cast: record union after guard
-  if ev == 0 then return false, "nb_connect: connect timed out" end
-  if ev & unix.POLLERR ~= 0 then
-    local so_err = s:getsockopt(unix.SOL_SOCKET, unix.SO_ERROR)
-    return false, "nb_connect: connect error: " .. tostring(so_err or err)
-  end
-  if ev & unix.POLLOUT ~= 0 then
-    local so_err = s:getsockopt(unix.SOL_SOCKET, unix.SO_ERROR)
-    if so_err and so_err ~= 0 then
-      return false, "nb_connect: connect failed: SO_ERROR=" .. tostring(so_err)
-    end
-    return true
-  end
-  return false, "nb_connect: unexpected poll events=" .. tostring(ev)
-end
 
 --- Get the local hostname.
 --- @return string | nil The hostname
@@ -339,9 +313,9 @@ local record NetModule
   listen_unix: function(path: string, backlog?: integer): Socket | nil, string
   listen_tcp: function(addr: Address, port: integer, opts?: ListenOptions): Socket | nil, string
   connect_unix: function(path: string): Socket | nil, string
-  connect_tcp: function(addr: Address, port: integer): Socket | nil, string
-  dial: function(host: string, port: integer): Socket | nil, string
-  nb_connect: function(s: Socket, addr: Address, port: integer, timeout_ms?: integer): boolean, string
+  type ConnectOptions = ConnectOptions
+  connect_tcp: function(addr: Address, port: integer, opts?: ConnectOptions): Socket | nil, string
+  dial: function(host: string, port: integer, opts?: ConnectOptions): Socket | nil, string
   gethostname: function(): string | nil, string
   interfaces: function(): {Interface} | nil, string
   AF_INET: integer
@@ -423,7 +397,6 @@ local M: NetModule = {
   connect_unix = connect_unix,
   connect_tcp = connect_tcp,
   dial = dial,
-  nb_connect = nb_connect,
   gethostname = gethostname,
   interfaces = interfaces,
   AF_INET = unix.AF_INET,

@@ -120,7 +120,7 @@ cosmic/fs/walk.tl 145 178
 cosmic/fuzzy.tl 48 50
 cosmic/getopt.tl 36 56
 cosmic/hash.tl 71 74
-cosmic/html.tl 6 6
+cosmic/html.tl 19 19
 cosmic/init.tl 16 17
 cosmic/instrument.tl 69 74
 cosmic/ip.tl 109 109
@@ -128,6 +128,7 @@ cosmic/json.tl 23 24
 cosmic/landlock.tl 58 102
 cosmic/literal.tl 222 238
 cosmic/log.tl 72 74
+cosmic/net/connect.tl 31 37
 cosmic/net/init.tl 0 120
 cosmic/net/socket.tl 228 256
 cosmic/pledge.tl 24 35
@@ -174,11 +175,11 @@ cosmic/tar.tl 114 122
 cosmic/teal.tl 185 193
 cosmic/testrun.tl 144 188
 cosmic/time.tl 142 155
-cosmic/tty.tl 128 135
+cosmic/tty.tl 123 130
 cosmic/unveil.tl 29 50
-cosmic/url.tl 122 124
+cosmic/url.tl 126 141
 cosmic/user.tl 48 61
 cosmic/uuid.tl 9 9
 cosmic/zip.tl 72 85
 tlconfig.lua 7 7
-total 13733 18140
+total 13776 18202
