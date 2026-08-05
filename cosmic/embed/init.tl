@@ -75,34 +75,6 @@ end
 --- publishes.
 local type EmbedResult = extract_mod.EmbedResult
 
---- Options for adding files to a ZIP archive.
-local record AddOptions
-  mode: integer
-  method: string
-  mtime: integer
-end
-
---- Appender interface for modifying a ZIP archive in-place.
-local record ZipAppender
-  add: function(self: ZipAppender, name: string, content: string, options?: AddOptions): boolean, string
-  remove: function(self: ZipAppender, name: string): boolean, string
-  close: function(self: ZipAppender)
-end
-
---- Directory entry returned by ZipReader:list().
-local record ZipEntry
-  name: string
-  size: integer
-  mode: integer
-end
-
---- Reader interface for reading files from a ZIP archive.
-local record ZipReader
-  list: function(self: ZipReader): {ZipEntry}
-  read: function(self: ZipReader, name: string): string | nil, string | nil
-  close: function(self: ZipReader)
-end
-
 local type EmbedDirHandle = fs_types.DirHandle
 
 -- One directory entry plus its d_type, sorted together for deterministic
@@ -368,14 +340,14 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
   unix.chmod(tmp_path, tonumber("755", 8))
 
   -- Open the copy as an appender to modify its zip in-place
-  local appender_result: any
-  local appender_err: any
-  appender_result, appender_err = czip.append(tmp_path)
-  if not appender_result then
+  -- (api-review: cosmic.zip's own Appender — embed no longer keeps a
+  -- structural twin of it)
+  local appender_maybe, appender_err = czip.append(tmp_path)
+  if not appender_maybe then
     fs.unlink(tmp_path)
     return {ok = false, message = "error: failed to open zip for appending: " .. tostring(appender_err or "unknown error"), file_count = 0}
   end
-  local appender = appender_result as ZipAppender -- cast: from any
+  local appender = appender_maybe as czip.Appender -- cast: record union after guard
 
   -- Strip first, so an entry the caller supplies is never removed after
   -- being added. The floor is positive: everything the base carried
@@ -411,7 +383,7 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
     -- removal would surface as the duplicate entry it creates.
     appender:remove(file_info.stored_name)
     local is_lua = file_info.stored_name:sub(-4) == ".lua"
-    local add: AddOptions = {
+    local add: czip.AddOptions = {
       mode = file_info.mode,
       method = is_lua and "store" or "deflate",
       -- Default the epoch rather than letting the binding fall back to
@@ -459,7 +431,6 @@ local record EmbedModule
   --- DEPRECATED alias for embed() (api-review-8 transition)
   run: function(paths: {string}, opts?: Options): EmbedResult
   extract: function(output_dir: string, exe_path?: string): EmbedResult
-  unsafe_entry: function(name: string): boolean
 end
 
 local M: EmbedModule = {
@@ -467,7 +438,6 @@ local M: EmbedModule = {
   embed = embed,
   run = embed,
   extract = extract_mod.extract,
-  unsafe_entry = extract_mod.unsafe_entry,
 }
 
 return M
