@@ -99,7 +99,7 @@ local function fresh(proj: Project, src: string, built: string): boolean
   if not into then
     return false
   end
-  -- cast: mixed-representation Stat
+  -- cast: record union after guard
   local osec, onsec = (out as fs.Stat):mtim()
   local isec, insec = (into as fs.Stat):mtim() -- cast: same
   if osec ~= isec then

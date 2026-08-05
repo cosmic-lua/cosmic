@@ -170,7 +170,7 @@ local function collect_dir(dir: string): {FileToEmbed} | nil, string
         -- prevention as the d_type == DT_DIR branch above).
         local st = fs.lstat(full_path)
         if st then
-          local sst = st as Stat -- cast: mixed-representation Stat
+          local sst = st as Stat -- cast: record union after guard
           if sst:is_dir() then
             local walk_err = do_walk(full_path, rel)
             if walk_err then return walk_err end

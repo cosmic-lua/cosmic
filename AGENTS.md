@@ -196,11 +196,10 @@ or map unions through truthiness (`if not x`). Three sanctioned tools:
   (compiles to one `type(x) == "table"` check). Also works for dispatch over `any` (`if
   v is {string: any} then`). A record whose runtime values are userdata needs Teal's
   `userdata` member in its OWN source (see re.tl's Regex) — then `is` compiles to the
-  correct `type(x) == "userdata"` test everywhere. Caveats: narrowing does NOT survive
-  an early-exit guard (`if not (x is Rec) then return end` does not narrow below); and
-  `is` is WRONG for mixed-representation records — `fs.Stat` is usually the raw stat
-  userdata but falls back to a plain wrapper table, so neither marker fits; it stays on
-  casts. `is` works with required `cosmo.*` classes too — the cosmic searcher is the
+  correct `type(x) == "userdata"` test everywhere (`fs.Stat` is one: always the raw
+  stat userdata since the representation unification, so `st is fs.Stat` narrows).
+  Caveat: narrowing does NOT survive an early-exit guard (`if not (x is Rec) then
+  return end` does not narrow below). `is` works with required `cosmo.*` classes too — the cosmic searcher is the
   only loader cosmic installs, and it resolves `.d.tl` markers. The one unsupported path
   is user code calling `require("tl").loader()`, which shadows it with tl's silent one.
 - **Cast in linear code and at userdata boundaries**: after an assert or
@@ -212,7 +211,7 @@ Every `as` cast must carry a justification (enforced by `--make lint`):
 a line containing a cast needs `-- cast: <reason>` trailing on the line,
 or as a comment on the line directly above when the 90-column width
 won't fit it. Write the actual reason (`from any`, `userdata boundary`,
-`tuple element`, `mixed-representation Stat`, ...) — a cast you cannot
+`tuple element`, `record union after guard`, ...) — a cast you cannot
 justify is one to remove, via `is`, `check.must`, or a precise type.
 
 **`find` says whether it means a pattern.** `s:find(x)` treats x as a Lua

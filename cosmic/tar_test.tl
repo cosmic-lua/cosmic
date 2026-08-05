@@ -72,7 +72,7 @@ local function test_extract_files_dirs_modes()
   local st = fs.stat(fs.join(dest, "pkg/tool"))
   assert(st, "tool should stat")
   -- exec bit survives extraction (the reason unzip/tar mattered at all)
-  local mode = (st as fs_types.Stat):mode() -- cast: mixed-representation Stat
+  local mode = (st as fs_types.Stat):mode() -- cast: record union after guard
   assert(mode % 2 == 1, "tool should keep the exec bit, mode: " .. string.format("%o", mode))
 end
 test_extract_files_dirs_modes()
