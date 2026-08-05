@@ -10,7 +10,7 @@ local signal = require("cosmic.signal")
 -- instead of surfacing EINTR mid-wait.
 local function test_read_retries_eintr()
   local h = check.must(child.spawn({"sleep", "0.3"}))
-  local old_handler = signal.sigaction(signal.SIGALRM, function(_: number) end)
+  local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number) end))
   -- Interval timer: fires several times while read blocks on the silent
   -- child, each one interrupting the read.
   signal.setitimer({
@@ -30,7 +30,7 @@ local function test_read_retries_eintr()
       intervalsec = 0,
       intervalns = 0,
     })
-  signal.sigaction(signal.SIGALRM, old_handler)
+  signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
   assert(data == nil and err == nil,
     "interrupted read should retry to the child's EOF, got "
     .. tostring(data) .. " (err: " .. tostring(err) .. ")")

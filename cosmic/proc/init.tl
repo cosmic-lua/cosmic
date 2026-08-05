@@ -213,14 +213,24 @@ end
 --- @return integer Status word (interpret with WIFEXITED/WEXITSTATUS/...)
 --- @return Rusage Resource usage for the reaped child
 --- @return string? Error message on failure
-local function wait(pid?: integer, options?: integer): integer | nil, integer, Rusage, string
+--- What wait(2) reaped. A record rather than (pid, status, rusage,
+--- err) returns: the old shape put the error in slot 4, unreachable
+--- from `local pid, err = ...` and from check.must.
+local record WaitResult
+  pid: integer
+  --- Raw status word; decode with WIFEXITED/WEXITSTATUS/WIFSIGNALED/WTERMSIG.
+  status: integer
+  rusage: Rusage
+end
+
+local function wait(pid?: integer, options?: integer): WaitResult | nil, string
   local wpid, status, rusage = unix.wait(pid, options)
   if wpid == nil then
     -- On failure the binding returns (nil, err, errno): the error string
     -- arrives in the second slot, where the status word would have been.
-    return nil, nil, nil, errstr(status, "wait")
+    return nil, errstr(status, "wait")
   end
-  return wpid, status, rusage
+  return {pid = wpid, status = status, rusage = rusage}
 end
 
 --- Sends a signal to a process.
@@ -296,7 +306,8 @@ local record ProcModule
   fork: function(): integer | nil, string
   posix_spawn: function(prog: string, argv: {string}, envp?: {string}): integer | nil, string
   posix_spawnp: function(prog: string, argv: {string}, envp?: {string}): integer | nil, string
-  wait: function(pid?: integer, options?: integer): integer | nil, integer, Rusage, string
+  type WaitResult = WaitResult
+  wait: function(pid?: integer, options?: integer): WaitResult | nil, string
   kill: function(pid: integer, sig: integer): boolean, string
   WIFEXITED: function(status: integer): boolean
   WEXITSTATUS: function(status: integer): integer
@@ -307,7 +318,8 @@ local record ProcModule
   getrusage: function(who?: integer): Rusage | nil, string
 
   -- Resource limits
-  getrlimit: function(resource: integer): integer | nil, integer, string
+  type Rlimit = rusage_mod.Rlimit
+  getrlimit: function(resource: integer): rusage_mod.Rlimit | nil, string
   setrlimit: function(resource: integer, soft: integer, hard?: integer): boolean, string
 
   -- Priority

@@ -279,10 +279,13 @@ local function parse_file(file_path: string): ModuleDoc | nil, string
   end
 end
 
---- Main entry point: parse file and render markdown.
-local function render_file(file_path: string): boolean, string
+--- Main entry point: parse file and render markdown. A fallible VALUE
+--- (the markdown), not a fallible effect: the old boolean, string shape
+--- made slot 2 the payload on success and the error on failure, so
+--- every caller branched on which meaning it held.
+local function render_file(file_path: string): string | nil, string
   local f, err = io.open(file_path, "r")
-  if not f then return false, "cannot open file: " .. (err or "unknown") end
+  if not f then return nil, "cannot open file: " .. (err or "unknown") end
   local source = f:read("*a")
   f:close()
   local doc: ModuleDoc
@@ -291,7 +294,7 @@ local function render_file(file_path: string): boolean, string
   else
     doc = parse(source, file_path)
   end
-  return true, doc_render.render(doc)
+  return doc_render.render(doc)
 end
 
 local cosmo = require("cosmo")
@@ -330,7 +333,7 @@ local record DocModule
   parse_dtl: function(source: string, file_path: string): ModuleDoc
   parse_file: function(file_path: string): ModuleDoc | nil, string
   render: function(doc: ModuleDoc): string
-  render_file: function(file_path: string): boolean, string
+  render_file: function(file_path: string): string | nil, string
   serialize: function(doc: ModuleDoc): string
   serialize_index: function(index: DocIndex): string
   load_index: function(source: string): DocIndex | nil, string

@@ -272,12 +272,12 @@ end
 test_wrap_tmpfd()
 
 local function test_tmpfile_handle()
-  local h, path = fs.tmpfile(fs.join(TEST_TMPDIR, "wrap_XXXXXX"))
-  local hh = check.must(h, "tmpfile should succeed")
-  assert(hh:write("via tmpfile"))
-  assert(hh:close())
-  assert(fs.read(path) == "via tmpfile", "data lands in the tmpfile")
-  fs.unlink(path)
+  local tf = check.must(fs.tmpfile(fs.join(TEST_TMPDIR, "wrap_XXXXXX")),
+    "tmpfile should succeed")
+  assert(tf.handle:write("via tmpfile"))
+  assert(tf.handle:close())
+  assert(fs.read(tf.path) == "via tmpfile", "data lands in the tmpfile")
+  fs.unlink(tf.path)
 end
 test_tmpfile_handle()
 

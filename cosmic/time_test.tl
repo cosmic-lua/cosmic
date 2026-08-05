@@ -1,5 +1,6 @@
 #!/usr/bin/env cosmic
 local time = require("cosmic.time")
+local check = require("cosmic.check")
 
 -- clock_gettime tests
 
@@ -113,7 +114,7 @@ local function test_sleep_ms_interrupted_returns_ms_remainder()
   -- cast: signature transition
   local sleep_ms = (time as {string: any}).sleep_ms as function(number): number, string
 
-  local old_handler = signal.sigaction(signal.SIGALRM, function(_: number) end)
+  local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number) end))
   -- Single-shot timer: interrupt the sleep after ~50ms.
   signal.setitimer({
       which = signal.ITIMER_REAL,
@@ -134,7 +135,7 @@ local function test_sleep_ms_interrupted_returns_ms_remainder()
       intervalsec = 0,
       intervalns = 0,
     })
-  signal.sigaction(signal.SIGALRM, old_handler)
+  signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
 
   assert(rem ~= nil, "interrupted sleep_ms must return a remainder")
   assert(rem > 0 and rem <= 2000,

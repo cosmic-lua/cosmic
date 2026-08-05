@@ -114,11 +114,14 @@ test_copytree_dir_mode_exact()
 
 -- 2. tmpfile: Handle + path on the happy path; fs.mkstemp is gone.
 local function test_tmpfile_handle_and_path()
-  local tmpfile = fsa.tmpfile as function(string): any, string, string -- cast: from any
+  local tmpfile = fsa.tmpfile as function(string): any, string -- cast: from any
   assert(tmpfile, "fs.tmpfile should exist")
-  local h, path, err = tmpfile(fs.join(TEST_TMPDIR, "traps_XXXXXX"))
-  assert(h, "tmpfile failed: " .. tostring(err))
+  local tf, err = tmpfile(fs.join(TEST_TMPDIR, "traps_XXXXXX"))
+  assert(tf, "tmpfile failed: " .. tostring(err))
+  local t = tf as {string: any} -- cast: from any
+  local h = t.handle
   local hh = h as {string: any} -- cast: from any
+  local path = t.path as string -- cast: from any
   -- cast: from any
   assert((hh.write as function(any, string): number, string)(h, "via handle"))
   assert((hh.close as function(any): boolean, string)(h)) -- cast: from any
@@ -128,10 +131,13 @@ end
 test_tmpfile_handle_and_path()
 
 local function test_tmpfile_default_template()
-  local tmpfile = fsa.tmpfile as function(): any, string, string -- cast: from any
-  local h, path = tmpfile()
-  assert(h, "tmpfile() with no template should create somewhere sane")
+  local tmpfile = fsa.tmpfile as function(): any, string -- cast: from any
+  local tf = tmpfile()
+  assert(tf, "tmpfile() with no template should create somewhere sane")
+  local t = tf as {string: any} -- cast: from any
+  local h = t.handle
   local hh = h as {string: any} -- cast: from any
+  local path = t.path as string -- cast: from any
   assert((hh.close as function(any): boolean, string)(h)) -- cast: from any
   assert(fs.isfile(path), "returned path exists")
   fs.unlink(path)

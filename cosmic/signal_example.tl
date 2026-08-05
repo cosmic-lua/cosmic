@@ -8,22 +8,23 @@
 -- runs before the sleep returns.
 local function Example_handler()
   local signal = require("cosmic.signal")
+  local check = require("cosmic.check")
   local time = require("cosmic.time")
 
   local received: number = 0
   local blockmask = signal.sigset(signal.SIGUSR1)
   local oldmask = signal.sigprocmask(signal.SIG_BLOCK, blockmask)
 
-  local old_handler = signal.sigaction(signal.SIGUSR1, function(sig: number)
+  local prev = check.must(signal.sigaction(signal.SIGUSR1, function(sig: number)
       received = sig
-    end)
+    end))
 
   signal.raise(signal.SIGUSR1) -- pending: SIGUSR1 is blocked
   signal.sigprocmask(signal.SIG_SETMASK, oldmask)
   time.sleep(0, 1000000) -- give delivery a moment
 
   print(received == signal.SIGUSR1)
-  signal.sigaction(signal.SIGUSR1, old_handler)
+  signal.sigaction(signal.SIGUSR1, prev.handler, prev.flags, prev.mask)
   -- Output:
   -- true
 end
@@ -32,10 +33,11 @@ end
 -- ignore, raise() delivers nothing and the process carries on.
 local function Example_ignore()
   local signal = require("cosmic.signal")
-  local old_handler = signal.sigaction(signal.SIGUSR2, signal.SIG_IGN)
+  local check = require("cosmic.check")
+  local prev = check.must(signal.sigaction(signal.SIGUSR2, signal.SIG_IGN))
   local ok = signal.raise(signal.SIGUSR2)
   print(ok)
-  signal.sigaction(signal.SIGUSR2, old_handler)
+  signal.sigaction(signal.SIGUSR2, prev.handler, prev.flags, prev.mask)
   -- Output:
   -- true
 end

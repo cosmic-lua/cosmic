@@ -3,6 +3,7 @@
 
 local fs = require("cosmic.fs")
 local doc = require("cosmic.doc")
+local check = require("cosmic.check")
 
 local tmpdir = os.getenv("TEST_TMPDIR")
 
@@ -269,8 +270,7 @@ local function helper()
   return 1
 end
 ]])
-  local ok, md = doc.render_file(input)
-  assert(ok, "render_file should succeed")
+  local md = check.must(doc.render_file(input), "render_file should succeed")
   assert(md:find("# doc_test"), "should have filename as header")
   assert(md:find("A test file"), "should have module doc")
 end
@@ -278,8 +278,8 @@ test_render_file()
 
 -- Test render_file with missing file
 local function test_render_file_missing()
-  local ok, err = doc.render_file("/nonexistent/file.tl")
-  assert(not ok, "render_file should fail on missing file")
+  local md, err = doc.render_file("/nonexistent/file.tl")
+  assert(md == nil, "render_file should fail on missing file")
   assert(err:find("cannot open"), "should have error message")
 end
 test_render_file_missing()
@@ -338,8 +338,7 @@ test_example_title()
 -- Test that actual library files have proper documentation
 -- These tests verify that our source files have doc comments
 local function test_embed_has_module_doc()
-  local ok, md = doc.render_file("cosmic/embed/init.tl")
-  assert(ok, "should read embed/init.tl")
+  local md = check.must(doc.render_file("cosmic/embed/init.tl"), "should read embed/init.tl")
   -- Module should have a description after the header
   assert(md:find("# embed\n\n[^#]"), "embed/init.tl should have module description")
 end
@@ -347,24 +346,21 @@ test_embed_has_module_doc()
 
 local function test_embed_has_type_descriptions()
   -- EmbedResult is declared in the extraction half; init.tl aliases it.
-  local ok, md = doc.render_file("cosmic/embed/extract.tl")
-  assert(ok, "should read embed/extract.tl")
+  local md = check.must(doc.render_file("cosmic/embed/extract.tl"), "should read embed/extract.tl")
   -- EmbedResult should have a description, not just a bare header
   assert(md:find("### EmbedResult\n\n[^#]"), "EmbedResult should have description")
 end
 test_embed_has_type_descriptions()
 
 local function test_child_has_type_descriptions()
-  local ok, md = doc.render_file("cosmic/child/init.tl")
-  assert(ok, "should read child/init.tl")
+  local md = check.must(doc.render_file("cosmic/child/init.tl"), "should read child/init.tl")
   -- Handle should have a description
   assert(md:find("### Handle\n\n[^#]"), "Handle should have description")
 end
 test_child_has_type_descriptions()
 
 local function test_fetch_has_module_description()
-  local ok, md = doc.render_file("cosmic/fetch/init.tl")
-  assert(ok, "should read fetch/init.tl")
+  local md = check.must(doc.render_file("cosmic/fetch/init.tl"), "should read fetch/init.tl")
   -- Module should have a description after the header
   assert(md:find("# fetch\n\n[^#]"), "fetch.tl should have module description")
   -- Should describe what it does

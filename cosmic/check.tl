@@ -240,15 +240,16 @@ end
 --- @param pid integer The child to reap
 --- @param what string What the child was, for the message
 local function reap(pid: integer, what: string)
-  local wpid, status, _rusage, werr = proc.wait(pid)
+  local wr, werr = proc.wait(pid)
   -- `proc.wait` is a raw passthrough, so a signal delivered to this
   -- process surfaces here as EINTR instead of being retried underneath.
-  while wpid == nil and werr and werr:find("EINTR", 1, true) do
-    wpid, status, _rusage, werr = proc.wait(pid)
+  while wr == nil and werr and werr:find("EINTR", 1, true) do
+    wr, werr = proc.wait(pid)
   end
-  if wpid == nil then
+  if wr == nil then
     error("waiting for " .. what .. ": " .. (werr or "wait failed"), 2)
   end
+  local status = (wr as proc.WaitResult).status -- cast: record union after guard
   local code = 128
   if proc.WIFEXITED(status) then
     code = proc.WEXITSTATUS(status)

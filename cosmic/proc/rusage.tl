@@ -7,6 +7,16 @@ local errstr = require("cosmic.errno").str
 
 local type Rusage = unix.Rusage
 
+--- A resource limit pair. A record rather than (soft, hard, err)
+--- returns: the old shape put the error in slot 3, where
+--- `local soft, hard = ...` silently lost it.
+local record Rlimit
+  --- Soft limit (can be exceeded, may generate a signal).
+  soft: integer
+  --- Hard limit (ceiling for unprivileged processes).
+  hard: integer
+end
+
 -- Resource Usage --
 
 --- Gets resource usage statistics.
@@ -25,19 +35,17 @@ end
 -- Resource Limits --
 
 --- Gets resource limits for the current process.
---- Returns the soft and hard limits for the specified resource.
 --- @param resource integer The RLIMIT_* constant identifying the resource
---- @return integer | nil Soft limit (can be exceeded, may generate signal), or nil on failure
---- @return integer Hard limit (cannot be exceeded by unprivileged processes)
+--- @return Rlimit | nil The soft and hard limits
 --- @return string? Error message on failure
-local function getrlimit(resource: integer): integer | nil, integer, string
+local function getrlimit(resource: integer): Rlimit | nil, string
   local soft, hard = unix.getrlimit(resource)
   if soft == nil then
     -- On failure the binding returns (nil, err, errno): the error string
     -- arrives in the second slot, where the hard limit would have been.
-    return nil, nil, errstr(hard, "getrlimit")
+    return nil, errstr(hard, "getrlimit")
   end
-  return soft, hard
+  return {soft = soft, hard = hard}
 end
 
 --- Sets resource limits for the current process.
@@ -99,7 +107,17 @@ local function setpriority(which: integer, who: integer, prio: integer): boolean
   return true
 end
 
-return {
+local record RusageModule
+  type Rlimit = Rlimit
+  getrusage: function(who?: integer): Rusage | nil, string
+  getrlimit: function(resource: integer): Rlimit | nil, string
+  setrlimit: function(resource: integer, soft: integer, hard?: integer): boolean, string
+  nice: function(inc: integer): integer | nil, string
+  getpriority: function(which: integer, who: integer): integer | nil, string
+  setpriority: function(which: integer, who: integer, prio: integer): boolean, string
+end
+
+local M: RusageModule = {
   getrusage = getrusage,
   getrlimit = getrlimit,
   setrlimit = setrlimit,
@@ -107,3 +125,5 @@ return {
   getpriority = getpriority,
   setpriority = setpriority,
 }
+
+return M
