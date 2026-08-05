@@ -12,9 +12,9 @@ local function scenarios(): {pt.Scenario}, string
     {
       name = "child_spawn_true",
       fn = function(_: any): any
-        local result, err = child.run({"/bin/true"})
-        assert(result, err)
-        return (result as child.Result).code -- cast: record union after guard
+        local result = child.run({"/bin/true"})
+        assert(not result.spawn_error, result.spawn_error)
+        return result.code
       end,
       check = function(_: any, res: any): boolean, string
         if res as integer ~= 0 then -- cast: from any

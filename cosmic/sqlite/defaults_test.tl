@@ -1,7 +1,7 @@
 #!/usr/bin/env cosmic
 --- Tests for the per-connection defaults sqlite.open() applies
 --- (foreign_keys=ON, WAL journal mode with synchronous=NORMAL) and
---- their OpenOptions opt-outs. busy_timeout coverage lives in
+--- their Options opt-outs. busy_timeout coverage lives in
 --- data_test.tl.
 
 local check = require("cosmic.check")

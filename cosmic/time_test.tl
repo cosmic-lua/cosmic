@@ -118,10 +118,8 @@ local function test_sleep_ms_interrupted_returns_ms_remainder()
   -- Single-shot timer: interrupt the sleep after ~50ms.
   signal.setitimer({
       which = signal.ITIMER_REAL,
-      valuesec = 0,
-      valuens = 50000000,
-      intervalsec = 0,
-      intervalns = 0,
+      value_ms = 50,
+      interval_ms = 0,
     })
 
   local rem, err = sleep_ms(2000)
@@ -130,10 +128,8 @@ local function test_sleep_ms_interrupted_returns_ms_remainder()
   -- ticking timer behind.
   signal.setitimer({
       which = signal.ITIMER_REAL,
-      valuesec = 0,
-      valuens = 0,
-      intervalsec = 0,
-      intervalns = 0,
+      value_ms = 0,
+      interval_ms = 0,
     })
   signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
 

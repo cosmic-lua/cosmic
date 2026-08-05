@@ -15,20 +15,16 @@ local function test_read_retries_eintr()
   -- child, each one interrupting the read.
   signal.setitimer({
       which = signal.ITIMER_REAL,
-      valuesec = 0,
-      valuens = 50000000,
-      intervalsec = 0,
-      intervalns = 50000000,
+      value_ms = 50,
+      interval_ms = 50,
     })
   local data, err = h:read()
   -- Disarm and restore before asserting so a failure can't leave a
   -- ticking timer behind.
   signal.setitimer({
       which = signal.ITIMER_REAL,
-      valuesec = 0,
-      valuens = 0,
-      intervalsec = 0,
-      intervalns = 0,
+      value_ms = 0,
+      interval_ms = 0,
     })
   signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
   assert(data == nil and err == nil,

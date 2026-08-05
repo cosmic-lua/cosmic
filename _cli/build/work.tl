@@ -57,7 +57,7 @@ end
 --- the skip is never less honest than the scheduler above it.
 local ENV_SWITCHES < const >: {string} = {
   "CI", "COSMIC_COVERAGE", "COSMIC_FENCE", "COSMIC_FIXPOINT",
-  "COSMIC_BENCHMARK_MIN_SECONDS",
+  "COSMIC_BENCHMARK_MIN_MS",
 }
 
 --- The key over a step's meaning: its stable argv (relative paths and
@@ -117,11 +117,10 @@ end
 --- output's mtime. (Moved verbatim from steps.tl; see the restamp
 --- comment there for why an unchanged result still touches the mtime.)
 local function run_into(argv: {string}, out: string): integer
-  local result, serr = child.run(argv)
-  if not result then
-    return fail("spawn " .. argv[1] .. " failed: " .. tostring(serr))
+  local r = child.run(argv)
+  if r.spawn_error then
+    return fail("spawn " .. argv[1] .. " failed: " .. r.spawn_error)
   end
-  local r = result as child.Result -- cast: record union after guard
   if r.stderr and r.stderr ~= "" then
     io.stderr:write(r.stderr)
   end

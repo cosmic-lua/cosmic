@@ -17,11 +17,10 @@ local function run_driver(...: string): integer, string, string
   for _, a in ipairs({...}) do
     parts[#parts + 1] = a
   end
-  local result, serr = child.run({test_bin, "-c", table.concat(parts, " ")})
-  if not result then
-    return 1, "", tostring(serr)
+  local r = child.run({test_bin, "-c", table.concat(parts, " ")})
+  if r.spawn_error then
+    return 1, "", r.spawn_error
   end
-  local r = result as child.Result -- cast: record union after guard
   local code = 1
   if r.code ~= nil then
     code = r.code

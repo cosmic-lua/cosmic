@@ -41,11 +41,10 @@ local function run_recipe(line: string,
     end
     opts.env = envlist
   end
-  local result, serr = child.run({test_bin, "-c", line}, opts)
-  if not result then
-    return 1, "", tostring(serr)
+  local r = child.run({test_bin, "-c", line}, opts)
+  if r.spawn_error then
+    return 1, "", r.spawn_error
   end
-  local r = result as child.Result -- cast: record union after guard
   local code = 1
   if r.code ~= nil then
     code = r.code
@@ -185,11 +184,10 @@ local function run_recipe_env(line: string, root: string): integer, string, stri
     end
   end
   envlist[#envlist + 1] = "COSMIC_EXEC_ROOT=" .. root
-  local result, serr = child.run({test_bin, "-c", line}, {env = envlist})
-  if not result then
-    return 1, "", tostring(serr)
+  local r = child.run({test_bin, "-c", line}, {env = envlist})
+  if r.spawn_error then
+    return 1, "", r.spawn_error
   end
-  local r = result as child.Result -- cast: record union after guard
   local code = 1
   if r.code ~= nil then
     code = r.code

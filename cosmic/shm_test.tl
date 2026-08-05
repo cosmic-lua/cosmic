@@ -253,33 +253,22 @@ test_memory_wait_wrong_expect_returns_eagain()
 -- retries, so the wait ends in ETIMEDOUT, never EINTR.
 local function test_memory_wait_retries_eintr_until_deadline()
   local signal = require("cosmic.signal")
-  local time = require("cosmic.time")
   local mem = check.must(shm.mapshared(64))
   mem:store(0, 0)
   local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number) end))
   -- Interval timer: interrupts the wait several times before the deadline.
   signal.setitimer({
       which = signal.ITIMER_REAL,
-      valuesec = 0,
-      valuens = 30000000,
-      intervalsec = 0,
-      intervalns = 30000000,
+      value_ms = 30,
+      interval_ms = 30,
     })
-  local secs, nanos = time.now()
-  nanos = nanos + 200000000
-  if nanos >= 1000000000 then
-    secs = secs + 1
-    nanos = nanos - 1000000000
-  end
-  local rc, err = mem:wait(0, 0, secs, nanos)
+  local rc, err = mem:wait(0, 0, 200)
   -- Disarm and restore before asserting so a failure can't leave a
   -- ticking timer behind.
   signal.setitimer({
       which = signal.ITIMER_REAL,
-      valuesec = 0,
-      valuens = 0,
-      intervalsec = 0,
-      intervalns = 0,
+      value_ms = 0,
+      interval_ms = 0,
     })
   signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
   assert(rc == nil, "wait on an unchanged word should time out")

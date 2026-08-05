@@ -82,20 +82,16 @@ local function test_blocking_read_retries_eintr()
   -- so the test cannot hang however the timing lands.
   signal.setitimer({
       which = signal.ITIMER_REAL,
-      valuesec = 0,
-      valuens = 30000000,
-      intervalsec = 0,
-      intervalns = 30000000,
+      value_ms = 30,
+      interval_ms = 30,
     })
   local data, err = p.reader:read(10)
   -- Disarm and restore before asserting so a failure can't leave a
   -- ticking timer behind.
   signal.setitimer({
       which = signal.ITIMER_REAL,
-      valuesec = 0,
-      valuens = 0,
-      intervalsec = 0,
-      intervalns = 0,
+      value_ms = 0,
+      interval_ms = 0,
     })
   signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
   assert(data == "x", "interrupted read should retry and return the handler's"

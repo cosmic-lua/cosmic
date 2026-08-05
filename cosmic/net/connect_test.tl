@@ -62,7 +62,7 @@ local function test_unix_domain_socket_bind_connect()
   local path = tmpdir .. "/test.sock"
 
   -- Create server socket
-  local server = check.must(net.socket(net.AF_UNIX, net.SOCK_STREAM, 0))
+  local server = check.must(net.socket({family = net.AF_UNIX}))
 
   -- Bind to path
   local ok, err = server:bind_unix(path)
@@ -75,7 +75,7 @@ local function test_unix_domain_socket_bind_connect()
   -- Fork to create a client
   local pid = proc.fork()
   if pid == 0 then
-    local client = check.must(net.socket(net.AF_UNIX, net.SOCK_STREAM, 0))
+    local client = check.must(net.socket({family = net.AF_UNIX}))
     local connect_ok = client:connect_unix(path)
     if not connect_ok then os.exit(check.EXIT_SKIP) end
     local sent = client:send("hello from unix client")
@@ -180,7 +180,7 @@ test_nb_connect_loopback()
 
 local function test_nb_connect_refused()
   -- Create a non-blocking socket and try to connect to a port with no listener
-  local client = check.must(net.socket(net.AF_INET, net.SOCK_STREAM | net.SOCK_NONBLOCK, 0))
+  local client = check.must(net.socket({family = net.AF_INET, socktype = net.SOCK_STREAM | net.SOCK_NONBLOCK}))
 
   -- Connect to localhost port 1 — should be refused
   local ok, conn_err = net.nb_connect(client, "127.0.0.1", 1, 2000)
@@ -195,7 +195,7 @@ test_nb_connect_refused()
 -- (no EINPROGRESS at all — unlike a refused port, which the kernel usually
 -- reports async). nb_connect must return that error immediately rather
 -- than treating the failure as "still connecting" and polling for up to
--- timeoutms: assert on elapsed time, not just the outcome, so a regression
+-- timeout_ms: assert on elapsed time, not just the outcome, so a regression
 -- back to "poll no matter what" is caught even though it would eventually
 -- return the same error, just slowly.
 local function test_nb_connect_synchronous_failure_returns_immediately()
@@ -218,7 +218,7 @@ test_nb_connect_synchronous_failure_returns_immediately()
 -- Error fidelity: socket()/socketpair()/gethostname() must surface the
 -- binding's real errno, not a generic "X creation failed" string.
 local function test_socket_error_names_errno()
-  local sock, err = net.socket(-1, net.SOCK_STREAM, 0)
+  local sock, err = net.socket({family = -1})
   assert(sock == nil, "socket with an invalid family should fail")
   assert(err ~= nil and err:match("E%u+"),
     "socket error should name the errno, got: " .. tostring(err))
@@ -227,7 +227,7 @@ test_socket_error_names_errno()
 
 local function test_socketpair_error_names_errno()
   -- socketpair() only supports AF_UNIX; AF_INET fails synchronously.
-  local pair, err = net.socketpair(net.AF_INET, net.SOCK_STREAM, 0)
+  local pair, err = net.socketpair({family = net.AF_INET})
   assert(pair == nil, "socketpair with AF_INET should fail")
   assert(err ~= nil and err:match("E%u+"),
     "socketpair error should name the errno, got: " .. tostring(err))
@@ -328,11 +328,11 @@ print("All net tests passed")
 -- Error fidelity: bind errors carry the errno name.
 local function test_bind_error_names_errno()
   -- Binding a second socket to an in-use address must name EADDRINUSE.
-  local first = check.must(net.socket(net.AF_INET, net.SOCK_STREAM))
+  local first = check.must(net.socket({family = net.AF_INET}))
   assert(first:bind("127.0.0.1", 0))
   assert(first:listen())
   local port = check.must(first:getsockname()).port
-  local second = check.must(net.socket(net.AF_INET, net.SOCK_STREAM))
+  local second = check.must(net.socket({family = net.AF_INET}))
   local ok, berr = second:bind("127.0.0.1", port)
   assert(ok == false, "second bind to same port should fail")
   assert(berr:match("EADDRINUSE"), "bind error should name EADDRINUSE, got: " .. berr)
@@ -378,14 +378,14 @@ local function test_listen_tcp_socket_options()
     "SO_REUSEADDR should default on, got " .. tostring(ra))
   d:close()
 
-  local s2, oerr = net.listen_tcp("127.0.0.1", 0, nil, {reuseaddr = false})
+  local s2, oerr = net.listen_tcp("127.0.0.1", 0, {reuseaddr = false})
   local o = check.must(s2, "listen_tcp with reuseaddr=false failed: " .. tostring(oerr))
   local ra2 = o:getsockopt(net.SOL_SOCKET, net.SO_REUSEADDR)
   assert(ra2 == false or ra2 == 0,
     "reuseaddr=false should leave SO_REUSEADDR off, got " .. tostring(ra2))
   o:close()
 
-  local s3, perr = net.listen_tcp("127.0.0.1", 0, nil, {reuseport = true})
+  local s3, perr = net.listen_tcp("127.0.0.1", 0, {reuseport = true})
   local p = check.must(s3, "listen_tcp with reuseport failed: " .. tostring(perr))
   local rp = p:getsockopt(net.SOL_SOCKET, net.SO_REUSEPORT)
   assert(rp == true or rp == 1,

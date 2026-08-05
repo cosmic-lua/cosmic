@@ -135,7 +135,7 @@ local function scenarios(): {pt.Scenario}, string
       -- per-file slurp/embed cost.
       name = "embed_run_tree",
       fn = function(_: any): any
-        return embed.run({srcdir}, packed_exe, bin)
+        return embed.run({srcdir}, {output = packed_exe, exe_path = bin})
       end,
       check = function(_: any, res: any): boolean, string
         local r = res as EmbedResult -- cast: from any
@@ -156,7 +156,7 @@ local function scenarios(): {pt.Scenario}, string
       -- from the archive read/write cost.
       name = "embed_extract_tree",
       setup = function(): any, string
-        local result = embed.run({srcdir}, packed_exe, bin)
+        local result = embed.run({srcdir}, {output = packed_exe, exe_path = bin})
         if not result.ok then
           return nil, "embed.run: " .. tostring(result.message)
         end

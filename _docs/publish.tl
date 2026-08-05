@@ -186,11 +186,10 @@ local function make_readme(docs_dir: string): string
 end
 
 local function run(argv: {string}): boolean, string
-  local result, err = spawn.run(argv)
-  if not result then
-    return nil, err
+  local r = spawn.run(argv)
+  if r.spawn_error then
+    return nil, r.spawn_error
   end
-  local r = result as spawn.Result -- cast: record union after guard
   if not r.ok then
     return nil, table.concat(argv, " ") .. " failed with exit code " .. tostring(r.code)
   end

@@ -54,22 +54,22 @@ local record Poller
   clear: function(Poller)
   --- Poll for events with optional timeout.
   --- Returns an iterator over (fd, events) pairs for ready descriptors.
-  --- EINTR is retried internally by reissuing the same timeoutms, so the
+  --- EINTR is retried internally by reissuing the same timeout_ms, so the
   --- deadline is not preserved across retries: repeated signals can make
-  --- the effective wait exceed timeoutms. On a hard poll error the
+  --- the effective wait exceed timeout_ms. On a hard poll error the
   --- iterator is empty; check err() after the loop — the old second
   --- return was consumed as loop state by the generic `for`, so no
   --- caller ever saw it (the Rows:err() pattern, for the same reason).
-  --- @param timeoutms integer Timeout in ms (-1 for infinite, 0 for non-blocking)
+  --- @param timeout_ms integer Timeout in ms (-1 for infinite, 0 for non-blocking)
   --- @return function Iterator yielding (fd: integer, events: Events)
   wait: function(Poller, integer): function(): (integer, Events)
   --- The error from the last wait(), or nil when it polled cleanly.
   --- Cleared by the next wait().
   err: function(Poller): string | nil
   --- Poll and return count of ready descriptors. EINTR is retried
-  --- internally by reissuing the same timeoutms (the deadline is not
+  --- internally by reissuing the same timeout_ms (the deadline is not
   --- preserved across retries).
-  --- @param timeoutms integer Timeout in ms (-1 for infinite, 0 for non-blocking)
+  --- @param timeout_ms integer Timeout in ms (-1 for infinite, 0 for non-blocking)
   --- @return integer | nil Count of ready descriptors
   --- @return string Error message on failure
   poll: function(Poller, integer): integer | nil, string
@@ -153,18 +153,18 @@ local function new(): Poller
     return n
   end
 
-  poller.poll = function(_self: Poller, timeoutms: integer): integer | nil, string
+  poller.poll = function(_self: Poller, timeout_ms: integer): integer | nil, string
     -- Retry when a signal interrupts the wait: an unretried EINTR otherwise
     -- surfaces as a poll failure, and a caller that loops on it (e.g. a drain
     -- loop waiting on a child that raised SIGCHLD) spins at 100% CPU.
-    -- Retrying reissues the same timeoutms rather than tracking elapsed
-    -- time, so the effective wait can exceed timeoutms under repeated
+    -- Retrying reissues the same timeout_ms rather than tracking elapsed
+    -- time, so the effective wait can exceed timeout_ms under repeated
     -- signals (see the doc comment on wait/poll above).
     local res: {integer: integer}
     local err: string
     local eno: integer
     while true do
-      res, err, eno = unix.poll(fds, timeoutms or -1)
+      res, err, eno = unix.poll(fds, timeout_ms or -1)
       if res ~= nil or not errno.is(eno, "EINTR") then
         break
       end
@@ -192,8 +192,8 @@ local function new(): Poller
     return nil
   end
 
-  poller.wait = function(self: Poller, timeoutms: integer): function(): (integer, Events)
-    local n, err = self:poll(timeoutms)
+  poller.wait = function(self: Poller, timeout_ms: integer): function(): (integer, Events)
+    local n, err = self:poll(timeout_ms)
     if n == nil then
       wait_err = err
       return function(): (integer, Events)

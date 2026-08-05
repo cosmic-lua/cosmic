@@ -227,7 +227,7 @@ local function test_stripped_to_the_floor()
       -- one module pitched at config-as-data threw at load, and every
       -- require miss reported a missing `tl` instead of itself.
       "local lit = require('cosmic.literal')\n" ..
-      "local cfg = lit.of_source([[return { s = \"\\u{41}BC\" }]], 'c')\n" ..
+      "local cfg = lit.of_source([[return { s = \"\\u{41}BC\" }]], {file = 'c'})\n" ..
       "print('literal:', (cfg as {string:string}).s)\n" ..
       -- Non-literal, so the checker cannot resolve it at build time and
       -- the miss happens at runtime, where the searcher answers it.

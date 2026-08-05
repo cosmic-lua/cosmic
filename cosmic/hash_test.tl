@@ -166,7 +166,7 @@ test_password_argon2d_roundtrip()
 
 local function test_password_invalid_variant()
   -- cast: deliberate invalid input past Variant enum, for runtime guard
-  local bad = {variant = "invalid"} as hash.HashOptions
+  local bad = {variant = "invalid"} as hash.PasswordOptions
   local encoded, err = hash.password("password", bad)
   assert(encoded == nil, "password should fail with invalid variant")
   assert(err and err:match("invalid variant"), "error should mention invalid variant")

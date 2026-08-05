@@ -161,8 +161,8 @@ local function test_pump_relays_data_across_eintr()
     signal.sigaction(signal.SIGALRM, function() end)
     signal.setitimer({
         which = signal.ITIMER_REAL,
-        valuesec = 0, valuens = 50000000,
-        intervalsec = 0, intervalns = 0,
+        value_ms = 50,
+        interval_ms = 0,
       })
     http.pump(c2.fd, u2.fd)
     os.exit(0)

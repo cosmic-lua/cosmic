@@ -83,18 +83,23 @@ local DEFAULT_MIN_SECONDS = 1.0
 
 --- Options for `run`.
 local record Options
-  --- Minimum calibrated duration per benchmark, in seconds. Defaults to
-  --- DEFAULT_MIN_SECONDS (Go's 1s convention) when unset. A real
-  --- timing measurement should leave this at the default; a test of
-  --- the RUNNER itself (discovery, naming, iteration counting,
+  --- Run only benchmarks whose name contains this SUBSTRING, matched
+  --- plainly (e.g. "concat" matches Benchmark_string_concat). Folded in
+  --- from the old positional between the path and the options
+  --- (api-review-6).
+  filter: string
+  --- Minimum calibrated duration per benchmark, in integer
+  --- milliseconds. Defaults to 1000 (Go's 1s convention) when unset. A
+  --- real timing measurement should leave this at the default; a test
+  --- of the RUNNER itself (discovery, naming, iteration counting,
   --- formatting, error handling) is the intended user of a small
   --- value here, since 1s of looping proves nothing a 10ms run
   --- doesn't.
-  min_seconds: number
+  min_ms: integer
 end
 
 --- Resolve the minimum calibration duration for a run: an explicit
---- `Options.min_seconds` wins; otherwise the COSMIC_BENCHMARK_MIN_SECONDS
+--- `Options.min_ms` wins; otherwise the COSMIC_BENCHMARK_MIN_MS
 --- environment variable, when it parses as a number, lets a caller with
 --- no Options to pass (the `--benchmark` CLI flag spawns no sub-options,
 --- so this is how its own tests shrink calibration through a spawned
@@ -102,14 +107,14 @@ end
 --- @param opts Options? Run options
 --- @return number Minimum duration in seconds
 local function resolve_min_seconds(opts: Options): number
-  if opts and opts.min_seconds then
-    return opts.min_seconds
+  if opts and opts.min_ms then
+    return opts.min_ms / 1000
   end
-  local from_env = env.get("COSMIC_BENCHMARK_MIN_SECONDS")
+  local from_env = env.get("COSMIC_BENCHMARK_MIN_MS")
   if from_env then
     local n = tonumber(from_env)
     if n then
-      return n
+      return n / 1000
     end
   end
   return DEFAULT_MIN_SECONDS
@@ -224,13 +229,12 @@ end
   return result
 end
 
---- Run all benchmarks in a file, optionally filtered by pattern.
+--- Run all benchmarks in a file, optionally filtered.
 --- Parses and executes Benchmark_* functions, returning aggregated results.
 --- @param file_path string Path to the Teal file containing benchmarks
---- @param filter string Optional SUBSTRING of the benchmark name, matched plainly (e.g. "concat" matches Benchmark_string_concat)
---- @param opts Options? Run options; see Options.min_seconds
+--- @param opts Options? filter substring and min_ms calibration floor
 --- @return RunResult Result with exit code (0=pass, 1=fail, 2=skip), results, and errors
-local function run(file_path: string, filter?: string, opts?: Options): RunResult
+local function run(file_path: string, opts?: Options): RunResult
   local f, err = io.open(file_path, "r")
   if not f then
     return {
@@ -244,6 +248,7 @@ local function run(file_path: string, filter?: string, opts?: Options): RunResul
   f:close()
 
   local all_benchmarks = parse_benchmarks(source)
+  local filter = opts and opts.filter
 
   -- Filter by plain SUBSTRING, not by pattern: a benchmark name is
   -- `Benchmark_string_concat`, and a filter a user types is not a
@@ -352,7 +357,7 @@ end
 local record BenchmarkModule
   type Options = Options
 
-  run: function(file_path: string, filter?: string, opts?: Options): RunResult
+  run: function(file_path: string, opts?: Options): RunResult
   parse_benchmarks: function(source: string): {Benchmark}
   format_results: function(file_path: string, run_result: RunResult): string
 end

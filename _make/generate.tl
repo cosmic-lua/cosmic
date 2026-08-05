@@ -252,13 +252,12 @@ local function run_generator(proj: Project, gen: string, dest: string,
   end
   argv[#argv + 1] = gen
   argv[#argv + 1] = dest
-  local r, rerr = child.run(argv,
+  local r = child.run(argv,
     {stdout = "inherit", stderr = "inherit"})
-  if not (r is child.Result) then
-    return false, "make: " .. gen .. ": " .. (rerr or "unknown error")
+  if r.spawn_error then
+    return false, "make: " .. gen .. ": " .. r.spawn_error
   end
-  -- cast: narrowing does not survive the early-exit guard above
-  if not (r as child.Result).ok then
+  if not r.ok then
     return false, "make: " .. gen .. " failed"
   end
   ran[at] = true

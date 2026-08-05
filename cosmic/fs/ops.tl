@@ -245,41 +245,45 @@ end
 
 -- Timestamp operations
 
---- Resolve one (secs, nsecs) pair to what the raw utimensat/futimens
---- binding expects, keying "keep current" off secs alone:
---- - secs is nil: the timestamp is left untouched (UTIME_OMIT in the
----   nsec slot, which makes the kernel ignore secs entirely — so any
----   nsecs passed alongside a nil secs is ignored too, not just secs).
---- - secs is given, nsecs is nil: nsecs is exactly 0, not "now" and not
----   "omit" — a bare integer secs value always means a literal stamp.
---- - both given: used exactly as passed (nsecs may itself be
----   unix.UTIME_NOW/UTIME_OMIT if a caller wants that raw behavior).
-local function resolve_time(secs?: integer, nsecs?: integer): integer, integer
-  if secs == nil then
+--- One timestamp for set_times: whole seconds plus optional
+--- nanoseconds (default 0 — a bare secs value always means a literal
+--- stamp, never "now"). nsecs may be unix.UTIME_NOW/UTIME_OMIT when a
+--- caller wants that raw kernel behavior.
+local record Timespec
+  secs: integer
+  nsecs: integer
+end
+
+--- The timestamps set_times/set_times_fd apply. Omit a field to leave
+--- that timestamp exactly as it is (api-review-6: this record replaces
+--- utimensat/futimens and their five positionals, whose nil meant
+--- "unchanged" in one slot and "zero" in the next).
+local record Times
+  atime: Timespec
+  mtime: Timespec
+end
+
+--- Resolve one Timespec to what the raw binding expects: nil means
+--- "leave untouched" (UTIME_OMIT in the nsec slot makes the kernel
+--- ignore the secs slot entirely).
+local function resolve_time(t?: Timespec): integer, integer
+  if t == nil then
     return 0, unix.UTIME_OMIT
   end
-  return secs, nsecs or 0
+  return t.secs, t.nsecs or 0
 end
 
 --- Change file access and modification times.
----
---- Keep-current semantics key off the *_secs argument, not *_nsecs: pass
---- nil for atime_secs (mtime_secs) to leave that timestamp exactly as it
---- is, regardless of what atime_nsecs (mtime_nsecs) is. Pass a secs
---- value with nsecs omitted to set that timestamp's nanoseconds to
---- literal 0 -- never "now" and never "unchanged". Pass both to set an
---- exact timestamp.
+--- Sets the timestamps named in `times` and leaves the others exactly
+--- as they are; like touch(1), this works on read-only files (it asks
+--- for utimensat's metadata permission, not open-for-write).
 --- @param path string Path to the file
---- @param atime_secs integer? Access time seconds (nil to leave atime unchanged)
---- @param atime_nsecs integer? Access time nanoseconds (nil means 0 when atime_secs is given)
---- @param mtime_secs integer? Modification time seconds (nil to leave mtime unchanged)
---- @param mtime_nsecs integer? Modification time nanoseconds (nil means 0 when mtime_secs is given)
+--- @param times Times atime/mtime to set; an omitted field is unchanged
 --- @return boolean True on success
 --- @return string Error message if failed
-local function utimensat(path: string, atime_secs?: integer, atime_nsecs?: integer,
-    mtime_secs?: integer, mtime_nsecs?: integer): boolean, string
-  local a_secs, a_nsecs = resolve_time(atime_secs, atime_nsecs)
-  local m_secs, m_nsecs = resolve_time(mtime_secs, mtime_nsecs)
+local function set_times(path: string, times: Times): boolean, string
+  local a_secs, a_nsecs = resolve_time(times.atime)
+  local m_secs, m_nsecs = resolve_time(times.mtime)
   local rc, err = unix.utimensat(path, a_secs, a_nsecs, m_secs, m_nsecs)
   if rc ~= 0 then
     return false, errstr(err, "utimensat: " .. path)
@@ -288,20 +292,14 @@ local function utimensat(path: string, atime_secs?: integer, atime_nsecs?: integ
 end
 
 --- Change file access and modification times on a file descriptor.
---- Same keep-current semantics as utimensat(): a nil *_secs leaves that
---- timestamp unchanged regardless of *_nsecs; a given secs with nsecs
---- omitted means literal 0 nanoseconds.
+--- Same semantics as set_times().
 --- @param fd integer File descriptor
---- @param atime_secs integer? Access time seconds (nil to leave atime unchanged)
---- @param atime_nsecs integer? Access time nanoseconds (nil means 0 when atime_secs is given)
---- @param mtime_secs integer? Modification time seconds (nil to leave mtime unchanged)
---- @param mtime_nsecs integer? Modification time nanoseconds (nil means 0 when mtime_secs is given)
+--- @param times Times atime/mtime to set; an omitted field is unchanged
 --- @return boolean True on success
 --- @return string Error message if failed
-local function futimens(fd: integer, atime_secs?: integer, atime_nsecs?: integer,
-    mtime_secs?: integer, mtime_nsecs?: integer): boolean, string
-  local a_secs, a_nsecs = resolve_time(atime_secs, atime_nsecs)
-  local m_secs, m_nsecs = resolve_time(mtime_secs, mtime_nsecs)
+local function set_times_fd(fd: integer, times: Times): boolean, string
+  local a_secs, a_nsecs = resolve_time(times.atime)
+  local m_secs, m_nsecs = resolve_time(times.mtime)
   local rc, err = unix.futimens(fd, a_secs, a_nsecs, m_secs, m_nsecs)
   if rc ~= 0 then
     return false, errstr(err, "futimens")
@@ -422,8 +420,10 @@ local record FsOpsModule
   access: function(path: string, mode?: integer): boolean
   chmod: function(path: string, mode: integer): boolean, string
   chown: function(path: string, uid: integer, gid: integer): boolean, string
-  utimensat: function(path: string, atime_secs?: integer, atime_nsecs?: integer, mtime_secs?: integer, mtime_nsecs?: integer): boolean, string
-  futimens: function(fd: integer, atime_secs?: integer, atime_nsecs?: integer, mtime_secs?: integer, mtime_nsecs?: integer): boolean, string
+  type Timespec = Timespec
+  type Times = Times
+  set_times: function(path: string, times: Times): boolean, string
+  set_times_fd: function(fd: integer, times: Times): boolean, string
   mkdtemp: function(template: string): string | nil, string
   type TmpFile = TmpFile
   tmpfile: function(template?: string): TmpFile | nil, string
@@ -453,8 +453,8 @@ local M: FsOpsModule = {
   access = access,
   chmod = chmod,
   chown = chown,
-  utimensat = utimensat,
-  futimens = futimens,
+  set_times = set_times,
+  set_times_fd = set_times_fd,
   mkdtemp = mkdtemp,
   tmpfile = tmpfile,
   tmpfd = tmpfd,

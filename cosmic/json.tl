@@ -18,7 +18,7 @@
 local cosmo = require("cosmo")
 
 --- Options accepted by encode(). All fields are optional.
-local record EncodeOptions
+local record Options
   --- Format across multiple lines for readability (default false).
   pretty: boolean
   --- Sort object keys for deterministic output (default true). Setting
@@ -52,21 +52,21 @@ end
 --- nil-valued table entries are absent (see the module-level null policy
 --- above).
 --- @param value any The Lua value to encode
---- @param options EncodeOptions? pretty, sorted, indent, maxdepth, nan
+--- @param opts Options? pretty, sorted, indent, maxdepth, nan
 --- @return string | nil The JSON string representation
 --- @return string? Error message if encoding failed
-local function encode(value: any, options?: EncodeOptions): string | nil, string
+local function encode(value: any, opts?: Options): string | nil, string
   local result: string
   local err: string | nil
-  if options then
+  if opts then
     -- Build a plain table to avoid a nominal type conflict with
     -- cosmo's EncoderOptions record.
     result, err = cosmo.EncodeJson(value, {
-        pretty = options.pretty,
-        sorted = options.sorted,
-        indent = options.indent,
-        maxdepth = options.maxdepth,
-        nan = options.nan,
+        pretty = opts.pretty,
+        sorted = opts.sorted,
+        indent = opts.indent,
+        maxdepth = opts.maxdepth,
+        nan = opts.nan,
       })
   else
     result, err = cosmo.EncodeJson(value)
@@ -86,10 +86,10 @@ local function array(t?: {any}): {any}
 end
 
 local record JsonModule
-  type EncodeOptions = EncodeOptions
+  type Options = Options
 
   decode: function(str: string): any, string
-  encode: function(value: any, options?: EncodeOptions): string | nil, string
+  encode: function(value: any, opts?: Options): string | nil, string
   array: function(t?: {any}): {any}
 end
 

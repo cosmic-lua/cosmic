@@ -39,11 +39,10 @@ local function do_tee(args: {string}): integer
   for i = 2, #args do
     table.insert(argv, args[i])
   end
-  local result, serr = child.run(argv)
-  if not result then
-    return fail("spawn " .. argv[1] .. " failed: " .. tostring(serr))
+  local r = child.run(argv)
+  if r.spawn_error then
+    return fail("spawn " .. argv[1] .. " failed: " .. r.spawn_error)
   end
-  local r = result as child.Result -- cast: record union after guard
   if r.stderr and r.stderr ~= "" then
     io.stderr:write(r.stderr)
   end

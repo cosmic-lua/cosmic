@@ -61,9 +61,8 @@ local function spawn_capture(bin: string, argv_tail: {string}): string
   for _, a in ipairs(argv_tail) do
     table.insert(argv, a)
   end
-  local result, serr = child.run(argv)
-  assert(result, serr)
-  local r = result as child.Result -- cast: record union after guard
+  local r = child.run(argv)
+  assert(not r.spawn_error, r.spawn_error)
   assert(r.ok, "exit code " .. tostring(r.code) .. ": " .. tostring(r.stdout))
   return (r.stdout:gsub("%s+$", ""))
 end

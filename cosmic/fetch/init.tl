@@ -79,19 +79,21 @@ local record Options
   proxy: string
   --- Maximum response body size in bytes.
   maxresponse: integer
-  --- Per-socket-operation timeout in seconds (connect, each read/write,
-  --- TLS handshake) — NOT a whole-request deadline. 0 or nil keeps the
-  --- 60-second default; there is no "infinite" option.
-  timeout: number
+  --- Per-socket-operation timeout in milliseconds (connect, each
+  --- read/write, TLS handshake) — NOT a whole-request deadline. 0 or nil
+  --- keeps the 60-second default; there is no "infinite" option.
+  --- (api-review-6: was `timeout`, in seconds — durations are integer
+  --- milliseconds with the unit in the name, house-wide.)
+  timeout_ms: integer
   --- Total number of attempts (1 = no retry, default 1). Clamped to >= 1:
   --- 0 or negative would otherwise skip the fetch loop and return no Result.
   max_attempts: integer
-  --- Base backoff delay in seconds (default 0.5). Attempt n waits a
+  --- Base backoff delay in milliseconds (default 500). Attempt n waits a
   --- uniformly random ("full jitter") delay in
-  --- [0, min(max_delay, base_delay * 2^(n-1))].
-  base_delay: number
-  --- Backoff delay cap in seconds (default 30).
-  max_delay: number
+  --- [0, min(max_delay_ms, base_delay_ms * 2^(n-1))].
+  base_delay_ms: integer
+  --- Backoff delay cap in milliseconds (default 30000).
+  max_delay_ms: integer
   --- Predicate consulted after every attempt (success or failure).
   --- Return true to retry. When nil, the default policy retries
   --- transport errors (dns/connect/timeout) and 429/502/503/504
@@ -170,7 +172,8 @@ local function to_fetch_options(opts?: Options): cosmo.FetchOptions
     headers = headers,
     proxy = opts.proxy,
     maxresponse = opts.maxresponse,
-    timeout = opts.timeout,
+    -- the binding speaks seconds; the wrapper's unit is ms
+    timeout = opts.timeout_ms and opts.timeout_ms / 1000 or nil,
     maxredirects = opts.max_redirects,
     allowprivate = opts.allow_private,
   }
@@ -246,11 +249,9 @@ local function default_should_retry(result: Result, method: string): boolean
   return RETRYABLE_STATUS[result.status] or false
 end
 
-local function backoff(attempt: integer, base_delay: number, max_delay: number)
-  -- Full jitter: uniform in [0, min(max_delay, base_delay * 2^(attempt-1))].
-  local delay = math.random() * math.min(max_delay, base_delay * 2 ^ (attempt - 1))
-  local secs = math.floor(delay)
-  time.sleep(secs, math.floor((delay - secs) * 1e9))
+local function backoff(attempt: integer, base_delay_ms: integer, max_delay_ms: integer)
+  -- Full jitter: uniform in [0, min(max_delay_ms, base_delay_ms * 2^(attempt-1))].
+  time.sleep_ms(math.random() * math.min(max_delay_ms, base_delay_ms * 2 ^ (attempt - 1)))
 end
 
 --- Fetch a URL and return a structured result.
@@ -267,8 +268,8 @@ local function Fetch(url: string, opts?: Options): Result
   url = purl
   opts = popts
   local max_attempts = (opts and opts.max_attempts) or 1; if max_attempts < 1 then max_attempts = 1 end
-  local base_delay = (opts and opts.base_delay) or 0.5
-  local max_delay = (opts and opts.max_delay) or 30
+  local base_delay_ms = (opts and opts.base_delay_ms) or 500
+  local max_delay_ms = (opts and opts.max_delay_ms) or 30000
   local should_retry = opts and opts.should_retry
   local method = string.upper((opts and opts.method) or "GET")
 
@@ -287,7 +288,7 @@ local function Fetch(url: string, opts?: Options): Result
     if not retry then
       break
     end
-    backoff(attempt, base_delay, max_delay)
+    backoff(attempt, base_delay_ms, max_delay_ms)
   end
   return result
 end
@@ -358,7 +359,7 @@ end
 --- Open a streaming HTTP request.
 --- Unlike Fetch, returns immediately with a reader for incremental body
 --- access. Takes the same options as Fetch except the retry fields
---- (max_attempts, base_delay, max_delay, should_retry), which do not
+--- (max_attempts, base_delay_ms, max_delay_ms, should_retry), which do not
 --- apply to streams.
 --- @param url string URL to fetch
 --- @param opts Options optional fetch options

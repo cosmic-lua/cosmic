@@ -17,7 +17,7 @@
 --- (a bare Lua string always binds as TEXT). Opening applies sensible
 --- per-connection defaults — a 5000ms busy timeout, foreign_keys=ON,
 --- and WAL journal mode with synchronous=NORMAL; each has an
---- `OpenOptions` field to tune or disable it.
+--- `Options` field to tune or disable it.
 
 local lsqlite3 = require("cosmo.lsqlite3")
 local defaults_mod = require("cosmic.sqlite.defaults")
@@ -435,7 +435,7 @@ local function make_database(raw_db: lsqlite3.Database): Database
 end
 
 --- Options for opening a database (see cosmic.sqlite.defaults).
-local type OpenOptions = defaults_mod.OpenOptions
+local type Options = defaults_mod.Options
 
 --- Open or create an SQLite database.
 --- Relative paths are resolved against the current working directory.
@@ -446,12 +446,12 @@ local type OpenOptions = defaults_mod.OpenOptions
 --- timeout so concurrent processes wait for each other instead of
 --- failing instantly with SQLITE_BUSY, foreign_keys=ON, and — for
 --- writable connections — WAL journal mode with synchronous=NORMAL.
---- Each default has an OpenOptions field to tune or disable it.
+--- Each default has an Options field to tune or disable it.
 --- @param filename string Database path (use ":memory:" for in-memory)
---- @param opts OpenOptions? busy_timeout_ms, read_only, foreign_keys, wal
+--- @param opts Options? busy_timeout_ms, read_only, foreign_keys, wal
 --- @return Database | nil Database handle with __close support
 --- @return string Error message on failure
-local function open(filename: string, opts?: OpenOptions): Database | nil, string
+local function open(filename: string, opts?: Options): Database | nil, string
   local raw_db: lsqlite3.Database | nil
   local errcode: number | nil
   local errmsg: string | nil
@@ -476,7 +476,7 @@ end
 
 local record sqlite
   type Blob = bind_mod.Blob
-  type OpenOptions = OpenOptions
+  type Options = Options
   --- Exported so callers can name the handles open() and its methods
   --- return; these are type aliases, not runtime values. A
   --- `Database: Database` field spelling would declare phantom fields
@@ -486,7 +486,7 @@ local record sqlite
   type Rows = Rows
   type Values = Values
 
-  open: function(filename: string, opts?: OpenOptions): Database | nil, string
+  open: function(filename: string, opts?: Options): Database | nil, string
   blob: function(data: string): bind_mod.Blob
 end
 

@@ -379,7 +379,7 @@ test_fetch_with_proxy_nonexistent_socket()
 local function test_timeout_option_accepted()
   local port, pid = serve({body_response("200 OK", "quick")})
   local result = fetch.fetch("http://127.0.0.1:" .. port .. "/",
-    {allow_private = true, timeout = 30})
+    {allow_private = true, timeout_ms = 30000})
   proc.wait(pid)
   assert(result.ok == true, "fetch with timeout option should succeed: " .. tostring(result.error))
 end

@@ -206,15 +206,11 @@ local function to_the_tree(proj: Project, argv: {string},
 
   local was_us = fs.isfile(built) and same_file(built, self)
   local before = stamp_of(built)
-  local r, rerr = child.run({self, "--make", "build"},
+  local r = child.run({self, "--make", "build"},
     {stdout = "inherit", stderr = "inherit"})
-  if not (r is child.Result) then
-    return false, "make: " .. (rerr or "the converging build failed"),
-    "build failed"
-  end
-  -- cast: narrowing does not survive the early-exit guard above
-  if not (r as child.Result).ok then
-    return false, "make: the converging build failed", "build failed"
+  if not r.ok then
+    return false, "make: " ..
+    (r.spawn_error or "the converging build failed"), "build failed"
   end
   if not fs.isfile(built) then
     return false, "make: " .. built .. ": the build produced no artifact",

@@ -82,26 +82,21 @@ local function run(argv: {string}, output_base: string): integer
   -- other one (`.got`, `.out`, `.err`, `.tests`) instead of scraped
   -- back out of prose.
   local started_ms = time.monotonic_ms()
-  local result, err = child.run(argv, {env = child_env})
+  local r = child.run(argv, {env = child_env})
   local wall_ms = time.monotonic_ms() - started_ms
-  local stdout_content = ""
-  local stderr_content = ""
+  local stdout_content = r.stdout
+  local stderr_content = r.stderr
   local exit_code: integer = 1
-  if not result then
+  if r.spawn_error then
     -- The executable could not be started (e.g. a missing binary): report the
     -- conventional 127 "command not found" code and surface the error.
     exit_code = 127
-    stderr_content = err or "spawn failed"
-  else
-    local r = result as child.Result -- cast: record union after guard
-    stdout_content = r.stdout
-    stderr_content = r.stderr
+    stderr_content = r.spawn_error
+  elseif r.code ~= nil then
+    exit_code = r.code
+  elseif r.signal ~= nil then
     -- Signal death is reported as the conventional 128+signal exit code.
-    if r.code ~= nil then
-      exit_code = r.code
-    elseif r.signal ~= nil then
-      exit_code = (128 + r.signal) as integer -- cast: number to integer
-    end
+    exit_code = (128 + r.signal) as integer -- cast: number to integer
   end
 
   -- Clean up temp directory
@@ -109,6 +104,7 @@ local function run(argv: {string}, output_base: string): integer
 
   -- Write output files
   local ok: boolean
+  local err: string
   ok, err = fs.write(output_base .. ".got", tostring(exit_code) .. "\n")
   if not ok then
     io.stderr:write("testrun: " .. (err or "failed to write .got") .. "\n")

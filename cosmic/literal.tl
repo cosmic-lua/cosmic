@@ -418,14 +418,28 @@ local function parse_table(toks: {Token}, i: integer, where: string,
   return nil, 0, where .. ": unterminated table in " .. noun
 end
 
+--- Options for of_source/of_file: how errors talk about the file.
+--- (api-review-6: these were two message-wording positionals. The
+--- field is `file`, not `where`: `where` opens a record invariant
+--- clause in Teal and cannot name a field.)
+local record Options
+  --- File name to prefix messages with (of_source only — of_file
+  --- always uses the path it read). Default "literal".
+  file: string
+  --- What to call the file in errors — `cosmic --make` reads pins with
+  --- noun "pin", so the same grammar complains about "a pin". Default
+  --- "literal".
+  noun: string
+end
+
 --- Read the literal a file returns, without running it.
 --- @param source string The file's contents
---- @param where string File name, for messages
---- @param noun string|nil What to call the file in errors (default "literal")
+--- @param opts Options? where: file name for messages; noun: file kind in errors
 --- @return {string: any}|nil The declared table
 --- @return string The error message when the file is not a literal
-local function of_source(source: string, where: string, noun?: string): {string: any} | nil, string
-  local what = noun or "literal"
+local function of_source(source: string, opts?: Options): {string: any} | nil, string
+  local where = (opts and opts.file) or "literal"
+  local what = (opts and opts.noun) or "literal"
   local lexed, lex_err = lex(source, where)
   if not lexed then
     return nil, lex_err
@@ -455,20 +469,23 @@ end
 
 --- Read a file as a literal table, without running it.
 --- @param path string Path to the file
---- @param noun string|nil What to call the file in errors (default "literal")
+--- @param opts Options? noun: file kind in errors (where is always the path)
 --- @return {string: any}|nil The declared table
 --- @return string The error message when unreadable or not a literal
-local function of_file(path: string, noun?: string): {string: any} | nil, string
+local function of_file(path: string, opts?: Options): {string: any} | nil, string
   local source, rerr = fs.read(path)
   if not source then
     return nil, "cannot read " .. path .. ": " .. (rerr or "unknown error")
   end
-  return of_source(source as string, path, noun) -- cast: scalar narrowing after the guard
+  local noun = opts and opts.noun
+  -- cast: scalar narrowing after the guard
+  return of_source(source as string, {file = path, noun = noun})
 end
 
 local record LiteralModule
-  of_source: function(source: string, where: string, noun?: string): {string: any} | nil, string
-  of_file: function(path: string, noun?: string): {string: any} | nil, string
+  type Options = Options
+  of_source: function(source: string, opts?: Options): {string: any} | nil, string
+  of_file: function(path: string, opts?: Options): {string: any} | nil, string
 end
 
 local M: LiteralModule = {

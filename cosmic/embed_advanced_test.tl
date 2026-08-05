@@ -318,7 +318,7 @@ local function test_embed_symlink_loop_terminates()
   fs.symlink("..", fs.join(appdir, "sub", "loop"))
 
   -- embed.collect_dir is called internally; run via the module directly
-  local result = embed.run({appdir}, fs.join(tmpdir, "cosmic-symlinkloop"), cosmic)
+  local result = embed.run({appdir}, {output = fs.join(tmpdir, "cosmic-symlinkloop"), exe_path = cosmic})
   assert(result.ok, "embed of dir with symlink loop should succeed: " .. (result.message or ""))
   -- Only real.txt should be embedded, not any path through the loop
   local data = fs.read(fs.join(tmpdir, "cosmic-symlinkloop"))
@@ -343,7 +343,7 @@ local function test_embed_symlink_to_outside_file_skipped()
   -- Symlink inside the embed dir pointing outside
   fs.symlink(outside, fs.join(appdir, "leaked.txt"))
 
-  local result = embed.run({appdir}, fs.join(tmpdir, "cosmic-symlinkoutside"), cosmic)
+  local result = embed.run({appdir}, {output = fs.join(tmpdir, "cosmic-symlinkoutside"), exe_path = cosmic})
   assert(result.ok, "embed should succeed even with outside symlink: " .. (result.message or ""))
   -- "leaked.txt" (the symlink) must not appear in the zip
   local data = fs.read(fs.join(tmpdir, "cosmic-symlinkoutside"))

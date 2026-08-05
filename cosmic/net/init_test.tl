@@ -10,7 +10,7 @@ local function test_socket_creation()
   tcp:close()
 
   -- Test UDP socket creation
-  local udp = check.must(net.socket(net.AF_INET, net.SOCK_DGRAM))
+  local udp = check.must(net.socket({family = net.AF_INET, socktype = net.SOCK_DGRAM}))
   udp:close()
 end
 test_socket_creation()
@@ -181,9 +181,9 @@ test_poll_readiness()
 
 local function test_udp_sendto_recvfrom()
   -- Create two UDP sockets
-  local sender = check.must(net.socket(net.AF_INET, net.SOCK_DGRAM))
+  local sender = check.must(net.socket({family = net.AF_INET, socktype = net.SOCK_DGRAM}))
 
-  local receiver = check.must(net.socket(net.AF_INET, net.SOCK_DGRAM))
+  local receiver = check.must(net.socket({family = net.AF_INET, socktype = net.SOCK_DGRAM}))
 
   -- Bind receiver to ephemeral port
   local ok, bind_err = receiver:bind("127.0.0.1", 0)
