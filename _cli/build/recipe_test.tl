@@ -146,7 +146,7 @@ local function test_recipe_refuses_globs()
   assert(code ~= 0, "a glob must fail the line, not match nothing")
   assert(err:match("argv, not shell"),
     "expected the argv/shell message, got: " .. err)
-  assert(fs.isfile(victim), "and nothing may be deleted on the way")
+  assert(fs.is_file(victim), "and nothing may be deleted on the way")
 
   for _, ch in ipairs({"?", "[", "]", "~", "^", "!", "#"}) do
     local c = select(1, run_recipe("copy a" .. ch .. " b"))
@@ -232,8 +232,8 @@ test_exec_refuses_outside_the_root()
 -- stronger claim than the check enforced.
 local function test_exec_refuses_a_symlink_out_of_the_root()
   local root = fs.join(tmpdir, "exec-root")
-  fs.rmrf(root)
-  assert(fs.makedirs(root))
+  fs.remove_all(root)
+  assert(fs.make_dirs(root))
   local link = fs.join(root, "escape")
   assert(fs.symlink("/bin/sh", link))
   local code, _out, err = run_recipe_env("exec " .. link .. " -c true", root)
@@ -255,8 +255,8 @@ test_exec_refuses_a_symlink_out_of_the_root()
 -- else, so the program is a copy and the link is beside the copy.
 local function test_exec_allows_a_symlink_inside_the_root()
   local root = fs.join(tmpdir, "exec-linked-root")
-  fs.rmrf(root)
-  assert(fs.makedirs(root))
+  fs.remove_all(root)
+  assert(fs.make_dirs(root))
   local prog = fs.join(root, "prog")
   assert(fs.copy(test_bin, prog))
   assert(fs.chmod(prog, tonumber("755", 8) as integer)) -- cast: octal is integral

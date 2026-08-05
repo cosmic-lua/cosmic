@@ -21,14 +21,14 @@ end
 --- Create the scratch tree: DIRS directories of FILES_PER_DIR small files.
 --- @return string Error message, or nil on success
 local function init_tree(): string
-  local dir, derr = fs.mkdtemp(fs.join(tmp_base(), "perf-fs-XXXXXX"))
+  local dir, derr = fs.temp_dir(fs.join(tmp_base(), "perf-fs-XXXXXX"))
   if dir == nil then
     return "mkdtemp: " .. tostring(derr)
   end
   tmpdir = dir
   for d = 1, DIRS do
     local sub = fs.join(dir, "dir-" .. d)
-    local ok, merr = fs.makedirs(sub)
+    local ok, merr = fs.make_dirs(sub)
     if not ok then
       return "makedirs: " .. tostring(merr)
     end
@@ -77,14 +77,14 @@ local function scenarios(): {pt.Scenario}, string
       end,
     },
     {
-      -- Iterate matching files without ever needing stat data (fs.files()
+      -- Iterate matching files without ever needing stat data (fs.find_iter()
       -- only returns paths), so this is the scenario a d_type fast path
       -- (skip stat(2) when the dirent already says "not a directory")
       -- should show up in most clearly.
       name = "fs_files_tree",
       fn = function(_: any): any
         local count = 0
-        for _ in check.must(fs.files(tmpdir, "*.txt")) do
+        for _ in check.must(fs.find_iter(tmpdir, {glob = "*.txt"})) do
           count = count + 1
         end
         return count
@@ -167,7 +167,7 @@ end
 
 local function cleanup()
   if tmpdir then
-    fs.rmrf(tmpdir)
+    fs.remove_all(tmpdir)
     tmpdir = nil
   end
 end

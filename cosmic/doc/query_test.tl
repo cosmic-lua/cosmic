@@ -8,7 +8,7 @@ local doc_types = require("cosmic.doc.types")
 -- Test module loads correctly
 local function test_module_loads()
   assert(docs, "docs module should load")
-  assert(docs.run, "docs.run should exist")
+  assert(docs.query, "docs.query should exist")
   assert(docs.has_docs, "docs.has_docs should exist")
   assert(docs.list_topics, "docs.list_topics should exist")
   assert(docs.embedded_index, "docs.embedded_index should exist")
@@ -42,7 +42,7 @@ end
 test_load_index()
 
 local function test_run_list()
-  local result = docs.run()
+  local result = docs.query()
   assert(result, "run should return a result")
   assert(type(result.ok) == "boolean", "result.ok should be a boolean")
   assert(type(result.output) == "string", "result.output should be a string")
@@ -56,7 +56,7 @@ test_run_list()
 
 -- Test run with a module query
 local function test_run_module()
-  local result = docs.run("cosmic.doc")
+  local result = docs.query("cosmic.doc")
   assert(result, "run should return a result")
   assert(type(result.ok) == "boolean", "result.ok should be a boolean")
   assert(type(result.output) == "string", "result.output should be a string")
@@ -70,7 +70,7 @@ end
 test_run_module()
 
 local function test_run_symbol()
-  local result = docs.run("cosmic.doc.parse")
+  local result = docs.query("cosmic.doc.parse")
   assert(result, "run should return a result")
   assert(type(result.ok) == "boolean", "result.ok should be a boolean")
   assert(type(result.output) == "string", "result.output should be a string")
@@ -84,7 +84,7 @@ test_run_symbol()
 
 -- Test run with invalid query
 local function test_run_invalid()
-  local result = docs.run("nonexistent.module.that.does.not.exist")
+  local result = docs.query("nonexistent.module.that.does.not.exist")
   assert(result, "run should return a result")
   assert(type(result.output) == "string", "result.output should be a string")
   -- Should return an error for nonexistent module
@@ -167,7 +167,7 @@ test_search_methods()
 
 -- Test run with method lookup (module.Record.method pattern)
 local function test_run_method()
-  local result = docs.run("cosmo.lsqlite3.Database.exec")
+  local result = docs.query("cosmo.lsqlite3.Database.exec")
   assert(result, "run should return a result")
   assert(type(result.ok) == "boolean", "result.ok should be a boolean")
   assert(type(result.output) == "string", "result.output should be a string")
@@ -181,7 +181,7 @@ test_run_method()
 
 -- Test cosmo module shows tip about cosmic equivalent
 local function test_cosmic_equivalent_tip()
-  local result = docs.run("cosmo.lsqlite3")
+  local result = docs.query("cosmo.lsqlite3")
   assert(result, "run should return a result")
   if result.ok then
     assert(result.output:find("cosmic.sqlite", 1, true),
@@ -338,7 +338,7 @@ test_search_includes_cosmo_when_requested()
 
 -- Test that explicit cosmo module lookup still works
 local function test_explicit_cosmo_access()
-  local result = docs.run("cosmo.unix")
+  local result = docs.query("cosmo.unix")
   assert(result, "run should return a result")
   if docs.has_docs() then
     assert(result.ok, "explicit cosmo.unix lookup should succeed")
@@ -353,7 +353,7 @@ test_explicit_cosmo_access()
 -- Test symbol lookup finds re-exported record methods (bug 1) and quick example (bug 3)
 local function test_run_reexported_and_quick_example()
   if not docs.has_docs() then print("test_run_reexported_and_quick_example: PASS (skipped)"); return end
-  local r = docs.run("cosmic.sqlite.query")
+  local r = docs.query("cosmic.sqlite.query")
   assert(r, "run should return result")
   if r.ok then assert(r.output:match("query"), "should find query method") end
   local idx = check.must(docs.embedded_index())
@@ -362,7 +362,7 @@ local function test_run_reexported_and_quick_example()
     if mod_doc.examples and #mod_doc.examples > 0 then test_mod = mod_name; break end
   end
   if test_mod then
-    local mr = docs.run(test_mod)
+    local mr = docs.query(test_mod)
     assert(mr and mr.ok, "module lookup should succeed")
     assert(mr.output:match("Quick example"), "should have Quick example section")
   end

@@ -15,7 +15,7 @@
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 
 local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
@@ -26,7 +26,7 @@ local make_bin = fs.abspath(os.getenv("COSMIC_MAKE")
   or "o/make")
 -- Skip locally, FAIL in CI (029): a graph-test surface that silently
 -- becomes green skips is the failure this guards.
-check.needs("the make engine at " .. make_bin, fs.isfile(make_bin))
+check.needs("the make engine at " .. make_bin, fs.is_file(make_bin))
 
 local record Run
   code: integer
@@ -37,19 +37,19 @@ end
 --- Build a fixture tree, returning its absolute root.
 local function fixture(name: string, files: {string: string}): string
   local root = fs.join(tmpdir, "select-" .. name)
-  fs.rmrf(root)
-  assert(fs.makedirs(root))
+  fs.remove_all(root)
+  assert(fs.make_dirs(root))
   for rel, content in pairs(files) do
     local path = fs.join(root, rel)
-    assert(fs.makedirs(fs.dirname(path)))
+    assert(fs.make_dirs(fs.dirname(path)))
     assert(fs.write(path, content))
   end
   -- A directory is not a project until it says so. Fixtures that
   -- declare a root themselves keep theirs; the rest get the marker
   -- that means "yes, this one" so the fixture tests what it is about.
-  if not fs.isfile(fs.join(root, "main.tl"))
-  and not fs.isfile(fs.join(root, "main.lua"))
-  and not fs.isfile(fs.join(root, ".cosmicignore")) then
+  if not fs.is_file(fs.join(root, "main.tl"))
+  and not fs.is_file(fs.join(root, "main.lua"))
+  and not fs.is_file(fs.join(root, ".cosmicignore")) then
     assert(fs.write(fs.join(root, ".cosmicignore"), ""))
   end
   return root
@@ -68,7 +68,7 @@ local function make(dir: string, ...: string): Run
     "NO_COLOR=1",
     "COSMIC_NO_WELCOME=1",
   }
-  local h = check.must(spawn.spawn(argv, {cwd = dir, env = env}))
+  local h = check.must(child.start(argv, {cwd = dir, env = env}))
   local r = check.must(h:wait())
   return {code = r.code or 128, out = r.stdout or "", err = r.stderr or ""}
 end
@@ -119,13 +119,13 @@ local function test_build_selects_binaries()
     })
   local r = make(root, "build", "cmd/tool")
   assert(r.code == 0, "selecting a binary should build it: " .. r.err)
-  assert(fs.isfile(fs.join(root, "o/bin/tool")),
+  assert(fs.is_file(fs.join(root, "o/bin/tool")),
     "the selected binary is built, not merely compiled: " .. r.out)
   assert(not fs.exists(fs.join(root, "o/bin/buildsel")),
     "and the one that was not selected is not")
   -- The whole tree still compiled: staging must not depend on which
   -- binary was asked for.
-  assert(fs.isfile(fs.join(root, "o/lib/x.lua")), "the tree compiled")
+  assert(fs.is_file(fs.join(root, "o/lib/x.lua")), "the tree compiled")
 
   local byname = make(root, "build", "tool")
   assert(byname.code == 0, "a binary is selectable by name too: " .. byname.err)
@@ -153,7 +153,7 @@ local function test_docs_restricts_to_its_selection()
   local root = app("docssel")
   local r = make(root, "docs", "db")
   assert(r.code == 0, "selected docs should succeed: " .. r.err)
-  assert(fs.isfile(fs.join(root, "o/docs/db/init.md")),
+  assert(fs.is_file(fs.join(root, "o/docs/db/init.md")),
     "the selected page is written: " .. r.out)
   assert(not fs.exists(fs.join(root, "o/docs/main.md")),
     "and the unselected one is not: " .. r.out)

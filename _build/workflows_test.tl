@@ -30,7 +30,7 @@ local WORKFLOWS < const > = ".github/workflows"
 --- Every workflow file, in path order.
 --- @return {string} Paths relative to the repo root
 local function workflows(): {string}
-  local found = check.must(fs.collect(WORKFLOWS, "*.yml"))
+  local found = check.must(fs.find(WORKFLOWS, {glob = "*.yml"}))
   table.sort(found)
   assert(#found > 0, "no workflows found under " .. WORKFLOWS)
   return found

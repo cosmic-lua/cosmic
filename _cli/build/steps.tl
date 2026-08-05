@@ -46,7 +46,7 @@ local function do_tee(args: {string}): integer
     io.stderr:write(r.stderr)
   end
   io.write(r.stdout)
-  fs.makedirs(fs.dirname(out))
+  fs.make_dirs(fs.dirname(out))
   local ok, werr = fs.write(out, r.stdout)
   if not ok then
     return fail("write " .. out .. " failed: " .. (werr or "unknown error"))
@@ -73,7 +73,7 @@ local function do_write_list(args: {string}): integer
   if existing == content then
     return 0
   end
-  fs.makedirs(fs.dirname(out))
+  fs.make_dirs(fs.dirname(out))
   local ok, werr = fs.write(out, content)
   if not ok then
     return fail("write " .. out .. " failed: " .. (werr or "unknown error"))
@@ -148,7 +148,7 @@ local function do_remove(args: {string}): integer
     -- rule clearing a stale one silently kept it. `islink` is the second
     -- question because exists cannot see it either.
     local ok, uerr = fs.unlink(p)
-    if not ok and (fs.exists(p) or fs.islink(p)) then
+    if not ok and (fs.exists(p) or fs.is_link(p)) then
       return fail("remove " .. p .. ": " .. (uerr or "unknown error"))
     end
   end
@@ -213,7 +213,7 @@ local function do_copy(args: {string}): integer
   end
   -- cast: record union after guard
   local mode = (st as fs.Stat):mode() % 512 -- permission bits (0777)
-  fs.makedirs(fs.dirname(dst))
+  fs.make_dirs(fs.dirname(dst))
   local ok, werr = fs.write(dst, content, mode)
   if not ok then
     return fail("write " .. dst .. " failed: " .. (werr or "unknown error"))
@@ -228,7 +228,7 @@ local function do_link(args: {string}): integer
   if not linkpath then
     return fail("usage: link <target> <linkpath>")
   end
-  fs.makedirs(fs.dirname(linkpath))
+  fs.make_dirs(fs.dirname(linkpath))
   fs.unlink(linkpath)
   local ok, lerr = fs.symlink(target, linkpath)
   if not ok then
@@ -281,7 +281,7 @@ local function do_exec(args: {string}): integer
       ", which is not under the build root " .. root
       .. "; a recipe may only exec pinned or built bytes, never PATH")
   end
-  if not fs.isfile(abs) then
+  if not fs.is_file(abs) then
     return fail("exec " .. program .. ": no such file (" .. abs .. ")")
   end
   local argv: {string} = {abs}
@@ -290,7 +290,7 @@ local function do_exec(args: {string}): integer
   end
   -- "inherit" so the program streams as it runs, like every other
   -- recipe step.
-  local h, serr = child.spawn(argv, {stdout = "inherit", stderr = "inherit"})
+  local h, serr = child.start(argv, {stdout = "inherit", stderr = "inherit"})
   if not (h is child.Handle) then
     return fail("exec " .. program .. ": " .. (serr or "unknown error"))
   end

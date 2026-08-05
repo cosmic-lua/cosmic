@@ -288,9 +288,6 @@ local record ProcModule
 
   -- Exec
   which: function(prog: string): string | nil, string
-  --- DEPRECATED alias for which() (api-review-8 transition; tooling
-  --- executes under the pinned binary until the pin advances)
-  commandv: function(prog: string): string | nil, string
   execve: function(prog: string, args: {string}, env: {string}): nil, string
   execvp: function(prog: string, argv?: {string}): nil, string
   execvpe: function(prog: string, argv: {string}, envp?: {string}): nil, string
@@ -370,7 +367,6 @@ local M: ProcModule = {
 
   -- Exec
   which = which,
-  commandv = which,
   execve = execve,
   execvp = execvp,
   execvpe = execvpe,

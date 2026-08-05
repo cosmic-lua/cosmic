@@ -30,12 +30,12 @@ local function test_require_cosmic()
 end
 test_require_cosmic()
 
-local function test_require_cosmic_spawn()
-  local spawn_mod = require("cosmic.child")
-  assert(spawn_mod ~= nil, "spawn_mod should not be nil")
-  assert(spawn_mod.spawn ~= nil, "spawn_mod.spawn should not be nil")
+local function test_require_cosmic_child()
+  local child_mod = require("cosmic.child")
+  assert(child_mod ~= nil, "child_mod should not be nil")
+  assert(child_mod.start ~= nil, "child_mod.start should not be nil")
 end
-test_require_cosmic_spawn()
+test_require_cosmic_child()
 
 local function test_require_cosmic_fs()
   assert(fs ~= nil, "fs should not be nil")
@@ -45,9 +45,9 @@ local function test_require_cosmic_fs()
   assert(fs.join ~= nil, "fs.join should not be nil")
   -- Walk functions
   assert(fs.walk ~= nil, "fs.walk should not be nil")
-  assert(fs.collect ~= nil, "fs.collect should not be nil")
-  assert(fs.collect_all ~= nil, "fs.collect_all should not be nil")
-  assert(fs.files ~= nil, "fs.files should not be nil")
+  assert(fs.find ~= nil, "fs.find should not be nil")
+  assert(fs.find_info ~= nil, "fs.find_info should not be nil")
+  assert(fs.find_iter ~= nil, "fs.find_iter should not be nil")
 end
 test_require_cosmic_fs()
 

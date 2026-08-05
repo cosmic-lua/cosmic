@@ -208,7 +208,7 @@ local function generated_payload(root: string, unit: string, out: {Staged})
   -- resolve against the caller's directory instead of the project's.
   local rel = fs.join(gen_dir(unit), PAYLOAD_DIR)
   local dir = fs.join(root, rel)
-  if not fs.isdir(dir) then
+  if not fs.is_dir(dir) then
     return
   end
   fs.walk(dir, function(path: string, _name: string,
@@ -309,7 +309,7 @@ end
 --- Copy the plan into a staging directory under `o/`.
 ---
 --- Staging to disk rather than handing `embed` a list of (content,
---- name) pairs keeps one code path: `embed.run` on a directory stores
+--- name) pairs keeps one code path: `embed.embed` on a directory stores
 --- everything relative to that directory's root, which is exactly the
 --- artifact layout once the plan has named it.
 --- @param proj Project The scanned project
@@ -321,7 +321,7 @@ local function stage(proj: Project, binary: Binary): string | nil, string
   -- Clear rather than merge: a file removed from the project must not
   -- survive in the artifact because it is still sitting in the stage.
   if fs.exists(dir) then
-    local ok, rerr = fs.rmrf(dir)
+    local ok, rerr = fs.remove_all(dir)
     if not ok then
       return nil, "make: cannot clear " .. dir .. ": " .. (rerr or "unknown error")
     end
@@ -342,7 +342,7 @@ local function stage(proj: Project, binary: Binary): string | nil, string
       content = body
     end
     local dst = fs.join(dir, s.stored)
-    local mok, merr = fs.makedirs(fs.dirname(dst))
+    local mok, merr = fs.make_dirs(fs.dirname(dst))
     if not mok then
       return nil, "make: cannot create " .. fs.dirname(dst) .. ": " ..
       (merr or "unknown error")
@@ -387,7 +387,7 @@ local function bases_of(proj: Project, binary: Binary,
     cosmic: string): {{string, string}}
   local dir = gen_dir(binary.dir)
   local base = fs.join(dir, BASE_NAME)
-  if not fs.isfile(fs.join(proj.root, base)) then
+  if not fs.is_file(fs.join(proj.root, base)) then
     return {{"", cosmic}}
   end
   local out: {{string, string}} = {{"", base}}
@@ -442,7 +442,7 @@ local function build(proj: Project, binary: Binary, cosmic: string): string | ni
     return nil, serr or "make: staging failed"
   end
   local bindir = fs.join(project.BUILD_DIR, "bin")
-  local mok, merr = fs.makedirs(bindir)
+  local mok, merr = fs.make_dirs(bindir)
   if not mok then
     return nil, "make: cannot create " .. bindir .. ": " ..
     (merr or "unknown error")
@@ -458,7 +458,7 @@ local function build(proj: Project, binary: Binary, cosmic: string): string | ni
     -- base's copy as well would ship two standard libraries, with the
     -- project's winning on package.path and the base's riding along.
     local staged_out = out .. ".new"
-    local result = embed.run({dir as string}, -- cast: scalar narrowing after the guard
+    local result = embed.embed({dir as string}, -- cast: scalar narrowing after the guard
       {output = staged_out, exe_path = pair[2], strip = true,
         provides = validate.claims(proj), mtime = embed.EPOCH})
     if not result.ok then

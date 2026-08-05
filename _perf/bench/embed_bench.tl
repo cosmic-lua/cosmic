@@ -8,7 +8,7 @@ local fs = require("cosmic.fs")
 local czip = require("cosmic.zip")
 local pt = require("_perf.perf_types")
 
--- Deliberately dir-heavy: embed.run()'s dominant, roughly-fixed cost is
+-- Deliberately dir-heavy: embed.embed()'s dominant, roughly-fixed cost is
 -- copying the whole source executable (megabytes) into the output file,
 -- which would swamp small per-entry syscall differences measured over
 -- just a handful of directories. A large DIRS count makes collect_dir's
@@ -48,7 +48,7 @@ local function find_bin(): string
   local test_bin = os.getenv("TEST_BIN")
   if test_bin and #test_bin > 0 then
     local p = fs.join(test_bin, "cosmic")
-    if fs.isfile(p) then
+    if fs.is_file(p) then
       return p
     end
   end
@@ -60,7 +60,7 @@ end
 local function init_tree(): string
   for d = 1, DIRS do
     local sub = fs.join(srcdir, "dir-" .. d)
-    local ok, merr = fs.makedirs(sub)
+    local ok, merr = fs.make_dirs(sub)
     if not ok then
       return "makedirs: " .. tostring(merr)
     end
@@ -87,11 +87,11 @@ local function count_zip_files(exe_path: string): integer, string
   if not data then
     return nil, "slurp: " .. tostring(rerr)
   end
-  local reader, zerr = czip.from(data)
+  local reader, zerr = czip.open_bytes(data)
   if not reader then
-    return nil, "zip.from: " .. tostring(zerr)
+    return nil, "zip.open_bytes: " .. tostring(zerr)
   end
-  local rr = reader as czip.Reader -- cast: record union after guard
+  local rr = reader as czip.Archive -- cast: record union after guard
   local count = 0
   for _, entry in ipairs(rr:list()) do
     if entry.name:sub(-1) ~= "/" then
@@ -108,13 +108,13 @@ local function scenarios(): {pt.Scenario}, string
     return nil, "cannot locate cosmic binary (set PERF_BIN)"
   end
 
-  local dir, derr = fs.mkdtemp(fs.join(tmp_base(), "perf-embed-XXXXXX"))
+  local dir, derr = fs.temp_dir(fs.join(tmp_base(), "perf-embed-XXXXXX"))
   if dir == nil then
     return nil, "mkdtemp: " .. tostring(derr)
   end
   tmpdir = dir
   srcdir = fs.join(tmpdir, "src")
-  local mok, merr = fs.makedirs(srcdir)
+  local mok, merr = fs.make_dirs(srcdir)
   if not mok then
     return nil, "makedirs: " .. tostring(merr)
   end
@@ -135,12 +135,12 @@ local function scenarios(): {pt.Scenario}, string
       -- per-file slurp/embed cost.
       name = "embed_run_tree",
       fn = function(_: any): any
-        return embed.run({srcdir}, {output = packed_exe, exe_path = bin})
+        return embed.embed({srcdir}, {output = packed_exe, exe_path = bin})
       end,
       check = function(_: any, res: any): boolean, string
         local r = res as EmbedResult -- cast: from any
         if not r.ok then
-          return false, "embed.run failed"
+          return false, "embed.embed failed"
         end
         if r.file_count ~= total_files then
           return false, string.format("embedded %d files, want %d",
@@ -156,9 +156,9 @@ local function scenarios(): {pt.Scenario}, string
       -- from the archive read/write cost.
       name = "embed_extract_tree",
       setup = function(): any, string
-        local result = embed.run({srcdir}, {output = packed_exe, exe_path = bin})
+        local result = embed.embed({srcdir}, {output = packed_exe, exe_path = bin})
         if not result.ok then
-          return nil, "embed.run: " .. tostring(result.message)
+          return nil, "embed.embed: " .. tostring(result.message)
         end
         local expected, cerr = count_zip_files(packed_exe)
         if not expected then
@@ -187,7 +187,7 @@ end
 
 local function cleanup()
   if tmpdir then
-    fs.rmrf(tmpdir)
+    fs.remove_all(tmpdir)
     tmpdir = nil
   end
 end

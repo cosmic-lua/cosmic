@@ -68,7 +68,7 @@ local function test_the_fence_denies_an_undeclared_write()
   end
 
   local root = fs.join(tmpdir, "root")
-  assert(fs.makedirs(root))
+  assert(fs.make_dirs(root))
   local target = fs.join(tmpdir, "outside.txt")
   local script = fs.join(root, "write-outside.lua")
   assert(fs.write(script,
@@ -85,14 +85,14 @@ local function test_the_fence_denies_an_undeclared_write()
   -- A: unfenced, the write lands.
   local direct = check.must(child.run({cosmic, script}, {env = envlist}))
   assert(direct.ok, "the script must succeed unfenced: " .. direct.stderr)
-  assert(fs.isfile(target), "unfenced, the write must land")
+  assert(fs.is_file(target), "unfenced, the write must land")
   assert(fs.unlink(target))
 
   -- B: the same script under exec's fence, which does not reach it.
   local fenced = check.must(child.run(
       {cosmic, "-c", "exec " .. cosmic .. " " .. script}, {env = envlist}))
   assert(not fenced.ok, "the fenced write must fail")
-  assert(not fs.isfile(target),
+  assert(not fs.is_file(target),
     "fenced, the write must NOT land (fence did not deny)")
   check.enforced("recipe fence")
 end
@@ -114,7 +114,7 @@ local function test_the_fence_confines_a_test_to_its_own_step()
   end
 
   local root = fs.join(tmpdir, "testfence")
-  assert(fs.makedirs(root))
+  assert(fs.make_dirs(root))
   local target = fs.join(tmpdir, "test-escaped.txt")
   local script = fs.join(root, "escape.lua")
   assert(fs.write(script,
@@ -127,7 +127,7 @@ local function test_the_fence_confines_a_test_to_its_own_step()
   -- A: the same script run directly writes the file.
   local direct = check.must(child.run({cosmic, script}, {env = envlist}))
   assert(direct.ok, "the script must succeed unfenced: " .. direct.stderr)
-  assert(fs.isfile(target), "unfenced, the write must land")
+  assert(fs.is_file(target), "unfenced, the write must land")
   assert(fs.unlink(target))
 
   -- B: through the `record` verb, whose fence grants only the step's
@@ -140,7 +140,7 @@ local function test_the_fence_confines_a_test_to_its_own_step()
       {env = envlist}))
   assert(fenced.ok, "the record verb records rather than grades: " ..
     fenced.stderr)
-  assert(not fs.isfile(target),
+  assert(not fs.is_file(target),
     "fenced, a test must NOT write outside its own step")
   check.enforced("record fence")
 end
@@ -164,7 +164,7 @@ test_the_fence_confines_a_test_to_its_own_step()
 --- host that could run it existed until CI did.
 local function test_the_fence_permits_a_real_compile()
   local dir = fs.join(tmpdir, "compilefence")
-  assert(fs.makedirs(fs.join(dir, "pkg")))
+  assert(fs.make_dirs(fs.join(dir, "pkg")))
   -- Two files, so the compile resolves an import through the include
   -- path rather than only reading the file it was handed.
   assert(fs.write(fs.join(dir, "pkg", "greet.tl"),
@@ -190,7 +190,7 @@ local function test_the_fence_permits_a_real_compile()
   -- docs/design/make/engine.md.
   local self = fs.abspath(cosmic)
   local boot = fs.join(fs.dirname(self), "cosmic-check")
-  if not fs.isfile(boot) then
+  if not fs.is_file(boot) then
     check.enforce_skip("no assimilated cosmic at " .. boot)
     return
   end
@@ -206,7 +206,7 @@ local function test_the_fence_permits_a_real_compile()
         " --deps " .. fs.join(dir, "pkg", "greet.tl")}, {env = permitted}))
   assert(r.ok, "a real compile must SUCCEED under the fence; a fence " ..
     "that denies everything is not enforcement: " .. r.stderr)
-  assert(fs.isfile(built), "…and produce its output")
+  assert(fs.is_file(built), "…and produce its output")
   if sandbox.available().fs then
     check.enforced("recipe fence permits a compile")
   else

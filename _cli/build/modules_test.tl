@@ -68,7 +68,7 @@ test_render_drops_what_is_not_a_module()
 -- together with it.
 local function test_attach_puts_the_flag_after_the_program()
   local dir = fs.join(tmp, "modattach")
-  assert(fs.makedirs(dir))
+  assert(fs.make_dirs(dir))
   local argv: {string} = {"/bin/cosmic", "o/t.lua", "--flag", "value"}
   modules.attach(argv, fs.join(dir, "t"), "/r", {"o/a.lua"})
   assert(argv[1] == "/bin/cosmic", "the program stays first")

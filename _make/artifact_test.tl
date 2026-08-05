@@ -14,7 +14,7 @@ local hash = require("cosmic.hash")
 local artifact = require("_make.artifact")
 local mk = require("_make")
 local project = require("_make.project")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 local types = require("_make.types")
 local zip = require("cosmic.zip")
 
@@ -31,24 +31,24 @@ local make_bin = fs.abspath(os.getenv("COSMIC_MAKE") or "o/make")
 -- a build; CI always provisions the engine, so its absence there means
 -- provisioning broke -- and the whole `--make` graph-test surface
 -- silently becoming green skips is the failure this guards (029).
-check.needs("the make engine at " .. make_bin, fs.isfile(make_bin))
+check.needs("the make engine at " .. make_bin, fs.is_file(make_bin))
 
 --- Build a fixture tree, returning its absolute root.
 local function fixture(name: string, files: {string: string}): string
   local root = fs.join(tmpdir, "artifact-" .. name)
-  fs.rmrf(root)
-  assert(fs.makedirs(root))
+  fs.remove_all(root)
+  assert(fs.make_dirs(root))
   for rel, content in pairs(files) do
     local path = fs.join(root, rel)
-    assert(fs.makedirs(fs.dirname(path)))
+    assert(fs.make_dirs(fs.dirname(path)))
     assert(fs.write(path, content))
   end
   -- A directory is not a project until it says so. Fixtures that
   -- declare a root themselves keep theirs; the rest get the marker
   -- that means "yes, this one" so the fixture tests what it is about.
-  if not fs.isfile(fs.join(root, "main.tl"))
-  and not fs.isfile(fs.join(root, "main.lua"))
-  and not fs.isfile(fs.join(root, ".cosmicignore")) then
+  if not fs.is_file(fs.join(root, "main.tl"))
+  and not fs.is_file(fs.join(root, "main.lua"))
+  and not fs.is_file(fs.join(root, ".cosmicignore")) then
     assert(fs.write(fs.join(root, ".cosmicignore"), ""))
   end
   return root
@@ -73,7 +73,7 @@ local function make(dir: string, ...: string): integer, string
     "NO_COLOR=1",
     "COSMIC_NO_WELCOME=1",
   }
-  local h = check.must(spawn.spawn(argv, {cwd = dir, env = env}))
+  local h = check.must(child.start(argv, {cwd = dir, env = env}))
   local r = check.must(h:wait())
   return r.code or 128, (r.stdout or "") .. (r.stderr or "")
 end
@@ -94,7 +94,7 @@ local function run_artifact(path: string): integer, string
     "NO_COLOR=1",
     "COSMIC_NO_WELCOME=1",
   }
-  local h = check.must(spawn.spawn({fs.abspath(path)}, {env = env}))
+  local h = check.must(child.start({fs.abspath(path)}, {env = env}))
   local r = check.must(h:wait())
   return r.code or 128, (r.stdout or "") .. (r.stderr or "")
 end
@@ -202,7 +202,7 @@ local function test_artifact_runs_on_the_floor()
   local code, out = make(root, "build")
   assert(code == 0, "build should succeed: " .. out)
   local bin = fs.join(root, "o/bin/artifact-runs")
-  assert(fs.isfile(bin), "expected " .. bin)
+  assert(fs.is_file(bin), "expected " .. bin)
   local rc, ran = run_artifact(bin)
   assert(rc == 0, "the artifact should run, got " .. rc .. ": " .. ran)
   assert(ran:find('{"said":"hi"}', 1, true),
@@ -225,7 +225,7 @@ local function test_stripped_to_the_floor()
       -- one module pitched at config-as-data threw at load, and every
       -- require miss reported a missing `tl` instead of itself.
       "local lit = require('cosmic.literal')\n" ..
-      "local cfg = lit.of_source([[return { s = \"\\u{41}BC\" }]], {file = 'c'})\n" ..
+      "local cfg = lit.parse([[return { s = \"\\u{41}BC\" }]], {file = 'c'})\n" ..
       "print('literal:', (cfg as {string:string}).s)\n" ..
       -- Non-literal, so the checker cannot resolve it at build time and
       -- the miss happens at runtime, where the searcher answers it.
@@ -253,7 +253,7 @@ local function test_stripped_to_the_floor()
 
   -- And it is gone from the archive, not merely unreachable: nothing
   -- outside the floor is extractable either.
-  local reader = check.must(zip.reader(bin))
+  local reader = check.must(zip.open(bin))
   local bytes: {string: integer} = {}
   for _, e in ipairs(reader:list()) do
     local top = e.name:match("^(%.lua/[^/]+)") or e.name:match("^([^/]+)")
@@ -300,7 +300,7 @@ local function test_provided_namespace_supersedes_the_floor()
   -- cannot be asked by prefix. It is asked by naming a module only the
   -- BASE has: cosmic/json.lua is present in every unstripped artifact
   -- and must be absent here, while the project's own entry stays.
-  local reader = check.must(zip.reader(bin))
+  local reader = check.must(zip.open(bin))
   local own, base_leftover = false, false
   for _, e in ipairs(reader:list()) do
     if e.name == "cosmic/mine.lua" then
@@ -366,7 +366,7 @@ local function test_build_takes_binaries_not_sources()
   -- Selecting the binary builds it, whole.
   local bcode, bout = make(root, "build", "artifact-selected")
   assert(bcode == 0, "selecting the binary should build it: " .. bout)
-  assert(fs.isfile(fs.join(root, "o/bin/artifact-selected")),
+  assert(fs.is_file(fs.join(root, "o/bin/artifact-selected")),
     "a selected build produces its artifact: " .. bout)
 end
 test_build_takes_binaries_not_sources()
@@ -378,7 +378,7 @@ local function test_in_process_build()
       ["cmd/artifact-inproc/main.tl"] = "print('x')\n",
       ["cmd/tool/main.tl"] = "print('tool')\n",
     })
-  local cwd = check.must(fs.getcwd())
+  local cwd = check.must(fs.cwd())
   cenv.set("COSMIC_MAKE_ROOT", root)
   cenv.set("COSMIC_MAKE", make_bin)
   local code = mk.run({"build"})
@@ -386,8 +386,8 @@ local function test_in_process_build()
   cenv.unset("COSMIC_MAKE")
   assert(fs.chdir(cwd))
   assert(code == 0, "in-process build should succeed")
-  assert(fs.isfile(fs.join(root, "o/bin/artifact-inproc")), "one binary")
-  assert(fs.isfile(fs.join(root, "o/bin/tool")), "the other binary")
+  assert(fs.is_file(fs.join(root, "o/bin/artifact-inproc")), "one binary")
+  assert(fs.is_file(fs.join(root, "o/bin/tool")), "the other binary")
 end
 test_in_process_build()
 
@@ -458,14 +458,14 @@ local function test_generated_payload_stages_like_committed()
   -- What a generator would have produced, where it produces it: under
   -- the GENERATOR's directory, because `o/cmd/tool/` is the build's.
   local unit = "o/cmd/tool/embed_gen/embed"
-  assert(fs.makedirs(fs.join(root, unit .. "/.types")))
+  assert(fs.make_dirs(fs.join(root, unit .. "/.types")))
   assert(fs.write(fs.join(root, unit .. "/tl.lua"), "return 'teal'\n"))
   assert(fs.write(fs.join(root, unit .. "/.types/cosmo.d.tl"), "return {}\n"))
-  assert(fs.makedirs(fs.join(root, "o/embed_gen/embed")))
+  assert(fs.make_dirs(fs.join(root, "o/embed_gen/embed")))
   assert(fs.write(fs.join(root, "o/embed_gen/embed/shared.lua"), "return {}\n"))
   -- The build's own notes share `o/<unit>/`, and must not ship: the
   -- collision that is why generated payload has its own directory.
-  assert(fs.makedirs(fs.join(root, "o/cmd/tool/embed")))
+  assert(fs.make_dirs(fs.join(root, "o/cmd/tool/embed")))
   assert(fs.write(fs.join(root, "o/cmd/tool/embed/committed.txt.lint.got"), "0"))
 
   local proj = scan(root)

@@ -112,7 +112,7 @@ local function closure_of(roots: {string}): {string} | nil
   local seen: {string: boolean} = {}
   local queue: {string} = {}
   for _, r in ipairs(roots) do
-    if not fs.isfile(zip_path(r)) then
+    if not fs.is_file(zip_path(r)) then
       return nil
     end
     queue[#queue + 1] = r
@@ -123,7 +123,7 @@ local function closure_of(roots: {string}): {string} | nil
     if not seen[name] then
       seen[name] = true
       local path = zip_path(name)
-      if fs.isfile(path) then
+      if fs.is_file(path) then
         out[#out + 1] = path
         for _, dep in ipairs(imports.of_file(path)) do
           if not seen[dep] then
@@ -200,7 +200,7 @@ local function write_if_changed(path: string, content: string): boolean, string
   if fs.read(path) == content then
     return true
   end
-  local ok, err = fs.makedirs(fs.dirname(path))
+  local ok, err = fs.make_dirs(fs.dirname(path))
   if not ok then
     return false, "make: cannot create " .. fs.dirname(path) .. ": " ..
     (err or "unknown error")

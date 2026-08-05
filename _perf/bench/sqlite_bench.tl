@@ -21,7 +21,7 @@ end
 --- Create the scratch database and seed deterministic rows.
 --- @return string Error message, or nil on success
 local function init_db(): string
-  local dir, derr = fs.mkdtemp(fs.join(tmp_base(), "perf-sqlite-XXXXXX"))
+  local dir, derr = fs.temp_dir(fs.join(tmp_base(), "perf-sqlite-XXXXXX"))
   if dir == nil then
     return "mkdtemp: " .. tostring(derr)
   end
@@ -154,7 +154,7 @@ local function cleanup()
     db = nil
   end
   if tmpdir then
-    fs.rmrf(tmpdir)
+    fs.remove_all(tmpdir)
     tmpdir = nil
   end
 end

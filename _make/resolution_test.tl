@@ -13,7 +13,7 @@ local check = require("cosmic.check")
 local cenv = require("cosmic.env")
 local fs = require("cosmic.fs")
 local mk = require("_make")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 
 local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmp = os.getenv("TEST_TMPDIR") or "/tmp"
@@ -24,12 +24,12 @@ local tmp = os.getenv("TEST_TMPDIR") or "/tmp"
 --- @return string The project root
 local function fixture(name: string): string
   local root = fs.join(tmp, "res-" .. name)
-  fs.rmrf(root)
-  assert(fs.makedirs(fs.join(root, "greet")))
+  fs.remove_all(root)
+  assert(fs.make_dirs(fs.join(root, "greet")))
   -- The run target is a binary at cmd/app/, so `run` builds it before
   -- executing o/cmd/app/main.lua; a bare root main.tl is refused. Tests
   -- write the entry's body here.
-  assert(fs.makedirs(fs.join(root, "cmd", "app")))
+  assert(fs.make_dirs(fs.join(root, "cmd", "app")))
   assert(fs.write(fs.join(root, ".cosmicignore"), ""))
   assert(fs.write(fs.join(root, "greet", "init.tl"), [[
 local record G
@@ -63,7 +63,7 @@ local function make(root: string, argv: {string},
   for _, e in ipairs(extra or {}) do
     env[#env + 1] = e
   end
-  local h = check.must(spawn.spawn(full, {cwd = root, env = env}))
+  local h = check.must(child.start(full, {cwd = root, env = env}))
   local r = check.must(h:wait())
   return r.code or 128, (r.stdout or "") .. (r.stderr or "")
 end
@@ -160,23 +160,23 @@ io.write("CHILD " .. debug.getinfo(greet.hi, "S").source .. "\n")
 ]]))
   assert(fs.write(fs.join(root, "cmd/app/main.tl"), [[
 local greet = require("greet")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 local check = require("cosmic.check")
 io.write("PARENT " .. debug.getinfo(greet.hi, "S").source .. "\n")
-local h = check.must(spawn.spawn({arg[0] and os.getenv("COSMIC_BIN"), "child.tl"}))
+local h = check.must(child.start({arg[0] and os.getenv("COSMIC_BIN"), "child.tl"}))
 local r = check.must(h:wait())
 io.write(r.stdout or "")
 ]]))
   local code, out = make(root, {"run", "cmd/app/main.tl"}, {"COSMIC_BIN=" .. cosmic})
   assert(code == 0, "the fixture must run: " .. out)
   local parent = out:match("PARENT @(%S+)")
-  local child = out:match("CHILD @(%S+)")
-  assert(parent and child, "both must report a source: " .. out)
+  local child_src = out:match("CHILD @(%S+)")
+  assert(parent and child_src, "both must report a source: " .. out)
   assert(parent:find("/o/greet/init.lua", 1, true),
     "the target resolves against the build, got: " .. parent)
-  assert(child:find("greet/init.tl", 1, true) and
-    not child:find("/o/", 1, true),
-    "a grandchild must NOT inherit the resolution, got: " .. child)
+  assert(child_src:find("greet/init.tl", 1, true) and
+    not child_src:find("/o/", 1, true),
+    "a grandchild must NOT inherit the resolution, got: " .. child_src)
 end
 test_resolution_does_not_inherit()
 
@@ -189,7 +189,7 @@ local function test_run_in_process()
 local greet = require("greet")
 io.write("SAYS " .. greet.hi("x") .. "\n")
 ]]))
-  local cwd = check.must(fs.getcwd())
+  local cwd = check.must(fs.cwd())
   cenv.set("COSMIC_MAKE_ROOT", root)
   local code = mk.run({"run", "cmd/app/main.tl"})
   cenv.unset("COSMIC_MAKE_ROOT")
@@ -203,7 +203,7 @@ test_run_in_process()
 local function test_run_refusals_in_process()
   local root = fixture("refuse")
   assert(fs.write(fs.join(root, "cmd/app/main.tl"), 'io.write("x")\n'))
-  local cwd = check.must(fs.getcwd())
+  local cwd = check.must(fs.cwd())
   cenv.set("COSMIC_MAKE_ROOT", root)
   local none = mk.run({"run"})
   local missing = mk.run({"run", "nosuch.tl"})
@@ -226,8 +226,8 @@ test_run_refusals_in_process()
 -- was never compiled and died with "cannot open".
 local function test_run_builds_a_target_with_no_binary()
   local root = fs.join(tmp, "res-nobinary")
-  fs.rmrf(root)
-  assert(fs.makedirs(fs.join(root, "greet")))
+  fs.remove_all(root)
+  assert(fs.make_dirs(fs.join(root, "greet")))
   assert(fs.write(fs.join(root, ".cosmicignore"), ""))
   assert(fs.write(fs.join(root, "greet", "init.tl"), [[
 local record G
@@ -251,8 +251,8 @@ test_run_builds_a_target_with_no_binary()
 -- than spawning an o/ file the failed build never wrote.
 local function test_run_reports_a_binaryless_build_failure()
   local root = fs.join(tmp, "res-buildfail")
-  fs.rmrf(root)
-  assert(fs.makedirs(root))
+  fs.remove_all(root)
+  assert(fs.make_dirs(root))
   assert(fs.write(fs.join(root, ".cosmicignore"), ""))
   assert(fs.write(fs.join(root, "bad.tl"),
       "local x: integer = 'nope'\nreturn x\n"))
@@ -274,7 +274,7 @@ io.write("GOT " .. tostring(io.read("l")) .. "\n")
     "PATH=" .. (os.getenv("PATH") or ""),
     "HOME=" .. root, "TMPDIR=" .. tmp, "NO_COLOR=1", "COSMIC_NO_WELCOME=1",
   }
-  local h = check.must(spawn.spawn(full,
+  local h = check.must(child.start(full,
       {cwd = root, env = env, stdin = "the-real-stdin"}))
   local r = check.must(h:wait())
   local out = (r.stdout or "") .. (r.stderr or "")

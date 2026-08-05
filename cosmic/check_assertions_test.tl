@@ -269,7 +269,7 @@ test_must_passes_false_through()
 
 local type Iter = function(): string
 
--- mimic fs.files' shape: iterator, err, control, to-be-closed guard
+-- mimic fs.find_iter's shape: iterator, err, control, to-be-closed guard
 local function fake_files(fail: boolean, guard: any): Iter | nil, string, any, any
   if fail then
     return nil, "cannot open"

@@ -116,10 +116,10 @@ local function test_the_baseline_is_a_convention()
   assert(policy.BASELINE == ".cosmic-coverage",
     "the floor is a dot-file at the root, got: " .. policy.BASELINE)
   local dir = fs.join(tmpdir, "policy-nobaseline")
-  check.must(fs.makedirs(dir))
-  local cwd = check.must(fs.getcwd())
+  check.must(fs.make_dirs(dir))
+  local cwd = check.must(fs.cwd())
   check.must(fs.chdir(dir))
-  local absent = not fs.isfile(policy.BASELINE)
+  local absent = not fs.is_file(policy.BASELINE)
   check.must(fs.chdir(cwd))
   assert(absent, "the fixture must not have a floor")
 end

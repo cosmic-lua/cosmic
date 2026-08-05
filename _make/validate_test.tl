@@ -21,11 +21,11 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 --- Build a fixture tree and scan it.
 local function fixture(name: string, files: {string: string}): Project
   local root = fs.join(tmpdir, "validate-" .. name)
-  fs.rmrf(root)
-  assert(fs.makedirs(root))
+  fs.remove_all(root)
+  assert(fs.make_dirs(root))
   for rel, content in pairs(files) do
     local path = fs.join(root, rel)
-    assert(fs.makedirs(fs.dirname(path)))
+    assert(fs.make_dirs(fs.dirname(path)))
     assert(fs.write(path, content))
   end
   local proj = check.must(project.scan(root))

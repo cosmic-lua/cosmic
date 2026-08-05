@@ -14,7 +14,7 @@
 --- is refused by name, with the line it was found on.
 ---
 ---     local literal = require("cosmic.literal")
----     local cfg = literal.of_file("config.tl")
+---     local cfg = literal.parse_file("config.tl")
 
 local fs = require("cosmic.fs")
 
@@ -418,12 +418,12 @@ local function parse_table(toks: {Token}, i: integer, where: string,
   return nil, 0, where .. ": unterminated table in " .. noun
 end
 
---- Options for of_source/of_file: how errors talk about the file.
+--- Options for parse/parse_file: how errors talk about the file.
 --- (api-review-6: these were two message-wording positionals. The
 --- field is `file`, not `where`: `where` opens a record invariant
 --- clause in Teal and cannot name a field.)
 local record Options
-  --- File name to prefix messages with (of_source only — of_file
+  --- File name to prefix messages with (parse only — parse_file
   --- always uses the path it read). Default "literal".
   file: string
   --- What to call the file in errors — `cosmic --make` reads pins with
@@ -486,15 +486,11 @@ local record LiteralModule
   type Options = Options
   parse: function(source: string, opts?: Options): {string: any} | nil, string
   parse_file: function(path: string, opts?: Options): {string: any} | nil, string
-  --- DEPRECATED aliases (api-review-8 pin-advance transition)
-  of_source: function(source: string, opts?: Options): {string: any} | nil, string
-  of_file: function(path: string, opts?: Options): {string: any} | nil, string
 end
 
 local M: LiteralModule = {
   parse = parse,
   parse_file = parse_file,
-  of_source = parse, of_file = parse_file,
 }
 
 return M

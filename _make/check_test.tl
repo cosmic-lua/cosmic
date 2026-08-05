@@ -22,7 +22,7 @@ local mk = require("_make")
 local mtypes = require("_make.types")
 
 local type File = mtypes.File
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 
 local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
@@ -36,19 +36,19 @@ end
 --- Build a fixture tree, returning its absolute root.
 local function fixture(name: string, files: {string: string}): string
   local root = fs.join(tmpdir, "check-" .. name)
-  fs.rmrf(root)
-  assert(fs.makedirs(root))
+  fs.remove_all(root)
+  assert(fs.make_dirs(root))
   for rel, content in pairs(files) do
     local path = fs.join(root, rel)
-    assert(fs.makedirs(fs.dirname(path)))
+    assert(fs.make_dirs(fs.dirname(path)))
     assert(fs.write(path, content))
   end
   -- A directory is not a project until it says so. Fixtures that
   -- declare a root themselves keep theirs; the rest get the marker
   -- that means "yes, this one" so the fixture tests what it is about.
-  if not fs.isfile(fs.join(root, "main.tl"))
-  and not fs.isfile(fs.join(root, "main.lua"))
-  and not fs.isfile(fs.join(root, ".cosmicignore")) then
+  if not fs.is_file(fs.join(root, "main.tl"))
+  and not fs.is_file(fs.join(root, "main.lua"))
+  and not fs.is_file(fs.join(root, ".cosmicignore")) then
     assert(fs.write(fs.join(root, ".cosmicignore"), ""))
   end
   return root
@@ -60,7 +60,7 @@ local function make(dir: string, ...: string): Run
   for _, a in ipairs({...}) do
     argv[#argv + 1] = a
   end
-  local h = check.must(spawn.spawn(argv, {cwd = dir}))
+  local h = check.must(child.start(argv, {cwd = dir}))
   local r = check.must(h:wait())
   return {code = r.code or 128, out = r.stdout or "", err = r.stderr or ""}
 end
@@ -307,7 +307,7 @@ test_help_is_a_verb()
 -- silently doing something with no verb is worse than saying so.
 local function test_bare_make_is_a_usage_error()
   local root = app("bare")
-  local h = check.must(spawn.spawn({cosmic, "--make"}, {cwd = root}))
+  local h = check.must(child.start({cosmic, "--make"}, {cwd = root}))
   local r = check.must(h:wait())
   assert(r.code ~= 0, "bare --make must not exit 0")
   assert((r.stderr or ""):find("--make requires", 1, true),
@@ -320,7 +320,7 @@ test_bare_make_is_a_usage_error()
 local function test_root_override()
   local root = app("override")
   local elsewhere = fixture("override-elsewhere", {})
-  local h = check.must(spawn.spawn({cosmic, "--make", "check"}, {
+  local h = check.must(child.start({cosmic, "--make", "check"}, {
         cwd = elsewhere,
         env = {"PATH=" .. (os.getenv("PATH") or ""),
           "COSMIC_MAKE_ROOT=" .. root},
@@ -338,7 +338,7 @@ test_root_override()
 -- call: a verb that leaves the process somewhere else is a verb no
 -- caller can use twice.
 local function in_process(root: string, ...: string): integer
-  local cwd = check.must(fs.getcwd())
+  local cwd = check.must(fs.cwd())
   cenv.set("COSMIC_MAKE_ROOT", root)
   local argv: {string} = {}
   for _, a in ipairs({...}) do
@@ -406,7 +406,7 @@ test_the_verbs_refuse_a_bad_selection_on_their_own()
 -- nothing must reach the selection and be refused, not ignored.
 local function test_make_equals_form_keeps_its_selection()
   local root = app("equals")
-  local h = check.must(spawn.spawn({cosmic, "--make=check", "nope.tl"},
+  local h = check.must(child.start({cosmic, "--make=check", "nope.tl"},
       {cwd = root}))
   local r = check.must(h:wait())
   local out = (r.stdout or "") .. (r.stderr or "")
@@ -427,11 +427,11 @@ local function test_the_graph_proof_and_what_unmakes_it()
       ["3p/dep/dep_pin.tl"] = "return { version = \"1\" }\n",
     })
   local proj = check.must(mk.scan(root))
-  local cwd = check.must(fs.getcwd())
+  local cwd = check.must(fs.cwd())
   assert(fs.chdir(root))
   for _, rel in ipairs({"o/db/init.lua", "o/3p/dep/dep_pin.lua",
       "o/.stamp/compile", "o/_types/types_gen.stamp"}) do
-    assert(fs.makedirs(fs.dirname(rel)))
+    assert(fs.make_dirs(fs.dirname(rel)))
     assert(fs.write(rel, "x\n"))
     assert(fs.set_times(rel, {atime = {secs = 1000}, mtime = {secs = 1000}}))
   end
@@ -467,11 +467,11 @@ local function test_check_skips_what_the_graph_proved()
       ["bad.tl"] = "local x: integer = 'nope'\nreturn x\n",
     })
   local proj = check.must(mk.scan(root))
-  local cwd = check.must(fs.getcwd())
+  local cwd = check.must(fs.cwd())
   assert(fs.chdir(root))
   for _, rel in ipairs({"o/bad.lua", "o/.stamp/compile",
       "o/_types/types_gen.stamp"}) do
-    assert(fs.makedirs(fs.dirname(rel)))
+    assert(fs.make_dirs(fs.dirname(rel)))
     assert(fs.write(rel, "x\n"))
     assert(fs.set_times(rel, {atime = {secs = 1000}, mtime = {secs = 1000}}))
   end

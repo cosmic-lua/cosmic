@@ -168,7 +168,7 @@ end
 --- @param path string The candidate artifact
 --- @return boolean Whether it answers as a cosmic engine
 local function drives_a_build(path: string): boolean
-  local h, serr = child.spawn({path, "--make", "help"}, {stdin = ""})
+  local h, serr = child.start({path, "--make", "help"}, {stdin = ""})
   if not (h is child.Handle) then
     local _ = serr
     return false
@@ -203,7 +203,7 @@ local function to_the_tree(proj: Project, argv: {string},
     (tool as Binary).name) -- cast: record union after the guard
   local gen = math.tointeger(tonumber(env.get_or(GEN_ENV, "0")) or 0) or 0
 
-  local was_us = fs.isfile(built) and same_file(built, self)
+  local was_us = fs.is_file(built) and same_file(built, self)
   local before = stamp_of(built)
   local r = child.run({self, "--make", "build"},
     {stdout = "inherit", stderr = "inherit"})
@@ -211,7 +211,7 @@ local function to_the_tree(proj: Project, argv: {string},
     return false, "make: " ..
     (r.spawn_error or "the converging build failed"), "build failed"
   end
-  if not fs.isfile(built) then
+  if not fs.is_file(built) then
     return false, "make: " .. built .. ": the build produced no artifact",
     "no artifact"
   end

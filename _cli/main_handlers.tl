@@ -33,7 +33,7 @@ local function run_repl()
   -- Inject help() into REPL
   local docs = require("cosmic.doc")
   rawset(_G, "help", function(query: string)
-      local result = docs.run(query or "")
+      local result = docs.query(query or "")
       print(result.output)
     end)
 
@@ -65,7 +65,7 @@ end
 local function run_docs(query: string): DocsRunResult
   local docs = require("cosmic.doc")
 
-  local result = docs.run(query)
+  local result = docs.query(query)
   if result.ok then
     return {ok = true, output = result.output}
   end
@@ -261,7 +261,7 @@ end
 --- Handle --embed flag.
 local function handle_embed(paths: {string}, output: string, exe?: string): integer
   local embed = require("cosmic.embed")
-  local result = embed.run(paths, {output = output, exe_path = exe})
+  local result = embed.embed(paths, {output = output, exe_path = exe})
   io.write(result.message .. "\n")
   return result.ok and 0 or 1
 end
@@ -289,7 +289,7 @@ local function handle_examples(module_name: string): integer
   local docs = require("cosmic.doc")
 
   if module_name == "" then
-    local result = docs.run("examples")
+    local result = docs.query("examples")
     io.write(result.output .. "\n")
     return result.ok and 0 or 1
   else
@@ -322,7 +322,7 @@ end
 local function handle_docs(query: string): integer
   if query == "" then
     local docs = require("cosmic.doc")
-    local result = docs.run("")
+    local result = docs.query("")
     io.write(result.output .. "\n")
     return result.ok and 0 or 1
   else
@@ -433,7 +433,7 @@ end
 local function handle_skill(dir: string): integer
   local fs = require("cosmic.fs")
 
-  local ok, err = fs.makedirs(dir)
+  local ok, err = fs.make_dirs(dir)
   if not ok then
     io.stderr:write("--skill: " .. (err or "failed to create directory") .. "\n")
     return 1

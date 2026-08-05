@@ -16,9 +16,9 @@ local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN") or "o/bin", "cosmic"))
 
 -- The record skip keys the tool stamp the graph writes; without a
 -- built tree there is nothing to key against and nothing to test.
-check.needs("a built cosmic at " .. cosmic, fs.isfile(cosmic))
+check.needs("a built cosmic at " .. cosmic, fs.is_file(cosmic))
 check.needs("the record stamp at o/.stamp/record",
-  fs.isfile("o/.stamp/record"))
+  fs.is_file("o/.stamp/record"))
 
 --- The seconds+nanoseconds of a path, as one comparable string.
 local function mtime_of(path: string): string
@@ -35,7 +35,7 @@ local function test_compile_skips_and_unskips()
   assert(fs.write(src, "return { n = 1 }\n"))
   local args = {cosmic, src, out, "--deps"}
   assert(work.compile(args) == 0, "first compile")
-  assert(fs.isfile(out .. ".in"), "a keyed compile records itself")
+  assert(fs.is_file(out .. ".in"), "a keyed compile records itself")
   local key1 = mtime_of(out .. ".in")
   local out1 = mtime_of(out)
 
@@ -78,7 +78,7 @@ local function test_record_skips_only_a_pass()
   local got = check.must(fs.read(out .. ".got"))
   assert(got:match("^0%s*$"), "the run passed; err: "
     .. tostring((fs.read(out .. ".err"))))
-  assert(fs.isfile(out .. ".in"), "a pass records itself")
+  assert(fs.is_file(out .. ".in"), "a pass records itself")
   local key1 = mtime_of(out .. ".in")
   local ran1 = mtime_of(out .. ".out")
 

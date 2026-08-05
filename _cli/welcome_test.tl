@@ -3,7 +3,7 @@
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 local sys = require("cosmic.sys")
 
 local cosmic = fs.join(os.getenv("TEST_BIN"), "cosmic")
@@ -11,7 +11,7 @@ local tmpdir = os.getenv("TEST_TMPDIR")
 
 -- Test --welcome shows message
 local function test_welcome_flag()
-  local r = check.must(spawn.run({cosmic, "--welcome"}))
+  local r = check.must(child.run({cosmic, "--welcome"}))
   assert(r.ok, "cosmic --welcome should succeed")
   local s = r.stdout
   assert(s:find("Welcome to cosmic%-lua!"), "should show welcome message")
@@ -24,7 +24,7 @@ test_welcome_flag()
 
 -- Test --help mentions --welcome and COSMIC_NO_WELCOME
 local function test_help_mentions_welcome()
-  local r = check.must(spawn.run({cosmic, "--help"}))
+  local r = check.must(child.run({cosmic, "--help"}))
   assert(r.ok, "cosmic --help should succeed")
   local s = r.stdout
   assert(s:find("%-%-welcome"), "help should mention --welcome flag")
@@ -49,7 +49,7 @@ end
   -- keep PATH: a replacement env with no PATH strands the APE stub —
   -- it can't find the staged `ape` loader (see tl_loader_test)
   local env = {"COSMIC_NO_WELCOME=1", "PATH=" .. os.getenv("PATH")}
-  local r = check.must(spawn.run({cosmic, test_script}, {env = env}))
+  local r = check.must(child.run({cosmic, test_script}, {env = env}))
   local s = r.stdout
   assert(r.ok, "script should succeed: " .. s)
   assert(s:find("COSMIC_NO_WELCOME is set"), "env var should be accessible: " .. s)
@@ -74,7 +74,7 @@ local function pty_available(): boolean
   -- Run cosmic through script to simulate a PTY (suppress welcome so this
   -- probe leaves no first-run state behind)
   local cmd = "COSMIC_NO_WELCOME=1 " .. cosmic .. " " .. probe
-  local r = check.must(spawn.run({"script", "-qc", cmd, "/dev/null"}))
+  local r = check.must(child.run({"script", "-qc", cmd, "/dev/null"}))
   local s = r.stdout
   if not r.ok then
     return false
@@ -98,14 +98,14 @@ end
 -- 10), so each test isolates first-run state with its own config dir.
 local function fresh_confdir(name: string): string
   local dir = fs.join(tmpdir, "conf-" .. name)
-  assert(fs.makedirs(dir))
+  assert(fs.make_dirs(dir))
   return dir
 end
 
 -- Copy the cosmic binary so no test ever touches the shared TEST_BIN one.
 local function copy_binary(name: string): string
   local dest = fs.join(tmpdir, "cosmic-" .. name)
-  local cp = check.must(spawn.run({"cp", cosmic, dest}))
+  local cp = check.must(child.run({"cp", cosmic, dest}))
   assert(cp.ok, "failed to copy cosmic binary")
   return dest
 end
@@ -118,7 +118,7 @@ local function run_with_pty(bin: string, args: {string}, confdir: string): boole
     -- Escape single quotes in arguments
     cmd = cmd .. " '" .. a:gsub("'", "'\\''") .. "'"
   end
-  local r = check.must(spawn.run({"script", "-qc", cmd, "/dev/null"}))
+  local r = check.must(child.run({"script", "-qc", cmd, "/dev/null"}))
   return r.ok, r.stdout
 end
 
@@ -166,7 +166,7 @@ local function test_marker_written_to_config_dir()
   local ok, out = run_with_pty(copy_binary("marker"), {"-e", "print(1)"}, confdir)
   assert(ok, "run should succeed: " .. out)
   assert(out:find("Welcome to cosmic%-lua!"), "welcome should appear: " .. out)
-  assert(fs.isfile(fs.join(confdir, "cosmic", "welcome-shown")),
+  assert(fs.is_file(fs.join(confdir, "cosmic", "welcome-shown")),
     "marker should be written to $XDG_CONFIG_HOME/cosmic/welcome-shown")
   print("test_marker_written_to_config_dir: PASS")
 end
@@ -175,13 +175,13 @@ test_marker_written_to_config_dir()
 -- With XDG_CONFIG_HOME unset, the marker falls back to $HOME/.config.
 local function test_marker_home_fallback()
   local home = fs.join(tmpdir, "home-fallback")
-  assert(fs.makedirs(home))
+  assert(fs.make_dirs(home))
   local bin = copy_binary("home-fallback")
   local cmd = "XDG_CONFIG_HOME= HOME='" .. home .. "' " .. bin .. " -e 'print(1)'"
-  local r = check.must(spawn.run({"script", "-qc", cmd, "/dev/null"}))
+  local r = check.must(child.run({"script", "-qc", cmd, "/dev/null"}))
   assert(r.ok, "run should succeed: " .. r.stdout)
   assert(r.stdout:find("Welcome to cosmic%-lua!"), "welcome should appear: " .. r.stdout)
-  assert(fs.isfile(fs.join(home, ".config", "cosmic", "welcome-shown")),
+  assert(fs.is_file(fs.join(home, ".config", "cosmic", "welcome-shown")),
     "marker should fall back to $HOME/.config/cosmic/welcome-shown")
   print("test_marker_home_fallback: PASS")
 end
@@ -208,7 +208,7 @@ test_welcome_not_shown_twice()
 local function test_embedded_marker_suppresses()
   local czip = require("cosmic.zip")
   local bin = copy_binary("embedded")
-  local a = check.must(czip.appender(bin))
+  local a = check.must(czip.append(bin))
   assert(a:add(".cosmic/welcome-shown", ""))
   a:close()
   local ok, out = run_with_pty(bin, {"-e", "print(1)"}, fresh_confdir("embedded"))
@@ -224,7 +224,7 @@ local function test_no_welcome_env_suppresses()
   local bin = copy_binary("no-welcome")
   local confdir = fresh_confdir("no-welcome")
   local cmd = "COSMIC_NO_WELCOME=1 XDG_CONFIG_HOME='" .. confdir .. "' " .. bin .. " -e 'print(1)'"
-  local r = check.must(spawn.run({"script", "-qc", cmd, "/dev/null"}))
+  local r = check.must(child.run({"script", "-qc", cmd, "/dev/null"}))
   local s = r.stdout
   assert(r.ok, "should succeed: " .. s)
   assert(not s:find("Welcome to cosmic%-lua!"), "welcome should be suppressed: " .. s)

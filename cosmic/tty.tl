@@ -52,11 +52,6 @@ local record TtyModule
   VTIME: integer
 
   is_tty: function(fd?: integer): boolean
-  -- DEPRECATED aliases (api-review-8 pin-advance transition)
-  isatty: function(fd: integer): boolean
-  stdin_isatty: function(): boolean
-  stdout_isatty: function(): boolean
-  stderr_isatty: function(): boolean
   winsize: function(fd: integer): WinSize | nil, string
   getattr: function(fd: integer): Termios | nil, string
   setattr: function(fd: integer, action: integer, termios: Termios): boolean, string
@@ -296,10 +291,6 @@ end
 
 local M: TtyModule = {
   is_tty = is_tty,
-  isatty = is_tty,
-  stdin_isatty = function(): boolean return is_tty(0) end,
-  stdout_isatty = function(): boolean return is_tty(1) end,
-  stderr_isatty = function(): boolean return is_tty(2) end,
   winsize = winsize,
   getattr = getattr,
   setattr = setattr,

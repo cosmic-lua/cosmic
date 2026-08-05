@@ -43,7 +43,7 @@ end
 --- @param body string What to write
 --- @return string|nil The error message, nil on success
 local function put(path: string, body: string): string | nil
-  if not fs.makedirs(fs.dirname(path)) then
+  if not fs.make_dirs(fs.dirname(path)) then
     return "cannot create " .. fs.dirname(path)
   end
   local ok, err = fs.write(path, body)

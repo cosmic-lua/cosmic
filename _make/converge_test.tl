@@ -18,11 +18,11 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 --- A scanned project from a file map.
 local function scan(name: string, files: {string: string}): types.Project
   local root = fs.join(tmpdir, "converge-" .. name)
-  fs.rmrf(root)
-  assert(fs.makedirs(root))
+  fs.remove_all(root)
+  assert(fs.make_dirs(root))
   for rel, body in pairs(files) do
     local path = fs.join(root, rel)
-    assert(fs.makedirs(fs.dirname(path)))
+    assert(fs.make_dirs(fs.dirname(path)))
     assert(fs.write(path, body))
   end
   -- Bound before must(): scan returns more than one value, and a
@@ -90,14 +90,14 @@ test_refusals_name_which_one_they_are()
 -- traceback is visible.
 local function test_the_probe_reads_the_answer()
   local engine = fs.join(os.getenv("TEST_BIN") or "", "cosmic")
-  check.needs("a built cosmic at " .. engine, fs.isfile(engine))
+  check.needs("a built cosmic at " .. engine, fs.is_file(engine))
   assert(converge.drives_a_build(engine),
     "the real engine answers `--make help`")
 
   -- A look-alike: succeeds, says nothing an engine says.
   local dir = fs.join(tmpdir, "converge-probe")
-  fs.rmrf(dir)
-  assert(fs.makedirs(dir))
+  fs.remove_all(dir)
+  assert(fs.make_dirs(dir))
   local fake = fs.join(dir, "lookalike")
   assert(fs.write(fake, "#!/bin/sh\necho 'usage: lookalike [options]'\nexit 0\n"))
   assert(fs.chmod(fake, tonumber("755", 8) as integer)) -- cast: octal literal
@@ -135,7 +135,7 @@ test_the_probe_mark_is_help_usages_own_constant()
 
 --- An executable `#!/bin/sh` script at `path`.
 local function script(path: string, body: string): string
-  assert(fs.makedirs(fs.dirname(path)))
+  assert(fs.make_dirs(fs.dirname(path)))
   assert(fs.write(path, "#!/bin/sh\n" .. body))
   assert(fs.chmod(path, tonumber("755", 8) as integer)) -- cast: octal literal
   return path
@@ -144,8 +144,8 @@ end
 --- A scratch directory that is a project root and a working directory.
 local function scratch(name: string): string
   local dir = fs.join(tmpdir, "converge-" .. name)
-  fs.rmrf(dir)
-  assert(fs.makedirs(dir))
+  fs.remove_all(dir)
+  assert(fs.make_dirs(dir))
   return dir
 end
 
@@ -157,7 +157,7 @@ end
 --- below gets a directory arranged for it.
 local function converge_in(dir: string, proj: types.Project,
     self: string): boolean, string, string
-  local was = check.must(fs.getcwd())
+  local was = check.must(fs.cwd())
   assert(fs.chdir(dir))
   local ok, err, why = converge.to_the_tree(proj, {"check"}, self)
   assert(fs.chdir(was))
@@ -179,7 +179,7 @@ end
 local function test_a_build_that_makes_no_artifact_refuses()
   local dir = scratch("no-artifact")
   local self = script(fs.join(dir, "quiet"), "exit 0\n")
-  assert(not fs.isfile(fs.join(dir, "o/bin/cosmic")),
+  assert(not fs.is_file(fs.join(dir, "o/bin/cosmic")),
     "the fixture must not start with an artifact")
 
   local ok, err, why = converge_in(dir, toolchain("no-artifact-proj"), self)
@@ -201,7 +201,7 @@ local function test_a_build_that_never_settles_refuses()
   local self = script(fs.join(dir, "quiet"), "exit 0\n")
   -- An artifact that exists and is not what is running, so the fixpoint
   -- test below cannot fire and the cap is what answers.
-  assert(fs.makedirs(fs.join(dir, "o/bin")))
+  assert(fs.make_dirs(fs.join(dir, "o/bin")))
   assert(fs.write(fs.join(dir, "o/bin/cosmic"), "not the running binary\n"))
 
   cenv.set("COSMIC_MAKE_GEN", "2", true)

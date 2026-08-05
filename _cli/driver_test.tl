@@ -110,7 +110,7 @@ local function test_a_compile_may_read_the_checkers_own_inputs()
     "through; derived from cosmic.teal so the two cannot drift")
 
   -- REAL host paths only. Two include dirs live inside the executable's
-  -- own zip, where `fs.isdir` answers yes and the kernel knows nothing:
+  -- own zip, where `fs.is_dir` answers yes and the kernel knows nothing:
   -- handing one to Landlock fails the whole policy with EBADFD, so the
   -- fenced compile died instead of denying anything. They need no grant
   -- — they are bytes in a file the exec grant already covers.
@@ -184,7 +184,7 @@ test_exec_gets_its_units_not_the_whole_tree()
 local function test_exec_reads_the_units_its_arguments_name()
   local prog = touch("fence-tool2")
   local input = fs.join(tmpdir, "unit-input")
-  assert(fs.makedirs(input))
+  assert(fs.make_dirs(input))
   local src = fs.join(input, "a.txt")
   assert(fs.write(src, "x\n"))
   local p = grants.plan("exec", {prog, src})
@@ -201,7 +201,7 @@ local function test_a_generation_unit_is_the_whole_subtree()
   local prog = touch("fence-tool3")
   local unit = fs.join(tmpdir, "gen-unit")
   local deep = fs.join(unit, "sub")
-  assert(fs.makedirs(deep))
+  assert(fs.make_dirs(deep))
   assert(fs.write(fs.join(unit, "index_gen.tl"), "return {}\n"))
   local src = fs.join(deep, "input.txt")
   assert(fs.write(src, "x\n"))
@@ -261,7 +261,7 @@ local function test_every_step_can_extract_and_run_the_ape_loader()
   -- denied path, and is the exact failure that turned the gate red
   -- once the fence became the default.
   local dir = fs.join(tmpdir, "apedir")
-  assert(fs.makedirs(dir))
+  assert(fs.make_dirs(dir))
   local prev = env.get("TMPDIR")
   env.set("TMPDIR", dir, true)
   local p = grants.plan("exec", {fs.join(dir, "tool")})
@@ -283,13 +283,13 @@ local function test_an_unset_tmpdir_is_pinned_under_o_not_home()
   local driver = require("_cli.driver")
   local home = fs.join(tmpdir, "fakehome")
   local box = fs.join(tmpdir, "tmpbox")
-  assert(fs.makedirs(home))
-  assert(fs.makedirs(box))
+  assert(fs.make_dirs(home))
+  assert(fs.make_dirs(box))
   -- A loader in $HOME must be SEEDED into the pinned scratch: a nested
   -- driver (spawned by a fenced test) cannot read $HOME to find it, so
   -- its $TMPDIR probe is the one that has to hit.
   assert(fs.write(fs.join(home, ".ape-9.9"), "pretend loader"))
-  local cwd = assert(fs.getcwd())
+  local cwd = assert(fs.cwd())
   local prev_t, prev_h = env.get("TMPDIR"), env.get("HOME")
   assert(fs.chdir(box))
   env.unset("TMPDIR")
@@ -298,7 +298,7 @@ local function test_an_unset_tmpdir_is_pinned_under_o_not_home()
   driver.ensure_build_tmpdir()
   local pinned = env.get("TMPDIR")
   local seeded = pinned ~= nil
-  and fs.isfile(fs.join(pinned as string, ".ape-9.9")) -- cast: guarded
+  and fs.is_file(fs.join(pinned as string, ".ape-9.9")) -- cast: guarded
   local p = grants.plan("record", {fs.join(box, "out")})
 
   assert(fs.chdir(cwd))
@@ -325,11 +325,11 @@ test_an_unset_tmpdir_is_pinned_under_o_not_home()
 -- it is the over-grant the pin exists to remove.
 local function test_an_existing_home_loader_is_granted_as_a_file_only()
   local home = fs.join(tmpdir, "loaderhome")
-  assert(fs.makedirs(home))
+  assert(fs.make_dirs(home))
   local loader = fs.join(home, ".ape-1.10")
   assert(fs.write(loader, "pretend loader"))
   local scratch = fs.join(tmpdir, "loader-scratch")
-  assert(fs.makedirs(scratch))
+  assert(fs.make_dirs(scratch))
   local prev_t, prev_h = env.get("TMPDIR"), env.get("HOME")
   env.set("TMPDIR", scratch, true)
   env.set("HOME", home, true)
@@ -364,7 +364,7 @@ local function test_the_coverage_directory_is_granted_before_it_exists()
   -- at exit is denied — so it surfaced as three recipe-path files
   -- losing most of their coverage at once.
   local cov = fs.join(tmpdir, "cov-not-yet", "deeper")
-  fs.rmrf(fs.dirname(cov))
+  fs.remove_all(fs.dirname(cov))
   local prev = env.get("COSMIC_COVERAGE")
   env.set("COSMIC_COVERAGE", cov, true)
   local p = grants.plan("write-list", {fs.join(tmpdir, "out.txt")})

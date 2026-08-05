@@ -1,6 +1,6 @@
---- Startup of an embed.run()-produced executable.
+--- Startup of an embed.embed()-produced executable.
 ---
---- embed.run() bundles a user app into a copy of the cosmic binary; the
+--- embed.embed() bundles a user app into a copy of the cosmic binary; the
 --- produced executable boots into the embedded main.lua, which loads the
 --- app's other embedded .lua modules. Whatever compression those modules
 --- carry is paid back as inflate() calls on every launch of the app — the
@@ -42,7 +42,7 @@ local function find_bin(): string
   local test_bin = os.getenv("TEST_BIN")
   if test_bin and #test_bin > 0 then
     local p = fs.join(test_bin, "cosmic")
-    if fs.isfile(p) then
+    if fs.is_file(p) then
       return p
     end
   end
@@ -108,13 +108,13 @@ local function scenarios(): {pt.Scenario}, string
   if bin == nil or #bin == 0 then
     return nil, "cannot locate cosmic binary (set PERF_BIN)"
   end
-  local dir, derr = fs.mkdtemp(fs.join(tmp_base(), "perf-embed-startup-XXXXXX"))
+  local dir, derr = fs.temp_dir(fs.join(tmp_base(), "perf-embed-startup-XXXXXX"))
   if dir == nil then
     return nil, "mkdtemp: " .. tostring(derr)
   end
   tmpdir = dir
   local appdir = fs.join(tmpdir, "app")
-  local mok, merr = fs.makedirs(appdir)
+  local mok, merr = fs.make_dirs(appdir)
   if not mok then
     return nil, "makedirs: " .. tostring(merr)
   end
@@ -126,9 +126,9 @@ local function scenarios(): {pt.Scenario}, string
   -- Build the embedded executable once: the per-op cost is its startup,
   -- not the (fixed, megabyte-scale) embed operation.
   packed_exe = fs.join(tmpdir, "packed")
-  local res = embed.run({appdir}, {output = packed_exe, exe_path = bin})
+  local res = embed.embed({appdir}, {output = packed_exe, exe_path = bin})
   if not res.ok then
-    return nil, "embed.run: " .. tostring(res.message)
+    return nil, "embed.embed: " .. tostring(res.message)
   end
 
   local want = SENTINEL .. ":" .. tostring(expected_sum)
@@ -153,7 +153,7 @@ end
 
 local function cleanup()
   if tmpdir then
-    fs.rmrf(tmpdir)
+    fs.remove_all(tmpdir)
     tmpdir = nil
   end
 end

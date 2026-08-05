@@ -3,7 +3,7 @@ local caps = require("cosmic.quicksand.caps")
 local quicksand = require("cosmic.quicksand")
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 
 local test_bin = os.getenv("TEST_BIN")
 
@@ -137,7 +137,7 @@ local function test_drop_bounding_child()
     return
   end
   local cosmic = fs.join(test_bin, "cosmic")
-  local h = check.must(spawn.start({cosmic, "-e", CHILD_DROP}))
+  local h = check.must(child.start({cosmic, "-e", CHILD_DROP}))
   local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout
   if not ok then

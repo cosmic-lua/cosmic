@@ -85,7 +85,7 @@ local function test_directory_module_entry_points()
     doc = "parse_file",
     fetch = "fetch",
     net = "socket",
-    child = "spawn",
+    child = "start",
     format = "format",
     fs = "read",
   }
@@ -97,7 +97,7 @@ local function test_directory_module_entry_points()
   -- doc carries both halves of the converged family: extraction
   -- (parse_file, checked above) and the embedded-index query surface.
   local doc = require("cosmic.doc") as {string: any} -- cast: from any
-  assert(type(doc["run"]) == "function", "cosmic.doc must expose run()")
+  assert(type(doc["query"]) == "function", "cosmic.doc must expose query()")
   assert(type(doc["search"]) == "function", "cosmic.doc must expose search()")
 end
 test_directory_module_entry_points()

@@ -74,7 +74,7 @@ local function seed_ape_loaders(scratch: string)
   end
   for _, src in ipairs(found as {string}) do -- cast: nil-checked above
     local dst = fs.join(scratch, fs.basename(src))
-    if fs.isfile(src) and not fs.exists(dst) then
+    if fs.is_file(src) and not fs.exists(dst) then
       local bytes = fs.read(src)
       if bytes ~= nil then
         local part = dst .. ".part." .. tostring(proc.getpid())
@@ -103,7 +103,7 @@ local function ensure_build_tmpdir()
     return
   end
   local scratch = fs.abspath(fs.join("o", "tmp"))
-  if fs.makedirs(scratch) then
+  if fs.make_dirs(scratch) then
     seed_ape_loaders(scratch)
     env.set("TMPDIR", scratch, true)
   end

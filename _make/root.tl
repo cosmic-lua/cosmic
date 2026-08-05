@@ -41,8 +41,8 @@ local ROOT_ENV < const > = "COSMIC_MAKE_ROOT"
 --- @param dir string Absolute directory to test
 --- @return boolean True when dir is a `--make` output tree
 local function is_build_dir(dir: string): boolean
-  return fs.isfile(fs.join(dir, "cosmic.mk")) and
-  fs.isfile(fs.join(dir, "project.mk"))
+  return fs.is_file(fs.join(dir, "cosmic.mk")) and
+  fs.is_file(fs.join(dir, "project.mk"))
 end
 
 --- Files and directories a project declares itself with. A stray `.tl`
@@ -55,14 +55,14 @@ local function is_root(dir: string): boolean
   if is_build_dir(dir) then
     return false
   end
-  if fs.isfile(fs.join(dir, ".cosmicignore")) then
+  if fs.is_file(fs.join(dir, ".cosmicignore")) then
     return true
   end
-  if fs.isfile(fs.join(dir, "main.tl")) or fs.isfile(fs.join(dir, "main.lua")) then
+  if fs.is_file(fs.join(dir, "main.tl")) or fs.is_file(fs.join(dir, "main.lua")) then
     return true
   end
   local cmd = fs.join(dir, "cmd")
-  if fs.isdir(cmd) then
+  if fs.is_dir(cmd) then
     for _, pattern in ipairs({"*/main.tl", "*/main.lua"}) do
       local hits = (fs.glob(cmd, pattern) or {}) as {string} -- cast: or keeps the nil union
       if #hits > 0 then
@@ -157,7 +157,7 @@ local function discover(verb: string): string | nil, string
   local override = os.getenv(ROOT_ENV)
   if override and override ~= "" then
     local named = fs.abspath(override)
-    if not fs.isdir(named) then
+    if not fs.is_dir(named) then
       return nil, "make: not a directory: " .. override
     end
     local bad = unnameable(named)
@@ -166,7 +166,7 @@ local function discover(verb: string): string | nil, string
     end
     return named
   end
-  local cwd, err = fs.getcwd()
+  local cwd, err = fs.cwd()
   if not cwd then
     return nil, "make: cannot determine the current directory: " ..
     (err or "unknown error")
@@ -223,10 +223,10 @@ end
 --- @return string|nil The absolute path, or nil when unresolvable
 local function resolve_self(argv0: string): string | nil
   local abs = fs.abspath(argv0)
-  if fs.isfile(abs) then
+  if fs.is_file(abs) then
     return abs
   end
-  return (proc.commandv(argv0))
+  return (proc.which(argv0))
 end
 
 local record RootModule

@@ -93,7 +93,7 @@ local function put(from: string, to: string, dest: string): boolean, string
     return false, from .. ": " .. (rerr or "cannot read")
   end
   local out = fs.join(dest, to)
-  local mok, merr = fs.makedirs(fs.dirname(out))
+  local mok, merr = fs.make_dirs(fs.dirname(out))
   if not mok then
     return false, fs.dirname(out) .. ": " .. (merr or "cannot create")
   end
@@ -112,7 +112,7 @@ end
 --- @param dest string The payload directory
 --- @return boolean, string Success, or false plus the reason
 local function put_tree(dir: string, dest: string): boolean, string
-  local found, lerr = fs.collect(dir, "*")
+  local found, lerr = fs.find(dir)
   if not found then
     return false, dir .. ": " .. (lerr or "cannot list")
   end
@@ -209,7 +209,7 @@ end
 --- it, this would ship it.
 --- @return {string} Paths under TYPES_DIR, sorted
 local function generated_types(): {string}
-  local found = fs.collect(TYPES_DIR, "*")
+  local found = fs.find(TYPES_DIR)
   if not found then
     return {}
   end
@@ -283,7 +283,7 @@ local function write_index(proj: Project, dest: string): boolean, string
     return false, "doc index: " .. (err or "unknown error")
   end
   local out = fs.join(dest, ".docs/index.lua")
-  local mok, merr = fs.makedirs(fs.dirname(out))
+  local mok, merr = fs.make_dirs(fs.dirname(out))
   if not mok then
     return false, fs.dirname(out) .. ": " .. (merr or "cannot create")
   end
@@ -299,8 +299,8 @@ end
 --- else unknown.
 --- @return string The version string
 local function declared_version(): string
-  if fs.isfile(VERSION_PIN) then
-    local declared, derr = literal.of_file(VERSION_PIN)
+  if fs.is_file(VERSION_PIN) then
+    local declared, derr = literal.parse_file(VERSION_PIN)
     if not declared then
       io.stderr:write("embed_gen: " .. VERSION_PIN .. ": " ..
         (derr or "cannot read") .. "; falling back to the environment\n")
@@ -341,7 +341,7 @@ end
 --- @param dest string The payload directory
 --- @return boolean, string Success, or false plus the reason
 local function write_version(dest: string): boolean, string
-  local pin, perr = literal.of_file(COSMOS_PIN)
+  local pin, perr = literal.parse_file(COSMOS_PIN)
   if not pin then
     return false, COSMOS_PIN .. ": " .. (perr or "cannot read")
   end
@@ -355,7 +355,7 @@ local function write_version(dest: string): boolean, string
       cosmos = cosmos is string and cosmos or "unknown",
     }) .. "\n"
   local out = fs.join(dest, VERSION_STORED)
-  local mok, merr = fs.makedirs(fs.dirname(out))
+  local mok, merr = fs.make_dirs(fs.dirname(out))
   if not mok then
     return false, fs.dirname(out) .. ": " .. (merr or "cannot create")
   end
@@ -400,12 +400,12 @@ local function generate(out: string): string
   -- be this file's job only if the directory were the unit's output,
   -- shared with the compiled entry the build puts there; it is not.
   local dest = fs.join(out, PAYLOAD_DIR)
-  local mok, merr = fs.makedirs(dest)
+  local mok, merr = fs.make_dirs(dest)
   if not mok then
     return dest .. ": " .. (merr or "cannot create")
   end
   for _, pair in ipairs(BASES) do
-    if not fs.isfile(pair[2]) then
+    if not fs.is_file(pair[2]) then
       return pair[2] .. ": missing; run `cosmic --make fetch` first"
     end
     local bok, berr = put(pair[2], pair[1], out)
@@ -433,7 +433,7 @@ local function generate(out: string): string
     end
   end
   for _, pair in ipairs(PINNED) do
-    if not fs.isfile(pair[2]) then
+    if not fs.is_file(pair[2]) then
       return pair[2] .. ": missing; run `cosmic --make fetch` first"
     end
     local ok, err = put(pair[2], pair[1], dest)

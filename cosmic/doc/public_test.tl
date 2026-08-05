@@ -67,7 +67,7 @@ local function test_directory_modules_indexed_under_their_name()
     "directory module must be indexed, not cosmic.fs.init")
   assert(not idx.modules["cosmic.fs.init"],
     "init shard must not appear own module")
-  local result = docs.run("fs")
+  local result = docs.query("fs")
   assert(result.ok, "--docs fs must resolve to the fs module page")
   print("test_directory_modules_indexed_under_their_name: PASS")
 end
@@ -91,11 +91,11 @@ end
 test_internal_modules_stay_searchable_with_badge()
 
 local function test_internal_doc_page_carries_header()
-  local result = docs.run("cosmic.child.io")
+  local result = docs.query("cosmic.child.io")
   assert(result.ok, "--docs cosmic.child.io must still render a page")
   assert(result.output:find("internal module — not API, may change without notice", 1, true),
     "internal module page must carry the internal-module header")
-  local public_page = docs.run("cosmic.json")
+  local public_page = docs.query("cosmic.json")
   assert(public_page.ok, "--docs cosmic.json must render")
   assert(not public_page.output:find("internal module — not API", 1, true),
     "public module page must not carry the internal-module header")

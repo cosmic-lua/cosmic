@@ -173,15 +173,15 @@ local function reads_of_file(root: string, path: string): {string} | nil, string
   local out: {string} = {}
   for _, declared in ipairs(reads_scan(content as string)) do -- cast: scalar narrowing
     local abs = fs.join(root, declared)
-    if fs.isdir(abs) then
+    if fs.is_dir(abs) then
       -- cast: `or` keeps the nil in the union
-      local under = (fs.collect(abs, "*") or {}) as {string}
+      local under = (fs.find(abs) or {}) as {string}
       for _, f in ipairs(under) do
         -- collect returns root-joined paths; keep them root-relative
         -- like every other project.mk entry
         out[#out + 1] = (f:sub(1, #root + 1) == root .. "/") and f:sub(#root + 2) or f
       end
-    elseif fs.isfile(abs) then
+    elseif fs.is_file(abs) then
       out[#out + 1] = declared
     else
       return nil, path .. " declares `reads: " .. declared ..

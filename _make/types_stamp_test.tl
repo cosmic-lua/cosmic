@@ -13,7 +13,7 @@ local cenv = require("cosmic.env")
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local mk = require("_make")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 
 local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN"), "cosmic"))
 local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
@@ -22,16 +22,16 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 -- else the copy `--make` extracts from its own binary.
 local make_bin = fs.abspath(os.getenv("COSMIC_MAKE")
   or "o/make")
-check.needs("the make engine at " .. make_bin, fs.isfile(make_bin))
+check.needs("the make engine at " .. make_bin, fs.is_file(make_bin))
 
 --- Build a fixture tree, returning its absolute root.
 local function fixture(name: string, files: {string: string}): string
   local root = fs.join(tmpdir, "typestamp-" .. name)
-  fs.rmrf(root)
-  assert(fs.makedirs(root))
+  fs.remove_all(root)
+  assert(fs.make_dirs(root))
   for rel, content in pairs(files) do
     local path = fs.join(root, rel)
-    assert(fs.makedirs(fs.dirname(path)))
+    assert(fs.make_dirs(fs.dirname(path)))
     assert(fs.write(path, content))
   end
   assert(fs.write(fs.join(root, ".cosmicignore"), ""))
@@ -51,14 +51,14 @@ local function make(dir: string, ...: string): integer, string
     "NO_COLOR=1",
     "COSMIC_NO_WELCOME=1",
   }
-  local h = check.must(spawn.spawn(argv, {cwd = dir, env = env}))
+  local h = check.must(child.start(argv, {cwd = dir, env = env}))
   local r = check.must(h:wait())
   return r.code or 128, (r.stdout or "") .. (r.stderr or "")
 end
 
 --- One in-process `--make build` against root, restoring cwd after.
 local function build_in_process(root: string): integer
-  local cwd = check.must(fs.getcwd())
+  local cwd = check.must(fs.cwd())
   cenv.set("COSMIC_MAKE_ROOT", root)
   cenv.set("COSMIC_MAKE", make_bin)
   local code = mk.run({"build"})
@@ -71,7 +71,7 @@ end
 --- A stand-in types generator whose output bytes carry `version`.
 local function gen_script(version: string): string
   return "local fs = require('cosmic.fs')\nlocal out = arg[1]\n" ..
-  "assert(fs.makedirs(out))\nassert(fs.write(fs.join(out, 'gen.d.tl'), '-- " ..
+  "assert(fs.make_dirs(out))\nassert(fs.write(fs.join(out, 'gen.d.tl'), '-- " ..
   version .. "'))\n"
 end
 
@@ -125,7 +125,7 @@ local function test_stamp_sentinel_without_generated_types()
   local root = fixture("sentinel", {
       ["cmd/tool/main.tl"] = "print('tool')\n",
     })
-  assert(fs.makedirs(fs.join(root, "o/_types/types_gen")))
+  assert(fs.make_dirs(fs.join(root, "o/_types/types_gen")))
   assert(build_in_process(root) == 0, "build should succeed")
   local stamp = check.must(fs.read(fs.join(root, "o/_types/types_gen.stamp")))
   assert(stamp == "empty\n",

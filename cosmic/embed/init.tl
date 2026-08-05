@@ -196,7 +196,7 @@ local function base_entries(exe_path: string): {string}
   if rd == nil then
     return names
   end
-  local reader = rd as czip.Reader -- cast: record union after guard
+  local reader = rd as czip.Archive -- cast: record union after guard
   for _, e in ipairs(reader:list()) do
     names[#names + 1] = e.name
   end
@@ -230,7 +230,7 @@ local function wrap_user_main(files_to_embed: {FileToEmbed}, exe_path: string): 
   end
   local exe_reader = czip.open(exe_path)
   if exe_reader ~= nil then
-    local rd = exe_reader as czip.Reader -- cast: record union after guard
+    local rd = exe_reader as czip.Archive -- cast: record union after guard
     local exe_main = rd:read("main.lua")
     rd:close()
     if exe_main == main_entry.content then
@@ -428,15 +428,12 @@ local record EmbedModule
 
   EPOCH: integer
   embed: function(paths: {string}, opts?: Options): EmbedResult
-  --- DEPRECATED alias for embed() (api-review-8 transition)
-  run: function(paths: {string}, opts?: Options): EmbedResult
   extract: function(output_dir: string, exe_path?: string): EmbedResult
 end
 
 local M: EmbedModule = {
   EPOCH = floor.epoch(),
   embed = embed,
-  run = embed,
   extract = extract_mod.extract,
 }
 

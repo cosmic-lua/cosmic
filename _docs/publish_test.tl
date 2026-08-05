@@ -12,7 +12,7 @@ end
 
 local function write_doc(docs_dir: string, rel: string, title: string, desc: string)
   local path = fs.join(docs_dir, rel)
-  fs.makedirs(fs.dirname(path))
+  fs.make_dirs(fs.dirname(path))
   fs.write(path, "# " .. title .. "\n\n" .. desc .. "\n\n## Types\n")
 end
 
@@ -67,7 +67,7 @@ local function test_prune_internal_keeps_public_surface_only()
     "cosmo/unix.md",
   }
   for _, rel in ipairs(kept) do
-    assert(fs.isfile(fs.join(docs_dir, rel)), "must keep public page: " .. rel)
+    assert(fs.is_file(fs.join(docs_dir, rel)), "must keep public page: " .. rel)
   end
 
   local pruned = {
@@ -77,7 +77,7 @@ local function test_prune_internal_keeps_public_surface_only()
     "_perf/harness.md",
   }
   for _, rel in ipairs(pruned) do
-    assert(not fs.isfile(fs.join(docs_dir, rel)), "must prune internal page: " .. rel)
+    assert(not fs.is_file(fs.join(docs_dir, rel)), "must prune internal page: " .. rel)
   end
 
   local readme = publish.make_readme(docs_dir)

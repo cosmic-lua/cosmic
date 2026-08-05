@@ -22,11 +22,11 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 --- Build a fixture tree and scan it.
 local function fixture(name: string, files: {string: string}): Project
   local root = fs.join(tmpdir, "graph-" .. name)
-  fs.rmrf(root)
-  assert(fs.makedirs(root))
+  fs.remove_all(root)
+  assert(fs.make_dirs(root))
   for rel, content in pairs(files) do
     local path = fs.join(root, rel)
-    assert(fs.makedirs(fs.dirname(path)))
+    assert(fs.make_dirs(fs.dirname(path)))
     assert(fs.write(path, content))
   end
   local proj = check.must(project.scan(root))
@@ -35,7 +35,7 @@ end
 
 --- Run fn with cwd inside dir, restoring it afterward.
 local function in_dir<T>(dir: string, fn: function(): T): T
-  local cwd = check.must(fs.getcwd())
+  local cwd = check.must(fs.cwd())
   assert(fs.chdir(dir))
   local got = fn()
   assert(fs.chdir(cwd))
@@ -186,8 +186,8 @@ test_materialize_does_not_touch_unchanged_files()
 -- host is a build nobody can reproduce.
 local function test_find_make_never_searches_path()
   local box = fs.join(tmpdir, "graph-nomake")
-  fs.rmrf(box)
-  assert(fs.makedirs(fs.join(box, "bin")))
+  fs.remove_all(box)
+  assert(fs.make_dirs(fs.join(box, "bin")))
   assert(fs.write(fs.join(box, "bin", "make"), "#!/bin/sh\nexit 0\n",
       tonumber("755", 8) as integer)) -- cast: octal is integral
   local saved_path = cenv.get("PATH")
@@ -251,10 +251,10 @@ test_the_engine_ships_in_the_binary()
 -- permissions problem.
 local function test_extract_make_is_executable()
   local to = fs.join(tmpdir, "graph-engine", "make")
-  fs.rmrf(fs.dirname(to))
+  fs.remove_all(fs.dirname(to))
   local ok, err = graph.extract_make(to)
   assert(ok, "extraction should succeed: " .. tostring(err))
-  assert(fs.isfile(to), "the engine should land at " .. to)
+  assert(fs.is_file(to), "the engine should land at " .. to)
   local st = check.must(fs.stat(to))
   local exec_bit = tonumber("100", 8) as integer -- cast: octal is integral
   assert(st:mode() & exec_bit ~= 0, "the extracted engine must be executable")
@@ -266,8 +266,8 @@ test_extract_make_is_executable()
 -- the difference between --make being usable and being a demo.
 local function test_find_make_extracts_when_nothing_is_named()
   local box = fs.join(tmpdir, "graph-embedded")
-  fs.rmrf(box)
-  assert(fs.makedirs(box))
+  fs.remove_all(box)
+  assert(fs.make_dirs(box))
   local saved = cenv.get("COSMIC_MAKE")
   cenv.unset("COSMIC_MAKE")
   local found = in_dir(box, function(): string
@@ -279,7 +279,7 @@ local function test_find_make_extracts_when_nothing_is_named()
   end
   assert(found ~= "", "find_make must extract the embedded engine")
   assert(found == fs.join(box, "o/make"), "got: " .. found)
-  assert(fs.isfile(found), "…and it must be there")
+  assert(fs.is_file(found), "…and it must be there")
 end
 test_find_make_extracts_when_nothing_is_named()
 

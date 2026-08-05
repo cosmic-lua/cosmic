@@ -104,7 +104,7 @@ local function unpacked(p: Pin, archive: string): boolean, string
   end
   -- Clear any previous run's manifest first, so a re-unpack that fails
   -- cannot leave the old claim standing over a tree it did not produce.
-  fs.rmrf(manifest_of(archive))
+  fs.remove_all(manifest_of(archive))
   local produced, err = extract.unpack(archive, fs.dirname(archive), p.format,
     p.strip_components)
   if not produced then
@@ -157,7 +157,7 @@ local function one(p: Pin): boolean, string
     io.write("unpack " .. p.output .. "\n")
     return unpacked(p, out)
   end
-  local ok, merr = fs.makedirs(fs.dirname(out))
+  local ok, merr = fs.make_dirs(fs.dirname(out))
   if not ok then
     return false, "make: cannot create " .. fs.dirname(out) .. ": " ..
     (merr or "unknown error")

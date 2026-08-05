@@ -327,9 +327,6 @@ local record DocModule
 
   -- Query: the index embedded in the binary (`--docs`).
   query: function(q?: string): DocsResult
-  --- DEPRECATED alias for query() (api-review-8 transition; tooling
-  --- executes under the pinned binary until the pin advances)
-  run: function(q?: string): DocsResult
   has_docs: function(): boolean
   list_topics: function(include_cosmo?: boolean): {{string, string}}
   embedded_index: function(): DocIndex | nil, string
@@ -352,7 +349,6 @@ local M: DocModule = {
   load_index = load_index,
 
   query = query.run,
-  run = query.run,
   has_docs = query.has_docs,
   list_topics = query.list_topics,
   embedded_index = query.embedded_index,

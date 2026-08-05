@@ -17,11 +17,11 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 --- Make a directory tree, returning its root.
 local function tree(name: string, files: {string: string}): string
   local dir = fs.join(tmpdir, "root-" .. name)
-  fs.rmrf(dir)
-  assert(fs.makedirs(dir))
+  fs.remove_all(dir)
+  assert(fs.make_dirs(dir))
   for rel, content in pairs(files) do
     local path = fs.join(dir, rel)
-    assert(fs.makedirs(fs.dirname(path)))
+    assert(fs.make_dirs(fs.dirname(path)))
     assert(fs.write(path, content))
   end
   return dir
@@ -70,7 +70,7 @@ local function test_refusal_names_the_command()
     })
   local saved = env.get("COSMIC_MAKE_ROOT")
   env.unset("COSMIC_MAKE_ROOT")
-  local cwd = fs.getcwd()
+  local cwd = fs.cwd()
   assert(fs.chdir(fs.join(proj, "db")))
   local got, err = root.discover("check")
   assert(fs.chdir(cwd as string)) -- cast: scalar narrowing through the guard
@@ -159,7 +159,7 @@ local function test_no_ambiguity_under_a_build_directory()
       ["cmd/tool/main.lua"] = "return 0\n",
     })
   local scratch = fs.join(out, "some_test.tl.test.tmp.d")
-  assert(fs.makedirs(scratch))
+  assert(fs.make_dirs(scratch))
   assert(not root.ancestor_root(scratch),
     "a build directory must not be reported as the ancestor project")
 end
@@ -193,7 +193,7 @@ test_the_walk_stops_at_an_output_directory()
 -- asks about ancestors, this one asks about the cwd.
 local function test_a_bare_directory_is_not_a_project()
   local dir = tree("bare-dir", {["notes.tl"] = "return {}\n"})
-  local saved = fs.getcwd() as string -- cast: cwd exists in a test
+  local saved = fs.cwd() as string -- cast: cwd exists in a test
   assert(fs.chdir(dir))
   local found, err = root.discover("build")
   assert(fs.chdir(saved))
@@ -243,7 +243,7 @@ test_a_root_with_a_metacharacter_is_refused()
 -- binary": a real file at (or under) the cwd wins as-is.
 local function test_resolve_self_resolves_a_real_path()
   local dir = tree("self-real", {["cosmic"] = "print('x')\n"})
-  local saved = fs.getcwd() as string -- cast: cwd exists in a test
+  local saved = fs.cwd() as string -- cast: cwd exists in a test
   assert(fs.chdir(dir))
   local self = root.resolve_self("cosmic")
   assert(fs.chdir(saved))
@@ -257,11 +257,11 @@ test_resolve_self_resolves_a_real_path()
 -- not to contain the binary silently degraded the tool stamps.
 local function test_resolve_self_falls_back_to_path_search()
   local dir = tree("self-path", {})
-  local saved = fs.getcwd() as string -- cast: cwd exists in a test
+  local saved = fs.cwd() as string -- cast: cwd exists in a test
   assert(fs.chdir(dir))
   local self = root.resolve_self("ls")
   assert(fs.chdir(saved))
-  assert(self == proc.commandv("ls"), "got: " .. tostring(self))
+  assert(self == proc.which("ls"), "got: " .. tostring(self))
   assert(self ~= fs.join(dir, "ls"), "must not be the cwd-relative phantom")
 end
 test_resolve_self_falls_back_to_path_search()

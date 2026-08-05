@@ -11,7 +11,7 @@
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
 local project = require("_make.project")
-local spawn = require("cosmic.child")
+local child = require("cosmic.child")
 local stage = require("_make.stage")
 local types = require("_make.types")
 
@@ -155,10 +155,10 @@ test_binaries_on_path_without_a_path()
 local function test_a_dead_stage_does_not_report_a_stale_summary()
   local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN") or "", "cosmic"))
   local make_bin = fs.abspath(os.getenv("COSMIC_MAKE") or "o/make")
-  check.needs("the make engine at " .. make_bin, fs.isfile(make_bin))
+  check.needs("the make engine at " .. make_bin, fs.is_file(make_bin))
   local root = fs.join(tmpdir, "stage-stale-summary")
-  fs.rmrf(root)
-  assert(fs.makedirs(root))
+  fs.remove_all(root)
+  assert(fs.make_dirs(root))
   assert(fs.write(fs.join(root, "mod.tl"), "return {}\n"))
   assert(fs.write(fs.join(root, "a_test.tl"),
       "local m = require('mod')\nassert(m ~= nil)\n"))
@@ -170,7 +170,7 @@ local function test_a_dead_stage_does_not_report_a_stale_summary()
     "PATH=" .. (os.getenv("PATH") or ""), "COSMIC_MAKE=" .. make_bin,
     "TMPDIR=" .. tmpdir, "NO_COLOR=1", "COSMIC_NO_WELCOME=1",
   }
-  local h1 = check.must(spawn.spawn({cosmic, "--make", "test"},
+  local h1 = check.must(child.start({cosmic, "--make", "test"},
       {cwd = root, env = env}))
   local r1 = check.must(h1:wait())
   assert(r1.code ~= 0, "the first run has one genuine failure")
@@ -184,7 +184,7 @@ local function test_a_dead_stage_does_not_report_a_stale_summary()
   -- failure's numbers (from b_test, untouched here) are the only ones
   -- on disk.
   assert(fs.write(fs.join(root, "mod.tl"), "local x: string = 5\nreturn {}\n"))
-  local h2 = check.must(spawn.spawn({cosmic, "--make", "test"},
+  local h2 = check.must(child.start({cosmic, "--make", "test"},
       {cwd = root, env = env}))
   local r2 = check.must(h2:wait())
   assert(r2.code ~= 0, "a broken compile still fails")

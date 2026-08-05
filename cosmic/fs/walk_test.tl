@@ -57,21 +57,21 @@ local function test_walk_symlink_cycle_terminates()
 end
 test_walk_symlink_cycle_terminates()
 
--- FIX 1b: collect_all() must not recurse into symlinked directories
+-- FIX 1b: find_info() must not recurse into symlinked directories
 local function test_find_all_symlink_cycle_terminates()
-  local base = mksubdir("collect_all_cycle")
+  local base = mksubdir("find_info_cycle")
   local subdir = fs.join(base, "sub")
   fs.make_dirs(subdir)
   write_file(fs.join(subdir, "real.txt"), "data")
   fs.symlink("..", fs.join(subdir, "loop"))
 
   local collected = fs_walk.find_info(base)
-  assert(collected, "collect_all should succeed")
+  assert(collected, "find_info should succeed")
   local files = collected as {string: any} -- cast: record union after guard
   -- Should contain sub/real.txt but NOT any path with loop/ in it
   for rel_path in pairs(files) do
     assert(not rel_path:match("loop"),
-      "collect_all should not recurse into symlink loop, found: " .. rel_path)
+      "find_info should not recurse into symlink loop, found: " .. rel_path)
   end
   assert(files["sub/real.txt"] ~= nil, "real.txt should be found")
 end
@@ -142,9 +142,9 @@ test_find_missing_root_errors()
 local function test_find_all_missing_root_errors()
   local missing = fs.join(tmpdir, "no", "such", "dir")
   local results, err = fs_walk.find_info(missing)
-  assert(results == nil, "collect_all of a missing root should return nil")
+  assert(results == nil, "find_info of a missing root should return nil")
   assert(err and err:match("ENOENT"),
-    "collect_all error should name ENOENT: " .. tostring(err))
+    "find_info error should name ENOENT: " .. tostring(err))
 end
 test_find_all_missing_root_errors()
 
