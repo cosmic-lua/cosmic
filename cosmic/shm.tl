@@ -56,13 +56,12 @@ local record ShmModule
     fetch_xor: function(self: Memory, word_index: integer, value: integer): integer | nil, string
     --- Wait until the word no longer holds `expect`. Returns 0 when
     --- woken; nil plus an error naming EAGAIN (value already differed)
-    --- or ETIMEDOUT (deadline expired). The deadline is an ABSOLUTE
-    --- CLOCK_REALTIME time — whole seconds in `abs_deadline` plus
-    --- nanoseconds in `nanos` (e.g. from time.now()); omit both to wait
-    --- forever. A wait interrupted by a signal is retried
-    --- automatically; the absolute deadline keeps the timeout exact
-    --- across retries.
-    wait: function(self: Memory, word_index: integer, expect: integer, abs_deadline?: integer, nanos?: integer): integer | nil, string
+    --- or ETIMEDOUT (timeout expired). `timeout_ms` is a RELATIVE
+    --- timeout in integer milliseconds (api-review-6: was an absolute
+    --- s+ns deadline pair); omit it to wait forever. A wait interrupted
+    --- by a signal is retried automatically — the deadline is computed
+    --- once, up front, so retries keep the timeout exact.
+    wait: function(self: Memory, word_index: integer, expect: integer, timeout_ms?: integer): integer | nil, string
     --- Wake processes waiting on a word; returns how many woke.
     --- Wakes nothing once the region has been unmapped.
     wake: function(self: Memory, word_index: integer, count?: integer): integer | nil, string
@@ -220,10 +219,23 @@ local function wrap(raw: unix.Memory, size: integer): Memory
     return {swapped = success as boolean, value = actual as integer}
   end
 
-  function mem:wait(word_index: integer, expect: integer, abs_deadline?: integer, nanos?: integer): integer | nil, string
+  function mem:wait(word_index: integer, expect: integer, timeout_ms?: integer): integer | nil, string
     local range_err = check_word(word_index, size, "wait")
     if range_err then
       return nil, range_err
+    end
+    -- The binding takes an absolute CLOCK_REALTIME deadline; compute it
+    -- once from the relative timeout so EINTR retries stay exact.
+    local abs_deadline: integer = nil
+    local nanos: integer = nil
+    if timeout_ms then
+      local now_s, now_ns = unix.clock_gettime(unix.CLOCK_REALTIME)
+      abs_deadline = now_s + math.floor(timeout_ms / 1000)
+      nanos = now_ns + math.floor(timeout_ms % 1000) * 1000000
+      if nanos >= 1000000000 then
+        abs_deadline = abs_deadline + 1
+        nanos = nanos - 1000000000
+      end
     end
     -- The binding returns (nil, err, errno) for EAGAIN/ETIMEDOUT and
     -- throws for a futex word with nonzero high bits; keep both as

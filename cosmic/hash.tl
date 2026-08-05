@@ -48,7 +48,7 @@ local valid_algos < total >: {Algo: boolean} = {
 
 --- Options for password hashing with Argon2.
 --- All fields are optional and have sensible defaults.
-local record HashOptions
+local record PasswordOptions
   --- Memory cost in kibibytes (default: 19456, i.e. 19 MiB per OWASP minimum)
   m_cost: integer
   --- Time cost / iterations (default: 3)
@@ -161,27 +161,27 @@ end
 --- Hash a password using Argon2.
 --- Returns an encoded string suitable for storage.
 --- @param pwd string The password to hash
---- @param options HashOptions? Optional configuration for the hash
+--- @param opts PasswordOptions? Optional configuration for the hash
 --- @return string? The encoded hash string, or nil on error
 --- @return string? Error message if hashing failed
-local function password(pwd: string, options?: HashOptions): string | nil, string
-  -- Build config from options
+local function password(pwd: string, opts?: PasswordOptions): string | nil, string
+  -- Build config from opts
   -- Default m_cost to 19456 KiB (19 MiB) per OWASP minimum recommendation.
   local config: argon2.Config = {m_cost = 19456}
-  if options then
-    if options.m_cost then config.m_cost = options.m_cost end
-    if options.t_cost then config.t_cost = options.t_cost end
-    if options.parallelism then config.parallelism = options.parallelism end
-    if options.hash_len then config.hash_len = options.hash_len end
-    if options.variant then
+  if opts then
+    if opts.m_cost then config.m_cost = opts.m_cost end
+    if opts.t_cost then config.t_cost = opts.t_cost end
+    if opts.parallelism then config.parallelism = opts.parallelism end
+    if opts.hash_len then config.hash_len = opts.hash_len end
+    if opts.variant then
       -- The generated argon2.Variant enum checks literals statically;
       -- runtime strings smuggled in through casts still get nil, err
       -- rather than the binding's raise (never throw from library code).
-      if options.variant == "argon2id" or options.variant == "argon2i"
-      or options.variant == "argon2d" then
-        config.variant = options.variant
+      if opts.variant == "argon2id" or opts.variant == "argon2i"
+      or opts.variant == "argon2d" then
+        config.variant = opts.variant
       else
-        return nil, "invalid variant: " .. tostring(options.variant)
+        return nil, "invalid variant: " .. tostring(opts.variant)
         .. " (expected argon2id, argon2i, or argon2d)"
       end
     end
@@ -214,7 +214,7 @@ end
 
 local record HashModule
   type Algo = Algo
-  type HashOptions = HashOptions
+  type PasswordOptions = PasswordOptions
 
   digest: function(algo: Algo, data: string): string | nil, string
   hmac: function(algo: Algo, key: string, data: string): string | nil, string
@@ -222,7 +222,7 @@ local record HashModule
   sha256_hex: function(data: string): string
   hmac_sha256: function(key: string, data: string): string | nil, string
   constant_time_equal: function(a: string, b: string): boolean
-  password: function(pwd: string, options?: HashOptions): string | nil, string
+  password: function(pwd: string, opts?: PasswordOptions): string | nil, string
   verify_password: function(encoded: string, pwd: string): boolean, string
 end
 

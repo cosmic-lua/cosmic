@@ -87,7 +87,7 @@ local function test_unmoved_stamps_keep_their_mtime()
   in_dir(app.root, function(): boolean
       assert(check.must(graph.materialize(app, "/bin/cosmic")))
       local probe = stamp.path_of("compile")
-      assert(fs.utimensat(probe, 0, 0, 0, 0))
+      assert(fs.set_times(probe, {atime = {secs = 0}, mtime = {secs = 0}}))
       assert(check.must(graph.materialize(app, "/bin/cosmic")))
       local sec = check.must(fs.stat(probe)):mtim()
       assert(sec == 0, "an unmoved stamp must not be rewritten")

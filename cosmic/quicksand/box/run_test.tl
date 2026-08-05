@@ -82,10 +82,8 @@ local qs = require("cosmic.quicksand")
 signal.sigaction(signal.SIGALRM, function() end)
 local sok, serr = signal.setitimer({
   which = signal.ITIMER_REAL,
-  valuesec = 0,
-  valuens = 50000000,
-  intervalsec = 0,
-  intervalns = 0,
+  value_ms = 50,
+  interval_ms = 0,
 })
 if not sok then io.stderr:write("setitimer: " .. tostring(serr) .. "\n"); os.exit(1) end
 local j, nerr = qs.Box.new({})

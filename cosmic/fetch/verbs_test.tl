@@ -244,7 +244,7 @@ test_download_non_2xx_writes_nothing()
 
 local function test_download_transport_failure()
   local path = fs.join(TEST_TMPDIR, "dlfail.bin")
-  local r = fetch.download("http://127.0.0.1:1", path, {allow_private = true, timeout = 2})
+  local r = fetch.download("http://127.0.0.1:1", path, {allow_private = true, timeout_ms = 2000})
   assert(not r.ok and r.error ~= nil, "expected connect failure")
   assert(not fs.exists(path), "expected no file on transport failure")
 end

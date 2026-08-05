@@ -16,7 +16,7 @@ return {
   debug = false,
   limits = {["*"] = {rate = 10}},
 }
-]], "config.tl")
+]], {file = "config.tl"})
   local cfg = raw as {string: any} -- cast: the reader returns a plain table
   print(cfg.name, cfg.port, cfg.debug)
   -- Output:
@@ -29,7 +29,7 @@ end
 local function Example_refuses_code()
   local literal = require("cosmic.literal")
   local cfg, err = literal.of_source(
-    'return {home = os.getenv("HOME")}\n', "config.tl")
+    'return {home = os.getenv("HOME")}\n', {file = "config.tl"})
   print(cfg)
   print(err)
   -- Output:
@@ -41,7 +41,7 @@ end
 -- how `cosmic --make` makes the same grammar complain about "a pin".
 local function Example_noun()
   local literal = require("cosmic.literal")
-  local _, err = literal.of_source("return 1\n", "dep_pin.tl", "pin")
+  local _, err = literal.of_source("return 1\n", {file = "dep_pin.tl", noun = "pin"})
   print(err)
   -- Output:
   -- dep_pin.tl: a pin must return a table literal

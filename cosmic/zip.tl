@@ -34,11 +34,11 @@ local type Entry = zip.Entry
 local type Reader = zip.Reader
 
 --- Writer for creating new ZIP archives (the generated cosmo.zip.Writer
---- class): add(name, content, options?), close().
+--- class): add(name, content, opts?), close().
 local type Writer = zip.Writer
 
 --- Appender for adding files to an existing ZIP archive (the generated
---- cosmo.zip.Appender class): add(name, content, options?), remove(name),
+--- cosmo.zip.Appender class): add(name, content, opts?), remove(name),
 --- close().
 local type Appender = zip.Appender
 
@@ -51,14 +51,14 @@ end
 
 --- Open a ZIP archive for reading.
 --- @param path string|integer File path or file descriptor
---- @param options OpenOptions? Size limits
+--- @param opts OpenOptions? Size limits
 --- @return Reader | nil The archive reader, or nil on error
 --- @return string? Error message if opening failed
-local function reader(path: string | integer, options?: OpenOptions): Reader | nil, string
+local function reader(path: string | integer, opts?: OpenOptions): Reader | nil, string
   local handle: any
   local err: string
-  if options then
-    handle, err = zip.open(path, "r", options)
+  if opts then
+    handle, err = zip.open(path, "r", opts)
   else
     handle, err = zip.open(path, "r")
   end
@@ -70,14 +70,14 @@ end
 
 --- Create a new ZIP archive for writing. Any existing file is truncated.
 --- @param path string|integer File path or file descriptor
---- @param options OpenOptions? Compression level and size limits
+--- @param opts OpenOptions? Compression level and size limits
 --- @return Writer | nil The archive writer, or nil on error
 --- @return string? Error message if opening failed
-local function writer(path: string | integer, options?: OpenOptions): Writer | nil, string
+local function writer(path: string | integer, opts?: OpenOptions): Writer | nil, string
   local handle: Writer
   local err: string
-  if options then
-    handle, err = zip.create(path, options)
+  if opts then
+    handle, err = zip.create(path, opts)
   else
     handle, err = zip.create(path)
   end
@@ -91,14 +91,14 @@ end
 --- Unlike reader/writer, a file descriptor is not accepted; the archive
 --- must be given as a path.
 --- @param path string File path
---- @param options OpenOptions? Compression level and size limits
+--- @param opts OpenOptions? Compression level and size limits
 --- @return Appender | nil The archive appender, or nil on error
 --- @return string? Error message if opening failed
-local function appender(path: string, options?: OpenOptions): Appender | nil, string
+local function appender(path: string, opts?: OpenOptions): Appender | nil, string
   local handle: Appender
   local err: string
-  if options then
-    handle, err = zip.append(path, options)
+  if opts then
+    handle, err = zip.append(path, opts)
   else
     handle, err = zip.append(path)
   end
@@ -110,14 +110,14 @@ end
 
 --- Open a ZIP archive from in-memory data for reading.
 --- @param data string The ZIP archive data
---- @param options OpenOptions? Size limits
+--- @param opts OpenOptions? Size limits
 --- @return Reader? The archive reader, or nil on error
 --- @return string? Error message if opening failed
-local function from(data: string, options?: OpenOptions): Reader | nil, string
+local function from(data: string, opts?: OpenOptions): Reader | nil, string
   local handle: Reader
   local err: string
-  if options then
-    handle, err = zip.from(data, options)
+  if opts then
+    handle, err = zip.from(data, opts)
   else
     handle, err = zip.from(data)
   end
@@ -237,10 +237,10 @@ local record ZipModule
   --- Appender for adding files to an existing ZIP archive.
   type Appender = Appender
 
-  reader: function(path: string | integer, options?: OpenOptions): Reader | nil, string
-  writer: function(path: string | integer, options?: OpenOptions): Writer | nil, string
-  appender: function(path: string, options?: OpenOptions): Appender | nil, string
-  from: function(data: string, options?: OpenOptions): Reader | nil, string
+  reader: function(path: string | integer, opts?: OpenOptions): Reader | nil, string
+  writer: function(path: string | integer, opts?: OpenOptions): Writer | nil, string
+  appender: function(path: string, opts?: OpenOptions): Appender | nil, string
+  from: function(data: string, opts?: OpenOptions): Reader | nil, string
   extract: function(r: Reader, destdir: string, opts?: ExtractOptions): boolean, string
 end
 

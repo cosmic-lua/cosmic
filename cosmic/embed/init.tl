@@ -50,6 +50,11 @@ local extract_mod = require("cosmic.embed.extract")
 
 --- Options for run().
 local record Options
+  --- Output path for the new executable (default "cosmic").
+  output: string
+  --- Path to the source executable to copy (default arg[-1], the
+  --- running binary).
+  exe_path: string
   --- Strip the base executable down to the floor (cosmic.embed.floor)
   --- before adding the caller's files. Everything the base carried
   --- that is not on the floor is a tool for BUILDING programs, not a
@@ -279,15 +284,12 @@ end
 --- their contents are stored relative to the directory root. Files are stored
 --- with their given path (leading / stripped).
 --- @param paths {string} List of file or directory paths to embed
---- @param output string Output path for the new executable (defaults to "cosmic")
---- @param exe_path string Path to the source executable (defaults to arg[-1])
---- @param opts Options Stripping and reproducibility (both off by default)
+--- @param opts Options? output, exe_path, stripping, reproducibility
 --- @return EmbedResult Result with ok status, message, and file count
-local function run(paths: {string}, output?: string, exe_path?: string,
-    opts?: Options): EmbedResult
-  output = output or "cosmic"
-  exe_path = exe_path or arg[-1]
+local function run(paths: {string}, opts?: Options): EmbedResult
   opts = opts or {}
+  local output = opts.output or "cosmic"
+  local exe_path = opts.exe_path or arg[-1]
 
   if not exe_path then
     return {ok = false, message = "error: could not determine executable path", file_count = 0}
@@ -454,7 +456,7 @@ local record EmbedModule
 
   EPOCH: integer
   FLOOR: {string}
-  run: function(paths: {string}, output?: string, exe_path?: string, opts?: Options): EmbedResult
+  run: function(paths: {string}, opts?: Options): EmbedResult
   extract: function(output_dir: string, exe_path?: string): EmbedResult
   unsafe_entry: function(name: string): boolean
 end

@@ -459,8 +459,9 @@ local function build(proj: Project, binary: Binary, cosmic: string): string | ni
     -- base's copy as well would ship two standard libraries, with the
     -- project's winning on package.path and the base's riding along.
     local staged_out = out .. ".new"
-    local result = embed.run({dir as string}, staged_out, pair[2], -- cast: scalar narrowing after the guard
-      {strip = true, provides = validate.claims(proj), mtime = embed.EPOCH})
+    local result = embed.run({dir as string}, -- cast: scalar narrowing after the guard
+      {output = staged_out, exe_path = pair[2], strip = true,
+        provides = validate.claims(proj), mtime = embed.EPOCH})
     if not result.ok then
       fs.unlink(staged_out)
       return nil, "make: " .. binary.name .. pair[1] .. ": " .. result.message

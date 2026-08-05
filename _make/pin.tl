@@ -60,7 +60,7 @@ end
 --- @return {string: any}|nil The declared table
 --- @return string The error message when the file is not a literal pin
 local function extract(source: string, where: string): {string: any} | nil, string
-  return literal.of_source(source, where, "pin")
+  return literal.of_source(source, {file = where, noun = "pin"})
 end
 
 --- One platform's half of a pin: the fields that may differ per host.

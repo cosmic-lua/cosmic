@@ -246,20 +246,16 @@ local function test_recv_retries_eintr()
   -- so the test cannot hang however the timing lands.
   signal.setitimer({
       which = signal.ITIMER_REAL,
-      valuesec = 0,
-      valuens = 30000000,
-      intervalsec = 0,
-      intervalns = 30000000,
+      value_ms = 30,
+      interval_ms = 30,
     })
   local data, err = b:recv()
   -- Disarm and restore before asserting so a failure can't leave a
   -- ticking timer behind.
   signal.setitimer({
       which = signal.ITIMER_REAL,
-      valuesec = 0,
-      valuens = 0,
-      intervalsec = 0,
-      intervalns = 0,
+      value_ms = 0,
+      interval_ms = 0,
     })
   signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
   assert(data == "ping", "interrupted recv should retry and return the peer's"

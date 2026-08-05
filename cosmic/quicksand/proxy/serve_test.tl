@@ -135,7 +135,7 @@ test_deny_precedes_body_checks()
 local UPSTREAM_BODY = "hello-from-upstream"
 
 local function test_allowlist_does_not_bypass_the_ssrf_guard()
-  local listener = net.listen_tcp("127.0.0.1", 0, 8)
+  local listener = net.listen_tcp("127.0.0.1", 0, {backlog = 8})
   local ls = check.must(listener, "upstream listen failed")
   local port = check.must(ls:getsockname()).port
 

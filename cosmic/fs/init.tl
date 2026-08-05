@@ -300,8 +300,10 @@ local record FsModule
   chown: function(path: string, uid: integer, gid: integer): boolean, string
 
   -- Timestamp operations
-  utimensat: function(path: string, atime_secs?: integer, atime_nsecs?: integer, mtime_secs?: integer, mtime_nsecs?: integer): boolean, string
-  futimens: function(fd: integer, atime_secs?: integer, atime_nsecs?: integer, mtime_secs?: integer, mtime_nsecs?: integer): boolean, string
+  type Timespec = fs_ops.Timespec
+  type Times = fs_ops.Times
+  set_times: function(path: string, times: fs_ops.Times): boolean, string
+  set_times_fd: function(fd: integer, times: fs_ops.Times): boolean, string
 
   -- Temporary file operations
   mkdtemp: function(template: string): string | nil, string
@@ -416,8 +418,8 @@ local M: FsModule = {
   chown = fs_ops.chown,
 
   -- Timestamp operations (re-exported from fs_ops)
-  utimensat = fs_ops.utimensat,
-  futimens = fs_ops.futimens,
+  set_times = fs_ops.set_times,
+  set_times_fd = fs_ops.set_times_fd,
 
   -- Temporary file operations (re-exported from fs_ops)
   mkdtemp = fs_ops.mkdtemp,

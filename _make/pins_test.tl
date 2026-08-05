@@ -32,7 +32,7 @@ local PINS < const >: {string} = {
 --- @param path string The pin file
 --- @return {string} The declared keys
 local function platform_keys(path: string): {string}
-  local fields = check.must(literal.of_file(path, "pin"))
+  local fields = check.must(literal.of_file(path, {noun = "pin"}))
   local platforms = fields.platforms
   if not (platforms is {string: any}) then
     return {""}
@@ -128,7 +128,7 @@ test_an_undeclared_platform_is_refused()
 -- point of that spelling.
 local function test_the_star_row_matches_every_host()
   for _, path in ipairs(PINS) do
-    local fields = check.must(literal.of_file(path, "pin"))
+    local fields = check.must(literal.of_file(path, {noun = "pin"}))
     local platforms = fields.platforms
     if platforms is {string: any} and platforms["*"] ~= nil then
       for _, host in ipairs({"x86_64-linux", "aarch64-macos", "x86_64-windows"}) do

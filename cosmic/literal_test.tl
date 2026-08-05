@@ -12,14 +12,14 @@ local literal = require("cosmic.literal")
 --- Read a source and return the table, failing the test with the
 --- reader's own message when it refuses.
 local function read(src: string): {string: any}
-  local v, err = literal.of_source(src, "t", "pin")
+  local v, err = literal.of_source(src, {file = "t", noun = "pin"})
   assert(v, "expected a literal, got: " .. tostring(err))
   return v as {string: any} -- cast: record union after the assert
 end
 
 --- Read a source expecting refusal, and return the message.
 local function refused(src: string): string
-  local v, err = literal.of_source(src, "t", "pin")
+  local v, err = literal.of_source(src, {file = "t", noun = "pin"})
   assert(not v, "expected a refusal, got a value")
   return err
 end
@@ -132,7 +132,7 @@ test_negative_numbers()
 local function test_deep_nesting_is_refused_not_thrown()
   local n = 100000
   local src = "return " .. string.rep("{ a = ", n) .. "1" .. string.rep(" }", n)
-  local ok, v, err = pcall(literal.of_source, src, "t", "pin")
+  local ok, v, err = pcall(literal.of_source, src, {file = "t", noun = "pin"})
   assert(ok, "reading a deep literal must not throw: " .. tostring(v))
   assert(not v, "a deep literal must be refused")
   assert((err as string):find("nests deeper", 1, true), -- cast: pcall result
@@ -157,7 +157,7 @@ local function test_a_crafted_value_is_refused_not_thrown()
   -- `%x+` has no length limit, so the escape parses and the code point
   -- is past what utf8.char takes.
   local ok, v, err = pcall(literal.of_source,
-    'return { x = "\\u{FFFFFFFFFF}" }', "t", "pin")
+    'return { x = "\\u{FFFFFFFFFF}" }', {file = "t", noun = "pin"})
   assert(ok, "an out-of-range code point must not throw: " .. tostring(v))
   assert(not v and (err as string):find("malformed string", 1, true), -- cast: pcall result
     "it is refused by name, got: " .. tostring(err))
@@ -166,7 +166,7 @@ local function test_a_crafted_value_is_refused_not_thrown()
   -- nil: negated that threw, and stored bare it silently DROPPED the
   -- key -- a pin whose sha256 goes missing rather than being refused.
   for _, src in ipairs({"return { x = -0x. }", "return { x = 0x. }"}) do
-    local nok, nv, nerr = pcall(literal.of_source, src, "t", "pin")
+    local nok, nv, nerr = pcall(literal.of_source, src, {file = "t", noun = "pin"})
     assert(nok, src .. " must not throw: " .. tostring(nv))
     assert(not nv, src .. " must be refused, not silently dropped")
     assert((nerr as string):find("malformed number", 1, true), -- cast: pcall result

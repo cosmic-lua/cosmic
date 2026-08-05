@@ -78,7 +78,7 @@ test_socket_recv_eof_is_nil()
 local function test_socket_zero_byte_datagram_stays_empty()
   -- "" is reserved for the one honest case: a zero-byte datagram on a
   -- message socket. It must NOT be collapsed into nil.
-  local sp = check.must(net.socketpair(nil, net.SOCK_DGRAM))
+  local sp = check.must(net.socketpair({socktype = net.SOCK_DGRAM}))
   local a, b = sp.a, sp.b
 
   assert(a:send(""))

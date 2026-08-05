@@ -261,7 +261,7 @@ end
 --- Handle --embed flag.
 local function handle_embed(paths: {string}, output: string, exe?: string): integer
   local embed = require("cosmic.embed")
-  local result = embed.run(paths, output, exe)
+  local result = embed.run(paths, {output = output, exe_path = exe})
   io.write(result.message .. "\n")
   return result.ok and 0 or 1
 end
@@ -312,7 +312,7 @@ local function handle_benchmark(spec: string): integer
   end
 
   local span = instrument.begin("benchmark", file_path)
-  local result = benchmark.run(file_path, filter)
+  local result = benchmark.run(file_path, {filter = filter})
   io.write(benchmark.format_results(file_path, result) .. "\n")
   instrument.finish(span, result.exit_code)
   return result.exit_code

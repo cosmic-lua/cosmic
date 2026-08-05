@@ -93,15 +93,15 @@ local function test_copy_retries_eintr_on_read()
   -- signal, so the test cannot hang however the timing lands.
   signal.setitimer({
       which = signal.ITIMER_REAL,
-      valuesec = 0, valuens = 30000000,
-      intervalsec = 0, intervalns = 30000000,
+      value_ms = 30,
+      interval_ms = 30,
     })
   local ok, err = fs.copy(src, dst)
   -- Disarm and restore before asserting so a failure can't leave a
   -- ticking timer behind.
   signal.setitimer({
       which = signal.ITIMER_REAL,
-      valuesec = 0, valuens = 0, intervalsec = 0, intervalns = 0,
+      value_ms = 0, interval_ms = 0,
     })
   signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
 
@@ -139,13 +139,13 @@ local function test_copy_retries_eintr_on_write()
       end))
   signal.setitimer({
       which = signal.ITIMER_REAL,
-      valuesec = 0, valuens = 20000000,
-      intervalsec = 0, intervalns = 20000000,
+      value_ms = 20,
+      interval_ms = 20,
     })
   local ok, err = fs.copy(src, dst)
   signal.setitimer({
       which = signal.ITIMER_REAL,
-      valuesec = 0, valuens = 0, intervalsec = 0, intervalns = 0,
+      value_ms = 0, interval_ms = 0,
     })
   signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
   p.writer:close()
@@ -202,7 +202,7 @@ local function test_touch_creates_and_updates()
   assert(fs.isfile(p), "touch should create a regular file")
 
   -- Backdate mtime, then touch again: mtime must move forward.
-  assert(fs.utimensat(p, 1000, 0, 1000, 0))
+  assert(fs.set_times(p, {atime = {secs = 1000}, mtime = {secs = 1000}}))
   local before = check.must(fs.stat(p), "stat should succeed")
   local ok2, err2 = fs.touch(p)
   assert(ok2, "touch should succeed on existing file: " .. (err2 or ""))
@@ -226,7 +226,7 @@ local function test_touch_stamps_what_it_cannot_open_for_write()
   local ro = fs.join(test_dir, "readonly")
   assert(fs.write(ro, "x"))
   assert(fs.chmod(ro, tonumber("444", 8) as integer)) -- cast: octal
-  assert(fs.utimensat(ro, 1000, 0, 1000, 0))
+  assert(fs.set_times(ro, {atime = {secs = 1000}, mtime = {secs = 1000}}))
   local before = check.must(fs.stat(ro), "stat should succeed")
   local ok, err = fs.touch(ro)
   assert(ok, "touch must stamp a read-only file its caller owns: " ..
@@ -236,7 +236,7 @@ local function test_touch_stamps_what_it_cannot_open_for_write()
 
   local dir = fs.join(test_dir, "adir")
   assert(fs.makedirs(dir))
-  assert(fs.utimensat(dir, 1000, 0, 1000, 0))
+  assert(fs.set_times(dir, {atime = {secs = 1000}, mtime = {secs = 1000}}))
   local dbefore = check.must(fs.stat(dir), "stat should succeed")
   local dok, derr = fs.touch(dir)
   assert(dok, "touch must stamp a directory, not fail EISDIR: " ..
@@ -314,16 +314,16 @@ local function test_tmpfile_success_contract()
 end
 test_tmpfile_success_contract()
 
--- utimensat/futimens: exact timestamp semantics, not just
+-- set_times/set_times_fd: exact timestamp semantics, not just
 -- "touch moved mtime forward".
 
-local function test_utimensat_sets_exact_times()
+local function test_set_times_sets_exact_times()
   local test_dir = setup()
   local p = fs.join(test_dir, "stamped")
   touch(p, "x")
 
-  local ok, err = fs.utimensat(p, 1234567890, 500000000, 987654321, 250000000)
-  assert(ok, "utimensat should succeed: " .. (err or ""))
+  local ok, err = fs.set_times(p, {atime = {secs = 1234567890, nsecs = 500000000}, mtime = {secs = 987654321, nsecs = 250000000}})
+  assert(ok, "set_times should succeed: " .. (err or ""))
 
   local st = check.must(fs.stat(p), "stat should succeed")
   local a_s, a_ns = st:atim()
@@ -335,22 +335,22 @@ local function test_utimensat_sets_exact_times()
 
   teardown(test_dir)
 end
-test_utimensat_sets_exact_times()
+test_set_times_sets_exact_times()
 
 -- Keep-current semantics key off *_secs, not *_nsecs: a nil secs must
 -- leave that timestamp untouched no matter what nsecs is, and a real
 -- secs value with nsecs omitted must land on literal 0, never epoch
 -- (nil secs) and never "now" (the raw binding's own default).
-local function test_utimensat_nil_secs_keeps_current()
+local function test_set_times_omitted_field_keeps_current()
   local test_dir = setup()
   local p = fs.join(test_dir, "kept")
   touch(p, "x")
-  assert(fs.utimensat(p, 1111111111, 111111111, 2222222222, 222222222))
+  assert(fs.set_times(p, {atime = {secs = 1111111111, nsecs = 111111111}, mtime = {secs = 2222222222, nsecs = 222222222}}))
 
   -- nil atime_secs (with a non-nil atime_nsecs, which must be ignored
   -- too) leaves atime alone; mtime is set exactly.
-  local ok, err = fs.utimensat(p, nil, 999999999, 3333333333, 0)
-  assert(ok, "utimensat should succeed: " .. (err or ""))
+  local ok, err = fs.set_times(p, {mtime = {secs = 3333333333}})
+  assert(ok, "set_times should succeed: " .. (err or ""))
 
   local st = check.must(fs.stat(p), "stat should succeed")
   local a_s, a_ns = st:atim()
@@ -362,18 +362,18 @@ local function test_utimensat_nil_secs_keeps_current()
 
   teardown(test_dir)
 end
-test_utimensat_nil_secs_keeps_current()
+test_set_times_omitted_field_keeps_current()
 
-local function test_utimensat_secs_with_nil_nsecs_is_zero()
+local function test_set_times_bare_secs_means_zero_nsecs()
   local test_dir = setup()
   local p = fs.join(test_dir, "zero_nsecs")
   touch(p, "x")
-  assert(fs.utimensat(p, 1, 500000000, 1, 500000000))
+  assert(fs.set_times(p, {atime = {secs = 1, nsecs = 500000000}, mtime = {secs = 1, nsecs = 500000000}}))
 
   -- secs given, nsecs omitted: nsecs must be literal 0, not "now" (the
   -- raw binding's own default) and not "keep current".
-  local ok, err = fs.utimensat(p, 4444444444, nil, 5555555555, nil)
-  assert(ok, "utimensat should succeed: " .. (err or ""))
+  local ok, err = fs.set_times(p, {atime = {secs = 4444444444}, mtime = {secs = 5555555555}})
+  assert(ok, "set_times should succeed: " .. (err or ""))
 
   local st = check.must(fs.stat(p), "stat should succeed")
   local a_s, a_ns = st:atim()
@@ -385,25 +385,25 @@ local function test_utimensat_secs_with_nil_nsecs_is_zero()
 
   teardown(test_dir)
 end
-test_utimensat_secs_with_nil_nsecs_is_zero()
+test_set_times_bare_secs_means_zero_nsecs()
 
-local function test_utimensat_missing_path()
+local function test_set_times_missing_path()
   local test_dir = setup()
-  local ok, err = fs.utimensat(fs.join(test_dir, "absent"), 1, 0, 1, 0)
-  assert(not ok, "utimensat on a missing path should fail")
+  local ok, err = fs.set_times(fs.join(test_dir, "absent"), {atime = {secs = 1}, mtime = {secs = 1}})
+  assert(not ok, "set_times on a missing path should fail")
   assert(err and err:match("ENOENT"), "error should name ENOENT: " .. (err or ""))
   teardown(test_dir)
 end
-test_utimensat_missing_path()
+test_set_times_missing_path()
 
-local function test_futimens_sets_exact_times()
+local function test_set_times_fd_sets_exact_times()
   local test_dir = setup()
   local p = fs.join(test_dir, "fstamped")
   touch(p, "x")
 
   local hh = check.must(cfd.open(p, 0))
-  local ok, err = fs.futimens(hh:fd(), 111, 0, 222, 0)
-  assert(ok, "futimens should succeed: " .. (err or ""))
+  local ok, err = fs.set_times_fd(hh:fd(), {atime = {secs = 111}, mtime = {secs = 222}})
+  assert(ok, "set_times_fd should succeed: " .. (err or ""))
 
   local st = check.must(fs.fstat(hh:fd()), "fstat should succeed")
   local a_s, a_ns = st:atim()
@@ -416,20 +416,20 @@ local function test_futimens_sets_exact_times()
 
   teardown(test_dir)
 end
-test_futimens_sets_exact_times()
+test_set_times_fd_sets_exact_times()
 
-local function test_futimens_nil_secs_keeps_current()
+local function test_set_times_fd_omitted_field_keeps_current()
   local test_dir = setup()
   local p = fs.join(test_dir, "fkept")
   touch(p, "x")
 
   local hh = check.must(cfd.open(p, 0))
-  assert(fs.futimens(hh:fd(), 1111111111, 111111111, 2222222222, 222222222))
+  assert(fs.set_times_fd(hh:fd(), {atime = {secs = 1111111111, nsecs = 111111111}, mtime = {secs = 2222222222, nsecs = 222222222}}))
 
   -- nil atime_secs (with a non-nil atime_nsecs, ignored along with it)
   -- leaves atime alone; mtime with nsecs omitted lands on literal 0.
-  local ok, err = fs.futimens(hh:fd(), nil, 999999999, 3333333333, nil)
-  assert(ok, "futimens should succeed: " .. (err or ""))
+  local ok, err = fs.set_times_fd(hh:fd(), {mtime = {secs = 3333333333}})
+  assert(ok, "set_times_fd should succeed: " .. (err or ""))
 
   local st = check.must(fs.fstat(hh:fd()), "fstat should succeed")
   local a_s, a_ns = st:atim()
@@ -442,14 +442,14 @@ local function test_futimens_nil_secs_keeps_current()
 
   teardown(test_dir)
 end
-test_futimens_nil_secs_keeps_current()
+test_set_times_fd_omitted_field_keeps_current()
 
-local function test_futimens_bad_fd()
-  local ok, err = fs.futimens(9999, 1, 0, 1, 0)
-  assert(not ok, "futimens on a bad fd should fail")
+local function test_set_times_fd_bad_fd()
+  local ok, err = fs.set_times_fd(9999, {atime = {secs = 1}, mtime = {secs = 1}})
+  assert(not ok, "set_times_fd on a bad fd should fail")
   assert(err and err:match("EBADF"), "error should name EBADF: " .. (err or ""))
 end
-test_futimens_bad_fd()
+test_set_times_fd_bad_fd()
 
 -- rmrf failure path: a path whose parent component is a
 -- regular file fails with ENOTDIR regardless of privileges.

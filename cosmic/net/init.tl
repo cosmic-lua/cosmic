@@ -21,16 +21,26 @@ local type Address = net_socket.Address
 
 local make_socket = net_socket.make_socket
 
+--- Options for socket() and socketpair(): named fields replace the old
+--- three positional magic ints (api-review-6).
+local record SocketOptions
+  --- AF_INET (socket default), AF_UNIX (socketpair default).
+  family: integer
+  --- SOCK_STREAM (default) or SOCK_DGRAM, optionally OR-ed with flags
+  --- like SOCK_NONBLOCK/SOCK_CLOEXEC.
+  socktype: integer
+  --- IPPROTO_* (default 0: the family's standard protocol).
+  protocol: integer
+end
+
 --- Create a new socket.
---- @param family integer Address family (AF_INET, AF_UNIX). Default: AF_INET
---- @param socktype integer Socket type (SOCK_STREAM, SOCK_DGRAM). Default: SOCK_STREAM
---- @param protocol integer Protocol (IPPROTO_TCP, IPPROTO_UDP). Default: 0
+--- @param opts SocketOptions? family (default AF_INET), socktype (default SOCK_STREAM), protocol (default 0)
 --- @return Socket | nil Socket handle
 --- @return string Error message on failure
-local function socket(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, string
-  family = family or unix.AF_INET
-  socktype = socktype or unix.SOCK_STREAM
-  protocol = protocol or 0
+local function socket(opts?: SocketOptions): Socket | nil, string
+  local family = opts and opts.family or unix.AF_INET
+  local socktype = opts and opts.socktype or unix.SOCK_STREAM
+  local protocol = opts and opts.protocol or 0
   local fd, err = unix.socket(family, socktype, protocol)
   if not fd then
     return nil, errstr(err, "socket")
@@ -48,15 +58,13 @@ local record Pair
 end
 
 --- Create a pair of connected sockets.
---- @param family integer Address family (AF_UNIX). Default: AF_UNIX
---- @param socktype integer Socket type (SOCK_STREAM, SOCK_DGRAM). Default: SOCK_STREAM
---- @param protocol integer Protocol. Default: 0
+--- @param opts SocketOptions? family (default AF_UNIX), socktype (default SOCK_STREAM), protocol (default 0)
 --- @return Pair | nil Both sockets, on success
 --- @return string Error message on failure
-local function socketpair(family?: integer, socktype?: integer, protocol?: integer): Pair | nil, string
-  family = family or unix.AF_UNIX
-  socktype = socktype or unix.SOCK_STREAM
-  protocol = protocol or 0
+local function socketpair(opts?: SocketOptions): Pair | nil, string
+  local family = opts and opts.family or unix.AF_UNIX
+  local socktype = opts and opts.socktype or unix.SOCK_STREAM
+  local protocol = opts and opts.protocol or 0
   local fd1, fd2 = unix.socketpair(family, socktype, protocol)
   if not fd1 then
     -- On failure the binding returns (nil, err, errno): the error string
@@ -72,7 +80,7 @@ end
 --- @return Socket | nil Listening socket
 --- @return string Error message on failure
 local function listen_unix(path: string, backlog?: integer): Socket | nil, string
-  local sock, err = socket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+  local sock, err = socket({family = unix.AF_UNIX})
   if not sock then
     return nil, err
   end
@@ -95,7 +103,7 @@ end
 --- @return Socket | nil Connected socket
 --- @return string Error message on failure
 local function connect_unix(path: string): Socket | nil, string
-  local sock, err = socket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+  local sock, err = socket({family = unix.AF_UNIX})
   if not sock then
     return nil, err
   end
@@ -116,7 +124,7 @@ end
 --- @return Socket | nil Connected socket
 --- @return string Error message on failure
 local function connect_tcp(addr: Address, port: integer): Socket | nil, string
-  local sock, err = socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+  local sock, err = socket()
   if not sock then
     return nil, err
   end
@@ -154,9 +162,11 @@ local function dial(host: string, port: integer): Socket | nil, string
   return connect_tcp(a, port)
 end
 
---- Socket options for listen_tcp: the hidden SO_REUSEADDR is now an
---- opt-out, and SO_REUSEPORT an opt-in.
+--- Options for listen_tcp.
 local record ListenOptions
+  --- Maximum pending connections (default 128); the old positional
+  --- between port and the options record, folded in (api-review-6).
+  backlog: integer
   --- Set SO_REUSEADDR on the listener (default true: rebinding a
   --- just-closed address must not fail with EADDRINUSE).
   reuseaddr: boolean
@@ -184,16 +194,15 @@ end
 ---
 --- @param addr Address Local IPv4 address to bind ("127.0.0.1", "0.0.0.0" for all)
 --- @param port integer Local port to bind; use 0 for an OS-assigned ephemeral port
---- @param backlog integer Maximum pending connections (default 128)
---- @param opts ListenOptions? Socket options (reuseaddr default true, reuseport default false)
+--- @param opts ListenOptions? backlog (default 128), reuseaddr (default true), reuseport (default false)
 --- @return Socket | nil Listening socket ready to accept; when port 0
 --- was requested, read the OS-assigned port with
 --- `s:getsockname().port` (the old (Socket, port, err) triple put the
 --- error in slot 3, where `check.must` and `local s, err = ...` lost it)
 --- @return string Error message on failure
-local function listen_tcp(addr: Address, port: integer, backlog?: integer, opts?: ListenOptions): Socket | nil, string
+local function listen_tcp(addr: Address, port: integer, opts?: ListenOptions): Socket | nil, string
   opts = opts or {}
-  local sock, serr = socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+  local sock, serr = socket()
   if not sock then
     return nil, serr
   end
@@ -217,7 +226,7 @@ local function listen_tcp(addr: Address, port: integer, backlog?: integer, opts?
     s:close()
     return nil, bind_err
   end
-  local lok, listen_err = s:listen(backlog)
+  local lok, listen_err = s:listen(opts.backlog)
   if not lok then
     s:close()
     return nil, listen_err
@@ -227,17 +236,17 @@ end
 
 --- Connect with a bounded wait instead of blocking indefinitely.
 --- Switches the socket to non-blocking mode (via Socket:set_nonblocking),
---- starts the connect, and polls for completion up to timeoutms. The
+--- starts the connect, and polls for completion up to timeout_ms. The
 --- socket remains in non-blocking mode afterwards; call
 --- s:set_nonblocking(false) to restore blocking I/O.
 --- @param s Socket The socket to connect
 --- @param addr Address Remote IPv4 address
 --- @param port integer Remote port
---- @param timeoutms integer Timeout in milliseconds (default 10000)
+--- @param timeout_ms integer Timeout in milliseconds (default 10000)
 --- @return boolean True on success
 --- @return string Error message on failure
-local function nb_connect(s: Socket, addr: Address, port: integer, timeoutms?: integer): boolean, string
-  timeoutms = timeoutms or 10000
+local function nb_connect(s: Socket, addr: Address, port: integer, timeout_ms?: integer): boolean, string
+  timeout_ms = timeout_ms or 10000
   if not s.fd then return false, "socket closed" end
   local nb_ok, nb_err = s:set_nonblocking()
   if not nb_ok then
@@ -258,9 +267,9 @@ local function nb_connect(s: Socket, addr: Address, port: integer, timeoutms?: i
     return false, errstr(err, "nb_connect: connect failed")
   end
   local fds: {integer: integer} = {[s.fd] = unix.POLLOUT}
-  local revents, perr, peno = unix.poll(fds, timeoutms)
+  local revents, perr, peno = unix.poll(fds, timeout_ms)
   while revents == nil and errno_is(peno, "EINTR") do
-    revents, perr, peno = unix.poll(fds, timeoutms)
+    revents, perr, peno = unix.poll(fds, timeout_ms)
   end
   if not revents then
     return false, errstr(perr, "nb_connect: poll failed")
@@ -324,14 +333,15 @@ local record NetModule
   type Endpoint = net_socket.Endpoint
   type Datagram = net_socket.Datagram
   type Pair = Pair
-  socket: function(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, string
-  socketpair: function(family?: integer, socktype?: integer, protocol?: integer): Pair | nil, string
+  type SocketOptions = SocketOptions
+  socket: function(opts?: SocketOptions): Socket | nil, string
+  socketpair: function(opts?: SocketOptions): Pair | nil, string
   listen_unix: function(path: string, backlog?: integer): Socket | nil, string
-  listen_tcp: function(addr: Address, port: integer, backlog?: integer, opts?: ListenOptions): Socket | nil, string
+  listen_tcp: function(addr: Address, port: integer, opts?: ListenOptions): Socket | nil, string
   connect_unix: function(path: string): Socket | nil, string
   connect_tcp: function(addr: Address, port: integer): Socket | nil, string
   dial: function(host: string, port: integer): Socket | nil, string
-  nb_connect: function(s: Socket, addr: Address, port: integer, timeoutms?: integer): boolean, string
+  nb_connect: function(s: Socket, addr: Address, port: integer, timeout_ms?: integer): boolean, string
   gethostname: function(): string | nil, string
   interfaces: function(): {Interface} | nil, string
   AF_INET: integer

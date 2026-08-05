@@ -22,15 +22,19 @@ local errno = require("cosmic.errno")
 local stream = require("cosmic.stream")
 
 --- Structured outcome of a finished child.
---- Exactly one of `code`/`signal` is set: `code` when the child exited,
---- `signal` when a signal killed it. `ok` is true only on a zero exit.
+--- Exactly one of `code`/`signal` is set: `code` when the child
+--- exited, `signal` when a signal killed it — unless the child never
+--- started (`spawn_error` set, both nil). `ok` is true only on zero.
 local record Result
-  code: integer -- exit status; nil if signaled
+  code: integer -- exit status; nil if signaled or never started
   signal: integer -- terminating signal; nil if exited
   ok: boolean -- code == 0, and no io_error
   stdout: string
   stderr: string
   io_error: string -- a read/write/poll failure while pumping I/O; nil if none
+  --- run() only: why the child never started (the folded-in old
+  --- `Result | nil, string` union); nil once the child ran
+  spawn_error: string
 end
 
 --- Handle for a spawned process.
@@ -69,10 +73,8 @@ local record Options
   stdin: string | cfd.Handle -- string piped to stdin, or Handle -> fd 0
   stdout: cfd.Handle | childio.StdioMode -- child's fd 1, or "inherit"
   stderr: cfd.Handle | childio.StdioMode -- child's fd 2, or "inherit"
-  --- the child's exact environment, as "KEY=VALUE" entries (nil
-  --- inherits this process's). Build edited copies with
-  --- cosmic.env's `list({drop = ..., set = ...})` — the old
-  --- undocumented map shape is gone (api-review-5).
+  --- the child's exact environment as "KEY=VALUE" entries (nil
+  --- inherits); build edited copies with env.list({drop=..., set=...})
   env: {string}
   cwd: string
 end
@@ -456,16 +458,22 @@ local function spawn(argv: {string}, opts?: Options): Handle | nil, string
   return parent_handle(pid)
 end
 
---- One-shot spawn: run to completion and return the Result.
+--- One-shot spawn: run to completion and return the Result — always a
+--- Result: a child that never started is `ok = false` with the reason
+--- in `spawn_error`, so `.ok` needs no nil guard.
 --- @param argv {string} Command and arguments
 --- @param opts Options? Spawn options
---- @return Result | nil, string? The Result, or nil + error
-local function run(argv: {string}, opts?: Options): Result | nil, string
+--- @return Result spawn_error set when the spawn itself failed
+local function run(argv: {string}, opts?: Options): Result
   local h, err = spawn(argv, opts)
   if not h then
-    return nil, err
+    return {ok = false, spawn_error = err or "spawn failed", stdout = "", stderr = ""}
   end
-  return (h as Handle):wait() -- cast: record union after guard
+  local r, werr = (h as Handle):wait() -- cast: record union after guard
+  if not r then -- no timeout passed, so a reap error; same folded shape
+    return {ok = false, spawn_error = werr or "wait failed", stdout = "", stderr = ""}
+  end
+  return r as Result -- cast: record union after guard
 end
 
 local record ChildModule
@@ -477,7 +485,7 @@ local record ChildModule
 
   -- High-level spawn API
   spawn: function(argv: {string}, opts?: Options): Handle | nil, string
-  run: function(argv: {string}, opts?: Options): Result | nil, string
+  run: function(argv: {string}, opts?: Options): Result
 
   -- Zip binary helper
   prepare_zip_exec: function(zip_path: string): integer | nil, string

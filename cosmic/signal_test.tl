@@ -172,10 +172,8 @@ local function test_setitimer()
   -- Set single-shot timer: fire in 100ms, no repeat
   signal.setitimer({
       which = signal.ITIMER_REAL,
-      valuesec = 0,
-      valuens = 100000000,
-      intervalsec = 0,
-      intervalns = 0,
+      value_ms = 100,
+      interval_ms = 0,
     })
 
   -- Unblock SIGALRM to allow delivery
@@ -189,10 +187,8 @@ local function test_setitimer()
   -- Disarm timer and restore old handler
   signal.setitimer({
       which = signal.ITIMER_REAL,
-      valuesec = 0,
-      valuens = 0,
-      intervalsec = 0,
-      intervalns = 0,
+      value_ms = 0,
+      interval_ms = 0,
     })
   signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
 end
@@ -212,10 +208,8 @@ test_raise_error_names_errno()
 local function test_setitimer_error_names_errno()
   local result, err = signal.setitimer({
       which = 999999,
-      valuesec = 0,
-      valuens = 0,
-      intervalsec = 0,
-      intervalns = 0,
+      value_ms = 0,
+      interval_ms = 0,
     })
   assert(result == nil, "setitimer with bad which should return nil")
   assert(type(err) == "string" and err:match("EINVAL"),
@@ -238,10 +232,8 @@ local function test_sigsuspend_returns_eintr()
   local prev = check.must(signal.sigaction(signal.SIGALRM, function(_: number) end))
   signal.setitimer({
       which = signal.ITIMER_REAL,
-      valuesec = 0,
-      valuens = 50000000,
-      intervalsec = 0,
-      intervalns = 0,
+      value_ms = 50,
+      interval_ms = 0,
     })
   local mask = signal.sigset(signal.SIGUSR2)
   local _, err = signal.sigsuspend(mask)
@@ -249,10 +241,8 @@ local function test_sigsuspend_returns_eintr()
     "sigsuspend should return an EINTR error, got: " .. tostring(err))
   signal.setitimer({
       which = signal.ITIMER_REAL,
-      valuesec = 0,
-      valuens = 0,
-      intervalsec = 0,
-      intervalns = 0,
+      value_ms = 0,
+      interval_ms = 0,
     })
   signal.sigaction(signal.SIGALRM, prev.handler, prev.flags, prev.mask)
 end

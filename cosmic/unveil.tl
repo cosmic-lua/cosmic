@@ -52,7 +52,7 @@ end
 --- Options for `allow` / `commit`. `best_effort` turns an unsupported
 --- host into a successful no-op instead of an error — the explicit
 --- fail-open escape hatch.
-local record UnveilOptions
+local record Options
   best_effort: boolean
   --- The caller asserts the policy still permits the coverage dump,
   --- because it unveiled that directory itself. See the same field on
@@ -98,7 +98,7 @@ local unsupported < const > = "unveil unsupported on this host"
 --- @param permissions string Permission string like "r", "rw", "rwxc"
 --- @return boolean True on success
 --- @return string? Error message on failure
-local function allow(path: string, permissions: Perm, opts?: UnveilOptions): boolean, string
+local function allow(path: string, permissions: Perm, opts?: Options): boolean, string
   if not available() then
     if opts and opts.best_effort then return true end
     return false, unsupported
@@ -116,7 +116,7 @@ end
 ---
 --- @return boolean True on success
 --- @return string? Error message on failure
-local function commit(opts?: UnveilOptions): boolean, string
+local function commit(opts?: Options): boolean, string
   if not available() then
     if opts and opts.best_effort then return true end
     return false, unsupported
@@ -146,9 +146,9 @@ end
 
 local record UnveilModule
   type Perm = Perm
-  type UnveilOptions = UnveilOptions
-  allow: function(path: string, permissions: Perm, opts?: UnveilOptions): boolean, string
-  commit: function(opts?: UnveilOptions): boolean, string
+  type Options = Options
+  allow: function(path: string, permissions: Perm, opts?: Options): boolean, string
+  commit: function(opts?: Options): boolean, string
   available: function(): boolean
   apply: function(path: string, permissions: string): boolean, string
 end

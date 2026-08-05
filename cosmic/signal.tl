@@ -3,21 +3,21 @@
 local unix = require("cosmo.unix")
 local errstr = require("cosmic.errno").str
 
---- Options for setitimer: specifies which timer, initial fire time, and repeat interval.
+--- Options for setitimer: which timer, initial fire time, repeat interval.
+--- Durations are integer milliseconds (api-review-6: was four s+ns
+--- fields); 0 value_ms disarms the timer, 0 interval_ms means one-shot.
 local record SetitimerOptions
   which: integer
-  valuesec: integer
-  valuens: integer
-  intervalsec: integer
-  intervalns: integer
+  value_ms: integer
+  interval_ms: integer
 end
 
---- Result from setitimer: previous timer values.
+--- Result from setitimer: the previous timer, in the same shape.
+--- Sub-millisecond remainders round UP, so a still-armed timer never
+--- reads as the 0 that would disarm it when passed back.
 local record SetitimerResult
-  valuesec: integer
-  valuens: integer
-  intervalsec: integer
-  intervalns: integer
+  value_ms: integer
+  interval_ms: integer
 end
 
 --- Signal set for blocking, unblocking, and waiting on signals.
@@ -213,12 +213,14 @@ end
 --- Returns a SetitimerResult with previous timer values, or nil plus
 --- an error message on failure.
 local function setitimer(opts: SetitimerOptions): SetitimerResult | nil, string
+  local value_ms = opts.value_ms or 0
+  local interval_ms = opts.interval_ms or 0
   local old_isec, old_ins, old_vsec, old_vns = unix.setitimer(
     opts.which,
-    opts.intervalsec or 0,
-    opts.intervalns or 0,
-    opts.valuesec or 0,
-    opts.valuens or 0
+    math.floor(interval_ms / 1000),
+    math.floor(interval_ms % 1000) * 1000000,
+    math.floor(value_ms / 1000),
+    math.floor(value_ms % 1000) * 1000000
   )
   if old_isec == nil then
     -- On failure the binding returns (nil, err, errno): the error string
@@ -226,10 +228,8 @@ local function setitimer(opts: SetitimerOptions): SetitimerResult | nil, string
     return nil, errstr(old_ins, "setitimer")
   end
   return {
-    valuesec = old_vsec,
-    valuens = old_vns,
-    intervalsec = old_isec,
-    intervalns = old_ins,
+    value_ms = old_vsec * 1000 + math.ceil(old_vns / 1000000),
+    interval_ms = old_isec * 1000 + math.ceil(old_ins / 1000000),
   }
 end
 

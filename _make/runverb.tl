@@ -178,13 +178,12 @@ local function run(proj: Project, path: string, cosmic: string,
     return stage.verdict("run", false, "dup stdin: " .. tostring(derr))
   end
   local stdin0 = fd.wrap(dup0)
-  local r, rerr = child.run(child_argv,
+  local res = child.run(child_argv,
     {cwd = proj.root, stdout = "inherit", stderr = "inherit", stdin = stdin0})
   stdin0:close()
-  if not (r is child.Result) then
-    return stage.verdict("run", false, rerr or "cannot start")
+  if res.spawn_error then
+    return stage.verdict("run", false, res.spawn_error)
   end
-  local res = r as child.Result -- cast: narrowing does not survive the guard
   if not res.ok then
     -- The TARGET's exit code, not a verdict's: `run` is a passthrough,
     -- and a caller that branches on it is asking about the program.

@@ -433,9 +433,9 @@ local function test_the_graph_proof_and_what_unmakes_it()
       "o/.stamp/compile", "o/_types/types_gen.stamp"}) do
     assert(fs.makedirs(fs.dirname(rel)))
     assert(fs.write(rel, "x\n"))
-    assert(fs.utimensat(rel, 1000, 0, 1000, 0))
+    assert(fs.set_times(rel, {atime = {secs = 1000}, mtime = {secs = 1000}}))
   end
-  assert(fs.utimensat("db/init.tl", 500, 0, 500, 0))
+  assert(fs.set_times("db/init.tl", {atime = {secs = 500}, mtime = {secs = 500}}))
   local by_import = mdeps.index(proj)
   local db: File = nil
   local pin: File = nil
@@ -447,11 +447,11 @@ local function test_the_graph_proof_and_what_unmakes_it()
     "a fresh compile proves the check")
   assert(not mcheck.proved_by_graph(proj, pin, by_import),
     "a pin is never graph-proved: the graph never compiles it")
-  assert(fs.utimensat("db/init.tl", 2000, 0, 2000, 0))
+  assert(fs.set_times("db/init.tl", {atime = {secs = 2000}, mtime = {secs = 2000}}))
   assert(not mcheck.proved_by_graph(proj, db, by_import),
     "a source newer than its output un-proves it")
-  assert(fs.utimensat("db/init.tl", 500, 0, 500, 0))
-  assert(fs.utimensat("o/.stamp/compile", 2000, 0, 2000, 0))
+  assert(fs.set_times("db/init.tl", {atime = {secs = 500}, mtime = {secs = 500}}))
+  assert(fs.set_times("o/.stamp/compile", {atime = {secs = 2000}, mtime = {secs = 2000}}))
   assert(not mcheck.proved_by_graph(proj, db, by_import),
     "a moved compile stamp un-proves every file")
   assert(fs.chdir(cwd))
@@ -473,12 +473,12 @@ local function test_check_skips_what_the_graph_proved()
       "o/_types/types_gen.stamp"}) do
     assert(fs.makedirs(fs.dirname(rel)))
     assert(fs.write(rel, "x\n"))
-    assert(fs.utimensat(rel, 1000, 0, 1000, 0))
+    assert(fs.set_times(rel, {atime = {secs = 1000}, mtime = {secs = 1000}}))
   end
-  assert(fs.utimensat("bad.tl", 500, 0, 500, 0))
+  assert(fs.set_times("bad.tl", {atime = {secs = 500}, mtime = {secs = 500}}))
   assert(mcheck.run(proj, {}) == 0,
     "a graph-proved file must be skipped, not re-checked")
-  assert(fs.utimensat("bad.tl", 2000, 0, 2000, 0))
+  assert(fs.set_times("bad.tl", {atime = {secs = 2000}, mtime = {secs = 2000}}))
   assert(mcheck.run(proj, {}) == 1,
     "a source newer than its proof must be checked, and fail")
   assert(fs.chdir(cwd))

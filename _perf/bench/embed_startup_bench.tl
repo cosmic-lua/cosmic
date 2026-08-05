@@ -97,9 +97,8 @@ end
 --- @param bin string Binary path
 --- @return string Trimmed stdout
 local function spawn_capture(bin: string): string
-  local result, serr = child.run({bin})
-  assert(result, serr)
-  local r = result as child.Result -- cast: record union after guard
+  local r = child.run({bin})
+  assert(not r.spawn_error, r.spawn_error)
   assert(r.ok, "exit code " .. tostring(r.code) .. ": " .. tostring(r.stdout))
   return (r.stdout:gsub("%s+$", ""))
 end
@@ -127,7 +126,7 @@ local function scenarios(): {pt.Scenario}, string
   -- Build the embedded executable once: the per-op cost is its startup,
   -- not the (fixed, megabyte-scale) embed operation.
   packed_exe = fs.join(tmpdir, "packed")
-  local res = embed.run({appdir}, packed_exe, bin)
+  local res = embed.run({appdir}, {output = packed_exe, exe_path = bin})
   if not res.ok then
     return nil, "embed.run: " .. tostring(res.message)
   end

@@ -65,7 +65,7 @@ local function Example_retry()
   local result = fetch.fetch("http://127.0.0.1:" .. math.tointeger(port) .. "/", {
       allow_private = true,
       max_attempts = 2,
-      base_delay = 0.01, -- keep the example fast; default is 0.5s
+      base_delay_ms = 10, -- keep the example fast; default is 500ms
     })
   proc.wait(pid)
   print(result.status, result.body)

@@ -300,7 +300,7 @@ end
 --- @return string The version string
 local function declared_version(): string
   if fs.isfile(VERSION_PIN) then
-    local declared, derr = literal.of_file(VERSION_PIN, "version")
+    local declared, derr = literal.of_file(VERSION_PIN)
     if not declared then
       io.stderr:write("embed_gen: " .. VERSION_PIN .. ": " ..
         (derr or "cannot read") .. "; falling back to the environment\n")
@@ -341,7 +341,7 @@ end
 --- @param dest string The payload directory
 --- @return boolean, string Success, or false plus the reason
 local function write_version(dest: string): boolean, string
-  local pin, perr = literal.of_file(COSMOS_PIN, "pin")
+  local pin, perr = literal.of_file(COSMOS_PIN)
   if not pin then
     return false, COSMOS_PIN .. ": " .. (perr or "cannot read")
   end

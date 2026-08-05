@@ -128,10 +128,8 @@ local function serve(body: string, status?: integer): integer, integer
   if pid == 0 then
     signal.setitimer({
         which = signal.ITIMER_REAL,
-        valuesec = 30,
-        valuens = 0,
-        intervalsec = 0,
-        intervalns = 0,
+        value_ms = 30000,
+        interval_ms = 0,
       })
     local conn = s:accept()
     if conn then
