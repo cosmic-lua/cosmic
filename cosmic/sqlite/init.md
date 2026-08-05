@@ -19,7 +19,7 @@
  (a bare Lua string always binds as TEXT). Opening applies sensible
  per-connection defaults — a 5000ms busy timeout, foreign_keys=ON,
  and WAL journal mode with synchronous=NORMAL; each has an
- `OpenOptions` field to tune or disable it.
+ `Options` field to tune or disable it.
 
 ## Types
 
@@ -125,7 +125,7 @@ end
 
 ```teal
 local record sqlite
-  open: function(filename: string, opts?: OpenOptions): Database | nil, string
+  open: function(filename: string, opts?: Options): Database | nil, string
   blob: function(data: string): bind_mod.Blob
 end
 ```

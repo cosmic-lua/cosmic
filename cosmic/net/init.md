@@ -10,6 +10,23 @@
 
 ## Types
 
+### SocketOptions
+
+ Options for socket() and socketpair(): named fields replace the old
+ three positional magic ints (api-review-6).
+
+```teal
+local record SocketOptions
+  --  AF_INET (socket default), AF_UNIX (socketpair default).
+  family: integer
+  --  SOCK_STREAM (default) or SOCK_DGRAM, optionally OR-ed with flags
+  --  like SOCK_NONBLOCK/SOCK_CLOEXEC.
+  socktype: integer
+  --  IPPROTO_* (default 0: the family's standard protocol).
+  protocol: integer
+end
+```
+
 ### Pair
 
  A connected socket pair, as returned by socketpair(). A record
@@ -26,17 +43,37 @@ end
 
 ### ListenOptions
 
- Socket options for listen_tcp: the hidden SO_REUSEADDR is now an
- opt-out, and SO_REUSEPORT an opt-in.
+ Options for listen_tcp.
 
 ```teal
 local record ListenOptions
+  --  Maximum pending connections (default 128); the old positional
+  --  between port and the options record, folded in (api-review-6).
+  backlog: integer
   --  Set SO_REUSEADDR on the listener (default true: rebinding a
   --  just-closed address must not fail with EADDRINUSE).
   reuseaddr: boolean
   --  Set SO_REUSEPORT on the listener (default false): lets several
   --  processes bind the same addr:port and share the accept load.
   reuseport: boolean
+  --  Create a TCP socket, bind it to addr:port, and start listening.
+  --  Passing port 0 lets the OS assign an ephemeral port; read it with
+  --  getsockname().port. The address may be a dotted-quad string, a raw
+  --  integer, or an ip.Addr (0 binds all interfaces). IPv6 is not
+  --  supported.
+  --  Example — listen on an OS-assigned port:
+  --    local net = require("cosmic.net")
+  --    local srv = assert(net.listen_tcp("127.0.0.1", 0))
+  --    local port = assert(srv:getsockname()).port
+  --    local client = net.connect_tcp("127.0.0.1", port)
+  --  Amends the api-review-2 recorded decision: the (Socket, port, err)
+  --  triple's slot-3 error was invisible to `check.must` and to
+  --  `local s, err = ...` — every misuse type-checked and crashed at
+  --  runtime. Error-in-slot-2 wins over the port convenience.
+  --  was requested, read the OS-assigned port with
+  --  `s:getsockname().port` (the old (Socket, port, err) triple put the
+  --  error in slot 3, where `check.must` and `local s, err = ...` lost it)
+  addr: Address, port: integer, opts?: ListenOptions): Socket | nil, string
 end
 ```
 
@@ -55,14 +92,14 @@ end
 
 ```teal
 local record NetModule
-  socket: function(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, string
-  socketpair: function(family?: integer, socktype?: integer, protocol?: integer): Pair | nil, string
+  socket: function(opts?: SocketOptions): Socket | nil, string
+  socketpair: function(opts?: SocketOptions): Pair | nil, string
   listen_unix: function(path: string, backlog?: integer): Socket | nil, string
-  listen_tcp: function(addr: Address, port: integer, backlog?: integer, opts?: ListenOptions): Socket | nil, string
+  listen_tcp: function(addr: Address, port: integer, opts?: ListenOptions): Socket | nil, string
   connect_unix: function(path: string): Socket | nil, string
   connect_tcp: function(addr: Address, port: integer): Socket | nil, string
   dial: function(host: string, port: integer): Socket | nil, string
-  nb_connect: function(s: Socket, addr: Address, port: integer, timeoutms?: integer): boolean, string
+  nb_connect: function(s: Socket, addr: Address, port: integer, timeout_ms?: integer): boolean, string
   gethostname: function(): string | nil, string
   interfaces: function(): {Interface} | nil, string
   AF_INET: integer
@@ -142,16 +179,14 @@ end
 ### socket
 
 ```teal
-function socket(family?: integer, socktype?: integer, protocol?: integer): Socket | nil, string
+function socket(opts?: SocketOptions): Socket | nil, string
 ```
 
  Create a new socket.
 
 **Parameters:**
 
-- `family` (integer) - Address family (AF_INET, AF_UNIX). Default: AF_INET
-- `socktype` (integer) - Socket type (SOCK_STREAM, SOCK_DGRAM). Default: SOCK_STREAM
-- `protocol` (integer) - Protocol (IPPROTO_TCP, IPPROTO_UDP). Default: 0
+- `opts` (SocketOptions?) - family (default AF_INET), socktype (default SOCK_STREAM), protocol (default 0)
 
 **Returns:**
 
@@ -161,16 +196,14 @@ function socket(family?: integer, socktype?: integer, protocol?: integer): Socke
 ### socketpair
 
 ```teal
-function socketpair(family?: integer, socktype?: integer, protocol?: integer): Pair | nil, string
+function socketpair(opts?: SocketOptions): Pair | nil, string
 ```
 
  Create a pair of connected sockets.
 
 **Parameters:**
 
-- `family` (integer) - Address family (AF_UNIX). Default: AF_UNIX
-- `socktype` (integer) - Socket type (SOCK_STREAM, SOCK_DGRAM). Default: SOCK_STREAM
-- `protocol` (integer) - Protocol. Default: 0
+- `opts` (SocketOptions?) - family (default AF_UNIX), socktype (default SOCK_STREAM), protocol (default 0)
 
 **Returns:**
 
@@ -258,7 +291,7 @@ function dial(host: string, port: integer): Socket | nil, string
 ### listen_tcp
 
 ```teal
-function listen_tcp(addr: Address, port: integer, backlog?: integer, opts?: ListenOptions): Socket | nil, string
+function listen_tcp(addr: Address, port: integer, opts?: ListenOptions): Socket | nil, string
 ```
 
  Create a TCP socket, bind it to addr:port, and start listening.
@@ -283,8 +316,7 @@ function listen_tcp(addr: Address, port: integer, backlog?: integer, opts?: List
 
 - `addr` (Address) - Local IPv4 address to bind ("127.0.0.1", "0.0.0.0" for all)
 - `port` (integer) - Local port to bind; use 0 for an OS-assigned ephemeral port
-- `backlog` (integer) - Maximum pending connections (default 128)
-- `opts` (ListenOptions?) - Socket options (reuseaddr default true, reuseport default false)
+- `opts` (ListenOptions?) - backlog (default 128), reuseaddr (default true), reuseport (default false)
 
 **Returns:**
 
@@ -294,12 +326,12 @@ function listen_tcp(addr: Address, port: integer, backlog?: integer, opts?: List
 ### nb_connect
 
 ```teal
-function nb_connect(s: Socket, addr: Address, port: integer, timeoutms?: integer): boolean, string
+function nb_connect(s: Socket, addr: Address, port: integer, timeout_ms?: integer): boolean, string
 ```
 
  Connect with a bounded wait instead of blocking indefinitely.
  Switches the socket to non-blocking mode (via Socket:set_nonblocking),
- starts the connect, and polls for completion up to timeoutms. The
+ starts the connect, and polls for completion up to timeout_ms. The
  socket remains in non-blocking mode afterwards; call
  s:set_nonblocking(false) to restore blocking I/O.
 
@@ -308,7 +340,7 @@ function nb_connect(s: Socket, addr: Address, port: integer, timeoutms?: integer
 - `s` (Socket) - The socket to connect
 - `addr` (Address) - Remote IPv4 address
 - `port` (integer) - Remote port
-- `timeoutms` (integer) - Timeout in milliseconds (default 10000)
+- `timeout_ms` (integer) - Timeout in milliseconds (default 10000)
 
 **Returns:**
 

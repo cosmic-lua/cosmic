@@ -62,13 +62,12 @@ local record Memory
   fetch_xor: function(self: Memory, word_index: integer, value: integer): integer | nil, string
   --  Wait until the word no longer holds `expect`. Returns 0 when
   --  woken; nil plus an error naming EAGAIN (value already differed)
-  --  or ETIMEDOUT (deadline expired). The deadline is an ABSOLUTE
-  --  CLOCK_REALTIME time — whole seconds in `abs_deadline` plus
-  --  nanoseconds in `nanos` (e.g. from time.now()); omit both to wait
-  --  forever. A wait interrupted by a signal is retried
-  --  automatically; the absolute deadline keeps the timeout exact
-  --  across retries.
-  wait: function(self: Memory, word_index: integer, expect: integer, abs_deadline?: integer, nanos?: integer): integer | nil, string
+  --  or ETIMEDOUT (timeout expired). `timeout_ms` is a RELATIVE
+  --  timeout in integer milliseconds (api-review-6: was an absolute
+  --  s+ns deadline pair); omit it to wait forever. A wait interrupted
+  --  by a signal is retried automatically — the deadline is computed
+  --  once, up front, so retries keep the timeout exact.
+  wait: function(self: Memory, word_index: integer, expect: integer, timeout_ms?: integer): integer | nil, string
   --  Wake processes waiting on a word; returns how many woke.
   --  Wakes nothing once the region has been unmapped.
   wake: function(self: Memory, word_index: integer, count?: integer): integer | nil, string
@@ -198,7 +197,7 @@ function mem:cmpxchg(word_index: integer, old: integer, new: integer): Cmpxchg |
 ### mem:wait
 
 ```teal
-function mem:wait(word_index: integer, expect: integer, abs_deadline?: integer, nanos?: integer): integer | nil, string
+function mem:wait(word_index: integer, expect: integer, timeout_ms?: integer): integer | nil, string
 ```
 
 ### mem:wake

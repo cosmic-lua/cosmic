@@ -40,12 +40,31 @@ local record Token
 end
 ```
 
+### Options
+
+ Options for of_source/of_file: how errors talk about the file.
+ (api-review-6: these were two message-wording positionals. The
+ field is `file`, not `where`: `where` opens a record invariant
+ clause in Teal and cannot name a field.)
+
+```teal
+local record Options
+  --  File name to prefix messages with (of_source only — of_file
+  --  always uses the path it read). Default "literal".
+  file: string
+  --  What to call the file in errors — `cosmic --make` reads pins with
+  --  noun "pin", so the same grammar complains about "a pin". Default
+  --  "literal".
+  noun: string
+end
+```
+
 ### LiteralModule
 
 ```teal
 local record LiteralModule
-  of_source: function(source: string, where: string, noun?: string): {string: any} | nil, string
-  of_file: function(path: string, noun?: string): {string: any} | nil, string
+  of_source: function(source: string, opts?: Options): {string: any} | nil, string
+  of_file: function(path: string, opts?: Options): {string: any} | nil, string
 end
 ```
 
@@ -54,7 +73,7 @@ end
 ### of_source
 
 ```teal
-function of_source(source: string, where: string, noun?: string): {string: any} | nil, string
+function of_source(source: string, opts?: Options): {string: any} | nil, string
 ```
 
  Read the literal a file returns, without running it.
@@ -62,8 +81,7 @@ function of_source(source: string, where: string, noun?: string): {string: any} 
 **Parameters:**
 
 - `source` (string) - The file's contents
-- `where` (string) - File name, for messages
-- `noun` (string|nil) - What to call the file in errors (default "literal")
+- `opts` (Options?) - where: file name for messages; noun: file kind in errors
 
 **Returns:**
 
@@ -73,7 +91,7 @@ function of_source(source: string, where: string, noun?: string): {string: any} 
 ### of_file
 
 ```teal
-function of_file(path: string, noun?: string): {string: any} | nil, string
+function of_file(path: string, opts?: Options): {string: any} | nil, string
 ```
 
  Read a file as a literal table, without running it.
@@ -81,7 +99,7 @@ function of_file(path: string, noun?: string): {string: any} | nil, string
 **Parameters:**
 
 - `path` (string) - Path to the file
-- `noun` (string|nil) - What to call the file in errors (default "literal")
+- `opts` (Options?) - noun: file kind in errors (where is always the path)
 
 **Returns:**
 

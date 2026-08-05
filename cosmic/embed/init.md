@@ -49,6 +49,11 @@
 
 ```teal
 local record Options
+  --  Output path for the new executable (default "cosmic").
+  output: string
+  --  Path to the source executable to copy (default arg[-1], the
+  --  running binary).
+  exe_path: string
   --  Strip the base executable down to the floor (cosmic.embed.floor)
   --  before adding the caller's files. Everything the base carried
   --  that is not on the floor is a tool for BUILDING programs, not a
@@ -139,7 +144,7 @@ end
 local record EmbedModule
   EPOCH: integer
   FLOOR: {string}
-  run: function(paths: {string}, output?: string, exe_path?: string, opts?: Options): EmbedResult
+  run: function(paths: {string}, opts?: Options): EmbedResult
   extract: function(output_dir: string, exe_path?: string): EmbedResult
   unsafe_entry: function(name: string): boolean
 end
@@ -150,8 +155,7 @@ end
 ### run
 
 ```teal
-function run(paths: {string}, output?: string, exe_path?: string,
-    opts?: Options): EmbedResult
+function run(paths: {string}, opts?: Options): EmbedResult
 ```
 
  Embed files and directories into a copy of the cosmic executable.
@@ -163,9 +167,7 @@ function run(paths: {string}, output?: string, exe_path?: string,
 **Parameters:**
 
 - `paths` ({string}) - List of file or directory paths to embed
-- `output` (string) - Output path for the new executable (defaults to "cosmic")
-- `exe_path` (string) - Path to the source executable (defaults to arg[-1])
-- `opts` (Options) - Stripping and reproducibility (both off by default)
+- `opts` (Options?) - output, exe_path, stripping, reproducibility
 
 **Returns:**
 

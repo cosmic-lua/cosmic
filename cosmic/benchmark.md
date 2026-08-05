@@ -50,14 +50,19 @@ end
 
 ```teal
 local record Options
-  --  Minimum calibrated duration per benchmark, in seconds. Defaults to
-  --  DEFAULT_MIN_SECONDS (Go's 1s convention) when unset. A real
-  --  timing measurement should leave this at the default; a test of
-  --  the RUNNER itself (discovery, naming, iteration counting,
+  --  Run only benchmarks whose name contains this SUBSTRING, matched
+  --  plainly (e.g. "concat" matches Benchmark_string_concat). Folded in
+  --  from the old positional between the path and the options
+  --  (api-review-6).
+  filter: string
+  --  Minimum calibrated duration per benchmark, in integer
+  --  milliseconds. Defaults to 1000 (Go's 1s convention) when unset. A
+  --  real timing measurement should leave this at the default; a test
+  --  of the RUNNER itself (discovery, naming, iteration counting,
   --  formatting, error handling) is the intended user of a small
   --  value here, since 1s of looping proves nothing a 10ms run
   --  doesn't.
-  min_seconds: number
+  min_ms: integer
 end
 ```
 
@@ -65,7 +70,7 @@ end
 
 ```teal
 local record BenchmarkModule
-  run: function(file_path: string, filter?: string, opts?: Options): RunResult
+  run: function(file_path: string, opts?: Options): RunResult
   parse_benchmarks: function(source: string): {Benchmark}
   format_results: function(file_path: string, run_result: RunResult): string
 end
@@ -93,17 +98,16 @@ function parse_benchmarks(source: string): {Benchmark}
 ### run
 
 ```teal
-function run(file_path: string, filter?: string, opts?: Options): RunResult
+function run(file_path: string, opts?: Options): RunResult
 ```
 
- Run all benchmarks in a file, optionally filtered by pattern.
+ Run all benchmarks in a file, optionally filtered.
  Parses and executes Benchmark_* functions, returning aggregated results.
 
 **Parameters:**
 
 - `file_path` (string) - Path to the Teal file containing benchmarks
-- `filter` (string) - Optional SUBSTRING of the benchmark name, matched plainly (e.g. "concat" matches Benchmark_string_concat)
-- `opts` (Options?) - Run options; see Options.min_seconds
+- `opts` (Options?) - filter substring and min_ms calibration floor
 
 **Returns:**
 

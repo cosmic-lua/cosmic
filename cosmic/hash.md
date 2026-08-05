@@ -22,13 +22,13 @@
 
 ## Types
 
-### HashOptions
+### PasswordOptions
 
  Options for password hashing with Argon2.
  All fields are optional and have sensible defaults.
 
 ```teal
-local record HashOptions
+local record PasswordOptions
   --  Memory cost in kibibytes (default: 19456, i.e. 19 MiB per OWASP minimum)
   m_cost: integer
   --  Time cost / iterations (default: 3)
@@ -52,7 +52,7 @@ local record HashModule
   sha256_hex: function(data: string): string
   hmac_sha256: function(key: string, data: string): string | nil, string
   constant_time_equal: function(a: string, b: string): boolean
-  password: function(pwd: string, options?: HashOptions): string | nil, string
+  password: function(pwd: string, opts?: PasswordOptions): string | nil, string
   verify_password: function(encoded: string, pwd: string): boolean, string
 end
 ```
@@ -185,7 +185,7 @@ function constant_time_equal(a: string, b: string): boolean
 ### password
 
 ```teal
-function password(pwd: string, options?: HashOptions): string | nil, string
+function password(pwd: string, opts?: PasswordOptions): string | nil, string
 ```
 
  Hash a password using Argon2.
@@ -194,7 +194,7 @@ function password(pwd: string, options?: HashOptions): string | nil, string
 **Parameters:**
 
 - `pwd` (string) - The password to hash
-- `options` (HashOptions?) - Optional configuration for the hash
+- `opts` (PasswordOptions?) - Optional configuration for the hash
 
 **Returns:**
 

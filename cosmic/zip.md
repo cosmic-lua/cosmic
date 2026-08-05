@@ -26,10 +26,10 @@ end
 
 ```teal
 local record ZipModule
-  reader: function(path: string | integer, options?: OpenOptions): Reader | nil, string
-  writer: function(path: string | integer, options?: OpenOptions): Writer | nil, string
-  appender: function(path: string, options?: OpenOptions): Appender | nil, string
-  from: function(data: string, options?: OpenOptions): Reader | nil, string
+  reader: function(path: string | integer, opts?: OpenOptions): Reader | nil, string
+  writer: function(path: string | integer, opts?: OpenOptions): Writer | nil, string
+  appender: function(path: string, opts?: OpenOptions): Appender | nil, string
+  from: function(data: string, opts?: OpenOptions): Reader | nil, string
   extract: function(r: Reader, destdir: string, opts?: ExtractOptions): boolean, string
 end
 ```
@@ -39,7 +39,7 @@ end
 ### reader
 
 ```teal
-function reader(path: string | integer, options?: OpenOptions): Reader | nil, string
+function reader(path: string | integer, opts?: OpenOptions): Reader | nil, string
 ```
 
  Open a ZIP archive for reading.
@@ -47,7 +47,7 @@ function reader(path: string | integer, options?: OpenOptions): Reader | nil, st
 **Parameters:**
 
 - `path` (string|integer) - File path or file descriptor
-- `options` (OpenOptions?) - Size limits
+- `opts` (OpenOptions?) - Size limits
 
 **Returns:**
 
@@ -57,7 +57,7 @@ function reader(path: string | integer, options?: OpenOptions): Reader | nil, st
 ### writer
 
 ```teal
-function writer(path: string | integer, options?: OpenOptions): Writer | nil, string
+function writer(path: string | integer, opts?: OpenOptions): Writer | nil, string
 ```
 
  Create a new ZIP archive for writing. Any existing file is truncated.
@@ -65,7 +65,7 @@ function writer(path: string | integer, options?: OpenOptions): Writer | nil, st
 **Parameters:**
 
 - `path` (string|integer) - File path or file descriptor
-- `options` (OpenOptions?) - Compression level and size limits
+- `opts` (OpenOptions?) - Compression level and size limits
 
 **Returns:**
 
@@ -75,7 +75,7 @@ function writer(path: string | integer, options?: OpenOptions): Writer | nil, st
 ### appender
 
 ```teal
-function appender(path: string, options?: OpenOptions): Appender | nil, string
+function appender(path: string, opts?: OpenOptions): Appender | nil, string
 ```
 
  Open a ZIP archive for appending, creating it if it does not exist.
@@ -85,7 +85,7 @@ function appender(path: string, options?: OpenOptions): Appender | nil, string
 **Parameters:**
 
 - `path` (string) - File path
-- `options` (OpenOptions?) - Compression level and size limits
+- `opts` (OpenOptions?) - Compression level and size limits
 
 **Returns:**
 
@@ -95,7 +95,7 @@ function appender(path: string, options?: OpenOptions): Appender | nil, string
 ### from
 
 ```teal
-function from(data: string, options?: OpenOptions): Reader | nil, string
+function from(data: string, opts?: OpenOptions): Reader | nil, string
 ```
 
  Open a ZIP archive from in-memory data for reading.
@@ -103,7 +103,7 @@ function from(data: string, options?: OpenOptions): Reader | nil, string
 **Parameters:**
 
 - `data` (string) - The ZIP archive data
-- `options` (OpenOptions?) - Size limits
+- `opts` (OpenOptions?) - Size limits
 
 **Returns:**
 

@@ -20,12 +20,12 @@
 
 ## Types
 
-### EncodeOptions
+### Options
 
  Options accepted by encode(). All fields are optional.
 
 ```teal
-local record EncodeOptions
+local record Options
   --  Format across multiple lines for readability (default false).
   pretty: boolean
   --  Sort object keys for deterministic output (default true). Setting
@@ -46,7 +46,7 @@ end
 ```teal
 local record JsonModule
   decode: function(str: string): any, string
-  encode: function(value: any, options?: EncodeOptions): string | nil, string
+  encode: function(value: any, opts?: Options): string | nil, string
   array: function(t?: {any}): {any}
 end
 ```
@@ -77,7 +77,7 @@ function decode(str: string): any, string
 ### encode
 
 ```teal
-function encode(value: any, options?: EncodeOptions): string | nil, string
+function encode(value: any, opts?: Options): string | nil, string
 ```
 
  Encode a Lua value as a JSON string.
@@ -89,7 +89,7 @@ function encode(value: any, options?: EncodeOptions): string | nil, string
 **Parameters:**
 
 - `value` (any) - The Lua value to encode
-- `options` (EncodeOptions?) - pretty, sorted, indent, maxdepth, nan
+- `opts` (Options?) - pretty, sorted, indent, maxdepth, nan
 
 **Returns:**
 

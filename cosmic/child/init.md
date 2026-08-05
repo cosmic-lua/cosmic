@@ -22,8 +22,9 @@
 ### Result
 
  Structured outcome of a finished child.
- Exactly one of `code`/`signal` is set: `code` when the child exited,
- `signal` when a signal killed it. `ok` is true only on a zero exit.
+ Exactly one of `code`/`signal` is set: `code` when the child
+ exited, `signal` when a signal killed it — unless the child never
+ started (`spawn_error` set, both nil). `ok` is true only on zero.
 
 ```teal
 local record Result
@@ -33,6 +34,9 @@ local record Result
   stdout: string
   stderr: string
   io_error: string
+  --  run() only: why the child never started (the folded-in old
+  --  `Result | nil, string` union); nil once the child ran
+  spawn_error: string
 end
 ```
 
@@ -74,10 +78,8 @@ local record Options
   stdin: string | cfd.Handle
   stdout: cfd.Handle | childio.StdioMode
   stderr: cfd.Handle | childio.StdioMode
-  --  the child's exact environment, as "KEY=VALUE" entries (nil
-  --  inherits this process's). Build edited copies with
-  --  cosmic.env's `list({drop = ..., set = ...})` — the old
-  --  undocumented map shape is gone (api-review-5).
+  --  the child's exact environment as "KEY=VALUE" entries (nil
+  --  inherits); build edited copies with env.list({drop=..., set=...})
   env: {string}
   cwd: string
 end
@@ -88,7 +90,7 @@ end
 ```teal
 local record ChildModule
   spawn: function(argv: {string}, opts?: Options): Handle | nil, string
-  run: function(argv: {string}, opts?: Options): Result | nil, string
+  run: function(argv: {string}, opts?: Options): Result
   prepare_zip_exec: function(zip_path: string): integer | nil, string
 end
 ```
@@ -136,10 +138,12 @@ function spawn(argv: {string}, opts?: Options): Handle | nil, string
 ### run
 
 ```teal
-function run(argv: {string}, opts?: Options): Result | nil, string
+function run(argv: {string}, opts?: Options): Result
 ```
 
- One-shot spawn: run to completion and return the Result.
+ One-shot spawn: run to completion and return the Result — always a
+ Result: a child that never started is `ok = false` with the reason
+ in `spawn_error`, so `.ok` needs no nil guard.
 
 **Parameters:**
 
@@ -148,7 +152,7 @@ function run(argv: {string}, opts?: Options): Result | nil, string
 
 **Returns:**
 
-- Result - | nil, string? The Result, or nil + error
+- Result - spawn_error set when the spawn itself failed
 
 ### handle:kill
 

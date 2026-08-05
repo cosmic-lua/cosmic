@@ -7,28 +7,28 @@
 
 ### SetitimerOptions
 
- Options for setitimer: specifies which timer, initial fire time, and repeat interval.
+ Options for setitimer: which timer, initial fire time, repeat interval.
+ Durations are integer milliseconds (api-review-6: was four s+ns
+ fields); 0 value_ms disarms the timer, 0 interval_ms means one-shot.
 
 ```teal
 local record SetitimerOptions
   which: integer
-  valuesec: integer
-  valuens: integer
-  intervalsec: integer
-  intervalns: integer
+  value_ms: integer
+  interval_ms: integer
 end
 ```
 
 ### SetitimerResult
 
- Result from setitimer: previous timer values.
+ Result from setitimer: the previous timer, in the same shape.
+ Sub-millisecond remainders round UP, so a still-armed timer never
+ reads as the 0 that would disarm it when passed back.
 
 ```teal
 local record SetitimerResult
-  valuesec: integer
-  valuens: integer
-  intervalsec: integer
-  intervalns: integer
+  value_ms: integer
+  interval_ms: integer
 end
 ```
 
