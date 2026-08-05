@@ -100,7 +100,7 @@ test_regex_search_no_match_no_error()
 -- search convenience function tests
 
 local function test_search_simple()
-  local result, caps, err = re.search("world", "hello world")
+  local result, caps, err = re.match("hello world", "world")
   assert(err == nil, "expected no error, got: " .. tostring(err))
   assert(result == "world", "expected 'world', got '" .. tostring(result) .. "'")
   local c = check.must(caps)
@@ -110,7 +110,7 @@ test_search_simple()
 
 local function test_search_no_match()
   -- No match is not an error: a bare nil, no captures, no error message.
-  local result, caps, err = re.search("xyz", "hello world")
+  local result, caps, err = re.match("hello world", "xyz")
   assert(result == nil, "expected nil for no match")
   assert(caps == nil, "expected nil captures for no match")
   assert(err == nil, "expected no error for no match")
@@ -118,7 +118,7 @@ end
 test_search_no_match()
 
 local function test_search_invalid_pattern()
-  local result, caps, err = re.search("[invalid", "hello world")
+  local result, caps, err = re.match("hello world", "[invalid")
   assert(result == nil, "expected nil for invalid pattern")
   assert(caps == nil, "expected nil captures for invalid pattern")
   assert(err ~= nil, "expected error message")
@@ -127,7 +127,7 @@ end
 test_search_invalid_pattern()
 
 local function test_search_captures()
-  local result, caps, err = re.search("([0-9]+)-([a-z]+)", "id 42-abc!")
+  local result, caps, err = re.match("id 42-abc!", "([0-9]+)-([a-z]+)")
   assert(err == nil, "expected no error, got: " .. tostring(err))
   assert(result == "42-abc", "expected '42-abc', got '" .. tostring(result) .. "'")
   local c = check.must(caps, "expected captures table")
@@ -138,7 +138,7 @@ end
 test_search_captures()
 
 local function test_search_nonparticipating_group()
-  local result, caps = re.search("(aa)|(bb)", "xxaaxx")
+  local result, caps = re.match("xxaaxx", "(aa)|(bb)")
   assert(result == "aa", "expected 'aa', got '" .. tostring(result) .. "'")
   local c = check.must(caps)
   assert(#c == 2, "expected 2 capture slots, got " .. tostring(#c))
@@ -148,22 +148,22 @@ end
 test_search_nonparticipating_group()
 
 local function test_search_regex_metacharacters()
-  local result = re.search("h.llo", "hello")
+  local result = re.match("hello", "h.llo")
   assert(result == "hello", "expected 'hello', got '" .. tostring(result) .. "'")
 end
 test_search_regex_metacharacters()
 
 local function test_search_quantifiers()
-  local result = re.search("he+llo", "heeeello world")
+  local result = re.match("heeeello world", "he+llo")
   assert(result == "heeeello", "expected 'heeeello', got '" .. tostring(result) .. "'")
 end
 test_search_quantifiers()
 
 local function test_search_optional()
-  local result = re.search("colou?r", "color")
+  local result = re.match("color", "colou?r")
   assert(result == "color", "expected 'color', got '" .. tostring(result) .. "'")
 
-  result = re.search("colou?r", "colour")
+  result = re.match("colour", "colou?r")
   assert(result == "colour", "expected 'colour', got '" .. tostring(result) .. "'")
 end
 test_search_optional()
@@ -171,21 +171,21 @@ test_search_optional()
 -- match convenience function tests
 
 local function test_match_true()
-  local result, err = re.test("world", "hello world")
+  local result, err = re.test("hello world", "world")
   assert(err == nil, "expected no error")
   assert(result == true, "expected true for matching pattern")
 end
 test_match_true()
 
 local function test_match_false()
-  local result, err = re.test("xyz", "hello world")
+  local result, err = re.test("hello world", "xyz")
   assert(err == nil, "expected no error")
   assert(result == false, "expected false for non-matching pattern")
 end
 test_match_false()
 
 local function test_match_invalid_pattern()
-  local result, err = re.test("[invalid", "hello world")
+  local result, err = re.test("hello world", "[invalid")
   assert(result == false, "expected false for invalid pattern")
   assert(err ~= nil, "expected error message")
 end
@@ -195,11 +195,11 @@ test_match_invalid_pattern()
 
 local function test_icase_flag()
   -- Without ICASE, should not match
-  local result = re.search("HELLO", "hello world")
+  local result = re.match("hello world", "HELLO")
   assert(result == nil, "expected nil without ICASE flag")
 
   -- With ICASE, should match
-  result = re.search("HELLO", "hello world", re.ICASE)
+  result = re.match("hello world", "HELLO", re.ICASE)
   assert(result == "hello", "expected 'hello' with ICASE flag, got '" .. tostring(result) .. "'")
 end
 test_icase_flag()
@@ -226,34 +226,34 @@ test_flags_exist()
 -- edge case tests
 
 local function test_empty_pattern()
-  local result = re.search("", "hello")
+  local result = re.match("hello", "")
   -- Empty pattern matches empty string at start
   assert(result == "", "expected empty string match, got '" .. tostring(result) .. "'")
 end
 test_empty_pattern()
 
 local function test_empty_text()
-  local result = re.search("hello", "")
+  local result = re.match("", "hello")
   assert(result == nil, "expected nil for empty text")
 end
 test_empty_text()
 
 local function test_full_match()
-  local result = re.search("^hello world$", "hello world")
+  local result = re.match("hello world", "^hello world$")
   assert(result == "hello world", "expected full match")
 end
 test_full_match()
 
 local function test_special_characters()
   -- Dot matches any character
-  local result = re.search("a.c", "abc")
+  local result = re.match("abc", "a.c")
   assert(result == "abc", "expected 'abc', got '" .. tostring(result) .. "'")
 end
 test_special_characters()
 
 local function test_escaped_special_characters()
   -- Escaped dot matches literal dot
-  local result = re.search("a\\.c", "a.c")
+  local result = re.match("a.c", "a\\.c")
   assert(result == "a.c", "expected 'a.c', got '" .. tostring(result) .. "'")
 end
 test_escaped_special_characters()

@@ -116,7 +116,7 @@ local function encode_pairs(params: {string: string}): string
   table.sort(keys)
   local out: {string} = {}
   for _, k in ipairs(keys) do
-    table.insert(out, url_mod.encode(k) .. "=" .. url_mod.encode(params[k]))
+    table.insert(out, url_mod.escape_param(k) .. "=" .. url_mod.escape_param(params[k]))
   end
   return table.concat(out, "&")
 end

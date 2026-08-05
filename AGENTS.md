@@ -110,10 +110,10 @@ common mappings:
 | `cosmo.Barf(path, data)` | `require("cosmic.fs").write(path, data)` |
 | `cosmo.Slurp(path)` | `require("cosmic.fs").read(path)` |
 | `cosmo.path.join(...)` | `require("cosmic.fs").join(...)` |
-| `cosmo.path.isfile(p)` | `require("cosmic.fs").isfile(p)` |
-| `cosmo.unix.mkdtemp(t)` | `require("cosmic.fs").mkdtemp(t)` |
-| `cosmo.unix.rmrf(p)` | `require("cosmic.fs").rmrf(p)` |
-| `cosmo.unix.makedirs(p)` | `require("cosmic.fs").makedirs(p)` |
+| `cosmo.path.isfile(p)` | `require("cosmic.fs").is_file(p)` |
+| `cosmo.unix.mkdtemp(t)` | `require("cosmic.fs").temp_dir(t)` |
+| `cosmo.unix.rmrf(p)` | `require("cosmic.fs").remove_all(p)` |
+| `cosmo.unix.makedirs(p)` | `require("cosmic.fs").make_dirs(p)` |
 | `cosmo.unix.chmod(p, m)` | `require("cosmic.fs").chmod(p, m)` |
 | `cosmo.DecodeJson(s)` | `require("cosmic.json").decode(s)` |
 | `cosmo.EncodeJson(v)` | `require("cosmic.json").encode(v)` |
@@ -363,7 +363,7 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 | embed | create custom executables with embedded files |
 | env | environment variable get (nil when unset), get_or, set/unset |
 | envd | load environment variables from embedded env.d directory |
-| errno | canonical errno formatting (`str`) and lookup helpers (`is`, `code`, `constants`) for `cosmo.unix` failures |
+| errno | canonical errno formatting (`wrap`) and lookup helpers (`is`, `code`, `constants`) for `cosmo.unix` failures |
 | example | example runner with `Example_*` functions |
 | fetch | HTTP client with retry support |
 | flags | declarative command-line flag parsing with generated --help |

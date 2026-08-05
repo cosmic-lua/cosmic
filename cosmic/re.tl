@@ -1,8 +1,11 @@
 --- Regular expression matching using POSIX extended regex syntax.
---- Wraps cosmo.re for pattern compilation and searching.
+--- Wraps cosmo.re for pattern compilation and matching. Module-level
+--- functions are SUBJECT-FIRST (D20): match(text, pattern), like
+--- string.match. The compiled Regex keeps the binding's own :search
+--- method name — a userdata metatable is the C layer's to name.
 ---
 --- For best performance, compile patterns once and reuse them.
---- The search() convenience function compiles on each call (O(2^n) complexity).
+--- The match() convenience function compiles on each call.
 local re = require("cosmo.re")
 
 --- A compiled regular expression pattern.
@@ -41,21 +44,21 @@ local function compile(pattern: string, flags?: integer): Regex | nil, string
   return result as Regex -- cast: userdata boundary
 end
 
---- Search for pattern match in text (convenience function).
---- Compiles pattern on each call - use compile() for repeated searches.
+--- Match pattern against text (convenience function; subject first).
+--- Compiles pattern on each call - use compile() for repeated matching.
 --- Uses POSIX extended syntax by default.
 --- On a match, returns the matched substring plus a table of the
 --- parenthesized capture groups (an empty table when the pattern has no
 --- groups, "" for groups that did not participate). A no-match returns
 --- nil with no error; a bad pattern or an engine failure returns
 --- nil, nil, err.
---- @param pattern string The regex pattern to search for
 --- @param text string The text to search in
+--- @param pattern string The regex pattern to match
 --- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE, NOSUB
 --- @return string | nil The matched substring, or nil on no match or error
 --- @return {string} | nil Capture groups on match
 --- @return string | nil Error message if compilation or the engine failed
-local function search(pattern: string, text: string, flags?: integer): string | nil, {string} | nil, string | nil
+local function match(text: string, pattern: string, flags?: integer): string | nil, {string} | nil, string | nil
   local regex, cerr = compile(pattern, flags)
   if regex is Regex then
     -- Search flags (NOTBOL/NOTEOL) are not passed here; use compile() + :search() for those
@@ -73,22 +76,24 @@ local function search(pattern: string, text: string, flags?: integer): string | 
   return nil, nil, cerr
 end
 
---- Check if pattern matches anywhere in text.
---- Convenience function that returns boolean instead of matched text.
---- Named test (not match) to avoid confusion with Lua's string.match,
---- which returns the matched text.
---- @param pattern string The regex pattern to match
+--- Check if pattern matches anywhere in text (subject first).
+--- Convenience predicate returning boolean instead of matched text.
 --- @param text string The text to search in
+--- @param pattern string The regex pattern to match
 --- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE, NOSUB
 --- @return boolean True if pattern matches, false otherwise
 --- @return string? Error message if compilation or the engine failed
-local function test(pattern: string, text: string, flags?: integer): boolean, string
-  local m, _, err = search(pattern, text, flags)
+local function test(text: string, pattern: string, flags?: integer): boolean, string
+  local m, _, err = match(text, pattern, flags)
   if err then
     return false, err
   end
   return m ~= nil
 end
+
+--- Iterator yielded by gmatch: each call returns the next match and
+--- its capture table, then nil when exhausted.
+local type MatchIterator = function(): string, {string}
 
 --- A located match: absolute 1-based start/stop, the matched text,
 --- and its capture groups.
@@ -116,7 +121,7 @@ end
 --- is not a silent undercount: all_matches gives up entirely (its
 --- caller sees nil, "failed to locate ..."/a short match count)
 --- as soon as a NEWLINE-anchored match past the first line is hit.
---- See findall's doc for the concrete case. A fix needs the
+--- See find_all's doc for the concrete case. A fix needs the
 --- verification window widened to include that neighboring byte,
 --- which reintroduces its own edge case (an off-by-one window can
 --- itself contain another literal occurrence of m); not attempted here.
@@ -186,48 +191,95 @@ local function all_matches(regex: Regex, text: string): {Span} | nil, string
   return spans
 end
 
---- Find every non-overlapping match of pattern in text, leftmost
---- first. Patterns that can match the empty string are rejected.
----
---- KNOWN LIMITATION with the NEWLINE flag: `^`/`$` anchors that only
---- match via an embedded newline (not the true start/end of text) fail
---- to be re-confirmed past the first line (see locate's doc), so
---- findall("^foo", "foo\nfoo", re.NEWLINE) returns nil, "failed to
---- locate match position for: foo" instead of {"foo", "foo"} -- use
---- split("\n", text) plus a per-line match instead when this matters.
---- @param pattern string The regex pattern to match
+--- Find the first match of pattern in text, with its position: a Span
+--- {s, e, m, caps} (absolute 1-based, inclusive). A no-match returns
+--- bare nil; a bad pattern or engine failure returns nil, err.
+--- Patterns that can match the empty string are rejected.
 --- @param text string The text to search in
+--- @param pattern string The regex pattern to match
 --- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE
---- @return {string} | nil The matched substrings (empty when none), or nil on error
+--- @return Span | nil The first match, or nil when none
 --- @return string? Error message on a bad pattern or engine failure
-local function findall(pattern: string, text: string, flags?: integer): {string} | nil, string
+local function find(text: string, pattern: string, flags?: integer): Span | nil, string
   local regex, cerr = compile_for_iter(pattern, flags)
   if not regex then
     return nil, cerr
   end
-  local spans, err = all_matches(regex, text)
+  local m, caps = (regex as Regex):search(text) -- cast: record union after guard
+  if not m then
+    if caps then
+      return nil, tostring(caps)
+    end
+    return nil
+  end
+  local start = locate(regex as Regex, text, 1, m) -- cast: record union after guard
+  if not start then
+    return nil, "failed to locate match position for: " .. m
+  end
+  return {s = start, e = start + #m - 1, m = m, caps = caps}
+end
+
+--- Every non-overlapping match of pattern in text, leftmost first, as
+--- Spans. Patterns that can match the empty string are rejected.
+---
+--- KNOWN LIMITATION with the NEWLINE flag: `^`/`$` anchors that only
+--- match via an embedded newline (not the true start/end of text) fail
+--- to be re-confirmed past the first line (see locate's doc), so
+--- find_all("foo\nfoo", "^foo", re.NEWLINE) returns nil, "failed to
+--- locate match position for: foo" instead of two spans -- use
+--- split plus a per-line match instead when this matters.
+--- @param text string The text to search in
+--- @param pattern string The regex pattern to match
+--- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE
+--- @return {Span} | nil The matches (empty when none), or nil on error
+--- @return string? Error message on a bad pattern or engine failure
+local function find_all(text: string, pattern: string, flags?: integer): {Span} | nil, string
+  local regex, cerr = compile_for_iter(pattern, flags)
+  if not regex then
+    return nil, cerr
+  end
+  return all_matches(regex as Regex, text) -- cast: record union after guard
+end
+
+--- Iterate every non-overlapping match, like string.gmatch: each step
+--- yields the matched text and its capture table. Matching is done up
+--- front (the engine reports no offsets, so lazy stepping buys
+--- nothing); a bad pattern or engine failure returns nil, err instead
+--- of an iterator. Shares find_all's NEWLINE limitation.
+--- @param text string The text to search in
+--- @param pattern string The regex pattern to match
+--- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE
+--- @return function | nil Iterator yielding (match, caps), or nil on error
+--- @return string? Error message on a bad pattern or engine failure
+local function gmatch(text: string, pattern: string, flags?: integer): MatchIterator, string
+  local spans, err = find_all(text, pattern, flags)
   if not spans then
     return nil, err
   end
-  local out: {string} = {}
-  for i, sp in ipairs(spans as {Span}) do -- cast: record union after guard
-    out[i] = sp.m
+  local i = 0
+  local iter: MatchIterator = function(): string, {string}
+    i = i + 1
+    local sp = (spans as {Span})[i] -- cast: record union after guard
+    if not sp then
+      return nil
+    end
+    return sp.m, sp.caps
   end
-  return out
+  return iter
 end
 
 --- Split text around every match of pattern. Fields between matches
 --- are kept verbatim, including empty ones from adjacent or
 --- leading/trailing matches; text with no match yields one field.
 --- Patterns that can match the empty string are rejected.
---- Shares findall's KNOWN LIMITATION with a NEWLINE-anchored `^`/`$`
---- past the first line (see findall's doc).
---- @param pattern string The regex pattern to split on
+--- Shares find_all's KNOWN LIMITATION with a NEWLINE-anchored `^`/`$`
+--- past the first line (see find_all's doc).
 --- @param text string The text to split
+--- @param pattern string The regex pattern to split on
 --- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE
 --- @return {string} | nil The fields, or nil on error
 --- @return string? Error message on a bad pattern or engine failure
-local function split(pattern: string, text: string, flags?: integer): {string} | nil, string
+local function split(text: string, pattern: string, flags?: integer): {string} | nil, string
   local regex, cerr = compile_for_iter(pattern, flags)
   if not regex then
     return nil, cerr
@@ -253,15 +305,15 @@ local type Repl = string | function(string, {string}): string
 
 --- Replace every non-overlapping match of pattern in text.
 --- Patterns that can match the empty string are rejected.
---- Shares findall's KNOWN LIMITATION with a NEWLINE-anchored `^`/`$`
---- past the first line (see findall's doc).
---- @param pattern string The regex pattern to match
+--- Shares find_all's KNOWN LIMITATION with a NEWLINE-anchored `^`/`$`
+--- past the first line (see find_all's doc).
 --- @param text string The text to operate on
+--- @param pattern string The regex pattern to match
 --- @param repl Repl A literal replacement string, or function(match, caps)
 --- @param flags integer? Optional compile flags: BASIC, ICASE, NEWLINE
 --- @return string | nil The result, or nil on error
 --- @return string? Error message on a bad pattern or engine failure
-local function gsub(pattern: string, text: string, repl: Repl, flags?: integer): string | nil, string
+local function gsub(text: string, pattern: string, repl: Repl, flags?: integer): string | nil, string
   local regex, cerr = compile_for_iter(pattern, flags)
   if not regex then
     return nil, cerr
@@ -291,17 +343,21 @@ local function gsub(pattern: string, text: string, repl: Repl, flags?: integer):
 end
 
 local record ReModule
-  -- Exported so callers can name/cast the fallible compile result.
+  -- Exported so callers can name/cast the fallible results.
   type Regex = Regex
   type Repl = Repl
+  type Span = Span
 
-  -- Functions
+  -- Functions (subject first, D20)
   compile: function(pattern: string, flags?: integer): Regex | nil, string
-  search: function(pattern: string, text: string, flags?: integer): string | nil, {string} | nil, string | nil
-  test: function(pattern: string, text: string, flags?: integer): boolean, string
-  findall: function(pattern: string, text: string, flags?: integer): {string} | nil, string
-  split: function(pattern: string, text: string, flags?: integer): {string} | nil, string
-  gsub: function(pattern: string, text: string, repl: Repl, flags?: integer): string | nil, string
+  match: function(text: string, pattern: string, flags?: integer): string | nil, {string} | nil, string | nil
+  test: function(text: string, pattern: string, flags?: integer): boolean, string
+  find: function(text: string, pattern: string, flags?: integer): Span | nil, string
+  find_all: function(text: string, pattern: string, flags?: integer): {Span} | nil, string
+  type MatchIterator = MatchIterator
+  gmatch: function(text: string, pattern: string, flags?: integer): MatchIterator, string
+  split: function(text: string, pattern: string, flags?: integer): {string} | nil, string
+  gsub: function(text: string, pattern: string, repl: Repl, flags?: integer): string | nil, string
 
   -- Compile flags
   BASIC: integer -- Use basic (obsolete) regex syntax instead of extended
@@ -316,9 +372,11 @@ end
 
 local M: ReModule = {
   compile = compile,
-  search = search,
+  match = match,
   test = test,
-  findall = findall,
+  find = find,
+  find_all = find_all,
+  gmatch = gmatch,
   split = split,
   gsub = gsub,
 

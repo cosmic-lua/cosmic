@@ -137,35 +137,20 @@ local function test_listen_unix_connect_unix()
 end
 test_listen_unix_connect_unix()
 
-local function test_nb_connect_loopback()
-  -- Create a listening socket
-  local server = check.must(net.socket())
-
-  local ok, err = server:setsockopt(net.SOL_SOCKET, net.SO_REUSEADDR, true)
-  assert(ok, "setsockopt failed: " .. tostring(err))
-
-  ok, err = server:bind("127.0.0.1", 0) -- 127.0.0.1
-  assert(ok, "bind failed: " .. tostring(err))
-
+local function test_connect_with_timeout_loopback()
+  -- The old nb_connect surface, now ConnectOptions.timeout_ms
+  -- (api-review-8): connect with a bound, get back a BLOCKING socket.
+  local server = check.must(net.listen_tcp("127.0.0.1", 0))
   local server_port = check.must(server:getsockname()).port
-  assert(server_port > 0, "expected non-zero port")
 
-  ok, err = server:listen()
-  assert(ok, "listen failed: " .. tostring(err))
+  local client = check.must(net.connect_tcp("127.0.0.1", server_port,
+      {timeout_ms = 5000}))
 
-  -- A plain blocking socket: nb_connect must switch it to non-blocking
-  -- itself via Socket:set_nonblocking, rather than silently blocking.
-  local client = check.must(net.socket())
-
-  -- nb_connect to the listening server, by dotted-quad string
-  ok, err = net.nb_connect(client, "127.0.0.1", server_port, 5000)
-  assert(ok, "nb_connect failed: " .. tostring(err))
-
-  -- Accept the connection on the server side
   local raw_accepted, accept_err = server:accept()
   local accepted = check.must(raw_accepted, "accept failed: " .. tostring(accept_err))
 
-  -- Verify the connection works by sending data
+  -- The connection works, and the socket is blocking again: a plain
+  -- send/recv round-trip needs no readiness dance.
   local sent, send_err = client:send("nb_hello")
   assert(sent == 8, "expected 8 bytes sent, got " .. tostring(sent) .. ": " .. tostring(send_err))
 
@@ -176,44 +161,35 @@ local function test_nb_connect_loopback()
   accepted:close()
   server:close()
 end
-test_nb_connect_loopback()
+test_connect_with_timeout_loopback()
 
-local function test_nb_connect_refused()
-  -- Create a non-blocking socket and try to connect to a port with no listener
-  local client = check.must(net.socket({family = net.AF_INET, socktype = net.SOCK_STREAM | net.SOCK_NONBLOCK}))
-
-  -- Connect to localhost port 1 — should be refused
-  local ok, conn_err = net.nb_connect(client, "127.0.0.1", 1, 2000)
-  assert(not ok, "expected nb_connect to fail on refused port")
-  assert(conn_err ~= nil, "expected error message from nb_connect")
-
-  client:close()
+local function test_connect_with_timeout_refused()
+  -- Connect to localhost port 1 — should be refused, inside the bound
+  local sock, conn_err = net.connect_tcp("127.0.0.1", 1, {timeout_ms = 2000})
+  assert(sock == nil, "expected connect to fail on refused port")
+  assert(conn_err ~= nil, "expected error message from refused connect")
 end
-test_nb_connect_refused()
+test_connect_with_timeout_refused()
 
 -- connect() to the broadcast address fails SYNCHRONOUSLY with ENETUNREACH
 -- (no EINPROGRESS at all — unlike a refused port, which the kernel usually
--- reports async). nb_connect must return that error immediately rather
--- than treating the failure as "still connecting" and polling for up to
--- timeout_ms: assert on elapsed time, not just the outcome, so a regression
--- back to "poll no matter what" is caught even though it would eventually
--- return the same error, just slowly.
-local function test_nb_connect_synchronous_failure_returns_immediately()
-  local client = check.must(net.socket())
-
+-- reports async). The timeout path must return that error immediately
+-- rather than treating the failure as "still connecting" and polling for
+-- up to timeout_ms: assert on elapsed time, not just the outcome, so a
+-- regression back to "poll no matter what" is caught even though it would
+-- eventually return the same error, just slowly.
+local function test_connect_timeout_synchronous_failure_is_immediate()
   local t0 = time.monotonic()
-  local ok, err = net.nb_connect(client, "255.255.255.255", 80, 5000)
+  local sock, err = net.connect_tcp("255.255.255.255", 80, {timeout_ms = 5000})
   local t1 = time.monotonic()
 
-  assert(not ok, "connect to the broadcast address should fail")
+  assert(sock == nil, "connect to the broadcast address should fail")
   assert(err ~= nil and err:match("ENETUNREACH"),
     "expected ENETUNREACH, got: " .. tostring(err))
   assert(t1 - t0 < 1, "a synchronous connect failure must not wait out"
     .. " the poll timeout, took " .. tostring(t1 - t0) .. "s")
-
-  client:close()
 end
-test_nb_connect_synchronous_failure_returns_immediately()
+test_connect_timeout_synchronous_failure_is_immediate()
 
 -- Error fidelity: socket()/socketpair()/gethostname() must surface the
 -- binding's real errno, not a generic "X creation failed" string.

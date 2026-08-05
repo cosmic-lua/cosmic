@@ -8,49 +8,44 @@ local tty = require("cosmic.tty")
 -- Test module exports
 
 local function test_module_exports()
-  assert(tty.isatty ~= nil, "isatty function should be exported")
+  assert(tty.is_tty ~= nil, "is_tty function should be exported")
   assert(tty.winsize ~= nil, "winsize function should be exported")
-  assert(tty.stdin_isatty ~= nil, "stdin_isatty function should be exported")
-  assert(tty.stdout_isatty ~= nil, "stdout_isatty function should be exported")
-  assert(tty.stderr_isatty ~= nil, "stderr_isatty function should be exported")
 end
 test_module_exports()
 
--- isatty: assert real verdicts on fds whose tty-ness is
+-- is_tty: assert real verdicts on fds whose tty-ness is
 -- known, instead of only checking the return type.
 
-local function test_isatty_regular_file_is_false()
+local function test_is_tty_regular_file_is_false()
   local test_file = fs.join(check.must(os.getenv("TEST_TMPDIR")), "not_a_tty")
   fs.write(test_file, "x")
   local h = check.must(cfd.open(test_file, cfd.O_RDONLY), "should open the scratch file")
-  assert(tty.isatty(h:fd()) == false, "a regular file fd is not a tty")
+  assert(tty.is_tty(h:fd()) == false, "a regular file fd is not a tty")
   h:close()
 end
-test_isatty_regular_file_is_false()
+test_is_tty_regular_file_is_false()
 
-local function test_isatty_bad_fd_is_false()
-  assert(tty.isatty(999) == false, "an unopened fd is not a tty")
+local function test_is_tty_bad_fd_is_false()
+  assert(tty.is_tty(999) == false, "an unopened fd is not a tty")
 end
-test_isatty_bad_fd_is_false()
+test_is_tty_bad_fd_is_false()
 
-local function test_isatty_pty_master_is_true()
+local function test_is_tty_pty_master_is_true()
   -- A pty master is the one fd guaranteed to BE a tty. /dev/ptmx exists
   -- on Linux; elsewhere this case is exercised wherever the device exists.
   if not fs.exists("/dev/ptmx") then
     return
   end
   local h = check.must(cfd.open("/dev/ptmx", cfd.O_RDWR))
-  assert(tty.isatty(h:fd()) == true, "a pty master must report as a tty")
+  assert(tty.is_tty(h:fd()) == true, "a pty master must report as a tty")
   h:close()
 end
-test_isatty_pty_master_is_true()
+test_is_tty_pty_master_is_true()
 
-local function test_convenience_functions_agree_with_isatty()
-  assert(tty.stdin_isatty() == tty.isatty(0), "stdin_isatty must equal isatty(0)")
-  assert(tty.stdout_isatty() == tty.isatty(1), "stdout_isatty must equal isatty(1)")
-  assert(tty.stderr_isatty() == tty.isatty(2), "stderr_isatty must equal isatty(2)")
+local function test_is_tty_defaults_to_stdout()
+  assert(tty.is_tty() == tty.is_tty(1), "no-arg is_tty asks about stdout")
 end
-test_convenience_functions_agree_with_isatty()
+test_is_tty_defaults_to_stdout()
 
 -- Test winsize function
 
@@ -64,7 +59,7 @@ local function test_winsize_non_tty()
     f:close()
   end
   -- In test environment, fd 0 is likely not a tty
-  if not tty.isatty(0) then
+  if not tty.is_tty(0) then
     local ws, err = tty.winsize(0)
     -- Should return nil or a valid winsize
     if ws == nil then
@@ -76,7 +71,7 @@ test_winsize_non_tty()
 
 local function test_winsize_structure()
   -- If stdout is a tty, verify winsize returns proper structure
-  if not tty.isatty(1) then
+  if not tty.is_tty(1) then
     io.stderr:write("SKIP: test_winsize_structure (stdout is not a tty)\n")
     return
   end
@@ -117,7 +112,7 @@ test_termios_constants()
 
 local function test_getattr_non_tty()
   -- When not a tty, getattr should fail with error
-  if not tty.isatty(0) then
+  if not tty.is_tty(0) then
     local termios, err = tty.getattr(0)
     assert(termios == nil, "getattr should return nil for non-tty")
     assert(err ~= nil, "getattr should return error message for non-tty")
@@ -127,7 +122,7 @@ test_getattr_non_tty()
 
 local function test_getattr_structure()
   -- If stdin is a tty, verify getattr returns proper structure
-  if not tty.isatty(0) then
+  if not tty.is_tty(0) then
     io.stderr:write("SKIP: test_getattr_structure (stdin is not a tty)\n")
     return
   end
@@ -147,7 +142,7 @@ test_getattr_structure()
 
 local function test_raw_non_tty()
   -- When not a tty, raw should fail with error
-  if not tty.isatty(0) then
+  if not tty.is_tty(0) then
     local original, err = tty.raw(0)
     assert(original == nil, "raw should return nil for non-tty")
     assert(err ~= nil, "raw should return error message for non-tty")
@@ -157,7 +152,7 @@ test_raw_non_tty()
 
 local function test_noecho_non_tty()
   -- When not a tty, noecho should fail with error
-  if not tty.isatty(0) then
+  if not tty.is_tty(0) then
     local original, err = tty.noecho(0)
     assert(original == nil, "noecho should return nil for non-tty")
     assert(err ~= nil, "noecho should return error message for non-tty")

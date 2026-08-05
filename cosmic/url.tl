@@ -1,28 +1,33 @@
 --- URL encoding, decoding, parsing, formatting, and escaping utilities.
 local cosmo = require("cosmo")
 
---- Percent-encode a string for use as a URL query parameter value.
---- Use this when building query strings manually: `"q=" .. url.encode(search_term)`.
---- Spaces become %20, special characters become %XX hex sequences.
+--- Percent-encode a string for use as a URL query parameter value
+--- (api-review-8: was `encode` — escape/unescape is the syntax-safety
+--- verb pair, D20). Spaces become %20, specials become %XX.
+--- Use this when building query strings manually:
+--- `"q=" .. url.escape_param(term)` — or format_query() for whole maps.
 ---
 --- For other URL components, use the specific escape functions:
 --- - `escape_path()`: encode a URL path (preserves slashes)
 --- - `escape_segment()`: encode a single path segment (escapes slashes)
 --- - `escape_host()`: encode a hostname
 --- - `escape_fragment()`: encode a URL fragment
+--- and `unescape()` as their shared inverse.
 ---
 --- @param str string The string to encode
 --- @return string The percent-encoded string
-local function encode(str: string): string
+local function escape_param(str: string): string
   return cosmo.EscapeParam(str)
 end
 
---- Decode a percent-encoded string.
---- Handles %XX sequences and + as space.
+--- Decode a percent-encoded query parameter (api-review-8: was
+--- `decode`). Handles %XX sequences and + as space — the param rules.
+--- For other components (paths, hosts, fragments), where + is a
+--- literal plus, use unescape().
 --- @param str string The percent-encoded string
 --- @return string | nil The decoded string, or nil on error
 --- @return string? Error message if decoding failed
-local function decode(str: string): string | nil, string
+local function unescape_param(str: string): string | nil, string
   -- Check for invalid percent-encoding sequences before decoding.
   -- UnescapeParam is lenient (a % not followed by two hex digits passes
   -- through unchanged), so reject malformed input up front; the C
@@ -33,6 +38,21 @@ local function decode(str: string): string | nil, string
 
   -- Use native C implementation for the actual decoding
   return cosmo.UnescapeParam(str)
+end
+
+--- Decode %XX sequences with NO plus-as-space conversion: the shared
+--- inverse of escape_path/escape_segment/escape_host/escape_fragment,
+--- where `+` is an ordinary character.
+--- @param str string The percent-encoded string
+--- @return string | nil The decoded string, or nil on error
+--- @return string? Error message if decoding failed
+local function unescape(str: string): string | nil, string
+  if not cosmo.IsValidPercentEncoding(str) then
+    return nil, "invalid percent-encoding"
+  end
+  return (str:gsub("%%(%x%x)", function(hex: string): string
+        return string.char(tonumber(hex, 16) as integer) -- cast: %x%x is a hex pair
+      end))
 end
 
 --- Parse a query string into its key-value pairs, keeping every value.
@@ -53,6 +73,27 @@ local function parse_query(query: string): {string: {string}}
     table.insert(list, pair[2] or "")
   end
   return result
+end
+
+--- Format a query map back into a query string: the inverse of
+--- parse_query. Keys are sorted (deterministic output) and each of a
+--- key's values becomes its own k=v pair, in order; both halves are
+--- percent-encoded with the param rules (spaces become %20).
+--- @param params {string:{string}} Keys, each with all its values in order
+--- @return string The query string (no leading ?)
+local function format_query(params: {string: {string}}): string
+  local keys: {string} = {}
+  for k in pairs(params) do
+    keys[#keys + 1] = k
+  end
+  table.sort(keys)
+  local out: {string} = {}
+  for _, k in ipairs(keys) do
+    for _, v in ipairs(params[k]) do
+      out[#out + 1] = escape_param(k) .. "=" .. escape_param(v)
+    end
+  end
+  return table.concat(out, "&")
 end
 
 --- Parsed URL components.
@@ -267,11 +308,13 @@ local record UrlModule
   type Url = Url
   type HostPort = HostPort
 
-  encode: function(str: string): string
-  decode: function(str: string): string | nil, string
+  escape_param: function(str: string): string
+  unescape_param: function(str: string): string | nil, string
+  unescape: function(str: string): string | nil, string
   parse: function(url: string): Url | nil, string
   format: function(u: Url): string
   parse_query: function(query: string): {string: {string}}
+  format_query: function(params: {string: {string}}): string
   parse_host: function(hostport: string): HostPort | nil, string
   escape_host: function(str: string): string
   escape_path: function(str: string): string
@@ -284,8 +327,10 @@ local record UrlModule
 end
 
 local M: UrlModule = {
-  encode = encode,
-  decode = decode,
+  escape_param = escape_param,
+  unescape_param = unescape_param,
+  unescape = unescape,
+  format_query = format_query,
   parse = parse,
   format = format,
   parse_query = parse_query,

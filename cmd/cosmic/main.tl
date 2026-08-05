@@ -366,7 +366,7 @@ local function main(): integer, string
     local welcome = require("_cli.welcome")
     if not welcome.was_shown() then
       local tty = require("cosmic.tty")
-      if tty.stderr_isatty() then
+      if tty.is_tty(2) then
         io.stderr:write(handlers.generate_welcome())
         welcome.mark_shown()
       end
