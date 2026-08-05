@@ -27,7 +27,7 @@ test_available_returns_boolean()
 -- exercised and enforcement is proven by the subprocess tests below.
 local function test_fail_closed_when_unavailable()
   if pledge.available() then
-    check.skip("pledge available on this host; fail-closed path not exercisable")
+    check.enforce_skip("pledge available on this host; fail-closed path not exercisable")
     return
   end
   local ok, err = pledge.apply("stdio")
@@ -60,7 +60,7 @@ io.write("pledged\n")
   local ok, out = __r1.ok, __r1.stdout
   local s = out or ""
   if s:find("skipped") then
-    check.skip("pledge unsupported on this host: " .. s)
+    check.enforce_skip("pledge unsupported on this host: " .. s)
     return
   end
   assert(ok, "pledge stdio should allow io.write: " .. tostring(out))
@@ -98,14 +98,14 @@ io.write("restricted\n")
   local s = out or ""
   if s:find("unsupported") then
     -- A genuine platform gap reported by the fail-closed probe: soft skip.
-    check.skip("pledge unsupported on this host: " .. s)
+    check.enforce_skip("pledge unsupported on this host: " .. s)
     return
   end
   if s:find("skipped") then
     -- available() was true yet apply failed: an outer sandbox pre-empted
     -- an otherwise-supported mechanism. Strict: a hard failure on the
     -- enforce lane.
-    check.skip("pledge apply failed: " .. s, true)
+    check.enforce_skip("pledge apply failed: " .. s, true)
     return
   end
   assert(not s:find("leaked"), "pledge must block filesystem open: " .. s)

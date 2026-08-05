@@ -111,7 +111,7 @@ local function test_fail_closed_when_unavailable()
   local avail = sandbox.available()
   local apply_any = sandbox.apply
   if avail.fs and avail.sys then
-    check.skip("sandbox fully available on this host; fail-closed path not exercisable")
+    check.enforce_skip("sandbox fully available on this host; fail-closed path not exercisable")
     return
   end
   if not avail.fs then
@@ -214,7 +214,7 @@ test_plan_landlock_keep_coverage_param()
 local function test_apply_enforces_fs_and_sys()
   local avail = sandbox.available()
   if not (avail.fs and avail.sys) then
-    check.skip("sandbox fs+sys unavailable on this host")
+    check.enforce_skip("sandbox fs+sys unavailable on this host")
     return
   end
 
@@ -245,7 +245,7 @@ if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n
   local h = check.must(child.start({cosmic, script}))
   local r = check.must(h:wait())
   if r.signal ~= nil then
-    check.skip("sandbox subprocess killed by signal " .. tostring(r.signal)
+    check.enforce_skip("sandbox subprocess killed by signal " .. tostring(r.signal)
       .. " (outer sandbox)", true)
     return
   end
@@ -253,7 +253,7 @@ if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n
   if s:find("sandbox-blocked:", 1, true) then
     -- available() said yes yet apply failed: an outer sandbox
     -- pre-empted it. Strict: a hard failure on the enforce lane.
-    check.skip("sandbox.apply blocked by an outer sandbox: " .. s, true)
+    check.enforce_skip("sandbox.apply blocked by an outer sandbox: " .. s, true)
     return
   end
   assert(s:find("allowed-ok", 1, true), "allowed path should read: " .. s)
@@ -269,7 +269,7 @@ test_apply_enforces_fs_and_sys()
 local function test_invalid_sys_leaves_fs_unapplied()
   local avail = sandbox.available()
   if not avail.fs then
-    check.skip("sandbox fs unavailable on this host")
+    check.enforce_skip("sandbox fs unavailable on this host")
     return
   end
 

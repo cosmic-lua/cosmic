@@ -63,7 +63,7 @@ local function test_the_fence_denies_an_undeclared_write()
     -- Not strict: without Landlock there is no mechanism to block an
     -- otherwise-supported operation, so this is a host limitation
     -- rather than an outer sandbox to blame.
-    check.skip("no landlock on this host; the fence cannot bite")
+    check.enforce_skip("no landlock on this host; the fence cannot bite")
     return
   end
 
@@ -109,7 +109,7 @@ test_the_fence_denies_an_undeclared_write()
 -- kernel can prove the second half.
 local function test_the_fence_confines_a_test_to_its_own_step()
   if not sandbox.available().fs then
-    check.skip("no landlock on this host; the fence cannot bite")
+    check.enforce_skip("no landlock on this host; the fence cannot bite")
     return
   end
 
@@ -191,7 +191,7 @@ local function test_the_fence_permits_a_real_compile()
   local self = fs.abspath(cosmic)
   local boot = fs.join(fs.dirname(self), "cosmic-check")
   if not fs.isfile(boot) then
-    check.skip("no assimilated cosmic at " .. boot)
+    check.enforce_skip("no assimilated cosmic at " .. boot)
     return
   end
   local permitted = env.list({set = {COSMIC_FENCE = "1"}})
@@ -210,7 +210,7 @@ local function test_the_fence_permits_a_real_compile()
   if sandbox.available().fs then
     check.enforced("recipe fence permits a compile")
   else
-    check.skip("no landlock: the compile ran unfenced, so this proves " ..
+    check.enforce_skip("no landlock: the compile ran unfenced, so this proves " ..
       "the recipe's shape but not the grant")
   end
 end

@@ -22,9 +22,7 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 -- else the copy `--make` extracts from its own binary.
 local make_bin = fs.abspath(os.getenv("COSMIC_MAKE")
   or "o/make")
-if not check.needs("the make engine at " .. make_bin, fs.isfile(make_bin)) then
-  os.exit(check.EXIT_SKIP)
-end
+check.needs("the make engine at " .. make_bin, fs.isfile(make_bin))
 
 --- Build a fixture tree, returning its absolute root.
 local function fixture(name: string, files: {string: string}): string

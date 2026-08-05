@@ -30,9 +30,7 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 -- else the copy `--make` extracts from its own binary.
 local make_bin = fs.abspath(os.getenv("COSMIC_MAKE")
   or "o/make")
-if not check.needs("the make engine at " .. make_bin, fs.isfile(make_bin)) then
-  os.exit(check.EXIT_SKIP)
-end
+check.needs("the make engine at " .. make_bin, fs.isfile(make_bin))
 
 --- Build a fixture tree, returning its absolute root.
 local function fixture(name: string, files: {string: string}): string
@@ -349,16 +347,12 @@ test_stored_path_collisions_are_refused()
 local function test_the_real_payload_generator()
   local repo = fs.abspath(".")
   local gen = fs.join(repo, "cmd/cosmic/embed_gen.tl")
-  if not check.needs("the cosmic tree (cmd/cosmic/embed_gen.tl)",
-    fs.isfile(gen)) then
-    os.exit(check.EXIT_SKIP)
-  end
+  check.needs("the cosmic tree (cmd/cosmic/embed_gen.tl)",
+    fs.isfile(gen))
   -- The generator reads its pinned inputs from `o/3p/**`, which only
   -- `--make fetch` writes. CI fetches before it gates, so this runs
   -- there; a cold checkout skips rather than failing.
-  if not check.needs("fetched pins", seed_pins(repo)) then
-    os.exit(check.EXIT_SKIP)
-  end
+  check.needs("fetched pins", seed_pins(repo))
   local out = fs.join(tmpdir, "real-payload")
   fs.rmrf(out)
   assert(fs.makedirs(out))

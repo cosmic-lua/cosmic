@@ -343,54 +343,6 @@ local function check_find_needle(file: string, content: string): {Diagnostic}
   return diagnostics
 end
 
---- Report each `check.needs` guard that returns instead of exiting.
----
---- `check.needs` says an environment cannot run a test; the exit code is
---- the only part of that the runner reads. A `return` ends the function
---- and lets the file run on to a clean exit, and a clean exit is graded
---- `pass` -- so the guard reports the test as run and green when it did
---- neither. `os.exit(check.EXIT_SKIP)` is what `records.status_of`
---- grades as a skip, and it is the form `check.needs` documents.
----
---- Line-based rather than token-based: the shape is two adjacent lines,
---- and the lexer's own guards (comments, strings) do not apply to a
---- `return` that has to be at statement position to parse at all.
---- @param file string Path, for the diagnostic
---- @param lines {string} The file's lines
---- @return {Diagnostic} One per guard that returns rather than exits
-local function check_needs_exit(file: string, lines: {string}): {Diagnostic}
-  if not file:match("_test%.tl$") then
-    return {}
-  end
-  local diagnostics: {Diagnostic} = {}
-  for i, line in ipairs(lines) do
-    if line:find("check.needs(", 1, true) then
-      -- The call wraps when its arguments are long, so the `then` that
-      -- opens the guard may be a line or two below the call. Beyond
-      -- that it is some other use of `needs` and not this shape.
-      for j = i, math.min(i + 2, #lines) do
-        if lines[j]:match("then%s*$") then
-          if (lines[j + 1] or ""):match("^%s*return%s*$") then
-            diagnostics[#diagnostics + 1] = {
-              file = file,
-              line = j + 1,
-              col = 1,
-              rule = "needs-exit",
-              message = string.format(
-                "%s:%d: a `check.needs` guard that returns exits 0, which"
-                .. " the runner grades as a PASS for a test that never"
-                .. " ran: `os.exit(check.EXIT_SKIP)` reports the skip",
-                file, j + 1),
-            }
-          end
-          break
-        end
-      end
-    end
-  end
-  return diagnostics
-end
-
 --- Every style check, for one file.
 ---
 --- `.d.tl` declarations are exempt: they describe C binding interfaces
@@ -446,9 +398,6 @@ local function lint_file(path: string): {Diagnostic} | nil, string
     for _, d in ipairs(check_find_needle(path, content)) do
       diagnostics[#diagnostics + 1] = d
     end
-    for _, d in ipairs(check_needs_exit(path, lines)) do
-      diagnostics[#diagnostics + 1] = d
-    end
     for _, d in ipairs(visibility.check_shard_require(path, lines)) do
       diagnostics[#diagnostics + 1] = d
     end
@@ -461,7 +410,6 @@ local record LintModule
   check_cosmo_require: function(file: string, lines: {string}): {Diagnostic}
   check_call_after_define: function(file: string, content: string, lines: {string}): {Diagnostic}
   check_find_needle: function(file: string, content: string): {Diagnostic}
-  check_needs_exit: function(file: string, lines: {string}): {Diagnostic}
   lint_file: function(path: string): {Diagnostic} | nil, string
 end
 
@@ -470,7 +418,6 @@ local M: LintModule = {
   check_cosmo_require = check_cosmo_require,
   check_call_after_define = check_call_after_define,
   check_find_needle = check_find_needle,
-  check_needs_exit = check_needs_exit,
   lint_file = lint_file,
 }
 

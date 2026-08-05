@@ -192,13 +192,9 @@ end
 -- Both halves need the pinned inputs. Skipping when they are absent
 -- keeps a cold checkout usable; in CI they are always there, because
 -- the lane runs after the ordinary build.
-if not check.needs("a built cosmic at " .. cosmic, fs.isfile(cosmic)) then
-  os.exit(check.EXIT_SKIP)
-end
-if not check.needs("fetched pins to seed from",
-  fs.isfile(fs.join(repo, "o/3p/tl/tl.lua"))) then
-  os.exit(check.EXIT_SKIP)
-end
+check.needs("a built cosmic at " .. cosmic, fs.isfile(cosmic))
+check.needs("fetched pins to seed from",
+  fs.isfile(fs.join(repo, "o/3p/tl/tl.lua")))
 
 -- gen2: the product works. Every check here is a capability the binary
 -- only has if its payload arrived -- running a `.tl` needs tl.lua,

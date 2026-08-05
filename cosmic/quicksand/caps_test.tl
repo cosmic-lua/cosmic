@@ -23,7 +23,7 @@ test_module_exports()
 -- excluded from NAMES.
 local function test_names_resolve()
   if not caps.supported() then
-    check.skip("capabilities unsupported on this host")
+    check.enforce_skip("capabilities unsupported on this host")
     return
   end
   assert(#caps.NAMES > 0, "NAMES should be non-empty")
@@ -51,7 +51,7 @@ test_number_of_unknown()
 -- mask sets bit N (1 << number) per name; unknown names error; empty is 0.
 local function test_mask()
   if not caps.supported() then
-    check.skip("capabilities unsupported on this host")
+    check.enforce_skip("capabilities unsupported on this host")
     return
   end
   assert(caps.mask({}) == 0, "empty mask should be 0")
@@ -70,7 +70,7 @@ test_mask()
 -- nil + error under an outer sandbox), never throws.
 local function test_bounding_read()
   if not caps.supported() then
-    check.skip("capabilities unsupported on this host")
+    check.enforce_skip("capabilities unsupported on this host")
     return
   end
   local present, err = caps.bounding_read("CAP_CHOWN")
@@ -88,7 +88,7 @@ test_bounding_read()
 -- that branch is asserted below instead.
 local function test_drop_bounding_bad_keep()
   if not caps.supported() then
-    check.skip("capabilities unsupported on this host")
+    check.enforce_skip("capabilities unsupported on this host")
     return
   end
   local ok, err = caps.drop_bounding({keep = {"CAP_BOGUS"}})
@@ -103,7 +103,7 @@ test_drop_bounding_bad_keep()
 -- successful no-op, matching pledge/unveil/landlock.
 local function test_drop_bounding_fails_closed_when_unsupported()
   if caps.supported() then
-    check.skip("capabilities supported here; unsupported path not exercisable")
+    check.enforce_skip("capabilities supported here; unsupported path not exercisable")
     return
   end
   local ok, err = caps.drop_bounding()
@@ -133,7 +133,7 @@ local CHILD_DROP = table.concat({
 local function test_drop_bounding_child()
   local c = quicksand.capabilities()
   if not c.linux or not test_bin then
-    check.skip("caps drop child: non-Linux host or no TEST_BIN")
+    check.enforce_skip("caps drop child: non-Linux host or no TEST_BIN")
     return
   end
   local cosmic = fs.join(test_bin, "cosmic")
@@ -143,7 +143,7 @@ local function test_drop_bounding_child()
   if not ok then
     -- An outer seccomp/pledge filter can kill the child before it can
     -- report; a silent return here would hide that from the skip report.
-    check.skip("caps drop child died before reporting (outer sandbox)")
+    check.enforce_skip("caps drop child died before reporting (outer sandbox)")
     return
   end
   local s = out
@@ -152,7 +152,7 @@ local function test_drop_bounding_child()
   assert(not s:find("bad:"),
     "drop must leave the capability absent from the bounding set: " .. s)
   if s:find("skipped") then
-    check.skip("caps drop: " .. s:gsub("%s+$", ""))
+    check.enforce_skip("caps drop: " .. s:gsub("%s+$", ""))
   else
     check.enforced("caps bounding drop")
   end

@@ -75,7 +75,7 @@ local function test_trim_traceback_cuts_at_the_cosmic_entry_point()
   local full = run.trim_traceback("boom")
   env.unset("COSMIC_FULL_TRACEBACK")
   if not full:find("/zip/main%.lua:") then
-    require("cosmic.check").skip(
+    require("cosmic.check").enforce_skip(
       "traceback trimming: no /zip/main.lua frame in this run")
     return
   end

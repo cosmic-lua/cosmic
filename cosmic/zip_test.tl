@@ -16,7 +16,7 @@ end
 
 local function test_writer()
   local p = zip_path("write_test.zip")
-  local writer = check.must(zip.writer(p))
+  local writer = check.must(zip.create(p))
   local ok, add_err = writer:add("hello.txt", "Hello, World!")
   assert(ok, "should add file: " .. tostring(add_err))
   writer:close()
@@ -29,7 +29,7 @@ test_writer()
 
 local function test_writer_multiple_files()
   local p = zip_path("multi_test.zip")
-  local writer = check.must(zip.writer(p))
+  local writer = check.must(zip.create(p))
   writer:add("file1.txt", "Content 1")
   writer:add("file2.txt", "Content 2")
   writer:add("subdir/file3.txt", "Content 3")
@@ -45,25 +45,25 @@ test_writer_multiple_files()
 local function test_reader()
   -- Create a zip first
   local p = zip_path("read_test.zip")
-  local w = check.must(zip.writer(p))
+  local w = check.must(zip.create(p))
   w:add("test.txt", "Test content")
   w:close()
 
   -- Now read it
-  local reader = check.must(zip.reader(p))
+  local reader = check.must(zip.open(p))
   reader:close()
 end
 test_reader()
 
 local function test_read_list()
   local p = zip_path("list_test.zip")
-  local w = check.must(zip.writer(p))
+  local w = check.must(zip.create(p))
   w:add("a.txt", "A")
   w:add("b.txt", "B")
   w:add("c/d.txt", "D")
   w:close()
 
-  local r = check.must(zip.reader(p))
+  local r = check.must(zip.open(p))
   local files = r:list()
   r:close()
 
@@ -85,11 +85,11 @@ test_read_list()
 
 local function test_read_content()
   local p = zip_path("content_test.zip")
-  local w = check.must(zip.writer(p))
+  local w = check.must(zip.create(p))
   w:add("hello.txt", "Hello, ZIP!")
   w:close()
 
-  local r = check.must(zip.reader(p))
+  local r = check.must(zip.open(p))
   local content, err = r:read("hello.txt")
   r:close()
 
@@ -100,11 +100,11 @@ test_read_content()
 
 local function test_read_stat()
   local p = zip_path("stat_test.zip")
-  local w = check.must(zip.writer(p))
+  local w = check.must(zip.create(p))
   w:add("data.bin", "0123456789") -- 10 bytes
   w:close()
 
-  local r = check.must(zip.reader(p))
+  local r = check.must(zip.open(p))
   local st = check.must(r:stat("data.bin"), "should get stat")
   r:close()
 
@@ -114,11 +114,11 @@ test_read_stat()
 
 local function test_read_nonexistent_file()
   local p = zip_path("nonexistent_test.zip")
-  local w = check.must(zip.writer(p))
+  local w = check.must(zip.create(p))
   w:add("exists.txt", "I exist")
   w:close()
 
-  local r = check.must(zip.reader(p))
+  local r = check.must(zip.open(p))
   local content = r:read("does_not_exist.txt")
   r:close()
 
@@ -132,18 +132,18 @@ local function test_appender()
   local p = zip_path("append_test.zip")
 
   -- Create initial zip
-  local w = check.must(zip.writer(p))
+  local w = check.must(zip.create(p))
   w:add("first.txt", "First file")
   w:close()
 
   -- Append to it
-  local appender = check.must(zip.appender(p))
+  local appender = check.must(zip.append(p))
   local ok, add_err = appender:add("second.txt", "Second file")
   assert(ok, "should add file: " .. tostring(add_err))
   appender:close()
 
   -- Verify both files exist
-  local r = check.must(zip.reader(p))
+  local r = check.must(zip.open(p))
   local files = r:list()
   local first_content = r:read("first.txt")
   local second_content = r:read("second.txt")
@@ -159,17 +159,17 @@ test_appender()
 
 local function test_appender_remove()
   local p = zip_path("remove_test.zip")
-  local w = check.must(zip.writer(p))
+  local w = check.must(zip.create(p))
   w:add("gone.txt", "delete me")
   w:add("kept.txt", "keep me")
   w:close()
 
-  local appender = check.must(zip.appender(p))
+  local appender = check.must(zip.append(p))
   local ok, remove_err = appender:remove("gone.txt")
   assert(ok, "remove of an existing entry should succeed: " .. tostring(remove_err))
   appender:close()
 
-  local r = check.must(zip.reader(p))
+  local r = check.must(zip.open(p))
   local files = r:list()
   assert(#files == 1, "archive should have 1 entry after remove, got " .. #files)
   assert(files[1].name == "kept.txt",
@@ -186,11 +186,11 @@ test_appender_remove()
 
 local function test_appender_remove_missing_entry()
   local p = zip_path("remove_missing_test.zip")
-  local w = check.must(zip.writer(p))
+  local w = check.must(zip.create(p))
   w:add("only.txt", "here")
   w:close()
 
-  local appender = check.must(zip.appender(p))
+  local appender = check.must(zip.append(p))
   local ok, err = appender:remove("no-such-entry.txt")
   assert(ok == nil, "remove of a missing entry should fail")
   assert(err and string.match(err, "not found"),
@@ -198,7 +198,7 @@ local function test_appender_remove_missing_entry()
   appender:close()
 
   -- The archive is untouched by the failed remove.
-  local r = check.must(zip.reader(p))
+  local r = check.must(zip.open(p))
   assert(r:read("only.txt") == "here", "existing entry must survive a failed remove")
   r:close()
 end
@@ -208,13 +208,13 @@ test_appender_remove_missing_entry()
 
 local function test_from_memory()
   local p = zip_path("memory_test.zip")
-  local w = check.must(zip.writer(p))
+  local w = check.must(zip.create(p))
   w:add("mem.txt", "In-memory content")
   w:close()
 
   local zip_data = check.must(fs.read(p), "should read zip data")
 
-  local rr = check.must(zip.from(zip_data))
+  local rr = check.must(zip.open_bytes(zip_data))
   local content = rr:read("mem.txt")
   rr:close()
 
@@ -225,7 +225,7 @@ test_from_memory()
 -- Error handling
 
 local function test_reader_invalid_path()
-  local r, err = zip.reader("/nonexistent/path/to/file.zip")
+  local r, err = zip.open("/nonexistent/path/to/file.zip")
   assert(r == nil, "should fail on invalid path")
   assert(err, "should return error message")
 end
@@ -234,25 +234,25 @@ test_reader_invalid_path()
 local function test_appender_creates_missing_archive()
   -- append has create-or-append semantics: a missing archive is created.
   local p = zip_path("appender_creates.zip")
-  local appender = check.must(zip.appender(p), "appender should create a missing archive")
+  local appender = check.must(zip.append(p), "appender should create a missing archive")
   appender:add("x.txt", "hi")
   appender:close()
 
-  local r = check.must(zip.reader(p))
+  local r = check.must(zip.open(p))
   assert(r:read("x.txt") == "hi", "created archive should contain the entry")
   r:close()
 end
 test_appender_creates_missing_archive()
 
 local function test_appender_invalid_path()
-  local a, err = zip.appender("/nonexistent/dir/x.zip")
+  local a, err = zip.append("/nonexistent/dir/x.zip")
   assert(a == nil, "should fail when the parent directory is missing")
   assert(err, "should return error message")
 end
 test_appender_invalid_path()
 
 local function test_from_invalid_data()
-  local r, err = zip.from("not valid zip data")
+  local r, err = zip.open_bytes("not valid zip data")
   assert(r == nil, "should fail on invalid data")
   assert(err, "should return error message")
 end
@@ -262,7 +262,7 @@ test_from_invalid_data()
 
 local function test_add_with_options()
   local p = zip_path("options_test.zip")
-  local w = check.must(zip.writer(p))
+  local w = check.must(zip.create(p))
   -- Use larger content that will definitely compress
   local large_content = string.rep("Hello World! ", 100) -- 1300 bytes of repeated data
   local ok, err = w:add("stored.txt", large_content, {method = "store"})
@@ -271,7 +271,7 @@ local function test_add_with_options()
   assert(ok, "should add with deflate method: " .. tostring(err))
   w:close()
 
-  local r = check.must(zip.reader(p))
+  local r = check.must(zip.open(p))
   local stored_st = check.must(r:stat("stored.txt"), "should have stored.txt stat")
   local deflated_st = check.must(r:stat("deflated.txt"), "should have deflated.txt stat")
   r:close()
@@ -286,14 +286,14 @@ test_add_with_options()
 
 local function test_writer_with_compression_level()
   local p = zip_path("level_test.zip")
-  local writer = check.must(zip.writer(p, {level = 9}))
+  local writer = check.must(zip.create(p, {level = 9}))
   -- Add a file that benefits from compression
   local content = string.rep("AAAA", 1000) -- 4000 bytes of repeated data
   writer:add("compressible.txt", content)
   writer:close()
 
   -- Verify it compressed
-  local r = check.must(zip.reader(p))
+  local r = check.must(zip.open(p))
   local st = check.must(r:stat("compressible.txt"), "should have stat")
   r:close()
 
@@ -306,13 +306,13 @@ test_writer_with_compression_level()
 
 local function test_extract_basic()
   local p = zip_path("extract_basic.zip")
-  local w = check.must(zip.writer(p))
+  local w = check.must(zip.create(p))
   w:add("top.txt", "top content")
   w:add("sub/dir/nested.txt", "nested content")
   w:add("run.sh", "#!/bin/sh\n", {mode = tonumber("755", 8)})
   w:close()
 
-  local r = check.must(zip.reader(p))
+  local r = check.must(zip.open(p))
   local dest = zip_path("extract_basic_out")
   local ok, err = zip.extract(r, dest)
   r:close()
@@ -332,7 +332,7 @@ test_extract_basic()
 -- "../escaped.txt".
 local function crafted_archive(patch_to: string): string
   local safe = zip_path("crafted_" .. patch_to:gsub("%W", "_") .. ".zip")
-  local w = check.must(zip.writer(safe))
+  local w = check.must(zip.create(safe))
   w:add("good.txt", "innocent")
   w:add("XX/escaped.txt", "pwned")
   w:close()
@@ -344,7 +344,7 @@ end
 
 local function test_extract_rejects_traversal()
   local data = crafted_archive("../escaped.txt")
-  local r = check.must(zip.from(data))
+  local r = check.must(zip.open_bytes(data))
   local dest = zip_path("traversal_out")
   local ok, err = zip.extract(r, dest)
   r:close()
@@ -360,7 +360,7 @@ test_extract_rejects_traversal()
 
 local function test_extract_rejects_absolute()
   local data = crafted_archive("/e/escaped.txt")
-  local r = check.must(zip.from(data))
+  local r = check.must(zip.open_bytes(data))
   local dest = zip_path("absolute_out")
   local ok, err = zip.extract(r, dest)
   r:close()
@@ -373,7 +373,7 @@ test_extract_rejects_absolute()
 
 local function test_extract_rejects_backslash_traversal()
   local data = crafted_archive("..\\escaped.txt")
-  local r = check.must(zip.from(data))
+  local r = check.must(zip.open_bytes(data))
   local dest = zip_path("backslash_out")
   local ok, err = zip.extract(r, dest)
   r:close()
@@ -392,7 +392,7 @@ test_extract_rejects_backslash_traversal()
 -- the same point; the three guards protect one operation.
 local function test_extract_rejects_control_characters()
   local data = crafted_archive("\nX/escaped.txt")
-  local r = check.must(zip.from(data))
+  local r = check.must(zip.open_bytes(data))
   local dest = zip_path("control_out")
   local ok, err = zip.extract(r, dest)
   r:close()
@@ -405,12 +405,12 @@ test_extract_rejects_control_characters()
 
 local function test_extract_max_file_size()
   local p = zip_path("extract_size.zip")
-  local w = check.must(zip.writer(p))
+  local w = check.must(zip.create(p))
   w:add("small.txt", "ok")
   w:add("big.txt", string.rep("x", 4096))
   w:close()
 
-  local r = check.must(zip.reader(p))
+  local r = check.must(zip.open(p))
   local dest = zip_path("size_out")
   local ok, err = zip.extract(r, dest, {max_file_size = 1024})
   r:close()

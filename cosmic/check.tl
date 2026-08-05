@@ -99,18 +99,19 @@ local function ok(value: any, label?: string)
   error(msg, 2)
 end
 
---- Assert that a (value, err) pair represents failure.
+--- Assert that a (value, err) pair represents failure (api-review-8:
+--- was `err`, which read as a noun and shadowed every local error).
 --- Expects value to be nil and err to be a non-nil, non-empty string,
 --- matching the standard cosmic error-return convention.
 --- @param value any The first return value (expected to be nil)
 --- @param e string The second return value (expected to be a non-empty string)
 --- @param label string? Optional label prepended to the failure message
-local function err(value: any, e: string, label?: string)
+local function fails(value: any, e: string, label?: string)
   local msg: string
   if value ~= nil then
-    msg = string.format("err failed: expected nil value, got %s", render(value))
+    msg = string.format("fails: expected nil value, got %s", render(value))
   elseif not e or e == "" then
-    msg = "err failed: expected non-empty error string, got " .. render(e)
+    msg = "fails: expected non-empty error string, got " .. render(e)
   end
   if msg then
     if label then
@@ -127,7 +128,7 @@ end
 --- centralizes that unsoundness behind a runtime nil check. Lua passes multiple returns through, so
 --- `must(fs.read(path))` fails with fs.read's own error string.
 --- Like `assert`, must forwards extra returns past the second, so
---- `for p in check.must(fs.files(d)) do` keeps the 4th return — the
+--- `for p in check.must(fs.find_iter(d)) do` keeps the 4th return — the
 --- to-be-closed guard that releases directory handles on early break.
 --- A plain `value, err` pair still collapses to the value alone, so
 --- `print(check.must(fs.read(p)))` prints no trailing nil. The checker,
@@ -173,10 +174,12 @@ end
 --- skip is escalated to a hard failure — use `strict=true` only where the
 --- mechanism was probed *available* yet the operation was still blocked,
 --- which on the unsandboxed lane can only mean an outer sandbox is present.
---- Callers still `return` after calling this; it does not exit the process.
+--- Callers still `return` after calling this; it does not exit the
+--- process (api-review-8: was `skip`, a name that promised the exit
+--- `needs` performs — this only RECORDS the enforcement gap).
 --- @param reason string Why enforcement could not run
 --- @param strict boolean? Escalate to failure under COSMIC_ENFORCE=1
-local function skip(reason: string, strict?: boolean)
+local function enforce_skip(reason: string, strict?: boolean)
   local tag = strict and "enforce-skip[strict]" or "enforce-skip"
   io.stderr:write("→ " .. tag .. ": " .. reason .. "\n")
   if strict and enforcing() then
@@ -196,21 +199,20 @@ end
 --- is always provisioned and its absence means the provisioning broke,
 --- not that the developer is mid-setup.
 ---
---- Say so by EXITING, not by returning. A `return` at file scope ends
---- the chunk with status 0, and 0 is `pass` -- so the trap described
---- above closes for the printed line and reopens for the grade. The
---- exit code is the only thing the runner reads:
+--- Say so by EXITING — which this function now does itself
+--- (api-review-8): when the precondition is missing it prints the skip
+--- and exits EXIT_SKIP, so a caller cannot forget the exit and turn a
+--- skip into a silent pass (the old `if not needs(...) then
+--- os.exit(...) end` dance, and the lint rule that policed it, are
+--- both gone). When it returns at all, the precondition held.
 ---
----     if not check.needs("the make engine", fs.is_file(make_bin)) then
----       os.exit(check.EXIT_SKIP)
----     end
+---     check.needs("the make engine", fs.is_file(make_bin))
 ---
 --- @param what string What is missing, named for the message
 --- @param present boolean Whether the precondition holds
---- @return boolean True when the test may proceed
-local function needs(what: string, present: boolean): boolean
+local function needs(what: string, present: boolean)
   if present then
-    return true
+    return
   end
   if os.getenv("CI") then
     error("precondition missing in CI: " .. what ..
@@ -218,7 +220,7 @@ local function needs(what: string, present: boolean): boolean
   end
   io.stderr:write("→ skip: " .. what .. " is missing\n")
   print("skip: " .. what .. " is missing")
-  return false
+  os.exit(records.EXIT_SKIP)
 end
 
 --- Reap a forked child and grade what its exit code said.
@@ -280,10 +282,10 @@ local record CheckModule
   ne: function<T>(actual: T, expected: T, label?: string)
   ok: function(value: any, label?: string)
   must: function<T>(v: T | nil, e?: string, ...: any): T, string, any ...
-  err: function(value: any, e: string, label?: string)
+  fails: function(value: any, e: string, label?: string)
   enforcing: function(): boolean
-  skip: function(reason: string, strict?: boolean)
-  needs: function(what: string, present: boolean): boolean
+  enforce_skip: function(reason: string, strict?: boolean)
+  needs: function(what: string, present: boolean)
   reap: function(pid: integer, what: string)
   enforced: function(label: string)
 end
@@ -297,9 +299,9 @@ local M: CheckModule = {
   ne = ne,
   ok = ok,
   must = must,
-  err = err,
+  fails = fails,
   enforcing = enforcing,
-  skip = skip,
+  enforce_skip = enforce_skip,
   needs = needs,
   reap = reap,
   enforced = enforced,

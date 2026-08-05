@@ -26,9 +26,7 @@ local tmpdir = os.getenv("TEST_TMPDIR") or "/tmp"
 -- build_test): a cold checkout stays usable, CI treats absence as
 -- provisioning broken.
 local cosmic_bin = fs.abspath(fs.join(os.getenv("TEST_BIN") or "o/bin", "cosmic"))
-if not check.needs("a built cosmic at " .. cosmic_bin, fs.isfile(cosmic_bin)) then
-  os.exit(check.EXIT_SKIP)
-end
+check.needs("a built cosmic at " .. cosmic_bin, fs.isfile(cosmic_bin))
 
 --- Build a fixture tree and scan it.
 local function fixture(name: string, files: {string: string}): Project

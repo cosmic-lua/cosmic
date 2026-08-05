@@ -13,7 +13,7 @@ local function test_interfaces()
   -- like the netns tests. The enforce lane still runs it for real.
   local probe, ierr = net.interfaces()
   if not probe then
-    check.skip("interfaces() denied by sandbox: " .. tostring(ierr))
+    check.enforce_skip("interfaces() denied by sandbox: " .. tostring(ierr))
     return
   end
   local ifaces = check.must(net.interfaces())
@@ -40,7 +40,7 @@ local function test_interfaces_format()
   -- test_interfaces above: SIOCGIFCONF has no pledge promise)
   local probe = net.interfaces()
   if not probe then
-    check.skip("interfaces() denied by sandbox")
+    check.enforce_skip("interfaces() denied by sandbox")
     return
   end
   local ifaces = check.must(net.interfaces())

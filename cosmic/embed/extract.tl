@@ -51,7 +51,7 @@ local function extract(output_dir: string, exe_path?: string): EmbedResult
     return {ok = false, message = "error: cannot read executable '" .. exe_path .. "'", file_count = 0}
   end
 
-  local reader_maybe = czip.from(exe_data)
+  local reader_maybe = czip.open_bytes(exe_data)
   if not reader_maybe then
     return {ok = false, message = "error: no zip archive found in '" .. exe_path .. "'", file_count = 0}
   end

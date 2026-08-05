@@ -54,7 +54,7 @@ local function Example_collect()
 
   -- collect returns full paths (or nil if the root could not be opened);
   -- sort for deterministic output.
-  local luafiles = check.must(fs.collect(tmpdir, "*.lua"))
+  local luafiles = check.must(fs.find(tmpdir, {glob = "*.lua"}))
   table.sort(luafiles)
   for _, p in ipairs(luafiles) do
     -- print only the basename so output is not path-dependent.
@@ -81,7 +81,7 @@ local function Example_files()
   local names: {string} = {}
   -- files() returns nil, err if the root cannot be opened; must passes
   -- the iterator and its closing guard through on success.
-  for p in check.must(fs.files(tmpdir, "*.txt")) do
+  for p in check.must(fs.find_iter(tmpdir, {glob = "*.txt"})) do
     table.insert(names, fs.basename(p))
   end
   table.sort(names)

@@ -337,9 +337,13 @@ local record FsModule
   glob: function(dir: string, pattern: string): {string} | nil, string
   --- Recursively collect files under dir whose names match a glob
   --- pattern (collect's pattern is ALWAYS a glob).
-  collect: function(dir: string, pattern: string): {string} | nil, string
+  type FindOptions = fs_walk.FindOptions
+  find: function(dir: string, opts?: fs_walk.FindOptions): {string} | nil, string
   --- Recursively collect files under dir whose names match a Lua pattern.
-  collect_matching: function(dir: string, lua_pattern: string): {string} | nil, string
+  find_iter: function(dir: string, opts?: fs_walk.FindOptions): FileIter | nil, string, any, any
+  find_info: function(dir: string): {string: FileInfo} | nil, string
+  -- DEPRECATED aliases (api-review-8 pin-advance transition)
+  collect: function(dir: string, pattern: string): {string} | nil, string
   collect_all: function(dir: string): {string: FileInfo} | nil, string
   files: function(dir: string, pattern?: string): FileIter | nil, string, any, any
 
@@ -450,10 +454,9 @@ local M: FsModule = {
   -- Directory walking
   walk = fs_walk.walk,
   glob = fs_walk.glob,
-  collect = fs_walk.collect,
-  collect_matching = fs_walk.collect_matching,
-  collect_all = fs_walk.collect_all,
-  files = fs_walk.files,
+  find = fs_walk.find,
+  find_iter = fs_walk.find_iter,
+  find_info = fs_walk.find_info,
 
   -- Access mode constants (re-exported from fs_ops)
   F_OK = fs_ops.F_OK,
@@ -471,12 +474,17 @@ local M: FsModule = {
   DT_UNKNOWN = unix.DT_UNKNOWN,
 }
 
--- DEPRECATED transitional aliases for the api-review-8 renames, typed
--- so build tooling (_cli/_make/...) can keep calling them: the pinned
--- cosmic that cold-starts a build EXECUTES tree tooling against its
--- own embedded (pre-rename) cosmic.*, so tooling may only use names
--- both generations share. Tooling flips to the new names — and these
--- aliases are deleted — once a release carrying them is bin/cosmic.pin.
+-- DEPRECATED transitional aliases (api-review-8): the pinned cosmic
+-- that cold-starts a build EXECUTES tree tooling against its embedded
+-- pre-rename cosmic.*, so tooling may only use names both generations
+-- share. Tooling flips and these die once the pin carries the renames.
+M.collect = function(dir: string, pattern: string): {string} | nil, string
+  return fs_walk.find(dir, {glob = pattern})
+end
+M.collect_all = fs_walk.find_info
+M.files = function(dir: string, pattern?: string): FileIter | nil, string, any, any
+  return fs_walk.find_iter(dir, {glob = pattern or "*"})
+end
 M.isfile = fs_path.is_file
 M.isdir = fs_path.is_dir
 M.islink = fs_path.is_link

@@ -39,7 +39,6 @@ local function with_pty(): tty.Pty
   local pty, err = tty.openpty()
   if not pty then
     check.needs("a real pty (tty.openpty failed: " .. tostring(err) .. ")", false)
-    os.exit(check.EXIT_SKIP)
     return nil
   end
   return pty
@@ -252,7 +251,6 @@ local function test_getpass_reads_without_echoing()
     -- skip must exit EXIT_SKIP, not `return` and leave the file to exit
     -- 0 (a PASS by `records.status_of`'s reading).
     check.needs("getpass disabling echo before the race timeout", false)
-    os.exit(check.EXIT_SKIP)
   end
   assert(mgr:write("hunter2\n"))
   proc.wait(pid)
@@ -305,7 +303,6 @@ local function test_getpass_restores_echo_afterwards()
     -- skip must exit EXIT_SKIP, not `return` and leave the file to exit
     -- 0 (a PASS by `records.status_of`'s reading).
     check.needs("getpass disabling echo before the race timeout", false)
-    os.exit(check.EXIT_SKIP)
   end
   assert(mgr:write("secret\n"))
   proc.wait(pid)

@@ -195,40 +195,40 @@ test_ok_fails_with_label()
 
 -- err: passing cases
 
-local function test_err_nil_with_message()
-  check.err(nil, "something went wrong")
+local function test_fails_nil_with_message()
+  check.fails(nil, "something went wrong")
 end
-test_err_nil_with_message()
+test_fails_nil_with_message()
 
-local function test_err_with_label()
-  check.err(nil, "oops", "network call")
+local function test_fails_with_label()
+  check.fails(nil, "oops", "network call")
 end
-test_err_with_label()
+test_fails_with_label()
 
 -- err: failing cases
 
-local function test_err_fails_when_value_is_non_nil()
-  local threw, msg = must_fail(function(): string check.err(42, "some error") return "" end)
+local function test_fails_when_value_is_non_nil()
+  local threw, msg = must_fail(function(): string check.fails(42, "some error") return "" end)
   assert(threw, "expected err to throw when value is 42")
-  assert(msg:match("err failed"), "expected 'err failed' in message, got: " .. msg)
+  assert(msg:match("fails:"), "expected 'fails:' in message, got: " .. msg)
   assert(msg:match("42"), "expected value in message")
 end
-test_err_fails_when_value_is_non_nil()
+test_fails_when_value_is_non_nil()
 
-local function test_err_fails_when_error_string_is_empty()
-  local threw, msg = must_fail(function(): string check.err(nil, "") return "" end)
+local function test_fails_when_error_string_is_empty()
+  local threw, msg = must_fail(function(): string check.fails(nil, "") return "" end)
   assert(threw, "expected err to throw for empty error string")
-  assert(msg:match("err failed"), "expected 'err failed' in message, got: " .. msg)
+  assert(msg:match("fails:"), "expected 'fails:' in message, got: " .. msg)
 end
-test_err_fails_when_error_string_is_empty()
+test_fails_when_error_string_is_empty()
 
-local function test_err_fails_with_label()
-  local threw, msg = must_fail(function(): string check.err("whoops", "err msg", "ctx") return "" end)
-  assert(threw, "expected err to throw")
+local function test_fails_reports_with_label()
+  local threw, msg = must_fail(function(): string check.fails("whoops", "err msg", "ctx") return "" end)
+  assert(threw, "expected fails to throw")
   assert(msg:match("ctx"), "expected label in message")
-  assert(msg:match("err failed"), "expected 'err failed' in message")
+  assert(msg:match("fails:"), "expected 'fails:' in message")
 end
-test_err_fails_with_label()
+test_fails_reports_with_label()
 
 -- must: passing cases
 
@@ -366,7 +366,7 @@ local function test_skip_soft_never_throws()
   -- A non-strict skip is visibility-only: it must never throw, even when
   -- enforcement is required (genuine platform gaps still skip on the lane).
   with_enforce(true, function()
-      local threw = must_fail(function(): string check.skip("kernel too old") return "" end)
+      local threw = must_fail(function(): string check.enforce_skip("kernel too old") return "" end)
       assert(not threw, "soft skip must not throw under enforcement")
     end)
 end
@@ -376,11 +376,11 @@ local function test_skip_strict_throws_only_under_enforce()
   -- Off the lane, even a strict skip is tolerated (the outer sandbox is
   -- expected). On the lane it is a hard failure.
   with_enforce(false, function()
-      local threw = must_fail(function(): string check.skip("blocked", true) return "" end)
+      local threw = must_fail(function(): string check.enforce_skip("blocked", true) return "" end)
       assert(not threw, "strict skip must not throw off the enforce lane")
     end)
   with_enforce(true, function()
-      local threw, msg = must_fail(function(): string check.skip("blocked", true) return "" end)
+      local threw, msg = must_fail(function(): string check.enforce_skip("blocked", true) return "" end)
       assert(threw, "strict skip must throw under enforcement")
       assert(msg:match("enforcement required but skipped"),
         "expected enforcement message, got: " .. msg)

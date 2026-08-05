@@ -309,7 +309,7 @@ local function test_spawn_zip_embedded_binary()
   -- the sandboxed test lane cannot exercise it; skip on that
   -- specific failure. The enforce lane runs it for real.
   if not r.ok and tostring(r.stderr):find("spawn /zip/.bin/echo failed") then
-    check.skip("zip spawn needs memfd_create; pledge forces ENOSYS")
+    check.enforce_skip("zip spawn needs memfd_create; pledge forces ENOSYS")
     return
   end
   assert(r.ok, "embedded binary should succeed: " .. tostring(r.stderr))
