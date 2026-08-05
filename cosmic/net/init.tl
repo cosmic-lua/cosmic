@@ -166,21 +166,21 @@ local record ListenOptions
 end
 
 --- Create a TCP socket, bind it to addr:port, and start listening.
---- Passing port 0 lets the OS assign an ephemeral port; the actual port is
---- returned as the second value so callers never need a separate getsockname
---- call. The address may be a dotted-quad string, a raw integer, or an
---- ip.Addr (0 binds all interfaces). IPv6 is not supported.
+--- Passing port 0 lets the OS assign an ephemeral port; read it with
+--- getsockname().port. The address may be a dotted-quad string, a raw
+--- integer, or an ip.Addr (0 binds all interfaces). IPv6 is not
+--- supported.
 ---
 --- Example — listen on an OS-assigned port:
 ---   local net = require("cosmic.net")
----   local srv, port, err = net.listen_tcp("127.0.0.1", 0)
----   -- port is now the OS-assigned port, e.g. 54321
+---   local srv = assert(net.listen_tcp("127.0.0.1", 0))
+---   local port = assert(srv:getsockname()).port
 ---   local client = net.connect_tcp("127.0.0.1", port)
 ---
---- Recorded decision (api-review-2): the (Socket, port, err) return
---- order — the bound port between the value and the error slot — is
---- deliberate port-0 ergonomics, kept as-is rather than reshuffled to the
---- usual value-then-error order.
+--- Amends the api-review-2 recorded decision: the (Socket, port, err)
+--- triple's slot-3 error was invisible to `check.must` and to
+--- `local s, err = ...` — every misuse type-checked and crashed at
+--- runtime. Error-in-slot-2 wins over the port convenience.
 ---
 --- @param addr Address Local IPv4 address to bind ("127.0.0.1", "0.0.0.0" for all)
 --- @param port integer Local port to bind; use 0 for an OS-assigned ephemeral port

@@ -27,16 +27,13 @@ local function resolve_addr(addr: Address): integer | nil, string
   return (addr):int()
 end
 
---- A local or peer endpoint, as reported by getsockname/getpeername.
---- A record rather than (Addr, integer, err) returns, so the error is
---- always in slot 2 and `check.must` composes.
+--- A local or peer endpoint (getsockname/getpeername), error in slot 2.
 local record Endpoint
   addr: ip.Addr
   port: integer
 end
 
---- One received datagram, as returned by recvfrom: the payload plus
---- the sender's endpoint.
+--- One received datagram (recvfrom): payload plus sender endpoint.
 local record Datagram
   data: string
   addr: ip.Addr
@@ -55,8 +52,7 @@ local record Socket is stream.Reader, stream.Writer
   metamethod __close: function(self: Socket)
   --- The underlying file descriptor.
   fd: integer
-  --- Close the socket. Idempotent; reports the close(2) error —
-  --- an EIO on a dirty flush or an EBADF double-close is load-bearing.
+  --- Close the socket. Idempotent; reports the close(2) error.
   close: function(self: Socket): boolean, string
   --- True when the socket has been closed.
   closed: function(self: Socket): boolean
@@ -96,8 +92,7 @@ local record Socket is stream.Reader, stream.Writer
   --- the stream contract. With max set, returns at most max bytes even
   --- if no newline was seen (the rest stays readable), like fgets.
   readline: function(self: Socket, max?: integer): string | nil, string
-  --- Receive a datagram: the payload plus sender endpoint, with the
-  --- error in slot 2 where every other fallible value keeps it.
+  --- Receive a datagram: payload plus sender endpoint, error in slot 2.
   recvfrom: function(self: Socket, bufsiz?: integer, flags?: integer): Datagram | nil, string
   --- Local endpoint; use after bind for the OS-assigned port.
   getsockname: function(self: Socket): Endpoint | nil, string
@@ -110,10 +105,8 @@ local record Socket is stream.Reader, stream.Writer
   --- Start listening for connections.
   listen: function(self: Socket, backlog?: integer): boolean, string
   --- Accept one connection (blocks until a client connects). Returns
-  --- the connection socket alone — the error in slot 2, so
-  --- `check.must(s:accept())` narrows without dropping the message.
-  --- The peer's address is a getpeername() away when wanted (every
-  --- former in-tree caller discarded the extra returns).
+  --- the socket alone, error in slot 2; the peer's endpoint is a
+  --- getpeername() away when wanted.
   accept: function(self: Socket, flags?: integer): Socket | nil, string
   --- Connect to addr:port. The one blocking call NOT retried on EINTR:
   --- POSIX keeps the connection attempt going in the background after a

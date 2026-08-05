@@ -69,8 +69,8 @@ local function decompress(data: string, opts?: DecompressOptions): string | nil,
   local max_output = opts and opts.max_output
   -- The binding reports truncated or corrupt input as nil, err.
   -- cast: one Format enum; the binding's decompress enum is the same word set
-  local result, err = cosmo.Inflate(data,
-    {format = format as cosmo.UncompressFormat, maxsize = max_output})
+  local bformat = format as cosmo.UncompressFormat
+  local result, err = cosmo.Inflate(data, {format = bformat, maxsize = max_output})
   if not result then
     return nil, "decompress: " .. tostring(err)
   end

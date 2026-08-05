@@ -104,8 +104,9 @@ test_child_handle_conforms()
 
 --- Fork a loopback server answering one request, closing right after.
 local function serve_once(response: string): integer, integer
-  local srv, port = net.listen_tcp("127.0.0.1", 0)
+  local srv = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv, "listen_tcp failed")
+  local port = check.must(s:getsockname()).port
   local pid = proc.fork()
   if pid == 0 then
     local conn = s:accept()

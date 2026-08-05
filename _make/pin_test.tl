@@ -121,8 +121,9 @@ test_version_substitution()
 --- Fork a loopback server answering one request with `body`, under
 --- `status` (default 200).
 local function serve(body: string, status?: integer): integer, integer
-  local srv, port = net.listen_tcp("127.0.0.1", 0)
+  local srv = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv, "listen_tcp failed")
+  local port = check.must(s:getsockname()).port
   local pid = proc.fork()
   if pid == 0 then
     signal.setitimer({

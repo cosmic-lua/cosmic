@@ -33,8 +33,9 @@ end
 --- A response of "echo" answers 200 with the raw request as the body.
 --- @return integer port, integer child pid (caller must proc.wait it)
 local function serve(responses: {string}): integer, integer
-  local srv, port = net.listen_tcp("127.0.0.1", 0)
+  local srv = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv, "listen_tcp failed")
+  local port = check.must(s:getsockname()).port
   local pid = proc.fork()
   if pid == 0 then
     for _, resp in ipairs(responses) do
@@ -162,8 +163,9 @@ test_follow_redirects_false_returns_redirect()
 local function test_redirect_followed_reports_final_url()
   -- serve() can't express a redirect that targets its own port (the
   -- response text needs the port), so fork by hand here.
-  local srv, port2 = net.listen_tcp("127.0.0.1", 0)
+  local srv = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv, "listen_tcp failed")
+  local port2 = check.must(s:getsockname()).port
   local final_url = "http://127.0.0.1:" .. math.tointeger(port2) .. "/final"
   local pid2 = proc.fork()
   if pid2 == 0 then
@@ -196,8 +198,9 @@ end
 test_redirect_followed_reports_final_url()
 
 local function test_opts_table_not_mutated()
-  local srv, port = net.listen_tcp("127.0.0.1", 0)
+  local srv = net.listen_tcp("127.0.0.1", 0)
   local s = check.must(srv, "listen_tcp failed")
+  local port = check.must(s:getsockname()).port
   local redirect_url = "http://127.0.0.1:" .. math.tointeger(port) .. "/after"
   local pid = proc.fork()
   if pid == 0 then
