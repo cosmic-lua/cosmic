@@ -21,6 +21,19 @@ local record Url
 end
 ```
 
+### HostPort
+
+ A parsed host:port pair; port is nil when the input carried none.
+ A record rather than (host, port, err) returns: the error is in
+ slot 2, where check.must and `local h, err = ...` can see it.
+
+```teal
+local record HostPort
+  host: string
+  port: integer
+end
+```
+
 ### UrlModule
 
 ```teal
@@ -30,7 +43,7 @@ local record UrlModule
   parse: function(url: string): Url | nil, string
   format: function(u: Url): string
   parse_query: function(query: string): {string: {string}}
-  parse_host: function(hostport: string): string | nil, integer, string
+  parse_host: function(hostport: string): HostPort | nil, string
   escape_host: function(str: string): string
   escape_path: function(str: string): string
   escape_segment: function(str: string): string
@@ -143,7 +156,7 @@ function format(u: Url): string
 ### parse_host
 
 ```teal
-function parse_host(hostport: string): string | nil, integer, string
+function parse_host(hostport: string): HostPort | nil, string
 ```
 
  Parse a host:port string into its components.
@@ -156,8 +169,7 @@ function parse_host(hostport: string): string | nil, integer, string
 
 **Returns:**
 
-- string - | nil The host, or nil on error
-- integer? - The port, or nil if not specified
+- HostPort - | nil The parsed host (port nil when absent)
 - string? - Error message if parsing failed
 
 ### escape_host

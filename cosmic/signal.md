@@ -58,10 +58,25 @@ local record Sigset
 end
 ```
 
-### SignalModule
+### PrevAction
 
  Signal handling module.
  Provides signal constants, sigaction, sigprocmask, sigsuspend, and delivery functions.
+ The disposition sigaction replaced. A record rather than
+ (handler, flags, mask, err) returns: the old shape put the error in
+ slot 4, unreachable from `local prev, err = ...`. Restore with
+ `signal.sigaction(sig, prev.handler, prev.flags, prev.mask)`.
+
+```teal
+local record PrevAction
+  --  The previous handler: a Lua function, or SIG_DFL/SIG_IGN.
+  handler: function | integer
+  flags: integer
+  mask: Sigset
+end
+```
+
+### SignalModule
 
 ```teal
 local record SignalModule
@@ -109,18 +124,7 @@ local record SignalModule
   --  Create a new signal set containing the specified signals.
   --  The returned Sigset has methods: add(sig), remove(sig), fill(), clear(), contains(sig).
   sigset: function(...: integer): Sigset
-  --  Register a signal handler for the specified signal.
-  --  The handler can be a Lua function, SIG_IGN, or SIG_DFL.
-  --  Lua handlers are DEFERRED: the C-level handler only records the
-  --  signal, and the Lua function runs between VM instructions once the
-  --  interpreter regains control — ordinary VM context, so any Lua code
-  --  is safe inside it (no async-signal-safety constraints). A signal
-  --  arriving during a blocking call surfaces there as EINTR first; the
-  --  ergonomic wrappers run the handler and retry (cosmic.stream).
-  --  An error raised inside a handler is logged, not propagated.
-  --  Returns the previous handler, flags, and mask; on failure returns
-  --  nil, nil, nil plus an error message.
-  sigaction: function(sig: integer, handler?: function | integer, flags?: integer, mask?: Sigset): function | integer, integer, Sigset, string
+  sigaction: function(sig: integer, handler?: function | integer, flags?: integer, mask?: Sigset): PrevAction | nil, string
   --  Modify the process signal mask.
   --  how: SIG_BLOCK, SIG_UNBLOCK, or SIG_SETMASK
   --  Returns the previous signal mask, or nil plus an error message.
@@ -238,7 +242,7 @@ function setitimer(opts: SetitimerOptions): SetitimerResult | nil, string
 ### sigaction
 
 ```teal
-function sigaction(sig: integer, handler?: any, flags?: integer, mask?: Sigset): any, integer, Sigset, string
+function sigaction(sig: integer, handler?: any, flags?: integer, mask?: Sigset): PrevAction | nil, string
 ```
 
 ### sigprocmask

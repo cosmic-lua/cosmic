@@ -13,9 +13,23 @@
 
 ## Types
 
-### Memory
+### Cmpxchg
 
  Shared memory region with atomic word operations and futexes.
+ One compare-exchange outcome: whether the swap happened, and the
+ word's actual value at the time (the old value on success). A
+ record rather than (swapped, actual, err) returns — the error is
+ in slot 2 where `local r, err = ...` can see it.
+
+```teal
+local record Cmpxchg
+  swapped: boolean
+  value: integer
+end
+```
+
+### Memory
+
  Words are 64-bit; word_index is 0-based. Futex words (wait/wake)
  only inspect the low 32 bits — store only int32 values in words
  you wait on.
@@ -37,7 +51,7 @@ local record Memory
   --  Atomic exchange; returns the old value.
   xchg: function(self: Memory, word_index: integer, value: integer): integer | nil, string
   --  Compare-and-exchange; returns success plus the actual old value.
-  cmpxchg: function(self: Memory, word_index: integer, old: integer, new: integer): boolean | nil, integer, string
+  cmpxchg: function(self: Memory, word_index: integer, old: integer, new: integer): Cmpxchg | nil, string
   --  Atomic add; returns the old value.
   fetch_add: function(self: Memory, word_index: integer, value: integer): integer | nil, string
   --  Atomic AND; returns the old value.
@@ -57,7 +71,7 @@ local record Memory
   wait: function(self: Memory, word_index: integer, expect: integer, abs_deadline?: integer, nanos?: integer): integer | nil, string
   --  Wake processes waiting on a word; returns how many woke.
   --  Wakes nothing once the region has been unmapped.
-  wake: function(self: Memory, word_index: integer, count?: integer): integer
+  wake: function(self: Memory, word_index: integer, count?: integer): integer | nil, string
   --  Release the mapping now instead of waiting for the garbage
   --  collector. Idempotent: true when this call released the mapping,
   --  false when it was already unmapped. Afterwards every fallible
@@ -75,6 +89,8 @@ end
 ```teal
 local record ShmModule
   mapshared: function(size: integer): Memory | nil, string
+  --  Validate a 0-based word index against the region size.
+  word_index: integer, size: integer, op: string): string
 end
 ```
 
@@ -176,7 +192,7 @@ function mem:fetch_xor(word_index: integer, value: integer): integer | nil, stri
 ### mem:cmpxchg
 
 ```teal
-function mem:cmpxchg(word_index: integer, old: integer, new: integer): boolean | nil, integer, string
+function mem:cmpxchg(word_index: integer, old: integer, new: integer): Cmpxchg | nil, string
 ```
 
 ### mem:wait
@@ -188,7 +204,7 @@ function mem:wait(word_index: integer, expect: integer, abs_deadline?: integer, 
 ### mem:wake
 
 ```teal
-function mem:wake(word_index: integer, count?: integer): integer
+function mem:wake(word_index: integer, count?: integer): integer | nil, string
 ```
 
 ### mem:unmap

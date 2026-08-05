@@ -12,4 +12,21 @@
 
 ## Types
 
+### WaitResult
+
+ Waits for a child process to change state.
+ A raw passthrough: EINTR surfaces here, unlike child.Handle:wait.
+ What wait(2) reaped. A record rather than (pid, status, rusage,
+ err) returns: the old shape put the error in slot 4, unreachable
+ from `local pid, err = ...` and from check.must.
+
+```teal
+local record WaitResult
+  pid: integer
+  --  Raw status word; decode with WIFEXITED/WEXITSTATUS/WIFSIGNALED/WTERMSIG.
+  status: integer
+  rusage: Rusage
+end
+```
+
 ### ProcModule
