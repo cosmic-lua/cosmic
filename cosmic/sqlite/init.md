@@ -39,7 +39,7 @@ local record Rows
   __call: function(self: Rows): {string: any}
   __close: function(self: Rows)
   --  Step error from iteration, or nil after a clean SQLITE_DONE.
-  err: function(self: Rows): string
+  err: function(self: Rows): string | nil
   --  Release the underlying prepared statement early (idempotent).
   close: function(self: Rows)
 end
@@ -61,8 +61,13 @@ end
 ```teal
 local record Values
   __call: function(self: Values): any ...
+  __close: function(self: Values)
   --  Step error from iteration, or nil after a clean SQLITE_DONE.
-  err: function(self: Values): string
+  err: function(self: Values): string | nil
+  --  End iteration early (idempotent); also runs on scope exit via
+  --  to-be-closed. Does not finalize the owning Statement — that is
+  --  Statement:close()'s job, since the Statement may be reused.
+  close: function(self: Values)
 end
 ```
 
@@ -206,18 +211,6 @@ function db:query_one(sql: string, ...: any): {string: any} | nil, string
  Convenience method for single-row lookups.
  The underlying prepared statement is always finalized before returning,
  even when only the first row is consumed, preventing statement leaks.
-
-### db:transaction
-
-```teal
-function db:transaction(fn: function(Database)): boolean, string
-```
-
- Execute fn within a transaction. BEGIN before fn; COMMIT if fn returns
- cleanly; ROLLBACK if fn raises OR signals failure the library way -- a
- returned `false`, or `nil` plus an error (nothing returned still commits).
- A failing COMMIT (e.g. a deferred foreign-key violation) also rolls
- back, so the connection is never left inside an open transaction.
 
 ### db:last_insert_rowid
 
