@@ -90,9 +90,7 @@ test_refusals_name_which_one_they_are()
 -- traceback is visible.
 local function test_the_probe_reads_the_answer()
   local engine = fs.join(os.getenv("TEST_BIN") or "", "cosmic")
-  if not check.needs("a built cosmic at " .. engine, fs.isfile(engine)) then
-    os.exit(check.EXIT_SKIP)
-  end
+  check.needs("a built cosmic at " .. engine, fs.isfile(engine))
   assert(converge.drives_a_build(engine),
     "the real engine answers `--make help`")
 

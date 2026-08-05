@@ -187,7 +187,7 @@ or map unions through truthiness (`if not x`). Three sanctioned tools:
   passes multiple returns through, so a failing call reports the callee's own error
   string. `must` narrows nil only (`false` passes through), and it throws, so it is for
   tests/examples, never library code. Like `assert`, must forwards extra returns past
-  the second, so `for p in check.must(fs.files(d)) do` keeps the 4th return (the to-be-
+  the second, so `for p in check.must(fs.find_iter(d)) do` keeps the 4th return (the to-be-
   closed guard that releases directory handles on early break); a plain `value, err`
   pair still collapses to the value alone. Never write `assert(x) as T` in a test; that
   pattern is retired.
@@ -354,7 +354,7 @@ all modules are under `cosmic/` and imported as `cosmic.*`:
 |--------|-------------|
 | ansi | ANSI terminal styling: colors, attributes, strip, NO_COLOR-aware gating |
 | benchmark | benchmark runner with `Benchmark_*` functions (`--make benchmark`) |
-| check | assertion helpers for tests/examples (`eq`, `ok`, `must`) plus environment-gating helpers (`skip`, `needs`, `enforcing`) |
+| check | assertion helpers for tests/examples (`eq`, `ok`, `must`) plus environment-gating helpers (`needs`, `enforce_skip`, `enforcing`) |
 | child | child process spawning with I/O control |
 | codec | hex encoding/decoding, Lua serialization |
 | compress | zlib compression/decompression |

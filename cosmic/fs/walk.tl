@@ -162,20 +162,36 @@ local function collect_by_pattern(dir: string, lua_pattern: string): {string} | 
   return results, err
 end
 
---- Collect file paths matching a glob.
---- The pattern is ALWAYS a glob (`*` any run, `?` one char); other
---- characters — including brackets and Lua-pattern magic like `%` —
---- match literally. For Lua patterns use collect_matching().
---- Recursively walks the directory tree and returns matching file paths.
+--- Options for find/find_iter: how a file's BASENAME is selected.
+--- At most one of glob/pattern; neither selects every file.
+local record FindOptions
+  --- glob matched against each basename (`*` any run, `?` one char;
+  --- everything else — including `%` and brackets — literal)
+  glob: string
+  --- Lua pattern matched against each basename, for callers who mean
+  --- one (the explicit sibling; never guessed from the string)
+  pattern: string
+end
+
+--- Resolve FindOptions to the Lua pattern the walkers share.
+local function find_pattern(opts?: FindOptions): string
+  if opts and opts.pattern then
+    return opts.pattern
+  end
+  return glob_to_pattern((opts and opts.glob) or "*")
+end
+
+--- Recursively collect file paths under dir (api-review-8: find/
+--- find_iter replace collect/collect_matching/files).
 --- If the root directory cannot be opened, returns nil plus the error.
 --- Failures below the root do not stop the collection; the first such
 --- error is returned alongside the results.
 --- @param dir string The directory to search
---- @param pattern string Glob pattern (*.lua)
+--- @param opts FindOptions? glob or pattern over basenames (default: all files)
 --- @return {string} | nil List of matching paths, or nil if the root failed
 --- @return string First error encountered, if any
-local function collect(dir: string, pattern: string): {string} | nil, string
-  return collect_by_pattern(dir, glob_to_pattern(pattern))
+local function find(dir: string, opts?: FindOptions): {string} | nil, string
+  return collect_by_pattern(dir, find_pattern(opts))
 end
 
 --- List entries in one directory whose name matches a glob component.
@@ -250,18 +266,9 @@ local function glob(dir: string, pattern: string): {string} | nil, string
   return current, first_err
 end
 
---- Collect file paths whose basename matches a Lua pattern (%.lua$).
---- The explicit Lua-pattern sibling of collect(); the two are never
---- guessed apart from the pattern's contents.
---- @param dir string The directory to search
---- @param lua_pattern string Lua pattern matched against each basename
---- @return {string} | nil List of matching paths, or nil if the root failed
---- @return string First error encountered, if any
-local function collect_matching(dir: string, lua_pattern: string): {string} | nil, string
-  return collect_by_pattern(dir, lua_pattern)
-end
-
---- Recursively collect all files with their Unix permissions.
+--- Recursively collect all files with their Unix permissions
+--- (api-review-8: was collect_all — find's sibling whose result carries
+--- FileInfo rather than bare paths).
 --- Returns a map of relative paths to file information.
 --- If the root directory cannot be opened, returns nil plus the error.
 --- Failures below the root do not stop the collection; the first such
@@ -269,7 +276,7 @@ end
 --- @param dir string The directory to walk
 --- @return {string:FileInfo} | nil Map of relative paths to file information
 --- @return string First error encountered, if any
-local function collect_all(dir: string): {string: FileInfo} | nil, string
+local function find_info(dir: string): {string: FileInfo} | nil, string
   local files: {string: FileInfo} = {}
   local errbox: {string} = {}
 
@@ -332,7 +339,7 @@ local function collect_all(dir: string): {string: FileInfo} | nil, string
   return files, errbox[1]
 end
 
---- Iterator over file paths, as returned by files(). The second return
+--- Iterator over file paths, as returned by find_iter(). The second return
 --- is nil while paths remain; once the tree is exhausted every further
 --- call returns `nil, first_error` (nil when the walk was clean) — the
 --- same (result, first-subtree-error) pairing walk()/collect() return,
@@ -342,36 +349,33 @@ local type FileIter = function(): string | nil, string
 
 --- Iterate over files matching a pattern.
 --- Returns an iterator that yields file paths. The fourth return value
---- is a to-be-closed guard: a plain `for f in fs.files(dir) do ... end`
+--- is a to-be-closed guard: a plain `for f in fs.find_iter(dir) do ... end`
 --- loop adopts it as the loop's closing value (Lua 5.4), so directory
 --- handles are closed even when the loop exits early via break/error.
 --- If the root directory cannot be opened, returns nil plus the error.
 --- Failures below the root (an unreadable subdirectory, a vanished
 --- entry) do NOT stop iteration, matching walk()/collect() — the first
 --- such error is captured and, once the iterator is exhausted, returned
---- as its second value from then on. A plain `for f in fs.files(dir) do`
+--- as its second value from then on. A plain `for f in fs.find_iter(dir) do`
 --- never sees it (the loop ends on the first nil without inspecting
 --- further returns); call the iterator again after the loop to read it:
 ---
----     local iter = check.must(fs.files(dir))
+---     local iter = check.must(fs.find_iter(dir))
 ---     for f in iter do ... end
 ---     local _, suberr = iter() -- first subtree error, if any
 ---
 --- in tests/examples iterate the checked value with
---- `for f in check.must(fs.files(dir)) do` (must, like assert, forwards
+--- `for f in check.must(fs.find_iter(dir)) do` (must, like assert, forwards
 --- all four returns, keeping the closing guard); in library code use
---- `assert(fs.files(dir)) as fs.FileIter`, which also forwards them.
+--- `assert(fs.find_iter(dir)) as fs.FileIter`, which also forwards them.
 --- @param dir string The directory to search
---- @param pattern string Glob pattern (*.lua) - defaults to all files (*)
+--- @param opts FindOptions? glob or pattern over basenames (default: all files)
 --- @return function | nil Iterator yielding file paths, or nil if the root could not be opened
 --- @return string Error if the root directory could not be opened
 --- @return nil Unused (generic-for control slot)
 --- @return any Closing guard that releases open directory handles
-local function files(dir: string, pattern?: string): FileIter | nil, string, any, any
-  pattern = pattern or "*"
-
-  -- The pattern is always a glob (see collect); no heuristics.
-  local lua_pattern = glob_to_pattern(pattern)
+local function find_iter(dir: string, opts?: FindOptions): FileIter | nil, string, any, any
+  local lua_pattern = find_pattern(opts)
 
   -- Stack of (dir, handle) for depth-first traversal
   local stack: {{string, WalkDirHandle}} = {}
@@ -427,7 +431,7 @@ local function files(dir: string, pattern?: string): FileIter | nil, string, any
           -- (a symlinked dir reports DT_LNK), and skips a stat(2) call.
           push_subdir(full_path)
         elseif kind ~= unix.DT_UNKNOWN then
-          -- Definitely not a directory: files() never needs stat data,
+          -- Definitely not a directory: find_iter() never needs stat data,
           -- only the path, so just check the pattern without stat(2).
           if string.match(entry, lua_pattern) then
             return full_path
@@ -456,7 +460,7 @@ local function files(dir: string, pattern?: string): FileIter | nil, string, any
 end
 
 local record FsWalkModule
-  --- Iterator over file paths, as returned by files().
+  --- Iterator over file paths, as returned by find_iter().
   type FileIter = FileIter
 
   --- Visitor verdict: nil continues, "skip" prunes, "stop" ends the walk.
@@ -470,19 +474,18 @@ local record FsWalkModule
   --- The visitor may return "skip" (don't descend) or "stop" (end the walk).
   walk: function<T>(dir: string, visitor: function(string, string, WalkStat, T): (WalkAction ...), ctx?: T, opts?: WalkOptions): T | nil, string
   glob: function(dir: string, pattern: string): {string} | nil, string
-  collect: function(dir: string, pattern: string): {string} | nil, string
-  collect_matching: function(dir: string, lua_pattern: string): {string} | nil, string
-  collect_all: function(dir: string): {string: FileInfo} | nil, string
-  files: function(dir: string, pattern?: string): FileIter | nil, string, any, any
+  type FindOptions = FindOptions
+  find: function(dir: string, opts?: FindOptions): {string} | nil, string
+  find_iter: function(dir: string, opts?: FindOptions): FileIter | nil, string, any, any
+  find_info: function(dir: string): {string: FileInfo} | nil, string
 end
 
 local M: FsWalkModule = {
   walk = walk,
   glob = glob,
-  collect = collect,
-  collect_matching = collect_matching,
-  collect_all = collect_all,
-  files = files,
+  find = find,
+  find_iter = find_iter,
+  find_info = find_info,
 }
 
 return M

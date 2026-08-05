@@ -152,7 +152,7 @@ local function test_pump_relays_data_across_eintr()
     c2:close()
     u1:close()
     u2:close()
-    check.skip("pump EINTR: fork unavailable")
+    check.enforce_skip("pump EINTR: fork unavailable")
     return
   end
   if pid == 0 then

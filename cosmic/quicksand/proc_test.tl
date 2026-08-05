@@ -26,7 +26,7 @@ test_module_exports()
 local function test_setup_userns_maps_returns_error_outside_userns()
   local c = quicksand.capabilities()
   if not c.linux then
-    check.skip("userns maps: non-Linux host")
+    check.enforce_skip("userns maps: non-Linux host")
     return
   end
   local script = fs.join(tmpdir, "userns_maps.lua")
@@ -44,14 +44,14 @@ end
   local __r1 = check.must(h:wait())
   local ok, out = __r1.ok, __r1.stdout
   if not ok then
-    check.skip("userns maps child died before reporting (outer sandbox)")
+    check.enforce_skip("userns maps child died before reporting (outer sandbox)")
     return
   end
   local s = out
   assert(s:find("ok") or s:find("skipped"),
     "expected ok or skipped, got: " .. s)
   if s:find("skipped") then
-    check.skip("userns maps: " .. s:gsub("%s+$", ""))
+    check.enforce_skip("userns maps: " .. s:gsub("%s+$", ""))
   end
 end
 test_setup_userns_maps_returns_error_outside_userns()
@@ -76,7 +76,7 @@ test_drop_privs_nil_is_noop()
 local function test_no_new_privs_subprocess()
   local c = quicksand.capabilities()
   if not c.linux then
-    check.skip("no_new_privs: non-Linux host")
+    check.enforce_skip("no_new_privs: non-Linux host")
     return
   end
   local script = fs.join(tmpdir, "nnp.lua")
@@ -96,14 +96,14 @@ io.write("ok\n")
   -- An outer seccomp/pledge filter may SIGSYS the subprocess on prctl.
   -- Accept signal death as a skip.
   if not ok then
-    check.skip("no_new_privs child died before reporting (outer sandbox)")
+    check.enforce_skip("no_new_privs child died before reporting (outer sandbox)")
     return
   end
   local s = out
   assert(s:find("ok") or s:find("skipped"),
     "expected ok or skipped, got: " .. s)
   if s:find("skipped") then
-    check.skip("no_new_privs: " .. s:gsub("%s+$", ""))
+    check.enforce_skip("no_new_privs: " .. s:gsub("%s+$", ""))
   end
 end
 test_no_new_privs_subprocess()
@@ -111,7 +111,7 @@ test_no_new_privs_subprocess()
 local function test_barrier_signal_wait()
   local c = quicksand.capabilities()
   if not c.linux then
-    check.skip("barrier: non-Linux host")
+    check.enforce_skip("barrier: non-Linux host")
     return
   end
   local script = fs.join(tmpdir, "barrier.lua")
@@ -143,14 +143,14 @@ io.write("done\n")
   local ok, out = __r3.ok, __r3.stdout
   -- Signal death under an outer sandbox counts as skip.
   if not ok then
-    check.skip("barrier child died before reporting (outer sandbox)")
+    check.enforce_skip("barrier child died before reporting (outer sandbox)")
     return
   end
   local s = out
   assert(s:find("done") or s:find("skipped"),
     "expected done or skipped, got: " .. s)
   if s:find("skipped") then
-    check.skip("barrier: " .. s:gsub("%s+$", ""))
+    check.enforce_skip("barrier: " .. s:gsub("%s+$", ""))
   end
 end
 test_barrier_signal_wait()
@@ -164,7 +164,7 @@ test_barrier_signal_wait()
 local function test_barrier_retries_eintr()
   local c = quicksand.capabilities()
   if not c.linux then
-    check.skip("barrier EINTR retry: non-Linux host")
+    check.enforce_skip("barrier EINTR retry: non-Linux host")
     return
   end
   local script = fs.join(tmpdir, "barrier_eintr.lua")
@@ -202,12 +202,12 @@ io.write("ok=" .. tostring(ok) .. " err=" .. tostring(werr)
   local h = check.must(child.start({cosmic, script}))
   local r = check.must(h:wait())
   if not r.ok then
-    check.skip("barrier EINTR retry: child died before reporting (outer sandbox)")
+    check.enforce_skip("barrier EINTR retry: child died before reporting (outer sandbox)")
     return
   end
   local s = r.stdout
   if s:find("skipped") then
-    check.skip("barrier EINTR retry: " .. s:gsub("%s+$", ""))
+    check.enforce_skip("barrier EINTR retry: " .. s:gsub("%s+$", ""))
     return
   end
   assert(s:find("ok=true"), "expected ok=true, got: " .. s)
@@ -273,11 +273,11 @@ if pid == 0 then os.exit(42) end
 io.write("code=" .. tostring(qproc.become_init(pid)) .. "\n")
 ]])
   if not out then
-    check.skip("become_init exit status: child died (outer sandbox)")
+    check.enforce_skip("become_init exit status: child died (outer sandbox)")
     return
   end
   if out:find("skipped") then
-    check.skip("become_init exit status: " .. out:gsub("%s+$", ""))
+    check.enforce_skip("become_init exit status: " .. out:gsub("%s+$", ""))
     return
   end
   assert(out:find("code=42"), "expected code=42, got: " .. out)
@@ -294,11 +294,11 @@ unix.kill(pid, unix.SIGKILL)
 io.write("code=" .. tostring(qproc.become_init(pid)) .. "\n")
 ]])
   if not out then
-    check.skip("become_init signal death: child died (outer sandbox)")
+    check.enforce_skip("become_init signal death: child died (outer sandbox)")
     return
   end
   if out:find("skipped") then
-    check.skip("become_init signal death: " .. out:gsub("%s+$", ""))
+    check.enforce_skip("become_init signal death: " .. out:gsub("%s+$", ""))
     return
   end
   -- 128 + SIGKILL(9)
@@ -326,11 +326,11 @@ end
 io.write("code=" .. tostring(qproc.become_init(main)) .. "\n")
 ]])
   if not out then
-    check.skip("become_init forwarding: child died (outer sandbox)")
+    check.enforce_skip("become_init forwarding: child died (outer sandbox)")
     return
   end
   if out:find("skipped") then
-    check.skip("become_init forwarding: " .. out:gsub("%s+$", ""))
+    check.enforce_skip("become_init forwarding: " .. out:gsub("%s+$", ""))
     return
   end
   -- 128 + SIGTERM(15)
@@ -355,11 +355,11 @@ io.write("code=" .. tostring(code)
   .. " fired=" .. tostring(fired == side) .. "\n")
 ]])
   if not out then
-    check.skip("become_init sidecar: child died (outer sandbox)")
+    check.enforce_skip("become_init sidecar: child died (outer sandbox)")
     return
   end
   if out:find("skipped") then
-    check.skip("become_init sidecar: " .. out:gsub("%s+$", ""))
+    check.enforce_skip("become_init sidecar: " .. out:gsub("%s+$", ""))
     return
   end
   assert(out:find("code=1"), "expected code=1, got: " .. out)

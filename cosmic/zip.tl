@@ -31,11 +31,13 @@ local type Entry = zip.Entry
 --- Entry names come raw from the central directory: an archive built by
 --- another tool can contain absolute or "../" names. Validate before
 --- using a name as a filesystem path, or use extract().
-local type Reader = zip.Reader
+--- (api-review-8: the public type name is Archive.)
+local type Archive = zip.Reader
 
---- Writer for creating new ZIP archives (the generated cosmo.zip.Writer
+--- Builder for creating new ZIP archives (the generated cosmo.zip.Writer
 --- class): add(name, content, opts?), close().
-local type Writer = zip.Writer
+--- (api-review-8: the public type name is Builder.)
+local type Builder = zip.Writer
 
 --- Appender for adding files to an existing ZIP archive (the generated
 --- cosmo.zip.Appender class): add(name, content, opts?), remove(name),
@@ -49,12 +51,13 @@ local record ExtractOptions
   max_file_size: integer
 end
 
---- Open a ZIP archive for reading.
+--- Open a ZIP archive for reading (api-review-8: was `reader` — `open`
+--- is the constructor that acquires a closeable resource, D20).
 --- @param path string|integer File path or file descriptor
 --- @param opts OpenOptions? Size limits
---- @return Reader | nil The archive reader, or nil on error
+--- @return Archive | nil The archive, or nil on error
 --- @return string? Error message if opening failed
-local function reader(path: string | integer, opts?: OpenOptions): Reader | nil, string
+local function open(path: string | integer, opts?: OpenOptions): Archive | nil, string
   local handle: any
   local err: string
   if opts then
@@ -65,16 +68,17 @@ local function reader(path: string | integer, opts?: OpenOptions): Reader | nil,
   if not handle then
     return nil, err or "failed to open zip archive"
   end
-  return handle as Reader -- cast: from any
+  return handle as Archive -- cast: from any
 end
 
---- Create a new ZIP archive for writing. Any existing file is truncated.
+--- Create a new ZIP archive for writing (api-review-8: was `writer`).
+--- Any existing file is truncated.
 --- @param path string|integer File path or file descriptor
 --- @param opts OpenOptions? Compression level and size limits
---- @return Writer | nil The archive writer, or nil on error
+--- @return Builder | nil The archive builder, or nil on error
 --- @return string? Error message if opening failed
-local function writer(path: string | integer, opts?: OpenOptions): Writer | nil, string
-  local handle: Writer
+local function create(path: string | integer, opts?: OpenOptions): Builder | nil, string
+  local handle: Builder
   local err: string
   if opts then
     handle, err = zip.create(path, opts)
@@ -87,14 +91,14 @@ local function writer(path: string | integer, opts?: OpenOptions): Writer | nil,
   return handle
 end
 
---- Open a ZIP archive for appending, creating it if it does not exist.
---- Unlike reader/writer, a file descriptor is not accepted; the archive
---- must be given as a path.
+--- Open a ZIP archive for appending (api-review-8: was `appender`),
+--- creating it if it does not exist. Unlike open/create, a file
+--- descriptor is not accepted; the archive must be given as a path.
 --- @param path string File path
 --- @param opts OpenOptions? Compression level and size limits
 --- @return Appender | nil The archive appender, or nil on error
 --- @return string? Error message if opening failed
-local function appender(path: string, opts?: OpenOptions): Appender | nil, string
+local function append(path: string, opts?: OpenOptions): Appender | nil, string
   local handle: Appender
   local err: string
   if opts then
@@ -108,13 +112,14 @@ local function appender(path: string, opts?: OpenOptions): Appender | nil, strin
   return handle
 end
 
---- Open a ZIP archive from in-memory data for reading.
+--- Open a ZIP archive from in-memory data for reading (api-review-8:
+--- was `from`; pairs with open as its bytes-not-path form).
 --- @param data string The ZIP archive data
 --- @param opts OpenOptions? Size limits
---- @return Reader? The archive reader, or nil on error
+--- @return Archive? The archive, or nil on error
 --- @return string? Error message if opening failed
-local function from(data: string, opts?: OpenOptions): Reader | nil, string
-  local handle: Reader
+local function open_bytes(data: string, opts?: OpenOptions): Archive | nil, string
+  local handle: Archive
   local err: string
   if opts then
     handle, err = zip.from(data, opts)
@@ -158,7 +163,7 @@ local unsafe_entry = fs.unsafe_entry_name
 --- @param opts ExtractOptions? Per-entry size limit
 --- @return boolean true when every entry was written
 --- @return string? Error message if validation or writing failed
-local function extract(r: Reader, destdir: string, opts?: ExtractOptions): boolean, string
+local function extract(r: Archive, destdir: string, opts?: ExtractOptions): boolean, string
   local entries = r:list()
 
   -- Validate everything up front: a single bad entry rejects the whole
@@ -228,28 +233,40 @@ local record ZipModule
   type ExtractOptions = ExtractOptions
   --- File metadata within a ZIP archive.
   type Stat = Stat
-  --- Directory entry returned by Reader:list().
+  --- Directory entry returned by Archive:list().
   type Entry = Entry
-  --- Reader for extracting files from a ZIP archive.
-  type Reader = Reader
-  --- Writer for creating new ZIP archives.
-  type Writer = Writer
+  --- Archive open for reading.
+  type Archive = Archive
+  --- Builder for creating new ZIP archives.
+  type Builder = Builder
   --- Appender for adding files to an existing ZIP archive.
   type Appender = Appender
 
-  reader: function(path: string | integer, opts?: OpenOptions): Reader | nil, string
-  writer: function(path: string | integer, opts?: OpenOptions): Writer | nil, string
+  open: function(path: string | integer, opts?: OpenOptions): Archive | nil, string
+  create: function(path: string | integer, opts?: OpenOptions): Builder | nil, string
+  append: function(path: string, opts?: OpenOptions): Appender | nil, string
+  open_bytes: function(data: string, opts?: OpenOptions): Archive | nil, string
+  extract: function(archive: Archive, destdir: string, opts?: ExtractOptions): boolean, string
+
+  -- DEPRECATED aliases (api-review-8 pin-advance transition)
+  type Reader = Archive
+  type Writer = Builder
+  reader: function(path: string | integer, opts?: OpenOptions): Archive | nil, string
+  writer: function(path: string | integer, opts?: OpenOptions): Builder | nil, string
   appender: function(path: string, opts?: OpenOptions): Appender | nil, string
-  from: function(data: string, opts?: OpenOptions): Reader | nil, string
-  extract: function(r: Reader, destdir: string, opts?: ExtractOptions): boolean, string
+  from: function(data: string, opts?: OpenOptions): Archive | nil, string
 end
 
 local M: ZipModule = {
-  reader = reader,
-  writer = writer,
-  appender = appender,
-  from = from,
+  open = open,
+  create = create,
+  append = append,
+  open_bytes = open_bytes,
   extract = extract,
+  reader = open,
+  writer = create,
+  appender = append,
+  from = open_bytes,
 }
 
 return M

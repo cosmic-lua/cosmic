@@ -266,7 +266,7 @@ local function test_write_atomic_roundtrip()
     string.format("expected mode 600, got %o", mode))
 
   -- No temporary residue left behind.
-  local leftovers = check.must(fs.collect(test_dir, "config.json.*"))
+  local leftovers = check.must(fs.find(test_dir, {glob = "config.json.*"}))
   assert(#leftovers == 0, "no temp files should remain: " .. tostring(leftovers[1]))
 
   teardown(test_dir)

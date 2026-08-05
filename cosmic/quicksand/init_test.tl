@@ -129,14 +129,14 @@ test_probe_string_only_failure_is_available()
 local function test_real_pledge_unveil_probe()
   local c = quicksand.capabilities()
   if not c.linux then
-    check.skip("quicksand pledge/unveil probe: non-Linux host")
+    check.enforce_skip("quicksand pledge/unveil probe: non-Linux host")
     return
   end
   check.ok(c.pledge, "capabilities().pledge must be true on Linux (pledge via seccomp)")
   if c.landlock then
     check.ok(c.unveil, "capabilities().unveil must be true on Linux with landlock")
   else
-    check.skip("quicksand unveil probe: host kernel lacks landlock")
+    check.enforce_skip("quicksand unveil probe: host kernel lacks landlock")
   end
   check.enforced("quicksand pledge/unveil probe")
 end
@@ -167,7 +167,7 @@ local function test_unveil_matches_landlock_on_linux()
   -- capability must equal the landlock one (no independent, destructive probe).
   local c = quicksand.capabilities()
   if not c.linux then
-    check.skip("unveil/landlock equivalence: non-Linux host")
+    check.enforce_skip("unveil/landlock equivalence: non-Linux host")
     return
   end
   check.eq(c.unveil, c.landlock,

@@ -220,7 +220,7 @@ return chunk(...)
 --- @return {string} Entry names, or empty when it carries no zip
 local function base_entries(exe_path: string): {string}
   local names: {string} = {}
-  local rd = czip.reader(exe_path)
+  local rd = czip.open(exe_path)
   if rd == nil then
     return names
   end
@@ -256,7 +256,7 @@ local function wrap_user_main(files_to_embed: {FileToEmbed}, exe_path: string): 
   if main_entry.content:sub(1, #WRAP_SENTINEL) == WRAP_SENTINEL then
     return nil -- already wrapped (extract/embed roundtrip)
   end
-  local exe_reader = czip.reader(exe_path)
+  local exe_reader = czip.open(exe_path)
   if exe_reader ~= nil then
     local rd = exe_reader as czip.Reader -- cast: record union after guard
     local exe_main = rd:read("main.lua")
@@ -370,7 +370,7 @@ local function embed(paths: {string}, opts?: Options): EmbedResult
   -- Open the copy as an appender to modify its zip in-place
   local appender_result: any
   local appender_err: any
-  appender_result, appender_err = czip.appender(tmp_path)
+  appender_result, appender_err = czip.append(tmp_path)
   if not appender_result then
     fs.unlink(tmp_path)
     return {ok = false, message = "error: failed to open zip for appending: " .. tostring(appender_err or "unknown error"), file_count = 0}

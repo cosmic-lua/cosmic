@@ -52,7 +52,7 @@ test_start_rejects_invalid_rules_pre_fork()
 local function test_start_stop_lifecycle()
   local c = quicksand.capabilities()
   if not c.linux then
-    check.skip("quicksand proxy is Linux-only")
+    check.enforce_skip("quicksand proxy is Linux-only")
     return
   end
 
@@ -89,7 +89,7 @@ test_start_stop_lifecycle()
 local function test_deny_unknown_host()
   local c = quicksand.capabilities()
   if not c.linux then
-    check.skip("quicksand proxy is Linux-only")
+    check.enforce_skip("quicksand proxy is Linux-only")
     return
   end
 
@@ -123,7 +123,7 @@ test_deny_unknown_host()
 local function test_malformed_and_chunked_requests()
   local c = quicksand.capabilities()
   if not c.linux then
-    check.skip("quicksand proxy is Linux-only")
+    check.enforce_skip("quicksand proxy is Linux-only")
     return
   end
 
@@ -161,7 +161,7 @@ test_malformed_and_chunked_requests()
 local function test_allowed_private_upstream_gets_502()
   local c = quicksand.capabilities()
   if not c.linux then
-    check.skip("quicksand proxy is Linux-only")
+    check.enforce_skip("quicksand proxy is Linux-only")
     return
   end
 
@@ -191,7 +191,7 @@ test_allowed_private_upstream_gets_502()
 local function test_stop_escalates_to_sigkill()
   local c = quicksand.capabilities()
   if not c.linux then
-    check.skip("quicksand proxy is Linux-only")
+    check.enforce_skip("quicksand proxy is Linux-only")
     return
   end
   local signal = require("cosmic.signal")

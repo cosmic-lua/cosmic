@@ -58,14 +58,14 @@ end
 test_walk_symlink_cycle_terminates()
 
 -- FIX 1b: collect_all() must not recurse into symlinked directories
-local function test_collect_all_symlink_cycle_terminates()
+local function test_find_all_symlink_cycle_terminates()
   local base = mksubdir("collect_all_cycle")
   local subdir = fs.join(base, "sub")
   fs.make_dirs(subdir)
   write_file(fs.join(subdir, "real.txt"), "data")
   fs.symlink("..", fs.join(subdir, "loop"))
 
-  local collected = fs_walk.collect_all(base)
+  local collected = fs_walk.find_info(base)
   assert(collected, "collect_all should succeed")
   local files = collected as {string: any} -- cast: record union after guard
   -- Should contain sub/real.txt but NOT any path with loop/ in it
@@ -75,10 +75,10 @@ local function test_collect_all_symlink_cycle_terminates()
   end
   assert(files["sub/real.txt"] ~= nil, "real.txt should be found")
 end
-test_collect_all_symlink_cycle_terminates()
+test_find_all_symlink_cycle_terminates()
 
 -- FIX 1c: files() iterator must not recurse into symlinked directories
-local function test_files_symlink_cycle_terminates()
+local function test_find_iter_symlink_cycle_terminates()
   local base = mksubdir("files_cycle")
   local subdir = fs.join(base, "sub")
   fs.make_dirs(subdir)
@@ -86,7 +86,7 @@ local function test_files_symlink_cycle_terminates()
   fs.symlink("..", fs.join(subdir, "loop"))
 
   local collected: {string} = {}
-  for p in check.must(fs_walk.files(base, "*.lua")) do
+  for p in check.must(fs_walk.find_iter(base, {glob = "*.lua"})) do
     collected[#collected + 1] = p
     -- Safety: abort if we find more than a small number
     assert(#collected <= 10,
@@ -95,7 +95,7 @@ local function test_files_symlink_cycle_terminates()
   assert(#collected == 1, "expected 1 lua file, got " .. tostring(#collected))
   assert(collected[1]:match("real%.lua$"), "expected real.lua, got " .. tostring(collected[1]))
 end
-test_files_symlink_cycle_terminates()
+test_find_iter_symlink_cycle_terminates()
 
 -- FIX 1d: symlinked regular files should still be visited (not skipped)
 -- Only symlinked *directories* are not recursed into.
@@ -130,34 +130,34 @@ local function test_walk_missing_root_errors()
 end
 test_walk_missing_root_errors()
 
-local function test_collect_missing_root_errors()
+local function test_find_missing_root_errors()
   local missing = fs.join(tmpdir, "no", "such", "dir")
-  local results, err = fs_walk.collect(missing, "*.lua")
+  local results, err = fs_walk.find(missing, {glob = "*.lua"})
   assert(results == nil, "collect of a missing root should return nil")
   assert(err and err:match("ENOENT"),
     "collect error should name ENOENT: " .. tostring(err))
 end
-test_collect_missing_root_errors()
+test_find_missing_root_errors()
 
-local function test_collect_all_missing_root_errors()
+local function test_find_all_missing_root_errors()
   local missing = fs.join(tmpdir, "no", "such", "dir")
-  local results, err = fs_walk.collect_all(missing)
+  local results, err = fs_walk.find_info(missing)
   assert(results == nil, "collect_all of a missing root should return nil")
   assert(err and err:match("ENOENT"),
     "collect_all error should name ENOENT: " .. tostring(err))
 end
-test_collect_all_missing_root_errors()
+test_find_all_missing_root_errors()
 
-local function test_files_missing_root_errors()
+local function test_find_iter_missing_root_errors()
   -- #558a: strict, like collect — a typo'd directory must be an error,
   -- not an iterator that silently yields zero files.
   local missing = fs.join(tmpdir, "no", "such", "dir")
-  local iter, err = fs_walk.files(missing)
+  local iter, err = fs_walk.find_iter(missing)
   assert(iter == nil, "files() on a missing root should return nil")
   assert(err and err:match("ENOENT"),
     "files error should name ENOENT: " .. tostring(err))
 end
-test_files_missing_root_errors()
+test_find_iter_missing_root_errors()
 
 -- Error propagation: an unreadable subdirectory does not stop the walk,
 -- but the error is surfaced alongside the context — a
@@ -193,7 +193,7 @@ test_walk_permission_denied_subdir_reports_error()
 -- files() gets the same contract as walk(): an unreadable subdirectory
 -- does not stop iteration, and the first such error is surfaced once
 -- the iterator itself is exhausted (see the doc comment on files()).
-local function test_files_permission_denied_subdir_reports_error()
+local function test_find_iter_permission_denied_subdir_reports_error()
   if user.geteuid() == 0 then
     return -- root bypasses permission checks; nothing to observe
   end
@@ -206,7 +206,7 @@ local function test_files_permission_denied_subdir_reports_error()
   write_file(fs.join(locked, "hidden.txt"), "x")
   assert(fs.chmod(locked, 0))
 
-  local iter = check.must(fs_walk.files(base))
+  local iter = check.must(fs_walk.find_iter(base))
   local seen: {string: boolean} = {}
   local f = iter()
   while f do
@@ -223,7 +223,7 @@ local function test_files_permission_denied_subdir_reports_error()
   assert(suberr and suberr:match("EACCES"),
     "files() must surface the denied subdir once exhausted: " .. tostring(suberr))
 end
-test_files_permission_denied_subdir_reports_error()
+test_find_iter_permission_denied_subdir_reports_error()
 
 -- #558b: visitor return protocol — "skip" prunes a subtree, "stop" ends
 -- the walk. Visitors that return nothing keep today's behavior.
@@ -331,16 +331,16 @@ local function test_walk_skip_with_symlink_cycle_terminates()
 end
 test_walk_skip_with_symlink_cycle_terminates()
 
-local function test_collect_success_has_no_error()
+local function test_find_success_has_no_error()
   local base = mksubdir("collect_ok")
   write_file(fs.join(base, "one.lua"), "-- 1")
-  local results, err = fs_walk.collect(base, "*.lua")
+  local results, err = fs_walk.find(base, {glob = "*.lua"})
   assert(results, "collect should succeed")
   assert(err == nil, "no error expected on a clean walk, got " .. tostring(err))
   -- cast: record union after guard
   assert(#(results as {string}) == 1, "expected exactly one match")
 end
-test_collect_success_has_no_error()
+test_find_success_has_no_error()
 
 -- files(): early loop exit must release directory handles via the
 -- generic-for closing slot (Lua 5.4), not wait for the GC.
@@ -348,12 +348,12 @@ test_collect_success_has_no_error()
 local function count_open_fds(): integer
   -- Exhausting the iterator closes its own handle as it goes.
   local n = 0
-  local iter = check.must(fs_walk.files("/proc/self/fd"))
+  local iter = check.must(fs_walk.find_iter("/proc/self/fd"))
   for _ in iter do n = n + 1 end
   return n
 end
 
-local function test_files_early_break_closes_handles()
+local function test_find_iter_early_break_closes_handles()
   if not fs.is_dir("/proc/self/fd") then
     return -- fd accounting needs procfs; skip elsewhere
   end
@@ -365,7 +365,7 @@ local function test_files_early_break_closes_handles()
   end
 
   local before = count_open_fds()
-  for p in check.must(fs_walk.files(base, "*.txt")) do
+  for p in check.must(fs_walk.find_iter(base, {glob = "*.txt"})) do
     assert(p, "expected a path")
     break -- abandon the iterator with directories still open
   end
@@ -374,4 +374,4 @@ local function test_files_early_break_closes_handles()
       "early break must close directory handles: %d fds before, %d after",
       before, after))
 end
-test_files_early_break_closes_handles()
+test_find_iter_early_break_closes_handles()

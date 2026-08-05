@@ -28,7 +28,7 @@ test_available_returns_boolean()
 -- opt-in to fail-open behavior.
 local function test_fail_closed_when_unavailable()
   if unveil.available() then
-    check.skip("unveil available on this host; fail-closed path not exercisable")
+    check.enforce_skip("unveil available on this host; fail-closed path not exercisable")
     return
   end
   local dir = fs.join(tmpdir, "fc")
@@ -56,7 +56,7 @@ test_fail_closed_when_unavailable()
 local function test_unveil_restricts_paths()
   if not unveil.available() then
     -- The fail-closed contract for this host is asserted above.
-    check.skip("unveil unavailable on this host (no landlock, not OpenBSD)")
+    check.enforce_skip("unveil unavailable on this host (no landlock, not OpenBSD)")
     return
   end
 
@@ -107,7 +107,7 @@ end
     -- available() was true yet the call failed: an outer sandbox
     -- pre-empted an otherwise-supported mechanism. Strict: a hard
     -- failure on the enforce lane.
-    check.skip("unveil blocked by an outer sandbox: " .. s, true)
+    check.enforce_skip("unveil blocked by an outer sandbox: " .. s, true)
     return
   end
   assert(ok, "unveil subprocess should exit cleanly: " .. s)

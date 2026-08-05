@@ -155,9 +155,7 @@ test_binaries_on_path_without_a_path()
 local function test_a_dead_stage_does_not_report_a_stale_summary()
   local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN") or "", "cosmic"))
   local make_bin = fs.abspath(os.getenv("COSMIC_MAKE") or "o/make")
-  if not check.needs("the make engine at " .. make_bin, fs.isfile(make_bin)) then
-    os.exit(check.EXIT_SKIP)
-  end
+  check.needs("the make engine at " .. make_bin, fs.isfile(make_bin))
   local root = fs.join(tmpdir, "stage-stale-summary")
   fs.rmrf(root)
   assert(fs.makedirs(root))

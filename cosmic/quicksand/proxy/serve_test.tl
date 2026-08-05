@@ -142,7 +142,7 @@ local function test_allowlist_does_not_bypass_the_ssrf_guard()
   local pid = proc.fork()
   if not pid then
     ls:close()
-    check.skip("ssrf guard: fork unavailable")
+    check.enforce_skip("ssrf guard: fork unavailable")
     return
   end
   if pid == 0 then

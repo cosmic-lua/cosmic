@@ -220,7 +220,7 @@ local function test_socket_options()
   -- this readback on denial; the enforce lane runs it for real.
   local val, getopt_err = sock:getsockopt(net.SOL_TCP, net.TCP_NODELAY)
   if val == nil and tostring(getopt_err):find("EPERM") then
-    check.skip("getsockopt TCP_NODELAY denied by sandbox")
+    check.enforce_skip("getsockopt TCP_NODELAY denied by sandbox")
     sock:close()
     return
   end

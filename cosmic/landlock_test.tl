@@ -62,7 +62,7 @@ local function test_restrict_denies_outside_allowlist()
     local v, err = landlock.abi()
     assert(v == nil, "abi() should return nil when landlock is unavailable")
     assert(err, "abi() should return an error string when unavailable")
-    check.skip("landlock unavailable (kernel lacks landlock)")
+    check.enforce_skip("landlock unavailable (kernel lacks landlock)")
     return
   end
 
@@ -110,12 +110,12 @@ if g then io.write("denied-leaked\n"); g:close() else io.write("denied-blocked\n
   -- blocked with SIGSYS rather than EPERM, killing the subprocess
   -- before it can emit "skipped".
   if not ok then
-    check.skip("landlock restrict blocked (subprocess died before enforcing)", true)
+    check.enforce_skip("landlock restrict blocked (subprocess died before enforcing)", true)
     return
   end
   local s = out
   if s:find("skipped") then
-    check.skip("landlock restrict blocked: " .. s, true)
+    check.enforce_skip("landlock restrict blocked: " .. s, true)
     return
   end
   -- Plain-text find: "-" is a Lua pattern metacharacter, so a pattern
@@ -134,7 +134,7 @@ test_restrict_denies_outside_allowlist()
 -- so the live check runs in a subprocess.
 local function test_restrict_single_file_rule()
   if not landlock.available() then
-    check.skip("landlock unavailable (kernel lacks landlock)")
+    check.enforce_skip("landlock unavailable (kernel lacks landlock)")
     return
   end
 
@@ -163,7 +163,7 @@ if g then io.write("sibling-leaked\n"); g:close() else io.write("sibling-blocked
   local __r2 = check.must(h:wait())
   local ok, out = __r2.ok, __r2.stdout
   if not ok then
-    check.skip("landlock restrict blocked (subprocess died before enforcing)", true)
+    check.enforce_skip("landlock restrict blocked (subprocess died before enforcing)", true)
     return
   end
   local s = out
@@ -175,7 +175,7 @@ if g then io.write("sibling-leaked\n"); g:close() else io.write("sibling-blocked
     -- blocked by an outer sandbox) is a strict skip.
     assert(not s:find("add_rule(", 1, true),
       "single-file READ rule must not fail in add_rule: " .. s)
-    check.skip("landlock restrict blocked: " .. s, true)
+    check.enforce_skip("landlock restrict blocked: " .. s, true)
     return
   end
   assert(s:find("file-ok", 1, true), "single-file rule should read: " .. s)

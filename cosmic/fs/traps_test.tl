@@ -161,28 +161,25 @@ local function test_collect_pattern_is_always_glob()
   -- "%.txt$" has no * or ?, so a heuristic that guesses "glob or Lua
   -- pattern" reads it as a pattern and matches x.txt. It is a glob, and
   -- matches only the file literally named "%.txt$".
-  local hits = check.must(fs.collect(dir, "%.txt$"))
+  local hits = check.must(fs.find(dir, {glob = "%.txt$"}))
   assert(#hits == 1, "glob should match exactly the literal file, got " .. #hits)
   assert(fs.basename(hits[1]) == "%.txt$", "literal-name match")
   fs.remove_all(dir)
 end
 test_collect_pattern_is_always_glob()
 
-local function test_collect_matching_takes_lua_patterns()
+local function test_find_pattern_takes_lua_patterns()
   local dir = fs.join(TEST_TMPDIR, "luapat")
   assert(fs.make_dirs(dir))
   write_file(fs.join(dir, "x.txt"), "x")
   write_file(fs.join(dir, "y.lua"), "y")
 
-  -- cast: from any
-  local collect_matching = fsa.collect_matching as function(string, string): {string} | nil, string
-  assert(collect_matching, "fs.collect_matching should exist")
-  local hits = check.must(collect_matching(dir, "%.txt$"))
+  local hits = check.must(fs.find(dir, {pattern = "%.txt$"}))
   assert(#hits == 1 and fs.basename(hits[1]) == "x.txt",
-    "Lua pattern matches via collect_matching")
+    "a Lua pattern matches via FindOptions.pattern")
   fs.remove_all(dir)
 end
-test_collect_matching_takes_lua_patterns()
+test_find_pattern_takes_lua_patterns()
 
 local function test_files_pattern_is_always_glob()
   local dir = fs.join(TEST_TMPDIR, "globfiles")
@@ -192,7 +189,7 @@ local function test_files_pattern_is_always_glob()
 
   -- "foo?.lua" is a glob: ? is exactly one character.
   local seen: {string: boolean} = {}
-  for p in check.must(fs.files(dir, "foo?.lua")) do
+  for p in check.must(fs.find_iter(dir, {glob = "foo?.lua"})) do
     seen[fs.basename(p)] = true
   end
   assert(seen["foo1.lua"], "glob ? matches one char")

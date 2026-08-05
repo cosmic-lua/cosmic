@@ -338,18 +338,33 @@ local function test_needs_skips_locally_and_fails_in_ci()
   local had = os.getenv("CI")
   env.unset("CI")
 
-  assert(check.needs("a satisfied precondition", true),
-    "a met precondition lets the test proceed")
-  assert(not check.needs("an absent fixture", false),
-    "an unmet one returns false so the caller can skip")
+  -- A met precondition simply returns (api-review-8: needs EXITS the
+  -- process itself when the precondition is missing, so the exit path
+  -- is exercised in a child below, not in this process).
+  check.needs("a satisfied precondition", true)
+
+  -- The missing-locally path: the child must exit EXIT_SKIP, not 0.
+  local script = fs.join(tmpdir, "needs_skip.lua")
+  assert(fs.write(script,
+      'local check = require("cosmic.check")\n' ..
+      'check.needs("an absent fixture", false)\n' ..
+      'print("UNREACHED")\n'))
+  local r = child.run({cosmic, script},
+    {env = env.list({drop = {"CI"}})})
+  assert(not r.spawn_error, r.spawn_error)
+  check.eq(r.code, check.EXIT_SKIP, "a missing precondition exits EXIT_SKIP")
+  assert(not r.stdout:find("UNREACHED", 1, true),
+    "needs must not return when the precondition is missing")
 
   env.set("CI", "true", true)
-  local ok, err = pcall(check.needs, "an absent fixture", false)
+  local ok, err = pcall(function(): boolean
+      check.needs("an absent fixture", false)
+      return true
+    end)
   assert(not ok, "under CI an unmet precondition must fail, not skip")
   assert(tostring(err):find("precondition missing in CI", 1, true),
     "and say so plainly, got: " .. tostring(err))
-  assert(check.needs("a satisfied precondition", true),
-    "a met precondition is still fine under CI")
+  check.needs("a satisfied precondition", true)
 
   env.unset("CI")
   if had then

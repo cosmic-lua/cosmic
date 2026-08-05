@@ -26,9 +26,7 @@ local make_bin = fs.abspath(os.getenv("COSMIC_MAKE")
   or "o/make")
 -- Skip locally, FAIL in CI (029): a graph-test surface that silently
 -- becomes green skips is the failure this guards.
-if not check.needs("the make engine at " .. make_bin, fs.isfile(make_bin)) then
-  os.exit(check.EXIT_SKIP)
-end
+check.needs("the make engine at " .. make_bin, fs.isfile(make_bin))
 
 local record Run
   code: integer

@@ -16,13 +16,9 @@ local cosmic = fs.abspath(fs.join(os.getenv("TEST_BIN") or "o/bin", "cosmic"))
 
 -- The record skip keys the tool stamp the graph writes; without a
 -- built tree there is nothing to key against and nothing to test.
-if not check.needs("a built cosmic at " .. cosmic, fs.isfile(cosmic)) then
-  os.exit(check.EXIT_SKIP)
-end
-if not check.needs("the record stamp at o/.stamp/record",
-  fs.isfile("o/.stamp/record")) then
-  os.exit(check.EXIT_SKIP)
-end
+check.needs("a built cosmic at " .. cosmic, fs.isfile(cosmic))
+check.needs("the record stamp at o/.stamp/record",
+  fs.isfile("o/.stamp/record"))
 
 --- The seconds+nanoseconds of a path, as one comparable string.
 local function mtime_of(path: string): string
