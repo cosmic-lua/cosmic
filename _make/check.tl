@@ -20,7 +20,6 @@
 --- the type checker would report as a confusing cascade, or not at all.
 
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs.types")
 local records = require("cosmic.records")
 local teal = require("cosmic.teal")
 local deps = require("_make.deps")
@@ -99,7 +98,7 @@ local function proved_by_graph(proj: Project, f: File,
   if not out then
     return false
   end
-  local bsec, bnsec = (out as fs_types.Stat):mtim() -- cast: mixed-representation Stat
+  local bsec, bnsec = (out as fs.Stat):mtim() -- cast: mixed-representation Stat
   local inputs = deps.source_paths(deps.closure(proj, f, by_import))
   inputs[#inputs + 1] = f.path
   inputs[#inputs + 1] = stamp.path_of("compile")
@@ -109,7 +108,7 @@ local function proved_by_graph(proj: Project, f: File,
     if not st then
       return false
     end
-    local isec, insec = (st as fs_types.Stat):mtim() -- cast: mixed-representation Stat
+    local isec, insec = (st as fs.Stat):mtim() -- cast: mixed-representation Stat
     if isec > bsec or (isec == bsec and insec > bnsec) then
       return false
     end

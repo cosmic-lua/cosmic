@@ -129,35 +129,18 @@ local function commit(opts?: Options): boolean, string
   return true
 end
 
---- DEPRECATED compatibility shim: delegates to `allow(path,
---- permissions)`, or to `commit()` when both arguments are nil. New
---- code should call allow/commit directly.
----
---- @param path string|nil Path to unveil (nil to commit)
---- @param permissions string|nil Permission string (nil to commit)
---- @return boolean True on success
---- @return string? Error message on failure
-local function apply(path: string, permissions: string): boolean, string
-  if path == nil and permissions == nil then
-    return commit()
-  end
-  return allow(path, permissions as Perm) -- cast: enum widening
-end
-
 local record UnveilModule
   type Perm = Perm
   type Options = Options
   allow: function(path: string, permissions: Perm, opts?: Options): boolean, string
   commit: function(opts?: Options): boolean, string
   available: function(): boolean
-  apply: function(path: string, permissions: string): boolean, string
 end
 
 local M: UnveilModule = {
   allow = allow,
   commit = commit,
   available = available,
-  apply = apply,
 }
 
 return M

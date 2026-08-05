@@ -30,3 +30,4 @@ than editing the record it replaces.
 | D16 | every build input is enumerable from committed files, the version stamp included | [→](d16-enumerable-build-inputs.md) |
 | D17 | a graph rule's tool prerequisite is a per-tool stamp, not the binary | [→](d17-tool-stamps.md) |
 | D18 | expensive recipe steps skip on input bytes, not just on mtime | [→](d18-step-skip.md) |
+| D19 | what "public" means for toolchain modules, and the visibility lint | [→](d19-toolchain-visibility.md) |

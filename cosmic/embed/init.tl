@@ -455,7 +455,6 @@ local record EmbedModule
   type EmbedResult = EmbedResult
 
   EPOCH: integer
-  FLOOR: {string}
   run: function(paths: {string}, opts?: Options): EmbedResult
   extract: function(output_dir: string, exe_path?: string): EmbedResult
   unsafe_entry: function(name: string): boolean
@@ -463,7 +462,6 @@ end
 
 local M: EmbedModule = {
   EPOCH = floor.epoch(),
-  FLOOR = floor.FLOOR,
   run = run,
   extract = extract_mod.extract,
   unsafe_entry = extract_mod.unsafe_entry,

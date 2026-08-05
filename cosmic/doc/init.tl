@@ -297,20 +297,9 @@ local function render_file(file_path: string): string | nil, string
   return doc_render.render(doc)
 end
 
-local cosmo = require("cosmo")
-
---- Serialize a ModuleDoc to Lua source code.
-local function serialize(doc: ModuleDoc): string
-  return (cosmo.EncodeLua(doc))
-end
-
 --- A documentation index containing all modules (the shared record from
 --- cosmic.doc.types, so extraction and query agree on the type).
 local type DocIndex = types.DocIndex
-
-local function serialize_index(index: DocIndex): string
-  return (cosmo.EncodeLua(index))
-end
 
 local function load_index(source: string): DocIndex | nil, string
   local chunk, err = load("return " .. source, "=docindex", "t", {})
@@ -334,8 +323,6 @@ local record DocModule
   parse_file: function(file_path: string): ModuleDoc | nil, string
   render: function(doc: ModuleDoc): string
   render_file: function(file_path: string): string | nil, string
-  serialize: function(doc: ModuleDoc): string
-  serialize_index: function(index: DocIndex): string
   load_index: function(source: string): DocIndex | nil, string
 
   -- Query: the index embedded in the binary (`--docs`).
@@ -359,8 +346,6 @@ local M: DocModule = {
   parse_file = parse_file,
   render = doc_render.render,
   render_file = render_file,
-  serialize = serialize,
-  serialize_index = serialize_index,
   load_index = load_index,
 
   run = query.run,

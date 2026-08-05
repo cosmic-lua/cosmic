@@ -16,7 +16,6 @@
 --- retires the reader moves rather than being rewritten.
 
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs.types")
 local untar = require("cosmic.tar")
 local zip = require("cosmic.zip")
 
@@ -37,7 +36,7 @@ local function strip_into(from: string, to: string, strip: integer,
   local prefix = string.rep("[^/]+/", strip)
   local failure: string = nil
   local ok, werr = fs.walk(from, function(path: string, _name: string,
-        st: fs_types.WalkStat): fs.WalkAction
+        st: fs.WalkStat): fs.WalkAction
       if st:is_link() then
         -- Loudly, not silently. `cosmic.tar` deliberately preserves
         -- archive-internal symlinks (relative, no `..`), and this walk
@@ -87,7 +86,7 @@ local function strip_into(from: string, to: string, strip: integer,
       -- not carry it, so the source is stat'd for the bits.
       local src = fs.stat(path)
       if src then
-        fs.chmod(dest, (src as fs_types.Stat):mode() & tonumber("777", 8)) -- cast: mixed-representation Stat
+        fs.chmod(dest, (src as fs.Stat):mode() & tonumber("777", 8)) -- cast: mixed-representation Stat
       end
       return nil
     end)

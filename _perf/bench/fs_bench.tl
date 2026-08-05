@@ -4,7 +4,6 @@
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs.types")
 local pt = require("_perf.perf_types")
 
 local DIRS = 10
@@ -142,7 +141,7 @@ local function scenarios(): {pt.Scenario}, string
           for f = 1, FILES_PER_DIR do
             local st, serr = fs.stat(fs.join(tmpdir, "dir-" .. d, "file-" .. f .. ".txt"))
             assert(st, serr)
-            local stt = st as fs_types.Stat -- cast: mixed-representation Stat
+            local stt = st as fs.Stat -- cast: mixed-representation Stat
             size_total = size_total + stt:size()
           end
         end

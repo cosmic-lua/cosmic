@@ -11,7 +11,6 @@ local function test_module_exports()
   assert(type(unveil.allow) == "function", "allow should be a function")
   assert(type(unveil.commit) == "function", "commit should be a function")
   assert(type(unveil.available) == "function", "available should be a function")
-  assert(type(unveil.apply) == "function", "apply (compat shim) should be a function")
 end
 test_module_exports()
 
@@ -22,7 +21,7 @@ end
 test_available_returns_boolean()
 
 -- Fail-closed contract: on a host without a backing sandbox (no
--- landlock, not OpenBSD), allow/commit/apply must report failure
+-- landlock, not OpenBSD), allow/commit must report failure
 -- instead of pretending a sandbox exists — the raw libc call succeeds
 -- there while enforcing nothing. The unsupported branch never reaches
 -- the syscall, so this is safe in-process. best_effort is the explicit
@@ -41,9 +40,6 @@ local function test_fail_closed_when_unavailable()
   local cok, cerr = unveil.commit()
   assert(not cok and type(cerr) == "string" and cerr:match("unsupported"),
     "commit must fail-closed too: " .. tostring(cerr))
-  local aok, aerr = unveil.apply(dir, "r")
-  assert(not aok and type(aerr) == "string" and aerr:match("unsupported"),
-    "apply (compat) must fail-closed too: " .. tostring(aerr))
   assert(unveil.allow(dir, "r", {best_effort = true}),
     "best_effort must turn unsupported allow into a successful no-op")
   assert(unveil.commit({best_effort = true}),

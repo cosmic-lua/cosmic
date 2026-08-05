@@ -39,8 +39,9 @@ local record QuicksandModule
   type Capabilities = Capabilities
   capabilities: function(): Capabilities
   is_supported: function(): boolean
+  --- Internal, exported for its own unit tests: pure decision function
+  --- over a binding value; never syscalls.
   probe: function(fn: any): boolean
-  probe_ns: function(): boolean
   Box: BoxIface -- re-export of cosmic.quicksand.box
 end
 
@@ -169,7 +170,6 @@ local M: QuicksandModule = {
   capabilities = capabilities,
   is_supported = is_supported,
   probe = probe,
-  probe_ns = probe_ns,
   Box = box,
 }
 

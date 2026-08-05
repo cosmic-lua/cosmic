@@ -262,26 +262,6 @@ test_run_no_deadlock_large_stderr()
 
 -- === /zip/ binary execution via fexecve ===
 
-local function test_prepare_zip_exec()
-  local prepare_zip_exec = child.prepare_zip_exec
-  assert(prepare_zip_exec, "prepare_zip_exec should be exported")
-  local fd, err = prepare_zip_exec("/zip/main.lua")
-  assert(fd, "should open zip fd: " .. tostring(err))
-  assert(fd > 0, "fd should be positive: " .. tostring(fd))
-  unix.close(fd)
-end
-test_prepare_zip_exec()
-
-local function test_prepare_zip_exec_nonexistent()
-  local fd, err = child.prepare_zip_exec("/zip/nonexistent_12345")
-  assert(fd == nil, "should fail for nonexistent zip path")
-  assert(err, "should have error message")
-  assert(err:find("zip", 1, true), "expected zip-related error: " .. err)
-  assert(err:find("ENOENT", 1, true),
-    "expected the real errno, not a generic message, got: " .. err)
-end
-test_prepare_zip_exec_nonexistent()
-
 local function test_spawn_zip_nonexistent_path()
   local handle, err = child.spawn({"/zip/nonexistent_binary_12345"})
   assert(handle == nil, "handle should be nil for nonexistent /zip/ path")

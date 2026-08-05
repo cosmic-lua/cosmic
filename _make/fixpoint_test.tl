@@ -31,7 +31,6 @@
 
 local check = require("cosmic.check")
 local fs = require("cosmic.fs")
-local fs_types = require("cosmic.fs.types")
 local hash = require("cosmic.hash")
 local spawn = require("cosmic.child")
 
@@ -46,7 +45,7 @@ local function copy(from: string, to: string)
   assert(fs.write(to, body))
   local st = fs.stat(from)
   if st then
-    fs.chmod(to, (st as fs_types.Stat):mode() & tonumber("777", 8)) -- cast: mixed-representation Stat
+    fs.chmod(to, (st as fs.Stat):mode() & tonumber("777", 8)) -- cast: mixed-representation Stat
   end
 end
 
@@ -61,7 +60,7 @@ local function copy_tree(dest: string)
   assert(fs.makedirs(dest))
   local failure: string = nil
   fs.walk(repo, function(path: string, entry: string,
-        st: fs_types.WalkStat): fs.WalkAction
+        st: fs.WalkStat): fs.WalkAction
       local rel = path:sub(#repo + 2)
       if entry:sub(1, 1) == "." or rel == "o" then
         return "skip"
