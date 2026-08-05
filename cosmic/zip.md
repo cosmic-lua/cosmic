@@ -26,23 +26,28 @@ end
 
 ```teal
 local record ZipModule
-  reader: function(path: string | integer, opts?: OpenOptions): Reader | nil, string
-  writer: function(path: string | integer, opts?: OpenOptions): Writer | nil, string
+  open: function(path: string | integer, opts?: OpenOptions): Archive | nil, string
+  create: function(path: string | integer, opts?: OpenOptions): Builder | nil, string
+  append: function(path: string, opts?: OpenOptions): Appender | nil, string
+  open_bytes: function(data: string, opts?: OpenOptions): Archive | nil, string
+  extract: function(archive: Archive, destdir: string, opts?: ExtractOptions): boolean, string
+  reader: function(path: string | integer, opts?: OpenOptions): Archive | nil, string
+  writer: function(path: string | integer, opts?: OpenOptions): Builder | nil, string
   appender: function(path: string, opts?: OpenOptions): Appender | nil, string
-  from: function(data: string, opts?: OpenOptions): Reader | nil, string
-  extract: function(r: Reader, destdir: string, opts?: ExtractOptions): boolean, string
+  from: function(data: string, opts?: OpenOptions): Archive | nil, string
 end
 ```
 
 ## Functions
 
-### reader
+### open
 
 ```teal
-function reader(path: string | integer, opts?: OpenOptions): Reader | nil, string
+function open(path: string | integer, opts?: OpenOptions): Archive | nil, string
 ```
 
- Open a ZIP archive for reading.
+ Open a ZIP archive for reading (api-review-8: was `reader` — `open`
+ is the constructor that acquires a closeable resource, D20).
 
 **Parameters:**
 
@@ -51,16 +56,17 @@ function reader(path: string | integer, opts?: OpenOptions): Reader | nil, strin
 
 **Returns:**
 
-- Reader - | nil The archive reader, or nil on error
+- Archive - | nil The archive, or nil on error
 - string? - Error message if opening failed
 
-### writer
+### create
 
 ```teal
-function writer(path: string | integer, opts?: OpenOptions): Writer | nil, string
+function create(path: string | integer, opts?: OpenOptions): Builder | nil, string
 ```
 
- Create a new ZIP archive for writing. Any existing file is truncated.
+ Create a new ZIP archive for writing (api-review-8: was `writer`).
+ Any existing file is truncated.
 
 **Parameters:**
 
@@ -69,18 +75,18 @@ function writer(path: string | integer, opts?: OpenOptions): Writer | nil, strin
 
 **Returns:**
 
-- Writer - | nil The archive writer, or nil on error
+- Builder - | nil The archive builder, or nil on error
 - string? - Error message if opening failed
 
-### appender
+### append
 
 ```teal
-function appender(path: string, opts?: OpenOptions): Appender | nil, string
+function append(path: string, opts?: OpenOptions): Appender | nil, string
 ```
 
- Open a ZIP archive for appending, creating it if it does not exist.
- Unlike reader/writer, a file descriptor is not accepted; the archive
- must be given as a path.
+ Open a ZIP archive for appending (api-review-8: was `appender`),
+ creating it if it does not exist. Unlike open/create, a file
+ descriptor is not accepted; the archive must be given as a path.
 
 **Parameters:**
 
@@ -92,13 +98,14 @@ function appender(path: string, opts?: OpenOptions): Appender | nil, string
 - Appender - | nil The archive appender, or nil on error
 - string? - Error message if opening failed
 
-### from
+### open_bytes
 
 ```teal
-function from(data: string, opts?: OpenOptions): Reader | nil, string
+function open_bytes(data: string, opts?: OpenOptions): Archive | nil, string
 ```
 
- Open a ZIP archive from in-memory data for reading.
+ Open a ZIP archive from in-memory data for reading (api-review-8:
+ was `from`; pairs with open as its bytes-not-path form).
 
 **Parameters:**
 
@@ -107,13 +114,13 @@ function from(data: string, opts?: OpenOptions): Reader | nil, string
 
 **Returns:**
 
-- Reader? - The archive reader, or nil on error
+- Archive? - The archive, or nil on error
 - string? - Error message if opening failed
 
 ### extract
 
 ```teal
-function extract(r: Reader, destdir: string, opts?: ExtractOptions): boolean, string
+function extract(r: Archive, destdir: string, opts?: ExtractOptions): boolean, string
 ```
 
  Extract every entry of an open reader into destdir, refusing archives

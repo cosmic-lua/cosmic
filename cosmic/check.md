@@ -15,10 +15,10 @@ local record CheckModule
   ne: function<T>(actual: T, expected: T, label?: string)
   ok: function(value: any, label?: string)
   must: function<T>(v: T | nil, e?: string, ...: any): T, string, any ...
-  err: function(value: any, e: string, label?: string)
+  fails: function(value: any, e: string, label?: string)
   enforcing: function(): boolean
-  skip: function(reason: string, strict?: boolean)
-  needs: function(what: string, present: boolean): boolean
+  enforce_skip: function(reason: string, strict?: boolean)
+  needs: function(what: string, present: boolean)
   reap: function(pid: integer, what: string)
   enforced: function(label: string)
 end
@@ -75,13 +75,14 @@ function ok(value: any, label?: string)
 - `value` (any) - The value to test for truthiness
 - `label` (string?) - Optional label prepended to the failure message
 
-### err
+### fails
 
 ```teal
-function err(value: any, e: string, label?: string)
+function fails(value: any, e: string, label?: string)
 ```
 
- Assert that a (value, err) pair represents failure.
+ Assert that a (value, err) pair represents failure (api-review-8:
+ was `err`, which read as a noun and shadowed every local error).
  Expects value to be nil and err to be a non-nil, non-empty string,
  matching the standard cosmic error-return convention.
 
@@ -104,7 +105,7 @@ function must(v: T | nil, e?: string, ...: any): T, string, any ...
  centralizes that unsoundness behind a runtime nil check. Lua passes multiple returns through, so
  `must(fs.read(path))` fails with fs.read's own error string.
  Like `assert`, must forwards extra returns past the second, so
- `for p in check.must(fs.files(d)) do` keeps the 4th return — the
+ `for p in check.must(fs.find_iter(d)) do` keeps the 4th return — the
  to-be-closed guard that releases directory handles on early break.
  A plain `value, err` pair still collapses to the value alone, so
  `print(check.must(fs.read(p)))` prints no trailing nil. The checker,
@@ -145,10 +146,10 @@ function enforcing(): boolean
 
 - boolean - True when strict enforcement is required
 
-### skip
+### enforce_skip
 
 ```teal
-function skip(reason: string, strict?: boolean)
+function enforce_skip(reason: string, strict?: boolean)
 ```
 
  Record that a sandbox test could not exercise real enforcement.
@@ -158,7 +159,9 @@ function skip(reason: string, strict?: boolean)
  skip is escalated to a hard failure — use `strict=true` only where the
  mechanism was probed *available* yet the operation was still blocked,
  which on the unsandboxed lane can only mean an outer sandbox is present.
- Callers still `return` after calling this; it does not exit the process.
+ Callers still `return` after calling this; it does not exit the
+ process (api-review-8: was `skip`, a name that promised the exit
+ `needs` performs — this only RECORDS the enforcement gap).
 
 **Parameters:**
 
@@ -168,7 +171,7 @@ function skip(reason: string, strict?: boolean)
 ### needs
 
 ```teal
-function needs(what: string, present: boolean): boolean
+function needs(what: string, present: boolean)
 ```
 
  Declare a precondition a test needs, and say what to do without it.
@@ -180,22 +183,18 @@ function needs(what: string, present: boolean): boolean
  a build. In CI it is a hard failure, because there the precondition
  is always provisioned and its absence means the provisioning broke,
  not that the developer is mid-setup.
- Say so by EXITING, not by returning. A `return` at file scope ends
- the chunk with status 0, and 0 is `pass` -- so the trap described
- above closes for the printed line and reopens for the grade. The
- exit code is the only thing the runner reads:
-     if not check.needs("the make engine", fs.is_file(make_bin)) then
-       os.exit(check.EXIT_SKIP)
-     end
+ Say so by EXITING — which this function now does itself
+ (api-review-8): when the precondition is missing it prints the skip
+ and exits EXIT_SKIP, so a caller cannot forget the exit and turn a
+ skip into a silent pass (the old `if not needs(...) then
+ os.exit(...) end` dance, and the lint rule that policed it, are
+ both gone). When it returns at all, the precondition held.
+     check.needs("the make engine", fs.is_file(make_bin))
 
 **Parameters:**
 
 - `what` (string) - What is missing, named for the message
 - `present` (boolean) - Whether the precondition holds
-
-**Returns:**
-
-- boolean - True when the test may proceed
 
 ### reap
 
