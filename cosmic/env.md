@@ -9,6 +9,20 @@
 
 ## Types
 
+### ListOptions
+
+ Options for list(): edits applied to the current environment.
+
+```teal
+local record ListOptions
+  --  variable names to remove
+  drop: {string}
+  --  names to set or override; applied after drop, appended in
+  --  sorted-name order so the result is deterministic
+  set: {string: string}
+end
+```
+
 ### EnvModule
 
 ```teal
@@ -19,7 +33,7 @@ local record EnvModule
   unset: function(name: string): boolean, string
   clear: function(): boolean, string
   all: function(): {string: string}
-  list: function(): {string}
+  list: function(opts?: ListOptions): {string}
 end
 ```
 
@@ -136,12 +150,18 @@ function all(): {string: string}
 ### list
 
 ```teal
-function list(): {string}
+function list(opts?: ListOptions): {string}
 ```
 
- Get all environment variables as a list.
- Returns a list of "KEY=VALUE" strings suitable for passing to
- child.spawn or execve.
+ Get the environment as a list of "KEY=VALUE" strings, optionally
+ edited — the shape `child.Options.env` and execve take. This is
+ the one place to build "the current environment, minus these
+ variables, plus those" instead of hand-rolling a filter loop:
+   env.list({drop = {"LUA_PATH"}, set = {NO_COLOR = "1"}})
+
+**Parameters:**
+
+- `opts` (ListOptions?) - drop: names to remove; set: names to set/override
 
 **Returns:**
 

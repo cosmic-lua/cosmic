@@ -27,8 +27,6 @@ end
 local record TestrunModule
   run: function(argv: {string}, output_base: string): integer
   report: function(paths: {string}): integer
-  status_of: function(exit_code: integer): string
-  STATUS_ICONS: {string: string}
 end
 ```
 

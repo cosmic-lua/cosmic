@@ -74,6 +74,10 @@ local record Options
   stdin: string | cfd.Handle
   stdout: cfd.Handle | childio.StdioMode
   stderr: cfd.Handle | childio.StdioMode
+  --  the child's exact environment, as "KEY=VALUE" entries (nil
+  --  inherits this process's). Build edited copies with
+  --  cosmic.env's `list({drop = ..., set = ...})` — the old
+  --  undocumented map shape is gone (api-review-5).
   env: {string}
   cwd: string
 end

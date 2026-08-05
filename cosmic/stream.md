@@ -12,11 +12,9 @@
  Writer accepts a string and returns the number of bytes written
  (which may be short) or nil plus an error message.
 
- Conforming types: fd.Handle (Reader and Writer), fetch.Reader
- (Reader), child.Handle (Reader, over the child's stdout). Sockets
- keep their native recv/send names but follow the same conventions
- (recv returns nil on peer close); wrap a socket's descriptor with
- fd.wrap(sock.fd) to use it where a Reader or Writer is expected.
+ Conforming types: fd.Handle (Reader and Writer), net.Socket
+ (Reader and Writer — read/write alias recv/send), fetch.Reader
+ (Reader), child.Handle (Reader, over the child's stdout).
 
  EINTR posture (the signal-safety wave; a pre-stable decision):
  blocking calls on the ergonomic wrappers retry automatically
@@ -47,11 +45,9 @@
  return fewer bytes — and must be positive when given.
  Writer accepts a string and returns the number of bytes written
  (which may be short) or nil plus an error message.
- Conforming types: fd.Handle (Reader and Writer), fetch.Reader
- (Reader), child.Handle (Reader, over the child's stdout). Sockets
- keep their native recv/send names but follow the same conventions
- (recv returns nil on peer close); wrap a socket's descriptor with
- fd.wrap(sock.fd) to use it where a Reader or Writer is expected.
+ Conforming types: fd.Handle (Reader and Writer), net.Socket
+ (Reader and Writer — read/write alias recv/send), fetch.Reader
+ (Reader), child.Handle (Reader, over the child's stdout).
  EINTR posture (the signal-safety wave; a pre-stable decision):
  blocking calls on the ergonomic wrappers retry automatically
  when a signal interrupts them — EINTR never surfaces from
@@ -67,3 +63,64 @@
  background after EINTR, so a blind retry would misreport), and the
  raw cosmic.proc/cosmo.unix passthroughs, which surface errnos
  verbatim.
+
+## Functions
+
+### stream
+
+```teal
+function stream(w: stream.Writer, data: string): boolean, string
+```
+
+ Write all of data, retrying short writes until done. The two
+ things every Writer caller wants — this and read_all — used to be
+ five independent hand-rolled loops across the stdlib.
+ Bytes written before a failure stay written.
+
+**Parameters:**
+
+- `w` (Writer) - The sink
+- `data` (string) - The bytes to write
+
+**Returns:**
+
+- boolean - True when everything was written
+- string? - Error message on failure
+
+### stream
+
+```teal
+function stream(r: stream.Reader, max?: integer): string | nil, string
+```
+
+ Read to end of stream and return everything as one string.
+   (untrusted input must not balloon memory silently)
+
+**Parameters:**
+
+- `r` (Reader) - The source
+- `max` (integer?) - Cap on the result size; exceeding it is an error
+
+**Returns:**
+
+- string - | nil The bytes read, or nil on error
+- string? - Error message on failure
+
+### stream
+
+```teal
+function stream(dst: stream.Writer, src: stream.Reader, buf_size?: integer): integer | nil, string
+```
+
+ Pump src into dst until src ends. Returns the byte count copied.
+
+**Parameters:**
+
+- `dst` (Writer) - The sink
+- `src` (Reader) - The source
+- `buf_size` (integer?) - Read bound per chunk (default: the reader's own)
+
+**Returns:**
+
+- integer - | nil Bytes copied, or nil on error
+- string? - Error message on failure
